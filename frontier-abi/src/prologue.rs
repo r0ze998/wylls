@@ -73,6 +73,9 @@ pub enum Acc {
     Incinerator,
     /// Test-only (ResolveClash): any account.
     Any,
+    /// A program account of an ABI v2 kind (MC contract §5.2; never used
+    /// by an M1 table): the v2 Province (4,736 B) or a MarchState.
+    KindV2(crate::v2::layout::AccountKind),
 }
 
 /// Writability of a position.
@@ -789,7 +792,10 @@ pub fn check_flags(specs: &[Spec], accounts: &[AccountView<'_>]) -> Result<(), F
         }
         match sp.wr {
             Wr::W if !a.is_writable => return Err(FrontierError::BadAccount),
-            Wr::R if a.is_writable && matches!(sp.acc, Acc::Kind(_) | Acc::Either(..)) => {
+            Wr::R
+                if a.is_writable
+                    && matches!(sp.acc, Acc::Kind(_) | Acc::Either(..) | Acc::KindV2(_)) =>
+            {
                 // A program account listed read-only must not be writable
                 // (keeps the lock set of §8.8 honest).
                 return Err(FrontierError::BadAccount);
