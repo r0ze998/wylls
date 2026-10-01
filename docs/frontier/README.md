@@ -1,6 +1,6 @@
-# The Sixfold Frontier: design and M0 records
+# Wylls: design and M0 records
 
-The open-world redesign of PERMUTATION STATE (owner decisions of 2026-09-27). Paths written as `(session scratch)/…` point to lab files from the working session; they are not in the repository.
+The open-world redesign of Wylls (owner decisions of 2026-09-27). Paths written as `(session scratch)/…` point to lab files from the working session; they are not in the repository.
 
 - **M1 exit (2026-10-01; formally complete after the same-day close of U3 and U4, report §12):** [m1/M1-EXIT-NOTES.md](m1/M1-EXIT-NOTES.md) (the exit report: every §13 item with its evidence, findings, open items before a playtest, owner decisions) and [m1/M1-EXIT.ja.md](m1/M1-EXIT.ja.md) (the owner's summary, in Japanese); the exit season's record is [m1/runs/m1-exit/](m1/runs/m1-exit/).
 - **Conquest milestone MC "Contested Ground" (planned 2026-10-01, in progress):** [conquest/CONQUEST-CONTRACT.md](conquest/CONQUEST-CONTRACT.md) (the integration contract v1.1: keeps and the faction map, the holding contest with D9 kept, ABI v2, 5 waves, gates, the exit), [conquest/SUMMARY.ja.md](conquest/SUMMARY.ja.md) (the owner's summary, in Japanese), [conquest/design/](conquest/design/) (the five area designs) and `conquest/*-NOTES.md` (unit and integration reports); decisions in DECISIONS part CQ, design text in DESIGN §24.
