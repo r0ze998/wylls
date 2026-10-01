@@ -1,6 +1,6 @@
 # MC "Contested Ground": the conquest milestone's integration contract
 
-**Version v1.1** (2026-10-01, review revision of v1.0; every change and every rebuttal is in §17 *Revision notes*, R-01…R-26).
+**Version v1.2** (2026-10-01, integrator amendment after the Gate CQ1 review, §18 A-1…A-7; v1.1 was the review revision of v1.0, §17 R-01…R-26). v1.2 changes §4.5, §5.2.1, §5.5, §8.4, §8.6, §8.7, §11 and §12's preamble; no rule, floor, preset or owner default changed.
 
 - **Date:** 2026-10-01. **Role:** conquest-milestone (MC) integration architect. **Status:** normative for every MC implementer from the moment the owner accepts it. Owner decisions still open are listed in §15. Each has a working default, and implementers build to it.
 - **Owner decision this implements (2026-10-01):** build the territory contest, the game's core, **before** M2 money, so that the faction map changes through play. Keep "the first holding is never taken" (D9) unless the design check shows the map cannot move enough with it. Everything ends with the season. Money (fees, stakes, payouts) stays in M2. Faction scores are game points. Governance (Ministers, War decrees, March truce and hostility votes) is M3, so MC runs on stated defaults.
@@ -588,7 +588,7 @@ On `codex/frontier` and the design chat's branch `frontier/ui-shell` (v1.1, R-19
 
 **Shared herald files, edited by MC only at named hooks:** `frontier-node/crates/herald/src/{lib,fold,server}.rs`. MC's herald code lives in new modules (`cqfmt`, `control`, `conquest`, `standings`, `cqroutes`); MC touches `lib.rs` only with `mod` lines, `server.rs` only with one `cqroutes::mount(…)` call, and `fold.rs` only with one `conquest::on_record(…)` dispatch and one completeness hook, each inside a `// MC hook` block. The integrator resolves conflicts there when `codex/frontier` is merged in.
 
-`scripts/cq-ownership-check.sh <branch>…` fails when a commit **on the first-parent history of a `frontier/cq-*` branch since that branch's own fork point** (`git merge-base --fork-point`) touches one of the listed paths, or touches a shared herald file outside a `// MC hook` block. Commits that arrive through a merge of `codex/frontier` are never counted. It runs in every gate.
+`scripts/cq-ownership-check.sh <branch>…` fails when a commit **of a `frontier/cq-*` branch since that branch's own fork point** touches one of the listed paths, or touches a shared herald file outside a `// MC hook` block. **v1.2 (A-2):** every commit of `FORK..TIP` is checked, whatever parent it came through (a helper branch merged into a unit branch is counted); exempt are the commits that arrive through a merge of `codex/frontier` and the commits a merge of `frontier/cq-integ` brings in (never the branch's own first-parent commits); a merge counts for its own lines. A block runs from an opener line `// MC hook …` to an end line `// MC hook end`, **each marker alone on its line**; a marker with code before it is no marker, and an unclosed block is a violation. The paths the design chat's branch touched since `CQ0` beyond this list (its "footprint") are **reported, not enforced** (`--footprint-strict` enforces them): §11 and §9.1 give some of them to MC units (`permutation-server/web/lang/en-frontier.mjs` to CQ3-D). It runs in every gate.
 
 MC's only map-module change is the fill and sigil source in `map/layers.mjs` (§9.1), which no design-chat commit has touched since `CQ0`. If one does before CQ3, the change moves into the hand-off instead.
 
@@ -646,7 +646,7 @@ MC's only map-module change is the fill and sigil source in `map/layers.mjs` (§
 |---|---|---|---|---|---|
 | 0 | `kind u8` | | | | |
 | 1 | `faction u8` | **`barred_faction`** (v1.1): the faction the immunity bars (0–5), `0xFE` every faction (post-capture), `0xFF` none | attacker | occupier | captor |
-| 2 | `flags u8` | bit 1 stake owed to the site's holding at `owed_gen`; bit 2 stake owed to `src`; **bit 5 reserved slot owed back to `actor`** | bit 0 held; bit 3 neutral target (no vigil) | — | **bit 4 credited** |
+| 2 | `flags u8` | bit 1 stake owed to the site's holding at `owed_gen`; bit 2 stake owed to `src`; **bit 5 reserved slot owed back to `actor`** | bit 0 held; bit 3 neutral target (no vigil) | **v1.2 (A-5): bit 2 stake owed to `src` from the completion bell** | **bit 4 credited** |
 | 3 | `progress u8` | **`owed_gen`** (v1.1) | progress | — | — |
 | 4 | `required u8` | **`slot`** to release (bit 5) | ≤ 60 | — | — |
 | 5 | `target u8` | — | low nibble 1 first, 2 other, 3 Free City; **high nibble the reserved slot (2 or 3; 0 for a first holding)** | 1 | low nibble 2 or 3; high nibble the slot |
@@ -887,7 +887,7 @@ Common rules (M1 §5.6):
 
 - **Accounts:** `[0 payer s] [1 season r] [2 province w] [3 recipient_holding w (canonical; may be absent)] [4 slot_citizen w (canonical for the record's actor; absent when no slot is owed)]`.
 - **Data:** `site u8`.
-- **Applies when** a stake is owed (flags bit 1 → the site's Holding at `owed_gen`; bit 2 → the `src` key), a reserved slot is owed back (bit 5), or the record is a siege and the season has ended (no winner; recipient = `src`; the slot is released).
+- **Applies when** a stake is owed (flags bit 1 → the site's Holding at `owed_gen`; bit 2 → the `src` key, **on a kind-0 or, v1.2 (A-5), a running kind-2 occupation record**, whose kind stays 2), a reserved slot is owed back (bit 5), or the record is a siege and the season has ended (no winner; recipient = `src`; the slot is released).
 - **Effects:**
   - recipient `Holding::settle(now)`, then Gold += stake up to the store cap (excess burned);
   - **slot release (v1.1):** clear the Citizen's reservation bit for `slot` and refund one `rent(1,280)` from `ticket_escrow` to `ticket_funder`;
@@ -1196,6 +1196,8 @@ Herald, keeper, bots, verifier and stack use only these, never their own offsets
 
 ### 8.4 Herald (`frontier-herald`, lib `herald-fold`)
 
+**Formats (v1.2, A-3):** CF-1…CF-8 of `CQ1-D-NOTES.md` §3 are part of this section, with `herald/src/cqfmt.rs` and `frontier-node/fixtures/cq/formats/` as their reference (`PSFSD1`'s faction record: 26 B of fields and 6 reserved bytes).
+
 **Code placement (v1.1, R-19):** new modules `cqfmt`, `control`, `conquest`, `standings`, `cqroutes`; `lib.rs`, `fold.rs` and `server.rs` are touched only at the `// MC hook` blocks of §4.5; `roster.rs` and `tests/server.rs` are the design chat's. The herald reads M1 seasons with v1 decoders and MC seasons with v2 (§5.1).
 
 **Fold additions:**
@@ -1363,7 +1365,7 @@ V1–V13 are unchanged. V7's quiet check also refuses a SkipQuiet over a bell wh
 
 ### 8.6 Bots (`frontier-agents`, `frontier-bots`)
 
-**Campaigns without messages:** `agents::campaign::plan(fleet_seed, faction, epoch) -> Plan`, pure and deterministic.
+**Campaigns without messages:** `agents::campaign::plan(fleet_seed, faction, epoch) -> Plan`, pure and deterministic. **v1.2 (A-6):** a holding-siege target needs `siege::can_complete_before(required(walls), vigil, muster + 1, end_bell)` at plan time (the simulator's planner, which CQ2-F ports with D-6/D-7).
 
 - **Epoch:** the last completed game hour.
 - **Inputs:** only immutable herald files of that epoch: `PSFCT1` of its last bell, `PSFOV2`, `/h/sieges/{bell}.json`, `PSFSD1`, `/h/call/{day}.json`. Every bot of a faction computes the same plan.
@@ -1579,7 +1581,7 @@ Out of MC's units. The hand-off documents how the replay's data stores read `PSF
 | **CQ2-B prog-clash** | ResolveFromInputs and SkipQuiet with the conquest step (§5.7): keep and Free City garrisons, the donor handoff, snapshots, CONQUEST log, digests v2; GatherClash `prev_gen`; **G1 RFI worst at 13 garrisons with 12 completions at an hour boundary and a keep taken with six 30,000-troop capturers** (+ M1's 1,240 fills) → the 290k / 300k decision recorded; G11 extended (`g11_cq_`); the quiet model and its tile-mask cache; **fixes to the shared models it is the first to execute** (v1.1, R-21) | `permutation-frontier/src/proc/clash.rs`; `permutation-frontier/svm-tests/src/{ix,cover,world}/clash.rs`; `permutation-frontier/svm-tests/tests/clash.rs`; **`frontier-abi/src/{conquest_model,clash_model}.rs` and their vectors** (layout/** stays frozen; vectors regenerated in the same merge); `docs/frontier/conquest/CQ2-B-NOTES.md` |
 | **CQ2-C prog-conquest** | `proc/conquest.rs`: DeclareSiege, SettleSiege, SettleCapture, FoldMarch, RetireHost, CloseMarch; the `prev_gen` / `prev_home` transit path (SettleDeparture and its return settle in `proc/host.rs`, SettleTransit in `proc/transit.rs`); the capture lock on Muster, Dissolve, Garrison and Depart (`proc/host.rs`); v1.1: the lead-host check, slot reservations and their release, faction-scoped immunity, the victim-only RetireHost, the donor Leave path shared with RetireHost; properties P1–P13 (`p_cq_*`); `g01_cq_`/`g02_cq_`/`g03_cq_`/`g13_cq_` rows for these | `permutation-frontier/src/proc/{conquest,transit,host}.rs`; `permutation-frontier/svm-tests/src/{ix,cover}/{conquest,transit,host}.rs`; `permutation-frontier/svm-tests/src/world/{conquest,transit}.rs`; `permutation-frontier/svm-tests/tests/{conquest,transit,host}.rs`; `docs/frontier/conquest/CQ2-C-NOTES.md` |
 | **CQ2-D keeper-cq** | `fclient` (§8.1) **with version-dispatching readers (v1 and v2) and its twin tests switched to compare both** (`instructions_are_frontier_abis` over `Ix::ALL` and `Ix::ALL_V2`, `magics_and_rent_are_frontier_abis` with MarchState and Province v2; R-16, R-22), and the keeper duties of §8.2 (contested-bell planner, 4-hour idle skips and fold-driven skips, settles, folds, horn watcher, season-end flush, status and metrics); in-process tests over the native `conquest_model` and the test-beacon `.so` once CQ2-A/B/C merge | `frontier-node/crates/{fclient,keeper}/**`; `docs/frontier/conquest/CQ2-D-NOTES.md` |
-| **CQ2-E herald-cq** | Fold of kinds 80–89, the files and routes of §8.4 (incl. `standings/players.json`), WS additions, standings, Call, final.json, `--fixture conquest` (a synthetic fixture now; the recorded one from CQ3-E); v1/v2 dispatch; determinism and completeness tests (`cq_*`) | `frontier-node/crates/{herald,findex}/**` **except** `herald/src/cqfmt.rs` (which it uses), `herald/src/roster.rs` and `herald/tests/server.rs` (the design chat's); `herald/src/{lib,fold,server}.rs` only inside `// MC hook` blocks (§4.5); `docs/frontier/conquest/CQ2-E-NOTES.md` |
+| **CQ2-E herald-cq** | Fold of kinds 80–89, the files and routes of §8.4 (incl. `standings/players.json`), WS additions, standings, Call, final.json, `--fixture conquest` (a synthetic fixture now; the recorded one from CQ3-E); v1/v2 dispatch; determinism and completeness tests (`cq_*`); **v1.2 (A-4): the JSON shapes §8.4 does not pin (`/h/standings/{latest,players}.json`, `/h/call/{day}.json`, `/h/season/final.json`, `/h/siege/…json`, `/h/keep/…json`) as additions to `cqfmt.rs` with vectors; the pinned codecs and their vectors stay byte-stable** | `frontier-node/crates/{herald,findex}/**` **except** `herald/src/roster.rs` and `herald/tests/server.rs` (the design chat's); `herald/src/cqfmt.rs` **additively only** (v1.2, A-4); `herald/src/{lib,fold,server}.rs` only inside `// MC hook` blocks (§4.5); `docs/frontier/conquest/CQ2-E-NOTES.md` |
 | **CQ2-F bots-cq** | `agents::campaign`, the behaviours and personas of §8.6, `--conquest`, the report additions; `campaign::plan` identical across 32 bots with shuffled observation order; personas' expected codes on recorded herald fixtures | `frontier-node/crates/{agents,bots}/**`; `docs/frontier/conquest/CQ2-F-NOTES.md` |
 
 ### Wave 3 — Verifier, stack, relay, web data, integration. Merge order: CQ3-E, CQ3-A, CQ3-B, CQ3-C, CQ3-D
@@ -1620,7 +1622,7 @@ CQ3-E merges first, because the verifier's fixtures come from its recordings. CQ
 
 ```sh
 export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
-cd "$R"; CQ0=d11d058
+cd "$R"; CQ0=39ff369                  # v1.2 (A-1): the commit carrying this contract on codex/frontier
 for p in ${CQ_PORTS:-}; do            # empty for gates CQ1–CQ3 except the itest line (127.0.0.1:0)
   { [ "$p" -ge 41300 ] && [ "$p" -le 41999 ]; } || { echo "MC port $p is outside 41300-41999"; exit 1; }
   if lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1; then echo "MC port $p is busy"; exit 1; fi
@@ -2086,3 +2088,21 @@ Each review issue was checked against the repo at `CQ0` (`d11d058`), the `fronti
 | R-26 | major | No diagnosis tool; 10e without evidence | **Accepted.** Criterion 7 was "n.a." in every M1 run (M1-EXIT-NOTES E5). | Criterion 7's per-day comparison in CQ3-B's brief and the report; 10e measured by CQ1-B (R-12) before the floors freeze. |
 
 **Net effect on scope:** raze and released Free Cities leave MC; slots, the lead host, faction-scoped immunity, capture credit and the victim-only RetireHost enter. ABI numbers: errors 62–78, tamper classes T25–T48, checks V14–V22, properties P1–P13. Estimate ≈ 46 engineer-weeks (from 42.5). New owner decisions OD-14…OD-16; OD-5, OD-6, OD-8, OD-9 and OD-10 reworded.
+
+---
+
+## 18. Amendments v1.1 → v1.2 (integrator, after the Gate CQ1 review, 2026-10-01)
+
+The integrator's amendments of §16 from the review of Wave 1 (`integ-CQ1-NOTES.md` §7). None changes a rule, a floor, a preset, an owner default or a layout; the open owner items stay open (`integ-CQ1-NOTES.md` §6, PO-1…PO-7).
+
+| # | Sections | Amendment | Why |
+|---|---|---|---|
+| A-1 | §12 preamble | `CQ0 = 39ff369`, the commit that carries this contract, the owner summary and the area designs on `codex/frontier` (`d11d058` was the planning base, its grandparent) | the gate runs from the committed contract |
+| A-2 | §4.5 | the ownership check walks every parent (a helper branch merged into a unit branch no longer escapes), exempts what merges of `codex/frontier` and `frontier/cq-integ` bring in, requires each hook marker alone on its line (`// MC hook …` / `// MC hook end`, the end marker CQ1-D chose), treats an unclosed block as a violation, and reports the design chat's footprint beyond §4.5's list instead of enforcing it | the review found a merge bypass, an inline-marker bypass, and a footprint rule that would fail Gate CQ3 on CQ3-D's own `en-frontier.mjs` (§11, §9.1) |
+| A-3 | §8.4 | **CF-1…CF-8 of `CQ1-D-NOTES.md` §3 are ratified as written** and normative with `herald/src/cqfmt.rs` and `frontier-node/fixtures/cq/formats/` (one producer, one freshness test). In particular **`PSFSD1`'s 32-B faction record ends in 6 reserved bytes** (offset 26..32: the listed fields end at byte 26, so the tail is 6 reserved bytes, not the `u32` §8.4 wrote, which would sum to 30 B) | CF-5 fixes an arithmetic slip; the others fill choices §8.4 left open; CQ2-E builds on them |
+| A-4 | §11 (CQ2-E) | CQ2-E extends `cqfmt.rs` additively with the JSON shapes §8.4 does not pin, with vectors | CQ1-D's request D-5: the unpinned files had no owner |
+| A-5 | §5.2.1, §5.5 | **An occupation record (kind 2) uses flags bit 2**: the siege's stake is owed to `src` from the completion bell (SettleSiege may pay it while the occupation runs, `SIEGE_SETTLED` reason 1; an unpaid bit carries into the kind-0 record when the occupation ends; ReleaseDormant's S3 refusal covers it). SettleSiege "applies when a stake is owed" includes kind 2 | §3.5 is silent; CQ1-C's D-9 owed it only at the end, so an occupation running at `end_bell` never returned its stake; the simulator returns it at completion. Implemented in `conquest_model` (integ-W1) |
+| A-6 | §8.6, §8.7 item 7, §8.8 | The campaign planner checks `siege::can_complete_before` **at plan time** (from the muster or arrival bell), so an honest planned strike is not refused `TooLate` at the horn; CQ2-F ports it with D-6/D-7. `mapmove --check` also compares the p50 of the per-bot-day rates §8.8 takes as reference, and each thresholds file's `note` states its bot profile's cadence (`cq`: military decisions per hourly epoch, economy, defence and outposts at M1's session cadence) | the simulator refused 9–22 planned strikes a season `TooLate`, which criterion 13 would count against honest bots; the reference rates were not drift-checked |
+| A-7 | §8.7 item 1 | The simulator calls `may_besiege_v3`, `keep::keep_tile`, `holding::capture_effects` (walls), `may_found_outpost` and `lowest_free_slot` itself (no mirrors). The Herald's Call stays the simulator's own tie-breaker (CQ1-B D-5): `control::herald_call` needs a day seed the simulator does not model | a mirror had already diverged (Frontier protection at `founded − genesis = after`) |
+
+Not amended, for the owner: §3.10's "final holding" against `conquest_model`'s provisional holdings (PO-7), and every gate failure of Gate CQ1 (PO-1…PO-4).
