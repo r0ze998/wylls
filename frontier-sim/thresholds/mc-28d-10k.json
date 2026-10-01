@@ -1,0 +1,42 @@
+{
+  "format": "frontier-sim mapmove v1",
+  "note": "",
+  "run": {"rules": "mc", "preset": "MC_SEASON_28", "policy": "campaign,campaign,campaign,campaign,campaign,campaign", "bot_profile": "sim", "agents": "10000", "bots": "0.05", "days": "28", "keep_aggr": "1", "forward": "false", "sizes": "1,1,1,1,1,1", "seeds": "10", "first_seed": "2002"},
+  "gated": {
+    "banner_changes_per_day": {"dir": "min", "floor": 5, "doubling": false, "p10": 4.489286, "p50": 5.017857, "p90": 5.414286, "half_p10": 2.244643, "seeds": [4.392857, 5.321429, 4.5, 4.678571, 5.607143, 5.285714, 4.964286, 5.392857, 5.071429, 4.785714]},
+    "marches_two_banners": {"dir": "min", "floor": 0.15, "doubling": false, "p10": 0.140432, "p50": 0.154321, "p90": 0.162037, "half_p10": 0.070216, "seeds": [0.141975, 0.175926, 0.126543, 0.154321, 0.154321, 0.148148, 0.157407, 0.160494, 0.151235, 0.154321]},
+    "largest_share": {"dir": "max", "floor": 0.22, "doubling": false, "p10": 0.168571, "p50": 0.170476, "p90": 0.172905, "half_p10": 0.084286, "seeds": [0.173333, 0.170476, 0.168571, 0.170952, 0.170476, 0.172857, 0.168571, 0.17, 0.171429, 0.17]},
+    "smallest_share": {"dir": "min", "floor": 0.12, "doubling": false, "p10": 0.159333, "p50": 0.162381, "p90": 0.16481, "half_p10": 0.079667, "seeds": [0.160476, 0.165238, 0.164762, 0.161905, 0.161905, 0.157619, 0.16381, 0.162857, 0.159524, 0.16381]},
+    "days_without_banner_change": {"dir": "max", "floor": 0.3, "doubling": false, "p10": 0.073077, "p50": 0.096154, "p90": 0.157692, "half_p10": 0.036538, "seeds": [0.192308, 0.115385, 0.115385, 0.153846, 0.076923, 0.076923, 0.076923, 0.076923, 0.115385, 0.038462]}
+  },
+  "reported": {
+    "banner_changes_per_day": {"p10": 4.489286, "p50": 5.017857, "p90": 5.414286, "mean": 5},
+    "days_without_banner_change": {"p10": 0.073077, "p50": 0.096154, "p90": 0.157692, "mean": 0.103846},
+    "keep_taken_per_day": {"p10": 16.632143, "p50": 17.660714, "p90": 18.025, "mean": 17.407143},
+    "retaken_within_3d": {"p10": 0.269993, "p50": 0.296408, "p90": 0.316176, "mean": 0.291103},
+    "provinces_ever_changed": {"p10": 0.123667, "p50": 0.130238, "p90": 0.133952, "mean": 0.128714},
+    "faction0_share_q1": {"p10": 0.163841, "p50": 0.167029, "p90": 0.169565, "mean": 0.166232},
+    "faction0_share_end": {"p10": 0.160905, "p50": 0.165714, "p90": 0.170476, "mean": 0.16581},
+    "departs_per_bot_day": {"p10": 1.492714, "p50": 1.559643, "p90": 1.633, "mean": 1.564545},
+    "keep_marches_per_bot_day": {"p10": 0.029455, "p50": 0.036883, "p90": 0.039662, "mean": 0.036091},
+    "keep_captures_per_bot_day": {"p10": 0.016273, "p50": 0.018994, "p90": 0.019844, "mean": 0.018318},
+    "declares_per_bot_day": {"p10": 0.035052, "p50": 0.036136, "p90": 0.037604, "mean": 0.036201},
+    "departs_per_agent_day": {"p10": 0.134138, "p50": 0.138184, "p90": 0.144942, "mean": 0.13875},
+    "homes_released": {"p10": 1430.4, "p50": 1449, "p90": 1466.2, "mean": 1448.6},
+    "homes_released_casual": {"p10": 126.8, "p50": 134, "p90": 161.1, "mean": 138.5},
+    "captures_credited": {"p10": 2089.7, "p50": 2096, "p90": 2104.4, "mean": 2096.4},
+    "captures_uncredited": {"p10": 422.1, "p50": 443.5, "p90": 465.4, "mean": 442},
+    "free_city_captures": {"p10": 2069, "p50": 2070, "p90": 2070, "mean": 2069.8},
+    "keep_contests": {"p10": 473.2, "p50": 499, "p90": 514.6, "mean": 493.3},
+    "keep_contests_broken": {"p10": 0, "p50": 0, "p90": 0.1, "mean": 0.1},
+    "clash_errors": {"p10": 0, "p50": 0, "p90": 0, "mean": 0},
+    "lab_march_changes_per_day": {"p10": 4.259259, "p50": 4.462963, "p90": 4.981481, "mean": 4.607407},
+    "lab_marches_ever_changed": {"p10": 0.131481, "p50": 0.138889, "p90": 0.15216, "mean": 0.139815},
+    "lab_province_flips_per_day": {"p10": 15.307407, "p50": 16.703704, "p90": 17.748148, "mean": 16.566667},
+    "lab_provinces_ever_changed": {"p10": 0.109619, "p50": 0.118333, "p90": 0.121952, "mean": 0.116095},
+    "lab_days_without_march_flip": {"p10": 0.12, "p50": 0.24, "p90": 0.28, "mean": 0.212},
+    "lab_max_province_share_end": {"p10": 0.168571, "p50": 0.170476, "p90": 0.172905, "mean": 0.170667},
+    "lab_min_province_share_end": {"p10": 0.159333, "p50": 0.162381, "p90": 0.16481, "mean": 0.16219},
+    "lab_holding_captures_occupations_per_day": {"p10": 17.051852, "p50": 18.092593, "p90": 19.1, "mean": 17.955556}
+  }
+}

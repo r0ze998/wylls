@@ -18,7 +18,7 @@ use permutation_rules::frontier::clash::{
     Occupancy, Relations, NEUTRAL,
 };
 use permutation_rules::frontier::geometry::{
-    march_of, provinces_within, ring_provinces, ProvinceCoord, PROVINCE_TILES,
+    is_heartland, march_of, provinces_within, ring_provinces, ProvinceCoord, PROVINCE_TILES,
 };
 use permutation_rules::frontier::holding::{
     duplicate_cost, troop_upkeep_per_hour, Effect, Holding, Resource, Tier as HTier, RESOURCES,
@@ -39,7 +39,7 @@ use permutation_rules::frontier::office;
 use permutation_rules::frontier::pools::{Entry, EntrySchedule, Pools};
 use permutation_rules::frontier::siege::{
     auto_reinforce, completion, may_besiege, BellReport, Completion, Donor, HoldingKind, Relation,
-    Siege, SiegeCheck, SiegeStatus, Vigil,
+    Siege, SiegeCheck, SiegeRefusal, SiegeStatus, Vigil,
 };
 use permutation_rules::frontier::stance::{Posture, Stance};
 use permutation_rules::frontier::terrain::{generate_province, ProvinceTerrain};
@@ -51,6 +51,11 @@ use permutation_rules::params::Ruleset;
 use permutation_rules::units::UnitType;
 
 pub const NONE: u32 = u32::MAX;
+
+#[path = "sim_campaign.rs"]
+pub mod campaign;
+#[path = "sim_mc.rs"]
+pub mod mcsim;
 
 /// W1-B (CL-03, CL-05) turns `holding::duplicate_cost` into
 /// `Option<u64>` and `host::Stamina::set` into `Result<(), HostError>`.
@@ -94,6 +99,7 @@ const FREE_CITY_GARRISON: i64 = 300;
 /// Largest distance (provinces) a march may cover: ≤ 4 provinces touched.
 const MAX_MARCH_DIST: u32 = 3;
 const CAMP_BIT: u64 = 1 << 40;
+const KEEP_BIT: u64 = 1 << 41;
 
 pub fn now_of(b: u32) -> i64 {
     b as i64 * BELL_SECS
@@ -140,6 +146,42 @@ pub struct Prov {
     pub stationed: Vec<u32>,
     pub camp: Option<Camp>,
     pub relic: Option<u8>,
+    /// Conquest lab K-model: the province keep.
+    pub keep: Option<Keep>,
+    /// MC (§3.2): the province keep (`--rules mc`).
+    pub mkeep: Option<crate::mc::cqk::Keep>,
+    /// The keep garrison's clash report of the last resolved bell:
+    /// (bell, holders, defender_present).
+    pub mkreport: Option<(u32, u8, bool)>,
+    /// The citizen whose host last took the keep (display, `keepdom`).
+    pub keep_captor: u32,
+    /// Bell the province opened.
+    pub opened: u32,
+}
+
+/// A province keep (conquest lab K-model): held by a faction (or neutral),
+/// owned by no wallet; taken by holding its hex for `keep_bells`.
+#[derive(Clone, Copy, Debug)]
+pub struct Keep {
+    pub tile: u8,
+    pub faction: u8,
+    pub troops: MilliTroops,
+    pub captor: u32,
+    pub siege: Option<KeepSiege>,
+    pub report: Option<(u32, u8, bool)>,
+    /// Bell of the last change of hands and the faction before it.
+    pub since: u32,
+    pub prev: u8,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct KeepSiege {
+    pub faction: u8,
+    pub attacker: u32,
+    pub host: u32,
+    pub declared: u32,
+    pub progress: u32,
+    pub held: bool,
 }
 
 impl Prov {
@@ -179,7 +221,45 @@ pub struct Hold {
     pub alive: bool,
     pub explores: u32,
     pub report: Option<(u32, BellReport)>,
+    /// MC state of the site (`--rules mc`; inert otherwise).
+    pub mc: HoldMc,
 }
+
+/// A holding siege under the MC rules (§3.4).
+#[derive(Clone, Copy, Debug)]
+pub struct McSiege {
+    pub attacker_faction: u8,
+    pub declarer: u32,
+    /// Source holding (pays the stake, the lead host's home).
+    pub src: u32,
+    pub lead_host: u32,
+    pub required: u32,
+    pub progress: u32,
+    pub declared: u32,
+    /// The owner's vigil snapshotted at the horn (none for a Free City).
+    pub vigil: Option<Vigil>,
+    /// Reserved slot (2 or 3) for a capture target, 0 otherwise.
+    pub slot: u8,
+}
+
+/// MC per-site state (§3.4–§3.7, §3.15).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct HoldMc {
+    /// Immunity (post-siege, post-capture, Respite) and the faction it
+    /// bars (`ALL_FACTIONS` = every faction).
+    pub immune_until: u32,
+    pub barred: u8,
+    /// `held_since_hour` of the current owner (capture credit, K-26).
+    pub held_since_hour: u32,
+    pub genesis_fc: bool,
+    pub shield_until: i64,
+    pub occ_start: u32,
+    pub occ_faction: u8,
+    pub siege: Option<McSiege>,
+}
+
+/// `barred_faction` value meaning every faction.
+pub const ALL_FACTIONS: u8 = 0xFF;
 
 impl Hold {
     fn free_city(&self) -> bool {
@@ -203,6 +283,15 @@ pub enum Mission {
     Relic,
     Defend(u32),
     Occupy(u32),
+    /// Conquest lab: a faction-mate's host answering a siege rally.
+    Rally(u32),
+    /// K-model: besieging province `.0`'s keep / answering its rally /
+    /// reinforcing it.
+    Keep(u32),
+    KeepRally(u32),
+    KeepDefend(u32),
+    /// MC `--forward`: a host left on a taken keep as a forward base.
+    Stage(u32),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -274,6 +363,13 @@ pub struct Agent {
     pub sessions: u32,
     pub pledge_day: u32,
     pub earned: Earned,
+    /// MC: DeclareSieges on game day `.0` (`.1` of them, ≤ `sieges_per_day`).
+    pub declares: (u32, u32),
+    /// MC: holding slots reserved at a horn (K-25).
+    pub reserved: Vec<u8>,
+    /// MC display recognition (R-10): keeps taken (a host on the tile at
+    /// the taking bell).
+    pub keeps_taken: u32,
 }
 
 /// Where an agent's laurels came from (for the report).
@@ -415,6 +511,7 @@ pub struct Sim {
     sessions: Vec<Vec<u32>>,
     stationed_provs: BTreeSet<u32>,
     siege_holds: BTreeSet<u32>,
+    keep_sieges: BTreeSet<u32>,
     /// Mandate reserve per faction (`mandate::Reserve`).
     pub reserve: [Reserve; 6],
     /// The open Mandate term per faction.
@@ -433,6 +530,15 @@ pub struct Sim {
     pub stats: Stats,
     pub laurel_credited: u128,
     pub laurel_orphan_extra: u128,
+    /// Conquest lab: day-end control layer and movement counters.
+    pub cq: crate::conquest::Track,
+    /// Hourly March controller and per-faction weights (control-aware
+    /// targeting and the share cap).
+    pub cq_ctrl: Vec<u32>,
+    pub cq_w: Vec<[u64; 6]>,
+    pub cq_share: [u32; 6],
+    /// MC rules state and counters (`sim_mc.rs`).
+    pub mcs: crate::sim::mcsim::McState,
 }
 
 // ------------------------------------------------------------ setup
@@ -456,6 +562,9 @@ impl Sim {
         }
         if let Some(x) = cfg.bot_aggression {
             profiles[Arch::Bot.idx()].aggression = x;
+        }
+        for p in profiles.iter_mut() {
+            p.aggression = (p.aggression * cfg.cq.aggr_mult).min(1.0);
         }
         let mut s = Sim {
             cfg: cfg.clone(),
@@ -490,6 +599,7 @@ impl Sim {
             sessions: vec![Vec::new(); end_bell as usize + 1],
             stationed_provs: BTreeSet::new(),
             siege_holds: BTreeSet::new(),
+            keep_sieges: BTreeSet::new(),
             reserve: [Reserve::default(); 6],
             mandate: [MandateTerm::new(0); 6],
             term_completers: vec![Vec::new(); 6],
@@ -506,6 +616,11 @@ impl Sim {
             stats: Stats::default(),
             laurel_credited: 0,
             laurel_orphan_extra: 0,
+            cq: Default::default(),
+            cq_ctrl: Vec::new(),
+            cq_w: Vec::new(),
+            cq_share: [0; 6],
+            mcs: Default::default(),
         };
         for d in 0..=cfg.r_max {
             s.ring_seeds.push(sha256(&[
@@ -574,10 +689,13 @@ impl Sim {
                     break;
                 }
             }
+            // Join days 1..=min(21, N − 2) (§8.7 item 2): days 1–21 in a
+            // 28-day season (unchanged), days 1–5 in a 7-day one.
+            let jd = cfg.days.saturating_sub(2).clamp(1, 21) as u64;
             let mut day = if rng.chance(cfg.day0_share) {
                 0
             } else {
-                1 + rng.below(21) as u32
+                1 + rng.below(jd) as u32
             };
             // A bot's chosen join window (drawn from a separate stream so
             // the main stream, and every other wallet, is unchanged).
@@ -631,6 +749,9 @@ impl Sim {
                 sessions: 0,
                 pledge_day: NONE,
                 earned: Earned::default(),
+                declares: (NONE, 0),
+                reserved: Vec::new(),
+                keeps_taken: 0,
             });
             self.joins[join_bell as usize].push(id);
         }
@@ -662,14 +783,42 @@ impl Sim {
                 stationed: Vec::new(),
                 camp: None,
                 relic: None,
+                keep: None,
+                mkeep: None,
+                mkreport: None,
+                keep_captor: NONE,
+                opened: bell,
             };
             pr.camp = None;
+            if self.cfg.cq.keeps {
+                let t = &pr.terrain;
+                let tile = (0..PROVINCE_TILES as u8)
+                    .find(|&i| t.passable(i) && !t.is_site(i))
+                    .unwrap_or(0);
+                let heart = d <= 3;
+                let neutral = self.cfg.cq.keep_neutral && !heart;
+                pr.keep = Some(Keep {
+                    tile,
+                    faction: if neutral { NEUTRAL } else { wedge },
+                    troops: troops(if neutral {
+                        self.cfg.cq.keep_neutral_guard
+                    } else {
+                        self.cfg.cq.keep_home_guard
+                    }),
+                    captor: NONE,
+                    siege: None,
+                    report: None,
+                    since: bell,
+                    prev: 255,
+                });
+            }
             for slot in 0..n_sites {
                 self.free[d as usize][wedge as usize].push((idx, slot as u8));
             }
             self.wedge_open[wedge as usize] += n_sites as u64;
             self.open_sites += n_sites as u64;
             self.provs[idx as usize] = Some(pr);
+            self.mc_open_province(idx, bell);
         }
         self.open_ring = d;
         self.stats.rings_opened += 1;
@@ -779,8 +928,8 @@ impl Sim {
         let now = now_of(b);
         let a = &self.agents[agent as usize];
         let faction = a.faction;
-        let order = a.holdings.len() as u8 + 1;
         let tz = a.tz;
+        let order = self.mc_found_order(agent);
         let mut h = Holding::found(now, b / BELLS_PER_DAY, order);
         let base = self.base_prod(faction, HTier::Hamlet);
         h.production = base;
@@ -812,7 +961,9 @@ impl Sim {
             alive: true,
             explores: 0,
             report: None,
+            mc: HoldMc::default(),
         });
+        self.mc_on_found(hid, b);
         self.prov_mut(pi).site_h[slot as usize] = hid;
         self.take_site(pi, slot);
         self.agents[agent as usize].holdings.push(hid);
@@ -844,7 +995,7 @@ impl Sim {
         let dormant = x.free_city() || x.h.is_dormant(now);
         let order = x.h.order.saturating_sub(1);
         let w = strength_weight(ltier(x.h.tier), x.garrison, order);
-        let q = if x.occupier.is_some() {
+        let q = if x.occupier.is_some() && !self.cfg.rules.mc() {
             0
         } else {
             match self.cfg.emission {
@@ -911,7 +1062,7 @@ impl Sim {
         self.reserve[faction as usize]
             .deposit(m.give)
             .expect("reserve");
-        match occ {
+        match occ.filter(|_| !self.cfg.rules.mc()) {
             Some((o, _)) => {
                 let owner_staker = self.agents[owner as usize].stake > 0;
                 let p = occupation_split(m.keep, owner_staker, pair);
@@ -987,6 +1138,9 @@ impl Sim {
     // -------------------------------------------------------- step
 
     pub fn step(&mut self, b: u32) {
+        if b % BELLS_PER_DAY == 0 && b > 0 {
+            self.cq_snapshot(b / BELLS_PER_DAY - 1);
+        }
         if b % BELLS_PER_DAY == 0 {
             self.new_day(b / BELLS_PER_DAY, b);
         }
@@ -1003,6 +1157,8 @@ impl Sim {
         }
         self.retry_pending(b);
         self.maybe_open_ring(b);
+        self.mc_campaign_epoch(b);
+        self.mc_before_resolve(b);
         let ss = std::mem::take(&mut self.sessions[b as usize]);
         for a in ss {
             self.session(a, b);
@@ -1012,6 +1168,10 @@ impl Sim {
         self.relic_credit(b);
         if b % HOUR_BELLS == HOUR_BELLS - 1 {
             self.hourly_fold(b);
+            if self.cfg.cq.keeps {
+                self.keep_dominion();
+            }
+            self.mc_sample_control(b);
         }
     }
 
@@ -1132,6 +1292,9 @@ impl Sim {
     /// A first holding with no owner action for 10 days becomes a Free
     /// City site (design §3.4); the owner keeps citizenship.
     fn release(&mut self, hid: u32, b: u32) {
+        if self.mc_release(hid, b) {
+            return;
+        }
         self.stats.releases += 1;
         let x = &mut self.holds[hid as usize];
         let owner = x.owner;
@@ -1174,6 +1337,9 @@ impl Sim {
             self.crisis[order[0]] = true;
             self.crisis[order[1]] = true;
         }
+        if self.cfg.cq.keeps && day > 0 {
+            self.keep_supply();
+        }
         // Barbarian camps respawn: half the settled provinces get one.
         let idxs: Vec<u32> = self
             .provs
@@ -1188,9 +1354,13 @@ impl Sim {
             }
             let tile = {
                 let p = self.prov(i);
+                let kt = p.keep.map(|k| k.tile).or(p.mkeep.map(|k| k.tile));
                 let mut cands: Vec<u8> = (1..PROVINCE_TILES as u8)
                     .filter(|&t| {
-                        p.terrain.passable(t) && !p.terrain.is_site(t) && p.relic != Some(t)
+                        p.terrain.passable(t)
+                            && !p.terrain.is_site(t)
+                            && p.relic != Some(t)
+                            && kt != Some(t)
                     })
                     .collect();
                 cands.sort_unstable();
@@ -1349,7 +1519,12 @@ impl Sim {
         self.stats.sessions += 1;
         self.mark_active(a, b);
         let arch = self.agents[a as usize].arch;
-        let p = self.profiles[arch.idx()];
+        let mut p = self.profiles[arch.idx()];
+        if self.cfg.cq.fav_mult != 1.0 && self.agents[a as usize].faction == self.cfg.cq.fav_faction
+        {
+            p.aggression = (p.aggression * self.cfg.cq.fav_mult).min(1.0);
+            p.q = (p.q + self.cfg.cq.fav_q).min(1.0);
+        }
         let mut budget = p.actions as i64;
         if self.agents[a as usize].holdings.is_empty() {
             // Back after a release: re-found with a refugee kit (§3.4).
@@ -1438,8 +1613,24 @@ impl Sim {
             budget -= 1;
         }
         // Military.
+        if self.mc() {
+            self.mc_military(a, b, &p, budget);
+            let hs = self.agents[a as usize].holdings.clone();
+            for &hid in &hs {
+                self.reweigh(hid, b);
+            }
+            return;
+        }
         if budget > 2 && self.rng.chance(p.aggression) {
             budget -= self.war(a, b, &p);
+        }
+        if self.cfg.cq.keeps
+            && budget > 2
+            && self
+                .rng
+                .chance((p.aggression * self.cfg.cq.keep_aggr).min(1.0))
+        {
+            budget -= self.keep_war(a, b, &p);
         }
         if budget > 2 && !(knows_cap && capped(self)) && self.rng.chance(p.aggression) {
             budget -= self.camp_raid(a, b, &p);
@@ -1637,6 +1828,9 @@ impl Sim {
     /// Found a second or third holding near the first (design §3.4 gate:
     /// only while free sites are ≥ 20% of open sites).
     fn expand(&mut self, a: u32, b: u32, p: &Profile) -> i64 {
+        if self.mc() {
+            return self.mc_expand(a, b, p);
+        }
         let ag = &self.agents[a as usize];
         if ag.holdings.len() >= 3 || ag.holdings.is_empty() {
             return 0;
@@ -1670,7 +1864,18 @@ impl Sim {
             let pr = self.prov(pi);
             for (slot, &h) in pr.site_h.iter().enumerate() {
                 if h == NONE {
-                    let score = (pr.wedge != faction) as u32 * 10 + centre.distance(pr.coord);
+                    let wedge_pen = if self.cfg.cq.expand_front { 0 } else { 10 };
+                    let contest = if self.cfg.cq.expand_contest {
+                        match self.cq_ctrl.get(pr.march as usize) {
+                            Some(&c) if c == faction as u32 => 6,
+                            _ => 0,
+                        }
+                    } else {
+                        0
+                    };
+                    let score = (pr.wedge != faction) as u32 * wedge_pen
+                        + contest
+                        + centre.distance(pr.coord);
                     if best.is_none_or(|x| score < x.0) {
                         best = Some((score, pi, slot as u8));
                     }
@@ -1841,10 +2046,30 @@ impl Sim {
         p: &Profile,
         against: Option<u8>,
     ) -> Option<u32> {
+        self.send_at(a, from, n_troops, to_prov, tile, mission, b, p, against, 0)
+    }
+
+    /// `send` naming an arrival bell no earlier than `arrive_min` (a
+    /// campaign's common muster bell; 0 = as early as possible).
+    #[allow(clippy::too_many_arguments)]
+    fn send_at(
+        &mut self,
+        a: u32,
+        from: u32,
+        n_troops: MilliTroops,
+        to_prov: u32,
+        tile: u8,
+        mission: Mission,
+        b: u32,
+        p: &Profile,
+        against: Option<u8>,
+        arrive_min: u32,
+    ) -> Option<u32> {
         let faction = self.agents[a as usize].faction;
         let d = self.doctrine[faction as usize];
         let src = self.holds[from as usize].prov;
         let (arrive, cost) = self.travel(faction, src, to_prov, b)?;
+        let arrive = arrive.max(arrive_min.min(self.end_bell + 300));
         if n_troops < MIN_HOST_TROOPS || self.holds[from as usize].garrison < n_troops {
             return None;
         }
@@ -1900,6 +2125,7 @@ impl Sim {
         self.arrivals[arrive as usize].push(id);
         self.refresh_upkeep(from, b);
         self.reweigh(from, b);
+        self.mc_note_depart(a, mission);
         Some(id)
     }
 
@@ -1956,8 +2182,11 @@ impl Sim {
         let (sieged, attacker_f, occupied, garrison, pi, tile) = {
             let x = &self.holds[hid as usize];
             (
-                x.siege.is_some(),
-                x.siege.as_ref().map(|s| s.s.attacker_faction),
+                x.siege.is_some() || x.mc.siege.is_some(),
+                x.siege
+                    .as_ref()
+                    .map(|s| s.s.attacker_faction)
+                    .or(x.mc.siege.map(|s| s.attacker_faction)),
                 x.occupier.is_some(),
                 x.garrison,
                 x.prov,
@@ -2081,7 +2310,9 @@ impl Sim {
                 ag.holdings.len(),
             )
         };
+        self.cq.diag[0] += 1;
         if laurels < SIEGE_STAKE {
+            self.cq.diag[1] += 1;
             return 0;
         }
         let d = self.doctrine[faction as usize];
@@ -2093,25 +2324,39 @@ impl Sim {
         let keep = troops(garrison_target(self.holds[src as usize].h.tier) / 4);
         let avail = self.holds[src as usize].garrison.saturating_sub(keep);
         if avail < 2 * MIN_HOST_TROOPS {
+            self.cq.diag[2] += 1;
             return 0;
         }
+        if let Some(cap) = self.cfg.cq.cap_share_bps {
+            if self.cq_share[faction as usize] > cap {
+                return 0;
+            }
+        }
         let centre = self.prov(self.holds[src as usize].prov).coord;
-        let near = self.provinces_near(centre, 2);
+        let near = self.provinces_near(centre, self.cfg.cq.radius);
         let mut cands: Vec<(f64, u32)> = Vec::new();
         for pi in near {
-            for &t in &self.prov(pi).site_h {
+            let sites = self.prov(pi).site_h.clone();
+            for &t in &sites {
                 if t == NONE {
                     continue;
                 }
                 let x = &self.holds[t as usize];
-                if x.faction == faction || x.siege.is_some() || !x.alive {
+                if x.faction == faction || !x.alive {
+                    continue;
+                }
+                if x.siege.is_some() {
+                    self.cq.diag[9] += 1;
                     continue;
                 }
                 let kind = x.kind();
-                if kind != HoldingKind::First && n_hold >= 3 {
+                let captures = kind != HoldingKind::First || self.cfg.cq.first_capture;
+                if captures && n_hold >= 3 {
+                    self.cq.diag[11] += 1;
                     continue;
                 }
                 if x.occupier.is_some() {
+                    self.cq.diag[9] += 1;
                     continue;
                 }
                 let pc = self.prov(pi).coord;
@@ -2130,20 +2375,58 @@ impl Sim {
                     attacker_nearby: true,
                     now,
                 };
-                if may_besiege(&chk).is_err() {
-                    continue;
+                match may_besiege(&chk) {
+                    Ok(()) => {}
+                    Err(SiegeRefusal::Heartland) => {
+                        self.cq.diag[6] += 1;
+                        continue;
+                    }
+                    Err(SiegeRefusal::Shielded) => {
+                        self.cq.diag[7] += 1;
+                        continue;
+                    }
+                    Err(_) => {
+                        self.cq.diag[8] += 1;
+                        continue;
+                    }
                 }
+                self.cq.diag[12
+                    + match kind {
+                        HoldingKind::FreeCity => 0,
+                        HoldingKind::First => 1,
+                        _ => 2,
+                    }] += 1;
                 // Value: a live stake to occupy, a holding to capture.
                 let dormant = x.free_city() || x.h.is_dormant(now);
-                let value = match kind {
-                    HoldingKind::First if dormant => continue,
+                let mut value = match kind {
+                    HoldingKind::First if self.cfg.cq.first_capture => 1.5,
+                    HoldingKind::First if dormant => {
+                        self.cq.diag[10] += 1;
+                        continue;
+                    }
                     HoldingKind::First => 1.0,
                     _ => 1.5,
                 };
+                if self.cfg.cq.target_control {
+                    let m = self.prov(pi).march as usize;
+                    if let (Some(&c), Some(ws)) = (self.cq_ctrl.get(m), self.cq_w.get(m)) {
+                        let tot: u64 = ws.iter().sum();
+                        let mine = ws[faction as usize];
+                        let tw = x.stake.weight;
+                        value *= if c == faction as u32 {
+                            0.5
+                        } else if (mine + tw) * 2 >= tot {
+                            3.0
+                        } else {
+                            1.5
+                        };
+                    }
+                }
                 cands.push((value, t));
             }
         }
         if cands.is_empty() {
+            self.cq.diag[3] += 1;
             return 0;
         }
         // Skilled players weigh value against defence; others take the
@@ -2163,10 +2446,69 @@ impl Sim {
         def += p.q * self.expected_reinforcement(t);
         let margin = 3.0 + (1.0 - p.q);
         let need = def * margin / per_troop; // milli-troops
-        if (avail as f64) < need {
+                                             // Conquest lab: a rally (Company or Warden rally point, delegated
+                                             // command) adds faction-mates' hosts from holdings within march
+                                             // range of the target: at most `rally` of them (4 arrival slots
+                                             // per faction per province-bell, one is the declarer's).
+        let mut helpers: Vec<(u32, u32, MilliTroops)> = Vec::new();
+        if (avail as f64) < need && self.cfg.cq.rally > 0 {
+            let tpc = self.prov(self.holds[t as usize].prov).coord;
+            let mut cands: Vec<(MilliTroops, u32, u32)> = Vec::new();
+            for pi in self.provinces_near(tpc, MAX_MARCH_DIST) {
+                for &h in &self.prov(pi).site_h {
+                    if h == NONE {
+                        continue;
+                    }
+                    let y = &self.holds[h as usize];
+                    if !y.alive || y.free_city() || y.faction != faction || y.owner == a {
+                        continue;
+                    }
+                    if y.siege.is_some() || y.occupier.is_some() {
+                        continue;
+                    }
+                    let arch = self.agents[y.owner as usize].arch;
+                    if arch == Arch::Idle {
+                        continue;
+                    }
+                    let keep = troops(garrison_target(y.h.tier) / 4);
+                    let give = y.garrison.saturating_sub(keep) / 2;
+                    if give >= MIN_HOST_TROOPS {
+                        cands.push((give, h, y.owner));
+                    }
+                }
+            }
+            cands.sort_unstable_by(|x, y| y.0.cmp(&x.0).then(x.1.cmp(&y.1)));
+            let mut got = avail as f64;
+            let mut seen: Vec<u32> = vec![a];
+            for (give, h, o) in cands {
+                if helpers.len() as u32 >= self.cfg.cq.rally || got >= need {
+                    break;
+                }
+                if seen.contains(&o) {
+                    continue;
+                }
+                let pa = self.profiles[self.agents[o as usize].arch.idx()].aggression;
+                if !self.rng.chance(pa.max(0.25)) {
+                    continue;
+                }
+                seen.push(o);
+                helpers.push((h, o, give));
+                got += give as f64;
+            }
+            if got < need {
+                helpers.clear();
+            }
+        }
+        if (avail as f64) < need && helpers.is_empty() {
+            self.cq.diag[4] += 1;
             return 0;
         }
-        let n = (need * 1.2).min(avail as f64) as MilliTroops;
+        self.cq.diag[5] += 1;
+        let mut n = (need * 1.2).min(avail as f64) as MilliTroops;
+        if self.cfg.cq.launch_floor {
+            // Lab fix: a host is at least MIN_HOST_TROOPS (send refuses less).
+            n = n.max(MIN_HOST_TROOPS.min(avail));
+        }
         let (tp, tt, tf, walls, kind) = {
             let x = &self.holds[t as usize];
             (
@@ -2177,9 +2519,25 @@ impl Sim {
                 x.kind(),
             )
         };
+        if self
+            .travel(faction, self.holds[src as usize].prov, tp, b)
+            .is_none()
+        {
+            self.cq.diag[15] += 1;
+        }
         let Some(host) = self.send(a, src, n, tp, tt, Mission::Siege(t), b, p, None) else {
+            self.cq.diag[8] += 1;
             return 0;
         };
+        for (h, o, give) in helpers {
+            let prof = self.profiles[self.agents[o as usize].arch.idx()];
+            if self
+                .send(o, h, give, tp, tt, Mission::Rally(t), b, &prof, None)
+                .is_some()
+            {
+                self.cq.diag[1] += 0;
+            }
+        }
         // Declare: the siege horn, 5 laurels escrowed (counted laurels if
         // the attacker has them).
         let stake_counted = self.counted(a) >= SIEGE_STAKE;
@@ -2189,7 +2547,7 @@ impl Sim {
         self.escrow += SIEGE_STAKE;
         self.stats.sieges_declared += 1;
         self.holds[t as usize].siege = Some(SiegeRec {
-            s: Siege::declare(faction, b, walls, 0),
+            s: Siege::declare(faction, b, walls, self.cfg.cq.siege_extra),
             attacker: a,
             stake_counted,
             host,
@@ -2404,6 +2762,11 @@ impl Sim {
         for t in sieges {
             self.advance_siege(t, b);
         }
+        let ks: Vec<u32> = self.keep_sieges.iter().copied().collect();
+        for pi in ks {
+            self.advance_keep(pi, b);
+        }
+        self.mc_after_clashes(b);
     }
 
     fn contested(&self, pi: u32, b: u32) -> bool {
@@ -2428,6 +2791,18 @@ impl Sim {
                 }
             }
             if p.camp.as_ref().is_some_and(|c| c.tile == x.tile) {
+                return true;
+            }
+            if p.keep
+                .as_ref()
+                .is_some_and(|k| k.tile == x.tile && k.faction != x.faction)
+            {
+                return true;
+            }
+            if p.mkeep
+                .as_ref()
+                .is_some_and(|k| k.tile == x.tile && k.holder != x.faction)
+            {
                 return true;
             }
         }
@@ -2540,6 +2915,27 @@ impl Sim {
                 }
             })
             .collect();
+        let mut garrisons = garrisons;
+        if let Some(k) = &p.mkeep {
+            garrisons.push(Garrison {
+                id: KEEP_BIT | pi as u64,
+                faction: k.holder,
+                tile: k.tile,
+                troops: k.troops,
+                walls: true,
+                posture: Posture::default(),
+            });
+        }
+        if let Some(k) = &p.keep {
+            garrisons.push(Garrison {
+                id: KEEP_BIT | pi as u64,
+                faction: k.faction,
+                tile: k.tile,
+                troops: k.troops,
+                walls: true,
+                posture: Posture::default(),
+            });
+        }
         let disarray_n = if self.cfg.attack.is_some() {
             garrisons
                 .iter()
@@ -2607,6 +3003,22 @@ impl Sim {
         }
         // Garrisons.
         for g in &out.garrisons {
+            if g.id & KEEP_BIT != 0 {
+                if let Some(k) = self.prov_mut(pi).keep.as_mut() {
+                    k.troops = g.troops;
+                    k.report = Some((b, g.holders, g.defender_present));
+                }
+                let mc_keep = self.prov(pi).mkeep.is_some();
+                if mc_keep {
+                    let pr = self.prov_mut(pi);
+                    if let Some(k) = pr.mkeep.as_mut() {
+                        k.troops = g.troops;
+                    }
+                    pr.mkreport = Some((b, g.holders, g.defender_present));
+                    self.mcs.keep_resolved.push(pi);
+                }
+                continue;
+            }
             let hid = g.id as u32;
             let changed = self.holds[hid as usize].garrison != g.troops;
             self.holds[hid as usize].garrison = g.troops;
@@ -2625,6 +3037,7 @@ impl Sim {
         // Hosts and the camp.
         let mut camp_beaten = false;
         let mut camp_winners: Vec<u32> = Vec::new();
+        let mut late_rally: Vec<u32> = Vec::new();
         for f in &out.fighters {
             if f.id & CAMP_BIT != 0 {
                 if !matches!(f.fate, Fate::Stays { .. }) || f.troops == 0 {
@@ -2663,6 +3076,27 @@ impl Sim {
                     if self.hosts[h as usize].mission == Mission::Camp {
                         camp_winners.push(h);
                     }
+                    if let Mission::Rally(t) = self.hosts[h as usize].mission {
+                        if self.holds[t as usize].siege.is_none() && f.arrival {
+                            late_rally.push(h);
+                        }
+                    }
+                    if self.cfg.rules.keeps() {
+                        if f.arrival && self.mc_keep_arrival_idle(h) {
+                            late_rally.push(h);
+                        }
+                    } else if let Mission::Keep(kp)
+                    | Mission::KeepRally(kp)
+                    | Mission::KeepDefend(kp) = self.hosts[h as usize].mission
+                    {
+                        let sieged = self.provs[kp as usize]
+                            .as_ref()
+                            .and_then(|q| q.keep)
+                            .is_some_and(|k| k.siege.is_some());
+                        if !sieged && f.arrival {
+                            late_rally.push(h);
+                        }
+                    }
                 }
                 Fate::Bounced | Fate::Retreated => {
                     self.unstation(pi, h);
@@ -2672,6 +3106,12 @@ impl Sim {
                     self.unstation(pi, h);
                     self.hosts[h as usize].state = HState::Dead;
                 }
+            }
+        }
+        for h in late_rally {
+            if self.hosts[h as usize].state != HState::Dead {
+                self.unstation(pi, h);
+                self.send_home(h, b);
             }
         }
         if camp_beaten {
@@ -2701,7 +3141,11 @@ impl Sim {
                 self.send_home(h, b);
             }
         }
-        // Occupations end when the occupier no longer stands on the hex.
+        // Occupations end when the occupier no longer stands on the hex
+        // (M1; under MC at the bell's count, `mc_after_clashes`).
+        if self.mc() {
+            return;
+        }
         let sites: Vec<u32> = self.prov(pi).site_h.clone();
         for g in sites {
             if g == NONE {
@@ -2836,7 +3280,10 @@ impl Sim {
             .stationed
             .iter()
             .copied()
-            .filter(|&h| self.hosts[h as usize].mission == Mission::Defend(t))
+            .filter(|&h| {
+                let m = self.hosts[h as usize].mission;
+                m == Mission::Defend(t) || m == Mission::Rally(t)
+            })
             .collect();
         for h in defenders {
             self.unstation(pi, h);
@@ -2864,7 +3311,12 @@ impl Sim {
             return;
         }
         self.stats.sieges_completed += 1;
-        match completion(rec.kind) {
+        let comp = if self.cfg.cq.first_capture && rec.kind == HoldingKind::First {
+            Some(Completion::Capture)
+        } else {
+            completion(rec.kind)
+        };
+        match comp {
             Some(Completion::Occupy) => {
                 if host_there && owner != NONE {
                     self.stats.occupations += 1;
@@ -3042,6 +3494,606 @@ impl Sim {
         }
     }
 
+    // -------------------------------------------------------- conquest lab
+
+    /// The faction a holding's strength weight counts for in the control
+    /// layer: none when dead, a Free City or detached (dormant); the
+    /// occupier's faction while occupied under `CqRules::occ_control`.
+    fn ctrl_faction(&self, x: &Hold) -> Option<u8> {
+        if !x.alive || x.free_city() || !x.attached {
+            return None;
+        }
+        match x.occupier {
+            Some((o, _)) if self.cfg.cq.occ_control => Some(self.agents[o as usize].faction),
+            _ => Some(x.faction),
+        }
+    }
+
+    /// Day-end snapshot of the control layer (Marches and provinces).
+    pub fn cq_snapshot(&mut self, day: u32) {
+        let nm = self.marches.len();
+        let np = self.provs.len();
+        let mut mw = vec![[0u64; 6]; nm];
+        let mut pw = vec![[0u64; 6]; np];
+        let mut mhome = vec![[0u32; 6]; nm];
+        let mut mopen = vec![0u64; nm];
+        let mut provs_open = 0u32;
+        let mut pwedge = vec![255u8; np];
+        let mut neutral_keeps = 0u32;
+        for (i, p) in self.provs.iter().enumerate() {
+            if let Some(p) = p {
+                provs_open += 1;
+                pwedge[i] = p.wedge;
+                mhome[p.march as usize][p.wedge as usize % 6] += 1;
+                mopen[p.march as usize] += 1;
+                let kf = p.keep.map(|k| k.faction).or(p.mkeep.map(|k| k.holder));
+                if let Some(kf) = kf {
+                    if (kf as usize) < 6 {
+                        mw[p.march as usize][kf as usize] += 1;
+                        pw[i][kf as usize] += 1;
+                    } else {
+                        neutral_keeps += 1;
+                    }
+                }
+            }
+        }
+        let keeps = self.cfg.cq.keeps || self.cfg.rules.keeps();
+        let (mut holdings, mut foreign_h, mut occupied) = (0u32, 0u32, 0u32);
+        for x in &self.holds {
+            if x.occupier.is_some() && x.alive {
+                occupied += 1;
+            }
+            let Some(cf) = self.ctrl_faction(x) else {
+                continue;
+            };
+            let p = self.prov(x.prov);
+            if !keeps {
+                mw[p.march as usize][cf as usize] += x.stake.weight;
+                pw[x.prov as usize][cf as usize] += x.stake.weight;
+            }
+            holdings += 1;
+            if cf != p.wedge {
+                foreign_h += 1;
+            }
+        }
+        // Weight model: >= 50% of the faction-held weight. Keep model: a
+        // province is its keep's; a March needs > 50% of its open keeps.
+        let ctl = |ws: &[u64; 6], open: u64| -> u32 {
+            let tot: u64 = if keeps { open } else { ws.iter().sum() };
+            if tot == 0 {
+                return NONE;
+            }
+            if keeps {
+                (0..6).find(|&f| ws[f] * 2 > tot).map_or(NONE, |f| f as u32)
+            } else {
+                (0..6)
+                    .find(|&f| ws[f] * 2 >= tot)
+                    .map_or(NONE, |f| f as u32)
+            }
+        };
+        let t = &mut self.cq;
+        t.prev.resize(nm, NONE);
+        t.ever.resize(nm, 0);
+        t.pprev.resize(np, NONE);
+        t.pever.resize(np, 0);
+        let mut row = crate::conquest::DayRow {
+            day,
+            marches_open: nm as u32,
+            provs_open,
+            neutral_keeps,
+            ..Default::default()
+        };
+        let home_of = |h: &[u32; 6]| (0..6).max_by_key(|&f| (h[f], 6 - f)).unwrap();
+        let mut now_m = vec![NONE; nm];
+        for m in 0..nm {
+            let c = ctl(&mw[m], mopen[m]);
+            now_m[m] = c;
+            let home = home_of(&mhome[m]);
+            row.home_by_faction[home] += 1;
+            if c != NONE {
+                row.controlled += 1;
+                row.by_faction[c as usize] += 1;
+                if c as usize != home {
+                    row.foreign += 1;
+                }
+            }
+            let pv = t.prev[m];
+            if pv != c && !(pv == NONE && t.ever[m] == 0) {
+                row.changes += 1;
+                if pv != NONE && c != NONE {
+                    row.flips += 1;
+                }
+            }
+            if c != NONE {
+                t.ever[m] |= 1 << c;
+            }
+            t.prev[m] = c;
+        }
+        let mut pday = vec![255u8; np];
+        for i in 0..np {
+            if pwedge[i] == 255 {
+                continue;
+            }
+            let c = ctl(&pw[i], 1);
+            if c != NONE {
+                pday[i] = c as u8;
+                row.pby_faction[c as usize] += 1;
+            }
+            if c != NONE {
+                row.pcontrolled += 1;
+                if c as u8 != pwedge[i] {
+                    row.pforeign += 1;
+                }
+            }
+            let pv = t.pprev[i];
+            if pv != c && !(pv == NONE && t.pever[i] == 0) {
+                row.pchanges += 1;
+                if pv != NONE && c != NONE {
+                    row.pflips += 1;
+                }
+            }
+            if c != NONE {
+                t.pever[i] |= 1 << c;
+            }
+            t.pprev[i] = c;
+        }
+        let st = &self.stats;
+        let cur = [
+            st.sieges_declared,
+            st.sieges_completed,
+            st.occupations,
+            st.captures,
+            st.free_city_captures,
+            st.liberations,
+        ];
+        row.sieges = cur[0] - t.last[0];
+        row.completed = cur[1] - t.last[1];
+        row.occupations = cur[2] - t.last[2];
+        row.captures = cur[3] - t.last[3];
+        row.fc_captures = cur[4] - t.last[4];
+        row.liberations = cur[5] - t.last[5];
+        t.last = cur;
+        let kc = [t.keep_sieges, t.keep_captures, t.keep_failed];
+        row.keep_sieges = kc[0] - t.klast[0];
+        row.keep_captures = kc[1] - t.klast[1];
+        row.keep_failed = kc[2] - t.klast[2];
+        t.klast = kc;
+        row.holdings = holdings;
+        row.foreign_holdings = foreign_h;
+        row.occupied_now = occupied;
+        t.rows.push(row);
+        t.series.push(now_m);
+        t.pseries.push(pday);
+    }
+
+    // -------------------------------------------------------- keeps (K-model)
+
+    /// Expected strength a keep's faction sends under the standing order
+    /// (holdings of that faction in the keep's March, the 4 largest 25%).
+    fn keep_reinforcement(&self, pi: u32, f: u8) -> f64 {
+        let m = self.prov(pi).march;
+        let c = self.prov(pi).coord;
+        let mut v: Vec<MilliTroops> = Vec::new();
+        for q in self.provinces_near(c, 2) {
+            if self.prov(q).march != m {
+                continue;
+            }
+            for &h in &self.prov(q).site_h {
+                if h == NONE {
+                    continue;
+                }
+                let y = &self.holds[h as usize];
+                if y.alive && y.faction == f && !y.free_city() {
+                    v.push(y.garrison / 4);
+                }
+            }
+        }
+        v.sort_unstable_by(|a, b| b.cmp(a));
+        v.iter().take(4).map(|&g| g as f64 * 10.0).sum()
+    }
+
+    /// A session's attempt on a keep near the wallet's strongest holding.
+    fn keep_war(&mut self, a: u32, b: u32, p: &Profile) -> i64 {
+        let (faction, hs) = {
+            let ag = &self.agents[a as usize];
+            (ag.faction, ag.holdings.clone())
+        };
+        let d = self.doctrine[faction as usize];
+        let per_troop = permutation_rules::units::stats(d.k.unit).strength as f64;
+        let Some(&src) = hs.iter().max_by_key(|&&h| self.holds[h as usize].garrison) else {
+            return 0;
+        };
+        let keep_back = troops(garrison_target(self.holds[src as usize].h.tier) / 4);
+        let avail = self.holds[src as usize].garrison.saturating_sub(keep_back);
+        if avail < 2 * MIN_HOST_TROOPS {
+            return 0;
+        }
+        if let Some(cap) = self.cfg.cq.cap_share_bps {
+            if self.cq_share[faction as usize] > cap {
+                return 0;
+            }
+        }
+        let centre = self.prov(self.holds[src as usize].prov).coord;
+        let near = self.provinces_near(centre, self.cfg.cq.radius);
+        let mut best: Option<(f64, u32, f64)> = None;
+        for pi in near {
+            let pr = self.prov(pi);
+            let Some(k) = pr.keep else { continue };
+            if k.faction == faction || k.siege.is_some() {
+                continue;
+            }
+            if k.prev != 255 && b < k.since + self.cfg.cq.keep_shield {
+                continue;
+            }
+            if self.cfg.cq.keep_heartland_safe
+                && k.faction != NEUTRAL
+                && is_heartland(pr.coord, k.faction)
+            {
+                continue;
+            }
+            let mut value = if k.faction == NEUTRAL { 1.0 } else { 1.2 };
+            if self.cfg.cq.target_control {
+                // Keeps of the March: would this one tip it?
+                let m = pr.march;
+                let mc = march_of(pr.coord);
+                let (mut own, mut open) = (0u32, 0u32);
+                for q in permutation_rules::frontier::geometry::march_members(mc) {
+                    if let Some(qi) = self.prov_at(q) {
+                        let qq = self.prov(qi);
+                        if qq.march != m {
+                            continue;
+                        }
+                        open += 1;
+                        if qq.keep.is_some_and(|x| x.faction == faction) {
+                            own += 1;
+                        }
+                    }
+                }
+                if (own + 1) * 2 > open && own * 2 <= open {
+                    value *= 3.0;
+                } else if own > 0 {
+                    value *= 1.5;
+                }
+            }
+            let mut def = k.troops as f64 * 10.0 * 1.5;
+            for &h in &pr.stationed {
+                let y = &self.hosts[h as usize];
+                if y.tile == k.tile && y.faction == k.faction {
+                    def += host_strength(y.unit, y.troops) as f64;
+                }
+            }
+            if k.faction != NEUTRAL {
+                def += p.q * self.keep_reinforcement(pi, k.faction);
+            }
+            let def = (def * self.rng.lognormal(0.6 * (1.0 - p.q) + 0.05)).max(1.0);
+            let score = value / def;
+            if best.is_none_or(|x| score > x.0) {
+                best = Some((score, pi, def));
+            }
+        }
+        let Some((_, pi, def)) = best else { return 0 };
+        let margin = 2.0 + (1.0 - p.q);
+        let need = def * margin / per_troop;
+        let k = self.prov(pi).keep.expect("keep");
+        // Rally faction-mates within march range of the keep.
+        let mut helpers: Vec<(u32, u32, MilliTroops)> = Vec::new();
+        if (avail as f64) < need && self.cfg.cq.rally > 0 {
+            let tpc = self.prov(pi).coord;
+            let mut cands: Vec<(MilliTroops, u32, u32)> = Vec::new();
+            for q in self.provinces_near(tpc, MAX_MARCH_DIST) {
+                for &h in &self.prov(q).site_h {
+                    if h == NONE {
+                        continue;
+                    }
+                    let y = &self.holds[h as usize];
+                    if !y.alive || y.free_city() || y.faction != faction || y.owner == a {
+                        continue;
+                    }
+                    if y.siege.is_some() || y.occupier.is_some() {
+                        continue;
+                    }
+                    if self.agents[y.owner as usize].arch == Arch::Idle {
+                        continue;
+                    }
+                    let kb = troops(garrison_target(y.h.tier) / 4);
+                    let give = y.garrison.saturating_sub(kb) / 2;
+                    if give >= MIN_HOST_TROOPS {
+                        cands.push((give, h, y.owner));
+                    }
+                }
+            }
+            cands.sort_unstable_by(|x, y| y.0.cmp(&x.0).then(x.1.cmp(&y.1)));
+            let mut got = avail as f64;
+            let mut seen: Vec<u32> = vec![a];
+            for (give, h, o) in cands {
+                if helpers.len() as u32 >= self.cfg.cq.rally || got >= need {
+                    break;
+                }
+                if seen.contains(&o) {
+                    continue;
+                }
+                let pa = self.profiles[self.agents[o as usize].arch.idx()].aggression;
+                if !self.rng.chance(pa.max(0.25)) {
+                    continue;
+                }
+                seen.push(o);
+                helpers.push((h, o, give));
+                got += give as f64;
+            }
+            if got < need {
+                helpers.clear();
+            }
+        }
+        if (avail as f64) < need && helpers.is_empty() {
+            return 1;
+        }
+        let n = ((need * 1.2).min(avail as f64) as MilliTroops).max(MIN_HOST_TROOPS.min(avail));
+        let against = if k.faction == NEUTRAL {
+            None
+        } else {
+            Some(k.faction)
+        };
+        let Some(host) = self.send(a, src, n, pi, k.tile, Mission::Keep(pi), b, p, against) else {
+            return 1;
+        };
+        for (h, o, give) in helpers {
+            let prof = self.profiles[self.agents[o as usize].arch.idx()];
+            let _ = self.send(
+                o,
+                h,
+                give,
+                pi,
+                k.tile,
+                Mission::KeepRally(pi),
+                b,
+                &prof,
+                against,
+            );
+        }
+        self.cq.keep_sieges += 1;
+        if let Some(kk) = self.prov_mut(pi).keep.as_mut() {
+            kk.siege = Some(KeepSiege {
+                faction,
+                attacker: a,
+                host,
+                declared: b,
+                progress: 0,
+                held: false,
+            });
+        }
+        self.keep_sieges.insert(pi);
+        // Standing order: the keep's faction's holdings in the March send
+        // 25% (the 4 largest), as for a besieged holding.
+        if k.faction != NEUTRAL {
+            let m = self.prov(pi).march;
+            let c = self.prov(pi).coord;
+            let mut donors: Vec<(MilliTroops, u32)> = Vec::new();
+            for q in self.provinces_near(c, 2) {
+                if self.prov(q).march != m {
+                    continue;
+                }
+                for &h in &self.prov(q).site_h {
+                    if h == NONE {
+                        continue;
+                    }
+                    let y = &self.holds[h as usize];
+                    if y.alive
+                        && y.faction == k.faction
+                        && !y.free_city()
+                        && self.agents[y.owner as usize].arch != Arch::Idle
+                        && y.siege.is_none()
+                    {
+                        donors.push((y.garrison / 4, h));
+                    }
+                }
+            }
+            donors.sort_unstable_by(|x, y| y.0.cmp(&x.0).then(x.1.cmp(&y.1)));
+            let mut sent = 0;
+            for (g, h) in donors {
+                if sent == 4 || g < MIN_HOST_TROOPS {
+                    break;
+                }
+                let owner = self.holds[h as usize].owner;
+                let prof = self.profiles[self.agents[owner as usize].arch.idx()];
+                if self
+                    .send(
+                        owner,
+                        h,
+                        g,
+                        pi,
+                        k.tile,
+                        Mission::KeepDefend(pi),
+                        b,
+                        &prof,
+                        Some(faction),
+                    )
+                    .is_some()
+                {
+                    sent += 1;
+                }
+            }
+        }
+        2
+    }
+
+    /// One bell of a keep siege: progress while the declaring faction
+    /// holds the keep's hex with no defender on it; failure when it loses
+    /// the hex after holding it, or never holds it within the start window.
+    fn advance_keep(&mut self, pi: u32, b: u32) {
+        let Some(k) = self.prov(pi).keep else {
+            self.keep_sieges.remove(&pi);
+            return;
+        };
+        let Some(mut sg) = k.siege else {
+            self.keep_sieges.remove(&pi);
+            return;
+        };
+        let (holds, def) = match k.report {
+            Some((rb, holders, def)) if rb == b => (holders & (1 << sg.faction) != 0, def),
+            _ => (false, false),
+        };
+        let mut done: Option<bool> = None;
+        if holds {
+            sg.held = true;
+            if !def && b >= sg.declared + self.cfg.cq.keep_horn {
+                sg.progress += 1;
+            }
+            if sg.progress >= self.cfg.cq.keep_bells {
+                done = Some(true);
+            }
+        } else if sg.held || b > sg.declared + 72 + self.cfg.cq.keep_horn {
+            done = Some(false);
+        }
+        if let Some(kk) = self.prov_mut(pi).keep.as_mut() {
+            kk.siege = Some(sg);
+        }
+        if let Some(ok) = done {
+            self.keep_done(pi, b, ok);
+        }
+    }
+
+    fn keep_done(&mut self, pi: u32, b: u32, ok: bool) {
+        let Some(mut k) = self.prov(pi).keep else {
+            return;
+        };
+        let Some(sg) = k.siege.take() else { return };
+        self.keep_sieges.remove(&pi);
+        let helpers: Vec<u32> = self
+            .prov(pi)
+            .stationed
+            .iter()
+            .copied()
+            .filter(|&h| {
+                matches!(
+                    self.hosts[h as usize].mission,
+                    Mission::KeepRally(x) | Mission::KeepDefend(x) if x == pi
+                )
+            })
+            .collect();
+        for h in helpers {
+            self.unstation(pi, h);
+            self.send_home(h, b);
+        }
+        let host = sg.host;
+        let there = matches!(self.hosts[host as usize].state, HState::Stationed { .. });
+        if ok {
+            self.cq.keep_captures += 1;
+            self.cq.kcap_by[sg.faction as usize] += 1;
+            self.cq.klost_by[(k.faction as usize).min(6)] += 1;
+            let tenure = b.saturating_sub(k.since);
+            let bin = match tenure {
+                0..=35 => 0,
+                36..=143 => 1,
+                144..=431 => 2,
+                432..=1007 => 3,
+                _ => 4,
+            };
+            self.cq.tenure[bin] += 1;
+            if k.prev == sg.faction && tenure < 432 {
+                self.cq.flicker += 1;
+            }
+            if k.faction == NEUTRAL {
+                self.cq.from_neutral += 1;
+            }
+            k.prev = k.faction;
+            k.since = b;
+            k.faction = sg.faction;
+            k.captor = sg.attacker;
+            let ht = if there {
+                self.hosts[host as usize].troops
+            } else {
+                0
+            };
+            let gar = (ht as u128 * self.cfg.cq.keep_garrison_bps as u128 / 10_000) as MilliTroops;
+            k.troops = gar;
+            if there {
+                let home = self.hosts[host as usize].home;
+                self.hosts[host as usize].troops -= gar;
+                let y = &mut self.holds[home as usize];
+                y.away = y.away.saturating_sub(gar);
+                self.refresh_upkeep(home, b);
+                if self.hosts[host as usize].troops < MIN_HOST_TROOPS {
+                    let rest = self.hosts[host as usize].troops;
+                    k.troops += rest;
+                    self.hosts[host as usize].troops = 0;
+                    let y = &mut self.holds[home as usize];
+                    y.away = y.away.saturating_sub(rest);
+                    self.unstation(pi, host);
+                    self.hosts[host as usize].state = HState::Dead;
+                } else {
+                    self.unstation(pi, host);
+                    self.send_home(host, b);
+                }
+            }
+        } else {
+            self.cq.keep_failed += 1;
+            if there {
+                self.unstation(pi, host);
+                self.send_home(host, b);
+            }
+        }
+        k.siege = None;
+        self.prov_mut(pi).keep = Some(k);
+    }
+
+    /// Daily supply: a faction keep with no holding of its faction within
+    /// 3 provinces keeps `keep_supply_bps` of its garrison.
+    fn keep_supply(&mut self) {
+        let keep_bps = self.cfg.cq.keep_supply_bps as u128;
+        let idxs: Vec<u32> = self
+            .provs
+            .iter()
+            .enumerate()
+            .filter_map(|(i, p)| {
+                p.as_ref()
+                    .and_then(|p| p.keep)
+                    .filter(|k| (k.faction as usize) < 6 && k.troops > 0)
+                    .map(|_| i as u32)
+            })
+            .collect();
+        for pi in idxs {
+            let k = self.prov(pi).keep.expect("keep");
+            let c = self.prov(pi).coord;
+            let supplied = self.provinces_near(c, 3).into_iter().any(|q| {
+                self.prov(q).site_h.iter().any(|&h| {
+                    h != NONE && {
+                        let y = &self.holds[h as usize];
+                        y.alive && y.faction == k.faction && !y.free_city()
+                    }
+                })
+            });
+            if !supplied {
+                if let Some(kk) = self.prov_mut(pi).keep.as_mut() {
+                    kk.troops = (kk.troops as u128 * keep_bps / 10_000) as MilliTroops;
+                }
+            }
+        }
+    }
+
+    /// Hourly Dominion credit of captured keeps (K-model, `keep_dom`).
+    fn keep_dominion(&mut self) {
+        let per = self.cfg.cq.keep_dom;
+        if per == 0 {
+            return;
+        }
+        let mut credits: Vec<u32> = Vec::new();
+        for p in self.provs.iter().flatten() {
+            if let Some(k) = &p.keep {
+                if (k.faction as usize) < 6 && k.captor != NONE {
+                    credits.push(k.captor);
+                }
+            }
+        }
+        for a in credits {
+            if self.agents[a as usize].faction as usize == {
+                // the captor's faction still holds it (captor never changes faction)
+                self.agents[a as usize].faction as usize
+            } {
+                self.agents[a as usize].facts[0] += per;
+            }
+        }
+    }
+
     // -------------------------------------------------------- folds
 
     /// Hourly `FoldMarch` (Dominion: a faction controls a March in a bell
@@ -3051,11 +4103,11 @@ impl Sim {
         let nm = self.marches.len();
         let mut w = vec![[0u64; 7]; nm];
         for x in &self.holds {
-            if !x.alive || x.free_city() || !x.attached {
+            let Some(cf) = self.ctrl_faction(x) else {
                 continue;
-            }
+            };
             let m = self.prov(x.prov).march as usize;
-            w[m][x.faction as usize] += x.stake.weight;
+            w[m][cf as usize] += x.stake.weight;
         }
         let mut control = vec![NONE; nm];
         for (m, ws) in w.iter().enumerate() {
@@ -3086,15 +4138,38 @@ impl Sim {
                         .sum();
                 self.agents[owner].facts[1] += (prod / MILLI).max(0) as u64;
             }
-            if x.attached {
+            if let Some(cf) = self.ctrl_faction(x).filter(|_| !self.cfg.rules.mc()) {
                 let m = self.prov(x.prov).march as usize;
-                if control[m] == x.faction as u32 {
-                    let tot = w[m][x.faction as usize].max(1);
-                    self.agents[owner].facts[0] +=
+                if control[m] == cf as u32 {
+                    let tot = w[m][cf as usize].max(1);
+                    let who = match x.occupier {
+                        Some((o, _)) if self.cfg.cq.occ_control => o as usize,
+                        _ => owner,
+                    };
+                    self.agents[who].facts[0] +=
                         (6_000u128 * x.stake.weight as u128 / tot as u128) as u64;
                 }
             }
         }
+        let mut share = [0u32; 6];
+        let ctl = control.iter().filter(|&&c| c != NONE).count().max(1) as u64;
+        for &c in &control {
+            if c != NONE {
+                share[c as usize] += 1;
+            }
+        }
+        for v in share.iter_mut() {
+            *v = (*v as u64 * 10_000 / ctl) as u32;
+        }
+        self.cq_share = share;
+        self.cq_ctrl = control;
+        if self.mc() {
+            self.mc_dominion(b);
+        }
+        self.cq_w = w
+            .iter()
+            .map(|x| [x[0], x[1], x[2], x[3], x[4], x[5]])
+            .collect();
     }
 
     /// Per-faction facts as `FoldFaction` would read them on `day`:
@@ -3302,7 +4377,8 @@ impl Sim {
 
     pub fn finish(&mut self) {
         let b = self.end_bell;
-        let last_term = self.cfg.days / TERM_DAYS - 1;
+        self.cq_snapshot(self.cfg.days - 1);
+        let last_term = self.cfg.days.div_ceil(TERM_DAYS) - 1;
         // Freeze and bank every holding (BankAfterEnd) first, so the last
         // credits' 10% reach the last term's Mandate budget.
         for hid in 0..self.holds.len() as u32 {
@@ -3326,6 +4402,8 @@ impl Sim {
             }
         }
         self.siege_holds.clear();
+        self.keep_sieges.clear();
+        self.mc_finish();
         self.term_end(last_term);
         self.stats.mandate_left = self.reserve.iter().map(|r| r.balance).sum();
     }
