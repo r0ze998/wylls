@@ -74,10 +74,20 @@ pub const CONQUEST_VERSION: u8 = 1;
 /// Rules version of the MC kernels (`RULES_VERSION_FRONTIER` 10 → 11, §3.13).
 pub const RULES_VERSION_V2: u16 = crate::v2::kernel::RULES_VERSION_FRONTIER_V2;
 /// Largest bell timer CreateSeason accepts (§5.2.5: 30 days of bells).
-pub const MAX_TIMER_BELLS: u32 = 4_320;
-/// `MAX_HOST_TROOPS` in whole troops (keep and Free City guards, R-01).
-pub const MAX_GUARD_TROOPS: u32 =
-    permutation_rules::frontier::host::MAX_HOST_TROOPS / permutation_rules::fixed::MILLI as u32;
+/// The kernel's `conquest_bounds` (bound into `RULESET_HASH_V2`), not a
+/// copy (integ-W1, review CQ1-C): tenure, Respite, consolidation and
+/// capture credit share the one bound.
+pub const MAX_TIMER_BELLS: u32 =
+    permutation_rules::frontier::conquest_bounds::TENURE_BELLS_MAX as u32;
+/// `MAX_HOST_TROOPS` in whole troops (keep and Free City guards, R-01):
+/// the kernel's `conquest_bounds::GARRISON_MAX`.
+pub const MAX_GUARD_TROOPS: u32 = permutation_rules::frontier::conquest_bounds::GARRISON_MAX;
+
+const _: () = {
+    use permutation_rules::frontier::conquest_bounds as B;
+    assert!(B::KEEP_CONSOLIDATE_BELLS_MAX as u32 == MAX_TIMER_BELLS);
+    assert!(B::CAPTURE_CREDIT_MIN_BELLS_MAX == MAX_TIMER_BELLS);
+};
 
 /// `RULESET_HASH_V2` (§3.13, R-16): the hash a v2 program embeds and
 /// CreateSeason v2 writes, pinned by `ruleset_hash_v2_is_the_kernels`
@@ -241,27 +251,39 @@ impl ConquestParams {
         let p = self;
         let season_secs = end_bell as u64 * 600;
         let secs_ok = |s: u32| s as u64 <= season_secs;
+        use permutation_rules::frontier::conquest_bounds as B;
         let bells_ok = |b: u32| b <= MAX_TIMER_BELLS && b <= end_bell;
         let checks: [(bool, &'static str); 26] = [
             (p.conquest_version == CONQUEST_VERSION, "conquest_version"),
-            (p.relations == 0, "relations"),
-            (p.flags == 0, "flags"),
+            (p.relations == B::RELATIONS_MC, "relations"),
+            (p.flags == B::FLAGS_MC, "flags"),
             (
-                (2..=6).contains(&p.heartland_max_ring),
+                (B::HEARTLAND_MAX_RING_MIN..=B::HEARTLAND_MAX_RING_MAX)
+                    .contains(&p.heartland_max_ring),
                 "heartland_max_ring",
             ),
             (
                 p.free_city_min_ring == 0
-                    || (p.free_city_min_ring > p.heartland_max_ring && p.free_city_min_ring <= 64),
+                    || (p.free_city_min_ring > p.heartland_max_ring
+                        && p.free_city_min_ring <= B::FREE_CITY_MIN_RING_MAX),
                 "free_city_min_ring",
             ),
-            ((1..=255).contains(&p.keep_bells), "keep_bells"),
+            (
+                (B::KEEP_BELLS_MIN..=B::KEEP_BELLS_MAX).contains(&p.keep_bells),
+                "keep_bells",
+            ),
             (
                 bells_ok(p.keep_consolidate_bells as u32),
                 "keep_consolidate_bells",
             ),
-            (p.keep_garrison_bps <= 10_000, "keep_garrison_bps"),
-            ((1..=8).contains(&p.sieges_per_day), "sieges_per_day"),
+            (
+                p.keep_garrison_bps <= B::KEEP_GARRISON_BPS_MAX,
+                "keep_garrison_bps",
+            ),
+            (
+                (B::SIEGES_PER_DAY_MIN..=B::SIEGES_PER_DAY_MAX).contains(&p.sieges_per_day),
+                "sieges_per_day",
+            ),
             (
                 bells_ok(p.occupation_tenure_bells as u32),
                 "occupation_tenure_bells",

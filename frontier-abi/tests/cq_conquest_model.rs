@@ -422,6 +422,9 @@ fn cq_occupation_and_liberation() {
     assert_eq!(*b, 214, "the vigil (bells 144..192) pauses it");
     let r = Record::read(&a, site).unwrap();
     assert_eq!((r.kind, r.faction, r.bell), (CR::KIND_OCCUPATION, f, *b));
+    // D-9 revised (integ-W1): the stake is owed to `src` from completion.
+    assert_eq!(r.flags, CR::FLAG_STAKE_TO_SRC);
+    assert!(r.owes());
     // the occupation moves points, not the mirror (D9)
     assert_eq!(a[P::site(site) + SM::FACTION], owner);
     let w = qm::control_weights(&a, 216).unwrap();
@@ -471,7 +474,121 @@ fn cq_occupation_expires_with_respite() {
     assert_eq!(*b, 10 + 72);
     assert_eq!(o.events()[0].code, event::OCCUPATION_EXPIRED);
     let r = Record::read(&a, site).unwrap();
-    assert_eq!((r.faction, r.bell), (f, 82 + 1 + 72));
+    // §3.5 as written: `end + respite_bells` (D-12 withdrawn, integ-W1);
+    // the stake was settled before (flags 0), so nothing is owed.
+    assert_eq!((r.faction, r.bell, r.flags), (f, 82 + 72, 0));
+    assert!(r.bars(f, 82 + 71) && !r.bars(f, 82 + 72) && !r.bars(3, 90));
+}
+
+/// §3.5 Respite on the owner's own liberation (K-09, R-05): the owner's
+/// side retakes the hex before tenure → LIBERATED without the `no_respite`
+/// detail bit, Respite `end + respite_bells` against the occupier's
+/// faction only; an unsettled stake to `src` stays owed (integ-W1).
+#[test]
+fn cq_owner_liberation_gives_respite_against_the_occupier_only() {
+    let mut a = province(5, -1, 100);
+    let site = 0usize;
+    let tile = a[P::SITES + site];
+    let owner = 3u8;
+    set_site(&mut a, site, SM::STATE_HOLDING, owner, 1, 0, 0);
+    let f = 5u8;
+    set_record(
+        &mut a,
+        site,
+        Record {
+            kind: CR::KIND_OCCUPATION,
+            faction: f,
+            flags: CR::FLAG_STAKE_TO_SRC,
+            target: CR::target(CR::TARGET_FIRST, 0),
+            bell: 10,
+            src: 77,
+            ..Record::ZERO
+        },
+    );
+    // the owner's host, 900 troops, stands on its own hex; no occupier host
+    write_entry(
+        &mut a,
+        0,
+        &host(host_id(0, 4, 1, 0, 1).unwrap(), owner, tile, 900, 0),
+    )
+    .unwrap();
+    let out = resolve_bell(&mut a, 20);
+    let ev = out
+        .events()
+        .iter()
+        .find(|e| e.site == site as u8)
+        .copied()
+        .expect("the occupation ends");
+    assert_eq!(ev.code, event::LIBERATED, "with Respite: no detail bit");
+    assert_eq!(ev.faction, f);
+    let r = Record::read(&a, site).unwrap();
+    let respite = prm().cq.respite_bells as u32;
+    assert_eq!(
+        (r.kind, r.faction, r.bell, r.flags, r.src),
+        (CR::KIND_NONE, f, 20 + respite, CR::FLAG_STAKE_TO_SRC, 77)
+    );
+    assert!(r.bars(f, 21) && !r.bars(owner, 21) && !r.bars(1, 21));
+    assert!(r.owes(), "the unsettled stake stays owed");
+    assert_eq!(a[P::site(site) + SM::FACTION], owner, "D9");
+}
+
+/// §5.6 0x61, K-21 at the full fill: a 12-site Province (holdings and
+/// Free Cities) with the camp present and the keep at a 100-troop guard
+/// builds 13 garrisons (12 sites + the keep, the camp dropped), resolves,
+/// and `apply_v2` writes the keep's losses.
+#[test]
+fn cq_twelve_sites_and_the_keep_drop_the_camp_and_write_the_keep() {
+    let (p, q) = (2..30)
+        .flat_map(|p| (-30..30).map(move |q| (p, q)))
+        .find(|&(p, q)| {
+            let c = ProvinceCoord::new(p, q);
+            c.ring() >= 4 && generate_province(&[7u8; 32], c).site_count == 12
+        })
+        .expect("a 12-site province");
+    let mut a = province(p, q, 100);
+    for s in 0..12 {
+        if s % 3 == 0 {
+            set_site(&mut a, s, SM::STATE_FREE_CITY, 6, 0, 0, 300_000);
+        } else {
+            set_site(&mut a, s, SM::STATE_HOLDING, (s % 6) as u8, 1, 0, 50_000);
+        }
+    }
+    let k0 = qm::read_keep(&a).unwrap().unwrap();
+    let sites: Vec<u8> = a[P::SITES..P::SITES + 12].to_vec();
+    let camp_tile = (0..61u8)
+        .find(|t| *t != k0.tile && !sites.contains(t))
+        .unwrap();
+    cm::Camp {
+        tile: camp_tile,
+        state: 1,
+        troops: 400,
+        next_check_day: 1_000,
+        gen: 1,
+    }
+    .write(&mut a)
+    .unwrap();
+    let att = (k0.holder + 1) % 6;
+    write_entry(
+        &mut a,
+        0,
+        &host(host_id(0, 4, 1, 0, 1).unwrap(), att, k0.tile, 5_000, 0),
+    )
+    .unwrap();
+    let b = 7;
+    let built = cm::build_v2(&a, None, b).unwrap();
+    assert_eq!(built.base.gar_site.len(), 12, "the 12 site garrisons");
+    assert_eq!(built.base.garrisons.len(), 13, "12 sites + the keep");
+    assert!(
+        !built.base.gar_site.contains(&cm::CAMP_SITE),
+        "the camp is dropped at 12 site garrisons"
+    );
+    let keep = built.keep.unwrap();
+    assert_eq!(built.base.garrisons.last().unwrap().id, keep.id);
+    let out = resolve_clash(&frontier_ruleset(), &built.input(&[5u8; 32])).unwrap();
+    let ap = cm::apply_v2(&mut a, &built, &out).unwrap();
+    assert!(ap.keep_changed, "the keep fought");
+    let k1 = qm::read_keep(&a).unwrap().unwrap();
+    assert!(k1.troops < k0.troops, "apply_v2 wrote the keep's losses");
 }
 
 /// §3.10: hour snapshots at `b mod 6 == 0`; FoldMarch combines seven

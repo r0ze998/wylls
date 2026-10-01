@@ -55,6 +55,7 @@ const CITIZEN_W: Spec = s!("citizen", KindV2(K2::Citizen), false, W);
 const HOLDING_W: Spec = s!("holding", KindV2(K2::Holding), false, W);
 const PROVINCE_W: Spec = s!("province", KindV2(K2::Province), false, W);
 const PROVINCE_R: Spec = s!("province", KindV2(K2::Province), false, R);
+const PROVINCE_RW: Spec = s!("province", KindV2(K2::Province), false, Wr::Either);
 const SYSTEM: Spec = s!("system", System, false, R);
 
 /// v2 player prologue `[actor s] [payer s,w] [season r] [citizen w]`.
@@ -163,8 +164,12 @@ pub fn accounts_of(ix: Ix) -> &'static [Group] {
         Ix::Harvest | Ix::Train => {
             const { &[one!(PLAYER_PROLOGUE), one!(&[HOLDING_W, PROVINCE_R])] }
         }
-        // §5.6: Build gains the Province always (writable: tier-up and walls).
-        Ix::Build => const { &[one!(PLAYER_PROLOGUE), one!(&[HOLDING_W, PROVINCE_W])] },
+        // §5.6: Build gains `[province r]`, writable only for a tier-up
+        // (`tier_next`): `Wr::Either`, decided by the item, as M1's Reveal
+        // (integ-W1, review CQ1-C: a write lock on every Build would
+        // serialise the Province's Builds against each other and against
+        // GatherClash / Resolve).
+        Ix::Build => const { &[one!(PLAYER_PROLOGUE), one!(&[HOLDING_W, PROVINCE_RW])] },
         Ix::Muster | Ix::Dissolve | Ix::Garrison | Ix::Explore => {
             const { &[one!(PLAYER_PROLOGUE), one!(&[HOLDING_W, PROVINCE_W])] }
         }
@@ -305,6 +310,13 @@ mod tests {
             let v1 = crate::prologue::count_bounds(ix.to_v1().unwrap());
             assert_eq!(count_bounds(ix).0, v1.0 + 1, "{}", ix.name());
         }
+        // §5.6: Build's Province is writable only for a tier-up.
+        let build_province = accounts_of(Ix::Build)
+            .iter()
+            .flat_map(|g| g.specs.iter())
+            .find(|s| s.name == "province")
+            .expect("Build names the Province");
+        assert_eq!(build_province.wr, Wr::Either);
         assert_eq!(
             kind_size_v2(Acc::Kind(K::Province)),
             Some(4_736),

@@ -1960,7 +1960,7 @@
               "name": "province",
               "kind": "Province",
               "signer": false,
-              "writable": "w"
+              "writable": "r|w"
             }
           ]
         }

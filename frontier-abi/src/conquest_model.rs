@@ -161,17 +161,25 @@ impl Record {
         self.kind == CR::KIND_SIEGE || self.kind == CR::KIND_OCCUPATION
     }
 
-    /// Kind 0 owing a stake or a slot (S3: ReleaseDormant refuses).
+    /// A record owing a stake or a slot: kind 0 (stake to the holding or
+    /// `src`, a slot), or an occupation whose stake to `src` is not settled
+    /// yet (D-9 revised, integ-W1: owed from the completion bell). S3:
+    /// ReleaseDormant refuses; SettleSiege applies.
     pub const fn owes(&self) -> bool {
-        self.kind == CR::KIND_NONE && self.flags & CR::OWED_MASK != 0
+        (self.kind == CR::KIND_NONE || self.kind == CR::KIND_OCCUPATION)
+            && self.flags & CR::OWED_MASK != 0
     }
 
     /// Whether the record's immunity bars `faction` at bell `now`
     /// (DeclareSiege step 5; §3.4–§3.6).
     pub const fn bars(&self, faction: u8, now: u32) -> bool {
         self.kind == CR::KIND_NONE
-            && now < self.bell
-            && (self.faction == faction || self.faction == CR::BARRED_ALL)
+            && permutation_rules::frontier::siege::immunity_bars(
+                self.faction,
+                self.bell,
+                faction,
+                now,
+            )
     }
 }
 
@@ -635,10 +643,15 @@ fn step_siege(
         }
         SiegeStatus::Completed => {
             if CR::target_kind(r.target) == CR::TARGET_FIRST {
-                // §3.5: occupation; ownership never changes (D9).
+                // §3.5: occupation; ownership never changes (D9). The
+                // stake is owed back to `src` from this bell (D-9 revised,
+                // integ-W1): SettleSiege may pay it while the occupation
+                // runs, and an occupation still running at `end_bell`
+                // keeps it owed, so it is never lost.
                 let n = Record {
                     kind: CR::KIND_OCCUPATION,
                     faction: r.faction,
+                    flags: CR::FLAG_STAKE_TO_SRC,
                     target: r.target,
                     bell: b,
                     actor: r.actor,
@@ -698,10 +711,7 @@ fn capture_flip(
     } else {
         mrd8(pd, s, SM::ORDER)?
     };
-    let hour = b
-        .saturating_add(1)
-        .div_ceil(HOUR_BELLS)
-        .min(u16::MAX as u32) as u16;
+    let hour = permutation_rules::frontier::siege::held_since_hour_from(b.saturating_add(1));
     put(wr_u8(pd, o + SM::STATE, SM::STATE_HOLDING)
         & wr_u8(pd, o + SM::FACTION, captor)
         & wr_u8(pd, o + SM::ORDER, order)
@@ -752,19 +762,19 @@ fn step_occupation(
     ) else {
         return Ok(());
     };
-    // D-9: the stake comes back to the declarer's source holding once the
-    // occupation ends (SettleSiege, flags bit 2).
+    // D-9 revised (integ-W1): the stake was owed to `src` from the
+    // completion bell; a stake SettleSiege has not paid yet stays owed.
     let mut n = Record {
         faction: CR::BARRED_NONE,
-        flags: CR::FLAG_STAKE_TO_SRC,
+        flags: r.flags & CR::FLAG_STAKE_TO_SRC,
         src: r.src,
         ..Record::ZERO
     };
     if end.respite {
+        // §3.5 as written: `immune_until_bell = end + respite_bells`
+        // (D-12 withdrawn, integ-W1; the simulator's rule).
         n.faction = occ;
-        n.bell = b
-            .saturating_add(1)
-            .saturating_add(prm.cq.respite_bells as u32);
+        n.bell = b.saturating_add(prm.cq.respite_bells as u32);
     }
     n.write(pd, s)?;
     out.changed = true;
@@ -782,13 +792,7 @@ fn step_occupation(
 
 /// A stored tier byte as the laurel kernel's tier.
 pub fn tier_of(v: u8) -> R<Tier> {
-    Ok(match v {
-        0 => Tier::Hamlet,
-        1 => Tier::Town,
-        2 => Tier::City,
-        3 => Tier::Stronghold,
-        _ => return Err(BAD),
-    })
+    control::tier_from_u8(v).ok_or(BAD)
 }
 
 /// The control weights of bell `b` (§3.10), centi-strength-weight per
