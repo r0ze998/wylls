@@ -17,6 +17,10 @@ use crate::mc::cqk::{self, KeepEvent, KeepReport, NO_FACTION};
 use crate::mc::{vigil_covers, Policy, Rules};
 use permutation_rules::frontier::siege::required_bells;
 
+#[cfg(test)]
+#[path = "cq_contest_tests.rs"]
+mod cq_contest_tests;
+
 /// Why a DeclareSiege was refused (§5.3 names). `NotLead` never fires in
 /// the simulator: only the lead host's owner tries to declare.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -81,7 +85,11 @@ pub struct McStats {
     pub uncredited: u64,
     pub outposts: u64,
     pub lapsed: u64,
-    /// D9: first holdings that changed owner (must stay 0, criterion 10i).
+    /// D9: first holdings that changed owner or left slot 1 (must stay 0,
+    /// criterion 10i). Measured independently of the capture code
+    /// (`Sim::mc_d9_check`, integ-W1): every first holding's founding owner
+    /// is recorded, and the holdings found later with another owner or
+    /// another order are counted, once each.
     pub d9_transfers: u64,
     /// First holdings released (homes lost), by archetype of the owner.
     pub homes_released: [u64; 6],
@@ -118,6 +126,10 @@ pub struct McState {
     pub ctl: CtlTrack,
     pub st: McStats,
     pub camps: Vec<Vec<super::campaign::Campaign>>,
+    /// D9 audit: each first holding's founding owner, and the holdings
+    /// seen with another owner or order (`mc_d9_check`).
+    pub first_owner: BTreeMap<u32, u32>,
+    pub d9_seen: BTreeSet<u32>,
     /// Herald's Call: one March index per faction (display; tie-breaker).
     pub call: [u32; 6],
     pub rng: Option<Rng>,
@@ -139,13 +151,19 @@ impl Sim {
     /// reservation), K-25.
     pub(super) fn mc_free_slot23(&self, a: u32) -> Option<u8> {
         let ag = &self.agents[a as usize];
-        (2..=3u8).find(|&s| {
-            !ag.reserved.contains(&s)
-                && !ag
-                    .holdings
-                    .iter()
-                    .any(|&h| self.holds[h as usize].h.order == s)
-        })
+        let occupied: [bool; 3] = core::array::from_fn(|i| {
+            ag.holdings
+                .iter()
+                .any(|&h| self.holds[h as usize].h.order as usize == i + 1)
+        });
+        let reserved = ag
+            .reserved
+            .iter()
+            .filter(|&&s| (2..=3).contains(&s))
+            .fold(0u8, |m, &s| m | 1 << (s - 2));
+        // `holding::lowest_free_slot` itself (integ-W1 R2); the simulator
+        // settles outpost tickets at once, so no ticket names a slot.
+        permutation_rules::frontier::holding::lowest_free_slot(occupied, 0, reserved)
     }
 
     /// The order a new holding of `a` takes: 1 when it has none, else the
@@ -180,17 +198,35 @@ impl Sim {
         } else {
             now + prm.outpost_shield_secs
         };
+        if x.h.order <= 1 && x.owner != NONE {
+            let owner = x.owner;
+            self.mcs.first_owner.insert(hid, owner);
+        }
+    }
+
+    /// The D9 audit (criterion 10i): a live first holding whose owner is
+    /// not its founder, or whose order is no longer 1, is a transfer.
+    /// Runs at every day's last bell and at the season end.
+    pub(super) fn mc_d9_check(&mut self) {
+        for (&hid, &owner) in &self.mcs.first_owner {
+            let x = &self.holds[hid as usize];
+            if x.alive && (x.owner != owner || x.h.order != 1) {
+                self.mcs.d9_seen.insert(hid);
+            }
+        }
+        self.mcs.st.d9_transfers = self.mcs.d9_seen.len() as u64;
     }
 
     pub(super) fn mc_dormant(&self, x: &Hold, now: i64) -> bool {
         x.free_city() || now - x.h.last_owner_action >= self.cfg.mc.dormant_after_secs
     }
 
-    /// The keep tile: the lowest-index passable tile that is not a site.
+    /// The keep tile: `keep::keep_tile` itself (integ-W1 R2). A province
+    /// without one gets no keep (`NO_KEEP_TILE`, as OpenProvince).
     fn keep_tile(t: &ProvinceTerrain) -> u8 {
-        (0..PROVINCE_TILES as u8)
-            .find(|&i| t.passable(i) && !t.is_site(i))
-            .unwrap_or(0)
+        let bytes: [u8; PROVINCE_TILES] = core::array::from_fn(|i| t.terrain[i] as u8);
+        permutation_rules::frontier::keep::keep_tile(&bytes, &t.sites, t.site_count)
+            .unwrap_or(permutation_rules::frontier::keep::NO_KEEP_TILE)
     }
 
     /// OpenProvince (§3.2, §3.7): the keep and the genesis Free City.
@@ -405,34 +441,49 @@ impl Sim {
         })
     }
 
-    /// `siege::may_besiege` v3 (§3.4 step 8) for faction `f` on `t`.
+    /// `siege::may_besiege_v3` (§3.4 step 8) for faction `f` on `t`: the
+    /// kernel itself (integ-W1 R2, review CQ1-B), relation Rivalry and no
+    /// March flags, genesis at 0 (the simulator's clock). "Nearby" (first
+    /// holdings of `f` within 2 provinces) is computed only when the
+    /// kernel's answer depends on it.
     pub(super) fn mc_may_besiege(&self, t: u32, f: u8, b: u32) -> Result<(), Refusal> {
+        use permutation_rules::frontier::siege::{may_besiege_v3, SiegeCheckV3};
         let x = &self.holds[t as usize];
         if !x.alive {
             return Err(Refusal::NotBesiegeable);
         }
-        if x.free_city() {
-            return Ok(());
-        }
-        if x.faction == f {
-            return Err(Refusal::Friendly);
-        }
         let now = now_of(b);
         let prm = &self.cfg.mc;
-        let dormant = self.mc_dormant(x, now);
-        if now < x.mc.shield_until && !dormant {
-            return Err(Refusal::Shielded);
+        let mut c = SiegeCheckV3 {
+            province: self.prov(x.prov).coord,
+            kind: x.kind(),
+            owner_faction: x.faction,
+            attacker_faction: f,
+            relation: Relation::Rivalry,
+            march_hostility: false,
+            march_truce: false,
+            founded_ts: x.h.founded_ts,
+            shield_until: x.mc.shield_until,
+            dormant: self.mc_dormant(x, now),
+            attacker_nearby: false,
+            now,
+            heartland_max_ring: prm.heartland_max_ring.min(u8::MAX as u32) as u8,
+            frontier_protect_secs: prm.frontier_protect_secs,
+            frontier_protect_after_secs: prm.frontier_protect_after_secs,
+            genesis_ts: 0,
+        };
+        let mut r = may_besiege_v3(&c);
+        if r == Err(SiegeRefusal::FrontierProtected) && self.mc_first_nearby(f, x.prov) {
+            c.attacker_nearby = true;
+            r = may_besiege_v3(&c);
         }
-        if x.h.founded_ts >= prm.frontier_protect_after_secs
-            && now < x.mc.shield_until + prm.frontier_protect_secs
-            && !self.mc_first_nearby(f, x.prov)
-        {
-            return Err(Refusal::FrontierProtected);
-        }
-        if cqk::is_heartland_in(self.prov(x.prov).coord, x.faction, prm.heartland_max_ring) {
-            return Err(Refusal::Heartland);
-        }
-        Ok(())
+        r.map_err(|e| match e {
+            SiegeRefusal::Friendly => Refusal::Friendly,
+            SiegeRefusal::Shielded => Refusal::Shielded,
+            SiegeRefusal::FrontierProtected => Refusal::FrontierProtected,
+            SiegeRefusal::Heartland => Refusal::Heartland,
+            _ => Refusal::NotBesiegeable,
+        })
     }
 
     /// The record checks of §3.4 step 5 for faction `f`.
@@ -445,6 +496,24 @@ impl Sim {
             return Err(Refusal::Immune);
         }
         Ok(())
+    }
+
+    /// Whether a siege on `t` declared at bell `from − 1` could still
+    /// complete before the season ends (§3.4 step 9, `TooLate`), with the
+    /// walls and vigil of now. The campaign planner checks it at plan
+    /// time, with the muster bell, so an honest strike is never refused at
+    /// the horn for lack of time (integ-W1, review CQ1-B; a CQ2-F port
+    /// requirement).
+    pub(super) fn mc_can_finish(&self, t: u32, from: u32, b: u32) -> bool {
+        let x = &self.holds[t as usize];
+        let walls = x.h.walls_at(now_of(b)).unwrap_or(x.h.walls);
+        let vigil = if x.free_city() { None } else { Some(x.vigil) };
+        cqk::can_complete_before(
+            required_bells(walls, 0),
+            vigil.as_ref(),
+            from,
+            self.end_bell,
+        )
     }
 
     fn mc_declare(&mut self, t: u32, lead: u32, b: u32) -> Result<(), Refusal> {
@@ -644,6 +713,9 @@ impl Sim {
         for t in os {
             self.mc_occupation_bell(t, b);
         }
+        if b % BELLS_PER_DAY == BELLS_PER_DAY - 1 {
+            self.mc_d9_check();
+        }
     }
 
     // ---------------------------------------------------------- keeps
@@ -776,7 +848,9 @@ impl Sim {
                     }
                     self.refresh_upkeep(home, b);
                 }
-                // The other hosts on the tile: home, except one forward base.
+                // The other hosts on the tile: home, except one forward base
+                // (CQ1-B's choice, deviation D-8); with `--keep-stay` they
+                // stay as the keep's defence (K-19 "other hosts stay").
                 let mut rest: Vec<u32> = self
                     .prov(pi)
                     .stationed
@@ -792,6 +866,8 @@ impl Sim {
                 for (i, h) in rest.into_iter().enumerate() {
                     if stage && i == 0 {
                         self.hosts[h as usize].mission = Mission::Stage(pi);
+                    } else if self.cfg.keep_stay {
+                        self.hosts[h as usize].mission = Mission::KeepDefend(pi);
                     } else {
                         self.unstation(pi, h);
                         self.send_home(h, b);
@@ -996,9 +1072,6 @@ impl Sim {
         self.reweigh(t, b);
         let was_free = victim == NONE;
         if !was_free {
-            if self.holds[t as usize].h.order <= 1 {
-                self.mcs.st.d9_transfers += 1;
-            }
             self.mcs.st.captures += 1;
             self.stats.captures += 1;
             self.agents[victim as usize].holdings.retain(|&h| h != t);
@@ -1033,7 +1106,13 @@ impl Sim {
         };
         self.mc_recall(t, b, |m| matches!(m, Mission::Rally(_) | Mission::Siege(_)));
         let faction = self.agents[captor as usize].faction;
-        let keep_walls = self.doctrine[faction as usize].k.keeps_walls_on_capture;
+        // `holding::capture_effects` itself (integ-W1 R2): walls halved
+        // unless the captor's doctrine keeps them. The simulator then
+        // garrisons the lead host at once (the captor's next Garrison).
+        let fx = permutation_rules::frontier::holding::capture_effects(
+            &self.holds[t as usize].h,
+            self.doctrine[faction as usize].k,
+        );
         {
             let x = &mut self.holds[t as usize];
             x.owner = captor;
@@ -1046,9 +1125,7 @@ impl Sim {
             x.occupier = None;
             x.vigil =
                 Vigil::new(self.agents[captor as usize].tz * BELL_SECS as u32).expect("vigil");
-            if !keep_walls {
-                x.h.walls /= 2;
-            }
+            x.h.walls = fx.walls;
             x.mc = HoldMc {
                 immune_until: b + 1 + prm.immunity_bells,
                 barred: ALL_FACTIONS,
@@ -1126,39 +1203,52 @@ impl Sim {
     // ---------------------------------------------------------- outposts
 
     /// FileOutpost + SettleTicket (§3.8), settled at once (the cohort
-    /// lottery is abstracted, as M1's first-holding tickets are).
+    /// lottery is abstracted, as M1's first-holding tickets are). Every
+    /// rule of the filing is `holding::may_found_outpost` itself (integ-W1
+    /// R2): first with a target that passes ring, range and share (the
+    /// count, prerequisite, land gate and close checks, before the
+    /// activity roll), then per candidate province.
     pub(super) fn mc_expand(&mut self, a: u32, b: u32, p: &Profile) -> i64 {
+        use permutation_rules::frontier::holding::{may_found_outpost, OutpostCheck};
         let prm = self.cfg.mc;
         let (faction, holds) = {
             let ag = &self.agents[a as usize];
             (ag.faction, ag.holdings.clone())
         };
-        if holds.is_empty()
-            || b + prm.outpost_close_bells >= self.end_bell
-            || b <= self.agents[a as usize].strike_until
-        {
+        if holds.is_empty() || b <= self.agents[a as usize].strike_until {
             return 0;
         }
-        let Some(slot) = self.mc_free_slot23(a) else {
-            return 0;
+        let first = holds
+            .iter()
+            .copied()
+            .find(|&h| self.holds[h as usize].h.order == 1);
+        let base = OutpostCheck {
+            slot: self.mc_free_slot23(a),
+            first_final: first.is_some(),
+            first_tier: first.map_or(HTier::Hamlet, |h| self.holds[h as usize].h.tier),
+            tier_min: if prm.outpost_tier_min == 0 {
+                HTier::Hamlet
+            } else {
+                HTier::Town
+            },
+            slot2_final: holds.iter().any(|&h| self.holds[h as usize].h.order == 2),
+            target_ring: prm.heartland_max_ring + 1,
+            heartland_max_ring: prm.heartland_max_ring.min(u8::MAX as u32) as u8,
+            range: 0,
+            outpost_range: prm.outpost_range.min(u8::MAX as u32) as u8,
+            faction_weight: 0,
+            province_weight: 0,
+            outpost_share_bps: prm.outpost_share_bps.min(u16::MAX as u32) as u16,
+            free_sites: self.open_sites.saturating_sub(self.used_sites),
+            open_sites: self.open_sites,
+            now_bell: b,
+            end_bell: self.end_bell,
+            outpost_close_bells: prm.outpost_close_bells.min(u16::MAX as u32) as u16,
         };
-        if slot == 3 && !holds.iter().any(|&h| self.holds[h as usize].h.order == 2) {
+        if may_found_outpost(&base).is_err() || !self.rng.chance(p.q) {
             return 0;
         }
-        if (self.open_sites - self.used_sites) * 5 < self.open_sites {
-            return 0;
-        }
-        let Some(&first) = holds.iter().find(|&&h| self.holds[h as usize].h.order == 1) else {
-            return 0;
-        };
-        let min_tier = if prm.outpost_tier_min == 0 {
-            HTier::Hamlet
-        } else {
-            HTier::Town
-        };
-        if self.holds[first as usize].h.tier < min_tier || !self.rng.chance(p.q) {
-            return 0;
-        }
+        let Some(first) = first else { return 0 };
         let now = now_of(b);
         let d = self.doctrine[faction as usize];
         let n = holds.len() as u32 + 1;
@@ -1182,14 +1272,11 @@ impl Sim {
                     continue;
                 }
                 let pr = self.prov(pi);
-                if pr.ring <= prm.heartland_max_ring {
-                    continue;
-                }
                 let Some(slot_i) = pr.site_h.iter().position(|&x| x == NONE) else {
                     continue;
                 };
-                // Outpost rule: the faction holds < 50% of the province's
-                // strength weight (an empty province qualifies).
+                // The outpost rule's weights: the faction's and the
+                // province's strength weight (an empty province qualifies).
                 let (mut mine, mut tot) = (0u64, 0u64);
                 for &g in &pr.site_h {
                     if g == NONE {
@@ -1206,7 +1293,14 @@ impl Sim {
                         mine += w;
                     }
                 }
-                if tot > 0 && mine * 10_000 >= prm.outpost_share_bps as u64 * tot {
+                let chk = OutpostCheck {
+                    target_ring: pr.ring,
+                    range: hc.distance(pr.coord),
+                    faction_weight: mine,
+                    province_weight: tot,
+                    ..base
+                };
+                if may_found_outpost(&chk).is_err() {
                     continue;
                 }
                 let score = centre.distance(pr.coord);
@@ -1385,6 +1479,7 @@ impl Sim {
             }
         }
         self.mcs.msieges.clear();
+        self.mc_d9_check();
     }
 
     /// Count a Depart (and a keep march) by the sender's archetype.

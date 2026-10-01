@@ -610,6 +610,7 @@ impl Sim {
                     && x.mc.siege.is_none_or(|s| s.attacker_faction == f)
                     && (x.mc.siege.is_some() || self.mc_record_free(t, f, b).is_ok())
                     && self.mc_may_besiege(t, f, b).is_ok()
+                    && (x.mc.siege.is_some() || self.mc_can_finish(t, b + 1, b))
             }
         }
     }
@@ -912,6 +913,14 @@ impl Sim {
                 continue;
             };
             let muster = self.mc_muster(&group, b);
+            if let Target::Hold(t) = c.target {
+                // TooLate at plan time: the horn sounds at the muster bell.
+                if self.holds[t as usize].mc.siege.is_none()
+                    && !self.mc_can_finish(t, muster + 1, b)
+                {
+                    continue;
+                }
+            }
             let mut at = Attempt {
                 muster,
                 hosts: Vec::new(),
@@ -953,6 +962,11 @@ impl Sim {
                 if let Some((d, t)) = best {
                     let g2 = self.mc_form_group(f, Target::Hold(t), d, b, &rest);
                     self.mcs.st.dbg[if g2.is_some() { 3 } else { 2 }] += 1;
+                    // TooLate at plan time for the siege group's horn.
+                    let g2 = g2.filter(|g2| {
+                        let m2 = muster.max(self.mc_muster(g2, b)) + 1;
+                        self.mc_can_finish(t, m2.min(self.end_bell - 1) + 1, b)
+                    });
                     if let Some(g2) = g2 {
                         let m2 = muster.max(self.mc_muster(&g2, b)) + 1;
                         self.mc_launch_group(
@@ -1318,9 +1332,9 @@ impl Sim {
                     false,
                 ),
             };
-            if self.travel(f, sp, tp, b).is_none() {
+            let Some((arrive, _)) = self.travel(f, sp, tp, b) else {
                 continue;
-            }
+            };
             let def = match c.target {
                 Target::Keep(pi) => self.mc_keep_def(pi),
                 Target::Hold(t) => self.mc_hold_def(t),
@@ -1350,6 +1364,13 @@ impl Sim {
             let lead_troops = live.iter().map(|&h| self.hosts[h as usize].troops).max();
             if let Target::Hold(t) = c.target {
                 if lead_troops.is_none() && !self.mc_can_declare(a, src, t, b) {
+                    continue;
+                }
+                // TooLate at plan time: a new lead sounds the horn on arrival.
+                if lead_troops.is_none()
+                    && self.holds[t as usize].mc.siege.is_none()
+                    && !self.mc_can_finish(t, arrive.max(b) + 1, b)
+                {
                     continue;
                 }
             }

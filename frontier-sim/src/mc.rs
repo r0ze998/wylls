@@ -272,15 +272,6 @@ pub mod cqk {
     pub use permutation_rules::frontier::siege::OccupationEndKind;
     use permutation_rules::frontier::siege::{self, Vigil};
 
-    /// `geometry::is_heartland_in` with the simulator's u32 ring parameter.
-    pub fn is_heartland_in(p: ProvinceCoord, faction: u8, max_ring: u32) -> bool {
-        permutation_rules::frontier::geometry::is_heartland_in(
-            p,
-            faction,
-            max_ring.min(u8::MAX as u32) as u8,
-        )
-    }
-
     /// `keep::try_open` (None for rings 0–1; `TroopsAboveCap` for a home
     /// guard above the cap).
     pub fn open(
@@ -579,6 +570,7 @@ mod tests {
         assert!(open(ProvinceCoord::new(1, 0), 0, 3, 1, &prm(), 0)
             .unwrap()
             .is_none());
+        use permutation_rules::frontier::geometry::is_heartland_in;
         assert!(is_heartland_in(p, w, 3) && !is_heartland_in(p, w, 1));
     }
 

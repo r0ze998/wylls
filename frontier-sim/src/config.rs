@@ -172,6 +172,11 @@ pub struct Config {
     /// provinces of a held keep with a resident host of the faction, and
     /// that host marches on from there.
     pub forward: bool,
+    /// `--keep-stay` (integ-W1, review CQ1-B; deviation D-8): when a keep
+    /// is taken, the taking faction's other hosts on the keep tile stay
+    /// there as its defence (K-19 / §3.2 step 5 "other hosts stay")
+    /// instead of going home (the default, CQ1-B's choice).
+    pub keep_stay: bool,
     /// Season parameters of the MC rules (§3.12); `--preset` or by days,
     /// then `--mc key=value,…` overrides (exploration rows only).
     pub mc: crate::mc::McParams,
@@ -232,6 +237,7 @@ impl Default for Config {
             bot_profile: crate::mc::BotProfile::Sim,
             m1_act_p: crate::mc::M1_ACT_P,
             forward: false,
+            keep_stay: false,
             mc: crate::mc::McParams::FRONTIER_28,
             mc_overrides: String::new(),
             holding_slots: crate::sim::campaign::HOLDING_SLOTS,

@@ -17,6 +17,7 @@ use std::sync::Mutex;
 
 use crate::config::Config;
 use crate::mc::cqk::{self, NO_FACTION};
+use crate::mc::BotProfile;
 use crate::model::Arch;
 use crate::sim::Sim;
 use permutation_rules::frontier::travel::BELLS_PER_DAY;
@@ -670,6 +671,12 @@ pub fn describe(cfg: &Config, seeds: u64, first_seed: u64) -> Vec<(&'static str,
     if cfg.keepdom {
         rules.push_str(",keepdom");
     }
+    let mut forward = cfg.forward.to_string();
+    if cfg.keep_stay {
+        // Only a --keep-stay run names it, so the committed files' run
+        // keys stay as they are and a --keep-stay run drifts against them.
+        forward.push_str(",keep_stay");
+    }
     vec![
         ("rules", rules),
         (
@@ -686,7 +693,7 @@ pub fn describe(cfg: &Config, seeds: u64, first_seed: u64) -> Vec<(&'static str,
         ("bots", format!("{}", cfg.bot_share)),
         ("days", cfg.days.to_string()),
         ("keep_aggr", format!("{}", cfg.cq.keep_aggr)),
-        ("forward", cfg.forward.to_string()),
+        ("forward", forward),
         (
             "sizes",
             cfg.faction_weights
@@ -904,8 +911,30 @@ pub fn json_num(text: &str, path: &[&str]) -> Option<f64> {
     json_get(text, path)?.parse().ok()
 }
 
+/// The bot-activity rates §8.8 takes as the stack's reference: `--check`
+/// compares their p50 too (integ-W1, review CQ1-B), so a planner change
+/// cannot move the reference silently.
+pub const CHECKED_RATES: [&str; 4] = [
+    "departs_per_bot_day",
+    "keep_marches_per_bot_day",
+    "keep_captures_per_bot_day",
+    "declares_per_bot_day",
+];
+
+/// The thresholds file's `note`: the cadence assumption of the bot
+/// profile the rates were measured with (§8.7 item 7, §8.8; a CQ2-F and
+/// CQ3-B hand-off).
+pub fn cadence_note(cfg: &Config) -> &'static str {
+    match cfg.bot_profile {
+        BotProfile::Cq => "bot profile cq: military decisions (keep strikes, holding sieges, rallies) once per bot per hourly planner epoch; economy, defence sends and outposts at M1's session cadence (24 sessions a day), so departs_per_bot_day includes session-cadence defence sends and 10h outposts is a session-cadence figure",
+        BotProfile::M1 => "bot profile m1: campaign plan plus M1-rate lone rolls (calibrated to M1's measured Departs per bot-day); economy, defence and outposts at M1's session cadence",
+        BotProfile::Sim => "bot profile sim: the simulator's bot archetype (24 sessions a day, a keep roll per session), every decision at session cadence",
+    }
+}
+
 /// `--check FILE`: the run's parameters and every p10 / p50 / p90 must
-/// equal the file's (the simulator is deterministic). Returns the drifts.
+/// equal the file's (the simulator is deterministic), and so must the p50
+/// of [`CHECKED_RATES`] when the file carries them. Returns the drifts.
 pub fn check(
     text: &str,
     cfg: &Config,
@@ -929,6 +958,19 @@ pub fn check(
                 Some(x) if (x - got).abs() <= 1e-9 => {}
                 x => bad.push(format!("gated.{}.{name}: file {x:?}, run {got}", g.name)),
             }
+        }
+    }
+    for (name, get) in reported() {
+        if !CHECKED_RATES.contains(&name) {
+            continue;
+        }
+        let Some(x) = json_num(text, &["reported", name, "p50"]) else {
+            continue;
+        };
+        let v: Vec<f64> = ms.iter().map(get).collect();
+        let got = r6(pct(&v, 0.5));
+        if (x - got).abs() > 1e-9 {
+            bad.push(format!("reported.{name}.p50: file {x}, run {got}"));
         }
     }
     bad

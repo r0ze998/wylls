@@ -275,6 +275,11 @@ fn main() {
                 i += 1;
                 continue;
             }
+            "--keep-stay" => {
+                cfg.keep_stay = true;
+                i += 1;
+                continue;
+            }
             "--report-only" => {
                 report_only = true;
                 i += 1;
@@ -536,7 +541,8 @@ fn main() {
                 fail |= ok < need;
             }
             if let Some(p) = &json {
-                std::fs::write(p, mapmove::to_json(&cfg, seeds, fs, &ms, &gate, ""))
+                let note = mapmove::cadence_note(&cfg);
+                std::fs::write(p, mapmove::to_json(&cfg, seeds, fs, &ms, &gate, note))
                     .expect("write json");
                 eprintln!("wrote {p}");
             }
@@ -600,6 +606,7 @@ fn main() {
                     c.bannerdom = 0;
                     c.keepdom = false;
                     c.forward = false;
+                    c.keep_stay = false;
                     c.policy = [pol; 6];
                     c.set_rules(r, None);
                     let ms = mapmove::run(&c, seeds, fs);
