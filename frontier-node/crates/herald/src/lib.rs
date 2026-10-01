@@ -21,6 +21,9 @@
 
 pub mod checkpoint;
 pub mod clash;
+// MC hook: conquest milestone modules (CONQUEST-CONTRACT §4.5, §8.4)
+pub mod cqfmt;
+// MC hook end
 pub mod files;
 pub mod fixture;
 pub mod fold;
