@@ -4,20 +4,34 @@
 #   scripts/cq-ownership-check.sh [options] BRANCH...
 #   scripts/cq-ownership-check.sh --self-test
 #
-# Fails (exit 1) when a commit on the first-parent history of a
-# `frontier/cq-*` branch, since that branch's own fork point,
-#   - touches one of the design chat's files (§4.5's list, plus every path
-#     the design chat's branch has touched since CQ0: the "footprint"), or
+# Fails (exit 1) when a commit of a `frontier/cq-*` branch since that
+# branch's own fork point
+#   - touches one of the design chat's files (§4.5's written list), or
 #   - changes a shared herald file (frontier-node/crates/herald/src/
 #     {lib,fold,server}.rs) outside a `// MC hook` block.
-# Commits that arrive through a merge (of codex/frontier or anything else)
-# are never counted: only first-parent commits are walked, and a merge
-# commit counts only for its own edits (the lines it adds against every
-# parent).
+# Every commit in FORK..TIP is walked, whatever parent it came through
+# (integ-W1: a side branch merged with `git merge --no-ff side` is counted),
+# except
+#   - commits reachable from codex/frontier (--codex): §4.5 exempts what
+#     arrives through a merge of codex/frontier, and
+#   - commits a merge of the integration branch (--base) brought in: the
+#     non-first parent of a merge on the branch's first-parent chain is an
+#     ancestor of the base (the integrator's commits and the other units'
+#     merged work), unless the branch checked is the base itself. The
+#     branch's own first-parent commits are always counted.
+# A merge commit counts for its own edits (the lines it adds against every
+# parent); its parents' commits are checked one by one.
 #
-# A `// MC hook` block runs from a line containing `// MC hook` to the next
-# line containing `// MC hook end`, both included. An unclosed block covers
-# only its opening line.
+# The design chat's "footprint" (every path its branch has touched since
+# CQ0 beyond §4.5's list) is REPORT-ONLY by default (integ-W1): §4.5's
+# written list is the rule, and §11 / §9.1 assign some footprint paths to
+# MC units (e.g. permutation-server/web/lang/en-frontier.mjs to CQ3-D).
+# --footprint-strict makes footprint hits violations.
+#
+# A `// MC hook` block runs from an opener line `// MC hook…` to the next
+# end line `// MC hook end`, each marker alone on its line (leading
+# whitespace allowed). A marker with code before it is no marker. An
+# unclosed block in a commit's version of a shared file is a violation.
 #
 # The fork point of a branch, first that applies:
 #   1. the branch's creation entry in its reflog ("branch: Created from …"),
@@ -34,7 +48,10 @@
 #   --cq0 REF          default $CQ0, else 39ff369 (the MC base commit)
 #   --design-ref REF   the design chat's branch, default frontier/ui-shell
 #                      (skipped silently when it does not exist)
-#   --no-footprint     check §4.5's static list only
+#   --codex REF        the design chat's base, default codex/frontier
+#                      (skipped silently when it does not exist)
+#   --no-footprint     do not compute or report the footprint
+#   --footprint-strict footprint hits are violations (default: warnings)
 #   --fork REF         use REF as every branch's fork point
 #   --repo DIR         the repository (default: this script's checkout)
 #   -q                 print violations and the verdict only
@@ -152,6 +169,25 @@ pub mod b;' && g add -A && g commit -m bad
   # 6. the design footprint (a path only the design branch has touched)
   g checkout -b frontier/cq-1x-footprint frontier/cq-integ
   w permutation-server/web/frontier/intro/title.mjs 'mine' && g add -A && g commit -m bad
+  # 6b. a side branch merged into the unit branch touches a design-chat file
+  g checkout -b side-helper frontier/cq-integ
+  w permutation-server/web/frontier/app.mjs 'app via a side branch' && g add -A && g commit -m side
+  g checkout -b frontier/cq-1x-sidemerge frontier/cq-integ
+  w docs/s.md 's' && g add -A && g commit -m own
+  g merge --no-ff -m 'merge a helper branch' side-helper
+  # 6c. a marker with code before it is no marker
+  g checkout -b frontier/cq-1x-inline frontier/cq-integ
+  w frontier-node/crates/herald/src/fold.rs 'fn fold() {
+    one();
+    evil(); // MC hook
+}' && g add -A && g commit -m bad
+  # 6d. an opener with code before it does not open a block
+  g checkout -b frontier/cq-1x-inlineopen frontier/cq-integ
+  w frontier-node/crates/herald/src/lib.rs 'pub mod a;
+pub mod evil; // MC hook: sneaky
+pub mod c;
+// MC hook end
+pub mod b;' && g add -A && g commit -m bad
   # 7. a merge of codex/frontier carrying design-chat and herald changes is not counted
   g checkout -b codex/frontier frontier/cq-integ
   w permutation-server/web/frontier/app.mjs 'app from the design chat'
@@ -175,6 +211,14 @@ pub mod sneaky;'
   g checkout frontier/cq-integ
   g merge --no-ff -m 'integ: merge ok' frontier/cq-1x-ok
   g merge --no-ff -m 'integ: merge design' frontier/cq-1x-design
+  # 10. a unit that merges the integration branch (the integrator's own
+  #     commits and the merged units) is not blamed for them
+  w docs/integ.md 'integ window' && g add -A && g commit -m 'integ: window commit'
+  g checkout -b frontier/cq-2x-late base0
+  w docs/late.md 'late' && g add -A && g commit -m own
+  g checkout -b frontier/cq-2x-catchup frontier/cq-integ~1
+  w docs/c.md 'c' && g add -A && g commit -m own
+  g merge --no-ff -m 'merge frontier/cq-integ' frontier/cq-integ
   g checkout main
 
   echo "cq-ownership-check self-test ($r)"
@@ -183,13 +227,19 @@ pub mod sneaky;'
   expect 1 'a shared herald file outside a hook' frontier/cq-1x-hook
   expect 1 'a removal outside a hook' frontier/cq-1x-remove
   expect 1 'an unclosed hook' frontier/cq-1x-unclosed
-  expect 1 'the design footprint since CQ0' frontier/cq-1x-footprint
-  expect 0 'the footprint check can be turned off' --no-footprint frontier/cq-1x-footprint
+  expect 0 'the design footprint is report-only by default' frontier/cq-1x-footprint
+  expect 1 'the design footprint fails with --footprint-strict' --footprint-strict frontier/cq-1x-footprint
+  expect 0 'the footprint check can be turned off' --no-footprint --footprint-strict frontier/cq-1x-footprint
+  expect 1 'a side branch merged into a unit branch is counted' frontier/cq-1x-sidemerge
+  expect 1 'a marker with code before it is no marker' frontier/cq-1x-inline
+  expect 1 'an opener with code before it opens no block' frontier/cq-1x-inlineopen
   expect 0 'a merge of codex/frontier is not counted' frontier/cq-1x-merge
   expect 1 'a merge counts for its own edits' frontier/cq-1x-evilmerge
   expect 0 'a merged clean branch still passes' frontier/cq-1x-ok
   expect 1 'a merged bad branch still fails (fork point from the reflog)' frontier/cq-1x-design
   expect 1 'one bad branch among good ones fails the run' frontier/cq-1x-ok frontier/cq-1x-design
+  expect 0 'a unit merging the integration branch is not blamed for it' --fork frontier/cq-integ~2 frontier/cq-2x-catchup
+  expect 0 'a clean late unit' frontier/cq-2x-late
   expect 2 'an unknown branch is an error' frontier/cq-nope
   expect 2 'no branch is a usage error'
   rm -rf "$tmp"
@@ -201,7 +251,9 @@ pub mod sneaky;'
 BASE=frontier/cq-integ
 CQ0_REF=${CQ0:-39ff369}
 DESIGN=frontier/ui-shell
+CODEX=codex/frontier
 FOOTPRINT=1
+FOOT_STRICT=0
 FORK=
 REPO=
 QUIET=0
@@ -212,11 +264,13 @@ while [ $# -gt 0 ]; do
     --base) BASE=${2:?}; shift 2 ;;
     --cq0) CQ0_REF=${2:?}; shift 2 ;;
     --design-ref) DESIGN=${2:?}; shift 2 ;;
+    --codex) CODEX=${2:?}; shift 2 ;;
     --no-footprint) FOOTPRINT=0; shift ;;
+    --footprint-strict) FOOT_STRICT=1; shift ;;
     --fork) FORK=${2:?}; shift 2 ;;
     --repo) REPO=${2:?}; shift 2 ;;
     -q) QUIET=1; shift ;;
-    -h|--help) sed -n '2,46p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,62p' "$0"; exit 0 ;;
     -*) die "unknown option $1" ;;
     *) BRANCHES="$BRANCHES $1"; shift ;;
   esac
@@ -257,11 +311,12 @@ fi
 
 # ------------------------------------------------------------------ hook blocks
 # blocks REV PATH → "start end" lines of the MC hook blocks in that version.
+# An unclosed block prints "U start start" (it covers only its opener).
 blocks() {
   G show "$1:$2" 2>/dev/null | awk '
-    /\/\/ MC hook end/ { if (open) { print s, NR; open = 0 } ; next }
-    /\/\/ MC hook/ { if (open) print s, s; s = NR; open = 1; next }
-    END { if (open) print s, s }'
+    /^[[:space:]]*\/\/ MC hook end[[:space:]]*$/ { if (open) { print s, NR; open = 0 } ; next }
+    /^[[:space:]]*\/\/ MC hook/ { if (open) print "U", s, s; s = NR; open = 1; next }
+    END { if (open) print "U", s, s }'
 }
 # lines SIDE: from `git diff -U0` on stdin, the changed line numbers of the
 # old (-) or new (+) side.
@@ -299,6 +354,7 @@ outside() {
 }
 
 VIOL=0
+WARN=0
 violation() { VIOL=$((VIOL + 1)); echo "VIOLATION $1 $2: $3"; }
 
 check_shared() { # commit path nparents
@@ -306,13 +362,15 @@ check_shared() { # commit path nparents
   if [ "$np" -le 1 ]; then
     if ! G cat-file -e "$c:$f" 2>/dev/null; then violation "$c" "$f" "a shared herald file deleted"; return; fi
     if [ "$np" -eq 0 ] || ! G cat-file -e "$c^:$f" 2>/dev/null; then violation "$c" "$f" "a shared herald file created"; return; fi
-    nb=$(blocks "$c" "$f" | tr '\n' ';'); ob=$(blocks "$c^" "$f" | tr '\n' ';')
+    if blocks "$c" "$f" | grep -q '^U '; then violation "$c" "$f" "an unclosed // MC hook block"; fi
+    nb=$(blocks "$c" "$f" | sed 's/^U //' | tr '\n' ';'); ob=$(blocks "$c^" "$f" | sed 's/^U //' | tr '\n' ';')
     bad=$(G diff -U0 "$c^" "$c" -- "$f" | lines + | outside "$nb" | head -3 | tr '\n' ' ')
     [ -z "$bad" ] || violation "$c" "$f" "added lines outside a // MC hook block (new lines $bad)"
     bad=$(G diff -U0 "$c^" "$c" -- "$f" | lines - | outside "$ob" | head -3 | tr '\n' ' ')
     [ -z "$bad" ] || violation "$c" "$f" "removed lines outside a // MC hook block (old lines $bad)"
   else
-    nb=$(blocks "$c" "$f" | tr '\n' ';')
+    if blocks "$c" "$f" | grep -q '^U '; then violation "$c" "$f" "an unclosed // MC hook block"; fi
+    nb=$(blocks "$c" "$f" | sed 's/^U //' | tr '\n' ';')
     bad=$(G diff-tree --cc -U0 "$c" -- "$f" | combined_added | outside "$nb" | head -3 | tr '\n' ' ')
     [ -z "$bad" ] || violation "$c" "$f" "the merge's own lines outside a // MC hook block (lines $bad)"
   fi
@@ -339,9 +397,35 @@ for b in $BRANCHES; do
     if [ -z "$fork" ]; then fork=$(G merge-base "$BASE" "$b" 2>/dev/null || true); how="merge-base $BASE"; fi
   fi
   [ -n "$fork" ] || die "$b: no fork point (no creation reflog entry, and $BASE is not a common base); use --fork"
-  commits=$(G rev-list --first-parent --reverse "$fork..$tip")
-  n=$(printf '%s' "$commits" | grep -c . || true)
-  say "$b: fork $(G rev-parse --short "$fork") ($how), $n first-parent commit(s)"
+  excl=
+  if G rev-parse -q --verify "$CODEX^{commit}" >/dev/null 2>&1; then excl="$CODEX"; fi
+  # shellcheck disable=SC2086
+  commits=$(G rev-list --reverse "$fork..$tip" ${excl:+--not $excl})
+  # Commits a merge of the integration branch brought in (the second
+  # parent of a first-parent merge is an ancestor of BASE), except the
+  # branch's own first-parent commits: exempt.
+  chain=$(G rev-list --first-parent "$fork..$tip")
+  brought=
+  if [ "$b" != "$BASE" ] && G rev-parse -q --verify "$BASE^{commit}" >/dev/null 2>&1; then
+    for m in $chain; do
+      for p in $(G rev-list --parents -n 1 "$m" | cut -d' ' -f3-); do
+        if G merge-base --is-ancestor "$p" "$BASE" 2>/dev/null; then
+          # shellcheck disable=SC2086
+          brought="$brought $(G rev-list "$fork..$p" ${excl:+--not $excl} | tr '\n' ' ')"
+        fi
+      done
+    done
+  fi
+  kept=; skipped=0
+  for c in $commits; do
+    if [ -n "$brought" ] && printf '%s\n' $brought | grep -qxF "$c" && ! printf '%s\n' $chain | grep -qxF "$c"; then
+      skipped=$((skipped + 1)); continue
+    fi
+    kept="$kept $c"
+  done
+  commits=$kept
+  n=$(printf '%s\n' $commits | grep -c . || true)
+  say "$b: fork $(G rev-parse --short "$fork") ($how), $n commit(s) on every parent (not ${excl:-codex/frontier (absent)}; $skipped brought by merging $BASE)"
   before=$VIOL
   for c in $commits; do
     np=$(($(G rev-list --parents -n 1 "$c" | wc -w) - 1))
@@ -353,7 +437,10 @@ for b in $BRANCHES; do
     for f in $files; do
       if is_shared "$f"; then check_shared "$c" "$f" "$np"
       elif is_static "$f"; then violation "$c" "$f" "a design-chat file (§4.5)"
-      elif is_foot "$f"; then violation "$c" "$f" "a path the design chat's $DESIGN touched since $CQ0_REF"
+      elif is_foot "$f"; then
+        if [ "$FOOT_STRICT" = 1 ]; then violation "$c" "$f" "a path the design chat's $DESIGN touched since $CQ0_REF"
+        else WARN=$((WARN + 1)); echo "WARNING $c $f: a path the design chat's $DESIGN touched since $CQ0_REF (footprint, report-only; --footprint-strict to enforce)"
+        fi
       fi
     done
   done
@@ -361,5 +448,6 @@ for b in $BRANCHES; do
 done
 
 if [ "$VIOL" -gt 0 ]; then echo "cq-ownership-check: FAIL ($VIOL violation(s))"; exit 1; fi
+[ "$WARN" -eq 0 ] || echo "cq-ownership-check: $WARN footprint warning(s), report-only"
 say "cq-ownership-check: PASS"
 exit 0
