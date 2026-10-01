@@ -679,6 +679,9 @@ impl Sim {
             })
             .collect();
         let prm = self.cfg.mc.keep_params();
+        // The balance lab's day-end counters (`conquest::Track`), so the
+        // `conquest` sweep prints out/cand.md's columns for MC too.
+        let (since0, last0) = (k.since_bell, k.last_taken_from);
         let ev = cqk::advance(
             &mut k,
             b,
@@ -693,6 +696,7 @@ impl Sim {
         match ev {
             KeepEvent::Contest(att) => {
                 self.mcs.st.keep_contests += 1;
+                self.cq.keep_sieges += 1;
                 self.mcs.keep_live.insert(pi);
                 self.prov_mut(pi).mkeep = Some(k);
                 self.mc_keep_alert(pi, att, b);
@@ -700,6 +704,7 @@ impl Sim {
             }
             KeepEvent::Broken => {
                 self.mcs.st.keep_broken += 1;
+                self.cq.keep_failed += 1;
                 self.mcs.keep_live.remove(&pi);
                 let hs: Vec<u32> = stationed
                     .iter()
@@ -723,6 +728,23 @@ impl Sim {
             } => {
                 self.mcs.keep_live.remove(&pi);
                 self.mcs.st.keep_taken += 1;
+                {
+                    let t = &mut self.cq;
+                    t.keep_captures += 1;
+                    t.kcap_by[to as usize] += 1;
+                    t.klost_by[(from as usize).min(6)] += 1;
+                    let tenure = b.saturating_sub(since0);
+                    t.tenure[match tenure {
+                        0..=35 => 0,
+                        36..=143 => 1,
+                        144..=431 => 2,
+                        432..=1007 => 3,
+                        _ => 4,
+                    }] += 1;
+                    if last0 == to && tenure < 432 {
+                        t.flicker += 1;
+                    }
+                }
                 self.mcs.ctl.events.push((b, pi, from, to));
                 self.mcs.ctl.sampled[pi as usize] = to;
                 let mut takers: Vec<u32> = Vec::new();
