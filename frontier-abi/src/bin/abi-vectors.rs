@@ -1820,7 +1820,7 @@ fn v2_presets() -> J {
     v.push(("ruleset_hash_v2", J::S(hex(&p2::RULESET_HASH_V2))));
     v.push((
         "ruleset_hash_v2_status",
-        st("placeholder until CQ1-A merges (kernel bridge stand-in, CQ1-C notes R1)"),
+        st("pinned: permutation_rules::frontier::ruleset_hash_v2() (CQ1-A kernels; integ-W1, CQ1-C notes R1)"),
     ));
     v.push(("ruleset_hash_m1", J::S(hex(&presets::RULESET_HASH))));
     v.push(("rules_version_v2", n(p2::RULES_VERSION_V2)));

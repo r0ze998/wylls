@@ -25,7 +25,7 @@
 //! Inside `step` (each part reads what the previous one left):
 //!
 //! 1. records with `kind ≠ 0` and `b > record.bell`, by site index:
-//!    siege → `siege3::advance` (failure, completion, the capture flip of
+//!    siege → `SiegeV3::advance` (failure, completion, the capture flip of
 //!    the site mirror, capture credit), occupation → liberation or expiry
 //!    (Respite per §3.5), capture due → unchanged;
 //! 3. the keep → `keep::advance` with the donor handoff;
@@ -52,7 +52,7 @@ use crate::v2::presets::ConquestParams;
 use permutation_rules::frontier::clash::{ClashOutcome, NEUTRAL};
 use permutation_rules::frontier::doctrine::of_faction;
 use permutation_rules::frontier::laurel::Tier;
-use permutation_rules::frontier::siege::{BellReport as KReport, Siege, SiegeStatus};
+use permutation_rules::frontier::siege::{BellReport as KReport, SiegeStatus};
 use permutation_rules::hash::sha256;
 
 pub use crate::clash_model::R;
@@ -585,13 +585,11 @@ fn step_siege(
     let neutral = r.flags & CR::FLAG_NEUTRAL != 0;
     let vigil = (!neutral)
         .then(|| siege3::vigil_of_snapshot(r.vigil_start, r.vigil_next, r.vigil_from_day));
-    let mut sg = Siege {
+    let mut sg = siege3::SiegeV3 {
         attacker_faction: r.faction,
         declared_bell: r.bell,
-        last_bell: b.saturating_sub(1),
-        progress: r.progress as u32,
-        required: r.required as u32,
-        held: true,
+        progress: r.progress,
+        required: r.required,
         status: SiegeStatus::Active,
     };
     let br = KReport {
@@ -600,9 +598,9 @@ fn step_siege(
     };
     let start = prm.genesis_ts.saturating_add(b as i64 * 600);
     let slot = CR::target_slot(r.target);
-    match siege3::advance(&mut sg, b, start, br, vigil.as_ref()) {
+    match sg.advance(b, start, br, vigil.as_ref()) {
         SiegeStatus::Active => {
-            let p = sg.progress.min(u8::MAX as u32) as u8;
+            let p = sg.progress;
             if p != r.progress {
                 let mut n = r;
                 n.progress = p;

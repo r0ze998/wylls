@@ -83,16 +83,15 @@ pub const MAX_GUARD_TROOPS: u32 =
 /// CreateSeason v2 writes, pinned by `ruleset_hash_v2_is_the_kernels`
 /// against [`crate::v2::kernel::ruleset_hash_v2`].
 ///
-/// **[placeholder] until CQ1-A merges:** the kernel bridge's stand-in
-/// (`sha256("PSF-RULESET-v2-STANDIN" ‖ RULESET_HASH)`). The integrator
-/// switches the bridge to `permutation_rules::frontier::ruleset_hash_v2()`
-/// after merging CQ1-A, regenerates this constant and the vectors once,
-/// and records it in `integ-CQ1-NOTES.md` (dependency request R1 of the
-/// CQ1-C notes). M1's [`crate::presets::RULESET_HASH`] (`72c6b583…4bd9`)
-/// is unchanged and still pinned by `ruleset_hash_is_the_kernels`.
+/// Pinned once by the integrator after the CQ1-A merge (CQ1-C request R1,
+/// `integ-CQ1-NOTES.md`): `1607f62f…2a5a` = `permutation_rules::frontier::
+/// ruleset_hash_v2()`, also pinned by CQ1-A's
+/// `cq_m1_ruleset_hash_unchanged_and_v2_pinned`. M1's
+/// [`crate::presets::RULESET_HASH`] (`72c6b583…4bd9`) is unchanged and
+/// still pinned by `ruleset_hash_is_the_kernels`.
 pub const RULESET_HASH_V2: [u8; 32] = [
-    0x59, 0x40, 0x27, 0x56, 0x1c, 0xbc, 0xdf, 0x9b, 0xcf, 0xa2, 0xd8, 0x7a, 0x0b, 0xfd, 0xce, 0x47,
-    0x8c, 0xad, 0xc4, 0xd8, 0xbf, 0x73, 0x28, 0xa2, 0xe3, 0x85, 0xab, 0xe3, 0xe1, 0xd0, 0x35, 0xbf,
+    0x16, 0x07, 0xf6, 0x2f, 0xfb, 0x02, 0x01, 0xf1, 0x13, 0xc4, 0xc3, 0xd8, 0xea, 0x35, 0xff, 0xd0,
+    0xc9, 0xc8, 0x8c, 0x9c, 0x8e, 0x48, 0xb3, 0x3f, 0x0d, 0xaa, 0x56, 0x70, 0x75, 0x45, 0x2a, 0x5a,
 ];
 
 /// The conquest block (§5.2.5).
@@ -355,7 +354,7 @@ impl SeasonParamsV2 {
         self.cq.validate(self.base.end_bell)
     }
 
-    /// The kernel's `KeepParams` stand-in of this season.
+    /// The keep kernel's `KeepParams` of this season.
     pub fn keep_params(&self) -> crate::v2::kernel::keep::KeepParams {
         self.cq.keep_params()
     }
