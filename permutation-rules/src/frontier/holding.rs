@@ -14,6 +14,12 @@
 /// Version of this kernel, bound into `RULESET_HASH` (`super::KERNEL_VERSIONS`):
 /// bump it whenever an honest outcome changes. v2: M1 CL-02 caps (walls, production, upkeep), CL-03 checked duplicate cost.
 pub const HOLDING_VERSION: u16 = 2;
+/// The conquest rules' version (MC §3.6, §3.8, §3.12, §7): outposts
+/// ([`may_found_outpost`]), the capture effects ([`capture_effects`]) and
+/// the season's lifecycle timers ([`LifecycleParams`]). Bound into
+/// `ruleset_hash_input_v2` only; [`HOLDING_VERSION`] keeps the M1 value
+/// (staged ABI, MC §5.1).
+pub const HOLDING_VERSION_V3: u16 = 3;
 
 use crate::economy::upkeep_of_effective;
 use crate::fixed::{Bps, Milli, MilliTroops, BPS_ONE, MILLI};
@@ -657,6 +663,221 @@ impl Holding {
         self.upkeep[resource as usize] = per_hour.clamp(0, MAX_UPKEEP_PER_HOUR);
         self.apply_rates(now);
         Ok(())
+    }
+}
+
+// ====================================================================
+// Holding v3: outposts, captures and season timers (MC §3.6, §3.8, §3.12)
+// ====================================================================
+
+/// A season's holding lifecycle timers (MC §3.12, SeasonParams v2), in
+/// seconds. Replaces the M1 constants `SHIELD_SECS`, `SHIELD_LATE_SECS`,
+/// `DORMANT_AFTER` and `RELEASE_AFTER` under the conquest rules.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct LifecycleParams {
+    pub shield_secs: i64,
+    pub shield_late_secs: i64,
+    /// A first holding founded at least this long after genesis gets
+    /// `shield_late_secs`.
+    pub shield_late_after_secs: i64,
+    pub dormant_after_secs: i64,
+    pub release_after_secs: i64,
+    /// Shield of holdings 2–3 (outposts).
+    pub outpost_shield_secs: i64,
+}
+
+impl LifecycleParams {
+    /// Frontier-7 (`MC_LOCAL_7D`, MC §3.12; v1.1 R-14: dormant after 3
+    /// days, released only after the whole 7-day season).
+    pub const FRONTIER_7: LifecycleParams = LifecycleParams {
+        shield_secs: 86_400,
+        shield_late_secs: 86_400,
+        shield_late_after_secs: 172_800,
+        dormant_after_secs: 259_200,
+        release_after_secs: 604_800,
+        outpost_shield_secs: 7_200,
+    };
+    /// Frontier-28 (`MC_SEASON_28`): M1's dormancy, the 48 h / 72 h shields.
+    pub const FRONTIER_28: LifecycleParams = LifecycleParams {
+        shield_secs: 172_800,
+        shield_late_secs: 259_200,
+        shield_late_after_secs: 604_800,
+        dormant_after_secs: 432_000,
+        release_after_secs: 864_000,
+        outpost_shield_secs: 7_200,
+    };
+
+    /// Shield length of a holding of `order` (1 first, 2–3 outposts)
+    /// founded at `founded_ts`: outposts `outpost_shield_secs`; a first
+    /// holding `shield_secs`, or `shield_late_secs` when founded at least
+    /// `shield_late_after_secs` after `genesis_ts`.
+    pub const fn shield_secs_for(&self, order: u8, founded_ts: i64, genesis_ts: i64) -> i64 {
+        if order >= 2 {
+            self.outpost_shield_secs
+        } else if founded_ts.saturating_sub(genesis_ts) >= self.shield_late_after_secs {
+            self.shield_late_secs
+        } else {
+            self.shield_secs
+        }
+    }
+
+    /// Dormant at `now` (no owner action for `dormant_after_secs`).
+    pub const fn is_dormant(&self, last_owner_action: i64, now: i64) -> bool {
+        now >= last_owner_action.saturating_add(self.dormant_after_secs)
+    }
+
+    /// A dormant first holding's site is released at `now` (MC §3.9: it
+    /// becomes a plain free site, never a Free City; R-07, R-14).
+    pub const fn is_released(&self, order: u8, last_owner_action: i64, now: i64) -> bool {
+        order == 1 && now >= last_owner_action.saturating_add(self.release_after_secs)
+    }
+}
+
+/// Why an outpost ticket is refused (MC §3.8). `HoldingsFull` maps to the
+/// program's `HoldingsFull` (69), `LandGate` to M1's land-gate refusal and
+/// every other variant to `OutpostRule` (75).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OutpostRefusal {
+    /// No free slot (a holding, an open ticket or a capture reservation in
+    /// each of slots 2–3).
+    HoldingsFull,
+    /// The first holding is not final or below `outpost_tier_min`, or slot
+    /// 3 without a final slot-2 holding.
+    Prerequisite,
+    /// Inside a heartland ring (`ring ≤ heartland_max_ring`).
+    Ring,
+    /// Farther than `outpost_range` provinces from the named holding.
+    Range,
+    /// The citizen's faction holds ≥ `outpost_share_bps` of the province's
+    /// strength weight.
+    Share,
+    /// Folded free sites below 20% of open sites.
+    LandGate,
+    /// At or after `end_bell − outpost_close_bells`.
+    Close,
+}
+
+/// The land gate (DESIGN §3.4): tickets only while free sites are at least
+/// this share of open sites.
+pub const LAND_GATE_BPS: Bps = 2_000;
+
+/// Everything [`may_found_outpost`] reads (MC §3.8).
+#[derive(Clone, Copy, Debug)]
+pub struct OutpostCheck {
+    /// The slot the ticket would take ([`lowest_free_slot`]); `None` when
+    /// none of slots 2–3 is free.
+    pub slot: Option<u8>,
+    pub first_final: bool,
+    pub first_tier: Tier,
+    pub tier_min: Tier,
+    /// Slot 2 holds a final holding (needed for slot 3; a slot 2 only
+    /// reserved by a siege does not count).
+    pub slot2_final: bool,
+    /// Ring of the target province.
+    pub target_ring: u32,
+    pub heartland_max_ring: u8,
+    /// Province distance from the named final holding to the target.
+    pub range: u32,
+    pub outpost_range: u8,
+    /// The citizen's faction's strength weight in the target province and
+    /// the province's total, at filing.
+    pub faction_weight: u64,
+    pub province_weight: u64,
+    pub outpost_share_bps: u16,
+    /// The Frontier's folded free sites and open sites (land gate).
+    pub free_sites: u64,
+    pub open_sites: u64,
+    pub now_bell: u32,
+    pub end_bell: u32,
+    pub outpost_close_bells: u16,
+}
+
+/// Whether an outpost ticket may be filed (MC §3.8), checks in the table's
+/// order: count, prerequisite, ring, range, outpost rule (share), land
+/// gate, close.
+pub fn may_found_outpost(c: &OutpostCheck) -> Result<(), OutpostRefusal> {
+    let Some(slot) = c.slot else {
+        return Err(OutpostRefusal::HoldingsFull);
+    };
+    if !(2..=MAX_HOLDINGS_PER_WALLET).contains(&slot) {
+        return Err(OutpostRefusal::HoldingsFull);
+    }
+    if !c.first_final || c.first_tier < c.tier_min || (slot == 3 && !c.slot2_final) {
+        return Err(OutpostRefusal::Prerequisite);
+    }
+    if c.target_ring <= c.heartland_max_ring as u32 {
+        return Err(OutpostRefusal::Ring);
+    }
+    if c.range > c.outpost_range as u32 {
+        return Err(OutpostRefusal::Range);
+    }
+    if c.province_weight > 0
+        && c.faction_weight as u128 * BPS_ONE as u128
+            >= c.outpost_share_bps as u128 * c.province_weight as u128
+    {
+        return Err(OutpostRefusal::Share);
+    }
+    if (c.free_sites as u128) * (BPS_ONE as u128) < (LAND_GATE_BPS as u128) * (c.open_sites as u128)
+    {
+        return Err(OutpostRefusal::LandGate);
+    }
+    if c.now_bell >= c.end_bell.saturating_sub(c.outpost_close_bells as u32) {
+        return Err(OutpostRefusal::Close);
+    }
+    Ok(())
+}
+
+/// The lowest free slot among 2..=3 (MC §3.1, K-25): a slot is free when it
+/// holds no holding (`occupied[slot − 1]`), the open ticket does not name
+/// it (`ticket_slot`, 0 = none) and no capture siege reserved it
+/// (`reserved_mask` bit 0 slot 2, bit 1 slot 3; the Citizen's `slots`
+/// bits 2–3 shifted down).
+pub const fn lowest_free_slot(
+    occupied: [bool; 3],
+    ticket_slot: u8,
+    reserved_mask: u8,
+) -> Option<u8> {
+    let mut s = 2u8;
+    while s <= MAX_HOLDINGS_PER_WALLET {
+        let i = (s - 1) as usize;
+        if !occupied[i] && ticket_slot != s && reserved_mask & (1 << (s - 2)) == 0 {
+            return Some(s);
+        }
+        s += 1;
+    }
+    None
+}
+
+/// What a capture does to the captured holding (MC §3.6): walls halved
+/// (kept whole when the captor's doctrine keeps walls, Iron), garrison and
+/// trained reserve lost, shield 0; buildings, the queue and the tier stay.
+/// Stores stay only if the capture is credited (`siege::capture_credited`),
+/// which the caller applies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CaptureEffects {
+    pub walls: u32,
+    pub garrison: MilliTroops,
+    pub reserve: MilliTroops,
+    pub tier: Tier,
+    pub queue_kept: bool,
+    pub shield_until: i64,
+}
+
+/// [`CaptureEffects`] of capturing `h` by a faction of `captor_doctrine`.
+/// `h.walls` is the committed wall count at the completion bell.
+pub fn capture_effects(h: &Holding, captor_doctrine: super::doctrine::Doctrine) -> CaptureEffects {
+    let walls = h.walls.min(MAX_WALLS);
+    CaptureEffects {
+        walls: if captor_doctrine.keeps_walls_on_capture {
+            walls
+        } else {
+            walls / 2
+        },
+        garrison: 0,
+        reserve: 0,
+        tier: h.tier,
+        queue_kept: true,
+        shield_until: 0,
     }
 }
 

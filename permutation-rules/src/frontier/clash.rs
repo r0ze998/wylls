@@ -93,6 +93,14 @@
 /// dice of an engagement come from one hash ([`engagement_variances`]), so
 /// every clash outcome with an engagement moves.
 pub const CLASH_VERSION: u16 = 3;
+/// The conquest rules' version (MC §3.13, K-21): a province's keep fights
+/// as a 13th garrison ([`MAX_GARRISONS_WITH_KEEP`]). Every input of at most
+/// [`MAX_GARRISONS`] garrisons resolves bit-identically to version 3 (the
+/// M1 digests and the 4,320-input equivalence pin it); only a 13-garrison
+/// input, which version 3 refused, is new. Bound into
+/// `ruleset_hash_input_v2` only; [`CLASH_VERSION`] keeps the M1 value
+/// (staged ABI, MC §5.1).
+pub const CLASH_VERSION_V4: u16 = 4;
 
 /// The variance dice of one engagement (Phase B, I-14; `CLASH_VERSION` 3):
 /// one `h = sha256(cs ‖ 3 ‖ "eng" ‖ id)` (the preimage of
@@ -337,8 +345,15 @@ fn order_key(u: &Unit) -> Key3 {
 
 /// Arrival slots per (province, bell): 4 per faction.
 pub const MAX_ARRIVALS: usize = 24;
-/// Holdings (sites) per province.
+/// Holdings (sites) per province. Unchanged by the conquest rules (MC
+/// K-21, R-16): it is in `ruleset_hash_input`, sizes the camp rule
+/// (`frontier_abi::clash_model`: the camp joins only while fewer than 12
+/// garrisons stand) and equals the Province's `SITES_N`.
 pub const MAX_GARRISONS: usize = 12;
+/// Garrisons a clash accepts (MC K-21, `CLASH_VERSION_V4`): the 12 site
+/// garrisons (or 11 and the camp) and the province's keep. Used only by
+/// input validation and the keep path.
+pub const MAX_GARRISONS_WITH_KEEP: usize = MAX_GARRISONS + 1;
 /// Barbarians and Free Cities: hostile to everyone, never at peace. The
 /// largest faction id a clash accepts (factions 0..=5 are the six
 /// doctrines, CL-06).
@@ -849,7 +864,9 @@ fn validate(inp: &ClashInput) -> Result<(), ClashError> {
     if inp.arrivals.len() > MAX_ARRIVALS {
         return Err(ClashError::TooManyArrivals);
     }
-    if inp.garrisons.len() > MAX_GARRISONS {
+    // MC K-21: 12 site garrisons (or 11 and the camp) and the keep. An
+    // M1 input never has more than 12, so its outcome is unchanged.
+    if inp.garrisons.len() > MAX_GARRISONS_WITH_KEEP {
         return Err(ClashError::TooManyGarrisons);
     }
     let mut ids: Vec<u64> = Vec::with_capacity(inp.residents.len() + inp.arrivals.len());
@@ -1595,7 +1612,9 @@ pub fn resolve_clash_ref(rules: &Ruleset, inp: &ClashInput) -> Result<ClashOutco
 
 const NO_TILE: u8 = 0xff;
 const NO_UNIT: u8 = 0xff;
-const MAX_UNITS: usize = PROVINCE_HOST_CAP + MAX_ARRIVALS + MAX_GARRISONS;
+// MC K-21: sized for the keep as a 13th garrison (a fixed array size, not
+// a rule: outcomes of ≤ 12-garrison inputs are unchanged).
+const MAX_UNITS: usize = PROVINCE_HOST_CAP + MAX_ARRIVALS + MAX_GARRISONS_WITH_KEEP;
 const _: () = assert!(MAX_UNITS < NO_UNIT as usize && PROVINCE_TILES < NO_TILE as usize);
 
 const fn c_offset(idx: u8) -> (i32, i32) {
