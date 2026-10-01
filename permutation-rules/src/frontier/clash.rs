@@ -339,6 +339,10 @@ fn order_key(u: &Unit) -> Key3 {
 pub const MAX_ARRIVALS: usize = 24;
 /// Holdings (sites) per province.
 pub const MAX_GARRISONS: usize = 12;
+/// MC (CONQUEST-CONTRACT §3.14, K-21, R-16): the 12 site garrisons plus the
+/// province keep. Used by `validate` and the keep path only; `MAX_GARRISONS`
+/// (hash input, camp rule) stays 12.
+pub const MAX_GARRISONS_WITH_KEEP: usize = MAX_GARRISONS + 1;
 /// Barbarians and Free Cities: hostile to everyone, never at peace. The
 /// largest faction id a clash accepts (factions 0..=5 are the six
 /// doctrines, CL-06).
@@ -849,7 +853,7 @@ fn validate(inp: &ClashInput) -> Result<(), ClashError> {
     if inp.arrivals.len() > MAX_ARRIVALS {
         return Err(ClashError::TooManyArrivals);
     }
-    if inp.garrisons.len() > MAX_GARRISONS {
+    if inp.garrisons.len() > MAX_GARRISONS_WITH_KEEP {
         return Err(ClashError::TooManyGarrisons);
     }
     let mut ids: Vec<u64> = Vec::with_capacity(inp.residents.len() + inp.arrivals.len());
@@ -1595,7 +1599,7 @@ pub fn resolve_clash_ref(rules: &Ruleset, inp: &ClashInput) -> Result<ClashOutco
 
 const NO_TILE: u8 = 0xff;
 const NO_UNIT: u8 = 0xff;
-const MAX_UNITS: usize = PROVINCE_HOST_CAP + MAX_ARRIVALS + MAX_GARRISONS;
+const MAX_UNITS: usize = PROVINCE_HOST_CAP + MAX_ARRIVALS + MAX_GARRISONS_WITH_KEEP;
 const _: () = assert!(MAX_UNITS < NO_UNIT as usize && PROVINCE_TILES < NO_TILE as usize);
 
 const fn c_offset(idx: u8) -> (i32, i32) {
