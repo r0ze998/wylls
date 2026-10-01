@@ -1,6 +1,6 @@
 # The Sixfold Frontier: decisions log
 
-Kept with the M1 integration contract (`m1/M1-CONTRACT.md`, **v1.13**, 2026-09-30; the M1 exit is recorded in part U, 2026-10-01; first kept at v1.2, 2026-09-27; v1.0 kept as `lab/contract-rev/DECISIONS.v1.0.md`). Committed here by unit W1-D (CL-37) and linked from `README.md`; `m1/DECISIONS.md` is a pointer to this file. Earlier decisions (O1–O10, D1–D25) are in DESIGN.md §14. Part F records what the first M1 week measured for the questions still open.
+Kept with the M1 integration contract (`m1/M1-CONTRACT.md`, **v1.13**, 2026-09-30; the M1 exit is recorded in part U, 2026-10-01; first kept at v1.2, 2026-09-27; v1.0 kept as `lab/contract-rev/DECISIONS.v1.0.md`). The conquest milestone MC (contract `conquest/CONQUEST-CONTRACT.md` v1.1, 2026-10-01) is recorded in **part CQ** (unit CQ1-D). Committed here by unit W1-D (CL-37) and linked from `README.md`; `m1/DECISIONS.md` is a pointer to this file. Earlier decisions (O1–O10, D1–D25) are in DESIGN.md §14. Part F records what the first M1 week measured for the questions still open.
 
 **Standing rule:** every devnet step and every push needs the owner's separate approval. One push of `codex/frontier` was approved and made on 2026-09-27 (`d95fa25`); no further push is assumed. Local commits on work branches are allowed.
 
@@ -417,6 +417,120 @@ The exit season `m1-exit` ran on `1e5701b` (= `codex/frontier`; code of `629d007
 | U9 | **Exit report corrected after review (same day, docs only; no verdict changes):** the JA summary no longer says "as in production", "a third party verified" or "5,000 spectators watched" (the season ran on the local test chain at 20×; the team's own verifier, which anyone can run; 5,000 simulated viewers from the load generator for 24 game hours ≈ 72 min real) and gains a known-limits section; the sponsorship quota reads 40 per citizen per game day for days 0–6, then 20 (runbook); 43 `g01_*` tests, not 44; the `min_tip` clause of criterion 4 shown directly (17 of 17 marches revealed by the keepers and settled); **2 of the 9 adversary holds (`slots-above`, `anchor`) found no pending write in `m1-exit`** (0 writes of their keys inside or after the window), so they were not exercised: open adversary-coverage item (F-A6), row E unchanged; of U4's two fixes only funding the beneficiary in the stack avoids a new season (a keeper fee-payer change triggers §11's re-run). The JA heading reads "完了確認の報告": M1 is not yet complete until U3 closes | record | `m1/M1-EXIT-NOTES.md` §3, §4.2, §4.3, §7, §11; `m1/runs/m1-exit/criteria.md` notes 1–3 |
 | U10 | **M1 is formally complete; the exit season needed no re-run (M1 close, 2026-10-01).** `frontier/m1-close-U3` (`3a4e24f`: `itest::checks::resident_liveness_cond` leaves out only the settle racer's `redepart` tries refused `NotResident` through the relay; any other refusal still counts, with a unit test that a non-racer refusal over 25 % still fails) and `frontier/m1-close-U4` (`5d0632b`: the stack airdrops each keeper beneficiary `pools.beneficiary_lamports`, 1 SOL; the report lists landed ClaimDefence) merged `--no-ff` into `frontier/m1-integ` (`996759d`, `864b622`). Under §11 W7 only a fix touching the program or the keeper re-runs the season: `git diff 1e5701b..864b622` changes no file under `permutation-frontier/src`, `frontier-abi/src`, `permutation-rules/src` or `frontier-node/crates/keeper/src`; the release `.so` rebuilt twice is still `d85e1bd7…2281`; localnet, keeper, herald and drand-replay rebuild byte-identical. On `864b622`: the 34 cumulative port-free gate items exit 0 (svm 248/0/4 with `RELEASE_CHECK=1`, `cu-table --check`, heap sweep 0 failures, `mutate.sh`, tamper 58, keeper play 7/7, screens 51/51), `npm test` 529/529, `inproc_day` pass (Depart 0 / 64 after the racer's 31), G14 pass (Depart 0 / 154 after the racer's 116), nightly `m1c-nightly-1` green with ClaimDefence landed at slot 536 (refund 42,132, not partial). **Open for the owner, not blocking:** each landed claim had four sibling versions refused `NotEligible` whose fees (51,543) exceed the refund; a fix is keeper work and would need a new exit season | record | `m1/M1-EXIT-NOTES.md` §1, §12; `m1/runs/m1c-nightly-1/`; `m1/M1-CLOSE-U4-NOTES.md` |
 
+## CQ. The conquest milestone MC "Contested Ground" (contract v1.1, 2026-10-01; written by unit CQ1-D)
+
+The integration contract is [`conquest/CONQUEST-CONTRACT.md`](conquest/CONQUEST-CONTRACT.md) **v1.1** (normative for MC; where it and this part differ, the contract wins); the owner's summary is [`conquest/SUMMARY.ja.md`](conquest/SUMMARY.ja.md); the five area designs are in [`conquest/design/`](conquest/design/). The design text is DESIGN §24 (revision 3.2). Status words as above, plus **record** (a measured or recorded fact).
+
+**Owner direction (2026-10-01):** build the territory contest, the game's core, **before** M2 money, so that the faction map changes through play (「ゲームのコアなのでこれやらないとね」). Keep D9 ("the first holding is never taken") unless the design check shows the map cannot move with it; everything ends with the season; money stays in M2; faction scores are game points; governance is M3, so MC runs on stated defaults.
+
+### CQ-A. Records
+
+| # | Record | Status | Source |
+|---|---|---|---|
+| CQA1 | **`CQ0` = `39ff369`** (`codex/frontier` with the contract, the owner summary and the area designs committed under `docs/frontier/conquest/`, on top of `d11d058`). Wherever the contract writes `CQ0` or `CQ0=d11d058` (§0 base line, §12 preamble, §16, §17), `39ff369` is used; `39ff369` adds only those documents to `d11d058`, so every code fact the contract cites at `d11d058` holds at `39ff369` | record (main session) | `git log 39ff369`; contract §0, §12 |
+| CQA2 | The integration branch is `frontier/cq-integ` (worktree `.claude/worktrees/cq-integ`), cut at `CQ0`; Wave 1 unit branches are cut from it (§4.2). **`codex/frontier` is not fast-forwarded during MC**; it stays the design chat's base with the M1 program until the MC exit (Gate CQ5) and the owner's consent | architect | contract §4.2 |
+| CQA3 | M1's `RULESET_HASH` = `72c6b5835ded6418ed98b0c00b2ae45ce4c4b082d9614447dbce2c9d2e654bd9` stays pinned; MC adds `RULESET_HASH_V2` beside it (Wave 1 is additive, R-16) and bumps `RULES_VERSION_FRONTIER` 10 → 11 (§3.13). The new value is recorded by the integrator in `conquest/integ-CQ1-NOTES.md` | record / architect | `frontier-abi/vectors/presets.json`; contract §3.13, §5.1 |
+| CQA4 | Standing rules for MC: local commits only, no push, no devnet or mainnet transaction, no install or download (the approved drand archive `data/drand-archive-quicknet-g0-1788998400` is reused read-only and never committed); MC binds only ports 41300–41999 (never 41000–41299, M1's reserved list, or 41900–41901 while a local model spike uses them); the design chat's files (§4.5) are never touched by an MC unit; no paid API | architect (standing rule) | contract §4.2, §4.3, §4.5 |
+| CQA5 | The evidence MC starts from: holding-based colour cannot move the map (rules lab 0–1% of provinces ever foreign at 1k/7d; off-chain lab 0 March flips after day 1; balance lab 0.2 March changes a day at 10k/28d) [sim]; the keep model moves it (8.2 March changes a day and 36% of provinces changing hands at 1k/7d with the human mix; 10.1 a day and 47% with 1,000 simulated bots; doctrine band 6/6 when keeps score nothing; bot criterion worst cell 0.986 against the M0 control 0.985) [sim]; M1's stack bots made ≈ 0.24 Departs per bot-day [measured], one to two orders of magnitude below the simulator's `Arch::Bot`, which is why Wave 1 re-measures with `--bot-profile cq` and `m1` (R-11) | record | contract §0, §13.4; `lab/simbal/out/cand.md` |
+
+### CQ-B. Owner decisions OD-1…OD-16: working defaults
+
+**These are working defaults the owner may revise, not explicit owner approvals.** The main session relayed on 2026-10-01 that implementers build to them exactly as the contract (§15) and the owner summary (§6) state: OD-1…OD-12 **yes**, OD-13…OD-15 **no**, OD-16 **stop and ask**. Each is a game rule visible to players except OD-12 (cost) and OD-13 (scope).
+
+| # | Question | Working default | Blocks |
+|---|---|---|---|
+| OD-1 | The faction map is coloured by **keeps** (one fort per province of ring ≥ 2, held by a faction, owned by no wallet, taken by holding its hex 72 bells ≈ 12 h) instead of by holdings | **yes** (K-01) | CQ1-A |
+| OD-2 | D9: the first holding is never taken (occupied at most) | **yes, kept** (K-02) | CQ1-A |
+| OD-3 | Keeps give the map only (no Dominion, goods or bonus); Dominion stays DESIGN §5.6 from holdings, game points, unofficial | **yes** (K-03); revisit with a doctrine re-tune | CQ1-A, CQ2-C |
+| OD-4 | Holdings 2–3 by outpost tickets at the front (faction < 50% of the province); sealed Settler marches in M3 | **yes** (K-07) | CQ1-A, CQ2-A |
+| OD-5 | Genesis Free Cities, one neutral town per province from ring 4; released dormant homes become plain free sites as in M1, not Free Cities | **yes** (K-08) | CQ1-A |
+| OD-6 | Occupation moves Dominion points only (no map colour); at most 12 h (Frontier-7) / 48 h (Frontier-28); then equal Respite against the occupier's faction only, and only after expiry or the owner's own liberation; no tribute; no laurels in MC | **yes** (K-09, K-12, K-16) | CQ1-A |
+| OD-7 | Heartlands (rings 2–3 of the own wedge): no sieges and no keep contests until M3; all factions in Rivalry | **yes** (K-18; `heartland_max_ring` can drop to 2) | CQ1-A |
+| OD-8 | Frontier-7 timers for the exit and the demo: 24-h shield, dormant after 3 days, no release within the 7-day season, 36-h Frontier protection | **yes** (K-17, R-14) | CQ1-C |
+| OD-9 | Siege stake 500 Gold; immunity only when the defender broke the siege, against the besieging faction only; ≤ 2 sieges a day per citizen; only the hex's largest host may sound the horn | **yes** (K-05, K-06, K-20, K-24) | CQ1-A |
+| OD-10 | A captured holding loses its garrison and trained troops; the victim's hosts keep fighting until the victim sends them home; a capture lands in a slot reserved at the horn (no raze); a quick recapture (inside 1 day / 2 days) earns no points and moves no stores; the refugee kit waits for M2 | **yes** (K-25, K-26, K-27) | CQ2-C |
+| OD-11 | Criterion 10 ("the map moved") gates the exit, with §13.4's floors | **yes** | CQ3-B |
+| OD-12 | The Province account grows to 4,736 B (+0.00325 SOL refundable per province; +40.6 SOL float at a full map) | **yes** (K-22) | CQ1-C |
+| OD-13 | Replay-page data (`frontier/demo-replay`) for the English demo: hand-off only, or an add-on unit | **no** add-on unit: hand-off only | none |
+| OD-14 | Should keeps score (e.g. March-banner hours at a small Dominion weight, `bannerdom`)? | **no**: display-only recognition (per-player keep standings, Chronicle titles); revisit with CQ1's numbers | none (CQ1-B measures either way) |
+| OD-15 | Should the bots use a held keep as a forward base (the chain already allows it)? | **no**, until CQ1-B's `--forward` rows show no snowball | CQ2-F |
+| OD-16 | If a coordinated (campaign) faction ends above 22% of provinces against lone factions in CQ1, accept or add a limit? | **stop and ask the owner before Wave 2** | Wave 2 |
+
+### CQ-C. The conflict register K-01…K-27 (contract §2)
+
+Resolved by the contract between the five area designs; status **architect** (reversible by contract amendment, §16). The contract's §2 carries the reasons and the evidence.
+
+| # | Conflict | Resolution |
+|---|---|---|
+| K-01 | Source of the faction map | **The keep model**: province colour = keep holder; March banner = the faction holding more than half of the March's open keeps. Holding-weight control is kept only for Dominion |
+| K-02 | D9 | **Kept**: first holdings are occupied, never transferred (relaxing D9 moved the map no further in every lab) |
+| K-03 | Dominion | DESIGN §5.6 as measured: strength weight, an occupied first holding counts for the occupier, 6 control-bells per controlled hour and 36 per capture; **keeps score nothing**; contested weighting deferred |
+| K-04 | Siege declaration | **From the hex**; the start window never applies |
+| K-05 | Siege stake | **500 Gold** from the declarer's source holding |
+| K-06 | Immunity after a failed siege | Only when the defender's side broke it; 36 bells **against the besieging faction only**; otherwise no immunity and the stake is burned |
+| K-07 | Holdings 2–3 | **Outposts by ticket** (ring outside every heartland, range 3, Town prerequisite, the 20% land gate); Settler marches to M3 |
+| K-08 | Neutral land | **Genesis Free Cities** (`free_city_min_ring`, 0 = off); released dormant holdings become plain free sites |
+| K-09 | Occupation length | Frontier-28 tenure 288 / Respite 288; Frontier-7 72 / 72; Respite only on expiry or the owner's own liberation, barring only the occupier's faction |
+| K-10 | Liberation | At the first resolved or quiet bell after which the occupier's faction does not hold the hex, or at tenure |
+| K-11 | Auto-reinforce | **Off-chain only** (client, bots, opt-in relay) |
+| K-12 | Tribute | **Deferred to M3**; tag 0xA4 reserved |
+| K-13 | March fold under lag | The program's 6-hour ring with lost hours |
+| K-14 | Snapshot weight | Strength weight in centi-units, u16 per side |
+| K-15 | Log kinds and tamper numbering | Logs 80–89; checks V14–V22; tampers T25–T48 |
+| K-16 | Laurels in MC | **None** (M2 infrastructure) |
+| K-17 | Shield for a 7-day season | **24 h** (first holdings), outposts 2 h |
+| K-18 | Heartland size | `heartland_max_ring`, default 3 in both presets |
+| K-19 | The keep's garrison after capture | The simulator's rule exactly: the **donor** (the taking faction's largest non-civilian host on the tile, then the lowest host id) leaves `floor(troops × 50%)`; the rest goes home; troops ≤ `MAX_HOST_TROOPS` in every reachable state |
+| K-20 | Siege daily cap | ≤ 2 DeclareSiege per citizen per game day (program and relay) |
+| K-21 | The keep in the clash | 13 garrisons (12 sites + the keep); `clash::MAX_GARRISONS` stays 12 and `MAX_GARRISONS_WITH_KEEP` = 13 is used only by `validate` and the keep path, so M1 outcomes and the M1 `RULESET_HASH` input are unchanged |
+| K-22 | Province size | 4,736 B (a 640-B conquest block) |
+| K-23 | Free City and holding control during capture | The site mirror flips at the completion bell; SettleCapture only does the bookkeeping |
+| K-24 | Who may declare | **The lead host rule** (the hex's largest non-civilian host of the holding faction); new code `NotLead` (78) |
+| K-25 | Capture or raze | **Holding slots reserved at the horn**; a capture always lands in its reserved slot; **no raze in MC** |
+| K-26 | Capture farming between a whale's wallets | **Capture credit**: a capture counts only when the victim held the holding ≥ `capture_credit_min_bells` (144 / 288); an uncredited capture also loses the holding's stores |
+| K-27 | RetireHost timing | The victim's own call during the season; anyone only after `end_bell` |
+
+### CQ-D. The review revision R-01…R-26 (contract v1.0 → v1.1, §17)
+
+Every review issue was checked against the repo at `d11d058`, `frontier/ui-shell` and the labs. Status **architect**. Severity in brackets; "accepted+" = accepted, worse than stated; "partly" = partly rebutted.
+
+| # | Issue | Verdict | What changed |
+|---|---|---|---|
+| R-01 | [blocker] a keep garrison above 30,000 troops freezes a province | accepted | K-19 donor rule; the cap asserted in `keep::open/garrison/advance`; CreateSeason bounds the guards; `cq_keep_states_validate`, P13, T45 |
+| R-02 | [major] RetireHost lets anyone time a victim's defenders away | accepted | K-27: the victim only during the season; P11, T42, persona `retire_foreign` |
+| R-03 | [major] DeclareSiege is a first-come race | accepted | K-24 lead host; P2 rewritten as permutations; T46, persona `lead_racer` |
+| R-04 | [major] capture or raze depends on settle timing and order | accepted+ | K-25 slots reserved at the horn, raze removed, immunity from the completion bell; P2(b) |
+| R-05 | [major] Respite and SiegeBusy farming by a friendly faction or an alt | accepted+ | immunity and Respite bar only the recorded faction; Respite only on expiry or the owner's own liberation; P10, T44, persona `respite_farmer` |
+| R-06 | [major] Sybil capture ping-pong farms Dominion | accepted | K-26 capture credit (`held_since_hour` in the site mirror); T47, persona `pingpong_pair` |
+| R-07 | [major] a site's state can change under a live record | accepted+ | released homes are plain free sites; ReleaseDormant refuses a live record; `owed_gen`; site-state invariants S1–S7 (§3.15), P12, V22 |
+| R-08 | [major] DeclareSiege's 30k CU has no basis for the vigil arithmetic | accepted | `can_complete_before` O(1) at ≥ 288 bells left, else ≤ 287 `covers()` calls; the ETA leaves the chain; G1's fill pinned |
+| R-09 | [major] verifier gaps | accepted (all six) | V22; V16, V17, V19 and V21 extended; T39–T48 (47 required classes); keep pause marked M3-only |
+| R-10 | [blocker] real players have no reason to take keeps | partly; mostly accepted | display-only recognition; `keep_aggr` 0.25 / 0.5 / 1.0 rows in CQ1; `bannerdom` through the doctrine gate (OD-14); stated as a product risk |
+| R-11 | [major] the 1k-bot reference assumes far more activity than the stack bots showed | accepted | `--bot-profile cq` and `m1`; thresholds derived from `cq`; the stack's bot-activity gate |
+| R-12 | [major] borders move but the balance of power never does | partly | expectations stated; a 7-day net-movement metric for 10e; `--forward` measured; OD-15 |
+| R-13 | [major] snowball resistance measured without coordination | accepted | the 3:1 size stress and a one-campaign-faction run in CQ1; the 22% stop rule (OD-16) |
+| R-14 | [major] the summary says the first holding is never lost | accepted+ | Frontier-7: dormant after 3 days, no release within the season; released homes are plain free sites; the summary states the Frontier-28 exception |
+| R-15 | [major] two different "controls" per March | accepted | the Dominion controller is renamed *Dominion lead*, never a map colour (`points_lead` in `PSFCT1`) |
+| R-16 | [blocker] Gates CQ1 and CQ2 cannot go green | accepted+ | the staged ABI (Wave 1 additive; `MAX_GARRISONS` stays 12; `is_heartland_in`); CQ1-A owns every `permutation-rules/tests/frontier_*.rs`; generated outputs regenerated in the same merge |
+| R-17 | [major] the live map will not visibly move | accepted | `fcontrol.mapFaction`; `layers.mjs` switched (vector path); an explicit request to the design chat for `sprites.mjs`; E7 checks vector mode |
+| R-18 | [major] `inproc_cq_day` cannot show its events under Frontier-7 | accepted | the `MC_TEST` preset |
+| R-19 | [major] the design chat's footprint is larger than §4.5 listed | accepted+ | §4.5 extended; MC stops editing `controller.mjs` / `fstate.mjs` (new `fcqstate.mjs`); herald hooks only; the first-parent ownership check (`scripts/cq-ownership-check.sh`, CQ1-D) |
+| R-20 | [major] the ruleset pin breaks the design chat's live preview | accepted | `RULESET_HASHES {m1, mc}`; spectate accepts both; a fixture herald on 41900 from Gate CQ3 |
+| R-21 | [major] shared models frozen in Wave 1, first used in Wave 2 | accepted | `clash_model` v2 in CQ1-C; `conquest_model` / `clash_model` owned by CQ2-B then CQ3-E |
+| R-22 | [major] the verifier's M1 fixtures are v1 | accepted | version-dispatching readers; M1 fixtures stay v1 regression inputs |
+| R-23 | [major] FoldMarch lag p99 ≤ 2 h conflicts with 4-hour idle skips | accepted | target ≤ 5 game hours; zero lost hours is the real gate; fold-driven skips |
+| R-24 | [major] latency and persona criteria fail on designed holds and races | accepted | hold windows excluded and reported apart; criterion 13 by ratio (≤ 2% of honest attempts) |
+| R-25 | [major] exit thresholds "4–6× below the simulator" | accepted | gate on fixed floors, report `½ × p10`; p10 from `--bot-profile cq` |
+| R-26 | [major] no diagnosis tool; 10e without evidence | accepted | criterion 7's per-day comparison in CQ3-B; 10e measured by CQ1-B |
+
+### CQ-E. Wave 1 records (unit CQ1-D)
+
+| # | Record | Status | Source |
+|---|---|---|---|
+| CQE1 | **The herald format codecs** `PSFCT1`, the WS `control` delta, `PSFOV2`, `PSFSD1` and the two JSON files §8.4 pins (`/h/sieges/{latest,bell}.json`, `/h/conquest/{day}.json`) exist in Rust (`frontier-node/crates/herald/src/cqfmt.rs`, encoder and validating decoder) and JS (`permutation-server/web/frontier/herald.mjs`, additive), over one set of shared vectors (`frontier-node/fixtures/cq/formats/`, one producer, one freshness test); both decoders refuse every invalid vector with the same code | record | `conquest/CQ1-D-NOTES.md` |
+| CQE2 | **Format clarifications CF-1…CF-8** (where §8.4 left a choice open): whole rings in `PSFCT1` (CF-1); the March set and order (CF-2); reserved bits and ranges (CF-3); `PSFOV2` bit order and keep tile 0xFF (CF-4); **`PSFSD1`'s fields sum to 30 B, so the 32-B record has a 6-B reserved tail** (CF-5); the WS delta's 1–64 entries (CF-6); JSON tags, Free City owner, ordering and nullability (CF-7, CF-8). Pinned by the vectors; the integrator folds them into §8.4 by amendment or overrules them before CQ2-E starts | architect (pending the integrator's amendment) | `cqfmt.rs` module doc; `conquest/CQ1-D-NOTES.md` §3 |
+| CQE3 | **`scripts/cq-ownership-check.sh`** implements §4.5's check: first-parent commits since each branch's own fork point (the branch's creation reflog entry first, so a merged branch is still checked), §4.5's list **plus the design chat's footprint since `CQ0`** (every path `frontier/ui-shell` touched after `39ff369`: this adds `web/frontier/intro/**`, which the two `ui-shell` commits after `246b1fd` created), and shared herald files only inside `// MC hook` … `// MC hook end` blocks; merges count only for their own lines; a `--self-test` builds a scratch repository and checks 14 cases | record | `scripts/cq-ownership-check.sh`; `conquest/CQ1-D-NOTES.md` §4 |
+
 ## E. Change log
 
 | Version | Date | Change |
@@ -442,3 +556,4 @@ The exit season `m1-exit` ran on `1e5701b` (= `codex/frontier`; code of `629d007
 | v1.13 (owner answers) | 2026-09-30 | Part T: O-M1-25 yes (everything ends with the season), O-M1-26 yes, O-M1-27 keep ROUTED, O-M1-28 (a), O-M1-29 unchanged |
 | v1.13 (M1 exit, W7-A/W7-C) | 2026-10-01 | Part U: the exit season passed (U1); the other §13 items (U2); G14 and `inproc_day` fail on the resident-liveness oracle (U3, open); ClaimDefence never lands in stack runs (U4, open); E8 closed with the exit sample (U5); open items before a playtest (U6); owner questions O-M1-18, D18, `r99_reveals` (U7); run records (U8) |
 | v1.13 (M1 exit, review corrections) | 2026-10-01 | U9: the exit report and JA summary corrected (scope of the season, verifier, viewers and spectator stated; quota, test count, `min_tip` evidence, hold coverage, U4's re-run consequence) |
+| MC v1.1 (CQ1-D) | 2026-10-01 | Part CQ: the conquest milestone (contract `conquest/CONQUEST-CONTRACT.md` v1.1): records (`CQ0` = `39ff369`, the M1 hash kept, standing rules, the evidence), the working defaults OD-1…OD-16 (defaults, not owner approvals), the conflict register K-01…K-27, the review revision R-01…R-26, and CQ1-D's records (the format codecs, CF-1…CF-8, the ownership check) |
