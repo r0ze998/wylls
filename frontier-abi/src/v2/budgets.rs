@@ -114,13 +114,19 @@ pub fn budget(ix: Ix) -> BudgetV2 {
     }
 }
 
-/// SkipQuiet's v2 gate for `bells` recomputed bells with `active` record
-/// bells (Σ over the bells of active records and keep contests).
-pub fn skip_gate(bells: u32, active_record_bells: u32) -> u32 {
+/// SkipQuiet's v2 gate for `bells` recomputed bells of which
+/// `active_bells` have at least one active record or keep contest (§5.4:
+/// "+ 3.5k per **bell** with an active record or keep contest"; one bell
+/// with 12 records and the keep is one active bell, the lab's ≈ 263 CU per
+/// record-bell × 13 fits in 3.5k). `active_bells` is capped at `bells`, so
+/// the gate never exceeds `budget(SkipQuiet).cu_limit` at `bells ≤ 24`
+/// (integ-W1, review CQ1-C: the third term was per record-bell, which
+/// overstated it up to 13× and could exceed `CU_LADDER_MAX`).
+pub fn skip_gate(bells: u32, active_bells: u32) -> u32 {
     let b = budget(Ix::SkipQuiet);
     b.cu_budget
         .saturating_add(b.cu_per_unit.saturating_mul(bells))
-        .saturating_add(SKIP_PER_ACTIVE_BELL.saturating_mul(active_record_bells))
+        .saturating_add(SKIP_PER_ACTIVE_BELL.saturating_mul(active_bells.min(bells)))
 }
 
 fn signers(ix: Ix) -> u32 {
@@ -236,7 +242,16 @@ mod tests {
         assert_eq!(budget(Ix::ResolveFromInputs).cu_budget, 290_000);
         assert_eq!(budget(Ix::Harvest).cu_budget, 19_000);
         assert_eq!(budget(Ix::Depart).cu_budget, 24_500, "M1's row");
-        assert_eq!(skip_gate(24, 12 * 24), 90_000 + 24 * 30_000 + 288 * 3_500);
+        // §5.4: 3.5k per active bell; 24 bells all active is the row's limit.
+        assert_eq!(skip_gate(24, 24), 90_000 + 24 * 30_000 + 24 * 3_500);
+        assert_eq!(skip_gate(24, 24), budget(Ix::SkipQuiet).cu_limit);
+        assert_eq!(skip_gate(24, 24), 894_000);
+        assert!(skip_gate(24, 24) <= CU_LADDER_MAX);
+        assert_eq!(skip_gate(24, 12 * 24), skip_gate(24, 24), "capped at bells");
+        assert_eq!(skip_gate(3, 0), 90_000 + 3 * 30_000);
+        for n in 0..=24 {
+            assert!(skip_gate(n, n) <= budget(Ix::SkipQuiet).cu_limit);
+        }
         assert_eq!(PLACEHOLDER_PROGRAMDATA_LEN_V2, 1_310_720);
         // an MC Province loads 640 B more than an M1 one
         let v1 = crate::budgets::loaded_accounts(crate::tags::Ix::ResolveFromInputs).0;

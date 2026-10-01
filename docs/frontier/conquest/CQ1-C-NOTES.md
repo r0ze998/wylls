@@ -53,7 +53,7 @@ All figures come from the model and the vector writer. No SBF build was run; CU 
 | CONQUEST body without tail | 137 B (D-4) |
 | tx worst estimate (B; §5.4's value in brackets) | DeclareSiege 595 [640], SettleSiege 397 [480], SettleCapture 594 [720], FileOutpost 616 [640], FoldMarch 606 [720], **RetireHost 494 [480]**, **CloseMarch 330 [300]**; changed rows Harvest 460 [360], Build 461 [400], Train 465 [360], SettleTransit 924 [1,022] (D-11) |
 | `L(kind)` at the 1-MiB placeholder `.so` (programdata 1,310,720) | 1,343,488 for every new kind except FoldMarch 1,376,256 (7 Provinces of 4,736 B); SkipQuiet 1,474,560 |
-| SkipQuiet v2 limit at 24 bells × 12 active records | 894,000 CU (90k + 24 × 30k + 288 × 3.5k) |
+| SkipQuiet v2 limit at 24 bells, every bell with active records (12 records + keep) | 894,000 CU (90k + 24 × 30k + **24** × 3.5k; §5.4 charges 3.5k per active *bell*). *integ-W1 correction:* this row first read "288 × 3.5k", which is 1,818,000 CU, and `skip_gate` took record-bells; `skip_gate(bells, active_bells)` now charges active bells (capped at `bells`) and its test asserts `skip_gate(24, 24) == 894,000 == budget(SkipQuiet).cu_limit ≤ CU_LADDER_MAX` |
 | `RULESET_HASH_V2` | `594027561c…d035bf`, **[placeholder]** (stand-in, R1) |
 | M1 `RULESET_HASH` | `72c6b583…4bd9`, unchanged and still pinned |
 
