@@ -16,6 +16,36 @@ mod sim_rng;
 #[path = "../../../../frontier-sim/src/config.rs"]
 mod config;
 
+// Since MC wave 1 (CQ1-B), `config.rs` names the MC rule selectors
+// (`mc.rs`, compiled here as is), the balance lab's levers
+// (`conquest::CqRules`) and the planner's holding-slot default
+// (`sim::campaign::HOLDING_SLOTS`). The last two live in files that need
+// the whole simulator, so they are compile-only stand-ins here: this test
+// compares archetypes, draws and the default mix, never these fields
+// (integ-W1, Gate CQ1 frontier-node line).
+#[allow(dead_code, unused_imports, clippy::all)]
+#[path = "../../../../frontier-sim/src/mc.rs"]
+mod mc;
+
+#[allow(dead_code)]
+mod conquest {
+    #[derive(Clone, Debug, Default)]
+    pub struct CqRules {
+        pub launch_floor: bool,
+        pub occ_control: bool,
+        pub target_control: bool,
+        pub rally: u32,
+        pub radius: u32,
+    }
+}
+
+#[allow(dead_code)]
+mod sim {
+    pub mod campaign {
+        pub const HOLDING_SLOTS: usize = 1;
+    }
+}
+
 use frontier_agents::profile::{self, Arch, Mix, ARCHS};
 use frontier_agents::rng::Rng;
 
