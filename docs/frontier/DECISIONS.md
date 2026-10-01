@@ -539,6 +539,21 @@ Every review issue was checked against the repo at `d11d058`, `frontier/ui-shell
 | CQF2 | The footprint rule's conflict with §11 (CQ3-D owns `en-frontier.mjs`) is resolved by reporting the footprint and enforcing §4.5's written list | integrator (resolves a conflict) | contract §4.5, §18 A-2 |
 | CQF3 | Open for the owner after the review: PO-1…PO-6 as before, plus **PO-7** (§3.10 counts only final holdings; `conquest_model` counts provisional ones, because finality is not a Province fact) and **PO-8** (the best-response margin now fails by 0.000059 after round 2's simulator fixes) | pending owner | `conquest/integ-CQ1-NOTES.md` §6 |
 
+### CQ-G. Owner answers to PO-1…PO-8 (main session, 2026-10-01)
+
+On 2026-10-01 the owner answered 「おすすめで進めて」 ("go with the recommendations") to the PENDING-OWNER list of `conquest/integ-CQ1-NOTES.md` §6. PO-5, PO-6 and PO-7 are settled. For PO-1…PO-4 and PO-8 the owner approved the recommended direction. The exact parameters come from the owner-options experiments (branches `exp/cq-e1-planner`, `exp/cq-e2-floors`, `exp/cq-e3-doctrine`, `exp/cq-e4-economics`, each checked by an independent skeptic). If an experiment shows that the recommended direction does not work, the main session goes back to the owner with the numbers before Wave 2. All changes land by amendment before Gate CQ1 is re-run and before CQ2 starts (§3.13, §12).
+
+| # | Decision | Status | Source |
+|---|---|---|---|
+| CQG1 | **PO-1 map movement:** give the campaign planner an occupation objective: besiege first holdings outside the heartlands, and siege hosts hold the hex while the siege counts. Amend 10e to count every province outside the heartlands that is open at bell 287 or opens later. Then re-derive the thresholds and re-run the gate. §3.12 levers only if the experiments show they are needed. | owner (direction); parameters from E1/E2 | notes §6 PO-1 (a)+(b) |
+| CQG2 | **PO-2 doctrine band:** an MC-only re-tune that restores 6/6. The M1 rules and M1 `RULESET_HASH` stay bit-identical. Lead candidate: the cavalry march surcharge under MC (E3). The holding-contest economics change (E4) is the fallback if it costs less gameplay. | owner (direction); choice from E3/E4 | notes §6 PO-2 |
+| CQG3 | **PO-3 10k/28d floors:** re-measure after CQG1. If the floors still fail, amend them to values the MC rules pass with margin and the M1 control fails (E2). | owner (direction) | notes §6 PO-3 |
+| CQG4 | **PO-4 size stress:** noted. Find out whether a 3:1 faction is realistic under the join path (E2). The gated OD-16 coordination check passes. | owner (informed) | notes §4.4, §6 PO-4 |
+| CQG5 | **PO-5:** adopt `keep_tile_symmetric`, the same keep tile in every wedge, for fairness, before CQ2-A. Gate CQ1's simulator lines re-run. | owner | notes §6 PO-5 |
+| CQG6 | **PO-6:** accept the changed v1 WASM bytes. Behaviour is identical: recorded vectors byte-identical, 6/6 replays. | owner | notes §2, §6 PO-6 |
+| CQG7 | **PO-7:** amend §3.10 so that Dominion counts every holding in state 1, provisional included. No layout change. | owner | notes §6 PO-7 |
+| CQG8 | **PO-8 best-response margin:** re-measure together with the CQG2 re-tune. If the worst cell is still within seed noise of the bound, accept +0.006 for MC. | owner (direction) | notes §5, §6 PO-8 |
+
 ## E. Change log
 
 | Version | Date | Change |
