@@ -2932,7 +2932,7 @@ impl Sim {
                 id: KEEP_BIT | pi as u64,
                 faction: k.holder,
                 tile: k.tile,
-                troops: k.troops,
+                troops: crate::mc::cqk::keep_milli(k),
                 walls: true,
                 posture: Posture::default(),
             });
@@ -3023,7 +3023,8 @@ impl Sim {
                 if mc_keep {
                     let pr = self.prov_mut(pi);
                     if let Some(k) = pr.mkeep.as_mut() {
-                        k.troops = g.troops;
+                        // Whole troops, floored (keep::troops_after_clash).
+                        k.troops = permutation_rules::frontier::keep::troops_after_clash(g.troops);
                     }
                     pr.mkreport = Some((b, g.holders, g.defender_present));
                     self.mcs.keep_resolved.push(pi);

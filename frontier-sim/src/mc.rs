@@ -4,17 +4,12 @@
 //! parameters of §3.12 (Frontier-7, Frontier-28, MC_TEST) and the conquest
 //! kernels the simulator calls.
 //!
-//! **Kernel mirror (dependency note).** §7 pins `permutation_rules::
-//! frontier::{keep, control}` and the siege v3 / holding v3 additions to
-//! CQ1-A, which merges before this unit. Until then `cqk` below
-//! implements exactly the §3/§7 semantics with the §7 names, so the sim can
-//! be measured now; after CQ1-A merges, `cqk::keep` and the control
-//! helpers become re-exports of the real kernels (and the `cq_kernel_*`
-//! tests compare both). Nothing outside this file names a mirror type.
+//! **Kernels.** `cqk` below re-exports CQ1-A's `permutation_rules::
+//! frontier::{keep, control}` and the siege v3 / terrain v2 / geometry v2
+//! additions (§7, §8.7 item 1). CQ1-B measured wave 1 first on a local
+//! mirror; the integrator switched it to the real kernels after the CQ1-A
+//! merge (CQ1-B dependency request 2, `integ-CQ1-NOTES.md`).
 
-use permutation_rules::fixed::MilliTroops;
-use permutation_rules::frontier::geometry::ProvinceCoord;
-use permutation_rules::frontier::host::{MAX_HOST_TROOPS, MIN_HOST_TROOPS};
 use permutation_rules::frontier::siege::Vigil;
 use permutation_rules::frontier::travel::BELL_SECS;
 
@@ -257,83 +252,37 @@ impl McParams {
     }
 }
 
-/// The conquest kernels of §7, mirrored (see the module doc).
+/// The §7 kernels the simulator calls: **re-exports of
+/// `permutation_rules::frontier::{keep, control, siege v3, terrain v2,
+/// geometry v2}`** (CQ1-B dependency request 2, switched by the integrator
+/// after the CQ1-A merge; the mirror is gone). The wrappers below only
+/// adapt the simulator's argument types (u32 ring parameter, u64 weight
+/// vectors, faction-byte member lists, u32 hours) and keep the `Option`
+/// forms the simulator matches on.
 pub mod cqk {
-    use super::*;
 
-    pub const KEEP_VERSION: u16 = 1;
-    pub const CONTROL_VERSION: u16 = 1;
-    /// Faction id of "no faction" in control series and keep fields.
-    pub const NO_FACTION: u8 = 255;
-    /// Control sides: factions 0–5 and neutral 6.
-    pub const SIDES: usize = 7;
-    /// Any 288 consecutive bells hold ≥ 96 bells outside one vigil
-    /// snapshot with at most one pending change (§3.4 step 9, R-08).
-    pub const VIGIL_WINDOW_BOUND: u32 = 288;
+    use permutation_rules::fixed::MilliTroops;
+    use permutation_rules::frontier::control::{self, Banner, Controller, ProvinceControl};
+    pub use permutation_rules::frontier::control::{CONTROL_VERSION, SIDES};
+    use permutation_rules::frontier::geometry::ProvinceCoord;
+    pub use permutation_rules::frontier::keep::{
+        advance, lead_host, Keep, KeepError, KeepEvent, KeepParams, KeepReport, KEEP_VERSION,
+        NO_FACTION,
+    };
+    pub use permutation_rules::frontier::siege::OccupationEndKind;
+    use permutation_rules::frontier::siege::{self, Vigil};
 
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub struct KeepParams {
-        pub bells: u8,
-        pub consolidate_bells: u32,
-        pub home_guard: u32,
-        pub garrison_bps: u16,
-    }
-
-    /// §7 `keep::Keep` (troops in milli-troops here, as every sim garrison).
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub struct Keep {
-        pub tile: u8,
-        pub holder: u8,
-        pub contender: u8,
-        pub progress: u8,
-        pub required: u8,
-        pub heartland_safe: bool,
-        pub paused: bool,
-        pub changes: u16,
-        pub troops: MilliTroops,
-        pub since_bell: u32,
-        pub consolidated_until_bell: u32,
-        pub contest_from_bell: u32,
-        pub gen: u32,
-        pub last_taken_from: u8,
-    }
-
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub struct KeepReport {
-        pub holders: u8,
-        pub defender_present: bool,
-    }
-
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub enum KeepEvent {
-        None,
-        Contest(u8),
-        Broken,
-        /// M3 only (unreachable under Rivalry: one hostile-free set per hex).
-        Paused,
-        Taken {
-            from: u8,
-            to: u8,
-            garrison: MilliTroops,
-            donor: u8,
-            donor_removed: bool,
-        },
-    }
-
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub enum KeepError {
-        TroopsAboveCap,
-    }
-
-    /// Heartland with the season's ring parameter (geometry v2
-    /// `is_heartland_in`): rings 2..=`max_ring` of the faction's wedge.
+    /// `geometry::is_heartland_in` with the simulator's u32 ring parameter.
     pub fn is_heartland_in(p: ProvinceCoord, faction: u8, max_ring: u32) -> bool {
-        let r = p.ring();
-        r >= 2 && r <= max_ring && p.wedge() == Some(faction)
+        permutation_rules::frontier::geometry::is_heartland_in(
+            p,
+            faction,
+            max_ring.min(u8::MAX as u32) as u8,
+        )
     }
 
-    /// `keep::open`: None for rings 0–1; held by the wedge faction with
-    /// the home guard, heartland-safe in its holder's heartland.
+    /// `keep::try_open` (None for rings 0–1; `TroopsAboveCap` for a home
+    /// guard above the cap).
     pub fn open(
         p: ProvinceCoord,
         wedge: u8,
@@ -342,206 +291,72 @@ pub mod cqk {
         prm: &KeepParams,
         bell: u32,
     ) -> Result<Option<Keep>, KeepError> {
-        if p.ring() < 2 {
-            return Ok(None);
-        }
-        let troops = prm.home_guard as MilliTroops * 1_000;
-        if troops > MAX_HOST_TROOPS {
-            return Err(KeepError::TroopsAboveCap);
-        }
-        Ok(Some(Keep {
+        permutation_rules::frontier::keep::try_open(
+            p,
+            wedge,
+            heartland_max_ring.min(u8::MAX as u32) as u8,
             tile,
-            holder: wedge,
-            contender: NO_FACTION,
-            progress: 0,
-            required: prm.bells,
-            heartland_safe: is_heartland_in(p, wedge, heartland_max_ring),
-            paused: false,
-            changes: 0,
-            troops,
-            since_bell: bell,
-            consolidated_until_bell: 0,
-            contest_from_bell: 0,
-            gen: 0,
-            last_taken_from: NO_FACTION,
-        }))
+            prm,
+            bell,
+        )
     }
 
-    /// `keep::lead_host`: the entry with the most troops, then the lowest
-    /// host id (shared by the keep donor and DeclareSiege's lead check).
-    pub fn lead_host(cands: &[(u8, u64, u32)]) -> Option<u8> {
-        cands
-            .iter()
-            .max_by(|a, b| a.2.cmp(&b.2).then(b.1.cmp(&a.1)))
-            .map(|c| c.0)
+    /// The keep's troops in milli-troops (the clash garrison's unit; the
+    /// kernel's `Keep.troops` is whole troops).
+    pub fn keep_milli(k: &Keep) -> MilliTroops {
+        k.troops.saturating_mul(1_000)
     }
 
-    /// `keep::advance` (§3.2 steps 1–5). `capturers` = (entry index, host
-    /// id, troops in milli-troops as u32 is too small for 30k troops, so
-    /// the sim passes troops / 1,000) of the contender's non-civilian
-    /// residents on the keep tile after the clash; on Taken the donor's
-    /// troops are reduced in place (to the remainder, or 0 when removed).
-    pub fn advance(
-        k: &mut Keep,
-        b: u32,
-        r: KeepReport,
-        prm: &KeepParams,
-        capturers: &mut [(u8, u64, u32)],
-    ) -> Result<KeepEvent, KeepError> {
-        if k.troops > MAX_HOST_TROOPS {
-            return Err(KeepError::TroopsAboveCap);
-        }
-        // 1. Heartland or consolidation: nothing counts.
-        if k.heartland_safe || b < k.consolidated_until_bell {
-            k.contender = NO_FACTION;
-            k.progress = 0;
-            return Ok(KeepEvent::None);
-        }
-        // 2. A defender, or nobody hostile: a running contest breaks.
-        if r.defender_present || r.holders == 0 {
-            let running = k.contender != NO_FACTION;
-            k.contender = NO_FACTION;
-            k.progress = 0;
-            return Ok(if running {
-                KeepEvent::Broken
-            } else {
-                KeepEvent::None
-            });
-        }
-        // 3. Two or more hostile factions: M3 only.
-        if r.holders.count_ones() > 1 {
-            k.paused = true;
-            return Ok(KeepEvent::Paused);
-        }
-        k.paused = false;
-        let f = r.holders.trailing_zeros() as u8;
-        let mut ev = KeepEvent::None;
-        // 4. Count.
-        if k.contender == f {
-            k.progress = k.progress.saturating_add(1);
-        } else {
-            k.contender = f;
-            k.progress = 1;
-            k.contest_from_bell = b;
-            ev = KeepEvent::Contest(f);
-        }
-        // 5. Taken.
-        if k.progress >= k.required {
-            let from = k.holder;
-            let Some(di) = lead_host(capturers) else {
-                // No resident of the contender (cannot happen when it holds
-                // the hex); the keep is taken with an empty garrison.
-                take(k, b, f, 0, prm);
-                return Ok(KeepEvent::Taken {
-                    from,
-                    to: f,
-                    garrison: 0,
-                    donor: u8::MAX,
-                    donor_removed: false,
-                });
-            };
-            let pos = capturers
-                .iter()
-                .position(|c| c.0 == di)
-                .expect("lead in list");
-            let donor_troops = capturers[pos].2 as u64 * 1_000;
-            let mut gar = donor_troops * prm.garrison_bps as u64 / 10_000;
-            let rest = donor_troops - gar;
-            let removed = rest < MIN_HOST_TROOPS as u64;
-            if removed {
-                gar += rest;
-                capturers[pos].2 = 0;
-            } else {
-                capturers[pos].2 = (rest / 1_000) as u32;
-            }
-            if gar > MAX_HOST_TROOPS as u64 {
-                return Err(KeepError::TroopsAboveCap);
-            }
-            take(k, b, f, gar as MilliTroops, prm);
-            return Ok(KeepEvent::Taken {
-                from,
-                to: f,
-                garrison: gar as MilliTroops,
-                donor: di,
-                donor_removed: removed,
-            });
-        }
-        Ok(ev)
-    }
-
-    fn take(k: &mut Keep, b: u32, f: u8, troops: MilliTroops, prm: &KeepParams) {
-        k.last_taken_from = k.holder;
-        k.holder = f;
-        k.troops = troops;
-        k.consolidated_until_bell = b + 1 + prm.consolidate_bells;
-        k.gen += 1;
-        k.changes = k.changes.saturating_add(1);
-        k.since_bell = b + 1;
-        k.contender = NO_FACTION;
-        k.progress = 0;
-    }
-
-    /// `control::controller` (strict rule): the side with `2·w ≥ Σw` and
-    /// strictly more than every other side; `None` = unsettled (Σ = 0) or
-    /// contested.
+    /// `control::controller` (strict rule) over the simulator's u64
+    /// weights: `Some(side)`, or `None` when unsettled or contested.
     pub fn controller(w: &[u64; SIDES]) -> Option<u8> {
-        let tot: u64 = w.iter().sum();
-        if tot == 0 {
-            return None;
+        let w32 = w.map(|x| x.min(u32::MAX as u64) as u32);
+        match control::controller(&w32) {
+            Controller::Side(s) => Some(s),
+            Controller::Contested | Controller::Unsettled => None,
         }
-        let (best, &bw) = w
-            .iter()
-            .enumerate()
-            .max_by(|a, b| a.1.cmp(b.1).then(b.0.cmp(&a.0)))
-            .expect("sides");
-        if 2 * bw < tot || w.iter().enumerate().any(|(i, &x)| i != best && x >= bw) {
-            return None;
-        }
-        Some(best as u8)
     }
 
-    /// `control::march_banner` over the March's open provinces' control
-    /// (keep holders): f when `2 × held_by(f) > open`; `None` = contested
-    /// or no open keep. Entries `NO_FACTION` count as open, held by none.
+    /// `control::march_banner` over the March's opened provinces' control
+    /// bytes. With keeps every opened province has a holder (0–5) and this
+    /// is exactly the kernel. The holding-weight negative controls
+    /// (`--rules m1`, `mc-weightmap`) also have opened provinces without a
+    /// controller (`NO_FACTION`); for them "open" means opened, as in the
+    /// CQ1-B measurement, so the kernel's banner must also hold more than
+    /// half of all members. `None` = contested or no open province.
     pub fn march_banner(members: &[u8]) -> Option<u8> {
-        let open = members.len() as u32;
-        if open == 0 {
-            return None;
-        }
-        let mut by = [0u32; 8];
-        for &m in members {
-            if (m as usize) < 6 {
-                by[m as usize] += 1;
+        let v: Vec<ProvinceControl> = members.iter().map(|&f| ProvinceControl::Keep(f)).collect();
+        match control::march_banner(&v) {
+            Banner::Faction(f) => {
+                let held = members.iter().filter(|&&m| m == f).count();
+                (2 * held > members.len()).then_some(f)
             }
+            Banner::Contested | Banner::None => None,
         }
-        (0..6).find(|&f| 2 * by[f] > open).map(|f| f as u8)
     }
 
-    /// Siege v3 `capture_credited` (K-26): the victim held the holding at
-    /// least `min_bells` before the flip at `b + 1`; a genesis Free City
-    /// is always credited.
+    /// Siege v3 `capture_credited` (K-26).
     pub fn capture_credited(
         b: u32,
         held_since_hour: u32,
         min_bells: u32,
         genesis_free_city: bool,
     ) -> bool {
-        genesis_free_city || (b + 1).saturating_sub(6 * held_since_hour) >= min_bells
+        siege::capture_credited(
+            b,
+            held_since_hour.min(u16::MAX as u32) as u16,
+            min_bells,
+            genesis_free_city,
+        )
     }
 
-    /// `held_since_hour` written at a change of owner effective at bell `b1`.
+    /// `held_since_hour` written at a change of owner effective at bell `b1`
+    /// (`siege::held_since_hour_from`).
     pub fn held_since_hour(b1: u32) -> u32 {
-        b1.div_ceil(6)
+        siege::held_since_hour_from(b1) as u32
     }
 
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub enum OccupationEndKind {
-        Liberated,
-        Expired,
-    }
-
-    /// Siege v3 `occupation_ends` (R-05): Respite only on expiry or when
-    /// the owner's faction holds the hex.
+    /// Siege v3 `occupation_ends` (R-05) as `(kind, respite)`.
     pub fn occupation_ends(
         holds_occupier: bool,
         owner_holds: bool,
@@ -549,57 +364,24 @@ pub mod cqk {
         start: u32,
         tenure: u32,
     ) -> Option<(OccupationEndKind, bool)> {
-        if !holds_occupier {
-            return Some((OccupationEndKind::Liberated, owner_holds));
-        }
-        if b >= start + tenure {
-            return Some((OccupationEndKind::Expired, true));
-        }
-        None
+        siege::occupation_ends(holds_occupier, owner_holds, b, start, tenure)
+            .map(|e| (e.kind, e.respite))
     }
 
-    /// Siege v3 `can_complete_before` (R-08): true at once when
-    /// `end_bell − from ≥ 288`; otherwise a forward scan from `from` that
-    /// stops at `required` counted bells (≤ 287 `covers()` calls). A Free
-    /// City (no vigil) needs `end_bell − from ≥ required`.
+    /// Siege v3 `can_complete_before` (R-08), genesis at 0 (the
+    /// simulator's clock).
     pub fn can_complete_before(
         required: u32,
         vigil: Option<&Vigil>,
         from: u32,
         end_bell: u32,
     ) -> bool {
-        let Some(v) = vigil else {
-            return end_bell.saturating_sub(from) >= required;
-        };
-        if end_bell.saturating_sub(from) >= VIGIL_WINDOW_BOUND {
-            return true;
-        }
-        let mut got = 0;
-        for b in from..end_bell {
-            if !v.covers(b as i64 * BELL_SECS) {
-                got += 1;
-                if got >= required {
-                    return true;
-                }
-            }
-        }
-        false
+        siege::can_complete_before(required.min(u8::MAX as u32) as u8, vigil, from, end_bell, 0)
     }
 
-    /// Terrain v2 `free_city_site` mirror: a canonical site index from the
-    /// ring seed and the province rotated into wedge 0, so every wedge gets
-    /// the same site (CQ1-A's kernel replaces it; the choice only places
-    /// one Free City per province).
+    /// Terrain v2 `free_city_site`.
     pub fn free_city_site(ring_seed: &[u8; 32], p: ProvinceCoord, site_count: u8) -> u8 {
-        let w = p.wedge().unwrap_or(0);
-        let c = p.rotate_by((6 - w) % 6);
-        let h = permutation_rules::hash::sha256(&[
-            b"frontier/free-city",
-            ring_seed,
-            &c.p.to_le_bytes(),
-            &c.q.to_le_bytes(),
-        ]);
-        h[0] % site_count.max(1)
+        permutation_rules::frontier::terrain::free_city_site(ring_seed, p, site_count)
     }
 }
 
@@ -610,8 +392,14 @@ pub fn vigil_covers(v: &Vigil, b: u32) -> bool {
 
 #[cfg(test)]
 mod tests {
+    //! The simulator's view of the CQ1-A kernels (units: `Keep.troops`
+    //! whole troops, capturers in milli-troops), so a unit change in the
+    //! adapters cannot pass unnoticed. Rule coverage is CQ1-A's
+    //! (`permutation-rules/tests/frontier_conquest.rs`).
     use super::cqk::*;
     use super::*;
+    use permutation_rules::frontier::geometry::ProvinceCoord;
+    use permutation_rules::frontier::host::MAX_HOST_TROOPS;
 
     fn prm() -> KeepParams {
         McParams::FRONTIER_7.keep_params()
@@ -627,11 +415,12 @@ mod tests {
     fn cq_keep_contest_takes_after_72_held_bells() {
         let mut k = keep();
         assert!(!k.heartland_safe);
+        assert_eq!(keep_milli(&k), prm().home_guard * 1_000);
         let r = KeepReport {
             holders: 1 << 2,
             defender_present: false,
         };
-        let mut caps = [(0u8, 10u64, 1_000u32), (1u8, 4u64, 3_000u32)];
+        let mut caps = [(0u8, 10u64, 1_000_000u32), (1u8, 4u64, 3_000_000u32)];
         let mut ev = advance(&mut k, 10, r, &prm(), &mut caps).unwrap();
         assert_eq!(ev, KeepEvent::Contest(2));
         for b in 11..10 + 71 {
@@ -645,13 +434,14 @@ mod tests {
             KeepEvent::Taken {
                 from: 0,
                 to: 2,
-                garrison: 1_500_000,
+                garrison: 1_500,
                 donor: 1,
                 donor_removed: false
             }
         );
-        assert_eq!(caps[1].2, 1_500);
+        assert_eq!(caps[1].2, 1_500_000);
         assert_eq!(k.holder, 2);
+        assert_eq!(keep_milli(&k), 1_500_000);
         assert_eq!(k.consolidated_until_bell, 82 + 288);
         // Consolidation: nothing counts.
         ev = advance(
@@ -676,7 +466,7 @@ mod tests {
             holders: 1 << 3,
             defender_present: false,
         };
-        let mut caps = [(0u8, 1u64, 500u32)];
+        let mut caps = [(0u8, 1u64, 500_000u32)];
         advance(&mut k, 1, r, &prm(), &mut caps).unwrap();
         advance(&mut k, 2, r, &prm(), &mut caps).unwrap();
         assert_eq!(k.progress, 2);
@@ -711,7 +501,7 @@ mod tests {
     fn cq_keep_small_remainder_joins_the_keep() {
         let mut k = keep();
         k.required = 1;
-        let mut caps = [(4u8, 9u64, 150u32)];
+        let mut caps = [(4u8, 9u64, 150_000u32)];
         let ev = advance(
             &mut k,
             5,
@@ -728,7 +518,7 @@ mod tests {
             KeepEvent::Taken {
                 from: 0,
                 to: 1,
-                garrison: 150_000,
+                garrison: 150,
                 donor: 4,
                 donor_removed: true
             }
@@ -741,7 +531,9 @@ mod tests {
         // Six 30,000-troop capturers: the donor leaves 15,000.
         let mut k = keep();
         k.required = 1;
-        let mut caps: Vec<(u8, u64, u32)> = (0..6).map(|i| (i, 100 - i as u64, 30_000)).collect();
+        let mut caps: Vec<(u8, u64, u32)> = (0..6)
+            .map(|i| (i, 100 - i as u64, MAX_HOST_TROOPS))
+            .collect();
         let ev = advance(
             &mut k,
             5,
@@ -757,12 +549,12 @@ mod tests {
             KeepEvent::Taken {
                 garrison, donor, ..
             } => {
-                assert_eq!(garrison, 15_000_000);
+                assert_eq!(garrison, 15_000);
                 assert_eq!(donor, 5); // lowest host id among equals
             }
             e => panic!("{e:?}"),
         }
-        assert!(k.troops <= MAX_HOST_TROOPS);
+        assert!(keep_milli(&k) <= MAX_HOST_TROOPS);
     }
 
     #[test]
@@ -787,6 +579,7 @@ mod tests {
         assert!(open(ProvinceCoord::new(1, 0), 0, 3, 1, &prm(), 0)
             .unwrap()
             .is_none());
+        assert!(is_heartland_in(p, w, 3) && !is_heartland_in(p, w, 1));
     }
 
     #[test]
@@ -799,6 +592,10 @@ mod tests {
         assert_eq!(march_banner(&[1, 1, 2]), Some(1));
         assert_eq!(march_banner(&[1, 2, 3, 1]), None);
         assert_eq!(march_banner(&[]), None);
+        // Weight-map controls: an opened province without a controller
+        // still counts as open.
+        assert_eq!(march_banner(&[1, NO_FACTION]), None);
+        assert_eq!(march_banner(&[1, 1, NO_FACTION]), Some(1));
     }
 
     #[test]
@@ -818,6 +615,11 @@ mod tests {
         assert_eq!(
             occupation_ends(false, true, 20, 5, 72),
             Some((OccupationEndKind::Liberated, true))
+        );
+        // CQ1-A: tenure wins when both fall on one bell.
+        assert_eq!(
+            occupation_ends(false, false, 77, 5, 72),
+            Some((OccupationEndKind::Expired, true))
         );
     }
 

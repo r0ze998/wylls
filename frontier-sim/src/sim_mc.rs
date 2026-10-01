@@ -365,22 +365,18 @@ impl Sim {
     /// with the most troops, then the lowest host id, among the hosts not
     /// of the site's faction (`from_bell ≤ b`).
     fn mc_lead_on(&self, pi: u32, tile: u8, not_faction: u8, b: u32) -> Option<u32> {
-        let cands: Vec<(u8, u64, u32)> =
-            self.prov(pi)
-                .stationed
-                .iter()
-                .enumerate()
-                .filter_map(|(i, &h)| {
-                    let x = &self.hosts[h as usize];
-                    let resident = matches!(x.state, HState::Stationed { from } if from <= b);
-                    (resident && x.tile == tile && x.faction != not_faction && x.faction < 6)
-                        .then_some((
-                            i.min(254) as u8,
-                            h as u64,
-                            (x.troops / MILLI as MilliTroops).max(1),
-                        ))
-                })
-                .collect();
+        let cands: Vec<(u8, u64, u32)> = self
+            .prov(pi)
+            .stationed
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &h)| {
+                let x = &self.hosts[h as usize];
+                let resident = matches!(x.state, HState::Stationed { from } if from <= b);
+                (resident && x.tile == tile && x.faction != not_faction && x.faction < 6)
+                    .then_some((i.min(254) as u8, h as u64, x.troops.max(1)))
+            })
+            .collect();
         cqk::lead_host(&cands).map(|i| self.prov(pi).stationed[i as usize])
     }
 
@@ -672,11 +668,7 @@ impl Sim {
             .filter_map(|(i, &h)| {
                 let x = &self.hosts[h as usize];
                 (matches!(x.state, HState::Stationed { .. }) && x.tile == k.tile && x.faction == f)
-                    .then_some((
-                        i.min(254) as u8,
-                        h as u64,
-                        (x.troops / MILLI as MilliTroops).max(1),
-                    ))
+                    .then_some((i.min(254) as u8, h as u64, x.troops.max(1)))
             })
             .collect();
         let prm = self.cfg.mc.keep_params();
@@ -768,14 +760,14 @@ impl Sim {
                     self.mcs.st.keep_taken_by[arch.idx()] += 1;
                     self.prov_mut(pi).keep_captor = owner;
                     if donor_removed {
-                        k.troops = ht;
+                        // The kernel put the whole host into the keep.
                         self.hosts[h as usize].troops = 0;
                         self.hosts[h as usize].state = HState::Dead;
                         self.unstation(pi, h);
                         let y = &mut self.holds[home as usize];
                         y.away = y.away.saturating_sub(ht);
                     } else {
-                        let g = garrison.min(ht);
+                        let g = (garrison as MilliTroops * MILLI as MilliTroops).min(ht);
                         self.hosts[h as usize].troops = ht - g;
                         let y = &mut self.holds[home as usize];
                         y.away = y.away.saturating_sub(g);

@@ -54,7 +54,7 @@ M1 simulator bit for bit), `--preset mc-local-7d|mc-season-28|mc-test`
 (exploration overrides of the preset; never in a gated line). The balance
 lab's `--cq` levers and the `conquest` / `curve` commands are kept so
 `out/cand.md` reproduces. Files: `src/mc.rs` (rules selectors, presets,
-the §7 keep/control kernels mirrored until CQ1-A merges), `src/sim_mc.rs`
+the adapters to CQ1-A's §7 keep/control/siege v3 kernels), `src/sim_mc.rs`
 (the MC rules in the season loop), `src/sim_campaign.rs` (lone attackers
 and the §8.6 campaign planner), `src/mapmove.rs` (criterion 10, the
 gates, the files), `src/conquest.rs` (the balance lab's sweep),

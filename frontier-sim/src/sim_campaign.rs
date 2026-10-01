@@ -123,7 +123,7 @@ impl Sim {
     /// walls, the holder's hosts on the tile, the holder's relief.
     pub(super) fn mc_keep_def(&self, pi: u32) -> f64 {
         let k = self.prov(pi).mkeep.expect("keep");
-        k.troops as f64 * 10.0 * 1.5
+        crate::mc::cqk::keep_milli(&k) as f64 * 10.0 * 1.5
             + self.tile_strength(pi, k.tile, k.holder, true)
             + self.mc_relief(pi, k.holder)
     }
@@ -446,8 +446,8 @@ impl Sim {
             } else {
                 1.2
             };
-            let mut def =
-                k.troops as f64 * 10.0 * 1.5 + self.tile_strength(pi, k.tile, k.holder, true);
+            let mut def = crate::mc::cqk::keep_milli(&k) as f64 * 10.0 * 1.5
+                + self.tile_strength(pi, k.tile, k.holder, true);
             def += p.q * self.keep_reinforcement(pi, k.holder);
             let def = (def * self.rng.lognormal(0.6 * (1.0 - p.q) + 0.05)).max(1.0);
             let score = value / def;

@@ -700,7 +700,7 @@ pub fn describe(cfg: &Config, seeds: u64, first_seed: u64) -> Vec<(&'static str,
         (
             "kernels",
             format!(
-                "keep v{} control v{} (CQ1-B mirror of the §7 signatures)",
+                "keep v{} control v{} (permutation-rules, CQ1-A kernels)",
                 crate::mc::cqk::KEEP_VERSION,
                 crate::mc::cqk::CONTROL_VERSION
             ),

@@ -58,7 +58,7 @@ fn cq_mc_season_conserves_moves_and_keeps_the_invariants() {
     assert!(st.fc_genesis > 0);
     for p in sim.provs.iter().flatten() {
         if let Some(k) = p.mkeep {
-            assert!(k.troops <= MAX_HOST_TROOPS);
+            assert!(crate::mc::cqk::keep_milli(&k) <= MAX_HOST_TROOPS);
             assert_eq!(k.heartland_safe, p.ring <= 3);
         } else {
             assert!(p.ring < 2, "every ring ≥ 2 province has a keep");
@@ -268,4 +268,30 @@ fn cq_policy_parses() {
     assert_eq!(p[0], Policy::Campaign);
     assert!(p[1..].iter().all(|&x| x == Policy::Lone));
     assert_eq!(crate::parse_policy("campaign"), [Policy::Campaign; 6]);
+}
+
+/// Criterion 10's lasting changes (§13.4) as the simulator counts them
+/// over its sparse event list equal `control::lasting_changes` (CQ1-A's
+/// kernel, the herald's and the verifier's definition) over the dense
+/// per-bell series of the same MC season (integ-W1, CQ1-B request 2).
+#[test]
+fn cq_lasting_changes_equal_the_control_kernel() {
+    use permutation_rules::frontier::control;
+    let mut c = mc(9, 600, 7);
+    c.policy = [Policy::Campaign; 6];
+    c.bot_profile = BotProfile::Cq;
+    c.bot_share = 0.99;
+    let (sim, _) = play(&c);
+    let s = mapmove::Series::from_sim(&sim);
+    let sparse = s.lasting_changes(mapmove::LASTING_BELLS);
+    let last = s.end_bell.saturating_sub(1);
+    let series: Vec<(u32, Vec<u8>)> = (0..=last).map(|b| (b, s.control_at(b))).collect();
+    let dense: Vec<(u32, u32, u8, u8)> = control::lasting_changes(&series, mapmove::LASTING_BELLS)
+        .into_iter()
+        .map(|ch| (ch.bell, ch.province as u32, ch.from, ch.to))
+        .collect();
+    let mut dense = dense;
+    dense.sort_unstable();
+    assert!(!sparse.is_empty(), "the season moved");
+    assert_eq!(sparse, dense);
 }
