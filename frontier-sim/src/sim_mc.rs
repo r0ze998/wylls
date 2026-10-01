@@ -91,8 +91,9 @@ pub struct McStats {
     /// launched; siege-group province had no legal player holding; had
     /// one but no group; siege groups launched; first-holding sieges
     /// declared; of them failed by a defender; failed with the hex left;
-    /// failed after some progress.
-    pub dbg: [u64; 8],
+    /// failed after some progress; at those failures the lead host was
+    /// destroyed / on its way home (retreated, bounced) / elsewhere.
+    pub dbg: [u64; 12],
 }
 
 /// The control series criterion 10 reads: province control changes by bell
@@ -918,6 +919,11 @@ impl Sim {
             if rec.progress > 0 {
                 self.mcs.st.dbg[7] += 1;
             }
+            self.mcs.st.dbg[match self.hosts[rec.lead_host as usize].state {
+                HState::Dead => 8,
+                HState::Returning => 9,
+                _ => 10,
+            }] += 1;
         }
         if broken && !fc {
             // Stake owed to the target at its generation; immunity against
