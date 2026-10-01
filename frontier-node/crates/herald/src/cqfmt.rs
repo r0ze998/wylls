@@ -160,8 +160,12 @@ pub const CONTROL_MARCH: usize = 4;
 /// Province `control`: 0–5 keep holder (a Seat: its faction), 6 neutral
 /// (the Concord), 7 unopened. Also "none" in `contender`, `points_lead`
 /// and a March's `banner` / `points_lead`.
-pub const CONTROL_NEUTRAL: u8 = 6;
-pub const CONTROL_NONE: u8 = 7;
+///
+/// The kernel's codes (`control::CODE_*`, `ProvinceControl::code`,
+/// `Banner::code`), not copies (integ-W1, review CQ1-D; M1 §3.3).
+pub const CONTROL_NEUTRAL: u8 = permutation_rules::frontier::control::CODE_NEUTRAL;
+pub const CONTROL_NONE: u8 = permutation_rules::frontier::control::CODE_UNOPENED;
+const _: () = assert!(permutation_rules::frontier::control::CODE_NO_BANNER == CONTROL_NONE);
 
 /// Province flags (§8.4).
 pub mod pflag {
@@ -1352,8 +1356,8 @@ impl SiegesFile {
 
 // ------------------------------------------------------------------ /h/conquest/{day}.json
 
-/// Bells per game day.
-pub const BELLS_PER_DAY: u32 = 144;
+/// Bells per game day (the kernel's `travel::BELLS_PER_DAY`).
+pub const BELLS_PER_DAY: u32 = permutation_rules::frontier::travel::BELLS_PER_DAY;
 
 /// The event kinds of §8.4.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -2489,6 +2493,28 @@ pub mod vectors {
 
 #[cfg(test)]
 mod tests {
+    /// PSFCT1's control and banner bytes are the kernel's codes: every
+    /// `ProvinceControl` and `Banner` encodes through `code()` to the
+    /// value the codec checks accept (integ-W1, review CQ1-D).
+    #[test]
+    fn cq_psfct1_codes_are_the_kernels() {
+        use permutation_rules::frontier::control::{Banner, ProvinceControl};
+        assert_eq!(super::CONTROL_NEUTRAL, ProvinceControl::Neutral.code());
+        assert_eq!(super::CONTROL_NONE, ProvinceControl::Unopened.code());
+        assert_eq!(super::CONTROL_NONE, Banner::None.code());
+        assert_eq!(super::CONTROL_NONE, Banner::Contested.code());
+        for f in 0..6u8 {
+            assert_eq!(ProvinceControl::Keep(f).code(), f);
+            assert_eq!(ProvinceControl::Seat(f).code(), f);
+            assert_eq!(Banner::Faction(f).code(), f);
+            assert!(ProvinceControl::Keep(f).code() <= super::CONTROL_NONE);
+        }
+        assert_eq!(
+            super::BELLS_PER_DAY,
+            permutation_rules::frontier::travel::BELLS_PER_DAY
+        );
+    }
+
     use super::vectors::*;
     use super::*;
     use std::collections::BTreeMap;
