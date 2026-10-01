@@ -27,6 +27,39 @@ cargo run --release -- c4 --agents 50000 --seeds 3 --out c4.md      # restated C
                                                                     # counterfactual value of one attacked bell
 ```
 
+### Conquest milestone (MC, CONQUEST-CONTRACT v1.1 §8.7)
+
+```sh
+# criterion 10 per seed, p10/p50/p90, and the thresholds file check (Gate CQ1)
+cargo run --release -- mapmove --rules mc --policy campaign --bot-profile cq --agents 1000 --bots 0.99 \
+    --days 7 --seeds 10 --first-seed 2001 --check thresholds/mc-7d-1k.json
+# the gate: every figure at its floor on >= 4 of 5 seeds; both negative controls must fail
+cargo run --release -- mapmove-gate --rules mc --policy campaign --bot-profile cq --agents 1000 --bots 0.99 \
+    --days 7 --seeds 5 --first-seed 1101 --thresholds thresholds/mc-7d-1k.json --controls
+cargo run --release -- mapmove-gate --rules mc --policy campaign --agents 10000 --days 28 --seeds 4 \
+    --first-seed 1101 --thresholds thresholds/mc-28d-10k.json          # the 10k / 28-day gate
+cargo run --release -- doctrine-gate --set kernel --rules mc --controls  # doctrine CI proxy on the MC rules
+cargo run --release -- criterion --best-response --seeds 3 --first-seed 30001 --rules mc --policy campaign --gate
+CQ_SHORT=1 CQ_SET="mc:" cargo run --release -- conquest --rules mc --agents 1000 --days 7 --seeds 8 --first-seed 1100
+                                                       # the balance lab's out/cand.md columns
+```
+
+`--rules m1|mc|mc-weightmap[,bannerdom[=N]][,keepdom]` (default `m1`: the
+M1 simulator bit for bit), `--preset mc-local-7d|mc-season-28|mc-test`
+(default by season length), `--policy lone|campaign|campaign:0,lone:1-5`,
+`--bot-profile sim|cq|m1`, `--m1-act-p P`, `--keep-aggr K`, `--forward`,
+`--days N`, `--sizes`, `--json FILE`, `--check FILE`, `--thresholds FILE`,
+`--controls`, `--check-leader-max X`, `--gate-28d`, `--report-only`,
+`--threads N` (or `FRONTIER_SIM_THREADS`), and `--mc key=value,...`
+(exploration overrides of the preset; never in a gated line). The balance
+lab's `--cq` levers and the `conquest` / `curve` commands are kept so
+`out/cand.md` reproduces. Files: `src/mc.rs` (rules selectors, presets,
+the §7 keep/control kernels mirrored until CQ1-A merges), `src/sim_mc.rs`
+(the MC rules in the season loop), `src/sim_campaign.rs` (lone attackers
+and the §8.6 campaign planner), `src/mapmove.rs` (criterion 10, the
+gates, the files), `src/conquest.rs` (the balance lab's sweep),
+`src/cq_tests.rs`. See `docs/frontier/conquest/CQ1-B-NOTES.md`.
+
 The default economy is K3's (owner decisions O3, O4, O6, O10; see
 `frontier/m0b/sim/ECONOMY.md`): officer pay may lift a claim to at most 95%
 of what the wallet paid, 105 Works per USDC, the laurel stake priced by

@@ -74,9 +74,7 @@ fn play(cfg: &Config) -> Played {
 
 fn run_par(cfgs: Vec<Config>) -> Vec<Played> {
     let n = cfgs.len();
-    let threads = std::thread::available_parallelism()
-        .map_or(4, |x| x.get())
-        .min(n.max(1));
+    let threads = cfgs.first().map_or(1, |c| c.threads(n));
     let next = AtomicUsize::new(0);
     let slots: Vec<Mutex<Option<Played>>> = (0..n).map(|_| Mutex::new(None)).collect();
     std::thread::scope(|sc| {

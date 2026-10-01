@@ -108,9 +108,7 @@ pub struct Job {
 /// Run jobs on every core; results come back in job order.
 pub fn run_all(jobs: Vec<Job>) -> Vec<Done> {
     let n = jobs.len();
-    let threads = std::thread::available_parallelism()
-        .map_or(4, |x| x.get())
-        .min(n.max(1));
+    let threads = jobs.first().map_or(1, |j| j.cfg.threads(n));
     let next = AtomicUsize::new(0);
     let slots: Vec<Mutex<Option<Done>>> = (0..n).map(|_| Mutex::new(None)).collect();
     std::thread::scope(|sc| {

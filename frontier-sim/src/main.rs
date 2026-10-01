@@ -32,6 +32,11 @@
 mod balance;
 mod c4;
 mod config;
+mod conquest;
+#[cfg(test)]
+mod cq_tests;
+mod mapmove;
+mod mc;
 mod model;
 mod report;
 mod rng;
@@ -51,6 +56,28 @@ fn parse_gamma(s: &str) -> IndexParams {
     }
 }
 
+/// `--policy lone|campaign|campaign:0,lone:1-5` (faction lists and ranges).
+fn parse_policy(v: &str) -> [mc::Policy; 6] {
+    let one = |s: &str| match s {
+        "lone" => mc::Policy::Lone,
+        "campaign" => mc::Policy::Campaign,
+        x => panic!("--policy {x}"),
+    };
+    if !v.contains(':') {
+        return [one(v); 6];
+    }
+    let mut out = [mc::Policy::Lone; 6];
+    for part in v.split(',') {
+        let (p, fs) = part.split_once(':').expect("--policy name:factions");
+        let (lo, hi) = fs.split_once('-').unwrap_or((fs, fs));
+        let (lo, hi): (usize, usize) = (lo.parse().expect("faction"), hi.parse().expect("faction"));
+        for x in out.iter_mut().take(hi + 1).skip(lo) {
+            *x = one(p);
+        }
+    }
+    out
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let cmd = args.get(1).map(String::as_str).unwrap_or("run");
@@ -64,6 +91,14 @@ fn main() {
     let mut best = false;
     let mut gate_index: Option<f64> = None;
     let mut controls = false;
+    let mut rules: Option<mc::Rules> = None;
+    let mut preset: Option<mc::McParams> = None;
+    let mut json: Option<String> = None;
+    let mut check: Option<String> = None;
+    let mut thresholds: Option<String> = None;
+    let mut leader_max: Option<f64> = None;
+    let mut report_only = false;
+    let mut gate28 = false;
     let mut i = 2;
     while i < args.len() {
         let v = args.get(i + 1).cloned().unwrap_or_default();
@@ -199,6 +234,58 @@ fn main() {
                 i += 1;
                 continue;
             }
+            "--cq" => cfg.cq.apply(&v),
+            "--rules" => {
+                let mut parts = v.split(',');
+                rules = Some(match parts.next().unwrap_or("") {
+                    "m1" => mc::Rules::M1,
+                    "mc" => mc::Rules::Mc,
+                    "mc-weightmap" => mc::Rules::McWeightmap,
+                    x => panic!("--rules {x}"),
+                });
+                for p in parts {
+                    match p.split_once('=') {
+                        Some(("bannerdom", n)) => cfg.bannerdom = n.parse().expect("bannerdom"),
+                        None if p == "bannerdom" => cfg.bannerdom = 1,
+                        None if p == "keepdom" => cfg.keepdom = true,
+                        _ => panic!("--rules modifier {p}"),
+                    }
+                }
+            }
+            "--preset" => preset = Some(mc::McParams::parse(&v)),
+            "--mc" => cfg.mc_overrides = v,
+            "--policy" => cfg.policy = parse_policy(&v),
+            "--bot-profile" => {
+                cfg.bot_profile = match v.as_str() {
+                    "sim" => mc::BotProfile::Sim,
+                    "cq" => mc::BotProfile::Cq,
+                    "m1" => mc::BotProfile::M1,
+                    x => panic!("--bot-profile {x}"),
+                }
+            }
+            "--m1-act-p" => cfg.m1_act_p = v.parse().expect("--m1-act-p"),
+            "--keep-aggr" => cfg.cq.keep_aggr = v.parse().expect("--keep-aggr"),
+            "--threads" => cfg.threads = Some(v.parse().expect("--threads")),
+            "--json" => json = Some(v),
+            "--check" => check = Some(v),
+            "--thresholds" => thresholds = Some(v),
+            "--check-leader-max" => leader_max = Some(v.parse().expect("--check-leader-max")),
+            "--forward" => {
+                cfg.forward = true;
+                i += 1;
+                continue;
+            }
+            "--report-only" => {
+                report_only = true;
+                i += 1;
+                continue;
+            }
+            "--gate-28d" => {
+                gate28 = true;
+                i += 1;
+                continue;
+            }
+            "--days" => cfg.days = v.parse().expect("--days"),
             "--verbose" => {
                 cfg.verbose = true;
                 i += 1;
@@ -207,6 +294,11 @@ fn main() {
             other => panic!("unknown argument {other}"),
         }
         i += 2;
+    }
+    if let Some(r) = rules {
+        cfg.set_rules(r, preset);
+    } else if let Some(p) = preset {
+        cfg.mc = p;
     }
     match cmd {
         "run" => {
@@ -254,11 +346,18 @@ fn main() {
             }
         }
         "doctrine-gate" => {
-            let b = balance::gate_run(cfg.doctrine_set);
+            let b = balance::gate_run_base(&cfg, cfg.doctrine_set, "", balance::GATE_SEEDS);
+            println!("rules {} (policy {:?})\n", cfg.rules.name(), cfg.policy[0]);
             println!("{}", balance::table(&b));
             if let Err(e) = balance::gate_check(&b) {
-                eprintln!("gate failed: {e}");
-                std::process::exit(1);
+                if report_only {
+                    println!("gate verdict (report only): FAIL: {e}");
+                } else {
+                    eprintln!("gate failed: {e}");
+                    std::process::exit(1);
+                }
+            } else if report_only {
+                println!("gate verdict (report only): PASS");
             }
             if controls {
                 // The negative controls must each fail the gate.
@@ -282,7 +381,7 @@ fn main() {
                         balance::GATE_SEEDS,
                     ),
                 ] {
-                    let b = balance::gate_run_with(set, dx, seeds);
+                    let b = balance::gate_run_base(&cfg, set, dx, seeds);
                     println!("### control: {name}\n\n{}", balance::table(&b));
                     match balance::gate_check(&b) {
                         Err(e) => println!("control {name} rejected as it must be: {e}\n"),
@@ -333,6 +432,192 @@ fn main() {
                     eprintln!("wrote {p} and {p}.json");
                 }
                 None => println!("{md}\n{js}"),
+            }
+        }
+        "conquest" => {
+            // --cq-set "label:k=v,k=v;label2:..." (each on top of --cq)
+            let set = std::env::var("CQ_SET").unwrap_or_else(|_| "base:".into());
+            let mut cfgs = Vec::new();
+            for part in set.split(';').filter(|x| !x.is_empty()) {
+                let (label, spec) = part.split_once(':').unwrap_or((part, ""));
+                let mut c = cfg.clone();
+                c.cq.apply(spec);
+                cfgs.push((label.to_string(), c));
+            }
+            let t = std::time::Instant::now();
+            let rows = conquest::sweep(&cfgs, seeds, first_seed.unwrap_or(0));
+            println!(
+                "agents {}, days {}, seeds {} (first {}), {:.0} s\n",
+                cfg.agents,
+                cfg.days,
+                seeds,
+                first_seed.unwrap_or(0) + 1,
+                t.elapsed().as_secs_f64()
+            );
+            if std::env::var("CQ_SHORT").is_ok() {
+                println!("{}", conquest::table_short(&rows));
+            } else {
+                println!("{}", conquest::table(&rows));
+            }
+        }
+        "curve" => {
+            let (sim, _) = suite::play(&cfg);
+            println!("{}", conquest::curve(&sim.cq));
+            println!("diag {:?}", sim.cq.diag);
+            let mut kinds = [[0u32; 3]; 2];
+            for x in &sim.holds {
+                if !x.alive {
+                    continue;
+                }
+                let k = if x.owner == u32::MAX {
+                    0
+                } else if x.h.order <= 1 {
+                    1
+                } else {
+                    2
+                };
+                let hl = permutation_rules::frontier::geometry::is_heartland(
+                    sim.prov(x.prov).coord,
+                    x.faction,
+                );
+                kinds[hl as usize][k] += 1;
+            }
+            println!(
+                "alive holdings [non-heartland, heartland] x [FC, first, other]: {:?}",
+                kinds
+            );
+            if let Ok(p) = std::env::var("CQ_SERIES") {
+                let mut out = String::new();
+                for (d, v) in sim.cq.series.iter().enumerate() {
+                    let row: Vec<String> = v
+                        .iter()
+                        .map(|&c| {
+                            if c == u32::MAX {
+                                "-".into()
+                            } else {
+                                c.to_string()
+                            }
+                        })
+                        .collect();
+                    out.push_str(&format!("{d},{}\n", row.join(",")));
+                }
+                std::fs::write(p, out).expect("series");
+            }
+        }
+        "mapmove" => {
+            let fs = first_seed.unwrap_or(0);
+            let t = std::time::Instant::now();
+            let ms = mapmove::run(&cfg, seeds, fs);
+            let gate = if gate28 {
+                mapmove::floors_28d()
+            } else {
+                mapmove::floors_c10(cfg.days)
+            };
+            let d = mapmove::describe(&cfg, seeds, fs);
+            println!(
+                "mapmove: {} ({:.0} s)\n",
+                d.iter()
+                    .map(|(k, v)| format!("{k}={v}"))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                t.elapsed().as_secs_f64()
+            );
+            println!("{}", mapmove::table(&ms, &gate));
+            println!("{}", mapmove::reported_table(&ms));
+            let mut fail = false;
+            if let Some(x) = leader_max {
+                let ok = ms.iter().filter(|m| m.f0_share_end <= x).count();
+                let need = (ms.len() * 8).div_ceil(10);
+                println!(
+                    "coordination check (OD-16): faction 0 ends ≤ {x} of controlled provinces on {ok}/{} seeds (need {need}): {}",
+                    ms.len(),
+                    if ok >= need { "PASS" } else { "FAIL" }
+                );
+                fail |= ok < need;
+            }
+            if let Some(p) = &json {
+                std::fs::write(p, mapmove::to_json(&cfg, seeds, fs, &ms, &gate, ""))
+                    .expect("write json");
+                eprintln!("wrote {p}");
+            }
+            if let Some(p) = &check {
+                let text = std::fs::read_to_string(p).expect("read --check file");
+                let bad = mapmove::check(&text, &cfg, seeds, fs, &ms, &gate);
+                if bad.is_empty() {
+                    println!("check {p}: no drift");
+                } else {
+                    println!("check {p}: DRIFT\n{}", bad.join("\n"));
+                    fail = true;
+                }
+            }
+            if fail {
+                std::process::exit(1);
+            }
+        }
+        "mapmove-gate" => {
+            let fs = first_seed.unwrap_or(0);
+            let mut gate = if gate28 || cfg.days > 7 {
+                mapmove::floors_28d()
+            } else {
+                mapmove::floors_c10(cfg.days)
+            };
+            if let Some(p) = &thresholds {
+                let text = std::fs::read_to_string(p).expect("read --thresholds file");
+                for g in gate.iter_mut() {
+                    if let Some(f) = mapmove::json_num(&text, &["gated", g.name, "floor"]) {
+                        g.floor = f;
+                    }
+                }
+                for g in &gate {
+                    if let Some(h) = mapmove::json_num(&text, &["gated", g.name, "half_p10"]) {
+                        println!(
+                            "{}: floor {} (gated), ½ × p10 {} (reported)",
+                            g.name, g.floor, h
+                        );
+                    }
+                }
+            }
+            let ms = mapmove::run(&cfg, seeds, fs);
+            println!("{}", mapmove::table(&ms, &gate));
+            let (ok, text) = mapmove::gate_verdict(&ms, &gate);
+            println!(
+                "rules {}: {}\n{text}",
+                cfg.rules.name(),
+                if ok { "PASS" } else { "FAIL" }
+            );
+            let mut fail = !ok;
+            if controls {
+                for (name, r, pol) in [
+                    ("--rules m1 --policy lone", mc::Rules::M1, mc::Policy::Lone),
+                    (
+                        "--rules mc-weightmap --policy campaign",
+                        mc::Rules::McWeightmap,
+                        mc::Policy::Campaign,
+                    ),
+                ] {
+                    let mut c = cfg.clone();
+                    c.cq = Config::default().cq;
+                    c.bannerdom = 0;
+                    c.keepdom = false;
+                    c.forward = false;
+                    c.policy = [pol; 6];
+                    c.set_rules(r, None);
+                    let ms = mapmove::run(&c, seeds, fs);
+                    let (cok, text) = mapmove::gate_verdict(&ms, &gate);
+                    println!(
+                        "### control {name}\n\n{}\n{text}",
+                        mapmove::table(&ms, &gate)
+                    );
+                    if cok {
+                        println!("control {name} PASSED the gate: the gate has lost its power");
+                        fail = true;
+                    } else {
+                        println!("control {name} FAILS as it must\n");
+                    }
+                }
+            }
+            if fail {
+                std::process::exit(1);
             }
         }
         other => panic!("unknown command {other}"),

@@ -150,6 +150,38 @@ pub struct Config {
     pub mandate_stakers_only: bool,
     /// Print progress to stderr.
     pub verbose: bool,
+    /// Conquest-milestone rule and behaviour levers of the balance lab
+    /// (`--cq`, `conquest` sweep): kept so `out/cand.md` reproduces.
+    pub cq: crate::conquest::CqRules,
+    /// MC (CONQUEST-CONTRACT v1.1 §8.7): the rule set (`--rules`).
+    pub rules: crate::mc::Rules,
+    /// `--rules mc,bannerdom[=N]` (OD-14): N control-bells per March-banner
+    /// hour (0 = off).
+    pub bannerdom: u64,
+    /// `--rules mc,keepdom`: each held captured keep credits its captor
+    /// 1,000 Dominion fact units an hour (the balance lab's `kdom`; a
+    /// documented negative control of the doctrine band).
+    pub keepdom: bool,
+    /// Attack policy per faction (`--policy lone|campaign|campaign:0,lone:1-5`).
+    pub policy: [crate::mc::Policy; 6],
+    /// Scripted-bot profile (`--bot-profile sim|cq|m1`).
+    pub bot_profile: crate::mc::BotProfile,
+    /// `--bot-profile m1`'s epoch-decision probability.
+    pub m1_act_p: f64,
+    /// `--forward` (OD-15, R-12): campaign targets may be chosen within 2
+    /// provinces of a held keep with a resident host of the faction, and
+    /// that host marches on from there.
+    pub forward: bool,
+    /// Season parameters of the MC rules (§3.12); `--preset` or by days,
+    /// then `--mc key=value,…` overrides (exploration rows only).
+    pub mc: crate::mc::McParams,
+    /// `--mc key=value,…` applied after the preset.
+    pub mc_overrides: String,
+    /// Campaign plan: campaigns per faction kept for player holdings.
+    pub holding_slots: usize,
+    /// Threads of the parallel runners (`FRONTIER_SIM_THREADS`, default:
+    /// every core).
+    pub threads: Option<usize>,
 }
 
 impl Default for Config {
@@ -192,11 +224,55 @@ impl Default for Config {
             office_pay: OfficePay::Usdc,
             mandate_stakers_only: true,
             verbose: false,
+            cq: crate::conquest::CqRules::default(),
+            rules: crate::mc::Rules::M1,
+            bannerdom: 0,
+            keepdom: false,
+            policy: [crate::mc::Policy::Lone; 6],
+            bot_profile: crate::mc::BotProfile::Sim,
+            m1_act_p: crate::mc::M1_ACT_P,
+            forward: false,
+            mc: crate::mc::McParams::FRONTIER_28,
+            mc_overrides: String::new(),
+            holding_slots: crate::sim::campaign::HOLDING_SLOTS,
+            threads: None,
         }
     }
 }
 
 impl Config {
+    /// Select the MC rule set: the season parameters for the season length
+    /// (unless `--preset` set them) and the lone-behaviour levers the
+    /// balance lab measured with the keep model (`R`: launch floor,
+    /// control-aware targets, rallies of ≤ 3, keep interest 1.0). The
+    /// rules themselves are `crate::mc::Rules` paths in `sim.rs`.
+    pub fn set_rules(&mut self, rules: crate::mc::Rules, preset: Option<crate::mc::McParams>) {
+        self.rules = rules;
+        if rules == crate::mc::Rules::M1 {
+            return;
+        }
+        self.mc = preset.unwrap_or_else(|| crate::mc::McParams::for_days(self.days));
+        let o = self.mc_overrides.clone();
+        self.mc.apply(&o, &mut self.holding_slots);
+        let c = &mut self.cq;
+        c.launch_floor = true;
+        c.occ_control = true;
+        c.target_control = true;
+        c.rally = 3;
+        c.radius = 2;
+    }
+
+    /// Worker threads for the parallel runners.
+    pub fn threads(&self, jobs: usize) -> usize {
+        let env = std::env::var("FRONTIER_SIM_THREADS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok());
+        self.threads
+            .or(env)
+            .unwrap_or_else(|| std::thread::available_parallelism().map_or(4, |x| x.get()))
+            .clamp(1, jobs.max(1))
+    }
+
     /// The economy of revision 2 as the M0 simulator ran it (`cea89be`):
     /// full emission for every holding, Relic Sites paying 1 laurel a bell,
     /// 140 Works per USDC, stakes priced by days left, officer pay without
