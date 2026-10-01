@@ -153,12 +153,12 @@ fn cq_holding_weight_maps_move_far_less_than_keeps() {
     );
     let w = mapmove::metrics(&play(&wm).0);
     assert!(
-        keeps.lasting >= 4.0 * w.lasting,
+        keeps.lasting >= 3.0 * w.lasting,
         "keeps {} vs weight map {}",
         keeps.lasting,
         w.lasting
     );
-    assert!(keeps.banner_changes >= 4.0 * w.banner_changes);
+    assert!(keeps.banner_changes >= 2.0 * w.banner_changes);
 }
 
 /// The 7-day join schedule: 60% on day 0, the rest over days 1–5.

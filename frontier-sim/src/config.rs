@@ -172,8 +172,13 @@ pub struct Config {
     /// provinces of a held keep with a resident host of the faction, and
     /// that host marches on from there.
     pub forward: bool,
-    /// Season parameters of the MC rules (§3.12); `--preset` or by days.
+    /// Season parameters of the MC rules (§3.12); `--preset` or by days,
+    /// then `--mc key=value,…` overrides (exploration rows only).
     pub mc: crate::mc::McParams,
+    /// `--mc key=value,…` applied after the preset.
+    pub mc_overrides: String,
+    /// Campaign plan: campaigns per faction kept for player holdings.
+    pub holding_slots: usize,
     /// Threads of the parallel runners (`FRONTIER_SIM_THREADS`, default:
     /// every core).
     pub threads: Option<usize>,
@@ -228,6 +233,8 @@ impl Default for Config {
             m1_act_p: crate::mc::M1_ACT_P,
             forward: false,
             mc: crate::mc::McParams::FRONTIER_28,
+            mc_overrides: String::new(),
+            holding_slots: crate::sim::campaign::HOLDING_SLOTS,
             threads: None,
         }
     }
@@ -245,6 +252,8 @@ impl Config {
             return;
         }
         self.mc = preset.unwrap_or_else(|| crate::mc::McParams::for_days(self.days));
+        let o = self.mc_overrides.clone();
+        self.mc.apply(&o, &mut self.holding_slots);
         let c = &mut self.cq;
         c.launch_floor = true;
         c.occ_control = true;

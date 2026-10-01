@@ -87,10 +87,11 @@ pub struct McStats {
     pub homes_released: [u64; 6],
     pub refusals: [u64; REFUSALS],
     pub fc_genesis: u64,
-    /// Planner diagnostics (`FRONTIER_SIM_DEBUG=1` prints them): keep
-    /// campaigns launched; siege-group province had no legal player
-    /// holding; had one but no group; siege groups launched; holding
-    /// campaigns launched.
+    /// Diagnostics (`FRONTIER_SIM_DEBUG=1` prints them): keep campaigns
+    /// launched; siege-group province had no legal player holding; had
+    /// one but no group; siege groups launched; first-holding sieges
+    /// declared; of them failed by a defender; failed with the hex left;
+    /// failed after some progress.
     pub dbg: [u64; 8],
 }
 
@@ -526,6 +527,9 @@ impl Sim {
         let arch = ag.arch;
         self.mcs.st.declares[arch.idx()] += 1;
         self.mcs.st.sieges_declared += 1;
+        if !capture {
+            self.mcs.st.dbg[4] += 1;
+        }
         self.stats.sieges_declared += 1;
         self.holds[t as usize].mc.siege = Some(McSiege {
             attacker_faction: f,
@@ -887,6 +891,12 @@ impl Sim {
         self.mcs.st.sieges_failed += 1;
         self.stats.sieges_failed += 1;
         let fc = self.holds[t as usize].free_city();
+        if !fc && self.holds[t as usize].h.order <= 1 {
+            self.mcs.st.dbg[if broken { 5 } else { 6 }] += 1;
+            if rec.progress > 0 {
+                self.mcs.st.dbg[7] += 1;
+            }
+        }
         if broken && !fc {
             // Stake owed to the target at its generation; immunity against
             // the besieging faction only (K-06, R-05).
@@ -1103,7 +1113,10 @@ impl Sim {
             let ag = &self.agents[a as usize];
             (ag.faction, ag.holdings.clone())
         };
-        if holds.is_empty() || b + prm.outpost_close_bells >= self.end_bell {
+        if holds.is_empty()
+            || b + prm.outpost_close_bells >= self.end_bell
+            || b <= self.agents[a as usize].strike_until
+        {
             return 0;
         }
         let Some(slot) = self.mc_free_slot23(a) else {

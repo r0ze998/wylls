@@ -253,6 +253,7 @@ fn main() {
                 }
             }
             "--preset" => preset = Some(mc::McParams::parse(&v)),
+            "--mc" => cfg.mc_overrides = v,
             "--policy" => cfg.policy = parse_policy(&v),
             "--bot-profile" => {
                 cfg.bot_profile = match v.as_str() {

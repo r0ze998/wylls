@@ -331,13 +331,15 @@ pub fn metrics(sim: &Sim) -> Metrics {
         breadth,
         largest_share,
         smallest_share,
-        sieges_declared: st.sieges_declared as f64,
-        sieges_completed: st.sieges_completed as f64,
-        sieges_failed: st.sieges_failed as f64,
-        occupations: st.occupations as f64,
-        liberations: st.liberations as f64,
-        captures: (st.captures + st.fc_captures) as f64,
-        outposts: st.outposts as f64,
+        // The season counters (both rule sets write them; M1's holdings 2–3
+        // are not outposts, so M1 reports its second holdings there).
+        sieges_declared: sim.stats.sieges_declared as f64,
+        sieges_completed: sim.stats.sieges_completed as f64,
+        sieges_failed: sim.stats.sieges_failed as f64,
+        occupations: sim.stats.occupations as f64,
+        liberations: sim.stats.liberations as f64,
+        captures: (sim.stats.captures + sim.stats.free_city_captures) as f64,
+        outposts: sim.stats.second_holdings as f64,
         d9_transfers: st.d9_transfers as f64,
         banner_changes_per_day: banner_changes / days as f64,
         days_without_banner_change,
@@ -738,7 +740,11 @@ pub fn to_json(
             r6(pct(&v, 0.1)),
             r6(pct(&v, 0.5)),
             r6(pct(&v, 0.9)),
-            r6(pct(&v, 0.1) / 2.0),
+            if g.dir == Dir::Min {
+                format!("{}", r6(pct(&v, 0.1) / 2.0))
+            } else {
+                "null".to_string()
+            },
             v.iter().map(|x| format!("{}", r6(*x))).collect::<Vec<_>>().join(", "),
             if i + 1 == gate.len() { "" } else { "," }
         )

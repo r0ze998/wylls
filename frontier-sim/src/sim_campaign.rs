@@ -66,7 +66,8 @@ pub fn margin(a: Arch) -> Option<f64> {
 pub const GROUP_MARGIN: f64 = 1.5;
 /// Hosts per campaign wave: a faction's arrival slots per province-bell.
 pub const WAVE_HOSTS: usize = 4;
-/// Campaigns per faction kept for player holdings when one is legal.
+/// Campaigns per faction kept for player holdings when one is legal
+/// (`Config::holding_slots` default; `--mc holding_slots=N`).
 pub const HOLDING_SLOTS: usize = 1;
 /// A campaign with no attempt for this long is dropped (no member can
 /// launch it: the slot goes to another target).
@@ -749,7 +750,7 @@ impl Sim {
             }
         }
         cands.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
-        // `HOLDING_SLOTS` of the plan go to player holdings (first
+        // `holding_slots` of the plan go to player holdings (first
         // holdings to occupy, holdings 2–3 to capture) when one is legal
         // and in reach: by value ÷ defence alone a player holding never
         // outranks a keep or a Free City, and the holding contest
@@ -761,12 +762,13 @@ impl Sim {
             .filter(|c| player(self, &c.target))
             .count();
         let mut pick: Vec<Target> = Vec::new();
-        if have_player < HOLDING_SLOTS {
+        let slots = self.cfg.holding_slots;
+        if have_player < slots {
             pick.extend(
                 cands
                     .iter()
                     .filter(|c| player(self, &c.1))
-                    .take(HOLDING_SLOTS - have_player)
+                    .take(slots - have_player)
                     .map(|c| c.1),
             );
         }

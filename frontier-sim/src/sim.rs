@@ -370,6 +370,9 @@ pub struct Agent {
     /// MC display recognition (R-10): keeps taken (a host on the tile at
     /// the taking bell).
     pub keeps_taken: u32,
+    /// MC: an honest attacker files no outpost while its own capture
+    /// strike is under way (the slot it will reserve at the horn).
+    pub strike_until: u32,
 }
 
 /// Where an agent's laurels came from (for the report).
@@ -752,6 +755,7 @@ impl Sim {
                 declares: (NONE, 0),
                 reserved: Vec::new(),
                 keeps_taken: 0,
+                strike_until: 0,
             });
             self.joins[join_bell as usize].push(id);
         }
@@ -2126,6 +2130,13 @@ impl Sim {
         self.refresh_upkeep(from, b);
         self.reweigh(from, b);
         self.mc_note_depart(a, mission);
+        if let Mission::Siege(t) | Mission::Rally(t) = mission {
+            let x = &self.holds[t as usize];
+            if x.free_city() || x.h.order >= 2 {
+                let ag = &mut self.agents[a as usize];
+                ag.strike_until = ag.strike_until.max(arrive + 6);
+            }
+        }
         Some(id)
     }
 

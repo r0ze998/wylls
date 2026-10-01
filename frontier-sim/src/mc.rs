@@ -210,6 +210,33 @@ impl McParams {
         }
     }
 
+    /// `--mc key=value,…`: exploration overrides of the preset (the
+    /// tuning knobs of Gate CQ1's failure rule and the planner's holding
+    /// slots). Not used by any gated line.
+    pub fn apply(&mut self, spec: &str, holding_slots: &mut usize) {
+        for kv in spec.split(',').filter(|x| !x.is_empty()) {
+            let (k, v) = kv.split_once('=').expect("--mc key=value");
+            let n = |v: &str| v.parse::<i64>().expect("--mc value");
+            match k {
+                "keep_home_guard" => self.keep_home_guard = n(v) as u32,
+                "keep_consolidate_bells" => self.keep_consolidate_bells = n(v) as u32,
+                "keep_bells" => self.keep_bells = n(v) as u8,
+                "keep_garrison_bps" => self.keep_garrison_bps = n(v) as u16,
+                "free_city_min_ring" => self.free_city_min_ring = n(v) as u32,
+                "heartland_max_ring" => self.heartland_max_ring = n(v) as u32,
+                "occupation_tenure_bells" => self.occupation_tenure_bells = n(v) as u32,
+                "sieges_per_day" => self.sieges_per_day = n(v) as u32,
+                "holding_slots" => *holding_slots = n(v) as usize,
+                x => panic!("--mc {x}"),
+            }
+        }
+        self.preset = if spec.is_empty() {
+            self.preset
+        } else {
+            "custom"
+        };
+    }
+
     pub fn keep_params(&self) -> cqk::KeepParams {
         cqk::KeepParams {
             bells: self.keep_bells,
