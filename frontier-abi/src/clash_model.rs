@@ -1254,3 +1254,473 @@ pub fn quiet_digest(pd: &[u8], b0: u32, n: u8) -> R<[u8; 32]> {
 pub fn host_of(e: &Entry) -> R<Host> {
     e.to_host().map_err(|_| BAD_ACCOUNT)
 }
+
+// ================================================================ ABI v2
+//
+// MC contract §5.6 (0x61, 0x63), §5.7, K-21: the clash of an MC Province
+// (4,736 B). Beside the v1 functions above, which are unchanged: a v2
+// Province's first 4,096 bytes are M1's, so `settle_bell`, `next_due`,
+// `finish_bell` and the entry and mirror helpers serve both. What v2 adds:
+//
+// - **Free City garrisons** (site state 5, faction NEUTRAL, walls from the
+//   mirror: 0 at genesis) beside the holdings', in site order;
+// - the camp joins only while fewer than 12 *site* garrisons stand
+//   (holdings and Free Cities), exactly as M1, and never on the keep tile
+//   (camp v2);
+// - **the keep** as the 13th garrison (id `u64::MAX − 0x1_0000 − gen`,
+//   the holder's, walls on), pushed last;
+// - CLASH's input digest over `province[SITE_MIRROR..TICKET_COHORTS] ‖
+//   province[4,096..4,736]` (`PSF-CLASH-INPUT-v2`), SKIP's quiet digest
+//   with the conquest block (`PSF-QUIET-v2`);
+// - the skip's **tile-mask quiet model** ([`tile_masks`]): the per-tile
+//   faction mask of non-civilian residents the conquest step reads in a
+//   quiet bell instead of a clash outcome.
+//
+// [`BuiltV2::base`] lists the keep in `garrisons` but not in `gar_site`,
+// so v1's [`apply`] (which walks `garrisons.zip(gar_site)`) writes back
+// every site and the camp and [`apply_v2`] then writes the keep.
+
+use crate::v2::kernel::{camp2, keep as kkeep};
+use crate::v2::layout::province::{province as P2, site as SM2};
+
+/// Domain of CLASH's input digest under ABI v2.
+pub const INPUT_DOMAIN_V2: &[u8] = b"PSF-CLASH-INPUT-v2";
+/// Domain of SKIP's quiet digest under ABI v2.
+pub const QUIET_DOMAIN_V2: &[u8] = b"PSF-QUIET-v2";
+
+/// The keep as the clash of one bell sees it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KeepIn {
+    pub keep: kkeep::Keep,
+    /// Its garrison id (`u64::MAX − 0x1_0000 − gen`).
+    pub id: u64,
+}
+
+/// [`Built`] of an MC Province: the base input (keep last in
+/// `garrisons`, absent from `gar_site`) and the keep.
+pub struct BuiltV2 {
+    pub base: Built,
+    pub keep: Option<KeepIn>,
+}
+
+impl BuiltV2 {
+    pub fn input(&self, seed: &[u8; 32]) -> ClashInput<'_> {
+        self.base.input(seed)
+    }
+}
+
+/// [`Applied`] of an MC Province.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AppliedV2 {
+    pub base: Applied,
+    /// The keep's garrison changed in the clash.
+    pub keep_changed: bool,
+}
+
+impl AppliedV2 {
+    /// An entry, a garrison, the camp or the keep changed.
+    pub const fn changed(&self) -> bool {
+        self.base.changed || self.keep_changed
+    }
+}
+
+/// Whether a site mirror state fights as a garrison under ABI v2.
+const fn v2_garrison_state(st: u8) -> bool {
+    st == SM2::STATE_HOLDING || st == SM2::STATE_FREE_CITY
+}
+
+/// The faction a v2 site's garrison fights for (a Free City: NEUTRAL).
+fn v2_site_faction(m: &[u8; SM::SIZE]) -> u8 {
+    if m[SM2::STATE] == SM2::STATE_FREE_CITY {
+        NEUTRAL
+    } else {
+        m[SM2::FACTION]
+    }
+}
+
+/// The camp after the day's check of bell `b` under camp v2 (never on
+/// the keep tile).
+pub fn camp_check_v2(
+    pd: &[u8],
+    t: &ProvinceTerrain,
+    b: u32,
+    keep_tile: Option<u8>,
+) -> R<Option<(Camp, bool)>> {
+    let c = Camp::read(pd)?;
+    let day = b / DAY_BELLS;
+    if day < c.next_check_day {
+        return Ok(None);
+    }
+    let mut n = c;
+    n.next_check_day = day.checked_add(1).ok_or(OVERFLOW)?;
+    let spawn = camp2::place_v2(
+        &camp_seed(pd)?,
+        coord_of(pd)?,
+        t,
+        day,
+        has_holding(pd)?,
+        false,
+        keep_tile,
+    );
+    if let Some(k) = spawn {
+        n.tile = k.tile;
+        n.state = CP::STATE_PRESENT;
+        n.troops = k.troops;
+        n.gen = c.gen.wrapping_add(1);
+    }
+    Ok(Some((n, spawn.is_some())))
+}
+
+/// [`build`] for an MC Province (module note above).
+pub fn build_v2(pd: &[u8], inputs: Option<&[u8]>, b: u32) -> R<BuiltV2> {
+    build_v2_probed::<NoProbe>(pd, inputs, b)
+}
+
+/// [`build_v2`] with the caller's checkpoints.
+pub fn build_v2_probed<Pr: Probe>(pd: &[u8], inputs: Option<&[u8]>, b: u32) -> R<BuiltV2> {
+    if pd.len() < P2::SIZE {
+        return Err(BAD_ACCOUNT);
+    }
+    let coord = coord_of(pd)?;
+    let terrain = terrain_of(pd)?;
+    let keep = crate::conquest_model::read_keep(pd)?;
+    Pr::checkpoint(0x6130);
+    let (camp, camp_checked) = match camp_check_v2(pd, &terrain, b, keep.map(|k| k.tile))? {
+        Some((c, spawned)) => (c, Some(spawned)),
+        None => (Camp::read(pd)?, None),
+    };
+    let r = Ro(pd);
+    let mut order = [(0u64, 0u8); P::ROSTER_CAP];
+    let mut n = 0usize;
+    let mut pending = [0u8; FACTION_LIMIT as usize];
+    let mut used = 0u8;
+    for i in 0..P::ENTRIES_N {
+        let e = ent(pd, i)?;
+        match e[E::STATE] {
+            E::STATE_FREE => continue,
+            E::STATE_ROSTER => used += 1,
+            E::STATE_MUSTER_PENDING => {
+                used += 1;
+                let c = pending.get_mut(e[E::FACTION] as usize).ok_or(BAD_ACCOUNT)?;
+                *c = c.saturating_add(1);
+                continue;
+            }
+            E::STATE_DEPARTED => {
+                used += 1;
+                continue;
+            }
+            _ => return Err(BAD_ACCOUNT),
+        }
+        if g32(e, E::FROM_BELL) > b {
+            continue;
+        }
+        let slot = order.get_mut(n).ok_or_else(|| kernel(sub::CLASH_INPUT))?;
+        *slot = (g64(e, E::ID), i as u8);
+        n += 1;
+    }
+    let order = &mut order[..n];
+    insertion_sort(order);
+    let mut residents = Vec::with_capacity(n);
+    let mut res_entry = Vec::with_capacity(n);
+    for &(id, i) in order.iter() {
+        let e = ent(pd, i as usize)?;
+        if kernel_op(e[E::PEND_OP]) && b > g32(e, E::PEND_BELL) {
+            return Err(kernel(sub::UNSETTLED));
+        }
+        let stamina = Stamina {
+            value: g16(e, E::STAMINA_VALUE),
+            bell: g32(e, E::STAMINA_BELL),
+        }
+        .at(b);
+        residents.push(Fighter {
+            id,
+            faction: e[E::FACTION],
+            unit: unit_from_u8(e[E::UNIT]).ok_or(BAD_ACCOUNT)?,
+            troops: g32(e, E::TROOPS),
+            stamina,
+            tile: e[E::TILE],
+            posture: Posture::Stance(Stance::Hold),
+            retreat_bps: None,
+            dealt_bps: bps(g16(e, E::DEALT_BPS)),
+        });
+        res_entry.push(i);
+    }
+    let occupancy = Occupancy {
+        pending,
+        storage_free: Occupancy::STORAGE.saturating_sub(used),
+    };
+    Pr::checkpoint(0x6131);
+    let n_sites = (terrain.site_count as usize).min(P::SITES_N);
+    let mut garrisons = Vec::with_capacity(crate::v2::kernel::MAX_GARRISONS_WITH_KEEP);
+    let mut gar_site = Vec::with_capacity(MAX_GARRISONS);
+    let key_base = mk_host_id(coord.p, coord.q, 0, 0, 0).ok_or(BAD_ACCOUNT)?;
+    for s in 0..n_sites {
+        let m = mirror(pd, s)?;
+        if !v2_garrison_state(m[SM::STATE]) {
+            continue;
+        }
+        for (pb, pd_) in [
+            (SM::PEND0_BELL, SM::PEND0_DELTA),
+            (SM::PEND1_BELL, SM::PEND1_DELTA),
+        ] {
+            let bell = m32(m, pb);
+            if bell != SM::NO_BELL && m64(m, pd_) != 0 && bell < b {
+                return Err(kernel(sub::UNSETTLED));
+            }
+        }
+        let walls = m32(m, SM::WALLS_COMMITTED) > 0
+            || (m32(m, SM::WALL_ITEM0_DELTA) > 0 && m32(m, SM::WALL_ITEM0_BELL) <= b)
+            || (m32(m, SM::WALL_ITEM1_DELTA) > 0 && m32(m, SM::WALL_ITEM1_BELL) <= b);
+        garrisons.push(Garrison {
+            id: key_base | (s as u64) << 40 | (m[SM::GEN] as u64) << 32,
+            faction: v2_site_faction(m),
+            tile: terrain.sites[s],
+            troops: m32(m, SM::GARRISON).min(MAX_HOST_TROOPS),
+            walls,
+            posture: Posture::Stance(Stance::Hold),
+        });
+        gar_site.push(s as u8);
+    }
+    if camp.present() && garrisons.len() < MAX_GARRISONS {
+        let troops = (camp.troops as u64 * MILLI as u64).min(MAX_HOST_TROOPS as u64);
+        garrisons.push(Garrison {
+            id: camp.id(),
+            faction: NEUTRAL,
+            tile: camp.tile,
+            troops: troops as MilliTroops,
+            walls: false,
+            posture: Posture::Stance(Stance::Hold),
+        });
+        gar_site.push(CAMP_SITE);
+    }
+    let keep_in = match keep {
+        Some(k) => {
+            let g = kkeep::garrison(&k).map_err(|_| kernel(sub::CLASH_INPUT))?;
+            garrisons.push(g);
+            Some(KeepIn { keep: k, id: g.id })
+        }
+        None => None,
+    };
+    Pr::checkpoint(0x6132);
+    let mut arrivals = Vec::with_capacity(kc::MAX_ARRIVALS);
+    let mut arr_pos = Vec::with_capacity(kc::MAX_ARRIVALS);
+    if let Some(ci) = inputs {
+        let recs = ci.get(ARRIVALS_BLOCK).ok_or(BAD_ACCOUNT)?;
+        let mut order = [(0u64, 0u8); CI::POSITIONS];
+        let mut n = 0usize;
+        for (k, rec) in recs.chunks_exact(AR::SIZE).enumerate() {
+            if rec[AR::PRESENT] == 1 {
+                let id = u64::from_le_bytes(
+                    rec[AR::HOST_ID..AR::HOST_ID + 8]
+                        .try_into()
+                        .map_err(|_| BAD_ACCOUNT)?,
+                );
+                order[n] = (id, k as u8);
+                n += 1;
+            }
+        }
+        let order = &mut order[..n];
+        insertion_sort(order);
+        for &(_, k) in order.iter() {
+            let o = k as usize * AR::SIZE;
+            arrivals.push(arrival_fighter(&recs[o..o + AR::SIZE])?);
+            arr_pos.push(k);
+        }
+    }
+    Ok(BuiltV2 {
+        base: Built {
+            coord,
+            bell: b,
+            terrain,
+            residents,
+            res_entry,
+            garrisons,
+            gar_site,
+            arrivals,
+            arr_pos,
+            occupancy,
+            relations: Relations {
+                peaceful: r.u64(P::RELATIONS)?,
+            },
+            camp,
+            camp_checked,
+        },
+        keep: keep_in,
+    })
+}
+
+/// Writes an MC outcome back: v1's [`apply`] for the entries, the site
+/// garrisons (holdings and Free Cities) and the camp, then the keep's
+/// garrison (whole troops, as the camp's).
+pub fn apply_v2(pd: &mut [u8], b: &BuiltV2, out: &ClashOutcome) -> R<AppliedV2> {
+    apply_v2_probed::<NoProbe>(pd, b, out)
+}
+
+/// [`apply_v2`] with the caller's checkpoints.
+pub fn apply_v2_probed<Pr: Probe>(pd: &mut [u8], b: &BuiltV2, out: &ClashOutcome) -> R<AppliedV2> {
+    let keep_n = b.keep.is_some() as usize;
+    if b.base.gar_site.len() + keep_n != b.base.garrisons.len() {
+        return Err(BAD_ACCOUNT);
+    }
+    let base = apply_probed::<Pr>(pd, &b.base, out)?;
+    let mut keep_changed = false;
+    if let Some(k) = &b.keep {
+        let gr = out
+            .garrisons
+            .iter()
+            .find(|x| x.id == k.id)
+            .ok_or(BAD_ACCOUNT)?;
+        let whole = gr.troops / MILLI as u32;
+        if whole != k.keep.troops {
+            let mut nk = k.keep;
+            nk.troops = whole;
+            crate::conquest_model::write_keep(pd, &nk)?;
+            keep_changed = true;
+        }
+    }
+    Ok(AppliedV2 { base, keep_changed })
+}
+
+/// The quiet model's per-tile faction mask (§5.7 Skip): bit f of
+/// `mask[tile]` is set when a non-civilian roster host of faction f stands
+/// on the tile in the clash of bell `b` (`from_bell ≤ b`). Read it before
+/// `settle_bell(b)`, as the clash would be built.
+pub fn tile_masks(pd: &[u8], b: u32) -> R<[u8; PROVINCE_TILES]> {
+    let mut mask = [0u8; PROVINCE_TILES];
+    let block = pd
+        .get(P::ENTRIES..P::ENTRIES + P::ENTRIES_N * E::SIZE)
+        .ok_or(BAD_ACCOUNT)?;
+    for e in block.chunks_exact(E::SIZE) {
+        if e[E::STATE] != E::STATE_ROSTER {
+            continue;
+        }
+        let from = u32::from_le_bytes([
+            e[E::FROM_BELL],
+            e[E::FROM_BELL + 1],
+            e[E::FROM_BELL + 2],
+            e[E::FROM_BELL + 3],
+        ]);
+        if from > b {
+            continue;
+        }
+        let civilian = unit_from_u8(e[E::UNIT]).is_none_or(|u| u.is_civilian());
+        let (t, f) = (e[E::TILE] as usize, e[E::FACTION]);
+        if civilian || f >= NEUTRAL || t >= PROVINCE_TILES {
+            continue;
+        }
+        mask[t] |= 1 << f;
+    }
+    Ok(mask)
+}
+
+/// [`trivially_quiet`] for an MC Province: Free City garrisons (NEUTRAL,
+/// hostile to every resident) and the keep (its holder's) join the
+/// hex-faction test; the camp counts site garrisons of both kinds.
+pub fn trivially_quiet_v2(pd: &[u8], b: u32) -> R<bool> {
+    const NONE: u8 = 0xFF;
+    let mut fac = [NONE; PROVINCE_TILES];
+    let mut hosts = [0u8; PROVINCE_TILES];
+    let mut per_f = [0u8; FACTION_LIMIT as usize];
+    let mut total = 0usize;
+    let block = pd
+        .get(P::ENTRIES..P::ENTRIES + P::ENTRIES_N * E::SIZE)
+        .ok_or(BAD_ACCOUNT)?;
+    for e in block.chunks_exact(E::SIZE) {
+        if e[E::STATE] != E::STATE_ROSTER {
+            continue;
+        }
+        let rd = |o: usize| u32::from_le_bytes([e[o], e[o + 1], e[o + 2], e[o + 3]]);
+        if rd(E::FROM_BELL) > b {
+            continue;
+        }
+        if kernel_op(e[E::PEND_OP]) && b > rd(E::PEND_BELL) {
+            return Ok(false);
+        }
+        let (t, f) = (e[E::TILE] as usize, e[E::FACTION]);
+        if t >= PROVINCE_TILES || f >= NEUTRAL {
+            return Ok(false);
+        }
+        if fac[t] == NONE {
+            fac[t] = f;
+        } else if fac[t] != f {
+            return Ok(false);
+        }
+        hosts[t] += 1;
+        per_f[f as usize] += 1;
+        total += 1;
+        if hosts[t] as usize > kh::HEX_HOST_CAP
+            || per_f[f as usize] as usize > kh::FACTION_RESIDENT_CAP
+            || total > kh::PROVINCE_HOST_CAP
+        {
+            return Ok(false);
+        }
+    }
+    let r = Ro(pd);
+    let n = (r.u8(P::SITE_COUNT)? as usize).min(P::SITES_N);
+    let sites: [u8; P::SITES_N] = r.arr(P::SITES)?;
+    let mut n_gar = 0usize;
+    for (s, &tile) in sites.iter().enumerate().take(n) {
+        let m = mirror(pd, s)?;
+        if !v2_garrison_state(m[SM::STATE]) {
+            continue;
+        }
+        n_gar += 1;
+        for (pb, dl) in [
+            (SM::PEND0_BELL, SM::PEND0_DELTA),
+            (SM::PEND1_BELL, SM::PEND1_DELTA),
+        ] {
+            let bell = m32(m, pb);
+            if bell != SM::NO_BELL && m64(m, dl) != 0 && bell < b {
+                return Ok(false);
+            }
+        }
+        let t = tile as usize;
+        if t >= PROVINCE_TILES {
+            return Ok(false);
+        }
+        let f = v2_site_faction(m);
+        if fac[t] != NONE && fac[t] != f {
+            return Ok(false);
+        }
+        fac[t] = f;
+    }
+    let camp = Camp::read(pd)?;
+    if camp.present() && n_gar < MAX_GARRISONS {
+        let t = camp.tile as usize;
+        if t >= PROVINCE_TILES || fac[t] != NONE {
+            return Ok(false);
+        }
+        fac[t] = NEUTRAL;
+    }
+    if let Some(k) = crate::conquest_model::read_keep(pd)? {
+        let t = k.tile as usize;
+        if t >= PROVINCE_TILES || (fac[t] != NONE && fac[t] != k.holder) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// CLASH's input digest under ABI v2: `sha256("PSF-CLASH-INPUT-v2" ‖ b ‖
+/// seed ‖ province[SITE_MIRROR..TICKET_COHORTS] ‖ province[4,096..4,736] ‖
+/// arrivals)`.
+pub fn input_digest_v2(pd: &[u8], ci: &[u8], b: u32, seed: &[u8; 32]) -> R<[u8; 32]> {
+    let st = pd.get(STATE_BLOCK).ok_or(BAD_ACCOUNT)?;
+    let cq = pd.get(P2::CQ_BLOCK).ok_or(BAD_ACCOUNT)?;
+    let ar = ci.get(ARRIVALS_BLOCK).ok_or(BAD_ACCOUNT)?;
+    Ok(sha256(&[
+        INPUT_DOMAIN_V2,
+        &b.to_le_bytes(),
+        seed,
+        st,
+        cq,
+        ar,
+    ]))
+}
+
+/// SKIP's quiet digest under ABI v2 (the conquest block added).
+pub fn quiet_digest_v2(pd: &[u8], b0: u32, n: u8) -> R<[u8; 32]> {
+    let st = pd.get(STATE_BLOCK).ok_or(BAD_ACCOUNT)?;
+    let cq = pd.get(P2::CQ_BLOCK).ok_or(BAD_ACCOUNT)?;
+    Ok(sha256(&[QUIET_DOMAIN_V2, &b0.to_le_bytes(), &[n], st, cq]))
+}

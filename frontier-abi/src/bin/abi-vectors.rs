@@ -243,6 +243,7 @@ fn acc_name(a: Acc) -> String {
         Acc::ProgramData => "programdata".into(),
         Acc::Incinerator => "incinerator".into(),
         Acc::Any => "any".into(),
+        Acc::KindV2(k) => k.name().to_string(),
     }
 }
 
@@ -1319,6 +1320,13 @@ fn files() -> Vec<(&'static str, String)> {
         ("presets.json", presets_file().render()),
         ("ix.json", ix_file().render()),
         ("entries.json", entries_file().render()),
+        ("v2/layouts.json", v2_layouts().render()),
+        ("v2/tags.json", v2_tags().render()),
+        ("v2/errors.json", v2_errors().render()),
+        ("v2/logs.json", v2_logs().render()),
+        ("v2/presets.json", v2_presets().render()),
+        ("v2/budgets.json", v2_budgets().render()),
+        ("v2/conquest.json", v2_conquest().render()),
     ]
 }
 
@@ -1337,8 +1345,8 @@ fn main() {
                 Ok(cur) if cur == body => {}
                 _ => stale.push(name),
             }
-        } else if let Err(e) =
-            std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, body))
+        } else if let Err(e) = std::fs::create_dir_all(path.parent().unwrap_or(&dir))
+            .and_then(|_| std::fs::write(&path, body))
         {
             eprintln!("abi-vectors: cannot write {}: {e}", path.display());
             std::process::exit(2);
@@ -1358,4 +1366,814 @@ fn main() {
             dir.display()
         );
     }
+}
+
+// ================================================================ ABI v2
+//
+// `vectors/v2/*.json` (MC contract §5, §6, §3.12, §5.7): written beside
+// the v1 files, which stay byte-identical (R-16). Consumers: CQ2-D's
+// fclient twin tests, CQ3-C's JS SDK, CQ3-D's web data and WASM, CQ2-E's
+// herald, CQ3-A's verifier.
+
+mod v2vec {
+    use super::*;
+    use frontier_abi::v2;
+
+    pub fn header_v2(what: &str) -> Vec<(&'static str, J)> {
+        vec![
+            ("generator", st("frontier-abi abi-vectors")),
+            ("abi_version", n(v2::ABI_VERSION_V2)),
+            (
+                "contract",
+                st("docs/frontier/conquest/CONQUEST-CONTRACT.md v1.1"),
+            ),
+            ("content", st(what)),
+        ]
+    }
+
+    pub fn done(v: Vec<(&'static str, J)>) -> J {
+        J::O(v.into_iter().map(|(k, x)| (k.to_string(), x)).collect())
+    }
+}
+use v2vec::{done, header_v2};
+
+fn v2_layouts() -> J {
+    use frontier_abi::v2::layout::{self as l2, AccountKind as K2};
+    let mut v =
+        header_v2("ABI v2 account layouts (§5.2): 18 kinds, v2 sub-records, SeasonParams v2");
+    v.push((
+        "accounts",
+        J::A(
+            K2::ALL
+                .iter()
+                .map(|k| {
+                    o(vec![
+                        ("kind", st(k.name())),
+                        ("code", n(*k as u8)),
+                        ("magic", st(std::str::from_utf8(&k.magic()).unwrap_or("?"))),
+                        ("size", n(k.size() as u64)),
+                        ("rent", n(k.rent())),
+                        ("chained", J::B(k.chained())),
+                        ("changed_in_v2", J::B(k.changed_in_v2())),
+                        (
+                            "seed_tag",
+                            frontier_abi::v2::addr::tag_of(*k)
+                                .map(|t| st(std::str::from_utf8(&t).unwrap_or("?")))
+                                .unwrap_or(J::Null),
+                        ),
+                        ("raw_key_len", n(frontier_abi::v2::addr::raw_len(*k) as u64)),
+                        ("fields", fields(k.fields())),
+                    ])
+                })
+                .collect(),
+        ),
+    ));
+    v.push((
+        "records",
+        J::A(
+            l2::RECORDS
+                .iter()
+                .map(|(name, size, f)| {
+                    o(vec![
+                        ("name", st(name)),
+                        ("size", n(*size as u64)),
+                        ("fields", fields(f)),
+                    ])
+                })
+                .collect(),
+        ),
+    ));
+    use frontier_abi::v2::layout::province::{conquest as CR, keep as KP, site as SM};
+    v.push((
+        "constants",
+        o(vec![
+            ("layout_version", n(l2::LAYOUT_VERSION_V2)),
+            ("site_state_free_city", n(SM::STATE_FREE_CITY)),
+            ("record_kind_siege", n(CR::KIND_SIEGE)),
+            ("record_kind_occupation", n(CR::KIND_OCCUPATION)),
+            ("record_kind_capture_due", n(CR::KIND_CAPTURE_DUE)),
+            ("barred_all", n(CR::BARRED_ALL)),
+            ("barred_none", n(CR::BARRED_NONE)),
+            ("flag_held", n(CR::FLAG_HELD)),
+            ("flag_stake_to_holding", n(CR::FLAG_STAKE_TO_HOLDING)),
+            ("flag_stake_to_src", n(CR::FLAG_STAKE_TO_SRC)),
+            ("flag_neutral", n(CR::FLAG_NEUTRAL)),
+            ("flag_credited", n(CR::FLAG_CREDITED)),
+            ("flag_slot_owed", n(CR::FLAG_SLOT_OWED)),
+            ("target_first", n(CR::TARGET_FIRST)),
+            ("target_other", n(CR::TARGET_OTHER)),
+            ("target_free_city", n(CR::TARGET_FREE_CITY)),
+            ("keep_no_tile", n(KP::NO_TILE)),
+            ("keep_flag_heartland_safe", n(KP::FLAG_HEARTLAND_SAFE)),
+            (
+                "keep_garrison_id_base",
+                J::S(frontier_abi::v2::kernel::keep::KEEP_GARRISON_ID_BASE.to_string()),
+            ),
+            (
+                "conquest_params_size",
+                n(frontier_abi::v2::presets::CONQUEST_PARAMS_LEN as u64),
+            ),
+            (
+                "season_params_v2_size",
+                n(frontier_abi::v2::presets::SEASON_PARAMS_V2_LEN as u64),
+            ),
+        ]),
+    ));
+    let ctx = test_ctx();
+    let marches: Vec<J> = [(0, 0), (-3, 7), (2, -1)]
+        .iter()
+        .map(|(m, nn)| {
+            addr_entry(
+                &ctx,
+                "MarchState",
+                o(vec![("m", n(*m)), ("n", n(*nn))]),
+                &frontier_abi::v2::addr::march_seed(*m, *nn),
+            )
+        })
+        .collect();
+    v.push(("march_addresses", J::A(marches)));
+    done(v)
+}
+
+fn v2_tags() -> J {
+    use frontier_abi::v2::{ix as ix2, prologue as p2, tags as t2};
+    let mut v = header_v2("ABI v2 instruction tags, classes, data and account lists (§5.4–§5.6)");
+    v.push((
+        "instructions",
+        J::A(
+            t2::Ix::ALL
+                .iter()
+                .map(|i| {
+                    let (lo, hi) = ix2::data_len_range(*i);
+                    let wire = ix2::wire_of(*i)
+                        .map(|w| {
+                            J::A(
+                                w.iter()
+                                    .map(|(f, l)| o(vec![("name", st(f)), ("len", n(*l as u64))]))
+                                    .collect(),
+                            )
+                        })
+                        .unwrap_or(J::Null);
+                    let groups = p2::accounts_of(*i)
+                        .iter()
+                        .map(|g| {
+                            o(vec![
+                                ("min", n(g.min)),
+                                ("max", n(g.max)),
+                                (
+                                    "accounts",
+                                    J::A(
+                                        g.specs
+                                            .iter()
+                                            .map(|s| {
+                                                o(vec![
+                                                    ("name", st(s.name)),
+                                                    ("kind", J::S(acc_name(s.acc))),
+                                                    ("signer", J::B(s.signer)),
+                                                    (
+                                                        "writable",
+                                                        st(match s.wr {
+                                                            Wr::R => "r",
+                                                            Wr::W => "w",
+                                                            Wr::Either => "r|w",
+                                                        }),
+                                                    ),
+                                                ])
+                                            })
+                                            .collect(),
+                                    ),
+                                ),
+                            ])
+                        })
+                        .collect();
+                    o(vec![
+                        ("name", st(i.name())),
+                        ("tag", n(i.tag())),
+                        ("class", st(i.class().name())),
+                        ("new_in_v2", J::B(i.is_new())),
+                        ("changed_in_v2", J::B(i.changed_in_v2())),
+                        ("top_level_only", J::B(i.top_level_only())),
+                        ("relay_player_shape", J::B(t2::relay_player_shape(*i))),
+                        ("relay_settle_shape", J::B(t2::relay_settle_shape(*i))),
+                        ("data_len", J::A(vec![n(lo as u64), n(hi as u64)])),
+                        ("data", wire),
+                        ("account_groups", J::A(groups)),
+                    ])
+                })
+                .collect(),
+        ),
+    ));
+    v.push((
+        "reserved_tags",
+        J::A((0u8..=255).filter(|t| t2::is_reserved(*t)).map(n).collect()),
+    ));
+    // one encoded sample per new fixed instruction
+    let mut samples = Vec::new();
+    let fm = ix2::FoldMarch {
+        m: -3,
+        n: 7,
+        hour: 120,
+        count: 6,
+        beneficiary: [0xBE; 32],
+    };
+    samples.push(("FoldMarch", fm.to_bytes().to_vec()));
+    let ds = ix2::DeclareSiege {
+        site: 4,
+        entry: 17,
+        nearby_site: 2,
+    };
+    samples.push(("DeclareSiege", ds.to_bytes().to_vec()));
+    let sc = ix2::SettleCapture {
+        site: 4,
+        beneficiary: [0xCA; 32],
+    };
+    samples.push(("SettleCapture", sc.to_bytes().to_vec()));
+    let fo = ix2::FileOutpost {
+        n: 2,
+        sites: [
+            ix::TicketSite {
+                p: 4,
+                q: -1,
+                site: 7,
+            },
+            ix::TicketSite {
+                p: 5,
+                q: -1,
+                site: 0,
+            },
+            ix::TicketSite::default(),
+        ],
+        anchor_site_key: addr::host_id(2, -1, 3, 1, 0).unwrap_or(0),
+    };
+    let mut buf = [0u8; ix2::FileOutpost::MAX_LEN];
+    let len = fo.encode(&mut buf).unwrap_or(0);
+    samples.push(("FileOutpost", buf[..len].to_vec()));
+    v.push((
+        "samples",
+        J::A(
+            samples
+                .into_iter()
+                .map(|(name, d)| o(vec![("name", st(name)), ("data", J::S(hex(&d)))]))
+                .collect(),
+        ),
+    ));
+    done(v)
+}
+
+fn v2_errors() -> J {
+    use frontier_abi::error::KeeperAction as KA;
+    let mut v =
+        header_v2("ABI v2 error codes (§5.3), stable forever: M1's 1–61 and 99, MC's 62–78");
+    v.push((
+        "errors",
+        J::A(
+            frontier_abi::v2::error::all_codes()
+                .map(|c| {
+                    o(vec![
+                        ("code", n(c.code())),
+                        ("name", st(c.name())),
+                        ("program", J::B(c.program_code())),
+                        ("mc", J::B(matches!(c, frontier_abi::v2::Code::Cq(_)))),
+                        (
+                            "keeper",
+                            st(match c.keeper_action() {
+                                KA::Success => "success",
+                                KA::RetrySlots => "retry-slots",
+                                KA::Stop => "stop",
+                                KA::Wait => "wait",
+                                KA::Refused => "refused",
+                            }),
+                        ),
+                    ])
+                })
+                .collect(),
+        ),
+    ));
+    done(v)
+}
+
+fn v2_logs() -> J {
+    use frontier_abi::v2::log as l2;
+    let mut v =
+        header_v2("ABI v2 PS2 log records (§6): kinds 80–88, entity kind 8, CONQUEST events");
+    v.push((
+        "entity_kinds",
+        J::A(
+            l2::EntityKind::ALL
+                .iter()
+                .map(|e| {
+                    o(vec![
+                        ("code", n(*e as u8)),
+                        ("account", st(e.account_kind().name())),
+                    ])
+                })
+                .collect(),
+        ),
+    ));
+    let mut kinds = Vec::new();
+    for spec in l2::CQ_SPECS {
+        let kind = l2::AnyKind::Cq(spec.kind);
+        let sample = |f: &str, w: usize, salt: u8| -> Vec<u8> {
+            match (f, w) {
+                ("p", 4) => 5i32.to_le_bytes().to_vec(),
+                ("q", 4) => (-1i32).to_le_bytes().to_vec(),
+                ("site", 1) => vec![3],
+                ("m" | "n", 4) => 2i32.to_le_bytes().to_vec(),
+                ("host_id" | "src_key" | "recipient_key" | "home_key" | "anchor_key", 8) => {
+                    addr::host_id(2, -1, 3, 1, 42)
+                        .unwrap_or(0)
+                        .to_le_bytes()
+                        .to_vec()
+                }
+                ("n", 1) => vec![2],
+                ("outcome", 1) => vec![0],
+                ("reason", 1) => vec![0],
+                _ => (0..w)
+                    .map(|i| (i as u8).wrapping_mul(29).wrapping_add(salt))
+                    .collect(),
+            }
+        };
+        let key: Vec<u8> = spec
+            .key
+            .iter()
+            .flat_map(|(f, w)| sample(f, *w, 0x21))
+            .collect();
+        let payload: Vec<u8> = spec
+            .payload
+            .iter()
+            .flat_map(|(f, w)| sample(f, *w, 0x6b))
+            .collect();
+        let bell = 2_000 + spec.kind as u32;
+        let mut buf = vec![0u8; 1024];
+        let len = l2::write_body(kind, bell, &key, &payload, &mut buf).unwrap_or(0);
+        let bwt = buf[..len].to_vec();
+        let mut links = Vec::new();
+        let mut chain_json = Vec::new();
+        if let Some(c) = l2::chains_of(kind, &key, &payload) {
+            for (i, ce) in c.iter().filter(|c| !c.optional).enumerate() {
+                let prev_head = sha256(&[b"abi-vectors v2 prev", &[spec.kind as u8, i as u8]]);
+                if let Some(l) = l2::advance(ce.entity, 3 + i as u64, &prev_head, &bwt) {
+                    links.push(l);
+                    chain_json.push(o(vec![
+                        ("entity", n(ce.entity as u8)),
+                        ("who", J::S(format!("{:?}", ce.who))),
+                        ("prev_seq", n(3 + i as u64)),
+                        ("prev_head", J::S(hex(&prev_head))),
+                        ("seq", n(l.seq)),
+                        ("head", J::S(hex(&l.head))),
+                    ]));
+                }
+            }
+            for ce in c.iter().filter(|c| c.optional) {
+                chain_json.push(o(vec![
+                    ("entity", n(ce.entity as u8)),
+                    ("who", J::S(format!("{:?}", ce.who))),
+                    ("optional", J::B(true)),
+                ]));
+            }
+        }
+        let end = l2::write_tail(&links, &mut buf, len).unwrap_or(len);
+        let body = buf[..end].to_vec();
+        kinds.push(o(vec![
+            ("kind", n(spec.kind as u8)),
+            ("name", st(spec.name)),
+            (
+                "key",
+                J::A(
+                    spec.key
+                        .iter()
+                        .map(|(f, w)| o(vec![("name", st(f)), ("len", n(*w as u64))]))
+                        .collect(),
+                ),
+            ),
+            (
+                "payload",
+                J::A(
+                    spec.payload
+                        .iter()
+                        .map(|(f, w)| o(vec![("name", st(f)), ("len", n(*w as u64))]))
+                        .collect(),
+                ),
+            ),
+            ("body_without_tail_len", n(kind.body_len() as u64)),
+            (
+                "vector",
+                o(vec![
+                    ("bell", n(bell)),
+                    ("body_without_tail", J::S(hex(&bwt))),
+                    ("body", J::S(hex(&body))),
+                    ("decodes", J::B(l2::decode(&body).is_ok())),
+                    ("chains", J::A(chain_json)),
+                ]),
+            ),
+        ]));
+    }
+    v.push(("kinds", J::A(kinds)));
+    v.push(("reserved_kind", n(l2::RESERVED_KIND)));
+    use l2::event as ev;
+    v.push((
+        "conquest_events",
+        o(vec![
+            ("detail_bit", n(ev::DETAIL)),
+            ("keep_site", n(ev::KEEP_SITE)),
+            ("siege_failed", n(ev::SIEGE_FAILED)),
+            ("occupied", n(ev::OCCUPIED)),
+            ("capture_due", n(ev::CAPTURE_DUE)),
+            ("liberated", n(ev::LIBERATED)),
+            ("occupation_expired", n(ev::OCCUPATION_EXPIRED)),
+            ("reserved_6", n(ev::RESERVED_6)),
+            ("keep_contest", n(ev::KEEP_CONTEST)),
+            ("keep_broken", n(ev::KEEP_BROKEN)),
+            ("keep_taken", n(ev::KEEP_TAKEN)),
+            ("keep_paused_m3", n(ev::KEEP_PAUSED_M3)),
+        ]),
+    ));
+    done(v)
+}
+
+fn v2_params_json(p: &frontier_abi::v2::presets::SeasonParamsV2) -> J {
+    use frontier_abi::v2::presets::cq_layout;
+    let b = p.cq.to_bytes();
+    let mut f = Vec::new();
+    for x in cq_layout::FIELDS {
+        if x.ty == "rsv" {
+            continue;
+        }
+        let bytes = &b[x.off..x.off + x.len];
+        let val = match x.ty {
+            "u8" => n(bytes[0]),
+            "u16" => n(u16::from_le_bytes([bytes[0], bytes[1]])),
+            "u32" => n(u32::from_le_bytes(bytes.try_into().unwrap_or([0; 4]))),
+            _ => J::S(hex(bytes)),
+        };
+        f.push((x.name.to_ascii_lowercase(), val));
+    }
+    o(vec![("base", params_json(&p.base)), ("conquest", J::O(f))])
+}
+
+fn v2_presets() -> J {
+    use frontier_abi::v2::presets as p2;
+    let mut v = header_v2(
+        "SeasonParams v2 presets (§3.12, §5.2.5), the v2 params hash and RULESET_HASH_V2",
+    );
+    let payout = payout_borsh(&permutation_rules::frontier::payout::PayoutParams::REV3);
+    v.push(("ruleset_hash_v2", J::S(hex(&p2::RULESET_HASH_V2))));
+    v.push((
+        "ruleset_hash_v2_status",
+        st("placeholder until CQ1-A merges (kernel bridge stand-in, CQ1-C notes R1)"),
+    ));
+    v.push(("ruleset_hash_m1", J::S(hex(&presets::RULESET_HASH))));
+    v.push(("rules_version_v2", n(p2::RULES_VERSION_V2)));
+    v.push(("program_version_v2", n(p2::PROGRAM_VERSION_V2)));
+    v.push(("season_cq_offset", n(p2::SEASON_CQ_OFFSET as u64)));
+    v.push(("params_domain_v2", st("PSF-PARAMS-v2")));
+    v.push(("payout_params_rev3_borsh", J::S(hex(&payout))));
+    let mut ps = Vec::new();
+    for (name, p) in p2::PRESETS {
+        let b = p.to_bytes();
+        ps.push(o(vec![
+            ("name", st(name)),
+            ("valid", J::B(p.validate().is_ok())),
+            ("fields", v2_params_json(&p)),
+            ("bytes", J::S(hex(&b))),
+            (
+                "params_hash_with_rev3_payout",
+                J::S(hex(&p2::params_hash_v2(&b, &payout))),
+            ),
+        ]));
+    }
+    v.push(("presets", J::A(ps)));
+    done(v)
+}
+
+fn v2_budgets() -> J {
+    use frontier_abi::v2::{budgets as b2, prologue as p2, tags::Ix as Ix2};
+    let mut v = header_v2(
+        "ABI v2 budget placeholders (§5.4) and L(kind) at the estimated MC .so (CQ4-A regenerates)",
+    );
+    v.push((
+        "constants",
+        o(vec![
+            ("placeholder_so_len", n(b2::PLACEHOLDER_SO_LEN_V2)),
+            (
+                "placeholder_programdata_len",
+                n(b2::PLACEHOLDER_PROGRAMDATA_LEN_V2),
+            ),
+            ("skip_per_active_bell", n(b2::SKIP_PER_ACTIVE_BELL)),
+            ("skip_record_bells_max", n(b2::SKIP_RECORD_BELLS_MAX)),
+            ("heap_gate", n(budgets::HEAP_GATE)),
+            ("tx_max", n(budgets::TX_MAX)),
+        ]),
+    ));
+    v.push((
+        "instructions",
+        J::A(
+            Ix2::ALL
+                .iter()
+                .map(|i| {
+                    let b = b2::budget(*i);
+                    let (lo, hi) = p2::count_bounds(*i);
+                    o(vec![
+                        ("name", st(i.name())),
+                        ("tag", n(i.tag())),
+                        ("cu_budget", n(b.cu_budget)),
+                        ("cu_per_unit", n(b.cu_per_unit)),
+                        ("cu_limit", n(b.cu_limit)),
+                        ("measured", n(b.measured)),
+                        ("tx_contract", n(b.tx_contract)),
+                        ("tx_ceiling", n(b2::tx_ceiling(*i))),
+                        ("tx_worst_estimate", n(b2::tx_worst_estimate(*i))),
+                        ("accounts", J::A(vec![n(lo as u64), n(hi as u64)])),
+                        (
+                            "loaded_need_placeholder",
+                            n(b2::loaded_need(*i, b2::PLACEHOLDER_PROGRAMDATA_LEN_V2)),
+                        ),
+                        ("loaded_limit", n(b2::loaded_limit(*i))),
+                    ])
+                })
+                .collect(),
+        ),
+    ));
+    done(v)
+}
+
+/// `vectors/v2/conquest.json`: the conquest step over hand-built
+/// Provinces (one case per rule family), each with the Province before,
+/// the bell's report, the events and the state after (hashes and the
+/// decoded records), for the herald, the verifier and the WASM twin.
+fn v2_conquest() -> J {
+    use frontier_abi::clash_model as cm;
+    use frontier_abi::conquest_model::{self as qm, BellReport, Record, SiteReport, StepParams};
+    use frontier_abi::v2::kernel::keep as kk;
+    use frontier_abi::v2::layout::province::{conquest as CR, province as P, site as SM};
+    use frontier_abi::v2::layout::{write_header, AccountKind as K2};
+    use frontier_abi::v2::presets::MC_LOCAL_7D;
+    use permutation_rules::frontier::geometry::ProvinceCoord;
+    use permutation_rules::frontier::terrain::generate_province;
+
+    let prm = StepParams {
+        genesis_ts: 1_788_998_400,
+        end_bell: 1_008,
+        cq: MC_LOCAL_7D.cq,
+    };
+    let base = || -> Vec<u8> {
+        let c = ProvinceCoord::new(5, -1);
+        let t = generate_province(&[7u8; 32], c);
+        let mut pd = vec![0u8; P::SIZE];
+        write_header(&mut pd, K2::Province, 1);
+        pd[P::P..P::P + 2].copy_from_slice(&5i16.to_le_bytes());
+        pd[P::Q..P::Q + 2].copy_from_slice(&(-1i16).to_le_bytes());
+        pd[P::RING..P::RING + 2].copy_from_slice(&(c.ring() as u16).to_le_bytes());
+        pd[P::WEDGE] = c.wedge().unwrap_or(0);
+        for i in 0..61 {
+            pd[P::TERRAIN + i] = cm::TERRAINS
+                .iter()
+                .position(|x| *x == t.terrain[i])
+                .unwrap_or(0) as u8;
+        }
+        pd[P::SITES..P::SITES + 12].copy_from_slice(&t.sites);
+        pd[P::SITE_COUNT] = t.site_count;
+        for s in 0..12 {
+            let o_ = P::site(s);
+            pd[o_ + SM::PEND0_BELL..o_ + SM::PEND0_BELL + 4]
+                .copy_from_slice(&SM::NO_BELL.to_le_bytes());
+            pd[o_ + SM::PEND1_BELL..o_ + SM::PEND1_BELL + 4]
+                .copy_from_slice(&SM::NO_BELL.to_le_bytes());
+        }
+        let tile = kk::keep_tile(&t, &t.sites, t.site_count).unwrap_or(0);
+        let k = kk::open(
+            c,
+            c.wedge().unwrap_or(0),
+            3,
+            tile,
+            &MC_LOCAL_7D.cq.keep_params(),
+            0,
+        );
+        if let Some(k) = k {
+            let _ = qm::write_keep(&mut pd, &k);
+        }
+        pd
+    };
+    let site = |pd: &mut Vec<u8>, s: usize, state: u8, faction: u8, order: u8| {
+        let o_ = P::site(s);
+        pd[o_ + SM::STATE] = state;
+        pd[o_ + SM::FACTION] = faction;
+        pd[o_ + SM::ORDER] = order;
+    };
+    let src = addr::host_id(0, 4, 1, 0, 0).unwrap_or(0);
+    let siege = |faction: u8, target: u8, progress: u8, required: u8, neutral: bool| Record {
+        kind: CR::KIND_SIEGE,
+        faction,
+        flags: CR::FLAG_HELD | if neutral { CR::FLAG_NEUTRAL } else { 0 },
+        progress,
+        required,
+        target,
+        bell: 100,
+        actor: 0xAC70,
+        src,
+        ..Record::ZERO
+    };
+    let hold = |f: u8| SiteReport {
+        holders: 1 << f,
+        defender_present: false,
+    };
+    let defended = SiteReport {
+        holders: 0,
+        defender_present: true,
+    };
+    let empty = SiteReport::default();
+    type Case = (&'static str, Vec<u8>, u32, BellReport);
+    let mut cases: Vec<Case> = Vec::new();
+    // 1. siege progresses
+    let mut pd = base();
+    site(&mut pd, 2, SM::STATE_HOLDING, 4, 2);
+    let _ = siege(1, CR::target(CR::TARGET_OTHER, 2), 5, 40, false).write(&mut pd, 2);
+    let mut rep = BellReport::default();
+    rep.sites[2] = hold(1);
+    cases.push(("siege_progress", pd, 200, rep));
+    // 2. capture due, credited (holding held 300 bells)
+    let mut pd = base();
+    site(&mut pd, 2, SM::STATE_HOLDING, 4, 2);
+    let _ = siege(1, CR::target(CR::TARGET_OTHER, 3), 39, 40, false).write(&mut pd, 2);
+    let mut rep = BellReport::default();
+    rep.sites[2] = hold(1);
+    cases.push(("capture_due_credited", pd, 300 + 48, rep));
+    // 3. capture due, uncredited (held since hour 50)
+    let mut pd = base();
+    site(&mut pd, 2, SM::STATE_HOLDING, 4, 2);
+    pd[P::site(2) + SM::HELD_SINCE_HOUR] = 50;
+    let _ = siege(1, CR::target(CR::TARGET_OTHER, 2), 39, 40, false).write(&mut pd, 2);
+    let mut rep = BellReport::default();
+    rep.sites[2] = hold(1);
+    cases.push(("capture_due_uncredited", pd, 300 + 48, rep));
+    // 4. Free City capture
+    let mut pd = base();
+    site(&mut pd, 5, SM::STATE_FREE_CITY, 6, 0);
+    let _ = siege(3, CR::target(CR::TARGET_FREE_CITY, 2), 35, 36, true).write(&mut pd, 5);
+    let mut rep = BellReport::default();
+    rep.sites[5] = hold(3);
+    cases.push(("free_city_capture", pd, 120, rep));
+    // 5. siege broken by a defender
+    let mut pd = base();
+    site(&mut pd, 2, SM::STATE_HOLDING, 4, 2);
+    let _ = siege(1, CR::target(CR::TARGET_OTHER, 3), 9, 40, false).write(&mut pd, 2);
+    let mut rep = BellReport::default();
+    rep.sites[2] = defended;
+    cases.push(("siege_broken_by_defender", pd, 150, rep));
+    // 6. deserted siege
+    let mut pd = base();
+    site(&mut pd, 0, SM::STATE_HOLDING, 4, 1);
+    let _ = siege(1, CR::target(CR::TARGET_FIRST, 0), 9, 40, false).write(&mut pd, 0);
+    cases.push(("siege_deserted", pd, 150, BellReport::default()));
+    // 7. occupation
+    let mut pd = base();
+    site(&mut pd, 0, SM::STATE_HOLDING, 4, 1);
+    let _ = siege(1, CR::target(CR::TARGET_FIRST, 0), 39, 40, false).write(&mut pd, 0);
+    let mut rep = BellReport::default();
+    rep.sites[0] = hold(1);
+    cases.push(("occupied", pd, 300 + 48, rep));
+    // 8. liberated by the owner (Respite) and walked away (none)
+    for (name, r0) in [
+        ("liberated_by_owner", defended),
+        ("liberated_walked_away", empty),
+    ] {
+        let mut pd = base();
+        site(&mut pd, 0, SM::STATE_HOLDING, 4, 1);
+        let _ = Record {
+            kind: CR::KIND_OCCUPATION,
+            faction: 1,
+            target: CR::target(CR::TARGET_FIRST, 0),
+            bell: 100,
+            actor: 0xAC70,
+            src,
+            ..Record::ZERO
+        }
+        .write(&mut pd, 0);
+        let mut rep = BellReport::default();
+        rep.sites[0] = r0;
+        cases.push((name, pd, 130, rep));
+    }
+    // 9. keep contest, broken, taken (with an hour snapshot)
+    let mut pd = base();
+    let holder = qm::read_keep(&pd).ok().flatten().map_or(0, |k| k.holder);
+    let f = (holder + 1) % 6;
+    let rep = BellReport {
+        keep: hold(f),
+        ..BellReport::default()
+    };
+    cases.push(("keep_contest", pd.clone(), 7, rep));
+    if let Ok(Some(mut k)) = qm::read_keep(&pd) {
+        k.contender = f;
+        k.progress = 30;
+        let _ = qm::write_keep(&mut pd, &k);
+        let rep = BellReport {
+            keep: defended,
+            ..BellReport::default()
+        };
+        cases.push(("keep_broken", pd.clone(), 13, rep));
+        k.progress = 71;
+        let _ = qm::write_keep(&mut pd, &k);
+        if let Ok(Some(k)) = qm::read_keep(&pd) {
+            let id = addr::host_id(0, 4, 2, 0, 1).unwrap_or(0);
+            let e = Entry {
+                id,
+                faction: f,
+                unit: 0,
+                tile: k.tile,
+                state: layout::province::entry::STATE_ROSTER,
+                troops: 24_000_000,
+                stamina_value: 120,
+                dealt_bps: 10_000,
+                stamina_bell: 0,
+                ready_bell: 0,
+                from_bell: 0,
+                pend_bell: 0,
+                op: EntryOp::None,
+            };
+            let _ = frontier_abi::entry::write_entry(&mut pd, 0, &e);
+        }
+        let rep = BellReport {
+            keep: hold(f),
+            ..BellReport::default()
+        };
+        cases.push(("keep_taken_at_an_hour", pd, 18, rep));
+    }
+    let mut rows = Vec::new();
+    for (name, before, b, rep) in cases {
+        let mut after = before.clone();
+        let res = qm::step(&mut after, b, &rep, &prm);
+        let rep_j = o(vec![
+            (
+                "sites",
+                J::A(
+                    rep.sites
+                        .iter()
+                        .map(|s| {
+                            o(vec![
+                                ("holders", n(s.holders)),
+                                ("defender_present", J::B(s.defender_present)),
+                            ])
+                        })
+                        .collect(),
+                ),
+            ),
+            (
+                "keep",
+                o(vec![
+                    ("holders", n(rep.keep.holders)),
+                    ("defender_present", J::B(rep.keep.defender_present)),
+                ]),
+            ),
+        ]);
+        let mut row = vec![
+            ("case", st(name)),
+            ("bell", n(b)),
+            ("province_before", J::S(hex(&before))),
+            ("report", rep_j),
+        ];
+        match res {
+            Ok(out) => {
+                let pl = qm::conquest_payload(&after, &out).ok();
+                row.push((
+                    "events",
+                    J::A(
+                        out.events()
+                            .iter()
+                            .map(|e| {
+                                o(vec![
+                                    ("site", n(e.site)),
+                                    ("code", n(e.code)),
+                                    ("faction", n(e.faction)),
+                                    ("progress", n(e.progress)),
+                                ])
+                            })
+                            .collect(),
+                    ),
+                ));
+                row.push(("emits", J::B(out.emits())));
+                row.push(("active", J::B(out.active)));
+                row.push(("roster_changed", J::B(out.roster_changed)));
+                row.push((
+                    "conquest_payload",
+                    J::S(pl.map(|p| hex(&p.to_bytes())).unwrap_or_default()),
+                ));
+                row.push(("conquest_block_after", J::S(hex(&after[P::CQ_BLOCK]))));
+                row.push(("province_after_sha256", J::S(hex(&sha256(&[&after])))));
+            }
+            Err(e) => row.push(("error", J::S(format!("{e}")))),
+        }
+        rows.push(o(row));
+    }
+    let mut v =
+        header_v2("the conquest step (§5.7) over hand-built Provinces: one case per rule family");
+    v.push((
+        "params",
+        o(vec![
+            ("genesis_ts", n(prm.genesis_ts)),
+            ("end_bell", n(prm.end_bell)),
+            ("preset", st("MC_LOCAL_7D")),
+        ]),
+    ));
+    v.push(("cases", J::A(rows)));
+    done(v)
 }
