@@ -2093,7 +2093,7 @@ Each review issue was checked against the repo at `CQ0` (`d11d058`), the `fronti
 
 ## 18. Amendments v1.1 → v1.2 (integrator, after the Gate CQ1 review, 2026-10-01)
 
-The integrator's amendments of §16 from the review of Wave 1 (`integ-CQ1-NOTES.md` §7). None changes a rule, a floor, a preset, an owner default or a layout; the open owner items stay open (`integ-CQ1-NOTES.md` §6, PO-1…PO-7).
+The integrator's amendments of §16 from the review of Wave 1 (`integ-CQ1-NOTES.md` §7). None changes a rule, a floor, a preset, an owner default or a layout; the open owner items stay open (`integ-CQ1-NOTES.md` §6, PO-1…PO-8).
 
 | # | Sections | Amendment | Why |
 |---|---|---|---|

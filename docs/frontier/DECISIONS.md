@@ -537,7 +537,7 @@ Every review issue was checked against the repo at `d11d058`, `frontier/ui-shell
 |---|---|---|---|
 | CQF1 | Contract v1.2 amendments A-1…A-7 (CQ0 = `39ff369` in §12; the ownership check walks every parent with strict hook markers and a report-only footprint; CF-1…CF-8 ratified, `PSFSD1` tail 6 reserved bytes; CQ2-E extends `cqfmt.rs` additively; occupation records owe the stake to `src` from completion; plan-time `TooLate` in the planner and drift-checked bot rates; the simulator on the remaining kernels) | integrator (amendment; no rule, floor, preset or owner default changed) | `conquest/CONQUEST-CONTRACT.md` §18; `conquest/integ-CQ1-NOTES.md` §7 |
 | CQF2 | The footprint rule's conflict with §11 (CQ3-D owns `en-frontier.mjs`) is resolved by reporting the footprint and enforcing §4.5's written list | integrator (resolves a conflict) | contract §4.5, §18 A-2 |
-| CQF3 | Open for the owner after the review: PO-1…PO-6 as before, plus **PO-7** (§3.10 counts only final holdings; `conquest_model` counts provisional ones, because finality is not a Province fact) | pending owner | `conquest/integ-CQ1-NOTES.md` §6 |
+| CQF3 | Open for the owner after the review: PO-1…PO-6 as before, plus **PO-7** (§3.10 counts only final holdings; `conquest_model` counts provisional ones, because finality is not a Province fact) and **PO-8** (the best-response margin now fails by 0.000059 after round 2's simulator fixes) | pending owner | `conquest/integ-CQ1-NOTES.md` §6 |
 
 ## E. Change log
 
@@ -565,4 +565,4 @@ Every review issue was checked against the repo at `d11d058`, `frontier/ui-shell
 | v1.13 (M1 exit, W7-A/W7-C) | 2026-10-01 | Part U: the exit season passed (U1); the other §13 items (U2); G14 and `inproc_day` fail on the resident-liveness oracle (U3, open); ClaimDefence never lands in stack runs (U4, open); E8 closed with the exit sample (U5); open items before a playtest (U6); owner questions O-M1-18, D18, `r99_reveals` (U7); run records (U8) |
 | v1.13 (M1 exit, review corrections) | 2026-10-01 | U9: the exit report and JA summary corrected (scope of the season, verifier, viewers and spectator stated; quota, test count, `min_tip` evidence, hold coverage, U4's re-run consequence) |
 | MC v1.1 (CQ1-D) | 2026-10-01 | Part CQ: the conquest milestone (contract `conquest/CONQUEST-CONTRACT.md` v1.1): records (`CQ0` = `39ff369`, the M1 hash kept, standing rules, the evidence), the working defaults OD-1…OD-16 (defaults, not owner approvals), the conflict register K-01…K-27, the review revision R-01…R-26, and CQ1-D's records (the format codecs, CF-1…CF-8, the ownership check) |
-| MC v1.2 (integ-W1 review) | 2026-10-01 | Part CQ-F: contract v1.2 (§18 A-1…A-7), the footprint conflict resolved, PO-7 added for the owner |
+| MC v1.2 (integ-W1 review) | 2026-10-01 | Part CQ-F: contract v1.2 (§18 A-1…A-7), the footprint conflict resolved, PO-7 and PO-8 added for the owner |
