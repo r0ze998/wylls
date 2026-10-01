@@ -342,7 +342,9 @@ export function createHerald({ base = '', fetch: f = (...a) => globalThis.fetch(
 // Rust codec `frontier-node/crates/herald/src/cqfmt.rs` check for check, in
 // the same order, and refuses a bad file with the same `HeraldError.code`
 // (BadMagic, BadLength, BadReserved, BadShape, BadValue, BadOrder,
-// NotCumulative, TooMany, BadJson, BadSchema). The shared vectors are
+// NotCumulative, TooMany, BadJson, BadSchema). No page module calls these
+// decoders yet: CQ3-D wires them (fetchers, fcqstate) and adds the JA/EN
+// texts for these codes to fi18n.mjs (CQ1-D-NOTES, request D-3). The shared vectors are
 // `frontier-node/fixtures/cq/formats/` (web-frontier-cq-formats.test.mjs).
 // The format clarifications CF-1…CF-8 are listed in cqfmt.rs.
 
@@ -626,7 +628,7 @@ function jsonOf(input) {
   try {
     return JSON.parse(text);
   } catch (e) {
-    throw new HeraldError('BadJson', e.message);
+    return check(false, 'BadJson', e.message);
   }
 }
 const isObj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -656,11 +658,13 @@ function siegeOf(v, bell, at) {
   const reason = fieldOf(o, 'pauseReason', at);
   const owner = fieldOf(o, 'owner', at) === null ? null : tagOf(o, 'owner', at);
   let pauseReason;
+  const known = status === 'progressing' || status === 'paused';
   if (status === 'progressing' && reason === null) pauseReason = null;
   else if (status === 'paused' && (reason === 'vigil' || reason === 'defender')) pauseReason = reason;
-  else if ((status === 'progressing' || status === 'paused') && (reason === null || typeof reason === 'string')) throw new HeraldError('BadValue', `${at}: status ${status} with pauseReason ${reason}`);
-  else if (status === 'progressing' || status === 'paused') throw new HeraldError('BadSchema', `${at}: pauseReason is not a string or null`);
-  else throw new HeraldError('BadValue', `${at}: status ${status}`);
+  else {
+    check(!known || reason === null || typeof reason === 'string', 'BadSchema', `${at}: pauseReason is not a string or null`);
+    check(false, 'BadValue', known ? `${at}: status ${status} with pauseReason ${reason}` : `${at}: status ${status}`);
+  }
   const s = { key };
   s.p = intOf(o, 'p', -COORD, COORD, at);
   s.q = intOf(o, 'q', -COORD, COORD, at);
