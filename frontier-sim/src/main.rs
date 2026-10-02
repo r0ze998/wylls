@@ -34,6 +34,8 @@ mod c4;
 mod config;
 mod conquest;
 #[cfg(test)]
+mod cq_close_tests;
+#[cfg(test)]
 mod cq_tests;
 mod mapmove;
 mod mc;
@@ -43,6 +45,7 @@ mod rng;
 mod settle;
 mod sim;
 mod suite;
+mod w1c_shim;
 
 use config::Config;
 use permutation_rules::frontier::index::IndexParams;
@@ -409,7 +412,41 @@ fn main() {
             );
             let (text, worst) = suite::criterion_best_table(&rows);
             println!("{text}");
-            if gate && worst >= 1.0 {
+            let mut fail = worst >= 1.0;
+            if cfg.rules.mc() {
+                // W1-close, PO-8, CQH2: under MC the gate is an absolute
+                // ceiling on the worst cell (≤ 0.995 on the gate seeds) on
+                // top of "every cell < 1.0"; MC − M1 on the same seeds is
+                // reported only (it replaced the relative bound "M1 + 0.005").
+                let ceiling = suite::CRITERION_MC_CEILING;
+                let ok = worst <= ceiling;
+                println!(
+                    "MC best-response ceiling (CQH2): worst cell {worst:.6} ≤ {ceiling}: {}",
+                    if ok { "PASS" } else { "FAIL" }
+                );
+                fail |= !ok;
+                let mut m1 = cfg.clone();
+                m1.cq = Config::default().cq;
+                m1.bannerdom = 0;
+                m1.keepdom = false;
+                m1.forward = false;
+                m1.keep_stay = false;
+                m1.policy = [mc::Policy::Lone; 6];
+                m1.bot_profile = Config::default().bot_profile;
+                m1.set_rules(mc::Rules::M1, None);
+                let r1 = suite::criterion_best(
+                    &m1,
+                    seeds,
+                    first_seed.unwrap_or(suite::CRITERION_FIRST_SEED),
+                    &[false, true],
+                );
+                let (_, w1) = suite::criterion_best_table(&r1);
+                println!(
+                    "M1 control on the same seeds (reported): worst cell {w1:.6}; MC − M1 = {:+.6} (report only, CQH2)",
+                    worst - w1
+                );
+            }
+            if gate && fail {
                 std::process::exit(1);
             }
         }
@@ -533,8 +570,20 @@ fn main() {
             if let Some(x) = leader_max {
                 let ok = ms.iter().filter(|m| m.f0_share_end <= x).count();
                 let need = (ms.len() * 8).div_ceil(10);
+                // The same check serves OD-16 (one campaign faction among
+                // lone ones) and the size stress (PO-4, CQH1(4): faction 0
+                // two or three times the others' size).
+                let w = cfg.faction_weights;
+                let what = if w.iter().all(|&x| x == w[0]) {
+                    "coordination check (OD-16)".to_string()
+                } else {
+                    format!(
+                        "size stress check (PO-4, sizes {})",
+                        w.map(|x| x.to_string()).join(",")
+                    )
+                };
                 println!(
-                    "coordination check (OD-16): faction 0 ends ≤ {x} of controlled provinces on {ok}/{} seeds (need {need}): {}",
+                    "{what}: faction 0 ends ≤ {x} of controlled provinces on {ok}/{} seeds (need {need}): {}",
                     ms.len(),
                     if ok >= need { "PASS" } else { "FAIL" }
                 );

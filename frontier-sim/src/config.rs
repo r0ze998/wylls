@@ -184,6 +184,25 @@ pub struct Config {
     pub mc_overrides: String,
     /// Campaign plan: campaigns per faction kept for player holdings.
     pub holding_slots: usize,
+    /// The campaign planner's occupation objective (W1-close, PO-1 (a),
+    /// CQH1(1); measured as E1 on `exp/cq-e1-planner`; planner only, no
+    /// rule): campaigns per faction kept for first holdings to occupy
+    /// (besiegeable homes outside the heartlands, unshielded, not
+    /// Frontier-protected), the weakest defence first. Default
+    /// `mc::OCC_SLOTS` (1); `--mc occ_slots=N` is an exploration override.
+    pub occ_slots: usize,
+    /// The hold rule (PO-1 (a)): an occupation strike's hosts carry the
+    /// retreat order `clamp(10,000 × group ÷ own, 6,667, RETREAT_MAX_BPS)`,
+    /// so they withdraw on arrival only when the frozen defence outweighs
+    /// the whole group. Default on; `--mc siege_hold=0` explores without.
+    pub siege_hold: bool,
+    /// Rally stay (PO-1 (a); a simulator defect fix): under MC a `Rally`
+    /// host that arrives stays on its target's hex while the strike is
+    /// pending or the target's MC siege is live. Before, the clash read the
+    /// M1 siege record, which MC never sets, and sent every arriving rally
+    /// host home. Every policy (the P1 package measurement's `stay=2`);
+    /// default on; `--mc rally_stay=0` explores without.
+    pub rally_stay: bool,
     /// Threads of the parallel runners (`FRONTIER_SIM_THREADS`, default:
     /// every core).
     pub threads: Option<usize>,
@@ -241,6 +260,9 @@ impl Default for Config {
             mc: crate::mc::McParams::FRONTIER_28,
             mc_overrides: String::new(),
             holding_slots: crate::sim::campaign::HOLDING_SLOTS,
+            occ_slots: crate::mc::OCC_SLOTS,
+            siege_hold: true,
+            rally_stay: true,
             threads: None,
         }
     }
@@ -258,8 +280,22 @@ impl Config {
             return;
         }
         self.mc = preset.unwrap_or_else(|| crate::mc::McParams::for_days(self.days));
+        // `--mc`: the planner keys are the Config's, the rest the preset's.
+        let mut rest: Vec<&str> = Vec::new();
         let o = self.mc_overrides.clone();
-        self.mc.apply(&o, &mut self.holding_slots);
+        for kv in o.split(',').filter(|x| !x.is_empty()) {
+            let (k, v) = kv.split_once('=').expect("--mc key=value");
+            match k {
+                "occ_slots" => self.occ_slots = v.parse().expect("--mc occ_slots"),
+                "siege_hold" => self.siege_hold = v != "0",
+                "rally_stay" => self.rally_stay = v != "0",
+                _ => rest.push(kv),
+            }
+        }
+        self.mc.apply(&rest.join(","), &mut self.holding_slots);
+        if !o.is_empty() {
+            self.mc.preset = "custom";
+        }
         let c = &mut self.cq;
         c.launch_floor = true;
         c.occ_control = true;

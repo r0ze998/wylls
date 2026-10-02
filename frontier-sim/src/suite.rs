@@ -1156,6 +1156,11 @@ pub const BOT_WINDOWS: [(Option<(u32, u32)>, &str); 5] = [
     (Some((15, 21)), "days 15-21"),
 ];
 
+/// The MC best-response ceiling (W1-close, PO-8, CQH2): the worst cell of
+/// `criterion --best-response --rules mc --gate` must be ≤ this on the
+/// gate seeds (and every cell < 1.0, as for M1).
+pub const CRITERION_MC_CEILING: f64 = 0.995;
+
 pub struct BestRow {
     pub offices: bool,
     pub share: f64,
@@ -1297,8 +1302,17 @@ pub fn criterion_best_table(rows: &[BestRow]) -> (String, f64) {
     )
     .unwrap();
     let mut worst = f64::MIN;
+    let mut worst_at = String::new();
     for r in rows {
         let (bx, bwhat) = r.best();
+        if bx > worst {
+            worst_at = format!(
+                "bots in office {}, {:.0}%, {}",
+                if r.offices { "yes" } else { "no" },
+                r.share * 100.0,
+                bwhat
+            );
+        }
         worst = worst.max(bx);
         write!(
             s,
@@ -1344,6 +1358,7 @@ pub fn criterion_best_table(rows: &[BestRow]) -> (String, f64) {
         }
     )
     .unwrap();
+    writeln!(s, "Worst cell (6 decimals): {worst:.6} at {worst_at}.").unwrap();
     (s, worst)
 }
 

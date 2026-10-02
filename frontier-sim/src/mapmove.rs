@@ -147,7 +147,16 @@ pub struct Metrics {
     pub two_controllers: f64,
     pub banner_changes: f64,
     pub marches_two_banners: f64,
+    /// Contract v1.2's 10e (P₂ only: rings outside the heartlands open by
+    /// bell 288, control at `end_bell − 1` vs bell 287); reported since
+    /// the W1-close (PO-1 (b), CQH1(1)), gated no more.
     pub net_movement: f64,
+    /// 10e′, the gated 10e since the W1-close (PO-1 (b), CQH1(1); E2's
+    /// alternative 10e): every province outside the heartlands that is
+    /// open at bell 287 or opens later, its holder at the later of its
+    /// opening bell and bell 287 against its holder at `end_bell − 1`, both
+    /// faction-controlled (see [`net_movement_open`]).
+    pub net_movement_open: f64,
     pub breadth: f64,
     pub largest_share: f64,
     pub smallest_share: f64,
@@ -277,6 +286,7 @@ pub fn metrics(sim: &Sim) -> Metrics {
         }
     }
     let net_movement = moved as f64 / n2.max(1) as f64;
+    let net_movement_open = net_movement_open(&s);
     // 10f: factions with a lasting gain and a lasting loss.
     let (mut gain, mut loss) = ([false; 6], [false; 6]);
     for &(_, _, from, to) in &lasting {
@@ -329,6 +339,7 @@ pub fn metrics(sim: &Sim) -> Metrics {
         banner_changes,
         marches_two_banners: two_banners,
         net_movement,
+        net_movement_open,
         breadth,
         largest_share,
         smallest_share,
@@ -365,6 +376,46 @@ pub fn metrics(sim: &Sim) -> Metrics {
         clash_errors: sim.stats.clash_errors as f64,
         lab: crate::conquest::summarise(&sim.cq),
     }
+}
+
+/// 10e′ (W1-close, PO-1 (b), CQH1(1)): the share of the provinces outside
+/// the heartlands that are open at bell 287 or open later (by
+/// `end_bell − 1`) whose holder at `end_bell − 1` differs from their holder
+/// at the later of their opening bell and bell 287. A province counts only
+/// when a faction holds it at both bells (a first claim of empty land is
+/// not movement; with keeps every opened province has a holder).
+pub fn net_movement_open(s: &Series) -> f64 {
+    let last = s.end_bell.saturating_sub(1);
+    let day2 = 2 * BELLS_PER_DAY - 1;
+    let by = s.by_prov();
+    let none: Vec<(u32, u8, u8)> = Vec::new();
+    let (mut n, mut moved) = (0u32, 0u32);
+    for (i, p) in s.provs.iter().enumerate() {
+        let Some(p) = p else { continue };
+        if p.ring <= s.heartland_max_ring || p.opened > last {
+            continue;
+        }
+        let r = p.opened.max(day2);
+        let ev = by.get(&(i as u32)).unwrap_or(&none);
+        let holder_at = |at: u32| {
+            let mut c = p.initial;
+            for &(b, _, to) in ev {
+                if b > at {
+                    break;
+                }
+                c = to;
+            }
+            c
+        };
+        let (a, z) = (holder_at(r), holder_at(last));
+        if a < 6 && z < 6 {
+            n += 1;
+            if a != z {
+                moved += 1;
+            }
+        }
+    }
+    moved as f64 / n.max(1) as f64
 }
 
 /// Banner changes (faction → another faction through any contested
@@ -472,7 +523,11 @@ pub struct Gated {
     pub get: fn(&Metrics) -> f64,
 }
 
-/// Criterion 10's floors (§13.4, v1.1 R-25) for a `days`-day season.
+/// Criterion 10's floors (§13.4, v1.1 R-25, amended at the W1-close: PO-1
+/// (b), CQH1(1)) for a `days`-day season: 10a 45 (was 60), 10c 13% (was
+/// 15%), 10e′ 6% replaces 10e's 10% (10e is reported), occupations 10 (was
+/// 3), liberations 1; the "p10 ≥ 2 × floor" rule (`doubling`) is kept for
+/// every map figure and 10h count.
 pub fn floors_c10(days: u32) -> Vec<Gated> {
     let d = (days.max(2) - 1) as f64;
     let g = |name, dir, floor, doubling, get| Gated {
@@ -483,11 +538,11 @@ pub fn floors_c10(days: u32) -> Vec<Gated> {
         get,
     };
     vec![
-        g("10a_lasting_changes", Dir::Min, 60.0, true, |m| m.lasting),
+        g("10a_lasting_changes", Dir::Min, 45.0, true, |m| m.lasting),
         g("10b_days_with_change", Dir::Min, d, false, |m| {
             m.days_with_change
         }),
-        g("10c_share_two_controllers", Dir::Min, 0.15, true, |m| {
+        g("10c_share_two_controllers", Dir::Min, 0.13, true, |m| {
             m.two_controllers
         }),
         g("10d_banner_changes", Dir::Min, 6.0, true, |m| {
@@ -496,7 +551,9 @@ pub fn floors_c10(days: u32) -> Vec<Gated> {
         g("10d_marches_two_banners", Dir::Min, 0.10, true, |m| {
             m.marches_two_banners
         }),
-        g("10e_net_movement", Dir::Min, 0.10, true, |m| m.net_movement),
+        g("10e_net_movement_open", Dir::Min, 0.06, true, |m| {
+            m.net_movement_open
+        }),
         g("10f_breadth", Dir::Min, 4.0, false, |m| m.breadth),
         g("10g_largest_share", Dir::Max, 0.30, false, |m| {
             m.largest_share
@@ -513,7 +570,7 @@ pub fn floors_c10(days: u32) -> Vec<Gated> {
         g("10h_sieges_failed", Dir::Min, 3.0, true, |m| {
             m.sieges_failed
         }),
-        g("10h_occupations", Dir::Min, 3.0, true, |m| m.occupations),
+        g("10h_occupations", Dir::Min, 10.0, true, |m| m.occupations),
         g("10h_liberations", Dir::Min, 1.0, true, |m| m.liberations),
         g("10h_captures", Dir::Min, 5.0, true, |m| m.captures),
         g("10h_outposts", Dir::Min, 10.0, true, |m| m.outposts),
@@ -521,7 +578,10 @@ pub fn floors_c10(days: u32) -> Vec<Gated> {
     ]
 }
 
-/// The 10k / 28-day gate (§8.7 item 4, balance lab §8).
+/// The 10k / 28-day gate (§8.7 item 4, balance lab §8; W1-close PO-3,
+/// CQH1(3): banner changes ≥ 3.5 a day (was 5) and Marches with ≥ 2
+/// banners ≥ 10% (was 15%); the shares and the days without a change are
+/// unchanged).
 pub fn floors_28d() -> Vec<Gated> {
     let g = |name, dir, floor, get| Gated {
         name,
@@ -531,10 +591,10 @@ pub fn floors_28d() -> Vec<Gated> {
         get,
     };
     vec![
-        g("banner_changes_per_day", Dir::Min, 5.0, |m: &Metrics| {
+        g("banner_changes_per_day", Dir::Min, 3.5, |m: &Metrics| {
             m.banner_changes_per_day
         }),
-        g("marches_two_banners", Dir::Min, 0.15, |m: &Metrics| {
+        g("marches_two_banners", Dir::Min, 0.10, |m: &Metrics| {
             m.marches_two_banners
         }),
         g("largest_share", Dir::Max, 0.22, |m: &Metrics| {
@@ -558,6 +618,8 @@ pub type Figure = (&'static str, fn(&Metrics) -> f64);
 
 pub fn reported() -> Vec<Figure> {
     vec![
+        // Contract v1.2's 10e (P₂ only), reported since the W1-close.
+        ("net_movement_p2", |m| m.net_movement),
         ("banner_changes_per_day", |m| m.banner_changes_per_day),
         ("days_without_banner_change", |m| {
             m.days_without_banner_change
@@ -1031,6 +1093,65 @@ mod tests {
         assert_eq!(changes, 1.0);
         assert_eq!(two, 1.0);
         assert_eq!(per_day.iter().sum::<u32>(), 1);
+    }
+
+    #[test]
+    fn cq_net_movement_open_counts_late_provinces() {
+        let mut s = series(vec![
+            (100, 0, 0, 2), // before bell 287: not movement
+            (400, 1, 1, 0), // a P₂ province moves after 287
+            (700, 3, 4, 5), // a late province (opened 600) moves
+            (900, 4, 6, 3), // unclaimed late land claimed: not counted
+        ]);
+        s.provs.push(Some(ProvInfo {
+            ring: 8,
+            march: 0,
+            opened: 600,
+            initial: 4,
+        }));
+        s.provs.push(Some(ProvInfo {
+            ring: 8,
+            march: 0,
+            opened: 800,
+            initial: NO_FACTION,
+        }));
+        s.provs.push(Some(ProvInfo {
+            ring: 2, // a heartland ring: never counted
+            march: 0,
+            opened: 0,
+            initial: 1,
+        }));
+        s.provs.push(Some(ProvInfo {
+            ring: 9, // opens at end_bell: not counted
+            march: 0,
+            opened: 1_008,
+            initial: 2,
+        }));
+        // Provinces 0, 1, 2 (P₂) and 3 (late) count; 1 and 3 moved.
+        assert!((net_movement_open(&s) - 0.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn cq_w1_close_floors() {
+        let f = |g: &[Gated], n: &str| {
+            g.iter()
+                .find(|x| x.name == n)
+                .map(|x| (x.floor, x.doubling))
+        };
+        let c = floors_c10(7);
+        assert_eq!(f(&c, "10a_lasting_changes"), Some((45.0, true)));
+        assert_eq!(f(&c, "10c_share_two_controllers"), Some((0.13, true)));
+        assert_eq!(f(&c, "10e_net_movement_open"), Some((0.06, true)));
+        assert_eq!(f(&c, "10e_net_movement"), None);
+        assert_eq!(f(&c, "10h_occupations"), Some((10.0, true)));
+        assert_eq!(f(&c, "10h_liberations"), Some((1.0, true)));
+        let d = floors_28d();
+        assert_eq!(f(&d, "banner_changes_per_day"), Some((3.5, false)));
+        assert_eq!(f(&d, "marches_two_banners"), Some((0.10, false)));
+        assert_eq!(f(&d, "largest_share"), Some((0.22, false)));
+        assert_eq!(f(&d, "smallest_share"), Some((0.12, false)));
+        assert_eq!(f(&d, "days_without_banner_change"), Some((0.30, false)));
+        assert!(reported().iter().any(|r| r.0 == "net_movement_p2"));
     }
 
     #[test]

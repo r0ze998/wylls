@@ -2081,16 +2081,24 @@ impl Sim {
         let extra = permutation_rules::units::stats(d.k.unit).prod_cost as i64 - 6;
         if extra > 0 {
             let k = n_troops as i64 / (100 * MILLI);
-            let c: [Milli; RESOURCES] = [
-                0,
-                0,
-                0,
-                k * TROOP_COST_PER_100[1] * extra / 6 * MILLI,
-                0,
-                k * TROOP_COST_PER_100[2] * extra / 6 * MILLI,
-                0,
-                0,
-            ];
+            let c: [Milli; RESOURCES] = if self.cfg.rules.mc() {
+                // MC (K2, W1-close PO-2, CQH1(2)): what the MC train-cost
+                // table charges above a Spearman; cavalry lines pay none
+                // (`w1c_shim` until the W1C-A kernel table merges). The
+                // zero payment is still made, as the P1 package measured.
+                crate::w1c_shim::march_surcharge_mc(d.k.unit, k)
+            } else {
+                [
+                    0,
+                    0,
+                    0,
+                    k * TROOP_COST_PER_100[1] * extra / 6 * MILLI,
+                    0,
+                    k * TROOP_COST_PER_100[2] * extra / 6 * MILLI,
+                    0,
+                    0,
+                ]
+            };
             if self.holds[from as usize].h.pay(now_of(b), &c).is_err() {
                 return None;
             }
@@ -3090,7 +3098,20 @@ impl Sim {
                     }
                     if let Mission::Rally(t) = self.hosts[h as usize].mission {
                         if self.holds[t as usize].siege.is_none() && f.arrival {
-                            late_rally.push(h);
+                            // Rally stay (W1-close, PO-1 (a)): under MC the
+                            // siege record is `mc.siege` (the M1 `siege` is
+                            // never set), so a rally host stays while its
+                            // campaign strike is pending or the target's MC
+                            // siege is live, under every policy.
+                            let stays = self.mc()
+                                && self.cfg.rally_stay
+                                && (self.holds[t as usize].mc.siege.is_some()
+                                    || self.mcs.pending.contains_key(&t));
+                            if stays {
+                                self.mcs.st.dbg[14] += 1;
+                            } else {
+                                late_rally.push(h);
+                            }
                         }
                     }
                     if self.cfg.rules.keeps() {
