@@ -554,6 +554,17 @@ On 2026-10-01 the owner answered 「おすすめで進めて」 ("go with the re
 | CQG7 | **PO-7:** amend §3.10 so that Dominion counts every holding in state 1, provisional included. No layout change. | owner | notes §6 PO-7 |
 | CQG8 | **PO-8 best-response margin:** re-measure together with the CQG2 re-tune. If the worst cell is still within seed noise of the bound, accept +0.006 for MC. | owner (direction) | notes §5, §6 PO-8 |
 
+### CQ-H. Owner approval of the decision sheet (main session, 2026-10-02)
+
+The owner approved all three questions: 「３つとも構わないので進めて」.
+
+| # | Decision | Status | Source |
+|---|---|---|---|
+| CQH1 | Adopt the parameter package of `conquest/OWNER-OPTIONS-W1.md` for PO-1…PO-7 as written. In short: (1) the E1 planner occupation objective, with 10e′ at 6%, 10a 45, 10c 13%, occupations 10 and liberations 1, and the 2× rule kept; (2) K2, an MC-only removal of the cavalry variant surcharge as a v2 train-cost table, plus a Knight bound; (3) 28-day floors of 3.5 banner changes a day and 10% of Marches, with `--controls` on O-B; (4) the 2:1 size stress gated at 7 d, 3:1 reported at 7 d, both gated at 28 d; (5) `keep_tile_symmetric`; (6) the v1 WASM bytes accepted as behaviour-identical; (7) §3.10 counts provisional holdings. | owner | OWNER-OPTIONS-W1 §PO-1…PO-7 |
+| CQH2 | **PO-8 changes from CQG8:** the relative bound "MC worst cell ≤ M1 control + 0.005 (or +0.006)" is replaced by an absolute ceiling, MC best-response worst cell ≤ 0.995 on the gate seeds. Every cell < 1.0 is kept. MC − M1 is reported only. | owner (supersedes CQG8) | OWNER-OPTIONS-W1 §PO-8 |
+| CQH3 | Start the Wave-1 close: contract v1.3 amendments, kernels (symmetric keep tile, MC train-cost table, RULESET_HASH_V2 re-pin), simulator (E1 + 10e′ + K2 + size-stress lines), re-derived thresholds, and a full re-run of Gate CQ1, overnight lines included. If the gate is green, Wave 2 follows as planned. Any further regression goes back to the owner. | owner | — |
+| CQH4 | Push of `codex/frontier` (rename, V2 join, design work, herald counters) approved and done at `5ed36fa`. | owner | — |
+
 ## E. Change log
 
 | Version | Date | Change |
