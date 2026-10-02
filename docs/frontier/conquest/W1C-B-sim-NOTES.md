@@ -41,6 +41,8 @@ The package is now the **default MC behaviour**. It is not behind scratch knobs.
 
 If W1C-A's final table differs from `[6, 7, 6, 12, 14, 16, 10]`, the doctrine lines must be re-run. No Season-1 doctrine fields anything but the Spearman or Horseman line. So only the doctrine gate's **Knight negative control** depends on the Knight entry (rejected both ways, §5.2).
 
+**Trial merge (scratch worktree, discarded).** W1C-A has since committed `c1d4fec` on `frontier/cq-w1c-kernels`, with the same `train_v2` signature and table. I merged it into this branch in a scratch worktree and pointed `march_surcharge_mc` at `catalog::train_v2`. The simulator builds; its only warning is the now-unused shim `train_v2`. `cq_k2_*`, `cq_keep_tile_is_the_symmetric_kernel`, `cq_occupation_objective_occupies_with_cq_bots` and `cq_thresholds_files_are_complete` pass. `mapmove … --check thresholds/mc-7d-1k.json` reports exactly one drift, `run.kernels` ("keep v1" → "keep v2"): every gated percentile and checked rate is unchanged. W1C-A touches no `frontier-sim` file.
+
 **`KEEP_VERSION` becomes 2 with W1C-A.** `mapmove::describe` writes `kernels = "keep v{KEEP_VERSION} control v…"` into the thresholds files' `run` keys. On the merged tree, `mapmove --check` will therefore report a drift on `run.kernels` until the integrator re-derives both files (as planned). The keep-tile rule itself is already the kernel's `keep_tile_symmetric` here, so no figure should move from it.
 
 ## 3. Choices made inside the brief
