@@ -187,7 +187,10 @@ pub const RULESET_DOMAIN_V2: &[u8] = b"PSF-RULESET-v2";
 
 /// The conquest rules' kernel versions (pinned order, append only): M1's
 /// 23 entries with the MC bumps (frontier 11, siege 3, holding 3, clash 4,
-/// camp 2, terrain 2, geometry 2), then `keep` and `control`.
+/// camp 2, terrain 2, geometry 2), then `keep` and `control`. The Wave-1
+/// close (CQH1, CQH3) bumps `catalog` 1 → 2 (the MC train-cost table, K2),
+/// `doctrine` 1 → 2 (the Knight bound) and `keep` 1 → 2 (the symmetric
+/// keep tile, PO-5).
 pub const KERNEL_VERSIONS_V2: [(&str, u16); 25] = [
     ("frontier", RULES_VERSION_FRONTIER_V2),
     ("beacon", beacon::BEACON_VERSION),
@@ -197,10 +200,10 @@ pub const KERNEL_VERSIONS_V2: [(&str, u16); 25] = [
     ("office", office::OFFICE_VERSION),
     ("camp", camp::CAMP_VERSION_V2),
     ("explore", explore::EXPLORE_VERSION),
-    ("catalog", catalog::CATALOG_VERSION),
+    ("catalog", catalog::CATALOG_VERSION_V2),
     ("clash", clash::CLASH_VERSION_V4),
     ("siege", siege::SIEGE_VERSION_V3),
-    ("doctrine", doctrine::DOCTRINE_VERSION),
+    ("doctrine", doctrine::DOCTRINE_VERSION_V2),
     ("terrain", terrain::TERRAIN_VERSION_V2),
     ("travel", travel::TRAVEL_VERSION),
     ("holding", holding::HOLDING_VERSION_V3),
@@ -279,8 +282,11 @@ pub const KERNEL_CONSTANTS_V2: [i64; 27] = [
 /// The bytes `RULESET_HASH_V2` is the sha256 of (MC §3.13): exactly
 /// [`ruleset_hash_input`]'s layout with [`RULESET_DOMAIN_V2`] and
 /// [`KERNEL_VERSIONS_V2`] in place of the M1 domain and versions, then the
-/// free-city domain and [`KERNEL_CONSTANTS_V2`] (length-prefixed). The M1
-/// input is not changed (staged ABI, MC §5.1).
+/// free-city domain and [`KERNEL_CONSTANTS_V2`] (length-prefixed), then
+/// (Wave-1 close, CQH1(2)) the MC tables: [`RULESET_V2_TABLES_TAG`], the
+/// MC train-cost table (`catalog::write_tables_v2`) and the doctrine
+/// Knight bound (`doctrine::write_bounds_v2`). The M1 input is not changed
+/// (staged ABI, MC §5.1).
 pub fn ruleset_hash_input_v2() -> alloc::vec::Vec<u8> {
     let m1 = ruleset_hash_input();
     // M1's input = domain ‖ n ‖ versions ‖ rest: swap the head.
@@ -305,8 +311,15 @@ pub fn ruleset_hash_input_v2() -> alloc::vec::Vec<u8> {
     for x in KERNEL_CONSTANTS_V2 {
         out.extend_from_slice(&x.to_le_bytes());
     }
+    out.extend_from_slice(RULESET_V2_TABLES_TAG);
+    catalog::write_tables_v2(&mut out);
+    doctrine::write_bounds_v2(&mut out);
     out
 }
+
+/// Marks the MC tables appended to [`ruleset_hash_input_v2`] by the
+/// Wave-1 close (K2's train-cost table, the Knight bound).
+pub const RULESET_V2_TABLES_TAG: &[u8] = b"MC-TABLES-v1";
 
 /// `RULESET_HASH_V2 = sha256(ruleset_hash_input_v2())` (pinned by
 /// `frontier-abi`'s `RULESET_HASH_V2` test, CQ1-C).

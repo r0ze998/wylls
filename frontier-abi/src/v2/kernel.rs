@@ -11,7 +11,9 @@
 //!
 //! | name here | kernel item |
 //! |---|---|
-//! | [`keep`] | `permutation_rules::frontier::keep` (+ `keep_tile` over a `ProvinceTerrain`, `NONE`, `KEEP_GARRISON_ID_BASE`) |
+//! | [`keep`] | `permutation_rules::frontier::keep` (+ `keep_tile`: the MC keep tile `keep_tile_symmetric` over a `ProvinceTerrain` and its wedge, `NONE`, `KEEP_GARRISON_ID_BASE`) |
+//! | [`catalog2`] | the MC train-cost table of `permutation_rules::frontier::catalog` (`train_v2`, K2) |
+//! | [`doctrine2`] | `permutation_rules::frontier::doctrine::validate_table_v2` (the Knight bound) |
 //! | [`control`] | `permutation_rules::frontier::control` (+ `site_weight_centi` with the 0-based order, `NEUTRAL`, `SNAPSHOT_DIVISOR`) |
 //! | [`siege3`] | `siege::SiegeV3::advance` and the v3 functions of `permutation_rules::frontier::siege` (+ `vigil_of_snapshot`, the record decoder) |
 //! | [`camp2::place_v2`] | `permutation_rules::frontier::camp::place_v2` |
@@ -26,7 +28,7 @@ pub use permutation_rules::frontier::siege::{
 };
 pub use permutation_rules::frontier::RULES_VERSION_FRONTIER_V2;
 
-/// The keep kernel (KEEP_VERSION 1, §3.2, §7).
+/// The keep kernel (KEEP_VERSION 2, §3.2, §7).
 pub mod keep {
     pub use permutation_rules::frontier::keep::*;
     use permutation_rules::frontier::terrain::ProvinceTerrain;
@@ -36,13 +38,41 @@ pub mod keep {
     /// No faction (contender, last holder).
     pub const NONE: u8 = NO_FACTION;
 
-    /// [`permutation_rules::frontier::keep::keep_tile`] over a generated
-    /// province's terrain (the kernel reads the Province's `terrain[61]`
-    /// bytes, `map::Terrain as u8`).
-    pub fn keep_tile(terrain: &ProvinceTerrain, sites: &[u8], site_count: u8) -> Option<u8> {
+    /// The MC keep tile of a province in wedge `wedge` (v1.3, PO-5,
+    /// CQH1(5)): [`permutation_rules::frontier::keep::keep_tile_symmetric`]
+    /// over a generated province's terrain (the kernel reads the
+    /// Province's `terrain[61]` bytes, `map::Terrain as u8`), so every
+    /// wedge of a ring keeps on the same tile. The kernel's own
+    /// `keep_tile` (the v1.2 scan, wedge 0's tile) is not re-exported
+    /// under this name.
+    pub fn keep_tile(
+        terrain: &ProvinceTerrain,
+        sites: &[u8],
+        site_count: u8,
+        wedge: u8,
+    ) -> Option<u8> {
         let bytes = terrain.terrain.map(|t| t as u8);
-        permutation_rules::frontier::keep::keep_tile(&bytes, sites, site_count)
+        permutation_rules::frontier::keep::keep_tile_symmetric(&bytes, sites, site_count, wedge)
     }
+}
+
+/// The MC train-cost table (CATALOG_VERSION_V2 2; K2: PO-2, CQH1(2)):
+/// Train under the v2 rules pays `train_v2` (the Horseman line without
+/// its ore/gold variant surcharge; every other unit, the Knight included,
+/// as in M1). M1's `catalog::train` is unchanged.
+pub mod catalog2 {
+    pub use permutation_rules::frontier::catalog::{
+        train_prod_cost_v2, train_v2, variant_surcharge_v2, CATALOG_VERSION_V2, TRAIN_PROD_COST_V2,
+    };
+}
+
+/// The MC doctrine bound (DOCTRINE_VERSION_V2 2; PO-2, CQH1(2)): no
+/// doctrine fields the Knight line under the v2 rules.
+pub mod doctrine2 {
+    pub use permutation_rules::frontier::doctrine::bounds::REFUSED_LINES_V2;
+    pub use permutation_rules::frontier::doctrine::{
+        validate_table_v2, DoctrineError, DOCTRINE_VERSION_V2,
+    };
 }
 
 /// The control kernel (CONTROL_VERSION 1, §3.3, §3.10, §7).
@@ -271,6 +301,27 @@ mod tests {
         assert_eq!((e.kind, e.respite), (K::Liberated, true));
         let e = occupation_ends(true, false, 72, 0, 72).unwrap();
         assert_eq!((e.kind, e.respite), (K::Expired, true));
+    }
+
+    /// K2 and the Knight bound through the bridge.
+    #[test]
+    fn cq_train_v2_and_the_knight_bound() {
+        use permutation_rules::frontier::catalog::train;
+        use permutation_rules::frontier::doctrine::DOCTRINES;
+        use permutation_rules::units::UnitType;
+        let horse = UnitType::Horseman as u8;
+        assert_eq!(catalog2::train_v2(horse, 500), train(0, 500));
+        assert_ne!(catalog2::train_v2(horse, 500), train(horse, 500));
+        for u in [0u8, 1, 3, 4, 5, 6] {
+            assert_eq!(catalog2::train_v2(u, 500), train(u, 500), "unit {u}");
+        }
+        assert_eq!(doctrine2::validate_table_v2(&DOCTRINES), Ok(()));
+        let mut t = DOCTRINES;
+        t[1].unit = UnitType::Knight;
+        assert_eq!(
+            doctrine2::validate_table_v2(&t),
+            Err(doctrine2::DoctrineError::RefusedLine)
+        );
     }
 
     #[test]

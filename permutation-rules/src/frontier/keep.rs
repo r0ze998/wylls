@@ -2,8 +2,10 @@
 //! K-19, K-21; owner decision OD-1).
 //!
 //! Every province of ring ≥ 2 has one **keep**: a fort on a fixed non-site
-//! tile ([`keep_tile`]), held by a faction and owned by no wallet. The map
-//! colour of a province is its keep's holder (`control::province_control`).
+//! tile ([`keep_tile_symmetric`], v1.3: the same tile in all six wedges of
+//! a ring; PO-5, CQH1(5)), held by a faction and owned by no wallet. The
+//! map colour of a province is its keep's holder
+//! (`control::province_control`).
 //!
 //! * **Opening** ([`open`]): held by the province's wedge faction with
 //!   `home_guard` troops; flagged `heartland_safe` inside its holder's
@@ -41,8 +43,10 @@
 
 /// Version of this kernel, bound into `ruleset_hash_input_v2`
 /// (`super::KERNEL_VERSIONS_V2`): bump it whenever an honest outcome
-/// changes.
-pub const KEEP_VERSION: u16 = 1;
+/// changes. v1: the keep (CQ1-A). v2 (Wave-1 close, PO-5, CQH1(5)): the
+/// keep tile is [`keep_tile_symmetric`] (the same tile in every wedge of a
+/// ring), no longer [`keep_tile`]'s scan of the province's own indices.
+pub const KEEP_VERSION: u16 = 2;
 
 use super::clash::Garrison;
 use super::geometry::{is_heartland_in, tile_index, tile_offset, ProvinceCoord, PROVINCE_TILES};
@@ -187,28 +191,39 @@ const fn passable(t: u8) -> bool {
     t <= 3
 }
 
-/// The keep tile of a province (MC §3.1): the lowest-index passable tile
-/// that is not one of the first `site_count` sites. `None` when no tile
-/// qualifies (never for a generated province: every gate and site path is
-/// passable and at most 12 of 61 tiles are sites).
+/// The scan in the province's **own** tile indices: the lowest-index
+/// passable tile that is not one of the first `site_count` sites. `None`
+/// when no tile qualifies (never for a generated province: every gate and
+/// site path is passable and at most 12 of 61 tiles are sites).
+///
+/// **Not the MC keep tile in wedges 1–5** (v1.3, PO-5, CQH1(5)): it is
+/// the keep tile of wedge 0, and [`keep_tile_symmetric`] applies it to the
+/// canonical (wedge-0) copy of a province. Contract v1.2 pinned this scan
+/// as the rule; it put the keep in the same *world* direction in every
+/// province, so its place relative to the wedge differed between wedges
+/// (CQ1-A finding 1). Kept because the symmetric rule is defined through
+/// it and the v1.2 vectors carry it.
 ///
 /// Reachability (DESIGN §3.2's carve) is checked by
-/// `cq_keep_tile_is_reachable` over generated provinces.
+/// `cq_keep_tile_is_the_lowest_passable_non_site_and_reachable`.
 pub fn keep_tile(terrain: &[u8; 61], sites: &[u8], site_count: u8) -> Option<u8> {
     let n = (site_count as usize).min(sites.len());
     let sites = &sites[..n];
     (0..PROVINCE_TILES as u8).find(|&i| passable(terrain[i as usize]) && !sites.contains(&i))
 }
 
-/// **Not part of the pinned rule** (a proposal for the integrator, see
-/// `CQ1-A-NOTES.md`): [`keep_tile`] scans tile indices of the province
-/// itself, so the keep stands in the same *world* direction in every
-/// province and its place relative to the wedge differs between wedges
-/// (5,400 of 6,480 sampled ring-2..7 provinces). This variant scans the
-/// **canonical** (wedge-0) copy's indices and turns the result into wedge
-/// `wedge`, so all six wedges of a ring get their keep on the same tile, as
-/// they get the same terrain and sites (DESIGN §3.2). Equal to
-/// [`keep_tile`] in wedge 0 and for the Concord.
+/// **The keep tile of the conquest rules** (MC §3.1/§3.2, v1.3; PO-5,
+/// CQH1(5); KEEP_VERSION 2): [`keep_tile`]'s scan over the **canonical**
+/// (wedge-0) copy's tile indices, turned into wedge `wedge`, so all six
+/// wedges of a ring get their keep on the same tile, as they get the same
+/// terrain and sites (DESIGN §3.2). Equal to [`keep_tile`] in wedge 0.
+/// `wedge` is the province's wedge (`ProvinceCoord::wedge`, 0..6; taken
+/// mod 6). `None` when no tile qualifies (never for a generated province).
+///
+/// OpenProvince (CQ2-A), the simulator, the herald and the verifier place
+/// the keep here. `cq_keep_tile_symmetric_is_the_rule_in_every_wedge`
+/// checks it passable, off every site, reachable from the centre and from
+/// every site, and the canonical tile turned into every wedge.
 pub fn keep_tile_symmetric(
     terrain: &[u8; 61],
     sites: &[u8],

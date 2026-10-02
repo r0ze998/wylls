@@ -236,7 +236,13 @@ fn cq_random_quiet_rosters_resolve_equals_skip() {
         }
         .write(&mut pd)
         .unwrap();
-        let tile = frontier_abi::v2::kernel::keep::keep_tile(&t, &t.sites, t.site_count).unwrap();
+        let tile = frontier_abi::v2::kernel::keep::keep_tile(
+            &t,
+            &t.sites,
+            t.site_count,
+            c.wedge().unwrap(),
+        )
+        .unwrap();
         let mut kp = prm.cq.keep_params();
         kp.home_guard = 0;
         let k =
