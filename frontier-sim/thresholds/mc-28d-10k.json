@@ -1,7 +1,7 @@
 {
   "format": "frontier-sim mapmove v1",
   "note": "bot profile sim: the simulator's bot archetype (24 sessions a day, a keep roll per session), every decision at session cadence",
-  "run": {"rules": "mc", "preset": "MC_SEASON_28", "policy": "campaign,campaign,campaign,campaign,campaign,campaign", "bot_profile": "sim", "agents": "10000", "bots": "0.05", "days": "28", "keep_aggr": "1", "forward": "false", "sizes": "1,1,1,1,1,1", "seeds": "10", "first_seed": "2002", "kernels": "keep v1 control v1 (permutation-rules, CQ1-A kernels)"},
+  "run": {"rules": "mc", "preset": "MC_SEASON_28", "policy": "campaign,campaign,campaign,campaign,campaign,campaign", "bot_profile": "sim", "agents": "10000", "bots": "0.05", "days": "28", "keep_aggr": "1", "forward": "false", "sizes": "1,1,1,1,1,1", "seeds": "10", "first_seed": "2002", "kernels": "keep v2 control v1 (permutation-rules, CQ1-A kernels)"},
   "gated": {
     "banner_changes_per_day": {"dir": "min", "floor": 3.5, "doubling": false, "p10": 4.782143, "p50": 5.142857, "p90": 5.375, "half_p10": 2.391071, "seeds": [5.107143, 5.178571, 4.928571, 4.785714, 5.535714, 5.25, 5.285714, 5.357143, 4.928571, 4.75]},
     "marches_two_banners": {"dir": "min", "floor": 0.1, "doubling": false, "p10": 0.13179, "p50": 0.145062, "p90": 0.15463, "half_p10": 0.065895, "seeds": [0.145062, 0.148148, 0.145062, 0.132716, 0.154321, 0.157407, 0.135802, 0.148148, 0.145062, 0.123457]},

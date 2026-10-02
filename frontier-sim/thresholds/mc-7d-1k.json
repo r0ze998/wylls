@@ -1,7 +1,7 @@
 {
   "format": "frontier-sim mapmove v1",
   "note": "bot profile cq: military decisions (keep strikes, holding sieges, rallies) once per bot per hourly planner epoch; economy, defence sends and outposts at M1's session cadence (24 sessions a day), so departs_per_bot_day includes session-cadence defence sends and 10h outposts is a session-cadence figure",
-  "run": {"rules": "mc", "preset": "MC_LOCAL_7D", "policy": "campaign,campaign,campaign,campaign,campaign,campaign", "bot_profile": "cq", "agents": "1000", "bots": "0.99", "days": "7", "keep_aggr": "1", "forward": "false", "sizes": "1,1,1,1,1,1", "seeds": "10", "first_seed": "2002", "kernels": "keep v1 control v1 (permutation-rules, CQ1-A kernels)"},
+  "run": {"rules": "mc", "preset": "MC_LOCAL_7D", "policy": "campaign,campaign,campaign,campaign,campaign,campaign", "bot_profile": "cq", "agents": "1000", "bots": "0.99", "days": "7", "keep_aggr": "1", "forward": "false", "sizes": "1,1,1,1,1,1", "seeds": "10", "first_seed": "2002", "kernels": "keep v2 control v1 (permutation-rules, CQ1-A kernels)"},
   "gated": {
     "10a_lasting_changes": {"dir": "min", "floor": 45, "doubling": true, "p10": 98.4, "p50": 108.5, "p90": 117.1, "half_p10": 49.2, "seeds": [93, 99, 117, 106, 108, 109, 118, 116, 115, 100]},
     "10b_days_with_change": {"dir": "min", "floor": 6, "doubling": false, "p10": 6, "p50": 6, "p90": 6, "half_p10": 3, "seeds": [6, 6, 6, 6, 6, 6, 6, 6, 6, 6]},
