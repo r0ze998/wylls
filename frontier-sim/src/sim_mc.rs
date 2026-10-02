@@ -103,8 +103,8 @@ pub struct McStats {
     /// destroyed / on its way home (retreated, bounced) / elsewhere.
     /// The occupation objective (PO-1 a): [11] plan fills with a legal
     /// first holding in reach, [12] occupation campaigns added, [13]
-    /// occupation groups launched, [14] rally hosts kept on a target's hex
-    /// at arrival (every policy).
+    /// occupation groups launched, [14] campaign rally hosts kept on a
+    /// target's hex at arrival.
     pub dbg: [u64; 16],
 }
 

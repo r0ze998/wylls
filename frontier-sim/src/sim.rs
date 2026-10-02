@@ -3100,11 +3100,16 @@ impl Sim {
                         if self.holds[t as usize].siege.is_none() && f.arrival {
                             // Rally stay (W1-close, PO-1 (a)): under MC the
                             // siege record is `mc.siege` (the M1 `siege` is
-                            // never set), so a rally host stays while its
-                            // campaign strike is pending or the target's MC
-                            // siege is live, under every policy.
+                            // never set), so a campaign faction's rally host
+                            // stays while its strike is pending or the
+                            // target's MC siege is live. Campaign factions
+                            // only, as measured (W1C-B-sim-NOTES §3.1: for
+                            // lone factions it moves the doctrine band).
+                            let fac = self.hosts[h as usize].faction as usize;
                             let stays = self.mc()
                                 && self.cfg.rally_stay
+                                && fac < 6
+                                && self.cfg.policy[fac] == crate::mc::Policy::Campaign
                                 && (self.holds[t as usize].mc.siege.is_some()
                                     || self.mcs.pending.contains_key(&t));
                             if stays {

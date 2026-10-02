@@ -196,12 +196,14 @@ pub struct Config {
     /// so they withdraw on arrival only when the frozen defence outweighs
     /// the whole group. Default on; `--mc siege_hold=0` explores without.
     pub siege_hold: bool,
-    /// Rally stay (PO-1 (a); a simulator defect fix): under MC a `Rally`
-    /// host that arrives stays on its target's hex while the strike is
-    /// pending or the target's MC siege is live. Before, the clash read the
-    /// M1 siege record, which MC never sets, and sent every arriving rally
-    /// host home. Every policy (the P1 package measurement's `stay=2`);
-    /// default on; `--mc rally_stay=0` explores without.
+    /// Rally stay (PO-1 (a); a simulator defect fix): under MC a campaign
+    /// faction's `Rally` host that arrives stays on its target's hex while
+    /// the strike is pending or the target's MC siege is live. Before, the
+    /// clash read the M1 siege record, which MC never sets, and sent every
+    /// arriving rally host home. Campaign factions only, as E1 and the P1
+    /// doctrine-band measurement ran it: for lone factions the same fix
+    /// moves the overnight band to 5/6 (W1C-B-sim-NOTES §3.1). Default on;
+    /// `--mc rally_stay=0` explores without.
     pub rally_stay: bool,
     /// Threads of the parallel runners (`FRONTIER_SIM_THREADS`, default:
     /// every core).
