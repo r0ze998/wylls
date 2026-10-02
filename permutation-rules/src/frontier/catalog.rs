@@ -18,6 +18,12 @@
 //!
 //! **Training is immediate** (sim; I-56): [`train`] returns a cost, no
 //! duration, and there is no `Effect::Troops`.
+//!
+//! **Conquest rules (MC, K2):** [`train_v2`] prices training under the v2
+//! rules from [`TRAIN_PROD_COST_V2`] (the Horseman line without its
+//! variant surcharge); [`CATALOG_VERSION_V2`] and [`write_tables_v2`] bind
+//! it into `ruleset_hash_input_v2`. Every M1 table and [`train`] are
+//! unchanged.
 
 use crate::fixed::{Milli, MILLI};
 use crate::units::{stats, UnitType};
@@ -251,6 +257,86 @@ pub fn train(unit: u8, n: u32) -> Option<Cost> {
     Some(c)
 }
 
+// ====================================================================
+// The conquest rules' train cost (MC, K2: PO-2, CQH1(2))
+// ====================================================================
+
+/// Kernel version of the catalog under the conquest rules (the catalog's
+/// `KERNEL_VERSIONS_V2` entry): v2 adds the MC train-cost table
+/// ([`train_v2`], K2: PO-2, CQH1(2)). [`CATALOG_VERSION`] and every M1
+/// table stay as they are.
+pub const CATALOG_VERSION_V2: u16 = 2;
+
+/// The production cost (per troop) that sets the ore and gold of
+/// [`train_v2`], by unit id 0..=6 ([`unit_of`]): M1's
+/// `units::stats(unit).prod_cost`, except the **Horseman line at a
+/// Spearman's 6** (K2: under the conquest rules the cavalry unit-variant
+/// ore/gold surcharge is 0).
+///
+/// * **Why the Horseman line.** MC marches about 5× as often as M1, and the
+///   doctrines B and F (both on the Horseman line) paid the variant
+///   surcharge on every march; their win rates fell to about 11% (band
+///   16.7 ± 2). With the surcharge at 0 the doctrine band is 6/6 (CI proxy
+///   max |Δ| 0.100%; overnight 1,500 seasons 6/6 on three seed sets, and
+///   with the symmetric keep). The simulator charged the surcharge per
+///   march, the chain charges it at training (this table); at 0 the two
+///   agree exactly.
+/// * **The Knight keeps its M1 cost (16).** No MC doctrine may field the
+///   Knight line (`doctrine::validate_table_v2`, the Knight bound), the
+///   measurement never priced a Knight under MC, and Train is open to every
+///   unit: a Knight (tier 2, strength 22) without its surcharge would cost
+///   a Spearman's ore and gold and outclass every tier-1 line.
+/// * Archer, Pikeman, Crossbowman and Scout keep their M1 cost (not
+///   cavalry).
+pub const TRAIN_PROD_COST_V2: [i64; 7] = [6, 7, TROOP_COST_BASE_PROD, 12, 14, 16, 10];
+
+/// The ore/gold production cost of `unit` under the conquest rules
+/// ([`TRAIN_PROD_COST_V2`]); `None` for an id [`unit_of`] refuses.
+pub fn train_prod_cost_v2(unit: u8) -> Option<i64> {
+    unit_of(unit)?;
+    TRAIN_PROD_COST_V2.get(unit as usize).copied()
+}
+
+/// The unit-variant surcharge over a Spearman under the conquest rules,
+/// in production per troop: `TRAIN_PROD_COST_V2[unit] − 6` (0 for the
+/// Spearman and the Horseman line). The simulator's per-march surcharge
+/// under `--rules mc` is this × its per-100 ore/gold rate.
+pub fn variant_surcharge_v2(unit: u8) -> Option<i64> {
+    Some(train_prod_cost_v2(unit)? - TROOP_COST_BASE_PROD)
+}
+
+/// Training `n` troops of `unit` under the conquest rules (immediate):
+/// [`train`]'s formula with [`TRAIN_PROD_COST_V2`] in place of the unit's
+/// production cost, i.e. food `60 k`, ore `⌊20 k × pc₂ / 6⌋`, gold
+/// `⌊10 k × pc₂ / 6⌋` with `k = ⌈n / 100⌉`. Equal to [`train`] for every
+/// unit but the Horseman, which costs a Spearman's. `None` for `n = 0`, an
+/// unknown unit or overflow. M1's [`train`] is unchanged.
+pub fn train_v2(unit: u8, n: u32) -> Option<Cost> {
+    if n == 0 {
+        return None;
+    }
+    let pc = train_prod_cost_v2(unit)?;
+    let k = n.div_ceil(100) as i64;
+    let mut c = [0; RESOURCES];
+    c[Resource::Food as usize] = milli(k.checked_mul(TROOP_COST_PER_100[0])?)?;
+    c[Resource::Ore as usize] =
+        milli(k.checked_mul(TROOP_COST_PER_100[1])?.checked_mul(pc)? / TROOP_COST_BASE_PROD)?;
+    c[Resource::Gold as usize] =
+        milli(k.checked_mul(TROOP_COST_PER_100[2])?.checked_mul(pc)? / TROOP_COST_BASE_PROD)?;
+    Some(c)
+}
+
+/// The MC train-cost table's bytes for `ruleset_hash_input_v2` (appended
+/// after the M1 input's catalog tables, which stay): the version, the
+/// table length, then each entry as an `i64`. Order pinned; append only.
+pub fn write_tables_v2(out: &mut alloc::vec::Vec<u8>) {
+    out.extend_from_slice(&CATALOG_VERSION_V2.to_le_bytes());
+    out.push(TRAIN_PROD_COST_V2.len() as u8);
+    for x in TRAIN_PROD_COST_V2 {
+        out.extend_from_slice(&x.to_le_bytes());
+    }
+}
+
 /// Canonical little-endian bytes of every catalog table, for the ruleset
 /// hash. Order is pinned; append only.
 pub fn write_tables(out: &mut alloc::vec::Vec<u8>) {
@@ -358,6 +444,30 @@ mod tests {
         assert!(train(0, 0).is_none());
         assert!(train(7, 100).is_none());
         assert!(train(0, u32::MAX).is_some());
+    }
+
+    #[test]
+    fn cq_train_v2_drops_only_the_horseman_surcharge() {
+        for u in 0..=6u8 {
+            let m1 = train(u, 300).unwrap();
+            let v2 = train_v2(u, 300).unwrap();
+            if u == UnitType::Horseman as u8 {
+                assert_eq!(v2, train(0, 300).unwrap(), "a Spearman's cost");
+                assert!(v2[3] < m1[3] && v2[5] < m1[5]);
+                assert_eq!(variant_surcharge_v2(u), Some(0));
+            } else {
+                assert_eq!(v2, m1, "unit {u} unchanged");
+                assert_eq!(
+                    train_prod_cost_v2(u),
+                    Some(stats(unit_of(u).unwrap()).prod_cost as i64)
+                );
+            }
+        }
+        // the Knight keeps its M1 surcharge (the Knight bound)
+        assert_eq!(variant_surcharge_v2(5), Some(10));
+        assert!(train_v2(0, 0).is_none());
+        assert!(train_v2(7, 100).is_none());
+        assert!(train_prod_cost_v2(7).is_none());
     }
 
     #[test]

@@ -484,8 +484,10 @@ fn cq_keep_quiet_vector_replays_bell_by_bell() {
     );
 }
 
-/// The bridge's `keep_tile` and `free_city_site` over the vectors' terrain
-/// bytes (`map::Terrain as u8`).
+/// The bridge's `keep_tile` (the MC keep tile, `keep_tile_symmetric`,
+/// v1.3 PO-5) and `free_city_site` over the vectors' terrain bytes
+/// (`map::Terrain as u8`); the v1.2 column `keep_tile` is the kernel's
+/// wedge-0 scan.
 #[test]
 fn cq_keep_tile_and_free_city_site_vectors_through_the_bridge() {
     let v = parse(KEEP_FILE);
@@ -512,11 +514,19 @@ fn cq_keep_tile_and_free_city_site_vectors_through_the_bridge() {
             sites,
             site_count: t.get("site_count").u() as u8,
         };
-        let want = t.get("keep_tile");
-        let got = kkeep::keep_tile(&pt, &pt.sites, pt.site_count);
+        let wedge = t.get("wedge").u() as u8;
+        let want = t.get("keep_tile_symmetric");
+        let got = kkeep::keep_tile(&pt, &pt.sites, pt.site_count, wedge);
         match want {
             J::Null => assert_eq!(got, None),
             w => assert_eq!(got, Some(w.u() as u8)),
+        }
+        // the v1.2 column: the kernel's scan of the province's own indices
+        let bytes61: [u8; 61] = bytes.as_slice().try_into().unwrap();
+        let scan = permutation_rules::frontier::keep::keep_tile(&bytes61, &pt.sites, pt.site_count);
+        assert_eq!(scan.map(u64::from), Some(t.get("keep_tile").u()));
+        if wedge == 0 {
+            assert_eq!(got, scan);
         }
         let seed: [u8; 32] = hex(t.get("ring_seed").s()).try_into().unwrap();
         let c = ProvinceCoord::new(t.get("p").i() as i32, t.get("q").i() as i32);

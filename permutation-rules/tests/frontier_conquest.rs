@@ -14,6 +14,7 @@
 
 use permutation_rules::fixed::{MilliTroops, BPS_ONE};
 use permutation_rules::frontier::camp;
+use permutation_rules::frontier::catalog;
 use permutation_rules::frontier::clash::{
     frontier_ruleset, resolve_clash, resolve_clash_ref, ClashError, ClashInput, Fighter, Garrison,
     Occupancy, Relations, MAX_ARRIVALS, MAX_GARRISONS, MAX_GARRISONS_WITH_KEEP, NEUTRAL,
@@ -134,8 +135,10 @@ const GENESIS: i64 = 1_790_471_775;
 const M1_RULESET_HASH: &str = "72c6b5835ded6418ed98b0c00b2ae45ce4c4b082d9614447dbce2c9d2e654bd9";
 /// `RULESET_HASH_V2` (MC §3.13). Pinned here and in `frontier-abi`
 /// (CQ1-C); a change to any conquest kernel version, table or bound moves
-/// it on purpose.
-const V2_RULESET_HASH: &str = "1607f62ffb0201f113c4c3d8ea35ffd0c9c88c9c8e48b33f0daa567075452a5a";
+/// it on purpose. Re-pinned once by the Wave-1 close (W1C-A, CQH1, CQH3:
+/// keep 2, catalog 2, doctrine 2 and the MC tables); Gate CQ1's first pin
+/// was `1607f62f…2a5a`.
+const V2_RULESET_HASH: &str = "b6dd0f3f260d9ef3e9a71c5010b56c42693578f4d8c394623d56deb9fed98274";
 
 // ------------------------------------------------------------ ruleset hash (§3.13, §5.1)
 
@@ -155,12 +158,25 @@ fn cq_m1_ruleset_hash_unchanged_and_v2_pinned() {
     assert_eq!(ruleset_hash_v2(), sha256(&[&v2]));
     assert_eq!(ruleset_hash_input_v2(), v2, "deterministic");
     assert_ne!(ruleset_hash_v2(), ruleset_hash());
-    // v2 = M1 with the v2 head, then the conquest constants at the end.
+    // v2 = M1 with the v2 head, then the conquest constants, then (the
+    // Wave-1 close) the MC tables: K2's train-cost table and the Knight
+    // bound.
     let k: Vec<u8> = KERNEL_CONSTANTS_V2
         .iter()
         .flat_map(|x| x.to_le_bytes())
         .collect();
-    assert!(v2.ends_with(&k));
+    let mut tables = fr::RULESET_V2_TABLES_TAG.to_vec();
+    catalog::write_tables_v2(&mut tables);
+    doctrine::write_bounds_v2(&mut tables);
+    assert!(v2.ends_with(&tables));
+    assert!(v2[..v2.len() - tables.len()].ends_with(&k));
+    // the train table: 6 7 6 12 14 16 10, the refused line: the Knight
+    let train: Vec<u8> = catalog::TRAIN_PROD_COST_V2
+        .iter()
+        .flat_map(|x| x.to_le_bytes())
+        .collect();
+    assert!(tables.windows(train.len()).any(|w| w == train));
+    assert_eq!(*tables.last().unwrap(), UnitType::Knight as u8);
     let m1_tail = &v1[v1.len() - 40 * 8..];
     assert!(v2.windows(m1_tail.len()).any(|w| w == m1_tail));
     // The bumps of §3.13.
@@ -174,14 +190,19 @@ fn cq_m1_ruleset_hash_unchanged_and_v2_pinned() {
         ("camp", 1, 2),
         ("terrain", 1, 2),
         ("geometry", 1, 2),
+        // Wave-1 close (CQH1, CQH3): K2's train table, the Knight bound
+        ("catalog", 1, 2),
+        ("doctrine", 1, 2),
     ] {
         assert_eq!((ver1(n), ver(n)), (a, b), "{n}");
     }
-    assert_eq!(ver("keep"), 1);
+    // keep 2: the symmetric keep tile (PO-5); control unchanged
+    assert_eq!(ver("keep"), 2);
     assert_eq!(ver("control"), 1);
     for (n, v) in KERNEL_VERSIONS {
         if ![
-            "frontier", "siege", "holding", "clash", "camp", "terrain", "geometry",
+            "frontier", "siege", "holding", "clash", "camp", "terrain", "geometry", "catalog",
+            "doctrine",
         ]
         .contains(&n)
         {
@@ -217,6 +238,8 @@ fn cq_heartland_in_matches_m1_at_3_and_follows_the_parameter() {
 
 // ------------------------------------------------------------ terrain v2, camp v2, keep tile
 
+/// `keep_tile`: the scan in the province's own indices (the keep tile of
+/// wedge 0; the v1.2 rule, superseded in the other wedges by PO-5).
 #[test]
 fn cq_keep_tile_is_the_lowest_passable_non_site_and_reachable() {
     let centre = tile_index(Hex::new(0, 0)).unwrap();
@@ -234,20 +257,6 @@ fn cq_keep_tile_is_the_lowest_passable_non_site_and_reachable() {
                 for g in 0..t.site_count {
                     assert!(reachable(&t, t.sites[g as usize], k));
                 }
-                // The symmetric variant: same rule on the canonical copy.
-                let w = p.wedge().unwrap();
-                let ks = keep_tile_symmetric(&tb, &t.sites, t.site_count, w).unwrap();
-                assert!(t.passable(ks) && !t.is_site(ks) && reachable(&t, centre, ks));
-                let c = generate_province(&seed, p.turned(w));
-                let kc = keep_tile(&terrain_bytes(&c), &c.sites, c.site_count).unwrap();
-                assert_eq!(
-                    ks,
-                    tile_index(tile_offset(kc).unwrap().rotate_by(w)).unwrap(),
-                    "same tile in every wedge"
-                );
-                if w == 0 {
-                    assert_eq!(ks, k);
-                }
                 n += 1;
             }
         }
@@ -262,6 +271,62 @@ fn cq_keep_tile_is_the_lowest_passable_non_site_and_reachable() {
     assert_eq!(keep_tile(&one, &[7, 9], 1), Some(9));
     assert_eq!(keep_tile(&one, &[7, 9], 2), None);
     assert_eq!(keep_tile(&one, &[7], 12), Some(9), "site_count clamps");
+}
+
+/// The MC keep tile (v1.3, PO-5, CQH1(5), KEEP_VERSION 2):
+/// `keep_tile_symmetric` is passable, off every site, reachable from the
+/// centre and every site, equal to `keep_tile` in wedge 0, and the
+/// canonical copy's tile turned into the wedge, so all six wedges of a
+/// ring keep on the same tile. Compares the wedges as CQ1-A's test did.
+#[test]
+fn cq_keep_tile_symmetric_is_the_rule_in_every_wedge() {
+    let centre = tile_index(Hex::new(0, 0)).unwrap();
+    let (mut n, mut differs) = (0u32, 0u32);
+    for s in 0..24u8 {
+        let seed = [s; 32];
+        for d in 2..8 {
+            for p in ring_provinces(d) {
+                let t = generate_province(&seed, p);
+                let tb = terrain_bytes(&t);
+                let w = p.wedge().unwrap();
+                let ks = keep_tile_symmetric(&tb, &t.sites, t.site_count, w).unwrap();
+                assert!(t.passable(ks) && !t.is_site(ks), "{p:?}");
+                assert!(reachable(&t, centre, ks), "reachable {p:?}");
+                for g in 0..t.site_count {
+                    assert!(reachable(&t, t.sites[g as usize], ks), "{p:?} site {g}");
+                }
+                // the canonical (wedge-0) copy's keep tile, turned into w
+                let c = generate_province(&seed, p.turned(w));
+                let kc = keep_tile(&terrain_bytes(&c), &c.sites, c.site_count).unwrap();
+                assert_eq!(
+                    ks,
+                    tile_index(tile_offset(kc).unwrap().rotate_by(w)).unwrap(),
+                    "same tile in every wedge"
+                );
+                assert_eq!(
+                    keep_tile_symmetric(&terrain_bytes(&c), &c.sites, c.site_count, 0),
+                    Some(kc)
+                );
+                let k = keep_tile(&tb, &t.sites, t.site_count).unwrap();
+                if w == 0 {
+                    assert_eq!(ks, k);
+                }
+                differs += (ks != k) as u32;
+                // the wedge is taken mod 6
+                assert_eq!(
+                    keep_tile_symmetric(&tb, &t.sites, t.site_count, w + 6),
+                    Some(ks)
+                );
+                n += 1;
+            }
+        }
+    }
+    assert_eq!(n, 24 * (12 + 18 + 24 + 30 + 36 + 42));
+    // CQ1-A finding 1: the v1.2 scan put the keep elsewhere in most
+    // provinces outside wedge 0.
+    assert!(differs > n / 2, "{differs} of {n}");
+    let water = [5u8; 61];
+    assert_eq!(keep_tile_symmetric(&water, &[], 0, 3), None);
 }
 
 #[test]
@@ -283,7 +348,7 @@ fn cq_free_city_site_is_the_same_canonical_site_in_every_wedge() {
                     t.sites[i as usize],
                     tile_index(tile_offset(site_c).unwrap().rotate_by(w)).unwrap()
                 );
-                let k = keep_tile(&terrain_bytes(&t), &t.sites, t.site_count).unwrap();
+                let k = keep_tile_symmetric(&terrain_bytes(&t), &t.sites, t.site_count, w).unwrap();
                 assert_ne!(t.sites[i as usize], k, "never on the keep");
             }
         }
@@ -302,7 +367,12 @@ fn cq_camp_v2_never_on_the_keep_and_is_m1_without_one() {
         for d in 2..6 {
             for p in ring_provinces(d) {
                 let t = generate_province(&seed, p);
-                let k = keep_tile(&terrain_bytes(&t), &t.sites, t.site_count);
+                let k = keep_tile_symmetric(
+                    &terrain_bytes(&t),
+                    &t.sites,
+                    t.site_count,
+                    p.wedge().unwrap(),
+                );
                 for day in 0..12u32 {
                     for (has, init) in [(true, false), (false, true), (false, false)] {
                         let m1 = camp::place(&seed, p, &t, day, has, init);
@@ -1865,7 +1935,7 @@ fn keep_scenarios() -> Vec<(&'static str, ProvinceCoord, KeepParams, Vec<Step>)>
 fn keep_vectors() -> String {
     let mut s = String::new();
     s.push_str("{\n  \"version\": 1,\n");
-    s.push_str("  \"note\": \"MC contract 3.2: keep::keep_tile (terrain bytes = map::Terrain as u8, sites, site_count), terrain::free_city_site (site index), keep::open + keep::advance bell by bell (capturers = [entry, host id, milli-troops], reduced in place on a take), keep::advance_quiet over a quiet run (mask of non-civilian factions on the keep tile). Producer and freshness: permutation-rules/tests/frontier_conquest.rs.\",\n");
+    s.push_str("  \"note\": \"MC contract 3.1/3.2 v1.3 (PO-5): the keep tile is keep::keep_tile_symmetric (terrain bytes = map::Terrain as u8, sites, site_count, wedge); keep::keep_tile is the v1.2 scan (the keep tile of wedge 0), terrain::free_city_site (site index), keep::open + keep::advance bell by bell (capturers = [entry, host id, milli-troops], reduced in place on a take), keep::advance_quiet over a quiet run (mask of non-civilian factions on the keep tile). Producer and freshness: permutation-rules/tests/frontier_conquest.rs.\",\n");
     // Keep tiles and Free City sites.
     s.push_str("  \"tiles\": [\n");
     let mut rows = Vec::new();

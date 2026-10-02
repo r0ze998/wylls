@@ -33,6 +33,10 @@
 /// Version of this kernel, bound into `RULESET_HASH` (`super::KERNEL_VERSIONS`):
 /// bump it whenever an honest outcome changes. v1: the Season 1 table (m0c); the table itself is also hashed.
 pub const DOCTRINE_VERSION: u16 = 1;
+/// The doctrine kernel's version under the conquest rules (MC,
+/// `KERNEL_VERSIONS_V2`): v2 adds the Knight bound ([`validate_table_v2`],
+/// PO-2, CQH1(2)). The Season 1 table itself is unchanged and passes it.
+pub const DOCTRINE_VERSION_V2: u16 = 2;
 
 use super::siege::required_bells;
 use super::stance::{Posture, Stance};
@@ -261,6 +265,10 @@ pub mod bounds {
     pub const WAYSTONES_MAX: u8 = 1;
     /// Bourse fee: at most 2%.
     pub const BOURSE_FEE_MAX_BPS: Bps = 200;
+    /// (MC, the Knight bound; PO-2, CQH1(2)) Unit lines no doctrine may
+    /// field under the conquest rules: the Knight. Bound into
+    /// `ruleset_hash_input_v2` ([`super::write_bounds_v2`]).
+    pub const REFUSED_LINES_V2: [crate::units::UnitType; 1] = [crate::units::UnitType::Knight];
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -288,6 +296,10 @@ pub enum DoctrineError {
     /// [`bounds`] but together they are not, so `clash::validate` would
     /// refuse the doctrine's own hosts.
     DamageProduct,
+    /// (MC, [`validate_table_v2`]) The doctrine fields a unit line the
+    /// conquest rules refuse to doctrines ([`bounds::REFUSED_LINES_V2`]: the
+    /// Knight).
+    RefusedLine,
 }
 
 impl Doctrine {
@@ -484,9 +496,56 @@ pub fn validate_table(t: &[Doctrine; 6]) -> Result<(), DoctrineError> {
     Ok(())
 }
 
+/// The doctrine table under the conquest rules (MC; PO-2, CQH1(2)):
+/// [`validate_table`], then the **Knight bound**: no doctrine fields a
+/// line in [`bounds::REFUSED_LINES_V2`] (the Knight), else
+/// [`DoctrineError::RefusedLine`].
+///
+/// Why: K2 removes the cavalry unit-variant surcharge under MC
+/// (`catalog::TRAIN_PROD_COST_V2`). It was measured on the Horseman line,
+/// the line B and F field; a doctrine on the tier-2 Knight line was never
+/// measured under MC (with Knights, F sat 0.17–0.30% of index below the
+/// mean in M0 tuning, and the doctrine gate's Knight control is a rejected
+/// table). The decision sheet recommends refusing Knight lines in MC
+/// doctrines over pricing one; the Knight's train cost stays at its M1
+/// value either way (`catalog::TRAIN_PROD_COST_V2`). The Season 1 table
+/// ([`DOCTRINES`]) passes unchanged.
+pub fn validate_table_v2(t: &[Doctrine; 6]) -> Result<(), DoctrineError> {
+    validate_table(t)?;
+    if t.iter().any(|d| bounds::REFUSED_LINES_V2.contains(&d.unit)) {
+        return Err(DoctrineError::RefusedLine);
+    }
+    Ok(())
+}
+
+/// The MC doctrine bound's bytes for `ruleset_hash_input_v2`: the version,
+/// then the refused unit lines (count, `UnitType as u8` each). Order
+/// pinned; append only.
+pub fn write_bounds_v2(out: &mut alloc::vec::Vec<u8>) {
+    out.extend_from_slice(&DOCTRINE_VERSION_V2.to_le_bytes());
+    out.push(bounds::REFUSED_LINES_V2.len() as u8);
+    for u in bounds::REFUSED_LINES_V2 {
+        out.push(u as u8);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cq_the_season_table_passes_the_knight_bound() {
+        assert_eq!(validate_table_v2(&DOCTRINES), Ok(()));
+        // F on the Knight line (the doctrine gate's Knight control): valid
+        // under M1's table rules, refused under MC's.
+        let mut t = DOCTRINES;
+        t[5].unit = UnitType::Knight;
+        assert_eq!(validate_table(&t), Ok(()));
+        assert_eq!(validate_table_v2(&t), Err(DoctrineError::RefusedLine));
+        // an M1 refusal still comes first
+        t[4] = t[3];
+        assert_eq!(validate_table_v2(&t), Err(DoctrineError::Shape));
+    }
 
     #[test]
     fn the_season_table_is_valid() {

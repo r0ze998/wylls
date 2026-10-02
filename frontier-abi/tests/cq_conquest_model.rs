@@ -65,7 +65,7 @@ fn province(p: i32, q: i32, guard: u32) -> Vec<u8> {
         gen: 0,
     };
     camp.write(&mut pd).unwrap();
-    let tile = kkeep::keep_tile(&t, &t.sites, t.site_count).unwrap();
+    let tile = kkeep::keep_tile(&t, &t.sites, t.site_count, c.wedge().unwrap()).unwrap();
     let mut kp = MC_LOCAL_7D.cq.keep_params();
     kp.home_guard = guard;
     let k = kkeep::open(c, c.wedge().unwrap(), 3, tile, &kp, 0).unwrap();
@@ -727,4 +727,42 @@ fn cq_conquest_payload_pins_the_state() {
     );
     let back = frontier_abi::v2::log::ConquestPayload::from_bytes(&pl.to_bytes()).unwrap();
     assert_eq!(back, pl);
+}
+
+/// §3.10 as amended by PO-7 (CQH1(7), D-10): Dominion counts **every
+/// holding in state 1, provisional included**. Finality is a Citizen /
+/// Holding fact (`STATE_PROVISIONAL`, `final_ts`) the Province never
+/// carries, so `control_weights` and the hourly snapshot read only the
+/// site mirror: a state-1 site counts with its strength weight whether its
+/// holding is provisional or final, and free, released and reserved sites
+/// add nothing.
+#[test]
+fn cq_control_weights_count_provisional_holdings() {
+    use frontier_abi::v2::kernel::control::site_weight_centi;
+    use permutation_rules::frontier::laurel::Tier;
+    let mut a = province(5, -1, 100);
+    let n = a[P::SITE_COUNT] as usize;
+    assert!(n >= 5);
+    // site 0: a holding founded this bell (its owner's Citizen is
+    // provisional): state 1, faction 2, order 1, Hamlet (tier byte 0)
+    let g = 400_000u32;
+    set_site(&mut a, 0, SM::STATE_HOLDING, 2, 1, 0, g);
+    // sites 1..4: free, released, reserved and unused-camp states
+    set_site(&mut a, 1, SM::STATE_FREE, 3, 1, 0, g);
+    set_site(&mut a, 2, SM::STATE_RELEASED_FREE, 3, 1, 0, g);
+    set_site(&mut a, 3, SM::STATE_RESERVED, 3, 1, 0, g);
+    set_site(&mut a, 4, SM::STATE_UNUSED_CAMP, 3, 1, 0, g);
+    let want = site_weight_centi(Tier::Hamlet, g, 0) as u32;
+    assert!(want > 0);
+    let w = qm::control_weights(&a, 6).unwrap();
+    let mut exp = [0u32; P::SIDES];
+    exp[2] = want;
+    assert_eq!(w, exp, "only the state-1 site counts, provisional or not");
+    // and the hour-1 snapshot (bell 6) carries it, resolve ≡ skip
+    let mut s = a.clone();
+    run_both(&mut a, &mut s, 1, 7);
+    let snap = qm::snapshot_slot(&a, 1).unwrap().expect("hour 1 written");
+    let mut exp16 = [0u16; P::SIDES];
+    exp16[2] = want as u16;
+    assert_eq!(snap, exp16);
 }

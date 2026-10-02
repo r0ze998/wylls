@@ -1820,7 +1820,7 @@ fn v2_presets() -> J {
     v.push(("ruleset_hash_v2", J::S(hex(&p2::RULESET_HASH_V2))));
     v.push((
         "ruleset_hash_v2_status",
-        st("pinned: permutation_rules::frontier::ruleset_hash_v2() (CQ1-A kernels; integ-W1, CQ1-C notes R1)"),
+        st("pinned: permutation_rules::frontier::ruleset_hash_v2() (CQ1-A kernels; integ-W1, CQ1-C notes R1; re-pinned once by the Wave-1 close, W1C-A: keep 2, catalog 2, doctrine 2, MC tables)"),
     ));
     v.push(("ruleset_hash_m1", J::S(hex(&presets::RULESET_HASH))));
     v.push(("rules_version_v2", n(p2::RULES_VERSION_V2)));
@@ -1940,7 +1940,7 @@ fn v2_conquest() -> J {
             pd[o_ + SM::PEND1_BELL..o_ + SM::PEND1_BELL + 4]
                 .copy_from_slice(&SM::NO_BELL.to_le_bytes());
         }
-        let tile = kk::keep_tile(&t, &t.sites, t.site_count).unwrap_or(0);
+        let tile = kk::keep_tile(&t, &t.sites, t.site_count, c.wedge().unwrap_or(0)).unwrap_or(0);
         let k = kk::open(
             c,
             c.wedge().unwrap_or(0),
