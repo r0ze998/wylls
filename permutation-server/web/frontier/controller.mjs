@@ -6,13 +6,15 @@
 // self-reveal (I-24, §9.1), and turns every `data-act` of the screens into
 // one action: build → check → sign → relay → track (fplay.mjs), the march
 // through fmarch.sendMarch. Nothing here decides a rule; the program does.
-import { FS, invalidate } from './fstate.mjs';
+import { FS, invalidate, activeHolding } from './fstate.mjs';
+import { updateLife } from './people/life.mjs';
 import * as io from './fchainio.mjs';
 import * as fsession from './fsession.mjs';
 import * as book from './marchbook.mjs';
 import { submit, track, accountsFor, campMaskOf, campWinner } from './fplay.mjs';
-import { sendMarch, planRoute, earliestBell, arrivalWindow, tipOptions, incomingWarnings, DEPART_MARGIN_SECS } from './fmarch.mjs';
-import { landState, hostsIn } from './fland.mjs';
+import { sendMarch, planRoute, earliestBell, arrivalWindow, tipOptions, incomingWarnings, DEPART_MARGIN_SECS, RETREAT_CHOICES } from './fmarch.mjs';
+import { landState, hostsIn, TICKET_SEEN_BELLS, FIRST_TICKET_RING } from './fland.mjs';
+import { planTicket } from './fjoin.mjs';
 import { toggleTile } from './screens/explore.mjs';
 import { sealMarch, unpack, ctHash as ctHashOf, sealRoot as sealRootOf } from './seal.mjs';
 import { bellAt, bellStart, pipeline, archivePartOf } from './clock.mjs';
@@ -21,7 +23,7 @@ import { hostParts } from './faddr.mjs';
 import { decodePage } from './flog.mjs';
 import { nextPoll } from './herald.mjs';
 import { kernel as loadKernel, UNITS } from './wasm.mjs';
-import { uiKey, uiStorage, loadUi, saveUi } from './fui.mjs';
+import { uiKey, uiStorage, loadUi, saveUi, landKey, loadLand, saveLand, LAND_DEFAULTS } from './fui.mjs';
 import * as wallet from '../wallet.mjs';
 import { decode as fromBase58, encode as toBase58 } from '../sdk/base58.mjs';
 import { fromBase64 } from '../sdk/bytes.mjs';
@@ -33,6 +35,10 @@ const nowBell = () => (FS.clock ? bellAt(FS.clock.genesisTs, now()) ?? 0 : 0);
 const scope = () => io.scope();
 /** Save UI preferences once a season is pinned (convenience only). */
 const saveUiPatch = patch => { const sc = scope(); if (sc) FS.ui = saveUi(uiStorage, uiKey(sc), patch); };
+/** The land record of this season and wallet (fui.mjs; the automatic site ticket's state). */
+const landKeyNow = () => (scope() && FS.wallet?.address ? landKey(scope(), FS.wallet.address) : null);
+const readLand = () => { const k = landKeyNow(); FS.landRec = k ? loadLand(uiStorage, k) : (FS.landRec ?? { ...LAND_DEFAULTS }); return FS.landRec; };
+const saveLandPatch = patch => { const k = landKeyNow(); FS.landRec = k ? saveLand(uiStorage, k, patch) : { ...(FS.landRec ?? LAND_DEFAULTS), ...patch }; return FS.landRec; };
 const bookKey = () => (FS.wallet && scope() ? book.bookKey(scope(), FS.wallet.address) : null);
 // Notices keep a thunk or the failure itself, so a language switch re-renders them in the new language.
 const setNotice = n => { FS.notice = n; invalidate('panel'); };
@@ -49,8 +55,12 @@ function ctx(extra = {}) {
   return { addresses: pin.addresses, wallet: FS.wallet.address, actor: FS.session?.publicKey, faction: FS.citizen?.faction, ...extra };
 }
 
+/** The send and the follow-up (fplay.mjs); tests put stand-ins here to play a relay and a chain. */
+let tx = { submit, track };
+export function useTransport(t) { tx = t ? { submit: t.submit ?? submit, track: t.track ?? track } : { submit, track }; }
+
 /** One sponsored action, tracked to its landing; the notice says how it went. */
-async function act(name, { v = {}, fields = {}, signer, requester = null, label, after } = {}) {
+async function act(name, { v = {}, fields = {}, signer, requester = null, label, after, onSent, onLost } = {}) {
   // `signer: null` = a settle shape (no authority signs; the session key signs the request only).
   if (!io.pinned()) return failed({ code: 'NoPin' });
   if (!FS.wallet) return failed({ code: 'NoWallet' });
@@ -69,19 +79,24 @@ async function act(name, { v = {}, fields = {}, signer, requester = null, label,
   FS.inFlight = (FS.inFlight ?? 0) + 1;
   try {
     const accounts = typeof v === 'function' ? fp => accountsFor(name, v(fp)) : accountsFor(name, ctx(v));
-    const send = () => submit({ name, accounts, fields, signer: sign, requester, citizen: requester ? io.pinned().addresses.of('Citizen', { wallet: FS.wallet.address }) : undefined, invite: v.invite });
+    const send = () => tx.submit({ name, accounts, fields, signer: sign, requester, citizen: requester ? io.pinned().addresses.of('Citizen', { wallet: FS.wallet.address }) : undefined, invite: v.invite });
     let r = await send();
-    let t = r.ok ? await track(r.signature) : r;
+    // the transaction left this browser (a refusal before sending never reaches here)
+    if (r.ok) onSent?.(r);
+    let t = r.ok ? await tx.track(r.signature) : r;
     // W6-D: a resident action refused because the province fell a bell behind between the check and the landing:
     // ask the keeper to catch it up, wait for the herald to show it, and send once more.
     if (!t.ok && retryAfterCatchUp(name, t.code)) {
       busy(() => L`州が追いつくのを待っています…`);
       if (await catchUp()) {
         r = await send();
-        t = r.ok ? await track(r.signature) : r;
+        if (r.ok) onSent?.(r);
+        t = r.ok ? await tx.track(r.signature) : r;
       }
     }
     if (!r.ok) return failed(r);
+    // sent, and the chain says it failed or it expired: definitely not landed (an unknown outcome is neither)
+    if (!t.ok && (t.state === 'failed' || t.state === 'expired')) onLost?.(t);
     if (!t.ok) return failed(t);
     done(() => L`チェーンに記録されました`);
     await after?.(r);
@@ -94,7 +109,7 @@ async function act(name, { v = {}, fields = {}, signer, requester = null, label,
 
 /** Ask the keeper to catch the home province up and wait (≤ 20 s) until the herald shows it resolved through the bell before this one. */
 async function catchUp() {
-  const h = FS.holdings?.[0];
+  const h = activeHolding(FS);
   if (!h) return false;
   const r = await io.nudge(h.p, h.q, FS.provinces.get(`${h.p},${h.q}`)?.province.resolvedNext ?? nowBell());
   if (!r.ok) return false;
@@ -270,6 +285,8 @@ async function refreshChronicle() {
     if (!r.ok) break;
     const { records } = decodePage(r.events);
     FS.chronicle = [...(FS.chronicle ?? []), ...records].slice(-400);
+    // the life of every holding (people/life.mjs): folded from every record read, not only the last 400
+    FS.life = updateLife(FS.life ?? new Map(), records);
     if (r.next !== null && r.next !== undefined) cursor = r.next;
     if (!r.full) break;
   }
@@ -292,15 +309,25 @@ async function refreshChronicle() {
 export function useHerald(h) { herald = h; cursor = 0; }
 
 /**
- * Art mode (?art=1): load the latest envelope of a province drawn at tile LOD,
- * once, at most 12 in flight (herald.wantedProvinces' limit); `onLoad` redraws.
+ * Load the latest envelope of a province the map draws at tile detail, the
+ * inspector reads or a scene needs: at most WANT_IN_FLIGHT requests at once
+ * (herald.wantedProvinces' limit), and again when the copy is older than the
+ * current bell and was fetched WANT_REFRESH_MS ago or more (one refresh per
+ * bell at most, so spectators cost the herald little). `onLoad` redraws.
  */
+export const WANT_IN_FLIGHT = 12;
+export const WANT_REFRESH_MS = 30_000;
 const artWanted = new Set();
-export function wantProvince(p, q, onLoad = () => {}) {
+const fetchedAt = new Map();
+export function wantProvince(p, q, onLoad = () => {}, { now = Date.now(), bell = nowBell() } = {}) {
   const key = `${p},${q}`;
-  if (!herald || FS.provinces.has(key) || artWanted.has(key) || artWanted.size >= 12) return;
+  if (!herald || artWanted.has(key) || artWanted.size >= WANT_IN_FLIGHT) return false;
+  const have = FS.provinces.get(key);
+  if (have && !(have.bell < bell && now - (fetchedAt.get(key) ?? 0) >= WANT_REFRESH_MS)) return false;
   artWanted.add(key);
-  loadEnvelope(p, q).catch(() => null).finally(onLoad);
+  fetchedAt.set(key, now);
+  loadEnvelope(p, q).catch(() => null).finally(() => { artWanted.delete(key); onLoad(); });
+  return true;
 }
 
 /** Refresh the viewer's accounts, provinces, marches, chronicle and quota. */
@@ -316,8 +343,15 @@ export async function refresh() {
       FS.citizen = me.citizen;
       FS.holdings = me.holdings;
       FS.land = landState(me.citizen);
-      if (before === 'provisional' && FS.land.stage === 'joined') FS.hadHolding = true;
-      if (FS.ui?.ticketSeen === false && FS.land.stage !== 'joined' && FS.land.stage !== 'none') saveUiPatch({ ticketSeen: true });
+      // why the last holding or ticket ended, kept with its bell for the next cards (review finding 7)
+      const after = FS.land.stage, gone = after === 'joined' || after === 'refugee';
+      const lr = readLand();
+      if (before && gone && ['provisional', 'final', 'ticket'].includes(before)) saveLandPatch({ landEnd: { why: before === 'provisional' ? 'displaced' : before === 'final' ? 'lost' : 'ended', bell: nowBell(), refiled: false } });
+      if ((after === 'provisional' || after === 'final') && lr.landEnd) saveLandPatch({ landEnd: null });
+      // the filed ticket counts as seen once the herald shows it (or what it led to); not merely because the stage is
+      // not 'joined' (a refugee is not a ticket) — review finding 5
+      const shown = ['ticket', 'provisional', 'final'].includes(after) || (Number.isInteger(FS.landRec?.lastTicketBell) && Number(me.citizen?.ticketBell) === FS.landRec.lastTicketBell);
+      if (FS.landRec?.ticketSeen === false && shown) saveLandPatch({ ticketSeen: true });
       if (me.record?.quota) FS.quota = me.record.quota;
       if (FS.session && FS.citizen) {
         const m = fsession.matchesCitizen(FS.session, FS.citizen, now());
@@ -326,8 +360,9 @@ export async function refresh() {
     } else if (me.code === 'NotFound') {
       FS.citizen = null; FS.holdings = []; FS.land = landState(null);
     }
-    const h = FS.holdings?.[0];
-    if (h) await loadEnvelope(h.p, h.q);
+    const h = activeHolding(FS);
+    // every holding's province (the rail can switch between them), the active one first
+    for (const o of [h, ...(FS.holdings ?? []).filter(x => x !== h)]) if (o) await loadEnvelope(o.p, o.q);
     const home = h ? FS.provinces.get(`${h.p},${h.q}`)?.province ?? null : null;
     if (shouldAutoNudge({ holding: h, province: home, nowBell: FS.nowBell, lastBell: FS.autoNudgeBell ?? null, hidden: !!globalThis.document?.hidden })) {
       FS.autoNudgeBell = FS.nowBell;
@@ -350,6 +385,114 @@ export async function refresh() {
   }
   await refreshChronicle();
   invalidate('panel', 'tabs', 'chips', 'map');
+  autoTicket().catch(e => console.error('frontier auto ticket:', e));
+}
+
+// ------------------------------------------------------------------ the first holding, placed automatically (owner decision V2)
+/**
+ * Joining is choosing a faction: when the Citizen has neither a holding nor an open
+ * ticket (just joined, its ticket ended — displaced or exhausted — or it lost its
+ * holding), this browser plans a ticket (fjoin.mjs: its own order of the home wedge's
+ * free sites, cohort room, the §5.9 overflow) and files it.
+ *   - once a bell for this device (the stored `autoTryBell`, re-read: other tabs count);
+ *   - not while a ticket that left this browser is not yet shown by the herald
+ *     (`ticketSeen` false, written only once the transaction was sent — a refusal
+ *     before sending locks nothing; review finding 1);
+ *   - `force` (the "file again now" button) skips both.
+ * `FS.autoTicket = {state: 'searching'|'sent'|'waiting'|'nofree'|'failed', bell, code?}`.
+ */
+export async function autoTicket({ force = false } = {}) {
+  const stage = FS.land?.stage;
+  if (stage !== 'joined' && stage !== 'refugee') { FS.autoTicket = null; return; }
+  if (!FS.session || FS.sessionProblem || !Number.isInteger(FS.citizen?.faction) || FS.autoTicketBusy) return;
+  const b = nowBell();
+  const rec = readLand();   // per wallet; another tab may have filed or be filing (review finding 6, re-check 4)
+  const filed = rec.lastTicketBell;
+  const onItsWay = rec.ticketSeen === false && Number.isInteger(filed) && b < filed + TICKET_SEEN_BELLS;
+  // this bell's attempt is under way or done elsewhere (not failed): the button respects it too (re-check 8)
+  const tried = rec.autoTryBell === b && !rec.autoTryFailed;
+  if (!force) {
+    if (onItsWay) { FS.autoTicket = { state: 'sent', bell: filed }; invalidate('panel'); return; }
+    if (rec.autoTryBell === b) { if (!FS.autoTicket) { FS.autoTicket = { state: 'waiting', bell: b }; invalidate('panel'); } return; }
+  } else {
+    if (tried && !onItsWay) return;
+    const t = Date.now();
+    if (t - (FS.autoForceAt ?? 0) < AUTO_FORCE_MS) return;   // the button is throttled (re-check 3)
+    FS.autoForceAt = t;
+  }
+  FS.autoTicketBusy = true;
+  saveLandPatch({ autoTryBell: b, autoTryFailed: false });   // before sending: a second tab skips this bell
+  FS.autoTicket = { state: 'searching', bell: b };
+  invalidate('panel');
+  let sent = false;
+  try {
+    await refreshOverviews(b);
+    for (const [k, at] of FS.autoFull ?? []) if (b - at >= AUTO_FULL_BELLS) FS.autoFull.delete(k);
+    const plan = await planTicket({ overviews: FS.overviews ?? new Map(), faction: FS.citizen.faction, ringsOpen: FS.record?.rings?.length ?? 1,
+      seed: `${FS.wallet?.address ?? ''}|${b}`, nowBell: b, read: (p, q) => readProvinceOnce(p, q, b), skip: new Set((FS.autoFull ?? new Map()).keys()),
+      homeFull: homeWedgeFull(FS.record, FS.citizen.faction) });
+    FS.autoFull ??= new Map();
+    for (const k of plan.full ?? []) FS.autoFull.set(k, b);
+    if (!plan.ok) { FS.autoTicket = plan.why === 'readfail' ? { state: 'failed', bell: b, code: 'Unavailable' } : { state: plan.why, bell: b }; return; }
+    const r = await fileTicket(plan.sites, plan.source, b);
+    if (r?.ok === true) { sent = true; FS.autoTicket = { state: 'sent', bell: b }; }
+    else if (FS.landRec?.ticketSeen === false && FS.landRec.lastTicketBell === b) { sent = true; FS.autoTicket = { state: 'sent', bell: b }; }   // sent, outcome unknown: keep waiting
+    else {
+      FS.autoTicket = { state: 'failed', bell: b, code: r?.code ?? FS.notice?.code ?? 'Error' };
+      if (FS.notice && FS.notice.ok === false) FS.notice = null;   // the card says it (one live region, review finding 11)
+    }
+  } catch (e) {
+    FS.autoTicket = { state: 'failed', bell: b, code: e?.code ?? 'Error' };
+  } finally {
+    if (!sent) saveLandPatch({ autoTryFailed: true });   // nothing left this browser for good: the button may try again
+    FS.autoTicketBusy = false;
+    invalidate('panel');
+  }
+}
+/** The "file again now" button at most this often; provinces found full are not read again for this many bells. */
+export const AUTO_FORCE_MS = 20_000, AUTO_FULL_BELLS = 6;
+
+/** A Province read for the automatic ticket, once a bell (re-check 3: no repeated reads of the same bell). */
+async function readProvinceOnce(p, q, b) {
+  FS.autoProv ??= new Map();
+  const k = `${p},${q}`;
+  const hit = FS.autoProv.get(k);
+  if (hit && hit.bell === b) return hit.province;
+  try {
+    const e = await herald.province(p, q);
+    if (!e.ok) return null;
+    FS.autoProv.set(k, { bell: b, province: e.province });
+    if (FS.autoProv.size > 200) FS.autoProv.delete(FS.autoProv.keys().next().value);
+    return e.province;
+  } catch { return null; }
+}
+
+/**
+ * The program's own "home wedge full" (Frontier WEDGE_OPEN − WEDGE_OCCUPIED = 0, the
+ * overflow rule of §5.9) when the season record carries the counters; else null (the
+ * planner then decides conservatively from the Provinces it read).
+ */
+function homeWedgeFull(record, faction) {
+  const o = record?.wedgeOpen, c = record?.wedgeOccupied, w = faction;
+  if (!Array.isArray(o) || !Array.isArray(c) || !Number.isInteger(o[w]) || !Number.isInteger(c[w])) return null;
+  return o[w] - c[w] <= 0;
+}
+
+/**
+ * The season record's open rings and their overviews, re-read once a bell while a ticket
+ * is being planned: new rings and freed sites show up (review finding 3).
+ */
+async function refreshOverviews(b) {
+  if (FS.overviewsBell === b) return;
+  FS.overviewsBell = b;
+  try {
+    const r = await herald.season();
+    if (r?.ok && r.record) FS.record = r.record;
+  } catch { /* keep the last record */ }
+  const rings = Math.max(1, FS.record?.rings?.length ?? 1);
+  for (let d = FIRST_TICKET_RING; d < rings; d++) {   // rings 0–1 hold no ticket sites (re-check 3)
+    try { const o = await herald.overview(d); if (o.ok) FS.overviews.set(d, o); } catch { /* keep the last overview */ }
+  }
 }
 
 // ------------------------------------------------------------------ the composer
@@ -386,7 +529,7 @@ function quickDestinations() {
 }
 
 async function sendTheMarch() {
-  const c = FS.compose, h = FS.holdings[0];
+  const c = FS.compose, h = activeHolding(FS);
   const pin = io.pinned();
   const env = FS.provinces.get(`${c.origin.p},${c.origin.q}`);
   const m = { season: FS.season, nowBell: nowBell(), resolvedNext: env?.province.resolvedNext ?? null, province: env?.province ?? null, now: now(), holding: h, host: c.host, dest: c.dest, route: c.route,
@@ -417,7 +560,7 @@ async function sendTheMarch() {
 
 // ------------------------------------------------------------------ settlement (settle shapes: no authority signer, charged to the requester)
 async function settleExplore() {
-  const h = FS.holdings[0], rec = h.explore;
+  const h = activeHolding(FS), rec = h.explore;
   const region = regionOf(rec.p, rec.q);
   const r = await herald.bellRegion(rec.bell, region);
   const A = io.pinned().addresses;
@@ -437,7 +580,7 @@ async function settleExplore() {
  * mask and the fate come from the arrival bell's own envelope (decoded
  * `campMask`, ABI v1.8); the herald's clash report bytes are the fallback. The Holding's owner Citizen, or null.
  */
-export async function campCitizenOf(m, hostId, { heraldClient = herald, holding = FS.holdings?.[0], faction = FS.citizen?.faction } = {}) {
+export async function campCitizenOf(m, hostId, { heraldClient = herald, holding = activeHolding(FS), faction = FS.citizen?.faction } = {}) {
   const ci = m.env?.inputs;
   if (!ci || !m.dest || !m.transit || !holding || !Number.isInteger(faction)) return null;
   const k = [0, 1, 2, 3].find(i => { const r = ci.arrivals?.[faction * 4 + i]; return r?.present === 1 && String(r.hostId) === String(hostId); });
@@ -457,7 +600,7 @@ export async function campCitizenOf(m, hostId, { heraldClient = herald, holding 
 
 async function settleTransit(hostId) {
   const m = (FS.marches ?? []).find(x => String(x.entry?.host) === String(hostId));
-  const h = FS.holdings[0];
+  const h = activeHolding(FS);
   if (!m?.entry?.seal_b64 || !m.transit) return failed({ code: 'TransitState' });
   const seal = fromBase64(m.entry.seal_b64);
   const commit = Uint8Array.from(m.entry.commit_hex.match(/../g).map(x => parseInt(x, 16)));
@@ -511,34 +654,33 @@ export const ACTIONS = {
     if (m.ok) { FS.sessionProblem = null; return invalidate('panel'); }
     return act('SetSession', { fields: { session: s.publicKeyBytes, expiry: BigInt(Math.floor(now()) + SESSION_DAYS - 600) } });
   },
-  'pick-province': async d => {
-    const env = await herald.province(num(d.p), num(d.q));
-    FS.joinDraft = { ...(FS.joinDraft ?? {}), envelope: env.ok ? env : null };
-    invalidate('panel');
-  },
-  'toggle-site': d => {
-    const s = { p: num(d.p), q: num(d.q), site: num(d.site) };
-    const list = FS.joinDraft?.sites ?? [];
-    const i = list.findIndex(x => x.p === s.p && x.q === s.q && x.site === s.site);
-    FS.joinDraft = { ...FS.joinDraft, sites: i >= 0 ? list.filter((_, j) => j !== i) : list.length < 3 ? [...list, s] : list };
-    invalidate('panel');
-  },
-  'file-ticket': () => fileTicket(FS.joinDraft?.sites ?? []),
-  refile: () => fileTicket(FS.ui?.lastTicket ?? []),
-  harvest: () => act('Harvest', { v: { holding: FS.holdings[0] } }),
-  build: d => act('Build', { v: { holding: FS.holdings[0], item: num(d.item) }, fields: { item: num(d.item) } }),
+  // the site picker is gone (owner decision V2): the client files the ticket itself; a retry now
+  'auto-ticket': () => autoTicket({ force: true }),
+  harvest: () => act('Harvest', { v: { holding: activeHolding(FS) } }),
+  build: d => act('Build', { v: { holding: activeHolding(FS), item: num(d.item) }, fields: { item: num(d.item) } }),
   // W6-D: re-read soon after the keeper was asked (the next poll could be 30 s away, past the window the catch-up opens).
-  nudge: () => { const h = FS.holdings[0], env = FS.provinces.get(`${h.p},${h.q}`); return io.nudge(h.p, h.q, env?.province.resolvedNext ?? nowBell()).then(r => { refreshSoon(4000); return r.ok ? done(() => L`キーパーに追いつくよう頼みました`) : failed(r); }); },
-  dissolve: d => { const r = hostRow(d.host); return act('Dissolve', { v: { holding: FS.holdings[0], province: r ? { p: r.p, q: r.q } : null }, fields: { host_id: BigInt(d.host) } }); },
+  nudge: () => { const h = activeHolding(FS), env = FS.provinces.get(`${h.p},${h.q}`); return io.nudge(h.p, h.q, env?.province.resolvedNext ?? nowBell()).then(r => { refreshSoon(4000); return r.ok ? done(() => L`キーパーに追いつくよう頼みました`) : failed(r); }); },
+  dissolve: d => { const r = hostRow(d.host); return act('Dissolve', { v: { holding: activeHolding(FS), province: r ? { p: r.p, q: r.q } : null }, fields: { host_id: BigInt(d.host) } }); },
   compose: d => {
     const r = hostRow(d.host);
     if (!r) return;
     const tips = tipOptions(FS.season);
     FS.compose = { host: { ...r.entry, id: r.id, troops: r.troops, tile: r.tile, unit: r.unit }, origin: { p: r.p, q: r.q }, stance: 0, retreat: 'never', ratio: null,
       tip: String(tips[0].lamports), quick: quickDestinations(), dest: null, route: null, arriveBell: arrivalWindow(FS.season, nowBell()).min };
-    FS.tab = 'marches';
-    invalidate('panel', 'tabs');
+    // from the map (the inspector) the march is composed on the map; from the Hosts tab, on the Marches tab
+    if (d.stay !== 'map') FS.tab = 'marches';
+    invalidate('panel', 'tabs', 'map');
   },
+  // the march card (hud/marchcard.mjs): the arrival bell stepper, the stance and the retreat presets
+  'mc-bell': d => {
+    const c = FS.compose;
+    if (!c || !FS.season) return;
+    const w = arrivalWindow(FS.season, nowBell(), c.earliest);
+    c.arriveBell = Math.min(w.max, Math.max(w.min, (c.arriveBell ?? w.min) + (num(d.d) || 0)));
+    invalidate('panel');
+  },
+  'mc-stance': d => { if (FS.compose) { FS.compose.stance = Math.max(0, Math.min(3, num(d.v) || 0)); invalidate('panel'); } },
+  'mc-retreat': d => { if (FS.compose && RETREAT_CHOICES.some(r => r.id === d.v)) { FS.compose.retreat = d.v; invalidate('panel'); } },
   'compose-close': () => { FS.compose = null; invalidate('panel'); },
   'dest-from-map': () => { const s = FS.selected; if (s?.idx !== undefined) return setDestination({ p: s.p, q: s.q, tile: s.idx }); return undefined; },
   'dest-quick': d => setDestination({ p: num(d.p), q: num(d.q), tile: num(d.tile) }),
@@ -547,7 +689,7 @@ export const ACTIONS = {
   'explore-tile': d => { FS.explore.tiles = toggleTile(FS.explore.tiles, num(d.tile)); invalidate('panel'); },
   'explore-send': () => {
     const x = FS.explore;
-    return act('Explore', { v: { holding: FS.holdings[0], province: { p: x.host.p, q: x.host.q } },
+    return act('Explore', { v: { holding: activeHolding(FS), province: { p: x.host.p, q: x.host.q } },
       fields: { host_id: BigInt(x.host.id), n: x.tiles.length, tiles: Uint8Array.of(x.tiles[0], x.tiles[1] ?? 0) }, after: () => { FS.explore = null; } });
   },
   'settle-explore': () => settleExplore(),
@@ -558,9 +700,9 @@ export const ACTIONS = {
 
 /** Form submissions (data-form). */
 export const FORMS = {
-  train: f => act('Train', { v: { holding: FS.holdings[0] }, fields: { unit: formNum(f, 'unit'), n: formNum(f, 'n') } }),
-  muster: f => act('Muster', { v: { holding: FS.holdings[0] }, fields: { unit: formNum(f, 'unit'), troops: formNum(f, 'troops'), tile: FS.holdings[0].tile } }),
-  garrison: f => act('Garrison', { v: { holding: FS.holdings[0] }, fields: { delta: BigInt(Math.trunc(formNum(f, 'delta'))) } }),
+  train: f => act('Train', { v: { holding: activeHolding(FS) }, fields: { unit: formNum(f, 'unit'), n: formNum(f, 'n') } }),
+  muster: f => act('Muster', { v: { holding: activeHolding(FS) }, fields: { unit: formNum(f, 'unit'), troops: formNum(f, 'troops'), tile: activeHolding(FS).tile } }),
+  garrison: f => act('Garrison', { v: { holding: activeHolding(FS) }, fields: { delta: BigInt(Math.trunc(formNum(f, 'delta'))) } }),
   vigil: f => act('SetVigil', { fields: { start_min: Math.max(0, Math.min(23, Math.trunc(formNum(f, 'hour')))) * 60 } }),
   dest: f => setDestination({ p: Math.trunc(formNum(f, 'p')), q: Math.trunc(formNum(f, 'q')), tile: Math.trunc(formNum(f, 'tile')) }),
 };
@@ -579,7 +721,7 @@ export function bind(name, value) {
 }
 
 function hostRow(id) {
-  const h = FS.holdings?.[0];
+  const h = activeHolding(FS);
   if (!h) return null;
   for (const env of FS.provinces.values()) {
     const r = hostsIn(env.province, h, nowBell()).find(x => String(x.id) === String(id));
@@ -588,11 +730,14 @@ function hostRow(id) {
   return null;
 }
 
-async function fileTicket(sites) {
+async function fileTicket(sites, source = null, bell = nowBell()) {
   if (!sites.length) return undefined;
-  saveUiPatch({ lastTicket: sites, ticketSeen: false, lastTicketBell: nowBell() });
-  FS.hadHolding = false;
-  return act('FileTicket', { v: { sites }, fields: { sites } });
+  // the "on its way" lock: written once the transaction left this browser, cleared when the chain says it failed or
+  // expired (review finding 1, re-check major); an unknown outcome keeps it
+  return act('FileTicket', { v: { sites }, fields: { sites },
+    onSent: () => saveLandPatch({ lastTicket: sites, ticketSeen: false, lastTicketBell: bell, ticketSource: source,
+      ...(FS.landRec?.landEnd ? { landEnd: { ...FS.landRec.landEnd, refiled: true } } : {}) }),
+    onLost: () => saveLandPatch({ ticketSeen: true }) });
 }
 
 // ------------------------------------------------------------------ start
@@ -642,6 +787,6 @@ export async function startPlay({ herald: h, cfg }) {
 /** The hidden page's tick: the self-reveal of the marchbook's due marches only. */
 async function revealTick() {
   if (!herald || !FS.clock || !FS.wallet || !(FS.book ?? []).some(e => e.state !== 'settled' && e.state !== 'failed')) return;
-  await refreshMarches(FS.holdings?.[0] ?? null);
+  await refreshMarches(activeHolding(FS) ?? null);
 }
 

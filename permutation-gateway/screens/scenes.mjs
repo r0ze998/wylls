@@ -20,6 +20,13 @@ const gone = (page, text) => page.waitForFunction(t => !document.body.textConten
 
 export const SCENES = [
   {
+    id: 'intro', title: 'title card (first visit)', page: 'index.html', stage: 'holding', intro: true,
+    async go(page) {
+      await page.locator('#intro:not([hidden]) .intro-go').waitFor();
+      await page.waitForTimeout(4600);   // the card's entrance has played
+    },
+  },
+  {
     id: 'join', title: 'join and faction', page: 'index.html', stage: 'none',
     async go(page) {
       await click(page, '[data-act="pick-faction"][data-f="2"]');
@@ -27,11 +34,23 @@ export const SCENES = [
     },
   },
   {
-    id: 'sites', title: 'site picker', page: 'index.html', stage: 'joined',
+    id: 'sites', title: 'first village placed automatically', page: 'index.html', stage: 'joined',
     async go(page) {
-      await click(page, '[data-act="pick-province"]');
-      await click(page, '[data-act="toggle-site"]');
-      await page.locator('[data-act="file-ticket"]:not([disabled])').waitFor();
+      // owner decision V2: no site picker; the page files the ticket itself (the fixture relay refuses, so it shows the retry)
+      await page.locator('#join-sites').waitFor();
+      await page.locator('[data-act="pick-province"], [data-act="toggle-site"], [data-act="file-ticket"]').count().then(n => { if (n) throw new Error(`site picker controls: ${n}`); });
+      // the refusal shows once, on the card, with the retry; the retry files again at once (review findings 1, 11)
+      const posts = [];
+      page.on('request', r => { if (r.method() === 'POST' && r.url().includes('/f/relay')) posts.push(r.url()); });
+      await page.locator('section[aria-labelledby="join-sites"] [role="alert"]').waitFor();
+      await page.locator('[data-act="auto-ticket"]').waitFor();
+      const alerts = await page.locator('[role="alert"]:visible').count();
+      if (alerts !== 1) throw new Error(`${alerts} alerts (one live region expected)`);
+      const before = posts.length;
+      await page.locator('[data-act="auto-ticket"]').click();
+      for (let i = 0; i < 50 && posts.length <= before; i++) await page.waitForTimeout(100);
+      if (posts.length <= before) throw new Error('the retry sent nothing');
+      await page.locator('section[aria-labelledby="join-sites"] [role="alert"]').waitFor();
     },
   },
   {

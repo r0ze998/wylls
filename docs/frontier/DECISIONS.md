@@ -565,6 +565,13 @@ The owner approved all three questions: 「３つとも構わないので進め�
 | CQH3 | Start the Wave-1 close: contract v1.3 amendments, kernels (symmetric keep tile, MC train-cost table, RULESET_HASH_V2 re-pin), simulator (E1 + 10e′ + K2 + size-stress lines), re-derived thresholds, and a full re-run of Gate CQ1, overnight lines included. If the gate is green, Wave 2 follows as planned. Any further regression goes back to the owner. | owner | — |
 | CQH4 | Push of `codex/frontier` (rename, V2 join, design work, herald counters) approved and done at `5ed36fa`. | owner | — |
 
+## V. Owner answers, 2026-10-02 (main session)
+
+| # | Decision | Status | Source |
+|---|---|---|---|
+| V1 | **The game is renamed "Wylls".** Every visible name changes: screens, titles, i18n, docs, README, package descriptions, agent prompts, and the GitHub repo (`r0ze998/permutation-state` → `r0ze998/wylls`). The title is just "Wylls": "The Sixfold Frontier" / 「六重の辺境」 are no longer names. The central building is "the Engine" / 「エンジン」. Kept unchanged: hash and signature domains, seeds, magics, the V5 wallet sign-in text in `session.mjs`, and file, folder, crate and package names. The new game's wallet sign-in text is now "Wylls wants you to create an in-game key." (new seasons). | owner | main session; commits `5c111f4` (main), `fd3f01a` (codex/magicblock-playable), `2c0462f` (codex/frontier), pushed 2026-10-02 |
+| V2 | **Joining = choose one of the six nations, nothing else.** The first village is placed automatically. The client picks up to three free sites in the nation's home wedge (nearest open ring first) and files the site ticket itself. The program, the ticket cohorts and the fair lottery are unchanged. The village appears at the next bell (about 11–21 minutes), as before. The site picker leaves onboarding. Supersedes the "choose where to live" step of DESIGN §6 step 4 and SUMMARY.ja §3 step 3 for the player-facing flow. | owner (UI work: the design chat's files `onboarding.mjs`, `screens/**`, `controller.mjs`) | main session; DESIGN rev 3.2 note |
+
 ## E. Change log
 
 | Version | Date | Change |

@@ -29,6 +29,7 @@ pub mod fixture;
 pub mod fold;
 pub mod overview;
 pub mod records;
+pub mod roster;
 pub mod runner;
 pub mod server;
 pub mod viewers;
