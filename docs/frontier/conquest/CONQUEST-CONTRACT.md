@@ -1,6 +1,6 @@
 # MC "Contested Ground": the conquest milestone's integration contract
 
-**Version v1.2** (2026-10-01, integrator amendment after the Gate CQ1 review, §18 A-1…A-7; v1.1 was the review revision of v1.0, §17 R-01…R-26). v1.2 changes §4.5, §5.2.1, §5.5, §8.4, §8.6, §8.7, §11 and §12's preamble; no rule, floor, preset or owner default changed.
+**Version v1.3** (2026-10-02, the owner package that closes Wave 1, §19 A-8…A-25; owner approval DECISIONS CQ-H, records CQ-I). v1.3 changes §0, §3.1, §3.2, §3.10, §3.13, §3.14, a new §3.16, §5.1, §5.6, §7, §8.5 (V22), §8.6, §8.7, §11, §12 (Gate CQ1), §13.4 and §15: MC rules (the symmetric keep tile, provisional holdings in the Dominion snapshot, the MC train cost and the Knight bound), the criterion-10 floors (10e′), the 28-day floors, the size-stress gates and the best-response ceiling. The M1 rules, the M1 `RULESET_HASH` and every M1 digest are unchanged. v1.2 (2026-10-01, integrator amendment after the Gate CQ1 review, §18 A-1…A-7) changed §4.5, §5.2.1, §5.5, §8.4, §8.6, §8.7, §11 and §12's preamble; v1.1 was the review revision of v1.0, §17 R-01…R-26.
 
 - **Date:** 2026-10-01. **Role:** conquest-milestone (MC) integration architect. **Status:** normative for every MC implementer from the moment the owner accepts it. Owner decisions still open are listed in §15. Each has a working default, and implementers build to it.
 - **Owner decision this implements (2026-10-01):** build the territory contest, the game's core, **before** M2 money, so that the faction map changes through play. Keep "the first holding is never taken" (D9) unless the design check shows the map cannot move enough with it. Everything ends with the season. Money (fees, stakes, payouts) stays in M2. Faction scores are game points. Governance (Ministers, War decrees, March truce and hostility votes) is M3, so MC runs on stated defaults.
@@ -27,7 +27,7 @@
 ## 0. The contract in one page
 
 1. **The faction map moves through captured keeps.** Every province from ring 2 outward gets one **keep**: a fort on a fixed non-site tile, owned by a faction and by no wallet. A keep changes hands when a hostile faction holds its hex for **72 bells (12 h)** with no defender of the keep's faction on it. **The map colour of a province is its keep's holder; a March's banner is the faction holding more than half of its open keeps.** This is the one rule the labs show moves the map with D9 kept, without a snowball, with the doctrine band intact (6/6) and with the bot criterion unchanged (§3.2).
-   **What to expect (v1.1, R-12):** movement happens mostly on the borders and goes back and forth (about 40% of captured keeps return to the previous holder within 3 days); faction shares stay at about 15–20% of provinces; heartland interiors never change [sim]. Keeps pay nothing yet, so human players have no built-in reason to take them; bots do because they are programmed to (R-10, OD-14).
+   **What to expect (v1.1, R-12; measured numbers in v1.3, A-23):** movement happens mostly on the borders; heartland interiors never change [sim]. v1.1's two estimates did not hold in Wave 1's measurement: **a captured keep is re-taken within 3 days in about 3% of cases at 7 days (p50 2.8% in Wave 1 and 2.7% with the v1.3 package [P1], `--bot-profile cq`; 0.9% when the taking faction's other hosts stay, CQ1-B D-8), not about 40%** (29% at 10k / 28 days); and faction shares stay at about 15–20% of provinces only for equal factions: **a faction three times the size of the others ends at 22–23.5% (p50) at 7 days, not 18–21%** (20.2% p50 at 28 days) [sim]. Keeps pay nothing yet, so human players have no built-in reason to take them; bots do because they are programmed to (R-10, OD-14).
 2. **The holding contest is built too, with D9 kept.** I-17's exclusions are lifted:
    - holdings 2–3 as **outposts** (site tickets at the front);
    - **sieges** declared from the hex by the hex's **lead host** (§3.4);
@@ -157,7 +157,7 @@
 | Term | Meaning |
 |---|---|
 | **keep** | One per province of ring ≥ 2. A faction-held fort on the province's keep tile. Owned by no wallet. Fights as a garrison (walls on, retaliates only). |
-| **keep tile** | `keep::keep_tile(terrain, sites)`: the lowest-index passable tile that is not a site tile. The terrain carve makes it reachable from every gate and site (DESIGN §3.2). |
+| **keep tile** | **v1.3 (A-8, PO-5): `keep::keep_tile_symmetric(terrain, sites, site_count, wedge)`**, the same tile in every wedge: scan the canonical (wedge-0) tile indices in order, turn each into the province's wedge (`wedge mod 6` sixths), and take the first that is passable and not a site tile. It is the wedge-0 keep turned into the wedge, and equals `keep::keep_tile` in wedge 0. The terrain carve makes it reachable from every gate and site (DESIGN §3.2). v1.1's `keep::keep_tile(terrain, sites, site_count)` (the lowest-index passable non-site tile in world order) stays in the kernel for the record but is no longer the MC rule: it put the keep in the same world direction in every province, so in 5,400 of 6,480 sampled provinces the wedges differed (CQ1-A finding 1). |
 | **holder** | A keep's faction (0–5). |
 | **contender** | The hostile faction currently counting progress on a keep. |
 | **province control** | The keep's holder. Rings 0–1 have no keep: the Concord shows *neutral*, a Seat province shows its seat faction and is flagged *seat*. |
@@ -174,7 +174,7 @@
 
 **Opening (OpenProvince):**
 
-- Each ring ≥ 2 province gets its keep at genesis or ring opening.
+- Each ring ≥ 2 province gets its keep at genesis or ring opening, on `keep::keep_tile_symmetric(terrain, sites, site_count, wedge)` with the province's wedge (v1.3, A-8; §3.1).
 - It is held by the province's wedge faction, with `keep_home_guard` troops (default **100**).
 - It carries flag `heartland_safe` when the province is in its holder's heartland. A heartland keep can never be contested in MC: progress never counts there.
 
@@ -371,9 +371,10 @@ M3 plugs in by changing these inputs (`relation(f, g)`, March flags, the heartla
 ### 3.10 Dominion, standings and Herald's Call (game points)
 
 - **Hourly snapshot.** At every bell `b = 6h`, inside that bell's resolve or skip, each Province writes `snap[h mod 6] = {h, weight[7]}`. `weight` is in centi-strength-weight units per side (factions 0–5, neutral 6):
-  - each final holding: `floor(laurel::strength_weight(tier at b, committed garrison at bell_start(b), order − 1) / 10,000)`;
+  - each holding in site state 1, **provisional included** (v1.3, A-9, PO-7): `floor(laurel::strength_weight(tier at b, committed garrison at bell_start(b), order − 1) / 10,000)`;
   - the side is the occupier's faction while occupied, the mirror faction otherwise (dormant included), neutral for a Free City.
-  - Provisional, free and released sites add nothing.
+  - Free and released sites add nothing.
+  - **Why provisional holdings count (v1.3):** finality is a Holding fact (`final_ts` and the ticket cohort) that M1's lazy flip writes only when an instruction carries the Province, so a Province-side bit would lag it, and the v2 site mirror has no free byte. The snapshot therefore reads the site state alone, as `conquest_model` already did (CQ1-C D-10). A holding is provisional for at most about 24 bells after it is won, the same for every faction. No layout changes. The per-capita denominator below ("active members", citizens with a final holding) is unchanged.
 - **FoldMarch(m, h)** combines the seven members' hour-h samples in strict hour order:
   - controller = the side with `2·w ≥ Σw` **and strictly more than every other side**; otherwise contested;
   - the controller faction gets `dominion_per_hour` (**6**) control-bells and one control-hour;
@@ -456,7 +457,8 @@ M3 plugs in by changing these inputs (`relation(f, g)`, March flags, the heartla
   - overnight, the 1,500-season band.
 
   A change that keeps every constant but changes an algorithm MUST bump.
-- **Thresholds freeze at Gate CQ1** (`frontier-sim/thresholds/mc-7d-1k.json`). Changing them later is an amendment with a reason, never a tuning step on the stack.
+- **v1.3 (A-10): the Wave-1 close is such a change, made before Gate CQ1 closes.** The symmetric keep tile (§3.1), the MC train-cost table and the Knight bound (§3.16) change MC outcomes. Each kernel that carries one gets a bumped version **in the v2 version list only** (`KERNEL_VERSIONS_V2`: `keep` 1 → 2, `catalog` 1 → 2 as `CATALOG_VERSION_V2`, `doctrine` 1 → 2 as `DOCTRINE_VERSION_V2`; `W1C-A-kernels-NOTES.md`), the v2 tables join `ruleset_hash_input_v2()` (after the conquest constants: the tag `MC-TABLES-v1`, the train table and the Knight bound), and **`RULESET_HASH_V2` is re-pinned once** (`1607f62f…2a5a` → the value the integrator records after the merge in the integration notes and DECISIONS CQ-I; the kernels unit's branch pins `b6dd0f3f…8274`). The v1 version list, `ruleset_hash_input()`, M1's `RULESET_HASH` (`72c6b583…4bd9`) and every M1 digest stay bit-identical. All four re-runs above are part of the re-run of Gate CQ1 (§12).
+- **Thresholds freeze at Gate CQ1** (`frontier-sim/thresholds/mc-7d-1k.json`, `mc-28d-10k.json`). **v1.3:** both files are re-derived by their defining commands on the v1.3 simulator (the E1 planner, 10e′, K2 and the symmetric keep tile) with the v1.3 floors of §13.4 and §8.7, and they freeze when the re-run Gate CQ1 is green. Changing them later is an amendment with a reason, never a tuning step on the stack.
 
 ### 3.14 Pinned constants not in SeasonParams
 
@@ -472,6 +474,10 @@ M3 plugs in by changing these inputs (`relation(f, g)`, March flags, the heartla
 | Strict majority | `2·w ≥ Σ` and strictly ahead | control |
 | Banner | `2 × held > open keeps` | control |
 | Lasting change (criterion 10) | ≥ 6 bells | control (`lasting_changes`) |
+| Keep tile rule (v1.3, A-8) | `keep_tile_symmetric` with the province's wedge (§3.1); the same tile in every wedge | keep |
+| Snapshot holdings (v1.3, A-9) | every holding in site state 1, provisional included (§3.10) | control |
+| MC train cost (v1.3, A-11, K2) | the v2 train-cost table of §3.16: a Horseman pays the Spearman's ore and gold (no unit-variant surcharge); every other unit as M1's `catalog::train` | catalog |
+| Knight bound (v1.3, A-12) | an MC doctrine table may not field the Knight line (§3.16) | doctrine |
 | `SETTLER_COST`, `STARTER_KIT`, tier weights, `garrison_factor_bps` | unchanged | catalog / laurel |
 
 ### 3.15 Site-state invariants (v1.1, R-07)
@@ -487,6 +493,21 @@ Every one is a program check, a P12 property (§13.3) and a verifier rule (V22):
 | S5 | A stake owed to a site's Holding is paid only to that Holding at `owed_gen`; any other generation burns it. A stake owed to `src` names a generation in its host-id form. | SettleSiege |
 | S6 | Every change of a site's owner (capture completion, SettleTicket, ReleaseDormant) leaves no kind-0 bits of the previous owner except the post-capture immunity the change itself writes. | the three writers |
 | S7 | No raze state exists; CloseHolding is M1's (after a release only). | §3.6 |
+
+### 3.16 Doctrines and the MC train cost (v1.3, A-11, A-12; PO-2, K2)
+
+- **The doctrine table is M1's, unchanged** (`doctrine::DOCTRINES`): A, C, D and E field the Spearman line; B and F the Horseman line (F with `variant_bps` × 1.10).
+- **Why MC changes a cost.** MC marches about 5× as much as M1. In the simulator the cavalry doctrines pay the unit-variant surcharge (the ore and gold a Horseman costs above a Spearman) on every march, and under MC B and F fell to about 11% win rate against the 16.7 ± 2 band: CI proxy 3/6, overnight 2/6 (`integ-CQ1-NOTES.md` §4.8). Changing the holding-contest economics did not restore the band at any stake level, and switching outposts off broke the bot criterion (1.068) (E4).
+- **K2, the MC train cost.** In an MC season, Train (0x42) prices troops with the **v2 train-cost table** `catalog::train_v2(unit, n)`:
+  - food as `catalog::train`;
+  - **Horseman: ore and gold at the Spearman's rate** (`pc = 6`: ore `⌊20 k × 6 / 6⌋`, gold `⌊10 k × 6 / 6⌋` with `k = ⌈n / 100⌉`), so B and F pay no unit-variant surcharge;
+  - **every other unit exactly as `catalog::train`**: the Knight keeps its full cost (`pc` 16), and so do the Archer, Pikeman, Crossbowman and Scout.
+
+  M1 seasons keep `catalog::train`, so the M1 rules and digests are unchanged. Only Train's cost changes: Depart, Muster and every march cost are as before. The simulator charges at each march what the chain charges at Train (`catalog::train`'s doc), so under `--rules mc` it charges a doctrine unit's march the v2 table's surcharge (`catalog::variant_surcharge_v2`: 0 for every line of the season table, so B and F march like A; §8.7 item 5); `--rules m1` is unchanged.
+- **The Knight bound.** `doctrine::validate_table_v2(t)` is `validate_table(t)` plus a refusal of any doctrine on a line of `bounds::REFUSED_LINES_V2 = [Knight]` (new variant `DoctrineError::RefusedLine`; an M1 refusal still comes first): **no MC doctrine table may field the Knight line.** The season table passes unchanged. With the Knight's train cost kept, a direct `Train(Knight, n)` (Train accepts any unit 0–6 whatever the faction's doctrine) is never priced below M1. The doctrine gate's Knight control stays a simulator control and must still be rejected (§12).
+- **Evidence:** CI proxy 6/6, max |Δ index| 0.100% (baseline 3/6) [C]; the overnight 1,500-season band 6/6 on seeds 10000, 20000 and 30000, and E4's independent implementation gives the identical table [C]; seeds 40000 6/6 with B at 14.8% (the band edge is 14.67%) [C]; with the symmetric keep tile, overnight 6/6, max |Δ| 0.102%, and all three doctrine controls rejected [P1] (OWNER-OPTIONS-W1 PO-2). Charging the surcharge at Train only and keeping it (the chain-faithful model of the v1.2 cost) gives 2/6 [C].
+- **Off-chain, by version (R-22):** every re-computation of a Train cost dispatches on the season: `catalog::train_v2` for an MC season, `catalog::train` for an M1 season. This covers the verifier's Train replay (`crates/verify/src/holding.rs` calls `catalog::train` today; CQ3-A), `fclient` and the bots' affordability checks (CQ2-D, CQ2-F), and any cost the WASM or the SDK shows (CQ3-D, CQ3-C). The M1 fixtures keep the v1 path.
+- **Player-visible:** in an MC season a cavalry doctrine's troops cost the same ore and gold as a Spearman's. The join-page text (CQ4-E) states it.
 
 ---
 
@@ -603,7 +624,7 @@ MC's only map-module change is the fill and sigil source in `map/layers.mjs` (§
   - no v1 offset, tag, error or log kind changes meaning;
   - v2 chained headers write `layout_version = 2`. **v1.1 (R-22): readers dispatch on the version.** `fclient`, the herald and the verifier read v1 and v2: a Season's `program_version` and every account's `layout_version` pick the decoders and the checks (an M1 season: V1–V13 with v1 decoders; an MC season: V1–V22). The M1 fixtures in `frontier-node/fixtures/verify/` (15 MB: `land-program`, `march-program*`, `w6s7-*`) stay as **v1 regression inputs** and are never re-recorded; T1–T24 keep running on them. The v2 program itself refuses v1 accounts (`RulesetMismatch`), as before;
   - new numbers: tags 0xA0–0xA7 (0xA8–0xAF reserved), errors 62–78, log kinds 80–89, entity kind 8 (MarchState), seed tag `mc`.
-- **Staged (v1.1, R-16).** Wave 1 is additive: `frontier_abi::v2::*` (layouts, tags, errors, logs, `Ix::ALL_V2`, `AccountKind` v2 additions, `RULESET_HASH_V2`, `ruleset_hash_input_v2()`), kernel additions under new names (`geometry::is_heartland_in(p, f, max_ring)`, `clash::MAX_GARRISONS_WITH_KEEP`, `siege` v3 functions beside v2), and every v1 name keeps its value. So M1's `RULESET_HASH`, `Ix::ALL`, the fclient twin tests, the JS vectors and the WASM hash are unchanged at Gate CQ1. Wave 2 switches the program, `fclient` (its twin tests compare v2 too), keeper, herald and bots; Wave 3 switches the web, SDK, WASM and verifier. v1 names are never removed (the M1 record).
+- **Staged (v1.1, R-16).** Wave 1 is additive: `frontier_abi::v2::*` (layouts, tags, errors, logs, `Ix::ALL_V2`, `AccountKind` v2 additions, `RULESET_HASH_V2`, `ruleset_hash_input_v2()`), kernel additions under new names (`geometry::is_heartland_in(p, f, max_ring)`, `clash::MAX_GARRISONS_WITH_KEEP`, `siege` v3 functions beside v2), and every v1 name keeps its value. So M1's `RULESET_HASH`, `Ix::ALL`, the fclient twin tests and the JS vectors are unchanged at Gate CQ1. **v1.3 (A-13, PO-6): the v1 WASM artefact is the one exception.** Its bytes changed in Wave 1 (205,623 → 205,686 B: it links the shared clash and camp code and `frontier-abi`'s v1 modules, a code-layout change), and the owner accepted them as **behaviour-identical**: `frontier-wasm/vectors/wasm-vectors.json` (one recorded call per export) stays byte-identical, and `web-frontier-wasm.test.mjs` replays every recorded answer through the new artefact. Every other v1 generated output stays byte-identical. A later change that moves the v1 WASM bytes again is accepted on the same two conditions only. Wave 2 switches the program, `fclient` (its twin tests compare v2 too), keeper, herald and bots; Wave 3 switches the web, SDK, WASM and verifier. v1 names are never removed (the M1 record).
 - **Per season, never in place.**
   - The program crate on `codex/frontier` becomes the v2 program after Wave 2. It embeds the new `RULESET_HASH` and refuses any other Season.
   - v1 accounts are never migrated.
@@ -970,12 +991,12 @@ Common rules (M1 §5.6):
 |---|---|---|
 | 0x01 | CreateSeason | `program_version = 2`; SeasonParams v2 validated (§5.2.5) |
 | 0x20 | OpenRing | fund check `d × rent(4,736)` |
-| 0x22 | OpenProvince | writes the keep (`keep::open(P, Q, wedge, ring, terrain, sites, params)`); for `ring ≥ free_city_min_ring`, places the genesis Free City (state 5, garrison, Hamlet, `held_since_hour = 0`, permanent); the camp never on the keep tile; logs `KEEP` (placed) and `NEUTRAL` |
+| 0x22 | OpenProvince | writes the keep (`keep::open(P, Q, wedge, ring, terrain, sites, params)`) **on `keep::keep_tile_symmetric(terrain, sites, site_count, wedge)`** (v1.3, A-8); for `ring ≥ free_city_min_ring`, places the genesis Free City (state 5, garrison, Hamlet, `held_since_hour = 0`, permanent); the camp never on the keep tile; logs `KEEP` (placed) and `NEUTRAL` |
 | 0x23 | FoldOccupancy | adds `extra_holdings` |
 | 0x33 / 0x34 | FileTicket / SettleTicket | SettleTicket reads the ticket's slot from `slots`: slot 2–3 founds an outpost (Citizen `holding[slot − 1]`, JoinShard `extra_holdings`, `outposts`), sets the mirror's `held_since_hour`, asserts a zero record (S1); log `OUTPOST_SETTLED` beside `SETTLE`; FileTicket refuses while an outpost ticket is open (`TransitState`); FileTicket and FileOutpost refuse a site whose record is not zero (`SiegeBusy`) |
 | 0x35 | ReleaseDormant | as M1 (site → released-free, state 3); uses `dormant_after_secs` / `release_after_secs`; **v1.1:** refuses `SiegeBusy` / `StakeUnsettled` while the record is kind 1–3 or owes anything (S3), and zeroes the record |
 | 0x36 | CloseHolding | as M1 |
-| 0x40–0x46, 0x50 | Harvest, Build, Train, Muster, Dissolve, Garrison, Explore, Depart | **capture lock:** refuse `CapturePending` when `mirror.gen ≠ holding.gen` and `capture_flags == 0`; Harvest, Build and Train gain `[province r]` (Build tier-up: `w`, writes `tier_next`, `tier_next_bell = bell_at(done_at) + 1`) |
+| 0x40–0x46, 0x50 | Harvest, Build, Train, Muster, Dissolve, Garrison, Explore, Depart | **capture lock:** refuse `CapturePending` when `mirror.gen ≠ holding.gen` and `capture_flags == 0`; Harvest, Build and Train gain `[province r]` (Build tier-up: `w`, writes `tier_next`, `tier_next_bell = bell_at(done_at) + 1`); **v1.3 (A-11): Train pays `catalog::train_v2(unit, n)` (§3.16)** |
 | 0x51 | Reveal | step 6: a site in state 5 is an allowed destination from a shielded holding (keeps already are: non-site tiles) |
 | 0x52 | SettleDeparture (+ return settle) | accepts `id.gen == prev_gen` on a captured Holding; a retire Leave credits `prev_home` |
 | 0x54 | SettleTransit | as 0x52; **mandatory `[prev_home_holding w]` at a fixed position when `holding.gen ≠ id.gen`**; bonds already refunded at capture are not paid twice (flag) |
@@ -1074,7 +1095,10 @@ pub struct Keep { pub tile: u8, pub holder: u8, pub contender: u8, pub progress:
                   pub heartland_safe: bool, pub paused: bool, pub changes: u16, pub troops: u32,
                   pub since_bell: u32, pub consolidated_until_bell: u32, pub contest_from_bell: u32,
                   pub gen: u32, pub last_taken_from: u8 }
-pub fn keep_tile(terrain: &[u8; 61], sites: &[u8], site_count: u8) -> Option<u8>;
+pub fn keep_tile(terrain: &[u8; 61], sites: &[u8], site_count: u8) -> Option<u8>;              // v1.1 rule, kept for the record
+/// v1.3 (A-8, PO-5): the MC keep tile. The canonical (wedge-0) indices in order, each turned into `wedge mod 6`;
+/// the first passable non-site tile. Equals `keep_tile` in wedge 0; the same tile relative to the wedge everywhere.
+pub fn keep_tile_symmetric(terrain: &[u8; 61], sites: &[u8], site_count: u8, wedge: u8) -> Option<u8>;
 pub fn open(p: ProvinceCoord, wedge: u8, heartland_max_ring: u8, tile: u8, prm: &KeepParams, bell: u32) -> Option<Keep>; // None for rings 0–1
 pub fn garrison(k: &Keep) -> Result<clash::Garrison, KeepError>; // id u64::MAX − 0x1_0000 − gen, walls on, Hold; TroopsAboveCap if > MAX_HOST_TROOPS
 pub struct KeepReport { pub holders: u8, pub defender_present: bool }
@@ -1122,7 +1146,16 @@ pub struct LifecycleParams { pub shield_secs: i64, pub shield_late_secs: i64, pu
 // clash.rs (CLASH_VERSION 4): MAX_GARRISONS stays 12; MAX_GARRISONS_WITH_KEEP = 13 for validate;
 //                             the camp joins only while fewer than 12 site garrisons stand (unchanged)
 // siege.rs: v3 additions beside the v2 API; the program's vigil path (proc/citizen.rs) keeps compiling
+
+// v1.3 (A-11, A-12; §3.16): additive too; `catalog::train` and `doctrine::validate_table` keep their behaviour.
+// catalog.rs: the MC train-cost table (its version and table bytes join `ruleset_hash_input_v2` only)
+pub const TRAIN_PROD_COST_V2: [i64; 7] = [6, 7, 6, 12, 14, 16, 10];   // unit ids 0..=6: only the Horseman (2) drops from 9 to 6
+pub fn train_v2(unit: u8, n: u32) -> Option<Cost>;   // as train(unit, n) with TRAIN_PROD_COST_V2; Horseman = Spearman, every other unit == train
+// doctrine.rs: the Knight bound for MC tables
+pub fn validate_table_v2(t: &[Doctrine; 6]) -> Result<(), DoctrineError>;   // validate_table, then Err(RefusedLine) for a line in REFUSED_LINES_V2 = [Knight]
 ```
+
+**v1.3 names:** these signatures are what the contract pins. If the kernels unit of the Wave-1 close (`frontier/cq-w1c-kernels`) lands a different name or shape, its notes say so and the integrator reconciles this section by amendment in the same window; the behaviour of §3.1, §3.16 and §3.10 is what binds.
 
 **Reachable-state test (v1.1, R-01):** `cq_keep_states_validate` builds keeps from every handoff the kernel can produce (up to six 30,000-troop capturers on the tile, `MIN_HOST_TROOPS` remainders, home guards up to the CreateSeason maximum) and asserts `clash::validate` accepts the province's input with that keep and 12 Free City or site garrisons.
 
@@ -1313,7 +1346,7 @@ Every event names the PS2 record it comes from (`sig`, `seq`). `province_control
 | V19 | **Control and folds:** each snapshot equals `control` over the replayed state at bell 6h; each MARCH_FOLD equals the fold over the stamped snapshots (lost hours only when a slot really moved past); per-faction Dominion = Σ of credited captures and control-bells | `SnapshotMismatch`, `MarchFoldMismatch`, `CaptureCreditMismatch` |
 | V20 | **Season end:** no completion, keep capture or occupation start at or after `end_bell`; every lapsed siege's stake returned and slot released; no outpost filed at or after `end_bell − 24` | **`CompletionAfterEnd`**, `SiegeNotSettled`, `OutpostAfterClose` |
 | V21 | (optional `--herald-dir`; FAIL in the stack) every `PSFCT1`, `PSFOV2`, `conquest/{day}.json`, **`sieges/{bell}.json`, `PSFSD1`, `standings/players.json`, `call/{day}.json`** and `final.json` equals the verifier's recompute (v1.1: bots and players act on the sieges, standings and call files) | `HeraldControlMismatch` |
-| V22 | (v1.1) **Land and neutral legality:** every FileOutpost and order-2/3 SettleTicket re-judged (ring > `heartland_max_ring`, range 3 from a named final holding, Town prerequisite, share < 50% at filing, the 20% land gate, the free slot, settler-cost escrow and refund); every genesis Free City placed on `terrain::free_city_site` with `free_city_garrison`, Hamlet, walls 0; every keep opened on `keep_tile` with the wedge holder, `keep_home_guard` and the right heartland flag; the site-state invariants S1–S6 (§3.15) after every instruction | `OutpostIllegal`, `NeutralMismatch`, `KeepPlacement`, `SiteStateBroken` |
+| V22 | (v1.1) **Land and neutral legality:** every FileOutpost and order-2/3 SettleTicket re-judged (ring > `heartland_max_ring`, range 3 from a named final holding, Town prerequisite, share < 50% at filing, the 20% land gate, the free slot, settler-cost escrow and refund); every genesis Free City placed on `terrain::free_city_site` with `free_city_garrison`, Hamlet, walls 0; every keep opened on `keep_tile_symmetric` (v1.3, A-8) with the wedge holder, `keep_home_guard` and the right heartland flag; the site-state invariants S1–S6 (§3.15) after every instruction | `OutpostIllegal`, `NeutralMismatch`, `KeepPlacement`, `SiteStateBroken` |
 
 V1–V13 are unchanged. V7's quiet check also refuses a SkipQuiet over a bell where a siege or keep hex had hostile residents and a live garrison (never quiet). **v1.1 (R-22):** the verifier dispatches on the Season's `program_version`: an M1 season runs V1–V13 with v1 decoders (the recorded M1 fixtures stay valid inputs), an MC season V1–V22.
 
@@ -1374,6 +1407,12 @@ V1–V13 are unchanged. V7's quiet check also refuses a SkipQuiet over a bell wh
   - enemy holdings 2–3 and first holdings outside heartlands;
   - Free Cities.
 - **Up to `⌈members / 40⌉` campaigns** with hysteresis: keep a campaign until it is won, has failed twice, or its target is illegal.
+- **v1.3 (A-14, PO-1 (a), the E1 planner; measured on `exp/cq-e1-planner` 18962c7):**
+  - **Occupation slot:** `occ_slots` = **1** campaign per faction is kept for a first holding to occupy: a target that passes the planner's existing legality filter (`may_besiege` v3: outside every heartland, not shielded, not Frontier-protected; a free record; completable at plan time, A-6), the weakest defence first. It is filled before the holding slot; the holding slot and the keep campaigns follow as before. (Without it the plan never picks a home: by value ÷ defence a home, value 1.0 with a grown garrison, never outranks an outpost or a Free City.)
+  - **Hold rule:** each host of an occupation strike gets the retreat order `retreat_bps = clamp(10,000 × group / own, 6,667, 60,000)` (`group` = the strike's troops, `own` = the host's; 60,000 = `clash::RETREAT_MAX_BPS`): it withdraws on arrival only when the frozen defence on the hex outweighs the whole group, never below M1's 2/3 rule.
+  - **Rally stay:** a Rally host that arrives on a target's hex stays while the strike is pending or the target's MC siege is live. This also fixes a simulator defect: under MC the clash read the M1 siege record, which MC never sets, and sent every arriving Rally host home. The fix applies to every policy under `--rules mc` (P1's `--planner stay=2`).
+  - Cost: Departs per bot-day 0.158 → 0.177 (+5 to +12%) under `--bot-profile cq` [C]; the bot-activity gate (§8.8) reads the re-derived rates.
+  - **CQ2-F ports these three additions** with the plan-time `TooLate` check (A-6) and D-6/D-7, and §8.7 item 6's field-equality test covers the occupation slot's ranking and the hold rule's `retreat_bps` (A-21).
 - **Assignment:** members within one march (≤ 3 provinces) ranked by spare troops; assault group and reserve; **one common arrival bell** (`muster_bell`, clamped to `end_bell − 1`).
 - **Defence:** hosts that can arrive before 25% progress go to a contested keep or besieged hex; the levy (Train + Muster) on a besieged own holding.
 - **Boldness margin per archetype:** very skilled 1.3, skilled 1.5, daily 2.0, casual 3.0, idle never. These are pinned by the simulator gate, not tuned on the stack.
@@ -1424,21 +1463,28 @@ V1–V13 are unchanged. V7's quiet check also refuses a SkipQuiet over a bell wh
    - `mc` = §3 exactly, calling the real `keep`, `control`, `siege` v3 and `holding` v3 kernels.
    - The launch-floor fix lands under `mc`: a siege host is at least `MIN_HOST_TROOPS`; 87% of legal sieges were silently dropped [sim].
    - The dormant and Free City inputs of `control` also land under `mc`.
+   - **v1.3 (A-15): the owner package is the default `mc` behaviour, on the real kernels, not a set of flags.** Under `--rules mc` the simulator places keeps with `keep::keep_tile_symmetric` (§3.1), prices doctrine troops by K2 (§3.16: no unit-variant surcharge on the doctrine units' marches), runs the E1 planner (§8.6: occupation slot, hold rule) and the rally-stay fix for every policy. The experiment knobs (`--e3`, `--planner`, `--keep-sym`, `--alt-10e`, `--floor`, `--drop`) are not ported; any switch kept for attribution defaults to the package and is never used by a gate line. `--rules m1` is unchanged (every M1 digest and gate).
 2. **`--days N`**: join days clamp to `min(21, N − 1)`; the 7-day schedule joins 60% on day 0 and the rest over days 1–5.
 3. **`frontier-sim mapmove`**: prints criterion 10's metrics (§13.4) per seed and their p10, p50 and p90, computed with `control::lasting_changes` and `march_banner` from per-bell control series.
    - `--json <file>` writes them; `--check <file>` refuses drift.
-4. **`frontier-sim mapmove-gate`**: PASS when every criterion-10 metric meets its threshold on ≥ 4 of 5 seeds. `--controls` adds two negative controls, both of which MUST FAIL:
+4. **`frontier-sim mapmove-gate`**: PASS when every criterion-10 metric meets its threshold on ≥ 4 of 5 seeds (every seed when 4 seeds run). `--controls` adds two negative controls, both of which MUST FAIL:
    - `--rules m1 --policy lone`;
    - `--rules mc-weightmap --policy campaign`, the holding-weight map without keeps.
 
-   The 10k / 28-day gate (`thresholds/mc-28d-10k.json`, balance lab §8):
-   - ≥ 5 March banner changes a day;
-   - ≥ 15% of Marches changing hands;
+   **v1.3 (A-16):** the gated 7-day figures are §13.4's v1.3 table: **10e′ replaces 10e** (`Metrics::net_movement_open`, E2's definition, §13.4), and the old 10e (P₂ from bell 287) is printed beside it, not gated. The occupation and liberation floors stay on the bot row (`--bot-profile cq`).
+
+   The 10k / 28-day gate (`thresholds/mc-28d-10k.json`, balance lab §8; **floors v1.3, A-17, PO-3**):
+   - ≥ **3.5** March banner changes a day (v1.2: 5);
+   - ≥ **10%** of Marches with ≥ 2 banners (v1.2: 15%);
    - largest faction ≤ 22% and smallest ≥ 12% of provinces at the end;
    - ≤ 30% of days without a banner change.
+
+   **It runs with `--controls`** (v1.3): both negative controls MUST FAIL it. The banner-change floor alone does not always reject the `mc-weightmap` control (up to 5.21 a day); the Marches floor does (the control's best seed 0.046) [C, P1].
+   **Size stress (v1.3, A-18, PO-4; no rules change):** `mapmove --sizes … --check-leader-max 0.22` passes when faction 0 (the large one) ends at ≤ 22% of controlled provinces on ≥ 8 of 10 seeds. Gated: **2:1:1:1:1:1 at 7 days** (campaign, the human mix and `--bot-profile cq`) and **2:1 and 3:1 at 10k / 28 days** (campaign, overnight). **3:1 at 7 days is reported**, not gated. The exact lines are §12's.
 5. **Doctrine and criterion** re-runs with `--rules mc`: the CI proxy (`doctrine-gate --set kernel --rules mc --controls`), the 1,500-season band overnight (`doctrines … --rules mc --gate`, 6/6), and `criterion --best-response --rules mc --gate`.
+   - **v1.3 (A-11, A-19):** the doctrine lines run with K2 as the `mc` default (§3.16); the three controls (draft, Knight, A boost) MUST still be rejected. The best-response line passes when every cell is < 1.0 **and the MC worst cell is ≤ 0.995** on the gate seeds (`--seeds 3 --first-seed 30001`); MC − M1 is printed (6 decimals) and reported, not gated (CQH2).
    - The keep-Dominion variant (`--rules mc,keepdom`) is a documented negative control for the band. It is expected to break it (1/6).
-6. **Campaign policy:** the same planner as §8.6, or a faithful port with a field-equality test of its scoring (as I-36 did for profiles).
+6. **Campaign policy:** the same planner as §8.6, or a faithful port with a field-equality test of its scoring (as I-36 did for profiles). **v1.3 (A-21):** the test also covers the E1 additions (the occupation slot's candidate order, the hold rule's `retreat_bps`, the rally stay); CQ2-F writes it.
 7. **v1.1 measurements owed before the thresholds freeze (Gate CQ1; R-10, R-11, R-12, R-13, R-26):**
    - **Bot profiles.** `Arch::Bot` today plays 24 sessions a day at aggression 0.5 plus a keep roll per session (`model.rs`), one to two orders of magnitude above M1's stack bots (1,712 Departs by 1,000 bots in 7 days ≈ 0.24 per bot-day [measured]). CQ1-B adds **`--bot-profile cq`**: one decision per bot per planner epoch (1 game hour), acting only when the campaign plan assigns it, which is the cadence the stack's bots will run; and **`--bot-profile m1`**, matched to 0.24 Departs per bot-day, as a sensitivity row. The CQ1-B notes print Departs, keep marches and keep captures per bot-day for each. **`thresholds/mc-7d-1k.json` is derived from `--bot-profile cq`**, and those per-bot-day rates become the stack's bot-activity gate (§8.8).
    - **Keep interest:** `keep_aggr` 0.25 / 0.5 / 1.0 rows at 1k/7d and 10k/28d, so the owner sees how movement scales with player interest in keeps.
@@ -1569,20 +1615,28 @@ Out of MC's units. The hand-off documents how the replay's data stores read `PSF
 
 - cuts `frontier/cq-integ` at `CQ0`;
 - applies dependency requests;
-- runs `scripts/cq-regen.sh` after each merge (in Wave 1 every v1 generated output must come out byte-identical, which proves the staging);
+- runs `scripts/cq-regen.sh` after each merge (in Wave 1 every v1 generated output must come out byte-identical, which proves the staging; **v1.3 (A-13, PO-6): except the v1 WASM bytes, accepted when behaviour-identical as §5.1 states**);
 - runs the overnight items of Gate CQ1;
 - records `CQ0` and the new `RULESET_HASH` in `CQ1-NOTES` (`docs/frontier/conquest/integ-CQ1-NOTES.md`).
+
+**Wave-1 close (v1.3, A-22; owner CQH3).** Three units cut from `frontier/cq-integ` at `f1a5510` land the owner package before Gate CQ1 is re-run; the integrator merges `codex/frontier` `5ed36fa` first, then the units, re-pins `RULESET_HASH_V2` once, regenerates the outputs (`scripts/cq-regen.sh`) and re-runs Gate CQ1 in full, overnight lines included:
+
+| Unit | Brief | Owns |
+|---|---|---|
+| **W1C-A-kernels** (`frontier/cq-w1c-kernels`) | `keep_tile_symmetric` as the MC keep tile (§3.1), `catalog::train_v2` and `doctrine::validate_table_v2` (§3.16), their versions in `KERNEL_VERSIONS_V2` and `ruleset_hash_input_v2` (§3.13), tests and vectors; M1 digests and `RULESET_HASH` unchanged | as its brief; its `W1C-*-NOTES.md` |
+| **W1C-B-sim** (`frontier/cq-w1c-sim`) | the package as the default `--rules mc` behaviour (§8.7 item 1: E1 planner, rally stay, K2, the symmetric keep tile), 10e′ and the v1.3 floors (§8.7 item 4, §13.4), the size-stress and 28-day `--controls` lines, the 0.995 ceiling; both thresholds files re-derived | as its brief (`frontier-sim/**`); its `W1C-*-NOTES.md` |
+| **W1C-C-contract** (`frontier/cq-w1c-contract`) | this v1.3 (§19), DECISIONS part CQ-I, the v1.3 section of `SUMMARY.ja.md`, DESIGN §24's v1.3 pointers | `docs/frontier/**` except other units' notes and the integration notes; `docs/frontier/conquest/W1C-C-contract-NOTES.md` |
 
 ### Wave 2 — Program, keeper, herald, bots. Merge order: CQ2-A, CQ2-B, CQ2-C, CQ2-D, CQ2-E, CQ2-F
 
 | Unit | Brief | Owns |
 |---|---|---|
-| **CQ2-A prog-core-land** | v2 plumbing (`layout/**` accessors, dispatch for 0xA0–0xA7, errors, events, init paths); CreateSeason v2; OpenRing / OpenProvince (keep, genesis Free City, rent); FoldOccupancy; FileOutpost (0xA3) and SettleTicket into slots 2–3 (v1.1: Citizen `slots`, slot-indexed `holding[]`, `held_since_hour`); ReleaseDormant with the S3 refusal and the record reset (§3.15); the capture lock and `[province]` on Harvest, Build, Train and Explore (Build `tier_next`); Reveal's Free City rule; SettleExplore; svm `g01_cq_`/`g02_cq_`/`g03_cq_`/`g13_cq_` rows for these. **Its first commit** (the v2 dispatch table for every tag of §5.4 with the handler names of §5.5 as `NotImplemented` stubs in `proc/conquest.rs`, `proc/mod.rs`, the `layout/**` accessors and the svm registries) **is pre-merged by the integrator on day 1 of the wave**; CQ2-B and CQ2-C rebase on it, and `proc/conquest.rs` belongs to CQ2-C from then on | `permutation-frontier/src/{lib,ix,error,addr,init,events,prologue}.rs`; `permutation-frontier/src/layout/**`; `permutation-frontier/src/proc/{mod,season,map,citizen,holding,reveal}.rs`; `permutation-frontier/svm-tests/src/{ix,cover,world}/mod.rs`; `permutation-frontier/svm-tests/src/{ix,cover}/{season,map,citizen,holding,reveal}.rs`; `permutation-frontier/svm-tests/src/world/{land,holding}.rs`; `permutation-frontier/svm-tests/tests/{map,citizen,holding,reveal,harness,coverage}.rs`; `permutation-frontier/svm-tests/tests/common/**`; `docs/frontier/conquest/CQ2-A-NOTES.md` |
+| **CQ2-A prog-core-land** | v2 plumbing (`layout/**` accessors, dispatch for 0xA0–0xA7, errors, events, init paths); CreateSeason v2; OpenRing / OpenProvince (keep **on `keep_tile_symmetric`, v1.3**, genesis Free City, rent); FoldOccupancy; FileOutpost (0xA3) and SettleTicket into slots 2–3 (v1.1: Citizen `slots`, slot-indexed `holding[]`, `held_since_hour`); ReleaseDormant with the S3 refusal and the record reset (§3.15); the capture lock and `[province]` on Harvest, Build, Train and Explore (Build `tier_next`); **v1.3: Train's cost from `catalog::train_v2` in an MC season (§3.16)**; Reveal's Free City rule; SettleExplore; svm `g01_cq_`/`g02_cq_`/`g03_cq_`/`g13_cq_` rows for these. **Its first commit** (the v2 dispatch table for every tag of §5.4 with the handler names of §5.5 as `NotImplemented` stubs in `proc/conquest.rs`, `proc/mod.rs`, the `layout/**` accessors and the svm registries) **is pre-merged by the integrator on day 1 of the wave**; CQ2-B and CQ2-C rebase on it, and `proc/conquest.rs` belongs to CQ2-C from then on | `permutation-frontier/src/{lib,ix,error,addr,init,events,prologue}.rs`; `permutation-frontier/src/layout/**`; `permutation-frontier/src/proc/{mod,season,map,citizen,holding,reveal}.rs`; `permutation-frontier/svm-tests/src/{ix,cover,world}/mod.rs`; `permutation-frontier/svm-tests/src/{ix,cover}/{season,map,citizen,holding,reveal}.rs`; `permutation-frontier/svm-tests/src/world/{land,holding}.rs`; `permutation-frontier/svm-tests/tests/{map,citizen,holding,reveal,harness,coverage}.rs`; `permutation-frontier/svm-tests/tests/common/**`; `docs/frontier/conquest/CQ2-A-NOTES.md` |
 | **CQ2-B prog-clash** | ResolveFromInputs and SkipQuiet with the conquest step (§5.7): keep and Free City garrisons, the donor handoff, snapshots, CONQUEST log, digests v2; GatherClash `prev_gen`; **G1 RFI worst at 13 garrisons with 12 completions at an hour boundary and a keep taken with six 30,000-troop capturers** (+ M1's 1,240 fills) → the 290k / 300k decision recorded; G11 extended (`g11_cq_`); the quiet model and its tile-mask cache; **fixes to the shared models it is the first to execute** (v1.1, R-21) | `permutation-frontier/src/proc/clash.rs`; `permutation-frontier/svm-tests/src/{ix,cover,world}/clash.rs`; `permutation-frontier/svm-tests/tests/clash.rs`; **`frontier-abi/src/{conquest_model,clash_model}.rs` and their vectors** (layout/** stays frozen; vectors regenerated in the same merge); `docs/frontier/conquest/CQ2-B-NOTES.md` |
 | **CQ2-C prog-conquest** | `proc/conquest.rs`: DeclareSiege, SettleSiege, SettleCapture, FoldMarch, RetireHost, CloseMarch; the `prev_gen` / `prev_home` transit path (SettleDeparture and its return settle in `proc/host.rs`, SettleTransit in `proc/transit.rs`); the capture lock on Muster, Dissolve, Garrison and Depart (`proc/host.rs`); v1.1: the lead-host check, slot reservations and their release, faction-scoped immunity, the victim-only RetireHost, the donor Leave path shared with RetireHost; properties P1–P13 (`p_cq_*`); `g01_cq_`/`g02_cq_`/`g03_cq_`/`g13_cq_` rows for these | `permutation-frontier/src/proc/{conquest,transit,host}.rs`; `permutation-frontier/svm-tests/src/{ix,cover}/{conquest,transit,host}.rs`; `permutation-frontier/svm-tests/src/world/{conquest,transit}.rs`; `permutation-frontier/svm-tests/tests/{conquest,transit,host}.rs`; `docs/frontier/conquest/CQ2-C-NOTES.md` |
 | **CQ2-D keeper-cq** | `fclient` (§8.1) **with version-dispatching readers (v1 and v2) and its twin tests switched to compare both** (`instructions_are_frontier_abis` over `Ix::ALL` and `Ix::ALL_V2`, `magics_and_rent_are_frontier_abis` with MarchState and Province v2; R-16, R-22), and the keeper duties of §8.2 (contested-bell planner, 4-hour idle skips and fold-driven skips, settles, folds, horn watcher, season-end flush, status and metrics); in-process tests over the native `conquest_model` and the test-beacon `.so` once CQ2-A/B/C merge | `frontier-node/crates/{fclient,keeper}/**`; `docs/frontier/conquest/CQ2-D-NOTES.md` |
 | **CQ2-E herald-cq** | Fold of kinds 80–89, the files and routes of §8.4 (incl. `standings/players.json`), WS additions, standings, Call, final.json, `--fixture conquest` (a synthetic fixture now; the recorded one from CQ3-E); v1/v2 dispatch; determinism and completeness tests (`cq_*`); **v1.2 (A-4): the JSON shapes §8.4 does not pin (`/h/standings/{latest,players}.json`, `/h/call/{day}.json`, `/h/season/final.json`, `/h/siege/…json`, `/h/keep/…json`) as additions to `cqfmt.rs` with vectors; the pinned codecs and their vectors stay byte-stable** | `frontier-node/crates/{herald,findex}/**` **except** `herald/src/roster.rs` and `herald/tests/server.rs` (the design chat's); `herald/src/cqfmt.rs` **additively only** (v1.2, A-4); `herald/src/{lib,fold,server}.rs` only inside `// MC hook` blocks (§4.5); `docs/frontier/conquest/CQ2-E-NOTES.md` |
-| **CQ2-F bots-cq** | `agents::campaign`, the behaviours and personas of §8.6, `--conquest`, the report additions; `campaign::plan` identical across 32 bots with shuffled observation order; personas' expected codes on recorded herald fixtures | `frontier-node/crates/{agents,bots}/**`; `docs/frontier/conquest/CQ2-F-NOTES.md` |
+| **CQ2-F bots-cq** | `agents::campaign`, the behaviours and personas of §8.6 (**v1.3: with the E1 additions, the occupation slot, the hold rule and the rally stay, and §8.7 item 6's field-equality test over them**; affordability with `train_v2`), `--conquest`, the report additions; `campaign::plan` identical across 32 bots with shuffled observation order; personas' expected codes on recorded herald fixtures | `frontier-node/crates/{agents,bots}/**`; `docs/frontier/conquest/CQ2-F-NOTES.md` |
 
 ### Wave 3 — Verifier, stack, relay, web data, integration. Merge order: CQ3-E, CQ3-A, CQ3-B, CQ3-C, CQ3-D
 
@@ -1628,13 +1682,13 @@ for p in ${CQ_PORTS:-}; do            # empty for gates CQ1–CQ3 except the ite
   if lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1; then echo "MC port $p is busy"; exit 1; fi
 done
 scripts/cq-ownership-check.sh $(git for-each-ref --format='%(refname:short)' 'refs/heads/frontier/cq-*' | grep -v cq-integ)   # v1.1: first-parent, each branch's own fork point
-git diff --quiet "$CQ0" -- permutation-server/web/session.mjs permutation-chain/src
+git diff --quiet "$(git merge-base HEAD codex/frontier)" -- permutation-server/web/session.mjs permutation-chain/src   # v1.3 (A-25): MC never touches them; codex/frontier's own commits may
 scripts/cq-regen.sh --check                                    # v1.1: every generated output fresh (§4.2)
 ```
 
 The ownership check is skipped in Gate CQ1 until CQ1-D has merged the script: CQ1's last line runs it.
 
-**Gate CQ1** (all must exit 0):
+**Gate CQ1** (all must exit 0; **v1.3 (A-20): re-run in full after the Wave-1 close**, on the tree with `codex/frontier` `5ed36fa` and the three close units merged, `RULESET_HASH_V2` re-pinned and both thresholds files re-derived):
 
 ```sh
 cargo fmt --all -- --check
@@ -1646,41 +1700,50 @@ cargo test --locked -p permutation-chain
 (cd frontier-sim && cargo fmt -- --check && cargo clippy --locked --release --all-targets -- -D warnings && cargo test --locked --release)
 (cd frontier-sim && cargo run --release -- criterion --best-response --seeds 3 --first-seed 30001 --gate)               # M1 rules: unchanged
 (cd frontier-sim && cargo run --release -- doctrine-gate --controls)                                                  # M1 rules: unchanged
-(cd frontier-sim && cargo run --release -- criterion --best-response --seeds 3 --first-seed 30001 --rules mc --policy campaign --gate)
-(cd frontier-sim && cargo run --release -- doctrine-gate --set kernel --rules mc --controls)
-(cd frontier-sim && cargo run --release -- mapmove --rules mc --policy campaign --bot-profile cq --agents 1000 --bots 0.99 --days 7 --seeds 10 --first-seed 2001 --check thresholds/mc-7d-1k.json)
-(cd frontier-sim && cargo run --release -- mapmove-gate --rules mc --policy campaign --bot-profile cq --agents 1000 --bots 0.99 --days 7 --seeds 5 --first-seed 1101 --thresholds thresholds/mc-7d-1k.json --controls)
-# v1.1 reported rows (R-10…R-13), printed into CQ1-B-NOTES; not exit-gating except the coordination check below
+(cd frontier-sim && cargo run --release -- criterion --best-response --seeds 3 --first-seed 30001 --rules mc --policy campaign --gate)   # v1.3: every cell < 1.0 and MC worst cell ≤ 0.995 (A-19)
+(cd frontier-sim && cargo run --release -- doctrine-gate --set kernel --rules mc --controls)                                            # v1.3: K2 is the mc default; 6/6 and the three controls rejected (A-11)
+(cd frontier-sim && cargo run --release -- mapmove --rules mc --policy campaign --bot-profile cq --agents 1000 --bots 0.99 --days 7 --seeds 10 --first-seed 2001 --check thresholds/mc-7d-1k.json)   # v1.3: the re-derived file
+(cd frontier-sim && cargo run --release -- mapmove-gate --rules mc --policy campaign --bot-profile cq --agents 1000 --bots 0.99 --days 7 --seeds 5 --first-seed 1101 --thresholds thresholds/mc-7d-1k.json --controls)   # v1.3: §13.4's v1.3 floors, 10e′
+# v1.3 size stress at 7 days (A-18, PO-4), gated: faction 0 ≤ 22% of controlled provinces on ≥ 8 of 10 seeds
+(cd frontier-sim && cargo run --release -- mapmove --rules mc --policy campaign --sizes 2,1,1,1,1,1 --agents 1000 --days 7 --seeds 10 --first-seed 2001 --check-leader-max 0.22)
+(cd frontier-sim && cargo run --release -- mapmove --rules mc --policy campaign --bot-profile cq --bots 0.99 --sizes 2,1,1,1,1,1 --agents 1000 --days 7 --seeds 10 --first-seed 2001 --check-leader-max 0.22)
+# v1.1 reported rows (R-10…R-13), printed into the notes; not exit-gating except the coordination check below
 (cd frontier-sim && cargo run --release -- mapmove --rules mc --policy campaign --bot-profile m1 --agents 1000 --bots 0.99 --days 7 --seeds 10 --first-seed 2001)
 (cd frontier-sim && for k in 0.25 0.5 1.0; do cargo run --release -- mapmove --rules mc --policy campaign --bot-profile cq --keep-aggr $k --agents 1000 --days 7 --seeds 10 --first-seed 2001; done)
-(cd frontier-sim && cargo run --release -- mapmove --rules mc --policy campaign --sizes 3,1,1,1,1,1 --agents 1000 --days 7 --seeds 10 --first-seed 2001)
+(cd frontier-sim && cargo run --release -- mapmove --rules mc --policy campaign --sizes 3,1,1,1,1,1 --agents 1000 --days 7 --seeds 10 --first-seed 2001)   # v1.3: 3:1 at 7 days is reported (A-18)
 (cd frontier-sim && cargo run --release -- mapmove --rules mc --policy campaign:0,lone:1-5 --agents 1000 --days 7 --seeds 10 --first-seed 2001 --check-leader-max 0.22)
 (cd frontier-sim && cargo run --release -- mapmove --rules mc --policy campaign --forward --agents 1000 --days 7 --seeds 10 --first-seed 2001)
 (cd frontier-sim && cargo run --release -- doctrine-gate --set kernel --rules mc,bannerdom --controls --report-only)
 (cd frontier-node && cargo fmt --all -- --check && cargo clippy --locked --workspace --all-targets -- -D warnings && cargo test --locked --workspace)   # v1.1: green because Wave 1 is additive (§5.1)
-(cd permutation-gateway && npm ci --ignore-scripts && npm test)                                                                                         # likewise: v1 vectors, SDK and WASM hash unchanged
+(cd permutation-gateway && npm ci --ignore-scripts && npm test)                                                                                         # likewise: v1 vectors and SDK unchanged; the v1 WASM replays its recorded answers (v1.3, A-13)
 cargo check --locked -p permutation-frontier                                                                                                            # v1.1: the M1 program still compiles against the additive kernels
-scripts/cq-ownership-check.sh $(git for-each-ref --format='%(refname:short)' 'refs/heads/frontier/cq-1*')
+scripts/cq-ownership-check.sh $(git for-each-ref --format='%(refname:short)' 'refs/heads/frontier/cq-1*' 'refs/heads/frontier/cq-w1c-*')         # v1.3: the close units too
 ```
 
 **Overnight (must pass before Gate CQ2 opens):**
 
 ```sh
-(cd frontier-sim && cargo run --release -- doctrines --agents 10000 --seeds 250 --first-seed 10000 --set kernel --rules mc --policy lone --gate)   # 6/6 in band
-(cd frontier-sim && cargo run --release -- mapmove-gate --rules mc --policy campaign --agents 10000 --days 28 --seeds 4 --first-seed 1101 --thresholds thresholds/mc-28d-10k.json)
+(cd frontier-sim && cargo run --release -- doctrines --agents 10000 --seeds 250 --first-seed 10000 --set kernel --rules mc --policy lone --gate)   # 6/6 in band (v1.3: K2)
+(cd frontier-sim && cargo run --release -- mapmove-gate --rules mc --policy campaign --agents 10000 --days 28 --seeds 4 --first-seed 1101 --thresholds thresholds/mc-28d-10k.json --controls)   # v1.3: floors 3.5 a day / 10% (A-17), --controls
+# v1.3 size stress at 10k / 28 days (A-18), gated: faction 0 ≤ 22% on ≥ 8 of 10 seeds
+(cd frontier-sim && cargo run --release -- mapmove --rules mc --policy campaign --sizes 2,1,1,1,1,1 --agents 10000 --days 28 --seeds 10 --first-seed 2001 --check-leader-max 0.22)
+(cd frontier-sim && cargo run --release -- mapmove --rules mc --policy campaign --sizes 3,1,1,1,1,1 --agents 10000 --days 28 --seeds 10 --first-seed 2001 --check-leader-max 0.22)
 ```
 
-**Pass beyond exit codes:**
+**Pass beyond exit codes** (v1.3, A-20):
 
-- M1 digests identical.
-- `mapmove-gate`: the MC rules pass on ≥ 4 of 5 seeds, and **both negative controls FAIL**.
-- The thresholds file's p10 values (from `--bot-profile cq`) are ≥ 2 × every floor of §13.4. If not, the rules or floors are amended before CQ2, never after.
-- Doctrine band 6/6.
-- Best-response worst cell ≤ the M1 control + 0.005.
-- **M1's `RULESET_HASH` unchanged**; `RULESET_HASH_V2` pinned once (v1.1, R-16).
+- M1 digests identical; M1's criterion (0.985170) and M1 doctrine table unchanged.
+- `mapmove-gate` (7 days): the MC rules pass on ≥ 4 of 5 seeds against §13.4's **v1.3** floors (10e′ in place of 10e; 10a 45, 10c 13%, occupations 10, liberations 1), and **both negative controls FAIL**.
+- The re-derived thresholds file's p10 values (from `--bot-profile cq`) are ≥ 2 × every floor of §13.4, **10e′ and every 10h count included**. If not, the rules or floors are amended before CQ2, never after, and only with the owner (CQH3).
+- Doctrine band 6/6, in the CI proxy and overnight, with the three doctrine controls (draft, Knight, A boost) rejected.
+- **Best-response (CQH2, replaces "≤ the M1 control + 0.005"):** every cell < 1.0, and **the MC worst cell ≤ 0.995** on the gate seeds (`--seeds 3 --first-seed 30001`). MC − M1 is reported to 6 decimals, not gated.
+- **M1's `RULESET_HASH` unchanged**; `RULESET_HASH_V2` **re-pinned once** after the close's kernel changes (v1.3, A-10), the value recorded in the integration notes and DECISIONS CQ-I.
 - The campaign-vs-lone coordination run ends with the campaign faction ≤ 22% of provinces on ≥ 8 of 10 seeds; if not, the integrator stops and the owner decides (OD-16) before Wave 2.
+- **Size stress (A-18):** 2:1 at 7 days ≤ 22% on ≥ 8 of 10 seeds in both gated rows; 2:1 and 3:1 at 10k / 28 days likewise (overnight); 3:1 at 7 days reported.
+- **28-day gate (A-17):** the MC rules pass on 4 of 4 seeds against 3.5 banner changes a day and 10% of Marches with ≥ 2 banners, and **both negative controls FAIL**.
+- **v1 generated outputs (A-13, PO-6):** byte-identical to `CQ0`, **except the v1 WASM bytes**, which pass when `frontier-wasm/vectors/wasm-vectors.json` is byte-identical and `web-frontier-wasm.test.mjs` replays every recorded answer (`scripts/cq-regen.sh --v1-unchanged 39ff369` may then differ in the WASM artefact and its `.sha256` only).
 - **`codex/frontier` is not fast-forwarded** (§4.2).
-- If `mapmove-gate` fails, Wave 2 does not start. The integrator and CQ1-B tune `keep_home_guard` (100 → 50), `keep_consolidate_bells` (288 → 144) and `free_city_min_ring` within §3.12's ranges by amendment, and re-run the gate.
+- **If any gated line fails after the v1.3 package, Wave 2 does not start and the integrator goes back to the owner with the numbers (CQH3).** v1.1's tuning of `keep_home_guard`, `keep_consolidate_bells` and `free_city_min_ring` is no longer a fallback the integrator may apply alone: `keep_consolidate_bells` 144 failed on seeds 6101–6105 [C], and every §3.12 lever is a player-visible rule.
 
 **Gate CQ2:**
 
@@ -1858,7 +1921,8 @@ Every figure is computed from the herald's `PSFCT1` series with `control::lastin
 *Population:*
 
 - **P** = provinces of ring ≥ 2 outside every heartland, opened by bell 144 (the end of game day 1).
-- **P₂** = those opened by bell 288.
+- **P₂** = those opened by bell 288 (v1.1's 10e population; reported only from v1.3).
+- **P′** (v1.3, A-16) = every province of ring > `heartland_max_ring` (outside every heartland) that is **open at bell 287 or opens later**, up to `end_bell − 1`. Its reference bell is `r(p) = max(open bell of p, 287)`.
 
 *Definitions:*
 
@@ -1867,15 +1931,27 @@ Every figure is computed from the herald's `PSFCT1` series with `control::lastin
 
 | # | Metric | Threshold (v1.1, R-25): **every row must reach its fixed floor**; `½ × p10` from `thresholds/mc-7d-1k.json` is reported beside it, not gated |
 |---|---|---|
-| 10a | lasting changes in the season | floor **60** |
+| 10a | lasting changes in the season | floor **45** (v1.3; v1.2: 60) |
 | 10b | game days 2–7, each with ≥ 1 lasting change | **6 of 6** (fixed) |
-| 10c | share of P with ≥ 2 distinct controllers during the season | floor **15%** |
+| 10c | share of P with ≥ 2 distinct controllers during the season | floor **13%** (v1.3; v1.2: 15%) |
 | 10d | March banner changes (faction to a different faction, through any contested interval) in the season | floor **6**, and ≥ 10% of Marches with ≥ 2 banners |
-| 10e | net movement: share of P₂ whose control at `end_bell − 1` differs from bell 287 | floor **10%**, confirmed or amended at Gate CQ1 from CQ1-B's 7-day net-movement measurement (R-12; the balance lab never measured it at 7 days) |
+| 10e′ | (v1.3, A-16; replaces 10e) net movement: among the provinces of P′ whose control at `r(p)` and at `end_bell − 1` are both factions, the share whose control at `end_bell − 1` differs from that at `r(p)` | floor **6%**. v1.1's 10e (the same over P₂ from bell 287, floor 10%) is reported beside it, not gated |
 | 10f | breadth: factions with ≥ 1 lasting gain and ≥ 1 lasting loss | **≥ 4 of 6** (fixed) |
 | 10g | balance at `end_bell − 1`: the largest faction's share of controlled provinces / the smallest's | **≤ 30% / ≥ 8%** (fixed) |
-| 10h | the holding contest was played: sieges declared / completed / failed (any cause); occupations; liberations; captures (holdings 2–3 and Free Cities); outposts founded | floors **20 / 10 / 3; 3; 1; 5; 10** |
+| 10h | the holding contest was played: sieges declared / completed / failed (any cause); occupations; liberations; captures (holdings 2–3 and Free Cities); outposts founded | floors **20 / 10 / 3; 10; 1; 5; 10** (v1.3: occupations 3 → 10, on the bot row) |
 | 10i | D9: first holdings that changed owner | **0** (V16) |
+
+**The v1.3 floors (A-16, PO-1 (b); owner CQH1 (1)).** Every other row is unchanged. The 2 × rule (the thresholds file's p10 ≥ 2 × floor, §12) is kept for every map figure and every 10h count. Measured p10 below: the P1 package measurement (E1 planner + 10e′ + K2 + the symmetric keep tile, `--bot-profile cq`, seeds 2002–2011, `exp/cq-p1-combo` 60def25) [P1]; the re-derived thresholds file replaces them at the re-run Gate CQ1.
+
+| # | v1.2 floor | v1.3 floor | p10 [P1] (p10 / floor) | Why |
+|---|---|---|---|---|
+| 10a lasting changes | 60 | **45** | 98.4 (2.19×; 2.08–2.17× on the other gate sets) | at 60 the thresholds p10 (92.8 in Wave 1, 93.8 with E1, 98.4 with E1 and the symmetric keep) stays below 2 × 60 = 120; the §3.12 levers that reach 2× (all three together, p10 121.4 on the gate seeds) are player-visible rule changes, and `keep_consolidate_bells` 144 alone failed on seeds 6101–6105 [C]. 45 keeps the 2 × rule with margin |
+| 10c ≥ 2 controllers | 15% | **13%** | 0.289 (2.22×; 2.13–2.22×) | p10 0.289 < 0.30 = 2 × 15%. 14% gave only 1.98× on seeds 4002–4011 [C], so 13% |
+| 10e net movement | 10% of P₂ | **10e′ ≥ 6% of P′** | 0.150 (2.5×; 2.37–2.63×) | 10e counted only P₂ (rings 4–7); the planner's contest follows the ring openings outward, so 80–85% of keep changes after bell 287 happen in rings 8–12, outside P₂ by definition (`integ-CQ1-NOTES.md` §4.7). With the E1 planner 10e's p10 stayed at 0.074 against the 0.20 needed [C], and the old floors failed 10e on 10 of 20 new seeds [P1]. 10e′ counts every province outside the heartlands open at bell 287 or later, from the later of its opening and bell 287 |
+| 10h occupations | 3 | **10** (bot row) | 39.5 (3.95×; ≥ 3.4× on every set) | the E1 planner occupies first holdings: p10 36.8 occupations and 25 liberations on the thresholds seeds, 37.4 / 22.2 and 37.8 / 24.4 on two new sets [C]. 10 still keeps ≥ 3.4× |
+| 10h liberations | 1 | 1 (unchanged) | 25.9 | — |
+
+With these floors the package passes the cq gate on seeds 1102–1106, 10002–10021, 13002–13021 and 6102–6106 and the `m1` profile 20 of 20, and both negative controls fail on every set [P1]. Cost: Departs per bot-day 0.158 → 0.177 [C]. **Not gated and still below the floors:** the human-mix campaign row (5% simulated bots) fails occupations, liberations and 10e′ (OD-14: humans who only follow a plan do not move the map enough on their own) [P1].
 
 *Negative controls* (the decider's tests, CQ3-B; they MUST FAIL criterion 10):
 
@@ -1890,7 +1966,7 @@ Every figure is computed from the herald's `PSFCT1` series with `control::lastin
 | human mix | 27.8 | 36% | 8.2 | 22% | 18.0% (worst seed 18.6%) |
 | 99% simulated bots (`Arch::Bot`) | 42.6 | 47% | 10.1 | 3% | 18.0% (19.4%) |
 
-**v1.1 (R-11, R-25):** the bot row assumes bots that play 24 sessions a day with a keep roll in each, one to two orders of magnitude more active than M1's stack bots (≈ 0.24 Departs per bot-day). The human-mix row is the conservative reference, and it is already close to the CI gate (22% of days without a March change against a 30% limit). The floors sit about 2× below the thresholds file's p10, not "4–6× below the simulator", and the p10 now comes from `--bot-profile cq` (the stack's real cadence). A pass means the stack's bots play the contest at the cadence the simulator assumed; the bot-activity gate (§8.8) checks that cadence directly.
+**v1.1 (R-11, R-25):** the bot row assumes bots that play 24 sessions a day with a keep roll in each, one to two orders of magnitude more active than M1's stack bots (≈ 0.24 Departs per bot-day). The human-mix row is the conservative reference, and it is already close to the CI gate (22% of days without a March change against a 30% limit). The floors sit about 2× below the thresholds file's p10, not "4–6× below the simulator", and the p10 now comes from `--bot-profile cq` (the stack's real cadence). **v1.3:** the floors above are partly fitted on the same seeds that measure them (OWNER-OPTIONS-W1, open risks), which is why the 2 × rule stays and the re-run uses the re-derived file. A pass means the stack's bots play the contest at the cadence the simulator assumed; the bot-activity gate (§8.8) checks that cadence directly.
 
 **Criterion 11 — conquest correctness (gating):** `verify --herald-check` PASS, including V14–V22, with `HeraldControlMismatch` = 0 and `DoubleCaptureStranded` reported.
 
@@ -2015,6 +2091,8 @@ v1.1 delta (+3.5 ew): slots and reservations (+0.6), lead host (+0.2), capture c
 | OD-15 | (v1.1, R-12) Should the bots use a held keep as a forward base (the chain already allows it)? | no, until CQ1-B's `--forward` rows show no snowball | CQ2-F |
 | OD-16 | (v1.1, R-13) If a coordinated (campaign) faction ends above 22% of provinces against lone factions in CQ1, what then: accept, or add a limit (e.g. the arrival cap per faction per province-bell lowered at fronts)? | stop and ask before Wave 2 | Wave 2 |
 
+**v1.3 (A-24):** the owner settled the Gate CQ1 items PO-1…PO-8 (DECISIONS CQ-G, CQ-H; OWNER-OPTIONS-W1); §19 lists what each changed. OD-1…OD-16 are unchanged and remain working defaults. On OD-16: the coordination check still passes (10/10), and size, not coordination, is what lifts a faction above 22% at 7 days; the owner chose no rules change for it (PO-4), so the size stress is gated and reported as §12 states. On OD-14: the human-mix campaign row still does not reach the 7-day floors (§13.4), which keeps OD-14 open.
+
 Every OD here is a game rule visible to players, except OD-12 (cost) and OD-13 (scope). The join-page text (CQ4-E) states OD-2, OD-6, OD-7, OD-8 (how a home can still be lost: dormancy release in long seasons), OD-9 and OD-10 in plain words.
 
 ---
@@ -2106,3 +2184,34 @@ The integrator's amendments of §16 from the review of Wave 1 (`integ-CQ1-NOTES.
 | A-7 | §8.7 item 1 | The simulator calls `may_besiege_v3`, `keep::keep_tile`, `holding::capture_effects` (walls), `may_found_outpost` and `lowest_free_slot` itself (no mirrors). The Herald's Call stays the simulator's own tie-breaker (CQ1-B D-5): `control::herald_call` needs a day seed the simulator does not model | a mirror had already diverged (Frontier protection at `founded − genesis = after`) |
 
 Not amended, for the owner: §3.10's "final holding" against `conquest_model`'s provisional holdings (PO-7), and every gate failure of Gate CQ1 (PO-1…PO-4).
+
+---
+
+## 19. Amendments v1.2 → v1.3 (owner package, 2026-10-02)
+
+The owner approved the parameter package of `OWNER-OPTIONS-W1.md` (EN; `OWNER-OPTIONS-W1.ja.md` is what the owner read) for PO-1…PO-7 as written, and replaced PO-8's relative margin by an absolute ceiling (DECISIONS **CQ-H**: CQH1, CQH2; 「３つとも構わないので進めて」). This section writes that package into the contract; DECISIONS part **CQ-I** records each amendment with its source. Tags as in the sheet: **[C]** = confirmed by a skeptic or measured by the integrator; **[P1]** = measured in the combined package run (`exp/cq-p1-combo` 60def25), not yet re-run by a skeptic. The re-run of Gate CQ1 on the merged close (§12) replaces every [P1] figure.
+
+**What does not change:** the M1 rules, M1's `RULESET_HASH` (`72c6b583…4bd9`), every M1 digest, every v1 vector and generated output (except the v1 WASM bytes, A-13), OD-1…OD-16, every §3.12 preset value, every layout (`frontier-abi/src/layout/**` still freezes at Gate CQ1), every tag, error code and log kind.
+
+| # | Sections | Amendment | Source |
+|---|---|---|---|
+| A-8 | §3.1, §3.2, §3.14, §5.6 (OpenProvince), §7, §8.5 (V22), §11 (CQ2-A) | **The keep tile is `keep::keep_tile_symmetric(terrain, sites, site_count, wedge)`**: the wedge-0 keep turned into the province's wedge, so every wedge has its keep in the same place relative to its own land. `keep_tile` stays in the kernel for the record; the simulator's call of §18 A-7 becomes `keep_tile_symmetric`. No layout change (the keep record already stores its tile) | PO-5; CQG5; CQH1 (5); CQ1-A finding 1. With the full package it passes the cq gate on 1102–1106 and 10002–10021, the 28-day gate 4/4 and the overnight band 6/6; the thresholds barely move (10a p10 93.8 → 98.4) [P1] |
+| A-9 | §3.10, §3.14 | **The hourly Dominion snapshot counts every holding in site state 1, provisional included** (was "each final holding"). The per-capita denominator (citizens with a final holding) is unchanged. No layout change; `conquest_model` already counts this way (CQ1-C D-10) | PO-7; CQG7; CQH1 (7). A provisional holding lasts at most about 24 bells per new holding, the same for every faction |
+| A-10 | §3.13, §12 | The close's kernel changes (A-8, A-11, A-12) are outcome-changing MC changes made before Gate CQ1 closes: bumped versions in `KERNEL_VERSIONS_V2` only, the v2 tables in `ruleset_hash_input_v2()`, **`RULESET_HASH_V2` re-pinned once** by the integrator; both thresholds files re-derived by their defining commands on the v1.3 simulator and frozen at the re-run gate | CQH3 ("RULESET_HASH_V2 re-pin"; "re-derived thresholds"); §3.13's own rule |
+| A-11 | §3.14, new §3.16, §5.6 (Train), §7, §8.7 item 5, §11 (CQ2-A, CQ2-F) | **K2: in an MC season Train pays `catalog::train_v2`**, in which the Horseman pays the Spearman's ore and gold (no unit-variant surcharge) and every other unit pays as `catalog::train`. A Train cost change only, not a Depart change. The simulator's MC default charges the season table's doctrine units no variant surcharge on their marches (its model of the same cost). Every off-chain re-computation of a Train cost dispatches on the season's version | PO-2; CQG2; CQH1 (2). CI proxy 6/6, max \|Δ\| 0.100% (baseline 3/6) [C]; overnight 6/6 on seeds 10000, 20000, 30000, identical in E4's implementation [C]; 40000 6/6 with B at 14.8% [C]; with the symmetric keep 6/6, 0.102% [P1] |
+| A-12 | §3.14, §3.16, §7 | **The Knight bound:** `doctrine::validate_table_v2` refuses a Knight line in an MC doctrine table, and `train_v2` keeps the Knight's full cost. The sheet offered either bound; v1.3 takes both, because Train accepts any unit whatever the faction's doctrine, so a table check alone would not stop a direct Knight purchase at a lowered price if the Knight lost its surcharge too. The season table is unchanged and passes | PO-2 ("validate_table v2 refuses Knight lines … (or keeps a Knight cost)"; JA: 「MC では Knight 系ユニットを選べないようにします」); CQH1 (2). The doctrine gate's three controls are rejected with K2 [C, P1] |
+| A-13 | §5.1, §11 (integrator), §12 | **The v1 WASM bytes are accepted as behaviour-identical**: the one v1 generated output whose bytes may differ from `CQ0`, on two conditions, `wasm-vectors.json` byte-identical and every recorded answer replayed by `web-frontier-wasm.test.mjs`. Every other v1 output stays byte-identical | PO-6; CQG6; CQH1 (6); `integ-CQ1-NOTES.md` §2 (205,623 → 205,686 B; vectors byte-identical; 6/6 replays) |
+| A-14 | §8.6 | **The E1 planner** (normative for the simulator and for CQ2-F's port): one occupation slot per faction for a legal first holding, the weakest defence first; the hold rule `retreat_bps = clamp(10,000 × group / own, 6,667, 60,000)`; Rally hosts stay while the strike is pending or the MC siege is live (this also fixes the simulator defect that sent every arriving Rally host home under MC) | PO-1 (a); CQG1; CQH1 (1). Occupations p10 36.8 and liberations 25 on the thresholds seeds, 37.4 / 22.2 and 37.8 / 24.4 on two new sets [C]; Departs per bot-day 0.158 → 0.177 [C] |
+| A-15 | §8.7 item 1 | **The package is the default `--rules mc` behaviour** on the real kernels (symmetric keep tile, K2, E1 planner, rally stay for every policy); the experiments' scratch knobs are not ported; `--rules m1` unchanged | CQH3 ("simulator: E1 + 10e′ + K2 + size-stress lines"); brief of the close |
+| A-16 | §8.7 item 4, §13.4 | **Criterion 10's 7-day floors:** 10e′ (every province outside the heartlands open at bell 287 or later, its control at `max(open, 287)` against `end_bell − 1`) at **6%** replaces 10e; **10a 60 → 45**; **10c 15% → 13%**; **occupations 3 → 10** (on the bot row); liberations 1, unchanged; the 2 × rule kept for every map figure and every 10h count. The table of §13.4 gives each old → new floor with its reason; 10e is reported beside 10e′ | PO-1 (b); CQG1; CQH1 (1). p10 / floor 10a 2.08–2.17×, 10c 2.13–2.22×, 10e′ 2.37–2.63×, occupations ≥ 3.4× [P1]; 10c at 14% only 1.98× on 4002–4011 [C]; package PASS on 1102–1106, 10002–10021, 13002–13021, 6102–6106, `m1` profile 20/20, both controls FAIL on every set [P1] |
+| A-17 | §8.7 item 4, §12 (O-B) | **The 10k / 28-day floors:** banner changes **≥ 3.5 a day** (was 5) and Marches with ≥ 2 banners **≥ 10%** (was 15%); the O-B line runs with **`--controls`**, and both controls must fail | PO-3; CQG3; CQH1 (3). Base p10 4.65 / 0.138, worst seed 4.43 / 0.130 [C]; with E1 4/4 on seeds 1101 and 9101 and with the symmetric keep [P1]; the weightmap control fails Marches 0/4 (max 0.046) [P1]; the banner floor alone does not always reject it (up to 5.21 a day) [C]. 4 a day / 12% was not taken (margin 1.08–1.16×) |
+| A-18 | §8.7 item 4, §12 | **Size stress, no rules change:** at 7 days the 2:1 stress is gated (campaign, the human mix and `--bot-profile cq`: faction 0 ≤ 22% on ≥ 8 of 10 seeds) and 3:1 is reported; at 10k / 28 days both 2:1 and 3:1 are gated (overnight) | PO-4; CQG4; CQH1 (4). 2:1 human mix 20/20 and 20/20, cq 19/20 and 17/20 [C]; with E1 10/10 and 9/10 [P1]; 3:1 at 7 days 6/10 and 3/10, at 28 days 10/10 with end share p50 0.202 [P1]. A member count in the faction picker is left to a later UI wave (optional) |
+| A-19 | §8.7 item 5, §12 | **Best-response:** every cell < 1.0 (the criterion's own test) and **the MC worst cell ≤ 0.995** on the gate seeds; "MC worst ≤ M1 control + 0.005" (and CQG8's +0.006) is withdrawn; MC − M1 is reported only | PO-8; **CQH2 (supersedes CQG8)**. MC worst cells across four seed sets reach at most 0.992770; MC − M1 swings with the seed set alone from +0.00003 to +0.0098 (base) and +0.0023 to +0.0080 (E1); +0.006 would fail E1 on 2 of 4 sets [C, except the 50001 rows and E1 30101, P1] |
+| A-20 | §12 | **Gate CQ1 is re-run in full** on the merged close, overnight lines included, with the v1.3 lines and pass conditions; any further regression goes back to the owner; v1.1's integrator-alone tuning fallback (§3.12 levers) is withdrawn | CQH3 |
+| A-21 | §8.7 item 6, §11 (CQ2-F) | §8.7 item 6's field-equality test also covers the E1 additions; CQ2-F ports them | OWNER-OPTIONS-W1, plan impact ("port the planner additions and extend the §8.7 item 6 field-equality test", ≈ 0.5 ew in CQ2-F) |
+| A-22 | §11 | The Wave-1 close units (kernels, sim, this contract), cut from `frontier/cq-integ` at `f1a5510`; the integrator merges `codex/frontier` `5ed36fa` first, then the units | CQH3; CQH4 (`5ed36fa`) |
+| A-23 | §0 item 1 | "What to expect" carries the measured numbers that replace v1.1's estimates: a captured keep re-taken within 3 days ≈ 3% at 7 days (p50 2.8% Wave 1, 2.7% [P1]), not ≈ 40%; a faction three times the size of the others ends at 22–23.5% (p50) at 7 days, not 18–21% (20.2% at 28 days [P1]) | `integ-CQ1-NOTES.md` §4.1, §4.4, §7 (keeps re-taken: CQ2-F should check the planner's defence before porting); OWNER-OPTIONS-W1 PO-4 |
+| A-24 | §15 | PO-1…PO-8 settled; OD-1…OD-16 unchanged; the OD-14 and OD-16 notes | CQ-G, CQ-H |
+| A-25 | §12 preamble | The "MC never touches `session.mjs` or `permutation-chain/src`" line compares against **the `codex/frontier` commit last merged** (`git merge-base HEAD codex/frontier`) instead of `CQ0`. At `f1a5510` the old line already exits 1: the owner-approved Wylls rename on `codex/frontier` (`8c1b5ea`, merged into `frontier/cq-integ` before the close) changed one doc comment in `permutation-chain/src/lib.rs` and the key-backup text in `session.mjs`. The new line exits 0 at `f1a5510` and keeps the check's purpose (no MC unit edits these paths) | the close's own gate run (`W1C-C-contract-NOTES.md` §5); a process fix, no rule or floor |
+
+**Open risks the owner was told** (OWNER-OPTIONS-W1, "Plan impact"): the [P1] numbers are not yet skeptic-verified; the floors are partly fitted on the same seeds; B sits consistently about 0.1% low in the doctrine index; the human-mix campaign row still does not move the map (OD-14). **Estimate:** +3–4 engineer-days before Wave 2 and +0.5 engineer-week in CQ2-F; about +1.5–2.5 calendar days at M1's agent pace (§14 otherwise unchanged).
