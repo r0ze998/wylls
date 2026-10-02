@@ -1,22 +1,15 @@
-//! **SHIM until unit W1C-A (kernels, `frontier/cq-w1c-kernels`) merges.**
+//! K2 in the simulator (Wave-1 close, PO-2, CQH1(2); contract v1.3 §3.16,
+//! A-11): under MC, Train pays the MC train-cost table
+//! [`catalog::train_v2`] (kernel unit W1C-A), in which the Horseman line
+//! costs a Spearman's ore and gold and every other line, the Knight
+//! included, costs what M1's [`catalog::train`] charges. The simulator
+//! models the unit-variant surcharge per march (M1's `send_at` formula), so
+//! under MC it charges what the v2 table charges above a Spearman.
 //!
-//! K2 (W1-close, PO-2, CQH1(2)): under MC, cavalry unit lines pay no ore
-//! or gold variant surcharge. On chain this is an MC-only train cost (the
-//! v2 table of `catalog::train`), not a Depart change. Unit W1C-A owns that
-//! table in `permutation-rules`; until it merges, [`train_v2`] stands in
-//! for it with the semantics the decision sheet states, so the simulator
-//! already plays K2 *through a train-cost table* and only the call site
-//! changes when the kernel lands. Delete this file then and call the
-//! kernel's function in [`march_surcharge_mc`] (the only caller).
-//!
-//! The stand-in follows W1C-A's table as its worktree shows it while this
-//! unit was written (`catalog::train_v2(unit: u8, n: u32) ->
-//! Option<Cost>`, `TRAIN_PROD_COST_V2 = [6, 7, 6, 12, 14, 16, 10]`): the
-//! **Horseman line** at a Spearman's ore and gold, every other line (the
-//! Knight included: no MC doctrine may field it, `validate_table_v2`'s
-//! Knight bound) at its M1 cost. The merge replaces [`train_v2`] by
-//! `permutation_rules::frontier::catalog::train_v2` (same signature); this
-//! file's two tests then move to the kernel's call site or go with it.
+//! Until the integration merge this file was W1C-B's marked shim
+//! `w1c_shim.rs` with a stand-in `train_v2`; the integrator replaced the
+//! stand-in by the kernel's function (same signature and table, W1C-B-sim
+//! notes §2) and kept the two tests against it.
 //!
 //! The P1 package measurement ran `--e3 all=0` (no surcharge for any line):
 //! identical for the Season-1 doctrines (only B and F field cavalry, both
@@ -28,19 +21,6 @@ use permutation_rules::frontier::catalog::{self, Cost};
 use permutation_rules::frontier::holding::{Resource, RESOURCES};
 use permutation_rules::units::UnitType;
 
-/// Stand-in for W1C-A's MC train-cost table: [`catalog::train`] with the
-/// Horseman line at the Spearman's ore and gold (K2). `None` as
-/// `catalog::train` (n = 0, an unknown unit, overflow).
-pub fn train_v2(unit: u8, n: u32) -> Option<Cost> {
-    catalog::unit_of(unit)?;
-    let line = if unit == UnitType::Horseman as u8 {
-        UnitType::Spearman as u8
-    } else {
-        unit
-    };
-    catalog::train(line, n)
-}
-
 /// The simulator's per-march variant surcharge of a host of `k` hundred
 /// troops of `unit` under MC: the ore and gold the MC train-cost table
 /// charges `unit` above a Spearman for `k × 100` troops (the simulator
@@ -48,7 +28,7 @@ pub fn train_v2(unit: u8, n: u32) -> Option<Cost> {
 /// amount into the purchase, see its doc). With the v1 table this is the
 /// M1 per-march formula exactly (`cq_k2_surcharge_is_the_train_table`).
 pub fn march_surcharge_mc(unit: UnitType, k: i64) -> [Milli; RESOURCES] {
-    surcharge_from(train_v2, unit, k)
+    surcharge_from(catalog::train_v2, unit, k)
 }
 
 /// `table(unit) − table(Spearman)` in ore and gold, for `k × 100` troops.
@@ -118,7 +98,7 @@ mod tests {
         for k in [1, 5, 40, 300] {
             assert_eq!(march_surcharge_mc(UnitType::Horseman, k), [0; RESOURCES]);
             assert_eq!(
-                train_v2(UnitType::Horseman as u8, (k * 100) as u32),
+                catalog::train_v2(UnitType::Horseman as u8, (k * 100) as u32),
                 catalog::train(UnitType::Spearman as u8, (k * 100) as u32)
             );
         }
@@ -131,10 +111,13 @@ mod tests {
             UnitType::Knight,
             UnitType::Scout,
         ] {
-            assert_eq!(train_v2(u as u8, 500), catalog::train(u as u8, 500));
+            assert_eq!(
+                catalog::train_v2(u as u8, 500),
+                catalog::train(u as u8, 500)
+            );
         }
         assert!(march_surcharge_mc(UnitType::Knight, 5)[Resource::Ore as usize] > 0);
-        assert_eq!(train_v2(7, 100), None);
+        assert_eq!(catalog::train_v2(7, 100), None);
         // No Season-1 doctrine pays a surcharge under MC.
         for d in &DOCTRINES {
             assert_eq!(march_surcharge_mc(d.unit, 50), [0; RESOURCES], "{}", d.name);

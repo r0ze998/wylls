@@ -37,6 +37,7 @@ mod conquest;
 mod cq_close_tests;
 #[cfg(test)]
 mod cq_tests;
+mod k2;
 mod mapmove;
 mod mc;
 mod model;
@@ -45,7 +46,6 @@ mod rng;
 mod settle;
 mod sim;
 mod suite;
-mod w1c_shim;
 
 use config::Config;
 use permutation_rules::frontier::index::IndexParams;

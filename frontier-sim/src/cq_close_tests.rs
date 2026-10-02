@@ -3,7 +3,7 @@
 //! objective (PO-1 (a)) occupies and liberates with `cq` bots, its hold
 //! rule is the sheet's formula, the keep tile is the symmetric kernel
 //! (PO-5), and the planner defaults and their exploration overrides are
-//! as documented. K2's train-cost table is tested in `w1c_shim`; the
+//! as documented. K2's train-cost table is tested in `k2`; the
 //! floors in `mapmove`.
 
 use crate::config::Config;

@@ -2084,9 +2084,9 @@ impl Sim {
             let c: [Milli; RESOURCES] = if self.cfg.rules.mc() {
                 // MC (K2, W1-close PO-2, CQH1(2)): what the MC train-cost
                 // table charges above a Spearman; cavalry lines pay none
-                // (`w1c_shim` until the W1C-A kernel table merges). The
+                // (`k2.rs`: `catalog::train_v2`, kernel unit W1C-A). The
                 // zero payment is still made, as the P1 package measured.
-                crate::w1c_shim::march_surcharge_mc(d.k.unit, k)
+                crate::k2::march_surcharge_mc(d.k.unit, k)
             } else {
                 [
                     0,
