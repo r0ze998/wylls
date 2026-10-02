@@ -1,0 +1,81 @@
+// The units as painted miniatures (design session 2026-10-02: "the silhouettes and the touch
+// do not fit the world"). The figures are rendered in the map art's own pipeline — Blender
+// Cycles, the map camera's elevation, the same sun and world light, vertex-colour materials
+// with AO (docs/frontier/art/units/) — one sheet per people:
+//   art/units/<size>/units_<faction>.webp
+//   rows = MINI_KINDS, columns = (face +1, face −1) × (standing, step A, step B)
+// A cell is MINI_CELL_U figure heights square; the feet stand at MINI_ANCHOR of the cell.
+// `paintMini` draws one and says whether it could (until a sheet loads the caller draws the
+// canvas figure of units.mjs instead).
+import { FACTION_FILL } from './avatar.mjs';
+
+export const MINI_KINDS = Object.freeze(['spearman', 'archer', 'horseman', 'pikeman', 'crossbowman', 'knight', 'scout', 'settler']);
+/** The sheets by cell size (px): @1x for small tokens, @2x from about 150 device px a cell. */
+export const MINI_SIZES = Object.freeze([{ key: '@1x', cell: 160 }, { key: '@2x', cell: 320 }]);
+/** A cell spans 2.0 figure units; a standing figure is 0.95 of a unit tall: the cell in token heights. */
+export const MINI_CELL_U = (2.0 / 0.95) * 1.15;
+export const MINI_ANCHOR = Object.freeze([0.42, 0.74]);
+/** The base's radius in token heights (the render's 0.3 units, 1.5 × for riders). */
+export const miniBaseR = kind => (0.235 / 0.95) * 1.15 * (kind === 'horseman' || kind === 'knight' ? 1.5 : 1);
+
+const BASE = new URL('../art/units/', import.meta.url);
+const sheets = new Map();
+let redraw = () => {};
+/** The map asks to be redrawn when a sheet arrives. */
+export function onMiniLoad(fn) { redraw = typeof fn === 'function' ? fn : () => {}; }
+
+/** The sheet of a people at a size: the image once it has loaded, else null (and the load starts). */
+export function miniSheet(faction, size) {
+  const key = `${size}/units_${faction}`;
+  const have = sheets.get(key);
+  if (have) return have.ok ? have.img : null;
+  if (typeof Image === 'undefined') return null;
+  const img = new Image();
+  const rec = { img, ok: false };
+  sheets.set(key, rec);
+  img.onload = () => { rec.ok = true; redraw(); };
+  img.onerror = () => { rec.failed = true; };
+  img.src = new URL(`${key}.webp`, BASE).href;
+  return null;
+}
+
+/** The cell of a frame: column by facing and step, row by unit type. */
+export function miniCell(kind, { face = 1, walking = false, step = 0 } = {}) {
+  const row = Math.max(0, MINI_KINDS.indexOf(kind));
+  const frame = walking ? (step % 1 < 0.5 ? 1 : 2) : 0;
+  return { row, col: (face < 0 ? 3 : 0) + frame };
+}
+
+/**
+ * Draw one miniature, feet at (x, y), `s` the token's height (world px); `{faction, face, step,
+ * walking, alpha, lunge, own, pulse}`. Returns false when its sheet has not loaded yet.
+ */
+export function paintMini(ctx, x, y, s, kind, { faction = 0, face = 1, step = 0, walking = false, alpha = 1, lunge = 0, own = false, pulse = 0 } = {}) {
+  if (!(faction >= 0 && faction < 6)) return false;
+  const m = typeof ctx.getTransform === 'function' ? ctx.getTransform() : null;
+  const scale = m && Number.isFinite(m.a) ? Math.hypot(m.a, m.b) : 1;
+  const w = s * MINI_CELL_U, dev = w * scale;
+  const size = dev > 150 ? MINI_SIZES[1] : MINI_SIZES[0];
+  const img = miniSheet(faction, size.key) ?? miniSheet(faction, (size === MINI_SIZES[1] ? MINI_SIZES[0] : MINI_SIZES[1]).key);
+  if (!img) return false;
+  const cell = img.width / 6;
+  const { row, col } = miniCell(kind, { face, walking, step });
+  const lx = x + (face < 0 ? -1 : 1) * lunge * s * 0.12;
+  const bob = walking ? Math.abs(Math.sin(step * Math.PI * 2)) * s * 0.02 : 0;
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.drawImage(img, col * cell, row * cell, cell, cell, lx - w * MINI_ANCHOR[0], y - bob - w * MINI_ANCHOR[1], w, w);
+  if (own) {   // the viewer's own: a gold ring around the base
+    const r = s * miniBaseR(kind) * 1.18;
+    ctx.globalAlpha = alpha * (0.75 + pulse * 0.25);
+    ctx.strokeStyle = '#f3d58a'; ctx.lineWidth = s * 0.035;
+    ctx.beginPath(); ctx.ellipse(lx, y, r, r * 0.76, 0, 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.restore();
+  return true;
+}
+
+/** The unit portrait (the miniature on its base, for the UI): art/units/cards/<faction>_<kind>.webp. */
+export const miniCardUrl = (faction, kind) => new URL(`cards/${faction >= 0 && faction < 6 ? faction : 0}_${MINI_KINDS.includes(kind) ? kind : 'spearman'}.webp`, BASE).href;
+/** The card's backdrop colour (the faction's). */
+export const miniCardColour = f => FACTION_FILL[f] ?? '#8a8a80';

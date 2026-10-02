@@ -20,6 +20,7 @@ import { activitiesFor } from '../people/activity.mjs';
 import { lifeAt } from '../people/life.mjs';
 import { paintBattle, battleTiles } from '../people/battle.mjs';
 import { provinceTokens, paintToken, placePills } from '../people/units.mjs';
+import { onMiniLoad } from '../people/minis.mjs';
 import { paintMoments } from '../people/moments.mjs';
 import { BOUNDARY_HALO, BOUNDARY_INK, FOG, UNOPENED_FILL, paintSigil, provincePixel, PROVINCE_CIRCUMRADIUS } from './layers.mjs';
 
@@ -252,6 +253,7 @@ function sharedEdge(a, b) {
 export class SpriteArt {
   constructor({ onLoad = () => {}, base = BASE } = {}) {
     this.onLoad = onLoad;
+    onMiniLoad(onLoad);
     this.base = base;
     this.images = new Map();
     this.outlines = new Map();

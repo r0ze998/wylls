@@ -24,6 +24,7 @@ import { troopsOf } from '../fmarch.mjs';
 import { FACTION_FILL, FACTION_DARK, shade } from './avatar.mjs';
 import { zoomBoost } from './crowds.mjs';
 import { baseDisc, unitFigure, UNIT_KINDS } from './units.mjs';
+import { paintMini } from './minis.mjs';
 
 export const FATES = Object.freeze(['Stays', 'Withdrew', 'Bounced', 'Retreated', 'Destroyed']);
 export const STANCE_POSE = Object.freeze(['hold', 'assault', 'flank', 'brace']);
@@ -222,9 +223,11 @@ export function paintBattle(ctx, play, { zoom = 1, now = (globalThis.performance
       const step = (t * (k.walking ? 1.6 : 0.6)) % 1;
       if (k.fallen) {
         ctx.save(); ctx.globalAlpha = k.alpha * (1 - k.fallen * 0.5);
-        baseDisc(ctx, k.x, k.y, s, k.faction, { alpha: k.alpha * (1 - k.fallen * 0.6) });
         ctx.translate(k.x, k.y); ctx.rotate(-k.face * k.fallen * 1.4);
-        unitFigure(ctx, 0, 0, s, k.kind, { faction: k.faction, face: k.face, step: 0.2, alpha: 1 });
+        if (!paintMini(ctx, 0, 0, s, k.kind, { faction: k.faction, face: k.face, alpha: 1 })) {
+          ctx.rotate(k.face * k.fallen * 1.4); baseDisc(ctx, 0, 0, s, k.faction, { alpha: k.alpha * (1 - k.fallen * 0.6) }); ctx.rotate(-k.face * k.fallen * 1.4);
+          unitFigure(ctx, 0, 0, s, k.kind, { faction: k.faction, face: k.face, step: 0.2, alpha: 1 });
+        }
         ctx.restore();
         // a skull over the fallen
         if (k.fallen > 0.6) { ctx.save(); ctx.globalAlpha = (k.fallen - 0.6) * 2.5; ctx.fillStyle = '#f4efe4'; ctx.strokeStyle = '#2a2018'; ctx.lineWidth = s * 0.03;
@@ -232,8 +235,10 @@ export function paintBattle(ctx, play, { zoom = 1, now = (globalThis.performance
           ctx.fillStyle = '#2a2018'; ctx.beginPath(); ctx.arc(sx - s * 0.05, sy, s * 0.03, 0, Math.PI * 2); ctx.arc(sx + s * 0.05, sy, s * 0.03, 0, Math.PI * 2); ctx.fill(); ctx.restore(); }
         continue;
       }
-      baseDisc(ctx, k.x, k.y, s, k.faction, { alpha: k.alpha });
-      unitFigure(ctx, k.x, k.y - s * 0.02, s, k.kind, { faction: k.faction, face: k.face, step, walking: k.walking, alpha: k.alpha, lunge: k.ranged ? 0 : k.lunge });
+      if (!paintMini(ctx, k.x, k.y, s, k.kind, { faction: k.faction, face: k.face, step, walking: k.walking, alpha: k.alpha, lunge: k.ranged ? 0 : k.lunge })) {
+        baseDisc(ctx, k.x, k.y, s, k.faction, { alpha: k.alpha });
+        unitFigure(ctx, k.x, k.y - s * 0.02, s, k.kind, { faction: k.faction, face: k.face, step, walking: k.walking, alpha: k.alpha, lunge: k.ranged ? 0 : k.lunge });
+      }
       // archers and crossbowmen loose: arrows arc to the other side
       if (k.ranged && t >= PHASE.melee && t < PHASE.fates) for (let j = 0; j < 3; j++) {
         const u = ((t - PHASE.melee) * 1.4 + j / 3) % 1;

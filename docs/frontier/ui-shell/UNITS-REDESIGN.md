@@ -66,3 +66,12 @@ object of its own (a builder hammering beside a town is not a building going up)
    back, falls).
 9. **Zoom ladder**: tile detail = tokens and pills; province detail = the flags; world =
    the realm map. One representation per entity at every level.
+
+## 2026-10-02: the units as painted miniatures
+
+The owner's verdict on the canvas figures and on the first flat portraits was that the silhouettes and the touch do not fit the world. The map is a 2.5D diorama rendered in Blender, so the tokens now come out of the same pipeline. Rules 1–9 above are unchanged; what changed is how a token is drawn.
+
+- **The rendering.** A token is a rendered miniature: Cycles, the map camera's elevation, the tiles' sun and world light, so its shadow falls where the trees' and the houses' shadows fall. It stands on a low earth base with the faction's colour on its rim. There is one sheet per people, with 8 unit types × 2 facings × (standing, two walking steps). How the sheets are built: `docs/frontier/art/units/`.
+- **The face's culture.** Each people has its marks and headgear (the table in that README). They read on the map by colour and shape, and in the portraits by detail.
+- **The portraits.** The UI shows the miniature on its base, photographed a little from above (`art/units/cards`): host rows and the tile inspector. A face close-up was tried and rejected. At bust scale the procedural head reads as a mannequin. At the miniature's own scale it reads as a painted figure.
+- **The drawing code.** `people/minis.mjs` (`paintMini`) draws the sprites. `paintToken` and the battle scene fall back to the canvas figures of `units.mjs` until a sheet has loaded, and in tests.

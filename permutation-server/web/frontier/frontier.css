@@ -151,6 +151,15 @@ legend { padding: 0 4px; font-weight: 600; }
 .as-of { font-size: 12px; color: var(--ink-2); }
 .march, .host { padding: 8px 0; border-bottom: 1px solid var(--line-soft); }
 .host > span, .host > strong { display: block; }
+/* unit portraits: the painted miniature on its base (people/minis.mjs, art/units/cards) */
+.host.has-card { display: grid; grid-template-columns: 64px 1fr; column-gap: 10px; }
+.host.has-card > .unit-card { grid-row: 1 / span 6; }
+.host.has-card > :not(.unit-card) { grid-column: 2; }
+.unit-card { display: block; width: 60px; height: 75px; border-radius: 10px; border: 2px solid var(--line-soft); object-fit: cover; background: radial-gradient(circle at 40% 30%, #fffaf0, var(--uc, #e6e0d2) 60%, var(--ucd, #8a8a80) 140%); }
+.unit-card.small { width: 32px; height: 40px; border-radius: 7px; border-width: 1.5px; margin-right: 6px; }
+.unit-card.f0 { --uc: #f1d6d2; --ucd: #c1504a; border-color: #7d2c27; } .unit-card.f1 { --uc: #d3ebe7; --ucd: #2f8f84; border-color: #1b5a53; }
+.unit-card.f2 { --uc: #f2e4c5; --ucd: #c28f2c; border-color: #7d5a14; } .unit-card.f3 { --uc: #e2daf0; --ucd: #7a5fb0; border-color: #4b3874; }
+.unit-card.f4 { --uc: #d6e2f3; --ucd: #3f78c2; border-color: #24497b; } .unit-card.f5 { --uc: #f0d6e2; --ucd: #b5527f; border-color: #6f2d4c; }
 
 /* ---- desktop: the panel is the right column, the tabs sit on top */
 @media (min-width: 760px) {
