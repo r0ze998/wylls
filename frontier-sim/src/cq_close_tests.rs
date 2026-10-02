@@ -115,3 +115,44 @@ fn cq_keep_tile_is_the_symmetric_kernel() {
     }
     assert!(n > 0 && moved > 0, "{moved} of {n} keeps moved");
 }
+
+/// A-26 (contract v1.3 §8.6, DECISIONS CQI16): the rally stay applies to
+/// campaign factions only, as the package was measured. Under MC a lone
+/// faction's arriving Rally host still goes home even with the target's
+/// MC siege live or the strike pending (`dbg[15]`); a campaign faction's
+/// stays (`dbg[14]`). The overnight doctrine band (O-A, `--policy lone`)
+/// depends on this: with the stay for every policy it is 5/6
+/// (W1C-B-sim-NOTES §3.1).
+#[test]
+fn cq_rally_stay_is_campaign_only() {
+    use crate::mc::Policy::{Campaign, Lone};
+    let run = |policy: [crate::mc::Policy; 6]| {
+        let mut c = Config {
+            seed: 2602,
+            agents: 1_000,
+            days: 7,
+            policy,
+            ..Config::default()
+        };
+        c.set_rules(Rules::Mc, None);
+        assert!(c.rally_stay);
+        let (sim, o) = play(&c);
+        for k in &o.checks {
+            assert!(k.ok, "{} ({})", k.name, k.detail);
+        }
+        (sim.mcs.st.dbg[14], sim.mcs.st.dbg[15])
+    };
+    // every faction lone: no rally host stays, and some went home with
+    // their target's siege live (the defect kept for the human model)
+    let (stay, home) = run([Lone; 6]);
+    assert_eq!(stay, 0, "a lone rally host stayed");
+    assert!(home > 0, "no lone rally host met a live siege");
+    // faction 0 campaign, 1-5 lone (OD-16's coordination row): both paths
+    let (stay, home) = run([Campaign, Lone, Lone, Lone, Lone, Lone]);
+    assert!(stay > 0, "the campaign faction's rally hosts did not stay");
+    assert!(home > 0, "no lone rally host met a live siege");
+    // every faction campaign: no rally host meets a live siege and leaves
+    let (stay, home) = run([Campaign; 6]);
+    assert!(stay > 0);
+    assert_eq!(home, 0, "a campaign rally host went home from a live siege");
+}

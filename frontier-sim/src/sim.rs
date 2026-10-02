@@ -3105,16 +3105,23 @@ impl Sim {
                             // target's MC siege is live. Campaign factions
                             // only, as measured (W1C-B-sim-NOTES §3.1: for
                             // lone factions it moves the doctrine band).
+                            // A lone faction's rally host still goes home
+                            // (A-26); `dbg[15]` counts those sent home with
+                            // the strike pending or the MC siege live.
                             let fac = self.hosts[h as usize].faction as usize;
-                            let stays = self.mc()
-                                && self.cfg.rally_stay
-                                && fac < 6
-                                && self.cfg.policy[fac] == crate::mc::Policy::Campaign
+                            let live = self.mc()
                                 && (self.holds[t as usize].mc.siege.is_some()
                                     || self.mcs.pending.contains_key(&t));
+                            let stays = live
+                                && self.cfg.rally_stay
+                                && fac < 6
+                                && self.cfg.policy[fac] == crate::mc::Policy::Campaign;
                             if stays {
                                 self.mcs.st.dbg[14] += 1;
                             } else {
+                                if live {
+                                    self.mcs.st.dbg[15] += 1;
+                                }
                                 late_rally.push(h);
                             }
                         }

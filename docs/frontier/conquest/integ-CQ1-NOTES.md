@@ -468,7 +468,7 @@ The O-C/O-D lines ran exactly as §12 writes them (without `--gate-28d`; W1C-B r
 ### 10.6 Open after the close (none is a Gate CQ1 line)
 
 - OD-14: the human-mix campaign row stays below the 7-day floors (above). Unchanged open risk (CQI14).
-- The `mc-weightmap` control passes 10e′ on 4/5 gate seeds and every 10h count; it fails overall on 10a, 10b, 10c and 10d. 10e′ alone does not separate the weight map from keeps.
+- The `mc-weightmap` control passes 10e′ on 4/5 gate seeds and every 10h count; it fails overall on 10a, 10b, 10c and 10d. 10e′ alone does not separate the weight map from keeps. **Corrected in §11 (C7/R4):** 10c rejects it only on the gate seeds (3/5); on fresh 20-seed sets it passes 10c 18–19/20 and 10e′ 17–20/20. The robust rejecters are 10a, 10b and 10d (0/20 everywhere).
 - Campaign defence still never breaks a keep contest (`keep_contests_broken` 0; re-taken within 3 days 2.7% at 7 days). For CQ2-F before it ports the planner (§7).
 - The 3:1 size stress at 7 days crosses 22% (5/10, 3/10; reported, PO-4). A member count in the faction picker is left to a later UI wave (optional).
 - CQ2-F's field-equality test covers the E1 additions as W1C-B-sim-NOTES §7 lists them (occupation slot, hold rule, campaign-only rally stay, `train_v2`, `keep_tile_symmetric`; reference counters `McStats::dbg[11..=14]`).
@@ -482,4 +482,79 @@ scripts/cq-regen.sh --check && scripts/cq-regen.sh --v1-unchanged "$(git merge-b
 (cd frontier-sim && cargo run --release -- mapmove --rules mc --policy campaign --bot-profile cq --agents 1000 --bots 0.99 --days 7 --seeds 10 --first-seed 2001 --json thresholds/mc-7d-1k.json)   # re-derivation (defining command)
 (cd frontier-sim && cargo run --release -- mapmove --rules mc --policy campaign --agents 10000 --days 28 --seeds 10 --first-seed 2001 --gate-28d --json thresholds/mc-28d-10k.json)
 # Gate CQ1: contract §12 v1.3 as written; package rows: the X-* commands in (session scratch)/scratchpad/cqclose/integ/*.rc
+```
+
+## 11. Round 4: the review of the merged close, verdicts and fixes
+
+- **Date:** 2026-10-02. **Role:** MC integrator, on `frontier/cq-integ` (base `3d6bd37`). Two reviews: the W1C-C-contract review (8 issues, 1 "missing" owner item) and the package-reproduction review (6 issues). Local commit only; nothing pushed; `codex/frontier` not fast-forwarded (`5ed36fa`).
+- **Logs:** `(session scratch)/scratchpad/cqclose/integ-r4/` (`<id>.log`, `<id>.rc` = exit, wall seconds, command; queues `qV.sh`, `qA.sh`, `qB.sh`, `qC.sh`). The reviewers' own logs: `cqclose/W1C-C-contract-review/`, `cqclose/review-repro/` (read for every number quoted below).
+- **Binaries:** `bin/fs-integ` = the round-3 gate binary (`e027a2cf…2563`, built at `2f1a14b`); `bin/fs-r4` = this round's release build (`220b9f8a…d4d0`), whose only source change is the diagnostic `McStats::dbg[15]` (below).
+
+### 11.1 Verdicts (each issue checked against the code or the logs)
+
+| # | Review | Issue | Verdict | What changed |
+|---|---|---|---|---|
+| C1 | contract | §8.6/A-14: the occupation slot "filled before the holding slot", but the code counts it against `holding_slots` | **confirmed** (`sim_campaign.rs` `mc_campaign_fill`: `let have_player = have_player + pick.len();`, `HOLDING_SLOTS = 1`) | §8.6 bullet rewritten (candidates, order, slot sharing), A-14 and A-21 corrected; A-29 (1); CQI7, CQI19 |
+| C2 | contract | SUMMARY.ja / CQI7 / open-risk lists not reconciled with A-26 | **confirmed** | SUMMARY.ja v1.3: rally fix is for bot (campaign) factions only; the 6/6 band was measured with lone rally hosts still going home; fixing it needs a re-tune (5/6, E 18.9%). CQI7 amended (points at CQI16), CQI14 and §19 open risks extended; §3.16 evidence |
+| C3 | contract | §7 `KEEP_VERSION 1`, §3.13 "new, 1"; the bridge `keep_tile(…, wedge)` = `keep_tile_symmetric` unrecorded | **confirmed** (`keep.rs` `KEEP_VERSION = 2`; `frontier-abi/src/v2/kernel.rs` `keep_tile` calls `keep_tile_symmetric`) | §7 header 2, the bridge line in §7; §3.13 row |
+| C4 | contract | [P1] numbers kept in normative text after the re-run | **confirmed** | A-29 (3) lists the four that changed and says §10–§11 supersede [P1]; §0, §8.6, §13.4 carry the merged-code values; DESIGN §24 and CQI13's re-take figure via CQI20 |
+| C5 | contract | the PO-7 test cannot fail for the property it names | **confirmed** (the Province carries no finality) | test doc comment: "layout-level pin"; §11 CQ2-B row requires the program-side test (a provisional holding's weight in `snap[]` before `final_ts`). **Partly rebutted:** the snapshot writer is CQ2-B (the conquest step in ResolveFromInputs/SkipQuiet, §11), not CQ2-C as the review wrote; the herald (CQ2-E) and V19 (CQ3-A) read the snapshot as written (A-29 (6)) |
+| C6 | contract | no test pins A-26 | **confirmed** | new `frontier-sim` test `cq_close_tests::cq_rally_stay_is_campaign_only` and the diagnostic `McStats::dbg[15]` (Rally hosts sent home on arrival with the strike pending or the MC siege live). Seed 2602, 1,000 agents (human mix), 7 days, MC, (`dbg[14]` stayed, `dbg[15]` sent home from a live siege): all lone (0, 321); `campaign:0,lone:1-5` (3, 238); all campaign (13, 0). A mutation (the stay for every policy) makes the test fail (lone `dbg[14]` 298) |
+| C7 | contract | §8.7 item 4/§13.4 silent that 10e′ does not separate the weightmap control | **confirmed** (gate seeds: control passes 10e′ 4/5, 10c 3/5; fresh 20-seed sets: 10e′ 17–20/20, 10c 18–19/20, 10f 17–20/20; 10a, 10b, 10d 0/20 everywhere) | one paragraph in §8.7 item 4, one sentence in §13.4; §10.6's "fails on 10a, 10b, 10c and 10d" corrected below |
+| C8 | contract | §8.6 sort key; §12 doctrine-band wording | **confirmed** (value ÷ `mc_hold_def`, value 1.0 home / 1.5 capture, ×2 in the Call March under keep rules, dormant homes skipped) | §8.6 order bullet; §12 condition: CI proxy = `balance::gate_check`, overnight = ±2 points |
+| R1 | repro | PO-8 headroom on fresh sets | **confirmed and independently re-run**: `V01` on the round-3 gate binary, seeds 80001: worst 0.994331, MC − M1 +0.008439, byte-identical to the reviewer's `B02` (wall time aside). The other four sets read from the reviewer's logs: 70001 0.990171, 75001 0.989653, 85001 0.990811, 95001 0.989038 | no code change; owner information (§11.3, CQI21) |
+| R2 | repro | overnight band 5/6 on seeds 90000 | **confirmed and independently re-run**: `V02` (see §11.2) | no code change; owner information |
+| R3 | repro | p10 / floor ranges at the low edge on fresh sets | **confirmed** from `A01`/`A03` logs (17002–17021: 10a 94.9 = 2.11×, 10c 0.278 = 2.14×, 10e′ 0.150 = 2.50×, occupations 37 = 3.7×; 18002–18021: 92.7 = 2.06×, 0.267 = 2.05×, 0.148 = 2.47×, 36 = 3.6×) | ranges stated in §13.4 and A-29 (3); 10c stays 13% as approved |
+| R4 | repro | the weightmap control passes 10c and 10e′ on fresh seeds | **confirmed** (C7). The round-3 notes' "10c 3/5" was right for the gate seeds, but 10c does not robustly reject the control | as C7 |
+| R5 | repro | CI proxy margin on fresh seeds (max \|Δ\| 0.150% on 70000) | **confirmed** from `C01`…`C05` (within the 0.2% gate; B lowest; three controls rejected) | recorded; no change |
+| R6 | repro | reported figures move with the seed set | **confirmed** from `A04`–`A13` (Departs per bot-day p50 0.166 / 0.182; `net_movement_p2` p10 0.065 / 0.059; re-take within 3 days 3.4% / 1.9% at 7 d, 26.4% at 28 d; 3:1 at 7 d on 21001 human mix 8/10, cq 5/10) | owner-facing texts give ranges (SUMMARY.ja, A-29 (3), CQI20) |
+| M1 | contract "missing" | the band depends on the lone rally defect; the owner was told it was fixed | **confirmed** | owner information (§11.3); SUMMARY.ja corrected |
+
+No issue was false. One detail of C5 was misattributed (CQ2-B, not CQ2-C), as noted.
+
+### 11.2 Gate CQ1 after the fixes (round 4)
+
+The only code change is test and diagnostic: `frontier-sim/src/sim.rs` computes the rally-stay predicate's "siege live or strike pending" part once and counts the lone case in `McStats::dbg[15]` (pure reads, no RNG, no state written besides the counter); the new test; a doc comment in `frontier-abi/tests/cq_conquest_model.rs`. **No outcome can change**, so the overnight lines were not re-run as gate lines (contract §3.13: only an outcome-changing MC change re-runs them). The lines whose code changed were re-run, and the round-4 binary's outputs were diffed against round 3's:
+
+| # | Command | Exit | Result |
+|---|---|---|---|
+| P1 | `scripts/cq-ownership-check.sh <the seven frontier/cq-* unit branches>`; `--self-test` | 0, 0 | PASS (footprint warnings report-only, as round 3) |
+| P2 | `git diff --quiet "$(git merge-base HEAD codex/frontier)" -- permutation-server/web/session.mjs permutation-chain/src` (A-25) | 0 | |
+| P3 | `scripts/cq-regen.sh --check` (`RP3`) | 0 | every generated output fresh (190 s) |
+| 1 | `cargo fmt --all -- --check` (`R01`) | 0 | |
+| 2 | `cargo clippy --locked -p permutation-rules -p frontier-abi --all-targets -- -D warnings` (`R02`) | 0 | |
+| 4 | `cargo test --locked -p frontier-abi` (`R04`) | 0 | 106 passed (incl. `cq_control_weights_count_provisional_holdings`) |
+| 5 | `abi-vectors -- --check` (`R05`) | 0 | 16 files fresh |
+| 7 | `(cd frontier-sim && cargo fmt -- --check && cargo clippy --locked --release --all-targets -- -D warnings && cargo test --locked --release)` (`R07`) | 0 | **61** passed, 0 failed (60 + `cq_rally_stay_is_campaign_only`; 658 s) |
+| 10 | `criterion … --rules mc --policy campaign --gate` on `fs-r4` (`R10`) | 0 | worst 0.989299 ≤ 0.995, MC − M1 +0.004129: **byte-identical** to round 3's `G10` |
+| 12 | `mapmove … --check thresholds/mc-7d-1k.json` on `fs-r4` (`R12`) | 0 | no drift; identical to `G12` |
+| 13 | `mapmove-gate … --seeds 5 --first-seed 1101 --controls` on `fs-r4` (`R13`) | 0 | MC PASS 5/5, both controls FAIL; identical to `G13` |
+| 13a/b | 2:1 size stress, human mix and cq (`R13a`, `R13b`) | 0, 0 | 10/10, 9/10; identical to round 3 except the printed wall seconds |
+| 17 | OD-16 `campaign:0,lone:1-5` (`R17`) | 0 | PASS 10/10; identical except wall seconds (this row runs both rally paths) |
+| eq | `doctrines --agents 10000 --seeds 5 --first-seed 10000 --set kernel --rules mc --policy lone` on `fs-integ` vs `fs-r4` (`E01`, `E02`) | 0, 0 | identical tables (the lone path through the changed branch) |
+
+Not re-run this round (unaffected by a test/diagnostic-only change, results of §10.2 stand): `permutation-rules` and `permutation-chain` tests, the M1 criterion and doctrine lines, the MC CI doctrine proxy (2,595 s; the lone path was shown identical by `eq`), the bannerdom row, `frontier-node`, `npm test`, `cargo check -p permutation-frontier`, `--v1-unchanged`, and the overnight O-A…O-D. **Gate CQ1 stays green** (§10.3's verdict holds; every re-run line equals round 3).
+
+### 11.3 The review's measurements re-run independently, and what goes to the owner
+
+- **`V01`** (round-3 gate binary `fs-integ`): `criterion --best-response --seeds 3 --first-seed 80001 --rules mc --policy campaign --gate` → exit 0, worst **0.994331** (bots in office, 1%, day 0, stake), M1 control 0.985891, **MC − M1 +0.008439**: byte-identical to the reviewer's `B02` (370 s).
+- **`V02`** (same binary): `doctrines --agents 10000 --seeds 250 --first-seed 90000 --set kernel --rules mc --policy lone --gate` → **exit 1, 5/6**: A 16.9, B 15.2, **C 18.8% (out; edge 18.67%)**, D 16.8, E 16.1, F 16.3%; max |Δ index| 0.100% (B); 1,500/1,500 conserve. Byte-identical to the reviewer's `D01` (wall time aside).
+- From the reviewers' logs (not re-run): best-response worst cells 70001 0.990171, 75001 0.989653, 85001 0.990811, 95001 0.989038 (MC − M1 +0.005439 … +0.010532); band 110000 6/6 (max |Δ| 0.093%); CI proxy on 70000 max |Δ| 0.150%, on 120000 0.080%, controls rejected; 7-day gate 17002–17021 and 18002–18021 PASS 20/20, `m1` profile 20/20; 28-day 19002–19003 PASS 2/2 (banners 4.64 / 4.86, Marches 0.151 / 0.142), weightmap Marches 0/2 (0.034) and banners 1/2; size stress 21001: 2:1 10/10 and 10/10, 3:1 human mix 8/10, cq 5/10; 28 d 2:1 10/10 (p50 0.189), 3:1 10/10 (p50 0.202).
+
+**Owner information (stop_for_owner; no decision taken, CQI21):**
+
+1. **The K2 doctrine band depends on a simulator defect kept for lone (human-model) factions.** Under MC their arriving Rally hosts still go home (A-26). On chain no such defect exists. With the stay for every policy the overnight band is 5/6 (E 18.9%, W1C-B-sim-NOTES §3.1). If the owner wants human-like factions modelled without the defect, the band needs a re-tune. SUMMARY.ja had told the owner the defect was fixed; corrected.
+2. **The overnight band is not robust on fresh seeds:** 5/6 on 90000 (C 18.8%, 0.13 points over the edge), 6/6 on 110000; the gate seed 10000 is 6/6. At 1,500 seasons one win rate's SE is ≈ 1 point, so a balanced set misses ±2 on some doctrine roughly one time in five. B is the lowest index on every fresh set (−0.077% to −0.150%).
+3. **PO-8's 0.995 ceiling is close to its noise on some sets:** 0.994331 on 80001 (0.00067 headroom); MC − M1 up to +0.010532, above the sheet's quoted range on two sets. Every cell < 1.0 everywhere; the gate line on 30001 is 0.989299.
+
+Changing the band rule, the seed counts, the ceiling or the gate seeds, or re-tuning doctrines, is beyond CQ-H.
+
+### 11.4 Reproduce
+
+```sh
+cd .claude/worktrees/cq-integ
+(cd frontier-sim && cargo test --locked --release cq_rally_stay_is_campaign_only)
+(cd frontier-sim && cargo run --release -- criterion --best-response --seeds 3 --first-seed 80001 --rules mc --policy campaign --gate)
+(cd frontier-sim && cargo run --release -- doctrines --agents 10000 --seeds 250 --first-seed 90000 --set kernel --rules mc --policy lone --gate)   # exits 1: 5/6
+# every round-4 line: (session scratch)/scratchpad/cqclose/integ-r4/*.rc
 ```

@@ -104,7 +104,9 @@ pub struct McStats {
     /// The occupation objective (PO-1 a): [11] plan fills with a legal
     /// first holding in reach, [12] occupation campaigns added, [13]
     /// occupation groups launched, [14] campaign rally hosts kept on a
-    /// target's hex at arrival.
+    /// target's hex at arrival, [15] rally hosts sent home at arrival
+    /// although the strike was pending or the target's MC siege live
+    /// (lone factions, A-26; or `--mc rally_stay=0`).
     pub dbg: [u64; 16],
 }
 

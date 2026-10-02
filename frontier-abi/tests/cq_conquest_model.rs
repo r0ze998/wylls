@@ -736,6 +736,13 @@ fn cq_conquest_payload_pins_the_state() {
 /// site mirror: a state-1 site counts with its strength weight whether its
 /// holding is provisional or final, and free, released and reserved sites
 /// add nothing.
+///
+/// This is a **layout-level pin** (integ-CQ1-NOTES §11): the Province
+/// bytes carry no finality, so this test cannot see a reader that filters
+/// on it. A reader with access to finality (the CQ2-C program snapshot,
+/// the herald, the verifier) needs its own test in which a provisional
+/// holding's weight appears in `snap[]` before its `final_ts`; contract
+/// v1.3 §11 assigns that test to CQ2-C (A-29).
 #[test]
 fn cq_control_weights_count_provisional_holdings() {
     use frontier_abi::v2::kernel::control::site_weight_centi;
