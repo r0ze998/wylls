@@ -101,7 +101,11 @@ pub struct McStats {
     /// declared; of them failed by a defender; failed with the hex left;
     /// failed after some progress; at those failures the lead host was
     /// destroyed / on its way home (retreated, bounced) / elsewhere.
-    pub dbg: [u64; 12],
+    /// The occupation objective (PO-1 a): [11] plan fills with a legal
+    /// first holding in reach, [12] occupation campaigns added, [13]
+    /// occupation groups launched, [14] campaign rally hosts kept on a
+    /// target's hex at arrival.
+    pub dbg: [u64; 16],
 }
 
 /// The control series criterion 10 reads: province control changes by bell
@@ -221,12 +225,19 @@ impl Sim {
         x.free_city() || now - x.h.last_owner_action >= self.cfg.mc.dormant_after_secs
     }
 
-    /// The keep tile: `keep::keep_tile` itself (integ-W1 R2). A province
-    /// without one gets no keep (`NO_KEEP_TILE`, as OpenProvince).
-    fn keep_tile(t: &ProvinceTerrain) -> u8 {
+    /// The keep tile: the kernel's `keep::keep_tile_symmetric` (W1-close,
+    /// PO-5, CQH1(5): the same tile in all six wedges of a ring; contract
+    /// v1.3 §3.1/§3.2) for the province's wedge. A province without one
+    /// gets no keep (`NO_KEEP_TILE`, as OpenProvince).
+    fn keep_tile(t: &ProvinceTerrain, wedge: u8) -> u8 {
         let bytes: [u8; PROVINCE_TILES] = core::array::from_fn(|i| t.terrain[i] as u8);
-        permutation_rules::frontier::keep::keep_tile(&bytes, &t.sites, t.site_count)
-            .unwrap_or(permutation_rules::frontier::keep::NO_KEEP_TILE)
+        permutation_rules::frontier::keep::keep_tile_symmetric(
+            &bytes,
+            &t.sites,
+            t.site_count,
+            wedge,
+        )
+        .unwrap_or(permutation_rules::frontier::keep::NO_KEEP_TILE)
     }
 
     /// OpenProvince (§3.2, §3.7): the keep and the genesis Free City.
@@ -245,7 +256,7 @@ impl Sim {
                 p.wedge,
                 p.ring,
                 p.terrain.site_count,
-                Self::keep_tile(&p.terrain),
+                Self::keep_tile(&p.terrain, p.wedge),
             )
         };
         if self.cfg.rules.keeps() {

@@ -250,6 +250,7 @@ fn cq_thresholds_files_are_complete() {
         Some("cq")
     );
     for k in [
+        "net_movement_p2",
         "departs_per_bot_day",
         "keep_marches_per_bot_day",
         "keep_captures_per_bot_day",

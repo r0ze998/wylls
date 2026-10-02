@@ -588,6 +588,30 @@ impl Sim {
         }
     }
 
+    /// A first holding (a home) as a campaign target: occupation (the
+    /// occupation objective, W1-close PO-1 (a); CQ2-F ports it, §8.6).
+    fn occ_target(s: &Sim, t: &Target) -> bool {
+        matches!(t, Target::Hold(h) if {
+            let x = &s.holds[*h as usize];
+            !x.free_city() && x.h.order <= 1
+        })
+    }
+
+    /// The hold rule (`siege_hold`, PO-1 (a)): the retreat order of an
+    /// occupation strike's host of `own` milli-troops in a group of
+    /// `group` milli-troops, `clamp(10,000 × group ÷ own, 6,667,
+    /// RETREAT_MAX_BPS)`: it withdraws on arrival only if the frozen
+    /// defence on the hex outweighs the whole group (bps of its own
+    /// strength; same unit, so troops stand for strength), never below
+    /// M1's 2/3 rule.
+    pub(crate) fn occ_retreat(group: MilliTroops, own: MilliTroops) -> Bps {
+        let r = (10_000u128 * group.max(1) as u128 / own.max(1) as u128).clamp(
+            6_667,
+            permutation_rules::frontier::clash::RETREAT_MAX_BPS as u128,
+        );
+        r as Bps
+    }
+
     fn mc_target_ours(&self, t: Target, f: u8) -> bool {
         match t {
             Target::Keep(pi) => self.prov(pi).mkeep.is_some_and(|k| k.holder == f),
@@ -763,15 +787,48 @@ impl Sim {
             .filter(|c| player(self, &c.target))
             .count();
         let mut pick: Vec<Target> = Vec::new();
+        // The occupation objective (PO-1 (a), CQH1(1)): `occ_slots` of
+        // the plan go to first holdings to occupy, the weakest defence
+        // first. The candidates are already
+        // legal (`mc_target_legal`: may_besiege v3 = outside the
+        // heartlands, unshielded, not Frontier-protected; record free;
+        // completable) and active (not dormant): by value ÷ defence a home
+        // (value 1.0, a grown garrison) never outranks an outpost.
+        let occ_slots = self.cfg.occ_slots;
+        if occ_slots > 0 {
+            let have_occ = self.mcs.camps[f as usize]
+                .iter()
+                .filter(|c| Self::occ_target(self, &c.target))
+                .count();
+            let n_occ = cands
+                .iter()
+                .filter(|c| Self::occ_target(self, &c.1))
+                .count();
+            if n_occ > 0 {
+                self.mcs.st.dbg[11] += 1;
+            }
+            if have_occ < occ_slots {
+                let before = pick.len();
+                pick.extend(
+                    cands
+                        .iter()
+                        .filter(|c| Self::occ_target(self, &c.1))
+                        .take(occ_slots - have_occ)
+                        .map(|c| c.1),
+                );
+                self.mcs.st.dbg[12] += (pick.len() - before) as u64;
+            }
+        }
         let slots = self.cfg.holding_slots;
+        let have_player = have_player + pick.len();
         if have_player < slots {
-            pick.extend(
-                cands
-                    .iter()
-                    .filter(|c| player(self, &c.1))
-                    .take(slots - have_player)
-                    .map(|c| c.1),
-            );
+            let more: Vec<Target> = cands
+                .iter()
+                .filter(|c| player(self, &c.1) && !pick.contains(&c.1))
+                .take(slots - have_player)
+                .map(|c| c.1)
+                .collect();
+            pick.extend(more);
         }
         for (_, t) in &cands {
             if pick.len() >= k - have {
@@ -1087,6 +1144,20 @@ impl Sim {
                     at.hosts.push(h);
                 }
             }
+        }
+        if self.cfg.siege_hold && Self::occ_target(self, &target) && at.hosts.len() > before {
+            // The hold rule: the occupation strike holds while its siege counts.
+            let total: MilliTroops = at.hosts[before..]
+                .iter()
+                .map(|&h| self.hosts[h as usize].troops)
+                .sum();
+            for &h in &at.hosts[before..] {
+                let own = self.hosts[h as usize].troops;
+                self.hosts[h as usize].retreat = Some(Self::occ_retreat(total, own));
+            }
+        }
+        if Self::occ_target(self, &target) && at.hosts.len() > before {
+            self.mcs.st.dbg[13] += 1;
         }
         if let Target::Hold(t) = target {
             if at.hosts.len() > before {
@@ -1406,6 +1477,11 @@ impl Sim {
                 continue;
             };
             let arrive = self.host_arrival(h);
+            if self.cfg.siege_hold && Self::occ_target(self, &c.target) {
+                let own = self.hosts[h as usize].troops;
+                let total = sent as MilliTroops + own;
+                self.hosts[h as usize].retreat = Some(Self::occ_retreat(total, own));
+            }
             if let Target::Hold(t) = c.target {
                 let e = self.mcs.pending.entry(t).or_insert(0);
                 *e = (*e).max(arrive + 6);

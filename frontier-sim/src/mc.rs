@@ -86,6 +86,10 @@ impl BotProfile {
 /// ≈ 0.24 (CQ1-B-NOTES §calibration).
 pub const M1_ACT_P: f64 = 0.06;
 
+/// Campaigns per faction the planner keeps for a first holding to occupy
+/// (W1-close, PO-1 (a), CQH1(1): the occupation objective; planner only).
+pub const OCC_SLOTS: usize = 1;
+
 /// Season parameters (SeasonParams v2, §3.12) the simulator reads.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct McParams {
@@ -207,7 +211,9 @@ impl McParams {
 
     /// `--mc key=value,…`: exploration overrides of the preset (the
     /// tuning knobs of Gate CQ1's failure rule and the planner's holding
-    /// slots). Not used by any gated line.
+    /// slots; `Config::set_rules` takes the occupation-objective keys
+    /// `occ_slots`, `siege_hold`, `rally_stay` first). Not used by any
+    /// gated line.
     pub fn apply(&mut self, spec: &str, holding_slots: &mut usize) {
         for kv in spec.split(',').filter(|x| !x.is_empty()) {
             let (k, v) = kv.split_once('=').expect("--mc key=value");
