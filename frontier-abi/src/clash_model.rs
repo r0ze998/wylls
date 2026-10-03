@@ -1586,6 +1586,16 @@ pub fn apply_v2_probed<Pr: Probe>(pd: &mut [u8], b: &BuiltV2, out: &ClashOutcome
 /// on the tile in the clash of bell `b` (`from_bell ≤ b`). Read it before
 /// `settle_bell(b)`, as the clash would be built.
 pub fn tile_masks(pd: &[u8], b: u32) -> R<[u8; PROVINCE_TILES]> {
+    Ok(tile_masks_horizon(pd, b)?.0)
+}
+
+/// [`tile_masks`] and its horizon: the first bell after `b` at which a
+/// roster entry not yet counted (`from_bell > b`) would join the mask
+/// (`u32::MAX` when none). The mask holds for every bell before the
+/// horizon while the entries do not change (SkipQuiet's per-transaction
+/// cache, §5.7).
+pub fn tile_masks_horizon(pd: &[u8], b: u32) -> R<([u8; PROVINCE_TILES], u32)> {
+    let mut horizon = u32::MAX;
     let mut mask = [0u8; PROVINCE_TILES];
     let block = pd
         .get(P::ENTRIES..P::ENTRIES + P::ENTRIES_N * E::SIZE)
@@ -1601,6 +1611,7 @@ pub fn tile_masks(pd: &[u8], b: u32) -> R<[u8; PROVINCE_TILES]> {
             e[E::FROM_BELL + 3],
         ]);
         if from > b {
+            horizon = horizon.min(from);
             continue;
         }
         let civilian = unit_from_u8(e[E::UNIT]).is_none_or(|u| u.is_civilian());
@@ -1610,7 +1621,7 @@ pub fn tile_masks(pd: &[u8], b: u32) -> R<[u8; PROVINCE_TILES]> {
         }
         mask[t] |= 1 << f;
     }
-    Ok(mask)
+    Ok((mask, horizon))
 }
 
 /// [`trivially_quiet`] for an MC Province: Free City garrisons (NEUTRAL,
