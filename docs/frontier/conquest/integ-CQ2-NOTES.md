@@ -114,6 +114,8 @@ Run from `$R` = this worktree on `frontier/cq-integ`, `PATH` with the Solana too
 
 ## 6. Pass conditions of Gate CQ2
 
+**v1.5 (W2R2): restated in §9.3 on the final tree: P3 is partial, P2(b), P5, P12 and P13 are at model level, the RFI worst with a heavy keep and a due camp check is 286,918 CU (1.06%).**
+
 | Condition | Result |
 |---|---|
 | ResolveFromInputs worst ≤ 290,000 CU | **286,224 CU**, margin 3,776 (1.30%): the literal §13.1 row (heaviest conquest-shape clash 280,310 + the 13-unit increment 5,914). Measured maxima over all 1,244 fills: conquest shape 285,649 (random#286), keep as 13th garrison 279,225 (wide#235). Trace-build conquest max 289,829 (checkpoints add ≈ 4k; heap only is gated there). **The 300,000 amendment is not needed.** Identical on the merged tree and on CQ2-B's branch |
@@ -146,6 +148,9 @@ None of these blocks Gate CQ2. Each changes a player-visible rule, an owner defa
 | 10 | **K-27 wording (CQ2-C).** A returning previous-generation host whose `prev_home` was released after the capture | RetireHost refuses it (`BadAccount`) and DisbandStranded refuses it (K-27), so the entry waits until the Province closes | after `end_bell` let RetireHost or DisbandStranded strand it (changes K-27's wording) | waits |
 | 11 | **R-C7 (CQ2-C).** DeclareSiege's lazy finality flip runs only when the source is in the target Province (`nearby` is read-only) | otherwise the source is refused `NotFinal` until a Muster or Garrison in its own Province flips it | make `nearby` writable (an ABI change) or accept | accepted |
 | 12 | **CF-16 (CQ2-E, display).** The keep-bells counter behind Warden of the Marches counts the bells a host of the *counting contender* (the attacker) stood on the keep tile | §3.2's "a keep its faction held while a contender counted" cannot happen when a defender is present, so the title goes to keep attackers, not defenders | count defenders' bells on a held keep instead, or both | attackers |
+| 13 | **D-12 (CQ2-A; second review, new).** A tier-up Build issued in the bell in which the previous tier-up completed folds the new tier into the site mirror's `tier` at once, up to a bell (or the lag, ≤ 2 bells) before its `tier_next_bell` | Walls fold only when resolved, the tier does not; it moves one hour's Dominion snapshot weight and the outpost-share check for that bell, not a clash outcome | (a) fold the earlier tier-up only when its `tier_next_bell ≤ resolved_next`, else refuse the second tier-up (`QueueFull`) until it is in force; (b) amend §3.10 to accept the early fold | accepted as built (the test `cq_build_tier_up_writes_tier_next` asserts the early fold) |
+| 14 | **Two clocks for "dormant" (CQ2-A; second review, new).** Sieges and ReleaseDormant use the season's `dormant_after_secs` (Frontier-7: 3 d / 7 d); the kernel Holding's production halving and the `FLAG_DORMANT_CACHE` that Reveal, the keeper, the herald and the bots read keep M1's 5-day constant (recomputed only in `write_holding`) | With the presets the shield (≤ 1 d) hides it, but a holding idle 3–5 days is dormant for sieges and not for production and Reveal. The simulator uses the same two clocks | (a) state in §3.9 / §3.12 which timer governs production and the cache (a text change); (b) route the season's `dormant_after_secs` through the kernel settle (program, simulator and verifier together) | the two clocks stand |
+| 15 | **The snapshot's sampling moment (CQ2-B; second review, new).** The simulator samples the Dominion weights at `b % 6 == 5` after bell `6h − 1` resolved; the program, herald and keeper sample at bell `6h` after its own clash and settle (A-34, corrected by A-47) | One bell of garrison losses and settled changes per snapshot; accepted as negligible for the balance thresholds, not measured | (a) keep (word §3.10 as A-47 does); (b) move the model's snapshot to the pre-bell state; (c) move the simulator to bell `6h` and re-run the Gate CQ1 simulator lines | the chain's moment (bell `6h`, after its clash and settle) |
 
 Also for the owner's information: CQ2-E touched `frontier-node/crates/herald/src/views.rs`, a path the design chat's `frontier/ui-shell` also touched (report-only footprint, A-2); the merge of `codex/frontier` into `frontier/cq-integ` will need a look there.
 
@@ -209,6 +214,51 @@ Every blocker, major and missing item was checked against the code; the real one
 ### 9.2 Commits of the response
 
 `c72197c` (CQ2-C: escrow, FoldMarch), `fc15389` (CQ2-A/B tests and cleanups), `0b6fd5b` (CQ2-F bots), `ea1b64b` (CQ2-D/E clients and herald), then the documents (contract v1.5, DECISIONS CQ-K, the unit notes, this section). Local commits only; nothing pushed; `codex/frontier` not touched (merge-base `5ed36fa`).
+
+### 9.3 Gate CQ2 re-run on the final tree (restates §5 and §6)
+
+Run on `frontier/cq-integ` after the last code commit (`0ceedb1` is the last code change; the later commits are documents), `PATH` with the Solana tools, `CARGO_BUILD_JOBS=6` (3 beside another job), `cargo --offline --locked`, no port bound, no install, no download. Logs: `(session scratchpad)/cqw2/integ2/logs/<id>.log/.rc` (`.rc` = exit, wall seconds, command). The release `.so` is **new**: sha256 `34200dbdf51afc2462d9171785ceb98d14afb2d1345c1bf76b855dc6441aa117` (both `--twice` builds, and again after the last commit: `B01`, `B02`), program hash `e538bb54…7374`, e_flags 2, deployable yes (the merged `bf09a56` build was `d121461c…`; the program changed in `proc/conquest.rs` and, without effect on the code path, `proc/holding.rs`).
+
+| Line | Exit | Result |
+|---|---|---|
+| `scripts/cq-ownership-check.sh <every frontier/cq-* except integ>` (`P01`); `git diff --quiet $(merge-base codex/frontier) -- session.mjs permutation-chain/src` (`G05`) | 0, 0 | PASS (merge-base `5ed36fa`) |
+| `scripts/cq-regen.sh --check` (`R01`) | 0 | every generated output fresh |
+| `scripts/cq-regen.sh --v1-unchanged 5ed36fa` / `39ff369` (`R02`, `R03`) | 1, 1 | as at the Wave-1 close and at `bf09a56`: **only the v1 WASM artefact and its `.sha256` differ** (205,623 → 205,686 B; A-13), `39ff369` also the `codec.mjs` header comment (A-27) |
+| `cargo fmt --all --check` (root, `frontier-node`, `svm-tests`), `cargo clippy -p permutation-rules -p frontier-abi -D warnings` (`N01`) | 0 | clean |
+| `cargo test --release -p permutation-rules` (`N02`); `cargo test -p frontier-abi` and `abi-vectors --check` (`N03`); `cargo test -p permutation-chain` (`N04`) | 0 | 470 / 107 / 157 passed (as at `bf09a56`); `abi-vectors`: 16 files fresh |
+| `frontier-node`: `fmt`, `clippy --workspace --all-targets -D warnings` (`N05`) | 0 | clean |
+| `cargo test --release --workspace -- cq_` (`N06`) | 0 | **109** passed (104 at `bf09a56`) |
+| `cargo test --workspace --no-fail-fast` (`N07`) | 0 | **534** passed, 0 failed, 11 ignored (529 at `bf09a56`; +5: the order, plan-total, roster-mix, herald duplicate-fold and keeper `prev_home` tests) |
+| `cd permutation-gateway && npm test` (`N08`) | 0 | no `npm ci`, existing `node_modules` (573 at `bf09a56`; unchanged source) |
+| `cargo clippy -p permutation-frontier --all-targets -D warnings`; `cargo test -p permutation-frontier --no-default-features`; `cargo check` (`X01`) | 0 | 41 passed |
+| `svm-tests`: `cargo fmt --check` and `clippy --all-targets -D warnings` (`X00`) | 0 | clean |
+| `scripts/build-frontier.sh --twice` (`B01`, again `B02`) | 0 | both builds `34200dbd…`, e_flags 2, deployable yes |
+| `svm-tests ./run.sh --release -- g01_cq_ g02_cq_ g03_cq_ g11_cq_ g13_cq_ p_cq_` (`X02b`) | 0 | **73 passed, 0 failed, 1 ignored** (`host::p_cq_p3_foreign_province_gap`, R-C1) (69 at `bf09a56`: +4) |
+| `svm-tests ./run.sh --release` (every M1 test on v2 plus the cq tests) (`X03c`, last run on the final tree) | 0 | **342 passed, 0 failed, 5 ignored** (337 at `bf09a56`: +5 tests: the escrow, the FoldMarch grace, the A-29 end-to-end, SettleTicket S1 and the heavy-keep RFI) |
+| `PSF_TRACE=1 ./run.sh --release -- g01_cq_resolve_worst g01_cq_skip_worst g01_cq_fold g01_cq_declare g01_cq_settle_capture --nocapture` (`X04b`) | 0 | RFI trace heap max **15,416 B**, SkipQuiet 13,648 B |
+| `svm-tests/trace-sweep.sh` (the whole suite on the `test-beacon trace` build; every landed transaction asserted ≤ 28 KiB) (`X06`) | 0 | **58,554 transactions, 0 heap-gate failures, 56 kinds covered**; heap max: ResolveFromInputs 15,416, SkipQuiet 13,648, GatherClash 6,568, SettleTicket **2,704** (outpost path included), SettleTransit 2,512, FoldMarch and SettleCapture 2,128, **FileOutpost 1,864**, DeclareSiege 1,864, RetireHost 1,288, **OpenProvince 1,168**, SettleSiege 1,168, CloseMarch 784 B. (Five tests that gate CU or markers fail on a trace build by design and are listed by the script: `g01_file_ticket_three_provinces_full_cohorts`, `g01_cq_resolve_heavy_keep_and_due_camp`, `g01_cq_resolve_worst`, `build_markers_are_where_they_belong`, `g01_reveal_worst`.) **This closes CQ2-A's missing FileOutpost / SettleTicket (outpost) / OpenProvince v2 heap** |
+| `frontier-sim fmt + clippy + cargo test --release` (`S01`) | 0 | 61 passed (57 + 4) |
+| M1 `criterion --best-response --seeds 3 --first-seed 30001 --gate` (`S02`) | 0 | worst cell **0.985170**, unchanged |
+| M1 `doctrine-gate --controls` (`S03`) | 0 | the three controls rejected (draft −1.319%, Knight −0.242%, A boost +0.326%), as before |
+| MC `criterion --best-response … --rules mc --policy campaign --gate` (`S04`) | 0 | worst cell **0.989299** ≤ 0.995 (MC − M1 +0.004129, reported) |
+| `doctrine-gate --set kernel --rules mc --controls` (`S05`) | 0 | max \|Δ index\| **0.106%** ≤ 0.2%; the three controls rejected (draft 7.339%, Knight 1.935%, A boost 0.502%); 881 s |
+| `mapmove … --check thresholds/mc-7d-1k.json` (`S06`); `mapmove-gate … --controls` (`S07`) | 0, 0 | "no drift"; every row 5/5 seeds, the `mc-weightmap` control FAILS as it must |
+| size stress 2:1, human mix and cq (`S08`, `S09`) | 0, 0 | 10/10 and 9/10 seeds ≤ 22% (need 8): PASS |
+| reported rows: `--bot-profile m1`, `--keep-aggr 0.25 / 0.5 / 1.0`, 3:1, `campaign:0,lone:1-5` coordination, `--forward` (`S10`…`S14`) | 0 | coordination 10/10 PASS; 3:1 leader end share p50 0.219; the others as at `bf09a56` |
+| `doctrine-gate --set kernel --rules mc,bannerdom --controls --report-only` (`S15`) | 0 | report-only verdict PASS; the three controls rejected; 837 s |
+
+**Inputs unchanged.** `git diff bf09a56 -- frontier-sim permutation-rules frontier-abi permutation-chain permutation-gateway` is empty, so every simulator, rules, ABI and chain line reproduces its `bf09a56` figures (and did, to the digit, where re-run).
+
+**Pass conditions of Gate CQ2, restated** (§6 stands except as below):
+
+| Condition | Result |
+|---|---|
+| ResolveFromInputs worst ≤ 290,000 CU | literal §13.1 row **286,224** (margin 3,776, 1.30%) as in §6; **with a 15,000- or 30,000-troop keep and a due camp check the measured conquest-shape maximum is 286,918 (margin 3,082, 1.06%)** (`g01_cq_resolve_heavy_keep_and_due_camp`, all 1,244 fills), the literal row with both additions about 287,493 (0.86%). The 300,000 amendment is not needed |
+| heap ≤ 28 KiB | max **15,416 B** (RFI); the sweep covers 56 kinds, none over 8,336 B beside RFI and SkipQuiet |
+| every new kind within §5.4 as amended | the figures of §6 re-measured on the new `.so`: DeclareSiege 21,787 (was 21,783: the escrow rule), SettleSiege 12,950, SettleCapture 25,920, FileOutpost 26,449, FoldMarch 33,901 (was 33,903) and 14,982 steady, RetireHost 8,313, CloseMarch 5,497, GatherClash `prev_gen` 46,557 of **49,000 (A-46)**, SettleTicket (outpost) 24,771 |
+| P1–P13 green, P9 failing-first | **P3 partial** (own-Province half and a second capture green; the foreign-Province half is the ignored R-C1 test); **P2(b), P5, P12 and P13 at model level** (A-56); the other P-rows green; P9 failing-first as recorded in `CQ2-C-NOTES` §6, not re-run |
+| `cq-regen.sh --check` | exit 0 |
+| keeper, herald and bots `cq_*` green | 109 (release), 534 (debug workspace) |
 
 ### 9.4 What the trace build cannot measure here
 
