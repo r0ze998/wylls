@@ -52,7 +52,7 @@ Every "cross-unit", "deferred" and "owner" item of the first-run reviews and of 
 | CQ2-E R-7 (`cq_json_vectors_fresh` in cq-regen) | **Closed.** |
 | CQ2-E R-9 (field equality `control::movement` ↔ `mapmove`) | **Later (CQ3-B).** Needs `frontier-sim` as a herald dev-dependency or the helpers moved into `permutation-rules` |
 | CQ2-F D-4 (`siege_seat` code) | **Closed (A-38)** `NotBesiegeable` |
-| CQ2-F D-2 (`cqtx.rs` → fclient builders), personas against the merged program | **Later (CQ3-E)** (A-42); `cq_tx_shapes_follow_the_v2_tables` pins the shapes meanwhile |
+| CQ2-F D-2 (`cqtx.rs` → fclient builders), personas against the merged program | **Later (CQ3-E)** (A-42); `cq_tx_shapes_follow_the_v2_tables` pins the shapes meanwhile **(superseded by §9: `cqtx` delegates to `fclient` now)** |
 | CQ2-A R5, R6 (settler cost, `OUTPOST_SETTLED.anchor_key`) | **Owner** (§7, item 3) |
 | CQ2-A Q-1, Q-2; D-4 (a captured holding cannot anchor; slot 3 accepts a provisional slot 2) | **Owner** (§7, items 1, 2) |
 | CQ2-A D-3 (Free City not counted in `n_sites_used`) | **Owner** (§7, item 4) |

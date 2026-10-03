@@ -1586,7 +1586,7 @@ pub fn fold_march(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         .ok_or(OVERFLOW)?;
     let ended = hdr.status == S::STATUS_ENDED;
     // §5.5: the end-hour rule is the Ended season's (a Running one refuses a
-    // later hour as `FoldTooEarly` below).
+    // later hour by its order or its lag below).
     if ended && last >= hdr.end_bell {
         return Err(FrontierError::WrongStatus.into());
     }
