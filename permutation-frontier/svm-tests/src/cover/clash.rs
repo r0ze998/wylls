@@ -5,6 +5,10 @@
 //! `clash::clash_dissolve_returns_troops_to_the_reserve` and
 //! `clash::clash_return_settle_loses_troops_of_a_refounded_holding`
 //! (SettleDeparture's row belongs to `host.rs`, W3-B's file: integrator).
+//!
+//! **MC (CQ2-B):** the `g13_cq_`, `g11_cq_`, `g01_cq_` and `cq_` rows below
+//! cover the v2 path of GatherClash, ResolveFromInputs and SkipQuiet on a
+//! Province v2 (conquest contract §5.6, §5.7, §13.1, §13.3).
 
 use super::{Cover, Err, Lands, Loaded, E};
 
@@ -50,6 +54,11 @@ pub const GATHER_CLASH: &[Cover] = &[
             Lands("GatherClash"),
         ],
     ),
+    Cover::Test(
+        "clash::cq_gather_reads_a_captured_holdings_previous_generation",
+        &[Lands("GatherClash")],
+    ),
+    Cover::Test("clash::g13_cq_clash_refusals", &[Err(E::BadAccount)]),
 ];
 
 pub const RESOLVE_FROM_INPUTS: &[Cover] = &[
@@ -77,6 +86,23 @@ pub const RESOLVE_FROM_INPUTS: &[Cover] = &[
             Err(E::Kernel),
             Lands("ResolveFromInputs"),
         ],
+    ),
+    Cover::Test(
+        "clash::cq_resolve_runs_the_conquest_step_as_the_shared_models",
+        &[Lands("w.resolve_ix(")],
+    ),
+    Cover::Test(
+        "clash::g13_cq_clash_refusals",
+        &[
+            Err(E::Kernel),
+            Err(E::BadAccount),
+            Lands("ResolveFromInputs"),
+        ],
+    ),
+    Cover::Test("clash::g01_cq_resolve_worst", &[Lands("ResolveFromInputs")]),
+    Cover::Test(
+        "clash::cq_keep_taken_sends_the_donor_home_through_the_return_settle",
+        &[Lands("ResolveFromInputs")],
     ),
 ];
 
@@ -112,6 +138,15 @@ pub const SKIP_QUIET: &[Cover] = &[
     Cover::Test(
         "clash::clash_g13_top_level_ruleset_status_kernel",
         &[Err(E::NotTopLevel), Lands("SkipQuiet")],
+    ),
+    Cover::Test(
+        "clash::g13_cq_clash_refusals",
+        &[Err(E::Kernel), Err(E::BadAccount), Lands("SkipQuiet")],
+    ),
+    Cover::Test("clash::g01_cq_skip_worst", &[Lands("SkipQuiet")]),
+    Cover::Test(
+        "clash::cq_snapshot_counts_a_provisional_holding_before_its_final_ts",
+        &[Lands("SkipQuiet")],
     ),
 ];
 

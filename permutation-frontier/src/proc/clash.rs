@@ -282,25 +282,17 @@ fn province_of(
     Ok((pp, pq, rn, v2))
 }
 
-/// A present Province: `Ok(true)` for an MC (v2) Province, `Ok(false)`
+/// A present Province: `Ok(true)` for an MC (v2) Province (exact size,
+/// magic, season, `layout_version = 2`: `prologue::present_v2`), `Ok(false)`
 /// for an M1 one; anything else `BadAccount`.
 fn province_present(program: &Pubkey, sid: u64, province: &AccountInfo) -> R<bool> {
     if province.data_len() != P2::SIZE {
         prologue::present(province, program, AccountKind::Province, sid)?;
         return Ok(false);
     }
-    let d = province.try_borrow_data()?;
-    let view = frontier_abi::prologue::AccountView {
-        key: province.key.as_array(),
-        owner: province.owner.as_array(),
-        lamports: province.lamports(),
-        data: &d,
-        is_signer: province.is_signer,
-        is_writable: province.is_writable,
-    };
-    frontier_abi::v2::prologue::check_present_v2(
-        &view,
-        program.as_array(),
+    prologue::present_v2(
+        province,
+        program,
         frontier_abi::v2::layout::AccountKind::Province,
         sid,
     )?;
@@ -2371,5 +2363,60 @@ mod tests {
         assert_eq!(range_mask(8, 8).unwrap(), 0x0000_FF00);
         assert!(range_mask(20, 5).is_err());
         assert!(range_mask(0, 0).is_err());
+    }
+
+    /// CQ2-B: the MC records written here are the ABI's v2 bodies, chained
+    /// to the Province by M1's rule; every MC kind's widths are known, and
+    /// a wrong width or a kind outside 80–89 is refused.
+    #[test]
+    fn cq_records_are_the_abis() {
+        use frontier_abi::v2::log::{self as l2, AnyKind, CqKind};
+        let mut pd = alloc::vec![0u8; P2::SIZE];
+        assert!(frontier_abi::v2::layout::write_header(
+            &mut pd,
+            frontier_abi::v2::layout::AccountKind::Province,
+            3
+        ));
+        for spec in l2::CQ_SPECS {
+            let w = cqlog::WIDTHS[spec.kind as usize - 80];
+            assert!(w.0, "{}", spec.name);
+            let kind = AnyKind::Cq(spec.kind);
+            assert_eq!(
+                (w.1 as usize, w.2 as usize),
+                (kind.key_len(), kind.payload_len())
+            );
+        }
+        assert!(!cqlog::WIDTHS[9].0, "89 is reserved");
+        let key = l2::conquest_key(-3, 4, 300);
+        let payload = [7u8; l2::CONQUEST_PAYLOAD_LEN];
+        let mut out = [0u8; cqlog::MAX];
+        for seq in 1..=2u64 {
+            let (_, head0) = crate::layout::chain_of(&pd).unwrap();
+            let n = cqlog::record(
+                CqKind::CONQUEST as u8,
+                299,
+                &key,
+                &payload,
+                &mut pd,
+                &mut out,
+            )
+            .unwrap();
+            let r = l2::decode(&out[..n]).unwrap();
+            assert_eq!(r.kind, AnyKind::Cq(CqKind::CONQUEST));
+            assert_eq!((r.bell, r.key, r.payload), (299, &key[..], &payload[..]));
+            let mut want = [0u8; 160];
+            let m = l2::write_body(r.kind, 299, &key, &payload, &mut want).unwrap();
+            assert_eq!(r.body_without_tail, &want[..m]);
+            let link = r.links[0].unwrap();
+            assert_eq!(r.n_links, 1);
+            assert_eq!(
+                link,
+                l2::advance(l2::EntityKind::Province, seq - 1, &head0, &want[..m]).unwrap()
+            );
+            assert_eq!(crate::layout::chain_of(&pd).unwrap(), (seq, link.head));
+        }
+        assert!(cqlog::record(CqKind::KEEP as u8, 1, &key, &payload, &mut pd, &mut out).is_err());
+        assert!(cqlog::record(89, 1, &[], &[], &mut pd, &mut out).is_err());
+        assert!(cqlog::record(70, 1, &[], &[], &mut pd, &mut out).is_err());
     }
 }

@@ -1110,3 +1110,101 @@ pub fn coord(pd: &[u8]) -> R<(i32, i32)> {
         rd_i16(pd, P::Q).ok_or(BAD)? as i32,
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::entry::{write_entry, Entry, EntryOp};
+    use crate::layout::province::entry as E;
+
+    fn host(id: u64, faction: u8, unit: u8, tile: u8, from: u32) -> Entry {
+        Entry {
+            id,
+            faction,
+            unit,
+            tile,
+            state: E::STATE_ROSTER,
+            troops: 1_000_000,
+            stamina_value: 100,
+            dealt_bps: 10_000,
+            stamina_bell: 0,
+            ready_bell: 0,
+            from_bell: from,
+            pend_bell: 0,
+            op: EntryOp::None,
+        }
+    }
+
+    /// CQ2-B: the cached-mask report equals `report_quiet`, the mask's
+    /// horizon is the first later `from_bell`, and `active_count` counts
+    /// sieges, occupations and a running keep contest only.
+    #[test]
+    fn cq_cached_masks_and_active_count() {
+        let mut pd = std::vec![0u8; P::SIZE];
+        pd[P::SITE_COUNT] = 2;
+        pd[P::SITES] = 4;
+        pd[P::SITES + 1] = 9;
+        pd[P::site(0) + SM::STATE] = SM::STATE_HOLDING;
+        pd[P::site(0) + SM::FACTION] = 1;
+        pd[P::site(1) + SM::STATE] = SM::STATE_FREE_CITY;
+        write_no_keep(&mut pd).unwrap();
+        write_entry(&mut pd, 0, &host(10, 2, 0, 4, 0)).unwrap();
+        write_entry(&mut pd, 1, &host(11, 1, 0, 4, 0)).unwrap();
+        write_entry(&mut pd, 2, &host(12, 3, 6, 9, 0)).unwrap(); // a Scout: civilian
+        write_entry(&mut pd, 3, &host(13, 4, 0, 9, 7)).unwrap(); // joins at 7
+        let (mask, horizon) = crate::clash_model::tile_masks_horizon(&pd, 5).unwrap();
+        assert_eq!(horizon, 7);
+        assert_eq!(mask[4], 0b110);
+        assert_eq!(mask[9], 0);
+        let rep = report_from_masks(&pd, &mask).unwrap();
+        assert_eq!(rep, report_quiet(&pd, 5).unwrap());
+        assert_eq!(
+            rep.sites[0],
+            SiteReport {
+                holders: 0b100,
+                defender_present: true
+            }
+        );
+        let (mask7, horizon7) = crate::clash_model::tile_masks_horizon(&pd, 7).unwrap();
+        assert_eq!((mask7[9], horizon7), (1 << 4, u32::MAX));
+        assert_eq!(report_quiet(&pd, 7).unwrap().sites[1].holders, 1 << 4);
+        // active work
+        assert_eq!(active_count(&pd).unwrap(), 0);
+        for (s, kind) in [
+            (0, CR::KIND_SIEGE),
+            (1, CR::KIND_OCCUPATION),
+            (2, CR::KIND_CAPTURE_DUE),
+        ] {
+            Record {
+                kind,
+                ..Record::ZERO
+            }
+            .write(&mut pd, s)
+            .unwrap();
+        }
+        assert_eq!(active_count(&pd).unwrap(), 2, "capture due waits (D-15)");
+        let mut k = crate::v2::kernel::keep::Keep {
+            tile: 20,
+            holder: 0,
+            contender: KP::NONE,
+            progress: 0,
+            required: 72,
+            heartland_safe: false,
+            paused: false,
+            changes: 0,
+            troops: 0,
+            since_bell: 0,
+            consolidated_until_bell: 0,
+            contest_from_bell: 0,
+            gen: 0,
+            last_taken_from: KP::NONE,
+        };
+        write_keep(&mut pd, &k).unwrap();
+        assert_eq!(active_count(&pd).unwrap(), 2);
+        k.contender = 3;
+        write_keep(&mut pd, &k).unwrap();
+        assert_eq!(active_count(&pd).unwrap(), 3);
+        assert_eq!(active_count(&pd[..P::SIZE - 1]).ok(), Some(3));
+        assert!(active_count(&pd[..P::KEEP]).is_err());
+    }
+}
