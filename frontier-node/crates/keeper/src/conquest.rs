@@ -7,7 +7,7 @@
 //! | Capture settlement | a record of kind 3 (capture due) | SettleCapture | D | `settle` |
 //! | Stakes and slots | a record owing a stake or a slot, or (after `end_bell`) a siege that lapsed | SettleSiege | N | `settle` |
 //! | March folds | the hours from `next_hour` whose members all resolved through `6h` | FoldMarch(≤ 6 hours) | D | `fold` |
-//! | Horn watcher | SIEGE_DECLARED, KEEP taken, CONQUEST's KEEP_CONTEST / OCCUPIED / CAPTURE_DUE / LIBERATED / KEEP_TAKEN | the province is read at once and planned first; counters; an alert above [`HORN_ALERT_PER_BELL`] | — | — |
+//! | Horn watcher | SIEGE_DECLARED, KEEP taken, CONQUEST's KEEP_CONTEST / OCCUPIED / CAPTURE_DUE / LIBERATED / KEEP_TAKEN | the province is read at once and planned in the same tick; counters; an alert above [`HORN_ALERT_PER_BELL`] | — | — |
 //! | Season-end flush | `end_bell` | the play duty's last resolves and skips; FoldMarch for the last hours; SettleCapture; SettleSiege for every lapsed siege and owed stake or slot; **RetireHost** (permissionless after `end_bell`) for every previous-generation host still on a Province | D / N | `fold`, `settle` |
 //! | Closes | `end + 72 h` | CloseMarch | N | `close` |
 //!
@@ -90,10 +90,17 @@ pub struct CqStats {
     pub fold_skips: u64,
     /// Horns by name.
     pub horns: BTreeMap<&'static str, u64>,
-    /// Capture due seen → SettleCapture landed, slots (criterion 12).
+    /// CAPTURE_DUE → SettleCapture landed, slots (criterion 12), captures
+    /// the keeper could resolve at once.
     pub capture_latency: Vec<u64>,
-    /// Unfolded age in game hours of every hour at its fold (§8.2 p99 ≤ 5).
+    /// The same for captures held back by unresolvable accounts at least
+    /// once (reported apart, §13.4).
+    pub capture_latency_held: Vec<u64>,
+    /// Age in game hours of every hour at its fold, counted **from the
+    /// hour's start `6h`** (§8.2 p99 ≤ 5; the stricter reading).
     pub fold_lag_hours: Vec<u64>,
+    /// The same counted from the hour's end (the R-23 trigger's reading).
+    pub fold_lag_hours_from_end: Vec<u64>,
     /// Close → resolve of contested province-bells, slots (criterion 3).
     pub contested_latency: Vec<u64>,
 }
@@ -104,7 +111,7 @@ pub struct ConquestDuty {
     pub marches: BTreeMap<(i32, i32), MarchView>,
     pub stats: CqStats,
     /// Provinces a horn named since the last plan: read at once and
-    /// planned first by the play duty.
+    /// planned in the same tick by the play duty.
     pub front: BTreeSet<(i16, i16)>,
     /// Idle members of a March whose oldest unfolded hour is old: skipped
     /// at once (R-23).
@@ -112,12 +119,36 @@ pub struct ConquestDuty {
     /// Sites captured (CAPTURE_SETTLED): their Holdings may still own
     /// previous-generation hosts (the season-end RetireHost).
     pub captured_sites: BTreeSet<(i16, i16, u8)>,
+    /// Every March with an opened or read member (the `close` role needs
+    /// them without the `fold` role, review minor).
+    known_marches: BTreeSet<(i32, i32)>,
+    /// The last horn slot the journal held when this process started: a
+    /// feed re-read from cursor 0 replays older horns, which are counted
+    /// but neither journalled again nor alerted (`None`: not read yet).
+    horn_floor: Option<u64>,
+    /// The captured Holdings as last read (generation, previous
+    /// generation, liveness): the return settle and SettleTransit of a
+    /// previous-generation host depend on them (§5.6, K-27).
+    pub cap_info: BTreeMap<(i16, i16, u8), fcq::CapturedHolding>,
+    cap_read_slot: u64,
+    cap_read_n: usize,
+    /// MC records the feed queue dropped (set by the play duty).
+    pub logs_dropped: u64,
     /// Conquest write kinds the program answered NotImplemented (99) for.
     pub unsupported: BTreeSet<&'static str>,
     /// Horns per bell (the last [`HORN_LOG_BELLS`] bells).
     pub horns_by_bell: BTreeMap<u32, u32>,
-    /// Capture key → the slot it was first planned (the latency base).
+    /// Capture key → the slot its latency counts from: the CAPTURE_DUE
+    /// event's slot when the feed showed it, else the first read that saw
+    /// the record (criterion 12, "capture-due → SettleCapture landed").
     capture_seen: BTreeMap<String, u64>,
+    /// `(p, q, site)` → the slot of its latest CAPTURE_DUE event (cleared
+    /// by its CAPTURE_SETTLED).
+    due_slots: BTreeMap<(i16, i16, u8), u64>,
+    /// Captures whose accounts (captor, victim) could not be resolved at
+    /// least once before they were planned: their latency is "held" and
+    /// reported apart (§13.4, R-24).
+    capture_held: BTreeSet<String>,
     /// FoldMarch key → its hours `(first, count)`.
     fold_hours: BTreeMap<String, (u32, u8)>,
     /// Keys landed (not planned again while the chain catches up).
@@ -156,6 +187,60 @@ impl ConquestDuty {
         contest.hot()
     }
 
+    /// Reads the Holdings of the captured sites (every
+    /// [`MARCH_READ_SLOTS`], and at once when a new capture was seen):
+    /// the play duty's return settles need which previous-generation hosts
+    /// wait for RetireHost.
+    pub async fn refresh_captured<P: ChainPort>(
+        &mut self,
+        t: &Tick<'_>,
+        port: &P,
+    ) -> PortResult<()> {
+        if !t.season.is_v2() || self.captured_sites.is_empty() {
+            return Ok(());
+        }
+        let n = self.captured_sites.len();
+        if self.cap_read_slot != 0
+            && n == self.cap_read_n
+            && t.slot < self.cap_read_slot + MARCH_READ_SLOTS
+        {
+            return Ok(());
+        }
+        let sites: Vec<(i16, i16, u8)> = self.captured_sites.iter().copied().collect();
+        for chunk in sites.chunks(100) {
+            let keys: Vec<Address> = chunk
+                .iter()
+                .map(|&(p, q, s)| t.addrs.holding(p as i32, q as i32, s))
+                .collect();
+            let got = port.accounts(&keys, 0).await?;
+            for (site, a) in chunk.iter().zip(got) {
+                let h = a
+                    .filter(|a| a.owner == t.addrs.program)
+                    .and_then(|a| Holding::decode(&a.data).ok());
+                match h.and_then(|h| h.cq.map(|c| (h.gen, h.state, c))) {
+                    Some((gen, state, c)) => {
+                        self.cap_info.insert(
+                            *site,
+                            fcq::CapturedHolding {
+                                gen,
+                                prev_gen: c.prev_gen,
+                                captured: c.captured(),
+                                live: matches!(state, 1 | 2),
+                                prev_home: c.prev_home,
+                            },
+                        );
+                    }
+                    None => {
+                        self.cap_info.remove(site);
+                    }
+                }
+            }
+        }
+        self.cap_read_slot = t.slot.max(1);
+        self.cap_read_n = n;
+        Ok(())
+    }
+
     /// Whether the last read found `pq` contested.
     pub fn hot(&self, pq: (i16, i16)) -> bool {
         self.provs.get(&pq).is_some_and(|p| p.contest.hot())
@@ -163,20 +248,39 @@ impl ConquestDuty {
 
     /// The horn watcher (§8.2): an MC record from the feed.
     pub fn on_log(&mut self, log: &CqLog, slot: u64, journal: Option<&Journal>) {
-        if let CqEvent::CaptureSettled { p, q, site, .. } = log.event {
-            self.captured_sites.insert((p as i16, q as i16, site));
+        match &log.event {
+            CqEvent::CaptureSettled { p, q, site, .. } => {
+                self.captured_sites.insert((*p as i16, *q as i16, *site));
+                self.due_slots.remove(&(*p as i16, *q as i16, *site));
+            }
+            CqEvent::Conquest { p, q, payload } => {
+                for ev in &payload.events[..payload.n as usize] {
+                    if ev.code & !frontier_abi::v2::log::event::DETAIL
+                        == frontier_abi::v2::log::event::CAPTURE_DUE
+                    {
+                        self.due_slots.insert((*p as i16, *q as i16, ev.site), slot);
+                    }
+                }
+            }
+            _ => {}
         }
         let horns = fcq::horns(&log.event);
         if horns.is_empty() {
             return;
         }
+        if self.horn_floor.is_none() {
+            self.horn_floor = Some(journal.and_then(|j| j.max_horn_slot().ok()).unwrap_or(0));
+        }
+        // A replay (cursor 0 after a restart): counted, not journalled
+        // again, not alerted, not fronted.
+        let replay = slot <= self.horn_floor.unwrap_or(0);
         let pq = log.event.province().map(|(p, q)| (p as i16, q as i16));
-        if let Some(pq) = pq {
+        if let (Some(pq), false) = (pq, replay) {
             self.front.insert(pq);
         }
         for h in &horns {
             *self.stats.horns.entry(h).or_default() += 1;
-            if let Some(j) = journal {
+            if let (Some(j), false) = (journal, replay) {
                 let object = pq.map_or(String::new(), |(p, q)| format!("{p},{q}"));
                 let _ = j.conquest(slot, Some(log.bell), h, &object, "");
             }
@@ -184,7 +288,7 @@ impl ConquestDuty {
         let n = self.horns_by_bell.entry(log.bell).or_default();
         let before = *n;
         *n += horns.len() as u32;
-        if before <= HORN_ALERT_PER_BELL && *n > HORN_ALERT_PER_BELL {
+        if !replay && before <= HORN_ALERT_PER_BELL && *n > HORN_ALERT_PER_BELL {
             self.alerts.push((
                 slot,
                 format!("bell {}: {} horns (> {HORN_ALERT_PER_BELL})", log.bell, *n),
@@ -213,8 +317,14 @@ impl ConquestDuty {
                 match kind {
                     "capture" => {
                         self.stats.captures_settled += 1;
+                        let held = self.capture_held.remove(key);
                         if let Some(s0) = self.capture_seen.remove(key) {
-                            self.stats.capture_latency.push(slot.saturating_sub(s0));
+                            let lat = slot.saturating_sub(s0);
+                            if held {
+                                self.stats.capture_latency_held.push(lat);
+                            } else {
+                                self.stats.capture_latency.push(lat);
+                            }
                         }
                     }
                     "ssiege" => self.stats.sieges_settled += 1,
@@ -225,6 +335,9 @@ impl ConquestDuty {
                             for x in h..h + c as u32 {
                                 self.stats
                                     .fold_lag_hours
+                                    .push(fcq::fold_lag_hours(x, now_bell) as u64);
+                                self.stats
+                                    .fold_lag_hours_from_end
                                     .push(fcq::unfolded_age_hours(x, now_bell) as u64);
                             }
                             if let Some(mn) = parse_mn(key) {
@@ -278,6 +391,10 @@ impl ConquestDuty {
         if !t.season.is_v2() {
             return Ok(());
         }
+        for &(p, q) in opened.iter().chain(self.provs.keys()) {
+            self.known_marches
+                .insert(frontier_abi::v2::addr::march_of(p as i32, q as i32));
+        }
         let now_bell = t.clock.bell_at(t.now).unwrap_or(0);
         if t.cfg.has_role("settle") {
             if !self.unsupported.contains("capture") {
@@ -314,12 +431,16 @@ impl ConquestDuty {
         if t.now < end_ts + CLOSE_MARCH_AFTER_SECS {
             return Ok(());
         }
-        let due: Vec<(i32, i32)> = self
-            .marches
+        let mut due: Vec<(i32, i32)> = self
+            .known_marches
             .iter()
-            .filter(|(_, v)| !v.closed)
-            .map(|(k, _)| *k)
+            .chain(self.marches.keys())
+            .copied()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .filter(|mn| !self.marches.get(mn).is_some_and(|v| v.closed))
             .collect();
+        due.sort_unstable();
         for chunk in due.chunks(64) {
             let keys: Vec<Address> = chunk
                 .iter()
@@ -415,12 +536,16 @@ impl ConquestDuty {
                 .filter(|c| fclient::addr::citizen_tag_u64(c) == rec.actor)
                 .or_else(|| citizen_of_tag(citizens, rec.actor));
             let Some(captor) = captor else {
+                self.capture_held.insert(key.clone());
                 continue;
             };
             let victim_citizen = if free_city {
                 None
             } else {
-                let Some(h) = tgt_h.as_ref() else { continue };
+                let Some(h) = tgt_h.as_ref() else {
+                    self.capture_held.insert(key.clone());
+                    continue;
+                };
                 Some((h.owner_citizen, h.rent_payer))
             };
             let mut ckeys = vec![captor];
@@ -433,11 +558,15 @@ impl ConquestDuty {
                     .filter(|a| a.owner == t.addrs.program)
                     .and_then(|a| Citizen::decode(&a.data).ok())
             };
-            let Some(cc) = dec(&cs[0]) else { continue };
+            let Some(cc) = dec(&cs[0]) else {
+                self.capture_held.insert(key.clone());
+                continue;
+            };
             let victim = match victim_citizen {
                 None => None,
                 Some((vc, rp)) => {
                     let Some(v) = cs.get(1).and_then(dec) else {
+                        self.capture_held.insert(key.clone());
                         continue;
                     };
                     Some((vc, (v.faction, v.join_shard), rp))
@@ -473,7 +602,12 @@ impl ConquestDuty {
             ) {
                 self.stats.captures_planned += 1;
                 self.tried.remove(&key);
-                self.capture_seen.entry(key).or_insert(t.slot);
+                let base = self
+                    .due_slots
+                    .get(&(pq.0, pq.1, site))
+                    .copied()
+                    .unwrap_or(t.slot);
+                self.capture_seen.entry(key).or_insert(base);
             }
         }
         Ok(())
@@ -493,7 +627,7 @@ impl ConquestDuty {
             .provs
             .iter()
             .flat_map(|(pq, v)| {
-                fcq::siege_settles(&v.records, now_bell, t.season.end_bell)
+                fcq::siege_settles(&v.records, now_bell, t.season.end_bell, v.rn)
                     .into_iter()
                     .map(move |s| (*pq, s, v.records[s as usize]))
             })
@@ -525,11 +659,12 @@ impl ConquestDuty {
                 else {
                     continue;
                 };
-                (c.0, Some(c.1))
+                (Some(c.0), Some(c.1))
             } else {
-                // D-3: no slot owed: the site's canonical Holding address
-                // stands in (the program reads position 4 only for bit 5).
-                (site_holding, None)
+                // D-3 (revised after the CQ2-C review): no slot owed, so
+                // position 4 must be ABSENT (§5.5); the builder passes
+                // `Addresses::absent(2)`, never the site's Holding.
+                (None, None)
             };
             let a = t.addrs.clone();
             let region = self.provs.get(&pq).map(|p| p.region);
@@ -742,7 +877,18 @@ impl ConquestDuty {
                 let Some(en) = v.data.get(o..o + e::SIZE) else {
                     break;
                 };
-                if en[e::STATE] != e::STATE_ROSTER || en[e::PEND_OP] != e::OP_NONE {
+                // A roster host with no pending op (RetireHost leaves at
+                // once only once the Province resolved every bell of the
+                // season, D-5: `TooEarly` before), or a previous-generation
+                // Leave already departed and still unbound (`op_ref = 0`):
+                // the program binds it to the home Holding (D-6).
+                let roster = en[e::STATE] == e::STATE_ROSTER
+                    && en[e::PEND_OP] == e::OP_NONE
+                    && v.rn >= t.season.end_bell;
+                let waiting_leave = en[e::STATE] == e::STATE_DEPARTED
+                    && en[e::PEND_OP] == e::OP_LEAVE
+                    && en.get(e::OP_REF..e::OP_REF + 4) == Some(&[0, 0, 0, 0]);
+                if !roster && !waiting_leave {
                     continue;
                 }
                 let id = u64::from_le_bytes(en[e::ID..e::ID + 8].try_into().unwrap_or([0; 8]));
@@ -846,10 +992,14 @@ impl ConquestDuty {
             "occupations": count(|c| c.occupations),
             "settle_pending": self.settle_pending(),
             "fold_lag_hours_p99": crate::quantile(&self.stats.fold_lag_hours, 0.99),
+            "fold_lag_hours_from_end_p99": crate::quantile(&self.stats.fold_lag_hours_from_end, 0.99),
+            "lost_hours_seen": self.marches.values().map(|v| v.lost_hours as u64).sum::<u64>(),
             "horns_last_bell": horns_last_bell,
             "contested_provinces": self.provs.values().filter(|p| p.contest.hot()).count(),
             "contested_resolve_latency_slots_p99": crate::quantile(&self.stats.contested_latency, 0.99),
             "capture_settle_latency_slots_p99": crate::quantile(&self.stats.capture_latency, 0.99),
+            "capture_settle_held_latency_slots_p99": crate::quantile(&self.stats.capture_latency_held, 0.99),
+            "capture_settle_held": self.stats.capture_latency_held.len(),
             "captures_settled": self.stats.captures_settled,
             "sieges_settled": self.stats.sieges_settled,
             "folds_landed": self.stats.folds_landed,
@@ -858,6 +1008,7 @@ impl ConquestDuty {
             "retires": self.stats.retires,
             "march_closes": self.stats.march_closes,
             "horns": self.stats.horns,
+            "logs_dropped": self.logs_dropped,
             "unsupported": self.unsupported.iter().collect::<Vec<_>>(),
         })
     }
@@ -1050,6 +1201,33 @@ mod tests {
         }
     }
 
+    /// A CONQUEST record body of `events` `(site, code)` at `(p, q)`, `bell`.
+    fn conquest_body(p: i32, q: i32, bell: u32, events: &[(u8, u8)]) -> Vec<u8> {
+        use frontier_abi::v2::log as l2;
+        let mut pl = l2::ConquestPayload {
+            events: [l2::Event::default(); l2::CONQUEST_EVENTS_MAX],
+            n: events.len() as u8,
+            records_digest: [0; 32],
+            keep_holder: 2,
+            keep_contender: 4,
+            keep_progress: 1,
+            keep_troops: 0,
+            donor_host_id: 0,
+            snapshot: None,
+        };
+        for (i, (site, code)) in events.iter().enumerate() {
+            pl.events[i] = l2::Event {
+                site: *site,
+                code: *code,
+                faction: 3,
+                progress: 0,
+            };
+        }
+        let mut kp = l2::conquest_key(p, q, bell).to_vec();
+        kp.extend_from_slice(&pl.to_bytes());
+        fclient::log::chain(1, 82, bell, &kp, &[(6, 0, [0; 32])]).encode()
+    }
+
     /// The Clock just after bell `b`'s reveal window closed.
     fn after_close(b: u32) -> i64 {
         G + (b as i64 + 1) * BELL + 5 + 600 + 1
@@ -1079,6 +1257,7 @@ mod tests {
             cq: e.season.conquest.unwrap(),
         };
         let mut taken_at = None;
+        let mut idle_at = None;
         let mut slot = 10u64;
         for b in b0..b0 + keep_bells as u32 + 3 {
             e.anchor(b, rg);
@@ -1093,6 +1272,7 @@ mod tests {
             );
             assert!(e.keys("skip:").is_empty(), "bell {b}: never skipped");
             if !hot {
+                idle_at = Some(b);
                 break;
             }
             assert!(d.conquest.hot((p, q)));
@@ -1120,6 +1300,10 @@ mod tests {
         }
         let tb = taken_at.expect("the keep was taken");
         assert_eq!(tb, b0 + keep_bells as u32 - 1, "after keep_bells bells");
+        // The oracle is the native model's step, not `contest` itself: the
+        // Province was contested at every bell up to the taking bell and
+        // idle from the next (no gap, no extra hot bell).
+        assert_eq!(idle_at, Some(tb + 1));
         let k = cm::read_keep(&pd).unwrap().unwrap();
         assert_eq!(k.holder, 4);
         assert!(!d.conquest.hot((p, q)), "taken: no contest");
@@ -1190,6 +1374,12 @@ mod tests {
             .unwrap();
         }
         assert!(!c.observe((3, 0), &pd, 300, 0, 1), "capture due: not hot");
+        // The feed's CAPTURE_DUE events (slot 5: the completing resolve
+        // landed there): the latency counts from them (criterion 12).
+        let due_body = conquest_body(3, 0, 290, &[(6, frontier_abi::v2::log::event::CAPTURE_DUE)]);
+        let due_log = fclient::conquest::parse(&due_body).unwrap();
+        c.on_log(&due_log, 5, None);
+        assert_eq!(c.due_slots.get(&(3, 0, 6)), Some(&5));
         let cits = citizens_of(&e, &[]);
         e.conquest(&mut c, 20, after_close(300), &cits, &BTreeSet::new())
             .await;
@@ -1207,7 +1397,17 @@ mod tests {
         let (_, _, fc) = e.preview("capture:3,0:7:290");
         let acc: Vec<Address> = fc[0].accounts.iter().map(|m| m.pubkey).collect();
         assert_eq!(acc[4], captor);
-        assert_eq!(acc[6], e.addrs.holding(3, 0, 7), "D-2 placeholder");
+        let ph: Vec<Address> = acc[6..9].to_vec();
+        assert_eq!(
+            ph,
+            vec![e.addrs.absent(3), e.addrs.absent(4), e.addrs.absent(5)],
+            "D-2 placeholders: distinct, absent"
+        );
+        assert!(
+            ph.iter()
+                .all(|a| !e.port.accounts.lock().unwrap().contains_key(a)),
+            "absent on the chain"
+        );
         // The captor named only by the land index (src Holding gone).
         e.port
             .accounts
@@ -1216,6 +1416,7 @@ mod tests {
             .remove(&e.addrs.holding(2, 0, 4));
         e.engine.cancel("capture:3,0:6:290");
         let mut c2 = ConquestDuty::default();
+        c2.on_log(&due_log, 5, None);
         c2.observe((3, 0), &pd, 300, 0, 1);
         e.conquest(
             &mut c2,
@@ -1255,7 +1456,11 @@ mod tests {
             None,
         );
         assert_eq!(c2.stats.captures_settled, 1);
-        assert_eq!(c2.stats.capture_latency, vec![1]);
+        // From the CAPTURE_DUE slot (5), not from the first plan (29); and
+        // held (the captor was unknown for two rounds), so reported apart.
+        assert!(c2.stats.capture_latency.is_empty());
+        assert_eq!(c2.stats.capture_latency_held, vec![25]);
+        assert_eq!(c2.status(None)["capture_settle_held_latency_slots_p99"], 25);
         e.conquest(&mut c2, 31, after_close(300), &cits, &BTreeSet::new())
             .await;
         assert!(!e.engine.is_pending("capture:3,0:6:290"));
@@ -1279,6 +1484,12 @@ mod tests {
             testkit::holding_v2(2, 0, 4, 0, actor, funder, None),
         );
         e.put(actor, testkit::citizen_v2(2, 1, funder));
+        // The site's Holding is PRESENT (the CQ2-C review's D-3): position
+        // 4 must still be an absent address, never this one.
+        e.put(
+            e.addrs.holding(3, 0, 1),
+            testkit::holding_v2(3, 0, 1, 0, actor, funder, None),
+        );
         let mut pd = testkit::province_v2(3, 0, 300);
         let tag_a = fclient::addr::citizen_tag_u64(&actor);
         // Site 1: stake owed to the site's holding. Site 2: stake to src and
@@ -1332,16 +1543,51 @@ mod tests {
         assert_eq!((class, tg), (Class::N, tag::SETTLE_SIEGE));
         assert_eq!(i1[0].accounts[3].pubkey, e.addrs.holding(3, 0, 1));
         assert_eq!(i1[0].accounts.len(), 5, "no slot owed: no funder");
+        let pos4 = i1[0].accounts[4].pubkey;
+        assert_eq!(pos4, e.addrs.absent(2), "no slot owed: the placeholder");
+        assert_ne!(pos4, e.addrs.holding(3, 0, 1), "never the site Holding");
+        assert!(
+            !e.port.accounts.lock().unwrap().contains_key(&pos4),
+            "position 4 is absent on the chain"
+        );
         let (_, _, i2) = e.preview(&k2[0]);
         assert_eq!(i2[0].accounts[3].pubkey, e.addrs.holding(2, 0, 4));
         assert_eq!(i2[0].accounts[4].pubkey, actor);
         assert_eq!(i2[0].accounts[5].pubkey, funder, "D-6 escrow refund");
-        // After end_bell the lapsed siege settles to src with its slot.
+        // After end_bell the lapsed siege settles to src with its slot, but
+        // only once the Province is resolved through end_bell - 1: a
+        // siege may still complete at bell 1,007 (CQ2-D review, §5.9).
         e.engine.cancel(&k1[0]);
         e.engine.cancel(&k2[0]);
         e.conquest(
             &mut c,
             30,
+            after_close(1_008),
+            &BTreeMap::new(),
+            &BTreeSet::new(),
+        )
+        .await;
+        assert!(
+            e.keys("ssiege:3,0:3:").is_empty(),
+            "rn 300 < end_bell: the keeper's own last resolves come first"
+        );
+        c.observe((3, 0), &pd, 1_007, 0, 31);
+        e.conquest(
+            &mut c,
+            31,
+            after_close(1_008),
+            &BTreeMap::new(),
+            &BTreeSet::new(),
+        )
+        .await;
+        assert!(
+            e.keys("ssiege:3,0:3:").is_empty(),
+            "rn 1,007: one bell left"
+        );
+        c.observe((3, 0), &pd, 1_008, 0, 32);
+        e.conquest(
+            &mut c,
+            32,
             after_close(1_008),
             &BTreeMap::new(),
             &BTreeSet::new(),
@@ -1439,7 +1685,7 @@ mod tests {
     }
 
     /// MC §8.2 horn watcher: an MC record from the feed puts its Province
-    /// at the front (read at once, planned first), counts the horn, and
+    /// at the front (read at once, planned in the same tick), counts the horn, and
     /// alerts above [`HORN_ALERT_PER_BELL`] horns in a bell.
     #[test]
     fn cq_horn_watcher_fronts_counts_and_alerts() {
@@ -1619,5 +1865,317 @@ mod tests {
         let v1 = testkit::province(300, &[]);
         assert!(!c.observe((3, 0), &v1, 300, 0, 1));
         assert!(c.provs.is_empty());
+    }
+
+    /// §5.6 (the CQ2-C review): a transit whose host is the **previous
+    /// generation** of a captured Holding settles with
+    /// `[prev_home_holding]` as its mandatory last account; an ordinary
+    /// transit keeps M1's list. A camp Citizen would sit before it.
+    #[tokio::test]
+    async fn cq_settle_transit_of_a_previous_generation_host_names_prev_home() {
+        let mut e = env(&["settle"], 1_008);
+        let mut d = PlayDuty::default();
+        let (owner, funder) = (
+            Address::new_from_array([0xC3; 32]),
+            Address::new_from_array([0xF3; 32]),
+        );
+        let home_key = fclient::addr::host_id(1, 0, 2, 4, 0).unwrap();
+        // The captured Holding (3,0,6): generation 2, previous generation 1.
+        let old = fclient::addr::host_id(3, 0, 6, 1, 5).unwrap();
+        e.put(
+            e.addrs.holding(3, 0, 6),
+            testkit::holding_v2_transit(
+                3,
+                0,
+                6,
+                2,
+                owner,
+                funder,
+                Some((0xABCD, 1, home_key)),
+                old,
+                2,
+                100,
+                104,
+                (4, 0),
+            ),
+        );
+        // An ordinary Holding (3,0,7) at its host's generation.
+        let cur = fclient::addr::host_id(3, 0, 7, 3, 5).unwrap();
+        e.put(
+            e.addrs.holding(3, 0, 7),
+            testkit::holding_v2_transit(3, 0, 7, 3, owner, funder, None, cur, 2, 100, 104, (4, 0)),
+        );
+        e.put(e.addrs.province(4, 0), testkit::province_v2(4, 0, 200));
+        for host in [old, cur] {
+            let (p, q, ..) = fclient::addr::host_parts(host).unwrap();
+            d.index.departs.insert(
+                (host, 100),
+                crate::playindex::DepartRec {
+                    host,
+                    origin: (p as i16, q as i16),
+                    origin_tile: 5,
+                    depart_bell: 100,
+                    arrive: 104,
+                    dep_mass: 10,
+                    tip: 0,
+                    seal_root: [0; 32],
+                    commit: [0; 32],
+                    seal: [0; 165],
+                    slot: 1,
+                },
+            );
+            d.index.departure_settled.insert((host, 100));
+        }
+        e.anchor(104, fclient::ix::region_of(4, 0));
+        e.play(&mut d, 50, after_close(104) + 700, &[(4, 0)]).await;
+        let acc = |h: u64| -> Vec<Address> {
+            let (_, _, ixs) = e.preview(&format!("settle:{h}:100"));
+            ixs[0].accounts.iter().map(|m| m.pubkey).collect()
+        };
+        let a_old = acc(old);
+        assert_eq!(a_old.len(), 14, "13 + prev_home_holding");
+        assert_eq!(a_old[2], e.addrs.holding(3, 0, 6));
+        assert_eq!(a_old[13], e.addrs.holding(1, 0, 2), "prev_home, last");
+        let a_cur = acc(cur);
+        assert_eq!(a_cur.len(), 13, "M1's list");
+        assert_eq!(a_cur[2], e.addrs.holding(3, 0, 7));
+        assert_eq!(
+            d.transits[&(old, 100)]
+                .prev_home
+                .map(|h| (h.p, h.q, h.site)),
+            Some((1, 0, 2))
+        );
+        assert_eq!(d.transits[&(cur, 100)].prev_home, None);
+    }
+
+    /// §5.5 / host.rs `return_target` (the CQ2-C review): the return settle
+    /// of a retire Leave names the HOME Holding its `op_ref` binds; an
+    /// unbound previous-generation Leave of a live captured Holding waits
+    /// for its victim's RetireHost (no third-party return) while
+    /// `retire_hosts = 1`, and is returned (stranded) when it is 0.
+    #[tokio::test]
+    async fn cq_return_of_a_retire_leave_names_the_home_holding() {
+        let mut e = env(&["settle-departure"], 1_008);
+        let mut d = PlayDuty::default();
+        let (owner, funder) = (
+            Address::new_from_array([0xC4; 32]),
+            Address::new_from_array([0xF4; 32]),
+        );
+        let home_key = fclient::addr::host_id(1, 0, 2, 4, 0).unwrap();
+        e.put(
+            e.addrs.holding(3, 0, 6),
+            testkit::holding_v2(3, 0, 6, 2, owner, funder, Some((0xABCD, 1, home_key))),
+        );
+        d.conquest.captured_sites.insert((3, 0, 6));
+        let old = fclient::addr::host_id(3, 0, 6, 1, 4).unwrap();
+        let old2 = fclient::addr::host_id(3, 0, 6, 1, 5).unwrap();
+        let mut pd = testkit::province_v2(4, 0, 300);
+        testkit::set_entry(&mut pd, 0, old, 1, 0, 11, 500_000);
+        testkit::set_leave(&mut pd, 0, 250, 1, (home_key >> 32) as u32);
+        testkit::set_entry(&mut pd, 1, old2, 1, 0, 12, 500_000);
+        testkit::set_leave(&mut pd, 1, 250, 0, 0);
+        e.put(e.addrs.province(4, 0), pd.clone());
+        e.play(&mut d, 10, after_close(300), &[(4, 0)]).await;
+        assert_eq!(
+            e.keys("return:"),
+            vec!["return:1,0,2:4,0".to_string()],
+            "the bound Leave returns to its home; the unbound one waits"
+        );
+        let (class, tg, ixs) = e.preview("return:1,0,2:4,0");
+        assert_eq!((class, tg), (Class::D, tag::SETTLE_DEPARTURE));
+        assert_eq!(ixs[0].accounts[3].pubkey, e.addrs.holding(1, 0, 2));
+        // retire_hosts = 0: DisbandStranded's fallback, M1's: both return
+        // to the issuing (captured) Holding, where the program strands them.
+        let mut e2 = env(&["settle-departure"], 1_008);
+        e2.season.conquest.as_mut().unwrap().retire_hosts = 0;
+        let mut d2 = PlayDuty::default();
+        d2.conquest.captured_sites.insert((3, 0, 6));
+        e2.put(
+            e2.addrs.holding(3, 0, 6),
+            testkit::holding_v2(3, 0, 6, 2, owner, funder, Some((0xABCD, 1, home_key))),
+        );
+        e2.put(e2.addrs.province(4, 0), pd);
+        e2.play(&mut d2, 10, after_close(300), &[(4, 0)]).await;
+        let mut ks = e2.keys("return:");
+        ks.sort();
+        assert_eq!(
+            ks,
+            vec![
+                "return:1,0,2:4,0".to_string(),
+                "return:3,0,6:4,0".to_string()
+            ]
+        );
+    }
+
+    /// A feed re-read from cursor 0 after a restart replays the horns: they
+    /// are counted but not journalled again, alerted or fronted (review
+    /// minor); records the full queue dropped are counted.
+    #[test]
+    fn cq_horn_replay_after_a_restart_is_not_journalled_twice() {
+        let j = crate::journal::Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let body = conquest_body(
+            3,
+            0,
+            77,
+            &[(l2_keep_site(), frontier_abi::v2::log::event::KEEP_CONTEST)],
+        );
+        let log = fclient::conquest::parse(&body).unwrap();
+        let mut c = ConquestDuty::default();
+        c.on_log(&log, 9, Some(&j));
+        assert_eq!(j.conquest_rows("KEEP_CONTEST").unwrap().len(), 1);
+        // A write kind row (lower case) does not count as a horn.
+        j.conquest(500, Some(80), "capture", "k", "landed").unwrap();
+        assert_eq!(j.max_horn_slot().unwrap(), 9);
+        // The restart: a fresh duty over the same journal sees slot 9 again.
+        let mut c2 = ConquestDuty::default();
+        c2.on_log(&log, 9, Some(&j));
+        assert_eq!(j.conquest_rows("KEEP_CONTEST").unwrap().len(), 1, "no dup");
+        assert_eq!(
+            c2.stats.horns.get("KEEP_CONTEST"),
+            Some(&1),
+            "still counted"
+        );
+        assert!(c2.front.is_empty(), "a replay fronts nothing");
+        for _ in 0..HORN_ALERT_PER_BELL + 5 {
+            c2.on_log(&log, 9, Some(&j));
+        }
+        assert!(c2.alerts.is_empty(), "no alert for a replay");
+        // A new horn (a later slot) is journalled, fronted and alerted.
+        c2.on_log(&log, 10, Some(&j));
+        assert_eq!(j.conquest_rows("KEEP_CONTEST").unwrap().len(), 2);
+        assert!(c2.front.contains(&(3, 0)));
+        // The queue's overflow is counted.
+        let mut idx = crate::playindex::PlayIndex {
+            cq_logs: vec![(1, log.clone()); 100_000],
+            ..Default::default()
+        };
+        idx.ingest(&body, 11);
+        assert_eq!(idx.cq_dropped, 1);
+        c2.logs_dropped = idx.cq_dropped;
+        assert_eq!(c2.status(None)["logs_dropped"], 1);
+    }
+
+    fn l2_keep_site() -> u8 {
+        frontier_abi::v2::log::event::KEEP_SITE
+    }
+
+    /// Review minor: a keeper with the `close` role but not `fold` still
+    /// closes MarchStates (the Marches come from the opened Provinces).
+    #[tokio::test]
+    async fn cq_close_march_does_not_need_the_fold_role() {
+        let mut e = env(&["close"], 1_008);
+        let mut c = ConquestDuty::default();
+        let rent_to = Address::new_from_array([0x78; 32]);
+        let (m, n) = frontier_abi::v2::addr::march_of(3, 0);
+        e.put(
+            e.addrs.march_state(m, n),
+            testkit::march_state(m, n, 168, rent_to),
+        );
+        // plan() (no fold role) learns the March from the opened Province.
+        let opened: BTreeSet<(i16, i16)> = [(3, 0)].into_iter().collect();
+        e.conquest(&mut c, 5, after_close(300), &BTreeMap::new(), &opened)
+            .await;
+        assert!(c.marches.is_empty(), "folds() never ran");
+        let end = G + 1_008 * BELL;
+        let (slot, now) = (6u64, end + 72 * 3_600);
+        e.port.set_clock(slot, now);
+        let t = Tick {
+            slot,
+            now,
+            season: &e.season,
+            clock: SeasonClock::from_season(&e.season),
+            addrs: &e.addrs,
+            cfg: &e.cfg,
+        };
+        c.housekeeping(&t, &e.port, &mut e.engine).await.unwrap();
+        assert_eq!(e.keys("cmarch:"), vec![format!("cmarch:{m},{n}")]);
+    }
+
+    /// A previous-generation Leave already departed and unbound is also
+    /// retired after `end_bell` (the program binds it, D-6); a roster host
+    /// waits until the Province resolved through `end_bell` (D-5).
+    #[tokio::test]
+    async fn cq_season_end_retires_waiting_leaves_and_waits_for_the_last_resolve() {
+        let mut e = env(&["settle"], 1_008);
+        let mut c = ConquestDuty::default();
+        let vw = Address::new_from_array([0xD5; 32]);
+        let victim = e.addrs.citizen(&vw);
+        let home_key = fclient::addr::host_id(1, 0, 2, 0, 0).unwrap();
+        e.put(
+            e.addrs.holding(1, 0, 2),
+            testkit::holding_v2(1, 0, 2, 0, victim, vw, None),
+        );
+        let captor = e.addrs.citizen(&Address::new_from_array([0xC5; 32]));
+        e.put(
+            e.addrs.holding(3, 0, 6),
+            testkit::holding_v2(
+                3,
+                0,
+                6,
+                2,
+                captor,
+                vw,
+                Some((fclient::addr::citizen_tag_u64(&victim), 1, home_key)),
+            ),
+        );
+        c.captured_sites.insert((3, 0, 6));
+        let a = fclient::addr::host_id(3, 0, 6, 1, 4).unwrap();
+        let b = fclient::addr::host_id(3, 0, 6, 1, 5).unwrap();
+        let mut pd = testkit::province_v2(4, 0, 1_000);
+        testkit::set_entry(&mut pd, 0, a, 1, 0, 11, 500_000);
+        testkit::set_entry(&mut pd, 1, b, 1, 0, 12, 500_000);
+        testkit::set_leave(&mut pd, 1, 900, 0, 0);
+        c.observe((4, 0), &pd, 1_000, 0, 1);
+        e.conquest(
+            &mut c,
+            20,
+            after_close(1_008),
+            &BTreeMap::new(),
+            &BTreeSet::new(),
+        )
+        .await;
+        assert_eq!(
+            e.keys("retire:"),
+            vec![format!("retire:4,0:1:{b}")],
+            "the departed Leave now; the roster host waits for rn = end_bell"
+        );
+        c.observe((4, 0), &pd, 1_008, 0, 21);
+        e.conquest(
+            &mut c,
+            21,
+            after_close(1_008),
+            &BTreeMap::new(),
+            &BTreeSet::new(),
+        )
+        .await;
+        assert_eq!(e.keys("retire:").len(), 2);
+    }
+
+    /// The land index adds the Holding a Free City capture founded.
+    #[test]
+    fn cq_land_index_takes_a_free_city_capture() {
+        let mut kp = Vec::new();
+        kp.extend_from_slice(&3i32.to_le_bytes());
+        kp.extend_from_slice(&(-1i32).to_le_bytes());
+        kp.push(7);
+        kp.extend_from_slice(&[2, 1]);
+        kp.extend_from_slice(&0x11u64.to_le_bytes());
+        kp.extend_from_slice(&0u64.to_le_bytes());
+        kp.extend_from_slice(&[2, 2]);
+        kp.extend_from_slice(&[0u8; 8 + 8 + 4]);
+        let body = fclient::log::chain(1, 83, 77, &kp, &[(6, 0, [0; 32])]).encode();
+        let log = fclient::conquest::parse(&body).unwrap();
+        assert!(matches!(
+            log.event,
+            CqEvent::CaptureSettled {
+                site: 7,
+                outcome: 2,
+                ..
+            }
+        ));
+        let mut li = crate::landindex::LandIndex::default();
+        li.ingest(&body, 9, &Addresses::new(program(), 7));
+        assert!(li.holdings.contains(&(3, -1, 7)));
+        assert_eq!(li.bad, 0);
     }
 }

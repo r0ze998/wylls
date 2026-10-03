@@ -342,13 +342,71 @@ pub fn contest(pd: &[u8], bell: u32) -> Option<Contest> {
 /// The records of a v2 Province SettleSiege applies to at `now_bell`:
 /// a stake or slot owed (kind 0, or a kind-2 occupation owing its stake,
 /// A-5), and after the season (`now_bell ≥ end_bell`) every siege that
-/// lapsed (§3.11).
-pub fn siege_settles(recs: &[CqRecord; 12], now_bell: u32, end_bell: u32) -> Vec<u8> {
+/// lapsed (§3.11) **once the Province is resolved through `end_bell − 1`**
+/// (`rn ≥ end_bell`): a siege §3.4 lets complete at `end_bell − 1` must
+/// complete in the keeper's own last resolve, not be lapsed by a
+/// SettleSiege that lands first (§5.9: no last look).
+pub fn siege_settles(recs: &[CqRecord; 12], now_bell: u32, end_bell: u32, rn: u32) -> Vec<u8> {
+    let ended = now_bell >= end_bell && rn >= end_bell;
     recs.iter()
         .enumerate()
-        .filter(|(_, r)| r.owes() || (r.kind == cr::KIND_SIEGE && now_bell >= end_bell))
+        .filter(|(_, r)| r.owes() || (r.kind == cr::KIND_SIEGE && ended))
         .map(|(s, _)| s as u8)
         .collect()
+}
+
+// ------------------------------------------------------------ the return settle
+
+/// Which Holding's return settle frees a departed `Leave` entry (§5.5
+/// RetireHost, §5.6 0x52; CQ2-C `host::return_target`): a retire Leave
+/// bound to its home (`op_a = 1`, `op_ref ≠ 0`) returns to the home
+/// Holding `op_ref` names, every other Leave to the issuing Holding (the
+/// host id's).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReturnTarget {
+    /// `(P, Q, site)` of the Holding to name in the return settle.
+    pub holding: (i16, i16, u8),
+    /// The generation that Holding must be live at to be credited.
+    pub gen: u8,
+    /// Bound to a home Holding by RetireHost.
+    pub bound: bool,
+}
+
+/// The return target of an entry with host id `id`, `op_a`, `op_ref`
+/// (`None`: a malformed id).
+pub fn return_target(id: u64, op_a: u8, op_ref: u32) -> Option<ReturnTarget> {
+    let bound = op_a == frontier_abi::v2::entry::RETIRE_OP_A && op_ref != 0;
+    let key = if bound { (op_ref as u64) << 32 } else { id };
+    let (p, q, site, gen, _) = crate::addr::host_parts(key).ok()?;
+    Some(ReturnTarget {
+        holding: (p as i16, q as i16, site),
+        gen,
+        bound,
+    })
+}
+
+/// Whether the program leaves this return for the victim's RetireHost
+/// instead of settling it (K-27: never stranded by a third party): the
+/// target Holding is a **live captured** Holding, `retire_hosts = 1`, the
+/// entry is not yet bound, and its host generation is the Holding's
+/// previous one.
+pub fn return_waits(t: &ReturnTarget, cap: Option<&CapturedHolding>, retire_hosts: bool) -> bool {
+    retire_hosts
+        && !t.bound
+        && cap.is_some_and(|c| c.live && c.captured && c.prev_gen == t.gen && c.gen != t.gen)
+}
+
+/// What the keeper knows of a Holding that may own previous-generation
+/// hosts.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CapturedHolding {
+    pub gen: u8,
+    pub prev_gen: u8,
+    pub captured: bool,
+    /// Provisional or final (the generation counts as live).
+    pub live: bool,
+    /// The victim's first-holding key (host-id form), `0` when none.
+    pub prev_home: u64,
 }
 
 // ------------------------------------------------------------ the fold
@@ -412,6 +470,14 @@ pub fn fold_ready(
 /// are skipped at once.
 pub fn unfolded_age_hours(h: u32, now_bell: u32) -> u32 {
     (now_bell / HOUR_BELLS).saturating_sub(h.saturating_add(1))
+}
+
+/// The lag in whole game hours of hour `h` at `now_bell`, counted **from
+/// the hour's start** (bell `6h`, when its sample is taken): the reading the
+/// gated "FoldMarch lag p99 ≤ 5 game hours" uses (one hour stricter than
+/// [`unfolded_age_hours`], which the R-23 skip trigger keeps).
+pub fn fold_lag_hours(h: u32, now_bell: u32) -> u32 {
+    (now_bell / HOUR_BELLS).saturating_sub(h)
 }
 
 #[cfg(test)]
@@ -513,6 +579,51 @@ mod tests {
     }
 
     #[test]
+    fn cq_return_target_binds_a_retire_leave_to_its_home() {
+        let host = crate::addr::host_id(3, 0, 6, 1, 4).unwrap();
+        let home = crate::addr::host_id(1, 0, 2, 4, 0).unwrap();
+        // Unbound: the issuing Holding, at the host id's generation.
+        let t = return_target(host, 0, 0).unwrap();
+        assert_eq!((t.holding, t.gen, t.bound), ((3, 0, 6), 1, false));
+        // A retire Leave with op_ref = the home key's high word: the home.
+        let t = return_target(host, 1, (home >> 32) as u32).unwrap();
+        assert_eq!((t.holding, t.gen, t.bound), ((1, 0, 2), 4, true));
+        // op_a = 1 with op_ref 0 is not bound (a plain Leave).
+        assert!(!return_target(host, 1, 0).unwrap().bound);
+        // Waits only for an unbound previous-generation host of a live
+        // captured Holding while retire_hosts = 1.
+        let cap = CapturedHolding {
+            gen: 2,
+            prev_gen: 1,
+            captured: true,
+            live: true,
+            prev_home: home,
+        };
+        let old = return_target(host, 0, 0).unwrap();
+        assert!(return_waits(&old, Some(&cap), true));
+        assert!(!return_waits(&old, Some(&cap), false), "retire_hosts = 0");
+        assert!(!return_waits(&old, None, true), "an absent Holding strands");
+        let dead = CapturedHolding { live: false, ..cap };
+        assert!(!return_waits(&old, Some(&dead), true));
+        let cur = return_target(crate::addr::host_id(3, 0, 6, 2, 4).unwrap(), 0, 0).unwrap();
+        assert!(!return_waits(&cur, Some(&cap), true), "current generation");
+        let bound = return_target(host, 1, (home >> 32) as u32).unwrap();
+        assert!(!return_waits(&bound, Some(&cap), true));
+    }
+
+    #[test]
+    fn cq_fold_lag_counts_from_the_hour_start() {
+        // Hour 5 starts at bell 30, ends at 36.
+        assert_eq!(fold_lag_hours(5, 31), 0);
+        assert_eq!(unfolded_age_hours(5, 31), 0);
+        assert_eq!(fold_lag_hours(5, 48), 3);
+        assert_eq!(unfolded_age_hours(5, 48), 2);
+        assert_eq!(fold_lag_hours(5, 54), 4);
+        assert_eq!(unfolded_age_hours(5, 54), 3, "the R-23 trigger's reading");
+        assert_eq!(fold_lag_hours(9, 3), 0, "never negative");
+    }
+
+    #[test]
     fn cq_siege_settles_and_season_end() {
         let mut recs = [CqRecord::ZERO; 12];
         recs[1].kind = cr::KIND_SIEGE;
@@ -520,8 +631,12 @@ mod tests {
         recs[3].kind = cr::KIND_OCCUPATION;
         recs[3].flags = cr::FLAG_STAKE_TO_SRC;
         recs[4].kind = cr::KIND_CAPTURE_DUE;
-        assert_eq!(siege_settles(&recs, 100, 1_008), vec![2, 3]);
-        assert_eq!(siege_settles(&recs, 1_008, 1_008), vec![1, 2, 3]);
+        assert_eq!(siege_settles(&recs, 100, 1_008, 100), vec![2, 3]);
+        assert_eq!(siege_settles(&recs, 1_008, 1_008, 1_008), vec![1, 2, 3]);
+        // CQ2-D review: the lapse waits for the Province's own last resolve
+        // (rn < end_bell: the siege may still complete at end_bell - 1).
+        assert_eq!(siege_settles(&recs, 1_008, 1_008, 1_007), vec![2, 3]);
+        assert_eq!(siege_settles(&recs, 1_100, 1_008, 300), vec![2, 3]);
     }
 
     #[test]

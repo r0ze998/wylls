@@ -373,3 +373,50 @@ pub fn march_state(m: i32, n: i32, next_hour: u32, rent_to: Address) -> Vec<u8> 
     put(&mut d, ms::RENT_TO, rent_to.as_ref());
     d
 }
+
+/// A v2 Holding (see [`holding_v2`]) with transit slot 0 holding `host`
+/// (`state` 1 departed, 2 settled), departed at `depart`, arriving at
+/// `arrive`, gathered at `dest` (the destination a GatherClash stamped).
+#[allow(clippy::too_many_arguments)]
+pub fn holding_v2_transit(
+    p: i16,
+    q: i16,
+    site: u8,
+    gen: u8,
+    owner: Address,
+    rent_payer: Address,
+    capture: Option<(u64, u8, u64)>,
+    host: u64,
+    state: u8,
+    depart: u32,
+    arrive: u32,
+    dest: (i16, i16),
+) -> Vec<u8> {
+    use l::holding as h;
+    use l::transit as t;
+    let mut d = holding_v2(p, q, site, gen, owner, rent_payer, capture);
+    let o = h::TRANSIT;
+    d[o + t::STATE] = state;
+    d[o + t::FACTION] = 1;
+    put(&mut d, o + t::HOST_ID, &host.to_le_bytes());
+    put(&mut d, o + t::DEPART_BELL, &depart.to_le_bytes());
+    put(&mut d, o + t::ARRIVE_BELL, &arrive.to_le_bytes());
+    d[o + t::FLAGS] = t::FLAG_GATHERED;
+    put(&mut d, o + t::DEST_P, &dest.0.to_le_bytes());
+    put(&mut d, o + t::DEST_Q, &dest.1.to_le_bytes());
+    d
+}
+
+/// Entry `i` of a Province made a departed `Leave` (state 3, `pend_op` 5)
+/// of `pend_bell`, with its `op_a` / `op_ref` (a retire Leave bound to its
+/// home: `op_a = 1`, `op_ref` the home key's high word).
+pub fn set_leave(d: &mut [u8], i: usize, pend_bell: u32, op_a: u8, op_ref: u32) {
+    use frontier_abi::layout::province::entry as e;
+    use l::province as p;
+    let o = p::ENTRIES + i * p::ENTRY_STRIDE;
+    d[o + e::STATE] = e::STATE_DEPARTED;
+    d[o + e::PEND_OP] = e::OP_LEAVE;
+    put(d, o + e::PEND_BELL, &pend_bell.to_le_bytes());
+    d[o + e::OP_A] = op_a;
+    put(d, o + e::OP_REF, &op_ref.to_le_bytes());
+}

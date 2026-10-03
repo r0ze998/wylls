@@ -48,14 +48,14 @@ pub struct DeclareSiegeArgs {
     /// The declaring host's entry index (the hex's lead host, K-24).
     pub entry: u8,
     /// The target Holding's owner Citizen (`Holding.owner_citizen`); for a
-    /// Free City any absent canonical address (D-1: the builder's
-    /// [`DeclareSiegeArgs::free_city`] passes the site's canonical Holding
-    /// address, absent for a Free City).
+    /// Free City an absent address (D-1 revised: the builder's
+    /// [`DeclareSiegeArgs::free_city`] passes [`Addresses::absent`]`(0)`).
     pub owner_citizen: Address,
     /// The Province proving Frontier protection (`nearby_site` names a
     /// first holding of the attacker's faction there); `None`: not needed,
-    /// the builder passes the target's canonical Holding address (absent
-    /// for a Free City; for a holding it is present but unread, D-1).
+    /// the builder passes [`Addresses::absent`]`(1)`, never the target's
+    /// Holding (the program reads a present account there as a Province and
+    /// answers `BadAccount`; CQ2-C `declare_siege`).
     pub nearby: Option<(i16, i16)>,
     pub nearby_site: u8,
 }
@@ -74,7 +74,7 @@ impl DeclareSiegeArgs {
             target,
             site,
             entry,
-            owner_citizen: a.holding(target.0 as i32, target.1 as i32, site),
+            owner_citizen: a.absent(0),
             nearby: None,
             nearby_site: 0,
         }
@@ -89,7 +89,7 @@ pub fn declare_siege(a: &Addresses, p: &Player, x: &DeclareSiegeArgs) -> Instruc
     let target_holding = a.holding(tp, tq, x.site);
     let nearby = x
         .nearby
-        .map_or(target_holding, |(np, nq)| a.province(np as i32, nq as i32));
+        .map_or_else(|| a.absent(1), |(np, nq)| a.province(np as i32, nq as i32));
     let mut m = prologue(a, p);
     m.extend([
         w(x.src.address(a)),
@@ -114,15 +114,17 @@ pub fn declare_siege(a: &Addresses, p: &Player, x: &DeclareSiegeArgs) -> Instruc
 /// `recipient` is the canonical Holding the record names (flags bit 1:
 /// the site's Holding; bit 2 or a lapsed siege: `src`), `slot_citizen`
 /// the Citizen of the record's `actor` when a slot is owed back (bit 5),
-/// else any absent canonical address; `ticket_funder` that Citizen's
-/// funder when a slot is owed back (CQ1-C D-6).
+/// else `None` (D-3 revised: [`Addresses::absent`]`(2)`, never a site
+/// Holding: the program answers `BadAccount` to a present account there
+/// when no slot is owed); `ticket_funder` that Citizen's funder when a
+/// slot is owed back (CQ1-C D-6).
 pub fn settle_siege(
     a: &Addresses,
     any: Address,
     province: (i16, i16),
     site: u8,
     recipient: Address,
-    slot_citizen: Address,
+    slot_citizen: Option<Address>,
     ticket_funder: Option<Address>,
 ) -> Instruction {
     let mut m = vec![
@@ -130,7 +132,7 @@ pub fn settle_siege(
         r(a.season),
         w(a.province(province.0 as i32, province.1 as i32)),
         w(recipient),
-        w(slot_citizen),
+        w(slot_citizen.unwrap_or_else(|| a.absent(2))),
     ];
     if let Some(f) = ticket_funder {
         m.push(w(f));
@@ -146,8 +148,9 @@ pub struct SettleCaptureArgs {
     pub captor_citizen: Address,
     pub captor_shard: (u8, u8),
     /// `(victim Citizen, its (faction, shard), the Holding's rent payer)`;
-    /// `None` for a Free City (D-2: the builder then passes the site's
-    /// canonical Holding address, absent, at positions 6–8).
+    /// `None` for a Free City (D-2 revised: the builder then passes three
+    /// distinct [`Addresses::absent`] placeholders, 3..=5, at positions
+    /// 6–8).
     pub victim: Option<(Address, (u8, u8), Address)>,
     /// The record's `src` Holding (the stake's return); may be absent.
     pub stake_holding: Address,
@@ -162,7 +165,7 @@ pub fn settle_capture(a: &Addresses, fee_payer: Address, x: &SettleCaptureArgs) 
     let holding = a.holding(p, q, x.site);
     let (vc, vjs, vrp) = match x.victim {
         Some((c, (f, s), rp)) => (c, a.join_shard(f, s), rp),
-        None => (holding, holding, holding),
+        None => (a.absent(3), a.absent(4), a.absent(5)),
     };
     let m = vec![
         ws(fee_payer),
@@ -491,11 +494,11 @@ mod tests {
             ),
             (
                 Ix::SettleSiege,
-                settle_siege(&a, k, (4, 0), 7, h.address(&a), w2, None),
+                settle_siege(&a, k, (4, 0), 7, h.address(&a), None, None),
             ),
             (
                 Ix::SettleSiege,
-                settle_siege(&a, k, (4, 0), 7, h.address(&a), w2, Some(k)),
+                settle_siege(&a, k, (4, 0), 7, h.address(&a), Some(w2), Some(k)),
             ),
             (Ix::SettleCapture, settle_capture(&a, k, &sc)),
             (
@@ -606,6 +609,70 @@ mod tests {
         );
         assert_eq!(sc.accounts[2].pubkey, a.holding(4, 0, 7));
         assert_eq!(sc.accounts[5].pubkey, a.join_shard(1, 3));
-        assert_eq!(sc.accounts[6].pubkey, a.holding(4, 0, 7), "D-2 placeholder");
+        // D-2 revised: three distinct absent placeholders, none a Holding.
+        let ph: Vec<Address> = (6..9).map(|i| sc.accounts[i].pubkey).collect();
+        assert_eq!(ph, vec![a.absent(3), a.absent(4), a.absent(5)]);
+        assert_ne!(ph[0], ph[1]);
+        assert_ne!(ph[1], ph[2]);
+        assert_ne!(ph[0], sc.accounts[2].pubkey, "never the Holding itself");
+    }
+
+    /// The CQ2-C review's blockers (D-1, D-3): wherever §5.5 says "absent",
+    /// the builders pass an address that is **never a Holding** (the site
+    /// Holding is present for every holding target, and CQ2-C answers
+    /// `BadAccount` to a present account at those positions).
+    #[test]
+    fn cq_placeholders_are_never_a_site_holding() {
+        let a = Addresses::new(Address::new_from_array([0x5F; 32]), 7);
+        let k = Address::new_from_array([9; 32]);
+        let w2 = Address::new_from_array([4; 32]);
+        let pl = Player {
+            wallet: w2,
+            actor: w2,
+            payer: w2,
+        };
+        let h = HoldingRef {
+            p: 3,
+            q: 0,
+            site: 1,
+        };
+        let site_holding = a.holding(4, 0, 7);
+        // DeclareSiege on a holding target, no proof needed: position 8.
+        let ds = declare_siege(
+            &a,
+            &pl,
+            &DeclareSiegeArgs {
+                src: h,
+                target: (4, 0),
+                site: 7,
+                entry: 0,
+                owner_citizen: a.citizen(&k),
+                nearby: None,
+                nearby_site: 0,
+            },
+        );
+        assert_eq!(ds.accounts[6].pubkey, site_holding, "the target Holding");
+        assert_eq!(ds.accounts[8].pubkey, a.absent(1));
+        assert_ne!(ds.accounts[8].pubkey, site_holding);
+        // The Free City form: owner (7) and nearby (8) absent, not the Holding.
+        let fc = declare_siege(&a, &pl, &DeclareSiegeArgs::free_city(&a, h, (4, 0), 7, 0));
+        assert_eq!(fc.accounts[7].pubkey, a.absent(0));
+        assert_eq!(fc.accounts[8].pubkey, a.absent(1));
+        // SettleSiege with no slot owed: position 4 is the placeholder.
+        let ss = settle_siege(&a, k, (4, 0), 7, site_holding, None, None);
+        assert_eq!(ss.accounts.len(), 5);
+        assert_eq!(ss.accounts[3].pubkey, site_holding, "the recipient stays");
+        assert_eq!(ss.accounts[4].pubkey, a.absent(2));
+        assert_ne!(ss.accounts[4].pubkey, site_holding);
+        // The placeholders are canonical-looking with-seed addresses of the
+        // season, distinct from every §4.1 kind's address.
+        let all: Vec<Address> = (0..6).map(|n| a.absent(n)).collect();
+        for (i, x) in all.iter().enumerate() {
+            for y in &all[i + 1..] {
+                assert_ne!(x, y);
+            }
+            assert_ne!(*x, a.frontier());
+            assert_ne!(*x, a.defence_pool());
+        }
     }
 }

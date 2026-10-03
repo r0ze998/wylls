@@ -26,6 +26,7 @@ use fclient::abi::{self, status, tag, Class};
 use fclient::decode::{
     AnchorArchive, ArrivalDay, ArrivalSlot, BellAnchor, ClashInputs, Holding, Province,
 };
+use fclient::ix::v2 as ix2;
 use fclient::ix::{self, AnchorSource, HoldingRef, RevealArgs, SettleTransitArgs};
 use fclient::play::{self, Opened, Target};
 use fclient::ports::{Account, ChainPort, DrandPort, PortResult};
@@ -88,10 +89,31 @@ pub struct TransitState {
     pub rent_payer: Address,
     /// The Holding's owner Citizen (the camp's Works, v1.7).
     pub owner_citizen: Address,
+    /// MC (§5.6): the transit's host is the previous generation of a
+    /// captured Holding; its troops go to this home Holding (`prev_home`),
+    /// which SettleTransit names as its mandatory last account.
+    pub prev_home: Option<HoldingRef>,
     /// The destination a GatherClash stamped (v1.7, W4-B F1): the only
     /// Province the transit settles against.
     pub gathered_at: Option<(i16, i16)>,
     pub holding_read_slot: u64,
+}
+
+/// MC (§5.6): the home Holding of a transit whose host id names the
+/// **previous generation** of the captured Holding `h` (`id.gen ==
+/// prev_gen ≠ gen`); `None` for an ordinary transit and in an M1 season.
+fn prev_home_of(h: &Holding, host: u64) -> Option<HoldingRef> {
+    let c = h.cq.filter(|c| c.captured())?;
+    let (_, _, _, gen, _) = fclient::addr::host_parts(host).ok()?;
+    if gen != c.prev_gen || c.prev_gen == h.gen {
+        return None;
+    }
+    let (p, q, site, _, _) = fclient::addr::host_parts(c.prev_home).ok()?;
+    Some(HoldingRef {
+        p: p as i16,
+        q: q as i16,
+        site,
+    })
 }
 
 /// A province as last read.
@@ -108,6 +130,10 @@ pub struct ProvState {
     pub active: bool,
     /// `Leave` entries `(entry index, host, pend_bell)` (§21 returns).
     pub leaves: Vec<(u8, u64, u32)>,
+    /// MC: `(op_a, op_ref)` of each entry of `leaves` (same order): a
+    /// retire Leave (`op_a = 1`, `op_ref ≠ 0`) returns to the home Holding
+    /// `op_ref` names, not to the issuing one (§5.5 RetireHost, D-6).
+    pub leave_ops: Vec<(u8, u32)>,
     pub last_digest: [u8; 32],
     /// Residents of two or more factions: every bell fights (no quiet
     /// proof), so it is gathered (no-arrival fast path) and resolved at
@@ -205,7 +231,7 @@ pub struct PlayDuty {
     /// MC (CQ2-D, contract §8.2): the conquest duties and their view of the
     /// v2 Provinces this duty reads.
     pub conquest: crate::conquest::ConquestDuty,
-    /// Provinces a horn named, planned first this tick (§8.2 horn watcher).
+    /// Provinces a horn named, read at once and planned this tick (§8.2 horn watcher).
     cq_front: BTreeSet<(i16, i16)>,
 }
 
@@ -606,12 +632,13 @@ impl PlayDuty {
                     settle_bells: BTreeSet::new(),
                     active: false,
                     leaves: vec![],
+                    leave_ops: vec![],
                     last_digest: [0; 32],
                     contested: false,
                 });
         }
         // The horn watcher (MC §8.2): a province a horn named is read at
-        // once and planned first.
+        // once and planned in the same tick.
         self.cq_front = std::mem::take(&mut self.conquest.front);
         for pq in &self.cq_front {
             if let Some(s) = self.provinces.get_mut(pq) {
@@ -627,6 +654,7 @@ impl PlayDuty {
                 settle_bells: BTreeSet::new(),
                 active: false,
                 leaves: vec![],
+                leave_ops: vec![],
                 last_digest: [0; 32],
                 contested: false,
             });
@@ -719,6 +747,12 @@ impl PlayDuty {
                     .filter(|(_, e)| e.state == 3 && e.pend_op == 5)
                     .map(|(i, e)| (i as u8, e.id, e.pend_bell))
                     .collect();
+                s.leave_ops = pv
+                    .entries
+                    .iter()
+                    .filter(|e| e.state == 3 && e.pend_op == 5)
+                    .map(|e| (e.op_a, e.op_ref))
+                    .collect();
             }
         }
         Ok(())
@@ -775,6 +809,7 @@ impl PlayDuty {
                     u64::from_le_bytes(h.owner_citizen.to_bytes()[..8].try_into().expect("8"));
                 st.rent_payer = h.rent_payer;
                 st.owner_citizen = h.owner_citizen;
+                st.prev_home = prev_home_of(&h, k.0);
             }
         }
         Ok(())
@@ -831,7 +866,9 @@ impl PlayDuty {
         for (slot, log) in std::mem::take(&mut self.index.cq_logs) {
             self.conquest.on_log(&log, slot, journal);
         }
+        self.conquest.logs_dropped = self.index.cq_dropped;
         self.read_provinces(t, port, opened).await?;
+        self.conquest.refresh_captured(t, port).await?;
         self.read_holdings(t, port).await?;
         if t.cfg.has_role("reveal") || t.cfg.has_role("settle") {
             self.decrypt(t, drand, rounds, journal).await;
@@ -1384,15 +1421,29 @@ impl PlayDuty {
     /// `RETURN_MAX`); the province is read again after each landing and the
     /// write planned again while entries remain.
     fn returns(&mut self, t: &Tick<'_>, engine: &mut Engine) {
+        let retire_on = t.season.is_v2() && t.season.conquest.is_some_and(|c| c.retire_hosts == 1);
         for (pq, s) in &self.provinces {
             let mut holdings: BTreeSet<(i16, i16, u8)> = BTreeSet::new();
-            for &(_, host, pend_bell) in &s.leaves {
+            for (i, &(_, host, pend_bell)) in s.leaves.iter().enumerate() {
                 if pend_bell >= s.rn {
                     continue;
                 }
-                if let Ok((hp, hq, hs, _, _)) = fclient::addr::host_parts(host) {
-                    holdings.insert((hp as i16, hq as i16, hs));
+                // MC (§5.5, D-6): a retire Leave returns to its home
+                // Holding; a previous-generation host of a live captured
+                // Holding waits for its victim's RetireHost (the program
+                // answers AlreadyDone to a third party's return).
+                let (op_a, op_ref) = s.leave_ops.get(i).copied().unwrap_or((0, 0));
+                let Some(rt) = fclient::conquest::return_target(host, op_a, op_ref) else {
+                    continue;
+                };
+                if fclient::conquest::return_waits(
+                    &rt,
+                    self.conquest.cap_info.get(&rt.holding),
+                    retire_on,
+                ) {
+                    continue;
                 }
+                holdings.insert(rt.holding);
             }
             for (hp, hq, hs) in holdings {
                 let a = t.addrs.clone();
@@ -1996,6 +2047,7 @@ impl PlayDuty {
                 camp_citizen,
             };
             let a = t.addrs.clone();
+            let prev_home = st.prev_home;
             if engine.ensure(
                 WriteSpec {
                     key: key.clone(),
@@ -2005,7 +2057,10 @@ impl PlayDuty {
                     bell: Some(d.arrive),
                     region: Some(region),
                     build: Arc::new(move |c: &BuildCtx| {
-                        vec![ix::settle_transit(&a, c.payer, &args)]
+                        // §5.6: a previous-generation host of a captured
+                        // Holding settles with `prev_home_holding` last
+                        // (None: M1's list, unchanged).
+                        vec![ix2::settle_transit(&a, c.payer, &args, prev_home)]
                     }),
                     deadline_slot: None,
                     not_before_slot: t.slot + self.jitter(t),
@@ -2514,6 +2569,7 @@ mod review_tests {
             settle_bells: BTreeSet::new(),
             active: true,
             leaves: vec![],
+            leave_ops: vec![],
             last_digest: [0; 32],
             contested: false,
         }
@@ -3126,6 +3182,7 @@ mod w6t_tests {
             settle_bells: BTreeSet::new(),
             active: true,
             leaves: vec![],
+            leave_ops: vec![],
             last_digest: [0; 32],
             contested: false,
         };

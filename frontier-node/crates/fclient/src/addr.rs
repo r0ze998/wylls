@@ -404,6 +404,19 @@ impl Addresses {
         let s = frontier_abi::v2::addr::march_seed(m, n);
         with_seed(&self.season, s.as_bytes(), &self.program)
     }
+    /// An address **no instruction ever creates**: the placeholder every
+    /// "absent canonical address" account of a v2 list takes (DeclareSiege's
+    /// `owner_citizen` for a Free City and `nearby_province` when no proof
+    /// is needed, SettleSiege's `slot_citizen` when no slot is owed,
+    /// SettleCapture's victim accounts for a Free City, §5.5; CQ2-D D-1..D-3
+    /// as revised after the CQ2-C review). With-seed under the Season with
+    /// the seed `zz‖hex(n)`, a tag outside §4.1's table, so it is never a
+    /// program account (the program checks `System`-owned, no data), and
+    /// `n` keeps two placeholders of one list distinct.
+    pub fn absent(&self, n: u8) -> Address {
+        let s = format!("zz{n:02x}");
+        with_seed(&self.season, s.as_bytes(), &self.program)
+    }
     /// The Holding a host-id-form key names (`index<<44 | site<<40 |
     /// gen<<32`, the conquest record's `src`, CAPTURE_SETTLED's keys):
     /// the same parts as a host id with `seq = 0`.

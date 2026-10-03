@@ -365,6 +365,17 @@ impl Journal {
         Ok(())
     }
 
+    /// The slot of the last horn row (horn names are upper case, write
+    /// kinds lower case); 0 when none.
+    pub fn max_horn_slot(&self) -> Result<u64, String> {
+        let v: Option<i64> = sql(self.conn.query_row(
+            "SELECT MAX(slot) FROM conquest WHERE event = UPPER(event)",
+            [],
+            |r| r.get(0),
+        ))?;
+        Ok(v.unwrap_or(0).max(0) as u64)
+    }
+
     /// Conquest rows of `event`: `(slot, bell, object)`.
     pub fn conquest_rows(&self, event: &str) -> Result<Vec<(u64, Option<u32>, String)>, String> {
         let mut st = sql(self

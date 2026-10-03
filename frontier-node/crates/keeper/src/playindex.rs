@@ -91,6 +91,8 @@ pub struct PlayIndex {
     pub failed_meta: Vec<(fclient::ports::Signature, u64, bool)>,
     /// MC records `(slot, record)` not yet taken by the conquest duty.
     pub cq_logs: Vec<(u64, fclient::conquest::CqLog)>,
+    /// MC records dropped because the queue was full (a long catch-up).
+    pub cq_dropped: u64,
 }
 
 fn fld<'a>(r: &plog::Record<'a>, name: &str) -> Option<&'a [u8]> {
@@ -172,6 +174,8 @@ impl PlayIndex {
                     }
                     if self.cq_logs.len() < 100_000 {
                         self.cq_logs.push((slot, log));
+                    } else {
+                        self.cq_dropped += 1;
                     }
                 }
                 None => self.bad += 1,
