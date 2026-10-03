@@ -424,6 +424,24 @@ The exit season `m1-exit` ran on `1e5701b` (= `codex/frontier`; code of `629d007
 | V1 | **The game is renamed "Wylls".** Every visible name changes: screens, titles, i18n, docs, README, package descriptions, agent prompts, and the GitHub repo (`r0ze998/permutation-state` → `r0ze998/wylls`). The title is just "Wylls": "The Sixfold Frontier" / 「六重の辺境」 are no longer names. The central building is "the Engine" / 「エンジン」. Kept unchanged: hash and signature domains, seeds, magics, the V5 wallet sign-in text in `session.mjs`, and file, folder, crate and package names. The new game's wallet sign-in text is now "Wylls wants you to create an in-game key." (new seasons). | owner | main session; commits `5c111f4` (main), `fd3f01a` (codex/magicblock-playable), `2c0462f` (codex/frontier), pushed 2026-10-02 |
 | V2 | **Joining = choose one of the six nations, nothing else.** The first village is placed automatically. The client picks up to three free sites in the nation's home wedge (nearest open ring first) and files the site ticket itself. The program, the ticket cohorts and the fair lottery are unchanged. The village appears at the next bell (about 11–21 minutes), as before. The site picker leaves onboarding. Supersedes the "choose where to live" step of DESIGN §6 step 4 and SUMMARY.ja §3 step 3 for the player-facing flow. | owner (UI work: the design chat's files `onboarding.mjs`, `screens/**`, `controller.mjs`) | main session; DESIGN rev 3.2 note |
 
+## W. Owner approval of "rules and AI citizens" (main session, 2026-10-03)
+
+On 2026-10-03 the owner approved the document `ai-citizens/RULES-AND-AI-CITIZENS.ja.md`: the rules explained, the gaps with the owner's concept, and the AI-citizen design. Its §5 recommendations are adopted as written.
+
+| # | Decision | Status |
+|---|---|---|
+| W1 | **One game: the new Wylls.** The old game (`codex/magicblock-playable`) is kept as the prototype; its devnet record is presented honestly as "the earlier prototype". The old game's Claude rewording of hidden AI members' replies (`permutation-gateway/src/advisor.mjs`) is switched off by default, because it breaks the usage policy. | owner |
+| W2 | **AI is labelled, never hidden.** "Same rules and rights as humans, shown as AI." EU AI Act Art. 50 and the Anthropic usage policy require disclosure for AI that talks. | owner |
+| W3 | **Shades (hidden deterministic bots) are retired and replaced by AI citizens.** The deterministic policy stays as every AI citizen's autopilot and fallback, and as the "published-policy AI" option for money seasons. Supersedes DESIGN §7's hidden-Shade fantasy and AI-AGENTS-PLAN G1/F7 for free seasons. | owner |
+| W4 | **Operator AI citizens start in seasons without money.** They join money seasons only once all of these hold: prize-ineligible, excluded from scores, equal per faction, personas dealt by public randomness, the strong-agent criterion passed, legal review done. | owner |
+| W5 | **Equal AI count per faction.** In free seasons, about 12 per faction or about 1 AI per 3 humans. | owner |
+| W6 | **Social layer before the hackathon.** Signed messages with an AI mark, pacts with breach detection, a daily faction council voting on one of three code-made targets. Off-chain first, anchored per bell. | owner |
+| W7 | **Model: local Gemma 4 26B A4B, thinking off.** No paid API. Player-owned AIs may use their own keys later. Every AI decision follows: the code offers candidates, the model chooses, the code validates, and the rule autopilot takes over on failure. | owner |
+| W8 | **Shared civilization (Engine, tech, diplomacy) is the first priority after the hackathon.** | owner |
+| W9 | **Conquest Wave 2 continues in parallel.** The doctrine band re-tune (CQI21a) is done in parallel and lands before Gate CQ2. | owner |
+| W10 | **The pitch is rebuilt around the new Wylls and AI citizens** (by the pitch session, from this document). | owner |
+| W11 | **Words: 国 / 村 (nation / village)** replace 勢力 / 拠点 (faction / holding) in player-facing text, following the owner's own words. The design session updates the glossary and the UI. | owner |
+
 ## E. Change log
 
 | Version | Date | Change |
