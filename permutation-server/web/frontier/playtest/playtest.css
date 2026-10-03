@@ -1,0 +1,29 @@
+:root { color-scheme: light; --bg: #f4f1e8; --ink: #1f2a26; --mute: #5c6862; --line: #d9d3c0; --brand: #243e38; --gold: #b8892a; --warn: #8a2f20; --ok: #1d6b4a; }
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Segoe UI", sans-serif; }
+.wrap { max-width: 36rem; margin: 0 auto; padding: 1rem 1rem 3rem; }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .5rem 0 1rem; }
+h1 { margin: 0; font-size: 1.4rem; min-width: 0; letter-spacing: .02em; color: var(--brand); }
+h2 { margin: 0 0 .5rem; font-size: 1.15rem; }
+.lang { display: flex; flex-shrink: 0; }
+.lang button { white-space: nowrap; font: inherit; font-size: .85rem; padding: .3rem .7rem; border: 1px solid var(--line); background: #fff; color: var(--ink); cursor: pointer; }
+.lang button:first-child { border-radius: 6px 0 0 6px; }
+.lang button:last-child { border-radius: 0 6px 6px 0; border-left: 0; }
+.lang button[aria-pressed="true"] { background: var(--brand); color: #fff; border-color: var(--brand); }
+.card, .box { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 1.1rem 1.1rem 1rem; margin: 0 0 1rem; }
+.card[data-tone="ok"] { border-color: var(--ok); }
+.card[data-tone="warn"] { border-color: var(--warn); }
+.card[data-tone="ok"] h2 { color: var(--ok); }
+.card[data-tone="warn"] h2 { color: var(--warn); }
+.small { font-size: .88rem; color: var(--mute); }
+.actions { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: .8rem; }
+.btn { display: inline-block; font: inherit; padding: .65rem 1.1rem; border-radius: 8px; border: 1px solid var(--brand); background: #fff; color: var(--brand); text-decoration: none; cursor: pointer; min-height: 44px; }
+.btn.primary { background: var(--brand); color: #fff; }
+.btn[hidden], [hidden] { display: none !important; }
+ul { margin: .2rem 0 0; padding-left: 1.2rem; }
+li { margin: .3rem 0; }
+textarea { width: 100%; font: .85rem/1.4 ui-monospace, Menlo, monospace; padding: .5rem; border: 1px solid var(--line); border-radius: 8px; }
+details { margin-top: .9rem; border-top: 1px solid var(--line); padding-top: .6rem; }
+summary { cursor: pointer; font-weight: 600; }
+footer { text-align: center; margin-top: 1.5rem; }

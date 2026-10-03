@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#243e38">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Wylls playtest</title>
+  <link rel="stylesheet" href="playtest.css">
+</head>
+<body>
+<main class="wrap">
+  <header class="top">
+    <h1 id="title">Wylls</h1>
+    <div class="lang" role="group" aria-label="Language">
+      <button type="button" data-lang="ja">日本語</button>
+      <button type="button" data-lang="en">English</button>
+    </div>
+  </header>
+
+  <section id="card" class="card" aria-live="polite">
+    <h2 id="card-title"></h2>
+    <p id="card-body"></p>
+    <p id="card-more" class="small" hidden></p>
+    <div class="actions">
+      <a id="go" class="btn primary" href="../index.html" hidden></a>
+      <button id="retry" type="button" class="btn" hidden></button>
+    </div>
+  </section>
+
+  <section class="box" id="about">
+    <h2 id="about-title"></h2>
+    <ul id="about-list"></ul>
+  </section>
+
+  <section class="box" id="key-box" hidden>
+    <h2 id="key-title"></h2>
+    <p id="key-body" class="small"></p>
+    <div class="actions">
+      <button id="key-save" type="button" class="btn"></button>
+      <button id="key-copy" type="button" class="btn"></button>
+    </div>
+    <details>
+      <summary id="restore-title"></summary>
+      <p id="restore-body" class="small"></p>
+      <textarea id="restore-text" rows="3" autocomplete="off" spellcheck="false"></textarea>
+      <div class="actions"><button id="restore-go" type="button" class="btn"></button></div>
+      <p id="restore-msg" class="small" role="status"></p>
+    </details>
+  </section>
+
+  <footer class="small" id="foot"></footer>
+</main>
+<script type="module" src="landing.mjs"></script>
+</body>
+</html>

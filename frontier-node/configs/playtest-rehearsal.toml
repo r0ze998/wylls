@@ -1,0 +1,44 @@
+# The playtest stack, rehearsal shape (localhost only): test-key beacon,
+# 20 bots, 1 game day at 20x, ports 41100-41139 only (PT-B). The real
+# playtest uses configs/playtest.toml (scale 1, no bots, gated season).
+#
+#   frontier-stack check-ports --config frontier-node/configs/playtest-rehearsal.toml
+#   frontier-stack up --config frontier-node/configs/playtest-rehearsal.toml
+run_id = "pt-rehearsal"
+mode = "accel"
+beacon = "test-key"
+scale = 20
+preseason_scale = 2000
+days = 1
+drain_bells = 26
+bots = 20
+bot_seed = 1
+season_id = 7
+base_port = 41100
+g0 = 1785542400
+
+[ports]
+localnet = 0
+localnet_ws = 1
+drand = 2
+relay_operator = 3
+relay_public = 6
+herald = 10
+keeper_a = 20
+keeper_b = 21
+bots = 30
+viewers = 35
+
+[chaos]
+enabled = false
+
+[adversary]
+enabled = false
+
+# The tester path: a gated season (invites), the guest-key page injected into the game page,
+# the start page as the front door, per-address limits. The secrets directory is a throw-away one.
+[playtest]
+secrets_dir = "frontier-node/.local/pt-rehearsal-secrets"
+event_log = true
+herald_args = "--inject-script frontier/index.html=/frontier/frontier/playtest/boot.mjs --landing /frontier/frontier/playtest/"
+relay_args = "--max-players 40"
