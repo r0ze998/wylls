@@ -140,7 +140,6 @@ use solana_program::{account_info::AccountInfo, pubkey::Pubkey};
 
 use frontier_abi::addr::{archive_part_of, clash_inputs_seed, day_of, split_host_id, AddrCtx};
 use frontier_abi::conquest_model as cq;
-use frontier_abi::entry::{read_entry, write_entry, Entry};
 use frontier_abi::ix as aix;
 use frontier_abi::layout::AccountKind;
 use frontier_abi::log::{close_key, pack_fates, EntityKind, Kind, NO_BELL};
@@ -1892,170 +1891,10 @@ pub fn close_arrival_slot(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     Ok(())
 }
 
-// ------------------------------------------------------------ the return settle
-
-/// SettleDeparture(`transit_slot = 0xFF`), the return settle (§21):
-/// `[payer s] [season] [province w] [holding w]` (the Holding that issued
-/// the hosts, canonical, possibly absent). Every state-3 `Leave` entry of
-/// that Holding in the Province is freed (at most [`RETURN_MAX`] per
-/// transaction, in entry order); its whole troops return to
-/// `reserve[unit]` when the Holding is live with the host's generation,
-/// else they are lost. `AlreadyDone` when there is nothing to return.
-pub fn settle_return(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
-    let [_payer, season_ai, province, holding] = a else {
-        return Err(FrontierError::TooManyAccounts.into());
-    };
-    let now = prologue::now()?;
-    let hdr = prologue::season(
-        season_ai,
-        p,
-        Some(&crate::RULESET_HASH),
-        &CLASH_STATUS,
-        now.ts,
-    )?;
-    let sid = hdr.id;
-    let ctx = crate::addr::ctx(&key(season_ai), &p.to_bytes());
-    let (_, _, _, v2) = province_of(p, &ctx, sid, province)?;
-    if !v2 {
-        conquest_params(season_ai, false)?;
-    }
-    // The holding's (P, Q, site) and live generation, if present.
-    let (live, hpqs) = if prologue::presence(holding, p, AccountKind::Holding, sid)? {
-        let hd = holding.try_borrow_data()?;
-        let r = Ro(&hd);
-        let (hp, hq, site) = (r.i16(H::P)?, r.i16(H::Q)?, r.u8(H::SITE)?);
-        expect_key(holding, &ctx.holding(hp as i32, hq as i32, site))?;
-        let st = r.u8(H::STATE)?;
-        let gen = r.u8(H::GEN)?;
-        let live = matches!(st, H::STATE_PROVISIONAL | H::STATE_FINAL).then_some(gen);
-        (live, Some((hp as i32, hq as i32, site)))
-    } else {
-        (None, None)
-    };
-    let bell_log = hdr.bell(now.ts).unwrap_or(NO_BELL);
-    let hkey = key(holding);
-    // Selection (wave-5 review, G1): one read-only pass over the raw entry
-    // bytes (state, pending op, host id) picks the first RETURN_MAX Leave
-    // entries of this Holding in entry order; only those are decoded. A
-    // host id's issuing Holding is its (province index, site) bits, so a
-    // live Holding matches by comparing them; with the Holding absent the
-    // owner is matched by address, derived once per run of one foreign
-    // (P, Q, site) and never again once this Holding's own bits are known.
-    use permutation_rules::frontier::addr::{HOST_GEN_SHIFT, HOST_SITE_SHIFT};
-    let mut picked = [(0usize, 0u8); RETURN_MAX];
-    let mut n_picked = 0usize;
-    {
-        use crate::layout::entry as EL;
-        let pd = province.try_borrow_data()?;
-        let r = Ro(&pd);
-        let mut own = match hpqs {
-            Some((hp, hq, site)) => Some(
-                frontier_abi::addr::host_id(hp, hq, site, 0, 0).ok_or(BAD_ACCOUNT)?
-                    >> HOST_SITE_SHIFT,
-            ),
-            None => None,
-        };
-        let mut foreign: Option<u64> = None;
-        for i in 0..P::ENTRIES_N {
-            let o = P::entry(i);
-            if r.u8(o + EL::STATE)? != EL::STATE_DEPARTED || r.u8(o + EL::PEND_OP)? != EL::OP_LEAVE
-            {
-                continue;
-            }
-            let id = r.u64(o + EL::ID)?;
-            let home = id >> HOST_SITE_SHIFT;
-            let mine = match own {
-                Some(h) => h == home,
-                None if foreign == Some(home) => false,
-                None => {
-                    let t = split_host_id(id).ok_or(BAD_ACCOUNT)?;
-                    if ctx.holding(t.province.p, t.province.q, t.site) == hkey {
-                        own = Some(home);
-                        true
-                    } else {
-                        foreign = Some(home);
-                        false
-                    }
-                }
-            };
-            if mine {
-                picked[n_picked] = (i, (id >> HOST_GEN_SHIFT) as u8);
-                n_picked += 1;
-                if n_picked == RETURN_MAX {
-                    break;
-                }
-            }
-        }
-    }
-    let mut returned = 0usize;
-    for &(i, gen) in &picked[..n_picked] {
-        let e = {
-            let pd = province.try_borrow_data()?;
-            read_entry(&pd, i).map_err(|_| BAD_ACCOUNT)?
-        };
-        let credit = live == Some(gen);
-        {
-            let mut pd = province.try_borrow_mut_data()?;
-            write_entry(&mut pd, i, &Entry::FREE).map_err(|_| BAD_ACCOUNT)?;
-            let mut w = Rw(&mut pd);
-            let n = w.u8(P::N_ENTRIES)?.saturating_sub(1);
-            w.set_u8(P::N_ENTRIES, n)?;
-        }
-        let key8 = e.id.to_le_bytes();
-        if credit {
-            let whole = e.troops / permutation_rules::fixed::MILLI as u32;
-            {
-                let mut hd = holding.try_borrow_mut_data()?;
-                let mut w = Rw(&mut hd);
-                let o = H::reserve(e.unit as usize);
-                let v = w.u32(o)?.checked_add(whole).ok_or(OVERFLOW)?;
-                w.set_u32(o, v)?;
-            }
-            let payload = Buf::<7>::new()
-                .u32(whole.saturating_mul(permutation_rules::fixed::MILLI as u32))
-                .u16(0)
-                .u8(RETURNED);
-            let mut hd = holding.try_borrow_mut_data()?;
-            let mut pd = province.try_borrow_mut_data()?;
-            events::emit(
-                Kind::DEPARTURE_SETTLED,
-                bell_log,
-                &key8,
-                payload.get()?,
-                &mut [
-                    Chained {
-                        entity: EntityKind::Holding,
-                        data: &mut hd,
-                    },
-                    Chained {
-                        entity: EntityKind::Province,
-                        data: &mut pd,
-                    },
-                ],
-            )?;
-        } else {
-            let mut pd = province.try_borrow_mut_data()?;
-            events::emit(
-                Kind::STRANDED,
-                bell_log,
-                &key8,
-                &e.troops.to_le_bytes(),
-                &mut [Chained {
-                    entity: EntityKind::Province,
-                    data: &mut pd,
-                }],
-            )?;
-        }
-        returned += 1;
-        if returned >= RETURN_MAX {
-            break;
-        }
-    }
-    if returned == 0 {
-        return Err(FrontierError::AlreadyDone.into());
-    }
-    Ok(())
-}
+// The return settle (SettleDeparture `transit_slot = 0xFF`) lives in
+// `proc/host.rs::settle_return` (MC: it binds a previous-generation Leave to
+// its home Holding); the dead M1 copy that stood here was deleted at the
+// Wave-2 merge (CQ2-C R-C4). `RETURN_SLOT` and `RETURN_MAX` stay here.
 
 #[cfg(test)]
 mod tests {
@@ -2063,7 +1902,7 @@ mod tests {
     use super::*;
     use crate::layout::{camp as CP, entry as E, site as SM};
     use frontier_abi::addr::{holding_key_of_host, host_id};
-    use frontier_abi::entry::EntryOp;
+    use frontier_abi::entry::{read_entry, write_entry, Entry, EntryOp};
     use permutation_rules::frontier::clash::{is_quiet, resolve_clash, Occupancy};
     use permutation_rules::frontier::host::Host;
     use permutation_rules::units::UnitType;
