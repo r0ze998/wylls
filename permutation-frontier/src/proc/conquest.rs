@@ -1,11 +1,12 @@
 //! The conquest instructions (MC contract §5.5): DeclareSiege (0xA0),
 //! SettleSiege (0xA1), SettleCapture (0xA2), FoldMarch (0xA5), RetireHost
 //! (0xA6), CloseMarch (0xA7). Implemented by CQ2-C. FileOutpost (0xA3) is
-//! CQ2-A's (its stub stays here until CQ2-A's dispatch lands).
+//! CQ2-A's (`proc/citizen.rs`).
 //!
 //! Every new instruction is an ABI v2 instruction: its account list is
-//! `frontier_abi::v2::prologue::accounts_of`, its Season carries
-//! `RULESET_HASH_V2` (an M1 season is `RulesetMismatch`), and every
+//! `frontier_abi::v2::prologue::accounts_of`, its Season carries the
+//! program's `RULESET_HASH` (`RULESET_HASH_V2` once CQ2-A's switch lands)
+//! and the conquest block (else `RulesetMismatch`), and every
 //! program account it keys is checked at its canonical address and as a
 //! v2 account (`check_present_v2`: exact size, `layout_version = 2`, R-22).
 //! The rules come from the kernels through `frontier_abi`
@@ -42,21 +43,19 @@
 
 use alloc::vec::Vec;
 
-use solana_program::{
-    account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey,
-};
+use solana_program::{account_info::AccountInfo, pubkey::Pubkey};
 
 use frontier_abi::addr::{citizen_tag, citizen_tag15, day_of, host_id, split_host_id, AddrCtx};
 use frontier_abi::conquest_model::{self as cm, Record};
 use frontier_abi::entry::read_entry;
 use frontier_abi::log::{divert_reason, NO_BELL};
-use frontier_abi::prologue::{self as ap, Acc, AccountView, PlayerCtx, SeasonHdr, Spec, Wr};
+use frontier_abi::prologue::{self as ap, PlayerCtx, SeasonHdr};
 use frontier_abi::v2::error::CqError;
 use frontier_abi::v2::ix as ix2;
 use frontier_abi::v2::kernel::siege3;
 use frontier_abi::v2::layout::AccountKind as K2;
 use frontier_abi::v2::log::{capture_outcome, retire_by, settle_reason, CqKind};
-use frontier_abi::v2::presets::{cq_layout as CQ, RULESET_HASH_V2};
+use frontier_abi::v2::presets::cq_layout as CQ;
 use frontier_abi::v2::prologue as p2;
 use frontier_abi::v2::tags::Ix as Ix2;
 use permutation_rules::fixed::MILLI;
@@ -71,9 +70,9 @@ use super::holding::{self as hold, Player};
 use crate::addr;
 use crate::error::{kernel, BAD_ACCOUNT, OVERFLOW};
 use crate::init::{self, SeasonSigner, Sink};
-use crate::layout::v2::{
-    citizen as C, conquest as CR, holding as H, join_shard as JS, march_state as MS,
-    province as P, season as S, site as SM,
+use crate::layout::{
+    citizen2 as C, holding2 as H, join_shard2 as JS, march_state as MS, province2 as P,
+    record as CR, season2 as S, site2 as SM,
 };
 use crate::layout::{entry as E, Ro, Rw};
 use crate::prologue::{self, expect_key, key, view};
@@ -84,9 +83,9 @@ use frontier_abi::v2::log::EntityKind as E2;
 
 // ------------------------------------------------------------ codes
 
-/// An MC error code (62–78) as the program's error (`Custom(code)`).
+/// An MC error code (62–78) as the program's error (`Error::Cq`, CQ2-A).
 pub fn cq(e: CqError) -> crate::Error {
-    crate::Error::Program(ProgramError::Custom(e.code()))
+    crate::Error::Cq(e)
 }
 
 /// `Kernel` (15) sub-codes of the conquest instructions.
@@ -103,108 +102,14 @@ pub mod sub {
 
 // ------------------------------------------------------------ account lists
 
-const NO_SPEC: Spec = Spec {
-    name: "",
-    acc: Acc::Any,
-    signer: false,
-    wr: Wr::R,
-};
-
-/// `check_accounts` over the ABI v2 table (`frontier_abi::v2::prologue`):
-/// the exact count (`TooManyAccounts`), signatures (`Auth`), writability
-/// and fixed program ids (`BadAccount`). `counts` gives every group's
-/// repeat count; `None` derives it from the length (one varying group at
-/// most).
+/// `prologue::check_accounts` over the ABI v2 table (CQ2-A's `IxTable`).
 pub fn check_accounts_v2(ix: Ix2, a: &[AccountInfo], counts: Option<&[u8]>) -> R<()> {
-    let groups = p2::accounts_of(ix);
-    let mut c = [0u8; 8];
-    if groups.len() > c.len() {
-        return Err(FrontierError::TooManyAccounts.into());
-    }
-    match counts {
-        Some(given) => {
-            if given.len() != groups.len() {
-                return Err(FrontierError::TooManyAccounts.into());
-            }
-            c[..given.len()].copy_from_slice(given);
-        }
-        None => {
-            let fixed: usize = groups.iter().map(|g| g.specs.len() * g.min as usize).sum();
-            for (i, g) in groups.iter().enumerate() {
-                c[i] = g.min;
-            }
-            let varying: Vec<usize> = (0..groups.len())
-                .filter(|&i| groups[i].min != groups[i].max)
-                .collect();
-            let extra = a
-                .len()
-                .checked_sub(fixed)
-                .ok_or(FrontierError::TooManyAccounts)?;
-            match varying.as_slice() {
-                [] if extra == 0 => {}
-                [i] => {
-                    let w = groups[*i].specs.len();
-                    if extra % w != 0 {
-                        return Err(FrontierError::TooManyAccounts.into());
-                    }
-                    let k = groups[*i].min as usize + extra / w;
-                    if k > groups[*i].max as usize {
-                        return Err(FrontierError::TooManyAccounts.into());
-                    }
-                    c[*i] = k as u8;
-                }
-                _ => return Err(FrontierError::TooManyAccounts.into()),
-            }
-        }
-    }
-    let (_, hi) = p2::count_bounds(ix);
-    if a.len() > hi {
-        return Err(FrontierError::TooManyAccounts.into());
-    }
-    let mut specs = alloc::vec![NO_SPEC; hi];
-    let mut n = 0usize;
-    for (g, &k) in groups.iter().zip(&c[..groups.len()]) {
-        if k < g.min || k > g.max {
-            return Err(FrontierError::TooManyAccounts.into());
-        }
-        for _ in 0..k {
-            for sp in g.specs {
-                *specs.get_mut(n).ok_or(FrontierError::TooManyAccounts)? = *sp;
-                n += 1;
-            }
-        }
-    }
-    if n != a.len() {
-        return Err(FrontierError::TooManyAccounts.into());
-    }
-    let views: Vec<AccountView> = a.iter().map(|x| view(x, &[])).collect();
-    ap::check_flags(&specs[..n], &views)?;
-    Ok(())
+    prologue::check_accounts(ix, a, counts)
 }
 
 // ------------------------------------------------------------ v2 accounts
 
-/// Present as a v2 account of `kind` (owner, exact size, magic, season,
-/// `layout_version = 2`) → `true`; absent → `false`; anything else
-/// `BadAccount`. The caller checks the address.
-pub fn presence_v2(ai: &AccountInfo, p: &Pubkey, kind: K2, sid: u64) -> R<bool> {
-    let d = ai.try_borrow_data()?;
-    let v = view(ai, &d);
-    if ap::is_absent(&v) {
-        return Ok(false);
-    }
-    p2::check_present_v2(&v, p.as_array(), kind, sid)?;
-    Ok(true)
-}
-
-/// Present as a v2 account of `kind`, else `BadAccount`.
-pub fn present_v2(ai: &AccountInfo, p: &Pubkey, kind: K2, sid: u64) -> R<()> {
-    if presence_v2(ai, p, kind, sid)? {
-        Ok(())
-    } else {
-        Err(BAD_ACCOUNT)
-    }
-}
+pub use crate::prologue::{presence_v2, present_v2};
 
 /// Absent (System-owned, no data), else `BadAccount`.
 pub fn absent(ai: &AccountInfo) -> R<()> {
@@ -215,33 +120,31 @@ pub fn absent(ai: &AccountInfo) -> R<()> {
     }
 }
 
-/// The Season of an MC instruction: canonical PDA, effective status in
-/// `allowed` (`WrongStatus`), `RULESET_HASH_V2` (`RulesetMismatch`).
-pub fn season_v2(ai: &AccountInfo, p: &Pubkey, allowed: &[u8], now: i64) -> R<SeasonHdr> {
-    prologue::season(ai, p, Some(&RULESET_HASH_V2), allowed, now)
+/// Whether a Season's data carries the MC conquest block
+/// (`conquest_version = 1`, §5.2.5). CreateSeason v2 (CQ2-A) writes and
+/// validates it; an M1 Season has zeros there.
+pub fn is_mc_season(season: &[u8]) -> R<bool> {
+    Ok(Ro(season).u8(S::CONQUEST_PARAMS + CQ::CONQUEST_VERSION)?
+        == frontier_abi::v2::presets::CONQUEST_VERSION)
 }
 
-/// The ruleset a Season must carry for an M1-tagged instruction that MC
-/// changed in this unit's files (`host.rs`, `transit.rs`): an MC season
-/// (`program_version = 2`) carries `RULESET_HASH_V2`, any other the
-/// program's `RULESET_HASH`. Once CQ2-A makes the program's
-/// `RULESET_HASH` the v2 one, an M1 season is refused here too
-/// (`RulesetMismatch`), as §5.1 requires; until then the M1 suite keeps
-/// running on this branch (D-8).
-pub fn ruleset_of(season: &AccountInfo) -> R<[u8; 32]> {
-    let d = season.try_borrow_data()?;
-    let v = Ro(&d).u16(S::PROGRAM_VERSION)?;
-    Ok(if v == frontier_abi::v2::presets::PROGRAM_VERSION_V2 {
-        RULESET_HASH_V2
-    } else {
-        crate::RULESET_HASH
-    })
+/// The Season of an MC instruction: canonical PDA, effective status in
+/// `allowed` (`WrongStatus`), the program's `RULESET_HASH` (CQ2-A makes it
+/// `RULESET_HASH_V2`, A-28; `RulesetMismatch`), and the conquest block
+/// (a Season without one is `RulesetMismatch`: no MC rules to apply).
+pub fn season_v2(ai: &AccountInfo, p: &Pubkey, allowed: &[u8], now: i64) -> R<SeasonHdr> {
+    let hdr = prologue::season(ai, p, Some(&crate::RULESET_HASH), allowed, now)?;
+    let sd = ai.try_borrow_data()?;
+    if !is_mc_season(&sd)? {
+        return Err(FrontierError::RulesetMismatch.into());
+    }
+    Ok(hdr)
 }
 
 /// `retire_hosts` of a Season: the conquest block's for an MC season, 0
 /// (no RetireHost: M1's DisbandStranded rule) otherwise.
 pub fn retire_hosts_of(season: &[u8]) -> R<u8> {
-    if Ro(season).u16(S::PROGRAM_VERSION)? == frontier_abi::v2::presets::PROGRAM_VERSION_V2 {
+    if is_mc_season(season)? {
         cq_u8(season, CQ::RETIRE_HOSTS)
     } else {
         Ok(0)
@@ -262,6 +165,18 @@ pub fn capture_lock(pd: &[u8], site: u8, gen: u8) -> R<()> {
     let s = site as usize;
     if m8(pd, s, SM::STATE)? == SM::STATE_HOLDING && m8(pd, s, SM::GEN)? == gen.wrapping_add(1) {
         return Err(cq(CqError::CapturePending));
+    }
+    Ok(())
+}
+
+/// [`capture_lock`] for a settle that reads the Holding's data `hd`
+/// itself: only a live Holding (provisional or final) can be capture-locked;
+/// a released one keeps M1's settles (its site may be re-founded at the
+/// next generation by anyone, which is no capture).
+pub fn capture_lock_of(pd: &[u8], hd: &[u8]) -> R<()> {
+    let r = Ro(hd);
+    if matches!(r.u8(H::STATE)?, H::STATE_PROVISIONAL | H::STATE_FINAL) {
+        capture_lock(pd, r.u8(H::SITE)?, r.u8(H::GEN)?)?;
     }
     Ok(())
 }
@@ -294,7 +209,10 @@ pub(crate) fn player_v2(p: &Pubkey, a: &[AccountInfo]) -> R<Player> {
         }
         let cd = citizen.try_borrow_data()?;
         let views = [view(actor, &[]), view(payer, &[]), sv, view(citizen, &cd)];
-        let st = ap::player_prologue(&views, p.as_array(), &RULESET_HASH_V2, now.ts, true)?;
+        let st = ap::player_prologue(&views, p.as_array(), &crate::RULESET_HASH, now.ts, true)?;
+        if !is_mc_season(views[2].data)? {
+            return Err(FrontierError::RulesetMismatch.into());
+        }
         p2::check_present_v2(&views[3], p.as_array(), K2::Citizen, st.season.id)?;
         st
     };
@@ -384,7 +302,11 @@ pub fn vigil_snapshot(citizen: &[u8]) -> R<(u16, u16, u16)> {
     } else {
         0
     };
-    Ok((r.u16(C::VIGIL_START_MIN)?, r.u16(C::VIGIL_NEXT_MIN)?, from_day))
+    Ok((
+        r.u16(C::VIGIL_START_MIN)?,
+        r.u16(C::VIGIL_NEXT_MIN)?,
+        from_day,
+    ))
 }
 
 /// Whether Holding `hd` is dormant at `now` under the season's
@@ -484,7 +406,13 @@ pub mod cqlog {
     }
 
     /// `body_without_tail` of kind `kind` (widths from [`WIDTHS`]).
-    pub fn write_body(kind: u8, bell: u32, key: &[u8], payload: &[u8], out: &mut [u8]) -> Option<usize> {
+    pub fn write_body(
+        kind: u8,
+        bell: u32,
+        key: &[u8],
+        payload: &[u8],
+        out: &mut [u8],
+    ) -> Option<usize> {
         let (defined, kw, pw) = *WIDTHS.get(kind as usize)?;
         if !defined || key.len() != kw as usize || payload.len() != pw as usize {
             return None;
@@ -725,7 +653,13 @@ pub fn declare_siege(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             let od = owner_c.try_borrow_data()?;
             vigil_snapshot(&od)?
         };
-        Some((citizen_tag(owner_c.key.as_array()), vig, shield, founded, dorm))
+        Some((
+            citizen_tag(owner_c.key.as_array()),
+            vig,
+            shield,
+            founded,
+            dorm,
+        ))
     };
 
     // Resident: the target Province resolved through now_bell − 2.
@@ -977,11 +911,7 @@ type SettlePlan = (Option<StakeOwed>, Option<(u8, u64)>, Record);
 /// What SettleSiege does for a record at `ended` (§5.5 0xA1): the stake
 /// owed (if any), the slot owed back `(slot, actor)` (if any) and the
 /// record after.
-fn settle_plan(
-    r: &Record,
-    pqs_site: (i16, i16, u8),
-    ended: bool,
-) -> R<SettlePlan> {
+fn settle_plan(r: &Record, pqs_site: (i16, i16, u8), ended: bool) -> R<SettlePlan> {
     let (sp, sq, site) = pqs_site;
     let mut stake = None;
     let mut slot = None;
@@ -1117,7 +1047,11 @@ pub fn settle_siege(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             let (slots, escrow, funder_key) = {
                 let cd = slot_citizen.try_borrow_data()?;
                 let r = Ro(&cd);
-                (r.u8(C::SLOTS)?, r.u64(C::TICKET_ESCROW)?, r.arr::<32>(C::TICKET_FUNDER)?)
+                (
+                    r.u8(C::SLOTS)?,
+                    r.u64(C::TICKET_ESCROW)?,
+                    r.arr::<32>(C::TICKET_FUNDER)?,
+                )
             };
             expect_key(funder, &funder_key)?;
             let refund = init::rent(H::SIZE)?.min(escrow);
@@ -1277,7 +1211,11 @@ pub fn settle_capture(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let (cslots, cescrow, cfunder) = {
         let cd = captor_c.try_borrow_data()?;
         let r = Ro(&cd);
-        (r.u8(C::SLOTS)?, r.u64(C::TICKET_ESCROW)?, r.arr::<32>(C::TICKET_FUNDER)?)
+        (
+            r.u8(C::SLOTS)?,
+            r.u64(C::TICKET_ESCROW)?,
+            r.arr::<32>(C::TICKET_FUNDER)?,
+        )
     };
     if cslots & C::reserved_bit(slot) == 0 {
         return Err(kernel(sub::CAPTURE_RULE));
@@ -1305,7 +1243,16 @@ pub fn settle_capture(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         // The Holding from the reservation's rent (init_funded).
         let signer = SeasonSigner::new(hdr.id, hdr.bump);
         let seed = frontier_abi::addr::holding_seed(pp as i32, pq as i32, x.site);
-        rent_moved = init::init_funded(captor_c, holding, season_ai, &signer, &seed, H::SIZE, p, rent)?;
+        rent_moved = init::init_funded(
+            captor_c,
+            holding,
+            season_ai,
+            &signer,
+            &seed,
+            H::SIZE,
+            p,
+            rent,
+        )?;
         let tier = holding_tier(mtier)?;
         let day = day_of(hdr.bell(now.ts).unwrap_or(0));
         let mut h = KHolding::found(now.ts, day, slot);
@@ -1397,7 +1344,10 @@ pub fn settle_capture(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
                     o + crate::layout::transit::FLAGS,
                     fl & !crate::layout::transit::FLAG_BOND_ESCROWED,
                 )?;
-                let esc = w.u64(H::ESCROW)?.checked_sub(seal_bond).ok_or(BAD_ACCOUNT)?;
+                let esc = w
+                    .u64(H::ESCROW)?
+                    .checked_sub(seal_bond)
+                    .ok_or(BAD_ACCOUNT)?;
                 w.set_u64(H::ESCROW, esc)?;
             }
             init::pay_or_divert(
@@ -1520,10 +1470,7 @@ pub fn settle_capture(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         let mut pd = province.try_borrow_mut_data()?;
         Record {
             faction: CR::BARRED_ALL,
-            bell: rec
-                .bell
-                .saturating_add(1)
-                .saturating_add(immunity as u32),
+            bell: rec.bell.saturating_add(1).saturating_add(immunity as u32),
             ..Record::ZERO
         }
         .write(&mut pd, site)?;
@@ -1667,7 +1614,16 @@ pub fn fold_march(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         let signer = SeasonSigner::new(hdr.id, hdr.bump);
         let seed = frontier_abi::v2::addr::march_seed(x.m, x.n);
         let rent = init::rent(MS::SIZE)?;
-        init::init_with_seed(fee_payer, march, season_ai, &signer, &seed, MS::SIZE, rent, p)?;
+        init::init_with_seed(
+            fee_payer,
+            march,
+            season_ai,
+            &signer,
+            &seed,
+            MS::SIZE,
+            rent,
+            p,
+        )?;
         let mut md = march.try_borrow_mut_data()?;
         if !frontier_abi::v2::layout::write_header(&mut md, K2::MarchState, sid) {
             return Err(BAD_ACCOUNT);
@@ -1822,8 +1778,8 @@ pub fn retire_host(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             return Err(FrontierError::NotOwner.into());
         }
         let o = P::entry(x.entry as usize);
-        let departed_leave = e.state == E::STATE_DEPARTED
-            && matches!(e.op, frontier_abi::entry::EntryOp::Leave);
+        let departed_leave =
+            e.state == E::STATE_DEPARTED && matches!(e.op, frontier_abi::entry::EntryOp::Leave);
         let mut w = Rw(&mut pd);
         if departed_leave {
             // D-6: a Leave already out of the roster, waiting for its
@@ -1937,14 +1893,6 @@ pub fn close_march(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     Ok(())
 }
 
-// ------------------------------------------------------------ FileOutpost
-
-/// 0xA3 FileOutpost: CQ2-A's (`proc/citizen.rs` on its branch); this stub
-/// stays until CQ2-A's dispatch replaces it at the merge.
-pub fn file_outpost(_p: &Pubkey, _a: &[AccountInfo], _d: &[u8]) -> R<()> {
-    Err(FrontierError::NotImplemented.into())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1972,7 +1920,11 @@ mod tests {
     #[test]
     fn records_decode_through_the_v2_decoder() {
         let mut march = alloc::vec![0u8; MS::SIZE];
-        assert!(frontier_abi::v2::layout::write_header(&mut march, K2::MarchState, 3));
+        assert!(frontier_abi::v2::layout::write_header(
+            &mut march,
+            K2::MarchState,
+            3
+        ));
         let mut out = [0u8; cqlog::MAX_RECORD];
         let n = cqlog::record(
             CqKind::MARCH_FOLD as u8,
@@ -2050,9 +2002,12 @@ mod tests {
     fn mirror_walls_count_effective_items() {
         let mut pd = alloc::vec![0u8; P::SIZE];
         let o = P::site(2);
-        pd[o + SM::WALLS_COMMITTED..o + SM::WALLS_COMMITTED + 4].copy_from_slice(&100u32.to_le_bytes());
-        pd[o + SM::WALL_ITEM0_BELL..o + SM::WALL_ITEM0_BELL + 4].copy_from_slice(&10u32.to_le_bytes());
-        pd[o + SM::WALL_ITEM0_DELTA..o + SM::WALL_ITEM0_DELTA + 4].copy_from_slice(&50u32.to_le_bytes());
+        pd[o + SM::WALLS_COMMITTED..o + SM::WALLS_COMMITTED + 4]
+            .copy_from_slice(&100u32.to_le_bytes());
+        pd[o + SM::WALL_ITEM0_BELL..o + SM::WALL_ITEM0_BELL + 4]
+            .copy_from_slice(&10u32.to_le_bytes());
+        pd[o + SM::WALL_ITEM0_DELTA..o + SM::WALL_ITEM0_DELTA + 4]
+            .copy_from_slice(&50u32.to_le_bytes());
         assert_eq!(mirror_walls_at(&pd, 2, 9).unwrap(), 100);
         assert_eq!(mirror_walls_at(&pd, 2, 10).unwrap(), 150);
         assert_eq!(siege::required_bells(150, 0), 39);

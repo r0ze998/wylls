@@ -59,15 +59,15 @@ use crate::addr;
 use crate::error::{kernel, BAD_ACCOUNT, OVERFLOW};
 use crate::events::{self, Buf, Chained};
 use crate::init;
+use crate::layout::holding2 as H2;
 use crate::layout::{
     citizen as C, entry as E, holding as H, province as P, season as S, site as SM, transit as T,
     Ro, Rw,
 };
 use crate::prologue::{self, check_accounts, expect_key, key};
-use crate::layout::v2::holding as H2;
-use crate::{FrontierError, R};
+use crate::{FrontierError, R, RULESET_HASH};
 
-use super::conquest::{capture_lock, retire_hosts_of, ruleset_of};
+use super::conquest::{capture_lock, capture_lock_of, retire_hosts_of};
 
 /// The capture lock (§5.8) of a resident action that names the Holding's
 /// own Province.
@@ -495,11 +495,10 @@ pub fn disband_stranded(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let [_any, season_ai, province, holding] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
-    let rs = ruleset_of(season_ai)?;
     let hdr = prologue::season(
         season_ai,
         p,
-        Some(&rs),
+        Some(&RULESET_HASH),
         &[S::STATUS_RUNNING, S::STATUS_ENDED],
         now.ts,
     )?;
@@ -767,11 +766,10 @@ pub fn settle_departure(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let [_payer, season_ai, province, holding] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
-    let rs = ruleset_of(season_ai)?;
     let hdr = prologue::season(
         season_ai,
         p,
-        Some(&rs),
+        Some(&RULESET_HASH),
         &[S::STATUS_RUNNING, S::STATUS_ENDED],
         now.ts,
     )?;
@@ -808,7 +806,8 @@ pub fn settle_departure(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     // (checkable when the origin is the Holding's own Province, D-1).
     if (op, oq) == (own.0, own.1) {
         let pd = province.try_borrow_data()?;
-        capture_lock(&pd, own.2, own.3)?;
+        let hd = holding.try_borrow_data()?;
+        capture_lock_of(&pd, &hd)?;
     }
     let (rn, index, e) = {
         let pd = province.try_borrow_data()?;
@@ -954,11 +953,10 @@ pub fn settle_return(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
         return Err(FrontierError::TooManyAccounts.into());
     };
     let now = prologue::now()?;
-    let rs = ruleset_of(season_ai)?;
     let hdr = prologue::season(
         season_ai,
         p,
-        Some(&rs),
+        Some(&RULESET_HASH),
         &[S::STATUS_RUNNING, S::STATUS_ENDED],
         now.ts,
     )?;
@@ -984,12 +982,14 @@ pub fn settle_return(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
         let gen = r.u8(H::GEN)?;
         let live = matches!(r.u8(H::STATE)?, H::STATE_PROVISIONAL | H::STATE_FINAL).then_some(gen);
         let captured = r.u8(H2::CAPTURE_FLAGS)? & H2::CAPTURE_FLAG_CAPTURED != 0;
-        let waiting = (captured && retire_hosts == 1 && live.is_some()).then_some(r.u8(H2::PREV_GEN)?);
+        let waiting =
+            (captured && retire_hosts == 1 && live.is_some()).then_some(r.u8(H2::PREV_GEN)?);
         if (hp, hq) == (pp, pq) && live.is_some() {
             let pd = province.try_borrow_data()?;
             capture_lock(&pd, site, gen)?;
         }
-        let ident = frontier_abi::addr::host_id(hp as i32, hq as i32, site, 0, 0).ok_or(BAD_ACCOUNT)?
+        let ident = frontier_abi::addr::host_id(hp as i32, hq as i32, site, 0, 0)
+            .ok_or(BAD_ACCOUNT)?
             >> HOST_SITE_SHIFT;
         (live, waiting, Some(ident))
     } else {

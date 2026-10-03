@@ -132,15 +132,15 @@ use crate::crypto::{seal, sys};
 use crate::error::{crypto, BAD_ACCOUNT, OVERFLOW};
 use crate::events::{self, Buf, Chained};
 use crate::init::{self, Paid, Sink};
+use crate::layout::holding2 as H2;
 use crate::layout::{
     arrival as AR, arrival_slot as AS, clash_inputs as CI, defence_claim as DCL, entry as E,
     holding as H, province as P, season as S, transit as T, Ro, Rw,
 };
 use crate::prologue::{self, check_accounts, expect_key, key};
-use crate::layout::v2::holding as H2;
-use crate::{FrontierError, R};
+use crate::{FrontierError, R, RULESET_HASH};
 
-use super::conquest::{capture_lock, check_accounts_v2, ruleset_of};
+use super::conquest::{capture_lock_of, check_accounts_v2};
 use frontier_abi::v2::tags::Ix as Ix2;
 
 /// Seconds after the reveal close before a transit may settle (§5.1).
@@ -586,7 +586,9 @@ pub fn settle_transit(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     // camp Citizen (0–1), `prev_home_holding` (0–1, mandatory exactly on
     // the previous-generation path). 14 accounts are the Citizen on the
     // ordinary path and `prev_home` on the previous-generation path.
-    let prev_path = a.get(2).is_some_and(|h| prev_gen_transit(h, x.transit_slot));
+    let prev_path = a
+        .get(2)
+        .is_some_and(|h| prev_gen_transit(h, x.transit_slot));
     let counts: [u8; 3] = match (a.len(), prev_path) {
         (13, _) => [1, 0, 0],
         (14, false) => [1, 1, 0],
@@ -603,8 +605,7 @@ pub fn settle_transit(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     };
     let camp_citizen = (counts[1] == 1).then(|| &tail[0]);
     let prev_home_ai = (counts[2] == 1).then(|| &tail[tail.len() - 1]);
-    let rs = ruleset_of(season_ai)?;
-    let hdr = prologue::season(season_ai, p, Some(&rs), &LIVE, now.ts)?;
+    let hdr = prologue::season(season_ai, p, Some(&RULESET_HASH), &LIVE, now.ts)?;
     let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
     let now_bell = hdr.bell(now.ts).ok_or(FrontierError::WrongStatus)?;
     let sv = season_vals(season_ai)?;
@@ -653,7 +654,8 @@ pub fn settle_transit(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         && prologue::presence(home, p, AccountKind::Province, hdr.id)?
     {
         let pd = home.try_borrow_data()?;
-        capture_lock(&pd, site, gen)?;
+        let hd = holding.try_borrow_data()?;
+        capture_lock_of(&pd, &hd)?;
     }
     let arrive = t.arrive_bell;
 
@@ -1181,8 +1183,7 @@ pub fn sweep_pool_owed(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let [_any, season_ai, holding, dpool] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
-    let rs = ruleset_of(season_ai)?;
-    let hdr = prologue::season(season_ai, p, Some(&rs), &LIVE, now.ts)?;
+    let hdr = prologue::season(season_ai, p, Some(&RULESET_HASH), &LIVE, now.ts)?;
     let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
     prologue::present(holding, p, AccountKind::Holding, hdr.id)?;
     let (hp, hq, site, owed) = {
