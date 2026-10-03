@@ -179,7 +179,7 @@ export function panelMarkup(FS) {
   // Phones and tablets (no left rail below 1100 px): the rail's holdings and to-do list, folded (closed while composing).
   if (tab === 'map' && (FS.holdings ?? []).length) {
     const n = hud.attentionItems(FS).length;
-    parts.push(html`<details class="rail-mini" ${raw(n && !FS.compose ? 'open' : '')}><summary>${n ? L`拠点と次の鐘までにやること（${fmtNum(n)}）` : L`拠点と次の鐘までにやること`}</summary>${hud.renderRail(FS)}</details>`);
+    parts.push(html`<details class="rail-mini" ${raw(n && !FS.compose ? 'open' : '')}><summary>${n ? L`村と次の鐘までにやること（${fmtNum(n)}）` : L`村と次の鐘までにやること`}</summary>${hud.renderRail(FS)}</details>`);
   }
   // The selection first on the map tab (the player just chose it), then the guide.
   if (tab === 'map' && FS.selected) parts.push(inspect.render(FS, terrainRef, mapRef?.art?.activities ?? null));
@@ -246,7 +246,7 @@ function renderPlay() {
   if (body) keepState(body, () => setHtml(body, panelMarkup(FS)), same ? $('panel') : null);
   const title = $('panel-title');
   const sub = FS.practice ? L`練習モード` : FS.report ? L`衝突の報告` : null;
-  if (title) setText('panel-title', sub ?? { map: L`地図`, holding: L`拠点`, hosts: L`軍勢`, marches: L`進軍`, more: L`その他` }[FS.tab ?? 'map'] ?? L`シーズン`);
+  if (title) setText('panel-title', sub ?? { map: L`地図`, holding: L`村`, hosts: L`軍勢`, marches: L`進軍`, more: L`その他` }[FS.tab ?? 'map'] ?? L`シーズン`);
   renderRail();
   renderMinimap();
   // the header follows new data at once, not only on the next one-second tick

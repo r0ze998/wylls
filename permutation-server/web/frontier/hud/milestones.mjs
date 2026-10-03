@@ -17,8 +17,8 @@ export const BANNER_MS = 12_000;
 const nameOf = x => holdingName({ p: x.p, q: x.q, site: x.site }, x.tier ?? 0);
 
 const TEXT = {
-  'first-holding': { title: x => L`最初の拠点：${nameOf(x)}`, line: () => L`旗は立った。ここが我らの始まりの地だ。` },
-  confirmed: { title: x => L`拠点が確定：${nameOf(x)}`, line: () => L`もう誰にも奪わせはしない。この地を守り抜け。` },
+  'first-holding': { title: x => L`最初の村：${nameOf(x)}`, line: () => L`旗は立った。ここが我らの始まりの地だ。` },
+  confirmed: { title: x => L`村が確定：${nameOf(x)}`, line: () => L`もう誰にも奪わせはしない。この地を守り抜け。` },
   'first-march': { title: () => L`最初の出陣`, line: () => L`封は閉じた。行き先を知るのは我らだけだ。` },
   'first-win': { title: x => L`最初の勝利：州 ${x.p},${x.q}`, line: () => L`見事だ。辺境は勇む者の手に渡る。` },
   'tier-up': { title: x => L`${nameOf(x)}になった`, line: () => L`民が増え、壁が伸びる。次の鐘も怠るな。` },

@@ -151,7 +151,7 @@ test('feed: changes between two polls become notifications; a turned bell folds 
   feed = FEED.pushFeed(feed, items, 2000);
   assert.equal(feed.length, items.length, 'no duplicates');
   const sum = FEED.bellSummary(feed.map(x => ({ ...x, bell: 41 })), 41);
-  assert.match(sum.text, /^第41鐘のまとめ：戦い 2 · 進軍の知らせ 2 · 来襲の恐れ 1 · 完成 1 · 拠点 1$/);
+  assert.match(sum.text, /^第41鐘のまとめ：戦い 2 · 進軍の知らせ 2 · 来襲の恐れ 1 · 完成 1 · 村 1$/);
   assert.equal(FEED.bellSummary([], 41), null);
   const toasts = [FEED.renderToasts(feed, { now: 1500 })].flat(Infinity).map(String).join('');
   assert.equal((toasts.match(/class="toast /g) ?? []).length, FEED.TOAST_MAX);

@@ -600,7 +600,7 @@ function renderHeadline(sum, r) {
   const buttons = html`<div class="actions"><button type="button" class="btn primary" data-act="battle-play" data-p="${r.p}" data-q="${r.q}" data-bell="${r.bell}">▶ ${L`戦いを再生`}</button>
     <button type="button" class="btn" data-act="goto" data-p="${r.p}" data-q="${r.q}">${L`地図で見る`}</button></div>`;
   if (!sum.mine) {
-    return html`<div class="report-head report-head-watch"><p class="report-result"><strong>${sum.leader !== null ? html`${swatch(sum.leader)}${L`${factionName(sum.leader)}が戦場に残った`}` : L`${fmtNum(sum.factions)}つの陣営がぶつかった`}</strong></p>
+    return html`<div class="report-head report-head-watch"><p class="report-result"><strong>${sum.leader !== null ? html`${swatch(sum.leader)}${L`${factionName(sum.leader)}が戦場に残った`}` : L`${fmtNum(sum.factions)}つの国がぶつかった`}</strong></p>
       <p class="muted">${L`全体の損害 ${fmtNum(sum.lost)}`}</p>${sum.leader !== null ? leaderLine(sum.leader, 'watch') : ''}${buttons}</div>`;
   }
   return html`<div class="report-head report-${sum.result}"><p class="report-result"><span class="report-glyph" aria-hidden="true">${RESULT_GLYPH[sum.result]}</span><strong>${RESULT_TEXT[sum.result]()}</strong></p>

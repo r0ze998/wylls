@@ -220,20 +220,20 @@ export function whatIf(kernel, { args, outcome }, mine, { stance, retreat }) {
 // ------------------------------------------------------------------ rendering
 const SCENARIO_TEXT = {
   camp: () => L`蛮族の野営地を襲う`,
-  defend: () => L`拠点を守る（守備隊と城壁）`,
+  defend: () => L`村を守る（守備隊と城壁）`,
   stance: () => L`構えの三すくみ`,
   retreat: () => L`撤退比`,
   fairshare: () => L`マスの公平な割り当て`,
-  quota: () => L`到着枠（同じ勢力の大きい4軍）`,
+  quota: () => L`到着枠（同じ国の大きい4軍）`,
   rout: () => L`開封されない到着は敗走する`,
 };
 const SCENARIO_NOTE = {
   camp: () => L`野営地の守り手は中立です。構えと撤退比を選んで襲います。`,
-  defend: () => L`あなたの拠点に敵の2軍が到着します。守備隊は待機の構えで戦い、城壁とともに反撃します。守備隊の兵数を選べます。`,
+  defend: () => L`あなたの村に敵の2軍が到着します。守備隊は待機の構えで戦い、城壁とともに反撃します。守備隊の兵数を選べます。`,
   stance: () => L`同じ兵数の2軍が同じマスに到着します。突撃は側撃に、側撃は迎撃に、迎撃は突撃に強く、勝つ側は与える損害が2割増えます。`,
   retreat: () => L`大軍が守るマスへ到着します。撤退比を超える守り手がいれば、戦わずに損失なしで引き返します。守り手は鐘の始まりの顔ぶれで数えます。`,
-  fairshare: () => L`3つの勢力の9軍が1つのマスに来ます。1マスには6軍までで、どの勢力にも公平に枠が割り当てられます（同盟でも枠は合わせられません）。`,
-  quota: () => L`同じ勢力の6軍が同じ州と鐘に到着します。出発時の兵が多い4軍が到着枠に入り、残りは損失なしで押し戻されます。`,
+  fairshare: () => L`3つの国の9軍が1つのマスに来ます。1マスには6軍までで、どの国にも公平に枠が割り当てられます（同盟でも枠は合わせられません）。`,
+  quota: () => L`同じ国の6軍が同じ州と鐘に到着します。出発時の兵が多い4軍が到着枠に入り、残りは損失なしで押し戻されます。`,
   rout: () => L`開封されなかった到着は衝突に加わらず、精算で敗走します（兵と体力とチップの半分を失います）。チップはキーパーに開封してもらうためのものです。`,
 };
 const RETREAT_TEXT = {
@@ -299,4 +299,4 @@ function renderWhatIf(st, kernelError) {
 }
 
 /** Faction label of the viewer in practice (for the page's intro line). */
-export const youText = st => L`あなたの勢力：${factionName(st.you)} · ${UNIT_TEXT.Spearman}`;
+export const youText = st => L`あなたの国：${factionName(st.you)} · ${UNIT_TEXT.Spearman}`;

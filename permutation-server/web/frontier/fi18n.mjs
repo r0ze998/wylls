@@ -40,7 +40,7 @@ export const FATES = lazyTable({
 });
 
 /** Tiers of a holding. */
-export const TIERS = lazyTable({ 0: () => L`村`, 1: () => L`町`, 2: () => L`都市`, 3: () => L`城塞` });
+export const TIERS = lazyTable({ 0: () => L`集落`, 1: () => L`町`, 2: () => L`都市`, 3: () => L`城塞` });
 
 /** Doctrine display names (I-34: doctrine C is "Flame" in M1 UI strings). */
 export const DOCTRINE_C = () => L`炎`;
@@ -86,7 +86,7 @@ const ERROR_TEXT = {
   Insufficient: () => L`資源か残高が足りません`,
   QueueFull: () => L`建設の列がいっぱいです`,
   NoTicket: () => L`入植希望がありません`,
-  NotFinal: () => L`拠点がまだ確定していません`,
+  NotFinal: () => L`村がまだ確定していません`,
   TooManyAccounts: () => L`口座が多すぎます`,
   NotResident: () => L`この州はまだ前の鐘の決着が済んでいません`,
   ProvinceFull: () => L`この州の枠がいっぱいです`,
@@ -99,7 +99,7 @@ const ERROR_TEXT = {
   QuotaRefused: () => L`この鐘の到着枠に入れませんでした`,
   SlotMoved: () => L`到着枠が動きました。もう一度試します`,
   NeedArrivalDay: () => L`到着記録の口座が必要です`,
-  Shielded: () => L`その拠点は保護中です`,
+  Shielded: () => L`その村は保護中です`,
   DepartureUnsettled: () => L`出発の精算がまだです`,
   NotGathered: () => L`到着がまだ集められていません`,
   OutOfOrder: () => L`鐘の順番が違います`,
@@ -267,7 +267,7 @@ export const BUILDINGS = lazyTable({
 });
 /** Holding states. */
 export const HOLDING_STATES = lazyTable({
-  none: () => L`なし`, provisional: () => L`仮の拠点`, final: () => L`確定した拠点`, released: () => L`手放された`,
+  none: () => L`なし`, provisional: () => L`仮の村`, final: () => L`確定した村`, released: () => L`手放された`,
 });
 /** TRANSIT_SETTLED outcomes (flog.TRANSIT_OUTCOMES). */
 export const TRANSIT_OUTCOME_TEXT = lazyTable({

@@ -55,7 +55,7 @@ function renderWatch(FS) {
   const w = FS.watch ?? {};
   const bells = eventBells(FS.chronicle);
   return html`<section class="watch" aria-labelledby="watch-title"><h3 id="watch-title">${L`観戦の設定`}</h3>
-    <div class="choice-row" role="group" aria-label="${L`陣営で絞る`}"><span>${L`陣営で絞る`}</span>
+    <div class="choice-row" role="group" aria-label="${L`国で絞る`}"><span>${L`国で絞る`}</span>
       <button type="button" class="btn small" data-act="watch-faction" data-f="" aria-pressed="${w.faction === null || w.faction === undefined ? 'true' : 'false'}">${L`すべて`}</button>
       ${[0, 1, 2, 3, 4, 5].map(f => html`<button type="button" class="btn small" data-act="watch-faction" data-f="${f}" aria-pressed="${w.faction === f ? 'true' : 'false'}">${swatch(f)}${factionName(f)}</button>`)}</div>
     ${bells.length ? html`<div class="watch-bells" role="group" aria-label="${L`鐘の年表`}">
@@ -77,7 +77,7 @@ export function render(FS, { ownerOf = null, standings = '' } = {}) {
   return [
     html`<p class="muted">${L`ウォレットなしで地図と鐘の進み具合を見られます。`}</p>`,
     renderWatch(FS),
-    standings ? html`<details class="watch-mini"><summary>${L`勢力の順位`}</summary>${standings}</details>` : '',
+    standings ? html`<details class="watch-mini"><summary>${L`国の順位`}</summary>${standings}</details>` : '',
     html`<section aria-labelledby="watch-hl-title"><h3 id="watch-hl-title">${scope ? L`見どころ（${scope}）` : L`見どころ`}</h3>${renderHighlights(items, { go: true })}</section>`,
     FS.chain && FS.clock ? bellScreen.render(FS) : '',
     reportScreen.renderLinks(clashes, L`最近の衝突`) || html`<p class="muted">${L`まだ衝突はありません`}</p>`,

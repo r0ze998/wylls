@@ -30,7 +30,7 @@ export const TILE_FOGS = Object.freeze(['sight', 'known', 'clear']);
 export const MAP_TOOLS = Object.freeze([
   { id: 'in', glyph: '+', label: () => L`地図を拡大` },
   { id: 'out', glyph: '\u2212', label: () => L`地図を縮小` },
-  { id: 'home', glyph: '\u2302', label: () => L`自分の拠点へ移動` },
+  { id: 'home', glyph: '\u2302', label: () => L`自分の村へ移動` },
 ]);
 
 /** Zoom thresholds (screen px per world px) with hysteresis between levels. */

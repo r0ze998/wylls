@@ -30,7 +30,7 @@ export const lockedText = () => L`この軍勢は進軍の精算が済むまで�
 
 export function render(FS) {
   const rows = hostRows(FS);
-  if (!rows.length) return html`<p>${L`軍勢はいません。拠点で兵を訓練し、軍勢を編成してください。`}</p>`;
+  if (!rows.length) return html`<p>${L`軍勢はいません。村で兵を訓練し、軍勢を編成してください。`}</p>`;
   return html`<section aria-labelledby="hosts-title"><h3 id="hosts-title">${L`軍勢`}</h3><ul class="list hosts">${rows.map(r => {
     const blocks = actionBlocks('Depart', { holding: activeHolding(FS), province: r.province, nowBell: FS.nowBell ?? 0, now: FS.chain?.now() ?? 0, host: r });
     const cool = (FS.nowBell ?? 0) < r.readyBell;
