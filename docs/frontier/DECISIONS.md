@@ -435,12 +435,24 @@ On 2026-10-03 the owner approved the document `ai-citizens/RULES-AND-AI-CITIZENS
 | W3 | **Shades (hidden deterministic bots) are retired and replaced by AI citizens.** The deterministic policy stays as every AI citizen's autopilot and fallback, and as the "published-policy AI" option for money seasons. Supersedes DESIGN §7's hidden-Shade fantasy and AI-AGENTS-PLAN G1/F7 for free seasons. | owner |
 | W4 | **Operator AI citizens start in seasons without money.** They join money seasons only once all of these hold: prize-ineligible, excluded from scores, equal per faction, personas dealt by public randomness, the strong-agent criterion passed, legal review done. | owner |
 | W5 | **Equal AI count per faction.** In free seasons, about 12 per faction or about 1 AI per 3 humans. | owner |
-| W6 | **Social layer before the hackathon.** Signed messages with an AI mark, pacts with breach detection, a daily faction council voting on one of three code-made targets. Off-chain first, anchored per bell. | owner |
+| W6 | **Social layer before the hackathon.** Signed messages with an AI mark, pacts with breach detection, a daily faction council voting on one of three code-made targets. Off-chain first, anchored per bell. *Note: pact clause superseded by X2 (2026-10-04); the signed messages and the council remain.* | owner |
 | W7 | **Model: local Gemma 4 26B A4B, thinking off.** No paid API. Player-owned AIs may use their own keys later. Every AI decision follows: the code offers candidates, the model chooses, the code validates, and the rule autopilot takes over on failure. | owner |
 | W8 | **Shared civilization (Engine, tech, diplomacy) is the first priority after the hackathon.** | owner |
 | W9 | **Conquest Wave 2 continues in parallel.** The doctrine band re-tune (CQI21a) is done in parallel and lands before Gate CQ2. | owner |
 | W10 | **The pitch is rebuilt around the new Wylls and AI citizens** (by the pitch session, from this document). | owner |
 | W11 | **Words: 国 / 村 (nation / village)** replace 勢力 / 拠点 (faction / holding) in player-facing text, following the owner's own words. The design session updates the glossary and the UI. | owner |
+
+## X. Owner words of 2026-10-04: AI-citizen memory in, pacts out (AI citizens contract v1.2; written by the unify session)
+
+On 2026-10-04 the owner decided that AI-citizen **memory is the core of the product and belongs in the hackathon build** and that **pacts and betrayal between AIs are not included** (the owner's words are translated in `ai-citizens/AI-CITIZENS-CONTRACT.md` §0.3). The contract was amended to v1.2 the same day. The records below are the contract's §13.1 table; section numbers, "App. A" and "O-AI-n" refer to that contract (`ai-citizens/AI-CITIZENS-CONTRACT.md`). The design spine X3 is `ai-citizens/GAME-DESIGN-CORE.ja.md`. Nothing of the AI citizens is built; every AI-citizen result stays `[AS-BUILT: pending]`.
+
+| # | Decision | Status | Source |
+|---|---|---|---|
+| X1 | (2026-10-04) AI-citizen **memory is the core of the product and is in the hackathon build**. | owner | owner words, 2026-10-04 (contract §0.3, §5) |
+| X2 | (2026-10-04) **Pacts and betrayal between AIs are removed** from the build; this supersedes the pact clause of W6 (council and messages remain). Everything pact-related is deferred (App. A). | owner | owner words, 2026-10-04 (contract §0.1, App. A) |
+| X3 | The design spine of 2026-10-04 (one page: what the game is, who decides what, the loop, what is in the build in order of importance, wording and claims) is the reference for README, DESIGN-OVERVIEW, this contract, RULES/SUMMARY, the claims sheet and the pitch. W3 is clarified: hidden bots that pretend to be players stay retired; script bots are a labelled test population. | architect | `ai-citizens/GAME-DESIGN-CORE.ja.md` |
+| X4 | Machine windows and ports: the Mac is booked for AI runs 10-09 13:00 → 10-10 05:00 and 10-10 and 10-11 daytime (O-AI-9); the AI binds only 41901–41999; the paused `m1-exit` stack stops in those windows, and the friends' playtest may stay open under the §11.7 rules; X4 also records the playtest's actual end time, the 10-10 daytime window for A/B rep 3 and repeats, and the retention date 2026-10-31 for retained `STATE` (§6.8). **The playtest's actual end time is to be recorded: the friends' playtest is planned for about 3 real days at 1x from the night of 2026-10-06; its end time is not yet known.** | architect (the O-AI-9 default) | contract §11.7, O-AI-9 |
+| X5 | The main run is **3 game days at 10× with 18 AIs (deck-3, O-AI-2)**; a 2-day run is a reported degradation with no village-vs-village claim. | architect | contract §0.5, §11.7, O-AI-2 |
 
 ## E. Change log
 
@@ -467,3 +479,4 @@ On 2026-10-03 the owner approved the document `ai-citizens/RULES-AND-AI-CITIZENS
 | v1.13 (owner answers) | 2026-09-30 | Part T: O-M1-25 yes (everything ends with the season), O-M1-26 yes, O-M1-27 keep ROUTED, O-M1-28 (a), O-M1-29 unchanged |
 | v1.13 (M1 exit, W7-A/W7-C) | 2026-10-01 | Part U: the exit season passed (U1); the other §13 items (U2); G14 and `inproc_day` fail on the resident-liveness oracle (U3, open); ClaimDefence never lands in stack runs (U4, open); E8 closed with the exit sample (U5); open items before a playtest (U6); owner questions O-M1-18, D18, `r99_reveals` (U7); run records (U8) |
 | v1.13 (M1 exit, review corrections) | 2026-10-01 | U9: the exit report and JA summary corrected (scope of the season, verifier, viewers and spectator stated; quota, test count, `min_tip` evidence, hold coverage, U4's re-run consequence) |
+| v1.13 (unify, owner words) | 2026-10-04 | Part X: X1 (AI-citizen memory is the core and in the hackathon build), X2 (pacts and betrayal between AIs removed; supersedes W6's pact clause, noted under W6), X3 (the design spine), X4 (machine windows and ports; the playtest's end time is still to be recorded), X5 (the main run is 3 game days at 10x with 18 AIs); from AI citizens contract v1.2 §13.1 |
