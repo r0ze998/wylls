@@ -36,7 +36,7 @@
 
 **Built since the M1 exit (2026-10-01), checked by tests and screen fixtures only.**
 
-- **Joining is one choice: a nation.** The client places the first village by itself and files the site ticket (decision V2). Merged 2026-10-02; never run on the chain with bots or people. [built this week]
+- **Joining is one choice: a nation.** The client places the first village by itself and files the site ticket (decision V2). Merged 2026-10-02 to 10-03; never run on the chain with bots or people. [built this week]
 - Polish: the name Wylls, the words nation / village (国 / 村) in player-facing text (V1, W11), painted unit miniatures on the map. [built this week]
 
 **In progress, not in this tree.**
@@ -290,12 +290,12 @@ The runs are planned for the days before the freeze; every one will be listed, i
 
 **Honest limits of the evidence.**
 
-1. **Local only.** Everything ran on a local test chain at 20x. Nothing ran on devnet. Devnet's cryptographic syscall costs and rent are unverified. No human has played a season. [measured: M1-EXIT-NOTES §7]
+1. **Local only.** The exit season ran at 20x; the nightlies and smoke runs ran at 100x; all on a local test chain. Nothing ran on devnet. Devnet's cryptographic syscall costs and rent are unverified. No human has played a season. [measured: M1-EXIT-NOTES §7]
 2. **The cost of attacking the fee market is a model.** It fails at the minimum tip and holds only with a defence pool and at least 150 rotating payer keys; a later long soak must decide it. [model: [c4-v3](frontier/m1/c4-v3/)]
 3. **Adversary coverage.** 2 of 9 adversary hold kinds found no pending write in the exit season, so the above-cap slot hold and the anchor hold were not exercised; the other seven were. [measured: M1-EXIT-NOTES §4.3]
 4. **The defence refund** landed in short nightly runs (refund 42,132 lamports each), not in the 7-day season, which ran before the fix; duplicate claim versions cost more in fees than the refund. [measured: M1-EXIT-NOTES §12]
 5. **Scale.** The design point is thousands to about 50,000 players in one world [model: DESIGN §8.9]; the largest test is 1,000 bots.
-6. **Open before any human playtest:** two web fixes (clamp arrivals at the last bell; grey out shielded targets), the entry URL that still lands on an older page, devnet configuration gaps in the [runbook](frontier/m1/PLAYTEST-RUNBOOK.md), and hosting. The playtest is **not approved and not run**. [DECISIONS U6, U7]
+6. **Open before any human playtest:** two web fixes (clamp arrivals at the last bell; grey out shielded targets), the entry URL that still lands on an older page, devnet configuration gaps in the [runbook](frontier/m1/PLAYTEST-RUNBOOK.md), and hosting. The larger private devnet playtest in the runbook (50 to 200 people) is a document only: **not approved, not run**. A small invite-only local playtest is being prepared and has not run. [DECISIONS U6, U7]
 
 **Roadmap (order, not promises).**
 
@@ -309,7 +309,7 @@ The runs are planned for the days before the freeze; every one will be listed, i
 
 ### 8.1 History, not evidence for this game
 
-An earlier prototype on branch `codex/magicblock-playable` (six nations, officers, 30-second ticks, MagicBlock rollup) ran a full season on Solana devnet (rules v8, season 1790355636798) and re-verified 14 of 14 checks. It is a different game. Nothing above or below is claimed from it.
+An earlier prototype on branch `codex/magicblock-playable` (six nations, officers, 30-second ticks, MagicBlock rollup) ran a full season on Solana devnet (rules v8, season 1790355636798) and re-verified 14 of 14 checks ([verification output](earlier-prototype/devnet-season-1790355636798-verification.txt)). It is a different game. Nothing above or below is claimed from it.
 
 ---
 

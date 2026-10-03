@@ -8,13 +8,14 @@ Identifiers keep their historical names (decision V1): crate, folder, file and p
 
 ## Start here
 
-**Open these first (about ten minutes):** the overview, the M1 exit report, the AI-citizens contract and the exit run record.
+Three documents, about ten minutes: [../DESIGN-OVERVIEW.md](../DESIGN-OVERVIEW.md) ([日本語](../DESIGN-OVERVIEW.ja.md)) (the game, its evidence and its limits), [m1/M1-EXIT-NOTES.md](m1/M1-EXIT-NOTES.md) (what is built, with every item's evidence) and [ai-citizens/AI-CITIZENS-CONTRACT.md](ai-citizens/AI-CITIZENS-CONTRACT.md) (what is designed). Everything else below is reference.
 
-- [../DESIGN-OVERVIEW.md](../DESIGN-OVERVIEW.md) (English) and [../DESIGN-OVERVIEW.ja.md](../DESIGN-OVERVIEW.ja.md) (Japanese): the 10-minute overview of the game, its evidence and its limits.
-- [SUMMARY.ja.md](SUMMARY.ja.md): the short plain-Japanese status summary (what exists, what is in progress, what is only designed, the honest limits). The earlier revision 3.1 summary is kept as history in [SUMMARY.ja.rev3.1.md](SUMMARY.ja.rev3.1.md).
+## Reference
+
+- [SUMMARY.ja.md](SUMMARY.ja.md): the short plain-Japanese status summary. The earlier revision 3.1 summary is kept as history in [SUMMARY.ja.rev3.1.md](SUMMARY.ja.rev3.1.md).
 - [DESIGN.md](DESIGN.md): the engineering specification (English), revision 4 (2026-10-03): revision 3.1 and the M1 amendments (§0.4-§0.6, §18-§23) with nation / village terms and AI citizens in place of the retired hidden bots.
 - [DECISIONS.md](DECISIONS.md): the decisions log. Parts T–W are the latest: T (everything ends with the season), U (the M1 exit), V (the name Wylls; joining is choosing a nation), W (one game; labelled AI citizens replace hidden bots; words nation / village).
-- [m1/M1-EXIT-NOTES.md](m1/M1-EXIT-NOTES.md), [m1/runs/m1-exit/](m1/runs/m1-exit/) and [ai-citizens/AI-CITIZENS-CONTRACT.md](ai-citizens/AI-CITIZENS-CONTRACT.md): the evidence for what is built, and the contract for what is designed.
+- [m1/runs/m1-exit/](m1/runs/m1-exit/): the exit season's record.
 
 ## Milestone records
 
@@ -24,11 +25,11 @@ Identifiers keep their historical names (decision V1): crate, folder, file and p
   - [m1/runs/m1-exit/](m1/runs/m1-exit/): the exit season's record (7 game days, 1,000 rule bots, local test chain).
   - [m1/M1-CONTRACT.md](m1/M1-CONTRACT.md): the implementation contract (v1.13). `m1/*-NOTES.md` are the unit and integration reports.
   - [m1/RUN-A-KEEPER.md](m1/RUN-A-KEEPER.md): how to run a keeper on the local stack, and what a public network still needs.
-  - [m1/PLAYTEST-RUNBOOK.md](m1/PLAYTEST-RUNBOOK.md): the private devnet playtest's configuration and steps. **Not approved, not run.**
+  - [m1/PLAYTEST-RUNBOOK.md](m1/PLAYTEST-RUNBOOK.md): the private devnet playtest's configuration and steps. **Not approved, not run** (a larger devnet playtest of 50 to 200 people; a small invite-only local playtest is being prepared and has not run).
   - [m1/c4-v3/](m1/c4-v3/): the fee-attack cost model v3 with the measured Reveal compute cost.
 - **Conquest (in progress):** [conquest/](conquest/). Keeps, sieges and occupation, so that the map moves through play. [conquest/SUMMARY.ja.md](conquest/SUMMARY.ja.md) is the plain-Japanese summary, [conquest/CONQUEST-CONTRACT.md](conquest/CONQUEST-CONTRACT.md) the contract, `conquest/design/` the area designs. Not merged into the main line.
-- **AI citizens (designed, not built):** [ai-citizens/](ai-citizens/). [ai-citizens/SUMMARY.ja.md](ai-citizens/SUMMARY.ja.md) (plain Japanese), [ai-citizens/RULES-AND-AI-CITIZENS.ja.md](ai-citizens/RULES-AND-AI-CITIZENS.ja.md) (the rules explained and the design the owner approved on 2026-10-03), [ai-citizens/AI-CITIZENS-CONTRACT.md](ai-citizens/AI-CITIZENS-CONTRACT.md) (the implementation contract). Measured results will be marked `[AS-BUILT: pending]` until they exist.
-- **AI agents (earlier plan and the Gemma 4 spike):** [ai-agents/](ai-agents/). [ai-agents/AI-AGENTS-PLAN.md](ai-agents/AI-AGENTS-PLAN.md), [ai-agents/SUMMARY.ja.md](ai-agents/SUMMARY.ja.md), [ai-agents/gemma4/](ai-agents/gemma4/) (the local-model test, [REPORT.ja.md](ai-agents/gemma4/REPORT.ja.md)), [ai-agents/models-prices.md](ai-agents/models-prices.md), [ai-agents/old-game-inventory.md](ai-agents/old-game-inventory.md). Where it differs from `ai-citizens/` (hidden operator bots), `ai-citizens/` and decisions W1–W11 win.
+- **AI citizens (designed, not built):** [ai-citizens/](ai-citizens/). [ai-citizens/SUMMARY.ja.md](ai-citizens/SUMMARY.ja.md) (plain Japanese), [ai-citizens/RULES-AND-AI-CITIZENS.ja.md](ai-citizens/RULES-AND-AI-CITIZENS.ja.md) (the rules explained and the design the project owner approved on 2026-10-03), [ai-citizens/AI-CITIZENS-CONTRACT.md](ai-citizens/AI-CITIZENS-CONTRACT.md) (the implementation contract). Measured results will be marked `[AS-BUILT: pending]` until they exist.
+- **AI agents (earlier plan and the Gemma 4 spike):** [ai-agents/](ai-agents/). [ai-agents/AI-AGENTS-PLAN.md](ai-agents/AI-AGENTS-PLAN.md), [ai-agents/SUMMARY.ja.md](ai-agents/SUMMARY.ja.md), [ai-agents/gemma4/](ai-agents/gemma4/) (the local-model test, [REPORT.ja.md](ai-agents/gemma4/REPORT.ja.md)), [ai-agents/models-prices.md](ai-agents/models-prices.md), [ai-agents/old-game-inventory.md](ai-agents/old-game-inventory.md). **Superseded where it differs:** it describes hidden operator bots, which the project no longer does. `ai-citizens/` and decisions W1–W11 win.
 - **UI shell notes:** [ui-shell/](ui-shell/). [ui-shell/UNITS-REDESIGN.md](ui-shell/UNITS-REDESIGN.md) (units, movement and building on the map) and [ui-shell/HANDOFF-replay.md](ui-shell/HANDOFF-replay.md) (the season replay hand-off).
 - **Art:** [art/](art/). [art/units/README.md](art/units/README.md): the painted unit miniatures, one look for each of the six nations.
 - **M0 (preparation and checks):** [m0/M0-FINAL.ja.md](m0/M0-FINAL.ja.md), [m0/M0-FINAL.md](m0/M0-FINAL.md) (status), [m0/M0-CLOSE.md](m0/M0-CLOSE.md) (how the remaining items were closed in M1's first weeks); the first-pass report, simulator results and spike results are also in `m0/`.
