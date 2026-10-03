@@ -1,10 +1,14 @@
-# Wylls — Multi-Citizen Handoff Proof
+> Earlier prototype, a different game (then named Permutation State). Not Wylls.  
+> Its devnet run, USDC prizes and hidden operator bots are not claims about Wylls.  
+> Current design: [../DESIGN-OVERVIEW.md](../DESIGN-OVERVIEW.md). This page keeps its historical wording.
+
+# Earlier prototype: Permutation State — Multi-Citizen Handoff Proof
 
 **Build:** `handoff-proof-2026-09-21`  
 **Result:** **PASS — 10/10 automated browser scenarios**  
 **Boundary:** **LOCAL MULTI-CLIENT PROOF · NOT SOLANA · NOT LIVE AI**
 
-![Read-only Observer view after the third citizen accepts generated work](permutation-state-prototype/proof/observer-proof.png)
+![Read-only Observer view after the third citizen accepts generated work](../../permutation-state-prototype/proof/observer-proof.png)
 
 ## What this artifact proves
 
@@ -86,7 +90,7 @@ Every run additionally passed:
 - no desktop horizontal overflow;
 - no season settlement or claim side effect.
 
-Machine-readable details: [`qa-proof-result.json`](permutation-state-prototype/proof/qa-proof-result.json).
+Machine-readable details: [`qa-proof-result.json`](../../permutation-state-prototype/proof/qa-proof-result.json).
 
 ## What this does not prove
 
@@ -108,7 +112,7 @@ Port this exact event contract to Solana devnet without changing the demo story:
 
 That next gate converts the current statement from “the causal handoff works across clients” to “Solana canonized the accepted handoff under published rules.”
 
-The local, non-deployed implementation contract for that gate now lives in [`permutation-state-solana-receipt-spike/`](permutation-state-solana-receipt-spike/README.md). Its native-Rust tests pass 4/4 and its JavaScript adapter tests pass 3/3. It remains explicitly unverified on Solana until an SBF build is deployed, a transaction is confirmed, and the Worksite PDA is read back with the expected root.
+The local, non-deployed implementation contract for that gate now lives in [`permutation-state-solana-receipt-spike/`](../../permutation-state-solana-receipt-spike/README.md). Its native-Rust tests pass 4/4 and its JavaScript adapter tests pass 3/3. It remains explicitly unverified on Solana until an SBF build is deployed, a transaction is confirmed, and the Worksite PDA is read back with the expected root.
 
 ## Why this is the right slice
 

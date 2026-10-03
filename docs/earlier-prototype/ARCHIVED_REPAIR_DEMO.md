@@ -1,6 +1,10 @@
-# Wylls
+> Earlier prototype, a different game (then named Permutation State). Not Wylls.  
+> Its devnet run, USDC prizes and hidden operator bots are not claims about Wylls.  
+> Current design: [../DESIGN-OVERVIEW.md](../DESIGN-OVERVIEW.md). This page keeps its historical wording.
 
-> Historical README for the superseded walking-and-repair demo. Its "complete" language refers only to a technical test, not the intended civilization game. See [the current README](README.md) for the map-first rebuild.
+# Earlier prototype: Permutation State
+
+> Historical README for the superseded walking-and-repair demo. Its "complete" language refers only to a technical test, not the intended civilization game. See [the current README](../../README.md) for the map-first rebuild.
 
 > **One civilization. Thousands of citizens. One world that keeps moving.**
 
@@ -103,9 +107,9 @@ http://127.0.0.1:4173/proof/?proof=1&session=aster-demo&role=observer&transport=
 
 | Path | Purpose |
 |---|---|
-| [`permutation-state-prototype/world/`](permutation-state-prototype/world/) | Primary map-first playable simulation. |
-| [`permutation-state-prototype/proof/`](permutation-state-prototype/proof/) | Previous multi-client Handoff and chain-receipt proof lab. |
-| [`permutation-state-solana-receipt-spike/`](permutation-state-solana-receipt-spike/) | Solana program, MagicBlock transport, gateway, and tests. |
+| [`permutation-state-prototype/world/`](../../permutation-state-prototype/world/) | Primary map-first playable simulation. |
+| [`permutation-state-prototype/proof/`](../../permutation-state-prototype/proof/) | Previous multi-client Handoff and chain-receipt proof lab. |
+| [`permutation-state-solana-receipt-spike/`](../../permutation-state-solana-receipt-spike/) | Solana program, MagicBlock transport, gateway, and tests. |
 | [`PERMUTATION_STATE_SIMULATION_PIVOT.md`](PERMUTATION_STATE_SIMULATION_PIVOT.md) | Corrected game definition, system boundaries, and acceptance gates. |
 | [`PERMUTATION_STATE_GAME_CONSTITUTION.md`](PERMUTATION_STATE_GAME_CONSTITUTION.md) | Product and economic principles; sections superseded by the simulation pivot should be revised next. |
 

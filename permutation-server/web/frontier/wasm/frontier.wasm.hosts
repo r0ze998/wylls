@@ -1,0 +1,9 @@
+# Build host, sha256 and raw size of frontier.wasm as each host builds it from
+# the committed source (scripts/build-wasm.sh, toolchain 1.95.0). See the
+# "Cross-host bytes" note in that script; consumed only by --check.
+# aarch64-apple-darwin is the host that built the committed module (its hash
+# is the one in frontier.wasm.sha256). x86_64-unknown-linux-gnu is the GitHub
+# runner, taken from the log of CI run 36958805861 (commit 5ed36fa) and equal
+# in run 36923004057 (commit 2c0462f); the wasm sources are unchanged since.
+aarch64-apple-darwin 32006de4ad699e6653467eb8e68d35d6e631d18ee98a56e75ce0a60d904da537 205623
+x86_64-unknown-linux-gnu 2d21f8c4d48f9947386e590e568d2f30ab61386cd421db387727c53b4aa643d6 205577

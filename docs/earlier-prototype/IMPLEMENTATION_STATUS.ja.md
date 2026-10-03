@@ -1,4 +1,8 @@
-# 次の開発工程 — Wylls
+> Earlier prototype, a different game (then named Permutation State). Not Wylls.  
+> Its devnet run, USDC prizes and hidden operator bots are not claims about Wylls.  
+> Current design: [../DESIGN-OVERVIEW.md](../DESIGN-OVERVIEW.md). This page keeps its historical wording.
+
+# Earlier prototype: 次の開発工程 — Permutation State
 
 > **現在の状況は [V5 の実装状況](#v5-の実装状況2026-09-24ローカルの-magicblock-スタックで検証) と [ルール第6版](#ルール第6版2026-09-25コミット済みdevnet-で検証)、[ルール第7版](#ルール第7版2026-09-25コミット済みdevnet-に反映)、ルール第8版（V5 §18.13：達成ポイントを 10・20・30・40・55 に緩め、1位が40%超のシーズンを 10/200 に。歴史の層の表示、公開の即時送信、住む都市が漏れた場合の sim）、[ウォレットでの参加](#ウォレットでの参加2026-09-26まだコミットしていないローカルのスタックで検証devnet-では未実施)を見てください。** すぐ下の①〜⑦の表は、以前の設計（市民視点の `/civilization/`）の工程で、履歴として残しています。
 
@@ -113,11 +117,11 @@ devnet で見つけて直した問題（2026-09-25）：
 
 | # | 項目 | 状態 |
 |---|---|---|
-| 1 | resolve_tick の CU 計測 | 完了（平均 634k・最大 862k / 1.4M。[DESIGN.md](permutation-chain/DESIGN.md)） |
+| 1 | resolve_tick の CU 計測 | 完了（平均 634k・最大 862k / 1.4M。[DESIGN.md](../../permutation-chain/DESIGN.md)） |
 | 2 | ER プログラム（参加・命令・解決・コミット） | 完了（ワールドを 10 KiB×8 に分割、クランク、ER 上でプレイ） |
 | 3 | Season PDA と USDC（参加費・精算・受け取り） | 完了。ER で 180 ティック → ベースへコミット・返却 → 精算 → 6文明が受け取り → 検証 CLI で最終ルートと支払い額が一致。devnet は未デプロイ（確認待ち） |
 | 4 | x402 参加 | 完了（改ざん支払い5種を拒否。エージェントが参加しシーズン開始まで確認） |
-| 5 | game-client・HTTP・MCP・llms.txt | 完了（[client](permutation-gateway/client/README.md)） |
+| 5 | game-client・HTTP・MCP・llms.txt | 完了（[client](../../permutation-gateway/client/README.md)） |
 | 6 | 参照エージェント2種 | ルール型は実プレイ済み。LLM 型はモック API でループを検証、実キーでの試験は未実施 |
 | 7 | 複数人の同時プレイ | 完了（席トークン、全員の手番終了で即解決）。チェーンモードでは 2026-09-26 にウォレットでの参加へ置き換え（席トークンはなくした） |
 | 8 | リプレイ検証 CLI | 完了（`verify`、実シーズンで VERIFIED） |

@@ -1,0 +1,22 @@
+WYLLS — devnet season verification (read-only)
+Season: 1790355636798  |  Solana devnet + MagicBlock devnet-as ER  |  rules v8
+Run: 2026-10-03 JST; actual base/ER RPC queried through local read-only relays.
+Local index: archived transaction signatures and tick order only; verifier re-read chain records and checked hashes.
+Result: 14/14 checks passed; 180 ticks replayed; no transaction submitted.
+
+✓ the season account is the program's season address (logs are read from that program only) — J4aZxe3ynkS7kcvCpKbp6aFYw8d9vtrRDsgSEi1niU6n
+✓ season 1790355636798 read from the base layer (9XjhnmF9mMSxtbeKannUL6eAKzFcBaC2xUJZb61pro1G) — 6 nations, 14 members, entry fee 10000000
+✓ genesis recomputed from the season's nations, seeds and treasuries — root a2f2692fd4aa2e00 (matched the PS_GENESIS log on chain)
+✓ 14 members seated in registration order, with their candidacy and votes
+✓ first election recomputed (PS_OPEN, or tick 0's pre-state root) — officers [[9, 9, 6, 6], [1, 1, 4, 4], [7, 7, 12, 12], [10, 10, 8, 8], [0, 0, 3, 3], [2, 2, 11, 11]]
+✓ 180 tick records replayed; every pre- and post-state root matches (records read from the ER's transaction logs) — now at tick 180, 4190 office batches and 509 governance actions
+✓ sealed orders: every revealed batch matches its commitment, and each tick's randomness comes from the revealed salts — 4190 revealed batches checked against PS_COMMITS and PS_SALTS
+✓ governance replayed with the orders — 21 proposals adopted; officers now [[5, 5, 6, 6], [1, 1, 4, 4], [7, 7, 12, 12], [10, 10, 8, 8], [0, 0, 3, 3], [2, 2, 11, 11]]
+✓ final world root matches the Season account — b02359ba7cd26bdd
+✓ operator AI roster: every revealed member registered with its tag, and the tags chain to the committed roster — 12 AI members [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12], 0 home cities conquered, bounty 5000000 each
+✓ every member's payout recomputed (V5 §7, §18) matches the Season account — pool 172000000 to 1 members, 164682765 redistributed from AI members to people
+✓ operations share = 20% of fees + 20% of in-play income + rounding (+ the bond, returned) — 268000006
+✓ treasuries returned to depositors match the final world — [6000000, 4000000, 4000000, 4000000, 4000000, 4000000]
+✓ history root recomputed from the final world matches the Season account — 22a15a401428c2f8 (24 cities, 0 ruins), the first season of its line
+
+VERIFIED: the season replays exactly as the chain recorded it.

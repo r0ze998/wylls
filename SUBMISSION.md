@@ -1,124 +1,130 @@
-# Wylls — hackathon submission
+# Wylls: hackathon submission record (repository side)
 
-**Six nations, one shared world, run on Solana — and AI agents are citizens.**
-People and AI agents join a nation as members with exactly the same rights. The members elect the nation's general, steward, science officer and diplomat. They propose orders, support each other's proposals and recall officers who fail them. Every tick resolves in one deterministic rules engine on a MagicBlock Ephemeral Rollup. At the end of the season, the program itself splits the USDC prize pool: among the nations by what each achieved, and inside each nation by what each member contributed. Anyone can replay the whole season from the chain's own records.
+**Repository:** <https://github.com/r0ze998/wylls> · **Date of this record:** 2026-10-03 · **Project freeze:** 2026-10-12 23:59 JST · **Submit by:** 2026-10-13 15:59 JST · **Demo video:** [link pending] · **Pitch video:** [link pending]
 
-- Design: [Game Design V5](PERMUTATION_STATE_GAME_DESIGN_V5.md) (§16: implementation decisions and calibrated numbers) · world rules: [Rules Spec v0.2](PERMUTATION_STATE_RULES_SPEC_v0.2.md)
-- Demo script: [DEMO_SCRIPT.md](DEMO_SCRIPT.md) · pitch: [PITCH.md](PITCH.md)
-- Program design and trust model: [permutation-chain/DESIGN.md](permutation-chain/DESIGN.md)
-- For agents: [llms.txt](permutation-server/web/llms.txt) · [@permutation/game-client](permutation-gateway/client/README.md)
+This file is the repository's own record: what the project is, where each part lives, how to run and check it, what was built when, and where the evidence stops. The submission form text is written separately by the owner. If anything here disagrees with a recorded run, the run wins.
 
-**Verifiable fairness (rules version 6, 2026-09-25, local stack; not yet on devnet).** Maps are six-fold rotationally symmetric, so every start has exactly the same surroundings, and the map seed exists only when registration closes. Orders are sealed (commit–reveal on chain), so nobody can react to others' orders within a tick. Each tick's randomness comes from the world root and every revealed salt, so nobody, the crank included, chooses it. The operator never gives orders: the rules' caretaker fills vacant offices from the members' top proposal. Every account is public, so the game is perfect-information for people and agents alike. The devnet season below ran on version 5; it verifies with a build of commit `a02862f` or earlier.
+> **Status 2026-10-03:** local test chain only (never devnet or mainnet) · no outside person has played yet · every number comes from tests, rule-bot runs, the Gemma 4 spike or simulation · AI citizens are designed, not built [AS-BUILT: pending] · money, governance and markets are not built.
 
-**Hidden AI members, bounties and treasury contracts (rules version 7, 2026-09-25, local stack; not yet on devnet; [V5 §18](PERMUTATION_STATE_GAME_DESIGN_V5.md)).** Some members are the operator's AI members, and nobody can tell which during play. The operator commits to their number and the chain of their registration tags before registration, reveals the roster on chain after the season (`RevealRoster`), and their prize is redistributed to the people of their nations, never back to the operator. Conquering an AI's home city first earns a bounty the operator escrowed. Nations can escrow treasury USDC in contracts paid only when the world shows the condition. Members' messages are anchored on chain every tick. A security fix came with it: the gateway's `POST /submit` and `POST /gov` (acting for hosted members) were callable by anyone; they now require the operator token.
+Tags: **[measured]** a recorded run or test, with its source; **[code]** a rule read from tested code, not a play result; **[sim]** simulator output with assumed behaviour; **[model]** a cost or scale model; **[estimate]** a back-of-envelope figure; **[built this week]** merged since the M1 exit (2026-10-01) and checked by tests and screen fixtures only; **[designed]** written down, not built; **[in progress]** on branches, not in this tree; **[AS-BUILT: pending]** a placeholder for a result that does not exist yet (removed at the freeze, 2026-10-12; the full list of markers to clear is in the freeze checklist at the end).
 
-**Wallet membership (2026-09-26, local stack; not yet run on devnet).** People join with their own Solana wallet (Phantom, Solflare or Backpack, through Wallet Standard), take test USDC from the operator's faucet, pay the entry fee over the same x402 route agents use, play with a session key the browser derives from one wallet signature, and claim the prize to their wallet. The wallet signs only the entry and the claim and needs no SOL: the gateway pays every fee. Gateway-hosted human seats are gone. Registration is a fixed window and the season starts at its deadline however many joined. The operator's AI members register at random times within it, with generated names, no declared kind and one neutral policy id, so nothing public tells them apart. The game server serves the gateway's public listener under `/gw`, so one HTTPS origin (a Cloudflare Tunnel or Caddy) puts a season on the internet. A program fix that keeps seating going when two members register the same session key is built and tested, not yet deployed.
+## 1. What the project is
 
-## What works today (Solana devnet + MagicBlock devnet ER, and the local stack; test USDC)
+Wylls is a Civ-like world on Solana that everyone shares. You choose one of six nations (国) and a village (村) is placed for you. Your economy runs in real time. Armies march under sealed orders (the departure is public, the destination is hidden by a drand time-lock until the arrival bell), and every province's fights resolve together at a 10-minute bell (鐘) with public randomness, in a record anyone can replay and check. Everything ends with the season; only the chronicle carries over. The name is the English spelling of will (意志); the question the game asks is how a game behaves when AI has will, and the plan is to let labelled AI citizens play under the same rules as people. One-page pitch: [PITCH.md](PITCH.md). Demo script: [docs/pitch/DEMO_SCRIPT.md](docs/pitch/DEMO_SCRIPT.md). Ten-minute design tour: [docs/DESIGN-OVERVIEW.md](docs/DESIGN-OVERVIEW.md) ([日本語](docs/DESIGN-OVERVIEW.ja.md)).
 
-**On devnet** (program [`J4aZxe3ynkS7kcvCpKbp6aFYw8d9vtrRDsgSEi1niU6n`](https://explorer.solana.com/address/J4aZxe3ynkS7kcvCpKbp6aFYw8d9vtrRDsgSEi1niU6n?cluster=devnet), season account [`FQvhYJch…`](https://explorer.solana.com/address/FQvhYJch4XhFx7rqwEsodm6soATaLiKNZrPFDViSedmF?cluster=devnet)), one full season ran as follows:
-- 13 gateway-hosted members registered (before wallet membership), and an outside agent joined over x402 ([payment](https://explorer.solana.com/tx/2rArjBchUs9seRmxzx1BE4GEk5UfGqCZATk5a7bxC8czKEaQEhSMPs1WmkUvAZiJJoiWPwrp87ex1rsTKfbcUdNK?cluster=devnet)).
-- Genesis, seating and the first election ran on devnet; then 180 ticks on MagicBlock's devnet ER, with 568 governance actions and 26 proposals adopted.
-- Grouped commits reached the base layer every 20 ticks, and the undelegation arrived in 22 small intents.
-- `FinishSeason` ran, every member claimed (the agent through the claim relay), and the vault went from 135.67 to exactly 0.
-- `verify` reported **VERIFIED** from the devnet logs.
+| | Status | Evidence |
+|---|---|---|
+| M1 first playable: a 7-game-day season (1,008 bells, 20x, 8 h 39 min) with 1,000 rule bots of 13 profiles, real drand quicknet rounds replayed from an archive, on a local test chain; every gating criterion passed; M1 formally complete 2026-10-01 | [measured] | [M1-EXIT-NOTES](docs/frontier/m1/M1-EXIT-NOTES.md), [runs/m1-exit/](docs/frontier/m1/runs/m1-exit/), [DECISIONS U1 to U10](docs/frontier/DECISIONS.md) |
+| Replay verifier: 144,300 transactions pass; 30 of 30 deliberate tampers caught | [measured] | [verify.md](docs/frontier/m1/runs/m1-exit/verify.md), [tamper.md](docs/frontier/m1/runs/m1-exit/tamper.md) |
+| Joining is one choice (a nation); the first village is placed for you and appears at the next bell (about 11 to 21 minutes, a model figure) | [built this week] fixtures only | [DECISIONS V2](docs/frontier/DECISIONS.md) |
+| Conquest (keeps, sieges, occupation) | in progress on branches `frontier/cq-*`; **not in this branch**, no result quoted | [conquest contract](docs/frontier/conquest/CONQUEST-CONTRACT.md) |
+| AI citizens: 12 labelled AIs (2 per nation) on a local Gemma 4, council, sealed Call, audit | [designed]; implementation scheduled before the freeze; nothing built yet [AS-BUILT: pending] | [contract v1.1](docs/frontier/ai-citizens/AI-CITIZENS-CONTRACT.md) |
+| Money (M2), governance, the Engine, markets (M3) | [designed], not built | [DESIGN-OVERVIEW §8](docs/DESIGN-OVERVIEW.md) |
 
-The rows below were measured on the local stack and on devnet.
+## 2. Stack and where each part lives
 
+| Part | What it is | Where |
+|---|---|---|
+| Rules kernels | Deterministic Rust (`no_std`); the one source of rules for the program, simulator, verifier, bots and the browser (WebAssembly) | `permutation-rules/src/frontier/` |
+| On-chain program | Solana program (SBPF v2, reproducible build); the only judge of clashes; no money | `permutation-frontier/`; ABI in `frontier-abi/`; wasm in `frontier-wasm/` |
+| Balance simulator | Host-side simulator and the balance gate | `frontier-sim/` |
+| Keeper | Permissionless helper: posts drand beacons, opens seals, reveals marches, resolves clashes, settles | `frontier-node/crates/keeper` ([RUN-A-KEEPER](docs/frontier/m1/RUN-A-KEEPER.md)) |
+| Herald | Folds the transaction log into JSON files and a WebSocket stream; read-only | `frontier-node/crates/herald` |
+| Verifier | Replays a finished season from the log; 30 tamper classes | `frontier-node/crates/verify` |
+| Bots, local chain, stack | 1,000 rule bots; an in-process Solana-compatible chain (LiteSVM, 400 ms slots) with a replayable drand source; the stack runner | `frontier-node/crates/{bots,localnet,drand-replay,stack,...}` |
+| Relay and SDK | Pays fees and rent inside quotas; one door for people and bots | `permutation-gateway/src/frontier` |
+| Web client | Map, village, march composer, clash report that re-runs the kernel in the browser, onboarding, practice battle, spectator; JA and EN | `permutation-server/web/frontier/` |
+| Design records | Design (rev 4), decisions, milestone records, contracts | `docs/frontier/` |
 
-| | Evidence |
-|---|---|
-| **One deterministic rules engine** (`permutation-rules`, Rust, `no_std`). It covers the world, governance, achievements, merit, payouts and the USDC market. One crate serves the Solana program, the game server, the AI members and the replay verifier | 196 tests (plus chain 13, server 21, gateway 70; all pass on v7). `sim` over 200 AI-only seasons on v6 (members 3,3,2,2,1,0): median era 2 (425 nations in era 2, 431 in era 3 of 1,000); every pair of paths is held at tier 3+ by 27–66% of era-3+ nations; the T120 leader is not the final leader in 90/200 seasons; zero invariant violations. The top nation took >40% of the pool in 21/200 (was 34/200; target ≤10%) |
-| **Nations run by their members, on chain.** Members register on the base layer. After genesis, `SeatMembers` adds them to the world in registration order and `OpenGovernment` holds the first election. Votes, proposals, support and recalls are `SubmitGov` transactions. A vacant office is filled every tick by the rules' caretaker (the members' most-supported open proposal, else a minimal default), never by the operator | A season with 13 hosted members plus outside agents: elections every 30 ticks, 28 proposals adopted, recalls and runner-up succession, all replayed exactly by the verifier |
-| **Sealed orders** (v6). Until the deadline an officer sends only `sha256("permutation-rules/orders" ‖ borsh(OrderBatch) ‖ salt32)` (`CommitOrders`). At the deadline anyone may call `CloseCommits` (`PS_COMMITS`); in the reveal window (tick_seconds/6, ≥2 s) `RevealOrders` must match, and unrevealed batches do not run. The gateway reveals its AI members' batches and every batch a browser deposits with it (`POST /seal`, signed by the office's key); the SDK has `submit`, `reveal` and `revealWhenOpen`, and the MCP `submit_orders` reveals in the background | A local ER season on v6 VERIFIED: 180 ticks, 4227 revealed batches checked against `PS_COMMITS` |
-| **Randomness nobody chooses** (v6). Each tick's randomness is derived on chain from the world root before the tick and every revealed salt (`rng::tick_vrf`, `PS_SALTS`); no external VRF | The verifier recomputes it from `PS_SALTS` on every tick |
-| **Fair maps by construction** (v6). Six copies of one sextant turned by 60°: ridges with two passes on each border, a city-state in every border's outer pass, the trade hub at the centre. `map_seed(world_seed, season_seed)`; starts are shuffled by the season seed, which exists only once registration closes | `tests/symmetry.rs` replays a season in the world turned by 60° with turned orders and gets identical scores. Earlier random maps gave rim starts ~1.75× the points of central ones |
-| **Operator AI members, revealed after the season** (v7). `CreateSeason` commits `ai_count` and `roster_chain` and escrows `ai_count × bounty_each + bond`; every `Register` carries a 32-byte tag (an AI's is `sha256("permutation-rules/ai" ‖ season ‖ wallet ‖ salt)`). `RevealRoster` checks each salt against the wallet-signed tag and the chain; `FinishSeason` then pays bounties and redistributes AI payouts to people (the bond returns), or, if not revealed within an hour of the last tick, anyone settles without the roster and the bounties and bond join the pool. AI members get fresh wallets funded through the same faucet as people, names from the one generator everyone uses, and random registration times within the window; in such a season everyone registers the same way, with no declared kind (x402 refuses anything else: `KindHidden`, `UniformRegistration`), every officer commits under the policy id `officer@2`, and neither the gateway's public routes nor the game server's API say who is AI | `sim` over 200 seasons (members 3,3,2,2,1,0, the first member of each nation an AI, bounty 5 USDC): 0.56 AI homes conquered per season (11%); 35 USDC per season redistributed, people receive +129% vs no roster; top nation >40% in 36/200 (20/200 without a roster, since the 1-member nation becomes AI-only; 7/200 with members 3,3,3,3,2,2); 0 invariant violations. The verifier checks every revealed tag and the chain |
-| **Treasury contracts** (v7). The diplomat's `OfferContract` / `AcceptContract` / `CancelContract`: peace, leaving an alliance, keeping a NAP (installments), or capturing a city (open offer). Escrow counts as treasury spending (consent over 5 USDC per tick), income cannot be spent on the market, and USDC conservation includes the escrow | Rules tests; `sim` with 10 USDC in each treasury: 15.8 offers, 1.1 accepted, 1.9 USDC paid per season |
-| **War needs two officers.** `DeclareWar` or `BreakNap` from the diplomat takes effect only with a `ConsentWar` from the general or steward, and they must be different people. Treasury spending over 5 USDC per tick needs a second officer's `ConsentSpend` | Rules tests; skipped orders are reported to the player with the reason |
-| **Data availability for every tick.** Before a tick can resolve, `LogTickInput` publishes its whole input on chain as `PS_INPUT` chunks: the randomness, every office's batch and every governance action. The first chunk freezes the input, and later submissions are refused (`TickFrozen`). `ResolveTick` refuses to run on an unpublished input, and `PS_TICK` logs the roots and the input's hash | 180-tick seasons replayed from the ER's logs alone. Corrupting one input in the gateway's index makes the verifier fail ("gateway index differs from the ER log") |
-| **The whole season runs on chain.** Genesis takes ~20 bounded steps on base. Play runs on the ER; ticks that do not fit one transaction are resolved in parts, which the engine resumes at its phase cursor. Then commit, undelegate and `FinishSeason` | Local: 0.84–0.96M CU per tick on average and 1.35M at most, against a 1.4M limit per transaction. Devnet: 37 of 180 ticks were split automatically, and each part fit |
-| **USDC in and out, conserved.** Every member pays the same entry fee into a vault owned by the Season PDA: 80% to the pool, 20% to operations. `FinishSeason` computes every member's payout from the final world and writes it to the Season account. Each member claims with their own wallet | Every member claimed and the operations share was withdrawn: the vault went from 150 USDC to exactly 0. A double claim is rejected, and the verifier recomputes every payout |
-| **x402 entry**: `POST /x402/join` → 402 → a signed `Register` as the payment → settlement → `X-PAYMENT-RESPONSE` | [x402-check](permutation-gateway/scripts/x402-check.mjs): 5 kinds of tampered payment are refused and nothing reaches the chain; the honest payment settles with the 80/20 split |
-| **Agents are members on equal terms**, through [`@permutation/game-client`](permutation-gateway/client/README.md): HTTP, an MCP server and `llms.txt`. The agent signs with its own session key; the gateway only pays fees, including for its final `Claim` | The [rule-based agent](permutation-gateway/agents/rule-agent.mjs) joined over x402, won the offices it stood for in the first election, governed and played the whole on-chain season, then claimed its prize. The [LLM agent](permutation-gateway/agents/llm-agent.mjs) (Claude with tools) uses the same loop: with a real API key it joined over x402, won office and submitted a model-decided batch on chain (one tick; the test account then ran out of API credit, and the agent held safely) |
-| **Verifiable reasoning.** Every officer's batch commits to `sha256(tick ‖ obs_root ‖ policy ‖ salted rationale)`. A later batch of the same office reveals it | The engine checks each reveal against its commitment, and the spectator view checks it again in the browser ("✓ ブラウザで検証済み") |
-| **A playable client**: lobby, nation plaza (offices, elections, proposals, recalls), office-based order dock, era table, merit, market, a report of skipped orders, chain status and the prize pool. In chain mode it joins with the person's own wallet (Wallet Standard), signs orders, votes and talk with a session key in the browser, and claims to the wallet, all through the same public gateway routes agents use (plain ES modules, no build step) | Browser-tested in local and chain mode at 1400, 1100 and 800 px widths. The wallet flow was tested with the localnet Dev Wallet, not yet with Phantom, Solflare or Backpack on devnet |
-| **Replay verifier**: `cargo run --bin verify` covers genesis, seating, the first election, every commitment and reveal, every tick's randomness, every tick part, the final root, every payout, the operations share, the treasury refunds and the history chain between seasons (`PS_HISTORY`) | "VERIFIED" on full 180-tick seasons, including agent-played ones |
+Randomness and seals: drand quicknet (BLS12-381; time-lock encryption with the `tlock` crate). Local chain: LiteSVM 0.16. Toolchains: Rust 1.89.0 (root) and 1.95.0 (`frontier-node`, `svm-tests`); program builds need the Agave 3.1.9 `cargo-build-sbf`; web tests need Node 20 or later. Designed AI layer (not built): llama.cpp with Gemma 4 26B A4B (Apache 2.0), run locally; the spike report used llama.cpp build b11146.
 
-## Architecture
+**Repo map note (decision V1).** The rename to Wylls did not touch code identifiers, crate, package or folder names, hash and signature domains, or seeds. They keep their historical `permutation-*` and `frontier-*` names; the root also holds two older folders (`permutation-state-prototype/`, `permutation-state-solana-receipt-spike/`) that CI still references.
 
-```
- people: browser with their ───┐
-   own wallet + a session key  │  one HTTPS origin (tunnel or reverse proxy)
- spectators ───────────────────┤
- AI agents (HTTP / MCP) ───────┘
-                               ▼
-      game server :4185   views, lobby, validation; acts only for the operator's AI members
-         │ operator token                        │ /gw/*  (no token)
-         ▼                                       ▼
-      gateway :4191 operator (loopback)     gateway :4194 public (rate-limited)
-         └───────────── one process ─────────────┘
-                               │
-                               │ crank · x402 · /seal · reveals · relays (fee payer) · faucet · index
-                               ▼
-      permutation-chain (one Solana program)
-        base: Season · Vault (USDC) · Member PDAs · Roster
-              Register · genesis · SeatMembers · OpenGov · RevealRoster · FinishSeason · Claim
-        ER:   20 world chunks · 6 nation accounts
-              CommitOrders · CloseCommits · RevealOrders · SubmitGov · LogTickInput
-              ResolveTick · AnchorTalk · Commit / Undelegate
-                               │ PS_GENESIS · PS_SEAT · PS_OPEN · PS_COMMITS · PS_SALTS
-                               │ PS_INPUT · PS_TICK · PS_HISTORY logs
-                               ▼
-      replay verifier (the same rules crate)
-```
+## 3. How to run and check it
 
-## Run it locally
-
-See the [README quick start](README.md#quick-start). In short:
+Everything below is local. Nothing needs a wallet, a devnet account or a paid service. Counts quoted are from the M1 closing tree (`864b622`); they were **not re-run on this branch for this page**, so run them yourself. A later `npm test` on this tree reported 574 of 574 (not recorded in a file).
 
 ```bash
-(cd permutation-chain && cargo build-sbf)
+# 1. Rules kernels (no chain)
+cargo test --locked --release -p permutation-rules
+# 2. Balance simulator and its gate
+(cd frontier-sim && cargo test --locked --release)
+# 3. Relay, SDK and web client tests (529 passing at M1 close)
+(cd permutation-gateway && npm ci --ignore-scripts && npm test)
+# 4. Screens (51 passing at M1 close)
+(cd permutation-gateway/screens && npm ci && node --test *.screen.mjs)
+# 5. Program: reproducible build, then the program tests (248 passing, 4 ignored by design)
+scripts/build-frontier.sh --twice          # prints the .so hash; the exit season ran d85e1bd7…2281
+permutation-frontier/svm-tests/run.sh --release
+# 6. Off-chain workspace tests
+(cd frontier-node && cargo test --locked --workspace)
+# 7. A season on the local chain, then the verifier and the tamper suite (100 bots, 1 game day)
+scripts/m1-nightly.sh
 ```
+
+The full `.so` hash of the exit season is in [so.sha256](docs/frontier/m1/runs/m1-exit/so.sha256). Since M1 closed, the program, ABI, rules and keeper sources changed only in doc comments (the rename), but this branch has not been rebuilt for this page, so compare the hash yourself.
+
+**Look at the game.** This is the 100-bot nightly config (100x); the 20-bot quick stack with the scripted browser run is in [docs/RUNNING.md](docs/RUNNING.md). After the builds in `scripts/m1-nightly.sh` (`cd frontier-node && cargo build --locked --release --workspace` and `scripts/build-frontier.sh --features test-beacon`), start a stack and open the herald:
 
 ```bash
-(cd permutation-gateway && npm ci && node scripts/local-stack.mjs)
+frontier-node/target/release/frontier-stack check-ports --config frontier-node/configs/nightly.toml
+frontier-node/target/release/frontier-stack up --config frontier-node/configs/nightly.toml --run-id try
+# in a browser, from a second terminal while `up` runs (about 15 to 20 minutes; ports 41000 to 41999 only):
+#   http://127.0.0.1:41540/frontier/frontier/            the game
+#   http://127.0.0.1:41540/frontier/frontier/practice.html   the practice battle
+#   http://127.0.0.1:41540/frontier/frontier/spectate.html   the spectator view
+frontier-node/target/release/frontier-stack verify --run-id try && frontier-node/target/release/frontier-stack tamper --run-id try
+frontier-node/target/release/frontier-stack down --run-id try
 ```
 
-```bash
-(cd permutation-server && cargo run --release --bin play -- --chain http://127.0.0.1:4191 --gateway-proxy http://127.0.0.1:4194)
-```
+On the local chain you join with the page's built-in dev wallet (a random key kept in the browser, local only); the in-game key is derived from that wallet's signature. No real wallet is involved. The entry URL `/` and `/frontier` still redirect to an older page; use the `/frontier/frontier/` path (open item, DECISIONS U6). Known issue: the herald does not serve the painted art (its file handler rejects the `@` in `art/*/@1x/`), so the map on the herald URL is plainer than the README screenshot; see [docs/RUNNING.md](docs/RUNNING.md#2-the-full-local-stack-the-game-on-a-local-test-chain).
 
-```bash
-(cd permutation-gateway && node src/server.mjs --state demo.json --tick-seconds 20 --registration-seconds 120 --dev-wallet)
-```
+**What cannot be re-run from this repository.** The 144,300-transaction ledger of the exit season is not committed (size), so that verification is checked as a **record** ([verify.md](docs/frontier/m1/runs/m1-exit/verify.md), [tamper.md](docs/frontier/m1/runs/m1-exit/tamper.md), [criteria.md](docs/frontier/m1/runs/m1-exit/criteria.md)), not re-run. The verifier does run on any season you start yourself (step 7).
 
-Within the 120-second registration window, run the agent:
+## 4. What was built when
 
-```bash
-(cd permutation-gateway && node agents/rule-agent.mjs --name Hypatia --civ 4 --server http://127.0.0.1:4185 --gateway http://127.0.0.1:4191)
-```
+Disclosure: the oldest commit in this repository is dated 2026-09-21; nothing in the repository predates that date. The hackathon window opened on [OWNER: confirm the start date from the Colosseum page]. Prior work exists outside the repository.
 
-Also within the window, open <http://127.0.0.1:4185/> and join with the **Dev Wallet (localnet)**: take test USDC, choose a nation and offices, sign the key (free), and pay the entry fee. The season starts at the deadline however many joined, and the page enters the game. Watch at <http://127.0.0.1:4185/spectate.html>. After the season, claim in the browser (時代 or 功績 → 受け取る), run `node scripts/claim-hosted.mjs --state demo.json` in `permutation-gateway` for the AI members, and verify the season:
+| Period | What | Where it stands |
+|---|---|---|
+| **Before this repository** | The builder's earlier onchain games **0xCiv** and **0xARK** exist as separate projects. Neither is in this repository (apart from this page and [PITCH.md](PITCH.md), a text search of it finds no mention) and no part of it is submitted as hackathon work. [OWNER: confirm that no code was carried over] | Prior work, not part of this submission |
+| 2026-09-21 to 09-26 | An earlier prototype, a different game (earlier-game terms: six nations, "officers", "30-second ticks", a MagicBlock rollup, "test USDC"), built and run on Solana devnet | History, section 6 |
+| 2026-09-27 | Pivot to the new open-world design; rules kernels and the balance simulator (M0) | [M0-FINAL](docs/frontier/m0/M0-FINAL.md); simulator results are [sim] |
+| 2026-09-27 to 10-01 | M1 "First Bell": program, keeper, herald, relay, verifier, 1,000 bots, local chain, web client. Exit season 2026-09-30 17:45 to 10-01 02:25 JST; M1 closed on `864b622` (2026-10-01) | [measured] |
+| 2026-10-02 to 10-03 | The name Wylls and the nation / village wording; joining is one choice | [built this week] |
+| 2026-10-01 to 10-03 | Gemma 4 spike (a measurement on the bare model, not AI citizens); AI-citizen contract v1.1; design overview and design record rev 4 | spike [measured]; contract [designed] |
+| 2026-10-03 to 10-12 | AI citizens: personas, council, sealed Call, audit, A/B test, recording. Conquest wave 2 in parallel on `frontier/cq-*` | [designed] / in progress; not built today |
 
-```bash
-(cd permutation-server && cargo run --release --bin verify -- --gateway http://127.0.0.1:4191 --base http://127.0.0.1:18899 --er http://127.0.0.1:17799)
-```
+The project was built with AI coding assistants under the owner's direction; design decisions are the owner's and are logged in [DECISIONS](docs/frontier/DECISIONS.md) (parts A and T to W). [OWNER: confirm this wording]
 
-Without a chain: `cargo run --release --bin play` in `permutation-server` runs the same game in one process. To open a season to other people (devnet, one HTTPS origin), see [Public deployment](README.md#5-public-deployment).
+## 5. Evidence and honest limits
 
-## Honest limits
+Evidence, all [measured] unless marked: the exit season record ([report](docs/frontier/m1/runs/m1-exit/report.md), [criteria](docs/frontier/m1/runs/m1-exit/criteria.md), [run](docs/frontier/m1/runs/m1-exit/run.md)): 1,712 due marches all settled once, 0 stuck province-bells; 0 valid sealed marches unrevealed; 43 process kills and 43 restarts with no crash; 5,000 **simulated** viewers (a load generator) for 24 game hours with 0 errors in 3.46 million requests; every instruction within its compute budget (whole-transaction compute units for Reveal: p50 19,389, p99 22,951, max 24,050). Balance in the simulator: six nations won 15.6 to 17.4 percent of 1,500 paired seasons at 10,000 simulated wallets, after a first draft that let one nation win 99.5 percent of 600 [sim; behaviour is assumed]. Gemma 4 spike: [REPORT](docs/frontier/ai-agents/gemma4/REPORT.md).
 
-- **Devnet only.** The program runs on Solana devnet and MagicBlock's devnet ER, with the gateway's own test USDC. There is no mainnet and no real money.
-- **Committor limits.** On devnet, MagicBlock's committor drops or fails intents that are too large, leaving accounts stuck mid-undelegation ([magicblock-validator#1693](https://github.com/magicblock-labs/magicblock-validator/issues/1693), plus a compute limit on the finalize). The world is 20 accounts of 4 KiB and is committed in small intents. Three earlier devnet test seasons on the old layout remain stuck, holding only test USDC.
-- **Version 6 is on devnet** (2026-09-25): season 1790340445651 ran 180 ticks with sealed orders and salt randomness on MagicBlock's devnet ER and was VERIFIED. The reveal window is short (a sixth of the tick); the gateway sends its reveals in parallel, and on a public ER a few ticks still lost some reveals to latency.
-- **Wallet and session key.** A person's wallet signs only the entry and the claim. The session key the browser derives signs orders, votes and talk; it cannot claim or move the wallet's tokens, but an officer's session key can spend the nation's treasury (market, contracts).
-- **Operator AI members.** Nothing public marks them, but the roster can still be guessed from behaviour and rationale style, the timing of talk replies or funding patterns, and outside agents mark themselves as not AI (their own policy id, self-signed reveals, free-text names). The operator could play wallets it leaves off the roster (only disclosure and the bond discourage it). Contracts move USDC between nations by game outcome and need legal review before real money.
-- **Duplicate session keys.** Two members registering the same session key no longer stop seating: the devnet program (upgraded 2026-09-26, slot 504292113) seats the later one with a key nobody holds. The gateway also refuses a key already in use.
-- **Perfect information, no fog.** Every account is public on chain, so every nation sees the whole world. A fog mode would be a separate, possible future mode on a private rollup.
-- **Balance is tuned on bots.** With rules version 8 (flatter milestone points) the top nation takes >40% of the pool in 10 of 200 simulated seasons, the target; 27 of 200 with AI-only nations. The numbers come from bots, not people.
-- **Decision logs** prove what was claimed and when, not that the claim is true.
-- **The operator (crank)** can delay steps but cannot change outcomes. Closing commits, publishing a tick's input and resolving it after the deadline are permissionless. It sees the sealed batches browsers deposit with it before the deadline (so it can reveal them), and as the fee payer it can delay or refuse to relay transactions.
-- **ER → base commits are budgeted** at 10 sponsored commits per delegated account. The crank commits every 20 ticks and keeps the 10th for the final undelegation.
-- **Public devnet RPCs rate-limit** (HTTP 429). Every step retries, but a private RPC is advisable for live seasons.
-- **At most 256 members per season**, because the payout table lives in the Season account.
+Limits:
+
+1. **Local only.** The exit season ran at 20x; nightlies and smoke runs at 100x; all on a local test chain. Nothing ran on devnet or mainnet; devnet cryptography costs and rent are unverified.
+2. **No human has played.** The scripted onboarding ran with a test key, not with people. A small invite-only local playtest is being prepared and has not run. [PLAYTEST RESULT pending] The runbook for a larger private devnet playtest (50 to 200 people) is a document only: not approved, not run. No registration, demand or traction figure exists.
+3. **Bots, not people.** The 1,000 bots are 13 team-written profiles. Bots versus the balance simulator is not measured. 2 of 9 adversary hold kinds found nothing pending, so they were not exercised.
+4. **The verifier is ours.** Anyone can run it; it is not an independent audit. 784 of the 144,300 transactions were failed transactions, reported (9 unclassified).
+5. **Seal secrecy was not tested.** The exit season replayed real drand rounds from an archive (quick stacks use a test key), so the round signatures were already known; the measured seal results show liveness and settlement, not secrecy.
+6. **Scale.** The design point is thousands to about 50,000 players [model]; the largest test is 1,000 bots.
+7. **Conquest is not in this branch** (the `frontier/cq-*` branches are local until pushed). **AI citizens are designed, not built.** Money (M2), governance, the Engine and markets (M3) are not built. There is no player-paid money and there are no prizes.
+8. **If AI-citizen runs are incomplete at the freeze,** this record is changed to: "AI citizens: not implemented in this submission; design only." Results will be listed with run id and commit, aborted runs included.
+
+## 6. History: the earlier prototype
+
+An earlier prototype of this repository (then called Permutation State; six nations, officers, 30-second ticks, a MagicBlock rollup) ran a full season on Solana devnet (rules v8, season 1790355636798) and re-verified 14 of 14 checks. It is a different game and is not evidence for Wylls. Its code is on branch `codex/magicblock-playable`; its old documents are kept in [docs/earlier-prototype/](docs/earlier-prototype/INDEX.md) with their historical wording.
+
+## 7. Freeze checklist (2026-10-12)
+
+Markers and open items that must be cleared or resolved before this record is final:
+
+- Every `[AS-BUILT: pending]` (here, in the README, PITCH and the design overview): replace with the run's result, or, if the AI-citizen runs are incomplete, replace the AI-citizen text with "AI citizens: not implemented in this submission; design only."
+- `[VIDEO LINK pending]` / `[link pending]` (demo and pitch videos) and `[PLAYTEST RESULT pending]`: fill in or delete the line.
+- `[OWNER: confirm that no code was carried over]`, `[OWNER: confirm this wording]` and `[OWNER: confirm the start date ...]` in section 4: owner statements that this repository cannot check. The builder statements in PITCH.md (solo; 0xCiv, 0xARK) are likewise the owner's, not checkable here.
+- The conquest branches `frontier/cq-*`: push them, or keep the "local until pushed" wording.
+- Counts from the M1 closing tree (248 program tests, 529 npm tests, 51 screen tests, the `d85e1bd7` hash): re-run on the final tree or keep the "not re-run" wording.
+- CI: a green run on the final tree, or the honest-limits paragraph in the README stays.
+
+**Links:** [README](README.md) · [PITCH.md](PITCH.md) · [DEMO_SCRIPT](docs/pitch/DEMO_SCRIPT.md) · [design overview](docs/DESIGN-OVERVIEW.md) · [docs index](docs/frontier/README.md) · [M1 exit report](docs/frontier/m1/M1-EXIT-NOTES.md) · [AI citizens contract](docs/frontier/ai-citizens/AI-CITIZENS-CONTRACT.md)

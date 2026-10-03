@@ -1,4 +1,8 @@
-# Wylls — ゲーム設計 V5：国＝オンチェーンの小さな国家、貢献で分ける賞金
+> Earlier prototype, a different game (then named Permutation State). Not Wylls.  
+> Its devnet run, USDC prizes and hidden operator bots are not claims about Wylls.  
+> Current design: [../DESIGN-OVERVIEW.md](../DESIGN-OVERVIEW.md). This page keeps its historical wording.
+
+# Earlier prototype: Permutation State — ゲーム設計 V5：国＝オンチェーンの小さな国家、貢献で分ける賞金
 
 状態：**実装済み**（段階 A と USDC の市場、2026-09-24）。ルールエンジン・チェーンのプログラム・サーバー・ゲートウェイ・画面のすべてが V5 で動き、ローカルの MagicBlock スタックと、Solana の devnet（MagicBlock の devnet ER）の両方で、シーズンの登録から受け取り・検証までを通した。数値はシミュレーションで調整した値に置き換えてある。実装で決めた細部と、設計から変えた点は §16 にまとめた。
 
@@ -15,7 +19,7 @@ V5 はゲームの**参加の単位・国の運営・賞金の決まり方**を�
 | [V4](PERMUTATION_STATE_GAME_DESIGN_V4.md) | **引き継ぐ**：世界・ティック・内政・戦争・外交・市場・霧・判断の記録・エージェントの対等原則・チェーンの仕組み・法務の注意。**置き換える**：§4.7 勝ち筋、§4.10 のトラック配分と支払い、§6 の一部（文明単位の上限） |
 | [V4.1](PERMUTATION_STATE_GAME_DESIGN_V4.1.md) | **引き継ぐ**：§3 ルールの穴の修正 H1〜H9。**置き換える**：§2 勝ち筋の差別化（覇権・協調の採点式） |
 | [ルール仕様 v0.2](PERMUTATION_STATE_RULES_SPEC_v0.2.md)（v0.1 と v0.2 変更案を統合し、V5 の実装に合わせた版） | 数値ルールは引き継ぐ。v0.2 変更案の C10・C11（覇権・協調の採点）は不要になった。§14（採点と支払い）は V5 の §6〜§7 の実装で置き換えた |
-| [UI 方針](research/BENCHMARK_CIV_CRYPTO_UI.md) と試作 `/v41/` | 引き継ぐ。V5 用の画面を追加する（§12） |
+| [UI 方針](../../research/BENCHMARK_CIV_CRYPTO_UI.md) と試作 `/v41/` | 引き継ぐ。V5 用の画面を追加する（§12） |
 
 ## 1. 決まったこと
 

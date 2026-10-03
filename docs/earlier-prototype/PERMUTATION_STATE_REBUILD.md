@@ -1,4 +1,8 @@
-# Wylls — Map-first rebuild
+> Earlier prototype, a different game (then named Permutation State). Not Wylls.  
+> Its devnet run, USDC prizes and hidden operator bots are not claims about Wylls.  
+> Current design: [../DESIGN-OVERVIEW.md](../DESIGN-OVERVIEW.md). This page keeps its historical wording.
+
+# Earlier prototype: Permutation State — Map-first rebuild
 
 Status: implementation contract for the new `/civilization/` game, 2026-09-21.
 This replaces the fixed Handoff / East Sluice demo as the primary gameplay design.

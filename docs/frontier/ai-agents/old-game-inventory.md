@@ -10,7 +10,7 @@ Labels: **[source]** = read in code, a doc or a recorded file (path given); **[m
 ## 0. Summary
 
 - The old game (v9, "Wylls" V5) had **five AI pieces**. Two call a language model: the **reference LLM agent** (`agents/llm-agent.mjs`, Claude Sonnet 5 through tools, paid by whoever runs it) and the **advisor** (`src/advisor.mjs`, Claude Haiku 4.5 rephrasing the operator AI members' chat replies, paid by the operator). Three call none: the **rule agent** with its runner, the **MCP server and SDK**, and the operator's own **hosted AI members** (Rust `permutation-server/src/bots/`, rule-based).
-- **We have only one real token measurement:** tick 0 of one local season (2026-09-25) used about 11k input tokens and 478 output tokens on `claude-sonnet-5`. After that the API credit ran out [source: `IMPLEMENTATION_STATUS.ja.md` l.33]. No full season was played with a model. Nothing under `.local/` logs per-tick token counts: the agent printed them to stdout only. The one LLM run directory (`.local/agents/sophia-llm/decisions-1790289740751.json`) records four "no decision in time; holding" rationales at ticks 12–13 [source]. Only one chat message was ever recorded in any season file (`e2e-wallet.json`, from a human). No advisor reply was ever recorded [source].
+- **We have only one real token measurement:** tick 0 of one local season (2026-09-25) used about 11k input tokens and 478 output tokens on `claude-sonnet-5`. After that the API credit ran out [source: `docs/earlier-prototype/IMPLEMENTATION_STATUS.ja.md` l.33]. No full season was played with a model. Nothing under `.local/` logs per-tick token counts: the agent printed them to stdout only. The one LLM run directory (`.local/agents/sophia-llm/decisions-1790289740751.json`) records four "no decision in time; holding" rationales at ticks 12–13 [source]. Only one chat message was ever recorded in any season file (`e2e-wallet.json`, from a human). No advisor reply was ever recorded [source].
 - **Cost of one LLM agent, as the old code is written** (Sonnet 5 at $2 / $10 per MTok, cache read $0.20): about **$0.03–0.06 per decision** in a typical case, and about **$0.40 in the worst case** (10 tool steps) [estimate, §2.1]. For a 180-tick old season that is **$5–10 per agent** [estimate]. The default token cap of 2M counted input tokens would stop the agent after about 57–80 of the 180 ticks [estimate].
 - **Cost of the advisor:** about $0.001 per reply. It is capped at 200 replies per gateway run, so at most about $0.22 per run [estimate]. It is negligible.
 - **The Frontier changes the economics:**
@@ -88,7 +88,7 @@ Labels: **[source]** = read in code, a doc or a recorded file (path given); **[m
 
 **Server load.** It uses the same previews a human sees. Per tick that is one `state`, one `preview research` when the queue is empty, one `preview unit` per idle unit plus a `preview path`, one `preview city` per idle city, and one `validate`. In mid game that is roughly **15–30 HTTP reads per tick** against the game server [estimate from the code].
 
-**Recorded behaviour** [source: `.local/agent-*/decisions-*.json`]. In four seasons (v6, v8a, ref, w) its last rationales read "nothing urgent for my office; carry the slot over". It played full on-chain seasons and claimed its prizes [source: `SUBMISSION.md`].
+**Recorded behaviour** [source: `.local/agent-*/decisions-*.json`]. In four seasons (v6, v8a, ref, w) its last rationales read "nothing urgent for my office; carry the slot over". It played full on-chain seasons and claimed its prizes [source: `docs/earlier-prototype/SUBMISSION.md`].
 
 ### 1.3 Runner: `agents/runner.mjs` (225 lines) [source]
 
@@ -128,7 +128,7 @@ It makes no model calls.
 
 **Use in practice.** No recorded season contains an AI reply. Only one message was ever sent, by a human, in `e2e-wallet.json` [source]. Tests mock it (`test/advisor.test.mjs`).
 
-**What V5 planned beyond this** [source: `PERMUTATION_STATE_GAME_DESIGN_V5.md` §18.8]: rules for routine play; the model consulted only on contract offers, being spoken to, a declaration of war, an election or a lost city; Haiku for talk and Sonnet 5 for strategy; a per-season budget; a two-level memory. Only the Haiku phrasing was built (§18.12).
+**What V5 planned beyond this** [source: `docs/earlier-prototype/PERMUTATION_STATE_GAME_DESIGN_V5.md` §18.8]: rules for routine play; the model consulted only on contract offers, being spoken to, a declaration of war, an election or a lost city; Haiku for talk and Sonnet 5 for strategy; a per-season budget; a two-level memory. Only the Haiku phrasing was built (§18.12).
 
 ### 1.5 MCP server and SDK: `client/src/mcp.mjs` (70 lines), `game.mjs` (379), `tools.mjs` (123), `summary.mjs` (53), `decision.mjs` (45) [source]
 
@@ -168,7 +168,7 @@ It makes no model calls.
 
 **Amounts.** The entry fee was 10 test USDC: 80% to the pool, 20% to operations [source: `config.mjs`].
 
-**Use.** Agents and people used the same path, which is what made "agents are members on equal terms" true in the old pitch [source: `SUBMISSION.md`].
+**Use.** Agents and people used the same path, which is what made "agents are members on equal terms" true in the old pitch [source: `docs/earlier-prototype/SUBMISSION.md`].
 
 ### 1.7 Chat and its on-chain anchor: `src/talk.mjs`, `client/src/talk.mjs`, `talk-node.mjs`, `crank.mjs` `anchorTalk`, `scripts/verify-talk.mjs` [source]
 
@@ -392,7 +392,7 @@ At **$0.03–0.06 per decision** (the §2.1 shape: a ≈ 4k static prefix plus a
   - `permutation-gateway/src/routes/{x402,roster}.mjs`
   - `permutation-gateway/client/src/{mcp,game,tools,summary,decision,talk,talk-node}.mjs`
   - `permutation-server/src/play/talk.rs`, `permutation-server/src/bots/mod.rs`
-  - `IMPLEMENTATION_STATUS.ja.md`, `SUBMISSION.md`, `PERMUTATION_STATE_GAME_DESIGN_V5.md` §18.7–18.12
+  - `docs/earlier-prototype/IMPLEMENTATION_STATUS.ja.md`, `docs/earlier-prototype/SUBMISSION.md`, `docs/earlier-prototype/PERMUTATION_STATE_GAME_DESIGN_V5.md` §18.7–18.12
 - Frontier:
   - `docs/frontier/DESIGN.md` §1, §2, §6.2, §7, §12
   - `docs/frontier/m1/M1-CONTRACT.md` §0, §5.6, §8

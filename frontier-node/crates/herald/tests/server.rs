@@ -104,6 +104,9 @@ async fn stack(name: &str, bells: u32, fold_first: usize, diffs_cap: usize) -> S
     )
     .unwrap();
     std::fs::write(web.join("map/fmap.1a2b3c4d.mjs"), "export {};").unwrap();
+    // The painted sprite sheets live under "@1x" / "@2x" folders (art/units/@1x/units_a.webp).
+    std::fs::create_dir_all(web.join("art/units/@1x")).unwrap();
+    std::fs::write(web.join("art/units/@1x/units_a.webp"), b"RIFFxxxxWEBP").unwrap();
     std::fs::write(dir.join("secret.txt"), "no").unwrap();
     let (relay, relay_seen) = fake_relay().await;
     let mut app = App::new(
@@ -349,11 +352,19 @@ async fn frontier_static_and_gw_proxy() {
         Some(server::IMMUTABLE),
         "hashed names are long-lived"
     );
+    let w = get(a, "/frontier/art/units/@1x/units_a.webp").await;
+    assert_eq!(
+        w.status, 200,
+        "an '@' in a folder name is a legal static path"
+    );
+    assert_eq!(w.h("content-type"), Some("image/webp"));
     for bad in [
         "/frontier/../secret.txt",
         "/frontier/%2e%2e/secret.txt",
         "/frontier/.hidden",
         "/frontier/map//x",
+        "/frontier/art/@",
+        "/frontier/art/units/@1x/../../../secret",
     ] {
         assert_eq!(get(a, bad).await.status, 404, "{bad}");
     }

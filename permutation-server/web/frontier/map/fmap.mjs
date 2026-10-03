@@ -229,6 +229,8 @@ export class FrontierMap {
     this.drag = null;
     this.pointers = new Map();
     this.terrainOf = createTerrain({ onReady: () => this.invalidate() });
+    // canvas text (name tags, tiers, construction labels, pills) is drawn in the page's language: redraw on a switch
+    this.unredraw = onLangChange(() => this.invalidate());
     // Opt-in sprite art at tile LOD (map/sprites.mjs); the vector tiles stay the default.
     this.art = art ? new SpriteArt({ onLoad: () => this.invalidate() }) : null;
     this.mark();
@@ -450,5 +452,5 @@ export class FrontierMap {
     this.mark(wanted > 0 && drawn === wanted ? 'ready' : 'pending');
   }
 
-  destroy() { if (this.raf) globalThis.cancelAnimationFrame?.(this.raf); this.unlang?.(); this.tools?.remove(); }
+  destroy() { if (this.raf) globalThis.cancelAnimationFrame?.(this.raf); this.unlang?.(); this.unredraw?.(); this.tools?.remove(); }
 }

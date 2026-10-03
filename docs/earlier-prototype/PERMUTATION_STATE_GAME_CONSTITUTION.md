@@ -1,4 +1,8 @@
-# Wylls
+> Earlier prototype, a different game (then named Permutation State). Not Wylls.  
+> Its devnet run, USDC prizes and hidden operator bots are not claims about Wylls.  
+> Current design: [../DESIGN-OVERVIEW.md](../DESIGN-OVERVIEW.md). This page keeps its historical wording.
+
+# Earlier prototype: Permutation State
 
 ## Game Constitution — Hackathon Edition / Season Zero
 
