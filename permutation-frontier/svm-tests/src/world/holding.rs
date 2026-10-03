@@ -17,6 +17,11 @@
 //!   (the simulator's `found`), in the program's pinned codec
 //!   ([`write_kholding`]: `tier` in declaration order, queue kinds 1–4).
 //!
+//! **MC (CQ2-A):** crafted accounts are ABI v2: the Province is 4,736 B
+//! with `layout_version` 2 and **no keep and no Free City** (its keep tile
+//! `0xFF`; tests that need a keep open the province with OpenProvince or
+//! write one), the Citizen's empty slots carry `gen = 0xFF`.
+//!
 //! Every test that relies on a crafted account says so. Resolves are W4-A's
 //! (wave 4): [`World::resolve_through`] stands in for them on the entries a
 //! W3-B test needs (musters joining, a Depart's Spend settled into a
@@ -36,7 +41,9 @@ use frontier_abi::layout::player::{
 };
 use frontier_abi::layout::province::{entry as E, province as P, site as SM};
 use frontier_abi::layout::world::season as S;
-use frontier_abi::layout::{write_header, AccountKind};
+// MC (CQ2-A): crafted accounts are ABI v2 (`layout_version` 2, the
+// 4,736-B Province); every kind keeps its M1 name and magic.
+use frontier_abi::v2::layout::{write_header, AccountKind};
 use permutation_rules::fixed::MILLI;
 use permutation_rules::frontier::catalog;
 use permutation_rules::frontier::geometry::{locate, region_of, ProvinceCoord};
@@ -295,8 +302,10 @@ impl World {
     pub fn province_bytes(&self, p: i16, q: i16, resolved_next: u32) -> Vec<u8> {
         let pc = ProvinceCoord::new(p as i32, q as i32);
         let t = terrain::generate_province(&RING_SEED, pc);
-        let mut d = vec![0u8; P::SIZE];
+        let mut d = vec![0u8; AccountKind::Province.size()];
         assert!(write_header(&mut d, AccountKind::Province, self.id));
+        // MC: no keep and no Free City in a crafted Province (notes D-9).
+        frontier_abi::conquest_model::write_no_keep(&mut d).expect("4,736 B");
         d[P::P..P::P + 2].copy_from_slice(&p.to_le_bytes());
         d[P::Q..P::Q + 2].copy_from_slice(&q.to_le_bytes());
         d[P::RING..P::RING + 2].copy_from_slice(&(pc.ring() as u16).to_le_bytes());
@@ -470,6 +479,11 @@ impl World {
         cd[o + 2..o + 4].copy_from_slice(&q.to_le_bytes());
         cd[o + 4] = site;
         cd[o + 5] = gen;
+        // MC §5.2.3: slots 2–3 empty (gen 0xFF).
+        for slot in 2..=3u8 {
+            let e = frontier_abi::v2::layout::player::citizen::holding_of_slot(slot);
+            cd[e + 5] = frontier_abi::v2::layout::player::citizen::EMPTY_GEN;
+        }
         cd[C::TICKET_BELL..C::TICKET_BELL + 4].copy_from_slice(&C::NO_TICKET.to_le_bytes());
         let tag = fclient::addr::citizen_tag_u64(&citizen);
         cd[C::CITIZEN_TAG..C::CITIZEN_TAG + 8].copy_from_slice(&tag.to_le_bytes());

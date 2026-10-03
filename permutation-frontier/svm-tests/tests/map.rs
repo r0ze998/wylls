@@ -14,11 +14,15 @@ mod common;
 
 use common::{assert_program_account, copy_to_fresh, paid, prefunds};
 use frontier_abi::layout::province::{camp as CP, province as PV, site as SM};
+// MC (CQ2-A): a Province is the 4,736-B v2 account.
+use frontier_abi::conquest_model::read_keep;
 use frontier_abi::layout::world::{
     frontier as FR, join_shard as JS, province_fund as PF, ring_seed as RS, season as S,
 };
 use frontier_abi::log::{EntityKind, Kind};
 use frontier_abi::tags::Ix;
+use frontier_abi::v2::layout::province::province as PV2;
+use frontier_abi::v2::log::CqKind;
 use permutation_frontier_svm_tests::budget::{assert_within, ceilings};
 use permutation_frontier_svm_tests::chain::{
     assert_code, expect_lands, with_account, Build, Chain,
@@ -46,6 +50,21 @@ fn genesis_ring_seed(w: &World, c: &Chain, d: u16) -> [u8; 32] {
         .try_into()
         .unwrap();
     permutation_frontier_svm_tests::sha256(&[b"PSF-RING", &g, &d.to_le_bytes()])
+}
+
+/// The MC keep tile of a generated province (`keep_tile_symmetric`, A-8).
+fn keep_tile_of(t: &permutation_rules::frontier::terrain::ProvinceTerrain, wedge: u8) -> u8 {
+    let bytes = t.terrain.map(|x| x as u8);
+    permutation_rules::frontier::keep::keep_tile_symmetric(&bytes, &t.sites, t.site_count, wedge)
+        .expect("a generated province has a keep tile")
+}
+
+/// The `{P i32, Q i32}` record key of a Province.
+fn pk_key(p: i16, q: i16) -> [u8; 8] {
+    let mut k = [0u8; 8];
+    k[..4].copy_from_slice(&(p as i32).to_le_bytes());
+    k[4..].copy_from_slice(&(q as i32).to_le_bytes());
+    k
 }
 
 fn fund_u32(c: &Chain, w: &World, wedge: u8, off: usize) -> u32 {
@@ -96,7 +115,7 @@ fn map_genesis_rings_are_seeded_at_once() {
 fn map_open_province_writes_the_kernels_land() {
     let (mut c, w) = running();
     w.open_genesis_rings(&mut c);
-    let rent_p = c.rent(PV::SIZE);
+    let rent_p = c.rent(PV2::SIZE);
     // The Concord: funded from wedge 0 (DECISIONS G10), no wedge, no sites,
     // no camp.
     let f0 = c.lamports(&w.a.province_fund(0));
@@ -143,7 +162,7 @@ fn map_open_province_writes_the_kernels_land() {
             0,
             "the fund pays the rent"
         );
-        assert_program_account(&c, &pk, PV::MAGIC, PV::SIZE, 1);
+        assert_program_account(&c, &pk, PV::MAGIC, PV2::SIZE, 1);
         let seed = w.ring_seed_of(&c, 2);
         let t = terrain(&seed, p, q);
         let pd = c.data(&pk);
@@ -165,7 +184,35 @@ fn map_open_province_writes_the_kernels_land() {
             assert_eq!(rd_u32(&pd, PV::site(i) + SM::PEND0_BELL), u32::MAX);
         }
         let coord = ProvinceCoord::new(p as i32, q as i32);
-        let want = camp::place(&seed, coord, &t, 0, false, true).expect("ring 2 camp");
+        // MC §3.2, A-8: the keep on the symmetric keep tile, held by the
+        // wedge faction with the home guard; heartland-safe (ring 2 ≤ 3);
+        // the camp never on it (camp v2).
+        let keep_tile = keep_tile_of(&t, wedge);
+        let k = read_keep(&pd)
+            .expect("a v2 Province")
+            .expect("ring 2 has a keep");
+        assert_eq!(k.tile, keep_tile, "({p},{q}): keep_tile_symmetric");
+        assert_eq!(k.holder, wedge);
+        assert_eq!(k.troops, w.params.cq.keep_home_guard);
+        assert_eq!(k.required as u16, w.params.cq.keep_bells);
+        assert!(k.heartland_safe, "ring 2 is heartland (max ring 3)");
+        assert_eq!(
+            (k.contender, k.last_taken_from, k.gen, k.changes),
+            (0xFF, 0xFF, 0, 0)
+        );
+        let kr = permutation_frontier_svm_tests::records::one_cq(&l.logs, CqKind::KEEP);
+        assert_eq!(kr.key, &pk_key(p, q)[..]);
+        assert_eq!(kr.u64("cause"), 0, "placed");
+        assert_eq!(kr.u64("holder"), wedge as u64);
+        assert_eq!(kr.u64("troops"), w.params.cq.keep_home_guard as u64);
+        assert!(
+            permutation_frontier_svm_tests::records::cq_records(&l.logs, CqKind::NEUTRAL)
+                .is_empty(),
+            "no Free City below ring 4 (Frontier-7)"
+        );
+        let want =
+            camp::place_v2(&seed, coord, &t, 0, false, true, Some(keep_tile)).expect("ring 2 camp");
+        assert_ne!(want.tile, keep_tile);
         assert!(camp::camp_tile_ok(&t, want.tile));
         assert_eq!(pd[PV::CAMP + CP::TILE], want.tile);
         assert_eq!(pd[PV::CAMP + CP::STATE], CP::STATE_PRESENT);
@@ -237,10 +284,10 @@ fn map_ring_beyond_genesis_waits_for_occupancy_and_its_seed() {
     c.edit(&w.a.frontier(), |d| {
         d[FR::WEDGE_OCCUPIED..FR::WEDGE_OCCUPIED + 4].copy_from_slice(&occ.to_le_bytes())
     });
-    // Crafted: fund 3 below `4 × rent(4,096)` above its rent.
+    // Crafted: fund 3 below `4 × rent(4,736)` above its rent (MC §5.2.1).
     let f3 = w.a.province_fund(3);
     let saved = c.account(&f3).unwrap();
-    let low = c.rent(PF::SIZE) + 4 * c.rent(PV::SIZE) - 1;
+    let low = c.rent(PF::SIZE) + 4 * c.rent(PV2::SIZE) - 1;
     c.put(f3, c.program, saved.data.clone(), low);
     assert_code(w.open_ring(&mut c, 4), E::Insufficient);
     c.put(f3, c.program, saved.data.clone(), saved.lamports);
@@ -444,7 +491,7 @@ fn g02_prefund_ring_seed_both_paths() {
 fn g02_prefund_province_funded_path() {
     let (mut base, w) = running();
     w.open_genesis_rings(&mut base);
-    let rent = base.rent(PV::SIZE);
+    let rent = base.rent(PV2::SIZE);
     let pk = w.a.province(2, 0);
     for pre in prefunds(rent) {
         let mut c = base.fork();
@@ -460,7 +507,7 @@ fn g02_prefund_province_funded_path() {
             "only the shortfall"
         );
         assert_eq!(c.lamports(&pk), rent.max(pre));
-        assert_program_account(&c, &pk, PV::MAGIC, PV::SIZE, 1);
+        assert_program_account(&c, &pk, PV::MAGIC, PV2::SIZE, 1);
     }
 }
 
@@ -586,7 +633,7 @@ fn g03_land_accounts_forged_in_map_instructions() {
     );
     // A program-owned impostor at the canonical Province address.
     let mut f = c.fork();
-    f.put_program_account(w.a.province(2, 0), vec![0u8; PV::SIZE]);
+    f.put_program_account(w.a.province(2, 0), vec![0u8; PV2::SIZE]);
     assert_code(
         f.send(std::slice::from_ref(&ix), &[&w.keeper]),
         E::BadAccount,

@@ -224,16 +224,24 @@ fn holding_build_buildings_walls_and_tier_up() {
 fn holding_build_refusals() {
     let (mut c, w, e) = setup();
     let b = |item: u8, walls: bool| hx::build_item(&w.a, &e.player(), e.href(), item, walls);
-    // Unknown item; a province with a building or none with walls.
+    // Unknown item. MC §5.6: the Province is always listed (the capture
+    // lock); walls and the tier-up need it writable (`BadAccount`), a
+    // missing one is `TooManyAccounts`, a writable one with a building is
+    // accepted (`Wr::Either`).
     assert_code(
         send(&mut c.fork(), &e, b(ITEM_TIER_UP + 1, false)),
         E::BadData,
     );
-    assert_code(send(&mut c.fork(), &e, b(0, true)), E::TooManyAccounts);
-    assert_code(
-        send(&mut c.fork(), &e, b(catalog::ITEM_WALLS, false)),
-        E::TooManyAccounts,
-    );
+    let mut ro = b(catalog::ITEM_WALLS, true);
+    ro.accounts[at::PROVINCE].is_writable = false;
+    assert_code(send(&mut c.fork(), &e, ro), E::BadAccount);
+    let mut ro = b(ITEM_TIER_UP, true);
+    ro.accounts[at::PROVINCE].is_writable = false;
+    assert_code(send(&mut c.fork(), &e, ro), E::BadAccount);
+    let mut short = b(0, false);
+    short.accounts.pop();
+    assert_code(send(&mut c.fork(), &e, short), E::TooManyAccounts);
+    expect_lands(send(&mut c.fork(), &e, b(0, true)), "hx::build_item(");
     // Not enough resources for walls (300 stone at the doctrine's rate).
     let mut f = c.fork();
     w.edit_kholding(&mut f, &e, |h| h.stores[Resource::Stone as usize].value = 0);

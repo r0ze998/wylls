@@ -74,9 +74,9 @@ pub fn copy_to_fresh(c: &mut Chain, from: &Address, label: &[u8]) -> Address {
 /// above it (the formula over-counts by less than a page, so `ixs` must be
 /// the kind's worst account set). Returns the need.
 #[track_caller]
-pub fn loaded_check(
+pub fn loaded_check<I: permutation_frontier_svm_tests::chain::AnyIx>(
     c: &Chain,
-    ix: frontier_abi::tags::Ix,
+    ix: I,
     ixs: &[permutation_frontier_svm_tests::Instruction],
     signers: &[&Keypair],
 ) -> u64 {
@@ -84,30 +84,33 @@ pub fn loaded_check(
         assert_loaded_exceeded, expect_lands, Profile, PAGE,
     };
     let pd = c.programdata_len();
-    let l = frontier_abi::budgets::loaded_limit_for(ix, pd);
-    let p = Profile::ladder(ix, pd).with_loaded(l);
+    // ABI v2 (MC, CQ2-A): `L(kind)` over the v2 account sizes and lists.
+    let v2 = ix.v2();
+    let (bytes, n) = frontier_abi::v2::budgets::loaded_accounts(v2);
+    let l = permutation_rules::frontier::fees::loaded_limit(pd, bytes, n);
+    let p = Profile::ladder(v2, pd).with_loaded(l);
     let t = c.transaction(&p, ixs, signers);
     let need = c.loaded_size(&t.message);
     let tight = (need.div_ceil(PAGE as u64) * PAGE as u64) as u32;
     println!(
         "g01 L({}) = {l} B at programdata {pd} B: need {need} B, tight {tight} B, slack {} B",
-        ix.name(),
+        v2.name(),
         l as u64 - need.min(l as u64)
     );
     assert!(
         need <= l as u64,
         "{}: need {need} B > L(kind) {l} B",
-        ix.name()
+        v2.name()
     );
     let mut f = c.fork();
-    let landed = expect_lands(f.send_with(&p, ixs, signers), ix.name());
+    let landed = expect_lands(f.send_with(&p, ixs, signers), v2.name());
     assert_eq!(landed.loaded, need);
     let mut f = c.fork();
     assert_loaded_exceeded(f.send_with(&p.with_loaded(tight - PAGE), ixs, signers));
     assert!(
         l == tight || l == tight + PAGE,
         "{}: L(kind) {l} B is not within a page of the tight {tight} B (not the worst set?)",
-        ix.name()
+        v2.name()
     );
     need
 }

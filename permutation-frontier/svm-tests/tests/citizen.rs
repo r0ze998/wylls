@@ -508,7 +508,13 @@ fn citizen_file_and_settle_a_fresh_holding() {
             "store {r}"
         );
     }
-    assert_eq!(rd_i64(&hd, H::SHIELD_UNTIL), want.shield_until());
+    // MC §3.9: the first-holding shield is the season's (Frontier-7: 24 h,
+    // `shield_late_secs` after `shield_late_after_secs`), not M1's constant.
+    let life = w.params.lifecycle();
+    assert_eq!(
+        rd_i64(&hd, H::SHIELD_UNTIL),
+        c.now + life.shield_secs_for(1, c.now, w.genesis_ts())
+    );
     assert_eq!(hd[H::TILE], c.data(&pk)[PV::SITES]);
     let d = c.data(&ck);
     assert_eq!(d[C::FLAGS] & C::FLAG_PROVISIONAL, C::FLAG_PROVISIONAL);
@@ -623,7 +629,9 @@ fn citizen_cohort_displacement_has_no_deadline_and_finality_waits() {
     );
     let ld = c.data(&lo_ck);
     assert_eq!(ld[C::FLAGS] & C::FLAG_PROVISIONAL, 0);
-    assert_eq!(&ld[C::HOLDING..C::HOLDING + 6], &[0; 6]);
+    // MC §5.2.3: the emptied slot-1 entry has `gen = 0xFF`.
+    assert_eq!(&ld[C::HOLDING..C::HOLDING + 6], &[0, 0, 0, 0, 0, 0xFF]);
+    assert_eq!(ld[C::HOLDINGS_N], 0);
     assert_eq!(rd_u32(&ld, C::TICKET_BELL), C::NO_TICKET);
     if lo_shard == hi_shard {
         assert_eq!(holdings(&c, &hi_shard), (1, 1));
@@ -1122,6 +1130,10 @@ fn citizen_founded_holding_runs_the_holding_actions() {
         "Harvest on a SettleTicket holding",
     );
     one(&l.logs, Kind::HARVEST);
+    // MC §5.6: Harvest carries the holding's own Province now, so it is the
+    // first action that runs the lazy flip.
+    one(&l.logs, Kind::HOLDING_FINAL);
+    assert_eq!(c.data(&hk)[H::STATE], H::STATE_FINAL);
     before.settle(c.now).unwrap();
     before.touch_owner(c.now).unwrap();
     before.commit_walls(c.now);
@@ -1152,8 +1164,10 @@ fn citizen_founded_holding_runs_the_holding_actions() {
         ),
         "Muster",
     );
-    // The first action carrying the holding's Province flips it final.
-    one(&l.logs, Kind::HOLDING_FINAL);
+    // Already final: no second flip.
+    assert!(
+        permutation_frontier_svm_tests::records::of_kind(&l.logs, Kind::HOLDING_FINAL).is_empty()
+    );
     one(&l.logs, Kind::MUSTER);
     assert_eq!(c.data(&hk)[H::STATE], H::STATE_FINAL);
     assert_eq!(rd_u32(&c.data(&hk), H::reserve(0)), 100);
@@ -1827,7 +1841,7 @@ fn citizen_g13_file_ticket_forgery_shape_loaded() {
     // room for a fourth Province (W6-B: the release `.so` grew 2,264 B, one
     // more 4-KiB page of `max_len`, and the 267-B margin this relied on
     // went), so this send asks for one Province (and a page) more.
-    let extra_room = PV::SIZE as u32 + 4_096;
+    let extra_room = frontier_abi::v2::layout::province::province::SIZE as u32 + 4_096;
     let p = c
         .profile_of(&[extra.clone()], Profile::ladder)
         .with_loaded(loaded_limit(Ix::FileTicket, c.programdata_len()) + extra_room);
