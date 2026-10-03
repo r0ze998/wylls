@@ -86,3 +86,45 @@ test('a saved backup restores the same key; a bare 64-hex string works; junk doe
   const again = await createKey(parseBackup(text));
   assert.deepEqual(again.key, key, 'the same seed gives the same public half');
 });
+
+test('PT-E: in-app browsers (LINE, Instagram, Facebook, X, Kakao, WeChat, Android WebView) are recognised; the real ones are not', async () => {
+  const { inAppBrowser } = await import('../../permutation-server/web/frontier/playtest/guestkey.mjs');
+  const IN = [
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Line/14.8.0',
+    'Mozilla/5.0 (Linux; Android 14; Pixel 8 Build/AP2A; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/126.0 Mobile Safari/537.36 Line/14.8.0',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Instagram 330.0.0',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 [FBAN/FBIOS;FBAV/460.0]',
+    'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/126.0 Mobile Safari/537.36 [FB_IAB/FB4A;FBAV/460.0]',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Twitter for iPhone',
+    'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/126.0 Mobile Safari/537.36 KAKAOTALK 10.4.0',
+    'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/126.0 Mobile Safari/537.36 MicroMessenger/8.0.47',
+  ];
+  const OUT = [
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/126.0 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64; rv:127.0) Gecko/20100101 Firefox/127.0',
+    '',
+  ];
+  for (const ua of IN) assert.equal(inAppBrowser(ua), true, ua);
+  for (const ua of OUT) assert.equal(inAppBrowser(ua), false, ua);
+});
+
+test('PT-E: the start page keeps the invitation in the address bar until Start, survives a malformed fragment, and offers the key before Start', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../../permutation-server/web/frontier/playtest/landing.mjs', import.meta.url), 'utf8');
+  const html = readFileSync(new URL('../../permutation-server/web/frontier/playtest/index.html', import.meta.url), 'utf8');
+  // the fragment is removed only in the Start handler (after the click), never while reading it
+  const take = src.slice(src.indexOf('function takeInvite()'), src.indexOf('let invite = takeInvite()'));
+  assert.ok(!/replaceState/.test(take), 'takeInvite does not touch the address bar');
+  assert.match(src.slice(src.indexOf("$('go').addEventListener")), /replaceState/);
+  // a malformed percent escape is an invalid invitation, not an exception at module level
+  assert.match(take, /try \{ raw = decodeURIComponent\(raw\); \} catch \{ return '!'; \}/);
+  assert.match(take, /store\.set\(INVITE_KEY, raw\)/, 'a valid-looking invitation is also kept in this browser');
+  // order on the page: key box, then the Start box, then the explanations
+  const at = id => html.indexOf(`id="${id}"`);
+  assert.ok(at('key-box') > 0 && at('key-box') < at('go') && at('go') < at('about'), 'the key box comes before the Start button');
+  assert.ok(src.includes('inAppBrowser()'), 'the page checks for an in-app browser first');
+  assert.ok(!/10〜20分|10 to 20 minutes/.test(src), 'the wait is 11 to 21 minutes everywhere');
+});

@@ -24,14 +24,10 @@
     <p id="card-body"></p>
     <p id="card-more" class="small" hidden></p>
     <div class="actions">
-      <a id="go" class="btn primary" href="../index.html" hidden></a>
+      <button id="copy-link" type="button" class="btn primary" hidden></button>
+      <button id="force" type="button" class="btn" hidden></button>
       <button id="retry" type="button" class="btn" hidden></button>
     </div>
-  </section>
-
-  <section class="box" id="about">
-    <h2 id="about-title"></h2>
-    <ul id="about-list"></ul>
   </section>
 
   <section class="box" id="key-box" hidden>
@@ -41,13 +37,26 @@
       <button id="key-save" type="button" class="btn"></button>
       <button id="key-copy" type="button" class="btn"></button>
     </div>
-    <details>
+    <details id="restore">
       <summary id="restore-title"></summary>
       <p id="restore-body" class="small"></p>
       <textarea id="restore-text" rows="3" autocomplete="off" spellcheck="false"></textarea>
       <div class="actions"><button id="restore-go" type="button" class="btn"></button></div>
       <p id="restore-msg" class="small" role="status"></p>
     </details>
+  </section>
+
+  <section class="box" id="start-box" hidden>
+    <h2 id="start-title"></h2>
+    <label id="saved-wrap" class="check" tabindex="-1"><input type="checkbox" id="saved"> <span id="saved-label"></span></label>
+    <div class="actions">
+      <a id="go" class="btn primary" href="../index.html" hidden></a>
+    </div>
+  </section>
+
+  <section class="box" id="about">
+    <h2 id="about-title"></h2>
+    <ul id="about-list"></ul>
   </section>
 
   <footer class="small" id="foot"></footer>

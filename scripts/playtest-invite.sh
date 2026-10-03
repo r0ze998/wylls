@@ -4,12 +4,16 @@
 #   scripts/playtest-invite.sh N [--label NAME] [--base-url URL] [--out FILE] [--stdout] [--game-page]
 #
 #   N           1..1000
-#   --label     a short tag the relay's event log keeps with the batch
-#               (default friends-<yyyymmdd>); letters, digits, . _ -
-#   --base-url  the tunnel's https://<words>.trycloudflare.com. Without it the URL
-#               is read from the cloudflared log (<data>/logs/cloudflared.log, written by
-#               the command playtest-up.sh prints) when a tunnel is running; failing that
-#               the url column holds the literal {BASE_URL} placeholder, for a mail merge
+#   --label     REQUIRED: a short tag the relay's event log keeps with the batch;
+#               letters, digits, . _ -. Only labels starting with `friends-` are counted
+#               in the pitch figures (scripts/playtest-metrics.mjs): use `friends-1`,
+#               `friends-2`... for codes that go to friends, and `ops` for your own
+#               tests and second devices (never counted).
+#   --base-url  the tunnel's https://<words>.trycloudflare.com (give it: the run-book does).
+#               Without it the URL is read from the cloudflared log (<data>/logs/cloudflared.log)
+#               and, on a terminal, you are asked to confirm it (without a terminal the script
+#               refuses); failing that the url column holds the literal {BASE_URL} placeholder,
+#               for a mail merge
 #   --out       the CSV (default $PLAYTEST_DATA/invites/invites-<label>-<time>.csv, mode 0600)
 #   --stdout    also print the CSV (the codes are bearer secrets: one code = one join)
 #   --game-page use the game page itself instead of the playtest landing page (see below)
@@ -54,16 +58,27 @@ while [ $# -gt 0 ]; do
 done
 case "$n" in ''|*[!0-9]*) echo "usage: playtest-invite.sh N [--label NAME] [--base-url URL] [--out FILE] [--stdout]" >&2; exit 2 ;; esac
 [ "$n" -ge 1 ] && [ "$n" -le 1000 ] || { echo "N must be 1..1000" >&2; exit 2; }
-label="${label:-friends-$(date +%Y%m%d)}"
+# PT-E: no default label. A forgotten label used to become friends-<date> and was counted as a friend.
+[ -n "$label" ] || { echo "--label is required: friends-1 (codes for friends; counted), ops (your own tests; never counted), bots" >&2; exit 2; }
 case "$label" in *[!A-Za-z0-9_.-]*|'') echo "label: letters, digits, . _ - only" >&2; exit 2 ;; esac
+case "$label" in friends-*|ops|bots|selftest*) ;; *) echo "WARNING: the label '$label' is not friends-*: it will NOT be counted in the pitch figures (use ops for tests)" >&2 ;; esac
 [ "${#label}" -le 40 ] || { echo "label: at most 40 characters" >&2; exit 2; }
 if [ -n "$base" ]; then
   case "$base" in https://*|http://127.0.0.1:*|http://localhost:*) ;; *) echo "--base-url must be https://... (the tunnel) or a local http://127.0.0.1:PORT" >&2; exit 2 ;; esac
   base="${base%/}"
 fi
 if [ -z "$base" ] && [ -f "$PT_LOGS/cloudflared.log" ]; then
-  base="$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' "$PT_LOGS/cloudflared.log" | tail -1)"
-  [ -n "$base" ] && echo "using the tunnel URL from the cloudflared log: $base" >&2
+  # PT-E: cloudflared also prints https://api.trycloudflare.com in its request errors: that is not the tunnel
+  base="$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' "$PT_LOGS/cloudflared.log" | grep -v '^https://api\.' | tail -1)"
+  if [ -n "$base" ]; then
+    echo "the tunnel URL read from the cloudflared log: $base" >&2
+    if [ -t 0 ]; then
+      printf 'Use it for every link? [y/N] ' >&2; read -r yn
+      case "$yn" in y|Y|yes) ;; *) echo "stopped: pass --base-url https://<your-tunnel-host>" >&2; exit 2 ;; esac
+    else
+      echo "stopped: no terminal to confirm it; pass --base-url https://<your-tunnel-host>" >&2; exit 2
+    fi
+  fi
 fi
 tokfile="$(pt_operator_token_file)"
 [ -f "$tokfile" ] || { echo "no operator token at $tokfile: is the run started (scripts/playtest-up.sh)?" >&2; exit 1; }

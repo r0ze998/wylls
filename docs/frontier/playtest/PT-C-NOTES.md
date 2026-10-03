@@ -81,22 +81,24 @@ Restart times are from `kill -9` to: a new pid in `state.json` (**pid**), its po
 
 ```sh
 node scripts/playtest-metrics.mjs                         # the real run: .claude/data/playtest/runs/playtest-1/relay/relay-events.jsonl
-node scripts/playtest-metrics.mjs RELAY-EVENTS.jsonl [--exclude-labels bots] [--tz-offset-hours 9] [--session-gap-min 30]
+node scripts/playtest-metrics.mjs RELAY-EVENTS.jsonl [--include-labels 'friends-*'] [--exclude-labels ops] [--exclude-codes FILE] [--invited-sent N] [--final] [--tz-offset-hours 9] [--session-gap-min 30]   # PT-E: counted labels are an allow-list; returns are gap-based (see OPERATOR-RUNBOOK section 8)
         [--since ISO] [--until ISO] [--herald http://127.0.0.1:41117] [--gaps status/gaps.jsonl] [--json out.json] [--people]
 ```
 
 It reads **one file**, the relay's event log (`invites_issued`, `join`, `action`, `seen`; no name, e-mail or address in it) and prints the figures below; the definitions are the header of the script and are literal:
 
+**PT-E (2026-10-04) replaced the rules below before the first invitation.** The table is the current one; the earlier `N_returned` ("an action on a later calendar day") and `D` (days with activity) were inflated by a night start and by actions nobody chose, and now survive only as labelled secondary figures. The authority is the script's header and [`OPERATOR-RUNBOOK.md`](OPERATOR-RUNBOOK.md) section 8.
+
 | Figure | Definition |
 |---|---|
-| `N_invited` | sum of `count` of `invites_issued` lines whose label is not excluded (default: `bots`): invitation **codes issued**. It is the number of people invited only if each code went to one person: who got a code is the operator's to remember |
-| `N_joined` | distinct invite **nonces** in `join` lines whose nonce belongs to a non-excluded batch = codes that completed a join. A join naming an invite of no batch in the log is not counted and is reported (`joins_unknown_batch`) |
-| `D` | number of distinct calendar days (JST by default, `--tz-offset-hours`) on which any person has a `join` or `action` line |
-| per-day active citizens | distinct persons with a `join` or `action` line that day (a join is activity on its day) |
-| `N_returned` | persons with an `action` line on a day **later** than the day of their join (the join does not count as the return) |
-| median session count | per joined person, sessions = runs of that person's `join` + `action` lines with no gap above 30 minutes; the lower median over all joined persons |
+| `N_invited` | sum of `count` of `invites_issued` lines whose label matches `--include-labels` (default `friends-*`; every label found is listed with its codes and joins), minus `--exclude-codes`: invitation **codes issued**; the operator's note of codes sent is printed beside it (`--invited-sent`) |
+| `N_joined` | distinct invite **nonces** in `join` lines of counted batches = codes that completed a join. A join naming an invite of no batch in the log is not counted and is reported (`joins_unknown_batch`) |
+| `N_returned` | persons with a **deliberate** action (`Harvest, Build, Train, Muster, Garrison, Dissolve, Depart, Explore, SetVigil`) at least 12 hours after their previous deliberate action, or after their join if none (18 h and 24 h printed beside it); `N_acted_late` = a deliberate action at least 12 h after the join |
+| elapsed, per-day table | hours from the first counted join to the last deliberate action; people and deliberate actions per JST day (`--tz-offset-hours`) |
+| median session count | per joined person, sessions = runs of that person's `join` + deliberate actions with no gap above 30 minutes; the lower median over all joined persons |
+| secondary only | `D` (calendar days with activity), returned on a later calendar day by any action, "incl. visits" variants |
 
-`action` is every transaction the relay sponsored for a Citizen, including the ones the page sends by itself when it is open (the site ticket after a join, settlements): "active" means "the client was open and acting", not "clicked". `seen` lines (a page asked for its quota; anyone can ask for anyone's) are **never** used in the headline; the "incl. visits" variants are in `secondary`. `--herald` additionally checks every joined wallet on the chain (`/h/me`: **20 of 20 found** in both rehearsals). People who opened the link and never joined are not in the log; do not claim them.
+`action` is every transaction the relay sponsored for a Citizen, including the ones the page sends by itself when it is open (the site ticket after a join, the rebuilt in-game key, settlements); PT-E counts only the deliberate kinds as play. `seen` lines (a page asked for its quota; anyone can ask for anyone's) are **never** used in the headline; the "incl. visits" variants are in `secondary`. `--herald` additionally checks every joined wallet on the chain (`/h/me`: **20 of 20 found** in both rehearsals). People who opened the link and never joined are not in the log; do not claim them.
 
 **Validated** (`scripts/playtest/metrics-validate.mjs`, `scripts/playtest/metrics.test.mjs`, 8 tests): the same figures were recomputed **from a second source**, the crowd's own record of what its browsers saw (the relay's answers to each friend's join and relayed transactions, with the browser's clock), and compared person by person (the code of friend *i* is row *i* of the invitations CSV; its nonce is the first 12 bytes of the code):
 
@@ -106,6 +108,8 @@ It reads **one file**, the relay's event log (`invites_issued`, `join`, `action`
 | r10x | 26 | 20 | 1 | 0 | 2 | all agree |
 
 Both rehearsals fell inside one JST calendar day (00:08-03:20 and 00:08-07:24), so `D = 1` and `N_returned = 0` there is the **correct** answer to the literal definition and exercises nothing. To exercise the day boundary on real logs, the validation was repeated with the day boundary moved into the middle of each run (`--tz-offset-hours 7.5` for r1x, local midnight at 01:30 JST; `3.5` for r10x, 03:30 JST): r1x **D = 2, N_returned = 16, per-day active 20 and 16, median sessions 2**; r10x **D = 2, N_returned = 13, per-day active 20 and 13**; per person, join day, active days, returned and sessions agreed in all 40 comparisons, and the crowd's own count (16 and 13) matched. The unit tests cover the JST midnight itself (a session that straddles 23:59 / 00:01, a join on the last minute of a day), a repeated invite, a nonce from no batch, bots, windows and an empty log.
+
+**PT-E re-validation (2026-10-04).** The same logs under the new rules: `N_returned = 0` and `N_acted_late = 0` in both (nobody paused 12 hours in a 3 to 7 hour rehearsal), the independent recount in `metrics-validate.mjs` agrees (deliberate actions 181 / 734, automatic ones 20 / 20: the 20 site tickets), and the pipeline checks (join day, active days, sessions, per-day people) still agree person by person. With the day boundary moved into the middle of each run (the night-start situation) the old calendar-day figure is 16 and 13 "returned" out of 20, the new one 0: that is the inflation PT-E removed.
 
 `median sessions` is 2 in both because friends with gaps under 30 minutes are one session by this rule (the crowd's own sessions, which are browser sessions, have a median of 4 at 1x and 7 at 10x). Say "median 2 sessions" only with its definition.
 

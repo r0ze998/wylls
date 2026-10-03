@@ -108,15 +108,16 @@ function readJson(req, limit) {
  * @param {object} [o.gateKey]   the join-gate Keypair (gated seasons)
  * @param {object} [o.store]     `{state, save()}` for quotas and used invites
  * @param {object} [o.events]    EventLog (PT-A): invites issued and joins, as JSONL
+ * @param {number} [o.quotaSaveMs] PT-E: write the quota state at most once per this many ms (0: at once)
  */
 export function createFrontierContext({ cfg, connection, pool, keeper = null, invites = null, gateKey = null, store = { state: {}, save() {} }, now = Date.now,
-  log = console.log, limiter, funds, blockhashes, events = NO_EVENTS }) {
+  log = console.log, limiter, funds, blockhashes, events = NO_EVENTS, quotaSaveMs = 0 }) {
   const addresses = new FrontierAddresses({ programId: cfg.programId, seasonId: BigInt(cfg.seasonId) });
   return {
     cfg, connection, pool, keeper, invites, gateKey, log, now, addresses, events,
     programId: addresses.programId,
     chain: new ChainView({ connection, addresses, now }),
-    quota: new QuotaBook({ store }),
+    quota: new QuotaBook({ store, saveDebounceMs: quotaSaveMs }),
     limiter: limiter ?? new RateLimiter({ now }),
     relayed: new ReplayCache({ now }),
     blockhashes: blockhashes ?? new BlockhashBook(connection, { now }),

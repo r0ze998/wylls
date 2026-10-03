@@ -123,6 +123,7 @@ try {
     log('landing', JSON.stringify(card));
     await shot('00-landing');
     if (!card.go) throw new Error(`the start page does not offer to start: ${card.title}`);
+    if (await page.locator('#saved').count()) await page.locator('#saved').check({ force: true }); // PT-E: Start waits for "I saved my key"
     await page.locator('#go').click();
   }
   else await page.goto(`${HERALD}${ENTRY}`);

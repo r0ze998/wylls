@@ -72,12 +72,15 @@ function relay({ chain = fakeChain(), season = {}, clock = bellClock(10), keeper
   for (const k of pool.publicKeys()) chain.set(k, { lamports: 2_000_000_000 });
   chain.set(A.season, { data: seasonAccount(season) });
   chain.set(CLOCK_SYSVAR, { data: clockAccount(clock) });
+  chain.set(A.citizen(wallet.publicKey.toBase58()), { data: liveCitizen() });
   const store = { state: {}, save() {} };
   const cfg = { cluster: 'localnet', programId: PROGRAM, seasonId: String(SEASON_ID), heraldPeer: '127.0.0.1', heraldUrl: 'http://127.0.0.1:41040', minPoolSol: 1, operatorToken: 'op-token', maxPlayers };
   const invites = new InviteBook({ secret: Buffer.alloc(32, 3), seasonId: SEASON_ID, store });
   const apps = createFrontierApps({ cfg, connection: chain, pool, keeper, invites, gateKey, store, log });
   return { ...apps, chain, pool, store, invites };
 }
+
+const liveCitizen = (extra = {}) => encodeAccount('Citizen', { SEASON_ID, WALLET: wallet.publicKey.toBytes(), SESSION: session.publicKey.toBytes(), SESSION_EXPIRY: BigInt(GENESIS + 86_400 * 3), ...extra });
 
 function playerTx({ name, fields = {}, feePayer, signer = session, accounts = {} }) {
   const base = { actor: signer.publicKey.toBase58(), season: A.season, citizen: A.citizen(wallet.publicKey.toBase58()), holding: A.holding(...HOLD), province: A.province(HOLD[0], HOLD[1]), frontier: A.frontier };
@@ -188,7 +191,8 @@ test('POST /f/invite-check: ok / used / invalid / notNeeded, the season phase an
   const r = relay({ gateKey: gate, season: { JOIN_GATE: gate.publicKey.toBytes() }, maxPlayers: 1 });
   const issued = r.invites.issue(2);
   const check = async invite => (await call(r.public, 'POST', '/f/invite-check', { body: { invite }, ip: '203.0.113.9' })).json;
-  assert.deepEqual(await check(issued[0]), { ok: true, gated: true, invite: 'ok', season: 'open', full: false });
+  // PT-E: with the game day's end (the clock is genesis + 10 bells + 5 s: game day 0 ends at genesis + 86,400)
+  assert.deepEqual(await check(issued[0]), { ok: true, gated: true, invite: 'ok', season: 'open', full: false, quota: { perDay: 40, resetsAt: GENESIS + 86_400 } });
   assert.equal((await check(issued[0])).invite, 'ok', 'checking does not use it up');
   assert.equal((await check('nonsense')).invite, 'invalid');
   assert.equal((await check(undefined)).invite, 'invalid');
@@ -257,13 +261,14 @@ test('the operator surface is not reachable through the public listener, however
 test('abuse: one address sending joins, relays, nudges and checks is limited per route; another address is unaffected; no pool lamports move', async () => {
   const chain = fakeChain();
   const r = relay({ chain, keeper: { nudge: async () => ({ status: 200, body: { queued: true } }) } });
+  chain.set(A.province(...HOLD), { data: provinceAccount(8) });
   const ip = '198.51.100.7';
   const counts = {};
   const bump = (k, status) => { (counts[k] ??= {})[status] = (counts[k][status] ?? 0) + 1; };
   for (let i = 0; i < 80; i++) {
     bump('join', (await call(r.public, 'POST', '/f/join', { body: { tx: 'AAAA' }, ip })).status);
     bump('relay', (await call(r.public, 'POST', '/f/relay', { body: { tx: 'AAAA' }, ip })).status);
-    bump('nudge', (await call(r.public, 'POST', '/f/nudge', { body: { province: [0, 0], bell: 1 }, ip })).status);
+    bump('nudge', (await call(r.public, 'POST', '/f/nudge', { body: { province: [HOLD[0], HOLD[1]], bell: 10 }, ip })).status);
     bump('check', (await call(r.public, 'POST', '/f/invite-check', { body: { invite: 'x' }, ip })).status);
     bump('quota', (await call(r.public, 'GET', `/f/quota?citizen=${A.citizen(wallet.publicKey.toBase58())}`, { ip })).status);
   }
@@ -289,6 +294,7 @@ test('activity record: a sponsored action writes {citizen, kind, signature}; /f/
   for (const k of pool.publicKeys()) chain.set(k, { lamports: 2_000_000_000 });
   chain.set(A.season, { data: seasonAccount() });
   chain.set(CLOCK_SYSVAR, { data: clockAccount(bellClock(10)) });
+  chain.set(A.citizen(wallet.publicKey.toBase58()), { data: liveCitizen() });
   const store = { state: {}, save() {} };
   const apps = createFrontierApps({ cfg: { cluster: 'localnet', programId: PROGRAM, seasonId: String(SEASON_ID), heraldPeer: '127.0.0.1', heraldUrl: 'x', minPoolSol: 1, operatorToken: 'op' },
     connection: chain, pool, store, log: () => {}, events, now: () => t });
@@ -302,9 +308,10 @@ test('activity record: a sponsored action writes {citizen, kind, signature}; /f/
   assert.ok(!JSON.stringify(lines).includes('203.0.113.9'), 'no address of the client in the record');
   // seen: unknown Citizen -> nothing; existing -> one line, then none for 5 minutes, then one more.
   const quota = () => call(apps.public, 'GET', `/f/quota?citizen=${citizen}`, { ip: '203.0.113.9' });
+  chain.accounts.delete(citizen); // (it existed for the action above; now the account is gone)
   await quota();
   assert.equal(lines.filter(l => l.event === 'seen').length, 0, 'no such Citizen yet');
-  chain.set(citizen, { data: encodeAccount('Citizen', { SEASON_ID }) });
+  chain.set(citizen, { data: liveCitizen() });
   await quota(); await quota(); await quota();
   assert.equal(lines.filter(l => l.event === 'seen').length, 1);
   t += 4 * 60_000; await quota();

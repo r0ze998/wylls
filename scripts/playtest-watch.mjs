@@ -15,7 +15,7 @@
 // docs/frontier/playtest/PT-A-OPS.md section 4. Nothing here reads or prints
 // a secret value: tokens are read to authenticate loopback requests only.
 import { execFileSync, spawn } from 'node:child_process';
-import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync, appendFileSync, truncateSync, copyFileSync } from 'node:fs';
+import { createReadStream, createWriteStream, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync, appendFileSync, truncateSync, copyFileSync } from 'node:fs';
 import { createGzip } from 'node:zlib';
 import { pipeline } from 'node:stream/promises';
 import net from 'node:net';
@@ -24,6 +24,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = process.env.PT_ROOT ?? path.resolve(HERE, '..');
 const DATA = process.env.PT_DATA ?? path.resolve(HERE, '../../../data/playtest');
 const RUN_ID = process.env.PT_RUN_ID ?? 'playtest-1';
 const RUN = process.env.PT_RUN ?? path.join(DATA, 'runs', RUN_ID);
@@ -51,6 +52,11 @@ export const LIMITS = Object.freeze({
   logKeep: 8,
   backupEverySecs: 3600,
   backupStaleSecs: 3 * 3600,
+  /** PT-E: open files of the herald against the file-descriptor limit it inherited. */
+  fdWarn: 0.7,
+  fdAlarm: 0.9,
+  /** PT-E: a gap between ticks this long (sleep, a stopped babysitter) is also announced on the Mac. */
+  gapNotifySecs: 600,
 });
 
 const sleepMs = ms => new Promise(r => setTimeout(r, ms));
@@ -58,6 +64,26 @@ const readJson = (p, d = null) => { try { return JSON.parse(readFileSync(p, 'utf
 const readTrim = p => { try { return readFileSync(p, 'utf8').trim(); } catch { return null; } };
 const fmtBytes = n => (n == null ? '?' : n >= 2 ** 30 ? `${(n / 2 ** 30).toFixed(1)} GB` : n >= 2 ** 20 ? `${(n / 2 ** 20).toFixed(1)} MB` : `${Math.round(n / 1024)} kB`);
 const sh = (cmd, args, timeout = 6000) => { try { return execFileSync(cmd, args, { encoding: 'utf8', timeout, stdio: ['ignore', 'pipe', 'ignore'] }); } catch { return null; } };
+
+/**
+ * PT-E: a local notification (osascript) and a spoken line (say): nothing
+ * leaves the machine. PT_NOTIFY=0 turns it off (rehearsals, tests);
+ * PT_NOTIFY=print writes the commands to PT_DATA/logs/notify.log instead of
+ * running them.
+ */
+export function notify(title, text) {
+  const mode = process.env.PT_NOTIFY ?? '1';
+  if (mode === '0') return false;
+  const clean = x => String(x).replace(/["\\]/g, ' ').slice(0, 220);
+  const script = `display notification "${clean(text)}" with title "${clean(title)}" sound name "Basso"`;
+  if (mode === 'print') {
+    try { mkdirSync(LOGS, { recursive: true }); appendFileSync(path.join(LOGS, 'notify.log'), `${new Date().toISOString()} osascript -e ${script} | say ${clean(title)}\n`); } catch { /* best effort */ }
+    return true;
+  }
+  sh('osascript', ['-e', script], 5000);
+  try { spawn('say', [clean(title)], { stdio: 'ignore', detached: true }).unref(); } catch { /* no speech */ }
+  return true;
+}
 
 async function getJson(url, headers = {}, ms = 4000) {
   const t0 = Date.now();
@@ -214,11 +240,42 @@ export async function collect({ prev = null, debounce = false } = {}) {
   out.keep_awake = !!babyPid && (sh('pmset', ['-g', 'assertions']) ?? '').includes(`caffeinate asserting on behalf of Process ID ${babyPid}`);
   if (babyAlive && !out.keep_awake && !stopped) warn('keep-awake', 'no caffeinate assertion is held for the babysitter: the Mac may go to sleep (the game clock then stops)');
   const tun = [...ps.values()].find(p => /cloudflared.*tunnel/.test(p.command) && !/grep/.test(p.command));
-  out.tunnel = { running: !!tun, pid: tun?.pid ?? null, url: null };
+  out.tunnel = { running: !!tun, pid: tun?.pid ?? null, url: null, target: null };
   const tlog = readTrim(path.join(LOGS, 'cloudflared.log'));
+  const tunnelUrlFile = path.join(STATUS_DIR, 'tunnel-url.txt');
   if (tlog) {
-    const m = [...tlog.matchAll(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/g)].pop();
-    out.tunnel.url = m ? m[0] : null;
+    // cloudflared also prints https://api.trycloudflare.com in its request errors: that is not the tunnel (PT-E)
+    const m = [...tlog.matchAll(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/g)].map(x => x[0]).filter(u => u !== 'https://api.trycloudflare.com').pop();
+    if (m) { out.tunnel.url = m; try { writeFileSync(tunnelUrlFile, `${m}\n`); } catch { /* best effort */ } }
+  }
+  // the log is rotated: the last address seen is kept in a file
+  if (!out.tunnel.url) out.tunnel.url = readTrim(tunnelUrlFile);
+  // PT-E: the tunnel must point at the herald and nothing else
+  if (tun) {
+    const t = /--url[ =](\S+)/.exec(tun.command);
+    out.tunnel.target = t ? t[1] : null;
+    const heraldPort = state.ports?.herald;
+    if (heraldPort && out.tunnel.target !== `http://127.0.0.1:${heraldPort}`) alarm('tunnel-target', `cloudflared points at ${out.tunnel.target ?? 'no --url'}, not at the herald http://127.0.0.1:${heraldPort}: stop it (Ctrl-C) and start the tunnel with the command playtest-up.sh printed`);
+  }
+  // PT-E: the relay's modules are a copy inside this worktree; a symlink or a missing package breaks every relay restart
+  try {
+    const nm = path.join(ROOT, 'permutation-gateway', 'node_modules');
+    if (lstatSync(nm).isSymbolicLink()) alarm('relay-modules', 'permutation-gateway/node_modules is a symlink into another worktree (another session may delete it); replace it by a copy (cp -c -R)');
+    else if (!existsSync(path.join(nm, '@solana', 'web3.js', 'package.json'))) alarm('relay-modules', 'permutation-gateway/node_modules/@solana/web3.js is missing: the relay cannot start');
+  } catch { alarm('relay-modules', 'permutation-gateway/node_modules is missing: the relay cannot start'); }
+  // PT-E: open files of the herald against the limit it inherited (a cold page through the tunnel is about 200 requests)
+  const heraldPid = state.components?.herald?.pid;
+  // the limit the babysitter raised and every child inherited (PT_NOFILE, scripts/playtest-lib.sh); node raises its own soft limit at start, so asking a child shell would not be the herald's answer
+  const fdLimit = Number(process.env.PT_NOFILE) || Number((sh('sh', ['-c', 'ulimit -n']) ?? '').trim());
+  if (heraldPid && ps.get(heraldPid)) {
+    const lsofOut = sh('lsof', ['-n', '-P', '-p', String(heraldPid)], 8000);
+    const open = lsofOut ? lsofOut.split('\n').length - 2 : null;
+    out.fds = { herald_open: open, limit: Number.isFinite(fdLimit) && fdLimit > 0 ? fdLimit : null };
+    if (open != null && out.fds.limit) {
+      const frac = open / out.fds.limit;
+      if (frac >= LIMITS.fdAlarm) alarm('herald-fds', `the herald has ${open} open files of ${out.fds.limit} allowed`);
+      else if (frac >= LIMITS.fdWarn) warn('herald-fds', `${open} open files of ${out.fds.limit} allowed`);
+    }
   }
 
   // ---- ports
@@ -482,10 +539,12 @@ async function rotateLogs() {
   const dir = path.join(RUN, 'logs');
   const arch = path.join(DATA, 'logs-archive');
   let names = [];
-  try { names = readdirSync(dir).filter(f => f.endsWith('.log')); } catch { return []; }
+  try { names = readdirSync(dir).filter(f => f.endsWith('.log')); } catch { /* no component logs yet */ }
+  // PT-E: the tunnel's log (every failed request writes a line while the origin is down) is rotated like the components'
+  const entries = names.map(f => [f, path.join(dir, f)]);
+  if (existsSync(path.join(LOGS, 'cloudflared.log'))) entries.push(['cloudflared.log', path.join(LOGS, 'cloudflared.log')]);
   const done = [];
-  for (const f of names) {
-    const p = path.join(dir, f);
+  for (const [f, p] of entries) {
     let size;
     try { size = statSync(p).size; } catch { continue; }
     if (size < LIMITS.logRotateBytes) continue;
@@ -526,6 +585,13 @@ async function tick() {
   try { report = await collect({ prev, debounce: true }); } catch (e) { report = { v: 1, wall_ms: Date.now(), wall: new Date().toISOString(), state: 'ALARM', alarms: [{ kind: 'monitor-error', class: 'health', detail: String(e?.stack ?? e).split('\n').slice(0, 3).join(' | ') }], warnings: [] }; }
   if (report.gap) appendLine(path.join(STATUS_DIR, 'gaps.jsonl'), report.gap);
   alarmFiles(report, prev);
+  // PT-E: a NEW alarm, or a long gap, is said out loud on this Mac (the alarm files alone are looked at 3-4 times a day)
+  try {
+    const before = new Set((prev?.alarms ?? []).map(a => a.kind));
+    const fresh = report.alarms.filter(a => !before.has(a.kind));
+    if (fresh.length) notify('Wylls playtest ALARM', fresh.map(a => `${a.kind}: ${a.detail}`).join(' / '));
+    if (report.gap && report.gap.wall_secs > LIMITS.gapNotifySecs) notify('Wylls playtest gap', `no check for ${Math.round(report.gap.wall_secs / 60)} min (the Mac slept or the babysitter stopped); game seconds passed: ${report.gap.game_secs}`);
+  } catch { /* never let a notification stop the tick */ }
   try { report.rotated = await rotateLogs(); } catch (e) { report.warnings.push({ kind: 'log-rotation', detail: String(e.message) }); }
   report.backup_started = maybeBackup(report);
   writeAtomic(path.join(STATUS_DIR, 'status.json'), `${JSON.stringify(report, null, 1)}\n`);

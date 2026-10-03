@@ -22,6 +22,7 @@ let ctx = await launch(PROFILE);
 let page = ctx.pages()[0] ?? await ctx.newPage();
 await page.goto(`${H.origin}/frontier/frontier/playtest/#${INVITE}`); await settle(page);
 expect('first visit with the invitation: it works', (await card(page)).title.match(/works|確認しました/) !== null);
+await page.locator('#saved').check(); // PT-E: Start waits for "I saved my key"
 await page.locator('#go').click();
 await page.waitForFunction(() => document.querySelector('[data-act="pick-faction"]'), null, { timeout: 30_000 });
 expect('the game goes straight to choosing a nation (no wallet step)', !(await page.locator('[data-act="connect"]').count()));

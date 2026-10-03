@@ -128,6 +128,17 @@ fn the_bucket_empties_refills_and_exempts_loopback() {
     assert!((0..1000).all(|_| off.take(ip)));
 }
 
+/// PT-E: an expensive route (`/h/events`, `/h/me/*`) takes 10 tokens: a bucket of 25 serves two, not three.
+#[test]
+fn an_expensive_request_takes_ten_tokens() {
+    let l = IpLimits::new(0.001, 25.0, 6);
+    let ip: IpAddr = "203.0.113.5".parse().unwrap();
+    assert!(l.take_n(ip, 10.0));
+    assert!(l.take_n(ip, 10.0));
+    assert!(!l.take_n(ip, 10.0), "5 tokens left");
+    assert!(l.take(ip), "a plain request still passes");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn page_injection_landing_and_limits_over_http() {
     let (addr, _dir) = serve("pt-b-http", |app| {

@@ -5,7 +5,7 @@
 // Keys live under .local/keys (git-ignored). They are disposable
 // localnet/devnet keys; the gateway never creates or funds mainnet keys.
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { closeSync, copyFileSync, readdirSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_GATEWAY, DEFAULT_SERVER } from '../client/src/http.mjs';
@@ -245,21 +245,51 @@ export function namedKey(name, dir = KEYS_DIR) {
  * the crank and the routes; `save()` writes it atomically.
  */
 export function createStateStore(file) {
+  const bak = `${file}.bak`;
   return {
     file,
     state: null,
-    /** Read the file (null if there is none). */
+    /**
+     * Read the file (null if there is none). A file that does not parse (a
+     * power cut can leave a zero-length one) falls back to the last good copy
+     * (`.bak`), and `recovered` names which was used (PT-E).
+     */
     load() {
-      this.state = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : null;
+      this.recovered = null;
+      // Temp files a crash left behind (`<file>.<pid>.tmp`).
+      try {
+        const base = path.basename(file);
+        for (const f of readdirSync(path.dirname(file))) if (f.startsWith(`${base}.`) && f.endsWith('.tmp')) unlinkSync(path.join(path.dirname(file), f));
+      } catch { /* no directory yet */ }
+      const fromBak = () => { const s = JSON.parse(readFileSync(bak, 'utf8')); this.recovered = bak; return s; };
+      if (!existsSync(file)) { this.state = existsSync(bak) ? fromBak() : null; return this.state; }
+      try {
+        this.state = JSON.parse(readFileSync(file, 'utf8'));
+      } catch (e) {
+        if (!existsSync(bak)) throw e;
+        this.state = fromBak();
+      }
       return this.state;
     },
-    /** Write `state` (and make it the live state). */
+    /** Write `state` (and make it the live state): temp file, fsync, rename; the previous good file stays as `.bak`. */
     save(state = this.state) {
       if (!state) throw new Error('no season state to save');
       this.state = state;
       mkdirSync(path.dirname(file), { recursive: true });
       const tmp = `${file}.${process.pid}.tmp`;
-      writeFileSync(tmp, JSON.stringify(state, null, 2));
+      const fd = openSync(tmp, 'w');
+      try {
+        writeSync(fd, JSON.stringify(state, null, 2));
+        fsyncSync(fd);
+      } catch (e) {
+        closeSync(fd);
+        try { unlinkSync(tmp); } catch { /* nothing to remove */ }
+        throw e;
+      }
+      closeSync(fd);
+      // The first save after a recovery must not turn the unreadable file into the backup.
+      if (existsSync(file) && !this.recovered) { try { copyFileSync(file, bak); } catch { /* the backup is best effort */ } }
+      this.recovered = null;
       renameSync(tmp, file);
       return state;
     },

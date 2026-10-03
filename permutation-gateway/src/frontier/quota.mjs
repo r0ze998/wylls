@@ -17,6 +17,8 @@ import { RouteError } from '../routes/errors.mjs';
 
 export const QUOTA = Object.freeze({ earlyPerDay: 40, latePerDay: 20, earlyDays: 7, burst: 60, departsPerDay: 24 });
 export const GAME_DAY_SECS = 86_400;
+/** The most entries the quota book keeps (PT-E: an anonymous visitor cannot grow the relay's state file without bound). */
+export const QUOTA_MAX_ENTRIES = 5_000;
 
 /** Sponsored transactions a key gets on game day `day`. */
 export const dailyTxs = day => (day < QUOTA.earlyDays ? QUOTA.earlyPerDay : QUOTA.latePerDay);
@@ -32,10 +34,33 @@ export class QuotaBook {
    * `store`: `{state, save()}` (config.mjs createStateStore, or an object
    * in memory); its `state.quota` holds key → {day, left, lamports}.
    */
-  constructor({ store = { state: {}, save() {} } } = {}) {
+  constructor({ store = { state: {}, save() {} }, saveDebounceMs = 0, maxEntries = QUOTA_MAX_ENTRIES } = {}) {
     this.store = store;
     this.store.state ??= {};
     this.store.state.quota ??= {};
+    this.saveDebounceMs = saveDebounceMs;
+    this.maxEntries = maxEntries;
+    this.timer = null;
+  }
+
+  /**
+   * Write the store: at once, or (`saveDebounceMs` > 0, the playtest relay)
+   * at most once per window, since `store.save()` rewrites the whole state
+   * file synchronously and a flood of charges and refunds would otherwise
+   * stall the event loop (PT-E). `flush()` writes a pending save now.
+   */
+  save() {
+    if (!(this.saveDebounceMs > 0)) { this.store.save?.(); return; }
+    if (this.timer) return;
+    this.timer = setTimeout(() => { this.timer = null; this.store.save?.(); }, this.saveDebounceMs);
+    this.timer.unref?.();
+  }
+
+  flush() {
+    if (!this.timer) return;
+    clearTimeout(this.timer);
+    this.timer = null;
+    this.store.save?.();
   }
 
   get entries() { return this.store.state.quota; }
@@ -71,15 +96,29 @@ export class QuotaBook {
     const v = this.view(key, day);
     this.entries[key] = { day, left: v.left - 1, lamports: v.lamports + Number(lamports) };
     this.prune(day);
-    this.store.save?.();
+    this.cap();
+    this.save();
   }
 
   /** Give back `txs` transactions and `lamports` held by `charge` (a refused transaction, or the unused part of an allowance). */
   refund(key, { day, lamports = 0, txs = 1 }) {
     const v = this.view(key, day);
     const l = BigInt(v.lamports) - BigInt(lamports);
-    this.entries[key] = { day, left: v.left + txs, lamports: Number(l > 0n ? l : 0n) };
-    this.store.save?.();
+    const left = v.left + txs;
+    const lamportsLeft = Number(l > 0n ? l : 0n);
+    // An entry equal to a missing one's view is no entry (PT-E: refused junk requests must leave nothing behind).
+    if (left === dailyTxs(day) && lamportsLeft === 0) delete this.entries[key];
+    else this.entries[key] = { day, left, lamports: lamportsLeft };
+    this.save();
+  }
+
+  /** At most `maxEntries` entries (PT-E): the oldest anonymous (`addr:`) ones go first, then the oldest of any kind. */
+  cap() {
+    const keys = Object.keys(this.entries);
+    let extra = keys.length - this.maxEntries;
+    if (extra <= 0) return;
+    for (const k of keys) { if (extra > 0 && k.startsWith('addr:')) { delete this.entries[k]; extra--; } }
+    for (const k of keys) { if (extra > 0 && k in this.entries) { delete this.entries[k]; extra--; } }
   }
 
   /**

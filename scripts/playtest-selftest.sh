@@ -15,6 +15,10 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
+# PT-E: the library first, so -h/--help (pt_help) works; it reads PLAYTEST_DATA/CONFIG, which are set below, so the
+# real settings are sourced again after them.
+# shellcheck source=playtest-lib.sh
+. "$HERE/playtest-lib.sh"
 BOTS=12; DATA=""; KEEP=0; JOIN_MIN=40
 while [ $# -gt 0 ]; do
   case "$1" in

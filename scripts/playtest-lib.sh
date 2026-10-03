@@ -106,3 +106,22 @@ pt_free_kb() {
 
 # The operator's bearer token of the run (never printed by these scripts).
 pt_operator_token_file() { echo "$PT_RUN/relay/operator.token"; }
+
+# PT-E: raise the open-file limit of this shell (and so of everything it starts: the babysitter,
+# the stack, the Rust herald). A shell from Terminal.app has a soft limit of 256: a few dozen
+# WebSockets and a cold page load through the tunnel (about 200 requests) would hit it, and
+# `accept`, static reads and fold writes would then fail. Prints nothing; sets PT_NOFILE.
+pt_raise_nofile() {
+  local cur
+  cur="$(ulimit -n 2>/dev/null)"
+  # never lower a limit that is already high (an agent shell has 1,048,576)
+  if [ "$cur" != unlimited ] && [ "${cur:-0}" -lt 10240 ] 2>/dev/null; then
+    ulimit -S -n 10240 2>/dev/null || ulimit -S -n "$(sysctl -n kern.maxfilesperproc 2>/dev/null)" 2>/dev/null || true
+  fi
+  PT_NOFILE="$(ulimit -n 2>/dev/null)"
+  export PT_NOFILE
+}
+
+# PT-E: nice for the live stack (default 0: the game clock and the bells are the product; set
+# PLAYTEST_NICE=5 for a rehearsal on a shared machine).
+PT_NICE="${PLAYTEST_NICE:-0}"

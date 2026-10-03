@@ -23,6 +23,7 @@ import { InviteBook } from '../src/frontier/invites.mjs';
 import { KeeperLink } from '../src/frontier/keeperlink.mjs';
 import { PayerPool } from '../src/frontier/payers.mjs';
 import { QUOTA } from '../src/frontier/quota.mjs';
+import { addrKey } from '../src/frontier/shapes.mjs';
 import { call } from './gateway-fixtures.mjs';
 
 const PROGRAM = Keypair.generate().publicKey.toBase58();
@@ -96,6 +97,8 @@ function relay({ chain = fakeChain(), season = {}, clock = GENESIS + 3_600, pool
   for (const k of pool.publicKeys()) chain.set(k, { lamports: 2_000_000_000 });
   chain.set(A.season, { data: seasonAccount(season) });
   chain.set(CLOCK_SYSVAR, { data: clockAccount(clock) });
+  // PT-E: a player shape is charged to its citizen only when its signer is, on chain, that citizen's wallet or live session key.
+  chain.set(A.citizen(wallet.publicKey.toBase58()), { data: liveCitizen() });
   const store = { state: {}, save() { store.saves = (store.saves ?? 0) + 1; } };
   const cfg = { cluster: 'localnet', programId: PROGRAM, seasonId: String(SEASON_ID), heraldPeer, heraldUrl: 'http://127.0.0.1:41040', minPoolSol: 1, operatorToken: OPERATOR };
   const invites = new InviteBook({ secret: Buffer.alloc(32, 3), seasonId: SEASON_ID, store });
@@ -108,6 +111,7 @@ function relay({ chain = fakeChain(), season = {}, clock = GENESIS + 3_600, pool
 const wallet = Keypair.generate();
 const session = Keypair.generate();
 const HOLD = [-3, 7, 11];
+const liveCitizen = (extra = {}) => encodeAccount('Citizen', { SEASON_ID, WALLET: wallet.publicKey.toBytes(), SESSION: session.publicKey.toBytes(), SESSION_EXPIRY: BigInt(GENESIS + 30 * 86_400), ...extra });
 
 function playerTx({ name, fields = {}, feePayer, signer = session, accounts = {}, extraSign = [], recentBlockhash = BLOCKHASH }) {
   const base = { actor: signer.publicKey.toBase58(), season: A.season, citizen: A.citizen(wallet.publicKey.toBase58()), holding: A.holding(...HOLD),
@@ -244,7 +248,8 @@ test('the drain guard: the fee payer loses at most the fee plus the kind\'s allo
     assert.equal(c.sent.length, ok ? 1 : 0);
     // The lamport quota keeps what the simulation moved beyond the fee (nothing for a refusal).
     const q = rr.store.state.quota[`citizen:${A.citizen(wallet.publicKey.toBase58())}`];
-    assert.deepEqual(q && [q.left, q.lamports], ok ? [39, Number(tip + MARCH_FEE + SEAL_BOND)] : [40, 0]);
+    if (ok) assert.deepEqual([q.left, q.lamports], [39, Number(tip + MARCH_FEE + SEAL_BOND)]);
+    else assert.equal(q, undefined, 'a refusal leaves no entry behind (PT-E)');
   }
 });
 
@@ -268,7 +273,7 @@ test('Depart tips are the three presets only (TipNotPreset); FileTicket may move
   for (const [escrow, moved, ok] of [[0n, holdingRent, true], [0n, holdingRent + 1n, false], [holdingRent - 5n, 5n, true], [holdingRent - 5n, 6n, false], [holdingRent, 0n, true]]) {
     const c = fakeChain({ debit: () => moved });
     const rr = relay({ chain: c });
-    c.set(A.citizen(wallet.publicKey.toBase58()), { data: encodeAccount('Citizen', { SEASON_ID, TICKET_ESCROW: escrow }) });
+    c.set(A.citizen(wallet.publicKey.toBase58()), { data: liveCitizen({ TICKET_ESCROW: escrow }) });
     const fp = await feePayerOf(rr);
     const t = playerTx({ name: 'FileTicket', feePayer: fp, fields: { sites: [{ p: -3, q: 7, site: 11 }] } });
     const d = await call(rr.public, 'POST', '/f/relay', { body: { tx: t }, ip: '203.0.113.9' });
@@ -350,22 +355,22 @@ test('settle shapes are charged to the requester\'s verified citizen (else the a
     const res = await settleAs(Keypair.generate(), c2, '198.51.100.7');
     assert.equal(res.json.ok, true, JSON.stringify(res.json));
   }
-  assert.equal(r.store.state.quota['addr:198.51.100.7'].left, 37);
+  assert.equal(r.store.state.quota[addrKey('198.51.100.7')].left, 37);
   assert.ok(!Object.keys(r.store.state.quota).some(k => k.startsWith('session:')), 'no per-key buckets');
   assert.equal(r.store.state.quota[`citizen:${c2}`].left, 38, 'a stranger naming c2 does not charge (or use) c2');
   // An expired session key is anonymous too.
   r.chain.set(c2, { data: encodeAccount('Citizen', { SEASON_ID, WALLET: w2.publicKey.toBytes(), SESSION: s2.publicKey.toBytes(), SESSION_EXPIRY: BigInt(GENESIS) }) });
   assert.equal((await settleAs(s2, c2, '198.51.100.8')).json.ok, true);
-  assert.equal(r.store.state.quota['addr:198.51.100.8'].left, 39);
+  assert.equal(r.store.state.quota[addrKey('198.51.100.8')].left, 39);
   // A Citizen at a non-canonical address (its wallet's is elsewhere) is not trusted.
   const fake = Keypair.generate().publicKey.toBase58();
   r.chain.set(fake, { data: encodeAccount('Citizen', { SEASON_ID, WALLET: w2.publicKey.toBytes() }) });
   assert.equal((await settleAs(w2, fake, '198.51.100.9')).json.ok, true);
-  assert.equal(r.store.state.quota['addr:198.51.100.9'].left, 39);
+  assert.equal(r.store.state.quota[addrKey('198.51.100.9')].left, 39);
   // Anonymous: the client-address bucket.
   const anon = await call(r.public, 'POST', '/f/relay', { body: { tx: buildSettle(await feePayerOf(r)).tx }, ip: '203.0.113.9' });
   assert.equal(anon.json.ok, true);
-  assert.equal(r.store.state.quota['addr:203.0.113.9'].left, 39);
+  assert.equal(r.store.state.quota[addrKey('203.0.113.9')].left, 39);
   // A requester signature over another message is refused.
   const s1 = buildSettle(await feePayerOf(r));
   const s3 = buildSettle(await feePayerOf(r));
@@ -467,7 +472,9 @@ test('POST /f/reveal and /f/nudge go to the keeper\'s loopback API with its toke
   await new Promise(r => keeper.listen(0, '127.0.0.1', r));
   try {
     const link = new KeeperLink({ url: `http://127.0.0.1:${keeper.address().port}`, token: 'kpr' });
-    const r = relay({ keeper: link });
+    const r = relay({ keeper: link, season: { BELL_SECS: 600 } });
+    r.chain.set(A.province(-3, 7), { data: [1] });
+    r.chain.set(A.province(0, 0), { data: [1] });
     const pl = pack({ hostId: 1n, arriveBell: 147, destP: 0, destQ: 0, destTile: 0, stance: 0, retreatBps: 0, pathLen: 0, path: new Uint8Array(12) });
     const seal = new Uint8Array(165).fill(3);
     const body = revealMaterial({ holding: A.holding(...HOLD), transitSlot: 1, plain: pl, salt: new Uint8Array(32).fill(2), seal });
@@ -484,9 +491,17 @@ test('POST /f/reveal and /f/nudge go to the keeper\'s loopback API with its toke
       assert.equal((await call(r.public, 'POST', '/f/reveal', { body: b, ip: '203.0.113.9' })).status, 400);
     }
     assert.equal(seen.length, 2, 'malformed material never reaches the keeper');
-    const n = await call(r.public, 'POST', '/f/nudge', { body: { province: [-3, 7], bell: 146 }, ip: '203.0.113.9' });
+    const n = await call(r.public, 'POST', '/f/nudge', { body: { province: [-3, 7], bell: 6 }, ip: '203.0.113.9' });
     assert.deepEqual(n.json, { queued: true, blocking: [] });
-    assert.deepEqual(seen.at(-1).body, { province: [-3, 7], bell: 146 });
+    assert.deepEqual(seen.at(-1).body, { province: [-3, 7], bell: 6 });
+    // PT-E: only a province that exists and a bell up to the next one (clock = bell 6; a lagging resolved_next, even 0, is what the page sends): nothing else reaches the keeper.
+    const before = seen.length;
+    for (const b of [{ province: [-3, 7], bell: 4_294_967_295 }, { province: [-3, 7], bell: 8 }, { province: [5, 5], bell: 6 }]) {
+      assert.equal((await call(r.public, 'POST', '/f/nudge', { body: b, ip: '203.0.113.10' })).status, 400, JSON.stringify(b));
+    }
+    assert.equal((await call(r.public, 'POST', '/f/nudge', { body: { province: [-3, 7], bell: 7 }, ip: '203.0.113.10' })).status, 200, 'the next bell is fine');
+    assert.equal((await call(r.public, 'POST', '/f/nudge', { body: { province: [-3, 7], bell: 0 }, ip: '203.0.113.10' })).status, 200);
+    assert.equal(seen.length, before + 2);
     assert.equal((await call(r.public, 'POST', '/f/nudge', { body: { province: [1], bell: 1 }, ip: '203.0.113.9' })).status, 400);
     // Material is what the reveal needs: its ct_hash is sha256(seal), the root the Depart stored.
     assert.equal(Buffer.from(body.ct_hash_b64, 'base64').toString('hex'), Buffer.from(ctHash(seal)).toString('hex'));
@@ -494,8 +509,9 @@ test('POST /f/reveal and /f/nudge go to the keeper\'s loopback API with its toke
   } finally {
     await new Promise(r => keeper.close(r));
   }
-  const down = relay({ keeper: new KeeperLink({ url: 'http://127.0.0.1:9', token: 'x', timeoutMs: 2_000 }) });
-  const res = await call(down.public, 'POST', '/f/nudge', { body: { province: [0, 0], bell: 1 }, ip: '203.0.113.9' });
+  const down = relay({ keeper: new KeeperLink({ url: 'http://127.0.0.1:9', token: 'x', timeoutMs: 2_000 }), season: { BELL_SECS: 600 } });
+  down.chain.set(A.province(0, 0), { data: [1] });
+  const res = await call(down.public, 'POST', '/f/nudge', { body: { province: [0, 0], bell: 6 }, ip: '203.0.113.9' });
   assert.equal(res.status, 502);
   assert.equal(res.json.code, 'KeeperUnavailable');
 });
@@ -630,7 +646,7 @@ test('PT-A event log: invites issued (label, nonces) and joins (invite nonce, wa
     assert.equal(joined.json.ok, true, JSON.stringify(joined.json));
     const lines = readFileSync(file, 'utf8').trim().split('\n').map(l => JSON.parse(l));
     assert.deepEqual(lines.map(l => l.event), ['invites_issued', 'invites_issued', 'join']);
-    assert.deepEqual([lines[0].label, lines[0].count, lines[1].label], ['friends-1', 2, 'unlabelled']);
+    assert.deepEqual([lines[0].label, lines[0].count, lines[1].label], ['friends-1', 2, 'unlabelled-DO-NOT-COUNT']);
     assert.deepEqual(lines[0].nonces, inv.json.invites.map(i => r.invites.verify(i)));
     assert.deepEqual([lines[2].invite, lines[2].wallet, lines[2].signature], [r.invites.verify(inv.json.invites[1]), w.publicKey.toBase58(), joined.json.signature]);
     assert.ok(lines.every((l, i) => l.t === 1_000 + i), 'stamped by the injected clock');
@@ -656,4 +672,119 @@ test('PT-A event log: invites issued (label, nonces) and joins (invite nonce, wa
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ------------------------------------------------------------------ PT-E: the relay's state is not an address book, and not unbounded
+
+test('PT-E: no client address reaches the state file or the log; an anonymous requester is charged to a salted hash', async () => {
+  const lines = [];
+  const r = relay({ log: l => lines.push(l) });
+  const IP = '203.0.113.77';
+  const stranger = Keypair.generate(); // signs for a citizen that is not theirs: unverified
+  const fp = await feePayerOf(r);
+  const res = await call(r.public, 'POST', '/f/relay', { body: { tx: playerTx({ name: 'Harvest', feePayer: fp, signer: stranger }) }, ip: IP });
+  assert.equal(res.json.ok, true, JSON.stringify(res.json));
+  const victim = `citizen:${A.citizen(wallet.publicKey.toBase58())}`;
+  assert.equal(r.store.state.quota[victim], undefined, 'the citizen the shape merely names is not charged');
+  assert.deepEqual(Object.keys(r.store.state.quota), [addrKey(IP)]);
+  assert.match(addrKey(IP), /^addr:[0-9a-f]{16}$/);
+  assert.equal(addrKey(IP), addrKey(IP), 'stable within a run');
+  assert.notEqual(addrKey(IP), addrKey('203.0.113.78'));
+  const text = JSON.stringify(r.store.state) + lines.join('\n');
+  assert.ok(!text.includes('203.0.113'), 'no address, and no /64 either, in the state or the log');
+  assert.ok(lines.some(l => /quota anonymous/.test(l)), 'the log line says anonymous, not the key');
+  // IPv6: the /64 is hashed too.
+  const r6 = await call(r.public, 'POST', '/f/relay', { body: { tx: playerTx({ name: 'Harvest', feePayer: await feePayerOf(r), signer: Keypair.generate() }) }, ip: '2001:db8:1:2:aaaa::1' });
+  assert.equal(r6.json.ok, true);
+  assert.ok(!JSON.stringify(r.store.state).includes('2001'), 'no IPv6 prefix in the state');
+});
+
+test('PT-E: a verified signer (the wallet or a live session key) is charged to its citizen, anyone else to the anonymous bucket', async () => {
+  const r = relay();
+  const mine = `citizen:${A.citizen(wallet.publicKey.toBase58())}`;
+  // the session key (the default signer: on chain, this citizen's session) and the wallet itself
+  for (const signer of [session, wallet]) {
+    const res = await call(r.public, 'POST', '/f/relay', { body: { tx: playerTx({ name: 'Harvest', feePayer: await feePayerOf(r), signer, recentBlockhash: Keypair.generate().publicKey.toBase58() }) }, ip: '203.0.113.9' });
+    assert.equal(res.json.ok, true, JSON.stringify(res.json));
+  }
+  assert.equal(r.store.state.quota[mine].left, 38);
+  // an expired session key is anonymous
+  r.chain.set(A.citizen(wallet.publicKey.toBase58()), { data: encodeAccount('Citizen', { SEASON_ID, WALLET: wallet.publicKey.toBytes(), SESSION: session.publicKey.toBytes(), SESSION_EXPIRY: BigInt(GENESIS) }) });
+  const res = await call(r.public, 'POST', '/f/relay', { body: { tx: playerTx({ name: 'Harvest', feePayer: await feePayerOf(r), recentBlockhash: Keypair.generate().publicKey.toBase58() }) }, ip: '203.0.113.9' });
+  assert.equal(res.json.ok, true);
+  assert.equal(r.store.state.quota[mine].left, 38, 'the expired key did not charge the citizen');
+  assert.equal(r.store.state.quota[addrKey('203.0.113.9')].left, 39);
+});
+
+test('PT-E: 1,000 refused junk requests naming made-up citizens leave nothing in the quota book (and the state is saved rarely)', async () => {
+  const chain = fakeChain({ fail: () => ({ InstructionError: [3, { Custom: 26 }] }) });
+  const r = relay({ chain });
+  let refused = 0;
+  for (let i = 0; i < 1_000; i++) {
+    // a fresh signing key each time: the per-signer rate limit cannot be what stops it
+    const t = playerTx({ name: 'Harvest', feePayer: await feePayerOf(r), signer: Keypair.generate(), accounts: { citizen: Keypair.generate().publicKey.toBase58() }, recentBlockhash: Keypair.generate().publicKey.toBase58() });
+    const res = await call(r.public, 'POST', '/f/relay', { body: { tx: t }, ip: '127.0.0.1' });
+    assert.notEqual(res.json.ok, true);
+    if (res.json.code === 'NotResident') refused++;
+  }
+  assert.equal(refused, 1_000, 'every one went all the way to the simulation (not stopped earlier by a limit)');
+  assert.deepEqual(Object.keys(r.store.state.quota), [], 'a refusal gives everything back and removes the empty entry');
+});
+
+test('PT-E: QuotaBook caps its entries, drops an entry equal to a missing one on refund, and debounces its saves', async () => {
+  const { QuotaBook } = await import('../src/frontier/quota.mjs');
+  let saves = 0;
+  const store = { state: {}, save() { saves++; } };
+  const q = new QuotaBook({ store, maxEntries: 50, saveDebounceMs: 30 });
+  for (let i = 0; i < 80; i++) q.charge(`addr:${String(i).padStart(16, '0')}`, { day: 0 });
+  assert.equal(Object.keys(q.entries).length, 50);
+  assert.ok(!('addr:0000000000000000' in q.entries) && 'addr:0000000000000079' in q.entries, 'the oldest go first');
+  q.charge('citizen:keep', { day: 0 });
+  q.refund('citizen:keep', { day: 0 });
+  assert.equal(q.entries['citizen:keep'], undefined, 'refunded in full: no entry');
+  assert.equal(saves, 0, 'nothing written yet');
+  await new Promise(res => setTimeout(res, 60));
+  assert.equal(saves, 1, 'one write for 82 changes');
+  q.charge('citizen:z', { day: 0 });
+  q.flush();
+  assert.equal(saves, 2, 'flush writes at once');
+  q.flush();
+  assert.equal(saves, 2);
+  // an idle key refilled to the burst is kept (a missing entry would give it 40, not 60)
+  const q2 = new QuotaBook({ store: { state: {}, save() {} } });
+  q2.entries['citizen:idle'] = { day: 0, left: 30, lamports: 0 };
+  assert.equal(q2.view('citizen:idle', 5).left, 60);
+  q2.charge('citizen:idle', { day: 5 });
+  q2.refund('citizen:idle', { day: 5 });
+  assert.equal(q2.entries['citizen:idle'].left, 60);
+});
+
+test('PT-E: the state file is written through fsync, keeps a .bak, and a torn file falls back to it', async () => {
+  const { mkdtempSync, writeFileSync, readFileSync, existsSync, readdirSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const path = await import('node:path');
+  const { createStateStore } = await import('../src/config.mjs');
+  const dir = mkdtempSync(path.join(tmpdir(), 'pt-state-'));
+  const file = path.join(dir, 'relay-state.json');
+  const s = createStateStore(file);
+  assert.equal(s.load(), null);
+  s.save({ a: 1 });
+  s.save({ a: 2 });
+  assert.equal(JSON.parse(readFileSync(`${file}.bak`, 'utf8')).a, 1, 'the previous good copy');
+  assert.deepEqual(readdirSync(dir).filter(f => f.endsWith('.tmp')), []);
+  // a power cut: zero length main file, and a leftover temp file of a dead process
+  writeFileSync(file, '');
+  writeFileSync(`${file}.99999.tmp`, '{');
+  const t = createStateStore(file);
+  assert.deepEqual(t.load(), { a: 1 });
+  assert.equal(t.recovered, `${file}.bak`);
+  assert.ok(!existsSync(`${file}.99999.tmp`), 'the leftover is removed');
+  t.save({ a: 3 });
+  assert.equal(JSON.parse(readFileSync(`${file}.bak`, 'utf8')).a, 1, 'the unreadable file did not become the backup');
+  t.save({ a: 4 });
+  assert.equal(JSON.parse(readFileSync(`${file}.bak`, 'utf8')).a, 3);
+  // no backup and a torn file: the error stays loud
+  const lone = path.join(dir, 'lone.json');
+  writeFileSync(lone, '{');
+  assert.throws(() => createStateStore(lone).load());
 });

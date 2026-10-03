@@ -54,7 +54,7 @@ Live drand is out (no TLS client in `frontier-node`, no external network).
 
 **Pid matching.** The stack used to decide "is this pid still our component" by the binary's file name. After a crash or a reboot recorded pids are stale and the machine runs other stacks' processes of the same binaries (the paused exit season's chain and keepers are two), so `down` and `resume` would have signalled someone else's process. Both now require the exact recorded command line (and the supervisor its recorded one).
 
-**What is not here on purpose.** No alerting channel (no message is sent anywhere; the alarm files are files), no launchd agent, no log shipping, no off-disk backup unless `PLAYTEST_BACKUP_COPY_TO` is set.
+**What is not here on purpose.** No network alerting channel (no message is sent anywhere; PT-E added local ones: a notification and a spoken line on this Mac for a new alarm, a long monitoring gap or a dead babysitter, from the monitor and from `scripts/playtest-sentinel.sh`), no launchd agent, no log shipping, no off-disk backup unless `PLAYTEST_BACKUP_COPY_TO` is set.
 
 ## 4. Evidence (bring-up on 2026-10-03, throw-away data directory, real binaries and `.so`)
 

@@ -21,7 +21,8 @@ export const operatorRoutes = {
     const b = await req.json();
     const n = b.count ?? 1;
     if (!Number.isInteger(n) || n < 1 || n > 1000) throw new RouteError(400, 'count: 1–1,000', 'BadRequest');
-    const label = b.label ?? 'unlabelled';
+    // PT-E: a call without a label is never mistaken for a friends batch (the metrics count only `friends-*`).
+    const label = b.label ?? 'unlabelled-DO-NOT-COUNT';
     if (typeof label !== 'string' || !/^[A-Za-z0-9_.-]{1,40}$/.test(label)) throw new RouteError(400, 'label: 1–40 letters, digits, . _ -', 'BadRequest');
     const invites = ctx.invites.issue(n);
     // The nonces (not the codes) go to the event log: they tie a later Join to the batch it was issued in.

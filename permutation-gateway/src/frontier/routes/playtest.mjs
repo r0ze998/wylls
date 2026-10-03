@@ -1,11 +1,12 @@
 // Playtest read route (PT-B): what the landing page needs to tell a friend, in plain words, whether
 // their invite works, and if not why — without sending a Join to find out.
 //
-//   POST /f/invite-check {invite}  →  {ok: true, gated, invite: "ok|used|invalid|notNeeded", season: "open|notStarted|joinClosed|ended|unavailable", full}
+//   POST /f/invite-check {invite}  →  {ok: true, gated, invite: "ok|used|invalid|notNeeded", season: "open|notStarted|joinClosed|ended|unavailable", full, quota: {perDay, resetsAt}|null}
 //
 // A POST (the code is in the body, never in a URL or a log line). Nothing is consumed or reserved: the
 // check is advice, the Join (POST /f/join) decides. Per-address limited like the other public routes.
 import { RouteError } from '../../routes/errors.mjs';
+import { dailyTxs, dayEnd, gameDay } from '../quota.mjs';
 
 /** The season's phase for a would-be player, from the decoded Season and the chain Clock. */
 export function seasonPhase(season, clock) {
@@ -32,10 +33,15 @@ export const playtestRoutes = {
     const b = await req.json();
     let season = 'unavailable';
     let gated = false;
+    let quota = null;
     try {
       const s = await ctx.chain.season();
       gated = s.JOIN_GATE.some(x => x !== 0);
-      season = seasonPhase(s, await ctx.chain.clock());
+      const clock = await ctx.chain.clock();
+      season = seasonPhase(s, clock);
+      // PT-E: when the daily allowance of sponsored actions resets (the game day's end, from the chain's clock)
+      const day = gameDay(clock.unixTimestamp, s.GENESIS_TS);
+      quota = { perDay: dailyTxs(day), resetsAt: dayEnd(day, Number(s.GENESIS_TS)) };
     } catch (e) {
       if (!(e instanceof RouteError)) season = 'unavailable';
     }
@@ -44,6 +50,6 @@ export const playtestRoutes = {
       const nonce = typeof b.invite === 'string' ? ctx.invites?.verify(b.invite.trim()) : null;
       invite = !nonce ? 'invalid' : ctx.invites.used(nonce) ? 'used' : 'ok';
     }
-    return { body: { ok: true, gated, invite, season, full: isFull(ctx) } };
+    return { body: { ok: true, gated, invite, season, full: isFull(ctx), quota } };
   },
 };

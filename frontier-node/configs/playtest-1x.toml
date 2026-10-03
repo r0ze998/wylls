@@ -68,7 +68,7 @@ event_log = true
 # link and says in plain words what to do. Per-address limits keep their defaults (100 requests/s,
 # a bucket of 1,500, 6 sockets). `--max-players` (invites redeemed, bots included) is left unset:
 # the operator limits the world by the invites they issue.
-herald_args = "--inject-script frontier/index.html=/frontier/frontier/playtest/boot.mjs --landing /frontier/frontier/playtest/"
+herald_args = "--inject-script frontier/index.html=/frontier/frontier/playtest/boot.mjs --landing /frontier/frontier/playtest/ --ws-max 400"
 
 [pools]
 beneficiary_lamports = 1000000000

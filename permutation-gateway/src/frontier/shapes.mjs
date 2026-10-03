@@ -10,10 +10,11 @@
 //   the fee plus the kind's allowance — Join: rent(Citizen); FileTicket: the
 //   Holding-rent escrow shortfall `max(0, rent(1,280) − citizen.ticket_escrow)`;
 //   Depart: `tip + march_fee + seal_bond`; every other kind: 0;
-// * who is charged: a player shape its citizen, a settle shape its
-//   requester's citizen (the requester signed the request and is, on chain,
-//   that citizen's wallet or unexpired session key), else the client-address
-//   bucket; never the citizen the settle names.
+// * who is charged: the citizen the signer was verified against (a player
+//   shape's authority or a settle shape's requester is, on chain, that
+//   citizen's wallet or unexpired session key), else a hashed client-address
+//   bucket; never a citizen a shape merely names.
+import { createHmac, randomBytes } from 'node:crypto';
 import { addressBucket } from '../guards.mjs';
 import { baseFee, departEscrow, rent, seasonTipMin, tipPresets } from '../../client/src/frontier/fees.mjs';
 import { layoutOf } from '../../client/src/frontier/codec.mjs';
@@ -97,14 +98,25 @@ export function lamportsPerDay(season, departs = 24) {
 }
 
 /**
- * The quota key a shape is charged to: a player shape its citizen; a settle
- * shape the citizen its requester was verified against (`requesterCitizen`,
- * the Citizen address whose wallet or unexpired session key signed the
- * request), else the client-address bucket. A requester key alone never
- * opens a bucket of its own (integ-W2 review of W2-D: a fresh key per
- * request escaped the quota).
+ * PT-E: the address bucket never reaches the quota book, the state file or
+ * the log as an address. The key is `addr:` + 16 hex of an HMAC-SHA256 of the
+ * bucket under a random salt made when the process starts and kept in memory
+ * only (so nothing on disk can be turned back into an address, and an
+ * anonymous requester's bucket simply starts fresh after a restart).
+ */
+const ADDR_SALT = randomBytes(32);
+export const addrKey = ip => `addr:${createHmac('sha256', ADDR_SALT).update(addressBucket(ip)).digest('hex').slice(0, 16)}`;
+
+/**
+ * The quota key a shape is charged to: `citizen:<address>` when `citizen` is
+ * the Citizen the signing key was verified against on chain (a settle's
+ * requester; a player shape's authority: its wallet, or its unexpired
+ * session key; relay.mjs `verifiedCitizen`), else the hashed client-address
+ * bucket (`addrKey`). A key alone never opens a bucket of its own (integ-W2
+ * review of W2-D: a fresh key per request escaped the quota), and the
+ * citizen a shape merely names is never trusted (PT-E: a made-up citizen
+ * would put an entry in the state file for every junk request).
  */
 export function quotaKeyOf(shape, { requesterCitizen = null, ip }) {
-  if (shape.kind === 'player') return `citizen:${shape.accounts.citizen}`;
-  return requesterCitizen ? `citizen:${requesterCitizen}` : `addr:${addressBucket(ip)}`;
+  return requesterCitizen ? `citizen:${requesterCitizen}` : addrKey(ip);
 }

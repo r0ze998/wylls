@@ -76,6 +76,22 @@ async function requesterCitizen(ctx, requester, citizenAddr) {
   return sessionLive ? citizenAddr : null;
 }
 
+/**
+ * The Citizen a player shape's authority acts for, verified (PT-E): the
+ * Citizen named is the canonical address of the authority's own wallet (no
+ * read needed: Join, a wallet-signed action), or it is on chain a Citizen
+ * whose unexpired session key is the authority. Otherwise null: the request
+ * is charged to the (hashed) client-address bucket and cannot hold, or leave
+ * behind, an entry for a citizen it merely names.
+ */
+async function verifiedCitizen(ctx, shape, settleCitizen) {
+  if (shape.kind !== 'player') return settleCitizen;
+  const named = shape.accounts.citizen;
+  if (typeof named !== 'string' || !shape.authority) return null;
+  if (ctx.addresses.citizen(shape.authority) === named) return named;
+  return requesterCitizen(ctx, shape.authority, named);
+}
+
 /** The game day and the lamport cap for quotas, from the chain. */
 async function quotaFrame(ctx) {
   const season = await ctx.chain.season();
@@ -111,7 +127,7 @@ async function sponsor(ctx, req, { tx, wire, shape, requester = null, requesterC
     frame = await quotaFrame(ctx);
     const citizen = shape.name === 'FileTicket' ? await chain.citizen(shape.accounts.citizen) : null;
     allowance = allowanceFor(shape, { season: frame.season, citizen });
-    key = quotaKeyOf(shape, { requesterCitizen: settleCitizen, ip: req.ip });
+    key = quotaKeyOf(shape, { requesterCitizen: await verifiedCitizen(ctx, shape, settleCitizen), ip: req.ip });
     quota.check(key, { day: frame.day, lamports: allowance, lamportsCap: frame.lamportsCap, genesisTs: frame.genesisTs });
   } catch (e) {
     release();
@@ -170,7 +186,7 @@ async function sponsor(ctx, req, { tx, wire, shape, requester = null, requesterC
   onSent?.({ signature });
   // PT-B: the per-citizen activity record of the playtest (a pseudonymous Citizen address, never an IP).
   if (shape.name !== 'Join') ctx.events.write('action', { citizen: key.startsWith('citizen:') ? key.slice('citizen:'.length) : null, kind: shape.name, signature });
-  ctx.log?.(`f/relay ${shape.name} ${signature} (fee payer ${shape.feePayer}, quota ${key}, moved ${moved})`);
+  ctx.log?.(`f/relay ${shape.name} ${signature} (fee payer ${shape.feePayer}, quota ${key.startsWith('citizen:') ? key : 'anonymous'}, moved ${moved})`);
   return { ok: true, signature };
 }
 

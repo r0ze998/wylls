@@ -39,7 +39,9 @@ if bpid="$(pt_alive_pid "$PT_DATA/supervise.pid" playtest-supervise)"; then
   for _ in $(seq 1 45); do kill -0 "$bpid" 2>/dev/null || break; sleep 2; done
   if kill -0 "$bpid" 2>/dev/null; then echo "the babysitter (pid $bpid) did not leave; terminating it"; kill "$bpid" 2>/dev/null; fi
 fi
-rm -f "$PT_DATA/supervise.pid" "$PT_DATA/stack.pid"
+# PT-E: the sentinel (a second watcher, playtest-up.sh starts it) goes with it
+if spid="$(pt_alive_pid "$PT_DATA/sentinel.pid" playtest-sentinel)"; then kill "$spid" 2>/dev/null; fi
+rm -f "$PT_DATA/supervise.pid" "$PT_DATA/stack.pid" "$PT_DATA/sentinel.pid"
 if [ $BACKUP -eq 1 ] && [ -f "$PT_RUN/state.json" ]; then
   bash "$HERE/playtest-backup.sh" || echo "WARNING: the final backup failed"
 fi

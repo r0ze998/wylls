@@ -33,7 +33,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use axum::body::{Body, Bytes};
-use axum::extract::{ConnectInfo, Path, Query, Request, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, Path, Query, Request, State};
 use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode, Uri};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -61,6 +61,8 @@ pub const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 pub const EVENTS_PAGE: usize = 500;
 /// Largest `/gw/*` request body.
 pub const GW_MAX_BODY: usize = 64 * 1024;
+/// Tokens a request to `/h/events` or `/h/me/*` takes from the per-address bucket (a plain request takes 1).
+pub const EXPENSIVE_COST: f64 = 10.0;
 const GW_MAX_ANSWER: u64 = 16 << 20;
 const GW_TIMEOUT: Duration = Duration::from_secs(90);
 const GW_CONNECT: Duration = Duration::from_secs(5);
@@ -147,8 +149,9 @@ pub fn router(app: Shared) -> Router {
         .route("/frontier", get(root))
         .route("/frontier/", get(web))
         .route("/frontier/{*path}", get(web))
-        .route("/gw", any(gw))
-        .route("/gw/{*path}", any(gw))
+        // PT-E: the body is read up to GW_MAX_BODY plus a little (axum's default would read 2 MiB first).
+        .route("/gw", any(gw).layer(DefaultBodyLimit::max(GW_MAX_BODY + 4096)))
+        .route("/gw/{*path}", any(gw).layer(DefaultBodyLimit::max(GW_MAX_BODY + 4096)))
         .fallback(|| async { err(StatusCode::NOT_FOUND, "NotFound") })
         .layer(middleware::from_fn_with_state(app.clone(), rate_limit))
         .layer(middleware::from_fn(security_headers))
@@ -220,6 +223,12 @@ impl IpLimits {
 
     /// Takes one token for `ip`; false when its bucket is empty.
     pub fn take(&self, ip: IpAddr) -> bool {
+        self.take_n(ip, 1.0)
+    }
+
+    /// Takes `cost` tokens for `ip` (PT-E: `/h/events` and `/h/me` cost 10: each builds a page of decoded
+    /// rows or reads the index under one lock); false when the bucket holds fewer.
+    pub fn take_n(&self, ip: IpAddr, cost: f64) -> bool {
         if self.rate <= 0.0 || ip.is_loopback() {
             return true;
         }
@@ -234,8 +243,8 @@ impl IpLimits {
         let refill = now.duration_since(e.1).as_secs_f64() * self.rate;
         e.0 = (e.0 + refill).min(self.burst);
         e.1 = now;
-        if e.0 >= 1.0 {
-            e.0 -= 1.0;
+        if e.0 >= cost {
+            e.0 -= cost;
             true
         } else {
             self.refused.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -287,7 +296,9 @@ async fn rate_limit(
     next: Next,
 ) -> Response {
     let ip = client_ip(peer.ip(), req.headers());
-    if !app.limits.take(ip) {
+    let path = req.uri().path();
+    let cost = if path == "/h/events" || path.starts_with("/h/me/") { EXPENSIVE_COST } else { 1.0 };
+    if !app.limits.take_n(ip, cost) {
         return (
             StatusCode::TOO_MANY_REQUESTS,
             [

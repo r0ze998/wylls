@@ -46,6 +46,8 @@ done
 
 problems=()
 bad() { problems+=("$*"); }
+pt_raise_nofile
+[ "${PT_NOFILE:-0}" -ge 4096 ] 2>/dev/null || bad "the open-file limit is ${PT_NOFILE:-unknown} and could not be raised to 10240 (ulimit -n): the herald would run out of descriptors"
 sha() { shasum -a 256 "$1" 2>/dev/null | cut -d' ' -f1; }
 
 # --- preflight
@@ -83,7 +85,9 @@ elif [ -n "$WANT_SO" ] && [ "$(sha "$SO")" != "$WANT_SO" ]; then bad "the .so's 
 ARCH="$PT_ROOT/$(pt_cfg_in paths archive)"
 [ -f "$ARCH/manifest.json" ] || bad "no drand archive manifest at $ARCH"
 "$PT_NODE" -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 20 ? 0 : 1)' 2>/dev/null || bad "node >= 20 is needed ($PT_NODE)"
-[ -d "$PT_ROOT/permutation-gateway/node_modules/@solana/web3.js" ] || bad "permutation-gateway/node_modules is missing (symlink an existing one; no installs here)"
+[ -d "$PT_ROOT/permutation-gateway/node_modules/@solana/web3.js" ] || bad "permutation-gateway/node_modules is missing (copy an existing one: cp -c -R <other>/permutation-gateway/node_modules permutation-gateway/node_modules; no installs here)"
+# PT-E: a symlink into another worktree dies with that worktree (another session may clean it) and every relay restart then fails forever
+[ ! -L "$PT_ROOT/permutation-gateway/node_modules" ] || bad "permutation-gateway/node_modules is a symlink: replace it by a copy (rm permutation-gateway/node_modules && cp -c -R <target> permutation-gateway/node_modules; an APFS clone is instant and free)"
 [ -f "$PT_ROOT/permutation-server/web/frontier/index.html" ] || bad "the web client is missing under permutation-server/web/frontier/"
 command -v caffeinate >/dev/null || bad "caffeinate is missing"
 command -v sqlite3 >/dev/null || bad "sqlite3 is missing (backups)"
@@ -127,7 +131,7 @@ if ! "$PT_STACK" check-ports --config "$CFG" > "$PORTS_OUT" 2>&1; then
 fi
 rm -f "$PORTS_OUT"
 
-echo "playtest-up: preflight ok (binaries, pinned .so ${WANT_SO:0:8}..., archive, node $("$PT_NODE" --version), $free_gb GB free)"
+echo "playtest-up: preflight ok (binaries, pinned .so ${WANT_SO:0:8}..., archive, node $("$PT_NODE" --version), $free_gb GB free, open-file limit $PT_NOFILE)"
 echo "  config   $PT_CONFIG"
 echo "  data     $PT_DATA   (outside git)"
 echo "  run      $PT_RUN_ID   ports $PT_BASE_PORT+ (herald $PT_HERALD_PORT)"
@@ -169,6 +173,13 @@ BPID=$!
 perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' -- nohup caffeinate -i -m -s -w "$BPID" > /dev/null 2>&1 < /dev/null &
 disown 2>/dev/null || true
 echo "babysitter started (pid $BPID), caffeinate attached"
+# PT-E: a second, tiny watcher says out loud (notification + voice, local only) when the babysitter itself dies,
+# the monitor goes quiet, or an alarm file appears. It restarts nothing.
+if ! pt_alive_pid "$PT_DATA/sentinel.pid" playtest-sentinel > /dev/null; then
+  perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' -- nohup bash "$HERE/playtest-sentinel.sh" >> "$PT_LOGS/sentinel.log" 2>&1 < /dev/null &
+  echo $! > "$PT_DATA/sentinel.pid"
+  echo "sentinel started (pid $!): it speaks on this Mac if the babysitter dies or an alarm is raised"
+fi
 
 if [ $WAIT -eq 1 ]; then
   echo "waiting for the herald on 127.0.0.1:$PT_HERALD_PORT (the first start takes about a minute) ..."
@@ -188,7 +199,7 @@ cat <<EOF
 UP. Local only; nothing is exposed until you start the tunnel.
 
   game page (local)   http://127.0.0.1:$PT_HERALD_PORT/frontier/frontier/
-  health              scripts/playtest-status.sh        (alarm files: $PT_DATA/LAG-ALARM, HEALTH-ALARM)
+  health              scripts/playtest-status.sh        (alarm files: $PT_DATA/LAG-ALARM, HEALTH-ALARM; a new alarm is also said aloud on this Mac)
   invites             scripts/playtest-invite.sh 20 --label friends-1 --base-url https://<your-tunnel-host>
   stop                scripts/playtest-down.sh
 

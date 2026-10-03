@@ -561,7 +561,8 @@ function webFiles() {
   const walk = dir => {
     for (const name of readdirSync(dir).sort()) {
       const p = join(dir, name), rel = relative(WEB, p);
-      if (statSync(p).isDirectory()) { if (rel !== 'sdk' && rel !== 'lang') walk(p); continue; }
+      // The playtest start page (frontier/playtest) keeps its own EN/JA table (landing.mjs), outside the site's L`` marking.
+      if (statSync(p).isDirectory()) { if (rel !== 'sdk' && rel !== 'lang' && rel !== join('frontier', 'playtest')) walk(p); continue; }
       if (rel.endsWith('.mjs') && rel !== 'lang.mjs') out.push(rel);
       // The Frontier client's pages (web/frontier/**.html) are scanned like v9's two.
       else if (rel.endsWith('.html') && rel.startsWith(`frontier${sep}`)) out.push(rel);

@@ -387,6 +387,7 @@ async function session(T) {
     T.lastCard = card.title;
     if (!card.go) { reason = `landing:${card.title.slice(0, 30)}`; throw Object.assign(new Error('no start button'), { landing: true }); }
     await sleep(500 + T.rng() * 2500);
+    await V.page.evaluate(() => { const c = document.getElementById('saved'); if (c && !c.checked) c.click(); }); // PT-E: Start waits for "I saved my key"
     await V.press('#go');
     await V.page.waitForFunction(() => /\d/.test(document.getElementById('bell-chip')?.textContent ?? ''), null, { timeout: 90_000 });
     emit(T.id, 'page_ready', { kind, ms: Date.now() - started });

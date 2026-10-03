@@ -1,3 +1,6 @@
+// SUPERSEDED (PT-E) by scripts/playtest-metrics.mjs: this older report counts a person as "returned" on any later
+// calendar day and counts the page's own automatic actions; a night start inflates it. Do not quote its "returned".
+//
 // The playtest's numbers, from the relay's event log and nothing else (PT-B):
 //
 //   node scripts/playtest/activity.mjs <relay-events.jsonl> [--exclude-labels bots] [--session-gap-min 30] [--json out.json]
@@ -98,6 +101,7 @@ if (MAIN) {
   const s = summarise(lines);
   console.log(`log ${file}: ${lines.length} lines${bad ? `, ${bad} unreadable` : ''}; days (JST) with any person activity: ${s.days} (${s.firstDay ?? '-'} .. ${s.lastDay ?? '-'})`);
   console.log(`invited (non-excluded batches): ${s.invited}   joined: ${s.joined}   never acted: ${s.neverActed}`);
+  console.log('SUPERSEDED: use scripts/playtest-metrics.mjs; the figure below counts any later calendar day and automatic actions');
   console.log(`returned on a later JST day (signed action): ${s.returned}   (with visits counted: ${s.returnedVisit})`);
   console.log(`actions per joined person: median ${s.actionsMedian}, max ${s.actionsMax}`);
   console.log('\nday         joined  active  visiting  actions  session-starts');

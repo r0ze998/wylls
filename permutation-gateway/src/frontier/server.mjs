@@ -41,13 +41,17 @@ const listen = (server, port, host) => new Promise((resolve, reject) => {
 export async function startFrontierRelay(cfg, { connection = new Connection(cfg.rpc, 'confirmed'), log = console.log } = {}) {
   const store = createStateStore(cfg.stateFile);
   store.load();
+  if (store.recovered) {
+    log(`frontier relay: the state file did not parse; restored the last good copy ${store.recovered}`);
+    store.save(); // the good state becomes the file again (the backup is kept)
+  }
   store.state ??= {};
   const pool = new PayerPool({ masterSeed: secretFile(cfg.masterSeedFile), n: cfg.poolSize, poolId: RELAY_POOL_ID, dev: cfg.dev, minLamports: cfg.minPayerLamports });
   const gateKey = cfg.gateKeyFile ? loadOrCreateKeypairSync(cfg.gateKeyFile) : null;
   const invites = new InviteBook({ secret: secretFile(cfg.inviteSecretFile), seasonId: cfg.seasonId, store });
   const keeper = cfg.keeperUrl ? new KeeperLink({ url: cfg.keeperUrl, tokenFile: cfg.keeperTokenFile }) : null;
   const events = cfg.eventLog ? new EventLog(cfg.eventLog) : null;
-  const apps = createFrontierApps({ cfg, connection, pool, keeper, invites, gateKey, store, log, events });
+  const apps = createFrontierApps({ cfg, connection, pool, keeper, invites, gateKey, store, log, events, quotaSaveMs: 1_000 });
   const operator = http.createServer(apps.operator);
   const pub = cfg.publicPort ? http.createServer(apps.public) : null;
   const ports = { operator: await listen(operator, cfg.port, '127.0.0.1') };
@@ -57,7 +61,9 @@ export async function startFrontierRelay(cfg, { connection = new Connection(cfg.
   }
   log(`frontier relay: program ${cfg.programId} season ${cfg.seasonId} (${apps.ctx.addresses.season}); pool ${pool.size} payers; `
     + `operator 127.0.0.1:${ports.operator}${pub ? `, public ${cfg.publicHost}:${ports.public}` : ''}${gateKey ? `; join gate ${gateKey.publicKey.toBase58()}` : ''}`);
-  const close = () => Promise.all([operator, pub].filter(Boolean).map(s => new Promise(r => s.close(r))));
+  const flush = () => { try { apps.ctx.quota.flush(); } catch { /* the state file is best effort at exit */ } };
+  process.once('exit', flush);
+  const close = () => Promise.all([operator, pub].filter(Boolean).map(s => new Promise(r => s.close(r)))).then(flush);
   return { ctx: apps.ctx, servers: { operator, public: pub }, ports, close };
 }
 

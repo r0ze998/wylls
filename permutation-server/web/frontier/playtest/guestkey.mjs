@@ -20,6 +20,12 @@ export const BACKUP_TAG = 'WYLLS-GUEST-KEY-1';
 const CHAIN = 'solana:localnet';
 const ICON = `data:image/svg+xml;base64,${globalThis.btoa?.('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#8a5a14"/><text x="16" y="22" font-size="16" text-anchor="middle" fill="#fff" font-family="sans-serif">G</text></svg>') ?? ''}`;
 
+/**
+ * PT-E: LINE, Instagram, Facebook, X, Kakao, WeChat, Naver, Snapchat, TikTok and Android WebViews. Their
+ * storage is not the browser's, and saving or copying a key often fails there.
+ */
+export const inAppBrowser = (ua = globalThis.navigator?.userAgent ?? '') => /\bLine\/|Instagram|FBAN|FBAV|FB_IAB|FBIOS|Twitter|KAKAOTALK|MicroMessenger|; wv\)|\bNAVER\(|Snapchat|TikTok|musical_ly/i.test(ua);
+
 const mem = new Map();
 /** localStorage with a memory fallback; `persisted` says whether the last write reached disk. */
 export const store = {

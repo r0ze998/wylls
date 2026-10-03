@@ -96,7 +96,7 @@ function fakeChain() {
 }
 
 const clockAccount = unix => { const b = Buffer.alloc(40); b.writeBigUInt64LE(77n, 0); b.writeBigInt64LE(BigInt(unix), 32); return b; };
-const seasonAccount = (over = {}) => encodeAccount('Season', { SEASON_ID, STATUS: 2, GENESIS_TS: BigInt(GENESIS), MARCH_FEE: 10_000n, SEAL_BOND: 20_000n,
+const seasonAccount = (over = {}) => encodeAccount('Season', { SEASON_ID, STATUS: 2, GENESIS_TS: BigInt(GENESIS), MARCH_FEE: 10_000n, SEAL_BOND: 20_000n, BELL_SECS: 600,
   MIN_REVEAL_PRIORITY_MILLI: 433, REVEAL_CU_LIMIT: 26_000, REVEAL_LOADED_LIMIT: 1_048_576, JOIN_GATE: new Uint8Array(32), ...over });
 
 const citizenAccount = (over = {}) => encodeAccount('Citizen', { SEASON_ID, WALLET: wallet.publicKeyBytes, SESSION: session.publicKeyBytes,
@@ -114,6 +114,7 @@ async function startRelay({ season = {}, gateKey = null } = {}) {
   for (const k of pool.publicKeys()) chain.set(k, { lamports: 2_000_000_000 });
   chain.set(A.season, { data: seasonAccount(season) });
   chain.set(CLOCK_SYSVAR, { data: clockAccount(CLOCK_UNIX) });
+  chain.set(A.province(HOLD.p, HOLD.q), { data: [1] }); // a province a nudge may name (PT-E)
   // The viewer's Citizen: its wallet and session key (a settle's requester is checked against it).
   chain.set(A.citizen(wallet.publicKey), { data: citizenAccount() });
   const store = { state: {}, save() {} };
@@ -303,7 +304,7 @@ test('a Reveal is material posted to /f/reveal, never a transaction; the keeper 
   assert.deepEqual([r.ok, r.httpStatus, r.accepted], [true, 202, true]);
   assert.deepEqual(Object.keys(revealed.at(-1)).sort(), ['ct_hash_b64', 'holding', 'plain_b64', 'salt_b64', 'transit_slot']);
   assert.throws(() => fplay.accountsFor('Reveal', v()), /not a shape/);
-  const n = await io.nudge(-3, 7, 41);
+  const n = await io.nudge(-3, 7, 4);
   assert.equal(n.ok, true);
 });
 

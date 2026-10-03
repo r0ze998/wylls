@@ -24,6 +24,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=playtest-lib.sh
 . "$HERE/playtest-lib.sh"
 
+pt_raise_nofile
 mkdir -p "$PT_LOGS" "$PT_STATUS"
 chmod 700 "$PT_DATA" 2>/dev/null || true
 if other="$(pt_alive_pid "$PT_DATA/supervise.pid" playtest-supervise)" && [ "$other" != "$$" ]; then
@@ -43,6 +44,7 @@ STACK_PID=""
 FAST_FAILS=0
 FIRST_FAILS=0
 LAST_TICK=0
+TICK_PID=""
 
 has_season() {
   [ -f "$PT_RUN/state.json" ] || return 1
@@ -56,8 +58,8 @@ start_stack() {
   START_CMD="$cmd"
   START_AT=$SECONDS
   pt_log "starting: frontier-stack $cmd (run $PT_RUN_ID)"
-  # nice: the machine is shared; the game is light.
-  nice -n 5 "$PT_STACK" "$cmd" --config "$cfg" >> "$STACK_LOG" 2>&1 &
+  # PT-E: no nice by default (PLAYTEST_NICE=5 for a rehearsal): contention would slow the game clock and the bells.
+  nice -n "$PT_NICE" "$PT_STACK" "$cmd" --config "$cfg" >> "$STACK_LOG" 2>&1 &
   STACK_PID=$!
   echo "$STACK_PID" > "$PT_DATA/stack.pid"
 }
@@ -69,7 +71,7 @@ on_term() {
 }
 trap on_term TERM INT HUP
 
-pt_log "playtest-supervise: pid $$, config $PT_CONFIG, data $PT_DATA"
+pt_log "playtest-supervise: pid $$, config $PT_CONFIG, data $PT_DATA, open-file limit $PT_NOFILE, nice $PT_NICE"
 while :; do
   if [ -e "$PT_DATA/STOP" ]; then
     # playtest-down.sh is stopping the stack; wait for the supervisor to go.
@@ -108,8 +110,13 @@ while :; do
   fi
   now=$SECONDS
   if [ $((now - LAST_TICK)) -ge "$TICK_SECS" ]; then
-    LAST_TICK=$now
-    "$PT_NODE" "$HERE/playtest-watch.mjs" tick >> "$PT_LOGS/watch.log" 2>&1 || pt_log "monitor tick failed (see watch.log)"
+    # PT-E: the tick runs in the background (with everything down it takes tens of seconds of probes), and a new one
+    # does not start while the last is still running: the loop keeps restarting a dead stack meanwhile.
+    if [ -z "$TICK_PID" ] || ! kill -0 "$TICK_PID" 2>/dev/null; then
+      LAST_TICK=$now
+      "$PT_NODE" "$HERE/playtest-watch.mjs" tick >> "$PT_LOGS/watch.log" 2>&1 &
+      TICK_PID=$!
+    fi
   fi
   sleep 3
 done

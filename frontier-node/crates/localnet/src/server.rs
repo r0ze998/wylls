@@ -27,7 +27,14 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use axum::{extract::State, routing::post, Json, Router};
+use axum::{
+    extract::{Request, State},
+    http::{header, StatusCode},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
+    routing::post,
+    Json, Router,
+};
 use base64::Engine;
 use serde_json::{json, Value};
 use solana_address::Address;
@@ -773,7 +780,35 @@ async fn rpc(State(state): State<Shared>, Json(req): Json<Value>) -> Json<Value>
 
 /// The HTTP router.
 pub fn router(state: Shared) -> Router {
-    Router::new().route("/", post(rpc)).with_state(state)
+    Router::new()
+        .route("/", post(rpc))
+        .layer(middleware::from_fn(local_callers_only))
+        .with_state(state)
+}
+
+/// Whether a `Host` header names this machine (`127.0.0.1`, `localhost`, `[::1]`, with or without a port).
+pub fn host_is_local(host: &str) -> bool {
+    let name = if let Some(rest) = host.strip_prefix('[') {
+        rest.split(']').next().unwrap_or("")
+    } else {
+        host.rsplit_once(':').map_or(host, |(h, _)| h)
+    };
+    matches!(name.to_ascii_lowercase().as_str(), "127.0.0.1" | "localhost" | "::1")
+}
+
+/// PT-E: the RPC has admin methods (pause, scale, snapshot to a path, restore) and no authentication.
+/// It listens on loopback only, but a web page the operator opens in a browser could still reach it by DNS
+/// rebinding (the page's own name resolving to 127.0.0.1) or a cross-origin request. Refuse any request that
+/// carries an `Origin` or a `Host` that is not this machine's: the stack's own clients send neither oddity.
+async fn local_callers_only(req: Request, next: Next) -> Response {
+    let h = req.headers();
+    let host_ok = h
+        .get(header::HOST)
+        .map_or(true, |v| v.to_str().map_or(false, host_is_local));
+    if h.contains_key(header::ORIGIN) || !host_ok {
+        return (StatusCode::FORBIDDEN, "frontier-localnet answers local callers only").into_response();
+    }
+    next.run(req).await
 }
 
 /// The 400-ms slot ticker (real time at every scale, I-54).
@@ -878,6 +913,17 @@ mod tests {
             };
             let v = acct_json(&a, &o);
             assert_eq!(v["data"][0], B64.encode(&want), "offset {off} length {len}");
+        }
+    }
+
+    /// PT-E: only this machine's own names pass the Host check (DNS rebinding presents the attacker's name).
+    #[test]
+    fn host_names_of_this_machine_only() {
+        for h in ["127.0.0.1", "127.0.0.1:41112", "localhost", "LOCALHOST:41112", "[::1]", "[::1]:41112"] {
+            assert!(host_is_local(h), "{h}");
+        }
+        for h in ["evil.example", "evil.example:41112", "127.0.0.1.evil.example", "10.0.0.5:41112", "localhost.evil.example:80", "", "[::2]:1"] {
+            assert!(!host_is_local(h), "{h}");
         }
     }
 

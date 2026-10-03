@@ -27,3 +27,6 @@ textarea { width: 100%; font: .85rem/1.4 ui-monospace, Menlo, monospace; padding
 details { margin-top: .9rem; border-top: 1px solid var(--line); padding-top: .6rem; }
 summary { cursor: pointer; font-weight: 600; }
 footer { text-align: center; margin-top: 1.5rem; }
+.btn[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.check { display: flex; gap: .6rem; align-items: flex-start; margin: .2rem 0 .4rem; }
+.check input { width: 1.3rem; height: 1.3rem; margin-top: .2rem; flex-shrink: 0; }
