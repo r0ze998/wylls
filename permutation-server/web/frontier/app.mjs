@@ -19,7 +19,7 @@ import { ChainClock, bellChip, countdown, seasonClock, bellStart } from './clock
 import { effectiveStatus } from './fcodec.mjs';
 import { FrontierMap } from './map/fmap.mjs';
 import { SEASON_STATUS_TEXT, clientText, factionName, TIERS, BUILDINGS } from './fi18n.mjs';
-import { L, fmtNum, mountLangToggle, onLangChange } from '../lang.mjs';
+import { L, fmtNum, mountLangToggle, onLangChange, lang } from '../lang.mjs';
 import { toHex } from '../sdk/bytes.mjs';
 import { html, raw, setHtml } from '../util.mjs';
 import { ACTIONS, FORMS, bind, startPlay, wantProvince } from './controller.mjs';
@@ -272,12 +272,13 @@ let peopleCache = { at: -1, value: null };
 export function peopleSource() {
   const bell = FS.nowBell ?? (FS.clock ? Math.max(0, Math.floor(((FS.chain?.now() ?? 0) - FS.clock.genesisTs) / 600)) : 0);
   const sec = Math.floor(Date.now() / 1000);
-  if (peopleCache.at === sec && peopleCache.value) { peopleCache.value.battles = (FS.battles ?? []).filter(b => battleLive(b, performance.now() / 1000)); return peopleCache.value; }
+  if (peopleCache.at === sec && peopleCache.lang === lang() && peopleCache.value) { peopleCache.value.battles = (FS.battles ?? []).filter(b => battleLive(b, performance.now() / 1000)); return peopleCache.value; }
   if (rosterRef) {
     for (let d = 0; d < (FS.record?.rings?.length ?? 1); d++) rosterRef.ensure(d);
     scene.seedOwn(rosterRef, FS.holdings);
   }
-  peopleCache = { at: sec, value: {
+  // the labels inside (construction names, tiers) are in the page's language: a switch rebuilds them
+  peopleCache = { at: sec, lang: lang(), value: {
     departures: scene.departuresAt(FS.chronicle, FS.overviews, bell),
     explores: scene.exploresAt(FS.chronicle, FS.overviews, bell),
     marches: ownColumns(),
