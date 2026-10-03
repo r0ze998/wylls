@@ -1729,3 +1729,185 @@ fn g01_cq_fold_worst() {
         println!("g01_cq FoldMarch {build:?}: {cu} CU (budget 20,000)");
     }
 }
+
+// ------------------------------------------------------------ G3, G2
+
+/// A program-owned copy of account `k` at a fresh address (a forgery with
+/// the right owner, size, magic and season).
+fn lookalike(c: &mut Chain, k: &Address, label: &str) -> Address {
+    let a = nowhere(&format!("lookalike-{label}"));
+    let d = c.data(k);
+    c.put_program_account(a, d);
+    a
+}
+
+/// G3 (§5.9, §13.2): DeclareSiege recomputes every keyed read: the target
+/// Province, the target Holding, the owner Citizen, the nearby Province
+/// and the source Holding (from the entry's host id).
+#[test]
+fn g03_cq_declare_siege_forgeries() {
+    let mut k = Cast::new();
+    let fake_p = lookalike(&mut k.c, &k.o.province, "province");
+    let fake_h = lookalike(&mut k.c, &k.o.holding, "holding");
+    let fake_c = lookalike(&mut k.c, &k.v.citizen, "owner");
+    let fake_s = lookalike(&mut k.c, &k.x.holding, "src");
+    let send = |c: &mut Chain, ix: Instruction| send_declare(c, &k.x, ix);
+    let at = |pos: usize, a: Address| {
+        let mut ix = k.declare_ix();
+        ix.accounts[pos].pubkey = a;
+        ix
+    };
+    use qix::at::declare as D;
+    common_refused(send(&mut k.c.fork(), at(D::PROVINCE, fake_p)), &[E::BadAddress, E::BadAccount]);
+    assert_code(send(&mut k.c.fork(), at(D::TARGET, fake_h)), E::BadAddress);
+    // Another holding of the same owner (V's home) at the target position.
+    assert_code(send(&mut k.c.fork(), at(D::TARGET, k.v.holding)), E::BadAddress);
+    // The owner Citizen: another faction-1 citizen, or a lookalike.
+    let mut f = k.c.fork();
+    let z = k.w.cq_estate(&mut f, "z", 1, ring4(1, 2), 0);
+    assert_code(send(&mut f, at(D::OWNER, z.citizen)), E::BadAddress);
+    assert_code(send(&mut k.c.fork(), at(D::OWNER, fake_c)), E::BadAddress);
+    // A forged nearby Province carrying a faction-0 first holding.
+    let mut f = k.c.fork();
+    let late = k.w.genesis_ts() + MC_LOCAL_7D.cq.frontier_protect_after_secs as i64 + 1;
+    let over = f.now - 1;
+    f.edit(&k.o.holding, |d| {
+        d[H::FOUNDED_TS..H::FOUNDED_TS + 8].copy_from_slice(&late.to_le_bytes());
+        d[H::SHIELD_UNTIL..H::SHIELD_UNTIL + 8].copy_from_slice(&over.to_le_bytes());
+    });
+    let tc = permutation_rules::frontier::geometry::ProvinceCoord::new(k.o.p as i32, k.o.q as i32);
+    let nb = tc.neighbors().into_iter().find(|n| n.ring() >= 4).unwrap();
+    let z = k.w.cq_estate(&mut f, "z0", 0, (nb.p as i16, nb.q as i16), 0);
+    let fake_n = lookalike(&mut f, &z.province, "nearby");
+    let mut ix = at(D::NEARBY, fake_n);
+    ix.data[3] = z.site;
+    assert_code(send(&mut f.fork(), ix), E::BadAddress);
+    // The source Holding: another of X's faction (not the host's issuer),
+    // and a lookalike of X's own.
+    let mut f = k.c.fork();
+    let y = k.w.cq_estate(&mut f, "y", 0, ring4(0, 1), 0);
+    common_refused(send(&mut f, at(D::SRC, y.holding)), &[E::NotOwner, E::BadAddress, E::BadAccount]);
+    common_refused(send(&mut k.c.fork(), at(D::SRC, fake_s)), &[E::BadAddress, E::BadAccount, E::NotOwner]);
+    // A v1 account where v2 is required (R-22): the Citizen's layout_version 1.
+    let mut f = k.c.fork();
+    f.edit(&k.x.citizen, |d| {
+        let o = frontier_abi::layout::header::LAYOUT_VERSION;
+        d[o..o + 2].copy_from_slice(&1u16.to_le_bytes())
+    });
+    assert_code(send(&mut f, k.declare_ix()), E::BadAccount);
+}
+
+/// G3 (§5.9): SettleCapture's Holding, Citizens (the captor's tag, the
+/// victim from the Holding), JoinShards (from each Citizen's faction and
+/// shard) and stake Holding (the record's `src`); SettleSiege's recipient
+/// (the record's key) and slot Citizen (the record's actor); RetireHost's
+/// `prev_home` and victim Citizen (from `prev_owner_tag`).
+#[test]
+fn g03_cq_settle_and_retire_forgeries() {
+    let mut k = Cast::new();
+    complete_capture(&mut k);
+    let anyone = k.c.funded(b"cq-anyone", 1);
+    let send = |c: &mut Chain, ix: Instruction| mc_send(c, I2::SettleCapture, ix, &[&anyone]);
+    use qix::at::capture as Q;
+    let base = capture_ix(&k, &anyone);
+    let with = |pos: usize, a: Address| {
+        let mut ix = base.clone();
+        ix.accounts[pos].pubkey = a;
+        ix
+    };
+    let fake_h = lookalike(&mut k.c, &k.o.holding, "cap-holding");
+    assert_code(send(&mut k.c.fork(), with(Q::HOLDING, fake_h)), E::BadAddress);
+    let fake_c = lookalike(&mut k.c, &k.x.citizen, "captor");
+    assert_code(send(&mut k.c.fork(), with(Q::CAPTOR, fake_c)), E::BadAddress);
+    let xjs = k.w.cq_join_shard(&k.c, &k.x);
+    let fake_js = lookalike(&mut k.c, &xjs, "captor-js");
+    assert_code(send(&mut k.c.fork(), with(Q::CAPTOR_JS, fake_js)), E::BadAddress);
+    // The JoinShard of the captor's faction but another shard.
+    let shard = k.c.data(&k.x.citizen)[C::JOIN_SHARD];
+    let other = k.w.a.join_shard(0, (shard + 1) % 8);
+    assert_code(send(&mut k.c.fork(), with(Q::CAPTOR_JS, other)), E::BadAddress);
+    let fake_v = lookalike(&mut k.c, &k.v.citizen, "victim");
+    assert_code(send(&mut k.c.fork(), with(Q::VICTIM, fake_v)), E::BadAddress);
+    // The stake Holding: not the record's src.
+    assert_code(send(&mut k.c.fork(), with(Q::STAKE, k.v.holding)), E::BadAddress);
+    // SettleSiege's forgeries on a failed siege.
+    let mut k2 = Cast::new();
+    declare_then(&mut k2, 0, true);
+    k2.c.funded(b"cq-anyone", 1);
+    let fake_r = lookalike(&mut k2.c, &k2.o.holding, "recipient");
+    let fake_sc = lookalike(&mut k2.c, &k2.x.citizen, "slot-citizen");
+    let ss = |r: Address, sc: Address| {
+        let mut ix = settle_siege_ix(&k2, &anyone, r, true);
+        ix.accounts[qix::at::settle_siege::SLOT_CITIZEN].pubkey = sc;
+        ix
+    };
+    assert_code(mc_send(&mut k2.c.fork(), I2::SettleSiege, ss(fake_r, k2.x.citizen), &[&anyone]), E::BadAddress);
+    common_refused(
+        mc_send(&mut k2.c.fork(), I2::SettleSiege, ss(k2.o.holding, fake_sc), &[&anyone]),
+        &[E::BadAddress, E::BadAccount],
+    );
+    // RetireHost: a prev_home of another citizen; a lookalike victim.
+    let mut k3 = Cast::new();
+    captured_with_victim_host(&mut k3);
+    k3.c.funded(b"cq-anyone", 1);
+    let b = k3.w.bell(&k3.c);
+    k3.w.set_resolved_next(&mut k3.c, &k3.v.province, b);
+    let mut ix = retire_ix(&k3, &k3.v.wallet, k3.v.citizen, k3.v.province, 5);
+    ix.accounts[qix::at::retire::HOME].pubkey = k3.x.holding;
+    assert_code(mc_send(&mut k3.c.fork(), I2::RetireHost, ix, &[&k3.v.wallet]), E::BadAddress);
+    let fake_vc = lookalike(&mut k3.c, &k3.v.citizen, "retire-victim");
+    common_refused(
+        mc_send(&mut k3.c.fork(), I2::RetireHost, retire_ix(&k3, &k3.v.wallet, fake_vc, k3.v.province, 5), &[&k3.v.wallet]),
+        &[E::BadAddress, E::BadAccount, E::Auth],
+    );
+}
+
+/// G2 (§13.2): the Free City capture's Holding is created pre-funding-safe
+/// (1 lamport, its rent, 10× its rent already there): SettleCapture lands
+/// and the captor's escrow pays only the shortfall.
+#[test]
+fn g02_cq_settle_capture_prefunded_free_city_holding() {
+    let mut k = Cast::new();
+    let fc = ring4(2, 0);
+    let pk = k.w.cq_free_city(&mut k.c, fc, 2, 300, 1);
+    let tile = k.c.data(&pk)[P::SITES + 2];
+    k.w.craft_host(&mut k.c, &k.x, &pk, 0, 1, 0, HOST, tile);
+    let ix = declare_free_city(&k.w, &k.x, fc, 2, 0);
+    expect_lands(send_declare(&mut k.c, &k.x, ix), "declare");
+    let mut r = k.w.cq_record(&k.c, &pk, 2);
+    r.progress = r.required - 1;
+    k.w.cq_put_record(&mut k.c, &pk, 2, &r);
+    k.w.set_resolved_next(&mut k.c, &pk, B0 + 1);
+    k.w.cq_resolve(&mut k.c, &pk, B0 + 1, Some(site_report(2, bit(0), false)));
+    let hk = k.w.a.holding(fc.0 as i32, fc.1 as i32, 2);
+    let anyone = k.c.funded(b"cq-anyone", 1);
+    let cap = Capture {
+        fee_payer: anyone.pubkey(),
+        holding: hk,
+        province: pk,
+        captor: k.x.citizen,
+        captor_js: k.w.cq_join_shard(&k.c, &k.x),
+        victim: nowhere("victim"),
+        victim_js: nowhere("victim-js"),
+        victim_rent_payer: nowhere("victim-rent"),
+        stake: k.x.holding,
+        site: 2,
+        beneficiary: anyone.pubkey().to_bytes(),
+    };
+    let rent = k.c.rent(H::SIZE);
+    for pre in common::prefunds(rent) {
+        let mut f = k.c.fork();
+        f.prefund(&hk, pre);
+        let x0 = f.lamports(&k.x.citizen);
+        expect_lands(
+            mc_send(&mut f, I2::SettleCapture, qix::settle_capture(&k.w.a, &cap), &[&anyone]),
+            "prefunded Free City capture",
+        );
+        common::assert_program_account(&f, &hk, H::MAGIC, H::SIZE, k.w.id);
+        let paid = x0 - f.lamports(&k.x.citizen);
+        common::assert_shortfall_only("Free City Holding", paid, pre, rent, 0);
+        assert_eq!(f.lamports(&hk), rent.max(pre));
+        let esc = u64_at(&f.data(&k.x.citizen), C::TICKET_ESCROW);
+        assert_eq!(esc, rent - paid, "the escrow keeps what it did not pay");
+    }
+}

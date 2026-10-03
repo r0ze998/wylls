@@ -1240,7 +1240,10 @@ pub fn settle_capture(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         absent(victim_c)?;
         absent(victim_js)?;
         absent(victim_rent_payer)?;
-        // The Holding from the reservation's rent (init_funded).
+        // The Holding from the reservation's rent (init_funded),
+        // pre-funding-safe (§4.2): only the shortfall to rent-exempt moves
+        // from the escrow; the rest stays escrowed for its funder
+        // (CloseCitizen).
         let signer = SeasonSigner::new(hdr.id, hdr.bump);
         let seed = frontier_abi::addr::holding_seed(pp as i32, pq as i32, x.site);
         rent_moved = init::init_funded(
@@ -1251,7 +1254,7 @@ pub fn settle_capture(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             &seed,
             H::SIZE,
             p,
-            rent,
+            0,
         )?;
         let tier = holding_tier(mtier)?;
         let day = day_of(hdr.bell(now.ts).unwrap_or(0));
