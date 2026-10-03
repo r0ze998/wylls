@@ -224,6 +224,9 @@ pub struct HoldView {
     pub siege: Option<SiegeView>,
     pub occupied: bool,
     pub occ_faction: u8,
+    /// A record that is neither free nor a siege or occupation (a capture
+    /// due on chain): `SiegeBusy`. The simulator never has one.
+    pub busy: bool,
     pub vigil: Vigil,
     /// Stores at the epoch (milli-units); only members' matter.
     pub stock: [Milli; RESOURCES],
@@ -317,6 +320,9 @@ pub struct World {
     pub bell: u32,
     pub end_bell: u32,
     pub open_ring: u32,
+    /// Genesis (seconds); every time of the world is absolute (the
+    /// simulator's genesis is 0).
+    pub genesis_ts: i64,
     pub params: Params,
     pub doctrine: [KernelDoctrine; 6],
     /// Every opened province by dense index (`ProvinceCoord::index`).
@@ -428,6 +434,11 @@ pub enum Refusal {
 }
 
 impl World {
+    /// The start of bell `b` (seconds).
+    pub fn now(&self, b: u32) -> i64 {
+        self.genesis_ts + now_of(b)
+    }
+
     pub fn prov(&self, i: u32) -> &ProvView {
         self.provs.get(&i).expect("open province")
     }
@@ -631,7 +642,7 @@ impl World {
         if !x.alive {
             return Err(Refusal::NotBesiegeable);
         }
-        let now = now_of(b);
+        let now = self.now(b);
         let prm = &self.params;
         let mut c = SiegeCheckV3 {
             province: self.prov(x.prov).coord,
@@ -649,7 +660,7 @@ impl World {
             heartland_max_ring: prm.heartland_max_ring,
             frontier_protect_secs: prm.frontier_protect_secs,
             frontier_protect_after_secs: prm.frontier_protect_after_secs,
-            genesis_ts: 0,
+            genesis_ts: self.genesis_ts,
         };
         let mut r = may_besiege_v3(&c);
         if r == Err(SiegeRefusal::FrontierProtected) && self.first_nearby(f, x.prov) {
@@ -668,7 +679,7 @@ impl World {
     /// The record checks of §3.4 step 5 for faction `f`.
     pub fn record_free(&self, t: u32, f: u8, b: u32) -> Result<(), Refusal> {
         let x = self.hold(t);
-        if x.siege.is_some() || x.occupied {
+        if x.siege.is_some() || x.occupied || x.busy {
             return Err(Refusal::SiegeBusy);
         }
         if x.immune_until > b && (x.barred == ALL_FACTIONS || x.barred == f) {
@@ -687,7 +698,7 @@ impl World {
             vigil.as_ref(),
             from,
             self.end_bell,
-            0,
+            self.genesis_ts,
         )
     }
 
@@ -994,7 +1005,7 @@ pub fn candidates(
     }
     // Holdings 2–3, first holdings (occupation) and Free Cities within two
     // provinces of the faction's holdings.
-    let now = now_of(b);
+    let now = w.now(b);
     let mut front: BTreeSet<u32> = BTreeSet::new();
     for &q in &provs {
         for r in w.provinces_near(w.prov(q).coord, 2) {

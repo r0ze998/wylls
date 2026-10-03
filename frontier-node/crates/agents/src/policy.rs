@@ -1258,6 +1258,13 @@ fn economy(
         used += 1;
     }
     let doctrine = &DOCTRINES[(h.faction % 6) as usize];
+    // K2 (MC v1.3 §3.16): an MC season's Train pays `catalog::train_v2`;
+    // an M1 season's is unchanged (CQ2-F).
+    let mc = obs
+        .season
+        .season
+        .as_ref()
+        .is_some_and(|s| crate::cqbehave::is_mc_season(s.program_version));
     // Build: the cheapest affordable building (careful players skip one
     // that leaves too little for a garrison).
     if queue_free(h, now) {
@@ -1278,7 +1285,7 @@ fn economy(
         if let Some((_, item)) = best {
             let n = copies(h, item, now) + 1;
             let (cost, _, _) = catalog::building(item, n, doctrine).expect("priced");
-            let keep = catalog::train(0, 100).expect("priced");
+            let keep = crate::cqbehave::train_cost(mc, 0, 100).expect("priced");
             let after: [i64; RESOURCES] = core::array::from_fn(|i| stores[i] - cost[i]);
             if !rng.chance(prof.thrift) || affordable(&after, &keep) {
                 out.push(Intent::Build {
@@ -1306,7 +1313,7 @@ fn economy(
     let reserve = h.reserve[unit as usize];
     if combat.len() < want_hosts && reserve < MIN_HOST * k {
         for kk in (1..=k).rev() {
-            let Some(cost) = catalog::train(unit, 100 * kk) else {
+            let Some(cost) = crate::cqbehave::train_cost(mc, unit, 100 * kk) else {
                 continue;
             };
             if affordable(&stores, &cost) {
@@ -1323,7 +1330,7 @@ fn economy(
     }
     // Scouts: one scout host to explore.
     if scouts.is_empty() && h.reserve[SCOUT as usize] < MIN_HOST {
-        if let Some(cost) = catalog::train(SCOUT, MIN_HOST) {
+        if let Some(cost) = crate::cqbehave::train_cost(mc, SCOUT, MIN_HOST) {
             if affordable(&stores, &cost) && rng.chance(0.5 + prof.q / 2.0) {
                 out.push(Intent::Train {
                     h: r,

@@ -4,6 +4,10 @@
 //! | module | what |
 //! |---|---|
 //! | [`campaign`] | MC §8.6: the faction campaign planner, a field-equal port of the simulator's (CQ2-F) |
+//! | [`cqbehave`] | MC §8.6 behaviours (march, horn, retire, expand) and the local DeclareSiege / FileOutpost / RetireHost checks |
+//! | [`cqfixture`] | a fixed MC herald world (Province v2, Citizens, Holdings) for the conquest tests |
+//! | [`cqobs`] | MC §8.4 herald files (`PSFCT1`, `PSFOV2`, sieges) and the planner's world from the herald |
+//! | [`cqpersona`] | the nineteen conquest personas of MC §8.6 and their expected outcomes |
 //! | [`profile`] | `Arch`/`Profile` copied from `frontier-sim/src/model.rs` (equality test, I-36); the mix and roster |
 //! | [`persona`] | the thirteen adversarial personas and their expected outcomes |
 //! | [`rng`] | the simulator's SplitMix64 |
@@ -17,6 +21,10 @@
 //! The runner, transports, sealing and journal are `frontier-bots`.
 
 pub mod campaign;
+pub mod cqbehave;
+pub mod cqfixture;
+pub mod cqobs;
+pub mod cqpersona;
 pub mod fixture;
 pub mod keys;
 pub mod obs;
