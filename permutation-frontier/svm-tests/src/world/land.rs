@@ -461,6 +461,137 @@ impl World {
     }
 }
 
+// ------------------------------------------------------------ MC (CQ2-A)
+
+impl World {
+    /// A running v2 season with `p` (a v2 preset through
+    /// [`super::params_v2_for`]), the genesis rings open.
+    pub fn land_v2(c: &mut Chain, id: u64, p: frontier_abi::v2::presets::SeasonParamsV2) -> World {
+        let w = World::with_v2(c, id, super::params_v2_for(c, p));
+        expect_lands(w.announce(c), "AnnounceSeason");
+        expect_lands(w.create(c), "CreateSeason v2");
+        expect_lands(w.init_logs(c), "InitBeaconLogs");
+        for f in 0..6 {
+            expect_lands(w.init_shards(c, f), "InitShards");
+        }
+        expect_lands(w.consume_genesis(c), "ConsumeGenesisSeed");
+        let g = w.genesis_ts();
+        if c.now < g {
+            c.set_time(g);
+        }
+        w.open_genesis_rings(c);
+        w
+    }
+
+    /// A joined citizen with a **final** first holding on `site` of
+    /// `province` (opened if absent), through Join, FileTicket, SettleTicket
+    /// and a Harvest after `final_ts` (the lazy flip, MC §5.6), with its
+    /// stores raised to `units` of everything (crafted, `enrich`). The Clock
+    /// moves past `final_ts`.
+    pub fn final_estate(
+        &self,
+        c: &mut Chain,
+        label: &str,
+        faction: u8,
+        province: (i16, i16),
+        site: u8,
+        units: i64,
+    ) -> super::holding::Estate {
+        let (p, q) = province;
+        let pk = self.a.province(p as i32, q as i32);
+        if c.is_absent(&pk) {
+            expect_lands(self.open_province(c, p, q), "OpenProvince");
+        }
+        let who = self.citizen(c, label, faction);
+        let bell = self.now_bell(c);
+        let s = Site { p, q, site };
+        expect_lands(self.file_ticket(c, &who, &[s]), "FileTicket");
+        self.seed_ready(c, bell, region(p, q));
+        expect_lands(self.settle_ticket(c, &who, 0, None), "SettleTicket");
+        let hk = self.a.holding(p as i32, q as i32, site);
+        let hd = c.data(&hk);
+        let final_ts = rd_i64(&hd, H::FINAL_TS);
+        if c.now < final_ts + 600 {
+            c.set_time(final_ts + 600);
+        }
+        // Resident actions need the Province resolved through `now − 2`
+        // (crafted `resolved_next`: the resolves are CQ2-B's).
+        let b = self.now_bell(c);
+        c.edit(&pk, |d| {
+            d[PV::province::RESOLVED_NEXT..PV::province::RESOLVED_NEXT + 4]
+                .copy_from_slice(&b.saturating_sub(1).to_le_bytes())
+        });
+        let e = super::holding::Estate {
+            wallet: who.wallet,
+            faction,
+            p,
+            q,
+            site,
+            gen: hd[H::GEN],
+            tile: c.data(&pk)[PV::province::SITES + site as usize],
+            holding: hk,
+            province: pk,
+            citizen: owner_citizen(&hd),
+        };
+        let ix = crate::ix::holding::harvest(&self.a, &e.player(), e.href());
+        expect_lands(c.send(&[ix], &[&e.wallet]), "Harvest (finality)");
+        assert_eq!(c.data(&hk)[H::STATE], H::STATE_FINAL, "final");
+        if units > 0 {
+            self.enrich(c, &e, units);
+        }
+        e
+    }
+
+    /// FileOutpost (0xA3) for `e` naming `sites`, anchored on `anchor`.
+    pub fn file_outpost_ix(
+        &self,
+        e: &super::holding::Estate,
+        sites: &[Site],
+        anchor: &super::holding::Estate,
+    ) -> Instruction {
+        cix::file_outpost(&self.a, &e.player(), sites, anchor.href(), anchor.gen)
+    }
+
+    /// The free sites (mirror state 0) of a Province.
+    pub fn free_sites(&self, c: &Chain, p: i16, q: i16) -> Vec<u8> {
+        let d = c.data(&self.a.province(p as i32, q as i32));
+        let n = d[PV::province::SITE_COUNT];
+        (0..n)
+            .filter(|s| {
+                d[PV::province::site(*s as usize) + PV::site::STATE] == PV::site::STATE_FREE
+            })
+            .collect()
+    }
+
+    /// SettleTicket(k) for an estate's open ticket (the estate's wallet as
+    /// the citizen), the seed made ready first.
+    pub fn settle_estate_ticket(
+        &self,
+        c: &mut Chain,
+        e: &super::holding::Estate,
+        k: u8,
+        displaced: Option<&Displaced>,
+    ) -> SendResult {
+        let who = Citizen {
+            wallet: e.wallet.insecure_clone(),
+            faction: e.faction,
+        };
+        let (bell, sites) = self.ticket_of(c, &who);
+        let s = sites[k as usize];
+        self.seed_ready(c, bell, region(s.p, s.q));
+        self.settle_ticket(c, &who, k, displaced)
+    }
+}
+
+/// A Holding's `owner_citizen` (the Citizen account's address).
+pub fn owner_citizen(holding: &[u8]) -> Address {
+    Address::new_from_array(
+        holding[H::OWNER_CITIZEN..H::OWNER_CITIZEN + 32]
+            .try_into()
+            .expect("32"),
+    )
+}
+
 /// A chained account followed through one transaction's records, matching
 /// links by continuation: a record may carry several links of one entity
 /// kind (SETTLE with a displacement chains two Citizens), so the link that
@@ -492,19 +623,27 @@ impl ChainTrack {
         min_links: usize,
     ) -> Vec<frontier_abi::log::Link> {
         use frontier_abi::log::{next_head, Kind};
+        use frontier_abi::v2::log::{AnyKind, EntityKind as E2};
+        // ABI v2 (MC): every record, MC kinds included (OUTPOST_SETTLED,
+        // KEEP, ... advance the chains too).
+        let entity = E2::of_v1(self.entity);
         let (mut seq, mut head) = self.before;
         let mut seen = vec![];
         let mut last_kind = None;
-        for r in crate::records::records(logs) {
+        for r in crate::records::any_records(logs) {
             let hit = r.links.iter().copied().find(|l| {
-                l.entity == self.entity
+                l.entity == entity
                     && l.seq == seq + 1
                     && l.head == next_head(&head, l.seq, &r.body_without_tail)
             });
             if let Some(l) = hit {
                 seq = l.seq;
                 head = l.head;
-                seen.push(l);
+                seen.push(frontier_abi::log::Link {
+                    entity: self.entity,
+                    seq: l.seq,
+                    head: l.head,
+                });
                 last_kind = Some(r.kind);
             }
         }
@@ -518,7 +657,7 @@ impl ChainTrack {
         if c.is_absent(&self.address) {
             assert_eq!(
                 last_kind,
-                Some(Kind::CLOSE),
+                Some(AnyKind::V1(Kind::CLOSE)),
                 "a closed account's last record is CLOSE"
             );
         } else {

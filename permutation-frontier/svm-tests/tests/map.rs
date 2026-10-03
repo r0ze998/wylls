@@ -761,3 +761,246 @@ fn g01_open_province_worst_of_rings_2_to_10() {
         &ceilings(Ix::OpenProvince, 0, c2.programdata_len()),
     );
 }
+
+// ------------------------------------------------------------ MC (CQ2-A)
+
+mod cq {
+    //! MC contract §3.2, §3.7, §3.13, §5.1, §5.2.5, §5.6 for CreateSeason
+    //! v2, OpenRing / OpenProvince (keeps, genesis Free Cities) and
+    //! FoldOccupancy.
+
+    use super::*;
+    use frontier_abi::presets;
+    use frontier_abi::v2::layout::province::site as SM2;
+    use frontier_abi::v2::layout::world::join_shard as JS2;
+    use frontier_abi::v2::presets::{
+        ConquestParams, FRONTIER_7, MC_TEST, RULESET_HASH_V2, SEASON_CQ_OFFSET,
+    };
+    use permutation_frontier_svm_tests::ix::season as six;
+    use permutation_frontier_svm_tests::records::{cq_records, one_cq};
+    use permutation_rules::frontier::terrain::free_city_site;
+
+    /// CreateSeason v2 stores `RULESET_HASH_V2`, `RULES_VERSION` 11,
+    /// `program_version` 2 and the conquest block at 896..1,024 (§5.2.5,
+    /// §3.13).
+    #[test]
+    fn cq_create_season_v2_writes_the_conquest_block() {
+        let mut c = Chain::test_beacon();
+        let w = World::announced(&mut c, 1);
+        let l = expect_lands(w.create(&mut c), "CreateSeason v2");
+        let d = c.data(&w.a.season);
+        assert_eq!(&d[S::RULESET_HASH..S::RULESET_HASH + 32], &RULESET_HASH_V2);
+        assert_ne!(RULESET_HASH_V2, presets::RULESET_HASH, "M1's is another");
+        assert_eq!(rd_u16(&d, S::RULES_VERSION), 11);
+        assert_eq!(rd_u16(&d, S::PROGRAM_VERSION), 2);
+        assert_eq!(
+            ConquestParams::of_season(&d),
+            Some(w.params.cq),
+            "the block at 896"
+        );
+        assert_eq!(w.params.cq, ConquestParams { ..FRONTIER_7 });
+        assert_eq!(SEASON_CQ_OFFSET, 896);
+        let r = one(&l.logs, Kind::SEASON_CREATED);
+        assert_eq!(r.field("ruleset_hash", true), &RULESET_HASH_V2);
+        assert_eq!(r.u64("program_version"), 2);
+    }
+
+    /// G13 (§5.2.5): CreateSeason v2's refusals: M1-shaped data, M1's
+    /// `program_version`, conquest values out of range or naming M3 levers
+    /// (announced that way, so the hash matches): `BadData`; a v2 block
+    /// that does not hash to the announcement: `Announce`.
+    #[test]
+    fn g13_cq_create_season_v2_refusals() {
+        let mut c = Chain::test_beacon();
+        let w = World::announced(&mut c, 1);
+        c.set_time(w.t_create_min);
+        // M1's CreateSeason data (224 B of SeasonParams).
+        let v1 = fclient::ix::create_season(
+            &w.a,
+            w.authority.pubkey(),
+            &w.params.season.to_bytes(),
+            &w.params.payout,
+        );
+        assert_code(c.send(&[v1], &[&w.authority]), E::BadData);
+        // A block that differs from the announced one.
+        let mut other = w.params.clone();
+        other.cq.keep_bells += 1;
+        let ix = six::create(&w.a, w.authority.pubkey(), &other);
+        assert_code(c.send(&[ix], &[&w.authority]), E::Announce);
+        let bad = |c: &mut Chain, id: u64, f: fn(&mut six::Params)| {
+            let mut fk = c.fork();
+            let mut wb = World::new(&mut fk, id);
+            wb.t_create_min = fk.now + presets::MIN_ANNOUNCE_LEAD_SECS + 60;
+            f(&mut wb.params);
+            expect_lands(wb.announce(&mut fk), "AnnounceSeason of invalid params");
+            assert_code(wb.create(&mut fk), E::BadData);
+        };
+        bad(&mut c, 20, |p| p.season.program_version = 1);
+        bad(&mut c, 21, |p| p.cq.relations = 1);
+        bad(&mut c, 22, |p| p.cq.flags = 1);
+        bad(&mut c, 23, |p| p.cq.keep_home_guard = 30_001);
+        bad(&mut c, 24, |p| p.cq.heartland_max_ring = 1);
+        bad(&mut c, 25, |p| p.cq.dormant_after_secs += 1);
+        expect_lands(w.create(&mut c), "CreateSeason v2");
+    }
+
+    /// The v2 program refuses an M1 Season (§5.1): a Season whose ruleset
+    /// is M1's is `RulesetMismatch` (crafted ruleset bytes).
+    #[test]
+    fn cq_an_m1_season_is_refused() {
+        let (mut c, w) = running();
+        c.edit(&w.a.season, |d| {
+            d[S::RULESET_HASH..S::RULESET_HASH + 32].copy_from_slice(&presets::RULESET_HASH)
+        });
+        assert_code(w.open_ring(&mut c, 0), E::RulesetMismatch);
+    }
+
+    /// `MC_TEST` (heartland rings 2, Free Cities from ring 3): rings 0–1
+    /// have no keep; ring 2 keeps are heartland-safe; ring 3 keeps are
+    /// contestable and every ring-3 province gets its genesis Free City on
+    /// `free_city_site` (NEUTRAL, 300 troops, Hamlet, order 0, permanent);
+    /// the logs are `KEEP` (placed) and `NEUTRAL` (§3.2, §3.7, §5.6).
+    #[test]
+    fn cq_open_province_places_keeps_and_free_cities() {
+        let mut c = Chain::test_beacon();
+        let w = World::land_v2(&mut c, 1, MC_TEST);
+        for (p, q) in [(0i16, 0i16), provinces_of(1, Some(3))[0]] {
+            let l = expect_lands(w.open_province(&mut c, p, q), "OpenProvince (rings 0-1)");
+            let pd = c.data(&w.a.province(p as i32, q as i32));
+            assert_eq!(read_keep(&pd).unwrap(), None, "no keep");
+            assert!(cq_records(&l.logs, CqKind::KEEP).is_empty());
+        }
+        for ring in [2u32, 3] {
+            for wedge in 0..6u8 {
+                let (p, q) = provinces_of(ring, Some(wedge))[0];
+                let pk = w.a.province(p as i32, q as i32);
+                let watch = ChainWatch::new(&c, pk, EntityKind::Province);
+                let l = expect_lands(w.open_province(&mut c, p, q), "OpenProvince");
+                watch.check(&c, &l.logs, if ring >= 3 { 3 } else { 2 });
+                let seed = w.ring_seed_of(&c, ring as u16);
+                let t = terrain(&seed, p, q);
+                let pd = c.data(&pk);
+                assert_eq!(pd.len(), PV2::SIZE);
+                assert_eq!(rd_u16(&pd, 16), 2, "layout_version 2");
+                let k = read_keep(&pd).unwrap().expect("a keep");
+                assert_eq!(k.tile, keep_tile_of(&t, wedge));
+                assert_eq!(k.holder, wedge);
+                assert_eq!(k.heartland_safe, ring == 2);
+                assert_eq!(k.troops, MC_TEST.cq.keep_home_guard);
+                assert_eq!(k.required as u16, MC_TEST.cq.keep_bells);
+                one_cq(&l.logs, CqKind::KEEP);
+                let n = cq_records(&l.logs, CqKind::NEUTRAL);
+                if ring < 3 {
+                    assert!(n.is_empty(), "no Free City in ring 2");
+                    continue;
+                }
+                let s = free_city_site(&seed, ProvinceCoord::new(p as i32, q as i32), t.site_count);
+                let o = PV::site(s as usize);
+                assert_eq!(pd[o + SM::STATE], SM2::STATE_FREE_CITY);
+                assert_eq!(pd[o + SM::FACTION], 6, "NEUTRAL");
+                assert_eq!(pd[o + SM::ORDER], 0);
+                assert_eq!(pd[o + SM::TIER], 0, "Hamlet");
+                assert_eq!(pd[o + SM::GEN], 0);
+                assert_eq!(rd_u16(&pd, o + SM2::HELD_SINCE_HOUR), 0);
+                assert_eq!(rd_u32(&pd, o + SM::GARRISON), 300_000, "300 troops, milli");
+                assert_ne!(
+                    k.tile,
+                    pd[PV::SITES + s as usize],
+                    "the keep is off every site"
+                );
+                assert_eq!(n.len(), 1);
+                assert_eq!(n[0].key[8], s);
+                assert_eq!(n[0].u64("garrison"), 300);
+                assert_eq!(n[0].u64("kind"), 0);
+                // The Free City is no ticket site (state 5): a ticket there
+                // ends `taken` (S1 / M1 ticket rules), and it is no holding.
+                assert_eq!(pd[PV::N_SITES_USED], 0);
+            }
+        }
+        // The camp never stands on the keep tile (camp v2).
+        for (p, q) in provinces_of(3, None).into_iter().take(12) {
+            let pk = w.a.province(p as i32, q as i32);
+            if c.is_absent(&pk) {
+                expect_lands(w.open_province(&mut c, p, q), "OpenProvince");
+            }
+            let pd = c.data(&pk);
+            let k = read_keep(&pd).unwrap().unwrap();
+            if pd[PV::CAMP + CP::STATE] == CP::STATE_PRESENT {
+                assert_ne!(pd[PV::CAMP + CP::TILE], k.tile);
+            }
+        }
+    }
+
+    /// FoldOccupancy adds each JoinShard's `extra_holdings` to
+    /// `occupied_sites`, not to `wedge_occupied` (§5.2.4). Crafted counter.
+    #[test]
+    fn cq_fold_occupancy_counts_extra_holdings() {
+        let (mut c, w) = running();
+        w.open_genesis_rings(&mut c);
+        w.fold(&mut c);
+        let fr0 = c.data(&w.a.frontier());
+        c.advance(600);
+        c.edit(&w.a.join_shard(4, 3), |d| {
+            d[JS2::EXTRA_HOLDINGS..JS2::EXTRA_HOLDINGS + 4].copy_from_slice(&5u32.to_le_bytes())
+        });
+        w.fold(&mut c);
+        let fr = c.data(&w.a.frontier());
+        assert_eq!(
+            rd_u32(&fr, FR::OCCUPIED_SITES),
+            rd_u32(&fr0, FR::OCCUPIED_SITES) + 5
+        );
+        for x in 0..6 {
+            assert_eq!(
+                rd_u32(&fr, FR::WEDGE_OCCUPIED + 4 * x),
+                rd_u32(&fr0, FR::WEDGE_OCCUPIED + 4 * x)
+            );
+        }
+        let _ = JS::HOLDINGS;
+    }
+
+    /// G1 (§13.1): OpenProvince over rings 2..10 × 6 wedges, now with the
+    /// keep in every province and the genesis Free City from ring 4
+    /// (Frontier-7), within §5.4's 220,000 CU.
+    #[test]
+    fn g01_cq_open_province_with_keep_and_free_city() {
+        let (mut c, w) = running();
+        w.open_genesis_rings(&mut c);
+        craft_ring_seeds(&mut c, &w, 4, 10);
+        let mut worst = (0u64, (0i16, 0i16));
+        for ring in 2..=10u32 {
+            for wedge in 0..6u8 {
+                for (p, q) in provinces_of(ring, Some(wedge)) {
+                    let l = expect_lands(
+                        c.send(&[w.open_province_ix(p, q)], &[&w.keeper]),
+                        "OpenProvince",
+                    );
+                    one_cq(&l.logs, CqKind::KEEP);
+                    assert_eq!(
+                        cq_records(&l.logs, CqKind::NEUTRAL).len(),
+                        (ring >= 4) as usize,
+                        "a Free City from ring 4"
+                    );
+                    if l.cu > worst.0 {
+                        worst = (l.cu, (p, q));
+                    }
+                }
+            }
+        }
+        println!("OpenProvince v2 worst {} CU at {:?}", worst.0, worst.1);
+        let (mut c2, w2) = running();
+        w2.open_genesis_rings(&mut c2);
+        craft_ring_seeds(&mut c2, &w2, 4, 10);
+        let need = c2
+            .measure(
+                &[w2.open_province_ix(worst.1 .0, worst.1 .1)],
+                &[&w2.keeper],
+            )
+            .expect("measure");
+        assert!(need.cu <= 220_000, "{} CU", need.cu);
+        assert_within(
+            "OpenProvince v2 (worst)",
+            &need,
+            &ceilings(Ix::OpenProvince, 0, c2.programdata_len()),
+        );
+    }
+}

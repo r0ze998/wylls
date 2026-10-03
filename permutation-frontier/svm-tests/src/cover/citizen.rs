@@ -2,7 +2,7 @@
 //! tickets, dormancy, season-end closes), W3-A. Codes the wave-3 tests do
 //! not reach yet are `Pending` for W5-A (G13 completion).
 
-use super::{Cover, Err, Lands, Loaded, E};
+use super::{Cover, Cq, CqErr, Err, Lands, Loaded, E};
 
 /// Ignored tests of this area waiting for a fix: (test, unit).
 pub const PENDING: &[(&str, &str)] = &[];
@@ -116,6 +116,14 @@ pub const FILE_TICKET: &[Cover] = &[
         "citizen::citizen_g13_file_ticket_forgery_shape_loaded",
         &[Err(E::BadAddress), Err(E::TooManyAccounts), Loaded],
     ),
+    Cover::Test(
+        "citizen::g13_cq_file_ticket_v2_refusals",
+        &[
+            CqErr(Cq::SiegeBusy),
+            Err(E::TransitState),
+            Lands("FileTicket"),
+        ],
+    ),
 ];
 
 pub const SETTLE_TICKET: &[Cover] = &[
@@ -169,6 +177,14 @@ pub const SETTLE_TICKET: &[Cover] = &[
         "citizen::citizen_g13_settle_ticket_archive_path_and_loaded",
         &[Lands("via the archive"), Loaded],
     ),
+    Cover::Test(
+        "citizen::cq_outpost_files_and_settles_into_slots_2_and_3",
+        &[Lands("SettleTicket (outpost)")],
+    ),
+    Cover::Test(
+        "citizen::g02_cq_prefund_outpost_holding",
+        &[Lands("SettleTicket (outpost) pre-funded")],
+    ),
 ];
 
 pub const RELEASE_DORMANT: &[Cover] = &[
@@ -186,6 +202,14 @@ pub const RELEASE_DORMANT: &[Cover] = &[
         &[Err(E::BadAccount), Lands("ReleaseDormant")],
     ),
     Cover::Test("citizen::g01_land_other_instructions", &[Loaded]),
+    Cover::Test(
+        "citizen::g13_cq_release_dormant_s3_and_record_reset",
+        &[
+            CqErr(Cq::SiegeBusy),
+            CqErr(Cq::StakeUnsettled),
+            Lands("ReleaseDormant"),
+        ],
+    ),
 ];
 
 pub const CLOSE_HOLDING: &[Cover] = &[
@@ -232,4 +256,39 @@ pub const CLOSE_CITIZEN: &[Cover] = &[
 ];
 
 /// 0xA3 FileOutpost (MC §3.8, §5.5): CQ2-A.
-pub const FILE_OUTPOST: &[Cover] = &[Cover::Pending("CQ2-A")];
+pub const FILE_OUTPOST: &[Cover] = &[
+    Cover::Test(
+        "citizen::cq_outpost_files_and_settles_into_slots_2_and_3",
+        &[
+            Lands("FileOutpost"),
+            Err(E::TicketState),
+            CqErr(Cq::HoldingsFull),
+        ],
+    ),
+    Cover::Test(
+        "citizen::g13_cq_file_outpost_refusals",
+        &[
+            CqErr(Cq::OutpostRule),
+            CqErr(Cq::SiegeBusy),
+            CqErr(Cq::HoldingsFull),
+            Err(E::Capacity),
+            Err(E::NotFinal),
+            Err(E::BadData),
+            Err(E::BadAddress),
+            Err(E::NotOwner),
+            Err(E::Insufficient),
+            Err(E::ReservedSite),
+            Err(E::TooManyAccounts),
+            Err(E::TicketState),
+            Lands("FileOutpost"),
+        ],
+    ),
+    Cover::Test(
+        "citizen::g03_cq_file_outpost_refuses_forged_accounts",
+        &[Err(E::BadAddress), Err(E::BadAccount), Lands("FileOutpost")],
+    ),
+    Cover::Test(
+        "citizen::g01_cq_file_outpost_three_provinces_full_cohorts",
+        &[Loaded, Lands("FileOutpost at the 24k limit")],
+    ),
+];

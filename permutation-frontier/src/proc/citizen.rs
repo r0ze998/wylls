@@ -559,29 +559,33 @@ fn outpost_err(e: OutpostRefusal) -> crate::Error {
 /// every Free City (in the total), the tier in force at `b` (§5.2.1
 /// `tier_next`), the mirror's garrison and order.
 pub fn province_weights(pd: &[u8], faction: u8, b: u32) -> R<(u64, u64)> {
-    let r = Ro(pd);
-    let n = (r.u8(PV::SITE_COUNT)? as usize).min(PV::SITES_N);
+    // One slice of the mirror, fields read in place (the bounds-checked
+    // accessors cost ≈ 0.7k CU a Province here; CQ2-A notes §2).
+    let n = (*pd.get(PV::SITE_COUNT).ok_or(BAD_ACCOUNT)? as usize).min(PV::SITES_N);
+    let m = pd
+        .get(PV::SITE_MIRROR..PV::SITE_MIRROR + PV::SITES_N * SM::SIZE)
+        .ok_or(BAD_ACCOUNT)?;
+    let u32_at = |r: &[u8], o: usize| u32::from_le_bytes([r[o], r[o + 1], r[o + 2], r[o + 3]]);
     let (mut mine, mut total) = (0u64, 0u64);
-    for i in 0..n {
-        let o = PV::site(i);
-        let state = r.u8(o + SM::STATE)?;
+    for r in m.chunks_exact(SM::SIZE).take(n) {
+        let state = r[SM::STATE];
         let order0 = match state {
-            SM::STATE_HOLDING => r.u8(o + SM::ORDER)?.saturating_sub(1),
+            SM::STATE_HOLDING => r[SM::ORDER].saturating_sub(1),
             SM2::STATE_FREE_CITY => 0,
             _ => continue,
         };
-        let mut tier = r.u8(o + SM::TIER)?;
-        let next = r.u8(o + SM2::TIER_NEXT)?;
+        let mut tier = r[SM::TIER];
+        let next = r[SM2::TIER_NEXT];
         if state == SM::STATE_HOLDING
             && next != SM2::NO_TIER_NEXT
-            && r.u32(o + SM2::TIER_NEXT_BELL)? <= b
+            && u32_at(r, SM2::TIER_NEXT_BELL) <= b
         {
             tier = next;
         }
         let t = frontier_abi::conquest_model::tier_of(tier)?;
-        let w = strength_weight(t, r.u32(o + SM::GARRISON)?, order0);
+        let w = strength_weight(t, u32_at(r, SM::GARRISON), order0);
         total = total.saturating_add(w);
-        if state == SM::STATE_HOLDING && r.u8(o + SM::FACTION)? == faction {
+        if state == SM::STATE_HOLDING && r[SM::FACTION] == faction {
             mine = mine.saturating_add(w);
         }
     }
@@ -635,6 +639,7 @@ pub fn file_outpost(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let x = V2FileOutpost::decode(d)?;
     let now = prologue::now()?;
     let pc = player(p, a, now.ts, true)?;
+    crate::heap::trace_checkpoint(0xA300);
     let [_actor, payer, season_ai, citizen, frontier, rest @ ..] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
@@ -666,6 +671,7 @@ pub fn file_outpost(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     if open_ticket != C::NO_TICKET {
         return Err(FrontierError::TicketState.into());
     }
+    crate::heap::trace_checkpoint(0xA301);
     // The anchor: a final holding of the citizen, named in host-id form.
     let ak = addr::split_host_id(x.anchor_site_key).ok_or(FrontierError::BadData)?;
     if ak.seq != 0 {
@@ -701,6 +707,7 @@ pub fn file_outpost(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         tier_min
     };
     let slot = C2::lowest_free_slot(slots, gen2, gen3);
+    crate::heap::trace_checkpoint(0xA302);
     present_at(frontier, &ctx.frontier(), p, AccountKind::Frontier, hdr.id)?;
     let (rings_opened, open_sites, occupied) = {
         let fd = frontier.try_borrow_data()?;
@@ -736,6 +743,7 @@ pub fn file_outpost(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         ..base
     })
     .map_err(outpost_err)?;
+    crate::heap::trace_checkpoint(0xA303);
     let anchor_coord = ProvinceCoord::new(ap_, aq_);
     let n = x.n as usize;
     let mut sites = [(0i16, 0i16, 0u8); 3];
@@ -794,17 +802,21 @@ pub fn file_outpost(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             }
         }
         cohort_file(&mut pd, now_bell)?;
+        crate::heap::trace_checkpoint(0xA304);
     }
     let slot = slot.ok_or(crate::CqError::HoldingsFull)?;
-    // The settler cost from the anchor's stores (an owner action).
+    // The settler cost from the anchor's stores, as an owner action of the
+    // anchor (the holding touch every resident action makes).
     let cost = settler_cost(holdings_n)?;
     let mut h = super::holding::load_touched(anchor_ai, now.ts)?;
     h.pay(now.ts, &cost).map_err(super::holding::holding_err)?;
+    crate::heap::trace_checkpoint(0xA305);
     let digest = {
         let mut hd = anchor_ai.try_borrow_mut_data()?;
         super::holding::write_holding(&mut hd, &h, now.ts)?;
         super::holding::stores_digest(&hd)?
     };
+    crate::heap::trace_checkpoint(0xA306);
     // Escrow (K-25): one Holding rent for this ticket and one per
     // reservation; the payer becomes the funder only when it tops up.
     let rent_h = init::rent(H::SIZE)?;
@@ -834,6 +846,7 @@ pub fn file_outpost(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         w.set_arr(C::TICKET_FUNDER, &funder)?;
     }
     set_ticket_slot(&mut cd, slot)?;
+    crate::heap::trace_checkpoint(0xA307);
     let tag15 = tag15_of(&cd)?;
     let sites_raw: [u8; 15] = Ro(&cd).arr(C::TICKET_SITES)?;
     let payload = Buf::<60>::new()
@@ -861,6 +874,7 @@ pub fn file_outpost(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         events::emit(Kind::TICKET, now_bell, &tag15, payload.get()?, &mut chained)?;
     }
     drop(cd);
+    crate::heap::trace_checkpoint(0xA308);
     let hkey = super::holding::pqs_key(ah.p, ah.q, ah.site)?;
     super::holding::emit3(
         Kind::HARVEST,

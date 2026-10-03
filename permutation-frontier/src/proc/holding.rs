@@ -330,7 +330,24 @@ pub mod queue_kind {
     pub const WALLS: u8 = 4;
 }
 
-/// Decodes the kernel holding from a Holding account's data.
+/// The Holding's kernel block `STORES .. FOOD_SHORTFALL + 8` (568 B):
+/// stores, production, upkeep, queue, walls, food shortfall. Encoded
+/// through one fixed-size array view (`copy_from_slice` per field, no
+/// per-field bounds check: ≈ 0.4k CU less per owner action than the
+/// accessors, measured; the bytes are identical, `holding_round_trips_
+/// through_the_layout`).
+const KB: core::ops::Range<usize> = H::STORES..H::FOOD_SHORTFALL + 8;
+const KB_LEN: usize = H::FOOD_SHORTFALL + 8 - H::STORES;
+
+#[inline(always)]
+fn kb_put_i64(b: &mut [u8; KB_LEN], o: usize, v: i64) {
+    let o = o - H::STORES;
+    b[o..o + 8].copy_from_slice(&v.to_le_bytes());
+}
+
+/// Decodes the kernel holding from a Holding account's data (per-field
+/// accessors: on SBF they compile to one unaligned load each, cheaper than
+/// assembling the fixed-array view byte by byte; measured, CQ2-A notes §2).
 pub fn read_holding(d: &[u8]) -> R<KHolding> {
     let r = Ro(d);
     let mut stores = [Accrual::default(); RESOURCES];
@@ -401,23 +418,36 @@ pub fn read_holding(d: &[u8]) -> R<KHolding> {
 /// the season's timers (§3.9) and is kept; M1 rewrote it from its
 /// constants here, which gave the same value in an M1 season.
 pub fn write_holding(d: &mut [u8], h: &KHolding, now: i64) -> R<()> {
-    let mut w = Rw(d);
-    w.set_u8(H::TIER, tier_u8(h.tier))?;
-    w.set_u8(H::ORDER, h.order)?;
-    w.set_i64(H::FOUNDED_TS, h.founded_ts)?;
-    w.set_u32(H::FOUNDED_DAY, h.founded_day)?;
-    w.set_i64(H::LAST_OWNER_ACTION, h.last_owner_action)?;
+    {
+        let mut w = Rw(d);
+        w.set_u8(H::TIER, tier_u8(h.tier))?;
+        w.set_u8(H::ORDER, h.order)?;
+        w.set_i64(H::FOUNDED_TS, h.founded_ts)?;
+        w.set_u32(H::FOUNDED_DAY, h.founded_day)?;
+        w.set_i64(H::LAST_OWNER_ACTION, h.last_owner_action)?;
+        let flags = w.u8(H::FLAGS)?;
+        let dormant = if h.is_dormant(now) {
+            H::FLAG_DORMANT_CACHE
+        } else {
+            0
+        };
+        w.set_u8(H::FLAGS, (flags & !H::FLAG_DORMANT_CACHE) | dormant)?;
+    }
+    let b: &mut [u8; KB_LEN] = d
+        .get_mut(KB)
+        .and_then(|x| x.try_into().ok())
+        .ok_or(BAD_ACCOUNT)?;
     for (i, s) in h.stores.iter().enumerate() {
         let o = H::store(i);
-        w.set_i64(o + accrual::VALUE, s.value)?;
-        w.set_i64(o + accrual::RATE, s.rate)?;
-        w.set_i64(o + accrual::CAP, s.cap)?;
-        w.set_i64(o + accrual::T0, s.t0)?;
-        w.set_i64(o + accrual::FRAC, s.frac)?;
+        kb_put_i64(b, o + accrual::VALUE, s.value);
+        kb_put_i64(b, o + accrual::RATE, s.rate);
+        kb_put_i64(b, o + accrual::CAP, s.cap);
+        kb_put_i64(b, o + accrual::T0, s.t0);
+        kb_put_i64(b, o + accrual::FRAC, s.frac);
     }
     for i in 0..RESOURCES {
-        w.set_i64(H::PRODUCTION + 8 * i, h.production[i])?;
-        w.set_i64(H::UPKEEP + 8 * i, h.upkeep[i])?;
+        kb_put_i64(b, H::PRODUCTION + 8 * i, h.production[i]);
+        kb_put_i64(b, H::UPKEEP + 8 * i, h.upkeep[i]);
     }
     for (i, q) in h.queue.iter().enumerate() {
         let o = H::queue(i);
@@ -434,21 +464,15 @@ pub fn write_holding(d: &mut [u8], h: &KHolding, now: i64) -> R<()> {
                 Effect::Walls { delta } => (*done_at, queue_kind::WALLS, 0, delta as i64),
             },
         };
-        w.set_i64(o + QI::DONE_AT, done_at)?;
-        w.set_u8(o + QI::KIND, kind)?;
-        w.set_u8(o + QI::ARG, arg)?;
-        w.set_i64(o + QI::DELTA, delta)?;
+        kb_put_i64(b, o + QI::DONE_AT, done_at);
+        b[o + QI::KIND - H::STORES] = kind;
+        b[o + QI::ARG - H::STORES] = arg;
+        kb_put_i64(b, o + QI::DELTA, delta);
     }
-    w.set_u32(H::WALLS, h.walls)?;
-    w.set_i64(H::WALLS_COMMITTED_BEFORE, h.walls_committed_before)?;
-    w.set_i64(H::FOOD_SHORTFALL, h.food_shortfall)?;
-    let flags = w.u8(H::FLAGS)?;
-    let dormant = if h.is_dormant(now) {
-        H::FLAG_DORMANT_CACHE
-    } else {
-        0
-    };
-    w.set_u8(H::FLAGS, (flags & !H::FLAG_DORMANT_CACHE) | dormant)?;
+    let w = H::WALLS - H::STORES;
+    b[w..w + 4].copy_from_slice(&h.walls.to_le_bytes());
+    kb_put_i64(b, H::WALLS_COMMITTED_BEFORE, h.walls_committed_before);
+    kb_put_i64(b, H::FOOD_SHORTFALL, h.food_shortfall);
     Ok(())
 }
 

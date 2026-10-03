@@ -69,4 +69,8 @@ pub const REVEAL: &[Cover] = &[
     ),
     Cover::Test("reveal::g09_reveal_quota_is_order_free", &[Lands("Reveal")]),
     Cover::Test("reveal::g01_reveal_worst", &[Loaded]),
+    Cover::Test(
+        "reveal::cq_reveal_targets_a_free_city_from_a_shielded_holding",
+        &[Err(E::Shielded), Lands("Reveal to a Free City")],
+    ),
 ];

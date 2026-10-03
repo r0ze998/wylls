@@ -55,6 +55,10 @@ pub const OPEN_RING: &[Cover] = &[
         ],
     ),
     Cover::Test("citizen::g01_land_other_instructions", &[Loaded]),
+    Cover::Test(
+        "map::cq_an_m1_season_is_refused",
+        &[Err(E::RulesetMismatch)],
+    ),
 ];
 
 pub const CONSUME_RING_SEED: &[Cover] = &[
@@ -116,6 +120,14 @@ pub const OPEN_PROVINCE: &[Cover] = &[
     Cover::Test(
         "g13_complete::g13_open_province_top_level_and_loaded",
         &[Err(E::NotTopLevel), Loaded, Lands("OpenProvince")],
+    ),
+    Cover::Test(
+        "map::cq_open_province_places_keeps_and_free_cities",
+        &[Lands("OpenProvince")],
+    ),
+    Cover::Test(
+        "map::g01_cq_open_province_with_keep_and_free_city",
+        &[Lands("OpenProvince")],
     ),
 ];
 

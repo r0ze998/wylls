@@ -1949,3 +1949,611 @@ fn citizen_g13_season_end_closes_refuse_forgeries() {
     assert_code(g.send(std::slice::from_ref(&cc), &[&k]), E::BadAccount);
     expect_lands(c.send(&[cc], &[&k]), "CloseCitizen");
 }
+
+// ------------------------------------------------------------ MC (CQ2-A): outposts, slots, S3
+
+mod cq {
+    //! MC contract §3.8, §3.15, §5.2.3, §5.5, §5.6 on the test-beacon build,
+    //! `MC_TEST` (heartland rings 2, Free Cities from ring 3, outposts from a
+    //! Hamlet, a 2-h outpost shield), so ring 3 (a genesis ring) is outpost
+    //! land. Crafted state is named where used.
+
+    use super::*;
+    use frontier_abi::v2::layout::player::citizen as C2;
+    use frontier_abi::v2::layout::province::{conquest as CR, province as PV2, site as SM2};
+    use frontier_abi::v2::layout::world::join_shard as JS2;
+    use frontier_abi::v2::log::CqKind;
+    use frontier_abi::v2::presets::MC_TEST;
+    use frontier_abi::v2::CqError as Cq;
+    use permutation_frontier_svm_tests::ix::citizen::outpost_at;
+    use permutation_frontier_svm_tests::ix::map as mix;
+    use permutation_frontier_svm_tests::records::{any_records, one_cq};
+    use permutation_frontier_svm_tests::world::holding::{read_kholding, Estate};
+    use permutation_rules::fixed::MILLI;
+    use permutation_rules::frontier::geometry::ProvinceCoord;
+    use permutation_rules::frontier::holding::duplicate_cost;
+
+    pub(super) fn mc_test() -> (Chain, World) {
+        let mut c = Chain::test_beacon();
+        let w = World::land_v2(&mut c, 1, MC_TEST);
+        (c, w)
+    }
+
+    pub(super) fn dist(a: (i16, i16), b: (i16, i16)) -> u32 {
+        ProvinceCoord::new(a.0 as i32, a.1 as i32)
+            .distance(ProvinceCoord::new(b.0 as i32, b.1 as i32))
+    }
+
+    /// The first ring-3 province of `wedge` within `range` of `home`,
+    /// opened if absent.
+    pub(super) fn front(c: &mut Chain, w: &World, home: (i16, i16), wedge: u8) -> (i16, i16) {
+        let t = provinces_of(3, Some(wedge))
+            .into_iter()
+            .find(|t| dist(home, *t) <= 3)
+            .expect("a ring-3 province within 3");
+        if c.is_absent(&w.a.province(t.0 as i32, t.1 as i32)) {
+            expect_lands(w.open_province(c, t.0, t.1), "OpenProvince (ring 3)");
+        }
+        t
+    }
+
+    pub(super) fn send(
+        c: &mut Chain,
+        e: &Estate,
+        ix: permutation_frontier_svm_tests::Instruction,
+    ) -> permutation_frontier_svm_tests::chain::SendResult {
+        c.send(&[ix], &[&e.wallet])
+    }
+
+    /// The settler cost of a citizen with `n` holdings (MC §3.8), milli.
+    pub(super) fn settler(n: u8) -> [i64; 8] {
+        let mut c = [0i64; 8];
+        for (r, b) in catalog::SETTLER_COST.iter().enumerate() {
+            c[r] = duplicate_cost(*b as u64, n as u32).unwrap() as i64 * MILLI;
+        }
+        c
+    }
+
+    fn slot_ref(d: &[u8], slot: u8) -> (i16, i16, u8, u8) {
+        let o = C2::holding_of_slot(slot);
+        (
+            rd_u16(d, o + HR::P) as i16,
+            rd_u16(d, o + HR::Q) as i16,
+            d[o + HR::SITE],
+            d[o + HR::GEN],
+        )
+    }
+
+    /// Join writes the slot-indexed list empty (MC §5.2.3).
+    #[test]
+    fn cq_join_writes_empty_slots() {
+        let (mut c, w) = mc_test();
+        let a = w.citizen(&mut c, "a", 0);
+        let d = w.citizen_data(&c, &a);
+        for slot in 1..=3 {
+            assert_eq!(slot_ref(&d, slot), (0, 0, 0, C2::EMPTY_GEN), "slot {slot}");
+        }
+        assert_eq!(d[C2::SLOTS], 0);
+        assert_eq!(d[C::HOLDINGS_N], 0);
+    }
+
+    /// FileOutpost files a slot-2 ticket at the front; SettleTicket founds
+    /// the outpost there; a second one takes slot 3; then the slots are
+    /// full (MC §3.8, §5.5, §5.6, K-25).
+    #[test]
+    fn cq_outpost_files_and_settles_into_slots_2_and_3() {
+        let (mut c, w) = mc_test();
+        let home = provinces_of(2, Some(0))[0];
+        let e = w.final_estate(&mut c, "a", 0, home, 0, 10_000);
+        let t = front(&mut c, &w, home, 0);
+        let s0 = w.free_sites(&c, t.0, t.1)[0];
+        w.fold(&mut c);
+        let rent_h = c.rent(H::SIZE);
+        let anchor0 = read_kholding(&c.data(&e.holding));
+        let bell = w.now_bell(&c);
+        let watches = [
+            ChainTrack::new(&c, e.citizen, EntityKind::Citizen),
+            ChainTrack::new(&c, e.holding, EntityKind::Holding),
+        ];
+        let before = c.lamports(&e.wallet.pubkey());
+        let l = expect_lands(
+            send(&mut c, &e, w.file_outpost_ix(&e, &[site(t, s0)], &e)),
+            "FileOutpost",
+        );
+        for x in &watches {
+            x.check(&c, &l.logs, 1);
+        }
+        assert_eq!(paid(before, &c, &e.wallet, &l), rent_h, "one Holding rent");
+        let d = c.data(&e.citizen);
+        assert_eq!(d[C2::SLOTS] & C2::SLOTS_TICKET_MASK, 2, "the ticket's slot");
+        assert_eq!(rd_u32(&d, C::TICKET_BELL), bell);
+        assert_eq!(rd_u64(&d, C::TICKET_ESCROW), rent_h);
+        assert_eq!(cohort(&c, &w, t, bell), Some((1, 0)));
+        // The settler cost (one holding: × 1) left the anchor's stores.
+        let mut want = anchor0.clone();
+        want.settle(c.now).unwrap();
+        want.touch_owner(c.now).unwrap();
+        want.commit_walls(c.now);
+        want.pay(c.now, &settler(1)).unwrap();
+        assert_eq!(read_kholding(&c.data(&e.holding)), want);
+        one(&l.logs, Kind::TICKET);
+        let h = one(&l.logs, Kind::HARVEST);
+        assert_eq!(h.key[8], e.site, "the anchor's stores digest");
+        // A second ticket is refused while one is open.
+        assert_code(
+            send(&mut c, &e, w.file_outpost_ix(&e, &[site(t, s0)], &e)),
+            E::TicketState,
+        );
+        // Settles into slot 2.
+        let hk = w.a.holding(t.0 as i32, t.1 as i32, s0);
+        let pk = w.a.province(t.0 as i32, t.1 as i32);
+        let shard = {
+            let d = c.data(&e.citizen);
+            w.a.join_shard(d[C::FACTION], d[C::JOIN_SHARD])
+        };
+        let watches = [
+            ChainTrack::new(&c, e.citizen, EntityKind::Citizen),
+            ChainTrack::new(&c, pk, EntityKind::Province),
+            ChainTrack::new(&c, shard, EntityKind::JoinShard),
+        ];
+        let l = expect_lands(
+            w.settle_estate_ticket(&mut c, &e, 0, None),
+            "SettleTicket (outpost)",
+        );
+        for x in &watches {
+            x.check(&c, &l.logs, 1);
+        }
+        let now = c.now;
+        let nb = w.now_bell(&c);
+        let hd = c.data(&hk);
+        assert_eq!(hd[H::ORDER], 2);
+        assert_eq!(hd[H::GEN], 1);
+        assert_eq!(hd[H::STATE], H::STATE_PROVISIONAL);
+        assert_eq!(
+            &hd[H::OWNER_CITIZEN..H::OWNER_CITIZEN + 32],
+            e.citizen.as_ref()
+        );
+        assert_eq!(
+            rd_i64(&hd, H::SHIELD_UNTIL),
+            now + MC_TEST.cq.outpost_shield_secs as i64
+        );
+        let mut want = Holding::found(now, nb / 144, 2);
+        want.production = catalog::base_production(Tier::Hamlet);
+        for r in 0..8 {
+            assert_eq!(rd_u64(&hd, H::store(r)), 0, "no starter kit (store {r})");
+            assert_eq!(
+                rd_u64(&hd, H::PRODUCTION + 8 * r) as i64,
+                want.production[r]
+            );
+        }
+        let pd = c.data(&pk);
+        let o = PV::site(s0 as usize);
+        assert_eq!(pd[o + SM::STATE], SM::STATE_HOLDING);
+        assert_eq!(pd[o + SM::ORDER], 2);
+        assert_eq!(pd[o + SM::FACTION], 0);
+        assert_eq!(
+            rd_u16(&pd, o + SM2::HELD_SINCE_HOUR),
+            nb.div_ceil(6) as u16,
+            "held_since_hour = ⌈b / 6⌉"
+        );
+        assert!(
+            pd[PV2::record(s0 as usize)..PV2::record(s0 as usize) + CR::SIZE]
+                .iter()
+                .all(|b| *b == 0)
+        );
+        let d = c.data(&e.citizen);
+        assert_eq!(slot_ref(&d, 2), (t.0, t.1, s0, 1));
+        assert_eq!(slot_ref(&d, 3).3, C2::EMPTY_GEN);
+        assert_eq!(d[C::HOLDINGS_N], 2);
+        assert_eq!(d[C2::SLOTS], 0, "the ticket ended");
+        assert_eq!(rd_u64(&d, C::TICKET_ESCROW), 0);
+        assert_eq!(
+            d[C::FLAGS] & C::FLAG_FIRST_HOLDING_FINAL,
+            C::FLAG_FIRST_HOLDING_FINAL,
+            "the first holding's flags are untouched"
+        );
+        let jd = c.data(&shard);
+        assert_eq!(rd_u32(&jd, JS2::EXTRA_HOLDINGS), 1);
+        assert_eq!(rd_u32(&jd, JS2::OUTPOSTS), 1);
+        assert_eq!(rd_u32(&jd, JS::HOLDINGS), 1, "first holdings only");
+        let r = one_cq(&l.logs, CqKind::OUTPOST_SETTLED);
+        assert_eq!(r.u64("citizen_tag"), le8(e.citizen.as_ref()));
+        assert_eq!(r.u64("order"), 2);
+        assert_eq!(r.u64("gen"), 1);
+        assert_eq!(r.u64("shield_until") as i64, rd_i64(&hd, H::SHIELD_UNTIL));
+        assert_eq!(
+            one(&l.logs, Kind::SETTLE).u64("outcome"),
+            settle_outcome::FRESH as u64
+        );
+        // The fold counts the outpost (MC §5.2.4).
+        c.advance(600);
+        w.fold(&mut c);
+        assert_eq!(rd_u32(&c.data(&w.a.frontier()), FR::OCCUPIED_SITES), 2);
+        // Slot 3: a holding in slot 2 is there; the cost doubles to × 1.5.
+        let s1 = w.free_sites(&c, t.0, t.1)[0];
+        let anchor1 = read_kholding(&c.data(&e.holding));
+        expect_lands(
+            send(&mut c, &e, w.file_outpost_ix(&e, &[site(t, s1)], &e)),
+            "FileOutpost (slot 3)",
+        );
+        assert_eq!(c.data(&e.citizen)[C2::SLOTS] & 3, 3);
+        let mut want = anchor1;
+        want.settle(c.now).unwrap();
+        want.touch_owner(c.now).unwrap();
+        want.commit_walls(c.now);
+        want.pay(c.now, &settler(2)).unwrap();
+        assert_eq!(read_kholding(&c.data(&e.holding)), want, "× 1.5");
+        expect_lands(
+            w.settle_estate_ticket(&mut c, &e, 0, None),
+            "SettleTicket (slot 3)",
+        );
+        let d = c.data(&e.citizen);
+        assert_eq!(slot_ref(&d, 3), (t.0, t.1, s1, 1));
+        assert_eq!(d[C::HOLDINGS_N], 3);
+        assert_eq!(
+            c.data(&w.a.holding(t.0 as i32, t.1 as i32, s1))[H::ORDER],
+            3
+        );
+        // Every slot taken.
+        let s2 = w.free_sites(&c, t.0, t.1)[0];
+        let ix = w.file_outpost_ix(&e, &[site(t, s2)], &e);
+        assert_code(send(&mut c, &e, ix), Cq::HoldingsFull);
+    }
+
+    fn le8(b: &[u8]) -> u64 {
+        u64::from_le_bytes(b[..8].try_into().unwrap())
+    }
+
+    /// One test per FileOutpost refusal (G13, MC §3.8, §5.3, §5.5).
+    #[test]
+    fn g13_cq_file_outpost_refusals() {
+        let (mut c, w) = mc_test();
+        let home = provinces_of(2, Some(0))[0];
+        let e = w.final_estate(&mut c, "a", 0, home, 0, 10_000);
+        let t = front(&mut c, &w, home, 0);
+        let s0 = w.free_sites(&c, t.0, t.1)[0];
+        w.fold(&mut c);
+        let ok = w.file_outpost_ix(&e, &[site(t, s0)], &e);
+        // Ring: a heartland ring (2) is not outpost land.
+        let h2 = provinces_of(2, Some(0))[1];
+        if c.is_absent(&w.a.province(h2.0 as i32, h2.1 as i32)) {
+            expect_lands(w.open_province(&mut c, h2.0, h2.1), "OpenProvince");
+        }
+        let ix = w.file_outpost_ix(&e, &[site(h2, 1)], &e);
+        assert_code(send(&mut c.fork(), &e, ix), Cq::OutpostRule);
+        // Range: a ring-3 province farther than 3 from the anchor.
+        let far = provinces_of(3, None)
+            .into_iter()
+            .find(|x| dist(home, *x) > 3)
+            .expect("a far province");
+        let mut f = c.fork();
+        expect_lands(w.open_province(&mut f, far.0, far.1), "OpenProvince (far)");
+        let ix = w.file_outpost_ix(&e, &[site(far, w.free_sites(&f, far.0, far.1)[0])], &e);
+        assert_code(send(&mut f, &e, ix), Cq::OutpostRule);
+        // Share: the faction holds ≥ 50% of the province (crafted holding
+        // of faction 0 on another site).
+        let mut f = c.fork();
+        let s9 = w.free_sites(&f, t.0, t.1)[1];
+        f.edit(&w.a.province(t.0 as i32, t.1 as i32), |d| {
+            let o = PV::site(s9 as usize);
+            d[o + SM::STATE] = SM::STATE_HOLDING;
+            d[o + SM::FACTION] = 0;
+            d[o + SM::ORDER] = 1;
+            d[o + SM::GARRISON..o + SM::GARRISON + 4].copy_from_slice(&5_000_000u32.to_le_bytes());
+        });
+        assert_code(send(&mut f, &e, ok.clone()), Cq::OutpostRule);
+        // Close: at or after `end_bell − outpost_close_bells`.
+        let mut f = c.fork();
+        let close = MC_TEST.base.end_bell - MC_TEST.cq.outpost_close_bells as u32;
+        f.set_time(w.genesis_ts() + 600 * close as i64);
+        assert_code(send(&mut f, &e, ok.clone()), Cq::OutpostRule);
+        // Land gate: folded free sites below 20% of open (crafted Frontier).
+        let mut f = c.fork();
+        f.edit(&w.a.frontier(), |d| {
+            let open = rd_u32(d, FR::OPEN_SITES);
+            d[FR::OCCUPIED_SITES..FR::OCCUPIED_SITES + 4].copy_from_slice(&open.to_le_bytes());
+        });
+        assert_code(send(&mut f, &e, ok.clone()), E::Capacity);
+        // S1: a site with a conquest record (crafted).
+        let mut f = c.fork();
+        f.edit(&w.a.province(t.0 as i32, t.1 as i32), |d| {
+            d[PV2::record(s0 as usize) + CR::FLAGS] = CR::FLAG_SLOT_OWED;
+        });
+        assert_code(send(&mut f, &e, ok.clone()), Cq::SiegeBusy);
+        // Prerequisite: the first holding not final (crafted flag).
+        let mut f = c.fork();
+        f.edit(&e.citizen, |d| d[C::FLAGS] &= !C::FLAG_FIRST_HOLDING_FINAL);
+        assert_code(send(&mut f, &e, ok.clone()), Cq::OutpostRule);
+        // The anchor: not final, of another generation, at another address,
+        // another citizen's.
+        let mut f = c.fork();
+        f.edit(&e.holding, |d| d[H::STATE] = H::STATE_PROVISIONAL);
+        assert_code(send(&mut f, &e, ok.clone()), E::NotFinal);
+        let ix = cix::file_outpost(&w.a, &e.player(), &[site(t, s0)], e.href(), e.gen + 1);
+        assert_code(send(&mut c.fork(), &e, ix), E::BadData);
+        let mut ix = ok.clone();
+        ix.accounts[outpost_at::anchor(1)].pubkey = w.a.holding(t.0 as i32, t.1 as i32, s0);
+        assert_code(send(&mut c.fork(), &e, ix), E::BadAddress);
+        let b = w.final_estate(&mut c, "b", 0, home, 1, 10_000);
+        let ix = w.file_outpost_ix(&e, &[site(t, s0)], &b);
+        assert_code(send(&mut c.fork(), &e, ix), E::NotOwner);
+        // A captured holding cannot anchor (pinned, notes D-4) — crafted
+        // as an outpost with `capture_flags` set.
+        let mut f = c.fork();
+        f.edit(&e.holding, |d| {
+            d[H::ORDER] = 2;
+            d[frontier_abi::v2::layout::player::holding::CAPTURE_FLAGS] = 1;
+        });
+        assert_code(send(&mut f, &e, ok.clone()), Cq::OutpostRule);
+        // The anchor's stores cannot pay.
+        let mut f = c.fork();
+        w.edit_kholding(&mut f, &e, |h| {
+            for s in h.stores.iter_mut() {
+                s.value = 0;
+            }
+        });
+        assert_code(send(&mut f, &e, ok.clone()), E::Insufficient);
+        // A ring below 2 is a Seat's (as FileTicket).
+        let seat = provinces_of(1, Some(0))[0];
+        let ix = w.file_outpost_ix(&e, &[site(seat, 0)], &e);
+        assert_code(send(&mut c.fork(), &e, ix), E::ReservedSite);
+        // A missing Province account.
+        let mut ix = ok.clone();
+        ix.accounts.remove(outpost_at::PROVINCE0);
+        assert_code(send(&mut c.fork(), &e, ix), E::TooManyAccounts);
+        // Lands; then an open ticket refuses the next one.
+        expect_lands(send(&mut c, &e, ok.clone()), "FileOutpost");
+        assert_code(send(&mut c, &e, ok), E::TicketState);
+        // A full slot list (crafted reservations of slots 2 and 3).
+        let mut f = c.fork();
+        f.edit(&e.citizen, |d| {
+            d[C::TICKET_BELL..C::TICKET_BELL + 4].copy_from_slice(&C::NO_TICKET.to_le_bytes());
+            d[C2::SLOTS] = C2::SLOTS_RESERVED_2 | C2::SLOTS_RESERVED_3;
+        });
+        let s1 = w.free_sites(&f, t.0, t.1)[1];
+        let ix = w.file_outpost_ix(&e, &[site(t, s1)], &e);
+        assert_code(send(&mut f, &e, ix), Cq::HoldingsFull);
+    }
+
+    /// FileTicket under v2 (MC §5.6): an open outpost ticket blocks it
+    /// (`TransitState`), a site with a conquest record is refused
+    /// (`SiegeBusy`, S1), the ticket is tagged slot 1.
+    #[test]
+    fn g13_cq_file_ticket_v2_refusals() {
+        let (mut c, w) = mc_test();
+        let ring2 = provinces_of(2, Some(0));
+        let p0 = ring2[0];
+        expect_lands(w.open_province(&mut c, p0.0, p0.1), "OpenProvince");
+        let a = w.citizen(&mut c, "a", 0);
+        let mut f = c.fork();
+        f.edit(&w.a.province(p0.0 as i32, p0.1 as i32), |d| {
+            d[PV2::record(0) + CR::KIND] = CR::KIND_SIEGE;
+        });
+        assert_code(w.file_ticket(&mut f, &a, &[site(p0, 0)]), Cq::SiegeBusy);
+        let mut f = c.fork();
+        f.edit(&w.a.citizen(&a.key()), |d| {
+            d[C::TICKET_BELL..C::TICKET_BELL + 4].copy_from_slice(&5u32.to_le_bytes());
+            d[C2::SLOTS] = 2;
+        });
+        assert_code(w.file_ticket(&mut f, &a, &[site(p0, 0)]), E::TransitState);
+        expect_lands(w.file_ticket(&mut c, &a, &[site(p0, 0)]), "FileTicket");
+        assert_eq!(w.citizen_data(&c, &a)[C2::SLOTS] & 3, 1, "slot 1");
+    }
+
+    /// ReleaseDormant v2 (S3): a live record refuses (`SiegeBusy`), an
+    /// owing kind-0 record refuses (`StakeUnsettled`); the release zeroes
+    /// the record and keeps the citizen's outposts (MC §3.15).
+    #[test]
+    fn g13_cq_release_dormant_s3_and_record_reset() {
+        let mut c = Chain::test_beacon();
+        let mut p = World::long_params(&c);
+        p.end_bell = 4_032;
+        let w = World::running_with(&mut c, 1, p);
+        w.open_genesis_rings(&mut c);
+        let home = provinces_of(2, Some(0))[0];
+        let e = w.final_estate(&mut c, "a", 0, home, 0, 0);
+        let pk = w.a.province(home.0 as i32, home.1 as i32);
+        let rel = |c: &mut Chain| {
+            let h = cix::HoldingRef {
+                p: home.0,
+                q: home.1,
+                site: 0,
+            };
+            let ix = cix::release_dormant(
+                &w.a,
+                w.keeper.pubkey(),
+                h,
+                &e.wallet.pubkey(),
+                0,
+                e.wallet.pubkey(),
+            );
+            c.send(&[ix], &[&w.keeper])
+        };
+        let last = rd_i64(&c.data(&e.holding), H::LAST_OWNER_ACTION);
+        c.set_time(last + w.params.cq.release_after_secs as i64);
+        // Crafted: an outpost in slot 2 (the Citizen's entry), kept.
+        c.edit(&e.citizen, |d| {
+            let o = C2::holding_of_slot(2);
+            d[o..o + 2].copy_from_slice(&3i16.to_le_bytes());
+            d[o + 5] = 1;
+            d[C::HOLDINGS_N] = 2;
+        });
+        let mut f = c.fork();
+        f.edit(&pk, |d| d[PV2::record(0) + CR::KIND] = CR::KIND_OCCUPATION);
+        assert_code(rel(&mut f), Cq::SiegeBusy);
+        let mut f = c.fork();
+        f.edit(&pk, |d| {
+            d[PV2::record(0) + CR::FLAGS] = CR::FLAG_STAKE_TO_SRC
+        });
+        assert_code(rel(&mut f), Cq::StakeUnsettled);
+        // A kind-0 record with only immunity left is released and zeroed.
+        c.edit(&pk, |d| {
+            d[PV2::record(0) + CR::FACTION] = 3;
+            d[PV2::record(0) + CR::BELL..PV2::record(0) + CR::BELL + 4]
+                .copy_from_slice(&9_999u32.to_le_bytes());
+        });
+        expect_lands(rel(&mut c), "ReleaseDormant");
+        let pd = c.data(&pk);
+        assert!(pd[PV2::record(0)..PV2::record(0) + CR::SIZE]
+            .iter()
+            .all(|b| *b == 0));
+        assert_eq!(pd[PV::site(0) + SM::STATE], SM::STATE_RELEASED_FREE);
+        let d = c.data(&e.citizen);
+        assert_eq!(slot_ref(&d, 1).3, C2::EMPTY_GEN, "slot 1 emptied");
+        assert_eq!(slot_ref(&d, 2), (3, 0, 0, 1), "the outpost kept");
+        assert_eq!(d[C::HOLDINGS_N], 1);
+    }
+
+    /// G2 (MC §13.2): the outpost Holding on SettleTicket's fresh path at a
+    /// pre-funded address.
+    #[test]
+    fn g02_cq_prefund_outpost_holding() {
+        let (mut base, w) = mc_test();
+        let home = provinces_of(2, Some(0))[0];
+        let e = w.final_estate(&mut base, "a", 0, home, 0, 10_000);
+        let t = front(&mut base, &w, home, 0);
+        let s0 = w.free_sites(&base, t.0, t.1)[0];
+        w.fold(&mut base);
+        expect_lands(
+            send(&mut base, &e, w.file_outpost_ix(&e, &[site(t, s0)], &e)),
+            "FileOutpost",
+        );
+        let hk = w.a.holding(t.0 as i32, t.1 as i32, s0);
+        let rent = base.rent(H::SIZE);
+        for pre in prefunds(rent) {
+            let mut c = base.fork();
+            c.prefund(&hk, pre);
+            let l = expect_lands(
+                w.settle_estate_ticket(&mut c, &e, 0, None),
+                "SettleTicket (outpost) pre-funded",
+            );
+            assert_eq!(
+                one(&l.logs, Kind::SETTLE).u64("outcome"),
+                settle_outcome::FRESH as u64
+            );
+            assert_program_account(&c, &hk, H::MAGIC, H::SIZE, 1);
+            assert_eq!(c.lamports(&hk), pre + rent, "the escrow's rent moves whole");
+            assert_eq!(c.data(&hk)[H::ORDER], 2);
+            assert_eq!(rd_u64(&c.data(&e.citizen), C::TICKET_ESCROW), 0);
+        }
+    }
+
+    /// G1 (§13.1, §5.4): FileOutpost with 3 sites in 3 Provinces whose
+    /// cohort tables hold seven open cohorts each, paying from the anchor's
+    /// stores (24,000 CU); its `L(kind)`; then the outpost's SettleTicket
+    /// (40,000 CU).
+    #[test]
+    fn g01_cq_file_outpost_three_provinces_full_cohorts() {
+        use frontier_abi::v2::Ix as V2;
+        let (mut c, w) = mc_test();
+        let home = provinces_of(2, Some(0))[0];
+        let e = w.final_estate(&mut c, "a", 0, home, 0, 100_000);
+        let fronts: Vec<(i16, i16)> = provinces_of(3, None)
+            .into_iter()
+            .filter(|t| dist(home, *t) <= 3)
+            .take(3)
+            .collect();
+        assert_eq!(fronts.len(), 3);
+        let mut sites = vec![];
+        for t in &fronts {
+            if c.is_absent(&w.a.province(t.0 as i32, t.1 as i32)) {
+                expect_lands(w.open_province(&mut c, t.0, t.1), "OpenProvince");
+            }
+            sites.push(site(*t, w.free_sites(&c, t.0, t.1)[0]));
+        }
+        // Seven open cohorts per Province (filler first-holding tickets of
+        // the provinces' own wedges, one bell apart).
+        for b in 0..7 {
+            for t in &fronts {
+                let wedge = mix::wedge_of(t.0 as i32, t.1 as i32);
+                let x = w.citizen(&mut c, &format!("fill{b}-{}-{}", t.0, t.1), wedge);
+                let s2 = w.free_sites(&c, t.0, t.1)[1];
+                expect_lands(w.file_ticket(&mut c, &x, &[site(*t, s2)]), "filler ticket");
+            }
+            c.advance(600);
+        }
+        let rn = w.now_bell(&c).saturating_sub(1);
+        c.edit(&e.province, |d| {
+            d[PV::RESOLVED_NEXT..PV::RESOLVED_NEXT + 4].copy_from_slice(&rn.to_le_bytes())
+        });
+        w.fold(&mut c);
+        let ix = w.file_outpost_ix(&e, &sites, &e);
+        let need = c
+            .measure(std::slice::from_ref(&ix), &[&e.wallet])
+            .expect("measure");
+        let file_need = need;
+        common::loaded_check(&c, V2::FileOutpost, std::slice::from_ref(&ix), &[&e.wallet]);
+        // At the ladder profile (the client's 24k limit would refuse it
+        // while the budget amendment is pending; CQ2-A notes §2).
+        expect_lands(c.send(&[ix], &[&e.wallet]), "FileOutpost at the 24k limit");
+        // The outpost's SettleTicket (fresh, three Provinces).
+        let who = Citizen {
+            wallet: e.wallet.insecure_clone(),
+            faction: 0,
+        };
+        let (bell, ts) = w.ticket_of(&c, &who);
+        w.seed_ready(&mut c, bell, region(ts[0].p, ts[0].q));
+        // DECISIONS K9: a fresh settlement waits for the earlier (filler)
+        // cohorts: the bell before this ticket's expiry, when they have.
+        let t = w.genesis_ts() + 600 * (bell as i64 + 23) + 1;
+        if c.now < t {
+            c.set_time(t);
+        }
+        let st = w.settle_ticket_ix(&c, &who, 0, None);
+        let need = c
+            .measure(std::slice::from_ref(&st), &[&w.keeper])
+            .expect("measure");
+        assert_within(
+            "SettleTicket (outpost, three Provinces)",
+            &need,
+            &ceilings(V2::SettleTicket, 0, c.programdata_len()),
+        );
+        // Last: FileOutpost against §5.4's 24,000 CU (measured above; the
+        // tx bytes, locks and loaded data are within their ceilings).
+        assert_within(
+            "FileOutpost (3 provinces, 7 open cohorts each)",
+            &file_need,
+            &ceilings(V2::FileOutpost, 0, c.programdata_len()),
+        );
+    }
+
+    /// G3 (MC §13.2): FileOutpost's keyed reads recomputed: a forged
+    /// Province (another season's copy, another address), a forged anchor.
+    #[test]
+    fn g03_cq_file_outpost_refuses_forged_accounts() {
+        let (mut c, w) = mc_test();
+        let home = provinces_of(2, Some(0))[0];
+        let e = w.final_estate(&mut c, "a", 0, home, 0, 10_000);
+        let t = front(&mut c, &w, home, 0);
+        let s0 = w.free_sites(&c, t.0, t.1)[0];
+        w.fold(&mut c);
+        let ok = w.file_outpost_ix(&e, &[site(t, s0)], &e);
+        let pk = w.a.province(t.0 as i32, t.1 as i32);
+        let copy = copy_to_fresh(&mut c, &pk, b"province");
+        assert_code(
+            send(
+                &mut c.fork(),
+                &e,
+                with_account(ok.clone(), outpost_at::PROVINCE0, copy),
+            ),
+            E::BadAddress,
+        );
+        let hcopy = copy_to_fresh(&mut c, &e.holding, b"anchor");
+        assert_code(
+            send(
+                &mut c.fork(),
+                &e,
+                with_account(ok.clone(), outpost_at::anchor(1), hcopy),
+            ),
+            E::BadAddress,
+        );
+        let mut f = c.fork();
+        f.edit(&pk, |d| d[8] ^= 1); // another season's Province
+        assert_code(send(&mut f, &e, ok.clone()), E::BadAccount);
+        let mut f = c.fork();
+        f.edit(&pk, |d| d[16] = 1); // an M1 header (layout_version 1)
+        assert_code(send(&mut f, &e, ok.clone()), E::BadAccount);
+        expect_lands(send(&mut c, &e, ok), "FileOutpost");
+        let _ = any_records(&[]);
+    }
+}

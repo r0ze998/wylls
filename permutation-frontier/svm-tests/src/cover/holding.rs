@@ -7,7 +7,7 @@
 //! through one shared path (`proc::holding::player`); W5-A asserts them
 //! per instruction (`g13_complete::prologue_rows`).
 
-use super::{Cover, Err, Lands, Loaded, E};
+use super::{Cover, Cq, CqErr, Err, Lands, Loaded, E};
 
 /// Ignored tests of this area waiting for a fix: (test, unit).
 pub const PENDING: &[(&str, &str)] = &[];
@@ -29,6 +29,14 @@ pub const HARVEST: &[Cover] = &[
             Err(E::TooManyAccounts),
             Loaded,
         ],
+    ),
+    Cover::Test(
+        "holding::g13_cq_capture_lock_refuses_the_resident_actions",
+        &[CqErr(Cq::CapturePending), Lands("hx::harvest(")],
+    ),
+    Cover::Test(
+        "holding::g03_cq_resident_actions_refuse_a_forged_province",
+        &[Err(E::BadAddress), Err(E::BadAccount)],
     ),
 ];
 
@@ -63,6 +71,26 @@ pub const BUILD: &[Cover] = &[
             Loaded,
         ],
     ),
+    Cover::Test(
+        "holding::g13_cq_capture_lock_refuses_the_resident_actions",
+        &[CqErr(Cq::CapturePending), Lands("hx::build_item(")],
+    ),
+    Cover::Test(
+        "holding::cq_build_tier_up_writes_tier_next",
+        &[Lands("hx::build_item(")],
+    ),
+    Cover::Test(
+        "holding::holding_build_refusals",
+        &[
+            Err(E::BadAccount),
+            Err(E::TooManyAccounts),
+            Lands("hx::build_item("),
+        ],
+    ),
+    Cover::Test(
+        "holding::g03_cq_resident_actions_refuse_a_forged_province",
+        &[Err(E::BadAddress), Err(E::BadAccount)],
+    ),
 ];
 
 pub const TRAIN: &[Cover] = &[
@@ -82,6 +110,18 @@ pub const TRAIN: &[Cover] = &[
             Err(E::TooManyAccounts),
             Loaded,
         ],
+    ),
+    Cover::Test(
+        "holding::g13_cq_capture_lock_refuses_the_resident_actions",
+        &[CqErr(Cq::CapturePending), Lands("hx::train(")],
+    ),
+    Cover::Test(
+        "holding::cq_train_pays_the_v2_table",
+        &[Lands("hx::train(")],
+    ),
+    Cover::Test(
+        "holding::g03_cq_resident_actions_refuse_a_forged_province",
+        &[Err(E::BadAddress), Err(E::BadAccount)],
     ),
 ];
 
@@ -107,5 +147,9 @@ pub const SETTLE_EXPLORE: &[Cover] = &[
             Loaded,
             Lands("SettleExplore"),
         ],
+    ),
+    Cover::Test(
+        "holding::cq_settle_explore_of_another_generation_credits_nothing",
+        &[Lands("hx::settle_explore(")],
     ),
 ];
