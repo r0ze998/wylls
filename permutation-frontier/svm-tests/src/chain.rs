@@ -253,10 +253,12 @@ impl Profile {
 
     /// What the client sends `ix` with (§5.5, §10.2): the budgets table's
     /// CU limit and `L(kind)` for the deployed programdata length. This is
-    /// the profile the G1 gate (W5-A) measures against.
-    pub fn client(ix: Ix, programdata_len: u32) -> Profile {
+    /// the profile the G1 gate (W5-A) measures against. **ABI v2 (MC):**
+    /// the v2 table (`frontier_abi::v2::budgets`: M1's rows, §5.4's for the
+    /// new and changed kinds); `ix` is an M1 or a v2 tag.
+    pub fn client<I: AnyIx>(ix: I, programdata_len: u32) -> Profile {
         Profile {
-            cu_limit: Some(budgets::budget(ix).cu_limit),
+            cu_limit: Some(frontier_abi::v2::budgets::budget(ix.v2()).cu_limit),
             cu_price: 0,
             loaded_limit: Some(loaded_limit(ix, programdata_len)),
             heap: None,
@@ -266,7 +268,7 @@ impl Profile {
     /// The keeper's retry ladder top (I-50): 1.4M CU, `L(kind)`, no heap
     /// frame. Functional gates (G2–G12) send with it, so a CU budget miss
     /// (G1, W5-A) never masks the property under test.
-    pub fn ladder(ix: Ix, programdata_len: u32) -> Profile {
+    pub fn ladder<I: AnyIx>(ix: I, programdata_len: u32) -> Profile {
         Profile {
             cu_limit: Some(budgets::CU_LADDER_MAX),
             cu_price: 0,
@@ -310,11 +312,33 @@ impl Profile {
     }
 }
 
+/// An instruction tag of either ABI: an M1 tag names the v2 instruction of
+/// the same tag (MC: the program is the v2 program; CQ2-A dependency
+/// request, this file is W2-B's).
+pub trait AnyIx: Copy {
+    fn v2(self) -> frontier_abi::v2::Ix;
+}
+
+impl AnyIx for Ix {
+    fn v2(self) -> frontier_abi::v2::Ix {
+        frontier_abi::v2::Ix::of_v1(self)
+    }
+}
+
+impl AnyIx for frontier_abi::v2::Ix {
+    fn v2(self) -> frontier_abi::v2::Ix {
+        self
+    }
+}
+
 /// `L(kind)` the client requests for `ix` at `programdata_len` (§10.1,
-/// I-45): the kernel formula over the kind's worst account set
-/// (`frontier_abi::budgets`), never below the 1-MiB working default.
-pub fn loaded_limit(ix: Ix, programdata_len: u32) -> u32 {
-    budgets::loaded_limit_for(ix, programdata_len).max(budgets::LOADED_LIMIT_WORKING_DEFAULT)
+/// I-45): the kernel formula over the kind's worst account set, never below
+/// the 1-MiB working default. **ABI v2:** the v2 account sizes (a Province
+/// is 4,736 B) and lists (`frontier_abi::v2::budgets::loaded_accounts`).
+pub fn loaded_limit<I: AnyIx>(ix: I, programdata_len: u32) -> u32 {
+    let (bytes, n) = frontier_abi::v2::budgets::loaded_accounts(ix.v2());
+    permutation_rules::frontier::fees::loaded_limit(programdata_len, bytes, n)
+        .max(budgets::LOADED_LIMIT_WORKING_DEFAULT)
 }
 
 /// A transaction that landed.
@@ -377,9 +401,40 @@ pub fn expect_lands(r: SendResult, what: &str) -> Landed {
     }
 }
 
-/// Asserts that the program itself refused with `e` (a stable §5.4 code).
+/// A program error code of either ABI: M1's `FrontierError` (1–61, 99) or
+/// MC's `CqError` (62–78; CQ2-A dependency request, this file is W2-B's).
+pub trait AnyCode: Copy {
+    fn code(self) -> u32;
+    fn name(self) -> &'static str;
+}
+
+impl AnyCode for FrontierError {
+    fn code(self) -> u32 {
+        FrontierError::code(self)
+    }
+    fn name(self) -> &'static str {
+        FrontierError::name(self)
+    }
+}
+
+impl AnyCode for frontier_abi::v2::CqError {
+    fn code(self) -> u32 {
+        frontier_abi::v2::CqError::code(self)
+    }
+    fn name(self) -> &'static str {
+        frontier_abi::v2::CqError::name(self)
+    }
+}
+
+/// The name of any v2 program code (M1's or MC's).
+fn code_name(c: u32) -> Option<&'static str> {
+    frontier_abi::v2::Code::from_code(c).map(|x| x.name())
+}
+
+/// Asserts that the program itself refused with `e` (a stable §5.4 code,
+/// or an MC code of §5.3).
 #[track_caller]
-pub fn assert_code(r: SendResult, e: FrontierError) -> Fail {
+pub fn assert_code<C: AnyCode>(r: SendResult, e: C) -> Fail {
     let program = program_id();
     match r {
         Ok(l) => panic!(
@@ -397,7 +452,7 @@ pub fn assert_code(r: SendResult, e: FrontierError) -> Fail {
                 e.code(),
                 f.err,
                 f.code,
-                f.code.and_then(FrontierError::from_code).map(|x| x.name()),
+                f.code.and_then(code_name),
                 f.logs.join("\n")
             );
             let line = format!(
@@ -820,10 +875,18 @@ impl Chain {
 
     /// `f(kind, programdata_len)` for the Frontier instruction of `ixs`
     /// with the largest `L(kind)` (runtime default if none).
-    pub fn profile_of(&self, ixs: &[Instruction], f: fn(Ix, u32) -> Profile) -> Profile {
+    pub fn profile_of(
+        &self,
+        ixs: &[Instruction],
+        f: fn(frontier_abi::v2::Ix, u32) -> Profile,
+    ) -> Profile {
         ixs.iter()
             .filter(|i| i.program_id == self.program)
-            .filter_map(|i| i.data.first().and_then(|t| Ix::from_tag(*t)))
+            .filter_map(|i| {
+                i.data
+                    .first()
+                    .and_then(|t| frontier_abi::v2::Ix::from_tag(*t))
+            })
             .map(|ix| f(ix, self.programdata_len()))
             .max_by_key(|p| p.loaded_limit)
             .unwrap_or(Profile::NONE)
@@ -915,11 +978,16 @@ impl Chain {
     }
 
     /// The Frontier instruction kinds of `msg`, in order.
-    fn frontier_kinds(&self, msg: &Message) -> Vec<Ix> {
+    fn frontier_kinds(&self, msg: &Message) -> Vec<frontier_abi::v2::Ix> {
+        // ABI v2 tags (MC's 0xA0-0xA7 included; CQ2-A dependency request).
         msg.instructions
             .iter()
             .filter(|i| msg.account_keys.get(i.program_id_index as usize) == Some(&self.program))
-            .filter_map(|i| i.data.first().and_then(|t| Ix::from_tag(*t)))
+            .filter_map(|i| {
+                i.data
+                    .first()
+                    .and_then(|t| frontier_abi::v2::Ix::from_tag(*t))
+            })
             .collect()
     }
 
@@ -930,7 +998,7 @@ impl Chain {
     /// only on the trace build, `-` otherwise).
     fn log_cu(
         &self,
-        kinds: &[Ix],
+        kinds: &[frontier_abi::v2::Ix],
         cu: u64,
         tx_bytes: usize,
         locks: usize,

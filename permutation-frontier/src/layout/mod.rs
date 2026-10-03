@@ -17,7 +17,9 @@ use crate::FrontierError;
 
 pub mod beacon;
 pub mod clash;
+pub mod conquest;
 pub mod land;
+pub mod march;
 pub mod player;
 pub mod world;
 
@@ -26,8 +28,13 @@ mod text_check;
 
 pub use beacon::{anchor_archive, archive_entry, bell_anchor, defence_claim, seed_cache};
 pub use clash::{arrival, arrival_day, arrival_slot, clash_inputs};
+pub use conquest::{
+    citizen2, cq_params, holding2, join_shard2, keep, province2, record, season2, site2, snapshot,
+    AccountKindV2, ConquestParams,
+};
 pub use frontier_abi::layout::{header, rent, AccountKind, Field, RENT_PER_BYTE};
 pub use land::{camp, cohort, entry, province, site, summary};
+pub use march::march_state;
 pub use player::{citizen, explore, holding, transit};
 pub use world::{beacon_log, defence_pool, frontier, join_shard, province_fund, ring_seed, season};
 
@@ -163,8 +170,17 @@ impl Rw<'_> {
 /// Writes a fresh header (§4.3): the chained header H (seq 0, zero head)
 /// for chained kinds, the short header SH otherwise. The account is
 /// assumed zeroed (freshly allocated), so every other field starts at 0.
+///
+/// **ABI v2 (MC §5.1, §5.2):** every chained header this program writes
+/// carries `layout_version = 2`, and the account must have its v2 size
+/// (a Province 4,736 B); magics and the season id are M1's.
 pub fn init_header(d: &mut [u8], kind: AccountKind, season_id: u64) -> Result<(), Error> {
-    if d.len() < kind.size() || !frontier_abi::layout::write_header(d, kind, season_id) {
+    init_header_v2(d, AccountKindV2::of_v1(kind), season_id)
+}
+
+/// [`init_header`] by ABI v2 kind (MarchState included).
+pub fn init_header_v2(d: &mut [u8], kind: AccountKindV2, season_id: u64) -> Result<(), Error> {
+    if d.len() < kind.size() || !conquest::write_header_v2(d, kind, season_id) {
         return Err(BAD_ACCOUNT);
     }
     Ok(())
@@ -181,6 +197,24 @@ pub fn check_kind(d: &[u8], kind: AccountKind, season_id: u64) -> Result<(), Err
         Some((m, id)) if m == kind.magic() && id == season_id => Ok(()),
         _ => Err(FrontierError::BadAccount.into()),
     }
+}
+
+/// ABI v2 structural presence (MC contract §5.1, R-22): the **exact** v2
+/// size, the magic of `kind`, `season_id` and, for a chained kind,
+/// `layout_version = 2` (`BadAccount`). An M1 account (v1 size or
+/// `layout_version` 1) is refused.
+pub fn check_kind_v2(d: &[u8], kind: AccountKindV2, season_id: u64) -> Result<(), Error> {
+    if d.len() != kind.size() {
+        return Err(BAD_ACCOUNT);
+    }
+    match frontier_abi::layout::read_short_header(d) {
+        Some((m, id)) if m == kind.magic() && id == season_id => {}
+        _ => return Err(BAD_ACCOUNT),
+    }
+    if kind.chained() && conquest::layout_version(d) != Some(conquest::LAYOUT_VERSION_V2) {
+        return Err(BAD_ACCOUNT);
+    }
+    Ok(())
 }
 
 /// The event chain of a chained account: `(event_seq, event_head)`.
@@ -222,13 +256,21 @@ mod tests {
     #[test]
     fn headers_follow_the_kind() {
         for k in AccountKind::ALL {
-            let mut d = alloc::vec![0u8; k.size()];
+            let k2 = AccountKindV2::of_v1(k);
+            let mut d = alloc::vec![0u8; k2.size()];
             init_header(&mut d, k, 42).unwrap();
             check_kind(&d, k, 42).unwrap();
+            check_kind_v2(&d, k2, 42).unwrap();
             assert!(check_kind(&d, k, 43).is_err());
             assert!(check_kind(&d[..k.size() - 1], k, 42).is_err());
+            assert!(check_kind_v2(&d[..k2.size() - 1], k2, 42).is_err());
             if k.chained() {
-                assert_eq!(Ro(&d).u16(header::LAYOUT_VERSION).unwrap(), 1);
+                // ABI v2: every chained header is layout_version 2; a v1
+                // header is refused by the v2 presence check (R-22).
+                assert_eq!(Ro(&d).u16(header::LAYOUT_VERSION).unwrap(), 2);
+                let mut v1 = d.clone();
+                Rw(&mut v1).set_u16(header::LAYOUT_VERSION, 1).unwrap();
+                assert!(check_kind_v2(&v1, k2, 42).is_err());
                 assert_eq!(chain_of(&d).unwrap(), (0, [0u8; 32]));
                 set_chain(&mut d, 7, &[3; 32]).unwrap();
                 assert_eq!(chain_of(&d).unwrap(), (7, [3u8; 32]));
@@ -241,5 +283,10 @@ mod tests {
             }
         }
         assert!(init_header(&mut [0u8; 10], AccountKind::Season, 1).is_err());
+        // A Province needs its v2 size (4,736 B).
+        assert!(init_header(&mut [0u8; 4_096], AccountKind::Province, 1).is_err());
+        let mut m = alloc::vec![0u8; AccountKindV2::MarchState.size()];
+        init_header_v2(&mut m, AccountKindV2::MarchState, 7).unwrap();
+        check_kind_v2(&m, AccountKindV2::MarchState, 7).unwrap();
     }
 }

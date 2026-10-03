@@ -14,6 +14,13 @@
 //! | `holding`, `host`, `reveal` | W3-B |
 //! | `clash` | W4-A |
 //! | `transit`, `defence` | W4-B |
+//! | `conquest` (MC: DeclareSiege, SettleSiege, SettleCapture, FoldMarch, RetireHost, CloseMarch) | CQ2-C |
+//!
+//! **MC (ABI v2, conquest contract §13.3 G13).** [`covered_by`] matches
+//! `frontier_abi::v2::Ix` (57 tags), so the seven MC instructions are in
+//! the registry; an MC error code (62–78) is asserted as [`Code::Cq`],
+//! whose needle is `Cq::X` (the tests import `frontier_abi::v2::CqError as
+//! Cq`). FileOutpost (0xA3) is CQ2-A's (`citizen`).
 //!
 //! A test is named `file::function` (`tests/<file>.rs`). The guard checks
 //! that each named test exists, is not `#[ignore]`d, and that its body
@@ -27,11 +34,13 @@
 //! | `Loaded` | `check(` (the `g01_loaded_limit` helper: lands at `L(kind)`, fails charged one page below) |
 
 pub use frontier_abi::error::FrontierError as E;
-use frontier_abi::tags::Ix as I;
+pub use frontier_abi::v2::CqError as Cq;
+use frontier_abi::v2::Ix as I;
 
 pub mod beacon;
 pub mod citizen;
 pub mod clash;
+pub mod conquest;
 pub mod defence;
 pub mod holding;
 pub mod host;
@@ -45,6 +54,8 @@ pub mod transit;
 pub enum Code {
     /// The program refuses with this error.
     Err(E),
+    /// The program refuses with this MC error (ABI v2, codes 62–78).
+    Cq(Cq),
     /// The instruction lands (`needle` is its builder or driver call) and
     /// the test asserts its effects.
     Lands(&'static str),
@@ -65,7 +76,7 @@ pub enum Cover {
     Pending(&'static str),
 }
 
-pub use Code::{Err, Lands, Loaded, Refused};
+pub use Code::{Cq as CqErr, Err, Lands, Loaded, Refused};
 
 /// The tests covering `ix` (every variant, no `_` arm).
 pub fn covered_by(ix: I) -> &'static [Cover] {
@@ -120,6 +131,14 @@ pub fn covered_by(ix: I) -> &'static [Cover] {
         I::CloseArrivalDay => clash::CLOSE_ARRIVAL_DAY,
         I::CloseArrivalSlot => clash::CLOSE_ARRIVAL_SLOT,
         I::ClaimDefence => defence::CLAIM_DEFENCE,
+        // MC (ABI v2, §5.5)
+        I::DeclareSiege => conquest::DECLARE_SIEGE,
+        I::SettleSiege => conquest::SETTLE_SIEGE,
+        I::SettleCapture => conquest::SETTLE_CAPTURE,
+        I::FileOutpost => citizen::FILE_OUTPOST,
+        I::FoldMarch => conquest::FOLD_MARCH,
+        I::RetireHost => conquest::RETIRE_HOST,
+        I::CloseMarch => conquest::CLOSE_MARCH,
     }
 }
 
@@ -166,6 +185,7 @@ pub fn pending() -> Vec<(&'static str, &'static str)> {
         clash::PENDING,
         transit::PENDING,
         defence::PENDING,
+        conquest::PENDING,
     ]
     .concat()
 }

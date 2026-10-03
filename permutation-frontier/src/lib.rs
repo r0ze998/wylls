@@ -26,6 +26,17 @@
 //! and §5.8 listed in `docs/frontier/m1/W2-A-NOTES.md`; every other tag is
 //! dispatched to its area file in [`proc`](crate::proc), where it returns
 //! `NotImplemented` (99) until its wave-3/4 unit hands it in.
+//!
+//! **MC "Contested Ground" (conquest contract v1.3, Wave 2):** this crate
+//! is the **ABI v2 program**. It dispatches on `frontier_abi::v2::Ix`,
+//! embeds `RULESET_HASH_V2` and `PROGRAM_VERSION` 2, creates every chained
+//! account with `layout_version = 2` and every Province at 4,736 B (the
+//! conquest block), and refuses M1 seasons. CQ2-A: the plumbing,
+//! CreateSeason v2, rings and provinces (keeps, genesis Free Cities),
+//! FoldOccupancy, outposts (FileOutpost, SettleTicket slots 2–3),
+//! ReleaseDormant (S3), the capture lock on the resident actions, Train's
+//! `train_v2`, Reveal and SettleExplore; CQ2-B the conquest step in the
+//! resolve and skip; CQ2-C the conquest instructions.
 
 #![allow(unexpected_cfgs)]
 #![cfg_attr(
@@ -53,11 +64,24 @@ pub mod proc;
 #[cfg(feature = "program")]
 pub mod prologue;
 
-pub use error::{Error, FrontierError, R};
+pub use error::{CqError, Error, FrontierError, R};
 
 /// The ruleset hash this binary enforces (§3.2): every instruction that
 /// reads a Created or later Season compares it with `Season.ruleset_hash`.
-pub const RULESET_HASH: [u8; 32] = frontier_abi::presets::RULESET_HASH;
+///
+/// **MC (conquest contract §3.13, §5.1; Wave 2):** the program is the v2
+/// program: it embeds `RULESET_HASH_V2` (`b6dd0f3f…8274`, A-28), so it
+/// refuses every M1 Season (`RulesetMismatch`) and an M1 program refuses
+/// every MC Season. M1 seasons keep the M1 release `.so` (`d85e1bd7…2281`).
+pub const RULESET_HASH: [u8; 32] = frontier_abi::v2::presets::RULESET_HASH_V2;
+
+/// M1's ruleset hash (`72c6b583…4bd9`), for the record and the tests that
+/// show an M1 Season is refused.
+pub const RULESET_HASH_M1: [u8; 32] = frontier_abi::presets::RULESET_HASH;
+
+/// The rules version CreateSeason writes (`RULES_VERSION_FRONTIER` 11, MC
+/// §3.13).
+pub const RULES_VERSION: u16 = frontier_abi::v2::presets::RULES_VERSION_V2;
 
 /// `sha256` of the beacon public key this binary verifies against: the
 /// quicknet group key, or the local test key in a `test-beacon` build
@@ -65,22 +89,25 @@ pub const RULESET_HASH: [u8; 32] = frontier_abi::presets::RULESET_HASH;
 pub const QUICKNET_PK_HASH: [u8; 32] = crypto::quick::PK_HASH;
 
 /// Program version written by CreateSeason's parameters and logged; bumped
-/// with every deployable change of the instruction set.
-pub const PROGRAM_VERSION: u16 = 1;
+/// with every deployable change of the instruction set. 2: ABI v2 (MC
+/// contract §5.6: CreateSeason v2 refuses `program_version = 1`).
+pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_V2;
 
-/// Routes one instruction by its tag (§5.5). Unknown and reserved tags are
-/// `BadData`; ResolveClash exists only in the `oracle` build.
+/// Routes one instruction by its ABI v2 tag (M1 §5.5; MC contract §5.4:
+/// M1's 50 tags and 0xA0–0xA3, 0xA5–0xA7). Unknown and reserved tags
+/// (0xA4, 0xA8–0xAF included) are `BadData`; ResolveClash exists only in
+/// the `oracle` build.
 #[cfg(feature = "program")]
 pub fn dispatch(
     program_id: &solana_program::pubkey::Pubkey,
     accounts: &[solana_program::account_info::AccountInfo],
     data: &[u8],
 ) -> R<()> {
-    use frontier_abi::tags::Ix;
+    use frontier_abi::v2::Ix;
     use proc::*;
     markers::touch();
     heap::trace_checkpoint(0);
-    let ix = frontier_abi::ix::tag_of(data)?;
+    let ix = frontier_abi::v2::ix::tag_of(data)?;
     let p = program_id;
     let a = accounts;
     let r = match ix {
@@ -142,6 +169,15 @@ pub fn dispatch(
         Ix::CloseArrivalSlot => clash::close_arrival_slot(p, a, data),
         // §5.12 defence pool
         Ix::ClaimDefence => defence::claim_defence(p, a, data),
+        // MC §5.5 (ABI v2): the conquest instructions (CQ2-C) and the
+        // outposts (CQ2-A)
+        Ix::DeclareSiege => conquest::declare_siege(p, a, data),
+        Ix::SettleSiege => conquest::settle_siege(p, a, data),
+        Ix::SettleCapture => conquest::settle_capture(p, a, data),
+        Ix::FileOutpost => citizen::file_outpost(p, a, data),
+        Ix::FoldMarch => conquest::fold_march(p, a, data),
+        Ix::RetireHost => conquest::retire_host(p, a, data),
+        Ix::CloseMarch => conquest::close_march(p, a, data),
     };
     heap::trace_checkpoint(0xffff);
     r

@@ -6,8 +6,9 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
+use frontier_abi::v2::{CqError, Ix};
 use permutation_frontier_svm_tests::cover::{self, covered_by, Code, Cover, EXEMPT, OPT_IN};
-use permutation_frontier_svm_tests::{FrontierError, Ix};
+use permutation_frontier_svm_tests::FrontierError;
 
 fn release_check() -> bool {
     std::env::var("RELEASE_CHECK").is_ok_and(|v| v == "1")
@@ -86,6 +87,10 @@ fn g13_coverage_registry_names_real_tests_that_assert_their_codes() {
                                 asserted.insert(e.code());
                                 (vec![format!("E::{e:?}")], format!("E::{e:?}"))
                             }
+                            Code::Cq(e) => {
+                                asserted.insert(e.code());
+                                (vec![format!("Cq::{e:?}")], format!("Cq::{e:?}"))
+                            }
                             Code::Lands(n) => (
                                 vec![n.to_string(), "expect_lands(".into()],
                                 format!("lands {n}"),
@@ -120,6 +125,12 @@ fn g13_coverage_registry_names_real_tests_that_assert_their_codes() {
         .filter(|e| !EXEMPT.iter().any(|(x, _)| x == *e))
         .filter(|e| !asserted.contains(&e.code()))
         .map(|e| e.name())
+        .chain(
+            CqError::ALL
+                .iter()
+                .filter(|e| !asserted.contains(&e.code()))
+                .map(|e| e.name()),
+        )
         .collect();
     println!("{} codes no test asserts yet: {missing:?}", missing.len());
     if release_check() {

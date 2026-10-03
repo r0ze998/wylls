@@ -11,6 +11,7 @@
 
 use solana_program::program_error::ProgramError;
 
+pub use frontier_abi::v2::CqError;
 pub use frontier_abi::FrontierError;
 
 /// First argument of the sub-code log line (`"PSFE"`).
@@ -30,10 +31,13 @@ pub mod crypto_sub {
     pub const BAD_DATA: u64 = 5;
 }
 
-/// A program failure: a Frontier code or a runtime error passed through.
+/// A program failure: a Frontier code (M1's 1–61 and 99, or an MC code
+/// 62–78 of ABI v2, MC contract §5.3) or a runtime error passed through.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
     Frontier(FrontierError),
+    /// An MC code (`frontier_abi::v2::CqError`, stable forever).
+    Cq(CqError),
     Program(ProgramError),
 }
 
@@ -43,6 +47,12 @@ pub type R<T> = Result<T, Error>;
 impl From<FrontierError> for Error {
     fn from(e: FrontierError) -> Self {
         Error::Frontier(e)
+    }
+}
+
+impl From<CqError> for Error {
+    fn from(e: CqError) -> Self {
+        Error::Cq(e)
     }
 }
 
@@ -56,6 +66,7 @@ impl From<Error> for ProgramError {
     fn from(e: Error) -> Self {
         match e {
             Error::Frontier(f) => ProgramError::Custom(f.code()),
+            Error::Cq(c) => ProgramError::Custom(c.code()),
             Error::Program(p) => p,
         }
     }
@@ -80,6 +91,7 @@ impl Error {
     pub fn code(&self) -> Option<u32> {
         match self {
             Error::Frontier(f) => Some(f.code()),
+            Error::Cq(c) => Some(c.code()),
             Error::Program(_) => None,
         }
     }
@@ -123,6 +135,11 @@ mod tests {
         }
         let p: ProgramError = Error::from(ProgramError::AccountBorrowFailed).into();
         assert_eq!(p, ProgramError::AccountBorrowFailed);
+        for e in CqError::ALL {
+            let p: ProgramError = Error::from(e).into();
+            assert_eq!(p, ProgramError::Custom(e.code()));
+            assert_eq!(Error::from(e).code(), Some(e.code()));
+        }
         assert_eq!(crypto(crypto_sub::BAD_HINT).code(), Some(9));
         assert_eq!(kernel(3).code(), Some(15));
     }

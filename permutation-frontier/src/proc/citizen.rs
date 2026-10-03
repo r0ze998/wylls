@@ -45,6 +45,33 @@
 //!   `HasTransits` (both 46); SetVigil within the weekly limit is
 //!   `Cooldown` (29); the season-end closes before `end + 72 h` are
 //!   `TooEarly`.
+//!
+//! **MC (conquest contract §3.8, §3.15, §5.2.3, §5.5, §5.6; CQ2-A):**
+//!
+//! - **Slots (K-25).** The Citizen's `holding[3]` is indexed by slot
+//!   (entry i is slot i + 1, an empty entry has `gen = 0xFF`; Join writes
+//!   the three empties) and `slots` bits 0–1 name the open ticket's slot
+//!   (1 first holding, 2–3 an outpost), bits 2–3 the capture reservations
+//!   (CQ2-C). `holdings_n` counts the non-empty entries.
+//! - **FileTicket** sets the ticket slot 1; it refuses while an outpost
+//!   ticket is open (`TransitState`) and a site whose conquest record is
+//!   not zero (`SiegeBusy`, S1).
+//! - **FileOutpost (0xA3)**: [`file_outpost`].
+//! - **SettleTicket** founds into the ticket's slot: slot 1 as M1 (starter
+//!   kit, the first-holding shield of §3.9: `shield_secs`, or
+//!   `shield_late_secs` when founded `shield_late_after_secs` after
+//!   genesis); slot 2–3 an **outpost** (`order` = slot, no starter kit, the
+//!   outpost shield, JoinShard `extra_holdings` and `outposts`; log
+//!   `OUTPOST_SETTLED` beside `SETTLE`). The mirror gets `held_since_hour =
+//!   ⌈now_bell / 6⌉` (§3.6, the simulator's `held_since_hour(b)`). A win
+//!   moves exactly `rent(1,280)` of the escrow (the rest is the capture
+//!   reservations', K-25) and refuses a site whose record is not zero
+//!   (`SiegeBusy`, S1). A displaced holding is reverted by its own order
+//!   (a first holding as M1; an outpost frees its slot and its JoinShard's
+//!   `extra_holdings` / `outposts`).
+//! - **ReleaseDormant** refuses while the site's record is live
+//!   (`SiegeBusy`) or owes a stake or a slot (`StakeUnsettled`; S3), zeroes
+//!   the record (S1, S6) and leaves the citizen's outposts.
 
 use alloc::vec::Vec;
 
@@ -52,29 +79,37 @@ use solana_program::{account_info::AccountInfo, pubkey::Pubkey};
 
 use frontier_abi::addr::{citizen_seed, holding_seed};
 use frontier_abi::ix as aix;
-use frontier_abi::layout::player::{holding_ref as HR, ticket_site as TS, transit as T};
+use frontier_abi::layout::player::{ticket_site as TS, transit as T};
 use frontier_abi::layout::AccountKind;
 use frontier_abi::log::{divert_reason, settle_outcome, EntityKind, Kind};
 use frontier_abi::prologue::{self as ap, PlayerCtx};
 use frontier_abi::tags::Ix;
+use frontier_abi::v2::ix::FileOutpost as V2FileOutpost;
+use frontier_abi::v2::Ix as V2Ix;
 use permutation_rules::frontier::beacon;
 use permutation_rules::frontier::catalog;
 use permutation_rules::frontier::clash::NEUTRAL;
 use permutation_rules::frontier::geometry::ProvinceCoord;
-use permutation_rules::frontier::holding::{Holding, Resource, Tier, RESOURCES};
+use permutation_rules::frontier::holding::{
+    duplicate_cost, may_found_outpost, Holding, OutpostCheck, OutpostRefusal, Resource, Tier,
+    RESOURCES,
+};
+use permutation_rules::frontier::laurel::strength_weight;
 use permutation_rules::frontier::siege;
 use permutation_rules::rng;
 
 use crate::addr::{self, AddrCtx};
 use crate::clock::SeasonClock;
 use crate::error::{BAD_ACCOUNT, OVERFLOW};
-use crate::events::{self, Buf, Chained};
+use crate::events::{self, Buf, Chained, ChainedV2};
 use crate::init::{self, SeasonSigner, Sink};
 use crate::layout::beacon::{archive_archived, archive_entry_of, archive_key, Anchor, Cache};
+use crate::layout::conquest::{lifecycle, season_cq, Record as CqRecord};
 use crate::layout::player::accrual as AC;
 use crate::layout::{
-    citizen as C, cohort as CO, frontier as FR, holding as H, init_header, join_shard as JS,
-    province as PV, season as S, site as SM, Ro, Rw,
+    citizen as C, citizen2 as C2, cohort as CO, frontier as FR, holding as H, holding2 as H2,
+    init_header, join_shard as JS, join_shard2 as JS2, province as PV, province2 as PV2,
+    record as CR, season as S, site as SM, site2 as SM2, AccountKindV2, Ro, Rw,
 };
 use crate::prologue::{self, check_accounts, expect_key, key, view};
 use crate::{FrontierError, R};
@@ -120,6 +155,14 @@ pub(crate) fn player(p: &Pubkey, a: &[AccountInfo], now: i64, session_ok: bool) 
 }
 
 /// The Citizen's seed tag (key of its records).
+/// A Province account as the v2 program reads it (R-22): at its canonical
+/// address (`BadAddress`) and present with the exact v2 size and
+/// `layout_version 2` (`BadAccount`).
+fn present_province(ai: &AccountInfo, expected: &[u8; 32], p: &Pubkey, season_id: u64) -> R<()> {
+    expect_key(ai, expected)?;
+    prologue::present_v2(ai, p, AccountKindV2::Province, season_id)
+}
+
 fn tag15_of(citizen: &[u8]) -> R<[u8; 15]> {
     let wallet: [u8; 32] = Ro(citizen).arr(C::WALLET)?;
     Ok(addr::citizen_tag15(&wallet))
@@ -387,6 +430,10 @@ pub fn join(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         w.set_i64(C::LAST_ACTION_TS, now.ts)?;
         w.set_arr(C::RENT_PAYER, payer.key.as_ref())?;
     }
+    // MC §5.2.3: the slot-indexed holding list starts empty (gen 0xFF).
+    for slot in 1..=3 {
+        clear_holding_ref(&mut cd, slot)?;
+    }
     let mut jd = shard.try_borrow_mut_data()?;
     Rw(&mut jd).add_u32(JS::MEMBERS, 1)?;
     let payload = Buf::<74>::new()
@@ -493,6 +540,361 @@ pub fn set_vigil(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 
 // ------------------------------------------------------------ FileTicket
 
+/// A holding tier byte as the holding kernel's `Tier`.
+fn holding_tier(v: u8) -> R<Tier> {
+    Ok(match v {
+        0 => Tier::Hamlet,
+        1 => Tier::Town,
+        2 => Tier::City,
+        3 => Tier::Stronghold,
+        _ => return Err(BAD_ACCOUNT),
+    })
+}
+
+/// A kernel outpost refusal as a program code (MC §5.3): `HoldingsFull`
+/// (69); the land gate `Capacity` (10, the free-site rule's M1 code);
+/// everything else `OutpostRule` (75).
+fn outpost_err(e: OutpostRefusal) -> crate::Error {
+    match e {
+        OutpostRefusal::HoldingsFull => crate::CqError::HoldingsFull.into(),
+        OutpostRefusal::LandGate => FrontierError::Capacity.into(),
+        _ => crate::CqError::OutpostRule.into(),
+    }
+}
+
+/// The citizen faction's and the whole province's strength weight at bell
+/// `b` (MC §3.8's outpost rule): every holding (its owner's faction) and
+/// every Free City (in the total), the tier in force at `b` (§5.2.1
+/// `tier_next`), the mirror's garrison and order.
+pub fn province_weights(pd: &[u8], faction: u8, b: u32) -> R<(u64, u64)> {
+    // One slice of the mirror, fields read in place (the bounds-checked
+    // accessors cost ≈ 0.7k CU a Province here; CQ2-A notes §2).
+    let n = (*pd.get(PV::SITE_COUNT).ok_or(BAD_ACCOUNT)? as usize).min(PV::SITES_N);
+    let m = pd
+        .get(PV::SITE_MIRROR..PV::SITE_MIRROR + PV::SITES_N * SM::SIZE)
+        .ok_or(BAD_ACCOUNT)?;
+    let u32_at = |r: &[u8], o: usize| u32::from_le_bytes([r[o], r[o + 1], r[o + 2], r[o + 3]]);
+    let (mut mine, mut total) = (0u64, 0u64);
+    for r in m.chunks_exact(SM::SIZE).take(n) {
+        let state = r[SM::STATE];
+        let order0 = match state {
+            SM::STATE_HOLDING => r[SM::ORDER].saturating_sub(1),
+            SM2::STATE_FREE_CITY => 0,
+            _ => continue,
+        };
+        let mut tier = r[SM::TIER];
+        let next = r[SM2::TIER_NEXT];
+        if state == SM::STATE_HOLDING
+            && next != SM2::NO_TIER_NEXT
+            && u32_at(r, SM2::TIER_NEXT_BELL) <= b
+        {
+            tier = next;
+        }
+        let t = frontier_abi::conquest_model::tier_of(tier)?;
+        let w = strength_weight(t, u32_at(r, SM::GARRISON), order0);
+        total = total.saturating_add(w);
+        if state == SM::STATE_HOLDING && r[SM::FACTION] == faction {
+            mine = mine.saturating_add(w);
+        }
+    }
+    Ok((mine, total))
+}
+
+/// The settler cost of a citizen with `holdings_n` holdings (MC §3.8):
+/// `duplicate_cost(SETTLER_COST, n − 1)` per resource with `n` the
+/// holdings after the outpost, in milli-units.
+pub fn settler_cost(holdings_n: u8) -> R<permutation_rules::frontier::catalog::Cost> {
+    let mut c = [0i64; RESOURCES];
+    for (r, base) in catalog::SETTLER_COST.iter().enumerate() {
+        let units = duplicate_cost(*base as u64, holdings_n as u32).ok_or(OVERFLOW)?;
+        c[r] = i64::try_from(units)
+            .ok()
+            .and_then(|u| u.checked_mul(permutation_rules::fixed::MILLI))
+            .ok_or(OVERFLOW)?;
+    }
+    Ok(c)
+}
+
+/// 0xA3 FileOutpost(n ≤ 3 sites, anchor): P + `[frontier r] [province × m
+/// w] [system] [anchor_holding w]` (MC §3.8, §5.5), the m distinct
+/// Provinces of the sites in first-seen order.
+///
+/// Checks, in order: the player prologue; no open ticket (`TicketState`);
+/// the anchor Holding at the canonical address of `anchor_site_key`
+/// (`BadAddress`), the citizen's (`NotOwner`), at the key's generation
+/// (`BadData`), final (`NotFinal`); the sites as FileTicket's (`BadData`,
+/// `ReservedSite` below ring 2, no wedge rule), their Provinces present;
+/// per site `holding::may_found_outpost` (count and the lowest free slot
+/// `HoldingsFull`; prerequisite, ring, range from the anchor, the outpost
+/// share at filing, close: `OutpostRule`; the land gate on the folded
+/// Frontier: `Capacity`); a zero conquest record (`SiegeBusy`, S1); the
+/// cohorts (`CohortFull`); the settler cost from the anchor's stores
+/// (`Insufficient`); the escrow top-up to `rent(1,280) × (1 +
+/// reservations)` (`Insufficient`).
+///
+/// **Pinned (CQ2-A notes D-4, D-5):** the Town prerequisite reads the
+/// anchor's tier when the anchor is the first holding; an outpost anchor
+/// (founded by ticket, so the first holding passed the prerequisite when
+/// it was filed, and tiers never fall) proves it; a captured holding
+/// cannot anchor (`OutpostRule`). Slot 3 needs a holding in slot 2 (the
+/// Citizen's list; provisional counts). The settler cost is paid at
+/// filing and **not refunded on chain** (SettleTicket names no anchor;
+/// dependency request). Logs `TICKET` (Citizen, the m Provinces) and
+/// `HARVEST` of the anchor (its stores after the payment; Citizen,
+/// Holding).
+pub fn file_outpost(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    check_accounts(V2Ix::FileOutpost, a, None)?;
+    let x = V2FileOutpost::decode(d)?;
+    let now = prologue::now()?;
+    let pc = player(p, a, now.ts, true)?;
+    crate::heap::trace_checkpoint(0xA300);
+    let [_actor, payer, season_ai, citizen, frontier, rest @ ..] = a else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    let (provinces, tail) = rest.split_at(rest.len().saturating_sub(2));
+    let [_system, anchor_ai] = tail else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    let hdr = pc.season;
+    let now_bell = pc.now_bell;
+    let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
+    let (cq, r_max) = {
+        let sd = season_ai.try_borrow_data()?;
+        (season_cq(&sd)?, Ro(&sd).u16(S::R_MAX)?)
+    };
+    let (flags, open_ticket, faction, escrow, slots, holdings_n, gen2, gen3) = {
+        let cd = citizen.try_borrow_data()?;
+        let r = Ro(&cd);
+        (
+            r.u8(C::FLAGS)?,
+            r.u32(C::TICKET_BELL)?,
+            r.u8(C::FACTION)?,
+            r.u64(C::TICKET_ESCROW)?,
+            r.u8(C2::SLOTS)?,
+            r.u8(C::HOLDINGS_N)?,
+            slot_gen(&cd, 2)?,
+            slot_gen(&cd, 3)?,
+        )
+    };
+    if open_ticket != C::NO_TICKET {
+        return Err(FrontierError::TicketState.into());
+    }
+    crate::heap::trace_checkpoint(0xA301);
+    // The anchor: a final holding of the citizen, named in host-id form.
+    let ak = addr::split_host_id(x.anchor_site_key).ok_or(FrontierError::BadData)?;
+    if ak.seq != 0 {
+        return Err(FrontierError::BadData.into());
+    }
+    let (ap_, aq_) = (ak.province.p, ak.province.q);
+    expect_key(anchor_ai, &ctx.holding(ap_, aq_, ak.site))?;
+    let ah = {
+        let hd = anchor_ai.try_borrow_data()?;
+        ap::check_holding(&view(anchor_ai, &hd), &ctx, hdr.id, &key(citizen))?
+    };
+    if ah.gen != ak.gen {
+        return Err(FrontierError::BadData.into());
+    }
+    if ah.state != H::STATE_FINAL {
+        return Err(FrontierError::NotFinal.into());
+    }
+    // The anchor as an owner touches it: a tier-up finished since its last
+    // action counts for the Town prerequisite (review CQ2-A, D-15); the
+    // settler cost is paid from this same state below.
+    let mut h = super::holding::load_touched(anchor_ai, now.ts)?;
+    let (anchor_order, anchor_tier, anchor_captured) = {
+        let hd = anchor_ai.try_borrow_data()?;
+        let r = Ro(&hd);
+        (
+            r.u8(H::ORDER)?,
+            h.tier,
+            r.u8(H2::CAPTURE_FLAGS)? & H2::CAPTURE_FLAG_CAPTURED != 0,
+        )
+    };
+    let tier_min = holding_tier(cq.outpost_tier_min)?;
+    let first_tier = if anchor_order <= 1 {
+        anchor_tier
+    } else if anchor_captured {
+        return Err(crate::CqError::OutpostRule.into());
+    } else {
+        tier_min
+    };
+    let slot = C2::lowest_free_slot(slots, gen2, gen3);
+    crate::heap::trace_checkpoint(0xA302);
+    present_at(frontier, &ctx.frontier(), p, AccountKind::Frontier, hdr.id)?;
+    let (rings_opened, open_sites, occupied) = {
+        let fd = frontier.try_borrow_data()?;
+        let r = Ro(&fd);
+        (
+            r.u16(FR::RINGS_OPENED)?,
+            r.u32(FR::OPEN_SITES)? as u64,
+            r.u32(FR::OCCUPIED_SITES)? as u64,
+        )
+    };
+    let base = OutpostCheck {
+        slot,
+        first_final: flags & C::FLAG_FIRST_HOLDING_FINAL != 0,
+        first_tier,
+        tier_min,
+        slot2_final: gen2 != C2::EMPTY_GEN,
+        target_ring: 0,
+        heartland_max_ring: cq.heartland_max_ring,
+        range: 0,
+        outpost_range: cq.outpost_range,
+        faction_weight: 0,
+        province_weight: 0,
+        outpost_share_bps: cq.outpost_share_bps,
+        free_sites: open_sites.saturating_sub(occupied),
+        open_sites,
+        now_bell,
+        end_bell: hdr.end_bell,
+        outpost_close_bells: cq.outpost_close_bells,
+    };
+    // Count and prerequisites first (a refusal names no site).
+    may_found_outpost(&OutpostCheck {
+        target_ring: cq.heartland_max_ring as u32 + 1,
+        ..base
+    })
+    .map_err(outpost_err)?;
+    crate::heap::trace_checkpoint(0xA303);
+    let anchor_coord = ProvinceCoord::new(ap_, aq_);
+    let n = x.n as usize;
+    let mut sites = [(0i16, 0i16, 0u8); 3];
+    for (i, s) in x.sites.iter().take(n).enumerate() {
+        let c = ProvinceCoord::checked(s.p as i32, s.q as i32, r_max)
+            .map_err(|_| FrontierError::BadData)?;
+        if c.ring() < 2 {
+            return Err(FrontierError::ReservedSite.into());
+        }
+        if c.ring() >= rings_opened as u32 || s.site as usize >= PV::SITES_N {
+            return Err(FrontierError::BadData.into());
+        }
+        let e = (s.p, s.q, s.site);
+        if sites[..i].contains(&e) {
+            return Err(FrontierError::BadData.into());
+        }
+        sites[i] = e;
+    }
+    let distinct = distinct_provinces(&sites[..n]);
+    if distinct.len() != provinces.len() {
+        return Err(FrontierError::TooManyAccounts.into());
+    }
+    for (ai, (pp, qq)) in provinces.iter().zip(&distinct) {
+        let (pi, qi) = (*pp as i32, *qq as i32);
+        expect_key(ai, &ctx.province(pi, qi))?;
+        prologue::present_v2(ai, p, AccountKindV2::Province, hdr.id)?;
+        let mut pd = ai.try_borrow_mut_data()?;
+        let site_count = Ro(&pd).u8(PV::SITE_COUNT)?;
+        let target = ProvinceCoord::new(pi, qi);
+        let (mine, total) = province_weights(&pd, faction, now_bell)?;
+        for s in sites[..n].iter().filter(|s| (s.0, s.1) == (*pp, *qq)) {
+            if s.2 >= site_count {
+                return Err(FrontierError::BadData.into());
+            }
+            may_found_outpost(&OutpostCheck {
+                target_ring: target.ring(),
+                range: anchor_coord.distance(target),
+                faction_weight: mine,
+                province_weight: total,
+                ..base
+            })
+            .map_err(outpost_err)?;
+            record_is_zero(&pd, s.2)?;
+        }
+        // The capture lock (§5.8) on the anchor, when its own Province is
+        // listed (the only one the instruction can read; notes D-6, and the
+        // open owner question Q-1 for an outpost anchor whose Province is
+        // not listed). Generation test only (D-14).
+        if (pi, qi) == (ap_, aq_)
+            && frontier_abi::v2::prologue::capture_locked(&pd, ah.site, ah.gen, 0)
+                .ok_or(BAD_ACCOUNT)?
+        {
+            return Err(crate::CqError::CapturePending.into());
+        }
+        cohort_file(&mut pd, now_bell)?;
+        crate::heap::trace_checkpoint(0xA304);
+    }
+    let slot = slot.ok_or(crate::CqError::HoldingsFull)?;
+    // The settler cost from the anchor's stores, as an owner action of the
+    // anchor (the holding touch every resident action makes).
+    let cost = settler_cost(holdings_n)?;
+    h.pay(now.ts, &cost).map_err(super::holding::holding_err)?;
+    crate::heap::trace_checkpoint(0xA305);
+    let digest = {
+        let mut hd = anchor_ai.try_borrow_mut_data()?;
+        super::holding::write_holding(&mut hd, &h, now.ts)?;
+        super::holding::stores_digest(&hd)?
+    };
+    crate::heap::trace_checkpoint(0xA306);
+    // Escrow (K-25): one Holding rent for this ticket and one per
+    // reservation; the payer becomes the funder only when it tops up.
+    let rent_h = init::rent(H::SIZE)?;
+    let need = escrow_need(slots, rent_h)?;
+    let top = need.saturating_sub(escrow);
+    if top > payer.lamports() {
+        return Err(FrontierError::Insufficient.into());
+    }
+    init::transfer(payer, citizen, top)?;
+    let mut cd = citizen.try_borrow_mut_data()?;
+    let funder: [u8; 32] = if top > 0 {
+        payer.key.to_bytes()
+    } else {
+        Ro(&cd).arr(C::TICKET_FUNDER)?
+    };
+    {
+        let mut w = Rw(&mut cd);
+        for (i, s) in sites.iter().enumerate() {
+            let o = C::TICKET_SITES + i * TS::SIZE;
+            w.set_i16(o + TS::P, s.0)?;
+            w.set_i16(o + TS::Q, s.1)?;
+            w.set_u8(o + TS::SITE, s.2)?;
+        }
+        w.set_u32(C::TICKET_BELL, now_bell)?;
+        w.set_u8(C::TICKET_NEXT, 0)?;
+        w.set_u64(C::TICKET_ESCROW, escrow.max(need))?;
+        w.set_arr(C::TICKET_FUNDER, &funder)?;
+    }
+    set_ticket_slot(&mut cd, slot)?;
+    crate::heap::trace_checkpoint(0xA307);
+    let tag15 = tag15_of(&cd)?;
+    let sites_raw: [u8; 15] = Ro(&cd).arr(C::TICKET_SITES)?;
+    let payload = Buf::<60>::new()
+        .u32(now_bell)
+        .u8(x.n)
+        .bytes(&sites_raw)
+        .u64(escrow.max(need))
+        .bytes(&funder);
+    {
+        let mut borrows = Vec::with_capacity(provinces.len());
+        for ai in provinces {
+            borrows.push(ai.try_borrow_mut_data()?);
+        }
+        let mut chained: Vec<Chained> = Vec::with_capacity(4);
+        chained.push(Chained {
+            entity: EntityKind::Citizen,
+            data: &mut cd,
+        });
+        for b in borrows.iter_mut() {
+            chained.push(Chained {
+                entity: EntityKind::Province,
+                data: b,
+            });
+        }
+        events::emit(Kind::TICKET, now_bell, &tag15, payload.get()?, &mut chained)?;
+    }
+    drop(cd);
+    crate::heap::trace_checkpoint(0xA308);
+    let hkey = super::holding::pqs_key(ah.p, ah.q, ah.site)?;
+    super::holding::emit3(
+        Kind::HARVEST,
+        now_bell,
+        &hkey,
+        &digest,
+        citizen,
+        anchor_ai,
+        None,
+    )
+}
+
 /// 0x33 FileTicket(n ≤ 3 sites): P + `[frontier r] [province × m w]
 /// [system]`, the m distinct Provinces of the sites in first-seen order.
 ///
@@ -521,7 +923,7 @@ pub fn file_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         .ok_or(FrontierError::TooManyAccounts)?;
     let hdr = pc.season;
     let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
-    let (flags, open_ticket, faction, escrow) = {
+    let (flags, open_ticket, faction, escrow, slots) = {
         let cd = citizen.try_borrow_data()?;
         let r = Ro(&cd);
         (
@@ -529,8 +931,13 @@ pub fn file_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             r.u32(C::TICKET_BELL)?,
             r.u8(C::FACTION)?,
             r.u64(C::TICKET_ESCROW)?,
+            r.u8(C2::SLOTS)?,
         )
     };
+    // MC §5.6: an open outpost ticket blocks a first-holding ticket.
+    if open_ticket != C::NO_TICKET && slots & C2::SLOTS_TICKET_MASK >= 2 {
+        return Err(FrontierError::TransitState.into());
+    }
     if flags & (C::FLAG_PROVISIONAL | C::FLAG_FIRST_HOLDING_FINAL) != 0
         || open_ticket != C::NO_TICKET
     {
@@ -580,13 +987,7 @@ pub fn file_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     }
     let now_bell = pc.now_bell;
     for (ai, (pp, qq)) in provinces.iter().zip(&distinct) {
-        present_at(
-            ai,
-            &ctx.province(*pp as i32, *qq as i32),
-            p,
-            AccountKind::Province,
-            hdr.id,
-        )?;
+        present_province(ai, &ctx.province(*pp as i32, *qq as i32), p, hdr.id)?;
         let mut pd = ai.try_borrow_mut_data()?;
         let site_count = Ro(&pd).u8(PV::SITE_COUNT)?;
         if sites[..n]
@@ -595,6 +996,10 @@ pub fn file_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         {
             return Err(FrontierError::BadData.into());
         }
+        // MC S1: a site with a live or owing conquest record is not ticketed.
+        for s in sites[..n].iter().filter(|s| (s.0, s.1) == (*pp, *qq)) {
+            record_is_zero(&pd, s.2)?;
+        }
         cohort_file(&mut pd, now_bell)?;
     }
     crate::heap::trace_checkpoint(303);
@@ -602,8 +1007,11 @@ pub fn file_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     // payer becomes the funder only when it tops up; an escrow left by an
     // expired or exhausted ticket keeps the funder that paid it, so a
     // refile never redirects someone else's escrow refund.
+    // MC (K-25): the escrow holds one `rent(1,280)` per open ticket and per
+    // capture reservation.
     let rent_h = init::rent(H::SIZE)?;
-    let top = rent_h.saturating_sub(escrow);
+    let need = escrow_need(slots, rent_h)?;
+    let top = need.saturating_sub(escrow);
     if top > payer.lamports() {
         return Err(FrontierError::Insufficient.into());
     }
@@ -625,16 +1033,17 @@ pub fn file_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         }
         w.set_u32(C::TICKET_BELL, now_bell)?;
         w.set_u8(C::TICKET_NEXT, 0)?;
-        w.set_u64(C::TICKET_ESCROW, escrow.max(rent_h))?;
+        w.set_u64(C::TICKET_ESCROW, escrow.max(need))?;
         w.set_arr(C::TICKET_FUNDER, &funder)?;
     }
+    set_ticket_slot(&mut cd, 1)?;
     let tag15 = tag15_of(&cd)?;
     let sites_raw: [u8; 15] = Ro(&cd).arr(C::TICKET_SITES)?;
     let payload = Buf::<60>::new()
         .u32(now_bell)
         .u8(x.n)
         .bytes(&sites_raw)
-        .u64(escrow.max(rent_h))
+        .u64(escrow.max(need))
         .bytes(&funder);
     let mut borrows = Vec::with_capacity(provinces.len());
     for ai in provinces {
@@ -747,6 +1156,16 @@ pub fn founded_holding(now: i64, day: u32) -> R<Holding> {
     Ok(h)
 }
 
+/// A founded outpost (MC §3.8): `Holding::found(now, day, slot)` with
+/// Hamlet base production and food upkeep 0, **no starter kit**.
+pub fn founded_outpost(now: i64, day: u32, slot: u8) -> R<Holding> {
+    let mut h = Holding::found(now, day, slot);
+    h.production = catalog::base_production(Tier::Hamlet);
+    h.set_upkeep(now, Resource::Food, 0)
+        .map_err(|_| FrontierError::Kernel)?;
+    Ok(h)
+}
+
 /// The fields SettleTicket writes into a founded Holding.
 struct Founding {
     p: i16,
@@ -761,6 +1180,8 @@ struct Founding {
     rent_payer: [u8; 32],
     final_ts: i64,
     pool_owed: u64,
+    /// MC §3.9: the season's shield for this order (not M1's constant).
+    shield_until: i64,
 }
 
 fn write_holding(d: &mut [u8], f: &Founding, h: &Holding) -> R<()> {
@@ -783,7 +1204,7 @@ fn write_holding(d: &mut [u8], f: &Founding, h: &Holding) -> R<()> {
     w.set_i64(H::FOUNDED_TS, h.founded_ts)?;
     w.set_u32(H::FOUNDED_DAY, h.founded_day)?;
     w.set_i64(H::LAST_OWNER_ACTION, h.last_owner_action)?;
-    w.set_i64(H::SHIELD_UNTIL, h.shield_until())?;
+    w.set_i64(H::SHIELD_UNTIL, f.shield_until)?;
     for r in 0..RESOURCES {
         let s = &h.stores[r];
         let o = H::store(r);
@@ -803,12 +1224,91 @@ fn write_holding(d: &mut [u8], f: &Founding, h: &Holding) -> R<()> {
     w.set_u64(H::POOL_OWED, f.pool_owed)
 }
 
-fn write_holding_ref(citizen: &mut [u8], p: i16, q: i16, site: u8, gen: u8) -> R<()> {
+/// Writes the Citizen's holding entry of `slot` (1–3, MC §5.2.3).
+fn write_holding_ref(citizen: &mut [u8], slot: u8, p: i16, q: i16, site: u8, gen: u8) -> R<()> {
+    use crate::layout::player::holding_ref as HR;
+    if !(1..=3).contains(&slot) {
+        return Err(BAD_ACCOUNT);
+    }
+    let o = C2::holding_of_slot(slot);
     let mut w = Rw(citizen);
-    w.set_i16(C::HOLDING + HR::P, p)?;
-    w.set_i16(C::HOLDING + HR::Q, q)?;
-    w.set_u8(C::HOLDING + HR::SITE, site)?;
-    w.set_u8(C::HOLDING + HR::GEN, gen)
+    w.set_i16(o + HR::P, p)?;
+    w.set_i16(o + HR::Q, q)?;
+    w.set_u8(o + HR::SITE, site)?;
+    w.set_u8(o + HR::GEN, gen)
+}
+
+/// Empties the Citizen's holding entry of `slot` (`gen = 0xFF`).
+fn clear_holding_ref(citizen: &mut [u8], slot: u8) -> R<()> {
+    write_holding_ref(citizen, slot, 0, 0, 0, C2::EMPTY_GEN)
+}
+
+/// The generation byte of the Citizen's entry of `slot` (`0xFF` empty).
+fn slot_gen(citizen: &[u8], slot: u8) -> R<u8> {
+    use crate::layout::player::holding_ref as HR;
+    Ro(citizen).u8(C2::holding_of_slot(slot) + HR::GEN)
+}
+
+/// `holdings_n += delta` (saturating at 0 and 3).
+fn bump_holdings_n(citizen: &mut [u8], delta: i8) -> R<()> {
+    let mut w = Rw(citizen);
+    let n = w.u8(C::HOLDINGS_N)?;
+    let v = if delta >= 0 {
+        n.saturating_add(delta as u8).min(3)
+    } else {
+        n.saturating_sub(delta.unsigned_abs())
+    };
+    w.set_u8(C::HOLDINGS_N, v)
+}
+
+/// A JoinShard's outpost counters (`extra_holdings`, `outposts`; MC
+/// §5.2.4) `+= delta`.
+fn shard_outposts(js: &mut [u8], delta: i32) -> R<()> {
+    let mut w = Rw(js);
+    for off in [JS2::EXTRA_HOLDINGS, JS2::OUTPOSTS] {
+        let v = w.u32(off)?;
+        let nv = if delta >= 0 {
+            v.checked_add(delta as u32).ok_or(OVERFLOW)?
+        } else {
+            v.saturating_sub(delta.unsigned_abs())
+        };
+        w.set_u32(off, nv)?;
+    }
+    Ok(())
+}
+
+/// The open ticket's slot (`slots` bits 0–1; 0 read as 1 for a ticket a
+/// v2 FileTicket did not tag).
+fn ticket_slot(citizen: &[u8]) -> R<u8> {
+    let s = Ro(citizen).u8(C2::SLOTS)? & C2::SLOTS_TICKET_MASK;
+    Ok(if s == 0 { 1 } else { s })
+}
+
+/// Sets the open ticket's slot (`slots` bits 0–1; 0 when it ends).
+fn set_ticket_slot(citizen: &mut [u8], slot: u8) -> R<()> {
+    let mut w = Rw(citizen);
+    let s = w.u8(C2::SLOTS)?;
+    w.set_u8(
+        C2::SLOTS,
+        (s & !C2::SLOTS_TICKET_MASK) | (slot & C2::SLOTS_TICKET_MASK),
+    )
+}
+
+/// The Holding-rent escrow a Citizen must hold with one ticket open (MC
+/// K-25): `rent(1,280) × (1 + capture reservations)`.
+fn escrow_need(slots: u8, rent_h: u64) -> R<u64> {
+    let reserved =
+        ((slots & C2::SLOTS_RESERVED_2 != 0) as u64) + ((slots & C2::SLOTS_RESERVED_3 != 0) as u64);
+    rent_h.checked_mul(1 + reserved).ok_or(OVERFLOW)
+}
+
+/// The site's conquest record is all zero (S1), else `SiegeBusy`.
+fn record_is_zero(province: &[u8], site: u8) -> R<()> {
+    if CqRecord::is_zero(province, site as usize)? {
+        Ok(())
+    } else {
+        Err(crate::CqError::SiegeBusy.into())
+    }
 }
 
 fn shard_holdings(js: &mut [u8], wedge: u8, delta: i32) -> R<()> {
@@ -907,6 +1407,16 @@ pub fn settle_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     if ticket_bell == C::NO_TICKET {
         return Err(FrontierError::NoTicket.into());
     }
+    // MC K-25: the slot the ticket founds into (1 first holding, 2–3 an
+    // outpost) and the season's lifecycle timers.
+    let slot = {
+        let cd = citizen.try_borrow_data()?;
+        ticket_slot(&cd)?
+    };
+    let life = {
+        let sd = season_ai.try_borrow_data()?;
+        lifecycle(&season_cq(&sd)?)
+    };
     if x.k < ticket_next {
         return Err(FrontierError::AlreadyDone.into());
     }
@@ -917,26 +1427,14 @@ pub fn settle_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let (pi, qi) = (sp as i32, sq as i32);
     let coord = ProvinceCoord::new(pi, qi);
     expect_key(holding, &ctx.holding(pi, qi, site))?;
-    present_at(
-        province,
-        &ctx.province(pi, qi),
-        p,
-        AccountKind::Province,
-        hdr.id,
-    )?;
+    present_province(province, &ctx.province(pi, qi), p, hdr.id)?;
     let distinct = distinct_provinces(&sites[..n]);
     let other_keys: Vec<(i16, i16)> = distinct.into_iter().filter(|pq| *pq != (sp, sq)).collect();
     if other_keys.len() != others.len() {
         return Err(FrontierError::TooManyAccounts.into());
     }
     for (ai, (pp, qq)) in others.iter().zip(&other_keys) {
-        present_at(
-            ai,
-            &ctx.province(*pp as i32, *qq as i32),
-            p,
-            AccountKind::Province,
-            hdr.id,
-        )?;
+        present_province(ai, &ctx.province(*pp as i32, *qq as i32), p, hdr.id)?;
     }
     present_at(
         shard,
@@ -1026,20 +1524,28 @@ pub fn settle_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let bell = now_bell;
     let mut gen = 0u8;
     let mut displaced_tag = 0u64;
+    let mut shield_until = 0i64;
     let wedge = coord.wedge().unwrap_or(0);
+    let rent_h = init::rent(H::SIZE)?;
     if won {
         let (tile, old_gen) = {
             let pd = province.try_borrow_data()?;
             let r = Ro(&pd);
+            // MC S1: the site's conquest record must be zero.
+            record_is_zero(&pd, site)?;
             (
                 r.u8(PV::SITES + site as usize)?,
                 r.u8(PV::site(site as usize) + SM::GEN)?,
             )
         };
         gen = old_gen.checked_add(1).ok_or(OVERFLOW)?;
+        if escrow < rent_h {
+            return Err(FrontierError::Insufficient.into());
+        }
         let mut pool_owed = 0u64;
         if outcome == settle_outcome::FRESH {
-            // The whole escrow moves (a pre-funded Holding keeps its extra).
+            // One Holding rent moves (the rest of the escrow is the capture
+            // reservations', K-25; a pre-funded Holding keeps its extra).
             let moved = init::init_funded(
                 citizen,
                 holding,
@@ -1048,18 +1554,22 @@ pub fn settle_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
                 &holding_seed(pi, qi, site),
                 H::SIZE,
                 p,
-                escrow,
+                rent_h,
             )?;
-            if moved != escrow {
+            if moved != rent_h {
                 return Err(FrontierError::Insufficient.into());
             }
             let mut hd = holding.try_borrow_mut_data()?;
             init_header(&mut hd, AccountKind::Holding, hdr.id)?;
         } else if let Some((d_payer, d_citizen, d_shard)) = disp {
-            let (old_owner, old_payer) = {
+            let (old_owner, old_payer, old_order) = {
                 let hd = holding.try_borrow_data()?;
                 let r = Ro(&hd);
-                (r.arr::<32>(H::OWNER_CITIZEN)?, r.arr::<32>(H::RENT_PAYER)?)
+                (
+                    r.arr::<32>(H::OWNER_CITIZEN)?,
+                    r.arr::<32>(H::RENT_PAYER)?,
+                    r.u8(H::ORDER)?,
+                )
             };
             expect_key(d_payer, &old_payer)?;
             expect_key(d_citizen, &old_owner)?;
@@ -1077,12 +1587,13 @@ pub fn settle_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
                 AccountKind::JoinShard,
                 hdr.id,
             )?;
-            // The new escrow pays the displaced Holding's rent payer.
+            // The new escrow's Holding rent pays the displaced Holding's
+            // rent payer.
             init::pay_or_divert(
                 p,
                 citizen,
                 d_payer,
-                escrow,
+                rent_h,
                 &Sink::PoolOwed(holding),
                 divert_reason::ESCROW_REFUND,
                 bell,
@@ -1093,19 +1604,33 @@ pub fn settle_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             };
             {
                 let mut dd = d_citizen.try_borrow_mut_data()?;
-                let f = Ro(&dd).u8(C::FLAGS)?;
-                let mut w = Rw(&mut dd);
-                w.set_u8(
-                    C::FLAGS,
-                    f & !(C::FLAG_PROVISIONAL | C::FLAG_FIRST_HOLDING_FINAL),
-                )?;
-                w.set_u8(C::HOLDINGS_N, 0)?;
-                write_holding_ref(&mut dd, 0, 0, 0, 0)?;
+                if old_order <= 1 {
+                    let f = Ro(&dd).u8(C::FLAGS)?;
+                    Rw(&mut dd).set_u8(
+                        C::FLAGS,
+                        f & !(C::FLAG_PROVISIONAL | C::FLAG_FIRST_HOLDING_FINAL),
+                    )?;
+                }
+                bump_holdings_n(&mut dd, -1)?;
+                clear_holding_ref(&mut dd, old_order.max(1))?;
             }
             let mut sd = d_shard.try_borrow_mut_data()?;
-            shard_holdings(&mut sd, wedge, -1)?;
+            if old_order <= 1 {
+                shard_holdings(&mut sd, wedge, -1)?;
+            } else {
+                shard_outposts(&mut sd, -1)?;
+            }
         }
-        let h = founded_holding(now.ts, addr::day_of(now_bell))?;
+        let day = addr::day_of(now_bell);
+        let h = if slot <= 1 {
+            founded_holding(now.ts, day)?
+        } else {
+            founded_outpost(now.ts, day, slot)?
+        };
+        shield_until = now
+            .ts
+            .checked_add(life.shield_secs_for(slot, now.ts, hdr.genesis_ts))
+            .ok_or(OVERFLOW)?;
         let f = Founding {
             p: sp,
             q: sq,
@@ -1119,12 +1644,13 @@ pub fn settle_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             rent_payer: funder,
             final_ts,
             pool_owed,
+            shield_until,
         };
         {
             let mut hd = holding.try_borrow_mut_data()?;
             write_holding(&mut hd, &f, &h)?;
         }
-        let shield_bell = bell_from(hdr.genesis_ts, h.shield_until());
+        let shield_bell = bell_from(hdr.genesis_ts, shield_until);
         {
             let mut pd = province.try_borrow_mut_data()?;
             let mut w = Rw(&mut pd);
@@ -1133,12 +1659,18 @@ pub fn settle_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             d_zero(&mut w, o)?;
             w.set_u8(o + SM::STATE, SM::STATE_HOLDING)?;
             w.set_u8(o + SM::FACTION, faction)?;
-            w.set_u8(o + SM::ORDER, 1)?;
+            w.set_u8(o + SM::ORDER, slot.max(1))?;
             w.set_u8(o + SM::TIER, Tier::Hamlet as u8)?;
             w.set_u8(o + SM::GEN, gen)?;
             w.set_u32(o + SM::PEND0_BELL, SM::NO_BELL)?;
             w.set_u32(o + SM::PEND1_BELL, SM::NO_BELL)?;
             w.set_u32(o + SM::SHIELD_UNTIL_BELL, shield_bell)?;
+            // MC §5.2.1: the hour from which this owner holds the site
+            // (capture credit, K-26).
+            w.set_u16(
+                o + SM2::HELD_SINCE_HOUR,
+                siege::held_since_hour_from(now_bell),
+            )?;
             if was_free {
                 let u = w.u8(PV::N_SITES_USED)?;
                 w.set_u8(PV::N_SITES_USED, u.checked_add(1).ok_or(OVERFLOW)?)?;
@@ -1148,26 +1680,38 @@ pub fn settle_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         }
         {
             let mut jd = shard.try_borrow_mut_data()?;
-            shard_holdings(&mut jd, wedge, 1)?;
+            if slot <= 1 {
+                shard_holdings(&mut jd, wedge, 1)?;
+            } else {
+                shard_outposts(&mut jd, 1)?;
+            }
         }
     }
     // The citizen's side.
     {
         let mut cd = citizen.try_borrow_mut_data()?;
         if won {
-            write_holding_ref(&mut cd, sp, sq, site, gen)?;
+            // The slot is empty (Join, FileTicket and FileOutpost choose it;
+            // a capture's reservation is not a free slot): review CQ2-A.
+            if slot_gen(&cd, slot.max(1))? != C2::EMPTY_GEN {
+                return Err(FrontierError::TicketState.into());
+            }
+            write_holding_ref(&mut cd, slot.max(1), sp, sq, site, gen)?;
+            bump_holdings_n(&mut cd, 1)?;
         }
         let f = Ro(&cd).u8(C::FLAGS)?;
         let mut w = Rw(&mut cd);
         if won {
-            w.set_u8(C::FLAGS, f | C::FLAG_PROVISIONAL)?;
-            w.set_u8(C::HOLDINGS_N, 1)?;
-            w.set_u64(C::TICKET_ESCROW, 0)?;
+            if slot <= 1 {
+                w.set_u8(C::FLAGS, f | C::FLAG_PROVISIONAL)?;
+            }
+            w.set_u64(C::TICKET_ESCROW, escrow.saturating_sub(rent_h))?;
         } else if outcome == settle_outcome::TAKEN {
             w.set_u8(C::TICKET_NEXT, x.k + 1)?;
         }
         if ends {
             w.set_u32(C::TICKET_BELL, C::NO_TICKET)?;
+            set_ticket_slot(&mut cd, 0)?;
         }
     }
     if ends {
@@ -1265,7 +1809,35 @@ pub fn settle_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         });
     }
     let _ = payer;
-    events::emit(Kind::SETTLE, bell, &key9, payload.get()?, &mut chained)
+    events::emit(Kind::SETTLE, bell, &key9, payload.get()?, &mut chained)?;
+    drop(chained);
+    // MC §5.6: an outpost founding logs OUTPOST_SETTLED beside SETTLE
+    // (JoinShard, Citizen, Holding, Province). The anchor's key is not
+    // stored past FileOutpost (no field for it, notes D-5): logged 0.
+    if won && slot >= 2 {
+        let (Some(j), Some(h), Some(pv)) = (jd.as_mut(), hd.as_mut(), pd.as_mut()) else {
+            return Err(BAD_ACCOUNT);
+        };
+        let payload = Buf::<26>::new()
+            .u64(my_tag)
+            .u8(slot)
+            .u8(gen)
+            .i64(shield_until)
+            .u64(0);
+        events::emit_cq(
+            frontier_abi::v2::log::CqKind::OUTPOST_SETTLED,
+            bell,
+            &key9,
+            payload.get()?,
+            &mut [
+                ChainedV2::of(EntityKind::JoinShard, j),
+                ChainedV2::of(EntityKind::Citizen, &mut cd),
+                ChainedV2::of(EntityKind::Holding, h),
+                ChainedV2::of(EntityKind::Province, pv),
+            ],
+        )?;
+    }
+    Ok(())
 }
 
 /// Clears a site mirror record (64 B at `o`).
@@ -1329,7 +1901,9 @@ fn sweep_pool_owed(holding: &AccountInfo, dpool: &AccountInfo, raw: &[u8; 9], be
 /// holding (`order == 1`) whose owner has not acted for `release_after`
 /// (`NotDormant`) and has no transit in state 1–3 (`HasTransits`); its
 /// Province, owner Citizen, the owner's JoinShard, `rent_payer` and the
-/// DefencePool. Effects: the site becomes released-free (`gen` kept, so
+/// DefencePool. **MC S3:** a live conquest record on the site is
+/// `SiegeBusy`, a record that owes a stake or a slot `StakeUnsettled`; the
+/// record is zeroed. Effects: the site becomes released-free (`gen` kept, so
 /// the next founding bumps it and the old hosts are stranded), the
 /// Province's `n_sites_used −= 1`, `roster_epoch += 1`; the Citizen gets the
 /// refugee flag, loses its holding (flags 4 and 8 cleared: it may file a
@@ -1381,13 +1955,7 @@ pub fn release_dormant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     if has_transit {
         return Err(FrontierError::NotDormant.into());
     }
-    present_at(
-        province,
-        &ctx.province(pi, qi),
-        p,
-        AccountKind::Province,
-        hdr.id,
-    )?;
+    present_province(province, &ctx.province(pi, qi), p, hdr.id)?;
     expect_key(citizen, &owner)?;
     prologue::present(citizen, p, AccountKind::Citizen, hdr.id)?;
     let (faction, shard_i, my_tag) = {
@@ -1418,11 +1986,21 @@ pub fn release_dormant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let wedge = ProvinceCoord::new(pi, qi).wedge().unwrap_or(0);
     {
         let mut pd = province.try_borrow_mut_data()?;
+        // MC S3: refused while the site's conquest record is live or owes a
+        // stake or a slot; the record is zeroed with the release (S1, S6).
+        let rec = CqRecord::read(&pd, site as usize)?;
+        if rec.live() {
+            return Err(crate::CqError::SiegeBusy.into());
+        }
+        if rec.owes() {
+            return Err(crate::CqError::StakeUnsettled.into());
+        }
         let mut w = Rw(&mut pd);
         let o = PV::site(site as usize);
         if w.u8(o + SM::STATE)? != SM::STATE_HOLDING || w.u8(o + SM::GEN)? != gen {
             return Err(BAD_ACCOUNT);
         }
+        w.set_arr(PV2::record(site as usize), &[0u8; CR::SIZE])?;
         d_zero(&mut w, o)?;
         w.set_u8(o + SM::STATE, SM::STATE_RELEASED_FREE)?;
         w.set_u8(o + SM::FACTION, NEUTRAL)?;
@@ -1442,8 +2020,9 @@ pub fn release_dormant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             C::FLAGS,
             (f | C::FLAG_REFUGEE) & !(C::FLAG_PROVISIONAL | C::FLAG_FIRST_HOLDING_FINAL),
         )?;
-        w.set_u8(C::HOLDINGS_N, 0)?;
-        write_holding_ref(&mut cd, 0, 0, 0, 0)?;
+        // MC §5.2.3: the first holding's slot empties; outposts stay.
+        bump_holdings_n(&mut cd, -1)?;
+        clear_holding_ref(&mut cd, 1)?;
     }
     {
         let mut jd = shard.try_borrow_mut_data()?;
