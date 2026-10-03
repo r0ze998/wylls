@@ -132,12 +132,16 @@ use crate::crypto::{seal, sys};
 use crate::error::{crypto, BAD_ACCOUNT, OVERFLOW};
 use crate::events::{self, Buf, Chained};
 use crate::init::{self, Paid, Sink};
+use crate::layout::holding2 as H2;
 use crate::layout::{
     arrival as AR, arrival_slot as AS, clash_inputs as CI, defence_claim as DCL, entry as E,
     holding as H, province as P, season as S, transit as T, Ro, Rw,
 };
 use crate::prologue::{self, check_accounts, expect_key, key};
 use crate::{FrontierError, R, RULESET_HASH};
+
+use super::conquest::{capture_lock_of, check_accounts_v2};
+use frontier_abi::v2::tags::Ix as Ix2;
 
 /// Seconds after the reveal close before a transit may settle (§5.1).
 pub const SETTLE_AFTER_CLOSE_SECS: i64 = 600;
@@ -545,20 +549,66 @@ fn forfeit(dest: &AccountInfo, host_id: u64, now_bell: u32) -> R<bool> {
     Ok(true)
 }
 
-/// 0x54 SettleTransit (module doc).
-pub fn settle_transit(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
-    check_accounts(Ix::SettleTransit, a, None)?;
-    let x = aix::SettleTransit::decode(d)?;
-    let now = prologue::now()?;
-    let (fixed, camp_citizen) = match a {
-        [f @ .., c] if a.len() == 14 => (f, Some(c)),
-        f => (f, None),
+/// Whether transit record `slot` of the Holding at `holding` is a captured
+/// Holding's previous generation (MC §5.6 0x54): the host id's
+/// generation is `prev_gen ≠ gen` and `capture_flags` is set. A read
+/// before the account checks, so anything it cannot interpret is `false`
+/// (the checks that follow refuse it).
+pub fn prev_gen_transit(holding: &AccountInfo, slot: u8) -> bool {
+    let Ok(hd) = holding.try_borrow_data() else {
+        return false;
     };
-    let [payer, season_ai, holding, dest, inputs, slot, home, anchor, slot_ben, resolver, rent_payer, settle_ben, _system] =
-        fixed
+    if (slot as usize) >= H::TRANSIT_N || hd.len() < H::SIZE {
+        return false;
+    }
+    let r = Ro(&hd);
+    let o = H::transit(slot as usize);
+    match (
+        r.u64(o + T::HOST_ID),
+        r.u8(H::GEN),
+        r.u8(H2::PREV_GEN),
+        r.u8(H2::CAPTURE_FLAGS),
+    ) {
+        (Ok(id), Ok(gen), Ok(pg), Ok(fl)) => {
+            let g = (id >> 32) as u8;
+            fl & H2::CAPTURE_FLAG_CAPTURED != 0 && g == pg && pg != gen
+        }
+        _ => false,
+    }
+}
+
+/// 0x54 SettleTransit (module doc; MC §5.6: the previous generation of a
+/// captured Holding settles too, its returning host credited to
+/// `prev_home`, the mandatory last account).
+pub fn settle_transit(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    let x = aix::SettleTransit::decode(d)?;
+    // Account groups (D-8 of CQ1-C, pinned by CQ2-C D-9): 13 fixed, the
+    // camp Citizen (0–1), `prev_home_holding` (0–1, mandatory exactly on
+    // the previous-generation path). 14 accounts are the Citizen on the
+    // ordinary path and `prev_home` on the previous-generation path.
+    let prev_path = a
+        .get(2)
+        .is_some_and(|h| prev_gen_transit(h, x.transit_slot));
+    let counts: [u8; 3] = match (a.len(), prev_path) {
+        // §5.6: `prev_home_holding` is mandatory when `holding.gen ≠
+        // id.gen`; without it the returning host would be lost to any
+        // third party's call, so refuse before any effect.
+        (13, true) => return Err(FrontierError::TooManyAccounts.into()),
+        (13, false) => [1, 0, 0],
+        (14, false) => [1, 1, 0],
+        (14, true) => [1, 0, 1],
+        (15, _) => [1, 1, 1],
+        _ => return Err(FrontierError::TooManyAccounts.into()),
+    };
+    check_accounts_v2(Ix2::SettleTransit, a, Some(&counts))?;
+    let now = prologue::now()?;
+    let [payer, season_ai, holding, dest, inputs, slot, home, anchor, slot_ben, resolver, rent_payer, settle_ben, _system, tail @ ..] =
+        a
     else {
         return Err(FrontierError::TooManyAccounts.into());
     };
+    let camp_citizen = (counts[1] == 1).then(|| &tail[0]);
+    let prev_home_ai = (counts[2] == 1).then(|| &tail[tail.len() - 1]);
     let hdr = prologue::season(season_ai, p, Some(&RULESET_HASH), &LIVE, now.ts)?;
     let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
     let now_bell = hdr.bell(now.ts).ok_or(FrontierError::WrongStatus)?;
@@ -583,6 +633,12 @@ pub fn settle_transit(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             Transit::read(&hd, x.transit_slot as usize)?,
         )
     };
+    // MC: the victim of a capture (previous generation).
+    let (prev_owner_tag, prev_home) = {
+        let hd = holding.try_borrow_data()?;
+        let r = Ro(&hd);
+        (r.u64(H2::PREV_OWNER_TAG)?, r.u64(H2::PREV_HOME)?)
+    };
     expect_key(holding, &ctx.holding(hp as i32, hq as i32, site))?;
     match t.state {
         T::STATE_SETTLED | T::STATE_DESTROYED_AT_ORIGIN => {}
@@ -593,9 +649,17 @@ pub fn settle_transit(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     if parts.province.p != hp as i32
         || parts.province.q != hq as i32
         || parts.site != site
-        || parts.gen != gen
+        || (parts.gen != gen && !prev_path)
     {
         return Err(BAD_ACCOUNT);
+    }
+    // §5.8: the capture lock (the Holding's own Province is position 6).
+    if *home.key.as_array() == ctx.province(hp as i32, hq as i32)
+        && prologue::presence(home, p, AccountKind::Province, hdr.id)?
+    {
+        let pd = home.try_borrow_data()?;
+        let hd = holding.try_borrow_data()?;
+        capture_lock_of(&pd, &hd)?;
     }
     let arrive = t.arrive_bell;
 
@@ -724,9 +788,15 @@ pub fn settle_transit(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             fate: rec.map(|r| r.fate),
         }
     } else {
+        // The host's citizen: the victim's on the previous-generation path.
+        let citizen = if prev_path {
+            prev_owner_tag
+        } else {
+            u64::from_le_bytes(to8(&owner_citizen))
+        };
         let me = SlotEntry {
             host_id: t.host_id,
-            citizen: u64::from_le_bytes(to8(&owner_citizen)),
+            citizen,
             troops: t.dep_mass,
         };
         valid_outcome(dest_c, arrive, me, set.as_ref())
@@ -750,8 +820,21 @@ pub fn settle_transit(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     };
     let camp_citizen = if camp_works {
         let c = camp_citizen.ok_or(BAD_ACCOUNT)?;
-        expect_key(c, &owner_citizen)?;
-        prologue::present(c, p, AccountKind::Citizen, hdr.id)?;
+        if prev_path {
+            // The victim's Citizen (canonical from its wallet, its tag the
+            // Holding's `prev_owner_tag`).
+            prologue::present(c, p, AccountKind::Citizen, hdr.id)?;
+            let cd = c.try_borrow_data()?;
+            let r = Ro(&cd);
+            let wallet: [u8; 32] = r.arr(crate::layout::citizen::WALLET)?;
+            expect_key(c, &ctx.citizen_by_tag15(&addr::citizen_tag15(&wallet)))?;
+            if r.u64(crate::layout::citizen::CITIZEN_TAG)? != prev_owner_tag {
+                return Err(FrontierError::BadAddress.into());
+            }
+        } else {
+            expect_key(c, &owner_citizen)?;
+            prologue::present(c, p, AccountKind::Citizen, hdr.id)?;
+        }
         Some(c)
     } else {
         None
@@ -852,9 +935,28 @@ pub fn settle_transit(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     // The host.
     let mut dest_written = false;
     let mut home_written = false;
+    let mut prev_home_written = false;
     let mut troops_logged = 0u32;
     let home_key = ctx.province(hp as i32, hq as i32);
     expect_key(home, &home_key)?;
+    // The previous generation's home: `prev_home`, canonical (a settler
+    // cannot drop the troops elsewhere); credited when live at its
+    // generation, else the troops are lost (M1's stranded rule).
+    let prev_home_live = match prev_home_ai {
+        Some(ph) => {
+            let hp2 = split_host_id(prev_home).ok_or(BAD_ACCOUNT)?;
+            expect_key(ph, &ctx.holding(hp2.province.p, hp2.province.q, hp2.site))?;
+            if prologue::presence(ph, p, AccountKind::Holding, hdr.id)? {
+                let pd = ph.try_borrow_data()?;
+                let r = Ro(&pd);
+                r.u8(H::GEN)? == hp2.gen
+                    && matches!(r.u8(H::STATE)?, H::STATE_PROVISIONAL | H::STATE_FINAL)
+            } else {
+                false
+            }
+        }
+        None => false,
+    };
     match outcome {
         Outcome::BadSeal { fate, .. } => {
             if matches!(fate, Some(AR::FATE_STAYS) | Some(AR::FATE_WITHDREW)) {
@@ -874,17 +976,32 @@ pub fn settle_transit(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
                     effective_bell(t.depart_bell)
                 };
                 troops_logged = troops;
-                prologue::present(home, p, AccountKind::Province, hdr.id)?;
-                home_written = return_home(
-                    home,
-                    holding,
-                    &t,
-                    troops,
-                    stamina,
-                    stamina_bell,
-                    tile,
-                    now_bell,
-                )?;
+                if prev_path {
+                    // MC §3.6: never into the captured Holding.
+                    if let (true, Some(ph)) = (prev_home_live, prev_home_ai) {
+                        let whole = troops / permutation_rules::fixed::MILLI as u32;
+                        let mut pd = ph.try_borrow_mut_data()?;
+                        let mut w = Rw(&mut pd);
+                        let at = H::reserve(t.unit as usize);
+                        let v = w.u32(at)?.checked_add(whole).ok_or(OVERFLOW)?;
+                        w.set_u32(at, v)?;
+                        prev_home_written = true;
+                    } else {
+                        troops_logged = 0;
+                    }
+                } else {
+                    prologue::present(home, p, AccountKind::Province, hdr.id)?;
+                    home_written = return_home(
+                        home,
+                        holding,
+                        &t,
+                        troops,
+                        stamina,
+                        stamina_bell,
+                        tile,
+                        now_bell,
+                    )?;
+                }
             }
         }
     }
@@ -998,7 +1115,11 @@ pub fn settle_transit(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         Some(c) => Some(c.try_borrow_mut_data()?),
         None => None,
     };
-    let mut list: alloc::vec::Vec<Chained> = alloc::vec::Vec::with_capacity(5);
+    let mut phd = match (prev_home_written, prev_home_ai) {
+        (true, Some(ph)) => Some(ph.try_borrow_mut_data()?),
+        _ => None,
+    };
+    let mut list: alloc::vec::Vec<Chained> = alloc::vec::Vec::with_capacity(6);
     if let Some(d) = zd.as_mut() {
         list.push(Chained {
             entity: EntityKind::Citizen,
@@ -1009,6 +1130,14 @@ pub fn settle_transit(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         entity: EntityKind::Holding,
         data: &mut hd,
     });
+    // MC: the previous generation's home Holding it credited (after the
+    // captured Holding, the order of the account list).
+    if let Some(d) = phd.as_mut() {
+        list.push(Chained {
+            entity: EntityKind::Holding,
+            data: d,
+        });
+    }
     if let Some(d) = dd.as_mut() {
         list.push(Chained {
             entity: EntityKind::Province,
