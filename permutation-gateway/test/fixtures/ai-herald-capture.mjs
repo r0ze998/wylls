@@ -156,6 +156,8 @@ for (const r of rows) { const n = r.decoded?.name ?? `kind${r.kind}`; seenKinds[
 const sampled = new Set();
 for (const r of rows) { const n = r.decoded?.name; if (n && !sampled.has(n)) { sampled.add(n); add(r); } }
 
+// every SETTLE in the excerpt brings the JOIN of its holder (so the owners can resolve it)
+for (const r of [...picked.values()]) if (r.decoded.name === 'SETTLE' && r.decoded.payload.outcome < 2) add(joinOf.get(BigInt(r.decoded.payload.citizen_tag)));
 const excerpt = [...picked.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([, r]) => r);
 const last = excerpt[excerpt.length - 1];
 files['ai-herald-events.json'] = JSON.stringify({ v: 1, events: excerpt, next: last.seq, full: false });
@@ -215,12 +217,38 @@ const meOut = [];
 }
 
 files['ai-herald-season.json'] = seasonRes.text;
+// which record kinds of frontier-abi/src/log.rs the capture never saw (read from the ABI source, not typed here)
+const abiKinds = [...fs.readFileSync(path.join(here, '../../../frontier-abi/src/log.rs'), 'utf8').matchAll(/^\s{4}([A-Z_]+) = (\d+); key \[/gm)].map(m => m[1]);
+const absentKinds = abiKinds.filter(k => !(k in seenKinds));
+const meRoutes = meOut.map(m => JSON.parse(files[m.file]));
+const shapes = {
+  events_page: 'real rows {seq, slot, sig, kind, bell, tx, body_b64, decoded}; the page envelope {v, events, next, full} is the herald\'s (500 rows a page, `full` true when the page is full); the committed file is an excerpt of verbatim rows',
+  province_envelope: 'real /h/province/<p>,<q>/<bell> files (v, key, bell, slot, seq, head, bytes, slots, day, inputs): consecutive bells and the departure bell of each case; the file of bell b is the province AFTER bell b resolved (it exists only once resolved: the paused herald serves none past its resolved bell)',
+  clash_report: 'real /h/clash/<p>,<q>/<bell> reports of 7 cases (incl. province_before_b64 and inputs_b64); a bell with no CLASH record has no file (404)',
+  me: 'real /h/me/<wallet> of an attacker and a defender: citizen, holdings, hosts, seals (8 for the attacker), quota; transits and slots are empty (nothing in flight in a paused run)',
+  season: 'real /h/season',
+  roster: 'NOT served by this herald (404): synthetic files in the roster.rs layout',
+  decoded_events_kinds_present: Object.keys(seenKinds),
+};
+const absent = {
+  record_kinds: absentKinds,
+  routes: ['/h/roster/{ring}/latest.bin (404 NotFound on this herald)'],
+  states: [
+    'SETTLE outcome 1 (displace): none in the capture (outcomes seen: 0 fresh, 2 taken, 3 expired)',
+    'RELEASE: none',
+    'a /h/me with a transit in flight or an open ArrivalSlot (transits and slots are empty in both captured files)',
+    'a /h/events page of exactly 500 rows is not committed (300 KB); the fake herald pages the excerpt instead',
+  ],
+  meRoutesChecked: meRoutes.map(m => ({ hosts: m.hosts.length, transits: m.transits.length, slots: m.slots.length, seals: m.seals.length })),
+};
 const meta = {
   v: 1,
   captured_at: new Date().toISOString(),
   source: { herald: HERALD, kind: 'paused m1-exit herald of the owner (local test chain, M1 rule bots; not devnet, not mainnet)', season: season.season, program: season.programId, season_address: season.seasonAddress, bell_secs: season.bellSecs, status },
   method: 'read-only GET; rows and files are verbatim; ai-herald-events.json is an excerpt (rows chosen by ai-herald-capture.mjs, one sample row of every kind present)',
   events: { crawled: rows.length, kinds: seenKinds, excerpt_rows: excerpt.length, excerpt_first_seq: excerpt[0].seq, excerpt_last_seq: last.seq },
+  shapes,
+  absent,
   cases: caseMeta,
   me: meOut,
   rosters: rosterNotes,

@@ -1,6 +1,6 @@
 {
   "v": 1,
-  "captured_at": "2026-10-03T23:45:43.622Z",
+  "captured_at": "2026-10-03T23:58:51.669Z",
   "source": {
     "herald": "http://127.0.0.1:41040",
     "kind": "paused m1-exit herald of the owner (local test chain, M1 rule bots; not devnet, not mainnet)",
@@ -80,9 +80,87 @@
       "ARCHIVE": 10176,
       "SEASON_STATUS": 1
     },
-    "excerpt_rows": 565,
+    "excerpt_rows": 566,
     "excerpt_first_seq": "1",
     "excerpt_last_seq": "168923"
+  },
+  "shapes": {
+    "events_page": "real rows {seq, slot, sig, kind, bell, tx, body_b64, decoded}; the page envelope {v, events, next, full} is the herald's (500 rows a page, `full` true when the page is full); the committed file is an excerpt of verbatim rows",
+    "province_envelope": "real /h/province/<p>,<q>/<bell> files (v, key, bell, slot, seq, head, bytes, slots, day, inputs): consecutive bells and the departure bell of each case; the file of bell b is the province AFTER bell b resolved (it exists only once resolved: the paused herald serves none past its resolved bell)",
+    "clash_report": "real /h/clash/<p>,<q>/<bell> reports of 7 cases (incl. province_before_b64 and inputs_b64); a bell with no CLASH record has no file (404)",
+    "me": "real /h/me/<wallet> of an attacker and a defender: citizen, holdings, hosts, seals (8 for the attacker), quota; transits and slots are empty (nothing in flight in a paused run)",
+    "season": "real /h/season",
+    "roster": "NOT served by this herald (404): synthetic files in the roster.rs layout",
+    "decoded_events_kinds_present": [
+      "ANNOUNCE",
+      "SEASON_CREATED",
+      "GENESIS_SEED",
+      "RING_OPEN",
+      "PROVINCE_OPEN",
+      "FOLD",
+      "BEACON",
+      "JOIN",
+      "ANCHOR",
+      "TICKET",
+      "SEED",
+      "SETTLE",
+      "HARVEST",
+      "TRAIN",
+      "BUILD",
+      "SKIP",
+      "HOLDING_FINAL",
+      "MUSTER",
+      "EXPLORE",
+      "EXPLORE_RESULT",
+      "DEPART",
+      "DEPARTURE_SETTLED",
+      "RING_SEED",
+      "REVEAL",
+      "GATHER",
+      "CLASH",
+      "DIVERT",
+      "TRANSIT_SETTLED",
+      "POOL_SWEEP",
+      "CAMP",
+      "CLOSE",
+      "ARCHIVE",
+      "SEASON_STATUS"
+    ]
+  },
+  "absent": {
+    "record_kinds": [
+      "WINDOW",
+      "SESSION",
+      "VIGIL",
+      "RELEASE",
+      "DISSOLVE",
+      "GARRISON",
+      "STRANDED",
+      "DEFENCE_CLAIM"
+    ],
+    "routes": [
+      "/h/roster/{ring}/latest.bin (404 NotFound on this herald)"
+    ],
+    "states": [
+      "SETTLE outcome 1 (displace): none in the capture (outcomes seen: 0 fresh, 2 taken, 3 expired)",
+      "RELEASE: none",
+      "a /h/me with a transit in flight or an open ArrivalSlot (transits and slots are empty in both captured files)",
+      "a /h/events page of exactly 500 rows is not committed (300 KB); the fake herald pages the excerpt instead"
+    ],
+    "meRoutesChecked": [
+      {
+        "hosts": 1,
+        "transits": 0,
+        "slots": 0,
+        "seals": 8
+      },
+      {
+        "hosts": 3,
+        "transits": 0,
+        "slots": 0,
+        "seals": 0
+      }
+    ]
   },
   "cases": [
     {
