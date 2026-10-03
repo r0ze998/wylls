@@ -268,19 +268,26 @@ pub fn check_present_v2(
     Ok(())
 }
 
-/// The capture lock (§5.8): an instruction writing the Holding at
-/// `holding_gen` refuses `CapturePending` while the Province's mirror of
-/// its site has moved on (`mirror.gen ≠ holding.gen`) and the Holding is
-/// not a settled capture (`capture_flags == 0`).
-pub fn capture_locked(
-    province: &[u8],
-    site: u8,
-    holding_gen: u8,
-    capture_flags: u8,
-) -> Option<bool> {
+/// The capture lock (§5.8, v1.4 A-30): a live Holding at `holding_gen`
+/// whose Province mirrors its site as a **holding of the next generation**
+/// (`state == HOLDING` and `mirror.gen == holding_gen + 1`) has a capture
+/// that completed in a resolve and has not been settled: the instruction
+/// refuses `CapturePending` (62).
+///
+/// The rule reads the mirror alone. `capture_flags` plays no part: a
+/// settled capture has `holding.gen == mirror.gen` (no lock), and a
+/// second capture of an already captured Holding (`capture_flags` still 1)
+/// must lock exactly like the first, so a flag clause would leave it open.
+/// On every state a live Holding can reach this equals `mirror.gen ≠
+/// holding.gen`; the exact `+ 1` keeps M1 seasons (whose mirror always
+/// carries its live Holding's generation) and released sites unlocked.
+/// `None` when the Province data is too short.
+pub fn capture_locked(province: &[u8], site: u8, holding_gen: u8) -> Option<bool> {
     use crate::v2::layout::province::{province as P, site as SM};
-    let g = crate::bytes::rd_u8(province, P::site(site as usize) + SM::GEN)?;
-    Some(g != holding_gen && capture_flags == 0)
+    let s = P::site(site as usize);
+    let state = crate::bytes::rd_u8(province, s + SM::STATE)?;
+    let g = crate::bytes::rd_u8(province, s + SM::GEN)?;
+    Some(state == SM::STATE_HOLDING && g == holding_gen.wrapping_add(1))
 }
 
 #[cfg(test)]
@@ -349,9 +356,15 @@ mod tests {
         // capture lock
         let mut p = d.clone();
         use crate::v2::layout::province::{province as P, site as SM};
+        p[P::site(4) + SM::STATE] = SM::STATE_HOLDING;
         p[P::site(4) + SM::GEN] = 3;
-        assert_eq!(capture_locked(&p, 4, 2, 0), Some(true));
-        assert_eq!(capture_locked(&p, 4, 2, 1), Some(false));
-        assert_eq!(capture_locked(&p, 4, 3, 0), Some(false));
+        // A-30: the mirror one generation ahead locks, whatever the
+        // Holding's capture flags are (they are not an argument).
+        assert_eq!(capture_locked(&p, 4, 2), Some(true));
+        assert_eq!(capture_locked(&p, 4, 3), Some(false));
+        // a released or free site never locks
+        p[P::site(4) + SM::STATE] = SM::STATE_RELEASED_FREE;
+        assert_eq!(capture_locked(&p, 4, 2), Some(false));
+        assert_eq!(capture_locked(&p[..8], 4, 2), None);
     }
 }

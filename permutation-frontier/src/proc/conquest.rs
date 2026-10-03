@@ -151,22 +151,18 @@ pub fn retire_hosts_of(season: &[u8]) -> R<u8> {
     }
 }
 
-/// The capture lock (§5.8) for a Holding at generation `gen` whose own
+/// The capture lock (§5.8, A-30) for a Holding at generation `gen` whose own
 /// Province is `pd`: a capture completed in the resolve flipped the site
 /// mirror to the captor (`mirror.gen = holding.gen + 1`, state 1) and
-/// SettleCapture has not run (`CapturePending`, 62).
-///
-/// D-7: the lock reads the mirror alone (`capture_flags` stays 1 after a
-/// first capture, so `frontier_abi::v2::prologue::capture_locked`'s
-/// `capture_flags == 0` clause would leave a second capture of the same
-/// Holding unlocked). The exact `+ 1` keeps every M1 state unlocked: an
-/// M1 mirror always carries its live Holding's generation.
+/// SettleCapture has not run (`CapturePending`, 62). One rule for the whole
+/// program: `frontier_abi::v2::prologue::capture_locked` (the mirror alone;
+/// `capture_flags` stays 1 after a first capture and plays no part).
 pub fn capture_lock(pd: &[u8], site: u8, gen: u8) -> R<()> {
-    let s = site as usize;
-    if m8(pd, s, SM::STATE)? == SM::STATE_HOLDING && m8(pd, s, SM::GEN)? == gen.wrapping_add(1) {
-        return Err(cq(CqError::CapturePending));
+    match frontier_abi::v2::prologue::capture_locked(pd, site, gen) {
+        Some(false) => Ok(()),
+        Some(true) => Err(cq(CqError::CapturePending)),
+        None => Err(BAD_ACCOUNT),
     }
-    Ok(())
 }
 
 /// [`capture_lock`] for a settle that reads the Holding's data `hd`

@@ -33,9 +33,9 @@
 //!
 //! - **The capture lock** ([`capture_lock`]): Harvest, Build, Train and
 //!   Explore refuse `CapturePending` (62) while the holding's site mirror
-//!   in its own Province shows a newer generation than the Holding
-//!   (`mirror.gen ≠ holding.gen`) and the Holding is not a settled capture
-//!   (`capture_flags == 0`): a completed capture waits for SettleCapture.
+//!   in its own Province shows the next generation of the Holding
+//!   (the generation test, A-30; `capture_flags` plays no part): a
+//!   completed capture waits for SettleCapture.
 //!   Harvest, Build and Train gain `[province]` (the Holding's own; Build's
 //!   is writable for walls and tier-ups, `Wr::Either`); Explore names the
 //!   Province its Scout stands in, so it checks the lock when that is the
@@ -208,22 +208,18 @@ pub(crate) fn own_province(
     Ok(())
 }
 
-/// The capture lock (MC §5.8): the holding's own Province (`province`,
-/// already checked by [`own_province`]) mirrors its site at another
-/// generation than the Holding's → `CapturePending`. The lock does **not**
-/// look at `capture_flags` (review CQ2-A, notes D-14): a settled capture
-/// (flag 1) has `holding.gen = mirror.gen`, so the flag stops nothing
-/// legitimate, and a re-completed capture of an already-captured holding
-/// (`mirror.gen = holding.gen + 1`, flag 1) must stay locked until
-/// SettleCapture. The frozen ABI helper's `capture_flags == 0` term is
-/// passed as 0 here, which reduces it to the generation test.
+/// The capture lock (MC §5.8, A-30): the holding's own Province
+/// (`province`, already checked by [`own_province`]) mirrors its site as a
+/// holding of the next generation → `CapturePending`. One rule for the
+/// whole program: `frontier_abi::v2::prologue::capture_locked` (also
+/// `proc::conquest::capture_lock`); `capture_flags` plays no part.
 pub(crate) fn capture_lock(
     hh: &HoldingHdr,
     _holding: &AccountInfo,
     province: &AccountInfo,
 ) -> R<()> {
     let pd = province.try_borrow_data()?;
-    match frontier_abi::v2::prologue::capture_locked(&pd, hh.site, hh.gen, 0) {
+    match frontier_abi::v2::prologue::capture_locked(&pd, hh.site, hh.gen) {
         Some(false) => Ok(()),
         Some(true) => Err(crate::CqError::CapturePending.into()),
         None => Err(BAD_ACCOUNT),

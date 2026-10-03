@@ -133,6 +133,12 @@ pub const EXPLORE: &[Cover] = &[
             Lands("hx::explore("),
         ],
     ),
+    // CQ2-A R8 (D-6): the capture lock on a Scout standing in the home
+    // Province (A-30: the one lock rule).
+    Cover::Test(
+        "holding::g13_cq_capture_lock_refuses_the_resident_actions",
+        &[CqErr(Cq::CapturePending), Lands("hx::explore(")],
+    ),
     Cover::Test(
         "g13_complete::g13_explore_and_settle_explore",
         &[Loaded, Lands("Explore")],

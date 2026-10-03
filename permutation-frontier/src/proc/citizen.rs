@@ -803,9 +803,9 @@ pub fn file_outpost(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         // The capture lock (§5.8) on the anchor, when its own Province is
         // listed (the only one the instruction can read; notes D-6, and the
         // open owner question Q-1 for an outpost anchor whose Province is
-        // not listed). Generation test only (D-14).
+        // not listed). One rule (A-30): `frontier_abi::v2::prologue::capture_locked`.
         if (pi, qi) == (ap_, aq_)
-            && frontier_abi::v2::prologue::capture_locked(&pd, ah.site, ah.gen, 0)
+            && frontier_abi::v2::prologue::capture_locked(&pd, ah.site, ah.gen)
                 .ok_or(BAD_ACCOUNT)?
         {
             return Err(crate::CqError::CapturePending.into());
