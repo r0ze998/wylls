@@ -12,12 +12,12 @@ Status of this file: second run (after the interrupted first run and its adversa
 | `prev_gen` / `prev_home` transit path | `proc/host.rs` (return settle, SettleDeparture), `proc/transit.rs` (SettleTransit) | done; the 13-account hole closed (§3) |
 | Capture lock on Muster, Dissolve, Garrison, Depart, the settles | `proc/host.rs`, `proc/transit.rs`, `proc/conquest.rs::capture_lock` | done for the Holding's own Province; foreign Province is a contract gap (§5, R-C1) |
 | v1.1: lead-host check, slot reservations and their release, faction-scoped immunity, victim-only RetireHost, donor Leave path | `proc/conquest.rs`, `proc/host.rs` | done |
-| P1–P13 (`p_cq_*`) | `svm-tests/tests/{conquest,host,transit}.rs` | all present; scope of each in §4 |
+| P1–P13 (`p_cq_*`) | `svm-tests/tests/{conquest,host,transit}.rs` | all present; scope of each in §6 |
 | `g01_cq_`, `g02_cq_`, `g03_cq_`, `g13_cq_` rows | same | present; one G1 line fails §5.4 as written (§3, FoldMarch) |
 | cover rows | `svm-tests/src/cover/{conquest,host,transit}.rs` | real rows for the six instructions, the P3 lock row on five host instructions, K-27, SettleTransit prev_home; two ignored gap tests in `PENDING` |
 | worlds | `svm-tests/src/world/conquest.rs` (+ `ix/conquest.rs`) | crafted MC state: Season conquest block, Province / Citizen / Holding / JoinShard v2, outposts, Free Cities, the resolve as the shared `conquest_model` runs it |
 
-Commits (this run): `640c28c` (Free City Holding pre-funding-safe, G3 and G2 tests, committed from the working tree), `a5cb881` (the two blockers, the P tests, the rows). Earlier: `0b2262f`, `fa54f68`, `06934d2`, `a232c43` (merge of CQ2-A's first commit `b2d4b86`), `1e7ae01` (WIP of the interrupted run), `f50cbdf` (CQ2-A stub copy, superseded by `a232c43`).
+Commits (this run): `640c28c` (Free City Holding pre-funding-safe, G3 and G2 tests, committed from the working tree), `a5cb881` (the two blockers, the P tests, the rows), `b4628ff` (notes draft), `89f951d` and `1a50f0a` (the tests request `L(kind)` at the deployed programdata length), and the commit of this file's final text. Earlier: `0b2262f`, `fa54f68`, `06934d2`, `a232c43` (merge of CQ2-A's first commit `b2d4b86`), `1e7ae01` (WIP of the interrupted run), `f50cbdf` (CQ2-A stub copy, superseded by `a232c43`).
 
 ## 2. Decisions pinned (D-n)
 
@@ -60,7 +60,7 @@ P9 **failing-first against M1's transit code** — see §6.
 
 Per hour ≈ 3,210 CU (fold of seven members ≈ 1,600, the normative `MARCH_FOLD` record with its chain advance ≈ 1,300, `apply_fold` ≈ 300). The fixed part is ≈ 11,700 CU steady and ≈ 14,900 with the first fold's pre-funding-safe init (v2 prologue, seven keyed Province derivations, the March derivation). **Even a zero-cost setup leaves 6 × 3,210 = 19,260 CU**, so 20,000 cannot hold at count 6 whatever is optimised; the per-hour log is normative.
 
-Options, both amendments to §5.4/§13.1 (not mine): **(a) FoldMarch 36,000 CU** (measured max 33,903 + 6%, same rule as the other budgets), `tx` 720 B and 13 locks unchanged (594 B, 13 locks measured); **(b)** cap `count` at 1 for the first fold and ≤ 3 steady (≤ 21,136 still exceeds 20,000 at 3), i.e. a count cap of 2 in both cases to stay near 20k, which makes the keeper's catch-up slower. (a) is the smaller change. Until decided, `g01_cq_fold_worst` gates 36,000 and `g01_cq_fold_worst_at_the_contract_20k` (ignored, in `PENDING`) holds §5.4's number and fails today. **Gate CQ2's "every new kind within §5.4" does not hold for FoldMarch until the contract is amended.**
+Options, both amendments to §5.4/§13.1 (not mine): **(a) FoldMarch 36,000 CU** (measured max 33,903 + 6%, the rule the other budgets use); tx 594 B (720) and 13 locks are unchanged. **(b)** keep 20,000 and cap `count`: at most **1 hour** for the first fold (18,116 with the init; 2 hours = 21,329) and at most **2 hours** for the steady state (17,925; 3 hours = 21,136), which triples the calls a keeper needs to catch a March up. (a) is the smaller change. Until decided, `g01_cq_fold_worst` gates 36,000 and `g01_cq_fold_worst_at_the_contract_20k` (ignored, in `PENDING`) holds §5.4's number and fails today. **Gate CQ2's "every new kind within §5.4" does not hold for FoldMarch until the contract is amended.**
 
 ## 5. Contract gaps and requests (cross-unit; the integrator resolves)
 
