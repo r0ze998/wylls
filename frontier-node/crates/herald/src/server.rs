@@ -620,7 +620,7 @@ async fn web(State(app): State<Shared>, uri: Uri, h: HeaderMap) -> Response {
     }
     let safe = rel
         .bytes()
-        .all(|b| b.is_ascii_alphanumeric() || b"/._-".contains(&b))
+        .all(|b| b.is_ascii_alphanumeric() || b"/._-@".contains(&b))
         && rel.split('/').all(|s| !s.is_empty() && !s.starts_with('.'));
     if !safe {
         return err(StatusCode::NOT_FOUND, "NotFound");

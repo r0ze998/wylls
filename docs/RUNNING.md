@@ -45,7 +45,7 @@ Ports are 41000 to 41999 only. Open **`/frontier/frontier/`**, not `/`: the bare
 
 **In the browser** the local flow joins with the page's built-in **Dev Wallet (localnet)**, a random key kept in the browser and usable on the local chain only. The in-game key is derived from that wallet's signature over a fixed text. No real wallet is involved.
 
-**Known issue (found 2026-10-03, not fixed in this docs-only branch).** The herald's static file handler (`frontier-node/crates/herald/src/server.rs`, function `web`) accepts only `[A-Za-z0-9/._-]` in paths, but every painted-art file lives under a folder with an `@` in its name (`art/*/@1x/...`). So on the herald URL above, the painted terrain, props, fog and sites return 404 and the map looks plainer than the README screenshot (a reviewer counted 78 of 188 first-load requests failing). The static server of section 1 serves the art. The fix is one character (`b"/._-@"`), and a herald test is still to be written.
+The painted art (terrain, props, fog, sites, unit miniatures) lives under folders named `@1x` and `@2x`; the herald serves them (a one-character fix to its static-path check, covered by a herald test).
 
 **The scripted browser run** (join, build, scout, sealed march, report, verify in the browser, JA and EN) is `permutation-gateway/screens/live/run-onboarding.sh --base-port 41000`, after `cd permutation-gateway/screens && npm ci && npm run browser` (that step downloads Chromium). The script starts `up` in the background itself.
 
