@@ -77,7 +77,7 @@ frontier-node/target/release/frontier-stack verify --run-id try && frontier-node
 frontier-node/target/release/frontier-stack down --run-id try
 ```
 
-On the local chain you join with the page's built-in dev wallet (a random key kept in the browser, local only); the in-game key is derived from that wallet's signature. No real wallet is involved. The entry URL `/` and `/frontier` still redirect to an older page; use the `/frontier/frontier/` path (open item, DECISIONS U6). Known issue: the herald does not serve the painted art (its file handler rejects the `@` in `art/*/@1x/`), so the map on the herald URL is plainer than the README screenshot; see [docs/RUNNING.md](docs/RUNNING.md#2-the-full-local-stack-the-game-on-a-local-test-chain).
+On the local chain you join with the page's built-in dev wallet (a random key kept in the browser, local only); the in-game key is derived from that wallet's signature. No real wallet is involved. The entry URL `/` and `/frontier` still redirect to an older page; use the `/frontier/frontier/` path (open item, DECISIONS U6). See [docs/RUNNING.md](docs/RUNNING.md#2-the-full-local-stack-the-game-on-a-local-test-chain).
 
 **What cannot be re-run from this repository.** The 144,300-transaction ledger of the exit season is not committed (size), so that verification is checked as a **record** ([verify.md](docs/frontier/m1/runs/m1-exit/verify.md), [tamper.md](docs/frontier/m1/runs/m1-exit/tamper.md), [criteria.md](docs/frontier/m1/runs/m1-exit/criteria.md)), not re-run. The verifier does run on any season you start yourself (step 7).
 
