@@ -6,12 +6,14 @@
 //!     [--listen 127.0.0.1:41040] [--source localnet|rpc] [--cluster localnet]
 //!     [--web DIR] [--relay 127.0.0.1:41033] [--test-key | --drand-info FILE]
 //!     [--checkpoint-slots 150] [--poll-ms 200] [--quotas JSON]
-//! frontier-herald --fixture conquest --data DIR [--listen 127.0.0.1:41900] [--web DIR]
+//! frontier-herald --fixture conquest --data DIR --listen 127.0.0.1:PORT [--web DIR]
 //! ```
 //! `--fixture conquest` (MC contract §8.4, CQ2-E) folds the synthetic
 //! conquest mini-season (`herald_fold::cqfixture`) into `DIR` and serves it
 //! read-only (no ingest, no chain); CQ3-E's recorded mini-season replaces
-//! the synthetic one.
+//! the synthetic one. `--listen` is required in this mode: the fixture's
+//! well-known port (41900) is assigned at Gate CQ3 and is held by another
+//! service until then (use a port in 41400–41599).
 //! The listen port must be 41000–41999 (or 0) and never a reserved port
 //! (§10.3). Stop with Ctrl-C: the fold is checkpointed on the way out.
 
@@ -49,7 +51,10 @@ fn args() -> Result<HashMap<String, String>, String> {
 /// `--fixture conquest`: fold the synthetic conquest season, then serve it.
 async fn fixture_conquest(a: &HashMap<String, String>) -> Result<(), String> {
     let data = PathBuf::from(a.get("data").ok_or("--data is required")?);
-    let listen = a.get("listen").cloned().unwrap_or("127.0.0.1:41900".into());
+    let listen = a
+        .get("listen")
+        .cloned()
+        .ok_or("--listen is required with --fixture (41400-41599 until Gate CQ3 assigns 41900)")?;
     let port: u16 = listen
         .rsplit(':')
         .next()

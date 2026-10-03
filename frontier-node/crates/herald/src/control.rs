@@ -500,7 +500,9 @@ pub fn movement(s: &Series, metas: &[ProvMeta], hmr: u8, end_bell: u32) -> crate
             by_day[d] += 1;
         }
     }
-    let days_with_change = (1..=6usize)
+    // 10b: game days 2..=D (index d−1 covers bells 144(d−1) … 144d − 1),
+    // as `frontier-sim`'s `mapmove::metrics` counts them.
+    let days_with_change = (1..days)
         .filter(|&d| by_day.get(d).is_some_and(|&x| x > 0))
         .count() as u32;
     let at = |i: u32, b: u32| -> Option<u8> {
@@ -540,7 +542,10 @@ pub fn movement(s: &Series, metas: &[ProvMeta], hmr: u8, end_bell: u32) -> crate
                 _ => None,
             })
             .collect();
-        if !distinct.is_empty() {
+        // 10d's denominator is `frontier-sim`'s: Marches with at least one
+        // opened member (a banner other than None at some bell), not only
+        // those that ever showed a faction banner.
+        if series.iter().any(|(_, b)| *b != Banner::None) {
             marches += 1;
         }
         if distinct.len() >= 2 {
@@ -666,6 +671,50 @@ pub fn site_tile(pd: &[u8], s: usize) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 10b counts game days 2..=D and 10d divides by the Marches with an
+    /// opened member (`frontier-sim` `mapmove::metrics`' definitions).
+    #[test]
+    fn cq_movement_follows_the_simulator_definitions() {
+        let days = 28u32;
+        let end = 144 * days;
+        let mut s = Series {
+            bells: vec![],
+            banners: BTreeMap::new(),
+        };
+        // province 0: control changes on days 2 and 20 (lasting)
+        for (b, c) in [(0u32, 1u8), (200, 2), (150 * 20, 3), (end - 1, 3)] {
+            s.bells.push((b, vec![c]));
+        }
+        // March (0,0): faction banners 1 then 2; (0,1): contested only;
+        // (0,2): never opened
+        s.banners.insert(
+            (0, 0),
+            vec![(0, Banner::Faction(1)), (200, Banner::Faction(2))],
+        );
+        s.banners.insert(
+            (0, 1),
+            vec![(0, Banner::Contested), (200, Banner::Contested)],
+        );
+        s.banners
+            .insert((0, 2), vec![(0, Banner::None), (200, Banner::None)]);
+        let metas = [ProvMeta {
+            index: 0,
+            ring: 2,
+            first: 0,
+        }];
+        let m = movement(&s, &metas, 1, end);
+        assert_eq!(
+            m.marches_two_banners,
+            crate::cqfmt::Ratio { num: 1, den: 2 },
+            "an opened March without a faction banner is in the denominator"
+        );
+        assert_eq!(
+            m.days_with_change, 2,
+            "a day-20 change counts in a 28-day season: {:?}",
+            m.lasting_by_day
+        );
+    }
 
     #[test]
     fn cq_points_lead_is_a_unique_maximum() {

@@ -162,6 +162,25 @@ fn cq_fold_writes_every_file_and_event() {
     let hc = fin.movement.holding_contest;
     assert!(hc.sieges_declared >= 4 && hc.occupations >= 1 && hc.liberations >= 1);
     assert!(hc.captures >= 2 && hc.outposts >= 1 && hc.sieges_failed >= 1);
+    // a liberation with Respite, and a siege broken by a defender
+    let (mut respite, mut by_defender) = (0, 0);
+    for day in 0..END_BELL / 144 {
+        let cd = ConquestDay::parse(&read(&d, &format!("h/conquest/{day}.json"))).unwrap();
+        for e in &cd.events {
+            match e.kind {
+                EventKind::Liberated if e.detail["respite"] == true => respite += 1,
+                EventKind::SiegeFailed if e.detail["brokenByDefender"] == true => by_defender += 1,
+                _ => {}
+            }
+        }
+    }
+    assert!(respite >= 1, "a LIBERATED with Respite");
+    assert!(by_defender >= 1, "a siege broken by a defender");
+    let pf = PlayersFile::parse(&read(&d, "h/standings/players.json")).unwrap();
+    assert!(
+        pf.players.iter().any(|p| p.liberations > 0),
+        "a liberation counted for its owner's faction hosts"
+    );
     // siege and keep histories
     let sieges: Vec<&String> = files
         .iter()
@@ -425,5 +444,150 @@ fn cq_me_alerts() {
         m2["player"]
     );
     assert!(m2["player"]["keepBells"].as_u64().unwrap() > 0);
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// Every CONQUEST body of a transaction list: `(tx seq, header bell, key
+/// bell, key P, key Q, events)`.
+type ConquestBody = (u64, u32, u32, i32, i32, Vec<(u8, u8)>);
+fn conquest_bodies(txs: &[fclient::ports::TxRecord]) -> Vec<ConquestBody> {
+    let mut v = vec![];
+    for t in txs {
+        for l in &t.logs {
+            let Ok(Some(body)) = body_of_line(l) else {
+                continue;
+            };
+            let Ok(r) = v2log::decode(&body) else {
+                continue;
+            };
+            if r.kind != AnyKind::Cq(CqKind::CONQUEST) {
+                continue;
+            }
+            let pl = v2log::ConquestPayload::from_bytes(r.payload).expect("payload");
+            let rd = |o: usize| u32::from_le_bytes(r.key[o..o + 4].try_into().unwrap());
+            let ev = pl.events[..pl.n as usize]
+                .iter()
+                .map(|e| (e.site, e.code & !v2log::event::DETAIL))
+                .collect();
+            v.push((t.seq, r.bell, rd(8), rd(0) as i32, rd(4) as i32, ev));
+        }
+    }
+    v
+}
+
+/// §6: a CONQUEST record's step bell is in its key; the header bell is the
+/// landing bell (the program's `bell_log`). The fixture stamps them apart
+/// (a resolve lands after its bell, a SkipQuiet run after its last), with
+/// several CONQUEST records of different step bells in one transaction;
+/// the fold dates events, tallies and the days by the step bell, and
+/// finds every record it expects (no `conquest_missing`).
+#[test]
+fn cq_conquest_step_bell_is_the_key_bell() {
+    let txs = cqfixture::mini_season();
+    let recs = conquest_bodies(&txs);
+    assert!(
+        recs.iter().all(|r| r.1 > r.2),
+        "the header (landing) bell is after every step bell"
+    );
+    let mut per_tx: std::collections::BTreeMap<u64, Vec<u32>> = Default::default();
+    for r in &recs {
+        per_tx.entry(r.0).or_default().push(r.2);
+    }
+    assert!(
+        per_tx.values().any(|bs| bs.len() >= 2),
+        "a SkipQuiet run with several CONQUEST records in one transaction"
+    );
+    let d = tmp("cqstep");
+    let f = fold_all(&d, &txs);
+    assert_eq!(f.cq.alarms.conquest_missing, 0, "{:?}", f.cq.alarms);
+    assert_eq!(f.cq.alarms.conquest_mismatch, 0, "{:?}", f.cq.alarms);
+    // every keep taken, broken and contested is dated by its step bell
+    for (code, kind) in [
+        (v2log::event::KEEP_TAKEN, EventKind::KeepTaken),
+        (v2log::event::KEEP_BROKEN, EventKind::KeepBroken),
+        (v2log::event::KEEP_CONTEST, EventKind::KeepContest),
+    ] {
+        let want: std::collections::BTreeSet<(i32, i32, u32)> = recs
+            .iter()
+            .filter(|r| r.5.contains(&(v2log::event::KEEP_SITE, code)))
+            .map(|r| (r.3, r.4, r.2))
+            .collect();
+        assert!(!want.is_empty(), "{} occurs", kind.as_str());
+        let mut got = std::collections::BTreeSet::new();
+        for day in 0..END_BELL / 144 {
+            let cd = ConquestDay::parse(&read(&d, &format!("h/conquest/{day}.json"))).unwrap();
+            for e in cd.events.iter().filter(|e| e.kind == kind) {
+                assert_eq!(
+                    e.bell / 144,
+                    day,
+                    "{} is in its step bell's day",
+                    kind.as_str()
+                );
+                got.insert((e.p.unwrap(), e.q.unwrap(), e.bell));
+            }
+        }
+        assert_eq!(got, want, "{}", kind.as_str());
+    }
+    // the occupations, captures due and liberations by step bell as well
+    for (code, kind) in [
+        (v2log::event::OCCUPIED, EventKind::Occupied),
+        (v2log::event::CAPTURE_DUE, EventKind::CaptureDue),
+        (v2log::event::LIBERATED, EventKind::Liberated),
+    ] {
+        let want: std::collections::BTreeSet<(i32, i32, u32)> = recs
+            .iter()
+            .filter(|r| {
+                r.5.iter()
+                    .any(|&(s, c)| s != v2log::event::KEEP_SITE && c == code)
+            })
+            .map(|r| (r.3, r.4, r.2))
+            .collect();
+        let mut got = std::collections::BTreeSet::new();
+        for day in 0..END_BELL / 144 {
+            let cd = ConquestDay::parse(&read(&d, &format!("h/conquest/{day}.json"))).unwrap();
+            for e in cd.events.iter().filter(|e| e.kind == kind) {
+                got.insert((e.p.unwrap(), e.q.unwrap(), e.bell));
+            }
+        }
+        assert_eq!(got, want, "{}", kind.as_str());
+    }
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A single resolved bell is replayed through the clash and the conquest
+/// step, and compared with the post-state's conquest block (§8.4): a
+/// post-state that differs after a ResolveFromInputs is `conquest_mismatch`.
+#[test]
+fn cq_resolve_replay_checks_the_post_state() {
+    use frontier_abi::v2::layout::province::province as P;
+    let mut txs = cqfixture::mini_season();
+    let mut hit = false;
+    let mut last: std::collections::BTreeMap<Vec<u8>, u32> = Default::default();
+    'outer: for t in txs.iter_mut() {
+        for (k, a) in t.post.iter_mut() {
+            let Some(a) = a.as_mut() else {
+                continue;
+            };
+            if a.data.len() != P::SIZE {
+                continue;
+            }
+            let rn = u32::from_le_bytes(
+                a.data[P::RESOLVED_NEXT..P::RESOLVED_NEXT + 4]
+                    .try_into()
+                    .unwrap(),
+            );
+            let prev = last.insert(k.to_bytes().to_vec(), rn);
+            // one bell resolved, a bell after the first siege record
+            if prev.is_some_and(|p| rn == p + 1 && p > 40) {
+                a.data[P::SNAP + 4] ^= 1;
+                hit = true;
+                break 'outer;
+            }
+        }
+    }
+    assert!(hit, "a single-bell resolve exists");
+    let d = tmp("cqresolve");
+    let f = fold_all(&d, &txs);
+    assert!(f.cq.alarms.conquest_mismatch >= 1, "{:?}", f.cq.alarms);
     let _ = std::fs::remove_dir_all(&d);
 }

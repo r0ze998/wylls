@@ -335,7 +335,10 @@ impl Cq {
     fn event(&mut self, e: ConquestEvent, written_through: u32) {
         let day = e.bell / fmt::BELLS_PER_DAY;
         if day < written_through {
+            // The day's file is written and served `immutable`: a late
+            // event is counted (an alarm), never merged into it.
             self.alarms.late_events += 1;
+            return;
         }
         self.days.entry(day).or_default().push(e);
     }
@@ -473,7 +476,16 @@ fn fold_record(
 ) {
     let (p, q) = (rd_i32(r.key, 0).unwrap_or(0), rd_i32(r.key, 4).unwrap_or(0));
     let (p16, q16) = (p as i16, q as i16);
-    let b = r.bell;
+    // The bell this record is about. A CONQUEST record's step bell is in
+    // its key (`P, Q, bell`, §6); its header bell is the landing bell
+    // (`bell_log`, M1 §6's "current bell"), which differs for a SkipQuiet
+    // run and for any resolve landing after the bell's end. Every other
+    // MC record is about the bell it was logged at.
+    let b = if kind == CqKind::CONQUEST {
+        rd_u32(r.key, 8).unwrap_or(r.bell)
+    } else {
+        r.bell
+    };
     let wt = cq.day_next;
     let rref = |kind: &str, detail: Value| RecordRef {
         kind: kind.into(),
@@ -1019,6 +1031,52 @@ pub fn replay_bell(
     Ok((so, rep))
 }
 
+/// A replayed bell's step output and report.
+type Replayed = (qm::StepOut, qm::BellReport);
+
+/// One resolved bell with the shared models in the program's order
+/// (`resolve: build_v2 → kernel clash → apply_v2 → report_from_outcome →
+/// settle_bell → step → finish_bell`, `conquest_model`'s module note): the
+/// Province bytes before the transaction, the bell's ClashInputs and its
+/// seed. `Ok(None)` when the clash cannot be rebuilt (a CLASH was logged
+/// but its inputs or seed were not captured).
+fn replay_resolve(
+    f: &Fold,
+    pq: (i16, i16),
+    b: u32,
+    before: &[u8],
+    region: u8,
+    prm: &StepParams,
+) -> cm::R<Option<(Replayed, Vec<u8>)>> {
+    let (p, q) = (pq.0 as i32, pq.1 as i32);
+    let (inputs, seed) = if f.st.clashes.contains(&(pq.0, pq.1, b)) {
+        let ci = f
+            .account(&f.ctx.clash_inputs(p, q, b))
+            .map(|c| c.data.clone())
+            .filter(|d| !d.is_empty());
+        match (ci, f.seed_of(b, region)) {
+            (Some(ci), Some((s, _))) => (Some(ci), s),
+            _ => return Ok(None),
+        }
+    } else {
+        // no CLASH record: nothing engaged, the clash is the quiet one
+        (None, [0u8; 32])
+    };
+    let mut pd = before.to_vec();
+    let built = cm::build_v2(&pd, inputs.as_deref(), b)?;
+    let out = permutation_rules::frontier::clash::resolve_clash(
+        &permutation_rules::frontier::clash::frontier_ruleset(),
+        &built.input(&seed),
+    )
+    .map_err(|_| cm::ModelError::BadAccount)?;
+    let ap = cm::apply_v2(&mut pd, &built, &out)?;
+    let rep = qm::report_from_outcome(&built, &out)?;
+    let settled = cm::settle_bell(&mut pd, b)?;
+    let so = qm::step(&mut pd, b, &rep, prm)?;
+    cm::finish_bell(&mut pd, b, ap.changed() || settled || so.roster_changed)?;
+    Ok(Some(((so, rep), pd)))
+}
+
 /// One closed bell of a Province: its bytes after the bell and, when
 /// replayed, the step's output and the bell's report.
 type BellState = (u32, Vec<u8>, Option<(qm::StepOut, qm::BellReport)>);
@@ -1082,19 +1140,42 @@ pub fn after_records(
             .filter(|d| is_v2_province(d))
             .cloned();
         let mut states: Vec<BellState> = vec![];
-        let replay = new - old > 1 && bef.is_some() && si.is_some();
-        if let (true, Some(mut pd), Some(si)) = (replay, bef.clone(), si) {
-            let mut ok = true;
-            for b in old..new {
-                match replay_bell(&mut pd, b, &si.prm) {
-                    Ok(x) => states.push((b, pd.clone(), Some(x))),
-                    Err(_) => {
-                        ok = false;
-                        break;
+        // One resolved bell is replayed through the clash (§5.7's resolve
+        // order); a run of skipped bells with the quiet model. Both end in
+        // the comparison with the post-state's conquest block.
+        let mut replayed: Option<(Vec<BellState>, Vec<u8>)> = None;
+        if let (Some(bd), Some(si)) = (bef.as_ref(), si) {
+            if new - old > 1 {
+                let mut pd = bd.clone();
+                let mut out = vec![];
+                let mut ok = true;
+                for b in old..new {
+                    match replay_bell(&mut pd, b, &si.prm) {
+                        Ok(x) => out.push((b, pd.clone(), Some(x))),
+                        Err(_) => {
+                            ok = false;
+                            break;
+                        }
                     }
                 }
+                if ok {
+                    replayed = Some((out, pd));
+                } else {
+                    cq.alarms.replay_errors += 1;
+                }
+            } else {
+                match replay_resolve(f, pq, old, bd, meta.region, &si.prm) {
+                    Ok(Some((x, pd))) => replayed = Some((vec![(old, pd.clone(), Some(x))], pd)),
+                    Ok(None) => cq.alarms.conquest_unchecked += 1,
+                    Err(_) => cq.alarms.replay_errors += 1,
+                }
             }
-            if ok && pd.get(P::CQ_BLOCK) != post.get(P::CQ_BLOCK) {
+        } else if new - old > 1 {
+            cq.alarms.conquest_unchecked += 1;
+        }
+        if let Some((st, end)) = replayed {
+            states = st;
+            if end.get(P::CQ_BLOCK) != post.get(P::CQ_BLOCK) {
                 if f.cfg.exact_post {
                     cq.alarms.conquest_mismatch += 1;
                     eprintln!("herald: ALARM conquest {pq:?} bells {old}..{new}: the replayed conquest block differs from the post-state");
@@ -1102,15 +1183,9 @@ pub fn after_records(
                     cq.alarms.conquest_unchecked += 1;
                 }
             }
-            if !ok {
-                cq.alarms.replay_errors += 1;
-                states.clear();
-            }
             if let Some(last) = states.last_mut() {
                 last.1 = post.clone();
             }
-        } else if new - old > 1 {
-            cq.alarms.conquest_unchecked += 1;
         }
         if states.is_empty() {
             for b in old..new {
@@ -1871,41 +1946,19 @@ fn days(cq: &mut Cq, f: &mut Fold, si: Option<&SeasonInfo>) {
         if !due {
             break;
         }
-        write_day(cq, f, d, true);
+        write_day(cq, f, d);
         cq.day_next = d + 1;
-    }
-    // late events of written days: rewrite those files
-    let late: Vec<u32> = cq
-        .days
-        .keys()
-        .copied()
-        .filter(|&d| d < cq.day_next)
-        .collect();
-    for d in late {
-        write_day(cq, f, d, false);
     }
 }
 
-fn write_day(cq: &mut Cq, f: &mut Fold, d: u32, immutable: bool) {
+/// Writes day `d`'s file, once (`immutable`).
+fn write_day(cq: &mut Cq, f: &mut Fold, d: u32) {
     let mut events = cq.days.remove(&d).unwrap_or_default();
     let rel = format!("h/conquest/{d}.json");
-    if !immutable {
-        // merge with the file already written
-        if let Some(old) = f
-            .out
-            .path(&rel)
-            .and_then(|p| std::fs::read(p).ok())
-            .and_then(|b| ConquestDay::parse(&b).ok())
-        {
-            let mut all = old.events;
-            all.extend(events);
-            events = all;
-        }
-    }
     events.sort_by_key(|e| e.seq);
     let file = ConquestDay { day: d, events };
     match file.to_json() {
-        Ok(j) => write(f, &rel, j.as_bytes(), false),
+        Ok(j) => write(f, &rel, j.as_bytes(), true),
         Err(e) => {
             cq.alarms.format_errors += 1;
             eprintln!("herald: conquest day {d}: {e}");
@@ -2075,7 +2128,7 @@ fn final_file(cq: &mut Cq, f: &mut Fold, si: Option<&SeasonInfo>) {
     let lastd = end.saturating_sub(1) / fmt::BELLS_PER_DAY;
     while cq.day_next <= lastd {
         let d = cq.day_next;
-        write_day(cq, f, d, true);
+        write_day(cq, f, d);
         cq.day_next = d + 1;
     }
     cq.final_done = true;

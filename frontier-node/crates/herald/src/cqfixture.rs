@@ -26,8 +26,8 @@
 //! defender's arrival; a siege on a first holding is broken by a
 //! defender (immunity, stake owed and settled); a siege on another first
 //! holding pauses through the owner's vigil, completes into an
-//! occupation and is liberated when the occupier walks away (no
-//! Respite); a genesis Free City is captured (credited) and settled, then
+//! occupation and is liberated when the owner's host retakes the
+//! tile (with Respite); a genesis Free City is captured (credited) and settled, then
 //! recaptured by another faction inside `capture_credit_min_bells`
 //! (uncredited) and settled; an outpost is settled; a host is retired;
 //! hourly folds; EndSeason.
@@ -279,14 +279,17 @@ impl World {
                 .unwrap_or(false)
     }
 
-    fn conquest_body(&mut self, pi: usize, b: u32, so: &StepOut) -> Vec<u8> {
+    /// CONQUEST of step bell `b`, logged by a transaction landing at bell
+    /// `now` (the program's `bell_log`: the header is the landing bell, the
+    /// step bell is in the key, §6).
+    fn conquest_body(&mut self, pi: usize, b: u32, now: u32, so: &StepOut) -> Vec<u8> {
         let c = self.provs[pi].c;
         let pl = qm::conquest_payload(&self.provs[pi].pd, so).expect("payload");
         let key = v2log::conquest_key(c.p, c.q, b);
         let mut pd = std::mem::take(&mut self.provs[pi].pd);
         let body = record(
             CqKind::CONQUEST,
-            b,
+            now,
             &key,
             &pl.to_bytes(),
             &mut [(EntityKind::Province, &mut pd)],
@@ -306,7 +309,7 @@ impl World {
         let so = qm::step(pd, b, &rep, &step_params()).expect("step");
         cm::finish_bell(pd, b, ap.changed() || settled || so.roster_changed).expect("finish");
         let bodies = if so.emits() {
-            vec![self.conquest_body(pi, b, &so)]
+            vec![self.conquest_body(pi, b, b + 1, &so)]
         } else {
             vec![]
         };
@@ -321,6 +324,7 @@ impl World {
             return;
         }
         let mut bodies = vec![];
+        let last = run.last().copied().unwrap_or(0);
         for b in run {
             let pd = &mut self.provs[pi].pd;
             let rep = qm::report_quiet(pd, b).expect("report_quiet");
@@ -328,7 +332,7 @@ impl World {
             let so = qm::step(pd, b, &rep, &step_params()).expect("step");
             cm::finish_bell(pd, b, settled || so.roster_changed).expect("finish");
             if so.emits() {
-                bodies.push(self.conquest_body(pi, b, &so));
+                bodies.push(self.conquest_body(pi, b, last + 1, &so));
             }
         }
         let post = vec![self.prov_post(pi)];
@@ -1011,12 +1015,17 @@ pub fn mini_season() -> Vec<TxRecord> {
                 w.declare(cp, fc_site, 7, Some(6), 2, b);
                 touched.insert(cp);
             }
-            // the occupier walks away: liberated, no Respite
-            _ if (160..260).contains(&b) && ids.contains_key("occupier") && occupied(&w, bp, 0) => {
-                if let Some((pi, id)) = ids.remove("occupier") {
-                    w.leave(pi, id);
-                    touched.insert(pi);
-                }
+            // the owner retakes the occupied holding (a host of its own on
+            // the tile, much stronger): liberated, with Respite (§3.5)
+            _ if (160..260).contains(&b)
+                && ids.contains_key("occupier")
+                && !ids.contains_key("liberator")
+                && occupied(&w, bp, 0) =>
+            {
+                let t = site_tile(&w, bp, 0);
+                let id = w.arrive(bp, 1, t, 30_000, b);
+                ids.insert("liberator", (bp, id));
+                touched.insert(bp);
             }
             _ => {}
         }
