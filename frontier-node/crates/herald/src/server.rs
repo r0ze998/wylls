@@ -942,16 +942,19 @@ async fn gw(
             .await
             .map_err(|_| "connect timeout".to_string())?
             .map_err(|e| e.to_string())?;
-        s.write_all(head.as_bytes())
-            .await
-            .map_err(|e| e.to_string())?;
-        s.write_all(body).await.map_err(|e| e.to_string())?;
+        // One write for the head and the body: a relay that answers early (a rate limit, a refused shape) and
+        // closes before the body arrives would otherwise answer the second segment with a reset, which on
+        // macOS discards the answer already received (PT-C: 1 of 300 flooded requests became a 502).
+        let mut req = head.into_bytes();
+        req.extend_from_slice(body);
+        s.write_all(&req).await.map_err(|e| e.to_string())?;
         let mut buf = vec![];
-        (&mut s)
-            .take(GW_MAX_ANSWER)
-            .read_to_end(&mut buf)
-            .await
-            .map_err(|e| e.to_string())?;
+        if let Err(e) = (&mut s).take(GW_MAX_ANSWER).read_to_end(&mut buf).await {
+            // A reset after the answer arrived (the relay closed with the body unread) still has the answer.
+            if buf.is_empty() {
+                return Err(e.to_string());
+            }
+        }
         fclient::http::parse_response(&buf).map_err(|e| format!("{e:?}"))
     };
     let r = match tokio::time::timeout(GW_TIMEOUT, answer).await {

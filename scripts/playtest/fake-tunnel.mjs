@@ -8,8 +8,12 @@
 //
 //   node scripts/playtest/fake-tunnel.mjs --listen 41131 --herald 127.0.0.1:41110 --client-ip 203.0.113.77
 //     [--cert-dir DIR]   (default: a fresh temp dir; the key never leaves it)
+//     [--client-ip-from-header NAME]   take the forwarded client address from this request header (the rehearsal crowd
+//                        gives every scripted friend its own address this way, as the real tunnel would see them)
+//     [--asleep-file FILE]   while FILE exists the tunnel answers 530 (Cloudflare's "the tunnel is not connected")
+//                        and drops WebSockets: the stand-in for the Mac asleep (PT-C drills)
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import https from 'node:https';
 import http from 'node:http';
 import net from 'node:net';
@@ -28,6 +32,10 @@ const cert = path.join(dir, 'cert.pem');
 try { readFileSync(cert); } catch {
   execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key, '-out', cert, '-days', '2', '-subj', '/CN=wylls.test', '-addext', 'subjectAltName=DNS:wylls.test'], { stdio: 'ignore' });
 }
+const ASLEEP = arg('asleep-file', '');
+const asleep = () => ASLEEP && existsSync(ASLEEP);
+const sockets = new Set(); // upgraded (WebSocket) connections: dropped when the tunnel goes "asleep"
+setInterval(() => { if (asleep()) for (const s of sockets) s.destroy(); }, 500).unref();
 const clientIp = req => (arg('client-ip-from-header', '') && req.headers[arg('client-ip-from-header')]) || CLIENT_IP;
 const fwdHeaders = (req, extra = {}) => {
   const h = { ...req.headers, ...extra };
@@ -37,11 +45,14 @@ const fwdHeaders = (req, extra = {}) => {
   return h;
 };
 const server = https.createServer({ key: readFileSync(key), cert: readFileSync(cert) }, (req, res) => {
+  if (asleep()) { res.writeHead(530, { 'content-type': 'text/plain', 'cache-control': 'no-store' }); res.end('error code: 1033 (the tunnel is not connected)'); req.resume(); return; }
   const up = http.request({ host: HHOST, port: HPORT, method: req.method, path: req.url, headers: fwdHeaders(req) }, r => { res.writeHead(r.statusCode, r.headers); r.pipe(res); });
   up.on('error', () => { res.writeHead(502); res.end('bad gateway'); });
   req.pipe(up);
 });
 server.on('upgrade', (req, socket, head) => {
+  if (asleep()) { socket.destroy(); return; }
+  sockets.add(socket); socket.on('close', () => sockets.delete(socket));
   const up = net.connect(Number(HPORT), HHOST, () => {
     const h = fwdHeaders(req);
     up.write(`${req.method} ${req.url} HTTP/1.1\r\n${Object.entries(h).map(([k, v]) => `${k}: ${v}`).join('\r\n')}\r\n\r\n`);
