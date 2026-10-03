@@ -978,11 +978,16 @@ impl Chain {
     }
 
     /// The Frontier instruction kinds of `msg`, in order.
-    fn frontier_kinds(&self, msg: &Message) -> Vec<Ix> {
+    fn frontier_kinds(&self, msg: &Message) -> Vec<frontier_abi::v2::Ix> {
+        // ABI v2 tags (MC's 0xA0-0xA7 included; CQ2-A dependency request).
         msg.instructions
             .iter()
             .filter(|i| msg.account_keys.get(i.program_id_index as usize) == Some(&self.program))
-            .filter_map(|i| i.data.first().and_then(|t| Ix::from_tag(*t)))
+            .filter_map(|i| {
+                i.data
+                    .first()
+                    .and_then(|t| frontier_abi::v2::Ix::from_tag(*t))
+            })
             .collect()
     }
 
@@ -993,7 +998,7 @@ impl Chain {
     /// only on the trace build, `-` otherwise).
     fn log_cu(
         &self,
-        kinds: &[Ix],
+        kinds: &[frontier_abi::v2::Ix],
         cu: u64,
         tx_bytes: usize,
         locks: usize,
