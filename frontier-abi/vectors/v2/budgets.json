@@ -4,8 +4,8 @@
   "contract": "docs/frontier/conquest/CONQUEST-CONTRACT.md v1.1",
   "content": "ABI v2 budget placeholders (§5.4) and L(kind) at the estimated MC .so (CQ4-A regenerates)",
   "constants": {
-    "placeholder_so_len": 1048576,
-    "placeholder_programdata_len": 1310720,
+    "placeholder_so_len": 1179648,
+    "placeholder_programdata_len": 1474560,
     "skip_per_active_bell": 3500,
     "skip_record_bells_max": 288,
     "heap_gate": 28672,
@@ -23,8 +23,8 @@
       "tx_ceiling": 1100,
       "tx_worst_estimate": 1042,
       "accounts": [11, 11],
-      "loaded_need_placeholder": 1315409,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1479249,
+      "loaded_limit": 1507328
     },
     {
       "name": "InitShards",
@@ -37,8 +37,8 @@
       "tx_ceiling": 600,
       "tx_worst_estimate": 562,
       "accounts": [11, 11],
-      "loaded_need_placeholder": 1315921,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1479761,
+      "loaded_limit": 1507328
     },
     {
       "name": "ConsumeGenesisSeed",
@@ -51,8 +51,8 @@
       "tx_ceiling": 760,
       "tx_worst_estimate": 611,
       "accounts": [2, 2],
-      "loaded_need_placeholder": 1313233,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1477073,
+      "loaded_limit": 1507328
     },
     {
       "name": "EndSeason",
@@ -65,8 +65,8 @@
       "tx_ceiling": 300,
       "tx_worst_estimate": 264,
       "accounts": [2, 2],
-      "loaded_need_placeholder": 1313233,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1477073,
+      "loaded_limit": 1507328
     },
     {
       "name": "CloseSeason",
@@ -79,8 +79,8 @@
       "tx_ceiling": 1232,
       "tx_worst_estimate": 2641,
       "accounts": [10, 74],
-      "loaded_need_placeholder": 1333713,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1497553,
+      "loaded_limit": 1507328
     },
     {
       "name": "AbortSeason",
@@ -93,8 +93,8 @@
       "tx_ceiling": 336,
       "tx_worst_estimate": 330,
       "accounts": [4, 4],
-      "loaded_need_placeholder": 1313425,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1477265,
+      "loaded_limit": 1507328
     },
     {
       "name": "SetWindowSchedule",
@@ -107,8 +107,8 @@
       "tx_ceiling": 272,
       "tx_worst_estimate": 272,
       "accounts": [2, 2],
-      "loaded_need_placeholder": 1313233,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1477073,
+      "loaded_limit": 1507328
     },
     {
       "name": "AnnounceSeason",
@@ -121,8 +121,8 @@
       "tx_ceiling": 480,
       "tx_worst_estimate": 419,
       "accounts": [5, 5],
-      "loaded_need_placeholder": 1313525,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1477365,
+      "loaded_limit": 1507328
     },
     {
       "name": "InitBeaconLogs",
@@ -135,8 +135,8 @@
       "tx_ceiling": 900,
       "tx_worst_estimate": 825,
       "accounts": [19, 19],
-      "loaded_need_placeholder": 1316433,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1480273,
+      "loaded_limit": 1507328
     },
     {
       "name": "PostAnchor",
@@ -149,8 +149,8 @@
       "tx_ceiling": 800,
       "tx_worst_estimate": 780,
       "accounts": [6, 6],
-      "loaded_need_placeholder": 1320598,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1484438,
+      "loaded_limit": 1507328
     },
     {
       "name": "PostAnchorMulti",
@@ -163,8 +163,8 @@
       "tx_ceiling": 1232,
       "tx_worst_estimate": 1177,
       "accounts": [6, 18],
-      "loaded_need_placeholder": 1359491,
-      "loaded_limit": 1376256
+      "loaded_need_placeholder": 1523331,
+      "loaded_limit": 1540096
     },
     {
       "name": "PostSeed",
@@ -177,8 +177,8 @@
       "tx_ceiling": 800,
       "tx_worst_estimate": 781,
       "accounts": [6, 6],
-      "loaded_need_placeholder": 1314599,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1478439,
+      "loaded_limit": 1507328
     },
     {
       "name": "PostBeacon",
@@ -191,8 +191,8 @@
       "tx_ceiling": 760,
       "tx_worst_estimate": 645,
       "accounts": [3, 3],
-      "loaded_need_placeholder": 1313425,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1477265,
+      "loaded_limit": 1507328
     },
     {
       "name": "ArchiveAnchors",
@@ -205,8 +205,8 @@
       "tx_ceiling": 1232,
       "tx_worst_estimate": 1160,
       "accounts": [7, 28],
-      "loaded_need_placeholder": 1323409,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1487249,
+      "loaded_limit": 1507328
     },
     {
       "name": "CloseSeedCache",
@@ -219,8 +219,8 @@
       "tx_ceiling": 376,
       "tx_worst_estimate": 369,
       "accounts": [5, 5],
-      "loaded_need_placeholder": 1319713,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1483553,
+      "loaded_limit": 1507328
     },
     {
       "name": "OpenRing",
@@ -233,8 +233,8 @@
       "tx_ceiling": 600,
       "tx_worst_estimate": 563,
       "accounts": [11, 11],
-      "loaded_need_placeholder": 1315281,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1479121,
+      "loaded_limit": 1507328
     },
     {
       "name": "ConsumeRingSeed",
@@ -247,8 +247,8 @@
       "tx_ceiling": 760,
       "tx_worst_estimate": 646,
       "accounts": [3, 3],
-      "loaded_need_placeholder": 1313425,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1477265,
+      "loaded_limit": 1507328
     },
     {
       "name": "OpenProvince",
@@ -261,8 +261,8 @@
       "tx_ceiling": 400,
       "tx_worst_estimate": 400,
       "accounts": [6, 6],
-      "loaded_need_placeholder": 1318545,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1482385,
+      "loaded_limit": 1507328
     },
     {
       "name": "FoldOccupancy",
@@ -275,8 +275,8 @@
       "tx_ceiling": 1232,
       "tx_worst_estimate": 1288,
       "accounts": [3, 33],
-      "loaded_need_placeholder": 1322641,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1486481,
+      "loaded_limit": 1507328
     },
     {
       "name": "CloseProvince",
@@ -289,8 +289,8 @@
       "tx_ceiling": 336,
       "tx_worst_estimate": 334,
       "accounts": [4, 4],
-      "loaded_need_placeholder": 1318225,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1482065,
+      "loaded_limit": 1507328
     },
     {
       "name": "Join",
@@ -303,8 +303,8 @@
       "tx_ceiling": 700,
       "tx_worst_estimate": 631,
       "accounts": [7, 8],
-      "loaded_need_placeholder": 1314833,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1478673,
+      "loaded_limit": 1507328
     },
     {
       "name": "SetSession",
@@ -317,8 +317,8 @@
       "tx_ceiling": 440,
       "tx_worst_estimate": 434,
       "accounts": [4, 4],
-      "loaded_need_placeholder": 1313745,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1477585,
+      "loaded_limit": 1507328
     },
     {
       "name": "SetVigil",
@@ -331,8 +331,8 @@
       "tx_ceiling": 400,
       "tx_worst_estimate": 396,
       "accounts": [4, 4],
-      "loaded_need_placeholder": 1313745,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1477585,
+      "loaded_limit": 1507328
     },
     {
       "name": "FileTicket",
@@ -345,8 +345,8 @@
       "tx_ceiling": 576,
       "tx_worst_estimate": 575,
       "accounts": [7, 9],
-      "loaded_need_placeholder": 1328849,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1492689,
+      "loaded_limit": 1507328
     },
     {
       "name": "SettleTicket",
@@ -359,8 +359,8 @@
       "tx_ceiling": 900,
       "tx_worst_estimate": 661,
       "accounts": [9, 14],
-      "loaded_need_placeholder": 1343121,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1506961,
+      "loaded_limit": 1507328
     },
     {
       "name": "ReleaseDormant",
@@ -373,8 +373,8 @@
       "tx_ceiling": 480,
       "tx_worst_estimate": 462,
       "accounts": [8, 8],
-      "loaded_need_placeholder": 1320529,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1484369,
+      "loaded_limit": 1507328
     },
     {
       "name": "CloseHolding",
@@ -387,8 +387,8 @@
       "tx_ceiling": 368,
       "tx_worst_estimate": 363,
       "accounts": [5, 5],
-      "loaded_need_placeholder": 1314961,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1478801,
+      "loaded_limit": 1507328
     },
     {
       "name": "CloseCitizen",
@@ -401,8 +401,8 @@
       "tx_ceiling": 368,
       "tx_worst_estimate": 363,
       "accounts": [4, 5],
-      "loaded_need_placeholder": 1313809,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1477649,
+      "loaded_limit": 1507328
     },
     {
       "name": "Harvest",
@@ -415,8 +415,8 @@
       "tx_ceiling": 464,
       "tx_worst_estimate": 460,
       "accounts": [6, 6],
-      "loaded_need_placeholder": 1319889,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1483729,
+      "loaded_limit": 1507328
     },
     {
       "name": "Build",
@@ -429,8 +429,8 @@
       "tx_ceiling": 464,
       "tx_worst_estimate": 461,
       "accounts": [6, 6],
-      "loaded_need_placeholder": 1319889,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1483729,
+      "loaded_limit": 1507328
     },
     {
       "name": "Train",
@@ -443,8 +443,8 @@
       "tx_ceiling": 472,
       "tx_worst_estimate": 465,
       "accounts": [6, 6],
-      "loaded_need_placeholder": 1319889,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1483729,
+      "loaded_limit": 1507328
     },
     {
       "name": "Muster",
@@ -457,8 +457,8 @@
       "tx_ceiling": 472,
       "tx_worst_estimate": 466,
       "accounts": [6, 6],
-      "loaded_need_placeholder": 1319889,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1483729,
+      "loaded_limit": 1507328
     },
     {
       "name": "Dissolve",
@@ -471,8 +471,8 @@
       "tx_ceiling": 472,
       "tx_worst_estimate": 468,
       "accounts": [6, 6],
-      "loaded_need_placeholder": 1319889,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1483729,
+      "loaded_limit": 1507328
     },
     {
       "name": "Garrison",
@@ -485,8 +485,8 @@
       "tx_ceiling": 472,
       "tx_worst_estimate": 468,
       "accounts": [6, 6],
-      "loaded_need_placeholder": 1319889,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1483729,
+      "loaded_limit": 1507328
     },
     {
       "name": "Explore",
@@ -499,8 +499,8 @@
       "tx_ceiling": 472,
       "tx_worst_estimate": 471,
       "accounts": [6, 6],
-      "loaded_need_placeholder": 1319889,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1483729,
+      "loaded_limit": 1507328
     },
     {
       "name": "SettleExplore",
@@ -513,8 +513,8 @@
       "tx_ceiling": 400,
       "tx_worst_estimate": 396,
       "accounts": [6, 6],
-      "loaded_need_placeholder": 1327441,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1491281,
+      "loaded_limit": 1507328
     },
     {
       "name": "DisbandStranded",
@@ -527,8 +527,8 @@
       "tx_ceiling": 336,
       "tx_worst_estimate": 331,
       "accounts": [4, 4],
-      "loaded_need_placeholder": 1319377,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1483217,
+      "loaded_limit": 1507328
     },
     {
       "name": "Depart",
@@ -541,8 +541,8 @@
       "tx_ceiling": 800,
       "tx_worst_estimate": 712,
       "accounts": [7, 7],
-      "loaded_need_placeholder": 1320017,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1483857,
+      "loaded_limit": 1507328
     },
     {
       "name": "Reveal",
@@ -555,8 +555,8 @@
       "tx_ceiling": 1100,
       "tx_worst_estimate": 928,
       "accounts": [15, 18],
-      "loaded_need_placeholder": 1343882,
-      "loaded_limit": 1376256
+      "loaded_need_placeholder": 1507722,
+      "loaded_limit": 1540096
     },
     {
       "name": "SettleDeparture",
@@ -569,8 +569,8 @@
       "tx_ceiling": 400,
       "tx_worst_estimate": 331,
       "accounts": [4, 4],
-      "loaded_need_placeholder": 1319377,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1483217,
+      "loaded_limit": 1507328
     },
     {
       "name": "SettleTransit",
@@ -583,8 +583,8 @@
       "tx_ceiling": 1022,
       "tx_worst_estimate": 924,
       "accounts": [13, 15],
-      "loaded_need_placeholder": 1334129,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1497969,
+      "loaded_limit": 1507328
     },
     {
       "name": "SweepPoolOwed",
@@ -597,8 +597,8 @@
       "tx_ceiling": 336,
       "tx_worst_estimate": 330,
       "accounts": [4, 4],
-      "loaded_need_placeholder": 1314897,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1478737,
+      "loaded_limit": 1507328
     },
     {
       "name": "GatherClash",
@@ -611,8 +611,8 @@
       "tx_ceiling": 1232,
       "tx_worst_estimate": 1626,
       "accounts": [8, 42],
-      "loaded_need_placeholder": 1346357,
-      "loaded_limit": 1376256
+      "loaded_need_placeholder": 1510197,
+      "loaded_limit": 1540096
     },
     {
       "name": "ResolveFromInputs",
@@ -625,8 +625,8 @@
       "tx_ceiling": 472,
       "tx_worst_estimate": 465,
       "accounts": [7, 7],
-      "loaded_need_placeholder": 1332300,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1496140,
+      "loaded_limit": 1507328
     },
     {
       "name": "ResolveClash",
@@ -639,8 +639,8 @@
       "tx_ceiling": 1232,
       "tx_worst_estimate": 2313,
       "accounts": [3, 63],
-      "loaded_need_placeholder": 1321873,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1485713,
+      "loaded_limit": 1507328
     },
     {
       "name": "SkipQuiet",
@@ -653,8 +653,8 @@
       "tx_ceiling": 1232,
       "tx_worst_estimate": 1160,
       "accounts": [6, 29],
-      "loaded_need_placeholder": 1467345,
-      "loaded_limit": 1474560
+      "loaded_need_placeholder": 1631185,
+      "loaded_limit": 1638400
     },
     {
       "name": "CloseClashInputs",
@@ -667,8 +667,8 @@
       "tx_ceiling": 376,
       "tx_worst_estimate": 371,
       "accounts": [5, 5],
-      "loaded_need_placeholder": 1319441,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1483281,
+      "loaded_limit": 1507328
     },
     {
       "name": "CloseArrivalDay",
@@ -681,8 +681,8 @@
       "tx_ceiling": 376,
       "tx_worst_estimate": 371,
       "accounts": [5, 5],
-      "loaded_need_placeholder": 1318257,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1482097,
+      "loaded_limit": 1507328
     },
     {
       "name": "CloseArrivalSlot",
@@ -695,8 +695,8 @@
       "tx_ceiling": 376,
       "tx_worst_estimate": 373,
       "accounts": [4, 5],
-      "loaded_need_placeholder": 1313729,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1477569,
+      "loaded_limit": 1507328
     },
     {
       "name": "ClaimDefence",
@@ -709,8 +709,8 @@
       "tx_ceiling": 1000,
       "tx_worst_estimate": 764,
       "accounts": [7, 17],
-      "loaded_need_placeholder": 1316465,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1480305,
+      "loaded_limit": 1507328
     },
     {
       "name": "DeclareSiege",
@@ -723,8 +723,8 @@
       "tx_ceiling": 640,
       "tx_worst_estimate": 595,
       "accounts": [10, 10],
-      "loaded_need_placeholder": 1326609,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1490449,
+      "loaded_limit": 1507328
     },
     {
       "name": "SettleSiege",
@@ -737,8 +737,8 @@
       "tx_ceiling": 480,
       "tx_worst_estimate": 397,
       "accounts": [5, 6],
-      "loaded_need_placeholder": 1319889,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1483729,
+      "loaded_limit": 1507328
     },
     {
       "name": "SettleCapture",
@@ -751,36 +751,36 @@
       "tx_ceiling": 720,
       "tx_worst_estimate": 594,
       "accounts": [11, 11],
-      "loaded_need_placeholder": 1322449,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1486289,
+      "loaded_limit": 1507328
     },
     {
       "name": "FileOutpost",
       "tag": 163,
-      "cu_budget": 24000,
+      "cu_budget": 28000,
       "cu_per_unit": 0,
-      "cu_limit": 24000,
+      "cu_limit": 28000,
       "measured": 0,
       "tx_contract": 640,
       "tx_ceiling": 640,
       "tx_worst_estimate": 616,
       "accounts": [8, 10],
-      "loaded_need_placeholder": 1330193,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1494033,
+      "loaded_limit": 1507328
     },
     {
       "name": "FoldMarch",
       "tag": 165,
-      "cu_budget": 20000,
+      "cu_budget": 36000,
       "cu_per_unit": 0,
-      "cu_limit": 20000,
+      "cu_limit": 36000,
       "measured": 0,
       "tx_contract": 720,
       "tx_ceiling": 720,
       "tx_worst_estimate": 606,
       "accounts": [11, 11],
-      "loaded_need_placeholder": 1347281,
-      "loaded_limit": 1376256
+      "loaded_need_placeholder": 1511121,
+      "loaded_limit": 1540096
     },
     {
       "name": "RetireHost",
@@ -793,8 +793,8 @@
       "tx_ceiling": 496,
       "tx_worst_estimate": 494,
       "accounts": [7, 7],
-      "loaded_need_placeholder": 1321233,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1485073,
+      "loaded_limit": 1507328
     },
     {
       "name": "CloseMarch",
@@ -807,8 +807,8 @@
       "tx_ceiling": 336,
       "tx_worst_estimate": 330,
       "accounts": [4, 4],
-      "loaded_need_placeholder": 1313617,
-      "loaded_limit": 1343488
+      "loaded_need_placeholder": 1477457,
+      "loaded_limit": 1507328
     }
   ]
 }

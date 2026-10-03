@@ -303,21 +303,26 @@ fn g01_loaded_limit_post_seed() {
 /// outgrows `budgets::PLACEHOLDER_SO_LEN` (regenerate the table then).
 #[test]
 fn g01_loaded_limit_table_covers_the_release_so() {
-    use frontier_abi::budgets::{loaded_limit, PLACEHOLDER_PROGRAMDATA_LEN, PLACEHOLDER_SO_LEN};
+    // The program is the v2 program, so the table that has to cover it is
+    // `frontier_abi::v2::budgets` (A-33): M1's table keeps M1's `.so`.
+    use frontier_abi::v2::budgets::{
+        loaded_limit, loaded_need, PLACEHOLDER_PROGRAMDATA_LEN_V2, PLACEHOLDER_SO_LEN_V2,
+    };
+    use frontier_abi::v2::tags::Ix as IxV2;
     let c = Chain::release();
     let pd = c.programdata_len();
     println!(
-        "release .so {} B (max_len {pd} B); table: .so {PLACEHOLDER_SO_LEN} B, programdata {PLACEHOLDER_PROGRAMDATA_LEN} B",
+        "release .so {} B (max_len {pd} B); v2 table: .so {PLACEHOLDER_SO_LEN_V2} B, programdata {PLACEHOLDER_PROGRAMDATA_LEN_V2} B",
         c.so_len
     );
     assert!(
-        pd <= PLACEHOLDER_PROGRAMDATA_LEN,
-        "the release .so ({} B, max_len {pd}) outgrew the budgets table ({PLACEHOLDER_PROGRAMDATA_LEN})",
+        pd <= PLACEHOLDER_PROGRAMDATA_LEN_V2,
+        "the release .so ({} B, max_len {pd}) outgrew the v2 budgets table ({PLACEHOLDER_PROGRAMDATA_LEN_V2}); regenerate it (CQ4-A)",
         c.so_len
     );
-    for ix in Ix::ALL {
+    for ix in IxV2::ALL {
         assert!(
-            loaded_limit(*ix) >= loaded_limit_for(*ix, pd),
+            loaded_limit(*ix) as u64 >= loaded_need(*ix, pd),
             "{}",
             ix.name()
         );

@@ -19,9 +19,12 @@ use crate::v2::ix::data_len_range;
 use crate::v2::prologue::{accounts_of, count_bounds, kind_size_v2};
 use crate::v2::tags::Ix;
 
-/// The MC release `.so` length `L(kind)` is computed for [estimate:
-/// 0.98–1.02 MB, §5.4; rounded up to 1 MiB until CQ4-A measures it].
-pub const PLACEHOLDER_SO_LEN_V2: u32 = 1_048_576;
+/// The MC release `.so` length `L(kind)` is computed for. §5.4 estimated
+/// 0.98–1.02 MB and v1.3 rounded it up to 1 MiB; the Wave-2 merge
+/// (`scripts/build-frontier.sh --twice`) measured **1,132,312 B**
+/// (max_len 1,417,216), so it is re-rounded to 1.125 MiB (A-33) until
+/// CQ4-A regenerates the table from the MC release build of record.
+pub const PLACEHOLDER_SO_LEN_V2: u32 = 1_179_648;
 pub const PLACEHOLDER_PROGRAMDATA_LEN_V2: u32 = max_len_for(PLACEHOLDER_SO_LEN_V2);
 /// SkipQuiet's extra CU per bell with an active record or keep contest.
 pub const SKIP_PER_ACTIVE_BELL: u32 = 3_500;
@@ -47,8 +50,12 @@ pub const MC_ROWS: &[(Ix, u32, u32, u32)] = &[
     (Ix::DeclareSiege, 30_000, 0, 640),
     (Ix::SettleSiege, 25_000, 0, 480),
     (Ix::SettleCapture, 30_000, 0, 720),
-    (Ix::FileOutpost, 24_000, 0, 640),
-    (Ix::FoldMarch, 20_000, 0, 720),
+    // A-31: FileOutpost 24,000 → 28,000 (G1 measured 26,458; +5%, §5.4's rule).
+    (Ix::FileOutpost, 28_000, 0, 640),
+    // A-32: FoldMarch 20,000 → 36,000 (G1 measured 33,903 at §13.1's fill:
+    // ≈ 15k fixed with the first fold's init + ≈ 3.2k per hour, and the
+    // per-hour MARCH_FOLD log is normative; +6%).
+    (Ix::FoldMarch, 36_000, 0, 720),
     (Ix::RetireHost, 17_000, 0, 480),
     (Ix::CloseMarch, 8_000, 0, 300),
     (Ix::CreateSeason, 70_000, 0, 1_100),
@@ -252,7 +259,9 @@ mod tests {
         for n in 0..=24 {
             assert!(skip_gate(n, n) <= budget(Ix::SkipQuiet).cu_limit);
         }
-        assert_eq!(PLACEHOLDER_PROGRAMDATA_LEN_V2, 1_310_720);
+        assert_eq!(PLACEHOLDER_PROGRAMDATA_LEN_V2, 1_474_560);
+        // the Wave-2 release `.so` (1,132,312 B, max_len 1,417,216) fits it
+        assert!(1_417_216 <= PLACEHOLDER_PROGRAMDATA_LEN_V2);
         // an MC Province loads 640 B more than an M1 one
         let v1 = crate::budgets::loaded_accounts(crate::tags::Ix::ResolveFromInputs).0;
         assert_eq!(loaded_accounts(Ix::ResolveFromInputs).0, v1 + 640);

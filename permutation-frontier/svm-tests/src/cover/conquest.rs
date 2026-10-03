@@ -14,13 +14,6 @@ use super::{Cover, Cq, CqErr, Err, Lands, E};
 /// documented gap with the amendment or dependency request that closes it
 /// (`CQ2-C-NOTES.md`): they run with `--include-ignored` and fail today.
 pub const PENDING: &[(&str, &str)] = &[
-    // §5.4's 20,000 CU for FoldMarch is not reachable at §13.1's fill
-    // (33,903 measured): the contract amendment (36,000) is the
-    // integrator's (CQ2-C-NOTES §4).
-    (
-        "conquest::g01_cq_fold_worst_at_the_contract_20k",
-        "integrator: §5.4 FoldMarch budget",
-    ),
     // D-1: the capture lock cannot see a Holding's own Province when the
     // named Province is another: needs the Province as an account
     // (dependency request R-C1, CQ2-C-NOTES §5).

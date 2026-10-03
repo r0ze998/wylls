@@ -2382,23 +2382,12 @@ fn fold_worst_world(build: Build) -> (Cast, (i32, i32), Keypair) {
     (k, mn, keeper)
 }
 
-/// What G1 measured for FoldMarch (the budget finding of CQ2-C-NOTES §4):
-/// the plain-build ceiling the contract's 20,000 CU would have to become.
-/// §5.4's 20,000 is not reachable at §13.1's pinned fill (first-fold init,
-/// 6 hours, one lost hour): the account setup and the init are about
-/// 15,000 CU and every hour about 3,200 (fold 1,600, the normative
-/// MARCH_FOLD log with its chain advance 1,300, the apply 300).
-/// **Proposed amendment (integrator): FoldMarch 36,000 CU** (measured max
-/// 33,903 + 6%), or `count ≤ 1` with the init. Until then this test gates the
-/// proposal and `g01_cq_fold_worst_at_the_contract_20k` (ignored) holds
-/// §5.4's number.
-const FOLD_CU_PROPOSED: u32 = 36_000;
-
 /// G1 (§13.1): FoldMarch with 7 present members, the first fold's init,
 /// 6 hours in one call, one lost hour; the per-hour and steady-state
-/// figures for the notes. Gated at [`FOLD_CU_PROPOSED`], not at §5.4's
-/// 20,000 (see that constant): **Gate CQ2's "every new kind within §5.4"
-/// does not hold for FoldMarch until the contract is amended.**
+/// figures for the notes. Gated at §5.4's table (36,000 CU since A-32;
+/// the first-run 20,000 was not reachable: ≈ 15,000 fixed with the first
+/// fold's init and ≈ 3,200 per hour, the per-hour MARCH_FOLD log being
+/// normative, CQ2-C-NOTES §4).
 #[test]
 fn g01_cq_fold_worst() {
     for build in g1_builds() {
@@ -2414,14 +2403,16 @@ fn g01_cq_fold_worst() {
         let need =
             k.c.measure_with(&p, &[fold_ix(&k.w, &keeper, mn, 2, 6)], &[&keeper])
                 .expect("fold");
-        let mut ceil = cq_ceilings(I2::FoldMarch, k.c.programdata_len());
-        ceil.cu = FOLD_CU_PROPOSED;
+        let ceil = cq_ceilings(I2::FoldMarch, k.c.programdata_len());
         permutation_frontier_svm_tests::budget::assert_within(
-            &format!("FoldMarch 7 members, init, 6 hours, 1 lost ({build:?}) [proposed 36,000]"),
+            &format!("FoldMarch 7 members, init, 6 hours, 1 lost ({build:?})"),
             &need,
             &ceil,
         );
-        println!("g01_cq FoldMarch {build:?}: {} CU at the pinned fill (§5.4: 20,000; proposed: {FOLD_CU_PROPOSED})", need.cu);
+        println!(
+            "g01_cq FoldMarch {build:?}: {} CU at the pinned fill (§5.4 as amended: 36,000)",
+            need.cu
+        );
         // Steady state: the MarchState exists (every fold after the first).
         let l = expect_lands(
             mc_send(
@@ -2440,23 +2431,6 @@ fn g01_cq_fold_worst() {
             println!("g01_cq FoldMarch {build:?} 7 members, steady state, {count} hour(s): {n}");
         }
     }
-}
-
-/// G1 (§13.1) against §5.4's number: FoldMarch at the pinned fill within
-/// 20,000 CU. **Fails: 33,903 CU measured** (CQ2-C-NOTES §4). Ignored until
-/// the contract is amended (the proposal is [`FOLD_CU_PROPOSED`]); listed in
-/// `cover::conquest::PENDING`.
-#[test]
-#[ignore = "§5.4's 20,000 CU is not reachable at §13.1's fill (measured 33,903): amendment pending"]
-fn g01_cq_fold_worst_at_the_contract_20k() {
-    let (k, mn, keeper) = fold_worst_world(Build::Release);
-    cq_measured(
-        &k.c,
-        I2::FoldMarch,
-        "FoldMarch 7 members, init, 6 hours, 1 lost (Release)",
-        fold_ix(&k.w, &keeper, mn, 2, 6),
-        &[&keeper],
-    );
 }
 
 // ------------------------------------------------------------ G3, G2

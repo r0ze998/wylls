@@ -1412,9 +1412,11 @@ mod tests {
             v2.get(tag::FOLD_MARCH)
         );
         assert_ne!(k.engine.budgets.get(tag::FOLD_MARCH), v1_fold);
+        // L(kind) from the v2 table (the placeholder `.so` length moves with
+        // the measured release `.so`: integ-W2 A-33), never a literal.
         assert_eq!(
             k.engine.budgets.get(tag::FOLD_MARCH).loaded_limit,
-            1_376_256
+            frontier_abi::v2::budgets::loaded_limit(frontier_abi::v2::tags::Ix::FoldMarch)
         );
         assert_eq!(k.engine.budgets.get(tag::HARVEST), v2.get(tag::HARVEST));
         assert_eq!(k.engine.budgets.get(0).cu_limit, 2_000, "payer care kept");
