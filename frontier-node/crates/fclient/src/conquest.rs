@@ -387,13 +387,17 @@ pub fn return_target(id: u64, op_a: u8, op_ref: u32) -> Option<ReturnTarget> {
 
 /// Whether the program leaves this return for the victim's RetireHost
 /// instead of settling it (K-27: never stranded by a third party): the
-/// target Holding is a **live captured** Holding, `retire_hosts = 1`, the
-/// entry is not yet bound, and its host generation is the Holding's
-/// previous one.
+/// target Holding is a **live captured** Holding **with a `prev_home`**
+/// (a victim whose first holding was already gone at the capture can never
+/// RetireHost, so the program strands its returns: `host::settle_return`),
+/// `retire_hosts = 1`, the entry is not yet bound, and its host generation
+/// is the Holding's previous one.
 pub fn return_waits(t: &ReturnTarget, cap: Option<&CapturedHolding>, retire_hosts: bool) -> bool {
     retire_hosts
         && !t.bound
-        && cap.is_some_and(|c| c.live && c.captured && c.prev_gen == t.gen && c.gen != t.gen)
+        && cap.is_some_and(|c| {
+            c.live && c.captured && c.prev_home != 0 && c.prev_gen == t.gen && c.gen != t.gen
+        })
 }
 
 /// What the keeper knows of a Holding that may own previous-generation
@@ -609,6 +613,14 @@ mod tests {
         assert!(!return_waits(&cur, Some(&cap), true), "current generation");
         let bound = return_target(host, 1, (home >> 32) as u32).unwrap();
         assert!(!return_waits(&bound, Some(&cap), true));
+        // W2R2-D2: no `prev_home` (the victim had no first holding at the
+        // capture): the program strands the return, so the keeper does not
+        // wait for a RetireHost that can never come.
+        let homeless = CapturedHolding {
+            prev_home: 0,
+            ..cap
+        };
+        assert!(!return_waits(&old, Some(&homeless), true));
     }
 
     #[test]

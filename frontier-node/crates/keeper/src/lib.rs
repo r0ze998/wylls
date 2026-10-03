@@ -89,7 +89,12 @@ use crate::tickets::TicketDuty;
 
 /// Land roles that need the feed index.
 const LAND_ROLES: [&str; 5] = ["tickets", "explore", "dormancy", "sweep", "fold"];
-/// Play roles (W4-C).
+/// Play roles (W4-C). **MC (W2R2-D3):** the conquest duty (settles, folds,
+/// the season-end flush) runs inside the play duty, on the Provinces and
+/// MarchStates the play reads. A role set with `fold` (a land role) but none
+/// of these folds M1's land only: it never folds a MarchState. The default
+/// all-roles keeper is unaffected; a split deployment keeps `fold` with at
+/// least `settle` (CQ4-B's runbook).
 pub const PLAY_ROLES: [&str; 8] = [
     "reveal",
     "settle-departure",

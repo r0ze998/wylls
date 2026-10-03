@@ -640,7 +640,13 @@ fn fold_record(
             let lost = p8(r, "lost") != 0;
             let dph = season_info(f).map_or(6, |s| s.prm.cq.dominion_per_hour) as u32;
             let fh = cq.fold_hours.entry(hour).or_default();
-            fh.marches.insert((p, q));
+            // One fold per (March, hour): a second record for the same
+            // hour (a MarchState re-created after its close, which the
+            // program refuses since W2R2-C2) never counts twice
+            // (W2R2-C2; the verifier's V-rule flags it).
+            if !fh.marches.insert((p, q)) {
+                return;
+            }
             if !lost && (credit as usize) < 6 {
                 fh.dom[credit as usize] = fh.dom[credit as usize].saturating_add(dph);
             }

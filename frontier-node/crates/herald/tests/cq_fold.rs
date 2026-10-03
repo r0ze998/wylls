@@ -47,6 +47,46 @@ fn read(dir: &std::path::Path, rel: &str) -> Vec<u8> {
     std::fs::read(dir.join(rel)).unwrap_or_else(|e| panic!("{rel}: {e}"))
 }
 
+/// W2R2-C2: one MARCH_FOLD counts once per (March, hour). A second record
+/// for the same hour (a MarchState re-created after its close, which the
+/// program now refuses) must not add Dominion points to the standings.
+/// (A replayed record is already refused by the chain link; the per-hour
+/// guard in `fold_record` also covers a re-created MarchState whose fresh
+/// chain would link. This test does not discriminate the guard: it pins
+/// the standings' behaviour, not the mechanism.)
+#[test]
+fn cq_a_duplicate_march_fold_counts_once() {
+    let txs = cqfixture::mini_season();
+    let is_fold = |t: &fclient::ports::TxRecord| {
+        t.logs.iter().any(|l| {
+            body_of_line(l).ok().flatten().is_some_and(|b| {
+                matches!(
+                    v2log::decode(&b).map(|r| r.kind),
+                    Ok(AnyKind::Cq(CqKind::MARCH_FOLD))
+                )
+            })
+        })
+    };
+    let at = txs
+        .iter()
+        .position(is_fold)
+        .expect("a fold in the mini-season");
+    let d0 = tmp("cqdup0");
+    let f0 = fold_all(&d0, &txs);
+    let mut more = txs.clone();
+    let mut dup = txs[at].clone();
+    dup.seq = txs.last().unwrap().seq + 1;
+    dup.slot = txs.last().unwrap().slot + 1;
+    dup.signature = fclient::ports::Signature::from([0xEE; 64]);
+    more.push(dup);
+    let d1 = tmp("cqdup1");
+    let f1 = fold_all(&d1, &more);
+    assert_eq!(
+        f0.cq.fold_hours, f1.cq.fold_hours,
+        "a duplicate (March, hour) adds nothing"
+    );
+}
+
 #[test]
 fn cq_fold_writes_every_file_and_event() {
     let txs = cqfixture::mini_season();

@@ -417,6 +417,24 @@ impl Addresses {
         let s = format!("zz{n:02x}");
         with_seed(&self.season, s.as_bytes(), &self.program)
     }
+    /// [`Addresses::absent`] for a **writable** position (SettleSiege's
+    /// `slot_citizen`, SettleCapture's three victim accounts for a Free
+    /// City): one placeholder per `(Province, site)` instead of one per
+    /// Season (W2R2-D1). A writable account is write-locked, and one
+    /// season-wide address would make every placeholder-using settle of
+    /// every Province contend for the same lock, which a third party could
+    /// hold with cheap transactions (§5.9 "no new hot global writer"; a
+    /// Province lock is priced per Province). Seed `zz‖hex(n)‖hex(le16 p
+    /// ‖ le16 q ‖ site)` (13 B), still a tag outside §4.1's table; the
+    /// program checks only `System`-owned with no data, so which address a
+    /// client picks is its own business.
+    pub fn absent_at(&self, n: u8, p: i16, q: i16, site: u8) -> Address {
+        let mut s = format!("zz{n:02x}").into_bytes();
+        s.extend_from_slice(&p.to_le_bytes());
+        s.extend_from_slice(&q.to_le_bytes());
+        s.push(site);
+        with_seed(&self.season, &s, &self.program)
+    }
     /// The Holding a host-id-form key names (`index<<44 | site<<40 |
     /// gen<<32`, the conquest record's `src`, CAPTURE_SETTLED's keys):
     /// the same parts as a host id with `seq = 0`.

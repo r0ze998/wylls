@@ -114,8 +114,8 @@ pub fn declare_siege(a: &Addresses, p: &Player, x: &DeclareSiegeArgs) -> Instruc
 /// `recipient` is the canonical Holding the record names (flags bit 1:
 /// the site's Holding; bit 2 or a lapsed siege: `src`), `slot_citizen`
 /// the Citizen of the record's `actor` when a slot is owed back (bit 5),
-/// else `None` (D-3 revised: [`Addresses::absent`]`(2)`, never a site
-/// Holding: the program answers `BadAccount` to a present account there
+/// else `None` (D-3 revised: [`Addresses::absent_at`]`(2, province, site)`,
+/// per site and never a site Holding: the program answers `BadAccount` to a present account there
 /// when no slot is owed); `ticket_funder` that Citizen's funder when a
 /// slot is owed back (CQ1-C D-6).
 pub fn settle_siege(
@@ -132,7 +132,7 @@ pub fn settle_siege(
         r(a.season),
         w(a.province(province.0 as i32, province.1 as i32)),
         w(recipient),
-        w(slot_citizen.unwrap_or_else(|| a.absent(2))),
+        w(slot_citizen.unwrap_or_else(|| a.absent_at(2, province.0, province.1, site))),
     ];
     if let Some(f) = ticket_funder {
         m.push(w(f));
@@ -149,8 +149,8 @@ pub struct SettleCaptureArgs {
     pub captor_shard: (u8, u8),
     /// `(victim Citizen, its (faction, shard), the Holding's rent payer)`;
     /// `None` for a Free City (D-2 revised: the builder then passes three
-    /// distinct [`Addresses::absent`] placeholders, 3..=5, at positions
-    /// 6–8).
+    /// distinct [`Addresses::absent_at`] placeholders, 3..=5 for this
+    /// Province and site, at positions 6–8).
     pub victim: Option<(Address, (u8, u8), Address)>,
     /// The record's `src` Holding (the stake's return); may be absent.
     pub stake_holding: Address,
@@ -165,7 +165,14 @@ pub fn settle_capture(a: &Addresses, fee_payer: Address, x: &SettleCaptureArgs) 
     let holding = a.holding(p, q, x.site);
     let (vc, vjs, vrp) = match x.victim {
         Some((c, (f, s), rp)) => (c, a.join_shard(f, s), rp),
-        None => (a.absent(3), a.absent(4), a.absent(5)),
+        None => {
+            let (pp, pq) = x.province;
+            (
+                a.absent_at(3, pp, pq, x.site),
+                a.absent_at(4, pp, pq, x.site),
+                a.absent_at(5, pp, pq, x.site),
+            )
+        }
     };
     let m = vec![
         ws(fee_payer),
@@ -611,7 +618,36 @@ mod tests {
         assert_eq!(sc.accounts[5].pubkey, a.join_shard(1, 3));
         // D-2 revised: three distinct absent placeholders, none a Holding.
         let ph: Vec<Address> = (6..9).map(|i| sc.accounts[i].pubkey).collect();
-        assert_eq!(ph, vec![a.absent(3), a.absent(4), a.absent(5)]);
+        assert_eq!(
+            ph,
+            vec![
+                a.absent_at(3, 4, 0, 7),
+                a.absent_at(4, 4, 0, 7),
+                a.absent_at(5, 4, 0, 7)
+            ]
+        );
+        // W2R2-D1: the writable placeholders are per (Province, site), so
+        // two Free City captures (or lapses) never share a write lock.
+        let other = settle_capture(
+            &a,
+            k,
+            &SettleCaptureArgs {
+                province: (4, 1),
+                site: 7,
+                captor_citizen: k,
+                captor_shard: (1, 3),
+                victim: None,
+                stake_holding: k,
+                beneficiary: k,
+            },
+        );
+        for i in 6..9 {
+            assert_ne!(
+                sc.accounts[i].pubkey, other.accounts[i].pubkey,
+                "position {i}"
+            );
+            assert!(sc.accounts[i].is_writable, "the placeholders are writable");
+        }
         assert_ne!(ph[0], ph[1]);
         assert_ne!(ph[1], ph[2]);
         assert_ne!(ph[0], sc.accounts[2].pubkey, "never the Holding itself");
@@ -662,11 +698,17 @@ mod tests {
         let ss = settle_siege(&a, k, (4, 0), 7, site_holding, None, None);
         assert_eq!(ss.accounts.len(), 5);
         assert_eq!(ss.accounts[3].pubkey, site_holding, "the recipient stays");
-        assert_eq!(ss.accounts[4].pubkey, a.absent(2));
+        assert_eq!(ss.accounts[4].pubkey, a.absent_at(2, 4, 0, 7));
         assert_ne!(ss.accounts[4].pubkey, site_holding);
+        // per (Province, site): another site's lapse locks another account
+        let ss2 = settle_siege(&a, k, (4, 0), 8, a.holding(4, 0, 8), None, None);
+        assert_ne!(ss.accounts[4].pubkey, ss2.accounts[4].pubkey);
+        // and none is the season-wide read-only placeholder
+        assert!(!(0..6).any(|n| a.absent(n) == ss.accounts[4].pubkey));
         // The placeholders are canonical-looking with-seed addresses of the
         // season, distinct from every §4.1 kind's address.
-        let all: Vec<Address> = (0..6).map(|n| a.absent(n)).collect();
+        let mut all: Vec<Address> = (0..6).map(|n| a.absent(n)).collect();
+        all.extend((2..6).map(|n| a.absent_at(n, 4, 0, 7)));
         for (i, x) in all.iter().enumerate() {
             for y in &all[i + 1..] {
                 assert_ne!(x, y);

@@ -663,7 +663,7 @@ impl ConquestDuty {
             } else {
                 // D-3 (revised after the CQ2-C review): no slot owed, so
                 // position 4 must be ABSENT (§5.5); the builder passes
-                // `Addresses::absent(2)`, never the site's Holding.
+                // `Addresses::absent_at(2, ..)` (per site), never the site's Holding.
                 (None, None)
             };
             let a = t.addrs.clone();
@@ -923,7 +923,7 @@ impl ConquestDuty {
             let Ok((_, _, _, gen, _)) = fclient::addr::host_parts(id) else {
                 continue;
             };
-            if !hc.captured() || gen != hc.prev_gen || gen == h.gen {
+            if !hc.captured() || gen != hc.prev_gen || gen == h.gen || hc.prev_home == 0 {
                 continue;
             }
             let Ok((pp, pq2, ps, _, _)) = fclient::addr::host_parts(hc.prev_home) else {
@@ -1400,8 +1400,12 @@ mod tests {
         let ph: Vec<Address> = acc[6..9].to_vec();
         assert_eq!(
             ph,
-            vec![e.addrs.absent(3), e.addrs.absent(4), e.addrs.absent(5)],
-            "D-2 placeholders: distinct, absent"
+            vec![
+                e.addrs.absent_at(3, 3, 0, 7),
+                e.addrs.absent_at(4, 3, 0, 7),
+                e.addrs.absent_at(5, 3, 0, 7)
+            ],
+            "D-2 placeholders: distinct, absent, per (Province, site) (W2R2-D1)"
         );
         assert!(
             ph.iter()
@@ -1544,7 +1548,11 @@ mod tests {
         assert_eq!(i1[0].accounts[3].pubkey, e.addrs.holding(3, 0, 1));
         assert_eq!(i1[0].accounts.len(), 5, "no slot owed: no funder");
         let pos4 = i1[0].accounts[4].pubkey;
-        assert_eq!(pos4, e.addrs.absent(2), "no slot owed: the placeholder");
+        assert_eq!(
+            pos4,
+            e.addrs.absent_at(2, 3, 0, 1),
+            "no slot owed: the per-site placeholder"
+        );
         assert_ne!(pos4, e.addrs.holding(3, 0, 1), "never the site Holding");
         assert!(
             !e.port.accounts.lock().unwrap().contains_key(&pos4),
@@ -1800,6 +1808,48 @@ mod tests {
         assert_eq!(acc[5], e.addrs.holding(3, 0, 6));
         assert_eq!(acc[6], e.addrs.holding(1, 0, 2));
         assert_eq!(ix[0].data, vec![tag::RETIRE_HOST, 2]);
+    }
+
+    /// W2R2-D2: a captured Holding whose victim had no first holding at the
+    /// capture (`prev_home == 0`) can never be retired (the program refuses
+    /// `RetireHost` and strands the return), so the season-end flush plans
+    /// nothing for it.
+    #[tokio::test]
+    async fn cq_season_end_skips_a_capture_without_prev_home() {
+        let mut e = env(&["settle"], 1_008);
+        let mut c = ConquestDuty::default();
+        let vw = Address::new_from_array([0xD3; 32]);
+        let victim = e.addrs.citizen(&vw);
+        let captor = e.addrs.citizen(&Address::new_from_array([0xC3; 32]));
+        e.put(
+            e.addrs.holding(3, 0, 6),
+            testkit::holding_v2(
+                3,
+                0,
+                6,
+                2,
+                captor,
+                vw,
+                Some((fclient::addr::citizen_tag_u64(&victim), 1, 0)),
+            ),
+        );
+        c.captured_sites.insert((3, 0, 6));
+        let old = fclient::addr::host_id(3, 0, 6, 1, 4).unwrap();
+        let mut pd = testkit::province_v2(4, 0, 1_008);
+        testkit::set_entry(&mut pd, 2, old, 1, 0, 11, 500_000);
+        c.observe((4, 0), &pd, 1_008, 0, 1);
+        e.conquest(
+            &mut c,
+            21,
+            after_close(1_008),
+            &BTreeMap::new(),
+            &BTreeSet::new(),
+        )
+        .await;
+        assert!(
+            e.keys("retire:").is_empty(),
+            "no prev_home: nothing to retire"
+        );
     }
 
     /// MC §8.2 "Closes": CloseMarch (class N) from `end + 72 h` for a
