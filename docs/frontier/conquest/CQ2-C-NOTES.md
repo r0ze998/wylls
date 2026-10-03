@@ -93,17 +93,71 @@ Options, both amendments to §5.4/§13.1 (not mine): **(a) FoldMarch 36,000 CU**
 | P11 | `p_cq_p7_p11_*`, `p_cq_p11_a_retire_after_the_end_changes_no_outcome` | only the victim's wallet or session during the season (others `NotLead` / `Auth`); a RetireHost after the end changes no scoring byte (the second half) |
 | P13 | `p_cq_p13_every_garrison_is_within_the_cap_and_the_clash_input_validates` | model level, through the real kernel clash: 12 walks with 1–6 hosts of 30,000 troops on the keep tile and keep guards of 0 to 30,000, 12 takings, every `resolve_clash` input validates (including the bell after a taking) |
 
+### P9 failing-first against M1's transit code
+
+The program was rebuilt (`scripts/build-frontier.sh --features test-beacon`) with `proc/transit.rs` replaced by `git show 3751173:permutation-frontier/src/proc/transit.rs` (M1's SettleTransit) and everything else as on this branch (variant `.so` sha256 `b2d249f3f750730e2b3d1a210a59798e6a4738ee53ada4af5b24b64e8c336339`), and `./run.sh --release --test transit -- cq_` was run with `PSF_SO_TEST_BEACON` pointing at it: **5 of the 6 `cq_` transit tests fail**. `p_cq_p9_the_transit_of_a_captured_holding_settles` fails at its first settle with `BadAccount` (code 2): M1's SettleTransit refuses a host id of another generation than the Holding's, the permissionless freeze of `program.md` §6.2. `p_cq_p9_without_the_capture_flag_the_generation_trap_holds` passes on both builds (the trap is what an uncaptured Holding with a foreign generation hits). With this branch's `transit.rs`: 6 of 6 pass. The source was restored and the `.so` rebuilt afterwards (`git status` clean).
+
 ## 7. Measurements (release `.so` of this branch)
 
-MEASURED_TABLE
+Release `.so` of this branch: 1,021,448 B (sha256 `881bcd8a2964c3efeba8163603c589315354f6cf3ca66e7aad73682853d7247f`; max_len 1,277,952; M1's was 875,824 B). On the trial merge with CQ2-A and CQ2-B (§11) the release `.so` is 1,132,752 B.
+
+| Instruction | G1 fill (§13.1) | CU | §5.4 budget | tx B (§5.4) | locks | heap (trace) |
+|---|---|---|---|---|---|---|
+| DeclareSiege | Frontier-28, 48 entries / 6 on the tile, nearby proof, capture target with reservation and escrow top-up, `end_bell − now` = 287 (the scan) | **22,130** | 30,000 | 487 (640) | 11 | 1,864 B |
+| DeclareSiege | same, ≥ 288 bells left (O(1)) | 20,499 | 30,000 | 487 | 11 | 1,864 B |
+| SettleSiege | stake to the defender + slot release with the escrow refund | 13,297 | 25,000 | 385 (480) | 8 | |
+| SettleCapture | holding capture, 4 bonds refunded, the rent swap | 26,614 | 30,000 | 582 (720) | 13 | 2,128 B |
+| SettleCapture | Free City capture with the Holding's init (after the pre-funding-safe change, D-12) | **19,726** (was measured on the pre-change `.so` in the first run) | 30,000 | 582 | 13 | 2,128 B |
+| FoldMarch | 7 members, first-fold init, 6 hours, one lost hour | **33,903 ✗** | **20,000** | 594 (720) | 13 | 2,128 B |
+| RetireHost | the victim's session key | 8,313 | 17,000 | 386 (480) | 8 | |
+| CloseMarch | | 5,497 | 8,000 | 318 (300) | 6 | |
+| SettleTransit | a returning host of a captured Holding with `prev_home` (new G1 row) | 60,362 | 85,000 | 783 (1,022) | 13 | |
+
+- Heap max over the rows on the trace build: **2,128 B** (gate 28 KiB).
+- Trace-build CU is 440–1,100 higher than the plain build's (the markers); only the heap is gated there.
+- CloseMarch's 318 B is above §5.4's 300: `frontier_abi::v2::budgets::tx_ceiling` raises the ceiling to the worst-case estimate for RetireHost and CloseMarch (CQ1-C's D-11); the table is regenerated at Gate CQ4.
+- On the trial merge (§11): SettleCapture 25,920 / 19,032, DeclareSiege 21,783 / 20,152, FoldMarch unchanged 33,903.
 
 ## 8. Review of the first run, item by item
 
-REVIEW_TABLE
+| # | Severity | Item | Disposition |
+|---|---|---|---|
+| 1 | blocker | SettleSiege lapses on `bell ≥ end_bell`, ignores `resolved_next` | **Fixed + test** (§3.1) |
+| 2 | blocker | SettleTransit prev-gen path with 13 accounts loses the troops | **Fixed + tests** (§3.2) |
+| 3 | blocker | G1 FoldMarch 33,903 vs 20,000 | **Cross-unit** (R-C3): measured, explained (§4), the test gates the proposed 36,000 and an ignored test holds 20,000 |
+| 4 | major | capture lock only on the Holding's own Province | **Cross-unit** (R-C1): needs an account-list change in CQ2-A / CQ1-C / `fclient`; recorded with a failing ignored repro (`host::p_cq_p3_foreign_province_gap`); the own-Province case is a real P3 test |
+| 5 | major | two capture locks (D-7 vs `capture_locked`) | **Cross-unit** (R-C2). CQ2-A's review round has since moved its lock to the generation test (`mirror.gen ≠ holding.gen`, flag ignored, its D-14), which agrees with D-7 on every reachable state; at the merge use CQ2-A's `proc::holding::own_province_unlocked` in `host.rs` and drop `lock_own` |
+| 6 | major | required work uncommitted | **Fixed**: committed (`640c28c`), clippy and fmt re-run, `.so` rebuilt, SettleCapture Free City re-measured (19,726) |
+| 7 | major | missing P tests, transit/host rows, cover rows, notes, Gate CQ2 not run, no run with the real A/B handlers | **Fixed** except the items in §6 marked "not covered" (P2(b) with SettleTicket, P12's ReleaseDormant / SettleTicket / FileOutpost steps, P5/P13 at program level): the tests, the rows, this file, the gate lines (§9) and a trial merge with CQ2-A and CQ2-B (§11) |
+| 8 | minor | return-settle entries wait forever | **Partly fixed** (D-11: `prev_home == 0`); **deferred**: a `prev_home` that is no longer live (released after the capture): RetireHost refuses it (`BadAccount`) and DisbandStranded refuses it (K-27), so the entry stays until the Province closes. Proposed: after `end_bell` let RetireHost (or DisbandStranded) strand an entry whose home is not live. Needs a decision on K-27's wording |
+| 9 | minor | D-2, D-4, Free City funding, stake-recipient lock | **Recorded** (§2, R-C5); contract wording kept in code |
+| 10 | minor | finality flip when the source is in `nearby` | **Deferred** (R-C7): `nearby` is `r` in §5.5 |
+| 11 | minor | in-season RetireHost hand-rolls the wallet/session check | **Recorded** (D-13) |
+| 12 | minor | previous-generation `BounceUnranked` tip goes to the captor's funder | **Deferred** (R-C6): the contract is silent; a rule is the integrator's |
+| 13 | minor | `clash::settle_return` dead code in CQ2-B's file | **Cross-unit** (R-C4) |
+| m | missing | P1, P2(a,b,c), P3, P4, P5, P6, P9, P12, P13; P11's second half; tests/transit.rs and tests/host.rs rows; cover rows; notes; the Gate CQ2 lines; the end_bell − 1 test; amendments / decisions for 20k, D-7, D-1, D-2, D-4 | **Done / listed** as above; the amendments are requests R-C1…R-C7 |
 
 ## 9. Gate CQ2 lines of this unit's files
 
-GATE_TABLE
+| Line (Gate CQ2 / §12) | Result on this branch |
+|---|---|
+| `cargo fmt --all -- --check` | pass (the program crate); `svm-tests` is its own workspace: `cargo fmt -- --check` pass |
+| `cargo clippy --locked -p permutation-frontier --all-targets -- -D warnings` | pass |
+| `cargo test --locked -p permutation-frontier --no-default-features` | 39 passed |
+| `scripts/build-frontier.sh --twice` | pass: both builds hash `881bcd8a…7247f` (reproducible), e_flags 2, overflow panics present, `deployable yes`; program_hash `eb5e1095…6725` |
+| `(cd permutation-frontier/svm-tests && ./run.sh --release -- g01_cq_ g02_cq_ g03_cq_ g11_cq_ g13_cq_ p_cq_)` | **49 passed, 0 failed, 2 ignored** (`conquest::g01_cq_fold_worst_at_the_contract_20k` and `host::p_cq_p3_foreign_province_gap`, which fail on purpose under `--include-ignored`: §4, §5). No `g11_cq_` row exists here (CQ2-B's) |
+| `(cd permutation-frontier/svm-tests && ./run.sh --release)` (every M1 test still green) | 298 passed, **1 failed**, 6 ignored. The failure is `g01_loaded_limit_table_covers_the_release_so`: the release `.so` (1,021,448 B, max_len 1,277,952) outgrew the budgets table's placeholder programdata length (1,105,920 B, `frontier_abi::budgets`). The table is regenerated from the release `.so` at Gate CQ4 (§5.4 "Every `L(kind)` is regenerated"); the program grew by the whole MC surface, not by this unit alone. Cross-unit; not mine. My tests request `L(kind)` at the deployed programdata length so they do not depend on the table |
+| `PSF_TRACE=1 … g01_cq_declare g01_cq_settle_capture g01_cq_fold (+ settle_siege, settle_transit)` | pass; heap ≤ 2,128 B. `g01_cq_resolve_worst` / `g01_cq_skip_worst` are CQ2-B's (they pass on the trial merge, §11) |
+| `scripts/cq-ownership-check.sh frontier/cq-2c-conquest` | PASS (two report-only footprint warnings: CQ2-A's first commit touched `permutation-frontier/src/lib.rs`, a path the design chat's branch also touched) |
+| `cq-regen.sh --check` | not run: this unit changes no layout, tag, vector or generated output |
+| `frontier-node` `cq_` (keeper, herald, bots) | not this unit |
+
+Pass conditions of Gate CQ2 that concern this unit:
+
+- **"every new kind within §5.4": not met for FoldMarch** (33,903 > 20,000); every other new row is within budget (§7).
+- heap ≤ 28 KiB: met (2,128 B).
+- P1–P13 green: green, with the scope limits of §6; **P9 failing-first** recorded in §6 below.
+- G11, ResolveFromInputs ≤ 290,000: CQ2-B's.
 
 ## 10. Merge history
 
@@ -111,4 +165,13 @@ GATE_TABLE
 
 ## 11. Trial merge with CQ2-A and CQ2-B
 
-TRIAL_SECTION
+A trial merge was run on a temporary local branch (since deleted; nothing is merged, nothing pushed): this branch, then `frontier/cq-2b-clash` (`935b619`), then `frontier/cq-2a-core` (`8b8223a`). Both merges were textually clean and the program compiled. All four `.so` builds succeed; the release `.so` is **1,132,752 B** (CQ2-A + CQ2-B + this unit). Results of `./run.sh --release --no-fail-fast`:
+
+- **334 passed, 3 failed, 6 ignored.** The three failures are not in this unit's tests:
+  1. `cq::g01_cq_file_outpost_three_provinces_full_cohorts` (CQ2-A's R4: FileOutpost 26,449 CU > 24,000).
+  2. `g01_loaded_limit_table_covers_the_release_so` (the budgets table's placeholder length, §9).
+  3. `season_records_and_chain_through_the_lifecycle` (`tests/season_records.rs:42`): the SEASON_CREATED record's `ruleset_hash` is the v2 hash after CQ2-A's switch while the test compares M1's `RULESET_HASH`. `tests/season_records.rs` is an M1 file no Wave-2 unit owns (frozen); the integrator updates it at the merge (or CQ2-A takes it).
+- **Every `g01_cq_` / `g02_cq_` / `g03_cq_` / `g13_cq_` / `p_cq_` test of this unit passes on the merged tree** (conquest 42, host 2, transit 5), including `g01_cq_resolve_worst` and `g01_cq_skip_worst` of CQ2-B. The first run failed 40 of them with `MaxLoadedAccountsDataSizeExceeded`: the budgets table's placeholder `L(kind)` is smaller than the grown program needs. Fixed in the tests (they request `L(kind)` at the deployed programdata length, the way a client does), not by relaxing a gate.
+- Numbers on the merged `.so`: SettleCapture 25,920 (holding) / 19,032 (Free City), DeclareSiege 21,783 / 20,152, FoldMarch unchanged (33,903); trace heap max 2,128 B for this unit's rows.
+- **Not exercised** (the crafted worlds still stand in for CQ2-A's instructions): the real CreateSeason / OpenProvince / Join in the worlds, P2(b) across a SettleTicket, P12's walk with ReleaseDormant, SettleTicket and FileOutpost (S1, S3 on the real handlers), and the swap of this file's `cqlog` for CQ2-A's `events::emit_cq` (CQ2-B's R5; the bytes are identical, `cq_records_are_the_abis` pins them) — the integrator does the swap at the merge.
+- At the merge: add CQ2-A's capture-lock test (`holding::…g13_cq_capture_lock_refuses_the_resident_actions`) to the `EXPLORE` row of `cover/host.rs` (CQ2-A's R8; this unit's file); use CQ2-A's `own_province_unlocked` in `host.rs` instead of `lock_own` (§5, R-C2). SettleCapture of a Free City adds no `n_sites_used` count (CQ2-A's note 7 asks CQ2-C to agree): this handler does not touch it.
