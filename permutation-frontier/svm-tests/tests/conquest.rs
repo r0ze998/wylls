@@ -881,3 +881,596 @@ fn common_refused(r: SendResult, codes: &[E]) {
         ),
     }
 }
+
+// ------------------------------------------------------------ SettleSiege
+
+/// X declares on the outpost and the next resolve (crafted, module note)
+/// reports `rep` for the site: returns that bell.
+fn declare_then(k: &mut Cast, holders: u8, defender: bool) -> u32 {
+    expect_lands(k.declare(), "DeclareSiege");
+    let b = B0 + 1;
+    k.w.set_resolved_next(&mut k.c, &k.o.province, b);
+    k.w.cq_resolve(&mut k.c, &k.o.province, b, Some(site_report(k.o.site, holders, defender)));
+    k.w.to_bell(&mut k.c, b + 1, 5);
+    b
+}
+
+/// SettleSiege of the outpost's record: the recipient and the slot
+/// Citizen given, the funder X's wallet when a slot is owed.
+fn settle_siege_ix(k: &Cast, payer: &Keypair, recipient: Address, slot: bool) -> Instruction {
+    qix::settle_siege(
+        &k.w.a,
+        payer.pubkey(),
+        k.o.province,
+        recipient,
+        if slot { k.x.citizen } else { nowhere("slot-citizen") },
+        slot.then(|| k.x.wallet.pubkey()),
+        k.o.site,
+    )
+}
+
+/// §3.4 failure broken by the defender: the stake is owed to the target
+/// holding at its generation and the attacker's faction is barred for 36
+/// bells; SettleSiege (anyone) pays it into the holding's Gold, releases
+/// the reserved slot with one `rent(1,280)` back to the escrow's funder,
+/// keeps the immunity and logs SIEGE_SETTLED (reason 0, slot 2).
+#[test]
+fn g13_cq_settle_siege_pays_the_defender_and_frees_the_slot() {
+    let mut k = Cast::new();
+    let b = declare_then(&mut k, 0, true);
+    let r = k.w.cq_record(&k.c, &k.o.province, k.o.site);
+    let immune = b + 1 + MC_LOCAL_7D.cq.immunity_bells as u32;
+    assert_eq!(
+        r,
+        Record {
+            faction: 0,
+            flags: CR::FLAG_STAKE_TO_HOLDING | CR::FLAG_SLOT_OWED,
+            progress: 1,
+            required: 2,
+            bell: immune,
+            actor: k.x.citizen_tag(),
+            ..Record::ZERO
+        }
+    );
+    let rent = k.c.rent(H::SIZE);
+    let g0 = gold(&k.c, &k.o.holding);
+    let xw0 = k.c.lamports(&k.x.wallet.pubkey());
+    let anyone = k.c.funded(b"cq-anyone", 1);
+    let hh = head(&k.c, &k.o.holding);
+    let hp = head(&k.c, &k.o.province);
+    let ix = settle_siege_ix(&k, &anyone, k.o.holding, true);
+    let l = expect_lands(mc_send(&mut k.c, I2::SettleSiege, ix.clone(), &[&anyone]), "settle_siege_ix(");
+    let paid = gold(&k.c, &k.o.holding) - g0;
+    assert!((500_000..510_000).contains(&paid), "the stake (+ accrual): {paid}");
+    assert_eq!(k.c.lamports(&k.x.wallet.pubkey()), xw0 + rent);
+    let cd = k.c.data(&k.x.citizen);
+    assert_eq!((cd[C::SLOTS], u64_at(&cd, C::TICKET_ESCROW)), (0, 0));
+    let r = k.w.cq_record(&k.c, &k.o.province, k.o.site);
+    assert_eq!((r.kind, r.flags, r.faction, r.bell), (CR::KIND_NONE, 0, 0, immune), "immunity kept");
+    let s = one(&l, CqKind::SIEGE_SETTLED);
+    assert_eq!(s.u8(0), settle_reason::TO_DEFENDER);
+    assert_eq!(s.u64(1), hkey(&k.o));
+    assert_eq!((s.u32(9), s.u32(13), s.u8(17)), (500, 0, 2));
+    chained(&k.c, &k.o.holding, hh, &s, E2::Holding);
+    chained(&k.c, &k.o.province, hp, &s, E2::Province);
+    // P10: the defender's immunity bars only the besieging faction. (On
+    // this branch M1's codec rewrites a written Holding's shield from M1's
+    // constants; CQ2-A writes it once, §3.9. Unshielded by hand.)
+    let mut f = k.c.fork();
+    unshield(&mut f, &k.o.holding);
+    unshield(&mut f, &k.x.holding);
+    let y = k.w.cq_estate(&mut f, "y2", 2, ring4(2, 1), 0);
+    k.w.enrich(&mut f, &y, 1_000);
+    unshield(&mut f, &y.holding);
+    k.w.craft_host(&mut f, &y, &k.o.province, 1, 0, 0, HOST, k.o.tile);
+    assert_cq(send_declare(&mut f, &k.x, k.declare_ix()), Cq::Immune);
+    expect_lands(send_declare(&mut f, &y, declare_on(&k.w, &y, &k.o, 1)), "faction 2 is not barred");
+    // A second settle owes nothing.
+    assert_code(mc_send(&mut k.c, I2::SettleSiege, ix, &[&anyone]), E::AlreadyDone);
+}
+
+/// P10: a deserted siege (the besiegers left, no defender) grants no
+/// immunity and burns the stake; the slot is still owed back.
+#[test]
+fn p_cq_p10_a_deserted_siege_burns_the_stake() {
+    let mut k = Cast::new();
+    declare_then(&mut k, 0, false);
+    let r = k.w.cq_record(&k.c, &k.o.province, k.o.site);
+    assert_eq!(
+        (r.kind, r.faction, r.flags, r.bell),
+        (CR::KIND_NONE, CR::BARRED_NONE, CR::FLAG_SLOT_OWED, 0)
+    );
+    let anyone = k.c.funded(b"cq-anyone", 1);
+    let g0 = gold(&k.c, &k.o.holding);
+    let ix = settle_siege_ix(&k, &anyone, k.o.holding, true);
+    let l = expect_lands(mc_send(&mut k.c, I2::SettleSiege, ix, &[&anyone]), "settle_siege_ix(");
+    assert_eq!(gold(&k.c, &k.o.holding), g0, "nothing paid");
+    let s = one(&l, CqKind::SIEGE_SETTLED);
+    assert_eq!((s.u8(0), s.u32(9), s.u8(17)), (settle_reason::BURNED, 0, 2));
+    assert_eq!(k.w.cq_record(&k.c, &k.o.province, k.o.site), Record { faction: CR::BARRED_NONE, ..Record::ZERO });
+    // Immediately besiegeable again by anyone (the source's shield, which
+    // M1's codec rewrote at the stake, cleared by hand as above).
+    unshield(&mut k.c, &k.x.holding);
+    expect_lands(k.declare(), "no immunity after a deserted siege");
+}
+
+/// S5: a stake owed at `owed_gen` is burned when the holding has another
+/// generation; an absent recipient burns it too.
+#[test]
+fn g13_cq_settle_siege_burns_a_stake_of_another_generation() {
+    let mut k = Cast::new();
+    declare_then(&mut k, 0, true);
+    let anyone = k.c.funded(b"cq-anyone", 1);
+    let mut f = k.c.fork();
+    f.edit(&k.o.holding, |d| d[H::GEN] = 7);
+    let g0 = gold(&f, &k.o.holding);
+    let l = expect_lands(
+        mc_send(&mut f, I2::SettleSiege, settle_siege_ix(&k, &anyone, k.o.holding, true), &[&anyone]),
+        "settle_siege_ix(",
+    );
+    assert_eq!(gold(&f, &k.o.holding), g0);
+    let s = one(&l, CqKind::SIEGE_SETTLED);
+    assert_eq!((s.u8(0), s.u32(9), s.u32(13)), (settle_reason::BURNED, 0, 500));
+    let mut f = k.c.fork();
+    f.remove(&k.o.holding);
+    let l = expect_lands(
+        mc_send(&mut f, I2::SettleSiege, settle_siege_ix(&k, &anyone, k.o.holding, true), &[&anyone]),
+        "settle_siege_ix(",
+    );
+    assert_eq!(one(&l, CqKind::SIEGE_SETTLED).u32(13), 500);
+}
+
+/// §3.4 season end: a siege still running when the season ends lapses;
+/// SettleSiege returns the stake to `src` and releases the slot.
+#[test]
+fn g13_cq_settle_siege_lapses_a_siege_at_season_end() {
+    let mut k = Cast::new();
+    expect_lands(k.declare(), "DeclareSiege");
+    let anyone = k.c.funded(b"cq-anyone", 1);
+    let ix = settle_siege_ix(&k, &anyone, k.x.holding, true);
+    assert_code(mc_send(&mut k.c.fork(), I2::SettleSiege, ix.clone(), &[&anyone]), E::AlreadyDone);
+    let end = k.w.season_u32(&k.c, frontier_abi::layout::world::season::END_BELL);
+    k.w.to_bell(&mut k.c, end + 2, 5);
+    let g0 = gold(&k.c, &k.x.holding);
+    let l = expect_lands(mc_send(&mut k.c, I2::SettleSiege, ix, &[&anyone]), "settle_siege_ix(");
+    assert!(gold(&k.c, &k.x.holding) >= g0 + 500_000);
+    let s = one(&l, CqKind::SIEGE_SETTLED);
+    assert_eq!((s.u8(0), s.u64(1), s.u32(9), s.u8(17)), (settle_reason::SEASON_END, hkey(&k.x), 500, 2));
+    assert_eq!(k.w.cq_record(&k.c, &k.o.province, k.o.site), Record { faction: CR::BARRED_NONE, ..Record::ZERO });
+    assert_eq!(k.c.data(&k.x.citizen)[C::SLOTS], 0);
+}
+
+/// A-5: a running occupation owes its stake to `src` from the completion
+/// bell; SettleSiege pays it and the occupation keeps running.
+#[test]
+fn g13_cq_settle_siege_pays_an_occupations_stake_to_src() {
+    let mut k = Cast::new();
+    k.w.craft_host(&mut k.c, &k.x, &k.v.province, 0, 1, 0, HOST, k.v.tile);
+    expect_lands(send_declare(&mut k.c, &k.x, declare_on(&k.w, &k.x, &k.v, 0)), "declare_on(");
+    let mut r = k.w.cq_record(&k.c, &k.v.province, k.v.site);
+    r.progress = r.required - 1;
+    k.w.cq_put_record(&mut k.c, &k.v.province, k.v.site, &r);
+    k.w.set_resolved_next(&mut k.c, &k.v.province, B0 + 1);
+    let out = k.w.cq_resolve(&mut k.c, &k.v.province, B0 + 1, Some(site_report(k.v.site, bit(0), false)));
+    assert_eq!(out.events()[0].code, l2::event::OCCUPIED);
+    let r = k.w.cq_record(&k.c, &k.v.province, k.v.site);
+    assert_eq!((r.kind, r.flags), (CR::KIND_OCCUPATION, CR::FLAG_STAKE_TO_SRC));
+    let anyone = k.c.funded(b"cq-anyone", 1);
+    let ix = qix::settle_siege(&k.w.a, anyone.pubkey(), k.v.province, k.x.holding, nowhere("sc"), None, k.v.site);
+    let g0 = gold(&k.c, &k.x.holding);
+    let l = expect_lands(mc_send(&mut k.c, I2::SettleSiege, ix.clone(), &[&anyone]), "qix::settle_siege(");
+    assert!(gold(&k.c, &k.x.holding) >= g0 + 500_000);
+    assert_eq!(one(&l, CqKind::SIEGE_SETTLED).u8(0), settle_reason::TO_ATTACKER);
+    let r2 = k.w.cq_record(&k.c, &k.v.province, k.v.site);
+    assert_eq!((r2.kind, r2.flags, r2.bell), (CR::KIND_OCCUPATION, 0, r.bell));
+    assert_code(mc_send(&mut k.c, I2::SettleSiege, ix, &[&anyone]), E::AlreadyDone);
+}
+
+/// SettleSiege's refusals: a slot owed with no funder position
+/// (`TooManyAccounts`), a slot Citizen whose tag is not the record's actor
+/// (`BadAddress`), a funder that is not the escrow's (`BadAccount`), a
+/// recipient not at the owed key's address (`BadAddress`), a slot Citizen
+/// present when none is owed (`BadAccount`).
+#[test]
+fn g13_cq_settle_siege_refusals() {
+    let mut k = Cast::new();
+    declare_then(&mut k, 0, true);
+    let anyone = k.c.funded(b"cq-anyone", 1);
+    let send = |f: &mut Chain, ix: Instruction| mc_send(f, I2::SettleSiege, ix, &[&anyone]);
+    let mut ix = settle_siege_ix(&k, &anyone, k.o.holding, true);
+    ix.accounts.pop();
+    assert_code(send(&mut k.c.fork(), ix), E::TooManyAccounts);
+    let mut f = k.c.fork();
+    let y = k.w.cq_estate(&mut f, "y", 0, ring4(0, 1), 0);
+    let mut ix = settle_siege_ix(&k, &anyone, k.o.holding, true);
+    ix.accounts[qix::at::settle_siege::SLOT_CITIZEN].pubkey = y.citizen;
+    assert_code(send(&mut f, ix), E::BadAddress);
+    let mut ix = settle_siege_ix(&k, &anyone, k.o.holding, true);
+    ix.accounts[qix::at::settle_siege::FUNDER].pubkey = anyone.pubkey();
+    common_refused(send(&mut k.c.fork(), ix), &[E::BadAccount, E::BadAddress]);
+    let ix = settle_siege_ix(&k, &anyone, k.v.holding, true);
+    assert_code(send(&mut k.c.fork(), ix), E::BadAddress);
+    // Settled once; then the slot positions must be absent.
+    let ix = settle_siege_ix(&k, &anyone, k.o.holding, true);
+    expect_lands(send(&mut k.c, ix), "settle");
+    assert_code(send(&mut k.c.fork(), settle_siege_ix(&k, &anyone, k.o.holding, false)), E::AlreadyDone);
+}
+
+// ------------------------------------------------------------ FoldMarch
+
+/// A March around the outpost's Province: six of its seven members
+/// crafted as Provinces v2 opened at bell 12 and resolved (crafted, module
+/// note) through bell 36, so `snap[]` holds hours 2–6; the seventh member
+/// is absent. Returns `(m, n)`, the members and the absent one's index.
+fn march_world(k: &mut Cast) -> ((i32, i32), [Address; 7], usize) {
+    let (m, n) = frontier_abi::v2::addr::march_of(k.o.p as i32, k.o.q as i32);
+    let coords = frontier_abi::v2::addr::march_members(m, n);
+    let members = qix::march_members(&k.w.a, m, n);
+    let absent = coords
+        .iter()
+        .position(|&(p, q)| (p, q) != (k.o.p as i32, k.o.q as i32))
+        .expect("another member");
+    for (i, &(p, q)) in coords.iter().enumerate() {
+        if i == absent {
+            assert!(k.c.is_absent(&members[i]));
+            continue;
+        }
+        let pk = k.w.cq_province(&mut k.c, p as i16, q as i16);
+        k.c.edit(&pk, |d| d[P::OPENED_BELL..P::OPENED_BELL + 4].copy_from_slice(&12u32.to_le_bytes()));
+        k.w.set_resolved_next(&mut k.c, &pk, 12);
+        k.w.cq_resolve_quiet(&mut k.c, &pk, 12, 36);
+    }
+    ((m, n), members, absent)
+}
+
+fn fold_ix(w: &World, payer: &Keypair, mn: (i32, i32), hour: u32, count: u8) -> Instruction {
+    qix::fold_march(&w.a, payer.pubkey(), mn.0, mn.1, hour, count, payer.pubkey().to_bytes())
+}
+
+/// §3.10, §5.5 0xA5: the first fold creates the MarchState (`next_hour =
+/// ⌈min opened_bell / 6⌉`, rent from the fee payer, `rent_to` the fee
+/// payer) and folds `count` hours in order; the outpost's faction controls
+/// (strict majority), gets `dominion_per_hour` control-bells per hour; one
+/// MARCH_FOLD per hour chains the MarchState; out of order and too early
+/// wait; an absent member weighs 0.
+#[test]
+fn g13_cq_fold_march_folds_hours_in_order() {
+    let mut k = Cast::new();
+    let (mn, members, _) = march_world(&mut k);
+    let march = qix::march_address(&k.w.a, mn.0, mn.1);
+    let keeper = k.w.keeper.insecure_clone();
+    let k0 = k.c.lamports(&keeper.pubkey());
+    let l = expect_lands(mc_send(&mut k.c, I2::FoldMarch, fold_ix(&k.w, &keeper, mn, 2, 3), &[&keeper]), "fold_ix(");
+    common::assert_program_account(&k.c, &march, MS::MAGIC, MS::SIZE, k.w.id);
+    assert_eq!(k.c.lamports(&keeper.pubkey()) + l.fee, k0 - k.c.rent(MS::SIZE));
+    let md = k.c.data(&march);
+    assert_eq!(u32_at(&md, MS::NEXT_HOUR), 5);
+    assert_eq!(md[MS::CONTROLLER], 1);
+    assert_eq!(u32_at(&md, MS::dominion_bells(1)), 3 * MC_LOCAL_7D.cq.dominion_per_hour as u32);
+    assert_eq!(u32_at(&md, MS::control_hours(1)), 3);
+    assert!(u32_at(&md, MS::weight(1)) > 0);
+    assert_eq!(md[MS::RENT_TO..MS::RENT_TO + 32], keeper.pubkey().to_bytes());
+    let folds: Vec<R2> = recs(&l.logs)
+        .into_iter()
+        .filter(|r| r.kind == AnyKind::Cq(CqKind::MARCH_FOLD))
+        .collect();
+    assert_eq!(folds.len(), 3);
+    for (i, r) in folds.iter().enumerate() {
+        assert_eq!(u32::from_le_bytes(r.key[8..12].try_into().unwrap()), 2 + i as u32);
+        assert_eq!((r.u8(28), r.u8(30), r.u8(31)), (1, 1, 0), "controller, credit, lost");
+        assert_eq!(r.link(E2::MarchState)[0].seq, 1 + i as u64);
+    }
+    assert_eq!(head(&k.c, &march).0, 3);
+    // Out of order; too early (a member resolved only through 6h).
+    assert_cq(mc_send(&mut k.c.fork(), I2::FoldMarch, fold_ix(&k.w, &keeper, mn, 2, 1), &[&keeper]), Cq::FoldOutOfOrder);
+    let mut f = k.c.fork();
+    let present = members.iter().find(|a| !f.is_absent(a)).copied().unwrap();
+    k.w.set_resolved_next(&mut f, &present, 36);
+    assert_cq(mc_send(&mut f, I2::FoldMarch, fold_ix(&k.w, &keeper, mn, 5, 2), &[&keeper]), Cq::FoldTooEarly);
+    // count 0 or above 6; the last hour at or after end_bell.
+    assert_code(mc_send(&mut k.c.fork(), I2::FoldMarch, fold_ix(&k.w, &keeper, mn, 5, 0), &[&keeper]), E::BadData);
+    assert_code(mc_send(&mut k.c.fork(), I2::FoldMarch, fold_ix(&k.w, &keeper, mn, 5, 7), &[&keeper]), E::BadData);
+    let end = k.w.season_u32(&k.c, frontier_abi::layout::world::season::END_BELL);
+    assert_code(
+        mc_send(&mut k.c.fork(), I2::FoldMarch, fold_ix(&k.w, &keeper, mn, end / 6, 1), &[&keeper]),
+        E::WrongStatus,
+    );
+    // The next hours fold on.
+    expect_lands(mc_send(&mut k.c, I2::FoldMarch, fold_ix(&k.w, &keeper, mn, 5, 2), &[&keeper]), "fold_ix(");
+    assert_eq!(u32_at(&k.c.data(&march), MS::NEXT_HOUR), 7);
+}
+
+/// §3.10: a member whose ring slot already moved past the hour makes it
+/// lost: no credit, `lost_hours += 1`, the controller kept; the next hour
+/// folds normally (lag only waits or loses an hour, never blocks).
+#[test]
+fn g13_cq_fold_march_loses_an_overwritten_hour() {
+    let mut k = Cast::new();
+    let (mn, members, _) = march_world(&mut k);
+    let keeper = k.w.keeper.insecure_clone();
+    expect_lands(mc_send(&mut k.c, I2::FoldMarch, fold_ix(&k.w, &keeper, mn, 2, 1), &[&keeper]), "first fold");
+    let present = members.iter().find(|a| !k.c.is_absent(a)).copied().unwrap();
+    k.c.edit(&present, |d| {
+        let o = P::snap(3);
+        d[o..o + 4].copy_from_slice(&9u32.to_le_bytes())
+    });
+    let l = expect_lands(mc_send(&mut k.c, I2::FoldMarch, fold_ix(&k.w, &keeper, mn, 3, 2), &[&keeper]), "fold_ix(");
+    let folds: Vec<R2> = recs(&l.logs)
+        .into_iter()
+        .filter(|r| r.kind == AnyKind::Cq(CqKind::MARCH_FOLD))
+        .collect();
+    assert_eq!((folds[0].u8(30), folds[0].u8(31)), (MS::CONTROLLER_NONE, 1), "hour 3 lost");
+    assert_eq!((folds[1].u8(30), folds[1].u8(31)), (1, 0), "hour 4 credited");
+    let md = k.c.data(&qix::march_address(&k.w.a, mn.0, mn.1));
+    assert_eq!(u32_at(&md, MS::LOST_HOURS), 1);
+    assert_eq!(u32_at(&md, MS::control_hours(1)), 2);
+}
+
+/// G3 (§5.9): FoldMarch recomputes the March and its seven members: a
+/// forged member Province (another province's, or a crafted lookalike at
+/// the right position's wrong address) and a forged MarchState address
+/// are refused.
+#[test]
+fn g03_cq_fold_march_forged_members_and_march() {
+    let mut k = Cast::new();
+    let (mn, _, absent) = march_world(&mut k);
+    let keeper = k.w.keeper.insecure_clone();
+    let mut ix = fold_ix(&k.w, &keeper, mn, 2, 1);
+    // A present v2 Province of another March in place of the absent member.
+    ix.accounts[qix::at::fold::MEMBER0 + absent].pubkey = k.x.province;
+    assert_code(mc_send(&mut k.c.fork(), I2::FoldMarch, ix, &[&keeper]), E::BadAddress);
+    let mut ix = fold_ix(&k.w, &keeper, mn, 2, 1);
+    ix.accounts.swap(qix::at::fold::MEMBER0, qix::at::fold::MEMBER0 + 1);
+    assert_code(mc_send(&mut k.c.fork(), I2::FoldMarch, ix, &[&keeper]), E::BadAddress);
+    let mut ix = fold_ix(&k.w, &keeper, mn, 2, 1);
+    ix.accounts[qix::at::fold::MARCH].pubkey = qix::march_address(&k.w.a, mn.0 + 1, mn.1);
+    assert_code(mc_send(&mut k.c.fork(), I2::FoldMarch, ix, &[&keeper]), E::BadAddress);
+}
+
+/// G2 (§13.2): the MarchState is created pre-funding-safe: pre-funded with
+/// 1 lamport, its rent or 10× its rent, the first fold still creates it
+/// and the fee payer pays only the shortfall.
+#[test]
+fn g02_cq_fold_march_prefunded_march_state() {
+    let mut k = Cast::new();
+    let (mn, _, _) = march_world(&mut k);
+    let march = qix::march_address(&k.w.a, mn.0, mn.1);
+    let keeper = k.w.keeper.insecure_clone();
+    let rent = k.c.rent(MS::SIZE);
+    for pre in common::prefunds(rent) {
+        let mut f = k.c.fork();
+        f.prefund(&march, pre);
+        let k0 = f.lamports(&keeper.pubkey());
+        let l = expect_lands(mc_send(&mut f, I2::FoldMarch, fold_ix(&k.w, &keeper, mn, 2, 1), &[&keeper]), "prefunded fold");
+        common::assert_program_account(&f, &march, MS::MAGIC, MS::SIZE, k.w.id);
+        let paid = k0 - f.lamports(&keeper.pubkey()) - l.fee;
+        common::assert_shortfall_only("MarchState", paid, pre, rent, 0);
+    }
+}
+
+/// CloseMarch (N, §5.5 0xA7): refused before `end + 72 h` (`TooEarly`) and
+/// to another `rent_to` (`BadAccount`); then closes the MarchState to its
+/// `rent_to` with a CLOSE record.
+#[test]
+fn g13_cq_close_march_after_the_grace() {
+    let mut k = Cast::new();
+    let (mn, _, _) = march_world(&mut k);
+    let keeper = k.w.keeper.insecure_clone();
+    expect_lands(mc_send(&mut k.c, I2::FoldMarch, fold_ix(&k.w, &keeper, mn, 2, 1), &[&keeper]), "fold");
+    let march = qix::march_address(&k.w.a, mn.0, mn.1);
+    let anyone = k.c.funded(b"cq-anyone", 1);
+    let close = |rent_to: Address| qix::close_march(&k.w.a, anyone.pubkey(), mn.0, mn.1, rent_to);
+    assert_code(mc_send(&mut k.c.fork(), I2::CloseMarch, close(keeper.pubkey()), &[&anyone]), E::WrongStatus);
+    // EndSeason (crafted status, as `world::land` does).
+    k.w.craft_status(&mut k.c, frontier_abi::layout::world::season::STATUS_ENDED);
+    let end_ts = k.w.end_ts();
+    k.c.set_time(end_ts + 72 * 3_600 - 10);
+    assert_code(mc_send(&mut k.c.fork(), I2::CloseMarch, close(keeper.pubkey()), &[&anyone]), E::TooEarly);
+    k.c.set_time(end_ts + 72 * 3_600);
+    assert_code(mc_send(&mut k.c.fork(), I2::CloseMarch, close(anyone.pubkey()), &[&anyone]), E::BadAccount);
+    let lam = k.c.lamports(&march);
+    let k0 = k.c.lamports(&keeper.pubkey());
+    let l = expect_lands(mc_send(&mut k.c, I2::CloseMarch, close(keeper.pubkey()), &[&anyone]), "close(");
+    assert!(k.c.is_absent(&march));
+    assert_eq!(k.c.lamports(&keeper.pubkey()), k0 + lam);
+    let r: Vec<R2> = recs(&l.logs);
+    assert_eq!(r.len(), 1);
+    assert_eq!(r[0].kind, AnyKind::V1(frontier_abi::log::Kind::CLOSE));
+}
+
+// ------------------------------------------------------------ RetireHost
+
+/// The cast after X captured V's outpost (SettleCapture through the
+/// program); V's host issued by the outpost (generation 1) stands in V's
+/// home Province at entry 5. Returns the host id.
+fn captured_with_victim_host(k: &mut Cast) -> u64 {
+    let id = k.w.craft_host(&mut k.c, &k.o, &k.v.province, 5, 3, 0, 700, k.v.tile);
+    complete_capture(k);
+    let anyone = k.c.funded(b"cq-capturer", 1);
+    let ix = capture_ix(k, &anyone);
+    expect_lands(mc_send(&mut k.c, I2::SettleCapture, ix, &[&anyone]), "SettleCapture");
+    id
+}
+
+/// RetireHost of entry `entry` in `province` signed by `actor` (payer too),
+/// naming `victim` as the victim Citizen.
+fn retire_ix(k: &Cast, actor: &Keypair, victim: Address, province: Address, entry: u8) -> Instruction {
+    qix::retire_host(&k.w.a, actor.pubkey(), actor.pubkey(), victim, province, k.o.holding, k.v.holding, entry)
+}
+
+/// The return settle (SettleDeparture, `transit_slot = 0xFF`) of `province`
+/// to `holding`.
+fn return_ix(k: &Cast, province: Address, holding: Address) -> Instruction {
+    qix::settle_return(&k.w.a, k.w.keeper.pubkey(), province, holding)
+}
+
+/// K-27, §5.5 0xA6, P7, P11: during the season only the victim (its wallet)
+/// retires a host of the captured Holding's previous generation: a pending
+/// retire-style Leave at the current bell bound to `prev_home` (RETIRE, by
+/// 0); after that bell's resolve the return settle credits the troops to
+/// `prev_home`'s reserve, never to the captured Holding; the captor cannot
+/// command the host and no third party can retire or disband it.
+#[test]
+fn p_cq_p7_p11_retire_host_by_the_victim_returns_to_prev_home() {
+    let mut k = Cast::new();
+    let id = captured_with_victim_host(&mut k);
+    let b = k.w.bell(&k.c);
+    k.w.set_resolved_next(&mut k.c, &k.v.province, b);
+    // P7: the captor cannot command it (its holding's generation moved).
+    let xo = permutation_frontier_svm_tests::world::conquest::estate_view(
+        &k.x,
+        &k.o.holding,
+        &k.o.province,
+        (k.o.p, k.o.q, k.o.site),
+        2,
+        k.o.tile,
+    );
+    let dis = permutation_frontier_svm_tests::chain::with_account(
+        fclient::ix::dissolve(&k.w.a, &xo.player(), xo.href(), id),
+        5,
+        k.v.province,
+    );
+    assert_code(k.c.fork().send(&[dis], &[&k.x.wallet]), E::NotOwner);
+    // P11: a third party is NotLead (its own Citizen) during the season.
+    assert_cq(
+        mc_send(&mut k.c.fork(), I2::RetireHost, retire_ix(&k, &k.x.wallet, k.x.citizen, k.v.province, 5), &[&k.x.wallet]),
+        Cq::NotLead,
+    );
+    // ... and cannot sign for the victim.
+    let other = k.c.funded(b"cq-other", 1);
+    assert_code(
+        mc_send(&mut k.c.fork(), I2::RetireHost, retire_ix(&k, &other, k.v.citizen, k.v.province, 5), &[&other]),
+        E::Auth,
+    );
+    // ... nor disband it (retire_hosts = 1, K-27).
+    let dsb = fclient::ix::disband_stranded(&k.w.a, other.pubkey(), k.v.p, k.v.q, 5, id);
+    assert_code(k.c.fork().send(&[dsb], &[&other]), E::NotDormant);
+    // The victim retires it.
+    let hp = head(&k.c, &k.v.province);
+    let ix = retire_ix(&k, &k.v.wallet, k.v.citizen, k.v.province, 5);
+    let l = expect_lands(mc_send(&mut k.c, I2::RetireHost, ix.clone(), &[&k.v.wallet]), "retire_ix(");
+    let pd = k.c.data(&k.v.province);
+    let en = entry_at(&pd, 5);
+    assert_eq!(en.id, id);
+    assert!(matches!(en.op, frontier_abi::entry::EntryOp::Leave));
+    assert_eq!(en.pend_bell, b);
+    assert!(frontier_abi::v2::entry::is_retire(&pd, 5));
+    let r = one(&l, CqKind::RETIRE);
+    assert_eq!(u64::from_le_bytes(r.key[..8].try_into().unwrap()), id);
+    assert_eq!((r.u32(0), r.u64(4), r.u8(12)), (700_000, hkey(&k.v), retire_by::VICTIM));
+    chained(&k.c, &k.v.province, hp, &r, E2::Province);
+    // A second call finds the host busy.
+    assert_code(mc_send(&mut k.c.fork(), I2::RetireHost, ix, &[&k.v.wallet]), E::HostBusy);
+    // The bell's resolve (crafted) moves it out; the return settle to the
+    // captured Holding finds nothing; to prev_home it credits 700 troops.
+    k.w.cq_resolve(&mut k.c, &k.v.province, b, None);
+    assert_eq!(entry_at(&k.c.data(&k.v.province), 5).state, frontier_abi::layout::province::entry::STATE_DEPARTED);
+    assert_code(k.c.fork().send(&[return_ix(&k, k.v.province, k.o.holding)], &[&k.w.keeper]), E::AlreadyDone);
+    let r0 = u32_at(&k.c.data(&k.v.holding), H::reserve(0));
+    expect_lands(k.c.send(&[return_ix(&k, k.v.province, k.v.holding)], &[&k.w.keeper]), "return to prev_home");
+    assert_eq!(u32_at(&k.c.data(&k.v.holding), H::reserve(0)), r0 + 700);
+    assert!(entry_of(&k.c.data(&k.v.province), id).is_none());
+}
+
+/// D-6: a Leave of the previous generation already out of the roster
+/// (Dissolved before the capture) waits for its victim — the return
+/// settle neither credits the captured Holding nor strands it — until
+/// RetireHost binds it to `prev_home`.
+#[test]
+fn g13_cq_retire_host_binds_a_departed_leave() {
+    let mut k = Cast::new();
+    let id = k.w.craft_host(&mut k.c, &k.o, &k.v.province, 5, 3, 0, 700, k.v.tile);
+    let b = k.w.bell(&k.c);
+    k.w.set_resolved_next(&mut k.c, &k.v.province, b);
+    let dis = permutation_frontier_svm_tests::chain::with_account(
+        fclient::ix::dissolve(&k.w.a, &k.o.player(), k.o.href(), id),
+        5,
+        k.v.province,
+    );
+    expect_lands(k.c.send(&[dis], &[&k.v.wallet]), "Dissolve before the capture");
+    k.w.cq_resolve(&mut k.c, &k.v.province, b, None);
+    unshield(&mut k.c, &k.o.holding);
+    complete_capture(&mut k);
+    let anyone = k.c.funded(b"cq-capturer", 1);
+    let ix = capture_ix(&k, &anyone);
+    expect_lands(mc_send(&mut k.c, I2::SettleCapture, ix, &[&anyone]), "SettleCapture");
+    // Waiting: no third party strands it, the captured Holding gets nothing.
+    assert_code(k.c.fork().send(&[return_ix(&k, k.v.province, k.o.holding)], &[&k.w.keeper]), E::AlreadyDone);
+    assert_code(k.c.fork().send(&[return_ix(&k, k.v.province, k.v.holding)], &[&k.w.keeper]), E::AlreadyDone);
+    let ix = retire_ix(&k, &k.v.wallet, k.v.citizen, k.v.province, 5);
+    let l = expect_lands(mc_send(&mut k.c, I2::RetireHost, ix, &[&k.v.wallet]), "retire_ix(");
+    one(&l, CqKind::RETIRE);
+    assert_code(
+        mc_send(&mut k.c.fork(), I2::RetireHost, retire_ix(&k, &k.v.wallet, k.v.citizen, k.v.province, 5), &[&k.v.wallet]),
+        E::AlreadyDone,
+    );
+    let r0 = u32_at(&k.c.data(&k.v.holding), H::reserve(0));
+    expect_lands(k.c.send(&[return_ix(&k, k.v.province, k.v.holding)], &[&k.w.keeper]), "bound return");
+    assert_eq!(u32_at(&k.c.data(&k.v.holding), H::reserve(0)), r0 + 700);
+}
+
+/// K-27: after `end_bell` anyone retires a previous-generation host, once
+/// its Province resolved every bell of the season (D-5): it leaves at once
+/// (state departed, RETIRE by 1) and the return settle credits `prev_home`.
+#[test]
+fn g13_cq_retire_host_after_the_end_by_anyone() {
+    let mut k = Cast::new();
+    let id = captured_with_victim_host(&mut k);
+    let end = k.w.season_u32(&k.c, frontier_abi::layout::world::season::END_BELL);
+    k.w.to_bell(&mut k.c, end + 1, 5);
+    let other = k.c.funded(b"cq-other", 1);
+    let ix = retire_ix(&k, &other, nowhere("victim"), k.v.province, 5);
+    k.w.set_resolved_next(&mut k.c, &k.v.province, end - 1);
+    assert_code(mc_send(&mut k.c.fork(), I2::RetireHost, ix.clone(), &[&other]), E::TooEarly);
+    k.w.set_resolved_next(&mut k.c, &k.v.province, end);
+    let l = expect_lands(mc_send(&mut k.c, I2::RetireHost, ix, &[&other]), "retire after the end");
+    assert_eq!(one(&l, CqKind::RETIRE).u8(12), retire_by::AFTER_END);
+    let en = entry_at(&k.c.data(&k.v.province), 5);
+    assert_eq!((en.id, en.state), (id, frontier_abi::layout::province::entry::STATE_DEPARTED));
+    let r0 = u32_at(&k.c.data(&k.v.holding), H::reserve(0));
+    expect_lands(k.c.send(&[return_ix(&k, k.v.province, k.v.holding)], &[&k.w.keeper]), "return");
+    assert_eq!(u32_at(&k.c.data(&k.v.holding), H::reserve(0)), r0 + 700);
+}
+
+/// RetireHost's refusals: `retire_hosts = 0` (`WrongStatus`), a Holding
+/// never captured (`NotLead`: no victim), an entry of its current
+/// generation (`NotOwner`), a
+/// home that is not `prev_home` (`BadAddress`), a Province behind
+/// (`NotResident`), a free entry (`NotOwner`) and one out of range
+/// (`BadData`).
+#[test]
+fn g13_cq_retire_host_refusals() {
+    let mut k = Cast::new();
+    captured_with_victim_host(&mut k);
+    let b = k.w.bell(&k.c);
+    k.w.set_resolved_next(&mut k.c, &k.v.province, b);
+    let send = |f: &mut Chain, ix: Instruction| mc_send(f, I2::RetireHost, ix, &[&k.v.wallet]);
+    let ok = retire_ix(&k, &k.v.wallet, k.v.citizen, k.v.province, 5);
+    let mut f = k.c.fork();
+    let mut p0 = MC_LOCAL_7D.cq;
+    p0.retire_hosts = 0;
+    k.w.cq_set_params(&mut f, &p0);
+    assert_code(send(&mut f, ok.clone()), E::WrongStatus);
+    // The captured position given V's home (never captured: no previous
+    // owner, so V is not its victim).
+    let mut ix = ok.clone();
+    ix.accounts[qix::at::retire::CAPTURED].pubkey = k.v.holding;
+    assert_cq(send(&mut k.c.fork(), ix), Cq::NotLead);
+    // An entry of the current generation (the captor's own host).
+    let mut f = k.c.fork();
+    let xo = permutation_frontier_svm_tests::world::conquest::estate_view(
+        &k.x, &k.o.holding, &k.o.province, (k.o.p, k.o.q, k.o.site), 2, k.o.tile,
+    );
+    k.w.craft_host(&mut f, &xo, &k.v.province, 6, 0, 0, 200, k.v.tile);
+    assert_code(send(&mut f, retire_ix(&k, &k.v.wallet, k.v.citizen, k.v.province, 6)), E::NotOwner);
+    // Another home.
+    let mut ix = ok.clone();
+    ix.accounts[qix::at::retire::HOME].pubkey = k.x.holding;
+    assert_code(send(&mut k.c.fork(), ix), E::BadAddress);
+    // Behind; an empty entry.
+    let mut f = k.c.fork();
+    k.w.set_resolved_next(&mut f, &k.v.province, b - 2);
+    assert_code(send(&mut f, ok.clone()), E::NotResident);
+    assert_code(send(&mut k.c.fork(), retire_ix(&k, &k.v.wallet, k.v.citizen, k.v.province, 30)), E::NotOwner);
+    assert_code(send(&mut k.c.fork(), retire_ix(&k, &k.v.wallet, k.v.citizen, k.v.province, 200)), E::BadData);
+}
