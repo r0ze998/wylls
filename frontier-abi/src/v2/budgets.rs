@@ -182,6 +182,9 @@ pub fn loaded_accounts(ix: Ix) -> (u32, u8) {
     (bytes, n.min(u8::MAX as u32) as u8)
 }
 
+/// The Wave-2 release `.so` (1,132,312 B, `max_len` 1,417,216) fits the table.
+const _: () = assert!(1_417_216 <= PLACEHOLDER_PROGRAMDATA_LEN_V2);
+
 /// Loaded-data need of `ix`'s worst v2 set at a programdata length.
 pub fn loaded_need(ix: Ix, programdata_len: u32) -> u64 {
     let (bytes, n) = loaded_accounts(ix);
@@ -260,8 +263,6 @@ mod tests {
             assert!(skip_gate(n, n) <= budget(Ix::SkipQuiet).cu_limit);
         }
         assert_eq!(PLACEHOLDER_PROGRAMDATA_LEN_V2, 1_474_560);
-        // the Wave-2 release `.so` (1,132,312 B, max_len 1,417,216) fits it
-        assert!(1_417_216 <= PLACEHOLDER_PROGRAMDATA_LEN_V2);
         // an MC Province loads 640 B more than an M1 one
         let v1 = crate::budgets::loaded_accounts(crate::tags::Ix::ResolveFromInputs).0;
         assert_eq!(loaded_accounts(Ix::ResolveFromInputs).0, v1 + 640);
