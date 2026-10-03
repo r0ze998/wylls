@@ -185,8 +185,15 @@ jobs:
             target
             permutation-frontier/svm-tests/target
           key: frontier-program-${{ hashFiles('Cargo.lock', 'permutation-frontier/svm-tests/Cargo.lock', '**/rust-toolchain.toml') }}
+      # The owner-approved rename (docs/frontier/DECISIONS.md V1) legitimately
+      # changed one comment in permutation-chain/src/lib.rs and the key-backup
+      # header in permutation-server/web/session.mjs (commit 8c1b5ea), so the
+      # pinned base for "untouched" is that commit, not d95fa25. The script
+      # also guards that sessionText() and every domain/seed literal
+      # ("PS/...", "permutation-state/...", "PSF-...") are unchanged since
+      # d95fa25. Needs the full history (fetch-depth 0 above).
       - name: v9 files the Frontier must not touch (session text, v9 program)
-        run: git diff --quiet d95fa25 -- permutation-server/web/session.mjs permutation-chain/src
+        run: scripts/check-v9-frozen.sh
       - name: Format (root workspace)
         run: cargo fmt --all -- --check
       - name: Rules lints
