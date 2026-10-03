@@ -424,16 +424,13 @@ impl Addresses {
     /// season-wide address would make every placeholder-using settle of
     /// every Province contend for the same lock, which a third party could
     /// hold with cheap transactions (§5.9 "no new hot global writer"; a
-    /// Province lock is priced per Province). Seed `zz‖hex(n)‖hex(le16 p
-    /// ‖ le16 q ‖ site)` (13 B), still a tag outside §4.1's table; the
-    /// program checks only `System`-owned with no data, so which address a
-    /// client picks is its own business.
+    /// Province lock is priced per Province). Seed `zz‖hex(n)‖hex(p as
+    /// u16)‖hex(q as u16)‖hex(site)` (14 B of hex text, like every other seed), still a
+    /// tag outside §4.1's table; the program checks only `System`-owned
+    /// with no data, so which address a client picks is its own business.
     pub fn absent_at(&self, n: u8, p: i16, q: i16, site: u8) -> Address {
-        let mut s = format!("zz{n:02x}").into_bytes();
-        s.extend_from_slice(&p.to_le_bytes());
-        s.extend_from_slice(&q.to_le_bytes());
-        s.push(site);
-        with_seed(&self.season, &s, &self.program)
+        let s = format!("zz{n:02x}{:04x}{:04x}{site:02x}", p as u16, q as u16);
+        with_seed(&self.season, s.as_bytes(), &self.program)
     }
     /// The Holding a host-id-form key names (`index<<44 | site<<40 |
     /// gen<<32`, the conquest record's `src`, CAPTURE_SETTLED's keys):
