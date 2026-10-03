@@ -1,0 +1,294 @@
+{
+  "v": 1,
+  "captured_at": "2026-10-03T23:45:43.622Z",
+  "source": {
+    "herald": "http://127.0.0.1:41040",
+    "kind": "paused m1-exit herald of the owner (local test chain, M1 rule bots; not devnet, not mainnet)",
+    "season": "7",
+    "program": "9U2LmkyRveBwApBMRrx5SjBMwPFTdciS2xPaL3J1YHb7",
+    "season_address": "HJHRKfP8QQ8BcRqXLJufChLTmPvUNU7uHYi4spsXxvqq",
+    "bell_secs": 600,
+    "status": {
+      "alarms": {
+        "badRecords": 0,
+        "clashMismatch": 0,
+        "clashUnchecked": 0,
+        "rewrites": 0,
+        "writeErrors": 0
+      },
+      "events": "171028",
+      "foldedThrough": 144300,
+      "lastSlot": 77679,
+      "live": [
+        77751,
+        1789706728
+      ],
+      "provinces": 169,
+      "rings": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "v": 1,
+      "ws": {
+        "droppedSlow": 0,
+        "open": 0,
+        "total": 0
+      }
+    }
+  },
+  "method": "read-only GET; rows and files are verbatim; ai-herald-events.json is an excerpt (rows chosen by ai-herald-capture.mjs, one sample row of every kind present)",
+  "events": {
+    "crawled": 171028,
+    "kinds": {
+      "ANNOUNCE": 1,
+      "SEASON_CREATED": 1,
+      "GENESIS_SEED": 1,
+      "RING_OPEN": 8,
+      "PROVINCE_OPEN": 169,
+      "FOLD": 2281,
+      "BEACON": 16640,
+      "JOIN": 1000,
+      "ANCHOR": 16128,
+      "TICKET": 1006,
+      "SEED": 16208,
+      "SETTLE": 1055,
+      "HARVEST": 3342,
+      "TRAIN": 2135,
+      "BUILD": 6751,
+      "SKIP": 9156,
+      "HOLDING_FINAL": 564,
+      "MUSTER": 1611,
+      "EXPLORE": 1087,
+      "EXPLORE_RESULT": 1087,
+      "DEPART": 1712,
+      "DEPARTURE_SETTLED": 1867,
+      "RING_SEED": 4,
+      "REVEAL": 1694,
+      "GATHER": 23339,
+      "CLASH": 21674,
+      "DIVERT": 3391,
+      "TRANSIT_SETTLED": 1712,
+      "POOL_SWEEP": 1702,
+      "CAMP": 858,
+      "CLOSE": 22667,
+      "ARCHIVE": 10176,
+      "SEASON_STATUS": 1
+    },
+    "excerpt_rows": 565,
+    "excerpt_first_seq": "1",
+    "excerpt_last_seq": "168923"
+  },
+  "cases": [
+    {
+      "id": "camp_single",
+      "p": 1,
+      "q": -3,
+      "cb": 43,
+      "why": "one army against the camp (a CAMP row follows); the first engaged clash of the run",
+      "clash_path": "/h/clash/1,-3/43",
+      "engaged": 1,
+      "fighters": 6,
+      "reveals": [
+        "3210"
+      ],
+      "departs": [
+        "2925"
+      ],
+      "depart_bell": 39,
+      "province_files": [
+        "1,-3/42",
+        "1,-3/43",
+        "1,-3/44",
+        "1,-3/39"
+      ]
+    },
+    {
+      "id": "arrival_bounced",
+      "p": 2,
+      "q": -3,
+      "cb": 41,
+      "why": "an arrival that did not engage (Retreated fate, engagements 0); the residents are listed too",
+      "clash_path": "/h/clash/2,-3/41",
+      "engaged": 0,
+      "fighters": 6,
+      "reveals": [
+        "3148"
+      ],
+      "departs": [
+        "2749"
+      ],
+      "depart_bell": 37,
+      "province_files": [
+        "2,-3/40",
+        "2,-3/41",
+        "2,-3/42",
+        "2,-3/37"
+      ]
+    },
+    {
+      "id": "camp_race",
+      "p": 1,
+      "q": 4,
+      "cb": 304,
+      "why": "two arrivals of different nations on the camp tile (stance 3)",
+      "clash_path": "/h/clash/1,4/304",
+      "engaged": 2,
+      "fighters": 8,
+      "reveals": [
+        "28134",
+        "28169"
+      ],
+      "departs": [
+        "27607",
+        "27442"
+      ],
+      "depart_bell": 299,
+      "province_files": [
+        "1,4/303",
+        "1,4/304",
+        "1,4/305",
+        "1,4/300",
+        "1,4/299"
+      ]
+    },
+    {
+      "id": "village_attack",
+      "p": 1,
+      "q": 4,
+      "cb": 387,
+      "why": "an arrival fights a resident army on a village tile (hostile-act shape); bell 388 is a second clash in the same province",
+      "clash_path": "/h/clash/1,4/387",
+      "engaged": 2,
+      "fighters": 9,
+      "reveals": [
+        "42170"
+      ],
+      "departs": [
+        "41614"
+      ],
+      "depart_bell": 383,
+      "province_files": [
+        "1,4/386",
+        "1,4/387",
+        "1,4/388",
+        "1,4/383"
+      ]
+    },
+    {
+      "id": "village_attack_2",
+      "p": 1,
+      "q": 4,
+      "cb": 388,
+      "why": "second consecutive clash of the same province",
+      "clash_path": "/h/clash/1,4/388",
+      "engaged": 2,
+      "fighters": 8,
+      "reveals": [
+        "42347"
+      ],
+      "departs": [
+        "41778"
+      ],
+      "depart_bell": 384,
+      "province_files": [
+        "1,4/387",
+        "1,4/388",
+        "1,4/389",
+        "1,4/384"
+      ]
+    },
+    {
+      "id": "residents_only",
+      "p": 1,
+      "q": 4,
+      "cb": 405,
+      "why": "two resident armies of different nations engage with no arrival",
+      "clash_path": "/h/clash/1,4/405",
+      "engaged": 2,
+      "fighters": 9,
+      "reveals": [],
+      "departs": [],
+      "depart_bell": null,
+      "province_files": [
+        "1,4/404",
+        "1,4/405",
+        "1,4/406"
+      ]
+    },
+    {
+      "id": "multi_party",
+      "p": -5,
+      "q": 6,
+      "cb": 815,
+      "why": "three owners engaged, no arrival",
+      "clash_path": "/h/clash/-5,6/815",
+      "engaged": 3,
+      "fighters": 10,
+      "reveals": [],
+      "departs": [],
+      "depart_bell": null,
+      "province_files": [
+        "-5,6/814",
+        "-5,6/815",
+        "-5,6/816"
+      ]
+    }
+  ],
+  "me": [
+    {
+      "label": "attacker",
+      "wallet": "3VeGP7eLiubjZFSNAW6RTHHx2pPQ45LxpGXL3P8G5sZB",
+      "tag": "11188506446095105215",
+      "host": "730080015810565",
+      "file": "ai-herald-me-attacker.json"
+    },
+    {
+      "label": "defender",
+      "wallet": "7rRhUR87LAJHTnHoFyYzWt7kzTq4nmhnBVyXS6BoGDzg",
+      "tag": "11898493505901884854",
+      "host": "1150093457620992",
+      "file": "ai-herald-me-defender.json"
+    }
+  ],
+  "rosters": {
+    "ai-herald-roster-synthetic-3.bin": {
+      "synthetic": true,
+      "why": "GET /h/roster/3/latest.bin answered 404 NotFound on the paused herald (its binary predates the route)",
+      "layout": "frontier-node/crates/herald/src/roster.rs",
+      "owner": "SETTLE.citizen_tag (outcome 0/1)",
+      "founded_bell": "floor((SETTLE.final_ts - genesis_ts)/600)",
+      "tier": 0,
+      "header_bell": 0
+    },
+    "ai-herald-roster-synthetic-5.bin": {
+      "synthetic": true,
+      "why": "GET /h/roster/5/latest.bin answered 404 NotFound on the paused herald (its binary predates the route)",
+      "layout": "frontier-node/crates/herald/src/roster.rs",
+      "owner": "SETTLE.citizen_tag (outcome 0/1)",
+      "founded_bell": "floor((SETTLE.final_ts - genesis_ts)/600)",
+      "tier": 0,
+      "header_bell": 0
+    },
+    "ai-herald-roster-synthetic-6.bin": {
+      "synthetic": true,
+      "why": "GET /h/roster/6/latest.bin answered 404 NotFound on the paused herald (its binary predates the route)",
+      "layout": "frontier-node/crates/herald/src/roster.rs",
+      "owner": "SETTLE.citizen_tag (outcome 0/1)",
+      "founded_bell": "floor((SETTLE.final_ts - genesis_ts)/600)",
+      "tier": 0,
+      "header_bell": 0
+    }
+  },
+  "unrevealed_depart": {
+    "seq": "13555",
+    "host_id": "357345573994499",
+    "arrive_bell": 165,
+    "count_in_capture": 18
+  }
+}
