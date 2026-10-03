@@ -78,6 +78,19 @@ pub async fn get_with_headers(url: &str, headers: &[(&str, &str)]) -> Result<Res
         .map_err(|_| PortError::Io(format!("timeout: GET {url}")))?
 }
 
+/// Any method with extra request headers (PT-A: the operator routes of the
+/// relay take a bearer token; names and values as `get_with_headers`).
+pub async fn request_with_headers(
+    method: &str,
+    url: &str,
+    body: Option<Vec<u8>>,
+    headers: &[(&str, &str)],
+) -> Result<Response, PortError> {
+    tokio::time::timeout(TIMEOUT, request_inner(method, url, body, headers))
+        .await
+        .map_err(|_| PortError::Io(format!("timeout: {method} {url}")))?
+}
+
 async fn request_inner(
     method: &str,
     url: &str,

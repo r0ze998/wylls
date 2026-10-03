@@ -1,0 +1,85 @@
+# PT-A: the friends' playtest stack. Local chain only (frontier-localnet),
+# the REAL clock (scale 1), about 4 days unattended on one Mac, nothing real
+# at stake. Start it with scripts/playtest-up.sh (which reads this file),
+# never by hand: the launcher also sets up the data directories, the
+# supervisor that restarts it, the monitor and the backups.
+#
+# What it is:
+#  * the 7-day preset M1_LOCAL_7D with the relay's invite gate in
+#    `join_gate` (the M1_PLAYTEST preset, I-51): joins close at bell 756
+#    (day 5.25), the season ends at bell 1,008 (day 7); the playtest stops
+#    by hand after about 4 days, so the season is never ended;
+#  * the release .so, pinned by sha256 (d85e1bd7..., the M1 exit build:
+#    rebuilt from this tree it is bit-identical), and REAL historical drand
+#    quicknet rounds replayed from the approved archive (G0 1788998400,
+#    8.5 game days of rounds: the run needs 1 lead day + 4 played days, and
+#    the stack refuses to start unless the archive covers all 7 + the drain);
+#  * 60 rule bots at the profile's own pace (13 personas are off below 100
+#    bots), ten percent of a friends' world is people, the rest is not empty;
+#  * keepers A (every role) and B (the public profile), 150 reveal / 32 delay
+#    payers and 4 funders each, with the G8 small-season floors of
+#    PLAYTEST-RUNBOOK section 4 (r99_reveals 150, delay_floor 0.05 SOL);
+#  * no chaos, no adversary, no viewers: the real world supplies its own.
+#
+# Ports: 41100-41139 only, and only the herald (41117) is ever exposed.
+#   localnet 41112 (ws 41113), drand-replay 41114, relay operator 41115 /
+#   public 41116, herald 41117, keeper A 41118, keeper B 41119, bots 41122,
+#   viewers 41123 (unused). Clear of the rehearsal's own layout (41100-41135).
+run_id = "playtest-1"
+mode = "accel"
+beacon = "archive"
+scale = 1
+preseason_scale = 2000
+days = 7
+drain_bells = 26
+bots = 60
+bot_seed = 11
+season_id = 7
+base_port = 41100
+g0 = 1788998400
+keeper_b_backup_delay_slots = 8
+
+[ports]
+localnet = 12
+localnet_ws = 13
+drand = 14
+relay_operator = 15
+relay_public = 16
+herald = 17
+keeper_a = 18
+keeper_b = 19
+bots = 22
+viewers = 23
+
+# Everything below is relative to the repository root (the worktree), so
+# `../../data` is `.claude/data`, outside git.
+[paths]
+archive = "../../data/drand-archive-quicknet-g0-1788998400"
+so_sha256 = "d85e1bd74e29dc361925306839f4ea3bd10b709302e9e6cd9ee2b517aa3f2281"
+runs = "../../data/playtest/runs"
+
+[playtest]
+# gate.key and invite.secret (mode 0600 in a 0700 directory), created on the
+# first start, never printed, never in git.
+secrets_dir = "../../data/playtest/secrets"
+event_log = true
+
+[pools]
+beneficiary_lamports = 1000000000
+# The band of the G8 floors: reveal payers start in the middle of
+# [7.97M, 15.9M] lamports, delay payers in [50M, 100M].
+reveal_payer_lamports = 12000000
+delay_payer_lamports = 75000000
+
+[keepers]
+r99_reveals = 150
+delay_floor = 50000000
+
+[chaos]
+enabled = false
+
+[adversary]
+enabled = false
+
+[viewers]
+count = 0

@@ -9,7 +9,8 @@
 //! | [`procs`] | component processes (own process group, logs, signals) |
 //! | [`chain`] | `frontier-localnet` over JSON-RPC (status, scale, pause, holds, operator txs) |
 //! | [`setup`] | AnnounceSeason → the pre-season at scale 2,000 → CreateSeason, logs, shards |
-//! | [`up`] | the start order and the supervisor; `down` |
+//! | [`up`] | the start order and the supervisor; `resume` (PT-A); `down` |
+//! | [`playtest`] | PT-A: the gated season, the bots' invites, the relay event log |
 //! | [`chaos`] | the kill -9 schedule |
 //! | [`adversary`] | the `frontier_hold` schedule |
 //! | [`verifyrun`] | `verify` and `tamper` on a run |
@@ -21,6 +22,7 @@ pub mod chain;
 pub mod chaos;
 pub mod config;
 pub mod load;
+pub mod playtest;
 pub mod ports;
 pub mod procs;
 pub mod report;

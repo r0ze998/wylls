@@ -8,6 +8,7 @@
 //!                   [--viewer-window-hours H] [--archive DIR] [--g0 UNIX] [--so PATH]
 //!                   [--seed N] [--drain-scale S] [--expect-so-sha256 HEX] [--[no-]eager-bots] [--keep-running]
 //!                   [--season-end-at-play-end] [--chaos-force herald:H ...] [--viewer-think-ms MS] ...
+//! frontier-stack resume --config FILE [--run-id ID]   (after a dead supervisor: same run, same season)
 //! frontier-stack verify --run-id ID
 //! frontier-stack tamper --run-id ID [--strict]
 //! frontier-stack load   --run-id ID [--viewers 5000] [--game-hours 1]
@@ -30,7 +31,7 @@ fn usage() -> ! {
         include_str!("main.rs")
             .lines()
             .skip(3)
-            .take(14)
+            .take(15)
             .map(|l| l.trim_start_matches("//! "))
             .collect::<Vec<_>>()
             .join("\n")
@@ -151,6 +152,18 @@ fn main() {
                 .collect();
             config::apply_flags(&mut c, &rest).unwrap_or_else(|e| die(e));
             rt.block_on(up::up(c))
+        }
+        "resume" => {
+            // PT-A: the stack of a run whose supervisor died (a crash, a
+            // reboot): the same config file, the run directory kept.
+            let mut c = load_config(&flags);
+            let rest: Vec<(String, Option<String>)> = flags
+                .iter()
+                .filter(|(k, _)| k != "config")
+                .cloned()
+                .collect();
+            config::apply_flags(&mut c, &rest).unwrap_or_else(|e| die(e));
+            rt.block_on(up::resume(c))
         }
         "verify" => rt.block_on(verifyrun::verify(&run_dir(&flags))),
         "tamper" => verifyrun::tamper(&run_dir(&flags), has(&flags, "strict")),

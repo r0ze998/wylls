@@ -224,6 +224,27 @@ pub struct StackConfig {
     /// window starts)` (`--chaos-force herald:2`, repeatable; applied even
     /// without `--chaos`).
     pub chaos_force: Vec<(String, f64)>,
+    /// PT-A (the playtest, `playtest.secrets_dir`): the directory that holds
+    /// the relay's join-gate key (`gate.key`) and invite secret
+    /// (`invite.secret`), outside git. Set: the season is created with
+    /// `join_gate` = that key's public half (the `M1_PLAYTEST` preset), the
+    /// relay is started with both files, and the bots get invites the relay
+    /// issues for them (`bots/invites.txt`). Unset: the ungated season of
+    /// every other run.
+    pub gate_dir: Option<PathBuf>,
+    /// PT-A (`playtest.event_log`): the relay writes its JSONL event log
+    /// (invites issued, joins) to `<run>/relay/relay-events.jsonl`.
+    pub relay_event_log: bool,
+    /// PT-A (`keepers.r99_reveals`, `keepers.delay_floor`): written to both
+    /// keepers' `keeper.toml` (PLAYTEST-RUNBOOK §4 G8); `None`: the keeper's
+    /// defaults (4,000 and 0.5 SOL), as every earlier run.
+    pub keeper_r99_reveals: Option<u64>,
+    pub keeper_delay_floor: Option<u64>,
+    /// PT-A (`pools.reveal_payer_lamports`, `pools.delay_payer_lamports`):
+    /// the payers' lamports at start; `None`: the stack's defaults (0.35 and
+    /// 2 SOL, sized for the default floors).
+    pub reveal_payer_lamports: Option<u64>,
+    pub delay_payer_lamports: Option<u64>,
 }
 
 /// Each keeper beneficiary's airdrop at start (M1 exit U4): 1 SOL, fifty
@@ -298,6 +319,12 @@ impl Default for StackConfig {
             viewer_follow_status: true,
             viewer_retry_budget_ms: None,
             chaos_force: vec![],
+            gate_dir: None,
+            relay_event_log: false,
+            keeper_r99_reveals: None,
+            keeper_delay_floor: None,
+            reveal_payer_lamports: None,
+            delay_payer_lamports: None,
         }
     }
 }
@@ -537,6 +564,24 @@ impl StackConfig {
             c.keeper_b_backup_delay_slots =
                 u32::try_from(v).map_err(|_| "`keeper_b_backup_delay_slots` too large")?;
         }
+        if let Some(v) = s!("playtest.secrets_dir") {
+            c.gate_dir = (!v.is_empty()).then(|| v.into());
+        }
+        if let Some(v) = b!("playtest.event_log") {
+            c.relay_event_log = v;
+        }
+        if let Some(v) = i!("keepers.r99_reveals") {
+            c.keeper_r99_reveals = Some(v as u64);
+        }
+        if let Some(v) = i!("keepers.delay_floor") {
+            c.keeper_delay_floor = Some(v as u64);
+        }
+        if let Some(v) = i!("pools.reveal_payer_lamports") {
+            c.reveal_payer_lamports = Some(v as u64);
+        }
+        if let Some(v) = i!("pools.delay_payer_lamports") {
+            c.delay_payer_lamports = Some(v as u64);
+        }
         if let Some(v) = b!("pause_at_end") {
             c.pause_at_end = v;
         }
@@ -738,6 +783,10 @@ impl StackConfig {
             "viewer_flags": {"think_ms": self.viewer_think_ms, "follow_status": self.viewer_follow_status,
                              "retry_budget_ms": self.viewer_retry_budget_ms()},
             "chaos_force": self.chaos_force.iter().map(|(c, h)| json!({"component": c, "hours_after_viewer_start": h})).collect::<Vec<_>>(),
+            "playtest": {"gated": self.gate_dir.is_some(), "secrets_dir": self.gate_dir.as_ref().map(|p| p.display().to_string()),
+                         "relay_event_log": self.relay_event_log},
+            "keepers": {"r99_reveals": self.keeper_r99_reveals, "delay_floor": self.keeper_delay_floor,
+                        "reveal_payer_lamports": self.reveal_payer_lamports, "delay_payer_lamports": self.delay_payer_lamports},
         })
     }
 }
@@ -1066,6 +1115,61 @@ mod tests {
             assert!(apply_flags(&mut e, &f).is_err(), "{bad:?}");
         }
         assert!(StackConfig::from_toml("[viewers]\nthink_ms = 0\n").is_err());
+    }
+
+    /// PT-A: the playtest's keys parse, default to nothing for every other
+    /// run, and `configs/playtest-1x.toml` is the shape the launcher assumes.
+    #[test]
+    fn playtest_keys_and_the_playtest_config() {
+        let d = StackConfig::default();
+        assert_eq!(
+            (d.gate_dir.clone(), d.relay_event_log, d.keeper_r99_reveals, d.keeper_delay_floor),
+            (None, false, None, None)
+        );
+        assert_eq!((d.reveal_payer_lamports, d.delay_payer_lamports), (None, None));
+        let c = StackConfig::from_toml(
+            "[playtest]\nsecrets_dir = \"/x/secrets\"\nevent_log = true\n[keepers]\nr99_reveals = 150\ndelay_floor = 50000000\n[pools]\nreveal_payer_lamports = 12000000\ndelay_payer_lamports = 75000000\n",
+        )
+        .unwrap();
+        assert_eq!(c.gate_dir.as_deref(), Some(Path::new("/x/secrets")));
+        assert!(c.relay_event_log);
+        assert_eq!((c.keeper_r99_reveals, c.keeper_delay_floor), (Some(150), Some(50_000_000)));
+        assert_eq!((c.reveal_payer_lamports, c.delay_payer_lamports), (Some(12_000_000), Some(75_000_000)));
+        assert_eq!(c.to_json()["playtest"]["gated"], true);
+        assert!(StackConfig::from_toml("[playtest]\nsecrets = 1\n").is_err(), "unknown keys are refused");
+        let p = StackConfig::from_file(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../configs/playtest-1x.toml"),
+        )
+        .unwrap();
+        assert_eq!((p.scale, p.beacon, p.days, p.bots), (1.0, Beacon::Archive, 7.0, 60));
+        assert!(p.gate_dir.is_some() && p.relay_event_log && !p.chaos && !p.adversary);
+        assert_eq!(p.viewers, 0);
+        assert_eq!(p.run_id, "playtest-1");
+        assert_eq!(
+            p.expect_so_sha256.as_deref(),
+            Some("d85e1bd74e29dc361925306839f4ea3bd10b709302e9e6cd9ee2b517aa3f2281")
+        );
+        // Every port in 41100-41139, none of the rehearsal's (41100-41103,
+        // 41106, 41110, 41120, 41121, 41130, 41135), all distinct.
+        let ports = p.ports().unwrap();
+        for (name, port) in ports.all() {
+            assert!((41_100..=41_139).contains(&port), "{name} {port}");
+            assert!(
+                ![41_100, 41_101, 41_102, 41_103, 41_106, 41_110, 41_120, 41_121, 41_130, 41_135]
+                    .contains(&port),
+                "{name} {port} is the rehearsal's"
+            );
+        }
+        assert_eq!(ports.herald, 41_117);
+        assert!(crate::ports::problems(&ports, false).is_empty());
+        // The G8 floors the config names are the runbook's.
+        assert_eq!((p.keeper_r99_reveals, p.keeper_delay_floor), (Some(150), Some(50_000_000)));
+        // The payers start inside their band: floor <= start <= 2 x floor.
+        let f_r = 3 * (1_463_040u64 + 1_137_920 + 54_300);
+        let r = p.reveal_payer_lamports.unwrap();
+        assert!(f_r <= r && r <= 2 * f_r, "{r} outside [{f_r}, {}]", 2 * f_r);
+        let dp = p.delay_payer_lamports.unwrap();
+        assert!(50_000_000 <= dp && dp <= 100_000_000);
     }
 
     #[test]

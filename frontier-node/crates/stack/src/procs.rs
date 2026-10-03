@@ -214,6 +214,19 @@ pub fn command_of(pid: u32) -> Option<String> {
     (!s.is_empty()).then_some(s)
 }
 
+/// Whether `pid` runs exactly the command line `program args...` (as
+/// `ps -o command=` prints it). Stricter than [`is_component`], which only
+/// looks for the program's file name: a pid that was reused by another
+/// stack's `frontier-localnet` (same binary name, other arguments) must never
+/// be taken for ours (PT-A: `resume` stops the strays of a dead supervisor).
+pub fn command_matches(pid: u32, program: &str, args: &[String]) -> bool {
+    let want = std::iter::once(program.to_string())
+        .chain(args.iter().cloned())
+        .collect::<Vec<_>>()
+        .join(" ");
+    command_of(pid).is_some_and(|c| c.trim() == want.trim())
+}
+
 /// Whether a recorded component pid is still that component.
 pub fn is_component(pid: u32, program: &Path) -> bool {
     let name = program
@@ -279,5 +292,24 @@ mod tests {
         g.stop(Duration::from_secs(2));
         assert!(!alive(gp));
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// PT-A: only the exact command line is ours (never another stack's
+    /// process of the same binary).
+    #[test]
+    fn exact_command_lines_only() {
+        let mut c = Command::new("/bin/sleep")
+            .arg("31")
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = c.id();
+        assert!(command_matches(pid, "/bin/sleep", &["31".to_string()]));
+        assert!(!command_matches(pid, "/bin/sleep", &["32".to_string()]));
+        assert!(!command_matches(pid, "/usr/bin/sleep", &["31".to_string()]));
+        assert!(!command_matches(pid, "/bin/sleep", &[]));
+        let _ = c.kill();
+        let _ = c.wait();
+        assert!(!command_matches(pid, "/bin/sleep", &["31".to_string()]));
     }
 }

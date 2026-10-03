@@ -43,6 +43,25 @@ pub fn join_close_for(end_bell: u32) -> u32 {
 /// scaled `join_close_bell`) when the season ends at the end of play
 /// (`--season-end-at-play-end`, W6T-4).
 pub fn season_params(beacon: Beacon, end_bell: Option<u32>) -> SeasonParams {
+    season_params_gated(beacon, end_bell, None)
+}
+
+/// [`season_params`] with the playtest's join gate (`M1_PLAYTEST` =
+/// `M1_LOCAL_7D` + `join_gate`, I-51): `gate` is the relay's gate public
+/// key; `None` leaves the ungated preset (an all-zero gate).
+pub fn season_params_gated(
+    beacon: Beacon,
+    end_bell: Option<u32>,
+    gate: Option<[u8; 32]>,
+) -> SeasonParams {
+    let mut p = season_params_open(beacon, end_bell);
+    if let Some(g) = gate {
+        p.join_gate = g;
+    }
+    p
+}
+
+fn season_params_open(beacon: Beacon, end_bell: Option<u32>) -> SeasonParams {
     let mut p = params(beacon);
     if let Some(e) = end_bell {
         p.end_bell = e;
@@ -61,10 +80,11 @@ pub async fn run(
     end_bell: Option<u32>,
     preseason_scale: f64,
     scale: f64,
+    gate: Option<[u8; 32]>,
     log: &dyn Fn(&str, Value),
 ) -> Result<Value, String> {
     let land = Duration::from_secs(60);
-    let p = season_params(beacon, end_bell);
+    let p = season_params_gated(beacon, end_bell, gate);
     p.validate()
         .map_err(|e| format!("season params refused before AnnounceSeason: {e} (§5.7)"))?;
     let sp = p.to_bytes();
@@ -149,6 +169,8 @@ pub async fn run(
         "join_close_bell": s.join_close_bell, "bell_secs": s.bell_secs,
         "quicknet_pk_hash": hex::encode(s.quicknet_pk_hash), "params_hash": hex::encode(ph),
         "season_end_at_play_end": end_bell.is_some(),
+        "join_gate": hex::encode(s.join_gate.to_bytes()),
+        "gated": gate.is_some(),
     });
     log("created", v.clone());
     Ok(v)

@@ -39,6 +39,7 @@ use crate::chaos;
 use crate::config::{Beacon, Mode, Ports, StackConfig};
 use crate::procs::{Proc, Spec};
 use crate::run::{self, RunDir};
+use crate::playtest;
 use crate::setup;
 
 /// Exit code for an item blocked on an owner decision (O-M1-12; Mode R,
@@ -371,6 +372,15 @@ pub fn keeper_toml(
     ) + &backup_delay
         .map(|d| format!("backup_delay_slots = {d}\n"))
         .unwrap_or_default()
+        // PT-A (PLAYTEST-RUNBOOK §4 G8): the small-season payer floors.
+        + &cfg
+            .keeper_r99_reveals
+            .map(|v| format!("r99_reveals = {v}\n"))
+            .unwrap_or_default()
+        + &cfg
+            .keeper_delay_floor
+            .map(|v| format!("delay_floor = {v}\n"))
+            .unwrap_or_default()
 }
 
 pub struct Stack {
@@ -397,6 +407,19 @@ fn log_line(msg: &str) {
 impl Stack {
     /// Checks everything that can be checked before a process starts.
     pub fn prepare(cfg: StackConfig) -> Result<Stack, Refusal> {
+        Self::prepare_mode(cfg, false)
+    }
+
+    /// `prepare` for `resume` (PT-A): the run directory is kept, not wiped;
+    /// its `state.json` is loaded; the components a dead supervisor left
+    /// behind are stopped (the chain recovers from its ledger and
+    /// snapshots, every other component from its own files); a supervisor
+    /// that is still alive refuses the resume.
+    pub fn prepare_resume(cfg: StackConfig) -> Result<Stack, Refusal> {
+        Self::prepare_mode(cfg, true)
+    }
+
+    fn prepare_mode(cfg: StackConfig, resume: bool) -> Result<Stack, Refusal> {
         let bad = Refusal::Bad;
         if cfg.mode == Mode::Realtime {
             return Err(Refusal::PendingOwner(
@@ -411,7 +434,8 @@ impl Stack {
             .unwrap_or_else(|| RunDir::default_runs(&repo));
         let rd = RunDir::new(&runs, &cfg.run_id);
         let ports = cfg.ports().map_err(bad)?;
-        let probs = crate::ports::problems(&ports, true);
+        // A resume stops the strays first, then checks the ports are free.
+        let probs = crate::ports::problems(&ports, !resume);
         if !probs.is_empty() {
             return Err(Refusal::Bad(format!("ports: {}", probs.join("; "))));
         }
@@ -463,7 +487,54 @@ impl Stack {
         }
         // A previous run with the same id: refuse while any of its
         // components is alive, else start from a clean directory.
-        if rd.exists() {
+        let mut resumed: Option<Value> = None;
+        if resume {
+            let st = rd.load_state().map_err(|e| {
+                Refusal::Bad(format!("nothing to resume: {e} (start it with `up`)"))
+            })?;
+            if let Some(sp) = st["supervisor_pid"].as_u64() {
+                if sp as u32 != std::process::id() && supervisor_alive(&st) {
+                    return Err(Refusal::Bad(format!(
+                        "run {}: its supervisor (pid {sp}) is still running; `down` first",
+                        cfg.run_id
+                    )));
+                }
+            }
+            if st["play"]["genesis_ts"].as_i64().is_none() {
+                return Err(Refusal::Bad(format!(
+                    "run {}: its setup never finished (no season in state.json); start it again with `up`",
+                    cfg.run_id
+                )));
+            }
+            let alive = live_components(&st);
+            for n in &alive {
+                let c = &st["components"][n];
+                let (Some(pid), Some(prog)) = (c["pid"].as_u64(), c["spec"]["program"].as_str())
+                else {
+                    continue;
+                };
+                let args: Vec<String> = c["spec"]["args"]
+                    .as_array()
+                    .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                    .unwrap_or_default();
+                // Only the exact command line is ours: a recorded pid can
+                // have been reused by another stack's process of the same
+                // binary (the exit season's localnet is one).
+                if crate::procs::command_matches(pid as u32, prog, &args) {
+                    log_line(&format!("resume: stopping the stray {n} (pid {pid})"));
+                    crate::procs::stop_pid(pid as u32, Duration::from_secs(15));
+                } else {
+                    log_line(&format!(
+                        "resume: pid {pid} (recorded for {n}) is not this run's {n}: left alone"
+                    ));
+                }
+            }
+            let probs = crate::ports::problems(&ports, true);
+            if !probs.is_empty() {
+                return Err(Refusal::Bad(format!("ports: {}", probs.join("; "))));
+            }
+            resumed = Some(st);
+        } else if rd.exists() {
             if let Ok(st) = rd.load_state() {
                 let alive: Vec<String> = live_components(&st);
                 if !alive.is_empty() {
@@ -502,7 +573,7 @@ impl Stack {
             keys,
             chain,
             procs: BTreeMap::new(),
-            state: json!({}),
+            state: resumed.unwrap_or_else(|| json!({})),
             so,
             so_sha256,
             so_len: bytes.len(),
@@ -626,10 +697,39 @@ impl Stack {
                 s("--master-seed-file"),
                 r.path("relay/relay-master.seed").display().to_string(),
                 s("--invite-secret-file"),
-                r.path("relay/invite.secret").display().to_string(),
+                match &self.cfg.gate_dir {
+                    Some(d) => run::resolve(&self.repo, d)
+                        .join(playtest::INVITE_SECRET_FILE)
+                        .display()
+                        .to_string(),
+                    None => r.path("relay/invite.secret").display().to_string(),
+                },
                 s("--state-file"),
                 r.path("relay/relay-state.json").display().to_string(),
-            ],
+            ]
+            .into_iter()
+            .chain(
+                self.cfg
+                    .gate_dir
+                    .iter()
+                    .flat_map(|d| {
+                        [
+                            s("--gate-key-file"),
+                            run::resolve(&self.repo, d)
+                                .join(playtest::GATE_KEY_FILE)
+                                .display()
+                                .to_string(),
+                        ]
+                    }),
+            )
+            .chain(
+                self.cfg
+                    .relay_event_log
+                    .then(|| [s("--event-log"), r.path(playtest::RELAY_EVENT_LOG).display().to_string()])
+                    .into_iter()
+                    .flatten(),
+            )
+            .collect(),
             env: vec![(
                 s("FRONTIER_OPERATOR_TOKEN"),
                 self.keys.operator_token.clone(),
@@ -708,6 +808,12 @@ impl Stack {
             s("--control"),
             format!("127.0.0.1:{}", p.bots),
         ];
+        // PT-A: a gated season admits the fleet with the invites the relay
+        // issued for it (`playtest::ensure_bot_invites`), one per bot.
+        if self.cfg.gate_dir.is_some() {
+            args.push(s("--invites"));
+            args.push(self.run.path(playtest::BOT_INVITES).display().to_string());
+        }
         // The in-process day's pacing (W6-A, `eager_bots`), only when this
         // `frontier-bots` has the flags and `bots_args` does not set them.
         if self.cfg.eager_bots() {
@@ -803,13 +909,13 @@ impl Stack {
             for i in 0..self.cfg.reveal_pool as u32 {
                 list.push(drop(
                     fclient::payers::derive(&seed, fclient::payers::REVEAL_POOL, i).pubkey(),
-                    REVEAL_PAYER_LAMPORTS,
+                    self.cfg.reveal_payer_lamports.unwrap_or(REVEAL_PAYER_LAMPORTS),
                 ));
             }
             for i in 0..self.cfg.delay_pool as u32 {
                 list.push(drop(
                     fclient::payers::derive(&seed, fclient::payers::DELAY_POOL, i).pubkey(),
-                    2 * SOL,
+                    self.cfg.delay_payer_lamports.unwrap_or(2 * SOL),
                 ));
             }
             for i in 0..self.cfg.funders as u32 {
@@ -864,14 +970,53 @@ pub fn live_components(st: &Value) -> Vec<String> {
     let mut out = vec![];
     if let Some(m) = st["components"].as_object() {
         for (k, c) in m {
-            if let (Some(pid), Some(prog)) = (c["pid"].as_u64(), c["spec"]["program"].as_str()) {
-                if crate::procs::is_component(pid as u32, Path::new(prog)) {
-                    out.push(k.clone());
-                }
+            if component_alive(c) {
+                out.push(k.clone());
             }
         }
     }
     out
+}
+
+/// This process's command line as `ps -o command=` prints it (recorded in
+/// `state.json` so a later `down` or `resume` can tell its supervisor from
+/// another stack's `frontier-stack`).
+pub fn own_command_line() -> String {
+    std::env::args().collect::<Vec<_>>().join(" ")
+}
+
+/// Whether the supervisor recorded in `state.json` is still running: the
+/// recorded command line exactly (PT-A; a pid reused by another stack's
+/// supervisor is not ours), or, for a state file without one, the binary's
+/// name.
+pub fn supervisor_alive(st: &Value) -> bool {
+    let Some(pid) = st["supervisor_pid"].as_u64() else {
+        return false;
+    };
+    match st["supervisor_cmd"].as_str() {
+        Some(want) if !want.is_empty() => {
+            crate::procs::command_of(pid as u32).is_some_and(|c| c.trim() == want.trim())
+        }
+        _ => crate::procs::is_component(pid as u32, Path::new("frontier-stack")),
+    }
+}
+
+/// Whether the pid recorded for a component is still that component. PT-A:
+/// the exact command line the stack started it with (a recorded pid is
+/// stale after a crash or a reboot, and another stack's process of the same
+/// binary must never be taken for ours); a record without arguments (an
+/// older state file) falls back to the binary's name.
+pub fn component_alive(c: &Value) -> bool {
+    let (Some(pid), Some(prog)) = (c["pid"].as_u64(), c["spec"]["program"].as_str()) else {
+        return false;
+    };
+    match c["spec"]["args"].as_array() {
+        Some(a) if !a.is_empty() => {
+            let args: Vec<String> = a.iter().filter_map(|x| x.as_str().map(String::from)).collect();
+            crate::procs::command_matches(pid as u32, prog, &args)
+        }
+        _ => crate::procs::is_component(pid as u32, Path::new(prog)),
+    }
 }
 
 pub fn which(cmd: &str) -> Option<PathBuf> {
@@ -912,6 +1057,7 @@ pub async fn up(cfg: StackConfig) -> i32 {
         "beacon": st.cfg.beacon.name(),
         "g0": st.cfg.g0,
         "supervisor_pid": std::process::id(),
+        "supervisor_cmd": own_command_line(),
         "wall_start_ms": run::wall_ms(),
         "keepers": {
             "a": {"beneficiary": st.keys.keeper_a_beneficiary.pubkey().to_string(), "api": st.ports.keeper_a},
@@ -942,8 +1088,156 @@ pub async fn up(cfg: StackConfig) -> i32 {
     code
 }
 
-async fn run_all(st: &mut Stack) -> Result<(), String> {
-    // Keeper configs and seeds.
+/// `resume` (PT-A): the stack after its supervisor died (a crash, a reboot,
+/// `down` and a start again): the same run directory, the same season, the
+/// chain recovered from its ledger and snapshots (the game clock is the
+/// chain's slot count, so the time the machine was off is not game time),
+/// every component started again from its own files, the supervisor loop
+/// again. Returns the process exit code.
+pub async fn resume(cfg: StackConfig) -> i32 {
+    let mut st = match Stack::prepare_resume(cfg) {
+        Ok(s) => s,
+        Err(Refusal::PendingOwner(m)) => {
+            println!("PENDING-OWNER: {m}");
+            return EXIT_PENDING_OWNER;
+        }
+        Err(Refusal::PendingFetch(m)) => {
+            println!("PENDING (fetch in progress): {m}");
+            return EXIT_PENDING_FETCH;
+        }
+        Err(Refusal::Bad(m)) => {
+            log_line(&m);
+            return 2;
+        }
+    };
+    let n = st.state["resumes"].as_u64().unwrap_or(0) + 1;
+    st.state["resumes"] = json!(n);
+    st.state["supervisor_pid"] = json!(std::process::id());
+    st.state["supervisor_cmd"] = json!(own_command_line());
+    st.state["last_resume_wall_ms"] = json!(run::wall_ms());
+    st.state["config"] = st.cfg.to_json();
+    st.state.as_object_mut().map(|m| m.remove("error"));
+    st.save("resuming");
+    st.run.event(None, "phase", json!({"resuming": n}));
+    log_line(&format!("resume #{n} of run {}", st.cfg.run_id));
+    tokio::select! {
+        r = resume_all(&mut st) => match r {
+            Ok(()) => 0,
+            Err(e) => {
+                log_line(&format!("resume failed: {e}"));
+                st.run.event(None, "failed", json!(e));
+                st.state["error"] = json!(e);
+                st.stop_all();
+                st.save("failed");
+                1
+            }
+        },
+        _ = tokio::signal::ctrl_c() => {
+            log_line("interrupted: stopping every component");
+            st.stop_all();
+            st.save("interrupted");
+            130
+        }
+    }
+}
+
+async fn resume_all(st: &mut Stack) -> Result<(), String> {
+    let genesis_ts = st.state["play"]["genesis_ts"]
+        .as_i64()
+        .ok_or("state.json has no season (the setup never finished)")?;
+    let play_end = st.state["play"]["play_end"]
+        .as_i64()
+        .ok_or("state.json: no play_end")?;
+    let end = st.state["play"]["end"].as_i64().unwrap_or(play_end);
+    let bell_secs = st.state["season"]["bell_secs"].as_i64().unwrap_or(600);
+    write_keeper_configs(st)?;
+    // The gate key and invite secret are read again, never recreated: a new
+    // gate key would not be the one the season names.
+    if let Some(pk) = gate_setup(st)? {
+        let named = st.state["season"]["join_gate"].as_str().unwrap_or("");
+        if named != hex::encode(pk) {
+            return Err(format!(
+                "the gate key in {} is not the join gate of this run's season",
+                st.cfg.gate_dir.as_ref().map(|d| d.display().to_string()).unwrap_or_default()
+            ));
+        }
+    }
+    let specs: BTreeMap<String, Spec> = st
+        .specs()
+        .into_iter()
+        .map(|s| (s.name.clone(), s))
+        .collect();
+    let t0 = Instant::now();
+    // 1. The chain: recovered from snapshot + ledger (re-executed), which
+    // can take a while after a long run.
+    st.start(specs["localnet"].clone())?;
+    st.chain.wait_healthy(Duration::from_secs(900)).await?;
+    let _ = st.chain.set_scale(st.cfg.scale).await;
+    log_line(&format!(
+        "localnet recovered on {} ({:.1} s)",
+        st.ports.rpc(),
+        t0.elapsed().as_secs_f64()
+    ));
+    // 2. Beacons.
+    st.start(specs["drand-replay"].clone())?;
+    chain::wait_http(
+        &format!("{}/info", st.ports.drand_url()),
+        Duration::from_secs(60),
+    )
+    .await?;
+    // 3. Keepers, relay, herald: the season exists; nothing is funded or
+    // created again.
+    st.start(specs["keeper-a"].clone())?;
+    chain::wait_http(
+        &format!("http://127.0.0.1:{}/v1/status", st.ports.keeper_a),
+        Duration::from_secs(120),
+    )
+    .await?;
+    if st.cfg.keeper_b {
+        st.start(specs["keeper-b"].clone())?;
+        chain::wait_http(
+            &format!("http://127.0.0.1:{}/v1/status", st.ports.keeper_b),
+            Duration::from_secs(120),
+        )
+        .await?;
+    }
+    st.start(specs["relay"].clone())?;
+    chain::wait_tcp(st.ports.relay_public, Duration::from_secs(60)).await?;
+    chain::wait_tcp(st.ports.relay_operator, Duration::from_secs(60)).await?;
+    if st.cfg.gate_dir.is_some() && st.cfg.bots > 0 {
+        playtest::ensure_bot_invites(
+            &st.run,
+            st.ports.relay_operator,
+            &st.keys.operator_token,
+            st.cfg.bots,
+        )
+        .await?;
+    }
+    st.start(specs["herald"].clone())?;
+    chain::wait_tcp(st.ports.herald, Duration::from_secs(60)).await?;
+    wait_season_file(&st.ports.herald_url(), Duration::from_secs(600)).await?;
+    // 4. The fleet, unless play is over; it keeps the run's play end.
+    let now = st.chain.status().await?.now;
+    if now < play_end {
+        let bots = st.bots_spec(now, play_end);
+        st.start(bots)?;
+    }
+    st.state["wall_resume_secs"] = json!(t0.elapsed().as_secs_f64());
+    st.save("running");
+    st.run.event(Some(now), "phase", json!("running"));
+    log_line(&format!(
+        "resumed: {} bots, scale {}, {} ({:.0} s)",
+        st.cfg.bots,
+        st.cfg.scale,
+        st.cfg.beacon.name(),
+        t0.elapsed().as_secs_f64()
+    ));
+    supervise(st, genesis_ts, play_end, end, bell_secs).await
+}
+
+/// Writes both keepers' `keeper.toml` (every start and every resume: the
+/// config of this stack is the file's source of truth).
+fn write_keeper_configs(st: &mut Stack) -> Result<(), String> {
     for w in ['a', 'b'] {
         if w == 'b' && !st.cfg.keeper_b {
             continue;
@@ -964,6 +1258,16 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
         let t = keeper_toml(w, &st.cfg, &st.ports, &st.program, &ben, &dir, delay);
         std::fs::write(dir.join("keeper.toml"), t).map_err(|e| e.to_string())?;
     }
+    Ok(())
+}
+
+async fn run_all(st: &mut Stack) -> Result<(), String> {
+    // Keeper configs and seeds.
+    write_keeper_configs(st)?;
+    // PT-A: the playtest's join gate (the relay's key and invite secret live
+    // outside the run directory and outside git; only the public half of the
+    // gate key goes on chain and into state.json).
+    let gate = gate_setup(st)?;
     let specs: BTreeMap<String, Spec> = st
         .specs()
         .into_iter()
@@ -999,6 +1303,7 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
         st.cfg.season_end_bell(),
         st.cfg.preseason_scale,
         st.cfg.scale,
+        gate,
         &logf,
     )
     .await?;
@@ -1062,6 +1367,22 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
     }
     st.start(specs["relay"].clone())?;
     chain::wait_tcp(st.ports.relay_public, Duration::from_secs(60)).await?;
+    chain::wait_tcp(st.ports.relay_operator, Duration::from_secs(60)).await?;
+    // PT-A: the fleet's invites (a gated season admits nobody without one).
+    if st.cfg.gate_dir.is_some() && st.cfg.bots > 0 {
+        let f = playtest::ensure_bot_invites(
+            &st.run,
+            st.ports.relay_operator,
+            &st.keys.operator_token,
+            st.cfg.bots,
+        )
+        .await?;
+        st.run.event(
+            None,
+            "bot-invites",
+            json!({"count": st.cfg.bots, "file": f.display().to_string()}),
+        );
+    }
     // 5. The herald, and its season file (the bots read the program id there).
     st.start(specs["herald"].clone())?;
     chain::wait_tcp(st.ports.herald, Duration::from_secs(60)).await?;
@@ -1081,6 +1402,24 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
         t0.elapsed().as_secs_f64()
     ));
     supervise(st, genesis_ts, play_end, end, bell_secs).await
+}
+
+/// PT-A: the gate. With `playtest.secrets_dir` set, creates the gate key and
+/// invite secret (once) and returns the gate's public key for CreateSeason;
+/// records the public key in `state.json` (never a secret).
+fn gate_setup(st: &mut Stack) -> Result<Option<[u8; 32]>, String> {
+    let Some(dir) = st.cfg.gate_dir.clone() else {
+        return Ok(None);
+    };
+    let dir = run::resolve(&st.repo, &dir);
+    let pk = playtest::ensure_gate_key(&dir)?;
+    playtest::ensure_invite_secret(&dir)?;
+    st.state["playtest"] = json!({
+        "gated": true,
+        "gate_pubkey": Address::new_from_array(pk).to_string(),
+        "secrets_dir": dir.display().to_string(),
+    });
+    Ok(Some(pk))
 }
 
 async fn wait_season_file(herald: &str, limit: Duration) -> Result<(), String> {
@@ -1188,6 +1527,10 @@ async fn supervise(
     let mut inrun_judged = false;
     let mut last_lag = Instant::now();
     let mut crashes = 0u32;
+    // PT-A: a component that keeps dying within a minute of its start is
+    // restarted after 2, 4, 8, 16, 32, then 60 s (never a tight loop that
+    // fills the disk with its own log); one that ran longer starts over at 2.
+    let mut quick: BTreeMap<String, u32> = BTreeMap::new();
     let mut chain_down_since: Option<Instant> = None;
     loop {
         tokio::time::sleep(Duration::from_millis(400)).await;
@@ -1204,10 +1547,24 @@ async fn supervise(
                     );
                 } else if p.restart_at.is_none() {
                     crashes += 1;
-                    st.run
-                        .event(Some(last.now), "crash", json!({"component": n, "exit": d}));
-                    log_line(&format!("{n} exited unexpectedly ({d}); restarting"));
-                    p.restart_at = Some(Instant::now() + Duration::from_secs(2));
+                    let ran = p.started.map(|s| s.elapsed()).unwrap_or_default();
+                    let k = quick.entry(n.clone()).or_insert(0);
+                    *k = if ran < Duration::from_secs(60) {
+                        (*k + 1).min(5)
+                    } else {
+                        0
+                    };
+                    let wait = restart_delay(*k);
+                    st.run.event(
+                        Some(last.now),
+                        "crash",
+                        json!({"component": n, "exit": d, "ran_secs": ran.as_secs(), "restart_in_secs": wait.as_secs()}),
+                    );
+                    log_line(&format!(
+                        "{n} exited unexpectedly ({d}); restarting in {} s",
+                        wait.as_secs()
+                    ));
+                    p.restart_at = Some(Instant::now() + wait);
                 }
             }
         }
@@ -1653,6 +2010,12 @@ async fn supervise(
     }
 }
 
+/// The wait before a crashed component restarts after `quick` consecutive
+/// deaths within a minute of their start: 2 s, then doubling to 60 s.
+pub fn restart_delay(quick: u32) -> Duration {
+    Duration::from_secs((2u64 << quick.min(5)).min(60))
+}
+
 /// EndSeason, retried (every 5 s, at most 12 attempts of 30 s) until it
 /// lands or the program answers `AlreadyDone` (the season already Ended).
 async fn end_season_until_done(
@@ -1842,7 +2205,7 @@ pub fn down(rd: &RunDir) -> i32 {
     };
     if let Some(sp) = stv["supervisor_pid"].as_u64() {
         let sp = sp as u32;
-        if sp != std::process::id() && crate::procs::is_component(sp, Path::new("frontier-stack")) {
+        if sp != std::process::id() && supervisor_alive(&stv) {
             eprintln!("frontier-stack: stopping the supervisor (pid {sp})");
             crate::procs::stop_pid(sp, Duration::from_secs(60));
         }
@@ -1862,11 +2225,9 @@ pub fn down(rd: &RunDir) -> i32 {
     let mut stopped = vec![];
     for n in order {
         let c = &stv["components"][n];
-        if let (Some(pid), Some(prog)) = (c["pid"].as_u64(), c["spec"]["program"].as_str()) {
+        if let Some(pid) = c["pid"].as_u64() {
             let pid = pid as u32;
-            if crate::procs::is_component(pid, Path::new(prog))
-                && crate::procs::stop_pid(pid, Duration::from_secs(15))
-            {
+            if component_alive(c) && crate::procs::stop_pid(pid, Duration::from_secs(15)) {
                 stopped.push(n);
             }
         }
@@ -2152,6 +2513,33 @@ mod tests {
             late + 86_400 + 15_600 + 3_600
         );
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// PT-A: a crash loop backs off 2, 4, 8, 16, 32, 60 s.
+    #[test]
+    fn crash_loops_back_off() {
+        let w: Vec<u64> = (0..8).map(|k| restart_delay(k).as_secs()).collect();
+        assert_eq!(w, vec![2, 4, 8, 16, 32, 60, 60, 60]);
+    }
+
+    /// PT-A: the G8 payer floors and the funding keys reach `keeper.toml` and
+    /// the keeper's own parser reads them; unset, the file is as it was.
+    #[test]
+    fn the_g8_keys_reach_the_keepers() {
+        let mut cfg = StackConfig::default();
+        let p = cfg.ports().unwrap();
+        let ben = Address::new_from_array([3; 32]);
+        let plain = keeper_toml('a', &cfg, &p, &program_id("x"), &ben, Path::new("/tmp/k"), None);
+        assert!(!plain.contains("r99_reveals") && !plain.contains("delay_floor"));
+        cfg.keeper_r99_reveals = Some(150);
+        cfg.keeper_delay_floor = Some(50_000_000);
+        for w in ['a', 'b'] {
+            let t = keeper_toml(w, &cfg, &p, &program_id("x"), &ben, Path::new("/tmp/k"), None);
+            let k = keeper_core::config::KeeperConfig::from_toml(&t)
+                .unwrap_or_else(|e| panic!("{e}\n{t}"));
+            assert_eq!(k.r99_reveals, 150);
+            assert_eq!(k.delay_floor, 50_000_000);
+        }
     }
 
     #[test]
