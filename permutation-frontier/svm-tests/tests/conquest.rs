@@ -1629,14 +1629,16 @@ fn g13_cq_fold_march_folds_hours_in_order() {
     );
     let end =
         k.w.season_u32(&k.c, frontier_abi::layout::world::season::END_BELL);
-    assert_code(
+    // §5.5 (v1.5): the end-hour rule is the Ended season's; a Running
+    // season refuses a later hour by its order (`next_hour`) or its lag.
+    assert_cq(
         mc_send(
             &mut k.c.fork(),
             I2::FoldMarch,
             fold_ix(&k.w, &keeper, mn, end / 6, 1),
             &[&keeper],
         ),
-        E::WrongStatus,
+        Cq::FoldOutOfOrder,
     );
     // The next hours fold on.
     expect_lands(
@@ -1861,6 +1863,18 @@ fn g13_cq_fold_march_in_the_grace_but_not_after_it() {
     );
     assert!(k.c.is_absent(&march));
     k.c.set_time(end_ts + 72 * 3_600 - 10);
+    // an Ended season never folds an hour that starts at or after end_bell
+    let end =
+        k.w.season_u32(&k.c, frontier_abi::layout::world::season::END_BELL);
+    assert_code(
+        mc_send(
+            &mut k.c.fork(),
+            I2::FoldMarch,
+            fold_ix(&k.w, &keeper, mn, end / 6, 1),
+            &[&keeper],
+        ),
+        E::WrongStatus,
+    );
     expect_lands(
         mc_send(
             &mut k.c,
