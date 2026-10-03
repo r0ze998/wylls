@@ -115,7 +115,22 @@ Three layers, each tested by `kill -9` in the bring-up **[measured]**:
 
 1. **Components.** The stack supervisor notices a dead component within 0.4 s and restarts it from its own files after 2 s (4, 8, 16, 32, 60 s if it keeps dying within a minute of its start; a component that ran longer starts over at 2 s). Killing each of relay, herald, keeper A, keeper B, drand-replay, bots and the chain in turn: all came back. The chain recovers from `ledger.wal` + the newest snapshot (the ledger record of a block is written and fsynced before any client sees its result; a torn last record is cut off); a keeper from its SQLite journal (it reconciles in-flight writes with the chain); the relay from `relay-state.json` (quotas and **used invites**); the herald from its checkpoint; the bots from their march journal.
 2. **The stack supervisor.** The babysitter notices it died and starts `frontier-stack resume` (10 s later; 10, 20, 40 ... 300 s if it keeps failing within 10 minutes; it gives up only on a *first* start that fails three times). `resume` keeps the run directory, stops any stray component of the dead supervisor (matching the **exact command line**, so another stack's process of the same binary is never touched), recovers the chain, starts everything in order and takes up supervising. A `kill -9` of the supervisor: back in about 15 s with a new pid, season intact, `1 resume` in the report **[measured]**.
-3. **The babysitter.** Nothing restarts *it*: if the Mac reboots or the process is killed, run `scripts/playtest-up.sh` (it continues the run). `HEALTH-ALARM: babysitter-down` says so. If you want it to start by itself after a login, a launchd agent that runs `scripts/playtest-up.sh --no-wait` with `RunAtLoad` does it; it is not installed (changing login items is your call).
+3. **The babysitter.** Nothing restarts *it*: if the Mac reboots or the process is killed, run `scripts/playtest-up.sh` (it continues the run). `HEALTH-ALARM: babysitter-down` says so. If you want it to start by itself after a login, a launchd agent that runs `scripts/playtest-up.sh --no-wait` once at load does it. It is **not installed** (changing login items is your call); the file would be `~/Library/LaunchAgents/games.wylls.playtest.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>games.wylls.playtest</string>
+  <key>ProgramArguments</key><array>
+    <string>/bin/bash</string><string>-lc</string>
+    <string>cd "/Users/r0ze/Documents/Codex/2026-09-20/new-chat-2/outputs/.claude/worktrees/playtest" &amp;&amp; scripts/playtest-up.sh --no-wait</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+</dict></plist>
+```
+
+(`launchctl load` it yourself; `playtest-up.sh` is a no-op when the babysitter already runs, and `playtest-down.sh` leaves a `STOP` file that the next `playtest-up.sh` clears, so it only matters after a reboot or login.) Note that a login does not mean the Mac is awake and plugged in.
 
 What is **not** restarted: `cloudflared` (yours, section 8), and a season that finished (`frontier-stack` exit 0 after the season's end is the one exit the babysitter treats as final).
 
@@ -150,7 +165,7 @@ Only the herald is for the outside. **Do not run this until you say go.**
 
 It prints a random `https://<words>.trycloudflare.com` (also in the logfile, which `status` reads). Every restart of that command gives a **new** URL: invites stay valid, only the link changes, so send the new link. No account, nothing installed.
 
-What a visitor can reach through it (the herald's routes): the static web client under `/frontier/` (note: the **game page is `/frontier/frontier/`** and the landing page `/frontier/frontier/playtest/`; `/` and `/frontier/` open the older prototype page, request R2); read-only `/h/*` (season, status, province, clash, overview, roster, events, `/h/me/<wallet>`), `WS /h/ws`; and `/gw/*` = the relay's **public** routes only (`GET /f/season`, `/f/relay`, `/f/quota`, `/f/tx/<sig>`, `POST /f/relay`, `/f/join`, `/f/reveal`, `/f/nudge`; GET/POST/OPTIONS, bodies up to 64 KiB). The operator routes (`/f/operator/*`: invites, pool), the keepers' APIs (with their bearer tokens), the chain's RPC, drand-replay and the bots' control port are on 127.0.0.1 and **not** behind the herald; `status` alarms if any listener is not loopback. The relay trusts `X-Forwarded-For` only from the herald's loopback peer and the herald takes the last entry of the header the tunnel sets, so per-IP limits (`/f/join` burst 10 then 1 per 5 s, `/f/relay` burst 40 then 2/s, ...) apply per visitor; confirm in the rehearsal that two phones on different networks are counted separately [unverified: no tunnel was run].
+What a visitor can reach through it (the herald's routes): the static web client under `/frontier/` (note: the **game page is `/frontier/frontier/`** and the landing page `/frontier/frontier/playtest/`; `/` and `/frontier/` open the older prototype page, request R2); read-only `/h/*` (season, status, province, clash, overview, roster, events, `/h/me/<wallet>`), `WS /h/ws`; and `/gw/*` = the relay's **public** routes only (`GET /f/season`, `/f/relay`, `/f/quota`, `/f/tx/<sig>`, `POST /f/relay`, `/f/join`, `/f/reveal`, `/f/nudge`; GET/POST/OPTIONS, bodies up to 64 KiB). The operator routes (`/f/operator/*`: invites, pool), the keepers' APIs (with their bearer tokens), the chain's RPC, drand-replay and the bots' control port are on 127.0.0.1 and **not** behind the herald; `status` alarms if any listener is not loopback. The relay trusts `X-Forwarded-For` only from the herald's loopback peer, and when the herald's own peer is loopback (the tunnel) it takes the visitor's address from Cloudflare's `CF-Connecting-IP`, else the last `X-Forwarded-For` entry (PT-B, `25a8d97`), so per-IP limits (`/f/join` burst 10 then 1 per 5 s, `/f/relay` burst 40 then 2/s, ...) apply per visitor; confirm in the rehearsal that two phones on different networks are counted separately [unverified: no tunnel was run].
 
 Quick-tunnel limits worth knowing (Cloudflare's, not ours; as documented to my knowledge, [unverified] here because no tunnel was run): no uptime promise, about 200 concurrent in-flight requests, no Server-Sent Events; WebSockets should work. 30 friends are well inside that.
 
@@ -173,3 +188,14 @@ Quick-tunnel limits worth knowing (Cloudflare's, not ours; as documented to my k
 | a friend cannot join | the invite is used or mistyped (`relay-events.jsonl` has the used nonces); issue a new one |
 | disk under 40 GB | `du -sh <data>/*`; the biggest are `runs/` and `backups/` |
 | you want to stop early | `scripts/playtest-down.sh` (and stop `cloudflared`). The season simply stops; nothing needs ending |
+
+## 11. Day plan (a suggestion; the dates are yours)
+
+| When | Do |
+|---|---|
+| Days before | Merge the design session's and PT-B's last changes; rebuild (section 2); `scripts/playtest-selftest.sh` once; `scripts/playtest-up.sh --dry-run` clean. Create the survey form yourself (an external form; this repository holds no personal data) |
+| **T-24 h** (night of 2026-10-05 for a 10-06 night opening) | Mac on AC power, lid open, updates off. `scripts/playtest-up.sh`. Check `scripts/playtest-status.sh` after 15 minutes (genesis passed, 37 provinces, keepers 150/150, `invite required: true`) |
+| T-2 h | `scripts/playtest-status.sh`: no alarm files; bots joining (`INVITES ... joins ... bots`); `scripts/playtest-backup.sh` once by hand and `scripts/playtest-restore.sh --verify` |
+| **T-0** | You say go: run the cloudflared command from section 8 in its own terminal tab. `scripts/playtest-invite.sh 20 --label friends-1` (the URL is read from the tunnel's log); send each friend their own code and link, by whatever channel you like |
+| During | Glance at `status` a few times a day (or watch for `LAG-ALARM` / `HEALTH-ALARM`). A second batch: `playtest-invite.sh 10 --label friends-2` |
+| End (about day 3 to 4 after T-0) | Stop `cloudflared`; `scripts/playtest-down.sh` (final backup); keep `<data>/runs/playtest-1/` (chain, journals, relay event log, herald files), `<data>/status/` (history, alarms, gaps) and `<data>/launch.json`: the numbers in the pitch (invited who joined, game days, who came back on a later day) come from these files only, as defined in section 6 |

@@ -82,9 +82,15 @@ try {
   await sleep(1200);
   for (const sel of ['[data-act="intro-close"]', '[data-act="ob-dismiss"]']) if (await has(sel)) await page.locator(sel).first().click().catch(() => {});
   await shot('01-start');
-  await waitSel('[data-act="connect"]:not([disabled])', 'a wallet button');
-  await page.locator('[data-act="connect"]:not([disabled])').first().click();
-  await waitSel(`[data-act="pick-faction"][data-f="${FACTION}"]`, 'the nation cards');
+  // The page either offers a wallet button (the dev wallet on a loopback page) or, with PT-B's guest-key script in front of
+  // app.mjs, connects its own guest wallet and shows the nation cards at once.
+  const cards = `[data-act="pick-faction"][data-f="${FACTION}"]`;
+  const wend = Date.now() + 120_000;
+  while (!(await has(cards)) && Date.now() < wend) {
+    if (await has('[data-act="connect"]:not([disabled])')) { log('connect the wallet the page offers'); await page.locator('[data-act="connect"]:not([disabled])').first().click(); }
+    await sleep(800);
+  }
+  await waitSel(cards, 'the nation cards');
   await page.locator(`[data-act="pick-faction"][data-f="${FACTION}"]`).first().click();
   const gated = await has('input[data-bind="invite"]');
   log(`the join screen ${gated ? 'asks' : 'does not ask'} for an invite`);

@@ -427,7 +427,7 @@ export function render(r) {
   else L.push('CHAIN   unreachable');
   if (r.herald) L.push(r.herald.ok ? `HERALD  fold lag ${r.herald.fold_lag_slots ?? '?'} slots; ${r.herald.provinces} provinces in rings ${JSON.stringify(r.herald.rings)}; ${r.herald.ws_open} websockets open (${r.herald.ws_total} total, ${r.herald.ws_dropped_slow} dropped slow)` : `HERALD  unreachable: ${r.herald.error}`);
   for (const [n, k] of Object.entries(r.keepers ?? {})) {
-    L.push(k.ok ? `${n.toUpperCase().padEnd(7)} pending ${k.pending}  alerts ${k.alerts}  reveal payers ${k.reveal_effective_n}/${k.reveal_n}  delay ${k.delay_effective_n}/${k.delay_n}  funders ${k.funders_sol?.toFixed(0)} SOL  anchor p99 ${k.anchor_latency_p99 ?? '-'} seed p99 ${k.seed_latency_p99 ?? '-'} slots  ${k.ms} ms  (resolves ${k.play.resolves}, skips ${k.play.skips}, reveals ${k.play.reveals_landed}/${k.play.reveals_sent}, nudges ${k.play.nudges_recent})`
+    L.push(k.ok ? `${n.toUpperCase().padEnd(7)} pending ${k.pending}  alerts ${k.alerts}  reveal payers ${k.reveal_effective_n}/${k.reveal_n}  delay ${k.delay_effective_n}/${k.delay_n}  funders ${k.funders_sol?.toFixed(0)} SOL  anchor p99 ${k.anchor_latency_p99 ?? '-'} seed p99 ${k.seed_latency_p99 ?? '-'} slots  ${k.ms} ms  (queues: tickets open ${k.tickets_open ?? '-'}, contested bells ${k.contested_bells}; done: resolves ${k.play.resolves}, skips ${k.play.skips}, reveals ${k.play.reveals_landed}/${k.play.reveals_sent}, nudges ${k.play.nudges_recent})`
       : `${n.toUpperCase().padEnd(7)} unreachable: ${k.error}`);
   }
   if (r.relay) {
