@@ -13,6 +13,7 @@
 //! | `PROVINCE_OPEN` | the province exists |
 //! | `DISSOLVE`, `MUSTER` | the province has pending changes |
 //! | `DEFENCE_CLAIM`, `CLOSE` | claims and closes seen |
+//! | MC kinds 80–88 (ABI v2, CQ2-D) | typed ([`fclient::conquest::parse`]) and queued for the conquest duty's horn watcher; the province moved (re-read it) |
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -88,6 +89,8 @@ pub struct PlayIndex {
     /// units consumed, "exceeded CUs meter" logged)`, for the engine's
     /// CU-meter test (W6T-2); the keeper drains it every tick.
     pub failed_meta: Vec<(fclient::ports::Signature, u64, bool)>,
+    /// MC records `(slot, record)` not yet taken by the conquest duty.
+    pub cq_logs: Vec<(u64, fclient::conquest::CqLog)>,
 }
 
 fn fld<'a>(r: &plog::Record<'a>, name: &str) -> Option<&'a [u8]> {
@@ -156,6 +159,25 @@ impl PlayIndex {
     }
 
     pub fn ingest(&mut self, body: &[u8], slot: u64) {
+        // ABI v2 (R-22): an MC kind (80–88) goes to the conquest duty; the
+        // M1 kinds of either season decode as before.
+        if body
+            .get(1)
+            .is_some_and(|k| *k >= fclient::abi::kind::SIEGE_DECLARED)
+        {
+            match fclient::conquest::parse(body) {
+                Some(log) => {
+                    if let Some((p, q)) = log.event.province() {
+                        self.touched.insert((p as i16, q as i16));
+                    }
+                    if self.cq_logs.len() < 100_000 {
+                        self.cq_logs.push((slot, log));
+                    }
+                }
+                None => self.bad += 1,
+            }
+            return;
+        }
         let Ok(r) = plog::decode(body) else {
             self.bad += 1;
             return;

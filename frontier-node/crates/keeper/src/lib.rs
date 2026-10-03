@@ -20,6 +20,7 @@
 //! | [`reveal_accept`] | the `/v1/reveal` accept path against chain (W3-C) |
 //! | [`playindex`] | transits, reveals, gathers, clashes and closes the feed names (W4-C) |
 //! | [`play`] | decrypt, the reveal pipeline, SettleDeparture and returns, the gather/resolve/skip scheduler, SettleTransit, closes, claims (W4-C) |
+//! | [`conquest`] | MC (CQ2-D): contested bells, fold-driven skips, SettleCapture, SettleSiege, FoldMarch, the horn watcher, the season-end flush, CloseMarch |
 //! | [`api`] | the loopback API (`/v1/*`, `/metrics`) |
 //!
 //! [`Keeper::tick`] runs once per slot: it reads the Clock, plans every
@@ -36,6 +37,7 @@ pub mod api;
 pub mod archive;
 pub mod beacon;
 pub mod config;
+pub mod conquest;
 pub mod engine;
 pub mod explore;
 pub mod fold;
@@ -261,6 +263,10 @@ pub struct Keeper<P: ChainPort, D: DrandPort> {
     wrong_key_alerted: bool,
     /// The last payer care: `(slot, Clock now, transfers planned)`.
     care_last: Option<(u64, i64, usize)>,
+    /// The season's ABI the engine's budgets follow (R-22: an MC season
+    /// takes `frontier-abi/vectors/v2/budgets.json` unless `budgets_file`
+    /// overrides it).
+    budgets_version: u16,
 }
 
 /// Slots between two cares while a pool is below its minimum (the top-up
@@ -367,6 +373,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             season_read_slot: None,
             wrong_key_alerted: false,
             care_last: None,
+            budgets_version: abi::PROGRAM_VERSION_V1,
             cfg,
             port,
             drand,
@@ -431,6 +438,29 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             .await
             .map_err(|e| e.to_string())?;
         Ok(adopted)
+    }
+
+    /// R-22: an MC season's writes take the v2 budgets table (`L(kind)`
+    /// for the new kinds; the changed rows' CU), an M1 season keeps v1's.
+    /// A `budgets_file` in `keeper.toml` is the operator's and stays.
+    fn follow_abi(&mut self, s: &Season) {
+        let v = if s.is_v2() {
+            abi::PROGRAM_VERSION_V2
+        } else {
+            abi::PROGRAM_VERSION_V1
+        };
+        if v == self.budgets_version || self.cfg.budgets_file.is_some() {
+            return;
+        }
+        let care = self.engine.budgets.get(0);
+        let mut b = Budgets::canonical_for(v);
+        b.set(0, care);
+        // The reveal floor follows the Reveal this table requests.
+        let fr = crate::pools::reveal_floor_for(&self.cfg, &b);
+        self.payers.reveal.floor = fr;
+        self.payers.reveal.ceiling = fr.saturating_mul(2);
+        self.engine.budgets = b;
+        self.budgets_version = v;
     }
 
     fn update_params(&mut self, s: &Season) {
@@ -535,6 +565,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                 .and_then(|a| Season::decode(&a.data).ok())
             {
                 self.update_params(&s);
+                self.follow_abi(&s);
                 self.season = Some(s);
                 self.season_read_slot = Some(slot);
             }
@@ -596,6 +627,10 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             if k.starts_with("ticket:") {
                 self.tickets.on_outcome(k, o);
             }
+            let now_bell = bell.unwrap_or(0);
+            self.play
+                .conquest
+                .on_outcome(k, o, now_bell, self.journal.as_ref());
             let tracks = self.play.on_outcome(k, o);
             if !tracks.is_empty() {
                 let mut s = self.shared.lock().unwrap_or_else(|p| p.into_inner());
@@ -812,6 +847,10 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                         .iter()
                         .map(|&(p, q)| (p as i32, q as i32)),
                 );
+                let opened: BTreeSet<(i16, i16)> = provinces
+                    .iter()
+                    .map(|&(p, q)| (p as i16, q as i16))
+                    .collect();
                 // Only the queued material and nudges leave the API's state
                 // (W6T-2): the status, tracks and dedupe keys stay served.
                 let mut shared = {
@@ -837,6 +876,22 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                         &provinces.into_iter().collect::<Vec<_>>(),
                     )
                     .await;
+                // MC (CQ2-D): settles, folds and the season-end flush, on
+                // the Provinces the play duty just read.
+                let r3 = if r2.is_ok() {
+                    self.play
+                        .conquest
+                        .plan(
+                            &t,
+                            &self.port,
+                            &mut self.engine,
+                            &self.index.citizens,
+                            &opened,
+                        )
+                        .await
+                } else {
+                    Ok(())
+                };
                 self.play.guard_reveals(&t, &mut self.engine);
                 let blocking = self.play.blocking(&t, &self.engine);
                 {
@@ -856,6 +911,10 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                     self.engine.note_tx_meta(sig, units, meter);
                 }
                 r2.map_err(|e| e.to_string())?;
+                r3.map_err(|e| e.to_string())?;
+                for (s0, d) in std::mem::take(&mut self.play.conquest.alerts) {
+                    self.alert(s0, "horn-rate", d);
+                }
             }
         }
         phase(&mut rep, "play", 0);
@@ -893,6 +952,11 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                 let before = self.play.closes_reads;
                 self.play
                     .housekeeping(&t, &self.port, &mut self.engine, &self.beacon.anchors)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                self.play
+                    .conquest
+                    .housekeeping(&t, &self.port, &mut self.engine)
                     .await
                     .map_err(|e| e.to_string())?;
                 let reads = self.play.closes_reads - before;
@@ -969,6 +1033,9 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                         abi::err::QUOTA_REFUSED,
                         abi::err::TOO_EARLY,
                         abi::err::DEPARTURE_UNSETTLED,
+                        // MC (CQ2-D): a FoldMarch planned on a member read
+                        // a little before its resolve landed (lag waits).
+                        abi::err::FOLD_TOO_EARLY,
                     ];
                     if !code.is_some_and(|c| expected.contains(&c)) {
                         self.alert(slot, "failed", format!("{k}: {code:?} {err}"));
@@ -1078,6 +1145,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                 "p_def_milli": self.engine.params.p_def_milli, "p_delay_milli": self.engine.params.p_delay_milli,
             },
             "play": self.play.status(),
+            "conquest": self.play.conquest.status(bell),
             "spend_by_day": self.spend_by_day,
             "alerts": self.alerts.len(),
         })
@@ -1174,6 +1242,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                 p.to_string(),
             );
         }
+        self.play.conquest.metrics(&mut line);
         m
     }
 
@@ -1303,6 +1372,78 @@ mod tests {
         assert_eq!(role_of_key("ticket:x:5:0"), Some("tickets"));
         assert_eq!(role_of_key("stranded:2,0:9"), Some("dormancy"));
         assert_eq!(role_of_key("anchor:1:2"), None);
+    }
+
+    /// R-22 (MC §5.1, §5.4): the keeper's budgets follow the season's
+    /// ABI. An MC season (program_version 2) takes the v2 table (`L(kind)`
+    /// for the new kinds), an M1 season keeps v1's; the status carries the
+    /// `conquest` block and `/metrics` the `fk_` lines (§8.2).
+    #[tokio::test]
+    async fn cq_keeper_follows_the_season_abi() {
+        use fclient::abi::layout::season as ls;
+        let program = Address::new_from_array([0x5F; 32]);
+        let mut cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xBE; 32]));
+        cfg.roles = vec![];
+        let port = crate::testkit::FakePort::default();
+        let mut k =
+            Keeper::new(cfg, port, crate::testkit::FakeDrand::new(), &[1; 32], None).unwrap();
+        let season_bytes = |version: u16| {
+            let mut d = vec![0u8; fclient::abi::size::SEASON];
+            crate::testkit::put(&mut d, 0, fclient::abi::magic::SEASON);
+            d[ls::STATUS] = status::SEEDED;
+            crate::testkit::put(&mut d, ls::PROGRAM_VERSION, &version.to_le_bytes());
+            crate::testkit::put(&mut d, ls::END_BELL, &1_008u32.to_le_bytes());
+            let cq = frontier_abi::v2::presets::MC_TEST.cq.to_bytes();
+            let o = frontier_abi::v2::presets::SEASON_CQ_OFFSET;
+            d[o..o + cq.len()].copy_from_slice(&cq);
+            d
+        };
+        let v1_fold = k.engine.budgets.get(tag::FOLD_MARCH);
+        k.port.put(
+            k.addrs.season,
+            crate::testkit::acct(program, season_bytes(2)),
+        );
+        k.port.set_clock(5, 1_000);
+        k.tick().await.unwrap();
+        assert!(k.season.as_ref().unwrap().is_v2());
+        let v2 = Budgets::canonical_v2();
+        assert_eq!(
+            k.engine.budgets.get(tag::FOLD_MARCH),
+            v2.get(tag::FOLD_MARCH)
+        );
+        assert_ne!(k.engine.budgets.get(tag::FOLD_MARCH), v1_fold);
+        assert_eq!(
+            k.engine.budgets.get(tag::FOLD_MARCH).loaded_limit,
+            1_376_256
+        );
+        assert_eq!(k.engine.budgets.get(tag::HARVEST), v2.get(tag::HARVEST));
+        assert_eq!(k.engine.budgets.get(0).cu_limit, 2_000, "payer care kept");
+        let st = k.shared.lock().unwrap().status.clone();
+        for f in [
+            "sieges_active",
+            "keeps_contested",
+            "occupations",
+            "settle_pending",
+            "fold_lag_hours_p99",
+            "horns_last_bell",
+        ] {
+            assert!(st["conquest"].get(f).is_some(), "status conquest.{f}");
+        }
+        let m = k.shared.lock().unwrap().metrics.clone();
+        assert!(m.contains("fk_capture_settle_pending 0"), "{m}");
+        // An M1 season (another run of the same keeper) goes back to v1's.
+        k.port.put(
+            k.addrs.season,
+            crate::testkit::acct(program, season_bytes(1)),
+        );
+        k.port.set_clock(30, 2_000);
+        k.tick().await.unwrap();
+        assert!(!k.season.as_ref().unwrap().is_v2());
+        assert_eq!(k.engine.budgets, {
+            let mut b = Budgets::canonical();
+            b.set(0, k.engine.budgets.get(0));
+            b
+        });
     }
 
     #[test]

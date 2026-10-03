@@ -42,6 +42,22 @@ pub struct Payers {
 /// larger cost; every in-play Reveal of the M1 runs so far was one).
 pub const REVEAL_FLOOR_WRITE_LOCKS: u8 = 3;
 
+/// The reveal pool's floor priced at the Reveal `budgets` requests (or
+/// `keeper.toml`'s `reveal_floor`). CQ2-D: an MC season reprices it with
+/// the v2 table (its larger `L(kind)`) when the keeper follows the ABI.
+pub fn reveal_floor_for(cfg: &KeeperConfig, budgets: &Budgets) -> u64 {
+    let reveal = budgets.get(fclient::abi::tag::REVEAL);
+    let reveal_cost = fclient::fees::cost(
+        reveal.cu_limit,
+        1,
+        REVEAL_FLOOR_WRITE_LOCKS,
+        reveal.loaded_limit,
+    );
+    cfg.reveal_floor.unwrap_or_else(|| {
+        payers::reveal_floor(cfg.r99_reveals, cfg.reveal_pool.max(1), reveal_cost)
+    })
+}
+
 impl Payers {
     /// Derives the pools of `cfg` from `master` with the canonical budgets
     /// table (`frontier-abi/vectors/budgets.json`). The reveal floor is
@@ -62,16 +78,7 @@ impl Payers {
         cfg: &KeeperConfig,
         budgets: &Budgets,
     ) -> Result<Payers, PoolError> {
-        let reveal = budgets.get(fclient::abi::tag::REVEAL);
-        let reveal_cost = fclient::fees::cost(
-            reveal.cu_limit,
-            1,
-            REVEAL_FLOOR_WRITE_LOCKS,
-            reveal.loaded_limit,
-        );
-        let fr = cfg.reveal_floor.unwrap_or_else(|| {
-            payers::reveal_floor(cfg.r99_reveals, cfg.reveal_pool.max(1), reveal_cost)
-        });
+        let fr = reveal_floor_for(cfg, budgets);
         Ok(Payers {
             reveal: Pool::new(
                 master,

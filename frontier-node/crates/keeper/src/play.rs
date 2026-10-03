@@ -202,6 +202,11 @@ pub struct PlayDuty {
     pub feed_read: bool,
     /// Liveness findings `(slot, detail)`.
     pub findings: Vec<(u64, String)>,
+    /// MC (CQ2-D, contract §8.2): the conquest duties and their view of the
+    /// v2 Provinces this duty reads.
+    pub conquest: crate::conquest::ConquestDuty,
+    /// Provinces a horn named, planned first this tick (§8.2 horn watcher).
+    cq_front: BTreeSet<(i16, i16)>,
 }
 
 fn rkey((host, b): (u64, u32)) -> String {
@@ -346,6 +351,18 @@ impl PlayDuty {
                 // Close → resolve, measured at the landing (wave-4 review).
                 if let Some(c) = self.resolve_close.remove(key) {
                     self.stats.resolve_latency.push(slot.saturating_sub(c));
+                    // MC §8.2: close → resolve of a contested province-bell.
+                    if key
+                        .split(':')
+                        .nth(1)
+                        .and_then(parse_pq)
+                        .is_some_and(|pq| self.conquest.hot(pq))
+                    {
+                        self.conquest
+                            .stats
+                            .contested_latency
+                            .push(slot.saturating_sub(c));
+                    }
                 }
             }
             ("skip", Outcome::Landed { .. }) => self.stats.skips += 1,
@@ -593,6 +610,14 @@ impl PlayDuty {
                     contested: false,
                 });
         }
+        // The horn watcher (MC §8.2): a province a horn named is read at
+        // once and planned first.
+        self.cq_front = std::mem::take(&mut self.conquest.front);
+        for pq in &self.cq_front {
+            if let Some(s) = self.provinces.get_mut(pq) {
+                s.read_slot = 0;
+            }
+        }
         for pq in std::mem::take(&mut self.index.touched) {
             let e = self.provinces.entry(pq).or_insert(ProvState {
                 region: ix::region_of(pq.0 as i32, pq.1 as i32),
@@ -620,13 +645,21 @@ impl PlayDuty {
                 .collect();
             let got = port.accounts(&keys, 0).await?;
             for (pq, a) in chunk.iter().zip(got) {
-                let Some(pv) = a
+                let Some((pv, raw)) = a
                     .filter(|a| a.owner == t.addrs.program)
-                    .and_then(|a| Province::decode(&a.data).ok())
+                    .and_then(|a| Province::decode(&a.data).ok().map(|pv| (pv, a.data)))
                 else {
                     self.provinces.remove(pq);
+                    self.conquest.provs.remove(pq);
                     continue;
                 };
+                // MC (§8.2): a v2 Province with an active siege, occupation
+                // or keep contest, or hostile residents on a garrison or
+                // keep hex, resolves every bell (never batched in a skip).
+                let cq_hot = pv.cq.is_some()
+                    && self
+                        .conquest
+                        .observe(*pq, &raw, pv.resolved_next, pv.region, t.slot.max(1));
                 let s = self.provinces.get_mut(pq).expect("due");
                 s.rn = pv.resolved_next;
                 s.region = pv.region;
@@ -667,7 +700,7 @@ impl PlayDuty {
                     .collect();
                 fs.sort_unstable();
                 fs.dedup();
-                s.contested = fs.len() >= 2;
+                s.contested = fs.len() >= 2 || cq_hot;
                 // A nudge holds until the province is resolved through
                 // b − 2 (resident actions allowed).
                 let target = self
@@ -794,6 +827,9 @@ impl PlayDuty {
         }
         if !std::mem::take(&mut self.feed_read) {
             self.index.pull(port, t.addrs).await?;
+        }
+        for (slot, log) in std::mem::take(&mut self.index.cq_logs) {
+            self.conquest.on_log(&log, slot, journal);
         }
         self.read_provinces(t, port, opened).await?;
         self.read_holdings(t, port).await?;
@@ -1498,7 +1534,19 @@ impl PlayDuty {
         seeds: &mut SeedFinder,
     ) -> PortResult<()> {
         let now_bell = t.clock.bell_at(t.now).unwrap_or(0);
-        let pqs: Vec<(i16, i16)> = self.provinces.keys().copied().collect();
+        // Horned provinces first (MC §8.2: the front of the resolve queue).
+        let mut pqs: Vec<(i16, i16)> = self
+            .provinces
+            .keys()
+            .filter(|pq| self.cq_front.contains(pq))
+            .copied()
+            .collect();
+        pqs.extend(
+            self.provinces
+                .keys()
+                .filter(|pq| !self.cq_front.contains(pq))
+                .copied(),
+        );
         for pq in pqs {
             let s = self.provinces[&pq].clone();
             if s.rn >= t.season.end_bell || s.rn >= now_bell || s.read_slot == 0 {
@@ -1550,7 +1598,10 @@ impl PlayDuty {
                 bb += 1;
             }
             let n = srcs.len() as u32;
-            if !self.skip_now(t.season.end_bell, pq, &s, b, n) {
+            // MC §8.2 (R-23): a lagging idle member of a March whose
+            // oldest unfolded hour is ≥ 3 game hours old goes at once.
+            let fold_driven = self.conquest.fold_urgent.contains(&pq);
+            if !fold_driven && !self.skip_now(t.season.end_bell, pq, &s, b, n) {
                 continue;
             }
             let a = t.addrs.clone();
@@ -1582,6 +1633,9 @@ impl PlayDuty {
             ) {
                 engine.set_cu_limit(&key, cu);
                 self.stats.skipped_bells += n as u64;
+                if fold_driven && !self.skip_now(t.season.end_bell, pq, &s, b, n) {
+                    self.conquest.stats.fold_skips += 1;
+                }
             }
         }
         Ok(())

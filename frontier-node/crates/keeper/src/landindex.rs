@@ -152,6 +152,15 @@ impl LandIndex {
 
     /// Ingests one PS2 body.
     pub fn ingest(&mut self, body: &[u8], slot: u64, addrs: &Addresses) {
+        // ABI v2 (R-22): MC kinds (80–88) name no land object; they are
+        // counted, not refused.
+        if body
+            .get(1)
+            .is_some_and(|k| *k >= fclient::abi::kind::SIEGE_DECLARED)
+        {
+            *self.counts.entry("MC").or_default() += 1;
+            return;
+        }
         let Ok(r) = plog::decode(body) else {
             self.bad += 1;
             return;

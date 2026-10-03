@@ -243,14 +243,15 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
     })
 }
 
-/// The horns of §8.2's watcher in one record: SIEGE_DECLARED, KEEP taken,
-/// and CONQUEST events KEEP_CONTEST, OCCUPIED, CAPTURE_DUE, LIBERATED and
-/// KEEP_TAKEN. Returns the event names (status counters).
+/// The horns of §8.2's watcher in one record: SIEGE_DECLARED, and the
+/// CONQUEST events KEEP_CONTEST, OCCUPIED, CAPTURE_DUE, LIBERATED and
+/// KEEP_TAKEN. Returns the event names (status counters). A KEEP record
+/// (kind 84) of a take rides the same transaction as its CONQUEST
+/// KEEP_TAKEN event and is not counted twice.
 pub fn horns(ev: &CqEvent) -> Vec<&'static str> {
     use l2::event as e;
     match ev {
         CqEvent::SiegeDeclared { .. } => vec!["SIEGE_DECLARED"],
-        CqEvent::Keep { cause, .. } if *cause == l2::keep_cause::TAKEN => vec!["KEEP_TAKEN"],
         CqEvent::Conquest { payload, .. } => payload.events[..payload.n as usize]
             .iter()
             .filter_map(|x| match x.code & !e::DETAIL {
@@ -589,7 +590,10 @@ mod tests {
                 gen: 2
             }
         );
-        assert_eq!(horns(&got.event), vec!["KEEP_TAKEN"]);
+        assert!(
+            horns(&got.event).is_empty(),
+            "counted by CONQUEST's KEEP_TAKEN"
+        );
         assert_eq!(got.event.province(), Some((-2, 5)));
         // A CONQUEST with two events.
         let mut pl = ConquestPayload {

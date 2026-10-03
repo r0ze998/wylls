@@ -9,7 +9,8 @@
 //!
 //! SQLite in WAL mode with `synchronous = FULL` (the attempts table must
 //! survive a power cut). Tables: `attempts`, `plaintexts` (W4-C's reveal
-//! cache), `cursor`, `claims` (W4), `payers`, `alerts`. One process per
+//! cache), `cursor`, `claims` (W4), `payers`, `alerts`, `conquest` (MC
+//! §8.2, CQ2-D: horns seen and conquest writes landed). One process per
 //! keeper identity: [`lock`] takes an exclusive `flock`-style lock on
 //! `<journal>.lock`.
 
@@ -117,7 +118,10 @@ impl Journal {
              CREATE TABLE IF NOT EXISTS payers(pool TEXT NOT NULL, i INTEGER NOT NULL, address TEXT NOT NULL,
                  balance_seen INTEGER NOT NULL, slot INTEGER NOT NULL, PRIMARY KEY(pool, i));
              CREATE TABLE IF NOT EXISTS alerts(id INTEGER PRIMARY KEY AUTOINCREMENT, slot INTEGER NOT NULL,
-                 kind TEXT NOT NULL, detail TEXT NOT NULL);",
+                 kind TEXT NOT NULL, detail TEXT NOT NULL);
+             CREATE TABLE IF NOT EXISTS conquest(id INTEGER PRIMARY KEY AUTOINCREMENT, slot INTEGER NOT NULL,
+                 bell INTEGER, event TEXT NOT NULL, object TEXT NOT NULL, detail TEXT NOT NULL);
+             CREATE INDEX IF NOT EXISTS conquest_event ON conquest(event);",
         ))?;
         Ok(Journal { conn, crash: None })
     }
@@ -340,6 +344,44 @@ impl Journal {
             params![pool, i, address, balance as i64, slot as i64],
         ))
         .map(|_| ())
+    }
+
+    /// One conquest row (MC §8.2): a horn the watcher saw (`event` its
+    /// name, `object` the province) or a conquest write that landed
+    /// (`event` the write kind, `object` its key). Evidence only: queues are
+    /// rebuilt from the Provinces and MarchStates after a restart.
+    pub fn conquest(
+        &self,
+        slot: u64,
+        bell: Option<u32>,
+        event: &str,
+        object: &str,
+        detail: &str,
+    ) -> Result<(), String> {
+        sql(self.conn.execute(
+            "INSERT INTO conquest(slot, bell, event, object, detail) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![slot as i64, bell.map(|b| b as i64), event, object, detail],
+        ))?;
+        Ok(())
+    }
+
+    /// Conquest rows of `event`: `(slot, bell, object)`.
+    pub fn conquest_rows(&self, event: &str) -> Result<Vec<(u64, Option<u32>, String)>, String> {
+        let mut st = sql(self
+            .conn
+            .prepare("SELECT slot, bell, object FROM conquest WHERE event = ?1 ORDER BY id"))?;
+        let rows = sql(st.query_map(params![event], |r| {
+            Ok((
+                r.get::<_, i64>(0)? as u64,
+                r.get::<_, Option<i64>>(1)?.map(|b| b as u32),
+                r.get::<_, String>(2)?,
+            ))
+        }))?;
+        let mut v = vec![];
+        for x in rows {
+            v.push(sql(x)?);
+        }
+        Ok(v)
     }
 
     pub fn alert(&self, slot: u64, kind: &str, detail: &str) -> Result<(), String> {
