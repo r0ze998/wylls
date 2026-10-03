@@ -1,4 +1,8 @@
-# Wylls — Hackathon Evidence Ledger
+> Earlier prototype, a different game (then named Permutation State). Not Wylls.  
+> Its devnet run, USDC prizes and hidden operator bots are not claims about Wylls.  
+> Current design: [../DESIGN-OVERVIEW.md](../DESIGN-OVERVIEW.md). This page keeps its historical wording.
+
+# Earlier prototype: Permutation State — Hackathon Evidence Ledger
 
 **Version:** 2026-09-21  
 **Internal submission deadline:** 2026-10-11, 23:59 JST  
@@ -70,11 +74,11 @@ Use stable public links wherever possible. Keep raw consented research material 
 | E-02 | Sourced competitor and precedent matrix | `[link]` | NOT STARTED | `[Name]` | Sep 23 |
 | E-03 | 30-second comprehension-test record | `[link]` | NOT STARTED | `[Name]` | Sep 24 |
 | E-04 | A→B→C uninterrupted Worksite demo recording | [`PERMUTATION_STATE_HANDOFF_PROOF.md`](PERMUTATION_STATE_HANDOFF_PROOF.md) | FOUR-CLIENT INTERACTIVE PROOF EXISTS; RECORDING NOT COMPLETE | `[Name]` | Oct 02 |
-| E-05 | Active-season devnet proof map; separate season-final fixture if retained | [`permutation-state-solana-receipt-spike/README.md`](permutation-state-solana-receipt-spike/README.md) | LOCAL NATIVE-RUST + JS SCAFFOLD TESTED; SBF BUILD / VALIDATOR / DEVNET RECEIPT NOT STARTED | `[Name]` | Oct 02 |
+| E-05 | Active-season devnet proof map; separate season-final fixture if retained | [`permutation-state-solana-receipt-spike/README.md`](../../permutation-state-solana-receipt-spike/README.md) | LOCAL NATIVE-RUST + JS SCAFFOLD TESTED; SBF BUILD / VALIDATOR / DEVNET RECEIPT NOT STARTED | `[Name]` | Oct 02 |
 | E-06 | Ten-run reliability log | [`PERMUTATION_STATE_HANDOFF_PROOF.md`](PERMUTATION_STATE_HANDOFF_PROOF.md) | AUTOMATED MULTI-CLIENT FAILURE-INJECTION SUITE PASSED 10/10; HUMAN-OPERATED STAGE RUN PENDING | `[Name]` | Oct 04 |
 | E-07 | Anonymized playtest dataset and synthesis | [`PERMUTATION_STATE_PLAYTEST_KIT.md`](PERMUTATION_STATE_PLAYTEST_KIT.md) | PROTOCOL READY; DATA NOT STARTED | `[Name]` | Oct 04 |
 | E-08 | Feedback → change → retest log | `[link]` | NOT STARTED | `[Name]` | Oct 09 |
-| E-09 | AI / offchain / Solana boundary diagram | [`permutation-state-prototype/README.md`](permutation-state-prototype/README.md) | BOUNDARY TABLE READY; DIAGRAM NOT STARTED | `[Name]` | Oct 02 |
+| E-09 | AI / offchain / Solana boundary diagram | [`permutation-state-prototype/README.md`](../../permutation-state-prototype/README.md) | BOUNDARY TABLE READY; DIAGRAM NOT STARTED | `[Name]` | Oct 02 |
 | E-10 | Funds-flow and bottom-up economics model | `[link]` | NOT STARTED | `[Name]` | Oct 05 |
 | E-11 | Beachhead and distribution evidence | `[link]` | NOT STARTED | `[Name]` | Oct 09 |
 | E-12 | Public repository and tagged release | `[link]` | NOT STARTED | `[Name]` | Oct 11 |

@@ -1,8 +1,12 @@
-# Wylls — Game Design V4.1 (revision draft)
+> Earlier prototype, a different game (then named Permutation State). Not Wylls.  
+> Its devnet run, USDC prizes and hidden operator bots are not claims about Wylls.  
+> Current design: [../DESIGN-OVERVIEW.md](../DESIGN-OVERVIEW.md). This page keeps its historical wording.
+
+# Earlier prototype: Permutation State — Game Design V4.1 (revision draft)
 
 > **2026-09-24 note — superseded in part by [Game Design V5](PERMUTATION_STATE_GAME_DESIGN_V5.md).** §2, the Dominion/Concord scoring that differentiated the victory tracks, is replaced by V5's four paths and achievement points. §3, the rule fixes H1–H9, and §4, skipped orders and projections, carry over into V5.
 
-Status: draft for review, 2026-09-24. This revision changes [Game Design V4](PERMUTATION_STATE_GAME_DESIGN_V4.md) as listed below; everything else in V4 stands. The rule changes it requires are listed in [Rules Spec v0.2 changes](PERMUTATION_STATE_RULES_SPEC_v0.2_CHANGES.md). The UI changes are in [UI redesign V4.1](research/UI_REDESIGN_V4_1.md).
+Status: draft for review, 2026-09-24. This revision changes [Game Design V4](PERMUTATION_STATE_GAME_DESIGN_V4.md) as listed below; everything else in V4 stands. The rule changes it requires are listed in [Rules Spec v0.2 changes](PERMUTATION_STATE_RULES_SPEC_v0.2_CHANGES.md). The UI changes are in [UI redesign V4.1](../../research/UI_REDESIGN_V4_1.md).
 
 Evidence comes from `cargo run --release --bin sim -- 40` (permutation-server). It plays 40 six-bot Blitz seasons. The personas rotate across start positions each seed, and every bot decides from its own fog of war. The "proposed" numbers use the same matches, rescored with the V4.1 formulas. **The bots have not yet adapted to the new scoring, so these are lower bounds.**
 

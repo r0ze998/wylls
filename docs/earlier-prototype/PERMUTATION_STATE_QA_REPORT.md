@@ -1,4 +1,8 @@
-# Wylls — Prototype QA Report
+> Earlier prototype, a different game (then named Permutation State). Not Wylls.  
+> Its devnet run, USDC prizes and hidden operator bots are not claims about Wylls.  
+> Current design: [../DESIGN-OVERVIEW.md](../DESIGN-OVERVIEW.md). This page keeps its historical wording.
+
+# Earlier prototype: Permutation State — Prototype QA Report
 
 **Build reviewed:** Living Chronicle world-first prototype  
 **Date:** 2026-09-21  
@@ -112,7 +116,7 @@ The full four-path automated regression was rerun after these changes: all four 
 
 These remain Evidence Ledger items. The clickable build proves the local causal loop and continuous-world semantics only.
 
-The companion [`permutation-state-solana-receipt-spike/README.md`](permutation-state-solana-receipt-spike/README.md) supplies a host-tested native-Rust account/instruction contract and JavaScript adapter. The current suite passes 9/9 Rust and 18/18 JavaScript tests. The official isolated local stack also passes the complete ER-to-base checkpoint path; this does not change the public-devnet item above.
+The companion [`permutation-state-solana-receipt-spike/README.md`](../../permutation-state-solana-receipt-spike/README.md) supplies a host-tested native-Rust account/instruction contract and JavaScript adapter. The current suite passes 9/9 Rust and 18/18 JavaScript tests. The official isolated local stack also passes the complete ER-to-base checkpoint path; this does not change the public-devnet item above.
 
 ## Companion multi-client proof
 

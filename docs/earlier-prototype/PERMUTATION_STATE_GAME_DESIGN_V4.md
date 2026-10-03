@@ -1,4 +1,8 @@
-# Wylls — Game Design V4
+> Earlier prototype, a different game (then named Permutation State). Not Wylls.  
+> Its devnet run, USDC prizes and hidden operator bots are not claims about Wylls.  
+> Current design: [../DESIGN-OVERVIEW.md](../DESIGN-OVERVIEW.md). This page keeps its historical wording.
+
+# Earlier prototype: Permutation State — Game Design V4
 
 > **2026-09-24 note — [Game Design V5](PERMUTATION_STATE_GAME_DESIGN_V5.md) supersedes parts of this document.** Participation becomes 6 nations with unlimited members, governed by elected offices. Prizes are split by achievement points and individual contribution, replacing §4.7 victory tracks and the track split and payout in §4.10. Everything else here still applies, as V5 §0 and §10 describe.
 
@@ -8,7 +12,7 @@ Status: design review draft, 2026-09-24. It replaces the Game Constitution (Hand
 
 Numeric rules: [Rules Specification v0.1](PERMUTATION_STATE_RULES_SPEC_v0.1.md).
 
-Evidence: [Eternum benchmark](research/BENCHMARK_ETERNUM.md) (based on the local Eternum source) · [Civilization / 4X / persistent strategy benchmark](research/BENCHMARK_CIVILIZATION_4X.md) · [2026 tech landscape and the hackathon](research/TECH_LANDSCAPE_2026.md). Evidence tags in this document: **[E]** Eternum, **[C]** Civ/4X, **[T]** tech, **[判断]** this design's own judgement.
+Evidence: [Eternum benchmark](../../research/BENCHMARK_ETERNUM.md) (based on the local Eternum source) · [Civilization / 4X / persistent strategy benchmark](../../research/BENCHMARK_CIVILIZATION_4X.md) · [2026 tech landscape and the hackathon](../../research/TECH_LANDSCAPE_2026.md). Evidence tags in this document: **[E]** Eternum, **[C]** Civ/4X, **[T]** tech, **[判断]** this design's own judgement.
 
 > ⚠️ **The hackathon deadline is 2026-10-12 23:59 PT, not 10/15** (Colosseum *Crypto World's Fair* official rules §5) **[T]**. Section 11 of this document is scoped to 10/12.
 

@@ -1,4 +1,8 @@
-# Rules Spec v0.2 — changes from v0.1 (draft)
+> Earlier prototype, a different game (then named Permutation State). Not Wylls.  
+> Its devnet run, USDC prizes and hidden operator bots are not claims about Wylls.  
+> Current design: [../DESIGN-OVERVIEW.md](../DESIGN-OVERVIEW.md). This page keeps its historical wording.
+
+# Earlier prototype: Rules Spec v0.2 — changes from v0.1 (draft)
 
 > **Merged (2026-09-24):** these changes are now part of [Rules Spec v0.2](PERMUTATION_STATE_RULES_SPEC_v0.2.md). This file is kept as the record of the change list.
 

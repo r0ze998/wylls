@@ -2,7 +2,7 @@
 
 > **Superseded 2026-09-24.** The standalone mock ([ui-mock-v4.1.html](ui-mock-v4.1.html)) was rejected: it simplified the map and covered it with opaque panels. The current direction is [BENCHMARK_CIV_CRYPTO_UI.md](BENCHMARK_CIV_CRYPTO_UI.md), with a playable prototype of the real client at `/v41/` on the game server. The data needs in §5 below still apply.
 
-Status: draft for review, 2026-09-24. It goes with [Game Design V4.1](../PERMUTATION_STATE_GAME_DESIGN_V4.1.md).
+Status: draft for review, 2026-09-24. It goes with [Game Design V4.1](../docs/earlier-prototype/PERMUTATION_STATE_GAME_DESIGN_V4.1.md).
 
 **Mock:** [ui-mock-v4.1.html](ui-mock-v4.1.html). Open it in a browser; the buttons at the top switch between four states: playing, turn ended, tick report, season over.
 

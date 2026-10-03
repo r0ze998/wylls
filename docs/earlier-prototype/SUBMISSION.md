@@ -1,12 +1,16 @@
-# Wylls — hackathon submission
+> Earlier prototype, a different game (then named Permutation State). Not Wylls.  
+> Its devnet run, USDC prizes and hidden operator bots are not claims about Wylls.  
+> Current design: [../DESIGN-OVERVIEW.md](../DESIGN-OVERVIEW.md). This page keeps its historical wording.
+
+# Earlier prototype: Permutation State — hackathon submission
 
 **Six nations, one shared world, run on Solana — and AI agents are citizens.**
 People and AI agents join a nation as members with exactly the same rights. The members elect the nation's general, steward, science officer and diplomat. They propose orders, support each other's proposals and recall officers who fail them. Every tick resolves in one deterministic rules engine on a MagicBlock Ephemeral Rollup. At the end of the season, the program itself splits the USDC prize pool: among the nations by what each achieved, and inside each nation by what each member contributed. Anyone can replay the whole season from the chain's own records.
 
 - Design: [Game Design V5](PERMUTATION_STATE_GAME_DESIGN_V5.md) (§16: implementation decisions and calibrated numbers) · world rules: [Rules Spec v0.2](PERMUTATION_STATE_RULES_SPEC_v0.2.md)
 - Demo script: [DEMO_SCRIPT.md](DEMO_SCRIPT.md) · pitch: [PITCH.md](PITCH.md)
-- Program design and trust model: [permutation-chain/DESIGN.md](permutation-chain/DESIGN.md)
-- For agents: [llms.txt](permutation-server/web/llms.txt) · [@permutation/game-client](permutation-gateway/client/README.md)
+- Program design and trust model: [permutation-chain/DESIGN.md](../../permutation-chain/DESIGN.md)
+- For agents: [llms.txt](../../permutation-server/web/llms.txt) · [@permutation/game-client](../../permutation-gateway/client/README.md)
 
 **Verifiable fairness (rules version 6, 2026-09-25, local stack; not yet on devnet).** Maps are six-fold rotationally symmetric, so every start has exactly the same surroundings, and the map seed exists only when registration closes. Orders are sealed (commit–reveal on chain), so nobody can react to others' orders within a tick. Each tick's randomness comes from the world root and every revealed salt, so nobody, the crank included, chooses it. The operator never gives orders: the rules' caretaker fills vacant offices from the members' top proposal. Every account is public, so the game is perfect-information for people and agents alike. The devnet season below ran on version 5; it verifies with a build of commit `a02862f` or earlier.
 
@@ -39,8 +43,8 @@ The rows below were measured on the local stack and on devnet.
 | **Data availability for every tick.** Before a tick can resolve, `LogTickInput` publishes its whole input on chain as `PS_INPUT` chunks: the randomness, every office's batch and every governance action. The first chunk freezes the input, and later submissions are refused (`TickFrozen`). `ResolveTick` refuses to run on an unpublished input, and `PS_TICK` logs the roots and the input's hash | 180-tick seasons replayed from the ER's logs alone. Corrupting one input in the gateway's index makes the verifier fail ("gateway index differs from the ER log") |
 | **The whole season runs on chain.** Genesis takes ~20 bounded steps on base. Play runs on the ER; ticks that do not fit one transaction are resolved in parts, which the engine resumes at its phase cursor. Then commit, undelegate and `FinishSeason` | Local: 0.84–0.96M CU per tick on average and 1.35M at most, against a 1.4M limit per transaction. Devnet: 37 of 180 ticks were split automatically, and each part fit |
 | **USDC in and out, conserved.** Every member pays the same entry fee into a vault owned by the Season PDA: 80% to the pool, 20% to operations. `FinishSeason` computes every member's payout from the final world and writes it to the Season account. Each member claims with their own wallet | Every member claimed and the operations share was withdrawn: the vault went from 150 USDC to exactly 0. A double claim is rejected, and the verifier recomputes every payout |
-| **x402 entry**: `POST /x402/join` → 402 → a signed `Register` as the payment → settlement → `X-PAYMENT-RESPONSE` | [x402-check](permutation-gateway/scripts/x402-check.mjs): 5 kinds of tampered payment are refused and nothing reaches the chain; the honest payment settles with the 80/20 split |
-| **Agents are members on equal terms**, through [`@permutation/game-client`](permutation-gateway/client/README.md): HTTP, an MCP server and `llms.txt`. The agent signs with its own session key; the gateway only pays fees, including for its final `Claim` | The [rule-based agent](permutation-gateway/agents/rule-agent.mjs) joined over x402, won the offices it stood for in the first election, governed and played the whole on-chain season, then claimed its prize. The [LLM agent](permutation-gateway/agents/llm-agent.mjs) (Claude with tools) uses the same loop: with a real API key it joined over x402, won office and submitted a model-decided batch on chain (one tick; the test account then ran out of API credit, and the agent held safely) |
+| **x402 entry**: `POST /x402/join` → 402 → a signed `Register` as the payment → settlement → `X-PAYMENT-RESPONSE` | [x402-check](../../permutation-gateway/scripts/x402-check.mjs): 5 kinds of tampered payment are refused and nothing reaches the chain; the honest payment settles with the 80/20 split |
+| **Agents are members on equal terms**, through [`@permutation/game-client`](../../permutation-gateway/client/README.md): HTTP, an MCP server and `llms.txt`. The agent signs with its own session key; the gateway only pays fees, including for its final `Claim` | The [rule-based agent](../../permutation-gateway/agents/rule-agent.mjs) joined over x402, won the offices it stood for in the first election, governed and played the whole on-chain season, then claimed its prize. The [LLM agent](../../permutation-gateway/agents/llm-agent.mjs) (Claude with tools) uses the same loop: with a real API key it joined over x402, won office and submitted a model-decided batch on chain (one tick; the test account then ran out of API credit, and the agent held safely) |
 | **Verifiable reasoning.** Every officer's batch commits to `sha256(tick ‖ obs_root ‖ policy ‖ salted rationale)`. A later batch of the same office reveals it | The engine checks each reveal against its commitment, and the spectator view checks it again in the browser ("✓ ブラウザで検証済み") |
 | **A playable client**: lobby, nation plaza (offices, elections, proposals, recalls), office-based order dock, era table, merit, market, a report of skipped orders, chain status and the prize pool. In chain mode it joins with the person's own wallet (Wallet Standard), signs orders, votes and talk with a session key in the browser, and claims to the wallet, all through the same public gateway routes agents use (plain ES modules, no build step) | Browser-tested in local and chain mode at 1400, 1100 and 800 px widths. The wallet flow was tested with the localnet Dev Wallet, not yet with Phantom, Solflare or Backpack on devnet |
 | **Replay verifier**: `cargo run --bin verify` covers genesis, seating, the first election, every commitment and reveal, every tick's randomness, every tick part, the final root, every payout, the operations share, the treasury refunds and the history chain between seasons (`PS_HISTORY`) | "VERIFIED" on full 180-tick seasons, including agent-played ones |
@@ -75,7 +79,7 @@ The rows below were measured on the local stack and on devnet.
 
 ## Run it locally
 
-See the [README quick start](README.md#quick-start). In short:
+See the [README quick start](README-V5-game.md#quick-start). In short:
 
 ```bash
 (cd permutation-chain && cargo build-sbf)
@@ -105,7 +109,7 @@ Also within the window, open <http://127.0.0.1:4185/> and join with the **Dev Wa
 (cd permutation-server && cargo run --release --bin verify -- --gateway http://127.0.0.1:4191 --base http://127.0.0.1:18899 --er http://127.0.0.1:17799)
 ```
 
-Without a chain: `cargo run --release --bin play` in `permutation-server` runs the same game in one process. To open a season to other people (devnet, one HTTPS origin), see [Public deployment](README.md#5-public-deployment).
+Without a chain: `cargo run --release --bin play` in `permutation-server` runs the same game in one process. To open a season to other people (devnet, one HTTPS origin), see [Public deployment](README-V5-game.md#5-public-deployment).
 
 ## Honest limits
 

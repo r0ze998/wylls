@@ -1,4 +1,8 @@
-# Wylls — Rules Specification v0.1 (`permutation-rules`)
+> Earlier prototype, a different game (then named Permutation State). Not Wylls.  
+> Its devnet run, USDC prizes and hidden operator bots are not claims about Wylls.  
+> Current design: [../DESIGN-OVERVIEW.md](../DESIGN-OVERVIEW.md). This page keeps its historical wording.
+
+# Earlier prototype: Permutation State — Rules Specification v0.1 (`permutation-rules`)
 
 > **Superseded (2026-09-24)** by [Rules Spec v0.2](PERMUTATION_STATE_RULES_SPEC_v0.2.md), which merges the v0.2 changes and matches the V5 implementation. Kept for the record.
 
@@ -784,7 +788,7 @@ Each track winner (§14.5 rank 1, or a coalition) picks one item. Picks are appl
 
 ## 19. Balance simulation notes
 
-These numbers were checked with a simplified single-civilization simulation (worked-tile average 2.2 food / 0.9 prod; no conflict). Scripts: [research/econ3.py](research/econ3.py) (economy) and [research/combat.py](research/combat.py) (test vectors).
+These numbers were checked with a simplified single-civilization simulation (worked-tile average 2.2 food / 0.9 prod; no conflict). Scripts: [research/econ3.py](../../research/econ3.py) (economy) and [research/combat.py](../../research/combat.py) (test vectors).
 
 | Profile | Cities | Pop @90 | Pop @179 | Gold income @120 | Upkeep @120 | Star Gate stages done |
 |---|---|---|---|---|---|---|
