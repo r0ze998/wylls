@@ -1,0 +1,96 @@
+# CQ2-F bots-cq: notes
+
+Unit CQ2-F (conquest Wave 2), branch `frontier/cq-2f-bots`, cut from `frontier/cq-integ` `3751173` (contract v1.3). Owns `frontier-node/crates/{agents,bots}/**` and this file. Normative text: `CONQUEST-CONTRACT.md` §8.6, §8.7 item 6, §11 (CQ2-F), §12 (Gate CQ2), A-6, A-11, A-14, A-21, A-26, A-29.
+
+This is the second run of the unit. The first run left the planner port, the herald readers, the behaviours, the personas and the fixture committed (two commits), `bots/src/cqtx.rs` untracked, and no bots layer, no `--conquest`, no report sections, no notes. This run finishes the brief and answers the first adversarial review (`review:CQ2-F bots-cq`, needs-fix: three blockers, six majors, three minors).
+
+## 1. What is on the branch
+
+| Deliverable (§11) | Where | Tests |
+|---|---|---|
+| `agents::campaign`: the E1 planner (occupation slot sharing the one holding slot, hold rule, plan-time `TooLate`, K2 affordability) | `agents/src/campaign.rs`; entry points `plan` (§8.6 shape, one faction) and `plan_all` (the simulator's single pass over every campaign faction) | `tests/campaign_equality.rs`: field equality with the simulator at every epoch of whole 7-day seasons |
+| The behaviours of §8.6 | `agents/src/cqbehave.rs` (horn, retire, expand, local DeclareSiege / FileOutpost / RetireHost checks), `agents/src/cqorder.rs` (a plan's march as Muster then sealed Depart, pushed to the common arrival bell, carrying the hold rule's `retreat_bps`) | `agents/tests/cq_conquest.rs`, `agents/tests/cq_order.rs` |
+| The 19 conquest personas and their expected codes | `agents/src/cqpersona.rs` | `cq_personas_expected_codes_on_the_herald_fixture` |
+| Herald MC readers and the planner's world from the herald's files | `agents/src/cqobs.rs` | `agents/tests/cq_formats.rs`, `cq_world_from_herald_reads_the_fixture` |
+| `--conquest` | `bots/src/main.rs` (`--conquest`, `--conquest-personas N`), `bots/src/conquest.rs` (the fleet hub and the bots' layer), `bots/src/fleet.rs` (one wake-up per planner epoch; every bell while an order is open), `bots/src/bot.rs`, `bots/src/cqtx.rs` | `bots/tests/cq_conquest.rs`, `main::tests::cq_conquest_flag_parses` |
+| The report additions | `bots/src/report.rs`: `conquest {campaigns[], keeps {contested, taken, lost}, sieges {declared, won, lost, refused_by_code}, occupations, liberations, captures, outposts, personas{…}}` and `activity {departs_per_bot_day, keep_marches_per_bot_day, keep_captures_per_bot_day, declares_per_bot_day}` (arrays indexed by game day, with `bots` per day and the raw `counts`); absent when `--conquest` is off | `report::tests::cq_report_has_the_8_6_sections`, `cq_persona_verdicts` |
+| `campaign::plan` identical across 32 bots with shuffled observation order | `agents/tests/cq_conquest.rs` | `cq_plan_identical_across_32_bots_with_shuffled_observations` |
+| Personas' expected codes on recorded herald fixtures | **owed to CQ3-E** (no recorded conquest fixture exists before its mini-season); this unit's fixture is synthetic (`agents/src/cqfixture.rs`, built with `conquest_model`'s writers and the kernel terrain) | see §6 |
+
+### How the layer works (`bots/src/conquest.rs`)
+
+- **One planner epoch per game hour, shared by the fleet.** Every bot of a faction would compute the same plan from the same herald files, and the fleet is one process, so `Conquest::epoch` computes it once per epoch (a mutex; the first bot builds it, the others reuse it). Inputs: `/h/overview/{ring}/latest.bin` (the opened provinces), `/h/province/{P},{Q}/{epoch bell − 1}` (Province v2 accounts), `/h/me/{wallet}` of every fleet wallet joined by the epoch (Citizen v2 and Holdings), `/h/call/{day}.json`, `/h/season` (the Season's `ConquestParams` block; an MC season without it at the pinned version is refused, never guessed), `/h/conquest/{day}.json` (report counters only). The bots never read a chain account.
+- **World ids are stable across epochs** (`HeraldEpoch.host_ids`): the planner's attempts name hosts by id, and a chain host keeps its id while the fleet lives. A host the plan means to send takes its planned id when the bot sends it (`Conquest::note_march`); when the bot sends a host it already had, the campaigns' attempts are renamed to it, so hysteresis ("keep a campaign until won, failed twice, or illegal") survives the hour boundary.
+- **What a bot does** (`Bot::cq_layer`, after the M1 intents of its step): at its epoch wake-up it asks the hub for the epoch and decides: march orders from its dispatches, the horn when it is the lead host's owner, RetireHost for hosts of holdings it lost (victim only, K-27), FileOutpost at the front (no outpost while its own capture strike marches or holds a slot: CQ1-B D-7), or, for a persona bot, its persona's action. Open orders run at every wake-up: Muster out of the reserve, wait for it, then the sealed Depart (`cqorder::step`, pure). A bot with no M1 persona does not run M1's random war marches under `--conquest` (`policy::decide_with(.., war = false)`): it marches as the plan assigns it (§8.7 item 7, profile `cq`).
+- **Re-check at send time.** DeclareSiege is checked locally (§3.4 steps 1, 3–10) against the epoch's world, then the target's latest Province file is read again and the horn is not sent when its record is no longer free or the site is no holding (`skipped.stale_*` in the report).
+- **Rally stay (A-26).** A bot never sends a host home; a host that arrived stays until the bot orders another march, and every bot faction runs the campaign policy, so the campaign-only rule holds by construction. `rally_stays` stays in `campaign.rs` for the equality test.
+- **Pacing.** A bot that plays wakes once per epoch hour, 90–120 game seconds into it (the epoch's last bell has resolved; the herald's per-bell file or its `latest`), and every bell while it has an open order. The relay's sponsored shapes are unchanged; the v2 budget table (`txb::budgets_v2`, the placeholders of `frontier_abi::v2::budgets` until Gate CQ4) is used under `--conquest`.
+
+## 2. Deviations from the contract and the first run's notes
+
+| # | What | Why | Who resolves |
+|---|---|---|---|
+| D-1 | The planner's world is built from the herald's files (`cqobs::world_from_herald`); host ids are stable across epochs; the Season's `ConquestParams` feed `Params`; the planner package defaults (A-15) are fixed. | §8.6 inputs | — |
+| D-2 | `bots/src/cqtx.rs` builds DeclareSiege (0xA0), FileOutpost (0xA3) and RetireHost (0xA6) from `frontier_abi::v2` tables until CQ2-D's `fclient` v2 builders merge. `cq_tx_shapes_follow_the_v2_tables` pins the shapes (tags, data, account counts, signer flags). | §8.1 gives these builders to `fclient` (same wave) | integrator: swap the three calls for `fclient`'s and delete the module |
+| D-3 | The fleet computes the epoch once and shares it (§1). | pure function of the files; 1,000 bots would repeat 1,000 identical plans | — |
+| D-4 | **`siege_seat` expects `ReservedSite` in §8.6, but the program (CQ2-C, §3.4 step 3) refuses a Seat's reserved site `NotBesiegeable`.** `ReservedSite` comes only from `may_besiege`'s Seat test on a *holding* of a ring-1 Province (step 8), which no M1 flow creates (tickets start at ring 2, Seats are reserved sites). The persona declares on the Seat's reserved site; its report accepts either code (`CqPersona::accepts`); the local check gives the program's code. | contract text vs program | **cross-unit** (integrator): decide the §8.6 wording (`NotBesiegeable`) or give the Seat a holding; no rule changes either way |
+| D-5 | A province file is read at the epoch's last bell when the herald serves it, else the `latest` file (counted: `conquest.latest_fallbacks`). At +90 s the previous bell is usually not resolved (`b − 2`), so the fallback is the common case; the fleet shares one read, so its bots agree. | §8.6 says "immutable herald files of that epoch" | CQ3-B/CQ4-C: if the rehearsal shows the fallback fires every epoch, wake later (`EPOCH_OFFSET_SECS`) |
+| D-6 | D-6/D-7 of CQ1-B (holding slot, stale campaigns, board, honest outposts) are ported; the board for session-driven *human* members (`mc_campaign_session`, formerly `board_join`) is **not**: the stack's bots are epoch-driven and humans are not bots. The equality test reads the attempts such members leave in the simulator's board. | `board_join` was unused and untested | — |
+| D-7 | The owner Citizen of a siege target is named from the fleet's own `/h/me` rows: a holding of a wallet the fleet does not run cannot be besieged by a bot (`conquest.skipped.owner_unknown`). The herald's site mirror and `/h/sieges` carry no owner key. | DeclareSiege's account list needs it | CQ3-E / CQ4-B: add the owner to a herald file if multi-process fleets (`--first-index`) must fight each other |
+| D-8 | `campaign::plan(fleet_seed, faction, world, board)` replaces §8.6's `plan(fleet_seed, faction, epoch)` (the epoch's inputs are passed in) and plans **one faction on an unmodified world**; the fleet uses `plan_all` (the simulator's pass, each faction seeing the previous factions' launches). With one campaign faction the two are the simulator's epoch; the equality test checks both at every epoch. | review item; the shapes differ | — |
+| D-9 | `declare_check` follows CQ2-C's order: step 3 `NotBesiegeable` (incl. a Seat's reserved site) and `CapturePending` (a capture due), step 4 `NotOnHex` / `NotLead` (lead host ranked among the **attacker faction's** entries, tie on the chain host id), step 5 `StakeUnsettled`, 6 `SiegeCap`, 7 `HoldingsFull`, 8 Seat/Concord `ReservedSite`, `may_besiege`, the declarer's own shielded first holding `Shielded`, 9 `TooLate`, 10 `Insufficient`. **Not modelled:** step 2 (the source holding final and not capture-locked: the bot's own holdings are not in the world's flags; the program refuses it). | CQ2-C review | verify against the merged program (§6) |
+| D-10 | `siege_spammer` accepts `SiegeCap` (program) or `QuotaExceeded` / `RateLimited` (relay); its first `sieges_per_day` horns of a day are honest, beyond that every one must be refused, and a third accepted horn in a day is `violated`. `assign` caps each persona at max(1, bots / 100). | §8.6 table, review | — |
+| D-11 | `agents/build.rs` (the field-equality test's lifted copy of the simulator) never fails a build: a missing source or a moved anchor writes a `compile_error!` into the generated file that only `tests/campaign_equality.rs` includes. Cargo still reruns it, and rebuilds `agents` and its dependents (keeper, bots, itest), on any `frontier-sim/src` change; the generated file is rewritten only when it changed. | review (a simulator edit must not break production builds) | integrator may move the test into an unpublished dev crate (a manifest/workspace change) |
+| D-12 | Report mapping of the herald's events: `keeps.contested` = `keep_contest`, `taken` = `keep_taken`, `lost` = `keep_broken` (a contest broken); `sieges.declared` = this fleet's accepted DeclareSieges, `won` = `occupied` + `capture_due`, `lost` = `siege_failed`; `occupations`, `liberations`, `captures`, `outposts` = the event kinds of the same name (each event once, by `seq`). `activity` divides by the bots joined by that day. §8.6 names the sections, not these definitions. | — | CQ3-B reads them; adjust there if it wants others |
+
+## 3. Dependency requests (integrator)
+
+- **R1** (`agents/Cargo.toml`, already in the first run): `frontier-abi.workspace = true`. `Cargo.lock`: the `agents` package's dependency list gains `frontier-abi`.
+- **R2** (`bots/Cargo.toml`): `frontier-abi.workspace = true`, for `cqtx.rs` and `txb::budgets_v2`. `Cargo.lock`: the `bots` package's list gains `frontier-abi`. No new external crate, no version change.
+- No other manifest, lockfile, `package.json` or toolchain change.
+
+## 4. Review response (`review:CQ2-F bots-cq`)
+
+See the structured summary of the run for the one-line table; the substance:
+
+- **Blocker, bots deliverables missing:** fixed (§1), with `cqtx.rs` committed and compiled, `frontier-abi` in `bots/Cargo.toml`, the report sections, persona assignment and verdicts, and tests including the `--conquest` parse test and the report-shape test.
+- **Blocker, notes missing:** this file.
+- **Blocker, gate lines not run:** §5.
+- **Major, `siege_seat`:** D-4. The persona now acts only from a situation whose local checks end in a code it expects, so it cannot be marked wrong by a code it never meant to get.
+- **Major, `build.rs`:** D-11.
+- **Major, `retreat_bps` one-directional:** `build.rs` probes the simulator's two `occ_retreat` assignments; the test asserts, for every host the plan sends, that the port gives the hold rule exactly when the simulator did, with the same value, clamped to [6,667, 60,000] (217 hold-rule hosts in the 1,000-wallet cq season).
+- **Major, `plan` vs `plan_epoch`:** D-8; `plan_fn_checked` equals the epochs of the one-campaign-faction season (168).
+- **Major, 32-bot test:** now genuinely permutes wallets, each wallet's holdings and the marchbook, carries each bot's board over 24 epochs, draws from the fleet seed (keep interest 0.5), and checks that another fleet seed gives another day.
+- **Major, persona test:** every wallet where a persona acts must give a code it expects (no search for a match), every refusal persona must act from some wallet, and the wallets `assign` gives (eight seeds) are checked. The recorded-fixture and merged-program cross-checks are owed (§6).
+- **Minor, `declare_check`:** D-9.
+- **Minor, `siege_spammer` / `assign`:** D-10.
+- **Minor, `board_join`:** D-6 (removed). The campaign flag of the rally stay: every bot faction is a campaign faction, A-26 holds by construction (§1).
+- **Minor, `cqfixture.rs` in the library:** **rebutted**: it is a module of the library like M1's `fixture.rs` and `recorded.rs` (the bots' integration tests use it; the crate has no `fixtures` feature and adding one is a manifest change), a few KB of dead code in a release binary.
+
+## 5. Gate CQ2 lines run (this unit's files)
+
+Run from `frontier-node/` on this branch, `PATH` with the Solana tools, `CARGO_BUILD_JOBS=6`, `--offline --locked`. Logs are under the run's scratchpad (`cqw2/CQ2-F/`).
+
+| Line | Result |
+|---|---|
+| `cargo fmt --all -- --check` | clean |
+| `cargo clippy --locked --workspace --all-targets -- -D warnings` | exit 0 (all crates, including keeper, herald, itest and stack, which build on the changed `agents` / `bots`) |
+| `cargo test --locked --release --workspace -- cq_` (Gate CQ2) | exit 0, 53 `cq_` tests passed, 0 failed (agents: `cq_conquest` 6, `cq_order` 4, `cq_formats` 4, `campaign_equality` 4, unit tests; bots: `cq_conquest` 8, `report` 2, `cqtx` 1, `main` 1; plus the other crates' `cq_` tests) |
+| `cargo test --locked --release -p agents --test campaign_equality -- --nocapture` | 4 passed in 5 s: 168 epochs per season, 200,741 / 222,468 / 564,903 scores compared bit for bit, 217 hold-rule hosts, 119 rally-stay decisions, `plan()` compared at 168 of 168 epochs of the one-campaign-faction season, `plan_all` at every epoch of every season |
+| `cargo test --locked --workspace` (Gate CQ1's frontier-node line, debug) | **not completed.** The debug build runs `agents`'s 7-day equality seasons unoptimised, which did not finish in over an hour (the release run of the same test takes 5 s), so the run was stopped. What ran instead, debug, `-p bots -p itest -p stack -p keeper`: 12 test binaries finished, all `ok`, 0 failures (bots lib 13, bots tests, itest, stack), then stopped inside `keeper`'s slow `archive_returns_rent` (an M1 test no unit of this wave touches). The release workspace line above covers every `cq_` test; the full debug workspace line is for the integrator's quiet-machine run |
+
+The program-side Gate CQ2 lines (svm-tests, `permutation-frontier`) and the simulator lines are not this unit's files and were not run.
+
+### Measurements
+
+- **Planner cost** (release, the port's `plan_epoch` on the simulator's own state, 1,000 wallets, 7-day `--bot-profile cq` season, seed 2002): mean 3.2 ms, worst 12.8 ms per epoch for the whole fleet; once per game hour.
+- **Herald reads per epoch** (`cq_an_epoch_reads_each_file_once`, the 61-province fixture, 14 bots): one `/h/province/{P},{Q}/{bell}` per opened province, one `/h/me` per joined wallet, a handful of shared files, however many bots ask. At the exit's size (1,000 wallets, rings to about 8, ≈ 217 provinces) that is ≈ 1,250 GETs an epoch, ≈ 0.35 a second at 1× (the hub reads them one after another; no concurrency was needed).
+- **Bot-activity rates** (§8.8: Departs 0.136, keep marches 0.032, keep captures 0.015 per bot-day in the thresholds file): **not measurable in this unit**; the layer reports them per game day (`activity`), and the plan that drives them is field-equal to the simulator's that produced the reference. CQ3-B's nightlies are the first measurement.
+- **Gate CQ2 budgets** concern the program (G1); the bots' sponsored shapes use the v2 placeholder rows (`txb::budgets_v2`).
+
+## 6. Owed to others
+
+- **CQ3-E:** a recorded conquest mini-season; then persona expected codes (and the whole `cq_conquest` fixture tests) should run on a recording, and `inproc_cq_day` / `g14_cq_` drive `Fleet::step_due` with `--conquest` over `ChainPort::InProcess`.
+- **Integrator, after CQ2-A/C merge:** run the personas' local oracles against the merged program (LiteSVM): `declare_check` for each persona's action must give the program's code (D-4, D-9), and swap `cqtx.rs` for `fclient`'s builders (D-2).
+- **CQ3-B:** the stack passes `--conquest` and `--conquest-personas`; reads `activity` for the bot-activity gate (§8.8: per-bot-day rates against `thresholds/mc-7d-1k.json`); criterion 13 reads `conquest.personas[]` (`verdict`: `observed`, `violated`, `pending`, `needs-chain`).
+- **CQ2-D / CQ2-E:** the herald must serve `/h/province/{P},{Q}/{bell}` with Province v2 bytes in `bytes`, `/h/me` with Citizen v2 and Holding bytes, `/h/call/{day}.json` and `/h/conquest/{day}.json` as in §8.4 (CQ2-E's branch does).

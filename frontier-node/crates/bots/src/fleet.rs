@@ -87,7 +87,12 @@ where
 {
     pub fn new(shared: Shared<H, R, D>, roster: &[AgentSpec]) -> Self {
         let seed = shared.cfg.seed;
-        let bots = roster.iter().map(|s| Bot::new(*s, seed)).collect();
+        let mut bots: Vec<Bot> = roster.iter().map(|s| Bot::new(*s, seed)).collect();
+        if let Some(c) = &shared.conquest {
+            for b in &mut bots {
+                b.cq.persona = c.persona_of(b.spec.index);
+            }
+        }
         let shared = Arc::new(shared);
         shared.report.lock().expect("report").bots = roster.len() as u64;
         Fleet {
@@ -210,6 +215,10 @@ struct Pace {
     jitter: Rng,
     next_session: i64,
     last_duty_bell: Option<u32>,
+    /// The planner epoch (game hour) this bot last ran for (`--conquest`).
+    last_cq_epoch: Option<u32>,
+    /// This bot's offset into an epoch hour (game seconds).
+    cq_offset: i64,
     /// The next game time this bot wants to run.
     wake: i64,
 }
@@ -221,6 +230,8 @@ impl Pace {
             jitter: Rng::fork(seed, 0x7177_0000 ^ index as u64),
             next_session: i64::MIN,
             last_duty_bell: None,
+            last_cq_epoch: None,
+            cq_offset: crate::conquest::EPOCH_OFFSET_SECS + (index as i64 * 7) % 31,
             wake: i64::MIN,
         }
     }
@@ -231,7 +242,7 @@ impl Pace {
 
     /// Whether `bot` runs at `now`: `Some(session)` (economy and war
     /// allowed) or `None`.
-    fn plan(&mut self, bot: &Bot, t: &Times, now: i64, eager: bool) -> Option<bool> {
+    fn plan(&mut self, bot: &Bot, t: &Times, now: i64, eager: bool, cq: bool) -> Option<bool> {
         let join_at = Self::join_at(bot, t);
         if self.next_session == i64::MIN || self.next_session < now - t.day_secs {
             self.next_session =
@@ -247,16 +258,48 @@ impl Pace {
         let eager = eager && bot.spec.persona.is_some();
         let new_bell = self.last_duty_bell != Some(bell);
         let session_due = !pre_join && (now >= self.next_session || (eager && new_bell));
+        // `--conquest`: once per planner epoch (game hour) a bot that plays
+        // reads the epoch's plan; while it owes a march order it wakes
+        // every bell (Muster, then Depart).
+        let cq_play = cq && bot.spec.profile().sessions > 0;
+        let epoch = bell / crate::conquest::HOUR_BELLS;
+        let cq_due = cq_play
+            && !pre_join
+            && self.last_cq_epoch != Some(epoch)
+            && now >= self.cq_epoch_at(t, epoch);
+        let cq_busy = cq_play && !bot.cq.orders.is_empty();
         let duty_due = !pre_join
-            && ((busy || onboarding || eager) && new_bell || settle_racer_polls(bot, bell));
+            && (((busy || onboarding || eager || cq_busy) && new_bell)
+                || settle_racer_polls(bot, bell)
+                || cq_due);
         (session_due || duty_due).then_some(session_due)
+    }
+
+    /// Game time the bot reads planner epoch `epoch` at.
+    fn cq_epoch_at(&self, t: &Times, epoch: u32) -> i64 {
+        t.genesis
+            + (epoch as i64 * crate::conquest::HOUR_BELLS as i64) * t.bell_secs
+            + self.cq_offset
     }
 
     /// After a run (`ran = Some(session)`) or a skip at `now`: the next
     /// wake-up — the join bell; else the next bell (0–20 s in) while
     /// onboarding or a march is open; else the next session.
-    fn after(&mut self, bot: &Bot, t: &Times, now: i64, ran: Option<bool>, eager: bool) -> i64 {
+    fn after(
+        &mut self,
+        bot: &Bot,
+        t: &Times,
+        now: i64,
+        ran: Option<bool>,
+        eager: bool,
+        cq: bool,
+    ) -> i64 {
         let bell = ((now - t.genesis).max(0) / t.bell_secs) as u32;
+        let cq_play = cq && bot.spec.profile().sessions > 0;
+        let epoch = bell / crate::conquest::HOUR_BELLS;
+        if cq_play && ran.is_some() && now >= self.cq_epoch_at(t, epoch) {
+            self.last_cq_epoch = Some(epoch);
+        }
         // A session that held a resident action back and nudged its
         // province runs again 45–75 s later, when the keeper has usually
         // skipped it through b − 2 (integ-W4 review, W4-F), at most
@@ -277,7 +320,9 @@ impl Pace {
         let pre_join = now < join_at;
         let onboarding = now < join_at + 2 * t.day_secs;
         let eager = eager && bot.spec.persona.is_some();
-        let busy = bot.mem.marches.iter().any(|m| !m.settled) || eager;
+        let busy = bot.mem.marches.iter().any(|m| !m.settled)
+            || eager
+            || (cq_play && !bot.cq.orders.is_empty());
         // Duties 0–20 s into the bell (§9.1); an eager persona's session
         // 90–150 s in, once its province has usually resolved bell − 2
         // (resident actions need it: at 0–20 s nearly every Muster was
@@ -297,6 +342,16 @@ impl Pace {
         };
         if settle_racer_polls(bot, bell) {
             self.wake = self.wake.min(now + RACER_POLL_SECS);
+        }
+        if cq_play && !pre_join {
+            // The next epoch this bot has not read yet.
+            let next = if self.last_cq_epoch == Some(epoch) {
+                epoch + 1
+            } else {
+                epoch
+            };
+            let at = self.cq_epoch_at(t, next).max(now + 1);
+            self.wake = self.wake.min(at);
         }
         self.wake
     }
@@ -321,6 +376,7 @@ where
         };
         let t = Times::of(&season);
         let eager = self.shared.cfg.eager_personas;
+        let cq = self.shared.conquest.is_some();
         let mut due = vec![];
         let mut rest = vec![];
         for b in std::mem::take(&mut self.bots) {
@@ -332,10 +388,10 @@ where
                 rest.push(b);
                 continue;
             }
-            match p.plan(&b, &t, now, eager) {
+            match p.plan(&b, &t, now, eager, cq) {
                 Some(session) => due.push((b, session)),
                 None => {
-                    p.after(&b, &t, now, None, eager);
+                    p.after(&b, &t, now, None, eager, cq);
                     rest.push(b);
                 }
             }
@@ -359,7 +415,7 @@ where
                 let (mut b, session, n) = r.expect("bot task");
                 sent += n;
                 if let Some(p) = self.pace.get_mut(&b.spec.index) {
-                    p.after(&b, &t, now, Some(session), eager);
+                    p.after(&b, &t, now, Some(session), eager, cq);
                 }
                 b.nudge_retries = if session && b.nudged {
                     b.nudge_retries.saturating_add(1)
@@ -414,12 +470,13 @@ async fn run_bot<H: HeraldPort, R: RelayPort, D: DirectPort>(
             continue;
         }
         let eager = sh.cfg.eager_personas;
-        let ran = pace.plan(&bot, &t, now, eager);
+        let cq = sh.conquest.is_some();
+        let ran = pace.plan(&bot, &t, now, eager, cq);
         if let Some(session) = ran {
             let _ = sh.season().await;
             bot.step(&sh, session).await;
         }
-        let wake = pace.after(&bot, &t, now, ran, eager).min(until);
+        let wake = pace.after(&bot, &t, now, ran, eager, cq).min(until);
         bot.nudge_retries = if ran == Some(true) && bot.nudged {
             bot.nudge_retries.saturating_add(1)
         } else {

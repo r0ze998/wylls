@@ -14,7 +14,14 @@ name = "frontier_agents"
 # request R1 (docs/frontier/m1/W3-E-NOTES.md): the workspace crates below,
 # every one already in frontier-node/Cargo.lock through fclient; only the
 # `agents` package's own dependency list in the lock changes.
+#
+# CQ2-F request R1 (docs/frontier/conquest/CQ2-F-NOTES.md): `frontier-abi`
+# (path, already a workspace dependency of fclient, keeper, herald, verify
+# and stack) for the v2 layouts the conquest reader decodes (Province v2,
+# Citizen v2, Season v2's ConquestParams) and the v2 instruction data;
+# only the `agents` package's dependency list in the lock changes.
 [dependencies]
+frontier-abi.workspace = true
 fclient.workspace = true
 permutation-rules.workspace = true
 sha2.workspace = true
