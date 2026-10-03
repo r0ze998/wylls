@@ -63,7 +63,7 @@ All from `frontier-node` in this worktree, `CARGO_BUILD_JOBS=6`, `--offline --lo
 | `cargo test --locked -p fclient -p keeper` (debug, full) | exit 0: fclient 81, keeper lib 59, archive_returns_rent 1, held_accounts 2, land 3, latency 2, one_day_beacons 1, play 6 (+1 ignored, as on the base), reveal_accept 1 |
 | `cargo test --locked --release --workspace -- cq_` (Gate CQ2 line) | exit 0: fclient 16, keeper 15, and the other crates' existing `cq_` tests (10 and 8) green |
 | `cargo test --locked --workspace` (Gate CQ1 frontier-node line) | exit 0: 474 passed, 0 failed, 11 ignored (the base's ignored tests) |
-| `scripts/cq-ownership-check.sh frontier/cq-2d-keeper` | see the final report (run after the commit) |
+| `scripts/cq-ownership-check.sh frontier/cq-2d-keeper` | PASS (4 commits since the fork) |
 
 The other Gate CQ2 lines (program clippy and tests, `build-frontier.sh --twice`, svm-tests) concern CQ2-A/B/C's files; not run here. The measured budgets are the static ones this unit owns: `L(kind)` 1,343,488 B (the new kinds) and FoldMarch 1,376,256 B, equal to `frontier-abi/vectors/v2/budgets.json` (`cq_v2_budgets_cover_every_v2_kind`). Latencies (contested resolve p99 ≤ 8 slots, SettleCapture p99 ≤ 12 slots, FoldMarch lag p99 ≤ 5 game hours, zero lost hours) are **counted** by the keeper and **not measured** on a chain here (§5).
 
