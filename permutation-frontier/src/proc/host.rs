@@ -64,7 +64,17 @@ use crate::layout::{
     Ro, Rw,
 };
 use crate::prologue::{self, check_accounts, expect_key, key};
-use crate::{FrontierError, R, RULESET_HASH};
+use crate::layout::v2::holding as H2;
+use crate::{FrontierError, R};
+
+use super::conquest::{capture_lock, retire_hosts_of, ruleset_of};
+
+/// The capture lock (§5.8) of a resident action that names the Holding's
+/// own Province.
+fn lock_own(province: &AccountInfo, hh: &HoldingHdr) -> R<()> {
+    let pd = province.try_borrow_data()?;
+    capture_lock(&pd, hh.site, hh.gen)
+}
 
 /// A kernel host refusal as a program code. `Unresolved` is the caller's
 /// (`NotResident` for resident actions, `TooEarly` for settlements).
@@ -202,6 +212,7 @@ pub fn muster(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let hh = owned_holding(p, &pl, holding, citizen)?;
     live(&hh)?;
     own_province(p, &pl, &hh, province)?;
+    lock_own(province, &hh)?;
     let state = finality(&pl, &hh, holding, citizen, province)?;
     let now = pl.now.ts;
     let h = load_touched(holding, now)?;
@@ -324,6 +335,9 @@ pub fn dissolve(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let hh = owned_holding(p, &pl, holding, citizen)?;
     live(&hh)?;
     let rh = resident_host(p, &pl, &hh, holding, citizen, province, x.host_id)?;
+    if (rh.p, rh.q) == (hh.p, hh.q) {
+        lock_own(province, &hh)?;
+    }
     let now = pl.now.ts;
     let h = load_touched(holding, now)?;
     if rh.entry.busy() {
@@ -404,6 +418,7 @@ pub fn garrison(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let hh = owned_holding(p, &pl, holding, citizen)?;
     live(&hh)?;
     own_province(p, &pl, &hh, province)?;
+    lock_own(province, &hh)?;
     let state = finality(&pl, &hh, holding, citizen, province)?;
     let now = pl.now.ts;
     let h = load_touched(holding, now)?;
@@ -480,13 +495,18 @@ pub fn disband_stranded(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let [_any, season_ai, province, holding] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
+    let rs = ruleset_of(season_ai)?;
     let hdr = prologue::season(
         season_ai,
         p,
-        Some(&RULESET_HASH),
+        Some(&rs),
         &[S::STATUS_RUNNING, S::STATUS_ENDED],
         now.ts,
     )?;
+    let retire_hosts = {
+        let sd = season_ai.try_borrow_data()?;
+        retire_hosts_of(&sd)?
+    };
     let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
     prologue::present(province, p, AccountKind::Province, hdr.id)?;
     let (pp, pq, rn, e) = {
@@ -509,6 +529,14 @@ pub fn disband_stranded(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         let r = Ro(&hd);
         let live = matches!(r.u8(H::STATE)?, H::STATE_PROVISIONAL | H::STATE_FINAL);
         if live && r.u8(H::GEN)? == parts.gen {
+            return Err(FrontierError::NotDormant.into());
+        }
+        // K-27 (v1.1): a captured Holding's previous generation keeps
+        // fighting for its victim until the victim retires it (RetireHost);
+        // with `retire_hosts = 1` no third party may disband it. With
+        // `retire_hosts = 0` (and in every M1 season) this is M1's rule.
+        let captured = r.u8(H2::CAPTURE_FLAGS)? & H2::CAPTURE_FLAG_CAPTURED != 0;
+        if live && retire_hosts == 1 && captured && r.u8(H2::PREV_GEN)? == parts.gen {
             return Err(FrontierError::NotDormant.into());
         }
     }
@@ -575,6 +603,9 @@ pub fn depart(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let hh = owned_holding(p, &pl, holding, citizen)?;
     live(&hh)?;
     let (pp, pq, rn) = province_at(p, &pl, province)?;
+    if (pp, pq) == (hh.p, hh.q) {
+        lock_own(province, &hh)?;
+    }
     let state = if (pp, pq) == (hh.p, hh.q) {
         finality(&pl, &hh, holding, citizen, province)?
     } else {
@@ -730,16 +761,17 @@ pub fn settle_departure(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     // v1.5 §21: `transit_slot = 0xFF` is the return settle of hosts that
     // left a province (Dissolve's `Leave`), W4-A's choice of instruction.
     if x.transit_slot == super::clash::RETURN_SLOT {
-        return super::clash::settle_return(p, a);
+        return settle_return(p, a);
     }
     let now = prologue::now()?;
     let [_payer, season_ai, province, holding] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
+    let rs = ruleset_of(season_ai)?;
     let hdr = prologue::season(
         season_ai,
         p,
-        Some(&RULESET_HASH),
+        Some(&rs),
         &[S::STATUS_RUNNING, S::STATUS_ENDED],
         now.ts,
     )?;
@@ -749,7 +781,7 @@ pub fn settle_departure(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         return Err(FrontierError::BadData.into());
     }
     let t0 = H::transit(x.transit_slot as usize);
-    let (state, host_id, op, oq, depart_bell) = {
+    let (state, host_id, op, oq, depart_bell, own) = {
         let hd = holding.try_borrow_data()?;
         let r = Ro(&hd);
         let (hp, hq, site) = (r.i16(H::P)?, r.i16(H::Q)?, r.u8(H::SITE)?);
@@ -760,6 +792,7 @@ pub fn settle_departure(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             r.i16(t0 + T::ORIGIN_P)?,
             r.i16(t0 + T::ORIGIN_Q)?,
             r.u32(t0 + T::DEPART_BELL)?,
+            (hp, hq, site, r.u8(H::GEN)?),
         )
     };
     match state {
@@ -771,6 +804,12 @@ pub fn settle_departure(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     }
     expect_key(province, &ctx.province(op as i32, oq as i32))?;
     prologue::present(province, p, AccountKind::Province, hdr.id)?;
+    // §5.8: no settle but SettleCapture writes a capture-locked Holding
+    // (checkable when the origin is the Holding's own Province, D-1).
+    if (op, oq) == (own.0, own.1) {
+        let pd = province.try_borrow_data()?;
+        capture_lock(&pd, own.2, own.3)?;
+    }
     let (rn, index, e) = {
         let pd = province.try_borrow_data()?;
         let rn = Ro(&pd).u32(P::RESOLVED_NEXT)?;
@@ -834,6 +873,237 @@ pub fn settle_departure(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             },
         ],
     )
+}
+
+// ------------------------------------------------------------ the return settle
+
+/// Which return settle frees an entry (MC §3.6, §5.5 RetireHost, D-6).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReturnTarget {
+    /// `province index << 4 | site` of the Holding whose return settle
+    /// frees the entry: the home of a bound retire Leave (`op_ref`), the
+    /// issuing Holding otherwise.
+    pub site_ident: u64,
+    /// The generation that Holding must be live at to be credited.
+    pub gen: u8,
+    /// A retire Leave bound to a home Holding by RetireHost.
+    pub bound: bool,
+}
+
+/// The return target of a departed Leave entry with host id `id`,
+/// `op_a` and `op_ref`.
+pub const fn return_target(id: u64, op_a: u8, op_ref: u32) -> ReturnTarget {
+    use permutation_rules::frontier::addr::HOST_SITE_SHIFT;
+    if op_a == frontier_abi::v2::entry::RETIRE_OP_A && op_ref != 0 {
+        ReturnTarget {
+            site_ident: (op_ref as u64) >> (HOST_SITE_SHIFT - 32),
+            gen: op_ref as u8,
+            bound: true,
+        }
+    } else {
+        ReturnTarget {
+            site_ident: id >> HOST_SITE_SHIFT,
+            gen: (id >> 32) as u8,
+            bound: false,
+        }
+    }
+}
+
+/// What the return settle does with one picked entry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReturnFate {
+    /// Whole troops into the Holding's `reserve[unit]`.
+    Credit,
+    /// Troops lost (`STRANDED`).
+    Strand,
+    /// Left for RetireHost (a captured Holding's previous generation while
+    /// `retire_hosts = 1`): never stranded by a third party (K-27).
+    Wait,
+}
+
+/// The holding facts the return settle decides on: its live generation
+/// (`None` when absent or not live), and the previous generation of a
+/// captured Holding when its victims' hosts wait for RetireHost.
+pub const fn return_fate(t: ReturnTarget, live: Option<u8>, waiting_gen: Option<u8>) -> ReturnFate {
+    match live {
+        Some(g) if g == t.gen => ReturnFate::Credit,
+        _ => match waiting_gen {
+            Some(pg) if !t.bound && pg == t.gen => ReturnFate::Wait,
+            _ => ReturnFate::Strand,
+        },
+    }
+}
+
+/// SettleDeparture(`transit_slot = 0xFF`), the return settle (M1 §21;
+/// moved here from `clash.rs` by CQ2-C, MC §11): `[payer s] [season]
+/// [province w] [holding w]`, the Holding canonical, possibly absent.
+///
+/// Every state-3 `Leave` entry of the Province whose **return target** is
+/// that Holding is freed (at most [`super::clash::RETURN_MAX`] per
+/// transaction, in entry order): a retire Leave bound by RetireHost
+/// returns to its home Holding (`op_ref`, D-6), every other Leave to its
+/// issuing Holding. Its whole troops go to `reserve[unit]` when the
+/// Holding is live at the target generation, else they are lost —
+/// except a captured Holding's previous generation while `retire_hosts =
+/// 1`, which waits for its victim's RetireHost (K-27; never stranded by a
+/// third party). `AlreadyDone` when nothing is returned. The capture lock
+/// applies when the Province is the Holding's own (§5.8).
+pub fn settle_return(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
+    use permutation_rules::frontier::addr::HOST_SITE_SHIFT;
+    let [_payer, season_ai, province, holding] = a else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    let now = prologue::now()?;
+    let rs = ruleset_of(season_ai)?;
+    let hdr = prologue::season(
+        season_ai,
+        p,
+        Some(&rs),
+        &[S::STATUS_RUNNING, S::STATUS_ENDED],
+        now.ts,
+    )?;
+    let retire_hosts = {
+        let sd = season_ai.try_borrow_data()?;
+        retire_hosts_of(&sd)?
+    };
+    let sid = hdr.id;
+    let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
+    prologue::present(province, p, AccountKind::Province, sid)?;
+    let (pp, pq) = {
+        let pd = province.try_borrow_data()?;
+        let r = Ro(&pd);
+        (r.i16(P::P)?, r.i16(P::Q)?)
+    };
+    expect_key(province, &ctx.province(pp as i32, pq as i32))?;
+    // The Holding: its site identity, live generation and capture state.
+    let (live, waiting, mut own) = if prologue::presence(holding, p, AccountKind::Holding, sid)? {
+        let hd = holding.try_borrow_data()?;
+        let r = Ro(&hd);
+        let (hp, hq, site) = (r.i16(H::P)?, r.i16(H::Q)?, r.u8(H::SITE)?);
+        expect_key(holding, &ctx.holding(hp as i32, hq as i32, site))?;
+        let gen = r.u8(H::GEN)?;
+        let live = matches!(r.u8(H::STATE)?, H::STATE_PROVISIONAL | H::STATE_FINAL).then_some(gen);
+        let captured = r.u8(H2::CAPTURE_FLAGS)? & H2::CAPTURE_FLAG_CAPTURED != 0;
+        let waiting = (captured && retire_hosts == 1 && live.is_some()).then_some(r.u8(H2::PREV_GEN)?);
+        if (hp, hq) == (pp, pq) && live.is_some() {
+            let pd = province.try_borrow_data()?;
+            capture_lock(&pd, site, gen)?;
+        }
+        let ident = frontier_abi::addr::host_id(hp as i32, hq as i32, site, 0, 0).ok_or(BAD_ACCOUNT)?
+            >> HOST_SITE_SHIFT;
+        (live, waiting, Some(ident))
+    } else {
+        (None, None, None)
+    };
+    let bell_log = hdr.bell(now.ts).unwrap_or(NO_BELL);
+    let hkey = key(holding);
+    // Selection: one read-only pass over the raw entries (state, op,
+    // host id, op_a, op_ref); an absent Holding is matched by address,
+    // derived once per run of one foreign site.
+    let mut picked = [(0usize, ReturnFate::Strand); super::clash::RETURN_MAX];
+    let mut n_picked = 0usize;
+    {
+        let pd = province.try_borrow_data()?;
+        let r = Ro(&pd);
+        let mut foreign: Option<u64> = None;
+        for i in 0..P::ENTRIES_N {
+            let o = P::entry(i);
+            if r.u8(o + E::STATE)? != E::STATE_DEPARTED || r.u8(o + E::PEND_OP)? != E::OP_LEAVE {
+                continue;
+            }
+            let id = r.u64(o + E::ID)?;
+            let t = return_target(id, r.u8(o + E::OP_A)?, r.u32(o + E::OP_REF)?);
+            let mine = match own {
+                Some(s) => s == t.site_ident,
+                None if foreign == Some(t.site_ident) => false,
+                None => {
+                    let k = t.site_ident << HOST_SITE_SHIFT;
+                    let parts = split_host_id(k).ok_or(BAD_ACCOUNT)?;
+                    if ctx.holding(parts.province.p, parts.province.q, parts.site) == hkey {
+                        own = Some(t.site_ident);
+                        true
+                    } else {
+                        foreign = Some(t.site_ident);
+                        false
+                    }
+                }
+            };
+            if !mine {
+                continue;
+            }
+            let fate = return_fate(t, live, waiting);
+            if fate == ReturnFate::Wait {
+                continue;
+            }
+            picked[n_picked] = (i, fate);
+            n_picked += 1;
+            if n_picked == super::clash::RETURN_MAX {
+                break;
+            }
+        }
+    }
+    if n_picked == 0 {
+        return Err(FrontierError::AlreadyDone.into());
+    }
+    for &(i, fate) in &picked[..n_picked] {
+        let e = {
+            let pd = province.try_borrow_data()?;
+            read_entry(&pd, i).map_err(|_| BAD_ACCOUNT)?
+        };
+        {
+            let mut pd = province.try_borrow_mut_data()?;
+            write_entry(&mut pd, i, &Entry::FREE).map_err(|_| BAD_ACCOUNT)?;
+            let mut w = Rw(&mut pd);
+            let n = w.u8(P::N_ENTRIES)?.saturating_sub(1);
+            w.set_u8(P::N_ENTRIES, n)?;
+        }
+        let key8 = e.id.to_le_bytes();
+        if fate == ReturnFate::Credit {
+            let whole = e.troops / MILLI as u32;
+            {
+                let mut hd = holding.try_borrow_mut_data()?;
+                let mut w = Rw(&mut hd);
+                let o = H::reserve(e.unit as usize);
+                let v = w.u32(o)?.checked_add(whole).ok_or(OVERFLOW)?;
+                w.set_u32(o, v)?;
+            }
+            let payload = Buf::<7>::new()
+                .u32(whole.saturating_mul(MILLI as u32))
+                .u16(0)
+                .u8(super::clash::RETURNED);
+            let mut hd = holding.try_borrow_mut_data()?;
+            let mut pd = province.try_borrow_mut_data()?;
+            events::emit(
+                Kind::DEPARTURE_SETTLED,
+                bell_log,
+                &key8,
+                payload.get()?,
+                &mut [
+                    Chained {
+                        entity: EntityKind::Holding,
+                        data: &mut hd,
+                    },
+                    Chained {
+                        entity: EntityKind::Province,
+                        data: &mut pd,
+                    },
+                ],
+            )?;
+        } else {
+            let mut pd = province.try_borrow_mut_data()?;
+            events::emit(
+                Kind::STRANDED,
+                bell_log,
+                &key8,
+                &e.troops.to_le_bytes(),
+                &mut [Chained {
+                    entity: EntityKind::Province,
+                    data: &mut pd,
+                }],
+            )?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
