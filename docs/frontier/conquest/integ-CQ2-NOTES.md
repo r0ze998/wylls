@@ -1,6 +1,6 @@
 # Integration W2 (MC "Contested Ground"): merges, Wave-2 review items, Gate CQ2
 
-- **Date:** 2026-10-03. **Role:** MC integrator, wave 2 (CONQUEST-CONTRACT v1.3 → **v1.4**, §20 A-30…A-45; DECISIONS part CQ-J).
+- **Date:** 2026-10-03. **Role:** MC integrator, wave 2 (CONQUEST-CONTRACT v1.3 → **v1.4**, §20 A-30…A-45; DECISIONS part CQ-J). **Second review response (W2R2): contract v1.5, §21 A-46…A-56, DECISIONS part CQ-K: §9 below; the gate rows of §5 and the pass conditions of §6 are restated in §9.3.**
 - **Branch:** `frontier/cq-integ` (worktree `.claude/worktrees/cq-integ`), base `3751173` (Gate CQ1 green, contract v1.3). Local commits only; nothing pushed; **`codex/frontier` not fast-forwarded** (its merge-base with this branch is `5ed36fa`).
 - **Units merged** (`--no-ff`, §11 order; each unit worktree was clean at its tip): CQ2-A `8b8223a` → `d655fc0`, CQ2-B `935b619` → `a7d7e0f`, CQ2-C `6efa621` → `4aa4e91`, CQ2-D `ba5c3d2` → `f83d1b9`, CQ2-E `3674c88` → `06c4ad9`, CQ2-F `592019a` → `12d0f2a`. Every merge was textually clean (ort): CQ2-A's stub commit and the stand-in stubs of CQ2-B and CQ2-C resolved to CQ2-A's, as the contract says; the manifests and `frontier-node/Cargo.lock` came in with CQ2-F (the `agents` and `bots` manifests gain `frontier-abi`, no new external crate).
 - **Hashes:** M1 `RULESET_HASH` `72c6b583…4bd9` unchanged; `RULESET_HASH_V2` `b6dd0f3f260d9ef3e9a71c5010b56c42693578f4d8c394623d56deb9fed98274` (the v2 program embeds it and refuses any other Season; `cq_an_m1_season_is_refused`). Release `.so`: **1,132,312 B**, sha256 `d121461c21a4e4e7c937a59320f0939c3716b8ee1315ae70fbd76708e7cca6ca` (both `--twice` builds), program hash `e7fb05dd…7e7f`, e_flags 2, `max_len` 1,417,216 (M1: 875,824 B).
@@ -161,3 +161,55 @@ scripts/cq-regen.sh --check
 ```
 
 Wave 3 starts from this commit's gate commit (`frontier/cq-integ`), after the owner has answered §7 items 1–6 (they change account lists or program behaviour that CQ3-C, CQ3-D and CQ3-E code against) or said to keep the defaults.
+
+
+## 9. Second review of Wave 2 (the merged `bf09a56`, six needs-fix reviews): response (W2R2)
+
+Every blocker, major and missing item was checked against the code; the real ones are fixed with tests (the program defects failing-first on the merged `.so`), the owner questions stay with the owner. Contract **v1.5** (§21 A-46…A-56), DECISIONS part **CQ-K**. The per-unit detail is in each unit's notes (`CQ2-A-NOTES.md` §9, `CQ2-B-NOTES.md` §8, `CQ2-C-NOTES.md` §12, `CQ2-D-NOTES.md` §8, `CQ2-F-NOTES.md` §8). No finding was found false; none is rebutted. Items that are owner questions or later units' are listed as such, not as fixed.
+
+### 9.1 Disposition of every item
+
+| Unit | Item | Verdict | Disposition |
+|---|---|---|---|
+| CQ2-A | major: FileOutpost's capture lock skips an anchor whose Province is not listed (Q-1) | real, owner | owner item 1; §5.8 and P3 name the exception (A-49) |
+| CQ2-A | major: settler cost charged at filing, never refunded; `anchor_key` 0 (R5, R6) | real, owner | owner item 3; §3.8 carries the divergence note (A-49) |
+| CQ2-A | minor: genesis Free City not occupied (D-3); slot-3 / Town prerequisite (Q-2) | real, owner | owner items 4, 2 |
+| CQ2-A | minor: SettleTicket S1 untested | real | **fixed** (`g13_cq_settle_ticket_refuses_a_site_with_a_record` + registry row) |
+| CQ2-A | minor: early tier fold (D-12); two dormant clocks | real, rule choices | **new owner items 13, 14** |
+| CQ2-A | minor: stale text, unused parameters | real | **fixed** |
+| CQ2-A | missing: heap of FileOutpost, SettleTicket (outpost), OpenProvince v2 | real | the trace world refuses (§9.4); `trace-sweep.sh` run, §9.3 |
+| CQ2-B | **major: the A-29 end-to-end test not delivered** | real | **delivered** (`cq_snapshot_counts_a_holding_the_ticket_path_made_before_its_final_ts`) |
+| CQ2-B | minor: A-34 says the simulator reads the same state | real, the contract was wrong | corrected (A-47); the one-bell difference is **new owner item 15**, not re-measured |
+| CQ2-B | minor: the 290k row prices only a 100-troop keep and a never-due camp check | real | measured (`g01_cq_resolve_heavy_keep_and_due_camp`): max **286,918 CU**, margin 3,082 (1.06%); literal row with both additions about 287,493 (0.86%); the gate holds |
+| CQ2-B | minor: §5.4's GatherClash and SkipQuiet rows | real | A-46 |
+| CQ2-B | minor: the quiet-run bound lost | real | a tighter MC bound (120,000 + 3,500 a further bell; measured 84,846 and 145,350) |
+| CQ2-B | minor: two emitters; figures one CU off | real | note corrected; swap in CQ4-A; notes refreshed |
+| CQ2-B | missing: skip-vs-resolve fuzz beyond G11 | accepted | the reviewer's own 600-seed fuzz found no difference; not added |
+| CQ2-C | **major: DeclareSiege's escrow ignored a slot-1 ticket** | real, reproduced | **fixed** (A-48) |
+| CQ2-C | **major: FoldMarch re-creates a closed MarchState** | real, reproduced | **fixed** (A-49); herald counts one fold per `(March, hour)` |
+| CQ2-C | major: the lock is own-Province only (R-C1) | real, owner | owner item 6; P3 partial (A-49, A-56) |
+| CQ2-C | minor: P2(b), P6, P12 without the land instructions | real | not extended (CQ3-E); the new escrow test runs through SettleCapture; gate line reworded (A-56) |
+| CQ2-C | minor: SettleSiege's sixth account unwritten | real | A-50 |
+| CQ2-C | minor: FoldMarch end-hour check in a Running season | real | fixed with the major |
+| CQ2-C | minor: non-live `prev_home` waits; the BounceUnranked tip | real, owner | owner items 10, 7 |
+| CQ2-D | **major: Season-wide writable placeholders** | real | **fixed** (A-51: `absent_at`, per Province and site) |
+| CQ2-D | minor: `return_waits` ignores `prev_home` | real | **fixed** (A-55) |
+| CQ2-D | minor: conquest folds only inside the play duty | real | documented at `PLAY_ROLES`; no config check possible |
+| CQ2-D | minor: stale figures; captured-site set from the feed only | real | notes refreshed; the fallback recorded, not added |
+| CQ2-D | missing: in-process keeper tests over the program | real | CQ3-E / Gate CQ3 |
+| CQ2-F | **blocker: the planner read `ORDER` 0-based and added 1** | real, reproduced | **fixed** (A-52); a test over `control_weights` |
+| CQ2-F | **blocker: `cqtx` placeholders were the System Program's account** | real | **fixed** (delegates to `fclient`; A-56) |
+| CQ2-F | major: the planner panics on a missing target | real, reproduced | **fixed**; unreadable Province = epoch unready (A-53) |
+| CQ2-F | major: `--conquest` left 95% of the fleet humans | real | **fixed** (99%-bot roster, `--bot-share`; A-53) |
+| CQ2-F | major: six personas do not do what the table says | real | **flagged, not implemented** (`staged: false`; A-54); owed to CQ3-B / CQ3-E |
+| CQ2-F | major: RetireHost targeting loose and never stops | real | **fixed** |
+| CQ2-F | minor: `siege_seat` code; immutable-files deviation; hard-coded outpost params; send-time re-check; report arrays and `keeps.lost` | real | **fixed** except the immutable-files deviation, documented as D-13 |
+| CQ2-F | missing: persona codes on a recorded fixture / the merged program | real | CQ3-E |
+
+### 9.2 Commits of the response
+
+`c72197c` (CQ2-C: escrow, FoldMarch), `fc15389` (CQ2-A/B tests and cleanups), `0b6fd5b` (CQ2-F bots), `ea1b64b` (CQ2-D/E clients and herald), then the documents (contract v1.5, DECISIONS CQ-K, the unit notes, this section). Local commits only; nothing pushed; `codex/frontier` not touched (merge-base `5ed36fa`).
+
+### 9.4 What the trace build cannot measure here
+
+The harness's trace build verifies real rounds only (the 32 SP-V2 fixture rounds); the land world's bells outrun them, so FileOutpost's and SettleTicket's heap cannot be read from a single test. `trace-sweep.sh` runs the whole svm suite on the `test-beacon trace` build and asserts the heap of every landed transaction against 28 KiB; its result is in §9.3.

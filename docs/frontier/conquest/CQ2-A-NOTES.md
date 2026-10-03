@@ -138,3 +138,19 @@ Open questions for the owner (player-visible, not decided here): **Q-1** an outp
 - CQ2-D: fclient v2 builders (R7).
 - CQ4-A: budgets and `L(kind)` from the MC release `.so` (R2, R4), `RELEASE_CHECK=1`.
 - Owner / integrator: R4 (FileOutpost budget), R5 / R6 (settler-cost refund and the anchor's record).
+
+
+## 9. Second review (Wave 2, at the merged `bf09a56`): response (integrator, W2R2)
+
+| Item | Verdict | Disposition |
+|---|---|---|
+| A1 major: FileOutpost checks the capture lock on the anchor only when the anchor's Province is one of the ticket's Provinces (Q-1) | **Real, an owner/ABI decision** (an `[anchor_province r]` account, or refusing an order-2/3 anchor unless its Province is listed) | **Owner item 1 stays.** §5.8 and P3 now name the exceptions (A-49): the lock holds for every Holding-writing instruction that names the Holding's own Province; the named exceptions are the foreign-Province settles / Depart / Dissolve and DeclareSiege's source and stake recipients (R-C1, item 6), FileOutpost's anchor in an unlisted Province (Q-1, item 1) and Explore away from home (D-6, harmless: stores only) |
+| A2 major: the settler cost is charged at filing and never refunded; `OUTPOST_SETTLED.anchor_key` is 0 (R5, R6) | **Real; owner item 3 stays.** The contract text and the code disagree today | §3.8 and §5.5 carry a **known-divergence note** (A-49): "paid at filing, not refunded" is what the program does, the simulator charges only a settled outpost; neither side is changed here |
+| A3 minor: the genesis Free City is not counted occupied (D-3) | **Owner item 4 stays** | — |
+| A4 minor: slot 3 accepts a provisional slot 2, the Town prerequisite is read from the touched anchor (Q-2) | **Owner item 2 stays** | — |
+| A5 minor: SettleTicket's S1 refusal has no test and no registry row | **Real** | `g13_cq_settle_ticket_refuses_a_site_with_a_record` (a record crafted on the won site: `SiegeBusy`; the same settle lands once the record is zero) and its `cover::citizen::SETTLE_TICKET` row |
+| A6 minor: a tier-up Build issued in the bell the previous one completed folds the new tier into the mirror at once (D-12) | **Real; a rule choice (§3.10 snapshot weight).** Not changed | **Owner item 13** (new) |
+| A7 minor: two definitions of "dormant" (the season's `dormant_after_secs` for sieges and ReleaseDormant, M1's 5-day constant for production halving and `FLAG_DORMANT_CACHE`) | **Real, a spec ambiguity shared with the simulator.** With the presets it is not player-visible for the shield (≤ 1 d against dormant 3 d), but a holding idle 3–5 days is dormant for sieges and not for production and Reveal | **Owner item 14** (new) |
+| A8 minor: stale text (`24k` in the G1 test, an unused `capture_lock` parameter) | **Real** | fixed (the comments say 28,000 CU, A-31; `capture_lock` and `own_province_unlocked` lost the unused `holding` parameter) |
+| A9 minor: heap of FileOutpost, SettleTicket (outpost) and OpenProvince v2 unrecorded | **Real.** The plain build prints "heap n/a" and the trace build refuses the land world (its 32 SP-V2 fixture rounds are outrun by the bells the world needs) | `trace-sweep.sh` (the whole suite on the `test-beacon trace` build, every landed tx asserted ≤ 28 KiB) is run in the Gate CQ2 re-run: `integ-CQ2-NOTES.md` §9 |
+| missing: Explore away from home skips the lock (D-6) | Accepted in A-49 (see A1) | — |
