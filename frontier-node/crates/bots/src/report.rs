@@ -202,6 +202,9 @@ pub struct CqReport {
     pub join_days: BTreeMap<u32, u64>,
     /// The season's `sieges_per_day` (the spammer's cap).
     pub sieges_per_day: u32,
+    /// The last game day a planner epoch ran (the activity arrays run to
+    /// it, trailing zero days included).
+    pub last_epoch_day: u32,
 }
 
 /// The verdict of a persona whose outcome is a refusal the bot itself
@@ -209,6 +212,12 @@ pub struct CqReport {
 fn cq_judge(p: CqPersona, os: &[&CqOutcome], cap: u32) -> Verdict {
     if os.is_empty() {
         return Verdict::Pending;
+    }
+    // A persona whose adversarial behaviour the bot does not stage yet
+    // (`CqPersona::staged`) is never `observed`: what it did is a plain
+    // player's, so its row waits for the chain run (W2R2-F6).
+    if !p.staged() {
+        return Verdict::NeedsChain;
     }
     let Expect::Refused(_) = p.expected() else {
         return Verdict::NeedsChain;
@@ -380,7 +389,16 @@ impl CqReport {
 
     pub fn to_json(&self) -> Value {
         let cum = |d: u32| -> u64 { self.join_days.range(..=d).map(|(_, n)| *n).sum::<u64>() };
-        let last = self.days.keys().next_back().copied().unwrap_or(0);
+        // Every day up to the last the fleet played an epoch, trailing
+        // zero days included (a quiet day is a zero rate, not a missing
+        // one: W2R2-F9).
+        let last = self
+            .days
+            .keys()
+            .next_back()
+            .copied()
+            .unwrap_or(0)
+            .max(self.last_epoch_day);
         let rate = |n: u64, d: u32| -> f64 {
             let b = cum(d).max(1) as f64;
             n as f64 / b
@@ -411,6 +429,7 @@ impl CqReport {
                     "expected": expected,
                     "verdict": self.verdict(p).name(),
                     "locally_checkable": p.locally_checkable(),
+                    "staged": p.staged(),
                     "bots": self.personas_assigned.get(p.name()).copied().unwrap_or(0),
                     "results": codes,
                 })
@@ -434,7 +453,10 @@ impl CqReport {
                 "keeps": {
                     "contested": self.event_count(&["keep_contest"]),
                     "taken": self.event_count(&["keep_taken"]),
-                    "lost": self.event_count(&["keep_broken"]),
+                    // a holder losing its keep is a keep taken; a contest
+                    // that ended without a take is a broken one
+                    "lost": self.event_count(&["keep_taken"]),
+                    "broken": self.event_count(&["keep_broken"]),
                 },
                 "sieges": {
                     "declared": self.own("declare_siege", true),
@@ -857,7 +879,8 @@ mod tests {
         assert_eq!(c["campaigns"][0]["fails"], 1);
         assert_eq!(c["keeps"]["contested"], 2);
         assert_eq!(c["keeps"]["taken"], 2);
-        assert_eq!(c["keeps"]["lost"], 2);
+        assert_eq!(c["keeps"]["lost"], 2, "keep_taken: the holder's loss");
+        assert_eq!(c["keeps"]["broken"], 2, "keep_broken: a contest broken");
         assert_eq!(c["sieges"]["declared"], 1);
         assert_eq!(c["sieges"]["refused_by_code"]["NotLead"], 1);
         assert_eq!(c["sieges"]["lost"], 2);

@@ -27,6 +27,81 @@ fn world(f: &CqFixture) -> World {
     world_from_herald(&f.epoch).expect("world").0
 }
 
+/// W2R2-F1: the planner reads the site mirror's ORDER as the program writes
+/// it (1-based: first holding 1, outposts 2 and 3, a Free City 0). The
+/// check is independent of the fixture's own writer: the weights the
+/// planner's world implies (`site_weight_centi(tier, garrison, order - 1)`
+/// per holding, a Free City's neutral) equal `conquest_model::control_weights`
+/// over the same Province bytes, and the herald's own first/other split
+/// (`order <= 1` is a first holding) agrees with the planner's `order`.
+#[test]
+fn cq_world_order_is_the_programs_one_based_mirror_order() {
+    use frontier_abi::conquest_model::control_weights;
+    use frontier_abi::v2::layout::province::{province as P2, site as S2};
+    use permutation_rules::frontier::control::site_weight_centi;
+    use permutation_rules::frontier::laurel::Tier;
+    let f = fixture();
+    let (w, ids) = world_from_herald(&f.epoch).unwrap();
+    let (mut homes, mut outposts) = (0, 0);
+    for (&(p, q), pd) in &f.epoch.provinces {
+        let mut sum = [0u32; 7];
+        for s in 0..pd[P2::SITE_COUNT] as usize {
+            let o = P2::site(s);
+            let st = pd[o + S2::STATE];
+            if st != S2::STATE_HOLDING && st != S2::STATE_FREE_CITY {
+                continue;
+            }
+            let t = hold_id(pc((p, q)), s as u8);
+            let h = w.hold(t);
+            assert_eq!(ids.holds[&t], (p, q, s as u8));
+            if st == S2::STATE_FREE_CITY {
+                assert!(h.free_city() && h.order == 0);
+            } else {
+                assert_eq!(
+                    h.order,
+                    pd[o + S2::ORDER],
+                    "the mirror's order is read as is"
+                );
+                assert!(h.order >= 1, "a holding's order is 1-based");
+                homes += (h.order == 1) as u32;
+                outposts += (h.order >= 2) as u32;
+            }
+            let side = if st == S2::STATE_FREE_CITY {
+                6
+            } else {
+                h.faction as usize
+            };
+            // the real kernel takes the 1-based order (a Free City counts as 1)
+            let order1 = if st == S2::STATE_FREE_CITY {
+                1
+            } else {
+                h.order
+            };
+            let tier = match h.tier {
+                permutation_rules::frontier::holding::Tier::Hamlet => Tier::Hamlet,
+                permutation_rules::frontier::holding::Tier::Town => Tier::Town,
+                permutation_rules::frontier::holding::Tier::City => Tier::City,
+                permutation_rules::frontier::holding::Tier::Stronghold => Tier::Stronghold,
+            };
+            sum[side] += site_weight_centi(tier, h.garrison, order1) as u32;
+        }
+        let want = control_weights(pd, BELL).unwrap();
+        assert_eq!(sum, want, "({p},{q}): the planner's order is the model's");
+    }
+    assert!(
+        homes > 0 && outposts > 0,
+        "the fixture has homes and outposts"
+    );
+    // The fleet's first holdings are homes (order 1), so the planner sees
+    // homes to occupy and anchors to file outposts from.
+    let fleet_homes = w
+        .holds
+        .values()
+        .filter(|h| h.faction == 0 && h.order == 1)
+        .count();
+    assert!(fleet_homes >= 1, "faction 0 has first holdings (order 1)");
+}
+
 #[test]
 fn cq_world_from_herald_reads_the_fixture() {
     let f = fixture();
@@ -104,6 +179,66 @@ fn shuffled(e: &HeraldEpoch, rng: &mut Rng) -> HeraldEpoch {
     }
     x.marches.reverse();
     x
+}
+
+/// W2R2-F3: the plan is total. A board entry whose target the next epoch's
+/// files no longer have (a holding released between epochs, an opened
+/// Province whose file is missing) leaves the board; it never panics (it
+/// did: `World::hold` is an `expect`, and the board persists in the hub, so
+/// every bot's epoch would have panicked again each hour).
+#[test]
+fn cq_plan_survives_a_target_released_between_epochs() {
+    let f = fixture();
+    let params = cp::Params {
+        keep_aggr: 0.5,
+        ..cp::Params::FRONTIER_7
+    };
+    let mut board = Board::default();
+    let mut e = f.epoch.clone();
+    e.params = Some(params);
+    let mut w = world_from_herald(&e).unwrap().0;
+    // Plan until a holding campaign (not a keep) is on the board.
+    let mut targets = vec![];
+    for k in 0..24u32 {
+        e.bell = BELL + 6 * k;
+        w = world_from_herald(&e).unwrap().0;
+        let (nb, _, _) = cp::plan_all(42, &[true; 6], &w, &board);
+        board = nb;
+        targets = board.camps[0].iter().map(|c| c.target).collect();
+        if targets.iter().any(|t| matches!(t, Target::Hold(_))) {
+            break;
+        }
+    }
+    let held: Vec<u32> = targets
+        .iter()
+        .filter_map(|t| match t {
+            Target::Hold(h) => Some(*h),
+            _ => None,
+        })
+        .collect();
+    assert!(!held.is_empty(), "a holding campaign is planned");
+    // The next epoch: those holdings are gone from the world (released),
+    // and one keep's Province too (an unreadable file would be an epoch
+    // error in the hub; the planner itself must still not panic).
+    for h in &held {
+        let prov = w.hold(*h).prov;
+        w.holds.remove(h);
+        if let Some(p) = w.provs.get_mut(&prov) {
+            p.sites.iter_mut().for_each(|s| {
+                if s == h {
+                    *s = cp::NONE
+                }
+            });
+        }
+        board.pending.insert(*h, BELL + 500);
+    }
+    let (nb, _, _) = cp::plan_all(42, &[true; 6], &w, &board);
+    for c in nb.camps.iter().flatten() {
+        assert!(w.has_target(c.target), "the board only names known targets");
+    }
+    assert!(nb.pending.keys().all(|t| w.holds.contains_key(t)));
+    // Every faction, not only the planner's own, over the damaged world.
+    let _ = cp::plan(42, 1, &w, &nb);
 }
 
 /// §11 CQ2-F: `campaign::plan` is identical across 32 bots reading the
@@ -410,6 +545,18 @@ fn cq_behaviours_on_the_fixture() {
     let home = w.host(vh).home;
     let ret = cqbehave::retirements(&w, cqfixture::VICTIM, &[home]);
     assert_eq!(ret, vec![CqIntent::RetireHost { host: vh }]);
+    // W2R2-F7: a host the CAPTOR mustered from the same site (its home id
+    // is the same site, another faction) is not the victim's to retire.
+    let mut w2 = w.clone();
+    let mut theirs = w2.host(vh).clone();
+    theirs.faction = 0;
+    let nid = w2.hosts.keys().max().unwrap() + 1;
+    w2.hosts.insert(nid, theirs);
+    assert_eq!(
+        cqbehave::retirements(&w2, cqfixture::VICTIM, &[home]),
+        vec![CqIntent::RetireHost { host: vh }],
+        "the captor's own host from that site is not retired"
+    );
     assert_eq!(
         cqbehave::retire_check(0, cqfixture::VICTIM, BELL, END_BELL),
         Err(frontier_abi::v2::error::Code::Cq(

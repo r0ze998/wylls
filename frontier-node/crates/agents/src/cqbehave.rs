@@ -328,22 +328,22 @@ fn outpost_base(w: &World, agent: u32, b: u32) -> OutpostCheck {
         slot: w.free_slot23(agent),
         first_final: first.is_some(),
         first_tier: first.map_or(Tier::Hamlet, |h| w.hold(h).tier),
-        tier_min: Tier::Town,
+        tier_min: crate::policy::tier_of(w.params.outpost_tier_min),
         slot2_final: ag.holdings.iter().any(|&h| w.hold(h).order == 2),
         target_ring: w.params.heartland_max_ring as u32 + 1,
         heartland_max_ring: w.params.heartland_max_ring,
         range: 0,
-        outpost_range: 3,
+        outpost_range: w.params.outpost_range,
         faction_weight: 0,
         province_weight: 0,
-        outpost_share_bps: 5_000,
+        outpost_share_bps: w.params.outpost_share_bps,
         // The land gate is the Frontier's folded count, which the program
         // checks; the bot does not refuse itself on it.
         free_sites: 1,
         open_sites: 1,
         now_bell: b,
         end_bell: w.end_bell,
-        outpost_close_bells: 24,
+        outpost_close_bells: w.params.outpost_close_bells,
     }
 }
 
@@ -500,8 +500,17 @@ pub fn first_nearby_hold(w: &World, f: u8, pi: u32) -> Option<u32> {
 /// defending (no hostile host on their tile).
 pub fn retirements(w: &World, agent: u32, captured_homes: &[u32]) -> Vec<CqIntent> {
     let mut out = vec![];
+    let me = w.agents.get(&agent).map(|a| a.faction);
     for (&hid, h) in &w.hosts {
-        if !captured_homes.contains(&h.home) || !matches!(h.state, HostState::Stationed { .. }) {
+        // Only hosts of the victim's faction (RetireHost is the victim's,
+        // K-27; a host's `owner` here is its home's CURRENT owner, the
+        // captor), stationed, whose home is a holding it lost. A captor's
+        // host mustered from the same site is another faction's, and the
+        // generation is filtered where the host id is known (the bots).
+        if me.is_none_or(|f| h.faction != f)
+            || !captured_homes.contains(&h.home)
+            || !matches!(h.state, HostState::Stationed { .. })
+        {
             continue;
         }
         let defending = w.prov(h.prov).stationed.iter().any(|&o| {
@@ -509,7 +518,6 @@ pub fn retirements(w: &World, agent: u32, captured_homes: &[u32]) -> Vec<CqInten
                 .get(&o)
                 .is_some_and(|x| x.tile == h.tile && x.faction != h.faction && x.faction < 6)
         });
-        let _ = agent;
         if !defending {
             out.push(CqIntent::RetireHost { host: hid });
         }

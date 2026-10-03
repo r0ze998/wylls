@@ -105,7 +105,7 @@ impl CqPersona {
         match self {
             SiegeHeartland => cq(CqError::Heartland),
             SiegeShielded => Expect::Refused(Code::V1(FrontierError::Shielded)),
-            SiegeSeat => Expect::Refused(Code::V1(FrontierError::ReservedSite)),
+            SiegeSeat => cq(CqError::NotBesiegeable),
             SiegeLate => cq(CqError::TooLate),
             SiegeDouble => cq(CqError::SiegeBusy),
             SiegeOffhex => cq(CqError::NotOnHex),
@@ -129,15 +129,42 @@ impl CqPersona {
         }
     }
 
+    /// Whether the bot stages the behaviour §8.6's table describes. **Six
+    /// personas do not yet (W2R2-F6, owed to CQ3-B / CQ3-E):** they run an
+    /// ordinary march or horn, so their outcome rows say what a plain
+    /// player would get, not what the adversary of the table would
+    /// provoke; the report marks them `staged: false` and never judges
+    /// them `observed` (criterion 13 must not be read as met for them):
+    ///
+    /// - `phantom_defender`: marches a military host (the table: a Scout, a
+    ///   civilian that never counts);
+    /// - `immunity_farmer`: declares and stays (no leave step);
+    /// - `vigil_hopper`: never changes its vigil before the horn;
+    /// - `respite_farmer`, `pingpong_pair`: single-wallet marches (the
+    ///   table: an alt or a second wallet and faction);
+    /// - `capture_cap`: no second leg (an outpost filed while a capture
+    ///   siege holds the last slot).
+    pub fn staged(self) -> bool {
+        !matches!(
+            self,
+            CqPersona::PhantomDefender
+                | CqPersona::ImmunityFarmer
+                | CqPersona::VigilHopper
+                | CqPersona::RespiteFarmer
+                | CqPersona::PingpongPair
+                | CqPersona::CaptureCap
+        )
+    }
+
     /// Whether `code` (a program or relay code name) is an expected refusal
     /// of this persona. §8.6 names one code per persona, with two
     /// readings (CQ2-F notes D-10/D-11):
     ///
     /// - `siege_seat` declares on a Seat's reserved site; the program's
     ///   §3.4 step 3 refuses that `NotBesiegeable` (state 4 is no holding
-    ///   and no Free City), and `ReservedSite` is only `may_besiege`'s
-    ///   Seat test on a holding of a ring-1 Province, so either is the
-    ///   expected refusal;
+    ///   and no Free City; A-38 pins it as the expected code), and
+    ///   `ReservedSite` (`may_besiege`'s Seat test on a holding of a ring-1
+    ///   Province) is still tolerated;
     /// - `siege_spammer`'s refusal beyond `sieges_per_day` is the relay's
     ///   `QuotaExceeded` (or `RateLimited`) on the relay route and the
     ///   program's `SiegeCap` on a direct one.
@@ -147,7 +174,7 @@ impl CqPersona {
         };
         code == c.name()
             || match self {
-                CqPersona::SiegeSeat => code == "NotBesiegeable",
+                CqPersona::SiegeSeat => code == "ReservedSite",
                 CqPersona::SiegeSpammer => matches!(code, "QuotaExceeded" | "RateLimited"),
                 _ => false,
             }

@@ -60,6 +60,9 @@ pub const HOUR_BELLS: u32 = cp::HOUR_BELLS;
 /// files appear when the bell completes).
 pub const EPOCH_OFFSET_SECS: i64 = 90;
 
+/// RetireHost attempts per host (W2R2-F7).
+pub const RETIRE_TRIES: u8 = 3;
+
 /// Layer settings.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CqConfig {
@@ -79,9 +82,15 @@ pub struct CqMem {
     pub persona: Option<CqPersona>,
     /// Open march orders.
     pub orders: Vec<Order>,
-    /// Holdings this wallet has held (P, Q, site, gen): a lost one is a
-    /// capture's victim record (Retire).
+    /// Holdings this wallet holds now (P, Q, site) as of its last look.
     pub held: BTreeSet<(i16, i16, u8)>,
+    /// Holdings it lost (a capture's victim, Retire): kept while a host of
+    /// the wallet still names one as its home, dropped when none does or
+    /// the site is held again (W2R2-F7).
+    pub lost: BTreeSet<(i16, i16, u8)>,
+    /// RetireHost attempts per host (a refused one is tried a few times,
+    /// not every hour for the rest of the season).
+    pub retire_tries: BTreeMap<u64, u8>,
     /// The epoch bell this bot last decided for.
     pub last_epoch: Option<u32>,
     /// Hosts retired already (RetireHost is idempotent on chain; the bot
@@ -301,17 +310,19 @@ impl Conquest {
                 v = Self::get_json(&sh.herald, &format!("/h/province/{p},{q}/latest")).await;
                 fallbacks += v.is_some() as u64;
             }
+            // An opened Province whose file is not served (or is not a
+            // Province v2) makes the epoch unready: the world must not
+            // silently lose its holdings (W2R2-F3); the next bell retries.
             let Some(bytes) = v
                 .as_ref()
                 .and_then(|v| v.get("bytes"))
                 .and_then(|b| b.as_str())
                 .and_then(|s| b64(s).ok())
+                .filter(|b| b.len() == P2::SIZE)
             else {
-                continue;
+                return Err(format!("province {p},{q} is not readable"));
             };
-            if bytes.len() == P2::SIZE {
-                provinces.insert((p, q), bytes);
-            }
+            provinces.insert((p, q), bytes);
         }
         if provinces.is_empty() {
             return Err("no Province v2 accounts".into());
@@ -386,6 +397,7 @@ impl Conquest {
         {
             let mut r = sh.report.lock().expect("report");
             r.cq.epochs += 1;
+            r.cq.last_epoch_day = r.cq.last_epoch_day.max(day);
             r.cq.latest_fallbacks += (fallbacks > 0) as u64;
         }
         Ok(EpochState {
@@ -546,8 +558,12 @@ impl Bot {
             .iter()
             .map(|(_, h)| (h.p, h.q, h.site))
             .collect();
-        let lost: Vec<(i16, i16, u8)> = self.cq.held.difference(&now_held).copied().collect();
-        self.cq.held.extend(now_held);
+        let newly: Vec<(i16, i16, u8)> = self.cq.held.difference(&now_held).copied().collect();
+        self.cq.lost.extend(newly);
+        self.cq.held = now_held;
+        let held = self.cq.held.clone();
+        self.cq.lost.retain(|k| !held.contains(k));
+        let lost: Vec<(i16, i16, u8)> = self.cq.lost.iter().copied().collect();
         let mut sent = 0;
         let e_bell = bell - bell % HOUR_BELLS;
         let wake_ok = obs.now
@@ -585,6 +601,18 @@ impl Bot {
         let q = self.spec.profile().q;
         let open: Vec<Mission> = self.cq.orders.iter().map(|o| o.mission).collect();
         let intents = cq.decide(es, agent, q, &captured_homes, &open);
+        // A lost holding with no host of this wallet left naming it as home
+        // has nothing more to retire.
+        self.cq.lost.retain(|&(p, q, s)| {
+            let id = frontier_agents::cqobs::hold_id(
+                permutation_rules::frontier::geometry::ProvinceCoord::new(p as i32, q as i32),
+                s,
+            );
+            es.world
+                .hosts
+                .values()
+                .any(|h| h.owner == agent && h.home == id)
+        });
         let mut sent = 0;
         for (it, expect) in intents {
             match it {
@@ -717,11 +745,23 @@ impl Bot {
             },
             None => return 0,
         };
-        // Re-checked at send time: the target's record in the latest file.
+        // Re-checked at send time against the latest file: the target's
+        // record, and the host's roster index (the horn is sounded at the
+        // hourly epoch wake, up to 6 bells after the strike arrived).
+        let mut entry = entry;
         if self.cq.persona.is_none() {
-            if let Some(why) = stale_target(&sh.herald, site).await {
-                sh.report.lock().expect("report").cq.skip(why);
-                return 0;
+            if let Some(f) = fresh_target(&sh.herald, site, chain).await {
+                if let Some(why) = f.stale {
+                    sh.report.lock().expect("report").cq.skip(why);
+                    return 0;
+                }
+                match f.entry {
+                    Some(e) => entry = e,
+                    None => {
+                        sh.report.lock().expect("report").cq.skip("host_not_on_hex");
+                        return 0;
+                    }
+                }
             }
         }
         let a = Addresses::new(obs.season.program, obs.season.season_id);
@@ -811,7 +851,9 @@ impl Bot {
         let (Some(&chain), Some(x)) = (es.ids.hosts.get(&host), es.world.hosts.get(&host)) else {
             return 0;
         };
-        if self.cq.retired.contains(&chain) {
+        if self.cq.retired.contains(&chain)
+            || self.cq.retire_tries.get(&chain).copied().unwrap_or(0) >= RETIRE_TRIES
+        {
             return 0;
         }
         let pc = es.world.prov(x.prov).coord;
@@ -819,17 +861,39 @@ impl Bot {
         let Some(entry) = es.provinces.get(&pq).and_then(|pd| entry_index(pd, chain)) else {
             return 0;
         };
-        // The captured holding is the host's home site; `home` is one of
-        // the retiring wallet's own holdings (the host's return).
+        // The captured holding is the host's home site, and the host is of
+        // the PREVIOUS generation (`id.gen != the site's gen`): a host the
+        // captor mustered from the same site carries the current one and is
+        // refused by the program (W2R2-F7).
         let Some(hk) = frontier_abi::addr::split_host_id(chain) else {
             return 0;
         };
+        let site_gen = es
+            .provinces
+            .get(&(hk.province.p as i16, hk.province.q as i16))
+            .and_then(|pd| {
+                pd.get(P2::site(hk.site as usize) + frontier_abi::v2::layout::province::site::GEN)
+                    .copied()
+            });
+        if site_gen.is_none_or(|g| g == hk.gen) {
+            return 0;
+        }
         let captured = HoldingRef {
             p: hk.province.p as i16,
             q: hk.province.q as i16,
             site: hk.site,
         };
-        let Some((_, own)) = obs.me.holdings.first() else {
+        // `home` (the host's return) is the Holding's `prev_home`: the
+        // victim's first holding at the capture, which the herald does not
+        // serve for a captured site; the wallet's first holding (order 1,
+        // else its first listed) is that unless it was re-founded since.
+        let Some((_, own)) = obs
+            .me
+            .holdings
+            .iter()
+            .find(|(_, h)| h.order == 1)
+            .or_else(|| obs.me.holdings.first())
+        else {
             return 0;
         };
         let home = HoldingRef {
@@ -845,6 +909,8 @@ impl Bot {
             .await;
         if r.ok() {
             self.cq.retired.insert(chain);
+        } else {
+            *self.cq.retire_tries.entry(chain).or_default() += 1;
         }
         self.cq_record(sh, obs, "retire_host", r.ok(), r.code());
         1
@@ -960,19 +1026,31 @@ impl Bot {
     }
 }
 
-/// Whether the latest file shows the target no longer besiegeable (a
-/// record that is not free, or a site that is not a holding or Free City):
-/// `Some(why)`. `None` when it still is, or the file is not there.
-async fn stale_target<H: HeraldPort>(h: &H, site: (i16, i16, u8)) -> Option<&'static str> {
+/// What the latest Province file says at send time (W2R2-F8).
+struct Fresh {
+    /// The target is no longer besiegeable (a record that is not free, or a
+    /// site that is not a holding or Free City).
+    stale: Option<&'static str>,
+    /// The host's roster index in the latest file (the epoch's snapshot may
+    /// be up to an hour older: indices move as entries free and fill).
+    entry: Option<u8>,
+}
+
+/// Reads the latest file of the target's Province: `None` when it is not
+/// there (the epoch's own view stands).
+async fn fresh_target<H: HeraldPort>(h: &H, site: (i16, i16, u8), host: u64) -> Option<Fresh> {
     let v = Conquest::get_json(h, &format!("/h/province/{},{}/latest", site.0, site.1)).await?;
     let pd = b64(v.get("bytes")?.as_str()?).ok()?;
     if pd.len() != P2::SIZE {
         return None;
     }
+    let entry = entry_index(&pd, host);
     let st = pd[P2::site(site.2 as usize) + S2::STATE];
-    if st != S2::STATE_HOLDING && st != S2::STATE_FREE_CITY {
-        return Some("stale_not_holding");
-    }
-    let rec = frontier_abi::conquest_model::Record::read(&pd, site.2 as usize).ok()?;
-    (rec.kind != CR::KIND_NONE).then_some("stale_record")
+    let stale = if st != S2::STATE_HOLDING && st != S2::STATE_FREE_CITY {
+        Some("stale_not_holding")
+    } else {
+        let rec = frontier_abi::conquest_model::Record::read(&pd, site.2 as usize).ok()?;
+        (rec.kind != CR::KIND_NONE).then_some("stale_record")
+    };
+    Some(Fresh { stale, entry })
 }

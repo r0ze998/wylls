@@ -120,6 +120,7 @@ fn world_of(sim: &Sim, b: u32) -> World {
         siege_hold: c.siege_hold,
         keep_aggr: c.cq.keep_aggr,
         epoch_bots: c.bot_profile != BotProfile::Sim,
+        ..Params::FRONTIER_7
     };
     let mut provs = BTreeMap::new();
     for (i, p) in sim.provs.iter().enumerate() {

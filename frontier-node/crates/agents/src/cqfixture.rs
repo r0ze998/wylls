@@ -231,7 +231,7 @@ impl Prov {
         let o = P2::site(s as usize);
         w8(&mut self.bytes, o + S2::STATE, S2::STATE_HOLDING);
         w8(&mut self.bytes, o + S2::FACTION, faction);
-        w8(&mut self.bytes, o + S2::ORDER, order - 1);
+        w8(&mut self.bytes, o + S2::ORDER, order);
         w8(&mut self.bytes, o + S2::TIER, tier);
         w8(&mut self.bytes, o + S2::GEN, 1);
         w16(&mut self.bytes, o + S2::HELD_SINCE_HOUR, 4);

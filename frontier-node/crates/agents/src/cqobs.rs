@@ -414,6 +414,10 @@ pub fn params_of(cq: &ConquestParams) -> Params {
         dormant_after_secs: cq.dormant_after_secs as i64,
         frontier_protect_secs: cq.frontier_protect_secs as i64,
         frontier_protect_after_secs: cq.frontier_protect_after_secs as i64,
+        outpost_range: cq.outpost_range,
+        outpost_tier_min: cq.outpost_tier_min,
+        outpost_share_bps: cq.outpost_share_bps,
+        outpost_close_bells: cq.outpost_close_bells,
         ..Params::FRONTIER_7
     }
 }
@@ -670,7 +674,10 @@ pub fn world_from_herald(e: &HeraldEpoch) -> Result<(World, WorldIds), ObsError>
                     faction: pd[o + S2::FACTION],
                     prov: pi,
                     tile: pd[P2::SITES + s],
-                    order: if fc { 0 } else { pd[o + S2::ORDER] + 1 },
+                    // The mirror's ORDER is 1-based (a first holding 1, an
+                    // outpost 2 and 3: SettleTicket writes `slot.max(1)`;
+                    // the kernel weights use `ORDER - 1`); a Free City 0.
+                    order: if fc { 0 } else { pd[o + S2::ORDER] },
                     tier: tier_of(pd[o + S2::TIER]),
                     garrison: u32_at(pd, o + S2::GARRISON),
                     walls: u32_at(pd, o + S2::WALLS_COMMITTED),

@@ -304,6 +304,14 @@ pub struct Params {
     pub keep_aggr: f64,
     /// Bots act at the planner epoch (`--bot-profile cq`; the stack).
     pub epoch_bots: bool,
+    /// The Season's outpost rule (§3.8; `ConquestParams`): range in
+    /// Provinces, the first holding's minimum tier (0 Hamlet … 3), the
+    /// faction share in bps below which a Province takes one, and the
+    /// bells before the end after which none is filed.
+    pub outpost_range: u8,
+    pub outpost_tier_min: u8,
+    pub outpost_share_bps: u16,
+    pub outpost_close_bells: u16,
 }
 
 impl Params {
@@ -321,6 +329,10 @@ impl Params {
         siege_hold: true,
         keep_aggr: 1.0,
         epoch_bots: true,
+        outpost_range: 3,
+        outpost_tier_min: 1,
+        outpost_share_bps: 5_000,
+        outpost_close_bells: 24,
     };
 }
 
@@ -728,6 +740,18 @@ impl World {
             .filter(|&&s| (2..=3).contains(&s))
             .fold(0u8, |m, &s| m | 1 << (s - 2));
         lowest_free_slot(occupied, 0, reserved)
+    }
+
+    /// Whether the world still knows target `t`: a keep's Province, a
+    /// holding. A site released or a Province the epoch could not read is
+    /// not in a herald world (the simulator keeps dead holdings with
+    /// `alive: false`; the herald's files do not), so a board entry that
+    /// names one is stale, not an error (W2R2-F3).
+    pub fn has_target(&self, t: Target) -> bool {
+        match t {
+            Target::Keep(pi) => self.provs.contains_key(&pi),
+            Target::Hold(h) => self.holds.contains_key(&h),
+        }
     }
 
     pub fn target_ours(&self, t: Target, f: u8) -> bool {
@@ -1646,6 +1670,13 @@ fn plan_factions(
 ) -> (Board, EpochPlan, World) {
     let mut w = world.clone();
     let mut bd = board.clone();
+    // A target the world no longer has (a released site, a Province the
+    // epoch could not read) leaves the board: every faction's plan
+    // is a total function of the files it reads (W2R2-F3).
+    for camps in bd.camps.iter_mut() {
+        camps.retain(|c| world.has_target(c.target));
+    }
+    bd.pending.retain(|t, _| world.holds.contains_key(t));
     let mut rng = Rng::fork(
         fleet_seed,
         0x4350_4C41_4E00_0000 | (w.bell as u64) << 8 | tag as u64,
