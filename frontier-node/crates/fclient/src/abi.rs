@@ -266,8 +266,8 @@ pub const INSTRUCTIONS_V2: [IxInfo; 57] = [
     ix(0xA0, "DeclareSiege", Class::P, 30_000, 640, false),
     ix(0xA1, "SettleSiege", Class::N, 25_000, 480, false),
     ix(0xA2, "SettleCapture", Class::D, 30_000, 720, false),
-    ix(0xA3, "FileOutpost", Class::P, 24_000, 640, false),
-    ix(0xA5, "FoldMarch", Class::D, 20_000, 720, false),
+    ix(0xA3, "FileOutpost", Class::P, 28_000, 640, false),
+    ix(0xA5, "FoldMarch", Class::D, 36_000, 720, false),
     ix(0xA6, "RetireHost", Class::P, 17_000, 480, false),
     ix(0xA7, "CloseMarch", Class::N, 8_000, 300, false),
 ];
