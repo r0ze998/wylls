@@ -59,6 +59,10 @@ pub const GATHER_CLASH: &[Cover] = &[
         &[Lands("GatherClash")],
     ),
     Cover::Test("clash::g13_cq_clash_refusals", &[Err(E::BadAccount)]),
+    Cover::Test(
+        "clash::g01_cq_gather_prev_gen_budget",
+        &[Lands("GatherClash")],
+    ),
 ];
 
 pub const RESOLVE_FROM_INPUTS: &[Cover] = &[
@@ -101,15 +105,25 @@ pub const RESOLVE_FROM_INPUTS: &[Cover] = &[
     ),
     Cover::Test("clash::g01_cq_resolve_worst", &[Lands("ResolveFromInputs")]),
     Cover::Test(
+        "clash::cq_free_city_garrison_and_a_neutral_siege_through_the_program",
+        &[Lands("ResolveFromInputs")],
+    ),
+    Cover::Test(
         "clash::cq_keep_taken_sends_the_donor_home_through_the_return_settle",
         &[Lands("ResolveFromInputs")],
     ),
 ];
 
-pub const RESOLVE_CLASH: &[Cover] = &[Cover::Test(
-    "clash::g08_gathers_in_any_order_equal_the_oracle_and_the_kernel",
-    &[Lands("ResolveClash")],
-)];
+pub const RESOLVE_CLASH: &[Cover] = &[
+    Cover::Test(
+        "clash::g08_gathers_in_any_order_equal_the_oracle_and_the_kernel",
+        &[Lands("ResolveClash")],
+    ),
+    Cover::Test(
+        "clash::cq_oracle_resolve_clash_equals_resolve_from_inputs_and_the_models",
+        &[Lands("ResolveClash")],
+    ),
+];
 
 pub const SKIP_QUIET: &[Cover] = &[
     Cover::Test(
@@ -144,6 +158,10 @@ pub const SKIP_QUIET: &[Cover] = &[
         &[Err(E::Kernel), Err(E::BadAccount), Lands("SkipQuiet")],
     ),
     Cover::Test("clash::g01_cq_skip_worst", &[Lands("SkipQuiet")]),
+    Cover::Test(
+        "clash::cq_free_city_garrison_and_a_neutral_siege_through_the_program",
+        &[Lands("SkipQuiet")],
+    ),
     Cover::Test(
         "clash::cq_snapshot_counts_a_provisional_holding_before_its_final_ts",
         &[Lands("SkipQuiet")],

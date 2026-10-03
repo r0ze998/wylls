@@ -310,6 +310,23 @@ fn step_params(season_ai: &AccountInfo) -> R<cq::StepParams> {
     Ok(prm)
 }
 
+/// The step parameters of an MC Province (`v2`), `None` for an M1 one. An
+/// MC Season carries the conquest block, and §5.1 refuses a v1 account in
+/// it: a 4,096-B Province under a Season whose block reads `conquest_version`
+/// 1 is `BadAccount` (an M1 Season has no block, so M1's path is unchanged).
+fn conquest_params(season_ai: &AccountInfo, v2: bool) -> R<Option<cq::StepParams>> {
+    if v2 {
+        return Ok(Some(step_params(season_ai)?));
+    }
+    let sd = season_ai.try_borrow_data()?;
+    let mc = cq::StepParams::of_season(&sd)
+        .is_some_and(|p| p.cq.conquest_version == frontier_abi::v2::presets::CONQUEST_VERSION);
+    if mc {
+        return Err(BAD_ACCOUNT);
+    }
+    Ok(None)
+}
+
 /// `A` of THE anchor of `(bell, region)` from the account given for it:
 /// the anchor itself (present at its canonical address), or the
 /// region-half-day archive once the bell is archived. A missing anchor is
@@ -654,7 +671,10 @@ pub fn gather_clash(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     };
     let sid = hdr.id;
     let ctx = crate::addr::ctx(&key(season_ai), &p.to_bytes());
-    let (pp, pq, rn, _) = province_of(p, &ctx, sid, province)?;
+    let (pp, pq, rn, v2) = province_of(p, &ctx, sid, province)?;
+    if !v2 {
+        conquest_params(season_ai, false)?;
+    }
     if x.bell < rn {
         return Err(FrontierError::LatchClosed.into());
     }
@@ -1126,11 +1146,7 @@ pub fn resolve_from_inputs(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         return Err(FrontierError::OutOfOrder.into());
     }
     in_season(&hdr, x.bell)?;
-    let cqp = if v2 {
-        Some(step_params(season_ai)?)
-    } else {
-        None
-    };
+    let cqp = conquest_params(season_ai, v2)?;
     expect_key(inputs, &ctx.clash_inputs(pp as i32, pq as i32, x.bell))?;
     if !prologue::presence(inputs, p, AccountKind::ClashInputs, sid)? {
         return Err(FrontierError::NotGathered.into());
@@ -1209,11 +1225,7 @@ pub fn resolve_clash(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         return Err(FrontierError::OutOfOrder.into());
     }
     in_season(&hdr, x.bell)?;
-    let cqp = if v2 {
-        Some(step_params(season_ai)?)
-    } else {
-        None
-    };
+    let cqp = conquest_params(season_ai, v2)?;
     let clock = {
         let sd = season_ai.try_borrow_data()?;
         SeasonClock::read(&sd)?
@@ -1311,11 +1323,7 @@ pub fn skip_quiet(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         day1,
         &ctx.arrival_day(pp as i32, pq as i32, d0.checked_add(1).ok_or(OVERFLOW)?),
     )?;
-    let cqp = if v2 {
-        Some(step_params(season_ai)?)
-    } else {
-        None
-    };
+    let cqp = conquest_params(season_ai, v2)?;
     let bell_log = hdr.bell(now.ts).unwrap_or(NO_BELL);
     let mut done = 0u8;
     let mut quiet_known = false;
@@ -1907,7 +1915,10 @@ pub fn settle_return(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
     )?;
     let sid = hdr.id;
     let ctx = crate::addr::ctx(&key(season_ai), &p.to_bytes());
-    province_of(p, &ctx, sid, province)?;
+    let (_, _, _, v2) = province_of(p, &ctx, sid, province)?;
+    if !v2 {
+        conquest_params(season_ai, false)?;
+    }
     // The holding's (P, Q, site) and live generation, if present.
     let (live, hpqs) = if prologue::presence(holding, p, AccountKind::Holding, sid)? {
         let hd = holding.try_borrow_data()?;

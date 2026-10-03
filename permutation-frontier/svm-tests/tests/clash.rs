@@ -2052,15 +2052,30 @@ fn g01_skip_quiet_kernel_quiet_roster_budget() {
             n as u64,
             "kernel-quiet: the whole run"
         );
-        let ceil = ceilings(Ix::SkipQuiet, 1, c.programdata_len());
+        // M1: one gate unit whatever the run (v1.7); an MC season: the v2
+        // gate of 90k + 30k per recomputed bell (§5.4), every bell of the
+        // run here (the conquest step runs at each).
+        let units = if w.is_mc(&c) { n as u32 } else { 1 };
+        let ceil = ceilings(Ix::SkipQuiet, units, c.programdata_len());
         println!("G1 SkipQuiet kernel-quiet 48 residents, {n} bells");
         assert_within(&format!("SkipQuiet kernel-quiet n={n}"), &need, &ceil);
     }
 }
 
 /// The SKIP digest of a run: `sha256("PSF-QUIET-v1" ‖ le32(b0) ‖ n ‖
-/// province[SITE_MIRROR .. TICKET_COHORTS])` (§6 v1.6).
+/// province[SITE_MIRROR .. TICKET_COHORTS])` (§6 v1.6); on a Province v2
+/// `"PSF-QUIET-v2"` with the conquest block `province[4096 .. 4736]`
+/// appended (§5.7).
 fn quiet_digest_of(pd: &[u8], b0: u32, n: u8) -> [u8; 32] {
+    if pd.len() == P2::SIZE {
+        return permutation_frontier_svm_tests::sha256(&[
+            b"PSF-QUIET-v2",
+            &b0.to_le_bytes(),
+            &[n],
+            &pd[P::SITE_MIRROR..P::TICKET_COHORTS],
+            &pd[P2::CQ_BLOCK],
+        ]);
+    }
     permutation_frontier_svm_tests::sha256(&[
         b"PSF-QUIET-v1",
         &b0.to_le_bytes(),
@@ -3235,6 +3250,14 @@ fn siege(
     }
 }
 
+/// `r` (a siege) aimed at a genesis Free City: neutral (no vigil), the
+/// capture into the reserved slot of `r`'s target (§5.2.1 kind 1).
+fn neutral(mut r: CqRecord) -> CqRecord {
+    r.flags |= CR::FLAG_NEUTRAL;
+    r.target = CR::target(CR::TARGET_FREE_CITY, CR::target_slot(r.target));
+    r
+}
+
 /// An occupation of site `s` by `occupier` started at `start`.
 fn occupation(occupier: u8, start: u32) -> CqRecord {
     CqRecord {
@@ -3316,16 +3339,27 @@ fn conquest_worst(c: &mut Chain, w: &World, f: &Fill, b: u32) -> (Fill, usize, b
             let r = if sr.holders != 0 && !sr.defender_present {
                 done += 1;
                 let a = sr.holders.trailing_zeros() as u8;
-                let slot = if s % 3 == 2 { 0 } else { 2 };
+                let free_city = d[P2::site(s) + SM2::STATE] == SM2::STATE_FREE_CITY;
+                let slot = if s % 3 == 2 && !free_city { 0 } else { 2 };
                 if slot == 0 {
                     d[P2::site(s) + SM2::ORDER] = 1;
-                } else {
+                } else if !free_city {
                     d[P2::site(s) + SM2::ORDER] = 2;
                 }
-                siege(w, a, 35, 36, slot, b - 40, b)
+                let r = siege(w, a, 35, 36, slot, b - 40, b);
+                if free_city {
+                    neutral(r)
+                } else {
+                    r
+                }
             } else {
                 let a = (owner + 1 + (s as u8 % 5)) % 6;
-                siege(w, a, 10, 36, 2, b - 12, b)
+                let r = siege(w, a, 10, 36, 2, b - 12, b);
+                if d[P2::site(s) + SM2::STATE] == SM2::STATE_FREE_CITY {
+                    neutral(r)
+                } else {
+                    r
+                }
             };
             r.write(d, s).unwrap();
         }
@@ -3529,12 +3563,15 @@ fn g01_cq_resolve_worst() {
     let heap_gate = frontier_abi::budgets::HEAP_GATE as u64;
     let trace = std::env::var("PSF_TRACE").is_ok_and(|v| v == "1");
     let mut report = vec![];
-    let (mut bound_base, mut bound_delta, mut measured) = (0u64, 0u64, 0u64);
+    let (mut bound_base, mut bound_literal, mut measured) = (0u64, 0u64, 0u64);
+    let mut per_unit_max = (0u64, String::new());
     for shape in ["keep13", "conquest"] {
         let mut rows: Vec<(Worst, Build)> = vec![];
         let (mut completions, mut keeps, mut twelve) = (vec![], 0usize, 0usize);
         let mut full = (0u64, String::new());
-        let mut delta = (0u64, String::new());
+        // per release fill of the conquest shape: (CU, increment over the
+        // same clash with no record and no contest, completions + keep taken)
+        let mut incs: Vec<(u64, u64, u64, String)> = vec![];
         for build in [Build::Release, Build::Trace] {
             let (mut c, w) = mc_world(build, &MC_LOCAL_7D.cq, MC_BELL);
             let prm = step_params(&c, &w);
@@ -3561,8 +3598,9 @@ fn g01_cq_resolve_worst() {
                 let (st, digest) = native_resolve(&mut want, &ci, MC_BELL, &seed, &prm);
                 // the same bell with no record and no contest (the clash is
                 // the same: records are not clash inputs): the step's
-                // increment for 12 completions and a keep taken
-                let base = (build == Build::Release && done == 12 && taken).then(|| {
+                // increment (review CQ2-B: on every fill, not only on the
+                // 12-completion ones)
+                let base = (build == Build::Release && shape == "conquest").then(|| {
                     let mut c0 = c.fork();
                     c0.edit(&pk, |d| {
                         d[P2::CONQUEST..P2::KEEP].fill(0);
@@ -3582,10 +3620,7 @@ fn g01_cq_resolve_worst() {
                     "ResolveFromInputs",
                 );
                 if let Some(cu0) = base {
-                    let d = l.cu - cu0;
-                    if d > delta.0 {
-                        delta = (d, name.clone());
-                    }
+                    incs.push((l.cu, l.cu - cu0, done as u64 + taken as u64, name.clone()));
                 }
                 assert_eq!(
                     mc_state(&c.data(&pk)),
@@ -3650,26 +3685,72 @@ fn g01_cq_resolve_worst() {
                 full.0,
                 full.1
             ));
+            // the increment of every fill by its units (completions + the
+            // keep taken); the literal row, 12 completions + the keep, is
+            // bounded by the heaviest clash of any fill (its CU with no
+            // record and no contest) plus the largest increment measured
+            // at 13 units
+            let mut by_u: Vec<(u64, u64)> = vec![(u64::MAX, 0); 14];
+            for (_, i, u, _) in &incs {
+                let e = &mut by_u[*u as usize];
+                *e = (e.0.min(*i), e.1.max(*i));
+            }
+            let table: Vec<String> = by_u
+                .iter()
+                .enumerate()
+                .filter(|(_, e)| e.1 > 0)
+                .map(|(u, e)| format!("{u}: {}..{}", e.0, e.1))
+                .collect();
             report.push(format!(
-                "G1-CQ RFI conquest increment (12 completions, keep taken, CONQUEST/KEEP/RETIRE) max {} CU ({})",
-                delta.0, delta.1
+                "G1-CQ RFI conquest increment (CU) by units (completions + keep taken): {}",
+                table.join(", ")
             ));
-            bound_delta = delta.0;
+            let inc_max = incs
+                .iter()
+                .map(|(_, i, u, n)| (*i, n.clone(), *u))
+                .max()
+                .unwrap();
+            let inc13 = by_u[13].1;
+            assert!(inc13 > 0, "fills with 12 completions and the keep taken");
+            per_unit_max = (inc13, String::from("13 units"));
+            let heavy = incs
+                .iter()
+                .map(|(cu, i, _, n)| (cu - i, n.clone()))
+                .max()
+                .unwrap();
+            report.push(format!(
+                "G1-CQ RFI conquest increment over all {} fills: max {} CU ({}, {} units); at 13 units max {inc13}; heaviest clash without records {} CU ({})",
+                incs.len(),
+                inc_max.0,
+                inc_max.1,
+                inc_max.2,
+                heavy.0,
+                heavy.1
+            ));
+            let lit = (heavy.0 + inc13, heavy.1);
+            report.push(format!(
+                "G1-CQ RFI literal row (heaviest clash of the conquest shape + the 13-unit increment): {} CU ({})",
+                lit.0, lit.1
+            ));
+            bound_literal = lit.0;
             measured = rows[0].0.max.0;
         }
         if shape == "keep13" {
             bound_base = rows[0].0.max.0;
         }
     }
-    // The literal §13.1 row cannot be one clash (a completing siege needs a
-    // hostile faction alone on the hex, which removes the fight there), so
-    // the bound adds the largest measured increment to the heaviest keep13
-    // fill.
-    let bound = (bound_base + bound_delta).max(measured);
+    // §13.1's literal row (12 completions and the keep taken on the worst
+    // Phase B fill) is bounded three ways: the measured conquest-shape max
+    // (292 fills complete all 12 sites), the heaviest keep13 fill plus the
+    // largest increment measured at 13 units, and the heaviest conquest-shape
+    // clash plus that increment.
+    let by_units = bound_base + per_unit_max.0;
+    let bound = by_units.max(bound_literal).max(measured);
     report.push(format!(
-        "G1-CQ RFI worst: max(keep13 max {bound_base} + conquest increment max {bound_delta} = {}, measured conquest max {measured}) = {bound} CU (gate {gate}, margin {})",
-        bound_base + bound_delta,
-        gate.saturating_sub(bound)
+        "G1-CQ RFI worst: max(measured conquest max {measured}, keep13 max {bound_base} + 13-unit increment {} = {by_units}, heaviest clash + increment {bound_literal}) = {bound} CU (gate {gate}, margin {} = {:.2} %)",
+        per_unit_max.0,
+        gate.saturating_sub(bound),
+        gate.saturating_sub(bound) as f64 * 100.0 / gate as f64
     ));
     for l in &report {
         println!("{l}");
@@ -4264,6 +4345,117 @@ fn cq_snapshot_counts_a_provisional_holding_before_its_final_ts() {
     }
 }
 
+/// §3.7, §3.5, §5.7 (review CQ2-B): a genesis Free City (site state 5) is a
+/// NEUTRAL garrison in the program. (1) a hostile host alone on its hex
+/// beats the garrison and completes a neutral siege (no vigil) into a
+/// credited CAPTURE_DUE, the site becoming the captor's Holding of the next
+/// generation; the program's Province = the shared models'; (2) a quiet
+/// skip over an hour boundary writes the neutral side of the snapshot
+/// (`snap[6]`) at the Free City's strength weight.
+#[test]
+fn cq_free_city_garrison_and_a_neutral_siege_through_the_program() {
+    use permutation_rules::frontier::control::site_weight_centi;
+    use permutation_rules::frontier::laurel::Tier;
+    let b = MC_BELL;
+    let garrison = 300_000u32; // milli-troops: 300 troops
+    let shape = || {
+        let (mut f, _, _) = mc_quiet(-4, 17, 61, 2);
+        f.garrisons.truncate(1);
+        f.garrisons[0].faction = 6; // NEUTRAL
+        f.garrisons[0].troops = garrison;
+        f.garrisons[0].walls = false;
+        f.terrain.site_count = 1;
+        f
+    };
+    // (1) a siege completes
+    {
+        let (mut c, w) = mc_world(Build::TestBeacon, &MC_LOCAL_7D.cq, b);
+        let prm = step_params(&c, &w);
+        let mut f = shape();
+        let hex = f.garrisons[0].tile;
+        let r = f
+            .residents
+            .iter_mut()
+            .find(|r| r.faction == 3)
+            .expect("a faction-3 resident");
+        r.tile = hex;
+        r.troops = 30_000_000;
+        let pk = w.a.province(f.p, f.q);
+        let seed = mc_ready(&mut c, &w, &f, b, |d| {
+            assert_eq!(d[P2::site(0) + SM2::STATE], SM2::STATE_FREE_CITY, "state 5");
+            assert_eq!(d[P2::site(0) + SM2::FACTION], 6);
+            let sg = neutral(siege(&w, 3, 35, 36, 2, b - 40, b));
+            sg.write(d, 0).unwrap();
+        });
+        for ix in w.gather_parts(&c, f.dest(), b, &THIRDS) {
+            expect_lands(keeper_send(&mut c, &w, ix), "GatherClash");
+        }
+        let before = c.data(&pk);
+        let ci = c.data(&w.a.clash_inputs(f.p, f.q, b));
+        let rep = native_report(&before, &ci, b, &seed);
+        assert_eq!(
+            rep.sites[0].holders,
+            1 << 3,
+            "faction 3 alone holds the hex"
+        );
+        assert!(!rep.sites[0].defender_present);
+        let gen0 = before[P2::site(0) + SM2::GEN];
+        let mut want = before.clone();
+        let (st, _) = native_resolve(&mut want, &ci, b, &seed, &prm);
+        assert!(st.changed && st.quiet_inputs_changed, "a capture is due");
+        let l = expect_lands(
+            keeper_send(&mut c, &w, w.resolve_ix(f.dest(), b)),
+            "ResolveFromInputs",
+        );
+        let d = c.data(&pk);
+        assert_eq!(mc_state(&d), mc_state(&want), "program = models");
+        let rec = CqRecord::read(&d, 0).unwrap();
+        assert_eq!(rec.kind, CR::KIND_CAPTURE_DUE);
+        assert_eq!(rec.faction, 3);
+        assert_ne!(
+            rec.flags & CR::FLAG_CREDITED,
+            0,
+            "a Free City capture is credited"
+        );
+        assert_eq!(CR::target_kind(rec.target), CR::TARGET_FREE_CITY);
+        assert_eq!(d[P2::site(0) + SM2::STATE], SM2::STATE_HOLDING);
+        assert_eq!(d[P2::site(0) + SM2::FACTION], 3);
+        assert_eq!(d[P2::site(0) + SM2::GEN], gen0.wrapping_add(1));
+        assert_eq!(d[P2::site(0) + SM2::ORDER], 2, "into the reserved slot");
+        assert_eq!(
+            u16::from_le_bytes(d[P2::captures_by(3)..][..2].try_into().unwrap()),
+            1,
+            "captures_by[3]"
+        );
+        let cq = conquests(&l.logs);
+        assert_eq!(cq.len(), 1);
+        assert!(cq[0].1.n >= 1, "CAPTURE_DUE is an event of the bell");
+        // the snapshot (an hour boundary) counts the new holding for faction 3
+        let snap = qm::snapshot_slot(&d, b / 6).unwrap().expect("hour sample");
+        assert_eq!(snap[6], 0, "the Free City left the neutral side");
+        assert!(snap[3] > 0);
+    }
+    // (2) a quiet skip: the neutral side of the snapshot
+    {
+        let (mut c, w) = mc_world(Build::TestBeacon, &MC_LOCAL_7D.cq, b);
+        let f = shape();
+        w.craft_fill(&mut c, &f, b);
+        ready_run(&mut c, &w, &f, b, 1);
+        let l = expect_lands(
+            c.send(&[w.skip_ix(f.dest(), b, 1)], &[&w.keeper]),
+            "SkipQuiet",
+        );
+        assert_eq!(skip_n(&l.logs), 1);
+        let d = c.data(&w.a.province(f.p, f.q));
+        let snap = qm::snapshot_slot(&d, b / 6).unwrap().expect("hour sample");
+        let want = site_weight_centi(Tier::Hamlet, garrison, 0);
+        assert!(want > 0);
+        assert_eq!(snap[6], want, "the Free City's weight on the neutral side");
+        assert_eq!(snap.iter().map(|x| *x as u32).sum::<u32>(), want as u32);
+        assert_eq!(d[P2::site(0) + SM2::STATE], SM2::STATE_FREE_CITY);
+    }
+}
+
 /// §5.6 GatherClash, §5.8: an arrival whose host id names the previous
 /// generation of a captured Holding (`capture_flags` bit 0, `prev_gen`)
 /// gathers as present; the same host of a re-founded Holding (no capture
@@ -4302,6 +4494,134 @@ fn cq_gather_reads_a_captured_holdings_previous_generation() {
             "the transit is stamped only when gathered"
         );
     }
+}
+
+/// G8 for MC (review CQ2-B, §13.3): ResolveClash (the oracle build, one
+/// transaction) on a Province v2 equals ResolveFromInputs after the gathers
+/// and the shared models: the same Province bytes (every byte but the event
+/// header, the last digest, the quiet cache and the resolve summary), the
+/// same CLASH digest and the same CONQUEST record, on every 97th fill of
+/// `all_fills` in the conquest shape (a keep one bell from taken, a siege on
+/// every site, Free Cities among the NEUTRAL fills).
+#[test]
+fn cq_oracle_resolve_clash_equals_resolve_from_inputs_and_the_models() {
+    let fills = all_fills();
+    let (mut c, w) = mc_world(Build::TestBeacon, &MC_LOCAL_7D.cq, MC_BELL);
+    let (mut co, wo) = mc_world(Build::Oracle, &MC_LOCAL_7D.cq, MC_BELL);
+    let prm = step_params(&c, &w);
+    let (mut n, mut taken_n, mut done_n) = (0, 0, 0);
+    for (set, f) in fills.iter().step_by(97) {
+        let name = format!("{set} {}", f.name);
+        let (f, done, taken) = conquest_worst(&mut c, &w, f, MC_BELL);
+        let pk = w.a.province(f.p, f.q);
+        let pre = c.data(&pk);
+        let ci = c.data(&w.a.clash_inputs(f.p, f.q, MC_BELL));
+        let seed = bell_seed(MC_BELL, f.region());
+        let mut want = pre.clone();
+        let (st, digest) = native_resolve(&mut want, &ci, MC_BELL, &seed, &prm);
+        let l = expect_lands(
+            keeper_send(&mut c, &w, w.resolve_ix(f.dest(), MC_BELL)),
+            "ResolveFromInputs",
+        );
+        // the oracle on the same shaped Province, in one transaction
+        mc_ready(&mut co, &wo, &f, MC_BELL, |d| d.copy_from_slice(&pre));
+        let ix = cix::oracle(
+            &wo.a,
+            wo.keeper.pubkey(),
+            f.dest(),
+            MC_BELL,
+            &fill_holdings(&wo, &f),
+            &wo.keeper.pubkey(),
+        );
+        let prof = co
+            .profile_of(std::slice::from_ref(&ix), Profile::ladder)
+            .with_loaded(4 * 1024 * 1024);
+        let lo = expect_lands(co.send_with(&prof, &[ix], &[&wo.keeper]), "ResolveClash");
+        let got = co.data(&pk);
+        assert_eq!(mc_state(&got), mc_state(&want), "{name}: oracle = models");
+        assert_eq!(
+            mc_state(&got),
+            mc_state(&c.data(&pk)),
+            "{name}: oracle = RFI"
+        );
+        let dig = |logs: &[String]| {
+            v2_records(logs)
+                .into_iter()
+                .find(|r| r.kind == AnyKind::V1(Kind::CLASH))
+                .expect("CLASH")
+                .payload[..32]
+                .to_vec()
+        };
+        assert_eq!(dig(&lo.logs), digest, "{name}: the oracle's digest");
+        assert_eq!(dig(&l.logs), digest);
+        assert_eq!(
+            conquests(&lo.logs),
+            conquests(&l.logs),
+            "{name}: the same CONQUEST record"
+        );
+        assert_eq!(st.keep_taken.is_some(), taken);
+        assert!(co.is_absent(&wo.a.clash_inputs(f.p, f.q, MC_BELL)));
+        n += 1;
+        taken_n += taken as usize;
+        done_n += done;
+    }
+    println!("oracle = RFI = models on {n} MC fills, {done_n} completions, {taken_n} keeps taken");
+    assert!(n >= 12 && done_n > 0 && taken_n > 0);
+}
+
+/// G1 for GatherClash's `prev_gen` branch (review CQ2-B, §5.4 v2 gate
+/// 49,000 CU): the worst gather, 12 positions each with its Holding, every
+/// Holding a captured one whose generation moved on (`prev_gen` matches the
+/// arrival's host id), then the rest of the 24 positions; every position
+/// gathers as present and the first transaction fits the gate.
+#[test]
+fn g01_cq_gather_prev_gen_budget() {
+    let (mut c, w) = mc_world(Build::Release, &MC_LOCAL_7D.cq, MC_BELL);
+    let pd = c.programdata_len();
+    let f = Fill::adversarial(5, 81, -14, 6);
+    mc_ready(&mut c, &w, &f, MC_BELL, |_| {});
+    assert!(f.arrivals.len() >= 12, "{} arrivals", f.arrivals.len());
+    for (fa, i, _) in &f.arrivals {
+        let k = CI::position(*fa, *i);
+        let (hp, hq, hs) = permutation_frontier_svm_tests::world::clash::arrival_home(f.p, f.q, k);
+        c.edit(&w.a.holding(hp, hq, hs), |d| {
+            d[H::GEN] = 2;
+            d[H2::PREV_GEN] = 1;
+            d[H2::CAPTURE_FLAGS] = H2::CAPTURE_FLAG_CAPTURED;
+        });
+    }
+    // positions 10 and 11 absent, as M1's G1 row (12 Holdings overflow the tx)
+    for k in [10u8, 11] {
+        c.remove(&w.a.arrival_slot(f.p, f.q, MC_BELL, k / 4, k % 4));
+    }
+    let g = w.gather_ix(&c, f.dest(), MC_BELL, 0, 12);
+    let need = c.measure(std::slice::from_ref(&g), &[&w.keeper]).unwrap();
+    println!(
+        "G1-CQ GatherClash prev_gen, 12 positions, 10 captured Holdings: {} CU, tx {} B, loaded {} B",
+        need.cu, need.tx_bytes, need.loaded
+    );
+    assert_within(
+        "GatherClash 12 positions, prev_gen",
+        &need,
+        &ceilings(Ix::GatherClash, 0, pd),
+    );
+    expect_lands(keeper_send(&mut c, &w, g), "GatherClash");
+    for ix in w.gather_parts(&c, f.dest(), MC_BELL, &[(12, 8), (20, 4)]) {
+        expect_lands(keeper_send(&mut c, &w, ix), "GatherClash");
+    }
+    let ci = c.data(&w.a.clash_inputs(f.p, f.q, MC_BELL));
+    let mut present = 0;
+    for (fa, i, a) in &f.arrivals {
+        let k = CI::position(*fa, *i);
+        if k == 10 || k == 11 {
+            continue;
+        }
+        present += 1;
+        let o = CI::arrival(k);
+        assert_eq!(ci[o + AR::PRESENT], 1, "{fa}/{i} gathers as present");
+        assert_eq!(u64_at(&ci, o + AR::HOST_ID), a.id);
+    }
+    assert!(present >= 10, "{present} present");
 }
 
 /// G13 rows of the MC clash path (§5.7, §5.1): a record the step cannot
@@ -4350,6 +4670,17 @@ fn g13_cq_clash_refusals() {
     assert_code(skip(&mut bad), E::BadAccount);
     let ix = w.gather_ix(&bad, f.dest(), b0, 0, 1);
     assert_code(keeper_send(&mut bad, &w, ix), E::BadAccount);
+    // an M1 Province (4,096 B, M1 header) under an MC Season (§5.1: the v2
+    // program refuses a v1 account; review CQ2-B D-1)
+    let mut bad = c.fork();
+    bad.put_program_account(pk, w.fill_province_bytes(&f, b0));
+    assert_code(skip(&mut bad), E::BadAccount);
+    let ix = w.gather_ix(&bad, f.dest(), b0, 0, 1);
+    assert_code(keeper_send(&mut bad, &w, ix), E::BadAccount);
+    assert_code(
+        keeper_send(&mut bad, &w, w.resolve_ix(f.dest(), b0)),
+        E::BadAccount,
+    );
     // the good Province resolves and skips
     expect_lands(resolve(&mut c), "ResolveFromInputs");
     expect_lands(skip(&mut c), "SkipQuiet");

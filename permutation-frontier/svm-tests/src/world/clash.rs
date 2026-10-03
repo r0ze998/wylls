@@ -62,7 +62,7 @@ use solana_signer::Signer;
 
 use frontier_abi::conquest_model as qm;
 use frontier_abi::v2::kernel::keep::{self as kkeep, Keep};
-use frontier_abi::v2::layout::province::province as P2;
+use frontier_abi::v2::layout::province::{province as P2, site as SM2};
 use frontier_abi::v2::presets::{ConquestParams, CONQUEST_VERSION, SEASON_CQ_OFFSET};
 
 use crate::chain::Chain;
@@ -548,6 +548,13 @@ impl World {
         ));
         let h = frontier_abi::layout::header::H_SIZE;
         d[h..P::SIZE].copy_from_slice(&v1[h..]);
+        // A NEUTRAL garrison is a genesis Free City in an MC Province (site
+        // state 5, §3.7); the M1 crafting wrote it as a holding of faction 6.
+        for (j, g) in f.garrisons.iter().enumerate() {
+            if g.faction == permutation_rules::frontier::clash::NEUTRAL {
+                d[P2::site(j) + SM2::STATE] = SM2::STATE_FREE_CITY;
+            }
+        }
         qm::write_no_keep(&mut d).unwrap();
         d
     }
