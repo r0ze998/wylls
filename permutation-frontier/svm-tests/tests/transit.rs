@@ -1701,7 +1701,13 @@ fn g01_cq_settle_transit_with_prev_home() {
     let (mut c, w) = world();
     let (t, home, captor) = captured_trip(&mut c, &w);
     let ix = prev_settle(&w, &t, &captor, &home, true);
-    let p = Profile::ladder(frontier_abi::v2::Ix::SettleTransit, c.programdata_len());
+    let (bytes, n) =
+        frontier_abi::v2::budgets::loaded_accounts(frontier_abi::v2::Ix::SettleTransit);
+    let l = permutation_rules::frontier::fees::loaded_limit(c.programdata_len(), bytes, n)
+        .max(frontier_abi::budgets::LOADED_LIMIT_WORKING_DEFAULT);
+    let p = Profile::NONE
+        .with_cu(frontier_abi::budgets::CU_LADDER_MAX)
+        .with_loaded(l);
     let need = c.measure_with(&p, &[ix], &[&w.keeper]).expect("settles");
     println!("g01_cq SettleTransit prev_home (Release): {need}");
     let b = frontier_abi::v2::budgets::budget(frontier_abi::v2::Ix::SettleTransit);

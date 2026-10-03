@@ -161,12 +161,29 @@ fn declare_free_city(w: &World, by: &Estate, pq: (i16, i16), site: u8, entry: u8
     )
 }
 
+/// `L(kind)` of an ABI v2 instruction at `programdata_len`: the kernel
+/// formula over the kind's worst v2 account set, never below the working
+/// default (`chain::loaded_limit`'s rule, written for the v2 tags so this
+/// file does not depend on CQ2-A's harness generalisation).
+fn cq_loaded(kind: I2, programdata_len: u32) -> u32 {
+    let (bytes, n) = frontier_abi::v2::budgets::loaded_accounts(kind);
+    permutation_rules::frontier::fees::loaded_limit(programdata_len, bytes, n)
+        .max(frontier_abi::budgets::LOADED_LIMIT_WORKING_DEFAULT)
+}
+
+/// The keeper's retry ladder top with `L(kind)` at the deployed length.
+fn cq_ladder(kind: I2, programdata_len: u32) -> Profile {
+    Profile::NONE
+        .with_cu(frontier_abi::budgets::CU_LADDER_MAX)
+        .with_loaded(cq_loaded(kind, programdata_len))
+}
+
 /// Sends an ABI v2 instruction at the ladder's CU and the v2 `L(kind)` **at
 /// the deployed programdata length** (what a client requests; the budgets
 /// table's placeholder length is regenerated at Gate CQ4, so a `.so` that
 /// outgrew it must not break the functional tests).
 fn mc_send(c: &mut Chain, kind: I2, ix: Instruction, signers: &[&Keypair]) -> SendResult {
-    let p = Profile::ladder(kind, c.programdata_len());
+    let p = cq_ladder(kind, c.programdata_len());
     c.send_with(&p, &[ix], signers)
 }
 
@@ -2080,14 +2097,14 @@ fn cq_ceilings(ix: I2, programdata_len: u32) -> permutation_frontier_svm_tests::
         heap: frontier_abi::budgets::HEAP_GATE,
         tx_bytes: b2::tx_ceiling(ix),
         locks: frontier_abi::budgets::LOCKS_MAX,
-        loaded: permutation_frontier_svm_tests::chain::loaded_limit(ix, programdata_len),
+        loaded: cq_loaded(ix, programdata_len),
     }
 }
 
 /// Measures `ix` on `c` (ladder CU, v2 `L(kind)`) and asserts §5.4's
 /// ceilings: CU on the plain builds, the heap on the trace build.
 fn cq_measured(c: &Chain, kind: I2, label: &str, ix: Instruction, signers: &[&Keypair]) -> u64 {
-    let p = Profile::ladder(kind, c.programdata_len());
+    let p = cq_ladder(kind, c.programdata_len());
     let need = c.measure_with(&p, &[ix], signers).unwrap_or_else(|f| {
         panic!(
             "{label}: refused while measuring: {:?}\n{}",
@@ -2386,7 +2403,7 @@ const FOLD_CU_PROPOSED: u32 = 36_000;
 fn g01_cq_fold_worst() {
     for build in g1_builds() {
         let (mut k, mn, keeper) = fold_worst_world(build);
-        let p = Profile::ladder(I2::FoldMarch, k.c.programdata_len());
+        let p = cq_ladder(I2::FoldMarch, k.c.programdata_len());
         for count in 1..=5u8 {
             let n =
                 k.c.measure_with(&p, &[fold_ix(&k.w, &keeper, mn, 2, count)], &[&keeper])
