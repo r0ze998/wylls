@@ -982,8 +982,12 @@ pub fn settle_return(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
         let gen = r.u8(H::GEN)?;
         let live = matches!(r.u8(H::STATE)?, H::STATE_PROVISIONAL | H::STATE_FINAL).then_some(gen);
         let captured = r.u8(H2::CAPTURE_FLAGS)? & H2::CAPTURE_FLAG_CAPTURED != 0;
+        // A victim whose first holding was already gone at the capture
+        // (`prev_home == 0`) can never RetireHost (it refuses `NotOwner`),
+        // so its returning hosts do not wait: M1's stranded rule applies.
         let waiting =
-            (captured && retire_hosts == 1 && live.is_some()).then_some(r.u8(H2::PREV_GEN)?);
+            (captured && retire_hosts == 1 && live.is_some() && r.u64(H2::PREV_HOME)? != 0)
+                .then_some(r.u8(H2::PREV_GEN)?);
         if (hp, hq) == (pp, pq) && live.is_some() {
             let pd = province.try_borrow_data()?;
             capture_lock(&pd, site, gen)?;

@@ -1,12 +1,18 @@
 //! Coverage of the host area (§5.10, §5.11): Muster, Dissolve, Garrison,
 //! Explore, DisbandStranded, Depart, SettleDeparture (W3-B).
 
-use super::{Cover, Err, Lands, Loaded, E};
+use super::{Cover, Cq, CqErr, Err, Lands, Loaded, E};
 
 /// Ignored tests of this area waiting for a fix: (test, unit).
 pub const PENDING: &[(&str, &str)] = &[];
 
 pub const MUSTER: &[Cover] = &[
+    // MC §5.8 (CQ2-C): the capture lock, one test for the five hosts'
+    // instructions that name the Holding's own Province.
+    Cover::Test(
+        "host::p_cq_p3_capture_lock_on_muster_dissolve_garrison_depart_and_the_settles",
+        &[CqErr(Cq::CapturePending)],
+    ),
     Cover::Test(
         "host::host_muster_enters_pending_then_joins_the_roster",
         &[Lands("hix::muster(")],
@@ -45,6 +51,12 @@ pub const MUSTER: &[Cover] = &[
 ];
 
 pub const DISSOLVE: &[Cover] = &[
+    // MC §5.8 (CQ2-C): the capture lock, one test for the five hosts'
+    // instructions that name the Holding's own Province.
+    Cover::Test(
+        "host::p_cq_p3_capture_lock_on_muster_dissolve_garrison_depart_and_the_settles",
+        &[CqErr(Cq::CapturePending)],
+    ),
     Cover::Test(
         "host::host_dissolve_marks_the_host_leaving",
         &[
@@ -72,6 +84,12 @@ pub const DISSOLVE: &[Cover] = &[
 ];
 
 pub const GARRISON: &[Cover] = &[
+    // MC §5.8 (CQ2-C): the capture lock, one test for the five hosts'
+    // instructions that name the Holding's own Province.
+    Cover::Test(
+        "host::p_cq_p3_capture_lock_on_muster_dissolve_garrison_depart_and_the_settles",
+        &[CqErr(Cq::CapturePending)],
+    ),
     Cover::Test(
         "host::host_garrison_moves_reserve_into_the_mirror",
         &[
@@ -122,6 +140,12 @@ pub const EXPLORE: &[Cover] = &[
 ];
 
 pub const DISBAND_STRANDED: &[Cover] = &[
+    // K-27 (MC §5.5, CQ2-C): a captured Holding's previous generation is
+    // left to its victim's RetireHost.
+    Cover::Test(
+        "host::g13_cq_disband_stranded_leaves_the_victims_hosts_to_retire",
+        &[Lands("hix::disband_stranded("), Err(E::NotDormant)],
+    ),
     Cover::Test(
         "host::host_disband_stranded_frees_a_host_of_a_gone_holding",
         &[
@@ -134,6 +158,12 @@ pub const DISBAND_STRANDED: &[Cover] = &[
 ];
 
 pub const DEPART: &[Cover] = &[
+    // MC §5.8 (CQ2-C): the capture lock, one test for the five hosts'
+    // instructions that name the Holding's own Province.
+    Cover::Test(
+        "host::p_cq_p3_capture_lock_on_muster_dissolve_garrison_depart_and_the_settles",
+        &[CqErr(Cq::CapturePending)],
+    ),
     Cover::Test(
         "host::host_depart_escrows_and_settle_departure_moves_the_values",
         &[Lands("w.depart_ix(")],
@@ -166,6 +196,12 @@ pub const DEPART: &[Cover] = &[
 ];
 
 pub const SETTLE_DEPARTURE: &[Cover] = &[
+    // MC §5.8 (CQ2-C): the capture lock, one test for the five hosts'
+    // instructions that name the Holding's own Province.
+    Cover::Test(
+        "host::p_cq_p3_capture_lock_on_muster_dissolve_garrison_depart_and_the_settles",
+        &[CqErr(Cq::CapturePending)],
+    ),
     Cover::Test(
         "host::host_depart_escrows_and_settle_departure_moves_the_values",
         &[

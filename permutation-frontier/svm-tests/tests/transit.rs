@@ -1468,3 +1468,255 @@ fn g12_gathered_bad_seal_settles_only_at_its_destination() {
         EntryOp::Forfeit
     );
 }
+
+// ------------------------------------------------------------ MC: prev_gen (CQ2-C)
+
+/// Captures `t`'s Holding as SettleCapture leaves it (crafted: the capture
+/// itself is `tests/conquest.rs`'s): the Holding at generation + 1 owned by
+/// `captor` (its rent payer the captor's wallet), `prev_gen`, `prev_owner_tag`
+/// (the trip's Citizen), `prev_home` (`home`'s Holding), `capture_flags`
+/// and the transit's escrowed bond already refunded (§3.6); the Province's
+/// site mirror at the new generation. Returns the bond.
+fn capture_trip_holding(
+    c: &mut Chain,
+    w: &World,
+    t: &Trip,
+    captor: &permutation_frontier_svm_tests::world::holding::Estate,
+    home: &permutation_frontier_svm_tests::world::holding::Estate,
+) -> u64 {
+    use frontier_abi::layout::province::{province as P, site as SM};
+    use frontier_abi::v2::layout::player::holding as H2;
+    let bond = w.season_u64(c, frontier_abi::layout::world::season::SEAL_BOND);
+    let gen = t.e.gen;
+    let home_key =
+        frontier_abi::addr::host_id(home.p as i32, home.q as i32, home.site, home.gen, 0).unwrap();
+    let o = H::transit(t.m.transit_slot as usize);
+    c.edit(&t.e.holding, |d| {
+        d[H::GEN] = gen + 1;
+        d[H2::PREV_GEN] = gen;
+        d[H2::CAPTURE_FLAGS] = H2::CAPTURE_FLAG_CAPTURED;
+        d[H2::PREV_OWNER_TAG..H2::PREV_OWNER_TAG + 8]
+            .copy_from_slice(&t.e.citizen_tag().to_le_bytes());
+        d[H2::PREV_HOME..H2::PREV_HOME + 8].copy_from_slice(&home_key.to_le_bytes());
+        d[H::OWNER_CITIZEN..H::OWNER_CITIZEN + 32].copy_from_slice(captor.citizen.as_ref());
+        d[H::FACTION] = captor.faction;
+        d[H::RENT_PAYER..H::RENT_PAYER + 32].copy_from_slice(captor.wallet.pubkey().as_ref());
+        assert!(
+            d[o + T::FLAGS] & T::FLAG_BOND_ESCROWED != 0,
+            "the bond is escrowed"
+        );
+        d[o + T::FLAGS] &= !T::FLAG_BOND_ESCROWED;
+        let esc = u64_at(d, H::ESCROW) - bond;
+        d[H::ESCROW..H::ESCROW + 8].copy_from_slice(&esc.to_le_bytes());
+    });
+    let l = c.lamports(&t.e.holding);
+    c.edit_lamports(&t.e.holding, l - bond);
+    c.edit(&t.e.province, |d| {
+        d[P::site(t.e.site as usize) + SM::GEN] = gen + 1
+    });
+    bond
+}
+
+/// A trip (valid seal, revealed, bounced back with `MILLI` troops) whose
+/// origin Holding is then captured; `home` is the victim's first holding.
+fn captured_trip(
+    c: &mut Chain,
+    w: &World,
+) -> (
+    Trip,
+    permutation_frontier_svm_tests::world::holding::Estate,
+    permutation_frontier_svm_tests::world::holding::Estate,
+) {
+    let t = trip(c, w, "victim", 0, SealCase::Valid);
+    let home = w.craft_estate(c, "victim-home", 0, (2, 0), 1);
+    let captor = w.craft_estate(c, "captor", 1, (2, 0), 2);
+    expect_lands(w.trip_reveal(c, &t, 0), "Reveal");
+    let keeper = w.keeper.pubkey();
+    w.craft_resolved_inputs(c, &t, &[Rec::of(&t, 0, AR::FATE_BOUNCED, MILLI)], &keeper);
+    w.to_settle(c, &t, 0);
+    capture_trip_holding(c, w, &t, &captor, &home);
+    (t, home, captor)
+}
+
+/// The settle of a captured Holding's transit: the rent payer is the
+/// captor's wallet; `prev_home` is appended (§5.6 0x54, mandatory when the
+/// generations differ).
+fn prev_settle(
+    w: &World,
+    t: &Trip,
+    captor: &permutation_frontier_svm_tests::world::holding::Estate,
+    home: &permutation_frontier_svm_tests::world::holding::Estate,
+    with_home: bool,
+) -> Instruction {
+    let keeper = w.keeper.pubkey();
+    let mut ix = w.settle_ix(t, &keeper, &w.settle_default());
+    ix.accounts[at::RENT_PAYER].pubkey = captor.wallet.pubkey();
+    if with_home {
+        ix.accounts
+            .push(permutation_frontier_svm_tests::AccountMeta::new(
+                home.holding,
+                false,
+            ));
+    }
+    ix
+}
+
+/// P9 (§5.8, §13.3; failing-first against M1's code, CQ2-C-NOTES §3): the
+/// transit of a captured Holding settles. M1's SettleTransit refuses a host
+/// id of another generation (`BadAccount`: the permissionless freeze of
+/// `program.md` §6.2); the previous-generation path settles it normally
+/// and returns the troops to `prev_home`'s reserve, never into the
+/// captured Holding (the bond was refunded at the capture, so it is not
+/// paid twice).
+#[test]
+fn p_cq_p9_the_transit_of_a_captured_holding_settles() {
+    let (mut c, w) = world();
+    let (t, home, captor) = captured_trip(&mut c, &w);
+    let keeper = w.keeper.pubkey();
+    let ix = prev_settle(&w, &t, &captor, &home, true);
+    let reserve0 = |c: &Chain, e: &permutation_frontier_svm_tests::world::holding::Estate| {
+        u32_at(&c.data(&e.holding), H::reserve(0))
+    };
+    let (home0, held0) = (reserve0(&c, &home), reserve0(&c, &t.e));
+    let (cap_w, vic_w) = (
+        c.lamports(&captor.wallet.pubkey()),
+        c.lamports(&t.e.wallet.pubkey()),
+    );
+    let hw = ChainWatch::new(&c, t.e.holding, EntityKind::Holding);
+    let l = expect_lands(send(&mut c, ix.clone(), &w.keeper), "prev_settle(");
+    let r = ts(&l);
+    assert_eq!(r.u64("outcome") as u8, TO::BOUNCED);
+    assert_eq!(r.u64("troops"), MILLI as u64);
+    // The troops are the victim's, back at its home: whole troops.
+    assert_eq!(reserve0(&c, &home), home0 + TROOPS, "credited to prev_home");
+    assert_eq!(reserve0(&c, &t.e), held0, "never into the captured Holding");
+    assert!(
+        entry_of(&c, &t.e.province, t.m.host_id).is_none(),
+        "no host reappears at the origin"
+    );
+    assert_eq!(transit_state(&c, &t), T::STATE_FREE);
+    // The bond was refunded at the capture: nothing escrowed to pay twice;
+    // the victim's wallet gets none of it again, nor the captor's.
+    assert_eq!(u64_at(&c.data(&t.e.holding), H::ESCROW), 0);
+    assert_eq!(c.lamports(&t.e.wallet.pubkey()), vic_w);
+    assert!(c.lamports(&captor.wallet.pubkey()) >= cap_w);
+    // The log chains the captured Holding and prev_home.
+    hw.check(&c, &l.logs, 1);
+    // A repeat finds the record free.
+    assert_code(send(&mut c, ix, &w.keeper), E::TransitState);
+    let _ = keeper;
+}
+
+/// P9 failing-first: the same state through M1's rule (the host id's
+/// generation must equal the Holding's) is `BadAccount` — shown here by
+/// settling the captured Holding's transit as if no capture flag were
+/// set: the id's generation is not the Holding's, so it is refused and
+/// the host is unsettleable (the M1 freeze). The captured flag is what
+/// opens the path.
+#[test]
+fn p_cq_p9_without_the_capture_flag_the_generation_trap_holds() {
+    let (mut c, w) = world();
+    let (t, home, captor) = captured_trip(&mut c, &w);
+    c.edit(&t.e.holding, |d| {
+        d[frontier_abi::v2::layout::player::holding::CAPTURE_FLAGS] = 0
+    });
+    assert_code(
+        send(
+            &mut c,
+            prev_settle(&w, &t, &captor, &home, false),
+            &w.keeper,
+        ),
+        E::BadAccount,
+    );
+}
+
+/// §5.6 0x54: `prev_home_holding` is mandatory on the previous-generation
+/// path. Without it the returning troops would be lost to any third party's
+/// call (the first review's blocker): refused before any effect.
+#[test]
+fn g13_cq_settle_transit_prev_home_is_mandatory() {
+    let (mut c, w) = world();
+    let (t, home, captor) = captured_trip(&mut c, &w);
+    let before = (
+        c.data(&t.e.holding),
+        c.data(&t.e.province),
+        c.data(&home.holding),
+    );
+    let ix = prev_settle(&w, &t, &captor, &home, false);
+    let mut f = c.fork();
+    assert_code(send(&mut f, ix, &w.keeper), E::TooManyAccounts);
+    assert_eq!(
+        (
+            f.data(&t.e.holding),
+            f.data(&t.e.province),
+            f.data(&home.holding)
+        ),
+        before,
+        "no effect"
+    );
+}
+
+/// G3 (§5.9): `prev_home` is recomputed from the Holding: another citizen's
+/// Holding, or a lookalike of the right one, is refused (the troops cannot
+/// be dropped elsewhere).
+#[test]
+fn g03_cq_settle_transit_prev_home_forgeries() {
+    let (mut c, w) = world();
+    let (t, home, captor) = captured_trip(&mut c, &w);
+    let fresh = common::copy_to_fresh(&mut c, &home.holding, b"prev-home");
+    for wrong in [captor.holding, fresh] {
+        let mut ix = prev_settle(&w, &t, &captor, &home, true);
+        let n = ix.accounts.len();
+        ix.accounts[n - 1].pubkey = wrong;
+        assert_code(send(&mut c.fork(), ix, &w.keeper), E::BadAddress);
+    }
+}
+
+/// `prev_home` no longer live (released after the capture): the troops
+/// are lost (M1's stranded rule), the transit still frees; nothing is
+/// credited anywhere and the call lands.
+#[test]
+fn g12_cq_settle_transit_prev_home_released_loses_the_troops() {
+    let (mut c, w) = world();
+    let (t, home, captor) = captured_trip(&mut c, &w);
+    c.edit(&home.holding, |d| d[H::STATE] = H::STATE_RELEASED);
+    let (h0, t0) = (
+        u32_at(&c.data(&home.holding), H::reserve(0)),
+        u32_at(&c.data(&t.e.holding), H::reserve(0)),
+    );
+    let l = expect_lands(
+        send(&mut c, prev_settle(&w, &t, &captor, &home, true), &w.keeper),
+        "prev_settle(",
+    );
+    assert_eq!(ts(&l).u64("troops"), 0, "nothing returned");
+    assert_eq!(u32_at(&c.data(&home.holding), H::reserve(0)), h0);
+    assert_eq!(u32_at(&c.data(&t.e.holding), H::reserve(0)), t0);
+    assert_eq!(transit_state(&c, &t), T::STATE_FREE);
+}
+
+/// G1 (§13.1): SettleTransit of a returning host of a captured Holding
+/// with `prev_home`, within 85,000 CU (§5.4).
+#[test]
+fn g01_cq_settle_transit_with_prev_home() {
+    let (mut c, w) = world();
+    let (t, home, captor) = captured_trip(&mut c, &w);
+    let ix = prev_settle(&w, &t, &captor, &home, true);
+    let p = Profile::NONE
+        .with_cu(frontier_abi::budgets::CU_LADDER_MAX)
+        .with_loaded(frontier_abi::v2::budgets::loaded_limit(
+            frontier_abi::v2::Ix::SettleTransit,
+        ));
+    let need = c.measure_with(&p, &[ix], &[&w.keeper]).expect("settles");
+    println!("g01_cq SettleTransit prev_home (Release): {need}");
+    let b = frontier_abi::v2::budgets::budget(frontier_abi::v2::Ix::SettleTransit);
+    assert!(
+        need.cu <= b.cu_budget as u64,
+        "{} CU > {}",
+        need.cu,
+        b.cu_budget
+    );
+    assert!(
+        need.tx_bytes as u32
+            <= frontier_abi::v2::budgets::tx_ceiling(frontier_abi::v2::Ix::SettleTransit)
+    );
+}

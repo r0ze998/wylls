@@ -766,3 +766,230 @@ fn host_depart_arrival_at_or_after_end_bell_refused() {
         E::ArrivalBell,
     );
 }
+
+// ------------------------------------------------------------ MC (CQ2-C)
+
+use frontier_abi::v2::layout::player::holding as H2;
+use frontier_abi::v2::CqError as Cq;
+use permutation_frontier_svm_tests::world::conquest::assert_cq;
+
+/// P3 (§5.8, §13.3), the instructions of `proc/host.rs` and the return
+/// settle: between a capture's completion (the Province's site mirror one
+/// generation ahead of the Holding) and SettleCapture, Muster, Garrison,
+/// Dissolve, Depart, SettleDeparture and the return settle each refuse
+/// `CapturePending` when they name the Holding's own Province (D-1; the
+/// foreign-Province case is `p_cq_p3_foreign_province_gap`). Before the
+/// completion each of them lands.
+#[test]
+fn p_cq_p3_capture_lock_on_muster_dissolve_garrison_depart_and_the_settles() {
+    let (mut c, w, e) = setup();
+    w.set_reserve(&mut c, &e, 0, 50_000);
+    let any = c.funded(b"any-p3", 1);
+    // A host out on a march (settle due), a host dissolved and out of the
+    // roster (return settle due), two residents to dissolve and depart.
+    let id_m = w.craft_host(&mut c, &e, &e.province, 0, 0, 0, 900, e.tile);
+    let id_l = w.craft_host(&mut c, &e, &e.province, 1, 1, 0, 400, e.tile);
+    let id_d = w.craft_host(&mut c, &e, &e.province, 2, 2, 0, 300, e.tile);
+    let id_p = w.craft_host(&mut c, &e, &e.province, 3, 3, 0, 900, e.tile);
+    let m = march(&w, &mut c, &e, id_m, 0, B0 + 6);
+    let tip = w.tip_min(&c);
+    expect_lands(
+        send(&mut c, &e, w.depart_ix(&e, (e.p, e.q), &m, tip)),
+        "Depart",
+    );
+    w.to_bell(&mut c, B0 + 2, 0);
+    w.resolve_through(&mut c, &e.province, B0);
+    assert_eq!(entry_at(&c.data(&e.province), 0).state, EN::STATE_DEPARTED);
+    // The resolve of the Leave's bell (CQ2-B's `settle_bell`) leaves a
+    // departed Leave entry waiting for its return settle; the M1 stand-in
+    // would free it, so it is written by hand.
+    expect_lands(
+        send(&mut c, &e, hix::dissolve(&w.a, &e.player(), e.href(), id_l)),
+        "Dissolve",
+    );
+    c.edit(&e.province, |d| {
+        d[P::entry(1) + EN::STATE] = EN::STATE_DEPARTED
+    });
+    let m2 = march(&w, &mut c, &e, id_p, 1, B0 + 8);
+    let tip2 = w.tip_min(&c);
+    let rn = u32_at(&c.data(&e.province), P::RESOLVED_NEXT);
+    w.set_resolved_next(&mut c, &e.province, rn.max(B0 + 2));
+    let calls: Vec<(&str, Instruction)> = vec![
+        (
+            "Muster",
+            hix::muster(&w.a, &e.player(), e.href(), 0, 1_200, e.tile),
+        ),
+        (
+            "Garrison",
+            hix::garrison(&w.a, &e.player(), e.href(), 1_500),
+        ),
+        ("Dissolve", hix::dissolve(&w.a, &e.player(), e.href(), id_d)),
+        ("Depart", w.depart_ix(&e, (e.p, e.q), &m2, tip2)),
+        (
+            "SettleDeparture",
+            hix::settle_departure(&w.a, any.pubkey(), (e.p, e.q), e.href(), 0),
+        ),
+        (
+            "return settle",
+            permutation_frontier_svm_tests::ix::conquest::settle_return(
+                &w.a,
+                any.pubkey(),
+                e.province,
+                e.holding,
+            ),
+        ),
+    ];
+    let go = |f: &mut Chain, ix: &Instruction, label: &str| {
+        let ix = ix.clone();
+        if label == "SettleDeparture" || label == "return settle" {
+            f.send(&[ix], &[&any])
+        } else {
+            send(f, &e, ix)
+        }
+    };
+    for (label, ix) in &calls {
+        let mut f = c.fork();
+        expect_lands(go(&mut f, ix, label), label);
+    }
+    // The capture completes: the mirror is one generation ahead.
+    c.edit(&e.province, |d| {
+        d[P::site(e.site as usize) + SM::GEN] = e.gen + 1
+    });
+    for (label, ix) in &calls {
+        let mut f = c.fork();
+        assert_cq(go(&mut f, ix, label), Cq::CapturePending);
+    }
+}
+
+/// D-1 (CQ2-C-NOTES §5, a contract gap the first review found): the lock
+/// is enforced only when the Province an instruction names is the
+/// Holding's own. The return settle and SettleDeparture of a foreign
+/// Province, and Depart / Dissolve from a forward hex, cannot see the
+/// mirror, so between completion and SettleCapture the victim's returning
+/// troops are credited into the captured Holding (and SettleCapture then
+/// zeroes its reserve). **Fixing it needs the Holding's own Province as an
+/// account (dependency request R-C1: an interface change in CQ2-A's tags
+/// and the clients).** Ignored; listed in `cover::conquest::PENDING`.
+#[test]
+#[ignore = "D-1: needs the Holding's own Province as an account (dependency request R-C1)"]
+fn p_cq_p3_foreign_province_gap() {
+    let (mut c, w, e) = setup();
+    let id = w.craft_host(&mut c, &e, &e.province, 1, 1, 0, 400, e.tile);
+    expect_lands(
+        send(&mut c, &e, hix::dissolve(&w.a, &e.player(), e.href(), id)),
+        "Dissolve",
+    );
+    c.edit(&e.province, |d| {
+        d[P::entry(1) + EN::STATE] = EN::STATE_DEPARTED
+    });
+    // The captured Holding's own Province is not the one the settle names:
+    // move the entry's Province to a foreign one by crafting the mirror
+    // ahead in the home Province only.
+    c.edit(&e.province, |d| {
+        d[P::site(e.site as usize) + SM::GEN] = e.gen + 1
+    });
+    let other = w.craft_province(&mut c, 3, 0);
+    let entry = c.data(&e.province);
+    c.edit(&other, |d| {
+        let o = P::entry(1);
+        d[o..o + EN::SIZE].copy_from_slice(&entry[P::entry(1)..P::entry(1) + EN::SIZE]);
+        d[P::N_ENTRIES] = 1;
+    });
+    let any = c.funded(b"any-gap", 1);
+    let ix = permutation_frontier_svm_tests::ix::conquest::settle_return(
+        &w.a,
+        any.pubkey(),
+        other,
+        e.holding,
+    );
+    // Wanted: CapturePending. Today: the troops land in the Holding.
+    assert_cq(c.send(&[ix], &[&any]), Cq::CapturePending);
+}
+
+/// K-27 (§5.5): with `retire_hosts = 1` a captured Holding's previous
+/// generation is not disbanded by a third party (`NotDormant`); a Holding
+/// that was never captured (or an M1 season) keeps M1's rule.
+#[test]
+fn g13_cq_disband_stranded_leaves_the_victims_hosts_to_retire() {
+    use permutation_frontier_svm_tests::world::conquest::estate_view;
+    let (mut c, w, e) = setup();
+    // An MC season: the conquest block with retire_hosts = 1.
+    w.cq_set_params(&mut c, &frontier_abi::v2::presets::MC_LOCAL_7D.cq);
+    let id = w.craft_host(&mut c, &e, &e.province, 5, 0, 0, 300, e.tile);
+    let any = c.funded(b"any-k27", 1);
+    let ix = hix::disband_stranded(&w.a, any.pubkey(), e.p, e.q, 5, id);
+    // Captured: generation + 1, the host's id is the previous generation.
+    let mut f = c.fork();
+    f.edit(&e.holding, |d| {
+        d[H::GEN] = 2;
+        d[H2::PREV_GEN] = 1;
+        d[H2::CAPTURE_FLAGS] = H2::CAPTURE_FLAG_CAPTURED;
+        d[H2::PREV_HOME..H2::PREV_HOME + 8].copy_from_slice(&7u64.to_le_bytes());
+    });
+    assert_code(f.send(std::slice::from_ref(&ix), &[&any]), E::NotDormant);
+    // retire_hosts = 0: M1's rule (the generation moved: stranded).
+    let mut p0 = frontier_abi::v2::presets::MC_LOCAL_7D.cq;
+    p0.retire_hosts = 0;
+    w.cq_set_params(&mut f, &p0);
+    expect_lands(
+        f.send(std::slice::from_ref(&ix), &[&any]),
+        "hix::disband_stranded(",
+    );
+    // A re-founded Holding (not a capture): M1's rule with retire_hosts = 1.
+    let mut g = c.fork();
+    g.edit(&e.holding, |d| d[H::GEN] = 2);
+    expect_lands(
+        g.send(std::slice::from_ref(&ix), &[&any]),
+        "hix::disband_stranded(",
+    );
+    let _ = estate_view;
+}
+
+/// A captured Holding whose victim had no first holding left at the
+/// capture (`prev_home == 0`) can never RetireHost (`NotOwner`), so its
+/// returning previous-generation hosts do not wait: the return settle
+/// strands them (M1's rule) instead of leaving them on the Province forever.
+#[test]
+fn g12_cq_return_settle_strands_a_victim_without_a_home() {
+    let (mut c, w, e) = setup();
+    w.cq_set_params(&mut c, &frontier_abi::v2::presets::MC_LOCAL_7D.cq);
+    let id = w.craft_host(&mut c, &e, &e.province, 1, 1, 0, 400, e.tile);
+    expect_lands(
+        send(&mut c, &e, hix::dissolve(&w.a, &e.player(), e.href(), id)),
+        "Dissolve",
+    );
+    c.edit(&e.province, |d| {
+        d[P::entry(1) + EN::STATE] = EN::STATE_DEPARTED
+    });
+    let any = c.funded(b"any-nohome", 1);
+    let ret = permutation_frontier_svm_tests::ix::conquest::settle_return(
+        &w.a,
+        any.pubkey(),
+        e.province,
+        e.holding,
+    );
+    let captured = |home: u64| {
+        move |d: &mut [u8]| {
+            d[H::GEN] = 2;
+            d[H2::PREV_GEN] = 1;
+            d[H2::CAPTURE_FLAGS] = H2::CAPTURE_FLAG_CAPTURED;
+            d[H2::PREV_HOME..H2::PREV_HOME + 8].copy_from_slice(&home.to_le_bytes());
+        }
+    };
+    // With a home to retire to the entry waits (nothing is returned).
+    let mut f = c.fork();
+    f.edit(&e.holding, captured(7));
+    assert_code(f.send(std::slice::from_ref(&ret), &[&any]), E::AlreadyDone);
+    // Without one it is stranded.
+    let mut g = c.fork();
+    g.edit(&e.holding, captured(0));
+    let l = expect_lands(
+        g.send(std::slice::from_ref(&ret), &[&any]),
+        "settle_return(",
+    );
+    assert_eq!(
+        records::one(&l.logs, Kind::STRANDED).u64("troops_lost") as u32,
+        400_000
+    );
+    assert_eq!(entry_at(&g.data(&e.province), 1).state, EN::STATE_FREE);
+}

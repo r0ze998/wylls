@@ -60,7 +60,11 @@ fn put(d: &mut [u8], o: usize, v: &[u8]) {
 pub fn assert_cq(r: SendResult, e: CqError) -> Fail {
     let program = program_id();
     match r {
-        Ok(l) => panic!("expected {e:?} ({}), landed:\n{}", e.code(), l.logs.join("\n")),
+        Ok(l) => panic!(
+            "expected {e:?} ({}), landed:\n{}",
+            e.code(),
+            l.logs.join("\n")
+        ),
         Err(f) => {
             assert_eq!(
                 f.code,
@@ -88,7 +92,14 @@ pub fn assert_cq(r: SendResult, e: CqError) -> Fail {
 
 /// An outpost (order 2–3) or any other holding of a citizen, addressed
 /// like an [`Estate`] (the owner's wallet and Citizen, this holding's site).
-pub fn estate_view(owner: &Estate, holding: &Address, province: &Address, pqs: (i16, i16, u8), gen: u8, tile: u8) -> Estate {
+pub fn estate_view(
+    owner: &Estate,
+    holding: &Address,
+    province: &Address,
+    pqs: (i16, i16, u8),
+    gen: u8,
+    tile: u8,
+) -> Estate {
     Estate {
         wallet: owner.wallet.insecure_clone(),
         faction: owner.faction,
@@ -158,7 +169,14 @@ impl World {
     /// A player with a final first holding in a crafted Province v2 (module
     /// note): `craft_estate`'s accounts at `layout_version = 2`, slots 2–3
     /// empty, the vigil 12 h away from the current bell, the JoinShard v2.
-    pub fn cq_estate(&self, c: &mut Chain, label: &str, faction: u8, pq: (i16, i16), site: u8) -> Estate {
+    pub fn cq_estate(
+        &self,
+        c: &mut Chain,
+        label: &str,
+        faction: u8,
+        pq: (i16, i16),
+        site: u8,
+    ) -> Estate {
         self.cq_province(c, pq.0, pq.1);
         let e = self.craft_estate(c, label, faction, pq, site);
         self.cq_upgrade(c, &e.holding);
@@ -190,7 +208,14 @@ impl World {
     /// (`held_since_hour` = the current hour), the Citizen's
     /// `holding[slot − 1]` and `holdings_n`, the JoinShard's
     /// `extra_holdings` and `outposts`. Returns it as an [`Estate`] view.
-    pub fn cq_outpost(&self, c: &mut Chain, owner: &Estate, pq: (i16, i16), site: u8, slot: u8) -> Estate {
+    pub fn cq_outpost(
+        &self,
+        c: &mut Chain,
+        owner: &Estate,
+        pq: (i16, i16),
+        site: u8,
+        slot: u8,
+    ) -> Estate {
         assert!((2..=3).contains(&slot));
         let (p, q) = pq;
         let province = self.cq_province(c, p, q);
@@ -207,13 +232,21 @@ impl World {
             d[o + SM2::FACTION] = owner.faction;
             d[o + SM2::ORDER] = slot;
             d[o + SM2::GEN] = gen;
-            put(d, o + SM2::HELD_SINCE_HOUR, &((bell / 6) as u16).to_le_bytes());
+            put(
+                d,
+                o + SM2::HELD_SINCE_HOUR,
+                &((bell / 6) as u16).to_le_bytes(),
+            );
             d[P2::N_SITES_USED] += 1;
         });
         let mut kh = founded(now, bell / 144);
         kh.order = slot;
         let mut hd = vec![0u8; H2::SIZE];
-        assert!(frontier_abi::v2::layout::write_header(&mut hd, K2::Holding, self.id));
+        assert!(frontier_abi::v2::layout::write_header(
+            &mut hd,
+            K2::Holding,
+            self.id
+        ));
         put(&mut hd, H2::P, &p.to_le_bytes());
         put(&mut hd, H2::Q, &q.to_le_bytes());
         hd[H2::SITE] = site;
@@ -249,7 +282,14 @@ impl World {
     /// A genesis Free City on site `site` of a crafted Province v2 (module
     /// note): state 5, NEUTRAL, Hamlet, the garrison in whole troops,
     /// `held_since_hour = 0`, walls 0, generation `gen`.
-    pub fn cq_free_city(&self, c: &mut Chain, pq: (i16, i16), site: u8, garrison: u32, gen: u8) -> Address {
+    pub fn cq_free_city(
+        &self,
+        c: &mut Chain,
+        pq: (i16, i16),
+        site: u8,
+        garrison: u32,
+        gen: u8,
+    ) -> Address {
         let province = self.cq_province(c, pq.0, pq.1);
         c.edit(&province, |d| {
             let o = P2::site(site as usize);
@@ -278,7 +318,13 @@ impl World {
     /// ResolveFromInputs leaves it (module note): the report given (the
     /// clash's) or the quiet model's, `settle_bell(b)`, the conquest step,
     /// `finish_bell`. Requires `resolved_next == b`.
-    pub fn cq_resolve(&self, c: &mut Chain, province: &Address, b: u32, rep: Option<BellReport>) -> StepOut {
+    pub fn cq_resolve(
+        &self,
+        c: &mut Chain,
+        province: &Address,
+        b: u32,
+        rep: Option<BellReport>,
+    ) -> StepOut {
         let prm = self.cq_step_params(c);
         let mut out = None;
         c.edit(province, |d| {
@@ -295,8 +341,16 @@ impl World {
 
     /// [`World::cq_resolve`] for every bell `from..=to`, each with the quiet
     /// model's report.
-    pub fn cq_resolve_quiet(&self, c: &mut Chain, province: &Address, from: u32, to: u32) -> Vec<StepOut> {
-        (from..=to).map(|b| self.cq_resolve(c, province, b, None)).collect()
+    pub fn cq_resolve_quiet(
+        &self,
+        c: &mut Chain,
+        province: &Address,
+        from: u32,
+        to: u32,
+    ) -> Vec<StepOut> {
+        (from..=to)
+            .map(|b| self.cq_resolve(c, province, b, None))
+            .collect()
     }
 }
 
@@ -319,7 +373,16 @@ pub const fn bit(f: u8) -> u8 {
 /// A record of kind 1 (siege) as DeclareSiege writes it (for crafted
 /// states; the tests that check DeclareSiege read the program's).
 #[allow(clippy::too_many_arguments)]
-pub fn siege_record(attacker: u8, target: u8, slot: u8, required: u8, progress: u8, bell: u32, actor: u64, src: u64) -> Record {
+pub fn siege_record(
+    attacker: u8,
+    target: u8,
+    slot: u8,
+    required: u8,
+    progress: u8,
+    bell: u32,
+    actor: u64,
+    src: u64,
+) -> Record {
     Record {
         kind: CR::KIND_SIEGE,
         faction: attacker,

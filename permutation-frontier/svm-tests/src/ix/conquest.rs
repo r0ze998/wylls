@@ -217,7 +217,11 @@ pub fn fold_march(
     count: u8,
     beneficiary: [u8; 32],
 ) -> Instruction {
-    let mut accounts = vec![signer_rw(fee_payer), ro(a.season), rw(march_address(a, m, n))];
+    let mut accounts = vec![
+        signer_rw(fee_payer),
+        ro(a.season),
+        rw(march_address(a, m, n)),
+    ];
     for k in march_members(a, m, n) {
         accounts.push(ro(k));
     }
@@ -280,7 +284,12 @@ pub fn close_march(a: &Addresses, any: Address, m: i32, n: i32, rent_to: Address
 
 /// SettleDeparture's return settle (`transit_slot = 0xFF`): `[payer s]
 /// [season] [province w] [holding w]`.
-pub fn settle_return(a: &Addresses, payer: Address, province: Address, holding: Address) -> Instruction {
+pub fn settle_return(
+    a: &Addresses,
+    payer: Address,
+    province: Address,
+    holding: Address,
+) -> Instruction {
     Instruction {
         program_id: a.program,
         accounts: vec![signer_ro(payer), ro(a.season), rw(province), rw(holding)],

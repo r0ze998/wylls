@@ -590,7 +590,11 @@ pub fn settle_transit(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         .get(2)
         .is_some_and(|h| prev_gen_transit(h, x.transit_slot));
     let counts: [u8; 3] = match (a.len(), prev_path) {
-        (13, _) => [1, 0, 0],
+        // §5.6: `prev_home_holding` is mandatory when `holding.gen ≠
+        // id.gen`; without it the returning host would be lost to any
+        // third party's call, so refuse before any effect.
+        (13, true) => return Err(FrontierError::TooManyAccounts.into()),
+        (13, false) => [1, 0, 0],
         (14, false) => [1, 1, 0],
         (14, true) => [1, 0, 1],
         (15, _) => [1, 1, 1],

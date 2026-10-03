@@ -982,7 +982,7 @@ pub fn settle_siege(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         let sd = season_ai.try_borrow_data()?;
         cq_u32(&sd, CQ::SIEGE_STAKE_GOLD)?
     };
-    let (pp, pq, _) = province_v2(p, &ctx, hdr.id, province)?;
+    let (pp, pq, rn) = province_v2(p, &ctx, hdr.id, province)?;
     let site = x.site as usize;
     let rec = {
         let pd = province.try_borrow_data()?;
@@ -993,6 +993,14 @@ pub fn settle_siege(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     };
     let bell = hdr.bell(now.ts).unwrap_or(NO_BELL);
     let ended = hdr.status == S::STATUS_ENDED || bell >= hdr.end_bell;
+    // Lag only waits (§5.9, P4): a siege may complete at `end_bell - 1`
+    // (DeclareSiege's TooLate allows it) and that bell's resolve can land
+    // after `end_bell` has started, so a running siege lapses only once its
+    // Province has resolved every bell of the season (the guard RetireHost's
+    // D-5 uses). Until then the call is `TooEarly`, before any effect.
+    if ended && rec.kind == CR::KIND_SIEGE && rn < hdr.end_bell {
+        return Err(FrontierError::TooEarly.into());
+    }
     let (stake, slot, after) = settle_plan(&rec, (pp, pq, x.site), ended)?;
     if stake.is_none() && slot.is_none() {
         return Err(FrontierError::AlreadyDone.into());
@@ -1246,16 +1254,8 @@ pub fn settle_capture(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         // (CloseCitizen).
         let signer = SeasonSigner::new(hdr.id, hdr.bump);
         let seed = frontier_abi::addr::holding_seed(pp as i32, pq as i32, x.site);
-        rent_moved = init::init_funded(
-            captor_c,
-            holding,
-            season_ai,
-            &signer,
-            &seed,
-            H::SIZE,
-            p,
-            0,
-        )?;
+        rent_moved =
+            init::init_funded(captor_c, holding, season_ai, &signer, &seed, H::SIZE, p, 0)?;
         let tier = holding_tier(mtier)?;
         let day = day_of(hdr.bell(now.ts).unwrap_or(0));
         let mut h = KHolding::found(now.ts, day, slot);
