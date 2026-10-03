@@ -28,6 +28,32 @@
 //! - **Train** credits `reserve[unit]` in whole troops (I-56).
 //! - **Explore / SettleExplore:** each explored tile is one exploration;
 //!   the floor (`explores_floor_left`) is spent tile by tile.
+//!
+//! ## MC (conquest contract §3.16, §5.6, §5.8; CQ2-A)
+//!
+//! - **The capture lock** ([`capture_lock`]): Harvest, Build, Train and
+//!   Explore refuse `CapturePending` (62) while the holding's site mirror
+//!   in its own Province shows a newer generation than the Holding
+//!   (`mirror.gen ≠ holding.gen`) and the Holding is not a settled capture
+//!   (`capture_flags == 0`): a completed capture waits for SettleCapture.
+//!   Harvest, Build and Train gain `[province]` (the Holding's own; Build's
+//!   is writable for walls and tier-ups, `Wr::Either`); Explore names the
+//!   Province its Scout stands in, so it checks the lock when that is the
+//!   holding's own (pinned, CQ2-A notes D-6). The three P instructions that
+//!   now carry the own Province also run the lazy finality flip, as Build
+//!   with walls did in M1.
+//! - **Build tier-up** writes the mirror's `tier_next` and `tier_next_bell
+//!   = bell_at(done_at) + 1` (§5.2.1), after folding an earlier tier-up
+//!   (one tier-up at a time) into the mirror's `tier`, so the hourly
+//!   snapshot reads the tier in force at each bell (§3.10).
+//! - **Train** pays `catalog::train_v2(unit, n)` (K2, §3.16): the
+//!   Horseman at the Spearman's ore and gold, every other unit as M1.
+//! - **SettleExplore**: a record whose host generation differs from the
+//!   Holding's (the victim's pending explore after a capture) credits
+//!   nothing; the record is cleared and `EXPLORE_RESULT` logs zeros.
+//! - **The shield** is written once, at founding or capture, from the
+//!   season's lifecycle timers (§3.9, §3.12); an owner action no longer
+//!   rewrites it from M1's constants.
 
 use solana_program::{account_info::AccountInfo, pubkey::Pubkey};
 
@@ -53,10 +79,12 @@ use crate::events::{self, Buf, Chained};
 use crate::layout::beacon::{archive_archived, archive_entry_of, archive_key, Anchor, Cache};
 use crate::layout::player::{accrual, queue_item as QI};
 use crate::layout::{
-    citizen as C, explore as X, holding as H, province as P, season as S, site as SM, Ro, Rw,
+    citizen as C, explore as X, holding as H, holding2 as H2, province as P, season as S,
+    site as SM, site2 as SM2, AccountKindV2, Ro, Rw,
 };
 use crate::prologue::{self, check_accounts, expect_key, key, view, Now};
 use crate::{FrontierError, R, RULESET_HASH};
+use frontier_abi::v2::Ix as V2Ix;
 
 // ------------------------------------------------------------ kernel sub-codes
 
@@ -171,13 +199,46 @@ pub(crate) fn own_province(
     province: &AccountInfo,
 ) -> R<()> {
     expect_key(province, &pl.ctx.province(h.p as i32, h.q as i32))?;
-    prologue::present(province, program, AccountKind::Province, pl.pc.season.id)?;
+    prologue::present_v2(province, program, AccountKindV2::Province, pl.pc.season.id)?;
     let pd = province.try_borrow_data()?;
     let r = Ro(&pd);
     if r.i16(P::P)? != h.p || r.i16(P::Q)? != h.q {
         return Err(BAD_ACCOUNT);
     }
     Ok(())
+}
+
+/// The capture lock (MC §5.8): the holding's own Province (`province`,
+/// already checked by [`own_province`]) mirrors its site at another
+/// generation and the Holding is not a settled capture → `CapturePending`.
+pub(crate) fn capture_lock(
+    hh: &HoldingHdr,
+    holding: &AccountInfo,
+    province: &AccountInfo,
+) -> R<()> {
+    let flags = {
+        let hd = holding.try_borrow_data()?;
+        Ro(&hd).u8(H2::CAPTURE_FLAGS)?
+    };
+    let pd = province.try_borrow_data()?;
+    match frontier_abi::v2::prologue::capture_locked(&pd, hh.site, hh.gen, flags) {
+        Some(false) => Ok(()),
+        Some(true) => Err(crate::CqError::CapturePending.into()),
+        None => Err(BAD_ACCOUNT),
+    }
+}
+
+/// [`own_province`] then [`capture_lock`]: the resident P instructions of
+/// MC §5.6 that name the holding's own Province.
+pub(crate) fn own_province_unlocked(
+    program: &Pubkey,
+    pl: &Player,
+    h: &HoldingHdr,
+    holding: &AccountInfo,
+    province: &AccountInfo,
+) -> R<()> {
+    own_province(program, pl, h, province)?;
+    capture_lock(h, holding, province)
 }
 
 /// Step 5, the lazy provisional → final flip (I-29, I-47), for instructions
@@ -199,7 +260,12 @@ pub(crate) fn finality(
     }
     let mut hd = holding.try_borrow_mut_data()?;
     let mut cd = citizen.try_borrow_mut_data()?;
-    ap::apply_finality(&mut hd, &mut cd)?;
+    if Ro(&hd).u8(H::ORDER)? == 1 {
+        ap::apply_finality(&mut hd, &mut cd)?;
+    } else {
+        // MC: an outpost's flip leaves the Citizen's first-holding flags.
+        Rw(&mut hd).set_u8(H::STATE, H::STATE_FINAL)?;
+    }
     let key = pqs_key(h.p, h.q, h.site)?;
     let payload = h.final_ts.to_le_bytes();
     events::emit(
@@ -328,10 +394,12 @@ pub fn read_holding(d: &[u8]) -> R<KHolding> {
 }
 
 /// Encodes the kernel holding into a Holding account's data (every other
-/// field kept), with `shield_until` and the dormant-flag cache at `now`.
-/// Only what an owner action can change is written: the stores, rates,
-/// production, upkeep, queue, walls and the owner-action, shield and
-/// dormancy fields.
+/// field kept), with the dormant-flag cache at `now`. Only what an owner
+/// action can change is written: the stores, rates, production, upkeep,
+/// queue, walls and the owner-action and dormancy fields. **MC:** the
+/// shield (`shield_until`) is the one written at founding or capture from
+/// the season's timers (§3.9) and is kept; M1 rewrote it from its
+/// constants here, which gave the same value in an M1 season.
 pub fn write_holding(d: &mut [u8], h: &KHolding, now: i64) -> R<()> {
     let mut w = Rw(d);
     w.set_u8(H::TIER, tier_u8(h.tier))?;
@@ -339,7 +407,6 @@ pub fn write_holding(d: &mut [u8], h: &KHolding, now: i64) -> R<()> {
     w.set_i64(H::FOUNDED_TS, h.founded_ts)?;
     w.set_u32(H::FOUNDED_DAY, h.founded_day)?;
     w.set_i64(H::LAST_OWNER_ACTION, h.last_owner_action)?;
-    w.set_i64(H::SHIELD_UNTIL, h.shield_until())?;
     for (i, s) in h.stores.iter().enumerate() {
         let o = H::store(i);
         w.set_i64(o + accrual::VALUE, s.value)?;
@@ -534,17 +601,21 @@ pub(crate) fn emit3(
 
 // ------------------------------------------------------------ Harvest, Build, Train
 
-/// 0x40 Harvest: P + `[holding w]`: the settle (harvest is implicit) and
-/// the owner touch. Allowed while provisional (I-29).
+/// 0x40 Harvest: P + `[holding w] [province r]` (MC §5.6: the holding's
+/// own Province, for the capture lock): the settle (harvest is implicit)
+/// and the owner touch. Allowed while provisional (I-29); the lazy
+/// finality flip runs.
 pub fn harvest(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
-    check_accounts(Ix::Harvest, a, None)?;
+    check_accounts(V2Ix::Harvest, a, None)?;
     aix::Harvest::decode(d)?;
     let pl = player(p, a)?;
-    let [_, _, _, citizen, holding] = a else {
+    let [_, _, _, citizen, holding, province] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
     let hh = owned_holding(p, &pl, holding, citizen)?;
     live(&hh)?;
+    own_province_unlocked(p, &pl, &hh, holding, province)?;
+    finality(&pl, &hh, holding, citizen, province)?;
     let h = load_touched(holding, pl.now.ts)?;
     let digest = {
         let mut hd = holding.try_borrow_mut_data()?;
@@ -563,29 +634,33 @@ pub fn harvest(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     )
 }
 
-/// 0x41 Build(item): P + `[holding w] [province w?]` (the holding's
-/// province, for walls only). Items: module note.
+/// 0x41 Build(item): P + `[holding w] [province r|w]` (MC §5.6: the
+/// holding's own Province, always listed for the capture lock; writable
+/// for walls and the tier-up, which write its site mirror, `BadAccount`
+/// otherwise). Items: module note.
 pub fn build(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let x = aix::Build::decode(d)?;
-    let walls = x.item == catalog::ITEM_WALLS;
-    check_accounts(Ix::Build, a, Some(&[1, 1, walls as u8]))?;
+    check_accounts(V2Ix::Build, a, None)?;
     if x.item > ITEM_TIER_UP {
         return Err(FrontierError::BadData.into());
     }
+    let walls = x.item == catalog::ITEM_WALLS;
+    let tier_up = x.item == ITEM_TIER_UP;
     let pl = player(p, a)?;
-    let citizen = &a[3];
-    let holding = &a[4];
-    let province = a.get(5);
+    let [_, _, _, citizen, holding, province] = a else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    if (walls || tier_up) && !province.is_writable {
+        return Err(BAD_ACCOUNT);
+    }
     let hh = owned_holding(p, &pl, holding, citizen)?;
     live(&hh)?;
-    if let Some(pv) = province {
-        own_province(p, &pl, &hh, pv)?;
-        finality(&pl, &hh, holding, citizen, pv)?;
-    }
+    own_province_unlocked(p, &pl, &hh, holding, province)?;
+    finality(&pl, &hh, holding, citizen, province)?;
     let now = pl.now.ts;
     let mut h = load_touched(holding, now)?;
     let doctrine = faction_doctrine(holding)?;
-    let (cost, effect, secs) = if x.item == ITEM_TIER_UP {
+    let (cost, effect, secs) = if tier_up {
         if h.queue
             .iter()
             .flatten()
@@ -602,8 +677,10 @@ pub fn build(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     h.pay(now, &cost).map_err(holding_err)?;
     let done_at = h.enqueue(now, secs as i64, effect).map_err(holding_err)?;
     if walls {
-        let pv = province.ok_or(FrontierError::TooManyAccounts)?;
-        wall_item(&pl, &hh, pv, done_at, catalog::WALL_STEP)?;
+        wall_item(&pl, &hh, province, done_at, catalog::WALL_STEP)?;
+    }
+    if tier_up {
+        tier_next_item(&pl, &hh, province, tier_u8(h.tier), done_at)?;
     }
     {
         let mut hd = holding.try_borrow_mut_data()?;
@@ -621,8 +698,32 @@ pub fn build(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         payload.get()?,
         citizen,
         holding,
-        province,
+        (walls || tier_up).then_some(province),
     )
+}
+
+/// The tier-up's site-mirror item (MC §5.2.1, §3.10): an earlier tier-up
+/// in force is folded into `tier` (one tier-up at a time, so the earlier
+/// one has finished: the kernel tier `tier_now` is its result); then
+/// `tier_next = tier_now + 1`, `tier_next_bell = bell_at(done_at) + 1`.
+fn tier_next_item(
+    pl: &Player,
+    hh: &HoldingHdr,
+    province: &AccountInfo,
+    tier_now: u8,
+    done_at: i64,
+) -> R<()> {
+    let eff = ap::bell_at(pl.pc.season.genesis_ts, done_at)
+        .and_then(|b| b.checked_add(1))
+        .ok_or(OVERFLOW)?;
+    let next = tier_now.checked_add(1).ok_or(OVERFLOW)?;
+    let mut pd = province.try_borrow_mut_data()?;
+    let site = site_of(&pd, hh)?;
+    let o = P::site(site);
+    let mut w = Rw(&mut pd);
+    w.set_u8(o + SM::TIER, tier_now)?;
+    w.set_u8(o + SM2::TIER_NEXT, next)?;
+    w.set_u32(o + SM2::TIER_NEXT_BELL, eff)
 }
 
 /// The doctrine of the holding's faction.
@@ -696,18 +797,22 @@ pub(crate) fn site_of(province: &[u8], hh: &HoldingHdr) -> R<usize> {
     Ok(s)
 }
 
-/// 0x42 Train(unit, n): P + `[holding w]`: `catalog::train(unit, n)` paid
-/// at once, `reserve[unit] += n` (whole troops, immediate, I-56).
+/// 0x42 Train(unit, n): P + `[holding w] [province r]` (MC §5.6, the
+/// capture lock): **`catalog::train_v2(unit, n)`** (K2, MC §3.16) paid at
+/// once, `reserve[unit] += n` (whole troops, immediate, I-56); the lazy
+/// finality flip runs.
 pub fn train(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
-    check_accounts(Ix::Train, a, None)?;
+    check_accounts(V2Ix::Train, a, None)?;
     let x = aix::Train::decode(d)?;
     let pl = player(p, a)?;
-    let [_, _, _, citizen, holding] = a else {
+    let [_, _, _, citizen, holding, province] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
     let hh = owned_holding(p, &pl, holding, citizen)?;
     live(&hh)?;
-    let cost = catalog::train(x.unit, x.n).ok_or(FrontierError::BadData)?;
+    own_province_unlocked(p, &pl, &hh, holding, province)?;
+    finality(&pl, &hh, holding, citizen, province)?;
+    let cost = train_cost(x.unit, x.n).ok_or(FrontierError::BadData)?;
     let now = pl.now.ts;
     let mut h = load_touched(holding, now)?;
     h.pay(now, &cost).map_err(holding_err)?;
@@ -729,6 +834,12 @@ pub fn train(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         holding,
         None,
     )
+}
+
+/// The MC train cost (K2, §3.16): `catalog::train_v2` through the ABI
+/// bridge (an MC season always; M1 seasons keep the M1 program).
+pub fn train_cost(unit: u8, n: u32) -> Option<permutation_rules::frontier::catalog::Cost> {
+    frontier_abi::v2::kernel::catalog2::train_v2(unit, n)
 }
 
 // ------------------------------------------------------------ Explore
@@ -757,6 +868,11 @@ pub fn explore(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     };
     let hh = owned_holding(p, &pl, holding, citizen)?;
     live(&hh)?;
+    // MC §5.8: the capture lock, when the Scout stands in the holding's own
+    // Province (the only Province Explore names; notes D-6).
+    if *province.key.as_array() == pl.ctx.province(hh.p as i32, hh.q as i32) {
+        own_province_unlocked(p, &pl, &hh, holding, province)?;
+    }
     let host = super::host::resident_host(p, &pl, &hh, holding, citizen, province, x.host_id)?;
     let now = pl.now.ts;
     let h = load_touched(holding, now)?;
@@ -905,7 +1021,9 @@ pub(crate) fn bell_seed(
 /// explore record present (a cleared one is `AlreadyDone`); the seed
 /// `S(record.bell, r_province)` (`SeedNotReady`); per tile
 /// `explore::roll(S, P, Q, tile, host, floor)`, the floor spent tile by
-/// tile; `works += Σ finds`; the record cleared.
+/// tile; `works += Σ finds`; the record cleared. **MC §5.6:** a record
+/// whose host id names another generation than the Holding's credits
+/// nothing (no find, no floor, no exploration counted).
 pub fn settle_explore(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     check_accounts(Ix::SettleExplore, a, None)?;
     aix::SettleExplore::decode(d)?;
@@ -922,7 +1040,7 @@ pub fn settle_explore(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     )?;
     let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
     prologue::present(holding, p, AccountKind::Holding, hdr.id)?;
-    let (hp, hq, hsite, owner, rec) = {
+    let (hp, hq, hsite, hgen, owner, rec) = {
         let hd = holding.try_borrow_data()?;
         let r = Ro(&hd);
         let (hp, hq, hsite) = (r.i16(H::P)?, r.i16(H::Q)?, r.u8(H::SITE)?);
@@ -931,6 +1049,7 @@ pub fn settle_explore(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             hp,
             hq,
             hsite,
+            r.u8(H::GEN)?,
             r.arr::<32>(H::OWNER_CITIZEN)?,
             (
                 r.u8(e + X::STATE)?,
@@ -956,6 +1075,9 @@ pub fn settle_explore(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         SeasonClock::read(&sd)?
     };
     let seed = bell_seed(p, &ctx, hdr.id, &clock, bell, region, first, second)?;
+    // MC §5.6: the record of a host of another generation (the victim's
+    // explore after a capture) credits nothing.
+    let credits = addr::split_host_id(host).is_some_and(|h| h.gen == hgen);
     let mut floor_left = {
         let cd = citizen.try_borrow_data()?;
         Ro(&cd).u8(C::EXPLORES_FLOOR_LEFT)?
@@ -965,7 +1087,7 @@ pub fn settle_explore(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let mut floor_used = 0u8;
     let mut n = 0u32;
     for (i, &t) in tiles.iter().enumerate() {
-        if t == X::NO_TILE {
+        if t == X::NO_TILE || !credits {
             continue;
         }
         let floor = floor_left > 0;
@@ -1059,7 +1181,10 @@ mod tests {
         });
         write_holding(&mut d, &h2, now).unwrap();
         assert_eq!(read_holding(&d).unwrap(), h2);
-        assert_eq!(Ro(&d).i64(H::SHIELD_UNTIL).unwrap(), h2.shield_until());
+        // MC: the stored shield (written at founding or capture) is kept.
+        Rw(&mut d).set_i64(H::SHIELD_UNTIL, 1_234).unwrap();
+        write_holding(&mut d, &h2, now).unwrap();
+        assert_eq!(Ro(&d).i64(H::SHIELD_UNTIL).unwrap(), 1_234);
         // unknown kinds and tiers are refused
         d[H::queue(0) + QI::KIND] = 9;
         assert!(read_holding(&d).is_err());

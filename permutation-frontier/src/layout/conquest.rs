@@ -32,6 +32,19 @@ pub fn season_cq(season: &[u8]) -> R<ConquestParams> {
     ConquestParams::of_season(season).ok_or(BAD_ACCOUNT)
 }
 
+/// The season's holding lifecycle timers (MC §3.9, §3.12) as the holding
+/// kernel's `LifecycleParams`.
+pub fn lifecycle(cq: &ConquestParams) -> permutation_rules::frontier::holding::LifecycleParams {
+    permutation_rules::frontier::holding::LifecycleParams {
+        shield_secs: cq.shield_secs as i64,
+        shield_late_secs: cq.shield_late_secs as i64,
+        shield_late_after_secs: cq.shield_late_after_secs as i64,
+        dormant_after_secs: cq.dormant_after_secs as i64,
+        release_after_secs: cq.release_after_secs as i64,
+        outpost_shield_secs: cq.outpost_shield_secs as i64,
+    }
+}
+
 /// One conquest record (§5.2.1), as stored.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Record {
@@ -101,5 +114,13 @@ mod tests {
         assert!(Record::is_zero(&p, 6).unwrap());
         assert!(Record::read(&p[..4_200], 11).is_err());
         assert_eq!(province2::SIZE, 4_736);
+    }
+
+    #[test]
+    fn lifecycle_is_the_preset_timers() {
+        use frontier_abi::v2::presets::{FRONTIER_28, FRONTIER_7};
+        use permutation_rules::frontier::holding::LifecycleParams as L;
+        assert_eq!(lifecycle(&FRONTIER_7), L::FRONTIER_7);
+        assert_eq!(lifecycle(&FRONTIER_28), L::FRONTIER_28);
     }
 }

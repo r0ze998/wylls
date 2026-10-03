@@ -33,6 +33,31 @@
 //! `wedge` is stored as 6 (none); it is funded from wedge 0 (DECISIONS
 //! G10). The camp's `troops` are whole troops (kernel `camp::Camp`),
 //! `next_check_day = day + 1`, `gen = 1` for the initial camp.
+//!
+//! **MC (conquest contract §3.2, §3.7, §5.2.1, §5.6; CQ2-A).** A Province
+//! is the 4,736-B v2 account (`layout_version` 2); OpenRing's fund check
+//! is `d × rent(4,736)`. OpenProvince also writes
+//!
+//! - the **keep** of a ring ≥ 2 province: `keep::open` on
+//!   `keep::keep_tile_symmetric(terrain, sites, site_count, wedge)` (v1.3,
+//!   A-8: the bridge `frontier_abi::v2::kernel::keep::keep_tile`), held by
+//!   the wedge faction with `keep_home_guard` troops, `heartland_safe` in
+//!   rings `2..=heartland_max_ring` of its wedge; rings 0–1 get no keep
+//!   (`tile = 0xFF`). Log `KEEP` (cause 0 placed);
+//! - the **genesis Free City** of a ring ≥ `free_city_min_ring` province
+//!   (`free_city_min_ring ≠ 0`): site `terrain::free_city_site(ring_seed,
+//!   P, Q, site_count)` becomes state 5, faction NEUTRAL, Hamlet, order 0,
+//!   gen 0, `held_since_hour` 0, garrison `free_city_garrison` troops
+//!   (milli-troops in the mirror, as every garrison), permanent. Log
+//!   `NEUTRAL` (kind 0; `garrison` in whole troops). Pinned (notes D-3):
+//!   the Free City stays in the fund's `open_sites` (it is a site a
+//!   capture can occupy; OpenRing's fill trigger counts occupied sites as
+//!   in M1) and out of `n_sites_used` (holdings only);
+//! - the camp with `camp::place_v2`, never on the keep tile.
+//!
+//! FoldOccupancy adds each JoinShard's `extra_holdings` (outposts and
+//! captured holdings) to `occupied_sites` (§5.2.4); `holdings_by_wedge`
+//! (first holdings) alone feeds `wedge_occupied`.
 
 use solana_program::{account_info::AccountInfo, pubkey::Pubkey};
 
@@ -42,23 +67,29 @@ use frontier_abi::layout::AccountKind;
 use frontier_abi::log::{close_key, EntityKind, Kind, NO_BELL};
 use frontier_abi::prologue::SeasonHdr;
 use frontier_abi::tags::Ix;
+use frontier_abi::v2::kernel::keep as kkeep;
+use frontier_abi::v2::log::{keep_cause, neutral_kind, CqKind};
 use permutation_rules::fixed::BPS_ONE;
+use permutation_rules::fixed::MILLI;
 use permutation_rules::frontier::beacon;
 use permutation_rules::frontier::camp;
 use permutation_rules::frontier::clash::NEUTRAL;
 use permutation_rules::frontier::geometry::{region_of, ProvinceCoord, PROVINCE_TILES};
-use permutation_rules::frontier::terrain::{generate_province, ProvinceTerrain};
+use permutation_rules::frontier::holding::Tier;
+use permutation_rules::frontier::terrain::{free_city_site, generate_province, ProvinceTerrain};
 use permutation_rules::hash::sha256;
 
 use crate::addr::{self, AddrCtx};
 use crate::clock::SeasonClock;
 use crate::crypto::quick;
 use crate::error::{BAD_ACCOUNT, OVERFLOW};
-use crate::events::{self, Buf, Chained};
+use crate::events::{self, Buf, Chained, ChainedV2};
 use crate::init::{self, SeasonSigner, Sink};
+use crate::layout::conquest::season_cq;
 use crate::layout::{
-    camp as CP, frontier as FR, init_header, join_shard as JS, province as PV, province_fund as PF,
-    ring_seed as RS, season as S, site as SM, Ro, Rw,
+    camp as CP, frontier as FR, init_header, join_shard as JS, join_shard2 as JS2, province as PV,
+    province2 as PV2, province_fund as PF, ring_seed as RS, season as S, site as SM, site2 as SM2,
+    Ro, Rw,
 };
 use crate::prologue::{self, check_accounts, expect_key, key};
 use crate::{FrontierError, R};
@@ -328,7 +359,7 @@ pub fn open_ring(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     // The six wedge funds, canonical and present, in wedge order; a ring
     // beyond g needs each to cover its d provinces.
     let need = (x.d as u64)
-        .checked_mul(init::rent(PV::SIZE)?)
+        .checked_mul(init::rent(PV2::SIZE)?)
         .ok_or(OVERFLOW)?;
     let fund_rent = init::rent(PF::SIZE)?;
     for (w, f) in funds.iter().enumerate() {
@@ -495,9 +526,9 @@ pub fn open_province(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         &LAND_STATUS,
         now.ts,
     )?;
-    let r_max = {
+    let (r_max, cq) = {
         let sd = season_ai.try_borrow_data()?;
-        Ro(&sd).u16(S::R_MAX)?
+        (Ro(&sd).u16(S::R_MAX)?, season_cq(&sd)?)
     };
     let (pi, qi) = (x.p as i32, x.q as i32);
     let coord = ProvinceCoord::checked(pi, qi, r_max).map_err(|_| FrontierError::BadData)?;
@@ -538,7 +569,34 @@ pub fn open_province(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let now_bell = bell_or_zero(&hdr, now.ts);
     let day = addr::day_of(now_bell);
     let reserved_ring = ring < camp::CAMP_FIRST_RING as u16;
-    let camp_now = camp::place(&ring_seed, coord, &terrain, day, false, true);
+    // MC §3.2: the keep (rings ≥ 2) on the symmetric keep tile (A-8).
+    let keep = match coord.wedge() {
+        Some(w) if coord.ring() >= 2 => {
+            let tile = kkeep::keep_tile(&terrain, &terrain.sites, terrain.site_count, w)
+                .unwrap_or(kkeep::NO_KEEP_TILE);
+            kkeep::try_open(
+                coord,
+                w,
+                cq.heartland_max_ring,
+                tile,
+                &cq.keep_params(),
+                now_bell,
+            )
+            .map_err(|_| crate::error::kernel(SUB_KEEP_CAP))?
+        }
+        _ => None,
+    };
+    let keep_tile = keep.map(|k| k.tile);
+    let camp_now = camp::place_v2(&ring_seed, coord, &terrain, day, false, true, keep_tile);
+    // MC §3.7: the genesis Free City (ring ≥ free_city_min_ring ≠ 0).
+    let free_city = if cq.free_city_min_ring != 0
+        && ring >= cq.free_city_min_ring as u16
+        && terrain.site_count > 0
+    {
+        Some(free_city_site(&ring_seed, coord, terrain.site_count))
+    } else {
+        None
+    };
     let region = region_of(coord);
     let spent = init::init_funded(
         fund,
@@ -546,7 +604,7 @@ pub fn open_province(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         season_ai,
         &SeasonSigner::new(hdr.id, hdr.bump),
         &province_seed(pi, qi),
-        PV::SIZE,
+        PV2::SIZE,
         p,
         0,
     )?;
@@ -577,6 +635,20 @@ pub fn open_province(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             w.set_u32(o + SM::PEND0_BELL, SM::NO_BELL)?;
             w.set_u32(o + SM::PEND1_BELL, SM::NO_BELL)?;
         }
+        if let Some(fc) = free_city {
+            let o = PV::site(fc as usize);
+            w.set_u8(o + SM2::STATE, SM2::STATE_FREE_CITY)?;
+            w.set_u8(o + SM2::FACTION, NEUTRAL)?;
+            w.set_u8(o + SM2::ORDER, 0)?;
+            w.set_u8(o + SM2::TIER, Tier::Hamlet as u8)?;
+            w.set_u8(o + SM2::GEN, 0)?;
+            w.set_u16(o + SM2::HELD_SINCE_HOUR, 0)?;
+            let milli = cq
+                .free_city_garrison
+                .checked_mul(MILLI as u32)
+                .ok_or(OVERFLOW)?;
+            w.set_u32(o + SM2::GARRISON, milli)?;
+        }
         if let Some(cmp) = camp_now {
             w.set_u8(PV::CAMP + CP::TILE, cmp.tile)?;
             w.set_u8(PV::CAMP + CP::STATE, CP::STATE_PRESENT)?;
@@ -587,6 +659,10 @@ pub fn open_province(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             PV::CAMP + CP::NEXT_CHECK_DAY,
             day.checked_add(1).ok_or(OVERFLOW)?,
         )?;
+    }
+    match keep.as_ref() {
+        Some(k) => frontier_abi::conquest_model::write_keep(&mut pd, k)?,
+        None => frontier_abi::conquest_model::write_no_keep(&mut pd)?,
     }
     let digest = terrain_digest(&pd)?;
     // The wedge fund's live counters (I-48) and the RingSeed's count.
@@ -615,17 +691,54 @@ pub fn open_province(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         .u8(camp_tile)
         .u32(camp_troops)
         .u8(reserved_ring as u8);
+    let bell = log_bell(&hdr, now.ts);
+    let raw = raw_province(pi, qi);
     events::emit(
         Kind::PROVINCE_OPEN,
-        log_bell(&hdr, now.ts),
-        &raw_province(pi, qi),
+        bell,
+        &raw,
         payload.get()?,
         &mut [Chained {
             entity: EntityKind::Province,
             data: &mut pd,
         }],
-    )
+    )?;
+    if let Some(k) = keep.as_ref() {
+        let payload = Buf::<15>::new()
+            .u8(keep_cause::PLACED)
+            .u8(k.holder)
+            .u8(kkeep::NONE)
+            .u32(k.troops)
+            .u32(k.consolidated_until_bell)
+            .u32(k.gen);
+        events::emit_cq(
+            CqKind::KEEP,
+            bell,
+            &raw,
+            payload.get()?,
+            &mut [ChainedV2::of(EntityKind::Province, &mut pd)],
+        )?;
+    }
+    if let Some(fc) = free_city {
+        let key = Buf::<9>::new().bytes(&raw).u8(fc);
+        let payload = Buf::<6>::new()
+            .u8(neutral_kind::GENESIS_FREE_CITY)
+            .u32(cq.free_city_garrison)
+            .u8(Tier::Hamlet as u8);
+        events::emit_cq(
+            CqKind::NEUTRAL,
+            bell,
+            key.get()?,
+            payload.get()?,
+            &mut [ChainedV2::of(EntityKind::Province, &mut pd)],
+        )?;
+    }
+    Ok(())
 }
+
+/// `Kernel` (15) sub-code: a keep guard above `MAX_HOST_TROOPS` at opening
+/// (unreachable: CreateSeason bounds `keep_home_guard`, R-01).
+pub const SUB_KEEP_CAP: u64 = 0x30;
 
 // ------------------------------------------------------------ FoldOccupancy
 
@@ -633,7 +746,8 @@ pub fn open_province(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 /// the 24 JoinShards of factions 0–2, part 1: of factions 3–5 (read-only,
 /// faction then shard order), part 2: the 6 ProvinceFunds (v1.2). Class D.
 ///
-/// Part 0 sums its shards' `holdings` and `holdings_by_wedge` into the
+/// Part 0 sums its shards' `holdings` (+ `extra_holdings`, MC §5.2.4) and
+/// `holdings_by_wedge` into the
 /// accumulators, `fold_bell = now_bell`, `fold_part = 1`. Part 1 needs
 /// `fold_part == 1` and the same bell (`FoldStale`), adds its shards and
 /// writes `occupied_sites`, `wedge_occupied`, `fold_part = 2`. Part 2
@@ -683,7 +797,11 @@ pub fn fold_occupancy(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
                     present_at(ai, &ctx.join_shard(f, s), p, AccountKind::JoinShard, hdr.id)?;
                     let jd = ai.try_borrow_data()?;
                     let r = Ro(&jd);
-                    occ = occ.checked_add(r.u32(JS::HOLDINGS)?).ok_or(OVERFLOW)?;
+                    // MC §5.2.4: outposts and captured holdings count too.
+                    occ = occ
+                        .checked_add(r.u32(JS::HOLDINGS)?)
+                        .and_then(|v| v.checked_add(r.u32(JS2::EXTRA_HOLDINGS).ok()?))
+                        .ok_or(OVERFLOW)?;
                     let by = read_u32x6(&r, JS::HOLDINGS_BY_WEDGE)?;
                     for w in 0..WEDGES {
                         occ_w[w] = occ_w[w].checked_add(by[w]).ok_or(OVERFLOW)?;
