@@ -73,7 +73,7 @@ fn cq_world_from_herald_reads_the_fixture() {
         .expect("the march in transit");
     assert_eq!(rally.mission, Mission::Rally(hid(r.home)));
     assert_eq!(
-        cqbehave::lead_on(&w, home.prov, home.tile, 1, BELL),
+        cqbehave::lead_on(&w, home.prov, home.tile, 0, BELL),
         Some(lead)
     );
     // Fleet wallets: settled, Bots, faction 0; the full wallet has no slot.
@@ -86,8 +86,8 @@ fn cq_world_from_herald_reads_the_fixture() {
     assert!(w.hold(w.agent(0).holdings[0]).stock[3] > 0);
 }
 
-/// A copy of the epoch as one bot reads it: the same files, fetched and
-/// listed in another order.
+/// A copy of the epoch as one bot reads it: the same files, in another
+/// order (the fleet's wallets and their holdings, the marchbook).
 fn shuffled(e: &HeraldEpoch, rng: &mut Rng) -> HeraldEpoch {
     let mut x = e.clone();
     let n = x.wallets.len();
@@ -95,74 +95,87 @@ fn shuffled(e: &HeraldEpoch, rng: &mut Rng) -> HeraldEpoch {
         let j = rng.below(i as u64 + 1) as usize;
         x.wallets.swap(i, j);
     }
-    let mut ps: Vec<_> = e.provinces.clone().into_iter().collect();
-    for i in (1..ps.len()).rev() {
-        let j = rng.below(i as u64 + 1) as usize;
-        ps.swap(i, j);
+    for w in &mut x.wallets {
+        let n = w.holdings.len();
+        for i in (1..n).rev() {
+            let j = rng.below(i as u64 + 1) as usize;
+            w.holdings.swap(i, j);
+        }
     }
-    x.provinces = BTreeMap::new();
-    for (k, v) in ps {
-        x.provinces.insert(k, v);
-    }
-    let mut ms = x.marches.clone();
-    ms.reverse();
-    x.marches = ms;
+    x.marches.reverse();
     x
 }
 
-/// §11 CQ2-F: `campaign::plan` is identical across 32 bots with shuffled
-/// observation order, over a day of epochs (each bot carries its own
-/// board).
+/// §11 CQ2-F: `campaign::plan` is identical across 32 bots reading the
+/// same files in shuffled order, over a game day of epochs (each bot
+/// carries its own board), with the seeded draws exercised (keep interest
+/// below 1: the plan draws from the fleet seed, so a different fleet seed
+/// must give a different day).
 #[test]
 fn cq_plan_identical_across_32_bots_with_shuffled_observations() {
     let f = fixture();
-    let seed = 42;
-    let mut boards: Vec<Board> = vec![Board::default(); 32];
-    let mut first: Option<(Board, cp::EpochPlan)> = None;
-    let mut rng = Rng::new(9);
-    for (i, board) in boards.iter_mut().enumerate() {
-        let e = shuffled(&f.epoch, &mut rng);
-        let w = world_from_herald(&e).unwrap().0;
-        let (nb, plan, _) = cp::plan(seed, 0, &w, board);
-        *board = nb.clone();
-        match &first {
-            None => first = Some((nb, plan)),
-            Some((b0, p0)) => {
-                assert_eq!(&nb, b0, "bot {i}: board");
-                assert_eq!(&plan, p0, "bot {i}: plan");
+    let day = |seed: u64, shuffle: bool| -> Vec<(Board, cp::EpochPlan)> {
+        let mut rng = Rng::new(9);
+        let mut boards: Vec<Board> = vec![Board::default(); 32];
+        let mut out: Vec<(Board, cp::EpochPlan)> = vec![];
+        for k in 0..24u32 {
+            let mut first: Option<(Board, cp::EpochPlan)> = None;
+            for (i, board) in boards.iter_mut().enumerate() {
+                let mut e = if shuffle {
+                    shuffled(&f.epoch, &mut rng)
+                } else {
+                    f.epoch.clone()
+                };
+                e.bell = BELL + 6 * k;
+                e.params = Some(cp::Params {
+                    keep_aggr: 0.5,
+                    ..cp::Params::FRONTIER_7
+                });
+                let w = world_from_herald(&e).unwrap().0;
+                let (nb, plan, _) = cp::plan_all(seed, &[true; 6], &w, board);
+                *board = nb.clone();
+                match &first {
+                    None => first = Some((nb, plan)),
+                    Some((b0, p0)) => {
+                        assert_eq!(&nb, b0, "epoch {k}, bot {i}: board");
+                        assert_eq!(&plan, p0, "epoch {k}, bot {i}: plan");
+                    }
+                }
             }
+            out.push(first.unwrap());
         }
-    }
-    let (b0, p0) = first.unwrap();
-    assert!(!b0.camps[0].is_empty(), "faction 0 plans campaigns");
-    assert!(
-        !p0.dispatches.is_empty(),
-        "faction 0 sends hosts: {:?}",
-        b0.camps[0]
-    );
+        out
+    };
+    let a = day(42, true);
+    // Shuffling the observations changes nothing.
+    assert_eq!(a, day(42, false));
+    // The plan plans: faction 0 has a campaign and sends hosts.
+    assert!(a.iter().any(|(b, _)| !b.camps[0].is_empty()));
+    assert!(a.iter().any(|(_, p)| !p.dispatches.is_empty()));
+    // The seeded draws are exercised: another fleet seed, another day.
+    assert_ne!(a, day(43, false), "keep interest < 1 draws from the seed");
     // 13 settled members: ⌈13 / 40⌉ = 1 campaign, and with a legal home
     // in reach the occupation slot is the faction's holding slot (A-29):
     // the plan occupies, and its strike carries the hold rule.
     let w = world(&f);
-    assert_eq!(b0.camps[0].len(), 1);
-    assert!(w.occ_target(&b0.camps[0][0].target), "{:?}", b0.camps[0]);
-    assert!(p0.stats.occ_added == 1 && p0.stats.occ_launched == 1);
-    for d in &p0.dispatches {
+    let (b1, p1, _) = cp::plan(42, 0, &w, &Board::default());
+    assert_eq!(b1.camps[0].len(), 1);
+    assert!(w.occ_target(&b1.camps[0][0].target), "{:?}", b1.camps[0]);
+    for d in &p1.dispatches {
         assert!(d.agent <= FULL_WALLET);
         assert!(w.agent(d.agent).holdings.contains(&d.src));
         assert!(d.arrive > BELL && d.arrive < END_BELL);
         assert!(d.retreat.is_some_and(|r| r >= 6_667), "hold rule: {d:?}");
     }
-    // A different fleet seed draws differently only where a draw is made
-    // (keep interest < 1.0): at 1.0 the plan is the seed's too.
-    let (_, p1, _) = cp::plan(seed + 1, 0, &w, &Board::default());
-    assert_eq!(p1, p0);
 }
 
 /// §11 CQ2-F: each conquest persona whose outcome is a refusal predicts
-/// its code with the local checks on the fixture (the program, CQ2-A/C,
-/// returns the same codes; the bot's report compares them); the keep
-/// personas' targets cannot be contested; the others act.
+/// its code with the local checks on the fixture, **for every wallet it
+/// may be given** (not the first that matches): wherever a persona acts
+/// the code the local checks give is one it expects (the program, CQ2-A/C,
+/// returns the same codes; the bot's report compares them), and every
+/// refusal persona acts from at least one wallet. The keep personas'
+/// targets cannot be contested; the others act.
 #[test]
 fn cq_personas_expected_codes_on_the_herald_fixture() {
     let f = fixture();
@@ -177,15 +190,16 @@ fn cq_personas_expected_codes_on_the_herald_fixture() {
         e.bell = END_BELL - 20;
         world_from_herald(&e).unwrap().0
     };
-    let mut checked = Vec::new();
+    let wallets: Vec<u32> = (0..=FULL_WALLET).chain([cqfixture::VICTIM]).collect();
+    // persona → wallets it acted from.
+    let mut acted: BTreeMap<CqPersona, Vec<u32>> = BTreeMap::new();
     for p in CqPersona::ALL {
         let w = if p == CqPersona::SiegeLate {
             &late
         } else {
             &w0
         };
-        let mut found = None;
-        for a in (0..=FULL_WALLET).chain([cqfixture::VICTIM]) {
+        for &a in &wallets {
             let mut wa = w.clone();
             if p == CqPersona::SiegeSpammer {
                 // Two declarations already today.
@@ -196,13 +210,17 @@ fn cq_personas_expected_codes_on_the_herald_fixture() {
                 continue;
             };
             assert_eq!(ex, p.expected());
+            acted.entry(p).or_default().push(a);
             let code = cqpersona::local_code(&wa, &f.site_state, a, &it);
             match ex {
-                Expect::Refused(c) => {
-                    if code == Some(c) {
-                        found = Some((a, it));
-                        break;
-                    }
+                Expect::Refused(_) => {
+                    let name = code.map(|c| c.name());
+                    assert!(
+                        name.is_some_and(|n| p.accepts(n)),
+                        "{} from wallet {a}: local code {name:?}, expected {:?}",
+                        p.name(),
+                        p.expected()
+                    );
                 }
                 Expect::Outcome(_) => {
                     if let CqIntent::March {
@@ -215,28 +233,54 @@ fn cq_personas_expected_codes_on_the_herald_fixture() {
                         assert!(!wa.target_legal(Target::Keep(*pi), 0, wa.bell), "{p:?}");
                         assert_eq!(pc(*to).index(), *pi);
                     }
-                    found = Some((a, it));
-                    break;
                 }
             }
         }
-        if p.locally_checkable() {
-            let (a, it) =
-                found.unwrap_or_else(|| panic!("{} found no action with its code", p.name()));
-            checked.push((p.name(), a, it.name()));
-        } else if let Some((a, it)) = found {
-            checked.push((p.name(), a, it.name()));
-        }
     }
-    eprintln!("{checked:?}");
-    let refusals = checked
-        .iter()
-        .filter(|(n, _, _)| CqPersona::parse(n).unwrap().locally_checkable())
-        .count();
-    assert_eq!(refusals, 11, "{checked:?}");
+    eprintln!(
+        "{:?}",
+        acted
+            .iter()
+            .map(|(p, w)| (p.name(), w.len()))
+            .collect::<Vec<_>>()
+    );
+    // Every refusal persona acts from some wallet of the fleet.
+    for p in CqPersona::ALL.into_iter().filter(|p| p.locally_checkable()) {
+        assert!(acted.contains_key(&p), "{} acts from no wallet", p.name());
+    }
+    let refusals = acted.keys().filter(|p| p.locally_checkable()).count();
+    assert_eq!(refusals, 11, "{acted:?}");
     // The keep personas and first_taker act on the fixture.
     for n in ["keep_heartland", "keep_consolidation", "first_taker"] {
-        assert!(checked.iter().any(|c| c.0 == n), "{n}: {checked:?}");
+        let p = CqPersona::parse(n).unwrap();
+        assert!(acted.contains_key(&p), "{n}: {acted:?}");
+    }
+    // The wallets `assign` gives the personas (every seed of a few): where
+    // a persona acts, its code is an expected one.
+    for seed in 0..8u64 {
+        let given = cqpersona::assign(seed, wallets.len(), &|_| false, 1);
+        for (&i, &p) in &given {
+            let a = wallets[i];
+            let w = if p == CqPersona::SiegeLate {
+                &late
+            } else {
+                &w0
+            };
+            let mut wa = w.clone();
+            if p == CqPersona::SiegeSpammer {
+                let day = wa.bell / 144;
+                wa.agents.get_mut(&a).unwrap().declares = (day, 2);
+            }
+            if let Some((it, Expect::Refused(_))) = cqpersona::act(p, &wa, &f.site_state, &board, a)
+            {
+                let code = cqpersona::local_code(&wa, &f.site_state, a, &it).map(|c| c.name());
+                assert!(
+                    code.is_some_and(|n| p.accepts(n)),
+                    "seed {seed}: {} given wallet {a}: {code:?}",
+                    p.name()
+                );
+            }
+        }
     }
     // capture_cap's outpost is refused HoldingsFull too.
     let full = cqbehave::outpost_check(&w0, FULL_WALLET, pc(f.roles.border).index(), BELL);
@@ -246,6 +290,96 @@ fn cq_personas_expected_codes_on_the_herald_fixture() {
             frontier_abi::v2::error::CqError::HoldingsFull
         ))
     );
+}
+
+/// The program's DeclareSiege codes for the cases the review named
+/// (CQ2-C, §3.4): a Seat's reserved site is `NotBesiegeable` (step 3), a
+/// capture due is `CapturePending` (step 3), a holding in a ring-1
+/// Province is `ReservedSite` (step 8), and an own shielded first holding
+/// bars the declarer `Shielded`.
+#[test]
+fn cq_declare_codes_follow_the_program() {
+    use frontier_abi::v2::error::{Code, CqError};
+    let f = fixture();
+    let w = world(&f);
+    let r = f.roles;
+    // Step 3: the Seat's reserved site.
+    let seat = r.seat;
+    let host = (0..FLEET)
+        .find_map(|a| {
+            w.hosts
+                .iter()
+                .find(|(_, h)| h.owner == a && matches!(h.state, HostState::Stationed { .. }))
+                .map(|(&h, _)| (a, h))
+        })
+        .expect("a resident host");
+    let src = w.host(host.1).home;
+    let code = cqbehave::declare_check(&w, &f.site_state, host.0, src, host.1, seat, BELL);
+    assert_eq!(code, Err(Code::Cq(CqError::NotBesiegeable)));
+    // Step 3: a capture due on the record.
+    let mut wb = w.clone();
+    let t = hid(r.home);
+    wb.holds.get_mut(&t).unwrap().busy = true;
+    let lead = {
+        let x = wb.hold(t);
+        cqbehave::lead_on(&wb, x.prov, x.tile, 0, BELL).expect("the lead host")
+    };
+    let owner = wb.host(lead).owner;
+    let src = wb.host(lead).home;
+    assert_eq!(
+        cqbehave::declare_check(&wb, &f.site_state, owner, src, lead, r.home, BELL),
+        Err(Code::Cq(CqError::CapturePending))
+    );
+    // Step 8: the Seat province's holding (ring 1).
+    let mut ws = w.clone();
+    let seat_pi = pc((seat.0, seat.1)).index();
+    assert!(pc((seat.0, seat.1)).is_seat());
+    ws.holds.get_mut(&t).unwrap().prov = seat_pi;
+    ws.provs.get_mut(&seat_pi).unwrap().sites[0] = t;
+    let x = ws.hold(t).clone();
+    let _ = x;
+    // The lead host must stand on that hex for steps 4–7 to pass.
+    let hx = ws.host(lead).clone();
+    let mut hx2 = hx;
+    hx2.prov = seat_pi;
+    hx2.tile = ws.hold(t).tile;
+    ws.hosts.insert(lead, hx2);
+    ws.provs.get_mut(&seat_pi).unwrap().stationed.push(lead);
+    assert_eq!(
+        cqbehave::declare_check(
+            &ws,
+            &f.site_state,
+            owner,
+            src,
+            lead,
+            (seat.0, seat.1, 0),
+            BELL
+        ),
+        Err(Code::V1(frontier_abi::error::FrontierError::ReservedSite))
+    );
+    // The declarer's own shielded first holding bars it (after step 8).
+    let mut wh = w.clone();
+    let own = *wh.agent(owner).holdings.first().unwrap();
+    wh.holds.get_mut(&own).unwrap().shield_until = wh.now(BELL) + 3_600;
+    wh.holds.get_mut(&own).unwrap().order = 1;
+    assert_eq!(
+        cqbehave::declare_check(&wh, &f.site_state, owner, src, lead, r.home, BELL),
+        Err(Code::V1(frontier_abi::error::FrontierError::Shielded))
+    );
+    // The lead host is the attacker faction's: a bigger host of another
+    // faction on the tile does not displace it.
+    let x = w.hold(t);
+    let l0 = cqbehave::lead_on(&w, x.prov, x.tile, 0, BELL).unwrap();
+    let mut wc = w.clone();
+    let mut big = wc.host(l0).clone();
+    big.faction = 2;
+    big.troops *= 10;
+    big.chain = Some(1);
+    let id = wc.next_host;
+    wc.next_host += 1;
+    wc.hosts.insert(id, big);
+    wc.provs.get_mut(&x.prov).unwrap().stationed.push(id);
+    assert_eq!(cqbehave::lead_on(&wc, x.prov, x.tile, 0, BELL), Some(l0));
 }
 
 /// The behaviours on the fixture: the lead host's owner sounds the horn on
@@ -308,7 +442,52 @@ fn cq_behaviours_on_the_fixture() {
         0,
         1.0,
         &[],
+        &[],
         &mut Rng::new(3),
     );
     assert!(all.iter().any(|i| i.name() == "declare_siege"), "{all:?}");
+}
+
+/// CQ1-B D-7: an honest bot files no outpost while its own capture strike
+/// marches or holds a slot (it would fill the slot on the way and the horn
+/// would be refused `HoldingsFull`); an occupation strike (a first holding)
+/// does not stop it.
+#[test]
+fn cq_no_outpost_while_a_capture_strike_marches() {
+    let f = fixture();
+    let w = world(&f);
+    let r = f.roles;
+    let board = Board::default();
+    let run = |open: &[Mission], w: &World| {
+        cqbehave::decide(
+            w,
+            &board,
+            &[],
+            &f.site_state,
+            0,
+            1.0,
+            &[],
+            open,
+            &mut Rng::new(3),
+        )
+        .iter()
+        .any(|i| matches!(i, CqIntent::FileOutpost { .. }))
+    };
+    assert!(run(&[], &w), "expands when nothing is marching");
+    // The faction-1 outpost is a holding 2: a capture target.
+    let capture = Mission::Siege(hid(r.outpost));
+    assert!(cqbehave::capture_mission(&w, capture));
+    assert!(!run(&[capture], &w), "a capture strike under way");
+    // A Free City is one too; a first holding is not.
+    assert!(cqbehave::capture_mission(
+        &w,
+        Mission::Siege(hid(r.free_city))
+    ));
+    let occupation = Mission::Siege(hid(r.home));
+    assert!(!cqbehave::capture_mission(&w, occupation));
+    assert!(run(&[occupation], &w), "an occupation does not stop it");
+    // A slot reserved at a horn (the Citizen's reserved bit) stops it too.
+    let mut wr = w.clone();
+    wr.agents.get_mut(&0).unwrap().reserved = vec![2];
+    assert!(!run(&[], &wr));
 }

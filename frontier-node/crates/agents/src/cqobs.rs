@@ -459,6 +459,12 @@ pub struct HeraldEpoch {
     pub marches: Vec<FleetMarch>,
     /// The Herald's Call of the day (a March key per faction).
     pub call: Option<[u32; 6]>,
+    /// The ids the planner already gave chain hosts (stable across epochs,
+    /// so a campaign's attempt keeps naming its hosts); a host not named
+    /// here gets a fresh id from `next_host` upward.
+    pub host_ids: BTreeMap<u64, u32>,
+    /// The first id never given to any host (planned or real).
+    pub next_host: u32,
 }
 
 /// The chain names behind a herald world's ids.
@@ -514,6 +520,18 @@ pub fn world_from_herald(e: &HeraldEpoch) -> Result<(World, WorldIds), ObsError>
     let mut keep_live = BTreeSet::new();
     let mut msieges = BTreeSet::new();
     let mut open_ring = 0u32;
+    // Host ids: the epoch's stable ones, then fresh ones above every id
+    // ever given.
+    let mut next_id = e
+        .next_host
+        .max(e.host_ids.values().copied().max().map_or(0, |m| m + 1));
+    let mut id_of = |chain: u64| -> u32 {
+        e.host_ids.get(&chain).copied().unwrap_or_else(|| {
+            let i = next_id;
+            next_id += 1;
+            i
+        })
+    };
     // The fleet's holdings by (P, Q, site, gen): owner, account bytes.
     let mut owned: BTreeMap<SiteGen, (u32, &[u8])> = BTreeMap::new();
     let mut vigil: BTreeMap<u32, Vigil> = BTreeMap::new();
@@ -618,8 +636,10 @@ pub fn world_from_herald(e: &HeraldEpoch) -> Result<(World, WorldIds), ObsError>
             };
             let (mut immune_until, mut barred) = (0u32, 0u8);
             let (mut siege, mut occupied, mut occ_faction, mut busy) = (None, false, 0u8, false);
+            let mut owed = false;
             match rec.kind {
                 CR::KIND_NONE => {
+                    owed = rec.flags & CR::OWED_MASK != 0;
                     if rec.faction != CR::BARRED_NONE && rec.bell > b {
                         immune_until = rec.bell;
                         barred = if rec.faction == CR::BARRED_ALL {
@@ -665,6 +685,7 @@ pub fn world_from_herald(e: &HeraldEpoch) -> Result<(World, WorldIds), ObsError>
                     occupied,
                     occ_faction,
                     busy,
+                    owed,
                     vigil: vigil.get(&owner).copied().unwrap_or(Vigil {
                         schedule: [(i64::MIN, 0); 3],
                         last_request: i64::MIN,
@@ -694,7 +715,7 @@ pub fn world_from_herald(e: &HeraldEpoch) -> Result<(World, WorldIds), ObsError>
                 continue;
             }
             let chain = u64_at(pd, o + E::ID);
-            let id = ids.hosts.len() as u32;
+            let id = id_of(chain);
             ids.hosts.insert(id, chain);
             ids.host_of_chain.insert(chain, id);
             let home_key = frontier_abi::addr::split_host_id(chain);
@@ -718,6 +739,7 @@ pub fn world_from_herald(e: &HeraldEpoch) -> Result<(World, WorldIds), ObsError>
                     tile: pd[o + E::TILE],
                     mission: e.missions.get(&chain).copied().unwrap_or(Mission::Other),
                     retreat: None,
+                    chain: Some(chain),
                 },
             );
             stationed.push(id);
@@ -743,7 +765,7 @@ pub fn world_from_herald(e: &HeraldEpoch) -> Result<(World, WorldIds), ObsError>
         if ids.host_of_chain.contains_key(&m.host_id) {
             continue;
         }
-        let id = ids.hosts.len() as u32;
+        let id = id_of(m.host_id);
         ids.hosts.insert(id, m.host_id);
         ids.host_of_chain.insert(m.host_id, id);
         let home = frontier_abi::addr::split_host_id(m.host_id)
@@ -767,10 +789,11 @@ pub fn world_from_herald(e: &HeraldEpoch) -> Result<(World, WorldIds), ObsError>
                 tile: m.tile,
                 mission: m.mission,
                 retreat: None,
+                chain: Some(m.host_id),
             },
         );
     }
-    let next_host = ids.hosts.len() as u32;
+    let next_host = next_id;
     let mut w = World {
         bell: b,
         end_bell: e.end_bell,
@@ -791,4 +814,99 @@ pub fn world_from_herald(e: &HeraldEpoch) -> Result<(World, WorldIds), ObsError>
         .call
         .unwrap_or_else(|| crate::campaign::herald_call(&w, b - b % 144));
     Ok((w, ids))
+}
+
+// ------------------------------------------------------------ helpers
+
+/// The raw site state of every site of the province accounts (the
+/// [`crate::cqbehave::SiteStates`] the local checks read: a Seat's
+/// reserved sites, the free sites an outpost may take).
+pub fn site_states(provinces: &BTreeMap<(i16, i16), Vec<u8>>) -> BTreeMap<(i16, i16, u8), u8> {
+    let mut out = BTreeMap::new();
+    for (&(p, q), pd) in provinces {
+        if pd.len() != P2::SIZE {
+            continue;
+        }
+        for s in 0..(pd[P2::SITE_COUNT] as usize).min(12) {
+            out.insert((p, q, s as u8), pd[P2::site(s) + S2::STATE]);
+        }
+    }
+    out
+}
+
+/// The roster index (the `entry` of DeclareSiege and RetireHost) of chain
+/// host `id` in a Province v2 account.
+pub fn entry_index(pd: &[u8], id: u64) -> Option<u8> {
+    if pd.len() != P2::SIZE {
+        return None;
+    }
+    (0..P2::ENTRIES_N).find_map(|i| {
+        let o = P2::entry(i);
+        let st = pd[o + E::STATE];
+        ((st == E::STATE_ROSTER || st == E::STATE_MUSTER_PENDING) && u64_at(pd, o + E::ID) == id)
+            .then_some(i as u8)
+    })
+}
+
+/// The Herald's Call of `/h/call/{day}.json` (`{"calls":[{"faction":0,
+/// "march":{"m":0,"n":0}|null,"rally":false}…]}`) as the planner's March
+/// keys (the March's first member's province index; [`NONE`] none).
+pub fn call_of_json(v: &Value) -> Result<[u32; 6], ObsError> {
+    let mut call = [crate::campaign::NONE; 6];
+    let Some(cs) = v.get("calls").and_then(|c| c.as_array()) else {
+        return bad("call: no calls");
+    };
+    for c in cs {
+        let f = c
+            .get("faction")
+            .and_then(|x| x.as_u64())
+            .filter(|&f| f < 6)
+            .ok_or_else(|| ObsError("call: faction".into()))? as usize;
+        if let Some(m) = c.get("march").filter(|m| !m.is_null()) {
+            let (Some(mm), Some(nn)) = (
+                m.get("m").and_then(|x| x.as_i64()),
+                m.get("n").and_then(|x| x.as_i64()),
+            ) else {
+                return bad("call: march");
+            };
+            call[f] = march_members(MarchCoord {
+                m: mm as i32,
+                n: nn as i32,
+            })[0]
+                .index();
+        }
+    }
+    Ok(call)
+}
+
+/// One event of `/h/conquest/{day}.json` (§8.4).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConquestEvent {
+    pub seq: u64,
+    pub kind: String,
+    pub bell: u32,
+    pub p: Option<i16>,
+    pub q: Option<i16>,
+}
+
+/// The events of a `/h/conquest/{day}.json` body.
+pub fn conquest_events(v: &Value) -> Vec<ConquestEvent> {
+    let Some(es) = v.get("events").and_then(|e| e.as_array()) else {
+        return vec![];
+    };
+    es.iter()
+        .filter_map(|e| {
+            let seq = e.get("seq").and_then(|s| {
+                s.as_u64()
+                    .or_else(|| s.as_str().and_then(|x| x.parse().ok()))
+            })?;
+            Some(ConquestEvent {
+                seq,
+                kind: e.get("kind")?.as_str()?.to_string(),
+                bell: e.get("bell").and_then(|b| b.as_u64()).unwrap_or(0) as u32,
+                p: e.get("p").and_then(|x| x.as_i64()).map(|x| x as i16),
+                q: e.get("q").and_then(|x| x.as_i64()).map(|x| x as i16),
+            })
+        })
+        .collect()
 }

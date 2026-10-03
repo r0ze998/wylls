@@ -164,6 +164,7 @@ fn world_of(sim: &Sim, b: u32) -> World {
                 occupied: x.occupier.is_some(),
                 occ_faction: x.mc.occ_faction,
                 busy: false,
+                owed: false,
                 vigil: x.vigil,
                 stock: x.h.stock_at(now),
             },
@@ -184,6 +185,7 @@ fn world_of(sim: &Sim, b: u32) -> World {
                 tile: h.tile,
                 mission: mission(h.mission),
                 retreat: h.retreat,
+                chain: None,
             },
         );
     }
@@ -247,6 +249,12 @@ struct Tally {
     ranked_homes: u64,
     rally_checked: u64,
     rally_stays: u64,
+    /// Epochs the §8.6 `campaign::plan` entry point was compared in.
+    plan_fn_checked: u64,
+    /// Wall time of the port's `plan_epoch` (the cost of one epoch's
+    /// plan for the whole fleet), total and worst, in microseconds.
+    plan_us_total: u128,
+    plan_us_max: u128,
 }
 
 /// Each fill's ranked candidates `(faction, [(score, target)])`.
@@ -256,6 +264,8 @@ thread_local! {
     /// The simulator's ranked candidates of the running epoch.
     static RANKED: RefCell<Ranked> = const { RefCell::new(Vec::new()) };
     static EXPECT: RefCell<Option<Expect>> = const { RefCell::new(None) };
+    /// The simulator hosts the hold rule gave a retreat order to.
+    static HOLD_HOSTS: RefCell<std::collections::BTreeSet<u32>> = const { RefCell::new(std::collections::BTreeSet::new()) };
     static TALLY: RefCell<Tally> = RefCell::new(Tally::default());
 }
 
@@ -365,6 +375,11 @@ mod cq_probe {
         });
     }
 
+    /// The simulator gave host `h` the hold rule's retreat order.
+    pub fn hold_rule(h: u32) {
+        HOLD_HOSTS.with(|s| s.borrow_mut().insert(h));
+    }
+
     pub fn candidates(f: u8, _b: u32, cands: &[(f64, STarget)]) {
         let v = cands.iter().map(|(s, t)| (*s, target(*t))).collect();
         RANKED.with(|r| r.borrow_mut().push((f, v)));
@@ -384,9 +399,33 @@ mod cq_probe {
             check_scoring(sim, &w, b);
         }
         RANKED.with(|r| r.borrow_mut().clear());
+        HOLD_HOSTS.with(|s| s.borrow_mut().clear());
         let mut board = board_of(sim);
+        let (w_in, board_in) = (w.clone(), board.clone());
         let mut rng = ARng::new(0);
+        let t0 = std::time::Instant::now();
         let plan = cp::plan_epoch(&mut w, &mut board, &factions(sim), &mut rng);
+        let us = t0.elapsed().as_micros();
+        TALLY.with(|t| {
+            let mut t = t.borrow_mut();
+            t.plan_us_total += us;
+            t.plan_us_max = t.plan_us_max.max(us);
+        });
+        // The bots' entry points: with one campaign faction `campaign::plan`
+        // (the §8.6 shape) is the whole epoch; with several, `plan_all` is
+        // the simulator's single pass (each faction sees the previous
+        // factions' launches).
+        let fs = factions(sim);
+        if fs.iter().filter(|&&x| x).count() == 1 {
+            let f = fs.iter().position(|&x| x).unwrap() as u8;
+            let (b2, p2, _) = cp::plan(0xCAFE, f, &w_in, &board_in);
+            assert_eq!(b2, board, "plan(): board at bell {b}");
+            assert_eq!(p2, plan, "plan(): epoch at bell {b}");
+            TALLY.with(|t| t.borrow_mut().plan_fn_checked += 1);
+        }
+        let (b3, p3, _) = cp::plan_all(0xCAFE, &fs, &w_in, &board_in);
+        assert_eq!(b3, board, "plan_all(): board at bell {b}");
+        assert_eq!(p3, plan, "plan_all(): epoch at bell {b}");
         EXPECT.with(|e| {
             *e.borrow_mut() = Some(Expect {
                 bell: b,
@@ -440,7 +479,8 @@ mod cq_probe {
             e.plan.dispatches
         );
         let mut t = TALLY.with(|t| *t.borrow());
-        for (d, h) in e.plan.dispatches.iter().zip(new) {
+        let hold_hosts = HOLD_HOSTS.with(|s| std::mem::take(&mut *s.borrow_mut()));
+        for (k, (d, h)) in e.plan.dispatches.iter().zip(new).enumerate() {
             let arrive = match h.state {
                 HState::Marching { arrive } => arrive,
                 _ => panic!("a sent host is marching"),
@@ -458,8 +498,24 @@ mod cq_probe {
                 ),
                 "dispatch at bell {b}"
             );
+            // Both directions: the port gives the hold rule's order to exactly
+            // the hosts the simulator gave it to, with the same value; every
+            // other host carries none from the planner (the bot draws its
+            // own, the simulator's RNG draw).
+            let sim_hold = hold_hosts.contains(&((e.hosts_before + k) as u32));
+            assert_eq!(
+                d.retreat.is_some(),
+                sim_hold,
+                "hold rule on host {k} at bell {b}: port {:?}, sim {:?}",
+                d.retreat,
+                h.retreat
+            );
             if let Some(r) = d.retreat {
                 assert_eq!(Some(r), h.retreat, "hold rule retreat_bps at bell {b}");
+                assert!(
+                    (6_667..=60_000).contains(&r),
+                    "retreat_bps is clamped to [6,667, 60,000]"
+                );
                 t.occ_dispatches += 1;
             }
             match d.mission {
@@ -526,6 +582,12 @@ fn season(cfg: &Config) -> (Sim, Tally) {
 fn cq_campaign_plan_equals_the_simulator() {
     let (sim, t) = season(&mc_cq(2002, 1000, 7));
     eprintln!("{t:?} dbg {:?}", sim.mcs.st.dbg);
+    eprintln!(
+        "plan_epoch on a 1,000-wallet 7-day season: mean {} us, worst {} us over {} epochs",
+        t.plan_us_total / t.epochs.max(1) as u128,
+        t.plan_us_max,
+        t.epochs
+    );
     assert_eq!(t.epochs, 7 * 24, "one comparison per planner epoch");
     assert!(t.dispatches > 100, "{t:?}");
     assert!(t.keep_dispatches > 0, "{t:?}");
@@ -573,6 +635,9 @@ fn cq_campaign_plan_equals_the_simulator_one_campaign_faction() {
     eprintln!("{t:?} dbg {:?}", sim.mcs.st.dbg);
     assert_eq!(t.epochs, 7 * 24);
     assert!(t.ranked > 0, "{t:?}");
+    // `campaign::plan(fleet_seed, faction, …)` is the simulator's epoch at
+    // every epoch of the season (the bots' §8.6 entry point).
+    assert_eq!(t.plan_fn_checked, t.epochs, "{t:?}");
     // Lone factions' rally hosts were seen and sent home (A-26).
     assert!(t.rally_checked > t.rally_stays, "{t:?}");
 }

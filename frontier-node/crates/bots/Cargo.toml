@@ -18,7 +18,13 @@ path = "src/main.rs"
 # request R2 (docs/frontier/m1/W3-E-NOTES.md): workspace crates already in
 # frontier-node/Cargo.lock; only the `bots` package's dependency list in
 # the lock changes.
+#
+# CQ2-F request R2 (docs/frontier/conquest/CQ2-F-NOTES.md): `frontier-abi`
+# (path, already a workspace dependency; only the `bots` package's list in
+# the lock changes) for the v2 instruction encodings (cqtx.rs) and the v2
+# budgets of the sponsored shapes.
 [dependencies]
+frontier-abi.workspace = true
 fclient.workspace = true
 agents = { path = "../agents" }
 permutation-rules.workspace = true

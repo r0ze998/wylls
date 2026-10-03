@@ -393,7 +393,7 @@ pub fn queue_free(h: &Holding, now: i64) -> bool {
     busy < slots
 }
 
-fn href(h: &Holding) -> HoldingRef {
+pub fn href(h: &Holding) -> HoldingRef {
     HoldingRef {
         p: h.p,
         q: h.q,
@@ -427,7 +427,7 @@ fn in_transit(h: &Holding, id: u64) -> bool {
 
 /// A host that can leave now: roster, settled, no pending op, not in
 /// transit, not a Scout (unless `scout`).
-fn ready_host(h: &Holding, e: &Entry, bell: u32, scout: bool) -> bool {
+pub fn ready_host(h: &Holding, e: &Entry, bell: u32, scout: bool) -> bool {
     e.state == le::STATE_ROSTER
         && e.from_bell <= bell
         && e.pend_op == 0
@@ -440,7 +440,7 @@ fn ready_host(h: &Holding, e: &Entry, bell: u32, scout: bool) -> bool {
 /// (the maximum `march_stamina(MAX_PATH_STEPS)`, I-32; the program refuses
 /// less as `Cooldown`). W5-C: without the stamina test the bots asked the
 /// relay for about 2,400 refused Departs over two game days.
-fn can_depart(h: &Holding, e: &Entry, bell: u32) -> bool {
+pub fn can_depart(h: &Holding, e: &Entry, bell: u32) -> bool {
     use permutation_rules::frontier::host::Stamina;
     use permutation_rules::frontier::travel::{march_stamina, MAX_PATH_STEPS};
     ready_host(h, e, bell, false)
@@ -776,6 +776,15 @@ pub fn muster_room(pv: &Province, faction: u8) -> usize {
 
 /// Everything a bot wants to do now.
 pub fn decide(obs: &Observation, cx: &Ctx) -> Vec<Intent> {
+    decide_with(obs, cx, true)
+}
+
+/// [`decide`] with the M1 war logic (camp raids and random war marches)
+/// switched by `war`. Under `--conquest` (MC §8.6) a campaign faction's
+/// bot marches only as the faction plan assigns it, so the runner passes
+/// `false` for a bot with no M1 persona (CQ2-F); personas keep their own
+/// marches.
+pub fn decide_with(obs: &Observation, cx: &Ctx, war: bool) -> Vec<Intent> {
     let spec = cx.spec;
     let prof = spec.profile();
     let bell = obs.bell();
@@ -835,7 +844,7 @@ pub fn decide(obs: &Observation, cx: &Ctx) -> Vec<Intent> {
         }
         budget -= economy(obs, cx, &prof, h, &mut rng, &mut out);
     }
-    if budget > 2 {
+    if budget > 2 && (war || spec.persona.is_some()) {
         military(obs, cx, &prof, finals[0], faction, &mut rng, &mut out);
     }
     residency_gate(obs, &mut out);

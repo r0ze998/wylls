@@ -22,7 +22,11 @@
 //! | [`World::target_legal`] | `mc_target_legal` (`may_besiege` v3, record, `TooLate`) |
 //! | [`occ_retreat`] | `Sim::occ_retreat` (the hold rule) |
 //! | [`rally_stays`] | the rally stay of `resolve_bell` (A-26) |
-//! | [`board_join`] | `mc_campaign_session` (session-driven members) |
+//!
+//! `mc_campaign_session` (the simulator's session-driven *human* members
+//! joining a faction's board between epochs) is not ported: the stack's
+//! bots are epoch-driven (`--bot-profile cq`) and humans are not bots; the
+//! equality test reads the attempts such members leave on the board.
 //!
 //! What the bots do with a plan is in [`crate::cqbehave`]; the simulator's
 //! `--forward` staging is not ported (off in every gate, OD-15).
@@ -189,6 +193,9 @@ pub struct HostView {
     pub mission: Mission,
     /// The retreat order the planner gave it (the hold rule), if any.
     pub retreat: Option<Bps>,
+    /// The chain host id (the program's lead-host tie-break), when the
+    /// world comes from the chain's files; `None` in the simulator.
+    pub chain: Option<u64>,
 }
 
 /// A live holding siege (the simulator's `McSiege`, the fields the planner
@@ -227,6 +234,9 @@ pub struct HoldView {
     /// A record that is neither free nor a siege or occupation (a capture
     /// due on chain): `SiegeBusy`. The simulator never has one.
     pub busy: bool,
+    /// A free record that still owes a stake or a slot release
+    /// (`StakeUnsettled`; the simulator settles at once).
+    pub owed: bool,
     pub vigil: Vigil,
     /// Stores at the epoch (milli-units); only members' matter.
     pub stock: [Milli; RESOURCES],
@@ -846,6 +856,7 @@ impl World {
                 tile,
                 mission,
                 retreat: None,
+                chain: None,
             },
         );
         out.push(Dispatch {
@@ -1591,23 +1602,55 @@ pub fn plan_epoch(
 /// One faction's plan of an epoch, as every bot of the faction computes it
 /// (§8.6 `campaign::plan`): deterministic in (`fleet_seed`, faction,
 /// epoch, world, board). The board comes back advanced to this epoch.
+///
+/// **CQ2-F deviation D-9:** §8.6 pins `plan(fleet_seed, faction, epoch)`;
+/// the epoch's inputs are the [`World`] read from the herald's files, so
+/// they are passed in. This plans **one faction on an unmodified world**
+/// (it does not see the other factions' launches of the same epoch); the
+/// simulator plans every campaign faction in one pass, each seeing the
+/// previous factions' launches. With one campaign faction the two are
+/// equal (`cq_plan_equals_the_simulator_one_campaign_faction`); the bots'
+/// fleet uses [`plan_all`], which is the simulator's pass.
 pub fn plan(
     fleet_seed: u64,
     faction: u8,
     world: &World,
     board: &Board,
 ) -> (Board, EpochPlan, World) {
-    let mut w = world.clone();
-    let mut bd = board.clone();
     let mut factions = [false; 6];
     if (faction as usize) < 6 {
         factions[faction as usize] = true;
     }
+    plan_factions(fleet_seed, &factions, faction, world, board)
+}
+
+/// Every campaign faction of `factions` in one pass, in the simulator's
+/// order (`mc_campaign_epoch`): what the bots' fleet computes once per
+/// epoch and shares (every bot of a faction would compute the same
+/// result from the same files).
+pub fn plan_all(
+    fleet_seed: u64,
+    factions: &[bool; 6],
+    world: &World,
+    board: &Board,
+) -> (Board, EpochPlan, World) {
+    plan_factions(fleet_seed, factions, 0xFF, world, board)
+}
+
+fn plan_factions(
+    fleet_seed: u64,
+    factions: &[bool; 6],
+    tag: u8,
+    world: &World,
+    board: &Board,
+) -> (Board, EpochPlan, World) {
+    let mut w = world.clone();
+    let mut bd = board.clone();
     let mut rng = Rng::fork(
         fleet_seed,
-        0x4350_4C41_4E00_0000 | (w.bell as u64) << 8 | faction as u64,
+        0x4350_4C41_4E00_0000 | (w.bell as u64) << 8 | tag as u64,
     );
-    let p = plan_epoch(&mut w, &mut bd, &factions, &mut rng);
+    let p = plan_epoch(&mut w, &mut bd, factions, &mut rng);
     (bd, p, w)
 }
 
@@ -1618,143 +1661,6 @@ pub fn rally_stays(w: &World, board: &Board, target: u32, campaign_faction: bool
     let live = w.holds.get(&target).is_some_and(|x| x.siege.is_some())
         || board.pending.contains_key(&target);
     live && campaign_faction
-}
-
-/// A session-driven member (`mc_campaign_session`): reads its faction's
-/// plan as a public board and joins the first campaign in reach that still
-/// needs strength, or starts one, when the group would meet its boldness
-/// margin and it heeds the plan (`aggression`, × keep interest for a keep).
-pub fn board_join(
-    w: &mut World,
-    board: &mut Board,
-    a: u32,
-    aggression: f64,
-    rng: &mut Rng,
-) -> Option<Dispatch> {
-    let b = w.bell;
-    let f = w.agent(a).faction;
-    if board.camps[f as usize].is_empty() {
-        return None;
-    }
-    let mg = w.arch_of(a).and_then(margin)?;
-    let hs = w.agent(a).holdings.clone();
-    let &src = hs.iter().max_by_key(|&&h| {
-        let y = w.hold(h);
-        (
-            y.garrison.saturating_sub(w.keep_back(h)),
-            std::cmp::Reverse(h),
-        )
-    })?;
-    let spare = w.hold(src).garrison.saturating_sub(w.keep_back(src));
-    if spare < MIN_HOST_TROOPS || w.hold(src).siege.is_some() {
-        return None;
-    }
-    let per = w.per_troop(f);
-    let sp = w.hold(src).prov;
-    let n = board.camps[f as usize].len();
-    for ci in 0..n {
-        let c = board.camps[f as usize][ci].clone();
-        if !w.target_legal(c.target, f, b) {
-            continue;
-        }
-        let (tp, tile, keep) = match c.target {
-            Target::Keep(pi) => (pi, w.prov(pi).keep.expect("keep").tile, true),
-            Target::Hold(t) => (w.hold(t).prov, w.hold(t).tile, false),
-        };
-        let Some((arrive, _)) = w.travel(f, sp, tp, b) else {
-            continue;
-        };
-        let def = match c.target {
-            Target::Keep(pi) => w.keep_def(pi),
-            Target::Hold(t) => w.hold_def(t),
-        };
-        let want = def.max(1.0) * GROUP_MARGIN / per;
-        let live: Vec<u32> = c
-            .attempt
-            .as_ref()
-            .map(|at| {
-                at.hosts
-                    .iter()
-                    .copied()
-                    .filter(|&h| w.host_live(h))
-                    .collect()
-            })
-            .unwrap_or_default();
-        let sent: f64 = live.iter().map(|&h| w.host(h).troops as f64).sum();
-        if sent >= want * 1.2 {
-            continue;
-        }
-        if (sent + spare as f64) * per < mg * def {
-            continue;
-        }
-        let lead_troops = live.iter().map(|&h| w.host(h).troops).max();
-        if let Target::Hold(t) = c.target {
-            if lead_troops.is_none() && !w.can_declare(a, src, t, b) {
-                continue;
-            }
-            if lead_troops.is_none()
-                && w.hold(t).siege.is_none()
-                && !w.can_finish(t, arrive.max(b) + 1, b)
-            {
-                continue;
-            }
-        }
-        let heed = aggression * if keep { w.params.keep_aggr } else { 1.0 };
-        if !rng.chance(heed.min(1.0)) {
-            continue;
-        }
-        let mut n_troops = (((want * 1.2 - sent).max(0.0)) as MilliTroops)
-            .max(MIN_HOST_TROOPS)
-            .min(spare);
-        if let (Target::Hold(_), Some(l)) = (c.target, lead_troops) {
-            n_troops = n_troops.min(l.saturating_sub(MILLI as MilliTroops));
-            if n_troops < MIN_HOST_TROOPS {
-                continue;
-            }
-        }
-        let (mission, rally) = match c.target {
-            Target::Keep(pi) => (Mission::Keep(pi), Mission::KeepRally(pi)),
-            Target::Hold(t) => (Mission::Siege(t), Mission::Rally(t)),
-        };
-        let ms = if live.is_empty() { mission } else { rally };
-        let mu = c.attempt.as_ref().map_or(0, |at| at.muster);
-        let mut out = Vec::new();
-        let Some(h) = w.send_at(
-            a,
-            src,
-            n_troops,
-            tp,
-            tile,
-            ms,
-            b,
-            if b < mu { mu } else { 0 },
-            &mut out,
-        ) else {
-            continue;
-        };
-        let arrive = w.host_arrival(h);
-        if w.params.siege_hold && w.occ_target(&c.target) {
-            let own = w.host(h).troops;
-            let total = sent as MilliTroops + own;
-            w.set_retreat(h, occ_retreat(total, own), &mut out);
-        }
-        if let Target::Hold(t) = c.target {
-            let e = board.pending.entry(t).or_insert(0);
-            *e = (*e).max(arrive + 6);
-        }
-        let slot = &mut board.camps[f as usize][ci].attempt;
-        match slot {
-            Some(at) => at.hosts.push(h),
-            None => {
-                *slot = Some(Attempt {
-                    muster: arrive,
-                    hosts: vec![h],
-                })
-            }
-        }
-        return out.pop();
-    }
-    None
 }
 
 #[cfg(test)]

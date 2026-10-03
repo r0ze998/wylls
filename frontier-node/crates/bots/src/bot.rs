@@ -31,6 +31,7 @@ use frontier_agents::{keys, Persona};
 use permutation_rules::frontier::geometry::ProvinceCoord;
 use serde_json::{json, Value};
 
+use crate::conquest::{Conquest, CqMem};
 use crate::journal::Journal;
 use crate::ports::{Answer, DirectPort, HeraldPort, RelayPort};
 use crate::report::{Outcome, Report};
@@ -160,6 +161,9 @@ pub struct Shared<H, R, D> {
     pub cfg: Config,
     pub clock: ClockSource,
     pub report: Mutex<Report>,
+    /// The conquest layer (`--conquest`, MC §8.6); `None` runs the M1
+    /// bots unchanged.
+    pub conquest: Option<Conquest>,
     cache: Mutex<Cache>,
 }
 
@@ -174,8 +178,19 @@ impl<H: HeraldPort, R: RelayPort, D: DirectPort> Shared<H, R, D> {
             cfg,
             clock,
             report: Mutex::new(Report::default()),
+            conquest: None,
             cache: Mutex::new(Cache::default()),
         }
+    }
+
+    /// Turns the conquest layer on (`--conquest`): the report gains its
+    /// `conquest` and `activity` sections, and every bot's budgets are the
+    /// v2 table's.
+    pub fn with_conquest(mut self, c: Conquest) -> Self {
+        c.seed_report(&mut self.report.lock().expect("report").cq);
+        self.cfg.budgets = crate::txb::budgets_v2();
+        self.conquest = Some(c);
+        self
     }
 
     pub fn with_journal(mut self, j: Journal) -> Self {
@@ -272,6 +287,8 @@ pub struct Bot {
     /// The refusal code of the last direct transaction (W6T-3: a Reveal's
     /// last refusal, for the report's unrevealed marches).
     last_direct_code: Option<String>,
+    /// The conquest layer's memory (`--conquest`).
+    pub cq: CqMem,
 }
 
 /// Session retries after a nudge before the bot gives the session up.
@@ -313,6 +330,7 @@ impl Bot {
             nudged: false,
             nudge_retries: 0,
             last_direct_code: None,
+            cq: CqMem::default(),
         }
     }
 
@@ -470,7 +488,9 @@ impl Bot {
                 direct: sh.direct.is_some(),
                 session,
             };
-            policy::decide(&obs, &cx)
+            // Under `--conquest` a bot with no M1 persona marches only as
+            // its faction's plan assigns it (§8.7 item 7, profile `cq`).
+            policy::decide_with(&obs, &cx, sh.conquest.is_none())
         };
         // The herald's quota figure is fresh for this step; count what this
         // step spends on top of it.
@@ -492,6 +512,7 @@ impl Bot {
             }
             sent += self.act(sh, &obs, it).await;
         }
+        sent += self.cq_layer(sh, &obs).await;
         sh.report.lock().expect("report").steps += 1;
         sent
     }
@@ -612,7 +633,7 @@ impl Bot {
         self.spec.persona == Some(p)
     }
 
-    fn quota_left(&self, obs: &Observation) -> u32 {
+    pub(crate) fn quota_left(&self, obs: &Observation) -> u32 {
         obs.me.quota_left.unwrap_or(40).saturating_sub(self.spent)
     }
 
@@ -645,7 +666,7 @@ impl Bot {
     }
 
     /// A sponsored player instruction through `/f/relay` (or `/f/join`).
-    async fn sponsored<H, R: RelayPort, D>(
+    pub(crate) async fn sponsored<H, R: RelayPort, D>(
         &mut self,
         sh: &Shared<H, R, D>,
         action: &'static str,
@@ -1175,6 +1196,12 @@ impl Bot {
             }
         };
         if ok {
+            {
+                let mut r = sh.report.lock().expect("report");
+                if r.cq.enabled {
+                    r.cq.day(obs.bell() / BELLS_PER_DAY).departs += 1;
+                }
+            }
             self.journal_state(sh, key, "sent");
             self.mem.marches.retain(|m| m.key != key);
             self.mem.marches.push(MarchMemo { sent: true, ..memo });

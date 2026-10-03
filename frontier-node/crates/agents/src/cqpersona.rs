@@ -12,6 +12,7 @@ use permutation_rules::frontier::geometry::is_heartland_in;
 
 use crate::campaign::{Board, HostState, Mission, Target, World, NONE};
 use crate::cqbehave::{declare_check, lead_on, outpost_check, CqIntent, SiteStates};
+use crate::profile::BELLS_PER_DAY;
 
 /// The conquest personas (§8.6, v1.1 additions included).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -128,6 +129,30 @@ impl CqPersona {
         }
     }
 
+    /// Whether `code` (a program or relay code name) is an expected refusal
+    /// of this persona. §8.6 names one code per persona, with two
+    /// readings (CQ2-F notes D-10/D-11):
+    ///
+    /// - `siege_seat` declares on a Seat's reserved site; the program's
+    ///   §3.4 step 3 refuses that `NotBesiegeable` (state 4 is no holding
+    ///   and no Free City), and `ReservedSite` is only `may_besiege`'s
+    ///   Seat test on a holding of a ring-1 Province, so either is the
+    ///   expected refusal;
+    /// - `siege_spammer`'s refusal beyond `sieges_per_day` is the relay's
+    ///   `QuotaExceeded` (or `RateLimited`) on the relay route and the
+    ///   program's `SiegeCap` on a direct one.
+    pub fn accepts(self, code: &str) -> bool {
+        let Expect::Refused(c) = self.expected() else {
+            return false;
+        };
+        code == c.name()
+            || match self {
+                CqPersona::SiegeSeat => code == "NotBesiegeable",
+                CqPersona::SiegeSpammer => matches!(code, "QuotaExceeded" | "RateLimited"),
+                _ => false,
+            }
+    }
+
     /// Whether the bot itself sees the expected outcome (a refusal).
     pub fn locally_checkable(self) -> bool {
         matches!(self.expected(), Expect::Refused(_))
@@ -179,6 +204,7 @@ fn march_to(w: &World, agent: u32, t: Target, mission: Mission) -> Option<CqInte
     let pc = w.prov(pi).coord;
     let troops = (w.hold(src).garrison / 2).max(permutation_rules::frontier::host::MIN_HOST_TROOPS);
     Some(CqIntent::March {
+        host: NONE,
         src,
         troops,
         to: (pc.p as i16, pc.q as i16),
@@ -198,16 +224,65 @@ pub fn act(
     board: &Board,
     agent: u32,
 ) -> Option<(CqIntent, Expect)> {
+    // The spammer declares until the daily cap: it acts from a lead host
+    // whose declaration the local checks refuse `SiegeCap` at the cap.
+    if p == CqPersona::SiegeSpammer {
+        let day = w.bell / BELLS_PER_DAY;
+        let mut at_cap = w.clone();
+        if let Some(a) = at_cap.agents.get_mut(&agent) {
+            a.declares = (day, w.params.sieges_per_day);
+        }
+        let f = w.agent(agent).faction;
+        let ex = p.expected();
+        for (h, t, s) in on_hex(w, agent) {
+            let x = w.hold(t);
+            if lead_on(w, x.prov, x.tile, f, w.bell) != Some(h) {
+                continue;
+            }
+            let it = declare(w, h, s);
+            if local_code(&at_cap, states, agent, &it).is_some_and(|c| p.accepts(c.name())) {
+                return Some((it, ex));
+            }
+        }
+        return None;
+    }
+    // A refusal persona acts only when the situation gives the refusal it
+    // is after (the local checks end in a code it expects).
+    let r = act_inner(p, w, states, board, agent)?;
+    if p.locally_checkable()
+        && !local_code(w, states, agent, &r.0).is_some_and(|c| p.accepts(c.name()))
+    {
+        return None;
+    }
+    Some(r)
+}
+
+fn act_inner(
+    p: CqPersona,
+    w: &World,
+    states: &SiteStates,
+    board: &Board,
+    agent: u32,
+) -> Option<(CqIntent, Expect)> {
     use CqPersona::*;
     let b = w.bell;
     let f = w.agent(agent).faction;
     let ex = p.expected();
     let hexes = on_hex(w, agent);
+    // An adversary acts when the situation gives the refusal it is after:
+    // the first (host, target) of its kind whose local DeclareSiege checks
+    // (§3.4 in order) end in a code it expects. (The program decides; the
+    // report compares its code with the persona's.)
     let pick = |pred: &dyn Fn(u32, u32) -> bool| {
         hexes
             .iter()
-            .find(|(h, t, _)| pred(*h, *t))
-            .map(|&(h, _, s)| (declare(w, h, s), ex))
+            .filter(|(h, t, _)| pred(*h, *t))
+            .find_map(|&(h, _, s)| {
+                let it = declare(w, h, s);
+                local_code(w, states, agent, &it)
+                    .is_some_and(|c| p.accepts(c.name()))
+                    .then_some((it, ex))
+            })
     };
     let hmr = w.params.heartland_max_ring;
     match p {
@@ -225,15 +300,15 @@ pub fn act(
                 .find(|(_, &st)| st == frontier_abi::v2::layout::province::site::STATE_RESERVED)?;
             let host = *own_hosts(w, agent).first()?;
             let src = w.host(host).home;
-            Some((
-                CqIntent::DeclareSiege {
-                    src,
-                    host,
-                    site,
-                    nearby: None,
-                },
-                ex,
-            ))
+            let it = CqIntent::DeclareSiege {
+                src,
+                host,
+                site,
+                nearby: None,
+            };
+            local_code(w, states, agent, &it)
+                .is_some_and(|c| p.accepts(c.name()))
+                .then_some((it, ex))
         }
         SiegeLate => pick(&|_, t| w.hold(t).siege.is_none() && !w.can_finish(t, b + 1, b)),
         SiegeDouble => pick(&|_, t| w.hold(t).siege.is_some()),
@@ -246,15 +321,15 @@ pub fn act(
                 (y.faction != f && y.alive && !(y.prov == x.prov && y.tile == x.tile))
                     .then_some((t, (pc.p as i16, pc.q as i16, s as u8)))
             })?;
-            Some((
-                CqIntent::DeclareSiege {
-                    src: x.home,
-                    host,
-                    site,
-                    nearby: None,
-                },
-                ex,
-            ))
+            let it = CqIntent::DeclareSiege {
+                src: x.home,
+                host,
+                site,
+                nearby: None,
+            };
+            local_code(w, states, agent, &it)
+                .is_some_and(|c| p.accepts(c.name()))
+                .then_some((it, ex))
         }
         CaptureCap => {
             if w.free_slot23(agent).is_some() {
@@ -267,8 +342,7 @@ pub fn act(
         }
         LeadRacer => pick(&|h, t| {
             let x = w.hold(t);
-            lead_on(w, x.prov, x.tile, x.faction, b)
-                .is_some_and(|l| l != h && w.host(l).faction == f)
+            lead_on(w, x.prov, x.tile, f, b).is_some_and(|l| l != h)
         }),
         RetireForeign => {
             // A host of another faction whose home is now held by ours (a
@@ -296,6 +370,7 @@ pub fn act(
             ))
         }
         SiegeSpammer | FirstTaker | ImmunityFarmer | VigilHopper => {
+            // (The spammer's own rule is `act`'s.)
             // Declare on any enemy hex it stands on (the spammer past its
             // daily cap; the others as an honest horn whose outcome the
             // chain shows), else march on the plan's or the nearest target.
@@ -416,6 +491,8 @@ pub fn assign(
     let mut rng = crate::rng::Rng::fork(seed, 0xC9);
     let mut free: Vec<usize> = (0..n).filter(|&i| !taken(i)).collect();
     let mut out = std::collections::BTreeMap::new();
+    // Each persona is at most 1% of the bots (§8.6; one bot at least).
+    let per = per.min((n / 100).max(1) as u32);
     for p in CqPersona::ALL {
         for _ in 0..per {
             if free.is_empty() {

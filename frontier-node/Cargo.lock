@@ -753,6 +753,7 @@ version = "0.1.0"
 dependencies = [
  "agents",
  "fclient",
+ "frontier-abi",
  "hex",
  "permutation-rules",
  "rand 0.8.8",

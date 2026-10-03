@@ -8,7 +8,14 @@
 //!               [--journal DIR] [--report FILE] [--invites FILE]
 //!               [--game-hours H] [--scale S] [--control 127.0.0.1:41070]
 //!               [--day0-share F] [--eager-personas]
+//!               [--conquest] [--conquest-personas N]
 //! ```
+//!
+//! `--conquest` (MC §8.6, CQ2-F) turns the conquest layer on: the faction
+//! campaign planner once per game hour from the herald's files, march
+//! orders, the horn, outposts, retire, and the nineteen conquest personas
+//! (`--conquest-personas N` bots each, at most max(1, bots / 100); default
+//! 1). The report gains `conquest` and `activity`.
 //!
 //! `--day0-share F` (0–1) is the share of the roster that joins on day 0
 //! (default: the mix's 0.6; `itest::inproc_day` uses 1.0); `--eager-personas`
@@ -51,10 +58,12 @@ struct Args {
     control: Option<String>,
     day0_share: Option<f64>,
     eager_personas: bool,
+    conquest: bool,
+    conquest_personas: Option<u32>,
 }
 
 fn usage(e: &str) -> ! {
-    eprintln!("frontier-bots: {e}\nusage: frontier-bots --herald URL --relay URL [--rpc URL] [--seed N] [--bots N] [--first-index N] [--days N] [--personas default|off|N] [--journal DIR] [--report FILE] [--invites FILE] [--game-hours H] [--scale S] [--control 127.0.0.1:PORT] [--day0-share F] [--eager-personas]");
+    eprintln!("frontier-bots: {e}\nusage: frontier-bots --herald URL --relay URL [--rpc URL] [--seed N] [--bots N] [--first-index N] [--days N] [--personas default|off|N] [--journal DIR] [--report FILE] [--invites FILE] [--game-hours H] [--scale S] [--control 127.0.0.1:PORT] [--day0-share F] [--eager-personas] [--conquest] [--conquest-personas N]");
     std::process::exit(2);
 }
 
@@ -80,6 +89,8 @@ fn parse_from(args: impl Iterator<Item = String>) -> Args {
         control: None,
         day0_share: None,
         eager_personas: false,
+        conquest: false,
+        conquest_personas: None,
     };
     let mut it = args;
     while let Some(k) = it.next() {
@@ -133,9 +144,19 @@ fn parse_from(args: impl Iterator<Item = String>) -> Args {
                 a.day0_share = Some(f);
             }
             "--eager-personas" => a.eager_personas = true,
+            "--conquest" => a.conquest = true,
+            "--conquest-personas" => {
+                a.conquest_personas = Some(
+                    v().parse()
+                        .unwrap_or_else(|_| usage("--conquest-personas: a number")),
+                )
+            }
             "-h" | "--help" => usage("help"),
             _ => usage(&format!("unknown argument {k}")),
         }
+    }
+    if a.conquest_personas.is_some() && !a.conquest {
+        usage("--conquest-personas needs --conquest");
     }
     for (n, u) in [("--herald", &a.herald), ("--relay", &a.relay)] {
         if u.is_empty() {
@@ -281,6 +302,18 @@ async fn go<D: frontier_bots::ports::DirectPort + 'static>(a: Args, direct: Opti
         Some(h) => season.latest_unix + (h * 3_600.0) as i64,
         None => end,
     };
+    if a.conquest {
+        let cfg = frontier_bots::conquest::CqConfig {
+            personas_per: a.conquest_personas.unwrap_or(1),
+        };
+        let c = frontier_bots::conquest::Conquest::new(a.seed, &r, cfg);
+        eprintln!(
+            "frontier-bots: --conquest, {} conquest personas ({} each)",
+            c.personas().len(),
+            c.cfg.personas_per
+        );
+        shared = shared.with_conquest(c);
+    }
     let mut fleet = Fleet::new(shared, &r);
     // W6-C: with `--rpc`, the game clock follows the chain's Clock sysvar
     // (read every 200 ms, as drand-replay does), not only the herald's
@@ -464,6 +497,32 @@ mod tests {
         };
         let r = frontier_agents::profile::roster(100, 1, &mix);
         assert!(r.iter().all(|s| s.join_day == 0));
+    }
+
+    /// §8.6: `--conquest` turns the conquest layer on and
+    /// `--conquest-personas N` sizes the personas; the latter needs the
+    /// former.
+    #[test]
+    fn cq_conquest_flag_parses() {
+        let args = |v: &[&str]| {
+            v.iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+                .into_iter()
+        };
+        let base = [
+            "--herald",
+            "http://127.0.0.1:41640",
+            "--relay",
+            "http://127.0.0.1:41633",
+        ];
+        let a = parse_from(args(&base));
+        assert!(!a.conquest && a.conquest_personas.is_none());
+        let mut v = base.to_vec();
+        v.extend(["--conquest", "--conquest-personas", "3", "--bots", "300"]);
+        let a = parse_from(args(&v));
+        assert!(a.conquest);
+        assert_eq!((a.conquest_personas, a.bots), (Some(3), 300));
     }
 
     #[test]

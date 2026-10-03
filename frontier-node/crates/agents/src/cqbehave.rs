@@ -41,6 +41,8 @@ pub enum CqIntent {
     /// campaign's muster bell; 0 = as early as possible), with the hold
     /// rule's retreat order when set.
     March {
+        /// The id the plan gave the host it sends (a persona's march: NONE).
+        host: u32,
         src: u32,
         troops: MilliTroops,
         to: (i16, i16),
@@ -111,26 +113,28 @@ pub fn is_mc_season(program_version: u16) -> bool {
     program_version >= frontier_abi::v2::presets::PROGRAM_VERSION_V2
 }
 
-/// The lead host on a site tile (§3.1): the resident non-civilian host
-/// with the most troops, then the lowest id, among hosts not of
-/// `not_faction` (the site's own faction).
-pub fn lead_on(w: &World, pi: u32, tile: u8, not_faction: u8, b: u32) -> Option<u32> {
+/// The lead host of `faction` on a site tile (§3.1; the program's
+/// `lead_host` over the attacker faction's entries of the Province): the
+/// resident non-civilian host with the most troops, then the lowest chain
+/// host id (the World id where the world has no chain ids, as in the
+/// simulator).
+pub fn lead_on(w: &World, pi: u32, tile: u8, faction: u8, b: u32) -> Option<u32> {
     let p = w.provs.get(&pi)?;
-    let cands: Vec<(u8, u64, u32)> = p
-        .stationed
-        .iter()
-        .enumerate()
-        .filter_map(|(i, &h)| {
-            let x = w.hosts.get(&h)?;
-            let resident = matches!(x.state, HostState::Stationed { from } if from <= b);
-            (resident
-                && x.tile == tile
-                && x.faction != not_faction
-                && x.faction < 6
-                && !x.unit.is_civilian())
-            .then_some((i.min(254) as u8, h as u64, x.troops.max(1)))
-        })
-        .collect();
+    let cands: Vec<(u8, u64, u32)> =
+        p.stationed
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &h)| {
+                let x = w.hosts.get(&h)?;
+                let resident = matches!(x.state, HostState::Stationed { from } if from <= b);
+                (resident && x.tile == tile && x.faction == faction && !x.unit.is_civilian())
+                    .then_some((
+                        i.min(254) as u8,
+                        x.chain.unwrap_or(h as u64),
+                        x.troops.max(1),
+                    ))
+            })
+            .collect();
     lead_host(&cands).map(|i| p.stationed[i as usize])
 }
 
@@ -158,14 +162,20 @@ pub fn declare_check(
             && w.prov(x.prov).sites.get(site.2 as usize) == Some(&id))
         .then_some(id)
     }) else {
-        return Err(match states.get(&site) {
-            Some(&frontier_abi::v2::layout::province::site::STATE_RESERVED) => {
-                m1(FrontierError::ReservedSite)
-            }
-            _ => cq(CqError::NotBesiegeable),
-        });
+        // §3.4 step 3: a site that is no holding and no Free City (a Seat's
+        // reserved site, a free or released one) is `NotBesiegeable`;
+        // `ReservedSite` is only `may_besiege`'s Seat test (step 8) on a
+        // holding of a ring-1 Province. (`states` names the raw state for
+        // the personas' reports.)
+        let _ = states;
+        return Err(cq(CqError::NotBesiegeable));
     };
     let x = w.hold(t);
+    // The Holding account is at the mirror's generation: while a capture
+    // is due (the herald's record kind 3) it is not (`CapturePending`).
+    if x.busy {
+        return Err(cq(CqError::CapturePending));
+    }
     // 4. A resident non-civilian host of the declarer's holding on the
     // target's tile; the hex's lead host.
     let ag = w.agent(agent);
@@ -181,10 +191,14 @@ pub fn declare_check(
     if !ok_host {
         return Err(cq(CqError::NotOnHex));
     }
-    if lead_on(w, x.prov, x.tile, x.faction, b) != Some(host) {
+    if lead_on(w, x.prov, x.tile, ag.faction, b) != Some(host) {
         return Err(cq(CqError::NotLead));
     }
-    // 5. The record.
+    // 5. The record (a capture due was `CapturePending` at step 3); a free
+    // record owing a stake or a slot is `StakeUnsettled`.
+    if x.siege.is_none() && !x.occupied && x.owed {
+        return Err(cq(CqError::StakeUnsettled));
+    }
     match w.record_free(t, ag.faction, b) {
         Err(Refusal::Immune) => return Err(cq(CqError::Immune)),
         Err(_) => return Err(cq(CqError::SiegeBusy)),
@@ -201,7 +215,13 @@ pub fn declare_check(
     if capture && w.free_slot23(agent).is_none() {
         return Err(cq(CqError::HoldingsFull));
     }
-    // 8. may_besiege v3 (a Free City skips it).
+    // 8. may_besiege v3 (a Free City skips it, except the Seat and Concord
+    // test). The declarer's own first holding must not be shielded unless
+    // dormant (`Shielded`).
+    let tc = w.prov(x.prov).coord;
+    if tc.is_seat() || tc.is_concord() {
+        return Err(m1(FrontierError::ReservedSite));
+    }
     if !x.free_city() {
         if let Err(r) = w.may_besiege(t, ag.faction, b) {
             return Err(match r {
@@ -211,6 +231,13 @@ pub fn declare_check(
                 Refusal::Heartland => cq(CqError::Heartland),
                 _ => cq(CqError::NotBesiegeable),
             });
+        }
+        let now = w.now(b);
+        if let Some(&own) = ag.holdings.iter().find(|&&h| w.hold(h).order == 1) {
+            let y = w.hold(own);
+            if y.shield_until > now && !w.dormant(y, now) {
+                return Err(m1(FrontierError::Shielded));
+            }
         }
     }
     // 9. TooLate.
@@ -403,6 +430,7 @@ pub fn marches(plan: &[Dispatch], agent: u32, w: &World) -> Vec<CqIntent> {
         .map(|d| {
             let pc = w.prov(d.prov).coord;
             CqIntent::March {
+                host: d.host,
                 src: d.src,
                 troops: d.troops,
                 to: (pc.p as i16, pc.q as i16),
@@ -489,8 +517,25 @@ pub fn retirements(w: &World, agent: u32, captured_homes: &[u32]) -> Vec<CqInten
     out
 }
 
+/// Whether `m` is a strike on a capture target (a holding 2–3 or a Free
+/// City): the slot it reserves at the horn is why an honest bot files no
+/// outpost while it marches (CQ1-B D-7).
+pub fn capture_mission(w: &World, m: Mission) -> bool {
+    match m {
+        Mission::Siege(t) | Mission::Rally(t) | Mission::Occupy(t) => w
+            .holds
+            .get(&t)
+            .is_some_and(|x| x.free_city() || x.order >= 2),
+        _ => false,
+    }
+}
+
 /// Everything one bot does with its faction's plan at an epoch (the
 /// conquest layer of a decision; the M1 economy runs beside it).
+/// `open`: the missions of the bot's open march orders. An honest bot
+/// files no outpost while its own capture strike marches or holds a slot
+/// (the simulator's `strike_until`, D-7): without it the slot fills on the
+/// way and the horn is refused `HoldingsFull`.
 #[allow(clippy::too_many_arguments)]
 pub fn decide(
     w: &World,
@@ -500,13 +545,21 @@ pub fn decide(
     agent: u32,
     q: f64,
     captured_homes: &[u32],
+    open: &[Mission],
     rng: &mut Rng,
 ) -> Vec<CqIntent> {
     let mut out = horns(w, board, states, agent);
     out.extend(marches(plan, agent, w));
     out.extend(retirements(w, agent, captured_homes));
-    if let Some(x) = expand(w, states, agent, q, rng) {
-        out.push(x);
+    let striking = !w.agent(agent).reserved.is_empty()
+        || open.iter().any(|&m| capture_mission(w, m))
+        || plan
+            .iter()
+            .any(|d| d.agent == agent && capture_mission(w, d.mission));
+    if !striking {
+        if let Some(x) = expand(w, states, agent, q, rng) {
+            out.push(x);
+        }
     }
     out
 }
