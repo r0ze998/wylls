@@ -493,6 +493,14 @@ pub fn set_vigil(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 
 // ------------------------------------------------------------ FileTicket
 
+/// 0xA3 FileOutpost (P, MC contract §3.8, §5.5): a site ticket for slot 2
+/// or 3. **Stub** (`NotImplemented`) in CQ2-A's first commit, which pins
+/// the v2 dispatch table (§11 Wave 2); implemented by CQ2-A.
+pub fn file_outpost(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    let _ = (p, a, d);
+    Err(FrontierError::NotImplemented.into())
+}
+
 /// 0x33 FileTicket(n ≤ 3 sites): P + `[frontier r] [province × m w]
 /// [system]`, the m distinct Provinces of the sites in first-seen order.
 ///

@@ -13,6 +13,7 @@
 //! | `holding`, `host`, `reveal` | holding actions, marches, Reveal | W3-B (stub) |
 //! | `clash` | gathers, resolves, skips, closes | W4-A (stub) |
 //! | `transit`, `defence` | SettleTransit, sweeps, claims | W4-B (stub) |
+//! | `conquest` | MC: DeclareSiege, SettleSiege, SettleCapture, FoldMarch, RetireHost, CloseMarch | CQ2-C (stub from CQ2-A's first commit) |
 
 pub use fclient::ix::*;
 

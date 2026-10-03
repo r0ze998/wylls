@@ -17,7 +17,9 @@ use crate::FrontierError;
 
 pub mod beacon;
 pub mod clash;
+pub mod conquest;
 pub mod land;
+pub mod march;
 pub mod player;
 pub mod world;
 
@@ -26,23 +28,15 @@ mod text_check;
 
 pub use beacon::{anchor_archive, archive_entry, bell_anchor, defence_claim, seed_cache};
 pub use clash::{arrival, arrival_day, arrival_slot, clash_inputs};
+pub use conquest::{
+    citizen2, cq_params, holding2, join_shard2, keep, province2, record, season2, site2, snapshot,
+    AccountKindV2, ConquestParams,
+};
 pub use frontier_abi::layout::{header, rent, AccountKind, Field, RENT_PER_BYTE};
 pub use land::{camp, cohort, entry, province, site, summary};
+pub use march::march_state;
 pub use player::{citizen, explore, holding, transit};
 pub use world::{beacon_log, defence_pool, frontier, join_shard, province_fund, ring_seed, season};
-
-/// ABI v2 layouts (MC §5.2): the conquest block of the Province, the v2
-/// site mirror, the Holding / Citizen / JoinShard reserve fields, Season
-/// v2 and MarchState. Offsets: `frontier_abi::v2::layout`.
-pub mod v2 {
-    pub use frontier_abi::v2::layout::player::{citizen, holding};
-    pub use frontier_abi::v2::layout::province::{conquest, keep, province, site, snapshot};
-    pub use frontier_abi::v2::layout::world::{join_shard, march_state, season};
-    pub use frontier_abi::v2::layout::{
-        layout_version, write_header, AccountKind, LAYOUT_VERSION_V2,
-    };
-    pub use frontier_abi::v2::presets::cq_layout;
-}
 
 /// Read-only view of an account's data.
 #[derive(Clone, Copy, Debug)]
@@ -194,6 +188,24 @@ pub fn check_kind(d: &[u8], kind: AccountKind, season_id: u64) -> Result<(), Err
         Some((m, id)) if m == kind.magic() && id == season_id => Ok(()),
         _ => Err(FrontierError::BadAccount.into()),
     }
+}
+
+/// ABI v2 structural presence (MC contract §5.1, R-22): the **exact** v2
+/// size, the magic of `kind`, `season_id` and, for a chained kind,
+/// `layout_version = 2` (`BadAccount`). An M1 account (v1 size or
+/// `layout_version` 1) is refused.
+pub fn check_kind_v2(d: &[u8], kind: AccountKindV2, season_id: u64) -> Result<(), Error> {
+    if d.len() != kind.size() {
+        return Err(BAD_ACCOUNT);
+    }
+    match frontier_abi::layout::read_short_header(d) {
+        Some((m, id)) if m == kind.magic() && id == season_id => {}
+        _ => return Err(BAD_ACCOUNT),
+    }
+    if kind.chained() && conquest::layout_version(d) != Some(conquest::LAYOUT_VERSION_V2) {
+        return Err(BAD_ACCOUNT);
+    }
+    Ok(())
 }
 
 /// The event chain of a chained account: `(event_seq, event_head)`.

@@ -53,7 +53,7 @@ pub mod proc;
 #[cfg(feature = "program")]
 pub mod prologue;
 
-pub use error::{Error, FrontierError, R};
+pub use error::{CqError, Error, FrontierError, R};
 
 /// The ruleset hash this binary enforces (§3.2): every instruction that
 /// reads a Created or later Season compares it with `Season.ruleset_hash`.
@@ -68,20 +68,20 @@ pub const QUICKNET_PK_HASH: [u8; 32] = crypto::quick::PK_HASH;
 /// with every deployable change of the instruction set.
 pub const PROGRAM_VERSION: u16 = 1;
 
-/// Routes one instruction by its tag (§5.5). Unknown and reserved tags are
-/// `BadData`; ResolveClash exists only in the `oracle` build.
+/// Routes one instruction by its ABI v2 tag (M1 §5.5; MC contract §5.4:
+/// M1's 50 tags and 0xA0–0xA3, 0xA5–0xA7). Unknown and reserved tags
+/// (0xA4, 0xA8–0xAF included) are `BadData`; ResolveClash exists only in
+/// the `oracle` build.
 #[cfg(feature = "program")]
 pub fn dispatch(
     program_id: &solana_program::pubkey::Pubkey,
     accounts: &[solana_program::account_info::AccountInfo],
     data: &[u8],
 ) -> R<()> {
-    use frontier_abi::v2::tags::Ix;
+    use frontier_abi::v2::Ix;
     use proc::*;
     markers::touch();
     heap::trace_checkpoint(0);
-    // ABI v2 (MC §5.4): M1's tags keep their handlers; 0xA0–0xA7 are the
-    // conquest instructions (`proc::conquest`).
     let ix = frontier_abi::v2::ix::tag_of(data)?;
     let p = program_id;
     let a = accounts;
@@ -144,11 +144,12 @@ pub fn dispatch(
         Ix::CloseArrivalSlot => clash::close_arrival_slot(p, a, data),
         // §5.12 defence pool
         Ix::ClaimDefence => defence::claim_defence(p, a, data),
-        // MC §5.5 conquest
+        // MC §5.5 (ABI v2): the conquest instructions (CQ2-C) and the
+        // outposts (CQ2-A)
         Ix::DeclareSiege => conquest::declare_siege(p, a, data),
         Ix::SettleSiege => conquest::settle_siege(p, a, data),
         Ix::SettleCapture => conquest::settle_capture(p, a, data),
-        Ix::FileOutpost => conquest::file_outpost(p, a, data),
+        Ix::FileOutpost => citizen::file_outpost(p, a, data),
         Ix::FoldMarch => conquest::fold_march(p, a, data),
         Ix::RetireHost => conquest::retire_host(p, a, data),
         Ix::CloseMarch => conquest::close_march(p, a, data),

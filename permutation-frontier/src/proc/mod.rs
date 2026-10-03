@@ -15,7 +15,6 @@
 //! | `clash.rs` | GatherClash, ResolveFromInputs, ResolveClash (`oracle`), SkipQuiet, CloseClashInputs, CloseArrivalDay, CloseArrivalSlot | W4-A |
 //! | `transit.rs` | SettleTransit, SweepPoolOwed | W4-B |
 //! | `defence.rs` | ClaimDefence | W4-B |
-//! | `conquest.rs` | MC §5.5: DeclareSiege, SettleSiege, SettleCapture, FileOutpost (stub; CQ2-A), FoldMarch, RetireHost, CloseMarch | CQ2-C |
 //!
 //! Every handler has the signature `fn(&Pubkey, &[AccountInfo], &[u8]) ->
 //! R<()>`; `RELEASE_CHECK=1` (G13, wave 5) fails while any path still
@@ -37,6 +36,21 @@
 //!   vector).
 //! - AnchorArchives are per region and half day (`part = bell / 72`,
 //!   6,144 B, v1.3): address every archive with `archive_part_of(bell)`.
+//!
+//! **MC (ABI v2, conquest contract §5.4–§5.6, §11 Wave 2).** The program
+//! dispatches on `frontier_abi::v2::Ix` (57 tags: M1's 50 and 0xA0–0xA3,
+//! 0xA5–0xA7). The new handlers and their owners in Wave 2:
+//!
+//! | file | instructions | owner |
+//! |---|---|---|
+//! | `conquest.rs` | DeclareSiege, SettleSiege, SettleCapture, FoldMarch, RetireHost, CloseMarch | CQ2-C (stubs from CQ2-A's first commit) |
+//! | `citizen.rs` | FileOutpost (0xA3) | CQ2-A |
+//!
+//! The changed M1 instructions stay in their area files (§5.6): CQ2-A
+//! `season`, `map`, `citizen`, `holding`, `reveal`; CQ2-B `clash`; CQ2-C
+//! `host`, `transit`. A handler passes a v2 tag to
+//! `prologue::check_accounts` to be checked against the v2 account list
+//! (`frontier_abi::v2::prologue::accounts_of`); a v1 tag keeps M1's list.
 
 pub mod beacon;
 pub mod citizen;
