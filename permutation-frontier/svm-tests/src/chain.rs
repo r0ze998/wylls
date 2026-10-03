@@ -253,10 +253,12 @@ impl Profile {
 
     /// What the client sends `ix` with (§5.5, §10.2): the budgets table's
     /// CU limit and `L(kind)` for the deployed programdata length. This is
-    /// the profile the G1 gate (W5-A) measures against.
-    pub fn client(ix: Ix, programdata_len: u32) -> Profile {
+    /// the profile the G1 gate (W5-A) measures against. **ABI v2 (MC):**
+    /// the v2 table (`frontier_abi::v2::budgets`: M1's rows, §5.4's for the
+    /// new and changed kinds); `ix` is an M1 or a v2 tag.
+    pub fn client<I: AnyIx>(ix: I, programdata_len: u32) -> Profile {
         Profile {
-            cu_limit: Some(budgets::budget(ix).cu_limit),
+            cu_limit: Some(frontier_abi::v2::budgets::budget(ix.v2()).cu_limit),
             cu_price: 0,
             loaded_limit: Some(loaded_limit(ix, programdata_len)),
             heap: None,
@@ -266,7 +268,7 @@ impl Profile {
     /// The keeper's retry ladder top (I-50): 1.4M CU, `L(kind)`, no heap
     /// frame. Functional gates (G2–G12) send with it, so a CU budget miss
     /// (G1, W5-A) never masks the property under test.
-    pub fn ladder(ix: Ix, programdata_len: u32) -> Profile {
+    pub fn ladder<I: AnyIx>(ix: I, programdata_len: u32) -> Profile {
         Profile {
             cu_limit: Some(budgets::CU_LADDER_MAX),
             cu_price: 0,
@@ -310,11 +312,33 @@ impl Profile {
     }
 }
 
+/// An instruction tag of either ABI: an M1 tag names the v2 instruction of
+/// the same tag (MC: the program is the v2 program; CQ2-A dependency
+/// request, this file is W2-B's).
+pub trait AnyIx: Copy {
+    fn v2(self) -> frontier_abi::v2::Ix;
+}
+
+impl AnyIx for Ix {
+    fn v2(self) -> frontier_abi::v2::Ix {
+        frontier_abi::v2::Ix::of_v1(self)
+    }
+}
+
+impl AnyIx for frontier_abi::v2::Ix {
+    fn v2(self) -> frontier_abi::v2::Ix {
+        self
+    }
+}
+
 /// `L(kind)` the client requests for `ix` at `programdata_len` (§10.1,
-/// I-45): the kernel formula over the kind's worst account set
-/// (`frontier_abi::budgets`), never below the 1-MiB working default.
-pub fn loaded_limit(ix: Ix, programdata_len: u32) -> u32 {
-    budgets::loaded_limit_for(ix, programdata_len).max(budgets::LOADED_LIMIT_WORKING_DEFAULT)
+/// I-45): the kernel formula over the kind's worst account set, never below
+/// the 1-MiB working default. **ABI v2:** the v2 account sizes (a Province
+/// is 4,736 B) and lists (`frontier_abi::v2::budgets::loaded_accounts`).
+pub fn loaded_limit<I: AnyIx>(ix: I, programdata_len: u32) -> u32 {
+    let (bytes, n) = frontier_abi::v2::budgets::loaded_accounts(ix.v2());
+    permutation_rules::frontier::fees::loaded_limit(programdata_len, bytes, n)
+        .max(budgets::LOADED_LIMIT_WORKING_DEFAULT)
 }
 
 /// A transaction that landed.
@@ -820,10 +844,18 @@ impl Chain {
 
     /// `f(kind, programdata_len)` for the Frontier instruction of `ixs`
     /// with the largest `L(kind)` (runtime default if none).
-    pub fn profile_of(&self, ixs: &[Instruction], f: fn(Ix, u32) -> Profile) -> Profile {
+    pub fn profile_of(
+        &self,
+        ixs: &[Instruction],
+        f: fn(frontier_abi::v2::Ix, u32) -> Profile,
+    ) -> Profile {
         ixs.iter()
             .filter(|i| i.program_id == self.program)
-            .filter_map(|i| i.data.first().and_then(|t| Ix::from_tag(*t)))
+            .filter_map(|i| {
+                i.data
+                    .first()
+                    .and_then(|t| frontier_abi::v2::Ix::from_tag(*t))
+            })
             .map(|ix| f(ix, self.programdata_len()))
             .max_by_key(|p| p.loaded_limit)
             .unwrap_or(Profile::NONE)

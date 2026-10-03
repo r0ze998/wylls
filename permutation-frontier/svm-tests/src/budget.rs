@@ -14,11 +14,10 @@
 //!   against `L(kind)` at the deployed programdata length.
 
 use frontier_abi::budgets as ab;
-use frontier_abi::tags::Ix;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 
-use crate::chain::{loaded_limit, Chain, Fail, Profile};
+use crate::chain::{loaded_limit, AnyIx, Chain, Fail, Profile};
 
 /// What one transaction needs.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -62,12 +61,19 @@ pub struct Ceilings {
 }
 
 /// The ceilings of `ix` doing `units` of work (SkipQuiet: recomputed bells)
-/// at `programdata_len`.
-pub fn ceilings(ix: Ix, units: u32, programdata_len: u32) -> Ceilings {
+/// at `programdata_len`. **ABI v2 (MC; CQ2-A dependency request, this file
+/// is W2-B's):** the v2 table (`frontier_abi::v2::budgets`: M1's rows, MC
+/// §5.4's gates and tx ceilings for the new and changed kinds); `ix` is an
+/// M1 or a v2 tag.
+pub fn ceilings<I: AnyIx>(ix: I, units: u32, programdata_len: u32) -> Ceilings {
+    use frontier_abi::v2::budgets as b2;
+    let b = b2::budget(ix.v2());
     Ceilings {
-        cu: ab::cu_gate(ix, units),
+        cu: b
+            .cu_budget
+            .saturating_add(b.cu_per_unit.saturating_mul(units)),
         heap: ab::HEAP_GATE,
-        tx_bytes: ab::tx_ceiling(ix).min(ab::TX_MAX),
+        tx_bytes: b2::tx_ceiling(ix.v2()).min(ab::TX_MAX),
         locks: ab::LOCKS_MAX,
         loaded: loaded_limit(ix, programdata_len),
     }
@@ -162,6 +168,7 @@ pub fn assert_within(label: &str, need: &Need, c: &Ceilings) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use frontier_abi::tags::Ix;
 
     #[test]
     fn heap_peak_parses_both_forms_and_takes_the_max() {

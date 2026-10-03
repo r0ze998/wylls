@@ -11,10 +11,19 @@
 //! header advanced exactly as the transaction's records say: every link for
 //! the entity continues the chain (`seq + 1`, `head = sha256(prev ‖ le64(seq)
 //! ‖ body_without_tail)`), and the account ends on the last link.
+//!
+//! **ABI v2 (MC; CQ2-A dependency request, this file is W2-B's):** the v2
+//! program logs the MC kinds 80–88 beside M1's, so every body decodes with
+//! `frontier_abi::v2::log::decode` ([`any_records`], tails checked against
+//! the v2 `chains_of`). [`records`] keeps returning the M1-kind records (its
+//! `Rec::kind` is M1's `Kind`, as every test compares it), and
+//! [`ChainWatch`] follows the links of every record, MC ones included (a
+//! `KEEP` chains the Province). [`cq_records`] returns the MC ones.
 
 use base64::Engine;
 use frontier_abi::layout::header;
-use frontier_abi::log::{self, EntityKind, Kind, Record};
+use frontier_abi::log::{self, EntityKind, Kind};
+use frontier_abi::v2::log::{self as l2, AnyKind, CqKind};
 use solana_address::Address;
 
 use crate::chain::Chain;
@@ -41,7 +50,7 @@ pub fn bodies(logs: &[String]) -> Vec<Vec<u8>> {
         .collect()
 }
 
-/// An owned decoded record.
+/// An owned decoded record of an M1 kind.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Rec {
     pub kind: Kind,
@@ -53,17 +62,6 @@ pub struct Rec {
 }
 
 impl Rec {
-    fn of(r: &Record<'_>) -> Rec {
-        Rec {
-            kind: r.kind,
-            bell: r.bell,
-            key: r.key.to_vec(),
-            payload: r.payload.to_vec(),
-            body_without_tail: r.body_without_tail.to_vec(),
-            links: r.links.iter().take(r.n_links).flatten().copied().collect(),
-        }
-    }
-
     /// A named key or payload field (`in_payload` selects the part).
     pub fn field(&self, name: &str, in_payload: bool) -> &[u8] {
         let (off, w) = log::field(self.kind, name, in_payload)
@@ -82,26 +80,147 @@ impl Rec {
     }
 }
 
+/// An owned decoded record of any ABI v2 kind (M1's or MC's).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AnyRec {
+    pub kind: AnyKind,
+    pub bell: u32,
+    pub key: Vec<u8>,
+    pub payload: Vec<u8>,
+    pub body_without_tail: Vec<u8>,
+    pub links: Vec<l2::Link>,
+}
+
+impl AnyRec {
+    fn of(r: &l2::Record<'_>) -> AnyRec {
+        AnyRec {
+            kind: r.kind,
+            bell: r.bell,
+            key: r.key.to_vec(),
+            payload: r.payload.to_vec(),
+            body_without_tail: r.body_without_tail.to_vec(),
+            links: r.links.iter().take(r.n_links).flatten().copied().collect(),
+        }
+    }
+
+    /// A named key or payload field (`in_payload` selects the part).
+    pub fn field(&self, name: &str, in_payload: bool) -> &[u8] {
+        let (off, w) = l2::field(self.kind, name, in_payload)
+            .unwrap_or_else(|| panic!("{} has no field {name}", self.kind.name()));
+        let src = if in_payload { &self.payload } else { &self.key };
+        &src[off..off + w]
+    }
+    pub fn u64(&self, name: &str) -> u64 {
+        le(self.field(name, true))
+    }
+    pub fn key_u64(&self, name: &str) -> u64 {
+        le(self.field(name, false))
+    }
+    pub fn link(&self, e: l2::EntityKind) -> Option<l2::Link> {
+        self.links.iter().copied().find(|l| l.entity == e)
+    }
+
+    /// The M1 view of a record of an M1 kind (its links are M1 entities).
+    fn v1(&self) -> Option<Rec> {
+        let AnyKind::V1(kind) = self.kind else {
+            return None;
+        };
+        let links = self
+            .links
+            .iter()
+            .map(|l| log::Link {
+                entity: EntityKind::from_u8(l.entity as u8).expect("an M1 kind chains M1 entities"),
+                seq: l.seq,
+                head: l.head,
+            })
+            .collect();
+        Some(Rec {
+            kind,
+            bell: self.bell,
+            key: self.key.clone(),
+            payload: self.payload.clone(),
+            body_without_tail: self.body_without_tail.clone(),
+            links,
+        })
+    }
+}
+
 /// Little-endian integer of up to 8 bytes.
 pub fn le(b: &[u8]) -> u64 {
     b.iter().rev().fold(0u64, |acc, x| (acc << 8) | *x as u64)
 }
 
-/// Every PS2 record in `logs`; panics on a body that does not decode (the
-/// program must never log one) and on a tail outside
-/// `frontier_abi::log::chains_of(..).bounds()` (v1.5, W3-A F4: what a
-/// verifier or indexer applying the bounds would reject).
-pub fn records(logs: &[String]) -> Vec<Rec> {
+/// Every PS2 record in `logs` (M1 and MC kinds), decoded with the ABI v2
+/// decoder; panics on a body that does not decode and on a tail outside
+/// the v2 `chains_of(..).bounds()`.
+pub fn any_records(logs: &[String]) -> Vec<AnyRec> {
     bodies(logs)
         .iter()
         .map(|b| {
-            let r = log::decode(b)
+            let r = l2::decode(b)
                 .unwrap_or_else(|e| panic!("PS2 body does not decode ({e:?}): {}", hex::encode(b)));
-            let rec = Rec::of(&r);
-            check_tail(&rec);
+            let rec = AnyRec::of(&r);
+            check_any_tail(&rec);
             rec
         })
         .collect()
+}
+
+/// Every PS2 record of an M1 kind in `logs`; panics on a body that does not
+/// decode (the program must never log one) and on a tail outside
+/// `frontier_abi::log::chains_of(..).bounds()` (v1.5, W3-A F4: what a
+/// verifier or indexer applying the bounds would reject). MC records are
+/// decoded and checked too ([`any_records`]) but not returned.
+pub fn records(logs: &[String]) -> Vec<Rec> {
+    any_records(logs)
+        .iter()
+        .filter_map(|r| r.v1())
+        .inspect(check_tail)
+        .collect()
+}
+
+/// The MC records of kind `k`.
+pub fn cq_records(logs: &[String], k: CqKind) -> Vec<AnyRec> {
+    any_records(logs)
+        .into_iter()
+        .filter(|r| r.kind == AnyKind::Cq(k))
+        .collect()
+}
+
+/// The one MC record of `k` (panics unless there is exactly one).
+#[track_caller]
+pub fn one_cq(logs: &[String], k: CqKind) -> AnyRec {
+    let mut v = cq_records(logs, k);
+    assert_eq!(v.len(), 1, "{} records of {}", v.len(), k.name());
+    v.pop().expect("one")
+}
+
+/// The record's tail fits the v2 `chains_of(..)`.
+#[track_caller]
+pub fn check_any_tail(r: &AnyRec) {
+    let Some(c) = l2::chains_of(r.kind, &r.key, &r.payload) else {
+        assert!(
+            r.links.is_empty(),
+            "{}: links without chains",
+            r.kind.name()
+        );
+        return;
+    };
+    let (lo, hi) = c.bounds();
+    assert!(
+        (lo..=hi).contains(&r.links.len()),
+        "{}: {} links outside chains_of bounds {lo}..={hi}",
+        r.kind.name(),
+        r.links.len()
+    );
+    for l in &r.links {
+        assert!(
+            c.iter().any(|x| x.entity == l.entity),
+            "{}: link of {:?} not in chains_of",
+            r.kind.name(),
+            l.entity
+        );
+    }
 }
 
 /// The record's tail fits `chains_of(..)`: its link count within the
@@ -179,11 +298,17 @@ impl ChainWatch {
     /// links in `logs` (at least `min_links` of them). Returns the links.
     #[track_caller]
     pub fn check(&self, c: &Chain, logs: &[String], min_links: usize) -> Vec<log::Link> {
-        let recs = records(logs);
+        // Every record, MC kinds included (a KEEP chains the Province).
+        let recs = any_records(logs);
+        let entity = l2::EntityKind::of_v1(self.entity);
         let (mut seq, mut head) = self.before;
         let mut seen = vec![];
         for r in &recs {
-            if let Some(l) = r.link(self.entity) {
+            if let Some(l) = r.link(entity).map(|l| log::Link {
+                entity: self.entity,
+                seq: l.seq,
+                head: l.head,
+            }) {
                 assert_eq!(
                     l.seq,
                     seq + 1,
