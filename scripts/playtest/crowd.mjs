@@ -518,6 +518,6 @@ emit(-1, 'crowd_end', { elapsedMin: +((Date.now() - T0) / 60000).toFixed(1) });
 await Promise.race([poller, sleep(45_000)]);
 closing = true; try { await browser?.close(); } catch { /* gone */ }
 const events = readFileSync(EVENTS, 'utf8').split('\n').filter(Boolean).map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
-writeFileSync(path.join(OUT, 'crowd-summary.json'), JSON.stringify(summarise(events), null, 1));
+writeFileSync(path.join(OUT, 'crowd-summary.json'), JSON.stringify(summarise(events), null, 1)); // (without the drills' freeze windows; crowd-report.mjs --drills adds them)
 console.log(`wrote ${path.join(OUT, 'crowd-summary.json')}`);
 process.exit(0);

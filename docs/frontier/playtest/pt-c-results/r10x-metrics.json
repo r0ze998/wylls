@@ -1,0 +1,321 @@
+{
+ "definitions": "see the header of scripts/playtest-metrics.mjs",
+ "window": {
+  "tzOffsetHours": 9,
+  "sessionGapMin": 30,
+  "excludeLabels": [
+   "bots"
+  ],
+  "since": null,
+  "until": null
+ },
+ "log": {
+  "lines": 3612,
+  "linesInWindow": 3612,
+  "firstT": "2026-10-03T15:09:29.655Z",
+  "lastT": "2026-10-03T22:24:04.478Z"
+ },
+ "batches": {
+  "bots": 60,
+  "friends-crowd": 26
+ },
+ "N_invited": 26,
+ "N_joined": 20,
+ "D": 1,
+ "days": [
+  "2026-10-04"
+ ],
+ "perDay": [
+  {
+   "day": "2026-10-04",
+   "activeCitizens": 20,
+   "joined": 20,
+   "actions": 754,
+   "withVisits": 20
+  }
+ ],
+ "N_returned": 0,
+ "medianSessions": 2,
+ "secondary": {
+  "N_returned_incl_visits": 0,
+  "medianSessions_incl_visits": 3,
+  "D_incl_visits": 1,
+  "N_joined_never_acted": 0,
+  "actionsPerPersonMedian": 30,
+  "joins_unknown_batch": 0,
+  "joins_excluded_labels": 47,
+  "joins_without_invite": 0
+ },
+ "people": [
+  {
+   "id": 1,
+   "label": "friends-crowd",
+   "joinDay": "2026-10-04",
+   "actions": 108,
+   "activeDays": [
+    "2026-10-04"
+   ],
+   "returned": false,
+   "returnedVisit": false,
+   "sessions": 2,
+   "sessionsInclVisits": 2
+  },
+  {
+   "id": 2,
+   "label": "friends-crowd",
+   "joinDay": "2026-10-04",
+   "actions": 39,
+   "activeDays": [
+    "2026-10-04"
+   ],
+   "returned": false,
+   "returnedVisit": false,
+   "sessions": 8,
+   "sessionsInclVisits": 8
+  },
+  {
+   "id": 3,
+   "label": "friends-crowd",
+   "joinDay": "2026-10-04",
+   "actions": 86,
+   "activeDays": [
+    "2026-10-04"
+   ],
+   "returned": false,
+   "returnedVisit": false,
+   "sessions": 2,
+   "sessionsInclVisits": 2
+  },
+  {
+   "id": 4,
+   "label": "friends-crowd",
+   "joinDay": "2026-10-04",
+   "actions": 1,
+   "activeDays": [
+    "2026-10-04"
+   ],
+   "returned": false,
+   "returnedVisit": false,
+   "sessions": 1,
+   "sessionsInclVisits": 1
+  },
+  {
+   "id": 5,
+   "label": "friends-crowd",
+   "joinDay": "2026-10-04",
+   "actions": 41,
+   "activeDays": [
+    "2026-10-04"
+   ],
+   "returned": false,
+   "returnedVisit": false,
+   "sessions": 7,
+   "sessionsInclVisits": 7
+  },
+  {
+   "id": 6,
+   "label": "friends-crowd",
+   "joinDay": "2026-10-04",
+   "actions": 5,
+   "activeDays": [
+    "2026-10-04"
+   ],
+   "returned": false,
+   "returnedVisit": false,
+   "sessions": 2,
+   "sessionsInclVisits": 3
+  },
+  {
+   "id": 7,
+   "label": "friends-crowd",
+   "joinDay": "2026-10-04",
+   "actions": 4,
+   "activeDays": [
+    "2026-10-04"
+   ],
+   "returned": false,
+   "returnedVisit": false,
+   "sessions": 2,
+   "sessionsInclVisits": 3
+  },
+  {
+   "id": 8,
+   "label": "friends-crowd",
+   "joinDay": "2026-10-04",
+   "actions": 30,
+   "activeDays": [
+    "2026-10-04"
+   ],
+   "returned": false,
+   "returnedVisit": false,
+   "sessions": 6,
+   "sessionsInclVisits": 6
+  },
+  {
+   "id": 9,
+   "label": "friends-crowd",
+   "joinDay": "2026-10-04",
+   "actions": 7,
+   "activeDays": [
+    "2026-10-04"
+   ],
+   "returned": false,
+   "returnedVisit": false,
+   "sessions": 2,
+   "sessionsInclVisits": 2
+  },
+  {
+   "id": 10,
+   "label": "friends-crowd",
+   "joinDay": "2026-10-04",
+   "actions": 91,
+   "activeDays": [
+    "2026-10-04"
+   ],
+   "returned": false,
+   "returnedVisit": false,
+   "sessions": 2,
+   "sessionsInclVisits": 2
+  },
+  {
+   "id": 11,
+   "label": "friends-crowd",
+   "joinDay": "2026-10-04",
+   "actions": 25,
+   "activeDays": [
+    "2026-10-04"
+   ],
+   "returned": false,
+   "returnedVisit": false,
+   "sessions": 6,
+   "sessionsInclVisits": 6
+  },
+  {
+   "id": 12,
+   "label": "friends-crowd",
+   "joinDay": "2026-10-04",
+   "actions": 84,
+   "activeDays": [
+    "2026-10-04"
+   ],
+   "returned": false,
+   "returnedVisit": false,
+   "sessions": 2,
+   "sessionsInclVisits": 2
+  },
+  {
+   "id": 13,
+   "label": "friends-crowd",
+   "joinDay": "2026-10-04",
+   "actions": 9,
+   "activeDays": [
+    "2026-10-04"
+   ],
+   "returned": false,
+   "returnedVisit": false,
+   "sessions": 3,
+   "sessionsInclVisits": 3
+  },
+  {
+   "id": 14,
+   "label": "friends-crowd",
+   "joinDay": "2026-10-04",
+   "actions": 30,
+   "activeDays": [
+    "2026-10-04"
+   ],
+   "returned": false,
+   "returnedVisit": false,
+   "sessions": 7,
+   "sessionsInclVisits": 7
+  },
+  {
+   "id": 15,
+   "label": "friends-crowd",
+   "joinDay": "2026-10-04",
+   "actions": 31,
+   "activeDays": [
+    "2026-10-04"
+   ],
+   "returned": false,
+   "returnedVisit": false,
+   "sessions": 6,
+   "sessionsInclVisits": 6
+  },
+  {
+   "id": 16,
+   "label": "friends-crowd",
+   "joinDay": "2026-10-04",
+   "actions": 33,
+   "activeDays": [
+    "2026-10-04"
+   ],
+   "returned": false,
+   "returnedVisit": false,
+   "sessions": 7,
+   "sessionsInclVisits": 7
+  },
+  {
+   "id": 17,
+   "label": "friends-crowd",
+   "joinDay": "2026-10-04",
+   "actions": 95,
+   "activeDays": [
+    "2026-10-04"
+   ],
+   "returned": false,
+   "returnedVisit": false,
+   "sessions": 2,
+   "sessionsInclVisits": 2
+  },
+  {
+   "id": 18,
+   "label": "friends-crowd",
+   "joinDay": "2026-10-04",
+   "actions": 1,
+   "activeDays": [
+    "2026-10-04"
+   ],
+   "returned": false,
+   "returnedVisit": false,
+   "sessions": 1,
+   "sessionsInclVisits": 1
+  },
+  {
+   "id": 19,
+   "label": "friends-crowd",
+   "joinDay": "2026-10-04",
+   "actions": 33,
+   "activeDays": [
+    "2026-10-04"
+   ],
+   "returned": false,
+   "returnedVisit": false,
+   "sessions": 6,
+   "sessionsInclVisits": 6
+  },
+  {
+   "id": 20,
+   "label": "friends-crowd",
+   "joinDay": "2026-10-04",
+   "actions": 1,
+   "activeDays": [
+    "2026-10-04"
+   ],
+   "returned": false,
+   "returnedVisit": false,
+   "sessions": 1,
+   "sessionsInclVisits": 1
+  }
+ ],
+ "chainCheck": {
+  "joinedWalletsFoundOnChain": 20,
+  "notFound": 0,
+  "unreachable": 0
+ },
+ "machineGaps": {
+  "count": 1,
+  "totalMinutes": 30.1,
+  "note": "intervals the monitor saw as frozen or asleep (status/gaps.jsonl); the game clock stopped for them"
+ }
+}

@@ -135,8 +135,12 @@ async function sponsor(ctx, req, { tx, wire, shape, requester = null, requesterC
       sim = await simulateWatching(connection, signed, [shape.feePayer], ctx.programId);
     } catch (e) {
       // PT-B: a province a bell behind is caught up by the keeper, then the action is simulated once more.
-      if (e?.code !== 'NotResident' || !(await catchUpProvince(ctx, shape))) throw e;
-      ctx.log?.(`f/relay ${shape.name}: NotResident, province caught up by the keeper; simulating again`);
+      if (e?.code !== 'NotResident') throw e;
+      const t0 = Date.now();
+      const caught = await catchUpProvince(ctx, shape);
+      // PT-C: how long the keeper took is the number that sets the wait (a rehearsal saw two gave-ups at 8 s around a bell boundary)
+      ctx.log?.(`f/relay ${shape.name}: NotResident, ${caught ? `province caught up by the keeper in ${Date.now() - t0} ms; simulating again` : `no catch-up (gave up or none possible after ${Date.now() - t0} ms)`}`);
+      if (!caught) throw e;
       sim = await simulateWatching(connection, signed, [shape.feePayer], ctx.programId);
     }
     const after = await balance();

@@ -11,11 +11,15 @@ import { readFileSync, writeFileSync } from 'node:fs';
 
 export const pct = (xs, q) => { if (!xs.length) return null; const s = [...xs].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.max(0, Math.ceil(q * s.length) - 1))]; };
 const dist = xs => (xs.length ? { n: xs.length, min: Math.min(...xs), p50: pct(xs, 0.5), p90: pct(xs, 0.9), p99: pct(xs, 0.99), max: Math.max(...xs) } : { n: 0 });
+const inMs = d => d;
 const inSec = d => (d.n ? Object.fromEntries(Object.entries(d).map(([k, v]) => [k, k === 'n' ? v : +(v / 1000).toFixed(1)])) : d);
 const tally = (xs, key) => xs.reduce((m, x) => { const k = typeof key === 'function' ? key(x) : x[key]; m[k] = (m[k] ?? 0) + 1; return m; }, {});
 
 /** Everything the report says, from the parsed events. Pure. */
-export function summarise(events) {
+export function summarise(events, { frozen = [] } = {}) {
+  // intervals [from, to] in ms during which the stack was frozen (the pause drill): subtracted from the "since" times as the second variant
+  const overlap = (a, b) => frozen.reduce((n, [f, t]) => n + Math.max(0, Math.min(b, t) - Math.max(a, f)), 0);
+  const active = e => (e.sinceDepartMs ?? e.sinceJoinOkMs) - overlap(e.t - (e.sinceDepartMs ?? e.sinceJoinOkMs), e.t);
   const by = ev => events.filter(e => e.ev === ev);
   const start = by('crowd_start')[0] ?? null;
   const friends = new Set(by('tester_plan').map(e => e.tester));
@@ -33,7 +37,7 @@ export function summarise(events) {
   const marches = by('march_departed');
   const chainReports = by('clash_report_chain');
   const pageReports = by('clash_report_page');
-  const firstOf = (list) => { const m = new Map(); for (const e of list) if (!m.has(e.tester)) m.set(e.tester, e.sinceDepartMs); return [...m.values()]; };
+  const firstOf = (list, f = e => e.sinceDepartMs) => { const m = new Map(); for (const e of list) if (!m.has(e.tester)) m.set(e.tester, f(e)); return [...m.values()]; };
   const actions = by('action');
   const actionKinds = {};
   for (const a of actions) { const k = actionKinds[a.kind] ??= { ok: 0, refused: 0, unavailable: 0, timeout: 0, ms: [] }; k[a.outcome] = (k[a.outcome] ?? 0) + 1; if (a.outcome === 'ok' && a.ms) k.ms.push(a.ms); }
@@ -55,15 +59,15 @@ export function summarise(events) {
       testersWithAReturn: new Set(returnedSessions.map(s => s.tester)).size, sessionEndReasons: tally(sessionEnds, e => String(e.reason).replace(/:.*/, '')) },
     landing: { cards: tally(by('landing'), e => `${e.kind}: ${e.card?.title}`), latencyS: inSec(dist(by('landing').map(e => e.ms))), pageReadyS: inSec(dist(by('page_ready').map(e => e.ms))), badInvites: by('bad_invite_result').map(e => ({ kind: e.kind, title: e.title, offersStart: e.offersStart })) },
     join: { clicks: by('join_click').length, results: tally(by('join_result'), e => (e.ok ? 'ok' : e.notice ?? 'fail')), clickToOkS: inSec(dist(by('join_ok').map(e => e.sinceFirstClickMs))), perClickLatencyS: inSec(dist(by('join_result').map(e => e.ms))) },
-    joinToVillage: { chainS: inSec(dist(by('village_chain').map(e => e.sinceJoinOkMs))), pageS: inSec(dist(by('village_seen').map(e => e.sinceJoinOkMs))), villagesFromChain: by('village_chain').length, villagesFromPage: by('village_seen').length, joinedWithoutVillage: [...joined].filter(t => !by('village_chain').some(e => e.tester === t) && !by('village_seen').some(e => e.tester === t)).length },
+    joinToVillage: { chainS: inSec(dist(by('village_chain').map(e => e.sinceJoinOkMs))), chainExcludingFreezeS: inSec(dist(by('village_chain').map(active))), pageS: inSec(dist(by('village_seen').map(e => e.sinceJoinOkMs))), villagesFromChain: by('village_chain').length, villagesFromPage: by('village_seen').length, joinedWithoutVillage: [...joined].filter(t => !by('village_chain').some(e => e.tester === t) && !by('village_seen').some(e => e.tester === t)).length },
     depart: { attempts: departAttempts.length, outcomes: tally(departAttempts, 'outcome'), refusals: tally(departAttempts.filter(a => a.outcome !== 'ok'), a => `${a.outcome}: ${a.notice ?? (a.blocked ? a.blocked.slice(0, 90) : '-')}`),
       relayAnswers: tally(relay.filter(r => r.action === 'Depart'), codeKey), marchesDeparted: marches.length, testersWithAMarch: new Set(marches.map(e => e.tester)).size,
       firstAttemptAccepted: [...firstDeparts.values()].filter(a => a.outcome === 'ok').length, firstAttemptsTotal: firstDeparts.size,
       acceptedPerAttempt: departAttempts.length ? +(departAttempts.filter(a => a.outcome === 'ok').length / departAttempts.length).toFixed(3) : null,
       sealAndSendS: inSec(dist(departAttempts.filter(a => a.outcome === 'ok').map(a => a.ms))) },
-    firstClashReport: { fromChainS: inSec(dist(firstOf(chainReports))), fromPageS: inSec(dist(firstOf(pageReports))), marchesWithChainReport: chainReports.length, marchesWithPageReport: pageReports.length },
+    firstClashReport: { fromChainS: inSec(dist(firstOf(chainReports))), fromChainExcludingFreezeS: inSec(dist(firstOf(chainReports, active))), allMarchesExcludingFreezeS: inSec(dist(chainReports.map(active))), allMarchesS: inSec(dist(chainReports.map(e => e.sinceDepartMs))), fromPageS: inSec(dist(firstOf(pageReports))), marchesWithChainReport: chainReports.length, marchesWithPageReport: pageReports.length },
     relay: { join: tally(relayBy('join'), codeKey), relay: tally(relayBy('relay'), codeKey), nudge: tally(relayBy('nudge'), codeKey), reveal: tally(relayBy('reveal'), codeKey),
-      latencyS: { join: inSec(dist(relayBy('join').map(r => r.ms))), relay: inSec(dist(relayBy('relay').map(r => r.ms))), nudge: inSec(dist(relayBy('nudge').map(r => r.ms))) },
+      latencyMs: { join: inMs(dist(relayBy('join').map(r => r.ms))), relay: inMs(dist(relayBy('relay').map(r => r.ms))), nudge: inMs(dist(relayBy('nudge').map(r => r.ms))) },
       serverErrors5xx: relay.filter(r => r.status >= 500).length, rateLimited429: relay.filter(r => r.status === 429).length },
     actions: actionKinds, unavailable, refusedTexts,
     errors: { testerErrors: tally(by('tester_error'), e => String(e.message).slice(0, 80)), actionErrors: tally(by('action_error'), e => `${e.action}: ${String(e.message).slice(0, 60)}`), httpFailures: httpFail, console: consoleAgg, visitsUnreachable: by('visit_unreachable').length, slowRequests: by('slow_http').length, browserDisconnects: by('browser_disconnected').length },
@@ -74,7 +78,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const file = process.argv[2];
   if (!file || file.startsWith('--')) { console.error('usage: crowd-report.mjs crowd-events.jsonl [--json out.json]'); process.exit(2); }
   const events = readFileSync(file, 'utf8').split('\n').filter(Boolean).map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
-  const s = summarise(events);
+  const di = process.argv.indexOf('--drills');
+  const frozen = [];
+  if (di > 0) for (const l of readFileSync(process.argv[di + 1], 'utf8').split('\n').filter(Boolean)) { try { const j = JSON.parse(l); if (j.ev === 'pause_start') frozen.push([j.t, j.t + j.minutes * 60_000]); } catch { /* skip */ } }
+  const s = summarise(events, { frozen });
   const out = process.argv.indexOf('--json');
   if (out > 0) writeFileSync(process.argv[out + 1], JSON.stringify(s, null, 1));
   console.log(JSON.stringify(s, null, 1));

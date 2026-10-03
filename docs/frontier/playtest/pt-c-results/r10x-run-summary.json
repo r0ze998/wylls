@@ -1,0 +1,917 @@
+{
+ "run": "/private/tmp/claude-501/-Users-r0ze-Library-Application-Support-Claude-scratch-workspaces-59b0e37b-c381-4b5c-88fe-761b42e364f2-e1e340d9-5c30-4c5a-983e-525e18a0d520-scratch-2026-09-25-dd5411/ca3e79c1-f15f-4c2f-8555-107cb1f00a2a/scratchpad/frontier/playtest/ptc/r10x",
+ "crowd": {
+  "run": {
+   "start": "2026-10-03T15:10:23.218Z",
+   "end": "2026-10-03T22:22:49.347Z",
+   "minutes": 432.4,
+   "config": {
+    "t": 1791040223218,
+    "tester": -1,
+    "ev": "crowd_start",
+    "origin": "https://wylls.test:41103",
+    "testers": 20,
+    "bad": 2,
+    "minutes": 432,
+    "arriveMin": 60,
+    "gapMult": 1,
+    "thinkMedian": 4,
+    "seed": 2,
+    "personas": {
+     "diehard": 5,
+     "regular": 8,
+     "casual": 4,
+     "bouncer": 3
+    }
+   }
+  },
+  "testers": {
+   "friends": 20,
+   "joined": 20,
+   "neverJoined": 0,
+   "personas": {
+    "diehard": 5,
+    "regular": 8,
+    "bouncer": 3,
+    "casual": 4
+   },
+   "sessions": 184,
+   "sessionsPerTesterMedian": 7,
+   "returnSessions": 164,
+   "testersWithAReturn": 17,
+   "sessionEndReasons": {
+    "time": 169,
+    "unreachable": 15
+   }
+  },
+  "landing": {
+   "cards": {
+    "first: 招待を確認しました": 9,
+    "first: Your invitation works": 11,
+    "return: おかえりなさい": 110,
+    "return: Welcome back": 39,
+    "garbage-invite: This invitation does not work": 1,
+    "used-invite: This invitation was already used": 1
+   },
+   "latencyS": {
+    "n": 171,
+    "min": 0,
+    "p50": 0,
+    "p90": 0,
+    "p99": 0.1,
+    "max": 0.1
+   },
+   "pageReadyS": {
+    "n": 169,
+    "min": 0.7,
+    "p50": 1.9,
+    "p90": 2.9,
+    "p99": 3.1,
+    "max": 3.2
+   },
+   "badInvites": [
+    {
+     "kind": "garbage",
+     "title": "This invitation does not work",
+     "offersStart": false
+    },
+    {
+     "kind": "used",
+     "title": "This invitation was already used",
+     "offersStart": false
+    }
+   ]
+  },
+  "join": {
+   "clicks": 20,
+   "results": {
+    "ok": 20
+   },
+   "clickToOkS": {
+    "n": 20,
+    "min": 1.5,
+    "p50": 1.8,
+    "p90": 1.8,
+    "p99": 1.9,
+    "max": 1.9
+   },
+   "perClickLatencyS": {
+    "n": 20,
+    "min": 1.5,
+    "p50": 1.8,
+    "p90": 1.8,
+    "p99": 1.9,
+    "max": 1.9
+   }
+  },
+  "joinToVillage": {
+   "chainS": {
+    "n": 20,
+    "min": 73,
+    "p50": 106,
+    "p90": 126,
+    "p99": 133.3,
+    "max": 133.3
+   },
+   "chainExcludingFreezeS": {
+    "n": 20,
+    "min": 73,
+    "p50": 106,
+    "p90": 126,
+    "p99": 133.3,
+    "max": 133.3
+   },
+   "pageS": {
+    "n": 20,
+    "min": 90.1,
+    "p50": 117.2,
+    "p90": 132.2,
+    "p99": 147.2,
+    "max": 147.2
+   },
+   "villagesFromChain": 20,
+   "villagesFromPage": 20,
+   "joinedWithoutVillage": 0
+  },
+  "depart": {
+   "attempts": 259,
+   "outcomes": {
+    "ok": 114,
+    "send-disabled": 118,
+    "refused": 27
+   },
+   "refusals": {
+    "send-disabled: そこまでの道が見つかりません | 到着の鐘が道のりに合いません": 92,
+    "send-disabled: No path there was found. | The arrival bell does not fit the path.": 8,
+    "refused: 到着の鐘が道のりに合いません": 15,
+    "send-disabled: 到着の鐘が道のりに合いません | この州はまだ前の鐘の決着が済んでいません | 到着の鐘が道のりに合いません": 2,
+    "refused: この州はまだ前の鐘の決着が済んでいません": 10,
+    "send-disabled: そこまでの道が見つかりません": 7,
+    "refused: The arrival bell does not fit the path.": 2,
+    "send-disabled: この州はまだ前の鐘の決着が済んでいません | そこまでの道が見つかりません | 到着の鐘が道のりに合いません": 4,
+    "send-disabled: 到着の鐘が道のりに合いません | 到着の鐘が道のりに合いません": 1,
+    "send-disabled: Recorded on chain. | No path there was found.": 1,
+    "send-disabled: チェーンに記録されました | そこまでの道が見つかりません | 到着の鐘が道のりに合いません": 1,
+    "send-disabled: この州はまだ前の鐘の決着が済んでいません | 到着の鐘が道のりに合いません": 1,
+    "send-disabled: No path there was found.": 1
+   },
+   "relayAnswers": {
+    "200": 114,
+    "202": 1,
+    "400 ArrivalBell": 7
+   },
+   "marchesDeparted": 114,
+   "testersWithAMarch": 13,
+   "firstAttemptAccepted": 10,
+   "firstAttemptsTotal": 13,
+   "acceptedPerAttempt": 0.44,
+   "sealAndSendS": {
+    "n": 114,
+    "min": 1.1,
+    "p50": 1.7,
+    "p90": 1.9,
+    "p99": 2.6,
+    "max": 2.7
+   }
+  },
+  "firstClashReport": {
+   "fromChainS": {
+    "n": 13,
+    "min": 202.6,
+    "p50": 223.5,
+    "p90": 257.5,
+    "p99": 259.4,
+    "max": 259.4
+   },
+   "fromChainExcludingFreezeS": {
+    "n": 13,
+    "min": 202.6,
+    "p50": 223.5,
+    "p90": 257.5,
+    "p99": 259.4,
+    "max": 259.4
+   },
+   "allMarchesExcludingFreezeS": {
+    "n": 111,
+    "min": 190.8,
+    "p50": 230,
+    "p90": 295.1,
+    "p99": 361,
+    "max": 405.2
+   },
+   "allMarchesS": {
+    "n": 111,
+    "min": 190.8,
+    "p50": 230,
+    "p90": 295.1,
+    "p99": 361,
+    "max": 405.2
+   },
+   "fromPageS": {
+    "n": 12,
+    "min": 9.5,
+    "p50": 2061.8,
+    "p90": 9009.7,
+    "p99": 20030.7,
+    "max": 20030.7
+   },
+   "marchesWithChainReport": 111,
+   "marchesWithPageReport": 77
+  },
+  "relay": {
+   "join": {
+    "200": 20
+   },
+   "relay": {
+    "200": 754,
+    "400 Insufficient": 127,
+    "400 QueueFull": 12,
+    "400 ArrivalBell": 7,
+    "400 ProvinceFull": 95,
+    "400 SimulationFailed": 1,
+    "409 NotResident": 3
+   },
+   "nudge": {
+    "200": 441
+   },
+   "reveal": {
+    "202": 48
+   },
+   "latencyMs": {
+    "join": {
+     "n": 20,
+     "min": 5,
+     "p50": 13,
+     "p90": 19,
+     "p99": 36,
+     "max": 36
+    },
+    "relay": {
+     "n": 999,
+     "min": 3,
+     "p50": 6,
+     "p90": 16,
+     "p99": 824,
+     "max": 4861
+    },
+    "nudge": {
+     "n": 441,
+     "min": 0,
+     "p50": 2,
+     "p90": 21,
+     "p99": 27,
+     "max": 30
+    }
+   },
+   "serverErrors5xx": 0,
+   "rateLimited429": 0
+  },
+  "actions": {
+   "Build": {
+    "ok": 136,
+    "refused": 43,
+    "unavailable": 0,
+    "timeout": 0,
+    "latencyS": {
+     "n": 136,
+     "min": 0.3,
+     "p50": 1.8,
+     "p90": 1.8,
+     "p99": 1.8,
+     "max": 1.9
+    }
+   },
+   "Look": {
+    "ok": 182,
+    "refused": 0,
+    "unavailable": 0,
+    "timeout": 0,
+    "latencyS": {
+     "n": 0
+    }
+   },
+   "Train": {
+    "ok": 188,
+    "refused": 67,
+    "unavailable": 1,
+    "timeout": 0,
+    "latencyS": {
+     "n": 188,
+     "min": 1.5,
+     "p50": 1.8,
+     "p90": 1.8,
+     "p99": 1.8,
+     "max": 1.8
+    }
+   },
+   "Muster": {
+    "ok": 90,
+    "refused": 127,
+    "unavailable": 34,
+    "timeout": 0,
+    "latencyS": {
+     "n": 90,
+     "min": 0.3,
+     "p50": 1.8,
+     "p90": 2.1,
+     "p99": 9.7,
+     "max": 9.7
+    }
+   },
+   "Depart": {
+    "ok": 114,
+    "refused": 0,
+    "unavailable": 189,
+    "timeout": 0,
+    "latencyS": {
+     "n": 114,
+     "min": 1.7,
+     "p50": 4.2,
+     "p90": 4.4,
+     "p99": 5.1,
+     "max": 5.2
+    }
+   },
+   "Harvest": {
+    "ok": 172,
+    "refused": 0,
+    "unavailable": 0,
+    "timeout": 0,
+    "latencyS": {
+     "n": 172,
+     "min": 0.3,
+     "p50": 1.8,
+     "p90": 1.8,
+     "p99": 1.8,
+     "max": 1.9
+    }
+   },
+   "Explore": {
+    "ok": 34,
+    "refused": 1,
+    "unavailable": 112,
+    "timeout": 0,
+    "latencyS": {
+     "n": 34,
+     "min": 1.5,
+     "p50": 1.8,
+     "p90": 2.4,
+     "p99": 6.4,
+     "max": 6.4
+    }
+   }
+  },
+  "unavailable": {
+   "Muster: no reserve": 9,
+   "Depart: host locked, resting or no stamina": 68,
+   "Explore: no scout host": 55,
+   "Muster: 村がまだ確定していません": 14,
+   "Muster: The village is not final yet.": 5,
+   "Depart: send stays disabled": 118,
+   "Explore: scout locked or resting": 30,
+   "Muster: この州はまだ前の鐘の決着が済んでいません 追いつかせる": 6,
+   "Explore: no tile to explore": 27,
+   "Train: no form": 1,
+   "Depart: no host": 3
+  },
+  "refusedTexts": {
+   "Train: 資源か残高が足りません": 60,
+   "Muster: 資源か残高が足りません": 28,
+   "Build: Not enough resources or balance.": 2,
+   "Train: Not enough resources or balance.": 6,
+   "Build: 資源か残高が足りません": 29,
+   "Muster: Not enough resources or balance.": 2,
+   "Build: 建設の列がいっぱいです": 8,
+   "Muster: この州の枠がいっぱいです": 84,
+   "Muster: The transaction failed in simulation.": 1,
+   "Build: The build queue is full.": 4,
+   "Explore: いまは使えません。しばらくしてから試してください": 1,
+   "Muster: いまは使えません。しばらくしてから試してください": 1,
+   "Train: いまは使えません。しばらくしてから試してください": 1,
+   "Muster: This province is full.": 11
+  },
+  "errors": {
+   "testerErrors": {},
+   "actionErrors": {},
+   "httpFailures": {
+    "GET /h/province/-#,#/# 404": {
+     "n": 95,
+     "testers": 3,
+     "first": "2026-10-03T15:25:31.284Z",
+     "last": "2026-10-03T21:51:49.087Z"
+    },
+    "GET /h/bell/#/region/# 404": {
+     "n": 447,
+     "testers": 11,
+     "first": "2026-10-03T15:25:31.285Z",
+     "last": "2026-10-03T22:22:31.506Z"
+    },
+    "GET /h/province/-#,#/# ERR net::ERR_ABORTED": {
+     "n": 63,
+     "testers": 3,
+     "first": "2026-10-03T15:25:43.283Z",
+     "last": "2026-10-03T21:51:45.058Z"
+    },
+    "GET /h/bell/#/region/# ERR net::ERR_ABORTED": {
+     "n": 344,
+     "testers": 11,
+     "first": "2026-10-03T15:25:43.285Z",
+     "last": "2026-10-03T22:22:43.506Z"
+    },
+    "GET /frontier/frontier/art/units/cards/#_horseman.webp 502": {
+     "n": 1,
+     "testers": 1,
+     "first": "2026-10-03T16:50:29.606Z",
+     "last": "2026-10-03T16:50:29.606Z"
+    },
+    "GET /frontier/frontier/art/units/cards/#_spearman.webp 502": {
+     "n": 1,
+     "testers": 1,
+     "first": "2026-10-03T16:50:29.607Z",
+     "last": "2026-10-03T16:50:29.607Z"
+    },
+    "GET /frontier/frontier/art/units/cards/#_pikeman.webp 502": {
+     "n": 1,
+     "testers": 1,
+     "first": "2026-10-03T16:50:29.607Z",
+     "last": "2026-10-03T16:50:29.607Z"
+    },
+    "GET /frontier/frontier/art/units/cards/#_scout.webp 502": {
+     "n": 2,
+     "testers": 1,
+     "first": "2026-10-03T16:50:28.728Z",
+     "last": "2026-10-03T16:50:28.988Z"
+    },
+    "GET /h/province/#,-#/# 404": {
+     "n": 99,
+     "testers": 3,
+     "first": "2026-10-03T17:31:25.371Z",
+     "last": "2026-10-03T22:18:30.379Z"
+    },
+    "GET /h/province/#,-#/# ERR net::ERR_ABORTED": {
+     "n": 78,
+     "testers": 3,
+     "first": "2026-10-03T17:31:37.372Z",
+     "last": "2026-10-03T22:06:30.767Z"
+    },
+    "GET /gw/f/relay 500": {
+     "n": 3,
+     "testers": 3,
+     "first": "2026-10-03T17:50:28.154Z",
+     "last": "2026-10-03T17:50:30.328Z"
+    },
+    "GET /gw/f/quota 500": {
+     "n": 2,
+     "testers": 2,
+     "first": "2026-10-03T17:50:29.660Z",
+     "last": "2026-10-03T17:50:31.305Z"
+    },
+    "GET /h/province/#,#/# 404": {
+     "n": 5,
+     "testers": 1,
+     "first": "2026-10-03T18:02:27.319Z",
+     "last": "2026-10-03T18:02:47.356Z"
+    },
+    "GET /h/province/#,#/# ERR net::ERR_ABORTED": {
+     "n": 2,
+     "testers": 1,
+     "first": "2026-10-03T18:02:39.318Z",
+     "last": "2026-10-03T18:02:39.560Z"
+    },
+    "GET /frontier/frontier/playtest/ 530": {
+     "n": 7,
+     "testers": 6,
+     "first": "2026-10-03T19:23:41.217Z",
+     "last": "2026-10-03T19:45:18.310Z"
+    },
+    "GET / 530": {
+     "n": 8,
+     "testers": 7,
+     "first": "2026-10-03T19:24:37.177Z",
+     "last": "2026-10-03T19:46:31.712Z"
+    }
+   },
+   "console": {
+    "console: Failed to load resource: the server responded with a status of 400 (Bad Request)": {
+     "n": 242,
+     "testers": 15
+    },
+    "pageerror: Cannot read properties of null (reading 'q') @ hexCentre (/frontier/frontier/people/crowds.mjs:45:83) < paintPeople (/frontier/frontier/people/crowds.mjs:336:67)": {
+     "n": 74,
+     "testers": 13
+    },
+    "console: Failed to load resource: the server responded with a status of 404 (Not Found)": {
+     "n": 646,
+     "testers": 11
+    },
+    "console: Failed to load resource: the server responded with a status of 502 (Bad Gateway)": {
+     "n": 5,
+     "testers": 2
+    },
+    "console: Failed to load resource: the server responded with a status of 500 (Internal Server Error)": {
+     "n": 5,
+     "testers": 3
+    },
+    "console: Failed to load resource: the server responded with a status of 530 (unknown)": {
+     "n": 15,
+     "testers": 13
+    },
+    "console: Failed to load resource: the server responded with a status of 409 (Conflict)": {
+     "n": 3,
+     "testers": 3
+    }
+   },
+   "visitsUnreachable": 15,
+   "slowRequests": 0,
+   "browserDisconnects": 0
+  }
+ },
+ "drills": [
+  {
+   "drill": "kill:keeper-a",
+   "window": [
+    "2026-10-03T15:50:05.461Z",
+    "2026-10-03T15:50:55.461Z"
+   ],
+   "restart": {
+    "pidMs": 2303,
+    "portMs": 2303,
+    "healthyMs": 2304
+   },
+   "chainSlotsAdvanced": 56,
+   "frozenS": null,
+   "alarms": [],
+   "monitorGap": null,
+   "crowdSaw": {
+    "failedRequests": 0,
+    "byStatus": {},
+    "relay5xx": 0,
+    "visitsUnreachable": 0,
+    "testerErrors": 0
+   }
+  },
+  {
+   "drill": "kill:keeper-b",
+   "window": [
+    "2026-10-03T16:20:05.240Z",
+    "2026-10-03T16:20:55.240Z"
+   ],
+   "restart": {
+    "pidMs": 2279,
+    "portMs": 2280,
+    "healthyMs": 2281
+   },
+   "chainSlotsAdvanced": 55,
+   "frozenS": null,
+   "alarms": [],
+   "monitorGap": null,
+   "crowdSaw": {
+    "failedRequests": 0,
+    "byStatus": {},
+    "relay5xx": 0,
+    "visitsUnreachable": 0,
+    "testerErrors": 0
+   }
+  },
+  {
+   "drill": "kill:herald",
+   "window": [
+    "2026-10-03T16:50:05.358Z",
+    "2026-10-03T16:50:55.358Z"
+   ],
+   "restart": {
+    "pidMs": 2277,
+    "portMs": 2278,
+    "healthyMs": 2278
+   },
+   "chainSlotsAdvanced": 55,
+   "frozenS": null,
+   "alarms": [],
+   "monitorGap": null,
+   "crowdSaw": {
+    "failedRequests": 5,
+    "byStatus": {
+     "GET 502": 5
+    },
+    "relay5xx": 0,
+    "visitsUnreachable": 0,
+    "testerErrors": 0
+   }
+  },
+  {
+   "drill": "kill:relay",
+   "window": [
+    "2026-10-03T17:20:05.627Z",
+    "2026-10-03T17:20:55.627Z"
+   ],
+   "restart": {
+    "pidMs": 2299,
+    "portMs": 2552,
+    "healthyMs": 2578
+   },
+   "chainSlotsAdvanced": 56,
+   "frozenS": null,
+   "alarms": [],
+   "monitorGap": null,
+   "crowdSaw": {
+    "failedRequests": 0,
+    "byStatus": {},
+    "relay5xx": 0,
+    "visitsUnreachable": 0,
+    "testerErrors": 0
+   }
+  },
+  {
+   "drill": "kill:localnet",
+   "window": [
+    "2026-10-03T17:50:06.829Z",
+    "2026-10-03T17:50:56.829Z"
+   ],
+   "restart": {
+    "pidMs": 3804,
+    "portMs": 3805,
+    "healthyMs": 3807
+   },
+   "chainSlotsAdvanced": 52,
+   "frozenS": null,
+   "alarms": [],
+   "monitorGap": null,
+   "crowdSaw": {
+    "failedRequests": 5,
+    "byStatus": {
+     "GET 500": 5
+    },
+    "relay5xx": 0,
+    "visitsUnreachable": 0,
+    "testerErrors": 0
+   }
+  },
+  {
+   "drill": "kill:bots",
+   "window": [
+    "2026-10-03T18:20:05.288Z",
+    "2026-10-03T18:20:55.288Z"
+   ],
+   "restart": {
+    "pidMs": 2287,
+    "portMs": 2288,
+    "healthyMs": 2290
+   },
+   "chainSlotsAdvanced": 56,
+   "frozenS": null,
+   "alarms": [],
+   "monitorGap": null,
+   "crowdSaw": {
+    "failedRequests": 0,
+    "byStatus": {},
+    "relay5xx": 0,
+    "visitsUnreachable": 0,
+    "testerErrors": 0
+   }
+  },
+  {
+   "drill": "kill:drand-replay",
+   "window": [
+    "2026-10-03T18:50:05.301Z",
+    "2026-10-03T18:50:55.301Z"
+   ],
+   "restart": {
+    "pidMs": 2295,
+    "portMs": 2295,
+    "healthyMs": 2295
+   },
+   "chainSlotsAdvanced": 56,
+   "frozenS": null,
+   "alarms": [],
+   "monitorGap": null,
+   "crowdSaw": {
+    "failedRequests": 0,
+    "byStatus": {},
+    "relay5xx": 0,
+    "visitsUnreachable": 0,
+    "testerErrors": 0
+   }
+  },
+  {
+   "drill": "pause:30",
+   "window": [
+    "2026-10-03T19:20:28.033Z",
+    "2026-10-03T19:53:28.085Z"
+   ],
+   "restart": {
+    "pidMs": null,
+    "portMs": null,
+    "healthyMs": 42
+   },
+   "chainSlotsAdvanced": 151,
+   "frozenS": 1800,
+   "alarms": [],
+   "monitorGap": "{\"wall_secs\":1806,\"slots\":16,\"game_secs\":64,\"from\":\"2026-10-03T19:20:21.933Z\",\"to\":\"2026-10-03T19:50:28.082Z\"}",
+   "crowdSaw": {
+    "failedRequests": 15,
+    "byStatus": {
+     "GET 530": 15
+    },
+    "relay5xx": 0,
+    "visitsUnreachable": 15,
+    "testerErrors": 0
+   }
+  },
+  {
+   "drill": "abuse",
+   "window": [
+    "2026-10-03T20:40:23.003Z",
+    "2026-10-03T20:41:04.418Z"
+   ],
+   "restart": {
+    "pidMs": null,
+    "portMs": null,
+    "healthyMs": null
+   },
+   "chainSlotsAdvanced": null,
+   "frozenS": null,
+   "alarms": null,
+   "monitorGap": null,
+   "crowdSaw": {
+    "failedRequests": 0,
+    "byStatus": {},
+    "relay5xx": 0,
+    "visitsUnreachable": 0,
+    "testerErrors": 0
+   },
+   "abuse": {
+    "burstExit": 0,
+    "abuseCheckPass": 94,
+    "abuseCheckFail": [],
+    "burst": [
+     "{\"case\":\"A invite-check flood\",\"n\":300,\"ms\":5030,\"statuses\":{\"200\":12,\"429\":288},\"latency\":{\"p50\":3,\"max\":10}}",
+     "{\"case\":\"B junk join flood\",\"n\":200,\"statuses\":{\"400\":10,\"429\":190},\"latency\":{\"p50\":19,\"max\":24},\"sample\":\"{\\\"error\\\":\\\"tx must be a base64 serialized legacy transaction\\\",\\\"code\\\":\\\"InvalidTransaction\\\"}\"}",
+     "{\"case\":\"C junk relay flood\",\"n\":200,\"statuses\":{\"400\":40,\"429\":160},\"latency\":{\"p50\":10,\"max\":15}}",
+     "{\"case\":\"D spread over 100 addresses\",\"n\":300,\"statuses\":{\"200\":300},\"latency\":{\"p50\":11,\"max\":17}}",
+     "{\"case\":\"honest control during the flood\",\"n\":12,\"statuses\":{\"200\":12},\"latency\":{\"p50\":2,\"max\":12}}",
+     "abuse-burst: ok"
+    ]
+   }
+  }
+ ],
+ "errors": {
+  "relayAnswersAll": {
+   "2xx": 1263,
+   "4xx (a rule, answered)": 245
+  },
+  "relayAnswersOutsideDrills": {
+   "2xx": 1242,
+   "4xx (a rule, answered)": 239
+  },
+  "relay5xxOutsideDrills": 0,
+  "relayRefusalsByCode": {
+   "400 Insufficient": 127,
+   "400 QueueFull": 12,
+   "400 ArrivalBell": 7,
+   "400 ProvinceFull": 95,
+   "400 SimulationFailed": 1,
+   "409 NotResident": 3
+  },
+  "pageRequestFailuresOutsideDrills": {},
+  "immutableFile404sOutsideDrills": 606,
+  "pageErrors": {
+   "pageerror: Cannot read properties of null (reading 'q') @ hexCentre (/frontier/frontier/people/crowds.mjs:45:83) < paintPeople (/frontier/frontier/people/crowds.mjs:336:67)": {
+    "n": 74,
+    "testers": 13
+   }
+  },
+  "testerErrorsOutsideDrills": 0,
+  "testerErrorsAll": {}
+ },
+ "system": {
+  "samples": 869,
+  "processes": {
+   "babysitter": {
+    "cpuP50": 0,
+    "cpuP99": 0.3,
+    "cpuMax": 0.4,
+    "rssMBP50": 2,
+    "rssMBMax": 2
+   },
+   "bots": {
+    "cpuP50": 0.1,
+    "cpuP99": 2.3,
+    "cpuMax": 3.9,
+    "rssMBP50": 8,
+    "rssMBMax": 8
+   },
+   "drand-replay": {
+    "cpuP50": 0.1,
+    "cpuP99": 0.2,
+    "cpuMax": 0.2,
+    "rssMBP50": 26,
+    "rssMBMax": 27
+   },
+   "fake-tunnel": {
+    "cpuP50": 0,
+    "cpuP99": 2,
+    "cpuMax": 19,
+    "rssMBP50": 62,
+    "rssMBMax": 66
+   },
+   "herald": {
+    "cpuP50": 0.1,
+    "cpuP99": 7.9,
+    "cpuMax": 23.1,
+    "rssMBP50": 39,
+    "rssMBMax": 59
+   },
+   "keeper-a": {
+    "cpuP50": 0.7,
+    "cpuP99": 3.1,
+    "cpuMax": 5.6,
+    "rssMBP50": 35,
+    "rssMBMax": 38
+   },
+   "keeper-b": {
+    "cpuP50": 0.3,
+    "cpuP99": 0.8,
+    "cpuMax": 1.5,
+    "rssMBP50": 33,
+    "rssMBMax": 34
+   },
+   "localnet": {
+    "cpuP50": 0.9,
+    "cpuP99": 7.9,
+    "cpuMax": 20.1,
+    "rssMBP50": 101,
+    "rssMBMax": 171
+   },
+   "relay": {
+    "cpuP50": 0,
+    "cpuP99": 2.8,
+    "cpuMax": 9.2,
+    "rssMBP50": 111,
+    "rssMBMax": 116
+   },
+   "stack-supervisor": {
+    "cpuP50": 0,
+    "cpuP99": 0.7,
+    "cpuMax": 3.3,
+    "rssMBP50": 12,
+    "rssMBMax": 12
+   }
+  },
+  "stackTotal": {
+   "cpuP50": 2.4,
+   "cpuP99": 21.6,
+   "cpuMax": 45.1,
+   "rssMBP50": 364,
+   "rssMBMax": 462
+  },
+  "crowdBrowsers": {
+   "cpuP50": 4.7,
+   "cpuP99": 73,
+   "cpuMax": 156.1,
+   "rssMBP50": 644,
+   "rssMBMax": 1959
+  },
+  "machineLoad1": {
+   "p50": 2.01,
+   "p99": 36.61,
+   "max": 49.59
+  },
+  "monitor": {
+   "samples": 799,
+   "bellFirst": null,
+   "bellLast": 403,
+   "lagBellsMax": 26,
+   "lagBellsP50": 24,
+   "foldLagSlotsMax": 123,
+   "foldLagSlotsP99": 3,
+   "keeperAPendingMax": 29,
+   "keeperBPendingMax": 1,
+   "alarmsRaised": [],
+   "freeGBFirst": 181,
+   "freeGBLast": 180
+  },
+  "alarmChanges": 0,
+  "alarmChangeSample": []
+ },
+ "relayEventLog": {
+  "invites_issued": 2,
+  "join": 67,
+  "seen": 2468,
+  "action": 1095
+ },
+ "relayCatchups": {
+  "lines": 44,
+  "sample": [
+   "f/relay Muster: NotResident, province caught up by the keeper; simulating again",
+   "f/relay Depart: NotResident, province caught up by the keeper; simulating again",
+   "f/relay Muster: NotResident, province caught up by the keeper; simulating again"
+  ]
+ },
+ "freezeWindows": [
+  [
+   "2026-10-03T19:20:28.033Z",
+   "2026-10-03T19:50:28.033Z"
+  ]
+ ],
+ "crowdMinutes": 432.4
+}

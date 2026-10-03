@@ -22,7 +22,7 @@ import { PublicKey } from '@solana/web3.js';
 import { decodeAccount } from '../../client/src/frontier/codec.mjs';
 
 export const RESIDENT_SHAPES = Object.freeze(['Depart', 'Muster', 'Garrison', 'Dissolve', 'Explore', 'Build']);
-export const CATCH_UP = Object.freeze({ waitMs: 8_000, pollMs: 400, minGapMs: 1_500 });
+export const CATCH_UP = Object.freeze({ waitMs: 20_000, pollMs: 400, minGapMs: 1_500 });
 
 const bellOf = (clock, season) => Math.floor((Number(clock.unixTimestamp) - Number(season.GENESIS_TS)) / Number(season.BELL_SECS));
 const sleep = ms => new Promise(r => setTimeout(r, ms));

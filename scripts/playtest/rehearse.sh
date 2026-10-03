@@ -89,7 +89,7 @@ touch "$OUT/SAMPLER-STOP"; sleep 2; kill $SAMPLER 2>/dev/null
 
 say "results"
 RES="$OUT/results"
-node "$HERE/crowd-report.mjs" "$OUT/crowd/crowd-events.jsonl" --json "$RES/crowd-report.json" > /dev/null
+node "$HERE/crowd-report.mjs" "$OUT/crowd/crowd-events.jsonl" --drills "$OUT/drills.jsonl" --json "$RES/crowd-report.json" > /dev/null 2>&1 || node "$HERE/crowd-report.mjs" "$OUT/crowd/crowd-events.jsonl" --json "$RES/crowd-report.json" > /dev/null
 node "$ROOT/scripts/playtest-metrics.mjs" "$PT_RUN/relay/relay-events.jsonl" --herald "http://127.0.0.1:$HERALD" --gaps "$PT_DATA/status/gaps.jsonl" --json "$RES/metrics.json" --people > "$RES/metrics.txt" 2>&1
 node "$HERE/metrics-validate.mjs" --crowd "$OUT/crowd/crowd-events.jsonl" --relay-log "$PT_RUN/relay/relay-events.jsonl" --invites "$OUT/invites.csv" > "$RES/metrics-validation.txt" 2>&1
 "$ROOT/scripts/playtest-status.sh" > "$RES/status-end.txt" 2>&1
@@ -97,6 +97,7 @@ node "$HERE/metrics-validate.mjs" --crowd "$OUT/crowd/crowd-events.jsonl" --rela
 cp "$PT_RUN/relay/relay-events.jsonl" "$RES/relay-events.jsonl" 2>/dev/null
 cp "$PT_DATA/status/history.jsonl" "$RES/status-history.jsonl" 2>/dev/null; cp "$PT_DATA/status/alarms.jsonl" "$RES/status-alarms.jsonl" 2>/dev/null; cp "$PT_DATA/status/gaps.jsonl" "$RES/status-gaps.jsonl" 2>/dev/null
 cp -R "$PT_RUN/logs" "$RES/component-logs" 2>/dev/null
+node "$HERE/run-summary.mjs" --run "$OUT" --json "$RES/run-summary.json" > /dev/null 2>"$OUT/logs/summary.err"
 kill "$TUNPID" 2>/dev/null
 if [ $KEEP -eq 0 ]; then say "stack down"; "$ROOT/scripts/playtest-down.sh" > "$OUT/logs/down.log" 2>&1; fi
 say "done"

@@ -1,0 +1,10 @@
+PASS  N_joined: crowd saw 20 joins land, the log says 20
+PASS  every joined tester is a person in the log (0 missing)
+PASS  per person: join day, active days, returned, sessions compared for 20 testers (0 differences)
+PASS  N_returned: crowd 0, log 0
+PASS  D: crowd 1 days (2026-10-04), log 1
+PASS  median sessions: crowd 2, log 2
+PASS  per-day active citizens: log 2026-10-04=20; crowd 2026-10-04=20
+info  joins in the log from excluded labels (bots): 47; unknown batch: 0; duplicates/other: 0
+PASS  N_invited: invitations CSV has 26 codes, the log says 26
+metrics-validate: all agree
