@@ -1,6 +1,6 @@
 # Wylls：設計の概要
 
-**対象読者：** 審査員と、設計の全体を約10分で知りたいエンジニア。**日付：** 2026-10-04（ハッカソン締切は 2026-10-13 15:59 JST）。**範囲：** このリポジトリにある唯一のゲーム、オープンワールドの Wylls。日本語の要約は [frontier/SUMMARY.ja.md](frontier/SUMMARY.ja.md) と、AI市民については [frontier/ai-citizens/GAME-DESIGN-CORE.ja.md](frontier/ai-citizens/GAME-DESIGN-CORE.ja.md) にあります（古い `ai-citizens/SUMMARY.ja.md` は契約書 v1.1 の、協定ありの内容で、置き換え済みです）。
+**対象読者：** 審査員と、設計の全体を約10分で知りたいエンジニア。**日付：** 2026-10-04（ハッカソン締切は 2026-10-13 15:59 JST）。**範囲：** このリポジトリにある唯一のゲーム、オープンワールドの Wylls。日本語の要約は [frontier/SUMMARY.ja.md](frontier/SUMMARY.ja.md) と、AI市民については [frontier/ai-citizens/GAME-DESIGN-CORE.ja.md](frontier/ai-citizens/GAME-DESIGN-CORE.ja.md) にあります（`ai-citizens/SUMMARY.ja.md` は契約書 v1.2 のやさしい要約です）。
 
 > この文書は英語版 [DESIGN-OVERVIEW.md](DESIGN-OVERVIEW.md) の日本語版です。見出し、数字、状態タグ、リンクは英語版と同じです（見出しの番号も同じです）。
 
