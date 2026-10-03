@@ -76,11 +76,13 @@ pub fn dispatch(
     accounts: &[solana_program::account_info::AccountInfo],
     data: &[u8],
 ) -> R<()> {
-    use frontier_abi::tags::Ix;
+    use frontier_abi::v2::tags::Ix;
     use proc::*;
     markers::touch();
     heap::trace_checkpoint(0);
-    let ix = frontier_abi::ix::tag_of(data)?;
+    // ABI v2 (MC §5.4): M1's tags keep their handlers; 0xA0–0xA7 are the
+    // conquest instructions (`proc::conquest`).
+    let ix = frontier_abi::v2::ix::tag_of(data)?;
     let p = program_id;
     let a = accounts;
     let r = match ix {
@@ -142,6 +144,14 @@ pub fn dispatch(
         Ix::CloseArrivalSlot => clash::close_arrival_slot(p, a, data),
         // §5.12 defence pool
         Ix::ClaimDefence => defence::claim_defence(p, a, data),
+        // MC §5.5 conquest
+        Ix::DeclareSiege => conquest::declare_siege(p, a, data),
+        Ix::SettleSiege => conquest::settle_siege(p, a, data),
+        Ix::SettleCapture => conquest::settle_capture(p, a, data),
+        Ix::FileOutpost => conquest::file_outpost(p, a, data),
+        Ix::FoldMarch => conquest::fold_march(p, a, data),
+        Ix::RetireHost => conquest::retire_host(p, a, data),
+        Ix::CloseMarch => conquest::close_march(p, a, data),
     };
     heap::trace_checkpoint(0xffff);
     r

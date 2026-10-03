@@ -31,6 +31,19 @@ pub use land::{camp, cohort, entry, province, site, summary};
 pub use player::{citizen, explore, holding, transit};
 pub use world::{beacon_log, defence_pool, frontier, join_shard, province_fund, ring_seed, season};
 
+/// ABI v2 layouts (MC §5.2): the conquest block of the Province, the v2
+/// site mirror, the Holding / Citizen / JoinShard reserve fields, Season
+/// v2 and MarchState. Offsets: `frontier_abi::v2::layout`.
+pub mod v2 {
+    pub use frontier_abi::v2::layout::player::{citizen, holding};
+    pub use frontier_abi::v2::layout::province::{conquest, keep, province, site, snapshot};
+    pub use frontier_abi::v2::layout::world::{join_shard, march_state, season};
+    pub use frontier_abi::v2::layout::{
+        layout_version, write_header, AccountKind, LAYOUT_VERSION_V2,
+    };
+    pub use frontier_abi::v2::presets::cq_layout;
+}
+
 /// Read-only view of an account's data.
 #[derive(Clone, Copy, Debug)]
 pub struct Ro<'a>(pub &'a [u8]);

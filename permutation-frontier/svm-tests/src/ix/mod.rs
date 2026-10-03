@@ -19,6 +19,7 @@ pub use fclient::ix::*;
 pub mod beacon;
 pub mod citizen;
 pub mod clash;
+pub mod conquest;
 pub mod defence;
 pub mod holding;
 pub mod host;

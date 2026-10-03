@@ -15,6 +15,7 @@
 //! | `clash.rs` | GatherClash, ResolveFromInputs, ResolveClash (`oracle`), SkipQuiet, CloseClashInputs, CloseArrivalDay, CloseArrivalSlot | W4-A |
 //! | `transit.rs` | SettleTransit, SweepPoolOwed | W4-B |
 //! | `defence.rs` | ClaimDefence | W4-B |
+//! | `conquest.rs` | MC §5.5: DeclareSiege, SettleSiege, SettleCapture, FileOutpost (stub; CQ2-A), FoldMarch, RetireHost, CloseMarch | CQ2-C |
 //!
 //! Every handler has the signature `fn(&Pubkey, &[AccountInfo], &[u8]) ->
 //! R<()>`; `RELEASE_CHECK=1` (G13, wave 5) fails while any path still
@@ -40,6 +41,7 @@
 pub mod beacon;
 pub mod citizen;
 pub mod clash;
+pub mod conquest;
 pub mod defence;
 pub mod holding;
 pub mod host;

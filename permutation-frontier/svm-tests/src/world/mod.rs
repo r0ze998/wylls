@@ -22,6 +22,7 @@
 //! [`transit`] (W4-B): stubs, handed over (§11).
 
 pub mod clash;
+pub mod conquest;
 pub mod holding;
 pub mod land;
 pub mod transit;
