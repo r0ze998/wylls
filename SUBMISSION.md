@@ -1,16 +1,16 @@
 # Wylls: hackathon submission record (repository side)
 
-**Repository:** <https://github.com/r0ze998/wylls> · **Date of this record:** 2026-10-03 · **Project freeze:** 2026-10-12 23:59 JST · **Submit by:** 2026-10-13 15:59 JST · **Demo video:** [link pending] · **Pitch video:** [link pending]
+**Repository:** <https://github.com/r0ze998/wylls> · **Date of this record:** 2026-10-04 · **Project freeze:** 2026-10-12 23:59 JST · **Submit by:** 2026-10-13 15:59 JST · **Demo video:** [link pending] · **Pitch video:** [link pending]
 
 This file is the repository's own record: what the project is, where each part lives, how to run and check it, what was built when, and where the evidence stops. The submission form text is written separately by the owner. If anything here disagrees with a recorded run, the run wins.
 
-> **Status 2026-10-03:** local test chain only (never devnet or mainnet) · no outside person has played yet · every number comes from tests, rule-bot runs, the Gemma 4 spike or simulation · AI citizens are designed, not built [AS-BUILT: pending] · money, governance and markets are not built.
+> **Status 2026-10-04:** local test chain only (never devnet or mainnet) · no outside person has played yet · every number comes from tests, rule-bot runs, the Gemma 4 spike or simulation · AI citizens are designed, not built [AS-BUILT: pending] · money, governance and markets are not built.
 
 Tags: **[measured]** a recorded run or test, with its source; **[code]** a rule read from tested code, not a play result; **[sim]** simulator output with assumed behaviour; **[model]** a cost or scale model; **[estimate]** a back-of-envelope figure; **[built this week]** merged since the M1 exit (2026-10-01) and checked by tests and screen fixtures only; **[designed]** written down, not built; **[in progress]** on branches, not in this tree; **[AS-BUILT: pending]** a placeholder for a result that does not exist yet (removed at the freeze, 2026-10-12; the full list of markers to clear is in the freeze checklist at the end).
 
 ## 1. What the project is
 
-Wylls is a Civ-like world on Solana that everyone shares. You choose one of six nations (国) and a village (村) is placed for you. Your economy runs in real time. Armies march under sealed orders (the departure is public, the destination is hidden by a drand time-lock until the arrival bell), and every province's fights resolve together at a 10-minute bell (鐘) with public randomness, in a record anyone can replay and check. Everything ends with the season; only the chronicle carries over. The name is the English spelling of will (意志); the question the game asks is how a game behaves when AI has will, and the plan is to let labelled AI citizens play under the same rules as people. One-page pitch: [PITCH.md](PITCH.md). Demo script: [docs/pitch/DEMO_SCRIPT.md](docs/pitch/DEMO_SCRIPT.md). Ten-minute design tour: [docs/DESIGN-OVERVIEW.md](docs/DESIGN-OVERVIEW.md) ([日本語](docs/DESIGN-OVERVIEW.ja.md)).
+Wylls is a Civ-like world on Solana that everyone shares. You choose one of six nations (国) and a village (村) is placed for you. Your economy runs in real time. Armies march under sealed orders (the departure is public, the destination is hidden by a drand time-lock until the arrival bell), and every province's fights resolve together at a 10-minute bell (鐘) with public randomness, in a record anyone can replay and check. Everything ends with the season; only the chronicle carries over. The name is the English spelling of will (意志); the question the game asks is how a game behaves when AI has will, and the plan is to let labelled AI citizens play under the same keys, rate limits and fog as people (plus safety caps), with goals, a memory they can cite and a nation council. One-page pitch: [PITCH.md](PITCH.md). Demo script: [docs/pitch/DEMO_SCRIPT.md](docs/pitch/DEMO_SCRIPT.md). Ten-minute design tour: [docs/DESIGN-OVERVIEW.md](docs/DESIGN-OVERVIEW.md) ([日本語](docs/DESIGN-OVERVIEW.ja.md)).
 
 | | Status | Evidence |
 |---|---|---|
@@ -18,7 +18,7 @@ Wylls is a Civ-like world on Solana that everyone shares. You choose one of six 
 | Replay verifier: 144,300 transactions pass; 30 of 30 deliberate tampers caught | [measured] | [verify.md](docs/frontier/m1/runs/m1-exit/verify.md), [tamper.md](docs/frontier/m1/runs/m1-exit/tamper.md) |
 | Joining is one choice (a nation); the first village is placed for you and appears at the next bell (about 11 to 21 minutes, a model figure) | [built this week] fixtures only | [DECISIONS V2](docs/frontier/DECISIONS.md) |
 | Conquest (keeps, sieges, occupation) | in progress on branches `frontier/cq-*`; **not in this branch**, no result quoted | [conquest contract](docs/frontier/conquest/CONQUEST-CONTRACT.md) |
-| AI citizens: 12 labelled AIs (2 per nation) on a local Gemma 4, council, sealed Call, audit | [designed]; implementation scheduled before the freeze; nothing built yet [AS-BUILT: pending] | [contract v1.1](docs/frontier/ai-citizens/AI-CITIZENS-CONTRACT.md) |
+| AI citizens: labelled AIs, equal per nation (12 in the A/B test and the recording, 18 in the main run) on a local Gemma 4, with memory, their own marches, a council and a sealed Strike Order, and an audit; pacts and betrayal are not in the build (decision X2) | [designed]; implementation scheduled before the freeze; nothing built yet [AS-BUILT: pending] | [contract v1.2](docs/frontier/ai-citizens/AI-CITIZENS-CONTRACT.md) |
 | Money (M2), governance, the Engine, markets (M3) | [designed], not built | [DESIGN-OVERVIEW §8](docs/DESIGN-OVERVIEW.md) |
 
 ## 2. Stack and where each part lives
@@ -92,8 +92,8 @@ Disclosure: the oldest commit in this repository is dated 2026-09-21; nothing in
 | 2026-09-27 | Pivot to the new open-world design; rules kernels and the balance simulator (M0) | [M0-FINAL](docs/frontier/m0/M0-FINAL.md); simulator results are [sim] |
 | 2026-09-27 to 10-01 | M1 "First Bell": program, keeper, herald, relay, verifier, 1,000 bots, local chain, web client. Exit season 2026-09-30 17:45 to 10-01 02:25 JST; M1 closed on `864b622` (2026-10-01) | [measured] |
 | 2026-10-02 to 10-03 | The name Wylls and the nation / village wording; joining is one choice | [built this week] |
-| 2026-10-01 to 10-03 | Gemma 4 spike (a measurement on the bare model, not AI citizens); AI-citizen contract v1.1; design overview and design record rev 4 | spike [measured]; contract [designed] |
-| 2026-10-03 to 10-12 | AI citizens: personas, council, sealed Call, audit, A/B test, recording. Conquest wave 2 in parallel on `frontier/cq-*` | [designed] / in progress; not built today |
+| 2026-10-01 to 10-04 | Gemma 4 spike (a measurement on the bare model, not AI citizens); AI-citizen contract v1.1, then v1.2 on 10-04 (memory in, pacts out); design overview and design record rev 4 | spike [measured]; contract [designed] |
+| 2026-10-04 to 10-12 | AI citizens: personas, memory, an AI's own march, the council and its sealed Strike Order, audit, A/B test, recording. Conquest wave 2 in parallel on `frontier/cq-*` | [designed] / in progress; not built today |
 
 The project was built with AI coding assistants under the owner's direction; design decisions are the owner's and are logged in [DECISIONS](docs/frontier/DECISIONS.md) (parts A and T to W). [OWNER: confirm this wording]
 
