@@ -51,6 +51,7 @@ use crate::v2::log::{event, ConquestPayload, Event, CONQUEST_EVENTS_MAX};
 use crate::v2::presets::ConquestParams;
 use permutation_rules::frontier::clash::{ClashOutcome, NEUTRAL};
 use permutation_rules::frontier::doctrine::of_faction;
+use permutation_rules::frontier::geometry::PROVINCE_TILES;
 use permutation_rules::frontier::laurel::Tier;
 use permutation_rules::frontier::siege::{BellReport as KReport, SiegeStatus};
 use permutation_rules::hash::sha256;
@@ -318,6 +319,14 @@ const fn side_bit(f: u8) -> u8 {
 /// `settle_bell(b)`.
 pub fn report_quiet(pd: &[u8], b: u32) -> R<BellReport> {
     let mask = crate::clash_model::tile_masks(pd, b)?;
+    report_from_masks(pd, &mask)
+}
+
+/// [`report_quiet`] from a tile mask the caller already holds: SkipQuiet's
+/// per-transaction cache (§5.7: the mask is rebuilt only after a change of
+/// the roster, CQ2-B). `mask` must be `tile_masks(pd, b)` of the current
+/// roster; the site states and the keep's holder are read here every bell.
+pub fn report_from_masks(pd: &[u8], mask: &[u8; PROVINCE_TILES]) -> R<BellReport> {
     let mut rep = BellReport::default();
     let n = (rd_u8(pd, P::SITE_COUNT).ok_or(BAD)? as usize).min(P::SITES_N);
     let sites: [u8; P::SITES_N] = rd_arr(pd, P::SITES).ok_or(BAD)?;
@@ -553,9 +562,27 @@ pub fn step(pd: &mut [u8], b: u32, rep: &BellReport, prm: &StepParams) -> R<Step
         out.snapshot = Some(w16);
         out.changed = true;
     }
-    out.active = decode_records(pd)?.iter().any(|r| r.active())
-        || read_keep(pd)?.is_some_and(|k| k.contender != KP::NONE);
+    out.active = active_count(pd)? > 0;
     Ok(out)
+}
+
+/// The Province's active work: sieges and occupations (D-15: a
+/// capture-due record waits and does not count) plus one for a running
+/// keep contest. Reads the kind bytes and the keep's tile and contender
+/// only (SkipQuiet's per-record term and prefix commit, §5.4).
+pub fn active_count(pd: &[u8]) -> R<u32> {
+    let mut n = 0u32;
+    for s in 0..P::SITES_N {
+        let k = *pd.get(P::record(s) + CR::KIND).ok_or(BAD)?;
+        if k == CR::KIND_SIEGE || k == CR::KIND_OCCUPATION {
+            n += 1;
+        }
+    }
+    let kp = pd.get(P::KEEP..P::KEEP + KP::SIZE).ok_or(BAD)?;
+    if kp[KP::TILE] != KP::NO_TILE && kp[KP::CONTENDER] != KP::NONE {
+        n += 1;
+    }
+    Ok(n)
 }
 
 /// The donor's entry after a keep is taken: home with the rest (a

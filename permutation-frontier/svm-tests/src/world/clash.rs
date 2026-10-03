@@ -26,6 +26,15 @@
 //! residents and garrisons fight at Hold, doctrine multipliers are the
 //! factions' (asymmetric doctrines), and the storage room of I-43 applies
 //! (48 residents leave 8 entries for arrivals).
+//!
+//! **MC (CQ2-B).** When the Season carries an MC conquest block
+//! (`conquest_version` 1: CreateSeason v2 writes it; on an M1 Season a test
+//! crafts it with [`World::set_conquest`]), [`World::craft_fill`] crafts the
+//! destination as a **Province v2** (4,736 B, `layout_version = 2`): the
+//! same bytes `0..4,096`, the conquest block zero except the keep record
+//! (`tile = 0xFF`, no keep, until a test writes one with [`mc_keep`] and
+//! `conquest_model::write_keep`). [`MC_BELL`] is an hour boundary (the
+//! snapshot runs).
 
 use fclient::addr::{self, Addresses};
 use fclient::ix::AnchorSource;
@@ -50,6 +59,11 @@ use permutation_rules::units::UnitType;
 use solana_address::Address;
 use solana_instruction::Instruction;
 use solana_signer::Signer;
+
+use frontier_abi::conquest_model as qm;
+use frontier_abi::v2::kernel::keep::{self as kkeep, Keep};
+use frontier_abi::v2::layout::province::province as P2;
+use frontier_abi::v2::presets::{ConquestParams, CONQUEST_VERSION, SEASON_CQ_OFFSET};
 
 use crate::chain::Chain;
 use crate::ix::clash as cix;
@@ -501,6 +515,53 @@ impl World {
         d
     }
 
+    /// Whether the Season carries an MC conquest block (module note).
+    pub fn is_mc(&self, c: &Chain) -> bool {
+        let d = c.data(&self.a.season);
+        d.get(SEASON_CQ_OFFSET) == Some(&CONQUEST_VERSION)
+    }
+
+    /// The Season's conquest block (MC Seasons).
+    pub fn conquest(&self, c: &Chain) -> ConquestParams {
+        ConquestParams::of_season(&c.data(&self.a.season)).expect("conquest block")
+    }
+
+    /// Crafted: writes `cq` into the Season's conquest block (an M1 Season
+    /// becomes an MC one for the clash path; CreateSeason v2 writes the
+    /// same bytes at creation).
+    pub fn set_conquest(&self, c: &mut Chain, cq: &ConquestParams) {
+        let b = cq.to_bytes();
+        c.edit(&self.a.season, |d| {
+            d[SEASON_CQ_OFFSET..SEASON_CQ_OFFSET + b.len()].copy_from_slice(&b)
+        });
+    }
+
+    /// [`World::fill_province_bytes`] as a Province v2 (module note): no
+    /// keep, every record zero.
+    pub fn fill_province_bytes_v2(&self, f: &Fill, bell: u32) -> Vec<u8> {
+        let v1 = self.fill_province_bytes(f, bell);
+        let mut d = vec![0u8; P2::SIZE];
+        assert!(frontier_abi::v2::layout::write_header(
+            &mut d,
+            frontier_abi::v2::layout::AccountKind::Province,
+            self.id
+        ));
+        let h = frontier_abi::layout::header::H_SIZE;
+        d[h..P::SIZE].copy_from_slice(&v1[h..]);
+        qm::write_no_keep(&mut d).unwrap();
+        d
+    }
+
+    /// The destination bytes of `f` as this Season crafts them (v2 on an
+    /// MC Season).
+    pub fn fill_bytes(&self, c: &Chain, f: &Fill, bell: u32) -> Vec<u8> {
+        if self.is_mc(c) {
+            self.fill_province_bytes_v2(f, bell)
+        } else {
+            self.fill_province_bytes(f, bell)
+        }
+    }
+
     /// A Holding with one transit record as SettleDeparture leaves it
     /// (module note).
     #[allow(clippy::too_many_arguments)]
@@ -516,7 +577,16 @@ impl World {
         let (hp, hq, site) = home;
         let k = self.a.holding(hp, hq, site);
         let mut d = vec![0u8; H::SIZE];
-        assert!(write_header(&mut d, AccountKind::Holding, self.id));
+        if self.is_mc(c) {
+            // an MC Season's chained accounts carry `layout_version = 2`
+            assert!(frontier_abi::v2::layout::write_header(
+                &mut d,
+                frontier_abi::v2::layout::AccountKind::Holding,
+                self.id
+            ));
+        } else {
+            assert!(write_header(&mut d, AccountKind::Holding, self.id));
+        }
         d[H::P..H::P + 2].copy_from_slice(&(hp as i16).to_le_bytes());
         d[H::Q..H::Q + 2].copy_from_slice(&(hq as i16).to_le_bytes());
         d[H::SITE] = site;
@@ -580,7 +650,7 @@ impl World {
     /// Crafts everything a fill's gathers and resolve read at `bell`:
     /// Province, slots, Holdings, ArrivalDay (module note).
     pub fn craft_fill(&self, c: &mut Chain, f: &Fill, bell: u32) {
-        let d = self.fill_province_bytes(f, bell);
+        let d = self.fill_bytes(c, f, bell);
         c.put_program_account(self.a.province(f.p, f.q), d);
         for (fa, i, a) in &f.arrivals {
             let k = *fa as usize * 4 + *i as usize;
@@ -754,6 +824,42 @@ impl World {
     pub fn last_digest(&self, c: &Chain, dest: (i32, i32)) -> [u8; 32] {
         let d = c.data(&self.a.province(dest.0, dest.1));
         d[P::LAST_DIGEST..P::LAST_DIGEST + 32].try_into().unwrap()
+    }
+}
+
+/// An MC fill's bell: an hour boundary (bell 300 = hour 50, day 2), so
+/// the conquest step writes a snapshot, late enough for records declared
+/// up to 288 bells before it.
+pub const MC_BELL: u32 = 300;
+
+/// The keep of a fill's destination (§3.2): on the MC keep tile of its
+/// terrain and wedge (`keep_tile_symmetric`, never a site), held by
+/// `holder` with `guard` whole troops and `bells` to take, opened at
+/// bell 0 (no consolidation), not heartland-safe.
+pub fn mc_keep(f: &Fill, holder: u8, guard: u32, bells: u8) -> Keep {
+    let pc = ProvinceCoord::new(f.p, f.q);
+    let tile = kkeep::keep_tile(
+        &f.terrain,
+        &f.terrain.sites,
+        f.terrain.site_count,
+        pc.wedge().unwrap_or(0),
+    )
+    .expect("a keep tile");
+    Keep {
+        tile,
+        holder,
+        contender: kkeep::NONE,
+        progress: 0,
+        required: bells,
+        heartland_safe: false,
+        paused: false,
+        changes: 0,
+        troops: guard,
+        since_bell: 0,
+        consolidated_until_bell: 0,
+        contest_from_bell: 0,
+        gen: 0,
+        last_taken_from: kkeep::NONE,
     }
 }
 

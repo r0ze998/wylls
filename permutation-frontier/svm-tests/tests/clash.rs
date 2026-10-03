@@ -3047,3 +3047,1310 @@ fn g01_close_arrival_slot_ended_paths() {
         "worst {worst} CU > 95 % of the gate {gate}"
     );
 }
+
+// ================================================================ MC (CQ2-B)
+//
+// ResolveFromInputs and SkipQuiet with the conquest step (MC contract §5.7,
+// §5.6, §13.1, §13.3), on crafted Provinces v2 (`world::clash` module note:
+// the Season's conquest block is crafted on this branch's M1 Season; on a
+// Season CreateSeason v2 made it is the same bytes). The native oracle is
+// the shared models themselves (`frontier_abi::{clash_model,
+// conquest_model}`), run on the bytes the chain holds: every test compares
+// the program's Province with the model's, byte for byte.
+
+use frontier_abi::clash_model as cm;
+use frontier_abi::conquest_model::{self as qm, Record as CqRecord, StepOut, StepParams};
+use frontier_abi::v2::budgets::{self as b2, SKIP_RECORD_BELLS_MAX};
+use frontier_abi::v2::kernel::keep::Keep;
+use frontier_abi::v2::layout::player::holding as H2;
+use frontier_abi::v2::layout::province::{
+    conquest as CR, keep as KP, province as P2, site as SM2, snapshot as SN,
+};
+use frontier_abi::v2::log::{self as l2, AnyKind, ConquestPayload, CqKind};
+use frontier_abi::v2::presets::{ConquestParams, MC_LOCAL_7D};
+use permutation_frontier_svm_tests::world::clash::{mc_keep, resident_id, MC_BELL};
+use permutation_rules::frontier::clash::{frontier_ruleset, resolve_clash};
+
+/// An MC season on `build` (the conquest block `cq` crafted), the Clock in
+/// bell `b`.
+fn mc_world(build: Build, cq: &ConquestParams, b: u32) -> (Chain, World) {
+    let mut c = Chain::new(build);
+    let w = World::running(&mut c, 1);
+    w.set_conquest(&mut c, cq);
+    w.to_bell(&mut c, b, 5);
+    (c, w)
+}
+
+/// `L(kind)` under ABI v2 at the chain's programdata length (a Province
+/// v2 is 640 B larger; the harness's `Profile` still takes M1's sets).
+fn loaded_v2(c: &Chain, ix: Ix) -> u32 {
+    let (bytes, n) = b2::loaded_accounts(frontier_abi::v2::tags::Ix::of_v1(ix));
+    permutation_rules::frontier::fees::loaded_limit(c.programdata_len(), bytes, n)
+        .max(frontier_abi::budgets::LOADED_LIMIT_WORKING_DEFAULT)
+}
+
+/// Sends `ix` (of kind `kind`) at the ladder's CU and the v2 `L(kind)`.
+fn mc_send(c: &mut Chain, kind: Ix, ix: Instruction, signers: &[&Keypair]) -> SendResult {
+    let p = Profile::ladder(kind, c.programdata_len()).with_loaded(loaded_v2(c, kind));
+    c.send_with(&p, &[ix], signers)
+}
+
+/// The step parameters the program reads from the Season.
+fn step_params(c: &Chain, w: &World) -> StepParams {
+    StepParams::of_season(&c.data(&w.a.season)).expect("an MC season")
+}
+
+/// One decoded PS2 record of an ABI v2 log (M1 or MC kind).
+#[derive(Clone, Debug)]
+struct R2 {
+    kind: AnyKind,
+    key: Vec<u8>,
+    payload: Vec<u8>,
+    links: Vec<l2::Link>,
+}
+
+/// Every record in `logs` through the v2 decoder (MC kinds included).
+fn v2_records(logs: &[String]) -> Vec<R2> {
+    records::bodies(logs)
+        .iter()
+        .map(|b| {
+            let r = l2::decode(b).unwrap_or_else(|e| panic!("v2 body ({e:?})"));
+            R2 {
+                kind: r.kind,
+                key: r.key.to_vec(),
+                payload: r.payload.to_vec(),
+                links: r.links.iter().take(r.n_links).flatten().copied().collect(),
+            }
+        })
+        .collect()
+}
+
+fn of_cq(recs: &[R2], k: CqKind) -> Vec<R2> {
+    recs.iter()
+        .filter(|r| r.kind == AnyKind::Cq(k))
+        .cloned()
+        .collect()
+}
+
+/// The CONQUEST records of `logs`: `(bell of the key, payload)`.
+fn conquests(logs: &[String]) -> Vec<(u32, ConquestPayload)> {
+    of_cq(&v2_records(logs), CqKind::CONQUEST)
+        .iter()
+        .map(|r| {
+            assert_eq!(r.links.len(), 1, "CONQUEST chains the Province");
+            assert_eq!(r.links[0].entity, l2::EntityKind::Province);
+            (
+                u32::from_le_bytes(r.key[8..12].try_into().unwrap()),
+                ConquestPayload::from_bytes(&r.payload).expect("CONQUEST payload"),
+            )
+        })
+        .collect()
+}
+
+/// The SKIP record's committed bell count.
+fn skip_n(logs: &[String]) -> u64 {
+    let v: Vec<R2> = v2_records(logs)
+        .into_iter()
+        .filter(|r| r.kind == AnyKind::V1(Kind::SKIP))
+        .collect();
+    assert_eq!(v.len(), 1, "one SKIP");
+    v[0].payload[4] as u64
+}
+
+/// The shared models on `pd` for bell `b` (the program's v2 resolve,
+/// `conquest_model`'s calling order). Returns the step and the outcome
+/// digest.
+fn native_resolve(
+    pd: &mut [u8],
+    ci: &[u8],
+    b: u32,
+    seed: &[u8; 32],
+    prm: &StepParams,
+) -> (StepOut, [u8; 32]) {
+    let built = cm::build_v2(pd, Some(ci), b).expect("build_v2");
+    let out = resolve_clash(&frontier_ruleset(), &built.input(seed)).expect("kernel");
+    let rep = qm::report_from_outcome(&built, &out).unwrap();
+    let ap = cm::apply_v2(pd, &built, &out).unwrap();
+    let settled = cm::settle_bell(pd, b).unwrap();
+    let st = qm::step(pd, b, &rep, prm).expect("step");
+    cm::finish_bell(pd, b, ap.changed() || settled || st.roster_changed).unwrap();
+    (st, cm::outcome_digest(&out).unwrap())
+}
+
+/// The report of bell `b` the shared models give for `pd` (a copy is
+/// resolved).
+fn native_report(pd: &[u8], ci: &[u8], b: u32, seed: &[u8; 32]) -> qm::BellReport {
+    let built = cm::build_v2(pd, Some(ci), b).expect("build_v2");
+    let out = resolve_clash(&frontier_ruleset(), &built.input(seed)).expect("kernel");
+    qm::report_from_outcome(&built, &out).unwrap()
+}
+
+/// A Province v2's game state (G11's comparison over 4,736 B): every byte
+/// but the event header, the last digest, the quiet cache and the resolve
+/// summary.
+fn mc_state(d: &[u8]) -> Vec<u8> {
+    assert_eq!(d.len(), P2::SIZE, "a Province v2");
+    let mut v = d[64..P::LAST_DIGEST].to_vec();
+    v.extend_from_slice(&d[P::LAST_DIGEST + 32..P::QUIET_OK]);
+    v.extend_from_slice(&d[P::QUIET_OK + 1..P::RESOLVE_SUMMARY]);
+    v.extend_from_slice(&d[P::RESOLVE_SUMMARY + 32..]);
+    v
+}
+
+/// The minute of the day (UTC) at which bell `b` starts.
+fn minute_of_bell(w: &World, b: u32) -> u16 {
+    (((w.bell_start(b) % 86_400) + 86_400) % 86_400 / 60) as u16
+}
+
+/// A siege on site `s` declared at `declared` (§5.2.1 kind 1): `slot` 0
+/// besieges a first holding (occupation at completion), 2 or 3 a holding
+/// captured into that slot; the owner's vigil snapshotted 12 h away from
+/// bell `at` (never covering it).
+fn siege(
+    w: &World,
+    attacker: u8,
+    progress: u8,
+    required: u8,
+    slot: u8,
+    declared: u32,
+    at: u32,
+) -> CqRecord {
+    let kind = if slot == 0 {
+        CR::TARGET_FIRST
+    } else {
+        CR::TARGET_OTHER
+    };
+    CqRecord {
+        kind: CR::KIND_SIEGE,
+        faction: attacker,
+        flags: CR::FLAG_HELD,
+        progress,
+        required,
+        target: CR::target(kind, slot),
+        vigil_start: (minute_of_bell(w, at) + 720) % 1440,
+        bell: declared,
+        actor: 0xC0DE_0000 + attacker as u64,
+        src: frontier_abi::addr::host_id(0, 1, 3, 1, 0).unwrap() & !0xFFFF_FFFF,
+        ..CqRecord::ZERO
+    }
+}
+
+/// An occupation of site `s` by `occupier` started at `start`.
+fn occupation(occupier: u8, start: u32) -> CqRecord {
+    CqRecord {
+        kind: CR::KIND_OCCUPATION,
+        faction: occupier,
+        flags: CR::FLAG_STAKE_TO_SRC,
+        target: CR::target(CR::TARGET_FIRST, 0),
+        bell: start,
+        actor: 0xC0DE_0100 + occupier as u64,
+        src: frontier_abi::addr::host_id(0, 1, 4, 1, 0).unwrap() & !0xFFFF_FFFF,
+        ..CqRecord::ZERO
+    }
+}
+
+/// Moves up to six residents of faction `f` onto `tile` with `troops`
+/// milli-troops each (the keep's capturers, §13.1).
+fn capturers_on(f: &mut Fill, faction: u8, tile: u8, troops: u32, n: usize) {
+    for r in f
+        .residents
+        .iter_mut()
+        .filter(|r| r.faction == faction)
+        .take(n)
+    {
+        r.tile = tile;
+        r.troops = troops;
+        r.unit = UnitType::Spearman;
+        r.dealt_bps = permutation_frontier_svm_tests::world::clash::dealt(
+            faction,
+            Posture::Stance(Stance::Hold),
+            false,
+        );
+    }
+}
+
+/// Crafts an MC fill at bell `b` and readies the bell; `edit` then shapes
+/// the Province v2 (keep, records). Returns the seed.
+fn mc_ready(c: &mut Chain, w: &World, f: &Fill, b: u32, edit: impl FnOnce(&mut [u8])) -> [u8; 32] {
+    assert!(w.is_mc(c), "an MC season");
+    w.craft_fill(c, f, b);
+    c.edit(&w.a.province(f.p, f.q), edit);
+    w.ready_bell(c, b, f.region(), None)
+}
+
+/// The conquest-worst shape of a fill at `b` (§13.1's RFI row): the keep
+/// (held by `holder`, 100 troops) with six 30,000-troop capturers of
+/// `holder + 1` on its tile and its contest one bell from taken; on every
+/// site a siege one bell from complete by the faction the clash leaves
+/// holding its hex (a capture into slot 2, every third an occupation), or,
+/// where nobody hostile holds it, a siege that fails at this bell. Returns
+/// the shaped fill, the number of sieges that complete and whether the
+/// keep is taken (the native report decides, records do not change the
+/// clash).
+fn conquest_worst(c: &mut Chain, w: &World, f: &Fill, b: u32) -> (Fill, usize, bool) {
+    let holder = (f.p.unsigned_abs() % 6) as u8;
+    let contender = (holder + 1) % 6;
+    let mut f = f.clone();
+    let keep = mc_keep(&f, holder, 100, 72);
+    capturers_on(&mut f, contender, keep.tile, 30_000_000, 6);
+    let seed = mc_ready(c, w, &f, b, |d| qm::write_keep(d, &keep).unwrap());
+    // gather, then shape the records from the native report
+    for ix in w.gather_parts(c, f.dest(), b, &THIRDS) {
+        expect_lands(keeper_send(c, w, ix), "GatherClash");
+    }
+    let pk = w.a.province(f.p, f.q);
+    let ci = c.data(&w.a.clash_inputs(f.p, f.q, b));
+    let rep = native_report(&c.data(&pk), &ci, b, &seed);
+    let mut done = 0usize;
+    let taken = rep.keep.holders == 1 << contender && !rep.keep.defender_present;
+    let n_sites = f.terrain.site_count as usize;
+    c.edit(&pk, |d| {
+        let mut k = qm::read_keep(d).unwrap().unwrap();
+        k.contender = contender;
+        k.progress = k.required - 1;
+        k.contest_from_bell = b - 71;
+        qm::write_keep(d, &k).unwrap();
+        for s in 0..n_sites {
+            let sr = rep.sites[s];
+            let owner = d[P2::site(s) + SM2::FACTION];
+            let r = if sr.holders != 0 && !sr.defender_present {
+                done += 1;
+                let a = sr.holders.trailing_zeros() as u8;
+                let slot = if s % 3 == 2 { 0 } else { 2 };
+                if slot == 0 {
+                    d[P2::site(s) + SM2::ORDER] = 1;
+                } else {
+                    d[P2::site(s) + SM2::ORDER] = 2;
+                }
+                siege(w, a, 35, 36, slot, b - 40, b)
+            } else {
+                let a = (owner + 1 + (s as u8 % 5)) % 6;
+                siege(w, a, 10, 36, 2, b - 12, b)
+            };
+            r.write(d, s).unwrap();
+        }
+    });
+    (f, done, taken)
+}
+
+/// §5.7, R-21: the program's ResolveFromInputs on a Province v2 is the
+/// shared models' bell, byte for byte: over 120 fills of every kind, each
+/// with a keep (its contest one bell from taken by six capturers), a
+/// siege on every site (completions into occupations and captures, and
+/// failures) at an hour boundary (the snapshot). The CONQUEST record pins
+/// the step; a keep taken also logs KEEP and the donor's RETIRE.
+#[test]
+fn cq_resolve_runs_the_conquest_step_as_the_shared_models() {
+    let (c, w) = mc_world(Build::TestBeacon, &MC_LOCAL_7D.cq, MC_BELL);
+    let prm = step_params(&c, &w);
+    let (mut completions, mut keeps, mut fills) = (0usize, 0usize, 0usize);
+    for (j, (_, f)) in all_fills().into_iter().step_by(10).take(124).enumerate() {
+        let mut f = f.clone();
+        // distinct destinations from the M1 tests' (j as the offset)
+        f.q += 1;
+        let mut ch = c.fork();
+        let (f, done, taken) = conquest_worst(&mut ch, &w, &f, MC_BELL);
+        let pk = w.a.province(f.p, f.q);
+        let ci = ch.data(&w.a.clash_inputs(f.p, f.q, MC_BELL));
+        let seed = bell_seed(MC_BELL, f.region());
+        let mut want = ch.data(&pk);
+        let (st, digest) = native_resolve(&mut want, &ci, MC_BELL, &seed, &prm);
+        let l = expect_lands(
+            keeper_send(&mut ch, &w, w.resolve_ix(f.dest(), MC_BELL)),
+            "ResolveFromInputs",
+        );
+        let got = ch.data(&pk);
+        assert_eq!(
+            mc_state(&got),
+            mc_state(&want),
+            "{} (#{j}): program = shared models",
+            f.name
+        );
+        let recs = v2_records(&l.logs);
+        let clash: Vec<&R2> = recs
+            .iter()
+            .filter(|r| r.kind == AnyKind::V1(Kind::CLASH))
+            .collect();
+        assert_eq!(clash.len(), 1);
+        assert_eq!(clash[0].payload[..32], digest, "{}: outcome digest", f.name);
+        let cqs = conquests(&l.logs);
+        assert_eq!(cqs.len(), 1, "{}: one CONQUEST", f.name);
+        let want_payload = qm::conquest_payload(&want, &st).unwrap();
+        assert_eq!(cqs[0], (MC_BELL, want_payload), "{}: CONQUEST", f.name);
+        assert!(st.snapshot.is_some(), "an hour boundary");
+        let n_done = st
+            .events()
+            .iter()
+            .filter(|e| {
+                let code = e.code & !l2::event::DETAIL;
+                code == l2::event::OCCUPIED || code == l2::event::CAPTURE_DUE
+            })
+            .count();
+        assert_eq!(
+            n_done,
+            done,
+            "{}: completions as the report says: {:?}",
+            f.name,
+            st.events()
+        );
+        let kr = of_cq(&recs, CqKind::KEEP);
+        let rr = of_cq(&recs, CqKind::RETIRE);
+        assert_eq!(st.keep_taken.is_some(), taken, "{}", f.name);
+        if let Some(t) = st.keep_taken {
+            keeps += 1;
+            assert_eq!(kr.len(), 1, "{}: KEEP", f.name);
+            assert_eq!(kr[0].payload[0], l2::keep_cause::TAKEN);
+            assert_eq!(kr[0].payload[1], t.to);
+            assert_eq!(
+                u32::from_le_bytes(kr[0].payload[3..7].try_into().unwrap()),
+                t.garrison
+            );
+            // half of a donor of ≤ 30,000 troops after the clash (R-01)
+            assert!(t.garrison <= 15_000 && t.garrison > 0, "{}", t.garrison);
+            assert!(
+                t.donor_rest >= t.garrison * 1_000,
+                "the donor keeps the rest"
+            );
+            assert_eq!(rr.len(), 1, "{}: the donor's RETIRE", f.name);
+            assert_eq!(
+                u64::from_le_bytes(rr[0].key[..8].try_into().unwrap()),
+                t.donor_host_id
+            );
+            assert_eq!(rr[0].payload[12], l2::retire_by::KEEP_DONOR);
+        } else {
+            assert!(kr.is_empty() && rr.is_empty());
+        }
+        completions += done;
+        fills += 1;
+    }
+    println!("cq resolve ≡ models: {fills} fills, {completions} completions, {keeps} keeps taken");
+    assert!(keeps > 0 && completions > 0);
+}
+
+/// Prints the trace build's CU checkpoints of a landed transaction
+/// (`PSF_TRACE=1`): each `sol_log_64(0x4355, tag, heap, 0, 0)` line is
+/// followed by the runtime's "consumption: N units remaining"; the
+/// differences are the CU of each step (as `reveal.rs`'s).
+fn print_trace(label: &str, logs: &[String]) {
+    println!("PSF_TRACE {label}");
+    let mut last: Option<(u64, u64)> = None;
+    let mut tag = None;
+    for l in logs {
+        if let Some(rest) = l.strip_prefix("Program log: 0x4355, ") {
+            let f: Vec<u64> = rest
+                .split(", ")
+                .filter_map(|t| u64::from_str_radix(t.trim_start_matches("0x"), 16).ok())
+                .collect();
+            tag = f.first().map(|t| (*t, f.get(1).copied().unwrap_or(0)));
+        } else if let Some(i) = l.find("consumption: ") {
+            let n: u64 = l[i + 13..]
+                .split(' ')
+                .next()
+                .and_then(|x| x.parse().ok())
+                .unwrap_or(0);
+            if let Some((t, heap)) = tag.take() {
+                if let Some((pt, pn)) = last {
+                    println!(
+                        "  {pt:#06x} → {t:#06x}: {:>7} CU  heap {heap} B",
+                        pn.saturating_sub(n)
+                    );
+                }
+                last = Some((t, n));
+            }
+        }
+    }
+}
+
+/// One G1 row's statistics.
+#[derive(Default)]
+struct Worst {
+    cu: Vec<u64>,
+    heap: Vec<u64>,
+    max: (u64, String),
+    max_heap: (u64, String),
+}
+
+impl Worst {
+    fn add(&mut self, name: &str, cu: u64, heap: Option<u32>) {
+        self.cu.push(cu);
+        if cu > self.max.0 {
+            self.max = (cu, name.to_string());
+        }
+        if let Some(h) = heap {
+            self.heap.push(h as u64);
+            if h as u64 > self.max_heap.0 {
+                self.max_heap = (h as u64, name.to_string());
+            }
+        }
+    }
+    fn line(&self, label: &str) -> String {
+        let (lo, mean, hi) = stats(&self.cu);
+        let (_, hmean, hhi) = stats(&self.heap);
+        format!(
+            "{label}: {} fills, CU min {lo} mean {mean} max {hi} ({}); heap mean {hmean} max {hhi} ({})",
+            self.cu.len(),
+            self.max.1,
+            self.max_heap.1
+        )
+    }
+}
+
+/// G1 / §13.1 (CQ2-B): ResolveFromInputs on a Province v2 over M1's 1,240
+/// fills (and the I-43 storage fills), every bell an hour boundary (the
+/// snapshot), in two shapes:
+///
+/// - **keep13**: the keep as the 13th garrison (100 troops, walls, its
+///   holder `j mod 6`), no record;
+/// - **conquest**: `conquest_worst`, i.e. the keep's contest one bell from
+///   taken by six 30,000-troop capturers (the donor alone pays, R-01; the
+///   next bell's clash must validate, checked by resolving it), and a
+///   siege on every site, completing wherever the clash leaves a hostile
+///   faction alone on the hex (captures into slot 2 and occupations) and
+///   failing elsewhere.
+///
+/// Every resolve equals the shared models byte for byte (state and outcome
+/// digest). Gate: ≤ 290,000 CU on the release build (the v2 budget, §5.4;
+/// the 300,000 amendment is not needed while this holds), heap ≤ 28 KiB on
+/// the trace build. Figures printed (`--nocapture`) and recorded in
+/// `CQ2-B-NOTES.md`.
+#[test]
+fn g01_cq_resolve_worst() {
+    let mut fills = all_fills();
+    for (k, (r, d)) in [(40usize, 1usize), (40, 8), (30, 8), (20, 4)]
+        .into_iter()
+        .enumerate()
+    {
+        fills.push((
+            "storage",
+            Fill::storage(900 + k as u64, 30 + k as i32, 40, r, d),
+        ));
+    }
+    let gate = b2::budget(frontier_abi::v2::tags::Ix::ResolveFromInputs).cu_budget as u64;
+    let heap_gate = frontier_abi::budgets::HEAP_GATE as u64;
+    let trace = std::env::var("PSF_TRACE").is_ok_and(|v| v == "1");
+    let mut report = vec![];
+    let (mut bound_base, mut bound_delta, mut measured) = (0u64, 0u64, 0u64);
+    for shape in ["keep13", "conquest"] {
+        let mut rows: Vec<(Worst, Build)> = vec![];
+        let (mut completions, mut keeps, mut twelve) = (vec![], 0usize, 0usize);
+        let mut full = (0u64, String::new());
+        let mut delta = (0u64, String::new());
+        for build in [Build::Release, Build::Trace] {
+            let (mut c, w) = mc_world(build, &MC_LOCAL_7D.cq, MC_BELL);
+            let prm = step_params(&c, &w);
+            let mut wst = Worst::default();
+            let mut worst_logs = (0u64, vec![]);
+            for (j, (set, f)) in fills.iter().enumerate() {
+                let name = format!("{set} {}", f.name);
+                let (f, done, taken) = if shape == "keep13" {
+                    let keep = mc_keep(f, (j % 6) as u8, 100, 72);
+                    mc_ready(&mut c, &w, f, MC_BELL, |d| {
+                        qm::write_keep(d, &keep).unwrap()
+                    });
+                    for ix in w.gather_parts(&c, f.dest(), MC_BELL, &THIRDS) {
+                        expect_lands(keeper_send(&mut c, &w, ix), "GatherClash");
+                    }
+                    (f.clone(), 0, false)
+                } else {
+                    conquest_worst(&mut c, &w, f, MC_BELL)
+                };
+                let pk = w.a.province(f.p, f.q);
+                let ci = c.data(&w.a.clash_inputs(f.p, f.q, MC_BELL));
+                let seed = bell_seed(MC_BELL, f.region());
+                let mut want = c.data(&pk);
+                let (st, digest) = native_resolve(&mut want, &ci, MC_BELL, &seed, &prm);
+                // the same bell with no record and no contest (the clash is
+                // the same: records are not clash inputs): the step's
+                // increment for 12 completions and a keep taken
+                let base = (build == Build::Release && done == 12 && taken).then(|| {
+                    let mut c0 = c.fork();
+                    c0.edit(&pk, |d| {
+                        d[P2::CONQUEST..P2::KEEP].fill(0);
+                        let mut k = qm::read_keep(d).unwrap().unwrap();
+                        k.contender = KP::NONE;
+                        k.progress = 0;
+                        qm::write_keep(d, &k).unwrap();
+                    });
+                    expect_lands(
+                        keeper_send(&mut c0, &w, w.resolve_ix(f.dest(), MC_BELL)),
+                        "ResolveFromInputs",
+                    )
+                    .cu
+                });
+                let l = expect_lands(
+                    keeper_send(&mut c, &w, w.resolve_ix(f.dest(), MC_BELL)),
+                    "ResolveFromInputs",
+                );
+                if let Some(cu0) = base {
+                    let d = l.cu - cu0;
+                    if d > delta.0 {
+                        delta = (d, name.clone());
+                    }
+                }
+                assert_eq!(
+                    mc_state(&c.data(&pk)),
+                    mc_state(&want),
+                    "{name}: program = models"
+                );
+                let rec = v2_records(&l.logs)
+                    .into_iter()
+                    .find(|r| r.kind == AnyKind::V1(Kind::CLASH))
+                    .expect("CLASH");
+                assert_eq!(rec.payload[..32], digest, "{name}");
+                assert_eq!(st.keep_taken.is_some(), taken, "{name}");
+                let heap = permutation_frontier_svm_tests::budget::heap_peak(&l.logs);
+                assert!(
+                    l.loaded <= loaded_v2(&c, Ix::ResolveFromInputs) as u64,
+                    "{name}: loaded {} B over the v2 L(kind)",
+                    l.loaded
+                );
+                assert!(
+                    l.tx_bytes as u32
+                        <= b2::tx_ceiling(frontier_abi::v2::tags::Ix::ResolveFromInputs)
+                );
+                if build == Build::Release {
+                    assert!(l.cu <= gate, "{shape} {name}: {} CU > {gate}", l.cu);
+                    completions.push(done as u64);
+                    keeps += taken as usize;
+                    twelve += (done == 12) as usize;
+                    if done == 12 && taken && l.cu > full.0 {
+                        full = (l.cu, name.clone());
+                    }
+                } else {
+                    let h = heap.expect("trace build heap") as u64;
+                    assert!(h <= heap_gate, "{shape} {name}: heap {h} B");
+                }
+                if l.cu > worst_logs.0 {
+                    worst_logs = (l.cu, l.logs.clone());
+                }
+                wst.add(&name, l.cu, heap);
+                // R-01, P13: after a keep taken the next bell's clash
+                // validates (the keep's garrison is within MAX_HOST_TROOPS)
+                if taken {
+                    let next = c.data(&pk);
+                    cm::build_v2(&next, None, MC_BELL + 1)
+                        .map(|b| resolve_clash(&frontier_ruleset(), &b.input(&seed)))
+                        .expect("the next bell builds")
+                        .expect("the next bell's clash validates");
+                }
+            }
+            if trace && build == Build::Trace {
+                print_trace(&format!("{shape} worst {}", wst.max.1), &worst_logs.1);
+            }
+            rows.push((wst, build));
+        }
+        for (wst, build) in &rows {
+            report.push(wst.line(&format!("G1-CQ RFI {shape} {build:?}")));
+        }
+        if shape == "conquest" {
+            let (lo, mean, hi) = stats(&completions);
+            report.push(format!(
+                "G1-CQ RFI conquest: completions per fill min {lo} mean {mean} max {hi}, fills with 12 completions {twelve}, keeps taken {keeps} of {}; worst with 12 completions and the keep taken {} CU ({})",
+                completions.len(),
+                full.0,
+                full.1
+            ));
+            report.push(format!(
+                "G1-CQ RFI conquest increment (12 completions, keep taken, CONQUEST/KEEP/RETIRE) max {} CU ({})",
+                delta.0, delta.1
+            ));
+            bound_delta = delta.0;
+            measured = rows[0].0.max.0;
+        }
+        if shape == "keep13" {
+            bound_base = rows[0].0.max.0;
+        }
+    }
+    // The literal §13.1 row cannot be one clash (a completing siege needs a
+    // hostile faction alone on the hex, which removes the fight there), so
+    // the bound adds the largest measured increment to the heaviest keep13
+    // fill.
+    let bound = (bound_base + bound_delta).max(measured);
+    report.push(format!(
+        "G1-CQ RFI worst: max(keep13 max {bound_base} + conquest increment max {bound_delta} = {}, measured conquest max {measured}) = {bound} CU (gate {gate}, margin {})",
+        bound_base + bound_delta,
+        gate.saturating_sub(bound)
+    ));
+    for l in &report {
+        println!("{l}");
+    }
+    assert!(
+        bound <= gate,
+        "the bound {bound} CU exceeds {gate}: the 300,000 amendment"
+    );
+}
+
+/// `f` with its site owners changed until the clash of `b` leaves a single
+/// hostile faction (and no defender) on as many site hexes as it can: an
+/// owner whose own faction holds its hex becomes another faction absent
+/// from it (≤ 8 rounds on forks; an empty hex stays empty). The keep and
+/// its capturers are `conquest_worst`'s.
+fn force_completions(c: &Chain, w: &World, f: &Fill, b: u32) -> Fill {
+    let mut f = f.clone();
+    for _ in 0..8 {
+        let mut ch = c.fork();
+        let holder = (f.p.unsigned_abs() % 6) as u8;
+        let keep = mc_keep(&f, holder, 100, 72);
+        let mut g = f.clone();
+        capturers_on(&mut g, (holder + 1) % 6, keep.tile, 30_000_000, 6);
+        let seed = mc_ready(&mut ch, w, &g, b, |d| qm::write_keep(d, &keep).unwrap());
+        for ix in w.gather_parts(&ch, g.dest(), b, &THIRDS) {
+            expect_lands(keeper_send(&mut ch, w, ix), "GatherClash");
+        }
+        let ci = ch.data(&w.a.clash_inputs(g.p, g.q, b));
+        let rep = native_report(&ch.data(&w.a.province(g.p, g.q)), &ci, b, &seed);
+        let mut changed = false;
+        for (s, gar) in f.garrisons.iter_mut().enumerate() {
+            let sr = rep.sites[s];
+            if sr.defender_present {
+                let h = (0..6u8)
+                    .map(|k| (gar.faction + 1 + k) % 6)
+                    .find(|h| sr.holders & (1 << h) == 0 && *h != gar.faction)
+                    .unwrap();
+                gar.faction = h;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    f
+}
+
+/// G1 / §13.1 (CQ2-B), the literal row: the 40 heaviest fills of
+/// `g01_cq_resolve_worst`'s keep13 run (M1's worst Phase B fill, `wide#235`,
+/// among them), their site owners forced so that as many sieges as the
+/// clash allows complete (`force_completions`), the keep taken by six
+/// 30,000-troop capturers, at an hour boundary. Same gates.
+#[test]
+fn g01_cq_resolve_forced_completions() {
+    let gate = b2::budget(frontier_abi::v2::tags::Ix::ResolveFromInputs).cu_budget as u64;
+    let heap_gate = frontier_abi::budgets::HEAP_GATE as u64;
+    // rank the fills by their keep13 CU on the release build
+    let fills = all_fills();
+    let (mut c, w) = mc_world(Build::Release, &MC_LOCAL_7D.cq, MC_BELL);
+    let mut ranked = vec![];
+    for (j, (set, f)) in fills.iter().enumerate() {
+        let keep = mc_keep(f, (j % 6) as u8, 100, 72);
+        mc_ready(&mut c, &w, f, MC_BELL, |d| {
+            qm::write_keep(d, &keep).unwrap()
+        });
+        for ix in w.gather_parts(&c, f.dest(), MC_BELL, &THIRDS) {
+            expect_lands(keeper_send(&mut c, &w, ix), "GatherClash");
+        }
+        let l = expect_lands(
+            keeper_send(&mut c, &w, w.resolve_ix(f.dest(), MC_BELL)),
+            "ResolveFromInputs",
+        );
+        ranked.push((l.cu, j, format!("{set} {}", f.name)));
+    }
+    ranked.sort_unstable_by_key(|r| std::cmp::Reverse(r.0));
+    let top: Vec<(u64, usize, String)> = ranked.into_iter().take(40).collect();
+    let mut out = vec![];
+    for build in [Build::Release, Build::Trace] {
+        let (mut c, w) = mc_world(build, &MC_LOCAL_7D.cq, MC_BELL);
+        let prm = step_params(&c, &w);
+        let mut wst = Worst::default();
+        let mut dist = vec![];
+        for (base, j, name) in &top {
+            let mut f = fills[*j].1.clone();
+            f.q += 2; // a fresh destination
+            let f = force_completions(&c, &w, &f, MC_BELL);
+            let (f, done, taken) = conquest_worst(&mut c, &w, &f, MC_BELL);
+            let pk = w.a.province(f.p, f.q);
+            let ci = c.data(&w.a.clash_inputs(f.p, f.q, MC_BELL));
+            let mut want = c.data(&pk);
+            let (st, _) = native_resolve(
+                &mut want,
+                &ci,
+                MC_BELL,
+                &bell_seed(MC_BELL, f.region()),
+                &prm,
+            );
+            let l = expect_lands(
+                keeper_send(&mut c, &w, w.resolve_ix(f.dest(), MC_BELL)),
+                "ResolveFromInputs",
+            );
+            assert_eq!(
+                mc_state(&c.data(&pk)),
+                mc_state(&want),
+                "{name}: program = models"
+            );
+            assert_eq!(st.keep_taken.is_some(), taken);
+            let heap = permutation_frontier_svm_tests::budget::heap_peak(&l.logs);
+            if build == Build::Release {
+                assert!(l.cu <= gate, "forced {name}: {} CU > {gate}", l.cu);
+                dist.push(format!(
+                    "{name}: keep13 {base} → forced {} CU, {done} completions, keep taken {taken}",
+                    l.cu
+                ));
+            } else {
+                assert!(heap.unwrap() as u64 <= heap_gate);
+            }
+            wst.add(&format!("{name} ({done} completions)"), l.cu, heap);
+        }
+        out.push(wst.line(&format!("G1-CQ RFI forced {build:?}")));
+        for d in dist.iter().take(10) {
+            out.push(format!("  {d}"));
+        }
+    }
+    for l in &out {
+        println!("{l}");
+    }
+}
+
+/// A quiet MC Province at `(p, q)` resolved through `b0 − 1`: 12 holdings
+/// with empty garrisons (owner faction `(s mod 6) + 1`), a keep (held by
+/// faction 5, empty), and `fill` residents per faction (≤ 8) on the
+/// faction's own two hexes. Returns the fill and the keep; the caller
+/// places hosts on sites and the keep's tile and writes the records.
+fn mc_quiet(p: i32, q: i32, seed: u64, per: usize) -> (Fill, Keep, Vec<u8>) {
+    let base = Fill::adversarial(0, seed, p, q);
+    let passable: Vec<u8> = (0..61u8)
+        .filter(|&t| base.terrain.terrain[t as usize].is_passable())
+        .collect();
+    let mut f = roster_fill(p, q, seed, vec![]);
+    let sites: Vec<u8> = passable.iter().copied().take(12).collect();
+    for (s, &t) in sites.iter().enumerate() {
+        f.garrisons
+            .push(permutation_rules::frontier::clash::Garrison {
+                id: permutation_frontier_svm_tests::world::clash::garrison_id(p, q, s),
+                faction: (s as u8 % 6 + 1) % 6,
+                tile: t,
+                troops: 0,
+                walls: s % 3 == 0,
+                posture: Posture::Stance(Stance::Hold),
+            });
+        f.terrain.sites[s] = t;
+    }
+    f.terrain.site_count = 12;
+    let keep = mc_keep(&f, 5, 0, 72);
+    let free: Vec<u8> = passable
+        .iter()
+        .copied()
+        .filter(|t| !sites.contains(t) && *t != keep.tile)
+        .collect();
+    let mut rng = Rng::new(seed);
+    for fa in 0..6u8 {
+        for n in 0..per {
+            f.residents.push(Fighter {
+                id: resident_id(p, q, fa, n),
+                faction: fa,
+                unit: UnitType::Spearman,
+                troops: 1_000_000 + rng.below(5_000) as u32 * 1_000,
+                stamina: 60 + rng.below(60) as u16,
+                tile: free[2 * fa as usize + n % 2],
+                posture: Posture::Stance(Stance::Hold),
+                retreat_bps: None,
+                dealt_bps: permutation_frontier_svm_tests::world::clash::dealt(
+                    fa,
+                    Posture::Stance(Stance::Hold),
+                    false,
+                ),
+            });
+        }
+    }
+    (f, keep, sites)
+}
+
+/// Moves resident `n` of faction `fa` of a quiet fill to `tile`.
+fn put_host(f: &mut Fill, fa: u8, n: usize, tile: u8, troops: u32) {
+    let r = f
+        .residents
+        .iter_mut()
+        .filter(|r| r.faction == fa)
+        .nth(n)
+        .expect("resident");
+    r.tile = tile;
+    r.troops = troops;
+}
+
+/// SkipQuiet as far as it goes, then gather + resolve where a bell is not
+/// quiet, until `resolved_next = b1` (the keeper's catch-up; the SKIP and
+/// CONQUEST records read through the v2 decoder). Returns the committed
+/// counts and every CONQUEST record.
+fn mc_catch_up(
+    c: &mut Chain,
+    w: &World,
+    f: &Fill,
+    b1: u32,
+) -> (Vec<u64>, Vec<(u32, ConquestPayload)>) {
+    let (mut counts, mut cqs) = (vec![], vec![]);
+    loop {
+        let rn = w.resolved_next(c, f.dest());
+        if rn >= b1 {
+            return (counts, cqs);
+        }
+        let k = (b1 - rn).min(24) as u8;
+        match c.send(&[w.skip_ix(f.dest(), rn, k)], &[&w.keeper]) {
+            Ok(l) => {
+                counts.push(skip_n(&l.logs));
+                cqs.extend(conquests(&l.logs));
+            }
+            Err(e) if e.code == Some(E::NotQuiet.code()) => {
+                let ix = w.gather_ix(c, f.dest(), rn, 0, 1);
+                expect_lands(keeper_send(c, w, ix), "GatherClash");
+                let l = expect_lands(
+                    keeper_send(c, w, w.resolve_ix(f.dest(), rn)),
+                    "ResolveFromInputs",
+                );
+                cqs.extend(conquests(&l.logs));
+            }
+            Err(e) => panic!("SkipQuiet: {} {:?}\n{}", e.err, e.code, e.logs.join("\n")),
+        }
+    }
+}
+
+/// Gather (no arrivals) and resolve every bell of `b0..b1`; every
+/// CONQUEST record.
+fn mc_resolve_each(
+    c: &mut Chain,
+    w: &World,
+    f: &Fill,
+    b0: u32,
+    b1: u32,
+) -> Vec<(u32, ConquestPayload)> {
+    let mut cqs = vec![];
+    for b in b0..b1 {
+        let ix = w.gather_ix(c, f.dest(), b, 0, 1);
+        expect_lands(keeper_send(c, w, ix), "GatherClash");
+        let l = expect_lands(
+            keeper_send(c, w, w.resolve_ix(f.dest(), b)),
+            "ResolveFromInputs",
+        );
+        cqs.extend(conquests(&l.logs));
+    }
+    cqs
+}
+
+/// G11 extended (§13.3, §5.7): SkipQuiet over 48 bells of a Province v2
+/// with records and a keep contest leaves exactly what a gather and a
+/// resolve of every bell leave, over the whole 4,736 B (G11's
+/// comparison), and logs the same CONQUEST record for every bell: an
+/// occupation expiring (Respite), an occupation liberated (its occupier
+/// absent), a deserted siege failing, a capture completing (the mirror
+/// flips mid-run: the skip re-tests quietness), the keep taken mid-run
+/// (the donor goes home: the roster changes), four hour snapshots per
+/// 24 bells, and quiet residents of every faction around them.
+#[test]
+fn g11_cq_skip_equals_resolve_with_records_and_a_keep() {
+    for (seed, per) in [(31u64, 4usize), (32, 6), (33, 8)] {
+        let b0 = MC_BELL + 1;
+        let (mut c, w) = mc_world(Build::TestBeacon, &MC_LOCAL_7D.cq, b0);
+        let (p, q) = (-9 + seed as i32, 7);
+        let (mut f, mut keep, sites) = mc_quiet(p, q, seed, per);
+        // owners: site s is faction (s mod 6) + 1's. Hosts on the hexes:
+        // site 0 its occupier (faction 2), site 2 a completing besieger
+        // (faction 4), site 1 and site 3 nobody; the keep's contenders
+        // (faction 0) on its tile (the second one the donor)
+        put_host(&mut f, 2, 0, sites[0], 2_000_000);
+        put_host(&mut f, 4, 0, sites[2], 3_000_000);
+        put_host(&mut f, 0, 0, keep.tile, 4_000_000);
+        put_host(&mut f, 0, 1, keep.tile, 9_000_000);
+        keep.contender = 0;
+        keep.progress = 65;
+        keep.contest_from_bell = b0 - 65;
+        let mut d0 = vec![];
+        let recs = [
+            (0usize, occupation(2, b0 - 70)),          // expires at b0 + 2
+            (1, occupation(3, b0 - 10)),               // its occupier is absent: liberated
+            (2, siege(&w, 4, 30, 36, 2, b0 - 40, b0)), // completes at b0 + 5: a capture
+            (3, siege(&w, 5, 3, 36, 3, b0 - 4, b0)),   // deserted: fails at b0
+        ];
+        w.craft_fill(&mut c, &f, b0);
+        c.edit(&w.a.province(f.p, f.q), |d| {
+            qm::write_keep(d, &keep).unwrap();
+            for (s, r) in &recs {
+                r.write(d, *s).unwrap();
+            }
+            d0 = d.to_vec();
+        });
+        let b1 = b0 + 48;
+        ready_run(&mut c, &w, &f, b0, 48);
+        let mut r = c.fork();
+        let (counts, skip_cqs) = mc_catch_up(&mut c, &w, &f, b1);
+        let res_cqs = mc_resolve_each(&mut r, &w, &f, b0, b1);
+        let pk = w.a.province(f.p, f.q);
+        assert_eq!(
+            mc_state(&c.data(&pk)),
+            mc_state(&r.data(&pk)),
+            "seed {seed}: skip ≡ resolve over 4,736 B"
+        );
+        assert_eq!(skip_cqs, res_cqs, "seed {seed}: the same CONQUEST records");
+        // what happened (both paths)
+        let d = c.data(&pk);
+        let k = qm::read_keep(&d).unwrap().unwrap();
+        assert_eq!((k.holder, k.changes), (0, 1), "the keep taken");
+        let codes: Vec<(u32, u8, u8)> = skip_cqs
+            .iter()
+            .flat_map(|(b, p)| {
+                p.events[..p.n as usize]
+                    .iter()
+                    .map(move |e| (*b, e.site, e.code))
+            })
+            .collect();
+        for want in [
+            (b0, 1u8, l2::event::LIBERATED | l2::event::DETAIL),
+            (b0, 3, l2::event::SIEGE_FAILED),
+            (b0 + 2, 0, l2::event::OCCUPATION_EXPIRED),
+            (b0 + 5, 2, l2::event::CAPTURE_DUE),
+            (b0 + 6, l2::event::KEEP_SITE, l2::event::KEEP_TAKEN),
+        ] {
+            assert!(
+                codes.iter().any(|x| x.0 == want.0
+                    && x.1 == want.1
+                    && x.2 & !l2::event::DETAIL == want.2 & !l2::event::DETAIL),
+                "seed {seed}: {want:?} in {codes:?}"
+            );
+        }
+        let snaps = skip_cqs
+            .iter()
+            .filter(|(_, p)| p.snapshot.is_some())
+            .count();
+        assert_eq!(snaps, 8, "an hour snapshot every 6 bells");
+        assert_ne!(d0, d, "the run changed the Province");
+        println!(
+            "G11-CQ seed {seed}: SKIP counts {counts:?}, {} CONQUEST records",
+            skip_cqs.len()
+        );
+    }
+}
+
+/// G1 / §13.1 (CQ2-B): SkipQuiet's worst on a Province v2: 24 bells
+/// asked, 12 occupations (the occupiers on their hexes, empty garrisons)
+/// and a keep contest with an empty garrison, four hour boundaries, 48
+/// residents (the kernel's quiet test at the first bell): the prefix
+/// commits before the 288th record-bell is passed (13 active records a
+/// bell: 22 bells). Also 11 occupations and the keep (12 a bell: all 24
+/// bells, exactly 288). Gate: `skip_gate(bells, active bells)` (§5.4: 90k
+/// + 30k a bell + 3.5k an active bell), heap ≤ 28 KiB (trace build).
+#[test]
+fn g01_cq_skip_worst() {
+    let heap_gate = frontier_abi::budgets::HEAP_GATE as u64;
+    let trace = std::env::var("PSF_TRACE").is_ok_and(|v| v == "1");
+    let mut out = vec![];
+    for (records, want) in [(12usize, 22u64), (11, 24)] {
+        for build in [Build::Release, Build::Trace] {
+            let b0 = MC_BELL + 1;
+            let (mut c, w) = mc_world(build, &MC_LOCAL_7D.cq, b0);
+            let (mut f, mut keep, sites) = mc_quiet(-30, 21 + records as i32, 41, 8);
+            // occupier of site s: faction s mod 6 (resident 2 + s / 6)
+            for (s, &t) in sites.iter().enumerate().take(records) {
+                put_host(&mut f, s as u8 % 6, 2 + s / 6, t, 2_000_000);
+            }
+            put_host(&mut f, 0, 4, keep.tile, 3_000_000);
+            keep.contender = 0;
+            keep.progress = 10;
+            keep.contest_from_bell = b0 - 10;
+            w.craft_fill(&mut c, &f, b0);
+            c.edit(&w.a.province(f.p, f.q), |d| {
+                qm::write_keep(d, &keep).unwrap();
+                for s in 0..records {
+                    occupation(s as u8 % 6, b0 - 30).write(d, s).unwrap();
+                }
+            });
+            ready_run(&mut c, &w, &f, b0, 24);
+            let ix = w.skip_ix(f.dest(), b0, 24);
+            let l = expect_lands(c.send(std::slice::from_ref(&ix), &[&w.keeper]), "SkipQuiet");
+            let n = skip_n(&l.logs);
+            assert_eq!(n, want, "{records} records: the prefix");
+            let gate = b2::skip_gate(n as u32, n as u32) as u64;
+            let heap = permutation_frontier_svm_tests::budget::heap_peak(&l.logs);
+            if build == Build::Release {
+                assert!(l.cu <= gate, "{records} records: {} CU > {gate}", l.cu);
+            } else {
+                assert!(heap.unwrap() as u64 <= heap_gate);
+                if trace {
+                    print_trace(&format!("skip {records} records"), &l.logs);
+                }
+            }
+            assert_eq!(conquests(&l.logs).len() as u64, n, "a CONQUEST every bell");
+            assert!(l.loaded <= loaded_v2(&c, Ix::SkipQuiet) as u64);
+            assert!(l.tx_bytes as u32 <= b2::tx_ceiling(frontier_abi::v2::tags::Ix::SkipQuiet));
+            assert!((n as u32 * (records as u32 + 1)) <= SKIP_RECORD_BELLS_MAX);
+            out.push(format!(
+                "G1-CQ SkipQuiet {records} occupations + keep contest, {build:?}: {n} bells, {} CU (gate {gate}, {:.0} CU a bell), heap {:?}, tx {} B",
+                l.cu,
+                l.cu as f64 / n as f64,
+                heap,
+                l.tx_bytes
+            ));
+        }
+    }
+    for l in &out {
+        println!("{l}");
+    }
+}
+
+/// §3.2 step 5, K-19, §5.7 step 3: a keep taken by a resolve hands half
+/// of the donor (the lead host: most troops, then the lowest id) to the
+/// keep and sends the donor home with the rest through a retire-style
+/// Leave (state 3, `op_a = 1`); KEEP and RETIRE are logged; the return
+/// settle (SettleDeparture, `transit_slot = 0xFF`) credits the rest to the
+/// donor's Holding as RetireHost's would; the other capturer stays and
+/// holds the keep's hex for its new holder (the next bell is quiet).
+#[test]
+fn cq_keep_taken_sends_the_donor_home_through_the_return_settle() {
+    let b0 = MC_BELL + 1;
+    let (mut c, w) = mc_world(Build::TestBeacon, &MC_LOCAL_7D.cq, b0);
+    let (mut f, mut keep, _) = mc_quiet(23, -11, 51, 3);
+    put_host(&mut f, 0, 0, keep.tile, 4_000_000);
+    put_host(&mut f, 0, 1, keep.tile, 9_000_000);
+    keep.contender = 0;
+    keep.progress = keep.required - 1;
+    let donor = f
+        .residents
+        .iter()
+        .filter(|r| r.faction == 0)
+        .nth(1)
+        .copied()
+        .unwrap();
+    let home = frontier_abi::addr::split_host_id(donor.id).unwrap();
+    let hk = w.craft_transit_holding(
+        &mut c,
+        (home.province.p, home.province.q, home.site),
+        0,
+        &donor,
+        b0,
+        T::STATE_FREE,
+    );
+    w.craft_fill(&mut c, &f, b0);
+    c.edit(&w.a.province(f.p, f.q), |d| {
+        qm::write_keep(d, &keep).unwrap()
+    });
+    ready_run(&mut c, &w, &f, b0, 2);
+    let ix = w.gather_ix(&c, f.dest(), b0, 0, 1);
+    expect_lands(keeper_send(&mut c, &w, ix), "GatherClash");
+    let l = expect_lands(
+        keeper_send(&mut c, &w, w.resolve_ix(f.dest(), b0)),
+        "ResolveFromInputs",
+    );
+    let recs = v2_records(&l.logs);
+    let kr = of_cq(&recs, CqKind::KEEP);
+    assert_eq!(kr.len(), 1);
+    assert_eq!(kr[0].payload[..3], [l2::keep_cause::TAKEN, 0, 5]);
+    assert_eq!(
+        u32::from_le_bytes(kr[0].payload[3..7].try_into().unwrap()),
+        4_500
+    );
+    let rr = of_cq(&recs, CqKind::RETIRE);
+    assert_eq!(rr.len(), 1);
+    assert_eq!(
+        u64::from_le_bytes(rr[0].key[..8].try_into().unwrap()),
+        donor.id
+    );
+    assert_eq!(
+        u32::from_le_bytes(rr[0].payload[..4].try_into().unwrap()),
+        4_500_000
+    );
+    assert_eq!(
+        u64::from_le_bytes(rr[0].payload[4..12].try_into().unwrap()),
+        donor.id & !0xFFFF_FFFF,
+        "the donor's Holding key"
+    );
+    let k = qm::read_keep(&c.data(&w.a.province(f.p, f.q)))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (k.holder, k.troops, k.gen, k.last_taken_from),
+        (0, 4_500, 1, 5)
+    );
+    let en = w.entries(&c, f.dest());
+    let (i, x) = en
+        .iter()
+        .find(|(_, x)| x.id == donor.id)
+        .expect("the donor");
+    assert_eq!(
+        (x.state, x.op, x.troops),
+        (EN::STATE_DEPARTED, EntryOp::Leave, 4_500_000)
+    );
+    assert!(frontier_abi::v2::entry::is_retire(
+        &c.data(&w.a.province(f.p, f.q)),
+        *i
+    ));
+    // the next bell is quiet: the other capturer holds the keep's hex
+    let l = expect_lands(
+        c.send(&[w.skip_ix(f.dest(), b0 + 1, 1)], &[&w.keeper]),
+        "SkipQuiet",
+    );
+    assert_eq!(skip_n(&l.logs), 1);
+    // the return settle credits the rest home
+    let before = u32_at(&c.data(&hk), H::reserve(0));
+    let href = fclient::ix::HoldingRef {
+        p: home.province.p as i16,
+        q: home.province.q as i16,
+        site: home.site,
+    };
+    let rix = cix::settle_return(&w.a, w.keeper.pubkey(), (f.p as i16, f.q as i16), href);
+    expect_lands(
+        mc_send(&mut c, Ix::SettleDeparture, rix.clone(), &[&w.keeper]),
+        "cix::settle_return(",
+    );
+    assert_eq!(u32_at(&c.data(&hk), H::reserve(0)), before + 4_500);
+    assert!(w
+        .entries(&c, f.dest())
+        .iter()
+        .all(|(_, x)| x.id != donor.id));
+    assert_code(
+        mc_send(&mut c, Ix::SettleDeparture, rix, &[&w.keeper]),
+        E::AlreadyDone,
+    );
+}
+
+/// PO-7, A-9, A-29 (the program-side test CQ2-B owes): the hourly snapshot
+/// counts a provisional holding. Its Holding is provisional with
+/// `final_ts` still ahead when the hour's bell is resolved or skipped, and
+/// its strength weight is in `snap[h mod 6]` for its faction all the
+/// same; both paths write the same snapshot.
+#[test]
+fn cq_snapshot_counts_a_provisional_holding_before_its_final_ts() {
+    let b = MC_BELL; // hour 50
+    for path in ["resolve", "skip"] {
+        let (mut c, w) = mc_world(Build::TestBeacon, &MC_LOCAL_7D.cq, b);
+        let (mut f, _, _) = mc_quiet(-4, 17, 61, 2);
+        f.garrisons.truncate(1);
+        f.garrisons[0].troops = 3_000_000;
+        f.garrisons[0].faction = 2;
+        f.terrain.site_count = 1;
+        let a = f.residents[0];
+        let hk = w.craft_transit_holding(&mut c, (f.p, f.q, 0), 2, &a, b, T::STATE_FREE);
+        let final_ts = w.bell_start(b + 30);
+        c.edit(&hk, |d| {
+            d[H::STATE] = H::STATE_PROVISIONAL;
+            d[H::FINAL_TS..H::FINAL_TS + 8].copy_from_slice(&final_ts.to_le_bytes());
+        });
+        w.craft_fill(&mut c, &f, b);
+        ready_run(&mut c, &w, &f, b, 1);
+        let l = if path == "resolve" {
+            let ix = w.gather_ix(&c, f.dest(), b, 0, 1);
+            expect_lands(keeper_send(&mut c, &w, ix), "GatherClash");
+            expect_lands(
+                keeper_send(&mut c, &w, w.resolve_ix(f.dest(), b)),
+                "ResolveFromInputs",
+            )
+        } else {
+            expect_lands(
+                c.send(&[w.skip_ix(f.dest(), b, 1)], &[&w.keeper]),
+                "SkipQuiet",
+            )
+        };
+        let d = c.data(&w.a.province(f.p, f.q));
+        let h = b / 6;
+        let snap = qm::snapshot_slot(&d, h).unwrap().expect("hour 50's sample");
+        let want = permutation_rules::frontier::control::site_weight_centi(
+            permutation_rules::frontier::laurel::Tier::Hamlet,
+            3_000_000,
+            0,
+        );
+        assert!(want > 0);
+        assert_eq!(snap[2], want, "{path}: the provisional holding's weight");
+        assert_eq!(snap.iter().map(|x| *x as u32).sum::<u32>(), want as u32);
+        assert_eq!(
+            u32::from_le_bytes(
+                d[P2::snap((h % 6) as usize) + SN::HOUR..][..4]
+                    .try_into()
+                    .unwrap()
+            ),
+            h
+        );
+        let cq = conquests(&l.logs);
+        assert_eq!(cq.len(), 1);
+        assert_eq!(cq[0].1.snapshot, Some(snap));
+        // the Holding is still provisional, its final_ts ahead
+        let hd = c.data(&hk);
+        assert_eq!(hd[H::STATE], H::STATE_PROVISIONAL);
+        assert!(i64::from_le_bytes(hd[H::FINAL_TS..H::FINAL_TS + 8].try_into().unwrap()) > c.now);
+    }
+}
+
+/// §5.6 GatherClash, §5.8: an arrival whose host id names the previous
+/// generation of a captured Holding (`capture_flags` bit 0, `prev_gen`)
+/// gathers as present; the same host of a re-founded Holding (no capture
+/// flag) gathers as absent, as in M1.
+#[test]
+fn cq_gather_reads_a_captured_holdings_previous_generation() {
+    for captured in [true, false] {
+        let (mut c, w) = mc_world(Build::TestBeacon, &MC_LOCAL_7D.cq, MC_BELL);
+        let mut f = Fill::adversarial(0, 71, 12, -19);
+        f.arrivals.truncate(1);
+        let (fa, i, a) = f.arrivals[0];
+        let seed = mc_ready(&mut c, &w, &f, MC_BELL, |_| {});
+        let _ = seed;
+        let k = fa as usize * 4 + i as usize;
+        let home = permutation_frontier_svm_tests::world::clash::arrival_home(f.p, f.q, k);
+        let hk = w.a.holding(home.0, home.1, home.2);
+        c.edit(&hk, |d| {
+            d[H::GEN] = 2;
+            d[H2::PREV_GEN] = 1;
+            d[H2::CAPTURE_FLAGS] = if captured {
+                H2::CAPTURE_FLAG_CAPTURED
+            } else {
+                0
+            };
+        });
+        let ix = w.gather_ix(&c, f.dest(), MC_BELL, 0, 24);
+        expect_lands(keeper_send(&mut c, &w, ix), "GatherClash");
+        let ci = c.data(&w.a.clash_inputs(f.p, f.q, MC_BELL));
+        let o = CI::arrival(k);
+        assert_eq!(ci[o + AR::PRESENT], captured as u8, "captured {captured}");
+        assert_eq!(u64_at(&ci, o + AR::HOST_ID), a.id);
+        let td = c.data(&hk);
+        let stamped = td[H::transit(0) + T::FLAGS] & T::FLAG_GATHERED != 0;
+        assert_eq!(
+            stamped, captured,
+            "the transit is stamped only when gathered"
+        );
+    }
+}
+
+/// G13 rows of the MC clash path (§5.7, §5.1): a record the step cannot
+/// interpret is `Kernel` (resolve and skip); a Province v2 under a Season
+/// without a conquest block (`conquest_version ≠ 1`) is `BadAccount`; a
+/// 4,736-B Province with an M1 header (`layout_version` 1) is `BadAccount`.
+#[test]
+fn g13_cq_clash_refusals() {
+    let b0 = MC_BELL + 1;
+    let (mut c, w) = mc_world(Build::TestBeacon, &MC_LOCAL_7D.cq, b0);
+    let (f, keep, _) = mc_quiet(-25, 3, 81, 2);
+    w.craft_fill(&mut c, &f, b0);
+    c.edit(&w.a.province(f.p, f.q), |d| {
+        qm::write_keep(d, &keep).unwrap()
+    });
+    ready_run(&mut c, &w, &f, b0, 2);
+    let pk = w.a.province(f.p, f.q);
+    let resolve = |c: &mut Chain| {
+        let mut ch = c.fork();
+        let ix = w.gather_ix(&ch, f.dest(), b0, 0, 1);
+        expect_lands(keeper_send(&mut ch, &w, ix), "GatherClash");
+        keeper_send(&mut ch, &w, w.resolve_ix(f.dest(), b0))
+    };
+    let skip = |c: &mut Chain| c.fork().send(&[w.skip_ix(f.dest(), b0, 1)], &[&w.keeper]);
+    // a record of an unknown kind
+    let mut bad = c.fork();
+    bad.edit(&pk, |d| d[P2::record(4) + CR::KIND] = 7);
+    assert_code(resolve(&mut bad), E::Kernel);
+    assert_code(skip(&mut bad), E::Kernel);
+    // a siege on a free site (S2)
+    let mut bad = c.fork();
+    bad.edit(&pk, |d| {
+        siege(&w, 1, 3, 36, 2, b0 - 4, b0).write(d, 0).unwrap();
+        d[P2::site(0) + SM2::STATE] = SM2::STATE_FREE;
+    });
+    assert_code(resolve(&mut bad), E::Kernel);
+    // a Season without a conquest block
+    let mut bad = c.fork();
+    let off = frontier_abi::v2::presets::SEASON_CQ_OFFSET;
+    bad.edit(&w.a.season, |d| d[off] = 0);
+    assert_code(resolve(&mut bad), E::BadAccount);
+    assert_code(skip(&mut bad), E::BadAccount);
+    // an M1 header on a Province of the v2 size
+    let mut bad = c.fork();
+    bad.edit(&pk, |d| d[frontier_abi::layout::header::LAYOUT_VERSION] = 1);
+    assert_code(skip(&mut bad), E::BadAccount);
+    let ix = w.gather_ix(&bad, f.dest(), b0, 0, 1);
+    assert_code(keeper_send(&mut bad, &w, ix), E::BadAccount);
+    // the good Province resolves and skips
+    expect_lands(resolve(&mut c), "ResolveFromInputs");
+    expect_lands(skip(&mut c), "SkipQuiet");
+}

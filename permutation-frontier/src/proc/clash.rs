@@ -94,18 +94,60 @@
 //!   inputs[ARRIVALS..POSTURES])`; SKIP's `quiet_digest = sha256(
 //!   "PSF-QUIET-v1" ‖ le32(b0) ‖ n ‖ province[SITE_MIRROR..TICKET_COHORTS]
 //!   after)`.
+//!
+//! ## MC "Contested Ground" (ABI v2, CQ2-B)
+//!
+//! A Province of 4,736 B (`layout_version = 2`) is an MC Province and
+//! takes the v2 path; a 4,096-B Province keeps M1's path byte for byte
+//! (the program dispatches on the account, R-22; once every Province is
+//! v2 the M1 path is only the record of M1). The v2 path is the shared
+//! models' calling order (`conquest_model`'s module note, CQ1-C §1):
+//!
+//! ```text
+//! resolve: input_digest_v2 → build_v2 → kernel clash → report_from_outcome
+//!          → apply_v2 → settle_bell(b) → conquest_model::step(b)
+//!          → finish_bell(b, changed ∨ step.roster_changed)
+//! skip:    camp_check_v2 → quiet test (trivially_quiet_v2, else the
+//!          kernel's is_quiet on build_v2) → report (tile masks, cached
+//!          until the roster changes) → settle_bell(b) → step(b) → finish_bell
+//! ```
+//!
+//! - **The conquest step** (§5.7) reads the Season's conquest block
+//!   (`StepParams::of_season`, `conquest_version` 1, else `BadAccount`).
+//! - **Logs** (§6): after CLASH (resolve) or in bell order inside the skip
+//!   (before the skip's CAMP and SKIP records): CONQUEST (82) for every bell
+//!   whose step `emits()`; at a keep taken, KEEP (84, cause 1: holder,
+//!   from, the new garrison in whole troops, `consolidated_until`, gen) and,
+//!   when the donor goes home with a rest, RETIRE (86, `by` 2: the rest in
+//!   milli-troops as the entry holds it, the donor's Holding key). Each
+//!   chains the Province. The bodies are written here ([`cqlog`]) until the
+//!   program's `events` module carries the v2 kinds (CQ2-A's file).
+//! - **SkipQuiet v2** recomputes its quiet test after a change of the
+//!   roster, a garrison or the camp, and after a step whose
+//!   `quiet_inputs_changed` (a keep changed hands, a mirror flipped at a
+//!   capture, the donor left). It commits its prefix before a bell that
+//!   would take `Σ active records` past [`SKIP_RECORD_BELLS_MAX`] (288;
+//!   §5.4, I-50), the first bell always runs.
+//! - **GatherClash** (§5.6): a slot whose host id names a captured
+//!   Holding's previous generation (`capture_flags` bit 0, `prev_gen`)
+//!   gathers as present.
+//! - **Digests:** CLASH's `PSF-CLASH-INPUT-v2` and SKIP's `PSF-QUIET-v2`
+//!   (`clash_model::{input_digest_v2, quiet_digest_v2}`).
 
 use alloc::vec::Vec;
 
 use solana_program::{account_info::AccountInfo, pubkey::Pubkey};
 
 use frontier_abi::addr::{archive_part_of, clash_inputs_seed, day_of, split_host_id, AddrCtx};
+use frontier_abi::conquest_model as cq;
 use frontier_abi::entry::{read_entry, write_entry, Entry};
 use frontier_abi::ix as aix;
 use frontier_abi::layout::AccountKind;
 use frontier_abi::log::{close_key, pack_fates, EntityKind, Kind, NO_BELL};
 use frontier_abi::prologue::SeasonHdr;
 use frontier_abi::tags::Ix;
+use frontier_abi::v2::budgets::SKIP_RECORD_BELLS_MAX;
+use frontier_abi::v2::layout::province::province as P2;
 use permutation_rules::frontier::clash::{self as kc, ClashOutcome};
 use permutation_rules::frontier::geometry::region_of;
 
@@ -194,6 +236,18 @@ pub mod model {
     pub fn apply(pd: &mut [u8], b: &Built, out: &ClashOutcome) -> crate::R<Applied> {
         Ok(m::apply_probed::<HeapProbe>(pd, b, out)?)
     }
+
+    /// [`m::build_v2`] with the program's checkpoints (MC Province).
+    #[inline]
+    pub fn build_v2(pd: &[u8], inputs: Option<&[u8]>, b: u32) -> crate::R<BuiltV2> {
+        Ok(m::build_v2_probed::<HeapProbe>(pd, inputs, b)?)
+    }
+
+    /// [`m::apply_v2`] with the program's checkpoints (MC Province).
+    #[inline]
+    pub fn apply_v2(pd: &mut [u8], b: &BuiltV2, out: &ClashOutcome) -> crate::R<AppliedV2> {
+        Ok(m::apply_v2_probed::<HeapProbe>(pd, b, out)?)
+    }
 }
 
 // ================================================================ program
@@ -209,21 +263,59 @@ fn clash_err(_e: kc::ClashError) -> crate::Error {
 }
 
 /// The Province at its canonical address from its stored `(P, Q)`
-/// (`BadAddress`), present (`BadAccount`): `(P, Q, resolved_next)`.
+/// (`BadAddress`), present (`BadAccount`): `(P, Q, resolved_next, v2)`.
+/// A 4,736-B account is an MC Province (ABI v2: exact size, magic, season,
+/// `layout_version = 2`); any other size is checked as M1's.
 fn province_of(
     program: &Pubkey,
     ctx: &AddrCtx,
     sid: u64,
     province: &AccountInfo,
-) -> R<(i16, i16, u32)> {
-    prologue::present(province, program, AccountKind::Province, sid)?;
+) -> R<(i16, i16, u32, bool)> {
+    let v2 = province_present(program, sid, province)?;
     let (pp, pq, rn) = {
         let d = province.try_borrow_data()?;
         let r = Ro(&d);
         (r.i16(P::P)?, r.i16(P::Q)?, r.u32(P::RESOLVED_NEXT)?)
     };
     expect_key(province, &ctx.province(pp as i32, pq as i32))?;
-    Ok((pp, pq, rn))
+    Ok((pp, pq, rn, v2))
+}
+
+/// A present Province: `Ok(true)` for an MC (v2) Province, `Ok(false)`
+/// for an M1 one; anything else `BadAccount`.
+fn province_present(program: &Pubkey, sid: u64, province: &AccountInfo) -> R<bool> {
+    if province.data_len() != P2::SIZE {
+        prologue::present(province, program, AccountKind::Province, sid)?;
+        return Ok(false);
+    }
+    let d = province.try_borrow_data()?;
+    let view = frontier_abi::prologue::AccountView {
+        key: province.key.as_array(),
+        owner: province.owner.as_array(),
+        lamports: province.lamports(),
+        data: &d,
+        is_signer: province.is_signer,
+        is_writable: province.is_writable,
+    };
+    frontier_abi::v2::prologue::check_present_v2(
+        &view,
+        program.as_array(),
+        frontier_abi::v2::layout::AccountKind::Province,
+        sid,
+    )?;
+    Ok(true)
+}
+
+/// The conquest step's season values (an MC Season: its conquest block at
+/// `conquest_version` 1, else `BadAccount`).
+fn step_params(season_ai: &AccountInfo) -> R<cq::StepParams> {
+    let sd = season_ai.try_borrow_data()?;
+    let prm = cq::StepParams::of_season(&sd).ok_or(BAD_ACCOUNT)?;
+    if prm.cq.conquest_version != frontier_abi::v2::presets::CONQUEST_VERSION {
+        return Err(BAD_ACCOUNT);
+    }
+    Ok(prm)
 }
 
 /// `A` of THE anchor of `(bell, region)` from the account given for it:
@@ -469,7 +561,7 @@ fn gather_position(
         hd.get(H::STATE).copied(),
         Some(H::STATE_PROVISIONAL | H::STATE_FINAL)
     );
-    if !live || hd.get(H::GEN).copied() != Some(parts.gen) {
+    if !live || !gathers_gen(&hd, parts.gen) {
         return Ok(true);
     }
     for t in 0..H::TRANSIT_N {
@@ -527,6 +619,20 @@ fn gather_position(
     Ok(true)
 }
 
+/// Whether a host of generation `gen` gathers from this Holding: its own
+/// generation, or (MC §5.6, §5.8) the previous one of a captured Holding
+/// (`capture_flags` bit 0 and `prev_gen`), whose victim's transits still
+/// arrive. An M1 Holding's reserve bytes are zero, so it never matches the
+/// second rule.
+fn gathers_gen(hd: &[u8], gen: u8) -> bool {
+    use frontier_abi::v2::layout::player::holding as H2;
+    hd.get(H::GEN).copied() == Some(gen)
+        || (hd
+            .get(H2::CAPTURE_FLAGS)
+            .is_some_and(|f| f & H2::CAPTURE_FLAG_CAPTURED != 0)
+            && hd.get(H2::PREV_GEN).copied() == Some(gen))
+}
+
 /// Positions of a gather range: `start..start + n` within the 24.
 fn range_mask(start: u8, n: u8) -> R<u32> {
     let end = start as usize + n as usize;
@@ -556,7 +662,7 @@ pub fn gather_clash(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     };
     let sid = hdr.id;
     let ctx = crate::addr::ctx(&key(season_ai), &p.to_bytes());
-    let (pp, pq, rn) = province_of(p, &ctx, sid, province)?;
+    let (pp, pq, rn, _) = province_of(p, &ctx, sid, province)?;
     if x.bell < rn {
         return Err(FrontierError::LatchClosed.into());
     }
@@ -710,29 +816,65 @@ fn pq_key(p: i16, q: i16) -> [u8; 8] {
 // ------------------------------------------------------------ resolving
 
 /// The resolve of bell `b` over the Province and gathered inputs bytes:
-/// build, kernel, write-back, settle, fate table. Returns the outcome
-/// digest, the input digest, the engagements and the fates.
+/// build, kernel, write-back, settle, (MC) the conquest step, fate table.
+/// Returns the outcome digest, the input digest, the engagements and the
+/// fates.
 struct Resolved {
     outcome: [u8; 32],
     input: [u8; 32],
     engagements: u32,
     applied: Applied,
     camp: Option<Camp>,
+    /// MC: the bell's conquest step.
+    step: Option<cq::StepOut>,
 }
 
-fn resolve_core(pd: &mut [u8], ci: &mut [u8], b: u32, seed: &[u8; 32]) -> R<Resolved> {
-    let input = model::input_digest(pd, ci, b, seed)?;
-    crate::heap::trace_checkpoint(0x6100);
-    let built = model::build(pd, Some(ci), b)?;
-    crate::heap::trace_checkpoint(0x6101);
-    let out: ClashOutcome =
-        kc::resolve_clash(&kc::frontier_ruleset(), &built.input(seed)).map_err(clash_err)?;
-    crate::heap::trace_checkpoint(0x6102);
-    let applied = model::apply(pd, &built, &out)?;
-    crate::heap::trace_checkpoint(0x6122);
-    let settled = model::settle_bell(pd, b)?;
-    crate::heap::trace_checkpoint(0x6123);
-    model::finish_bell(pd, b, applied.changed || settled)?;
+/// `cqp` is the Season's conquest step parameters for an MC Province
+/// (the v2 path, module note), `None` for an M1 one.
+fn resolve_core(
+    pd: &mut [u8],
+    ci: &mut [u8],
+    b: u32,
+    seed: &[u8; 32],
+    cqp: Option<&cq::StepParams>,
+) -> R<Resolved> {
+    let (input, out, applied, camp, step) = match cqp {
+        None => {
+            let input = model::input_digest(pd, ci, b, seed)?;
+            crate::heap::trace_checkpoint(0x6100);
+            let built = model::build(pd, Some(ci), b)?;
+            crate::heap::trace_checkpoint(0x6101);
+            let out: ClashOutcome = kc::resolve_clash(&kc::frontier_ruleset(), &built.input(seed))
+                .map_err(clash_err)?;
+            crate::heap::trace_checkpoint(0x6102);
+            let applied = model::apply(pd, &built, &out)?;
+            crate::heap::trace_checkpoint(0x6122);
+            let settled = model::settle_bell(pd, b)?;
+            crate::heap::trace_checkpoint(0x6123);
+            model::finish_bell(pd, b, applied.changed || settled)?;
+            let camp = (built.camp_checked == Some(true)).then_some(built.camp);
+            (input, out, applied, camp, None)
+        }
+        Some(prm) => {
+            let input = model::input_digest_v2(pd, ci, b, seed)?;
+            crate::heap::trace_checkpoint(0x6100);
+            let built = model::build_v2(pd, Some(ci), b)?;
+            crate::heap::trace_checkpoint(0x6101);
+            let out: ClashOutcome = kc::resolve_clash(&kc::frontier_ruleset(), &built.input(seed))
+                .map_err(clash_err)?;
+            crate::heap::trace_checkpoint(0x6102);
+            let report = cq::report_from_outcome(&built, &out)?;
+            let applied = model::apply_v2(pd, &built, &out)?;
+            crate::heap::trace_checkpoint(0x6122);
+            let settled = model::settle_bell(pd, b)?;
+            crate::heap::trace_checkpoint(0x6123);
+            let step = cq::step(pd, b, &report, prm)?;
+            crate::heap::trace_checkpoint(0x6127);
+            model::finish_bell(pd, b, applied.changed() || settled || step.roster_changed)?;
+            let camp = (built.base.camp_checked == Some(true)).then_some(built.base.camp);
+            (input, out, applied.base, camp, Some(step))
+        }
+    };
     crate::heap::trace_checkpoint(0x6103);
     let digest = model::outcome_digest(&out)?;
     crate::heap::trace_checkpoint(0x6124);
@@ -754,13 +896,13 @@ fn resolve_core(pd: &mut [u8], ci: &mut [u8], b: u32, seed: &[u8; 32]) -> R<Reso
         w.set_u32(CAMP_MASK, applied.camp_mask)?;
     }
     crate::heap::trace_checkpoint(0x6125);
-    let camp = (built.camp_checked == Some(true)).then_some(built.camp);
     Ok(Resolved {
         outcome: digest,
         input,
         engagements: out.engagements,
         applied,
         camp,
+        step,
     })
 }
 
@@ -838,6 +980,140 @@ fn emit_camps(pd: &mut [u8], pp: i16, pq: i16, b: u32, r: &Resolved, bell_log: u
     Ok(())
 }
 
+// ------------------------------------------------------------ MC records
+
+/// PS2 records of the MC kinds 80–89 (§6) chained to the Province only
+/// (CONQUEST, KEEP, RETIRE). The encoding is M1's (`frontier_abi::log`):
+/// `ver ‖ kind ‖ bell ‖ key ‖ payload`, then the tail. The widths come
+/// from [`cqlog::WIDTHS`], an integer table evaluated at compile time from
+/// `frontier_abi::v2::log::CQ_SPECS` (no data relocation, as
+/// `events::WIDTHS`; `build-frontier.sh` checks every build).
+pub mod cqlog {
+    use frontier_abi::log::{self as l1, EntityKind, Link};
+    use frontier_abi::v2::log as l2;
+
+    use crate::error::{BAD_ACCOUNT, OVERFLOW};
+    use crate::layout::{chain_of, set_chain};
+    use crate::R;
+
+    /// First MC record kind.
+    pub const FIRST: u8 = 80;
+    /// `(defined, key width, payload width)` of kinds 80..=89.
+    pub const WIDTHS: [(bool, u16, u16); 10] = {
+        let mut t = [(false, 0u16, 0u16); 10];
+        let mut i = 0;
+        while i < l2::CQ_SPECS.len() {
+            let s = &l2::CQ_SPECS[i];
+            let (mut k, mut j) = (0usize, 0);
+            while j < s.key.len() {
+                k += s.key[j].1;
+                j += 1;
+            }
+            let (mut p, mut j) = (0usize, 0);
+            while j < s.payload.len() {
+                p += s.payload[j].1;
+                j += 1;
+            }
+            t[s.kind as usize - FIRST as usize] = (true, k as u16, p as u16);
+            i += 1;
+        }
+        t
+    };
+
+    /// Largest MC body plus one link (CONQUEST: 137 B + 1 + 41).
+    pub const MAX: usize = 192;
+
+    /// Writes the record of MC kind `code` chained to the Province `pd`
+    /// into `out` (advancing the Province's chain); returns its length.
+    pub fn record(
+        code: u8,
+        bell: u32,
+        key: &[u8],
+        payload: &[u8],
+        pd: &mut [u8],
+        out: &mut [u8; MAX],
+    ) -> R<usize> {
+        let (defined, kw, pw) = *code
+            .checked_sub(FIRST)
+            .and_then(|i| WIDTHS.get(i as usize))
+            .ok_or(BAD_ACCOUNT)?;
+        if !defined || key.len() != kw as usize || payload.len() != pw as usize {
+            return Err(BAD_ACCOUNT);
+        }
+        let n = l1::HEAD_LEN + key.len() + payload.len();
+        let o = out.get_mut(..n).ok_or(BAD_ACCOUNT)?;
+        o[0] = l1::VERSION;
+        o[1] = code;
+        o[2..6].copy_from_slice(&bell.to_le_bytes());
+        o[6..6 + key.len()].copy_from_slice(key);
+        o[6 + key.len()..].copy_from_slice(payload);
+        let (seq, head) = chain_of(pd)?;
+        let link: Link =
+            l1::advance(EntityKind::Province, seq, &head, &out[..n]).ok_or(OVERFLOW)?;
+        set_chain(pd, link.seq, &link.head)?;
+        l1::write_tail(&[link], out, n).ok_or(BAD_ACCOUNT)
+    }
+
+    /// [`record`], logged with `sol_log_data(["PS2", body])`.
+    pub fn emit(code: u8, bell: u32, key: &[u8], payload: &[u8], pd: &mut [u8]) -> R<()> {
+        let mut out = [0u8; MAX];
+        let n = record(code, bell, key, payload, pd, &mut out)?;
+        solana_program::log::sol_log_data(&[l1::PREFIX, &out[..n]]);
+        Ok(())
+    }
+}
+
+/// The MC records of bell `b`'s conquest step (module note): CONQUEST when
+/// the step emits, and at a keep taken KEEP and the donor's RETIRE.
+fn emit_conquest(
+    pd: &mut [u8],
+    pp: i16,
+    pq: i16,
+    b: u32,
+    st: &cq::StepOut,
+    bell_log: u32,
+) -> R<()> {
+    use frontier_abi::v2::log::{keep_cause, retire_by, CqKind};
+    if !st.emits() {
+        return Ok(());
+    }
+    let payload = cq::conquest_payload(pd, st)?.to_bytes();
+    let key = frontier_abi::v2::log::conquest_key(pp as i32, pq as i32, b);
+    cqlog::emit(CqKind::CONQUEST as u8, bell_log, &key, &payload, pd)?;
+    let Some(t) = st.keep_taken else {
+        return Ok(());
+    };
+    let k = cq::read_keep(pd)?.ok_or(BAD_ACCOUNT)?;
+    let payload = Buf::<15>::new()
+        .u8(keep_cause::TAKEN)
+        .u8(t.to)
+        .u8(t.from)
+        .u32(t.garrison)
+        .u32(k.consolidated_until_bell)
+        .u32(k.gen);
+    cqlog::emit(
+        CqKind::KEEP as u8,
+        bell_log,
+        &pq_key(pp, pq),
+        payload.get()?,
+        pd,
+    )?;
+    if t.donor_host_id != 0 && !t.donor_removed {
+        let payload = Buf::<13>::new()
+            .u32(t.donor_rest)
+            .u64(t.donor_host_id & !0xFFFF_FFFF)
+            .u8(retire_by::KEEP_DONOR);
+        cqlog::emit(
+            CqKind::RETIRE as u8,
+            bell_log,
+            &t.donor_host_id.to_le_bytes(),
+            payload.get()?,
+            pd,
+        )?;
+    }
+    Ok(())
+}
+
 /// 0x61 ResolveFromInputs(bell, beneficiary): K + `[province w] [inputs w]
 /// [seedcache|archive r] [anchor|archive r] [ix sysvar]`, class D, top
 /// level.
@@ -853,11 +1129,16 @@ pub fn resolve_from_inputs(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     crate::heap::trace_checkpoint(0x6110);
     let sid = hdr.id;
     let ctx = crate::addr::ctx(&key(season_ai), &p.to_bytes());
-    let (pp, pq, rn) = province_of(p, &ctx, sid, province)?;
+    let (pp, pq, rn, v2) = province_of(p, &ctx, sid, province)?;
     if x.bell != rn {
         return Err(FrontierError::OutOfOrder.into());
     }
     in_season(&hdr, x.bell)?;
+    let cqp = if v2 {
+        Some(step_params(season_ai)?)
+    } else {
+        None
+    };
     expect_key(inputs, &ctx.clash_inputs(pp as i32, pq as i32, x.bell))?;
     if !prologue::presence(inputs, p, AccountKind::ClashInputs, sid)? {
         return Err(FrontierError::NotGathered.into());
@@ -885,7 +1166,7 @@ pub fn resolve_from_inputs(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let bell_log = hdr.bell(now.ts).unwrap_or(NO_BELL);
     let mut pd = province.try_borrow_mut_data()?;
     let mut cd = inputs.try_borrow_mut_data()?;
-    let r = resolve_core(&mut pd, &mut cd, x.bell, &seed)?;
+    let r = resolve_core(&mut pd, &mut cd, x.bell, &seed, cqp.as_ref())?;
     let n_arr = Ro(&cd).u8(CI::N_PRESENT)?;
     write_summary(&mut pd, x.bell, &r, n_arr, &x.beneficiary)?;
     {
@@ -903,6 +1184,9 @@ pub fn resolve_from_inputs(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     emit_camps(&mut pd, pp, pq, x.bell, &r, bell_log)?;
     crate::heap::trace_checkpoint(0x6126);
     emit_clash(&mut pd, &mut cd, pp, pq, x.bell, &r, bell_log)?;
+    if let Some(st) = &r.step {
+        emit_conquest(&mut pd, pp, pq, x.bell, st, bell_log)?;
+    }
     crate::heap::trace_checkpoint(0x6112);
     Ok(())
 }
@@ -928,11 +1212,16 @@ pub fn resolve_clash(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let (slots, holdings) = rest.split_at(CI::POSITIONS);
     let sid = hdr.id;
     let ctx = crate::addr::ctx(&key(season_ai), &p.to_bytes());
-    let (pp, pq, rn) = province_of(p, &ctx, sid, province)?;
+    let (pp, pq, rn, v2) = province_of(p, &ctx, sid, province)?;
     if x.bell != rn {
         return Err(FrontierError::OutOfOrder.into());
     }
     in_season(&hdr, x.bell)?;
+    let cqp = if v2 {
+        Some(step_params(season_ai)?)
+    } else {
+        None
+    };
     let clock = {
         let sd = season_ai.try_borrow_data()?;
         SeasonClock::read(&sd)?
@@ -971,7 +1260,7 @@ pub fn resolve_clash(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     }
     let bell_log = hdr.bell(now.ts).unwrap_or(NO_BELL);
     let mut pd = province.try_borrow_mut_data()?;
-    let r = resolve_core(&mut pd, &mut ci, x.bell, &seed)?;
+    let r = resolve_core(&mut pd, &mut ci, x.bell, &seed, cqp.as_ref())?;
     let n_arr = ci
         .iter()
         .skip(CI::ARRIVALS + AR::PRESENT)
@@ -981,7 +1270,11 @@ pub fn resolve_clash(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         .count() as u8;
     write_summary(&mut pd, x.bell, &r, n_arr, &x.beneficiary)?;
     emit_camps(&mut pd, pp, pq, x.bell, &r, bell_log)?;
-    emit_clash(&mut pd, &mut ci, pp, pq, x.bell, &r, bell_log)
+    emit_clash(&mut pd, &mut ci, pp, pq, x.bell, &r, bell_log)?;
+    if let Some(st) = &r.step {
+        emit_conquest(&mut pd, pp, pq, x.bell, st, bell_log)?;
+    }
+    Ok(())
 }
 
 // ------------------------------------------------------------ skipping
@@ -1010,7 +1303,7 @@ pub fn skip_quiet(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     )?;
     let sid = hdr.id;
     let ctx = crate::addr::ctx(&key(season_ai), &p.to_bytes());
-    let (pp, pq, rn) = province_of(p, &ctx, sid, province)?;
+    let (pp, pq, rn, v2) = province_of(p, &ctx, sid, province)?;
     if x.b0 != rn {
         return Err(FrontierError::OutOfOrder.into());
     }
@@ -1026,11 +1319,23 @@ pub fn skip_quiet(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         day1,
         &ctx.arrival_day(pp as i32, pq as i32, d0.checked_add(1).ok_or(OVERFLOW)?),
     )?;
+    let cqp = if v2 {
+        Some(step_params(season_ai)?)
+    } else {
+        None
+    };
     let bell_log = hdr.bell(now.ts).unwrap_or(NO_BELL);
     let mut done = 0u8;
     let mut quiet_known = false;
     let mut tests = 0u32;
     let mut spawns: Vec<(Camp, u32)> = Vec::new();
+    // MC: the quiet model's tile masks, valid before `horizon` while the
+    // roster does not change; the active record-bells counted so far.
+    let mut masks: Option<(
+        [u8; permutation_rules::frontier::geometry::PROVINCE_TILES],
+        u32,
+    )> = None;
+    let mut record_bells = 0u32;
     let mut pd = province.try_borrow_mut_data()?;
     let mut due = model::next_due(&pd)?;
     for (k, anchor) in anchors.iter().enumerate() {
@@ -1040,6 +1345,16 @@ pub fn skip_quiet(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         let first = k == 0;
         let camp_due = day_of(b) >= Camp::read(&pd)?.next_check_day;
         if !first && heap_used() > SKIP_HEAP_STOP {
+            break;
+        }
+        // MC (§5.4, I-50): the prefix commits before a bell that would take
+        // the active record-bells past 288.
+        let active = if cqp.is_some() {
+            cq::active_count(&pd)?
+        } else {
+            0
+        };
+        if !first && record_bells.saturating_add(active) > SKIP_RECORD_BELLS_MAX {
             break;
         }
         // (1) the window; bells past the season end are never skipped
@@ -1068,7 +1383,14 @@ pub fn skip_quiet(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         let mut camp_undo: Option<Camp> = None;
         if camp_due {
             let t = model::terrain_of(&pd)?;
-            if let Some((c, spawned)) = model::camp_check(&pd, &t, b)? {
+            let checked = match cqp {
+                None => model::camp_check(&pd, &t, b)?,
+                Some(_) => {
+                    let keep_tile = cq::read_keep(&pd)?.map(|k| k.tile);
+                    model::camp_check_v2(&pd, &t, b, keep_tile)?
+                }
+            };
+            if let Some((c, spawned)) = checked {
                 camp_undo = Some(Camp::read(&pd)?);
                 c.write(&mut pd)?;
                 if spawned {
@@ -1092,22 +1414,20 @@ pub fn skip_quiet(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         // (4) quiet: the trivial test, else (first bell only) the kernel's,
         // heap scoped; recomputed after any change
         if !quiet_known {
-            let q = if model::trivially_quiet(&pd, b)? {
+            let trivial = match cqp {
+                None => model::trivially_quiet(&pd, b)?,
+                Some(_) => model::trivially_quiet_v2(&pd, b)?,
+            };
+            let q = if trivial {
                 true
             } else if tests < SKIP_KERNEL_TESTS && first {
                 tests += 1;
-                let q = crate::heap::scoped(|| {
-                    let built = model::build(&pd, None, b).map_err(|_| ())?;
-                    kc::is_quiet(&kc::frontier_ruleset(), &built.input(&[0; 32])).map_err(|_| ())
-                });
+                let v2 = cqp.is_some();
+                let q = crate::heap::scoped(|| kernel_quiet(&pd, b, v2).map_err(|_| ()));
                 match q {
                     Ok(q) => q,
-                    Err(()) => {
-                        // Re-run outside the scope for the error itself.
-                        let built = model::build(&pd, None, b)?;
-                        kc::is_quiet(&kc::frontier_ruleset(), &built.input(&[0; 32]))
-                            .map_err(clash_err)?
-                    }
+                    // Re-run outside the scope for the error itself.
+                    Err(()) => kernel_quiet(&pd, b, v2)?,
                 }
             } else {
                 // Left to the next transaction's first bell.
@@ -1124,13 +1444,45 @@ pub fn skip_quiet(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             quiet_known = true;
         }
         crate::heap::trace_checkpoint(0x6302);
-        // (5) the bell's settle (only from the first bell something is due)
+        // (5) MC: the quiet model's report of b, read before the bell's
+        // settle as the clash of b would see the roster (§5.7)
+        let report = match cqp {
+            None => None,
+            Some(_) => {
+                let m = match masks {
+                    Some((m, horizon)) if b < horizon => m,
+                    _ => {
+                        let (m, horizon) = model::tile_masks_horizon(&pd, b)?;
+                        masks = Some((m, horizon));
+                        m
+                    }
+                };
+                Some(cq::report_from_masks(&pd, &m)?)
+            }
+        };
+        // (6) the bell's settle (only from the first bell something is due)
         if b >= due {
-            changed |= model::settle_bell(&mut pd, b)?;
+            let settled = model::settle_bell(&mut pd, b)?;
+            if settled {
+                masks = None;
+            }
+            changed |= settled;
             due = model::next_due(&pd)?;
         }
+        // (7) MC: the conquest step of b (§5.7) and its records
+        let mut quiet_inputs = false;
+        if let (Some(prm), Some(rep)) = (cqp.as_ref(), report.as_ref()) {
+            let st = cq::step(&mut pd, b, rep, prm)?;
+            if st.roster_changed {
+                masks = None;
+                changed = true;
+            }
+            quiet_inputs = st.quiet_inputs_changed;
+            emit_conquest(&mut pd, pp, pq, b, &st, bell_log)?;
+            record_bells = record_bells.saturating_add(active);
+        }
         model::finish_bell(&mut pd, b, changed)?;
-        if changed {
+        if changed || quiet_inputs {
             quiet_known = false;
         }
         done += 1;
@@ -1139,7 +1491,10 @@ pub fn skip_quiet(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     for (c, day) in &spawns {
         emit_camp(&mut pd, pp, pq, c, bell_log, *day)?;
     }
-    let qd = model::quiet_digest(&pd, x.b0, done)?;
+    let qd = match cqp {
+        None => model::quiet_digest(&pd, x.b0, done)?,
+        Some(_) => model::quiet_digest_v2(&pd, x.b0, done)?,
+    };
     let payload = Buf::<37>::new().u32(x.b0).u8(done).bytes(&qd);
     events::emit(
         Kind::SKIP,
@@ -1151,6 +1506,19 @@ pub fn skip_quiet(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             data: &mut pd,
         }],
     )
+}
+
+/// The kernel's quiet test of bell `b` (M1's input, or MC's with the Free
+/// Cities and the keep as garrisons).
+fn kernel_quiet(pd: &[u8], b: u32, v2: bool) -> R<bool> {
+    let q = if v2 {
+        let built = model::build_v2(pd, None, b)?;
+        kc::is_quiet(&kc::frontier_ruleset(), &built.input(&[0; 32]))
+    } else {
+        let built = model::build(pd, None, b)?;
+        kc::is_quiet(&kc::frontier_ruleset(), &built.input(&[0; 32]))
+    };
+    q.map_err(clash_err)
 }
 
 // ------------------------------------------------------------ closes
