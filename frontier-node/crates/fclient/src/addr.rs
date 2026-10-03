@@ -398,11 +398,41 @@ impl Addresses {
         let (p, q, site, _, _) = host_parts(id)?;
         Ok(self.holding(p, q, site))
     }
+    /// ABI v2 (MC contract §5.2.6): the MarchState of March `(m, n)`,
+    /// seed `mc‖hex(le32 m ‖ le32 n)` (18 B, frontier-abi's `march_seed`).
+    pub fn march_state(&self, m: i32, n: i32) -> Address {
+        let s = frontier_abi::v2::addr::march_seed(m, n);
+        with_seed(&self.season, s.as_bytes(), &self.program)
+    }
+    /// The Holding a host-id-form key names (`index<<44 | site<<40 |
+    /// gen<<32`, the conquest record's `src`, CAPTURE_SETTLED's keys):
+    /// the same parts as a host id with `seq = 0`.
+    pub fn holding_of_key(&self, key: u64) -> Result<Address, HostIdError> {
+        self.holding_of_host(key)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// v2 (MC §5.2.6): the MarchState address is frontier-abi's.
+    #[test]
+    fn cq_march_state_address_is_frontier_abis() {
+        let a = Addresses::new(Address::new_from_array([7; 32]), 3);
+        let ctx = frontier_abi::addr::AddrCtx {
+            season: a.season.to_bytes(),
+            program: a.program.to_bytes(),
+        };
+        for (m, n) in [(0, 0), (-3, 7), (5, -2)] {
+            assert_eq!(
+                a.march_state(m, n).to_bytes(),
+                frontier_abi::v2::addr::march_state(&ctx, m, n)
+            );
+        }
+        let key = host_id(4, -1, 7, 2, 0).unwrap();
+        assert_eq!(a.holding_of_key(key).unwrap(), a.holding(4, -1, 7));
+    }
 
     #[test]
     fn seed_strings_match_sp_v2_byte_for_byte() {

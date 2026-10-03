@@ -12,6 +12,9 @@ use solana_instruction::{AccountMeta, Instruction};
 use crate::abi::tag;
 use crate::addr::{self, Addresses};
 
+/// ABI v2 builders (MC contract §5.5, §5.6; CQ2-D).
+pub mod v2;
+
 /// Hash-to-curve hints of one beacon round: two maps × {branch u8,
 /// inv_tv1, y, inv_den (48 B BE each)} = 290 B (SP-V2 `Hint::encode`).
 pub const HINTS_LEN: usize = 290;

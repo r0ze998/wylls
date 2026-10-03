@@ -64,6 +64,16 @@ pub mod tag {
     pub const CLOSE_ARRIVAL_DAY: u8 = 0x65;
     pub const CLOSE_ARRIVAL_SLOT: u8 = 0x66;
     pub const CLAIM_DEFENCE: u8 = 0x70;
+    // ABI v2 (MC contract §5.4): the seven conquest instructions.
+    pub const DECLARE_SIEGE: u8 = 0xA0;
+    pub const SETTLE_SIEGE: u8 = 0xA1;
+    pub const SETTLE_CAPTURE: u8 = 0xA2;
+    pub const FILE_OUTPOST: u8 = 0xA3;
+    /// Reserved: CollectTribute (M3).
+    pub const RESERVED_COLLECT_TRIBUTE: u8 = 0xA4;
+    pub const FOLD_MARCH: u8 = 0xA5;
+    pub const RETIRE_HOST: u8 = 0xA6;
+    pub const CLOSE_MARCH: u8 = 0xA7;
 }
 
 /// Keeper class of an instruction (§5.5, I-21).
@@ -189,6 +199,94 @@ pub fn ix_info(tag: u8) -> Option<&'static IxInfo> {
     INSTRUCTIONS.iter().find(|i| i.tag == tag)
 }
 
+/// `program_version` of an M1 season (ABI v1).
+pub const PROGRAM_VERSION_V1: u16 = 1;
+/// `program_version` of an MC season (ABI v2, MC contract §5.1).
+pub const PROGRAM_VERSION_V2: u16 = 2;
+/// `layout_version` of every v2 chained header (R-22: readers dispatch on it).
+pub const LAYOUT_VERSION_V2: u16 = 2;
+
+/// Every instruction of ABI v2 (MC contract §5.4), in tag order: M1's 50
+/// rows with §5.4's budget for the changed ones, and the seven new rows.
+/// GatherClash and SkipQuiet keep M1's gates (CQ1-C D-7: §5.4 quotes
+/// lower ones, and lowering a gate is not MC's). The `tx_max` column is
+/// the contract's (§5.4 "Tx B max"); `twin_tests` pins every row to
+/// `frontier_abi::v2::budgets`.
+pub const INSTRUCTIONS_V2: [IxInfo; 57] = [
+    ix(0x01, "CreateSeason", Class::O, 70_000, 1_100, false),
+    ix(0x02, "InitShards", Class::O, 45_000, 600, false),
+    ix(0x03, "ConsumeGenesisSeed", Class::D, 345_000, 760, true),
+    ix(0x04, "EndSeason", Class::N, 10_000, 300, false),
+    ix(0x05, "CloseSeason", Class::O, 60_000, 1_232, false),
+    ix(0x06, "AbortSeason", Class::N, 20_000, 300, false),
+    ix(0x07, "SetWindowSchedule", Class::O, 5_000, 200, false),
+    ix(0x08, "AnnounceSeason", Class::O, 25_000, 480, false),
+    ix(0x09, "InitBeaconLogs", Class::O, 80_000, 900, false),
+    ix(0x10, "PostAnchor", Class::D, 345_000, 800, true),
+    ix(0x11, "PostAnchorMulti", Class::D, 400_000, 1_232, true),
+    ix(0x12, "PostSeed", Class::D, 345_000, 800, true),
+    ix(0x13, "PostBeacon", Class::N, 340_000, 760, true),
+    ix(0x14, "ArchiveAnchors", Class::D, 60_000, 1_232, false),
+    ix(0x15, "CloseSeedCache", Class::N, 6_000, 300, false),
+    ix(0x20, "OpenRing", Class::D, 30_000, 600, false),
+    ix(0x21, "ConsumeRingSeed", Class::D, 345_000, 760, true),
+    ix(0x22, "OpenProvince", Class::D, 220_000, 400, true),
+    ix(0x23, "FoldOccupancy", Class::D, 30_000, 1_232, false),
+    ix(0x24, "CloseProvince", Class::N, 10_000, 300, false),
+    ix(0x30, "Join", Class::P, 25_000, 700, false),
+    ix(0x31, "SetSession", Class::P, 6_000, 300, false),
+    ix(0x32, "SetVigil", Class::P, 6_000, 250, false),
+    ix(0x33, "FileTicket", Class::P, 17_000, 560, false),
+    ix(0x34, "SettleTicket", Class::D, 40_000, 900, false),
+    ix(0x35, "ReleaseDormant", Class::N, 25_000, 480, false),
+    ix(0x36, "CloseHolding", Class::N, 15_000, 330, false),
+    ix(0x37, "CloseCitizen", Class::N, 10_000, 300, false),
+    ix(0x40, "Harvest", Class::P, 19_000, 360, false),
+    ix(0x41, "Build", Class::P, 23_500, 400, false),
+    ix(0x42, "Train", Class::P, 19_000, 360, false),
+    ix(0x43, "Muster", Class::P, 25_000, 380, false),
+    ix(0x44, "Dissolve", Class::P, 25_000, 380, false),
+    ix(0x45, "Garrison", Class::P, 25_000, 380, false),
+    ix(0x46, "Explore", Class::P, 20_000, 380, false),
+    ix(0x47, "SettleExplore", Class::N, 15_000, 400, false),
+    ix(0x48, "DisbandStranded", Class::N, 12_000, 300, false),
+    ix(0x50, "Depart", Class::P, 24_500, 800, false),
+    ix(0x51, "Reveal", Class::W, 26_000, 1_100, true),
+    ix(0x52, "SettleDeparture", Class::D, 48_000, 400, false),
+    ix(0x54, "SettleTransit", Class::D, 85_000, 1_022, false),
+    ix(0x55, "SweepPoolOwed", Class::N, 8_000, 300, false),
+    ix(0x60, "GatherClash", Class::D, 49_000, 1_232, true),
+    ix(0x61, "ResolveFromInputs", Class::D, 290_000, 460, true),
+    ix(0x62, "ResolveClash", Class::Test, 1_400_000, 1_232, true),
+    ix(0x63, "SkipQuiet", Class::D, 90_000, 1_232, true),
+    ix(0x64, "CloseClashInputs", Class::N, 8_000, 300, false),
+    ix(0x65, "CloseArrivalDay", Class::N, 8_000, 300, false),
+    ix(0x66, "CloseArrivalSlot", Class::N, 8_000, 300, false),
+    ix(0x70, "ClaimDefence", Class::D, 25_500, 1_000, false),
+    ix(0xA0, "DeclareSiege", Class::P, 30_000, 640, false),
+    ix(0xA1, "SettleSiege", Class::N, 25_000, 480, false),
+    ix(0xA2, "SettleCapture", Class::D, 30_000, 720, false),
+    ix(0xA3, "FileOutpost", Class::P, 24_000, 640, false),
+    ix(0xA5, "FoldMarch", Class::D, 20_000, 720, false),
+    ix(0xA6, "RetireHost", Class::P, 17_000, 480, false),
+    ix(0xA7, "CloseMarch", Class::N, 8_000, 300, false),
+];
+
+/// The ABI v2 row of `tag`.
+pub fn ix_info_v2(tag: u8) -> Option<&'static IxInfo> {
+    INSTRUCTIONS_V2.iter().find(|i| i.tag == tag)
+}
+
+/// The row of `tag` under a season's `program_version` (R-22: v1 for an
+/// M1 season, v2 for an MC season).
+pub fn ix_info_for(program_version: u16, tag: u8) -> Option<&'static IxInfo> {
+    if program_version >= PROGRAM_VERSION_V2 {
+        ix_info_v2(tag)
+    } else {
+        ix_info(tag)
+    }
+}
+
 /// Largest transaction (wire bytes) Solana accepts.
 pub const PACKET: usize = 1_232;
 /// Account locks per transaction (mainnet).
@@ -221,6 +319,9 @@ pub mod magic {
     pub const SEED_CACHE: &[u8; 8] = b"PSF1SEED";
     pub const ANCHOR_ARCHIVE: &[u8; 8] = b"PSF1ARCH";
     pub const DEFENCE_CLAIM: &[u8; 8] = b"PSF1DCLM";
+    /// ABI v2: MarchState (MC contract §5.2.6). Every other v2 kind keeps
+    /// its M1 magic (an MC Province differs by size and `layout_version`).
+    pub const MARCH_STATE: &[u8; 8] = b"PSF1MRCH";
 }
 
 /// Account sizes in bytes (§5.2).
@@ -243,6 +344,10 @@ pub mod size {
     pub const SEED_CACHE: usize = 144;
     pub const ANCHOR_ARCHIVE: usize = 6_144;
     pub const DEFENCE_CLAIM: usize = 128;
+    /// ABI v2 (MC contract §5.2.1): M1's 4,096 B and the 640-B conquest block.
+    pub const PROVINCE_V2: usize = 4_736;
+    /// ABI v2 (MC contract §5.2.6).
+    pub const MARCH_STATE: usize = 256;
 }
 
 /// Rent of an account of `space` bytes at mainnet rates (§4.2):
@@ -339,8 +444,36 @@ pub const ERRORS: [(u32, &str); 62] = [
     (99, "NotImplemented"),
 ];
 
+/// ABI v2 error codes (MC contract §5.3), stable forever; disjoint from
+/// [`ERRORS`].
+pub const ERRORS_V2: [(u32, &str); 17] = [
+    (62, "CapturePending"),
+    (63, "Immune"),
+    (64, "SiegeBusy"),
+    (65, "StakeUnsettled"),
+    (66, "SiegeCap"),
+    (67, "NotOnHex"),
+    (68, "TooLate"),
+    (69, "HoldingsFull"),
+    (70, "NotBesiegeable"),
+    (71, "Friendly"),
+    (72, "FrontierProtected"),
+    (73, "Heartland"),
+    (74, "NotDue"),
+    (75, "OutpostRule"),
+    (76, "FoldOutOfOrder"),
+    (77, "FoldTooEarly"),
+    (78, "NotLead"),
+];
+
+/// The name of a program error code of either ABI (the code spaces are
+/// disjoint, so one lookup serves M1 and MC seasons).
 pub fn error_name(code: u32) -> Option<&'static str> {
-    ERRORS.iter().find(|e| e.0 == code).map(|e| e.1)
+    ERRORS
+        .iter()
+        .chain(ERRORS_V2.iter())
+        .find(|e| e.0 == code)
+        .map(|e| e.1)
 }
 
 /// Keeper mapping of the codes it acts on (§5.4, offchain P8).
@@ -375,6 +508,20 @@ pub mod err {
     pub const INPUTS_OPEN: u32 = 42;
     pub const NOT_ELIGIBLE: u32 = 43;
     pub const BAD_PLAINTEXT: u32 = 55;
+    /// MC (ABI v2, §5.3) codes the keeper and the bots act on.
+    pub const CAPTURE_PENDING: u32 = 62;
+    pub const IMMUNE: u32 = 63;
+    pub const SIEGE_BUSY: u32 = 64;
+    pub const STAKE_UNSETTLED: u32 = 65;
+    pub const SIEGE_CAP: u32 = 66;
+    pub const NOT_ON_HEX: u32 = 67;
+    pub const TOO_LATE: u32 = 68;
+    pub const HOLDINGS_FULL: u32 = 69;
+    pub const NOT_DUE: u32 = 74;
+    pub const OUTPOST_RULE: u32 = 75;
+    pub const FOLD_OUT_OF_ORDER: u32 = 76;
+    pub const FOLD_TOO_EARLY: u32 = 77;
+    pub const NOT_LEAD: u32 = 78;
 
     /// A refusal that means the write's work is done (v1.5 §5.4 keeper
     /// mapping): `AlreadyDone` for every write; `NoTicket` for SettleTicket
@@ -389,12 +536,18 @@ pub mod err {
     /// ResolveFromInputs or SkipQuiet whose bell is no longer
     /// `resolved_next` (`OutOfOrder`: the province moved past it). The duty
     /// re-reads the chain before planning anything else for the object.
+    ///
+    /// CQ2-D adds the conquest writes (MC §8.2): a FoldMarch whose hour is
+    /// no longer `next_hour` (`FoldOutOfOrder`: another keeper or version
+    /// folded it). SettleSiege and SettleCapture answer `AlreadyDone` when
+    /// nothing is left (§5.5), covered by the first rule.
     pub fn is_done(tag: u8, code: u32) -> bool {
         use super::tag as t;
         code == ALREADY_DONE
             || (tag == t::SETTLE_TICKET && code == NO_TICKET)
             || (matches!(tag, t::SETTLE_DEPARTURE | t::SETTLE_TRANSIT) && code == TRANSIT_STATE)
             || (matches!(tag, t::RESOLVE_FROM_INPUTS | t::SKIP_QUIET) && code == OUT_OF_ORDER)
+            || (tag == t::FOLD_MARCH && code == FOLD_OUT_OF_ORDER)
     }
 
     /// The window of this write is gone for good: stop retrying.
@@ -495,8 +648,37 @@ pub mod kind {
     ];
 
     pub fn name(k: u8) -> Option<&'static str> {
-        ALL.iter().find(|e| e.0 == k).map(|e| e.1)
+        ALL.iter()
+            .chain(ALL_V2.iter())
+            .find(|e| e.0 == k)
+            .map(|e| e.1)
     }
+
+    // ABI v2 (MC contract §6): kinds 80–88; 89 reserved.
+    pub const SIEGE_DECLARED: u8 = 80;
+    pub const SIEGE_SETTLED: u8 = 81;
+    pub const CONQUEST: u8 = 82;
+    pub const CAPTURE_SETTLED: u8 = 83;
+    pub const KEEP: u8 = 84;
+    pub const MARCH_FOLD: u8 = 85;
+    pub const RETIRE: u8 = 86;
+    pub const NEUTRAL: u8 = 87;
+    pub const OUTPOST_SETTLED: u8 = 88;
+    /// Reserved (never emitted).
+    pub const RESERVED_89: u8 = 89;
+
+    /// (kind, name) of every MC record kind.
+    pub const ALL_V2: [(u8, &str); 9] = [
+        (SIEGE_DECLARED, "SIEGE_DECLARED"),
+        (SIEGE_SETTLED, "SIEGE_SETTLED"),
+        (CONQUEST, "CONQUEST"),
+        (CAPTURE_SETTLED, "CAPTURE_SETTLED"),
+        (KEEP, "KEEP"),
+        (MARCH_FOLD, "MARCH_FOLD"),
+        (RETIRE, "RETIRE"),
+        (NEUTRAL, "NEUTRAL"),
+        (OUTPOST_SETTLED, "OUTPOST_SETTLED"),
+    ];
 }
 
 /// Chained entity kinds in a PS2 tail (§6).
@@ -509,6 +691,10 @@ pub mod entity {
     pub const PROVINCE: u8 = 6;
     pub const CLASH_INPUTS: u8 = 7;
     pub const MAX: u8 = 7;
+    /// ABI v2 (MC contract §5.1): MarchState, chained by MARCH_FOLD only.
+    pub const MARCH_STATE: u8 = 8;
+    /// The largest entity kind of a v2 tail.
+    pub const MAX_V2: u8 = 8;
 }
 
 /// Seal verdict codes judged by SettleTransit (§5.3, I-44).
@@ -1109,21 +1295,54 @@ mod twin_tests {
         assert_eq!(ERRORS.to_vec(), abi);
     }
 
+    /// v1.1 (R-22): the v2 codes too (`frontier_abi::v2::CqError`).
+    #[test]
+    fn cq_errors_v2_are_frontier_abis() {
+        let abi: Vec<(u32, &str)> = frontier_abi::v2::CqError::ALL
+            .iter()
+            .map(|e| (e.code(), e.name()))
+            .collect();
+        assert_eq!(ERRORS_V2.to_vec(), abi);
+        for (c, n) in ERRORS.iter().chain(ERRORS_V2.iter()) {
+            assert_eq!(error_name(*c), Some(*n), "{c}");
+        }
+        assert_eq!(err::NOT_LEAD, frontier_abi::v2::CqError::NotLead.code());
+        assert_eq!(
+            err::FOLD_OUT_OF_ORDER,
+            frontier_abi::v2::CqError::FoldOutOfOrder.code()
+        );
+        assert_eq!(
+            err::FOLD_TOO_EARLY,
+            frontier_abi::v2::CqError::FoldTooEarly.code()
+        );
+        assert_eq!(err::NOT_DUE, frontier_abi::v2::CqError::NotDue.code());
+        assert_eq!(
+            err::CAPTURE_PENDING,
+            frontier_abi::v2::CqError::CapturePending.code()
+        );
+    }
+
+    fn class_of(c: AbiClass) -> Class {
+        match c {
+            AbiClass::W => Class::W,
+            AbiClass::D => Class::D,
+            AbiClass::N => Class::N,
+            AbiClass::P => Class::P,
+            AbiClass::O => Class::O,
+            AbiClass::Test => Class::Test,
+        }
+    }
+
+    /// v1.1 (R-16, R-22; MC contract §11 CQ2-D): the twin test compares
+    /// both ABIs: `INSTRUCTIONS` against `Ix::ALL` and M1's budgets,
+    /// `INSTRUCTIONS_V2` against `Ix::ALL_V2` and the v2 budgets.
     #[test]
     fn instructions_are_frontier_abis() {
         assert_eq!(INSTRUCTIONS.len(), Ix::ALL.len());
         for ix in Ix::ALL {
             let row = ix_info(ix.tag()).unwrap_or_else(|| panic!("{}", ix.name()));
             assert_eq!(row.name, ix.name());
-            let class = match ix.class() {
-                AbiClass::W => Class::W,
-                AbiClass::D => Class::D,
-                AbiClass::N => Class::N,
-                AbiClass::P => Class::P,
-                AbiClass::O => Class::O,
-                AbiClass::Test => Class::Test,
-            };
-            assert_eq!(row.class, class, "{}", ix.name());
+            assert_eq!(row.class, class_of(ix.class()), "{}", ix.name());
             assert_eq!(row.top_level, ix.top_level_only(), "{}", ix.name());
             let b = frontier_abi::budgets::budget(*ix);
             if b.cu_budget == 0 {
@@ -1134,11 +1353,62 @@ mod twin_tests {
                 assert_eq!(row.cu_budget, b.cu_budget, "{}", ix.name());
             }
             assert_eq!(row.tx_max as u32, b.tx_contract, "{}", ix.name());
+            assert_eq!(ix_info_for(PROGRAM_VERSION_V1, ix.tag()), Some(row));
         }
+        assert_eq!(INSTRUCTIONS_V2.len(), Ix::ALL_V2.len());
+        let mut tags: Vec<u8> = INSTRUCTIONS_V2.iter().map(|i| i.tag).collect();
+        tags.dedup();
+        assert_eq!(tags.len(), INSTRUCTIONS_V2.len(), "tag order, unique");
+        for ix in Ix::ALL_V2 {
+            let row = ix_info_v2(ix.tag()).unwrap_or_else(|| panic!("{}", ix.name()));
+            assert_eq!(row.name, ix.name());
+            assert_eq!(row.class, class_of(ix.class()), "{}", ix.name());
+            assert_eq!(row.top_level, ix.top_level_only(), "{}", ix.name());
+            let b = frontier_abi::v2::budgets::budget(*ix);
+            if b.cu_budget == 0 {
+                assert_eq!(row.cu_budget, CU_MAX, "{}", ix.name());
+            } else {
+                assert_eq!(row.cu_budget, b.cu_budget, "{}", ix.name());
+            }
+            assert_eq!(row.tx_max as u32, b.tx_contract, "{}", ix.name());
+            assert_eq!(ix_info_for(PROGRAM_VERSION_V2, ix.tag()), Some(row));
+            // An M1 row MC does not change keeps its M1 values.
+            if let Some(v1) = ix.to_v1() {
+                if !ix.changed_in_v2() {
+                    assert_eq!(ix_info(v1.tag()), Some(row), "{}", ix.name());
+                }
+            }
+        }
+        for t in [
+            tag::DECLARE_SIEGE,
+            tag::SETTLE_SIEGE,
+            tag::SETTLE_CAPTURE,
+            tag::FILE_OUTPOST,
+            tag::FOLD_MARCH,
+            tag::RETIRE_HOST,
+            tag::CLOSE_MARCH,
+        ] {
+            let x = frontier_abi::v2::Ix::from_tag(t).expect("v2 tag");
+            assert!(x.is_new() && ix_info(t).is_none() && ix_info_v2(t).is_some());
+        }
+        assert!(frontier_abi::v2::tags::is_reserved(
+            tag::RESERVED_COLLECT_TRIBUTE
+        ));
+        assert_eq!(
+            PROGRAM_VERSION_V2,
+            frontier_abi::v2::presets::PROGRAM_VERSION_V2
+        );
+        assert_eq!(
+            LAYOUT_VERSION_V2,
+            frontier_abi::v2::layout::LAYOUT_VERSION_V2
+        );
     }
 
+    /// Both ABIs: every M1 kind, and the v2 set with MarchState and the
+    /// 4,736-B Province v2 (R-22).
     #[test]
     fn magics_and_rent_are_frontier_abis() {
+        use frontier_abi::v2::layout::AccountKind as K2;
         let ours = [
             magic::SEASON,
             magic::FRONTIER,
@@ -1166,5 +1436,35 @@ mod twin_tests {
                 "{k:?}"
             );
         }
+        let ours_v2: Vec<&[u8; 8]> = ours.iter().copied().chain([magic::MARCH_STATE]).collect();
+        for k in K2::ALL {
+            assert!(ours_v2.contains(&&k.magic()), "{k:?}");
+            assert_eq!(rent(k.size()), k.rent(), "{k:?}");
+        }
+        assert_eq!(size::PROVINCE_V2, K2::Province.size());
+        assert_eq!(size::MARCH_STATE, K2::MarchState.size());
+        assert_eq!(&K2::MarchState.magic(), magic::MARCH_STATE);
+        assert_eq!(rent(size::PROVINCE_V2), 24_709_120);
+        assert_eq!(rent(size::MARCH_STATE), 1_950_720);
+        for k in K2::ALL {
+            if k != K2::Province && k != K2::MarchState {
+                assert_eq!(Some(k.size()), k.to_v1().map(|v| v.size()), "{k:?}");
+            }
+        }
+    }
+
+    /// The v2 record kinds and the MarchState entity are frontier-abi's.
+    #[test]
+    fn cq_log_kinds_are_frontier_abis() {
+        use frontier_abi::v2::log::{CqKind, EntityKind, CQ_SPECS, RESERVED_KIND};
+        assert_eq!(kind::ALL_V2.len(), CQ_SPECS.len());
+        for s in CQ_SPECS {
+            let k = s.kind as u8;
+            assert_eq!(kind::name(k), Some(s.name), "{k}");
+            assert_eq!(CqKind::from_u8(k), Some(s.kind));
+        }
+        assert_eq!(kind::RESERVED_89, RESERVED_KIND);
+        assert_eq!(entity::MARCH_STATE, EntityKind::MarchState as u8);
+        assert_eq!(entity::MAX_V2 as usize, EntityKind::ALL.len());
     }
 }
