@@ -795,7 +795,10 @@ pub fn declare_siege(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     if slot != 0 {
         let ticket = cslots & C::SLOTS_TICKET_MASK;
         let reserved = cslots | C::reserved_bit(slot);
-        let n = (ticket >= 2) as u64
+        // Any open ticket (slot 1 included) holds one rent in the escrow:
+        // FileTicket sizes it `rent × (1 + reservations)` and SettleTicket
+        // takes one rent when the ticket wins (W2R2-C1).
+        let n = (ticket != 0) as u64
             + (reserved & C::SLOTS_RESERVED_2 != 0) as u64
             + (reserved & C::SLOTS_RESERVED_3 != 0) as u64;
         let want = init::rent(H::SIZE)?.checked_mul(n).ok_or(OVERFLOW)?;
@@ -1581,7 +1584,16 @@ pub fn fold_march(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         .checked_add(x.count as u32 - 1)
         .and_then(|h| h.checked_mul(cm::HOUR_BELLS))
         .ok_or(OVERFLOW)?;
-    if last >= hdr.end_bell {
+    let ended = hdr.status == S::STATUS_ENDED;
+    // §5.5: the end-hour rule is the Ended season's (a Running one refuses a
+    // later hour as `FoldTooEarly` below).
+    if ended && last >= hdr.end_bell {
+        return Err(FrontierError::WrongStatus.into());
+    }
+    // Past the grace CloseMarch may close the March: a fold must never
+    // re-create it (§13.2 "re-creation after close"; W2R2-C2).
+    if ended && now.ts >= super::map::season_end_ts(&hdr).saturating_add(super::map::END_GRACE_SECS)
+    {
         return Err(FrontierError::WrongStatus.into());
     }
     let dom = {

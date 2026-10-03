@@ -401,6 +401,54 @@ fn g13_cq_declare_siege_on_an_outpost_reserves_a_slot() {
     assert_cq(send_declare(&mut f, &k.x, k.declare_ix()), Cq::SiegeBusy);
 }
 
+/// §3.4 step 10 / §5.9 "no permissionless freeze" (W2R2-C1): ANY open
+/// ticket (slot 1 included) holds one rent in the escrow, as FileTicket
+/// sizes it, so a reservation made beside a slot-1 ticket tops the escrow up
+/// to `rent × 2`; SettleTicket then takes one rent and the capture's rent is
+/// still there (SettleCapture never fails `Insufficient`).
+#[test]
+fn g13_cq_declare_siege_counts_a_slot_one_ticket_in_the_escrow() {
+    let mut k = Cast::new();
+    let rent = k.c.rent(H::SIZE);
+    // X has an open slot-1 ticket and the escrow FileTicket sized for it.
+    k.c.edit(&k.x.citizen, |d| {
+        d[C::SLOTS] |= 1;
+        d[C::TICKET_ESCROW..C::TICKET_ESCROW + 8].copy_from_slice(&rent.to_le_bytes());
+    });
+    let l = k.c.lamports(&k.x.citizen);
+    k.c.edit_lamports(&k.x.citizen, l + rent);
+    // The horn, the completing resolve (`complete_capture` declares).
+    complete_capture(&mut k);
+    let cd = k.c.data(&k.x.citizen);
+    assert_eq!(cd[C::SLOTS] & C::SLOTS_TICKET_MASK, 1, "the ticket stays");
+    assert_eq!(cd[C::SLOTS] & C::SLOTS_RESERVED_2, C::SLOTS_RESERVED_2);
+    assert_eq!(
+        u64_at(&cd, C::TICKET_ESCROW),
+        2 * rent,
+        "one rent for the ticket and one for the reservation"
+    );
+    // The ticket is won: SettleTicket (citizen.rs) clears the ticket and
+    // takes one rent from the escrow for the new Holding (here the
+    // lamports stand in the Citizen account, as they do on chain).
+    k.c.edit(&k.x.citizen, |d| {
+        d[C::SLOTS] &= !C::SLOTS_TICKET_MASK;
+        let e = u64::from_le_bytes(
+            d[C::TICKET_ESCROW..C::TICKET_ESCROW + 8]
+                .try_into()
+                .unwrap(),
+        );
+        d[C::TICKET_ESCROW..C::TICKET_ESCROW + 8].copy_from_slice(&(e - rent).to_le_bytes());
+    });
+    // The capture's rent is still escrowed: SettleCapture lands (it
+    // answered `Insufficient` here, unrepairable, before W2R2-C1).
+    let anyone = k.c.funded(b"cq-capturer-esc", 1);
+    let ix = capture_ix(&k, &anyone);
+    expect_lands(
+        mc_send(&mut k.c, I2::SettleCapture, ix, &[&anyone]),
+        "SettleCapture",
+    );
+}
+
 /// §3.4 on a first holding (order 1): an occupation target reserves no
 /// slot and tops up no escrow.
 #[test]
@@ -1776,6 +1824,53 @@ fn g13_cq_close_march_after_the_grace() {
     let r: Vec<R2> = recs(&l.logs);
     assert_eq!(r.len(), 1);
     assert_eq!(r[0].kind, AnyKind::V1(frontier_abi::log::Kind::CLOSE));
+    // Re-creation after close (§13.2, W2R2-C2): a fold of an Ended Season
+    // past the grace never creates the MarchState again.
+    assert_code(
+        mc_send(
+            &mut k.c.fork(),
+            I2::FoldMarch,
+            fold_ix(&k.w, &keeper, mn, 2, 1),
+            &[&keeper],
+        ),
+        E::WrongStatus,
+    );
+    assert!(k.c.is_absent(&march), "no MarchState after the close");
+}
+
+/// §5.5 0xA5: an Ended Season still folds during the grace (the keeper
+/// catches the last hours up), and a first fold may create the March then;
+/// at `end + 72 h` the same fold is `WrongStatus` (W2R2-C2).
+#[test]
+fn g13_cq_fold_march_in_the_grace_but_not_after_it() {
+    let mut k = Cast::new();
+    let (mn, _, _) = march_world(&mut k);
+    let keeper = k.w.keeper.insecure_clone();
+    let march = qix::march_address(&k.w.a, mn.0, mn.1);
+    k.w.craft_status(&mut k.c, frontier_abi::layout::world::season::STATUS_ENDED);
+    let end_ts = k.w.end_ts();
+    k.c.set_time(end_ts + 72 * 3_600);
+    assert_code(
+        mc_send(
+            &mut k.c.fork(),
+            I2::FoldMarch,
+            fold_ix(&k.w, &keeper, mn, 2, 1),
+            &[&keeper],
+        ),
+        E::WrongStatus,
+    );
+    assert!(k.c.is_absent(&march));
+    k.c.set_time(end_ts + 72 * 3_600 - 10);
+    expect_lands(
+        mc_send(
+            &mut k.c,
+            I2::FoldMarch,
+            fold_ix(&k.w, &keeper, mn, 2, 1),
+            &[&keeper],
+        ),
+        "fold in the grace",
+    );
+    assert!(!k.c.is_absent(&march));
 }
 
 // ------------------------------------------------------------ RetireHost

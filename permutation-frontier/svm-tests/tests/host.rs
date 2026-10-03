@@ -859,6 +859,16 @@ fn p_cq_p3_capture_lock_on_muster_dissolve_garrison_depart_and_the_settles() {
         let mut f = c.fork();
         assert_cq(go(&mut f, ix, label), Cq::CapturePending);
     }
+    // A second capture of an already captured Holding locks the same way
+    // (A-30: `capture_flags` is 1 from the first capture on and plays no
+    // part; W2R2-C).
+    c.edit(&e.holding, |d| {
+        d[H2::CAPTURE_FLAGS] = H2::CAPTURE_FLAG_CAPTURED
+    });
+    for (label, ix) in &calls {
+        let mut f = c.fork();
+        assert_cq(go(&mut f, ix, label), Cq::CapturePending);
+    }
 }
 
 /// D-1 (CQ2-C-NOTES §5, a contract gap the first review found): the lock
