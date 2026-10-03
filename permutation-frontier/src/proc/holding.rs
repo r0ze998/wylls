@@ -213,11 +213,7 @@ pub(crate) fn own_province(
 /// holding of the next generation → `CapturePending`. One rule for the
 /// whole program: `frontier_abi::v2::prologue::capture_locked` (also
 /// `proc::conquest::capture_lock`); `capture_flags` plays no part.
-pub(crate) fn capture_lock(
-    hh: &HoldingHdr,
-    _holding: &AccountInfo,
-    province: &AccountInfo,
-) -> R<()> {
+pub(crate) fn capture_lock(hh: &HoldingHdr, province: &AccountInfo) -> R<()> {
     let pd = province.try_borrow_data()?;
     match frontier_abi::v2::prologue::capture_locked(&pd, hh.site, hh.gen) {
         Some(false) => Ok(()),
@@ -232,11 +228,10 @@ pub(crate) fn own_province_unlocked(
     program: &Pubkey,
     pl: &Player,
     h: &HoldingHdr,
-    holding: &AccountInfo,
     province: &AccountInfo,
 ) -> R<()> {
     own_province(program, pl, h, province)?;
-    capture_lock(h, holding, province)
+    capture_lock(h, province)
 }
 
 /// Step 5, the lazy provisional → final flip (I-29, I-47), for instructions
@@ -636,7 +631,7 @@ pub fn harvest(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     };
     let hh = owned_holding(p, &pl, holding, citizen)?;
     live(&hh)?;
-    own_province_unlocked(p, &pl, &hh, holding, province)?;
+    own_province_unlocked(p, &pl, &hh, province)?;
     finality(&pl, &hh, holding, citizen, province)?;
     let h = load_touched(holding, pl.now.ts)?;
     let digest = {
@@ -677,7 +672,7 @@ pub fn build(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     }
     let hh = owned_holding(p, &pl, holding, citizen)?;
     live(&hh)?;
-    own_province_unlocked(p, &pl, &hh, holding, province)?;
+    own_province_unlocked(p, &pl, &hh, province)?;
     finality(&pl, &hh, holding, citizen, province)?;
     let now = pl.now.ts;
     let mut h = load_touched(holding, now)?;
@@ -832,7 +827,7 @@ pub fn train(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     };
     let hh = owned_holding(p, &pl, holding, citizen)?;
     live(&hh)?;
-    own_province_unlocked(p, &pl, &hh, holding, province)?;
+    own_province_unlocked(p, &pl, &hh, province)?;
     finality(&pl, &hh, holding, citizen, province)?;
     let cost = train_cost(x.unit, x.n).ok_or(FrontierError::BadData)?;
     let now = pl.now.ts;
@@ -893,7 +888,7 @@ pub fn explore(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     // MC §5.8: the capture lock, when the Scout stands in the holding's own
     // Province (the only Province Explore names; notes D-6).
     if *province.key.as_array() == pl.ctx.province(hh.p as i32, hh.q as i32) {
-        own_province_unlocked(p, &pl, &hh, holding, province)?;
+        own_province_unlocked(p, &pl, &hh, province)?;
     }
     let host = super::host::resident_host(p, &pl, &hh, holding, citizen, province, x.host_id)?;
     let now = pl.now.ts;

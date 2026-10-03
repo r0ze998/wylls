@@ -2059,6 +2059,21 @@ fn g01_skip_quiet_kernel_quiet_roster_budget() {
         let ceil = ceilings(Ix::SkipQuiet, units, c.programdata_len());
         println!("G1 SkipQuiet kernel-quiet 48 residents, {n} bells");
         assert_within(&format!("SkipQuiet kernel-quiet n={n}"), &need, &ceil);
+        if w.is_mc(&c) {
+            // W2R2-B: the `units = n` ceiling above is loose (about 810k CU
+            // at 24 bells), so the quiet run keeps its own bound: M1's one
+            // gate unit (90k + 30k) plus at most 3.5k a further bell. The
+            // measured cost is 84,846 CU at one bell and 145,350 at 24
+            // (about 2,630 a further bell: the v2 step runs at every bell,
+            // the hour snapshot at the four hour boundaries, one CONQUEST
+            // record each, which M1's run did not pay: 109,382 under M1).
+            let bound = 120_000 + 3_500 * (n as u64 - 1);
+            assert!(
+                need.cu <= bound,
+                "kernel-quiet n={n}: {} CU > the quiet-run bound {bound}",
+                need.cu
+            );
+        }
     }
 }
 
@@ -3311,12 +3326,33 @@ fn mc_ready(c: &mut Chain, w: &World, f: &Fill, b: u32, edit: impl FnOnce(&mut [
 /// keep is taken (the native report decides, records do not change the
 /// clash).
 fn conquest_worst(c: &mut Chain, w: &World, f: &Fill, b: u32) -> (Fill, usize, bool) {
+    conquest_worst_with(c, w, f, b, 100, false)
+}
+
+/// [`conquest_worst`] with the keep's garrison `guard` (whole troops; the
+/// state after an earlier take is 15,000 or 30,000) and, with `camp_due`,
+/// the camp's next check day 0 (a due camp check: G1 otherwise crafts day
+/// + 1, so the check is never due; W2R2-B).
+fn conquest_worst_with(
+    c: &mut Chain,
+    w: &World,
+    f: &Fill,
+    b: u32,
+    guard: u32,
+    camp_due: bool,
+) -> (Fill, usize, bool) {
     let holder = (f.p.unsigned_abs() % 6) as u8;
     let contender = (holder + 1) % 6;
     let mut f = f.clone();
-    let keep = mc_keep(&f, holder, 100, 72);
+    let keep = mc_keep(&f, holder, guard, 72);
     capturers_on(&mut f, contender, keep.tile, 30_000_000, 6);
-    let seed = mc_ready(c, w, &f, b, |d| qm::write_keep(d, &keep).unwrap());
+    let seed = mc_ready(c, w, &f, b, |d| {
+        qm::write_keep(d, &keep).unwrap();
+        if camp_due {
+            d[P::CAMP + CP::NEXT_CHECK_DAY..P::CAMP + CP::NEXT_CHECK_DAY + 4]
+                .copy_from_slice(&0u32.to_le_bytes());
+        }
+    });
     // gather, then shape the records from the native report
     for ix in w.gather_parts(c, f.dest(), b, &THIRDS) {
         expect_lands(keeper_send(c, w, ix), "GatherClash");
@@ -3758,6 +3794,74 @@ fn g01_cq_resolve_worst() {
     assert!(
         bound <= gate,
         "the bound {bound} CU exceeds {gate}: the 300,000 amendment"
+    );
+}
+
+/// §13.1 (W2R2-B): the RFI worst-case row priced beyond the 100-troop keep
+/// and the never-due camp check of `g01_cq_resolve_worst`: the conquest shape
+/// with a keep that already holds 15,000 or 30,000 whole troops (the state
+/// after an earlier take) fighting six 30,000-troop capturers, and with the
+/// camp's check due this bell. Release build, every fill; each maximum
+/// stays within the 290,000 gate, and the heaviest is printed so the margin
+/// is stated from the measurement (`--nocapture`).
+#[test]
+fn g01_cq_resolve_heavy_keep_and_due_camp() {
+    let mut fills = all_fills();
+    for (k, (r, d)) in [(40usize, 1usize), (40, 8), (30, 8), (20, 4)]
+        .into_iter()
+        .enumerate()
+    {
+        fills.push((
+            "storage",
+            Fill::storage(900 + k as u64, 30 + k as i32, 40, r, d),
+        ));
+    }
+    let gate = b2::budget(frontier_abi::v2::tags::Ix::ResolveFromInputs).cu_budget as u64;
+    let mut worst = (0u64, String::new());
+    for (guard, due) in [
+        (100u32, true),
+        (15_000, false),
+        (15_000, true),
+        (30_000, true),
+    ] {
+        let (mut c, w) = mc_world(Build::Release, &MC_LOCAL_7D.cq, MC_BELL);
+        let prm = step_params(&c, &w);
+        let mut max = (0u64, String::new());
+        for (set, f) in &fills {
+            let name = format!("{set} {} (guard {guard}, camp due {due})", f.name);
+            let (f, _, _) = conquest_worst_with(&mut c, &w, f, MC_BELL, guard, due);
+            let pk = w.a.province(f.p, f.q);
+            let ci = c.data(&w.a.clash_inputs(f.p, f.q, MC_BELL));
+            let seed = bell_seed(MC_BELL, f.region());
+            let mut want = c.data(&pk);
+            native_resolve(&mut want, &ci, MC_BELL, &seed, &prm);
+            let l = expect_lands(
+                keeper_send(&mut c, &w, w.resolve_ix(f.dest(), MC_BELL)),
+                "ResolveFromInputs",
+            );
+            assert_eq!(
+                mc_state(&c.data(&pk)),
+                mc_state(&want),
+                "{name}: program = models"
+            );
+            assert!(l.cu <= gate, "{name}: {} CU > {gate}", l.cu);
+            if l.cu > max.0 {
+                max = (l.cu, name);
+            }
+        }
+        println!(
+            "G1-CQ RFI heavy keep: guard {guard}, camp due {due}: max {} CU ({})",
+            max.0, max.1
+        );
+        if max.0 > worst.0 {
+            worst = max;
+        }
+    }
+    println!(
+        "G1-CQ RFI heavy keep worst {} CU, margin to {gate}: {} ({:.2} %)",
+        worst.0,
+        gate - worst.0,
+        (gate - worst.0) as f64 * 100.0 / gate as f64
     );
 }
 
@@ -4343,6 +4447,95 @@ fn cq_snapshot_counts_a_provisional_holding_before_its_final_ts() {
         assert_eq!(hd[H::STATE], H::STATE_PROVISIONAL);
         assert!(i64::from_le_bytes(hd[H::FINAL_TS..H::FINAL_TS + 8].try_into().unwrap()) > c.now);
     }
+}
+
+/// PO-7, A-9, A-29, end to end (W2R2-B1): a holding made by the real
+/// FileTicket and SettleTicket of a v2 season (an outpost's FileOutpost
+/// path ends in the same SettleTicket) is in `snap[]` at its weight when
+/// SkipQuiet crosses an hour bell BEFORE its cohort's `final_ts` (the ticket
+/// is filed in the hour bell itself, so its seed closes before `final_ts`):
+/// the Holding is provisional (state 2) and the mirror says state 1. The weight
+/// is the model's own function of the mirror (`control_weights`) and is not
+/// zero; the faction side holds it.
+#[test]
+fn cq_snapshot_counts_a_holding_the_ticket_path_made_before_its_final_ts() {
+    use frontier_abi::v2::presets::MC_TEST;
+    use permutation_frontier_svm_tests::world::land::provinces_of;
+    let mut c = Chain::test_beacon();
+    let w = World::land_v2(&mut c, 1, MC_TEST);
+    let home = provinces_of(2, Some(0))[0];
+    let (p, q) = home;
+    let region = permutation_frontier_svm_tests::world::land::region(p, q);
+    let dest = (p as i32, q as i32);
+    expect_lands(w.open_province(&mut c, p, q), "OpenProvince");
+    // The hour bell `hb`: the Province is caught up to it with SkipQuiet,
+    // the ticket is filed IN `hb` (so its seed is `hb`'s and `final_ts` =
+    // round time + 10 min, a little after `hb` closes), SettleTicket lands
+    // at once, and `hb` is skipped while the Holding is still provisional.
+    let hb = (w.now_bell(&c) / 6 + 2) * 6;
+    // 1. caught up to `hb − 2` (a bell's reveal closes in the bell
+    //    after next, so the Clock stays before `hb`).
+    let mut b0 = w.resolved_next(&c, dest);
+    while b0 + 2 < hb {
+        let n = (hb - 2 - b0).min(24);
+        for b in b0..b0 + n {
+            w.ready_bell(&mut c, b, region, None);
+        }
+        expect_lands(
+            c.send(&[w.skip_ix(dest, b0, n as u8)], &[&w.keeper]),
+            "SkipQuiet",
+        );
+        b0 += n;
+    }
+    // 2. FileTicket in bell `hb`, SettleTicket when its seed is ready.
+    w.to_bell(&mut c, hb, 1);
+    assert_eq!(w.now_bell(&c), hb, "filed in the hour bell");
+    let who = w.citizen(&mut c, "snap", 0);
+    let s = fclient::ix::Site { p, q, site: 0 };
+    expect_lands(w.file_ticket(&mut c, &who, &[s]), "FileTicket");
+    w.seed_ready(&mut c, hb, region);
+    expect_lands(w.settle_ticket(&mut c, &who, 0, None), "SettleTicket");
+    let hk = w.a.holding(p as i32, q as i32, 0);
+    let hd = c.data(&hk);
+    assert_eq!(
+        hd[H::STATE],
+        H::STATE_PROVISIONAL,
+        "provisional after SettleTicket"
+    );
+    let final_ts = i64::from_le_bytes(hd[H::FINAL_TS..H::FINAL_TS + 8].try_into().unwrap());
+    // 3. the last bells up to and including `hb`, the Clock at `hb`'s close:
+    //    before the cohort's final_ts.
+    for b in b0..=hb {
+        w.ready_bell(&mut c, b, region, None);
+    }
+    assert!(
+        c.now < final_ts,
+        "bell {hb} is skipped before the cohort's final_ts"
+    );
+    expect_lands(
+        c.send(&[w.skip_ix(dest, b0, (hb + 1 - b0) as u8)], &[&w.keeper]),
+        "SkipQuiet (through the hour bell)",
+    );
+    let pd = c.data(&w.a.province(p as i32, q as i32));
+    let h = hb / 6;
+    let snap = qm::snapshot_slot(&pd, h)
+        .unwrap()
+        .expect("the hour's sample");
+    let want = qm::control_weights(&pd, hb).unwrap();
+    assert!(
+        want[0] > 0,
+        "the provisional holding weighs something: {want:?}"
+    );
+    assert_eq!(
+        snap.map(|x| x as u32),
+        want.map(|x| x.min(u16::MAX as u32)),
+        "snap[] = the model's weights of the mirror"
+    );
+    assert_eq!(snap[0] as u32, snap.iter().map(|x| *x as u32).sum::<u32>());
+    // Still provisional: the sample counted it before `final_ts`.
+    let hd = c.data(&hk);
+    assert_eq!(hd[H::STATE], H::STATE_PROVISIONAL);
+    assert!(i64::from_le_bytes(hd[H::FINAL_TS..H::FINAL_TS + 8].try_into().unwrap()) > c.now);
 }
 
 /// §3.7, §3.5, §5.7 (review CQ2-B): a genesis Free City (site state 5) is a

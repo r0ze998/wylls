@@ -2552,6 +2552,27 @@ mod cq {
         assert_eq!(w.citizen_data(&c, &a)[C2::SLOTS] & 3, 1, "slot 1");
     }
 
+    /// SettleTicket v2 (S1, W2R2-A): a won ticket whose site carries a
+    /// non-zero conquest record is refused `SiegeBusy` (the record can
+    /// arrive between FileTicket and SettleTicket on a free or released
+    /// site); the same settle lands once the record is zero.
+    #[test]
+    fn g13_cq_settle_ticket_refuses_a_site_with_a_record() {
+        let (mut c, w) = mc_test();
+        let p0 = provinces_of(2, Some(0))[0];
+        expect_lands(w.open_province(&mut c, p0.0, p0.1), "OpenProvince");
+        let a = w.citizen(&mut c, "a", 0);
+        let bell = w.now_bell(&c);
+        expect_lands(w.file_ticket(&mut c, &a, &[site(p0, 0)]), "FileTicket");
+        w.seed_ready(&mut c, bell, region(p0.0, p0.1));
+        let mut f = c.fork();
+        f.edit(&w.a.province(p0.0 as i32, p0.1 as i32), |d| {
+            d[PV2::record(0) + CR::KIND] = CR::KIND_SIEGE;
+        });
+        assert_code(w.settle_ticket(&mut f, &a, 0, None), Cq::SiegeBusy);
+        expect_lands(w.settle_ticket(&mut c, &a, 0, None), "SettleTicket");
+    }
+
     /// ReleaseDormant v2 (S3): a live record refuses (`SiegeBusy`), an
     /// owing kind-0 record refuses (`StakeUnsettled`); the release zeroes
     /// the record and keeps the citizen's outposts (MC §3.15).
@@ -2652,12 +2673,17 @@ mod cq {
 
     /// G1 (§13.1, §5.4): FileOutpost with 3 sites in 3 Provinces whose
     /// cohort tables hold seven open cohorts each, paying from the anchor's
-    /// stores (24,000 CU); its `L(kind)`; then the outpost's SettleTicket
+    /// stores (28,000 CU since A-31); its `L(kind)`; then the outpost's SettleTicket
     /// (40,000 CU).
     #[test]
     fn g01_cq_file_outpost_three_provinces_full_cohorts() {
         use frontier_abi::v2::Ix as V2;
+        let build = Build::TestBeacon;
         let (mut c, w) = mc_test();
+        // (Heap: the trace build verifies real rounds only, the 32 SP-V2
+        // fixture rounds, which the land world's bells outrun; FileOutpost's,
+        // the outpost SettleTicket's and OpenProvince v2's heap stay owed to
+        // CQ4-A's trace sweep: `trace-sweep.sh`.)
         let home = provinces_of(2, Some(0))[0];
         let e = w.final_estate(&mut c, "a", 0, home, 0, 100_000);
         let fronts: Vec<(i16, i16)> = provinces_of(3, None)
@@ -2694,10 +2720,10 @@ mod cq {
             .measure(std::slice::from_ref(&ix), &[&e.wallet])
             .expect("measure");
         let file_need = need;
+        println!("FileOutpost ({build:?}): {file_need}");
         common::loaded_check(&c, V2::FileOutpost, std::slice::from_ref(&ix), &[&e.wallet]);
-        // At the ladder profile (the client's 24k limit would refuse it
-        // while the budget amendment is pending; CQ2-A notes §2).
-        expect_lands(c.send(&[ix], &[&e.wallet]), "FileOutpost at the 24k limit");
+        // At the ladder profile (A-31: the budget is 28,000 CU).
+        expect_lands(c.send(&[ix], &[&e.wallet]), "FileOutpost at the 28k limit");
         // The outpost's SettleTicket (fresh, three Provinces).
         let who = Citizen {
             wallet: e.wallet.insecure_clone(),
@@ -2715,12 +2741,13 @@ mod cq {
         let need = c
             .measure(std::slice::from_ref(&st), &[&w.keeper])
             .expect("measure");
+        println!("SettleTicket (outpost, three Provinces, {build:?}): {need}");
         assert_within(
             "SettleTicket (outpost, three Provinces)",
             &need,
             &ceilings(V2::SettleTicket, 0, c.programdata_len()),
         );
-        // Last: FileOutpost against §5.4's 24,000 CU (measured above; the
+        // Last: FileOutpost against §5.4's 28,000 CU (A-31; measured above; the
         // tx bytes, locks and loaded data are within their ceilings).
         assert_within(
             "FileOutpost (3 provinces, 7 open cohorts each)",

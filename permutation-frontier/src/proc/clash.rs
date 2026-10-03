@@ -120,8 +120,11 @@
 //!   from, the new garrison in whole troops, `consolidated_until`, gen) and,
 //!   when the donor goes home with a rest, RETIRE (86, `by` 2: the rest in
 //!   milli-troops as the entry holds it, the donor's Holding key). Each
-//!   chains the Province. The bodies are written here ([`cqlog`]) until the
-//!   program's `events` module carries the v2 kinds (CQ2-A's file).
+//!   chains the Province. The bodies are written here ([`cqlog`]); the
+//!   program's `events::emit_cq` carries the same bytes
+//!   (`cq_records_are_the_abis`), but the swap changes the measured path of
+//!   the tightest budget (RFI 286,224 of 290,000) and waits for CQ4-A's
+//!   re-measure (integ-CQ2-NOTES §3).
 //! - **SkipQuiet v2** recomputes its quiet test after a change of the
 //!   roster, a garrison or the camp, and after a step whose
 //!   `quiet_inputs_changed` (a keep changed hands, a mirror flipped at a

@@ -193,6 +193,10 @@ pub const SETTLE_TICKET: &[Cover] = &[
         "citizen::cq_first_holding_shield_turns_late_after_the_season_timer",
         &[Lands("SettleTicket")],
     ),
+    Cover::Test(
+        "citizen::g13_cq_settle_ticket_refuses_a_site_with_a_record",
+        &[CqErr(Cq::SiegeBusy), Lands("SettleTicket")],
+    ),
 ];
 
 pub const RELEASE_DORMANT: &[Cover] = &[
@@ -312,6 +316,6 @@ pub const FILE_OUTPOST: &[Cover] = &[
     ),
     Cover::Test(
         "citizen::g01_cq_file_outpost_three_provinces_full_cohorts",
-        &[Loaded, Lands("FileOutpost at the 24k limit")],
+        &[Loaded, Lands("FileOutpost at the 28k limit")],
     ),
 ];
