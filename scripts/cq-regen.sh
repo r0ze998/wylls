@@ -102,6 +102,13 @@ if [ -f frontier-node/crates/herald/src/cqfmt.rs ]; then
   else
     (cd frontier-node && cargo test --locked -q -p herald --lib cq_formats_vectors_fresh)
   fi
+  # 4b. the JSON shapes of CQ2-E (A-4): herald/vectors/cq-json/** (CQ2-E R-7)
+  step "frontier-node/crates/herald/vectors/cq-json"
+  if [ "$MODE" = write ]; then
+    (cd frontier-node && FRONTIER_WRITE_FIXTURES=1 cargo test --locked -q -p herald --lib cq_json_vectors_fresh)
+  else
+    (cd frontier-node && cargo test --locked -q -p herald --lib cq_json_vectors_fresh)
+  fi
 fi
 
 # 5. web/frontier/abi.mjs
