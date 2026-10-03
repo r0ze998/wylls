@@ -38,6 +38,8 @@ export const FRONTIER_DEFAULTS = Object.freeze({
   stateFile: path.join(FRONTIER_DIR, 'relay-state.json'),
   /** PT-A: an append-only JSONL event log (invites issued, joins); off unless set. */
   eventLog: null,
+  /** PT-B: the playtest's player cap (invites redeemed); 0: none. */
+  maxPlayers: 0,
   /** Public co-signing pauses (503 OperatorLowFunds) below this pool total. */
   minPoolSol: 1,
   /** A payer below this is not drawn for GET /f/relay. */
@@ -99,6 +101,7 @@ export function loadFrontierConfig(argv = [], env = {}) {
     inviteSecretFile: pick('invite-secret-file', 'FRONTIER_INVITE_SECRET_FILE', d.inviteSecretFile),
     stateFile: pick('state-file', 'FRONTIER_RELAY_STATE', d.stateFile),
     eventLog: pick('event-log', 'FRONTIER_EVENT_LOG', d.eventLog),
+    maxPlayers: int(pick('max-players', 'FRONTIER_MAX_PLAYERS', d.maxPlayers), '--max-players'),
     minPoolSol: Number(pick('min-pool-sol', 'FRONTIER_MIN_POOL_SOL', d.minPoolSol)),
     minPayerLamports: int(pick('min-payer-lamports', 'FRONTIER_MIN_PAYER_LAMPORTS', d.minPayerLamports), '--min-payer-lamports'),
     dev: !!(flags.dev ?? (env.FRONTIER_DEV === '1' || d.dev)),

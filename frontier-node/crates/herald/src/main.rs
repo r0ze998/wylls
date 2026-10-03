@@ -6,7 +6,14 @@
 //!     [--listen 127.0.0.1:41040] [--source localnet|rpc] [--cluster localnet]
 //!     [--web DIR] [--relay 127.0.0.1:41033] [--test-key | --drand-info FILE]
 //!     [--checkpoint-slots 150] [--poll-ms 200] [--quotas JSON]
+//!     [--inject-script FILE=URL] [--landing PATH]
+//!     [--ip-rate 100] [--ip-burst 1500] [--ws-per-ip 6] [--ws-max 8192]
 //! ```
+//! PT-B (a herald behind a public tunnel): `--inject-script frontier/index.html=/frontier/frontier/playtest/boot.mjs`
+//! serves that page with the script placed before its `app.mjs` (the page file is not edited);
+//! `--landing /frontier/frontier/playtest/` makes `/` and `/frontier/` lead there; `--ip-rate`
+//! and `--ip-burst` are the per-address token bucket over every route (0: off; loopback exempt),
+//! `--ws-per-ip` and `--ws-max` the open-socket caps.
 //! The listen port must be 41000–41999 (or 0) and never a reserved port
 //! (§10.3). Stop with Ctrl-C: the fold is checkpointed on the way out.
 
@@ -101,6 +108,24 @@ async fn main_inner() -> Result<(), String> {
     );
     app.web = a.get("web").map(PathBuf::from);
     app.relay = a.get("relay").cloned();
+    if let Some(v) = a.get("inject-script") {
+        let (page, url) = v
+            .split_once('=')
+            .ok_or("--inject-script: FILE=URL (the page under --web, the script's URL path)")?;
+        app.inject = Some((page.to_string(), url.to_string()));
+    }
+    app.landing = a.get("landing").cloned();
+    let num = |k: &str, d: f64| -> Result<f64, String> {
+        a.get(k)
+            .map(|v| v.parse::<f64>().map_err(|_| format!("--{k}: a number")))
+            .unwrap_or(Ok(d))
+    };
+    let mut limits = server::IpLimits::default();
+    limits.rate = num("ip-rate", limits.rate)?;
+    limits.burst = num("ip-burst", limits.burst)?;
+    limits.ws_per_ip = num("ws-per-ip", limits.ws_per_ip as f64)? as usize;
+    app.limits = Arc::new(limits);
+    app.ws.max_sockets = num("ws-max", app.ws.max_sockets as f64)? as usize;
     app.index = Some(cfg.index_path());
     let listener = tokio::net::TcpListener::bind(&listen)
         .await

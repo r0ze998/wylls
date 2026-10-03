@@ -7,12 +7,35 @@ import { encode as base58, decode as fromBase58 } from '../../../client/src/base
 import { programError } from '../../../client/src/frontier/codec.mjs';
 import { seasonTipMin, tipPresets } from '../../../client/src/frontier/fees.mjs';
 import { RouteError } from '../../routes/errors.mjs';
+import { NO_EVENTS } from '../eventlog.mjs';
 import { dailyTxs, gameDay, QUOTA } from '../quota.mjs';
 import { lamportsPerDay } from '../shapes.mjs';
 
 const isKey = (s, n = 32) => {
   try { return typeof s === 'string' && fromBase58(s).length === n; } catch { return false; }
 };
+
+/**
+ * PT-B: "this citizen has the game open" for the playtest's activity record. The page's own
+ * polling asks /f/quota for the viewer's Citizen (through the herald's /h/me), so a `seen` line is
+ * written at most once per `SEEN_EVERY_MS` per Citizen, and only for a Citizen account that exists
+ * (a made-up address costs one chain read and writes nothing). It is advice, not proof: anyone can
+ * ask for any Citizen's quota; the metrics count signed `action` lines as the proof of play.
+ */
+export const SEEN_EVERY_MS = 5 * 60_000;
+async function noteSeen(ctx, citizen) {
+  if (!ctx.events || ctx.events === NO_EVENTS) return;
+  const seen = (ctx.seenAt ??= new Map());
+  const now = ctx.now();
+  const last = seen.get(citizen);
+  if (last !== undefined && now - last < SEEN_EVERY_MS) return;
+  if (seen.size >= 5_000 && last === undefined) return; // a flood of made-up addresses cannot grow the map
+  seen.set(citizen, now);
+  let exists = false;
+  try { exists = !!(await ctx.chain.citizen(citizen)); } catch { exists = false; }
+  if (exists) ctx.events.write('seen', { citizen });
+  else seen.delete(citizen);
+}
 
 export const seasonRoutes = {
   'GET /f/season': async ctx => {
@@ -37,6 +60,7 @@ export const seasonRoutes = {
     const s = await ctx.chain.season();
     const clock = await ctx.chain.clock();
     const day = gameDay(clock.unixTimestamp, s.GENESIS_TS);
+    await noteSeen(ctx, citizen);
     return { body: ctx.quota.status(`citizen:${citizen}`, { day, lamportsCap: lamportsPerDay(s), genesisTs: Number(s.GENESIS_TS) }) };
   },
 

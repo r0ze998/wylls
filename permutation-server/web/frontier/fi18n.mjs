@@ -155,6 +155,7 @@ const CLIENT_TEXT = {
   UseRevealRoute: () => L`開封は取引ではなく開封の材料として送ります`,
   QuotaExceeded: () => L`今日の中継の枠を使い切りました。次のゲーム日まで待ってください`,
   InviteRequired: () => L`このシーズンに参加するには招待が必要です`,
+  SeasonFull: () => L`このテストの参加枠はいっぱいです。招待してくれた人に聞いてください`,
   OperatorLowFunds: () => L`中継の支払い用の資金が足りません。しばらくしてから試してください`,
   BadSignature: () => L`署名を確認できませんでした`,
   Duplicate: () => L`同じ取引はすでに送られています`,

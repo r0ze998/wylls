@@ -232,6 +232,11 @@ pub struct StackConfig {
     /// issues for them (`bots/invites.txt`). Unset: the ungated season of
     /// every other run.
     pub gate_dir: Option<PathBuf>,
+    /// PT-B (`playtest.herald_args`, `playtest.relay_args`): extra flags appended to the herald's and
+    /// the relay's command lines (the guest-key page injection, the landing page, per-address limits,
+    /// the player cap), whitespace separated.
+    pub herald_args: Vec<String>,
+    pub relay_args: Vec<String>,
     /// PT-A (`playtest.event_log`): the relay writes its JSONL event log
     /// (invites issued, joins) to `<run>/relay/relay-events.jsonl`.
     pub relay_event_log: bool,
@@ -320,6 +325,8 @@ impl Default for StackConfig {
             viewer_retry_budget_ms: None,
             chaos_force: vec![],
             gate_dir: None,
+            herald_args: vec![],
+            relay_args: vec![],
             relay_event_log: false,
             keeper_r99_reveals: None,
             keeper_delay_floor: None,
@@ -567,6 +574,12 @@ impl StackConfig {
         if let Some(v) = s!("playtest.secrets_dir") {
             c.gate_dir = (!v.is_empty()).then(|| v.into());
         }
+        if let Some(v) = s!("playtest.herald_args") {
+            c.herald_args = v.split_whitespace().map(String::from).collect();
+        }
+        if let Some(v) = s!("playtest.relay_args") {
+            c.relay_args = v.split_whitespace().map(String::from).collect();
+        }
         if let Some(v) = b!("playtest.event_log") {
             c.relay_event_log = v;
         }
@@ -784,7 +797,7 @@ impl StackConfig {
                              "retry_budget_ms": self.viewer_retry_budget_ms()},
             "chaos_force": self.chaos_force.iter().map(|(c, h)| json!({"component": c, "hours_after_viewer_start": h})).collect::<Vec<_>>(),
             "playtest": {"gated": self.gate_dir.is_some(), "secrets_dir": self.gate_dir.as_ref().map(|p| p.display().to_string()),
-                         "relay_event_log": self.relay_event_log},
+                         "relay_event_log": self.relay_event_log, "herald_args": self.herald_args, "relay_args": self.relay_args},
             "keepers": {"r99_reveals": self.keeper_r99_reveals, "delay_floor": self.keeper_delay_floor,
                         "reveal_payer_lamports": self.reveal_payer_lamports, "delay_payer_lamports": self.delay_payer_lamports},
         })
@@ -1170,6 +1183,20 @@ mod tests {
         assert!(f_r <= r && r <= 2 * f_r, "{r} outside [{f_r}, {}]", 2 * f_r);
         let dp = p.delay_payer_lamports.unwrap();
         assert!(50_000_000 <= dp && dp <= 100_000_000);
+    }
+
+    /// PT-B: the herald's and the relay's extra flags (the guest-key page, the landing page, the limits, the player cap).
+    #[test]
+    fn playtest_herald_and_relay_args() {
+        let d = StackConfig::default();
+        assert!(d.herald_args.is_empty() && d.relay_args.is_empty());
+        let c = StackConfig::from_toml(
+            "[playtest]\nherald_args = \"--landing /frontier/frontier/playtest/ --ip-rate 50\"\nrelay_args = \"--max-players 40\"\n",
+        )
+        .unwrap();
+        assert_eq!(c.herald_args, ["--landing", "/frontier/frontier/playtest/", "--ip-rate", "50"]);
+        assert_eq!(c.relay_args, ["--max-players", "40"]);
+        assert_eq!(c.to_json()["playtest"]["relay_args"][1], "40");
     }
 
     #[test]

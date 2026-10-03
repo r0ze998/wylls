@@ -177,6 +177,7 @@ export default {
   "このゲーム内の鍵は市民に登録されたものと違います": "This in-game key is not the one registered for your citizen.",
   "このサーバーにはルールのモジュール（frontier.wasm）がまだありません": "This server does not have the rules module (frontier.wasm) yet.",
   "このシーズンに参加するには招待が必要です": "This season needs an invite to join.",
+  "このテストの参加枠はいっぱいです。招待してくれた人に聞いてください": "All the places in this test are taken. Ask the person who invited you.",
   "この端末からこのシーズンの鍵を消す": "Forget this season's key on this device",
   "この端末が開封を送りました": "This device sent the reveal.",
   "この端末にはこのシーズンのゲーム内の鍵がありません。ウォレットで同じ文面に署名すると、同じ鍵を作り直せます。": "This device has no in-game key for this season. Signing the same text with your wallet makes the same key again.",

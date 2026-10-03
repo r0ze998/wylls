@@ -722,6 +722,7 @@ impl Stack {
                         ]
                     }),
             )
+            .chain(self.cfg.relay_args.iter().cloned())
             .chain(
                 self.cfg
                     .relay_event_log
@@ -763,6 +764,8 @@ impl Stack {
         if self.cfg.beacon == Beacon::TestKey {
             hargs.push(s("--test-key"));
         }
+        // PT-B: the playtest's page injection, landing page and limits.
+        hargs.extend(self.cfg.herald_args.iter().cloned());
         out.push(Spec {
             name: s("herald"),
             program: bin("frontier-herald"),

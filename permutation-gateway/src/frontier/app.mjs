@@ -20,22 +20,24 @@ import { isIP } from 'node:net';
 import { toJson } from '../../client/src/bytes.mjs';
 import { FrontierAddresses } from '../../client/src/frontier/addresses.mjs';
 import { addressBucket, FundsGuard, RateLimiter, ReplayCache } from '../guards.mjs';
-import { errorResponse, RouteError } from '../routes/errors.mjs';
+import { chainError } from '../../client/src/codec.mjs';
+import { chainErrorStatus, errorResponse, RouteError } from '../routes/errors.mjs';
 import { BlockhashBook } from '../send.mjs';
 import { ChainView } from './chain.mjs';
 import { NO_EVENTS } from './eventlog.mjs';
 import { QuotaBook } from './quota.mjs';
 import { keeperRoutes } from './routes/keeper.mjs';
 import { operatorRoutes } from './routes/operator.mjs';
+import { playtestRoutes } from './routes/playtest.mjs';
 import { relayRoutes } from './routes/relay.mjs';
 import { seasonRoutes } from './routes/season.mjs';
 
-export const FRONTIER_ROUTES = Object.freeze({ ...seasonRoutes, ...relayRoutes, ...keeperRoutes, ...operatorRoutes });
+export const FRONTIER_ROUTES = Object.freeze({ ...seasonRoutes, ...relayRoutes, ...keeperRoutes, ...operatorRoutes, ...playtestRoutes });
 
 /** What the public listener serves ('GET /f/tx/' is a prefix: /f/tx/{signature}). */
 export const FRONTIER_PUBLIC_ROUTES = Object.freeze([
   'GET /f/season', 'GET /f/relay', 'GET /f/quota', 'GET /f/tx/',
-  'POST /f/relay', 'POST /f/join', 'POST /f/reveal', 'POST /f/nudge',
+  'POST /f/relay', 'POST /f/join', 'POST /f/reveal', 'POST /f/nudge', 'POST /f/invite-check',
 ]);
 
 /** Routes that make the relay pool pay: paused (503 OperatorLowFunds) while the pool is below its minimum. */
@@ -47,6 +49,7 @@ export const FRONTIER_IP_LIMITS = Object.freeze({
   'POST /f/join': { burst: 10, perSecond: 0.2 },
   'POST /f/reveal': { burst: 40, perSecond: 2 },
   'POST /f/nudge': { burst: 10, perSecond: 1 },
+  'POST /f/invite-check': { burst: 10, perSecond: 0.5 },
   'GET /f/relay': { burst: 40, perSecond: 3 },
   'GET /f/season': { burst: 20, perSecond: 2 },
   'GET /f/quota': { burst: 20, perSecond: 2 },
@@ -162,8 +165,14 @@ export function createFrontierHandler(ctx, { surface = 'operator', routes = FRON
       if (funded.has(key)) await ctx.funds.check();
       out = await route(ctx, request);
     } catch (e) {
-      const r = errorResponse(e);
+      let r = errorResponse(e);
       if (r.log) ctx.log(`${req.method} ${url.pathname}: ${e.message}`);
+      // PT-B: an error nobody raised on purpose (an RPC refusal, a fetch failure) carries internal
+      // addresses and messages: the public listener says only what kind it was; the log has the rest.
+      if (pub && !(e instanceof RouteError)) {
+        const code = chainError(e.message);
+        r = { status: chainErrorStatus(code), body: { error: code ?? 'internal error', code: code ?? 'Internal' }, log: true };
+      }
       out = r;
     }
     const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...(pub ? { 'X-Content-Type-Options': 'nosniff' } : {}) };

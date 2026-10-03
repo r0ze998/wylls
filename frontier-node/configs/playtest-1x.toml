@@ -63,6 +63,12 @@ runs = "../../data/playtest/runs"
 # first start, never printed, never in git.
 secrets_dir = "../../data/playtest/secrets"
 event_log = true
+# PT-B, the tester path: the game page is served with the guest-key script in front of app.mjs
+# (a friend needs no Solana wallet), `/` leads to the start page, which reads the invitation from the
+# link and says in plain words what to do. Per-address limits keep their defaults (100 requests/s,
+# a bucket of 1,500, 6 sockets). `--max-players` (invites redeemed, bots included) is left unset:
+# the operator limits the world by the invites they issue.
+herald_args = "--inject-script frontier/index.html=/frontier/frontier/playtest/boot.mjs --landing /frontier/frontier/playtest/"
 
 [pools]
 beneficiary_lamports = 1000000000

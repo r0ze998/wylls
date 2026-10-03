@@ -25,6 +25,8 @@ import { signTalk as signEd25519, verifyTalk as verifyEd25519 } from '../../../c
 import { parseWire, signedBy } from '../../cosign.mjs';
 import { RouteError } from '../../routes/errors.mjs';
 import { simulateWatching } from '../chain.mjs';
+import { catchUpProvince } from '../catchup.mjs';
+import { isFull } from './playtest.mjs';
 import { dailyTxs, dayEnd, gameDay } from '../quota.mjs';
 import { allowanceFor, checkRelayShape, drainGuard, feeOf, lamportsPerDay, quotaKeyOf } from '../shapes.mjs';
 
@@ -128,7 +130,15 @@ async function sponsor(ctx, req, { tx, wire, shape, requester = null, requesterC
     // top-up landing in between can never hide a drain (it can only refuse).
     const balance = async () => BigInt(await connection.getBalance(new PublicKey(shape.feePayer), 'confirmed'));
     const before = await balance();
-    const sim = await simulateWatching(connection, signed, [shape.feePayer], ctx.programId);
+    let sim;
+    try {
+      sim = await simulateWatching(connection, signed, [shape.feePayer], ctx.programId);
+    } catch (e) {
+      // PT-B: a province a bell behind is caught up by the keeper, then the action is simulated once more.
+      if (e?.code !== 'NotResident' || !(await catchUpProvince(ctx, shape))) throw e;
+      ctx.log?.(`f/relay ${shape.name}: NotResident, province caught up by the keeper; simulating again`);
+      sim = await simulateWatching(connection, signed, [shape.feePayer], ctx.programId);
+    }
     const after = await balance();
     post = sim.post[0];
     moved = drainGuard({ pre: before > after ? before : after, post, fee: feeOf(shape), allowance });
@@ -154,6 +164,8 @@ async function sponsor(ctx, req, { tx, wire, shape, requester = null, requesterC
   }
   ctx.sent.set(signature, { lastValidBlockHeight: expiry, kind: shape.name });
   onSent?.({ signature });
+  // PT-B: the per-citizen activity record of the playtest (a pseudonymous Citizen address, never an IP).
+  if (shape.name !== 'Join') ctx.events.write('action', { citizen: key.startsWith('citizen:') ? key.slice('citizen:'.length) : null, kind: shape.name, signature });
   ctx.log?.(`f/relay ${shape.name} ${signature} (fee payer ${shape.feePayer}, quota ${key}, moved ${moved})`);
   return { ok: true, signature };
 }
@@ -199,19 +211,20 @@ export const relayRoutes = {
     if (!gated) {
       if (named !== undefined) throw new RouteError(400, 'relay refused: this season has no join gate; leave the gate account out', 'RelayRejected');
       return { body: await sponsor(ctx, req, { tx, wire, shape, limitKind: 'join', lastValidBlockHeight: b.lastValidBlockHeight,
-        onSent: ({ signature }) => ctx.events.write('join', { invite: null, wallet: shape.authority, signature }) }) };
+        onSent: ({ signature }) => ctx.events.write('join', { invite: null, wallet: shape.authority, citizen: shape.accounts.citizen, signature }) }) };
     }
     if (named !== gate) throw new RouteError(400, 'relay refused: the Join must name the season\'s join gate as its last account (GET /f/season)', 'RelayRejected');
     if (!ctx.gateKey || ctx.gateKey.publicKey.toBase58() !== gate) throw new RouteError(503, 'this relay does not hold the season\'s join-gate key', 'GateUnavailable');
     // The wallet's signature before the invite is looked at: a forged Join spends no invite.
     if (!signedBy(tx, shape.authority)) throw new RouteError(400, 'the wallet\'s signature is missing or invalid', 'BadSignature');
+    if (isFull(ctx)) throw new RouteError(403, 'the playtest has all the players it can take', 'SeasonFull');
     const nonce = ctx.invites?.reserve(b.invite);
     if (!nonce) throw new RouteError(403, 'this season needs a valid, unused invite to join', 'InviteRequired');
     try {
       return { body: await sponsor(ctx, req, { tx, wire, shape, extraSigners: [ctx.gateKey], limitKind: 'join', lastValidBlockHeight: b.lastValidBlockHeight,
         onSent: ({ signature }) => {
           ctx.invites.consume(nonce);
-          ctx.events.write('join', { invite: nonce, wallet: shape.authority, signature });
+          ctx.events.write('join', { invite: nonce, wallet: shape.authority, citizen: shape.accounts.citizen, signature });
         } }) };
     } finally {
       ctx.invites.release(nonce);

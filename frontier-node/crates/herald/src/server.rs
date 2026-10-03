@@ -26,10 +26,11 @@
 //! trusts only from this loopback peer; only the relay's status, content
 //! type and body come back.
 
+use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axum::body::{Body, Bytes};
 use axum::extract::{ConnectInfo, Path, Query, Request, State};
@@ -78,6 +79,14 @@ pub struct App {
     pub events: Mutex<Option<findex::Reader>>,
     pub ws: WsCfg,
     pub ws_stats: Arc<WsStats>,
+    /// PT-B: `(html file under the web root, script URL)`: that page is served with
+    /// `<script type="module" src="URL">` placed before its `app.mjs` (the playtest's guest key;
+    /// the design session's page is not edited).
+    pub inject: Option<(String, String)>,
+    /// PT-B: where `/` and `/frontier/` lead (the playtest's landing page); `None`: `/frontier/`.
+    pub landing: Option<String>,
+    /// PT-B: per-address request limits (every route) and open sockets.
+    pub limits: Arc<IpLimits>,
     cache: Mutex<LiveCache>,
 }
 
@@ -111,6 +120,9 @@ impl App {
             events: Mutex::new(None),
             ws: WsCfg::default(),
             ws_stats: Arc::new(WsStats::default()),
+            inject: None,
+            landing: None,
+            limits: Arc::new(IpLimits::default()),
             cache: Mutex::new(LiveCache::default()),
         }
     }
@@ -131,13 +143,14 @@ pub fn router(app: Shared) -> Router {
         .route("/h/me/{wallet}", get(me))
         .route("/h/events", get(events))
         .route("/h/ws", get(ws_route))
-        .route("/", get(|| async { redirect("/frontier/") }))
-        .route("/frontier", get(|| async { redirect("/frontier/") }))
+        .route("/", get(root))
+        .route("/frontier", get(root))
         .route("/frontier/", get(web))
         .route("/frontier/{*path}", get(web))
         .route("/gw", any(gw))
         .route("/gw/{*path}", any(gw))
         .fallback(|| async { err(StatusCode::NOT_FOUND, "NotFound") })
+        .layer(middleware::from_fn_with_state(app.clone(), rate_limit))
         .layer(middleware::from_fn(security_headers))
         .with_state(app)
 }
@@ -149,6 +162,144 @@ pub async fn serve(listener: tokio::net::TcpListener, app: Shared) -> std::io::R
         router(app).into_make_service_with_connect_info::<SocketAddr>(),
     )
     .await
+}
+
+
+// ------------------------------------------------------------------ per-address limits (PT-B)
+
+/// Per-address request and socket limits for a herald behind a public tunnel
+/// (the playtest): a token bucket per client address (IPv6 by its /64) over
+/// every route, and at most `ws_per_ip` open sockets per address. Loopback
+/// clients (the stack's bots and viewers, the operator) are exempt; the
+/// relay's own per-address limits still apply behind `/gw/*`.
+pub struct IpLimits {
+    /// Sustained requests per second per address (0: no limit).
+    pub rate: f64,
+    /// Bucket size.
+    pub burst: f64,
+    /// Open `WS /h/ws` sockets per address (0: no limit).
+    pub ws_per_ip: usize,
+    buckets: Mutex<HashMap<u128, (f64, Instant)>>,
+    sockets: Mutex<HashMap<u128, usize>>,
+    /// Requests refused for the rate, sockets refused for the cap.
+    pub refused: std::sync::atomic::AtomicU64,
+    pub refused_ws: std::sync::atomic::AtomicU64,
+}
+
+impl Default for IpLimits {
+    fn default() -> Self {
+        IpLimits {
+            rate: 100.0,
+            burst: 1_500.0,
+            ws_per_ip: 6,
+            buckets: Mutex::new(HashMap::new()),
+            sockets: Mutex::new(HashMap::new()),
+            refused: Default::default(),
+            refused_ws: Default::default(),
+        }
+    }
+}
+
+const BUCKETS_MAX: usize = 20_000;
+
+/// The bucket an address belongs to: IPv4 as is, IPv6 by its /64.
+pub fn ip_bucket(ip: IpAddr) -> u128 {
+    match ip {
+        IpAddr::V4(a) => u32::from(a) as u128,
+        IpAddr::V6(a) => match a.to_ipv4_mapped() {
+            Some(v4) => u32::from(v4) as u128,
+            None => (u128::from(a) >> 64) << 64 | (1u128 << 100),
+        },
+    }
+}
+
+impl IpLimits {
+    pub fn new(rate: f64, burst: f64, ws_per_ip: usize) -> IpLimits {
+        IpLimits { rate, burst, ws_per_ip, ..IpLimits::default() }
+    }
+
+    /// Takes one token for `ip`; false when its bucket is empty.
+    pub fn take(&self, ip: IpAddr) -> bool {
+        if self.rate <= 0.0 || ip.is_loopback() {
+            return true;
+        }
+        let now = Instant::now();
+        let mut m = self.buckets.lock().unwrap_or_else(|e| e.into_inner());
+        if m.len() >= BUCKETS_MAX {
+            // Forget idle addresses (a full bucket again); an attacker cannot make this unbounded.
+            let (rate, burst) = (self.rate, self.burst);
+            m.retain(|_, (t, at)| *t + now.duration_since(*at).as_secs_f64() * rate < burst);
+        }
+        let e = m.entry(ip_bucket(ip)).or_insert((self.burst, now));
+        let refill = now.duration_since(e.1).as_secs_f64() * self.rate;
+        e.0 = (e.0 + refill).min(self.burst);
+        e.1 = now;
+        if e.0 >= 1.0 {
+            e.0 -= 1.0;
+            true
+        } else {
+            self.refused.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            false
+        }
+    }
+
+    /// Reserves a socket for `ip`; `None` when it has `ws_per_ip` open. Dropping the guard frees it.
+    pub fn open_socket(self: &Arc<Self>, ip: IpAddr) -> Option<SocketGuard> {
+        if self.ws_per_ip == 0 || ip.is_loopback() {
+            return Some(SocketGuard { limits: self.clone(), key: None });
+        }
+        let k = ip_bucket(ip);
+        let mut m = self.sockets.lock().unwrap_or_else(|e| e.into_inner());
+        let n = m.entry(k).or_insert(0);
+        if *n >= self.ws_per_ip {
+            self.refused_ws.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            return None;
+        }
+        *n += 1;
+        Some(SocketGuard { limits: self.clone(), key: Some(k) })
+    }
+}
+
+/// A reserved socket slot, released on drop.
+pub struct SocketGuard {
+    limits: Arc<IpLimits>,
+    key: Option<u128>,
+}
+
+impl Drop for SocketGuard {
+    fn drop(&mut self) {
+        if let Some(k) = self.key {
+            let mut m = self.limits.sockets.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(n) = m.get_mut(&k) {
+                *n = n.saturating_sub(1);
+                if *n == 0 {
+                    m.remove(&k);
+                }
+            }
+        }
+    }
+}
+
+async fn rate_limit(
+    State(app): State<Shared>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let ip = client_ip(peer.ip(), req.headers());
+    if !app.limits.take(ip) {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            [
+                (header::CONTENT_TYPE, "application/json"),
+                (header::CACHE_CONTROL, "no-store"),
+                (header::RETRY_AFTER, "2"),
+            ],
+            json!({"ok": false, "code": "TooManyRequests"}).to_string(),
+        )
+            .into_response();
+    }
+    next.run(req).await
 }
 
 async fn security_headers(req: Request, next: Next) -> Response {
@@ -194,8 +345,16 @@ fn err(status: StatusCode, code: &str) -> Response {
         .into_response()
 }
 
-fn redirect(to: &'static str) -> Response {
-    (StatusCode::FOUND, [(header::LOCATION, to)]).into_response()
+fn redirect(to: &str) -> Response {
+    match HeaderValue::from_str(to) {
+        Ok(v) => (StatusCode::FOUND, [(header::LOCATION, v)]).into_response(),
+        Err(_) => err(StatusCode::INTERNAL_SERVER_ERROR, "BadRedirect"),
+    }
+}
+
+/// `/` and `/frontier`: the landing page when one is set, else `/frontier/`.
+async fn root(State(app): State<Shared>) -> Response {
+    redirect(app.landing.as_deref().unwrap_or("/frontier/"))
 }
 
 fn json_answer(v: &Value, cache: &str) -> Response {
@@ -533,8 +692,13 @@ async fn events(
     )
 }
 
-async fn ws_route(State(app): State<Shared>, req: Request) -> Response {
+async fn ws_route(
+    State(app): State<Shared>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    req: Request,
+) -> Response {
     let h = req.headers();
+    let ip = client_ip(peer.ip(), h);
     let upgrade = h
         .get(header::UPGRADE)
         .and_then(|v| v.to_str().ok())
@@ -563,6 +727,10 @@ async fn ws_route(State(app): State<Shared>, req: Request) -> Response {
     if app.ws_stats.open.load(std::sync::atomic::Ordering::SeqCst) >= app.ws.max_sockets {
         return err(StatusCode::SERVICE_UNAVAILABLE, "TooManySockets");
     }
+    // PT-B: at most `ws_per_ip` sockets per client address (the slot is freed when the socket ends).
+    let Some(slot) = app.limits.open_socket(ip) else {
+        return err(StatusCode::TOO_MANY_REQUESTS, "TooManySockets");
+    };
     let rx = app.diffs.subscribe();
     let on = hyper::upgrade::on(req);
     let cfg = app.ws;
@@ -571,6 +739,7 @@ async fn ws_route(State(app): State<Shared>, req: Request) -> Response {
         if let Ok(u) = on.await {
             ws::serve(hyper_util::rt::TokioIo::new(u), rx, cfg, stats).await;
         }
+        drop(slot);
     });
     Response::builder()
         .status(StatusCode::SWITCHING_PROTOCOLS)
@@ -582,6 +751,29 @@ async fn ws_route(State(app): State<Shared>, req: Request) -> Response {
 }
 
 // ------------------------------------------------------------------ static
+
+/// `html` with `<script type="module" src="{url}"></script>` placed in front of the page's
+/// `app.mjs` script tag (so it runs first); `(html, true)`, or the page unchanged when it has no
+/// such tag or the URL is not a plain path.
+pub fn inject_script(html: Vec<u8>, url: &str) -> (Vec<u8>, bool) {
+    let plain = url
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b"/._-".contains(&b));
+    let Ok(text) = String::from_utf8(html.clone()) else {
+        return (html, false);
+    };
+    let tag = "<script type=\"module\" src=\"app.mjs\"></script>";
+    match (plain, text.find(tag)) {
+        (true, Some(i)) => {
+            let mut out = String::with_capacity(text.len() + url.len() + 48);
+            out.push_str(&text[..i]);
+            out.push_str(&format!("<script type=\"module\" src=\"{url}\"></script>\n"));
+            out.push_str(&text[i..]);
+            (out.into_bytes(), true)
+        }
+        _ => (html, false),
+    }
+}
 
 fn content_type(name: &str) -> &'static str {
     match name.rsplit('.').next().unwrap_or("") {
@@ -610,6 +802,11 @@ async fn web(State(app): State<Shared>, uri: Uri, h: HeaderMap) -> Response {
     let Some(root) = &app.web else {
         return err(StatusCode::NOT_FOUND, "NoWebClient");
     };
+    if uri.path() == "/frontier/" {
+        if let Some(l) = &app.landing {
+            return redirect(l);
+        }
+    }
     let mut rel = uri
         .path()
         .strip_prefix("/frontier/")
@@ -618,9 +815,11 @@ async fn web(State(app): State<Shared>, uri: Uri, h: HeaderMap) -> Response {
     if rel.is_empty() || rel.ends_with('/') {
         rel.push_str("index.html");
     }
+    // PT-B: '@' is allowed: the game's tile art lives in `@0.5x/ @1x/ @2x/` directories (they were all
+    // 404 through the herald, so the map showed no painted tiles; the name has no path meaning).
     let safe = rel
         .bytes()
-        .all(|b| b.is_ascii_alphanumeric() || b"/._-".contains(&b))
+        .all(|b| b.is_ascii_alphanumeric() || b"/._-@".contains(&b))
         && rel.split('/').all(|s| !s.is_empty() && !s.starts_with('.'));
     if !safe {
         return err(StatusCode::NOT_FOUND, "NotFound");
@@ -630,6 +829,11 @@ async fn web(State(app): State<Shared>, uri: Uri, h: HeaderMap) -> Response {
         return err(StatusCode::NOT_FOUND, "NotFound");
     };
     let name = rel.rsplit('/').next().unwrap_or(&rel);
+    // PT-B: the one page that gets the playtest's script (the original file is untouched).
+    let (body, injected) = match &app.inject {
+        Some((target, url)) if *target == rel => inject_script(body, url),
+        _ => (body, false),
+    };
     let etag = format!("\"{}\"", &hex::encode(Sha256::digest(&body))[..32]);
     let cache = if hashed(name) { IMMUTABLE } else { "no-cache" };
     if h.get(header::IF_NONE_MATCH)
@@ -644,7 +848,7 @@ async fn web(State(app): State<Shared>, uri: Uri, h: HeaderMap) -> Response {
     }
     let gz = gz_path(&p);
     let (body, enc) = match (accepts_gzip(&h), std::fs::read(&gz)) {
-        (true, Ok(z)) => (z, Some("gzip")),
+        (true, Ok(z)) if !injected => (z, Some("gzip")),
         _ => (body, None),
     };
     let mut r = Response::builder()
@@ -666,15 +870,22 @@ async fn web(State(app): State<Shared>, uri: Uri, h: HeaderMap) -> Response {
 /// reverse proxy or tunnel in front of the herald) — the last address in
 /// the `X-Forwarded-For` it set.
 pub fn client_ip(peer: IpAddr, h: &HeaderMap) -> IpAddr {
+    if !peer.is_loopback() {
+        return peer;
+    }
+    // A tunnel on this machine in front. Cloudflare sets `CF-Connecting-IP` itself (a value the
+    // browser sent is replaced); otherwise the last `X-Forwarded-For` entry is the one the proxy
+    // closest to us added (an earlier entry may be the browser's own claim).
+    let cf = h
+        .get("cf-connecting-ip")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|a| a.trim().parse::<IpAddr>().ok());
     let fwd = h
         .get("x-forwarded-for")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.rsplit(',').next())
-        .and_then(|a| a.trim().parse().ok());
-    match fwd {
-        Some(ip) if peer.is_loopback() => ip,
-        _ => peer,
-    }
+        .and_then(|a| a.trim().parse::<IpAddr>().ok());
+    cf.or(fwd).unwrap_or(peer)
 }
 
 fn plain(v: &str) -> bool {
