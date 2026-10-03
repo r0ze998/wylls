@@ -1647,14 +1647,17 @@ pub fn fold_march(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             return Err(cq(CqError::FoldOutOfOrder));
         }
     }
+    // The captures sum is the same for every hour of the call (each
+    // member's cumulative `captures_by` as stored now): read once.
+    let captures = fold_captures(&views)?;
+    let mut md = march.try_borrow_mut_data()?;
+    let mut key = [0u8; 12];
+    key[..4].copy_from_slice(&x.m.to_le_bytes());
+    key[4..8].copy_from_slice(&x.n.to_le_bytes());
     for k in 0..x.count as u32 {
         let h = x.hour + k;
-        let hf = cm::fold(&views, h).map_err(fold_err)?;
-        let mut md = march.try_borrow_mut_data()?;
+        let hf = fold_hour(&views, h, captures)?;
         let log = cm::apply_fold(&mut md, &hf, dom).map_err(fold_err)?;
-        let mut key = [0u8; 12];
-        key[..4].copy_from_slice(&x.m.to_le_bytes());
-        key[4..8].copy_from_slice(&x.n.to_le_bytes());
         key[8..].copy_from_slice(&h.to_le_bytes());
         cqlog::emit(
             kind(CqKind::MARCH_FOLD),
@@ -1668,6 +1671,47 @@ pub fn fold_march(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         )?;
     }
     Ok(())
+}
+
+/// Σ of the present members' `captures_by[f]` (`conquest_model::fold`'s
+/// `captures`, which does not depend on the hour).
+fn fold_captures(members: &[Option<&[u8]>; 7]) -> R<[u16; P::FACTIONS]> {
+    let mut captures = [0u16; P::FACTIONS];
+    for pd in members.iter().flatten() {
+        for (f, c) in captures.iter_mut().enumerate() {
+            *c = c.saturating_add(Ro(pd).u16(P::captures_by(f))?);
+        }
+    }
+    Ok(captures)
+}
+
+/// `conquest_model::fold(members, h)` with the call's `captures` (equal,
+/// field for field: pinned by `fold_hour_is_the_models`).
+fn fold_hour(
+    members: &[Option<&[u8]>; 7],
+    h: u32,
+    captures: [u16; P::FACTIONS],
+) -> R<cm::HourFold> {
+    let mut weight = [0u32; P::SIDES];
+    let mut lost = false;
+    for m in members {
+        match cm::member_sample(*m, h).map_err(fold_err)? {
+            cm::Sample::Zero => {}
+            cm::Sample::Lost => lost = true,
+            cm::Sample::Weight(w) => {
+                for (d, x) in weight.iter_mut().zip(w) {
+                    *d = d.saturating_add(x as u32);
+                }
+            }
+        }
+    }
+    Ok(cm::HourFold {
+        hour: h,
+        weight,
+        controller: frontier_abi::v2::kernel::control::controller(&weight),
+        lost,
+        captures,
+    })
 }
 
 fn fold_err(e: cm::FoldError) -> crate::Error {
@@ -1989,6 +2033,53 @@ mod tests {
         assert_eq!(s.unwrap().key, 11);
         assert_eq!(after.kind, CR::KIND_OCCUPATION);
         assert_eq!(after.flags, 0);
+    }
+
+    /// The program's per-call fold equals `conquest_model::fold` for
+    /// every member state (absent, unopened, too early, held, lost) and
+    /// random weights and captures.
+    #[test]
+    fn fold_hour_is_the_models() {
+        let mut seed = 0x5eed_u64;
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        for _ in 0..500 {
+            let h = 2 + (next() % 20) as u32;
+            let mut datas = alloc::vec::Vec::new();
+            for _ in 0..7 {
+                let mut pd = alloc::vec![0u8; P::SIZE];
+                let ob = (next() % (6 * h as u64 + 12)) as u32;
+                pd[P::OPENED_BELL..P::OPENED_BELL + 4].copy_from_slice(&ob.to_le_bytes());
+                let rn = 6 * h + 1 + (next() % 3) as u32;
+                pd[P::RESOLVED_NEXT..P::RESOLVED_NEXT + 4].copy_from_slice(&rn.to_le_bytes());
+                for back in 0..6u32 {
+                    let hh = if next() % 7 == 0 {
+                        h + 6
+                    } else {
+                        h.saturating_sub(back)
+                    };
+                    let o = P::snap((hh % 6) as usize);
+                    pd[o..o + 4].copy_from_slice(&hh.to_le_bytes());
+                    for i in 0..P::SIDES {
+                        let v = (next() % 3000) as u16;
+                        pd[o + 4 + 2 * i..o + 6 + 2 * i].copy_from_slice(&v.to_le_bytes());
+                    }
+                }
+                for f in 0..P::FACTIONS {
+                    let v = (next() % 50) as u16;
+                    pd[P::captures_by(f)..P::captures_by(f) + 2].copy_from_slice(&v.to_le_bytes());
+                }
+                datas.push((next() % 5 != 0).then_some(pd));
+            }
+            let views: [Option<&[u8]>; 7] = core::array::from_fn(|i| datas[i].as_deref());
+            let want = cm::fold(&views, h).unwrap();
+            let got = fold_hour(&views, h, fold_captures(&views).unwrap()).unwrap();
+            assert_eq!(got, want);
+        }
     }
 
     #[test]

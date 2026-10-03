@@ -1474,3 +1474,258 @@ fn g13_cq_retire_host_refusals() {
     assert_code(send(&mut k.c.fork(), retire_ix(&k, &k.v.wallet, k.v.citizen, k.v.province, 30)), E::NotOwner);
     assert_code(send(&mut k.c.fork(), retire_ix(&k, &k.v.wallet, k.v.citizen, k.v.province, 200)), E::BadData);
 }
+
+// ------------------------------------------------------------ G1
+
+/// The v2 ceilings of an MC instruction (§5.4): the CU gate, the heap gate,
+/// the tx bytes (§5.4's value or the worst-case estimate), 64 locks, the v2
+/// `L(kind)`.
+fn cq_ceilings(ix: I2) -> permutation_frontier_svm_tests::budget::Ceilings {
+    use frontier_abi::v2::budgets as b2;
+    permutation_frontier_svm_tests::budget::Ceilings {
+        cu: b2::budget(ix).cu_budget,
+        heap: frontier_abi::budgets::HEAP_GATE,
+        tx_bytes: b2::tx_ceiling(ix),
+        locks: frontier_abi::budgets::LOCKS_MAX,
+        loaded: b2::loaded_limit(ix),
+    }
+}
+
+/// Measures `ix` on `c` (ladder CU, v2 `L(kind)`) and asserts §5.4's
+/// ceilings: CU on the plain builds, the heap on the trace build.
+fn cq_measured(c: &Chain, kind: I2, label: &str, ix: Instruction, signers: &[&Keypair]) -> u64 {
+    let p = Profile::NONE
+        .with_cu(frontier_abi::budgets::CU_LADDER_MAX)
+        .with_loaded(frontier_abi::v2::budgets::loaded_limit(kind));
+    let need = c
+        .measure_with(&p, &[ix], signers)
+        .unwrap_or_else(|f| panic!("{label}: refused while measuring: {:?}\n{}", f.code, f.logs.join("\n")));
+    permutation_frontier_svm_tests::budget::assert_within(label, &need, &cq_ceilings(kind));
+    need.cu
+}
+
+/// The builds a G1 test measures: the release `.so` (CU), and the trace
+/// build too when `PSF_TRACE=1` (heap; its markers add CU).
+fn g1_builds() -> Vec<Build> {
+    let mut v = vec![Build::Release];
+    if std::env::var("PSF_TRACE").is_ok_and(|x| x == "1") {
+        v.push(Build::Trace);
+    }
+    v
+}
+
+/// The §13.1 DeclareSiege fill (v1.1, R-08): Frontier-28 at day 0, the
+/// owner's vigil with a pending CL-09 change, `end_bell − now` = 287 (the
+/// scan) or ≥ 288 (O(1)), 48 entries on the Province with 6 of the
+/// attacker's faction on the tile (the lead-host ranking), a Frontier
+/// protection proof through a nearby first holding, a capture target with
+/// the slot reservation and the escrow top-up.
+fn declare_worst(build: Build, scan: bool) -> (Cast, Instruction) {
+    let mut k = Cast::with(mc_world_with(build, &frontier_abi::v2::presets::MC_SEASON_28.cq));
+    let c = &mut k.c;
+    let w = &k.w;
+    if scan {
+        let end = B0 + 1 + 287;
+        c.edit(&w.a.season, |d| {
+            let o = frontier_abi::layout::world::season::END_BELL;
+            d[o..o + 4].copy_from_slice(&end.to_le_bytes())
+        });
+    }
+    // The owner's vigil: a change requested, effective at a later midnight.
+    let from = (c.now / 86_400 + 2) * 86_400;
+    let now_away = w.cq_vigil_away(B0);
+    c.edit(&k.v.citizen, |d| {
+        d[C::VIGIL_NEXT_MIN..C::VIGIL_NEXT_MIN + 2].copy_from_slice(&((now_away + 180) % 1_440).to_le_bytes());
+        d[C::VIGIL_FROM_TS..C::VIGIL_FROM_TS + 8].copy_from_slice(&from.to_le_bytes());
+    });
+    // 48 entries: 8 per faction; faction 0's six on the target tile (X's
+    // the largest at entry 0), the rest elsewhere.
+    let pd = c.data(&k.o.province);
+    let tiles: Vec<u8> = (0..61u8)
+        .filter(|t| u64_at(&pd, P::PASSABLE_MASK) & (1 << t) != 0 && *t != k.o.tile)
+        .collect();
+    c.edit(&k.o.province, |d| {
+        let e = entry_at(d, 0);
+        let mut e2 = e;
+        e2.troops = 30_000_000;
+        frontier_abi::entry::write_entry(d, 0, &e2).unwrap();
+    });
+    let mut i = 1usize;
+    for f in 0..6u8 {
+        let e = w.cq_estate(c, &format!("g1-{f}"), f, ring4(f, 3), 0);
+        let n = if f == 0 { 7 } else { 8 };
+        for s in 0..n {
+            let tile = if f == 0 && s < 5 { k.o.tile } else { tiles[(i * 7) % tiles.len()] };
+            w.craft_host(c, &e, &k.o.province, i, s as u32, 0, 20_000 + i as u32, tile);
+            i += 1;
+        }
+    }
+    assert_eq!(c.data(&k.o.province)[P::N_ENTRIES], 48);
+    // Frontier protection, lifted by a faction-0 first holding next door.
+    let late = w.genesis_ts() + 2 * 86_400;
+    let over = c.now - 1;
+    c.edit(&k.o.holding, |d| {
+        d[H::FOUNDED_TS..H::FOUNDED_TS + 8].copy_from_slice(&late.to_le_bytes());
+        d[H::SHIELD_UNTIL..H::SHIELD_UNTIL + 8].copy_from_slice(&over.to_le_bytes());
+    });
+    let tc = permutation_rules::frontier::geometry::ProvinceCoord::new(k.o.p as i32, k.o.q as i32);
+    let nb = tc.neighbors().into_iter().find(|n| n.ring() >= 4).unwrap();
+    let z = w.cq_estate(c, "g1-z", 0, (nb.p as i16, nb.q as i16), 0);
+    let mut ix = k.declare_ix();
+    ix.accounts[qix::at::declare::NEARBY].pubkey = z.province;
+    ix.data[3] = z.site;
+    (k, ix)
+}
+
+/// G1 (§13.1): DeclareSiege at its pinned worst fill, both TooLate paths,
+/// within 30,000 CU (§5.4) on the release `.so`.
+#[test]
+fn g01_cq_declare_worst() {
+    for build in g1_builds() {
+        for scan in [true, false] {
+            let (k, ix) = declare_worst(build, scan);
+            let cu = cq_measured(
+                &k.c,
+                I2::DeclareSiege,
+                &format!("DeclareSiege worst ({build:?}, {})", if scan { "287-bell scan" } else { "≥ 288 O(1)" }),
+                ix,
+                &[&k.x.wallet],
+            );
+            println!("g01_cq DeclareSiege {build:?} scan={scan}: {cu} CU (budget 30,000)");
+        }
+    }
+}
+
+/// G1 (§13.1): SettleCapture of a holding with 4 transit bonds refunded and
+/// the rent swap; a Free City capture with the Holding's init.
+#[test]
+fn g01_cq_settle_capture_worst() {
+    for build in g1_builds() {
+        let mut k = Cast::with(mc_world_with(build, &MC_LOCAL_7D.cq));
+        for i in 0..4 {
+            let id = k.o.host_id(10 + i as u32);
+            craft_bonded_transit(&mut k.c, &k.w, &k.o.holding, i, id);
+        }
+        complete_capture(&mut k);
+        let anyone = k.c.funded(b"cq-g1", 1);
+        let cu = cq_measured(&k.c, I2::SettleCapture, &format!("SettleCapture 4 bonds ({build:?})"), capture_ix(&k, &anyone), &[&anyone]);
+        println!("g01_cq SettleCapture holding {build:?}: {cu} CU (budget 30,000)");
+        // Free City.
+        let mut k = Cast::with(mc_world_with(build, &MC_LOCAL_7D.cq));
+        let fc = ring4(2, 0);
+        let pk = k.w.cq_free_city(&mut k.c, fc, 2, 300, 1);
+        let tile = k.c.data(&pk)[P::SITES + 2];
+        k.w.craft_host(&mut k.c, &k.x, &pk, 0, 1, 0, HOST, tile);
+        let ix = declare_free_city(&k.w, &k.x, fc, 2, 0);
+        expect_lands(send_declare(&mut k.c, &k.x, ix), "declare");
+        let mut r = k.w.cq_record(&k.c, &pk, 2);
+        r.progress = r.required - 1;
+        k.w.cq_put_record(&mut k.c, &pk, 2, &r);
+        k.w.set_resolved_next(&mut k.c, &pk, B0 + 1);
+        k.w.cq_resolve(&mut k.c, &pk, B0 + 1, Some(site_report(2, bit(0), false)));
+        let cap = Capture {
+            fee_payer: anyone.pubkey(),
+            holding: k.w.a.holding(fc.0 as i32, fc.1 as i32, 2),
+            province: pk,
+            captor: k.x.citizen,
+            captor_js: k.w.cq_join_shard(&k.c, &k.x),
+            victim: nowhere("victim"),
+            victim_js: nowhere("victim-js"),
+            victim_rent_payer: nowhere("victim-rent"),
+            stake: k.x.holding,
+            site: 2,
+            beneficiary: anyone.pubkey().to_bytes(),
+        };
+        let anyone = k.c.funded(b"cq-g1", 1);
+        let cu = cq_measured(&k.c, I2::SettleCapture, &format!("SettleCapture Free City init ({build:?})"), qix::settle_capture(&k.w.a, &cap), &[&anyone]);
+        println!("g01_cq SettleCapture Free City {build:?}: {cu} CU (budget 30,000)");
+    }
+}
+
+/// G1 (§13.1): SettleSiege paying the stake to the defender and releasing
+/// a slot with the escrow refund; RetireHost by the victim's session key;
+/// CloseMarch.
+#[test]
+fn g01_cq_settle_siege_retire_close() {
+    for build in g1_builds() {
+        let mut k = Cast::with(mc_world_with(build, &MC_LOCAL_7D.cq));
+        declare_then(&mut k, 0, true);
+        let anyone = k.c.funded(b"cq-g1", 1);
+        let cu = cq_measured(
+            &k.c,
+            I2::SettleSiege,
+            &format!("SettleSiege stake + slot ({build:?})"),
+            settle_siege_ix(&k, &anyone, k.o.holding, true),
+            &[&anyone],
+        );
+        println!("g01_cq SettleSiege {build:?}: {cu} CU (budget 25,000)");
+        let mut k = Cast::with(mc_world_with(build, &MC_LOCAL_7D.cq));
+        captured_with_victim_host(&mut k);
+        let b = k.w.bell(&k.c);
+        k.w.set_resolved_next(&mut k.c, &k.v.province, b);
+        let session = k.c.funded(b"cq-g1-session", 1);
+        let exp = k.c.now + 3_600;
+        k.c.edit(&k.v.citizen, |d| {
+            d[C::SESSION..C::SESSION + 32].copy_from_slice(&session.pubkey().to_bytes());
+            d[C::SESSION_EXPIRY..C::SESSION_EXPIRY + 8].copy_from_slice(&exp.to_le_bytes());
+        });
+        let cu = cq_measured(
+            &k.c,
+            I2::RetireHost,
+            &format!("RetireHost by session ({build:?})"),
+            retire_ix(&k, &session, k.v.citizen, k.v.province, 5),
+            &[&session],
+        );
+        println!("g01_cq RetireHost {build:?}: {cu} CU (budget 17,000)");
+        let mut k = Cast::with(mc_world_with(build, &MC_LOCAL_7D.cq));
+        let (mn, _, _) = march_world(&mut k);
+        let keeper = k.w.keeper.insecure_clone();
+        expect_lands(mc_send(&mut k.c, I2::FoldMarch, fold_ix(&k.w, &keeper, mn, 2, 1), &[&keeper]), "fold");
+        k.w.craft_status(&mut k.c, frontier_abi::layout::world::season::STATUS_ENDED);
+        let end_ts = k.w.end_ts();
+        k.c.set_time(end_ts + 72 * 3_600);
+        let ix = qix::close_march(&k.w.a, anyone.pubkey(), mn.0, mn.1, keeper.pubkey());
+        let anyone = k.c.funded(b"cq-g1", 1);
+        let cu = cq_measured(&k.c, I2::CloseMarch, &format!("CloseMarch ({build:?})"), ix, &[&anyone]);
+        println!("g01_cq CloseMarch {build:?}: {cu} CU (budget 8,000)");
+    }
+}
+
+/// G1 (§13.1): FoldMarch with 7 present members, the first fold's init,
+/// 6 hours in one call, one lost hour.
+#[test]
+fn g01_cq_fold_worst() {
+    for build in g1_builds() {
+        let mut k = Cast::with(mc_world_with(build, &MC_LOCAL_7D.cq));
+        let (mn, members, absent) = march_world(&mut k);
+        let (p, q) = frontier_abi::v2::addr::march_members(mn.0, mn.1)[absent];
+        let pk = k.w.cq_province(&mut k.c, p as i16, q as i16);
+        assert_eq!(pk, members[absent]);
+        k.c.edit(&pk, |d| d[P::OPENED_BELL..P::OPENED_BELL + 4].copy_from_slice(&12u32.to_le_bytes()));
+        k.w.set_resolved_next(&mut k.c, &pk, 12);
+        k.w.cq_resolve_quiet(&mut k.c, &pk, 12, 48);
+        for m in members.iter().filter(|m| **m != pk) {
+            k.w.cq_resolve_quiet(&mut k.c, m, 37, 48);
+        }
+        k.c.edit(&members[0], |d| {
+            let o = P::snap(4);
+            d[o..o + 4].copy_from_slice(&99u32.to_le_bytes())
+        });
+        let keeper = k.w.keeper.insecure_clone();
+        // The per-hour figures for the notes (CQ2-C-NOTES, the FoldMarch
+        // budget finding): the same fill folding 1..5 hours.
+        let p = Profile::NONE
+            .with_cu(frontier_abi::budgets::CU_LADDER_MAX)
+            .with_loaded(frontier_abi::v2::budgets::loaded_limit(I2::FoldMarch));
+        for count in 1..=5u8 {
+            let n = k
+                .c
+                .measure_with(&p, &[fold_ix(&k.w, &keeper, mn, 2, count)], &[&keeper])
+                .expect("fold");
+            println!("g01_cq FoldMarch {build:?} 7 members, init, {count} hour(s): {}", n);
+        }
+        // §13.1's pinned fill: 6 hours (one lost) against §5.4's 20,000.
+        let cu = cq_measured(&k.c, I2::FoldMarch, &format!("FoldMarch 7 members, init, 6 hours, 1 lost ({build:?})"), fold_ix(&k.w, &keeper, mn, 2, 6), &[&keeper]);
+        println!("g01_cq FoldMarch {build:?}: {cu} CU (budget 20,000)");
+    }
+}
