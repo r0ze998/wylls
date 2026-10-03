@@ -185,6 +185,14 @@ pub const SETTLE_TICKET: &[Cover] = &[
         "citizen::g02_cq_prefund_outpost_holding",
         &[Lands("SettleTicket (outpost) pre-funded")],
     ),
+    Cover::Test(
+        "citizen::cq_outpost_displacement_frees_the_slot",
+        &[Lands("SettleTicket hi (displace)")],
+    ),
+    Cover::Test(
+        "citizen::cq_first_holding_shield_turns_late_after_the_season_timer",
+        &[Lands("SettleTicket")],
+    ),
 ];
 
 pub const RELEASE_DORMANT: &[Cover] = &[
@@ -282,6 +290,21 @@ pub const FILE_OUTPOST: &[Cover] = &[
             Err(E::TicketState),
             Lands("FileOutpost"),
         ],
+    ),
+    Cover::Test(
+        "citizen::g13_cq_file_outpost_capture_lock_on_the_anchor",
+        &[
+            CqErr(Cq::CapturePending),
+            Lands("FileOutpost (outpost anchor)"),
+        ],
+    ),
+    Cover::Test(
+        "citizen::g13_cq_file_outpost_town_prerequisite_reads_the_touched_tier",
+        &[CqErr(Cq::OutpostRule), Lands("FileOutpost")],
+    ),
+    Cover::Test(
+        "citizen::g13_cq_file_outpost_cohort_table_full_refuses_a_ninth_bell",
+        &[Err(E::CohortFull)],
     ),
     Cover::Test(
         "citizen::g03_cq_file_outpost_refuses_forged_accounts",

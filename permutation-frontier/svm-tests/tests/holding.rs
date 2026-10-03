@@ -674,7 +674,8 @@ mod cq {
 
     /// G13 (MC §5.8): Harvest, Build, Train and Explore refuse
     /// `CapturePending` between the completion and SettleCapture; a settled
-    /// capture (`capture_flags` 1) lifts the lock; Explore checks it in the
+    /// capture (holding generation = mirror generation, `capture_flags` 1)
+    /// does not, while a re-completed one does; Explore checks it in the
     /// holding's own Province only (notes D-6).
     #[test]
     fn g13_cq_capture_lock_refuses_the_resident_actions() {
@@ -703,9 +704,29 @@ mod cq {
             );
             assert_code(r, Cq::CapturePending);
         }
-        // A settled capture (the captor's Holding at the new generation,
-        // `capture_flags` 1): the lock is off. Crafted.
-        let mut g = f.fork();
+        // Ping-pong (review CQ2-A, notes D-14): a holding already captured
+        // (`capture_flags` 1) whose next capture has completed (mirror
+        // generation past the Holding's) stays locked; the flag lifts
+        // nothing.
+        for (ix, what) in [
+            (&harvest, "hx::harvest("),
+            (&train, "hx::train("),
+            (&walls, "walls"),
+        ] {
+            let mut g = f.fork();
+            g.edit(&e.holding, |d| {
+                d[H2::CAPTURE_FLAGS] = H2::CAPTURE_FLAG_CAPTURED
+            });
+            let r = send(&mut g, &e, ix.clone());
+            assert_eq!(
+                r.as_ref().err().and_then(|x| x.code),
+                Some(Cq::CapturePending.code()),
+                "re-captured: {what}"
+            );
+        }
+        // A settled capture (the captor's Holding at the mirror's
+        // generation, `capture_flags` 1): the lock is off. Crafted.
+        let mut g = c.fork();
         g.edit(&e.holding, |d| {
             d[H2::CAPTURE_FLAGS] = H2::CAPTURE_FLAG_CAPTURED
         });

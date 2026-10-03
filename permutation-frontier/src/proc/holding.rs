@@ -79,8 +79,8 @@ use crate::events::{self, Buf, Chained};
 use crate::layout::beacon::{archive_archived, archive_entry_of, archive_key, Anchor, Cache};
 use crate::layout::player::{accrual, queue_item as QI};
 use crate::layout::{
-    citizen as C, explore as X, holding as H, holding2 as H2, province as P, season as S,
-    site as SM, site2 as SM2, AccountKindV2, Ro, Rw,
+    citizen as C, explore as X, holding as H, province as P, season as S, site as SM, site2 as SM2,
+    AccountKindV2, Ro, Rw,
 };
 use crate::prologue::{self, check_accounts, expect_key, key, view, Now};
 use crate::{FrontierError, R, RULESET_HASH};
@@ -210,18 +210,20 @@ pub(crate) fn own_province(
 
 /// The capture lock (MC §5.8): the holding's own Province (`province`,
 /// already checked by [`own_province`]) mirrors its site at another
-/// generation and the Holding is not a settled capture → `CapturePending`.
+/// generation than the Holding's → `CapturePending`. The lock does **not**
+/// look at `capture_flags` (review CQ2-A, notes D-14): a settled capture
+/// (flag 1) has `holding.gen = mirror.gen`, so the flag stops nothing
+/// legitimate, and a re-completed capture of an already-captured holding
+/// (`mirror.gen = holding.gen + 1`, flag 1) must stay locked until
+/// SettleCapture. The frozen ABI helper's `capture_flags == 0` term is
+/// passed as 0 here, which reduces it to the generation test.
 pub(crate) fn capture_lock(
     hh: &HoldingHdr,
-    holding: &AccountInfo,
+    _holding: &AccountInfo,
     province: &AccountInfo,
 ) -> R<()> {
-    let flags = {
-        let hd = holding.try_borrow_data()?;
-        Ro(&hd).u8(H2::CAPTURE_FLAGS)?
-    };
     let pd = province.try_borrow_data()?;
-    match frontier_abi::v2::prologue::capture_locked(&pd, hh.site, hh.gen, flags) {
+    match frontier_abi::v2::prologue::capture_locked(&pd, hh.site, hh.gen, 0) {
         Some(false) => Ok(()),
         Some(true) => Err(crate::CqError::CapturePending.into()),
         None => Err(BAD_ACCOUNT),

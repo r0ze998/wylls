@@ -155,6 +155,14 @@ pub(crate) fn player(p: &Pubkey, a: &[AccountInfo], now: i64, session_ok: bool) 
 }
 
 /// The Citizen's seed tag (key of its records).
+/// A Province account as the v2 program reads it (R-22): at its canonical
+/// address (`BadAddress`) and present with the exact v2 size and
+/// `layout_version 2` (`BadAccount`).
+fn present_province(ai: &AccountInfo, expected: &[u8; 32], p: &Pubkey, season_id: u64) -> R<()> {
+    expect_key(ai, expected)?;
+    prologue::present_v2(ai, p, AccountKindV2::Province, season_id)
+}
+
 fn tag15_of(citizen: &[u8]) -> R<[u8; 15]> {
     let wallet: [u8; 32] = Ro(citizen).arr(C::WALLET)?;
     Ok(addr::citizen_tag15(&wallet))
@@ -689,12 +697,16 @@ pub fn file_outpost(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     if ah.state != H::STATE_FINAL {
         return Err(FrontierError::NotFinal.into());
     }
+    // The anchor as an owner touches it: a tier-up finished since its last
+    // action counts for the Town prerequisite (review CQ2-A, D-15); the
+    // settler cost is paid from this same state below.
+    let mut h = super::holding::load_touched(anchor_ai, now.ts)?;
     let (anchor_order, anchor_tier, anchor_captured) = {
         let hd = anchor_ai.try_borrow_data()?;
         let r = Ro(&hd);
         (
             r.u8(H::ORDER)?,
-            holding_tier(r.u8(H::TIER)?)?,
+            h.tier,
             r.u8(H2::CAPTURE_FLAGS)? & H2::CAPTURE_FLAG_CAPTURED != 0,
         )
     };
@@ -789,17 +801,14 @@ pub fn file_outpost(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             record_is_zero(&pd, s.2)?;
         }
         // The capture lock (§5.8) on the anchor, when its own Province is
-        // listed (the only one the instruction can read; notes D-6).
-        if (pi, qi) == (ap_, aq_) {
-            let f = {
-                let hd = anchor_ai.try_borrow_data()?;
-                Ro(&hd).u8(H2::CAPTURE_FLAGS)?
-            };
-            if frontier_abi::v2::prologue::capture_locked(&pd, ah.site, ah.gen, f)
+        // listed (the only one the instruction can read; notes D-6, and the
+        // open owner question Q-1 for an outpost anchor whose Province is
+        // not listed). Generation test only (D-14).
+        if (pi, qi) == (ap_, aq_)
+            && frontier_abi::v2::prologue::capture_locked(&pd, ah.site, ah.gen, 0)
                 .ok_or(BAD_ACCOUNT)?
-            {
-                return Err(crate::CqError::CapturePending.into());
-            }
+        {
+            return Err(crate::CqError::CapturePending.into());
         }
         cohort_file(&mut pd, now_bell)?;
         crate::heap::trace_checkpoint(0xA304);
@@ -808,7 +817,6 @@ pub fn file_outpost(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     // The settler cost from the anchor's stores, as an owner action of the
     // anchor (the holding touch every resident action makes).
     let cost = settler_cost(holdings_n)?;
-    let mut h = super::holding::load_touched(anchor_ai, now.ts)?;
     h.pay(now.ts, &cost).map_err(super::holding::holding_err)?;
     crate::heap::trace_checkpoint(0xA305);
     let digest = {
@@ -979,13 +987,7 @@ pub fn file_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     }
     let now_bell = pc.now_bell;
     for (ai, (pp, qq)) in provinces.iter().zip(&distinct) {
-        present_at(
-            ai,
-            &ctx.province(*pp as i32, *qq as i32),
-            p,
-            AccountKind::Province,
-            hdr.id,
-        )?;
+        present_province(ai, &ctx.province(*pp as i32, *qq as i32), p, hdr.id)?;
         let mut pd = ai.try_borrow_mut_data()?;
         let site_count = Ro(&pd).u8(PV::SITE_COUNT)?;
         if sites[..n]
@@ -1425,26 +1427,14 @@ pub fn settle_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let (pi, qi) = (sp as i32, sq as i32);
     let coord = ProvinceCoord::new(pi, qi);
     expect_key(holding, &ctx.holding(pi, qi, site))?;
-    present_at(
-        province,
-        &ctx.province(pi, qi),
-        p,
-        AccountKind::Province,
-        hdr.id,
-    )?;
+    present_province(province, &ctx.province(pi, qi), p, hdr.id)?;
     let distinct = distinct_provinces(&sites[..n]);
     let other_keys: Vec<(i16, i16)> = distinct.into_iter().filter(|pq| *pq != (sp, sq)).collect();
     if other_keys.len() != others.len() {
         return Err(FrontierError::TooManyAccounts.into());
     }
     for (ai, (pp, qq)) in others.iter().zip(&other_keys) {
-        present_at(
-            ai,
-            &ctx.province(*pp as i32, *qq as i32),
-            p,
-            AccountKind::Province,
-            hdr.id,
-        )?;
+        present_province(ai, &ctx.province(*pp as i32, *qq as i32), p, hdr.id)?;
     }
     present_at(
         shard,
@@ -1701,6 +1691,11 @@ pub fn settle_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     {
         let mut cd = citizen.try_borrow_mut_data()?;
         if won {
+            // The slot is empty (Join, FileTicket and FileOutpost choose it;
+            // a capture's reservation is not a free slot): review CQ2-A.
+            if slot_gen(&cd, slot.max(1))? != C2::EMPTY_GEN {
+                return Err(FrontierError::TicketState.into());
+            }
             write_holding_ref(&mut cd, slot.max(1), sp, sq, site, gen)?;
             bump_holdings_n(&mut cd, 1)?;
         }
@@ -1960,13 +1955,7 @@ pub fn release_dormant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     if has_transit {
         return Err(FrontierError::NotDormant.into());
     }
-    present_at(
-        province,
-        &ctx.province(pi, qi),
-        p,
-        AccountKind::Province,
-        hdr.id,
-    )?;
+    present_province(province, &ctx.province(pi, qi), p, hdr.id)?;
     expect_key(citizen, &owner)?;
     prologue::present(citizen, p, AccountKind::Citizen, hdr.id)?;
     let (faction, shard_i, my_tag) = {
