@@ -105,7 +105,7 @@ cd permutation-server/web && python3 -m http.server 8000 --bind 127.0.0.1
 # open http://127.0.0.1:8000/frontier/practice.html   (JA or EN follows your browser)
 ```
 
-The full local stack (the game on a local test chain; `up` stays in the foreground, so use two terminals), the scripted browser run, the exit-season recipe, the toolchain list and the test commands are in **[docs/RUNNING.md](docs/RUNNING.md)**. Open `/frontier/frontier/`, not `/`: the bare address still lands on an older page. **Known issue:** the herald does not serve the painted art (its file handler rejects the `@` in `art/*/@1x/`), so the map on the herald URL is plainer than the screenshot above; the one-character fix is described in [RUNNING §2](docs/RUNNING.md#2-the-full-local-stack-the-game-on-a-local-test-chain). **Videos:** game and M1 exit season [VIDEO LINK pending]; AI citizens (council, Call, pact record) [VIDEO LINK pending], recorded only once AI citizens are built.
+The full local stack (the game on a local test chain; `up` stays in the foreground, so use two terminals), the scripted browser run, the exit-season recipe, the toolchain list and the test commands are in **[docs/RUNNING.md](docs/RUNNING.md)**. Open `/frontier/frontier/`, not `/`: the bare address still lands on an older page. **Videos:** game and M1 exit season [VIDEO LINK pending]; AI citizens (council, Call, pact record) [VIDEO LINK pending], recorded only once AI citizens are built.
 
 ## 6. Repository map
 

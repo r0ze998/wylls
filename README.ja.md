@@ -105,7 +105,7 @@ cd permutation-server/web && python3 -m http.server 8000 --bind 127.0.0.1
 # open http://127.0.0.1:8000/frontier/practice.html   (JA or EN follows your browser)
 ```
 
-ローカルのフルスタック（ローカルの試験用チェーンで動くゲーム本体。`up` は前面で動き続けるので、ターミナルを2つ使います）、ブラウザの自動操作、終了シーズンの手順、ツールチェーン、テストのコマンドは **[docs/RUNNING.md](docs/RUNNING.md)**（英語）にあります。開くのは `/` ではなく `/frontier/frontier/` です。ルートのアドレスは今も古いページに着きます。**既知の問題：** ヘラルドは描き込みアート（絵）を配信しません（ファイルの配信処理が `art/*/@1x/` の `@` を拒否します）。そのため、ヘラルドの URL で見る地図は、上のスクリーンショットより素っ気ない見た目になります。1文字で直せる修正は [RUNNING §2](docs/RUNNING.md#2-the-full-local-stack-the-game-on-a-local-test-chain) に書いてあります。**動画：** ゲームと M1 終了シーズン [VIDEO LINK pending]。AI市民（評議会、号令、協定の記録）[VIDEO LINK pending]。AI市民を作ってから録画します。
+ローカルのフルスタック（ローカルの試験用チェーンで動くゲーム本体。`up` は前面で動き続けるので、ターミナルを2つ使います）、ブラウザの自動操作、終了シーズンの手順、ツールチェーン、テストのコマンドは **[docs/RUNNING.md](docs/RUNNING.md)**（英語）にあります。開くのは `/` ではなく `/frontier/frontier/` です。ルートのアドレスは今も古いページに着きます。**動画：** ゲームと M1 終了シーズン [VIDEO LINK pending]。AI市民（評議会、号令、協定の記録）[VIDEO LINK pending]。AI市民を作ってから録画します。
 
 ## 6. リポジトリの地図
 
