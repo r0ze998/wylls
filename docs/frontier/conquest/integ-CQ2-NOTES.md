@@ -95,7 +95,7 @@ Run from `$R` = this worktree on `frontier/cq-integ`, `PATH` with the Solana too
 | 11 | `mapmove-gate … --controls` (`S07`) | 0 | rules mc PASS, every row 5/5 seeds; **both controls FAIL as they must** (`m1 lone`, `mc-weightmap`); 10h occupations ½ × p10 19.75 (floor 10), liberations 12.95 (floor 1) |
 | 12 | size stress 2:1, human mix and cq (`S08`, `S09`) | 0, 0 | 10/10 and 9/10 seeds ≤ 22% (need 8): PASS |
 | 13 | reported rows: `--bot-profile m1`, `--keep-aggr 0.25 / 0.5 / 1.0`, 3:1, `campaign:0,lone:1-5` coordination, `--forward` (`S10`…`S14`) | 0 | coordination (OD-16) 10/10 PASS; 3:1 leader end share p50 0.219; forward leader 0.178; the others as at the close |
-| 14 | `doctrine-gate --set kernel --rules mc,bannerdom --controls --report-only` (`S15`) | @@S15@@ | report-only |
+| 14 | `doctrine-gate --set kernel --rules mc,bannerdom --controls --report-only` (`S15`) | 0 | report-only: verdict PASS, max |Δ index| 0.111%; draft (−3.101%), Knight (−1.457%), A boost (+0.498%) rejected; 978 s |
 | 15 | `(cd frontier-node && fmt && clippy --workspace --all-targets -D warnings && cargo test --locked --workspace)` (`G01`, `N07`, final fmt/clippy `G01`) | 0 | fmt and clippy clean; **529** passed, 0 failed, 11 ignored (528 s, `--no-fail-fast`). The first run (`N07-first`) failed one test, `fclient abi::twin_tests::instructions_are_frontier_abis`: its v2 table still had FileOutpost 24,000 and FoldMarch 20,000; fixed |
 | 16 | `(cd permutation-gateway && npm test)` (`N08`; no `npm ci`: the existing `node_modules`) | 0 | 573 ok, 0 not ok |
 | 17 | `cargo check --locked -p permutation-frontier` | 0 | |
