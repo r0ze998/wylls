@@ -161,6 +161,13 @@ pub struct Shared<H, R, D> {
     pub clock: ClockSource,
     pub report: Mutex<Report>,
     cache: Mutex<Cache>,
+    // AI hook
+    /// The AI citizens' brain state (`ai/`), set by `ai::install`.
+    pub ai: Option<std::sync::Arc<crate::ai::AiHook>>,
+    /// Called with every recorded outcome (the brain keeps its own bot's
+    /// signatures for `POST /v1/outcome`, contract §7.2).
+    pub outcome_sink: Option<std::sync::Arc<dyn Fn(&Outcome) + Send + Sync>>,
+    // AI hook end
 }
 
 impl<H: HeraldPort, R: RelayPort, D: DirectPort> Shared<H, R, D> {
@@ -175,6 +182,10 @@ impl<H: HeraldPort, R: RelayPort, D: DirectPort> Shared<H, R, D> {
             clock,
             report: Mutex::new(Report::default()),
             cache: Mutex::new(Cache::default()),
+            // AI hook
+            ai: None,
+            outcome_sink: None,
+            // AI hook end
         }
     }
 
@@ -233,6 +244,11 @@ impl<H: HeraldPort, R: RelayPort, D: DirectPort> Shared<H, R, D> {
 
 impl<H, R, D> Shared<H, R, D> {
     pub fn record(&self, o: Outcome) {
+        // AI hook
+        if let Some(f) = &self.outcome_sink {
+            f(&o);
+        }
+        // AI hook end
         self.report.lock().expect("report").record(o);
     }
 
@@ -272,6 +288,10 @@ pub struct Bot {
     /// The refusal code of the last direct transaction (W6T-3: a Reveal's
     /// last refusal, for the report's unrevealed marches).
     last_direct_code: Option<String>,
+    // AI hook
+    /// The AI citizen's brain state (`on` only for slots `kind:"ai"`).
+    pub ai: crate::ai::BotAi,
+    // AI hook end
 }
 
 /// Session retries after a nudge before the bot gives the session up.
@@ -313,8 +333,24 @@ impl Bot {
             nudged: false,
             nudge_retries: 0,
             last_direct_code: None,
+            // AI hook
+            ai: Default::default(),
+            // AI hook end
         }
     }
+
+    // AI hook
+    /// The relay quota this bot may still spend this step (the brain's
+    /// quota rules, `ai/brain.rs`).
+    pub fn ai_quota_left(&self, obs: &Observation) -> u32 {
+        self.quota_left(obs)
+    }
+
+    /// Forgets the sponsored sends counted so far (a step's start).
+    pub fn ai_spent_reset(&mut self) {
+        self.spent = 0;
+    }
+    // AI hook end
 
     /// Reads what one decision needs (the herald only).
     pub async fn observe<H: HeraldPort, R: RelayPort, D: DirectPort>(
@@ -472,6 +508,11 @@ impl Bot {
             };
             policy::decide(&obs, &cx)
         };
+        // AI hook
+        if self.ai.on && sh.ai.is_some() {
+            return crate::ai::brain::step_ai(self, sh, obs, intents, session).await;
+        }
+        // AI hook end
         // The herald's quota figure is fresh for this step; count what this
         // step spends on top of it.
         self.spent = 0;

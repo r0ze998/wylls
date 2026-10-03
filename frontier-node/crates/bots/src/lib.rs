@@ -29,3 +29,6 @@ pub mod ports;
 pub mod report;
 pub mod seal;
 pub mod txb;
+// AI hook
+pub mod ai;
+// AI hook end
