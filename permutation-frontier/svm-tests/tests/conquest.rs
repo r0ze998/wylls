@@ -15,7 +15,6 @@ mod common;
 
 use frontier_abi::conquest_model::{self as cm, Record};
 use frontier_abi::layout::header::{EVENT_HEAD, EVENT_SEQ};
-use frontier_abi::v2::ix as ix2;
 use frontier_abi::v2::layout::player::{citizen as C, holding as H};
 use frontier_abi::v2::layout::province::{conquest as CR, province as P, site as SM};
 use frontier_abi::v2::layout::world::{join_shard as JS, march_state as MS};
@@ -29,7 +28,7 @@ use permutation_frontier_svm_tests::chain::{
 };
 use permutation_frontier_svm_tests::ix::conquest::{self as qix, Capture, Declare};
 use permutation_frontier_svm_tests::records;
-use permutation_frontier_svm_tests::world::conquest::{assert_cq, bit, siege_record, site_report};
+use permutation_frontier_svm_tests::world::conquest::{assert_cq, bit, site_report};
 use permutation_frontier_svm_tests::world::holding::{
     entry_at, entry_of, i64_at, read_kholding, u32_at, u64_at, Estate,
 };
@@ -216,6 +215,7 @@ impl R2 {
     fn u8(&self, o: usize) -> u8 {
         self.payload[o]
     }
+    #[allow(dead_code)]
     fn u16(&self, o: usize) -> u16 {
         u16::from_le_bytes(self.payload[o..o + 2].try_into().unwrap())
     }
@@ -2699,6 +2699,7 @@ fn random_report(rng: &mut Rng, attacker: u8, owner: u8, p_hold: u64, p_def: u64
 /// through the shared step (what ResolveFromInputs and SkipQuiet run) and
 /// replayed natively with `SiegeV3::advance`. Returns the final native
 /// status and the bells counted.
+#[allow(clippy::too_many_arguments)]
 fn replay_siege(
     pd: &mut [u8],
     s: usize,
@@ -2864,7 +2865,6 @@ fn p_cq_p1_siege_progress_is_the_kernels_over_1000_random_cases() {
             bell: b0,
             actor: 77,
             src: 5,
-            ..Record::ZERO
         };
         r.write(&mut pd, s).unwrap();
         let (p_hold, p_def) = [(99, 0), (97, 2), (95, 10), (90, 30)][rng.below(4) as usize];
@@ -3304,6 +3304,7 @@ struct Walk {
     y: Estate,
     /// The three Provinces and the sites.
     targets: [(Address, u8); 3],
+    #[allow(dead_code)]
     fc: (i16, i16),
     /// The bell all three Provinces are resolved through, plus one.
     b: u32,
@@ -3370,7 +3371,7 @@ impl Walk {
     /// One bell on the three Provinces, each site's report random.
     fn bell(&mut self) {
         let b = self.b;
-        for (p, _) in self.targets.clone() {
+        for (p, _) in self.targets {
             let pd = self.k.c.data(&p);
             let mut rep = cm::BellReport::default();
             for s in 0..P::SITES_N {
@@ -3665,7 +3666,7 @@ impl Walk {
             }
             self.invariants(&format!("drain round {round}"));
         }
-        for (t, (p, s)) in self.targets.clone().into_iter().enumerate() {
+        for (t, (p, s)) in self.targets.into_iter().enumerate() {
             let pd = self.k.c.data(&p);
             let r = Record::read(&pd, s as usize).unwrap();
             assert!(
@@ -3738,7 +3739,7 @@ fn p_cq_p6_p12_every_record_terminates_and_the_site_invariants_hold() {
         }
         w.drain();
         // What the walk saw at the end, for the coverage line.
-        for (p, s) in w.targets.clone() {
+        for (p, s) in w.targets {
             let r = Record::read(&w.k.c.data(&p), s as usize).unwrap();
             seen[3 + (r.kind.min(2)) as usize] += 1;
         }
@@ -3788,6 +3789,7 @@ fn p_cq_p10_respite_bars_only_the_occupier_and_only_when_earned() {
     let tenure = MC_LOCAL_7D.cq.occupation_tenure_bells as u32;
     let respite = MC_LOCAL_7D.cq.respite_bells as u32;
     // (name, bells of reports (holders, defender) after the start, respite?)
+    #[allow(clippy::type_complexity)]
     let ends: [(&str, Vec<(u8, bool)>, bool); 4] = [
         (
             "expiry",
@@ -4244,7 +4246,7 @@ fn p_cq_p13_every_garrison_is_within_the_cap_and_the_clash_input_validates() {
     let cap = permutation_rules::frontier::host::MAX_HOST_TROOPS / 1_000;
     let mut takes = 0;
     for seed in 0..12u64 {
-        let mut rng = Rng::new(0xFACE + seed);
+        let _rng = Rng::new(0xFACE + seed);
         let guard = [0u32, 100, 5_000, 30_000][(seed % 4) as usize];
         let mut a = province(guard);
         let k0 = qm::read_keep(&a).unwrap().unwrap();
