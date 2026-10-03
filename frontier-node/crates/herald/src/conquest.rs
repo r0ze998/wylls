@@ -2083,9 +2083,10 @@ fn final_file(cq: &mut Cq, f: &mut Fold, si: Option<&SeasonInfo>) {
 
 // ------------------------------------------------------------------ /h/me
 
-/// `/h/me` additions for an MC season: the wallet's alerts and the sieges
-/// on its holdings or by it.
-pub fn me_additions(f: &Fold, wallet: &[u8; 32]) -> Option<(Value, Value)> {
+/// `/h/me` additions for an MC season: the wallet's alerts, the sieges
+/// on its holdings or by it, and its own `players.json` row (§8.4: "the
+/// caller's row via `/h/me`"; `null` before it has one).
+pub fn me_additions(f: &Fold, wallet: &[u8; 32]) -> Option<(Value, Value, Value)> {
     if !f.cq.on {
         return None;
     }
@@ -2112,7 +2113,13 @@ pub fn me_additions(f: &Fold, wallet: &[u8; 32]) -> Option<(Value, Value)> {
             }));
         }
     }
-    Some((alerts, Value::Array(sieges)))
+    let player = tag
+        .and_then(|t| Some((t, f.cq.players.get(&t)?, f.cq.faction_of_tag(t)?)))
+        .map_or(Value::Null, |(t, c, fac)| {
+            json!({"tag": tag_hex(t), "faction": fac, "keepsTaken": c[0], "keepBells": c[1],
+                "siegesWon": c[2], "captures": c[3], "liberations": c[4]})
+        });
+    Some((alerts, Value::Array(sieges), player))
 }
 
 // ------------------------------------------------------------------ checkpoint

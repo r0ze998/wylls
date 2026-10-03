@@ -380,7 +380,7 @@ fn cq_m1_season_is_untouched() {
     }));
     let me =
         herald_fold::views::me_json(&f, &herald_fold::fixture::wallet(), serde_json::Value::Null);
-    assert!(me.get("alerts").is_none() && me.get("sieges").is_none());
+    assert!(me.get("alerts").is_none() && me.get("sieges").is_none() && me.get("player").is_none());
     let p = herald_fold::fixture::program().to_bytes();
     assert_eq!(
         herald_fold::checkpoint::encode_full(&p, herald_fold::fixture::SEASON_ID, &f.st, None),
@@ -417,5 +417,13 @@ fn cq_me_alerts() {
         "{k1:?}"
     );
     assert_eq!(m1["sieges"].as_array().unwrap().len(), 0);
+    // the keep taker's own players row (wallet 2)
+    let m2 = herald_fold::views::me_json(&f, &cqfixture::wallet(2), serde_json::Value::Null);
+    assert!(
+        m2["player"]["keepsTaken"].as_u64().unwrap() >= 3,
+        "{}",
+        m2["player"]
+    );
+    assert!(m2["player"]["keepBells"].as_u64().unwrap() > 0);
     let _ = std::fs::remove_dir_all(&d);
 }

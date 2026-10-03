@@ -193,14 +193,15 @@ pub fn me_json(f: &Fold, wallet: &Address, quota: Value) -> Value {
         "quota": quota,
         "latestSlot": f.st.last_slot,
     });
-    // MC (CQ2-E, §8.4): `alerts[]` and `sieges[]`; an M1 season's answer is
-    // unchanged.
-    if let (Some((alerts, sieges)), Some(o)) = (
+    // MC (CQ2-E, §8.4): `alerts[]`, `sieges[]` and the caller's players
+    // row; an M1 season's answer is unchanged.
+    if let (Some((alerts, sieges, player)), Some(o)) = (
         crate::conquest::me_additions(f, &wallet.to_bytes()),
         v.as_object_mut(),
     ) {
         o.insert("alerts".into(), alerts);
         o.insert("sieges".into(), sieges);
+        o.insert("player".into(), player);
     }
     v
 }
