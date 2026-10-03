@@ -3,6 +3,7 @@
 //!
 //! | module | what |
 //! |---|---|
+//! | [`campaign`] | MC §8.6: the faction campaign planner, a field-equal port of the simulator's (CQ2-F) |
 //! | [`profile`] | `Arch`/`Profile` copied from `frontier-sim/src/model.rs` (equality test, I-36); the mix and roster |
 //! | [`persona`] | the thirteen adversarial personas and their expected outcomes |
 //! | [`rng`] | the simulator's SplitMix64 |
@@ -15,6 +16,7 @@
 //!
 //! The runner, transports, sealing and journal are `frontier-bots`.
 
+pub mod campaign;
 pub mod fixture;
 pub mod keys;
 pub mod obs;
