@@ -161,11 +161,12 @@ fn declare_free_city(w: &World, by: &Estate, pq: (i16, i16), site: u8, entry: u8
     )
 }
 
-/// Sends an ABI v2 instruction at the ladder's CU and the v2 `L(kind)`.
+/// Sends an ABI v2 instruction at the ladder's CU and the v2 `L(kind)` **at
+/// the deployed programdata length** (what a client requests; the budgets
+/// table's placeholder length is regenerated at Gate CQ4, so a `.so` that
+/// outgrew it must not break the functional tests).
 fn mc_send(c: &mut Chain, kind: I2, ix: Instruction, signers: &[&Keypair]) -> SendResult {
-    let p = Profile::NONE
-        .with_cu(frontier_abi::budgets::CU_LADDER_MAX)
-        .with_loaded(frontier_abi::v2::budgets::loaded_limit(kind));
+    let p = Profile::ladder(kind, c.programdata_len());
     c.send_with(&p, &[ix], signers)
 }
 
@@ -2072,23 +2073,21 @@ fn g13_cq_retire_host_refusals() {
 /// The v2 ceilings of an MC instruction (§5.4): the CU gate, the heap gate,
 /// the tx bytes (§5.4's value or the worst-case estimate), 64 locks, the v2
 /// `L(kind)`.
-fn cq_ceilings(ix: I2) -> permutation_frontier_svm_tests::budget::Ceilings {
+fn cq_ceilings(ix: I2, programdata_len: u32) -> permutation_frontier_svm_tests::budget::Ceilings {
     use frontier_abi::v2::budgets as b2;
     permutation_frontier_svm_tests::budget::Ceilings {
         cu: b2::budget(ix).cu_budget,
         heap: frontier_abi::budgets::HEAP_GATE,
         tx_bytes: b2::tx_ceiling(ix),
         locks: frontier_abi::budgets::LOCKS_MAX,
-        loaded: b2::loaded_limit(ix),
+        loaded: permutation_frontier_svm_tests::chain::loaded_limit(ix, programdata_len),
     }
 }
 
 /// Measures `ix` on `c` (ladder CU, v2 `L(kind)`) and asserts §5.4's
 /// ceilings: CU on the plain builds, the heap on the trace build.
 fn cq_measured(c: &Chain, kind: I2, label: &str, ix: Instruction, signers: &[&Keypair]) -> u64 {
-    let p = Profile::NONE
-        .with_cu(frontier_abi::budgets::CU_LADDER_MAX)
-        .with_loaded(frontier_abi::v2::budgets::loaded_limit(kind));
+    let p = Profile::ladder(kind, c.programdata_len());
     let need = c.measure_with(&p, &[ix], signers).unwrap_or_else(|f| {
         panic!(
             "{label}: refused while measuring: {:?}\n{}",
@@ -2096,7 +2095,11 @@ fn cq_measured(c: &Chain, kind: I2, label: &str, ix: Instruction, signers: &[&Ke
             f.logs.join("\n")
         )
     });
-    permutation_frontier_svm_tests::budget::assert_within(label, &need, &cq_ceilings(kind));
+    permutation_frontier_svm_tests::budget::assert_within(
+        label,
+        &need,
+        &cq_ceilings(kind, c.programdata_len()),
+    );
     need.cu
 }
 
@@ -2383,9 +2386,7 @@ const FOLD_CU_PROPOSED: u32 = 36_000;
 fn g01_cq_fold_worst() {
     for build in g1_builds() {
         let (mut k, mn, keeper) = fold_worst_world(build);
-        let p = Profile::NONE
-            .with_cu(frontier_abi::budgets::CU_LADDER_MAX)
-            .with_loaded(frontier_abi::v2::budgets::loaded_limit(I2::FoldMarch));
+        let p = Profile::ladder(I2::FoldMarch, k.c.programdata_len());
         for count in 1..=5u8 {
             let n =
                 k.c.measure_with(&p, &[fold_ix(&k.w, &keeper, mn, 2, count)], &[&keeper])
@@ -2396,7 +2397,7 @@ fn g01_cq_fold_worst() {
         let need =
             k.c.measure_with(&p, &[fold_ix(&k.w, &keeper, mn, 2, 6)], &[&keeper])
                 .expect("fold");
-        let mut ceil = cq_ceilings(I2::FoldMarch);
+        let mut ceil = cq_ceilings(I2::FoldMarch, k.c.programdata_len());
         ceil.cu = FOLD_CU_PROPOSED;
         permutation_frontier_svm_tests::budget::assert_within(
             &format!("FoldMarch 7 members, init, 6 hours, 1 lost ({build:?}) [proposed 36,000]"),
