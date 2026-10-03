@@ -401,9 +401,40 @@ pub fn expect_lands(r: SendResult, what: &str) -> Landed {
     }
 }
 
-/// Asserts that the program itself refused with `e` (a stable §5.4 code).
+/// A program error code of either ABI: M1's `FrontierError` (1–61, 99) or
+/// MC's `CqError` (62–78; CQ2-A dependency request, this file is W2-B's).
+pub trait AnyCode: Copy {
+    fn code(self) -> u32;
+    fn name(self) -> &'static str;
+}
+
+impl AnyCode for FrontierError {
+    fn code(self) -> u32 {
+        FrontierError::code(self)
+    }
+    fn name(self) -> &'static str {
+        FrontierError::name(self)
+    }
+}
+
+impl AnyCode for frontier_abi::v2::CqError {
+    fn code(self) -> u32 {
+        frontier_abi::v2::CqError::code(self)
+    }
+    fn name(self) -> &'static str {
+        frontier_abi::v2::CqError::name(self)
+    }
+}
+
+/// The name of any v2 program code (M1's or MC's).
+fn code_name(c: u32) -> Option<&'static str> {
+    frontier_abi::v2::Code::from_code(c).map(|x| x.name())
+}
+
+/// Asserts that the program itself refused with `e` (a stable §5.4 code,
+/// or an MC code of §5.3).
 #[track_caller]
-pub fn assert_code(r: SendResult, e: FrontierError) -> Fail {
+pub fn assert_code<C: AnyCode>(r: SendResult, e: C) -> Fail {
     let program = program_id();
     match r {
         Ok(l) => panic!(
@@ -421,7 +452,7 @@ pub fn assert_code(r: SendResult, e: FrontierError) -> Fail {
                 e.code(),
                 f.err,
                 f.code,
-                f.code.and_then(FrontierError::from_code).map(|x| x.name()),
+                f.code.and_then(code_name),
                 f.logs.join("\n")
             );
             let line = format!(
