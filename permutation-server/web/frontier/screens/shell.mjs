@@ -17,7 +17,7 @@ import { factionName, failureText } from '../fi18n.mjs';
 import { countdown } from '../clock.mjs';
 
 export const TAB_IDS = Object.freeze(['map', 'holding', 'hosts', 'marches', 'more']);
-const TAB_TEXT = { map: () => L`地図`, holding: () => L`拠点`, hosts: () => L`軍勢`, marches: () => L`進軍`, more: () => L`その他` };
+const TAB_TEXT = { map: () => L`地図`, holding: () => L`村`, hosts: () => L`軍勢`, marches: () => L`進軍`, more: () => L`その他` };
 export const tabLabel = id => TAB_TEXT[id]?.() ?? id;
 
 /** Lamports with thousands separators ("14,441 lamports"). */

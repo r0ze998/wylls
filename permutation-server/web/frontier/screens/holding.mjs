@@ -83,21 +83,21 @@ const PANELS = [
 
 export function render(FS) {
   const m = holdingModel(FS);
-  if (!m) return html`<p>${L`まだ拠点がありません。`}</p>`;
+  if (!m) return html`<p>${L`まだ村がありません。`}</p>`;
   const { holding: h, facts: f } = m;
   const state = HOLDING_STATES[f.state];
   const units = UNIT_ORDER.map((u, i) => ({ u, i })).filter(x => x.i !== SETTLER);
   const full = m.stores.filter(s => s.cap > 0 && s.value >= s.cap);
   const queueFull = f.queue.filter(q => q.doneIn > 0).length >= 4;
   const cards = buildCards(h, m.stores);
-  return html`<section aria-labelledby="holding-title" class="holding"><h3 id="holding-title">${holdingName(h)} <span class="muted">${L`拠点 州 ${h.p},${h.q} 区画 ${h.site + 1}`}</span></h3>
+  return html`<section aria-labelledby="holding-title" class="holding"><h3 id="holding-title">${holdingName(h)} <span class="muted">${L`村 州 ${h.p},${h.q} 区画 ${h.site + 1}`}</span></h3>
     <dl class="facts">
       ${row(L`段階`, html`${TIERS[h.tier] ?? h.tier} · ${state}${termButton('tier')}`)}
       ${f.state === 'provisional' ? row(L`確定`, L`同じ鐘の入植希望がすべて決まってから`) : ''}
       ${f.shieldLeft > 0 ? row(L`保護`, html`${inTime(f.shieldLeft)}${termButton('shield')}`) : ''}
       ${row(L`休眠まで`, html`${f.dormantIn > 0 ? inTime(f.dormantIn) : L`休眠中`}${termButton('dormant')}`)}
     </dl>
-    <nav class="hp-nav" aria-label="${L`拠点の操作`}">${PANELS.map(x => html`<button type="button" class="hp-chip" data-act="hp-jump" data-id="${x.id}"><span aria-hidden="true">${x.glyph}</span>${x.text()}</button>`)}</nav>
+    <nav class="hp-nav" aria-label="${L`村の操作`}">${PANELS.map(x => html`<button type="button" class="hp-chip" data-act="hp-jump" data-id="${x.id}"><span aria-hidden="true">${x.glyph}</span>${x.text()}</button>`)}</nav>
 
     <section class="hpanel" id="hp-harvest" aria-labelledby="hp-harvest-h"><h4 id="hp-harvest-h">❦ ${L`資源`}</h4>
     <table class="stores"><thead><tr><th scope="col">${L`資源`}</th><th scope="col">${L`量`}</th><th scope="col">${L`毎時`}</th><th scope="col">${L`上限`}</th></tr></thead>

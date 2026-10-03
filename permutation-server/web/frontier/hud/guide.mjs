@@ -53,8 +53,8 @@ export function guideTarget(FS) {
 
 /** The guide card's button for a target. */
 export function goText(t) {
-  return { march: t.host ? L`この野営地へ進軍を準備する` : L`野営地を地図で見る`, build: L`建設のパネルへ`, scout: L`拠点と軍勢を見る` }[t.kind] ?? '';
+  return { march: t.host ? L`この野営地へ進軍を準備する` : L`野営地を地図で見る`, build: L`建設のパネルへ`, scout: L`村と軍勢を見る` }[t.kind] ?? '';
 }
 
 /** The map's label at the target. */
-export const guideLabel = t => ({ march: L`ガイド：蛮族の野営地`, build: L`ガイド：あなたの拠点`, scout: L`ガイド：ここから探索` }[t.kind] ?? L`ガイド`);
+export const guideLabel = t => ({ march: L`ガイド：蛮族の野営地`, build: L`ガイド：あなたの村`, scout: L`ガイド：ここから探索` }[t.kind] ?? L`ガイド`);

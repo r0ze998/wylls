@@ -14,9 +14,9 @@ export function lineOf(r) {
     case 'RING_OPEN': return L`第${r.d}輪がひらかれた`;
     case 'PROVINCE_OPEN': return L`州 ${r.p},${r.q} がひらかれた（区画 ${r.site_count}）`;
     case 'JOIN': return L`新しい市民が加わった`;
-    case 'SETTLE': return { fresh: () => L`州 ${r.p},${r.q} の区画 ${r.site + 1} に入植した`, displace: () => L`州 ${r.p},${r.q} の区画 ${r.site + 1} で仮の拠点が押し出された`,
+    case 'SETTLE': return { fresh: () => L`州 ${r.p},${r.q} の区画 ${r.site + 1} に入植した`, displace: () => L`州 ${r.p},${r.q} の区画 ${r.site + 1} で仮の村が押し出された`,
       taken: () => null, expired: () => L`入植希望が期限切れになった` }[SETTLE_OUTCOMES[r.outcome]]?.() ?? null;
-    case 'HOLDING_FINAL': return L`州 ${r.p},${r.q} の区画 ${r.site + 1} の拠点が確定した`;
+    case 'HOLDING_FINAL': return L`州 ${r.p},${r.q} の区画 ${r.site + 1} の村が確定した`;
     case 'DEPART': return L`州 ${r.origin_p},${r.origin_q} から軍勢が出発した（第${fmtNum(r.arrive_bell)}鐘に到着）`;
     case 'REVEAL': return L`州 ${r.p},${r.q} の第${fmtNum(r.arrive)}鐘の到着が開封された`;
     case 'CLASH': return L`州 ${r.p},${r.q} で第${fmtNum(r.bell)}鐘の衝突が決着した`;

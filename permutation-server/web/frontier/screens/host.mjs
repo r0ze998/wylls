@@ -9,6 +9,7 @@ import { L, fmtNum } from '../../lang.mjs';
 import { UNITS, errorText } from '../fi18n.mjs';
 import { hostsIn, UNIT_ORDER, SCOUT, actionBlocks } from '../fland.mjs';
 import { RULES, DEPART_STAMINA } from '../fmarch.mjs';
+import { miniCardUrl, MINI_KINDS } from '../people/minis.mjs';
 
 /** Every host of the viewer's first holding in the provinces the page holds (home and destinations). */
 export function hostRows(FS) {
@@ -29,11 +30,13 @@ export const lockedText = () => L`この軍勢は進軍の精算が済むまで�
 
 export function render(FS) {
   const rows = hostRows(FS);
-  if (!rows.length) return html`<p>${L`軍勢はいません。拠点で兵を訓練し、軍勢を編成してください。`}</p>`;
+  if (!rows.length) return html`<p>${L`軍勢はいません。村で兵を訓練し、軍勢を編成してください。`}</p>`;
   return html`<section aria-labelledby="hosts-title"><h3 id="hosts-title">${L`軍勢`}</h3><ul class="list hosts">${rows.map(r => {
     const blocks = actionBlocks('Depart', { holding: activeHolding(FS), province: r.province, nowBell: FS.nowBell ?? 0, now: FS.chain?.now() ?? 0, host: r });
     const cool = (FS.nowBell ?? 0) < r.readyBell;
-    return html`<li class="host${r.inTransit ? ' locked' : ''}" data-unit="${r.unit}">
+    const f = Number.isInteger(FS.citizen?.faction) ? FS.citizen.faction : 0;
+    return html`<li class="host has-card${r.inTransit ? ' locked' : ''}" data-unit="${r.unit}">
+      <img class="unit-card f${f}" src="${miniCardUrl(f, MINI_KINDS[r.unit])}" alt="" width="60" height="75" loading="lazy" decoding="async">
       <strong>${UNITS[UNIT_ORDER[r.unit]]} ${fmtNum(r.troops)}</strong>
       <span>${L`州 ${r.p},${r.q} · ${STATE_TEXT[r.state]?.() ?? ''}`}</span>
       <span>${L`体力 ${r.stamina}/${RULES.STAMINA_CAP}`}${cool ? L`（第${fmtNum(r.readyBell)}鐘まで休息）` : ''}</span>

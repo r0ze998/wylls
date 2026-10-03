@@ -302,7 +302,8 @@ unit on the map is 軍勢, a host), so the merged dictionary stays consistent.
 | 扇区（本拠の扇区） | wedge (home wedge) | |
 | 辺境区 | March | the 7-province district; capital M |
 | 進軍 | march | the movement; lower case |
-| 拠点（村→町→都市→城塞） | holding (Hamlet → Town → City → Stronghold) | |
+| 村（段階：集落→町→都市→城塞） | village (tiers: Hamlet → Town → City → Stronghold) | owner decision W11 (2026-10-03): formerly 拠点 / holding; the lowest tier is 集落 so that 村 means the village itself |
+| 国（六つの国） | nation (the six nations) | owner decision W11: formerly 勢力 / 陣営 / faction in the Frontier's player-facing text; code identifiers keep `faction` |
 | 軍勢 | host | |
 | 守備隊 | garrison | |
 | 封（時限式の封） | seal (timelock seal) | |

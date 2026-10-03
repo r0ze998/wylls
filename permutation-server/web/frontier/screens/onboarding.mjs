@@ -13,7 +13,7 @@ import { guideLevel, guideTarget, goText } from '../hud/guide.mjs';
 
 const TITLE = {
   welcome: () => L`ようこそ`,
-  join: () => L`勢力と拠点`,
+  join: () => L`国と村`,
   build: () => L`最初の建設`,
   scout: () => L`最初の斥候`,
   practice: () => L`練習の衝突`,
@@ -22,18 +22,18 @@ const TITLE = {
   done: () => L`完了`,
 };
 const DO = {
-  welcome: () => L`五つの言葉だけ覚えましょう：拠点（あなたの土地）、軍勢（動かす兵）、鐘（10分ごとの区切り）、進軍（封をした移動）、探索（斥候で周りを調べる）。`,
+  welcome: () => L`五つの言葉だけ覚えましょう：村（あなたの土地）、軍勢（動かす兵）、鐘（10分ごとの区切り）、進軍（封をした移動）、探索（斥候で周りを調べる）。`,
   // stage-neutral (a returning or refugee player too), following the automatic ticket (review finding 9)
   join: FS => {
     const stage = FS.land?.stage ?? 'none', st = FS.autoTicket?.state;
-    if (stage === 'none') return L`地図のタブで六つの勢力から一つを選び、ゲーム内の鍵を作って参加します。選ぶのは勢力だけです。`;
-    if (stage === 'ticket' || st === 'sent') return L`入植希望を自動で出しました。次の鐘（約11〜21分後）に拠点が決まります。待つあいだに練習で戦ってみましょう。`;
+    if (stage === 'none') return L`地図のタブで六つの国から一つを選び、ゲーム内の鍵を作って参加します。選ぶのは国だけです。`;
+    if (stage === 'ticket' || st === 'sent') return L`入植希望を自動で出しました。次の鐘（約11〜21分後）に村が決まります。待つあいだに練習で戦ってみましょう。`;
     if (st === 'nofree') return L`空いた区画が見つかりません。鐘ごとに自動で探し直します。`;
     if (st === 'room') return L`この鐘の入植希望の枠がいっぱいです。次の鐘に自動で出します。`;
     if (st === 'failed') return L`入植希望を出せませんでした。次の鐘に自動でもう一度出します（地図のタブからすぐ出し直せます）。`;
-    return L`空いた区画に、拠点の入植希望を自動で出しています。`;
+    return L`空いた区画に、村の入植希望を自動で出しています。`;
   },
-  build: () => L`拠点のタブで農場と木材所を建てます。`,
+  build: () => L`村のタブで農場と木材所を建てます。`,
   scout: () => L`斥候を訓練して軍勢に編成し、隣の2マスを探索します。`,
   practice: () => L`練習モードで蛮族の野営地を襲ってみます。チェーンには何も送りません。`,
   march: () => L`届く範囲の蛮族の野営地へ、封をした進軍を送ります。行き先と構えは到着の鐘まであなたにしか見えません。チップはキーパーへの報酬で、このタブを閉じてもキーパーが開封します。`,
@@ -42,7 +42,7 @@ const DO = {
 };
 const GO = {
   join: () => html`<button type="button" class="btn" data-act="tab" data-tab="map">${L`地図を開く`}</button>`,
-  build: () => html`<button type="button" class="btn" data-act="tab" data-tab="holding">${L`拠点を開く`}</button>`,
+  build: () => html`<button type="button" class="btn" data-act="tab" data-tab="holding">${L`村を開く`}</button>`,
   scout: () => html`<button type="button" class="btn" data-act="tab" data-tab="hosts">${L`軍勢を開く`}</button>`,
   practice: () => html`<button type="button" class="btn" data-act="practice-open">${L`練習を開く`}</button>`,
   march: () => html`<button type="button" class="btn" data-act="tab" data-tab="marches">${L`進軍を開く`}</button>`,

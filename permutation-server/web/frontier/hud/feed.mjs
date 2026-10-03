@@ -68,12 +68,12 @@ export function diffFeed(prev, next) {
     if (prev.clashes.has(c)) continue;
     const [p, q, b] = c.split(',').map(Number);
     if (out.some(x => x.battle && x.battle.p === p && x.battle.q === q && x.battle.bell === b)) continue;
-    out.push({ id: `cl:${c}`, kind: 'battle', bell, p, q, battle: { p, q, bell: b }, text: L`あなたの拠点の州 ${p},${q} で戦いがありました（第${fmtNum(b)}鐘）` });
+    out.push({ id: `cl:${c}`, kind: 'battle', bell, p, q, battle: { p, q, bell: b }, text: L`あなたの村の州 ${p},${q} で戦いがありました（第${fmtNum(b)}鐘）` });
   }
   for (const w of next.incoming) {
     if (prev.incoming.has(w)) continue;
     const [b, p, q] = w.split(',').map(Number);
-    out.push({ id: `in:${w}`, kind: 'incoming', bell, p, q, text: L`第${fmtNum(b)}鐘に州 ${p},${q} の拠点へ敵が来るかもしれません` });
+    out.push({ id: `in:${w}`, kind: 'incoming', bell, p, q, text: L`第${fmtNum(b)}鐘に州 ${p},${q} の村へ敵が来るかもしれません` });
   }
   for (const b of next.builds) {
     if (prev.builds.has(b)) continue;
@@ -83,8 +83,8 @@ export function diffFeed(prev, next) {
   for (const [k, h] of next.holdings) {
     const was = prev.holdings.get(k);
     if (!was) out.push({ id: `hn:${k}:${h.state}`, kind: 'holding', bell, p: h.p, q: h.q, text: L`州 ${h.p},${h.q} に${TIERS[h.tier] ?? ''}を得ました` });
-    else if (was.state !== 2 && h.state === 2) out.push({ id: `hf:${k}`, kind: 'holding', bell, p: h.p, q: h.q, text: L`州 ${h.p},${h.q} の拠点が確定しました` });
-    else if (was.tier !== h.tier) out.push({ id: `ht:${k}:${h.tier}`, kind: 'holding', bell, p: h.p, q: h.q, text: L`州 ${h.p},${h.q} の拠点が${TIERS[h.tier] ?? ''}になりました` });
+    else if (was.state !== 2 && h.state === 2) out.push({ id: `hf:${k}`, kind: 'holding', bell, p: h.p, q: h.q, text: L`州 ${h.p},${h.q} の村が確定しました` });
+    else if (was.tier !== h.tier) out.push({ id: `ht:${k}:${h.tier}`, kind: 'holding', bell, p: h.p, q: h.q, text: L`州 ${h.p},${h.q} の村が${TIERS[h.tier] ?? ''}になりました` });
   }
   // a holding that is gone: displaced while provisional, or lost (a new site ticket is filed automatically)
   for (const [k, was] of prev.holdings) {
@@ -92,8 +92,8 @@ export function diffFeed(prev, next) {
     // a new ticket follows only when no holding is left (re-check 6)
     const last = next.holdings.size === 0;
     out.push({ id: `hg:${k}:${bell}`, kind: 'holding', bell, p: was.p, q: was.q, text: was.state === 2
-      ? (last ? L`州 ${was.p},${was.q} の拠点を失いました。入植希望を自動でもう一度出します` : L`州 ${was.p},${was.q} の拠点を失いました`)
-      : (last ? L`州 ${was.p},${was.q} の仮の拠点は押し出されました。入植希望を自動でもう一度出します` : L`州 ${was.p},${was.q} の仮の拠点は押し出されました`) });
+      ? (last ? L`州 ${was.p},${was.q} の村を失いました。入植希望を自動でもう一度出します` : L`州 ${was.p},${was.q} の村を失いました`)
+      : (last ? L`州 ${was.p},${was.q} の仮の村は押し出されました。入植希望を自動でもう一度出します` : L`州 ${was.p},${was.q} の仮の村は押し出されました`) });
   }
   return out;
 }
@@ -105,7 +105,7 @@ export function bellSummary(feed, bell) {
   const n = k => of.filter(x => x.kind === k).length;
   const parts = [
     n('battle') && L`戦い ${fmtNum(n('battle'))}`, n('march') && L`進軍の知らせ ${fmtNum(n('march'))}`, n('incoming') && L`来襲の恐れ ${fmtNum(n('incoming'))}`,
-    n('build') && L`完成 ${fmtNum(n('build'))}`, n('holding') && L`拠点 ${fmtNum(n('holding'))}`,
+    n('build') && L`完成 ${fmtNum(n('build'))}`, n('holding') && L`村 ${fmtNum(n('holding'))}`,
   ].filter(Boolean);
   return { id: `sum:${bell}`, kind: 'summary', bell: bell + 1, text: L`第${fmtNum(bell)}鐘のまとめ：${parts.join(' · ')}`, items: of.map(x => x.id) };
 }
@@ -118,7 +118,7 @@ export function pushFeed(feed, items, at = Date.now()) {
 }
 
 const KIND_ICON = { battle: '⚔', march: '➚', incoming: '!', build: '⚒', holding: '⌂', summary: '≡' };
-const KIND_TEXT = { battle: () => L`戦闘`, march: () => L`進軍`, incoming: () => L`来襲`, build: () => L`建設`, holding: () => L`拠点`, summary: () => L`まとめ` };
+const KIND_TEXT = { battle: () => L`戦闘`, march: () => L`進軍`, incoming: () => L`来襲`, build: () => L`建設`, holding: () => L`村`, summary: () => L`まとめ` };
 
 function itemActions(x) {
   const acts = [];
@@ -141,7 +141,7 @@ export function renderToasts(feed, { dismissed = new Set(), now = Date.now() } =
 }
 
 export const FEED_FILTERS = Object.freeze(['all', 'battle', 'march', 'holding']);
-const FILTER_TEXT = { all: () => L`すべて`, battle: () => L`戦闘`, march: () => L`進軍と来襲`, holding: () => L`拠点と建設` };
+const FILTER_TEXT = { all: () => L`すべて`, battle: () => L`戦闘`, march: () => L`進軍と来襲`, holding: () => L`村と建設` };
 const inFilter = (x, f) => f === 'all' || (f === 'battle' && x.kind === 'battle') || (f === 'march' && (x.kind === 'march' || x.kind === 'incoming')) || (f === 'holding' && (x.kind === 'holding' || x.kind === 'build'));
 
 /** The notification list (the More tab). */

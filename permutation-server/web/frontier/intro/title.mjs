@@ -55,8 +55,8 @@ export function liveLine({ seasonId = null, bell = null, holdings = 0, factions 
   const parts = [];
   if (seasonId !== null && seasonId !== undefined) parts.push(L`第${fmtNum(Number(seasonId))}季`);
   if (Number.isInteger(bell)) parts.push(L`第${fmtNum(bell)}鐘`);
-  if (holdings > 0) parts.push(L`${fmtNum(holdings)} の拠点`);
-  parts.push(L`${fmtNum(factions)} つの勢力`);
+  if (holdings > 0) parts.push(L`${fmtNum(holdings)} の村`);
+  parts.push(L`${fmtNum(factions)} つの国`);
   return parts.join(' · ');
 }
 
@@ -68,10 +68,10 @@ export function render({ mode = 'play', live = '' } = {}) {
     <div class="intro-card">
       <div class="intro-emblem">${raw(emblemSvg({ size: 108 }))}</div>
       <h2 class="intro-title" id="intro-title" data-name>Wylls</h2>
-      <p class="intro-tagline">${L`六つの勢力。十分ごとの鐘。封じられた進軍。`}</p>
+      <p class="intro-tagline">${L`六つの国。十分ごとの鐘。封じられた進軍。`}</p>
       <ol class="intro-leaders">${leaders}</ol>
       <div class="intro-lore">
-        <p>${L`大協約の地を中心に、六つの勢力が霧の辺境へ広がっていく。`}</p>
+        <p>${L`大協約の地を中心に、六つの国が霧の辺境へ広がっていく。`}</p>
         <p>${L`十分ごとに鐘が鳴る。そのあいだに出された進軍はすべて封をされ、行き先は誰にもわからない。`}</p>
         <p>${L`鐘が鳴ると、同じ州に着いた軍勢がいっせいにぶつかる。人が増えれば、霧の向こうに新しい輪がひらく。`}</p>
       </div>

@@ -122,13 +122,13 @@ test('the map by keyboard: + and − zoom, H goes to the viewer\'s holding, the 
   for (let i = 0; i < 4; i++) await page.keyboard.press('+');
   assert.equal(await lod(), 'province');
   await page.keyboard.press('h');
-  assert.equal(await lod(), 'province', 'home: the holding at province detail');
+  assert.equal(await lod(), 'tile', 'home: the holding up close, on its tile');
   await page.locator('[data-map="in"]').focus();
   for (let i = 0; i < 6; i++) await page.keyboard.press('Enter');
   assert.equal(await lod(), 'tile');
   await page.locator('#frontier-map[data-terrain="ready"]').waitFor();
   await page.locator('[data-map="out"]').focus();
-  for (let i = 0; i < 12; i++) await page.keyboard.press('Enter');
+  for (let i = 0; i < 16; i++) await page.keyboard.press('Enter');
   assert.equal(await lod(), 'world');
   assert.equal(await page.locator('.map-tools').getAttribute('aria-label'), '地図の操作');
 });

@@ -179,7 +179,7 @@ export function panelMarkup(FS) {
   // Phones and tablets (no left rail below 1100 px): the rail's holdings and to-do list, folded (closed while composing).
   if (tab === 'map' && (FS.holdings ?? []).length) {
     const n = hud.attentionItems(FS).length;
-    parts.push(html`<details class="rail-mini" ${raw(n && !FS.compose ? 'open' : '')}><summary>${n ? L`拠点と次の鐘までにやること（${fmtNum(n)}）` : L`拠点と次の鐘までにやること`}</summary>${hud.renderRail(FS)}</details>`);
+    parts.push(html`<details class="rail-mini" ${raw(n && !FS.compose ? 'open' : '')}><summary>${n ? L`村と次の鐘までにやること（${fmtNum(n)}）` : L`村と次の鐘までにやること`}</summary>${hud.renderRail(FS)}</details>`);
   }
   // The selection first on the map tab (the player just chose it), then the guide.
   if (tab === 'map' && FS.selected) parts.push(inspect.render(FS, terrainRef, mapRef?.art?.activities ?? null));
@@ -246,7 +246,7 @@ function renderPlay() {
   if (body) keepState(body, () => setHtml(body, panelMarkup(FS)), same ? $('panel') : null);
   const title = $('panel-title');
   const sub = FS.practice ? L`練習モード` : FS.report ? L`衝突の報告` : null;
-  if (title) setText('panel-title', sub ?? { map: L`地図`, holding: L`拠点`, hosts: L`軍勢`, marches: L`進軍`, more: L`その他` }[FS.tab ?? 'map'] ?? L`シーズン`);
+  if (title) setText('panel-title', sub ?? { map: L`地図`, holding: L`村`, hosts: L`軍勢`, marches: L`進軍`, more: L`その他` }[FS.tab ?? 'map'] ?? L`シーズン`);
   renderRail();
   renderMinimap();
   // the header follows new data at once, not only on the next one-second tick
@@ -1143,7 +1143,7 @@ export async function boot() {
     map = new FrontierMap(canvas, {
       source: () => {
         if (rosterRef) for (let d = 0; d < (FS.record?.rings?.length ?? 1); d++) rosterRef.ensure(d);
-        const own = ART_FOG ? [{ p: 2, q: 0 }] : (FS.holdings ?? []).map(h => ({ p: h.p, q: h.q }));
+        const own = ART_FOG ? [{ p: 2, q: 0 }] : (FS.holdings ?? []).map(h => ({ p: h.p, q: h.q, tile: h.tile }));
         return { overviews: FS.overviews, ringsOpen: FS.record?.rings?.length ?? 1, own, known: new Set([...own.map(o => `${o.p},${o.q}`), ...(ART_FOG ? ['-1,0', '-1,1', '0,-2', '-2,1'] : [])]), showAll: (ART_PREVIEW && !ART_FOG) || !FS.view.fog, selected: FS.selected, terrainOf,
           // art mode: the decoded Province (holdings' tiers, hosts on tiles, camp), loaded on demand
           viewerFaction: ART_FOG ? 0 : FS.citizen?.faction ?? null,

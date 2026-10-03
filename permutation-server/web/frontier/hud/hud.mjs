@@ -111,7 +111,7 @@ export function attentionItems(FS) {
     if (facts.final && !facts.queue.some(q => q.doneIn > 0)) out.push({ kind: 'build', p: h.p, q: h.q, tab: 'holding', holding: h, short: L`建設の列が空`, text: L`州 ${h.p},${h.q} の建設の列が空いています` });
     const musterable = facts.reserve.filter(r => r.unit !== SETTLER).reduce((a, r) => a + r.troops, 0);
     if (facts.final && musterable >= 100) out.push({ kind: 'muster', p: h.p, q: h.q, tab: 'holding', holding: h, short: L`編成できる兵 ${fmtNum(musterable)}`, text: L`控えの兵 ${fmtNum(musterable)} を軍勢に編成できます` });
-    if (facts.dormantIn > 0 && facts.dormantIn < DORMANT_WARN_SECS) out.push({ kind: 'dormant', p: h.p, q: h.q, tab: 'holding', holding: h, short: L`休眠まで ${span(facts.dormantIn)}`, text: L`州 ${h.p},${h.q} の拠点はあと ${span(facts.dormantIn)} で休眠します。何か操作しましょう` });
+    if (facts.dormantIn > 0 && facts.dormantIn < DORMANT_WARN_SECS) out.push({ kind: 'dormant', p: h.p, q: h.q, tab: 'holding', holding: h, short: L`休眠まで ${span(facts.dormantIn)}`, text: L`州 ${h.p},${h.q} の村はあと ${span(facts.dormantIn)} で休眠します。何か操作しましょう` });
     if (full.length) out.push({ kind: 'full', p: h.p, q: h.q, tab: 'holding', holding: h, short: L`満杯 ${fmtNum(full.length)}`, text: L`${full.map(r => r.name).join(' / ')}が満杯です。収穫するか使いましょう` });
   }
   return out;
@@ -199,7 +199,7 @@ export function renderBreakdown(b) {
       <span class="res-row-name">${holdingName(r.holding)}</span>
       <span>${fmtNum(r.value)} / ${fmtNum(r.cap)}</span><span class="muted">${L`毎時 +${fmtNum(r.perHour)}`}</span>
       <span class="muted">${r.fullIn === 0 ? L`満杯` : r.fullIn !== null ? L`満杯まで ${span(r.fullIn)}` : ''}</span></button></li>`)}</ul>
-    <p class="muted">${L`増える量は建物と働く区画で決まります。満杯になると増えません。拠点の画面で収穫や建設ができます。`}</p>`;
+    <p class="muted">${L`増える量は建物と働く区画で決まります。満杯になると増えません。村の画面で収穫や建設ができます。`}</p>`;
 }
 
 /**
@@ -220,7 +220,7 @@ export function holdingCountdowns(FS, h) {
 
 /** The action tiles: each opens a tab of the panel (Eternum's Build · Military · Transfer row). */
 const TILES = [
-  { tab: 'holding', glyph: '⌂', text: () => L`拠点` },
+  { tab: 'holding', glyph: '⌂', text: () => L`村` },
   { tab: 'hosts', glyph: '⚔', text: () => L`軍勢` },
   { tab: 'marches', glyph: '➚', text: () => L`進軍` },
   { tab: 'more', glyph: '☷', text: () => L`その他` },
@@ -243,15 +243,15 @@ export function standings(overviews) {
 /** The standings list alone (the spectator's phone panel folds it). */
 export function renderStandingsList(FS) {
   return html`<ol class="rail-standings">${standings(FS.overviews).map((r, i) => html`<li><span class="rank">${i + 1}</span>${raw(leaderSvg(r.faction, { size: 34 }))}<strong>${factionName(r.faction)}</strong>
-      <span class="muted">${L`拠点 ${fmtNum(r.holdings)} · ${fmtNum(r.provinces)} 州`}</span></li>`)}</ol>`;
+      <span class="muted">${L`村 ${fmtNum(r.holdings)} · ${fmtNum(r.provinces)} 州`}</span></li>`)}</ol>`;
 }
 
 function renderStandings(FS) {
   const rows = standings(FS.overviews);
-  return html`<h2 class="rail-h">${L`勢力の順位`}</h2>
+  return html`<h2 class="rail-h">${L`国の順位`}</h2>
     <ol class="rail-standings">${rows.map((r, i) => html`<li><span class="rank">${i + 1}</span>${raw(leaderSvg(r.faction, { size: 34 }))}<strong>${factionName(r.faction)}</strong>
-      <span class="muted">${L`拠点 ${fmtNum(r.holdings)} · ${fmtNum(r.provinces)} 州`}</span></li>`)}</ol>
-    <p class="muted">${L`拠点の数は最新の概観（鐘ごと）から数えています。`}</p>
+      <span class="muted">${L`村 ${fmtNum(r.holdings)} · ${fmtNum(r.provinces)} 州`}</span></li>`)}</ol>
+    <p class="muted">${L`村の数は最新の概観（鐘ごと）から数えています。`}</p>
     <h2 class="rail-h">${L`見どころ`}</h2>${renderHighlights(highlights(FS.chronicle, FS.overviews, FS.roster))}`;
 }
 
@@ -266,7 +266,7 @@ export function renderRail(FS) {
   const tag = Number.isInteger(faction) ? ownTag(FS) : null;
   const head = Number.isInteger(faction)
     ? html`<div class="rail-me">${tag !== null ? personChip(ownIdentity(FS), faction, { size: 44, full: true, note: factionName(faction) }) : html`<p class="rail-faction">${swatch(faction)}<strong>${factionName(faction)}</strong></p>`}</div>`
-    : html`<p class="rail-faction muted">${FS.mode === 'spectate' ? L`観戦中` : L`まだ陣営に加わっていません`}</p>`;
+    : html`<p class="rail-faction muted">${FS.mode === 'spectate' ? L`観戦中` : L`まだ国に加わっていません`}</p>`;
   const list = hs.length
     ? html`<ul class="rail-list">${hs.map((h, i) => html`<li><button type="button" class="rail-holding" data-act="holding-pick" data-i="${i}" ${raw(h === active ? 'aria-current="true"' : '')}>
         <span class="rail-tier">${holdingName(h)}</span>
@@ -274,7 +274,7 @@ export function renderRail(FS) {
         ${warned.has(`${h.p},${h.q}`) ? html`<span class="rail-warn">${L`来襲の恐れ`}</span>` : ''}
         ${(() => { const c = holdingCountdowns(FS, h); return c.length ? html`<span class="rail-clock">${c.join(' · ')}</span>` : ''; })()}
       </button></li>`)}</ul>`
-    : html`<p class="muted">${FS.mode !== 'play' ? L`拠点はありません` : (FS.land?.stage ?? 'none') === 'none' ? L`拠点はまだありません。地図の「参加」から始めます。` : FS.land.stage === 'ticket' ? L`拠点はまだありません。入植希望を自動で出しました（次の鐘ごろに決まります）。` : L`拠点はまだありません。入植希望を自動で出しています。`}</p>`;
+    : html`<p class="muted">${FS.mode !== 'play' ? L`村はありません` : (FS.land?.stage ?? 'none') === 'none' ? L`村はまだありません。地図の「参加」から始めます。` : FS.land.stage === 'ticket' ? L`村はまだありません。入植希望を自動で出しました（次の鐘ごろに決まります）。` : L`村はまだありません。入植希望を自動で出しています。`}</p>`;
   const tiles = FS.mode === 'play' && hs.length
     ? html`<div class="rail-tiles">${TILES.map(t => html`<button type="button" class="rail-tile" data-act="tab" data-tab="${t.tab}" ${raw((FS.tab ?? 'map') === t.tab ? 'aria-pressed="true"' : 'aria-pressed="false"')}><span class="rail-glyph" aria-hidden="true">${t.glyph}</span><span>${t.text()}</span></button>`)}</div>`
     : '';
@@ -282,7 +282,7 @@ export function renderRail(FS) {
     ? html`<ol class="rail-todo">${items.map((x, i) => html`<li class="todo-${x.kind}"><button type="button" class="rail-todo-btn" data-act="attn-go" data-i="${i}"><span class="todo-glyph" aria-hidden="true">${TODO_GLYPH[x.kind] ?? '•'}</span>${x.text}</button></li>`)}</ol>`
     : html`<p class="muted">${L`次の鐘までにやることはありません`}</p>`;
   return html`${head}
-    <h2 class="rail-h">${L`拠点`}</h2>${list}
+    <h2 class="rail-h">${L`村`}</h2>${list}
     ${tiles}
     <h2 class="rail-h">${L`次の鐘までに`}</h2>${todo}`;
 }

@@ -40,7 +40,7 @@ test('the map buttons: three, ASCII or symbol glyphs, names in both languages', 
   const ja = MAP_TOOLS.map(t => t.label());
   setLang('en');
   const en = MAP_TOOLS.map(t => t.label());
-  assert.deepEqual(en, ['Zoom in', 'Zoom out', 'Go to my holding']);
+  assert.deepEqual(en, ['Zoom in', 'Zoom out', 'Go to my village']);
   assert.notDeepEqual(ja, en);
   assert.deepEqual(TILE_FOGS, ['sight', 'known', 'clear'], 'a distant province is never drawn as tiles');
 });

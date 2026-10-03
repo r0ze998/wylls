@@ -9,6 +9,7 @@
 import { FACTION_FILL, FACTION_DARK, shade } from './avatar.mjs';
 import { RADIUS, FLATTEN, project } from '../../map.mjs';
 import { tileHex, DIRECTIONS } from '../fgeo.mjs';
+import { paintMini } from './minis.mjs';
 
 export const UNIT_KINDS = Object.freeze(['spearman', 'archer', 'horseman', 'pikeman', 'crossbowman', 'knight', 'scout', 'settler']);
 const INK = '#1b1712', STEEL = '#aeb4b9', STEEL_D = '#6c7378', WOOD = '#7a5634', LEATHER = '#6b4a2e', HORSE = '#7b5636', HORSE_D = '#4e3522', SKIN = '#e2b58e';
@@ -237,8 +238,12 @@ export function placePills(ctx, items, k, t, boxes = []) {
 export function paintToken(ctx, tok, { s, k, t = 0, label = true }) {
   const { x, y, faction, kind, face = 1, alpha = 1, walking = false, own = false } = tok;
   const step = (t * (walking ? 1.6 : 0.5) + (tok.phase ?? 0)) % 1;
-  baseDisc(ctx, x, y, s, faction, { own, alpha, pulse: 0.5 + 0.5 * Math.sin(t * 2.4) });
-  unitFigure(ctx, x, y - s * 0.02, s, kind, { faction, face, step, walking, alpha, lunge: tok.lunge ?? 0 });
+  const pulse = 0.5 + 0.5 * Math.sin(t * 2.4);
+  // the painted miniature (people/minis.mjs); the canvas figure until its sheet has loaded
+  if (!paintMini(ctx, x, y, s, kind, { faction, face, step, walking, alpha, lunge: tok.lunge ?? 0, own, pulse })) {
+    baseDisc(ctx, x, y, s, faction, { own, alpha, pulse });
+    unitFigure(ctx, x, y - s * 0.02, s, kind, { faction, face, step, walking, alpha, lunge: tok.lunge ?? 0 });
+  }
   if (label) unitPill(ctx, x, y - s * 1.08, k, { faction, troops: tok.troops, n: tok.n ?? 1, own, status: tok.status ?? null, text: tok.text ?? null, t, dashed: !!tok.dashed });
 }
 

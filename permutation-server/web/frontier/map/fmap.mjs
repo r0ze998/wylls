@@ -30,13 +30,15 @@ export const TILE_FOGS = Object.freeze(['sight', 'known', 'clear']);
 export const MAP_TOOLS = Object.freeze([
   { id: 'in', glyph: '+', label: () => L`地図を拡大` },
   { id: 'out', glyph: '\u2212', label: () => L`地図を縮小` },
-  { id: 'home', glyph: '\u2302', label: () => L`自分の拠点へ移動` },
+  { id: 'home', glyph: '\u2302', label: () => L`自分の村へ移動` },
 ]);
 
 /** Zoom thresholds (screen px per world px) with hysteresis between levels. */
 export const LOD_EDGES = Object.freeze({ provinceIn: 0.14, provinceOut: 0.12, tileIn: 0.5, tileOut: 0.45 });
 export const ZOOM_MIN = 0.02;
 export const ZOOM_MAX = 2.5;
+/** Home's zoom: tile detail, the holding and the hosts beside it in view. */
+export const HOME_ZOOM = 1.3;
 
 /** The level of detail at `zoom`, given the current one (no flicker at an edge). */
 export function lodFor(zoom, current = 'world') {
@@ -261,11 +263,18 @@ export class FrontierMap {
   /** Centre on a province (and zoom to its LOD). */
   focus(p, q, zoom = 0.2) { const c = provincePixel(p, q); this.setView({ x: c.x, y: c.y, zoom }); }
 
-  /** The viewer's first holding at province LOD, or the Concord zoomed out. */
+  /**
+   * Home (⌂, H): the viewer's holding, close up on its tile (at least HOME_ZOOM, a closer
+   * zoom is kept); pressed again while centred on one, the next holding (Civ's "next city").
+   * Without a holding: the Concord zoomed out.
+   */
   home() {
-    const own = this.source()?.own?.[0];
-    if (own) this.focus(own.p, own.q, 0.2);
-    else this.setView({ x: 0, y: 0, zoom: 0.06 });
+    const own = (this.source()?.own ?? []).filter(o => Number.isInteger(o.p) && Number.isInteger(o.q));
+    if (!own.length) { this.setView({ x: 0, y: 0, zoom: 0.06 }); return; }
+    const at = own.map(o => (Number.isInteger(o.tile) ? (h => project(h.q, h.r))(tileHex(o.p, o.q, o.tile)) : provincePixel(o.p, o.q)));
+    const here = at.findIndex(c => Math.hypot(c.x - this.view.x, c.y - this.view.y) < RADIUS * 0.5);
+    const c = at[here >= 0 ? (here + 1) % at.length : 0];
+    this.setView({ x: c.x, y: c.y, zoom: Math.min(ZOOM_MAX, Math.max(this.view.zoom, HOME_ZOOM)) });
   }
 
   /**
