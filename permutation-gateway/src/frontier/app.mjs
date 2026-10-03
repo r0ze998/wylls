@@ -23,6 +23,7 @@ import { addressBucket, FundsGuard, RateLimiter, ReplayCache } from '../guards.m
 import { errorResponse, RouteError } from '../routes/errors.mjs';
 import { BlockhashBook } from '../send.mjs';
 import { ChainView } from './chain.mjs';
+import { NO_EVENTS } from './eventlog.mjs';
 import { QuotaBook } from './quota.mjs';
 import { keeperRoutes } from './routes/keeper.mjs';
 import { operatorRoutes } from './routes/operator.mjs';
@@ -103,12 +104,13 @@ function readJson(req, limit) {
  * @param {object} [o.invites]   InviteBook (gated seasons)
  * @param {object} [o.gateKey]   the join-gate Keypair (gated seasons)
  * @param {object} [o.store]     `{state, save()}` for quotas and used invites
+ * @param {object} [o.events]    EventLog (PT-A): invites issued and joins, as JSONL
  */
 export function createFrontierContext({ cfg, connection, pool, keeper = null, invites = null, gateKey = null, store = { state: {}, save() {} }, now = Date.now,
-  log = console.log, limiter, funds, blockhashes }) {
+  log = console.log, limiter, funds, blockhashes, events = NO_EVENTS }) {
   const addresses = new FrontierAddresses({ programId: cfg.programId, seasonId: BigInt(cfg.seasonId) });
   return {
-    cfg, connection, pool, keeper, invites, gateKey, log, now, addresses,
+    cfg, connection, pool, keeper, invites, gateKey, log, now, addresses, events,
     programId: addresses.programId,
     chain: new ChainView({ connection, addresses, now }),
     quota: new QuotaBook({ store }),

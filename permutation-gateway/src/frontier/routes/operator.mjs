@@ -1,6 +1,7 @@
 // Operator routes (operator listener only, bearer token; contract §8.3):
 //
-//   POST /f/operator/invites {count}   one-time invites for a gated season (I-51) → {invites: [...]}
+//   POST /f/operator/invites {count, label?}   one-time invites for a gated season (I-51) → {invites: [...]}
+//                                      (`label`: a short tag for the event log, e.g. "bots" or "friends-1")
 //   GET  /f/operator/pool              the relay pool's balances → {size, total, floor, eligible, payers: [{key, lamports}]}
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { RouteError } from '../../routes/errors.mjs';
@@ -20,7 +21,12 @@ export const operatorRoutes = {
     const b = await req.json();
     const n = b.count ?? 1;
     if (!Number.isInteger(n) || n < 1 || n > 1000) throw new RouteError(400, 'count: 1–1,000', 'BadRequest');
-    return { body: { invites: ctx.invites.issue(n) } };
+    const label = b.label ?? 'unlabelled';
+    if (typeof label !== 'string' || !/^[A-Za-z0-9_.-]{1,40}$/.test(label)) throw new RouteError(400, 'label: 1–40 letters, digits, . _ -', 'BadRequest');
+    const invites = ctx.invites.issue(n);
+    // The nonces (not the codes) go to the event log: they tie a later Join to the batch it was issued in.
+    ctx.events.write('invites_issued', { label, count: n, nonces: invites.map(i => ctx.invites.verify(i)) });
+    return { body: { invites } };
   },
 
   'GET /f/operator/pool': async (ctx, req) => {

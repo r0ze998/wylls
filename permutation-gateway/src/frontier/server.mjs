@@ -13,7 +13,7 @@
 //        [--keeper http://127.0.0.1:41050 --keeper-token-file F]   the keeper link (/f/reveal, /f/nudge)
 //        [--pool-size 150 --master-seed-file F] the relay pool (pool_id "relay"; < 150 only with --dev)
 //        [--gate-key-file F]                    the join-gate keypair (playtest preset; invites)
-//        [--invite-secret-file F --state-file F --min-pool-sol 1 --dev]
+//        [--invite-secret-file F --state-file F --event-log F --min-pool-sol 1 --dev]
 //   Every flag also as FRONTIER_* (config.mjs); the operator token from
 //   FRONTIER_OPERATOR_TOKEN or .local/frontier/operator-token.
 //
@@ -27,6 +27,7 @@ import { loadOrCreateKeypairSync } from '../../client/src/keys.mjs';
 import { createStateStore, operatorToken } from '../config.mjs';
 import { createFrontierApps } from './app.mjs';
 import { FRONTIER_DIR, loadFrontierConfig, secretFile } from './config.mjs';
+import { EventLog } from './eventlog.mjs';
 import { InviteBook } from './invites.mjs';
 import { KeeperLink } from './keeperlink.mjs';
 import { PayerPool, RELAY_POOL_ID } from './payers.mjs';
@@ -45,7 +46,8 @@ export async function startFrontierRelay(cfg, { connection = new Connection(cfg.
   const gateKey = cfg.gateKeyFile ? loadOrCreateKeypairSync(cfg.gateKeyFile) : null;
   const invites = new InviteBook({ secret: secretFile(cfg.inviteSecretFile), seasonId: cfg.seasonId, store });
   const keeper = cfg.keeperUrl ? new KeeperLink({ url: cfg.keeperUrl, tokenFile: cfg.keeperTokenFile }) : null;
-  const apps = createFrontierApps({ cfg, connection, pool, keeper, invites, gateKey, store, log });
+  const events = cfg.eventLog ? new EventLog(cfg.eventLog) : null;
+  const apps = createFrontierApps({ cfg, connection, pool, keeper, invites, gateKey, store, log, events });
   const operator = http.createServer(apps.operator);
   const pub = cfg.publicPort ? http.createServer(apps.public) : null;
   const ports = { operator: await listen(operator, cfg.port, '127.0.0.1') };

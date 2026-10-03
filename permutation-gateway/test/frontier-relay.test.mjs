@@ -18,6 +18,7 @@ import { shapeMessage } from '../client/src/frontier/shapes.mjs';
 import { parseTransaction, wireTransaction } from '../client/src/solana-tx.mjs';
 import { signTalk, verifyTalk } from '../client/src/talk-node.mjs';
 import { createFrontierApps, clientAddress } from '../src/frontier/app.mjs';
+import { EventLog } from '../src/frontier/eventlog.mjs';
 import { InviteBook } from '../src/frontier/invites.mjs';
 import { KeeperLink } from '../src/frontier/keeperlink.mjs';
 import { PayerPool } from '../src/frontier/payers.mjs';
@@ -90,7 +91,7 @@ function fakeChain({ debit = () => 0n, fail = () => null } = {}) {
 
 const MASTER = Buffer.alloc(32, 7);
 
-function relay({ chain = fakeChain(), season = {}, clock = GENESIS + 3_600, poolSize = 150, keeper = null, gateKey = null, heraldPeer = '127.0.0.1', log = () => {}, now = Date.now } = {}) {
+function relay({ chain = fakeChain(), season = {}, clock = GENESIS + 3_600, poolSize = 150, keeper = null, gateKey = null, heraldPeer = '127.0.0.1', log = () => {}, now = Date.now, events } = {}) {
   const pool = new PayerPool({ masterSeed: MASTER, n: poolSize, dev: poolSize < 150 });
   for (const k of pool.publicKeys()) chain.set(k, { lamports: 2_000_000_000 });
   chain.set(A.season, { data: seasonAccount(season) });
@@ -98,7 +99,7 @@ function relay({ chain = fakeChain(), season = {}, clock = GENESIS + 3_600, pool
   const store = { state: {}, save() { store.saves = (store.saves ?? 0) + 1; } };
   const cfg = { cluster: 'localnet', programId: PROGRAM, seasonId: String(SEASON_ID), heraldPeer, heraldUrl: 'http://127.0.0.1:41040', minPoolSol: 1, operatorToken: OPERATOR };
   const invites = new InviteBook({ secret: Buffer.alloc(32, 3), seasonId: SEASON_ID, store });
-  const apps = createFrontierApps({ cfg, connection: chain, pool, keeper, invites, gateKey, store, log, now });
+  const apps = createFrontierApps({ cfg, connection: chain, pool, keeper, invites, gateKey, store, log, now, events });
   return { ...apps, chain, pool, store, invites };
 }
 
@@ -599,4 +600,60 @@ test('the funds breaker: sponsored routes pause while the pool is below its mini
   assert.equal(r.chain.sent.length, 0);
   // Reads go on.
   assert.equal((await call(r.public, 'GET', '/f/season', { ip: '203.0.113.9' })).status, 200);
+});
+
+test('PT-A event log: invites issued (label, nonces) and joins (invite nonce, wallet, signature) are appended as JSONL; no address, no secret', async () => {
+  const { mkdtempSync, readFileSync, statSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const dir = mkdtempSync(`${tmpdir()}/psf-eventlog-`);
+  try {
+    const file = `${dir}/sub/relay-events.jsonl`;
+    let clock = 1_000;
+    const events = new EventLog(file, { now: () => clock++ });
+    const gate = Keypair.generate();
+    const chain = fakeChain({ debit: () => rent(384) });
+    const r = relay({ chain, gateKey: gate, season: { JOIN_GATE: gate.publicKey.toBytes() }, events });
+    const auth = { authorization: `Bearer ${OPERATOR}` };
+    // A bad label is refused and logs nothing.
+    assert.equal((await call(r.operator, 'POST', '/f/operator/invites', { body: { count: 1, label: 'a b' }, headers: auth })).json.code, 'BadRequest');
+    const inv = await call(r.operator, 'POST', '/f/operator/invites', { body: { count: 2, label: 'friends-1' }, headers: auth });
+    assert.equal(inv.json.invites.length, 2);
+    const noLabel = await call(r.operator, 'POST', '/f/operator/invites', { body: { count: 1 }, headers: auth });
+    const w = Keypair.generate();
+    const fp = await feePayerOf(r);
+    const tx = playerTx({ name: 'Join', signer: w, feePayer: fp,
+      accounts: { wallet: w.publicKey.toBase58(), citizen: A.citizen(w.publicKey.toBase58()), joinshard: A.joinShardFor(2, w.publicKey.toBase58()), join_gate: gate.publicKey.toBase58() },
+      fields: { faction: 2, session: session.publicKey.toBytes(), session_expiry: BigInt(GENESIS + 86_400) } });
+    // A refused Join (no invite) logs nothing; the real one logs once.
+    assert.equal((await call(r.public, 'POST', '/f/join', { body: { tx }, ip: '203.0.113.9' })).json.code, 'InviteRequired');
+    const joined = await call(r.public, 'POST', '/f/join', { body: { tx, invite: inv.json.invites[1] }, ip: '203.0.113.9' });
+    assert.equal(joined.json.ok, true, JSON.stringify(joined.json));
+    const lines = readFileSync(file, 'utf8').trim().split('\n').map(l => JSON.parse(l));
+    assert.deepEqual(lines.map(l => l.event), ['invites_issued', 'invites_issued', 'join']);
+    assert.deepEqual([lines[0].label, lines[0].count, lines[1].label], ['friends-1', 2, 'unlabelled']);
+    assert.deepEqual(lines[0].nonces, inv.json.invites.map(i => r.invites.verify(i)));
+    assert.deepEqual([lines[2].invite, lines[2].wallet, lines[2].signature], [r.invites.verify(inv.json.invites[1]), w.publicKey.toBase58(), joined.json.signature]);
+    assert.ok(lines.every((l, i) => l.t === 1_000 + i), 'stamped by the injected clock');
+    // The codes themselves (which redeem) are never written, nor the secrets.
+    const text = readFileSync(file, 'utf8');
+    for (const code of [...inv.json.invites, ...noLabel.json.invites]) assert.ok(!text.includes(code), 'an invite code leaked into the log');
+    assert.ok(!text.includes(Buffer.from(gate.secretKey).toString('base64')));
+    assert.equal(statSync(file).mode & 0o777, 0o600);
+    // An open season logs its joins with a null invite; a log that cannot be written never fails a request.
+    const open = relay({ chain: fakeChain({ debit: () => rent(384) }), events: new EventLog(`${dir}/open.jsonl`) });
+    const w2 = Keypair.generate();
+    const tx2 = playerTx({ name: 'Join', signer: w2, feePayer: await feePayerOf(open),
+      accounts: { wallet: w2.publicKey.toBase58(), citizen: A.citizen(w2.publicKey.toBase58()), joinshard: A.joinShardFor(2, w2.publicKey.toBase58()) },
+      fields: { faction: 2, session: session.publicKey.toBytes(), session_expiry: BigInt(GENESIS + 86_400) } });
+    assert.equal((await call(open.public, 'POST', '/f/join', { body: { tx: tx2 }, ip: '203.0.113.9' })).json.ok, true);
+    assert.equal(JSON.parse(readFileSync(`${dir}/open.jsonl`, 'utf8')).invite, null);
+    const errs = [];
+    const broken = new EventLog(`${dir}/open.jsonl/not-a-dir/x.jsonl`, { onError: e => errs.push(e) });
+    broken.write('join', {});
+    broken.write('join', {});
+    assert.equal(errs.length, 1, 'reported once');
+    assert.equal(broken.errors >= 2, true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

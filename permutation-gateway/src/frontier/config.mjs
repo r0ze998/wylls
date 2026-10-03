@@ -36,6 +36,8 @@ export const FRONTIER_DEFAULTS = Object.freeze({
   gateKeyFile: null,
   inviteSecretFile: path.join(FRONTIER_DIR, 'invite.secret'),
   stateFile: path.join(FRONTIER_DIR, 'relay-state.json'),
+  /** PT-A: an append-only JSONL event log (invites issued, joins); off unless set. */
+  eventLog: null,
   /** Public co-signing pauses (503 OperatorLowFunds) below this pool total. */
   minPoolSol: 1,
   /** A payer below this is not drawn for GET /f/relay. */
@@ -59,7 +61,7 @@ const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
  * The relay's configuration from flags (`--rpc URL --program ID --season N
  * --port P --public-port Q --herald-peer A --keeper URL --keeper-token-file F
  * --pool-size N --master-seed-file F --gate-key-file F --invite-secret-file F
- * --state-file F --min-pool-sol X --dev`) over FRONTIER_* environment
+ * --state-file F --event-log F --min-pool-sol X --dev`) over FRONTIER_* environment
  * variables over the defaults. Throws on a bad value.
  */
 export function loadFrontierConfig(argv = [], env = {}) {
@@ -96,6 +98,7 @@ export function loadFrontierConfig(argv = [], env = {}) {
     gateKeyFile: pick('gate-key-file', 'FRONTIER_GATE_KEY_FILE', d.gateKeyFile),
     inviteSecretFile: pick('invite-secret-file', 'FRONTIER_INVITE_SECRET_FILE', d.inviteSecretFile),
     stateFile: pick('state-file', 'FRONTIER_RELAY_STATE', d.stateFile),
+    eventLog: pick('event-log', 'FRONTIER_EVENT_LOG', d.eventLog),
     minPoolSol: Number(pick('min-pool-sol', 'FRONTIER_MIN_POOL_SOL', d.minPoolSol)),
     minPayerLamports: int(pick('min-payer-lamports', 'FRONTIER_MIN_PAYER_LAMPORTS', d.minPayerLamports), '--min-payer-lamports'),
     dev: !!(flags.dev ?? (env.FRONTIER_DEV === '1' || d.dev)),

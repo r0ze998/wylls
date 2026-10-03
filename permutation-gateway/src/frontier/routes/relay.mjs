@@ -153,7 +153,7 @@ async function sponsor(ctx, req, { tx, wire, shape, requester = null, requesterC
     throw e;
   }
   ctx.sent.set(signature, { lastValidBlockHeight: expiry, kind: shape.name });
-  onSent?.();
+  onSent?.({ signature });
   ctx.log?.(`f/relay ${shape.name} ${signature} (fee payer ${shape.feePayer}, quota ${key}, moved ${moved})`);
   return { ok: true, signature };
 }
@@ -198,7 +198,8 @@ export const relayRoutes = {
     const named = shape.accounts.join_gate;
     if (!gated) {
       if (named !== undefined) throw new RouteError(400, 'relay refused: this season has no join gate; leave the gate account out', 'RelayRejected');
-      return { body: await sponsor(ctx, req, { tx, wire, shape, limitKind: 'join', lastValidBlockHeight: b.lastValidBlockHeight }) };
+      return { body: await sponsor(ctx, req, { tx, wire, shape, limitKind: 'join', lastValidBlockHeight: b.lastValidBlockHeight,
+        onSent: ({ signature }) => ctx.events.write('join', { invite: null, wallet: shape.authority, signature }) }) };
     }
     if (named !== gate) throw new RouteError(400, 'relay refused: the Join must name the season\'s join gate as its last account (GET /f/season)', 'RelayRejected');
     if (!ctx.gateKey || ctx.gateKey.publicKey.toBase58() !== gate) throw new RouteError(503, 'this relay does not hold the season\'s join-gate key', 'GateUnavailable');
@@ -208,7 +209,10 @@ export const relayRoutes = {
     if (!nonce) throw new RouteError(403, 'this season needs a valid, unused invite to join', 'InviteRequired');
     try {
       return { body: await sponsor(ctx, req, { tx, wire, shape, extraSigners: [ctx.gateKey], limitKind: 'join', lastValidBlockHeight: b.lastValidBlockHeight,
-        onSent: () => ctx.invites.consume(nonce) }) };
+        onSent: ({ signature }) => {
+          ctx.invites.consume(nonce);
+          ctx.events.write('join', { invite: nonce, wallet: shape.authority, signature });
+        } }) };
     } finally {
       ctx.invites.release(nonce);
     }

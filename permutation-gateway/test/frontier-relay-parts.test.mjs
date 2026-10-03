@@ -126,6 +126,9 @@ test('config: M1 ports only (41000–41999, never a reserved one), public listen
   assert.equal(cfg.port, 41030);
   assert.equal(cfg.publicPort, 41033);
   assert.equal(cfg.poolSize, 150);
+  assert.equal(cfg.eventLog, null, 'no event log unless asked (PT-A)');
+  assert.equal(loadFrontierConfig(['--program', 'x', '--season', '5', '--event-log', '/tmp/e.jsonl']).eventLog, '/tmp/e.jsonl');
+  assert.equal(loadFrontierConfig(['--program', 'x', '--season', '5'], { FRONTIER_EVENT_LOG: '/tmp/f.jsonl' }).eventLog, '/tmp/f.jsonl');
   const base = { ...cfg };
   assert.ok(checkFrontierConfig({ ...base, publicHost: '0.0.0.0' }).some(e => /loopback only/.test(e)));
   assert.ok(checkFrontierConfig({ ...base, port: 4191 }).some(e => /reserved/.test(e)));
