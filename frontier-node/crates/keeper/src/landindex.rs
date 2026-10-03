@@ -152,6 +152,34 @@ impl LandIndex {
 
     /// Ingests one PS2 body.
     pub fn ingest(&mut self, body: &[u8], slot: u64, addrs: &Addresses) {
+        // ABI v2 (R-22): MC kinds (80–88) are counted, not refused. The
+        // index keeps no owner per Holding (the keeper reads the Holding
+        // itself before every write), so a capture's change of owner
+        // leaves nothing stale here; only a Free City capture (outcome 2)
+        // founds a Holding, which joins `holdings` like a SETTLE does.
+        if body
+            .get(1)
+            .is_some_and(|k| *k >= fclient::abi::kind::SIEGE_DECLARED)
+        {
+            *self.counts.entry("MC").or_default() += 1;
+            if let Some(fclient::conquest::CqLog {
+                event:
+                    fclient::conquest::CqEvent::CaptureSettled {
+                        p,
+                        q,
+                        site,
+                        outcome,
+                        ..
+                    },
+                ..
+            }) = fclient::conquest::parse(body)
+            {
+                if outcome == 2 {
+                    self.holdings.insert((p as i16, q as i16, site));
+                }
+            }
+            return;
+        }
         let Ok(r) = plog::decode(body) else {
             self.bad += 1;
             return;

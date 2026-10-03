@@ -6,6 +6,9 @@
 use solana_address::Address;
 
 use crate::abi::{layout as l, magic, size};
+pub use frontier_abi::conquest_model::Record as CqRecord;
+pub use frontier_abi::v2::kernel::keep::Keep;
+pub use frontier_abi::v2::presets::ConquestParams;
 
 /// Why an account cannot be decoded.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -101,6 +104,16 @@ pub fn chained_header(d: &[u8]) -> Option<Header> {
     (d.len() >= l::h::LEN).then(|| header(Bytes(d)))
 }
 
+/// Whether a chained account is ABI v2 (`layout_version ≥ 2`, MC contract
+/// §5.1, R-22: readers dispatch on it).
+pub fn layout_is_v2(d: &[u8]) -> bool {
+    chained_header(d).is_some_and(|h| h.layout_version >= crate::abi::LAYOUT_VERSION_V2)
+}
+
+fn is_v2(b: Bytes) -> bool {
+    layout_is_v2(b.0)
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Season {
     pub h: Header,
@@ -159,9 +172,18 @@ pub struct Season {
     pub dpool_initial: u64,
     pub reveal_loaded_limit: u32,
     pub join_gate: Address,
+    /// ABI v2 (MC contract §5.2.5, R-22): the `SeasonParams` v2 conquest
+    /// block, read when `program_version ≥ 2` (an MC season); `None` for
+    /// an M1 season.
+    pub conquest: Option<ConquestParams>,
 }
 
 impl Season {
+    /// Whether this is an MC season (ABI v2: `program_version ≥ 2`).
+    pub fn is_v2(&self) -> bool {
+        self.program_version >= crate::abi::PROGRAM_VERSION_V2
+    }
+
     pub fn decode(d: &[u8]) -> Result<Season, DecodeError> {
         use l::season as s;
         let b = check(d, magic::SEASON, s::END)?;
@@ -222,6 +244,9 @@ impl Season {
             dpool_initial: b.u64(s::DPOOL_INITIAL),
             reveal_loaded_limit: b.u32(s::REVEAL_LOADED_LIMIT),
             join_gate: b.key(s::JOIN_GATE),
+            conquest: (b.u16(s::PROGRAM_VERSION) >= crate::abi::PROGRAM_VERSION_V2)
+                .then(|| ConquestParams::of_season(d))
+                .flatten(),
         })
     }
 
@@ -355,6 +380,18 @@ pub struct JoinShard {
     pub final_holdings: u32,
     pub holdings_by_wedge: [u32; 6],
     pub released: u32,
+    /// ABI v2 (MC §5.2.4): the conquest counters (`layout_version ≥ 2`).
+    pub cq: Option<JoinShardCq>,
+}
+
+/// JoinShard v2 counters (MC contract §5.2.4).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct JoinShardCq {
+    pub extra_holdings: u32,
+    pub captured_in: u32,
+    pub captured_out: u32,
+    pub razed: u32,
+    pub outposts: u32,
 }
 
 impl JoinShard {
@@ -370,6 +407,16 @@ impl JoinShard {
             final_holdings: b.u32(j::FINAL_HOLDINGS),
             holdings_by_wedge: u32x6(b, j::HOLDINGS_BY_WEDGE),
             released: b.u32(j::RELEASED),
+            cq: is_v2(b).then(|| {
+                use frontier_abi::v2::layout::world::join_shard as j2;
+                JoinShardCq {
+                    extra_holdings: b.u32(j2::EXTRA_HOLDINGS),
+                    captured_in: b.u32(j2::CAPTURED_IN),
+                    captured_out: b.u32(j2::CAPTURED_OUT),
+                    razed: b.u32(j2::RAZED),
+                    outposts: b.u32(j2::OUTPOSTS),
+                }
+            }),
         })
     }
 }
@@ -465,6 +512,27 @@ pub struct Citizen {
     pub rent_payer: Address,
     pub ticket_escrow: u64,
     pub ticket_funder: Address,
+    /// ABI v2 (MC §5.2.3): the siege counter and the holding slots.
+    pub cq: Option<CitizenCq>,
+}
+
+/// Citizen v2 fields (MC contract §5.2.3). In an MC season `holding[i]`
+/// is slot `i + 1` and an empty entry has `gen = 0xFF`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CitizenCq {
+    pub sieges_today: u8,
+    pub siege_day: u16,
+    /// Bits 0–1 the open ticket's slot; bit 2 / 3 slot 2 / 3 reserved by
+    /// a capture siege (K-25).
+    pub slots: u8,
+}
+
+impl CitizenCq {
+    /// Whether a capture siege reserves `slot` (2 or 3).
+    pub fn reserved(&self, slot: u8) -> bool {
+        let bit = frontier_abi::v2::layout::player::citizen::reserved_bit(slot);
+        bit != 0 && self.slots & bit != 0
+    }
 }
 
 impl Citizen {
@@ -518,6 +586,14 @@ impl Citizen {
             rent_payer: b.key(c::RENT_PAYER),
             ticket_escrow: b.u64(c::TICKET_ESCROW),
             ticket_funder: b.key(c::TICKET_FUNDER),
+            cq: is_v2(b).then(|| {
+                use frontier_abi::v2::layout::player::citizen as c2;
+                CitizenCq {
+                    sieges_today: b.u8(c2::SIEGES_TODAY),
+                    siege_day: b.u16(c2::SIEGE_DAY),
+                    slots: b.u8(c2::SLOTS),
+                }
+            }),
         })
     }
 }
@@ -644,6 +720,27 @@ pub struct Holding {
     pub rent_payer: Address,
     pub final_ts: i64,
     pub pool_owed: u64,
+    /// ABI v2 (MC §5.2.2): the capture fields.
+    pub cq: Option<HoldingCq>,
+}
+
+/// Holding v2 capture fields (MC contract §5.2.2).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HoldingCq {
+    /// 0 = never captured.
+    pub prev_owner_tag: u64,
+    pub prev_gen: u8,
+    /// Bit 0: captured.
+    pub capture_flags: u8,
+    pub captured_bell: u32,
+    /// The victim's first-holding key (host-id form).
+    pub prev_home: u64,
+}
+
+impl HoldingCq {
+    pub fn captured(&self) -> bool {
+        self.capture_flags & frontier_abi::v2::layout::player::holding::CAPTURE_FLAG_CAPTURED != 0
+    }
 }
 
 impl Holding {
@@ -716,6 +813,16 @@ impl Holding {
             rent_payer: b.key(h::RENT_PAYER),
             final_ts: b.i64(h::FINAL_TS),
             pool_owed: b.u64(h::POOL_OWED),
+            cq: is_v2(b).then(|| {
+                use frontier_abi::v2::layout::player::holding as h2;
+                HoldingCq {
+                    prev_owner_tag: b.u64(h2::PREV_OWNER_TAG),
+                    prev_gen: b.u8(h2::PREV_GEN),
+                    capture_flags: b.u8(h2::CAPTURE_FLAGS),
+                    captured_bell: b.u32(h2::CAPTURED_BELL),
+                    prev_home: b.u64(h2::PREV_HOME),
+                }
+            }),
         })
     }
 
@@ -865,6 +972,92 @@ pub struct Province {
     pub last_resolve: [u8; 32],
     pub camp: Camp,
     pub cohorts: [Cohort; 8],
+    /// ABI v2 (MC §5.2.1): the conquest block and the named site-mirror
+    /// bytes, read when `layout_version ≥ 2` and the account is 4,736 B.
+    pub cq: Option<Box<ProvinceCq>>,
+}
+
+/// The site-mirror bytes v2 names (MC contract §5.2.1).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SiteCq {
+    pub tier_next: u8,
+    pub held_since_hour: u16,
+    pub tier_next_bell: u32,
+}
+
+/// The Province v2 conquest block (MC contract §5.2.1), decoded with
+/// frontier-abi's `conquest_model` readers.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProvinceCq {
+    pub records: [CqRecord; 12],
+    /// `None` for rings 0–1 (`tile = 0xFF`).
+    pub keep: Option<Keep>,
+    /// `snap[slot] = (hour, weight[7])`, ring slot `hour mod 6`.
+    pub snaps: [(u32, [u16; 7]); 6],
+    pub captures_by: [u16; 6],
+    pub keeps_taken_by: [u16; 6],
+    pub sites: [SiteCq; 12],
+}
+
+impl ProvinceCq {
+    /// Sites with a siege (kind 1).
+    pub fn sieges(&self) -> impl Iterator<Item = (usize, &CqRecord)> {
+        self.kind(1)
+    }
+    /// Sites with an occupation (kind 2).
+    pub fn occupations(&self) -> impl Iterator<Item = (usize, &CqRecord)> {
+        self.kind(2)
+    }
+    /// Sites with a capture due (kind 3: waits for SettleCapture).
+    pub fn captures_due(&self) -> impl Iterator<Item = (usize, &CqRecord)> {
+        self.kind(3)
+    }
+    fn kind(&self, k: u8) -> impl Iterator<Item = (usize, &CqRecord)> {
+        self.records
+            .iter()
+            .enumerate()
+            .filter(move |(_, r)| r.kind == k)
+    }
+    /// A keep contest is running (a contender is counting).
+    pub fn keep_contested(&self) -> bool {
+        self.keep
+            .is_some_and(|k| k.contender != frontier_abi::v2::layout::province::keep::NONE)
+    }
+    /// A siege, an occupation or a keep contest is running (CQ1-C D-15).
+    pub fn active(&self) -> bool {
+        self.records.iter().any(|r| r.active()) || self.keep_contested()
+    }
+    /// Records owing a stake or a slot (SettleSiege applies), or sieges
+    /// that lapse at the season's end.
+    pub fn owing(&self) -> impl Iterator<Item = (usize, &CqRecord)> {
+        self.records.iter().enumerate().filter(|(_, r)| r.owes())
+    }
+}
+
+impl ProvinceCq {
+    fn decode(d: &[u8]) -> Option<ProvinceCq> {
+        use frontier_abi::conquest_model as cm;
+        use frontier_abi::v2::layout::province::{province as p2, site as s2};
+        if d.len() < p2::SIZE {
+            return None;
+        }
+        let b = Bytes(d);
+        Some(ProvinceCq {
+            records: cm::decode_records(d).ok()?,
+            keep: cm::read_keep(d).ok()?,
+            snaps: core::array::from_fn(|i| cm::snapshot(d, i).unwrap_or((0, [0; 7]))),
+            captures_by: core::array::from_fn(|f| b.u16(p2::captures_by(f))),
+            keeps_taken_by: core::array::from_fn(|f| b.u16(p2::keeps_taken_by(f))),
+            sites: core::array::from_fn(|i| {
+                let o = p2::site(i);
+                SiteCq {
+                    tier_next: b.u8(o + s2::TIER_NEXT),
+                    held_since_hour: b.u16(o + s2::HELD_SINCE_HOUR),
+                    tier_next_bell: b.u32(o + s2::TIER_NEXT_BELL),
+                }
+            }),
+        })
+    }
 }
 
 impl Province {
@@ -916,6 +1109,11 @@ impl Province {
                     settled: b.u16(o + 6),
                 }
             }),
+            cq: if is_v2(b) {
+                ProvinceCq::decode(d).map(Box::new)
+            } else {
+                None
+            },
         })
     }
 }
@@ -1243,6 +1441,49 @@ impl DefenceClaim {
     }
 }
 
+/// MarchState (ABI v2, MC contract §5.2.6): one March's fold state and
+/// its Dominion counters.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MarchState {
+    pub h: Header,
+    pub m: i32,
+    pub n: i32,
+    /// The next hour FoldMarch folds.
+    pub next_hour: u32,
+    /// 0–5 a faction, 6 neutral, 0xFF contested or open.
+    pub controller: u8,
+    pub contested: u8,
+    pub last_flip_hour: u32,
+    pub lost_hours: u32,
+    pub weight: [u32; 7],
+    pub dominion_bells: [u32; 6],
+    pub control_hours: [u32; 6],
+    pub captures: [u16; 6],
+    pub rent_to: Address,
+}
+
+impl MarchState {
+    pub fn decode(d: &[u8]) -> Result<MarchState, DecodeError> {
+        use frontier_abi::v2::layout::world::march_state as ms;
+        let b = check(d, magic::MARCH_STATE, size::MARCH_STATE)?;
+        Ok(MarchState {
+            h: header(b),
+            m: b.i32(ms::M),
+            n: b.i32(ms::N),
+            next_hour: b.u32(ms::NEXT_HOUR),
+            controller: b.u8(ms::CONTROLLER),
+            contested: b.u8(ms::CONTESTED),
+            last_flip_hour: b.u32(ms::LAST_FLIP_HOUR),
+            lost_hours: b.u32(ms::LOST_HOURS),
+            weight: core::array::from_fn(|i| b.u32(ms::weight(i))),
+            dominion_bells: core::array::from_fn(|f| b.u32(ms::dominion_bells(f))),
+            control_hours: core::array::from_fn(|f| b.u32(ms::control_hours(f))),
+            captures: core::array::from_fn(|f| b.u16(ms::captures(f))),
+            rent_to: b.key(ms::RENT_TO),
+        })
+    }
+}
+
 /// Any decoded program account.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AnyAccount {
@@ -1263,9 +1504,12 @@ pub enum AnyAccount {
     SeedCache(SeedCache),
     AnchorArchive(Box<AnchorArchive>),
     DefenceClaim(DefenceClaim),
+    /// ABI v2.
+    MarchState(Box<MarchState>),
 }
 
-/// Decodes by magic.
+/// Decodes by magic. Version dispatch (R-22) is inside each decoder: a
+/// chained account with `layout_version ≥ 2` also decodes its v2 fields.
 pub fn any(d: &[u8]) -> Option<Result<AnyAccount, DecodeError>> {
     let m: [u8; 8] = d.get(..8)?.try_into().ok()?;
     Some(match &m {
@@ -1290,6 +1534,9 @@ pub fn any(d: &[u8]) -> Option<Result<AnyAccount, DecodeError>> {
             AnchorArchive::decode(d).map(|v| AnyAccount::AnchorArchive(Box::new(v)))
         }
         x if x == magic::DEFENCE_CLAIM => DefenceClaim::decode(d).map(AnyAccount::DefenceClaim),
+        x if x == magic::MARCH_STATE => {
+            MarchState::decode(d).map(|v| AnyAccount::MarchState(Box::new(v)))
+        }
         _ => return None,
     })
 }
@@ -1333,6 +1580,134 @@ mod tests {
             BellAnchor::decode(&d[..20]),
             Err(DecodeError::Short { .. })
         ));
+    }
+
+    /// R-22: one reader for both versions. A v1 Province (4,096 B,
+    /// `layout_version` 1) has no conquest block; a v2 one (4,736 B,
+    /// `layout_version` 2) decodes its records, keep and snapshots with
+    /// frontier-abi's readers; the M1 prefix reads the same in both.
+    #[test]
+    fn cq_province_reader_dispatches_on_the_version() {
+        use frontier_abi::conquest_model as cm;
+        use frontier_abi::v2::layout::province::{conquest as cr, province as p2};
+        let mut v1 = vec![0u8; size::PROVINCE];
+        put(&mut v1, 0, magic::PROVINCE);
+        put(&mut v1, l::h::LAYOUT_VERSION, &1u16.to_le_bytes());
+        put(&mut v1, l::province::RESOLVED_NEXT, &77u32.to_le_bytes());
+        let a = Province::decode(&v1).unwrap();
+        assert!(a.cq.is_none());
+        let mut v2 = vec![0u8; size::PROVINCE_V2];
+        assert!(frontier_abi::v2::layout::write_header(
+            &mut v2,
+            frontier_abi::v2::layout::AccountKind::Province,
+            7
+        ));
+        v2[l::province::RESOLVED_NEXT..l::province::RESOLVED_NEXT + 4]
+            .copy_from_slice(&77u32.to_le_bytes());
+        let k = Keep {
+            tile: 30,
+            holder: 2,
+            contender: 4,
+            progress: 9,
+            required: 72,
+            heartland_safe: false,
+            paused: false,
+            changes: 1,
+            troops: 500,
+            since_bell: 3,
+            consolidated_until_bell: 0,
+            contest_from_bell: 20,
+            gen: 1,
+            last_taken_from: 0xFF,
+        };
+        cm::write_keep(&mut v2, &k).unwrap();
+        let r = CqRecord {
+            kind: cr::KIND_SIEGE,
+            faction: 3,
+            required: 60,
+            bell: 40,
+            actor: 9,
+            src: 11,
+            ..CqRecord::ZERO
+        };
+        r.write(&mut v2, 5).unwrap();
+        put(&mut v2, p2::captures_by(3), &4u16.to_le_bytes());
+        let b = Province::decode(&v2).unwrap();
+        assert_eq!(b.resolved_next, a.resolved_next);
+        let cq = b.cq.as_ref().expect("v2 block");
+        assert_eq!(cq.keep, Some(k));
+        assert!(cq.keep_contested() && cq.active());
+        assert_eq!(cq.sieges().map(|x| x.0).collect::<Vec<_>>(), vec![5]);
+        assert_eq!(cq.records[5], r);
+        assert_eq!(cq.captures_by[3], 4);
+        // A v2 header on a v1-sized account has no block to read.
+        let mut short = v2[..size::PROVINCE].to_vec();
+        short[l::h::LAYOUT_VERSION] = 2;
+        assert!(Province::decode(&short).unwrap().cq.is_none());
+    }
+
+    #[test]
+    fn cq_march_state_season_and_holding_v2() {
+        use frontier_abi::v2::layout::{world::march_state as ms, AccountKind as K2};
+        let mut d = vec![0u8; size::MARCH_STATE];
+        assert!(frontier_abi::v2::layout::write_header(
+            &mut d,
+            K2::MarchState,
+            7
+        ));
+        put(&mut d, ms::M, &(-2i32).to_le_bytes());
+        put(&mut d, ms::N, &3i32.to_le_bytes());
+        put(&mut d, ms::NEXT_HOUR, &12u32.to_le_bytes());
+        d[ms::CONTROLLER] = 4;
+        put(&mut d, ms::dominion_bells(4), &60u32.to_le_bytes());
+        let m = MarchState::decode(&d).unwrap();
+        assert_eq!((m.m, m.n, m.next_hour, m.controller), (-2, 3, 12, 4));
+        assert_eq!(m.dominion_bells[4], 60);
+        assert!(matches!(any(&d), Some(Ok(AnyAccount::MarchState(_)))));
+        // Season: the conquest block only for program_version 2.
+        let p = frontier_abi::v2::presets::MC_TEST;
+        let mut s = vec![0u8; size::SEASON];
+        put(&mut s, 0, magic::SEASON);
+        let cq = p.cq.to_bytes();
+        let o = frontier_abi::v2::presets::SEASON_CQ_OFFSET;
+        s[o..o + cq.len()].copy_from_slice(&cq);
+        put(&mut s, l::season::PROGRAM_VERSION, &1u16.to_le_bytes());
+        assert!(Season::decode(&s).unwrap().conquest.is_none());
+        put(&mut s, l::season::PROGRAM_VERSION, &2u16.to_le_bytes());
+        let sv = Season::decode(&s).unwrap();
+        assert!(sv.is_v2());
+        assert_eq!(sv.conquest, Some(p.cq));
+        // Holding v2 capture fields.
+        let mut h = vec![0u8; size::HOLDING];
+        assert!(frontier_abi::v2::layout::write_header(
+            &mut h,
+            K2::Holding,
+            7
+        ));
+        use frontier_abi::v2::layout::player::holding as h2;
+        put(&mut h, h2::PREV_OWNER_TAG, &99u64.to_le_bytes());
+        h[h2::PREV_GEN] = 1;
+        h[h2::CAPTURE_FLAGS] = 1;
+        put(&mut h, h2::PREV_HOME, &1234u64.to_le_bytes());
+        let hc = Holding::decode(&h).unwrap().cq.unwrap();
+        assert!(hc.captured());
+        assert_eq!(
+            (hc.prev_owner_tag, hc.prev_gen, hc.prev_home),
+            (99, 1, 1234)
+        );
+        let mut c = vec![0u8; size::CITIZEN];
+        assert!(frontier_abi::v2::layout::write_header(
+            &mut c,
+            K2::Citizen,
+            7
+        ));
+        c[frontier_abi::v2::layout::player::citizen::SLOTS] = 0b1000 | 2;
+        let cc = Citizen::decode(&c).unwrap().cq.unwrap();
+        assert!(cc.reserved(3) && !cc.reserved(2));
+        // A v1 Holding has none.
+        let mut h1 = vec![0u8; size::HOLDING];
+        put(&mut h1, 0, magic::HOLDING);
+        assert!(Holding::decode(&h1).unwrap().cq.is_none());
     }
 
     #[test]

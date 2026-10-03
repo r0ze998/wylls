@@ -55,6 +55,8 @@ pub enum LogError {
     /// More than one tail length is consistent and no length table decides.
     Ambiguous(Vec<usize>),
     Base64,
+    /// frontier-abi's exact decoder refused the body ([`Record::decode_v2`]).
+    Abi(frontier_abi::log::LogError),
 }
 
 /// Optional per-kind `key ‖ payload` lengths (from `frontier-abi::log`).
@@ -100,6 +102,32 @@ impl Record {
 
     pub fn decode(body: &[u8]) -> Result<Record, LogError> {
         Self::decode_with(body, &NoLens)
+    }
+
+    /// ABI v2 reader (MC contract §5.1, §6; R-22): any M1 or MC kind, with
+    /// frontier-abi's exact key and payload widths and tail entity kinds
+    /// 1–8 (MarchState). An M1 season's records decode the same way
+    /// (`frontier_abi::v2::log` is a superset), so one reader serves both.
+    pub fn decode_v2(body: &[u8]) -> Result<Record, LogError> {
+        let r = frontier_abi::v2::log::decode(body).map_err(LogError::Abi)?;
+        let kp = r.key.len() + r.payload.len();
+        Ok(Record {
+            ver: body[0],
+            kind: r.kind.code(),
+            bell: r.bell,
+            key_payload: body[6..6 + kp].to_vec(),
+            links: r
+                .links
+                .iter()
+                .take(r.n_links)
+                .flatten()
+                .map(|l| Link {
+                    entity: l.entity as u8,
+                    seq: l.seq,
+                    head: l.head,
+                })
+                .collect(),
+        })
     }
 
     pub fn decode_with(body: &[u8], lens: &dyn BodyLens) -> Result<Record, LogError> {
@@ -420,6 +448,41 @@ mod tests {
             line,
         ];
         assert!(bodies_from_logs(&failed, &me).unwrap().is_empty());
+    }
+
+    /// R-22: the v2 reader decodes an MC record chained to a MarchState
+    /// (entity 8, which the M1 heuristic does not accept) and an M1 record
+    /// alike.
+    #[test]
+    fn cq_decode_v2_reads_both_abis() {
+        use frontier_abi::v2::log::{AnyKind, CqKind};
+        let k = AnyKind::Cq(CqKind::MARCH_FOLD);
+        let kp = vec![3u8; k.key_len() + k.payload_len()];
+        let r = chain(
+            1,
+            kind::MARCH_FOLD,
+            42,
+            &kp,
+            &[(entity::MARCH_STATE, 0, [0; 32])],
+        );
+        let body = r.encode();
+        assert_eq!(Record::decode_v2(&body).unwrap(), r);
+        assert!(
+            Record::decode(&body).is_err(),
+            "M1 heuristic: entity 8 unknown"
+        );
+        let h = AnyKind::V1(frontier_abi::log::Kind::HARVEST);
+        let r1 = chain(
+            1,
+            kind::HARVEST,
+            7,
+            &vec![5u8; h.key_len() + h.payload_len()],
+            &[(entity::CITIZEN, 3, [9; 32]), (entity::HOLDING, 0, [0; 32])],
+        );
+        assert_eq!(Record::decode_v2(&r1.encode()).unwrap(), r1);
+        let mut short = body.clone();
+        short.pop();
+        assert!(matches!(Record::decode_v2(&short), Err(LogError::Abi(_))));
     }
 
     #[test]
