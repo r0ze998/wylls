@@ -230,3 +230,6 @@ pub const CLOSE_CITIZEN: &[Cover] = &[
     ),
     Cover::Test("citizen::g01_land_other_instructions", &[Loaded]),
 ];
+
+/// 0xA3 FileOutpost (MC §3.8, §5.5): CQ2-A.
+pub const FILE_OUTPOST: &[Cover] = &[Cover::Pending("CQ2-A")];

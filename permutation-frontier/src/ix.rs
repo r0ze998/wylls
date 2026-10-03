@@ -9,6 +9,15 @@
 pub use frontier_abi::ix::*;
 pub use frontier_abi::tags::{is_reserved, Class, Ix};
 
+/// ABI v2 (MC contract §5.4–§5.6): the v2 tag set the program dispatches
+/// on (`v2::Ix`, 57 tags), the new instructions' data and CreateSeason v2.
+/// The M1 names above are unchanged; a changed M1 instruction keeps its
+/// data and changes only its account list (§5.6).
+pub mod v2 {
+    pub use frontier_abi::v2::ix::*;
+    pub use frontier_abi::v2::tags::{is_reserved, relay_player_shape, relay_settle_shape, Ix};
+}
+
 /// A verified-beacon argument as instructions carry it: the round, the
 /// 48-B compressed quicknet signature and the two 145-B SSWU hints
 /// (`hint(u0) ‖ hint(u1)`, SP-V2 `quick::HINT_LEN`).
@@ -111,6 +120,23 @@ mod tests {
         }
         for t in [0x00u8, 0x0a, 0x53, 0x80, 0x8f, 0x90, 0x91, 0xff] {
             assert!(tag_of(&[t]).is_err(), "{t:#x}");
+        }
+    }
+
+    /// The v2 dispatch set (MC §5.4): every M1 tag plus the seven MC tags;
+    /// 0xA4 and 0xA8–0xAF stay reserved (`BadData`).
+    #[test]
+    fn every_v2_tag_decodes_and_reserved_ones_do_not() {
+        assert_eq!(v2::Ix::ALL.len(), 57);
+        for ix in v2::Ix::ALL {
+            assert_eq!(v2::tag_of(&[ix.tag()]), Ok(*ix));
+            assert!(!v2::is_reserved(ix.tag()));
+        }
+        for v1 in Ix::ALL {
+            assert_eq!(v2::Ix::of_v1(*v1).tag(), v1.tag());
+        }
+        for t in [0xA4u8, 0xA8, 0xAB, 0xAF, 0x53, 0x00, 0xff] {
+            assert!(v2::tag_of(&[t]).is_err(), "{t:#x}");
         }
     }
 }

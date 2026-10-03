@@ -19,9 +19,11 @@
 //! layout and says so in the test that uses it.
 //!
 //! Area builders: [`land`] (W3-A), [`holding`] (W3-B), [`clash`] (W4-A),
-//! [`transit`] (W4-B): stubs, handed over (§11).
+//! [`transit`] (W4-B): stubs, handed over (§11); MC: [`conquest`] (CQ2-C,
+//! a stub from CQ2-A's first commit).
 
 pub mod clash;
+pub mod conquest;
 pub mod holding;
 pub mod land;
 pub mod transit;
