@@ -1,0 +1,111 @@
+{
+  "files": [
+    {
+      "code": null,
+      "file": "standings-latest.json",
+      "format": "standingsLatest"
+    },
+    {
+      "code": null,
+      "file": "players.json",
+      "format": "players"
+    },
+    {
+      "code": null,
+      "file": "call-d2.json",
+      "format": "call"
+    },
+    {
+      "code": null,
+      "file": "siege-3,-1,2-100.json",
+      "format": "siege"
+    },
+    {
+      "code": null,
+      "file": "keep--2,4.json",
+      "format": "keep"
+    },
+    {
+      "code": null,
+      "file": "final.json",
+      "format": "final"
+    },
+    {
+      "code": null,
+      "file": "players-empty.json",
+      "format": "players"
+    },
+    {
+      "code": "BadValue",
+      "file": "bad-latest-official.json",
+      "format": "standingsLatest"
+    },
+    {
+      "code": "BadOrder",
+      "file": "bad-latest-order.json",
+      "format": "standingsLatest"
+    },
+    {
+      "code": "BadOrder",
+      "file": "bad-players-rank.json",
+      "format": "players"
+    },
+    {
+      "code": "BadValue",
+      "file": "bad-players-tag.json",
+      "format": "players"
+    },
+    {
+      "code": "BadValue",
+      "file": "bad-call-rally.json",
+      "format": "call"
+    },
+    {
+      "code": "BadValue",
+      "file": "bad-call-seed.json",
+      "format": "call"
+    },
+    {
+      "code": "BadValue",
+      "file": "bad-siege-key.json",
+      "format": "siege"
+    },
+    {
+      "code": "BadOrder",
+      "file": "bad-siege-series.json",
+      "format": "siege"
+    },
+    {
+      "code": "BadValue",
+      "file": "bad-keep-holders.json",
+      "format": "keep"
+    },
+    {
+      "code": "BadValue",
+      "file": "bad-keep-running.json",
+      "format": "keep"
+    },
+    {
+      "code": "BadValue",
+      "file": "bad-final-control.json",
+      "format": "final"
+    },
+    {
+      "code": "BadValue",
+      "file": "bad-final-bps.json",
+      "format": "final"
+    },
+    {
+      "code": "BadValue",
+      "file": "bad-final-days.json",
+      "format": "final"
+    },
+    {
+      "code": "BadJson",
+      "file": "bad-final-json.json",
+      "format": "final"
+    }
+  ],
+  "producer": "frontier-node/crates/herald/src/cqfmt.rs (cq2e_vectors::files); FRONTIER_WRITE_FIXTURES=1 cargo test -p herald cq_json_vectors_fresh",
+  "v": 1
+}

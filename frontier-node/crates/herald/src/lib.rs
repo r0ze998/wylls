@@ -22,7 +22,12 @@
 pub mod checkpoint;
 pub mod clash;
 // MC hook: conquest milestone modules (CONQUEST-CONTRACT §4.5, §8.4)
+pub mod conquest;
+pub mod control;
+pub mod cqfixture;
 pub mod cqfmt;
+pub mod cqroutes;
+pub mod standings;
 // MC hook end
 pub mod files;
 pub mod fixture;

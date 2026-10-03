@@ -2767,3 +2767,1830 @@ mod tests {
         assert_eq!(parse_tag("08070605040302AB"), None);
     }
 }
+
+// ==================================================================== CQ2-E additions (v1.2, A-4)
+//
+// The JSON shapes §8.4 lists but does not pin, added by CQ2-E (the pinned
+// codecs above and their vectors are unchanged, byte for byte):
+//
+// | path | here |
+// |---|---|
+// | `/h/standings/latest.json` | [`StandingsLatest`] |
+// | `/h/standings/players.json` | [`PlayersFile`] |
+// | `/h/call/{day}.json` | [`CallFile`] |
+// | `/h/season/final.json` | [`FinalFile`] |
+// | `/h/siege/{P},{Q},{site}/{declared}.json` | [`SiegeHistory`] |
+// | `/h/keep/{P},{Q}.json` | [`KeepHistory`] |
+// | WS `kind:"siege"` | [`SiegeDelta`] |
+//
+// Same conventions as CF-7: compact canonical JSON in the documented field
+// order, citizen tags as 16 lowercase hex characters, `seq` as a decimal
+// string, `sig` base58, no floats (ratios are basis points, `…Bps`).
+// Their vectors live in `frontier-node/crates/herald/vectors/cq-json/`
+// (one producer: [`cq2e_vectors::files`]; freshness:
+// `cq_json_vectors_fresh`), beside the CQ1-D set, which stays untouched.
+
+fn bool_field(o: &serde_json::Map<String, Value>, k: &str, at: &str) -> Result<bool, FormatError> {
+    field(o, k, at)?.as_bool().ok_or_else(|| FormatError {
+        code: BAD_SCHEMA,
+        detail: format!("{at}: {k} is not a boolean"),
+    })
+}
+
+fn u64_str(o: &serde_json::Map<String, Value>, k: &str, at: &str) -> Result<u64, FormatError> {
+    let s = string(o, k, at)?;
+    (!s.is_empty() && s.bytes().all(|c| c.is_ascii_digit()) && (s == "0" || !s.starts_with('0')))
+        .then(|| s.parse::<u64>().ok())
+        .flatten()
+        .ok_or_else(|| FormatError {
+            code: BAD_VALUE,
+            detail: format!("{at}: {k} {s:?} is not a decimal u64"),
+        })
+}
+
+fn sig_ok(s: &str) -> bool {
+    (1..=90).contains(&s.len()) && s.chars().all(|c| B58.contains(c))
+}
+
+fn hex32(o: &serde_json::Map<String, Value>, k: &str, at: &str) -> Result<[u8; 32], FormatError> {
+    let s = string(o, k, at)?;
+    let mut a = [0u8; 32];
+    let ok = s.len() == 64
+        && s.bytes()
+            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+        && hex::decode_to_slice(s, &mut a).is_ok();
+    ensure(ok, BAD_VALUE, || {
+        format!("{at}: {k} is not 64 lowercase hex")
+    })?;
+    Ok(a)
+}
+
+fn march_json(m: &MarchCoord) -> String {
+    format!("{{\"m\":{},\"n\":{}}}", m.m, m.n)
+}
+
+fn march_of_json(v: &Value, at: &str) -> Result<MarchCoord, FormatError> {
+    let mo = obj(v, at)?;
+    Ok(MarchCoord {
+        m: int(mo, "m", -COORD, COORD, at)? as i32,
+        n: int(mo, "n", -COORD, COORD, at)? as i32,
+    })
+}
+
+const U16: i64 = u16::MAX as i64;
+const U32: i64 = u32::MAX as i64;
+
+// ------------------------------------------------------------------ /h/standings/latest.json
+
+/// One faction's standing: its `PSFSD1` row plus the members and the
+/// unofficial Dominion figures (§3.10: game points, `official: false`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FactionStanding {
+    pub row: FactionHour,
+    /// Citizens of the faction (JoinShards' `members`).
+    pub members: u32,
+    /// `dominion_bells + dominion_per_capture × captures` (§3.10).
+    pub dominion: u64,
+    /// The unofficial per-member index × 1,000,000 (`index::INDEX_ONE`):
+    /// the clamped per-capita Dominion ratio times the herding damping.
+    pub index: u64,
+}
+
+/// `/h/standings/latest.json` (and the `standings` of `final.json`): the
+/// last hour of the series. `factions` are 0..=5 in order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StandingsLatest {
+    pub hour: u32,
+    /// The control bell the hour's map figures come from.
+    pub bell: u32,
+    pub factions: [FactionStanding; 6],
+}
+
+impl StandingsLatest {
+    fn body(&self) -> String {
+        let fs: Vec<String> = self
+            .factions
+            .iter()
+            .enumerate()
+            .map(|(f, s)| {
+                let r = &s.row;
+                format!(
+                    "{{\"faction\":{f},\"provinces\":{},\"banners\":{},\"keepsTaken\":{},\"keepsLost\":{},\"dominionBells\":{},\"captures\":{},\"dominion\":{},\"occupationsActive\":{},\"siegesWon\":{},\"siegesLost\":{},\"liberations\":{},\"holdings\":{},\"membersActive\":{},\"members\":{},\"index\":{}}}",
+                    r.provinces, r.banners, r.keeps_taken, r.keeps_lost, r.dominion_bells, r.captures,
+                    s.dominion, r.occupations_active, r.sieges_won, r.sieges_lost, r.liberations,
+                    r.holdings, r.members_active, s.members, s.index
+                )
+            })
+            .collect();
+        format!(
+            "{{\"v\":1,\"official\":false,\"hour\":{},\"bell\":{},\"factions\":[{}]}}",
+            self.hour,
+            self.bell,
+            fs.join(",")
+        )
+    }
+
+    pub fn to_json(&self) -> Result<String, FormatError> {
+        Ok(self.body())
+    }
+
+    fn from_value(v: &Value, at: &str) -> Result<Self, FormatError> {
+        let o = obj(v, at)?;
+        version(o)?;
+        ensure(
+            field(o, "official", at)?.as_bool() == Some(false),
+            BAD_VALUE,
+            || format!("{at}: official is not false"),
+        )?;
+        let hour = int(o, "hour", 0, U32, at)? as u32;
+        let bell = int(o, "bell", 0, U32, at)? as u32;
+        let a = arr(o, "factions", at)?;
+        ensure(a.len() == 6, BAD_SHAPE, || {
+            format!("{at}: {} factions", a.len())
+        })?;
+        let mut factions = [FactionStanding::default(); 6];
+        for (i, x) in a.iter().enumerate() {
+            let w = format!("{at}.factions[{i}]");
+            let fo = obj(x, &w)?;
+            ensure(int(fo, "faction", 0, 5, &w)? == i as i64, BAD_ORDER, || {
+                format!("{w}: faction out of order")
+            })?;
+            let g = |k: &str| int(fo, k, 0, U16, &w).map(|x| x as u16);
+            factions[i] = FactionStanding {
+                row: FactionHour {
+                    provinces: g("provinces")?,
+                    banners: g("banners")?,
+                    keeps_taken: g("keepsTaken")?,
+                    keeps_lost: g("keepsLost")?,
+                    dominion_bells: int(fo, "dominionBells", 0, U32, &w)? as u32,
+                    captures: g("captures")?,
+                    occupations_active: g("occupationsActive")?,
+                    sieges_won: g("siegesWon")?,
+                    sieges_lost: g("siegesLost")?,
+                    liberations: g("liberations")?,
+                    holdings: g("holdings")?,
+                    members_active: g("membersActive")?,
+                },
+                members: int(fo, "members", 0, U32, &w)? as u32,
+                dominion: int(fo, "dominion", 0, i64::MAX, &w)? as u64,
+                index: int(fo, "index", 0, i64::MAX, &w)? as u64,
+            };
+        }
+        Ok(Self {
+            hour,
+            bell,
+            factions,
+        })
+    }
+
+    /// Checks: JSON, `v`, `official`, six factions in order, ranges.
+    pub fn parse(b: &[u8]) -> Result<Self, FormatError> {
+        Self::from_value(&parse_json(b)?, "file")
+    }
+}
+
+// ------------------------------------------------------------------ /h/standings/players.json
+
+/// Most rows per faction in `players.json` (§8.4: top 100 per faction).
+pub const PLAYERS_PER_FACTION: usize = 100;
+
+/// One player's display-only recognition (R-10): no points, no goods.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PlayerRow {
+    pub tag: u64,
+    pub faction: u8,
+    /// 1-based rank inside the faction.
+    pub rank: u32,
+    /// Keeps taken (a non-civilian host on the tile at the taking bell).
+    pub keeps_taken: u32,
+    /// Bells a host stood on a keep its faction held as the counting
+    /// contender (CQ2-E-NOTES: the reading of §3.2's "keep-bells held").
+    pub keep_bells: u32,
+    /// Sieges completed as the declarer.
+    pub sieges_won: u32,
+    /// Credited captures as the declarer.
+    pub captures: u32,
+    /// Liberations with Respite won with a host on the hex.
+    pub liberations: u32,
+}
+
+impl PlayerRow {
+    /// The ranking key: more is better, then the lowest tag.
+    pub fn rank_key(&self) -> (std::cmp::Reverse<[u32; 5]>, u64) {
+        (
+            std::cmp::Reverse([
+                self.keeps_taken,
+                self.keep_bells,
+                self.sieges_won,
+                self.captures,
+                self.liberations,
+            ]),
+            self.tag,
+        )
+    }
+
+    fn json(&self) -> String {
+        format!(
+            "{{\"tag\":{},\"faction\":{},\"rank\":{},\"keepsTaken\":{},\"keepBells\":{},\"siegesWon\":{},\"captures\":{},\"liberations\":{}}}",
+            js(&tag_hex(self.tag)),
+            self.faction,
+            self.rank,
+            self.keeps_taken,
+            self.keep_bells,
+            self.sieges_won,
+            self.captures,
+            self.liberations
+        )
+    }
+
+    fn from_json(v: &Value, at: &str) -> Result<Self, FormatError> {
+        let o = obj(v, at)?;
+        Ok(Self {
+            tag: tag(o, "tag", at)?,
+            faction: int(o, "faction", 0, 5, at)? as u8,
+            rank: int(o, "rank", 1, U32, at)? as u32,
+            keeps_taken: int(o, "keepsTaken", 0, U32, at)? as u32,
+            keep_bells: int(o, "keepBells", 0, U32, at)? as u32,
+            sieges_won: int(o, "siegesWon", 0, U32, at)? as u32,
+            captures: int(o, "captures", 0, U32, at)? as u32,
+            liberations: int(o, "liberations", 0, U32, at)? as u32,
+        })
+    }
+}
+
+/// `/h/standings/players.json`: per faction (0..=5), its top
+/// [`PLAYERS_PER_FACTION`] by [`PlayerRow::rank_key`], ranks 1, 2, … .
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlayersFile {
+    pub bell: u32,
+    pub players: Vec<PlayerRow>,
+}
+
+impl PlayersFile {
+    /// The file from every player's row (any order): ranked and cut.
+    pub fn ranked(bell: u32, rows: impl IntoIterator<Item = PlayerRow>) -> Self {
+        let mut by: [Vec<PlayerRow>; 6] = Default::default();
+        for r in rows {
+            if let Some(v) = by.get_mut(r.faction as usize) {
+                v.push(r);
+            }
+        }
+        let mut players = Vec::new();
+        for v in by.iter_mut() {
+            v.sort_by_key(|r| r.rank_key());
+            for (i, r) in v.iter().take(PLAYERS_PER_FACTION).enumerate() {
+                players.push(PlayerRow {
+                    rank: i as u32 + 1,
+                    ..*r
+                });
+            }
+        }
+        Self { bell, players }
+    }
+
+    fn check(&self) -> Result<(), FormatError> {
+        let mut seen = BTreeSet::new();
+        let mut count = [0usize; 6];
+        for (i, w) in self.players.iter().enumerate() {
+            let at = format!("players[{i}]");
+            ensure(w.faction <= 5, BAD_VALUE, || format!("{at}: faction"))?;
+            ensure(seen.insert(w.tag), BAD_VALUE, || format!("{at}: tag twice"))?;
+            count[w.faction as usize] += 1;
+            ensure(
+                w.rank as usize == count[w.faction as usize],
+                BAD_ORDER,
+                || format!("{at}: rank {} out of order", w.rank),
+            )?;
+            if i > 0 {
+                let p = &self.players[i - 1];
+                let ok = p.faction < w.faction
+                    || (p.faction == w.faction && p.rank_key() < w.rank_key());
+                ensure(ok, BAD_ORDER, || {
+                    format!("{at}: not after players[{}]", i - 1)
+                })?;
+            }
+        }
+        ensure(
+            count.iter().all(|&n| n <= PLAYERS_PER_FACTION),
+            TOO_MANY,
+            || "more than 100 players of a faction".into(),
+        )
+    }
+
+    pub fn to_json(&self) -> Result<String, FormatError> {
+        self.check()?;
+        let ps: Vec<String> = self.players.iter().map(PlayerRow::json).collect();
+        Ok(format!(
+            "{{\"v\":1,\"official\":false,\"bell\":{},\"players\":[{}]}}",
+            self.bell,
+            ps.join(",")
+        ))
+    }
+
+    /// Checks: JSON, `v`, each row, faction order, ranks, unique tags.
+    pub fn parse(b: &[u8]) -> Result<Self, FormatError> {
+        let v = parse_json(b)?;
+        let o = obj(&v, "file")?;
+        version(o)?;
+        let bell = int(o, "bell", 0, U32, "file")? as u32;
+        let players = arr(o, "players", "file")?
+            .iter()
+            .enumerate()
+            .map(|(i, p)| PlayerRow::from_json(p, &format!("players[{i}]")))
+            .collect::<Result<Vec<_>, _>>()?;
+        let f = Self { bell, players };
+        f.check()?;
+        Ok(f)
+    }
+}
+
+// ------------------------------------------------------------------ /h/call/{day}.json
+
+/// Herald's Call of one day (§3.10; display only, no reward): one March
+/// per faction (0..=5, `None` when the faction has no target), computed by
+/// `control::herald_call_detail` over the control map of the day's first
+/// bell, with the day seed of [`call_day_seed`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CallFile {
+    pub day: u32,
+    /// The control bell the map comes from (`144 × day`).
+    pub bell: u32,
+    pub day_seed: [u8; 32],
+    /// `(March, rally)` per faction.
+    pub calls: [Option<(MarchCoord, bool)>; 6],
+}
+
+/// Domain of the day seed (CQ2-E; §3.10 names a "day seed" without
+/// defining it, CQ2-E-NOTES CF-9).
+pub const CALL_DAY_DOMAIN: &[u8] = b"PSF-HERALD-CALL-DAY";
+
+/// The Call's day seed: `sha256("PSF-HERALD-CALL-DAY" ‖ genesis_seed ‖ day
+/// u32 LE)`, from the Season's `genesis_seed` (public from the start;
+/// the Call is display data, so predictability is harmless).
+pub fn call_day_seed(genesis_seed: &[u8; 32], day: u32) -> [u8; 32] {
+    permutation_rules::hash::sha256(&[CALL_DAY_DOMAIN, genesis_seed, &day.to_le_bytes()])
+}
+
+impl CallFile {
+    pub fn to_json(&self) -> Result<String, FormatError> {
+        let cs: Vec<String> = self
+            .calls
+            .iter()
+            .enumerate()
+            .map(|(f, c)| match c {
+                Some((m, rally)) => format!(
+                    "{{\"faction\":{f},\"march\":{},\"rally\":{rally}}}",
+                    march_json(m)
+                ),
+                None => format!("{{\"faction\":{f},\"march\":null,\"rally\":false}}"),
+            })
+            .collect();
+        Ok(format!(
+            "{{\"v\":1,\"day\":{},\"bell\":{},\"daySeed\":{},\"calls\":[{}]}}",
+            self.day,
+            self.bell,
+            js(&hex::encode(self.day_seed)),
+            cs.join(",")
+        ))
+    }
+
+    /// Checks: JSON, `v`, six calls in faction order, `rally` false
+    /// without a March.
+    pub fn parse(b: &[u8]) -> Result<Self, FormatError> {
+        let v = parse_json(b)?;
+        let o = obj(&v, "file")?;
+        version(o)?;
+        let day = int(o, "day", 0, (u32::MAX / BELLS_PER_DAY) as i64, "file")? as u32;
+        let bell = int(o, "bell", 0, U32, "file")? as u32;
+        let day_seed = hex32(o, "daySeed", "file")?;
+        let a = arr(o, "calls", "file")?;
+        ensure(a.len() == 6, BAD_SHAPE, || format!("{} calls", a.len()))?;
+        let mut calls = [None; 6];
+        for (i, c) in a.iter().enumerate() {
+            let at = format!("calls[{i}]");
+            let co = obj(c, &at)?;
+            ensure(
+                int(co, "faction", 0, 5, &at)? == i as i64,
+                BAD_ORDER,
+                || format!("{at}: faction out of order"),
+            )?;
+            let rally = bool_field(co, "rally", &at)?;
+            calls[i] = match field(co, "march", &at)? {
+                Value::Null => {
+                    ensure(!rally, BAD_VALUE, || {
+                        format!("{at}: a rally without a March")
+                    })?;
+                    None
+                }
+                m => Some((march_of_json(m, &at)?, rally)),
+            };
+        }
+        Ok(Self {
+            day,
+            bell,
+            day_seed,
+            calls,
+        })
+    }
+}
+
+// ------------------------------------------------------------------ /h/siege/{P},{Q},{site}/{declared}.json
+
+/// One bell of a siege's series.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SiegeBell {
+    pub bell: u32,
+    /// The besieging faction held the hex.
+    pub holds: bool,
+    /// A defender of the owner's faction stood on the hex.
+    pub defender: bool,
+    /// `bell_start(bell)` lay inside the snapshotted vigil.
+    pub vigil: bool,
+    /// Progress after the bell.
+    pub progress: u8,
+}
+
+/// How a siege ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SiegeOutcome {
+    Failed,
+    Occupied,
+    CaptureDue,
+    /// Still active at `end_bell` (lapsed, the stake returned).
+    Lapsed,
+}
+
+impl SiegeOutcome {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Failed => "failed",
+            Self::Occupied => "occupied",
+            Self::CaptureDue => "capture_due",
+            Self::Lapsed => "lapsed",
+        }
+    }
+    fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "failed" => Self::Failed,
+            "occupied" => Self::Occupied,
+            "capture_due" => Self::CaptureDue,
+            "lapsed" => Self::Lapsed,
+            _ => return None,
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SiegeEnd {
+    pub bell: u32,
+    pub outcome: SiegeOutcome,
+    pub broken_by_defender: bool,
+    /// `Some` for a capture.
+    pub credited: Option<bool>,
+}
+
+/// A record that followed (or announced) a siege: its kind name, bell,
+/// `/h/events` number and signature, and a free-form detail object.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RecordRef {
+    pub kind: String,
+    pub bell: u32,
+    pub seq: u64,
+    pub sig: String,
+    pub detail: Value,
+}
+
+impl RecordRef {
+    fn to_json(&self) -> String {
+        format!(
+            "{{\"kind\":{},\"bell\":{},\"seq\":{},\"sig\":{},\"detail\":{}}}",
+            js(&self.kind),
+            self.bell,
+            js(&self.seq.to_string()),
+            js(&self.sig),
+            serde_json::to_string(&self.detail).unwrap_or_else(|_| "{}".into())
+        )
+    }
+
+    fn check(&self, at: &str) -> Result<(), FormatError> {
+        ensure(
+            !self.kind.is_empty()
+                && self
+                    .kind
+                    .bytes()
+                    .all(|c| c.is_ascii_lowercase() || c == b'_'),
+            BAD_VALUE,
+            || format!("{at}: kind {:?}", self.kind),
+        )?;
+        ensure(sig_ok(&self.sig), BAD_VALUE, || format!("{at}: sig"))?;
+        ensure(self.detail.is_object(), BAD_SCHEMA, || {
+            format!("{at}: detail is not an object")
+        })
+    }
+
+    fn from_json(v: &Value, at: &str) -> Result<Self, FormatError> {
+        let o = obj(v, at)?;
+        let r = Self {
+            kind: string(o, "kind", at)?.to_string(),
+            bell: int(o, "bell", 0, U32, at)? as u32,
+            seq: u64_str(o, "seq", at)?,
+            sig: string(o, "sig", at)?.to_string(),
+            detail: field(o, "detail", at)?.clone(),
+        };
+        r.check(at)?;
+        Ok(r)
+    }
+}
+
+/// One holding siege's history (immutable once ended).
+#[derive(Clone, Debug, PartialEq)]
+pub struct SiegeHistory {
+    pub p: i32,
+    pub q: i32,
+    pub site: u8,
+    pub declared: u32,
+    pub kind: SiegeKind,
+    pub owner: Option<u64>,
+    pub owner_faction: u8,
+    pub attacker: u64,
+    pub attacker_faction: u8,
+    pub required: u8,
+    /// The SIEGE_DECLARED record.
+    pub horn: RecordRef,
+    pub series: Vec<SiegeBell>,
+    pub end: Option<SiegeEnd>,
+    /// SIEGE_SETTLED, CAPTURE_SETTLED and the occupation's end, in order.
+    pub followed: Vec<RecordRef>,
+}
+
+impl SiegeHistory {
+    pub fn key(&self) -> String {
+        format!("sg:{},{},{},{}", self.p, self.q, self.site, self.declared)
+    }
+
+    fn check(&self) -> Result<(), FormatError> {
+        ensure(self.site < 12, BAD_VALUE, || "site".into())?;
+        let free = self.kind == SiegeKind::Free;
+        ensure(
+            free == self.owner.is_none() && free == (self.owner_faction == CONTROL_NEUTRAL),
+            BAD_VALUE,
+            || "owner null and ownerFaction 6 exactly for a Free City".into(),
+        )?;
+        ensure(
+            self.owner_faction <= 6
+                && self.attacker_faction <= 5
+                && self.attacker_faction != self.owner_faction,
+            BAD_VALUE,
+            || "faction".into(),
+        )?;
+        ensure((1..=60).contains(&self.required), BAD_VALUE, || {
+            format!("required {}", self.required)
+        })?;
+        self.horn.check("horn")?;
+        let mut last = self.declared;
+        for (i, s) in self.series.iter().enumerate() {
+            ensure(s.bell > last, BAD_ORDER, || {
+                format!("series[{i}]: bell {} not after {last}", s.bell)
+            })?;
+            ensure(s.progress <= self.required, BAD_VALUE, || {
+                format!("series[{i}]: progress")
+            })?;
+            last = s.bell;
+        }
+        if let Some(e) = &self.end {
+            ensure(e.bell >= self.declared, BAD_VALUE, || {
+                "end before declared".into()
+            })?;
+            ensure(
+                e.credited.is_some() == (e.outcome == SiegeOutcome::CaptureDue),
+                BAD_VALUE,
+                || "credited exactly for a capture".into(),
+            )?;
+        }
+        for (i, r) in self.followed.iter().enumerate() {
+            r.check(&format!("followed[{i}]"))?;
+        }
+        Ok(())
+    }
+
+    pub fn to_json(&self) -> Result<String, FormatError> {
+        self.check()?;
+        let series: Vec<String> = self
+            .series
+            .iter()
+            .map(|s| {
+                format!(
+                    "{{\"bell\":{},\"holds\":{},\"defender\":{},\"vigil\":{},\"progress\":{}}}",
+                    s.bell, s.holds, s.defender, s.vigil, s.progress
+                )
+            })
+            .collect();
+        let end = match &self.end {
+            None => "null".to_string(),
+            Some(e) => format!(
+                "{{\"bell\":{},\"outcome\":{},\"brokenByDefender\":{},\"credited\":{}}}",
+                e.bell,
+                js(e.outcome.as_str()),
+                e.broken_by_defender,
+                opt(&e.credited)
+            ),
+        };
+        let followed: Vec<String> = self.followed.iter().map(RecordRef::to_json).collect();
+        Ok(format!(
+            "{{\"v\":1,\"key\":{},\"p\":{},\"q\":{},\"site\":{},\"declared\":{},\"kind\":{},\"owner\":{},\"ownerFaction\":{},\"attacker\":{},\"attackerFaction\":{},\"required\":{},\"horn\":{},\"series\":[{}],\"end\":{},\"followed\":[{}]}}",
+            js(&self.key()),
+            self.p,
+            self.q,
+            self.site,
+            self.declared,
+            js(self.kind.as_str()),
+            self.owner.map_or_else(|| "null".into(), |t| js(&tag_hex(t))),
+            self.owner_faction,
+            js(&tag_hex(self.attacker)),
+            self.attacker_faction,
+            self.required,
+            self.horn.to_json(),
+            series.join(","),
+            end,
+            followed.join(",")
+        ))
+    }
+
+    /// Checks: JSON, `v`, the key, factions, series order, the end.
+    pub fn parse(b: &[u8]) -> Result<Self, FormatError> {
+        let v = parse_json(b)?;
+        let o = obj(&v, "file")?;
+        version(o)?;
+        let at = "file";
+        let kind_s = string(o, "kind", at)?;
+        let owner = match field(o, "owner", at)? {
+            Value::Null => None,
+            _ => Some(tag(o, "owner", at)?),
+        };
+        let series = arr(o, "series", at)?
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                let w = format!("series[{i}]");
+                let so = obj(s, &w)?;
+                Ok(SiegeBell {
+                    bell: int(so, "bell", 0, U32, &w)? as u32,
+                    holds: bool_field(so, "holds", &w)?,
+                    defender: bool_field(so, "defender", &w)?,
+                    vigil: bool_field(so, "vigil", &w)?,
+                    progress: int(so, "progress", 0, 255, &w)? as u8,
+                })
+            })
+            .collect::<Result<Vec<_>, FormatError>>()?;
+        let end = match field(o, "end", at)? {
+            Value::Null => None,
+            e => {
+                let eo = obj(e, "end")?;
+                let os = string(eo, "outcome", "end")?;
+                Some(SiegeEnd {
+                    bell: int(eo, "bell", 0, U32, "end")? as u32,
+                    outcome: SiegeOutcome::parse(os).ok_or_else(|| FormatError {
+                        code: BAD_VALUE,
+                        detail: format!("end: outcome {os:?}"),
+                    })?,
+                    broken_by_defender: bool_field(eo, "brokenByDefender", "end")?,
+                    credited: match field(eo, "credited", "end")? {
+                        Value::Null => None,
+                        _ => Some(bool_field(eo, "credited", "end")?),
+                    },
+                })
+            }
+        };
+        let followed = arr(o, "followed", at)?
+            .iter()
+            .enumerate()
+            .map(|(i, r)| RecordRef::from_json(r, &format!("followed[{i}]")))
+            .collect::<Result<Vec<_>, _>>()?;
+        let h = Self {
+            p: int(o, "p", -COORD, COORD, at)? as i32,
+            q: int(o, "q", -COORD, COORD, at)? as i32,
+            site: int(o, "site", 0, 255, at)? as u8,
+            declared: int(o, "declared", 0, U32, at)? as u32,
+            kind: SiegeKind::parse(kind_s).ok_or_else(|| FormatError {
+                code: BAD_VALUE,
+                detail: format!("kind {kind_s:?}"),
+            })?,
+            owner,
+            owner_faction: int(o, "ownerFaction", 0, 255, at)? as u8,
+            attacker: tag(o, "attacker", at)?,
+            attacker_faction: int(o, "attackerFaction", 0, 255, at)? as u8,
+            required: int(o, "required", 0, 255, at)? as u8,
+            horn: RecordRef::from_json(field(o, "horn", at)?, "horn")?,
+            series,
+            end,
+            followed,
+        };
+        let key = string(o, "key", at)?;
+        ensure(key == h.key(), BAD_VALUE, || format!("key {key:?}"))?;
+        h.check()?;
+        Ok(h)
+    }
+}
+
+// ------------------------------------------------------------------ /h/keep/{P},{Q}.json
+
+/// How a keep contest ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContestOutcome {
+    Running,
+    Broken,
+    Taken,
+    /// The season ended with the contest running (§3.11).
+    Stopped,
+}
+
+impl ContestOutcome {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::Broken => "broken",
+            Self::Taken => "taken",
+            Self::Stopped => "stopped",
+        }
+    }
+    fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "running" => Self::Running,
+            "broken" => Self::Broken,
+            "taken" => Self::Taken,
+            "stopped" => Self::Stopped,
+            _ => return None,
+        })
+    }
+}
+
+/// One contest of a keep.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ContestRec {
+    pub contender: u8,
+    /// The first counted bell (`contest_from_bell`).
+    pub from: u32,
+    /// The bell it ended (`None` while running).
+    pub to: Option<u32>,
+    pub outcome: ContestOutcome,
+    /// Progress at the end (or now).
+    pub progress: u8,
+}
+
+/// One capture of a keep (the KEEP_TAKEN event's CONQUEST record).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeepCapture {
+    pub bell: u32,
+    pub from: u8,
+    pub to: u8,
+    /// The new garrison (whole troops).
+    pub troops: u32,
+    /// The donor's host id (0 without a donor).
+    pub donor: u64,
+    pub seq: u64,
+    pub sig: String,
+}
+
+/// A keep's history (`max-age=5`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeepHistory {
+    pub p: i32,
+    pub q: i32,
+    pub tile: u8,
+    pub holder: u8,
+    /// `since_bell` of the current holder.
+    pub since: u32,
+    pub troops: u32,
+    pub gen: u32,
+    pub heartland: bool,
+    /// Every holder from the opening, `(faction, since bell)`.
+    pub holders: Vec<(u8, u32)>,
+    pub contests: Vec<ContestRec>,
+    pub captures: Vec<KeepCapture>,
+}
+
+impl KeepHistory {
+    fn check(&self) -> Result<(), FormatError> {
+        ensure(
+            (self.tile as usize) < permutation_rules::frontier::geometry::PROVINCE_TILES
+                && self.holder <= 5,
+            BAD_VALUE,
+            || "tile or holder".into(),
+        )?;
+        for (i, w) in self.holders.windows(2).enumerate() {
+            ensure(w[0].1 <= w[1].1, BAD_ORDER, || {
+                format!("holders[{}] before holders[{i}]", i + 1)
+            })?;
+        }
+        ensure(
+            self.holders.iter().all(|h| h.0 <= 5)
+                && self.holders.last().map(|h| h.0) == Some(self.holder),
+            BAD_VALUE,
+            || "holders do not end at the holder".into(),
+        )?;
+        for (i, c) in self.contests.iter().enumerate() {
+            ensure(c.contender <= 5, BAD_VALUE, || {
+                format!("contests[{i}]: contender")
+            })?;
+            ensure(
+                c.to.is_none() == (c.outcome == ContestOutcome::Running)
+                    && c.to.is_none_or(|t| t >= c.from),
+                BAD_VALUE,
+                || format!("contests[{i}]: to / outcome"),
+            )?;
+        }
+        for (i, w) in self.contests.windows(2).enumerate() {
+            ensure(w[0].from <= w[1].from, BAD_ORDER, || {
+                format!("contests[{}] before contests[{i}]", i + 1)
+            })?;
+        }
+        for (i, c) in self.captures.iter().enumerate() {
+            ensure(
+                c.from <= 5 && c.to <= 5 && c.from != c.to,
+                BAD_VALUE,
+                || format!("captures[{i}]: factions"),
+            )?;
+            ensure(sig_ok(&c.sig), BAD_VALUE, || format!("captures[{i}]: sig"))?;
+        }
+        for (i, w) in self.captures.windows(2).enumerate() {
+            ensure(w[0].bell < w[1].bell, BAD_ORDER, || {
+                format!("captures[{}] not after captures[{i}]", i + 1)
+            })?;
+        }
+        Ok(())
+    }
+
+    pub fn to_json(&self) -> Result<String, FormatError> {
+        self.check()?;
+        let holders: Vec<String> = self
+            .holders
+            .iter()
+            .map(|(f, s)| format!("{{\"holder\":{f},\"since\":{s}}}"))
+            .collect();
+        let contests: Vec<String> = self
+            .contests
+            .iter()
+            .map(|c| {
+                format!(
+                    "{{\"contender\":{},\"from\":{},\"to\":{},\"outcome\":{},\"progress\":{}}}",
+                    c.contender,
+                    c.from,
+                    opt(&c.to),
+                    js(c.outcome.as_str()),
+                    c.progress
+                )
+            })
+            .collect();
+        let captures: Vec<String> = self
+            .captures
+            .iter()
+            .map(|c| {
+                format!(
+                    "{{\"bell\":{},\"from\":{},\"to\":{},\"troops\":{},\"donor\":{},\"seq\":{},\"sig\":{}}}",
+                    c.bell,
+                    c.from,
+                    c.to,
+                    c.troops,
+                    js(&c.donor.to_string()),
+                    js(&c.seq.to_string()),
+                    js(&c.sig)
+                )
+            })
+            .collect();
+        Ok(format!(
+            "{{\"v\":1,\"p\":{},\"q\":{},\"tile\":{},\"holder\":{},\"since\":{},\"troops\":{},\"gen\":{},\"heartland\":{},\"holders\":[{}],\"contests\":[{}],\"captures\":[{}]}}",
+            self.p,
+            self.q,
+            self.tile,
+            self.holder,
+            self.since,
+            self.troops,
+            self.gen,
+            self.heartland,
+            holders.join(","),
+            contests.join(","),
+            captures.join(",")
+        ))
+    }
+
+    /// Checks: JSON, `v`, ranges, orders, the holder list ends at `holder`.
+    pub fn parse(b: &[u8]) -> Result<Self, FormatError> {
+        let v = parse_json(b)?;
+        let o = obj(&v, "file")?;
+        version(o)?;
+        let at = "file";
+        let holders = arr(o, "holders", at)?
+            .iter()
+            .enumerate()
+            .map(|(i, h)| {
+                let w = format!("holders[{i}]");
+                let ho = obj(h, &w)?;
+                Ok((
+                    int(ho, "holder", 0, 255, &w)? as u8,
+                    int(ho, "since", 0, U32, &w)? as u32,
+                ))
+            })
+            .collect::<Result<Vec<_>, FormatError>>()?;
+        let contests = arr(o, "contests", at)?
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                let w = format!("contests[{i}]");
+                let co = obj(c, &w)?;
+                let os = string(co, "outcome", &w)?;
+                Ok(ContestRec {
+                    contender: int(co, "contender", 0, 255, &w)? as u8,
+                    from: int(co, "from", 0, U32, &w)? as u32,
+                    to: opt_int(co, "to", 0, U32, &w)?.map(|x| x as u32),
+                    outcome: ContestOutcome::parse(os).ok_or_else(|| FormatError {
+                        code: BAD_VALUE,
+                        detail: format!("{w}: outcome {os:?}"),
+                    })?,
+                    progress: int(co, "progress", 0, 255, &w)? as u8,
+                })
+            })
+            .collect::<Result<Vec<_>, FormatError>>()?;
+        let captures = arr(o, "captures", at)?
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                let w = format!("captures[{i}]");
+                let co = obj(c, &w)?;
+                Ok(KeepCapture {
+                    bell: int(co, "bell", 0, U32, &w)? as u32,
+                    from: int(co, "from", 0, 255, &w)? as u8,
+                    to: int(co, "to", 0, 255, &w)? as u8,
+                    troops: int(co, "troops", 0, U32, &w)? as u32,
+                    donor: u64_str(co, "donor", &w)?,
+                    seq: u64_str(co, "seq", &w)?,
+                    sig: string(co, "sig", &w)?.to_string(),
+                })
+            })
+            .collect::<Result<Vec<_>, FormatError>>()?;
+        let k = Self {
+            p: int(o, "p", -COORD, COORD, at)? as i32,
+            q: int(o, "q", -COORD, COORD, at)? as i32,
+            tile: int(o, "tile", 0, 255, at)? as u8,
+            holder: int(o, "holder", 0, 255, at)? as u8,
+            since: int(o, "since", 0, U32, at)? as u32,
+            troops: int(o, "troops", 0, U32, at)? as u32,
+            gen: int(o, "gen", 0, U32, at)? as u32,
+            heartland: bool_field(o, "heartland", at)?,
+            holders,
+            contests,
+            captures,
+        };
+        k.check()?;
+        Ok(k)
+    }
+}
+
+// ------------------------------------------------------------------ /h/season/final.json
+
+/// A ratio as counts and basis points (no floats in herald JSON).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Ratio {
+    pub num: u32,
+    pub den: u32,
+}
+
+impl Ratio {
+    pub fn bps(&self) -> u32 {
+        if self.den == 0 {
+            0
+        } else {
+            ((self.num as u64 * 10_000) / self.den as u64) as u32
+        }
+    }
+    fn json(self) -> String {
+        format!(
+            "{{\"num\":{},\"den\":{},\"bps\":{}}}",
+            self.num,
+            self.den,
+            self.bps()
+        )
+    }
+    fn from_json(v: &Value, at: &str) -> Result<Self, FormatError> {
+        let o = obj(v, at)?;
+        let r = Self {
+            num: int(o, "num", 0, U32, at)? as u32,
+            den: int(o, "den", 0, U32, at)? as u32,
+        };
+        ensure(r.num <= r.den || r.den == 0, BAD_VALUE, || {
+            format!("{at}: num > den")
+        })?;
+        ensure(
+            int(o, "bps", 0, 10_000, at)? == r.bps() as i64,
+            BAD_VALUE,
+            || format!("{at}: bps is not num/den"),
+        )?;
+        Ok(r)
+    }
+}
+
+/// The holding contest of the season (§13.4 10h).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HoldingContest {
+    pub sieges_declared: u32,
+    pub sieges_completed: u32,
+    pub sieges_failed: u32,
+    pub occupations: u32,
+    pub liberations: u32,
+    pub captures: u32,
+    pub outposts: u32,
+}
+
+/// The movement summary of §13.4 (criterion 10's figures, from the
+/// season's `PSFCT1` series with `control::lasting_changes` and
+/// `march_banner`; CQ3-B's decider gates them, this file only reports).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Movement {
+    /// 10a: lasting changes in the season.
+    pub lasting_changes: u32,
+    /// Lasting changes per game day (day 0 first).
+    pub lasting_by_day: Vec<u32>,
+    /// 10b: game days 2–7 (1-based) with ≥ 1 lasting change.
+    pub days_with_change: u32,
+    /// 10c: provinces of P with ≥ 2 distinct controllers.
+    pub two_controllers: Ratio,
+    /// 10d: March banner changes; Marches with ≥ 2 banners.
+    pub banner_changes: u32,
+    pub marches_two_banners: Ratio,
+    /// 10e′ over P′ and v1.1's 10e over P₂ (reported).
+    pub net_movement: Ratio,
+    pub net_movement_10e: Ratio,
+    /// 10f: factions with ≥ 1 lasting gain and ≥ 1 lasting loss.
+    pub breadth: u32,
+    /// 10g: largest and smallest faction share of controlled provinces.
+    pub largest: Ratio,
+    pub smallest: Ratio,
+    pub holding_contest: HoldingContest,
+    /// 10i: first holdings that changed owner (captures of an order-1 site).
+    pub first_holdings_transferred: u32,
+}
+
+/// A Chronicle title (R-10, display only).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Title {
+    pub title: String,
+    pub tag: u64,
+    pub faction: u8,
+    pub value: u32,
+}
+
+/// `/h/season/final.json` (immutable, after EndSeason and the last fold).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FinalFile {
+    pub season: u64,
+    pub end_bell: u32,
+    /// `sha256` of `/h/control/{end_bell − 1}.bin`.
+    pub control_sha256: [u8; 32],
+    pub standings: Option<StandingsLatest>,
+    pub movement: Movement,
+    pub titles: Vec<Title>,
+}
+
+impl FinalFile {
+    pub fn to_json(&self) -> Result<String, FormatError> {
+        ensure(self.end_bell >= 1, BAD_VALUE, || "endBell 0".into())?;
+        let m = &self.movement;
+        let hc = &m.holding_contest;
+        let days: Vec<String> = m.lasting_by_day.iter().map(|d| d.to_string()).collect();
+        let movement = format!(
+            "{{\"lastingChanges\":{},\"lastingByDay\":[{}],\"daysWithChange\":{},\"twoControllers\":{},\"bannerChanges\":{},\"marchesTwoBanners\":{},\"netMovement\":{},\"netMovement10e\":{},\"breadth\":{},\"largest\":{},\"smallest\":{},\"holdingContest\":{{\"siegesDeclared\":{},\"siegesCompleted\":{},\"siegesFailed\":{},\"occupations\":{},\"liberations\":{},\"captures\":{},\"outposts\":{}}},\"firstHoldingsTransferred\":{}}}",
+            m.lasting_changes,
+            days.join(","),
+            m.days_with_change,
+            m.two_controllers.json(),
+            m.banner_changes,
+            m.marches_two_banners.json(),
+            m.net_movement.json(),
+            m.net_movement_10e.json(),
+            m.breadth,
+            m.largest.json(),
+            m.smallest.json(),
+            hc.sieges_declared,
+            hc.sieges_completed,
+            hc.sieges_failed,
+            hc.occupations,
+            hc.liberations,
+            hc.captures,
+            hc.outposts,
+            m.first_holdings_transferred
+        );
+        let titles: Vec<String> = self
+            .titles
+            .iter()
+            .map(|t| {
+                format!(
+                    "{{\"title\":{},\"tag\":{},\"faction\":{},\"value\":{}}}",
+                    js(&t.title),
+                    js(&tag_hex(t.tag)),
+                    t.faction,
+                    t.value
+                )
+            })
+            .collect();
+        let standings = match &self.standings {
+            Some(s) => s.body(),
+            None => "null".into(),
+        };
+        Ok(format!(
+            "{{\"v\":1,\"official\":false,\"season\":{},\"endBell\":{},\"control\":{{\"bell\":{},\"file\":{},\"sha256\":{}}},\"standings\":{},\"movement\":{},\"titles\":[{}]}}",
+            js(&self.season.to_string()),
+            self.end_bell,
+            self.end_bell - 1,
+            js(&format!("/h/control/{}.bin", self.end_bell - 1)),
+            js(&hex::encode(self.control_sha256)),
+            standings,
+            movement,
+            titles.join(",")
+        ))
+    }
+
+    /// Checks: JSON, `v`, the control reference, the standings, the ratios.
+    pub fn parse(b: &[u8]) -> Result<Self, FormatError> {
+        let v = parse_json(b)?;
+        let o = obj(&v, "file")?;
+        version(o)?;
+        let at = "file";
+        let end_bell = int(o, "endBell", 1, U32, at)? as u32;
+        let c = obj(field(o, "control", at)?, "control")?;
+        ensure(
+            int(c, "bell", 0, U32, "control")? == end_bell as i64 - 1
+                && string(c, "file", "control")? == format!("/h/control/{}.bin", end_bell - 1),
+            BAD_VALUE,
+            || "control: not the bell end_bell − 1".into(),
+        )?;
+        let standings = match field(o, "standings", at)? {
+            Value::Null => None,
+            s => Some(StandingsLatest::from_value(s, "standings")?),
+        };
+        let mo = obj(field(o, "movement", at)?, "movement")?;
+        let w = "movement";
+        let hc = obj(field(mo, "holdingContest", w)?, "holdingContest")?;
+        let h = |k: &str| int(hc, k, 0, U32, "holdingContest").map(|x| x as u32);
+        let r = |k: &str| Ratio::from_json(field(mo, k, w)?, k);
+        let movement = Movement {
+            lasting_changes: int(mo, "lastingChanges", 0, U32, w)? as u32,
+            lasting_by_day: arr(mo, "lastingByDay", w)?
+                .iter()
+                .map(|d| {
+                    d.as_u64()
+                        .filter(|x| *x <= u32::MAX as u64)
+                        .map(|x| x as u32)
+                        .ok_or_else(|| FormatError {
+                            code: BAD_SCHEMA,
+                            detail: "lastingByDay: not an integer".into(),
+                        })
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            days_with_change: int(mo, "daysWithChange", 0, 6, w)? as u32,
+            two_controllers: r("twoControllers")?,
+            banner_changes: int(mo, "bannerChanges", 0, U32, w)? as u32,
+            marches_two_banners: r("marchesTwoBanners")?,
+            net_movement: r("netMovement")?,
+            net_movement_10e: r("netMovement10e")?,
+            breadth: int(mo, "breadth", 0, 6, w)? as u32,
+            largest: r("largest")?,
+            smallest: r("smallest")?,
+            holding_contest: HoldingContest {
+                sieges_declared: h("siegesDeclared")?,
+                sieges_completed: h("siegesCompleted")?,
+                sieges_failed: h("siegesFailed")?,
+                occupations: h("occupations")?,
+                liberations: h("liberations")?,
+                captures: h("captures")?,
+                outposts: h("outposts")?,
+            },
+            first_holdings_transferred: int(mo, "firstHoldingsTransferred", 0, U32, w)? as u32,
+        };
+        ensure(
+            movement
+                .lasting_by_day
+                .iter()
+                .map(|&x| x as u64)
+                .sum::<u64>()
+                == movement.lasting_changes as u64,
+            BAD_VALUE,
+            || "lastingByDay does not sum to lastingChanges".into(),
+        )?;
+        let titles = arr(o, "titles", at)?
+            .iter()
+            .enumerate()
+            .map(|(i, t)| {
+                let w = format!("titles[{i}]");
+                let to = obj(t, &w)?;
+                Ok(Title {
+                    title: string(to, "title", &w)?.to_string(),
+                    tag: tag(to, "tag", &w)?,
+                    faction: int(to, "faction", 0, 5, &w)? as u8,
+                    value: int(to, "value", 0, U32, &w)? as u32,
+                })
+            })
+            .collect::<Result<Vec<_>, FormatError>>()?;
+        let season = u64_str(o, "season", at)?;
+        Ok(Self {
+            season,
+            end_bell,
+            control_sha256: hex32(c, "sha256", "control")?,
+            standings,
+            movement,
+            titles,
+        })
+    }
+}
+
+// ------------------------------------------------------------------ WS `kind:"siege"`
+
+/// A WS `siege` message's body: the sieges and keep contests of `bell`
+/// that are new or changed since the previous bell's file (`upsert`), the
+/// siege keys and keep provinces that left it (`remove`, `keepsRemove`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SiegeDelta {
+    pub bell: u32,
+    pub upsert: Vec<SiegeEntry>,
+    pub remove: Vec<String>,
+    pub keeps: Vec<KeepContest>,
+    pub keeps_remove: Vec<(i32, i32)>,
+}
+
+impl SiegeDelta {
+    /// The delta from `prev` to `cur` (`None` when nothing changed).
+    pub fn between(prev: Option<&SiegesFile>, cur: &SiegesFile) -> Option<SiegeDelta> {
+        let empty = SiegesFile {
+            bell: 0,
+            sieges: vec![],
+            keeps: vec![],
+        };
+        let prev = prev.unwrap_or(&empty);
+        let upsert: Vec<SiegeEntry> = cur
+            .sieges
+            .iter()
+            .filter(|s| !prev.sieges.contains(s))
+            .cloned()
+            .collect();
+        let remove: Vec<String> = prev
+            .sieges
+            .iter()
+            .filter(|s| !cur.sieges.iter().any(|c| c.key() == s.key()))
+            .map(SiegeEntry::key)
+            .collect();
+        let keeps: Vec<KeepContest> = cur
+            .keeps
+            .iter()
+            .filter(|k| !prev.keeps.contains(k))
+            .cloned()
+            .collect();
+        let keeps_remove: Vec<(i32, i32)> = prev
+            .keeps
+            .iter()
+            .filter(|k| !cur.keeps.iter().any(|c| (c.p, c.q) == (k.p, k.q)))
+            .map(|k| (k.p, k.q))
+            .collect();
+        if upsert.is_empty() && remove.is_empty() && keeps.is_empty() && keeps_remove.is_empty() {
+            return None;
+        }
+        Some(SiegeDelta {
+            bell: cur.bell,
+            upsert,
+            remove,
+            keeps,
+            keeps_remove,
+        })
+    }
+
+    pub fn to_json(&self) -> String {
+        let up: Vec<String> = self.upsert.iter().map(SiegeEntry::to_json).collect();
+        let rm: Vec<String> = self.remove.iter().map(|k| js(k)).collect();
+        let ks: Vec<String> = self.keeps.iter().map(KeepContest::to_json).collect();
+        let kr: Vec<String> = self
+            .keeps_remove
+            .iter()
+            .map(|(p, q)| format!("[{p},{q}]"))
+            .collect();
+        format!(
+            "{{\"v\":1,\"bell\":{},\"upsert\":[{}],\"remove\":[{}],\"keeps\":[{}],\"keepsRemove\":[{}]}}",
+            self.bell,
+            up.join(","),
+            rm.join(","),
+            ks.join(","),
+            kr.join(",")
+        )
+    }
+}
+
+// ------------------------------------------------------------------ CQ2-E vectors
+
+/// The CQ2-E JSON vectors (`frontier-node/crates/herald/vectors/cq-json/`):
+/// one producer ([`cq2e_vectors::files`]), one freshness test
+/// (`cq_json_vectors_fresh`; `FRONTIER_WRITE_FIXTURES=1 cargo test -p herald
+/// cq_json_vectors_fresh` rewrites them). `index.json` names each valid
+/// file and each invalid one with the code its reader refuses it with.
+pub mod cq2e_vectors {
+    use super::*;
+    use std::collections::BTreeMap;
+    use std::path::PathBuf;
+
+    pub fn dir() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("vectors/cq-json")
+    }
+
+    pub fn sample_latest() -> StandingsLatest {
+        let mut factions = [FactionStanding::default(); 6];
+        for (f, s) in factions.iter_mut().enumerate() {
+            let f16 = f as u16;
+            *s = FactionStanding {
+                row: FactionHour {
+                    provinces: 10 + f16,
+                    banners: f16 % 3,
+                    keeps_taken: 2 * f16,
+                    keeps_lost: 5 - f16,
+                    dominion_bells: 600 + 6 * f as u32,
+                    captures: f16,
+                    occupations_active: f16 % 2,
+                    sieges_won: 3 + f16,
+                    sieges_lost: 1,
+                    liberations: f16 / 2,
+                    holdings: 40 + f16,
+                    members_active: 30 + f16,
+                },
+                members: 33 + f as u32,
+                dominion: 600 + 6 * f as u64 + 36 * f as u64,
+                index: 900_000 + 20_000 * f as u64,
+            };
+        }
+        StandingsLatest {
+            hour: 47,
+            bell: 287,
+            factions,
+        }
+    }
+
+    pub fn sample_players() -> PlayersFile {
+        let rows = (0..9u64).map(|i| PlayerRow {
+            tag: 0x1000 + i * 0x0101_0101,
+            faction: (i % 3) as u8,
+            rank: 0,
+            keeps_taken: (i % 4) as u32,
+            keep_bells: (17 * i % 50) as u32,
+            sieges_won: (i % 2) as u32,
+            captures: (i / 4) as u32,
+            liberations: 0,
+        });
+        PlayersFile::ranked(300, rows)
+    }
+
+    pub fn sample_call() -> CallFile {
+        CallFile {
+            day: 2,
+            bell: 288,
+            day_seed: call_day_seed(&[7u8; 32], 2),
+            calls: [
+                Some((MarchCoord { m: 1, n: 0 }, false)),
+                None,
+                Some((MarchCoord { m: -1, n: 2 }, false)),
+                Some((MarchCoord { m: 0, n: -2 }, true)),
+                None,
+                Some((MarchCoord { m: 2, n: -1 }, false)),
+            ],
+        }
+    }
+
+    fn sig(n: u8) -> String {
+        let mut s = [0u8; 64];
+        s[0] = n;
+        s[8] = 0xF1;
+        solana_address::Address::new_from_array(s[..32].try_into().unwrap_or([0; 32])).to_string()
+    }
+
+    pub fn sample_siege() -> SiegeHistory {
+        SiegeHistory {
+            p: 3,
+            q: -1,
+            site: 2,
+            declared: 100,
+            kind: SiegeKind::First,
+            owner: Some(0x0102_0304_0506_0708),
+            owner_faction: 1,
+            attacker: 0x1122_3344_5566_7788,
+            attacker_faction: 4,
+            required: 36,
+            horn: RecordRef {
+                kind: "siege_declared".into(),
+                bell: 100,
+                seq: 812,
+                sig: sig(1),
+                detail: serde_json::json!({"stake": 500, "required": 36}),
+            },
+            series: (101..106u32)
+                .map(|b| SiegeBell {
+                    bell: b,
+                    holds: true,
+                    defender: b == 104,
+                    vigil: false,
+                    progress: (b - 100).min(3) as u8,
+                })
+                .collect(),
+            end: Some(SiegeEnd {
+                bell: 105,
+                outcome: SiegeOutcome::Failed,
+                broken_by_defender: true,
+                credited: None,
+            }),
+            followed: vec![RecordRef {
+                kind: "siege_settled".into(),
+                bell: 107,
+                seq: 901,
+                sig: sig(2),
+                detail: serde_json::json!({"reason": 0, "amount": 500}),
+            }],
+        }
+    }
+
+    pub fn sample_keep() -> KeepHistory {
+        KeepHistory {
+            p: -2,
+            q: 4,
+            tile: 17,
+            holder: 3,
+            since: 141,
+            troops: 2_500,
+            gen: 1,
+            heartland: false,
+            holders: vec![(0, 0), (3, 141)],
+            contests: vec![
+                ContestRec {
+                    contender: 5,
+                    from: 30,
+                    to: Some(40),
+                    outcome: ContestOutcome::Broken,
+                    progress: 10,
+                },
+                ContestRec {
+                    contender: 3,
+                    from: 69,
+                    to: Some(140),
+                    outcome: ContestOutcome::Taken,
+                    progress: 72,
+                },
+                ContestRec {
+                    contender: 0,
+                    from: 200,
+                    to: None,
+                    outcome: ContestOutcome::Running,
+                    progress: 4,
+                },
+            ],
+            captures: vec![KeepCapture {
+                bell: 140,
+                from: 0,
+                to: 3,
+                troops: 2_500,
+                donor: 0x0002_0003_0001_0007,
+                seq: 777,
+                sig: sig(3),
+            }],
+        }
+    }
+
+    pub fn sample_final() -> FinalFile {
+        FinalFile {
+            season: 5,
+            end_bell: 1_008,
+            control_sha256: [0xAB; 32],
+            standings: Some(sample_latest()),
+            movement: Movement {
+                lasting_changes: 9,
+                lasting_by_day: vec![0, 1, 2, 2, 1, 1, 2],
+                days_with_change: 6,
+                two_controllers: Ratio { num: 30, den: 120 },
+                banner_changes: 7,
+                marches_two_banners: Ratio { num: 5, den: 30 },
+                net_movement: Ratio { num: 12, den: 100 },
+                net_movement_10e: Ratio { num: 4, den: 40 },
+                breadth: 5,
+                largest: Ratio { num: 22, den: 120 },
+                smallest: Ratio { num: 15, den: 120 },
+                holding_contest: HoldingContest {
+                    sieges_declared: 30,
+                    sieges_completed: 14,
+                    sieges_failed: 9,
+                    occupations: 11,
+                    liberations: 4,
+                    captures: 6,
+                    outposts: 12,
+                },
+                first_holdings_transferred: 0,
+            },
+            titles: vec![
+                Title {
+                    title: "Breaker of Keeps".into(),
+                    tag: 0x1000,
+                    faction: 0,
+                    value: 3,
+                },
+                Title {
+                    title: "Warden of the Marches".into(),
+                    tag: 0x2000,
+                    faction: 2,
+                    value: 49,
+                },
+            ],
+        }
+    }
+
+    /// Every vector file, by name (one producer).
+    pub fn files() -> BTreeMap<String, Vec<u8>> {
+        let mut files: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+        let mut index: Vec<Value> = Vec::new();
+        let mut valid =
+            |files: &mut BTreeMap<String, Vec<u8>>, format: &str, name: &str, b: String| {
+                files.insert(name.into(), b.into_bytes());
+                index
+                    .push(serde_json::json!({"format": format, "file": name, "code": Value::Null}));
+            };
+        let l = sample_latest().to_json().expect("latest");
+        let p = sample_players().to_json().expect("players");
+        let c = sample_call().to_json().expect("call");
+        let s = sample_siege().to_json().expect("siege");
+        let k = sample_keep().to_json().expect("keep");
+        let f = sample_final().to_json().expect("final");
+        valid(
+            &mut files,
+            "standingsLatest",
+            "standings-latest.json",
+            l.clone(),
+        );
+        valid(&mut files, "players", "players.json", p.clone());
+        valid(&mut files, "call", "call-d2.json", c.clone());
+        valid(&mut files, "siege", "siege-3,-1,2-100.json", s.clone());
+        valid(&mut files, "keep", "keep--2,4.json", k.clone());
+        valid(&mut files, "final", "final.json", f.clone());
+        let e = PlayersFile {
+            bell: 0,
+            players: vec![],
+        };
+        valid(
+            &mut files,
+            "players",
+            "players-empty.json",
+            e.to_json().expect("empty"),
+        );
+        let mut bad = |files: &mut BTreeMap<String, Vec<u8>>,
+                       format: &str,
+                       name: &str,
+                       code: &str,
+                       b: String| {
+            files.insert(name.into(), b.into_bytes());
+            index.push(serde_json::json!({"format": format, "file": name, "code": code}));
+        };
+        bad(
+            &mut files,
+            "standingsLatest",
+            "bad-latest-official.json",
+            BAD_VALUE,
+            l.replacen("\"official\":false", "\"official\":true", 1),
+        );
+        bad(
+            &mut files,
+            "standingsLatest",
+            "bad-latest-order.json",
+            BAD_ORDER,
+            l.replacen("{\"faction\":1,", "{\"faction\":2,", 1),
+        );
+        bad(
+            &mut files,
+            "players",
+            "bad-players-rank.json",
+            BAD_ORDER,
+            p.replacen("\"rank\":2", "\"rank\":3", 1),
+        );
+        bad(
+            &mut files,
+            "players",
+            "bad-players-tag.json",
+            BAD_VALUE,
+            p.replacen("\"tag\":\"", "\"tag\":\"X", 1),
+        );
+        bad(
+            &mut files,
+            "call",
+            "bad-call-rally.json",
+            BAD_VALUE,
+            c.replacen(
+                "\"march\":null,\"rally\":false",
+                "\"march\":null,\"rally\":true",
+                1,
+            ),
+        );
+        bad(
+            &mut files,
+            "call",
+            "bad-call-seed.json",
+            BAD_VALUE,
+            c.replacen("\"daySeed\":\"", "\"daySeed\":\"0", 1),
+        );
+        bad(
+            &mut files,
+            "siege",
+            "bad-siege-key.json",
+            BAD_VALUE,
+            s.replacen("sg:3,-1,2,100", "sg:3,-1,2,101", 1),
+        );
+        bad(
+            &mut files,
+            "siege",
+            "bad-siege-series.json",
+            BAD_ORDER,
+            s.replacen("{\"bell\":102,", "{\"bell\":101,", 1),
+        );
+        bad(
+            &mut files,
+            "keep",
+            "bad-keep-holders.json",
+            BAD_VALUE,
+            k.replacen(
+                "\"holder\":3,\"since\":141}",
+                "\"holder\":4,\"since\":141}",
+                1,
+            ),
+        );
+        bad(
+            &mut files,
+            "keep",
+            "bad-keep-running.json",
+            BAD_VALUE,
+            k.replacen("\"to\":null", "\"to\":201", 1),
+        );
+        bad(
+            &mut files,
+            "final",
+            "bad-final-control.json",
+            BAD_VALUE,
+            f.replacen("\"bell\":1007,", "\"bell\":1006,", 1),
+        );
+        bad(
+            &mut files,
+            "final",
+            "bad-final-bps.json",
+            BAD_VALUE,
+            f.replacen(
+                "\"num\":30,\"den\":120,\"bps\":2500",
+                "\"num\":30,\"den\":120,\"bps\":2501",
+                1,
+            ),
+        );
+        bad(
+            &mut files,
+            "final",
+            "bad-final-days.json",
+            BAD_VALUE,
+            f.replacen("\"lastingByDay\":[0,", "\"lastingByDay\":[1,", 1),
+        );
+        bad(
+            &mut files,
+            "final",
+            "bad-final-json.json",
+            BAD_JSON,
+            f[..f.len() - 1].to_string(),
+        );
+        let idx = serde_json::json!({
+            "v": 1,
+            "producer": "frontier-node/crates/herald/src/cqfmt.rs (cq2e_vectors::files); FRONTIER_WRITE_FIXTURES=1 cargo test -p herald cq_json_vectors_fresh",
+            "files": index,
+        });
+        files.insert(
+            "index.json".into(),
+            (serde_json::to_string_pretty(&idx).unwrap_or_default() + "\n").into_bytes(),
+        );
+        files
+    }
+
+    /// Parses `b` as `format`; `Err(code)` on refusal.
+    pub fn read(format: &str, b: &[u8]) -> Result<(), &'static str> {
+        let r = match format {
+            "standingsLatest" => StandingsLatest::parse(b).map(|_| ()),
+            "players" => PlayersFile::parse(b).map(|_| ()),
+            "call" => CallFile::parse(b).map(|_| ()),
+            "siege" => SiegeHistory::parse(b).map(|_| ()),
+            "keep" => KeepHistory::parse(b).map(|_| ()),
+            "final" => FinalFile::parse(b).map(|_| ()),
+            _ => return Err("UnknownFormat"),
+        };
+        r.map_err(|e| e.code)
+    }
+}
+
+#[cfg(test)]
+mod cq2e_tests {
+    use super::cq2e_vectors::*;
+    use super::*;
+
+    #[test]
+    fn cq_json_round_trips() {
+        let l = sample_latest();
+        assert_eq!(
+            StandingsLatest::parse(l.to_json().unwrap().as_bytes()).unwrap(),
+            l
+        );
+        let p = sample_players();
+        assert_eq!(
+            PlayersFile::parse(p.to_json().unwrap().as_bytes()).unwrap(),
+            p
+        );
+        assert!(p.players.iter().all(|r| r.rank >= 1));
+        let c = sample_call();
+        assert_eq!(CallFile::parse(c.to_json().unwrap().as_bytes()).unwrap(), c);
+        let s = sample_siege();
+        assert_eq!(
+            SiegeHistory::parse(s.to_json().unwrap().as_bytes()).unwrap(),
+            s
+        );
+        let k = sample_keep();
+        assert_eq!(
+            KeepHistory::parse(k.to_json().unwrap().as_bytes()).unwrap(),
+            k
+        );
+        let f = sample_final();
+        assert_eq!(
+            FinalFile::parse(f.to_json().unwrap().as_bytes()).unwrap(),
+            f
+        );
+        assert_eq!(Ratio { num: 1, den: 3 }.bps(), 3_333);
+        assert_eq!(Ratio { num: 0, den: 0 }.bps(), 0);
+    }
+
+    #[test]
+    fn cq_players_ranked_cut_at_100() {
+        let rows = (0..250u64).map(|i| PlayerRow {
+            tag: i + 1,
+            faction: (i % 2) as u8,
+            keeps_taken: (i % 7) as u32,
+            ..Default::default()
+        });
+        let f = PlayersFile::ranked(9, rows);
+        assert_eq!(f.players.len(), 200);
+        assert!(f.to_json().is_ok());
+        assert_eq!(f.players[0].keeps_taken, 6);
+        assert_eq!(f.players[0].rank, 1);
+    }
+
+    #[test]
+    fn cq_siege_delta() {
+        let a = vectors::sample_sieges();
+        let mut b = a.clone();
+        b.bell += 1;
+        b.sieges[0].progress += 1;
+        b.sieges.remove(2);
+        b.keeps.remove(1);
+        let d = SiegeDelta::between(Some(&a), &b).unwrap();
+        assert_eq!(d.upsert.len(), 1);
+        assert_eq!(d.remove, vec![a.sieges[2].key()]);
+        assert_eq!(d.keeps_remove, vec![(5, -1)]);
+        assert!(SiegeDelta::between(Some(&b), &b).is_none());
+        let v: Value = serde_json::from_str(&d.to_json()).unwrap();
+        assert_eq!(v["bell"], 401);
+    }
+
+    #[test]
+    fn cq_json_vectors_fresh() {
+        let want = files();
+        let dir = dir();
+        if std::env::var("FRONTIER_WRITE_FIXTURES").is_ok() {
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            for (k, v) in &want {
+                std::fs::write(dir.join(k), v).unwrap();
+            }
+        }
+        let mut have = std::collections::BTreeMap::new();
+        for e in
+            std::fs::read_dir(&dir).expect("vectors/cq-json (FRONTIER_WRITE_FIXTURES=1 writes it)")
+        {
+            let p = e.unwrap().path();
+            have.insert(
+                p.file_name().unwrap().to_string_lossy().to_string(),
+                std::fs::read(&p).unwrap(),
+            );
+        }
+        assert_eq!(
+            have.keys().collect::<Vec<_>>(),
+            want.keys().collect::<Vec<_>>(),
+            "stale file set: FRONTIER_WRITE_FIXTURES=1 cargo test -p herald cq_json_vectors_fresh"
+        );
+        for (k, v) in &want {
+            assert!(have[k] == *v, "{k} is stale: FRONTIER_WRITE_FIXTURES=1 cargo test -p herald cq_json_vectors_fresh");
+        }
+        // every valid file reads; every invalid one is refused with its code
+        let idx: Value = serde_json::from_slice(&want["index.json"]).unwrap();
+        for e in idx["files"].as_array().unwrap() {
+            let (fmt, name) = (e["format"].as_str().unwrap(), e["file"].as_str().unwrap());
+            let got = read(fmt, &want[name]);
+            match e["code"].as_str() {
+                None => assert_eq!(got, Ok(()), "{name}"),
+                Some(c) => assert_eq!(got, Err(c), "{name}"),
+            }
+        }
+    }
+}

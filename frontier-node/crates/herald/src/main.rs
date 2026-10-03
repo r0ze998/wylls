@@ -6,7 +6,12 @@
 //!     [--listen 127.0.0.1:41040] [--source localnet|rpc] [--cluster localnet]
 //!     [--web DIR] [--relay 127.0.0.1:41033] [--test-key | --drand-info FILE]
 //!     [--checkpoint-slots 150] [--poll-ms 200] [--quotas JSON]
+//! frontier-herald --fixture conquest --data DIR [--listen 127.0.0.1:41900] [--web DIR]
 //! ```
+//! `--fixture conquest` (MC contract §8.4, CQ2-E) folds the synthetic
+//! conquest mini-season (`herald_fold::cqfixture`) into `DIR` and serves it
+//! read-only (no ingest, no chain); CQ3-E's recorded mini-season replaces
+//! the synthetic one.
 //! The listen port must be 41000–41999 (or 0) and never a reserved port
 //! (§10.3). Stop with Ctrl-C: the fold is checkpointed on the way out.
 
@@ -41,8 +46,66 @@ fn args() -> Result<HashMap<String, String>, String> {
     Ok(m)
 }
 
+/// `--fixture conquest`: fold the synthetic conquest season, then serve it.
+async fn fixture_conquest(a: &HashMap<String, String>) -> Result<(), String> {
+    let data = PathBuf::from(a.get("data").ok_or("--data is required")?);
+    let listen = a.get("listen").cloned().unwrap_or("127.0.0.1:41900".into());
+    let port: u16 = listen
+        .rsplit(':')
+        .next()
+        .and_then(|p| p.parse().ok())
+        .ok_or("--listen: host:port")?;
+    if !herald_fold::port_allowed(port) {
+        return Err(format!(
+            "--listen port {port}: services use 41000-41999 and never a reserved port"
+        ));
+    }
+    use herald_fold::cqfixture;
+    let txs = cqfixture::mini_season();
+    let cfg = IngestCfg::new(&data, cqfixture::program(), cqfixture::SEASON_ID);
+    let (diffs, _) = broadcast::channel(4_096);
+    let mut ing = Ingest::open(cfg.clone(), diffs.clone())?;
+    let mut src = cqfixture::VecSource {
+        txs,
+        pos: 0,
+        batch: 500,
+    };
+    ing.findex.resume(&mut src);
+    while ing.step(&mut src).await? > 0 {}
+    ing.checkpoint()?;
+    let mut app = App::new(
+        ing.fold.clone(),
+        herald_fold::files::Out::new(cfg.files_dir()),
+        SeasonStatic {
+            cluster: "fixture".into(),
+            drand: fclient::beacon::TestKey::new().info(),
+            quotas: serde_json::json!({"perDay": 40, "burst": 60}),
+        },
+        diffs,
+    );
+    app.web = a.get("web").map(PathBuf::from);
+    app.index = Some(cfg.index_path());
+    let listener = tokio::net::TcpListener::bind(&listen)
+        .await
+        .map_err(|e| format!("{listen}: {e}"))?;
+    eprintln!(
+        "frontier-herald: --fixture conquest (season {}) on http://{}",
+        cqfixture::SEASON_ID,
+        listener.local_addr().map_err(|e| e.to_string())?
+    );
+    tokio::select! {
+        r = server::serve(listener, Arc::new(app)) => r.map_err(|e| e.to_string()),
+        _ = tokio::signal::ctrl_c() => Ok(()),
+    }
+}
+
 async fn main_inner() -> Result<(), String> {
     let a = args()?;
+    match a.get("fixture").map(String::as_str) {
+        Some("conquest") => return fixture_conquest(&a).await,
+        Some(x) => return Err(format!("--fixture {x}: only `conquest`")),
+        None => {}
+    }
     let need = |k: &str| a.get(k).cloned().ok_or(format!("--{k} is required"));
     let data = PathBuf::from(need("data")?);
     let program: Address = need("program")?
