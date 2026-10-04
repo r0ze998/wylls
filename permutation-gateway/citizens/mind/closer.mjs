@@ -7,10 +7,13 @@
 // with every request, so the clock is anchored on those (error: one HTTP round trip, well under a game
 // second at 10x). `genesisTs` (the SEASON_CREATED payload of /h/events, or --genesis-ts) fixes bell 0.
 export const CLOSE_DELAY_GAME_S = 20;
+/** Real ms the brain must have been silent before the clock follows the chain (server.mjs `catchUpClockFromHerald`) and the closer measures against it. */
+export const CHAIN_FOLLOW_SILENT_MS = 30000;
 
 export function createClock({ genesisTs = null, scale = 10, bellSecs = 600, nowMs = () => Date.now() } = {}) {
   let anchor = null; // {game_s, real_ms}
   let lastBrainMs = null; // real ms of the last observe() (the brain's request), not of observeChain()
+  let chainUnix = null; // the newest chain unix time a poll of the herald returned (noteChain); it never runs ahead of the chain
   let sc = scale;
   let gts = genesisTs;
   const api = {
@@ -26,6 +29,22 @@ export function createClock({ genesisTs = null, scale = 10, bellSecs = 600, nowM
     /** integ-B: re-anchor on the chain's own unix time (the herald's /h/season latestUnix); does not count as a brain observation */
     observeChain(unix, realMs = nowMs()) {
       if (Number.isFinite(unix)) anchor = { game_s: unix, real_ms: realMs };
+    },
+    /** season-end race fix: remember the chain's own unix time the herald reported (every successful poll, whether or not it moves the clock) */
+    noteChain(unix) {
+      if (Number.isFinite(unix) && unix > 0) chainUnix = unix;
+    },
+    /**
+     * The instant the closer measures bell close times against. While the brain is active it is `gameNow`. Once the brain has been silent
+     * (the fleet exited, the drain runs, at the end the chain completes and is PAUSED) it is `gameNow` capped at the newest chain time
+     * the herald reported: a paused chain never reaches the close instant of its last, unfinished bell, but `gameNow` keeps running on
+     * real time between two polls and used to cross it (smoke-r2: bell 109 was closed 17 game-s past the chain's end, after the index).
+     * The cost is that a bell closes up to one herald poll later than the extrapolation says, in the drain only.
+     */
+    closeNow(realMs = nowMs(), silentMs = CHAIN_FOLLOW_SILENT_MS) {
+      const g = api.gameNow(realMs);
+      if (g == null) return null;
+      return chainUnix !== null && api.brainSilentMs(realMs) > silentMs ? Math.min(g, chainUnix) : g;
     },
     /** real ms since the brain last anchored the clock (Infinity: never) */
     brainSilentMs: (realMs = nowMs()) => (lastBrainMs == null ? Infinity : realMs - lastBrainMs),
@@ -54,9 +73,14 @@ export function createClock({ genesisTs = null, scale = 10, bellSecs = 600, nowM
   return api;
 }
 
-export function createCloser({ clock, social, records, metrics, onClosed = () => {}, start = 0, setIntervalFn = setInterval, clearIntervalFn = clearInterval, nowMs = () => Date.now() } = {}) {
+/**
+ * `guard` (optional, mind/seal.mjs `closerGuard`): `enter(bell)` returns a `leave()` or `null` when the season is sealed; a sealed closer closes
+ * no bell, now or later (the registrar's season-end publication is the end of the closer, whatever the clock says).
+ */
+export function createCloser({ clock, social, records, metrics, guard = null, onClosed = () => {}, start = 0, setIntervalFn = setInterval, clearIntervalFn = clearInterval, nowMs = () => Date.now() } = {}) {
   let next = start; // lowest bell not yet closed
   let timer = null;
+  let sealed = false;
   const errors = { social: 0, records: 0 };
   async function closeOne(b) {
     let s = null;
@@ -87,18 +111,24 @@ export function createCloser({ clock, social, records, metrics, onClosed = () =>
     errors,
     /** close every bell whose close instant (bell_start(b+1) + 20 game-s) has passed; returns the bells closed */
     async tick(realMs = nowMs()) {
-      if (!clock.hasAnchor()) return [];
-      const g = clock.gameNow(realMs);
+      if (sealed || !clock.hasAnchor()) return [];
+      const g = clock.closeNow ? clock.closeNow(realMs) : clock.gameNow(realMs);
       const done = [];
-      for (let guard = 0; guard < 500; guard++) {
+      for (let n = 0; n < 500; n++) {
         const b = next;
         if (clock.bellStartGame(b + 1) + CLOSE_DELAY_GAME_S > g) break;
-        if (!(await closeOne(b))) break;
+        const leave = guard ? guard.enter(b) : () => {};
+        if (!leave) { sealed = true; metrics?.inc('close_refused_sealed'); break; }
+        let ok;
+        try { ok = await closeOne(b); } finally { leave(); }
+        if (!ok) break;
         done.push(b);
         next = b + 1;
       }
       return done;
     },
+    /** true once the season-end seal stopped this closer */
+    sealed: () => sealed,
     next: () => next,
     setNext(b) {
       next = b;
