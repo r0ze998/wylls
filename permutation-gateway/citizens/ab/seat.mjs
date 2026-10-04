@@ -30,6 +30,18 @@
 // record (PUB/seat/ballots.json) and every log line say so. A Strike Order adopted this way is a scripted seat vote plus AI votes;
 // it is never "humans and AI decided together" (only the recorded session, where the owner votes, can say that).
 // With --arm A|B the A/B behaviour of contract 9.3 is unchanged (the ballot rule above is not used there).
+//
+// SEAT ELIGIBILITY FIX (2026-10-05, smoke-r3). The scripted seat posted its ballot at bell 52 and the social service answered 400
+// NotEligible: the council's eligible list for nation 0 at C0 held only the AI, because the seat's village was still PROVISIONAL (Holding
+// STATE 1; every AI's was STATE 2). The program flips provisional to final lazily (I-29, I-47: state 1, now >= final_ts, ticket cohort
+// closed, at most 24 bells after the village appears) and only inside an instruction that carries the holding's own Province; the seat
+// is the fleet's Idle archetype and sends nothing, so it never flipped. The watcher's census lists a citizen as a voter only after the
+// HOLDING_FINAL row is in the herald log. So the seat script now finalises its own village: `createSeatFinaliser` (below) reads the seat's
+// holding from the herald and, once the flip is due, sends ONE harmless instruction that carries the holding's Province, a Build of walls
+// (item 6; +100 walls for 300 stone), signed with the seat's session key through the relay exactly as the web client does. Harvest, the
+// cheapest instruction, does NOT work: it carries no Province and the program applies the flip only where `finality()` is called (Build
+// walls, Muster, Garrison, Dissolve, Explore, Depart). Garrison/Muster would need a reserve and a caught-up province. It stops when the
+// holding reads as final, with a quota guard and a cap on attempts; log lines say "scripted seat: finalising its village".
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -67,6 +79,13 @@ export function loadSeatKey(file) {
   return { wallet: j.wallet, walletBytes: fromBase58(j.wallet), sessionB58: j.session, index: j.index ?? null, sign: (bytes) => crypto.sign(null, Buffer.from(bytes), key) };
 }
 
+/** The 32-byte seed of the seat's session key (the finaliser signs a transaction with it; it is never logged or written). */
+export function loadSeatSeed(file) {
+  const kp = fromBase58(JSON.parse(fs.readFileSync(file, 'utf8')).session_keypair_b58);
+  if (kp.length !== 64) throw new Error('seat key: session_keypair_b58 must decode to 64 bytes');
+  return Buffer.from(kp.subarray(0, 32));
+}
+
 /** X = the option of the first AI motion of the period (the motion list is in acceptance order); null when no AI moved one. */
 export function aiMotionOption(state, aiWallets) {
   const m = (state?.motions ?? []).find((x) => (x.ai_roster === true || aiWallets.has(x.wallet)) && Number.isInteger(x.option) && x.option > 0);
@@ -97,6 +116,124 @@ export function summariseClash(detail, nation = NATION) {
     enemy_lost: f.filter((x) => x.faction !== nation && x.faction !== null && x.faction !== undefined).reduce((s, x) => s + lost(x), 0),
     nation0_involved: mine.some((x) => x.arrival || x.engaged),
     unknown_owner_fighters: f.filter((x) => x.faction === null || x.faction === undefined).length,
+  };
+}
+
+// ---- the seat's own village: provisional -> final (seat eligibility fix) --------------------------------------------------------
+export const FINALISE_LINE = 'scripted seat: finalising its village';
+export const ITEM_WALLS = 6; // catalog ITEM_WALLS: the only Build that names the holding's Province, hence the only one that runs the lazy flip
+export const WALL_STONE_NEEDED = 300; // catalog WALL_COST_STONE (a doctrine may cut it by 5 %: 300 is the safe upper bound), whole units
+export const FINALISE_MIN_QUOTA = 6; // the seat shares the relay's per-citizen daily quota: it sends nothing below this many left
+export const FINALISE_MAX_ATTEMPTS = 3; // sent walls that landed without the village turning final (the wall queue has two slots)
+export const FINALISE_MAX_TRIES = 12; // every send, landed or not (a refused or lost transaction counts here only)
+export const FINALISE_SPACING_BELLS = 3; // bells between two sends
+
+/**
+ * The finaliser of the scripted seat's own village. All chain I/O is injected:
+ *   readSeat() -> null (herald unreachable) | {holding: null | {state: 1|2, ...}, due: bool, stone: number|null}
+ *     `due` = the program would take the lazy flip now (frontier-abi finality_due: state 1, now >= final_ts, cohort closed), `stone` = whole units
+ *   sendWalls() -> {ok, code?, state?, signature?, error?}   (a landed transaction is ok: true)
+ *   quotaLeft() -> number | null
+ * `step({bell})` does at most one thing per bell and never throws: read; final -> done; not due -> wait; not enough stone -> wait; quota
+ * low -> wait; else one Build of walls. State (JSON, no key): {status, final, attempts, tries, last_attempt_bell, final_bell, last_result, note}.
+ */
+export function createSeatFinaliser({ readSeat, sendWalls, quotaLeft = null, log = (m) => console.log(m), maxAttempts = FINALISE_MAX_ATTEMPTS, maxTries = FINALISE_MAX_TRIES, spacingBells = FINALISE_SPACING_BELLS, minQuota = FINALISE_MIN_QUOTA, stoneNeeded = WALL_STONE_NEEDED } = {}) {
+  const st = { scripted: true, statement: 'the operator\'s script touches the seat\'s own village so that it counts as a final village; it casts no vote and moves no troops', status: 'not_started', final: false, attempts: 0, tries: 0, last_attempt_bell: null, last_checked_bell: null, final_bell: null, last_result: null, note: null };
+  const say = (m) => { try { log(`${FINALISE_LINE}${m ? ` ${m}` : ''}`); } catch { /* a log failure must not stop the seat */ } };
+  const to = (status, text = null) => { if (st.status !== status) { st.status = status; if (text) say(`(${text})`); } };
+  return {
+    state: () => ({ ...st }),
+    async step({ bell }) {
+      if (st.final || bell == null || bell < 0 || st.last_checked_bell === bell) return st;
+      st.last_checked_bell = bell;
+      let snap = null;
+      try { snap = await readSeat(); } catch { snap = null; }
+      if (!snap) { to('herald_unreachable'); return st; }
+      const h = snap.holding;
+      if (!h) { to('no_village_yet'); return st; }
+      if (h.state === 2) { st.final = true; st.final_bell = bell; st.status = 'final'; say(`: its village is final (seen at bell ${bell})`); return st; }
+      if (!snap.due) { to('waiting_final_due', `waiting: the program flips it only when its time has come and its ticket cohort has closed; provisional at bell ${bell}`); return st; }
+      if (snap.stone != null && snap.stone < stoneNeeded) { to('waiting_stone', `waiting for ${stoneNeeded} stone, has ${snap.stone}`); return st; }
+      if (st.attempts >= maxAttempts || st.tries >= maxTries) { to('gave_up', `gave up after ${st.attempts} landed and ${st.tries} sent attempts; still provisional`); return st; }
+      if (st.last_attempt_bell != null && bell - st.last_attempt_bell < spacingBells) return st;
+      let q = null;
+      try { q = quotaLeft ? await quotaLeft() : null; } catch { q = null; }
+      if (q != null && q < minQuota) { to('waiting_quota', `waiting: only ${q} sponsored transactions left today, the seat keeps ${minQuota} back`); return st; }
+      say(`: a Build of walls touches its holding at bell ${bell} (no vote, no troops)`);
+      st.tries++;
+      st.last_attempt_bell = bell;
+      let r;
+      try { r = await sendWalls(); } catch (e) { r = { ok: false, code: 'threw', error: String(e?.message ?? e).slice(0, 200) }; }
+      st.last_result = { bell, ok: Boolean(r?.ok), code: r?.code ?? null, state: r?.state ?? null, signature: r?.signature ?? null };
+      if (r?.ok) { st.attempts++; st.status = 'sent'; say(`: landed (${r.signature ? String(r.signature).slice(0, 12) : 'no signature'}); waiting for the herald to show it final`); }
+      else { st.status = 'send_failed'; st.note = `${r?.code ?? 'failed'}: ${String(r?.error ?? '').slice(0, 160)}`; say(`: the send failed (${st.note}); trying again later`); }
+      return st;
+    },
+  };
+}
+
+/**
+ * The real chain I/O of the finaliser (CLI only): the herald for reading, the relay for sending, the seat's session key signing through the
+ * web client's own modules (permutation-server/web/frontier/fplay.mjs, the same path the page uses). Imports are lazy so the pure file
+ * loads without them. Throws nothing the finaliser does not catch.
+ *   herald: base URL; relay: base URL of the relay (the herald's /gw proxy by default); key: loadSeatKey's result plus `seed`.
+ */
+export async function makeChainFinaliserIO({ herald, relay, key, seed, fetchImpl = globalThis.fetch, track = { tries: 30, every: 1500 } }) {
+  const web = new URL('../../../permutation-server/web/', import.meta.url);
+  const mod = (rel) => import(new URL(rel, web).href);
+  const [{ createHerald }, io, play, land, sess] = await Promise.all([mod('frontier/herald.mjs'), mod('frontier/fchainio.mjs'), mod('frontier/fplay.mjs'), mod('frontier/fland.mjs'), mod('session.mjs')]);
+  const h = createHerald({ base: herald, fetch: fetchImpl });
+  const session = await sess.keyFromSeed(seed);
+  if (session.publicKey !== key.sessionB58) throw new Error('seat: the key seed does not give the session key');
+  io.setRelay(relay);
+  let pinned = false;
+  let lastSeason = null;
+  const ensurePin = async () => {
+    const s = await h.season();
+    if (!s.ok) return null;
+    lastSeason = s;
+    if (!pinned) {
+      io.setPin({ programId: s.record.programId, cluster: s.record.cluster, seasonId: s.record.season, seasonAddress: s.record.seasonAddress, rulesetHash: Buffer.from(s.season.rulesetHash).toString('hex') });
+      pinned = true;
+    }
+    return s;
+  };
+  let holdingRef = null;
+  const STONE = 2;
+  return {
+    async readSeat() {
+      const s = await ensurePin();
+      if (!s) return null;
+      const me = await h.me(key.wallet);
+      if (!me.ok) return me.code === 'NotFound' ? { holding: null, due: false, stone: null } : null;
+      const hd = me.holdings.find((x) => x.state === 1 || x.state === 2) ?? null;
+      if (!hd) return { holding: null, due: false, stone: null };
+      holdingRef = { p: hd.p, q: hd.q, site: hd.site };
+      if (hd.state === 2) return { holding: { state: 2, ...holdingRef }, due: true, stone: null };
+      const pv = await h.province(hd.p, hd.q, 'latest');
+      const now = Number(s.record.latestUnix);
+      const nowBell = Number(s.record.genesisTs) > now ? -1 : Math.floor((now - Number(s.record.genesisTs)) / Number(s.record.bellSecs));
+      const due = Boolean(pv.ok && land.finalityDue(hd, pv.province, now, nowBell));
+      let stone = null;
+      try { stone = Number(land.accrualAt(hd.stores[STONE], now) / 1000n); } catch { stone = null; }
+      return { holding: { state: 1, ...holdingRef, final_ts: Number(hd.finalTs), ticket_bell: hd.ticketBell }, due, stone };
+    },
+    async quotaLeft() {
+      if (!pinned) return null;
+      const citizen = io.pinned().addresses.of('Citizen', { wallet: key.wallet });
+      const r = await io.quota(citizen);
+      return r.ok && Number.isFinite(Number(r.left)) ? Number(r.left) : null;
+    },
+    async sendWalls() {
+      if (!pinned || !holdingRef) return { ok: false, code: 'NoHolding', error: 'the seat\'s holding has not been read yet' };
+      const A = io.pinned().addresses;
+      const accounts = play.accountsFor('Build', { addresses: A, wallet: key.wallet, actor: session.publicKey, holding: holdingRef, province: holdingRef, item: ITEM_WALLS });
+      const r = await play.submit({ name: 'Build', accounts, fields: { item: ITEM_WALLS }, signer: { session } });
+      if (!r.ok) return { ok: false, code: r.code ?? 'SendFailed', error: r.error ?? null };
+      const t = await play.track(r.signature, track);
+      return { ok: t.ok, state: t.state, code: t.ok ? null : (t.code ?? 'NotLanded'), signature: r.signature, error: t.ok ? null : `${t.state ?? ''} ${t.programCode ?? ''}`.trim() };
+    },
+    season: () => lastSeason,
   };
 }
 
@@ -176,6 +313,16 @@ function makeSeatPublisher(aiDir, now) {
   };
 }
 
+/** One finaliser step in a loop, after the bell is known. The seat's private log carries the finaliser's state (`finalise`); it never throws. */
+async function finaliseTick(finaliser, bell, log, save) {
+  if (!finaliser || bell == null || bell < 0) return;
+  try {
+    const before = JSON.stringify(log.finalise ?? null);
+    log.finalise = { ...(await finaliser.step({ bell })) };
+    if (JSON.stringify(log.finalise) !== before) save();
+  } catch { /* the seat's votes do not depend on it */ }
+}
+
 /** Why the loop must stop now, or null. Bound to game time (stop file or signal, the end bell), never to a poll count unless a test asks. */
 async function stopReason({ i, bell, maxPolls, endBell, shouldStop }) {
   if (shouldStop && (await shouldStop())) return 'stopped: stop file or signal';
@@ -189,7 +336,7 @@ async function stopReason({ i, bell, maxPolls, endBell, shouldStop }) {
  *   getJson(url) -> object, postJson(url, body) -> {status, body}, bellNow() -> bell (null before genesis), sleep(ms),
  *   observeAt(p, q, bell) -> clashDetail-like or null.
  */
-export async function runSeat({ arm, rep, aiDir, social, key, config = {}, getJson, postJson, bellNow, sleep, observeAt = null, pollMs = 3000, maxPolls = null, endBell = null, shouldStop = null, now = () => Date.now() }) {
+export async function runSeat({ arm, rep, aiDir, social, key, config = {}, getJson, postJson, bellNow, sleep, observeAt = null, pollMs = 3000, maxPolls = null, endBell = null, shouldStop = null, now = () => Date.now(), finaliser = null }) {
   if (arm !== 'A' && arm !== 'B') throw new Error('seat: --arm A or B');
   const roster = readJson(path.join(aiDir, 'pub/roster.json'));
   const season = roster?.season;
@@ -213,6 +360,7 @@ export async function runSeat({ arm, rep, aiDir, social, key, config = {}, getJs
     const bell = await bellNow();
     lastBell = bell;
     publish(log, lastBell); // a ballot's option is published only once its period has closed
+    await finaliseTick(finaliser, bell, log, save); // the seat's village must count as final before the period opens
     if (st?.period != null) state = st;
     if (state?.period != null && bell != null) {
       const c0 = state.c0 ?? state.closes_bell - 6;
@@ -256,7 +404,7 @@ export async function runSeat({ arm, rep, aiDir, social, key, config = {}, getJs
  *   shouldStop() -> bool (stop file or signal), endBell (optional run end), maxPolls (tests only; null = bound to game time).
  * It waits through preseason (no roster season, no period, bell before genesis) and keeps polling until the run ends.
  */
-export async function runSeatScript({ aiDir, social, key, config = {}, getJson, postJson, bellNow, sleep, readBallots = readJournalBallots, pollMs = 3000, maxPolls = null, endBell = null, shouldStop = null, now = () => Date.now(), maxAttempts = 20 }) {
+export async function runSeatScript({ aiDir, social, key, config = {}, getJson, postJson, bellNow, sleep, readBallots = readJournalBallots, pollMs = 3000, maxPolls = null, endBell = null, shouldStop = null, now = () => Date.now(), maxAttempts = 20, finaliser = null }) {
   const log = { v: 1, kind: 'seat-script-log', mode: 'council-script', scripted: true, ballot_label: { ...SEAT_BALLOT_LABEL }, never_live: SEAT_NEVER_LIVE, rule: SEAT_RULE_TEXT, nation: NATION, origin: ORIGIN_SCRIPTED, season: null, seat_wallet_listed: false, started_unix: Math.floor(now() / 1000), periods: [], skipped_periods: [], notes: [] };
   const file = path.join(aiDir, 'seat', 'seat-script-log.json');
   const publish = makeSeatPublisher(aiDir, now);
@@ -289,6 +437,7 @@ export async function runSeatScript({ aiDir, social, key, config = {}, getJson, 
     const bell = await bellNow();
     lastBell = bell;
     publish(log, lastBell); // a ballot's option is published only once its period has closed
+    await finaliseTick(finaliser, bell, log, save); // the seat's village must count as final before the period opens
     if (st?.period != null) state = st;
     if (roster?.season != null && state?.period != null && bell != null && bell >= 0) {
       const c0 = state.c0 ?? state.closes_bell - 6;
@@ -362,8 +511,19 @@ if (isMain()) {
   const { bellOf } = await import('../scenario/census.mjs');
   const bellNow = async () => { try { return bellOf(await getJson(`${a.herald}/h/season`)); } catch { return null; } };
   const social = a.social.replace(/\/+$/, '');
+  // seat eligibility fix: the seat finalises its own village (a Build of walls through the relay, signed with its session key) so that it
+  // is on the council's eligible list at C0. `--finalise 0` turns it off; `--relay URL` names the relay (default: the herald's /gw proxy).
+  let finaliser = null;
+  if (a.finalise !== '0') {
+    try {
+      const relay = (a.relay ?? `${a.herald.replace(/\/+$/, '')}/gw`).replace(/\/+$/, '');
+      assertLoopbackUrl(relay, 'relay');
+      const io = await makeChainFinaliserIO({ herald: a.herald.replace(/\/+$/, ''), relay, key, seed: loadSeatSeed(path.resolve(a['key-file'])) });
+      finaliser = createSeatFinaliser({ readSeat: io.readSeat, sendWalls: io.sendWalls, quotaLeft: io.quotaLeft });
+    } catch (e) { console.error(`seat: the village finaliser could not start (${String(e?.message ?? e).slice(0, 200)}); the seat's village may stay provisional and its ballot be refused NotEligible`); }
+  }
   if (!ab) {
-    const log = await runSeatScript({ aiDir, social, key, config, getJson, postJson, bellNow, sleep, shouldStop, endBell });
+    const log = await runSeatScript({ aiDir, social, key, config, getJson, postJson, bellNow, sleep, shouldStop, endBell, finaliser });
     console.log(JSON.stringify({ mode: log.mode, scripted: true, ballots: log.periods.map((p) => ({ period: p.period, option: p.option, rule: p.rule, ok: p.ok })), skipped: log.skipped_periods.length, stopped: log.notes.at(-1) ?? null }));
     process.exit(0);
   }
@@ -372,7 +532,7 @@ if (isMain()) {
     const { createFeed } = await import('../watcher/feed.mjs');
     feed = createFeed({ herald: a.herald, roster: readJson(path.join(aiDir, 'pub/roster.json')) });
   } catch { feed = null; }
-  const log = await runSeat({ arm: a.arm, rep: Number(a.rep), aiDir, social, key, config, getJson, postJson, bellNow, sleep, shouldStop, endBell, observeAt: feed ? async (p, q, b) => { for (let i = 0; i < 5; i++) { const r = await feed.poll(); if (r.ok) break; } return feed.clashDetail(p, q, b); } : null });
+  const log = await runSeat({ arm: a.arm, rep: Number(a.rep), aiDir, social, key, config, getJson, postJson, bellNow, sleep, shouldStop, endBell, finaliser, observeAt: feed ? async (p, q, b) => { for (let i = 0; i < 5; i++) { const r = await feed.poll(); if (r.ok) break; } return feed.clashDetail(p, q, b); } : null });
   console.log(JSON.stringify({ arm: log.arm, rep: log.rep, period: log.period, option_x: log.option_x, ballot: log.ballot && { option: log.ballot.option, ok: log.ballot.ok }, observed: Boolean(log.observed) }));
   process.exit(log.ballot?.ok ? 0 : 1);
 }

@@ -326,7 +326,7 @@ bg fleet "$FBIN/frontier-bots" --herald "$HERALD" --relay "$RELAY" --rpc "$RPC" 
 # and in pub/seat/ballots.json that the ballot is scripted. A roster that says "scripted" without a script casting ballots was the
 # smoke-b4/b5 inconsistency (integ-B-NOTES.md, "seat ballot fix").
 if [ -n "$AB" ] || [ -n "$SEAT_SCRIPT" ]; then
-  SEAT_ARGS=(--ai-dir "$AI_DIR" --herald "$HERALD" --social "http://127.0.0.1:$SOCIAL_PORT" --key-file "$KEYS/seat.txt" --config "$CCONFIG" --stop-file "$STATE/seat.stop")
+  SEAT_ARGS=(--ai-dir "$AI_DIR" --herald "$HERALD" --social "http://127.0.0.1:$SOCIAL_PORT" --relay "$RELAY" --key-file "$KEYS/seat.txt" --config "$CCONFIG" --stop-file "$STATE/seat.stop")
   rm -f "$STATE/seat.stop" # a leftover stop file from an earlier run in a reused AI_DIR would end the seat at its first poll
   [ -z "$AB" ] || SEAT_ARGS=(--arm "$AB" --rep "$REP" "${SEAT_ARGS[@]}")
   if [ -f "$REPO/$CPUB/ab/seat.mjs" ]; then

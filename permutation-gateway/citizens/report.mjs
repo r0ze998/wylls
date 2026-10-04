@@ -86,7 +86,7 @@ export function parseRuns(text) {
 export function loadRun(aiDir, { privateOk = true } = {}) {
   const pub = path.join(aiDir, 'pub');
   const state = path.join(aiDir, 'state');
-  const run = { aiDir, pub, state, bells: [], records: [], opened: new Map(), episodes: new Map(), episodesByTag: new Map(), roster: readJson(path.join(pub, 'roster.json')), commitments: readJson(path.join(pub, 'commitments.json')), private: false };
+  const run = { aiDir, pub, state, bells: [], records: [], opened: new Map(), episodes: new Map(), episodesByTag: new Map(), roster: readJson(path.join(pub, 'roster.json')), commitments: readJson(path.join(pub, 'commitments.json')), private: false, privateOk };
   const mindFiles = listDir(path.join(pub, 'minds')).map((f) => /^(\d+)\.json$/.exec(f)).filter(Boolean).map((m) => Number(m[1])).sort((a, b) => a - b);
   const byId = new Map();
   for (const b of mindFiles) {
@@ -459,6 +459,52 @@ export function personaSection(run, metrics) {
   return out;
 }
 
+/**
+ * Why a nation got no council in a period (smoke-r3 finding): the watcher's persisted verdicts (STATE/watcher/council-outcomes.json,
+ * watcher/outcomes.mjs) against the council files of PUB. Every (period, nation) from the first to the last recorded period is one row:
+ * `council` (a council file exists), `skipped` with its reason (`not_all_final`, `no_options`, `no_members`, `open_failed`),
+ * `waiting` (the period passed with no verdict: the open window ended while the feed or the province files were incomplete) or
+ * `no_verdict` (nothing recorded: the watcher never examined the nation in that period, or the run predates the file).
+ * The scripted seat's own finalisation (seat/seat-script-log.json) is read next to it, since a seat missing from the eligible list was the
+ * smoke-r3 cause.
+ */
+export function councilOutcomesSection(run) {
+  if (run.privateOk === false) return { available: false, rows: [], by_reason: {}, seat_finalise: null, note: 'public-only: the watcher\'s verdicts and the seat\'s log are operator-side state and are not read' };
+  const file = path.join(run.state ?? path.join(run.aiDir, 'state'), 'watcher', 'council-outcomes.json');
+  const j = readJson(file);
+  const councilFiles = listDir(path.join(run.pub, 'council')).filter((f) => /^\d+-\d+\.json$/.test(f));
+  const withFile = new Map();
+  for (const f of councilFiles) {
+    const c = readJson(path.join(run.pub, 'council', f));
+    if (c && Number.isInteger(c.period) && Number.isInteger(c.faction)) withFile.set(`${c.period}|${c.faction}`, c);
+  }
+  const seatLog = readJson(path.join(run.aiDir, 'seat', 'seat-script-log.json'));
+  const seat_finalise = seatLog?.finalise ? { status: seatLog.finalise.status ?? null, final: seatLog.finalise.final ?? null, attempts: seatLog.finalise.attempts ?? null, first_final_bell: seatLog.finalise.final_bell ?? null, note: seatLog.finalise.note ?? null } : null;
+  if (!j?.periods && !withFile.size) return { available: false, rows: [], by_reason: {}, seat_finalise, note: 'no council-outcomes file and no council file: the verdicts were not recorded (runs before the seat-eligibility fix did not write them)' };
+  const periods = new Set([...Object.keys(j?.periods ?? {}).map(Number), ...[...withFile.keys()].map((k) => Number(k.split('|')[0]))]);
+  const lo = Math.min(...periods);
+  const hi = Math.max(...periods);
+  const nations = [...new Set((run.roster?.ai ?? []).map((a) => a.faction))].sort((a, b) => a - b);
+  const rows = [];
+  const by_reason = {};
+  const bump = (k) => { by_reason[k] = (by_reason[k] ?? 0) + 1; };
+  for (let k = lo; k <= hi; k++) {
+    for (const f of nations) {
+      const o = j?.periods?.[k]?.[f] ?? null;
+      const c = withFile.get(`${k}|${f}`) ?? null;
+      let kind;
+      let reason = null;
+      if (c) { kind = 'council'; bump('council'); }
+      else if (o?.status === 'skipped') { kind = 'skipped'; reason = o.reason; bump(`skipped:${o.reason}`); }
+      else if (o?.status === 'waiting') { kind = 'waiting'; reason = o.reason; bump(`no_verdict_waiting:${o.reason}`); }
+      else if (o?.status === 'opened') { kind = 'council'; bump('council'); } // opened by the watcher but its file is not in PUB
+      else { kind = 'no_verdict'; bump('no_verdict'); }
+      rows.push({ period: k, nation: f, kind, reason, c0: o?.c0 ?? c?.c0 ?? null, bell: o?.bell ?? null, detail: o?.detail ?? null, council_file: Boolean(c), ballots_cast: c?.ballots_cast ?? null });
+    }
+  }
+  return { available: true, rows, by_reason, seat_finalise, note: null };
+}
+
 export function socialSection(run) {
   const councilFiles = listDir(path.join(run.pub, 'council')).filter((f) => /^\d+-\d+\.json$/.test(f));
   const talkFiles = listDir(path.join(run.pub, 'talk')).filter((f) => /^\d+\.json$/.test(f));
@@ -474,7 +520,7 @@ export function socialSection(run) {
     if (!j) continue;
     periods.push({ file: f, period: j.period, faction: j.faction, options_hash: j.options_hash ?? null, adopted: j.adopted ?? null, ballots_cast: j.ballots_cast ?? null, tally_split: j.tally_split ?? null, result: j.result ? { present: j.result.present ?? null, bounced: j.result.bounced ?? null } : null });
   }
-  return { talk_files: talkFiles.length, messages_in_talk_files: messages, council_files: councilFiles.length, council_periods: periods, origin, note: councilFiles.length ? null : 'no council file: in wave A the watcher was a stub and no council ran; motions, ballots, Strike Orders, declines and chronicle lines are not measured here' };
+  return { talk_files: talkFiles.length, messages_in_talk_files: messages, council_files: councilFiles.length, council_periods: periods, origin, council_outcomes: councilOutcomesSection(run), note: councilFiles.length ? null : 'no council file: in wave A the watcher was a stub and no council ran; motions, ballots, Strike Orders, declines and chronicle lines are not measured here' };
 }
 
 export function commitmentsSection(run) {
@@ -632,6 +678,18 @@ export function renderMarkdown(r) {
   if (me.unknown_choice_note && me.decisions_with_unknown_choice) L.push(`${me.decisions_with_unknown_choice} model decisions have no readable choice (${me.unknown_choice_note}).`);
   L.push('');
   L.push('## Social and council', '', r.social.note ?? `${r.social.council_files} council files, ${r.social.talk_files} talk files.`, '');
+  const co = r.social.council_outcomes;
+  if (co) {
+    L.push('### Why a nation had no council (the watcher\'s persisted verdicts)', '');
+    if (!co.available) L.push(co.note, '');
+    else {
+      L.push(`By verdict: ${Object.entries(co.by_reason).map(([k, n]) => `${k} ${n}`).join(', ')}. A \`waiting\` row means the period passed with no verdict (the open window ended first); \`no_verdict\` means nothing was recorded for that nation and period.`, '');
+      L.push(row('period', 'nation', 'verdict', 'why', 'bell', 'detail'), row('---', '---', '---', '---', '---', '---'));
+      for (const x of co.rows) L.push(row(x.period, x.nation, x.kind, v(x.reason), v(x.bell), x.detail ? JSON.stringify(x.detail).replace(/\|/g, '/') : ''));
+      L.push('');
+    }
+    if (co.seat_finalise) L.push(`Scripted seat, finalising its village: status ${v(co.seat_finalise.status)}, final ${v(co.seat_finalise.final)}, attempts ${v(co.seat_finalise.attempts)}, final seen at bell ${v(co.seat_finalise.first_final_bell)}${co.seat_finalise.note ? ` (${co.seat_finalise.note})` : ''}.`, '');
+  }
   if (r.runs_listed) {
     L.push('## Every run in RUNS.md', '', row('run', 'arm', 'rep', 'status', 'detail'), row('---', '---', '---', '---', '---'));
     for (const x of r.runs_listed) L.push(row(x.run_id, v(x.arm), v(x.rep), x.status, v(x.detail)));

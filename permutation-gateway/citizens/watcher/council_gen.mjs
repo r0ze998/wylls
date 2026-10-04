@@ -180,13 +180,14 @@ export async function mapLimit(items, n, fn) {
 }
 
 /**
- * createCouncilGen({feed, social, roster, census, clock, mind, store, config, stats, onError, nowMs, outbox})
+ * createCouncilGen({feed, social, roster, census, clock, mind, store, config, stats, onError, nowMs, outbox, outcomes})
+ *   outcomes: optional {record({faction, period, c0, bell, status, reason, detail})} (watcher/outcomes.mjs): the verdict of every period, kept in a file
  *   mind: () => the mind (late binding; the mind is built after the watcher)
  *   store: the watcher's persisted state ({calls: Set of "motion:<tag>:<k>" | "ballot:<tag>:<k>"})
  *   outbox: {push(item)} for what a council call returns (the brain posts it with a later decision answer, see outbox.mjs)
  * -> {councilCandidates(f, c0), tryOpen(f, k, c0, bell), step(bell), hintOf(f, k, option), meta}
  */
-export function createCouncilGen({ feed, social, roster, census, clock = null, mind = () => null, store, config = {}, stats = {}, onError = () => {}, nowMs = () => Date.now(), outbox = null, fetchLimit = 8, retryMs = 1500 } = {}) {
+export function createCouncilGen({ feed, social, roster, census, clock = null, mind = () => null, store, config = {}, stats = {}, onError = () => {}, nowMs = () => Date.now(), outbox = null, fetchLimit = 8, retryMs = 1500, outcomes = null } = {}) {
   const council = social?.council ?? null;
   const cfg = () => ({ period: 48, offset: 12, strike_lead: 6, ...(config.council ?? {}), ...(council?.config ?? {}) });
   const hints = new Map(); // "f|k" -> {option: {tile}}
@@ -265,17 +266,17 @@ export function createCouncilGen({ feed, social, roster, census, clock = null, m
     if (had?.status?.startsWith('skipped')) return had.status;
     if (had && nowMs() - had.at < retryMs) return 'waiting';
     const through = feed.completeThrough?.() ?? -1;
-    if (through < c0 - 1) return 'waiting'; // the records of bell c0 - 1 (holdings becoming final) are not all in hand
+    if (through < c0 - 1) { verdict(f, k, c0, bell, 'waiting', 'feed_incomplete', { complete_through: through, needs: c0 - 1 }); return 'waiting'; } // the records of bell c0 - 1 (holdings becoming final) are not all in hand
     attempts.set(id, { at: nowMs(), n: (had?.n ?? 0) + 1, status: 'trying' });
     const members = roster.ai.filter(a => a.faction === f);
-    if (!members.length) return mark(id, 'skipped:no_members');
+    if (!members.length) return mark(id, 'skipped:no_members', null, { f, k, c0, bell, detail: { members: 0 } });
     // a nation's council runs only if every AI of the nation holds a final village at C0 (section 6.5)
-    if (!members.every(a => census.hasFinalHolding(a.tag))) return mark(id, 'skipped:not_all_final');
+    if (!members.every(a => census.hasFinalHolding(a.tag))) return mark(id, 'skipped:not_all_final', null, { f, k, c0, bell, detail: finalityDetail(f, members) });
     // during the first bell of the period only the strict files of bell C0 - 2 count: they are served about when C0 begins, so a missing
     // one is waited for (the motion window is three bells, the open can lag one); from C0 + 1 the newest served file within 4 bells is accepted
     const gen = await councilCandidates(f, c0, { fallback: bell >= c0 + 1 });
-    if (bell < c0 + 1 && gen.meta.missing > 0) { attempts.set(id, { at: nowMs(), n: (had?.n ?? 0) + 1, status: 'waiting_files', meta: gen.meta }); bump('council_waiting_files'); return 'waiting'; }
-    if (!gen.candidates.length) return mark(id, 'skipped:no_options', gen.meta);
+    if (bell < c0 + 1 && gen.meta.missing > 0) { attempts.set(id, { at: nowMs(), n: (had?.n ?? 0) + 1, status: 'waiting_files', meta: gen.meta }); bump('council_waiting_files'); verdict(f, k, c0, bell, 'waiting', 'waiting_files', { ...gen.meta }); return 'waiting'; }
+    if (!gen.candidates.length) return mark(id, 'skipped:no_options', gen.meta, { f, k, c0, bell, detail: { ...gen.meta } });
     const { eligible, humans } = census.voters(f);
     let opened;
     try {
@@ -283,18 +284,40 @@ export function createCouncilGen({ feed, social, roster, census, clock = null, m
     } catch (e) {
       stats.last_error = String(e?.message ?? e).slice(0, 300);
       onError(e);
-      return mark(id, 'skipped:open_failed');
+      return mark(id, 'skipped:open_failed', null, { f, k, c0, bell, detail: { error: String(e?.message ?? e).slice(0, 200) } });
     }
-    if (!opened) return mark(id, 'skipped:no_options', gen.meta);
+    if (!opened) return mark(id, 'skipped:no_options', gen.meta, { f, k, c0, bell, detail: { ...gen.meta } });
     hints.set(id, gen.hints);
     attempts.set(id, { at: nowMs(), n: 1, status: 'opened', meta: gen.meta });
     bump('councils_opened');
+    const seatWallet = roster.seat?.faction === f ? roster.seat.wallet : null;
+    verdict(f, k, c0, bell, 'opened', null, {
+      options: gen.candidates.length, eligible: eligible ? eligible.length : null, humans: humans.length,
+      // smoke-r3: the scripted seat was refused NotEligible because it was missing here (its village was still provisional)
+      seat: seatWallet ? { in_eligible_list: Boolean(eligible?.includes(seatWallet)), final_village: census.hasFinalHolding(roster.seat.tag) } : null,
+    });
     return 'opened';
   }
-  function mark(id, status, meta = null) {
+  function mark(id, status, meta = null, why = null) {
     attempts.set(id, { at: nowMs(), n: 1, status, meta });
     bump(status.replace(/[^a-z_]/g, '_'));
+    if (why) verdict(why.f, why.k, why.c0, why.bell, 'skipped', status.replace(/^skipped:/, ''), why.detail);
     return status;
+  }
+  /** Writes the verdict of a period to the outcomes file (watcher/outcomes.mjs); never throws into the job. */
+  function verdict(f, k, c0, bell, status, reason, detail) {
+    try { outcomes?.record({ faction: f, period: k, c0, bell, status, reason, detail }); } catch (e) { onError(e); }
+  }
+  /** Which AI of the nation lacked a final village at C0, and whether it held none or a provisional one; the seat's state too. */
+  function finalityDetail(f, members) {
+    const held = census.holdingsOfNation?.(f) ?? [];
+    const row = a => {
+      const mine = held.filter(h => h.tag === a.tag);
+      return { tag: a.tag, villages: mine.length, final: mine.filter(h => h.final).length, provisional: mine.filter(h => !h.final).length };
+    };
+    const lacking = members.filter(a => !census.hasFinalHolding(a.tag)).map(row);
+    const seat = roster.seat?.faction === f && roster.seat.tag ? row(roster.seat) : null;
+    return { members: members.length, lacking, seat };
   }
 
   /** Ask each AI member of nation f for its call of this kind once (persisted: a restart does not ask again). */
