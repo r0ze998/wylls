@@ -227,7 +227,7 @@ export async function createCitizensService(opts, overrides = {}) {
   // integ-A: AC1a reads feed.cursorBell() and feed.revealed(); AC6a's feed offers completeThrough() and revealOf(); the
   // episode pump (feed -> episodes_from_events -> AC2 stores) is the 11.6 wiring `server.mjs` owns
   let pump = null;
-  const feedForMind = feed && !overrides.feed ? feedView(feed, { throughBell: () => (pump ? pump.throughBell() : -1) }) : feed;
+  const feedForMind = feed && !overrides.feed ? feedView(feed, { throughBell: () => (pump ? pump.throughBell() : -1), tick: () => pump?.tick() }) : feed;
   const views = createViews({ social, feed: feedForMind, stores, roster, nameOf, clock, sealed, personaOf });
   pump = feed && !overrides.feed && feed.prepare ? createEpisodePump({ feed, stores, views, roster, clock, config: { redactions: [] }, onError: (e) => console.error('episode pump:', String(e?.message ?? e)) }) : null;
   const mind = createMind({ config, llm, scheduler, gate, records, views, sealed, memoryAttach, prompt, speech, clock, metrics, roster, stores, watcher, feed: feedForMind, season, stateDir: STATE, nameOf, nationName, speechStub });

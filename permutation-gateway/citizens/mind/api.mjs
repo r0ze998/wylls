@@ -469,7 +469,13 @@ export function createMind(deps) {
     const deadlineMs = R.deadline_unix_ms - decideSlackMs;
     metrics.incGroup('gate', g.mode === 'autopilot' ? `autopilot:${g.reason}` : g.mode);
     if (g.mode === 'autopilot') return finishAutopilot({ R, own, doc, reason: g.reason, g, member, deadlineMs, t0 });
-    const cursor = feed?.cursorBell?.();
+    let cursor = feed?.cursorBell?.();
+    if (cursor != null && cursor < R.bell - 1 && feed?.waitCursor) {
+      // integ-A: the brain steps at the start of the bell; give the feed a few seconds to vouch for bell - 1 (never past the model's time)
+      metrics.inc('feed_wait');
+      await feed.waitCursor(R.bell - 1, Math.max(0, Math.min(6000, deadlineMs - now() - 15000)));
+      cursor = feed.cursorBell();
+    }
     if (cursor != null && cursor < R.bell - 1) {
       metrics.inc('feed_lag');
       return finishAutopilot({ R, own, doc, reason: 'feed_lag', g, member, deadlineMs, t0 });
@@ -688,7 +694,12 @@ export function createMind(deps) {
     };
     if (!council || !council.options?.length) return fail('not_ready');
     if (!last) return fail('not_ready');
-    const cursor = feed?.cursorBell?.();
+    let cursor = feed?.cursorBell?.();
+    if (cursor != null && cursor < bell - 1 && feed?.waitCursor) {
+      metrics.inc('feed_wait');
+      await feed.waitCursor(bell - 1, Math.max(0, Math.min(6000, deadlineMs - now() - 15000)));
+      cursor = feed.cursorBell();
+    }
     if (cursor != null && cursor < bell - 1) {
       metrics.inc('feed_lag');
       return fail('feed_lag');

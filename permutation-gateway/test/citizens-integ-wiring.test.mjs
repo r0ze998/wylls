@@ -106,3 +106,16 @@ test('episode pump: an AI with no village yet is skipped; a not-ready roster doe
   assert.equal(pump.stats.ai_runs, 0);
   assert.equal(pump.throughBell(), 4);
 });
+
+test('feedView.waitCursor: pulls the feed and the pump until the cursor reaches the bell, or gives up after maxMs (the brain steps at the start of a bell)', async () => {
+  const feed = fakeFeed({ through: 5 });
+  let polls = 0;
+  feed.poll = async () => { polls++; if (polls === 2) feed.state.through = 8; };
+  const pump = { done: 5, throughBell() { return this.done; }, async tick() { this.done = feed.state.through; } };
+  const v = feedView(feed, pump);
+  assert.equal(await v.waitCursor(8, 3000), true);
+  assert.equal(v.cursorBell(), 8);
+  assert.ok(polls >= 2);
+  feed.poll = async () => {};
+  assert.equal(await v.waitCursor(20, 400), false, 'a feed that cannot vouch for the bell stays lagging after the bounded wait');
+});

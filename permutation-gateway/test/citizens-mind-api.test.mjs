@@ -421,6 +421,30 @@ test('feed_lag: a model session is refused while the feed is behind the end of b
   }
 });
 
+test('feed_wait (integ-A): a feed that catches up within the bounded wait lets the model session run; one that does not is refused as feed_lag', async () => {
+  let cursor = 30;
+  const waited = [];
+  const feed = { cursorBell: () => cursor, async waitCursor(min, ms) { waited.push([min, ms > 0]); cursor = 40; return true; } };
+  const h = await makeMindHarness({ respond: (b) => sessionAnswer(b), feed });
+  try {
+    const a = await h.mind.decide(req());
+    assert.equal(a.mode, 'model');
+    assert.deepEqual(waited, [[39, true]]);
+    assert.equal(h.metrics.get('feed_wait'), 1);
+    assert.equal(h.metrics.get('feed_lag') ?? 0, 0);
+  } finally {
+    await h.close();
+  }
+  let stuck = 30;
+  const h2 = await makeMindHarness({ respond: (b) => sessionAnswer(b), feed: { cursorBell: () => stuck, async waitCursor() { return false; } } });
+  try {
+    assert.equal((await h2.mind.decide(req())).reason, 'feed_lag');
+    assert.equal(h2.llama.bodies.length, 0);
+  } finally {
+    await h2.close();
+  }
+});
+
 test('hold reserves the hosts of its facts; the standing order comes back in the answer and expires by bell', async () => {
   const h = await makeMindHarness({ respond: (b) => sessionAnswer(b, { kinds: [], why: 'Keep them home.' }) });
   try {

@@ -23,6 +23,22 @@ export function feedView(feed, pump = null) {
       const done = pump ? pump.throughBell() : through;
       return Math.min(through, done);
     },
+    /**
+     * The bots step within seconds of a bell's start, before the chain's block time has crossed the boundary and before
+     * the herald has indexed it, so the feed cannot yet vouch for bell - 1. Pull the feed and fold the pump now (single
+     * flight, cheap) until it can, for at most `maxMs`. Returns whether the cursor reached `minBell`.
+     */
+    async waitCursor(minBell, maxMs) {
+      const t0 = Date.now();
+      for (;;) {
+        if (this.cursorBell() >= minBell) return true;
+        if (Date.now() - t0 >= maxMs) return false;
+        await feed.poll();
+        if (pump?.tick) await pump.tick();
+        if (this.cursorBell() >= minBell) return true;
+        await new Promise((r) => setTimeout(r, 250));
+      }
+    },
     revealed(e) {
       if (e?.host_id != null && e?.arrive_bell != null && feed.revealOf(String(e.host_id), e.arrive_bell)) return true;
       // the release waits for a REVEAL at most 6 bells (7.2): after that the sealed entry no longer protects a public fact
