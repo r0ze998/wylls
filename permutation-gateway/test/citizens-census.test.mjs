@@ -61,11 +61,11 @@ function world() {
   const ov = new Map(), pv = new Map();
   const put = (p, q, o, v) => { ov.set(`${p},${q}`, o); pv.set(`${p},${q}`, v); };
   put(2, 0, { sites: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], hosts: [1, 0, 0, 0, 0, 0, 0] }, { sites: Uint8Array.from([30, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]), camp: { tile: 0, state: 0, troops: 0 }, entries: [entry(100, { tile: 30 }), entry(101, { tile: 30, unit: 6 })] });
-  put(3, 0, { sites: [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], hosts: [0, 0, 0, 0, 0, 0, 1] }, { sites: Uint8Array.from([40, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]), camp: { tile: 22, state: 1, troops: 250 }, entries: [] });
-  put(7, 0, { sites: [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], hosts: [0, 0, 0, 0, 0, 0, 1] }, { sites: Uint8Array.from([40, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]), camp: { tile: 5, state: 1, troops: 120 }, entries: [] });
+  put(3, 0, { sites: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], hosts: [0, 0, 0, 0, 0, 0, 1] }, { sites: Uint8Array.from([40, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]), camp: { tile: 22, state: 1, troops: 250 }, entries: [] });
+  put(7, 0, { sites: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], hosts: [0, 0, 0, 0, 0, 0, 1] }, { sites: Uint8Array.from([40, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]), camp: { tile: 5, state: 1, troops: 120 }, entries: [] });
   put(4, 0, { sites: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], hosts: [0, 2, 0, 0, 0, 0, 0] }, { sites: Uint8Array.from([31, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]), camp: { tile: 0, state: 0, troops: 0 }, entries: [entry(200, { faction: 1, tile: 50, troops: 310_000 }), entry(201, { faction: 1, tile: 31, troops: 900_000 }), entry(202, { faction: 1, tile: 51, unit: 6 })] });
-  // A camp that is gone (state 0) in a province whose overview still says camp: not live.
-  put(2, 1, { sites: [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], hosts: [0, 0, 0, 0, 0, 0, 0] }, { sites: Uint8Array.from([40, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]), camp: { tile: 9, state: 0, troops: 0 }, entries: [] });
+  // A camp that is gone (state 0): not live. (The overview never marks a camp: its `sites` are village slots; integ-A, recorded data.)
+  put(2, 1, { sites: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], hosts: [0, 0, 0, 0, 0, 0, 0] }, { sites: Uint8Array.from([40, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]), camp: { tile: 9, state: 0, troops: 0 }, entries: [] });
   return { ov, pv };
 }
 const input = (w, ais, bell = 30, window = 12) => ({ season: season(bell), ais, overview: (p, q) => w.ov.get(`${p},${q}`) ?? null, province: (p, q) => w.pv.get(`${p},${q}`) ?? null, window, provincesNear: C.provincesWithin });
@@ -244,6 +244,44 @@ test('over herald files recorded from the paused m1-exit herald (a local test ch
     for (const s of b.field_stacks.nearest) { assert.notEqual(s.faction, 0); assert.ok(s.distance_provinces <= 2); }
     assert.equal(c.summary.with_final_village, 2);
   } finally { await new Promise(r => { srv.closeAllConnections?.(); srv.close(r); }); }
+});
+
+test('integ-A: camps are found from the Province record whatever the overview says (recorded m1-exit data: a province with a live camp reads overview sites 111111111111)', async () => {
+  const fx = path.join(path.dirname(new URL(import.meta.url).pathname), 'fixtures/ai-brain-real/h');
+  const { decode } = await import('../../permutation-server/web/frontier/fcodec.mjs');
+  const { decodeOverview } = await import('../../permutation-server/web/frontier/herald.mjs');
+  const ov = new Map();
+  for (const r of [1, 2, 3, 4]) for (const rec of decodeOverview(new Uint8Array(fs.readFileSync(path.join(fx, 'overview', String(r), 'latest.bin')))).provinces) ov.set(`${rec.p},${rec.q}`, rec);
+  const pv = new Map();
+  for (const d of fs.readdirSync(path.join(fx, 'province'))) pv.set(d, decode('Province', Buffer.from(JSON.parse(fs.readFileSync(path.join(fx, 'province', d, 'latest.json'), 'utf8')).bytes, 'base64')));
+  const live = [...pv.entries()].filter(([, v]) => v.camp.state === 1 && v.camp.troops > 0).map(([k]) => k).sort();
+  assert.deepEqual(live, ['-3,0', '-3,1', '-3,2', '-4,1', '2,2'], 'five provinces of the recorded world hold a live camp');
+  for (const k of live) assert.ok(!ov.get(k).sites.some(x => x === 2), `the overview of ${k} does not mark the camp`);
+  const ai = { entry: { index: 1000, tag: 'aa', faction: 0 }, holdings: [holding(2, 0, 30)], hosts: [], transits: [] };
+  const c = C.censusOf({ season: season(30), ais: [ai], overview: (p, q) => ov.get(`${p},${q}`) ?? null, province: (p, q) => pv.get(`${p},${q}`) ?? null, window: 6, bell: 30, provincesNear: C.provincesWithin });
+  const found = c.ai[0].camps;
+  assert.ok(found.in_window >= 1, 'a camp is found');
+  assert.equal(found.nearest.p, 2);
+  assert.equal(found.nearest.q, 2);
+  assert.equal(found.nearest.troops, 305);
+  assert.equal(found.nearest.distance_provinces, 2);
+});
+
+test('integ-A: the cheap per-bell poll reads no window province and no overview; the census read scans every province of the window from ring 2 on', async () => {
+  const w = world();
+  const calls = { overview: 0, province: [] };
+  const base = stubHerald(w, () => 30, [{ wallet: 'wa', holdings: () => [holding(2, 0, 30)], hosts: () => [{ id: '100', unit: 0, troops: 200_000, province: [2, 0], tile: 30 }] }]);
+  const herald = { ...base, async overview(r) { calls.overview++; return base.overview(r); }, async province(p, q) { calls.province.push(`${p},${q}`); return base.province(p, q); } };
+  const roster = { ai: [{ index: 1000, tag: 'aa', faction: 0, wallet: 'wa' }] };
+  const cheap = await C.collectCensus({ herald, roster, scan: false });
+  assert.equal(calls.overview, 0);
+  assert.deepEqual(calls.province, ['2,0'], 'only the province of its own host');
+  assert.equal(cheap.ai[0].camps.in_window, 0);
+  calls.province.length = 0;
+  const full = await C.collectCensus({ herald, roster });
+  assert.ok(calls.overview > 0);
+  assert.ok(calls.province.includes('3,0') && calls.province.includes('7,0'), 'the camp provinces are read');
+  assert.equal(full.ai[0].camps.in_window, 2);
 });
 
 test('the census source: loopback only, no write outside census/, no port bound, no outside URL', () => {

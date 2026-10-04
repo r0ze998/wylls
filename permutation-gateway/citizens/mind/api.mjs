@@ -783,7 +783,7 @@ export function createMind(deps) {
     councilCall,
     llmJob,
     health,
-    metrics: () => metrics.snapshot({ bell: clock.bell(), extra: { records: records.stats(), scheduler: scheduler.latencies(), scheduler_counters: scheduler.counters, ...(speech?.counts ? { speech: speech.counts() } : {}) } }), // integ-A: AC1b's per-word withhold counts (pact_word, uncited memory claim) for 10.1
+    metrics: () => metrics.snapshot({ bell: clock.bell(), extra: { records: records.stats(), scheduler: scheduler.latencies(), scheduler_counters: scheduler.counters, ...(speech?.counts ? { speech: speech.counts() } : {}) } }), // integ-A: AC1b's per-word withhold counts (word-list refusals, uncited memory claims) for 10.1
     subscribe: (fn) => listeners.push(fn),
     lastSituation: (tag) => lastSituation.get(tag) ?? null,
     /** per-AI counters for the Wyll card stats block (section 2.4): decisions, valid, actions_by_model, actions_by_autopilot, model_marches, messages, strikes_declined, decisions_citing_memory, mem_dropped */

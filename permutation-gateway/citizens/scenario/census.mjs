@@ -108,11 +108,13 @@ export function censusOf({ season, ais, overview, province, window = WINDOW_PROV
         const ov = overview(p, q);
         if (!ov) continue;
         const d = provinceDistance(final.p, final.q, p, q);
-        if (ov.sites.some(s => s === 2)) {
-          const pv = province(p, q);
-          const c = pv?.camp;
-          if (c && c.state === 1 && c.troops > 0) camps.push({ p, q, tile: c.tile, troops: c.troops, distance_provinces: d, distance_tiles: tileDistance(final.p, final.q, final.tile, p, q, c.tile) });
-        }
+        // integ-A: a live camp is read from the Province record only. The overview's `sites` are the 12 village slots (free,
+        // holding, reserved) and never mark a camp: the camp stands on its own tile, not a site tile. Recorded herald data of the
+        // m1-exit stack (test/fixtures/ai-brain-real): a province with a live camp (state 1, 278 troops) reads overview sites
+        // 111111111111, so the slice's old `sites.some(s => s === 2)` gate found no camp at all (slice-4: 0 camps, while
+        // every AI had camp candidates). The fetch below reads every province of the window from ring 2 on.
+        const c = province(p, q)?.camp;
+        if (c && c.state === 1 && c.troops > 0) camps.push({ p, q, tile: c.tile, troops: c.troops, distance_provinces: d, distance_tiles: tileDistance(final.p, final.q, final.tile, p, q, c.tile) });
         const others = ov.hosts.slice(0, 6).some((n, f) => n > 0 && f !== entry.faction);
         if (others) {
           const pv = province(p, q);
@@ -163,7 +165,7 @@ const writeAtomic = (file, data) => {
 const numbered = dir => (fs.existsSync(dir) ? fs.readdirSync(dir).map(n => /^(\d+)\.json$/.exec(n)?.[1]).filter(Boolean).map(Number).sort((a, b) => a - b) : []);
 
 /** Fetch what `censusOf` needs for `roster.ai` from the herald (a createHerald client) and build the census of this bell. */
-export async function collectCensus({ herald, roster, window = WINDOW_PROVINCES, concurrency = 6 }) {
+export async function collectCensus({ herald, roster, window = WINDOW_PROVINCES, concurrency = 6, scan = true }) {
   const s = await herald.season();
   if (!s.ok) throw new Error(`/h/season: ${s.code}`);
   const season = s.record;
@@ -180,7 +182,7 @@ export async function collectCensus({ herald, roster, window = WINDOW_PROVINCES,
   const finals = ais.map(a => a.holdings.find(h => h.state === HOLDING_FINAL)).filter(Boolean);
   for (const h of finals) for (let r = Math.max(0, ringOf(h.p, h.q) - window); r <= Math.min(rMax, ringOf(h.p, h.q) + window); r++) rings.add(r);
   const ov = new Map();
-  for (const r of [...rings].sort((a, b) => a - b)) {
+  for (const r of scan ? [...rings].sort((a, b) => a - b) : []) {
     const o = await herald.overview(r);
     if (o.ok) for (const rec of o.provinces) ov.set(`${rec.p},${rec.q}`, rec);
   }
@@ -192,7 +194,8 @@ export async function collectCensus({ herald, roster, window = WINDOW_PROVINCES,
     if (!f) continue;
     for (const [p, q] of provincesWithin(f.p, f.q, window)) {
       const rec = ov.get(`${p},${q}`);
-      if (rec && (rec.sites.some(x => x === 2) || rec.hosts.slice(0, 6).some((n, i) => n > 0 && i !== a.entry.faction))) wantProvince(p, q);
+      // `scan` false is the cheap per-bell poll (ready.jsonl needs the hosts and the final village only): no window province is read
+      if (scan && rec && (ringOf(p, q) >= 2 || rec.hosts.slice(0, 6).some((n, i) => n > 0 && i !== a.entry.faction))) wantProvince(p, q);
     }
   }
   const pv = new Map();
@@ -230,7 +233,8 @@ export function summarizeReady(readyLines, census0) {
  */
 export async function pollOnce({ aiDir, herald, roster, window = WINDOW_PROVINCES, every = CENSUS_EVERY, force = false, state = {} }) {
   const dir = path.join(aiDir, 'census');
-  const c = await collectCensus({ herald, roster, window });
+  // the cheap read first (bell, final villages, hosts); the window scan (every province from ring 2 on, up to the whole map) only when a census is due
+  let c = await collectCensus({ herald, roster, window, scan: false });
   const wrote = [];
   if (c.bell < 0) return { bell: c.bell, wrote, census: c }; // before genesis there is no bell to write for, whatever --once says
   state.first ??= numbered(dir)[0] ?? null;
@@ -245,6 +249,7 @@ export async function pollOnce({ aiDir, herald, roster, window = WINDOW_PROVINCE
   if (anyFinal && state.first === null) state.first = c.bell;
   const due = state.first !== null && c.bell >= state.first && (c.bell - state.first) % every === 0 && !fs.existsSync(path.join(dir, `${c.bell}.json`));
   if (force || due) {
+    c = await collectCensus({ herald, roster, window });
     writeAtomic(path.join(dir, `${c.bell}.json`), `${JSON.stringify(c)}\n`);
     wrote.push(`${c.bell}.json`);
   }
