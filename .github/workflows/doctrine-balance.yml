@@ -17,9 +17,10 @@
 # +0.338% against ±0.2%).
 name: Doctrine balance (O5, full)
 
+# Manual only: the nightly schedule was removed before the first push, because a
+# scheduled run on the default branch would use up to 240 runner-minutes a day.
+# Re-add `schedule:` here only when the repository owner wants the nightly run.
 on:
-  schedule:
-    - cron: "17 3 * * *"
   workflow_dispatch:
 
 jobs:
