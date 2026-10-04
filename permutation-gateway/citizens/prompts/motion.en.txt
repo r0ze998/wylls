@@ -1,0 +1,1 @@
+TASK: nation council, motion window. Move one option (1 to 3) or none (0) with at most one short speech in {{speech_lang}}. Put the option in council as {"motion": n}. choose must be []. Answer only with the JSON. List the Remembered lines you used in mem.

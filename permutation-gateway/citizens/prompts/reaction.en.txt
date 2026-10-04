@@ -1,0 +1,1 @@
+TASK: reaction at bell {{bell}}. Someone wrote to you or to your nation. Reply with up to {{max_say}} short message(s) in {{speech_lang}}, or none. choose must be [] and council must be null. Answer only with the JSON. List the Remembered lines you used in mem.
