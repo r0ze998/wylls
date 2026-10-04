@@ -87,7 +87,13 @@ async fn produce() -> Value {
     let r2 = rig(Some(&fm2), &[(frontier_agents::fixture::FINAL, "ai")]);
     let mut bot2 = ai_bot();
     bot2.step(&r2.sh, true).await;
-    let outcome = fm2.outcomes.lock().unwrap().last().cloned().expect("an outcome");
+    let outcome = fm2
+        .outcomes
+        .lock()
+        .unwrap()
+        .last()
+        .cloned()
+        .expect("an outcome");
     let mut request2 = fm2.requests.lock().unwrap()[0].clone();
     request2["deadline_unix_ms"] = json!(DEADLINE_PIN);
     assert_eq!(request, request2, "the same step posts the same request");

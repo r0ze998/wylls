@@ -144,7 +144,14 @@ mod tests {
         assert!(s.call_declined(5) && !s.call_declined(4));
         s.reserve(9, 420);
         s.reserve(9, 415);
-        assert_eq!(s.reserved.iter().find(|r| r.host_id == 9).unwrap().until_bell, 420);
+        assert_eq!(
+            s.reserved
+                .iter()
+                .find(|r| r.host_id == 9)
+                .unwrap()
+                .until_bell,
+            420
+        );
     }
 
     #[test]

@@ -85,6 +85,15 @@ pub struct DayState {
 }
 
 impl DayState {
+    /// A day state whose first step saw `h0` home troops and no march yet.
+    pub fn fresh(day: u32, h0: u32) -> DayState {
+        DayState {
+            day,
+            h0,
+            marches: vec![],
+        }
+    }
+
     pub fn troops_today(&self) -> u32 {
         self.marches.iter().map(|m| m.1).sum()
     }
@@ -113,6 +122,18 @@ pub struct BotAi {
     pub prev_ready: BTreeSet<u64>,
 }
 
+/// Per-AI milestones for the run report (AC3a step 0 (d), contract §9.5 (c)):
+/// the bell of the AI's first step with a final village, and the bells at
+/// which its first and its second distinct combat host were departable.
+#[derive(Clone, Debug, Default)]
+pub struct Timeline {
+    pub first_final_bell: Option<u32>,
+    pub first_ready_bell: Option<u32>,
+    pub second_ready_bell: Option<u32>,
+    pub first_model_march_bell: Option<u32>,
+    pub ready_hosts: BTreeSet<u64>,
+}
+
 /// Process-wide brain state (a field of `Shared`).
 pub struct AiHook {
     pub mind: Option<MindPort>,
@@ -123,6 +144,7 @@ pub struct AiHook {
     pub fixed_call_budget: Duration,
     stats: Mutex<BTreeMap<String, u64>>,
     outcomes: Mutex<BTreeMap<u32, Vec<ActionOutcome>>>,
+    timeline: Mutex<BTreeMap<u32, Timeline>>,
 }
 
 impl AiHook {
@@ -134,7 +156,37 @@ impl AiHook {
             fixed_call_budget: Duration::from_secs(5),
             stats: Mutex::new(BTreeMap::new()),
             outcomes: Mutex::new(BTreeMap::new()),
+            timeline: Mutex::new(BTreeMap::new()),
         }
+    }
+
+    /// Records a step with a final village: its bell and the combat hosts
+    /// that can depart now.
+    pub fn note_step(&self, index: u32, bell: u32, ready_hosts: &[u64]) {
+        let mut t = self.timeline.lock().expect("timeline");
+        let e = t.entry(index).or_default();
+        e.first_final_bell.get_or_insert(bell);
+        for h in ready_hosts {
+            if e.ready_hosts.insert(*h) {
+                match e.ready_hosts.len() {
+                    1 => e.first_ready_bell = Some(bell),
+                    2 => e.second_ready_bell = Some(bell),
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    pub fn note_model_march(&self, index: u32, bell: u32) {
+        let mut t = self.timeline.lock().expect("timeline");
+        t.entry(index)
+            .or_default()
+            .first_model_march_bell
+            .get_or_insert(bell);
+    }
+
+    pub fn timeline_of(&self, index: u32) -> Option<Timeline> {
+        self.timeline.lock().expect("timeline").get(&index).cloned()
     }
 
     pub fn stat(&self, key: &str) {
@@ -170,6 +222,12 @@ impl AiHook {
             "mind": self.mind.is_some(),
             "follow_council": self.follow_council,
             "counters": s.iter().map(|(k, v)| (k.clone(), json!(v))).collect::<serde_json::Map<_, _>>(),
+            "timeline": self.timeline.lock().expect("timeline").iter().map(|(i, t)| (i.to_string(), json!({
+                "first_final_bell": t.first_final_bell,
+                "first_ready_bell": t.first_ready_bell,
+                "second_ready_bell": t.second_ready_bell,
+                "first_model_march_bell": t.first_model_march_bell,
+            }))).collect::<serde_json::Map<_, _>>(),
         })
     }
 
@@ -217,6 +275,9 @@ impl AiHook {
             .unwrap_or_default()
     }
 }
+
+/// What `Shared::outcome_sink` holds.
+pub type OutcomeSink = std::sync::Arc<dyn Fn(&Outcome) + Send + Sync>;
 
 /// Installs the hook into a `Shared` (sets `ai` and the outcome sink).
 pub fn install<H, R, D>(mut sh: Shared<H, R, D>, hook: AiHook) -> Shared<H, R, D> {

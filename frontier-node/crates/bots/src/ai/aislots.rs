@@ -53,7 +53,10 @@ impl AiSlots {
         }
         let seed = v
             .get("seed")
-            .and_then(|x| x.as_u64().or_else(|| x.as_str().and_then(|s| s.parse().ok())))
+            .and_then(|x| {
+                x.as_u64()
+                    .or_else(|| x.as_str().and_then(|s| s.parse().ok()))
+            })
             .ok_or("ai-slots: seed")?;
         let first_index = v
             .get("first_index")
@@ -115,10 +118,7 @@ impl AiSlots {
     }
 
     pub fn ai_count(&self) -> usize {
-        self.slots
-            .iter()
-            .filter(|s| s.kind == SlotKind::Ai)
-            .count()
+        self.slots.iter().filter(|s| s.kind == SlotKind::Ai).count()
     }
 
     pub fn seat(&self) -> Option<&Slot> {
@@ -178,7 +178,9 @@ pub fn write_seat_key(path: &Path, seed: u64, index: u32) -> Result<(), String> 
     o.write(true).create(true).truncate(true);
     #[cfg(unix)]
     o.mode(0o600);
-    let mut f = o.open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut f = o
+        .open(path)
+        .map_err(|e| format!("{}: {e}", path.display()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

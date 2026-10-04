@@ -500,6 +500,26 @@ mod tests {
         assert!(r.iter().all(|s| s.join_day == 0));
     }
 
+    // AI hook
+    #[test]
+    fn ai_flags_parse() {
+        let a = parse_from(
+            [
+                "--herald",
+                "http://127.0.0.1:41940",
+                "--relay",
+                "http://127.0.0.1:41933",
+                "--ai-slots",
+                "s",
+                "--follow-council",
+            ]
+            .map(String::from)
+            .into_iter(),
+        );
+        assert!(a.ai.follow_council && a.ai.slots.is_some() && a.ai.brain.is_none());
+    }
+    // AI hook end
+
     #[test]
     fn loopback_urls_only() {
         for ok in [

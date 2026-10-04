@@ -224,6 +224,8 @@
       {
         "entities": [],
         "facts": {
+          "economy_held_by_quota": false,
+          "quota_left": 38,
           "routine": "economy and duties only, no march",
           "summary": "build wood; train 400 spearman; muster 300 spearman; explore (economy and duties only)"
         },
@@ -491,7 +493,7 @@
     ],
     "deadline_unix_ms": 1790000000000,
     "now_game": 1800024100,
-    "obs_digest": "e51ecdd539fe78288d1bdc80a3cfb7c878ce3466692e86b08646aa3c6858050e",
+    "obs_digest": "615ccd9cd7d0d8a8b37b7cd9368fd0ae9bd5cc46a7755bcccc526786c07c2487",
     "own_marches": [],
     "scale": 1,
     "situation": {

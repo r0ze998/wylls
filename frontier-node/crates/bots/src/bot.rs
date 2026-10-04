@@ -166,7 +166,7 @@ pub struct Shared<H, R, D> {
     pub ai: Option<std::sync::Arc<crate::ai::AiHook>>,
     /// Called with every recorded outcome (the brain keeps its own bot's
     /// signatures for `POST /v1/outcome`, contract §7.2).
-    pub outcome_sink: Option<std::sync::Arc<dyn Fn(&Outcome) + Send + Sync>>,
+    pub outcome_sink: Option<crate::ai::OutcomeSink>,
     // AI hook end
 }
 

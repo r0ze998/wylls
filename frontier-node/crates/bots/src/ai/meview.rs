@@ -64,7 +64,12 @@ impl MeExtra {
     pub fn from_json(v: &Value) -> Result<MeExtra, String> {
         let mut out = MeExtra::default();
         let bad = |what: &str| format!("/h/me {what}");
-        for h in v.get("hosts").and_then(Value::as_array).into_iter().flatten() {
+        for h in v
+            .get("hosts")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
             let pq = h.get("province").and_then(Value::as_array);
             let (p, q) = match pq.map(|a| a.as_slice()) {
                 Some([p, q]) => (
@@ -109,7 +114,12 @@ impl MeExtra {
                 arrive_bell: n(t, "arriveBell").ok_or_else(|| bad("transit arriveBell"))? as u32,
             });
         }
-        for s in v.get("seals").and_then(Value::as_array).into_iter().flatten() {
+        for s in v
+            .get("seals")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
             out.seals.push(MeSeal {
                 host: n(s, "host").ok_or_else(|| bad("seal host"))?,
                 outcome: n(s, "outcome").unwrap_or(0) as u8,
@@ -135,10 +145,7 @@ impl MeExtra {
 
 /// `GET /h/me/{wallet}`: the extra arrays and the raw bytes (the brain
 /// hashes them into `obs_digest`). A 404 (not joined) is an empty view.
-pub async fn fetch<H: HeraldPort>(
-    herald: &H,
-    wallet: &str,
-) -> Result<(MeExtra, Vec<u8>), String> {
+pub async fn fetch<H: HeraldPort>(herald: &H, wallet: &str) -> Result<(MeExtra, Vec<u8>), String> {
     match herald.get(&format!("/h/me/{wallet}")).await {
         Ok(Some(b)) => {
             let v: Value = serde_json::from_slice(&b).map_err(|e| format!("/h/me json: {e}"))?;

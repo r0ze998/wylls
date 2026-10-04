@@ -159,10 +159,7 @@ impl Offer {
             Action::Hold { .. } => "hold".into(),
             Action::March {
                 host_id, target, ..
-            } => format!(
-                "march:{host_id}:{},{},{}",
-                target.p, target.q, target.tile
-            ),
+            } => format!("march:{host_id}:{},{},{}", target.p, target.q, target.tile),
             Action::Build { item } => format!("build:{item}"),
             Action::Walls => "walls".into(),
             Action::Train { unit } => format!("train:{unit}"),
@@ -184,6 +181,19 @@ pub struct HostRow {
     pub ready: bool,
 }
 
+impl HostRow {
+    /// Whole troops (the chain's `Entry.troops` is in milli-troops).
+    pub fn troops(&self) -> u32 {
+        self.e.troops / MILLI
+    }
+}
+
+/// Milli-troops per troop: `Entry.troops`, `Transit.dep_mass` and a site
+/// mirror's `garrison` are `MilliTroops`; a Holding's `reserve` and a camp's
+/// `troops` are whole troops (the real herald serves a 100-troop host as
+/// 100000; a camp as 100..400).
+pub const MILLI: u32 = 1_000;
+
 /// Everything candidate generation reads.
 pub struct Inputs<'a> {
     pub obs: &'a Observation,
@@ -196,6 +206,9 @@ pub struct Inputs<'a> {
     pub autopilot_summary: String,
     pub rows: Vec<HostRow>,
     pub home_troops: u32,
+    /// The relay quota left at the start of the step (shown in the
+    /// autopilot candidate's facts: the floor holds its economy back).
+    pub quota_left: u32,
 }
 
 pub fn href(h: &Holding) -> HoldingRef {
@@ -276,18 +289,20 @@ fn afford(stores: &[i64; RESOURCES], cost: &[i64; RESOURCES]) -> bool {
     stores.iter().zip(cost).all(|(s, c)| s >= c)
 }
 
-fn whole(v: &[i64; RESOURCES]) -> Vec<i64> {
+fn units_of(v: &[i64; RESOURCES]) -> Vec<i64> {
     v.iter().map(|x| x / 1_000).collect()
 }
 
 // ------------------------------------------------------------------ hosts and caps
+
+type RowSrc = ((i16, i16), Entry, bool, Option<u32>);
 
 /// The own hosts in view and in transit, with handles `H1..` by (province,
 /// host id). A host in transit is listed with its origin province and
 /// `arrive_bell` only (its destination is sealed).
 pub fn host_rows(obs: &Observation, h: &Holding) -> Vec<HostRow> {
     let bell = obs.bell();
-    let mut v: Vec<((i16, i16), Entry, bool, Option<u32>)> = vec![];
+    let mut v: Vec<RowSrc> = vec![];
     for (pq, e) in policy::own_hosts(obs, h) {
         let t = h.transit_of(e.id).map(|(_, t)| t.arrive_bell);
         v.push((pq, e, t.is_some(), t));
@@ -334,13 +349,13 @@ pub fn home_troops(obs: &Observation, h: &Holding, rows: &[HostRow]) -> (u32, u3
                 && r.e.state == le::STATE_ROSTER
                 && r.at == (h.p, h.q)
         })
-        .map(|r| r.e.troops)
+        .map(|r| r.troops())
         .sum();
     let reserve: u32 = h.reserve[..6].iter().sum();
     let garrison = obs
         .province(h.p, h.q)
         .and_then(|pv| pv.site_mirror.get(h.site as usize))
-        .map_or(0, |m| m.garrison);
+        .map_or(0, |m| m.garrison / MILLI);
     (at_home + reserve + garrison, garrison)
 }
 
@@ -383,6 +398,7 @@ pub fn caps_violation(
 
 // ------------------------------------------------------------------ candidates
 
+#[allow(clippy::too_many_arguments)]
 fn plan_depart(
     obs: &Observation,
     h: &Holding,
@@ -435,11 +451,7 @@ fn camp_targets(obs: &Observation, faction: u8, from: (i16, i16)) -> Vec<Target>
 
 /// Another nation's open-field stacks (a non-site tile with another
 /// nation's hosts), nearest first: (target, visible troops, nation).
-fn field_targets(
-    obs: &Observation,
-    faction: u8,
-    from: (i16, i16),
-) -> Vec<(Target, u32, u8)> {
+fn field_targets(obs: &Observation, faction: u8, from: (i16, i16)) -> Vec<(Target, u32, u8)> {
     let mut v: Vec<(u32, Target, u32, u8)> = vec![];
     for (&(p, q), view) in &obs.provinces {
         let pv: &Province = &view.province;
@@ -453,7 +465,7 @@ fn field_targets(
                 && pv.passable_mask >> e.tile & 1 == 1
             {
                 let x = by_tile.entry(e.tile).or_insert((0, e.faction));
-                x.0 += e.troops;
+                x.0 += e.troops / MILLI;
             }
         }
         for (tile, (troops, nation)) in by_tile {
@@ -474,6 +486,7 @@ fn field_targets(
     v.into_iter().map(|(_, t, n, f)| (t, n, f)).collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn march_candidate(
     inp: &Inputs,
     row: &HostRow,
@@ -487,7 +500,7 @@ fn march_candidate(
 ) -> Offer {
     let obs = inp.obs;
     let bell = obs.bell();
-    let troops = row.e.troops;
+    let troops = row.troops();
     let idle = ready::departable_from(inp.h, &row.e).map_or(0, |b| bell.saturating_sub(b));
     let reward = if kind == MarchKind::Camp {
         CAMP_REWARD
@@ -571,7 +584,7 @@ fn march_offers(inp: &Inputs) -> (Vec<Offer>, Option<&'static str>) {
     }
     let Some(row) = ready_rows
         .iter()
-        .find(|r| caps_violation(r.e.troops, 1, inp.home_troops, inp.ds, None).is_none())
+        .find(|r| caps_violation(r.troops(), 1, inp.home_troops, inp.ds, None).is_none())
     else {
         return (vec![], Some("cap: no host may march"));
     };
@@ -583,7 +596,15 @@ fn march_offers(inp: &Inputs) -> (Vec<Offer>, Option<&'static str>) {
             break;
         }
         let Some((plan, hexes, provs)) = plan_depart(
-            obs, inp.h, row.at, &row.e, t, 0, stance, retreat, inp.presets,
+            obs,
+            inp.h,
+            row.at,
+            &row.e,
+            t,
+            0,
+            stance,
+            retreat,
+            inp.presets,
         ) else {
             continue;
         };
@@ -603,7 +624,15 @@ fn march_offers(inp: &Inputs) -> (Vec<Offer>, Option<&'static str>) {
     }
     for (t, enemy, nation) in field_targets(obs, inp.faction, row.at) {
         let Some((plan, hexes, provs)) = plan_depart(
-            obs, inp.h, row.at, &row.e, t, 0, stance, retreat, inp.presets,
+            obs,
+            inp.h,
+            row.at,
+            &row.e,
+            t,
+            0,
+            stance,
+            retreat,
+            inp.presets,
         ) else {
             continue;
         };
@@ -645,9 +674,7 @@ fn max_train(stores: &[i64; RESOURCES], unit: u8) -> u32 {
 
 /// `share`% of `total`, rounded down to 100, at least 100 (and at most 30,000).
 pub fn share_of(total: u32, share: u32) -> u32 {
-    ((total as u64 * share as u64 / 100) as u32 / 100 * 100)
-        .max(MIN_HOST)
-        .min(MAX_HOST)
+    ((total as u64 * share as u64 / 100) as u32 / 100 * 100).clamp(MIN_HOST, MAX_HOST)
 }
 
 fn economy_offers(inp: &Inputs) -> Vec<Offer> {
@@ -686,8 +713,8 @@ fn economy_offers(inp: &Inputs) -> Vec<Offer> {
                     facts: json!({
                         "item": name,
                         "copy": n,
-                        "cost": whole(&cost),
-                        "stores_after": whole(&after),
+                        "cost": units_of(&cost),
+                        "stores_after": units_of(&after),
                         "build_minutes": secs / 60,
                     }),
                     params: BTreeMap::new(),
@@ -707,8 +734,8 @@ fn economy_offers(inp: &Inputs) -> Vec<Offer> {
                         kind: "walls".into(),
                         label: "Build walls around the village".into(),
                         facts: json!({
-                            "cost": whole(&cost),
-                            "stores_after": whole(&after),
+                            "cost": units_of(&cost),
+                            "stores_after": units_of(&after),
                             "walls_now": h.walls,
                             "adds": catalog::WALL_STEP,
                             "build_minutes": secs / 60,
@@ -757,7 +784,10 @@ fn economy_offers(inp: &Inputs) -> Vec<Offer> {
             cand: Candidate {
                 id: String::new(),
                 kind: format!("muster:{}", unit_name(unit)),
-                label: format!("Muster {} troops from the reserve into a new army", unit_name(unit)),
+                label: format!(
+                    "Muster {} troops from the reserve into a new army",
+                    unit_name(unit)
+                ),
                 facts: json!({
                     "unit": unit_name(unit),
                     "reserve": reserve,
@@ -827,6 +857,8 @@ pub fn candidates(inp: &Inputs) -> Vec<Offer> {
             facts: json!({
                 "routine": "economy and duties only, no march",
                 "summary": inp.autopilot_summary,
+                "quota_left": inp.quota_left,
+                "economy_held_by_quota": inp.quota_left <= QUOTA_FLOOR,
             }),
             params: BTreeMap::new(),
             council: false,
@@ -900,7 +932,7 @@ fn host_json(r: &HostRow, h: &Holding, bell: u32) -> Value {
     o.insert("handle".into(), json!(r.handle));
     o.insert("host_id".into(), json!(r.e.id.to_string()));
     o.insert("unit".into(), json!(unit_name(r.e.unit)));
-    o.insert("troops".into(), json!(r.e.troops));
+    o.insert("troops".into(), json!(r.troops()));
     o.insert("at".into(), json!({"p": r.at.0, "q": r.at.1}));
     o.insert("stamina".into(), json!(ready::stamina_at(&r.e, bell)));
     o.insert("ready".into(), json!(r.ready));
@@ -953,7 +985,7 @@ pub fn situation(inp: &Inputs, quota: (u32, u32)) -> Value {
         for e in pv.entries.iter().filter(|e| e.state == le::STATE_ROSTER) {
             let x = hosts.entry(e.faction).or_default();
             x.0 += 1;
-            x.1 += e.troops;
+            x.1 += e.troops / MILLI;
         }
         let mut o = Map::new();
         o.insert("p".into(), json!(p));
@@ -992,8 +1024,8 @@ pub fn situation(inp: &Inputs, quota: (u32, u32)) -> Value {
                 "p": h.p, "q": h.q, "site": h.site, "tier": tier_name(h.tier),
                 "final": true, "shield_until_bell": shield_bell, "walls": h.walls,
             },
-            "stores": whole(&stores),
-            "rates_per_hour": whole(&h.production),
+            "stores": units_of(&stores),
+            "rates_per_hour": units_of(&h.production),
             "queue": queue_json(h, now),
             "reserve": h.reserve[..7].to_vec(),
             "garrison": garrison,
@@ -1049,12 +1081,34 @@ pub fn split_duties(a: Vec<Intent>) -> (Vec<Intent>, Vec<Intent>) {
 /// filtered by the standing orders). Pure; the lists are [`KEPT_ECONOMY`]
 /// and [`DROPPED`].
 pub fn autopilot_filter(rest: Vec<Intent>, follow: Vec<Intent>, quota_left: u32) -> Vec<Intent> {
-    let mut out: Vec<Intent> = rest
-        .into_iter()
-        .filter(|i| KEPT_ECONOMY.contains(&i.name()) && quota_left > QUOTA_FLOOR)
-        .collect();
-    out.extend(follow.into_iter().filter(|i| matches!(i, Intent::Depart(_))));
-    out
+    autopilot_filter_counted(rest, follow, quota_left).0
+}
+
+/// [`autopilot_filter`] and the number of economy intents the quota floor
+/// held back (the report's quota-starved count).
+pub fn autopilot_filter_counted(
+    rest: Vec<Intent>,
+    follow: Vec<Intent>,
+    quota_left: u32,
+) -> (Vec<Intent>, usize) {
+    let mut skipped = 0;
+    let mut out: Vec<Intent> = vec![];
+    for i in rest {
+        if !KEPT_ECONOMY.contains(&i.name()) {
+            continue;
+        }
+        if quota_left > QUOTA_FLOOR {
+            out.push(i);
+        } else {
+            skipped += 1;
+        }
+    }
+    out.extend(
+        follow
+            .into_iter()
+            .filter(|i| matches!(i, Intent::Depart(_))),
+    );
+    (out, skipped)
 }
 
 fn sponsored(it: &Intent) -> bool {
@@ -1088,7 +1142,10 @@ impl ChosenParams {
             return ChosenParams::default();
         };
         ChosenParams {
-            stance: v.get("stance").and_then(Value::as_str).and_then(stance_code),
+            stance: v
+                .get("stance")
+                .and_then(Value::as_str)
+                .and_then(stance_code),
             retreat: v
                 .get("retreat")
                 .and_then(Value::as_u64)
@@ -1108,6 +1165,23 @@ pub struct Taken {
     pub hosts: BTreeSet<u64>,
     pub march_troops: u32,
     pub marches: usize,
+    /// Build items (buildings and walls) already chosen in this decision.
+    pub builds: usize,
+    /// What the chosen builds and trains cost together (milli-units).
+    pub spent: [i64; RESOURCES],
+}
+
+/// Free build-queue slots at `now` (`policy::queue_free` counts running items).
+pub fn queue_free_slots(h: &Holding, now: i64) -> usize {
+    let slots = [Tier::Hamlet, Tier::Town, Tier::City, Tier::Stronghold]
+        .get(h.tier as usize)
+        .map_or(2, |t| t.queue_slots());
+    let busy = h
+        .queue
+        .iter()
+        .filter(|q| q.kind != 0 && q.done_at > now)
+        .count();
+    slots.saturating_sub(busy)
 }
 
 /// V6 (§4.5) for one chosen action against the **fresh** observation: the
@@ -1128,7 +1202,10 @@ pub fn replan(
     let now = obs.now;
     let bell = obs.bell();
     let doctrine = &DOCTRINES[(h.faction % 6) as usize];
-    let stores = policy::stores_at(h, now);
+    let mut stores = policy::stores_at(h, now);
+    for (s, c) in stores.iter_mut().zip(taken.spent.iter()) {
+        *s -= c;
+    }
     match action {
         Action::Autopilot | Action::Hold { .. } => Err("not an action"),
         Action::March {
@@ -1175,7 +1252,7 @@ pub fn replan(
                 }
                 _ => {}
             }
-            let troops = row.e.troops;
+            let troops = row.troops();
             if let Some(v) = caps_violation(
                 taken.march_troops + troops,
                 taken.marches + 1,
@@ -1204,13 +1281,17 @@ pub fn replan(
             Ok((Intent::Depart(Box::new(plan)), Some(troops)))
         }
         Action::Build { item } => {
-            if !policy::queue_free(h, now) {
+            if taken.builds >= queue_free_slots(h, now) {
                 return Err("queue full");
             }
             let n = policy::copies(h, *item, now) + 1;
             let (cost, _, _) = catalog::building(*item, n, doctrine).ok_or("not priced")?;
             if !afford(&stores, &cost) {
                 return Err("not affordable");
+            }
+            taken.builds += 1;
+            for (s, c) in taken.spent.iter_mut().zip(cost.iter()) {
+                *s += c;
             }
             Ok((
                 Intent::Build {
@@ -1222,13 +1303,17 @@ pub fn replan(
             ))
         }
         Action::Walls => {
-            if !policy::queue_free(h, now) {
+            if taken.builds >= queue_free_slots(h, now) {
                 return Err("queue full");
             }
             let (cost, _, _) =
                 catalog::building(catalog::ITEM_WALLS, 1, doctrine).ok_or("not priced")?;
             if !afford(&stores, &cost) {
                 return Err("not affordable");
+            }
+            taken.builds += 1;
+            for (s, c) in taken.spent.iter_mut().zip(cost.iter()) {
+                *s += c;
             }
             Ok((
                 Intent::Build {
@@ -1245,6 +1330,11 @@ pub fn replan(
                 return Err("not affordable");
             }
             let n = share_of(k, p.share.unwrap_or(50)).min(k);
+            if let Some(cost) = catalog::train(*unit, n) {
+                for (s, c) in taken.spent.iter_mut().zip(cost.iter()) {
+                    *s += c;
+                }
+            }
             Ok((
                 Intent::Train {
                     h: href(h),
@@ -1313,7 +1403,11 @@ pub fn replan(
 /// Returns whether the gate added a nudge.
 pub fn gate(obs: &Observation, out: &mut Vec<Intent>) -> bool {
     let bell = obs.bell();
-    let nudges = |v: &Vec<Intent>| v.iter().filter(|i| matches!(i, Intent::Nudge { .. })).count();
+    let nudges = |v: &Vec<Intent>| {
+        v.iter()
+            .filter(|i| matches!(i, Intent::Nudge { .. }))
+            .count()
+    };
     let before = nudges(out);
     let mut walls_nudge: Option<(i16, i16)> = None;
     out.retain(|it| {
@@ -1341,6 +1435,9 @@ pub fn gate(obs: &Observation, out: &mut Vec<Intent>) -> bool {
 }
 
 // ------------------------------------------------------------------ the step
+
+/// `standing::RESERVE_BELLS`, re-exported for the tests.
+pub const RESERVE_BELLS_FOR_TEST: u32 = RESERVE_BELLS;
 
 /// A key that identifies an intent across the passes of one bell (the
 /// "sent already" set). Nudges are never remembered: a repeat may need one.
@@ -1440,6 +1537,7 @@ async fn send_intents<H: HeraldPort, R: RelayPort, D: DirectPort>(
                         ds.marches.push((bell, troops));
                     }
                     hook.stat("model_marches_sent");
+                    hook.note_model_march(bot.spec.index, bell);
                 }
             }
         }
@@ -1485,7 +1583,10 @@ pub async fn obs_digest<H: HeraldPort>(
 ) -> String {
     let mut lines: Vec<(String, String)> = vec![];
     if !me_raw.is_empty() {
-        lines.push((format!("/h/me/{wallet}"), hex::encode(Sha256::digest(me_raw))));
+        lines.push((
+            format!("/h/me/{wallet}"),
+            hex::encode(Sha256::digest(me_raw)),
+        ));
     }
     for &(p, q) in obs.provinces.keys() {
         let path = format!("/h/province/{p},{q}/latest");
@@ -1529,10 +1630,10 @@ const BOOK_KEEP_BELLS: u32 = BELLS_PER_DAY;
 
 /// The Citizen's `citizen_tag` as the wire's 16 hex digits.
 pub fn tag_hex(obs: &Observation) -> String {
-    obs.me
-        .citizen
-        .as_ref()
-        .map_or_else(|| "0".repeat(16), |(_, c)| format!("{:016x}", c.citizen_tag))
+    obs.me.citizen.as_ref().map_or_else(
+        || "0".repeat(16),
+        |(_, c)| format!("{:016x}", c.citizen_tag),
+    )
 }
 
 /// One step of an AI bot (§3.1), entered from the `bot.rs` hook after
@@ -1574,7 +1675,7 @@ pub async fn step_ai<H: HeraldPort, R: RelayPort, D: DirectPort>(
         .map(|h| {
             host_rows(&obs, h)
                 .into_iter()
-                .map(|r| (r.e.id, r.e.troops))
+                .map(|r| (r.e.id, r.troops()))
                 .collect()
         })
         .unwrap_or_default();
@@ -1612,6 +1713,15 @@ pub async fn step_ai<H: HeraldPort, R: RelayPort, D: DirectPort>(
         .book
         .retain(|m| m.arrive_bell + BOOK_KEEP_BELLS > bell0);
     let rows = host_rows(&obs, h);
+    hook.note_step(
+        index,
+        bell0,
+        &rows
+            .iter()
+            .filter(|r| r.ready)
+            .map(|r| r.e.id)
+            .collect::<Vec<_>>(),
+    );
     let (home, _) = home_troops(&obs, h, &rows);
     let day = bell0 / BELLS_PER_DAY;
     if bot.ai.day.as_ref().is_none_or(|d| d.day != day) {
@@ -1636,7 +1746,6 @@ pub async fn step_ai<H: HeraldPort, R: RelayPort, D: DirectPort>(
         None,
     );
     let quota_now = bot.ai_quota_left(&obs);
-    let a1 = autopilot_filter(rest.clone(), follow.clone(), quota_now);
     let inp = Inputs {
         obs: &obs,
         h,
@@ -1646,6 +1755,7 @@ pub async fn step_ai<H: HeraldPort, R: RelayPort, D: DirectPort>(
         autopilot_summary: describe(&autopilot_filter(rest.clone(), vec![], quota_now)),
         rows: rows.clone(),
         home_troops: home,
+        quota_left: quota_now,
     };
     let offers = candidates(&inp);
     let ready_now: BTreeSet<u64> = rows.iter().filter(|r| r.ready).map(|r| r.e.id).collect();
@@ -1779,7 +1889,7 @@ pub async fn step_ai<H: HeraldPort, R: RelayPort, D: DirectPort>(
     let rows2 = host_rows(obs2, h2);
     let (home2, _) = home_troops(obs2, h2, &rows2);
     let ds2 = bot.ai.day.clone().expect("day state");
-    let troops2: BTreeMap<u64, u32> = rows2.iter().map(|r| (r.e.id, r.e.troops)).collect();
+    let troops2: BTreeMap<u64, u32> = rows2.iter().map(|r| (r.e.id, r.troops())).collect();
     let inp2 = Inputs {
         obs: obs2,
         h: h2,
@@ -1789,11 +1899,15 @@ pub async fn step_ai<H: HeraldPort, R: RelayPort, D: DirectPort>(
         autopilot_summary: String::new(),
         rows: rows2,
         home_troops: home2,
+        quota_left: bot.ai_quota_left(obs2),
     };
     // A' on the observation the brain sends from.
+    let floor_held = std::sync::atomic::AtomicUsize::new(0);
     let autopilot_now = |bot: &Bot| -> Vec<Intent> {
         if fresh.is_none() {
-            return a1.clone();
+            let (a, n) = autopilot_filter_counted(rest.clone(), follow.clone(), quota_now);
+            floor_held.store(n, std::sync::atomic::Ordering::Relaxed);
+            return a;
         }
         let cx = Ctx {
             spec: &bot.spec,
@@ -1811,7 +1925,9 @@ pub async fn step_ai<H: HeraldPort, R: RelayPort, D: DirectPort>(
             bell0,
             None,
         );
-        autopilot_filter(rest2, follow2, bot.ai_quota_left(obs2))
+        let (a, n) = autopilot_filter_counted(rest2, follow2, bot.ai_quota_left(obs2));
+        floor_held.store(n, std::sync::atomic::Ordering::Relaxed);
+        a
     };
     let mut floor = true;
     let mut by = By::Autopilot;
@@ -1877,10 +1993,14 @@ pub async fn step_ai<H: HeraldPort, R: RelayPort, D: DirectPort>(
         to_send
     };
     let first = hook.outcomes_len(index);
-    let s = send_intents(bot, sh, &hook, obs2, to_send, floor, by, &troops2, &mut done).await;
+    let s = send_intents(
+        bot, sh, &hook, obs2, to_send, floor, by, &troops2, &mut done,
+    )
+    .await;
     sent += s.n;
-    if s.floor_skips > 0 {
-        hook.stat_n("quota_floor_skips", s.floor_skips as u64);
+    let skipped = s.floor_skips + floor_held.load(std::sync::atomic::Ordering::Relaxed);
+    if skipped > 0 {
+        hook.stat_n("quota_floor_skips", skipped as u64);
         hook.stat("quota_starved_bells");
     }
     // A chosen action that landed is not sent again on a same-bell repeat.
