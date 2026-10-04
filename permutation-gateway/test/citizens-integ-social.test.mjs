@@ -67,12 +67,12 @@ async function boot() {
   return { aiDir, a, b, roster, llama, svc, req, post, signTalk, async close() { await svc.close(); await llama.close(); } };
 }
 
-test('the service builds the real social store, the real speech checker, the reflection job; only the wave-B watcher is a stub', async () => {
+test('the service builds the real social store, the real speech checker, the reflection job; no stub is left (the wave-B watcher is real)', async () => {
   const h = await boot();
   try {
     assert.equal(h.svc.social.stub, undefined, 'AC4 store, not the stub');
     assert.equal(typeof h.svc.social.book.submit, 'function');
-    assert.deepEqual(h.svc.stubs, ['watcher']);
+    assert.deepEqual(h.svc.stubs, []);
     assert.ok(h.svc.reflection, 'AC1b reflection job is created');
     assert.equal((await h.svc.mind.health()).speech, 'real');
     assert.equal(typeof h.svc.mind.metrics().speech.reasons, 'object', 'per-word withhold counts reach /v1/metrics');

@@ -1,0 +1,56 @@
+{
+  "v": 1,
+  "lang": "en",
+  "kinds": {
+    "motion": "At bell {b} {name} moved option {k} ({kind}) in the council of {nation}.",
+    "call_adopted": "At bell {b} the council of {nation} adopted a Strike Order {with}. Its target stays sealed until bell {S}.",
+    "call_declined": "At bell {b} {name} declined the Strike Order of {nation}.",
+    "no_call": "At bell {b} the council of {nation} adopted no Strike Order ({why}).",
+    "strike_result": "At bell {b} the Strike Order of {nation} opened at ({p},{q}) ({kind}): {present} of its armies arrived{extra}; troops lost: {lost}.",
+    "ai_joined": "At bell {b} {name} (AI citizen) joined {nation}.",
+    "ai_card_changed": "At bell {b} the Wyll card of {name} changed: {what}.",
+    "ai_march_opened": "At bell {b} {name} marched at ({p},{q}) (arrived at bell {a}); its reason is published."
+  },
+  "words": {
+    "option_kind": {
+      "strike": "strike",
+      "camp": "camp",
+      "raid": "raid",
+      "unknown": "target"
+    },
+    "ballot_ai": {
+      "one": "{n} AI ballot",
+      "many": "{n} AI ballots"
+    },
+    "ballot_human": {
+      "one": "a human ballot",
+      "many": "{n} human ballots"
+    },
+    "ballot_presenter": "the presenter's ballot",
+    "ballot_scripted": {
+      "one": "a scripted seat ballot",
+      "many": "{n} scripted seat ballots"
+    },
+    "ballots_none": "no ballot counted",
+    "and": " and ",
+    "with": "with ",
+    "no_call_why": {
+      "quorum": "fewer than two ballots for one option",
+      "tie": "a tie",
+      "none_wins": "'none' had the most ballots",
+      "human_present": "no human or seat ballot was among the winner's",
+      "unknown": "no winner"
+    },
+    "bounced": ", {n} bounced",
+    "displaced": ", {n} displaced",
+    "lost_none": "no clash was recorded",
+    "lost_item": "{nation} {n}",
+    "lost_sep": ", ",
+    "card_what": {
+      "summary": "a new self-summary (written by the AI's model, not verified)",
+      "goals": "a goal changed state",
+      "both": "a new self-summary and a goal changed state"
+    },
+    "with_suffix": ""
+  }
+}

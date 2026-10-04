@@ -48,7 +48,7 @@ test('the mind API: bearer token required, routes, error codes', async () => {
     assert.equal(h.json.roster.ready, true);
     assert.equal(h.json.roster.n, 3);
     assert.equal(h.json.speech, 'real');
-    assert.deepEqual(Object.keys(h.json).sort(), ['bell', 'llm', 'ok', 'queue', 'roster', 'speech'].concat(h.json.feed === null ? ['feed', 'pump'] : []).sort());
+    assert.deepEqual(Object.keys(h.json).sort(), ['bell', 'llm', 'ok', 'queue', 'roster', 'speech'].concat(h.json.feed === null ? ['feed', 'pump', 'watcher'] : []).sort());
     assert.equal((await call(svc, '/v1/nothing')).status, 404);
     assert.equal((await call(svc, '/v1/decide', { method: 'POST', raw: '{not json' })).status, 400);
     assert.equal((await call(svc, '/v1/decide', { method: 'POST', body: { v: 2 } })).status, 400);
@@ -109,8 +109,9 @@ test('the token file is created 0600 once and reused; stubs of units not built y
     assert.equal(readFileSync(f, 'utf8').trim(), svc.token);
     assert.equal(statSync(f).mode & 0o777, 0o600);
     assert.match(svc.token, /^[0-9a-f]{64}$/);
-    // after integ-A the real feed (AC6a) and serve (AC5) load; the watcher (AC6, wave B) is still a stub
-    assert.ok(svc.stubs.includes('watcher'), `stubs: ${svc.stubs}`);
+    // after integ-A the real feed (AC6a) and serve (AC5) load; since AC6 (wave B) the real watcher loads too
+    assert.equal(svc.stubs.includes('watcher'), false, `stubs: ${svc.stubs}`);
+    assert.equal(svc.watcher.stub, false, 'the real watcher, not the wave-A feed-wake stub');
     assert.equal(svc.stubs.includes('feed'), false, 'the real feed loads');
     assert.equal(svc.stubs.includes('serve'), false, 'the real serve loads');
     assert.equal(svc.stubs.includes('social'), false, 'the social double was injected');
