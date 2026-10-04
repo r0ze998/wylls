@@ -80,7 +80,9 @@ export class FakeChain {
         const signature = bs58.encode(tx.signature);
         const ins = tx.instructions[0];
         const memoProgram = ins.programId.toBase58();
-        this._put({ signature, message: { accountKeys: [tx.feePayer.toBase58(), memoProgram], header: { numRequiredSignatures: 1, numReadonlySignedAccounts: 0, numReadonlyUnsignedAccounts: 1 }, instructions: [{ programIdIndex: 1, accounts: [0], data: bs58.encode(ins.data) }] } });
+        const rec = this._put({ signature, message: { accountKeys: [tx.feePayer.toBase58(), memoProgram], header: { numRequiredSignatures: 1, numReadonlySignedAccounts: 0, numReadonlyUnsignedAccounts: 1 }, instructions: [{ programIdIndex: 1, accounts: [0], data: bs58.encode(ins.data) }] } });
+        // FB3: the signer's history (getSignaturesForAddress of the registrar lists its memos, as the localnet does for any signer)
+        (this.bySession.get(tx.feePayer.toBase58()) ?? this.bySession.set(tx.feePayer.toBase58(), []).get(tx.feePayer.toBase58())).push(rec);
         void PublicKey;
         return signature;
       }
@@ -106,7 +108,7 @@ function makeRepo(dir) {
   fs.mkdirSync(dir, { recursive: true });
   const cp = rel => { const to = path.join(dir, rel); fs.mkdirSync(path.dirname(to), { recursive: true }); fs.copyFileSync(path.join(REPO, rel), to); };
   const cit = 'permutation-gateway/citizens';
-  for (const f of ['memory/episodes.mjs', 'memory/templates.en.json', 'memory/templates.ja.json', 'serve.mjs', 'persona/library.json', 'persona/decks/deck-1.json', 'config/smoke.json', 'ab/seat.mjs', 'scenario/seat-script.mjs']) cp(`${cit}/${f}`); // integ-B: the A/B seat script files are in the tree while the (smoke-like) run committed none: M1 must not read that as a mismatch
+  for (const f of ['memory/episodes.mjs', 'memory/templates.en.json', 'memory/templates.ja.json', 'serve.mjs', 'persona/library.json', 'persona/decks/deck-1.json', 'config/smoke.json', 'ab/seat.mjs', 'scenario/seat-script.mjs', 'injection/corpus.mjs']) cp(`${cit}/${f}`); // integ-B: the A/B seat script files are in the tree while the (smoke-like) run committed none: M1 must not read that as a mismatch
   for (const f of fs.readdirSync(path.join(REPO, cit, 'prompts'))) cp(`${cit}/prompts/${f}`);
   cp('permutation-server/web/frontier/council/aisocial.mjs');
   for (const f of ['frontier-node/crates/bots/src/lib.rs', 'frontier-node/crates/agents/src/lib.rs']) { const to = path.join(dir, f); fs.mkdirSync(path.dirname(to), { recursive: true }); fs.writeFileSync(to, `// stand-in for ${f}\n`); }
@@ -289,7 +291,9 @@ export async function buildMiniRun({ council = true, commitLate = false, unmeasu
 
   // ---- close every bell from the first record to the last, publish talk files, anchor each bell, release the sealed records
   const bells = priv.map(e => e.bell);
-  const lo = Math.min(...bells), hi = Math.max(...bells) + 2;
+  // FB3: the run closes every bell the herald logged before its last one (M3 compares the covered range with the herald's last closed bell)
+  const headBell = Math.max(...heraldData.events.map(e => e.bell).filter(b => Number.isInteger(b) && b < 0xffffffff));
+  const lo = Math.min(...bells), hi = Math.max(Math.max(...bells) + 2, headBell - 1);
   const fileOfTalk = b => { const recs = talkByBell.get(b) ?? []; return { bell: b, root: merkleRootHex(recs.map(r => socialLeaf(r.inner))), records: recs }; };
   for (let b = lo; b <= hi; b++) {
     records.closeBell(b);

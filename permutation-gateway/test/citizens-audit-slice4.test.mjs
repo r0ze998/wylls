@@ -98,11 +98,12 @@ test('M9 on the real run: the stored seeds follow season 0, the commitments say 
   assert.match(c.skipped, /no --llm/);
 });
 
-test('M8 on the real run is vacuous (the social service was a stub: 0 AI records) and says so', () => {
+test('M8 on the real run is vacuous (the social service was a stub: 0 AI records): FB3 reports it as not verified (null), not as a pass', () => {
   const c = base.checks.M8;
-  assert.equal(c.pass, true);
+  assert.equal(c.pass, null);
+  assert.equal(c.vacuous, true);
   assert.equal(c.ai_records_checked, 0);
-  assert.match(c.notes.join(' '), /vacuous/);
+  assert.ok(c.unverified.some(u => u.field === 'speech'));
 });
 
 test('M1 on the real run: only episode_kinds_sha256 differs (the run hashed the template file\'s top-level keys; the registrar now hashes the kinds); server.tree_sha256 is null = unmeasured', { skip: !haveCommit && 'the run\'s commit 4b7a9b9 is not in this clone' }, () => {

@@ -1,4 +1,4 @@
-// verify-minds (contract 7.3, 10.2 G8, G13, G15; unit AC8): the public audit of an AI run, from what is published and from the
+// verify-minds (contract 7.3, 10.2 G8, G13, G15; unit AC8, fixes FB3): the public audit of an AI run, from what is published and from the
 // local chain alone. Loopback only.
 //
 //   node permutation-gateway/citizens/verify-minds.mjs --herald URL --ai-dir PUB --rpc URL [--llm URL] [--sample 20]
@@ -11,15 +11,25 @@
 //   M2  roster            the deal recomputed from the GENESIS_SEED record, script-bot wallets, labels, signature
 //   M3  roots, openings   every closed bell's roots against the files and the anchor memo; ballots against their leaves; call
 //                         commits; every sealed record's commit opened when due (7.2: the later of release_bell and the real
-//                         arrival bell, release_bell + 6 if unrevealed; no later than 2 bells after)
+//                         arrival bell, release_bell + 6 if unrevealed; no later than 2 bells after).
+//                         FB3: the covered range must reach the herald's last closed bell, the registrar's signed anchors index and
+//                         every anchor memo the registrar sent on chain (`tail_truncated`, `head_truncated`); a `redacted` leaf needs a
+//                         tombstone in PUB/redactions.json; the label of an opening's destination is a claim, compared with the public
+//                         log: "unrevealed" with a public REVEAL, "not_sent" with a sent march in the record's tx (or a Depart on chain)
+//                         and "planned" against a REVEAL fail; a herald feed that cannot be read makes M3 `null`, not a silent skip
 //   M7  coverage          every session-signed chain transaction of each AI in exactly one record's tx; every listed signature on chain
-//   M8  speech            every social record of an AI wallet = its decision's signed-ready output, origin 1, no use twice
-//   M9  bit replay        20 stored request bodies re-sent to llama (--llm); n/20 equal
-//   M11 episodes          replay of the episodes of 3 sampled AIs over the public log, 20 decisions' retrieval (audit/episodes.mjs)
+//   M8  speech            every social record of an AI wallet = its decision's signed-ready output, origin 1, no (decision, item) twice;
+//                         records skipped as redacted (tombstone required) are counted and printed; 0 records checked is `null`
+//   M9  bit replay        20 stored request bodies re-sent to llama (--llm); n/20 equal; a redacted stub must carry the record's
+//                         request_hash and stand behind a tombstone (the decision authored a tombstoned message or had an inbox)
+//   M11 episodes          replay of the episodes of 3 sampled AIs over the public log, 20 decisions' retrieval (audit/episodes.mjs);
+//                         a stored focus must hold the base focus and only extras the public record justifies
 //
 // Output PUB/verify-minds.json {v, run_id, checks:{M1:{pass, n, failures:[...]}, ...}, verdict}. A check is true, false or null (null =
-// not fully verified: an `unmeasured` field of the commitments, a missing input, no llama-server). verdict: FAIL if any check is false,
-// INCOMPLETE if none is false and some is null, else PASS. Exit code: 0 PASS, 1 FAIL, 3 INCOMPLETE, 2 usage.
+// not fully verified: an `unmeasured` field of the commitments, a missing input, no llama-server, nothing to check). verdict: FAIL if any check
+// is false, INCOMPLETE if none is false and some is null OR a check was not run (`--only`, or `--through`), else PASS. FB3: a partial run
+// is INCOMPLETE and carries `partial: true, not_run: [...]`; it never overwrites PUB/verify-minds.json (give --out FILE to keep its report).
+// Exit code: 0 PASS, 1 FAIL, 3 INCOMPLETE, 2 usage.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -39,12 +49,13 @@ import { deal as dealPersonas } from './persona/deal.mjs';
 import { assertLoopback, callCommitOf, createCheck, innerHex, openPub, recordIdOf, recordLeaf, resolvePubDir, sampleFrom, sealedCommit, sha256Canonical, sha256hex, socialLeaf, verdictOf, writeAtomic, ZERO_ROOT, merkleRootHex } from './audit/canon.mjs';
 import { checkM11, drainFeed } from './audit/episodes.mjs';
 import { checkM9 } from './audit/replay.mjs';
+import { DEPART_TAG, HOSTED_MARCH_INTENTS, UNREVEALED_WAIT_BELLS, marchSentInTx, publicRevealFor, registrarMemos, unrevealedClaimProblem } from './audit/claims.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = path.resolve(HERE, '..', '..');
 /** The release job waits at most 6 bells for a REVEAL (7.2); M3 allows the opening 2 bells after it was due. */
 export const OPEN_GRACE_BELLS = 2;
-export const UNREVEALED_WAIT_BELLS = 6;
+export { UNREVEALED_WAIT_BELLS };
 const EMPTY = sha256hex('');
 
 // ------------------------------------------------------------------ the herald and the chain, as the checks read them
@@ -235,7 +246,7 @@ export async function checkM1(ctx) {
   else if (ctx.o.modelPath) {
     const got = await fileSha256(ctx.o.modelPath);
     if (got !== cm.model.sha256) c.fail('model_sha256', { committed: cm.model.sha256, file: got, path: ctx.o.modelPath });
-  } else c.note('model.sha256 not compared: --model not given (it is a committed value; if the run did not measure it, this audit cannot tell)');
+  } else c.unverified('model.sha256', '--model not given: the committed model hash was not compared with a file (FB3: it was a note and the check passed)');
   c.count();
   if (unm(cm.server?.tree_sha256)) c.unmeasured('server.tree_sha256', cm.server?.tree_sha256 === null ? 'null in the commitments' : 'the run recorded "unmeasured"');
   else if (ctx.o.llamaDir) {
@@ -312,11 +323,14 @@ export async function checkM1(ctx) {
     c.count();
     const want = cm.configs?.[field] ?? null;
     if (given) { const got = sha256hex(fs.readFileSync(given)); if (got !== want) c.fail('config_hash', { field, committed: want, file: got }); continue; }
-    const have = T.exists() ? files.map(f => T.blobSha(f)).find(Boolean) ?? null : null;
+    const haves = T.exists() ? files.map(f => T.blobSha(f)).filter(Boolean) : [];
+    const have = haves[0] ?? null; // the registrar hashes the first file that exists (firstExisting)
     if (want === null && (have === null || field === 'seat_script_sha256')) continue; // integ-B: a seat script file in the tree does not mean the run used one (the smoke has none; the A/B passes ab/seat.mjs)
-    if (want !== null && have === want) continue;
+    if (want !== null && haves.includes(want)) continue;
     if (T.exists() && (want === null) !== (have === null)) c.fail('config_hash', { field, committed: want, committed_tree: have });
-    else if (want !== null && have !== want) c.unverified(`configs.${field}`, 'the file is not in the committed tree and no file was given');
+    // FB3: the injection corpus is hashed from one fixed place: a committed file that is there and differs is a mismatch, not "unverified"
+    else if (want !== null && have !== null && field === 'injection_corpus_sha256') c.fail('config_hash', { field, committed: want, committed_tree: have, detail: 'the corpus file of the committed tree has another hash' });
+    else if (want !== null) c.unverified(`configs.${field}`, 'the file is not in the committed tree and no file was given');
   }
   return c.result();
 }
@@ -403,6 +417,7 @@ export async function checkM2(ctx) {
 
 // ------------------------------------------------------------------ M3
 const asOpenedList = f => f?.records ?? f?.opened ?? [];
+const tombstoneInners = pub => new Set(pub.redactions().map(t => t?.inner).filter(x => typeof x === 'string'));
 
 export async function checkM3(ctx) {
   const c = createCheck('M3', 'roots and openings');
@@ -414,6 +429,8 @@ export async function checkM3(ctx) {
   const lo = all[0], hi = all[all.length - 1];
   const registrar = cm?.registrar;
   c.set('bells', { first: lo, last: hi });
+  const tombs = tombstoneInners(pub);
+  let redactedLeaves = 0;
   const innerOfBallot = new Map(); // inner -> bell of its leaf
   const talkInners = new Map();
   for (let b = lo; b <= hi; b++) {
@@ -431,7 +448,11 @@ export async function checkM3(ctx) {
         if (r.type === 'ballot') innerOfBallot.set(r.inner, b);
         if (r.bytes_b64 || r.sig_b64) {
           if (innerHex(fromBase64(r.bytes_b64), fromBase64(r.sig_b64)) !== r.inner) c.fail('inner_mismatch', { bell: b, id: r.id, detail: 'sha256(bytes || sig) is not the record\'s inner: the bytes or the signature were changed' });
-        } else if (!r.redacted && r.type !== 'ballot') c.fail('leaf_without_bytes', { bell: b, id: r.id });
+        } else if (r.redacted) {
+          // FB3: a flag is not a tombstone. A leaf may stand without bytes only when the operator's public tombstone list names its inner (6.3)
+          if (tombs.has(r.inner)) redactedLeaves++;
+          else c.fail('redacted_without_tombstone', { bell: b, id: r.id, inner: r.inner, detail: 'the leaf is flagged redacted and has no bytes, but PUB/redactions.json has no tombstone for its inner' });
+        } else if (r.type !== 'ballot') c.fail('leaf_without_bytes', { bell: b, id: r.id });
       }
       social = merkleRootHex(inners.map(socialLeaf));
       if (social !== t.root) c.fail('social_root_mismatch', { bell: b, file: t.root, recomputed: social });
@@ -457,6 +478,49 @@ export async function checkM3(ctx) {
     if (registrar && memo.signer !== registrar) c.fail('anchor_memo_signer', { bell: b, signer: memo.signer });
     if (a.slot !== undefined && a.slot !== null && a.slot !== tx.slot) c.fail('anchor_slot', { bell: b, anchor: a.slot, chain: tx.slot });
   }
+  c.set('redacted_leaves', redactedLeaves);
+
+  if (pub.fullIndex()?.forced) c.note('PUB/full/index.json says forced: true: the season-end bundle was written before the registrar\'s trigger (STATE/season-end.json), so the request bodies of a possibly running season were published');
+  // ---- FB3: the covered range reaches the end of the run. '0 gaps' inside lo..hi proves nothing when the last bells' files were removed:
+  //      the range is compared with the herald's last closed bell, with the registrar's signed anchors index and with the memos on chain.
+  let heraldFeed;
+  const getFeed = async () => {
+    if (heraldFeed === undefined) { try { heraldFeed = (await ctx.drained()).feed; } catch (e) { heraldFeed = null; c.unverified('herald_feed', `the herald could not be read to the end of its log (${String(e?.message ?? e).slice(0, 120)}): openings were not compared with the public DEPART and REVEAL, the covered range not with the last closed bell`); } }
+    return heraldFeed;
+  };
+  const feedForTail = await getFeed();
+  if (feedForTail) {
+    // the newest log row sits in bell `headBell`; the bell before it has ended, so it must be closed (a closer at start(b+1) + 20 s)
+    const lastClosed = ctx.o.through ?? feedForTail.headBell() - 1;
+    c.set('herald_last_closed_bell', lastClosed);
+    if (hi < lastClosed) c.fail('tail_truncated', { last_file_bell: hi, herald_last_closed_bell: lastClosed, source: ctx.o.through != null ? '--through' : 'herald log', detail: 'the herald logged a later bell: the files of the last closed bell(s) are missing (not published, or removed)' });
+  }
+  const idx = pub.anchorsIndex();
+  if (!idx) c.unverified('anchors_index', 'PUB/anchors/index.json is missing: the registrar\'s signed list of anchored bells could not be compared with the files');
+  else if (!registrar || !verifySigned(idx, registrar)) c.fail('anchors_index_signature', { detail: 'PUB/anchors/index.json is not signed by the registrar of the commitments' });
+  else {
+    if (Number.isInteger(idx.last_bell) && hi < idx.last_bell) c.fail('tail_truncated', { last_file_bell: hi, index_last_bell: idx.last_bell, source: 'signed anchors index' });
+    if (Number.isInteger(idx.first_bell) && lo > idx.first_bell) c.fail('head_truncated', { first_file_bell: lo, index_first_bell: idx.first_bell, source: 'signed anchors index' });
+    for (const b of idx.anchored ?? []) if (!anchors.has(b)) c.fail('indexed_anchor_missing', { bell: b, detail: 'the signed anchors index lists this bell as anchored; its file is missing' });
+  }
+  try {
+    const season = Number(cm?.season_id);
+    const memos = registrar ? await registrarMemos({ rpc: ctx.rpc, tx: sig => ctx.tx(sig), memoOf, registrar, season }) : null;
+    if (memos) {
+      let dup = 0;
+      for (const [b, list] of memos) {
+        c.count();
+        if (b > hi) c.fail('tail_truncated', { last_file_bell: hi, chain_anchored_bell: b, source: 'registrar memos on chain', detail: 'the registrar anchored this bell on chain; no files for it are published' });
+        else if (b < lo) c.fail('head_truncated', { first_file_bell: lo, chain_anchored_bell: b, source: 'registrar memos on chain' });
+        const roots = new Set(list.map(x => `${x.social_root} ${x.minds_root}`));
+        if (roots.size > 1) c.fail('anchor_memo_conflict', { bell: b, memos: list.map(x => ({ signature: x.signature, social_root: x.social_root, minds_root: x.minds_root })), detail: 'the registrar sent memos with different roots for this bell' });
+        else if (list.length > 1) dup++;
+      }
+      c.set('chain_anchored_bells', memos.size);
+      if (dup) c.note(`${dup} bell(s) have more than one identical anchor memo on chain (contract R9: no anchor is sent twice)`);
+    }
+  } catch (e) { c.unverified('anchor_memos_on_chain', `the registrar's history could not be read from the chain (${String(e?.message ?? e).slice(0, 120)}): the range was not compared with the memos`); }
+
   // late files: every late id belongs to a record of its bell or is a tx update of one
   for (const [b, f] of pub.late()) {
     for (const e of f?.entries ?? []) {
@@ -476,6 +540,7 @@ export async function checkM3(ctx) {
       c.count();
       if (b.bytes_b64) { if (innerHex(fromBase64(b.bytes_b64), fromBase64(b.sig_b64)) !== b.inner) c.fail('ballot_bytes_inner', { council: f.name, inner: b.inner, detail: 'the opened ballot\'s bytes do not hash to its earlier leaf' }); }
       else if (!b.redacted) c.fail('ballot_not_opened', { council: f.name, inner: b.inner });
+      else if (!tombs.has(b.inner)) c.fail('redacted_without_tombstone', { council: f.name, inner: b.inner, detail: 'an opened ballot is flagged redacted and has no bytes, but PUB/redactions.json has no tombstone for its inner' });
       if (!innerOfBallot.has(b.inner)) c.fail('ballot_leaf_missing', { council: f.name, inner: b.inner, detail: 'an opened ballot with no earlier leaf' });
     }
     if (f.adopted && f.call_commit) {
@@ -487,15 +552,17 @@ export async function checkM3(ctx) {
 
   // ---- sealed records: every commit opens when due (7.2)
   const decisions = ctx.decisions ?? (ctx.decisions = collectDecisions(pub));
-  let reveals = null;
-  const revealOf = async (host, arrive) => {
-    if (reveals === null) { try { reveals = (await ctx.drained()).feed; } catch { reveals = false; } }
-    return reveals ? reveals.revealOf(String(host), arrive) : undefined;
-  };
+  const feed = await getFeed();
+  // the tx list of a record: the minds file's list and every late update of the same record, together (an entry is a claim by its signature: a late
+  // file that renames an intent does not take the original entry away; M7 reads both lists the same way)
+  const lateTx = new Map();
+  for (const [, f] of pub.late()) for (const e of f?.entries ?? []) { const id = e.id ?? e.record?.id; const l = e.tx ?? e.record?.tx; if (id && Array.isArray(l)) (lateTx.get(id) ?? lateTx.set(id, []).get(id)).push(...l); }
+  const txListOf = rec => [...(rec.tx ?? []), ...(lateTx.get(rec.id) ?? [])];
   const sealed = decisions.filter(d => d.record.sealed);
   c.set('sealed_records', sealed.length);
   const lateSeen = new Set();
-  let timely = 0;
+  let timely = 0, notDue = 0, unverifiedClaims = 0;
+  const claimCounts = { reveal: 0, unrevealed: 0, not_sent: 0, planned: 0 };
   for (const d of sealed) {
     c.count();
     const rec = d.record;
@@ -518,18 +585,61 @@ export async function checkM3(ctx) {
     let due = rec.release_bell;
     if (unrevealed) due = rec.release_bell + UNREVEALED_WAIT_BELLS;
     else if (arrive.length) due = Math.max(rec.release_bell, Math.max(...arrive));
+
+    // FB3: the label of a destination moves `due`, so it is a claim and is checked against the public log and the record's own tx list (D2)
+    const txList = txListOf(rec);
+    const sentInTx = marchSentInTx(txList);
+    if (marchSentInTx(txList, HOSTED_MARCH_INTENTS) && !dests.length && op.destination !== 'unrevealed') c.fail('march_without_destination', { decision: rec.id, ai: rec.ai, bell: rec.bell, detail: 'the record\'s tx list sent a march and its opening names no destination: the due bell cannot be taken from it' });
+    if (op.destination === 'unrevealed' && !dests.length) { unverifiedClaims++; c.unverified('destinations', `decision ${rec.id}: the opening says "unrevealed" without naming a host: the claim cannot be compared with the public REVEAL`); }
     for (const x of dests) {
-      if (x.source !== 'reveal' && x.source !== undefined) continue;
-      const rv = await revealOf(x.host_id, x.arrive_bell);
+      const claim = x.source ?? 'reveal';
+      claimCounts[claim] = (claimCounts[claim] ?? 0) + 1;
+      if (claim === 'not_sent') {
+        // a march that was never sent: the record's tx list holds none, and no listed transaction is a Depart on chain
+        if (sentInTx === null) c.fail('not_sent_unsupported', { decision: rec.id, host_id: x.host_id, detail: 'the opening says "not_sent" and the record lists no transaction at all: nothing shows that no march was sent' });
+        else if (sentInTx) c.fail('not_sent_but_sent', { decision: rec.id, host_id: x.host_id, detail: 'the opening says "not_sent" and the record\'s tx list holds a sent march' });
+        else {
+          const program = (await ctx.season())?.programId;
+          for (const t of txList) {
+            if (!t.sig || !program) continue;
+            let onChain = null;
+            try { onChain = await ctx.tx(t.sig); } catch { onChain = null; }
+            if (onChain && gameTagOf(onChain, program) === DEPART_TAG) { c.fail('not_sent_but_depart_on_chain', { decision: rec.id, host_id: x.host_id, signature: t.sig, intent: t.intent, detail: 'the opening says "not_sent" but a listed transaction is a Depart on chain (its intent label differs)' }); break; }
+          }
+        }
+        continue;
+      }
+      if (!feed) { unverifiedClaims++; continue; } // the herald could not be read: said once above, M3 is not PASS
+      if (claim === 'unrevealed') {
+        const bad = unrevealedClaimProblem({ feed, host: x.host_id, plannedArrive: x.planned_arrive_bell ?? x.arrive_bell, decisionBell: rec.bell, releaseBell: rec.release_bell });
+        if (bad) c.fail('unrevealed_but_revealed', { decision: rec.id, host_id: x.host_id, ...bad, release_bell: rec.release_bell, detail: 'the opening says "unrevealed" but the herald logged the REVEAL of this march before the release job gave up (release_bell + 6)' });
+        continue;
+      }
+      if (claim === 'planned') {
+        // a destination the operator took from the plan: compared with the public REVEAL when there is one
+        const rv = publicRevealFor({ feed, host: x.host_id, plannedArrive: x.planned_arrive_bell ?? x.arrive_bell, decisionBell: rec.bell });
+        if (!rv) { unverifiedClaims++; continue; }
+        if (rv.p !== x.p || rv.q !== x.q || rv.tile !== x.tile) c.fail('destination_mismatch', { decision: rec.id, host_id: x.host_id, source: 'planned', opened: { p: x.p, q: x.q, tile: x.tile }, reveal: { p: rv.p, q: rv.q, tile: rv.tile } });
+        continue;
+      }
+      const rv = feed.revealOf(String(x.host_id), x.arrive_bell);
       if (rv === null) c.fail('destination_unrevealed', { decision: rec.id, host_id: x.host_id, arrive_bell: x.arrive_bell, detail: 'the opening names a destination with no public REVEAL' });
       else if (rv && (rv.p !== x.p || rv.q !== x.q || rv.tile !== x.tile)) c.fail('destination_mismatch', { decision: rec.id, host_id: x.host_id, opened: { p: x.p, q: x.q, tile: x.tile }, reveal: { p: rv.p, q: rv.q, tile: rv.tile } });
     }
-    if (d.source === 'season_end') { c.fail('opened_late', { decision: rec.id, ai: rec.ai, bell: rec.bell, due_bell: due, detail: 'opened only in the season-end bundle (PUB/full/open): the release did not happen. The commitment verifies.' }); continue; }
+    if (d.source === 'season_end') {
+      // FB3: a march still in flight at the last closed bell was not due yet: its commitment verifies and it is not "late" (it is counted, not failed)
+      if (due > hi) { notDue++; continue; }
+      c.fail('opened_late', { decision: rec.id, ai: rec.ai, bell: rec.bell, due_bell: due, detail: 'opened only in the season-end bundle (PUB/full/open): the release did not happen. The commitment verifies.' });
+      continue;
+    }
     timely++;
     if (d.openBell < due) c.fail('opened_early', { decision: rec.id, open_bell: d.openBell, due_bell: due });
     else if (d.openBell > due + OPEN_GRACE_BELLS) c.fail('opened_late', { decision: rec.id, open_bell: d.openBell, due_bell: due, grace: OPEN_GRACE_BELLS });
   }
   c.set('openings_checked_for_timing', timely);
+  c.set('destination_claims', claimCounts);
+  if (notDue) { c.set('not_due_at_season_end', notDue); c.note(`${notDue} sealed record(s) were opened only in the season-end bundle because their march was still in flight at the last closed bell (bell ${hi}): not due yet, the commitment verifies, not counted as late`); }
+  if (unverifiedClaims && feed) c.note(`${unverifiedClaims} destination claim(s) could not be compared with a public REVEAL (planned destinations with no REVEAL, or an "unrevealed" opening that names no host)`);
   return c.result();
 }
 
@@ -624,7 +734,8 @@ export async function checkM8(ctx) {
     const prov = provOf.get(inner);
     if (!social) { c.fail('no_provenance_table', { bell, inner, detail: 'PUB/full/social.json is missing: the (decision_id, item) of an AI record cannot be checked' }); return; }
     if (!prov || prov.decision_id === null) { c.fail('no_decision', { bell, inner, wallet, detail: 'an AI wallet\'s record with no decision_id' }); return; }
-    const key2 = `${prov.type}|${prov.decision_id}|${prov.item}`;
+    // FB3: a (decision_id, item) pair is used once whatever the record type (7.3, 11.6 `records.consume(decision_id, item)`)
+    const key2 = `${prov.decision_id}|${prov.item}`;
     if (used.has(key2)) c.fail('duplicate_use', { decision: prov.decision_id, item: prov.item, type: prov.type, inners: [used.get(key2), inner] });
     used.set(key2, inner);
     const dec = byId.get(prov.decision_id);
@@ -646,9 +757,19 @@ export async function checkM8(ctx) {
       if (dec.record.sealed) c.fail('sealed_decision_posted', { decision: prov.decision_id, detail: 'a sealed decision\'s say is withheld until the release: it must not have been posted' });
     }
   };
+  // FB3: a record with no bytes is skipped only when the operator's public tombstone list names its inner; every other record without bytes is a
+  // failure, and the number of skipped records is counted and printed (it used to be skipped silently by a `redacted` flag)
+  const tombs = tombstoneInners(ctx.pub);
+  let redactedSkipped = 0, redactedSkippedAi = 0;
+  const skipNoBytes = (where, r, bell) => {
+    if (r.redacted && tombs.has(r.inner)) { redactedSkipped++; if (byWallet.has(provOf.get(r.inner)?.wallet)) redactedSkippedAi++; return; }
+    if (r.redacted) c.fail('redacted_without_tombstone', { ...where, bell, inner: r.inner, detail: 'a record without bytes is flagged redacted, but PUB/redactions.json has no tombstone for its inner: it was not checked and cannot be skipped' });
+    else c.fail('record_without_bytes', { ...where, bell, inner: r.inner });
+  };
   for (const [bell, f] of ctx.pub.talk()) {
     for (const r of f?.records ?? []) {
-      if (r.type === 'ballot' || r.redacted || !r.bytes_b64) continue;
+      if (r.type === 'ballot') continue;
+      if (!r.bytes_b64) { skipNoBytes({ id: r.id }, r, bell); continue; }
       let d;
       try { d = decodeSocial(fromBase64(r.bytes_b64)); } catch { c.fail('undecodable_record', { bell, id: r.id }); continue; }
       if (d.type !== 'talk') continue;
@@ -658,7 +779,7 @@ export async function checkM8(ctx) {
   // opened ballots of the council files
   for (const f of ctx.pub.councils()) {
     for (const b of f.open?.ballots ?? []) {
-      if (!b.bytes_b64) continue;
+      if (!b.bytes_b64) { skipNoBytes({ council: f.name }, b, -1); continue; }
       const bytes = fromBase64(b.bytes_b64);
       let d;
       try { d = decodeSocial(bytes); } catch { c.fail('undecodable_ballot', { council: f.name }); continue; }
@@ -667,12 +788,31 @@ export async function checkM8(ctx) {
     }
   }
   c.set('ai_records_checked', aiRecords);
-  if (!aiRecords) c.note('vacuous: no social record from an AI wallet in this run (0 records checked)');
+  c.set('redacted_skipped', redactedSkipped);
+  c.set('redacted_skipped_ai', redactedSkippedAi);
+  if (redactedSkipped) c.note(`${redactedSkipped} redacted record(s) with a tombstone were not checked (${redactedSkippedAi} of them an AI wallet's by the provenance table): their text is gone, so their speech could not be compared with the mind's output`);
+  // FB3: nothing checked is not a pass (it passed with a note)
+  if (!aiRecords) { c.set('vacuous', true); c.unverified('speech', '0 social records from an AI wallet were checked: this run has none, or all of them are redacted'); }
   return c.result();
 }
 
 // ------------------------------------------------------------------ the whole audit
 const ALL = ['M1', 'M2', 'M3', 'M7', 'M8', 'M9', 'M11'];
+
+/** What a check left out, for the log line and the stdout summary: redacted records skipped (M8, M9), checks with no input (unverified) and vacuous passes. */
+export const skippedNote = c => {
+  const bits = [];
+  if (c.redacted_skipped !== undefined) bits.push(`${c.redacted_skipped} redacted record(s) skipped${c.redacted_skipped_ai ? ` (${c.redacted_skipped_ai} AI)` : ''}`);
+  if (c.m9_excluded_redacted !== undefined) bits.push(`${c.m9_excluded_redacted} redacted request(s) excluded`);
+  if (c.unverified?.length) bits.push(`${c.unverified.length} unverified: ${c.unverified.map(u => u.field).join(', ')}`);
+  if (c.unmeasured?.length) bits.push(`${c.unmeasured.length} unmeasured: ${c.unmeasured.map(u => u.field).join(', ')}`);
+  if (c.vacuous) bits.push('vacuous: nothing was checked');
+  if (c.skipped) bits.push(`skipped: ${c.skipped}`);
+  return bits.length ? `, ${bits.join('; ')}` : '';
+};
+
+/** The checks a verdict covers. A report that did not run one of them is never PASS (FB3, D1). */
+export const ALL_CHECKS = ALL;
 
 export async function verifyMinds(o) {
   const ctx = await createContext(o);
@@ -694,16 +834,23 @@ export async function verifyMinds(o) {
   }
   const steps = {
     M1: () => checkM1(ctx), M2: () => checkM2(ctx), M3: () => checkM3(ctx), M7: () => checkM7(ctx), M8: () => checkM8(ctx),
-    M9: () => checkM9({ pub: ctx.pub, records: ctx.decisions.map(d => d.record), seedHex: ctx.seedHex, commitments: ctx.commitments, llm: o.llm ? assertLoopback(o.llm, 'llm') : null, sample: o.sample ?? 20, fetchImpl: o.fetchImpl ?? fetch, log }),
+    M9: () => checkM9({ pub: ctx.pub, records: ctx.decisions.map(d => d.record), seedHex: ctx.seedHex, commitments: ctx.commitments, llm: o.llm ? assertLoopback(o.llm, 'llm') : null, sample: o.sample ?? 20, fetchImpl: o.fetchImpl ?? fetch, log, redactions: ctx.pub.redactions(), social: ctx.pub.fullSocial() }),
     M11: async () => checkM11({ pub: ctx.pub, drained: await ctx.drained().catch(() => null), herald: o.herald, roster: ctx.roster, tagOfWallet: w => ctx.tagOfWallet(w), decisions: ctx.decisions, seedHex: ctx.seedHex, fetchImpl: o.fetchImpl, through: o.through ?? null, codeCheck: auditCode, sampleDecisions: o.sample ?? 20 }),
   };
   for (const id of ALL) {
     if (!only.has(id)) continue;
     const t0 = Date.now();
     try { checks[id] = await steps[id](); } catch (e) { checks[id] = { pass: false, n: 0, failures: [{ code: 'check_crashed', detail: String(e?.stack ?? e).slice(0, 600) }] }; }
-    log(`${id}: ${checks[id].pass === true ? 'PASS' : checks[id].pass === false ? 'FAIL' : 'not verified'} (n=${checks[id].n}, ${checks[id].failures.length} failure(s), ${Date.now() - t0} ms)`);
+    log(`${id}: ${checks[id].pass === true ? 'PASS' : checks[id].pass === false ? 'FAIL' : 'not verified'} (n=${checks[id].n}, ${checks[id].failures.length} failure(s)${skippedNote(checks[id])}, ${Date.now() - t0} ms)`);
   }
-  const report = { v: 1, run_id: ctx.commitments?.run_id ?? null, season: ctx.commitments?.season_id ?? null, checks, verdict: verdictOf(checks), audit_code_vs_committed: auditCode, generated_unix: Math.floor(Date.now() / 1000) };
+  // FB3 (D1): a verdict covers all seven checks. FAIL of a check that ran stays FAIL; anything else with a check missing (or a --through that cut
+  // the range) is INCOMPLETE, never PASS: `--only M2` used to write verdict PASS to PUB/verify-minds.json, which the service publishes.
+  const notRun = ALL.filter(id => !Object.hasOwn(checks, id));
+  const limited = o.through !== undefined && o.through !== null;
+  let verdict = verdictOf(checks);
+  if (verdict === 'PASS' && (notRun.length || limited)) verdict = 'INCOMPLETE';
+  const partial = notRun.length > 0 || limited;
+  const report = { v: 1, run_id: ctx.commitments?.run_id ?? null, season: ctx.commitments?.season_id ?? null, checks, verdict, ...(partial ? { partial: true, not_run: notRun, ...(limited ? { through_override: o.through } : {}) } : {}), audit_code_vs_committed: auditCode, generated_unix: Math.floor(Date.now() / 1000) };
   return report;
 }
 
@@ -730,17 +877,28 @@ export async function main(argv, { out = m => console.log(m), err = m => console
     assertLoopback(a.rpc, 'rpc');
     if (a.llm) assertLoopback(a.llm, 'llm');
   } catch (e) { err(`verify-minds: ${e.message}`); return 2; }
+  const unknown = a.only ? a.only.split(',').map(x => x.trim()).filter(x => !ALL.includes(x)) : [];
+  if (unknown.length) { err(`verify-minds: unknown check ${unknown.join(', ')} (the checks are ${ALL.join(', ')})`); return 2; }
   const report = await verifyMinds({
     herald: a.herald, rpc: a.rpc, aiDir: a['ai-dir'], llm: a.llm, sample: a.sample ? Number(a.sample) : 20, repoRoot: a.repo, modelPath: a.model, llamaDir: a['llama-dir'],
     stackPath: a.stack, citizensConfig: a['citizens-config'], slotsPath: a.slots, seatScript: a['seat-script'], botSeed: a['bot-seed'] !== undefined ? Number(a['bot-seed']) : undefined,
     strictOnboarding: a['strict-onboarding'] === true, only: a.only ? a.only.split(',').map(s => s.trim()) : null, through: a.through !== undefined ? Number(a.through) : null, log: a.quiet ? () => {} : m => err(m),
   });
+  // FB3 (D1): the file PUB/verify-minds.json is what the service publishes as /h/ai/verify-minds.json: a partial run (a check not run, or --through)
+  // never overwrites it; a partial run is written only to the file the caller names with --out
   if (!a['no-write']) {
-    const file = a.out ?? path.join(resolvePubDir(a['ai-dir']).pub, 'verify-minds.json');
-    writeAtomic(file, `${JSON.stringify(report, null, 1)}\n`);
-    err(`verify-minds: wrote ${file}`);
+    if (report.partial && !a.out) err(`verify-minds: partial run (not run: ${report.not_run.join(', ') || 'none'}${report.through_override !== undefined ? `; --through ${report.through_override}` : ''}): the verdict is ${report.verdict} and PUB/verify-minds.json was NOT written (give --out FILE to write the partial report)`);
+    else {
+      const file = a.out ?? path.join(resolvePubDir(a['ai-dir']).pub, 'verify-minds.json');
+      writeAtomic(file, `${JSON.stringify(report, null, 1)}\n`);
+      err(`verify-minds: wrote ${file}`);
+    }
   }
-  out(JSON.stringify({ verdict: report.verdict, run_id: report.run_id, checks: Object.fromEntries(Object.entries(report.checks).map(([k, v]) => [k, { pass: v.pass, n: v.n, failures: v.failures.length }])) }));
+  const extra = c => Object.fromEntries(['redacted_skipped', 'redacted_skipped_ai', 'm9_excluded_redacted', 'vacuous', 'skipped'].filter(k => c[k] !== undefined && c[k] !== null).map(k => [k, c[k]]));
+  out(JSON.stringify({
+    verdict: report.verdict, run_id: report.run_id, ...(report.partial ? { partial: true, not_run: report.not_run } : {}),
+    checks: Object.fromEntries(Object.entries(report.checks).map(([k, v]) => [k, { pass: v.pass, n: v.n, failures: v.failures.length, ...(v.unverified?.length ? { unverified: v.unverified.map(u => u.field) } : {}), ...extra(v) }])),
+  }));
   return report.verdict === 'PASS' ? 0 : report.verdict === 'FAIL' ? 1 : 3;
 }
 

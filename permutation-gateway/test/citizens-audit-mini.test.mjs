@@ -37,7 +37,9 @@ async function check(run, edit, { only = null, llm = null, ...extra } = {}) {
     return await verifyMinds({ ...run.verifyOpts({ llm, only, ...extra }), aiDir: path.join(dir, 'pub') });
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
-const withLlama = async (outputOf, f) => { const l = await startFakeLlama(outputOf); try { return await f(l); } finally { await l.close(); } };
+// a llama-server reports its context size and alias on /props; M9 compares them with the committed flags (-c 16384, --alias gemma-4-26b-a4b-it)
+const PROPS = { default_generation_settings: { n_ctx: 16384 }, model_alias: 'gemma-4-26b-a4b-it' };
+const withLlama = async (outputOf, f) => { const l = await startFakeLlama(outputOf, { props: PROPS }); try { return await f(l); } finally { await l.close(); } };
 
 // ---------------------------------------------------------------- everything passes on the consistent run
 test('every check PASSES on the mini run and the verdict is PASS (M9 against a fake llama-server that answers what the records committed to)', async () => {
@@ -55,7 +57,7 @@ test('every check PASSES on the mini run and the verdict is PASS (M9 against a f
   });
 });
 
-test('the command line writes PUB/verify-minds.json {v, run_id, checks, verdict} and exits 0 on PASS, 3 when a check was not run (no --llm)', async () => {
+test('the command line writes {v, run_id, checks, verdict}; a run of one check (--only M2) is INCOMPLETE (exit 3), never PASS (FB3 D1; citizens-audit-fb3.test.mjs pins the file rules)', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-audit-cli-'));
   try {
     cp(plain.pub, path.join(dir, 'pub'));
@@ -63,15 +65,17 @@ test('the command line writes PUB/verify-minds.json {v, run_id, checks, verdict}
     const argv = ['--herald', plain.herald.url, '--rpc', 'http://127.0.0.1:1', '--ai-dir', path.join(dir, 'pub'), '--stack', plain.stackPath, '--no-write', '--quiet', '--only', 'M2'];
     // the CLI talks to a URL; the chain double is in-process, so the CLI is exercised on a check that needs no chain
     const code = await main(argv, { out: m => out.push(m), err: () => {} });
-    assert.equal(code, 0);
+    assert.equal(code, 3, 'FB3: one check of seven is not a verdict');
     assert.equal(JSON.parse(out[0]).checks.M2.pass, true);
-    // the report file: PUB/verify-minds.json {v, run_id, checks:{M2:{pass, n, failures}}, verdict}
+    assert.equal(JSON.parse(out[0]).verdict, 'INCOMPLETE');
+    // the report file: {v, run_id, checks:{M2:{pass, n, failures}}, verdict}, written only where --out says for a partial run
     const outFile = path.join(dir, 'report.json');
-    assert.equal(await main(['--herald', plain.herald.url, '--rpc', 'http://127.0.0.1:1', '--ai-dir', path.join(dir, 'pub'), '--stack', plain.stackPath, '--only', 'M2', '--out', outFile, '--quiet'], { out: () => {}, err: () => {} }), 0);
+    assert.equal(await main(['--herald', plain.herald.url, '--rpc', 'http://127.0.0.1:1', '--ai-dir', path.join(dir, 'pub'), '--stack', plain.stackPath, '--only', 'M2', '--out', outFile, '--quiet'], { out: () => {}, err: () => {} }), 3);
     const file = rj(outFile);
     assert.equal(file.v, 1);
     assert.equal(file.run_id, 'mini');
-    assert.equal(file.verdict, 'PASS');
+    assert.equal(file.verdict, 'INCOMPLETE');
+    assert.equal(file.partial, true);
     assert.deepEqual(Object.keys(file.checks.M2).slice(0, 3), ['pass', 'n', 'failures']);
     assert.equal(await main(['--herald', 'http://example.com:80', '--rpc', 'http://127.0.0.1:1', '--ai-dir', dir], { out: () => {}, err: () => {} }), 2, 'a herald that is not on loopback is refused');
     assert.equal(await main(['--herald', plain.herald.url, '--rpc', 'http://10.0.0.1:8899', '--ai-dir', dir], { out: () => {}, err: () => {} }), 2, 'a chain that is not on loopback is refused');
@@ -79,6 +83,7 @@ test('the command line writes PUB/verify-minds.json {v, run_id, checks, verdict}
     const report = await check(plain, null);
     assert.equal(report.checks.M9.pass, null);
     assert.equal(report.verdict, 'INCOMPLETE');
+    assert.equal(report.partial, undefined, 'all seven checks ran: this one is a full run that is incomplete for lack of an input');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -317,7 +322,7 @@ test('M8 tamper: a text that is not the mind\'s signed-ready output, an origin t
     j.records.find(r => r.type === 'ballot').decision_id = talk.decision_id; // a second use of the same decision
     wj(p, j);
   }, { only: ['M8'] });
-  assert.ok(codes(twice.checks.M8).some(c => ['no_expected_output', 'decision_of_another_ai', 'duplicate_use'].includes(c)), 'a ballot posted under a world message\'s decision is refused');
+  assert.ok(codes(twice.checks.M8).includes('duplicate_use'), 'a ballot posted under a world message\'s decision (item 0 twice) is a duplicate use (FB3: the pair is (decision_id, item) whatever the type)');
   const noTable = await check(plain, ({ pub }) => fs.rmSync(path.join(pub, 'full', 'social.json')), { only: ['M8'] });
   assert.ok(codes(noTable.checks.M8).includes('no_provenance_table'));
 });

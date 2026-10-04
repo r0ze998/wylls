@@ -8,7 +8,10 @@
 //   full/requests/<decision>.json   the exact llama request body (M9); a body that contains the text of a redacted message
 //                                   is replaced by {redacted:true, request_hash} and is excluded from the M9 sample (6.3)
 //   full/decisions/<decision>.json  situation, candidates (with the mind's refs), cited-episode texts, the intended sends, the
-//                                   signed-ready social output, the memory focus when the service stored it (M3, M8, M11)
+//                                   signed-ready social output, the memory focus when the service stored it (M3, M8, M11).
+//                                   FB3: the text of a redacted message is replaced by "[redacted]" in this file, in ledgers and in
+//                                   summaries as it is in request bodies (6.3); the published minds files still carry an unsealed
+//                                   decision's `public.say` as it was anchored (see FB3-NOTES.md: a deviation the architect decides)
 //   full/open/<decision>.json       the opening of every sealed record whose release did NOT happen by season end
 //                                   (the commitment still verifies; verify-minds M3 reports it as opened late)
 //   full/social.json                one row per accepted social record: inner, type, wallet, bell, origin, decision_id, item (M8)
@@ -109,6 +112,10 @@ function redactedNeedles(socialRows, tombstones, sanitize) {
   return needles;
 }
 
+/** The text of a redacted message replaced where it appears in a published bundle file (FB3: contract 6.3 blanks "bytes and text in files, season-end bundles and cards"). */
+export const BLANKED = '[redacted]';
+export const blankNeedles = (text, needles) => needles.reduce((t, n) => (t.includes(n) ? t.split(n).join(BLANKED) : t), text);
+
 export function createAudit({ aiDir, now = () => Math.floor(Date.now() / 1000), reveals = null, sanitize = null, log = () => {} } = {}) {
   if (!aiDir) throw new Error('createAudit: aiDir is required');
   const STATE = join(aiDir, 'state');
@@ -128,7 +135,7 @@ export function createAudit({ aiDir, now = () => Math.floor(Date.now() / 1000), 
       writeAtomic(join(FULL, rel), text);
       written.push({ path: `full/${rel}`, sha256: sha256hex(text), bytes: Buffer.byteLength(text) });
     };
-    const counts = { records: entries.size, requests: 0, requests_redacted: 0, decisions: 0, opened_at_season_end: 0, released: 0, social: social.length, ledgers: 0, summaries: 0 };
+    const counts = { records: entries.size, requests: 0, requests_redacted: 0, decisions: 0, decisions_blanked: 0, ledgers_blanked: 0, summaries_blanked: 0, opened_at_season_end: 0, released: 0, social: social.length, ledgers: 0, summaries: 0 };
     const unreleased = [];
     const released = [];
 
@@ -146,12 +153,15 @@ export function createAudit({ aiDir, now = () => Math.floor(Date.now() / 1000), 
       }
       const wanted = e.full?.mode === 'model' || e.full?.sealed || (e.priv?.social && Object.keys(e.priv.social).length);
       if (wanted) {
-        put(`decisions/${e.id}.json`, `${canonicalJson({
+        const text = `${canonicalJson({
           id: e.id, bell: e.bell, index: e.index, ai: e.full?.ai ?? null, kind: e.kind, mode: e.full?.mode ?? null,
           sealed: Boolean(e.full?.sealed), situation: e.priv?.situation ?? null, candidates: e.priv?.candidates ?? [],
           remembered: e.priv?.remembered ?? [], intended: e.priv?.intended ?? [], social: e.priv?.social ?? {},
           focus: e.priv?.focus ?? null,
-        })}\n`);
+        })}\n`;
+        const blanked = needles.length ? blankNeedles(text, needles) : text;
+        if (blanked !== text) counts.decisions_blanked++;
+        put(`decisions/${e.id}.json`, blanked);
         counts.decisions++;
       }
       if (e.full?.sealed) {
@@ -184,12 +194,20 @@ export function createAudit({ aiDir, now = () => Math.floor(Date.now() / 1000), 
     if (existsSync(join(STATE, 'ledger'))) {
       for (const n of readdirSync(join(STATE, 'ledger')).filter(f => /^[0-9a-f]{16}\.json$/.test(f)).sort()) {
         const tag = n.slice(0, 16);
-        put(`memory/${tag}/ledger.json`, readFileSync(join(STATE, 'ledger', n), 'utf8'));
+        const ledgerText = readFileSync(join(STATE, 'ledger', n), 'utf8');
+        const ledgerOut = needles.length ? blankNeedles(ledgerText, needles) : ledgerText;
+        if (ledgerOut !== ledgerText) counts.ledgers_blanked++;
+        put(`memory/${tag}/ledger.json`, ledgerOut);
         counts.ledgers++;
         const sdir = join(STATE, 'summary', tag);
         if (existsSync(sdir) && statSync(sdir).isDirectory()) {
           const sums = readdirSync(sdir).map(f => /^(\d+)\.txt$/.exec(f)).filter(Boolean).map(m => Number(m[1])).sort((a, b) => a - b)
-            .map(b => { const text = readFileSync(join(sdir, `${b}.txt`), 'utf8'); return { bell: b, text, sha256: sha256hex(text) }; });
+            .map(b => {
+              const text = readFileSync(join(sdir, `${b}.txt`), 'utf8');
+              const shown = needles.length ? blankNeedles(text, needles) : text;
+              if (shown !== text) counts.summaries_blanked++;
+              return { bell: b, text: shown, sha256: sha256hex(text), ...(shown !== text ? { redacted: true } : {}) }; // the hash is the committed summary's, whatever is shown
+            });
           put(`memory/${tag}/summaries.json`, `${JSON.stringify({ v: 1, tag, note: 'written by the AI\'s model; shown, never replayed', summaries: sums })}\n`);
           counts.summaries += sums.length;
         }
@@ -227,6 +245,7 @@ if (isMain) {
   const a = process.argv.slice(2);
   const i = a.indexOf('--ai-dir');
   if (i < 0 || !a[i + 1]) { console.error('usage: node season_end.mjs --ai-dir AI_DIR [--force]'); process.exit(2); }
+  if (a.includes('--force') && !existsSync(join(a[i + 1], 'state', 'season-end.json'))) console.error('season_end: --force without STATE/season-end.json publishes the request bodies of a season that may still be running (the manifest says forced: true)');
   const r = createAudit({ aiDir: a[i + 1], log: m => console.error(m) }).publishSeasonEnd({ force: a.includes('--force') });
   console.log(JSON.stringify(r));
   process.exit(r.published ? 0 : 1);

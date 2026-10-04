@@ -9,11 +9,16 @@
 //     for this record (attempt = attempts - 1: the stored body is the last attempt's);
 //   * the sampling fields of the body are the committed ones (temperature, top_k, cache_prompt) and its model alias is the committed alias.
 // A body that contains the text of a redacted message is stored as {redacted: true, request_hash} and excluded from the sample and
-// counted (`m9_excluded_redacted`); it never fails the check.
+// counted (`m9_excluded_redacted`). FB3: a stub is accepted only when it is tied to a tombstone: its request_hash is the record's, the operator's
+// public tombstone list is not empty, and the decision is one that handled a redacted text (it authored a tombstoned message by the provenance
+// table, or it had an inbox). A stub that is not tied to one fails the check (`redacted_request_unjustified`, `redacted_request_hash`): a flag in
+// a stored body no longer takes a decision out of the sample.
 //
 // Without `--llm` the offline sub-checks still run and the check is `pass: null` ("not run: no llama-server"), never PASS.
 import { mindSeed } from '../mind/llm.mjs';
 import { createCheck, sampleFrom, sha256hex } from './canon.mjs';
+
+const EMPTY_INBOX_ROOT = sha256hex('');
 
 export const SAMPLE_REPLAYS = 20;
 /** 18 of 20 (G8): the share is applied to the sample actually compared. */
@@ -28,16 +33,25 @@ async function complete(llm, bodyText, { fetchImpl = fetch, timeoutMs = 300_000 
   return { content: ch.message?.content ?? '', finish_reason: ch.finish_reason ?? null };
 }
 
-export async function checkM9({ pub, records, seedHex, commitments, llm = null, sample = SAMPLE_REPLAYS, fetchImpl = fetch, log = () => {} }) {
+export async function checkM9({ pub, records, seedHex, commitments, llm = null, sample = SAMPLE_REPLAYS, fetchImpl = fetch, log = () => {}, redactions = null, social = null }) {
   const chk = createCheck('M9', 'bit replay');
   const model = records.filter(r => r.mode === 'model' && r.request_hash);
+  const tombs = new Set((redactions ?? pub.redactions?.() ?? []).map(t => t?.inner).filter(x => typeof x === 'string'));
+  const authored = new Set((social ?? pub.fullSocial?.())?.records?.filter(r => tombs.has(r.inner) && r.decision_id).map(r => r.decision_id) ?? []);
   let excluded = 0;
   const pool = [];
   for (const r of model) {
     const text = pub.fullRequest(r.id);
-    let redacted = false;
-    if (text) { try { redacted = JSON.parse(text)?.redacted === true; } catch { /* not JSON: the hash check names it */ } }
-    if (redacted) { excluded++; continue; }
+    let stub = null;
+    if (text) { try { const j = JSON.parse(text); if (j?.redacted === true) stub = j; } catch { /* not JSON: the hash check names it */ } }
+    if (stub) {
+      // FB3: the stub is tied to the record and to a tombstone, or it fails; either way it is not replayed
+      if (stub.request_hash !== r.request_hash) chk.fail('redacted_request_hash', { decision: r.id, bell: r.bell, ai: r.ai, stub: stub.request_hash ?? null, record: r.request_hash, detail: 'the stub\'s request_hash is not the record\'s: it does not stand for this decision\'s request' });
+      else if (!tombs.size) chk.fail('redacted_request_unjustified', { decision: r.id, bell: r.bell, ai: r.ai, detail: 'the stored request is a redacted stub but PUB/redactions.json has no tombstone' });
+      else if (!authored.has(r.id) && (!r.inbox_root || r.inbox_root === EMPTY_INBOX_ROOT)) chk.fail('redacted_request_unjustified', { decision: r.id, bell: r.bell, ai: r.ai, detail: 'the stored request is a redacted stub, but this decision neither authored a tombstoned message nor had an inbox: it has no redacted text in its prompt' });
+      excluded++;
+      continue;
+    }
     pool.push(r);
   }
   pool.sort((a, b) => a.bell - b.bell || a.index - b.index || (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0) || (a.id < b.id ? -1 : 1));
@@ -45,7 +59,7 @@ export async function checkM9({ pub, records, seedHex, commitments, llm = null, 
   chk.set('model_records', model.length);
   const picked = sampleFrom(seedHex, pool, sample);
   chk.set('sampled', picked.length);
-  if (!picked.length) { chk.note('no model record with a stored request body to replay'); if (!model.length) chk.skip('no model records in this run'); return chk.result(); }
+  if (!picked.length) { chk.set('vacuous', true); chk.note('no model record with a stored request body to replay'); if (!model.length) chk.skip('no model records in this run'); else chk.unverified('replay', 'no stored request body could be replayed (all are redacted or missing)'); return chk.result(); }
   if (!llm) chk.skip('not run: no --llm (the offline checks of the stored bodies ran)');
   else {
     // the llama-server must be the committed one (7.3: "started with the committed flags"): what /props reports is compared with -c and --alias
@@ -53,13 +67,15 @@ export async function checkM9({ pub, records, seedHex, commitments, llm = null, 
     const flag = name => { const i = flags.indexOf(name); return i >= 0 ? flags[i + 1] : undefined; };
     try {
       const r = await fetchImpl(`${llm.replace(/\/+$/, '')}/props`, { signal: AbortSignal.timeout(10_000) });
-      const props = r.ok ? await r.json() : null;
+      if (!r.ok) throw new Error(`/props answered ${r.status}`);
+      const props = await r.json();
       const nCtx = props?.default_generation_settings?.n_ctx ?? props?.n_ctx;
       const mAlias = props?.model_alias ?? props?.alias;
       chk.set('llm_props', { n_ctx: nCtx ?? null, alias: mAlias ?? null });
+      if (nCtx === undefined && mAlias === undefined) throw new Error('/props has neither n_ctx nor a model alias');
       if (nCtx !== undefined && flag('-c') !== undefined && Number(nCtx) !== Number(flag('-c'))) chk.fail('llm_flags', { n_ctx: nCtx, committed: Number(flag('-c')), detail: 'the llama-server is not running with the committed context size' });
       if (mAlias !== undefined && flag('--alias') !== undefined && mAlias !== flag('--alias')) chk.fail('llm_flags', { alias: mAlias, committed: flag('--alias') });
-    } catch { chk.note('llama-server /props not readable: its flags were not compared with the commitments'); }
+    } catch { chk.unverified('llm_props', '/props of the llama-server is not readable: its context size and alias were not compared with the commitments (other committed flags, such as -ngl and -fa, are not visible in /props and are never compared)'); }
   }
   const samp = commitments?.sampling ?? {};
   const alias = commitments?.model?.alias;

@@ -21,7 +21,11 @@
 // What the replay cannot know and how it says so (AC8-NOTES.md): the focus extras (inbox sender tags, threat nations) are not
 // stored with a record. The threat nations are re-derived by running the wave-A watcher stub over the replayed feed in the AI's
 // own decision order; the inbox senders are derived from the talk files when the record's inbox_root is not the empty root.
-// When the service stored `focus` (`priv.focus`, published in full/decisions) it is used as it is (`focus_source: "stored"`).
+// When the service stored `focus` (`priv.focus`, published in full/decisions) it is used (`focus_source: "stored"`) but no longer unchecked (FB3, D3):
+// it must contain the base focus (own tag, own nation, home pq, the entities of the candidates: `focus_missing_base`) and every extra must be
+// justified by the public record (`focus_extra_unjustified`): an inbox sender's tag by a talk record addressed to the AI or its nation at or
+// before the decision's bell, a nation by a W-THREAT the wave-A watcher derives for the AI within 12 bells before it, a `pq:` by an option of the
+// council call of a motion or ballot decision. A stored focus the service could shape at will would let any retrieved set be reproduced.
 import { Episodes, redactedForm } from '../memory/store.mjs';
 import { EPISODE_CAP, canonical, sha256hex } from '../memory/config.mjs';
 import { episodes_from_events } from '../memory/episodes.mjs';
@@ -245,7 +249,25 @@ export async function checkM11({ pub, drained: drainedIn = null, herald, roster,
   // the wave-A watcher stub, run in each AI's own decision order, gives the threat nations the live decisions saw
   const watcherOf = new Map();
   const allRecordsOf = groupBy(decisions.map(d => d.record), r => r.ai);
-  let focusStored = 0, focusDerived = 0, skipped = 0, cutSeen = 0;
+  /** The wave-A stub is STATEFUL (each wake is handed over once, an older bell is never asked again): it is asked for each of an AI's decision bells in ascending order, as live. */
+  const threatsAt = (ai, bell) => {
+    if (!watcherOf.has(ai)) {
+      const w = createWaveAWatcher({ feed });
+      const bells = [...new Set((allRecordsOf.get(ai) ?? []).map(x => x.bell))].sort((a, b) => a - b);
+      const threats = new Map();
+      for (const b of bells) threats.set(b, w.wakeEvents(ai, b).filter(x => x.code === 'W-THREAT' && x.facts).map(x => x.facts.nation));
+      watcherOf.set(ai, threats);
+    }
+    return watcherOf.get(ai).get(bell) ?? [];
+  };
+  /** The nations of the W-THREAT wakes the feed itself holds for an AI in a bell range (stateless: a justification, not a derivation). */
+  const publicThreatNations = (ai, from, to) => {
+    const out = new Set();
+    for (let b = Math.max(0, from); b <= to; b++) for (const w of feed.wakeEvents(ai, b)) if (w.code === 'W-THREAT' && w.nation !== undefined && w.nation !== null) out.add(`nation:${w.nation}`);
+    return out;
+  };
+  const THREAT_WINDOW_BELLS = 12;
+  let focusStored = 0, focusDerived = 0, skipped = 0, cutSeen = 0, focusRejected = 0;
   for (const d of sampled) {
     const rec = d.record, op = d.opened;
     chk.count();
@@ -260,20 +282,33 @@ export async function checkM11({ pub, drained: drainedIn = null, herald, roster,
     const base = new Set([rec.ai, `nation:${faction}`]);
     if (homeP?.p !== undefined) base.add(`pq:${homeP.p},${homeP.q}`);
     for (const c of candidates) for (const e of c.entities ?? []) base.add(e);
+    const senderTags = () => new Set(talk.filter(t => t.bell <= rec.bell && t.tag && t.tag !== rec.ai
+      && ((t.channel === 3 && t.target === entry.wallet) || (t.channel === 1 && Number(t.target) === faction))).map(t => t.tag));
     const variants = [];
-    if (Array.isArray(d.full?.focus)) { variants.push({ name: 'stored', focus: new Set(d.full.focus) }); focusStored++; }
+    if (Array.isArray(d.full?.focus)) {
+      focusStored++;
+      const stored = new Set(d.full.focus);
+      const missing = [...base].filter(x => !stored.has(x));
+      const councilPq = new Set(['motion', 'ballot'].includes(rec.kind) ? candidates.filter(c => Number.isInteger(c?.p) && Number.isInteger(c?.q)).map(c => `pq:${c.p},${c.q}`) : []);
+      let senders = null, threats = null;
+      const unjustified = [];
+      for (const x of stored) {
+        if (base.has(x) || councilPq.has(x)) continue;
+        if (/^[0-9a-f]{16}$/.test(x)) { if ((senders ??= senderTags()).has(x)) continue; }
+        else if (/^nation:\d+$/.test(x)) {
+          threats ??= publicThreatNations(rec.ai, rec.bell - THREAT_WINDOW_BELLS, rec.bell);
+          if (threats.has(x)) continue;
+        }
+        unjustified.push(x);
+      }
+      if (missing.length) chk.fail('focus_missing_base', { decision: rec.id, bell: rec.bell, ai: rec.ai, missing, detail: 'the stored focus does not contain the base focus (own tag, own nation, home province, the candidates\' entities)' });
+      if (unjustified.length) chk.fail('focus_extra_unjustified', { decision: rec.id, bell: rec.bell, ai: rec.ai, extras: unjustified, detail: 'entries of the stored focus that no inbox sender, public threat or council option of this decision accounts for' });
+      if (missing.length || unjustified.length) { focusRejected++; continue; } // retrieval is not recomputed from a focus the audit does not accept
+      variants.push({ name: 'stored', focus: stored });
+    }
     else {
       focusDerived++;
-      if (!watcherOf.has(rec.ai)) {
-        const w = createWaveAWatcher({ feed });
-        const bells = [...new Set((allRecordsOf.get(rec.ai) ?? []).map(x => x.bell))].sort((a, b) => a - b);
-        const threats = new Map();
-        for (const b of bells) {
-          threats.set(b, w.wakeEvents(rec.ai, b).filter(x => x.code === 'W-THREAT' && x.facts).map(x => x.facts.nation));
-        }
-        watcherOf.set(rec.ai, threats);
-      }
-      const threatNations = watcherOf.get(rec.ai).get(rec.bell) ?? [];
+      const threatNations = threatsAt(rec.ai, rec.bell);
       const withThreat = new Set([...base, ...threatNations.map(n => `nation:${n}`)]);
       variants.push({ name: 'base', focus: base });
       if (threatNations.length) variants.push({ name: 'threat', focus: withThreat });
@@ -298,9 +333,11 @@ export async function checkM11({ pub, drained: drainedIn = null, herald, roster,
     if (!ok) chk.fail('retrieved_mismatch', { decision: rec.id, bell: rec.bell, ai: rec.ai, retrieved: op.retrieved, replayed: tried.map(t => ({ variant: t.variant, ids: t.want })), focus_source: variants[0].name === 'stored' ? 'stored' : 'derived' });
     else if (ok.cut) cutSeen++;
   }
-  chk.set('retrieval', { sampled: sampled.length, focus_stored: focusStored, focus_derived: focusDerived, skipped_no_candidates: skipped, with_budget_cut: cutSeen });
-  if (skipped) chk.note(`${skipped} sampled decision(s) had no opened candidates (no PUB/full/decisions file or opening): the focus could not be rebuilt, retrieval not recomputed for them`);
-  if (!sampled.length) chk.note('no opened model decision to sample: part 2 ran on 0 decisions');
+  chk.set('retrieval', { sampled: sampled.length, focus_stored: focusStored, focus_derived: focusDerived, focus_rejected: focusRejected, skipped_no_candidates: skipped, with_budget_cut: cutSeen });
+  // FB3: what part 2 did not recompute is not a pass
+  if (skipped) { chk.note(`${skipped} sampled decision(s) had no opened candidates (no PUB/full/decisions file or opening): the focus could not be rebuilt, retrieval not recomputed for them`); chk.unverified('retrieval', `${skipped} sampled decision(s) could not be recomputed (no opened candidates)`); }
+  if (!sampled.length) { chk.set('vacuous', true); chk.unverified('retrieval', 'no opened model decision to sample: part 2 ran on 0 decisions'); }
+  if (cutSeen) chk.note(`${cutSeen} sampled decision(s) match only after a budget cut (the oldest unprotected ids dropped). The cut is a plausibility reading, not a recomputation: the token cost of the memory block is not rebuilt, because the ledger and summary parts of the block are not published per decision`);
   if (focusDerived) chk.note('the focus extras (inbox senders, threat nations) are not stored with a record: they were derived (variants base / threat / inbox); a service that stores `focus` in each private record makes this exact');
   chk.set('episodes_total', Object.fromEntries([...replays].map(([t, r]) => [t, r.episodes.length])));
   return chk.result();
