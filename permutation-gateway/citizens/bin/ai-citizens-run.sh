@@ -230,6 +230,8 @@ if [ "$DRY" = 0 ]; then
   mkdir -m 700 -p "$KEYS"
   "$NODE" "$GUARDS" lock-take --lock-file "$LOCK" --unit "$UNIT" --run-id "$RUN_ID" --pid $$ || { rmdir "$KEYS" "$LOGS" "$STATE" "$PUB" "$AI_DIR" 2>/dev/null; exit 1; }
   trap cleanup EXIT INT TERM
+  # season-end race fix: a seal or a closer claim left in a reused AI_DIR by an earlier run would stop this run's closer at its first bell
+  rm -f "$STATE/season-sealing.json" "$STATE/closer-claim.json"
 else
   echo "PLAN lock $LOCK (unit $UNIT, run $RUN_ID, pid of this script)"
   echo "PLAN dirs $AI_DIR/{pub,state,keys,logs} (keys mode 700)"
@@ -338,7 +340,7 @@ fi
 bg census "$NODE" "$REPO/$CPUB/scenario/census.mjs" --herald "$HERALD" --ai-dir "$AI_DIR"
 
 if [ "$DRY" = 1 ]; then
-  echo "PLAN wait for the fleet to exit, then for the stack phase complete; then registrar publish (waits up to AI_WAIT_LAST_SECS for the last closed bell's talk and minds files, one more anchor pass, anchor_gap for any closed bell without an anchor, then the index), the END line of RUNS.md, stop every child in reverse order, release the lock"
+  echo "PLAN wait for the fleet to exit, then for the stack phase complete; then registrar publish (waits up to AI_WAIT_LAST_SECS for the last bell the chain closed, seals the season so the closer closes no later bell, waits for the last closed bell's talk and minds files, one more anchor pass, anchor_gap for any closed bell without an anchor, then the index), the END line of RUNS.md, stop every child in reverse order, release the lock"
   echo "dry run: nothing was started or written"
   exit 0
 fi
@@ -357,6 +359,8 @@ while [ "$(stack_phase)" != complete ]; do
   [ "$t" -lt 7200 ] || fail "the stack was not complete 2 h after the fleet exited"
   sleep 5; t=$((t + 5))
 done
+# Season-end race fix: publish first waits (bounded, AI_WAIT_LAST_SECS) until the closer has closed every bell the chain closed, then SEALS the
+# season (STATE/season-sealing.json: the closer closes no bell after it, citizens/mind/seal.mjs), then waits for a close already in flight.
 # FB1 (A2): the closer may be inside the tick that closes the last bell: publish waits (bounded, AI_WAIT_LAST_SECS, default 60) until every
 # closed bell has its talk AND its minds file, runs one more anchor pass (it sends nothing to a paused chain: the stack pauses the chain
 # when the season is complete, and a memo sent to it is never confirmed), gives every closed bell without an anchor a named anchor_gap,

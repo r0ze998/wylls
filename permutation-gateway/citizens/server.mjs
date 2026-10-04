@@ -26,7 +26,8 @@ import { createMemoryAttach } from './mind/memory.mjs';
 import { createPromptRenderer } from './mind/prompt.mjs';
 import { createViews, createRoster } from './mind/views.mjs';
 import { createMind, createMindHttp } from './mind/api.mjs';
-import { createClock, createCloser } from './mind/closer.mjs';
+import { createClock, createCloser, CHAIN_FOLLOW_SILENT_MS } from './mind/closer.mjs';
+import { closerGuard } from './mind/seal.mjs';
 import { sanitize as mindSanitize } from './mind/sanitize.mjs';
 import { permissionFlags } from './mind/permissions.mjs';
 import { createUpkeep } from './mind/upkeep.mjs';
@@ -93,7 +94,7 @@ async function discoverGenesis(heraldUrl, fetchImpl = globalThis.fetch) {
  * completed chain stops (the closer does not close bells the chain never reached). It does nothing before the brain has anchored the
  * clock. Returns true when it moved the clock.
  */
-export async function catchUpClockFromHerald(heraldUrl, clock, fetchImpl = globalThis.fetch, { silentMs = 30000 } = {}) {
+export async function catchUpClockFromHerald(heraldUrl, clock, fetchImpl = globalThis.fetch, { silentMs = CHAIN_FOLLOW_SILENT_MS } = {}) {
   try {
     if (!clock.hasAnchor()) return false;
     const r = await fetchImpl(`${heraldUrl.replace(/\/+$/, '')}/h/season`, { signal: AbortSignal.timeout(3000) });
@@ -101,6 +102,7 @@ export async function catchUpClockFromHerald(heraldUrl, clock, fetchImpl = globa
     const j = await r.json();
     const unix = Number(j?.latestUnix);
     if (!Number.isFinite(unix) || unix <= 0) return false;
+    clock.noteChain?.(unix); // season-end race fix: the closer never measures past the newest chain time seen, once the brain is silent
     const now = clock.gameNow();
     if (now == null || unix === now) return false;
     if (unix > now || clock.brainSilentMs() > silentMs) { clock.observeChain(unix); return true; }
@@ -307,6 +309,7 @@ export async function createCitizensService(opts, overrides = {}) {
   });
   const closer = createCloser({
     clock, social, records, metrics,
+    guard: closerGuard(STATE), // the registrar's season-end seal ends the closer (mind/seal.mjs)
     onClosed: (b) => {
       atomicJson(`${PUB}/metrics/latest.json`, mind.metrics());
     },

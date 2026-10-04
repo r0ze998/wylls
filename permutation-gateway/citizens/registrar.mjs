@@ -28,6 +28,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Keypair, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
 import bs58 from 'bs58';
 import { promptTemplatesSha256 } from './mind/templates-hash.mjs';
+import { CLOSE_DELAY_GAME_S } from './mind/closer.mjs';
+import { sealSeason, waitForCloserIdle } from './mind/seal.mjs';
 import { acquireFile, pidAlive, rewriteHeld } from './lock.mjs';
 
 /** True when this file is the program being run (symlinked temp directories, such as macOS /var, resolve to the same real path). */
@@ -726,6 +728,34 @@ export async function waitForClosedBellFiles({ aiDir, timeoutMs = 60_000, interv
 }
 
 /**
+ * The last bell the CHAIN closed: the largest b whose close instant bell_start(b+1) + 20 game-s (contract 6.3) the chain's own unix time has
+ * reached. `latestUnix`, `genesisTs` and `bellSecs` are the herald's /h/season fields. -1 = none yet.
+ */
+export const lastChainClosedBell = ({ genesisTs, bellSecs, latestUnix }) => Math.max(-1, Math.floor((Number(latestUnix) - Number(genesisTs) - CLOSE_DELAY_GAME_S) / Number(bellSecs)) - 1);
+
+/**
+ * Season-end race fix, step 0 of `publish`: wait (bounded) until the closer has closed every bell the chain closed, so that sealing the
+ * season does not cut off a bell the chain reached (the closer measures against the chain's time with one herald poll of delay, closer.mjs
+ * `closeNow`). The herald's `latestUnix` is final on the paused chain. Returns `{waited_ms, expected, missing}` (`missing` is true when the
+ * bound ran out with the bell absent, `expected` is null when the herald could not be read: nothing is waited for then).
+ */
+export async function waitForChainBells({ aiDir, herald, fetchImpl = fetch, timeoutMs = 0, intervalMs = 200 }) {
+  const pub = path.join(aiDir, 'pub');
+  const t0 = Date.now();
+  let expected = null;
+  for (;;) {
+    try {
+      const s = await (await fetchImpl(`${herald.replace(/\/+$/, '')}/h/season`, { signal: AbortSignal.timeout(5000) })).json();
+      if (Number.isFinite(Number(s.genesisTs)) && Number(s.bellSecs) > 0 && Number(s.latestUnix) > 0) expected = lastChainClosedBell(s);
+    } catch { /* the herald could not be read: the caller goes on without this wait */ }
+    if (expected === null) return { waited_ms: Date.now() - t0, expected: null, missing: false };
+    const have = expected < 0 || (fs.existsSync(path.join(pub, 'talk', `${expected}.json`)) && fs.existsSync(path.join(pub, 'minds', `${expected}.json`)));
+    if (have || Date.now() - t0 >= timeoutMs) return { waited_ms: Date.now() - t0, expected, missing: !have };
+    await sleep(Math.min(intervalMs, Math.max(1, timeoutMs - (Date.now() - t0))));
+  }
+}
+
+/**
  * Is the local chain paused? `frontier_status` is the local test chain's own method (frontier-localnet); the stack pauses the chain
  * when the season is complete, and a paused chain produces no block: a memo sent to it is never confirmed. Any other answer (an error,
  * a chain without the method) counts as not paused, so the registrar behaves as before there.
@@ -924,6 +954,15 @@ export async function main(argv, { log = m => console.error(m), out = m => conso
       const commitments = JSON.parse(bytes);
       const rpc = new Rpc(a.rpc);
       if (a.stack) await assertLocalnetRpc(rpc, parseStackToml(fs.readFileSync(a.stack, 'utf8')).g0 ?? 1_785_542_400);
+      // Season-end race fix (integ-B): (1) wait (bounded, --wait-last-secs) until the closer has closed every bell the chain closed,
+      // (2) SEAL the season (STATE/season-sealing.json: from now on the closer closes no bell, mind/seal.mjs), (3) wait for a close that
+      // was already in flight. Only then are the closed bells counted, so no bell is written after the index (smoke-r2, bell 109).
+      const stateDir = path.join(aiDir, 'state');
+      const wcb = await waitForChainBells({ aiDir, herald: a.herald, timeoutMs: Number(a['wait-last-secs'] ?? 0) * 1000 });
+      if (wcb.missing) log(`publish: the chain closed bell ${wcb.expected} but the closer had not closed it after ${wcb.waited_ms} ms; the season is sealed without it`);
+      sealSeason(stateDir);
+      const idle = await waitForCloserIdle(stateDir, { timeoutMs: Math.max(5000, Number(a['wait-last-secs'] ?? 0) * 1000) });
+      if (idle.held) log(`publish: the closer still held a close after ${idle.waited_ms} ms`);
       // FB1 (A2): the closer may be inside the tick that closes the last bell (talk file written, minds file not yet): wait (bounded) for
       // both files, then one more anchor pass (nothing is sent to a paused chain), then the index; every closed bell without an anchor
       // becomes a named anchor_gap in publishSeasonEnd, so the index and the closed bells agree
