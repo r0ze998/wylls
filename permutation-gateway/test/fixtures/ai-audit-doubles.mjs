@@ -63,7 +63,8 @@ export async function startRecordedRpc(rec, { extra = {} } = {}) {
   return { url, requests, close: closer(server), calls };
 }
 
-export async function startFakeLlama(outputOf) {
+/** `props`: what GET /props answers (a llama-server reports its context size and alias; M9 compares them with the committed flags). Without it the answer is `{}`. */
+export async function startFakeLlama(outputOf, { props = null } = {}) {
   const requests = [];
   const server = http.createServer((req, res) => {
     let body = '';
@@ -72,6 +73,7 @@ export async function startFakeLlama(outputOf) {
       requests.push(body);
       res.writeHead(200, { 'content-type': 'application/json' });
       if (req.url === '/v1/chat/completions') res.end(JSON.stringify({ choices: [{ message: { content: outputOf(body, JSON.parse(body)) }, finish_reason: 'stop' }] }));
+      else if (req.url === '/props' && props) res.end(JSON.stringify(props));
       else res.end('{}');
     });
   });
