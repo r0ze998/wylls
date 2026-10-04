@@ -136,17 +136,21 @@ CPUB=permutation-gateway/citizens
 UNSET=()
 for v in $UNSET_VARS; do UNSET+=(-u "$v"); done
 
-# What the citizens service may read (1.3 C1): its own directories and the read-only web imports; never stack/, bin/,
-# llama/, ab/, probe/, injection/, scenario/ or registrar.mjs (the stack configs hold bot_seed). AI_PERM_EXTRA adds more.
-perm_read() {
-  local out="" p
-  for p in "$CPUB/server.mjs" "$CPUB/serve.mjs" "$CPUB/mind" "$CPUB/memory" "$CPUB/persona" "$CPUB/social" "$CPUB/watcher" "$CPUB/audit" "$CPUB/prompts" "$CPUB/config" \
-           permutation-server/web/frontier/council permutation-server/web/frontier/people permutation-server/web/lang.mjs permutation-server/web/lang permutation-server/web/sdk; do
-    [ -e "$REPO/$p" ] && out="$out,$REPO/$p"
-  done
-  [ -z "${AI_PERM_EXTRA:-}" ] || out="$out,$AI_PERM_EXTRA"
-  out="$out,$AI_DIR/state,$AI_DIR/pub,$CCONFIG"
-  printf '%s' "${out#,}"
+# What the citizens service may read (1.3 C1): the flag list is pinned by the service itself (`server.mjs
+# --print-permission-flags`, AC1a: one --allow-fs-read flag per path, because Node 20.19.4 refuses a comma list with more
+# than one entry; real paths on macOS), plus the config file. AI_PERM_EXTRA adds one more path.
+PERM_FLAGS=()
+perm_flags() {
+  PERM_FLAGS=()
+  local l
+  if [ ! -f "$REPO/$CPUB/server.mjs" ]; then # a plan in a tree without the service: the directories alone
+    PERM_FLAGS=(--experimental-permission "--allow-fs-read=$AI_DIR/state" "--allow-fs-read=$AI_DIR/pub" "--allow-fs-write=$AI_DIR/state" "--allow-fs-write=$AI_DIR/pub")
+    PERM_FLAGS+=("--allow-fs-read=$CCONFIG")
+    return 0
+  fi
+  while IFS= read -r l; do [ -z "$l" ] || PERM_FLAGS+=("$l"); done < <("$NODE" "$REPO/$CPUB/server.mjs" --print-permission-flags --ai-dir "$AI_DIR")
+  PERM_FLAGS+=("--allow-fs-read=$CCONFIG")
+  [ -z "${AI_PERM_EXTRA:-}" ] || PERM_FLAGS+=("--allow-fs-read=$AI_PERM_EXTRA")
 }
 
 # ------------------------------------------------------------------ process handling
@@ -272,7 +276,8 @@ else
 fi
 
 # the citizens service (mind, social, serve) under the Node permission model; it holds no key
-bg citizens "$NODE" --experimental-permission "--allow-fs-read=$(perm_read)" "--allow-fs-write=$AI_DIR/state,$AI_DIR/pub" "$REPO/$CPUB/server.mjs" \
+perm_flags
+bg citizens "$NODE" "${PERM_FLAGS[@]}" "$REPO/$CPUB/server.mjs" \
   --herald "$HERALD" --llm "$LLM" --mind-port "$MIND_PORT" --social-port "$SOCIAL_PORT" --serve-port "$SERVE_PORT" --ai-dir "$AI_DIR" --config "$CCONFIG" --run-id "$RUN_ID"
 if [ "$DRY" = 0 ]; then
   wait_http "$SERVE/serve-health" "$WAIT_SERVICE" || fail "the citizens service did not come up (see $LOGS/citizens.log)"

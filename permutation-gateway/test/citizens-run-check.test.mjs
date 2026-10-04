@@ -294,7 +294,7 @@ test('--dry-run prints the start order of 8.4 and starts and writes nothing', ()
   const text = r.out;
   assert.match(text, /frontier-stack up --config .*\/ai-smoke\/stack\.toml/);
   assert.match(text, /--experimental-permission --allow-fs-read=/);
-  assert.match(text, /--allow-fs-write=.*\/ai-smoke\/state,.*\/ai-smoke\/pub /);
+  assert.match(text, /--allow-fs-write=\S*\/ai-smoke\/state --allow-fs-write=\S*\/ai-smoke\/pub /);
   assert.match(text, /--mind-port 41980 --social-port 41981 --serve-port 41902/);
   assert.match(text, /--first-index 1000 --bots 7 /);
   assert.match(text, /--ai-slots .*ai-slots\.json --brain http:\/\/127\.0\.0\.1:41980 --brain-token-file .*\/state\/mind\.token --follow-council --export-seat-key .*\/keys\/seat\.txt/);

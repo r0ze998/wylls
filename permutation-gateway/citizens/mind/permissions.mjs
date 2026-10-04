@@ -46,7 +46,11 @@ export function readList({ repoRoot, aiDir }) {
   // aisocial.mjs and the council page modules are read-only imports of the social service
   const councilFiles = webDirs.flatMap((d) => (statSync(d).isDirectory() ? readdirSync(d).filter((f) => f.endsWith('.mjs')).map((f) => join(d, f)) : []));
   const closure = importClosure(councilFiles);
-  return [...new Set([...list.filter((p) => existsSync(p)), ...web, ...webDirs, ...closure, join(aiDir, 'state'), join(aiDir, 'pub')])].sort();
+  // integ-A: the read-only web imports of the modules the service loads dynamically (watcher/feed.mjs, owners.mjs, memory/*, ...):
+  // the static imports of every .mjs under the citizens directories listed above, whatever they reach outside them
+  const ownFiles = list.filter((p) => existsSync(p)).flatMap((p) => (statSync(p).isDirectory() ? readdirSync(p).filter((f) => f.endsWith('.mjs')).map((f) => join(p, f)) : [p]));
+  const ownClosure = importClosure(ownFiles);
+  return [...new Set([...list.filter((p) => existsSync(p)), ...web, ...webDirs, ...closure, ...ownClosure, join(aiDir, 'state'), join(aiDir, 'pub')])].sort();
 }
 
 /**

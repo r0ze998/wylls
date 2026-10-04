@@ -36,7 +36,13 @@ const ZERO32 = '0'.repeat(64);
 
 async function tryImport(rel) {
   const p = join(HERE, rel);
-  if (!existsSync(p)) return null;
+  // under the permission model existsSync throws (not false) for a path outside the read list: a unit not merged yet
+  // has no directory in the list, so a denied probe means "not there"
+  try {
+    if (!existsSync(p)) return null;
+  } catch {
+    return null;
+  }
   return import(pathToFileURL(p).href);
 }
 
@@ -409,6 +415,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
     process.on('SIGINT', stop);
   } catch (e) {
     console.error(`frontier-citizens: ${e.message}`);
+    if (process.env.CITIZENS_DEBUG) console.error(e.stack);
     process.exit(e instanceof GuardError ? 3 : 1);
   }
 }
