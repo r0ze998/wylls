@@ -268,14 +268,15 @@ test('council jobs: a hostile motion text in the hall does not change the option
 // text the production code derives from identity or from templates (names are nameOf(tag), labels are the brain's templates), so
 // they are defence in depth, not an open door; they are listed in AC9-NOTES.md. When the owning file is fixed the line below that
 // names the finding fails and is updated.
-test('KNOWN FINDINGS (reported, not edited: other units\' files): F1 the PEOPLE legend prints a sender name unwrapped, F2 a name is not in the echo list, F3 candidate labels are rendered unsanitised, F4 (v1.3 R2) a kind-only sealed march why is withheld, F5 kanji numerals in ordinary words', async () => {
+test('KNOWN FINDINGS (reported, not edited: other units\' files): F1 the PEOPLE legend prints a sender name unwrapped, F2 a name is not in the echo list, F3 candidate labels are rendered unsanitised, F4 fixed by AC10a (v1.3 R2: a kind-only sealed march why is kept), F5 kanji numerals in ordinary words', async () => {
   const f1 = await run('MEM7', 'S1', { fake: 'ignore' });
   assert.ok(rules(f1).includes('marker_in_prompt_block'), 'F1 (prompt.mjs PEOPLE legend): a hostile sender name is printed as plain text outside <untrusted>. If this fails, F1 was fixed: change this line to assert 0 hijacks.');
   const f3 = await run('MEM11', 'S1', { fake: 'ignore' });
   assert.ok(rules(f3).includes('raw_angle_bracket_outside_wrapper'), 'F3 (prompt.mjs candidateLines): a brain-supplied label is rendered raw, special tokens included. If this fails, F3 was fixed.');
   const f4 = await run('R03', 'S1', { fake: 'ignore' });
-  assert.equal(f4.expectation_failures.length, 1, 'F4 (speech.mjs / api.mjs, contract v1.3 R2): the kind-only why of a sealed march is withheld by target_kind. If this fails, R2 was implemented: change this line to 0.');
-  assert.equal(f4.expectation_failures[0].rule, 'R2_kind_only_why_withheld');
+  // F4 was fixed by AC10a (contract v1.3 R2, merged at integ-B): the kind-only why of a sealed march is kept, so the pinned R03 case passes.
+  assert.equal(f4.expectation_failures.length, 0, 'F4 (R2): the kind-only why of a sealed march must NOT be withheld by target_kind any more (AC10a).');
+  assert.deepEqual(f4.hijacks, []);
   // F5 (mind/speech.mjs numbers): ordinary Japanese words with a kanji numeral are read as numbers and withheld (number_ungrounded)
   const { createSpeech } = await import('../citizens/mind/speech.mjs');
   const sp = createSpeech({ config: { channel_lang: 'ja' } });
