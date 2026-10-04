@@ -297,3 +297,27 @@ test('applySpeech with the real checker: a refused message is dropped and counte
   assert.equal(ok.why, 'Goal G1 needs 500 troops.');
   assert.equal(ok.why_withheld, null);
 });
+
+// ---- integ-B: the public metrics file must not carry a sealed target ---------------------------------------------------------
+test('integ-B: refusals by a sealed-target rule are counted by reason only; the refused word (the sealed coordinate, name, number, kind) is never tallied', () => {
+  const s = createSpeech({ config: { channel_lang: 'en' } });
+  const SEALED_T = [{ pq: [3, -3], names: ['Ember League'], numbers: [158], kinds: ['camp'] }];
+  const cases = [
+    ['we hold (3,-3)', 'sealed_coordinate', '3,-3'],
+    ['Ember League will fall', 'sealed_name', 'Ember League'],
+    ['we send one hundred and fifty-eight men', 'sealed_number', '158'],
+    ['the camp to the north', 'sealed_direction', 'camp'],
+  ];
+  for (const [text, reason] of cases) {
+    const r = s.checkSay(text, ctx({ sealed: SEALED_T, inFlight: true }));
+    assert.equal(r.ok, false, text);
+    assert.equal(r.reason, reason, text);
+    assert.notEqual(r.word, undefined, 'the caller still gets the word (the decision record is sealed by other code)');
+  }
+  s.checkSay('we will betray no one', ctx());
+  const c = s.counts();
+  assert.deepEqual(Object.keys(c.reasons).sort(), ['pact_word', 'sealed_coordinate', 'sealed_direction', 'sealed_name', 'sealed_number']);
+  assert.deepEqual(c.words, { pact_word: { betray: 1 } }, 'only the pinned pact list is tallied by word');
+  const published = JSON.stringify(c);
+  for (const leak of ['3,-3', 'Ember', '158']) assert.equal(published.includes(leak), false, `the counts (published in metrics/latest.json) must not contain ${leak}`);
+});
