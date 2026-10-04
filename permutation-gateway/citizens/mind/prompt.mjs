@@ -13,7 +13,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { buildPeople } from './memory.mjs';
-import { maxSayFor } from './schema.mjs';
+import { maxSayFor, kindBase as kindBaseOf } from './schema.mjs';
 import { merkleRootHex } from './records.mjs';
 
 export const VARIABLE_BUDGET = 3000;
@@ -306,11 +306,27 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
     };
   }
 
+  const HIDDEN_FACTS = new Set(['host_id', 'ratio_is', 'tile']);
+  const escapeRe = (v) => String(v).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const inLabel = (label, v) => typeof v !== 'object' && new RegExp(`(?<![\\w])${escapeRe(v)}(?![\\w])`).test(label);
+  const named = (arr, keep = () => true) => arr.map((n, i) => (n && keep(i) ? `${resources[i] ?? `r${i}`} ${n}` : null)).filter(Boolean).join(' ');
+  const factText = (k, v, label, all = {}) => {
+    if (HIDDEN_FACTS.has(k) || v == null || v === '' || v === 'not applicable') return null;
+    if (Array.isArray(v) && v.length === 8 && v.every((x) => typeof x === 'number')) {
+      if (k === 'cost') return `cost ${named(v) || 'none'}`;
+      if (k === 'stores_after') return `stores after ${named(v, (i) => (all.cost?.[i] ?? 0) > 0) || 'unchanged'}`;
+    }
+    if (v && typeof v === 'object' && !Array.isArray(v) && 'p' in v && 'q' in v) return `${words(k)} (${v.p},${v.q})`;
+    if (k === 'troops' || inLabel(label, v)) return null;
+    return `${words(k)} ${fmt(v)}`;
+  };
+
   function candidateLines(cands) {
     return cands.map((c) => {
-      const facts = Object.entries(c.facts ?? {}).map(([k, v]) => `${words(k)} ${fmt(v)}`).join('; ');
-      const params = Object.entries(c.params ?? {}).map(([k, v]) => `${k} in {${v.join(',')}}`).join('; ');
-      const parts = [`${c.id} [${c.kind}${c.flags?.council ? ', Strike Order' : ''}] ${c.label ?? ''}`.trim()];
+      const label = c.label ?? '';
+      const facts = Object.entries(c.facts ?? {}).map(([k, v]) => factText(k, v, label, c.facts)).filter(Boolean).join('; ');
+      const params = Object.entries(c.params ?? {}).map(([k, v]) => `${k} ${v.join('|')}`).join('; ');
+      const parts = [`${c.id} [${kindBaseOf(c.kind)}${c.flags?.council ? ', Strike Order' : ''}] ${label}`.trim()];
       if (c.troops != null) parts.push(`troops ${c.troops}`);
       if (facts) parts.push(facts);
       if (params) parts.push(`params: ${params}`);

@@ -78,7 +78,8 @@ async function discoverGenesis(heraldUrl, fetchImpl = globalThis.fetch) {
 /**
  * Build and start the service. `overrides` replaces any collaborator (tests, and the integrator's wiring):
  * {config, speech, stores, renderMemory, renderPersona, personaOf, nameOf, nationName, feed, social, watcher, serve,
- *  llm, clock, test: true (allows port 0 and any loopback llama port), genesisTs, fetch}.
+ *  llm, clock, speechModule (path under citizens/ of the speech module, for tests), test: true (allows port 0 and any
+ *  loopback llama port), noCloserTimer, genesisTs, fetch}.
  */
 export async function createCitizensService(opts, overrides = {}) {
   const { aiDir, herald, llm: llmUrl, mindPort, socialPort, servePort, configPath, runId = 'run', season = 0 } = opts;
@@ -108,7 +109,7 @@ export async function createCitizensService(opts, overrides = {}) {
   let speech = overrides.speech ?? null;
   let speechStub = false;
   if (!speech) {
-    const mod = await tryImport('mind/speech.mjs');
+    const mod = await tryImport(overrides.speechModule ?? 'mind/speech.mjs');
     if (mod?.createSpeech) speech = mod.createSpeech({ config });
     else if (config.allow_speech_stub || test) {
       speech = createSpeechStub();
@@ -306,8 +307,13 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith('--')) continue;
+    const eq = a.indexOf('=');
+    if (eq > 0) {
+      o[a.slice(2, eq)] = a.slice(eq + 1);
+      continue;
+    }
     const k = a.slice(2);
-    if (['print-permission-flags', 'probe-access'].includes(k)) o[k] = true;
+    if (['print-permission-flags', 'probe-access', 'probe-only'].includes(k)) o[k] = true;
     else o[k] = argv[++i];
   }
   return o;
@@ -317,7 +323,22 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
   const a = parseArgs(process.argv.slice(2));
   const repoRoot = resolve(HERE, '../..');
   if (a['print-permission-flags']) {
-    console.log(permissionFlags({ repoRoot, aiDir: resolve(a['ai-dir'] ?? '.local/frontier/ai/run') }).join(' '));
+    console.log(permissionFlags({ repoRoot, aiDir: resolve(a['ai-dir'] ?? '.local/frontier/ai/run') }).join('\n'));
+    process.exit(0);
+  }
+  if (a['probe-only']) {
+    // T-K2: this process was started under the permission flags and has loaded the whole static import graph of
+    // this file; reading the listed paths must now throw ERR_ACCESS_DENIED (a path inside the read list reads fine)
+    const out = {};
+    for (const p of (a['probe-paths'] ?? '').split(',').filter(Boolean)) {
+      try {
+        readFileSync(p);
+        out[p] = 'READ';
+      } catch (e) {
+        out[p] = e.code ?? 'ERR';
+      }
+    }
+    console.log(JSON.stringify({ probe: out }));
     process.exit(0);
   }
   const need = (k) => {

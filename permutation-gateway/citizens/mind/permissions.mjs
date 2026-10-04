@@ -1,6 +1,6 @@
 // The Node permission-model flags of the citizens service (contract section 1.3 C1) and the helper that
 // pins the read list. The service runs as
-//   node --experimental-permission --allow-fs-read=<list> --allow-fs-write=AI_DIR/state,AI_DIR/pub citizens/server.mjs ...
+//   node --experimental-permission --allow-fs-read=<path> (one flag per path) --allow-fs-write=AI_DIR/state --allow-fs-write=AI_DIR/pub citizens/server.mjs ...
 // <list> = citizens/{server.mjs, serve.mjs, mind, memory, persona, social, watcher, audit, prompts, config},
 // the read-only web imports the service loads (web/frontier/council/, web/frontier/people/identity.mjs,
 // web/lang.mjs and everything they import, resolved here by following the static imports), AI_DIR/state and
@@ -49,10 +49,13 @@ export function readList({ repoRoot, aiDir }) {
   return [...new Set([...list.filter((p) => existsSync(p)), ...web, ...webDirs, ...closure, join(aiDir, 'state'), join(aiDir, 'pub')])].sort();
 }
 
+/**
+ * One --allow-fs-read flag per path: on Node 20.19.4 a comma-separated list with more than one entry does
+ * not work (the entry script is then refused: measured), so the list is spelled as repeated flags.
+ */
 export function permissionFlags({ repoRoot, aiDir }) {
-  return [
-    '--experimental-permission',
-    `--allow-fs-read=${readList({ repoRoot, aiDir }).join(',')}`,
-    `--allow-fs-write=${join(aiDir, 'state')},${join(aiDir, 'pub')}`,
-  ];
+  const flags = ['--experimental-permission'];
+  for (const p of readList({ repoRoot, aiDir })) flags.push(`--allow-fs-read=${p}`);
+  flags.push(`--allow-fs-write=${join(aiDir, 'state')}`, `--allow-fs-write=${join(aiDir, 'pub')}`);
+  return flags;
 }
