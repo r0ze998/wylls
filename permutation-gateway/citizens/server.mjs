@@ -313,6 +313,11 @@ export async function createCitizensService(opts, overrides = {}) {
     onClosed: (b) => {
       atomicJson(`${PUB}/metrics/latest.json`, mind.metrics());
     },
+    // the season-end seal stopped the closer: say so (log line) and write the metrics now, so a run's files show that the seal fired (counter close_refused_sealed)
+    onSealed: (b) => {
+      console.error(`closer: sealed by the season-end publication; bell ${b} was due and was not closed`);
+      atomicJson(`${PUB}/metrics/latest.json`, mind.metrics());
+    },
   });
   // restart: begin after the last bell whose minds file exists
   try {
