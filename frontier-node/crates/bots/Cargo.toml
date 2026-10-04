@@ -26,3 +26,6 @@ tokio.workspace = true
 serde_json.workspace = true
 hex.workspace = true
 rand.workspace = true
+# AI hook
+sha2.workspace = true
+# AI hook end

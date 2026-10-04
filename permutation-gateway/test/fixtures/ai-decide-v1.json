@@ -1,0 +1,657 @@
+{
+  "answer": {
+    "caps": {
+      "home_floor": 400,
+      "march_troops_left": 600
+    },
+    "choice": {
+      "ids": [
+        "c3"
+      ],
+      "mem": [],
+      "params": {
+        "c3": {
+          "retreat": 5000,
+          "stance": "assault",
+          "timing": "earliest"
+        }
+      }
+    },
+    "decision_id": "d-0123456789abcdef",
+    "mode": "model",
+    "reason": "ok",
+    "social": {
+      "ballot": null,
+      "motion": null,
+      "say": []
+    },
+    "standing": {
+      "declined_calls": [],
+      "reserved": []
+    },
+    "v": 1
+  },
+  "answer_autopilot": {
+    "caps": {
+      "home_floor": null,
+      "march_troops_left": null
+    },
+    "choice": {
+      "ids": [
+        "c1"
+      ],
+      "mem": [],
+      "params": {}
+    },
+    "decision_id": "d-test",
+    "mode": "autopilot",
+    "reason": "below_gate",
+    "social": {
+      "ballot": null,
+      "motion": null,
+      "say": []
+    },
+    "standing": {
+      "declined_calls": [],
+      "reserved": []
+    },
+    "v": 1
+  },
+  "candidate_samples_ac3b": [
+    {
+      "entities": [
+        "pq:2,-3",
+        "nation:3"
+      ],
+      "facts": {
+        "earliest_bell": 410,
+        "enemy_troops": 0,
+        "hexes": 11,
+        "host": "H1",
+        "host_id": "3377699720527873",
+        "idle_bells": 4,
+        "provinces": 2,
+        "ratio": "even",
+        "ratio_is": "estimate",
+        "reward": "troops lost only; no land can be taken",
+        "shield": "not applicable",
+        "strike_bell": 413,
+        "target": {
+          "p": 2,
+          "q": -3,
+          "tile": 17
+        },
+        "target_kind": "call",
+        "troops": 420
+      },
+      "flags": {
+        "council": true
+      },
+      "id": "c3",
+      "kind": "march",
+      "label": "Follow the Strike Order with H1 (420 troops)",
+      "params": {
+        "retreat": [
+          0,
+          5000,
+          10000
+        ],
+        "stance": [
+          "hold",
+          "assault",
+          "flank",
+          "brace"
+        ],
+        "timing": [
+          "call"
+        ]
+      },
+      "troops": 420
+    },
+    {
+      "entities": [
+        "pq:4,-1",
+        "nation:2"
+      ],
+      "facts": {
+        "destination": "unknown",
+        "home_by_arrival": true,
+        "host": "H2",
+        "host_id": "3377699720527874",
+        "threat_arrive_bell": 409,
+        "threat_mass": 800,
+        "threat_origin": {
+          "p": 4,
+          "q": -1
+        },
+        "troops": 300
+      },
+      "flags": {},
+      "id": "c4",
+      "kind": "recall:H2",
+      "label": "Recall H2 (300 troops) to the village",
+      "params": {
+        "timing": [
+          "earliest"
+        ]
+      },
+      "troops": 300
+    },
+    {
+      "entities": [
+        "pq:3,1",
+        "nation:1"
+      ],
+      "facts": {
+        "earliest_bell": 409,
+        "enemy_troops": 260,
+        "hexes": 9,
+        "host": "H1",
+        "host_id": "3377699720527873",
+        "idle_bells": 2,
+        "provinces": 2,
+        "ratio": "favourable",
+        "ratio_is": "estimate",
+        "reward": "troops lost only; no land can be taken",
+        "shield": "ended",
+        "target": {
+          "p": 3,
+          "q": 1,
+          "tile": 9
+        },
+        "target_kind": "raid",
+        "troops": 420
+      },
+      "flags": {},
+      "id": "c8",
+      "kind": "march",
+      "label": "March H1 (420 troops) to another nation's village, 9 hexes away",
+      "params": {
+        "retreat": [
+          0,
+          5000,
+          10000
+        ],
+        "stance": [
+          "hold",
+          "assault",
+          "flank",
+          "brace"
+        ],
+        "timing": [
+          "earliest"
+        ]
+      },
+      "troops": 420
+    }
+  ],
+  "note": "Golden wire fixture of POST /v1/decide and /v1/outcome (contract v1.2 §4.1, §8.1). Producer: frontier-node/crates/bots/tests/ai_wire.rs (AI_WRITE_VECTORS=1); freshness checker: the same test without the flag; the Node schema test validates it. u64 ids (host_id) are decimal strings; ai.tag is the citizen_tag as 16 hex digits; deadline_unix_ms is pinned; the relay signature is fixed.",
+  "outcome": {
+    "actions": [
+      {
+        "intent": "depart",
+        "sig": "5VERv8NMvzbJMEkV8xnrLkEaWRtSz9CTJTqixU2fuSdnuHBPzqSXRhSF4X6pRTxZLkZV7TeJAQ3FrbdNJRDaYtCk",
+        "status": "sent"
+      }
+    ],
+    "decision_id": "d-0123456789abcdef",
+    "own_marches": [
+      {
+        "arrive_bell": 43,
+        "depart_bell": 40,
+        "host_id": "123149597278209",
+        "opened": null,
+        "troops_at_depart": 500
+      }
+    ]
+  },
+  "outcome_answer": {
+    "ok": true
+  },
+  "request": {
+    "ai": {
+      "index": 3,
+      "tag": "1885b43b654f032b",
+      "wallet": "3o5WUkVnvhBWMTpFJy8kbQUfNgAiAbuCBfHVppSugxAb"
+    },
+    "autopilot": {
+      "departs": [],
+      "has_military": true,
+      "summary": "build wood; train 400 spearman; muster 300 spearman; explore (economy and duties only)"
+    },
+    "bell": 40,
+    "candidates": [
+      {
+        "entities": [],
+        "facts": {
+          "economy_held_by_quota": false,
+          "quota_left": 38,
+          "routine": "economy and duties only, no march",
+          "summary": "build wood; train 400 spearman; muster 300 spearman; explore (economy and duties only)"
+        },
+        "flags": {},
+        "id": "c1",
+        "kind": "autopilot",
+        "label": "Routine: economy and duties only, no march",
+        "params": {}
+      },
+      {
+        "entities": [],
+        "facts": {
+          "duties": "duties only; keep armies home",
+          "keeps_home": [
+            "H1"
+          ]
+        },
+        "flags": {},
+        "id": "c2",
+        "kind": "hold",
+        "label": "Hold: duties only, keep the armies home",
+        "params": {}
+      },
+      {
+        "entities": [
+          "pq:2,0"
+        ],
+        "facts": {
+          "earliest_bell": 43,
+          "enemy_troops": 158,
+          "hexes": 4,
+          "host": "H1",
+          "host_id": "123149597278209",
+          "idle_bells": 10,
+          "provinces": 1,
+          "ratio": "favourable",
+          "ratio_is": "estimate",
+          "reward": "10 Works (points, no use yet)",
+          "shield": "not applicable",
+          "target": {
+            "p": 2,
+            "q": 0,
+            "tile": 55
+          },
+          "target_kind": "camp",
+          "troops": 500
+        },
+        "flags": {},
+        "id": "c3",
+        "kind": "march",
+        "label": "March H1 (500 troops) to a barbarian camp, 4 hexes away; earliest arrival at bell 43",
+        "params": {
+          "retreat": [
+            0,
+            5000,
+            10000
+          ],
+          "stance": [
+            "hold",
+            "assault",
+            "flank",
+            "brace"
+          ],
+          "timing": [
+            "earliest"
+          ]
+        },
+        "troops": 500
+      },
+      {
+        "entities": [
+          "pq:1,1"
+        ],
+        "facts": {
+          "earliest_bell": 43,
+          "enemy_troops": 398,
+          "hexes": 7,
+          "host": "H1",
+          "host_id": "123149597278209",
+          "idle_bells": 10,
+          "provinces": 2,
+          "ratio": "even",
+          "ratio_is": "estimate",
+          "reward": "10 Works (points, no use yet)",
+          "shield": "not applicable",
+          "target": {
+            "p": 1,
+            "q": 1,
+            "tile": 38
+          },
+          "target_kind": "camp",
+          "troops": 500
+        },
+        "flags": {},
+        "id": "c4",
+        "kind": "march",
+        "label": "March H1 (500 troops) to a barbarian camp, 7 hexes away; earliest arrival at bell 43",
+        "params": {
+          "retreat": [
+            0,
+            5000,
+            10000
+          ],
+          "stance": [
+            "hold",
+            "assault",
+            "flank",
+            "brace"
+          ],
+          "timing": [
+            "earliest"
+          ]
+        },
+        "troops": 500
+      },
+      {
+        "entities": [],
+        "facts": {
+          "build_minutes": 90,
+          "copy": 1,
+          "cost": [
+            40,
+            0,
+            40,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "item": "wood",
+          "stores_after": [
+            2000,
+            2030,
+            1980,
+            2015,
+            2000,
+            2015,
+            2005,
+            2000
+          ]
+        },
+        "flags": {},
+        "id": "c5",
+        "kind": "build:wood",
+        "label": "Build a wood producer (copy 1)",
+        "params": {}
+      },
+      {
+        "entities": [],
+        "facts": {
+          "build_minutes": 90,
+          "copy": 1,
+          "cost": [
+            0,
+            80,
+            40,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "item": "food",
+          "stores_after": [
+            2040,
+            1950,
+            1980,
+            2015,
+            2000,
+            2015,
+            2005,
+            2000
+          ]
+        },
+        "flags": {},
+        "id": "c6",
+        "kind": "build:food",
+        "label": "Build a food producer (copy 1)",
+        "params": {}
+      },
+      {
+        "entities": [],
+        "facts": {
+          "adds": 100,
+          "build_minutes": 240,
+          "cost": [
+            0,
+            0,
+            285,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "stores_after": [
+            2040,
+            2030,
+            1735,
+            2015,
+            2000,
+            2015,
+            2005,
+            2000
+          ],
+          "walls_now": 0
+        },
+        "flags": {},
+        "id": "c7",
+        "kind": "walls",
+        "label": "Build walls around the village",
+        "params": {}
+      },
+      {
+        "entities": [],
+        "facts": {
+          "max_troops": 3400,
+          "reserve_now": 300,
+          "unit": "spearman"
+        },
+        "flags": {},
+        "id": "c8",
+        "kind": "train:spearman",
+        "label": "Train spearman troops into the reserve",
+        "params": {
+          "share": [
+            25,
+            50,
+            75
+          ]
+        }
+      },
+      {
+        "entities": [],
+        "facts": {
+          "reserve": 300,
+          "room": 6,
+          "unit": "spearman"
+        },
+        "flags": {},
+        "id": "c9",
+        "kind": "muster:spearman",
+        "label": "Muster spearman troops from the reserve into a new army",
+        "params": {
+          "share": [
+            25,
+            50,
+            75
+          ]
+        }
+      },
+      {
+        "entities": [],
+        "facts": {
+          "host": "H2",
+          "host_id": "123149597278210"
+        },
+        "flags": {},
+        "id": "c10",
+        "kind": "explore:H2",
+        "label": "Send scout H2 to explore the tiles next to it",
+        "params": {}
+      }
+    ],
+    "deadline_unix_ms": 1790000000000,
+    "now_game": 1800024100,
+    "obs_digest": "615ccd9cd7d0d8a8b37b7cd9368fd0ae9bd5cc46a7755bcccc526786c07c2487",
+    "own_marches": [],
+    "scale": 1,
+    "situation": {
+      "bell": 40,
+      "bell_in_day": 40,
+      "day": 0,
+      "end_bell": 1008,
+      "me": {
+        "doctrine": "A Wardens of Stone",
+        "explore": "idle",
+        "faction": 0,
+        "garrison": 200,
+        "home": {
+          "final": true,
+          "p": 2,
+          "q": 0,
+          "shield_until_bell": 0,
+          "site": 0,
+          "tier": "hamlet",
+          "walls": 0
+        },
+        "home_troops": 1000,
+        "home_troops_day_start": 1000,
+        "hosts": [
+          {
+            "at": {
+              "p": 2,
+              "q": 0
+            },
+            "handle": "H1",
+            "host_id": "123149597278209",
+            "idle_bells": 10,
+            "in_transit": false,
+            "ready": true,
+            "stamina": 120,
+            "troops": 500,
+            "unit": "spearman"
+          },
+          {
+            "at": {
+              "p": 2,
+              "q": 0
+            },
+            "handle": "H2",
+            "host_id": "123149597278210",
+            "in_transit": false,
+            "ready": false,
+            "stamina": 120,
+            "troops": 100,
+            "unit": "scout"
+          },
+          {
+            "arrive_bell": 38,
+            "at": {
+              "p": 2,
+              "q": 0
+            },
+            "handle": "H3",
+            "host_id": "123149597278213",
+            "in_transit": true,
+            "ready": false,
+            "stamina": 105,
+            "troops": 200,
+            "unit": "spearman",
+            "why_not": "on the march"
+          }
+        ],
+        "muster_room": 6,
+        "queue": {
+          "busy": 0,
+          "items": [],
+          "slots": 2
+        },
+        "quota": {
+          "bucket_left": 60,
+          "relay_left": 38
+        },
+        "rates_per_hour": [
+          40,
+          30,
+          20,
+          15,
+          0,
+          15,
+          5,
+          0
+        ],
+        "reserve": [
+          300,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "stores": [
+          2040,
+          2030,
+          2020,
+          2015,
+          2000,
+          2015,
+          2005,
+          2000
+        ]
+      },
+      "my_clashes": [],
+      "neighbourhood": [
+        {
+          "d": 1,
+          "holdings": {},
+          "hosts": [],
+          "p": 1,
+          "q": 0
+        },
+        {
+          "camp_troops": 398,
+          "d": 1,
+          "holdings": {},
+          "hosts": [],
+          "p": 1,
+          "q": 1
+        },
+        {
+          "camp_troops": 222,
+          "d": 1,
+          "holdings": {
+            "1": 1
+          },
+          "hosts": [],
+          "p": 2,
+          "q": -1
+        },
+        {
+          "camp_troops": 158,
+          "d": 0,
+          "holdings": {
+            "0": 2
+          },
+          "hosts": [
+            {
+              "n": 2,
+              "nation": 0,
+              "troops": 600
+            }
+          ],
+          "p": 2,
+          "q": 0
+        }
+      ],
+      "secs_left": 580700
+    },
+    "v": 1,
+    "wake_hints": [
+      "W-READY",
+      "W-QUEUE"
+    ]
+  },
+  "v": 1
+}
