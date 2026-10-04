@@ -308,12 +308,12 @@ export async function checkM1(ctx) {
     for (const s of cm.slots) { c.count(); if (walletOf(botSeed, s.index).b58 !== s.wallet) c.fail('slot_wallet', { index: s.index, committed: s.wallet, derived: walletOf(botSeed, s.index).b58 }); }
   } else c.unverified('slots[].wallet', 'no bot seed (stack toml or --bot-seed)');
   // seat script and injection corpus (null when the run had none)
-  for (const [field, files, given] of [['seat_script_sha256', ['permutation-gateway/citizens/scenario/seat-script.mjs'], ctx.o.seatScript], ['injection_corpus_sha256', ['permutation-gateway/citizens/injection/corpus.json', 'permutation-gateway/citizens/injection/corpus.mjs'], null]]) {
+  for (const [field, files, given] of [['seat_script_sha256', ['permutation-gateway/citizens/ab/seat.mjs', 'permutation-gateway/citizens/scenario/seat-script.mjs'], ctx.o.seatScript], ['injection_corpus_sha256', ['permutation-gateway/citizens/injection/corpus.json', 'permutation-gateway/citizens/injection/corpus.mjs'], null]]) {
     c.count();
     const want = cm.configs?.[field] ?? null;
     if (given) { const got = sha256hex(fs.readFileSync(given)); if (got !== want) c.fail('config_hash', { field, committed: want, file: got }); continue; }
     const have = T.exists() ? files.map(f => T.blobSha(f)).find(Boolean) ?? null : null;
-    if (want === null && have === null) continue;
+    if (want === null && (have === null || field === 'seat_script_sha256')) continue; // integ-B: a seat script file in the tree does not mean the run used one (the smoke has none; the A/B passes ab/seat.mjs)
     if (want !== null && have === want) continue;
     if (T.exists() && (want === null) !== (have === null)) c.fail('config_hash', { field, committed: want, committed_tree: have });
     else if (want !== null && have !== want) c.unverified(`configs.${field}`, 'the file is not in the committed tree and no file was given');

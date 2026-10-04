@@ -89,6 +89,16 @@ test('a model decision stores its exact retrieval focus privately (priv.focus), 
   }
 });
 
+test('the service\'s permission flags let serve.mjs read the page shell: under the flags GET /council.html is 200 (live: it was 404 because the file was not on the read list)', async () => {
+  const { execFileSync, spawn } = await import('node:child_process');
+  const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
+  const flags = execFileSync(process.execPath, [path.join(repo, 'permutation-gateway/citizens/server.mjs'), '--print-permission-flags', '--ai-dir', '/tmp/x-ai'], { encoding: 'utf8' }).split('\n').filter(Boolean);
+  assert.ok(flags.some(f => f.endsWith('web/frontier/council.html')), 'council.html is on the read list');
+  // a process under the same flags reads the file (probe-only mode of server.mjs)
+  const out = execFileSync(process.execPath, [...flags, path.join(repo, 'permutation-gateway/citizens/server.mjs'), '--probe-only', '--probe-paths', path.join(repo, 'permutation-server/web/frontier/council.html')], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  assert.equal(Object.values(JSON.parse(out).probe)[0], 'READ');
+});
+
 // ---- AC6 opening shape through AC8's M3 ------------------------------------------------------------------------------------------
 const rj = p => JSON.parse(fs.readFileSync(p, 'utf8'));
 const cp = (from, to) => { if (fs.statSync(from).isDirectory()) { fs.mkdirSync(to, { recursive: true }); for (const n of fs.readdirSync(from)) cp(path.join(from, n), path.join(to, n)); } else fs.copyFileSync(from, to); };

@@ -106,7 +106,7 @@ function makeRepo(dir) {
   fs.mkdirSync(dir, { recursive: true });
   const cp = rel => { const to = path.join(dir, rel); fs.mkdirSync(path.dirname(to), { recursive: true }); fs.copyFileSync(path.join(REPO, rel), to); };
   const cit = 'permutation-gateway/citizens';
-  for (const f of ['memory/episodes.mjs', 'memory/templates.en.json', 'memory/templates.ja.json', 'serve.mjs', 'persona/library.json', 'persona/decks/deck-1.json', 'config/smoke.json']) cp(`${cit}/${f}`);
+  for (const f of ['memory/episodes.mjs', 'memory/templates.en.json', 'memory/templates.ja.json', 'serve.mjs', 'persona/library.json', 'persona/decks/deck-1.json', 'config/smoke.json', 'ab/seat.mjs', 'scenario/seat-script.mjs']) cp(`${cit}/${f}`); // integ-B: the A/B seat script files are in the tree while the (smoke-like) run committed none: M1 must not read that as a mismatch
   for (const f of fs.readdirSync(path.join(REPO, cit, 'prompts'))) cp(`${cit}/prompts/${f}`);
   cp('permutation-server/web/frontier/council/aisocial.mjs');
   for (const f of ['frontier-node/crates/bots/src/lib.rs', 'frontier-node/crates/agents/src/lib.rs']) { const to = path.join(dir, f); fs.mkdirSync(path.dirname(to), { recursive: true }); fs.writeFileSync(to, `// stand-in for ${f}\n`); }

@@ -137,7 +137,8 @@ test('without a situation from the brain, with no council options, or with the f
   let cursor = 10;
   const h2 = await harness(councilAnswer('motion'), { feed: { cursorBell: () => cursor } });
   try {
-    const a = await h2.mind.councilCall(arg());
+    await assert.rejects(h2.mind.councilCall(arg()), (e) => e.retry === true, 'integ-B: with time left it is a retryable error');
+    const a = await h2.mind.councilCall(arg({ deadline_unix_ms: Date.now() + 5000 }));
     assert.equal(a.reason, 'feed_lag');
   } finally {
     await h2.close();
@@ -167,6 +168,28 @@ test('under a live Strike Order the motion is made but its speech is withheld an
     assert.equal(rec.sealed, true);
     assert.equal(rec.release_bell, 52);
     assert.equal(h.records.getPrivate(rec.id).full.public.say[0], 'Move option 2.');
+  } finally {
+    await h.close();
+  }
+});
+
+test('integ-B: a ballot asked while the feed cannot vouch for bell - 1 yet is a retryable error (no record, nothing cached); it runs once the feed has caught up; past the deadline it is the feed_lag autopilot answer', async () => {
+  let cursor = 40;
+  const feed = { cursorBell: () => cursor, async waitCursor() { return false; }, wakeEvents: () => [] };
+  const h = await harness(councilAnswer('ballot'), { feed });
+  try {
+    const before = h.records.recordsOf(51).length;
+    await assert.rejects(() => h.mind.councilCall(arg({ kind: 'ballot', bell: 51 })), (e) => e.retry === true);
+    assert.equal(h.records.recordsOf(51).length, before, 'no record for a retry');
+    assert.equal(h.llama.bodies.length, 0);
+    cursor = 50;
+    const ok = await h.mind.councilCall(arg({ kind: 'ballot', bell: 51 }));
+    assert.equal(ok.mode, 'model');
+    assert.ok(ok.social.ballot);
+    // with no time left the answer is the autopilot one and is final for the period
+    cursor = 40;
+    const late = await h.mind.councilCall(arg({ kind: 'ballot', bell: 51, period: 5, deadline_unix_ms: Date.now() + 5000 }));
+    assert.equal(late.reason, 'feed_lag');
   } finally {
     await h.close();
   }

@@ -762,6 +762,10 @@ export function createMind(deps) {
       cursor = feed.cursorBell();
     }
     if (cursor != null && cursor < bell - 1) {
+      // integ-B: the watcher asks at the first second of a window bell, when the chain's block time has not crossed the bell boundary and the feed
+      // cannot vouch for bell - 1 yet (live: all 5 ballot calls of the I-A smoke came back feed_lag and were final for the period). While there is
+      // time left before the deadline this is a retryable error (no record, no cache); only past that is it the autopilot answer.
+      if (now() < deadlineMs - 20000) { const e = new Error('feed_lag: retry'); e.retry = true; throw e; }
       metrics.inc('feed_lag');
       return fail('feed_lag');
     }

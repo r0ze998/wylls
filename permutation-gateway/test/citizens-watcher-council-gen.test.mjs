@@ -314,3 +314,15 @@ test('step: no game clock yet means no council call (the mind has no anchor eith
   assert.equal(bad.calls.length, 3);
   assert.equal(bad.stats.council_motion_gave_up ?? 0, 0, 'the retry succeeded (n = 0 failures after it)');
 });
+
+test('integ-B: a retryable "feed not complete" error from the mind is asked again as often as needed after the retry delay and never counts as a failure', async () => {
+  const w = world();
+  let n = 0;
+  w.mind.councilCall = async a => { w.calls.push(a); if (n++ < 4) { const e = new Error('feed_lag: retry'); e.retry = true; throw e; } return { decision_id: 'ok', mode: 'model', reason: 'ok', social: { motion: null, ballot: null } }; };
+  await w.gen.step(C0);
+  await new Promise(r => setTimeout(r, 20));
+  for (let i = 0; i < 6; i++) { w.now.t += 6000; await w.gen.step(C0 + 1); await new Promise(r => setTimeout(r, 20)); }
+  assert.ok(w.stats.council_motion_retry >= 4, `retries: ${w.stats.council_motion_retry}`);
+  assert.equal(w.stats.council_motion_gave_up ?? 0, 0, 'four retries are more than the MAX_CALL_TRIES failures, and none gave up');
+  assert.equal(w.stats.council_motion_calls >= 1, true, 'the call finally ran');
+});

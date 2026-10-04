@@ -318,6 +318,7 @@ export function createCouncilGen({ feed, social, roster, census, clock = null, m
           if (outbox && (res?.social?.motion || res?.social?.ballot)) outbox.push({ tag: a.tag, kind, period: k, decision_id: res.decision_id, bell, motion: res.social.motion ?? null, ballot: res.social.ballot ?? null });
         })
         .catch(e => {
+          if (e?.retry) { bump(`council_${kind}_retry`); fails.set(callKey, { n: fails.get(callKey)?.n ?? 0, at: nowMs() }); return; } // integ-B: feed not complete yet: asked again, not a failure
           bump(`council_${kind}_errors`);
           stats.last_error = String(e?.message ?? e).slice(0, 300);
           onError(e);

@@ -16,6 +16,8 @@ export const WEB_ENTRIES = [
   'permutation-server/web/lang.mjs',
 ];
 export const WEB_DIRS = ['permutation-server/web/frontier/council'];
+// integ-B: serve.mjs reads the page shell itself: under the permission model a denied read looked like a missing file (live: GET /council.html was 404)
+export const WEB_FILES = ['permutation-server/web/frontier/council.html'];
 
 const IMPORT_RE = /(?:^|\n)\s*(?:import|export)\s[^'"\n]*?from\s*['"]([^'"]+)['"]|(?:^|\n)\s*import\s*['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/g;
 
@@ -50,7 +52,7 @@ export function readList({ repoRoot, aiDir }) {
   // the static imports of every .mjs under the citizens directories listed above, whatever they reach outside them
   const ownFiles = list.filter((p) => existsSync(p)).flatMap((p) => (statSync(p).isDirectory() ? readdirSync(p).filter((f) => f.endsWith('.mjs')).map((f) => join(p, f)) : [p]));
   const ownClosure = importClosure(ownFiles);
-  return [...new Set([...list.filter((p) => existsSync(p)), ...web, ...webDirs, ...closure, ...ownClosure, join(aiDir, 'state'), join(aiDir, 'pub')])].sort();
+  return [...new Set([...list.filter((p) => existsSync(p)), ...web, ...webDirs, ...WEB_FILES.map((f) => join(repoRoot, f)).filter((f) => existsSync(f)), ...closure, ...ownClosure, join(aiDir, 'state'), join(aiDir, 'pub')])].sort();
 }
 
 /**
