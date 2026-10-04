@@ -33,7 +33,8 @@
 # Environment: AI_REPO (repository root), AI_UNIT (name in the lock), AI_STACK_LOCK, FRONTIER_BIN
 # (directory of frontier-stack, frontier-bots, ...; default frontier-node/target/release), AI_NODE (node binary),
 # AI_STACK_RUNS (the stack's runs directory; default frontier-node/.local/frontier), AI_MODEL (the gguf), AI_LLAMA_DIR (the
-# llama.cpp tree), AI_LLAMA_ARGV_JSON (tests only: a recorded {ps_args, binary_realpath} for the llama check).
+# llama.cpp tree), AI_LLAMA_ARGV_JSON (tests only: a recorded {ps_args, binary_realpath} for the llama check), AI_WAIT_LAST_SECS (the
+# bounded wait of `registrar publish` for the last closed bell's talk and minds files, default 60; FB1).
 set -u
 set -o pipefail
 
@@ -330,7 +331,7 @@ fi
 bg census "$NODE" "$REPO/$CPUB/scenario/census.mjs" --herald "$HERALD" --ai-dir "$AI_DIR"
 
 if [ "$DRY" = 1 ]; then
-  echo "PLAN wait for the fleet to exit, then for the stack phase complete; then registrar publish, the END line of RUNS.md, stop every child in reverse order, release the lock"
+  echo "PLAN wait for the fleet to exit, then for the stack phase complete; then registrar publish (waits up to AI_WAIT_LAST_SECS for the last closed bell's talk and minds files, one more anchor pass, anchor_gap for any closed bell without an anchor, then the index), the END line of RUNS.md, stop every child in reverse order, release the lock"
   echo "dry run: nothing was started or written"
   exit 0
 fi
@@ -349,7 +350,13 @@ while [ "$(stack_phase)" != complete ]; do
   [ "$t" -lt 7200 ] || fail "the stack was not complete 2 h after the fleet exited"
   sleep 5; t=$((t + 5))
 done
-"$NODE" "$REGISTRAR" publish --ai-dir "$AI_DIR" --key "$KEYS/registrar.json" --herald "$HERALD" --rpc "$RPC" --stack "$CTOML" || fail "the registrar's season-end publication failed"
+# FB1 (A2): the closer may be inside the tick that closes the last bell: publish waits (bounded, AI_WAIT_LAST_SECS, default 60) until every
+# closed bell has its talk AND its minds file, runs one more anchor pass (it sends nothing to a paused chain: the stack pauses the chain
+# when the season is complete, and a memo sent to it is never confirmed), gives every closed bell without an anchor a named anchor_gap,
+# and only then writes the index. Its last line counts the closed bells against the anchored ones; that line goes into the END detail.
+PUB_OUT=$("$NODE" "$REGISTRAR" publish --ai-dir "$AI_DIR" --key "$KEYS/registrar.json" --herald "$HERALD" --rpc "$RPC" --stack "$CTOML" --wait-last-secs "${AI_WAIT_LAST_SECS:-60}") || { printf '%s\n' "$PUB_OUT"; fail "the registrar's season-end publication failed"; }
+printf '%s\n' "$PUB_OUT"
+ANCHOR_NOTE=$(printf '%s\n' "$PUB_OUT" | sed -n 's/^anchors: \(.*\); season-end trigger written$/\1/p' | tail -1)
 # integ-B: the service's audit watcher writes the season-end bundle (PUB/full) once STATE/season-end.json exists; wait for it (bounded),
 # then run verify-minds (M1..M11, with M9 re-sent to the live llama-server) and the run report while the stack is still up. Neither
 # result decides the run's status: their verdict and files are the evidence (PUB/verify-minds.json, AI_DIR/report.{json,md}).
@@ -368,6 +375,6 @@ case "$VM_RC" in 0) VM_VERDICT=PASS ;; 1) VM_VERDICT=FAIL ;; 3) VM_VERDICT=INCOM
 echo "verify-minds: $VM_VERDICT (see $LOGS/verify-minds.log)"
 "$NODE" "$REPO/$CPUB/report.mjs" --ai-dir "$AI_DIR" --runs "$RUNS_MD" --out "$AI_DIR/report.json" --md "$AI_DIR/report.md" >"$LOGS/report.log" 2>&1 || echo "report.mjs failed (see $LOGS/report.log)"
 STATUS=complete
-DETAIL="stack complete, publication written; $FULL_NOTE; verify-minds $VM_VERDICT"
+DETAIL="stack complete, publication written (anchors: ${ANCHOR_NOTE:-not counted}); $FULL_NOTE; verify-minds $VM_VERDICT"
 if [ -f "$PUB/anchors/commit.json" ] && grep -q '"status":"unaudited"' "$PUB/anchors/commit.json"; then DETAIL="stack complete, publication written; the commit memo came after genesis: unaudited"; fi
 exit 0
