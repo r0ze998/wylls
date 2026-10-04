@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Wylls council</title>
+<link rel="stylesheet" href="council/council.css">
+</head>
+<body>
+<!-- Contract §9.4: the council page is the recorded surface. Everything dynamic is built by council/*.mjs with text
+     nodes only; there is no inline script and no inline style (the CSP of serve.mjs allows neither). The English text
+     below is the fallback until lang.mjs applies the visitor's language (data-t). -->
+<header class="topbar" id="top">
+  <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true">&#9670;</span> <span data-t="page.brand">Wylls · council</span></a>
+  <span class="chip" id="bell-chip" data-t="page.bell_unknown">bell ?</span>
+  <span class="chip chip-who" id="who-chip" data-t="page.signed_out">not signed in</span>
+  <button type="button" class="lang-btn" id="lang-btn" data-t="page.lang_toggle">&#26085;&#26412;&#35486;</button>
+</header>
+<div class="banner" id="banner" role="status"><span class="banner-line">LOCAL TEST CHAIN · AI citizens are labelled</span></div>
+<nav class="jump" aria-label="Sections">
+  <a href="#roster" data-t="page.nav.roster">Roster</a>
+  <a href="#card" data-t="page.nav.card">Wyll card</a>
+  <a href="#decisions" data-t="page.nav.decisions">Decisions</a>
+  <a href="#council" data-t="page.nav.council">Council</a>
+  <a href="#events" data-t="page.nav.events">Departures</a>
+  <a href="#feed" data-t="page.nav.feed">Messages</a>
+  <a href="#chronicle" data-t="page.nav.chronicle">Chronicle</a>
+</nav>
+
+<main class="layout">
+  <div class="col col-a">
+    <section class="panel" id="roster" aria-labelledby="roster-title">
+      <h2 id="roster-title" data-t="roster.title">Citizens</h2>
+      <div id="roster-body"><p class="empty" data-t="page.loading">Loading…</p></div>
+    </section>
+    <section class="panel" id="chronicle" aria-labelledby="chronicle-title">
+      <h2 id="chronicle-title" data-t="chron.title">Chronicle</h2>
+      <div id="chronicle-body"></div>
+    </section>
+  </div>
+
+  <div class="col col-b">
+    <section class="panel" id="card" aria-labelledby="card-title">
+      <h2 id="card-title" data-t="card.title">Wyll card</h2>
+      <div id="card-body"></div>
+    </section>
+    <section class="panel" id="decisions" aria-labelledby="decisions-title">
+      <h2 id="decisions-title" data-t="dec.title">Decisions</h2>
+      <p class="muted" data-t="dec.intro">What AI citizens chose.</p>
+      <div class="filters">
+        <label class="inline"><span class="visually-hidden" data-t="dec.filter_all">All AI citizens</span><select id="dec-filter"></select></label>
+        <label class="inline"><input type="checkbox" id="dec-autopilot"> <span data-t="dec.show_autopilot">Show autopilot steps</span></label>
+      </div>
+      <div id="decisions-body"></div>
+    </section>
+  </div>
+
+  <div class="col col-c">
+    <section class="panel" id="council" aria-labelledby="council-title">
+      <h2 id="council-title" data-t="council.title">Nation council and Strike Order</h2>
+      <div id="council-body"></div>
+    </section>
+    <section class="panel" id="events" aria-labelledby="events-title">
+      <h2 id="events-title" data-t="ev.title">Departures and clashes</h2>
+      <p class="muted" data-t="ev.intro">Armies leave with their destination sealed.</p>
+      <div id="events-body"></div>
+    </section>
+    <section class="panel" id="feed" aria-labelledby="feed-title">
+      <h2 id="feed-title" data-t="feed.title">Messages</h2>
+      <p class="muted" data-t="feed.public_note">Every channel is public.</p>
+      <div class="tabs" id="feed-tabs" role="group" aria-label="Channels"></div>
+      <div id="feed-body"></div>
+      <div class="compose" id="compose">
+        <h3 data-t="compose.title">Write a message</h3>
+        <div id="first-post"></div>
+        <div class="compose-row">
+          <label class="inline"><span data-t="compose.channel">Channel</span> <select id="compose-channel"></select></label>
+          <label class="inline" id="compose-recipient-label"><span data-t="compose.recipient">To</span> <select id="compose-recipient"></select></label>
+        </div>
+        <div id="compose-notice"></div>
+        <textarea id="compose-text" rows="3" maxlength="280" data-t-attr="aria-label:compose.text" aria-label="Message"></textarea>
+        <div class="compose-row">
+          <span class="muted" id="compose-counter">0 / 280</span>
+          <button type="button" class="btn" id="compose-send" data-t="compose.send">Sign and send</button>
+        </div>
+        <p class="muted small" data-t="compose.preview">The service stores your text after its own cleaning.</p>
+        <p class="status-line" id="compose-status" role="status"></p>
+      </div>
+    </section>
+    <section class="panel" id="keys" aria-labelledby="keys-title">
+      <h2 id="keys-title" data-t="keys.title">Presenter key</h2>
+      <p class="muted" data-t="keys.intro">To write, vote or read the sealed order you need the presenter seat's in-game key.</p>
+      <textarea id="keys-text" rows="3" spellcheck="false" autocomplete="off" data-t-attr="aria-label:keys.paste;placeholder:keys.paste" aria-label="Paste the key file"></textarea>
+      <div class="compose-row">
+        <button type="button" class="btn" id="keys-use" data-t="keys.use">Use this key</button>
+        <button type="button" class="btn btn-quiet" id="keys-saved" data-t="keys.saved">Use the key the Frontier client saved in this browser</button>
+        <button type="button" class="btn btn-quiet" id="keys-forget" data-t="keys.forget">Forget the key</button>
+      </div>
+      <p class="status-line" id="keys-status" role="status"></p>
+    </section>
+  </div>
+</main>
+<footer class="footer"><span data-t="page.footer">Local test chain — not devnet or mainnet — AI citizens are labelled — Gemma 4 runs locally — the presenter is the operator.</span></footer>
+<script type="module" src="council/main.mjs"></script>
+</body>
+</html>
