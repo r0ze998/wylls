@@ -108,7 +108,10 @@ test('the token file is created 0600 once and reused; stubs of units not built y
     assert.equal(readFileSync(f, 'utf8').trim(), svc.token);
     assert.equal(statSync(f).mode & 0o777, 0o600);
     assert.match(svc.token, /^[0-9a-f]{64}$/);
-    assert.ok(svc.stubs.includes('feed') && svc.stubs.includes('serve') && svc.stubs.includes('watcher'), `stubs: ${svc.stubs}`);
+    // after integ-A the real feed (AC6a) and serve (AC5) load; the watcher (AC6, wave B) is still a stub
+    assert.ok(svc.stubs.includes('watcher'), `stubs: ${svc.stubs}`);
+    assert.equal(svc.stubs.includes('feed'), false, 'the real feed loads');
+    assert.equal(svc.stubs.includes('serve'), false, 'the real serve loads');
     assert.equal(svc.stubs.includes('social'), false, 'the social double was injected');
   } finally {
     await svc.close();
