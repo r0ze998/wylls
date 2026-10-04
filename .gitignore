@@ -37,3 +37,6 @@ test-ledger/
 
 # frontier screens smoke artefacts (W5-E request R2; screenshots stay out of git)
 permutation-gateway/screens/artifacts/
+
+# AI citizens runs (AI_DIR is .local/frontier/ai/<run_id>/ at the repository root)
+/.local/
