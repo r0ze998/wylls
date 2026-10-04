@@ -73,7 +73,7 @@ export function parseDecide(req) {
 export function createMind(deps) {
   const {
     config, llm, scheduler, gate, records, views, sealed, memoryAttach, prompt, speech, clock, metrics, roster, stores,
-    watcher = null, feed = null, now = Date.now, season = 0, stateDir = null, nameOf = null, nationName = null, speechStub = false,
+    watcher = null, feed = null, now = Date.now, season = 0, stateDir = null, nameOf = null, nationName = null,
   } = deps;
   const caps = { ...DEFAULT_CAPS, ...(config.caps ?? {}) };
   const maxTokens = config.llm?.max_tokens ?? { session: 384, reaction: 256, reflection: 512, motion: 160, ballot: 160 };
@@ -187,6 +187,7 @@ export function createMind(deps) {
     if (member?.call) out.push({ pq: [member.call.p, member.call.q], via: 'call' });
     return out.map((e) => ({
       pq: e.pq,
+      nations: e.nations ?? [], // integ-A: AC1b's checker also refuses 'nation 3', 'N3' and 国3 (numbers), not only the names
       names: [...(e.names ?? []), ...(e.nations ?? []).map((n) => nationName?.(n, 'en')).filter(Boolean), ...(e.nations ?? []).map((n) => nationName?.(n, 'ja')).filter(Boolean)],
       numbers: e.numbers ?? [],
       kinds: e.target_kind ? [e.target_kind] : [],
@@ -772,7 +773,7 @@ export function createMind(deps) {
       queue: scheduler.queueState(),
       roster: { ready: roster.ready, n: roster.ai.length },
       bell: clock.bell(),
-      speech: speechStub ? 'stub' : 'real',
+      speech: speech?.stub ? 'stub' : 'real', // integ-A: AC1b's checker says stub: false; there is no stub left
     };
   }
 
@@ -782,7 +783,7 @@ export function createMind(deps) {
     councilCall,
     llmJob,
     health,
-    metrics: () => metrics.snapshot({ bell: clock.bell(), extra: { records: records.stats(), scheduler: scheduler.latencies(), scheduler_counters: scheduler.counters } }),
+    metrics: () => metrics.snapshot({ bell: clock.bell(), extra: { records: records.stats(), scheduler: scheduler.latencies(), scheduler_counters: scheduler.counters, ...(speech?.counts ? { speech: speech.counts() } : {}) } }), // integ-A: AC1b's per-word withhold counts (pact_word, uncited memory claim) for 10.1
     subscribe: (fn) => listeners.push(fn),
     lastSituation: (tag) => lastSituation.get(tag) ?? null,
     /** per-AI counters for the Wyll card stats block (section 2.4): decisions, valid, actions_by_model, actions_by_autopilot, model_marches, messages, strikes_declined, decisions_citing_memory, mem_dropped */

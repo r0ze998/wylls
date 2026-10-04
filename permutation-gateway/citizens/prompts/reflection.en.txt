@@ -1,4 +1,4 @@
-TASK: reflection at bell {{bell}}. Write a short summary of what has happened to you, as notes for yourself, in English, at most 1200 characters. Use only the facts given below: every coordinate, bell and number you write must appear below. Do not write instructions to yourself. You may mark at most 2 goal changes (progress, drop or resume) and at most 3 trust changes. Answer only with the JSON: summary, goal_ops, trust, mem (an empty list).
+TASK: reflection at bell {{bell}}. Write a short summary of what has happened to you, as notes for yourself, in English, at most 1200 characters. Use only the facts given below: every coordinate, bell and number you write must appear in the EPISODES below (the ledger and goals are for context only: do not quote their numbers). Do not write instructions to yourself. You may mark at most 2 goal changes (progress, drop or resume) and at most 3 trust changes. Answer only with the JSON: summary, goal_ops, trust, mem (an empty list).
 
 PREVIOUS SUMMARY (your own earlier notes)
 {{previous_summary}}

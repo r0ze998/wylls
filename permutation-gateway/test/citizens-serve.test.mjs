@@ -122,9 +122,11 @@ const raw = (target, { method = 'GET', headers = {}, body = null } = {}) => new 
 const get = async (p, opts) => { const r = await fetch(base + p, opts); return { status: r.status, headers: r.headers, text: await r.text() }; };
 
 // ------------------------------------------------------------------ the pure helpers
-test('cache headers: <digits>.json and <digits>-<digits>.json are immutable, everything else lives 2 s', () => {
-  for (const n of ['0.json', '402.json', '48-3.json', '12-0.json']) assert.equal(cacheControlFor(n), IMMUTABLE, n);
-  for (const n of ['latest.json', 'current.json', 'a1.json', '402.txt', '1-2-3.json', '-3.json', '12-.json', 'index.json', '402.json.bak']) assert.equal(cacheControlFor(n), SHORT, n);
+test('cache headers: <digits>.json and <digits>-<digits>.json are immutable under talk, minds, open and anchors only; everything else lives 2 s', () => {
+  for (const dir of ['talk', 'minds', 'open', 'anchors']) for (const n of ['0.json', '402.json', '48-3.json', '12-0.json']) assert.equal(cacheControlFor(n, dir), IMMUTABLE, `${dir}/${n}`);
+  for (const n of ['latest.json', 'current.json', 'a1.json', '402.txt', '1-2-3.json', '-3.json', '12-.json', 'index.json', '402.json.bak']) assert.equal(cacheControlFor(n, 'talk'), SHORT, n);
+  // integ-A: the council files are rewritten up to six times per period and the chronicle day files through the day (AC4 notes)
+  for (const dir of ['council', 'chronicle', 'cards', 'memory', null]) for (const n of ['0.json', '402.json', '48-3.json']) assert.equal(cacheControlFor(n, dir), SHORT, `${dir}/${n}`);
   assert.equal(IMMUTABLE, 'public, max-age=31536000, immutable');
   assert.equal(SHORT, 'public, max-age=2');
 });
@@ -192,7 +194,7 @@ test('/h/ai/*: PUB files with content type, CORS * and the pinned cache headers'
   r = await get('/h/ai/talk/402.json');
   assert.equal(r.headers.get('cache-control'), 'public, max-age=31536000, immutable');
   r = await get('/h/ai/council/48-3.json');
-  assert.equal(r.headers.get('cache-control'), 'public, max-age=31536000, immutable');
+  assert.equal(r.headers.get('cache-control'), 'public, max-age=2');
   r = await get('/h/ai/talk/latest.json');
   assert.equal(r.headers.get('cache-control'), 'public, max-age=2');
   r = await get('/h/ai/memory/00aa/episodes.json');

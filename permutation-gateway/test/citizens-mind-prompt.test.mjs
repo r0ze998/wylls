@@ -4,7 +4,6 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { createPromptRenderer, loadTemplates, VARIABLE_BUDGET, estimateTokens } from '../citizens/mind/prompt.mjs';
 import { createMemoryAttach } from '../citizens/mind/memory.mjs';
-import { createSpeechStub } from '../citizens/mind/speech-stub.mjs';
 import { loadWireFixture, makeStores, makeEpisode, renderMemoryDouble, renderPersonaDouble, nameOfDouble, personaOfDouble, makeRosterJson, TAGS, WALLETS } from './fixtures/ai-mind-doubles.mjs';
 import { createRoster, createViews } from '../citizens/mind/views.mjs';
 
@@ -17,7 +16,7 @@ function setup({ episodes = [makeEpisode(1), makeEpisode(2), makeEpisode(3)], in
   const stores = makeStores({ episodes });
   const views = createViews({ social: { read: { council: () => council, inbox: () => inbox, hall: () => hall }, memberCall: () => null }, stores, roster, personaOf: personaOfDouble });
   const own = views.ownState(TAGS[0], 40);
-  const renderer = createPromptRenderer({ templatesDir: TEMPLATES, countTokens, speech: createSpeechStub(), renderPersona: renderPersonaDouble, nameOf: nameOfDouble });
+  const renderer = createPromptRenderer({ templatesDir: TEMPLATES, countTokens, renderPersona: renderPersonaDouble, nameOf: nameOfDouble });
   const attachApi = createMemoryAttach({ renderMemory: renderMemoryDouble });
   const attach = (budget, handleOf) => attachApi.attach({ ownState: { ...own, bell: 40 }, request, bell: 40, inboxTags: [...new Set(inbox.map((r) => r.tag))], budgetTokens: budget, handleOf });
   const run = (extra = {}) => renderer.render({ kind, request, publicView: views.publicView(), ownState: { ...own, bell: 40 }, memberView: { call: null }, attach, bell: 40, inbox, hall, speechLang: 'ja', messagesLeft, ...extra });
@@ -209,7 +208,7 @@ test('templates: loaded from prompts/, hashed, and free of the deferred mechanic
 });
 
 test('the reflection prompt is rendered from the template (previous summary wrapped as memory, episodes as memory)', () => {
-  const renderer = createPromptRenderer({ templatesDir: TEMPLATES, speech: createSpeechStub(), renderPersona: renderPersonaDouble, nameOf: nameOfDouble });
+  const renderer = createPromptRenderer({ templatesDir: TEMPLATES, renderPersona: renderPersonaDouble, nameOf: nameOfDouble });
   const { messages } = renderer.renderReflection({ bell: 288, previousSummary: { bell: 216, text: 'I cleared two camps.' }, ledgerDigest: 'day 2', goals: [{ id: 'G1', text: 'keep armies', progress: 40 }], episodes: [{ bell: 250, text: 'At bell 250 something.' }], ownState: { tag: TAGS[0], name: { en: 'Ai0' } } });
   assert.equal(messages.length, 2);
   assert.match(messages[1].content, /TASK: reflection at bell 288/);

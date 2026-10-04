@@ -149,21 +149,25 @@ test('the service refuses to run when the commitments name another config (secti
   await svc.close();
 });
 
-test('without AC1b\'s speech module and without allow_speech_stub the service refuses to start (never an unnoticed stub)', async () => {
+test('without AC1b\'s speech module the service refuses to start, in test mode too (there is no stub: A.5 grep)', async () => {
   const aiDir = mkdtempSync(join(tmpdir(), 'ai-svc-'));
   // valid ports in the AI window; the refusal happens before anything is bound
   await assert.rejects(
-    createCitizensService({ aiDir, herald: 'http://127.0.0.1:41940', llm: 'http://127.0.0.1:41901', mindPort: 41984, socialPort: 41985, servePort: 41986 }, { config: { ...CONFIG, allow_speech_stub: false }, stores: makeStores(), renderMemory: renderMemoryDouble, speechModule: 'mind/does-not-exist.mjs' }),
+    createCitizensService({ aiDir, herald: 'http://127.0.0.1:41940', llm: 'http://127.0.0.1:41901', mindPort: 41984, socialPort: 41985, servePort: 41986 }, { config: CONFIG, stores: makeStores(), renderMemory: renderMemoryDouble, speechModule: 'mind/does-not-exist.mjs' }),
+    (e) => e.code === 'NoSpeech',
+  );
+  await assert.rejects(
+    createCitizensService({ aiDir, herald: 'http://127.0.0.1:41940', llm: 'http://127.0.0.1:41901', mindPort: 0, socialPort: 0, servePort: 0 }, { test: true, config: CONFIG, stores: makeStores(), renderMemory: renderMemoryDouble, speechModule: 'mind/does-not-exist.mjs' }),
     (e) => e.code === 'NoSpeech',
   );
 });
 
-test('with the stub allowed for tests the health route says speech: "stub" (and "real" once AC1b\'s module is in the tree)', async () => {
-  const { svc } = await start({ over: { speech: undefined, speechModule: 'mind/does-not-exist.mjs' } });
+test('with AC1b\'s module in the tree the service builds the real speech checker (V5/V5b): health says real, no speech stub, /v1/metrics carries its per-word counts', async () => {
+  const { svc } = await start({ over: { speech: undefined } });
   try {
-    assert.equal(svc.speechStub, true);
-    assert.equal((await call(svc, '/v1/health')).json.speech, 'stub');
-    assert.ok(svc.stubs.includes('speech'));
+    assert.equal((await call(svc, '/v1/health')).json.speech, 'real');
+    assert.ok(!svc.stubs.includes('speech'));
+    assert.equal(typeof svc.mind.metrics().speech.reasons, 'object');
   } finally {
     await svc.close();
   }

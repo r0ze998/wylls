@@ -39,8 +39,14 @@ export const UPSTREAM_TIMEOUT_MS = 30_000;
 
 export const IMMUTABLE = 'public, max-age=31536000, immutable';
 export const SHORT = 'public, max-age=2';
-/** `<digits>.json` and `<digits>-<digits>.json` are final once written (§8.3); everything else is re-read after 2 s. */
-export const cacheControlFor = name => (/^\d+(-\d+)?\.json$/.test(name) ? IMMUTABLE : SHORT);
+/**
+ * `<digits>.json` and `<digits>-<digits>.json` are final once written (§8.3) ONLY under the directories whose files are
+ * written once: talk/, minds/ (incl. minds/late/), open/ and anchors/. integ-A deviation from the literal §8.3 text:
+ * council/<k>-<f>.json is rewritten up to six times per period and chronicle/<day>.json through the day, so they get the
+ * short lifetime (AC4 notes, open point 1). Everything else is re-read after 2 s.
+ */
+export const IMMUTABLE_DIRS = Object.freeze(['talk', 'minds', 'open', 'anchors']);
+export const cacheControlFor = (name, dir = null) => (/^\d+(-\d+)?\.json$/.test(name) && IMMUTABLE_DIRS.includes(dir) ? IMMUTABLE : SHORT);
 
 /** The CSP of the council page (the herald's own for /frontier/: nothing but this origin; wasm only for the read-only web imports). */
 export const PAGE_CSP = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
@@ -248,7 +254,7 @@ export function createServe({ aiDir, herald, social, port = 0, pageDir, host = '
       }
       const etag = `W/"${st.size.toString(16)}-${Math.floor(st.mtimeMs).toString(16)}"`;
       headers['content-type'] = types[extOf(name)];
-      headers['cache-control'] = cache(name);
+      headers['cache-control'] = cache(name, segs[0] ?? null);
       headers.etag = etag;
       if (req.headers['if-none-match'] === etag) { await fh.close(); res.writeHead(304, headers); return res.end(); }
       headers['content-length'] = st.size;

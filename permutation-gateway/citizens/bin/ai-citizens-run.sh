@@ -278,7 +278,7 @@ fi
 # the citizens service (mind, social, serve) under the Node permission model; it holds no key
 perm_flags
 bg citizens "$NODE" "${PERM_FLAGS[@]}" "$REPO/$CPUB/server.mjs" \
-  --herald "$HERALD" --llm "$LLM" --mind-port "$MIND_PORT" --social-port "$SOCIAL_PORT" --serve-port "$SERVE_PORT" --ai-dir "$AI_DIR" --config "$CCONFIG" --run-id "$RUN_ID"
+  --herald "$HERALD" --llm "$LLM" --mind-port "$MIND_PORT" --social-port "$SOCIAL_PORT" --serve-port "$SERVE_PORT" --ai-dir "$AI_DIR" --config "$CCONFIG" --run-id "$RUN_ID" --season "$SEASON_ID"
 if [ "$DRY" = 0 ]; then
   wait_http "$SERVE/serve-health" "$WAIT_SERVICE" || fail "the citizens service did not come up (see $LOGS/citizens.log)"
 else

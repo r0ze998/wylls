@@ -4,8 +4,14 @@
 //   createWaveAWatcher({feed})     the "stub that returns feed wakes only" of 11.6, until AC6's watcher is merged
 //   createEpisodePump({...})       feeds the real feed through episodes_from_events into the AC2 stores
 //
+//   socialReadViews({book,..})     the `social.read` shape AC1a's views read (sync), over AC4's real social store
+//   socialClock(clock)             the {bell(), unix()} clock AC4's store reads, over the mind's game clock
+//   provenanceOf(records)          AC1a's records as the {provenance, consume} AC4's book asks (consume tries both types)
+//
 // Nothing here decides anything about play: it moves public facts from the feed into the stores and the wake list.
 // Every number a wake carries is a count from a public record.
+
+import { statSync } from 'node:fs';
 
 const DEFAULT_LOOKBACK_BELLS = 40; // the producer reads rows up to ref + 14 bells; episodes older than this were created already
 
@@ -164,4 +170,76 @@ export function createEpisodePump({ feed, stores, views, roster, clock, config =
     },
   };
   return api;
+}
+
+// ------------------------------------------------------------------ AC4's social store as AC1a's views read it
+
+/**
+ * AC1a's `views.mjs` read `social.read.{council, inbox, hall}` synchronously (the shapes of its header comment); AC4's
+ * store offers `book.list` (sync), `book.inbox` (async) and `council.publicState` (sync). This adapter keeps an
+ * incremental row cache over `book.list` and drops it when `pub/redactions.json` changes (a redacted message must not
+ * stay in a prompt). Rows are AC4's `messageView`s: `channel` is numeric (0 world, 1 nation, 3 direct) and `target` is the
+ * nation number (nation) or the recipient's base58 wallet (direct); the prompt reads 3 as direct. What this returns is
+ * what `/f/ai/*` serves anyway: no ballot, no sealed Call, no client address.
+ */
+export function socialReadViews({ book, council, pubDir = null, roster = null, statFn = statSync }) {
+  let rows = [];
+  let cursor = 0;
+  let tomb = null;
+  function refresh() {
+    let m = null;
+    if (pubDir) {
+      try {
+        m = statFn(`${pubDir}/redactions.json`).mtimeMs;
+      } catch {
+        m = null;
+      }
+    }
+    if (m !== tomb) {
+      tomb = m;
+      rows = [];
+      cursor = 0;
+    }
+    for (let guard = 0; guard < 1000; guard++) {
+      const r = book.list({ after: cursor, limit: 200 });
+      if (!r.messages.length) break;
+      rows.push(...r.messages);
+      cursor = r.next;
+      if (r.messages.length < 200) break;
+    }
+  }
+  const factionOf = (wallet) => roster?.byWallet?.(wallet)?.faction ?? null;
+  return {
+    /** the nation's latest council period, public fields only (never the ballots or the split) */
+    council(f) {
+      const s = council.publicState(f);
+      if (!s || s.period == null) return null;
+      const { ballots, tally_split, ...pub } = s;
+      return pub;
+    },
+    /** rows addressed to the wallet: direct messages to it and the nation channel of its own nation */
+    inbox(wallet) {
+      refresh();
+      const f = factionOf(wallet);
+      return rows.filter((r) => (r.channel === 3 && r.target === wallet) || (r.channel === 1 && f != null && r.target === f));
+    },
+    /** the nation channel of nation f, oldest first, last `limit` */
+    hall(f, limit = 5) {
+      refresh();
+      return rows.filter((r) => r.channel === 1 && r.target === f).slice(-limit);
+    },
+  };
+}
+
+/** The clock AC4's store reads: the game bell and chain time in seconds (the mind's game clock, wall time before its anchor). */
+export function socialClock(clock, nowMs = Date.now) {
+  return { bell: () => clock.bell(), unix: () => clock.gameNow?.() ?? nowMs() / 1000 };
+}
+
+/** AC1a's records as AC4's book asks for them: `provenance(id, item, type)` and `consume(id, item)` (talk and ballot items alike). */
+export function provenanceOf(records) {
+  return {
+    provenance: (id, item, type) => records.provenance(id, item, type),
+    consume: (id, item) => records.consume(id, item, 'talk') || records.consume(id, item, 'ballot'),
+  };
 }

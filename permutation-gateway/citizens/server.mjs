@@ -27,9 +27,9 @@ import { createPromptRenderer } from './mind/prompt.mjs';
 import { createViews, createRoster } from './mind/views.mjs';
 import { createMind, createMindHttp } from './mind/api.mjs';
 import { createClock, createCloser } from './mind/closer.mjs';
-import { createSpeechStub } from './mind/speech-stub.mjs';
+import { sanitize as mindSanitize } from './mind/sanitize.mjs';
 import { permissionFlags } from './mind/permissions.mjs';
-import { feedView, createWaveAWatcher, createEpisodePump } from './mind/wiring.mjs';
+import { feedView, createWaveAWatcher, createEpisodePump, socialReadViews, socialClock, provenanceOf } from './mind/wiring.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ZERO32 = '0'.repeat(64);
@@ -85,7 +85,7 @@ async function discoverGenesis(heraldUrl, fetchImpl = globalThis.fetch) {
 /**
  * Build and start the service. `overrides` replaces any collaborator (tests, and the integrator's wiring):
  * {config, speech, stores, renderMemory, renderPersona, personaOf, nameOf, nationName, feed, social, watcher, serve,
- *  llm, clock, speechModule (path under citizens/ of the speech module, for tests), test: true (allows port 0 and any
+ *  llm, clock, socialHerald (a `me(wallet)` client for the real social store, tests), speechModule (path under citizens/ of the speech module, for tests), test: true (allows port 0 and any
  *  loopback llama port), noCloserTimer, genesisTs, fetch}.
  */
 export async function createCitizensService(opts, overrides = {}) {
@@ -113,16 +113,13 @@ export async function createCitizensService(opts, overrides = {}) {
   }
 
   // ---- collaborators ------------------------------------------------------------------------------
+  // integ-A: AC1b's mind/speech.mjs is merged and the labelled stub (mind/speech-stub.mjs) is deleted (A.5 grep): the service
+  // refuses to run without V5/V5b
   let speech = overrides.speech ?? null;
-  let speechStub = false;
   if (!speech) {
     const mod = await tryImport(overrides.speechModule ?? 'mind/speech.mjs');
     if (mod?.createSpeech) speech = mod.createSpeech({ config });
-    else if (config.allow_speech_stub || test) {
-      speech = createSpeechStub();
-      speechStub = true;
-      stubs.push('speech');
-    } else throw new GuardError('NoSpeech', 'mind/speech.mjs (AC1b) is missing: the service refuses to run without V5/V5b (set allow_speech_stub only for tests)');
+    else throw new GuardError('NoSpeech', 'mind/speech.mjs (AC1b) is missing: the service refuses to run without V5/V5b');
   }
   const namesMod = overrides.nameOf ? null : await tryImport('persona/names.mjs');
   const nameOf = overrides.nameOf ?? namesMod?.nameOf ?? null;
@@ -183,15 +180,19 @@ export async function createCitizensService(opts, overrides = {}) {
     else stubs.push('feed');
   }
   let social = overrides.social ?? null;
+  const EMPTY_ROSTER = { ai: [], script: { wallets: [] }, seat: null };
   if (!social) {
-    for (const rel of ['social/index.mjs', 'social/routes.mjs']) {
-      const mod = await tryImport(rel);
-      if (mod?.createSocial) {
-        social = mod.createSocial({ herald, aiDir: PUB, roster, clock, provenance: (id, item, type) => records.provenance(id, item, type), consume: (id, item, type) => records.consume(id, item, type) });
-        break;
-      }
-    }
-    if (!social) {
+    // integ-A: AC4's real store (the slice ran on a stub). aiDir is AI_DIR (the store writes pub/talk, pub/council and
+    // state/social itself); the roster is the registrar's roster.json as read above (the same object until it changes);
+    // provenance is AC1a's records (AC4 asks for the mind's signed-ready output of a decision); the sanitiser is AC1b's
+    // (one sanitiser for the mind, the store and the page); the season is the stack's (the run script passes --season)
+    const mod = await tryImport('social/routes.mjs');
+    if (mod?.createSocial) {
+      social = mod.createSocial({
+        herald: overrides.socialHerald ?? herald, aiDir, roster: () => rosterJsonCur ?? EMPTY_ROSTER, clock: socialClock(clock), provenance: provenanceOf(records), sanitize: mindSanitize, config: config.council ?? {}, season,
+      });
+      social.read = socialReadViews({ book: social.book, council: social.council, pubDir: PUB, roster });
+    } else {
       social = stubSocial(PUB);
       stubs.push('social');
     }
@@ -230,7 +231,14 @@ export async function createCitizensService(opts, overrides = {}) {
   const feedForMind = feed && !overrides.feed ? feedView(feed, { throughBell: () => (pump ? pump.throughBell() : -1), tick: () => pump?.tick() }) : feed;
   const views = createViews({ social, feed: feedForMind, stores, roster, nameOf, clock, sealed, personaOf });
   pump = feed && !overrides.feed && feed.prepare ? createEpisodePump({ feed, stores, views, roster, clock, config: { redactions: [] }, onError: (e) => console.error('episode pump:', String(e?.message ?? e)) }) : null;
-  const mind = createMind({ config, llm, scheduler, gate, records, views, sealed, memoryAttach, prompt, speech, clock, metrics, roster, stores, watcher, feed: feedForMind, season, stateDir: STATE, nameOf, nationName, speechStub });
+  const mind = createMind({ config, llm, scheduler, gate, records, views, sealed, memoryAttach, prompt, speech, clock, metrics, roster, stores, watcher, feed: feedForMind, season, stateDir: STATE, nameOf, nationName });
+  // integ-A: AC1b's reflection job (section 5.3, the first memory feature to drop: config.memory.reflection false turns it off).
+  // It subscribes to the mind's `reflect_due` event; without this call no reflection runs.
+  const reflMod = overrides.reflection === false ? null : await tryImport('mind/reflection.mjs');
+  const reflection = reflMod?.createReflection
+    ? reflMod.createReflection({ mind, prompt, stores, views, speech, metrics, records, clock, roster, config, renderPersona, nameOf, nationName, sealed, season, stateDir: STATE })
+    : null;
+  if (!reflection && config.memory?.reflection !== false) stubs.push('reflection');
   // diagnostics for the slice gate and the run: what the feed and the episode pump have done (counts only)
   const baseHealth = mind.health;
   mind.health = async () => ({
@@ -285,12 +293,17 @@ export async function createCitizensService(opts, overrides = {}) {
   let serve = overrides.serve ?? null;
   if (!serve) {
     const mod = await tryImport('serve.mjs');
-    if (mod?.createServe) serve = mod.createServe({ aiDir: PUB, herald, social: `http://127.0.0.1:${socialPort}`, port: servePort, pageDir: resolve(HERE, '../../permutation-server/web/frontier') });
-    else stubs.push('serve');
+    // integ-A: createServe takes AI_DIR and appends /pub itself (the slice runs passed PUB and served AI_DIR/pub/pub: an empty /h/ai/)
+    if (mod?.createServe) {
+      serve = mod.createServe({
+        aiDir, herald, social: `http://127.0.0.1:${socialHttp?.address()?.port ?? socialPort}`, port: servePort, pageDir: resolve(HERE, '../../permutation-server/web/frontier'),
+      });
+    } else stubs.push('serve');
   }
   if (serve?.listen) await serve.listen();
   if (feed?.start) await feed.start();
   watcher?.start?.();
+  reflection?.start?.();
 
   // ---- timers: roster poll, genesis discovery, bell closer --------------------------------------------------
   const timers = [];
@@ -315,12 +328,13 @@ export async function createCitizensService(opts, overrides = {}) {
   if (!overrides.noCloserTimer) closer.startTimer(1000);
 
   return {
-    mind, closer, records, roster, clock, stores, social, watcher, feed, pump, metrics, scheduler, gate, token, tokenPath, stubs, configSha, speechStub,
+    mind, closer, records, roster, clock, stores, social, watcher, feed, pump, reflection, serve, metrics, scheduler, gate, token, tokenPath, stubs, configSha,
     ports: { mind: mindHttp.address().port, social: socialHttp?.address()?.port ?? null },
     reloadRoster,
     async close() {
       closer.stopTimer();
       for (const t of timers) clearInterval(t);
+      reflection?.stop?.();
       watcher?.stop?.();
       feed?.stop?.();
       await serve?.close?.();
