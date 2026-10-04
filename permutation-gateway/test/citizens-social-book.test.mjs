@@ -235,6 +235,20 @@ test('AI provenance: origin 1, a decision_id and an item; the mind\'s signed-rea
   await refused(book.submit('talk', say({ text: 'z' }, { decision_id: 'w1', item: 0 }).body), 'NotFromMind');
 });
 
+test('a human wallet cannot burn an AI decision\'s (decision_id, item); the use is keyed by record type', async () => {
+  const w = world({ persist: false });
+  const outputs = new Map([['d9|0|talk', { type: 'talk', bell: 402, text: 'hello' }]]);
+  const book = w.mk({ provenance: (id, item, type) => outputs.get(`${id}|${item}|${type}`) ?? null });
+  // alice (a human) sends a record that carries the AI's decision id and item: accepted as a human record, nothing is consumed
+  assert.ok((await book.submit('talk', w.b.talk(w.cits.alice, { text: 'whatever' }, { decision_id: 'd9', item: 0 }).body)).ok);
+  // the AI's genuine record for d9 / item 0 is still accepted, once
+  assert.ok((await book.submit('talk', w.b.talk(w.cits.ai0, { origin: 1, text: 'hello' }, { decision_id: 'd9', item: 0 }).body)).ok, 'the human did not use it up');
+  await refused(book.submit('talk', w.b.talk(w.cits.ai0, { origin: 1, text: 'hello' }, { decision_id: 'd9', item: 0 }).body), 'Duplicate');
+  // a talk item 0 and a ballot item 0 of one decision are two different uses
+  outputs.set('d10|0|talk', { type: 'talk', bell: 402, text: 'again' });
+  assert.ok((await book.submit('talk', w.b.talk(w.cits.ai0, { origin: 1, text: 'again' }, { decision_id: 'd10', item: 0 }).body)).ok);
+});
+
 test('a bare provenance function works too, and the book remembers the use itself', async () => {
   const w = world({ persist: false });
   const book = w.mk({ provenance: () => ({ bell: 402, text: 'hi' }) });

@@ -27,6 +27,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Keypair, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
 import bs58 from 'bs58';
+import { promptTemplatesSha256 } from './mind/prompt.mjs';
 
 /** True when this file is the program being run (symlinked temp directories, such as macOS /var, resolve to the same real path). */
 function isMain() {
@@ -202,6 +203,18 @@ export function filesSha256(dir, ext) {
   const lines = fs.readdirSync(dir).filter(n => n.endsWith(ext)).sort().map(n => `${n}\0${sha256File(path.join(dir, n))}\n`);
   return sha256hex(lines.join(''));
 }
+/**
+ * `episode_kinds_sha256`: sha256 of the canonical JSON of the sorted episode kinds, which are the keys of `kinds` in
+ * `memory/templates.en.json` (the kinds that have a text template; memory/config.mjs KINDS is the same list, a test ties them).
+ * Null when the file or its `kinds` is missing (visible in the file; the first version hashed the file's TOP-LEVEL keys, a
+ * constant that did not move when a kind was added).
+ */
+export function episodeKindsSha256(templatesPath) {
+  if (!fs.existsSync(templatesPath)) return null;
+  const kinds = JSON.parse(fs.readFileSync(templatesPath, 'utf8')).kinds;
+  if (!kinds || typeof kinds !== 'object') return null;
+  return sha256hex(canonicalJson(Object.keys(kinds).sort()));
+}
 /** The git tree hash of `repoPath` at HEAD, or null when HEAD has no such path. */
 export function gitTree(repoRoot, repoPath) {
   try { return execFileSync('git', ['-C', repoRoot, 'rev-parse', `HEAD:${repoPath}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return null; }
@@ -256,7 +269,7 @@ export function collectInputs(opts) {
   const memDir = path.join(cit, 'memory');
   const episodesFile = path.join(memDir, 'episodes.mjs');
   const kindsSource = path.join(memDir, 'templates.en.json');
-  const episodeKinds = fs.existsSync(kindsSource) ? sha256hex(canonicalJson(Object.keys(JSON.parse(fs.readFileSync(kindsSource, 'utf8'))).sort())) : null;
+  const episodeKinds = episodeKindsSha256(kindsSource);
   const llama = opts.llama ?? {};
   const flags = llama.flags ?? [...PINNED_LLAMA_FLAGS];
   const model = opts.model ?? { ...PINNED_MODEL };
@@ -276,7 +289,7 @@ export function collectInputs(opts) {
     sampling: { temperature: 0, top_k: 1, cache_prompt: false, seed_rule: SEED_RULE },
     code: {
       git_commit: gitHead(root),
-      prompt_templates_sha256: filesSha256(path.join(cit, 'prompts'), '.txt'),
+      prompt_templates_sha256: fs.existsSync(path.join(cit, 'prompts')) ? promptTemplatesSha256(path.join(cit, 'prompts')) : null,
       mind_tree: gitTree(root, 'permutation-gateway/citizens'),
       candidate_generator_tree: combinedTreeHash(root, ['frontier-node/crates/bots/src', 'frontier-node/crates/agents/src']),
       page_tree: gitTree(root, 'permutation-server/web/frontier/council'),
@@ -536,8 +549,16 @@ export async function anchorPass({ aiDir, kp, rpc, season, state = { failed: new
   for (const bell of talk) {
     if (have.has(bell)) continue;
     const roots = closedBellRoots(pub, bell);
-    if (!roots) continue;
     const file = path.join(pub, 'anchors', `${bell}.json`);
+    if (!roots) {
+      // the talk file is there but the minds file never came: once ANCHOR_RETRY_BELLS later bells have closed this is a gap
+      // (before, such a bell was skipped forever, with neither an anchor nor an anchor_gap, and M3 could not name it)
+      if (newest - bell >= ANCHOR_RETRY_BELLS && !fs.existsSync(path.join(pub, 'minds', `${bell}.json`))) {
+        writeAtomic(file, `${JSON.stringify({ bell, social_root: readJson(path.join(pub, 'talk', `${bell}.json`)).root ?? ZERO_ROOT, minds_root: null, signature: null, slot: null, anchor_gap: true, reason: 'minds file missing' })}\n`);
+        done.gaps.push(bell);
+      }
+      continue;
+    }
     try {
       const memo = await sendMemo(rpc, kp, anchorMemoText(season, bell, roots.social_root, roots.minds_root));
       writeAtomic(file, `${JSON.stringify({ bell, ...roots, signature: memo.signature, slot: memo.slot })}\n`);

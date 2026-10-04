@@ -44,7 +44,7 @@ function makeRepo() {
   f('permutation-gateway/citizens/persona/library.json', '{"personas":[{"id":"avenger","ambition":"Avenger"}]}\n');
   f('permutation-gateway/citizens/persona/decks/deck-2.json', '["avenger","diplomat"]\n');
   f('permutation-gateway/citizens/memory/episodes.mjs', 'export {};\n');
-  f('permutation-gateway/citizens/memory/templates.en.json', '{"attacked_own":"x","threat":"y"}\n');
+  f('permutation-gateway/citizens/memory/templates.en.json', '{"v":1,"lang":"en","kinds":{"attacked_own":"x","threat":"y"},"words":{},"items":{}}\n');
   f('permutation-gateway/citizens/injection/corpus.json', '[]\n');
   f('frontier-node/crates/bots/src/lib.rs', '// bots\n');
   f('frontier-node/crates/agents/src/lib.rs', '// agents\n');
@@ -397,6 +397,27 @@ test('anchors: one memo per closed bell (oldest first, only when both roots exis
   } finally { await closeAll(chain.srv); }
 });
 
+test('a bell with a talk file but no minds file becomes an anchor_gap once 3 later bells have closed (it was skipped forever before)', async () => {
+  const chain = await fakeChain();
+  try {
+    const aiDir = path.join(tmp, 'run-hm');
+    const kp = R.loadOrCreateKey(path.join(aiDir, 'keys', 'registrar.json'), aiDir);
+    const rpc = new R.Rpc(chain.url);
+    writeBell(aiDir, 20, { mindsToo: false });
+    writeBell(aiDir, 21); writeBell(aiDir, 22);
+    let r = await R.anchorPass({ aiDir, kp, rpc, season: 31 });
+    assert.deepEqual(r.gaps, [], 'recent: the minds file may still come');
+    assert.deepEqual(r.anchored, [21, 22]);
+    writeBell(aiDir, 23);
+    r = await R.anchorPass({ aiDir, kp, rpc, season: 31 });
+    assert.deepEqual(r.gaps, [20]);
+    const gap = JSON.parse(read(path.join(aiDir, 'pub', 'anchors', '20.json')));
+    assert.deepEqual([gap.anchor_gap, gap.signature, gap.minds_root, gap.reason], [true, null, null, 'minds file missing']);
+    assert.equal(gap.social_root, social(20));
+    assert.deepEqual((await R.anchorPass({ aiDir, kp, rpc, season: 31 })).gaps, [], 'written once');
+  } finally { await closeAll(chain.srv); }
+});
+
 test('a memo that cannot be sent is retried and becomes an anchor_gap once 3 later bells have closed; order is kept', async () => {
   let failing = true;
   const chain = await fakeChain({ failSend: () => failing });
@@ -602,4 +623,34 @@ test('main: slots, commit --prepare-only, runs-add and runs-end; unknown command
 test('the registrar source holds no outside URL, no paid-API name and no public-network word (the G10 grep, outside bin/)', () => {
   const src = read(new URL('../citizens/registrar.mjs', import.meta.url).pathname);
   assert.doesNotMatch(src, /anthropic|openai|devnet|https?:\/\/(?!127\.0\.0\.1|\[::1\]|localhost)/i);
+});
+
+// ------------------------------------------------------------------ the two code hashes that were vacuous or double-defined (integ-A review)
+test('episode_kinds_sha256 commits to the episode KINDS (the real templates file lists exactly memory/config.mjs KINDS) and moves when a kind is added', async () => {
+  const { KINDS } = await import('../citizens/memory/config.mjs');
+  const real = new URL('../citizens/memory/templates.en.json', import.meta.url).pathname;
+  assert.equal(R.episodeKindsSha256(real), R.sha256hex(R.canonicalJson([...KINDS].sort())), 'the template kinds are the KINDS');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kinds-'));
+  const f = path.join(dir, 't.json');
+  fs.writeFileSync(f, JSON.stringify({ kinds: { a: 'x', b: 'y' } }));
+  const h2 = R.episodeKindsSha256(f);
+  fs.writeFileSync(f, JSON.stringify({ kinds: { a: 'x', b: 'y', c: 'z' } }));
+  assert.notEqual(R.episodeKindsSha256(f), h2, 'adding a kind changes the hash (the top-level-keys version was a constant)');
+  fs.writeFileSync(f, JSON.stringify({ kinds: { b: 'q', a: 'p' } }));
+  assert.equal(R.episodeKindsSha256(f), h2, 'order and texts do not matter, only the kinds');
+  fs.writeFileSync(f, JSON.stringify({ a: 1 }));
+  assert.equal(R.episodeKindsSha256(f), null, 'no `kinds`: null, visible');
+});
+
+test('prompt_templates_sha256 has one definition: the registrar\'s commitment equals what the mind computes for the real prompts directory', async () => {
+  const { loadTemplates, promptTemplatesSha256 } = await import('../citizens/mind/prompt.mjs');
+  const dir = new URL('../citizens/prompts', import.meta.url).pathname;
+  assert.equal(loadTemplates(dir).sha256, promptTemplatesSha256(dir));
+  assert.equal(R.filesSha256(dir, '.txt'), promptTemplatesSha256(dir));
+  // a changed template changes it
+  const d2 = fs.mkdtempSync(path.join(os.tmpdir(), 'tpl-'));
+  fs.writeFileSync(path.join(d2, 'a.txt'), 'one\n');
+  const h = promptTemplatesSha256(d2);
+  fs.writeFileSync(path.join(d2, 'a.txt'), 'two\n');
+  assert.notEqual(promptTemplatesSha256(d2), h);
 });

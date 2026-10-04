@@ -25,17 +25,24 @@ export const DEFAULT_UNITS = ['Spearman', 'Archer', 'Horseman', 'Pikeman', 'Cros
 const TEMPLATE_FILES = ['system', 'persona', 'session', 'reaction', 'motion', 'ballot', 'reflection'];
 const SPEECH_LANG = { ja: 'Japanese', en: 'English' };
 
+/**
+ * `prompt_templates_sha256` of the commitments (contract 7.1), ONE definition for the mind and the registrar: sha256 over the
+ * lines `<name>\0<sha256 of the file's bytes>\n` of every `*.txt` directly in `dir`, sorted by name. (The first versions had
+ * two: this module hashed the file texts in load order, the registrar hashed name and file hash lines; only this one is
+ * used now, by `loadTemplates` here and by the registrar's commitments.)
+ */
+export function promptTemplatesSha256(dir) {
+  const lines = readdirSync(dir)
+    .filter((n) => n.endsWith('.txt'))
+    .sort()
+    .map((n) => `${n}\0${createHash('sha256').update(readFileSync(`${dir}/${n}`)).digest('hex')}\n`);
+  return createHash('sha256').update(lines.join('')).digest('hex');
+}
+
 export function loadTemplates(dir) {
   const t = {};
-  const parts = [];
-  for (const k of TEMPLATE_FILES) {
-    const text = readFileSync(`${dir}/${k}.en.txt`, 'utf8');
-    t[k] = text.replace(/\n+$/, '');
-    parts.push(text);
-  }
-  const extra = readdirSync(dir).filter((f) => f.endsWith('.txt') && !TEMPLATE_FILES.some((k) => f === `${k}.en.txt`)).sort();
-  for (const f of extra) parts.push(readFileSync(`${dir}/${f}`, 'utf8'));
-  return { t, sha256: createHash('sha256').update(parts.join('\u0000')).digest('hex') };
+  for (const k of TEMPLATE_FILES) t[k] = readFileSync(`${dir}/${k}.en.txt`, 'utf8').replace(/\n+$/, '');
+  return { t, sha256: promptTemplatesSha256(dir) };
 }
 
 const fill = (tpl, vars) => tpl.replace(/\{\{(\w+)\}\}/g, (_, k) => (vars[k] != null ? String(vars[k]) : ''));

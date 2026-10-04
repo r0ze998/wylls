@@ -113,7 +113,7 @@ const nameOf = (tag, entry) => {
  * - `roster`: the signed roster (§8.3) or a function returning it (it appears after the deal): `{ai:[{wallet, tag, faction, name}], script:{wallets}, seat:{wallet, tag, faction, scripted}}`.
  * - `clock`: `{bell(): number | null, unix(): number}` (the game bell and the chain time in seconds).
  * - `herald`: an object with `me(wallet) → {ok, citizen, holdings} | {ok:false, code}` (web/frontier/herald.mjs `createHerald` has this shape) or a base URL.
- * - `provenance`: `(decision_id, item, type) → expected | null` (sync or async), or `{provenance, consume}` (AC1a `createRecords`); the book also remembers consumed `(decision_id, item)` itself.
+ * - `provenance`: `(decision_id, item, type) → expected | null` (sync or async), or `{provenance, consume}` (AC1a `createRecords`); the book also remembers consumed `(type, decision_id, item)` of AI wallets itself; `consume(decision_id, item, type)`.
  */
 export function createBook({
   aiDir = null, roster = {}, season, clock, herald, provenance = null, sanitize = defaultSanitize, now = () => Date.now(), meTtlMs = 15_000,
@@ -267,7 +267,9 @@ export function createBook({
       lastSeq.set(rec.wallet, rec.view.seq);
       for (const [m, k] of [[talkBell, `${rec.wallet}|${rec.bell}`], [talkDay, `${rec.wallet}|${dayOf(rec.bell)}`]]) m.set(k, (m.get(k) ?? 0) + 1);
     }
-    if (rec.decision_id !== undefined) consumed.add(`${rec.decision_id}|${rec.item}`);
+    // only an AI wallet's record uses up a mind output (a human may send any decision_id: it must not burn the AI's), and the
+    // key carries the record type like the mind's own `records.consume`
+    if (rec.decision_id !== undefined && rec.kindOfWallet === 'ai') consumed.add(`${rec.type}|${rec.decision_id}|${rec.item}`);
     if (!replay) {
       journal({ t: 'rec', id: rec.id, type: rec.type, bell: rec.bell, wallet: rec.wallet, tag: rec.tag, faction: rec.faction, kind: rec.kindOfWallet, origin: rec.origin, bytes_b64: toBase64(rec.bytes), sig_b64: toBase64(rec.sig), decision_id: rec.decision_id, item: rec.item, recipient_ai: rec.recipient_ai });
     }
@@ -367,7 +369,7 @@ export function createBook({
       if (dec.channel === CHANNEL.nation && dec.target !== faction) refuse('NotMember', 'a nation message goes to the sender\'s own nation');
     }
     if (w.kind === 'ai') {
-      if (consumed.has(`${decision_id}|${item}`)) refuse('Duplicate', 'this (decision_id, item) was used before');
+      if (consumed.has(`${type}|${decision_id}|${item}`)) refuse('Duplicate', 'this (decision_id, item) was used before');
       checkProvenance(expected, dec, type, wallet, w, bell);
     }
     if (type === 'talk') {
@@ -384,7 +386,7 @@ export function createBook({
     };
     if (type === 'talk' && dec.channel === CHANNEL.direct && index().ai.has(toBase58(dec.target))) stored.recipient_ai = true;
     store(stored);
-    if (prov?.consume && decision_id !== undefined) { try { prov.consume(decision_id, item); } catch { /* the book already holds the use */ } }
+    if (prov?.consume && decision_id !== undefined) { try { prov.consume(decision_id, item, type); } catch { /* the book already holds the use */ } }
     hooks.commit(stored, ctx);
     emit('record', { record: type === 'talk' ? messageView(stored) : { id: stored.id, type, wallet, bell: filed } });
     return { ok: true, id: stored.id, bell: filed, inner: stored.inner, ...(stored.recipient_ai ? { recipient_ai: true } : {}) };

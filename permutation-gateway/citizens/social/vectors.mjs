@@ -3,7 +3,7 @@
 //   node permutation-gateway/citizens/social/vectors.mjs --write   (re-write test/fixtures/ai-social-v1.json)
 //   node permutation-gateway/citizens/social/vectors.mjs --check   (exit 1 when the file is stale)
 //
-// One producer, one freshness checker (M1 §3.5): test/citizens-social-bytes.test.mjs
+// One producer, one freshness checker (M1 §3.5): test/citizens-social.test.mjs
 // calls `buildVectors()` and compares it with the committed file. The Rust
 // mirror (bots/src/ai/aisign.rs, test ai_social_vectors.rs) checks byte
 // conformance only: for every vector, encoding its `fields` gives `bytes_hex`.

@@ -328,10 +328,10 @@ export function socialClock(clock, nowMs = Date.now) {
   return { bell: () => clock.bell(), unix: () => clock.gameNow?.() ?? nowMs() / 1000 };
 }
 
-/** AC1a's records as AC4's book asks for them: `provenance(id, item, type)` and `consume(id, item)` (talk and ballot items alike). */
+/** AC1a's records as AC4's book asks for them: `provenance(id, item, type)` and `consume(id, item, type)` (talk and ballot items alike; without a type it tries both). */
 export function provenanceOf(records) {
   return {
     provenance: (id, item, type) => records.provenance(id, item, type),
-    consume: (id, item) => records.consume(id, item, 'talk') || records.consume(id, item, 'ballot'),
+    consume: (id, item, type) => (type ? records.consume(id, item, type) : records.consume(id, item, 'talk') || records.consume(id, item, 'ballot')),
   };
 }
