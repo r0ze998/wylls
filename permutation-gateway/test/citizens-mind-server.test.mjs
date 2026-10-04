@@ -25,7 +25,8 @@ async function start({ llama, writeRoster = true, over = {}, opts = {} } = {}) {
     { aiDir, herald: 'http://127.0.0.1:41940', llm: 'http://127.0.0.1:41901', mindPort: 0, socialPort: 0, servePort: 0, runId: 't', season: 31, ...opts },
     {
       test: true, noCloserTimer: true, config: CONFIG, speech: makeSpeech(), stores: makeStores({ episodes: [makeEpisode(1)] }), renderMemory: renderMemoryDouble, renderPersona: renderPersonaDouble,
-      personaOf: personaOfDouble, nameOf: nameOfDouble, social: makeSocial(), llm: llama ? createLlm({ url: llama.url }) : undefined, ...over,
+      personaOf: personaOfDouble, nameOf: nameOfDouble, social: makeSocial(), feed: { cursorBell: () => null, wakeEvents: () => [] }, // integ-A: the real feed has no herald here
+       llm: llama ? createLlm({ url: llama.url }) : undefined, ...over,
     },
   );
   return { svc, aiDir };
@@ -47,7 +48,7 @@ test('the mind API: bearer token required, routes, error codes', async () => {
     assert.equal(h.json.roster.ready, true);
     assert.equal(h.json.roster.n, 3);
     assert.equal(h.json.speech, 'real');
-    assert.deepEqual(Object.keys(h.json).sort(), ['bell', 'llm', 'ok', 'queue', 'roster', 'speech']);
+    assert.deepEqual(Object.keys(h.json).sort(), ['bell', 'llm', 'ok', 'queue', 'roster', 'speech'].concat(h.json.feed === null ? ['feed', 'pump'] : []).sort());
     assert.equal((await call(svc, '/v1/nothing')).status, 404);
     assert.equal((await call(svc, '/v1/decide', { method: 'POST', raw: '{not json' })).status, 400);
     assert.equal((await call(svc, '/v1/decide', { method: 'POST', body: { v: 2 } })).status, 400);

@@ -29,6 +29,7 @@ import { createMind, createMindHttp } from './mind/api.mjs';
 import { createClock, createCloser } from './mind/closer.mjs';
 import { createSpeechStub } from './mind/speech-stub.mjs';
 import { permissionFlags } from './mind/permissions.mjs';
+import { feedView, createWaveAWatcher, createEpisodePump } from './mind/wiring.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ZERO32 = '0'.repeat(64);
@@ -141,6 +142,7 @@ export async function createCitizensService(opts, overrides = {}) {
 
   // roster: the registrar writes PUB/roster.json after genesis; the service starts before it
   let rosterCur = createRoster(null);
+  let rosterJsonCur = null;
   const rosterPath = `${PUB}/roster.json`;
   const reloadRoster = () => {
     if (!existsSync(rosterPath)) return false;
@@ -148,6 +150,7 @@ export async function createCitizensService(opts, overrides = {}) {
       const j = JSON.parse(readFileSync(rosterPath, 'utf8'));
       if (j?.ai?.length && (!rosterCur.ready || rosterCur.ai.length !== j.ai.length)) {
         rosterCur = createRoster(j);
+        rosterJsonCur = j;
         return true;
       }
     } catch {
@@ -197,7 +200,8 @@ export async function createCitizensService(opts, overrides = {}) {
       }
     }
     if (!watcher) {
-      watcher = { stub: true, wakeEvents: () => [] };
+      // integ-A: AC6's watcher is wave B; until then the feed's own wakes (W-CLASH, W-THREAT) are what the gate sees
+      watcher = createWaveAWatcher({ feed });
       stubs.push('watcher');
     }
   }
@@ -214,8 +218,20 @@ export async function createCitizensService(opts, overrides = {}) {
     nameOf,
     config: { memory_block_tokens: config.memory?.block_tokens ?? 750 },
   });
-  const views = createViews({ social, feed, stores, roster, nameOf, clock, sealed, personaOf });
-  const mind = createMind({ config, llm, scheduler, gate, records, views, sealed, memoryAttach, prompt, speech, clock, metrics, roster, stores, watcher, feed, season, stateDir: STATE, nameOf, nationName, speechStub });
+  // integ-A: AC1a reads feed.cursorBell() and feed.revealed(); AC6a's feed offers completeThrough() and revealOf(); the
+  // episode pump (feed -> episodes_from_events -> AC2 stores) is the 11.6 wiring `server.mjs` owns
+  let pump = null;
+  const feedForMind = feed && !overrides.feed ? feedView(feed, { throughBell: () => (pump ? pump.throughBell() : -1) }) : feed;
+  const views = createViews({ social, feed: feedForMind, stores, roster, nameOf, clock, sealed, personaOf });
+  pump = feed && !overrides.feed && feed.prepare ? createEpisodePump({ feed, stores, views, roster, clock, config: { redactions: [] }, onError: (e) => console.error('episode pump:', String(e?.message ?? e)) }) : null;
+  const mind = createMind({ config, llm, scheduler, gate, records, views, sealed, memoryAttach, prompt, speech, clock, metrics, roster, stores, watcher, feed: feedForMind, season, stateDir: STATE, nameOf, nationName, speechStub });
+  // diagnostics for the slice gate and the run: what the feed and the episode pump have done (counts only)
+  const baseHealth = mind.health;
+  mind.health = async () => ({
+    ...(await baseHealth()),
+    feed: feed?.stats ? { ...feed.stats, head_bell: feed.headBell?.(), complete_through: feed.completeThrough?.(), cursor: feed.cursor?.() } : null,
+    pump: pump ? { ...pump.stats, through_bell: pump.throughBell(), published: pump.published().length } : null,
+  });
   const closer = createCloser({
     clock, social, records, metrics,
     onClosed: (b) => {
@@ -274,6 +290,7 @@ export async function createCitizensService(opts, overrides = {}) {
   const timers = [];
   const poll = setInterval(() => {
     reloadRoster();
+    if (rosterJsonCur && feed?.setRoster && !overrides.feed) feed.setRoster(rosterJsonCur);
   }, 2000);
   poll.unref?.();
   timers.push(poll);
@@ -284,10 +301,15 @@ export async function createCitizensService(opts, overrides = {}) {
   }, 2000);
   genesisTimer.unref?.();
   timers.push(genesisTimer);
+  if (pump) {
+    const pumpTimer = setInterval(() => { pump.tick(); }, 1000);
+    pumpTimer.unref?.();
+    timers.push(pumpTimer);
+  }
   if (!overrides.noCloserTimer) closer.startTimer(1000);
 
   return {
-    mind, closer, records, roster, clock, stores, social, watcher, feed, metrics, scheduler, gate, token, tokenPath, stubs, configSha, speechStub,
+    mind, closer, records, roster, clock, stores, social, watcher, feed, pump, metrics, scheduler, gate, token, tokenPath, stubs, configSha, speechStub,
     ports: { mind: mindHttp.address().port, social: socialHttp?.address()?.port ?? null },
     reloadRoster,
     async close() {
