@@ -76,6 +76,31 @@ test('the mind API: bearer token required, routes, error codes', async () => {
   }
 });
 
+test('the closer publishes minds files and the metrics file once the bell close instant has passed', async () => {
+  const llama = await startFakeLlama({ respond: (b) => sessionAnswer(b, { kinds: ['march'] }) });
+  const { svc, aiDir } = await start({ llama, opts: { genesisTs: 1800000000 } });
+  try {
+    const r = JSON.parse(JSON.stringify(wire.request));
+    r.deadline_unix_ms = Date.now() + 60000;
+    const d = await call(svc, '/v1/decide', { method: 'POST', body: r });
+    assert.equal(d.status, 200);
+    assert.equal(svc.clock.bell(), 40, 'the fixture\'s now_game is in bell 40 of genesis 1800000000');
+    const closed = await svc.closer.tick(Date.now() + 700_000);
+    assert.equal(closed.length, 41);
+    const minds = JSON.parse(readFileSync(join(aiDir, 'pub/minds/40.json'), 'utf8'));
+    assert.equal(minds.records.length, 1);
+    assert.equal(minds.records[0].id, d.json.decision_id);
+    assert.equal(JSON.parse(readFileSync(join(aiDir, 'pub/minds/0.json'), 'utf8')).root, '0'.repeat(64));
+    const met = JSON.parse(readFileSync(join(aiDir, 'pub/metrics/latest.json'), 'utf8'));
+    assert.equal(met.counters.decisions_model, 1);
+    assert.equal(met.counters.bells_closed, 41);
+    assert.equal(JSON.stringify(minds).includes('"choice"'), false, 'the march decision is sealed in the published file');
+  } finally {
+    await svc.close();
+    await llama.close();
+  }
+});
+
 test('the token file is created 0600 once and reused; stubs of units not built yet are reported', async () => {
   const { svc, aiDir } = await start({});
   try {

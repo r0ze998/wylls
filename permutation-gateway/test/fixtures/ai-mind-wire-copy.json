@@ -224,6 +224,8 @@
       {
         "entities": [],
         "facts": {
+          "economy_held_by_quota": false,
+          "quota_left": 38,
           "routine": "economy and duties only, no march",
           "summary": "build wood; train 400 spearman; muster 300 spearman; explore (economy and duties only)"
         },

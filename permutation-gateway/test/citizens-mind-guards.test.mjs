@@ -117,3 +117,26 @@ test('the llm client: completion, deadline abort, http errors, tokenizer cache',
   assert.equal(await down.health(), false);
   assert.equal(await down.countTokens('x'), null);
 });
+
+import { readFileSync as readFileSyncFs } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+
+test('start-pinned.sh pins the contract flags (port 41901, one slot, thinking off, 16384 context, no verbose logging)', () => {
+  const text = readFileSyncFs(new URL('../citizens/llama/start-pinned.sh', import.meta.url), 'utf8');
+  const code = text.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n');
+  for (const flag of ['--port 41901', '-np 1', '--reasoning off', '-c 16384', '-ngl 999', '-fa on', '--jinja', '--no-webui', '--metrics', '--host 127.0.0.1', '--alias gemma-4-26b-a4b-it']) {
+    assert.ok(code.includes(flag), flag);
+  }
+  assert.equal(/41900|--log-verbose|\s-v\s|-lv/.test(code), false, 'never 41900, never verbose');
+  assert.ok(code.includes('gemma-4-26B-A4B-it-Q4_0.gguf'));
+});
+
+test('probe.mjs refuses any port outside 41901-41999 (never 41900)', () => {
+  for (const port of ['41900', '8080', '41100']) {
+    const r = spawnSync(process.execPath, [new URL('../citizens/llama/probe.mjs', import.meta.url).pathname, '--port', port], { encoding: 'utf8' });
+    assert.equal(r.status, 2, port);
+    assert.match(r.stderr, /refuses port/);
+  }
+  const r = spawnSync(process.execPath, [new URL('../citizens/llama/probe.mjs', import.meta.url).pathname, '--port', '41999'], { encoding: 'utf8' });
+  assert.equal(r.status, 3, 'nothing listens there: exits 3 without sending anything');
+});

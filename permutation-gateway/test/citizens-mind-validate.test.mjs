@@ -78,7 +78,7 @@ test('V3 (b) day cap and (c) home floor, with the H0 < 200 exemption', () => {
   assert.deepEqual(floor.dropped, [{ id: 'c3', rule: 'c' }], '900 - 500 < 40 % of 1500');
   const exempt = applyCaps({ chosen: ['c3'], candidates: cands, homeTroops: 900, dayStart: { home_troops: 199, march_troops_model: 900 }, marchesToday: 0 });
   assert.deepEqual(exempt.kept, ['c3'], 'H0 < 200: no day cap and no floor');
-  assert.equal(exempt.capsAfter.home_floor, 0);
+  assert.equal(exempt.capsNow.home_floor, 0);
   const exemptStillA = applyCaps({ chosen: ['c3'], candidates: cands, homeTroops: 700, dayStart: { home_troops: 150, march_troops_model: 0 }, marchesToday: 0 });
   assert.deepEqual(exemptStillA.dropped, [{ id: 'c3', rule: 'a' }], '500 > 60 % of 700: (a) always applies');
 });
@@ -89,16 +89,18 @@ test('V3 (d): at most 4 model-chosen marches per game day', () => {
   assert.equal(applyCaps({ chosen: ['c9'], candidates: cands, homeTroops: 5000, dayStart: { home_troops: 5000, march_troops_model: 0 }, marchesToday: 3 }).kept.length, 1);
 });
 
-test('V3 leaves non-march choices and recalls alone and reports the caps after the decision', () => {
+test('V3 leaves non-march choices and recalls alone; the reported caps are the allowance at the start of the decision (the brain\'s V6 checks the decision against them)', () => {
   const r = applyCaps({ chosen: ['c5', 'c8', 'c3'], candidates: cands, homeTroops: 1000, dayStart: { home_troops: 1000, march_troops_model: 0 }, marchesToday: 0 });
   assert.deepEqual(r.kept, ['c5', 'c8', 'c3']);
-  assert.deepEqual(r.capsAfter, { march_troops_left: 100, home_floor: 400 }, '600 - 500 left today, floor 400');
+  assert.deepEqual(r.capsNow, { march_troops_left: 600, home_floor: 400 }, '60 % of 1000 today, floor 40 % of 1000: the 500-troop march of this very decision still fits');
+  const later = applyCaps({ chosen: ['c5'], candidates: cands, homeTroops: 1000, dayStart: { home_troops: 1000, march_troops_model: 500 }, marchesToday: 1 });
+  assert.deepEqual(later.capsNow, { march_troops_left: 100, home_floor: 400 }, 'after 500 troops marched today');
   assert.equal(DEFAULT_CAPS.marches_per_day, 4);
 });
 
 test('the golden fixture caps: 1000 home troops, 500 sent -> 100 left? no: answer example uses 600 left before the march', () => {
   const r = applyCaps({ chosen: ['c2'], candidates: cands, homeTroops: 1000, dayStart: { home_troops: 1000, march_troops_model: 0 }, marchesToday: 0 });
-  assert.deepEqual(r.capsAfter, { march_troops_left: 600, home_floor: 400 });
+  assert.deepEqual(r.capsNow, { march_troops_left: 600, home_floor: 400 });
 });
 
 test('messages cap = 6 + round(sociability / 25), at most 10', () => {

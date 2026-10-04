@@ -85,7 +85,10 @@ export function checkMenu(value, { candidates, handles = {}, queueFree = null })
  *  (d) at most 4 model-chosen marches per game day
  * recall candidates are not marches for the caps (they bring an arrived host home). The Strike-Order
  * flagged march is a model-chosen march and is capped like any other.
- * returns {kept, dropped:[{id, rule}], sent, capsAfter:{march_troops_left, home_floor}}
+ * returns {kept, dropped:[{id, rule}], sent, marches, capsNow:{march_troops_left, home_floor}}
+ * capsNow is the allowance at the START of this decision (the wire fixture: 1,000 home troops, nothing marched
+ * today -> march_troops_left 600, home_floor 400, beside a 500-troop march in the same answer). The brain's V6
+ * checks this decision's marches against it, so it must not already count them.
  */
 export function applyCaps({ chosen, candidates, homeTroops, dayStart, marchesToday, caps = DEFAULT_CAPS }) {
   const byId = new Map(candidates.map((c) => [c.id, c]));
@@ -115,14 +118,14 @@ export function applyCaps({ chosen, candidates, homeTroops, dayStart, marchesTod
       keptMarches += 1;
     }
   }
-  const dayLeft = exempt ? Infinity : Math.max(0, Math.floor(caps.day_share * h0) - modelToday - sent);
-  const nowLeft = Math.max(0, Math.floor(caps.march_share * homeTroops) - sent);
+  const dayLeft = exempt ? Infinity : Math.max(0, Math.floor(caps.day_share * h0) - modelToday);
+  const nowLeft = Math.max(0, Math.floor(caps.march_share * homeTroops));
   return {
     kept,
     dropped,
     sent,
     marches: keptMarches,
-    capsAfter: { march_troops_left: Math.min(dayLeft, nowLeft), home_floor: exempt ? 0 : Math.ceil(caps.home_floor * h0) },
+    capsNow: { march_troops_left: Math.min(dayLeft, nowLeft), home_floor: exempt ? 0 : Math.ceil(caps.home_floor * h0) },
   };
 }
 

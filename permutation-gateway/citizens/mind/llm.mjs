@@ -24,7 +24,7 @@ export function mindSeed({ season, index, bell, kind, attempt = 0 }) {
 
 /**
  * The llama request body. Key order is fixed (the body text is hashed). requestShape is
- * "response_format" (OpenAI style, measured to work with Gemma 4's jinja template in step 0) or
+ * "response_format" (chat-completions style, measured to work with Gemma 4's jinja template in step 0) or
  * "json_schema" (llama-server's native field, same schema), pinned in the commitments.
  */
 export function buildRequestBody({ alias, messages, schemaName, schema, maxTokens, seed, requestShape = 'response_format' }) {

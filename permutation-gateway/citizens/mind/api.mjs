@@ -84,6 +84,8 @@ export function createMind(deps) {
   const cache = new Map();
   const inflight = new Map();
   const lastSituation = new Map(); // tag -> {bell, situation, hostMap} for council calls
+  const reflectSeen = new Set();
+  const aiStat = (tag, key, n = 1) => metrics.incGroup(`ai:${tag}`, key, n);
   const listeners = [];
   const emit = (ev) => {
     for (const f of listeners) {
@@ -243,78 +245,79 @@ export function createMind(deps) {
       inbox: rows, hall: hallRows, threats, goals: goals.length ? goals : null, memoryBudget: config.memory?.block_tokens ?? 750,
     });
     const schema = buildAnswerSchema(rendered.spec);
-    const name = kind;
-    let usedAttempt = 0;
-    const job = scheduler.submit({
-      kind,
-      index: own.index,
-      deadline: deadlineMs,
-      run: async ({ signal, deadline }) => {
+    const res = await llmJob({
+      kind, index: own.index, bell, deadlineMs, messages: rendered.messages, schemaName: kind, schema, maxTokens: maxTokens[kind] ?? 384,
+      onStart: () => {
         if (kind === 'session') gate.noteSession(own.tag, bell, doc.counters);
         else if (kind === 'reaction') gate.noteReaction(bell, doc.counters);
-        let messages = rendered.messages;
+      },
+      // V1 (shape) then V2 (menu): a failure of either is retried once with the reason appended
+      check: (parsed) => {
+        const v1 = validateShape(parsed, rendered.spec);
+        if (!v1.ok) return { ok: false, layer: 'V1', why: v1.errors[0] };
+        const m = checkMenu(v1.value, { candidates: rendered.candidates, handles: rendered.handles, queueFree: queueFreeOf(req.situation?.me?.queue) });
+        if (!m.ok) return { ok: false, layer: 'V2', why: m.error };
+        return { ok: true, value: v1.value, menu: m };
+      },
+    });
+    if (res.status === 'fail') return { ...res, rendered };
+    const shown = new Set([...rendered.inbox_shown, ...rendered.hall_shown]);
+    const untrusted = [...rows, ...hallRows].filter((r) => shown.has(r.id)).map((r) => r.text);
+    return { ...res, rendered, untrusted };
+  }
+
+  /**
+   * The generic model job: scheduler admission (EDF, p90), one llama call under the pinned request shape, V0 here,
+   * `check(parsed)` for the layers above it, one retry on a V0-V2 failure when time allows. AC1b's reflection job
+   * uses it too (kind "reflection", its own schema and check). Returns
+   *   {status:'ok', value, menu?, llm:{r, seed, body}, attempts} or {status:'fail', reason, llm?, attempts?, why?}.
+   */
+  async function llmJob({ kind, index, bell, deadlineMs, messages, schemaName, schema, maxTokens: maxTok, check, onStart = null }) {
+    const job = scheduler.submit({
+      kind,
+      index,
+      deadline: deadlineMs,
+      run: async ({ signal, deadline }) => {
+        onStart?.();
+        let msgs = messages;
         let last = null;
         for (let attempt = 0; attempt < 2; attempt++) {
-          usedAttempt = attempt;
-          const seed = mindSeed({ season, index: own.index, bell, kind, attempt });
-          const body = buildRequestBody({ alias, messages, schemaName: name, schema, maxTokens: maxTokens[kind] ?? 384, seed, requestShape });
+          const seed = mindSeed({ season, index, bell, kind, attempt });
+          const body = buildRequestBody({ alias, messages: msgs, schemaName, schema, maxTokens: maxTok, seed, requestShape });
           const remaining = deadline - now();
-          if (remaining < 500) return { fail: 'no_time', attempts: attempt + 1 };
+          if (remaining < 500) return { fail: 'no_time', attempts: attempt + 1, llm: last };
           metrics.inc('llm_calls');
           const r = await llm.complete(body, { deadlineMs: remaining, signal });
           last = { r, seed, body };
           if (!r.ok) return { fail: r.error === 'timeout' || r.error === 'aborted' ? 'timeout' : 'llm_error', llm: last, attempts: attempt + 1 };
-          let layer = null;
-          let why = null;
-          let value = null;
-          let menu = null;
-          if (r.finish_reason !== 'stop') {
-            layer = 'V0';
-            why = `the answer was cut off (finish ${r.finish_reason})`;
-          } else {
+          let verdict;
+          if (r.finish_reason !== 'stop') verdict = { ok: false, layer: 'V0', why: `the answer was cut off (finish ${r.finish_reason})` };
+          else {
             let parsed = null;
             try {
               parsed = JSON.parse(r.content);
             } catch {
-              layer = 'V0';
-              why = 'the answer was not valid JSON';
+              verdict = { ok: false, layer: 'V0', why: 'the answer was not valid JSON' };
             }
-            if (!layer) {
-              const v1 = validateShape(parsed, rendered.spec);
-              if (!v1.ok) {
-                layer = 'V1';
-                why = v1.errors[0];
-              } else {
-                const m = checkMenu(v1.value, { candidates: rendered.candidates, handles: rendered.handles, queueFree: queueFreeOf(req.situation?.me?.queue) });
-                if (!m.ok) {
-                  layer = 'V2';
-                  why = m.error;
-                } else {
-                  value = v1.value;
-                  menu = m;
-                }
-              }
-            }
+            if (!verdict) verdict = check(parsed);
           }
-          if (!layer) return { ok: true, value, menu, llm: last, attempts: attempt + 1 };
-          metrics.incGroup('invalid_layer', layer);
+          if (verdict.ok) return { ok: true, value: verdict.value, menu: verdict.menu, llm: last, attempts: attempt + 1 };
+          metrics.incGroup('invalid_layer', verdict.layer);
           const canRetry = attempt === 0 && deadline - now() >= 1.2 * scheduler.p50(kind);
-          if (!canRetry) return { fail: `invalid:${layer}`, llm: last, attempts: attempt + 1, why };
+          if (!canRetry) return { fail: `invalid:${verdict.layer}`, llm: last, attempts: attempt + 1, why: verdict.why };
           metrics.inc('retries');
-          messages = [rendered.messages[0], { role: 'user', content: `${rendered.messages[1].content}\n\nYour previous answer was refused: ${why}. Answer again with one valid JSON object.` }];
+          msgs = [messages[0], { role: 'user', content: `${messages[1].content}\n\nYour previous answer was refused: ${verdict.why}. Answer again with one valid JSON object.` }];
         }
         return { fail: 'invalid:V0', llm: last, attempts: 2 };
       },
     });
     const res = await job;
-    if (res.status === 'dropped') return { status: 'fail', reason: 'no_time', rendered };
-    if (res.status === 'timeout') return { status: 'fail', reason: 'timeout', rendered, llm: res.value?.llm };
-    if (res.status === 'error') return { status: 'fail', reason: 'llm_error', rendered, detail: res.error };
+    if (res.status === 'dropped') return { status: 'fail', reason: 'no_time' };
+    if (res.status === 'timeout') return { status: 'fail', reason: 'timeout', llm: res.value?.llm };
+    if (res.status === 'error') return { status: 'fail', reason: 'llm_error', detail: res.error };
     const v = res.value;
-    if (v.fail) return { status: 'fail', reason: v.fail, rendered, llm: v.llm, attempts: v.attempts, why: v.why };
-    const shown = new Set([...rendered.inbox_shown, ...rendered.hall_shown]);
-    const untrusted = [...rows, ...hallRows].filter((r) => shown.has(r.id)).map((r) => r.text);
-    return { status: 'ok', value: v.value, menu: v.menu, rendered, llm: v.llm, attempts: v.attempts, usedAttempt, untrusted };
+    if (v.fail) return { status: 'fail', reason: v.fail, llm: v.llm, attempts: v.attempts, why: v.why };
+    return { status: 'ok', value: v.value, menu: v.menu, llm: v.llm, attempts: v.attempts };
   }
 
   const queueFreeOf = (q) => (q && Number.isFinite(q.slots) && Number.isFinite(q.busy) ? Math.max(0, q.slots - q.busy) : null);
@@ -438,12 +441,26 @@ export function createMind(deps) {
     lastSituation.set(own.tag, { bell: R.bell, situation: sit });
     sealed.prune(own.tag, {
       bell: R.bell,
-      isPublic: (e) => (feed?.revealed ? Boolean(feed.revealed(e)) : false),
+      // without a feed that can say whether the REVEAL is public, an entry is dropped 7 bells after its arrival bell
+      // (the release waits for a REVEAL at most 6 bells, section 7.2)
+      isPublic: (e) => (feed?.revealed ? Boolean(feed.revealed(e)) : e.arrive_bell != null && R.bell > e.arrive_bell + 7),
       isReleased: (id) => records.getPrivate(id)?.opened === true,
     });
     const member = views.memberView(own.faction);
     sealed.setCall(own.tag, member.call ? { decision_id: 'call', via: 'call', pq: [member.call.p, member.call.q], until_bell: (member.call.strike_bell ?? R.bell) + 2 } : null);
 
+    // W-REFLECT (section 3.2): the first step at or after bell mod reflect_every == 0 asks AC1b's reflection job to run;
+    // it is its own job and consumes no session or reaction budget
+    if (ready && config.memory?.reflection !== false) {
+      const every = config.memory?.reflect_every ?? 72;
+      const slot = Math.floor(R.bell / every);
+      const k = `${own.tag}:${slot}`;
+      if (slot > 0 && !reflectSeen.has(k)) {
+        reflectSeen.add(k);
+        metrics.inc('reflect_due');
+        emit({ type: 'reflect_due', tag: own.tag, index: own.index, bell: R.bell, slot });
+      }
+    }
     // wakes: the watcher (feed + social + clock events), the brain's hints
     const watcherWakes = watcher?.wakeEvents?.(own.tag, R.bell) ?? [];
     const wakes = normaliseWakes([...watcherWakes, ...R.wake_hints]);
@@ -459,6 +476,7 @@ export function createMind(deps) {
     }
     const kind = g.mode; // session | reaction
     metrics.inc('model_decisions');
+    aiStat(own.tag, 'decisions');
     const out = await modelCall({ kind, own, req: R, bell: R.bell, deadlineMs, wakes, member, threats });
     const finishedMs = now();
     if (out.status === 'fail') {
@@ -550,6 +568,7 @@ export function createMind(deps) {
     const declined = declinedPeriods(cands, chosen, member.call?.period ?? null);
     for (const period of declined) {
       metrics.inc('calls_declined');
+      aiStat(own.tag, 'strikes_declined');
       emit({ type: 'call_declined', tag: own.tag, bell: R.bell, period });
     }
     if (out.menu.mem.ids.length) {
@@ -579,8 +598,15 @@ export function createMind(deps) {
     metrics.inc('decisions_total');
     metrics.inc('decisions_model');
     metrics.inc('valid_choices');
+    aiStat(own.tag, 'valid');
     metrics.latency(kind, out.llm.r.latency_ms, deadlineMs - finishedMs);
-    if (marchedIds.length) metrics.inc('model_marches', marchedIds.length);
+    if (marchedIds.length) {
+      metrics.inc('model_marches', marchedIds.length);
+      aiStat(own.tag, 'model_marches', marchedIds.length);
+    }
+    if (postable.length) aiStat(own.tag, 'messages', postable.length);
+    if (out.menu.mem.ids.length) aiStat(own.tag, 'decisions_citing_memory');
+    if (out.menu.mem.dropped) aiStat(own.tag, 'mem_dropped', out.menu.mem.dropped);
     return {
       v: 1,
       decision_id: id,
@@ -588,7 +614,7 @@ export function createMind(deps) {
       reason: 'ok',
       choice: { ids: answerIds, params: kind === 'reaction' ? {} : params, mem: out.menu.mem.ids },
       standing: liveStanding(doc.standing, R.bell),
-      caps: capRes.capsAfter,
+      caps: capRes.capsNow,
       social: { say: items, motion: null, ballot: null },
     };
   }
@@ -606,6 +632,8 @@ export function createMind(deps) {
       if (sentMarch && entries.length) sealed.add(priv.full.ai, entries);
       metrics.inc('outcomes');
       if (r.late) metrics.inc('outcomes_late');
+      const sentN = (body.actions ?? []).filter((x) => x.status === 'sent').length;
+      if (sentN) aiStat(priv.full.ai, priv.full.mode === 'model' ? 'actions_by_model' : 'actions_by_autopilot', sentN);
     }
     return { ok: true };
   }
@@ -666,6 +694,7 @@ export function createMind(deps) {
       return fail('feed_lag');
     }
     metrics.inc('model_decisions');
+    aiStat(own.tag, 'decisions');
     const extraFocus = council.options.map((o) => `pq:${o.p},${o.q}`);
     const out = await modelCall({ kind, own, req: R, bell, deadlineMs, wakes: [], member, threats: [], extraFocus, council });
     if (out.status === 'fail') {
@@ -716,6 +745,9 @@ export function createMind(deps) {
     metrics.inc('decisions_total');
     metrics.inc('decisions_model');
     metrics.inc('valid_choices');
+    aiStat(own.tag, 'valid');
+    if (postable.length) aiStat(own.tag, 'messages', postable.length);
+    if (out.menu.mem.ids.length) aiStat(own.tag, 'decisions_citing_memory');
     metrics.latency(kind, out.llm.r.latency_ms, deadlineMs - finishedMs);
     return { decision_id: id, mode: 'model', reason: 'ok', social };
   }
@@ -737,10 +769,13 @@ export function createMind(deps) {
     decide,
     outcome,
     councilCall,
+    llmJob,
     health,
     metrics: () => metrics.snapshot({ bell: clock.bell(), extra: { records: records.stats(), scheduler: scheduler.latencies(), scheduler_counters: scheduler.counters } }),
     subscribe: (fn) => listeners.push(fn),
     lastSituation: (tag) => lastSituation.get(tag) ?? null,
+    /** per-AI counters for the Wyll card stats block (section 2.4): decisions, valid, actions_by_model, actions_by_autopilot, model_marches, messages, strikes_declined, decisions_citing_memory, mem_dropped */
+    statsOf: (tag) => ({ decisions: 0, valid: 0, actions_by_model: 0, actions_by_autopilot: 0, model_marches: 0, messages: 0, strikes_declined: 0, decisions_citing_memory: 0, mem_dropped: 0, ...metrics.group(`ai:${tag}`) }),
     _cache: cache,
   };
 }

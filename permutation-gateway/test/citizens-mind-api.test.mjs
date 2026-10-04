@@ -23,7 +23,7 @@ test('a session: the model picks the camp march; the answer, the sealed record a
     assert.equal(a.reason, 'ok');
     assert.deepEqual(a.choice.ids, ['c3']);
     assert.deepEqual(a.choice.params.c3, { stance: 'hold', retreat: 0, timing: 'earliest' });
-    assert.deepEqual(a.caps, { march_troops_left: 100, home_floor: 400 }, '600 - 500 troops left, floor 40 % of 1000');
+    assert.deepEqual(a.caps, { march_troops_left: 600, home_floor: 400 }, 'as in the wire fixture: the allowance at the start of the decision');
     assert.deepEqual(a.standing, { reserved: [], declined_calls: [] });
     assert.deepEqual(a.social, { say: [], motion: null, ballot: null });
     assert.match(a.decision_id, /^[0-9a-f]{64}$/);
@@ -488,6 +488,98 @@ test('request_hash of a model record is the sha256 of the exact stored llama bod
     assert.equal(JSON.parse(stored).seed, rec.seed);
     assert.equal(rec.output_hash.length, 64);
     assert.equal(rec.prompt_hash.length, 64);
+  } finally {
+    await h.close();
+  }
+});
+
+test('W-REFLECT: the first step at or after bell mod 72 == 0 emits one reflect_due event (own job, no budget used); off when reflection is false', async () => {
+  const h = await makeMindHarness({ respond: (b) => sessionAnswer(b) });
+  const events = [];
+  h.mind.subscribe((e) => events.push(e));
+  try {
+    await h.mind.decide(req({ bell: 40 }));
+    assert.deepEqual(events, [], 'slot 0 reflects nothing');
+    await h.mind.decide(req({ bell: 73, wake_hints: [] }));
+    await h.mind.decide(req({ bell: 74, wake_hints: [] }));
+    assert.deepEqual(events.map((e) => [e.type, e.bell, e.slot, e.tag]), [['reflect_due', 73, 1, TAGS[0]]]);
+    const sessions = h.records.recordsOf(40).concat(h.records.recordsOf(73), h.records.recordsOf(74)).filter((r) => r.kind === 'session').length;
+    assert.equal(h.stores.ledger(TAGS[0]).s.counters.sessions, sessions, 'the trigger itself uses no session budget');
+  } finally {
+    await h.close();
+  }
+  const off = await makeMindHarness({ respond: (b) => sessionAnswer(b), config: { ...(await import('./fixtures/ai-mind-doubles.mjs')).CONFIG, memory: { reflection: false, reflect_every: 72 } } });
+  const ev2 = [];
+  off.mind.subscribe((e) => ev2.push(e));
+  try {
+    await off.mind.decide(req({ bell: 73 }));
+    assert.deepEqual(ev2, []);
+  } finally {
+    await off.close();
+  }
+});
+
+test('THREATS: threat wake facts reach the prompt and the memory focus; a big threat raises the gate score', async () => {
+  const facts = { nation: 4, origin: { p: 1, q: 1 }, mass: 420, arrive_bell: 50 };
+  const h = await makeMindHarness({ respond: (b) => sessionAnswer(b), watcher: { wakeEvents: () => [{ code: 'W-THREAT', big: true, facts }] } });
+  try {
+    const a = await h.mind.decide(req({ wake_hints: [] }));
+    assert.equal(a.mode, 'model');
+    const u = h.llama.bodies[0].messages[1].content;
+    assert.match(u, /nation 4 sent an army of 420 troops from \(1,1\); it arrives at bell 50; its destination is not known\./);
+    const rec = h.records.recordsOf(40)[0];
+    assert.deepEqual(rec.wake.sort(), ['W-PULSE', 'W-THREAT']);
+    assert.equal(rec.gate_score, 6, 'pulse 3 + threat 2 + 1 for a big mass');
+  } finally {
+    await h.close();
+  }
+});
+
+test('llmJob is the generic model job (AC1b\'s reflection uses it): scheduler, pinned request shape, V0, retry, saved seed', async () => {
+  let n = 0;
+  const h = await makeMindHarness({ respond: () => (n++ === 0 ? { nope: 1 } : { summary: 'ok', goal_ops: [], trust: [], mem: [] }) });
+  try {
+    const { buildReflectionSchema, validateReflectionShape } = await import('../citizens/mind/schema.mjs');
+    const spec = { goalIds: ['G1'], who: [] };
+    const res = await h.mind.llmJob({
+      kind: 'reflection', index: 3, bell: 72, deadlineMs: Date.now() + 5000, messages: [{ role: 'system', content: 's' }, { role: 'user', content: 'u' }],
+      schemaName: 'reflection', schema: buildReflectionSchema(spec), maxTokens: 512,
+      check: (p) => { const v = validateReflectionShape(p, spec); return v.ok ? { ok: true, value: v.value } : { ok: false, layer: 'V1', why: v.errors[0] }; },
+    });
+    assert.equal(res.status, 'ok');
+    assert.equal(res.attempts, 2);
+    assert.equal(res.value.summary, 'ok');
+    assert.equal(h.llama.bodies[0].max_tokens, 512);
+    assert.match(h.llama.bodies[1].messages[1].content, /Your previous answer was refused/);
+  } finally {
+    await h.close();
+  }
+});
+
+test('per-AI stats for the Wyll card: decisions, valid, actions by model or autopilot, marches, messages, declines, memory citations', async () => {
+  const h = await makeMindHarness({ respond: (b) => ({ ...sessionAnswer(b, { kinds: ['march'], mem: false }), mem: ['M1'] }), feed: { cursorBell: () => 999 } });
+  try {
+    const a = await h.mind.decide(req());
+    h.mind.outcome({ ...wire.outcome, decision_id: a.decision_id, actions: [{ intent: 'depart', status: 'sent', sig: 's' }, { intent: 'build', status: 'sent', sig: 't' }, { intent: 'train', status: 'refused', code: 'x' }] });
+    const b = await h.mind.decide(req({ bell: 45, wake_hints: [] })); // below the gate: autopilot
+    h.mind.outcome({ decision_id: b.decision_id, actions: [{ intent: 'harvest', status: 'sent', sig: 'u' }] });
+    assert.deepEqual(h.mind.statsOf(TAGS[0]), { decisions: 1, valid: 1, actions_by_model: 2, actions_by_autopilot: 1, model_marches: 1, messages: 0, strikes_declined: 0, decisions_citing_memory: 1, mem_dropped: 0 });
+    assert.equal(h.mind.statsOf(TAGS[1]).decisions, 0);
+  } finally {
+    await h.close();
+  }
+});
+
+test('without a feed that reports REVEALs, a sealed entry is dropped 7 bells after its arrival bell', async () => {
+  const h = await makeMindHarness({ respond: (b) => sessionAnswer(b, { kinds: ['march'] }) });
+  try {
+    const a = await h.mind.decide(req());
+    h.mind.outcome({ decision_id: a.decision_id, actions: [{ intent: 'depart', status: 'sent', sig: 's' }] });
+    assert.equal(h.sealed.list(TAGS[0]).length, 1);
+    await h.mind.decide(req({ bell: 50, wake_hints: [] }));
+    assert.equal(h.sealed.list(TAGS[0]).length, 1, 'arrival bell 43: still held at bell 50');
+    await h.mind.decide(req({ bell: 51, wake_hints: [] }));
+    assert.equal(h.sealed.list(TAGS[0]).length, 0);
   } finally {
     await h.close();
   }

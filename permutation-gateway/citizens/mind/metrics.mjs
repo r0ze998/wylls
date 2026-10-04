@@ -39,6 +39,7 @@ export function createMetrics({ now = Date.now } = {}) {
       citedAges.push(bells);
     },
     get: (name) => c[name] ?? 0,
+    group: (g) => ({ ...(groups[g] ?? {}) }),
     snapshot({ bell = null, extra = {} } = {}) {
       const latency = {};
       for (const [k, v] of Object.entries(lat)) {
