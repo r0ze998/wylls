@@ -200,3 +200,19 @@ test('publishedForm is pure and deterministic', () => {
   assert.deepEqual(publishedForm(full, '07'.repeat(16)), publishedForm(full, '07'.repeat(16)));
   assert.notEqual(publishedForm(full, '07'.repeat(16)).commit, publishedForm(full, '08'.repeat(16)).commit);
 });
+
+test('integ-B: attachSocial registers a signed-ready item under an existing record, journaled: it survives a restart and the season-end journal replay sees it', async () => {
+  const d = dir();
+  const r = createRecords({ aiDir: d, randomBytes: fixedRandom });
+  const a = r.add(rec({ mode: 'autopilot', reason: 'below_gate' }), { candidates: [], social: {} });
+  assert.equal(r.provenance(a.id, 0, 'talk'), null);
+  assert.equal(r.attachSocial('nope', 'talk', { item: 0 }), false);
+  assert.equal(r.attachSocial(a.id, 'poll', { item: 0 }), false);
+  assert.equal(r.attachSocial(a.id, 'talk', { item: 0, text: 'I move option 1.', kind: 1, channel: 1, ref: 513 }), true);
+  assert.equal(r.provenance(a.id, 0, 'talk').text, 'I move option 1.');
+  const r2 = createRecords({ aiDir: d, randomBytes: fixedRandom }); // a restart replays the journal
+  assert.equal(r2.provenance(a.id, 0, 'talk').ref, 513, 'journaled and replayed');
+  const { replayRecordsJournal } = await import('../citizens/audit/season_end.mjs');
+  const e = replayRecordsJournal(join(d, 'state/records.jsonl')).get(a.id);
+  assert.equal(e.priv.social.talk[0].text, 'I move option 1.', 'the season-end replay sees it (full/decisions, M8)');
+});

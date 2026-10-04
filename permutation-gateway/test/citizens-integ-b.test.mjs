@@ -152,3 +152,15 @@ test('M3 reads the destinations of AC6\'s release job (state: revealed | unrevea
     assert.ok(!bad.includes('destination_unrevealed') && !bad.includes('destination_mismatch'), `not_sent is not compared with a REVEAL: ${bad}`);
   } finally { await run.close(); }
 });
+
+test('the report reads the brain\'s GET counters named gets:* (the colon form) and no_session', async () => {
+  const { brainSection } = await import('../citizens/report.mjs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-integ-b-brain-'));
+  fs.writeFileSync(path.join(dir, 'ai-brain.json'), JSON.stringify({ counters: { steps: 100, no_session: 10, 'gets:me': 90, 'gets:digest': 300, 'gets:reobserve': 60, answers_model: 5, answers_autopilot: 85 } }));
+  const b = brainSection(dir, { records: new Array(90).fill(0), aiByTag: new Map() });
+  assert.equal(b.gets_per_step.gets, 450);
+  assert.equal(b.gets_per_step.per_step, 4.5);
+  assert.equal(b.no_session, 10);
+  assert.equal(b.steps_equal_records_plus_no_session, true);
+  assert.equal(b.gets_note, null);
+});

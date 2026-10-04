@@ -55,19 +55,20 @@ export function createOutbox({ records, stats = {} } = {}) {
       const social = { ...(ans.social ?? {}) };
       social.say = social.say ?? [];
       own.priv.social ??= {};
+      const attach = (type, exp) => { if (typeof records.attachSocial === 'function') records.attachSocial(ans.decision_id, type, exp); else (own.priv.social[type] ??= []).push(exp); }; // integ-B: journaled
       let attached = 0;
       for (const it of items) {
         if (it.motion && !social.motion) {
           const item = social.say.length;
           const exp = records.provenance(it.decision_id, 0, 'talk');
           if (!exp) { bump('outbox_no_provenance'); continue; }
-          (own.priv.social.talk ??= []).push({ ...exp, item });
+          attach('talk', { ...exp, item });
           social.motion = { ...it.motion, item, decision_id: it.decision_id };
           attached++;
         } else if (it.ballot && !social.ballot) {
           const exp = records.provenance(it.decision_id, 0, 'ballot');
           if (!exp) { bump('outbox_no_provenance'); continue; }
-          (own.priv.social.ballot ??= []).push({ ...exp, item: 0 });
+          attach('ballot', { ...exp, item: 0 });
           social.ballot = { ...it.ballot, item: 0, decision_id: it.decision_id };
           attached++;
         } else {

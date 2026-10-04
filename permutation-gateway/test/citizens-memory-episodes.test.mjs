@@ -343,6 +343,19 @@ test('synthetic: motion — a motion in the AI\'s nation council, own or another
   assert.equal(m[0].importance, 4);
 });
 
+test('integ-B: a motion\'s option kind is read from the options of its period as they were at the opening, not from a closed council file: the live producer (council still open) and a replay from the final files (council closed) give the same episode', () => {
+  const opts = [{ faction: 3, period: 2, options: [{ option: 1, kind: 'camp' }, { option: 2, kind: 'strike' }] }];
+  const talk = [talkRow(1, 200, E, 'nation', 3, 1, (2 << 8) | 2)];
+  const live = episodes_from_events({ talk, council: [], council_options: opts }, ctxOf(quiet)); // the period is still open: no closed file yet
+  const closed = [{ faction: 3, period: 2, close_bell: 204, adopted: false, options: opts[0].options }];
+  const replay = episodes_from_events({ talk, council: closed, council_options: opts }, ctxOf(quiet));
+  const a = live.episodes.find(e => e.kind === 'motion'), b = replay.episodes.find(e => e.kind === 'motion');
+  assert.match(a.text.en, /moved option 2 \(strike\)/);
+  assert.deepEqual(a, b, 'identical episode, id and text');
+  // without council_options the producer still reads the closed files (the earlier behaviour)
+  assert.match(episodes_from_events({ talk, council: closed }, ctxOf(quiet)).episodes.find(e => e.kind === 'motion').text.en, /\(strike\)/);
+});
+
 test('synthetic: council_result — adopted or nothing; the text carries NO option, ballot count or target (importance 4)', () => {
   const council = [
     { faction: 3, period: 4, close_bell: 300, adopted: true, strike_bell: 306, options: [{ option: 1, kind: 'camp', p: 7, q: 8 }], tally: { 1: 5, 2: 1 }, ballots: [{ wallet: 'x', option: 1 }] },

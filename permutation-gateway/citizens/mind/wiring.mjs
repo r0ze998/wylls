@@ -162,7 +162,7 @@ export function createEpisodePump({ feed, stores, views, roster, clock, config =
       stats.councils = Math.max(stats.councils, councils.length);
       try {
         const before = stores.episodes(tag).size;
-        const res = stores.ingest(tag, { events, talk, council: councils }, ctx, { cursor: { event_seq: feed.cursor(), bell: through } });
+        const res = stores.ingest(tag, { events, talk, council: councils, council_options: social?.councilOptions?.(ai.faction) ?? councils }, ctx, { cursor: { event_seq: feed.cursor(), bell: through } });
         // an episode made from a redacted record is produced blanked, but its id is already stored: blank the stored one
         for (const ep of res.episodes ?? []) {
           if (ep.redacted && stores.episodes(tag).byId.get(ep.id)?.redacted !== true) {
@@ -312,6 +312,17 @@ export function socialEpisodeSource({ book, council, pubDir = null, statFn = sta
   return {
     talk: () => cache.rows(),
     redactions: () => cache.rows().filter((r) => r.redacted).map((r) => r.inner),
+    /** the options of every period of the nation, open ones included (fixed at the opening): what a motion's kind word is read from */
+    councilOptions(faction) {
+      const latest = council?.latest?.(faction);
+      if (!latest) return [];
+      const out = [];
+      for (let k = 0; k <= latest.period; k++) {
+        const f = council.publicOf(faction, k);
+        if (f && Array.isArray(f.candidates)) out.push({ faction: f.faction, period: f.period, options: f.candidates.map((o) => ({ option: o.option, kind: o.kind })) });
+      }
+      return out;
+    },
     councils(faction) {
       const latest = council?.latest?.(faction);
       if (!latest) return [];

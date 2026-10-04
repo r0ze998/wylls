@@ -143,6 +143,9 @@ export function createRecords({ aiDir, runId = 'run', season = 0, randomBytes = 
         const e = byId.get(op.id);
         e.pub.tx = op.tx;
         e.full.tx = op.tx;
+      } else if (op.op === 'social' && byId.has(op.id)) {
+        const e = byId.get(op.id);
+        ((e.priv.social ??= {})[op.type] ??= []).push(op.exp);
       } else if (op.op === 'consume') consumed.add(op.key);
       else if (op.op === 'opened' && byId.has(op.id)) byId.get(op.id).opened = true;
     }
@@ -226,6 +229,19 @@ export function createRecords({ aiDir, runId = 'run', season = 0, randomBytes = 
     if (outcome?.own_marches) e.priv.own_marches = outcome.own_marches;
     journal({ op: 'tx', id, tx });
     return { ok: true, late: false };
+  }
+
+  /**
+   * integ-B: register one more signed-ready social item (type 'talk' | 'ballot') under an existing record: the council output the watcher's
+   * outbox piggybacks on the AI's next decide answer (AC6-NOTES deviation 2). Journaled and replayed, so that it survives a restart and the
+   * season-end bundle (full/decisions, M8) lists it. Returns false when the record is unknown.
+   */
+  function attachSocial(id, type, exp) {
+    const e = byId.get(id);
+    if (!e || (type !== 'talk' && type !== 'ballot')) return false;
+    ((e.priv.social ??= {})[type] ??= []).push(exp);
+    journal({ op: 'social', id, type, exp });
+    return true;
   }
 
   function ordered(bell) {
@@ -325,6 +341,7 @@ export function createRecords({ aiDir, runId = 'run', season = 0, randomBytes = 
   return {
     add,
     attachOutcome,
+    attachSocial,
     closeBell,
     provenance,
     consume,

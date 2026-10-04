@@ -387,7 +387,10 @@ export function episodes_from_events(batch = {}, ctx = {}) {
     } else if (ch === 'nation' && Number(t.target) === ai.faction && Number(t.kind) === 1) {
       const ref = Number(t.ref);
       const period = Math.floor(ref / 256), option = ref % 256;
-      const opts = councils.find(c => c.faction === ai.faction && Number(c.period) === period && Array.isArray(c.options))?.options ?? [];
+      // integ-B: the option kind comes from the council's options as they were when the motion was made (the options of a period are fixed at its
+      // opening: `batch.council_options`, open periods included), not from the closed council file, which does not exist yet when the live pump
+      // sees the motion (live: the live episode said "(target)", the replay from the final files said "(camp)": M11 failed on 2 of 3 AIs)
+      const opts = (batch.council_options ?? councils).find(c => c.faction === ai.faction && Number(c.period) === period && Array.isArray(c.options))?.options ?? [];
       const kindWord = opts.find(o => Number(o.option) === option)?.kind ?? 'unknown';
       add('motion', {
         bell: t.bell, created: t.bell, src: [key], entities: [sender, `nation:${ai.faction}`], facts: { sender, option, period }, redacted,

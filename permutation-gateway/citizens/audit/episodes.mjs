@@ -95,6 +95,17 @@ export function councilsFromPub(pub) {
   return out;
 }
 
+/** The options of every council period file (open or closed) per faction: what a motion's kind word is read from (the live pump reads the same). */
+export function councilOptionsFromPub(pub) {
+  const out = new Map();
+  for (const f of pub.councils()) {
+    if (!f || !Array.isArray(f.candidates)) continue;
+    const l = out.get(Number(f.faction)) ?? out.set(Number(f.faction), []).get(Number(f.faction));
+    l.push({ faction: f.faction, period: f.period, options: f.candidates.map(o => ({ option: o.option, kind: o.kind })) });
+  }
+  return out;
+}
+
 /** A feed over the herald, drained to the end of its log; `through` = the last bell whose records are all in hand. */
 export async function drainFeed({ herald, roster, fetchImpl = null, onError = () => {} }) {
   const feed = createFeed({ herald, roster, fetch: fetchImpl, onError });
@@ -114,7 +125,7 @@ export async function drainFeed({ herald, roster, fetchImpl = null, onError = ()
  * `through`), the same readers, the same context. Two passes so that the open grievances the pump takes from the ledger exist
  * for the `answered` deltas. Returns the uncapped, unredacted episodes and the deltas.
  */
-export async function replayOne({ feed, prepared, events, tag, entry, through, genesisTs, talk, councils, extraConfig = {} }) {
+export async function replayOne({ feed, prepared, events, tag, entry, through, genesisTs, talk, councils, councilOptions = null, extraConfig = {} }) {
   const owners = feed.owners;
   const home = owners.homeOf(tag);
   if (!home) return { episodes: [], deltas: [], unknown: [], collisions: [], noHome: true };
@@ -123,7 +134,7 @@ export async function replayOne({ feed, prepared, events, tag, entry, through, g
     ai, bellNow: through + 1, owners, province: prepared.province, clash: prepared.clash, clashDetail: prepared.clashDetail,
     config: { genesis_ts: genesisTs, redactions: [], ...extraConfig },
   };
-  const batch = { events, talk, council: councils };
+  const batch = { events, talk, council: councils, ...(councilOptions ? { council_options: councilOptions } : {}) };
   const first = episodes_from_events(batch, { ...base, config: { ...base.config, openGrievances: [] } });
   const open = first.deltas.filter(d => d.kind === 'grievance').map(d => ({ id: d.id, against: d.against, nation: d.nation, bell: d.bell }));
   const second = open.length ? episodes_from_events(batch, { ...base, config: { ...base.config, openGrievances: open } }) : first;
@@ -184,6 +195,7 @@ export async function checkM11({ pub, drained: drainedIn = null, herald, roster,
   const social = pub.fullSocial();
   const talk = talkRowsFromPub(pub, { tagOfWallet, social });
   const councils = councilsFromPub(pub);
+  const councilOptions = councilOptionsFromPub(pub);
   const events = [];
   for (let b = 0; b <= through; b++) events.push(...feed.events(b));
   const prepared = await feed.prepare(events);
@@ -191,7 +203,7 @@ export async function checkM11({ pub, drained: drainedIn = null, herald, roster,
   const replay = async tag => {
     if (!replays.has(tag)) {
       const entry = entryOf.get(tag);
-      replays.set(tag, await replayOne({ feed, prepared, events, tag, entry, through, genesisTs, talk, councils: councils.get(entry.faction) ?? [] }));
+      replays.set(tag, await replayOne({ feed, prepared, events, tag, entry, through, genesisTs, talk, councils: councils.get(entry.faction) ?? [], councilOptions: councilOptions.get(entry.faction) ?? [] }));
     }
     return replays.get(tag);
   };

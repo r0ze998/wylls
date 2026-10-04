@@ -35,6 +35,7 @@ export function replayRecordsJournal(path) {
     if (!op) continue;
     if (op.op === 'add') byId.set(op.entry.id, { ...op.entry, opened: false });
     else if (op.op === 'tx' && byId.has(op.id)) { const e = byId.get(op.id); e.pub = { ...e.pub, tx: op.tx }; e.full = { ...e.full, tx: op.tx }; }
+    else if (op.op === 'social' && byId.has(op.id)) { const e = byId.get(op.id); e.priv = { ...e.priv }; e.priv.social = { ...(e.priv.social ?? {}) }; (e.priv.social[op.type] ??= []).push(op.exp); }
     else if (op.op === 'opened' && byId.has(op.id)) byId.get(op.id).opened = true;
   }
   return byId;

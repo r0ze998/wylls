@@ -27,3 +27,4 @@ END {"detail":"stopped before the end","end_unix":1791092189,"run_id":"smoke-b1"
 
 ## smoke-b2 — 2026-10-04T05:36:51Z
 RUN {"arm":null,"commitments_sha256":"28341d33218fe41cd751778775e727da4ebc6fd272b8cb6b8702bfbb63b2931c","configs":{"citizens_config_sha256":"96081d5efdc3f225b0f7ae600bd3984ba170fee6cfd176375543182c19587b3d","injection_corpus_sha256":"5626f53de1a55e72a688a6e19ddcf3aa1234679978d6da6d0ff0b3ad8c50026b","seat_script_sha256":null,"slots_sha256":"e33087069de562cbba0220ca3111340a6039c12cad8501b97029c3d44666ad36","stack_toml_sha256":"fdf2dcb4c54f78e1a105e10b4feb5c6bf9fc98f4580e4848004ced3f9581c383"},"rep":null,"run_id":"smoke-b2","start_unix":1791092211}
+END {"detail":"stack complete, publication written; season-end bundle written; verify-minds FAIL","end_unix":1791097514,"run_id":"smoke-b2","status":"complete"}

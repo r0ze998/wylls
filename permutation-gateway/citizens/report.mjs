@@ -324,7 +324,7 @@ export function brainSection(fleetDir, run) {
   const steps = c.steps ?? null;
   const first = (c.answers_model ?? 0) + (c.answers_autopilot ?? 0);
   const noSession = c.no_session ?? (steps != null ? steps - first : null);
-  const getKeys = Object.keys(c).filter((k) => /(^|_)gets($|_)/.test(k));
+  const getKeys = Object.keys(c).filter((k) => /(^|_)gets($|[_:])/.test(k)); // integ-B: the brain's counters are named `gets:digest`, `gets:me`, ... (the old pattern missed the colon)
   const gets = getKeys.length ? sum(getKeys.map((k) => c[k])) : null;
   const ai = j.ai_bots ?? run.aiByTag.size;
   return {
@@ -341,7 +341,7 @@ export function brainSection(fleetDir, run) {
     reobserved: c.reobserved ?? null,
     quota_floor_skips: c.quota_floor_skips ?? null,
     quota_starved_bells: c.quota_starved_bells ?? null,
-    gets_per_step: gets != null && steps ? { gets, per_step: Math.round((100 * gets) / steps) / 100, per_step_per_ai: null, keys: getKeys } : null,
+    gets_per_step: gets != null && steps ? { gets, per_step: Math.round((100 * gets) / steps) / 100, per_step_per_ai: null, keys: getKeys, note: 'the brain\'s own extra GETs; gets:reobserve is a lower bound; the first observation of a step and the script bots\' GETs are not counted' } : null,
     gets_note: gets == null ? 'not measured in this run: the brain wrote no GET counter (no key matching "gets" in fleet/ai-brain.json); the herald load during the run is not measured either' : null,
     follow_window: { script_bots: c.follow_window_script_bots ?? null, ai_bots: c.follow_window_ai_bots ?? null },
     counters: c,
