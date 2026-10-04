@@ -1,0 +1,68 @@
+{
+ "v": 2,
+ "tag": "f3f2eb157c6ae029",
+ "day": 0,
+ "decay_day": 0,
+ "goals": [
+  {
+   "id": "G1",
+   "progress": 0,
+   "status": "active",
+   "since_bell": 3,
+   "memory": false
+  },
+  {
+   "id": "G2",
+   "progress": 0,
+   "status": "active",
+   "since_bell": 3,
+   "memory": false
+  },
+  {
+   "id": "G3",
+   "progress": 0,
+   "status": "active",
+   "since_bell": 3,
+   "memory": false
+  },
+  {
+   "id": "G4",
+   "progress": 0,
+   "status": "active",
+   "since_bell": 3,
+   "memory": true
+  }
+ ],
+ "trust": {
+  "citizens": {},
+  "nations": {}
+ },
+ "commitments": [],
+ "grievances": [],
+ "standing": {
+  "reserved": [],
+  "declined_calls": []
+ },
+ "day_start": {
+  "bell": 71,
+  "home_troops": 0,
+  "march_troops_model": 0
+ },
+ "seq": {
+  "talk": 0,
+  "ballot": 0
+ },
+ "cursor": {
+  "event_seq": "5791",
+  "bell": 97
+ },
+ "counters": {
+  "day": 0,
+  "sessions": 2,
+  "reactions": 0,
+  "messages": 0,
+  "marches": 1,
+  "reflections": 0,
+  "motions": 0
+ }
+}
