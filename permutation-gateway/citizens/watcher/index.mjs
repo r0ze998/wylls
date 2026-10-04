@@ -21,6 +21,7 @@ import { personaOf as defaultPersonaOf } from '../persona/deal.mjs';
 import { createWaveAWatcher, socialRowCache } from '../mind/wiring.mjs';
 import { createCensus } from './census.mjs';
 import { createCouncilGen } from './council_gen.mjs';
+import { createOutcomes, OUTCOMES_FILE } from './outcomes.mjs';
 import { createCalls } from './calls.mjs';
 import { createRelease } from './release.mjs';
 import { createChronicle, tallyPhrase, lostPhrase, words, withCount } from './chronicle.mjs';
@@ -78,7 +79,9 @@ export function createWatcher({
   const census = createCensus({ feed, roster: rosterView });
   const outbox = createOutbox({ records, stats: outboxStats });
   const chronicle = createChronicle({ pubDir: PUB, stateDir: STATE, roster: rosterView, nameOf, nationName, onError: e => err('chronicle', e) });
-  const councilGen = createCouncilGen({ feed, social, roster: rosterView, census, clock, mind: getMind, store, config, stats: councilStats, onError: e => err('council', e), nowMs, outbox });
+  // smoke-r3: why a nation got no council in a period is written to STATE/council-outcomes.json (the report reads it)
+  const outcomes = createOutcomes({ file: `${STATE}/${OUTCOMES_FILE}`, nowMs, onError: e => err('council_outcomes', e) });
+  const councilGen = createCouncilGen({ feed, social, roster: rosterView, census, clock, mind: getMind, store, config, stats: councilStats, onError: e => err('council', e), nowMs, outbox, outcomes });
   const nationOfTag = tag => rosterView.byTag(tag)?.faction ?? feed?.owners?.factionOfTag?.(tag) ?? null;
   const optionKindWord = (l, kind) => words(l).option_kind[kind] ?? words(l).option_kind.unknown;
 
@@ -256,7 +259,7 @@ export function createWatcher({
   subscribe();
   const api = {
     kind: 'wave-b', stub: false,
-    stats: () => ({ ...stats, council: { ...councilStats, attempts: councilGen.attempts().length }, calls: { ...callStats }, release: { ...releaseStats }, outbox: { ...outboxStats, pending: rosterView.ai.reduce((n, a) => n + outbox.pendingCount(a.tag), 0) }, council_calls_known: store.calls.size, chronicle_lines: chronicle.lines().length }),
+    stats: () => ({ ...stats, council: { ...councilStats, attempts: councilGen.attempts().length, outcomes: outcomes.summary() }, calls: { ...callStats }, release: { ...releaseStats }, outbox: { ...outboxStats, pending: rosterView.ai.reduce((n, a) => n + outbox.pendingCount(a.tag), 0) }, council_calls_known: store.calls.size, chronicle_lines: chronicle.lines().length }),
     wakeEvents,
     /** section 6.5 step 1: the options of nation f for the period starting at c0 -> {candidates, candidates_hash, options_hash, hints, meta} */
     councilCandidates: (f, c0) => councilGen.councilCandidates(f, c0),
@@ -292,7 +295,7 @@ export function createWatcher({
       guard('state', () => flushState());
     },
     // for the service's health route and the tests
-    parts: { census, councilGen, calls, release, cards, eventsPub, chronicle, outbox, socialWakes },
+    parts: { census, councilGen, outcomes, calls, release, cards, eventsPub, chronicle, outbox, socialWakes },
   };
   return api;
 }
