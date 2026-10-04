@@ -1,5 +1,7 @@
 # Wylls ゲーム設計書（統一版）
 
+確認用の短いまとめ: [GAME-DESIGN-SUMMARY.ja.md](GAME-DESIGN-SUMMARY.ja.md)（まずこちらを読んでください）
+
 | 項目 | 内容 |
 |---|---|
 | 日付 | 2026-10-04（夜） |
