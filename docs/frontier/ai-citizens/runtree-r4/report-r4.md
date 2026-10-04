@@ -8,6 +8,12 @@ Run `smoke-r4`, season 41, deck deck-1, 6 AI citizens (6 conqueror). Model sha25
 
 109 closed bells; 109 anchored, 0 anchor_gap. Whether each memo is on the chain with the right text is verify-minds M3, not read here.
 
+## Play phase and drain
+
+play: bells 0 to 83 (84 bells); drain: bells 84 to 108 (25 closed bells). The AI brains and the script bots stop at the end of play: the drain holds no AI action sent by a brain and no bot action. Anything decided in the drain (by the mind, on the watcher's council calls) was never carried to the chain or the social service by a brain.
+
+Decision records made in the drain: 2 {"motion:model":1,"ballot:model":1}. They are in the totals below; none was sent by a brain.
+
 ## Decisions (G1, G2, G3)
 
 497 decision records; 57 model decisions (gate open, the mind attempted the model; reflections, dropped-for-time and feed_lag jobs of any kind not included); gate-open records 57. Valid + fallbacks = model decisions: true.
@@ -93,34 +99,43 @@ Retrieved-set composition (episodes shown, by kind): {"build_done":146,"motion":
 
 By verdict: skipped:no_options 9, skipped:not_all_final 5, council 10. A `waiting` row means the period passed with no verdict (the open window ended first); `no_verdict` means nothing was recorded for that nation and period.
 
-| period | nation | verdict | why | bell | detail |
-| --- | --- | --- | --- | --- | --- |
-| 1 | 0 | skipped | no_options | 25 | {"faction":0,"c0":24,"bell":22,"holdings":5,"targets":19,"fetched":2,"missing":36,"fallback":1,"errors":0,"raw":2,"dropped":2} |
-| 1 | 1 | skipped | not_all_final | 24 | {"members":1,"lacking":[{"tag":"4b593ba2f7e3674d","villages":1,"final":0,"provisional":1}],"seat":null} |
-| 1 | 2 | skipped | not_all_final | 24 | {"members":1,"lacking":[{"tag":"65a993b45786f4c6","villages":1,"final":0,"provisional":1}],"seat":null} |
-| 1 | 3 | skipped | not_all_final | 24 | {"members":1,"lacking":[{"tag":"a04c69b89a963310","villages":1,"final":0,"provisional":1}],"seat":null} |
-| 1 | 4 | skipped | not_all_final | 24 | {"members":1,"lacking":[{"tag":"07952efb501f06f4","villages":1,"final":0,"provisional":1}],"seat":null} |
-| 1 | 5 | skipped | not_all_final | 24 | {"members":1,"lacking":[{"tag":"35e201a3cf9e9aad","villages":1,"final":0,"provisional":1}],"seat":null} |
-| 2 | 0 | council | n/a | 49 | {"options":1,"eligible":2,"humans":1,"seat":{"in_eligible_list":true,"final_village":true}} |
-| 2 | 1 | council | n/a | 49 | {"options":1,"eligible":1,"humans":0,"seat":null} |
-| 2 | 2 | council | n/a | 49 | {"options":1,"eligible":1,"humans":0,"seat":null} |
-| 2 | 3 | council | n/a | 49 | {"options":3,"eligible":1,"humans":0,"seat":null} |
-| 2 | 4 | council | n/a | 49 | {"options":1,"eligible":1,"humans":0,"seat":null} |
-| 2 | 5 | skipped | no_options | 48 | {"faction":5,"c0":48,"bell":46,"holdings":1,"targets":0,"fetched":0,"missing":0,"fallback":0,"errors":0,"raw":0,"dropped":0} |
-| 3 | 0 | council | n/a | 73 | {"options":1,"eligible":2,"humans":1,"seat":{"in_eligible_list":true,"final_village":true}} |
-| 3 | 1 | skipped | no_options | 73 | {"faction":1,"c0":72,"bell":70,"holdings":6,"targets":19,"fetched":2,"missing":17,"fallback":0,"errors":0,"raw":0,"dropped":0} |
-| 3 | 2 | council | n/a | 73 | {"options":1,"eligible":1,"humans":0,"seat":null} |
-| 3 | 3 | council | n/a | 73 | {"options":1,"eligible":1,"humans":0,"seat":null} |
-| 3 | 4 | council | n/a | 73 | {"options":1,"eligible":1,"humans":0,"seat":null} |
-| 3 | 5 | skipped | no_options | 72 | {"faction":5,"c0":72,"bell":70,"holdings":2,"targets":0,"fetched":0,"missing":0,"fallback":0,"errors":0,"raw":0,"dropped":0} |
-| 4 | 0 | skipped | no_options | 97 | {"faction":0,"c0":96,"bell":94,"holdings":7,"targets":19,"fetched":19,"missing":22,"fallback":0,"errors":0,"raw":6,"dropped":6} |
-| 4 | 1 | council | n/a | 97 | {"options":3,"eligible":1,"humans":0,"seat":null} |
-| 4 | 2 | skipped | no_options | 97 | {"faction":2,"c0":96,"bell":94,"holdings":3,"targets":19,"fetched":19,"missing":22,"fallback":0,"errors":0,"raw":6,"dropped":6} |
-| 4 | 3 | skipped | no_options | 97 | {"faction":3,"c0":96,"bell":94,"holdings":5,"targets":19,"fetched":19,"missing":22,"fallback":0,"errors":0,"raw":7,"dropped":7} |
-| 4 | 4 | skipped | no_options | 97 | {"faction":4,"c0":96,"bell":94,"holdings":3,"targets":9,"fetched":15,"missing":12,"fallback":0,"errors":0,"raw":3,"dropped":3} |
-| 4 | 5 | skipped | no_options | 96 | {"faction":5,"c0":96,"bell":94,"holdings":2,"targets":0,"fetched":0,"missing":0,"fallback":0,"errors":0,"raw":0,"dropped":0} |
+| period | nation | phase | verdict | why | bell | detail |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | 0 | play | skipped | no_options | 25 | {"faction":0,"c0":24,"bell":22,"holdings":5,"targets":19,"fetched":2,"missing":36,"fallback":1,"errors":0,"raw":2,"dropped":2} |
+| 1 | 1 | play | skipped | not_all_final | 24 | {"members":1,"lacking":[{"tag":"4b593ba2f7e3674d","villages":1,"final":0,"provisional":1}],"seat":null} |
+| 1 | 2 | play | skipped | not_all_final | 24 | {"members":1,"lacking":[{"tag":"65a993b45786f4c6","villages":1,"final":0,"provisional":1}],"seat":null} |
+| 1 | 3 | play | skipped | not_all_final | 24 | {"members":1,"lacking":[{"tag":"a04c69b89a963310","villages":1,"final":0,"provisional":1}],"seat":null} |
+| 1 | 4 | play | skipped | not_all_final | 24 | {"members":1,"lacking":[{"tag":"07952efb501f06f4","villages":1,"final":0,"provisional":1}],"seat":null} |
+| 1 | 5 | play | skipped | not_all_final | 24 | {"members":1,"lacking":[{"tag":"35e201a3cf9e9aad","villages":1,"final":0,"provisional":1}],"seat":null} |
+| 2 | 0 | play | council | n/a | 49 | {"options":1,"eligible":2,"humans":1,"seat":{"in_eligible_list":true,"final_village":true}} |
+| 2 | 1 | play | council | n/a | 49 | {"options":1,"eligible":1,"humans":0,"seat":null} |
+| 2 | 2 | play | council | n/a | 49 | {"options":1,"eligible":1,"humans":0,"seat":null} |
+| 2 | 3 | play | council | n/a | 49 | {"options":3,"eligible":1,"humans":0,"seat":null} |
+| 2 | 4 | play | council | n/a | 49 | {"options":1,"eligible":1,"humans":0,"seat":null} |
+| 2 | 5 | play | skipped | no_options | 48 | {"faction":5,"c0":48,"bell":46,"holdings":1,"targets":0,"fetched":0,"missing":0,"fallback":0,"errors":0,"raw":0,"dropped":0} |
+| 3 | 0 | play | council | n/a | 73 | {"options":1,"eligible":2,"humans":1,"seat":{"in_eligible_list":true,"final_village":true}} |
+| 3 | 1 | play | skipped | no_options | 73 | {"faction":1,"c0":72,"bell":70,"holdings":6,"targets":19,"fetched":2,"missing":17,"fallback":0,"errors":0,"raw":0,"dropped":0} |
+| 3 | 2 | play | council | n/a | 73 | {"options":1,"eligible":1,"humans":0,"seat":null} |
+| 3 | 3 | play | council | n/a | 73 | {"options":1,"eligible":1,"humans":0,"seat":null} |
+| 3 | 4 | play | council | n/a | 73 | {"options":1,"eligible":1,"humans":0,"seat":null} |
+| 3 | 5 | play | skipped | no_options | 72 | {"faction":5,"c0":72,"bell":70,"holdings":2,"targets":0,"fetched":0,"missing":0,"fallback":0,"errors":0,"raw":0,"dropped":0} |
+| 4 | 0 | drain | skipped | no_options | 97 | {"faction":0,"c0":96,"bell":94,"holdings":7,"targets":19,"fetched":19,"missing":22,"fallback":0,"errors":0,"raw":6,"dropped":6} |
+| 4 | 1 | drain | council | n/a | 97 | {"options":3,"eligible":1,"humans":0,"seat":null} |
+| 4 | 2 | drain | skipped | no_options | 97 | {"faction":2,"c0":96,"bell":94,"holdings":3,"targets":19,"fetched":19,"missing":22,"fallback":0,"errors":0,"raw":6,"dropped":6} |
+| 4 | 3 | drain | skipped | no_options | 97 | {"faction":3,"c0":96,"bell":94,"holdings":5,"targets":19,"fetched":19,"missing":22,"fallback":0,"errors":0,"raw":7,"dropped":7} |
+| 4 | 4 | drain | skipped | no_options | 97 | {"faction":4,"c0":96,"bell":94,"holdings":3,"targets":9,"fetched":15,"missing":12,"fallback":0,"errors":0,"raw":3,"dropped":3} |
+| 4 | 5 | drain | skipped | no_options | 96 | {"faction":5,"c0":96,"bell":94,"holdings":2,"targets":0,"fetched":0,"missing":0,"fallback":0,"errors":0,"raw":0,"dropped":0} |
 
 Scripted seat, finalising its village: status final, final true, attempts 1, final seen at bell 35.
+
+### What became of the council calls (motions and ballots decided by the mind)
+
+no council-calls file: the run predates the delivery ledger; ballots decided by the mind against posted by the brain is the only comparison
+
+| kind | decided by the mind | attached | expired | dropped | pending at the end | decided in the drain | posted by the brain | AI ballots in council files |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| ballot | 10 | n/a | n/a | n/a | n/a | n/a | 9 | 9 |
+| motion | 10 | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
 
 ## Every run in RUNS.md
 
@@ -138,7 +153,7 @@ Scripted seat, finalising its village: status final, final true, attempts 1, fin
 | smoke-r1 | n/a | n/a | complete | stack complete, publication written (anchors: 61 anchored, 0 gap(s) of 61 closed bells); season-end bundle written; verify-minds PASS |
 | smoke-r2 | n/a | n/a | complete | stack complete, publication written (anchors: 109 anchored, 0 gap(s) of 109 closed bells); season-end bundle written; verify-minds FAIL |
 | smoke-r3 | n/a | n/a | complete | stack complete, publication written (anchors: 109 anchored, 0 gap(s) of 109 closed bells); season-end bundle written; verify-minds PASS |
-| smoke-r4 | n/a | n/a | no END line: aborted or still running | n/a |
+| smoke-r4 | n/a | n/a | complete | stack complete, publication written (anchors: 109 anchored, 0 gap(s) of 109 closed bells); season-end bundle written; verify-minds PASS |
 
 ## Checks a reader can redo
 
