@@ -114,7 +114,7 @@ test('poll: pages of 7 rows are followed to the end, the cursor and the head adv
     assert.equal(feed.batchSince('0').events.length, expectKept);
     const head = Math.max(...rows.map(x => x.bell).filter(b => b < 0xffffffff));
     assert.equal(feed.headBell(), head);
-    assert.equal(feed.completeThrough(), head - 1, 'every record of a bell before the head bell is in hand');
+    assert.ok(feed.completeThrough() >= head - 1, 'every record of a bell before the head bell is in hand (integ-A: or before the bell of the herald\'s latest indexed time)');
     const eventReqs = () => h.requests.filter(r => r.startsWith('/h/events')).length;
     const before = eventReqs();
     const again = await feed.poll();
@@ -553,4 +553,28 @@ test('constants of the unit: scouts are unit 6 and troops are milli-troops', () 
   assert.equal(troopsOf(500), 1);
   assert.equal(tagHex(1n), '0000000000000001');
   assert.equal(parseHostId('1150093457620992').site, 6);
+});
+
+test('integ-A: completeThrough follows the herald\'s indexed time, so a bell with no record yet does not make the feed lag; a row at or before a claimed bell is counted late', async () => {
+  const G = 1_800_000_000;
+  const rowAt = (seq, bell) => ({ seq: String(seq), slot: seq, sig: 's', kind: 99, bell, decoded: { name: 'BEACON', key: {}, payload: {} } });
+  let latestUnix = G + 5 * 600 + 30; // the herald has indexed into bell 5
+  let events = [rowAt(1, 3), rowAt(2, 4)]; // but only bells 3 and 4 have a kept-or-not record yet
+  const herald = {
+    async get(p) {
+      if (p === '/h/season') return { status: 200, json: { seasonAddress: 'GuNY5CXJGCmdf6dtXDEJF3eBn4n6XwcqTSRZwSGaWpdC', programId: 'CMRiagDSYZNhyA2yxrEhLxLnKTm4fkJvjsE7v4ZHcP5r', season: '41', genesisTs: G, bellSecs: 600, latestUnix } };
+      if (p.startsWith('/h/events')) { const after = Number(new URL('http://x' + p).searchParams.get('after') ?? 0); return { status: 200, json: { events: events.filter(e => Number(e.seq) > after), full: false } }; }
+      return { status: 404, json: null };
+    },
+  };
+  const feed = createFeed({ herald });
+  assert.equal((await feed.poll()).ok, true);
+  assert.equal(feed.headBell(), 4);
+  assert.equal(feed.completeThrough(), 4, 'bell 5 is under way (indexed to bell 5): everything through bell 4 is in hand, not only through head - 1 = 3');
+  assert.equal(feed.stats.late_rows, 0);
+  events = [...events, rowAt(3, 4)]; // a record of bell 4 arriving after the claim: the assumption failed, and it is counted
+  assert.equal((await feed.poll()).ok, true);
+  assert.equal(feed.stats.late_rows, 1);
+  latestUnix = G + 3 * 600; // an index that is behind the rows must never raise the claim above the head rule
+  assert.ok(feed.completeThrough() >= 3);
 });

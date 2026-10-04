@@ -216,7 +216,9 @@ export function createFeed({ herald, roster = null, clock = null, season = null,
   let headBell = -1; // log bell of the newest row read
   let headSlot = -1;
   let complete = false; // the last poll ended on a non-full page
-  const stats = { polls: 0, pages: 0, rows: 0, kept: 0, skipped: 0, bad: 0, errors: 0, last_error: null, last_poll_ms: null, clash_fetched: 0, clash_missing: 0, wakes: 0, kinds: {} };
+  let indexBell = -1; // integ-A: the bell of the herald's own latest indexed record time (/h/season latestUnix), read BEFORE the poll drained the log
+  let claimed = -1; // the highest completeThrough() ever returned: a row logged at or before it afterwards is counted as late
+  const stats = { polls: 0, pages: 0, rows: 0, late_rows: 0, kept: 0, skipped: 0, bad: 0, errors: 0, last_error: null, last_poll_ms: null, clash_fetched: 0, clash_missing: 0, wakes: 0, kinds: {} };
   const subs = new Set();
   const provCache = lru(cacheSize);
   const clashCache = lru(cacheSize);
@@ -308,6 +310,7 @@ export function createFeed({ herald, roster = null, clock = null, season = null,
       const kname = row?.decoded?.name ?? `kind${row?.kind}`;
       stats.kinds[kname] = (stats.kinds[kname] ?? 0) + 1;
       cursor = String(row.seq);
+      if (Number.isInteger(row.bell) && row.bell < 0xffffffff && row.bell <= claimed) stats.late_rows++;
       if (Number.isInteger(row.bell) && row.bell < 0xffffffff && row.bell > headBell) headBell = row.bell;
       if (Number.isInteger(row.slot) && row.slot > headSlot) headSlot = row.slot;
       if (!row?.decoded) { stats.bad++; continue; }
@@ -347,6 +350,16 @@ export function createFeed({ herald, roster = null, clock = null, season = null,
     const before = list.length;
     try {
       await ensureSeason();
+      // integ-A: how far the herald's index had got when this poll began. Every record of an earlier bell is in the index
+      // by then, so once the log is drained to its end the feed is complete through that bell - 1 even when no record of the
+      // newest bell has been logged yet (the head-bell rule alone reports a lag at the start of every bell).
+      let seenBell = -1;
+      try {
+        const sr = await get('/h/season');
+        if (sr.status === 200 && sr.json && Number.isFinite(Number(sr.json.latestUnix)) && seasonInfo?.genesisTs != null) {
+          seenBell = Math.floor((Number(sr.json.latestUnix) - Number(seasonInfo.genesisTs)) / Number(seasonInfo.bellSecs ?? 600));
+        }
+      } catch { /* the head-bell rule below still holds */ }
       let pages = 0;
       complete = false;
       for (;;) {
@@ -359,6 +372,7 @@ export function createFeed({ herald, roster = null, clock = null, season = null,
         if (pages >= maxPagesPerPoll) break;
       }
       await drainClashes();
+      if (complete && seenBell > indexBell) indexBell = seenBell;
     } catch (e) {
       complete = false;
       stats.errors++;
@@ -519,7 +533,12 @@ export function createFeed({ herald, roster = null, clock = null, season = null,
      * index (a non-full page), so what is missing was logged at or after the head's own bell. The mind refuses a model
      * session (`feed_lag`) when this is below its bell − 1.
      */
-    completeThrough() { return complete && headBell >= 0 ? headBell - 1 : -1; },
+    completeThrough() {
+      if (!complete || headBell < 0) return -1;
+      const v = Math.max(headBell - 1, indexBell - 1);
+      if (v > claimed) claimed = v;
+      return v;
+    },
     provinceAt, provinceBefore, clashAt, clashDetail,
     /** /h/roster/{ring}/latest.bin decoded (people/roster.mjs), or null (the paused m1-exit herald does not serve it). */
     async rosterRing(ring) {
