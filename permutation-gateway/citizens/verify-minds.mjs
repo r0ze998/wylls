@@ -510,9 +510,11 @@ export async function checkM3(ctx) {
     if (!Array.isArray(op.candidates)) c.fail('candidates_missing', { decision: rec.id });
     else if (sha256Canonical(op.candidates) !== op.candidates_hash) c.fail('candidates_hash', { decision: rec.id, opened: op.candidates_hash, recomputed: sha256Canonical(op.candidates) });
     // when due
-    const dests = op.destinations ?? [];
+    // integ-B: AC6's release job writes `state` (revealed | unrevealed | not_sent), AC8's buildOpening writes `source` (reveal | planned |
+    // unrevealed): one reading for both. A march the brain never sent (not_sent) has nothing to reveal and is due at release_bell.
+    const dests = (op.destinations ?? []).map(x => ({ ...x, source: x.source ?? ({ revealed: 'reveal', unrevealed: 'unrevealed', pending: 'unrevealed', not_sent: 'not_sent' })[x.state] }));
     const arrive = dests.map(x => x.arrive_bell).filter(x => Number.isInteger(x));
-    const unrevealed = dests.some(x => x.source === 'unrevealed' || x.destination === 'unrevealed' || x.arrive_bell === null) || op.destination === 'unrevealed';
+    const unrevealed = dests.some(x => x.source === 'unrevealed' || x.destination === 'unrevealed' || (x.arrive_bell === null && x.source !== 'not_sent')) || op.destination === 'unrevealed';
     let due = rec.release_bell;
     if (unrevealed) due = rec.release_bell + UNREVEALED_WAIT_BELLS;
     else if (arrive.length) due = Math.max(rec.release_bell, Math.max(...arrive));

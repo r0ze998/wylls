@@ -350,7 +350,24 @@ while [ "$(stack_phase)" != complete ]; do
   sleep 5; t=$((t + 5))
 done
 "$NODE" "$REGISTRAR" publish --ai-dir "$AI_DIR" --key "$KEYS/registrar.json" --herald "$HERALD" --rpc "$RPC" --stack "$CTOML" || fail "the registrar's season-end publication failed"
+# integ-B: the service's audit watcher writes the season-end bundle (PUB/full) once STATE/season-end.json exists; wait for it (bounded),
+# then run verify-minds (M1..M11, with M9 re-sent to the live llama-server) and the run report while the stack is still up. Neither
+# result decides the run's status: their verdict and files are the evidence (PUB/verify-minds.json, AI_DIR/report.{json,md}).
+t=0
+while [ ! -f "$PUB/full/index.json" ] && [ "$t" -lt "${AI_WAIT_FULL_SECS:-120}" ]; do sleep 2; t=$((t + 2)); done
+FULL_NOTE="season-end bundle written"
+[ -f "$PUB/full/index.json" ] || FULL_NOTE="season-end bundle NOT written within ${AI_WAIT_FULL_SECS:-120} s"
+echo "$FULL_NOTE"
+VM_ARGS=(--herald "$HERALD" --rpc "$RPC" --ai-dir "$AI_DIR" --repo "$REPO" --stack "$CTOML" --citizens-config "$CCONFIG")
+[ -z "${AI_MODEL:-}" ] || VM_ARGS+=(--model "$AI_MODEL")
+[ -z "${AI_LLAMA_DIR:-}" ] || VM_ARGS+=(--llama-dir "$AI_LLAMA_DIR")
+[ "${AI_VERIFY_LLM:-1}" = 0 ] || VM_ARGS+=(--llm "$LLM")
+"$NODE" "$REPO/$CPUB/verify-minds.mjs" "${VM_ARGS[@]}" >"$LOGS/verify-minds.log" 2>&1
+VM_RC=$?
+case "$VM_RC" in 0) VM_VERDICT=PASS ;; 1) VM_VERDICT=FAIL ;; 3) VM_VERDICT=INCOMPLETE ;; *) VM_VERDICT="ERROR($VM_RC)" ;; esac
+echo "verify-minds: $VM_VERDICT (see $LOGS/verify-minds.log)"
+"$NODE" "$REPO/$CPUB/report.mjs" --ai-dir "$AI_DIR" --runs "$RUNS_MD" --out "$AI_DIR/report.json" --md "$AI_DIR/report.md" >"$LOGS/report.log" 2>&1 || echo "report.mjs failed (see $LOGS/report.log)"
 STATUS=complete
-DETAIL="stack complete, publication written"
+DETAIL="stack complete, publication written; $FULL_NOTE; verify-minds $VM_VERDICT"
 if [ -f "$PUB/anchors/commit.json" ] && grep -q '"status":"unaudited"' "$PUB/anchors/commit.json"; then DETAIL="stack complete, publication written; the commit memo came after genesis: unaudited"; fi
 exit 0

@@ -602,7 +602,7 @@ export function createMind(deps) {
     stores.save?.(own.tag);
     const remembered = memEpisodes.map((e) => ({ id: e.id, bell: e.bell, text: e.text }));
     const { id } = records.add(rec, {
-      candidates: cands, situation: sit, remembered, intended: sends.entries,
+      candidates: cands, situation: sit, remembered, intended: sends.entries, focus: rendered.focus ?? null,
       social: { talk: items.map((i) => ({ item: i.item, kind: 0, channel: i.channel, target: i.target ?? null, text: i.text, lang: i.lang, ref: 0, bell: i.bell, seq: i.seq })) },
     });
     records.saveRequest(id, out.llm.r.request_body);
@@ -812,7 +812,7 @@ export function createMind(deps) {
     const choice = { ids: [], params: {}, council: kind === 'motion' ? { motion: value.council.motion } : { ballot: value.council.ballot }, goal_id: value.goal_id, mem: out.menu.mem.ids };
     const rec = buildRecord({ kind, mode: 'model', reason: 'ok', own, R, g, sealedInfo: sends, rendered, out, choice, retrieved: rendered.retrieved, pub: { say: sp.say.map((m) => m.text), why: sp.why, why_withheld: sp.why_withheld }, memoryHash: sha256hex(canonicalJson(ledgerState(own.ledger)), rendered.retrieved.join(','), own.summary?.sha256 ?? ''), candidatesHash: sha256Canonical(council.options), situationHash: sha256Canonical(R.situation), deadlineMs, finishedMs, t0 });
     const social2 = kind === 'ballot' ? { ballot: items.map(({ type, ...b }) => b) } : { talk: items };
-    const { id } = records.add(rec, { candidates: council.options, situation: R.situation, remembered: memEpisodes.map((e) => ({ id: e.id, bell: e.bell, text: e.text })), intended: [], social: social2 });
+    const { id } = records.add(rec, { candidates: council.options, situation: R.situation, remembered: memEpisodes.map((e) => ({ id: e.id, bell: e.bell, text: e.text })), intended: [], focus: rendered.focus ?? null, social: social2 });
     records.saveRequest(id, out.llm.r.request_body);
     metrics.inc('decisions_total');
     metrics.inc('decisions_model');

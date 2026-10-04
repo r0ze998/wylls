@@ -262,6 +262,14 @@ export async function createCitizensService(opts, overrides = {}) {
     ? reflMod.createReflection({ mind, prompt, stores, views, speech, metrics, records, clock, roster, config, renderPersona, nameOf, nationName, sealed, season, stateDir: STATE })
     : null;
   if (!reflection && config.memory?.reflection !== false) stubs.push('reflection');
+  // integ-B: AC8's season-end publication. The registrar's `publish` writes STATE/season-end.json; this watcher then writes PUB/full/**
+  // (requests, decisions, openings of the records whose release did not happen, social provenance, ledgers) once. `reveals` is the feed's
+  // public REVEAL reader (destinations of an opening come from the chain's public rows only); `sanitize` is the mind's (redaction needles).
+  const auditMod = overrides.audit === false ? null : await tryImport('audit/season_end.mjs');
+  const audit = auditMod?.createAudit
+    ? auditMod.createAudit({ aiDir, reveals: feed?.revealOf ? (h, a) => feed.revealOf(h, a) : null, sanitize: mindSanitize, log: (m) => console.error(`audit: ${m}`) })
+    : null;
+  if (!audit && overrides.audit !== false) stubs.push('audit');
   // diagnostics for the slice gate and the run: what the feed and the episode pump have done (counts only)
   const baseHealth = mind.health;
   mind.health = async () => ({
@@ -328,6 +336,7 @@ export async function createCitizensService(opts, overrides = {}) {
   if (feed?.start) await feed.start();
   watcher?.start?.();
   reflection?.start?.();
+  const stopAuditWatch = audit?.watch ? audit.watch({ pollMs: config.audit?.poll_ms ?? 2000 }) : null;
 
   // ---- timers: roster poll, genesis discovery, bell closer --------------------------------------------------
   const timers = [];
@@ -352,12 +361,13 @@ export async function createCitizensService(opts, overrides = {}) {
   if (!overrides.noCloserTimer) closer.startTimer(1000);
 
   return {
-    mind, closer, records, roster, clock, stores, social, watcher, feed, pump, reflection, serve, metrics, scheduler, gate, token, tokenPath, stubs, configSha,
+    mind, closer, records, roster, clock, stores, social, watcher, feed, pump, reflection, audit, serve, metrics, scheduler, gate, token, tokenPath, stubs, configSha,
     ports: { mind: mindHttp.address().port, social: socialHttp?.address()?.port ?? null },
     reloadRoster,
     async close() {
       closer.stopTimer();
       for (const t of timers) clearInterval(t);
+      stopAuditWatch?.();
       reflection?.stop?.();
       watcher?.stop?.();
       feed?.stop?.();

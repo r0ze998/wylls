@@ -296,6 +296,7 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
       spec,
       handles: attached.handles,
       retrieved: attached.retrieved,
+      focus: attached.focus ?? null, // integ-B: the exact retrieval focus (stored privately, published at season end: M11 replays with it)
       candidates: cands,
       people,
       inbox_shown: inboxRows.map((r) => r.id),
