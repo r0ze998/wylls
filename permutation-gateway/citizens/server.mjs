@@ -84,10 +84,37 @@ async function discoverGenesis(heraldUrl, fetchImpl = globalThis.fetch) {
 }
 
 /**
+ * integ-B (smoke-b4): the bell clock is anchored on the brain's `now_game` and `scale` (closer.mjs). When the fleet has exited the brain
+ * says nothing more, and the stack's drain runs the chain faster (20x) than the scale the clock last saw (10x): the closer then closed bells
+ * at half the chain's pace, and when the registrar published, the herald had closed bells (97 to 108) the closer had not (M3 tail_truncated).
+ * This reads the herald's /h/season `latestUnix` (the chain's own unix time). While the brain is active the clock only moves FORWARD to it
+ * (the herald lags the brain's own `now_game` by a little, so it never pulls the clock back during play); once the brain has been silent for
+ * `silentMs` (default 30 s: the fleet has exited) the clock follows the chain in both directions, so it also stops where a paused or
+ * completed chain stops (the closer does not close bells the chain never reached). It does nothing before the brain has anchored the
+ * clock. Returns true when it moved the clock.
+ */
+export async function catchUpClockFromHerald(heraldUrl, clock, fetchImpl = globalThis.fetch, { silentMs = 30000 } = {}) {
+  try {
+    if (!clock.hasAnchor()) return false;
+    const r = await fetchImpl(`${heraldUrl.replace(/\/+$/, '')}/h/season`, { signal: AbortSignal.timeout(3000) });
+    if (!r.ok) return false;
+    const j = await r.json();
+    const unix = Number(j?.latestUnix);
+    if (!Number.isFinite(unix) || unix <= 0) return false;
+    const now = clock.gameNow();
+    if (now == null || unix === now) return false;
+    if (unix > now || clock.brainSilentMs() > silentMs) { clock.observeChain(unix); return true; }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Build and start the service. `overrides` replaces any collaborator (tests, and the integrator's wiring):
  * {config, speech, stores, renderMemory, renderPersona, personaOf, nameOf, nationName, feed, social, watcher, serve,
  *  llm, clock, socialHerald (a `me(wallet)` client for the real social store, tests), speechModule (path under citizens/ of the speech module, for tests), test: true (allows port 0 and any
- *  loopback llama port), noCloserTimer, genesisTs, fetch}.
+ *  loopback llama port), noCloserTimer, genesisTs, fetch, clockPollMs}.
  */
 export async function createCitizensService(opts, overrides = {}) {
   const { aiDir, herald, llm: llmUrl, mindPort, socialPort, servePort, configPath, runId = 'run', season = 0 } = opts;
@@ -353,6 +380,9 @@ export async function createCitizensService(opts, overrides = {}) {
   }, 2000);
   genesisTimer.unref?.();
   timers.push(genesisTimer);
+  const clockTimer = setInterval(() => { if (clock.genesis() != null) catchUpClockFromHerald(herald, clock, overrides.fetch).catch(() => {}); }, overrides.clockPollMs ?? 2000);
+  clockTimer.unref?.();
+  timers.push(clockTimer);
   if (pump) {
     const pumpTimer = setInterval(() => { pump.tick(); }, 1000);
     pumpTimer.unref?.();

@@ -10,6 +10,7 @@ export const CLOSE_DELAY_GAME_S = 20;
 
 export function createClock({ genesisTs = null, scale = 10, bellSecs = 600, nowMs = () => Date.now() } = {}) {
   let anchor = null; // {game_s, real_ms}
+  let lastBrainMs = null; // real ms of the last observe() (the brain's request), not of observeChain()
   let sc = scale;
   let gts = genesisTs;
   const api = {
@@ -19,9 +20,15 @@ export function createClock({ genesisTs = null, scale = 10, bellSecs = 600, nowM
     genesis: () => gts,
     /** anchor on a request: now_game (unix seconds, game time) at this real instant */
     observe({ now_game, scale: s }, realMs = nowMs()) {
-      if (Number.isFinite(now_game)) anchor = { game_s: now_game, real_ms: realMs };
+      if (Number.isFinite(now_game)) { anchor = { game_s: now_game, real_ms: realMs }; lastBrainMs = realMs; }
       if (Number.isFinite(s) && s > 0) sc = s;
     },
+    /** integ-B: re-anchor on the chain's own unix time (the herald's /h/season latestUnix); does not count as a brain observation */
+    observeChain(unix, realMs = nowMs()) {
+      if (Number.isFinite(unix)) anchor = { game_s: unix, real_ms: realMs };
+    },
+    /** real ms since the brain last anchored the clock (Infinity: never) */
+    brainSilentMs: (realMs = nowMs()) => (lastBrainMs == null ? Infinity : realMs - lastBrainMs),
     scale: () => sc,
     hasAnchor: () => anchor !== null && gts !== null,
     gameNow(realMs = nowMs()) {
