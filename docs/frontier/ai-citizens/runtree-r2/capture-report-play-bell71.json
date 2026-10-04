@@ -1,0 +1,207 @@
+{
+ "base": "http://127.0.0.1:41902",
+ "at": "2026-10-04T18:03:43.776Z",
+ "ais": [
+  {
+   "index": 1000,
+   "name": "Marao Tawick",
+   "faction": 0,
+   "lang": "en",
+   "query": "Marao",
+   "results": 2,
+   "bell": "68",
+   "hostsPanel": true,
+   "hostLines": [
+    "Aster · Spearman 67",
+    "Aster · Scout 100",
+    "Aster · Spearman 70"
+   ],
+   "units_art": {
+    "/frontier/frontier/art/units/@1x/units_0.webp": 200,
+    "/frontier/frontier/art/units/@2x/units_0.webp": 200,
+    "/frontier/frontier/art/units/cards/0_spearman.webp": 200,
+    "/frontier/frontier/art/units/cards/0_scout.webp": 200
+   },
+   "logs": []
+  },
+  {
+   "index": 1000,
+   "name": "Marao Tawick",
+   "faction": 0,
+   "lang": "ja",
+   "query": "マラオ",
+   "results": 2,
+   "bell": "68",
+   "hostsPanel": false,
+   "hostLines": [
+    "入植",
+    "アステル · 槍兵 67",
+    "アステル · 斥候 100",
+    "アステル · 槍兵 70"
+   ],
+   "units_art": {
+    "/frontier/frontier/art/units/@1x/units_0.webp": 200,
+    "/frontier/frontier/art/units/@2x/units_0.webp": 200,
+    "/frontier/frontier/art/units/cards/0_spearman.webp": 200,
+    "/frontier/frontier/art/units/cards/0_scout.webp": 200
+   },
+   "logs": []
+  },
+  {
+   "index": 1001,
+   "name": "Soa Evale",
+   "faction": 1,
+   "lang": "en",
+   "query": "Soa",
+   "results": 2,
+   "detailsStillLoading": true,
+   "bell": "69",
+   "hostsPanel": true,
+   "hostLines": [
+    "Borealis · Horseman 53",
+    "Borealis · Horseman 100"
+   ],
+   "units_art": {
+    "/frontier/frontier/art/units/@1x/units_1.webp": 200,
+    "/frontier/frontier/art/units/@2x/units_1.webp": 200,
+    "/frontier/frontier/art/units/cards/1_horseman.webp": 200
+   },
+   "logs": []
+  },
+  {
+   "index": 1002,
+   "name": "Varawen Sebourne",
+   "faction": 2,
+   "lang": "en",
+   "query": "Varawen",
+   "results": 2,
+   "detailsStillLoading": true,
+   "bell": "69",
+   "hostsPanel": true,
+   "hostLines": [
+    "Cinder · Spearman 500"
+   ],
+   "units_art": {
+    "/frontier/frontier/art/units/@1x/units_2.webp": 200,
+    "/frontier/frontier/art/units/@2x/units_2.webp": 200,
+    "/frontier/frontier/art/units/cards/2_spearman.webp": 200
+   },
+   "logs": []
+  },
+  {
+   "index": 1003,
+   "name": "Zeiko Owick",
+   "faction": 3,
+   "lang": "en",
+   "query": "Zeiko",
+   "results": 2,
+   "detailsStillLoading": true,
+   "bell": "70",
+   "hostsPanel": true,
+   "hostLines": [
+    "Dunmar · Spearman 400",
+    "Dunmar · Scout 100",
+    "Dunmar · Spearman 100"
+   ],
+   "units_art": {
+    "/frontier/frontier/art/units/@1x/units_3.webp": 200,
+    "/frontier/frontier/art/units/@2x/units_3.webp": 200,
+    "/frontier/frontier/art/units/cards/3_spearman.webp": 200,
+    "/frontier/frontier/art/units/cards/3_scout.webp": 200
+   },
+   "logs": []
+  },
+  {
+   "index": 1004,
+   "name": "Hikael Zewell",
+   "faction": 4,
+   "lang": "en",
+   "query": "Hikael",
+   "results": 2,
+   "detailsStillLoading": true,
+   "bell": "71",
+   "hostsPanel": true,
+   "hostLines": [
+    "Ember · Spearman 400",
+    "Ember · Scout 100",
+    "Ember · Spearman 80"
+   ],
+   "units_art": {
+    "/frontier/frontier/art/units/@1x/units_4.webp": 200,
+    "/frontier/frontier/art/units/@2x/units_4.webp": 200,
+    "/frontier/frontier/art/units/cards/4_spearman.webp": 200,
+    "/frontier/frontier/art/units/cards/4_scout.webp": 200
+   },
+   "logs": []
+  },
+  {
+   "index": 1005,
+   "name": "Semeto Hiwyn",
+   "faction": 5,
+   "lang": "en",
+   "query": "Semeto",
+   "results": 2,
+   "detailsStillLoading": true,
+   "bell": "71",
+   "hostsPanel": true,
+   "hostLines": [
+    "Fjordal · Horseman 100",
+    "Fjordal · Horseman 61",
+    "Fjordal · Horseman 57"
+   ],
+   "units_art": {
+    "/frontier/frontier/art/units/@1x/units_5.webp": 200,
+    "/frontier/frontier/art/units/@2x/units_5.webp": 200,
+    "/frontier/frontier/art/units/cards/5_horseman.webp": 200
+   },
+   "logs": []
+  }
+ ],
+ "join": {
+  "en": {
+   "devWalletButton": true,
+   "nationStep": true,
+   "sitePicker": false,
+   "nationNames": 6,
+   "logs": []
+  },
+  "ja": {
+   "devWalletButton": true,
+   "nationStep": true,
+   "sitePicker": false,
+   "nationNames": 0,
+   "logs": []
+  }
+ },
+ "council": {
+  "en": {
+   "reflectionBodies": 3,
+   "reflectionWithChoseNone": 0,
+   "sessionDecisions": 37,
+   "logs": []
+  },
+  "ja": {
+   "reflectionBodies": 3,
+   "reflectionWithChoseNone": 0,
+   "sessionDecisions": 37,
+   "logs": []
+  }
+ },
+ "nonGet": [],
+ "clash": {
+  "clashHighlight": true,
+  "text": "A clash in province 3,-3 (bell 65)",
+  "units_art": {
+   "/frontier/frontier/art/units/@1x/units_5.webp": 200,
+   "/frontier/frontier/art/units/@2x/units_5.webp": 200
+  },
+  "logs": []
+ },
+ "highlights": {
+  "bell": "72",
+  "listed": 12,
+  "headSeq": "4515",
+  "chronicleWindowFrom": 4015,
+  "note": "a fresh page reads the chronicle from headSeq - 500 (controller.mjs CHRONICLE_WINDOW)"
+ }
+}
