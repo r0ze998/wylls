@@ -46,6 +46,7 @@ Mac load (`uptime`, 1/5/15 min) around the long commands: 4.9/3.9/3.7 before the
 | `cd permutation-gateway && node --test test/citizens-page-*.test.mjs` | 98 tests, 98 pass |
 | `cd permutation-gateway && node --test test/citizens-*.test.mjs` | 629 tests, 629 pass, 0 fail |
 | `cd permutation-gateway && npm test` | 1203 tests, 1203 pass, 0 fail, 35 s. A first run **failed 2** (`web-lang` completeness (b) and `web-frontier-errors` page codes), both caused by this unit's first draft; fixed as decisions 2 and 3, then green |
+| `bash permutation-gateway/citizens/bin/ai-hook-check.sh --blank-ok --base frontier/ai-integ -q` | `PASS` (only new files under AI directories) |
 | Playwright Chromium 145 (`chromium-1208` already in `~/Library/Caches/ms-playwright`, `playwright-core` 1.58.2 from the npx cache; nothing downloaded), the **stage** below, scenarios `ballots`, `closed`, `opened` | see the list below |
 
 Browser run (real `serve.mjs` on 41902, real AC4 social service, fake herald; every signature verified by the real social service):
