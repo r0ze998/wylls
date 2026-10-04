@@ -52,9 +52,8 @@ The pre-registered thresholds and the table of results are in [the AI contract, 
 | Instant land, 14-day season, one score per nation | **Design only** | The program is unchanged. Only 7-game-day seasons have run; the score formula is open |
 | Society (governance, diplomacy, trade, shared Engine, tech, eras) | **Design only** | Outline only; tech, eras and the Engine are not designed |
 | Money and business plan | **Planned** (money design: **Design only**) | A free season first, later a money season, an entry fee and AI citizens for game studios. No money that players pay or earn exists |
-| What was dropped | **Dropped** | The 28-day season, pacts and betrayal between AIs, the friends' playtest, a rule that AI is marked in the game screen |
 
-Tags: **Running** means code exists and was actually run (a run on another branch is named as such); **In progress** means being built or run for this hackathon; **Design only** means written down, not built (including work that exists only on an unmerged branch); **Planned** means intended, no date; **Dropped** means removed by a decision. Each part of the complete game with its state is in the [design document](docs/GAME-DESIGN.ja.md) (Japanese).
+Tags: **Running** means code exists and was actually run (a run on another branch is named as such); **In progress** means being built or run for this hackathon; **Design only** means written down, not built (including work that exists only on an unmerged branch); **Planned** means intended, no date. Each part of the complete game with its state is in the [design document](docs/GAME-DESIGN.ja.md) (Japanese).
 
 **Headline evidence for M1** (local test chain, script bots; [exit report](docs/frontier/m1/M1-EXIT-NOTES.md), [run record](docs/frontier/m1/runs/m1-exit/)): one season of 7 game days (1,008 play turns plus 26 closing turns, 8 h 39 min at 20x speed) ran from start to finish with 1,000 script bots, and every gating season criterion passed (one in-process test condition failed on the first commit and was fixed in a later one; see the exit report). The replay verifier passed 144,300 transactions and caught all 30 deliberate tampers.
 
@@ -85,12 +84,12 @@ Open `/frontier/frontier/`, not `/`: the bare address still lands on an older pa
 ## 6. Limits and what is not claimed
 
 - **Local test chain only.** Nothing of the new game has run on devnet or mainnet; devnet costs are unverified and hosting is open.
-- **Nobody outside the project has played.** All 1,000 participants of the M1 season were script bots written by the team; the friends' playtest was cancelled. There is no registration, demand or traction figure. No season longer than 7 game days has run.
+- **Nobody outside the project has played.** All 1,000 participants of the M1 season were script bots written by the team. There is no registration, demand or traction figure. No season longer than 7 game days has run.
 - **Seal secrecy was not tested.** The M1 season replayed archived drand values, so the signatures were already known; the results show that marches settle, not that destinations stay secret. The verifier is ours, not an independent audit.
 - **AI citizens are in progress, not finished.** Only a small 6-AI run exists. The AI's reasons and speech are written by the model and not verified; most of an AI's actions are the autopilot's; the council is off-chain; the drand key of the test runs is the operator's test key.
 - **Not built:** conquest, instant land, the 14-day season, a score or winner, governance, diplomacy, markets, a shared civilisation, money, prizes. Legal review for money and for the disclosure of AI citizens has not been done.
 - **The CI is partly red.** In the GitHub runs of 2026-10-01 and 10-02, 2 of 8 jobs failed, so the program build and its LiteSVM tests never ran there; the fixes were checked on a Mac only.
-- **Not claimed about the AI:** that it is stronger than the script bots, indistinguishable from people or exactly replayable; that it wants or intends anything; that its memory shows why it chose; that the council is enforced by the chain; that pacts or betrayal between AIs exist.
+- **Not claimed about the AI:** that it is stronger than the script bots, indistinguishable from people or exactly replayable; that it wants or intends anything; that its memory shows why it chose; that the council is enforced by the chain.
 - **Not claimed about the project:** that any person outside the project played it, any demand, that a game studio was approached, that money or prizes work, or that the Civilization-style game is finished.
 
 ## 7. Repository map and where to read more
