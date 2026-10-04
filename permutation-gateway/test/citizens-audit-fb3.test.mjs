@@ -218,6 +218,22 @@ test('T2: a revealed march labelled "not_sent" fails (the record\'s tx list sent
   assert.ok(renamed.checks.M3.failures.some(f => f.code === 'not_sent_but_depart_on_chain' && f.decision === victim2.id), JSON.stringify(codes(renamed.checks.M3)));
 });
 
+test('integ-B: a two-march record with one march sent and one refused (not_sent) is not a false M3 failure; every march labelled not_sent while one was sent still fails', async () => {
+  const second = d => ({ host_id: '999999999999998', planned_arrive_bell: d.planned_arrive_bell, via: 'model', state: 'not_sent', destination: 'not_sent', arrive_bell: null });
+  const honest = await check(plain, ({ pub }) => {
+    relabelFirst(pub, r => r.release_bell, r => { r.destinations = [...r.destinations, second(r.destinations[0])]; });
+  }, { only: ['M3'] });
+  assert.ok(!codes(honest.checks.M3).includes('not_sent_but_sent'), `one sent, one not_sent: ${JSON.stringify(codes(honest.checks.M3))}`);
+  assert.ok(!codes(honest.checks.M3).includes('not_sent_but_depart_on_chain'), JSON.stringify(codes(honest.checks.M3)));
+  let victim;
+  const liar = await check(plain, ({ pub }) => {
+    victim = relabelFirst(pub, r => r.release_bell, r => {
+      r.destinations = [...r.destinations.map(d => ({ host_id: d.host_id, planned_arrive_bell: d.planned_arrive_bell, via: 'model', state: 'not_sent', destination: 'not_sent', arrive_bell: null })), second(r.destinations[0])];
+    });
+  }, { only: ['M3'] });
+  assert.ok(liar.checks.M3.failures.some(f => f.code === 'not_sent_but_sent' && f.decision === victim.id), JSON.stringify(codes(liar.checks.M3)));
+});
+
 test('T2: an opening that names no destination for a record whose tx list sent a march fails (the due bell cannot be taken from it)', async () => {
   const report = await check(plain, ({ pub }) => { relabelFirst(pub, r => r.release_bell, r => { r.destinations = []; }); }, { only: ['M3'] });
   assert.ok(codes(report.checks.M3).includes('march_without_destination'));

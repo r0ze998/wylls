@@ -318,12 +318,19 @@ bg fleet "$FBIN/frontier-bots" --herald "$HERALD" --relay "$RELAY" --rpc "$RPC" 
   --personas off --journal "$AI_DIR/fleet" --report "$AI_DIR/fleet/report.json" --control "127.0.0.1:$((BASE + 71))" \
   --ai-slots "$AI_DIR/ai-slots.json" --brain "http://127.0.0.1:$MIND_PORT" --brain-token-file "$STATE/mind.token" --follow-council --export-seat-key "$KEYS/seat.txt"
 
-# A/B: the seat script casts the seat's ballot (the only difference between the arms)
-if [ -n "$AB" ]; then
+# The seat script casts the seat's ballot. A/B: the only difference between the arms (--arm). Any other run that names a seat script
+# (--seat-script, which also marks the seat "scripted" in the roster and the page): the council script, a scripted ballot (origin 2) in
+# every council period of nation 0 with options, no AI motion needed; it polls until this script stops it (SIGTERM) and says in its log
+# and in pub/seat/ballots.json that the ballot is scripted. A roster that says "scripted" without a script casting ballots was the
+# smoke-b4/b5 inconsistency (integ-B-NOTES.md, "seat ballot fix").
+if [ -n "$AB" ] || [ -n "$SEAT_SCRIPT" ]; then
+  SEAT_ARGS=(--ai-dir "$AI_DIR" --herald "$HERALD" --social "http://127.0.0.1:$SOCIAL_PORT" --key-file "$KEYS/seat.txt" --config "$CCONFIG" --stop-file "$STATE/seat.stop")
+  rm -f "$STATE/seat.stop" # a leftover stop file from an earlier run in a reused AI_DIR would end the seat at its first poll
+  [ -z "$AB" ] || SEAT_ARGS=(--arm "$AB" --rep "$REP" "${SEAT_ARGS[@]}")
   if [ -f "$REPO/$CPUB/ab/seat.mjs" ]; then
-    bg seat "$NODE" "$REPO/$CPUB/ab/seat.mjs" --arm "$AB" --rep "$REP" --ai-dir "$AI_DIR" --herald "$HERALD" --social "http://127.0.0.1:$SOCIAL_PORT" --key-file "$KEYS/seat.txt" --config "$CCONFIG"
-  elif [ "$DRY" = 1 ]; then echo "PLAN note: $CPUB/ab/seat.mjs (unit AC9) is not in this tree; an A/B run would refuse here"
-  else fail "$CPUB/ab/seat.mjs is missing (unit AC9 is not merged here): an A/B run needs the seat script"
+    bg seat "$NODE" "$REPO/$CPUB/ab/seat.mjs" "${SEAT_ARGS[@]}"
+  elif [ "$DRY" = 1 ]; then echo "PLAN note: $CPUB/ab/seat.mjs (unit AC9) is not in this tree; a run with a seat script would refuse here"
+  else fail "$CPUB/ab/seat.mjs is missing (unit AC9 is not merged here): a run with a seat script needs it"
   fi
 fi
 

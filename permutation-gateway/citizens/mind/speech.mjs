@@ -281,13 +281,21 @@ export function scriptMatches(s, lang) {
   return true;
 }
 
+/**
+ * integ-B (review finding): the per-word counts go into the PUBLIC metrics file (/h/ai/metrics/latest.json, rewritten every closed
+ * bell). For the sealed-target rules the refused "word" IS the sealed coordinate, name, number or kind, so it must never be tallied
+ * (the reason counter stays). Only word lists that name no target are kept: the pinned pact, human-claim and capture-claim lists
+ * and the memory-claim, imperative and handle-imitation hits of the why/summary checks.
+ */
+export const WORD_TALLY_REASONS = Object.freeze(['pact_word', 'human_claim', 'capture_claim', 'uncited_memory_claim', 'imperative', 'handle_imitation']);
+
 export function createSpeech({ config = {} } = {}) {
   const defaultLang = config.channel_lang ?? 'ja';
   const counts = { reasons: {}, words: {} };
   const tally = (r) => {
     if (!r.ok) {
       counts.reasons[r.reason] = (counts.reasons[r.reason] ?? 0) + 1;
-      if (r.word != null) {
+      if (r.word != null && WORD_TALLY_REASONS.includes(r.reason)) {
         counts.words[r.reason] ??= {};
         counts.words[r.reason][r.word] = (counts.words[r.reason][r.word] ?? 0) + 1;
       }

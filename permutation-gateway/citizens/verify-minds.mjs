@@ -598,20 +598,32 @@ export async function checkM3(ctx) {
     const sentInTx = marchSentInTx(txList);
     if (marchSentInTx(txList, HOSTED_MARCH_INTENTS) && !dests.length && op.destination !== 'unrevealed') c.fail('march_without_destination', { decision: rec.id, ai: rec.ai, bell: rec.bell, detail: 'the record\'s tx list sent a march and its opening names no destination: the due bell cannot be taken from it' });
     if (op.destination === 'unrevealed' && !dests.length) { unverifiedClaims++; c.unverified('destinations', `decision ${rec.id}: the opening says "unrevealed" without naming a host: the claim cannot be compared with the public REVEAL`); }
+    let notSentChecked = false;
     for (const x of dests) {
       const claim = x.source ?? 'reveal';
       claimCounts[claim] = (claimCounts[claim] ?? 0) + 1;
       if (claim === 'not_sent') {
-        // a march that was never sent: the record's tx list holds none, and no listed transaction is a Depart on chain
+        // a march that was never sent. integ-B (review finding): the claim is per HOST but the tx list is per record, so a record with two
+        // marches (one sent, one refused by V6: FB5 opens the refused one as not_sent) is legitimate. The arithmetic is the release job's
+        // (`marches.length - sentDeparts`): at most (destinations - not_sent) hosted marches may be sent, and at most that many listed
+        // transactions may be a Depart on chain. It is checked once per record.
         if (sentInTx === null) c.fail('not_sent_unsupported', { decision: rec.id, host_id: x.host_id, detail: 'the opening says "not_sent" and the record lists no transaction at all: nothing shows that no march was sent' });
-        else if (sentInTx) c.fail('not_sent_but_sent', { decision: rec.id, host_id: x.host_id, detail: 'the opening says "not_sent" and the record\'s tx list holds a sent march' });
-        else {
-          const program = (await ctx.season())?.programId;
-          for (const t of txList) {
-            if (!t.sig || !program) continue;
-            let onChain = null;
-            try { onChain = await ctx.tx(t.sig); } catch { onChain = null; }
-            if (onChain && gameTagOf(onChain, program) === DEPART_TAG) { c.fail('not_sent_but_depart_on_chain', { decision: rec.id, host_id: x.host_id, signature: t.sig, intent: t.intent, detail: 'the opening says "not_sent" but a listed transaction is a Depart on chain (its intent label differs)' }); break; }
+        else if (!notSentChecked) {
+          notSentChecked = true;
+          const notSentN = dests.filter(y => y.source === 'not_sent').length;
+          const allowedSent = dests.length - notSentN;
+          const sentHosted = txList.filter(t => HOSTED_MARCH_INTENTS.has(t.intent) && t.status === 'sent').length;
+          if (sentHosted > allowedSent) c.fail('not_sent_but_sent', { decision: rec.id, host_id: x.host_id, detail: `the opening says "not_sent" for ${notSentN} of ${dests.length} destination(s) and the record's tx list holds ${sentHosted} sent march(es): at most ${allowedSent} can have been sent` });
+          else {
+            const program = (await ctx.season())?.programId;
+            let departs = 0, last = null;
+            for (const t of txList) {
+              if (!t.sig || !program) continue;
+              let onChain = null;
+              try { onChain = await ctx.tx(t.sig); } catch { onChain = null; }
+              if (onChain && gameTagOf(onChain, program) === DEPART_TAG) { departs++; last = t; }
+            }
+            if (departs > allowedSent) c.fail('not_sent_but_depart_on_chain', { decision: rec.id, host_id: x.host_id, signature: last.sig, intent: last.intent, detail: `the opening says "not_sent" for ${notSentN} of ${dests.length} destination(s) but ${departs} listed transaction(s) are a Depart on chain (an intent label differs)` });
           }
         }
         continue;
