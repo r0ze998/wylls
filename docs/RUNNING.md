@@ -41,7 +41,7 @@ S=frontier-node/target/release/frontier-stack
 $S down --run-id try
 ```
 
-Ports are 41000 to 41999 only. Open **`/frontier/frontier/`**, not `/`: the bare address still lands on an older page ([overview §8](DESIGN-OVERVIEW.md#8-what-is-not-built-honest-limits-roadmap), item 6).
+Ports are 41000 to 41999 only. Open **`/frontier/frontier/`**, not `/`: the bare address still lands on an older page ([overview §8](DESIGN-OVERVIEW.md#8-what-is-not-built-limits-roadmap), item 6).
 
 **In the browser** the local flow joins with the page's built-in **Dev Wallet (localnet)**, a random key kept in the browser and usable on the local chain only. The in-game key is derived from that wallet's signature over a fixed text. No real wallet is involved.
 
