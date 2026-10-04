@@ -342,8 +342,8 @@ smoke-r3's finding (11.3, open point 11.6 1 and 2) was fixed on a new branch `fr
 |---|---|
 | `cd permutation-gateway && npm test` | **1603 tests, 1603 pass, 0 fail**, 0 skipped, 0 cancelled (about 45 s). The hold test (`ai-hook-check.sh on this tree`) passes here as in 10.1. In the ai-seatfix2 tree (`f25069d`) 1602 of 1602. |
 | the new tests alone | `citizens-seatfix2` 11/11, `citizens-seatfix2-chain` 6/6 (the real relay over a scripted chain, a herald double, the seat process); `citizens-seatfix` 13/13 and `citizens-ab` 19/19 pass unchanged |
-| `ai-hook-check.sh --blank-ok --exclude ad1c919d4d3b94eec8dc1d7df1e3a5c8f112f80d HEAD` | see the line added below (run after this notes commit) |
-| `ai-citizens-run.sh ... ai-smoke-14h.toml ... --seat-script <ai-run>/.../seat.mjs --dry-run` | `guards: PASS`; the plan's `start seat` line carries `--relay http://127.0.0.1:41933`; nothing was started or written |
+| `ai-hook-check.sh --blank-ok --exclude ad1c919d4d3b94eec8dc1d7df1e3a5c8f112f80d HEAD` | **PASS** (136 commits since `30ba411`, 282 MC files from 2 lists; run at `df3d433`, after the notes commit) |
+| `ai-citizens-run.sh ... ai-smoke-14h.toml ... --seat-script <ai-run>/.../seat.mjs --dry-run` | `guards: PASS` (run in this tree at `df3d433`); the plan's `start seat` line carries `--relay http://127.0.0.1:41933`; nothing was started or written |
 | Rust (`cargo test`, `fmt`, `clippy`) | **not run**: no Rust file changed |
 
 ### 12.2 What is NOT shown
