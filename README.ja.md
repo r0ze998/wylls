@@ -110,4 +110,4 @@ $S down --run-id try
 
 **最初に読む：** [設計の概要（10分）](docs/DESIGN-OVERVIEW.ja.md)（[English](docs/DESIGN-OVERVIEW.md)）、続いて[設計書](docs/GAME-DESIGN.ja.md)、[AI市民の契約 v1.3（英語）](docs/frontier/ai-citizens/AI-CITIZENS-CONTRACT.md)、[M1 終了レポート（英語）](docs/frontier/m1/M1-EXIT-NOTES.md)。**ほかに：** [動かし方（英語）](docs/RUNNING.md) · [決定の記録（英語）](docs/frontier/DECISIONS.md) · [文書の索引（英語）](docs/frontier/README.md)。**プロジェクトの記録：** [ピッチ（英語）](PITCH.md) · [提出記録（英語）](SUBMISSION.md) · [デモ台本（英語）](docs/pitch/DEMO_SCRIPT.md)
 
-**ライセンス。** リポジトリの直下に `LICENSE` ファイルはまだなく、リポジトリ全体のライセンスは決めていません。いくつかの Rust のクレートと npm パッケージ1つ（`permutation-gateway/client`）が、マニフェストで `license = "MIT"` を宣言しています。同梱の外部ライブラリは、それぞれのライセンスに従います。
+**ライセンス。** リポジトリの直下に MIT の `LICENSE` ファイルがあり、リポジトリ全体に適用されます。Rust のクレートと npm パッケージ1つ（`permutation-gateway/client`）も、マニフェストで `license = "MIT"` を宣言しています。同梱の外部ライブラリは、それぞれのライセンスに従います。
