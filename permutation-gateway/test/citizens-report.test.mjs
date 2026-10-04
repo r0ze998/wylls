@@ -159,7 +159,7 @@ test('R12 (synthetic edit of the fixture episodes): a fought clash still matches
   }
   assert.ok(fought >= 1 && cleared >= 1, `the edit produced both kinds (fought ${fought}, cleared ${cleared})`);
   const m = buildReport({ aiDir: dir }).marches;
-  assert.equal(m.y_clash_without_opening, 7, 'a march whose clash is a fought episode still counts (the old kind list would have dropped it)');
+  assert.equal(m.y_proxy_clash_any_opening, 7, 'a march whose clash is a fought episode still counts (the old kind list would have dropped it)');
   assert.equal(m.clash_results.fought, fought);
   assert.equal(m.clash_results.win_cleared, cleared);
   assert.equal(m.clash_results.win, cleared);

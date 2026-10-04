@@ -50,7 +50,9 @@ async function serveRpc(chain) {
 }
 
 const cliArgs = (run, dir, rpcUrl, extra = []) => ['--herald', run.herald.url, '--rpc', rpcUrl, '--ai-dir', path.join(dir, 'pub'), '--repo', run.repo, '--model', run.modelPath, '--llama-dir', run.llamaDir,
-  '--stack', run.stackPath, '--slots', run.slotsPath, '--quiet', ...extra];
+  '--stack', run.stackPath, '--slots', run.slotsPath, '--quiet',
+  '--episode-rule', 'legacy_v1', // merge seam FB3+FB5: the mini run publishes the real slice-4 episodes (pre-R12 rule), as the fixture's verifyOpts say
+  ...extra];
 
 // ================================================================ D1: a partial run is never a pass and never overwrites the published file
 test('D1: --only leaves checks out: the verdict is INCOMPLETE (exit 3), not PASS, and PUB/verify-minds.json is NOT written unless --out is given', async () => {
