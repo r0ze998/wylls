@@ -95,7 +95,11 @@ async fn march_candidates_carry_the_table_facts_and_only_fixed_reward_text() {
     let bot = ai_bot();
     let obs = observe(&r, &bot).await;
     let offers = with_inputs(&obs, &day0(), brain::candidates);
-    let marches: Vec<_> = offers.iter().filter(|o| o.cand.kind == "march").collect();
+    // The camp marches (AC3b adds a raid march: `ai_raid_recall.rs` checks it).
+    let marches: Vec<_> = offers
+        .iter()
+        .filter(|o| o.cand.kind == "march" && o.cand.facts["target_kind"] == "camp")
+        .collect();
     assert!(!marches.is_empty() && marches.len() <= 3, "camps in view");
     for m in marches {
         let f = &m.cand.facts;

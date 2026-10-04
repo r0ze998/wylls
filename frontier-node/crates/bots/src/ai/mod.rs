@@ -18,12 +18,14 @@
 //! | [`ready`] | private copy of `ready_host`/`can_depart` (§4.3) |
 //! | [`meview`] | own hosts, transits and seals from `/h/me` (§1.3 C2) |
 //! | [`aislots`] | `ai-slots.json`, the AI roster, `--export-seat-key` (§2.3) |
-//! | `raid`, `recall` | **offer stubs** returning nothing: AC3b replaces them (§4.3) |
+//! | [`aisign`] | the signed social record bytes, the Rust mirror of `aisocial.mjs` (§6.1) |
+//! | [`fetch`] | the path fetch for a target beyond the observation (§4.3, §6.6) |
+//! | [`follow`] | following the Call, the flagged Strike-Order candidate, the social posts (§6.6, §4.3) |
+//! | [`raid`], [`recall`] | the `raid` and `recall:<handle>` candidates (§4.3) |
 //!
-//! Seams for AC3b (`follow.rs`, `aisign.rs`): [`follow_offer`] (the flagged
-//! Strike-Order candidate), [`follow_intents`] (the
-//! Strike-Order follow march, `via: strike_order`), [`follow_wake`] and
-//! [`follow_next_wake`] (the follow-only micro-step of §6.6) are no-ops here.
+//! The follow seams ([`follow_intents`], [`follow_wake`], [`follow_next_wake`])
+//! are the entry points `brain.rs` and the `fleet.rs` hook call; their
+//! bodies are in `follow.rs` (AC3b).
 //!
 //! Nothing here claims the model "wants" or "intends" anything: the brain
 //! offers code-made candidates and executes what a validated answer chose.
@@ -42,8 +44,11 @@ use crate::fleet::Fleet;
 use crate::ports::{DirectPort, HeraldPort, RelayPort};
 use crate::report::Outcome;
 
+pub mod aisign;
 pub mod aislots;
 pub mod brain;
+pub mod fetch;
+pub mod follow;
 pub mod meview;
 pub mod mindport;
 pub mod raid;
@@ -121,6 +126,8 @@ pub struct BotAi {
     pub day: Option<DayState>,
     /// Hosts that were ready at the previous step (W-READY detection).
     pub prev_ready: BTreeSet<u64>,
+    /// Following the Call (AC3b, `follow.rs`).
+    pub follow: follow::BotFollow,
 }
 
 /// Per-AI milestones for the run report (AC3a step 0 (d), contract §9.5 (c)):
@@ -140,6 +147,9 @@ pub struct AiHook {
     pub mind: Option<MindPort>,
     pub slots: AiSlots,
     pub follow_council: bool,
+    /// Process-wide follow state: the social service address, the council
+    /// cache, the path fetch cache, the threat feed (AC3b).
+    pub follow: follow::FollowShared,
     /// Wall budget of a mind call on a fixed clock (unit tests): a game
     /// clock derives the budget from the bell's deadline (§3.5).
     pub fixed_call_budget: Duration,
@@ -154,6 +164,7 @@ impl AiHook {
             mind,
             slots,
             follow_council,
+            follow: follow::FollowShared::default(),
             fixed_call_budget: Duration::from_secs(5),
             stats: Mutex::new(BTreeMap::new()),
             outcomes: Mutex::new(BTreeMap::new()),
@@ -304,33 +315,30 @@ where
     }
 }
 
-/// **AC3b seam**: the flagged Strike-Order march candidate (§4.3: right after
-/// `hold`, member only, `flags.council`); AC3a offers none.
-pub fn follow_offer(_inp: &brain::Inputs) -> Vec<brain::Offer> {
-    Vec::new()
+/// The Strike-Order follow intents of this bot at this step (§6.6;
+/// `via: strike_order`): `follow::intents` (AC3b). Called by `step_ai` for the
+/// autopilot's A'.
+pub fn follow_intents(bot: &Bot, obs: &Observation) -> Vec<Intent> {
+    follow::intents(bot, obs)
 }
 
-/// **AC3b seam**: the Strike-Order follow intents of this bot at this step
-/// (§6.6; `via: strike_order`). AC3a has none.
-pub fn follow_intents(_bot: &Bot, _obs: &Observation) -> Vec<Intent> {
-    Vec::new()
-}
-
-/// **AC3b seam**: the follow-only micro-step in every bell of a live Call's
-/// window (§6.6). Called by the `fleet.rs` hook for every bot at every
-/// wake; AC3a does nothing.
-pub async fn follow_wake<H, R, D>(_sh: &Shared<H, R, D>, _bot: &mut Bot, _now: i64)
+/// The follow-only micro-step of a script bot in every bell of a live Call's
+/// window (§6.6): `follow::follow_wake` (AC3b). Called by the `fleet.rs` hook
+/// for every bot at every pass of its loop; it does nothing for an AI bot or
+/// without `--follow-council`.
+pub async fn follow_wake<H, R, D>(sh: &Shared<H, R, D>, bot: &mut Bot, now: i64)
 where
     H: HeraldPort,
     R: RelayPort,
     D: DirectPort,
 {
+    follow::follow_wake(sh, bot, now).await
 }
 
-/// **AC3b seam**: the next wake of a bot, earlier than `wake` while a live
-/// Call's follow window is open (§6.6). AC3a returns `wake` unchanged.
-pub fn follow_next_wake(_bot: &Bot, _now: i64, wake: i64) -> i64 {
-    wake
+/// The next wake of a bot, earlier than `wake` while a follow check is due
+/// (§6.6): `follow::next_wake` (AC3b).
+pub fn follow_next_wake(bot: &Bot, now: i64, wake: i64) -> i64 {
+    follow::next_wake(bot, now, wake)
 }
 
 /// The command-line options of the AI hook (`--brain`, `--brain-token-file`,
@@ -435,7 +443,7 @@ pub fn write_stats<H, R, D>(sh: &Shared<H, R, D>, report: &Option<PathBuf>) {
     let Some(h) = &sh.ai else {
         return;
     };
-    if h.slots.ai_count() == 0 {
+    if h.slots.ai_count() == 0 && !h.follow_council {
         return;
     }
     let v = h.stats_json();
