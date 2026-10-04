@@ -189,7 +189,7 @@ Run: `ai-citizens-run.sh --stack citizens/stack/ai-smoke-14h.toml --citizens-con
 
 Reproduce the stills: `node docs/frontier/ai-citizens/runtree-r2/capture.mjs OUTDIR RUN_DIR` against a live stack (it needs Playwright; the default module path is the npx cache used here; no install was made).
 
-### 9.5 NEW and OPEN: smoke-r2's verify-minds FAILED (M3), a season-end race in the AI line
+### 9.5 NEW and OPEN: smoke-r2's verify-minds FAILED (M3), a season-end race in the AI line (repaired in the code since section 10; not re-run live)
 
 `logs/verify-minds.log`: M1 PASS n=33, M2 PASS n=12, **M3 FAIL n=249 (1 failure)**, M7 PASS n=348, M8 PASS n=30, M9 PASS n=20 (20 of 20 equal on replay), M11 PASS n=520. Verdict **FAIL** (`runtree-r2/verify-minds-r2.json`, `report-r2.md`). The single failure: `anchor_gap` at **bell 109**, reason "the chain was paused (the season is complete): no block can confirm a memo".
 
@@ -212,8 +212,32 @@ Run script trap: census, registrar-run, citizens service and the stack were stop
 ### 9.8 Open points after review round 2
 
 1. The failing tree test (3.1): decision needed (the exclude file plus a test that passes `--exclude`). Quote the gate as 1570 of 1571.
-2. 9.5, the season-end race that failed smoke-r2's verify-minds: repair on `frontier/ai-integ`, then re-merge here. Until then a long run from this tree can end with a verify-minds FAIL for this reason; look at M3's single failure before reading anything into it.
+2. 9.5, the season-end race that failed smoke-r2's verify-minds: **repaired on `frontier/ai-integ` and re-merged here (section 10); not yet confirmed by a live run.** Until then a long run from this tree can end with a verify-minds FAIL for this reason; look at M3's single failure before reading anything into it.
 3. 9.6, the herald test race (a one-line change in a never-edit path).
 4. The council page change of `f2ad434` should be taken by `frontier/ai-integ` (or the ai-run side kept on re-merge).
 5. Highlights are empty on a fresh page after the play phase (9.3): record during play; the window is the design session's.
 6. Not run here: the A/B runs; a figure in a battle replay and a marching figure on the AI screens; the whole-map off-centre/cut-label layout item; the `[lang] ... "Wylls"` warning count.
+
+## 10. Season-end race fix re-merged (2026-10-05)
+
+The repair of 9.5 was made on a new branch `frontier/ai-eosfix` (cut from `frontier/ai-integ` `d6f2bc3`; commit `d803f88`), merged into `frontier/ai-integ` (`eabef5c`, `--no-ff`) and re-merged here (`544c1a8`, `--no-ff`, no conflict; the merge auto-merged `test/citizens-run-check.test.mjs`, which this tree had changed in `cb25c3d`). Nothing was pushed, `frontier/unify` and its worktree were not touched. The full account (cause, rule, tests, limits) is `integ-B-NOTES.md` section 11. In short:
+
+* **Cause (from smoke-r2's own files):** the chain ended at game second `F = start(110) + 3` (genesis `1785630213`, last game second `1785696216`); the close instant of bell 109 is `F + 17`. The closer's clock ran on real time between two herald polls and crossed it, and nothing ordered the closer against the registrar's `publish`.
+* **Rule:** (1) once the brain is silent the closer measures against the newest chain time a herald poll returned, never the extrapolation (`closer.mjs` `closeNow`/`noteChain`); (2) the season-end seal ends the closer: `publish` waits for the last bell the chain closed, writes `STATE/season-sealing.json`, waits for a close in flight, then counts the closed bells and writes the index; the closer (claim, then check) closes nothing once sealed (`mind/seal.mjs`). `verify-minds` is unchanged. The smoke-b4 clock fix stays (its 7 tests pass unchanged).
+* **Files in this tree changed by the merge:** `citizens/mind/closer.mjs`, `citizens/mind/seal.mjs` (new), `citizens/registrar.mjs`, `citizens/server.mjs`, `citizens/bin/ai-citizens-run.sh` (clears a leftover seal and claim; the dry-run plan names the new step), `test/citizens-eosfix.test.mjs` (new, 13 tests; 13 of 13 fail on `d6f2bc3`), a two-line fixture change in `test/citizens-run-check.test.mjs` (the throwaway-repository copy list), the notes. No Rust, web, herald, agents, program or ABI file changed (`git diff --stat 6ca80a5 HEAD -- frontier-node` is empty); the release binaries of section 4 are therefore still current.
+
+### 10.1 Gate of this tree after the re-merge (`544c1a8`)
+
+| Command | Result |
+|---|---|
+| `cd permutation-gateway && npm test` | **1584 tests, 1584 pass, 0 fail**, 0 skipped, 0 cancelled (48 s). The one test that failed in 3.1 and 9.2 (`ai-hook-check.sh on this tree`) passes in this tree since `cb25c3d` (the exclude file; that commit is not mine and I did not edit that test or the hook check): so the gate here is "all pass", not "all pass except that test". |
+| changed test files alone | `citizens-eosfix` 13/13, `citizens-integ-b-clock` 7/7, `citizens-mind-closer` 5/5, `citizens-registrar` 27/27, `citizens-fb1-anchors` 10/10, `citizens-run-check` 22/22, `citizens-mind-server` 9/9, `citizens-integ-b` 5/5 |
+| `ai-hook-check.sh --blank-ok --exclude ad1c919d4d3b94eec8dc1d7df1e3a5c8f112f80d HEAD` | **PASS** (125 commits since `30ba411`, 282 MC files from 2 lists) |
+| `ai-citizens-run.sh --stack citizens/stack/ai-smoke-14h.toml --citizens-config citizens/config/smoke.json --deck deck-1 --run-id eosfix-dry --check` / `--dry-run` | `guards: PASS`; the dry run printed the plan (with the new publish wording) and "nothing was started or written" |
+| Rust (`cargo test`, `fmt`, `clippy`) | **not run**: no Rust file changed since the last run of 9.2 |
+
+In the ai-eosfix tree (`d803f88`) `npm test` gave 1583 of 1583 on the third run; the first run had one failure in `citizens-run-check` (the throwaway-repository fixture lacked the two new mind imports: fixed before the commit) and the second one failure in `frontier-relay-parts.test.mjs` ("invites: HMAC tokens ...": the test replaces the last two characters of a random token with `AA`, which leaves it unchanged when it already ends in `AA`; by my reading about one run in 4096; it passed in 6 of 6 reruns and in the full run after; not an AI file, not edited).
+
+### 10.2 What is NOT shown
+
+No live run: smoke-r2 was not re-run, no stack, no herald, no llama-server, no run script start (ports 41900-41999 and every other port untouched; the paused m1-exit stack and the design preview not touched), no paid API, no download. That the 14 h run now passes M3 is shown on smoke-r2's own geometry in tests, not on a new run. Open: the geometry hole (a bell closed within a memo's landing time of the chain's end becomes a named gap), the verifier's `headBell - 1` against the closer's +20 game-s, and `F` for the 3-day main and A/B configs, which I did not compute (`integ-B-NOTES.md` 11, limits 1 to 3). The scripted-seat honesty rule of section 10 of the integ-B notes stands: an adopted Strike Order in a run is a scripted seat vote plus AI votes, never "humans and AI decided together"; this fix does not touch the seat or the council.
