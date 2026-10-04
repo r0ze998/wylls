@@ -39,7 +39,7 @@ Neither real run has a follow, so the double count of `follow_fetch_gets` and th
 Nothing of C1-C5 was rebutted; all five findings are real and were reproduced by a test on the old code. Two parts of the review's wording I did not follow literally:
 
 - C5 asked for `episode.bell <= planned arrival + slack` as well; the task text asks for `bell >= march bell` only, so only that is implemented (see "left").
-- The review said the model counter `model_marches` and the report agree by construction; they do not: the mind counts every CHOSEN march candidate (a Call included, `api.mjs` `marchedIds`), the brain counts a SENT march that is not a follow or a recall. The check against the mind counter is now `chosen_march_candidates_equal_mind_counter` and compares like with like; the check against the brain counter compares sent marches.
+- The old check `model_marches_equal_mind_counter` compared two different things: the mind counts every CHOSEN march candidate (a Call included, `api.mjs` `marchedIds`), the brain counts a SENT march that is not a follow or a recall. The check against the mind counter is now `chosen_march_candidates_equal_mind_counter` and compares like with like; the check against the brain counter compares sent marches.
 
 ## Deviations and things changed beyond the letter of the task
 
@@ -64,6 +64,6 @@ Nothing of C1-C5 was rebutted; all five findings are real and were reproduced by
 | `node --test test/citizens-report-fb2.test.mjs` (fixed code) | 11 pass, 0 fail |
 | same file against the unfixed `citizens/report.mjs` of 0cc0973 (copied in and back) | 0 pass, 11 fail |
 | `node --test test/citizens-report.test.mjs test/citizens-report-fb2.test.mjs test/citizens-integ-b.test.mjs` | 24 pass, 0 fail |
-| `cd permutation-gateway && nice -n 5 npm test` (head of frontier/ai-fb2 before the notes commit; the last edit after it changed one text constant and re-ran the three files above) | 1476 tests, 1476 pass, 0 fail, 46 s |
+| `cd permutation-gateway && nice -n 5 npm test` (final code, run after the last edit to report.mjs) | 1476 tests, 1476 pass, 0 fail, 58 s |
 | Rust (`cargo test`, fmt, clippy) | not run: no Rust file changed |
 | live smoke, llama-server, verify-minds | not run: no live process was started, no port bound |
