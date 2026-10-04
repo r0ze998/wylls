@@ -66,10 +66,11 @@ test('report on the slice-4 subset: decisions, by:model, marches (private host i
   assert.equal(m.opened, 0);
   assert.equal(m.y_strict, 0, 'Y counts opened records only: the wave-A run had no release job');
   assert.equal(m.g12_met, false);
-  assert.equal(m.y_clash_without_opening, 7);
+  assert.equal(m.y_proxy_clash_any_opening, 7);
+  assert.equal(m.y_proxy_clash_unopened_only, 7, 'none of the 7 was opened');
   assert.deepEqual(m.clash_results, { win: 6, loss: 1 });
   assert.equal(m.marches_without_known_host, 0);
-  assert.match(m.y_clash_without_opening_note, /NOT Y/);
+  assert.match(m.y_proxy_clash_any_opening_note, /NOT Y/);
   assert.deepEqual(m.marches.map((x) => `${x.bell}:${x.index}`), ['40:1001', '40:1003', '40:1004', '52:1000', '64:1003', '64:1004', '70:1001']);
   assert.ok(m.marches.every((x) => x.clashes.length === 1 && x.clashes[0].camp === true));
   // memory
@@ -101,9 +102,13 @@ test('report on the slice-4 subset: decisions, by:model, marches (private host i
 test('--public-only: nothing private is read; a sealed decision stays unknown and no host id is guessed', () => {
   const r = buildReport({ aiDir: FIX, privateOk: false });
   assert.equal(r.sources.private_records, false);
-  assert.equal(r.marches.model_marches_sent, 7, 'the count of marches needs only the public tx');
-  assert.equal(r.marches.marches_without_known_host, 7);
-  assert.equal(r.marches.y_clash_without_opening, 0);
+  // FB2 (C3): the public tx cannot tell a model march from a recall or a Strike-Order follow (all are `depart`), so with the choice sealed the 7
+  // sent departs are UNCLASSIFIED: not counted as model marches, not ruled out
+  assert.equal(r.marches.model_marches_sent, 0);
+  assert.equal(r.marches.model_marches_unclassified, 7);
+  assert.equal(r.checks.model_marches_equal_brain_counter, null);
+  assert.equal(r.marches.marches_without_known_host, 0);
+  assert.equal(r.marches.y_proxy_clash_any_opening, 0);
   assert.equal(r.marches.y_strict, 0);
   assert.equal(r.memory.decisions_with_unknown_choice, 7);
   assert.equal(r.memory.decisions_citing_memory.of_model_decisions_with_known_choice, 1, 'the one unsealed model decision');
@@ -127,7 +132,7 @@ test('Y counts only OPENED records that produced a clash (synthetic: opened reco
   assert.equal(r.marches.opened, 3);
   assert.equal(r.marches.y_strict, 2, 'a and b opened and clashed; c opened, its host has no clash episode');
   assert.equal(r.marches.g12_met, true);
-  assert.equal(r.marches.y_clash_without_opening, 7 - 1, 'c has no clash by its destination host id; the other six match through the private candidates');
+  assert.equal(r.marches.y_proxy_clash_any_opening, 7 - 1, 'c has no clash by its destination host id; the other six match through the private candidates');
   const mc = r.marches.marches.find((x) => x.record === c.id);
   assert.equal(mc.opened, true);
   assert.deepEqual(mc.clashes, []);

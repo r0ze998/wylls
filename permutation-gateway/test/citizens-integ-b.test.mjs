@@ -157,7 +157,7 @@ test('the report reads the brain\'s GET counters named gets:* (the colon form) a
   const { brainSection } = await import('../citizens/report.mjs');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-integ-b-brain-'));
   fs.writeFileSync(path.join(dir, 'ai-brain.json'), JSON.stringify({ counters: { steps: 100, no_session: 10, 'gets:me': 90, 'gets:digest': 300, 'gets:reobserve': 60, answers_model: 5, answers_autopilot: 85 } }));
-  const b = brainSection(dir, { records: new Array(90).fill(0), aiByTag: new Map() });
+  const b = brainSection(dir, { records: new Array(90).fill({ kind: 'session' }), aiByTag: new Map() }); // FB2: records are views with a kind: only session, reaction and autopilot answer a step
   assert.equal(b.gets_per_step.gets, 450);
   assert.equal(b.gets_per_step.per_step, 4.5);
   assert.equal(b.no_session, 10);
