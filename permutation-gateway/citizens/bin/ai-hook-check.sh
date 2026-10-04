@@ -21,6 +21,8 @@
 #   --base REF          default 30ba411 (the contract's base)
 #   --mc-list FILE      one more MC file list (repeatable); the committed MC-FILES-*.txt are always read
 #   --exclude REF       commits reachable from REF are not checked (repeatable)
+#   --blank-ok          tolerate an added blank line directly before an opener or after an end marker (a spacing line
+#                       beside a block; off by default: the contract counts every added line outside a block)
 #   --repo DIR          the repository (default: this script's checkout)
 #   -q                  print violations and the verdict only
 # Exit: 0 clean, 1 violations, 2 usage or git errors. Portable to macOS bash 3.2 (no associative arrays).
@@ -226,6 +228,25 @@ pub mod b;' && g add -A && g commit -m bad
   { echo 'fn bot() {'; echo '    one();'; echo '    // AI hook: big'; for i in $(seq 1 31); do echo "    x$i();"; done; echo '    // AI hook end'; echo '    two();'; echo '}'; } > "$r/frontier-node/crates/bots/src/bot.rs" && g add -A && g commit -m bad
   g checkout -q -b edge base0
   { echo 'fn bot() {'; echo '    one();'; echo '    // AI hook: edge'; for i in $(seq 1 30); do echo "    x$i();"; done; echo '    // AI hook end'; echo '    two();'; echo '}'; } > "$r/frontier-node/crates/bots/src/bot.rs" && g add -A && g commit -m ok
+  # 7b. a spacing blank line beside a block: a violation by the contract's count, tolerated with --blank-ok; a code line beside it is not
+  g checkout -q -b blank base0
+  w frontier-node/crates/bots/src/bot.rs 'fn bot() {
+    one();
+    // AI hook: brain
+    brain();
+    // AI hook end
+
+    two();
+}' && g add -A && g commit -m blank
+  g checkout -q -b blankcode base0
+  w frontier-node/crates/bots/src/bot.rs 'fn bot() {
+    one();
+    // AI hook: brain
+    brain();
+    // AI hook end
+    sneaky();
+    two();
+}' && g add -A && g commit -m bad
   # 8. an existing file that is not a hook file, not the integrator's
   g checkout -q -b existing base0 && w docs/plain.md 'plain edited' && g add -A && g commit -m bad
   g checkout -q -b existing2 base0 && w permutation-server/web/frontier/fland.mjs 'fland2' && g add -A && g commit -m bad
@@ -283,6 +304,9 @@ pub mod ai;
   expect '1:added lines outside an AI hook block' 'an opener with code before it opens no block' inlineopen
   expect '1:longer than 30 lines' 'a block of 31 lines' big
   expect 0 'a block of exactly 30 lines' edge
+  expect '1:added lines outside an AI hook block' 'a blank line after the end marker is counted by default' blank
+  expect 0 'a blank line beside a block passes with --blank-ok' --blank-ok blank
+  expect '1:added lines outside an AI hook block' 'a code line beside a block fails even with --blank-ok' --blank-ok blankcode
   expect '1:an existing file outside an AI hook block' 'an existing file that is not a hook file' existing
   expect '1:an existing file outside an AI hook block' 'an existing web file outside the never-edit list' existing2
   expect '1:a new file outside the AI directories' 'a new file outside the AI directories (scripts/)' newfile
@@ -307,6 +331,7 @@ EXCLUDES=
 MC_EXTRA=
 REPO=
 QUIET=0
+BLANK_OK=0
 REV=
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -315,8 +340,9 @@ while [ $# -gt 0 ]; do
     --mc-list) MC_EXTRA="$MC_EXTRA ${2:?}"; shift 2 ;;
     --exclude) EXCLUDES="$EXCLUDES ${2:?}"; shift 2 ;;
     --repo) REPO=${2:?}; shift 2 ;;
+    --blank-ok) BLANK_OK=1; shift ;;
     -q) QUIET=1; shift ;;
-    -h|--help) sed -n '2,29p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,/^set -u/p' "$0" | sed '$d'; exit 0 ;;
     -*) die "unknown option $1" ;;
     *) [ -z "$REV" ] || die "one revision only"; REV=$1; shift ;;
   esac
@@ -410,6 +436,17 @@ oversize() {
   awk -v B="$1" -v max="$MAX_BLOCK" 'BEGIN { n = split(B, x, ";"); for (i = 1; i <= n; i++) if (x[i] != "") { split(x[i], y, " "); if (y[2] - y[1] - 1 > max) printf "%d-%d(%d lines) ", y[1], y[2], y[2] - y[1] - 1 } }'
 }
 
+# drop_blank_adjacent BLOCKS FILE-REV PATH: from line numbers on stdin, drop those that are blank lines directly before a block's
+# opener or directly after its end marker (--blank-ok).
+drop_blank_adjacent() {
+  local blocks=$1 rev=$2 path=$3 lns
+  lns=$(tr '\n' ' ')
+  G show "$rev:$path" 2>/dev/null | awk -v B="$blocks" -v lns="$lns" '
+    BEGIN { n = split(B, x, ";"); for (i = 1; i <= n; i++) if (x[i] != "") { split(x[i], y, " "); st[y[1] - 1] = 1; en[y[2] + 1] = 1 }
+            m = split(lns, l, " "); for (i = 1; i <= m; i++) want[l[i]] = 1 }
+    { if ((NR in want) && !(($0 ~ /^[ \t]*$/) && ((NR in st) || (NR in en)))) print NR }'
+}
+
 VIOL=0
 violation() { VIOL=$((VIOL + 1)); echo "VIOLATION $1 $2: $3"; }
 
@@ -425,8 +462,10 @@ check_hook() { # commit path nparents
       if exists_at_base "$f"; then :; else violation "$c" "$f" "a hook file created"; return; fi
     fi
     ob=$(blocks "$c^" "$f" | grep -v '^U ' | tr '\n' ';')
-    bad=$(G diff -U0 "$c^" "$c" -- "$f" | lines + | outside "$nb" | head -3 | tr '\n' ' ')
-    [ -z "$bad" ] || violation "$c" "$f" "added lines outside an AI hook block (new lines $bad)"
+    bad=$(G diff -U0 "$c^" "$c" -- "$f" | lines + | outside "$nb")
+    if [ "$BLANK_OK" = 1 ] && [ -n "$bad" ]; then bad=$(printf '%s\n' "$bad" | drop_blank_adjacent "$nb" "$c" "$f"); fi
+    bad=$(printf '%s\n' "$bad" | head -3 | tr '\n' ' ')
+    [ -z "${bad// /}" ] || violation "$c" "$f" "added lines outside an AI hook block (new lines $bad)"
     bad=$(G diff -U0 "$c^" "$c" -- "$f" | lines - | outside "$ob" | head -3 | tr '\n' ' ')
     [ -z "$bad" ] || violation "$c" "$f" "removed lines outside an AI hook block (old lines $bad)"
   else

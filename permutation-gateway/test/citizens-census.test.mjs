@@ -156,7 +156,12 @@ test('the schedule: ready.jsonl once per new bell; the first census at the first
   const state = {};
   const files = () => fs.readdirSync(path.join(aiDir, 'census')).sort();
   const poll = async (b) => { bell = b; return C.pollOnce({ aiDir, herald, roster, state }); };
-  let r = await poll(5);
+  let r = await poll(-1);
+  assert.deepEqual(r.wrote, [], 'before genesis there is no bell: nothing is written, not even with force');
+  r = await C.pollOnce({ aiDir, herald, roster, state, force: true });
+  assert.deepEqual(r.wrote, []);
+  assert.ok(!fs.existsSync(path.join(aiDir, 'census')));
+  r = await poll(5);
   assert.deepEqual(r.wrote, ['ready.jsonl'], 'no final village yet: no census file');
   r = await poll(5);
   assert.deepEqual(r.wrote, [], 'the same bell is not written twice');

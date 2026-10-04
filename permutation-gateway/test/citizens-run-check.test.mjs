@@ -5,8 +5,10 @@
 // Nothing here starts a stack, a model or any service; the script runs against a throwaway git repository (AI_REPO).
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync, execFileSync } from 'node:child_process';
+import { spawn, spawnSync, execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
+import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -41,6 +43,15 @@ function run(args, { repo, env = {}, lock = path.join(tmp, `lock-${Math.random()
   const r = repo ?? makeRepo();
   const out = spawnSync('bash', [path.join(bin, 'ai-citizens-run.sh'), ...args], { env: { ...cleanEnv(), AI_REPO: r.root, AI_STACK_LOCK: lock, ...env }, encoding: 'utf8', timeout: 60_000 });
   return { code: out.status, out: out.stdout, err: out.stderr, text: out.stdout + out.stderr, repo: r, lock };
+}
+/** The same, without blocking the event loop (a fake llama-server in this process has to answer the script's curl). */
+function runAsync(args, { repo, env = {}, lock }) {
+  return new Promise(resolve => {
+    const p = spawn('bash', [path.join(bin, 'ai-citizens-run.sh'), ...args], { env: { ...cleanEnv(), AI_REPO: repo.root, AI_STACK_LOCK: lock, ...env } });
+    let out = '', err = '';
+    p.stdout.on('data', d => { out += d; }); p.stderr.on('data', d => { err += d; });
+    p.on('close', code => resolve({ code, out, err, text: out + err }));
+  });
 }
 const smoke = path.join(STACKS, 'ai-smoke.toml');
 const check = (extra = [], opts) => run(['--stack', smoke, '--citizens-config', CONFIG, '--no-busy-check', '--check', ...extra], opts);
@@ -122,6 +133,29 @@ test('the lock: taken once, refused while its pid lives, replaced when the pid i
   assert.deepEqual(G.lockProblems(f), []);
   assert.deepEqual(G.takeLock(f, { pid: process.pid, unit: 'ai-ac5', run_id: 'r3' }), { ok: true, replaced: true });
   G.releaseLock(f, 'r3');
+});
+
+
+test('every command-line entry runs when its path goes through a symlink (macOS /var is one) and prints before it exits', () => {
+  const link = path.join(tmp, 'citizens-link');
+  fs.symlinkSync(path.resolve(bin, '..'), link);
+  const out = path.join(tmp, 'slots-via-link.json');
+  const r = spawnSync('node', [path.join(link, 'registrar.mjs'), 'slots', '--stack', smoke, '--n', '6', '--out', out], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /slots: .* \(6 AI \+ seat, seed 41\)/);
+  assert.ok(fs.existsSync(out));
+  const g = spawnSync('node', [path.join(link, 'bin', 'run-guards.mjs'), 'ports', '--stack', smoke], { encoding: 'utf8' });
+  assert.equal(g.status, 0, g.stderr);
+  assert.match(g.stdout, /herald=41940/);
+  const bad = spawnSync('node', [path.join(link, 'bin', 'run-guards.mjs'), 'bogus'], { encoding: 'utf8' });
+  assert.equal(bad.status, 2);
+  assert.match(bad.stderr, /usage/);
+  const c = spawnSync('node', [path.join(link, 'scenario', 'census.mjs'), '--herald', 'http://203.0.113.9:41940', '--ai-dir', tmp, '--once'], { encoding: 'utf8' });
+  assert.equal(c.status, 2);
+  assert.match(c.stderr, /not a loopback URL/);
+  const sv = spawnSync('node', [path.join(link, 'serve.mjs'), '--ai-dir', tmp, '--herald', 'http://127.0.0.1:41940', '--social', 'http://127.0.0.1:41981', '--page-dir', tmp, '--port', '41300'], { encoding: 'utf8' });
+  assert.equal(sv.status, 2);
+  assert.match(sv.stderr, /outside 41901-41999/);
 });
 
 // ------------------------------------------------------------------ the run script: --check
@@ -320,6 +354,75 @@ test('a real start without the other units refuses before anything is taken: no 
   assert.match(r2.err, /server\.mjs is missing/);
   assert.ok(!fs.existsSync(r2.lock));
 });
+
+
+// ------------------------------------------------------------------ the run script, started for real, failing at the stack
+test('a real start in a throwaway repository: slots, commitments, the RUNS.md entry (committed), the registrar in the background, the stack that dies; the trap stops every child, writes the END line and releases the lock', async () => {
+  // A fake llama on 41999 (never 41901: AC1a and the slice gate own that), a fake frontier-stack that exits at once.
+  const llamaPort = 41999;
+  const llama = http.createServer((req, res) => {
+    if (req.url === '/health') { res.writeHead(200); return res.end('{"status":"ok"}'); }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(req.url === '/props' ? '{"model_alias":"gemma-4-26b-a4b-it"}' : '{"data":[{"id":"gemma-4-26b-a4b-it"}]}');
+  });
+  const up = await new Promise(res => { llama.once('error', () => res(false)); llama.listen(llamaPort, '127.0.0.1', () => res(true)); });
+  if (!up) { llama.close(); return; } // the port is taken by somebody else: nothing to test against
+  try {
+    const repo = makeRepo();
+    const ac = path.join(repo.root, 'permutation-gateway');
+    for (const f of ['serve.mjs', 'registrar.mjs']) write(path.join(ac, 'citizens', f), read(path.join(REAL_REPO, 'permutation-gateway', 'citizens', f)));
+    write(path.join(ac, 'citizens', 'server.mjs'), '// stub\n');
+    repo.git('add', '-A'); repo.git('commit', '-q', '-m', 'files');
+    fs.symlinkSync(path.join(REAL_REPO, 'permutation-gateway', 'node_modules'), path.join(ac, 'node_modules'));
+    const fbin = path.join(tmp, 'fake-fbin');
+    const note = path.join(tmp, 'fake-stack-calls.txt');
+    write(path.join(fbin, 'frontier-stack'), `#!/bin/sh\necho "$@ | FRONTIER_BIN=$FRONTIER_BIN PSF_REPO=$PSF_REPO" >> ${note}\ncase "$1" in up) exit 3 ;; esac\nexit 0\n`);
+    write(path.join(fbin, 'frontier-bots'), '#!/bin/sh\nexit 0\n');
+    for (const f of ['frontier-stack', 'frontier-bots']) fs.chmodSync(path.join(fbin, f), 0o755);
+    const cfg = JSON.parse(read(CONFIG));
+    cfg.llm.url = `http://127.0.0.1:${llamaPort}`; cfg.ports.llama = llamaPort;
+    const cfgFile = path.join(tmp, 'cfg-41999.json'); write(cfgFile, JSON.stringify(cfg));
+    const lock = path.join(tmp, 'lock-real');
+    const r = await runAsync(['--stack', smoke, '--citizens-config', cfgFile, '--no-busy-check', '--run-id', 'ai-trap-1'], { repo, lock, env: { FRONTIER_BIN: fbin, AI_WAIT_STACK_SECS: '30' } });
+    assert.equal(r.code, 1, r.text);
+    assert.match(r.text, /frontier-stack exited before it was running/);
+    assert.match(r.text, /run ai-trap-1: aborted \(frontier-stack exited before it was running/);
+    assert.ok(!fs.existsSync(lock), 'the lock is released');
+    // The stack was started the way the contract says: the run's copy of the config, the binaries and the repository named.
+    const calls = read(note);
+    assert.match(calls, /^up --config .*\/ai-trap-1\/stack\.toml \| FRONTIER_BIN=.*fake-fbin PSF_REPO=/m);
+    const copy = read(path.join(repo.root, '.local/frontier/ai/ai-trap-1/stack.toml'));
+    assert.match(copy, /^run_id = "ai-trap-1"$/m);
+    assert.match(copy, /^bot_seed = 41$/m);
+    assert.match(copy, /^bots_args = "--follow-council"$/m);
+    // The RUNS.md entry exists before the stack and was committed locally; the END line says aborted.
+    const runs = read(path.join(repo.root, 'docs/frontier/ai-citizens/RUNS.md'));
+    assert.match(runs, /^## ai-trap-1 \u2014 /m);
+    const parsed = (await import('../citizens/registrar.mjs')).parseRunsMd(runs);
+    assert.equal(parsed.length, 1);
+    assert.equal(parsed[0].run_id, 'ai-trap-1');
+    assert.equal(parsed[0].end.status, 'aborted');
+    assert.match(parsed[0].commitments_sha256, /^[0-9a-f]{64}$/);
+    assert.equal(repo.git('log', '-1', '--format=%s').trim(), 'Wylls AI run: ai-trap-1');
+    assert.equal(repo.git('status', '--porcelain', '--', 'permutation-gateway/citizens').trim(), '');
+    // The commitments PUB file is what the RUNS.md line hashed; the key stays in keys/ (mode 700 dir, 600 file) and never in PUB.
+    const aiDir = path.join(repo.root, '.local/frontier/ai/ai-trap-1');
+    assert.equal(R_sha(read(path.join(aiDir, 'pub', 'commitments.json'))), parsed[0].commitments_sha256);
+    assert.equal(fs.statSync(path.join(aiDir, 'keys')).mode & 0o777, 0o700);
+    assert.equal(fs.statSync(path.join(aiDir, 'keys', 'registrar.json')).mode & 0o777, 0o600);
+    const { findKeyLikeFiles } = await import('../citizens/serve.mjs');
+    assert.deepEqual(findKeyLikeFiles(path.join(aiDir, 'pub')), []);
+    // Every child it started is gone.
+    const pids = read(path.join(aiDir, 'pids')).trim().split('\n').map(l => l.split(' '));
+    assert.ok(pids.some(([n]) => n === 'registrar-commit') && pids.some(([n]) => n === 'stack'));
+    for (const [, pid] of pids) assert.throws(() => process.kill(Number(pid), 0), /ESRCH/, `pid ${pid} is gone`);
+    // A run id is used once.
+    const again = run(['--stack', smoke, '--citizens-config', cfgFile, '--no-busy-check', '--run-id', 'ai-trap-1'], { repo, lock, env: { FRONTIER_BIN: fbin } });
+    assert.equal(again.code, 2);
+    assert.match(again.err, /exists: a run id is used once/);
+  } finally { await new Promise(res => { llama.closeAllConnections?.(); llama.close(res); }); }
+});
+const R_sha = text => crypto.createHash('sha256').update(text).digest('hex');
 
 // ------------------------------------------------------------------ the hook check and the G10 greps
 test('ai-hook-check.sh: its own self-test passes (every pinned violation shape is reported for its reason)', () => {

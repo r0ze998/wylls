@@ -21,9 +21,14 @@
 // Loopback only; it binds no port.
 import fs from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { createHerald } from '../../../permutation-server/web/frontier/herald.mjs';
 import { hexDistance, ringOf, tileHex } from '../../../permutation-server/web/frontier/fgeo.mjs';
+
+/** True when this file is the program being run (symlinked temp directories, such as macOS /var, resolve to the same real path). */
+function isMain() {
+  try { return !!process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url)); } catch { return false; }
+}
 
 export const CENSUS_EVERY = 12;
 export const WINDOW_PROVINCES = 12;
@@ -227,8 +232,9 @@ export async function pollOnce({ aiDir, herald, roster, window = WINDOW_PROVINCE
   const dir = path.join(aiDir, 'census');
   const c = await collectCensus({ herald, roster, window });
   const wrote = [];
+  if (c.bell < 0) return { bell: c.bell, wrote, census: c }; // before genesis there is no bell to write for, whatever --once says
   state.first ??= numbered(dir)[0] ?? null;
-  if (c.bell !== state.lastBell && c.bell >= 0) {
+  if (c.bell !== state.lastBell) {
     const lines = c.ai.map(r => JSON.stringify({ bell: c.bell, tag: r.tag, index: r.index, final: !!r.final_village, final_bell: r.final_village?.final_bell ?? null, hosts: r.hosts.total, can_depart: r.hosts.can_depart }));
     fs.mkdirSync(dir, { recursive: true });
     fs.appendFileSync(path.join(dir, 'ready.jsonl'), `${lines.join('\n')}\n`);
@@ -267,7 +273,7 @@ const loopback = url => {
   return `${u.protocol}//${u.host}`;
 };
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isMain()) {
   (async () => {
     const a = argsOf(process.argv.slice(2));
     if (!a.herald || !a['ai-dir']) throw new Error('usage: census.mjs --herald URL --ai-dir DIR [--roster F] [--poll-ms N] [--window N] [--once]');
@@ -283,6 +289,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         if (fs.existsSync(rosterFile)) {
           const r = await pollOnce({ aiDir, herald, roster: JSON.parse(fs.readFileSync(rosterFile, 'utf8')), window: Number(a.window ?? WINDOW_PROVINCES), force: !!a.once, state });
           if (r.wrote.length) console.log(`census: bell ${r.bell} wrote ${r.wrote.join(', ')}`);
+          else if (a.once) console.log(`census: bell ${r.bell}: nothing to write (before genesis)`);
           if (a.once) break;
         } else if (a.once) throw new Error(`${rosterFile} does not exist yet`);
       } catch (e) {
@@ -291,5 +298,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       }
       await new Promise(r => setTimeout(r, Number(a['poll-ms'] ?? 15_000)));
     }
-  })().catch(e => { console.error(`census: ${e.message}`); process.exit(2); });
+  })().catch(e => { console.error(`census: ${e.message}`); process.exitCode = 2; });
 }

@@ -23,7 +23,12 @@ import http from 'node:http';
 import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
+
+/** True when this file is the program being run (symlinked temp directories, such as macOS /var, resolve to the same real path). */
+function isMain() {
+  try { return !!process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url)); } catch { return false; }
+}
 
 const HTTP = 'http:'; // (a literal scheme-and-slashes in this file would trip the G10 outside-URL grep)
 export const AI_PORT_MIN = 41901;
@@ -372,7 +377,7 @@ function argsOf(argv) {
   return a;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isMain()) {
   try {
     const a = argsOf(process.argv.slice(2));
     const port = Number(a.port ?? 41990);
@@ -383,6 +388,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => s.close().then(() => process.exit(0)));
   } catch (e) {
     console.error(`serve: ${e.message}`);
-    process.exit(2);
+    process.exitCode = 2;
   }
 }

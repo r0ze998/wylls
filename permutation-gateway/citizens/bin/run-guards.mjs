@@ -21,6 +21,11 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseStackToml, rulesFromConfig, GUARDED_PATHS, dirtyPaths } from '../registrar.mjs';
 
+/** True when this file is the program being run (symlinked temp directories, such as macOS /var, resolve to the same real path). */
+function isMain() {
+  try { return !!process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url)); } catch { return false; }
+}
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = path.resolve(HERE, '..', '..', '..');
 
@@ -192,30 +197,38 @@ function argsOf(argv) {
   return a;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+/** The command line; returns the exit code (set as process.exitCode so that a pipe's output is flushed). */
+function cli(argv) {
   try {
-    const a = argsOf(process.argv.slice(2));
+    const a = argsOf(argv);
     const cmd = a._[0];
     if (cmd === 'check') {
       const r = checkAll({ repo: a.repo, stackPath: a.stack, citizensConfigPath: a['citizens-config'], lockFile: a['lock-file'], ab: a.ab, rep: a.rep, busy: a['no-busy-check'] ? () => false : undefined });
       for (const n of r.notes) console.log(`note: ${n}`);
       for (const x of r.refusals) console.error(`REFUSED: ${x}`);
       console.log(r.ok ? 'guards: PASS' : `guards: REFUSED (${r.refusals.length})`);
-      process.exit(r.ok ? 0 : 1);
-    } else if (cmd === 'lock-take') {
-      const r = takeLock(a['lock-file'], { unit: a.unit ?? 'ai', run_id: a['run-id'], pid: a.pid ? Number(a.pid) : process.ppid });
-      if (!r.ok) { console.error(`REFUSED: the stack lock is held by pid ${r.holder.pid} (${r.holder.unit}, run ${r.holder.run_id})`); process.exit(1); }
-      console.log(r.replaced ? 'lock taken (a stale lock was replaced)' : 'lock taken');
-    } else if (cmd === 'lock-release') {
-      console.log(releaseLock(a['lock-file'], a['run-id']) ? 'lock released' : 'lock not ours; left alone');
-    } else if (cmd === 'ports') {
-      for (const [k, v] of Object.entries(stackPorts(parseStackToml(fs.readFileSync(a.stack, 'utf8'))))) console.log(`${k}=${v}`);
-    } else {
-      console.error('usage: run-guards.mjs check|lock-take|lock-release|ports ...');
-      process.exit(2);
+      return r.ok ? 0 : 1;
     }
+    if (cmd === 'lock-take') {
+      const r = takeLock(a['lock-file'], { unit: a.unit ?? 'ai', run_id: a['run-id'], pid: a.pid ? Number(a.pid) : process.ppid });
+      if (!r.ok) { console.error(`REFUSED: the stack lock is held by pid ${r.holder.pid} (${r.holder.unit}, run ${r.holder.run_id})`); return 1; }
+      console.log(r.replaced ? 'lock taken (a stale lock was replaced)' : 'lock taken');
+      return 0;
+    }
+    if (cmd === 'lock-release') {
+      console.log(releaseLock(a['lock-file'], a['run-id']) ? 'lock released' : 'lock not ours; left alone');
+      return 0;
+    }
+    if (cmd === 'ports') {
+      for (const [k, v] of Object.entries(stackPorts(parseStackToml(fs.readFileSync(a.stack, 'utf8'))))) console.log(`${k}=${v}`);
+      return 0;
+    }
+    console.error('usage: run-guards.mjs check|lock-take|lock-release|ports ...');
+    return 2;
   } catch (e) {
     console.error(`run-guards: ${e.message}`);
-    process.exit(2);
+    return 2;
   }
 }
+
+if (isMain()) process.exitCode = cli(process.argv.slice(2));

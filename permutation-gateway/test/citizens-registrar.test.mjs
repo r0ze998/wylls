@@ -498,6 +498,52 @@ test('the roster: AI entries from the deal with wallet, tag, label; the script b
   assert.ok(!R.verifySigned(t, p.kp.publicKey.toBase58()));
 });
 
+
+test('main run and publish refuse a chain whose genesis hash is not the local test chain\'s when --stack names the config (no airdrop, no memo)', async () => {
+  const chain = await fakeChain({ g0: G0 + 7 });
+  const repo = makeRepo();
+  const aiDir = path.join(tmp, 'run-k');
+  const p = R.prepareCommitments(baseOpts(repo, aiDir));
+  void p;
+  const cap = { out: () => {}, log: () => {} };
+  try {
+    const args = ['--ai-dir', aiDir, '--key', path.join(aiDir, 'keys', 'registrar.json'), '--rpc', chain.url, '--stack', path.join(repo.root, 'stack.toml')];
+    await assert.rejects(R.main(['run', ...args, '--until-bell', '0'], cap), /genesis hash .* is not the local test chain/);
+    const herald = await fakeHerald();
+    try { await assert.rejects(R.main(['publish', ...args, '--herald', herald.url], cap), /genesis hash .* is not the local test chain/); } finally { await closeAll(herald.srv); }
+    assert.equal(chain.st.sent.length, 0);
+    assert.ok(!chain.st.calls.includes('requestAirdrop'));
+  } finally { await closeAll(chain.srv); }
+});
+
+test('PUB holds no key after a whole run\'s writers (commitments, commit anchor, bell anchors, roster, index, RUNS), and the detector does find the real key file in KEYS', async () => {
+  const chain = await fakeChain();
+  const herald = await fakeHerald();
+  try {
+    const repo = makeRepo();
+    const aiDir = path.join(tmp, 'run-l');
+    const p = R.prepareCommitments(baseOpts(repo, aiDir));
+    await R.anchorCommit({ aiDir, kp: p.kp, rpc: new R.Rpc(chain.url), g0: G0, sha: p.sha256, season: 31, herald: herald.url });
+    writeBell(aiDir, 1); writeBell(aiDir, 2);
+    await R.anchorPass({ aiDir, kp: p.kp, rpc: new R.Rpc(chain.url), season: 31 });
+    R.publishSeasonEnd({ aiDir, kp: p.kp, season: 31, commitmentsSha: p.sha256 });
+    const deps = { deck: ['avenger', 'diplomat'], library: {}, botSeed: 31, scriptCount: 2, deal: (s, d, slots) => slots.map(x => ({ index: x.index, persona: 'avenger', creed_variant: 0, temperament: {} })), tagOf: () => '00'.repeat(8), nameOf: () => ({ en: 'x', ja: 'y' }) };
+    const roster = R.buildRoster({ commitments: p.obj, commitmentsSha: p.sha256, season: { programId: 'p', season: '31' }, genesis: { round: '1', seed: 'aa'.repeat(32) }, deps, kp: p.kp });
+    write(path.join(aiDir, 'pub', 'roster.json'), JSON.stringify(roster));
+    const files = [];
+    const walk = d => fs.readdirSync(d, { withFileTypes: true }).forEach(e => (e.isDirectory() ? walk(path.join(d, e.name)) : files.push(path.join(d, e.name))));
+    walk(path.join(aiDir, 'pub'));
+    assert.ok(files.length >= 8, files.join(' '));
+    assert.deepEqual(findKeyLikeFiles(path.join(aiDir, 'pub')), []);
+    // The key text itself appears nowhere in PUB, in any encoding the key file uses.
+    const secret = JSON.parse(read(path.join(aiDir, 'keys', 'registrar.json')));
+    const b58secret = bs58.encode(Buffer.from(secret));
+    for (const f of files) { const t = read(f); assert.ok(!t.includes(b58secret) && !t.includes(JSON.stringify(secret)), f); }
+    // Positive control: the detector flags the real key file.
+    assert.deepEqual(findKeyLikeFiles(path.join(aiDir, 'keys')).map(f => path.basename(f)), ['registrar.json']);
+  } finally { await closeAll(chain.srv, herald.srv); }
+});
+
 // ------------------------------------------------------------------ RUNS.md
 test('RUNS.md: a header once, a block per run before genesis, END lines at the end, aborted runs stay listed; the parser reads it back', () => {
   const file = path.join(tmp, 'docs', 'RUNS.md');

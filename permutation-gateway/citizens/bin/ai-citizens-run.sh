@@ -34,7 +34,8 @@ REPO=${AI_REPO:-$(cd "$HERE/../../.." && pwd)}
 NODE=${AI_NODE:-node}
 GUARDS="$HERE/run-guards.mjs"
 REGISTRAR="$REPO/permutation-gateway/citizens/registrar.mjs"
-RUNS_MD="$REPO/docs/frontier/ai-citizens/RUNS.md"
+RUNS_REL=docs/frontier/ai-citizens/RUNS.md
+RUNS_MD="$REPO/$RUNS_REL"
 LOCK=${AI_STACK_LOCK:-$REPO/.local/frontier/ai/stack.lock}
 STACK_RUNS=${AI_STACK_RUNS:-$REPO/frontier-node/.local/frontier}
 FBIN=${FRONTIER_BIN:-$REPO/frontier-node/target/release}
@@ -56,7 +57,7 @@ WAIT_STACK=${AI_WAIT_STACK_SECS:-1200}
 WAIT_SERVICE=${AI_WAIT_SERVICE_SECS:-120}
 
 die() { echo "ai-citizens-run: $*" >&2; exit 2; }
-usage() { sed -n '2,33p' "$0"; }
+usage() { sed -n '2,/^set -u/p' "$0" | sed '$d'; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --stack) STACK=${2:?}; shift 2 ;;
@@ -231,14 +232,15 @@ fi
 # llama: alias and health (the model server is started by AC1a's start-pinned.sh, never here)
 if [ "$DRY" = 0 ]; then
   curl -sf -m 5 "$LLM/health" >/dev/null || fail "llama-server is not healthy on $LLM (start citizens/llama/start-pinned.sh first)"
-  got=$(curl -sf -m 5 "$LLM/props" | "$NODE" -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);process.stdout.write(String(j.model_alias||j.alias||j.model_path||""))}catch{}})')
-  case "$got" in *"$LLM_ALIAS"*) ;; *) fail "llama-server alias is '$got', not $LLM_ALIAS" ;; esac
+  # The alias is read from /props (model_alias) or, failing that, /v1/models (id): either must name the pinned alias.
+  seen=$({ curl -sf -m 5 "$LLM/props"; echo; curl -sf -m 5 "$LLM/v1/models"; } 2>/dev/null)
+  case "$seen" in *"\"$LLM_ALIAS\""*) ;; *) fail "llama-server on $LLM does not report the alias $LLM_ALIAS (/props, /v1/models)" ;; esac
 else
   echo "PLAN check $LLM/health and $LLM/props alias $LLM_ALIAS"
 fi
 
 # slots, commitments (built before the RUNS.md entry, which carries their sha256), RUNS.md, the commit memo
-fg slots "$NODE" "$REGISTRAR" slots --stack "$CTOML" --n "$N" --out "$AI_DIR/ai-slots.json"
+fg slots "$NODE" "$REGISTRAR" slots --stack "$CTOML" --n "$N" --out "$AI_DIR/ai-slots.json" || fail "the slots file could not be written"
 COMMIT_ARGS=(commit --ai-dir "$AI_DIR" --key "$KEYS/registrar.json" --stack "$CTOML" --citizens-config "$CCONFIG" --slots "$AI_DIR/ai-slots.json" --deck "$DECK" --run-id "$RUN_ID")
 [ -z "$SEAT_SCRIPT" ] || COMMIT_ARGS+=(--seat-script "$SEAT_SCRIPT")
 [ -z "${AI_MODEL:-}" ] || COMMIT_ARGS+=(--model "$AI_MODEL")
@@ -246,10 +248,10 @@ COMMIT_ARGS=(commit --ai-dir "$AI_DIR" --key "$KEYS/registrar.json" --stack "$CT
 fg commit-prepare "$NODE" "$REGISTRAR" "${COMMIT_ARGS[@]}" --prepare-only || fail "the commitments could not be built"
 RUNS_ARGS=(runs-add --run-id "$RUN_ID" --commitments "$PUB/commitments.json" --file "$RUNS_MD")
 [ -z "$AB" ] || RUNS_ARGS+=(--arm "$AB" --rep "$REP")
-fg runs-add "$NODE" "$REGISTRAR" "${RUNS_ARGS[@]}"
+fg runs-add "$NODE" "$REGISTRAR" "${RUNS_ARGS[@]}" || fail "the RUNS.md entry could not be written"
 if [ "$DRY" = 0 ]; then
   RUNS_ADDED=1
-  git -C "$REPO" add "$RUNS_MD" && git -C "$REPO" commit -q -m "Wylls AI run: $RUN_ID" -- "$RUNS_MD" || fail "the RUNS.md entry could not be committed"
+  git -C "$REPO" add "$RUNS_REL" && git -C "$REPO" commit -q -m "Wylls AI run: $RUN_ID" -- "$RUNS_REL" || fail "the RUNS.md entry could not be committed"
 else
   echo "PLAN commit RUNS.md: git commit -m \"Wylls AI run: $RUN_ID\""
 fi
@@ -280,7 +282,7 @@ fi
 
 # the deal (public randomness of the test-key drand: not "dealt by public randomness"), the roster, the per-bell anchors
 fg registrar-deal "$NODE" "$REGISTRAR" deal --ai-dir "$AI_DIR" --key "$KEYS/registrar.json" --herald "$HERALD" --stack "$CTOML" || fail "the deal failed (see above)"
-bg registrar-run "$NODE" "$REGISTRAR" run --ai-dir "$AI_DIR" --key "$KEYS/registrar.json" --rpc "$RPC"
+bg registrar-run "$NODE" "$REGISTRAR" run --ai-dir "$AI_DIR" --key "$KEYS/registrar.json" --rpc "$RPC" --stack "$CTOML"
 
 # the AI fleet: n AI citizens and the presenter seat (index 1000+n, no brain); the play window is what is left of the stack's
 if [ "$DRY" = 0 ]; then
@@ -327,7 +329,7 @@ while [ "$(stack_phase)" != complete ]; do
   [ "$t" -lt 7200 ] || fail "the stack was not complete 2 h after the fleet exited"
   sleep 5; t=$((t + 5))
 done
-"$NODE" "$REGISTRAR" publish --ai-dir "$AI_DIR" --key "$KEYS/registrar.json" --herald "$HERALD" --rpc "$RPC" || fail "the registrar's season-end publication failed"
+"$NODE" "$REGISTRAR" publish --ai-dir "$AI_DIR" --key "$KEYS/registrar.json" --herald "$HERALD" --rpc "$RPC" --stack "$CTOML" || fail "the registrar's season-end publication failed"
 STATUS=complete
 DETAIL="stack complete, publication written"
 if [ -f "$PUB/anchors/commit.json" ] && grep -q '"status":"unaudited"' "$PUB/anchors/commit.json"; then DETAIL="stack complete, publication written; the commit memo came after genesis: unaudited"; fi

@@ -11,8 +11,8 @@
 //                              [--deck deck-3] [--model P] [--model-sha256 H] [--llama-dir D] [--inputs J]
 //                              [--prepare-only | --wait-rpc URL [--herald URL]] [--allow-dirty]
 //   node registrar.mjs deal    --ai-dir D --key K --herald URL --stack T
-//   node registrar.mjs run     --ai-dir D --key K --rpc URL [--poll-ms 2000] [--until-bell N]
-//   node registrar.mjs publish --ai-dir D --key K --herald URL --rpc URL
+//   node registrar.mjs run     --ai-dir D --key K --rpc URL [--stack T] [--poll-ms 2000] [--until-bell N]
+//   node registrar.mjs publish --ai-dir D --key K --herald URL --rpc URL [--stack T]
 //   node registrar.mjs runs-add | runs-end  (RUNS.md lines, see formatRunBlock)
 //
 // Everything it talks to is on 127.0.0.1 or ::1, and it refuses a chain that is not the local test chain: the
@@ -27,6 +27,11 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Keypair, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
 import bs58 from 'bs58';
+
+/** True when this file is the program being run (symlinked temp directories, such as macOS /var, resolve to the same real path). */
+function isMain() {
+  try { return !!process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url)); } catch { return false; }
+}
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = path.resolve(HERE, '..', '..');
@@ -688,6 +693,7 @@ export async function main(argv, { log = m => console.error(m), out = m => conso
       const rpc = new Rpc(a.rpc);
       const commitments = readJson(path.join(aiDir, 'pub', 'commitments.json'));
       await waitHealthy(rpc);
+      if (a.stack) await assertLocalnetRpc(rpc, parseStackToml(fs.readFileSync(a.stack, 'utf8')).g0 ?? 1_785_542_400);
       await ensureFunded(rpc, kp);
       const state = { failed: new Map() };
       let stop = false;
@@ -710,6 +716,7 @@ export async function main(argv, { log = m => console.error(m), out = m => conso
       const bytes = fs.readFileSync(path.join(aiDir, 'pub', 'commitments.json'));
       const commitments = JSON.parse(bytes);
       const rpc = new Rpc(a.rpc);
+      if (a.stack) await assertLocalnetRpc(rpc, parseStackToml(fs.readFileSync(a.stack, 'utf8')).g0 ?? 1_785_542_400);
       await anchorPass({ aiDir, kp, rpc, season: commitments.season_id, log });
       const index = publishSeasonEnd({ aiDir, kp, season: commitments.season_id, commitmentsSha: sha256hex(bytes) });
       out(`anchors: ${index.anchored.length} anchored, ${index.gaps.length} gap(s); season-end trigger written`);
@@ -748,6 +755,7 @@ async function modelSha(file) {
   return cache[key];
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main(process.argv.slice(2)).then(code => process.exit(code), e => { console.error(`registrar: ${e.message}`); process.exit(2); });
+if (isMain()) {
+  // exitCode, not exit(): a pipe's output is flushed before the process ends.
+  main(process.argv.slice(2)).then(code => { process.exitCode = code; }, e => { console.error(`registrar: ${e.message}`); process.exitCode = 2; });
 }
