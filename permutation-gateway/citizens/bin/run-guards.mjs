@@ -7,11 +7,14 @@
 //   - a stack config that is not the local test chain (mode accel, beacon test-key), whose ports leave 41901-41999
 //     (or are 41900 itself, a reserved port, MC's 41000-41899) or are already listened on;
 //   - a citizens config with a non-loopback URL, a port outside 41901-41999, or a missing pinned key;
-//   - a held stack lock (a live pid).
+//   - a held stack lock (a live pid);
+//   - (v1.3, R9) a non-smoke run (a citizens config not named smoke.json) without AI_MODEL (the gguf file) and AI_LLAMA_DIR (the
+//     llama.cpp tree): the commitments must carry the measured model and llama tree hashes (contract 7.1).
 //
 //   node run-guards.mjs check --stack T --citizens-config C [--repo R] [--lock-file F] [--unit U] [--ab A|B --rep N] [--no-busy-check]
-//   node run-guards.mjs lock-take --lock-file F --unit U --run-id R        (exit 1 when held; replaces a stale lock)
+//   node run-guards.mjs lock-take --lock-file F --unit U --run-id R        (exit 1 when held; replaces a stale lock, race-free)
 //   node run-guards.mjs lock-release --lock-file F --run-id R
+//   node run-guards.mjs lock-path --repo R                                  (the one lock shared by every worktree: <git common dir>/wylls-ai-stack.lock)
 //   node run-guards.mjs ports --stack T                                     (prints name=port lines of the stack)
 //
 // Lives in bin/: the run script may name the variables it refuses (the G10 grep skips this directory).
@@ -19,7 +22,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { parseStackToml, rulesFromConfig, GUARDED_PATHS, dirtyPaths } from '../registrar.mjs';
+import { parseStackToml, rulesFromConfig, GUARDED_PATHS, dirtyPaths, isSmokeConfig } from '../registrar.mjs';
+import { acquireFile, pidAlive } from '../lock.mjs';
 
 /** True when this file is the program being run (symlinked temp directories, such as macOS /var, resolve to the same real path). */
 function isMain() {
@@ -110,32 +114,50 @@ export function citizensPorts(cfg) {
 export function readLock(file) {
   let l;
   try { l = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return { exists: fs.existsSync(file), held: false, lock: null }; }
-  let alive = false;
-  try { process.kill(l.pid, 0); alive = true; } catch (e) { alive = e.code === 'EPERM'; }
-  return { exists: true, held: alive, lock: l };
+  return { exists: true, held: pidAlive(l?.pid), lock: l };
 }
 export function lockProblems(file) {
   const l = readLock(file);
   return l.held ? [`the stack lock ${file} is held by pid ${l.lock.pid} (${l.lock.unit}, run ${l.lock.run_id}, started ${l.lock.started})`] : [];
 }
-/** Take the lock atomically (O_EXCL). A lock whose pid is gone is replaced. Returns `{ok, replaced, holder}`. */
-export function takeLock(file, { pid = process.pid, unit, run_id }) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+/**
+ * The one stack lock shared by every worktree of the repository (v1.3, R9): a file under the git COMMON directory, which is the
+ * same for all worktrees (`git rev-parse --git-common-dir`). Two worktrees therefore cannot start two stacks on the 41900 block.
+ * `AI_STACK_LOCK` overrides it (tests). Outside a git repository: `.local/frontier/ai/stack.lock` under `repo` (the wave-A path).
+ */
+export function defaultLockPath(repo = REPO_ROOT) {
+  try {
+    const common = execFileSync('git', ['-C', repo, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    if (common) return path.join(common, 'wylls-ai-stack.lock');
+  } catch { /* not a git repository */ }
+  return path.join(repo, '.local', 'frontier', 'ai', 'stack.lock');
+}
+/**
+ * Take the lock. A lock whose pid is gone is replaced, and the takeover is race-free (citizens/lock.mjs): of any number of
+ * starters that find the same stale lock exactly one wins. Returns `{ok, replaced, holder}`; `holder` is null while another
+ * starter is in the middle of taking over a stale lock.
+ */
+export function takeLock(file, { pid = process.pid, unit, run_id }, hooks = {}) {
   const body = `${JSON.stringify({ pid, unit, run_id, started: new Date().toISOString() })}\n`;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try { fs.writeFileSync(file, body, { flag: 'wx' }); return { ok: true, replaced: attempt > 0 }; } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
-      const l = readLock(file);
-      if (l.held) return { ok: false, holder: l.lock };
-      fs.rmSync(file, { force: true }); // stale: its process is gone
-    }
-  }
-  return { ok: false, holder: readLock(file).lock };
+  const r = acquireFile(file, body, { isLive: l => pidAlive(l?.pid), hooks });
+  return r.ok ? { ok: true, replaced: r.replaced } : { ok: false, holder: r.holder };
 }
 export function releaseLock(file, run_id) {
   const l = readLock(file);
   if (l.lock && l.lock.run_id === run_id) { fs.rmSync(file, { force: true }); return true; }
   return false;
+}
+
+/** (v1.3, R9) the variables a non-smoke run must set: the gguf file and the llama.cpp tree its commitments measure. */
+export function measurementProblems({ citizensConfigPath, env = process.env }) {
+  if (isSmokeConfig(citizensConfigPath)) return [];
+  const out = [];
+  const name = path.basename(citizensConfigPath ?? '');
+  if (!env.AI_MODEL) out.push(`AI_MODEL is not set: a non-smoke run (config ${name}) must set the gguf file so that the commitments carry its measured sha256 (contract 7.1, R9)`);
+  else if (!fs.existsSync(env.AI_MODEL) || !fs.statSync(env.AI_MODEL).isFile()) out.push(`AI_MODEL ${env.AI_MODEL} is not a file`);
+  if (!env.AI_LLAMA_DIR) out.push(`AI_LLAMA_DIR is not set: a non-smoke run (config ${name}) must set the llama.cpp tree so that the commitments carry its measured tree sha256 (contract 7.1, R9)`);
+  else if (!fs.existsSync(env.AI_LLAMA_DIR) || !fs.statSync(env.AI_LLAMA_DIR).isDirectory()) out.push(`AI_LLAMA_DIR ${env.AI_LLAMA_DIR} is not a directory`);
+  return out;
 }
 
 /**
@@ -177,6 +199,7 @@ export function checkAll(opts) {
       for (const [k, p] of Object.entries(named)) if (mine.has(p)) refusals.push(`citizens config ${k}: port ${p} is the stack's`);
     }
   } catch (e) { refusals.push(`citizens config ${opts.citizensConfigPath}: ${e.message}`); }
+  refusals.push(...measurementProblems({ citizensConfigPath: opts.citizensConfigPath, env: opts.env ?? process.env }));
   if (opts.lockFile) {
     refusals.push(...lockProblems(opts.lockFile));
     const l = readLock(opts.lockFile);
@@ -211,7 +234,7 @@ function cli(argv) {
     }
     if (cmd === 'lock-take') {
       const r = takeLock(a['lock-file'], { unit: a.unit ?? 'ai', run_id: a['run-id'], pid: a.pid ? Number(a.pid) : process.ppid });
-      if (!r.ok) { console.error(`REFUSED: the stack lock is held by pid ${r.holder.pid} (${r.holder.unit}, run ${r.holder.run_id})`); return 1; }
+      if (!r.ok) { console.error(r.holder ? `REFUSED: the stack lock is held by pid ${r.holder.pid} (${r.holder.unit}, run ${r.holder.run_id})` : 'REFUSED: another starter is taking over the stale stack lock at this moment'); return 1; }
       console.log(r.replaced ? 'lock taken (a stale lock was replaced)' : 'lock taken');
       return 0;
     }
@@ -219,11 +242,12 @@ function cli(argv) {
       console.log(releaseLock(a['lock-file'], a['run-id']) ? 'lock released' : 'lock not ours; left alone');
       return 0;
     }
+    if (cmd === 'lock-path') { console.log(defaultLockPath(a.repo ?? REPO_ROOT)); return 0; }
     if (cmd === 'ports') {
       for (const [k, v] of Object.entries(stackPorts(parseStackToml(fs.readFileSync(a.stack, 'utf8'))))) console.log(`${k}=${v}`);
       return 0;
     }
-    console.error('usage: run-guards.mjs check|lock-take|lock-release|ports ...');
+    console.error('usage: run-guards.mjs check|lock-take|lock-release|lock-path|ports ...');
     return 2;
   } catch (e) {
     console.error(`run-guards: ${e.message}`);

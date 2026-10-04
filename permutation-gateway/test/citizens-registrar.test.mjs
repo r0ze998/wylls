@@ -146,7 +146,9 @@ test('commitments: collected from the tree, signed, verifiable, and any edit bre
   assert.equal(c.run_id, 'ai-test');
   assert.equal(c.season_id, 31);
   assert.equal(c.created_unix, 1_790_000_000);
-  assert.deepEqual(c.model, R.PINNED_MODEL);
+  // R9: nothing measured the model or the llama tree here, so the file says "unmeasured" (wave A wrote the pinned constants, an assertion)
+  assert.deepEqual(c.model, { file: R.UNMEASURED, sha256: R.UNMEASURED, alias: R.PINNED_MODEL.alias });
+  assert.equal(c.server.tree_sha256, R.UNMEASURED);
   assert.deepEqual(c.server.flags, R.PINNED_LLAMA_FLAGS);
   assert.equal(c.server.flags_sha256, R.sha256hex(R.canonicalJson(R.PINNED_LLAMA_FLAGS)));
   assert.equal(c.server.request_shape, 'response_format');

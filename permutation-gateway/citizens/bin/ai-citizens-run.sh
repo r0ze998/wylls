@@ -11,7 +11,8 @@
 #               and no held stack lock. Exit 1 with every reason when any fails.
 #   --dry-run   the guards, then the plan (every command in start order), starting nothing.
 #
-# Start order (8.4): guards and lock -> llama check (/props alias, /health on 41901) -> RUNS.md entry (committed locally)
+# Start order (8.4): guards and lock -> llama check (/props alias, /health on 41901, then, once the commitments are built, the live
+# server's /props and command line against them) -> RUNS.md entry (committed locally)
 # -> registrar `commit` (background, before the stack: it polls getHealth, airdrops its key and sends the commit memo at
 # once) -> `frontier-stack up` -> wait for phase running -> citizens service (mind, social, serve) under the Node
 # permission model -> registrar `deal`, `run` -> the AI fleet (n AI citizens and the presenter seat) -> A/B seat script ->
@@ -19,13 +20,20 @@
 # every child stopped in reverse order, the lock released. Every child starts without the paid-API variables.
 #
 # Files: AI_DIR = .local/frontier/ai/<run id>/ with pub/ (served as /h/ai/*), state/ (private to the citizens service),
-# keys/ (registrar key and the seat key; the service never reads it), logs/. The lock is .local/frontier/ai/stack.lock
-# ({pid, unit, run_id, started}); each git worktree has its own .local, so the port-busy guard is what keeps two worktrees
-# off the 41900 block: set AI_STACK_LOCK to one shared path to make the lock cover every worktree.
+# keys/ (registrar key, the seat key and the per-bell anchor claims; the service never reads it), logs/.
+# The lock (contract v1.3 R9) is ONE file shared by every worktree of the repository: <git common dir>/wylls-ai-stack.lock
+# ({pid, unit, run_id, started}), so two worktrees cannot start two stacks on the 41900 block; a stale lock (its pid is gone) is
+# taken over race-free (citizens/lock.mjs). AI_STACK_LOCK overrides the path (tests).
 #
-# Environment (all optional): AI_REPO (repository root), AI_UNIT (name in the lock), AI_STACK_LOCK, FRONTIER_BIN
+# A non-smoke run (a citizens config not named smoke.json) MUST set AI_MODEL (the gguf file) and AI_LLAMA_DIR (the llama.cpp
+# tree): the guards refuse without them, the commitments carry the measured sha256 and tree sha256, and bin/llama-check.mjs compares
+# the live llama-server (/props and its command line) with the commitments before anything starts. A smoke run may leave both
+# unset; its commitments then say "unmeasured".
+#
+# Environment: AI_REPO (repository root), AI_UNIT (name in the lock), AI_STACK_LOCK, FRONTIER_BIN
 # (directory of frontier-stack, frontier-bots, ...; default frontier-node/target/release), AI_NODE (node binary),
-# AI_STACK_RUNS (the stack's runs directory; default frontier-node/.local/frontier), AI_MODEL (the gguf, for its sha256).
+# AI_STACK_RUNS (the stack's runs directory; default frontier-node/.local/frontier), AI_MODEL (the gguf), AI_LLAMA_DIR (the
+# llama.cpp tree), AI_LLAMA_ARGV_JSON (tests only: a recorded {ps_args, binary_realpath} for the llama check).
 set -u
 set -o pipefail
 
@@ -36,7 +44,7 @@ GUARDS="$HERE/run-guards.mjs"
 REGISTRAR="$REPO/permutation-gateway/citizens/registrar.mjs"
 RUNS_REL=docs/frontier/ai-citizens/RUNS.md
 RUNS_MD="$REPO/$RUNS_REL"
-LOCK=${AI_STACK_LOCK:-$REPO/.local/frontier/ai/stack.lock}
+LOCK=${AI_STACK_LOCK:-$("$NODE" "$GUARDS" lock-path --repo "$REPO")}
 STACK_RUNS=${AI_STACK_RUNS:-$REPO/frontier-node/.local/frontier}
 FBIN=${FRONTIER_BIN:-$REPO/frontier-node/target/release}
 UNIT=${AI_UNIT:-ai-run}
@@ -250,6 +258,13 @@ COMMIT_ARGS=(commit --ai-dir "$AI_DIR" --key "$KEYS/registrar.json" --stack "$CT
 [ -z "${AI_MODEL:-}" ] || COMMIT_ARGS+=(--model "$AI_MODEL")
 [ -z "${AI_LLAMA_DIR:-}" ] || COMMIT_ARGS+=(--llama-dir "$AI_LLAMA_DIR")
 fg commit-prepare "$NODE" "$REGISTRAR" "${COMMIT_ARGS[@]}" --prepare-only || fail "the commitments could not be built"
+# R9: the live llama-server (/props and its command line) against the commitments just built, before anything is started
+LC_ARGS=(--llm "$LLM" --commitments "$PUB/commitments.json")
+[ -z "${AI_MODEL:-}" ] || LC_ARGS+=(--ai-model "$AI_MODEL")
+[ -z "${AI_LLAMA_DIR:-}" ] || LC_ARGS+=(--ai-llama-dir "$AI_LLAMA_DIR")
+[ -z "${AI_LLAMA_ARGV_JSON:-}" ] || LC_ARGS+=(--argv-json "$AI_LLAMA_ARGV_JSON")
+[ "$(basename "$CCONFIG")" != smoke.json ] || LC_ARGS+=(--smoke)
+fg llama-check "$NODE" "$HERE/llama-check.mjs" "${LC_ARGS[@]}" || fail "the live llama-server does not match the commitments (see above)"
 RUNS_ARGS=(runs-add --run-id "$RUN_ID" --commitments "$PUB/commitments.json" --file "$RUNS_MD")
 [ -z "$AB" ] || RUNS_ARGS+=(--arm "$AB" --rep "$REP")
 fg runs-add "$NODE" "$REGISTRAR" "${RUNS_ARGS[@]}" || fail "the RUNS.md entry could not be written"
