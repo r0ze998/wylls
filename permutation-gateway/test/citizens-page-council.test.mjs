@@ -40,9 +40,12 @@ test('options: three code-made options with kind, place, strength, own troops an
   const node = renderCouncil(ctxOf('en'), view(normalizeCouncil(councilState())));
   const opts = byClass(node, 'option');
   assert.equal(opts.length, 3);
-  assert.match(textOf(opts[0]), /Option 1.*camp \(-2,3\).*target strength 120.*our nearby troops 400.*ratio: favourable \(estimate\)/);
-  assert.match(textOf(opts[1]), /enemy stack \(1,4\).*ratio: even \(estimate\)/);
-  assert.match(textOf(opts[2]), /village raid \(3,-1\).*ratio: unfavourable \(estimate\)/);
+  assert.match(textOf(opts[0]), /Option 1.*camp \(-2,3\).*target strength 200.*our nearby troops 400.*ratio: favourable \(estimate\)/);
+  assert.match(textOf(opts[1]), /enemy stack \(1,4\).*target strength 500.*ratio: even \(estimate\)/);
+  assert.match(textOf(opts[2]), /village raid \(3,-1\).*target strength 1000.*ratio: unfavourable \(estimate\)/);
+  // FB4 (B1): the ranking key `value` (half a camp, 0.8 of a raid target) is never printed as the target's strength
+  assert.doesNotMatch(textOf(opts[0]), /target strength 120/);
+  assert.doesNotMatch(textOf(opts[2]), /target strength 800/);
   assert.match(textOf(node), /Options \(made by code, same for everyone\)/);
   const ja = textOf(renderCouncil(ctxOf('ja'), view(normalizeCouncil(councilState()))));
   assert.match(ja, /兵力比：有利（推定）/);

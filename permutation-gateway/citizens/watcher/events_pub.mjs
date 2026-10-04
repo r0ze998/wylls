@@ -5,12 +5,14 @@
 //
 //   {v:1, bell, from_bell, events:[
 //     {kind:"depart", bell, host_id, arrive_bell, mass, origin:{p,q}, actor:{tag, kind, ai, faction, name}, destination:null|{p,q,tile}},
-//     {kind:"clash", bell (the clash bell), log_bell, p, q, engagements, arrivals, actors:[{tag, kind, ai, faction, name, arrived, engaged, fate, lost}]}
+//     {kind:"clash", bell (the clash bell), log_bell, p, q, engagements, arrivals, actors:[{tag, kind, ai, faction, name, arrived, engaged, fate, troops_after}]}
 //   ]}
 //
 // `kind` of an actor is the roster badge: "ai" | "seat" | "script" | null (a citizen no list names: a human or unknown); `ai` is
 // `kind === "ai"` (the badge comes from the roster only, never from who signed). Newest first, at most `cap` events, the last `window`
-// bells. Troops are whole troops (the chain counts milli-troops).
+// bells. Troops are whole troops (the chain counts milli-troops). FB4: the file carries NO per-actor or per-nation `lost`: `troops_after` is the sum
+// of the owner's fighters in the report AFTER the clash (the report has no 'before' for them), so the page prints troops after and the fate and says
+// "losses are not in this file" (an earlier header of this file said `lost`, which was never written).
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 

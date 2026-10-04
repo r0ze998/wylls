@@ -4,6 +4,8 @@
 // Province files here are SYNTHETIC (test/fixtures/ai-watcher-kit.mjs): the captured herald files hold no council situation.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { hexDistance } from '../../permutation-server/web/frontier/fgeo.mjs';
 import {
   ball, targetProvinces, largestEnemyStack, bestRaidVillage, rawTargets, rankOptions, ratioWord, ownStrengthNear, createCouncilGen, mapLimit,
@@ -102,9 +104,9 @@ test('rankOptions: the 1.5 filter, ranking by value, distinct provinces, top thr
   ];
   const r = rankOptions({ faction: 1, raws, provinceOf: ownAt(hosts) });
   assert.deepEqual(r.options, [
-    { option: 1, kind: 'strike', p: 3, q: 0, value: 500, own: 1150, ratio: 'favourable' },
-    { option: 2, kind: 'camp', p: 3, q: 1, value: 150, own: 1150, ratio: 'favourable' },
-    { option: 3, kind: 'camp', p: 3, q: -1, value: 130, own: 1150, ratio: 'favourable' },
+    { option: 1, kind: 'strike', p: 3, q: 0, value: 500, own: 1150, enemy: 500, ratio: 'favourable' },
+    { option: 2, kind: 'camp', p: 3, q: 1, value: 150, own: 1150, enemy: 300, ratio: 'favourable' },
+    { option: 3, kind: 'camp', p: 3, q: -1, value: 130, own: 1150, enemy: 260, ratio: 'favourable' },
   ]);
   assert.deepEqual(r.hints, { 1: { tile: 20 }, 2: { tile: 44 }, 3: { tile: 3 } });
   assert.equal(r.options.length, MAX_OPTIONS);
@@ -200,11 +202,11 @@ test('councilCandidates reads the files of bell C0 - 2, offers camp and strike, 
   const r = await w.gen.councilCandidates(1, C0);
   assert.deepEqual(r.candidates.map(o => [o.option, o.kind, o.p, o.q]), [[1, 'strike', 1, 1], [2, 'camp', 2, 0]]);
   // strike value 300, own 900 (500 + 400): 900 >= 450; camp value 100, own 900 near (2,0) (the host province (1,1) is within 2)
-  assert.deepEqual(r.candidates[0], { option: 1, kind: 'strike', p: 1, q: 1, value: 300, own: 900, ratio: 'favourable' });
-  assert.deepEqual(r.candidates[1], { option: 2, kind: 'camp', p: 2, q: 0, value: 100, own: 900, ratio: 'favourable' });
+  assert.deepEqual(r.candidates[0], { option: 1, kind: 'strike', p: 1, q: 1, value: 300, own: 900, enemy: 300, ratio: 'favourable' });
+  assert.deepEqual(r.candidates[1], { option: 2, kind: 'camp', p: 2, q: 0, value: 100, own: 900, enemy: 200, ratio: 'favourable' }); // the camp holds 200: value is the half, enemy the whole
   assert.equal(r.candidates_hash, candidatesHash(r.candidates));
   assert.equal(r.options_hash, optionsHash(r.candidates));
-  assert.equal(optionsHash(r.candidates.map(o => ({ ...o, value: 1, own: 2, ratio: 'even' }))), r.options_hash);
+  assert.equal(optionsHash(r.candidates.map(o => ({ ...o, value: 1, own: 2, enemy: 3, ratio: 'even' }))), r.options_hash, 'enemy is not part of the pair rule either');
   assert.ok(w.feed.calls.length > 0 && w.feed.calls.every(c => Number(c.split(',')[2]) === w.f2), 'only the immutable files of bell C0 - 2 were asked for');
   assert.equal(r.meta.holdings, 5);
   assert.deepEqual(r.hints, { 1: { tile: 20 }, 2: { tile: 44 } });
@@ -325,4 +327,29 @@ test('integ-B: a retryable "feed not complete" error from the mind is asked agai
   assert.ok(w.stats.council_motion_retry >= 4, `retries: ${w.stats.council_motion_retry}`);
   assert.equal(w.stats.council_motion_gave_up ?? 0, 0, 'four retries are more than the MAX_CALL_TRIES failures, and none gave up');
   assert.equal(w.stats.council_motion_calls >= 1, true, 'the call finally ran');
+});
+
+// ---------------------------------------------------------------- FB4 (B1): `enemy` is published, so the ratio word can be reproduced from the file
+test('FB4 B1: the published council file carries `enemy` in every option (a camp: value is half, enemy the whole) and ratioWord(own, enemy) is reproducible from the file alone', async () => {
+  const w = world();
+  assert.equal(await w.gen.tryOpen(1, 1, C0, C0), 'opened');
+  const file = JSON.parse(readFileSync(join(w.dir.dir, 'pub', 'council', '1-1.json'), 'utf8')); // what the page reads: /h/ai/council/<k>-<f>.json
+  assert.equal(file.candidates.length, 2);
+  for (const o of file.candidates) {
+    assert.ok(Number.isInteger(o.enemy) && o.enemy > 0, `option ${o.option}: enemy is in the file`);
+    assert.equal(ratioWord(o.own, o.enemy), o.ratio, `option ${o.option}: the ratio word is reproducible from own and enemy`);
+  }
+  const camp = file.candidates.find(o => o.kind === 'camp');
+  assert.deepEqual([camp.value, camp.enemy], [100, 200], 'the camp holds 200 troops: value (the ranking key) is 100, the strength the ratio compares with is 200');
+  // the live state the page polls carries it too, and the hash covers it (candidates_hash is over the whole option)
+  assert.ok(w.social.council.publicState(1).options.every(o => Number.isInteger(o.enemy)));
+  assert.equal(file.candidates_hash, candidatesHash(file.candidates));
+  assert.equal(file.options_hash, optionsHash(file.candidates), 'the A/B pair rule (options_hash) is unchanged by the extra field');
+});
+
+test('FB4: the 1.5 boundary: own == 1.5 x value is offered, one troop less is not (a mutant "own > 1.5 x value" must fail)', () => {
+  const at = n => rankOptions({ faction: 1, provinceOf: ownAt([own(1, n)]), raws: [{ kind: 'camp', p: 3, q: 0, value: 200, enemy: 400, tile: 1 }] });
+  assert.equal(at(300).options.length, 1, '300 == 1.5 x 200: offered');
+  assert.equal(at(299).options.length, 0, '299 < 300: dropped');
+  assert.equal(at(300).options[0].enemy, 400);
 });

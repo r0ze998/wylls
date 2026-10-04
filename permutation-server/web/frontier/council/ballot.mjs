@@ -17,16 +17,20 @@ const num = v => (Number.isFinite(Number(v)) && v !== null && v !== '' && typeof
 const arr = v => (Array.isArray(v) ? v : []);
 
 // ------------------------------------------------------------------ normalising
-/** The ratio word of an option (§4.3: own/enemy ≥ 2 favourable, ≥ 1 even, else unfavourable); a word in the file wins. */
+/**
+ * The ratio word of an option (§4.3: own/enemy ≥ 2 favourable, ≥ 1 even, else unfavourable); a word in the file wins.
+ * Without a word the ratio is own / `enemy` (FB4: the troops the watcher compares with; `value` is only the ranking
+ * key, half a camp, so it is used only for a file that predates `enemy`).
+ */
 export function ratioWord(o) {
   if (['favourable', 'even', 'unfavourable'].includes(o?.ratio)) return o.ratio;
-  const own = num(o?.own), value = num(o?.value);
-  const r = num(o?.ratio) ?? (own !== null && value ? own / value : null);
+  const own = num(o?.own), denom = num(o?.enemy) ?? num(o?.value);
+  const r = num(o?.ratio) ?? (own !== null && denom ? own / denom : null);
   if (r === null) return null;
   return r >= 2 ? 'favourable' : r >= 1 ? 'even' : 'unfavourable';
 }
 
-const normOption = o => ({ option: num(o?.option), kind: ['strike', 'camp', 'raid'].includes(o?.kind) ? o.kind : '', p: num(o?.p), q: num(o?.q), value: num(o?.value), own: num(o?.own), ratio: ratioWord(o) });
+const normOption = o => ({ option: num(o?.option), kind: ['strike', 'camp', 'raid'].includes(o?.kind) ? o.kind : '', p: num(o?.p), q: num(o?.q), value: num(o?.value), own: num(o?.own), enemy: num(o?.enemy), ratio: ratioWord(o) });
 
 /** `{period, state, options, motions, …}` (live) or the period file (`candidates`, `open`, `result`) → the council view's input. */
 export function normalizeCouncil(raw) {
@@ -130,7 +134,8 @@ function optionRow(ctx, o, { adopted = false } = {}) {
   return h('li', { class: `option${adopted ? ' adopted' : ''}` },
     h('span', { class: 'option-n' }, t('council.option', { n: o.option })), ' ',
     h('strong', null, `${kind} ${o.p !== null ? placeText(t, o.p, o.q) : ''}`),
-    o.value !== null ? h('span', { class: 'muted' }, ` · ${t('council.value', { v: int(o.value) })}`) : null,
+    // FB4 (B1): the target's strength is `enemy` (the troops the ratio word compares with), never `value` (the ranking key: half a camp)
+    h('span', { class: 'muted' }, ` · ${o.enemy !== null ? t('council.enemy', { v: int(o.enemy) }) : t('council.enemy_unknown')}`),
     o.own !== null ? h('span', { class: 'muted' }, ` · ${t('council.own', { o: int(o.own) })}`) : null,
     o.ratio ? h('span', { class: `chip chip-ratio-${o.ratio}` }, t('council.ratio', { word: t(`council.ratio.${o.ratio}`) })) : null);
 }

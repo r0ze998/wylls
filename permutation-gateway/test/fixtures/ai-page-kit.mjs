@@ -95,9 +95,9 @@ export const openedRecord = (over = {}) => ({
 export const councilState = (over = {}) => ({
   v: 1, period: 2, faction: 0, c0: 48, closes_bell: 54, state: 'ballots',
   options: [
-    { option: 1, kind: 'camp', p: -2, q: 3, value: 120, own: 400, ratio: 'favourable' },
-    { option: 2, kind: 'strike', p: 1, q: 4, value: 500, own: 600, ratio: 'even' },
-    { option: 3, kind: 'raid', p: 3, q: -1, value: 800, own: 700, ratio: 'unfavourable' },
+    { option: 1, kind: 'camp', p: -2, q: 3, value: 120, own: 400, enemy: 200, ratio: 'favourable' },
+    { option: 2, kind: 'strike', p: 1, q: 4, value: 500, own: 600, enemy: 500, ratio: 'even' },
+    { option: 3, kind: 'raid', p: 3, q: -1, value: 800, own: 700, enemy: 1000, ratio: 'unfavourable' },
   ],
   candidates_hash: 'ab'.repeat(32), options_hash: 'cd'.repeat(32),
   motions: [{ id: 5, wallet: W.ai2, tag: T.ai2, name: { en: 'Vanasha Soridge', ja: 'ヴァナシャ・ソリッジ' }, option: 1, text: 'The camp is close; let us take it.', origin: 1, ai_written: true, ai_roster: true, bell: 49 }],

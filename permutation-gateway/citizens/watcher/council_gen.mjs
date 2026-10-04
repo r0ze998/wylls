@@ -131,7 +131,7 @@ export function ownStrengthNear(p, q, { faction, provinceOf, radius = OWN_RADIUS
 /**
  * Section 6.5 step 1 from the raw targets: attach own strength, drop options with own < 1.5 x value, rank by value (ties by (p, q), then
  * strike < camp < raid), keep the top three DISTINCT provinces and number them 1..n. Returns {options, hints, dropped}: `options` are
- * `{option, kind, p, q, value, own, ratio}` (public), `hints[option] = {tile}` (internal, for the Call's tile fallback).
+ * `{option, kind, p, q, value, own, enemy, ratio}` (public; `enemy` was added in FB4: the troops the ratio word compares with), `hints[option] = {tile}` (internal, for the Call's tile fallback).
  */
 export function rankOptions({ faction, raws, provinceOf }) {
   const ownAt = new Map();
@@ -153,7 +153,9 @@ export function rankOptions({ faction, raws, provinceOf }) {
     if (seen.has(k)) continue;
     seen.add(k);
     const option = options.length + 1;
-    options.push({ option, kind: r.kind, p: r.p, q: r.q, value: r.value, own: r.own, ratio: ratioWord(r.own, r.enemy) });
+    // FB4 (B1): `enemy` is the troop count the ratio word compares with; it is published next to `value` (the ranking key: half a camp,
+    // 0.8 of a raid target) so that ratioWord(own, enemy) can be reproduced from the file and the page can print the target's strength.
+    options.push({ option, kind: r.kind, p: r.p, q: r.q, value: r.value, own: r.own, enemy: r.enemy, ratio: ratioWord(r.own, r.enemy) });
     hints[option] = { tile: r.tile };
     if (options.length === MAX_OPTIONS) break;
   }

@@ -67,7 +67,7 @@ test('card (synthetic): memory block: summary labelled as model-written, recent 
   const eps = normalizeEpisodes(episodesFile());
   const node = renderCard(ctxOf('en'), normalizeCard(card()), index.aiByTag(T.ai0), { episodesById: eps });
   const text = textOf(node);
-  assert.match(text, /Written by the AI’s model|Written by the AI's model/);
+  assert.match(text, /Written by the AI's model/); // the page's own fixed label, ASCII apostrophe
   assert.match(text, /not verified, not replayed/);
   assert.match(text, /At bell 388 Elrin Somere/);
   assert.match(text, /At bell 205 nation Ember cleared the camp/);

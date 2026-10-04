@@ -75,10 +75,30 @@ export async function makeSigner(parsed, keyFromSeed) {
   return { ok: true, wallet: parsed.wallet, publicKey: k.publicKey, sign: k.sign };
 }
 
-/** Which of the roster's people the signer is: 'seat' | 'ai' | 'other' (an AI key would be a mistake; the page refuses it). */
+/** Which of the roster's people the signer is: 'seat' | 'ai' | 'other' (an AI key would be a mistake; the page refuses it, see signerRefusal). */
 export function signerKind(index, signer) {
   const id = index.identify({ wallet: signer.wallet });
   return id.kind === 'seat' ? 'seat' : id.kind === 'ai' ? 'ai' : 'other';
+}
+
+/**
+ * The refusal code for a signer the page must not use: 'ai_key' when its wallet is an AI citizen of the roster (the page
+ * would sign origin-0 "human" records as that AI, and the roster would badge them as AI), else null. FB4: main.mjs calls
+ * this when a key is adopted and again whenever the roster is (re)loaded.
+ */
+export function signerRefusal(index, signer) {
+  return signer && signerKind(index, signer) === 'ai' ? 'ai_key' : null;
+}
+
+/**
+ * Which saved Frontier key to use: only the presenter seat's. A saved key of any other wallet is never taken without
+ * the person asking for it (they can paste it): `{ok:true, key}` | `{ok:false, code:'nosaved'|'noseat'}`.
+ */
+export function chooseSavedKey(found, index) {
+  if (!Array.isArray(found) || !found.length) return refused('nosaved');
+  const seat = index?.seat?.wallet;
+  const key = seat ? found.find(k => k.wallet === seat) : null;
+  return key ? { ok: true, key } : refused('noseat');
 }
 
 /** The faction the signer votes in, when the roster knows it (the seat); else null and the page asks the viewer. */
