@@ -30,6 +30,7 @@ use permutation_rules::frontier::holding::{Resource, Tier, RESOURCES};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 
+use super::follow::{self, Side};
 use super::meview::{self, MeExtra};
 use super::mindport::{
     Answer, AutopilotSummary, Candidate, DecideRequest, FollowDepart, MindError, Mode, OwnMarch,
@@ -399,7 +400,7 @@ pub fn caps_violation(
 // ------------------------------------------------------------------ candidates
 
 #[allow(clippy::too_many_arguments)]
-fn plan_depart(
+pub(crate) fn plan_depart(
     obs: &Observation,
     h: &Holding,
     at: (i16, i16),
@@ -487,7 +488,7 @@ fn field_targets(obs: &Observation, faction: u8, from: (i16, i16)) -> Vec<(Targe
 }
 
 #[allow(clippy::too_many_arguments)]
-fn march_candidate(
+pub(crate) fn march_candidate(
     inp: &Inputs,
     row: &HostRow,
     t: Target,
@@ -571,8 +572,10 @@ fn march_candidate(
 /// The march candidates (§4.3): the largest ready host that passes the caps
 /// V3(a)–(c) goes to the nearest 2 camps and the nearest open-field stack;
 /// `raid::offer` adds a raid (AC3b). None when no host may march.
-fn march_offers(inp: &Inputs) -> (Vec<Offer>, Option<&'static str>) {
-    let obs = inp.obs;
+/// The host the march candidates use: the largest ready combat host that
+/// passes the caps V3(a)-(c). `Err(None)` when no combat host is ready,
+/// `Err(Some(note))` when ready hosts exist but none may march.
+pub(crate) fn march_host<'a>(inp: &'a Inputs) -> Result<&'a HostRow, Option<&'static str>> {
     let mut ready_rows: Vec<&HostRow> = inp
         .rows
         .iter()
@@ -580,13 +583,20 @@ fn march_offers(inp: &Inputs) -> (Vec<Offer>, Option<&'static str>) {
         .collect();
     ready_rows.sort_by_key(|r| (std::cmp::Reverse(r.e.troops), r.e.id));
     if ready_rows.is_empty() {
-        return (vec![], None);
+        return Err(None);
     }
-    let Some(row) = ready_rows
+    ready_rows
         .iter()
         .find(|r| caps_violation(r.troops(), 1, inp.home_troops, inp.ds, None).is_none())
-    else {
-        return (vec![], Some("cap: no host may march"));
+        .copied()
+        .ok_or(Some("cap: no host may march"))
+}
+
+fn march_offers(inp: &Inputs) -> (Vec<Offer>, Option<&'static str>) {
+    let obs = inp.obs;
+    let row = match march_host(inp) {
+        Ok(r) => r,
+        Err(note) => return (vec![], note),
     };
     let (stance, retreat) = (default_stance(inp.faction), 0u16);
     let mut out = vec![];
@@ -841,8 +851,17 @@ fn explore_tiles(obs: &Observation, r: &HostRow, take: usize) -> Option<Vec<u8>>
 }
 
 /// The candidate list (§4.3), in the pinned order, truncated to 12, with
-/// ids `c1..`. Deterministic in `inp`.
+/// ids `c1..`. Deterministic in `inp`. No Strike-Order candidate and no
+/// recall (they need the live Call and the live threats of a step, which
+/// [`candidates_with`] takes).
 pub fn candidates(inp: &Inputs) -> Vec<Offer> {
+    candidates_with(inp, &Side::default())
+}
+
+/// [`candidates`] with the side inputs of one step (AC3b): the flagged
+/// Strike-Order march right after `hold`, then up to two recalls, the camp
+/// and open-field marches, the raid, the economy.
+pub fn candidates_with(inp: &Inputs, side: &Side) -> Vec<Offer> {
     let mut out: Vec<Offer> = vec![];
     let ready_combat: Vec<&HostRow> = inp
         .rows
@@ -890,9 +909,9 @@ pub fn candidates(inp: &Inputs) -> Vec<Offer> {
             hosts: ready_combat.iter().map(|r| r.e.id).collect(),
         },
     });
-    // The Strike-Order march (flagged, AC3b seam), then recall (AC3b stub).
-    out.extend(super::follow_offer(inp));
-    out.extend(super::recall::offer(inp));
+    // The Strike-Order march (flagged), then recall, the marches, the raid.
+    out.extend(follow::offer(inp, side));
+    out.extend(super::recall::offer(inp, side));
     out.extend(marches);
     out.extend(super::raid::offer(inp));
     out.extend(economy_offers(inp));
@@ -1198,6 +1217,21 @@ pub fn replan(
     taken: &mut Taken,
     st: &Standing,
 ) -> Result<(Intent, Option<u32>), V6Reason> {
+    replan_with(action, p, inp, taken, st, &Side::default())
+}
+
+/// [`replan`] with the side inputs of the step (AC3b): a Strike-Order march
+/// is planned over the fetched far provinces and must still be live, unfollowed
+/// and invited; a raid's village must still stand; a recall is exempt from
+/// the V3 caps (it brings troops home) and is not a model march of the day.
+pub fn replan_with(
+    action: &Action,
+    p: &ChosenParams,
+    inp: &Inputs,
+    taken: &mut Taken,
+    st: &Standing,
+    side: &Side,
+) -> Result<(Intent, Option<u32>), V6Reason> {
     let obs = inp.obs;
     let h = inp.h;
     let now = obs.now;
@@ -1251,34 +1285,90 @@ pub fn replan(
                         return Err("target gone");
                     }
                 }
-                _ => {}
+                MarchKind::Raid => {
+                    let there = obs.province(target.p, target.q).is_some_and(|pv| {
+                        let n = (pv.site_count as usize).min(pv.sites.len());
+                        (0..n).any(|k| {
+                            pv.sites[k] == target.tile
+                                && pv.site_mirror[k].state == ls::STATE_HOLDING
+                                && pv.site_mirror[k].faction != h.faction
+                        })
+                    });
+                    if !there {
+                        return Err("target gone");
+                    }
+                }
+                MarchKind::Call => {
+                    let ctx = side.call.as_ref().ok_or("no live Strike Order")?;
+                    if ctx.followed {
+                        return Err("already followed");
+                    }
+                    if !ctx.info.live_at(bell) {
+                        return Err("Strike Order over");
+                    }
+                    if !ctx.info.invited.contains(host_id) {
+                        return Err("host not invited");
+                    }
+                    if (ctx.info.p, ctx.info.q, ctx.info.tile) != (target.p, target.q, target.tile)
+                    {
+                        return Err("target gone");
+                    }
+                }
+                MarchKind::Recall => {
+                    if row.at == (h.p, h.q) {
+                        return Err("host already home");
+                    }
+                }
             }
             let troops = row.troops();
-            if let Some(v) = caps_violation(
-                taken.march_troops + troops,
-                taken.marches + 1,
-                inp.home_troops,
-                inp.ds,
-                Some(st),
-            ) {
-                return Err(v);
+            let counted = *kind != MarchKind::Recall;
+            if counted {
+                if let Some(v) = caps_violation(
+                    taken.march_troops + troops,
+                    taken.marches + 1,
+                    inp.home_troops,
+                    inp.ds,
+                    Some(st),
+                ) {
+                    return Err(v);
+                }
             }
             let stance = p.stance.unwrap_or_else(|| default_stance(inp.faction));
-            let (plan, _, _) = plan_depart(
-                obs,
-                h,
-                row.at,
-                &row.e,
-                *target,
-                0,
-                stance,
-                p.retreat.unwrap_or(0),
-                inp.presets,
-            )
-            .ok_or("no plan or shield")?;
+            let retreat = p.retreat.unwrap_or(0);
+            let plan = if *kind == MarchKind::Call {
+                let ctx = side.call.as_ref().ok_or("no live Strike Order")?;
+                follow::plan_call(
+                    obs,
+                    h,
+                    row,
+                    &ctx.info,
+                    &ctx.far,
+                    stance,
+                    retreat,
+                    inp.presets[2],
+                )
+                .map_err(|_| "no plan or shield")?
+                .plan
+            } else {
+                plan_depart(
+                    obs,
+                    h,
+                    row.at,
+                    &row.e,
+                    *target,
+                    0,
+                    stance,
+                    retreat,
+                    inp.presets,
+                )
+                .ok_or("no plan or shield")?
+                .0
+            };
             taken.hosts.insert(*host_id);
-            taken.march_troops += troops;
-            taken.marches += 1;
+            if counted {
+                taken.march_troops += troops;
+                taken.marches += 1;
+            }
             Ok((Intent::Depart(Box::new(plan)), Some(troops)))
         }
         Action::Build { item } => {
@@ -1515,6 +1605,7 @@ async fn send_intents<H: HeraldPort, R: RelayPort, D: DirectPort>(
                 p.plain.dest_q,
                 p.plain.dest_tile,
                 p.plain.arrive_bell,
+                p.why,
             )),
             _ => None,
         };
@@ -1527,9 +1618,13 @@ async fn send_intents<H: HeraldPort, R: RelayPort, D: DirectPort>(
         if let (true, Some(k)) = (ok, key) {
             done.insert(k);
         }
-        if let Some((host, p, q, tile, arrive)) = depart {
+        if let Some((host, p, q, tile, arrive, why)) = depart {
             if bot.mem.march((host, bell)).is_some_and(|m| m.sent) {
                 let troops = troops_of.get(&host).copied().unwrap_or(0);
+                // A Strike-Order march marks its Call followed (once) and is
+                // `via: strike_order` (AC3b); a recall (`why: home`) is not a
+                // march out.
+                let via = follow::note_sent(bot, hook, why, (p, q, tile), bell, false);
                 bot.ai.book.push(BookMarch {
                     host_id: host,
                     troops_at_depart: troops,
@@ -1537,14 +1632,22 @@ async fn send_intents<H: HeraldPort, R: RelayPort, D: DirectPort>(
                     arrive_bell: arrive,
                     dest: (p, q, tile),
                     by,
-                    via: None,
+                    via,
                 });
-                if by == By::Model {
+                if by == By::Model && why == "home" {
+                    hook.stat("model_recalls_sent");
+                } else if by == By::Model {
+                    // Caps count every model-chosen march out; the headline
+                    // count (a model's own march, G12) leaves the Strike Order out.
                     if let Some(ds) = bot.ai.day.as_mut() {
                         ds.marches.push((bell, troops));
                     }
-                    hook.stat("model_marches_sent");
-                    hook.note_model_march(bot.spec.index, bell);
+                    if via.is_some() {
+                        hook.stat("model_strike_order_marches_sent");
+                    } else {
+                        hook.stat("model_marches_sent");
+                        hook.note_model_march(bot.spec.index, bell);
+                    }
                 }
             }
         }
@@ -1781,6 +1884,9 @@ pub async fn step_ai<H: HeraldPort, R: RelayPort, D: DirectPort>(
             (MeExtra::default(), vec![])
         }
     };
+    // AC3b: the live Call and the live threats of this step (the member
+    // read, the path fetch, the event feed), before anything is planned.
+    let side = follow::prepare(sh, bot, &obs).await;
     let follow = standing::filter_follow(
         super::follow_intents(bot, &obs),
         &bot.ai.standing,
@@ -1799,7 +1905,7 @@ pub async fn step_ai<H: HeraldPort, R: RelayPort, D: DirectPort>(
         home_troops: home,
         quota_left: quota_now,
     };
-    let offers = candidates(&inp);
+    let offers = candidates_with(&inp, &side);
     let ready_now: BTreeSet<u64> = rows.iter().filter(|r| r.ready).map(|r| r.e.id).collect();
     let in_flight: BTreeSet<u64> = bot.ai.book.iter().map(|m| m.host_id).collect();
     let mut wake_hints = vec![];
@@ -2008,8 +2114,18 @@ pub async fn step_ai<H: HeraldPort, R: RelayPort, D: DirectPort>(
                         continue;
                     }
                     let p = ChosenParams::from_json(ans.params.get(id));
-                    match replan(act, &p, &inp2, &mut taken, &ans.standing) {
+                    match replan_with(act, &p, &inp2, &mut taken, &ans.standing, &side) {
                         Ok((it, _)) => {
+                            // A recalled host stays home: the Strike-Order
+                            // follow never moves it again for a while (§3.6).
+                            if let Action::March {
+                                kind: MarchKind::Recall,
+                                host_id,
+                                ..
+                            } = act
+                            {
+                                bot.ai.standing.reserve(*host_id, bell0 + RESERVE_BELLS);
+                            }
                             chosen_keys.push(o.identity());
                             chosen.push(it);
                         }
@@ -2063,6 +2179,11 @@ pub async fn step_ai<H: HeraldPort, R: RelayPort, D: DirectPort>(
     // A nudge on the brain's own behalf (a chosen action waiting for its
     // province) re-runs the step later in the bell; the rule policy's do not.
     bot.nudged = bot.nudged && own_gate_nudge;
+    // The mind's social items (say, motion, ballot) are signed with the
+    // session key and posted (AC3b, §6.1, §8.1), after the actions are sent.
+    if let Some(ans) = &answer {
+        follow::post_social(sh, bot, ans).await;
+    }
     if let (Some(ans), Some(mind)) = (&answer, &hook.mind) {
         let actions = hook.take_outcomes(index);
         let own = own_marches(bot, obs2.bell(), &me_extra);

@@ -49,12 +49,32 @@ fn ac3b_samples() -> Value {
     ])
 }
 
+/// The golden models the **early-run** state of contract §4.3 and §9.5: the
+/// other nations' villages are still shielded, so the march candidates are
+/// camps and field stacks and no `raid` is offered (the kinds AC3b adds are
+/// covered by `candidate_samples_ac3b` below and by `ai_raid_recall.rs`).
+/// The shield bell of every other nation's village site is raised in the
+/// province files the rig serves.
+fn patch_villages_shielded() -> Patch {
+    use fclient::abi::layout::{province as lp, site as ls};
+    patch_province(|bytes| {
+        for s in 0..12 {
+            let base = lp::SITE_MIRROR + s * lp::SITE_MIRROR_STRIDE;
+            if bytes[base + ls::STATE] == ls::STATE_HOLDING && bytes[base + ls::FACTION] != 0 {
+                let o = base + ls::SHIELD_UNTIL_BELL;
+                bytes[o..o + 4].copy_from_slice(&9_999u32.to_le_bytes());
+            }
+        }
+    })
+}
+
 /// Runs the brain on the fixture wallet twice (an autopilot answer, then a
 /// model answer) and returns the fixture value.
 async fn produce() -> Value {
     // Pass 1: a closed gate (mode autopilot); the request is captured.
     let fm = FakeMind::start(|_| autopilot_answer("below_gate")).await;
     let r = rig(Some(&fm), &[(frontier_agents::fixture::FINAL, "ai")]);
+    r.set_patch(Some(patch_villages_shielded()));
     let mut bot = ai_bot();
     bot.step(&r.sh, true).await;
     let mut request = fm.requests.lock().unwrap()[0].clone();
@@ -85,6 +105,7 @@ async fn produce() -> Value {
     let ans2 = answer.clone();
     let fm2 = FakeMind::start(move |_| ans2.clone()).await;
     let r2 = rig(Some(&fm2), &[(frontier_agents::fixture::FINAL, "ai")]);
+    r2.set_patch(Some(patch_villages_shielded()));
     let mut bot2 = ai_bot();
     bot2.step(&r2.sh, true).await;
     let outcome = fm2
