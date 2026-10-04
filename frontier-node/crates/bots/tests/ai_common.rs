@@ -139,6 +139,8 @@ pub struct FakeMind {
     pub addr: String,
     pub requests: Arc<Mutex<Vec<Value>>>,
     pub outcomes: Arc<Mutex<Vec<Value>>>,
+    /// The bodies of `POST /v1/brain-stats` (AC10a, R5/R6).
+    pub brain_stats: Arc<Mutex<Vec<Value>>>,
     pub unauthorised: Arc<AtomicUsize>,
     pub delay: Arc<Mutex<Duration>>,
     pub on_decide: Arc<Mutex<Option<HookFn>>>,
@@ -155,28 +157,31 @@ impl FakeMind {
         let addr = listener.local_addr().unwrap().to_string();
         let requests = Arc::new(Mutex::new(vec![]));
         let outcomes = Arc::new(Mutex::new(vec![]));
+        let brain_stats = Arc::new(Mutex::new(vec![]));
         let unauthorised = Arc::new(AtomicUsize::new(0));
         let delay = Arc::new(Mutex::new(Duration::ZERO));
         let on_decide: Arc<Mutex<Option<HookFn>>> = Arc::new(Mutex::new(None));
         let answer: Arc<AnswerFn> = Arc::new(Box::new(answer));
-        let (rq, oc, ua, dl, od) = (
+        let (rq, oc, ua, dl, od, bs) = (
             requests.clone(),
             outcomes.clone(),
             unauthorised.clone(),
             delay.clone(),
             on_decide.clone(),
+            brain_stats.clone(),
         );
         tokio::spawn(async move {
             loop {
                 let Ok((mut s, _)) = listener.accept().await else {
                     return;
                 };
-                let (rq, oc, ua, dl, od, answer) = (
+                let (rq, oc, ua, dl, od, bs, answer) = (
                     rq.clone(),
                     oc.clone(),
                     ua.clone(),
                     dl.clone(),
                     od.clone(),
+                    bs.clone(),
                     answer.clone(),
                 );
                 tokio::spawn(async move {
@@ -227,6 +232,9 @@ impl FakeMind {
                     } else if first.starts_with("POST /v1/outcome") {
                         oc.lock().unwrap().push(body);
                         (200, json!({"ok": true}))
+                    } else if first.starts_with("POST /v1/brain-stats") {
+                        bs.lock().unwrap().push(body);
+                        (200, json!({"ok": true, "applied": true}))
                     } else {
                         (404, json!({"error": "not found"}))
                     };
@@ -244,6 +252,7 @@ impl FakeMind {
             addr,
             requests,
             outcomes,
+            brain_stats,
             unauthorised,
             delay,
             on_decide,

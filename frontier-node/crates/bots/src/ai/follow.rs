@@ -47,6 +47,7 @@ use serde_json::{json, Value};
 use super::aisign;
 use super::brain::{self, HostRow, Inputs, MarchKind, Offer};
 use super::fetch::{self, PathCache};
+use super::getcount::{self, Counted};
 use super::mindport::{id_of, Answer};
 use super::raid::visible_troops;
 use super::ready;
@@ -696,7 +697,7 @@ where
     let to = ((t.p, t.q), t.tile);
     for widen in [false, true] {
         match fetch::far_provinces(
-            &sh.herald,
+            &Counted::new(&sh.herald, hook, bot.spec.index, "gets:fetch_path"),
             &hook.follow.paths,
             obs,
             from,
@@ -764,7 +765,7 @@ where
     let mut budget = recall::MAX_THREATS;
     side.threats = recall::threats_near(
         &hook.follow.threats,
-        &sh.herald,
+        &Counted::by_path(&sh.herald, &hook, bot.spec.index, getcount::recall_key),
         &hook.follow.paths,
         obs,
         h,

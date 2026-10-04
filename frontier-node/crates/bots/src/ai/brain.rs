@@ -31,6 +31,7 @@ use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 
 use super::follow::{self, Side};
+use super::getcount::{self, Counted};
 use super::meview::{self, MeExtra};
 use super::mindport::{
     Answer, AutopilotSummary, Candidate, DecideRequest, FollowDepart, MindError, Mode, OwnMarch,
@@ -1799,10 +1800,48 @@ pub async fn step_ai<H: HeraldPort, R: RelayPort, D: DirectPort>(
     a: Vec<Intent>,
     session: bool,
 ) -> usize {
+    let bell = obs.bell();
+    let sent = step_ai_inner(bot, sh, obs, a, session).await;
+    if let Some(hook) = sh.ai.clone() {
+        post_stats(bot, &hook, bell).await;
+    }
+    sent
+}
+
+/// Posts this bot's cumulative counters (`steps`, `no_session`, the `gets:*` figures) to the
+/// mind's `POST /v1/brain-stats`, at most once per bell, so that `/v1/metrics` and
+/// `PUB/metrics/latest.json` carry them (R5, R6). A failure is counted and not retried before
+/// the next bell; the exact totals are also in `ai-brain.json` at the end of the run.
+async fn post_stats(bot: &mut Bot, hook: &AiHook, bell: u32) {
+    let Some(mind) = &hook.mind else {
+        return;
+    };
+    if bot.ai.stats_posted_bell.is_some_and(|b| b >= bell) {
+        return;
+    }
+    bot.ai.stats_posted_bell = Some(bell);
+    let index = bot.spec.index;
+    let body = super::mindport::brain_stats_json(index, bell, &hook.bot_counters(index));
+    if mind
+        .brain_stats(&body, Duration::from_secs(2))
+        .await
+        .is_err()
+    {
+        hook.stat("brain_stats_post_failed");
+    }
+}
+
+async fn step_ai_inner<H: HeraldPort, R: RelayPort, D: DirectPort>(
+    bot: &mut Bot,
+    sh: &Shared<H, R, D>,
+    obs: Observation,
+    a: Vec<Intent>,
+    session: bool,
+) -> usize {
     use fclient::Signer;
     let hook = sh.ai.clone().expect("ai hook installed");
     let index = bot.spec.index;
-    hook.stat("steps");
+    hook.bot_stat(index, "steps");
     bot.ai_spent_reset();
     let _ = hook.take_outcomes(index);
     let t_start = obs.now;
@@ -1846,10 +1885,16 @@ pub async fn step_ai<H: HeraldPort, R: RelayPort, D: DirectPort>(
         sh.report.lock().expect("report").steps += 1;
         sent
     };
+    // A step before the bot has a home holding or a session makes no mind call and leaves no
+    // decision record (§3.1, §7.2; R5): counted as `no_session`, by cause, for the report.
     let Some(h) = home_holding(&obs) else {
+        hook.bot_stat(index, "no_session");
+        hook.bot_stat(index, "no_session:no_home");
         return end_step(bot, sent, done);
     };
     if !session {
+        hook.bot_stat(index, "no_session");
+        hook.bot_stat(index, "no_session:no_session");
         return end_step(bot, sent, done);
     }
     let faction = h.faction;
@@ -1877,13 +1922,14 @@ pub async fn step_ai<H: HeraldPort, R: RelayPort, D: DirectPort>(
         });
     }
     let ds = bot.ai.day.clone().expect("day state");
-    let (me_extra, me_raw) = match meview::fetch(&sh.herald, &wallet).await {
-        Ok(x) => x,
-        Err(_) => {
-            hook.stat("me_read_failed");
-            (MeExtra::default(), vec![])
-        }
-    };
+    let (me_extra, me_raw) =
+        match meview::fetch(&Counted::new(&sh.herald, &hook, index, "gets:me"), &wallet).await {
+            Ok(x) => x,
+            Err(_) => {
+                hook.stat("me_read_failed");
+                (MeExtra::default(), vec![])
+            }
+        };
     // AC3b: the live Call and the live threats of this step (the member
     // read, the path fetch, the event feed), before anything is planned.
     let side = follow::prepare(sh, bot, &obs).await;
@@ -1956,7 +2002,13 @@ pub async fn step_ai<H: HeraldPort, R: RelayPort, D: DirectPort>(
                     scale: sh.clock.scale(),
                     deadline_unix_ms: deadline_ms,
                     wake_hints,
-                    obs_digest: obs_digest(&sh.herald, &wallet, &me_raw, &obs).await,
+                    obs_digest: obs_digest(
+                        &Counted::new(&sh.herald, &hook, index, "gets:digest"),
+                        &wallet,
+                        &me_raw,
+                        &obs,
+                    )
+                    .await,
                     situation: situation(&inp, quota),
                     candidates: offers.iter().map(|o| o.cand.clone()).collect(),
                     own_marches: own_marches(bot, bell0, &me_extra),
@@ -2023,9 +2075,11 @@ pub async fn step_ai<H: HeraldPort, R: RelayPort, D: DirectPort>(
     // at 10×); so is any answer that took longer than 30 game-s.
     let mut fresh: Option<Observation> = None;
     if model || aged {
-        hook.stat("reobserved");
+        hook.bot_stat(index, "reobserved");
         match bot.observe(sh).await {
             Ok(o2) => {
+                // R6: the re-observe's herald reads that can be seen from here (a lower bound, see getcount.rs)
+                hook.bot_stat_n(index, "gets:reobserve", getcount::reobserve_gets(&o2));
                 bot.reconcile(sh, &o2);
                 fresh = Some(o2);
             }
