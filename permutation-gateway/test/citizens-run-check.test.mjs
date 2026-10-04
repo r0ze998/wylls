@@ -371,6 +371,7 @@ test('a real start in a throwaway repository: slots, commitments, the RUNS.md en
     const repo = makeRepo();
     const ac = path.join(repo.root, 'permutation-gateway');
     for (const f of ['serve.mjs', 'registrar.mjs']) write(path.join(ac, 'citizens', f), read(path.join(REAL_REPO, 'permutation-gateway', 'citizens', f)));
+    write(path.join(ac, 'citizens', 'mind', 'templates-hash.mjs'), read(path.join(REAL_REPO, 'permutation-gateway', 'citizens', 'mind', 'templates-hash.mjs'))); // the registrar's one import of the mind's code
     write(path.join(ac, 'citizens', 'server.mjs'), '// stub\n');
     repo.git('add', '-A'); repo.git('commit', '-q', '-m', 'files');
     fs.symlinkSync(path.join(REAL_REPO, 'permutation-gateway', 'node_modules'), path.join(ac, 'node_modules'));

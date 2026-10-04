@@ -104,7 +104,10 @@ fn a_seal_of_an_earlier_march_of_the_same_host_is_not_this_marches() {
     .unwrap();
     let dest = (3, -2, 17);
     assert!(old.seal_for(9, 405).is_none());
-    assert!(old.seal_for(9, 380).is_some(), "it is the seal of the march that arrived in 380");
+    assert!(
+        old.seal_for(9, 380).is_some(),
+        "it is the seal of the march that arrived in 380"
+    );
     // Not public yet: the old seal must not open the second march (no destination before the REVEAL or its own settle).
     assert!(meview::opened_of(9, 405, dest, 406, false, &old).is_none());
     // Public through a REVEAL: opened, but the old seal's outcome is not reported as this march's.

@@ -513,7 +513,8 @@ async fn a_same_bell_nudge_repeat_sends_from_the_cached_answer() {
 /// positional (`c1..cN`); when the list shifts between two observations of one bell, the repeat must not send whatever
 /// now stands at that position.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_same_bell_repeat_resolves_cached_ids_against_the_request_it_answered_not_a_shifted_list() {
+async fn a_same_bell_repeat_resolves_cached_ids_against_the_request_it_answered_not_a_shifted_list()
+{
     let fm = FakeMind::start(|req| {
         let c = cand_id(req, "march").unwrap();
         model_answer(
@@ -574,7 +575,11 @@ async fn a_gated_chosen_march_is_still_open_for_the_repeat_when_a_chosen_build_l
     bot.step(&r.sh, true).await;
     assert_eq!(fm.n_requests(), 1, "no second call");
     assert_eq!(depart_count(&r.relay), 1, "the model's march was not lost");
-    assert_eq!(r.relay.count_tag(tag::BUILD), 1, "the build is not sent twice");
+    assert_eq!(
+        r.relay.count_tag(tag::BUILD),
+        1,
+        "the build is not sent twice"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

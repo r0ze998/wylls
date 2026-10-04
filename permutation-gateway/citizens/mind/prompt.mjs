@@ -8,10 +8,11 @@
 // The variable part is capped at 3,000 tokens (counted with llama-server /tokenize, cached per text).
 // Over budget: drop a sender's extra inbox lines first (keeping one per sender), then the oldest episodes
 // (by re-asking renderMemory for a smaller block, never below the 3 newest: AC2's rule), then the hall,
-// never the candidates. Templates live in prompts/*.txt; their concatenated sha256 is
+// never the candidates. Templates live in prompts/*.txt; their sha256 (templates-hash.mjs) is
 // prompt_templates_sha256 (commitments). One user message, not six: Gemma's chat template alternates roles.
 import { readFileSync, readdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { promptTemplatesSha256 } from './templates-hash.mjs';
 import { buildPeople } from './memory.mjs';
 import { maxSayFor, kindBase as kindBaseOf } from './schema.mjs';
 import { merkleRootHex } from './records.mjs';
@@ -25,19 +26,7 @@ export const DEFAULT_UNITS = ['Spearman', 'Archer', 'Horseman', 'Pikeman', 'Cros
 const TEMPLATE_FILES = ['system', 'persona', 'session', 'reaction', 'motion', 'ballot', 'reflection'];
 const SPEECH_LANG = { ja: 'Japanese', en: 'English' };
 
-/**
- * `prompt_templates_sha256` of the commitments (contract 7.1), ONE definition for the mind and the registrar: sha256 over the
- * lines `<name>\0<sha256 of the file's bytes>\n` of every `*.txt` directly in `dir`, sorted by name. (The first versions had
- * two: this module hashed the file texts in load order, the registrar hashed name and file hash lines; only this one is
- * used now, by `loadTemplates` here and by the registrar's commitments.)
- */
-export function promptTemplatesSha256(dir) {
-  const lines = readdirSync(dir)
-    .filter((n) => n.endsWith('.txt'))
-    .sort()
-    .map((n) => `${n}\0${createHash('sha256').update(readFileSync(`${dir}/${n}`)).digest('hex')}\n`);
-  return createHash('sha256').update(lines.join('')).digest('hex');
-}
+export { promptTemplatesSha256 };
 
 export function loadTemplates(dir) {
   const t = {};

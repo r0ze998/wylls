@@ -27,7 +27,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Keypair, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
 import bs58 from 'bs58';
-import { promptTemplatesSha256 } from './mind/prompt.mjs';
+import { promptTemplatesSha256 } from './mind/templates-hash.mjs';
 
 /** True when this file is the program being run (symlinked temp directories, such as macOS /var, resolve to the same real path). */
 function isMain() {
