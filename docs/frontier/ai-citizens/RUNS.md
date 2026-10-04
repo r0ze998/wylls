@@ -11,3 +11,4 @@ END {"detail":"stopped before the end","end_unix":1791076453,"run_id":"slice-1",
 
 ## slice-2 — 2026-10-04T01:17:21Z
 RUN {"arm":null,"commitments_sha256":"0393dea9492b7fd4a0064e3e8a6ef6eb88a7aebeaee7f02a01c06c9c5c6cf1c0","configs":{"citizens_config_sha256":"80e4ca17cd81b1214434cacffac949217cd61b7de88e3cc9882991cd1759e3b6","injection_corpus_sha256":null,"seat_script_sha256":null,"slots_sha256":"e33087069de562cbba0220ca3111340a6039c12cad8501b97029c3d44666ad36","stack_toml_sha256":"63b017bcbdc99cd8515ab795adcf3f1c7661944adbf236451234c1a63ea665e1"},"rep":null,"run_id":"slice-2","start_unix":1791076641}
+END {"detail":"the deal failed (see above)","end_unix":1791076705,"run_id":"slice-2","status":"aborted"}

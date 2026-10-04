@@ -465,7 +465,7 @@ test('the roster: AI entries from the deal with wallet, tag, label; the script b
   assert.equal(calls.length, 1);
   assert.equal(calls[0].seed32.toString('hex'), 'cd'.repeat(32));
   assert.equal(calls[0].slots.length, 12);
-  assert.deepEqual(calls[0].slots[0], { index: 1000, faction: 0 });
+  assert.deepEqual(calls[0].slots[0], { index: 1000, faction: 0, kind: 'ai' });
   assert.equal(roster.v, 1);
   assert.equal(roster.season, 31);
   assert.equal(roster.program_id, season.programId);

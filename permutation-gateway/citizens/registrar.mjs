@@ -483,7 +483,7 @@ export function buildRoster({ commitments, commitmentsSha, season, genesis, deps
   const slots = commitments.slots;
   const ais = slots.filter(s => s.kind === 'ai');
   const seat = slots.find(s => s.kind === 'seat');
-  const dealt = deps.deal(Buffer.from(genesis.seed, 'hex'), deps.deck, ais.map(s => ({ index: s.index, faction: s.faction })));
+  const dealt = deps.deal(Buffer.from(genesis.seed, 'hex'), deps.deck, ais.map(s => ({ index: s.index, faction: s.faction, kind: 'ai' }))); // integ-A: AC2's deal keeps only slots with kind 'ai'
   const byIndex = new Map(dealt.map(d => [d.index, d]));
   const ai = ais.map(s => {
     const d = byIndex.get(s.index);
