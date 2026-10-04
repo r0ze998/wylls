@@ -75,9 +75,10 @@ export function createClock({ genesisTs = null, scale = 10, bellSecs = 600, nowM
 
 /**
  * `guard` (optional, mind/seal.mjs `closerGuard`): `enter(bell)` returns a `leave()` or `null` when the season is sealed; a sealed closer closes
- * no bell, now or later (the registrar's season-end publication is the end of the closer, whatever the clock says).
+ * no bell, now or later (the registrar's season-end publication is the end of the closer, whatever the clock says). `onSealed(bell)` is
+ * called once, at the first refusal (a live run has no other trace of it: the counter lives in memory and the metrics file is written on a close).
  */
-export function createCloser({ clock, social, records, metrics, guard = null, onClosed = () => {}, start = 0, setIntervalFn = setInterval, clearIntervalFn = clearInterval, nowMs = () => Date.now() } = {}) {
+export function createCloser({ clock, social, records, metrics, guard = null, onClosed = () => {}, onSealed = () => {}, start = 0, setIntervalFn = setInterval, clearIntervalFn = clearInterval, nowMs = () => Date.now() } = {}) {
   let next = start; // lowest bell not yet closed
   let timer = null;
   let sealed = false;
@@ -118,7 +119,12 @@ export function createCloser({ clock, social, records, metrics, guard = null, on
         const b = next;
         if (clock.bellStartGame(b + 1) + CLOSE_DELAY_GAME_S > g) break;
         const leave = guard ? guard.enter(b) : () => {};
-        if (!leave) { sealed = true; metrics?.inc('close_refused_sealed'); break; }
+        if (!leave) {
+          sealed = true;
+          metrics?.inc('close_refused_sealed');
+          try { await onSealed(b); } catch { metrics?.inc('close_hook_error'); }
+          break;
+        }
         let ok;
         try { ok = await closeOne(b); } finally { leave(); }
         if (!ok) break;

@@ -251,6 +251,39 @@ test('publish seals the season BEFORE it counts the closed bells: a closer that 
   } finally { await svc.close(); await s.close(); }
 });
 
+test('the seal leaves a trace: onSealed fires once at the first refused close (review: a live run could not tell whether the seal fired; old code: no hook)', async () => {
+  const state = newDir('seal-trace');
+  sealSeason(state);
+  const heard = [];
+  const closer = createCloser({ clock: dueClock(109), social: { closeBell: async () => null }, records: { closeBell: () => ({}) }, guard: closerGuard(state), onSealed: (b) => heard.push(b), start: 109, nowMs: () => 0 });
+  await closer.tick(0);
+  await closer.tick(1e9);
+  assert.deepEqual(heard, [109], 'once, with the bell that was due');
+});
+
+test('the service writes the metrics (close_refused_sealed) and a log line when the seal stops its closer, so the run\'s files show that the seal fired (old code: the counter stayed in memory)', async () => {
+  const aiDir = endOfRun('pub-trace');
+  fs.mkdirSync(path.join(aiDir, 'pub', 'minds'), { recursive: true });
+  const s = await servers();
+  const svc = await createCitizensService(
+    { aiDir, herald: s.heraldUrl, llm: 'http://127.0.0.1:41901', mindPort: 0, socialPort: 0, servePort: 0, runId: 't', season: 31, genesisTs: G },
+    { test: true, noCloserTimer: true, clockPollMs: 1e9, config: CONFIG, speech: makeSpeech(), stores: makeStores({ episodes: [makeEpisode(1)] }), renderMemory: renderMemoryDouble, renderPersona: renderPersonaDouble, personaOf: personaOfDouble, nameOf: nameOfDouble, social: makeSocial(), feed: { cursorBell: () => null, wakeEvents: () => [] }, audit: false },
+  );
+  const errs = [];
+  const realErr = console.error;
+  console.error = (...a) => { errs.push(a.join(' ')); };
+  try {
+    const { code, lines } = await publishCli(aiDir, s, ['--wait-last-secs', '2']);
+    assert.equal(code, 0, lines.join('\n'));
+    assert.equal(fs.existsSync(path.join(aiDir, 'pub', 'metrics', 'latest.json')), false, 'no bell was closed by the service: no metrics file yet');
+    svc.clock.observe({ now_game: E(109) + 5, scale: 20 });
+    assert.deepEqual(await svc.closer.tick(), []);
+    const m = readJ(path.join(aiDir, 'pub', 'metrics', 'latest.json'));
+    assert.equal(m.counters.close_refused_sealed, 1);
+    assert.ok(errs.some((l) => /closer: sealed by the season-end publication; bell 109/.test(l)), errs.join('\n'));
+  } finally { console.error = realErr; await svc.close(); await s.close(); }
+});
+
 test('publish waits for a close that is in flight (claim held), then includes its bell in the index: nothing is written after the index (old code: index last_bell 108, bell 109 written after)', async () => {
   const aiDir = endOfRun('pub-b');
   const state = path.join(aiDir, 'state');
