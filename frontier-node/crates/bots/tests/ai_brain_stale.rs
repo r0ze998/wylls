@@ -25,7 +25,62 @@ async fn a_slow_mind_means_two_observations_and_a_plan_from_the_second() {
     bot.step(&r.sh, true).await;
     assert_eq!(me_reads(&r), 2, "observe + meview");
     assert_eq!(r.hook.stat_of("reobserved"), 0);
-    // The mind answers after 700 game-s (past a bell boundary): stale.
+    // The mind answers after 40 game-s (the same bell): stale. The model's
+    // march is checked (V6) against the SECOND observation: the camp is gone
+    // there, so it is dropped, which shows the plan is rebuilt from it.
+    let fm = FakeMind::start(|req| match cand_id(req, "march") {
+        Some(c) => model_answer(
+            &[&c],
+            json!({c.clone(): {"stance": "hold", "retreat": 0, "timing": "earliest"}}),
+        ),
+        None => autopilot_answer("below_gate"),
+    })
+    .await;
+    let r = rig(Some(&fm), &[(FINAL, "ai")]);
+    let (sh, patch) = (r.sh.clone(), r.patch.clone());
+    *fm.on_decide.lock().unwrap() = Some(Box::new(move |_| {
+        sh.clock.set(NOW + 40);
+        *patch.lock().unwrap() = Some(patch_no_camps());
+    }));
+    let mut bot = ai_bot();
+    bot.step(&r.sh, true).await;
+    assert_eq!(
+        me_reads(&r),
+        3,
+        "observe, meview, and the second observation"
+    );
+    assert_eq!(r.hook.stat_of("reobserved"), 1);
+    assert_eq!(
+        depart_count(&r.relay),
+        0,
+        "no camp in the second observation: V6 dropped the march"
+    );
+    assert_eq!(r.hook.stat_of("v6_dropped:target gone"), 1);
+    assert_eq!(fm.requests.lock().unwrap()[0]["bell"], 40);
+    // Without the change in the files the same slow answer is sent, planned
+    // at the second observation's time.
+    let fm = FakeMind::start(|req| match cand_id(req, "march") {
+        Some(c) => model_answer(
+            &[&c],
+            json!({c.clone(): {"stance": "hold", "retreat": 0, "timing": "earliest"}}),
+        ),
+        None => autopilot_answer("below_gate"),
+    })
+    .await;
+    let r = rig(Some(&fm), &[(FINAL, "ai")]);
+    let sh = r.sh.clone();
+    *fm.on_decide.lock().unwrap() = Some(Box::new(move |_| sh.clock.set(NOW + 40)));
+    let mut bot = ai_bot();
+    bot.step(&r.sh, true).await;
+    assert_eq!(me_reads(&r), 3);
+    assert_eq!(depart_count(&r.relay), 1);
+    assert_eq!(bot.ai.book[0].depart_bell, 40);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_decision_that_lands_after_the_bell_is_never_executed() {
+    // The mind answers 700 game-s later (bell 41): late (§3.5). The model's
+    // march is not sent; the filtered autopilot runs on the fresh observation.
     let fm = FakeMind::start(|req| match cand_id(req, "march") {
         Some(c) => model_answer(
             &[&c],
@@ -39,20 +94,14 @@ async fn a_slow_mind_means_two_observations_and_a_plan_from_the_second() {
     *fm.on_decide.lock().unwrap() = Some(Box::new(move |_| sh.clock.set(NOW + 700)));
     let mut bot = ai_bot();
     bot.step(&r.sh, true).await;
-    assert_eq!(
-        me_reads(&r),
-        3,
-        "observe, meview, and the second observation"
-    );
-    assert_eq!(r.hook.stat_of("reobserved"), 1);
-    assert_eq!(depart_count(&r.relay), 1);
-    // Planned from the second observation: bell 41, not the request's bell 40.
-    assert_eq!(fm.requests.lock().unwrap()[0]["bell"], 40);
-    assert_eq!(bot.ai.book[0].depart_bell, 41);
+    assert_eq!(r.hook.stat_of("late"), 1);
+    assert_eq!(depart_count(&r.relay), 0, "never executed late");
     assert!(
-        bot.ai.book[0].arrive_bell >= 43,
-        "arrival is at least 2 bells after the departure bell"
+        r.relay.count_tag(fclient::abi::tag::BUILD) + r.relay.count_tag(fclient::abi::tag::TRAIN)
+            > 0,
+        "the autopilot's economy still runs"
     );
+    assert!(bot.ai.book.is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

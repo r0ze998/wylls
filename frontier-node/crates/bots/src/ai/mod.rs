@@ -20,9 +20,10 @@
 //! | [`aislots`] | `ai-slots.json`, the AI roster, `--export-seat-key` (§2.3) |
 //! | `raid`, `recall` | **offer stubs** returning nothing: AC3b replaces them (§4.3) |
 //!
-//! Seams for AC3b (`follow.rs`, `aisign.rs`): [`follow_intents`] (the
-//! Strike-Order follow march, `via: strike_order`) and [`follow_wake`] (the
-//! follow-only micro-step of §6.6) are no-ops here.
+//! Seams for AC3b (`follow.rs`, `aisign.rs`): [`follow_offer`] (the flagged
+//! Strike-Order candidate), [`follow_intents`] (the
+//! Strike-Order follow march, `via: strike_order`), [`follow_wake`] and
+//! [`follow_next_wake`] (the follow-only micro-step of §6.6) are no-ops here.
 //!
 //! Nothing here claims the model "wants" or "intends" anything: the brain
 //! offers code-made candidates and executes what a validated answer chose.
@@ -301,6 +302,12 @@ where
             b.ai.on = h.slots.is_ai(b.spec.index);
         }
     }
+}
+
+/// **AC3b seam**: the flagged Strike-Order march candidate (§4.3: right after
+/// `hold`, member only, `flags.council`); AC3a offers none.
+pub fn follow_offer(_inp: &brain::Inputs) -> Vec<brain::Offer> {
+    Vec::new()
 }
 
 /// **AC3b seam**: the Strike-Order follow intents of this bot at this step

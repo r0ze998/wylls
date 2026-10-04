@@ -858,3 +858,56 @@ async fn the_run_report_has_the_timeline_of_step_0_d() {
     assert_eq!(j["counters"]["model_marches_sent"], 1);
     assert_eq!(j["ai_bots"], 1);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_restart_rebuilds_the_marchbook_from_the_journalled_marches() {
+    let fm = FakeMind::start(|req| match cand_id(req, "march") {
+        Some(c) => model_answer(
+            &[&c],
+            json!({c.clone(): {"stance": "hold", "retreat": 0, "timing": "earliest"}}),
+        ),
+        None => autopilot_answer("below_gate"),
+    })
+    .await;
+    let r = rig(Some(&fm), &[(FINAL, "ai")]);
+    let mut bot = ai_bot();
+    bot.step(&r.sh, true).await;
+    let first = bot.ai.book[0].clone();
+    // A restart: the marchbook of the brain is lost, `mem.marches` is
+    // restored from the journal (Fleet::restore).
+    bot.ai.book.clear();
+    r.sh.clock.set(NOW + BELL);
+    bot.step(&r.sh, true).await;
+    let again = bot
+        .ai
+        .book
+        .iter()
+        .find(|m| m.host_id == first.host_id)
+        .expect("rebuilt");
+    assert_eq!(
+        (again.depart_bell, again.arrive_bell, again.dest),
+        (first.depart_bell, first.arrive_bell, first.dest)
+    );
+    // Its `by` is unknown after a restart: counted as the autopilot's.
+    assert_eq!(again.by, frontier_bots::ai::By::Autopilot);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn harvest_is_held_at_the_floor_too() {
+    async fn harvests(quota: u32) -> usize {
+        // No mind: every step is the filtered autopilot.
+        let r = rig(None, &[(FINAL, "ai")]);
+        r.set_patch(Some(patch_quota(quota)));
+        let mut bot = ai_bot();
+        for k in 0..60 {
+            r.sh.clock.set(NOW + k * BELL);
+            bot.step(&r.sh, true).await;
+        }
+        r.relay.count_tag(tag::HARVEST)
+    }
+    assert!(
+        harvests(40).await >= 3,
+        "the rule policy harvests at 20 % a bell"
+    );
+    assert_eq!(harvests(16).await, 0, "none at the floor");
+}

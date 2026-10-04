@@ -890,7 +890,8 @@ pub fn candidates(inp: &Inputs) -> Vec<Offer> {
             hosts: ready_combat.iter().map(|r| r.e.id).collect(),
         },
     });
-    // AC3b: the Strike-Order march (flagged) goes here, then recall.
+    // The Strike-Order march (flagged, AC3b seam), then recall (AC3b stub).
+    out.extend(super::follow_offer(inp));
     out.extend(super::recall::offer(inp));
     out.extend(marches);
     out.extend(super::raid::offer(inp));
@@ -1497,7 +1498,13 @@ async fn send_intents<H: HeraldPort, R: RelayPort, D: DirectPort>(
         {
             continue;
         }
-        if floor && KEPT_ECONOMY.contains(&it.name()) && q <= QUOTA_FLOOR {
+        // The floor holds the economy back: the autopilot's Build, Train,
+        // Muster and Explore, and (a deliberate extension of §3.4, listed in
+        // the notes) every Harvest, which the rule policy rolls at 20 % each
+        // bell and would drain the day's quota before a model choice.
+        if (floor && KEPT_ECONOMY.contains(&it.name()) || it.name() == "harvest")
+            && q <= QUOTA_FLOOR
+        {
             sent.floor_skips += 1;
             continue;
         }
@@ -1625,6 +1632,40 @@ fn own_marches(bot: &Bot, bell: u32, me: &MeExtra) -> Vec<OwnMarch> {
         .collect()
 }
 
+/// After a restart `Fleet::restore` brings the marches back into
+/// `bot.mem` but not into the brain's marchbook: rebuild the entries the
+/// journal knows (destination, arrival, departure bell; the troops from the
+/// holding's transit record). Their `by` is unknown after a restart and is
+/// counted as the autopilot's (never inflates the model-march count).
+pub fn rebuild_book(bot: &mut Bot, h: &Holding) {
+    let missing: Vec<BookMarch> = bot
+        .mem
+        .marches
+        .iter()
+        .filter(|m| m.sent && !m.settled)
+        .filter(|m| {
+            !bot.ai
+                .book
+                .iter()
+                .any(|b| (b.host_id, b.depart_bell) == m.key)
+        })
+        .map(|m| BookMarch {
+            host_id: m.key.0,
+            troops_at_depart: h.transit_of(m.key.0).map_or(0, |(_, t)| t.dep_mass / MILLI),
+            depart_bell: m.key.1,
+            arrive_bell: m.arrive_bell,
+            dest: (
+                m.dest.0 as i16,
+                m.dest.1 as i16,
+                fclient::seal::unpack(&m.plain).dest_tile,
+            ),
+            by: By::Autopilot,
+            via: None,
+        })
+        .collect();
+    bot.ai.book.extend(missing);
+}
+
 /// The marchbook keeps a march for a day after its arrival.
 const BOOK_KEEP_BELLS: u32 = BELLS_PER_DAY;
 
@@ -1712,6 +1753,7 @@ pub async fn step_ai<H: HeraldPort, R: RelayPort, D: DirectPort>(
     bot.ai
         .book
         .retain(|m| m.arrive_bell + BOOK_KEEP_BELLS > bell0);
+    rebuild_book(bot, h);
     let rows = host_rows(&obs, h);
     hook.note_step(
         index,
@@ -1933,6 +1975,16 @@ pub async fn step_ai<H: HeraldPort, R: RelayPort, D: DirectPort>(
     let mut by = By::Autopilot;
     let mut own_gate_nudge = false;
     let mut chosen_keys: Vec<String> = vec![];
+    // A decision that lands after `bell_start(b + 1)` is never executed (§3.5,
+    // "late"): the model's choice is dropped and the filtered autopilot runs.
+    let late = sh
+        .clock
+        .now()
+        .is_some_and(|n| n >= fclient::clock::bell_end(obs.season.genesis_ts, bell0));
+    if model && late {
+        hook.stat("late");
+    }
+    let model = model && !late;
     let to_send: Vec<Intent> = if model {
         let ans = answer.as_ref().expect("model answer");
         let mut taken = Taken::default();
