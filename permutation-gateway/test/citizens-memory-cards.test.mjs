@@ -120,6 +120,17 @@ test('ownState carries only this AI\'s ledger, episodes and summary', () => {
   assert.equal(o.episodes.size, 1);
 });
 
+test('card goals: progress null means "not computed" and is kept as null (never turned into 0)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mem-'));
+  const st = createMemoryStore({ stateDir: join(dir, 'state') });
+  const p = persona();
+  st.ledger(A, { goals: p.goals, bell: 0 });
+  st.ledger(A).setGoalProgress({ G1: null, G2: 40 });
+  const card = renderCard({ tag: A, wallet: 'AIW', faction: 3, index: 1003, bell: 10, persona: p, ledger: st.ledger(A).snapshot(), episodes: st.episodes(A), summary: null, revealed: [], budget: {}, stats: {} });
+  assert.equal(card.goals[0].progress, null);
+  assert.equal(card.goals[1].progress, 40);
+});
+
 test('card shape (§2.4): label, tag, persona, goals with progress and the memory flag, relationships split, memory block, stats, budget', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mem-'));
   const st = createMemoryStore({ stateDir: join(dir, 'state') });

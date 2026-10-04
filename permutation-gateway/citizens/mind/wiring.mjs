@@ -12,8 +12,12 @@
 // Every number a wake carries is a count from a public record.
 
 import { statSync } from 'node:fs';
+import { toTroops } from '../memory/herald-view.mjs';
 
-const DEFAULT_LOOKBACK_BELLS = 40; // the producer reads rows up to ref + 14 bells; episodes older than this were created already
+// A DEPART can precede its REVEAL by up to 72 bells (AC2-NOTES, rule 1) and the producer reads rows up to ref + 14 bells: the
+// window keeps 72 + 8. (The first wiring used 40, which lost a march whose REVEAL came later than that.)
+const DEFAULT_LOOKBACK_BELLS = 80;
+const BELL_SECS = 600;
 
 /**
  * The feed shape the mind reads. `cursorBell()` is the highest bell whose records are complete in the feed AND
@@ -57,7 +61,8 @@ export function feedView(feed, pump = null) {
  * The wave-A watcher: the feed's own wakes (W-CLASH, W-THREAT of 3.2) and nothing else. Each wake is delivered once,
  * at the first decision whose bell is at or after the bell it was logged in, so a late poll cannot lose it and a
  * repeated poll cannot count it twice. A W-THREAT wake carries `facts` ({nation, mass, origin, arrive_bell}), the
- * shape the prompt's THREATS lines read.
+ * shape the prompt's THREATS lines read. `mass` is WHOLE troops: the wake's `dep_mass` (and `home_troops_est`) are the chain's
+ * milli-troops (a departure of 300 troops is 300000), the same number the threat episode says (`toTroops`).
  */
 export function createWaveAWatcher({ feed, lookback = 8 }) {
   const delivered = new Map(); // tag -> Set of "code:seq" already handed to a decision
@@ -80,7 +85,7 @@ export function createWaveAWatcher({ feed, lookback = 8 }) {
           const key = `${w.code}:${w.seq}`;
           if (seen.has(key)) continue;
           seen.add(key);
-          list.push(w.code === 'W-THREAT' ? { ...w, facts: { nation: w.nation, mass: w.dep_mass, origin: w.origin, arrive_bell: w.arrive_bell } } : w);
+          list.push(w.code === 'W-THREAT' ? { ...w, facts: { nation: w.nation, mass: toTroops(w.dep_mass), origin: w.origin, arrive_bell: w.arrive_bell } } : w);
         }
       }
       last.set(tag, { bell, list });
@@ -92,14 +97,17 @@ export function createWaveAWatcher({ feed, lookback = 8 }) {
 }
 
 /**
- * Fold the feed into the AI's stores. Idempotent: a tick re-reads the last `lookback` bells and the stores
+ * Fold the feed into the AI's stores. `social` (optional, `socialEpisodeSource` below) adds the social store's accepted talk
+ * rows (dm and motion episodes, the "adopted mover" trust delta) and its closed council files (council_result and strike
+ * episodes), and the operator's redactions (a redacted record's episode is blanked, section 6.3). Without it those kinds
+ * are not produced. Idempotent: a tick re-reads the last `lookback` bells and the stores
  * deduplicate by episode id and by delta id (AC2). It runs only when the feed's complete-through bell moved.
  *   views.ownState(tag, bell) creates the ledger with the persona's goals (the same call the mind makes)
  */
-export function createEpisodePump({ feed, stores, views, roster, clock, config = {}, lookback = DEFAULT_LOOKBACK_BELLS, onError = () => {} }) {
+export function createEpisodePump({ feed, stores, views, roster, clock, config = {}, social = null, lookback = DEFAULT_LOOKBACK_BELLS, onError = () => {} }) {
   let doneThrough = -1;
   let running = null;
-  const stats = { ticks: 0, runs: 0, episodes_added: 0, ai_runs: 0, unknown: {}, collisions: 0, errors: 0, last_error: null, last_ms: null };
+  const stats = { ticks: 0, runs: 0, episodes_added: 0, ai_runs: 0, unknown: {}, collisions: 0, errors: 0, last_error: null, last_ms: null, missing_recent: 0, redacted: 0, talk_rows: 0, councils: 0 };
   const publishedTags = new Set();
 
   async function run(through) {
@@ -109,8 +117,32 @@ export function createEpisodePump({ feed, stores, views, roster, clock, config =
     if (!owners) return;
     const events = [];
     for (let b = Math.max(0, through - lookback); b <= through; b++) events.push(...feed.events(b));
+    // A BUILD becomes the episode `build_done` at the bell of its `done_at`, which can be far after the row's own bell (builds
+    // queue serially, 3600 + 1800 n secs each: the capture has 32 bells). So BUILD rows are taken from the whole log, not
+    // from the window, while their done bell is still within the window or ahead: a live run and a full replay then agree (M11).
+    const genesis = clock?.genesis?.() ?? null;
+    const have = new Set(events.filter((r) => r.kind === 'BUILD').map((r) => String(r.seq)));
+    for (let b = 0; b < Math.max(0, through - lookback); b++) {
+      for (const r of feed.events(b)) {
+        if (r.kind !== 'BUILD' || have.has(String(r.seq))) continue;
+        const doneBell = genesis != null && r.done_at != null ? Math.floor((Number(r.done_at) - genesis) / BELL_SECS) : Infinity;
+        if (doneBell >= through - lookback) {
+          have.add(String(r.seq));
+          events.push(r);
+        }
+      }
+    }
     // PRE_GENESIS rows (bell 0xffffffff) never enter `events(b)` windows; the producer reads only bell-keyed rows
     const prepared = await feed.prepare(events);
+    // a province or clash file the herald served late would give an episode a created_bell below bells already decided:
+    // counted here (not held back: a file that never comes would stall every AI), so the live run shows how often it happens
+    stats.missing_recent = (prepared.missing ?? []).filter((k) => {
+      const b = Number(String(k).split(',').pop());
+      return Number.isFinite(b) && b <= through - 3 && b >= through - 12;
+    }).length;
+    const talk = social?.talk?.() ?? [];
+    const redactions = social?.redactions?.() ?? [];
+    stats.talk_rows = talk.length;
     for (const entry of roster.ai) {
       const tag = entry.tag;
       const home = owners.homeOf(tag);
@@ -122,11 +154,20 @@ export function createEpisodePump({ feed, stores, views, roster, clock, config =
       views.ownState(tag, through); // creates the ledger with the persona's goals
       const ctx = {
         ai, bellNow, owners, province: prepared.province, clash: prepared.clash, clashDetail: prepared.clashDetail,
-        config: { genesis_ts: clock?.genesis?.() ?? null, ...config },
+        config: { genesis_ts: clock?.genesis?.() ?? null, ...config, redactions: [...(config.redactions ?? []), ...redactions] },
       };
+      const councils = social?.councils?.(ai.faction) ?? [];
+      stats.councils = Math.max(stats.councils, councils.length);
       try {
         const before = stores.episodes(tag).size;
-        const res = stores.ingest(tag, { events }, ctx, { cursor: { event_seq: feed.cursor(), bell: through } });
+        const res = stores.ingest(tag, { events, talk, council: councils }, ctx, { cursor: { event_seq: feed.cursor(), bell: through } });
+        // an episode made from a redacted record is produced blanked, but its id is already stored: blank the stored one
+        for (const ep of res.episodes ?? []) {
+          if (ep.redacted && stores.episodes(tag).byId.get(ep.id)?.redacted !== true) {
+            stores.episodes(tag).redact(ep.id);
+            stats.redacted++;
+          }
+        }
         stats.ai_runs++;
         stats.episodes_added += stores.episodes(tag).size - before;
         for (const u of res.unknown ?? []) stats.unknown[u.what] = (stats.unknown[u.what] ?? 0) + 1;
@@ -182,32 +223,43 @@ export function createEpisodePump({ feed, stores, views, roster, clock, config =
  * nation number (nation) or the recipient's base58 wallet (direct); the prompt reads 3 as direct. What this returns is
  * what `/f/ai/*` serves anyway: no ballot, no sealed Call, no client address.
  */
-export function socialReadViews({ book, council, pubDir = null, roster = null, statFn = statSync }) {
+/** AC4's `book.list` rows, cached incrementally; the cache is dropped when `pub/redactions.json` changes (a redacted text must not stay). */
+export function socialRowCache({ book, pubDir = null, statFn = statSync }) {
   let rows = [];
   let cursor = 0;
   let tomb = null;
-  function refresh() {
-    let m = null;
-    if (pubDir) {
-      try {
-        m = statFn(`${pubDir}/redactions.json`).mtimeMs;
-      } catch {
-        m = null;
+  return {
+    /** every accepted row in order, refreshed; the cache is dropped when `pub/redactions.json` changes */
+    rows() {
+      let m = null;
+      if (pubDir) {
+        try {
+          m = statFn(`${pubDir}/redactions.json`).mtimeMs;
+        } catch {
+          m = null;
+        }
       }
-    }
-    if (m !== tomb) {
-      tomb = m;
-      rows = [];
-      cursor = 0;
-    }
-    for (let guard = 0; guard < 1000; guard++) {
-      const r = book.list({ after: cursor, limit: 200 });
-      if (!r.messages.length) break;
-      rows.push(...r.messages);
-      cursor = r.next;
-      if (r.messages.length < 200) break;
-    }
-  }
+      if (m !== tomb) {
+        tomb = m;
+        rows = [];
+        cursor = 0;
+      }
+      for (let guard = 0; guard < 1000; guard++) {
+        const r = book.list({ after: cursor, limit: 200 });
+        if (!r.messages.length) break;
+        rows.push(...r.messages);
+        cursor = r.next;
+        if (r.messages.length < 200) break;
+      }
+      return rows;
+    },
+  };
+}
+
+// socialReadViews: the AC1a views over the same cache (see the comment above socialRowCache)
+export function socialReadViews({ book, council, pubDir = null, roster = null, statFn = statSync }) {
+  const cache = socialRowCache({ book, pubDir, statFn });
+  const rowsNow = () => cache.rows();
   const factionOf = (wallet) => roster?.byWallet?.(wallet)?.faction ?? null;
   return {
     /** the nation's latest council period, public fields only (never the ballots or the split) */
@@ -219,14 +271,54 @@ export function socialReadViews({ book, council, pubDir = null, roster = null, s
     },
     /** rows addressed to the wallet: direct messages to it and the nation channel of its own nation */
     inbox(wallet) {
-      refresh();
       const f = factionOf(wallet);
-      return rows.filter((r) => (r.channel === 3 && r.target === wallet) || (r.channel === 1 && f != null && r.target === f));
+      return rowsNow().filter((r) => (r.channel === 3 && r.target === wallet) || (r.channel === 1 && f != null && r.target === f));
     },
     /** the nation channel of nation f, oldest first, last `limit` */
     hall(f, limit = 5) {
-      refresh();
-      return rows.filter((r) => r.channel === 1 && r.target === f).slice(-limit);
+      return rowsNow().filter((r) => r.channel === 1 && r.target === f).slice(-limit);
+    },
+  };
+}
+
+/**
+ * AC4's council file (`GET /f/ai/council`, `PUB/council/<k>-<f>.json`: `closes_bell`, `candidates[{option,kind,..}]`, `adopted`,
+ * `strike_bell`, `open`) as the episodes producer reads it (`close_bell`, `options[{option,kind}]`, `adopted`, `strike_bell`,
+ * `open{p,q,option}`). Only a CLOSED period is handed over (`tally_split` is set at the close): an open period's `adopted: false`
+ * is not a result yet.
+ */
+export function councilFileForEpisodes(f) {
+  if (!f || (f.tally_split == null && f.adopted !== true)) return null;
+  const open = f.open && f.open.p !== undefined && f.open.q !== undefined ? { p: f.open.p, q: f.open.q, tile: f.open.tile, option: f.open.option } : undefined;
+  return {
+    faction: f.faction,
+    period: f.period,
+    close_bell: f.closes_bell,
+    adopted: f.adopted === true,
+    ...(f.strike_bell != null ? { strike_bell: f.strike_bell } : {}),
+    ...(open ? { open } : {}),
+    options: (f.candidates ?? []).map((o) => ({ option: o.option, kind: o.kind })),
+  };
+}
+
+/**
+ * What the episode pump reads from AC4's store: every accepted talk row (the producer reads sender tag, bell, channel, target,
+ * kind and ref, never the text), the nation's closed council periods, and the inner ids of redacted records.
+ */
+export function socialEpisodeSource({ book, council, pubDir = null, statFn = statSync }) {
+  const cache = socialRowCache({ book, pubDir, statFn });
+  return {
+    talk: () => cache.rows(),
+    redactions: () => cache.rows().filter((r) => r.redacted).map((r) => r.inner),
+    councils(faction) {
+      const latest = council?.latest?.(faction);
+      if (!latest) return [];
+      const out = [];
+      for (let k = 0; k <= latest.period; k++) {
+        const e = councilFileForEpisodes(council.publicOf(faction, k));
+        if (e) out.push(e);
+      }
+      return out;
     },
   };
 }

@@ -11,6 +11,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { episodes_from_events } from '../citizens/memory/episodes.mjs';
 import { Episodes } from '../citizens/memory/store.mjs';
 import { nameOf } from '../citizens/persona/names.mjs';
+import { sanitize } from '../citizens/mind/sanitize.mjs';
+import { safeText } from '../citizens/memory/safe.mjs';
 
 const DIR = new URL('./fixtures/ai-ac2-captured/', import.meta.url);
 const J = f => JSON.parse(readFileSync(new URL(f, DIR), 'utf8'));
@@ -149,4 +151,18 @@ test('recorded: bellNow gates everything — at the clash bell nothing about the
   const ctx = (bellNow) => ({ ...rawCtx(DEFENDER), bellNow });
   assert.ok(!episodes_from_events({ events: rawEvents }, ctx(389)).episodes.some(e => e.kind === 'attacked_own'));
   assert.ok(episodes_from_events({ events: rawEvents }, ctx(390)).episodes.some(e => e.kind === 'attacked_own'));
+});
+
+test('recorded: the memory unit\'s stand-in sanitiser (memory/safe.mjs) and the real one (mind/sanitize.mjs) agree on every episode text of the capture, EN and JA', () => {
+  let n = 0;
+  for (const tag of Object.keys(owners.citizens)) {
+    if (!owners.citizens[tag].home) continue;
+    for (const e of viaRaw(tag).episodes) {
+      for (const l of ['en', 'ja']) {
+        n++;
+        assert.equal(sanitize(e.text[l], { limit: 0 }), safeText(e.text[l], { kind: 'trusted' }), `${e.kind} ${l}`);
+      }
+    }
+  }
+  assert.ok(n >= 50, `${n} texts compared`);
 });

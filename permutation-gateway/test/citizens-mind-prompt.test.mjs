@@ -6,6 +6,7 @@ import { createPromptRenderer, loadTemplates, VARIABLE_BUDGET, estimateTokens } 
 import { createMemoryAttach } from '../citizens/mind/memory.mjs';
 import { loadWireFixture, makeStores, makeEpisode, renderMemoryDouble, renderPersonaDouble, nameOfDouble, personaOfDouble, makeRosterJson, TAGS, WALLETS } from './fixtures/ai-mind-doubles.mjs';
 import { createRoster, createViews } from '../citizens/mind/views.mjs';
+import { createWaveAWatcher } from '../citizens/mind/wiring.mjs';
 
 const TEMPLATES = new URL('../citizens/prompts', import.meta.url).pathname;
 const { json: wire } = loadWireFixture();
@@ -22,6 +23,15 @@ function setup({ episodes = [makeEpisode(1), makeEpisode(2), makeEpisode(3)], in
   const run = (extra = {}) => renderer.render({ kind, request, publicView: views.publicView(), ownState: { ...own, bell: 40 }, memberView: { call: null }, attach, bell: 40, inbox, hall, speechLang: 'ja', messagesLeft, ...extra });
   return { renderer, run, views, own };
 }
+
+test('THREATS lines read whole troops from a wake carried at wave-A scale (wake dep_mass 300000 milli -> "300 troops", the number the threat episode says)', async () => {
+  const { run } = setup();
+  const w = createWaveAWatcher({ feed: { wakeEvents: () => [{ code: 'W-THREAT', weight: 2, bell: 40, seq: '9', nation: 4, dep_mass: 300000, origin: { p: 0, q: 1 }, arrive_bell: 44 }] } });
+  const threats = w.wakeEvents(TAGS[0], 40).filter((x) => x.code === 'W-THREAT').map((x) => x.facts);
+  const u = (await run({ threats })).messages[1].content;
+  assert.match(u, /nation 4 sent an army of 300 troops from \(0,1\); it arrives at bell 44/);
+  assert.doesNotMatch(u, /300000/);
+});
 
 test('one system and one user message with the six sections in order', async () => {
   const { run } = setup();

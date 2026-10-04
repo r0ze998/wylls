@@ -397,6 +397,26 @@ test('W-THREAT (§3.2): other nations\' departures within 3 provinces of the hom
   });
 });
 
+test('W-THREAT radius, SYNTHETIC boundary rows: an origin 3 provinces from the home wakes, 4 does not (the capture has none at exactly 4)', async () => {
+  const feed = createFeed({ herald: { get: async () => ({ status: 404, json: null, text: '' }) }, season: { ...SEASON, season: season.season }, roster: { ai: [{ tag: DEFENDER }] } });
+  await feed.ingest(rows.filter(r => ['JOIN', 'SETTLE', 'HOLDING_FINAL'].includes(r.decoded.name)));
+  const home = feed.owners.homeOf(DEFENDER);
+  assert.ok(home, 'the defender has a village');
+  // a real DEPART of an attacker (another nation) cloned with a new seq and origins at distance 3 and 4 from the defender's home
+  const base = rowsOf('DEPART').find(r => { const hp = parseHostId(r.decoded.key.host_id); return feed.owners.citizenOfHost(r.decoded.key.host_id) === ATTACKER && hp; });
+  assert.ok(base, 'a captured DEPART of the attacker');
+  const BELL = 90;
+  const clone = (seq, dp) => {
+    const payload = { ...base.decoded.payload, origin_p: home.p + dp, origin_q: home.q, depart_bell: BELL, arrive_bell: BELL + 6 };
+    return { ...base, seq: String(seq), bell: BELL, decoded: { ...base.decoded, payload } };
+  };
+  assert.equal(hexDistance(home.p + 3, home.q, home.p, home.q), 3);
+  assert.equal(hexDistance(home.p + 4, home.q, home.p, home.q), 4);
+  await feed.ingest([clone(9_000_001, 3), clone(9_000_002, 4)]);
+  const w = feed.wakeEvents(DEFENDER, BELL).filter(x => x.code === 'W-THREAT' && ['9000001', '9000002'].includes(String(x.seq)));
+  assert.deepEqual(w.map(x => [String(x.seq), x.distance]), [['9000001', 3]], 'distance 3 wakes, distance 4 does not');
+});
+
 test('W-THREAT: a departure that was never revealed is a threat with no destination, ever', async () => {
   await withHerald({}, async h => {
     const u = meta.unrevealed_depart;

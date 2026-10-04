@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { feedView, createWaveAWatcher, createEpisodePump } from '../citizens/mind/wiring.mjs';
 import { createMemoryStore } from '../citizens/memory/store.mjs';
+import { episodes_from_events } from '../citizens/memory/episodes.mjs';
 
 const TAG = '0123456789abcdef';
 const GENESIS = 1_800_000_000;
@@ -49,11 +50,12 @@ test('feedView: cursorBell is the lower of the feed and the pump; revealed reads
 test('wave-A watcher: each wake is delivered once, also when the record lands after the step of its own bell; a repeated bell returns the same list; THREAT carries the prompt facts', () => {
   const wakes = {
     8: [{ code: 'W-CLASH', weight: 4, bell: 8, seq: '1' }],
-    9: [{ code: 'W-THREAT', weight: 2, bell: 9, seq: '2', nation: 4, dep_mass: 300, origin: { p: 0, q: 1 }, arrive_bell: 14, big: true }],
+    9: [{ code: 'W-THREAT', weight: 2, bell: 9, seq: '2', nation: 4, dep_mass: 300000, origin: { p: 0, q: 1 }, arrive_bell: 14, big: true }],
   };
   const w = createWaveAWatcher({ feed: fakeFeed({ wakes }) });
   const first = w.wakeEvents(TAG, 9);
   assert.deepEqual(first.map((x) => x.code), ['W-CLASH', 'W-THREAT']);
+  // dep_mass is milli-troops on the chain (a departure of 300 troops is 300000); the prompt and the threat episode say whole troops
   assert.deepEqual(first[1].facts, { nation: 4, mass: 300, origin: { p: 0, q: 1 }, arrive_bell: 14 });
   assert.equal(w.wakeEvents(TAG, 9), first, 'the same (tag, bell) answers the same');
   wakes[9].push({ code: 'W-CLASH', weight: 4, bell: 9, seq: '3' }); // logged in bell 9 after the step of bell 9 (the bots step in the first seconds)
@@ -91,6 +93,29 @@ test('episode pump: BUILD of the AI\'s own village becomes an episode in its sto
   await pump.tick();
   assert.equal(stores.episodes(TAG).sha256(), sha, 'a second pass over the same rows adds nothing');
   assert.equal(pump.stats.errors, 0);
+});
+
+test('episode pump: a BUILD logged long before its done_at (longer than the lookback) still gives the episode a full-log replay gives (G15 / M11: live == replay)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ai-pump-'));
+  const stores = createMemoryStore({ stateDir: join(dir, 'state'), pubDir: join(dir, 'pub') });
+  const doneAt = GENESIS + 130 * 600 + 12; // the build is queued at bell 5 and finishes at bell 130: 125 bells later
+  const all = { 5: [{ kind: 'BUILD', seq: '40', bell: 5, p: 1, q: 2, site: 0, item: 1, done_at: doneAt }] };
+  const feed = fakeFeed({ through: 3, events: all });
+  const views = { ownState: (tag, bell) => ({ ledger: stores.ledger(tag, { goals: [], bell }) }) };
+  const roster = { ready: true, ai: [{ tag: TAG, wallet: 'W', faction: 3 }] };
+  const pump = createEpisodePump({ feed, stores, views, roster, clock: { genesis: () => GENESIS } });
+  for (let b = 3; b <= 140; b++) {
+    feed.state.through = b;
+    await pump.tick();
+  }
+  assert.equal(pump.throughBell(), 140);
+  const live = stores.episodes(TAG).list().map((e) => e.id).sort();
+  const ai = { tag: TAG, wallet: 'W', faction: 3, home: { p: 1, q: 2 }, holdings: [{ p: 1, q: 2, site: 0 }] };
+  const replay = episodes_from_events({ events: Object.values(all).flat() }, { ai, bellNow: Infinity, owners: feed.owners, config: { genesis_ts: GENESIS } });
+  const full = replay.episodes.map((e) => e.id).sort();
+  assert.equal(full.length, 1, 'the replay has the build_done episode');
+  assert.deepEqual(live, full, 'the live pump (ticked bell by bell) holds exactly the replay\'s episodes');
+  assert.equal(stores.episodes(TAG).list()[0].created_bell, 130);
 });
 
 test('episode pump: an AI with no village yet is skipped; a not-ready roster does nothing', async () => {

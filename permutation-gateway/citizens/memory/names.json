@@ -1,6 +1,6 @@
 {
   "v": 1,
-  "source": "permutation-server/web/i18n.mjs CIV_NAMES (copied; citizens-memory-names.test.mjs compares the two in both languages)",
+  "source": "permutation-server/web/i18n.mjs CIV_NAMES (copied; citizens-memory-safety.test.mjs compares the two in both languages)",
   "nations": [
     { "key": "Aster", "en": "Aster", "ja": "アステル" },
     { "key": "Borealis", "en": "Borealis", "ja": "ボレアリス" },

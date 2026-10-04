@@ -351,7 +351,7 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
       bell,
       previous_summary: prev,
       ledger_digest: String(ledgerDigest).split('\n').map((l) => sanitize(l, { limit: 200 })).join('\n'),
-      goals: goals.map((g) => sanitize(`${g.id}: ${g.text ?? ''} progress ${g.progress}${g.status && g.status !== 'active' ? ` (${g.status})` : ''}`, { limit: 240 })).join('\n'),
+      goals: goals.map((g) => sanitize(`${g.id}: ${g.text ?? ''} progress ${g.progress === null ? 'not computed' : g.progress}${g.status && g.status !== 'active' ? ` (${g.status})` : ''}`, { limit: 240 })).join('\n'),
       episodes: episodes.map((e) => wrapMemory(`[bell ${e.bell}] ${e.text}`, { kind: 'episode' })).join('\n') || 'none',
     });
     return { messages: [{ role: 'system', content: system }, { role: 'user', content: user }] };

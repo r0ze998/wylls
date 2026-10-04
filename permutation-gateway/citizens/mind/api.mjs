@@ -73,7 +73,7 @@ export function parseDecide(req) {
 export function createMind(deps) {
   const {
     config, llm, scheduler, gate, records, views, sealed, memoryAttach, prompt, speech, clock, metrics, roster, stores,
-    watcher = null, feed = null, now = Date.now, season = 0, stateDir = null, nameOf = null, nationName = null,
+    watcher = null, feed = null, upkeep = null, now = Date.now, season = 0, stateDir = null, nameOf = null, nationName = null,
   } = deps;
   const caps = { ...DEFAULT_CAPS, ...(config.caps ?? {}) };
   const maxTokens = config.llm?.max_tokens ?? { session: 384, reaction: 256, reflection: 512, motion: 160, ballot: 160 };
@@ -435,6 +435,9 @@ export function createMind(deps) {
     const doc = ledgerState(own.ledger);
     doc.counters ??= {};
     rollCounters(doc.counters, R.bell);
+    // memory upkeep (integ-A review): trust decay and the daily reset of the model's trust cap on the first step of a game
+    // day, the step log and the goal progress (computed by code); never lets a failure reach the decision
+    upkeep?.run({ own, doc, bell: R.bell, request: R });
     const sit = R.situation;
     const me = sit.me;
     const ready = roster.ready && me?.home?.final === true;

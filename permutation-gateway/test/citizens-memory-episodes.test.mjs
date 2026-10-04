@@ -258,6 +258,10 @@ test('recorded: threat — a real DEPART row from another nation within 3 provin
   // beyond 3 provinces from the home: no episode; the AI's own nation: no episode
   assert.deepEqual(kinds(episodes_from_events({ events: [real] }, { ...ctx, ai: { ...ctx.ai, home: { p: 5, q: 5 }, holdings: [] } })), []);
   assert.deepEqual(kinds(episodes_from_events({ events: [real] }, { ...ctx, ai: { ...ctx.ai, faction: 1 } })), []);
+  // the boundary itself (the capture has no departure at exactly 4): the origin (0,2) is 3 provinces from (3,2) and 4 from (4,2)
+  const at = (p, q) => ({ ...ctx, ai: { ...ctx.ai, home: { p, q }, holdings: [{ p, q, site: 0 }] } });
+  assert.deepEqual(kinds(episodes_from_events({ events: [real] }, at(3, 2))), ['threat'], 'distance 3 is remembered');
+  assert.deepEqual(kinds(episodes_from_events({ events: [real] }, at(4, 2))), [], 'distance 4 is not');
 });
 
 import { normProvince } from '../citizens/memory/herald-view.mjs';

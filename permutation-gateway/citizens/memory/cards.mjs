@@ -60,7 +60,8 @@ export function renderCard(st) {
     },
     goals: st.persona.goals.map(g => {
       const lg = (led.goals ?? []).find(x => x.id === g.id);
-      return { id: g.id, text: t2(g.text), progress: st.progress?.[g.id] ?? lg?.progress ?? 0, status: lg?.status ?? 'active', memory: !!g.memory };
+      // progress null = not computed (the mind has no producer for that goal's facts)
+      return { id: g.id, text: t2(g.text), progress: st.progress && g.id in st.progress ? st.progress[g.id] : lg && lg.progress !== undefined ? lg.progress : 0, status: lg?.status ?? 'active', memory: !!g.memory };
     }),
     relationships: relationships.slice(0, 8).map(r => ({
       who: r.who, name: nameOfWho(r.who), kind: r.kind, trust: clampTrust(r.e.t_code + r.e.t_model),

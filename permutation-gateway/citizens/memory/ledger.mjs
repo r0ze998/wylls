@@ -161,7 +161,8 @@ export class Ledger {
   }
 
   // ------------------------------------------------------------------ goals, counters, standing
-  setGoalProgress(map) { for (const g of this.s.goals) if (g.id in map) g.progress = clamp(Math.round(map[g.id]), 0, 100); }
+  /** `null` = not computed (no producer for the goal's facts): kept as null, shown as "not computed", never as 0 %. */
+  setGoalProgress(map) { for (const g of this.s.goals) if (g.id in map) g.progress = map[g.id] === null ? null : clamp(Math.round(map[g.id]), 0, 100); }
   /** Goal ops come only from the reflection answer: {op: progress|drop|resume, id}. */
   goalOp({ op, id }) {
     const g = this.s.goals.find(x => x.id === id);

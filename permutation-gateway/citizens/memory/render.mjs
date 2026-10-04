@@ -62,9 +62,9 @@ export function renderMemory(ownState, focus, budget = {}) {
 
   const goalLines = (ownState.persona?.goals ?? []).map(g => {
     const lg = (led.goals ?? []).find(x => x.id === g.id);
-    const p = ownState.progress?.[g.id] ?? lg?.progress ?? 0;
+    const p = ownState.progress && g.id in ownState.progress ? ownState.progress[g.id] : lg && lg.progress !== undefined ? lg.progress : 0;
     const status = lg && lg.status !== 'active' ? ` [${lg.status}]` : '';
-    return safeText(`${g.id} ${g.text.en} (progress ${p}%)${status}`);
+    return safeText(`${g.id} ${g.text.en} (${p === null ? 'progress not computed' : `progress ${p}%`})${status}`);
   });
 
   const build = ({ ids: use, nRel, nGriev, withSummary }) => {

@@ -3,8 +3,10 @@
 // pass every string a prompt or a card carries through the sanitiser, and
 // this unit builds before AC1b merges, so the same pinned steps live here
 // for CODE-MADE text (episode templates, names, goal and creed texts) and for
-// model-written summaries. The integrator may replace `safeText` by an import
-// of mind/sanitize.mjs at merge: both take (string, {kind, limit}).
+// model-written summaries. NOT a drop-in for mind/sanitize.mjs (integ-A review): the real one takes
+// (text, {limit, untrusted, summary}) and also removes the GGUF-derived extra token literals (step 3). A mechanical
+// import swap would silently drop the untrusted rewrites, so this stays a stand-in; test/citizens-memory-captured.test.mjs
+// asserts that both give the same string for every episode text of the capture (EN and JA).
 //
 // kind: 'trusted' (default; code text: steps 1-4, 5 for < > `, 6),
 //       'untrusted' or 'summary' (also { } [ ] -> fullwidth, and step 5b: an

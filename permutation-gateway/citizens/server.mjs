@@ -29,7 +29,8 @@ import { createMind, createMindHttp } from './mind/api.mjs';
 import { createClock, createCloser } from './mind/closer.mjs';
 import { sanitize as mindSanitize } from './mind/sanitize.mjs';
 import { permissionFlags } from './mind/permissions.mjs';
-import { feedView, createWaveAWatcher, createEpisodePump, socialReadViews, socialClock, provenanceOf } from './mind/wiring.mjs';
+import { createUpkeep } from './mind/upkeep.mjs';
+import { feedView, createWaveAWatcher, createEpisodePump, socialReadViews, socialEpisodeSource, socialClock, provenanceOf } from './mind/wiring.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ZERO32 = '0'.repeat(64);
@@ -230,8 +231,9 @@ export async function createCitizensService(opts, overrides = {}) {
   let pump = null;
   const feedForMind = feed && !overrides.feed ? feedView(feed, { throughBell: () => (pump ? pump.throughBell() : -1), tick: () => pump?.tick() }) : feed;
   const views = createViews({ social, feed: feedForMind, stores, roster, nameOf, clock, sealed, personaOf });
-  pump = feed && !overrides.feed && feed.prepare ? createEpisodePump({ feed, stores, views, roster, clock, config: { redactions: [] }, onError: (e) => console.error('episode pump:', String(e?.message ?? e)) }) : null;
-  const mind = createMind({ config, llm, scheduler, gate, records, views, sealed, memoryAttach, prompt, speech, clock, metrics, roster, stores, watcher, feed: feedForMind, season, stateDir: STATE, nameOf, nationName });
+  pump = feed && !overrides.feed && feed.prepare ? createEpisodePump({ feed, stores, views, roster, clock, config: { redactions: [] }, social: social?.book && social?.council ? socialEpisodeSource({ book: social.book, council: social.council, pubDir: PUB }) : null, onError: (e) => console.error('episode pump:', String(e?.message ?? e)) }) : null;
+  const upkeep = createUpkeep({ roster, onError: (e) => console.error('memory upkeep:', String(e?.message ?? e)) });
+  const mind = createMind({ config, llm, scheduler, gate, records, views, sealed, memoryAttach, prompt, speech, clock, metrics, roster, stores, watcher, upkeep, feed: feedForMind, season, stateDir: STATE, nameOf, nationName });
   // integ-A: AC1b's reflection job (section 5.3, the first memory feature to drop: config.memory.reflection false turns it off).
   // It subscribes to the mind's `reflect_due` event; without this call no reflection runs.
   const reflMod = overrides.reflection === false ? null : await tryImport('mind/reflection.mjs');

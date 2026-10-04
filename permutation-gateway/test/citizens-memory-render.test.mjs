@@ -26,6 +26,19 @@ function world() {
   return { eps, led, persona: personaOf(d) };
 }
 
+test('a goal whose progress is not computed (null) is printed as such, never as 0 % or null %', () => {
+  const { eps, led, persona } = world();
+  const r = renderMemory({ tag: A, bell: 430, ledger: led.snapshot(), episodes: eps, summary: null, persona, progress: { G1: null, G2: 100, G3: 0, G4: 100 } }, [A], {});
+  assert.match(r.block, /- G1 .*\(progress not computed\)/);
+  assert.match(r.block, /- G3 .*\(progress 0%\)/, 'a computed zero stays a zero');
+  assert.doesNotMatch(r.block, /null/);
+  // the ledger's own value is read when the caller passes no progress map
+  led.setGoalProgress({ G1: null, G2: 70 });
+  const r2 = renderMemory({ tag: A, bell: 430, ledger: led.snapshot(), episodes: eps, summary: null, persona }, [A], {});
+  assert.match(r2.block, /- G1 .*\(progress not computed\)/);
+  assert.match(r2.block, /- G2 .*\(progress 70%\)/);
+});
+
 test('block layout: goals with progress, open grievances, relations with the code and model parts, Remembered M1..Mk oldest first', () => {
   const { eps, led, persona } = world();
   const r = renderMemory({ tag: A, bell: 430, ledger: led.snapshot(), episodes: eps, summary: null, persona, progress: { G1: 40, G2: 100, G3: 0, G4: 100 } }, [A, 'nation:3', 'pq:1,1', E], { handleOf: who => (who === E ? 'C2' : undefined) });
