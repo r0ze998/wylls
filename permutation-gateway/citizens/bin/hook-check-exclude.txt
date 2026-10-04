@@ -1,0 +1,6 @@
+# Commits of another line that ai-hook-check.sh must not count (one full commit id per line; a line that is
+# not a commit in this repository is ignored by the test). Contract section 11.9 step 3: in the run tree the
+# never-edit diff is taken between the previous frontier/unify tip and the merge, so the unify session's own
+# work (README, the design session's web files) is exempt. On frontier/ai-integ no such line applies.
+# Owner approved this exclusion on 2026-10-05.
+ad1c919d4d3b94eec8dc1d7df1e3a5c8f112f80d

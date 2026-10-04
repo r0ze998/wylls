@@ -443,7 +443,14 @@ test('ai-hook-check.sh: its own self-test passes (every pinned violation shape i
 });
 
 test('ai-hook-check.sh on this tree (integ-A: --blank-ok, two spacing blank lines beside AC3a hook blocks): clean (only AI directories, no MC, never-edit or existing file touched since 30ba411)', { skip: spawnSync('git', ['-C', REAL_REPO, 'cat-file', '-e', '30ba411^{commit}']).status !== 0 }, () => {
-  const r = spawnSync('bash', [path.join(bin, 'ai-hook-check.sh'), '--blank-ok', '-q'], { encoding: 'utf8', timeout: 120_000 });
+  // Commits of another line (the unify session's own work, merged into the run tree) are exempt: contract 11.9 step 3.
+  const excludeFile = path.join(bin, 'hook-check-exclude.txt');
+  const excludes = fs.existsSync(excludeFile)
+    ? fs.readFileSync(excludeFile, 'utf8').split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'))
+      .filter(sha => spawnSync('git', ['-C', REAL_REPO, 'cat-file', '-e', `${sha}^{commit}`]).status === 0)
+      .flatMap(sha => ['--exclude', sha])
+    : [];
+  const r = spawnSync('bash', [path.join(bin, 'ai-hook-check.sh'), '--blank-ok', '-q', ...excludes], { encoding: 'utf8', timeout: 120_000 });
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /PASS/);
 });
