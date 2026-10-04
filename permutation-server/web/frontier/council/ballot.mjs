@@ -175,7 +175,7 @@ export function renderCouncil(ctx, view) {
   box.appendChild(ol);
 
   box.appendChild(h('h4', null, t('council.motions')));
-  if (!c.motions.length) box.appendChild(h('p', { class: 'empty' }, t('council.motions_none')));
+  if (!c.motions.length) box.appendChild(h('p', { class: 'empty' }, t(c.state === 'closed' ? 'council.motions_none_closed' : 'council.motions_none')));
   else {
     const ul = h('ul', { class: 'motions' });
     for (const m of c.motions) {

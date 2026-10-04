@@ -203,7 +203,8 @@ export function createReflection({
     const schema = buildReflectionSchema(spec);
     metrics.inc('model_decisions');
     metrics.inc('reflections_run');
-    metrics.incGroup(`ai:${tag}`, 'decisions');
+    // seatfix2 review: a reflection is not a decision of the card's "decisions (valid)" line (the run report keeps them apart and so does the card): own counters
+    metrics.incGroup(`ai:${tag}`, 'reflections');
     const res = await mind.llmJob({
       kind: 'reflection', index: own.index, bell, deadlineMs, messages, schemaName: 'reflection', schema, maxTokens,
       check: (parsed) => {
@@ -260,7 +261,7 @@ export function createReflection({
     metrics.inc('summaries_published');
     metrics.inc('decisions_model');
     metrics.inc('valid_choices');
-    metrics.incGroup(`ai:${tag}`, 'valid');
+    metrics.incGroup(`ai:${tag}`, 'reflections_ok');
     metrics.latency('reflection', res.llm.r.latency_ms, deadlineMs - finishedMs);
     const id = finish('model', 'ok', { accepted: true, summarySha: saved?.sha256 ?? sha256hex(verdict.text), ops, trusts: deltas.length });
     emit({ type: 'summary_saved', tag, bell, sha256: saved?.sha256 ?? null, record_id: id });

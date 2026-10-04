@@ -600,7 +600,7 @@ test('per-AI stats for the Wyll card: decisions, valid, actions by model or auto
     h.mind.outcome({ ...wire.outcome, decision_id: a.decision_id, actions: [{ intent: 'depart', status: 'sent', sig: 's' }, { intent: 'build', status: 'sent', sig: 't' }, { intent: 'train', status: 'refused', code: 'x' }] });
     const b = await h.mind.decide(req({ bell: 45, wake_hints: [] })); // below the gate: autopilot
     h.mind.outcome({ decision_id: b.decision_id, actions: [{ intent: 'harvest', status: 'sent', sig: 'u' }] });
-    assert.deepEqual(h.mind.statsOf(TAGS[0]), { decisions: 1, valid: 1, actions_by_model: 2, actions_by_autopilot: 1, model_marches: 1, messages: 0, strikes_declined: 0, decisions_citing_memory: 1, mem_dropped: 0 });
+    assert.deepEqual(h.mind.statsOf(TAGS[0]), { decisions: 1, valid: 1, reflections: 0, reflections_ok: 0, actions_by_model: 2, actions_by_autopilot: 1, model_marches: 1, messages: 0, strikes_declined: 0, decisions_citing_memory: 1, mem_dropped: 0 });
     assert.equal(h.mind.statsOf(TAGS[1]).decisions, 0);
   } finally {
     await h.close();
