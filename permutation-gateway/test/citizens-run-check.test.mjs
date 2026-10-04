@@ -432,8 +432,8 @@ test('ai-hook-check.sh: its own self-test passes (every pinned violation shape i
   assert.doesNotMatch(r.stdout, /FAIL/);
 });
 
-test('ai-hook-check.sh on this tree: clean (only AI directories, no MC, never-edit or existing file touched since 30ba411)', { skip: spawnSync('git', ['-C', REAL_REPO, 'cat-file', '-e', '30ba411^{commit}']).status !== 0 }, () => {
-  const r = spawnSync('bash', [path.join(bin, 'ai-hook-check.sh'), '-q'], { encoding: 'utf8', timeout: 120_000 });
+test('ai-hook-check.sh on this tree (integ-A: --blank-ok, two spacing blank lines beside AC3a hook blocks): clean (only AI directories, no MC, never-edit or existing file touched since 30ba411)', { skip: spawnSync('git', ['-C', REAL_REPO, 'cat-file', '-e', '30ba411^{commit}']).status !== 0 }, () => {
+  const r = spawnSync('bash', [path.join(bin, 'ai-hook-check.sh'), '--blank-ok', '-q'], { encoding: 'utf8', timeout: 120_000 });
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /PASS/);
 });
