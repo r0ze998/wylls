@@ -31,3 +31,4 @@ END {"detail":"stack complete, publication written; season-end bundle written; v
 
 ## smoke-b3 — 2026-10-04T07:09:34Z
 RUN {"arm":null,"commitments_sha256":"fed8feb38afb0fc87dbe2e51edc456362f38773a0ca675be76f790db24b30a47","configs":{"citizens_config_sha256":"96081d5efdc3f225b0f7ae600bd3984ba170fee6cfd176375543182c19587b3d","injection_corpus_sha256":"5626f53de1a55e72a688a6e19ddcf3aa1234679978d6da6d0ff0b3ad8c50026b","seat_script_sha256":null,"slots_sha256":"e33087069de562cbba0220ca3111340a6039c12cad8501b97029c3d44666ad36","stack_toml_sha256":"29d520cd05400f69848ad58894ae27468aa8c46e67b956267552f3c7fbcaf63e"},"rep":null,"run_id":"smoke-b3","start_unix":1791097774}
+END {"detail":"stack complete, publication written; season-end bundle written; verify-minds PASS","end_unix":1791103089,"run_id":"smoke-b3","status":"complete"}
