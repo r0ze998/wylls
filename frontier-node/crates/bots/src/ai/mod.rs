@@ -20,6 +20,7 @@
 //! | [`aislots`] | `ai-slots.json`, the AI roster, `--export-seat-key` (§2.3) |
 //! | [`aisign`] | the signed social record bytes, the Rust mirror of `aisocial.mjs` (§6.1) |
 //! | [`fetch`] | the path fetch for a target beyond the observation (§4.3, §6.6) |
+//! | [`getcount`] | counts the herald GETs the brain makes itself (R6) |
 //! | [`follow`] | following the Call, the flagged Strike-Order candidate, the social posts (§6.6, §4.3) |
 //! | [`raid`], [`recall`] | the `raid` and `recall:<handle>` candidates (§4.3) |
 //!
@@ -49,6 +50,7 @@ pub mod aislots;
 pub mod brain;
 pub mod fetch;
 pub mod follow;
+pub mod getcount;
 pub mod meview;
 pub mod mindport;
 pub mod raid;
@@ -132,6 +134,8 @@ pub struct BotAi {
     pub prev_ready: BTreeSet<u64>,
     /// Following the Call (AC3b, `follow.rs`).
     pub follow: follow::BotFollow,
+    /// The bell of the last `POST /v1/brain-stats` of this bot (about one per bell, R5/R6).
+    pub stats_posted_bell: Option<u32>,
 }
 
 /// Per-AI milestones for the run report (AC3a step 0 (d), contract §9.5 (c)):
@@ -158,6 +162,8 @@ pub struct AiHook {
     /// clock derives the budget from the bell's deadline (§3.5).
     pub fixed_call_budget: Duration,
     stats: Mutex<BTreeMap<String, u64>>,
+    /// The same counters per AI bot (index), for the steps, `no_session` and GETs-per-step figures (R5, R6).
+    bot_stats: Mutex<BTreeMap<u32, BTreeMap<String, u64>>>,
     outcomes: Mutex<BTreeMap<u32, Vec<ActionOutcome>>>,
     timeline: Mutex<BTreeMap<u32, Timeline>>,
 }
@@ -171,6 +177,7 @@ impl AiHook {
             follow: follow::FollowShared::default(),
             fixed_call_budget: Duration::from_secs(5),
             stats: Mutex::new(BTreeMap::new()),
+            bot_stats: Mutex::new(BTreeMap::new()),
             outcomes: Mutex::new(BTreeMap::new()),
             timeline: Mutex::new(BTreeMap::new()),
         }
@@ -218,6 +225,33 @@ impl AiHook {
             .or_default() += n;
     }
 
+    /// Counts `key` for AI bot `index` AND in the process-wide counters of [`AiHook::stat`].
+    pub fn bot_stat(&self, index: u32, key: &str) {
+        self.bot_stat_n(index, key, 1);
+    }
+
+    pub fn bot_stat_n(&self, index: u32, key: &str, n: u64) {
+        self.stat_n(key, n);
+        *self
+            .bot_stats
+            .lock()
+            .expect("bot stats")
+            .entry(index)
+            .or_default()
+            .entry(key.to_string())
+            .or_default() += n;
+    }
+
+    /// The cumulative counters of AI bot `index` (what `POST /v1/brain-stats` carries).
+    pub fn bot_counters(&self, index: u32) -> BTreeMap<String, u64> {
+        self.bot_stats
+            .lock()
+            .expect("bot stats")
+            .get(&index)
+            .cloned()
+            .unwrap_or_default()
+    }
+
     pub fn stat_of(&self, key: &str) -> u64 {
         self.stats
             .lock()
@@ -238,6 +272,7 @@ impl AiHook {
             "mind": self.mind.is_some(),
             "follow_council": self.follow_council,
             "counters": s.iter().map(|(k, v)| (k.clone(), json!(v))).collect::<serde_json::Map<_, _>>(),
+            "per_bot": self.bot_stats.lock().expect("bot stats").iter().map(|(i, c)| (i.to_string(), json!(c))).collect::<serde_json::Map<_, _>>(),
             "timeline": self.timeline.lock().expect("timeline").iter().map(|(i, t)| (i.to_string(), json!({
                 "first_final_bell": t.first_final_bell,
                 "first_ready_bell": t.first_ready_bell,

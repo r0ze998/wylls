@@ -8,7 +8,7 @@
 //
 //   node registrar.mjs slots   --stack T --n 12 --out AI_DIR/ai-slots.json
 //   node registrar.mjs commit  --ai-dir D --key KEYS/registrar.json --stack T --citizens-config F --slots F
-//                              [--deck deck-3] [--model P] [--model-sha256 H] [--llama-dir D] [--inputs J]
+//                              [--deck deck-3] [--model P] [--model-sha256 H] [--llama-dir D] [--inputs J]   (a non-smoke config needs --model and --llama-dir)
 //                              [--prepare-only | --wait-rpc URL [--herald URL]] [--allow-dirty]
 //   node registrar.mjs deal    --ai-dir D --key K --herald URL --stack T
 //   node registrar.mjs run     --ai-dir D --key K --rpc URL [--stack T] [--poll-ms 2000] [--until-bell N]
@@ -28,6 +28,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Keypair, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
 import bs58 from 'bs58';
 import { promptTemplatesSha256 } from './mind/templates-hash.mjs';
+import { acquireFile, pidAlive, rewriteHeld } from './lock.mjs';
 
 /** True when this file is the program being run (symlinked temp directories, such as macOS /var, resolve to the same real path). */
 function isMain() {
@@ -52,6 +53,15 @@ export const LABELS = Object.freeze({
 /** §7.1's pinned llama-server flags (AC1a's start-pinned.sh runs exactly these). */
 export const PINNED_LLAMA_FLAGS = Object.freeze(['--jinja', '--reasoning', 'off', '-np', '1', '-c', '16384', '-ngl', '999', '-fa', 'on', '--no-webui', '--metrics', '--host', '127.0.0.1', '--port', '41901', '--alias', 'gemma-4-26b-a4b-it']);
 export const PINNED_MODEL = Object.freeze({ file: 'gemma-4-26B-A4B-it-Q4_0.gguf', sha256: 'd208665ab1cd3a69f7a9a4bc59430e8448c8093d9b06334f566ac59d6d504a03', alias: 'gemma-4-26b-a4b-it' });
+/**
+ * What a commitments field holds when nothing measured it (v1.3, R9): a smoke run may leave AI_MODEL and AI_LLAMA_DIR unset; its
+ * `model.file`, `model.sha256` and `server.tree_sha256` then say this string, never the pinned constants of PINNED_MODEL (wave A
+ * asserted those without measuring them). verify-minds M1 prints such a field as `unmeasured`, never as PASS, and a run with an
+ * unmeasured field is not cited for audit claims.
+ */
+export const UNMEASURED = 'unmeasured';
+/** A smoke run is the one that uses the citizens config named smoke.json (contract 7.1: every other config is a non-smoke run). */
+export const isSmokeConfig = citizensConfigPath => path.basename(String(citizensConfigPath ?? '')) === 'smoke.json';
 export const SEED_RULE = "u32_le(sha256('wylls-mind-seed/v1' ‖ season u64 ‖ index u32 ‖ bell u32 ‖ kind u8 ‖ attempt u8)[0..4])";
 /** The paths the dirty-tree guard and the commitments cover (§7.1 Guards). */
 export const GUARDED_PATHS = Object.freeze(['permutation-gateway/citizens', 'permutation-server/web/frontier/council', 'permutation-server/web/frontier/council.html', 'frontier-node/crates/bots', 'frontier-node/crates/agents', 'frontier-node/crates/herald', 'frontier-node/crates/stack']);
@@ -272,7 +282,9 @@ export function collectInputs(opts) {
   const episodeKinds = episodeKindsSha256(kindsSource);
   const llama = opts.llama ?? {};
   const flags = llama.flags ?? [...PINNED_LLAMA_FLAGS];
-  const model = opts.model ?? { ...PINNED_MODEL };
+  // R9: measured, or the string "unmeasured"; never the pinned constants (those are what the run script's /props check compares with)
+  if (llama.dir && !fs.existsSync(llama.dir)) throw new Error(`--llama-dir ${llama.dir} does not exist: nothing to measure`);
+  const model = opts.model?.sha256 ? { file: opts.model.file ?? UNMEASURED, sha256: opts.model.sha256, alias: opts.model.alias } : { file: UNMEASURED, sha256: UNMEASURED, alias: opts.model?.alias };
   return {
     run_id: runId,
     season_id: seasonId,
@@ -280,7 +292,7 @@ export function collectInputs(opts) {
     model: { file: model.file, sha256: model.sha256, alias: model.alias ?? PINNED_MODEL.alias },
     server: {
       llama_cpp: llama.llama_cpp ?? 'b11146 / 7fe450e19 (Homebrew 0.5.0)',
-      tree_sha256: llama.tree_sha256 ?? (llama.dir && fs.existsSync(llama.dir) ? treeSha256Dir(llama.dir) : null),
+      tree_sha256: llama.tree_sha256 ?? (llama.dir ? treeSha256Dir(llama.dir) : UNMEASURED),
       flags,
       flags_sha256: sha256hex(canonicalJson(flags)),
       request_shape: 'response_format',
@@ -417,10 +429,11 @@ export function memoTransaction(kp, text, recentBlockhash) {
 }
 
 /** Send a memo and wait for its status: `{signature, slot, blockTime}` (blockTime from the chain's clock, not ours). */
-export async function sendMemo(rpc, kp, text, { tries = 40, intervalMs = 250 } = {}) {
+export async function sendMemo(rpc, kp, text, { tries = 40, intervalMs = 250, onSigned = null } = {}) {
   const bh = await rpc.call('getLatestBlockhash');
   const wire = memoTransaction(kp, text, (bh.value ?? bh).blockhash);
   const signature = await rpc.call('sendTransaction', [wire.toString('base64'), { encoding: 'base64' }]);
+  onSigned?.(signature); // the memo is on its way: a caller that fails after this point must look the signature up before it sends again
   for (let i = 0; i < tries; i++) {
     const st = (await rpc.call('getSignatureStatuses', [[signature]])).value?.[0];
     if (st) {
@@ -523,6 +536,7 @@ export function buildRoster({ commitments, commitmentsSha, season, genesis, deps
 // ------------------------------------------------------------------ per-bell anchors (§6.3)
 const numericJson = dir => (fs.existsSync(dir) ? fs.readdirSync(dir).map(n => /^(\d+)\.json$/.exec(n)?.[1]).filter(Boolean).map(Number).sort((a, b) => a - b) : []);
 const readJson = p => JSON.parse(fs.readFileSync(p, 'utf8'));
+const readJsonOrNull = p => { try { return readJson(p); } catch { return null; } };
 export const ANCHOR_RETRY_BELLS = 3;
 
 /** The roots of a closed bell, or null until both the talk file and the minds file exist. */
@@ -535,17 +549,50 @@ export function closedBellRoots(pub, bell) {
   return { social_root: social, minds_root: minds };
 }
 
+// ---- the cross-process guard of the anchors (v1.3, R9; contract 6.3 "No anchor is sent twice") -----------------------------------
+// `registrar run` (the whole run) and `registrar publish` (the end of the run) both walk the closed bells, and the run script keeps
+// the first alive while it starts the second, so both could find the last bells without an anchor and send each memo twice. Every
+// bell therefore has a CLAIM FILE under KEYS (`<AI_DIR>/keys/anchor-claims/<bell>.json`, never served: KEYS is not PUB) created
+// with the atomic create of lock.mjs before a memo is sent: exactly one process holds a bell's claim, the other skips the bell.
+//   * a claim holds {pid, bell, started, signature}; `signature` is written as soon as the memo has been sent;
+//   * success keeps the claim (it records who anchored the bell) next to the anchor file;
+//   * a failure before any signature removes the claim, so the next pass (or the other process) may try again;
+//   * a failure AFTER the signature (the status never came back) keeps the claim with its signature: the next attempt, in this
+//     process or after a takeover of a dead holder, asks the chain for that signature before it would send anything;
+//   * a claim whose pid is dead is taken over race-free (lock.mjs) and its signature is checked first.
+export const anchorClaimFile = (aiDir, bell) => path.join(aiDir, 'keys', 'anchor-claims', `${bell}.json`);
+/** Claim a bell. `pid` is overridable for tests that stand in for two processes. Returns {ok, previous} (previous = a dead or own earlier claim). */
+export function claimAnchor(aiDir, bell, { pid = process.pid, now = Date.now } = {}) {
+  const file = anchorClaimFile(aiDir, bell);
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const body = `${JSON.stringify({ pid, bell, started: new Date(now()).toISOString(), signature: null })}\n`;
+  const r = acquireFile(file, body, { isLive: c => pidAlive(c?.pid) && c.pid !== pid }); // our own earlier claim is ours to retry
+  if (r.ok) return { ok: true, previous: r.previous, file };
+  return { ok: false, holder: r.holder, file };
+}
+const recordClaimSignature = (file, pid, bell, signature) => rewriteHeld(file, `${JSON.stringify({ pid, bell, started: new Date().toISOString(), signature })}\n`);
+const releaseClaim = file => fs.rmSync(file, { force: true });
+/** Did this memo signature land? `{slot, signature}` or null. */
+async function landedMemo(rpc, signature) {
+  try {
+    const st = (await rpc.call('getSignatureStatuses', [[signature]])).value?.[0];
+    return st && !st.err ? { signature, slot: st.slot } : null;
+  } catch { return null; }
+}
+
 /**
  * One pass over the closed bells that have no anchor yet, oldest first. A bell whose memo cannot be sent is tried again on
  * the next pass; once `ANCHOR_RETRY_BELLS` later bells have closed it is written as an `anchor_gap` (M3 fails for it).
- * `state.failed` (bell → first failure message) lives with the caller. Returns the bells anchored and gapped in this pass.
+ * `state.failed` (bell -> first failure message) lives with the caller. Returns the bells anchored and gapped in this pass, and the
+ * bells it left to another process (`claimed`). A bell claimed by a live process is skipped and the pass stops there (memo order).
+ * `pid` stands in for the process id in tests.
  */
-export async function anchorPass({ aiDir, kp, rpc, season, state = { failed: new Map() }, log = () => {} }) {
+export async function anchorPass({ aiDir, kp, rpc, season, state = { failed: new Map() }, log = () => {}, pid = process.pid }) {
   const pub = path.join(aiDir, 'pub');
   const talk = numericJson(path.join(pub, 'talk'));
   const have = new Set(numericJson(path.join(pub, 'anchors')));
   const newest = talk.length ? talk[talk.length - 1] : -1;
-  const done = { anchored: [], gaps: [] };
+  const done = { anchored: [], gaps: [] }; // `claimed` appears only when a bell was left to another live process
   for (const bell of talk) {
     if (have.has(bell)) continue;
     const roots = closedBellRoots(pub, bell);
@@ -559,12 +606,24 @@ export async function anchorPass({ aiDir, kp, rpc, season, state = { failed: new
       }
       continue;
     }
+    const claim = claimAnchor(aiDir, bell, { pid });
+    if (!claim.ok) {
+      if (fs.existsSync(file)) continue; // anchored by the other process while we looked
+      (done.claimed ??= []).push(bell);
+      log(`anchor ${bell}: claimed by pid ${claim.holder?.pid ?? '?'}; left to it`);
+      break; // keep the memo order: later bells wait for this one
+    }
+    if (fs.existsSync(file)) continue; // anchored (by a process that has since ended) between our listing and our claim: never send it again
     try {
-      const memo = await sendMemo(rpc, kp, anchorMemoText(season, bell, roots.social_root, roots.minds_root));
+      // a signature an earlier attempt (ours, or a process that died) had already sent: look it up before anything is sent again
+      const earlier = claim.previous?.signature ? await landedMemo(rpc, claim.previous.signature) : null;
+      const memo = earlier ?? await sendMemo(rpc, kp, anchorMemoText(season, bell, roots.social_root, roots.minds_root), { onSigned: sig => recordClaimSignature(claim.file, pid, bell, sig) });
       writeAtomic(file, `${JSON.stringify({ bell, ...roots, signature: memo.signature, slot: memo.slot })}\n`);
       state.failed.delete(bell);
       done.anchored.push(bell);
     } catch (e) {
+      const sentSig = readJsonOrNull(claim.file)?.signature ?? null;
+      if (!sentSig) releaseClaim(claim.file); // nothing was sent: the bell is free for the next pass or the other process
       if (!state.failed.has(bell)) state.failed.set(bell, e.message);
       log(`anchor ${bell}: ${e.message}`);
       if (newest - bell >= ANCHOR_RETRY_BELLS) {
@@ -576,6 +635,21 @@ export async function anchorPass({ aiDir, kp, rpc, season, state = { failed: new
     }
   }
   return done;
+}
+
+/** Wait (bounded) until every bell that another LIVE process has claimed has its anchor file: `publish` writes the index only after that. */
+export async function waitForClaimedAnchors({ aiDir, pid = process.pid, timeoutMs = 60_000, intervalMs = 250 }) {
+  const dir = path.join(aiDir, 'keys', 'anchor-claims');
+  const t0 = Date.now();
+  for (;;) {
+    const pending = numericJson(dir).filter(b => {
+      const c = readJsonOrNull(anchorClaimFile(aiDir, b));
+      return c && pidAlive(c.pid) && c.pid !== pid && !fs.existsSync(path.join(aiDir, 'pub', 'anchors', `${b}.json`));
+    });
+    if (!pending.length) return { waited_ms: Date.now() - t0, pending: [] };
+    if (Date.now() - t0 > timeoutMs) return { waited_ms: Date.now() - t0, pending };
+    await sleep(intervalMs);
+  }
 }
 
 /** The season-end publication of the registrar: a signed index of the anchors and the trigger file the audit watches (STATE/season-end.json). */
@@ -676,8 +750,11 @@ export async function main(argv, { log = m => console.error(m), out = m => conso
         const bytes = fs.readFileSync(pubFile);
         prepared = { bytes, sha256: sha256hex(bytes), obj: JSON.parse(bytes), kp: loadOrCreateKey(a.key, aiDir) };
       } else {
+        // R9: a non-smoke run (a citizens config not named smoke.json) must measure the model file and the llama.cpp tree; a smoke run
+        // may leave both out and its commitments then say "unmeasured" (collectInputs)
+        if (!isSmokeConfig(a['citizens-config']) && !(a.model && a['llama-dir'])) throw new Error(`a non-smoke run (config ${path.basename(a['citizens-config'])}) needs --model (AI_MODEL) and --llama-dir (AI_LLAMA_DIR): the commitments carry their measured hashes (contract 7.1, R9)`);
         const model = a['model-sha256'] || a.model
-          ? { ...PINNED_MODEL, sha256: a['model-sha256'] ?? (await modelSha(a.model)), file: a.model ? path.basename(a.model) : PINNED_MODEL.file }
+          ? { ...PINNED_MODEL, sha256: a['model-sha256'] ?? (await modelSha(a.model)), file: a.model ? path.basename(a.model) : UNMEASURED }
           : undefined;
         const extra = a.inputs ? readJson(a.inputs) : {};
         prepared = prepareCommitments({ repoRoot: REPO_ROOT, aiDir, keyPath: a.key, stackPath: a.stack, citizensConfigPath: a['citizens-config'], slotsPath: a.slots, deck: a.deck, runId: a['run-id'], model, llama: { dir: a['llama-dir'], ...(extra.llama ?? {}) }, seatScriptPath: a['seat-script'], allowDirty: a['allow-dirty'], override: extra.override });
@@ -739,6 +816,9 @@ export async function main(argv, { log = m => console.error(m), out = m => conso
       const rpc = new Rpc(a.rpc);
       if (a.stack) await assertLocalnetRpc(rpc, parseStackToml(fs.readFileSync(a.stack, 'utf8')).g0 ?? 1_785_542_400);
       await anchorPass({ aiDir, kp, rpc, season: commitments.season_id, log });
+      // R9: the `run` process may be sending the last bells at this very moment (its claim is live): wait for its anchors, then index
+      const w = await waitForClaimedAnchors({ aiDir });
+      if (w.pending.length) log(`publish: bells ${w.pending.join(', ')} are still claimed by a live registrar run after ${w.waited_ms} ms; they are not in the index`);
       const index = publishSeasonEnd({ aiDir, kp, season: commitments.season_id, commitmentsSha: sha256hex(bytes) });
       out(`anchors: ${index.anchored.length} anchored, ${index.gaps.length} gap(s); season-end trigger written`);
       return 0;

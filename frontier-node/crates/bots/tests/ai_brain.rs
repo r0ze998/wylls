@@ -675,7 +675,9 @@ async fn every_fallback_runs_the_filtered_autopilot() {
     let mut bot = ai_bot();
     bot.step(&sh, true).await;
     assert_eq!(sh.ai.clone().unwrap().stat_of("fallback_mind_status"), 1);
-    assert_eq!(fm.unauthorised.load(std::sync::atomic::Ordering::SeqCst), 1);
+    // AC10a (R5/R6): the step's `POST /v1/brain-stats` carries the same token, so it is refused too: two 401s, the decide and the stats post
+    assert_eq!(fm.unauthorised.load(std::sync::atomic::Ordering::SeqCst), 2);
+    assert_eq!(sh.ai.clone().unwrap().stat_of("brain_stats_post_failed"), 1);
     assert_eq!(relay.count_tag(tag::DEPART), 0);
 }
 

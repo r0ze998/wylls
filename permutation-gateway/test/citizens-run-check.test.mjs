@@ -33,8 +33,13 @@ function makeRepo() {
   git('init', '-q', '-b', 'main'); git('add', '-A'); git('commit', '-q', '-m', 'base');
   return { root, git };
 }
+// R9: a non-smoke run names the gguf and the llama.cpp tree it measures; these tests run no model, so the files are stand-ins
+const FAKE_MODEL = path.join(tmp, 'fake-model.gguf');
+const FAKE_LLAMA = path.join(tmp, 'fake-llama');
+write(FAKE_MODEL, 'a stand-in, not a model\n');
+write(path.join(FAKE_LLAMA, 'bin', 'llama-server'), 'a stand-in binary\n');
 const cleanEnv = () => {
-  const e = { ...process.env };
+  const e = { ...process.env, AI_MODEL: FAKE_MODEL, AI_LLAMA_DIR: FAKE_LLAMA };
   for (const k of Object.keys(e)) if (G.API_KEY_ENV.includes(k) || /^(ANTHROPIC|OPENAI)_.*(KEY|TOKEN)$/.test(k)) delete e[k];
   return e;
 };
@@ -363,14 +368,14 @@ test('a real start in a throwaway repository: slots, commitments, the RUNS.md en
   const llama = http.createServer((req, res) => {
     if (req.url === '/health') { res.writeHead(200); return res.end('{"status":"ok"}'); }
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(req.url === '/props' ? '{"model_alias":"gemma-4-26b-a4b-it"}' : '{"data":[{"id":"gemma-4-26b-a4b-it"}]}');
+    res.end(req.url === '/props' ? '{"model_alias":"gemma-4-26b-a4b-it","total_slots":1,"build_info":"b11146-7fe450e19","default_generation_settings":{"n_ctx":16384}}' : '{"data":[{"id":"gemma-4-26b-a4b-it"}]}');
   });
   const up = await new Promise(res => { llama.once('error', () => res(false)); llama.listen(llamaPort, '127.0.0.1', () => res(true)); });
   if (!up) { llama.close(); return; } // the port is taken by somebody else: nothing to test against
   try {
     const repo = makeRepo();
     const ac = path.join(repo.root, 'permutation-gateway');
-    for (const f of ['serve.mjs', 'registrar.mjs']) write(path.join(ac, 'citizens', f), read(path.join(REAL_REPO, 'permutation-gateway', 'citizens', f)));
+    for (const f of ['serve.mjs', 'registrar.mjs', 'lock.mjs']) write(path.join(ac, 'citizens', f), read(path.join(REAL_REPO, 'permutation-gateway', 'citizens', f)));
     write(path.join(ac, 'citizens', 'mind', 'templates-hash.mjs'), read(path.join(REAL_REPO, 'permutation-gateway', 'citizens', 'mind', 'templates-hash.mjs'))); // the registrar's one import of the mind's code
     write(path.join(ac, 'citizens', 'server.mjs'), '// stub\n');
     repo.git('add', '-A'); repo.git('commit', '-q', '-m', 'files');
@@ -384,7 +389,11 @@ test('a real start in a throwaway repository: slots, commitments, the RUNS.md en
     cfg.llm.url = `http://127.0.0.1:${llamaPort}`; cfg.ports.llama = llamaPort;
     const cfgFile = path.join(tmp, 'cfg-41999.json'); write(cfgFile, JSON.stringify(cfg));
     const lock = path.join(tmp, 'lock-real');
-    const r = await runAsync(['--stack', smoke, '--citizens-config', cfgFile, '--no-busy-check', '--run-id', 'ai-trap-1'], { repo, lock, env: { FRONTIER_BIN: fbin, AI_WAIT_STACK_SECS: '30' } });
+    // R9: the llama check reads the command line of the process on the port; here a recorded one stands in for it (tests only)
+    const argvFile = path.join(tmp, 'llama-argv.json');
+    write(argvFile, JSON.stringify({ ps_args: `/x/llama-server -m ${FAKE_MODEL} --alias gemma-4-26b-a4b-it --host 127.0.0.1 --port 41901 --jinja --reasoning off -np 1 -c 16384 -ngl 999 -fa on --no-webui --metrics`, binary_realpath: path.join(FAKE_LLAMA, 'bin', 'llama-server') }));
+    const r = await runAsync(['--stack', smoke, '--citizens-config', cfgFile, '--no-busy-check', '--run-id', 'ai-trap-1'], { repo, lock, env: { FRONTIER_BIN: fbin, AI_WAIT_STACK_SECS: '30', AI_LLAMA_ARGV_JSON: argvFile } });
+    assert.match(r.text, /llama check: PASS/, r.text);
     assert.equal(r.code, 1, r.text);
     assert.match(r.text, /frontier-stack exited before it was running/);
     assert.match(r.text, /run ai-trap-1: aborted \(frontier-stack exited before it was running/);

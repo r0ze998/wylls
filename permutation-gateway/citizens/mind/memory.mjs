@@ -5,11 +5,12 @@
 //    (pinned in 11.6); retrieval itself (score, half-life, grievance sources, the cut) is AC2's;
 //  * refs    = for each candidate the handles whose episode entities intersect the candidate's
 //              entities (<= 3, best score first), computed here from the episodes behind the handles;
-//  * goals_served = the goal ids this kind of action advances for this persona;
+//  * goals_served = the goal ids this kind of action advances for this persona, read from persona/goals.mjs `goalsServed` (v1.3 R7:
+//                   the one source; this file holds no goal table);
 //  * C handles   = people handles used in say.to and trust.who, with a legend line the prompt prints.
 // AC2 is built in parallel. What this file assumes of ownState and renderMemory is listed in
 // AC1a-NOTES.md ("assumed AC2 shapes"); tests use a double with exactly those shapes.
-import { kindBase } from './schema.mjs';
+import { goalsServed as goalsServedFromGoals } from '../persona/goals.mjs';
 
 export const MAX_REFS = 3;
 export const MAX_PEOPLE = 12;
@@ -18,22 +19,6 @@ export const MAX_PEOPLE = 12;
 export function refScore(episode, candEntities, bellNow, halfLife = 72) {
   const inter = (episode.entities ?? []).filter((e) => candEntities.includes(e)).length;
   return (episode.importance ?? 1) * 0.5 ** ((bellNow - episode.bell) / halfLife) * (1 + 0.5 * inter);
-}
-
-const KIND_GOALS = {
-  // default table of "which goal ids does this kind of action advance" per persona (section 2.2).
-  // goals.mjs of AC2 may provide a function that replaces it (deps.goalsServed).
-  conqueror: { march: ['G2', 'G3', 'G4'], train: ['G1'], muster: ['G1'], hold: [], recall: [], build: [], walls: [], explore: [], autopilot: [] },
-  guardian: { walls: ['G1'], hold: ['G2', 'G3'], recall: ['G4', 'G3'], train: ['G2'], muster: ['G3'], march: [], build: [], explore: [], autopilot: [] },
-  diplomat: { build: ['G4'], hold: [], march: [], train: [], muster: [], explore: [], walls: [], recall: [], autopilot: [] },
-  avenger: { march: ['G1'], hold: ['G2'], train: ['G4'], muster: ['G4'], recall: ['G2'], build: [], walls: [], explore: [], autopilot: [] },
-  founder: { build: ['G1', 'G3'], explore: ['G2'], hold: ['G4'], walls: ['G1'], train: ['G4'], muster: [], march: [], recall: [], autopilot: [] },
-  opportunist: { march: ['G1', 'G2', 'G3'], build: ['G4'], train: [], muster: [], hold: [], recall: [], walls: [], explore: [], autopilot: [] },
-};
-
-export function goalsServedDefault(personaId, candidate) {
-  const table = KIND_GOALS[personaId] ?? {};
-  return [...(table[kindBase(candidate.kind)] ?? [])];
 }
 
 /**
@@ -63,7 +48,7 @@ export function buildPeople(sources, ownTag) {
   return { people, byHandle, handleOfTag };
 }
 
-export function createMemoryAttach({ renderMemory, goalsServed = null, blockTokens = 750, maxRefs = MAX_REFS } = {}) {
+export function createMemoryAttach({ renderMemory, goalsServed = goalsServedFromGoals, blockTokens = 750, maxRefs = MAX_REFS } = {}) {
   if (typeof renderMemory !== 'function') throw new Error('createMemoryAttach: renderMemory (AC2) is required');
 
   function focusOf({ ownState, request, inboxTags = [], threatNations = [], extraEntities = [] }) {
@@ -99,7 +84,6 @@ export function createMemoryAttach({ renderMemory, goalsServed = null, blockToke
       const e = ownState.episodes?.get?.(handles[h]);
       if (e) episodes.set(h, e);
     }
-    const persona = ownState.persona?.id ?? ownState.persona?.persona ?? null;
     const candidates = (request.candidates ?? []).map((c) => {
       const ents = c.entities ?? [];
       const scored = [];
@@ -109,7 +93,7 @@ export function createMemoryAttach({ renderMemory, goalsServed = null, blockToke
       }
       scored.sort((a, b) => b.s - a.s || b.bell - a.bell || (a.id < b.id ? -1 : 1));
       const refs = scored.slice(0, maxRefs).map((x) => x.h);
-      const gs = goalsServed ? goalsServed(ownState.persona, c) : goalsServedDefault(persona, c);
+      const gs = goalsServed(ownState.persona, c);
       return { ...c, refs, goals_served: gs };
     });
     return { block: rendered.block ?? '', handles, retrieved, candidates, focus, tokens: rendered.tokens ?? null };

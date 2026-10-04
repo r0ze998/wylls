@@ -366,6 +366,15 @@ pub fn outcome_json(decision_id: &str, actions: &[ActionOutcome], own: &[OwnMarc
     })
 }
 
+/// `POST /v1/brain-stats` body (AC10a, R5/R6): the CUMULATIVE counters of one AI bot (`steps`, `no_session`, `gets:*`, ...).
+pub fn brain_stats_json(
+    index: u32,
+    bell: u32,
+    counters: &std::collections::BTreeMap<String, u64>,
+) -> Value {
+    json!({"v": WIRE_V, "index": index, "bell": bell, "counters": counters})
+}
+
 // ------------------------------------------------------------------ client
 
 /// The keyless mind on loopback.
@@ -457,6 +466,16 @@ impl MindPort {
         let v: Value =
             serde_json::from_slice(&body).map_err(|e| MindError::Bad(format!("json: {e}")))?;
         Answer::from_json(&v)
+    }
+
+    /// `POST /v1/brain-stats`.
+    pub async fn brain_stats(&self, body: &Value, timeout: Duration) -> Result<(), MindError> {
+        let (status, b) = self.post("/v1/brain-stats", body, timeout).await?;
+        if status == 200 {
+            Ok(())
+        } else {
+            Err(MindError::Status(status, short(&b)))
+        }
     }
 
     /// `POST /v1/outcome`.

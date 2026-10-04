@@ -124,3 +124,54 @@ export function allProgress(persona, input) {
   for (const g of persona.goals) out[g.id] = goalProgress(g.key, input);
   return out;
 }
+
+// ---- goals_served (contract 4.3; v1.3 R7: this file is the ONE source) -------------------------------------------------
+// Which kinds of candidate action advance which goal, keyed by goal KEY (so a goal that two personas share, "two_armies" or
+// "build_three", is defined once). The mind's memory attach reads goalsServed() below and holds no table of its own; the
+// test `citizens-ac10a-goals-served` fails if a goal key of the library has no entry here, if an entry names a goal that no
+// persona has, or if the attach and this function disagree. The kind is the base kind of a candidate ("march", "build",
+// "explore" for "march:camp", "build:wood", "explore:H2"). An empty list means "no action kind advances this goal" (a goal
+// that is met by talking, motions or waiting, not by a candidate).
+export const GOAL_SERVES = Object.freeze({
+  // conqueror
+  two_armies: Object.freeze(['train', 'muster']),
+  march_daily: Object.freeze(['march']),
+  clear_three_camps: Object.freeze(['march']),
+  answer_camp_taken: Object.freeze(['march']),
+  // guardian
+  walls_600: Object.freeze(['walls']),
+  home_floor_half: Object.freeze(['hold', 'train']),
+  army_home_every_bell: Object.freeze(['hold', 'recall', 'muster']),
+  meet_threats: Object.freeze(['recall']),
+  // diplomat
+  talk_neighbours: Object.freeze([]),
+  move_option: Object.freeze([]),
+  trust_neighbours: Object.freeze([]),
+  build_three: Object.freeze(['build']),
+  // avenger
+  answer_grievances: Object.freeze(['march']),
+  home_half: Object.freeze(['hold', 'recall']),
+  move_grievance_option: Object.freeze([]),
+  // founder
+  tier_up_three_builds: Object.freeze(['build', 'walls']),
+  explore_daily: Object.freeze(['explore']),
+  reach_town: Object.freeze(['build']),
+  recover_from_loss: Object.freeze(['hold', 'train']),
+  // opportunist
+  clear_two_camps_daily: Object.freeze(['march']),
+  strike_the_mover: Object.freeze(['march']),
+  raid_weak_stacks: Object.freeze(['march']),
+});
+
+/** The base kind of a candidate kind: "march:camp" -> "march". */
+export const baseKind = kind => String(kind ?? '').split(':')[0];
+
+/**
+ * goalsServed(persona, candidate) -> ["G2", "G3", ...] in goal order: the ids of the persona's goals that this candidate's kind
+ * advances. `persona.goals` is [{id, key, ...}] (the dealt persona of deal.mjs `personaOf`); a persona without goals, or a goal
+ * without a known key, serves nothing.
+ */
+export function goalsServed(persona, candidate) {
+  const kind = baseKind(candidate?.kind);
+  return (persona?.goals ?? []).filter(g => g && Object.hasOwn(GOAL_SERVES, g.key) && GOAL_SERVES[g.key].includes(kind)).map(g => g.id);
+}

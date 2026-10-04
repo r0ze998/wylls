@@ -1,14 +1,16 @@
 // AC1a: the memory attach (sections 4.3, 5.2, 5.5): focus, handles, the mem enum, refs, goals_served.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createMemoryAttach, buildPeople, refScore, goalsServedDefault, MAX_REFS, MAX_PEOPLE } from '../citizens/mind/memory.mjs';
+import { createMemoryAttach, buildPeople, refScore, MAX_REFS, MAX_PEOPLE } from '../citizens/mind/memory.mjs';
+import { LIBRARY } from '../citizens/persona/deal.mjs';
 import { buildAnswerSchema, validateShape } from '../citizens/mind/schema.mjs';
 import { checkMenu } from '../citizens/mind/validate.mjs';
 import { loadWireFixture, renderMemoryDouble, makeStores, makeEpisode, TAGS } from './fixtures/ai-mind-doubles.mjs';
 
 const { json: wire } = loadWireFixture();
+const personaOfLibrary = (id) => ({ id, goals: LIBRARY.personas.find((p) => p.id === id)?.goals ?? [] });
 const stores = (eps) => makeStores({ episodes: eps });
-const own = (eps) => ({ tag: TAGS[0], bell: 40, persona: { id: 'conqueror' }, episodes: stores(eps).episodes(TAGS[0]), doc: { goals: [], grievances: [], trust: { citizens: {}, nations: {} } } });
+const own = (eps) => ({ tag: TAGS[0], bell: 40, persona: personaOfLibrary('conqueror'), episodes: stores(eps).episodes(TAGS[0]), doc: { goals: [], grievances: [], trust: { citizens: {}, nations: {} } } });
 
 test('focus = own tag, own nation, home pq, candidate entities, inbox senders, threat nations, extra entities', () => {
   let seen = null;
@@ -72,13 +74,15 @@ test('an empty memory gives an empty handle list (mem maxItems 0) and the block 
   assert.equal(buildAnswerSchema({ kind: 'session', candidateIds: ['c1'], handles: Object.keys(r.handles) }).properties.mem.maxItems, 0);
 });
 
-test('goals_served: the default table per persona and kind, or a function from AC2 goals.mjs', () => {
-  assert.deepEqual(goalsServedDefault('conqueror', { kind: 'march' }), ['G2', 'G3', 'G4']);
-  assert.deepEqual(goalsServedDefault('guardian', { kind: 'walls' }), ['G1']);
-  assert.deepEqual(goalsServedDefault('founder', { kind: 'explore:H2' }), ['G2']);
-  assert.deepEqual(goalsServedDefault('nobody', { kind: 'march' }), []);
-  const a = createMemoryAttach({ renderMemory: renderMemoryDouble, goalsServed: (persona, c) => (c.kind === 'hold' ? ['G9'] : []) });
-  const r = a.attach({ ownState: own([]), request: wire.request, bell: 100 });
+test('goals_served: read from persona/goals.mjs through the persona\'s goals (R7), or from an injected function', () => {
+  const a = createMemoryAttach({ renderMemory: renderMemoryDouble });
+  const served = (id, kind) => a.attach({ ownState: { ...own([]), persona: personaOfLibrary(id) }, request: { situation: wire.request.situation, candidates: [{ id: 'c1', kind, entities: [] }] }, bell: 100 }).candidates[0].goals_served;
+  assert.deepEqual(served('conqueror', 'march:camp'), ['G2', 'G3', 'G4']);
+  assert.deepEqual(served('guardian', 'walls'), ['G1']);
+  assert.deepEqual(served('founder', 'explore:H2'), ['G2']);
+  assert.deepEqual(served('nobody', 'march'), [], 'a persona with no goals serves nothing');
+  const b = createMemoryAttach({ renderMemory: renderMemoryDouble, goalsServed: (persona, c) => (c.kind === 'hold' ? ['G9'] : []) });
+  const r = b.attach({ ownState: own([]), request: wire.request, bell: 100 });
   assert.deepEqual(r.candidates.find((c) => c.kind === 'hold').goals_served, ['G9']);
 });
 

@@ -15,6 +15,10 @@
 //   sealed_number, target_kind                                              while a march is in flight or a Call is live:
 //                                                                           no number equal to a sealed target's troop count or distance,
 //                                                                           and no target-kind word in any text of that AI
+//   (v1.3, R2) these three sub-rules do NOT apply to the `why` of a SEALED decision record (ctx.sealedRecord === true with
+//   kind 'why'): that text is published only at the release, when the destination is public (contract 4.5, 7.2). They
+//   stay in force for every `say`, the `why` of an unsealed decision and the summary; the coordinate, province-handle,
+//   place-name and nation-name rules above stay in force for every text, a sealed `why` included.
 //   human_claim, abuse, capture_claim, pact_word                            pinned denylists
 //   echo                                                                    a verbatim run of 24 code points of untrusted prompt text
 //   wrong_script (say only)                                                 `ja` needs kana or kanji, `en` Latin
@@ -223,7 +227,8 @@ function echoHit(s, untrusted) {
 /**
  * The V5 base check shared by say, why and the reflection summary.
  *   kind: 'say' | 'why' | 'summary' (sets the length limit)
- * ctx: {sealed: [{pq, names, nations?, numbers, kinds}], inFlight, untrusted: [texts shown in the prompt]}
+ * ctx: {sealed: [{pq, names, nations?, numbers, kinds}], inFlight, sealedRecord (R2: the decision's own record is sealed; only
+ * read for kind 'why'), untrusted: [texts shown in the prompt]}
  * Returns {ok:true, text} or {ok:false, reason, word?}.
  */
 export function v5Base(text, ctx = {}, { kind = 'say' } = {}) {
@@ -238,9 +243,11 @@ export function v5Base(text, ctx = {}, { kind = 'say' } = {}) {
   if (coord) return { ok: false, reason: 'sealed_coordinate', word: coord };
   const name = sealedName(s, sealed);
   if (name) return { ok: false, reason: 'sealed_name', word: name };
+  // R2: only the `why` of a record that is itself sealed is exempt from the next three rules; a missing flag means strict
+  const sealedWhy = kind === 'why' && ctx.sealedRecord === true;
   const kindHit = KIND_RE_EN.exec(s)?.[0]?.toLowerCase() ?? KIND_RE_JA.exec(s)?.[0] ?? null;
-  if (sealed.length > 0 && kindHit && (DIRECTION_RE_EN.test(s) || DIRECTION_ABBR.test(s) || DIRECTION_RE_JA.test(s))) return { ok: false, reason: 'sealed_direction', word: kindHit };
-  const active = Boolean(ctx.inFlight) || sealed.length > 0;
+  if (!sealedWhy && sealed.length > 0 && kindHit && (DIRECTION_RE_EN.test(s) || DIRECTION_ABBR.test(s) || DIRECTION_RE_JA.test(s))) return { ok: false, reason: 'sealed_direction', word: kindHit };
+  const active = !sealedWhy && (Boolean(ctx.inFlight) || sealed.length > 0);
   if (active) {
     const ids = new Set(sealed.flatMap((e) => (e.numbers ?? []).map((n) => String(Number(n)))).filter((n) => n !== 'NaN'));
     if (ids.size) {

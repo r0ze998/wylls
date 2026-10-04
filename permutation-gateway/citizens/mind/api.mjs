@@ -547,6 +547,7 @@ export function createMind(deps) {
       sealed: sealedForText,
       mem: out.menu.mem.ids,
       inFlight: sealed.list(own.tag).some((e) => e.via !== 'call') || sends.entries.length > 0,
+      sealedRecord: sends.sealed, // R2: the why of a sealed record is published only at its release
       untrusted: out.untrusted ?? [],
     };
     const messagesLeft = Math.max(0, messagesCap(own.persona) - (doc.counters.messages ?? 0));
@@ -648,6 +649,62 @@ export function createMind(deps) {
     return { ok: true };
   }
 
+  // ---- POST /v1/brain-stats (AC10a, R5 and R6): the brain's own counters ------------------------------------------------
+  // The brain (bots/src/ai) counts, per AI, its steps, the steps that made no mind call (`no_session`: no home holding or no session,
+  // contract 3.1, 7.2) and the herald GETs it makes itself, by kind (`gets:<kind>`; R6). Nothing on the mind's side can see these:
+  // a no_session step leaves no record. The brain posts its CUMULATIVE counters per AI about once a bell; the mind keeps the latest
+  // per AI (a lower `steps` than the stored one is a stale or out-of-order post and is ignored), and /v1/metrics and
+  // PUB/metrics/latest.json carry them in `brain` (per AI by tag, and totals), which the report reads (10.1).
+  const brain = new Map(); // index -> {tag, counters, bell, received}
+  let brainPosts = 0;
+  const COUNTER_KEY = /^[a-z][a-z0-9_:.]{0,47}$/;
+  function brainStats(body) {
+    if (!body || typeof body !== 'object' || body.v !== 1) throw new HttpError(400, 'BadRequest', 'v: 1 required');
+    if (!Number.isInteger(body.index)) throw new HttpError(400, 'BadRequest', 'index must be an integer');
+    const c = body.counters;
+    if (!c || typeof c !== 'object' || Array.isArray(c)) throw new HttpError(400, 'BadRequest', 'counters must be an object');
+    const keys = Object.keys(c);
+    if (keys.length > 96) throw new HttpError(400, 'BadRequest', 'at most 96 counters');
+    for (const k of keys) {
+      if (!COUNTER_KEY.test(k)) throw new HttpError(400, 'BadRequest', `counter name ${JSON.stringify(k).slice(0, 60)} is not allowed`);
+      if (!Number.isSafeInteger(c[k]) || c[k] < 0) throw new HttpError(400, 'BadRequest', `counter ${k} must be a non-negative integer`);
+    }
+    const entry = roster.byIndex(body.index);
+    if (!entry) throw new HttpError(404, 'UnknownAi', `no AI citizen with index ${body.index}`);
+    const prev = brain.get(body.index);
+    if (prev && (c.steps ?? 0) < (prev.counters.steps ?? 0)) {
+      metrics.inc('brain_stats_stale');
+      return { ok: true, applied: false };
+    }
+    brain.set(body.index, { tag: entry.tag, counters: { ...c }, bell: Number.isInteger(body.bell) ? body.bell : null, received: (prev?.received ?? 0) + 1 });
+    brainPosts += 1;
+    return { ok: true, applied: true };
+  }
+  /** The `brain` block of the metrics snapshot: per AI and in total, with GETs per step. Absent until the first post. */
+  function brainSnapshot() {
+    if (!brain.size) return {};
+    const round = (x) => Math.round(x * 1000) / 1000;
+    const perAi = {};
+    const totals = Object.create(null); // a counter may be named `constructor` or `valueof`: no inherited property may answer for it
+    for (const [, e] of [...brain].sort((a, b) => a[0] - b[0])) {
+      const getsTotal = Object.entries(e.counters).filter(([k]) => k.startsWith('gets:')).reduce((n, [, v]) => n + v, 0);
+      const steps = e.counters.steps ?? 0;
+      perAi[e.tag] = { ...e.counters, gets_total: getsTotal, gets_per_step: steps ? round(getsTotal / steps) : null, bell: e.bell, posts: e.received };
+      for (const [k, v] of Object.entries(e.counters)) totals[k] = (totals[k] ?? 0) + v;
+    }
+    const getsTotal = Object.entries(totals).filter(([k]) => k.startsWith('gets:')).reduce((n, [, v]) => n + v, 0);
+    const steps = totals.steps ?? 0;
+    return {
+      brain: {
+        ais_reporting: brain.size,
+        posts: brainPosts,
+        totals: { ...totals, gets_total: getsTotal, gets_per_step: steps ? round(getsTotal / steps) : null, no_session_share: steps ? round((totals.no_session ?? 0) / steps) : null },
+        per_ai: perAi,
+        note: 'cumulative counters posted by the brain (bots/src/ai); gets:* are herald GETs counted at the brain\'s own call sites, gets:reobserve_* are lower bounds (the files a re-observe returned)',
+      },
+    };
+  }
+
   // ---- council calls (motion, ballot) driven by the watcher --------------------------------------------------
   /**
    * councilCall({tag, kind: 'motion'|'ballot', period, faction, deadline_unix_ms, bell, options?}) ->
@@ -722,7 +779,7 @@ export function createMind(deps) {
     const memEpisodes = out.menu.mem.ids.map((id) => own.episodes?.get?.(id)).filter(Boolean);
     const sends = intendedSends({ cands: [], chosenIds: [], params: {}, autopilotDeparts: [], choseAutopilot: false, bell, member });
     const sealedForText = sealedForSpeech(own, [], member);
-    const sp = applySpeech({ value, speech, ctx: { kind, lang: speechLang, speechLang, promptText: rendered.messages[1].content, facts: JSON.stringify(council.options), episodeTexts: rendered.retrieved.map((id) => own.episodes?.get?.(id)).filter(Boolean).map((e) => `${e.text?.en ?? ''} ${e.text?.ja ?? ''}`), sealed: sealedForText, mem: out.menu.mem.ids, inFlight: sealed.list(own.tag).length > 0, untrusted: out.untrusted ?? [] }, messagesLeft: Math.max(0, messagesCap(own.persona) - (doc.counters.messages ?? 0)), kind });
+    const sp = applySpeech({ value, speech, ctx: { kind, lang: speechLang, speechLang, promptText: rendered.messages[1].content, facts: JSON.stringify(council.options), episodeTexts: rendered.retrieved.map((id) => own.episodes?.get?.(id)).filter(Boolean).map((e) => `${e.text?.en ?? ''} ${e.text?.ja ?? ''}`), sealed: sealedForText, mem: out.menu.mem.ids, inFlight: sealed.list(own.tag).length > 0, sealedRecord: sends.sealed, untrusted: out.untrusted ?? [] }, messagesLeft: Math.max(0, messagesCap(own.persona) - (doc.counters.messages ?? 0)), kind });
     for (const [r, n] of Object.entries(sp.drops)) metrics.incGroup('speech_drop', r, n);
     const opts = new Map(council.options.map((o) => [o.option, o]));
     let social = { motion: null, ballot: null };
@@ -783,10 +840,11 @@ export function createMind(deps) {
   return {
     decide,
     outcome,
+    brainStats,
     councilCall,
     llmJob,
     health,
-    metrics: () => metrics.snapshot({ bell: clock.bell(), extra: { records: records.stats(), scheduler: scheduler.latencies(), scheduler_counters: scheduler.counters, ...(speech?.counts ? { speech: speech.counts() } : {}) } }), // integ-A: AC1b's per-word withhold counts (word-list refusals, uncited memory claims) for 10.1
+    metrics: () => metrics.snapshot({ bell: clock.bell(), extra: { records: records.stats(), scheduler: scheduler.latencies(), scheduler_counters: scheduler.counters, ...brainSnapshot(), ...(speech?.counts ? { speech: speech.counts() } : {}) } }), // integ-A: AC1b's per-word withhold counts (word-list refusals, uncited memory claims) for 10.1
     subscribe: (fn) => listeners.push(fn),
     lastSituation: (tag) => lastSituation.get(tag) ?? null,
     /** per-AI counters for the Wyll card stats block (section 2.4): decisions, valid, actions_by_model, actions_by_autopilot, model_marches, messages, strikes_declined, decisions_citing_memory, mem_dropped */
@@ -838,6 +896,7 @@ export function createMindHttp(mind, { token, timingSafeEqual = null } = {}) {
       if (!authOk(req.headers.authorization)) return send(res, 401, { error: 'Unauthorized', code: 'Unauthorized' });
       if (req.method === 'POST' && url.pathname === '/v1/decide') return send(res, 200, await mind.decide(await readBody(req)));
       if (req.method === 'POST' && url.pathname === '/v1/outcome') return send(res, 200, mind.outcome(await readBody(req)));
+      if (req.method === 'POST' && url.pathname === '/v1/brain-stats') return send(res, 200, mind.brainStats(await readBody(req)));
       if (req.method === 'GET' && url.pathname === '/v1/health') return send(res, 200, await mind.health());
       if (req.method === 'GET' && url.pathname === '/v1/metrics') return send(res, 200, mind.metrics());
       return send(res, 404, { error: 'NotFound', code: 'NotFound' });
