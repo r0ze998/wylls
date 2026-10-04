@@ -207,3 +207,97 @@ Real now: social store (AC4), speech checker and sanitiser (AC1b), reflection jo
 - Reflection fires from the first step at or after bell mod `reflect_every` (24 in `smoke.json`); it needs a clock anchor from a `/v1/decide` and at least one episode in its window, else it is skipped and counted (`reflection_skipped`).
 - `docs/frontier/DECISIONS.md` part X (13.1) is not written by this unit.
 - Wave B must not re-introduce the stub: AC6's `createWatcher` is picked up by `server.mjs` from `watcher/index.mjs` or `watcher/watcher.mjs` with `{feed, social, ledgers, records, aiDir, config}`; it will need `social.council.open`, `social.council.seal` or a `fixCall` passed to `createSocial` (not wired: today `createSocial` is built without `fixCall`; AC6 owns that decision, one line in `server.mjs`).
+
+# Part 3: review fixes on `frontier/ai-integ` (after `f05cca5`; five review clusters, every blocker, major and missing item checked against the code)
+
+Commits (local, nothing pushed): `59e6e0a` (mind), `0d9d3aa` (memory and feed), `0168581` (brain), the serve/registrar commit, and `0306861`. Each fix has a test; the new tests were also run against the old code where the old code was kept to compare (see the "old code fails" column).
+
+## 15. Verdicts and what was done
+
+Verdict: C = confirmed against the code, R = rebutted. No finding was rebutted; one (the unit of `home_troops_est`) is stated below because it looked like a second bug and is not.
+
+| # | Finding | Verdict | Fix and test | Old code fails the new test |
+|---|---|---|---|---|
+| M1 | mind blocker: a second `/v1/outcome` for one decision replaces `tx` | C | `records.attachOutcome` ADDS: identical entries kept once, first-seen order, also after a restart (journal) and after the bell is closed; tests in `citizens-mind-records` and `citizens-mind-api` | yes (the new records test) |
+| M2 | prompt shows `［object Object］` for sender names | C | `prompt.mjs` `personName(n, lang)` reads `{en, ja}` rows (AC4's `nameOf`); `citizens-integ-social` asserts the real roster name is in the `from=` attribute and no `object Object` | yes (run against the old prompt.mjs) |
+| M3 | human claim bypassed by U+2019, "Im", "no bot", hiragana | C | `plainApostrophe` (reason.mjs) applied in V5 and in the memory-claim and summary checks; pattern `'?m`, "no", hiragana and 俺/僕 forms; tests in `citizens-mind-speech` | not rerun on the old file |
+| M4 | 8 of 14 slice-4 `why` strings withheld (all 6 march decisions as `target_kind`, 2 as capture claim "conquest") | C | (a) bare "conquest" and "occupation" are no longer capture claims: they count only with a land object (contract 4.5 names land-taking verbs); (b) one longer prompt line in `system.en.txt` (see 15.1) | n/a, see 15.1 |
+| M5 | `W-THREAT` wake `dep_mass` is milli-troops but the prompt printed it as troops (300000) | C | `wiring.mjs` converts with `toTroops`; prompt test with a real-scale wake (300000 -> "300 troops"); the wiring test fixture now uses 300000. `home_troops_est` is also milli but is only compared with `dep_mass` (same unit), so it needed no change | yes |
+| M6 | pump lookback 40 loses a BUILD whose `done_at` is far later (and a DEPART to REVEAL of up to 72 bells) | C | lookback 80; BUILD rows are taken from the whole log while their done bell is within the window or ahead; test: BUILD logged at bell 5, done at 130, pump ticked bell by bell to 140, live episode ids equal a full-log `episodes_from_events` | yes |
+| M7 | dm, motion, council_result and strike episodes (and the "adopted mover" delta) were never produced live; AC4's council file shape was not the producer's | C | `socialEpisodeSource` feeds the pump with AC4's accepted talk rows, its closed council periods (adapted: `closes_bell` -> `close_bell`, `candidates` -> `options`; an unclosed period is not a result) and its redactions; a redaction blanks the stored episode; `citizens-integ-episodes.test.mjs` runs the pump over the REAL store (dm, motion with its option kind, council_result, a redaction). Strike episodes need an opened Call (AC6, wave B): not produced yet | n/a (new module) |
+| M8 | `advanceDay`, decay and goal progress had no caller | C | new `mind/upkeep.mjs`, called from `runDecide`: the first step of a game day decays trust by temperament and resets the day's `model_today`; a step log (army at home per step, home troops) and goal progress by code. Goals whose facts have no producer in this build get `null` and print "progress not computed" (memory block, card, reflection prompt); see 15.2. Tests: `citizens-mind-upkeep` (7), `citizens-integ-upkeep` (the running service across a day boundary), render and card tests for null | n/a |
+| B1 | brain: a same-bell repeat resolves cached ids against recomputed offers | C | `Cached` stores the request's offers; the repeat resolves ids against them and V6 then runs on the fresh observation. Test: the camps vanish between the two steps, the cached camp id is dropped by V6, nothing else is substituted | yes (`v6_dropped` stays 0 on the old code) |
+| B2 | a chosen march withheld by the residency gate is remembered as sent when a chosen build lands | C | identities are marked only for intents whose key is in `done` (really sent). Test: `[march, build]` at a gated bell; the repeat sends the march and does not build twice | yes (0 departs) |
+| B3 | `opened_of` / `seal_of` match a seal by host only | C | `MeExtra::seal_for(host, arrive_bell)` accepts a seal only if its record bell is at or after the march's arrival bell; test with an earlier march's seal | does not compile on the old code (new method) |
+| B4 | G10 `ai-hook-check.sh` fails without `--blank-ok` | C, owner decision | unchanged, see 15.3 | n/a |
+| S1 | `episode_kinds_sha256` is the hash of the top-level keys of `templates.en.json` (a constant) | C | `episodeKindsSha256` hashes the sorted keys of `kinds`; a test ties them to `memory/config.mjs` KINDS and shows that adding a kind moves the hash | yes |
+| S1b | `prompt_templates_sha256` has two definitions (mind and registrar) | C | one definition in `mind/templates-hash.mjs` (sorted `name\0filehash\n` lines), used by `prompt.mjs` and `registrar.mjs`; a test pins registrar == mind on the real prompts | n/a |
+| S2 | book: a human wallet can burn an AI's `(decision_id, item)`; use not keyed by type | C | only AI records consume; key `type|decision_id|item`; `consume(id, item, type)`; test | yes |
+| S3 | a bell with a talk file and no minds file is skipped forever | C | `anchor_gap` (reason "minds file missing") after 3 later bells; test | yes |
+| S4 | memory-derived redaction not wired (6.3) | C | wired through the pump (M7); test | n/a |
+| Missing | two outcomes on one decision (records and api); real service renders names; typographic apostrophes, hiragana, English number words, episode-coordinate exemption (5.6), echo in council motion speech; H0 = 200 boundary; threat radius 3 vs 4 (feed and episodes); pump across a day boundary and a long build; talk and council rows in the running service; wake-to-prompt with real scale | C | all added (names above). Not added: a concurrency test for two simultaneous `book.submit` (the commit section is synchronous; unchanged) | |
+
+Minor findings handled: V2 `mem` handles use `Object.hasOwn` (three prototype names added to the V2 test); the stale `ai-mind-wire-copy.json` was removed (the loader reads the real golden fixture); `names.json` source string and `vectors.mjs` header name the right test files; `safe.mjs` header no longer claims to be a drop-in, and a test shows it equals the real sanitiser on every episode text of the capture (EN and JA); sealed-coordinate exemption for coordinates in retrieved episodes (5.6); spelled-out English numbers count as identifying numbers (`spelledNumbersIn`, used only for the sealed-number rule, not for grounding, so "one march" in a `why` is not newly refused); `--export-seat-key` refuses a symlink into pub or state and any letter case of "pub" and "state".
+
+### 15.1 The march `why` (finding M4), measured on real Gemma
+
+Slice-4 (reviewer replay, not re-run by me): 6 of 6 sealed march decisions had their `why` withheld as `target_kind`. With real Gemma 4 26B A4B (`start-pinned.sh` on 41901, test mode, real mind, real prompt, golden decide request, `smoke.json`; load average 2.0 to 2.9; 3.6 to 3.9 s per decision, 4.6 to 5.0 s for the avenger; stopped afterwards, nothing listening on 41900 to 41999):
+
+- first, shorter prompt line: 2 of 2 march decisions still withheld (`target_kind: camp`), 3 non-march `why` passed;
+- the line now in `prompts/system.en.txt` ("never write the words camp, village, stack, raid, barbarian or town, nor a direction, a coordinate or a number, in say or why: call the goal 'the target'"): conqueror at 6 bells, all 6 march decisions kept their `why` (`speech.reasons` empty); avenger at 3 bells, 0 withheld.
+
+What this does NOT show: the golden fixture repeats near-identical prompts at T = 0, so the 6 outputs are two distinct strings ("I send the host to the target to keep goal G2 and pursue G3." and a variant), the model copies the example in the line, and the reason is therefore less informative than before. It says nothing about the live withhold rate in a run; that stays to be measured in the I-A smoke. It also is a change of the contract's prompt text (section 5), recorded as a deviation (15.4). The alternative the reviewer named, changing the V5b rule itself (contract 4.5 and 7.2), is an owner decision and was not taken. In the first preflight the model also wrote "I am launching a march" in a `why` while its choice was train and muster; V5b does not compare text with choice, so a published `why` can say something the choice did not do.
+
+### 15.2 Goal progress: what is computed and what is `null`
+
+`upkeep.mjs` produces these facts from the brain's situation, `own_marches` and the AI's own episodes and step log: combat hosts, marches today, camps cleared today, walls, home troops and H0, army at home per step (counted in steps, not seconds), home army bells, home troops series, tier. Computed: two_armies, march_daily, clear_three_camps, answer_camp_taken, walls_600, home_floor_half, army_home_every_bell, meet_threats, trust_neighbours, answer_grievances, home_half, reach_town, recover_from_loss, clear_two_camps_daily. `null` ("not computed"): talk_neighbours, move_option, build_three, move_grievance_option, tier_up_three_builds, explore_daily, strike_the_mover, raid_weak_stacks (no producer for talk to neighbours, motions per period, builds today, buildings, explores today, nation targets of motions, or the field kind and ratio of a march). The persona's goal text still shows; only the number is withheld. The card JSON can now carry `progress: null`; no consumer of goal progress exists in `permutation-server/web` in this tree, so the design session's card page (not touched) must print null as "not computed". A test (`REQUIRES`) fails if a new goal key is added without a decision.
+
+### 15.3 Hook check (G10)
+
+`ai-hook-check.sh` without a flag still FAILS on exactly the two blank lines in AC3a history (`55644a9` bot.rs line 354, `127f094` main.rs line 522); with `--blank-ok` it passes. The check is per commit, so a new commit cannot cure it; only rewriting merged history would. The earlier gate lines that read "pass" for G10/GA-1 should read "pass with a recorded deviation (--blank-ok)". Decision left to the owner (stop_for_owner). My own commits in this part added no line outside a hook block and touched none of the four hook files.
+
+### 15.4 Deviations added in part 3
+
+1. `prompts/system.en.txt` carries one longer instruction line (15.1), not in the contract's prompt text.
+2. `registrar.mjs` imports `mind/templates-hash.mjs` (a new import-free module); the throwaway-repo run test copies it.
+3. `ledger.setGoalProgress` and the renderers accept `null` (not computed); contract 2.2 says progress is a 0..100 number.
+4. `mind/api.mjs` takes an `upkeep` dependency; `server.mjs` builds it. The pump takes an optional `social` source.
+5. Pump: lookback 80 (was 40) plus whole-log BUILD rows; every pump pass now scans bells 0 to `through` for BUILD rows (cheap map lookups).
+6. Recorded, no code change, for the architect's ruling: W-CLASH wakes only on real clashes by default (AC6a `clashMode 'real'`; the literal text of 3.2 wakes on every CLASH at a province where the AI holds a village or host: 206 against 3,449 wakes on 12 stand-ins in AC6a's measurement; `clashMode 'literal'` exists); a Strike Order with no CLASH row is remembered at S + 14, not S + 2; `camp_taken_by` excludes a clearer of the AI's own nation; Harvest is held at quota 16 or less for every AI step (contract 3.1 lists it as a kept duty); the brain's extra herald GETs (Recall's `/h/events` threat feed from event 0, up to 3 owner-province GETs per step, and `obs_digest` re-reading `/h/me` and every observed province) exceed "8 extra GETs per step" and are unmeasured under load; per-section prompt budgets of 5.5 are exported but only the total (3,000 tokens) and the memory cap are enforced; `goals_served` comes from a second table in `mind/memory.mjs` (not from `goals.mjs`) and can drift from the persona goals; `--ai-slots` without `--brain` runs the filtered autopilot on the AI slots (not `policy::decide`), untested as a CLI mode; the four `Wylls AI run: slice-N` commits lack the Co-Authored-By trailer.
+
+### 15.5 Corrections to earlier gate lines
+
+- "One decision record per step": 387 records, but 36 of 423 brain steps made no mind call and left no record (the brain returns before the call when the bot has no home holding or no session); contract 7.2 says every step of an AI bot leaves one. Pass with this caveat, cause not attributed step by step.
+- GA-1 `ai-hook-check`: pass with the `--blank-ok` deviation (15.3), not plain pass.
+- The slice-4 `commitments.json` carries `episode_kinds_sha256 = f136789e...`, the constant of the old definition; a run on this tree gives a different value (the kinds' hash) and `prompt_templates_sha256` now also covers the one changed prompt file. Slice-4's file is not comparable with a new run's.
+- The census camp column fix (part 2) was checked by the reviewer against the paused m1-exit herald (camps of 160 and 250 troops equal to the raw Province record); not re-run by me.
+
+## 16. What was run in part 3, with real results
+
+All on `frontier/ai-integ`, nothing pushed. Mac load (uptime) 2.0 to 5.6 during the runs.
+
+| Command | Result |
+|---|---|
+| `cd permutation-gateway && npm test` | 1105 tests, 1105 pass, 0 fail (was 1079; +26) |
+| `node --test test/citizens-*.test.mjs` (before the last commit) | 527 pass, 0 fail |
+| `cd frontier-node && CARGO_TARGET_DIR=.../target-integ nice -n 5 cargo test -p bots -p agents -p herald -p stack --locked -j 6` | exit 0, 268 passed, 0 failed, 3 ignored (was 265) |
+| `cargo test -p itest --locked -j 6 --no-fail-fast` | exit 0, 13 passed, 0 failed, 3 ignored by attribute (g14, inproc_day and the recorded recheck were NOT re-run in part 3; they passed on `f05cca5` with `--include-ignored`) |
+| `cargo fmt --check` | clean after `cargo fmt -p bots` (it reformatted only the three new/edited test files) |
+| `cargo clippy -p bots -p agents -p herald -- -D warnings` and `cargo clippy -p bots --tests -- -D warnings` | clean |
+| `citizens/bin/ai-hook-check.sh -q` | FAIL, 2 violations (AC3a history, unchanged); with `--blank-ok` PASS |
+| `server.mjs` under the Node permission flags on 41990 to 41992, 4 s | started (stubs: watcher only), `/f/ai/council` answered; stopped; nothing listening |
+| real Gemma preflight (15.1) | see above; llama-server stopped, `lsof` shows nothing on 41900 to 41999 |
+| `node citizens/social/vectors.mjs --check` | fresh |
+
+Not run: the live I-A smoke or any stack (so none of the part-3 wiring, the pump over a live herald, the upkeep over a real run, or the real-brain posting is live-verified), g14 and inproc_day, `cargo test -p itest` on the baseline commit, a merge rehearsal against `frontier/cq-integ` after these edits (my Rust edits are in `bots/src/ai/**` and `bots/tests/ai_*`, outside the hook blocks; the part-2 recipe still applies), the census read cost on a live herald.
+
+## 17. Open points after part 3
+
+- Strike episodes and the "adopted mover" trust delta need an opened Call (`open` with `p, q`), which exists only once AC6's watcher and `fixCall` are merged; the adapter passes `open` when AC4 has it, so no further wiring is expected, but it has no live evidence.
+- The pump counts `missing_recent` (a province or clash file served more than 2 bells late); it does not hold the cursor back, because a file that never comes would stall every AI. If the live run shows a non-zero count, episodes can appear with a `created_bell` below bells already decided, and an M11 replay would then retrieve them for a decision that did not.
+- AC8 (M11) must apply the 200 cap as of each decision's bell (the top 200 of the episodes with `created_bell` below that bell), not filter the final list; a retrieval replay after a redaction can differ from the live ids (redacted episodes are excluded from `retrieve()`). Neither is pinned by a unit.
+- `release_bell` and the sealed entry's `arrive_bell` come from the candidate's planned earliest arrival; the brain re-plans a model answer at `obs.now + 60 s`, so the real arrival can be later. The committed `release_bell` cannot change; AC6's release job must wait for the REVEAL as 7.2 says (and `open/<bell>.json` must be written once, all due records of a bell together, because `serve.mjs` serves `open/` as immutable).
+- Commitments assert, not measure: `model.sha256` and `server.flags` are the pinned constants unless `AI_MODEL` is set; `--llama-dir` is passed only with `AI_LLAMA_DIR`, so slice-4's `server.tree_sha256` is null; nothing compares `/props` flags with the commitments or checks that the stack binaries are newer than HEAD. A non-smoke run should require `AI_MODEL` and `AI_LLAMA_DIR`.
+- The stack lock is per worktree by default (`AI_STACK_LOCK` can share it) and its stale-lock takeover is racy when two starters race. `registrar run` and the end-of-run publish can send the last anchors twice (no cross-process guard).
+- The `consumed` set is journal-replayed per record; the old-format journal (key without type) is not migrated: a restart on a journal written by `f05cca5` would rebuild the key from the records and is fine, but no test restarts across the change.
+- The V5/V5b withhold rates and the new prompt line need the live smoke; so do `waitCursor`, the watcher delivery fixes (`028a0c3`, `9dd0d10`) and the upkeep (decay, goal progress) under a real run.
