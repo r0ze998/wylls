@@ -1,0 +1,1 @@
+TASK: nation council, ballot window. Cast one ballot: option 1 to 3, or 0 for none. Put it in council as {"ballot": n}. choose must be [] and say must be []. Answer only with the JSON. List the Remembered lines you used in mem.
