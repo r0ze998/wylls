@@ -15,6 +15,8 @@ import { createHash } from 'node:crypto';
 import { buildPeople } from './memory.mjs';
 import { maxSayFor, kindBase as kindBaseOf } from './schema.mjs';
 import { merkleRootHex } from './records.mjs';
+// AC1b hook: the pinned sanitiser (section 4.6) and the wrappers (section 4.7) are the only way text enters a prompt
+import { sanitize, wrapUntrusted, wrapMemory } from './sanitize.mjs';
 
 export const VARIABLE_BUDGET = 3000;
 export const SECTION_BUDGETS = { state: 550, social_council: 300, memory: 750, inbox: 450, candidates: 900, task: 50 };
@@ -46,7 +48,6 @@ export const estimateTokens = (text) => Math.ceil(String(text).length / 3);
 export function createPromptRenderer({ templatesDir, countTokens = null, speech, renderPersona, nameOf = null, config = {}, resources = DEFAULT_RESOURCES } = {}) {
   if (!templatesDir) throw new Error('createPromptRenderer: templatesDir required');
   const { t: T, sha256: templatesSha } = loadTemplates(templatesDir);
-  const sanitize = (text, opts) => (speech?.sanitize ? speech.sanitize(text, opts) : String(text));
   const count = async (text) => {
     if (countTokens) {
       const n = await countTokens(text);
@@ -59,8 +60,10 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
     return (n && (n[lang] ?? n.en)) || `citizen ${String(tag).slice(0, 6)}`;
   };
 
-  const wrap = (text, { from, ch, bell }) =>
-    `<untrusted from="${sanitize(from, { limit: 48 })}" ch="${ch}" bell="${bell}">${sanitize(text, { limit: 280, untrusted: true })}</untrusted>`;
+  // AC1b hook: a player's name is untrusted text: sanitised, cut to 32 code points, and without a double quote
+  const personName = (n) => sanitize(n, { limit: 32, untrusted: true }).replace(/"/g, "'");
+  // AC1b hook: `<untrusted from ch bell>` is built by code around sanitised text; a name cannot forge an attribute
+  const wrap = (text, { from, ch, bell }) => wrapUntrusted(text, { from, ch, bell });
 
   // ---- section 1: NOW and STATE ---------------------------------------------------------------
   function stateLines(sit, { trimNeighbours = 0 } = {}) {
@@ -161,7 +164,8 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
 
   const itemLine = (r, people, ownTag, ch) => {
     const handle = r.tag === ownTag ? 'you' : people.handleOfTag(r.tag) ?? 'C?';
-    const nameStr = r.tag === ownTag ? 'you' : `${r.name ?? nm(r.tag)} (${handle})`;
+    // AC1b hook: the sender's name is player text (untrusted); it is cut before the handle is added so the handle always survives
+    const nameStr = r.tag === ownTag ? 'you' : `${personName(r.name ?? nm(r.tag))} (${handle})`;
     return wrap(r.text, { from: nameStr, ch, bell: r.bell });
   };
 
@@ -223,7 +227,7 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
       const state = stateLines(sit, { trimNeighbours: neighbourTrim }).join('\n');
       const sc = [...threatLines(threats), ...councilLines(council, member, people)].join('\n');
       const legend = people.people.length
-        ? `PEOPLE (use these handles in say.to and trust.who): ${people.people.map((p) => `${p.handle} ${p.name ?? nm(p.tag, lang)}${p.faction != null ? ` (nation ${p.faction})` : ''}`).join('; ')}`
+        ? `PEOPLE (use these handles in say.to and trust.who): ${people.people.map((p) => `${p.handle} ${personName(p.name ?? nm(p.tag, lang))}${p.faction != null ? ` (nation ${p.faction})` : ''}`).join('; ')}`
         : 'PEOPLE: none named in this prompt.';
       const memory = `${legend}\n${attached.block}`.trim();
       const inboxText = inboxRows.length ? inboxRows.map((r) => itemLine(r, people, ownState.tag, 'direct')).join('\n') : 'none';
@@ -340,13 +344,14 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
   /** Reflection prompt (AC1b's reflection job calls this; the template is mine, section 5.3). */
   function renderReflection({ bell, previousSummary = null, ledgerDigest = '', goals = [], episodes = [], ownState, persona = '' }) {
     const system = [fill(T.system, { name: ownState.name?.en ?? nm(ownState.tag), nation: ownState.faction ?? '' }), fill(T.persona, { persona_text: persona })].join('\n\n');
-    const prev = previousSummary ? `<memory kind="self-summary" bell="${previousSummary.bell}">${sanitize(previousSummary.text, { limit: 1200, summary: true })}</memory>` : 'none yet';
+    // AC1b hook: the previous summary is model-written (sanitised as a summary) and the episodes are code text (still sanitised); both are data
+    const prev = previousSummary ? wrapMemory(previousSummary.text, { kind: 'self-summary', bell: previousSummary.bell }) : 'none yet';
     const user = fill(T.reflection, {
       bell,
       previous_summary: prev,
-      ledger_digest: ledgerDigest,
-      goals: goals.map((g) => `${g.id}: ${g.text ?? ''} progress ${g.progress}${g.status && g.status !== 'active' ? ` (${g.status})` : ''}`).join('\n'),
-      episodes: episodes.map((e) => `<memory kind="episode">[bell ${e.bell}] ${e.text}</memory>`).join('\n') || 'none',
+      ledger_digest: String(ledgerDigest).split('\n').map((l) => sanitize(l, { limit: 200 })).join('\n'),
+      goals: goals.map((g) => sanitize(`${g.id}: ${g.text ?? ''} progress ${g.progress}${g.status && g.status !== 'active' ? ` (${g.status})` : ''}`, { limit: 240 })).join('\n'),
+      episodes: episodes.map((e) => wrapMemory(`[bell ${e.bell}] ${e.text}`, { kind: 'episode' })).join('\n') || 'none',
     });
     return { messages: [{ role: 'system', content: system }, { role: 'user', content: user }] };
   }
