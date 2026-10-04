@@ -47,6 +47,20 @@ export async function checkM9({ pub, records, seedHex, commitments, llm = null, 
   chk.set('sampled', picked.length);
   if (!picked.length) { chk.note('no model record with a stored request body to replay'); if (!model.length) chk.skip('no model records in this run'); return chk.result(); }
   if (!llm) chk.skip('not run: no --llm (the offline checks of the stored bodies ran)');
+  else {
+    // the llama-server must be the committed one (7.3: "started with the committed flags"): what /props reports is compared with -c and --alias
+    const flags = commitments?.server?.flags ?? [];
+    const flag = name => { const i = flags.indexOf(name); return i >= 0 ? flags[i + 1] : undefined; };
+    try {
+      const r = await fetchImpl(`${llm.replace(/\/+$/, '')}/props`, { signal: AbortSignal.timeout(10_000) });
+      const props = r.ok ? await r.json() : null;
+      const nCtx = props?.default_generation_settings?.n_ctx ?? props?.n_ctx;
+      const mAlias = props?.model_alias ?? props?.alias;
+      chk.set('llm_props', { n_ctx: nCtx ?? null, alias: mAlias ?? null });
+      if (nCtx !== undefined && flag('-c') !== undefined && Number(nCtx) !== Number(flag('-c'))) chk.fail('llm_flags', { n_ctx: nCtx, committed: Number(flag('-c')), detail: 'the llama-server is not running with the committed context size' });
+      if (mAlias !== undefined && flag('--alias') !== undefined && mAlias !== flag('--alias')) chk.fail('llm_flags', { alias: mAlias, committed: flag('--alias') });
+    } catch { chk.note('llama-server /props not readable: its flags were not compared with the commitments'); }
+  }
   const samp = commitments?.sampling ?? {};
   const alias = commitments?.model?.alias;
   const season = commitments?.season_id;

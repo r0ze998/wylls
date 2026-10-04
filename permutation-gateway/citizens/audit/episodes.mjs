@@ -98,7 +98,13 @@ export function councilsFromPub(pub) {
 /** A feed over the herald, drained to the end of its log; `through` = the last bell whose records are all in hand. */
 export async function drainFeed({ herald, roster, fetchImpl = null, onError = () => {} }) {
   const feed = createFeed({ herald, roster, fetch: fetchImpl, onError });
-  const r = await feed.poll();
+  // one poll reads at most 400 pages; a long log needs several
+  let r;
+  for (let i = 0; i < 100; i++) {
+    const before = feed.cursor();
+    r = await feed.poll();
+    if (r.ok || (feed.cursor() === before && r.error)) break;
+  }
   if (!r.ok) throw new Error(`the herald could not be read to the end of its log: ${r.error}`);
   return { feed, through: feed.completeThrough() };
 }
@@ -197,13 +203,15 @@ export async function checkM11({ pub, drained: drainedIn = null, herald, roster,
   for (const tag of sampledAis) {
     chk.count();
     const file = pub.memoryFile(tag);
-    if (!file) { chk.fail('episodes_file_missing', { tag }); continue; }
-    const published = file.episodes ?? [];
-    const ownHash = sha256hex(canonical([...published].sort((a, b) => a.created_bell - b.created_bell || a.bell - b.bell || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))));
-    if (file.sha256 !== ownHash) chk.fail('episodes_file_inconsistent', { tag, detail: 'the file\'s sha256 is not the hash of its own episodes (an episode was edited, added or removed after publication)', file_sha256: file.sha256, recomputed: ownHash });
+    const published = file?.episodes ?? [];
+    if (file) {
+      const ownHash = sha256hex(canonical([...published].sort((a, b) => a.created_bell - b.created_bell || a.bell - b.bell || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))));
+      if (file.sha256 !== ownHash) chk.fail('episodes_file_inconsistent', { tag, detail: 'the file\'s sha256 is not the hash of its own episodes (an episode was edited, added or removed after publication)', file_sha256: file.sha256, recomputed: ownHash });
+    }
     const r = await replay(tag);
-    if (r.noHome) { if (published.length) chk.fail('episodes_without_home', { tag, count: published.length }); continue; }
+    if (r.noHome) { if (published.length) chk.fail('episodes_without_home', { tag, count: published.length }); else if (!file) chk.note(`${tag}: no village and no episode file (nothing to remember)`); continue; }
     const want = listAsOf(r.episodes, { tombs });
+    if (!file) { if (want.length) chk.fail('episodes_file_missing', { tag, replayed: want.length }); continue; }
     const wantHash = comparisonHash(want), gotHash = comparisonHash(published);
     if (wantHash !== gotHash) chk.fail('episodes_mismatch', { tag, replayed_sha256: wantHash, published_sha256: gotHash, ...diffLists(want, published), unknown: r.unknown.length ? r.unknown.slice(0, 4) : undefined });
   }

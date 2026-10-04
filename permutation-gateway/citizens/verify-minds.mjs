@@ -512,7 +512,7 @@ export async function checkM3(ctx) {
     // when due
     const dests = op.destinations ?? [];
     const arrive = dests.map(x => x.arrive_bell).filter(x => Number.isInteger(x));
-    const unrevealed = dests.some(x => x.source === 'unrevealed' || x.arrive_bell === null) || op.destination === 'unrevealed';
+    const unrevealed = dests.some(x => x.source === 'unrevealed' || x.destination === 'unrevealed' || x.arrive_bell === null) || op.destination === 'unrevealed';
     let due = rec.release_bell;
     if (unrevealed) due = rec.release_bell + UNREVEALED_WAIT_BELLS;
     else if (arrive.length) due = Math.max(rec.release_bell, Math.max(...arrive));
@@ -628,7 +628,7 @@ export async function checkM8(ctx) {
     const dec = byId.get(prov.decision_id);
     if (!dec) { c.fail('decision_unknown', { decision: prov.decision_id, bell, inner }); return; }
     if (dec.record.ai !== ai.tag) c.fail('decision_of_another_ai', { decision: prov.decision_id, record_ai: dec.record.ai, wallet_ai: ai.tag });
-    if (Math.abs(dec.record.bell - bell) > 1 && Math.abs(dec.record.bell - d.bell) > 1) c.fail('bell_window', { decision: prov.decision_id, decision_bell: dec.record.bell, record_bell: d.bell, filed_bell: bell });
+    if (Math.abs(dec.record.bell - d.bell) > 1) c.fail('bell_window', { decision: prov.decision_id, decision_bell: dec.record.bell, record_bell: d.bell, filed_bell: bell });
     const expect = (dec.full?.social ?? {})[prov.type === 'ballot' ? 'ballot' : 'talk']?.find(x => x.item === prov.item);
     if (!expect) { c.fail('no_expected_output', { decision: prov.decision_id, item: prov.item, detail: 'the decision has no signed-ready output for this item (PUB/full/decisions)' }); return; }
     if (prov.type === 'ballot' || d.type === 'ballot') {
@@ -693,7 +693,7 @@ export async function verifyMinds(o) {
   const steps = {
     M1: () => checkM1(ctx), M2: () => checkM2(ctx), M3: () => checkM3(ctx), M7: () => checkM7(ctx), M8: () => checkM8(ctx),
     M9: () => checkM9({ pub: ctx.pub, records: ctx.decisions.map(d => d.record), seedHex: ctx.seedHex, commitments: ctx.commitments, llm: o.llm ? assertLoopback(o.llm, 'llm') : null, sample: o.sample ?? 20, fetchImpl: o.fetchImpl ?? fetch, log }),
-    M11: async () => checkM11({ pub: ctx.pub, drained: await ctx.drained().catch(() => null), herald: o.herald, roster: ctx.roster, tagOfWallet: w => ctx.tagOfWallet(w), decisions: ctx.decisions, seedHex: ctx.seedHex, fetchImpl: o.fetchImpl, through: o.through ?? null, codeCheck: auditCode }),
+    M11: async () => checkM11({ pub: ctx.pub, drained: await ctx.drained().catch(() => null), herald: o.herald, roster: ctx.roster, tagOfWallet: w => ctx.tagOfWallet(w), decisions: ctx.decisions, seedHex: ctx.seedHex, fetchImpl: o.fetchImpl, through: o.through ?? null, codeCheck: auditCode, sampleDecisions: o.sample ?? 20 }),
   };
   for (const id of ALL) {
     if (!only.has(id)) continue;

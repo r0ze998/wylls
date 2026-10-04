@@ -336,7 +336,7 @@ test('M9 with a llama-server given: every record of the real run fails the offli
     const { report } = await run({ only: ['M9'], llm: llm.url });
     const c = report.checks.M9;
     assert.equal(c.pass, false);
-    assert.equal(llm.requests.length, 0);
+    assert.equal(llm.requests.filter(b => b).length, 0, 'no completion request was sent (only the /props read)');
     assert.ok(c.failures.every(f => f.code === 'seed_rule_broken'));
   } finally { await llm.close(); }
 });
@@ -363,4 +363,64 @@ test('season end: 42 files from the run\'s state, 7 openings written because no 
     assert.equal(idx.unreleased.length, 7);
     for (const f of idx.files) assert.equal(sha256hex(fs.readFileSync(path.join(fx.pub, f.path), 'utf8')), f.sha256, f.path);
   } finally { fx.cleanup(); }
+});
+
+// ---------------------------------------------------------------- M11 with talk and a redaction (a DM added to the real run)
+test('M11 with a talk record: a DM to a sampled AI is a dm episode in the replay; a published list without it fails; a redaction must blank it in the list (compared by id, bell, kind, created_bell)', async () => {
+  const { encodeTalk, innerOf, toBase64, toHex } = await import('../../permutation-server/web/frontier/council/aisocial.mjs');
+  const { redactedForm } = await import('../citizens/memory/store.mjs');
+  const bs58 = (await import('bs58')).default;
+  const roster = rj(path.join(SLICE4, 'pub', 'roster.json'));
+  const target = roster.ai.find(a => a.tag === base.checks.M11.sampled_ais[0]);
+  const sender = Buffer.alloc(32, 77);
+  const bytes = encodeTalk({ season: 41, bell: 80, wallet: sender, seq: 1280, channel: 3, target: Buffer.from(bs58.decode(target.wallet)), kind: 0, ref: 0, origin: 0, lang: 'en', text: 'hello from a human' });
+  const sig = Buffer.alloc(64, 1);
+  const inner = toHex(innerOf(bytes, sig));
+  const addDm = ({ pub }) => {
+    const p = path.join(pub, 'talk', '80.json');
+    const j = rj(p);
+    j.records.push({ type: 'talk', id: 1, inner, bytes_b64: toBase64(bytes), sig_b64: toBase64(sig) });
+    wj(p, j);
+  };
+  const sha = list => sha256hex(canonical([...list].sort((a, b) => a.created_bell - b.created_bell || a.bell - b.bell || (a.id < b.id ? -1 : 1))));
+  const listPath = pub => path.join(pub, 'memory', target.tag, 'episodes.json');
+  // 1. the DM (bell 80, after the AI's last decision at bell 72, so no decision's retrieval changes) is public but the published list lacks its episode
+  const missing = (await run({ only: ['M11'], post: addDm })).report.checks.M11;
+  assert.equal(missing.pass, false);
+  const f = missing.failures.find(x => x.code === 'episodes_mismatch' && x.tag === target.tag);
+  assert.equal(f.missing_in_published.length, 1);
+  const dmId = f.missing_in_published[0];
+  // 2. the list with the episode (as the live pump would have published it) verifies
+    // the exact episode text is the template's: take it from the replay's own failure detail by building it through the producer
+  const { episodes_from_events } = await import('../citizens/memory/episodes.mjs');
+  const { nameOf } = await import('../citizens/persona/names.mjs');
+  const senderTag = (await import('../../permutation-server/web/frontier/people/identity.mjs')).tagKey((await import('../../permutation-server/web/frontier/faddr.mjs')).citizenTag((await import('../../permutation-server/web/frontier/faddr.mjs')).seasonAddresses(rj(path.join(SLICE4, 'herald.json')).gets['/h/season'].json.programId, 41).of('Citizen', { wallet: bs58.encode(sender) })));
+  const made = episodes_from_events({ events: [], talk: [{ id: 1, bell: 80, wallet: bs58.encode(sender), tag: senderTag, channel: 3, target: target.wallet, kind: 0, ref: 0, origin: 0, inner }], council: [] }, { ai: { tag: target.tag, wallet: target.wallet, faction: target.faction, home: { p: 0, q: 0 }, holdings: [] }, bellNow: 100, owners: {}, config: { genesis_ts: 0, redactions: [] } });
+  assert.equal(made.episodes.length, 1);
+  assert.equal(made.episodes[0].id, dmId, 'the producer gives the id the replay named');
+  assert.ok(nameOf(senderTag).en && made.episodes[0].text.en.includes(nameOf(senderTag).en));
+  const withDm = ({ pub }) => {
+    addDm({ pub });
+    const p = listPath(pub);
+    const j = rj(p);
+    j.episodes.push(made.episodes[0]);
+    j.count = j.episodes.length;
+    j.sha256 = sha(j.episodes);
+    wj(p, j);
+  };
+  assert.equal((await run({ only: ['M11'], post: withDm })).report.checks.M11.pass, true, 'a DM that became a dm episode verifies');
+  // 3. the operator redacts the DM: the published list must carry the blanked form; the unblanked one fails; the blanked one verifies
+  const tomb = ({ pub }) => wj(path.join(pub, 'redactions.json'), [{ inner, bell: 90, reason: 'test' }]);
+  const unblanked = (await run({ only: ['M11'], post: fx => { withDm(fx); tomb(fx); } })).report.checks.M11;
+  assert.equal(unblanked.pass, false, 'a redaction that did not reach the memory file');
+  const blanked = (await run({ only: ['M11'], post: fx => {
+    addDm(fx); tomb(fx);
+    const p = listPath(fx.pub);
+    const j = rj(p);
+    j.episodes.push(redactedForm(made.episodes[0]));
+    j.count = j.episodes.length;
+    j.sha256 = sha(j.episodes);
+    wj(p, j);
+  } })).report.checks.M11;
+  assert.equal(blanked.pass, true, JSON.stringify(blanked.failures));
 });

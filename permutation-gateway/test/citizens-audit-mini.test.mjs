@@ -367,6 +367,26 @@ test('M9: a stored body edited after the run fails offline (its hash is no longe
   assert.ok(dead.checks.M9.mismatches.every(m => m.error));
 });
 
+test('M9: a llama-server whose /props show another context size or alias than the committed flags is refused', async () => {
+  const http = await import('node:http');
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', c => { body += c; });
+    req.on('end', () => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      if (req.url === '/props') res.end(JSON.stringify({ default_generation_settings: { n_ctx: 4096 }, model_alias: 'some-other-model' }));
+      else res.end(JSON.stringify({ choices: [{ message: { content: llmOutputOf(body) }, finish_reason: 'stop' }] }));
+    });
+  });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  try {
+    const report = await check(plain, null, { only: ['M9'], llm: `http://127.0.0.1:${server.address().port}` });
+    assert.equal(report.checks.M9.pass, false);
+    assert.equal(report.checks.M9.failures.filter(f => f.code === 'llm_flags').length, 2);
+    assert.equal(report.checks.M9.llm_props.n_ctx, 4096);
+  } finally { server.closeAllConnections?.(); await new Promise(r => server.close(r)); }
+});
+
 test('M9: a body redacted at season end is excluded from the sample and counted, and never fails the check', async () => {
   const report = await check(plain, null, { only: ['M9'] });
   assert.equal(report.checks.M9.m9_excluded_redacted, 1);
