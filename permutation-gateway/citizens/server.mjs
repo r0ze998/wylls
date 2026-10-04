@@ -181,6 +181,7 @@ export async function createCitizensService(opts, overrides = {}) {
     else stubs.push('feed');
   }
   let social = overrides.social ?? null;
+  let watcher = overrides.watcher ?? null; // AC6: built after the social store; the store's fixCall reaches it through this binding
   const EMPTY_ROSTER = { ai: [], script: { wallets: [] }, seat: null };
   if (!social) {
     // integ-A: AC4's real store (the slice ran on a stub). aiDir is AI_DIR (the store writes pub/talk, pub/council and
@@ -191,6 +192,8 @@ export async function createCitizensService(opts, overrides = {}) {
     if (mod?.createSocial) {
       social = mod.createSocial({
         herald: overrides.socialHerald ?? herald, aiDir, roster: () => rosterJsonCur ?? EMPTY_ROSTER, clock: socialClock(clock), provenance: provenanceOf(records), sanitize: mindSanitize, config: config.council ?? {}, season,
+        // AC6 (section 6.5 step 6): the tile and the invited hosts of an adopted Strike Order are the watcher's (it reads the herald files of bell C0 + 5)
+        fixCall: (a) => (watcher?.closeCall ? watcher.closeCall(a) : null),
       });
       social.read = socialReadViews({ book: social.book, council: social.council, pubDir: PUB, roster });
     } else {
@@ -198,17 +201,22 @@ export async function createCitizensService(opts, overrides = {}) {
       stubs.push('social');
     }
   }
-  let watcher = overrides.watcher ?? null;
   if (!watcher) {
+    // AC6 (wave B): the real watcher (wakes, councils, Strike Order, release job, chronicle, cards, events). It is built behind the
+    // pinned createWatcher interface of 11.6 with a few extra collaborators; `aiDir` is AI_DIR (it writes AI_DIR/pub and AI_DIR/state/watcher).
+    // Without a feed there is nothing to watch: the wave-A stub (feed wakes only) stays, reported in `stubs`.
     for (const rel of ['watcher/index.mjs', 'watcher/watcher.mjs']) {
+      if (!feed) break;
       const mod = await tryImport(rel);
       if (mod?.createWatcher) {
-        watcher = mod.createWatcher({ feed, social, ledgers: stores, records, aiDir: PUB, config });
+        watcher = mod.createWatcher({
+          feed, social, ledgers: stores, records, aiDir, config, clock, roster, nameOf: nameOf ?? undefined, personaOf: personaOf ?? undefined, // nation names: the watcher reads persona/names.mjs itself ({en, ja}; the mind's nationName here is a two-argument helper)
+          onError: (e, where) => console.error(`watcher ${where ?? ''}:`, String(e?.message ?? e)),
+        });
         break;
       }
     }
     if (!watcher) {
-      // integ-A: AC6's watcher is wave B; until then the feed's own wakes (W-CLASH, W-THREAT) are what the gate sees
       watcher = createWaveAWatcher({ feed });
       stubs.push('watcher');
     }
@@ -230,10 +238,23 @@ export async function createCitizensService(opts, overrides = {}) {
   // episode pump (feed -> episodes_from_events -> AC2 stores) is the 11.6 wiring `server.mjs` owns
   let pump = null;
   const feedForMind = feed && !overrides.feed ? feedView(feed, { throughBell: () => (pump ? pump.throughBell() : -1), tick: () => pump?.tick() }) : feed;
-  const views = createViews({ social, feed: feedForMind, stores, roster, nameOf, clock, sealed, personaOf });
+  // AC6: a Strike Order is "live" from the close until S + 2 (sections 5.6, 7.2). AC4's `memberCall` keeps answering after the opening
+  // (`opened: true`); the views must not treat it as live then, or every decision (and every `say`) of its nation would stay sealed until the
+  // next period replaces it. Only the member view changes; everything else of the social store is passed through.
+  const socialForViews = typeof social.memberCall === 'function'
+    ? { ...social, memberCall: (f, period) => { const c = social.memberCall(f, period); return c && !c.opened ? c : null; } }
+    : social;
+  const views = createViews({ social: socialForViews, feed: feedForMind, stores, roster, nameOf, clock, sealed, personaOf });
   pump = feed && !overrides.feed && feed.prepare ? createEpisodePump({ feed, stores, views, roster, clock, config: { redactions: [] }, social: social?.book && social?.council ? socialEpisodeSource({ book: social.book, council: social.council, pubDir: PUB }) : null, onError: (e) => console.error('episode pump:', String(e?.message ?? e)) }) : null;
   const upkeep = createUpkeep({ roster, onError: (e) => console.error('memory upkeep:', String(e?.message ?? e)) });
   const mind = createMind({ config, llm, scheduler, gate, records, views, sealed, memoryAttach, prompt, speech, clock, metrics, roster, stores, watcher, upkeep, feed: feedForMind, season, stateDir: STATE, nameOf, nationName });
+  // AC6: the watcher drives the council calls through the mind and reads its events; the output of a council call reaches the brain with
+  // the AI's next decide answer (watcher/outbox.mjs, AC6-NOTES.md deviation 2)
+  watcher.attachMind?.(mind);
+  if (typeof watcher.decorateAnswer === 'function') {
+    const decideBase = mind.decide;
+    mind.decide = async (body) => watcher.decorateAnswer(body, await decideBase(body));
+  }
   // integ-A: AC1b's reflection job (section 5.3, the first memory feature to drop: config.memory.reflection false turns it off).
   // It subscribes to the mind's `reflect_due` event; without this call no reflection runs.
   const reflMod = overrides.reflection === false ? null : await tryImport('mind/reflection.mjs');
@@ -247,6 +268,7 @@ export async function createCitizensService(opts, overrides = {}) {
     ...(await baseHealth()),
     feed: feed?.stats ? { ...feed.stats, head_bell: feed.headBell?.(), complete_through: feed.completeThrough?.(), cursor: feed.cursor?.() } : null,
     pump: pump ? { ...pump.stats, through_bell: pump.throughBell(), published: pump.published().length } : null,
+    watcher: watcher?.stats ? watcher.stats() : null,
   });
   const closer = createCloser({
     clock, social, records, metrics,

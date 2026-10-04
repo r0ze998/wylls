@@ -1,7 +1,9 @@
 // Wave-A wiring between units that were built in parallel (integrator, slice gate; contract 11.3, 11.6).
 //
 //   feedView(feed, pump)           the feed shape AC1a's mind reads (cursorBell, revealed) over AC6a's real feed
-//   createWaveAWatcher({feed})     the "stub that returns feed wakes only" of 11.6, until AC6's watcher is merged
+//   createWaveAWatcher({feed})     the "stub that returns feed wakes only" of 11.6. Since AC6 (wave B) the service builds the real watcher
+//                                  (watcher/index.mjs) and uses this only as the fallback when there is no feed (and AC6's watcher
+//                                  reuses it for the feed's own wakes, W-CLASH and W-THREAT)
 //   createEpisodePump({...})       feeds the real feed through episodes_from_events into the AC2 stores
 //
 //   socialReadViews({book,..})     the `social.read` shape AC1a's views read (sync), over AC4's real social store
