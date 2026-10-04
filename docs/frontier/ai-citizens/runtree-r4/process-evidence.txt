@@ -1,0 +1,10 @@
+# process evidence, smoke-r4, 2026-10-04T21:23:26Z
+tree HEAD: 08a2ae6120ab0c1d786cc2da9108559ce47f7068
+branch: frontier/ai-run
+
+64432 /private/tmp/claude-501/-Users-r0ze-Library-Application-Support-Claude-scratch-workspaces-59b0e37b-c381-4b5c-88fe-761b42e364f2-e1e340d9-5c30-4c5a-983e-525e18a0d520-scratch-2026-09-25-dd5411/ca3e79c1-f15f-4c2f-8555-107cb1f00a2a/scratchpad/frontier/ai-build/target-run/release/frontier-herald --data /Users/r0ze/Documents/Codex/2026-09-20/new-chat-2/outputs/.claude/worktrees/ai-run/frontier-node/.local/frontier/smoke-r4/herald --program EmMjiYMFviNsrPVK6huRf77FXmHWq3rVGFJ2Jubv1N7K --season 41 --rpc http://127.0.0.1:41910 --listen 127.0.0.1:41940 --relay 127.0.0.1:41933 --web /Users/r0ze/Documents/Codex/2026-09-20/new-chat-2/outputs/.claude/worktrees/ai-run/permutation-server/web --test-key
+
+cwd of 64432:
+n/Users/r0ze/Documents/Codex/2026-09-20/new-chat-2/outputs/.claude/worktrees/ai-run/frontier-node/.local/frontier/smoke-r4/herald
+cwd of citizens service 64457:
+n/Users/r0ze/Documents/Codex/2026-09-20/new-chat-2/outputs/.claude/worktrees/ai-run

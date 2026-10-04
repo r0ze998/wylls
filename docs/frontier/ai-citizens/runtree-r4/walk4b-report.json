@@ -1,0 +1,21 @@
+{
+ "notes": {
+  "map_bell": "79",
+  "council_bell": "80",
+  "council_tab_0": "Closed period 3 | Strike Order adopted with 1 AI ballot(s) + a scripted seat ballot — strike at bell 84 (target sealed).",
+  "council_split_0": "Ballots by who cast them: AI 1 · human (the presenter) 0 · scripted seat 1",
+  "council_tab_1": "Closed period 2 | No Strike Order adopted (fewer than two ballots for the leading option).",
+  "council_split_1": "Ballots by who cast them: AI 1 · human (the presenter) 0 · scripted seat 0",
+  "council_tab_2": "Closed period 3 | No Strike Order adopted (fewer than two ballots for the leading option).",
+  "council_split_2": "Ballots by who cast them: AI 1 · human (the presenter) 0 · scripted seat 0",
+  "council_tab_3": "Closed period 3 | No Strike Order adopted (fewer than two ballots for the leading option).",
+  "council_split_3": "Ballots by who cast them: AI 1 · human (the presenter) 0 · scripted seat 0",
+  "council_tab_4": "Closed period 3 | No Strike Order adopted (fewer than two ballots for the leading option).",
+  "council_split_4": "Ballots by who cast them: AI 1 · human (the presenter) 0 · scripted seat 0",
+  "council_tab_5": " | No council this period",
+  "council_split_5": ""
+ },
+ "nonGet": [],
+ "errs": [],
+ "at": "2026-10-04T22:44:35.512Z"
+}
