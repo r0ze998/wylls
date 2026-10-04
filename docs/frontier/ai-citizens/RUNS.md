@@ -20,3 +20,6 @@ END {"detail":"stopped before the end","end_unix":1791077458,"run_id":"slice-3",
 ## slice-4 — 2026-10-04T01:31:33Z
 RUN {"arm":null,"commitments_sha256":"087d2c3f5505a432d9fac0f336caa8e050e9ed6dfd9e419c61745e6ae0a161d3","configs":{"citizens_config_sha256":"80e4ca17cd81b1214434cacffac949217cd61b7de88e3cc9882991cd1759e3b6","injection_corpus_sha256":null,"seat_script_sha256":null,"slots_sha256":"e33087069de562cbba0220ca3111340a6039c12cad8501b97029c3d44666ad36","stack_toml_sha256":"5f4eef0182feb787ee53fee51266d9db5eeb872781a3a37e3e2739178846b929"},"rep":null,"run_id":"slice-4","start_unix":1791077493}
 END {"detail":"stack complete, publication written","end_unix":1791082735,"run_id":"slice-4","status":"complete"}
+
+## smoke-b1 — 2026-10-04T05:35:59Z
+RUN {"arm":null,"commitments_sha256":"ba7c076c93be5b3f2a4ff4ee4afdc869b94f8b99cce8ed3328f8a73495a340fa","configs":{"citizens_config_sha256":"96081d5efdc3f225b0f7ae600bd3984ba170fee6cfd176375543182c19587b3d","injection_corpus_sha256":"5626f53de1a55e72a688a6e19ddcf3aa1234679978d6da6d0ff0b3ad8c50026b","seat_script_sha256":null,"slots_sha256":"e33087069de562cbba0220ca3111340a6039c12cad8501b97029c3d44666ad36","stack_toml_sha256":"a6a4f3b52eae0386199bd60b602d5ec41223e01e4fab170d04e64420a0808bc2"},"rep":null,"run_id":"smoke-b1","start_unix":1791092159}
