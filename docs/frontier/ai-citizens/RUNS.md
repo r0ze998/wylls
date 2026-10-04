@@ -47,3 +47,4 @@ END {"detail":"stack complete, publication written (anchors: 61 anchored, 0 gap(
 
 ## smoke-r2 — 2026-10-04T16:53:55Z
 RUN {"arm":null,"commitments_sha256":"a22f3c277c32be30bea7cd02a296ee8bce6434ebfe8bca4d905fc97da08c6d18","configs":{"citizens_config_sha256":"96081d5efdc3f225b0f7ae600bd3984ba170fee6cfd176375543182c19587b3d","injection_corpus_sha256":"a56fa2fbccf9501b47399284617db86763220331b16aa9850575118dddaf28cc","seat_script_sha256":null,"slots_sha256":"e33087069de562cbba0220ca3111340a6039c12cad8501b97029c3d44666ad36","stack_toml_sha256":"c94adc95a6bcf7dd5eb0c195cd7556f42758339c4581704560f0c96fb87a9c4e"},"rep":null,"run_id":"smoke-r2","start_unix":1791132835}
+END {"detail":"stack complete, publication written (anchors: 109 anchored, 0 gap(s) of 109 closed bells); season-end bundle written; verify-minds FAIL","end_unix":1791138874,"run_id":"smoke-r2","status":"complete"}
