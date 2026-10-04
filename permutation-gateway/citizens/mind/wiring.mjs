@@ -53,20 +53,32 @@ export function feedView(feed, pump = null) {
  * repeated poll cannot count it twice. A W-THREAT wake carries `facts` ({nation, mass, origin, arrive_bell}), the
  * shape the prompt's THREATS lines read.
  */
-export function createWaveAWatcher({ feed }) {
-  const asked = new Map(); // tag -> {prev, last}: the range (prev, last] was delivered at `last`
+export function createWaveAWatcher({ feed, lookback = 8 }) {
+  const delivered = new Map(); // tag -> Set of "code:seq" already handed to a decision
+  const last = new Map(); // tag -> {bell, list}: the answer given for the last bell asked
   return {
     stub: true,
     kind: 'wave-a-feed-wakes',
     wakeEvents(tag, bell) {
       if (!feed) return [];
-      let s = asked.get(tag);
-      if (!s) asked.set(tag, (s = { prev: bell - 7, last: bell }));
-      else if (bell > s.last) { s.prev = s.last; s.last = bell; }
-      else if (bell < s.last) return []; // an older bell is never asked again
-      const out = [];
-      for (let b = Math.max(0, s.prev + 1); b <= bell; b++) out.push(...feed.wakeEvents(tag, b));
-      return out.map((w) => (w.code === 'W-THREAT' ? { ...w, facts: { nation: w.nation, mass: w.dep_mass, origin: w.origin, arrive_bell: w.arrive_bell } } : w));
+      const prev = last.get(tag);
+      if (prev && prev.bell === bell) return prev.list; // a repeated (tag, bell) answers the same
+      if (prev && bell < prev.bell) return []; // an older bell is never asked again
+      let seen = delivered.get(tag);
+      if (!seen) delivered.set(tag, (seen = new Set()));
+      // a record logged in bell b arrives after the bots stepped at the start of b: it is delivered at b + 1 at the latest,
+      // so the window reaches back `lookback` bells and each wake is handed over once
+      const list = [];
+      for (let b = Math.max(0, bell - lookback); b <= bell; b++) {
+        for (const w of feed.wakeEvents(tag, b)) {
+          const key = `${w.code}:${w.seq}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          list.push(w.code === 'W-THREAT' ? { ...w, facts: { nation: w.nation, mass: w.dep_mass, origin: w.origin, arrive_bell: w.arrive_bell } } : w);
+        }
+      }
+      last.set(tag, { bell, list });
+      return list;
     },
     start() {},
     stop() {},

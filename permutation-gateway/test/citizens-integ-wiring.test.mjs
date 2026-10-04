@@ -46,19 +46,19 @@ test('feedView: cursorBell is the lower of the feed and the pump; revealed reads
   assert.equal(feedView(null), null);
 });
 
-test('wave-A watcher: wakes are delivered once per range, a repeated bell returns the same list, THREAT carries the prompt facts', () => {
+test('wave-A watcher: each wake is delivered once, also when the record lands after the step of its own bell; a repeated bell returns the same list; THREAT carries the prompt facts', () => {
   const wakes = {
     8: [{ code: 'W-CLASH', weight: 4, bell: 8, seq: '1' }],
     9: [{ code: 'W-THREAT', weight: 2, bell: 9, seq: '2', nation: 4, dep_mass: 300, origin: { p: 0, q: 1 }, arrive_bell: 14, big: true }],
-    10: [{ code: 'W-CLASH', weight: 4, bell: 10, seq: '3' }],
   };
   const w = createWaveAWatcher({ feed: fakeFeed({ wakes }) });
-  const first = w.wakeEvents(TAG, 9); // first ask: the last 7 bells up to 9
+  const first = w.wakeEvents(TAG, 9);
   assert.deepEqual(first.map((x) => x.code), ['W-CLASH', 'W-THREAT']);
   assert.deepEqual(first[1].facts, { nation: 4, mass: 300, origin: { p: 0, q: 1 }, arrive_bell: 14 });
-  assert.deepEqual(w.wakeEvents(TAG, 9), first, 'the same (tag, bell) answers the same');
-  const next = w.wakeEvents(TAG, 10);
-  assert.deepEqual(next.map((x) => x.seq), ['3'], 'only what is new since the previous decision');
+  assert.equal(w.wakeEvents(TAG, 9), first, 'the same (tag, bell) answers the same');
+  wakes[9].push({ code: 'W-CLASH', weight: 4, bell: 9, seq: '3' }); // logged in bell 9 after the step of bell 9 (the bots step in the first seconds)
+  assert.deepEqual(w.wakeEvents(TAG, 10).map((x) => x.seq), ['3'], 'delivered at the next step, and only once');
+  assert.deepEqual(w.wakeEvents(TAG, 11), []);
   assert.deepEqual(w.wakeEvents(TAG, 8), [], 'an older bell is never asked again');
   assert.deepEqual(w.wakeEvents('ffffffffffffffff', 10), []);
 });
