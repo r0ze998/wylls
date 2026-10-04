@@ -1,3 +1,5 @@
+> **Superseded copy (2026-10-04).** This file is v1.1 of the conquest contract and is kept as history. The normative conquest contract is v1.5 on branch `frontier/cq-integ` (`docs/frontier/conquest/CONQUEST-CONTRACT.md` there), which is not merged into this tree. The unified design is [docs/GAME-DESIGN.ja.md](../../GAME-DESIGN.ja.md) §5.
+
 # MC "Contested Ground": the conquest milestone's integration contract
 
 **Version v1.1** (2026-10-01, review revision of v1.0; every change and every rebuttal is in §17 *Revision notes*, R-01…R-26).

@@ -1,5 +1,7 @@
 # Eternum (Realms.World / BibliothecaDAO): research for an open-world Wylls
 
+> **Historical record (note of 2026-10-04).** This is research of 2026-09-27 on Eternum, as read on that date. §4 ("What this means for Wylls on Solana + MagicBlock ER") is a research recommendation and is superseded: Wylls runs on Solana base only, with no MagicBlock ER lane and no MagicBlock VRF (decisions O1, O2, O8). Eternum's facts stand as sourced; they were not re-checked. The canonical game design is [`docs/GAME-DESIGN.ja.md`](../../GAME-DESIGN.ja.md) and the engineering reference is [`../DESIGN.md`](../DESIGN.md); where this file differs from them, they win. The owner's decisions of 2026-10-04 are in [`../DECISIONS.md`](../DECISIONS.md) part Y. The contents below are unchanged.
+
 Research date: 2026-09-27. Primary sources:
 
 - The `BibliothecaDAO/eternum` repository at `main` commit `a375655955d08b96201e40500a52ddc6a9278b48` (2026-09-24). A shallow clone is in `scratchpad/openworld/lab/eternum-src/eternum`.

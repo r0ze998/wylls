@@ -1,5 +1,14 @@
 # Wylls: the AI-agent offering (plan)
 
+> **置き換え済み (superseded where it differs). Banner of 2026-10-04.** This plan of 2026-10-01 is kept as the record of the options considered. These parts are replaced and are not the current design:
+>
+> - **Shades (hidden operator bots) and the voice of hidden Shades (F5, G1, G7 where they mention Shades):** retired by decision W3 (2026-10-03). The deterministic policy now exists only as every AI citizen's autopilot and as the "published-policy AI" option for money seasons; it never starts a march of its own.
+> - **The operator-run LLM that plays (F7), the operator-paid free tier and the operator's model spend (F3, F6, F8):** replaced by the AI citizens of `../ai-citizens/AI-CITIZENS-CONTRACT.md` (v1.3): a local Gemma 4 26B A4B, thinking off, no paid API (W7); the code offers up to 12 candidates, the model chooses, the code validates (§7 of `../DESIGN.md`). Players' own agents (the bring-your-own modes) remain a later extension (design only; W7, M3).
+> - **"AI is always disclosed" (G7) and "AI is labelled, never hidden" (W2):** W2 is changed by decision Y2 (2026-10-04): AI citizens are shown like human players in the game UI. See `../DECISIONS.md` part Y.
+> - **Costs written per 28-day season** ("≈ $3 / $46 / $139 per 28-day season"): the 28 days were a provisional value; the design season is 14 days (Y6). The figures are not converted and are not used elsewhere.
+>
+> The Gemma 4 test record in `gemma4/` is a measurement and remains valid as such. The canonical game design is `../../GAME-DESIGN.ja.md`; where this file differs from it, the unified design wins.
+
 - **Date:** 2026-10-01. **Status:** revision 1, after review (the review's 14 issues and how each was handled are in §11). Plan for the owner's review. Nothing here is built.
 - **Owner request (2026-10-01):** make AI agents a real selling point of the game while watching costs; can an open-weight model such as "Gemma 4" do it?
 - **Inputs:**

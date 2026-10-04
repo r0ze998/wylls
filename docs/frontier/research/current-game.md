@@ -1,5 +1,7 @@
 # Wylls: the current game, mapped for an open-world redesign
 
+> **Historical record (note of 2026-10-04).** This is research of 2026-09-27 on the old game (branch `codex/magicblock-playable`, the earlier prototype). It describes that game as it was, including its hidden operator AI (retired for Wylls by decision W3), its AI display (changed by decision Y2 for Wylls) and its first-design numbers. §8 ("Implications for the open-world redesign") records inputs, not the design. The canonical game design is [`docs/GAME-DESIGN.ja.md`](../../GAME-DESIGN.ja.md) and the engineering reference is [`../DESIGN.md`](../DESIGN.md); where this file differs from them, they win. The owner's decisions of 2026-10-04 are in [`../DECISIONS.md`](../DECISIONS.md) part Y. The contents below are unchanged.
+
 Research unit "current-game", 2026-09-27. Repo read-only at HEAD `96a3464` (branch `codex/magicblock-playable`). No code was changed, no server was started, no transaction was sent.
 
 Scope: the owner asked for an Eternum-like game that any number of people can join, possibly on an expandable map (「ハッカソンの締切は考慮せず、ゲームの設計を優先して、eternumの様な感じで何人でも参加できる様にして欲しい。…マップも拡張可能にした方がいいかもしれない」). This report does **not** propose the new architecture. It maps what exists so the architecture can be chosen with full knowledge of:

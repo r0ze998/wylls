@@ -1,5 +1,7 @@
 # Wylls at scale: Banners, Realms and the Commons
 
+> **Historical record (note of 2026-10-04).** This is the scale design of 2026-09-27 ("Banners, Realms and the Commons", revision 2), built around the earlier prototype's v9 world of 48 seats run as several council realms. It was an input to `../DESIGN.md` and is superseded by it: its owner questions (§16, including the phase-1 scope cut line) are history, and Wylls runs one world on Solana base only (O8). The canonical game design is [`docs/GAME-DESIGN.ja.md`](../../GAME-DESIGN.ja.md) and the engineering reference is [`../DESIGN.md`](../DESIGN.md); where this file differs from them, they win. The owner's decisions of 2026-10-04 are in [`../DECISIONS.md`](../DECISIONS.md) part Y. The contents below are unchanged.
+
 The single scale design for thousands to tens of thousands of players. It is synthesized from designs A to D and the three judges. **Revision 2** answers the stress test (15 issues). Every issue was checked against the code and re-measured; see **Revision notes** at the end.
 
 - Synthesizer, 2026-09-27. Repo read-only at HEAD `96a3464` (branch `codex/magicblock-playable`). No commits, no servers, no devnet or mainnet transactions.

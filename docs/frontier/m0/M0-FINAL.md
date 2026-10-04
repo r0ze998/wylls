@@ -1,5 +1,9 @@
 # Wylls: M0 final report
 
+> **Historical record (note of 2026-10-04).** This is the M0 report of 2026-09-27. M0 was closed inside M1's first weeks, and M1 was formally completed on 2026-10-01 (`../DECISIONS.md` part U). Its **plans and schedule are superseded**: the milestone weeks (M1 weeks 7–15, M5 weeks 32–36), the owner actions N1–N5 and the first-week closing steps are history, and the order of later work is now set by decisions W8 and Y1–Y12. Its **simulation results** (win rates, payout tables, the bot criterion) were computed for the design of the time, which had a 28-day season; the design season is now 14 days (Y6) and they have not been re-run. Its **measured** results (CU, bytes, heap) stand under the tags and sources given.
+>
+> The canonical game design is [`../../GAME-DESIGN.ja.md`](../../GAME-DESIGN.ja.md) and the engineering reference is [`../DESIGN.md`](../DESIGN.md); where this file differs from them, they win. The contents below are unchanged.
+
 - **Date:** 2026-09-27
 - **Design:** `openworld/open-world-design.md`, **revision 3.1** (revision 3 kept as `.rev3.md`, revision 2 as `.rev2.md`). The M0 exit criteria are in §12. This report grades them as revision 3.1 states them. Where 3.1 changed a criterion that the owner had decided (C4, under O7), the report says so.
 - **Code:** branch `codex/frontier` at **`bcc6382`** (on top of `360bc85` and `cea89be`), worktree `.claude/worktrees/frontier-integ`. The worktree is clean. All commits are local; nothing was pushed, so **GitHub CI has never run on this branch**.

@@ -1,5 +1,7 @@
 # Old-game AI inventory, and what ports to Wylls
 
+> **置き換え済み (superseded where it differs). Banner of 2026-10-04.** This inventory describes the old game's AI pieces as they were, and that description remains a historical record. Its recommendations are partly replaced: the parts on **Shades** (hidden operator bots; "Shades may not use an LLM", "the Shade-shaped policy") are retired by decision W3, and the parts on an **operator-run LLM** (the advisor's rephrasing of operator AI members' replies, an operator-paid model) are replaced by the AI citizens of `../ai-citizens/AI-CITIZENS-CONTRACT.md` (v1.3): a local Gemma 4, no paid API, the code offers candidates and the model chooses (W7). The old `advisor.mjs` stays off by default (W1). Where it says AI is disclosed or hidden, W2 is changed by decision Y2 (`../DECISIONS.md` part Y). Costs per 28-day season are old values (design season: 14 days, Y6). The canonical game design is `../../GAME-DESIGN.ja.md`.
+
 Research note for the AI-agents plan (owner request 2026-10-01). Written 2026-10-01.
 Repo read at `codex/frontier` `aae8617` (worktree `.claude/worktrees/frontier-integ`); run records read from the main checkout's `permutation-gateway/.local/` (the worktree has none). Read-only: no repo change, no API call, no server, no chain transaction. The API key file and the `keys/`, `session.json`, `wallet.json` and `operator-token` files were not opened.
 

@@ -1,5 +1,7 @@
 # On-chain MMO and strategy-game architectures: patterns for unlimited players and an expandable map (Solana + MagicBlock ER)
 
+> **Historical record (note of 2026-10-04).** This is research of 2026-09-27 on on-chain MMO patterns. §5 ("Implications for Wylls") and the recommended shape (item 10) assumed a MagicBlock ER stack and are superseded: Wylls runs on Solana base only, with no MagicBlock ER lane and no MagicBlock VRF (decisions O1, O2, O8). The patterns and sources stand as read on that date. The canonical game design is [`docs/GAME-DESIGN.ja.md`](../../GAME-DESIGN.ja.md) and the engineering reference is [`../DESIGN.md`](../DESIGN.md); where this file differs from them, they win. The owner's decisions of 2026-10-04 are in [`../DECISIONS.md`](../DECISIONS.md) part Y. The contents below are unchanged.
+
 Research unit: onchain-mmo-patterns. Date: 2026-09-27. Repo `/Users/r0ze/Documents/Codex/2026-09-20/new-chat-2/outputs` was not touched. Source code of other projects was shallow-cloned into `scratchpad/openworld/lab/mmo-src/` (read only, nothing built or run).
 
 Confidence tags:
