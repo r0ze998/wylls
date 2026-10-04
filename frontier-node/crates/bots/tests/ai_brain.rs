@@ -212,6 +212,21 @@ fn the_caps_of_v3_are_exact() {
         brain::caps_violation(100, 1, 200, &ds(199, vec![(1, 5_000)]), None),
         None
     );
+    // H0 = 200 is the first value that is capped (b) and floored (c): the boundary of "H0 < 200" (integ-A review).
+    assert_eq!(
+        brain::caps_violation(10, 1, 200, &ds(200, vec![]), None),
+        None
+    );
+    assert_eq!(
+        brain::caps_violation(1, 1, 200, &ds(200, vec![(1, 120)]), None),
+        Some("V3b"),
+        "(120 + 1) * 100 > 60 * 200"
+    );
+    assert_eq!(
+        brain::caps_violation(21, 1, 100, &ds(200, vec![]), None),
+        Some("V3c"),
+        "(100 - 21) * 100 < 40 * 200"
+    );
     // The mind's own caps of the current answer.
     let st = Standing {
         march_troops_left: Some(100),
@@ -492,6 +507,74 @@ async fn a_same_bell_nudge_repeat_sends_from_the_cached_answer() {
     r.sh.clock.set(NOW + 2 * BELL + 120);
     bot.step(&r.sh, true).await;
     assert_eq!(depart_count(&r.relay), 1);
+}
+
+/// Review fix (integ-A): the ids of a cached answer name the candidates of the request it answered. Candidate ids are
+/// positional (`c1..cN`); when the list shifts between two observations of one bell, the repeat must not send whatever
+/// now stands at that position.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_same_bell_repeat_resolves_cached_ids_against_the_request_it_answered_not_a_shifted_list() {
+    let fm = FakeMind::start(|req| {
+        let c = cand_id(req, "march").unwrap();
+        model_answer(
+            &[&c],
+            json!({c.clone(): {"stance": "hold", "retreat": 0, "timing": "earliest"}}),
+        )
+    })
+    .await;
+    let r = rig(Some(&fm), &[(FINAL, "ai")]);
+    let mut bot = ai_bot();
+    r.sh.clock.set(NOW + 2 * BELL);
+    bot.step(&r.sh, true).await;
+    assert_eq!(depart_count(&r.relay), 0, "gated by residency");
+    assert_eq!(fm.n_requests(), 1);
+    let req = fm.requests.lock().unwrap()[0].clone();
+    let chosen = cand_id(&req, "march").unwrap();
+    // Between the two steps of the bell every camp is cleared (and the province resolves): the march candidates vanish and the
+    // later candidates move up, so `chosen` now names something else in a recomputed list.
+    r.set_patch(Some(patch_province(|bytes| {
+        bytes[fclient::abi::layout::province::CAMP + 1] = 0;
+        let o = fclient::abi::layout::province::RESOLVED_NEXT;
+        bytes[o..o + 4].copy_from_slice(&42u32.to_le_bytes());
+    })));
+    r.sh.clock.set(NOW + 2 * BELL + 60);
+    bot.step(&r.sh, true).await;
+    assert_eq!(fm.n_requests(), 1, "the cached answer is used");
+    assert_eq!(depart_count(&r.relay), 0, "the camp is gone: no march");
+    assert!(
+        r.hook.stat_of("v6_dropped") >= 1,
+        "V6 saw the chosen camp ({chosen}) and dropped it as gone; nothing else was substituted"
+    );
+    assert_eq!(r.hook.stat_of("answers_model"), 1);
+}
+
+/// Review fix (integ-A): a chosen march that the residency gate swapped for a nudge is not sent, so it must not be
+/// remembered as sent just because another chosen action (a build) landed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_gated_chosen_march_is_still_open_for_the_repeat_when_a_chosen_build_landed() {
+    let fm = FakeMind::start(|req| {
+        let m = cand_id(req, "march").unwrap();
+        let b = cand_id(req, "build").unwrap();
+        model_answer(
+            &[&m, &b],
+            json!({m.clone(): {"stance": "hold", "retreat": 0, "timing": "earliest"}}),
+        )
+    })
+    .await;
+    let r = rig(Some(&fm), &[(FINAL, "ai")]);
+    let mut bot = ai_bot();
+    r.sh.clock.set(NOW + 2 * BELL);
+    bot.step(&r.sh, true).await;
+    assert_eq!(depart_count(&r.relay), 0, "the march is gated by residency");
+    assert_eq!(r.relay.count_tag(tag::BUILD), 1, "the chosen build landed");
+    assert!(r.relay.paths().iter().any(|p| p == "/f/nudge"));
+    // The province resolves; the repeat sends the march and does not build twice.
+    r.set_patch(Some(patch_resolved(42)));
+    r.sh.clock.set(NOW + 2 * BELL + 60);
+    bot.step(&r.sh, true).await;
+    assert_eq!(fm.n_requests(), 1, "no second call");
+    assert_eq!(depart_count(&r.relay), 1, "the model's march was not lost");
+    assert_eq!(r.relay.count_tag(tag::BUILD), 1, "the build is not sent twice");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

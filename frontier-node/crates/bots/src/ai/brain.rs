@@ -1929,9 +1929,13 @@ pub async fn step_ai<H: HeraldPort, R: RelayPort, D: DirectPort>(
             .map_or(0, |(_, c)| c.bucket_milli / 1_000),
         obs.me.quota_left.unwrap_or(40),
     );
+    // On a same-bell repeat the ids of the cached answer name the candidates of the REQUEST it answered, not of the offers
+    // recomputed from this observation (ids are positional and can shift): resolve them against the cached list.
+    let mut cached_offers: Option<Vec<Offer>> = None;
     let answer: Option<Answer> = match bot.ai.cache.as_ref().filter(|c| c.bell == bell0) {
         Some(c) => {
             hook.stat("answers_reused");
+            cached_offers = Some(c.offers.clone());
             Some(c.answer.clone())
         }
         None => match &hook.mind {
@@ -1983,6 +1987,7 @@ pub async fn step_ai<H: HeraldPort, R: RelayPort, D: DirectPort>(
                         bot.ai.cache = Some(Cached {
                             bell: bell0,
                             answer: ans.clone(),
+                            offers: offers.clone(),
                             done: done.clone(),
                         });
                         Some(ans)
@@ -2010,6 +2015,7 @@ pub async fn step_ai<H: HeraldPort, R: RelayPort, D: DirectPort>(
             }
         }
     }
+    let offers = cached_offers.unwrap_or(offers);
     let model = answer.as_ref().is_some_and(|a| a.mode == Mode::Model);
     let aged = sh.clock.now().is_some_and(|n| n - t_start > STALE_SECS);
     // §3.1 step 5: re-observe and recompute A (and A') before V6 and
@@ -2080,7 +2086,9 @@ pub async fn step_ai<H: HeraldPort, R: RelayPort, D: DirectPort>(
     let mut floor = true;
     let mut by = By::Autopilot;
     let mut own_gate_nudge = false;
-    let mut chosen_keys: Vec<String> = vec![];
+    // (candidate identity, the intent's key) of each chosen action that was re-planned; only those whose intent was really
+    // sent are remembered as sent (a march the residency gate swapped for a nudge is NOT sent)
+    let mut chosen_keys: Vec<(String, Option<String>)> = vec![];
     // A decision that lands after `bell_start(b + 1)` is never executed (§3.5,
     // "late"): the model's choice is dropped and the filtered autopilot runs.
     let late = sh
@@ -2126,7 +2134,7 @@ pub async fn step_ai<H: HeraldPort, R: RelayPort, D: DirectPort>(
                             {
                                 bot.ai.standing.reserve(*host_id, bell0 + RESERVE_BELLS);
                             }
-                            chosen_keys.push(o.identity());
+                            chosen_keys.push((o.identity(), intent_key(&it)));
                             chosen.push(it);
                         }
                         Err(reason) => {
@@ -2160,7 +2168,6 @@ pub async fn step_ai<H: HeraldPort, R: RelayPort, D: DirectPort>(
     } else {
         to_send
     };
-    let first = hook.outcomes_len(index);
     let s = send_intents(
         bot, sh, &hook, obs2, to_send, floor, by, &troops2, &mut done,
     )
@@ -2171,10 +2178,14 @@ pub async fn step_ai<H: HeraldPort, R: RelayPort, D: DirectPort>(
         hook.stat_n("quota_floor_skips", skipped as u64);
         hook.stat("quota_starved_bells");
     }
-    // A chosen action that landed is not sent again on a same-bell repeat.
-    let landed = hook.outcomes_since(index, first);
-    if by == By::Model && !landed.is_empty() && landed.iter().all(|o| o.ok) {
-        done.extend(chosen_keys);
+    // A chosen action that landed is not sent again on a same-bell repeat. Only an intent that was sent OK counts (its key is
+    // in `done`): a chosen march withheld by the residency gate, or skipped by the quota rules, stays open for the repeat.
+    if by == By::Model {
+        for (identity, key) in chosen_keys {
+            if key.as_ref().is_some_and(|k| done.contains(k)) {
+                done.insert(identity);
+            }
+        }
     }
     // A nudge on the brain's own behalf (a chosen action waiting for its
     // province) re-runs the step later in the bell; the rule policy's do not.

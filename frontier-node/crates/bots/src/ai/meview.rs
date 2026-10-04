@@ -134,6 +134,13 @@ impl MeExtra {
         self.seals.iter().find(|s| s.host == host)
     }
 
+    /// The seal record of the march of `host` that arrives in `arrive_bell`. The herald keeps ONE seal per host (the latest
+    /// `TRANSIT_SETTLED`), so a host that marches again still carries its previous march's seal until the new one settles:
+    /// a record logged before this march's arrival bell is the earlier march's, not this one's.
+    pub fn seal_for(&self, host: u64, arrive_bell: u32) -> Option<&MeSeal> {
+        self.seal_of(host).filter(|s| s.bell >= arrive_bell)
+    }
+
     pub fn transit_of(&self, host: u64) -> Option<&MeTransit> {
         self.transits.iter().find(|t| t.host == host)
     }
@@ -173,7 +180,7 @@ pub fn opened_of(
     if bell <= arrive_bell {
         return None;
     }
-    let seal = me.seal_of(host_id);
+    let seal = me.seal_for(host_id, arrive_bell);
     if !public && seal.is_none() {
         return None;
     }

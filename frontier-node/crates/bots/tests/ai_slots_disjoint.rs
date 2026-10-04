@@ -183,6 +183,12 @@ fn the_seat_key_is_written_0600_and_never_under_pub_or_state() {
         assert!(aislots::write_seat_key(&f, 31, 1012).is_err(), "{bad}");
         assert!(!f.exists());
     }
+    // a symlink into pub, and a different case (macOS file systems are case-insensitive), are refused too
+    std::os::unix::fs::symlink(dir.join("pub"), dir.join("keys").join("link")).unwrap();
+    let f = dir.join("keys").join("link").join("seat.txt");
+    assert!(aislots::write_seat_key(&f, 31, 1012).is_err(), "symlink into pub");
+    assert!(!dir.join("pub").join("seat.txt").exists());
+    assert!(aislots::write_seat_key(&dir.join("PUB").join("seat.txt"), 31, 1012).is_err(), "PUB");
     let f = dir.join("keys").join("seat.txt");
     aislots::write_seat_key(&f, 31, 1012).unwrap();
     let mode = std::fs::metadata(&f).unwrap().permissions().mode() & 0o777;

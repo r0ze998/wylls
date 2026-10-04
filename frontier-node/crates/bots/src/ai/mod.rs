@@ -111,6 +111,10 @@ impl DayState {
 pub struct Cached {
     pub bell: u32,
     pub answer: mindport::Answer,
+    /// The offers of the request the answer belongs to. Candidate ids are positional (`c1..cN`) and can shift between
+    /// two observations of one bell, so a same-bell repeat resolves the cached ids against THESE offers, never against
+    /// offers recomputed from the newer observation (V6 then checks the chosen action on the fresh one).
+    pub offers: Vec<brain::Offer>,
     /// Identities of candidate actions and autopilot intents sent OK this bell.
     pub done: BTreeSet<String>,
 }

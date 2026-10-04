@@ -151,13 +151,28 @@ impl AiSlots {
 /// the contract: `{index, wallet, wallet_keypair_b58, session,
 /// session_keypair_b58}`.
 pub fn write_seat_key(path: &Path, seed: u64, index: u32) -> Result<(), String> {
-    for c in path.components() {
-        let s = c.as_os_str().to_string_lossy();
-        if s == "pub" || s == "state" {
-            return Err(format!(
-                "--export-seat-key: {} is under a pub or state directory",
-                path.display()
-            ));
+    // The given path and its canonical form (a symlink into pub or state is caught; the names are compared in lower case:
+    // a case-insensitive file system, macOS, calls "PUB" the same directory).
+    let mut paths = vec![path.to_path_buf()];
+    if let (Some(parent), Some(name)) = (path.parent(), path.file_name()) {
+        let parent = if parent.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            parent
+        };
+        if let Ok(c) = parent.canonicalize() {
+            paths.push(c.join(name));
+        }
+    }
+    for p in &paths {
+        for c in p.components() {
+            let s = c.as_os_str().to_string_lossy().to_lowercase();
+            if s == "pub" || s == "state" {
+                return Err(format!(
+                    "--export-seat-key: {} is under a pub or state directory",
+                    path.display()
+                ));
+            }
         }
     }
     use fclient::Signer;

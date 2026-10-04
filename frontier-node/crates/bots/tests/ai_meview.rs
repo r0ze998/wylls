@@ -94,6 +94,31 @@ fn opened_is_none_until_the_arrival_bell_has_ended_and_the_destination_is_public
     );
 }
 
+#[test]
+fn a_seal_of_an_earlier_march_of_the_same_host_is_not_this_marches() {
+    // The herald keeps one seal per host: host 9 marched at bell 380 (settled, seal logged at bell 382) and marches again,
+    // arriving in 405. Until the second march settles, the old record is all /h/me shows.
+    let old = MeExtra::from_json(
+        &json!({"seals": [{"host": "9", "outcome": 1, "code": 0, "bell": 382}]}),
+    )
+    .unwrap();
+    let dest = (3, -2, 17);
+    assert!(old.seal_for(9, 405).is_none());
+    assert!(old.seal_for(9, 380).is_some(), "it is the seal of the march that arrived in 380");
+    // Not public yet: the old seal must not open the second march (no destination before the REVEAL or its own settle).
+    assert!(meview::opened_of(9, 405, dest, 406, false, &old).is_none());
+    // Public through a REVEAL: opened, but the old seal's outcome is not reported as this march's.
+    let o = meview::opened_of(9, 405, dest, 406, true, &old).unwrap();
+    assert_eq!(o.seal, None);
+    // Once the second march settles, the herald overwrites the record and it is this march's.
+    let new = MeExtra::from_json(
+        &json!({"seals": [{"host": "9", "outcome": 4, "code": 2, "bell": 407}]}),
+    )
+    .unwrap();
+    let o = meview::opened_of(9, 405, dest, 408, false, &new).unwrap();
+    assert_eq!(o.seal, Some((4, 2)));
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_request_lists_an_own_march_but_opens_it_only_after_its_arrival_bell() {
     let fm = FakeMind::start(|req| match cand_id(req, "march") {
