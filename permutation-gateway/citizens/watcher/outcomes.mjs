@@ -1,15 +1,15 @@
 // Seat-eligibility fix (2026-10-05, smoke-r3 finding): WHY a nation got no council in a period, persisted.
 //
 // The council job (council_gen.mjs `tryOpen`) decides, per nation and period, between opening a council and skipping it
-// (`skipped:no_members`, `skipped:not_all_final`, `skipped:no_options`, `skipped:open_failed`, `skipped:no_council`). Before this file that
+// (`skipped:no_members`, `skipped:not_all_final`, `skipped:no_options`, `skipped:open_failed`; `skipped:no_council`, a run with no social service attached, is structural, returns before any verdict and is NOT recorded here). Before this file that
 // verdict lived only in the watcher's memory (`attempts`) and in counters of the health route; a finished run's files could not say why
 // nation 0 had no council in periods 3 and 4 or why nation 5 never had one. This store writes it down:
 //
 //   AI_DIR/state/watcher/council-outcomes.json
 //   { v: 1, kind: 'council-open-outcomes', periods: { "<k>": { "<f>": { status, reason, c0, bell, first_bell, n, detail, updated_unix } } } }
 //
-// `status` is `opened` | `skipped` | `waiting`; `reason` is the skip reason (`not_all_final`, `no_options`, `no_members`, `open_failed`,
-// `no_council`) or, for `waiting`, why the council had not been decided when the record was last written (`feed_incomplete`,
+// `status` is `opened` | `skipped` | `waiting`; `reason` is the skip reason (`not_all_final`, `no_options`, `no_members`, `open_failed`)
+// or, for `waiting`, why the council had not been decided when the record was last written (`feed_incomplete`,
 // `waiting_files`). A `waiting` entry that is never replaced means the period passed with no verdict (the open window of three bells ended
 // first): the report shows it as such, it is not a skip the code decided. `detail` carries the facts the verdict rested on (which AI lacked
 // a final village, the option counts, whether the seat was in the eligible list). Operator-side file: nothing here is a secret, nothing

@@ -14,9 +14,10 @@
 export const MOTION_VALID_BELLS = 1; // a motion's bell is in its signed bytes: the book accepts it within one bell of now
 export const BALLOT_VALID_BELLS = 2;
 
-export function createOutbox({ records, stats = {} } = {}) {
+export function createOutbox({ records, stats = {}, ledger = null } = {}) {
   const pending = new Map(); // tag -> [item]
   const bump = (k, n = 1) => { stats[k] = (stats[k] ?? 0) + n; };
+  const note = (fn) => { try { fn?.(); } catch { /* the delivery ledger (call_ledger.mjs) is a record, never a reason to lose an item */ } };
 
   return {
     /** item = {tag, kind: 'motion'|'ballot', period, decision_id, bell, motion, ballot} */
@@ -25,6 +26,7 @@ export function createOutbox({ records, stats = {} } = {}) {
       l.push(item);
       pending.set(item.tag, l);
       bump('outbox_pushed');
+      note(() => ledger?.pushed(item));
     },
     pendingCount: tag => (pending.get(tag)?.length ?? 0),
     /** the items still valid at `bell`; expired ones are dropped and counted */
@@ -34,7 +36,7 @@ export function createOutbox({ records, stats = {} } = {}) {
       const out = [];
       for (const it of l) {
         const ttl = it.kind === 'motion' ? MOTION_VALID_BELLS : BALLOT_VALID_BELLS;
-        if (bell - it.bell > ttl) { bump('outbox_expired'); continue; }
+        if (bell - it.bell > ttl) { bump('outbox_expired'); note(() => ledger?.expired(it, bell)); continue; }
         if (bell < it.bell) { keep.push(it); continue; }
         out.push(it);
       }
@@ -51,7 +53,7 @@ export function createOutbox({ records, stats = {} } = {}) {
       const items = this.take(tag, req.bell);
       if (!items.length) return ans;
       const own = records.getPrivate(ans.decision_id);
-      if (!own) { bump('outbox_no_record', items.length); return ans; }
+      if (!own) { bump('outbox_no_record', items.length); for (const it of items) note(() => ledger?.dropped(it, req.bell, 'no_record')); return ans; }
       const social = { ...(ans.social ?? {}) };
       social.say = social.say ?? [];
       own.priv.social ??= {};
@@ -61,16 +63,18 @@ export function createOutbox({ records, stats = {} } = {}) {
         if (it.motion && !social.motion) {
           const item = social.say.length;
           const exp = records.provenance(it.decision_id, 0, 'talk');
-          if (!exp) { bump('outbox_no_provenance'); continue; }
+          if (!exp) { bump('outbox_no_provenance'); note(() => ledger?.dropped(it, req.bell, 'no_provenance')); continue; }
           attach('talk', { ...exp, item });
           social.motion = { ...it.motion, item, decision_id: it.decision_id };
           attached++;
+          note(() => ledger?.attached(it, req.bell));
         } else if (it.ballot && !social.ballot) {
           const exp = records.provenance(it.decision_id, 0, 'ballot');
-          if (!exp) { bump('outbox_no_provenance'); continue; }
+          if (!exp) { bump('outbox_no_provenance'); note(() => ledger?.dropped(it, req.bell, 'no_provenance')); continue; }
           attach('ballot', { ...exp, item: 0 });
           social.ballot = { ...it.ballot, item: 0, decision_id: it.decision_id };
           attached++;
+          note(() => ledger?.attached(it, req.bell));
         } else {
           pending.set(tag, [...(pending.get(tag) ?? []), it]); // a slot is taken: next answer
         }

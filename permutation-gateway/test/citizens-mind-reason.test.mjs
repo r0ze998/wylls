@@ -311,6 +311,12 @@ test('reflection job: one model call (kind reflection, 512 tokens, the answer sc
     assert.deepEqual(x.events.map((e) => e.type), ['summary_saved']);
     assert.equal(x.events[0].sha256, sha(GOOD));
     assert.equal(x.h.metrics.snapshot().latency.reflection.n, 1);
+    // seatfix2 review: the Wyll card's "decisions (valid)" line counts session, reaction, motion and ballot decisions only; a reflection has its own counters
+    const g = x.h.metrics.group(`ai:${TAGS[0]}`);
+    assert.equal(g.decisions ?? 0, 0, 'a reflection is not a card decision');
+    assert.equal(g.valid ?? 0, 0);
+    assert.equal(g.reflections, 1);
+    assert.equal(g.reflections_ok, 1);
   } finally {
     await x.h.close();
   }
@@ -341,6 +347,7 @@ test('reflection job: a refused summary is discarded whole: the previous summary
     assert.deepEqual(x.led.modelDeltas, []);
     assert.equal(x.stores.published.length, 0);
     assert.equal(x.h.metrics.get('reflection_refused'), 1);
+    { const g = x.h.metrics.group(`ai:${TAGS[0]}`); assert.equal(g.decisions ?? 0, 0); assert.equal(g.reflections, 1); assert.equal(g.reflections_ok ?? 0, 0, 'a refused reflection is counted as a reflection, never as a valid decision'); }
     assert.deepEqual(x.h.metrics.group('reflection_refused_by'), { handle_imitation: 1 });
     assert.equal(x.h.metrics.get('summaries_published'), 0);
     const rec = x.h.records.recordsOf(100)[0];

@@ -852,8 +852,8 @@ export function createMind(deps) {
     metrics: () => metrics.snapshot({ bell: clock.bell(), extra: { records: records.stats(), scheduler: scheduler.latencies(), scheduler_counters: scheduler.counters, ...brainSnapshot(), ...(speech?.counts ? { speech: speech.counts() } : {}) } }), // integ-A: AC1b's per-word withhold counts (word-list refusals, uncited memory claims) for 10.1
     subscribe: (fn) => listeners.push(fn),
     lastSituation: (tag) => lastSituation.get(tag) ?? null,
-    /** per-AI counters for the Wyll card stats block (section 2.4): decisions, valid, actions_by_model, actions_by_autopilot, model_marches, messages, strikes_declined, decisions_citing_memory, mem_dropped */
-    statsOf: (tag) => ({ decisions: 0, valid: 0, actions_by_model: 0, actions_by_autopilot: 0, model_marches: 0, messages: 0, strikes_declined: 0, decisions_citing_memory: 0, mem_dropped: 0, ...metrics.group(`ai:${tag}`) }),
+    /** per-AI counters for the Wyll card stats block (section 2.4): decisions, valid (session, reaction, motion and ballot only; reflections are counted apart: reflections, reflections_ok), actions_by_model, actions_by_autopilot, model_marches, messages, strikes_declined, decisions_citing_memory, mem_dropped */
+    statsOf: (tag) => ({ decisions: 0, valid: 0, reflections: 0, reflections_ok: 0, actions_by_model: 0, actions_by_autopilot: 0, model_marches: 0, messages: 0, strikes_declined: 0, decisions_citing_memory: 0, mem_dropped: 0, ...metrics.group(`ai:${tag}`) }),
     _cache: cache,
   };
 }

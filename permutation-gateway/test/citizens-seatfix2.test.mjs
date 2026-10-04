@@ -401,8 +401,8 @@ test('the run report lists, per period and nation, a council, the skip reason, a
   assert.equal(r.social.council_outcomes.rows.length, 6);
   const md = renderMarkdown(r);
   assert.match(md, /Why a nation had no council/);
-  assert.match(md, /\| 2 \| 5 \| skipped \| not_all_final \|/);
-  assert.match(md, /\| 3 \| 1 \| no_verdict \|/);
+  assert.match(md, /\| 2 \| 5 \| n\/a \| skipped \| not_all_final \|/); // phase n/a: this fixture has no stack log
+  assert.match(md, /\| 3 \| 1 \| n\/a \| no_verdict \|/);
   assert.match(md, /Scripted seat, finalising its village: status final, final true, attempts 1, final seen at bell 31/);
   // --public-only does not read operator state
   const pub = buildReport({ aiDir: dir, privateOk: false });
