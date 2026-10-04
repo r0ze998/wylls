@@ -133,6 +133,20 @@ test('rankOptions: ratio words even and unfavourable come from own / enemy, not 
   assert.deepEqual(rankOptions({ faction: 1, raws: [], provinceOf: () => null }).options, []);
 });
 
+// FB5 (fix plan F1): the boundary of the 1.5 filter. The mutant `own > OWN_FACTOR * value` survived every earlier vector.
+test('FB5 boundary: an option is offered when own == 1.5 x value exactly and dropped one troop below (own >= 1.5 x value, not >)', () => {
+  const at = (ownTroops, value) => rankOptions({ faction: 1, provinceOf: ownAt([own(1, ownTroops)]), raws: [{ kind: 'camp', p: 3, q: 0, value, enemy: value * 2, tile: 1 }] });
+  const exact = at(300, 200); // 300 == 1.5 x 200
+  assert.deepEqual(exact.options.map(o => [o.p, o.q, o.value, o.own]), [[3, 0, 200, 300]], 'own exactly 1.5 x value is offered');
+  assert.deepEqual(exact.dropped, []);
+  const below = at(299, 200);
+  assert.deepEqual(below.options, [], 'one troop below 1.5 x value is dropped');
+  assert.deepEqual(below.dropped.map(d => [d.kind, d.value, d.own]), [['camp', 200, 299]]);
+  const odd = at(150, 100); // 1.5 x 100 = 150 exactly again, with a different value
+  assert.equal(odd.options.length, 1);
+  assert.equal(at(149, 100).options.length, 0);
+});
+
 test('ownStrengthNear: the four largest resident combat hosts of the nation within 2 provinces; scouts, transit and other nations do not count', () => {
   const files = new Map([
     ['3,0', province({ p: 3, q: 0, hosts: [own(1, 100), own(1, 90), host({ owner: 'x', faction: 2, tile: 20, troops: 999 }), host({ faction: 1, tile: 20, troops: 500, unit: 6 })] })],

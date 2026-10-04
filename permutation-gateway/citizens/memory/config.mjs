@@ -21,7 +21,7 @@ export const DM_PER_DAY = 6;
 export const THREAT_RADIUS = 3; // provinces from the AI's home (§3.2, §5.2)
 export const NATION_MATE_RADIUS = 2; // provinces from the AI's home (§5.1)
 export const IMPORTANCE = Object.freeze({
-  attacked_own: 8, strike: 6, clash_own_win: 6, clash_own_loss: 6, camp_cleared_own: 5,
+  attacked_own: 8, strike: 6, clash_own_win: 6, clash_own_loss: 6, clash_own_fought: 6, camp_cleared_own: 5,
   camp_taken_by: 5, threat: 5, dm: 4, motion: 4, council_result: 4, build_done: 2,
 });
 export const KINDS = Object.freeze(Object.keys(IMPORTANCE));

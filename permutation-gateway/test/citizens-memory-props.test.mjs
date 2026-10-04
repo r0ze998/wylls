@@ -79,7 +79,7 @@ test('G15 property: an episode containing the Call target\'s (p,q) has created_b
         assert.ok(e.created_bell < bellNow, `seed ${seed}: created_bell ${e.created_bell} is not before bellNow ${bellNow}`);
         if (!mentions(e, sc.tp, sc.tq)) continue;
         // only `strike` and the own-march episodes (clash_own_*, camp_cleared_own) may name the target; each only once the clash is public
-        assert.ok(['strike', 'clash_own_win', 'clash_own_loss', 'camp_cleared_own', 'attacked_own'].includes(e.kind), `seed ${seed}: ${e.kind} names the target`);
+        assert.ok(['strike', 'clash_own_win', 'clash_own_loss', 'clash_own_fought', 'camp_cleared_own', 'attacked_own'].includes(e.kind), `seed ${seed}: ${e.kind} names the target`);
         if (sc.withClash) assert.ok(e.created_bell >= sc.clashBellRow, `seed ${seed} ${e.kind}: before the public CLASH row`);
         if (e.kind === 'strike') { assert.ok(e.created_bell >= sc.S + 2, `seed ${seed}: a strike episode before S + 2`); withStrike++; }
       }

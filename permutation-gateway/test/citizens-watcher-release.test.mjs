@@ -174,6 +174,57 @@ test('a march the brain never sent (the outcome lists no sent depart) opens at r
   assert.deepEqual(v.records.dueForRelease(405), [x.id], 'still due, still waiting');
 });
 
+// ---- FB5 (fix plan F1): boundary of "the real arrival bell has ended", and a two-march decision with one march refused ---------------------
+test('FB5 boundary: a march is not ready at its real arrival bell even when the REVEAL is public and release_bell is long past; it is ready one bell later (arrive_bell < bell, not <=)', async () => {
+  // pure
+  const entry = { full: { release_bell: 400, tx: [{ intent: 'depart', status: 'sent' }] }, priv: priv('77', 404) };
+  const find = { depart: () => ({ arrive_bell: 406, depart_bell: 400 }), reveal: () => ({ p: 2, q: 0, tile: 9 }) };
+  assert.equal(releaseState({ entry, bell: 405, find }).ready, false, 'bell 405 < arrival 406');
+  assert.equal(releaseState({ entry, bell: 406, find }).ready, false, 'the arrival bell itself has not ended: the mutant `arrive_bell <= bell` opens here');
+  const at407 = releaseState({ entry, bell: 407, find });
+  assert.deepEqual([at407.ready, at407.destinations[0].state, at407.destinations[0].arrive_bell], [true, 'revealed', 406]);
+  // through the job: release_bell 403 is not the floor, the REVEAL is logged AT the arrival bell
+  const w = world();
+  const { id } = w.records.add(sealed({ release_bell: 403 }), priv('77', 404));
+  w.send(id);
+  w.feed.addEvent(depart('77', 400, 406));
+  w.addRev(reveal('77', 406, 406));
+  assert.deepEqual((await w.rel.releaseDue(406)).opened, [], 'REVEAL public at 406, release_bell 403, arrival bell 406: still not opened at 406');
+  assert.deepEqual((await w.rel.releaseDue(407)).opened, [id]);
+  assert.equal(w.read(407).records[0].destinations[0].arrive_bell, 406);
+});
+
+test('FB5 two marches, one refused by V6: the refused one opens as not_sent with the other at its arrival, not as "unrevealed" six bells later', async () => {
+  const two = priv('77', 404, { intended: [{ host_id: '77', arrive_bell: 404, pq: [2, 0], tile: 9, via: 'model', target_kind: 'camp' }, { host_id: '78', arrive_bell: 405, pq: [3, 0], tile: 5, via: 'model', target_kind: 'camp' }] });
+  const tx = [{ intent: 'depart', status: 'sent', sig: 's1' }, { intent: 'depart', status: 'refused', code: 'V6' }];
+  // pure: 77 has its DEPART and REVEAL, 78 never left
+  const entry = { full: { release_bell: 406, tx }, priv: two };
+  const find = { depart: h => (h === '77' ? { arrive_bell: 404, depart_bell: 400 } : null), reveal: h => (h === '77' ? { p: 2, q: 0, tile: 9 } : null) };
+  const s = releaseState({ entry, bell: 406, find });
+  assert.deepEqual([s.ready, s.waited_out], [true, false], 'the old code waited for 78: ready only at release_bell + 7');
+  assert.deepEqual(s.destinations.map(d => [d.host_id, d.state, d.destination ?? null]), [['77', 'revealed', null], ['78', 'not_sent', 'not_sent']]);
+  // ambiguity keeps waiting: one depart sent for two intended marches and NEITHER has a public DEPART yet (which one is late is unknown)
+  const none = { depart: () => null, reveal: () => null };
+  assert.equal(releaseState({ entry, bell: 406, find: none }).ready, false, 'two missing DEPARTs, one refused: not decidable yet');
+  assert.equal(releaseState({ entry, bell: 413, find: none }).ready, true, 'the 6-bell wait still ends it');
+  // both sent, one DEPART late: nothing was refused, so nothing is not_sent
+  const bothSent = { full: { release_bell: 406, tx: [{ intent: 'depart', status: 'sent', sig: 'a' }, { intent: 'depart', status: 'sent', sig: 'b' }] }, priv: two };
+  const late = releaseState({ entry: bothSent, bell: 406, find });
+  assert.equal(late.ready, false);
+  assert.equal(late.destinations[1].state, 'pending');
+  // a recall that was sent does not stand in for a refused depart
+  const recall = { full: { release_bell: 406, tx: [{ intent: 'recall', status: 'sent', sig: 'r' }, { intent: 'depart', status: 'sent', sig: 'a' }, { intent: 'depart', status: 'refused', code: 'V6' }] }, priv: two };
+  assert.equal(releaseState({ entry: recall, bell: 406, find }).destinations[1].state, 'not_sent');
+  // through the job with real records
+  const w = world();
+  const { id } = w.records.add(sealed({ release_bell: 406 }), two);
+  w.records.attachOutcome(id, { actions: tx });
+  w.feed.addEvent(depart('77', 400, 404));
+  w.addRev(reveal('77', 404, 404));
+  assert.deepEqual((await w.rel.releaseDue(406)).opened, [id]);
+  assert.deepEqual(w.read(406).records[0].destinations.map(d => [d.host_id, d.state]), [['77', 'revealed'], ['78', 'not_sent']]);
+});
+
 test('one open/<bell>.json per bell holds ALL records due at that bell and is never rewritten; a record due later in the same bell waits for the next one', async () => {
   const w = world();
   const a = w.records.add(sealed({ index: 1003 }), priv('77', 404));

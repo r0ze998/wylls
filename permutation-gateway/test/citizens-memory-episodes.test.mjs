@@ -160,7 +160,7 @@ test('synthetic: nation-mate trust -5 to the actor when a nation-mate with a vil
 
 // ---------------------------------------------------------------------------------------------- own marches
 /** The AI's army AH marches from (1,1) at bell 200 and arrives at (2,1) tile 30 at bell 210. */
-function marchWorld({ target = 'stack', ownLost, enemyLost, cleared = false, campTroops = 200 }) {
+function marchWorld({ target = 'stack', ownLost, enemyLost, cleared = false, campTroops = 200, destroyed = false }) {
   const sites = [4];
   const before = province({ p: 2, q: 1, sites, entries: target === 'stack' ? [{ id: EH, faction: 1, tile: 30, troops: 300 }] : [], camp: target === 'camp' ? { tile: 30, troops: campTroops } : null });
   const after = province({
@@ -168,7 +168,7 @@ function marchWorld({ target = 'stack', ownLost, enemyLost, cleared = false, cam
     entries: [{ id: AH, faction: 3, tile: 30, troops: 600 - ownLost }, ...(target === 'stack' ? [{ id: EH, faction: 1, tile: 30, troops: 300 - enemyLost }] : [])],
     camp: target === 'camp' ? (cleared ? { tile: 30, state: 0, troops: 0 } : { tile: 30, troops: campTroops - enemyLost }) : null,
   });
-  const fighters = [{ id: AH, arrival: true, post: 600 - ownLost, engaged: true, fate: 'Stays', tile: 30 }, ...(target === 'stack' ? [{ id: EH, arrival: false, post: 300 - enemyLost, engaged: true, fate: 'Stays', tile: 30 }] : [])];
+  const fighters = [{ id: AH, arrival: true, post: 600 - ownLost, engaged: true, fate: 'Stays', tile: 30 }, ...(target === 'stack' ? [{ id: EH, arrival: false, post: 300 - enemyLost, engaged: true, fate: destroyed ? 'Destroyed' : 'Stays', tile: 30 }] : [])];
   const clash = clashFile({ p: 2, q: 1, bell: 210, fighters, before, arrivals: [{ id: AH, tag: dec(A), faction: 3, tile: 30, troops: 600 }] });
   const h = fakeHerald({ provinces: { '2,1,209': before, '2,1,210': after }, clashes: [clash] });
   const events = [row(40, 'sigC2', 211, 'CLASH', { p: 2, q: 1, bell: 210 }, { engagements: 2 })];
@@ -176,16 +176,49 @@ function marchWorld({ target = 'stack', ownLost, enemyLost, cleared = false, cam
   return { h, events };
 }
 
-test('synthetic: clash_own_win — an own march fought and the enemy lost more (importance 6)', () => {
-  const { h, events } = marchWorld({ ownLost: 40, enemyLost: 120 });
+test('synthetic: clash_own_win — an own march fought and the enemy stack was DESTROYED (importance 6; R12: a win is a clearing, not a lead in losses)', () => {
+  const { h, events } = marchWorld({ ownLost: 40, enemyLost: 300, destroyed: true });
   const r = episodes_from_events({ events }, ctxOf(h));
   assert.deepEqual(kinds(r), ['clash_own_win']);
   const e = r.episodes[0];
   assert.equal(e.importance, 6);
   assert.equal(e.created_bell, 211);
-  assert.match(e.text.en, /^At bell 210 your army at \(2,1\) beat \S+ \(nation Borealis\): you lost 40, they lost 120\.$/);
-  assert.match(e.text.ja, /^鐘210で、あなたの軍は\(2,1\)で.+に勝った。あなたは兵40、相手は兵120を失った。$/);
-  assert.deepEqual([e.facts.lost_own, e.facts.lost_enemy, e.facts.nation], [40, 120, 1]);
+  assert.match(e.text.en, /^At bell 210 your army at \(2,1\) beat \S+ \(nation Borealis\): you lost 40, they lost 300\.$/);
+  assert.match(e.text.ja, /^鐘210で、あなたの軍は\(2,1\)で.+に勝った。あなたは兵40、相手は兵300を失った。$/);
+  assert.deepEqual([e.facts.lost_own, e.facts.lost_enemy, e.facts.nation, e.facts.cleared], [40, 300, 1, 'stack']);
+});
+
+// FB5 / R12: this is the case the old code called a win (y > x). The enemy lost more, but its stack stayed on the field.
+test('synthetic: R12 — the enemy lost more than we did but its stack held: clash_own_fought, never clash_own_win', () => {
+  const { h, events } = marchWorld({ ownLost: 40, enemyLost: 120 });
+  const r = episodes_from_events({ events }, ctxOf(h));
+  assert.deepEqual(kinds(r), ['clash_own_fought']);
+  const e = r.episodes[0];
+  assert.equal(e.importance, 6);
+  assert.match(e.text.en, /^At bell 210 your army at \(2,1\) fought \S+ \(nation Borealis\): you lost 40, they lost 120; nothing was cleared\.$/);
+  assert.match(e.text.ja, /^鐘210で、あなたの軍は\(2,1\)で.+と戦った。あなたは兵40、相手は兵120を失ったが、倒しきれなかった。$/);
+  assert.ok(!/beat|勝った/.test(e.text.en + e.text.ja), 'no victory word in a clash that cleared nothing');
+  assert.deepEqual([e.facts.lost_own, e.facts.lost_enemy, e.facts.cleared], [40, 120, null]);
+  // boundary: one troop short of destroying the stack is still "fought"
+  const t = marchWorld({ ownLost: 40, enemyLost: 299 });
+  assert.deepEqual(kinds(episodes_from_events({ events: t.events }, ctxOf(t.h))), ['clash_own_fought']);
+  // and the same clash with the stack destroyed is the win
+  const u = marchWorld({ ownLost: 40, enemyLost: 300, destroyed: true });
+  assert.deepEqual(kinds(episodes_from_events({ events: u.events }, ctxOf(u.h))), ['clash_own_win']);
+});
+
+test('synthetic: R12 migration — config.clash_win_rule "legacy_v1" replays a pre-R12 list (a win when the enemy lost more, no facts.cleared); the default is the new rule', () => {
+  const { h, events } = marchWorld({ ownLost: 40, enemyLost: 120 });
+  const legacy = episodes_from_events({ events }, ctxOf(h, { config: { clash_win_rule: 'legacy_v1' } }));
+  assert.deepEqual(kinds(legacy), ['clash_own_win']);
+  assert.ok(!('cleared' in legacy.episodes[0].facts), 'the pre-R12 lists have no `cleared` fact: the replay must not add one');
+  assert.match(legacy.episodes[0].text.en, /beat/);
+  const now = episodes_from_events({ events }, ctxOf(h));
+  assert.deepEqual(kinds(now), ['clash_own_fought']);
+  assert.notEqual(legacy.episodes[0].id, now.episodes[0].id, 'the kind is in the id: the two lists share no id for this clash');
+  // equal or worse losses: the legacy rule's loss is the same as today's
+  const lost = marchWorld({ ownLost: 200, enemyLost: 80 });
+  assert.deepEqual(kinds(episodes_from_events({ events: lost.events }, ctxOf(lost.h, { config: { clash_win_rule: 'legacy_v1' } }))), ['clash_own_loss']);
 });
 
 test('synthetic: clash_own_loss — own lost >= enemy lost and own lost > 0 (importance 6)', () => {
@@ -216,10 +249,21 @@ test('synthetic: camp_cleared_own — a camp cleared in a clash in which an own 
   assert.match(w.text.en, /beat the camp: you lost 30, they lost 200\.$/);
 });
 
-test('synthetic: an own army that did not clear the camp makes only the clash episode', () => {
+test('synthetic: an own army that did not clear the camp makes only a clash episode, and the camp "held" (R12: fewer troops lost than the camp is not a win)', () => {
   const { h, events } = marchWorld({ target: 'camp', ownLost: 20, enemyLost: 40, cleared: false });
   const r = episodes_from_events({ events }, ctxOf(h));
-  assert.deepEqual(kinds(r), ['clash_own_win']);
+  assert.deepEqual(kinds(r), ['clash_own_fought']);
+  assert.equal(r.episodes[0].text.en, 'At bell 210 your army at (2,1) fought the camp: you lost 20, they lost 40; the camp held.');
+  assert.equal(r.episodes[0].text.ja, '鐘210で、あなたの軍は(2,1)で野営地と戦った。あなたは兵20、相手は兵40を失ったが、野営地は残った。');
+  assert.equal(r.episodes[0].facts.camp, true);
+  assert.ok(!r.episodes.some(e => e.kind === 'camp_cleared_own'), 'a camp that held is not a cleared camp');
+});
+
+test('synthetic: a cleared camp is the win whatever the losses (no more "loss" for a cleared camp that cost more than it held)', () => {
+  const { h, events } = marchWorld({ target: 'camp', ownLost: 300, enemyLost: 200, cleared: true, campTroops: 200 });
+  const r = episodes_from_events({ events }, ctxOf(h));
+  assert.deepEqual(kinds(r).sort(), ['camp_cleared_own', 'clash_own_win']);
+  assert.equal(r.episodes.find(e => e.kind === 'clash_own_win').facts.cleared, 'camp');
 });
 
 test('synthetic: camp_taken_by — a camp inside the AI\'s observed provinces cleared by nation X in a clash with no own army (importance 5)', () => {

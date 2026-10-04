@@ -644,6 +644,24 @@ test('episode_kinds_sha256 commits to the episode KINDS (the real templates file
   assert.equal(R.episodeKindsSha256(f), null, 'no `kinds`: null, visible');
 });
 
+// FB5 / R12: `clash_own_fought` joined the kinds, so the committed hash moved. The old value is what the live runs smoke-b2 and
+// smoke-b3 committed (their episode files keep the old win text; see FB5-NOTES). Pinned here so a later change is a visible decision.
+test('FB5 R12: episode_kinds_sha256 moved when clash_own_fought was added (old value of smoke-b2/b3, new value of this tree)', async () => {
+  const { KINDS } = await import('../citizens/memory/config.mjs');
+  const real = new URL('../citizens/memory/templates.en.json', import.meta.url).pathname;
+  const OLD = ['attacked_own', 'strike', 'clash_own_win', 'clash_own_loss', 'camp_cleared_own', 'camp_taken_by', 'threat', 'dm', 'motion', 'council_result', 'build_done'];
+  assert.ok(KINDS.includes('clash_own_fought'));
+  assert.deepEqual(KINDS.filter(k => !OLD.includes(k)), ['clash_own_fought']);
+  assert.equal(R.sha256hex(R.canonicalJson([...OLD].sort())), '6d139006b6b77613e8bd3997dd7cd253069f390b0a3c9cd66c756a1636d129ab', 'the hash of the 11 kinds the two live runs committed');
+  assert.equal(R.episodeKindsSha256(real), 'e4c0f3d56e3e6aa6a4afb18897259a2a37d2f15dd5f6e1d89ec3d9678b3086c0');
+  assert.notEqual(R.episodeKindsSha256(real), '6d139006b6b77613e8bd3997dd7cd253069f390b0a3c9cd66c756a1636d129ab');
+  // both languages carry the new kind with the camp and the other variant
+  for (const l of ['en', 'ja']) {
+    const t = JSON.parse(fs.readFileSync(new URL(`../citizens/memory/templates.${l}.json`, import.meta.url), 'utf8'));
+    assert.deepEqual(Object.keys(t.kinds.clash_own_fought).sort(), ['camp', 'other'], l);
+  }
+});
+
 test('prompt_templates_sha256 has one definition: the registrar\'s commitment equals what the mind computes for the real prompts directory', async () => {
   const { loadTemplates, promptTemplatesSha256 } = await import('../citizens/mind/prompt.mjs');
   const dir = new URL('../citizens/prompts', import.meta.url).pathname;

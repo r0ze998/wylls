@@ -3,7 +3,7 @@
   "lang": "en",
   "kinds": {
     "motion": "At bell {b} {name} moved option {k} ({kind}) in the council of {nation}.",
-    "call_adopted": "At bell {b} the council of {nation} adopted a Strike Order {with}. Its target stays sealed until bell {S}.",
+    "call_adopted": "At bell {b} the council of {nation} adopted a Strike Order {with}. Its target stays sealed until the armies arrive at bell {S}; the Strike Order is opened at bell {O}.",
     "call_declined": "At bell {b} {name} declined the Strike Order of {nation}.",
     "no_call": "At bell {b} the council of {nation} adopted no Strike Order ({why}).",
     "strike_result": "At bell {b} the Strike Order of {nation} opened at ({p},{q}) ({kind}): {present} of its armies arrived{extra}; troops lost: {lost}.",

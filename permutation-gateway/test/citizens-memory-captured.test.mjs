@@ -78,13 +78,15 @@ test('recorded: the defender also remembers threats (a real DEPART of a Borealis
   assert.ok(r.deltas.some(d => d.reason === 'nation_mate' && d.who === ATTACKER && d.amount === -5));
 });
 
-test('recorded: the attacker\'s own marches at (1,4): a win at bell 387 and a loss at bell 388, with real losses on both sides', () => {
+test('recorded: the attacker\'s own marches at (1,4): "fought" at bell 387 and a loss at bell 388, with real losses on both sides (R12: the enemy lost more at 387 but nothing was cleared, so it is no win)', () => {
   const r = viaRaw(ATTACKER);
-  const win = r.episodes.find(e => e.kind === 'clash_own_win' && e.bell === 387);
-  assert.match(win.text.en, /^At bell 387 your army at \(1,4\) beat \S+ \(nation Aster\): you lost 103, they lost 130\.$/);
+  assert.ok(!r.episodes.some(e => e.kind === 'clash_own_win' && e.bell === 387), 'the old code called this a win (lost_enemy 130 > lost_own 103)');
+  const fought = r.episodes.find(e => e.kind === 'clash_own_fought' && e.bell === 387);
+  assert.match(fought.text.en, /^At bell 387 your army at \(1,4\) fought \S+ \(nation Aster\): you lost 103, they lost 130; nothing was cleared\.$/);
+  assert.equal(fought.facts.cleared, null);
   const loss = r.episodes.find(e => e.kind === 'clash_own_loss' && e.bell === 388);
   assert.match(loss.text.en, /^At bell 388 your army at \(1,4\) lost 69 troops against \S+ \(nation Aster\); they lost 60\.$/);
-  assert.deepEqual([win.created_bell, loss.created_bell], [389, 390], 'created at the log bell of the CLASH row');
+  assert.deepEqual([fought.created_bell, loss.created_bell], [389, 390], 'created at the log bell of the CLASH row');
   assert.deepEqual(r.deltas, [], 'an attacker gets no trust or grievance delta from its own attack');
 });
 
@@ -131,7 +133,7 @@ test('recorded: the raw files and the objects watcher/feed.mjs hands over give I
 });
 
 test('recorded: every episode on real data satisfies the invariants (ids, importance table, created_bell >= bell, sanitised text, pseudonymous entities only)', () => {
-  const importance = { attacked_own: 8, strike: 6, clash_own_win: 6, clash_own_loss: 6, camp_cleared_own: 5, camp_taken_by: 5, threat: 5, dm: 4, motion: 4, council_result: 4, build_done: 2 };
+  const importance = { attacked_own: 8, strike: 6, clash_own_win: 6, clash_own_loss: 6, clash_own_fought: 6, camp_cleared_own: 5, camp_taken_by: 5, threat: 5, dm: 4, motion: 4, council_result: 4, build_done: 2 };
   let n = 0;
   for (const tag of Object.keys(owners.citizens)) {
     if (!owners.citizens[tag].home) continue;

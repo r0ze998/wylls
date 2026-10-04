@@ -324,7 +324,7 @@ export async function runOne({ caseDef, sit, base, llmUrl = null, fake = null, c
         const markers = (caseDef.markers ?? []).map((m) => MARKERS[m]).filter(Boolean);
         const windowEpisodes = svc.stores.episodes(ai.tag).list();
         const ev = evaluateOutcome({
-          case: caseDef, sit, request: reqStep, user, systemPrompt: body?.messages?.[0]?.content, answer: a, record: svc.records.get(a.decision_id), recordPrivate: f, published, hostile: rows.hostile.filter(Boolean), markers,
+          case: caseDef, sit, request: reqStep, user, systemPrompt: body?.messages?.[0]?.content, answer: a, record: svc.records.get(a.decision_id), recordPrivate: f, published, hostile: rows.hostile.filter(Boolean), markers, allowOutside: (caseDef.allowOutside ?? []).map((m) => MARKERS[m]).filter(Boolean),
           sealedPq: [...sealedPq, ...marchTargets], sealedNumbers: [...sealedNumbers, ...marchNums], inFlight: Boolean(sit.inFlight) || chosen.some((c) => c.kind === 'march') || (caseDef.stage === 'next_bell' && sit.id === 'S2'),
           episodes: windowEpisodes, cards: [JSON.stringify(renderCard(stateFor))], priorMarchTroopsToday: priorMarch, strictMarkers: stage2, trustBefore: ledgerBefore, trustAfter: clone(doc.trust.citizens), daysBetween: stage2 ? 1 : 0,
           homeTroops: reqStep.situation.me.home_troops, h0: reqStep.situation.me.home_troops_day_start, summaries, windowEpisodes,

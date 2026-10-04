@@ -259,6 +259,9 @@ function hostIdsOf(d) {
   return [...ids];
 }
 
+/** The own-march clash episodes (R12 added `clash_own_fought`: a clash that cleared nothing is neither a win nor, necessarily, a loss). */
+const CLASH_KINDS = ['clash_own_win', 'clash_own_loss', 'clash_own_fought'];
+
 export function marchesSection(run) {
   const marches = [];
   const unclassified = [];
@@ -281,10 +284,10 @@ export function marchesSection(run) {
     const hosts = hostIdsOf(d);
     const clashes = [];
     for (const e of run.episodesByTag.get(d.tag) ?? []) {
-      if (!['clash_own_win', 'clash_own_loss'].includes(e.kind)) continue;
+      if (!CLASH_KINDS.includes(e.kind)) continue;
       if (!(e.bell >= d.bell)) continue; // the clash cannot precede the march (a host id is reused by later marches)
       const h = (e.src ?? []).filter((s) => s.startsWith('host:')).map((s) => s.slice(5));
-      if (h.some((x) => hosts.includes(x))) clashes.push({ episode: e.id, kind: e.kind, bell: e.bell, created_bell: e.created_bell, host: h.find((x) => hosts.includes(x)), camp: e.facts?.camp ?? null, lost_own: e.facts?.lost_own ?? null, lost_enemy: e.facts?.lost_enemy ?? null });
+      if (h.some((x) => hosts.includes(x))) clashes.push({ episode: e.id, kind: e.kind, bell: e.bell, created_bell: e.created_bell, host: h.find((x) => hosts.includes(x)), camp: e.facts?.camp ?? null, cleared: e.facts?.cleared ?? null, p: e.facts?.p ?? null, q: e.facts?.q ?? null, lost_own: e.facts?.lost_own ?? null, lost_enemy: e.facts?.lost_enemy ?? null });
     }
     marches.push({ record: d.id, bell: d.bell, index: d.index, tag: d.tag, persona: d.persona, departs: n, sent_departs_in_record: departs.length, release_bell: d.release_bell, opened: d.opened, hosts_known: hosts.length > 0, hosts_source: d.destinations?.length ? 'opened record' : d.candidates ? 'private record' : null, clashes });
   }
@@ -312,7 +315,17 @@ export function marchesSection(run) {
     y_proxy_clash_any_opening: yAny,
     y_proxy_clash_any_opening_note: 'NOT Y: the same episode proxy over every model march, opened or not (the record may have been opened; see y_proxy_clash_unopened_only for the unopened ones).',
     y_proxy_clash_unopened_only: yUnopened,
-    clash_results: { win: marches.filter((m) => m.clashes.some((c) => c.kind === 'clash_own_win')).length, loss: marches.filter((m) => m.clashes.some((c) => c.kind === 'clash_own_loss')).length },
+    // R12: `win` now means the camp or the enemy stack was cleared (facts.cleared is 'camp' or 'stack'). Episodes written before R12
+    // (smoke-b2, smoke-b3, slice-4) have no facts.cleared and called a clash a win when the enemy lost more: they are counted apart.
+    clash_results: {
+      win: marches.filter((m) => m.clashes.some((c) => c.kind === 'clash_own_win')).length,
+      win_cleared: marches.filter((m) => m.clashes.some((c) => c.kind === 'clash_own_win' && c.cleared)).length,
+      win_pre_r12_unverified: marches.filter((m) => m.clashes.some((c) => c.kind === 'clash_own_win' && !c.cleared)).length,
+      fought: marches.filter((m) => m.clashes.some((c) => c.kind === 'clash_own_fought')).length,
+      loss: marches.filter((m) => m.clashes.some((c) => c.kind === 'clash_own_loss')).length,
+      camps_cleared: marches.filter((m) => m.clashes.some((c) => (run.episodesByTag.get(m.tag) ?? []).some((e) => e.kind === 'camp_cleared_own' && e.bell === c.bell && e.facts?.p === c.p && e.facts?.q === c.q))).length,
+      note: 'win = the camp or the enemy stack was cleared (R12); win_pre_r12_unverified = episodes from before R12, labelled a win when the enemy lost more; fought = a clash that cleared nothing; camps_cleared = model marches whose clash also has a camp_cleared_own episode for the same place and bell',
+    },
     marches_without_known_host: noHosts,
     marches,
   };
@@ -605,7 +618,7 @@ export function renderMarkdown(r) {
   L.push(`${m.model_marches_sent} model marches sent (${m.records_with_model_march} records; not a recall, not a Strike-Order follow); ${m.opened} of those records opened. **Y (strict) = ${m.y_strict}**, an episode proxy: ${m.y_strict_definition}. G12 ${m.g12_met ? 'met' : 'not met'}.`, '');
   L.push(`Y is an episode proxy: the herald clash rows (engaged: true) were not read. ${m.y_proxy_note}`, '');
   if (m.model_marches_unclassified) L.push(`${m.model_marches_unclassified} sent departs in model records are unclassified: ${m.model_marches_unclassified_note}.`, '');
-  L.push(`Separate, labelled number (not Y): ${m.y_proxy_clash_any_opening} of ${m.model_marches_sent} model marches have a public clash_own_* episode for their army whether or not the record was opened (${m.clash_results.win} won, ${m.clash_results.loss} lost; ${m.y_proxy_clash_unopened_only} of them in a record that was not opened); ${m.y_proxy_clash_any_opening_note}`, '');
+  L.push(`Separate, labelled number (not Y): ${m.y_proxy_clash_any_opening} of ${m.model_marches_sent} model marches have a public clash_own_* episode for their army whether or not the record was opened, matched by host id through the private record (${m.clash_results.win_cleared} won by clearing the camp or the stack, ${m.clash_results.camps_cleared} cleared a camp, ${m.clash_results.fought} fought without clearing, ${m.clash_results.loss} lost, ${m.clash_results.win_pre_r12_unverified} labelled a win before R12 (the enemy lost more; nothing verified as cleared)); ${m.y_proxy_clash_unopened_only} of them in a record that was not opened; ${m.y_proxy_clash_any_opening_note}`, '');
   L.push(row('bell', 'AI', 'persona', 'opened', 'clash episode (bell, kind, own lost, enemy lost)'), row('---', '---', '---', '---', '---'));
   for (const x of m.marches) L.push(row(x.bell, x.index, x.persona, x.opened ? 'yes' : 'no', x.clashes.map((c) => `${c.bell} ${c.kind} ${v(c.lost_own)}/${v(c.lost_enemy)}${c.camp ? ' (camp)' : ''}`).join('; ') || 'none found'));
   L.push('');

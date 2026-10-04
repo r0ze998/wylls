@@ -183,6 +183,9 @@ test('the whole council beat: open at C0, motions and ballots reach the brain wi
     const adopted = chron.find(l => l.kind === 'call_adopted');
     assert.equal(adopted.text.en.includes('(2,0)'), false, 'no target in call_adopted');
     assert.match(adopted.text.en, /Strike Order with 2 AI ballots/);
+    // FB5: the strike bell S is when the armies arrive; the Strike Order is OPENED at S + 2 (the file `open/<S + 2>.json` above)
+    assert.match(adopted.text.en, new RegExp(`until the armies arrive at bell ${S}; the Strike Order is opened at bell ${S + 2}\\.$`));
+    assert.match(adopted.text.ja, new RegExp(`軍が着く鐘${S}まで秘密。攻撃命令は鐘${S + 2}で開かれる。$`));
     assert.match(chron.find(l => l.kind === 'strike_result').text.en, /opened at \(2,0\) \(camp\)/);
     assert.equal(JSON.stringify(chron).includes('within reach'), false, 'model text never enters the chronicle');
     assert.ok(chron.every(l => l.text.en && l.text.ja));

@@ -331,7 +331,8 @@ export async function buildMiniRun({ council = true, commitLate = false, unmeasu
   return {
     aiDir, pub, state, root, repo, chain, kp, roster, commitments: prepared.obj, reissued, redactedInner, seasonEnd: result, herald, heraldData,
     modelPath, llamaDir, stackPath, slotsPath, citizensConfigPath, llmOutputOf, sessionPub,
-    verifyOpts: (extra = {}) => ({ herald: herald.url, rpc: chain, aiDir: pub, repoRoot: repo, modelPath, llamaDir, stackPath, slotsPath, ...extra }),
+    // episodeRule: the 6 published episode lists are the REAL slice-4 ones, written under the pre-R12 rule (FB5); the commitments of this mini run are made from the current tree, so the rule is named here
+    verifyOpts: (extra = {}) => ({ herald: herald.url, rpc: chain, aiDir: pub, repoRoot: repo, modelPath, llamaDir, stackPath, slotsPath, episodeRule: 'legacy_v1', ...extra }),
     async close() { await herald.close(); fs.rmSync(root, { recursive: true, force: true }); },
   };
 }
