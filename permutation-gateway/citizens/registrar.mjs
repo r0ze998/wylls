@@ -11,8 +11,8 @@
 //                              [--deck deck-3] [--model P] [--model-sha256 H] [--llama-dir D] [--inputs J]   (a non-smoke config needs --model and --llama-dir)
 //                              [--prepare-only | --wait-rpc URL [--herald URL]] [--allow-dirty]
 //   node registrar.mjs deal    --ai-dir D --key K --herald URL --stack T
-//   node registrar.mjs run     --ai-dir D --key K --rpc URL [--stack T] [--poll-ms 2000] [--until-bell N]
-//   node registrar.mjs publish --ai-dir D --key K --herald URL --rpc URL [--stack T]
+//   node registrar.mjs run     --ai-dir D --key K --rpc URL [--stack T] [--poll-ms 2000] [--until-bell N] [--memo-tries N --memo-interval-ms MS]
+//   node registrar.mjs publish --ai-dir D --key K --herald URL --rpc URL [--stack T] [--wait-last-secs N] [--memo-tries N --memo-interval-ms MS]
 //   node registrar.mjs runs-add | runs-end  (RUNS.md lines, see formatRunBlock)
 //
 // Everything it talks to is on 127.0.0.1 or ::1, and it refuses a chain that is not the local test chain: the
@@ -572,13 +572,29 @@ export function claimAnchor(aiDir, bell, { pid = process.pid, now = Date.now } =
 }
 const recordClaimSignature = (file, pid, bell, signature) => rewriteHeld(file, `${JSON.stringify({ pid, bell, started: new Date().toISOString(), signature })}\n`);
 const releaseClaim = file => fs.rmSync(file, { force: true });
-/** Did this memo signature land? `{slot, signature}` or null. */
-async function landedMemo(rpc, signature) {
+/**
+ * What the chain says about a memo signature: `landed` (`slot`), `failed` (the transaction was executed and errored: the memo
+ * does not exist), or `unknown` (no status yet, or the RPC could not be asked). Only `failed` frees a bell for a new memo.
+ */
+async function signatureState(rpc, signature) {
   try {
     const st = (await rpc.call('getSignatureStatuses', [[signature]])).value?.[0];
-    return st && !st.err ? { signature, slot: st.slot } : null;
-  } catch { return null; }
+    if (!st) return { state: 'unknown' };
+    if (st.err) return { state: 'failed', err: st.err };
+    return { state: 'landed', slot: st.slot, signature };
+  } catch { return { state: 'unknown' }; }
 }
+/** `signatureState`, asked up to `tries` times `intervalMs` apart until it is no longer `unknown` (bounded). */
+async function pollSignature(rpc, signature, { tries = 8, intervalMs = 250 } = {}) {
+  let last = { state: 'unknown' };
+  for (let i = 0; i < Math.max(1, tries); i++) {
+    last = await signatureState(rpc, signature);
+    if (last.state !== 'unknown') return last;
+    if (i < tries - 1) await sleep(intervalMs);
+  }
+  return last;
+}
+export const memoPendingReason = signature => `memo ${signature} was sent and no status came; it is not sent again while it may still land`;
 
 /**
  * One pass over the closed bells that have no anchor yet, oldest first. A bell whose memo cannot be sent is tried again on
@@ -586,13 +602,26 @@ async function landedMemo(rpc, signature) {
  * `state.failed` (bell -> first failure message) lives with the caller. Returns the bells anchored and gapped in this pass, and the
  * bells it left to another process (`claimed`). A bell claimed by a live process is skipped and the pass stops there (memo order).
  * `pid` stands in for the process id in tests.
+ *
+ * FB1 (A1): a memo that was SENT is never lost and never sent again while its signature may still land. The signature of an earlier
+ * attempt (this process's own earlier pass, or a process that died) arrives as `claim.previous.signature` and is written into THIS
+ * attempt's claim before anything is sent (before, a second failure in the same process read the fresh claim, found no signature
+ * and released the claim: the signature was lost and a third pass sent a second memo). The attempt then polls that signature
+ * (`pollTries` x `pollIntervalMs`, bounded): landed -> the bell is anchored from it; failed on the chain -> the memo does not exist
+ * and one new memo may be sent; no status -> the pass fails for the bell without sending (the claim keeps the signature), and after
+ * `ANCHOR_RETRY_BELLS` later bells the bell is an anchor_gap whose reason names the signature.
+ *
+ * FB1 (A2): `sendBlocked` (a reason string, e.g. the chain is paused) sends nothing: a memo for a paused chain sits pending and
+ * would confirm after the bell was declared a gap. The bell stays open (`unsent`) and the pass stops there (memo order); with
+ * `gapWhenBlocked` it is written as an anchor_gap with that reason at once (the season-end index exists: nothing can anchor it).
+ * `memoTries` and `memoIntervalMs` bound the wait for a status after a send (tests).
  */
-export async function anchorPass({ aiDir, kp, rpc, season, state = { failed: new Map() }, log = () => {}, pid = process.pid }) {
+export async function anchorPass({ aiDir, kp, rpc, season, state = { failed: new Map() }, log = () => {}, pid = process.pid, memoTries = 40, memoIntervalMs = 250, pollTries = 8, pollIntervalMs = 250, sendBlocked = null, gapWhenBlocked = false }) {
   const pub = path.join(aiDir, 'pub');
   const talk = numericJson(path.join(pub, 'talk'));
   const have = new Set(numericJson(path.join(pub, 'anchors')));
   const newest = talk.length ? talk[talk.length - 1] : -1;
-  const done = { anchored: [], gaps: [] }; // `claimed` appears only when a bell was left to another live process
+  const done = { anchored: [], gaps: [] }; // `claimed` appears only when a bell was left to another live process; `unsent` only when sends were blocked
   for (const bell of talk) {
     if (have.has(bell)) continue;
     const roots = closedBellRoots(pub, bell);
@@ -614,20 +643,44 @@ export async function anchorPass({ aiDir, kp, rpc, season, state = { failed: new
       break; // keep the memo order: later bells wait for this one
     }
     if (fs.existsSync(file)) continue; // anchored (by a process that has since ended) between our listing and our claim: never send it again
+    // A1: the signature of an earlier attempt goes into this attempt's claim BEFORE anything is sent or polled
+    let sentSig = claim.previous?.signature ?? null;
+    if (sentSig) recordClaimSignature(claim.file, pid, bell, sentSig);
     try {
-      // a signature an earlier attempt (ours, or a process that died) had already sent: look it up before anything is sent again
-      const earlier = claim.previous?.signature ? await landedMemo(rpc, claim.previous.signature) : null;
-      const memo = earlier ?? await sendMemo(rpc, kp, anchorMemoText(season, bell, roots.social_root, roots.minds_root), { onSigned: sig => recordClaimSignature(claim.file, pid, bell, sig) });
+      let memo = null;
+      if (sentSig) {
+        const s = await pollSignature(rpc, sentSig, { tries: pollTries, intervalMs: pollIntervalMs });
+        if (s.state === 'landed') memo = { signature: sentSig, slot: s.slot };
+        else if (s.state === 'failed') {
+          log(`anchor ${bell}: the earlier memo ${sentSig} failed on the chain (${JSON.stringify(s.err)}); one new memo is sent`);
+          sentSig = null;
+          recordClaimSignature(claim.file, pid, bell, null);
+        } else throw new Error(memoPendingReason(sentSig));
+      }
+      if (!memo && sendBlocked) {
+        releaseClaim(claim.file); // nothing was sent: the claim is not needed
+        const first = !state.failed.has(bell);
+        if (first) state.failed.set(bell, sendBlocked);
+        if (first) log(`anchor ${bell}: not sent: ${sendBlocked}`);
+        (done.unsent ??= []).push(bell);
+        if (!gapWhenBlocked) break; // keep the memo order: later bells wait for this one
+        writeAtomic(file, `${JSON.stringify({ bell, ...roots, signature: null, slot: null, anchor_gap: true, reason: sendBlocked })}\n`);
+        state.failed.delete(bell);
+        done.gaps.push(bell);
+        continue;
+      }
+      if (!memo) memo = await sendMemo(rpc, kp, anchorMemoText(season, bell, roots.social_root, roots.minds_root), { tries: memoTries, intervalMs: memoIntervalMs, onSigned: sig => { sentSig = sig; recordClaimSignature(claim.file, pid, bell, sig); } });
       writeAtomic(file, `${JSON.stringify({ bell, ...roots, signature: memo.signature, slot: memo.slot })}\n`);
       state.failed.delete(bell);
       done.anchored.push(bell);
     } catch (e) {
-      const sentSig = readJsonOrNull(claim.file)?.signature ?? null;
-      if (!sentSig) releaseClaim(claim.file); // nothing was sent: the bell is free for the next pass or the other process
+      // the signature that was sent (this attempt's, or an earlier one carried in) must survive the failure: keep the claim with it
+      const kept = readJsonOrNull(claim.file)?.signature ?? sentSig;
+      if (kept) { if (readJsonOrNull(claim.file)?.signature !== kept) recordClaimSignature(claim.file, pid, bell, kept); } else releaseClaim(claim.file); // nothing was sent: the bell is free for the next pass or the other process
       if (!state.failed.has(bell)) state.failed.set(bell, e.message);
       log(`anchor ${bell}: ${e.message}`);
       if (newest - bell >= ANCHOR_RETRY_BELLS) {
-        writeAtomic(file, `${JSON.stringify({ bell, ...roots, signature: null, slot: null, anchor_gap: true, reason: state.failed.get(bell) })}\n`);
+        writeAtomic(file, `${JSON.stringify({ bell, ...roots, signature: null, slot: null, anchor_gap: true, reason: kept ? memoPendingReason(kept) : state.failed.get(bell) })}\n`);
         state.failed.delete(bell);
         done.gaps.push(bell);
       }
@@ -652,9 +705,52 @@ export async function waitForClaimedAnchors({ aiDir, pid = process.pid, timeoutM
   }
 }
 
-/** The season-end publication of the registrar: a signed index of the anchors and the trigger file the audit watches (STATE/season-end.json). */
-export function publishSeasonEnd({ aiDir, kp, season, commitmentsSha }) {
+/** The bells that are closed: those with a talk file or a minds file (the closer writes the talk file first, the minds file right after). */
+export function closedBells(pub) {
+  return [...new Set([...numericJson(path.join(pub, 'talk')), ...numericJson(path.join(pub, 'minds'))])].sort((a, b) => a - b);
+}
+
+/**
+ * FB1 (A2): wait (bounded) until every closed bell has BOTH its talk file and its minds file. The closer writes the talk file and then
+ * the minds file of a bell in one tick, so this is the short window in which the last bell is half closed; the end of the run used to
+ * publish inside it and left that bell with neither an anchor nor a gap. Returns `{waited_ms, incomplete: [bells]}` (empty = complete).
+ */
+export async function waitForClosedBellFiles({ aiDir, timeoutMs = 60_000, intervalMs = 100 }) {
   const pub = path.join(aiDir, 'pub');
+  const t0 = Date.now();
+  for (;;) {
+    const incomplete = closedBells(pub).filter(b => !fs.existsSync(path.join(pub, 'talk', `${b}.json`)) || !fs.existsSync(path.join(pub, 'minds', `${b}.json`)));
+    if (!incomplete.length || Date.now() - t0 >= timeoutMs) return { waited_ms: Date.now() - t0, incomplete };
+    await sleep(Math.min(intervalMs, Math.max(1, timeoutMs - (Date.now() - t0))));
+  }
+}
+
+/**
+ * Is the local chain paused? `frontier_status` is the local test chain's own method (frontier-localnet); the stack pauses the chain
+ * when the season is complete, and a paused chain produces no block: a memo sent to it is never confirmed. Any other answer (an error,
+ * a chain without the method) counts as not paused, so the registrar behaves as before there.
+ */
+export async function chainPaused(rpc) {
+  try { return (await rpc.call('frontier_status', []))?.paused === true; } catch { return false; }
+}
+export const PAUSED_REASON = 'the chain was paused (the season is complete): no block can confirm a memo';
+
+/**
+ * The season-end publication of the registrar: a signed index of the anchors and the trigger file the audit watches (STATE/season-end.json).
+ * FB1 (A2): every CLOSED bell (talk or minds file) that has no anchor file gets an `anchor_gap` first (its reason names the memo signature
+ * if one was sent and never confirmed, else `defaultReason`), so a closed bell is always either anchored or a named gap and the index
+ * lists it. `skip` = bells a live process still holds (they are left alone: that process may still anchor them).
+ */
+export function publishSeasonEnd({ aiDir, kp, season, commitmentsSha, skip = [], defaultReason = 'no memo was confirmed before the season end' }) {
+  const pub = path.join(aiDir, 'pub');
+  for (const b of closedBells(pub)) {
+    const file = path.join(pub, 'anchors', `${b}.json`);
+    if (fs.existsSync(file) || skip.includes(b)) continue;
+    const talkFile = path.join(pub, 'talk', `${b}.json`), mindsFile = path.join(pub, 'minds', `${b}.json`);
+    const t = fs.existsSync(talkFile) ? readJsonOrNull(talkFile) : undefined, m = fs.existsSync(mindsFile) ? readJsonOrNull(mindsFile) : undefined;
+    const sig = readJsonOrNull(anchorClaimFile(aiDir, b))?.signature ?? null;
+    writeAtomic(file, `${JSON.stringify({ bell: b, social_root: t === undefined || t === null ? null : t.root ?? ZERO_ROOT, minds_root: m === undefined || m === null ? null : m.root ?? ZERO_ROOT, signature: null, slot: null, anchor_gap: true, reason: sig ? memoPendingReason(sig) : defaultReason })}\n`);
+  }
   const bells = numericJson(path.join(pub, 'anchors'));
   const anchored = [], gaps = [];
   for (const b of bells) (readJson(path.join(pub, 'anchors', `${b}.json`)).anchor_gap ? gaps : anchored).push(b);
@@ -728,6 +824,14 @@ async function importDeps() {
   };
 }
 
+/** The bounds of a memo send and of the poll of an earlier signature, from the CLI (tests shorten them; the defaults are the production ones). */
+function memoOptions(a) {
+  const o = {};
+  if (a['memo-tries'] !== undefined) { o.memoTries = Number(a['memo-tries']); o.pollTries = Number(a['memo-tries']); }
+  if (a['memo-interval-ms'] !== undefined) { o.memoIntervalMs = Number(a['memo-interval-ms']); o.pollIntervalMs = Number(a['memo-interval-ms']); }
+  return o;
+}
+
 export async function main(argv, { log = m => console.error(m), out = m => console.log(m) } = {}) {
   const a = parseArgs(argv);
   const cmd = a._[0];
@@ -797,8 +901,13 @@ export async function main(argv, { log = m => console.error(m), out = m => conso
       let stop = false;
       for (const s of ['SIGINT', 'SIGTERM']) process.on(s, () => { stop = true; });
       const until = a['until-bell'] === undefined ? Infinity : Number(a['until-bell']);
+      const memoOpts = memoOptions(a);
       for (;;) {
-        const r = await anchorPass({ aiDir, kp, rpc, season: commitments.season_id, state, log });
+        // FB1 (A2): a paused chain (the stack pauses it when the season is complete) confirms nothing: send nothing to it; once the
+        // season-end index exists a bell that closes now is written as a gap at once (publish wrote the index before it closed)
+        const blocked = (await chainPaused(rpc)) ? PAUSED_REASON : null;
+        const sealed = fs.existsSync(path.join(aiDir, 'pub', 'anchors', 'index.json'));
+        const r = await anchorPass({ aiDir, kp, rpc, season: commitments.season_id, state, log, sendBlocked: blocked, gapWhenBlocked: Boolean(blocked) && sealed, ...memoOpts });
         if (r.anchored.length || r.gaps.length) log(`anchors: ${r.anchored.length} sent${r.gaps.length ? `, ${r.gaps.length} gap(s)` : ''}`);
         const newest = numericJson(path.join(aiDir, 'pub', 'anchors')).at(-1) ?? -1;
         if (stop || newest >= until) break;
@@ -815,12 +924,19 @@ export async function main(argv, { log = m => console.error(m), out = m => conso
       const commitments = JSON.parse(bytes);
       const rpc = new Rpc(a.rpc);
       if (a.stack) await assertLocalnetRpc(rpc, parseStackToml(fs.readFileSync(a.stack, 'utf8')).g0 ?? 1_785_542_400);
-      await anchorPass({ aiDir, kp, rpc, season: commitments.season_id, log });
+      // FB1 (A2): the closer may be inside the tick that closes the last bell (talk file written, minds file not yet): wait (bounded) for
+      // both files, then one more anchor pass (nothing is sent to a paused chain), then the index; every closed bell without an anchor
+      // becomes a named anchor_gap in publishSeasonEnd, so the index and the closed bells agree
+      const wl = await waitForClosedBellFiles({ aiDir, timeoutMs: Number(a['wait-last-secs'] ?? 0) * 1000 });
+      if (wl.incomplete.length) log(`publish: bells ${wl.incomplete.join(', ')} still have only one of talk and minds after ${wl.waited_ms} ms`);
+      const paused = await chainPaused(rpc);
+      await anchorPass({ aiDir, kp, rpc, season: commitments.season_id, log, sendBlocked: paused ? PAUSED_REASON : null, ...memoOptions(a) });
       // R9: the `run` process may be sending the last bells at this very moment (its claim is live): wait for its anchors, then index
       const w = await waitForClaimedAnchors({ aiDir });
       if (w.pending.length) log(`publish: bells ${w.pending.join(', ')} are still claimed by a live registrar run after ${w.waited_ms} ms; they are not in the index`);
-      const index = publishSeasonEnd({ aiDir, kp, season: commitments.season_id, commitmentsSha: sha256hex(bytes) });
-      out(`anchors: ${index.anchored.length} anchored, ${index.gaps.length} gap(s); season-end trigger written`);
+      const index = publishSeasonEnd({ aiDir, kp, season: commitments.season_id, commitmentsSha: sha256hex(bytes), skip: w.pending, defaultReason: paused ? PAUSED_REASON : undefined });
+      const closed = closedBells(path.join(aiDir, 'pub')).length;
+      out(`anchors: ${index.anchored.length} anchored, ${index.gaps.length} gap(s) of ${closed} closed bells; season-end trigger written`);
       return 0;
     }
     case 'runs-add': {
