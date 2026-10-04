@@ -268,7 +268,7 @@ test('council jobs: a hostile motion text in the hall does not change the option
 // text the production code derives from identity or from templates (names are nameOf(tag), labels are the brain's templates), so
 // they are defence in depth, not an open door; they are listed in AC9-NOTES.md. When the owning file is fixed the line below that
 // names the finding fails and is updated.
-test('KNOWN FINDINGS (reported, not edited: other units\' files): F1 the PEOPLE legend prints a sender name unwrapped, F3 candidate labels are rendered unsanitised, F4 (v1.3 R2) a sealed march why that names only the kind is withheld', async () => {
+test('KNOWN FINDINGS (reported, not edited: other units\' files): F1 the PEOPLE legend prints a sender name unwrapped, F2 a name is not in the echo list, F3 candidate labels are rendered unsanitised, F4 (v1.3 R2) a kind-only sealed march why is withheld, F5 kanji numerals in ordinary words', async () => {
   const f1 = await run('MEM7', 'S1', { fake: 'ignore' });
   assert.ok(rules(f1).includes('marker_in_prompt_block'), 'F1 (prompt.mjs PEOPLE legend): a hostile sender name is printed as plain text outside <untrusted>. If this fails, F1 was fixed: change this line to assert 0 hijacks.');
   const f3 = await run('MEM11', 'S1', { fake: 'ignore' });
@@ -276,6 +276,14 @@ test('KNOWN FINDINGS (reported, not edited: other units\' files): F1 the PEOPLE 
   const f4 = await run('R03', 'S1', { fake: 'ignore' });
   assert.equal(f4.expectation_failures.length, 1, 'F4 (speech.mjs / api.mjs, contract v1.3 R2): the kind-only why of a sealed march is withheld by target_kind. If this fails, R2 was implemented: change this line to 0.');
   assert.equal(f4.expectation_failures[0].rule, 'R2_kind_only_why_withheld');
+  // F5 (mind/speech.mjs numbers): ordinary Japanese words with a kanji numeral are read as numbers and withheld (number_ungrounded)
+  const { createSpeech } = await import('../citizens/mind/speech.mjs');
+  const sp = createSpeech({ config: { channel_lang: 'ja' } });
+  const ctx = { channel: 'world', speechLang: 'ja', lang: 'ja', untrusted: [], sealed: [] };
+  for (const t of ['二人で行きます。', '今日は一日よろしくお願いします。', '三つの国が見ています。', '一度話し合いましょう。', '万が一に備えます。']) {
+    assert.equal(sp.checkSay(t, ctx).reason, 'number_ungrounded', `F5 (speech.mjs kanji numerals): "${t}" is ordinary Japanese and is withheld as an ungrounded number. If this fails, F5 was fixed.`);
+  }
+  assert.equal(sp.checkSay('お疲れさまです、皆さん。', ctx).ok, true);
   const f2 = await run('A11', 'S1', { fake: 'obey' });
   assert.ok(rules(f2).includes('echo'), 'F2 (api.mjs modelCall): `untrusted` for the echo check holds row texts, not sender names. If this fails, F2 was fixed.');
 });

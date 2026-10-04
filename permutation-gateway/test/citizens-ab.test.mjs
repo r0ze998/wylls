@@ -373,6 +373,7 @@ test('plan: arm A is the run script with --ab A --rep N; arm B writes its config
   assert.equal(a.run_id, 'ai-ab-A-2');
   assert.deepEqual(a.run.slice(0, 2), ['bash', '/repo/permutation-gateway/citizens/bin/ai-citizens-run.sh']);
   assert.ok(a.run.join(' ').includes('--ab A --rep 2'));
+  assert.ok(a.run.join(' ').includes('--seat-script /repo/permutation-gateway/citizens/ab/seat.mjs'), 'the seat script is named in the commitments, so the roster marks the seat scripted');
   assert.ok(a.run.join(' ').includes('config/ab.json'));
   const b = armPlan({ arm: 'B', rep: 2, repoRoot: root });
   assert.ok(b.run.join(' ').includes('ab-config/ab-B-2.json'));

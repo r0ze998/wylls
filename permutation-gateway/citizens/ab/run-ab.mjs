@@ -207,7 +207,8 @@ export function armPlan({ arm, rep, repoRoot, stack = null, config = null, shimP
   const base = config ?? path.join(repoRoot, 'permutation-gateway/citizens/config/ab.json');
   const runId = `ai-ab-${arm}-${rep}`;
   const cfgB = path.join(repoRoot, '.local/frontier/ai/ab-config', `ab-B-${rep}.json`);
-  const run = ['bash', path.join(repoRoot, 'permutation-gateway/citizens/bin/ai-citizens-run.sh'), '--stack', stackF, '--citizens-config', arm === 'B' ? cfgB : base, '--ab', arm, '--rep', String(rep)];
+  // --seat-script names the seat script (ab/seat.mjs) in the commitments: seat_script_sha256 is then its sha256 and the roster marks the seat `scripted: true`
+  const run = ['bash', path.join(repoRoot, 'permutation-gateway/citizens/bin/ai-citizens-run.sh'), '--stack', stackF, '--citizens-config', arm === 'B' ? cfgB : base, '--ab', arm, '--rep', String(rep), '--seat-script', path.join(repoRoot, 'permutation-gateway/citizens/ab/seat.mjs')];
   return {
     arm, rep, run_id: runId, ai_dir: path.join(repoRoot, '.local/frontier/ai', runId),
     steps: arm === 'B'
