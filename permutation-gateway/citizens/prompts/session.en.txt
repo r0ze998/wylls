@@ -1,0 +1,1 @@
+TASK: session at bell {{bell}}. Choose 1 to 3 candidates from CANDIDATES (autopilot or hold alone). You may say up to {{max_say}} short message(s) in {{speech_lang}} on the world or nation channel, or direct to a person in PEOPLE; say nothing about a march that is under way. Answer only with the JSON. List the Remembered lines you used in mem.

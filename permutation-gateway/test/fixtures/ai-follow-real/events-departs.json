@@ -1,0 +1,149 @@
+{
+  "events": [
+    {
+      "bell": 37,
+      "body_b64": "AR4lAAAAAAAAAAEYAgACAAAA/f///wklAAAAKQAAAOCTBABKAJhyAAAAAAAAqOWfZXzlpQTYd3mT4qeSBEv0/m7gYm5934lFbNVY54HTt6hrACAwHfUSKgJd2RCOX2oUAy3wamepP7XcOu4HM6jgPMEiwCrMwRNty6zuPtE0TsIoJ+gePslPKydQZXwo/kOR6PBXHHyCVmdPXBNGEATRfj+Sf3pizLaPz5oFW/m59zUpLJoYNIxZSmkTY8m88R0HViakP02R1+ZsYpDGJpoq5JjlXLN6k5jCddEwC/GU9Xk/XIXhn1EMDQG7ta+ZWFhyT54VBuUo6otbpYnOEmk6QFYChKfnIkqZ2ojI8vQ4YXwIIwMEDgAAAAAAAACiB9hvmaVkUZmVZfEMIhvu/t1r/HuCf7JZ7qggb4CwrgUMAAAAAAAAANdvxmydCL5gf5UN20wqmWsHJC4toCC9kYK3WU0ExKcfBkcAAAAAAAAAReuLWpuKiPBcncCoAm903DMm/OJOg1K5aedvt4m8msU=",
+      "decoded": {
+        "bell": 37,
+        "key": {
+          "host_id": "589342527455232"
+        },
+        "kind": 30,
+        "links": [
+          {
+            "entity": 4,
+            "head": "a207d86f99a56451999565f10c221beefedd6bfc7b827fb259eea8206f80b0ae",
+            "seq": "14"
+          },
+          {
+            "entity": 5,
+            "head": "d76fc66c9d08be607f950ddb4c2a996b07242e2da020bd9182b7594d04c4a71f",
+            "seq": "12"
+          },
+          {
+            "entity": 6,
+            "head": "45eb8b5a9b8a88f05c9dc0a8026f74dc3326fce24e8352b969e76fb789bc9ac5",
+            "seq": "71"
+          }
+        ],
+        "name": "DEPART",
+        "payload": {
+          "arrive_bell": 41,
+          "commit": "d3b7a86b0020301df5122a025dd9108e5f6a14032df06a67a93fb5dc3aee0733",
+          "dep_mass": 300000,
+          "depart_bell": 37,
+          "march_stamina": 74,
+          "origin_p": 2,
+          "origin_q": -3,
+          "origin_tile": 9,
+          "seal": "a8e03cc122c02accc1136dcbacee3ed1344ec22827e81e3ec94f2b2750657c28fe4391e8f0571c7c8256674f5c13461004d17e3f927f7a62ccb68fcf9a055bf9b9f735292c9a18348c594a691363c9bcf11d075626a43f4d91d7e66c6290c6269a2ae498e55cb37a9398c275d1300bf194f5793f5c85e19f510c0d01bbb5af995858724f9e1506e528ea8b5ba589ce12693a40560284a7e7224a99da88c8f2f438617c0823",
+          "seal_root": "a8e59f657ce5a504d8777993e2a792044bf4fe6ee0626e7ddf89456cd558e781",
+          "tip": "29336"
+        }
+      },
+      "kind": 30,
+      "seq": "2749",
+      "sig": "2umipRK7MmjsCUyejvRRTeawacRhBtSz2zr7CAjpN8oktJwgfrnKskECk6HHboJddPh4QLGrX6oq8U3xGRGya22d",
+      "slot": 2982,
+      "tx": 3091
+    },
+    {
+      "bell": 39,
+      "body_b64": "AR4nAAAAAAAAAAEEAgABAAAA/f///w8nAAAAKwAAAOCTBABKAPJVAAAAAAAA2PvkuPcN1OQbIMIAA71xxe+ftBYgmmubvzsbdYRDDeZkWcaKf/qTPWt06lg8oOz5PPfAk40Qeng6Le8JA92cu6PFhOux3uzmRoHf1JtzCY8TZQIaCllU33Ulii45h93lncbNvxAEBzFzHAOgiHV6qxW+05InPGDR70a/vf4Lh8BwrWkHHqfxXHccHvdmzRi2dtsJBoPIXWuFbuEON8h6gQOdjRd4pOwnaXEXkX2L1H1LreM8IqrorcoBoN1h5XAcX8s5vLmSblUtKqyc7EepUBK/LLAgdjRw70UpIZCwoaA2H23uHQMEDwAAAAAAAAD6oD2vB1BDShxtpnzE/zFe2IUTp7SN2S+qrdhzQsPcNQUNAAAAAAAAAKMHsP7SKRuGj+sLW/1E5lG4mUjdbfzlvGNXGVLBKhcaBkEAAAAAAAAARYmKbRziue9zHXcohHGwKuO1obIy1sdVGT8SS8M5Sm4=",
+      "decoded": {
+        "bell": 39,
+        "key": {
+          "host_id": "567352294899712"
+        },
+        "kind": 30,
+        "links": [
+          {
+            "entity": 4,
+            "head": "faa03daf0750434a1c6da67cc4ff315ed88513a7b48dd92faaadd87342c3dc35",
+            "seq": "15"
+          },
+          {
+            "entity": 5,
+            "head": "a307b0fed2291b868feb0b5bfd44e651b89948dd6dfce5bc63571952c12a171a",
+            "seq": "13"
+          },
+          {
+            "entity": 6,
+            "head": "45898a6d1ce2b9ef731d77288471b02ae3b5a1b232d6c755193f124bc3394a6e",
+            "seq": "65"
+          }
+        ],
+        "name": "DEPART",
+        "payload": {
+          "arrive_bell": 43,
+          "commit": "6459c68a7ffa933d6b74ea583ca0ecf93cf7c0938d107a783a2def0903dd9cbb",
+          "dep_mass": 300000,
+          "depart_bell": 39,
+          "march_stamina": 74,
+          "origin_p": 1,
+          "origin_q": -3,
+          "origin_tile": 15,
+          "seal": "a3c584ebb1deece64681dfd49b73098f1365021a0a5954df75258a2e3987dde59dc6cdbf10040731731c03a088757aab15bed392273c60d1ef46bfbdfe0b87c070ad69071ea7f15c771c1ef766cd18b676db090683c85d6b856ee10e37c87a81039d8d1778a4ec27697117917d8bd47d4bade33c22aae8adca01a0dd61e5701c5fcb39bcb9926e552d2aac9cec47a95012bf2cb020763470ef45292190b0a1a0361f6dee1d",
+          "seal_root": "d8fbe4b8f70dd4e41b20c20003bd71c5ef9fb416209a6b9bbf3b1b7584430de6",
+          "tip": "22002"
+        }
+      },
+      "kind": 30,
+      "seq": "2925",
+      "sig": "37DSoZsHnHoWCqe8Rr3vNzDnqNUrQwGEMC7eT2xFEZLLmtbKbSbAzBZfhUXym5YrNKBmKyVyxeg9Gr92YZwXDb2B",
+      "slot": 3136,
+      "tx": 3241
+    },
+    {
+      "bell": 41,
+      "body_b64": "AR4pAAAAAAAAAAFIAQACAAAAAQAAAAEpAAAALQAAAOCTBABKAPJVAAAAAAAAuhnas27zkpvrgwFrHqgiX8+s4llUNHLqC0jIQ/6Zlp/3BkLB7fviwIyUVYckuXdCSVZRnf0pCAd5wNQe34g+U4wmSFs8GUDwrp1M3VopTlqw6UFL69/X9TtKHhEJQAtbirC3WcuX4ac64/Pn2Xq6gACT3WdWS4lu5bXSpezcja0rYlZYfLyzNLidZHVnfrqsGw/NWdwJBYscV1FBN9LlqOmlaS8l6liIXLr/N6N5b67uTnxpLCwwaA6d6aLEXMkpXcza9+IEtlRWlNBagGwmMrAp+CbHbA8KFsIqOSFgomWOYAcKTQMEDwAAAAAAAABULp4pJ4btFAcmxFTUYrR0eqBrF9K18pnu+7tCHyBz/QUNAAAAAAAAAOtLh5T6mFcGwBDSX8g3jxxrD7pK8muNuXHODaxSYRPuBisAAAAAAAAApK3sbxCfnHYcZzxy0DD8Esb4PwaLEdo9kAGGNqWpcqw=",
+      "decoded": {
+        "bell": 41,
+        "key": {
+          "host_id": "360644108877824"
+        },
+        "kind": 30,
+        "links": [
+          {
+            "entity": 4,
+            "head": "542e9e292786ed140726c454d462b4747aa06b17d2b5f299eefbbb421f2073fd",
+            "seq": "15"
+          },
+          {
+            "entity": 5,
+            "head": "eb4b8794fa985706c010d25fc8378f1c6b0fba4af26b8db971ce0dac526113ee",
+            "seq": "13"
+          },
+          {
+            "entity": 6,
+            "head": "a4adec6f109f9c761c673c72d030fc12c6f83f068b11da3d90018636a5a972ac",
+            "seq": "43"
+          }
+        ],
+        "name": "DEPART",
+        "payload": {
+          "arrive_bell": 45,
+          "commit": "f70642c1edfbe2c08c94558724b977424956519dfd29080779c0d41edf883e53",
+          "dep_mass": 300000,
+          "depart_bell": 41,
+          "march_stamina": 74,
+          "origin_p": 2,
+          "origin_q": 1,
+          "origin_tile": 1,
+          "seal": "8c26485b3c1940f0ae9d4cdd5a294e5ab0e9414bebdfd7f53b4a1e1109400b5b8ab0b759cb97e1a73ae3f3e7d97aba800093dd67564b896ee5b5d2a5ecdc8dad2b6256587cbcb334b89d6475677ebaac1b0fcd59dc09058b1c57514137d2e5a8e9a5692f25ea58885cbaff37a3796faeee4e7c692c2c30680e9de9a2c45cc9295dccdaf7e204b6545694d05a806c2632b029f826c76c0f0a16c22a392160a2658e60070a4d",
+          "seal_root": "ba19dab36ef3929beb83016b1ea8225fcface259543472ea0b48c843fe99969f",
+          "tip": "22002"
+        }
+      },
+      "kind": 30,
+      "seq": "3097",
+      "sig": "5Te3zTYMSKkHLK7dghdnjkzAFm6JekuNvAxUg9G8wCoy7KV9BjZe5PZq3R77dmebr6ahnDLeevAjgFdVyEEjDmNy",
+      "slot": 3310,
+      "tx": 3423
+    }
+  ],
+  "full": false,
+  "next": "3097",
+  "note": "Three DEPART rows of a real /h/events page of the paused m1-exit herald (127.0.0.1:41040, read-only GET, 2026-10-04); the page envelope is rebuilt around them. Used by bots/tests/ai_raid_recall.rs to check the brain's DEPART reader on real bytes.",
+  "v": 1
+}

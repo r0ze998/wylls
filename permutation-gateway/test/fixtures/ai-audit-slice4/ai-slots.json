@@ -1,0 +1,49 @@
+{
+  "v": 1,
+  "seed": 41,
+  "first_index": 1000,
+  "slots": [
+    {
+      "index": 1000,
+      "faction": 0,
+      "join_bell": 0,
+      "kind": "ai"
+    },
+    {
+      "index": 1001,
+      "faction": 1,
+      "join_bell": 1,
+      "kind": "ai"
+    },
+    {
+      "index": 1002,
+      "faction": 2,
+      "join_bell": 2,
+      "kind": "ai"
+    },
+    {
+      "index": 1003,
+      "faction": 3,
+      "join_bell": 3,
+      "kind": "ai"
+    },
+    {
+      "index": 1004,
+      "faction": 4,
+      "join_bell": 4,
+      "kind": "ai"
+    },
+    {
+      "index": 1005,
+      "faction": 5,
+      "join_bell": 5,
+      "kind": "ai"
+    },
+    {
+      "index": 1006,
+      "faction": 0,
+      "join_bell": 0,
+      "kind": "seat"
+    }
+  ]
+}

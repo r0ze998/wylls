@@ -1,0 +1,108 @@
+{
+ "v": 1,
+ "channel_lang": "ja",
+ "council": {
+  "period": 24,
+  "offset": 0,
+  "strike_lead": 6,
+  "human_present": true
+ },
+ "budgets": {
+  "sessions": 8,
+  "reactions": 6,
+  "reflection": 2,
+  "reactions_per_bell_global": 4
+ },
+ "caps": {
+  "march_share": 0.6,
+  "day_share": 0.6,
+  "home_floor": 0.4,
+  "marches_per_day": 4,
+  "exempt_below": 200
+ },
+ "gate": {
+  "weights": {
+   "W-PULSE": 3,
+   "W-CLASH": 4,
+   "W-THREAT": 2,
+   "W-READY": 1,
+   "W-QUEUE": 1,
+   "W-DM": 2,
+   "W-HALL": 1,
+   "W-CALL": 3
+  },
+  "threat_big_bonus": 1,
+  "pulse": 24,
+  "threshold": 3,
+  "strong": 6,
+  "min_gap": 2,
+  "social_cap": 2
+ },
+ "memory": {
+  "reflect_every": 72,
+  "reflection": true,
+  "retrieve": {
+   "top": 8,
+   "newest": 3,
+   "half_life_bells": 72,
+   "focus_bonus": 0.5
+  },
+  "block_tokens": 750
+ },
+ "llm": {
+  "url": "http://127.0.0.1:41901",
+  "alias": "gemma-4-26b-a4b-it",
+  "request_shape": "response_format",
+  "max_tokens": {
+   "session": 384,
+   "reaction": 256,
+   "reflection": 512,
+   "motion": 160,
+   "ballot": 160
+  }
+ },
+ "scheduler": {
+  "seed_ms": {
+   "session": {
+    "p50": 6100,
+    "p90": 6700
+   },
+   "reaction": {
+    "p50": 4200,
+    "p90": 4500
+   },
+   "motion": {
+    "p50": 3200,
+    "p90": 3400
+   },
+   "ballot": {
+    "p50": 2900,
+    "p90": 3200
+   },
+   "reflection": {
+    "p50": 3600,
+    "p90": 3800
+   }
+  },
+  "window": 50
+ },
+ "standing": {
+  "reserve_bells": 12
+ },
+ "time": {
+  "bell_secs": 600,
+  "day_bells": 144,
+  "scale": 10,
+  "decide_slack_ms": 300,
+  "margin_min_ms": 3000
+ },
+ "serve": {
+  "port": 41902
+ },
+ "ports": {
+  "llama": 41901,
+  "serve": 41902,
+  "mind": 41980,
+  "social": 41981
+ }
+}

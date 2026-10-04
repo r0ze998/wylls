@@ -245,6 +245,9 @@ impl Pace {
         let onboarding = now < join_at + 2 * t.day_secs;
         let busy = bot.mem.marches.iter().any(|m| !m.settled);
         let eager = eager && bot.spec.persona.is_some();
+        // AI hook
+        let eager = eager || bot.ai.on;
+        // AI hook end
         let new_bell = self.last_duty_bell != Some(bell);
         let session_due = !pre_join && (now >= self.next_session || (eager && new_bell));
         let duty_due = !pre_join
@@ -277,6 +280,9 @@ impl Pace {
         let pre_join = now < join_at;
         let onboarding = now < join_at + 2 * t.day_secs;
         let eager = eager && bot.spec.persona.is_some();
+        // AI hook
+        let eager = eager || bot.ai.on;
+        // AI hook end
         let busy = bot.mem.marches.iter().any(|m| !m.settled) || eager;
         // Duties 0–20 s into the bell (§9.1); an eager persona's session
         // 90–150 s in, once its province has usually resolved bell − 2
@@ -414,12 +420,18 @@ async fn run_bot<H: HeraldPort, R: RelayPort, D: DirectPort>(
             continue;
         }
         let eager = sh.cfg.eager_personas;
+        // AI hook
+        crate::ai::follow_wake(&sh, &mut bot, now).await;
+        // AI hook end
         let ran = pace.plan(&bot, &t, now, eager);
         if let Some(session) = ran {
             let _ = sh.season().await;
             bot.step(&sh, session).await;
         }
         let wake = pace.after(&bot, &t, now, ran, eager).min(until);
+        // AI hook
+        let wake = crate::ai::follow_next_wake(&bot, now, wake);
+        // AI hook end
         bot.nudge_retries = if ran == Some(true) && bot.nudged {
             bot.nudge_retries.saturating_add(1)
         } else {

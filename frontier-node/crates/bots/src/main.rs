@@ -51,6 +51,9 @@ struct Args {
     control: Option<String>,
     day0_share: Option<f64>,
     eager_personas: bool,
+    // AI hook
+    ai: frontier_bots::ai::AiOpts,
+    // AI hook end
 }
 
 fn usage(e: &str) -> ! {
@@ -80,6 +83,9 @@ fn parse_from(args: impl Iterator<Item = String>) -> Args {
         control: None,
         day0_share: None,
         eager_personas: false,
+        // AI hook
+        ai: Default::default(),
+        // AI hook end
     };
     let mut it = args;
     while let Some(k) = it.next() {
@@ -133,6 +139,13 @@ fn parse_from(args: impl Iterator<Item = String>) -> Args {
                 a.day0_share = Some(f);
             }
             "--eager-personas" => a.eager_personas = true,
+            // AI hook
+            "--brain" => a.ai.brain = Some(v()),
+            "--brain-token-file" => a.ai.token_file = Some(v().into()),
+            "--ai-slots" => a.ai.slots = Some(v().into()),
+            "--follow-council" => a.ai.follow_council = true,
+            "--export-seat-key" => a.ai.export_seat_key = Some(v().into()),
+            // AI hook end
             "-h" | "--help" => usage("help"),
             _ => usage(&format!("unknown argument {k}")),
         }
@@ -150,6 +163,11 @@ fn parse_from(args: impl Iterator<Item = String>) -> Args {
             usage(&format!("{u}: loopback http:// URLs only"));
         }
     }
+    // AI hook
+    if let Err(e) = a.ai.check() {
+        usage(&e);
+    }
+    // AI hook end
     a
 }
 
@@ -281,7 +299,20 @@ async fn go<D: frontier_bots::ports::DirectPort + 'static>(a: Args, direct: Opti
         Some(h) => season.latest_unix + (h * 3_600.0) as i64,
         None => end,
     };
+    // AI hook
+    let shared = match frontier_bots::ai::setup(shared, &mut r, &a.ai, a.seed) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("frontier-bots: {e}");
+            return 1;
+        }
+    };
+    // AI hook end
     let mut fleet = Fleet::new(shared, &r);
+    // AI hook
+    frontier_bots::ai::mark_bots(&mut fleet);
+    let ai_shared = fleet.shared.clone();
+    // AI hook end
     // W6-C: with `--rpc`, the game clock follows the chain's Clock sysvar
     // (read every 200 ms, as drand-replay does), not only the herald's
     // `latestSlot/latestUnix` sampled when a bot runs. The herald's samples
@@ -359,6 +390,9 @@ async fn go<D: frontier_bots::ports::DirectPort + 'static>(a: Args, direct: Opti
         }
     });
     let report = fleet.run(until, stop).await;
+    // AI hook
+    frontier_bots::ai::write_stats(&ai_shared, &a.report);
+    // AI hook end
     writer.abort();
     let v = report.to_json();
     write_report(&a.report, &v);
@@ -465,6 +499,26 @@ mod tests {
         let r = frontier_agents::profile::roster(100, 1, &mix);
         assert!(r.iter().all(|s| s.join_day == 0));
     }
+
+    // AI hook
+    #[test]
+    fn ai_flags_parse() {
+        let a = parse_from(
+            [
+                "--herald",
+                "http://127.0.0.1:41940",
+                "--relay",
+                "http://127.0.0.1:41933",
+                "--ai-slots",
+                "s",
+                "--follow-council",
+            ]
+            .map(String::from)
+            .into_iter(),
+        );
+        assert!(a.ai.follow_council && a.ai.slots.is_some() && a.ai.brain.is_none());
+    }
+    // AI hook end
 
     #[test]
     fn loopback_urls_only() {

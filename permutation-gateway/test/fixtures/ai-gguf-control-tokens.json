@@ -1,0 +1,131 @@
+{
+ "v": 1,
+ "model_file": "gemma-4-26B-A4B-it-Q4_0.gguf",
+ "model_sha256": "d208665ab1cd3a69f7a9a4bc59430e8448c8093d9b06334f566ac59d6d504a03",
+ "gguf_version": 3,
+ "tokenizer_model": "gemma4",
+ "vocab_size": 262144,
+ "note": "every CONTROL (3) and USER_DEFINED (4) token of the model vocabulary, read from the GGUF metadata; contract section 4.6 T-S1",
+ "tokens": [
+  {
+   "id": 0,
+   "token": "<pad>",
+   "type": "control"
+  },
+  {
+   "id": 1,
+   "token": "<eos>",
+   "type": "control"
+  },
+  {
+   "id": 2,
+   "token": "<bos>",
+   "type": "control"
+  },
+  {
+   "id": 3,
+   "token": "<unk>",
+   "type": "control"
+  },
+  {
+   "id": 4,
+   "token": "<mask>",
+   "type": "control"
+  },
+  {
+   "id": 46,
+   "token": "<|tool>",
+   "type": "control"
+  },
+  {
+   "id": 47,
+   "token": "<tool|>",
+   "type": "control"
+  },
+  {
+   "id": 48,
+   "token": "<|tool_call>",
+   "type": "user_defined"
+  },
+  {
+   "id": 49,
+   "token": "<tool_call|>",
+   "type": "user_defined"
+  },
+  {
+   "id": 50,
+   "token": "<|tool_response>",
+   "type": "user_defined"
+  },
+  {
+   "id": 51,
+   "token": "<tool_response|>",
+   "type": "user_defined"
+  },
+  {
+   "id": 52,
+   "token": "<|\"|>",
+   "type": "user_defined"
+  },
+  {
+   "id": 98,
+   "token": "<|think|>",
+   "type": "control"
+  },
+  {
+   "id": 100,
+   "token": "<|channel>",
+   "type": "user_defined"
+  },
+  {
+   "id": 101,
+   "token": "<channel|>",
+   "type": "user_defined"
+  },
+  {
+   "id": 105,
+   "token": "<|turn>",
+   "type": "control"
+  },
+  {
+   "id": 106,
+   "token": "<turn|>",
+   "type": "control"
+  },
+  {
+   "id": 255999,
+   "token": "<|image>",
+   "type": "control"
+  },
+  {
+   "id": 256000,
+   "token": "<|audio>",
+   "type": "control"
+  },
+  {
+   "id": 258880,
+   "token": "<|image|>",
+   "type": "control"
+  },
+  {
+   "id": 258881,
+   "token": "<|audio|>",
+   "type": "control"
+  },
+  {
+   "id": 258882,
+   "token": "<image|>",
+   "type": "control"
+  },
+  {
+   "id": 258883,
+   "token": "<audio|>",
+   "type": "control"
+  },
+  {
+   "id": 258884,
+   "token": "<|video|>",
+   "type": "control"
+  }
+ ]
+}

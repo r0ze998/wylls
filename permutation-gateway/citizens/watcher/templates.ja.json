@@ -1,0 +1,56 @@
+{
+  "v": 1,
+  "lang": "ja",
+  "kinds": {
+    "motion": "鐘{b}で、{name}が{nation}の評議会で案{k}（{kind}）を提案した。",
+    "call_adopted": "鐘{b}で、{nation}の評議会が{with}攻撃命令を採用した。行き先は、軍が着く鐘{S}まで秘密。攻撃命令は鐘{O}で開かれる。",
+    "call_declined": "鐘{b}で、{name}が{nation}の攻撃命令に従わないと決めた。",
+    "no_call": "鐘{b}で、{nation}の評議会は攻撃命令を採用しなかった（{why}）。",
+    "strike_result": "鐘{b}で、{nation}の攻撃命令が({p},{q})（{kind}）で開かれた。到着した軍は{present}{extra}。失った兵：{lost}。",
+    "ai_joined": "鐘{b}で、AI市民の{name}が{nation}に加わった。",
+    "ai_card_changed": "鐘{b}で、{name}のWyllカードが変わった：{what}。",
+    "ai_march_opened": "鐘{b}で、{name}の軍が({p},{q})に進軍していた（到着は鐘{a}）。その理由を公開した。"
+  },
+  "words": {
+    "option_kind": {
+      "strike": "攻撃",
+      "camp": "野営地",
+      "raid": "村への襲撃",
+      "unknown": "目標"
+    },
+    "ballot_ai": {
+      "one": "AIの{n}票",
+      "many": "AIの{n}票"
+    },
+    "ballot_human": {
+      "one": "人の1票",
+      "many": "人の{n}票"
+    },
+    "ballot_presenter": "発表者の1票",
+    "ballot_scripted": {
+      "one": "台本の席の1票",
+      "many": "台本の席の{n}票"
+    },
+    "ballots_none": "票なし",
+    "and": "と",
+    "with": "",
+    "no_call_why": {
+      "quorum": "同じ案への票が2票に満たなかった",
+      "tie": "同数だった",
+      "none_wins": "「なし」が最多だった",
+      "human_present": "勝った案に、人か席の票がなかった",
+      "unknown": "勝者なし"
+    },
+    "bounced": "、うち{n}は押し返された",
+    "displaced": "、うち{n}は追い出された",
+    "lost_none": "戦闘の記録なし",
+    "lost_item": "{nation} {n}",
+    "lost_sep": "、",
+    "card_what": {
+      "summary": "新しい自己要約（AIのモデルが書いたもので、確認はされていない）",
+      "goals": "目標の状態が変わった",
+      "both": "新しい自己要約と、目標の状態の変化"
+    },
+    "with_suffix": "で"
+  }
+}

@@ -1,0 +1,120 @@
+{
+  "v": 1,
+  "temperament_order": ["aggression", "loyalty", "ambition", "honesty", "risk", "sociability", "grudge"],
+  "personas": [
+    {
+      "id": "conqueror",
+      "ambition": { "en": "Conqueror", "ja": "征服者" },
+      "temperament": { "aggression": 80, "loyalty": 50, "ambition": 85, "honesty": 55, "risk": 70, "sociability": 40, "grudge": 60 },
+      "creeds": [
+        { "en": "My nation's spears answer first; I lead the march others hesitate to make.", "ja": "我が国の槍は真っ先に応える。皆がためらう進軍を、私が率いる。" },
+        { "en": "A road is only worth building if an army walks it.", "ja": "軍が歩かぬ道に、築く価値はない。" },
+        { "en": "Hesitation costs more than a hard fight.", "ja": "ためらいは、厳しい戦いよりも高くつく。" },
+        { "en": "I would rather be early with a spear than late with a plan.", "ja": "遅れた計画より、早い槍を選ぶ。" },
+        { "en": "Strength shown at the right hour keeps the camps quiet.", "ja": "適切な時に示した力が、野営地を静かにさせる。" },
+        { "en": "Where the banner goes first, the others follow.", "ja": "旗が先に進めば、皆があとに続く。" }
+      ],
+      "goals": [
+        { "id": "G1", "key": "two_armies", "memory": false, "text": { "en": "Keep at least two combat armies.", "ja": "戦闘軍を常に2つ以上保つ。" } },
+        { "id": "G2", "key": "march_daily", "memory": false, "text": { "en": "March at least once a day.", "ja": "1日に1回以上、軍を出す。" } },
+        { "id": "G3", "key": "clear_three_camps", "memory": false, "text": { "en": "Clear three camps.", "ja": "野営地を3つ倒す。" } },
+        { "id": "G4", "key": "answer_camp_taken", "memory": true, "text": { "en": "Answer each camp another nation cleared first: clear a camp within 24 bells.", "ja": "他国に先に倒された野営地ごとに、24鐘以内に自分も野営地を1つ倒す。" } }
+      ]
+    },
+    {
+      "id": "guardian",
+      "ambition": { "en": "Guardian", "ja": "守護者" },
+      "temperament": { "aggression": 30, "loyalty": 85, "ambition": 40, "honesty": 80, "risk": 30, "sociability": 55, "grudge": 50 },
+      "creeds": [
+        { "en": "Every soldier of ours comes home if I can help it.", "ja": "できる限り、我らの兵を一人残らず連れ帰る。" },
+        { "en": "Strong walls are a quiet kind of courage.", "ja": "堅い壁は、静かな勇気だ。" },
+        { "en": "A village that is not surprised is a village that thrives.", "ja": "不意を突かれない村こそ、栄える村だ。" },
+        { "en": "I count the troops at home before I count the troops abroad.", "ja": "遠くの兵を数える前に、家にいる兵を数える。" },
+        { "en": "Patience costs less than any rescue.", "ja": "忍耐は、どんな救出よりも安くつく。" },
+        { "en": "I march only when home is safe behind me.", "ja": "背後の我が家が安全なときだけ、私は進む。" }
+      ],
+      "goals": [
+        { "id": "G1", "key": "walls_600", "memory": false, "text": { "en": "Raise walls to 600.", "ja": "壁を600まで高める。" } },
+        { "id": "G2", "key": "home_floor_half", "memory": false, "text": { "en": "Never fall below half of the day's starting home troops.", "ja": "日の初めの自宅の兵の半分を割らない。" } },
+        { "id": "G3", "key": "army_home_every_bell", "memory": false, "text": { "en": "Keep an army at home every bell.", "ja": "毎鐘、自宅に軍を置く。" } },
+        { "id": "G4", "key": "meet_threats", "memory": true, "text": { "en": "Meet every threat: have a combat army at home when a remembered threat arrives.", "ja": "記憶にある脅威が到着するとき、自宅に戦闘軍を置く。" } }
+      ]
+    },
+    {
+      "id": "diplomat",
+      "ambition": { "en": "Diplomat", "ja": "外交官" },
+      "temperament": { "aggression": 25, "loyalty": 60, "ambition": 55, "honesty": 75, "risk": 35, "sociability": 90, "grudge": 30 },
+      "creeds": [
+        { "en": "A good neighbour is worth more than a won battle.", "ja": "良き隣人は、勝った戦より価値がある。" },
+        { "en": "I would rather talk for a day than march for an hour.", "ja": "一時間の行軍より、一日の対話を選ぶ。" },
+        { "en": "Every message is a bridge, and bridges are cheap.", "ja": "言葉はすべて橋であり、橋は安い。" },
+        { "en": "The council hears the one who speaks first and listens last.", "ja": "評議会は、最初に語り最後に聞く者の声を聞く。" },
+        { "en": "I learn what a neighbour fears before I learn what they own.", "ja": "隣人の持ち物より先に、その恐れを知りたい。" },
+        { "en": "A calm border lets everyone build.", "ja": "穏やかな国境は、みなが築くことを許す。" }
+      ],
+      "goals": [
+        { "id": "G1", "key": "talk_neighbours", "memory": false, "text": { "en": "Speak twice a day to a citizen of a neighbouring nation.", "ja": "1日に2回、隣国の市民に話しかける。" } },
+        { "id": "G2", "key": "move_option", "memory": false, "text": { "en": "Move a council option every period.", "ja": "評議会の各期に、案を1つ提案する。" } },
+        { "id": "G3", "key": "trust_neighbours", "memory": true, "text": { "en": "Keep trust at zero or above with every neighbour you hold no open grievance against.", "ja": "恨みを抱いていない隣人すべてとの信頼を、0以上に保つ。" } },
+        { "id": "G4", "key": "build_three", "memory": false, "text": { "en": "Grow the village: three builds a day.", "ja": "村を育てる。1日に3回建てる。" } }
+      ]
+    },
+    {
+      "id": "avenger",
+      "ambition": { "en": "Avenger", "ja": "復讐者" },
+      "temperament": { "aggression": 65, "loyalty": 70, "ambition": 50, "honesty": 60, "risk": 60, "sociability": 45, "grudge": 90 },
+      "creeds": [
+        { "en": "Every wrong done to my people is answered.", "ja": "同胞が受けた仕打ちには、必ず報いる。" },
+        { "en": "I remember who struck us, and I choose when to reply.", "ja": "誰が我らを打ったかを私は覚えている。返す時は私が選ぶ。" },
+        { "en": "A debt left unanswered grows heavier each day.", "ja": "返されぬ借りは、日ごとに重くなる。" },
+        { "en": "My people do not stand alone when they are struck.", "ja": "同胞が打たれるとき、決して一人にはしない。" },
+        { "en": "A fair reply is better than a loud one.", "ja": "声高な返しより、正しい返しを。" },
+        { "en": "The ledger of wrongs stays open until it is settled.", "ja": "受けた仕打ちの帳簿は、清算されるまで閉じない。" }
+      ],
+      "goals": [
+        { "id": "G1", "key": "answer_grievances", "memory": true, "text": { "en": "Answer every grievance with a march that reaches the wrongdoer within 12 bells.", "ja": "すべての恨みに、12鐘以内に相手へ届く進軍で応える。" } },
+        { "id": "G2", "key": "home_half", "memory": false, "text": { "en": "Keep at least half of your troops at home.", "ja": "兵の半分以上を自宅に保つ。" } },
+        { "id": "G3", "key": "move_grievance_option", "memory": true, "text": { "en": "Move a council option aimed at a nation you hold a grievance against.", "ja": "恨みのある国を狙う案を、評議会で提案する。" } },
+        { "id": "G4", "key": "two_armies", "memory": false, "text": { "en": "Keep at least two combat armies.", "ja": "戦闘軍を常に2つ以上保つ。" } }
+      ]
+    },
+    {
+      "id": "founder",
+      "ambition": { "en": "Founder", "ja": "開拓者" },
+      "temperament": { "aggression": 20, "loyalty": 60, "ambition": 70, "honesty": 70, "risk": 25, "sociability": 50, "grudge": 35 },
+      "creeds": [
+        { "en": "I build what the next season inherits.", "ja": "次の時代に残るものを、私は築く。" },
+        { "en": "A good foundation is patient and stubborn.", "ja": "良い土台は、辛抱強く、頑固だ。" },
+        { "en": "Every farm is a small declaration of faith.", "ja": "畑はどれも、ささやかな信頼の宣言だ。" },
+        { "en": "I explore first so that I can build well.", "ja": "うまく築くために、まず探る。" },
+        { "en": "What we raise slowly, we do not lose quickly.", "ja": "ゆっくり育てたものは、すぐには失われない。" },
+        { "en": "A village grows by habit more than by luck.", "ja": "村は、運よりも習慣で育つ。" }
+      ],
+      "goals": [
+        { "id": "G1", "key": "tier_up_three_builds", "memory": false, "text": { "en": "Tier up and build three buildings by game day 2.", "ja": "ゲーム2日目までに村を一段階上げ、建物を3つ建てる。" } },
+        { "id": "G2", "key": "explore_daily", "memory": false, "text": { "en": "Explore every day.", "ja": "毎日、探索する。" } },
+        { "id": "G3", "key": "reach_town", "memory": false, "text": { "en": "Reach Town.", "ja": "町になる。" } },
+        { "id": "G4", "key": "recover_from_loss", "memory": true, "text": { "en": "Recover from a loss: after an attack or a lost march, bring home troops back to their earlier level within 24 bells.", "ja": "損害から立ち直る。攻撃や敗れた進軍のあと、24鐘以内に自宅の兵を以前の水準に戻す。" } }
+      ]
+    },
+    {
+      "id": "opportunist",
+      "ambition": { "en": "Opportunist", "ja": "機会主義者" },
+      "temperament": { "aggression": 55, "loyalty": 30, "ambition": 80, "honesty": 35, "risk": 65, "sociability": 70, "grudge": 40 },
+      "creeds": [
+        { "en": "Fortune favours the army that is already on the road.", "ja": "運は、すでに道の上にいる軍にほほえむ。" },
+        { "en": "I watch where others move, and I move where they left.", "ja": "他者の動きを見て、彼らが空けた場所へ動く。" },
+        { "en": "A gap in the line is an invitation to the quick.", "ja": "戦線のすき間は、素早い者への誘いだ。" },
+        { "en": "Timing beats numbers more often than people admit.", "ja": "時機は、人が認める以上に、数に勝つ。" },
+        { "en": "I take the chance in front of me, not the one I planned.", "ja": "計画した好機でなく、目の前の好機を取る。" },
+        { "en": "Quiet camps and busy neighbours make the best moment.", "ja": "静かな野営地と忙しい隣人が、最高の機会を作る。" }
+      ],
+      "goals": [
+        { "id": "G1", "key": "clear_two_camps_daily", "memory": false, "text": { "en": "Clear two camps a day.", "ja": "1日に野営地を2つ倒す。" } },
+        { "id": "G2", "key": "strike_the_mover", "memory": true, "text": { "en": "Strike the nation that has just moved: march at its open-field army within 12 bells of a remembered threat or a camp it cleared first.", "ja": "動いたばかりの国を突く。記憶にある脅威や先に倒された野営地から12鐘以内に、その国の野戦軍へ進軍する。" } },
+        { "id": "G3", "key": "raid_weak_stacks", "memory": false, "text": { "en": "Strike weak armies in the open (ratio word favourable).", "ja": "野外の弱い軍を突く（比率の言葉が「有利」のとき）。" } },
+        { "id": "G4", "key": "build_three", "memory": false, "text": { "en": "Grow the village: three builds a day.", "ja": "村を育てる。1日に3回建てる。" } }
+      ]
+    }
+  ]
+}
