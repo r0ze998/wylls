@@ -368,6 +368,19 @@ test('/v1/outcome: tx are attached to the record; a sent march enters the sealed
   }
 });
 
+test('two /v1/outcome posts for one decision (same-bell repeat): the tx is the union and the sealed set keeps the march', async () => {
+  const h = await makeMindHarness({ respond: (b) => sessionAnswer(b, { kinds: ['march'] }), feed: { cursorBell: () => 999, revealed: () => false } });
+  try {
+    const a = await h.mind.decide(req());
+    h.mind.outcome({ decision_id: a.decision_id, actions: [{ intent: 'build', status: 'sent', sig: 'B1' }, { intent: 'depart', status: 'sent', sig: 'D1' }] });
+    h.mind.outcome({ decision_id: a.decision_id, actions: [{ intent: 'harvest', status: 'sent', sig: 'H1' }] });
+    assert.deepEqual(h.records.get(a.decision_id).tx.map((t) => t.sig), ['B1', 'D1', 'H1']);
+    assert.equal(h.sealed.list(TAGS[0]).length, 1);
+  } finally {
+    await h.close();
+  }
+});
+
 test('an outcome with no sent march does not seal the set; the sealed set is pruned when the decision is opened or the target is public', async () => {
   const h = await makeMindHarness({ respond: (b) => sessionAnswer(b, { kinds: ['march'] }), feed: { cursorBell: () => 999, revealed: () => false } });
   try {

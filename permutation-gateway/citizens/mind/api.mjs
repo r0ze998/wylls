@@ -719,7 +719,7 @@ export function createMind(deps) {
     const memEpisodes = out.menu.mem.ids.map((id) => own.episodes?.get?.(id)).filter(Boolean);
     const sends = intendedSends({ cands: [], chosenIds: [], params: {}, autopilotDeparts: [], choseAutopilot: false, bell, member });
     const sealedForText = sealedForSpeech(own, [], member);
-    const sp = applySpeech({ value, speech, ctx: { kind, lang: speechLang, speechLang, promptText: rendered.messages[1].content, facts: JSON.stringify(council.options), episodeTexts: rendered.retrieved.map((id) => own.episodes?.get?.(id)).filter(Boolean).map((e) => `${e.text?.en ?? ''} ${e.text?.ja ?? ''}`), sealed: sealedForText, mem: out.menu.mem.ids, inFlight: sealed.list(own.tag).length > 0, untrusted: [] }, messagesLeft: Math.max(0, messagesCap(own.persona) - (doc.counters.messages ?? 0)), kind });
+    const sp = applySpeech({ value, speech, ctx: { kind, lang: speechLang, speechLang, promptText: rendered.messages[1].content, facts: JSON.stringify(council.options), episodeTexts: rendered.retrieved.map((id) => own.episodes?.get?.(id)).filter(Boolean).map((e) => `${e.text?.en ?? ''} ${e.text?.ja ?? ''}`), sealed: sealedForText, mem: out.menu.mem.ids, inFlight: sealed.list(own.tag).length > 0, untrusted: out.untrusted ?? [] }, messagesLeft: Math.max(0, messagesCap(own.persona) - (doc.counters.messages ?? 0)), kind });
     for (const [r, n] of Object.entries(sp.drops)) metrics.incGroup('speech_drop', r, n);
     const opts = new Map(council.options.map((o) => [o.option, o]));
     let social = { motion: null, ballot: null };

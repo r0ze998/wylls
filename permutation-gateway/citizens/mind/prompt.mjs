@@ -61,7 +61,8 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
   };
 
   // AC1b hook: a player's name is untrusted text: sanitised, cut to 32 code points, and without a double quote
-  const personName = (n) => sanitize(n, { limit: 32, untrusted: true }).replace(/"/g, "'");
+  // AC4's rows carry `name` as {en, ja} (social/book.mjs nameOf); a plain string is accepted too
+  const personName = (n, lang = 'en') => sanitize(typeof n === 'object' && n ? n[lang] ?? n.en ?? '' : n, { limit: 32, untrusted: true }).replace(/"/g, "'");
   // AC1b hook: `<untrusted from ch bell>` is built by code around sanitised text; a name cannot forge an attribute
   const wrap = (text, { from, ch, bell }) => wrapUntrusted(text, { from, ch, bell });
 
@@ -162,10 +163,10 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
     return out.sort((a, b) => a.bell - b.bell || (a.id < b.id ? -1 : 1));
   }
 
-  const itemLine = (r, people, ownTag, ch) => {
+  const itemLine = (r, people, ownTag, ch, lang = 'en') => {
     const handle = r.tag === ownTag ? 'you' : people.handleOfTag(r.tag) ?? 'C?';
     // AC1b hook: the sender's name is player text (untrusted); it is cut before the handle is added so the handle always survives
-    const nameStr = r.tag === ownTag ? 'you' : `${personName(r.name ?? nm(r.tag))} (${handle})`;
+    const nameStr = r.tag === ownTag ? 'you' : `${personName(r.name ?? nm(r.tag, lang), lang)} (${handle})`;
     return wrap(r.text, { from: nameStr, ch, bell: r.bell });
   };
 
@@ -227,11 +228,11 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
       const state = stateLines(sit, { trimNeighbours: neighbourTrim }).join('\n');
       const sc = [...threatLines(threats), ...councilLines(council, member, people)].join('\n');
       const legend = people.people.length
-        ? `PEOPLE (use these handles in say.to and trust.who): ${people.people.map((p) => `${p.handle} ${personName(p.name ?? nm(p.tag, lang))}${p.faction != null ? ` (nation ${p.faction})` : ''}`).join('; ')}`
+        ? `PEOPLE (use these handles in say.to and trust.who): ${people.people.map((p) => `${p.handle} ${personName(p.name ?? nm(p.tag, lang), lang)}${p.faction != null ? ` (nation ${p.faction})` : ''}`).join('; ')}`
         : 'PEOPLE: none named in this prompt.';
       const memory = `${legend}\n${attached.block}`.trim();
-      const inboxText = inboxRows.length ? inboxRows.map((r) => itemLine(r, people, ownState.tag, 'direct')).join('\n') : 'none';
-      const hallText = hallRows.length ? hallRows.map((r) => itemLine(r, people, ownState.tag, 'nation')).join('\n') : 'none';
+      const inboxText = inboxRows.length ? inboxRows.map((r) => itemLine(r, people, ownState.tag, 'direct', lang)).join('\n') : 'none';
+      const hallText = hallRows.length ? hallRows.map((r) => itemLine(r, people, ownState.tag, 'nation', lang)).join('\n') : 'none';
       const inboxSec = kind === 'ballot' ? '' : `INBOX (direct messages to you):\n${inboxText}\nNATION HALL (recent messages in your nation channel):\n${hallText}`;
       const cands = kind === 'session' ? candidateLines(attached.candidates).join('\n') : '';
       const candSec = kind === 'session' ? `CANDIDATES:\n${cands}` : '';

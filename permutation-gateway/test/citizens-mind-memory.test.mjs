@@ -44,6 +44,9 @@ test('retrieved = the ids behind the handles in handle order; resolveMem drops u
   const m = a.resolveMem(['M2', 'M2', 'M9', 'x', 'M1'], r.handles);
   assert.deepEqual(m.ids, [r.handles.M2, r.handles.M1]);
   assert.equal(m.dropped, 3);
+  const proto = a.resolveMem(['constructor', '__proto__', 'toString', 'M1'], r.handles);
+  assert.deepEqual(proto.ids, [r.handles.M1]);
+  assert.equal(proto.dropped, 3);
 });
 
 test('the mem enum of the answer schema equals the handles of the prompt; a handle outside it is dropped by V2 and counted', () => {

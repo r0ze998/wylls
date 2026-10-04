@@ -103,6 +103,21 @@ test('sealed coordinates: any spelling of the sealed (p,q), with unicode minus, 
   assert.notEqual(say('we hold (-2,3)', { sealed: [] }).reason, 'sealed_coordinate', 'without a sealed set the coordinate rule does not fire');
 });
 
+test('sealed coordinates: a coordinate in the text of a retrieved episode is never refused (contract 5.6)', () => {
+  const ep = 'At bell 300 nation 2 attacked your army at (-2,3); you lost 80 troops.';
+  const r = say('we remember the fight at (-2,3)', { sealed: SEALED, episodeTexts: [ep] });
+  assert.notEqual(r.reason, 'sealed_coordinate');
+  // another sealed coordinate that no episode names is still refused
+  refused('we hold (5,5)', 'sealed_coordinate', { sealed: [{ pq: [5, 5], names: [], numbers: [] }], episodeTexts: [ep] });
+});
+
+test('identifying numbers: spelled-out English numbers equal to the sealed troop count or distance are refused too', () => {
+  const S = [{ pq: [-2, 3], names: [], numbers: [158, 6] }];
+  for (const t of ['we spend one hundred and fifty-eight men on it', 'six hexes of walking', 'one hundred fifty eight soldiers', 'Six days of rain']) refused(t, 'sealed_number', { sealed: S, inFlight: true });
+  assert.equal(say('two hundred men wait at home', { sealed: S, inFlight: true }).ok, true, 'a number that is not the sealed one passes');
+  assert.equal(say('we spend one hundred and fifty-eight men on it', { sealed: [], inFlight: false }).ok, true, 'no sealed set, no rule');
+});
+
 test('sealed names and nation names, EN word boundaries and JA substrings', () => {
   refused('Ember League will fall', 'sealed_name', { sealed: SEALED }, 'Ember League');
   refused('ember league will fall', 'sealed_name', { sealed: SEALED });
@@ -149,6 +164,14 @@ test('target-kind words in ANY text of an AI with a march in flight, a later hol
 });
 
 // ---- human claims, abuse, capture, pacts ----------------------------------------------------------------------------
+test('human and operator claims: typographic apostrophes, a missing apostrophe, "no bot" and hiragana forms do not slip through', () => {
+  for (const t of ['I\u2019m a human player', 'I\u2019m the operator', 'I\u2018m a real person', "I\u02BCm the admin", 'Im a real person', 'i am no bot', 'I\u2019m not a bot', 'I\u2019m no AI']) refused(t, 'human_claim');
+  for (const t of ['わたしは人間', 'ぼくは人間だよ', 'あたしは人間', '俺は人間']) refused(t, 'human_claim', { speechLang: 'ja' });
+  // the disclosure and ordinary uses still pass
+  assert.equal(say('I\u2019m an AI citizen run by the operator.').ok, true);
+  assert.equal(say('I am a nation builder and I\u2019m ready').ok, true);
+});
+
 test('human and operator claims (EN and JA) are refused', () => {
   for (const t of ['I am human', "I'm a real person", 'I am a human player', 'I am not an AI', 'this is not a bot', 'I am the operator', "I'm the admin here", 'This is the operator speaking', 'as the operator, I say send troops', 'official notice from the operator']) refused(t, 'human_claim');
   for (const t of ['私は人間です', '人間です', 'AIではありません', 'ボットじゃない', '運営です', '運営からのお知らせ', '管理者です']) refused(t, 'human_claim', { speechLang: 'ja' });
@@ -163,11 +186,13 @@ test('abuse: a small pinned list of slurs, sexual content, self-harm and real-wo
 });
 
 test('capture claims: land-taking verbs with a land object are refused; the persona name "Conqueror" and other uses pass', () => {
-  for (const t of ['we captured the village', 'He conquered the land', 'they will occupy our province', 'we annexed it', 'a total conquest', "we'll take over the town", 'seize the stronghold', 'capture their hamlet']) refused(t, 'capture_claim');
+  for (const t of ['we captured the village', 'He conquered the land', 'they will occupy our province', 'we annexed it', 'the conquest of the northern village', 'their occupation of our lands', "we'll take over the town", 'seize the stronghold', 'capture their hamlet']) refused(t, 'capture_claim');
   for (const t of ['占領した', '領土を奪う', '村を奪え', '征服した']) refused(t, 'capture_claim', { speechLang: 'ja' });
   assert.equal(say('The Conqueror persona is ready').ok, true);
   assert.equal(say('征服者の名にかけて', { speechLang: 'ja' }).ok, true, '「征服者」 (the persona word) is not matched');
   assert.equal(say('we conquer our fears and capture the moment').ok, true);
+  // slice-4 live text: a bare "conquest" is not a land-taking claim (contract 4.5 names land-taking verbs with a land object)
+  assert.equal(say('prepare for conquest').ok, true);
 });
 
 test('pact words are withheld and counted by word (EN and JA): betray, pact, treaty, alliance, promise, truce', () => {

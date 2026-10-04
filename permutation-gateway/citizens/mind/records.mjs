@@ -184,18 +184,34 @@ export function createRecords({ aiDir, runId = 'run', season = 0, randomBytes = 
     atomicWrite(`${PUB}/minds/late/${bell}.json`, JSON.stringify({ bell, entries: lateEntries.get(bell) ?? [] }));
   }
 
-  /** The brain's POST /v1/outcome: actions [{intent, sig?, status, code?}] become the record's tx. */
+  /**
+   * The brain's POST /v1/outcome: actions [{intent, sig?, status, code?}] become the record's tx. A decision can get more
+   * than one outcome (a same-bell nudge repeat answers from the cached decision and posts its own step's actions), so a
+   * later outcome ADDS to the tx: identical entries (same sig, or same intent/status/code without one) are kept once,
+   * first-seen order. Contract 7.3 M7: every transaction appears in exactly one record's tx.
+   */
   function attachOutcome(id, outcome) {
     const e = byId.get(id);
     if (!e) return { ok: false, error: 'unknown decision_id' };
-    const tx = (outcome?.actions ?? []).map((a) => ({
+    const incoming = (outcome?.actions ?? []).map((a) => ({
       intent: String(a.intent ?? ''),
       sig: a.sig ?? null,
       status: a.status === 'sent' ? 'sent' : 'refused',
       code: a.code ?? null,
     }));
+    const tx = [...(e.full.tx ?? [])];
+    const keyOf = (t) => (t.sig ? `sig:${t.sig}` : `${t.intent}|${t.status}|${t.code ?? ''}`);
+    const have = new Set(tx.map(keyOf));
+    let added = 0;
+    for (const t of incoming) {
+      const k = keyOf(t);
+      if (have.has(k)) continue;
+      have.add(k);
+      tx.push(t);
+      added += 1;
+    }
     if (closed.has(e.bell)) {
-      counters.late_tx += tx.length ? 1 : 0;
+      counters.late_tx += added ? 1 : 0;
       const arr = lateEntries.get(e.bell) ?? [];
       arr.push({ id, tx });
       lateEntries.set(e.bell, arr);

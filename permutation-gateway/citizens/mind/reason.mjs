@@ -202,9 +202,12 @@ export const MEMORY_CLAIM_JA = Object.freeze(['覚え', '思い出', '以前', '
 const MEMORY_RE_EN = new RegExp(String.raw`\b(?:${MEMORY_CLAIM_EN.join('|')})\b`, 'i');
 const MEMORY_RE_JA = new RegExp(MEMORY_CLAIM_JA.join('|'));
 
+/** Typographic apostrophes and accents to the ASCII one, so the word lists see "I'm" however a model spells it. */
+export const plainApostrophe = (s) => String(s ?? '').replace(/[\u2018\u2019\u201B\u02BC\u2032\u00B4`]/g, "'");
+
 /** The memory-claim word found in `text`, or null. */
 export function memoryClaim(text) {
-  const s = String(text ?? '').normalize('NFKC');
+  const s = plainApostrophe(String(text ?? '').normalize('NFKC'));
   return MEMORY_RE_EN.exec(s)?.[0]?.toLowerCase() ?? MEMORY_RE_JA.exec(s)?.[0] ?? null;
 }
 
@@ -269,7 +272,7 @@ const normPair = (s) => s.replace(/[−–]/g, '-').replace(/\s+/g, '');
  * The returned text is sanitised as a summary (braces and brackets fullwidth, step 5b).
  */
 export function checkSummary(text, win, base) {
-  const raw = String(text ?? '').normalize('NFKC');
+  const raw = plainApostrophe(String(text ?? '').normalize('NFKC'));
   if (HANDLE_IMITATION.test(raw)) return { ok: false, reason: 'handle_imitation', word: HANDLE_IMITATION.exec(raw)[0] };
   if (NON_LATIN_LETTER.test(raw)) return { ok: false, reason: 'non_latin' };
   const imp = IMPERATIVE_RE_EN.exec(raw)?.[0] ?? IMPERATIVE_RE_JA.exec(raw)?.[0];

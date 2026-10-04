@@ -121,6 +121,25 @@ test('closeBell writes once and is idempotent; a later outcome goes to PUB/minds
   assert.equal(JSON.parse(readFileSync(join(d, 'pub/minds/late/700.json'), 'utf8')).entries.at(-1).record.id, l.id);
 });
 
+test('a second outcome for one decision ADDS to the tx (same-bell repeat), identical entries once, in first-seen order (M7)', () => {
+  const d = dir();
+  const r = createRecords({ aiDir: d });
+  const a = r.add(rec({ bell: 710 }));
+  r.attachOutcome(a.id, { actions: [{ intent: 'build', sig: 'SIG1', status: 'sent' }, { intent: 'depart', sig: 'SIG2', status: 'sent' }] });
+  r.attachOutcome(a.id, { actions: [{ intent: 'nudge', sig: 'SIG3', status: 'sent' }, { intent: 'build', sig: 'SIG1', status: 'sent' }] });
+  assert.deepEqual(r.get(a.id).tx.map((t) => t.sig), ['SIG1', 'SIG2', 'SIG3']);
+  // refused entries carry no sig: kept once per (intent,status,code)
+  r.attachOutcome(a.id, { actions: [{ intent: 'train', status: 'refused', code: 'x' }, { intent: 'train', status: 'refused', code: 'x' }] });
+  assert.equal(r.get(a.id).tx.length, 4);
+  // survives a restart (journal replay)
+  const r2 = createRecords({ aiDir: d });
+  assert.deepEqual(r2.get(a.id).tx.map((t) => t.sig), ['SIG1', 'SIG2', 'SIG3', null]);
+  // and after the bell is closed: a late second outcome still adds
+  r.closeBell(710);
+  r.attachOutcome(a.id, { actions: [{ intent: 'muster', sig: 'SIG4', status: 'sent' }] });
+  assert.deepEqual(r.get(a.id).tx.map((t) => t.sig), ['SIG1', 'SIG2', 'SIG3', null, 'SIG4']);
+});
+
 test('provenance: the signed-ready text per (decision_id, item), consumed once', () => {
   const r = createRecords({ aiDir: dir() });
   const { id } = r.add(rec(), { social: { talk: [{ item: 0, kind: 0, channel: 1, text: 'hello', bell: 402, seq: 6432 }, { item: 1, kind: 1, channel: 1, text: 'motion', bell: 402, seq: 6433 }], ballot: [{ item: 0, option: 2, period: 4 }] } });

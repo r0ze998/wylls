@@ -110,6 +110,11 @@ test('say: what the mind hands out is accepted once when signed, comes back thro
     const prompt = h.llama.bodies.at(-1).messages[1].content;
     assert.match(prompt, /Our granaries are filling\./, 'the other AI of the nation reads it in its hall');
     assert.match(prompt, /<untrusted from=/, 'wrapped as data');
+    // AC4's rows carry name as {en, ja}: the prompt shows the roster name, never an object
+    assert.doesNotMatch(prompt, /object Object/);
+    const senderName = h.svc.social.read.hall(0, 5)[0].name;
+    assert.equal(typeof senderName, 'object', 'the real store returns {en, ja}');
+    assert.ok(prompt.includes(`<untrusted from="${senderName.en} (C1)"`) || prompt.includes(`from="${senderName.en}`), `the sender's name is in the attribute: ${prompt.match(/<untrusted from="[^"]*"/)?.[0]}`);
     // a tampered text is refused: the record is not what the mind produced
     const ib = db.social.say[0];
     const bad = await h.post('/f/ai/talk', { ...h.signTalk(h.b, ib, { text: `${ib.text}!` }), decision_id: db.decision_id, item: ib.item });

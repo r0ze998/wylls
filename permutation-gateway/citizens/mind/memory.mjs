@@ -121,7 +121,7 @@ export function createMemoryAttach({ renderMemory, goalsServed = null, blockToke
     let dropped = 0;
     const seen = new Set();
     for (const h of mem ?? []) {
-      if (typeof h !== 'string' || !(h in handles) || seen.has(h)) {
+      if (typeof h !== 'string' || !Object.hasOwn(handles, h) || seen.has(h)) {
         dropped += 1;
         continue;
       }

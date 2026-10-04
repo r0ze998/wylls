@@ -10,12 +10,10 @@ import { createRoster } from '../../citizens/mind/views.mjs';
 const HERE = new URL('.', import.meta.url);
 export const sha = (s) => createHash('sha256').update(s).digest('hex');
 
-/** The golden wire fixture of AC3a if it is in this tree, else the copy this unit keeps (and says which). */
+/** The golden wire fixture of AC3a (ai-decide-v1.json). The unit's stale byte copy was removed at integ-A review. */
 export function loadWireFixture() {
   const real = new URL('ai-decide-v1.json', HERE);
-  const copy = new URL('ai-mind-wire-copy.json', HERE);
-  if (existsSync(real)) return { json: JSON.parse(readFileSync(real, 'utf8')), source: 'ai-decide-v1.json' };
-  return { json: JSON.parse(readFileSync(copy, 'utf8')), source: 'ai-mind-wire-copy.json (copied from AC3a 55644a9)' };
+  return { json: JSON.parse(readFileSync(real, 'utf8')), source: 'ai-decide-v1.json' };
 }
 
 export const TAGS = ['1885b43b654f032b', 'aaaaaaaaaaaaaaa1', 'aaaaaaaaaaaaaaa2', 'bbbbbbbbbbbbbbb1'];

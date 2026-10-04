@@ -64,6 +64,13 @@ test('V2: mem handles outside the retrieved set are dropped and counted, never i
   assert.equal(r.mem.dropped, 3);
 });
 
+test('V2: object-prototype names are not handles (a hostile or buggy answer cannot write non-ids into mem)', () => {
+  const r = checkMenu(val({ mem: ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'M1'] }), { candidates: cands, handles });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.mem.ids, ['e1']);
+  assert.equal(r.mem.dropped, 4);
+});
+
 test('V3 (a): the decision\'s marches may not exceed 60 % of home troops', () => {
   const r = applyCaps({ chosen: ['c3', 'c9'], candidates: cands, homeTroops: 1000, dayStart: { home_troops: 150, march_troops_model: 0 }, marchesToday: 0 });
   assert.deepEqual(r.kept, ['c3']);

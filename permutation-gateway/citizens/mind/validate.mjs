@@ -67,7 +67,7 @@ export function checkMenu(value, { candidates, handles = {}, queueFree = null })
   let dropped = 0;
   const seen = new Set();
   for (const h of value.mem ?? []) {
-    if (typeof h !== 'string' || !(h in handles) || seen.has(h)) {
+    if (typeof h !== 'string' || !Object.hasOwn(handles, h) || seen.has(h)) {
       dropped += 1;
       continue;
     }

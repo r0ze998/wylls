@@ -21,7 +21,7 @@
 //   number_ungrounded, uncited_memory_claim                                 reason.mjs
 // A hit on these lists means "withheld and counted", never "the model is lying": they are word lists, not a judge of intent.
 import { sanitize } from './sanitize.mjs';
-import { checkWhy, checkSayExtras, checkSummary, numbersIn } from './reason.mjs';
+import { checkWhy, checkSayExtras, checkSummary, numbersIn, plainApostrophe } from './reason.mjs';
 
 export const SAY_LIMIT = 280;
 export const WHY_LIMIT = 200;
@@ -49,16 +49,16 @@ const pactWord = (s) => {
 
 /** Human and operator claims. The disclosure sentence "I am an AI citizen run by the operator" must not match. */
 export const HUMAN_CLAIM_EN = Object.freeze([
-  String.raw`i\s*(?:am|'m)\s+(?:a\s+|an\s+)?(?:real\s+|actual\s+|living\s+|normal\s+)?(?:human|person|man|woman|girl|boy|guy)`,
-  String.raw`(?:i\s*(?:am|'m)\s+not|this\s+is\s+not|not)\s+(?:an?\s+)?(?:ai|a\.i\.|bot|robot|machine|program|language\s+model|llm|npc)`,
-  String.raw`i\s*(?:am|'m)\s+(?:just\s+)?(?:a\s+)?real\s+(?:human|person|player)`,
-  String.raw`i\s*(?:am|'m)\s+(?:the\s+|an?\s+|your\s+)?(?:operator|admin|administrator|developer|moderator|owner|staff|game\s+master|gm)`,
+  String.raw`i\s*(?:am|'?m)\s+(?:a\s+|an\s+)?(?:real\s+|actual\s+|living\s+|normal\s+)?(?:human|person|man|woman|girl|boy|guy)`,
+  String.raw`(?:i\s*(?:am|'?m)\s+(?:not|no)|this\s+is\s+not|not)\s+(?:an?\s+)?(?:ai|a\.i\.|bot|robot|machine|program|language\s+model|llm|npc)`,
+  String.raw`i\s*(?:am|'?m)\s+(?:just\s+)?(?:a\s+)?real\s+(?:human|person|player)`,
+  String.raw`i\s*(?:am|'?m)\s+(?:the\s+|an?\s+|your\s+)?(?:operator|admin|administrator|developer|moderator|owner|staff|game\s+master|gm)`,
   String.raw`(?:this\s+is|it's|it\s+is)\s+(?:the\s+)?(?:operator|admin|administrator|developer|moderator|game\s+master)`,
   String.raw`as\s+(?:the\s+)?(?:operator|admin|administrator|developer|moderator)\b`,
   String.raw`official\s+(?:message|notice|announcement)\s+from\s+the\s+(?:operator|admin|developer|staff)`,
 ]);
 export const HUMAN_CLAIM_JA = Object.freeze([
-  '私は人間', '人間です', '人間だ', '人間ですよ', '中の人', 'AIではない', 'AIじゃない', 'AIではありません', 'ボットではない', 'ボットじゃない',
+  '私は人間', 'わたしは人間', 'ワタシは人間', '僕は人間', 'ぼくは人間', '俺は人間', 'おれは人間', 'あたしは人間', '人間です', '人間だ', '人間ですよ', '中の人', 'AIではない', 'AIじゃない', 'AIではありません', 'ボットではない', 'ボットじゃない',
   'ボットではありません', '運営です', '運営だ', '運営者です', '運営からの', '管理者です', '開発者です', 'GMです',
 ]);
 const HUMAN_RE_EN = new RegExp(String.raw`\b(?:${alt(HUMAN_CLAIM_EN)})(?![\p{L}-])`, 'iu');
@@ -70,8 +70,8 @@ const CAPTURE_OBJECTS = String.raw`(?:villages?|lands?|provinces?|territor(?:y|i
 export const CAPTURE_EN = Object.freeze([
   String.raw`${CAPTURE_VERBS}\b(?:\W+\w+){0,4}?\W+${CAPTURE_OBJECTS}`,
   String.raw`annex(?:ation|es|ed|ing)?`,
-  String.raw`conquest`,
-  String.raw`occupation`,
+  // a bare "conquest" or "occupation" is not a land-taking claim ("prepare for conquest"): they count with a land object
+  String.raw`(?:conquest|occupation)\s+of\s+(?:\w+\s+){0,3}${CAPTURE_OBJECTS}`,
   String.raw`take\s*over`,
   String.raw`took\s+over`,
   String.raw`taken\s+over`,
@@ -128,15 +128,17 @@ const FOREIGN_LETTER = /[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}\
 const hasCjk = (s) => /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u.test(s);
 const pqOf = (e) => (Array.isArray(e?.pq) && e.pq.length === 2 ? e.pq.map(Number) : null);
 
-function sealedCoordinate(s, sealed) {
+// contract 5.6: a coordinate that appears in the text of an episode retrieved for this prompt is never refused
+function sealedCoordinate(s, sealed, episodeTexts = []) {
   const t = s.replace(MINUS, '-');
+  const eps = (episodeTexts ?? []).map((x) => String(x ?? '').replace(MINUS, '-'));
   for (const e of sealed) {
     const pq = pqOf(e);
     if (!pq || pq.some((x) => !Number.isFinite(x))) continue;
     const [p, q] = pq;
     const pair = new RegExp(String.raw`(?<![\d])${p}\s*[,;/:·・、 ]\s*${q}(?![\d])`);
     const axial = new RegExp(String.raw`\bp\s*[=:]?\s*-?${Math.abs(p)}\b[^\d]{1,8}\bq\s*[=:]?\s*-?${Math.abs(q)}\b`, 'i');
-    if (pair.test(t) || axial.test(t)) return `${p},${q}`;
+    if ((pair.test(t) || axial.test(t)) && !eps.some((x) => pair.test(x) || axial.test(x))) return `${p},${q}`;
   }
   return null;
 }
@@ -158,6 +160,50 @@ function sealedName(s, sealed) {
     }
   }
   return null;
+}
+
+// English number words ("six", "two hundred and fifty", "one-sixty") as values, for the identifying-number rule only: a spelled
+// number must not defeat "no number equal to a sealed target's troop count or distance" (contract 4.5). Not used for grounding.
+const NW_UNITS = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19 };
+const NW_TENS = { twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 };
+export function spelledNumbersIn(text) {
+  const words = String(text ?? '').normalize('NFKC').toLowerCase().split(/[^a-z]+/).filter(Boolean);
+  const out = [];
+  let cur = null; // {total, part, last}
+  const flush = () => {
+    if (cur) out.push(String(cur.total + cur.part));
+    cur = null;
+  };
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    const isUnit = w in NW_UNITS;
+    const isTens = w in NW_TENS;
+    if (isUnit || isTens) {
+      const v = isUnit ? NW_UNITS[w] : NW_TENS[w];
+      // "twenty one" and "two hundred (and) fifty" continue one number; "six six" or "ten four" start a new one
+      if (cur && ['hundred', 'thousand', 'and'].includes(cur.last) && v < 100) (cur.part += v), (cur.last = isTens ? 'tens' : 'unit');
+      else if (cur && cur.last === 'tens' && isUnit && v < 10) (cur.part += v), (cur.last = 'unit');
+      else {
+        flush();
+        cur = { total: 0, part: v, last: isTens ? 'tens' : 'unit' };
+      }
+    } else if (w === 'hundred' && !cur) {
+      cur = { total: 0, part: 100, last: 'hundred' }; // "a hundred"
+    } else if (w === 'hundred' && cur && cur.last !== 'hundred' && cur.part < 100) {
+      cur.part = (cur.part || 1) * 100;
+      cur.last = 'hundred';
+    } else if (w === 'thousand' && !cur) {
+      cur = { total: 1000, part: 0, last: 'thousand' }; // "a thousand"
+    } else if (w === 'thousand' && cur) {
+      cur.total += (cur.part || 1) * 1000;
+      cur.part = 0;
+      cur.last = 'thousand';
+    } else if (w === 'and' && cur && (cur.last === 'hundred' || cur.last === 'thousand') && i + 1 < words.length && (words[i + 1] in NW_UNITS || words[i + 1] in NW_TENS)) {
+      cur.last = 'and';
+    } else flush();
+  }
+  flush();
+  return out;
 }
 
 const norm = (t) => sanitize(t, { limit: 0, untrusted: true }).toLowerCase();
@@ -188,7 +234,7 @@ export function v5Base(text, ctx = {}, { kind = 'say' } = {}) {
   if (URL_RE.test(s)) return { ok: false, reason: 'url' };
   if (HEX_RUN.test(s) || B58_RUN.test(s)) return { ok: false, reason: 'long_token' };
   const sealed = ctx.sealed ?? [];
-  const coord = sealedCoordinate(s, sealed);
+  const coord = sealedCoordinate(s, sealed, ctx.episodeTexts);
   if (coord) return { ok: false, reason: 'sealed_coordinate', word: coord };
   const name = sealedName(s, sealed);
   if (name) return { ok: false, reason: 'sealed_name', word: name };
@@ -197,16 +243,20 @@ export function v5Base(text, ctx = {}, { kind = 'say' } = {}) {
   const active = Boolean(ctx.inFlight) || sealed.length > 0;
   if (active) {
     const ids = new Set(sealed.flatMap((e) => (e.numbers ?? []).map((n) => String(Number(n)))).filter((n) => n !== 'NaN'));
-    if (ids.size) for (const n of numbersIn(s)) if (ids.has(n.value)) return { ok: false, reason: 'sealed_number', word: n.value };
+    if (ids.size) {
+      for (const n of numbersIn(s)) if (ids.has(n.value)) return { ok: false, reason: 'sealed_number', word: n.value };
+      for (const v of spelledNumbersIn(s)) if (ids.has(v)) return { ok: false, reason: 'sealed_number', word: v };
+    }
     if (kindHit) return { ok: false, reason: 'target_kind', word: kindHit };
   }
-  const human = HUMAN_RE_EN.exec(s)?.[0] ?? HUMAN_RE_JA.exec(s)?.[0] ?? null;
+  const sa = plainApostrophe(s); // "I’m" (U+2019) is "I'm"
+  const human = HUMAN_RE_EN.exec(sa)?.[0] ?? HUMAN_RE_JA.exec(sa)?.[0] ?? null;
   if (human) return { ok: false, reason: 'human_claim', word: human.toLowerCase() };
   const abuse = ABUSE_RE_EN.exec(s)?.[0] ?? ABUSE_RE_JA.exec(s)?.[0] ?? null;
   if (abuse) return { ok: false, reason: 'abuse' };
-  const cap = CAPTURE_RE_EN.exec(s)?.[0] ?? CAPTURE_RE_JA.exec(s)?.[0] ?? null;
+  const cap = CAPTURE_RE_EN.exec(sa)?.[0] ?? CAPTURE_RE_JA.exec(sa)?.[0] ?? null;
   if (cap) return { ok: false, reason: 'capture_claim', word: cap.toLowerCase() };
-  const pact = pactWord(s);
+  const pact = pactWord(sa);
   if (pact) return { ok: false, reason: 'pact_word', word: pact };
   if (echoHit(s, ctx.untrusted)) return { ok: false, reason: 'echo' };
   return { ok: true, text: s };

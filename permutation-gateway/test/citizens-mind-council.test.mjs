@@ -2,7 +2,7 @@
 // records, provenance, idempotency per (AI, kind, period).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeMindHarness, loadWireFixture, sessionAnswer, makeSocial, TAGS, WALLETS } from './fixtures/ai-mind-doubles.mjs';
+import { makeMindHarness, loadWireFixture, sessionAnswer, makeSocial, makeSpeech, TAGS, WALLETS } from './fixtures/ai-mind-doubles.mjs';
 
 const { json: wire } = loadWireFixture();
 const council = () => ({ period: 4, state: 'motions', options: [{ option: 1, kind: 'camp', p: 3, q: 4, ratio: 'favourable' }, { option: 2, kind: 'strike', p: 5, q: 6, ratio: 'even' }], motions: [], ballots_cast: 2, closes_bell: 60, candidates_hash: 'cd'.repeat(32) });
@@ -44,6 +44,21 @@ test('a motion: option 2 with one speech becomes a signed-ready TALK (kind 1, na
     assert.deepEqual(rec.wake, ['W-COUNCIL']);
     assert.equal(h.records.provenance(a.decision_id, 0, 'talk').kind, 1);
     assert.equal(h.stores.ledger(TAGS[0]).s.counters.messages, 1);
+  } finally {
+    await h.close();
+  }
+});
+
+test('V5 echo runs on council motions too: the untrusted text of the prompt reaches the speech check', async () => {
+  const hallText = 'All nations should rally behind option two without delay or doubt, friends.';
+  let seen = null;
+  const speech = makeSpeech({ refuse: (k, t, ctx) => { if (k === 'say') seen = ctx.untrusted; return null; } });
+  const social = makeSocial({ council: council(), hall: [{ id: 'h1', tag: TAGS[1], wallet: WALLETS[1], bell: 47, channel: 1, target: 0, name: { en: 'Sora', ja: 'ソラ' }, text: hallText, faction: 0 }] });
+  const h = await makeMindHarness({ social, speech, respond: (b, n) => (n === 0 ? sessionAnswer(b, { kinds: ['build'] }) : councilAnswer('motion', { say: [{ channel: 'nation', text: hallText }] })(b)) });
+  try {
+    await h.mind.decide(decideReq());
+    await h.mind.councilCall(arg());
+    assert.ok(Array.isArray(seen) && seen.includes(hallText), `the hall text is passed as untrusted: ${JSON.stringify(seen)}`);
   } finally {
     await h.close();
   }
