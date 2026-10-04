@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import {
-  KEY_KINDS, classifyText, parseBody, eligibility, removeFrom, diffUser, sameOutsideUserAndMem, buildControl, readChoice, allowedWording, decisionCaption,
+  captionsOf, KEY_KINDS, classifyText, parseBody, eligibility, removeFrom, diffUser, sameOutsideUserAndMem, buildControl, readChoice, allowedWording, decisionCaption,
   loadRecords, loadRequests, citedHandles, runProbe, approxCount, MIN_N, NOTHING,
 } from '../citizens/probe/memory.mjs';
 
@@ -131,6 +131,9 @@ test('the only allowed wording, and the featured-decision captions', () => {
   assert.equal(w, 'when the Remembered lines were removed from 3 logged prompts, the chosen candidate changed in 1 (rerun: 0; control: 2)');
   for (const bad of ['because', 'improv', 'behaviour', 'remembers', 'wants']) assert.equal(w.includes(bad), false);
   assert.equal(decisionCaption(true), 'with this line removed, the choice changed');
+  assert.equal(decisionCaption(false), 'with this line removed, the choice did not change');
+  assert.equal(decisionCaption(true, { all: true }), 'with these lines removed, the choice changed');
+  assert.equal(decisionCaption(false, { all: true }), 'with the Remembered lines removed, the choice did not change');
   assert.ok(!/because/.test(decisionCaption(false)));
   assert.equal(MIN_N, 40);
 });
@@ -238,6 +241,10 @@ test('one-decision mode (b2): the three arms plus one single-line ablation per c
   assert.deepEqual(it.single_line_ablations.map((s) => s.handle), ['M4', 'M5'], 'the cited lines');
   assert.equal(it.single_line_results.length, 2);
   assert.ok(it.single_line_results.every((r) => typeof r.caption === 'string' && !/because/.test(r.caption)));
+  assert.deepEqual(rep.captions.single_line.map((c) => c.handle), ['M4', 'M5']);
+  assert.equal(rep.captions.all_lines, 'with these lines removed, the choice changed', 'the fake flips the all-lines ablation of this decision');
+  assert.equal(rep.captions.rerun_changed, false);
+  assert.equal(rep.captions.control.changed, false);
   assert.equal(rep.planned_calls, 5);
   await assert.rejects(() => runProbe({ requests, records, complete: m.complete, decision: 'ffffffff' }), /no stored request/);
 });

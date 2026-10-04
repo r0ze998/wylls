@@ -263,9 +263,25 @@ function sortKeys(v) {
 export function allowedWording({ n, k, k_rerun, k_control }) {
   return `when the Remembered lines were removed from ${n} logged prompts, the chosen candidate changed in ${k} (rerun: ${k_rerun}; control: ${k_control})`;
 }
-/** The caption of the featured decision (contract 9.1 (b2)): only these two. */
-export function decisionCaption(changed) {
-  return changed ? 'with this line removed, the choice changed' : 'with the Remembered lines removed, the choice did not change';
+/**
+ * The caption of the featured decision (contract 9.1 (b2)): only these. A single-line ablation says "with this line removed, the choice
+ * changed" (the contract's sentence); an all-lines ablation says the same in the plural. Never "because". The control result is to be shown
+ * next to either caption: a prompt shortened by an equal number of tokens from unrelated lines can change the choice as well.
+ */
+export function decisionCaption(changed, { all = false } = {}) {
+  if (all) return changed ? 'with these lines removed, the choice changed' : 'with the Remembered lines removed, the choice did not change';
+  return changed ? 'with this line removed, the choice changed' : 'with this line removed, the choice did not change';
+}
+/** The captions of a one-decision report, derived from its own results. */
+export function captionsOf(report) {
+  const it = (report.items ?? []).find((x) => x.ablated);
+  if (!it) return null;
+  return {
+    all_lines: decisionCaption(it.ablated.changed, { all: true }),
+    single_line: (it.single_line_results ?? []).map((r) => ({ handle: r.handle, caption: decisionCaption(r.changed) })),
+    control: it.control_result ? { changed: it.control_result.changed, note: 'the control removed an equal number of tokens from lines the decision did not cite' } : null,
+    rerun_changed: it.rerun?.changed ?? null,
+  };
 }
 
 // ---------------------------------------------------------------- loading what the run left
@@ -452,7 +468,7 @@ function finish({ items, plan, stats, dry, tokenCounter, calls, notRun, decision
       'a change of the chosen candidate when lines are removed is not evidence that memory improves play or that the model wants anything',
       `the control removes whole lines to match the token count: ${withControl.length} of ${n} prompts had one; the rest had none available`,
     ];
-    if (decision) out.caption = rows[0]?.single_line_results?.[0]?.caption ?? (rows[0]?.ablated ? decisionCaption(rows[0].ablated.changed) : null);
+    if (decision) out.captions = captionsOf(out);
   }
   return out;
 }

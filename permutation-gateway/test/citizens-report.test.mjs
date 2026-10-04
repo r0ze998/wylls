@@ -186,7 +186,7 @@ test('valid-choice and fallback arithmetic (synthetic records): reflections, no_
 
 test('markdown: states local test chain, Y strict, underpowered n and every run; no flattering words', () => {
   const md = renderMarkdown(buildReport({ aiDir: FIX, runsFile: new URL('../../docs/frontier/ai-citizens/RUNS.md', import.meta.url).pathname }));
-  for (const must of ['Local test chain only', 'Not devnet, not mainnet', 'Y (strict) = 0', 'underpowered', 'slice-1', 'slice-4', 'not measured', 'do not show', 'NOT Y']) assert.ok(md.includes(must), `missing: ${must}`);
+  for (const must of ['Local test chain only', 'no public network', 'Y (strict) = 0', 'underpowered', 'slice-1', 'slice-4', 'not measured', 'do not show', 'NOT Y']) assert.ok(md.includes(must), `missing: ${must}`);
   for (const bad of ['devnet is', 'mainnet is', 'stronger than', 'indistinguishable', 'the ai wants', 'traction is', 'earn']) assert.equal(md.toLowerCase().includes(bad.toLowerCase()), false, bad);
   assert.ok(/does not show|do not show/i.test(md) && /wants or intends anything/.test(md), 'the words "wants" and "intends" appear only in the sentence that disclaims them');
 });

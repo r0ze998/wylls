@@ -1,0 +1,782 @@
+{
+  "v": 1,
+  "kind": "memory-probe",
+  "dry_run": false,
+  "mode": "set",
+  "key_kinds": [
+    "attacked_own",
+    "camp_taken_by",
+    "threat"
+  ],
+  "token_counter": "llama-server /tokenize",
+  "stored_requests": 14,
+  "eligible_prompts": 3,
+  "planned_calls": 9,
+  "calls_made": 9,
+  "not_run": [],
+  "loadavg_at_end": [
+    6.21,
+    5.55,
+    4.7
+  ],
+  "items": [
+    {
+      "id": "042aca5caa72279fa5824c2fda6ff4cdb218b1948da43849585a73dd3c3b20a3",
+      "bell": 70,
+      "index": 1001,
+      "request_sha256": "935e5f3746d8fadd33fbd4c94248a4258d32de24569c9ae0b8e8f81f48510171",
+      "request_matches_record": true,
+      "n_remembered": 7,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done",
+        "clash_own_win",
+        "camp_cleared_own",
+        "build_done",
+        "build_done"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [
+          "c4"
+        ],
+        "mem_ids": [],
+        "output_hash": "c2c0a51e2e401ddf4be347adaf504cfdbcd28d5af44c0f497924a2508bf4f9a9"
+      }
+    },
+    {
+      "id": "40bfe3dc5eeb30668ac7368aba4a9133bf28a9ede2417dd0e07c1c52d6833071",
+      "bell": 64,
+      "index": 1004,
+      "request_sha256": "65f1254922f5e5084a1442ccc714e04f1f4401064c94e76f16b058c4e60415db",
+      "request_matches_record": true,
+      "n_remembered": 7,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "threat",
+        "clash_own_win",
+        "camp_cleared_own",
+        "build_done",
+        "build_done"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M3"
+      ],
+      "stored": {
+        "choose": [
+          "c3",
+          "c6"
+        ],
+        "mem_ids": [
+          "36854366951ea787",
+          "bbc4f97347636aca"
+        ],
+        "output_hash": "91d2de92a9f961751eaf9e9aa7dfbbfdcd4ab6d2b6cac104cf9be06f20e54271"
+      },
+      "ablation": {
+        "removed_lines": 7,
+        "diff": {
+          "removed": [
+            "M1 [bell 18] <memory kind=\"episode\" id=\"M1\">At bell 18 your sawmill was finished.</memory>",
+            "M2 [bell 27] <memory kind=\"episode\" id=\"M2\">At bell 27 your farm was finished.</memory>",
+            "M3 [bell 40] <memory kind=\"episode\" id=\"M3\">At bell 40 nation Dunmar sent an army of 200 troops from (-3,0); it arrives at bell 43; its destination is not known.</memory>",
+            "M4 [bell 43] <memory kind=\"episode\" id=\"M4\">At bell 43 your army at (0,-3) beat the camp: you lost 16, they lost 152.</memory>",
+            "M5 [bell 43] <memory kind=\"episode\" id=\"M5\">At bell 43 your army cleared the camp at (0,-3).</memory>",
+            "M6 [bell 50] <memory kind=\"episode\" id=\"M6\">At bell 50 your library was finished.</memory>",
+            "M7 [bell 63] <memory kind=\"episode\" id=\"M7\">At bell 63 your sawmill was finished.</memory>"
+          ],
+          "added": [
+            "(nothing remembered yet)"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 271
+      },
+      "control": {
+        "removed_handles": [
+          "M1",
+          "M2",
+          "M6",
+          "M7"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 128,
+        "target_tokens": 271,
+        "delta_tokens": -143,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      },
+      "baseline": {
+        "source": "stored output (the rerun reproduced it byte for byte)",
+        "choose": [
+          "c3",
+          "c6"
+        ]
+      },
+      "rerun": {
+        "choose": [
+          "c3",
+          "c6"
+        ],
+        "params": {
+          "c3": {
+            "retreat": 0,
+            "stance": "assault",
+            "timing": "earliest"
+          },
+          "c4": {
+            "retreat": 0,
+            "stance": "assault",
+            "timing": "earliest"
+          }
+        },
+        "error": null,
+        "same_bytes_as_stored": true,
+        "changed": false,
+        "params_changed": false,
+        "latency_ms": 3952,
+        "loadavg_before": [
+          5.5,
+          5.33,
+          4.59
+        ],
+        "finish_reason": "stop"
+      },
+      "cited_handles": [
+        "M4",
+        "M5"
+      ],
+      "cited_from": "stored record",
+      "ablated": {
+        "choose": [
+          "c3",
+          "c6"
+        ],
+        "params": {
+          "c3": {
+            "retreat": 0,
+            "stance": "assault",
+            "timing": "earliest"
+          },
+          "c4": {
+            "retreat": 0,
+            "stance": "assault",
+            "timing": "earliest"
+          },
+          "c7": {
+            "share": 25
+          }
+        },
+        "mem": [],
+        "error": null,
+        "changed": false,
+        "params_changed": true,
+        "latency_ms": 3738,
+        "loadavg_before": [
+          6.1,
+          5.46,
+          4.64
+        ]
+      },
+      "control_result": {
+        "choose": [
+          "c3",
+          "c5"
+        ],
+        "params": {
+          "c3": {
+            "retreat": 0,
+            "stance": "assault",
+            "timing": "earliest"
+          },
+          "c4": {
+            "retreat": 0,
+            "stance": "assault",
+            "timing": "earliest"
+          }
+        },
+        "error": null,
+        "changed": true,
+        "params_changed": false,
+        "latency_ms": 4024,
+        "loadavg_before": [
+          6.09,
+          5.47,
+          4.64
+        ]
+      }
+    },
+    {
+      "id": "5ccec64be35c07c6009bd24045db4545b51b9b93d3c1506fa70ed1dbd2c63b8a",
+      "bell": 16,
+      "index": 1004,
+      "request_sha256": "f79fb02dabbd420bab0d190f2e7d57a547c1e70f06c19b52de9c2c2761f42836",
+      "request_matches_record": true,
+      "n_remembered": 0,
+      "remembered_kinds": [],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [
+          "c3"
+        ],
+        "mem_ids": [],
+        "output_hash": "c7cba8fc45b618bd5285e30b6edac19b0f74a58b5a8ae5b393daa4a091bb952e"
+      }
+    },
+    {
+      "id": "630a37baf15835a9ba44a79682b98d4fe1715f463043b8cda98ba2f96bb5f5fb",
+      "bell": 16,
+      "index": 1003,
+      "request_sha256": "fd8c25890fea10ce0eb7bf5f13a892fdba2735303e7565b5d1e31044b39887c5",
+      "request_matches_record": true,
+      "n_remembered": 0,
+      "remembered_kinds": [],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [
+          "c3"
+        ],
+        "mem_ids": [],
+        "output_hash": "100edf4cbd8c33d9a037396a6282579afa6b1ca1c2d0987dec92ac726a468ddd"
+      }
+    },
+    {
+      "id": "8346c2426facdc63c393727cd87bbfa321f557dad1f621e45929f48db404499b",
+      "bell": 40,
+      "index": 1003,
+      "request_sha256": "6dc2ae1674ffd06b99118031e823133c5770a895ae48f69005edd07f9f6b3011",
+      "request_matches_record": true,
+      "n_remembered": 3,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [
+          "c4",
+          "c5"
+        ],
+        "mem_ids": [
+          "6e56d4beaf869476",
+          "03b0a06e2bfa9f07",
+          "ee2a9b5146140fb4"
+        ],
+        "output_hash": "794d310b94a14065f9f2387b088ab9d3e5a8482041c1a8e6de6774efe714ce42"
+      }
+    },
+    {
+      "id": "a3615c01f02c1bec0b8210832cea8c2e672c8927fa043ed26aecfcf99a45f9a4",
+      "bell": 52,
+      "index": 1000,
+      "request_sha256": "6871416ad07645c99d4cd64dc522408c438e5b489c727f5ccaa77e58c6cf7982",
+      "request_matches_record": true,
+      "n_remembered": 4,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done",
+        "build_done"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [
+          "c3"
+        ],
+        "mem_ids": [
+          "9009ac33a5e94eaa",
+          "2319f01eab2b806f",
+          "c4115e247ce02a07"
+        ],
+        "output_hash": "f497d600fe6847bfd12e3a1a212531eac8e840873de2e704df1b20a119a1cd34"
+      }
+    },
+    {
+      "id": "a71b0f91f3276574892519a8c50aa5ec7a5f9fa3078e58b5de003f650f0bbb19",
+      "bell": 16,
+      "index": 1001,
+      "request_sha256": "567cee40005ca2b781db744037bd78dff9833272f2b2ab37b92bacf582af9a21",
+      "request_matches_record": true,
+      "n_remembered": 1,
+      "remembered_kinds": [
+        "build_done"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [
+          "c5"
+        ],
+        "mem_ids": [],
+        "output_hash": "32dcde0020c7bd0c1aee1d46fafe414a9f219464c364040ed9152c39d2aa9d46"
+      }
+    },
+    {
+      "id": "a7f17ad5c0539baf923d7f30fd902379678ea9907c9c11db204681afe72ba230",
+      "bell": 33,
+      "index": 1002,
+      "request_sha256": "611a868e3002d2bbe1f6a2a0c15851f3e8ccb0447e6e17e7f5c6f52bbaa3322d",
+      "request_matches_record": true,
+      "n_remembered": 2,
+      "remembered_kinds": [
+        "build_done",
+        "build_done"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [
+          "c4"
+        ],
+        "mem_ids": [
+          "a1e34dee94bb1e02",
+          "5f1471ffff624f49"
+        ],
+        "output_hash": "6b04bdeefc578aeeff77e19d8da707238f2b51427b3d0c065ed089d58c0142e0"
+      }
+    },
+    {
+      "id": "adf2b5779fef00fc0001badf245edcd64c884240fd469dad9e3848f539f81818",
+      "bell": 52,
+      "index": 1005,
+      "request_sha256": "f0a81e0267a813e8202efb19aa77d2552ae262dad94605c5b646e9ed1f14a7b2",
+      "request_matches_record": true,
+      "n_remembered": 5,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done",
+        "threat",
+        "build_done"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M4"
+      ],
+      "stored": {
+        "choose": [
+          "c3"
+        ],
+        "mem_ids": [],
+        "output_hash": "9ef67bf2d6e5bac020aa5902c40c4a6572224a93509b1ead73db1da4f83a31f8"
+      },
+      "ablation": {
+        "removed_lines": 5,
+        "diff": {
+          "removed": [
+            "M1 [bell 19] <memory kind=\"episode\" id=\"M1\">At bell 19 your sawmill was finished.</memory>",
+            "M2 [bell 28] <memory kind=\"episode\" id=\"M2\">At bell 28 your farm was finished.</memory>",
+            "M3 [bell 37] <memory kind=\"episode\" id=\"M3\">At bell 37 your quarry was finished.</memory>",
+            "M4 [bell 40] <memory kind=\"episode\" id=\"M4\">At bell 40 nation Ember sent an army of 200 troops from (0,-3); it arrives at bell 43; its destination is not known.</memory>",
+            "M5 [bell 49] <memory kind=\"episode\" id=\"M5\">At bell 49 your sawmill was finished.</memory>"
+          ],
+          "added": [
+            "(nothing remembered yet)"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 180
+      },
+      "control": {
+        "removed_handles": [
+          "M1",
+          "M2",
+          "M3",
+          "M5"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 128,
+        "target_tokens": 180,
+        "delta_tokens": -52,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      },
+      "baseline": {
+        "source": "stored output (the rerun reproduced it byte for byte)",
+        "choose": [
+          "c3"
+        ]
+      },
+      "rerun": {
+        "choose": [
+          "c3"
+        ],
+        "params": {
+          "c3": {
+            "share": 50
+          }
+        },
+        "error": null,
+        "same_bytes_as_stored": true,
+        "changed": false,
+        "params_changed": false,
+        "latency_ms": 2515,
+        "loadavg_before": [
+          6.33,
+          5.53,
+          4.67
+        ],
+        "finish_reason": "stop"
+      },
+      "cited_handles": [],
+      "cited_from": "stored record",
+      "ablated": {
+        "choose": [
+          "c3"
+        ],
+        "params": {
+          "c3": {
+            "share": 50
+          }
+        },
+        "mem": [],
+        "error": null,
+        "changed": false,
+        "params_changed": false,
+        "latency_ms": 2409,
+        "loadavg_before": [
+          6.33,
+          5.53,
+          4.67
+        ]
+      },
+      "control_result": {
+        "choose": [
+          "c3"
+        ],
+        "params": {
+          "c3": {
+            "share": 50
+          }
+        },
+        "error": null,
+        "changed": false,
+        "params_changed": false,
+        "latency_ms": 2557,
+        "loadavg_before": [
+          6.22,
+          5.52,
+          4.67
+        ]
+      }
+    },
+    {
+      "id": "b2dbe83be511220b4f9c245bb7d4c6a399a958aed3b74bf74588d04cf8f907ce",
+      "bell": 22,
+      "index": 1005,
+      "request_sha256": "287b08fa9b9909a5c6a43c0119f69b229664e87d98a22ee88face8a0a9b0e283",
+      "request_matches_record": true,
+      "n_remembered": 1,
+      "remembered_kinds": [
+        "build_done"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [
+          "c4"
+        ],
+        "mem_ids": [
+          "cf9453c3ac579746"
+        ],
+        "output_hash": "ca56adf37260d4c269b2ae880bd61167eb95b1d0ecd2d8649018a5d21247f71c"
+      }
+    },
+    {
+      "id": "b553ebbcddaa9c430fba3a4ebdc290b7962d92a554f0c5f5bde7ea61522635a6",
+      "bell": 16,
+      "index": 1000,
+      "request_sha256": "8ac502333765244343ecfe86d800c9840334c0d826b447972c26007e7ccb81e9",
+      "request_matches_record": true,
+      "n_remembered": 1,
+      "remembered_kinds": [
+        "build_done"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [
+          "c3",
+          "c5"
+        ],
+        "mem_ids": [
+          "b902748cc834d712"
+        ],
+        "output_hash": "2b337bb2e829915bdc1811ef2d6dc0db8dd94baf895596a17be6e181c5d806bd"
+      }
+    },
+    {
+      "id": "b6c047ec21ebe7b596b97e5a0775787f575c5afccf623b0049bd63108820617f",
+      "bell": 40,
+      "index": 1001,
+      "request_sha256": "fbe36f69294d03f2b9ecd4031e5ace498bf015535211ffd1833b286101064e8e",
+      "request_matches_record": true,
+      "n_remembered": 3,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [
+          "c3",
+          "c5"
+        ],
+        "mem_ids": [
+          "df5a74a858785cee",
+          "618c8fe076845b13",
+          "dd446d92a7335ef3"
+        ],
+        "output_hash": "42a8fc8c0175ad13b7a6c2167731276db6ab4fa2f7200ef6866efff79a25cbf2"
+      }
+    },
+    {
+      "id": "d75573881ae096e233db25f73383e31041e5643c003c68ce29c7cb97cd9ceedd",
+      "bell": 40,
+      "index": 1004,
+      "request_sha256": "e39a162fcea4dc65cfc1426f7247a810f86bdc48bb0f0dbbfd0c3188036af532",
+      "request_matches_record": true,
+      "n_remembered": 2,
+      "remembered_kinds": [
+        "build_done",
+        "build_done"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [
+          "c3",
+          "c7"
+        ],
+        "mem_ids": [
+          "112e136b9b29e680",
+          "5a0a27fa1d143a4d"
+        ],
+        "output_hash": "ae2025efa74415fc6118d7b5e47029673b460f55cef043ab96d30d7865c80657"
+      }
+    },
+    {
+      "id": "f8812bf448f00bb0fa8103c454cef572963f9b7740f95ddbb360b17b747660c2",
+      "bell": 64,
+      "index": 1003,
+      "request_sha256": "57be6b16bf000c64a0bb3761d4a5c400c8558ae4bbd0618a8edb4f60fb36c682",
+      "request_matches_record": true,
+      "n_remembered": 8,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done",
+        "threat",
+        "clash_own_win",
+        "camp_cleared_own",
+        "build_done",
+        "build_done"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M4"
+      ],
+      "stored": {
+        "choose": [
+          "c3",
+          "c5"
+        ],
+        "mem_ids": [
+          "ee2a9b5146140fb4",
+          "1359140e444a1242",
+          "79a562f7031f5602"
+        ],
+        "output_hash": "d9797e1069817c25d8aa6544abf412de0ed7bae318c89faf3d564b6b071a680a"
+      },
+      "ablation": {
+        "removed_lines": 8,
+        "diff": {
+          "removed": [
+            "M1 [bell 17] <memory kind=\"episode\" id=\"M1\">At bell 17 your sawmill was finished.</memory>",
+            "M2 [bell 26] <memory kind=\"episode\" id=\"M2\">At bell 26 your farm was finished.</memory>",
+            "M3 [bell 35] <memory kind=\"episode\" id=\"M3\">At bell 35 your quarry was finished.</memory>",
+            "M4 [bell 40] <memory kind=\"episode\" id=\"M4\">At bell 40 nation Ember sent an army of 200 troops from (0,-3); it arrives at bell 43; its destination is not known.</memory>",
+            "M5 [bell 43] <memory kind=\"episode\" id=\"M5\">At bell 43 your army at (-3,1) beat the camp: you lost 11, they lost 101.</memory>",
+            "M6 [bell 43] <memory kind=\"episode\" id=\"M6\">At bell 43 your army cleared the camp at (-3,1).</memory>",
+            "M7 [bell 44] <memory kind=\"episode\" id=\"M7\">At bell 44 your library was finished.</memory>",
+            "M8 [bell 56] <memory kind=\"episode\" id=\"M8\">At bell 56 your sawmill was finished.</memory>",
+            "c3 [march] March H3 (100 troops) to a barbarian camp, 5 hexes away; earliest arrival at bell 67 | troops 100 | enemy troops 382; idle bells 23; provinces 1; ratio unfavourable; reward 10 Works (points, no use yet); target (-3,0) | params: retreat 0|5000|10000; stance hold|assault|flank|brace; timing earliest | see M8, M7, M3 | serves G2, G3, G4"
+          ],
+          "added": [
+            "(nothing remembered yet)",
+            "c3 [march] March H3 (100 troops) to a barbarian camp, 5 hexes away; earliest arrival at bell 67 | troops 100 | enemy troops 382; idle bells 23; provinces 1; ratio unfavourable; reward 10 Works (points, no use yet); target (-3,0) | params: retreat 0|5000|10000; stance hold|assault|flank|brace; timing earliest | serves G2, G3, G4"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 312
+      },
+      "control": {
+        "removed_handles": [
+          "M1",
+          "M2",
+          "M5",
+          "M6"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 154,
+        "target_tokens": 312,
+        "delta_tokens": -158,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      },
+      "baseline": {
+        "source": "stored output (the rerun reproduced it byte for byte)",
+        "choose": [
+          "c3",
+          "c5"
+        ]
+      },
+      "rerun": {
+        "choose": [
+          "c3",
+          "c5"
+        ],
+        "params": {
+          "c3": {
+            "retreat": 0,
+            "stance": "assault",
+            "timing": "earliest"
+          },
+          "c4": {
+            "retreat": 0,
+            "stance": "assault",
+            "timing": "earliest"
+          },
+          "c7": {
+            "share": 50
+          }
+        },
+        "error": null,
+        "same_bytes_as_stored": true,
+        "changed": false,
+        "params_changed": false,
+        "latency_ms": 4725,
+        "loadavg_before": [
+          6.22,
+          5.52,
+          4.67
+        ],
+        "finish_reason": "stop"
+      },
+      "cited_handles": [
+        "M3",
+        "M7",
+        "M8"
+      ],
+      "cited_from": "stored record",
+      "ablated": {
+        "choose": [
+          "c3",
+          "c5"
+        ],
+        "params": {
+          "c3": {
+            "retreat": 0,
+            "stance": "assault",
+            "timing": "earliest"
+          },
+          "c4": {
+            "retreat": 0,
+            "stance": "assault",
+            "timing": "earliest"
+          },
+          "c7": {
+            "share": 50
+          }
+        },
+        "mem": [],
+        "error": null,
+        "changed": false,
+        "params_changed": false,
+        "latency_ms": 4177,
+        "loadavg_before": [
+          6.36,
+          5.56,
+          4.69
+        ]
+      },
+      "control_result": {
+        "choose": [
+          "c3",
+          "c5"
+        ],
+        "params": {
+          "c3": {
+            "retreat": 0,
+            "stance": "assault",
+            "timing": "earliest"
+          },
+          "c4": {
+            "retreat": 0,
+            "stance": "assault",
+            "timing": "earliest"
+          },
+          "c7": {
+            "share": 50
+          }
+        },
+        "error": null,
+        "changed": false,
+        "params_changed": false,
+        "latency_ms": 4739,
+        "loadavg_before": [
+          6.49,
+          5.6,
+          4.71
+        ]
+      }
+    }
+  ],
+  "summary": {
+    "n": 3,
+    "k": 0,
+    "k_rerun": 0,
+    "k_control": 1,
+    "n_with_control": 3,
+    "n_control_unavailable": 0,
+    "underpowered": true
+  },
+  "wording": "when the Remembered lines were removed from 3 logged prompts, the chosen candidate changed in 0 (rerun: 0; control: 1)",
+  "not_shown": [
+    "n = 3 (pre-registered N >= 40): underpowered, no rate is reported",
+    "a change of the chosen candidate when lines are removed is not evidence that memory improves play or that the model wants anything",
+    "the control removes whole lines to match the token count: 3 of 3 prompts had one; the rest had none available"
+  ],
+  "model_alias": "gemma-4-26b-a4b-it"
+}

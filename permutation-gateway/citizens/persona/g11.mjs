@@ -27,7 +27,7 @@ import { createCitizensService } from '../server.mjs';
 import { createLlm } from '../mind/llm.mjs';
 import { assertLlamaUrl } from '../mind/guards.mjs';
 import { LIBRARY } from './deal.mjs';
-import { makeRosterJson, requestFor } from '../injection/run.mjs';
+import { makeRosterJson, requestFor } from './fixture-world.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '../../..');

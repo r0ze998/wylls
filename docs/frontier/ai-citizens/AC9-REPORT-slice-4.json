@@ -1,0 +1,851 @@
+{
+  "v": 1,
+  "kind": "run-report",
+  "generated_by": "citizens/report.mjs (AC9)",
+  "local_test_chain_only": true,
+  "ai_dir": "slice-4",
+  "run_id": "slice-4",
+  "sources": {
+    "public": true,
+    "private_records": true,
+    "metrics_snapshot": {
+      "bell": 85,
+      "uptime_s": 5163
+    },
+    "public_only_flag": false,
+    "minds_files": 85,
+    "first_bell": 0,
+    "last_bell": 84
+  },
+  "commitments": {
+    "available": true,
+    "run_id": "slice-4",
+    "season_id": 41,
+    "deck": "deck-1",
+    "model_sha256": "d208665ab1cd3a69f7a9a4bc59430e8448c8093d9b06334f566ac59d6d504a03",
+    "llama_tree_sha256": "unmeasured",
+    "request_shape": "response_format",
+    "code_git_commit": "4b7a9b9494725f895b301e551a80abda992da028",
+    "slots": 7,
+    "commit_memo": "audited",
+    "note": "a field printed \"unmeasured\" was not measured by the run script (a smoke run may leave AI_MODEL and AI_LLAMA_DIR unset): such a run is not cited for audit claims. The model sha256 here is the pinned constant if the field was filled without AI_MODEL; verify-minds M1 is what measures it."
+  },
+  "runs_listed": [
+    {
+      "status": "aborted",
+      "run_id": "slice-1",
+      "start_unix": 1791076362,
+      "arm": null,
+      "rep": null,
+      "commitments_sha256": "6d519fc490ebd4ec7d8c033f9083eeedf4cff78f0a1b05fd1253c7dba617df39",
+      "configs": {
+        "citizens_config_sha256": "80e4ca17cd81b1214434cacffac949217cd61b7de88e3cc9882991cd1759e3b6",
+        "injection_corpus_sha256": null,
+        "seat_script_sha256": null,
+        "slots_sha256": "e33087069de562cbba0220ca3111340a6039c12cad8501b97029c3d44666ad36",
+        "stack_toml_sha256": "92e1c05169cd42656ff0b7d014659185aead7f34ff8fc337b7e7f86f999db56a"
+      },
+      "end_unix": 1791076453,
+      "detail": "stopped before the end",
+      "status_source": "END line"
+    },
+    {
+      "status": "aborted",
+      "run_id": "slice-2",
+      "start_unix": 1791076641,
+      "arm": null,
+      "rep": null,
+      "commitments_sha256": "0393dea9492b7fd4a0064e3e8a6ef6eb88a7aebeaee7f02a01c06c9c5c6cf1c0",
+      "configs": {
+        "citizens_config_sha256": "80e4ca17cd81b1214434cacffac949217cd61b7de88e3cc9882991cd1759e3b6",
+        "injection_corpus_sha256": null,
+        "seat_script_sha256": null,
+        "slots_sha256": "e33087069de562cbba0220ca3111340a6039c12cad8501b97029c3d44666ad36",
+        "stack_toml_sha256": "63b017bcbdc99cd8515ab795adcf3f1c7661944adbf236451234c1a63ea665e1"
+      },
+      "end_unix": 1791076705,
+      "detail": "the deal failed (see above)",
+      "status_source": "END line"
+    },
+    {
+      "status": "aborted",
+      "run_id": "slice-3",
+      "start_unix": 1791076779,
+      "arm": null,
+      "rep": null,
+      "commitments_sha256": "a9d3c89801c2e21c9302c60e4bc70645809dc65af71cb61cb7b4af882d4ef339",
+      "configs": {
+        "citizens_config_sha256": "80e4ca17cd81b1214434cacffac949217cd61b7de88e3cc9882991cd1759e3b6",
+        "injection_corpus_sha256": null,
+        "seat_script_sha256": null,
+        "slots_sha256": "e33087069de562cbba0220ca3111340a6039c12cad8501b97029c3d44666ad36",
+        "stack_toml_sha256": "199dda3e186c8e5a6c38296ec2b557b5f92e975db46381e0260d42074c47834a"
+      },
+      "end_unix": 1791077458,
+      "detail": "stopped before the end",
+      "status_source": "END line"
+    },
+    {
+      "status": "complete",
+      "run_id": "slice-4",
+      "start_unix": 1791077493,
+      "arm": null,
+      "rep": null,
+      "commitments_sha256": "087d2c3f5505a432d9fac0f336caa8e050e9ed6dfd9e419c61745e6ae0a161d3",
+      "configs": {
+        "citizens_config_sha256": "80e4ca17cd81b1214434cacffac949217cd61b7de88e3cc9882991cd1759e3b6",
+        "injection_corpus_sha256": null,
+        "seat_script_sha256": null,
+        "slots_sha256": "e33087069de562cbba0220ca3111340a6039c12cad8501b97029c3d44666ad36",
+        "stack_toml_sha256": "5f4eef0182feb787ee53fee51266d9db5eeb872781a3a37e3e2739178846b929"
+      },
+      "end_unix": 1791082735,
+      "detail": "stack complete, publication written",
+      "status_source": "END line"
+    }
+  ],
+  "roster": {
+    "ai": 6,
+    "deck": "deck-1",
+    "by_persona": {
+      "conqueror": 6
+    }
+  },
+  "decisions": {
+    "records": 387,
+    "by_kind": {
+      "autopilot": 373,
+      "session": 14
+    },
+    "by_mode": {
+      "autopilot": 373,
+      "model": 14
+    },
+    "by_reason": {
+      "feed_lag": 113,
+      "ok": 14,
+      "below_gate": 260
+    },
+    "gate_open": 127,
+    "model_decisions": 14,
+    "valid_choices": 14,
+    "valid_rate_pct": 100,
+    "valid_rate_ci95_pct": [
+      78.5,
+      100
+    ],
+    "g1_threshold": {
+      "pct": 95,
+      "min_n": 300,
+      "met": false,
+      "underpowered": true,
+      "note": "n = 14 < 300: underpowered; the interval above is the only honest statement"
+    },
+    "fallbacks": {
+      "total": 0,
+      "rate_pct": 0,
+      "by_reason": {},
+      "g2_max_pct": 5
+    },
+    "dropped_for_time": {
+      "n": 0,
+      "share_of_gate_open_pct": 0,
+      "g2_max_pct": 3
+    },
+    "feed_lag": {
+      "n": 113,
+      "share_of_gate_open_pct": 89,
+      "note": "the gate opened a session and the mind refused it because the feed had not yet vouched for bell - 1; these steps ran the autopilot"
+    },
+    "reflections": {
+      "n": 0,
+      "ok": 0,
+      "refused_or_failed": 0,
+      "by_reason": {},
+      "note": "listed on their own; not in the valid-choice rate"
+    },
+    "latency_ms_by_kind": {
+      "session": {
+        "n": 14,
+        "p50": 2984,
+        "p90": 4034,
+        "p99": 4236,
+        "slack_min": 41398,
+        "slack_negative": 0
+      }
+    },
+    "g3": {
+      "latency_samples": 14,
+      "slack_negative": 0,
+      "share_with_slack_ge_0_pct": 100,
+      "note": "from the mind's own latency windows (llama call time and slack to the deadline); \"0 decisions executed after bell_start(b+1)\" needs the chain and is not read here"
+    }
+  },
+  "by_model": {
+    "per_ai": [
+      {
+        "index": 1000,
+        "tag": "f3f2eb157c6ae029",
+        "persona": "conqueror",
+        "actions_by_model": 3,
+        "actions_by_autopilot": 20,
+        "by_model_share_pct": 13,
+        "decisions": 2,
+        "valid": 2,
+        "model_marches": 1,
+        "decisions_citing_memory": 2,
+        "messages": 0
+      },
+      {
+        "index": 1001,
+        "tag": "daa181a1a18653f8",
+        "persona": "conqueror",
+        "actions_by_model": 5,
+        "actions_by_autopilot": 21,
+        "by_model_share_pct": 19.2,
+        "decisions": 3,
+        "valid": 3,
+        "model_marches": 2,
+        "decisions_citing_memory": 1,
+        "messages": 0
+      },
+      {
+        "index": 1002,
+        "tag": "9475f24b4c8db2cb",
+        "persona": "conqueror",
+        "actions_by_model": 1,
+        "actions_by_autopilot": 21,
+        "by_model_share_pct": 4.5,
+        "decisions": 1,
+        "valid": 1,
+        "model_marches": 0,
+        "decisions_citing_memory": 1,
+        "messages": 1
+      },
+      {
+        "index": 1003,
+        "tag": "9a01474897088a66",
+        "persona": "conqueror",
+        "actions_by_model": 5,
+        "actions_by_autopilot": 22,
+        "by_model_share_pct": 18.5,
+        "decisions": 3,
+        "valid": 3,
+        "model_marches": 2,
+        "decisions_citing_memory": 2,
+        "messages": 0
+      },
+      {
+        "index": 1004,
+        "tag": "24e5e39dc7e743d3",
+        "persona": "conqueror",
+        "actions_by_model": 5,
+        "actions_by_autopilot": 21,
+        "by_model_share_pct": 19.2,
+        "decisions": 3,
+        "valid": 3,
+        "model_marches": 2,
+        "decisions_citing_memory": 2,
+        "messages": 0
+      },
+      {
+        "index": 1005,
+        "tag": "7b809f81ebbc9a00",
+        "persona": "conqueror",
+        "actions_by_model": 2,
+        "actions_by_autopilot": 20,
+        "by_model_share_pct": 9.1,
+        "decisions": 2,
+        "valid": 2,
+        "model_marches": 0,
+        "decisions_citing_memory": 1,
+        "messages": 0
+      }
+    ],
+    "total": {
+      "actions_by_model": 21,
+      "actions_by_autopilot": 125,
+      "by_model_share_pct": 14.4,
+      "source": "the mind's counters (the Wyll card stats): every action sent in a step whose decision had mode \"model\""
+    },
+    "from_records_tx": {
+      "actions_in_model_records": 21,
+      "actions_in_autopilot_records": 123,
+      "by_model_share_pct": 14.6,
+      "intents_by_mode": {
+        "autopilot:build": 32,
+        "autopilot:train": 22,
+        "autopilot:harvest": 53,
+        "model:build": 4,
+        "model:muster": 8,
+        "model:harvest": 1,
+        "autopilot:muster": 8,
+        "model:depart": 7,
+        "model:train": 1,
+        "autopilot:reveal": 6,
+        "autopilot:explore": 2
+      }
+    },
+    "autopilot_economy_share": {
+      "economy_actions_in_autopilot_records": 117,
+      "all_actions": 144,
+      "share_pct": 81.3,
+      "g2_note": "reported next to the fallback rate",
+      "economy_intents": [
+        "harvest",
+        "build",
+        "train",
+        "muster",
+        "explore",
+        "walls",
+        "tier_up",
+        "tierup"
+      ]
+    },
+    "caveat": "an action in a model-mode step may be a duty or an autopilot economy action the brain sent in the same step: the by:model share is an upper bound on model-chosen actions. model_marches below is the exact count of marches."
+  },
+  "marches": {
+    "model_marches_sent": 7,
+    "opened": 0,
+    "y_strict": 0,
+    "y_strict_definition": "model marches whose decision record was opened (section 7.2) and which produced a CLASH (contract 10.1, G12); counted as found, never rounded up",
+    "g12_met": false,
+    "y_clash_without_opening": 7,
+    "y_clash_without_opening_note": "NOT Y: model marches whose army has a public clash_own_* episode (created only when an own army fought), matched by host id through the private record; the record was not opened. The episode stands in for the clash report row (engaged: true), which needs the herald.",
+    "clash_results": {
+      "win": 6,
+      "loss": 1
+    },
+    "marches_without_known_host": 0,
+    "marches": [
+      {
+        "record": "b6c047ec21ebe7b596b97e5a0775787f575c5afccf623b0049bd63108820617f",
+        "bell": 40,
+        "index": 1001,
+        "tag": "daa181a1a18653f8",
+        "persona": "conqueror",
+        "departs": 1,
+        "release_bell": 44,
+        "opened": false,
+        "hosts_known": true,
+        "hosts_source": "private record",
+        "clashes": [
+          {
+            "episode": "b1caaa2ec1fc0a89",
+            "kind": "clash_own_win",
+            "bell": 43,
+            "created_bell": 45,
+            "host": "405724085616640",
+            "camp": true,
+            "lost_own": 21,
+            "lost_enemy": 189
+          }
+        ]
+      },
+      {
+        "record": "8346c2426facdc63c393727cd87bbfa321f557dad1f621e45929f48db404499b",
+        "bell": 40,
+        "index": 1003,
+        "tag": "9a01474897088a66",
+        "persona": "conqueror",
+        "departs": 1,
+        "release_bell": 44,
+        "opened": false,
+        "hosts_known": true,
+        "hosts_source": "private record",
+        "clashes": [
+          {
+            "episode": "bbac76266524141b",
+            "kind": "clash_own_win",
+            "bell": 43,
+            "created_bell": 45,
+            "host": "492585504210944",
+            "camp": true,
+            "lost_own": 11,
+            "lost_enemy": 101
+          }
+        ]
+      },
+      {
+        "record": "d75573881ae096e233db25f73383e31041e5643c003c68ce29c7cb97cd9ceedd",
+        "bell": 40,
+        "index": 1004,
+        "tag": "24e5e39dc7e743d3",
+        "persona": "conqueror",
+        "departs": 1,
+        "release_bell": 44,
+        "opened": false,
+        "hosts_known": true,
+        "hosts_source": "private record",
+        "clashes": [
+          {
+            "episode": "36854366951ea787",
+            "kind": "clash_own_win",
+            "bell": 43,
+            "created_bell": 45,
+            "host": "550859620483072",
+            "camp": true,
+            "lost_own": 16,
+            "lost_enemy": 152
+          }
+        ]
+      },
+      {
+        "record": "a3615c01f02c1bec0b8210832cea8c2e672c8927fa043ed26aecfcf99a45f9a4",
+        "bell": 52,
+        "index": 1000,
+        "tag": "f3f2eb157c6ae029",
+        "persona": "conqueror",
+        "departs": 1,
+        "release_bell": 56,
+        "opened": false,
+        "hosts_known": true,
+        "hosts_source": "private record",
+        "clashes": [
+          {
+            "episode": "39437da485a02a5b",
+            "kind": "clash_own_win",
+            "bell": 55,
+            "created_bell": 57,
+            "host": "344151434461184",
+            "camp": true,
+            "lost_own": 28,
+            "lost_enemy": 49
+          }
+        ]
+      },
+      {
+        "record": "f8812bf448f00bb0fa8103c454cef572963f9b7740f95ddbb360b17b747660c2",
+        "bell": 64,
+        "index": 1003,
+        "tag": "9a01474897088a66",
+        "persona": "conqueror",
+        "departs": 1,
+        "release_bell": 68,
+        "opened": false,
+        "hosts_known": true,
+        "hosts_source": "private record",
+        "clashes": [
+          {
+            "episode": "1b0737d8966829e9",
+            "kind": "clash_own_loss",
+            "bell": 67,
+            "created_bell": 69,
+            "host": "492585504210947",
+            "camp": true,
+            "lost_own": 41,
+            "lost_enemy": 27
+          }
+        ]
+      },
+      {
+        "record": "40bfe3dc5eeb30668ac7368aba4a9133bf28a9ede2417dd0e07c1c52d6833071",
+        "bell": 64,
+        "index": 1004,
+        "tag": "24e5e39dc7e743d3",
+        "persona": "conqueror",
+        "departs": 1,
+        "release_bell": 68,
+        "opened": false,
+        "hosts_known": true,
+        "hosts_source": "private record",
+        "clashes": [
+          {
+            "episode": "8c2103611670de01",
+            "kind": "clash_own_win",
+            "bell": 67,
+            "created_bell": 69,
+            "host": "550859620483073",
+            "camp": true,
+            "lost_own": 17,
+            "lost_enemy": 136
+          }
+        ]
+      },
+      {
+        "record": "042aca5caa72279fa5824c2fda6ff4cdb218b1948da43849585a73dd3c3b20a3",
+        "bell": 70,
+        "index": 1001,
+        "tag": "daa181a1a18653f8",
+        "persona": "conqueror",
+        "departs": 1,
+        "release_bell": 74,
+        "opened": false,
+        "hosts_known": true,
+        "hosts_source": "private record",
+        "clashes": [
+          {
+            "episode": "db582176b134e16b",
+            "kind": "clash_own_win",
+            "bell": 73,
+            "created_bell": 75,
+            "host": "405724085616641",
+            "camp": true,
+            "lost_own": 24,
+            "lost_enemy": 38
+          }
+        ]
+      }
+    ]
+  },
+  "memory": {
+    "episodes_total": 61,
+    "episodes_by_kind": {
+      "build_done": 36,
+      "threat": 13,
+      "clash_own_win": 6,
+      "camp_cleared_own": 4,
+      "camp_taken_by": 1,
+      "clash_own_loss": 1
+    },
+    "episodes_by_ai": [
+      {
+        "tag": "f3f2eb157c6ae029",
+        "index": 1000,
+        "episodes": 10,
+        "by_kind": {
+          "build_done": 7,
+          "threat": 2,
+          "clash_own_win": 1
+        }
+      },
+      {
+        "tag": "daa181a1a18653f8",
+        "index": 1001,
+        "episodes": 8,
+        "by_kind": {
+          "build_done": 5,
+          "clash_own_win": 2,
+          "camp_cleared_own": 1
+        }
+      },
+      {
+        "tag": "9475f24b4c8db2cb",
+        "index": 1002,
+        "episodes": 12,
+        "by_kind": {
+          "build_done": 7,
+          "threat": 4,
+          "camp_taken_by": 1
+        }
+      },
+      {
+        "tag": "9a01474897088a66",
+        "index": 1003,
+        "episodes": 11,
+        "by_kind": {
+          "build_done": 6,
+          "threat": 2,
+          "clash_own_win": 1,
+          "camp_cleared_own": 1,
+          "clash_own_loss": 1
+        }
+      },
+      {
+        "tag": "24e5e39dc7e743d3",
+        "index": 1004,
+        "episodes": 11,
+        "by_kind": {
+          "build_done": 5,
+          "threat": 2,
+          "clash_own_win": 2,
+          "camp_cleared_own": 2
+        }
+      },
+      {
+        "tag": "7b809f81ebbc9a00",
+        "index": 1005,
+        "episodes": 9,
+        "by_kind": {
+          "build_done": 6,
+          "threat": 3
+        }
+      }
+    ],
+    "decisions_with_known_choice_and_retrieved_set": 14,
+    "decisions_with_unknown_choice": 0,
+    "unknown_choice_note": null,
+    "retrieved_composition": {
+      "build_done": 35,
+      "threat": 3,
+      "clash_own_win": 3,
+      "camp_cleared_own": 3
+    },
+    "decisions_citing_memory": {
+      "from_records": 9,
+      "from_mind_counter": 9,
+      "of_model_decisions_with_known_choice": 14,
+      "share_pct": 64.3
+    },
+    "citation_among_key_kind_decisions": {
+      "n_with_key_episode_retrieved": 3,
+      "n_citing_at_least_one": 2,
+      "share_pct": 66.7,
+      "key_kinds": [
+        "attacked_own",
+        "camp_taken_by",
+        "threat"
+      ],
+      "note": "a citation shows the line was shown and named, not that the choice rested on it (5.7)"
+    },
+    "cited_episode_kinds": {
+      "build_done": 18,
+      "clash_own_win": 1,
+      "camp_cleared_own": 1
+    },
+    "cited_episode_ages_bells": {
+      "n": 20,
+      "max": 29,
+      "min": 2,
+      "older_than_72": 0,
+      "all": [
+        2,
+        3,
+        4,
+        5,
+        8,
+        8,
+        8,
+        13,
+        14,
+        16,
+        17,
+        20,
+        20,
+        21,
+        21,
+        22,
+        23,
+        25,
+        29,
+        29
+      ],
+      "earlier_in_the_season_may_be_said": false,
+      "mind_metric": {
+        "n": 20,
+        "max": 29
+      }
+    },
+    "mem_dropped": 0,
+    "feed_lag": 113,
+    "why_withheld_by_rule": {
+      "sealed_coordinate": 1
+    },
+    "speech_drops_by_reason": {
+      "why:sealed_coordinate": 1
+    },
+    "say_withheld": 7,
+    "pact_word_and_uncited_claim_withholds": {},
+    "reflections": {
+      "due": 12,
+      "ran": null,
+      "refused": null,
+      "skipped": null,
+      "summaries_published": 0
+    },
+    "relevance_spot_check": "not run here: the integrator reads 20 opened decisions against the rubric fixed before reading (G14 (b))",
+    "probe": "see citizens/probe/memory.mjs (its result is not a number of this report)"
+  },
+  "brain": {
+    "available": true,
+    "brain_steps": 423,
+    "steps_per_ai": 70.5,
+    "no_session": 36,
+    "no_session_source": "derived: steps - (answers_model + answers_autopilot); the brain wrote no no_session counter in this run",
+    "first_call_answers": 387,
+    "answers_reused_same_bell": 5,
+    "records_in_pub": 387,
+    "steps_equal_records_plus_no_session": true,
+    "model_marches_sent_brain": 7,
+    "reobserved": 14,
+    "quota_floor_skips": 110,
+    "quota_starved_bells": 89,
+    "gets_per_step": null,
+    "gets_note": "not measured in this run: the brain wrote no GET counter (no key matching \"gets\" in fleet/ai-brain.json); the herald load during the run is not measured either",
+    "follow_window": {
+      "script_bots": null,
+      "ai_bots": null
+    },
+    "counters": {
+      "answers_autopilot": 373,
+      "answers_model": 14,
+      "answers_reused": 5,
+      "model_marches_sent": 7,
+      "quota_floor_skips": 110,
+      "quota_starved_bells": 89,
+      "reobserved": 14,
+      "steps": 423
+    },
+    "timeline": {
+      "1000": {
+        "first_final_bell": 5,
+        "first_model_march_bell": 52,
+        "first_ready_bell": 19,
+        "second_ready_bell": 30
+      },
+      "1001": {
+        "first_final_bell": 6,
+        "first_model_march_bell": 40,
+        "first_ready_bell": 19,
+        "second_ready_bell": 42
+      },
+      "1002": {
+        "first_final_bell": 7,
+        "first_model_march_bell": null,
+        "first_ready_bell": 36,
+        "second_ready_bell": null
+      },
+      "1003": {
+        "first_final_bell": 8,
+        "first_model_march_bell": 40,
+        "first_ready_bell": 19,
+        "second_ready_bell": 31
+      },
+      "1004": {
+        "first_final_bell": 9,
+        "first_model_march_bell": 40,
+        "first_ready_bell": 19,
+        "second_ready_bell": 38
+      },
+      "1005": {
+        "first_final_bell": 10,
+        "first_model_march_bell": null,
+        "first_ready_bell": 31,
+        "second_ready_bell": 55
+      }
+    }
+  },
+  "personas": {
+    "conqueror": {
+      "ai": 6,
+      "decisions": 14,
+      "model_marches": 7,
+      "messages": 1,
+      "actions_by_model": 21,
+      "actions_by_autopilot": 125,
+      "march_rate_per_model_decision_pct": 50
+    }
+  },
+  "social": {
+    "talk_files": 85,
+    "messages_in_talk_files": 0,
+    "council_files": 0,
+    "council_periods": [],
+    "origin": {},
+    "note": "no council file: in wave A the watcher was a stub and no council ran; motions, ballots, Strike Orders, declines and chronicle lines are not measured here"
+  },
+  "census": {
+    "v": 1,
+    "first_census": 16,
+    "ai": [
+      {
+        "tag": "f3f2eb157c6ae029",
+        "first_final_bell": 4,
+        "first_can_depart_bell": 18,
+        "second_can_depart_bell": 29,
+        "bells_to_first_can_depart": 14,
+        "bells_to_second_can_depart": 25
+      },
+      {
+        "tag": "daa181a1a18653f8",
+        "first_final_bell": 5,
+        "first_can_depart_bell": 18,
+        "second_can_depart_bell": null,
+        "bells_to_first_can_depart": 13,
+        "bells_to_second_can_depart": null
+      },
+      {
+        "tag": "9475f24b4c8db2cb",
+        "first_final_bell": 6,
+        "first_can_depart_bell": 35,
+        "second_can_depart_bell": null,
+        "bells_to_first_can_depart": 29,
+        "bells_to_second_can_depart": null
+      },
+      {
+        "tag": "9a01474897088a66",
+        "first_final_bell": 7,
+        "first_can_depart_bell": 18,
+        "second_can_depart_bell": 30,
+        "bells_to_first_can_depart": 11,
+        "bells_to_second_can_depart": 23
+      },
+      {
+        "tag": "24e5e39dc7e743d3",
+        "first_final_bell": 8,
+        "first_can_depart_bell": 18,
+        "second_can_depart_bell": 37,
+        "bells_to_first_can_depart": 10,
+        "bells_to_second_can_depart": 29
+      },
+      {
+        "tag": "7b809f81ebbc9a00",
+        "first_final_bell": 9,
+        "first_can_depart_bell": 30,
+        "second_can_depart_bell": 55,
+        "bells_to_first_can_depart": 21,
+        "bells_to_second_can_depart": 46
+      }
+    ]
+  },
+  "mind_counters": {
+    "feed_lag": 113,
+    "decisions_total": 387,
+    "decisions_autopilot": 373,
+    "outcomes": 392,
+    "bells_closed": 85,
+    "model_decisions": 14,
+    "llm_calls": 14,
+    "decisions_model": 14,
+    "valid_choices": 14,
+    "decisions_citing_memory": 9,
+    "reflect_due": 12,
+    "say_withheld": 7,
+    "model_marches": 7,
+    "params_stray_dropped": 3
+  },
+  "scheduler": {
+    "session": {
+      "p50": 3737,
+      "p90": 6700,
+      "n": 24
+    },
+    "motion": {
+      "p50": 3200,
+      "p90": 3400,
+      "n": 10
+    },
+    "ballot": {
+      "p50": 2900,
+      "p90": 3200,
+      "n": 10
+    },
+    "reaction": {
+      "p50": 4200,
+      "p90": 4500,
+      "n": 10
+    },
+    "reflection": {
+      "p50": 3600,
+      "p90": 3800,
+      "n": 10
+    }
+  },
+  "not_measured": [
+    "llama tokens per second and RSS (no field in the mind snapshot)",
+    "MC and playtest load at run time (the Mac load is recorded by hand next to each latency)",
+    "quota left at every model decision and quota-starved bells per AI (the brain counts quota_starved_bells in total only)",
+    "hostile acts, collisions, grievances opened and answered, strike results (they need the council and the herald; not read here)"
+  ],
+  "does_not_show": [
+    "human playtest results, traction, working money, strength of the AI against rule bots, or that the model wants or intends anything",
+    "that a cited episode was the reason for a choice (a citation shows the line was shown and named)",
+    "exact replay of model output beyond the M9 samples verify-minds checks"
+  ],
+  "checks": {
+    "brain_first_call_answers_equal_records": true,
+    "records_equal_metrics_decisions_total": true,
+    "model_marches_equal_mind_counter": true,
+    "model_marches_equal_brain_counter": true
+  }
+}

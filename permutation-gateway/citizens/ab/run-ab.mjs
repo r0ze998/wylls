@@ -176,7 +176,7 @@ export function renderAbResult({ pairs, T, outcome, runs = null }) {
   const L = [];
   const row = (...c) => `| ${c.join(' | ')} |`;
   const yn = (x) => (x ? 'yes' : 'no');
-  L.push('# A/B result: the seat\'s scripted ballot and the Strike Order', '', 'Local test chain only. Not devnet, not mainnet. Nation 0 only. The seat\'s ballot is scripted by the operator (origin 2): this shows a Strike Order adopted with an operator-scripted seat ballot, not that humans and AI citizens decide together.', '');
+  L.push('# A/B result: the seat\'s scripted ballot and the Strike Order', '', 'Local test chain only (no public network). Nation 0 only. The seat\'s ballot is scripted by the operator (origin 2): this shows a Strike Order adopted with an operator-scripted seat ballot, not that humans and AI citizens decide together.', '');
   L.push(`Threshold T = ${T} hosts of nation 0 present at X at S (T = min(3, the ready invited hosts the pilot saw), never below 2). ${outcome.claim.text}.`, '');
   L.push(`Reps reported: ${outcome.reps_reported}; valid pairs: ${outcome.valid_pairs}; pairs used for the claim: ${JSON.stringify(outcome.pairs_used)}; passed: ${JSON.stringify(outcome.passed)}. n is tiny: this is a pre-registered two-arm demonstration, not a rate.`, '');
   L.push(row('rep', 'valid', 'why not valid', 'pass', 'X', 'arm A: Call, present, engagements, enemy lost', 'arm B: Call, present, nation 0 in clash', 'council replayed'), row('---', '---', '---', '---', '---', '---', '---', '---'));
