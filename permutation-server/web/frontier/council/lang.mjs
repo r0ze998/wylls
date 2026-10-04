@@ -209,6 +209,7 @@ const EN = {
   'dec.facts_none': 'no facts',
   'dec.words': "AI's words (model-written, not verified)",
   'dec.words_none': 'The model wrote no reason.',
+  'dec.reflection_body': 'A reflection: the AI looked back over its recent episodes and goals. It chose no action here. Its summary, when the checker passes it, is on the card, marked as written by the model.',
   'dec.words_autopilot': 'no model words (autopilot)',
   'dec.withheld': 'The reason was withheld by the checker.',
   'dec.remembered': 'Remembered (cited by the model):',

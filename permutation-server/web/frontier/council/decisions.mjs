@@ -316,6 +316,12 @@ export function renderDecision(ctx, d) {
     return art;
   }
 
+  // a reflection looks back; it has no candidates, no choice, no reason and cannot cite memory: print what it is, not "Chose: no candidate named"
+  if (d.kind === 'reflection') {
+    art.appendChild(h('p', { class: 'reflection-body muted' }, t('dec.reflection_body')));
+    return art;
+  }
+
   if (d.candidates.length) {
     art.appendChild(h('details', { class: 'cand-box', open: d.state === 'released' ? true : null },
       h('summary', null, t('dec.candidates')), candidateList(ctx, d)));

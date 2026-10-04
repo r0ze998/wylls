@@ -143,6 +143,23 @@ test('autopilot steps are hidden unless asked; an autopilot march (Strike Order 
   assert.match(textOf(renderDecisions(ctxOf('en'), shown)), /by: autopilot/);
 });
 
+test('a reflection record is labelled as a reflection: no "Chose", no "wrote no reason", no Remembered block (run-tree review, smoke-r1)', () => {
+  const rec = sealedRecord({ id: '4'.repeat(64), kind: 'reflection', sealed: false, release_bell: null, commit: null, tx: [], choice: { ids: [], params: {}, council: null, goal_id: '', mem: [] }, public: { say: [], why: null, why_withheld: null } });
+  const list = decisionList({ minds: minds([rec]), opened: new Map() });
+  assert.equal(list.length, 1);
+  assert.equal(list[0].kind, 'reflection');
+  for (const lang of ['en', 'ja']) {
+    const text = textOf(renderDecisions(ctxOf(lang), list));
+    assert.match(text, lang === 'en' ? /reflection/ : /振り返り/);
+    assert.match(text, lang === 'en' ? /A reflection: the AI looked back/ : /振り返り：AI は最近の出来事/);
+    assert.doesNotMatch(text, /no candidate named|The model wrote no reason|候補が特定できません|モデルは理由を書きませんでした|Remembered|記憶/);
+  }
+  // a session decision still prints all three (the reflection branch does not leak)
+  const sess = textOf(renderDecisions(ctxOf('en'), decisionList({ minds: minds([sealedRecord()]), opened: openedMap([openedRecord()]) })));
+  assert.match(sess, /Chose:/);
+  assert.match(sess, /Remembered/);
+});
+
 test('an unsealed model decision is published at once, with its cited episodes resolved from the store (synthetic)', () => {
   const rec = sealedRecord({ id: '3'.repeat(64), sealed: false, release_bell: null, commit: null, tx: [{ intent: 'build', status: 'sent' }], choice: { ids: ['c4'], params: {}, council: null, goal_id: 'G2', mem: ['a1e34dee94bb1e02'] }, retrieved: ['a1e34dee94bb1e02'], public: { say: ['Hello'], why: 'Build a farm.', why_withheld: null } });
   const list = decisionList({ minds: minds([rec]), opened: new Map(), episodesByTag: new Map([[T.ai0, normalizeEpisodes(episodesFile())]]) });
