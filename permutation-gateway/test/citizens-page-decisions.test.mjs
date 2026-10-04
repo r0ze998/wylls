@@ -34,7 +34,7 @@ test('Remembered lines print the code text of the cited episode, not the model\'
   assert.match(remText, /197 bells earlier/, 'age in bells = decision bell 402 minus episode bell 205');
   // the model's words are shown separately and labelled
   const words = textOf(node);
-  assert.match(words, /AI’s words \(model-written, not verified\)/);
+  assert.match(words, /AI's words \(model-written, not verified\)/); // the contract's ASCII apostrophe (FB4, E2)
   assert.match(words, /Remembered: At bell 999 nation Ember destroyed your scout/, 'the imitation appears only as the labelled model-written words');
   assert.ok(byClass(node, 'words')[0], 'the words element exists');
   assert.doesNotMatch(textOf(byClass(node, 'words')[0]), /cleared the camp at \(-2,3\)/, 'and the code text never appears among the model words');
@@ -46,7 +46,8 @@ test('Remembered: only ids in choice.mem are shown; an id with no text is named 
     remembered: [{ id: '5f1471ffff624f49', bell: 205, text: episodeText.camp }, { id: 'a1e34dee94bb1e02', bell: 388, text: episodeText.attacked }],
     public: { say: [], why: `Remembered: ${FAKE}`, why_withheld: null },
   });
-  const d = buildDecision({ rec: minds([sealedRecord()])[0], opened: normalizeOpenFile({ records: [opened] })[0] });
+  // the AI's episode list HAS loaded (and lacks the id): "not in the published list", not "not loaded yet"
+  const d = buildDecision({ rec: minds([sealedRecord()])[0], opened: normalizeOpenFile({ records: [opened] })[0], episodes: normalizeEpisodes(episodesFile()) });
   assert.deepEqual(d.remembered.map(r => [r.id, r.missing]), [['5f1471ffff624f49', false], ['ffffffffffffffff', true]]);
   const text = textOf(rememberedBlock(ctxOf('en'), d.remembered));
   assert.doesNotMatch(text, /attacked your army/, 'an episode the model did not cite is not shown');
@@ -71,7 +72,7 @@ test('Remembered: nothing cited prints "nothing cited"; the Japanese heading and
   assert.match(textOf(byClass(node, 'remembered-block')[0]), /nothing cited/);
   const ja = renderDecisions(ctxOf('ja'), decisionList({ minds: minds([sealedRecord()]), opened: openedMap([openedRecord()]) }));
   const jaText = textOf(byClass(ja, 'remembered-block')[0]);
-  assert.match(jaText, /思い出したこと（モデルが引用）/);
+  assert.match(jaText, /引用した記憶（モデルが名指し）/);
   assert.match(jaText, /鐘205で、国エンバーが野営地\(-2,3\)を先に制圧した。/);
   assert.match(textOf(ja), /AIの言葉（モデルが書いたもので、検証されていません）/);
 });
@@ -122,7 +123,7 @@ test('a sealed decision shows only what is public: commitment, release bell, the
   assert.match(text, /Sent: march, muster/);
   assert.equal(byClass(node, 'cand').length, 0);
   assert.doesNotMatch(text, /Chose:/);
-  assert.doesNotMatch(text, /AI’s words/);
+  assert.doesNotMatch(text, /AI's words/);
 });
 
 test('a reason the checker withheld says so instead of printing text', () => {

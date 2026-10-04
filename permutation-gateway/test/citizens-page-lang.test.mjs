@@ -95,7 +95,7 @@ test('every key a module uses exists (literal t() keys, key families and the key
 
 test('every dictionary key is used somewhere (no dead strings) except the spare reason and kind families', () => {
   const src = modules.map(f => strip(fs.readFileSync(path.join(councilDir, f), 'utf8'))).join('\n') + fs.readFileSync(pageFile, 'utf8');
-  const spare = /^(dec\.reason\.|dec\.intent\.|dec\.kind\.|dec\.cand\.|chron\.kind\.|ev\.kind\.|err\.|keys\.err\.|temp\.|card\.status\.|council\.reason\.|council\.kind\.|council\.ratio\.|council\.state\.|council\.pivotal\.why_|feed\.channel\.|badge\.)/;
+  const spare = /^(dec\.reason\.|dec\.intent\.|dec\.kind\.|dec\.cand\.|chron\.kind\.|ev\.kind\.|err\.|keys\.err\.|temp\.|card\.status\.|council\.reason\.|council\.kind\.|council\.ratio\.|council\.state\.|ev\.fate\.|council\.pivotal\.why_|feed\.channel\.|badge\.)/;
   const dead = Object.keys(DICT.en).filter(k => !spare.test(k) && !src.includes(`'${k}'`) && !src.includes(`"${k}"`) && !src.includes(`:${k}`) && !src.includes(`"${k}`));
   assert.deepEqual(dead, []);
 });
@@ -111,7 +111,7 @@ test('vocabulary (§0.4): Strike Order, never "Call" or "shade"; no claim that t
   }
   assert.match(DICT.en['council.title'], /Strike Order/);
   assert.match(DICT.ja['council.title'], /攻撃命令/);
-  assert.equal(DICT.en['dec.words'], 'AI’s words (model-written, not verified)');
+  assert.equal(DICT.en['dec.words'], "AI's words (model-written, not verified)"); // ASCII apostrophe as in the contract (lines 353, 462, 712)
   assert.equal(DICT.en['dec.remembered'], 'Remembered (cited by the model):');
   assert.equal(DICT.en['card.progress_not_computed'], 'progress not computed');
   assert.equal(DICT.en['badge.ai'], 'AI citizen, Gemma 4 local');

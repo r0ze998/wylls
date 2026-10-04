@@ -68,6 +68,7 @@ export function makeRosterIndex(roster, { scriptTags = null } = {}) {
     seat: s,
     scriptCount: Number.isInteger(r.script?.count) ? r.script.count : scriptWallets.size,
     scriptTagCount: scriptTagSet.size,
+    scriptTags: [...scriptTagSet],
     identify,
     aiByTag: tag => byTag.get(tagKey(tag)) ?? null,
     aiByWallet: w => byWallet.get(str(w)) ?? null,
@@ -109,23 +110,48 @@ export function displayNameOf(index, who = {}, lang = 'en', { resolve = null, fa
   return tag ? tag.slice(0, 6) : '';
 }
 
+const fullNameCache = new WeakMap(); // resolve fn → Map(`tag|lang` → full derived name): the roster scan below asks for ~200 names per line
+
 /**
  * Split a code-templated line (an episode's text) into text and badge segments: after every occurrence of the name
- * of an entity (a 16-hex citizen tag in `entities`) that the line names, a badge segment of that actor's roster
- * style follows (`{badge: look, tag}`). Names come from the roster for AI citizens and from `resolve` for the rest;
- * `pq:` and `nation:` entities are not citizens and get no badge. Longest names first, no overlaps.
+ * of a citizen that the line names, a badge segment of that actor's roster style follows (`{badge: look, tag}`).
+ * Names come from the roster for AI citizens and from `resolve` for the rest; `pq:` and `nation:` entities are not
+ * citizens and get no badge. Longest names first, no overlaps.
+ *
+ * Which citizens are looked for (FB4, G9: "every citizen name in a cited line carries its roster badge"): the 16-hex
+ * citizen tags in `entities`, AND every citizen the roster knows (all AI citizens by their roster names, the seat and
+ * the script bots by their full derived names), so a line still gets its badges when `entities` is missing (the
+ * opened record's `remembered[]` carries none, and the episode list may not have loaded or may have evicted the
+ * episode). `scanRoster: false` restores the entities-only reading.
  */
-export function badgedSegments(text, entities, index, lang, { resolve = null } = {}) {
+export function badgedSegments(text, entities, index, lang, { resolve = null, scanRoster = true } = {}) {
   const line = str(text);
   const cands = [];
-  for (const e of Array.isArray(entities) ? entities : []) {
-    const tag = tagKey(e);
-    if (!tag) continue;
+  const seenTag = new Set();
+  const addTag = (tag, { full = false } = {}) => {
+    if (!tag || seenTag.has(tag)) return;
+    seenTag.add(tag);
     const names = new Set();
     const a = index.aiByTag(tag);
     if (a) { names.add(a.name.en); names.add(a.name.ja); }
-    if (resolve) for (const full of [false, true]) for (const l of ['en', 'ja']) { const n = resolve(tag, l, full); if (n) names.add(n); }
+    if (resolve) {
+      if (full) {
+        let cache = fullNameCache.get(resolve);
+        if (!cache) fullNameCache.set(resolve, (cache = new Map()));
+        for (const l of ['en', 'ja']) {
+          const k = `${tag}|${l}`;
+          if (!cache.has(k)) { let n = null; try { n = resolve(tag, l, true) || null; } catch { n = null; } cache.set(k, n); }
+          if (cache.get(k)) names.add(cache.get(k));
+        }
+      } else for (const f of [false, true]) for (const l of ['en', 'ja']) { const n = resolve(tag, l, f); if (n) names.add(n); }
+    }
     for (const n of names) if (n && n.length >= 2) cands.push({ tag, name: n });
+  };
+  for (const e of Array.isArray(entities) ? entities : []) addTag(tagKey(e));
+  if (scanRoster) {
+    for (const a of index.ai ?? []) addTag(a.tag, { full: true });
+    if (index.seat?.tag) addTag(index.seat.tag, { full: true });
+    for (const tg of index.scriptTags ?? []) addTag(tg, { full: true });
   }
   cands.sort((x, y) => y.name.length - x.name.length || (x.name < y.name ? -1 : 1));
   const hits = [];

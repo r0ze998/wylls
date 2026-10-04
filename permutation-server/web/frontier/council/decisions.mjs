@@ -2,6 +2,9 @@
 //   minds/<bell>.json    the decision records of a bell. A march decision is sealed here (commitment only).
 //   open/<bell>.json     the opened records of sealed decisions (written once, every record due at that bell):
 //                        candidates, choice, the model's words, the cited episodes' code text, the real destination.
+//   open/index.json      {bells, latest}: the bells that have an open file (FB4: read instead of probing blindly).
+//   minds/late/<bell>.json   {bell, entries:[{record}|{id, tx}]}: records added and transactions reported after the
+//                        bell's file closed (FB4: merged into the records, so a late "Sent:" line and a late record show).
 //   memory/<tag>/episodes.json   the AI's episodes (code text), used only to resolve a cited id the record lacks.
 //
 // What is printed, in this order: who decided and `by: model | autopilot`; the candidates the AI was offered (made
@@ -33,9 +36,63 @@ export function normalizeMinds(file) {
       id: r.id, tag, index: num(r.index), bell: num(r.bell) ?? 0, kind: str(r.kind), mode: r.mode === 'model' ? 'model' : 'autopilot', reason: str(r.reason),
       sealed: !!r.sealed, releaseBell: num(r.release_bell), commit: str(r.commit),
       choice: normalizeChoice(r.choice), retrieved: arr(r.retrieved).filter(x => typeof x === 'string'),
-      pub: normalizePublic(r.public), tx: arr(r.tx).map(x => ({ intent: str(x?.intent), status: str(x?.status) })),
+      pub: normalizePublic(r.public), tx: arr(r.tx).map(normalizeTx),
     });
   }
+  return out;
+}
+
+/** One transaction entry `{intent, sig, status}` (the signature is kept only to tell two reports of one transaction apart; it is never printed). */
+const normalizeTx = x => ({ intent: str(x?.intent), status: str(x?.status), sig: str(x?.sig).slice(0, 100) });
+const txKey = x => (x.sig ? `sig:${x.sig}` : `${x.intent}|${x.status}`);
+
+/** `minds/late/<b>.json` → `{bell, adds: [records], tx: Map(id → tx[])}` (a malformed file gives nothing). */
+export function normalizeLate(file) {
+  const entries = arr(file?.entries);
+  const adds = [];
+  const tx = new Map();
+  for (const e of entries) {
+    if (!e || typeof e !== 'object') continue;
+    if (e.record && typeof e.record === 'object') adds.push(...normalizeMinds({ records: [e.record] }));
+    else if (typeof e.id === 'string' && Array.isArray(e.tx)) tx.set(e.id, e.tx.map(normalizeTx)); // the later entry lists the whole tx again
+  }
+  return { bell: num(file?.bell), adds, tx };
+}
+
+/**
+ * The records of the closed files with the late files laid over them: a late transaction list is merged into the
+ * record's own (each transaction once, first-seen order), a late-added record is appended unless its id is known.
+ * `lates` is an iterable of `normalizeLate` results. Pure: the inputs are not changed.
+ */
+export function applyLate(records, lates) {
+  const extra = new Map();
+  const adds = [];
+  for (const l of lates ?? []) {
+    for (const [id, tx] of l.tx) extra.set(id, [...(extra.get(id) ?? []), ...tx]);
+    adds.push(...l.adds);
+  }
+  const merge = (r, more) => {
+    if (!more?.length) return r;
+    const seen = new Set(r.tx.map(txKey));
+    const tx = [...r.tx];
+    for (const x of more) { const k = txKey(x); if (!seen.has(k)) { seen.add(k); tx.push(x); } }
+    return { ...r, tx };
+  };
+  const known = new Set();
+  const out = [];
+  for (const r of records) { known.add(r.id); out.push(merge(r, extra.get(r.id))); }
+  for (const r of adds) if (!known.has(r.id)) { known.add(r.id); out.push(merge(r, extra.get(r.id))); }
+  return out;
+}
+
+/**
+ * Which `minds/late/<b>.json` files to ask for now: each of the last `window` closed bells once per bell of the page
+ * (a late file is rewritten when more arrives, so a present file is read again in a later bell; it is never immutable).
+ * `checkedAt` is a Map(bell → the page's bell at the last ask).
+ */
+export function planLateProbes({ bellNow = 0, checkedAt = new Map(), window = 8 } = {}) {
+  const out = [];
+  for (let b = bellNow - 1; b >= Math.max(0, bellNow - window); b--) if (!(checkedAt.get(b) >= bellNow)) out.push(b);
   return out;
 }
 
@@ -69,14 +126,16 @@ export function normalizeOpenFile(file) {
   for (const r of list) {
     if (!r || typeof r !== 'object' || typeof r.id !== 'string') continue;
     const dests = arr(r.destinations).map(d => ({
-      p: num(d?.p), q: num(d?.q), tile: num(d?.tile), planned: num(d?.planned_arrive_bell), arrive: num(d?.arrive_bell), unrevealed: d?.destination === 'unrevealed' || d === 'unrevealed',
+      p: num(d?.p), q: num(d?.q), tile: num(d?.tile), planned: num(d?.planned_arrive_bell), arrive: num(d?.arrive_bell), unrevealed: d?.destination === 'unrevealed' || d === 'unrevealed' || d?.state === 'unrevealed',
+      // release.mjs: a march the brain never sent opens as `state: 'not_sent'` (and `destination: 'not_sent'`): no destination exists
+      notSent: d?.state === 'not_sent' || d?.destination === 'not_sent' || d === 'not_sent',
     }));
     out.push({
       id: r.id, tag: tagKey(r.ai), bell: num(r.bell), mode: r.mode === 'model' ? 'model' : r.mode === 'autopilot' ? 'autopilot' : null, releaseBell: num(r.release_bell),
       choice: normalizeChoice(r.choice), retrieved: arr(r.retrieved).filter(x => typeof x === 'string'), pub: normalizePublic(r.public),
       candidates: arr(r.candidates).map(normalizeCandidate).filter(Boolean),
       remembered: arr(r.remembered).filter(m => m && typeof m.id === 'string').map(m => ({ id: m.id, bell: num(m.bell), age: num(m.age_bells), text: bi(m.text) })),
-      destinations: dests, unrevealed: r.destination === 'unrevealed' || dests.some(d => d.unrevealed),
+      destinations: dests, unrevealed: r.destination === 'unrevealed' || dests.some(d => d.unrevealed), notSent: r.destination === 'not_sent' || (dests.length > 0 && dests.every(d => d.notSent)),
     });
   }
   return out;
@@ -114,18 +173,22 @@ export function buildDecision({ rec = null, opened = null, episodes = null }) {
     const ep = episodes?.get?.(id);
     const bell = fromRecord?.bell ?? ep?.bell ?? null;
     const text = fromRecord?.text ?? ep?.text ?? null;
-    if (!text || (!pick(text, 'en') && !pick(text, 'ja'))) { remembered.push({ id, missing: true, bell, age: null, text: null, entities: [] }); continue; }
+    // `loading`: the AI's episode list has not been fetched yet (episodes === null); otherwise the id is truly absent (evicted or redacted)
+    if (!text || (!pick(text, 'en') && !pick(text, 'ja'))) { remembered.push({ id, missing: true, loading: !episodes, bell, age: null, text: null, entities: [] }); continue; }
     const age = fromRecord?.age ?? (bell !== null ? Math.max(0, (base.bell ?? 0) - bell) : null);
-    remembered.push({ id, missing: false, bell, age, text, entities: ep?.entities ?? [] });
+    remembered.push({ id, missing: false, loading: false, bell, age, text, entities: ep?.entities ?? [] });
   }
-  const marched = base.tx.some(x => x.intent === 'depart') || (opened?.destinations.length ?? 0) > 0;
+  // a march happened when a march transaction was sent or a destination was revealed/left unrevealed; a `not_sent` destination is no march
+  const notSent = !!opened?.notSent || (opened?.destinations.some(d => d.notSent) ?? false);
+  const sentMarch = base.tx.some(x => ['depart', 'march', 'recall'].includes(x.intent) && x.status === 'sent');
+  const marched = opened ? (opened.destinations.length > 0 ? opened.destinations.some(d => !d.notSent) : sentMarch && !notSent) : sentMarch;
   return {
     id: base.id, tag: base.tag, index: base.index, bell: base.bell, kind: base.kind, by: base.mode === 'model' ? 'model' : 'autopilot', reason: base.reason,
     state, releaseBell: opened?.releaseBell ?? base.releaseBell, commit: base.commit,
     actions: [...new Set(base.tx.filter(x => x.status !== 'refused').map(x => x.intent).filter(Boolean))],
     goalId: choice.goalId, chosen, candidates, chosenIds: choice.ids,
     why: pub.why, whyWithheld: pub.whyWithheld, say: pub.say, remembered,
-    destinations: opened?.destinations.filter(d => !d.unrevealed && d.p !== null) ?? [], unrevealed: !!opened?.unrevealed, marched,
+    destinations: opened?.destinations.filter(d => !d.unrevealed && !d.notSent && d.p !== null) ?? [], unrevealed: !!opened?.unrevealed, notSent, marched,
   };
 }
 
@@ -157,9 +220,24 @@ export function decisionList({ minds = [], opened = new Map(), episodesByTag = n
  *   have        Set of bells whose file was loaded
  *   missedAt    Map(bell → the page's bell when it last answered 404)
  *   hintBells   bells named by chronicle `ai_march_opened` lines (tried first)
+ *   index       the `bells` of `open/index.json` when it was read (an array), else null: with it, only those bells (within
+ *               `lookback` bells of now) are fetched and nothing is probed blindly; without it, the probing above.
  */
-export function planOpenProbes({ sealed = [], have = new Set(), missedAt = new Map(), bellNow = 0, hintBells = [], max = 8 } = {}) {
+export function planOpenProbes({ sealed = [], have = new Set(), missedAt = new Map(), bellNow = 0, hintBells = [], index = null, lookback = 96, max = 8 } = {}) {
   const want = new Set();
+  if (Array.isArray(index)) {
+    // FB4: `open/index.json` lists every bell that has a file (the release job writes it with each file): ask for those, nothing blind
+    for (const b of index) if (Number.isInteger(b) && b <= bellNow && b >= bellNow - lookback) want.add(b);
+    const out = [];
+    for (const b of [...want].sort((x, y) => y - x)) {
+      if (have.has(b)) continue;
+      const miss = missedAt.get(b);
+      if (miss !== undefined && bellNow <= miss) continue; // already asked in this bell
+      out.push(b);
+      if (out.length >= max) break;
+    }
+    return out;
+  }
   for (const b of hintBells) if (Number.isInteger(b)) want.add(b);
   for (const s of sealed) {
     const r = s.releaseBell;
@@ -209,7 +287,7 @@ export function rememberedBlock(ctx, remembered) {
   if (!remembered.length) { box.appendChild(h('p', { class: 'remembered-none' }, t('dec.remembered_none'))); return box; }
   const ul = h('ul', { class: 'lines remembered' });
   for (const m of remembered) {
-    if (m.missing) { ul.appendChild(h('li', { class: 'missing' }, t('dec.remembered_missing', { id: m.id.slice(0, 8) }))); continue; }
+    if (m.missing) { ul.appendChild(h('li', { class: m.loading ? 'missing loading' : 'missing' }, t(m.loading ? 'dec.remembered_loading' : 'dec.remembered_missing', { id: m.id.slice(0, 8) }))); continue; }
     ul.appendChild(h('li', null,
       lineEl(ctx, m.text, m.entities, { cls: 'line' }), ' ',
       h('span', { class: 'bellmark' }, `${m.bell !== null ? t('page.bell_n', { n: int(m.bell) }) : ''}${m.age !== null ? ` · ${t('page.age_bells', { n: int(m.age) })}` : ''}`)));
@@ -251,10 +329,15 @@ export function renderDecision(ctx, d) {
         x.arrive !== null ? h('span', { class: 'muted' }, ` · ${t('dec.arrives', { a: int(x.arrive), b: int(x.planned ?? x.arrive) })}`) : null));
     }
   } else if (d.unrevealed) art.appendChild(h('p', { class: 'dest muted' }, t('dec.unrevealed')));
+  // FB4: a march that was chosen but never sent has no destination; say so instead of reading as if it happened
+  if (d.notSent) art.appendChild(h('p', { class: 'dest muted not-sent' }, t('dec.not_sent')));
 
-  art.appendChild(h('p', { class: 'words-label' }, t('dec.words')));
-  if (d.whyWithheld) art.appendChild(h('p', { class: 'words muted' }, `${t('dec.withheld')} (${clip(d.whyWithheld, 60)})`));
-  else art.appendChild(h('p', { class: 'words' }, d.why || t('dec.words_none')));
+  if (d.by === 'autopilot' && !d.whyWithheld) art.appendChild(h('p', { class: 'words muted' }, t('dec.words_autopilot'))); // no model was involved: no "model-written" label
+  else {
+    art.appendChild(h('p', { class: 'words-label' }, t('dec.words')));
+    if (d.whyWithheld) art.appendChild(h('p', { class: 'words muted' }, `${t('dec.withheld')} (${clip(d.whyWithheld, 60)})`));
+    else art.appendChild(h('p', { class: 'words' }, d.why || t('dec.words_none')));
+  }
   if (d.say.length) art.appendChild(h('div', { class: 'say' }, h('span', { class: 'muted' }, `${t('dec.say')}: `), d.say.map(s => h('q', null, s))));
   art.appendChild(rememberedBlock(ctx, d.remembered));
   return art;

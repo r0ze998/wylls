@@ -29,18 +29,49 @@ export function normalizeTalk(payload) {
     if (kind === 'motion') { try { option = splitMotionRef(BigInt(r.ref)).option; } catch { option = null; } }
     out.push({
       id: r.id, bell: num(r.bell) ?? 0, wallet: str(r.wallet), tag: str(r.tag), name: r.name && typeof r.name === 'object' ? { en: str(r.name.en), ja: str(r.name.ja) } : null,
-      origin: num(r.origin) ?? 0, channel: CHANNEL_NAMES[r.channel], target: r.target ?? null, kind, option, text, redacted: !!r.redacted,
+      origin: num(r.origin) ?? 0, channel: CHANNEL_NAMES[r.channel], target: r.target ?? null, kind, option, text, redacted: !!r.redacted, inner: str(r.inner),
     });
   }
   return out.sort((a, b) => a.id - b.id);
 }
 
-/** Merge new rows into the kept list (by id), keep the newest `max`. */
+/** Merge new rows into the kept list (by id), keep the newest `max`. A row once redacted stays redacted (its text is gone for good). */
 export function mergeTalk(old, fresh, max = 300) {
   const byId = new Map(old.map(r => [r.id, r]));
-  for (const r of fresh) byId.set(r.id, r);
+  for (const r of fresh) {
+    const was = byId.get(r.id);
+    byId.set(r.id, was?.redacted && !r.redacted ? { ...r, redacted: true, text: '' } : r);
+  }
   return [...byId.values()].sort((a, b) => a.id - b.id).slice(-max);
 }
+
+/**
+ * `/h/ai/redactions.json` (the operator's tombstones, contract §6.3: `[{inner, bell, reason}]`) → the Set of `inner` hashes.
+ * A malformed file gives an empty set.
+ */
+export function normalizeRedactions(file) {
+  const list = Array.isArray(file) ? file : Array.isArray(file?.redactions) ? file.redactions : [];
+  return new Set(list.map(x => str(x?.inner)).filter(Boolean));
+}
+
+/**
+ * Blank the rows the tombstones name (FB4: redaction must reach a page that is already open: the rows were fetched
+ * before the tombstone existed and `after=<cursor>` never fetches them again). Returns `{rows, changed}`; rows that are
+ * not named are the same objects, so an unchanged list is cheap to compare.
+ */
+export function applyRedactions(rows, tombs) {
+  if (!tombs?.size) return { rows, changed: false };
+  let changed = false;
+  const out = rows.map(r => {
+    if (r.redacted || !r.inner || !tombs.has(r.inner)) return r;
+    changed = true;
+    return { ...r, redacted: true, text: '' };
+  });
+  return { rows: changed ? out : rows, changed };
+}
+
+/** What the feed panel's render signature is made of: the ids AND the redaction flags (a row that turns redacted must re-render). */
+export const talkSignature = rows => rows.map(r => [r.id, r.redacted ? 1 : 0]);
 
 export const filterTalk = (rows, channel) => (channel && channel !== 'all' ? rows.filter(r => r.channel === channel) : rows);
 

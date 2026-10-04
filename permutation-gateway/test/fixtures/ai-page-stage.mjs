@@ -34,9 +34,9 @@ const library = JSON.parse(fs.readFileSync(path.join(here, '../../citizens/perso
 export const GENESIS = 1_790_000_000;
 const NULL_GOALS = new Set(['talk_neighbours', 'move_option', 'build_three', 'move_grievance_option', 'tier_up_three_builds', 'explore_daily', 'strike_the_mover', 'raid_weak_stacks']);
 const OPTIONS = [
-  { option: 1, kind: 'camp', p: 2, q: 1, value: 120, own: 400, ratio: 'favourable' },
-  { option: 2, kind: 'strike', p: 1, q: 3, value: 500, own: 640, ratio: 'even' },
-  { option: 3, kind: 'raid', p: 4, q: -2, value: 800, own: 700, ratio: 'unfavourable' },
+  { option: 1, kind: 'camp', p: 2, q: 1, value: 120, own: 400, enemy: 200, ratio: 'favourable' },
+  { option: 2, kind: 'strike', p: 1, q: 3, value: 500, own: 640, enemy: 500, ratio: 'even' },
+  { option: 3, kind: 'raid', p: 4, q: -2, value: 800, own: 700, enemy: 1000, ratio: 'unfavourable' },
 ];
 
 const readJson = p => JSON.parse(fs.readFileSync(p, 'utf8'));

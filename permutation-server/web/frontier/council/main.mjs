@@ -17,12 +17,12 @@ import { makeRosterIndex, deriveScriptTags, tagKey } from './badges.mjs';
 import { createApi } from './api.mjs';
 import { bannerModel, renderBanner, currentBell } from './banner.mjs';
 import { normalizeCard, renderRoster, renderCard } from './cards.mjs';
-import { normalizeMinds, normalizeOpenFile, normalizeEpisodes, decisionList, renderDecisions, planOpenProbes } from './decisions.mjs';
+import { normalizeMinds, normalizeOpenFile, normalizeEpisodes, normalizeLate, applyLate, planLateProbes, decisionList, renderDecisions, planOpenProbes } from './decisions.mjs';
 import { normalizeEvents, normalizeChronicle, openedBellsFromChronicle, renderEvents, renderChronicle } from './events.mjs';
-import { normalizeTalk, mergeTalk, renderFeed, nextSeq, buildTalk, sendRecord, outcomeText } from './feed.mjs';
+import { normalizeTalk, mergeTalk, normalizeRedactions, applyRedactions, talkSignature, renderFeed, nextSeq, buildTalk, sendRecord, outcomeText } from './feed.mjs';
 import { normalizeCouncil, renderCouncil, castBallot } from './ballot.mjs';
 import { readCall, renderCallPanel } from './call.mjs';
-import { parseKeyText, findSavedKeys, makeSigner, signerFaction } from './keys.mjs';
+import { parseKeyText, findSavedKeys, makeSigner, signerFaction, signerRefusal, chooseSavedKey } from './keys.mjs';
 import { noticeAccepted, acceptNotice, composeNotice, renderComposeNotice, renderFirstPostNotice, refusalText } from './notice.mjs';
 import { fromHex } from './aisocial.mjs';
 
@@ -34,8 +34,9 @@ const $ = id => doc.getElementById(id);
 const S = {
   roster: null, index: makeRosterIndex(null), season: null, commitments: null, bell: null,
   cards: new Map(), episodes: new Map(), episodesAt: new Map(),
-  minds: new Map(), mindsMiss: new Map(), opened: new Map(), openHave: new Set(), openMiss: new Map(),
-  events: [], chronicle: [], talk: [], talkNext: 0,
+  minds: new Map(), mindsMiss: new Map(), opened: new Map(), openHave: new Set(), openMiss: new Map(), openIndex: null,
+  late: new Map(), lateAt: new Map(), // minds/late/<b>.json (FB4): normalized, and the page's bell at the last ask
+  events: [], chronicle: [], talk: [], talkNext: 0, redactions: new Set(),
   councils: new Map(), callRes: new Map(), mine: new Map(), draft: { option: 1, text: '' },
   selectedAi: null, selectedNation: null, showAutopilot: false, decFilter: '', channel: 'all',
   signer: null, lastSeq: null, notes: { council: '', compose: '', keys: '' },
@@ -43,6 +44,8 @@ const S = {
 };
 
 const ctx = () => ({ h, t, lang: getLang(), index: S.index, resolve: S.resolve });
+/** Every decision record: the closed bell files with the late files laid over them (a late transaction or a late-added record). */
+const allMinds = () => applyLate([...S.minds.values()].flat(), S.late.values());
 const seasonId = () => S.roster?.season ?? (S.season?.season !== undefined ? Number(S.season.season) : null);
 
 // ------------------------------------------------------------------ rendering
@@ -107,11 +110,11 @@ panel('roster', () => [getLang(), S.rosterVer, S.selectedAi, [...S.cards.values(
   () => renderRoster(ctx(), S.index, S.cards, { selected: S.selectedAi, onSelect: selectAi }));
 panel('card', () => [getLang(), S.selectedAi, S.cards.get(S.selectedAi), S.episodes.get(S.selectedAi) ? S.episodes.get(S.selectedAi).size : 0, !!S.resolve, S.scriptTagsDone],
   () => renderCard(ctx(), S.cards.get(S.selectedAi) ?? null, S.index.aiByTag(S.selectedAi), { episodesById: S.episodes.get(S.selectedAi) ?? null }));
-panel('decisions', () => [getLang(), S.decFilter, S.showAutopilot, [...S.minds.keys()].length, [...S.opened.keys()], [...S.episodes.entries()].map(([k, v]) => [k, v.size]), !!S.resolve, S.scriptTagsDone, S.rosterVer],
-  () => renderDecisions(ctx(), decisionList({ minds: [...S.minds.values()].flat(), opened: S.opened, episodesByTag: S.episodes, tag: S.decFilter || null, showAutopilot: S.showAutopilot })));
+panel('decisions', () => [getLang(), S.decFilter, S.showAutopilot, [...S.minds.keys()].length, [...S.late.entries()].map(([b, l]) => [b, l.adds.length, [...l.tx.values()].map(x => x.length)]), [...S.opened.keys()], [...S.episodes.entries()].map(([k, v]) => [k, v.size]), !!S.resolve, S.scriptTagsDone, S.rosterVer],
+  () => renderDecisions(ctx(), decisionList({ minds: allMinds(), opened: S.opened, episodesByTag: S.episodes, tag: S.decFilter || null, showAutopilot: S.showAutopilot })));
 panel('events', () => [getLang(), S.events, S.rosterVer, !!S.resolve, S.scriptTagsDone], () => renderEvents(ctx(), S.events));
 panel('chronicle', () => [getLang(), S.chronicle, S.rosterVer, !!S.resolve], () => renderChronicle(ctx(), S.chronicle));
-panel('feed', () => [getLang(), S.talk.map(r => r.id), S.channel, S.rosterVer, !!S.resolve], () => renderFeed(ctx(), S.talk, { channel: S.channel }));
+panel('feed', () => [getLang(), talkSignature(S.talk), S.channel, S.rosterVer, !!S.resolve], () => renderFeed(ctx(), S.talk, { channel: S.channel }));
 panel('council', () => [getLang(), S.selectedNation, S.councils.get(S.selectedNation), S.bell, S.signer?.wallet ?? null, [...S.mine.entries()], [...S.callRes.entries()], S.notes.council, S.rosterVer],
   () => {
     const f = S.selectedNation ?? 0;
@@ -154,6 +157,7 @@ async function loadRoster() {
 }
 function rebuildIndex(scriptTags = null) {
   S.index = makeRosterIndex(S.roster, { scriptTags: scriptTags ?? S.scriptTags ?? null });
+  if (S.signer && signerRefusal(S.index, S.signer)) { S.signer = null; S.mine.clear(); S.callRes.clear(); setKeysStatus(t('keys.err.ai_key')); applyStatic(); } // a key adopted before the roster loaded
   buildSelects();
   invalidate();
 }
@@ -211,6 +215,14 @@ async function loadTalk() {
     S.talkNext = Number.isInteger(r.json.next) ? r.json.next : S.talkNext;
     if ((r.json.messages?.length ?? 0) < 200) break;
   }
+  await loadRedactions();
+}
+/** FB4: the operator's tombstones reach a page that is already open (the rows were fetched before the redaction; the cursor never fetches them again). */
+async function loadRedactions() {
+  const r = await api.get('/h/ai/redactions.json');
+  if (r.ok) S.redactions = normalizeRedactions(r.json);
+  const a = applyRedactions(S.talk, S.redactions);
+  if (a.changed) S.talk = a.rows;
 }
 async function loadCouncil(f) {
   const r = await api.get(`/f/ai/council?faction=${f}`);
@@ -244,17 +256,30 @@ async function loadMinds() {
     if (r.ok) S.minds.set(b, normalizeMinds(r.json)); else S.mindsMiss.set(b, S.bell);
   }));
 }
+/** FB4: `minds/late/<b>.json` for the last closed bells (records and transactions that arrived after a bell's file closed). */
+async function loadLate() {
+  if (S.bell === null) return;
+  const bells = planLateProbes({ bellNow: S.bell, checkedAt: S.lateAt });
+  await Promise.all(bells.map(async b => {
+    const r = await api.get(`/h/ai/minds/late/${b}.json`);
+    S.lateAt.set(b, S.bell);
+    if (r.ok && r.json) S.late.set(b, normalizeLate(r.json));
+  }));
+}
 async function loadOpened() {
   if (S.bell === null) return;
-  const sealed = [...S.minds.values()].flat().filter(r => r.sealed && !S.opened.has(r.id)).map(r => ({ id: r.id, releaseBell: r.releaseBell }));
-  const bells = planOpenProbes({ sealed, have: S.openHave, missedAt: S.openMiss, bellNow: S.bell, hintBells: openedBellsFromChronicle(S.chronicle).filter(b => !S.openHave.has(b)) });
+  const sealed = allMinds().filter(r => r.sealed && !S.opened.has(r.id)).map(r => ({ id: r.id, releaseBell: r.releaseBell }));
+  // FB4: open/index.json lists the bells that have a file; when it is read, only those are fetched (no blind 404 probes)
+  const ix = await api.get('/h/ai/open/index.json');
+  S.openIndex = ix.ok && Array.isArray(ix.json?.bells) ? ix.json.bells.filter(Number.isInteger) : null;
+  const bells = planOpenProbes({ sealed, have: S.openHave, missedAt: S.openMiss, bellNow: S.bell, hintBells: openedBellsFromChronicle(S.chronicle).filter(b => !S.openHave.has(b)), index: S.openIndex });
   await Promise.all(bells.map(async b => {
     const r = await api.get(`/h/ai/open/${b}.json`);
     if (r.ok) { S.openHave.add(b); for (const o of normalizeOpenFile(r.json)) S.opened.set(o.id, o); } else S.openMiss.set(b, S.bell);
   }));
   // Resolve cited ids that the opened record did not carry: load the episodes of the AIs involved (a few per poll).
   const need = new Set();
-  for (const rec of [...S.minds.values()].flat()) if (rec.choice?.mem?.length && !S.episodes.has(rec.tag)) need.add(rec.tag);
+  for (const rec of allMinds()) if (rec.choice?.mem?.length && !S.episodes.has(rec.tag)) need.add(rec.tag);
   for (const tag of [...need].slice(0, 3)) loadEpisodes(tag);
 }
 
@@ -266,7 +291,7 @@ async function fastPoll() {
     await loadSeason();
     if (!S.roster) await loadRoster();
     const f = S.selectedNation ?? 0;
-    await Promise.all([loadTalk(), loadCouncil(f), loadEventsAndChronicle(), loadMinds()]);
+    await Promise.all([loadTalk(), loadCouncil(f), loadEventsAndChronicle(), loadMinds(), loadLate()]);
     await loadOpened();
     applyBellChip();
     schedule();
@@ -294,6 +319,7 @@ function setKeysStatus(msg) { S.notes.keys = msg; $('keys-status').textContent =
 async function adoptKey(parsed) {
   const s = await makeSigner(parsed, keyFromSeed);
   if (!s.ok) { setKeysStatus(t(`keys.err.${s.code === 'no_wallet' ? 'no_wallet' : s.code}`)); return; }
+  if (signerRefusal(S.index, { wallet: s.wallet })) { setKeysStatus(t('keys.err.ai_key')); return; } // FB4: never sign as an AI citizen
   const kind = S.index.identify({ wallet: s.wallet }).kind === 'seat' ? 'seat' : 'other';
   S.signer = { wallet: s.wallet, sign: s.sign, kind, faction: signerFaction(S.index, { wallet: s.wallet }) };
   S.lastSeq = null;
@@ -308,9 +334,9 @@ $('keys-use').addEventListener('click', async () => { const p = parseKeyText($('
 $('keys-saved').addEventListener('click', async () => {
   const sc = S.season;
   const found = sc ? findSavedKeys(globalThis.localStorage, { cluster: sc.cluster, programId: sc.programId, seasonId: sc.season }) : [];
-  const pick1 = found.find(k => k.wallet === S.index.seat?.wallet) ?? found[0];
-  if (!pick1) { setKeysStatus(t('keys.err.nosaved')); return; }
-  await adoptKey({ ok: true, seed: fromHex(pick1.seedHex), wallet: pick1.wallet, session: null, source: 'saved' });
+  const chosen = chooseSavedKey(found, S.index); // FB4: only the presenter seat's saved key; no fallback to another wallet's
+  if (!chosen.ok) { setKeysStatus(t(`keys.err.${chosen.code}`)); return; }
+  await adoptKey({ ok: true, seed: fromHex(chosen.key.seedHex), wallet: chosen.key.wallet, session: null, source: 'saved' });
 });
 $('keys-forget').addEventListener('click', () => { S.signer = null; S.mine.clear(); S.callRes.clear(); setKeysStatus(''); applyStatic(); schedule(); });
 

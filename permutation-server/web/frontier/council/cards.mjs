@@ -67,7 +67,8 @@ export function normalizeCard(raw) {
       against: str(g?.against), name: bi(g?.name), episode: str(g?.episode), bell: num(g?.bell), weight: num(g?.weight) ?? 0, answered: !!g?.answered,
     })),
     reasons: arr(raw.revealed_reasons).slice(-5).map(r => ({
-      bell: num(r?.bell), decision_id: str(r?.decision_id), by: r?.by === 'autopilot' ? 'autopilot' : 'model', why: str(r?.why),
+      // FB4: an unknown `by` stays unknown (null): the page never claims "model" for a reason that does not say so
+      bell: num(r?.bell), decision_id: str(r?.decision_id), by: r?.by === 'autopilot' ? 'autopilot' : r?.by === 'model' ? 'model' : null, why: str(r?.why),
       remembered: arr(r?.remembered).map(m => ({ id: str(m?.id), bell: num(m?.bell), age: num(m?.age_bells), text: bi(m?.text) })),
     })),
     budget: raw.budget && typeof raw.budget === 'object' ? { messages_left: num(raw.budget.messages_left), reactions_left: num(raw.budget.reactions_left), resting: !!raw.budget.resting } : null,
@@ -213,7 +214,8 @@ export function renderCard(ctx, card, entry, { episodesById = null } = {}) {
   mem.appendChild(h('h5', null, t('card.summary')));
   if (card.summary) {
     mem.appendChild(h('p', { class: 'summary-text' }, card.summary.text));
-    mem.appendChild(h('p', { class: 'muted' }, `${pick(card.summary.label, lang) || t('card.summary_label')} ${card.summary.bell !== null ? `(${t('card.summary_bell', { n: int(card.summary.bell) })})` : ''}`));
+    // FB4: the label is the page's own fixed text, never the card file's (a file cannot soften or drop it)
+    mem.appendChild(h('p', { class: 'muted' }, `${t('card.summary_label')} ${card.summary.bell !== null ? `(${t('card.summary_bell', { n: int(card.summary.bell) })})` : ''}`));
   } else mem.appendChild(h('p', { class: 'empty' }, t('card.summary_none')));
   mem.appendChild(h('h5', null, t('card.recent')));
   mem.appendChild(card.recent.length ? memoryLines(ctx, card.recent, episodesById, card.tag) : h('p', { class: 'empty' }, t('card.recent_none')));
@@ -237,9 +239,11 @@ export function renderCard(ctx, card, entry, { episodesById = null } = {}) {
   if (!card.reasons.length) rs.appendChild(h('p', { class: 'empty' }, t('card.reasons_none')));
   for (const r of [...card.reasons].reverse()) {
     rs.appendChild(h('div', { class: 'reason' },
-      h('div', { class: 'reason-head' }, h('span', { class: 'bellmark' }, t('page.bell_n', { n: int(r.bell) })), ' ', h('span', { class: `chip ${r.by === 'model' ? 'chip-model' : 'chip-auto'}` }, t(r.by === 'model' ? 'dec.by_model' : 'dec.by_autopilot'))),
-      h('p', { class: 'words-label' }, t('dec.words')),
-      h('p', { class: 'words' }, r.why || t('dec.words_none')),
+      h('div', { class: 'reason-head' }, h('span', { class: 'bellmark' }, t('page.bell_n', { n: int(r.bell) })), ' ', h('span', { class: `chip ${r.by === 'model' ? 'chip-model' : r.by === 'autopilot' ? 'chip-auto' : ''}`.trim() }, t(r.by === 'model' ? 'dec.by_model' : r.by === 'autopilot' ? 'dec.by_autopilot' : 'dec.by_unknown'))),
+      // FB4: the "model-written" label is printed only where a model could have written the text; an autopilot step has no model words
+      r.by === 'autopilot' ? h('p', { class: 'words muted' }, t('dec.words_autopilot')) : [
+        h('p', { class: 'words-label' }, t('dec.words')),
+        h('p', { class: 'words' }, r.why || t('dec.words_none'))],
       h('p', { class: 'remembered-label' }, t('dec.remembered')),
       reasonLines(ctx, r.remembered, episodesById)));
   }

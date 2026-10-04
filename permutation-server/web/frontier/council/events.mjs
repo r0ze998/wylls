@@ -1,7 +1,10 @@
 // The departures-and-clashes panel and the minimal chronicle (contract §1.3 C9, §6.7, §8.3).
-//   /h/ai/events/latest.json   departures and clashes with their actors (the watcher writes it; the row shape is not
-//                              pinned by the contract, so the reader below accepts the field names a decoded herald
-//                              row uses as well as the short ones, and ignores what it does not know)
+//   /h/ai/events/latest.json   departures and clashes with their actors (the watcher's events_pub.mjs writes it; the row
+//                              shape is not pinned by the contract, so the reader below accepts the field names a decoded
+//                              herald row uses as well as the short ones, and ignores what it does not know).
+//                              FB4 (E1): a clash row of events_pub.mjs carries NO per-nation `lost`: each actor has
+//                              `{fate, troops_after, arrived, engaged, faction}`. The panel prints those, and says
+//                              "losses are not in this file" instead of "no troops lost" when no loss figure exists.
 //   /h/ai/chronicle/latest.json  {lines:[{kind, bell, actors:[tag], ai:[bool], by, refs, text?}]}
 //
 // Badges: an actor's badge comes from the roster only. The `ai` flags and `kind` hints in these files are ignored
@@ -16,12 +19,22 @@ const num = v => (Number.isFinite(Number(v)) && v !== null && v !== '' && typeof
 const arr = v => (Array.isArray(v) ? v : []);
 const pq = o => (o && typeof o === 'object' && num(o.p) !== null && num(o.q) !== null ? { p: num(o.p), q: num(o.q) } : null);
 
+/** The fate names a clash report carries (feed.mjs FATE_NAMES); anything else is dropped, never printed. */
+export const FATES = Object.freeze(['None', 'Stays', 'Withdrew', 'Bounced', 'Retreated', 'Destroyed', 'BouncedUnranked', 'Routed', 'BadSeal']);
+
 function actorOf(v) {
-  if (v && typeof v === 'object') return { tag: tagKey(v.tag ?? v.citizen ?? v.owner), wallet: str(v.wallet) };
-  return { tag: tagKey(v), wallet: '' };
+  if (v && typeof v === 'object') {
+    const fate = FATES.includes(v.fate) ? v.fate : null;
+    return {
+      tag: tagKey(v.tag ?? v.citizen ?? v.owner), wallet: str(v.wallet),
+      // clash facts of events_pub.mjs actors (the badge is never taken from the file: only the roster decides)
+      faction: num(v.faction), fate, after: num(v.troops_after), arrived: v.arrived === true ? true : v.arrived === false ? false : null, engaged: v.engaged === true ? true : v.engaged === false ? false : null,
+    };
+  }
+  return { tag: tagKey(v), wallet: '', faction: null, fate: null, after: null, arrived: null, engaged: null };
 }
 
-/** `events/latest.json` → rows `{kind: 'depart'|'clash'|'other', bell, actors:[{tag,wallet}], faction, troops, from, arrive, to, at, engagements, lost:[{faction, n}]}`. */
+/** `events/latest.json` → rows `{kind: 'depart'|'clash'|'other', bell, actors:[{tag,wallet,faction,fate,after,arrived,engaged}], faction, troops, from, arrive, to, at, engagements, lost:[{faction, n}]}`. */
 export function normalizeEvents(file) {
   const rows = Array.isArray(file) ? file : arr(file?.events ?? file?.rows ?? file?.items);
   const out = [];
@@ -65,14 +78,23 @@ export function normalizeChronicle(file) {
 /** Bells of `ai_march_opened` lines: where the release job wrote `open/<bell>.json` (a hint for the page's probes). */
 export const openedBellsFromChronicle = lines => lines.filter(l => l.kind === 'ai_march_opened').map(l => l.bell);
 
-/** "Aster lost 120, Ember lost 340" */
+/** "Aster lost 120, Ember lost 340"; with no figure at all: "losses are not in this file" (never "no troops lost": absence of a figure is not a loss of zero). */
 export function lostText(ctx, lost) {
   const { t, lang } = ctx;
-  if (!lost.length) return t('ev.clash_lost_none');
+  if (!lost.length) return t('ev.clash_lost_unknown');
   return lost.map(l => t('ev.clash_lost', { nation: nationName(l.faction, lang), n: int(l.n) })).join(', ');
 }
 
 // ------------------------------------------------------------------ render
+/** " · 254 troops after the clash · bounced" for a clash actor (only what the file carries). */
+export function clashFacts(ctx, a) {
+  const { h, t } = ctx;
+  const parts = [];
+  if (a.after !== null && a.after !== undefined) parts.push(t('ev.after', { n: int(a.after) }));
+  if (a.fate) parts.push(t(`ev.fate.${a.fate}`));
+  return parts.length ? h('span', { class: 'muted' }, ` · ${parts.join(' · ')}`) : null;
+}
+
 export function renderEvent(ctx, e) {
   const { h, t, lang } = ctx;
   const li = h('li', { class: `event event-${e.kind}` });
@@ -88,7 +110,7 @@ export function renderEvent(ctx, e) {
     const at = e.at ? placeText(t, e.at.p, e.at.q) : '?';
     const sides = [e.engagements !== null ? t('ev.clash_engagements', { n: int(e.engagements) }) : null, lostText(ctx, e.lost)].filter(Boolean).join('; ');
     li.appendChild(h('span', { class: 'event-text' }, t('ev.clash', { at, bell: int(e.bell), sides })));
-    if (e.actors.length) li.appendChild(h('span', { class: 'event-actors' }, e.actors.map(a => h('span', { class: 'event-actor' }, actorEl(ctx, a, {})))));
+    if (e.actors.length) li.appendChild(h('span', { class: 'event-actors' }, e.actors.map(a => h('span', { class: 'event-actor' }, actorEl(ctx, a, {}), clashFacts(ctx, a)))));
   } else li.appendChild(h('span', { class: 'event-text' }, e.actors.map(a => actorEl(ctx, a, {}))));
   return li;
 }
