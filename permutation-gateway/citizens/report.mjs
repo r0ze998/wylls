@@ -460,6 +460,91 @@ export function personaSection(run, metrics) {
 }
 
 /**
+ * Seatfix2 review (smoke-r4): the play phase and the drain. The stack plays `game_hours` and then drains for `drain_bells` more bells; the AI
+ * brains and the script bots stop at the end of play, so a bell in the drain holds no AI or bot action, and a council whose C0 lies in the
+ * drain is not evidence about what the AI does. Read from `logs/stack.log` ("genesis G ... play until P, drain until D", game seconds) or, when
+ * that line is missing, from the run's `stack.toml` (`game_hours`, `drain_bells`). A bell is 600 game seconds (the season's bell length).
+ */
+export function phaseSection(run) {
+  if (run._phase !== undefined) return run._phase;
+  const BELL = 600;
+  const last = run.bells.length ? run.bells[run.bells.length - 1] : null;
+  let out = { available: false, source: null, play_end_bell: null, play_bells: null, drain_end_bell: null, last_closed_bell: last, drain_closed_bells: null, note: 'no stack log or stack.toml in the run directory: the play phase and the drain are not told apart here' };
+  try {
+    const log = fs.readFileSync(path.join(run.aiDir, 'logs', 'stack.log'), 'utf8');
+    const m = /genesis (\d+)\); play until (\d+), drain until (\d+)/.exec(log);
+    if (m) {
+      const [g, p, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+      out = { ...out, available: true, source: 'logs/stack.log', play_end_bell: Math.floor((p - g) / BELL), drain_end_bell: Math.floor((d - g) / BELL) };
+    }
+  } catch { /* fall through to stack.toml */ }
+  if (!out.available) {
+    try {
+      const toml = fs.readFileSync(path.join(run.aiDir, 'stack.toml'), 'utf8');
+      const gh = /^\s*game_hours\s*=\s*([0-9.]+)/m.exec(toml);
+      const db = /^\s*drain_bells\s*=\s*(\d+)/m.exec(toml);
+      if (gh) {
+        const play = Math.floor((Number(gh[1]) * 3600) / BELL);
+        out = { ...out, available: true, source: 'stack.toml', play_end_bell: play, drain_end_bell: db ? play + Number(db[1]) : null };
+      }
+    } catch { /* not available */ }
+  }
+  if (out.available) {
+    out.play_bells = out.play_end_bell;
+    out.drain_closed_bells = last !== null && last >= out.play_end_bell ? last - out.play_end_bell + 1 : 0;
+    const drain = run.records.filter((r) => r.bell >= out.play_end_bell);
+    out.records_in_drain = drain.length;
+    out.records_in_drain_by_kind = drain.reduce((m, r) => { const k = `${r.kind}:${r.mode}`; m[k] = (m[k] ?? 0) + 1; return m; }, {});
+    out.note = `play: bells 0 to ${out.play_end_bell - 1} (${out.play_bells} bells); drain: bells ${out.play_end_bell} to ${last ?? out.drain_end_bell} (${out.drain_closed_bells} closed bells). The AI brains and the script bots stop at the end of play: the drain holds no AI action sent by a brain and no bot action. Anything decided in the drain (by the mind, on the watcher's council calls) was never carried to the chain or the social service by a brain.`;
+  }
+  run._phase = out;
+  return out;
+}
+
+/**
+ * Seatfix2 review: what became of the council calls (motion, ballot) the mind decided. The mind decides on the watcher's call; the BRAIN posts it
+ * with a later decide answer (watcher/outbox.mjs). `decided` = the mind's model decisions of that kind (records); `ledger` = the watcher's own
+ * file (STATE/watcher/council-calls.json): attached (handed to the brain's next answer), expired, dropped, pending (never carried);
+ * `posted_by_brain` = the brain's counter `social_posted:<route>`; `in_council_files` = the AI ballots of the public council files (tally_split.ai).
+ * An item decided in the drain, or pending at the end, was never delivered.
+ */
+export function councilCallsSection(run) {
+  const phase = phaseSection(run);
+  const brain = readJson(path.join(run.aiDir, 'fleet', 'ai-brain.json'));
+  const counters = brain?.counters ?? {};
+  const decided = (kind) => run.records.filter((r) => r.kind === kind && r.mode === 'model' && r.reason === 'ok').length;
+  let aiBallotsInFiles = 0;
+  let files = 0;
+  for (const f of listDir(path.join(run.pub, 'council')).filter((x) => /^\d+-\d+\.json$/.test(x))) {
+    const c = readJson(path.join(run.pub, 'council', f));
+    if (!c) continue;
+    files += 1;
+    aiBallotsInFiles += Number.isFinite(c.tally_split?.ai) ? c.tally_split.ai : 0;
+  }
+  const ledgerFile = readJson(path.join(run.state ?? path.join(run.aiDir, 'state'), 'watcher', 'council-calls.json'));
+  const rows = run.privateOk === false ? null : (Array.isArray(ledgerFile?.calls) ? ledgerFile.calls : null);
+  const by = (kind) => {
+    const l = (rows ?? []).filter((r) => r.kind === kind);
+    const o = { decided_by_mind: decided(kind), ledger_rows: rows ? l.length : null, attached: null, expired: null, dropped: null, pending_never_carried: null, decided_in_drain: null };
+    if (rows) {
+      o.attached = l.filter((r) => r.status === 'attached').length;
+      o.expired = l.filter((r) => r.status === 'expired').length;
+      o.dropped = l.filter((r) => r.status === 'dropped').length;
+      o.pending_never_carried = l.filter((r) => r.status === 'pending').length;
+      o.decided_in_drain = phase.available ? l.filter((r) => Number.isFinite(r.decided_bell) && r.decided_bell >= phase.play_end_bell).length : null;
+    }
+    return o;
+  };
+  const ballot = { ...by('ballot'), posted_by_brain: counters['social_posted:ballot'] ?? null, ai_ballots_in_council_files: files ? aiBallotsInFiles : null };
+  const motion = by('motion');
+  const gap = ballot.posted_by_brain != null ? ballot.decided_by_mind - ballot.posted_by_brain : null;
+  const note = rows == null
+    ? (run.privateOk === false ? 'public-only: the watcher\'s delivery file is operator-side state and is not read' : 'no council-calls file: the run predates the delivery ledger; ballots decided by the mind against posted by the brain is the only comparison')
+    : `${ballot.decided_by_mind} ballot decisions and ${motion.decided_by_mind} motion decisions by the mind; ${ballot.pending_never_carried + motion.pending_never_carried} never carried to the brain (pending at the end), ${ballot.expired + motion.expired} expired before a brain answer could carry them, ${ballot.dropped + motion.dropped} dropped. "Attached" means handed to the brain's next answer, not accepted by the social service.`;
+  return { available: true, ballot, motion, brain_posted: { talk: counters['social_posted:talk'] ?? null, ballot: counters['social_posted:ballot'] ?? null }, ballot_decisions_not_posted: gap, note };
+}
+
+/**
  * Why a nation got no council in a period (smoke-r3 finding): the watcher's persisted verdicts (STATE/watcher/council-outcomes.json,
  * watcher/outcomes.mjs) against the council files of PUB. Every (period, nation) from the first to the last recorded period is one row:
  * `council` (a council file exists), `skipped` with its reason (`not_all_final`, `no_options`, `no_members`, `open_failed`),
@@ -485,6 +570,7 @@ export function councilOutcomesSection(run) {
   const lo = Math.min(...periods);
   const hi = Math.max(...periods);
   const nations = [...new Set((run.roster?.ai ?? []).map((a) => a.faction))].sort((a, b) => a - b);
+  const phase = phaseSection(run);
   const rows = [];
   const by_reason = {};
   const bump = (k) => { by_reason[k] = (by_reason[k] ?? 0) + 1; };
@@ -499,7 +585,8 @@ export function councilOutcomesSection(run) {
       else if (o?.status === 'waiting') { kind = 'waiting'; reason = o.reason; bump(`no_verdict_waiting:${o.reason}`); }
       else if (o?.status === 'opened') { kind = 'council'; bump('council'); } // opened by the watcher but its file is not in PUB
       else { kind = 'no_verdict'; bump('no_verdict'); }
-      rows.push({ period: k, nation: f, kind, reason, c0: o?.c0 ?? c?.c0 ?? null, bell: o?.bell ?? null, detail: o?.detail ?? null, council_file: Boolean(c), ballots_cast: c?.ballots_cast ?? null });
+      const c0row = o?.c0 ?? c?.c0 ?? null;
+      rows.push({ period: k, nation: f, kind, reason, phase: phase.available && c0row != null ? (c0row >= phase.play_end_bell ? 'drain' : 'play') : null, c0: c0row, bell: o?.bell ?? null, detail: o?.detail ?? null, council_file: Boolean(c), ballots_cast: c?.ballots_cast ?? null });
     }
   }
   return { available: true, rows, by_reason, seat_finalise, note: null };
@@ -520,7 +607,7 @@ export function socialSection(run) {
     if (!j) continue;
     periods.push({ file: f, period: j.period, faction: j.faction, options_hash: j.options_hash ?? null, adopted: j.adopted ?? null, ballots_cast: j.ballots_cast ?? null, tally_split: j.tally_split ?? null, result: j.result ? { present: j.result.present ?? null, bounced: j.result.bounced ?? null } : null });
   }
-  return { talk_files: talkFiles.length, messages_in_talk_files: messages, council_files: councilFiles.length, council_periods: periods, origin, council_outcomes: councilOutcomesSection(run), note: councilFiles.length ? null : 'no council file: in wave A the watcher was a stub and no council ran; motions, ballots, Strike Orders, declines and chronicle lines are not measured here' };
+  return { talk_files: talkFiles.length, messages_in_talk_files: messages, council_files: councilFiles.length, council_periods: periods, origin, council_outcomes: councilOutcomesSection(run), council_calls: councilCallsSection(run), note: councilFiles.length ? null : 'no council file: in wave A the watcher was a stub and no council ran; motions, ballots, Strike Orders, declines and chronicle lines are not measured here' };
 }
 
 export function commitmentsSection(run) {
@@ -574,6 +661,7 @@ export function buildReport({ aiDir, runsFile = null, metricsFile = null, metric
     sources: { public: true, private_records: run.private, metrics_snapshot: m ? { bell: m.bell ?? null, uptime_s: m.uptime_s ?? null } : null, public_only_flag: !privateOk, minds_files: run.bells.length, first_bell: run.bells[0] ?? null, last_bell: run.bells.at(-1) ?? null },
     commitments: commitmentsSection(run),
     anchors: anchorsSection(run),
+    phases: phaseSection(run),
     runs_listed: runsFile && fs.existsSync(runsFile) ? parseRuns(fs.readFileSync(runsFile, 'utf8')) : null,
     roster: { ai: run.roster?.ai?.length ?? 0, deck: run.roster?.deck ?? null, by_persona: [...run.aiByTag.values()].reduce((o, a) => { o[a.persona] = (o[a.persona] ?? 0) + 1; return o; }, {}) },
     decisions,
@@ -624,6 +712,8 @@ export function renderMarkdown(r) {
   const c = r.commitments;
   if (c.available) L.push(`Run \`${c.run_id}\`, season ${c.season_id}, deck ${v(c.deck)}, ${r.roster.ai} AI citizens (${Object.entries(r.roster.by_persona).map(([k, n]) => `${n} ${k}`).join(', ')}). Model sha256: ${c.model_sha256}. llama tree: ${c.llama_tree_sha256}. Commit memo: ${v(c.commit_memo)}. Code commit: ${v(c.code_git_commit)}.`, '');
   L.push('## Anchors (closed bells against anchored bells)', '', r.anchors.note, '');
+  L.push('## Play phase and drain', '', r.phases.note, '');
+  if (r.phases.available && r.phases.records_in_drain) L.push(`Decision records made in the drain: ${r.phases.records_in_drain} ${JSON.stringify(r.phases.records_in_drain_by_kind)}. They are in the totals below; none was sent by a brain.`, '');
   const d = r.decisions;
   L.push('## Decisions (G1, G2, G3)', '');
   L.push(`${d.records} decision records; ${d.model_decisions} model decisions (gate open, the mind attempted the model; reflections, dropped-for-time and feed_lag jobs of any kind not included); gate-open records ${d.gate_open}. Valid + fallbacks = model decisions: ${d.invariant_valid_plus_fallbacks_equals_model_decisions}${d.model_decisions_unclassified ? ` (${d.model_decisions_unclassified} neither valid nor fallback)` : ''}.`, '');
@@ -684,11 +774,18 @@ export function renderMarkdown(r) {
     if (!co.available) L.push(co.note, '');
     else {
       L.push(`By verdict: ${Object.entries(co.by_reason).map(([k, n]) => `${k} ${n}`).join(', ')}. A \`waiting\` row means the period passed with no verdict (the open window ended first); \`no_verdict\` means nothing was recorded for that nation and period.`, '');
-      L.push(row('period', 'nation', 'verdict', 'why', 'bell', 'detail'), row('---', '---', '---', '---', '---', '---'));
-      for (const x of co.rows) L.push(row(x.period, x.nation, x.kind, v(x.reason), v(x.bell), x.detail ? JSON.stringify(x.detail).replace(/\|/g, '/') : ''));
+      L.push(row('period', 'nation', 'phase', 'verdict', 'why', 'bell', 'detail'), row('---', '---', '---', '---', '---', '---', '---'));
+      for (const x of co.rows) L.push(row(x.period, x.nation, v(x.phase), x.kind, v(x.reason), v(x.bell), x.detail ? JSON.stringify(x.detail).replace(/\|/g, '/') : ''));
       L.push('');
     }
     if (co.seat_finalise) L.push(`Scripted seat, finalising its village: status ${v(co.seat_finalise.status)}, final ${v(co.seat_finalise.final)}, attempts ${v(co.seat_finalise.attempts)}, final seen at bell ${v(co.seat_finalise.first_final_bell)}${co.seat_finalise.note ? ` (${co.seat_finalise.note})` : ''}.`, '');
+  }
+  const cc = r.social.council_calls;
+  if (cc?.available) {
+    L.push('### What became of the council calls (motions and ballots decided by the mind)', '', cc.note, '');
+    L.push(row('kind', 'decided by the mind', 'attached', 'expired', 'dropped', 'pending at the end', 'decided in the drain', 'posted by the brain', 'AI ballots in council files'), row('---', '---', '---', '---', '---', '---', '---', '---', '---'));
+    L.push(row('ballot', cc.ballot.decided_by_mind, v(cc.ballot.attached), v(cc.ballot.expired), v(cc.ballot.dropped), v(cc.ballot.pending_never_carried), v(cc.ballot.decided_in_drain), v(cc.ballot.posted_by_brain), v(cc.ballot.ai_ballots_in_council_files)));
+    L.push(row('motion', cc.motion.decided_by_mind, v(cc.motion.attached), v(cc.motion.expired), v(cc.motion.dropped), v(cc.motion.pending_never_carried), v(cc.motion.decided_in_drain), 'n/a', 'n/a'), '');
   }
   if (r.runs_listed) {
     L.push('## Every run in RUNS.md', '', row('run', 'arm', 'rep', 'status', 'detail'), row('---', '---', '---', '---', '---'));

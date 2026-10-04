@@ -172,6 +172,7 @@ export function renderCard(ctx, card, entry, { episodesById = null } = {}) {
     h('p', { class: 'muted' }, sh.pct === null ? t('card.stats_share_none') : t('card.stats_share', { pct: sh.pct })),
     h('p', { class: 'muted' }, t('card.stats_marches', { m: int(st.model_marches ?? 0), o: int(st.model_marches_opened ?? 0) })),
     h('p', { class: 'muted' }, t('card.stats_decisions', { d: int(st.decisions ?? 0), v: int(st.valid ?? 0), c: int(st.decisions_citing_memory ?? 0) })),
+    h('p', { class: 'muted' }, t('card.stats_reflections', { r: int(st.reflections ?? 0), o: int(st.reflections_ok ?? 0) })),
     h('p', { class: 'muted' }, t('card.stats_messages', { n: int(st.messages ?? 0), s: int(st.strikes_declined ?? 0) })));
   if (card.budget) {
     stats.appendChild(h('p', { class: card.budget.resting ? 'resting' : 'muted' }, card.budget.resting ? t('card.budget_resting') : t('card.budget', { m: int(card.budget.messages_left ?? 0), r: int(card.budget.reactions_left ?? 0) })));

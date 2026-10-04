@@ -78,7 +78,7 @@ export function renderCard(st) {
     })),
     budget: { messages_left: messagesLeft, reactions_left: reactionsLeft, resting: messagesLeft <= 0 || reactionsLeft <= 0 },
     stats: {
-      decisions: 0, valid: 0, actions_by_model: 0, actions_by_autopilot: 0, model_marches: 0, model_marches_opened: 0,
+      decisions: 0, valid: 0, reflections: 0, reflections_ok: 0, actions_by_model: 0, actions_by_autopilot: 0, model_marches: 0, model_marches_opened: 0,
       messages: dayCounters.messages ?? 0, strikes_declined: 0, decisions_citing_memory: 0, mem_dropped: 0, ...(st.stats ?? {}),
     },
     updated_bell: bell,
