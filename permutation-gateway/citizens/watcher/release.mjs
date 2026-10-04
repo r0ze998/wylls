@@ -46,11 +46,21 @@ export function releaseState({ entry, bell, find, waitBells = WAIT_BELLS }) {
   const marches = marchesOf(entry.priv);
   const sent = sentMarch(entry.full.tx);
   const giveUp = bell >= rb + waitBells + 1;
+  // FB5 (fix plan F1): a decision that intended two marches and had one refused by V6 has `sent === true`, and the outcome tx carries no
+  // host id, so the refused march used to wait the whole 6 bells and read "unrevealed". The arithmetic that needs no host id: the
+  // brain sent `sentDeparts` departs for `marches.length` intended marches, so `marches.length - sentDeparts` of them were not sent; a
+  // march with no public DEPART is one of them ONLY when every march without a DEPART fits in that number (otherwise it is ambiguous
+  // which one a late DEPART belongs to, and it keeps waiting). Recalls are not marches of `intended`, so they are not counted.
+  const departed = new Map(marches.map(m => [m.host_id, find.depart(m.host_id)]));
+  const sentDeparts = Array.isArray(entry.full.tx) ? entry.full.tx.filter(t => (t.intent === 'depart' || t.intent === 'march') && t.status === 'sent').length : null;
+  const missing = marches.filter(m => !departed.get(m.host_id));
+  const refusedLeft = sent === true && sentDeparts !== null ? Math.max(0, marches.length - sentDeparts) : 0;
+  const unsentIds = new Set(refusedLeft > 0 && missing.length > 0 && missing.length <= refusedLeft ? missing.map(m => m.host_id) : []);
   let pending = 0;
   const destinations = marches.map(m => {
     const base = { host_id: m.host_id, planned_arrive_bell: m.planned_arrive_bell, via: m.via };
-    if (sent === false) return { ...base, state: 'not_sent', destination: 'not_sent', arrive_bell: null };
-    const d = find.depart(m.host_id);
+    if (sent === false || unsentIds.has(m.host_id)) return { ...base, state: 'not_sent', destination: 'not_sent', arrive_bell: null };
+    const d = departed.get(m.host_id);
     const r = d ? find.reveal(m.host_id, d.arrive_bell) : null;
     if (d && r && d.arrive_bell < bell) {
       return { ...base, state: 'revealed', p: r.p, q: r.q, tile: r.tile, arrive_bell: d.arrive_bell, depart_bell: d.depart_bell, planned_arrive_bell: m.planned_arrive_bell };

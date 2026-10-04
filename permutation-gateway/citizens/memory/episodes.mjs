@@ -23,7 +23,7 @@
 //   province(p,q,bell) -> /h/province envelope | decoded account | watcher/feed.mjs shapeProvince output | null,
 //   clash(p,q,bell)    -> /h/clash file | watcher/feed.mjs shapeClash output | null,
 //   clashDetail?(p,q,bell) -> feed.mjs clashDetail (exact troops before per fighter); preferred over clash() when present,
-//   config: {genesis_ts, redactions?: Set|[inner...], openGrievances?: [{id, against, nation?, bell}]},
+//   config: {genesis_ts, redactions?: Set|[inner...], openGrievances?: [{id, against, nation?, bell}], clash_win_rule?: 'legacy_v1' (audit only: replay a pre-R12 list)},
 //   names?: {nameOf, nationName}      // default: persona/names.mjs
 // }
 //
@@ -83,6 +83,8 @@ function toRow(r) {
 const rowBell = r => (r.bell === PRE_GENESIS ? null : Number(r.bell));
 const within = (row, ref) => { const b = rowBell(row); return b !== null && b <= ref + WAIT; };
 const pqKey = (p, q) => `${p},${q}`;
+/** An enemy stack that the clash removed from the field: the report's fate says Destroyed, or it entered with troops and left with none. */
+const destroyedFighter = x => x.fate === 'Destroyed' || (x.pre > 0 && x.post === 0);
 const uniqSorted = a => [...new Set(a)].sort();
 
 export function episodes_from_events(batch = {}, ctx = {}) {
@@ -272,12 +274,19 @@ export function episodes_from_events(batch = {}, ctx = {}) {
           const big = [...enemyFighters].sort((a, c) => (c.pre ?? 0) - (a.pre ?? 0) || (a.id < c.id ? -1 : 1))[0];
           const targetTag = big?.owner ?? null, targetFaction = big?.faction ?? enemyVillages[0]?.faction ?? null;
           const targetFor = l => (campInvolved ? TPL[l].words.camp : (targetFaction === null ? TPL[l].words.camp : citizenLabel(l, targetTag, targetFaction, 'target')));
-          const kind = y > x ? 'clash_own_win' : 'clash_own_loss';
+          // R12 (v1.3 amendment): "win" only when the camp or the enemy stack was CLEARED (the CAMP row says troops 0, or every
+          // engaged enemy stack was destroyed). Fewer troops lost than the other side is NOT a win: a camp that held after the
+          // clash was not beaten. Not cleared: own lost >= enemy lost and own lost > 0 is a loss, else the neutral "fought".
+          const clearedBy = campInvolved && cleared ? 'camp' : (enemyFighters.length > 0 && enemyFighters.every(destroyedFighter) ? 'stack' : null);
+          // `legacy_v1` replays an episode list written BEFORE R12 (smoke-b2, smoke-b3, slice-4): a win was "the enemy lost more". Only the
+          // audit (verify-minds M11, `--episode-rule`) sets it; the live pump never does. It writes no `facts.cleared`, as those lists have none.
+          const legacy = cfg.clash_win_rule === 'legacy_v1';
+          const kind = legacy ? (y > x ? 'clash_own_win' : 'clash_own_loss') : clearedBy ? 'clash_own_win' : (x > 0 && x >= y ? 'clash_own_loss' : 'clash_own_fought');
           add(kind, {
             bell: b, created: createdC, src: [...rowSrc, ...ownArrivals.map(a => `host:${a.id}`)],
             entities: [`pq:${p},${q}`, ...(campInvolved ? [] : [targetTag, targetFaction === null ? null : `nation:${targetFaction}`])].filter(Boolean),
-            facts: { p, q, lost_own: x, lost_enemy: y, camp: campInvolved, nation: campInvolved ? null : targetFaction },
-            textFor: l => fill(TPL[l].kinds[kind], { b, p, q, x, y, target: targetFor(l) }),
+            facts: { p, q, lost_own: x, lost_enemy: y, camp: campInvolved, nation: campInvolved ? null : targetFaction, ...(legacy ? {} : { cleared: clearedBy }) },
+            textFor: l => fill(kind === 'clash_own_fought' ? TPL[l].kinds.clash_own_fought[campInvolved ? 'camp' : 'other'] : TPL[l].kinds[kind], { b, p, q, x, y, target: targetFor(l) }),
           });
         }
       }

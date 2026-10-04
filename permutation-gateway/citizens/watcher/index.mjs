@@ -148,7 +148,7 @@ export function createWatcher({
           const seatVoted = Boolean(seatWallet && council?.publicOf?.(ev.faction, ev.period)?.ballots?.some(b => b.wallet === seatWallet));
           chronicle.add({
             kind: 'call_adopted', bell, actors: [], refs: [`council:${ev.faction}:${ev.period}`],
-            vals: l => ({ b: bell, nation: nationName(ev.faction)[l], with: tallyPhrase(ev.tally_split, { seatVoted }, l), S: ev.strike_bell }),
+            vals: l => ({ b: bell, nation: nationName(ev.faction)[l], with: tallyPhrase(ev.tally_split, { seatVoted }, l), S: ev.strike_bell, O: ev.strike_bell + 2 }), // FB5: opened at S + 2 (the council file's open block), not at S
           });
         } else {
           chronicle.add({

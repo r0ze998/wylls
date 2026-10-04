@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createAudit } from '../citizens/audit/season_end.mjs';
-import { main, verifyMinds } from '../citizens/verify-minds.mjs';
+import { main, verifyMinds, episodeRuleOf, PRE_R12_KINDS_SHA256 } from '../citizens/verify-minds.mjs';
 import { canonical, sha256hex } from '../citizens/memory/config.mjs';
 import { startFakeLlama } from './fixtures/ai-audit-doubles.mjs';
 import { buildMiniRun, llmOutputOf } from './fixtures/ai-audit-mini.mjs';
@@ -80,6 +80,53 @@ test('the command line writes PUB/verify-minds.json {v, run_id, checks, verdict}
     assert.equal(report.checks.M9.pass, null);
     assert.equal(report.verdict, 'INCOMPLETE');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+// FB5 (fix plan F1): the registrar and M1 used to share one unauthenticated cache of the model hash, so after the first run M1 compared
+// the cache with itself. The cache is poisoned here (in a private TMPDIR) with the COMMITTED hash for a file that is not the committed
+// model: the old M1 passed it; M1 now reads the file.
+test('FB5 M1 model hash: a cache entry that says "committed" for a different file is not believed; the file is hashed fresh (cached only with --model-cache, and then it says so)', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-model-cache-'));
+  const savedTmp = process.env.TMPDIR;
+  const other = path.join(tmp, 'other-model.gguf');
+  fs.writeFileSync(other, 'different weights');
+  const st = fs.statSync(other);
+  const committed = rj(path.join(plain.pub, 'commitments.json')).model.sha256;
+  assert.match(committed, /^[0-9a-f]{64}$/, 'the mini run commits a measured model hash');
+  const key = `${path.resolve(other)}|${st.size}|${Math.floor(st.mtimeMs)}`;
+  process.env.TMPDIR = tmp; // os.tmpdir() reads it per call: the registrar-style cache lives in this private directory
+  try {
+    fs.writeFileSync(path.join(os.tmpdir(), 'wylls-ai-model-sha.json'), JSON.stringify({ [key]: committed }));
+    const fresh = await check(plain, null, { only: ['M1'], modelPath: other });
+    assert.ok(codes(fresh.checks.M1).includes('model_sha256'), 'the poisoned cache must not make a different file pass');
+    assert.match(fresh.checks.M1.notes.join('\n'), /fresh hash of the file/);
+    // the explicit opt-in believes the cache, and M1 says so (this is the circular case, now visible)
+    fs.copyFileSync(other, `${other}.copy`);
+    const st2 = fs.statSync(`${other}.copy`);
+    fs.writeFileSync(path.join(os.tmpdir(), 'wylls-ai-model-sha.json'), JSON.stringify({ [`${path.resolve(`${other}.copy`)}|${st2.size}|${Math.floor(st2.mtimeMs)}`]: committed }));
+    const viaCache = await check(plain, null, { only: ['M1'], modelPath: `${other}.copy`, modelCache: true });
+    assert.equal(codes(viaCache.checks.M1).includes('model_sha256'), false, 'with --model-cache the cached value is compared');
+    assert.match(viaCache.checks.M1.notes.join('\n'), /CACHED value .* NOT read again/);
+  } finally {
+    if (savedTmp === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = savedTmp;
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+// FB5 / R12: an episode list written before the rule (slice-4, smoke-b2, smoke-b3) must be replayed under that rule, and the audit says which it used.
+test('FB5 R12: M11 picks the episode rule from the committed episode_kinds_sha256 (pre-R12 hashes: legacy_v1), an explicit --episode-rule wins, and the wrong rule is a visible mismatch', async () => {
+  assert.equal(episodeRuleOf({}, { code: { episode_kinds_sha256: 'f136789e831982da88d35a7862556c64dd3fce7440b23ed187a5afc9e89b21ff' } }), 'legacy_v1', 'slice-4');
+  assert.equal(episodeRuleOf({}, { code: { episode_kinds_sha256: '6d139006b6b77613e8bd3997dd7cd253069f390b0a3c9cd66c756a1636d129ab' } }), 'legacy_v1', 'smoke-b2 and smoke-b3 (the 11 kinds)');
+  assert.equal(episodeRuleOf({}, { code: { episode_kinds_sha256: 'e4c0f3d56e3e6aa6a4afb18897259a2a37d2f15dd5f6e1d89ec3d9678b3086c0' } }), 'current', 'a run on the R12 tree');
+  assert.equal(episodeRuleOf({ episodeRule: 'current' }, { code: { episode_kinds_sha256: [...PRE_R12_KINDS_SHA256][0] } }), 'current');
+  assert.equal(episodeRuleOf({ episodeRule: 'legacy_v1' }, { code: {} }), 'legacy_v1');
+  const legacy = await check(plain, null, { only: ['M11'] });
+  assert.equal(legacy.checks.M11.pass, true, JSON.stringify(legacy.checks.M11.failures.slice(0, 2)));
+  assert.match(legacy.checks.M11.episode_rule, /^legacy_v1/);
+  const wrong = await check(plain, null, { only: ['M11'], episodeRule: 'current' });
+  assert.equal(wrong.checks.M11.pass, false, 'the real slice-4 lists replayed under the R12 rule differ: that is the migration, and it is not silent');
+  assert.ok(codes(wrong.checks.M11).includes('episodes_mismatch'));
+  assert.match(wrong.checks.M11.episode_rule, /^current/);
 });
 
 // ---------------------------------------------------------------- M1

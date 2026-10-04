@@ -9,6 +9,10 @@
     "strike": "At bell {b} your nation's Strike Order opened at ({p},{q}); troops lost: yours {x}, theirs {y}; your army {took_part}.",
     "clash_own_win": "At bell {b} your army at ({p},{q}) beat {target}: you lost {x}, they lost {y}.",
     "clash_own_loss": "At bell {b} your army at ({p},{q}) lost {x} troops against {target}; they lost {y}.",
+    "clash_own_fought": {
+      "camp": "At bell {b} your army at ({p},{q}) fought the camp: you lost {x}, they lost {y}; the camp held.",
+      "other": "At bell {b} your army at ({p},{q}) fought {target}: you lost {x}, they lost {y}; nothing was cleared."
+    },
     "camp_cleared_own": "At bell {b} your army cleared the camp at ({p},{q}).",
     "camp_taken_by": "At bell {b} nation {nation} cleared the camp at ({p},{q}) first.",
     "threat": "At bell {b} nation {nation} sent an army of {m} troops from ({p},{q}); it arrives at bell {a}; its destination is not known.",

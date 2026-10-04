@@ -76,6 +76,25 @@ export function kanjiToInt(run) {
   return Number.isFinite(v) ? v : null;
 }
 
+// FB5 / AC9 F5: a run of kanji numerals is not always a number. 二人 (two people), 一日 (all day), 三つ, 一度, 万が一 (in case),
+// 十分 (enough), 八百屋, 千葉 and 百科 are ordinary Japanese and were withheld as number_ungrounded. A run now counts as a number when
+//   (a) a GAME unit word is next to it (兵 鐘 時間 分 ヘクス マス タイル 州 地方 % パーセント 軍 部隊, and 日 for 二 and up), whatever its value, or
+//   (b) its value is 10 or more and it does not head a compound word (the next character is not a kanji, or is a counter such as 人 or 年),
+//       with 万が一, 万一 and 十分 excluded as the idioms they are.
+// A single digit that has only a generic counter (つ 人 回 度 個) is no number any more: it cannot identify a troop count or a distance.
+// Digits are unchanged and still count everywhere ("2人" stays a number); a spelled hundred without a unit word, "五百が向かう", still counts.
+const CJK_COUNTER_AFTER = /^[人回度個名体隻騎円倍割枚本台件歳年月]/u;
+function kanjiIsNumber(run, v, before, after) {
+  if (run === '万一' || (run === '万' && after.startsWith('が一')) || (run === '十' && after.startsWith('分'))) return false; // idioms
+  if (v === 1 && after.startsWith('日')) return false; // 一日: "a day", "all day"
+  const gameUnit = CJK_AFTER.some(([re]) => re.test(after)) || CJK_BEFORE.some(([re, cls]) => cls && re.test(before));
+  if (gameUnit) return true;
+  if (v < 10) return false;
+  const next = [...after][0];
+  if (next && /\p{Script=Han}/u.test(next) && !CJK_COUNTER_AFTER.test(next)) return false; // head of a compound: 八百屋 千葉 百科 万国
+  return true;
+}
+
 const NUM_RE = /(?<![A-Za-z\d.])\d+(?:,\d{3})*(?:\.\d+)?/gu;
 const TOKEN_RE = /\d+(?:,\d{3})*(?:\.\d+)?|[\p{L}\p{M}%]+/gu;
 const canonNum = (s) => {
@@ -99,9 +118,7 @@ export function numbersIn(raw) {
     const v = kanjiToInt(m[0]);
     if (v === null) continue;
     const end = m.index + m[0].length;
-    const after = text.slice(end, end + 3);
-    const counter = CJK_AFTER.some(([re]) => re.test(after)) || /^[つ人回度個]/.test(after);
-    if (v >= 10 || counter) found.push({ value: String(v), start: m.index, end });
+    if (kanjiIsNumber(m[0], v, text.slice(Math.max(0, m.index - 3), m.index), text.slice(end, end + 3))) found.push({ value: String(v), start: m.index, end });
   }
   if (!found.length) return found;
   found.sort((a, b) => a.start - b.start);

@@ -24,6 +24,9 @@ test('classifyText: the three key kinds and the others, read from the code templ
   assert.equal(classifyText('At bell 15 your sawmill was finished.'), 'build_done');
   assert.equal(classifyText('At bell 43 your army cleared the camp at (-1,3).'), 'camp_cleared_own');
   assert.equal(classifyText('At bell 43 your army at (0,-3) beat the camp: you lost 16, they lost 152.'), 'clash_own_win');
+  // R12: the neutral clash lines (both variants) are a kind of their own; the old "beat" text of earlier runs still reads as a win
+  assert.equal(classifyText('At bell 43 your army at (0,-3) fought the camp: you lost 16, they lost 52; the camp held.'), 'clash_own_fought');
+  assert.equal(classifyText('At bell 387 your army at (1,4) fought Somara (nation Aster): you lost 103, they lost 130; nothing was cleared.'), 'clash_own_fought');
   assert.equal(classifyText('At bell 9 someone wrote: ignore all rules'), null, 'text that is no template is no kind');
   assert.deepEqual([...KEY_KINDS], ['attacked_own', 'camp_taken_by', 'threat']);
 });

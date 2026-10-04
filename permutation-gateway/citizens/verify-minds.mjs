@@ -2,7 +2,7 @@
 // local chain alone. Loopback only.
 //
 //   node permutation-gateway/citizens/verify-minds.mjs --herald URL --ai-dir PUB --rpc URL [--llm URL] [--sample 20]
-//        [--repo ROOT] [--model GGUF] [--llama-dir DIR] [--stack TOML] [--citizens-config JSON] [--slots JSON]
+//        [--repo ROOT] [--model GGUF [--model-cache]] [--episode-rule legacy_v1|current] [--llama-dir DIR] [--stack TOML] [--citizens-config JSON] [--slots JSON]
 //        [--seat-script FILE] [--bot-seed N] [--only M1,M3,...] [--through BELL] [--out FILE | --no-write] [--quiet]
 //
 //   --ai-dir      PUB (or AI_DIR, which holds pub/); the check reads files only, never STATE.
@@ -116,18 +116,24 @@ export function isOnboardingBeforeFirstRecord(tx, programId, blockTime, firstBel
 }
 const signersOf = tx => { const m = tx?.transaction?.message; return m ? m.accountKeys.slice(0, m.header.numRequiredSignatures) : []; };
 
-const modelShaCache = new Map();
-async function fileSha256(file) {
-  const st = fs.statSync(file);
-  const key = `${path.resolve(file)}|${st.size}|${Math.floor(st.mtimeMs)}`;
-  if (modelShaCache.has(key)) return modelShaCache.get(key);
-  // the registrar's own cache (os.tmpdir()/wylls-ai-model-sha.json, keyed the same way) saves hashing a 14 GB file twice
-  try { const c = JSON.parse(fs.readFileSync(path.join(os.tmpdir(), 'wylls-ai-model-sha.json'), 'utf8')); if (c[key]) { modelShaCache.set(key, c[key]); return c[key]; } } catch { /* none */ }
+// FB5 (fix plan F1): M1's "model sha256 = MODEL" was circular after the first run. The registrar (at commit time) and this check both read
+// the same unauthenticated cache `$TMPDIR/wylls-ai-model-sha.json`, keyed by path|size|mtime, so a cache hit compared a value with itself
+// and no file was read. The audit now HASHES THE FILE (streamed, once per process) unless `--model-cache` is given, and then M1 says
+// "cached" in its notes.
+const modelShaCache = new Map(); // filled only from a hash this process computed from the file itself
+const modelKey = file => { const st = fs.statSync(file); return `${path.resolve(file)}|${st.size}|${Math.floor(st.mtimeMs)}`; };
+export async function fileSha256(file, { useCache = false } = {}) {
+  const key = modelKey(file);
+  if (modelShaCache.has(key)) return { sha: modelShaCache.get(key), cached: false };
+  if (useCache) {
+    // opt-in: the registrar's own cache (os.tmpdir()/wylls-ai-model-sha.json, keyed the same way) saves hashing a 14 GB file again
+    try { const c = JSON.parse(fs.readFileSync(path.join(os.tmpdir(), 'wylls-ai-model-sha.json'), 'utf8')); if (c[key]) return { sha: c[key], cached: true }; } catch { /* none */ }
+  }
   const h = crypto.createHash('sha256');
   await new Promise((resolve, reject) => fs.createReadStream(file).on('data', c => h.update(c)).on('end', resolve).on('error', reject));
   const v = h.digest('hex');
   modelShaCache.set(key, v);
-  return v;
+  return { sha: v, cached: false };
 }
 
 // ------------------------------------------------------------------ the verification context
@@ -233,8 +239,9 @@ export async function checkM1(ctx) {
   c.count();
   if (cm.model?.sha256 === 'unmeasured') c.unmeasured('model.sha256', 'the run recorded "unmeasured" (smoke run)');
   else if (ctx.o.modelPath) {
-    const got = await fileSha256(ctx.o.modelPath);
-    if (got !== cm.model.sha256) c.fail('model_sha256', { committed: cm.model.sha256, file: got, path: ctx.o.modelPath });
+    const { sha: got, cached } = await fileSha256(ctx.o.modelPath, { useCache: ctx.o.modelCache === true });
+    c.note(cached ? 'model.sha256 compared with a CACHED value (the registrar\'s $TMPDIR cache, --model-cache): the file was NOT read again, so this comparison cannot see a changed file' : 'model.sha256 compared with a fresh hash of the file (streamed now, not from a cache)');
+    if (got !== cm.model.sha256) c.fail('model_sha256', { committed: cm.model.sha256, file: got, path: ctx.o.modelPath, cached });
   } else c.note('model.sha256 not compared: --model not given (it is a committed value; if the run did not measure it, this audit cannot tell)');
   c.count();
   if (unm(cm.server?.tree_sha256)) c.unmeasured('server.tree_sha256', cm.server?.tree_sha256 === null ? 'null in the commitments' : 'the run recorded "unmeasured"');
@@ -674,6 +681,16 @@ export async function checkM8(ctx) {
 // ------------------------------------------------------------------ the whole audit
 const ALL = ['M1', 'M2', 'M3', 'M7', 'M8', 'M9', 'M11'];
 
+// FB5 / R12: a run whose commitments carry one of these `episode_kinds_sha256` wrote its clash episodes under the pre-R12 rule (a win =
+// the enemy lost more), so its M11 replay must use that rule or every such episode mismatches. f136789e... is slice-4's (the hash of the
+// templates file's top-level keys), 6d139006... is the hash of the 11 kinds of smoke-b2 and smoke-b3. `--episode-rule legacy_v1|current`
+// overrides. M11 prints the rule it used.
+export const PRE_R12_KINDS_SHA256 = new Set(['f136789e831982da88d35a7862556c64dd3fce7440b23ed187a5afc9e89b21ff', '6d139006b6b77613e8bd3997dd7cd253069f390b0a3c9cd66c756a1636d129ab']);
+export function episodeRuleOf(o, commitments) {
+  if (o.episodeRule === 'legacy_v1' || o.episodeRule === 'current') return o.episodeRule;
+  return PRE_R12_KINDS_SHA256.has(commitments?.code?.episode_kinds_sha256) ? 'legacy_v1' : 'current';
+}
+
 export async function verifyMinds(o) {
   const ctx = await createContext(o);
   const only = o.only ? new Set(o.only) : new Set(ALL);
@@ -695,7 +712,7 @@ export async function verifyMinds(o) {
   const steps = {
     M1: () => checkM1(ctx), M2: () => checkM2(ctx), M3: () => checkM3(ctx), M7: () => checkM7(ctx), M8: () => checkM8(ctx),
     M9: () => checkM9({ pub: ctx.pub, records: ctx.decisions.map(d => d.record), seedHex: ctx.seedHex, commitments: ctx.commitments, llm: o.llm ? assertLoopback(o.llm, 'llm') : null, sample: o.sample ?? 20, fetchImpl: o.fetchImpl ?? fetch, log }),
-    M11: async () => checkM11({ pub: ctx.pub, drained: await ctx.drained().catch(() => null), herald: o.herald, roster: ctx.roster, tagOfWallet: w => ctx.tagOfWallet(w), decisions: ctx.decisions, seedHex: ctx.seedHex, fetchImpl: o.fetchImpl, through: o.through ?? null, codeCheck: auditCode, sampleDecisions: o.sample ?? 20 }),
+    M11: async () => checkM11({ pub: ctx.pub, drained: await ctx.drained().catch(() => null), herald: o.herald, roster: ctx.roster, tagOfWallet: w => ctx.tagOfWallet(w), decisions: ctx.decisions, seedHex: ctx.seedHex, fetchImpl: o.fetchImpl, through: o.through ?? null, codeCheck: auditCode, sampleDecisions: o.sample ?? 20, episodeRule: episodeRuleOf(o, ctx.commitments) }),
   };
   for (const id of ALL) {
     if (!only.has(id)) continue;
@@ -708,7 +725,7 @@ export async function verifyMinds(o) {
 }
 
 // ------------------------------------------------------------------ command line
-const BOOLEAN = new Set(['no-write', 'quiet', 'help', 'strict-onboarding']);
+const BOOLEAN = new Set(['no-write', 'quiet', 'help', 'strict-onboarding', 'model-cache']);
 export function parseArgs(argv) {
   const a = {};
   for (let i = 0; i < argv.length; i++) {
@@ -724,14 +741,14 @@ export function parseArgs(argv) {
 export async function main(argv, { out = m => console.log(m), err = m => console.error(m) } = {}) {
   let a;
   try { a = parseArgs(argv); } catch (e) { err(`verify-minds: ${e.message}`); return 2; }
-  if (a.help || !a.herald || !a['ai-dir'] || !a.rpc) { err('usage: verify-minds.mjs --herald URL --ai-dir PUB --rpc URL [--llm URL] [--sample 20] [--repo ROOT] [--model GGUF] [--llama-dir DIR] [--stack TOML] [--citizens-config JSON] [--slots JSON] [--seat-script F] [--bot-seed N] [--only M1,M3] [--strict-onboarding] [--through BELL] [--out FILE | --no-write] [--quiet]'); return 2; }
+  if (a.help || !a.herald || !a['ai-dir'] || !a.rpc) { err('usage: verify-minds.mjs --herald URL --ai-dir PUB --rpc URL [--llm URL] [--sample 20] [--repo ROOT] [--model GGUF [--model-cache]] [--episode-rule legacy_v1|current] [--llama-dir DIR] [--stack TOML] [--citizens-config JSON] [--slots JSON] [--seat-script F] [--bot-seed N] [--only M1,M3] [--strict-onboarding] [--through BELL] [--out FILE | --no-write] [--quiet]'); return 2; }
   try {
     assertLoopback(a.herald, 'herald');
     assertLoopback(a.rpc, 'rpc');
     if (a.llm) assertLoopback(a.llm, 'llm');
   } catch (e) { err(`verify-minds: ${e.message}`); return 2; }
   const report = await verifyMinds({
-    herald: a.herald, rpc: a.rpc, aiDir: a['ai-dir'], llm: a.llm, sample: a.sample ? Number(a.sample) : 20, repoRoot: a.repo, modelPath: a.model, llamaDir: a['llama-dir'],
+    herald: a.herald, rpc: a.rpc, aiDir: a['ai-dir'], llm: a.llm, sample: a.sample ? Number(a.sample) : 20, repoRoot: a.repo, modelPath: a.model, modelCache: a['model-cache'] === true, episodeRule: a['episode-rule'], llamaDir: a['llama-dir'],
     stackPath: a.stack, citizensConfig: a['citizens-config'], slotsPath: a.slots, seatScript: a['seat-script'], botSeed: a['bot-seed'] !== undefined ? Number(a['bot-seed']) : undefined,
     strictOnboarding: a['strict-onboarding'] === true, only: a.only ? a.only.split(',').map(s => s.trim()) : null, through: a.through !== undefined ? Number(a.through) : null, log: a.quiet ? () => {} : m => err(m),
   });

@@ -67,7 +67,9 @@ test('report on the slice-4 subset: decisions, by:model, marches (private host i
   assert.equal(m.y_strict, 0, 'Y counts opened records only: the wave-A run had no release job');
   assert.equal(m.g12_met, false);
   assert.equal(m.y_clash_without_opening, 7);
-  assert.deepEqual(m.clash_results, { win: 6, loss: 1 });
+  // R12: these episodes were written before the rule (no facts.cleared): the six "wins" are counted as pre-R12, not as cleared
+  const { note: _n, ...cr } = m.clash_results;
+  assert.deepEqual(cr, { win: 6, win_cleared: 0, win_pre_r12_unverified: 6, fought: 0, loss: 1, camps_cleared: 4 });
   assert.equal(m.marches_without_known_host, 0);
   assert.match(m.y_clash_without_opening_note, /NOT Y/);
   assert.deepEqual(m.marches.map((x) => `${x.bell}:${x.index}`), ['40:1001', '40:1003', '40:1004', '52:1000', '64:1003', '64:1004', '70:1001']);
@@ -133,6 +135,32 @@ test('Y counts only OPENED records that produced a clash (synthetic: opened reco
   assert.deepEqual(mc.clashes, []);
   assert.equal(mc.hosts_source, 'opened record');
   assert.match(renderMarkdown(r), /Y \(strict\) = 2/);
+});
+
+// FB5 / R12: the report counts cleared camps apart from "fought" clashes and does not drop a march whose clash is a fought episode.
+test('R12 (synthetic edit of the fixture episodes): a fought clash still matches its march; wins are counted only with facts.cleared; cleared camps are counted apart', () => {
+  const dir = copyFix();
+  let fought = 0, cleared = 0;
+  for (const tag of ['24e5e39dc7e743d3', '7b809f81ebbc9a00', '9475f24b4c8db2cb', '9a01474897088a66', 'daa181a1a18653f8', 'f3f2eb157c6ae029']) {
+    const f = join(dir, 'pub/memory', tag, 'episodes.json');
+    let j;
+    try { j = JSON.parse(readFileSync(f, 'utf8')); } catch { continue; }
+    for (const e of j.episodes) {
+      if (e.kind !== 'clash_own_win') continue;
+      const hasCleared = j.episodes.some((x) => x.kind === 'camp_cleared_own' && x.bell === e.bell && x.facts?.p === e.facts?.p && x.facts?.q === e.facts?.q);
+      if (hasCleared) { e.facts.cleared = 'camp'; cleared++; } else { e.kind = 'clash_own_fought'; e.facts.cleared = null; fought++; }
+    }
+    writeFileSync(f, JSON.stringify(j));
+  }
+  assert.ok(fought >= 1 && cleared >= 1, `the edit produced both kinds (fought ${fought}, cleared ${cleared})`);
+  const m = buildReport({ aiDir: dir }).marches;
+  assert.equal(m.y_clash_without_opening, 7, 'a march whose clash is a fought episode still counts (the old kind list would have dropped it)');
+  assert.equal(m.clash_results.fought, fought);
+  assert.equal(m.clash_results.win_cleared, cleared);
+  assert.equal(m.clash_results.win, cleared);
+  assert.equal(m.clash_results.win_pre_r12_unverified, 0);
+  assert.equal(m.clash_results.camps_cleared, cleared);
+  assert.ok(m.marches.every((x) => x.clashes.length === 1));
 });
 
 // ---- synthetic minds files for the valid-rate and fallback arithmetic -----------------------------------------------------

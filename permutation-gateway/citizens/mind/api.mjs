@@ -263,7 +263,8 @@ export function createMind(deps) {
     });
     if (res.status === 'fail') return { ...res, rendered };
     const shown = new Set([...rendered.inbox_shown, ...rendered.hall_shown]);
-    const untrusted = [...rows, ...hallRows].filter((r) => shown.has(r.id)).map((r) => r.text);
+    // FB5 / AC9 F2: the echo list holds what the prompt printed from outside: the texts AND the sender names (a 24-code-point echo of a name)
+    const untrusted = [...[...rows, ...hallRows].filter((r) => shown.has(r.id)).map((r) => r.text), ...(rendered.names ?? [])];
     return { ...res, rendered, untrusted };
   }
 

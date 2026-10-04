@@ -26,15 +26,18 @@ test('the two template files carry the same kinds, the same placeholders and the
 
 test('call_adopted names no target: no coordinates, no option, no tile; only the nation, the tally wording and the strike bell', () => {
   for (const l of ['en', 'ja']) {
-    const t = fillLine('call_adopted', { b: 54, nation: l === 'en' ? 'Ember' : 'エンバー', with: tallyPhrase({ ai: 1, human: 1, scripted: 0 }, { seatVoted: true }, l), S: 60 }, l);
+    const t = fillLine('call_adopted', { b: 54, nation: l === 'en' ? 'Ember' : 'エンバー', with: tallyPhrase({ ai: 1, human: 1, scripted: 0 }, { seatVoted: true }, l), S: 60, O: 62 }, l);
     assert.doesNotMatch(t, /\(\s*-?\d+\s*,\s*-?\d+\s*\)/, 'no coordinates');
     assert.doesNotMatch(t, /option|案|\bcamp\b|\braid\b|野営|襲撃/i);
     const nums = [...t.matchAll(/\d+/g)].map(m => m[0]);
-    assert.deepEqual([nums[0], nums.at(-1)], ['54', '60'], `the bell and the strike bell: ${t}`);
-    assert.ok(nums.slice(1, -1).every(n => n === '1'), `only ballot counts in between (the JA wording says 1票 for each kind): ${t}`);
+    assert.deepEqual([nums[0], nums.at(-2), nums.at(-1)], ['54', '60', '62'], `the bell, the strike (arrival) bell S and the opening bell S + 2: ${t}`);
+    assert.ok(nums.slice(1, -2).every(n => n === '1'), `only ballot counts in between (the JA wording says 1票 for each kind): ${t}`);
   }
-  assert.equal(fillLine('call_adopted', { b: 54, nation: 'Ember', with: 'with 1 AI ballot and the presenter\'s ballot', S: 60 }, 'en'),
-    'At bell 54 the council of Ember adopted a Strike Order with 1 AI ballot and the presenter\'s ballot. Its target stays sealed until bell 60.');
+  assert.equal(fillLine('call_adopted', { b: 54, nation: 'Ember', with: 'with 1 AI ballot and the presenter\'s ballot', S: 60, O: 62 }, 'en'),
+    'At bell 54 the council of Ember adopted a Strike Order with 1 AI ballot and the presenter\'s ballot. Its target stays sealed until the armies arrive at bell 60; the Strike Order is opened at bell 62.');
+  // FB5: the line used to say the target "stays sealed until bell S", but the Strike Order is OPENED (council file, call_commit) at S + 2
+  assert.doesNotMatch(fillLine('call_adopted', { b: 54, nation: 'Ember', with: 'with 1 AI ballot', S: 60, O: 62 }, 'en'), /sealed until bell 60/);
+  assert.throws(() => fillLine('call_adopted', { b: 54, nation: 'Ember', with: 'x', S: 60 }, 'en'), /no value for \{O\}/);
   assert.throws(() => fillLine('call_adopted', { b: 54 }, 'en'), /no value for \{nation\}/);
   assert.throws(() => fillLine('nonsense', {}, 'en'), /no template/);
 });

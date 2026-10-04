@@ -59,6 +59,10 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
   // AC1b hook: a player's name is untrusted text: sanitised, cut to 32 code points, and without a double quote
   // AC4's rows carry `name` as {en, ja} (social/book.mjs nameOf); a plain string is accepted too
   const personName = (n, lang = 'en') => sanitize(typeof n === 'object' && n ? n[lang] ?? n.en ?? '' : n, { limit: 32, untrusted: true }).replace(/"/g, "'");
+  // FB5 / AC9 F1: the PEOPLE legend sits OUTSIDE every <untrusted> wrapper, so it never prints a name a row carried (that is player-
+  // or peer-supplied text): only the name derived from the citizen's tag (`nameOf`, contract 2.3), sanitised like any text. The
+  // wrapped `from="..."` of an inbox or hall line keeps the row's name (it is inside the wrapper).
+  const legendName = (tag, lang = 'en') => personName(nm(tag, lang), lang);
   // AC1b hook: `<untrusted from ch bell>` is built by code around sanitised text; a name cannot forge an attribute
   const wrap = (text, { from, ch, bell }) => wrapUntrusted(text, { from, ch, bell });
 
@@ -224,7 +228,7 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
       const state = stateLines(sit, { trimNeighbours: neighbourTrim }).join('\n');
       const sc = [...threatLines(threats), ...councilLines(council, member, people)].join('\n');
       const legend = people.people.length
-        ? `PEOPLE (use these handles in say.to and trust.who): ${people.people.map((p) => `${p.handle} ${personName(p.name ?? nm(p.tag, lang), lang)}${p.faction != null ? ` (nation ${p.faction})` : ''}`).join('; ')}`
+        ? `PEOPLE (use these handles in say.to and trust.who): ${people.people.map((p) => `${p.handle} ${legendName(p.tag, lang)}${p.faction != null ? ` (nation ${p.faction})` : ''}`).join('; ')}`
         : 'PEOPLE: none named in this prompt.';
       const memory = `${legend}\n${attached.block}`.trim();
       const inboxText = inboxRows.length ? inboxRows.map((r) => itemLine(r, people, ownState.tag, 'direct', lang)).join('\n') : 'none';
@@ -299,6 +303,8 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
       focus: attached.focus ?? null, // integ-B: the exact retrieval focus (stored privately, published at season end: M11 replays with it)
       candidates: cands,
       people,
+      // FB5 / AC9 F2: the names of the inbox and hall lines that stayed in the prompt (after trimming), for V5's echo list
+      names: [...new Set([...inboxRows, ...hallRows].map((r) => (r.tag === ownState.tag ? null : personName(r.name ?? nm(r.tag, lang), lang))).filter(Boolean))],
       inbox_shown: inboxRows.map((r) => r.id),
       hall_shown: hallRows.map((r) => r.id),
       inbox_root: merkleRootHex(inboxLeaves.filter((x) => /^[0-9a-f]{64}$/.test(x)).map(leaf)),
@@ -313,6 +319,12 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
   const escapeRe = (v) => String(v).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const inLabel = (label, v) => typeof v !== 'object' && new RegExp(`(?<![\\w])${escapeRe(v)}(?![\\w])`).test(label);
   const named = (arr, keep = () => true) => arr.map((n, i) => (n && keep(i) ? `${resources[i] ?? `r${i}`} ${n}` : null)).filter(Boolean).join(' ');
+  // FB5 / AC9 F3: a candidate line is built by the Rust brain from templates over public ids, but it is not typed by the mind, so
+  // every free string in it (label, string facts, params) passes the pinned sanitiser (untrusted form: no special token, no < >,
+  // no backtick, no { } [ ], no forged Remembered handle M<n>). It cannot forge a `]`, a `|` field or a handle. Not a wrapper:
+  // candidates stay plain lines, and a label's WORDS are the brain's (the injection oracle's rule for carrier brain_label).
+  const safeLine = (v, limit = 0) => sanitize(String(v ?? ''), { limit, untrusted: true }).replace(/\|/g, '/');
+  const safeFact = (v) => (typeof v === 'string' ? safeLine(v) : Array.isArray(v) ? v.map((x) => (typeof x === 'string' ? safeLine(x) : fmt(x))).join(', ') : sanitize(fmt(v), { limit: 0 }));
   const factText = (k, v, label, all = {}) => {
     if (HIDDEN_FACTS.has(k) || v == null || v === '' || v === 'not applicable') return null;
     if (Array.isArray(v) && v.length === 8 && v.every((x) => typeof x === 'number')) {
@@ -321,15 +333,15 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
     }
     if (v && typeof v === 'object' && !Array.isArray(v) && 'p' in v && 'q' in v) return `${words(k)} (${v.p},${v.q})`;
     if (k === 'troops' || inLabel(label, v)) return null;
-    return `${words(k)} ${fmt(v)}`;
+    return `${safeLine(words(k))} ${safeFact(v)}`;
   };
 
   function candidateLines(cands) {
     return cands.map((c) => {
-      const label = c.label ?? '';
+      const label = safeLine(c.label ?? '');
       const facts = Object.entries(c.facts ?? {}).map(([k, v]) => factText(k, v, label, c.facts)).filter(Boolean).join('; ');
-      const params = Object.entries(c.params ?? {}).map(([k, v]) => `${k} ${v.join('|')}`).join('; ');
-      const parts = [`${c.id} [${kindBaseOf(c.kind)}${c.flags?.council ? ', Strike Order' : ''}] ${label}`.trim()];
+      const params = Object.entries(c.params ?? {}).map(([k, v]) => `${safeLine(k)} ${[].concat(v).map((x) => safeLine(x)).join('|')}`).join('; ');
+      const parts = [`${safeLine(c.id)} [${safeLine(kindBaseOf(c.kind))}${c.flags?.council ? ', Strike Order' : ''}] ${label}`.trim()];
       if (c.troops != null) parts.push(`troops ${c.troops}`);
       if (facts) parts.push(facts);
       if (params) parts.push(`params: ${params}`);

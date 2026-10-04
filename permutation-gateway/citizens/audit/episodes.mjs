@@ -177,7 +177,7 @@ const diffLists = (want, got) => {
  * @param {Function} o.tagOfWallet (wallet b58) -> citizen tag hex
  * @param {{opened:(id)=>object|null, decisions:Iterable}} o.decisions see verify-minds `collectDecisions`
  */
-export async function checkM11({ pub, drained: drainedIn = null, herald, roster, tagOfWallet, decisions, seedHex, fetchImpl = null, sampleAis = SAMPLE_AIS, sampleDecisions = SAMPLE_DECISIONS, through: throughOpt = null, codeCheck = null }) {
+export async function checkM11({ pub, drained: drainedIn = null, herald, roster, tagOfWallet, decisions, seedHex, fetchImpl = null, sampleAis = SAMPLE_AIS, sampleDecisions = SAMPLE_DECISIONS, through: throughOpt = null, codeCheck = null, episodeRule = null }) {
   const chk = createCheck('M11', 'episode replay');
   const ais = roster?.ai ?? [];
   if (!ais.length) { chk.skip('no AI citizens on the roster'); return chk.result(); }
@@ -190,6 +190,7 @@ export async function checkM11({ pub, drained: drainedIn = null, herald, roster,
   const genesisTs = Number(season?.genesisTs);
   chk.set('through_bell', through);
   if (codeCheck) chk.set('replay_code', codeCheck);
+  chk.set('episode_rule', episodeRule === 'legacy_v1' ? 'legacy_v1 (pre-R12: a clash was a win when the enemy lost more)' : 'current (R12: a win is a cleared camp or a destroyed stack)');
 
   const tombs = tombstoneMap(pub.redactions());
   const social = pub.fullSocial();
@@ -203,7 +204,7 @@ export async function checkM11({ pub, drained: drainedIn = null, herald, roster,
   const replay = async tag => {
     if (!replays.has(tag)) {
       const entry = entryOf.get(tag);
-      replays.set(tag, await replayOne({ feed, prepared, events, tag, entry, through, genesisTs, talk, councils: councils.get(entry.faction) ?? [], councilOptions: councilOptions.get(entry.faction) ?? [] }));
+      replays.set(tag, await replayOne({ feed, prepared, events, tag, entry, through, genesisTs, talk, councils: councils.get(entry.faction) ?? [], councilOptions: councilOptions.get(entry.faction) ?? [], extraConfig: episodeRule === 'legacy_v1' ? { clash_win_rule: 'legacy_v1' } : {} }));
     }
     return replays.get(tag);
   };
