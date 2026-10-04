@@ -210,7 +210,7 @@ Real now: social store (AC4), speech checker and sanitiser (AC1b), reflection jo
 
 # Part 3: review fixes on `frontier/ai-integ` (after `f05cca5`; five review clusters, every blocker, major and missing item checked against the code)
 
-Commits (local, nothing pushed): `59e6e0a` (mind), `0d9d3aa` (memory and feed), `0168581` (brain), the serve/registrar commit, and `0306861`. Each fix has a test; the new tests were also run against the old code where the old code was kept to compare (see the "old code fails" column).
+Commits (local, nothing pushed): `59e6e0a` (mind), `0d9d3aa` (memory and feed), `0168581` (brain), the serve/registrar commit, and `0306861`. Each fix has a test. The new tests were run against the pre-fix source of the module they cover (`git show f05cca5:<file>` swapped in, then restored): they fail there, as the "old code fails" column says. Exceptions: the new modules (`upkeep.mjs`, `socialEpisodeSource`) have no old version, and the meview test does not compile against the old code.
 
 ## 15. Verdicts and what was done
 
@@ -220,7 +220,7 @@ Verdict: C = confirmed against the code, R = rebutted. No finding was rebutted; 
 |---|---|---|---|---|
 | M1 | mind blocker: a second `/v1/outcome` for one decision replaces `tx` | C | `records.attachOutcome` ADDS: identical entries kept once, first-seen order, also after a restart (journal) and after the bell is closed; tests in `citizens-mind-records` and `citizens-mind-api` | yes (the new records test) |
 | M2 | prompt shows `［object Object］` for sender names | C | `prompt.mjs` `personName(n, lang)` reads `{en, ja}` rows (AC4's `nameOf`); `citizens-integ-social` asserts the real roster name is in the `from=` attribute and no `object Object` | yes (run against the old prompt.mjs) |
-| M3 | human claim bypassed by U+2019, "Im", "no bot", hiragana | C | `plainApostrophe` (reason.mjs) applied in V5 and in the memory-claim and summary checks; pattern `'?m`, "no", hiragana and 俺/僕 forms; tests in `citizens-mind-speech` | not rerun on the old file |
+| M3 | human claim bypassed by U+2019, "Im", "no bot", hiragana | C | `plainApostrophe` (reason.mjs) applied in V5 and in the memory-claim and summary checks; pattern `'?m`, "no", hiragana and 俺/僕 forms; tests in `citizens-mind-speech` | yes (four speech tests fail on the old `speech.mjs`) |
 | M4 | 8 of 14 slice-4 `why` strings withheld (all 6 march decisions as `target_kind`, 2 as capture claim "conquest") | C | (a) bare "conquest" and "occupation" are no longer capture claims: they count only with a land object (contract 4.5 names land-taking verbs); (b) one longer prompt line in `system.en.txt` (see 15.1) | n/a, see 15.1 |
 | M5 | `W-THREAT` wake `dep_mass` is milli-troops but the prompt printed it as troops (300000) | C | `wiring.mjs` converts with `toTroops`; prompt test with a real-scale wake (300000 -> "300 troops"); the wiring test fixture now uses 300000. `home_troops_est` is also milli but is only compared with `dep_mass` (same unit), so it needed no change | yes |
 | M6 | pump lookback 40 loses a BUILD whose `done_at` is far later (and a DEPART to REVEAL of up to 72 bells) | C | lookback 80; BUILD rows are taken from the whole log while their done bell is within the window or ahead; test: BUILD logged at bell 5, done at 130, pump ticked bell by bell to 140, live episode ids equal a full-log `episodes_from_events` | yes |
