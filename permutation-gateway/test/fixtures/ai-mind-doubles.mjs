@@ -6,6 +6,7 @@ import { createServer } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { createRoster } from '../../citizens/mind/views.mjs';
+import { LIBRARY } from '../../citizens/persona/deal.mjs';
 
 const HERE = new URL('.', import.meta.url);
 export const sha = (s) => createHash('sha256').update(s).digest('hex');
@@ -116,7 +117,8 @@ export function renderMemoryDouble(ownState, focus, budget = {}) {
   return { block: lines.join('\n'), handles, ids: hit.map((e) => e.id), tokens: Math.ceil(lines.join('\n').length / 3) };
 }
 export const renderPersonaDouble = (persona) => `You are an AI citizen. Ambition: ${persona?.ambition?.en ?? 'none'}. Goals: G1 keep two armies.`;
-export const personaOfDouble = (entry) => ({ id: entry.persona, ambition: entry.ambition, temperament: entry.temperament, creed: { en: 'c', ja: 'c' }, goals: [{ id: 'G1', text: { en: 'a', ja: 'a' }, memory: false }, { id: 'G2', text: { en: 'b', ja: 'b' }, memory: true }] });
+// AC10a (R7): the goals are the library's own (with their keys), so goals_served in these tests comes from persona/goals.mjs, not from a double
+export const personaOfDouble = (entry) => ({ id: entry.persona, ambition: entry.ambition, temperament: entry.temperament, creed: { en: 'c', ja: 'c' }, goals: (LIBRARY.personas.find((p) => p.id === entry.persona)?.goals ?? []).map((g) => ({ ...g, text: { ...g.text } })) });
 export const nameOfDouble = (tag) => ({ en: `Citizen${String(tag).slice(0, 4)}`, ja: `市民${String(tag).slice(0, 4)}` });
 
 // ---- AC4 social double ---------------------------------------------------------------------------------------------
