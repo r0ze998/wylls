@@ -66,7 +66,8 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
   function stateLines(sit, { trimNeighbours = 0 } = {}) {
     const out = [];
     const me = sit.me ?? {};
-    out.push(`NOW: bell ${sit.bell} (day ${sit.day}, bell ${sit.bell_in_day}/144), ${sit.secs_left} s left in this bell. Season ends at bell ${sit.end_bell}.`);
+    // `secs_left` on the wire is game seconds to the season end (AC3a fixture), not seconds left in the bell: not shown
+    out.push(`NOW: bell ${sit.bell} (day ${sit.day}, bell ${sit.bell_in_day}/144). Season ends at bell ${sit.end_bell}.`);
     out.push(`YOU: nation ${me.faction}${me.doctrine ? ` (${me.doctrine})` : ''}.`);
     const h = me.home;
     if (h) {
