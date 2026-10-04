@@ -122,7 +122,7 @@ export function createSocial({
     });
     req.on('end', async () => {
       if (dead) return;
-      const url = new URL(req.url, 'http://x');
+      const url = new URL(req.url, 'http://127.0.0.1');
       const out = await dispatch({
         method: req.method, path: url.pathname, query: Object.fromEntries(url.searchParams), headers: req.headers,
         body: chunks.length ? Buffer.concat(chunks) : null, peer: req.socket.remoteAddress,
