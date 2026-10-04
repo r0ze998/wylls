@@ -1,0 +1,28 @@
+{
+ "shots": [],
+ "notes": {
+  "map_bell": "60",
+  "council_bell": "61",
+  "card_0": "model marches 3 (opened 2)",
+  "decisions": 40,
+  "decision_target": 5,
+  "decision_class": "decision decision-released",
+  "decision_text": "Lumesha Towell AI\nby: model\nreleased\nbell 57 · session\nCandidates it was offered (made by code)\nc1 Routine: economy and duties only, no march\neconomy_held_by_quota: false\nquota_left: 17\nroutine: economy and duties only, no march\nsummary: nothing to do (economy and duties only)\nc2 Hold: duties only, keep the armies home\nduties: duties only; keep armies home\nkeeps_home: [\"H1\",\"H3\"]\nc3 March H3 (100 troops) to a barbarian camp, 6 hexes away; earliest arrival at bell 60chosen\nearliest_bell: 60\nenemy_troops: 152\nhexes: 6\nhost: H3\nhost_id: 550859620483074\nidle_bells: 23\nprovinces: 1\nratio: unfavoura",
+  "council_tab_0": "No Strike Order adopted (fewer than two ballots for the leading option).",
+  "council_split_0": "Ballots by who cast them: AI 1 · human (the presenter) 0 · scripted seat 0",
+  "council_tab_1": "No Strike Order adopted (fewer than two ballots for the leading option).",
+  "council_split_1": "Ballots by who cast them: AI 1 · human (the presenter) 0 · scripted seat 0",
+  "council_tab_2": "No Strike Order adopted (fewer than two ballots for the leading option).",
+  "council_split_2": "Ballots by who cast them: AI 1 · human (the presenter) 0 · scripted seat 0",
+  "council_tab_3": "No Strike Order adopted (fewer than two ballots for the leading option).",
+  "council_split_3": "Ballots by who cast them: AI 1 · human (the presenter) 0 · scripted seat 0",
+  "council_tab_4": "No Strike Order adopted (fewer than two ballots for the leading option).",
+  "council_split_4": "Ballots by who cast them: AI 1 · human (the presenter) 0 · scripted seat 0",
+  "council_tab_5": "No council this period",
+  "council_split_5": ""
+ },
+ "nonGet": [],
+ "errs": [],
+ "shotsOnly": false,
+ "at": "2026-10-04T20:07:51.083Z"
+}

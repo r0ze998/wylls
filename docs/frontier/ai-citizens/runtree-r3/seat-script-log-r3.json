@@ -1,0 +1,44 @@
+{
+ "v": 1,
+ "kind": "seat-script-log",
+ "mode": "council-script",
+ "scripted": true,
+ "ballot_label": {
+  "en": "scripted seat ballot: written by the operator's script (origin 2), not a live human ballot",
+  "ja": "運営の台本による席の票(origin 2)。人間がその場で投じた票ではない"
+ },
+ "never_live": "A Strike Order adopted with this ballot is the product of a scripted seat vote plus AI votes. It is not \"humans and AI decided together\"; only the recorded session, where the owner votes, can say that.",
+ "rule": "in every council period of nation 0 that has options: ballot for the option most chosen by the nation-0 AI ballots already cast (ties: the lowest option number; none only when every AI cast none); with no AI ballot by the last ballot bell (C0 + 5): the option with the highest ratio word (favourable, even, unfavourable), ties the lowest option number",
+ "nation": 0,
+ "origin": 2,
+ "season": 41,
+ "seat_wallet_listed": true,
+ "started_unix": 1791140697,
+ "periods": [
+  {
+   "period": 2,
+   "c0": 48,
+   "closes_bell": 54,
+   "option": 1,
+   "rule": "follow_ai_ballots",
+   "ai_ballots": [
+    {
+     "wallet": "7ChGBztTvT1ymVk43AgTyaAcWcwkcHPjGRFWAE2d7Ceb",
+     "option": 1
+    }
+   ],
+   "bell": 52,
+   "status": 400,
+   "ok": false,
+   "code": "NotEligible",
+   "attempts": 1,
+   "inner": "c69867b9aea592efb77fc68caa6e5c2cf144152e48e1149e232c125ee8761b5b",
+   "origin": 2,
+   "scripted": true
+  }
+ ],
+ "skipped_periods": [],
+ "notes": [
+  "stopped: stop file or signal"
+ ]
+}

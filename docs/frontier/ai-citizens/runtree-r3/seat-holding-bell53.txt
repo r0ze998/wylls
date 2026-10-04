@@ -1,0 +1,5 @@
+smoke-r3, queried from the live herald (GET /h/me/<wallet>, decoded Holding: STATE at byte 71, FOUNDED_TS 120, FINAL_TS 1232, LAST_OWNER_ACTION 136), 2026-10-05 about 04:59 JST (bell 52 to 53), after the seat ballot had been refused:
+seat (index 1006, nation 0): state 1 (provisional)  founded_ts 1785632092  final_ts 1785632682  last_owner_action 1785632092  (no action since the village was founded)
+AI 1000 (nation 0):         state 2 (final)         founded_ts 1785632096  final_ts 1785632682  last_owner_action 1785662104
+AI 1001..1005:              state 2 (final) each
+The AI holdings' last_owner_action values (up to 1785662708) show the game clock was then far past the seat's final_ts. permutation-frontier/src/proc/holding.rs `finality()`: "the lazy provisional -> final flip ... for instructions that carry the holding's own Province": the flip happens only when an instruction touches the holding.
