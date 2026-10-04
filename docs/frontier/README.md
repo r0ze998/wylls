@@ -1,6 +1,6 @@
 # Wylls: design, decisions and milestone records
 
-The documents behind Wylls, the open-world civilization game on Solana: six nations, a village placed for you, real-time economy, combat resolved at 10-minute bells, sealed marches. Start with the unified game design (canonical), then the overview.
+The documents behind Wylls, the open-world civilization game on Solana: six nations, a village placed for you, real-time economy, combat resolved at 10-minute bells, sealed marches. Start with the unified game design (canonical), then the overview. **用語：説明用の文書では『ターン』と呼ぶ10分ごとの区切りを、この文書とコード・契約書では bell（鐘）と呼びます。 / Term note: explanatory documents call the 10-minute step at which the world resolves everything together a "turn"; this document, the code and the contracts call it a "bell" (鐘).**
 
 **Canonical source for the game design: [../GAME-DESIGN.ja.md](../GAME-DESIGN.ja.md)** (Japanese, the unified design with the current state beside every item; draft of 2026-10-04, not yet confirmed by the project owner). The list of 48 discrepancies between the older documents, with how each is resolved: [../GAME-DESIGN-DISCREPANCIES.ja.md](../GAME-DESIGN-DISCREPANCIES.ja.md). Where a document in this folder differs from the unified design, the unified design wins. The owner's decisions of 2026-10-04 are recorded in [DECISIONS.md](DECISIONS.md), part Y.
 

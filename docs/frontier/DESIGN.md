@@ -1,5 +1,5 @@
 # Wylls design (engineering specification)
-
+*用語：説明用の文書では『ターン』と呼ぶ10分ごとの区切りを、この文書とコード・契約書では bell（鐘）と呼びます。 / Term note: explanatory documents call the 10-minute step at which the world resolves everything together a "turn"; this document, the code and the contracts call it a "bell" (鐘).*
 > **Status banner (2026-10-04, evening).** The canonical game design is now [`docs/GAME-DESIGN.ja.md`](../GAME-DESIGN.ja.md) (the unified design, Japanese, with the current state beside every item) and its discrepancy table [`docs/GAME-DESIGN-DISCREPANCIES.ja.md`](../GAME-DESIGN-DISCREPANCIES.ja.md). This file remains the **engineering reference** (accounts, instructions, costs, tests, labs). Where it differs from the unified design, the unified design wins. These parts of this file are **superseded, or target design that is not built**:
 >
 > 1. **Loot, raids, occupation tribute and laurel transfer on capture** (§5.4, §6.3, §2.3). Not in M1: a win gives no loot, no land and no points, and a camp gives 10 Works with no use (`m1/M1-CONTRACT.md` I-17; `docs/GAME-DESIGN.ja.md` §3.6). The conquest line leaves them out as well (`cq-integ` contract K-05, K-12, K-16, K-25). Design only, for the money stage.
