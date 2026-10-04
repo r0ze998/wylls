@@ -1,0 +1,1730 @@
+{
+ "v": 1,
+ "library_sha256": "e45d5ea2708a930bf6918eedf5ce7c1045d8012745042641feda43851f7fa5a8",
+ "decks": {
+  "deck-1": "bd5b47703a182df1b254af9dd809921e95d4edb88e6ec20a915935d44c699929",
+  "deck-2": "d3087012f6ae711e24172bf151b2df74360769d0ce6ae3145e4445831882648b",
+  "deck-3": "1c257a69bff8c6ac86428dcb5e41cc1c3dc29edf517cc9638ecab6a9df0c7b80"
+ },
+ "cases": [
+  {
+   "seed": "0000000000000000000000000000000000000000000000000000000000000000",
+   "deck": "deck-1",
+   "personas": [
+    "conqueror"
+   ],
+   "n": 6,
+   "deal": [
+    {
+     "index": 1000,
+     "faction": 0,
+     "persona": "conqueror",
+     "creed_variant": 3,
+     "temperament": {
+      "aggression": 89,
+      "loyalty": 60,
+      "ambition": 78,
+      "honesty": 49,
+      "risk": 76,
+      "sociability": 49,
+      "grudge": 55
+     }
+    },
+    {
+     "index": 1001,
+     "faction": 1,
+     "persona": "conqueror",
+     "creed_variant": 4,
+     "temperament": {
+      "aggression": 81,
+      "loyalty": 54,
+      "ambition": 77,
+      "honesty": 49,
+      "risk": 72,
+      "sociability": 42,
+      "grudge": 54
+     }
+    },
+    {
+     "index": 1002,
+     "faction": 2,
+     "persona": "conqueror",
+     "creed_variant": 4,
+     "temperament": {
+      "aggression": 76,
+      "loyalty": 42,
+      "ambition": 93,
+      "honesty": 54,
+      "risk": 80,
+      "sociability": 31,
+      "grudge": 53
+     }
+    },
+    {
+     "index": 1003,
+     "faction": 3,
+     "persona": "conqueror",
+     "creed_variant": 4,
+     "temperament": {
+      "aggression": 79,
+      "loyalty": 46,
+      "ambition": 81,
+      "honesty": 61,
+      "risk": 70,
+      "sociability": 41,
+      "grudge": 63
+     }
+    },
+    {
+     "index": 1004,
+     "faction": 4,
+     "persona": "conqueror",
+     "creed_variant": 1,
+     "temperament": {
+      "aggression": 72,
+      "loyalty": 41,
+      "ambition": 85,
+      "honesty": 55,
+      "risk": 66,
+      "sociability": 48,
+      "grudge": 58
+     }
+    },
+    {
+     "index": 1005,
+     "faction": 5,
+     "persona": "conqueror",
+     "creed_variant": 0,
+     "temperament": {
+      "aggression": 85,
+      "loyalty": 47,
+      "ambition": 94,
+      "honesty": 46,
+      "risk": 73,
+      "sociability": 37,
+      "grudge": 61
+     }
+    }
+   ]
+  },
+  {
+   "seed": "0000000000000000000000000000000000000000000000000000000000000000",
+   "deck": "deck-2",
+   "personas": [
+    "avenger",
+    "diplomat"
+   ],
+   "n": 12,
+   "deal": [
+    {
+     "index": 1000,
+     "faction": 0,
+     "persona": "diplomat",
+     "creed_variant": 3,
+     "temperament": {
+      "aggression": 34,
+      "loyalty": 70,
+      "ambition": 48,
+      "honesty": 69,
+      "risk": 41,
+      "sociability": 99,
+      "grudge": 25
+     }
+    },
+    {
+     "index": 1001,
+     "faction": 1,
+     "persona": "avenger",
+     "creed_variant": 4,
+     "temperament": {
+      "aggression": 66,
+      "loyalty": 74,
+      "ambition": 42,
+      "honesty": 54,
+      "risk": 62,
+      "sociability": 47,
+      "grudge": 84
+     }
+    },
+    {
+     "index": 1002,
+     "faction": 2,
+     "persona": "avenger",
+     "creed_variant": 4,
+     "temperament": {
+      "aggression": 61,
+      "loyalty": 62,
+      "ambition": 58,
+      "honesty": 59,
+      "risk": 70,
+      "sociability": 36,
+      "grudge": 83
+     }
+    },
+    {
+     "index": 1003,
+     "faction": 3,
+     "persona": "diplomat",
+     "creed_variant": 4,
+     "temperament": {
+      "aggression": 24,
+      "loyalty": 56,
+      "ambition": 51,
+      "honesty": 81,
+      "risk": 35,
+      "sociability": 91,
+      "grudge": 33
+     }
+    },
+    {
+     "index": 1004,
+     "faction": 4,
+     "persona": "avenger",
+     "creed_variant": 1,
+     "temperament": {
+      "aggression": 57,
+      "loyalty": 61,
+      "ambition": 50,
+      "honesty": 60,
+      "risk": 56,
+      "sociability": 53,
+      "grudge": 88
+     }
+    },
+    {
+     "index": 1005,
+     "faction": 5,
+     "persona": "diplomat",
+     "creed_variant": 0,
+     "temperament": {
+      "aggression": 30,
+      "loyalty": 57,
+      "ambition": 64,
+      "honesty": 66,
+      "risk": 38,
+      "sociability": 87,
+      "grudge": 31
+     }
+    },
+    {
+     "index": 1006,
+     "faction": 0,
+     "persona": "avenger",
+     "creed_variant": 2,
+     "temperament": {
+      "aggression": 62,
+      "loyalty": 77,
+      "ambition": 40,
+      "honesty": 69,
+      "risk": 54,
+      "sociability": 46,
+      "grudge": 80
+     }
+    },
+    {
+     "index": 1007,
+     "faction": 1,
+     "persona": "diplomat",
+     "creed_variant": 2,
+     "temperament": {
+      "aggression": 32,
+      "loyalty": 53,
+      "ambition": 55,
+      "honesty": 81,
+      "risk": 27,
+      "sociability": 85,
+      "grudge": 33
+     }
+    },
+    {
+     "index": 1008,
+     "faction": 2,
+     "persona": "diplomat",
+     "creed_variant": 1,
+     "temperament": {
+      "aggression": 20,
+      "loyalty": 55,
+      "ambition": 53,
+      "honesty": 77,
+      "risk": 33,
+      "sociability": 94,
+      "grudge": 24
+     }
+    },
+    {
+     "index": 1009,
+     "faction": 3,
+     "persona": "avenger",
+     "creed_variant": 4,
+     "temperament": {
+      "aggression": 61,
+      "loyalty": 79,
+      "ambition": 40,
+      "honesty": 65,
+      "risk": 69,
+      "sociability": 46,
+      "grudge": 84
+     }
+    },
+    {
+     "index": 1010,
+     "faction": 4,
+     "persona": "diplomat",
+     "creed_variant": 3,
+     "temperament": {
+      "aggression": 21,
+      "loyalty": 65,
+      "ambition": 59,
+      "honesty": 65,
+      "risk": 33,
+      "sociability": 85,
+      "grudge": 39
+     }
+    },
+    {
+     "index": 1011,
+     "faction": 5,
+     "persona": "avenger",
+     "creed_variant": 3,
+     "temperament": {
+      "aggression": 71,
+      "loyalty": 68,
+      "ambition": 45,
+      "honesty": 53,
+      "risk": 53,
+      "sociability": 55,
+      "grudge": 88
+     }
+    }
+   ]
+  },
+  {
+   "seed": "0000000000000000000000000000000000000000000000000000000000000000",
+   "deck": "deck-3",
+   "personas": [
+    "avenger",
+    "diplomat",
+    "conqueror"
+   ],
+   "n": 18,
+   "deal": [
+    {
+     "index": 1000,
+     "faction": 0,
+     "persona": "diplomat",
+     "creed_variant": 3,
+     "temperament": {
+      "aggression": 34,
+      "loyalty": 70,
+      "ambition": 48,
+      "honesty": 69,
+      "risk": 41,
+      "sociability": 99,
+      "grudge": 25
+     }
+    },
+    {
+     "index": 1001,
+     "faction": 1,
+     "persona": "avenger",
+     "creed_variant": 4,
+     "temperament": {
+      "aggression": 66,
+      "loyalty": 74,
+      "ambition": 42,
+      "honesty": 54,
+      "risk": 62,
+      "sociability": 47,
+      "grudge": 84
+     }
+    },
+    {
+     "index": 1002,
+     "faction": 2,
+     "persona": "conqueror",
+     "creed_variant": 4,
+     "temperament": {
+      "aggression": 76,
+      "loyalty": 42,
+      "ambition": 93,
+      "honesty": 54,
+      "risk": 80,
+      "sociability": 31,
+      "grudge": 53
+     }
+    },
+    {
+     "index": 1003,
+     "faction": 3,
+     "persona": "conqueror",
+     "creed_variant": 4,
+     "temperament": {
+      "aggression": 79,
+      "loyalty": 46,
+      "ambition": 81,
+      "honesty": 61,
+      "risk": 70,
+      "sociability": 41,
+      "grudge": 63
+     }
+    },
+    {
+     "index": 1004,
+     "faction": 4,
+     "persona": "conqueror",
+     "creed_variant": 1,
+     "temperament": {
+      "aggression": 72,
+      "loyalty": 41,
+      "ambition": 85,
+      "honesty": 55,
+      "risk": 66,
+      "sociability": 48,
+      "grudge": 58
+     }
+    },
+    {
+     "index": 1005,
+     "faction": 5,
+     "persona": "conqueror",
+     "creed_variant": 0,
+     "temperament": {
+      "aggression": 85,
+      "loyalty": 47,
+      "ambition": 94,
+      "honesty": 46,
+      "risk": 73,
+      "sociability": 37,
+      "grudge": 61
+     }
+    },
+    {
+     "index": 1006,
+     "faction": 0,
+     "persona": "avenger",
+     "creed_variant": 2,
+     "temperament": {
+      "aggression": 62,
+      "loyalty": 77,
+      "ambition": 40,
+      "honesty": 69,
+      "risk": 54,
+      "sociability": 46,
+      "grudge": 80
+     }
+    },
+    {
+     "index": 1007,
+     "faction": 1,
+     "persona": "conqueror",
+     "creed_variant": 2,
+     "temperament": {
+      "aggression": 87,
+      "loyalty": 43,
+      "ambition": 85,
+      "honesty": 61,
+      "risk": 62,
+      "sociability": 35,
+      "grudge": 63
+     }
+    },
+    {
+     "index": 1008,
+     "faction": 2,
+     "persona": "diplomat",
+     "creed_variant": 1,
+     "temperament": {
+      "aggression": 20,
+      "loyalty": 55,
+      "ambition": 53,
+      "honesty": 77,
+      "risk": 33,
+      "sociability": 94,
+      "grudge": 24
+     }
+    },
+    {
+     "index": 1009,
+     "faction": 3,
+     "persona": "avenger",
+     "creed_variant": 4,
+     "temperament": {
+      "aggression": 61,
+      "loyalty": 79,
+      "ambition": 40,
+      "honesty": 65,
+      "risk": 69,
+      "sociability": 46,
+      "grudge": 84
+     }
+    },
+    {
+     "index": 1010,
+     "faction": 4,
+     "persona": "diplomat",
+     "creed_variant": 3,
+     "temperament": {
+      "aggression": 21,
+      "loyalty": 65,
+      "ambition": 59,
+      "honesty": 65,
+      "risk": 33,
+      "sociability": 85,
+      "grudge": 39
+     }
+    },
+    {
+     "index": 1011,
+     "faction": 5,
+     "persona": "avenger",
+     "creed_variant": 3,
+     "temperament": {
+      "aggression": 71,
+      "loyalty": 68,
+      "ambition": 45,
+      "honesty": 53,
+      "risk": 53,
+      "sociability": 55,
+      "grudge": 88
+     }
+    },
+    {
+     "index": 1012,
+     "faction": 0,
+     "persona": "conqueror",
+     "creed_variant": 1,
+     "temperament": {
+      "aggression": 86,
+      "loyalty": 58,
+      "ambition": 84,
+      "honesty": 62,
+      "risk": 80,
+      "sociability": 32,
+      "grudge": 51
+     }
+    },
+    {
+     "index": 1013,
+     "faction": 1,
+     "persona": "diplomat",
+     "creed_variant": 2,
+     "temperament": {
+      "aggression": 35,
+      "loyalty": 51,
+      "ambition": 59,
+      "honesty": 84,
+      "risk": 31,
+      "sociability": 80,
+      "grudge": 35
+     }
+    },
+    {
+     "index": 1014,
+     "faction": 2,
+     "persona": "avenger",
+     "creed_variant": 0,
+     "temperament": {
+      "aggression": 55,
+      "loyalty": 74,
+      "ambition": 48,
+      "honesty": 55,
+      "risk": 50,
+      "sociability": 37,
+      "grudge": 99
+     }
+    },
+    {
+     "index": 1015,
+     "faction": 3,
+     "persona": "diplomat",
+     "creed_variant": 0,
+     "temperament": {
+      "aggression": 28,
+      "loyalty": 69,
+      "ambition": 60,
+      "honesty": 66,
+      "risk": 30,
+      "sociability": 97,
+      "grudge": 31
+     }
+    },
+    {
+     "index": 1016,
+     "faction": 4,
+     "persona": "avenger",
+     "creed_variant": 3,
+     "temperament": {
+      "aggression": 68,
+      "loyalty": 60,
+      "ambition": 40,
+      "honesty": 57,
+      "risk": 61,
+      "sociability": 53,
+      "grudge": 80
+     }
+    },
+    {
+     "index": 1017,
+     "faction": 5,
+     "persona": "diplomat",
+     "creed_variant": 1,
+     "temperament": {
+      "aggression": 23,
+      "loyalty": 66,
+      "ambition": 62,
+      "honesty": 78,
+      "risk": 28,
+      "sociability": 90,
+      "grudge": 21
+     }
+    }
+   ]
+  },
+  {
+   "seed": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+   "deck": "deck-1",
+   "personas": [
+    "conqueror"
+   ],
+   "n": 6,
+   "deal": [
+    {
+     "index": 1000,
+     "faction": 0,
+     "persona": "conqueror",
+     "creed_variant": 3,
+     "temperament": {
+      "aggression": 80,
+      "loyalty": 40,
+      "ambition": 84,
+      "honesty": 64,
+      "risk": 73,
+      "sociability": 31,
+      "grudge": 57
+     }
+    },
+    {
+     "index": 1001,
+     "faction": 1,
+     "persona": "conqueror",
+     "creed_variant": 5,
+     "temperament": {
+      "aggression": 82,
+      "loyalty": 45,
+      "ambition": 93,
+      "honesty": 60,
+      "risk": 60,
+      "sociability": 34,
+      "grudge": 56
+     }
+    },
+    {
+     "index": 1002,
+     "faction": 2,
+     "persona": "conqueror",
+     "creed_variant": 3,
+     "temperament": {
+      "aggression": 81,
+      "loyalty": 58,
+      "ambition": 84,
+      "honesty": 47,
+      "risk": 62,
+      "sociability": 38,
+      "grudge": 66
+     }
+    },
+    {
+     "index": 1003,
+     "faction": 3,
+     "persona": "conqueror",
+     "creed_variant": 1,
+     "temperament": {
+      "aggression": 72,
+      "loyalty": 48,
+      "ambition": 92,
+      "honesty": 61,
+      "risk": 72,
+      "sociability": 41,
+      "grudge": 62
+     }
+    },
+    {
+     "index": 1004,
+     "faction": 4,
+     "persona": "conqueror",
+     "creed_variant": 4,
+     "temperament": {
+      "aggression": 79,
+      "loyalty": 60,
+      "ambition": 86,
+      "honesty": 54,
+      "risk": 60,
+      "sociability": 38,
+      "grudge": 54
+     }
+    },
+    {
+     "index": 1005,
+     "faction": 5,
+     "persona": "conqueror",
+     "creed_variant": 0,
+     "temperament": {
+      "aggression": 86,
+      "loyalty": 57,
+      "ambition": 93,
+      "honesty": 51,
+      "risk": 62,
+      "sociability": 43,
+      "grudge": 61
+     }
+    }
+   ]
+  },
+  {
+   "seed": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+   "deck": "deck-2",
+   "personas": [
+    "avenger",
+    "diplomat"
+   ],
+   "n": 12,
+   "deal": [
+    {
+     "index": 1000,
+     "faction": 0,
+     "persona": "diplomat",
+     "creed_variant": 3,
+     "temperament": {
+      "aggression": 25,
+      "loyalty": 50,
+      "ambition": 54,
+      "honesty": 84,
+      "risk": 38,
+      "sociability": 81,
+      "grudge": 27
+     }
+    },
+    {
+     "index": 1001,
+     "faction": 1,
+     "persona": "avenger",
+     "creed_variant": 5,
+     "temperament": {
+      "aggression": 67,
+      "loyalty": 65,
+      "ambition": 58,
+      "honesty": 65,
+      "risk": 50,
+      "sociability": 39,
+      "grudge": 86
+     }
+    },
+    {
+     "index": 1002,
+     "faction": 2,
+     "persona": "diplomat",
+     "creed_variant": 3,
+     "temperament": {
+      "aggression": 26,
+      "loyalty": 68,
+      "ambition": 54,
+      "honesty": 67,
+      "risk": 27,
+      "sociability": 88,
+      "grudge": 36
+     }
+    },
+    {
+     "index": 1003,
+     "faction": 3,
+     "persona": "diplomat",
+     "creed_variant": 1,
+     "temperament": {
+      "aggression": 17,
+      "loyalty": 58,
+      "ambition": 62,
+      "honesty": 81,
+      "risk": 37,
+      "sociability": 91,
+      "grudge": 32
+     }
+    },
+    {
+     "index": 1004,
+     "faction": 4,
+     "persona": "diplomat",
+     "creed_variant": 4,
+     "temperament": {
+      "aggression": 24,
+      "loyalty": 70,
+      "ambition": 56,
+      "honesty": 74,
+      "risk": 25,
+      "sociability": 88,
+      "grudge": 24
+     }
+    },
+    {
+     "index": 1005,
+     "faction": 5,
+     "persona": "avenger",
+     "creed_variant": 0,
+     "temperament": {
+      "aggression": 71,
+      "loyalty": 77,
+      "ambition": 58,
+      "honesty": 56,
+      "risk": 52,
+      "sociability": 48,
+      "grudge": 91
+     }
+    },
+    {
+     "index": 1006,
+     "faction": 0,
+     "persona": "avenger",
+     "creed_variant": 2,
+     "temperament": {
+      "aggression": 74,
+      "loyalty": 62,
+      "ambition": 50,
+      "honesty": 60,
+      "risk": 50,
+      "sociability": 45,
+      "grudge": 85
+     }
+    },
+    {
+     "index": 1007,
+     "faction": 1,
+     "persona": "diplomat",
+     "creed_variant": 2,
+     "temperament": {
+      "aggression": 15,
+      "loyalty": 67,
+      "ambition": 49,
+      "honesty": 77,
+      "risk": 43,
+      "sociability": 87,
+      "grudge": 20
+     }
+    },
+    {
+     "index": 1008,
+     "faction": 2,
+     "persona": "avenger",
+     "creed_variant": 2,
+     "temperament": {
+      "aggression": 62,
+      "loyalty": 61,
+      "ambition": 50,
+      "honesty": 53,
+      "risk": 67,
+      "sociability": 49,
+      "grudge": 99
+     }
+    },
+    {
+     "index": 1009,
+     "faction": 3,
+     "persona": "avenger",
+     "creed_variant": 3,
+     "temperament": {
+      "aggression": 56,
+      "loyalty": 70,
+      "ambition": 50,
+      "honesty": 63,
+      "risk": 54,
+      "sociability": 46,
+      "grudge": 94
+     }
+    },
+    {
+     "index": 1010,
+     "faction": 4,
+     "persona": "avenger",
+     "creed_variant": 1,
+     "temperament": {
+      "aggression": 75,
+      "loyalty": 61,
+      "ambition": 46,
+      "honesty": 65,
+      "risk": 53,
+      "sociability": 45,
+      "grudge": 80
+     }
+    },
+    {
+     "index": 1011,
+     "faction": 5,
+     "persona": "diplomat",
+     "creed_variant": 1,
+     "temperament": {
+      "aggression": 25,
+      "loyalty": 63,
+      "ambition": 56,
+      "honesty": 76,
+      "risk": 26,
+      "sociability": 86,
+      "grudge": 38
+     }
+    }
+   ]
+  },
+  {
+   "seed": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+   "deck": "deck-3",
+   "personas": [
+    "avenger",
+    "diplomat",
+    "conqueror"
+   ],
+   "n": 18,
+   "deal": [
+    {
+     "index": 1000,
+     "faction": 0,
+     "persona": "diplomat",
+     "creed_variant": 3,
+     "temperament": {
+      "aggression": 25,
+      "loyalty": 50,
+      "ambition": 54,
+      "honesty": 84,
+      "risk": 38,
+      "sociability": 81,
+      "grudge": 27
+     }
+    },
+    {
+     "index": 1001,
+     "faction": 1,
+     "persona": "avenger",
+     "creed_variant": 5,
+     "temperament": {
+      "aggression": 67,
+      "loyalty": 65,
+      "ambition": 58,
+      "honesty": 65,
+      "risk": 50,
+      "sociability": 39,
+      "grudge": 86
+     }
+    },
+    {
+     "index": 1002,
+     "faction": 2,
+     "persona": "diplomat",
+     "creed_variant": 3,
+     "temperament": {
+      "aggression": 26,
+      "loyalty": 68,
+      "ambition": 54,
+      "honesty": 67,
+      "risk": 27,
+      "sociability": 88,
+      "grudge": 36
+     }
+    },
+    {
+     "index": 1003,
+     "faction": 3,
+     "persona": "diplomat",
+     "creed_variant": 1,
+     "temperament": {
+      "aggression": 17,
+      "loyalty": 58,
+      "ambition": 62,
+      "honesty": 81,
+      "risk": 37,
+      "sociability": 91,
+      "grudge": 32
+     }
+    },
+    {
+     "index": 1004,
+     "faction": 4,
+     "persona": "diplomat",
+     "creed_variant": 4,
+     "temperament": {
+      "aggression": 24,
+      "loyalty": 70,
+      "ambition": 56,
+      "honesty": 74,
+      "risk": 25,
+      "sociability": 88,
+      "grudge": 24
+     }
+    },
+    {
+     "index": 1005,
+     "faction": 5,
+     "persona": "avenger",
+     "creed_variant": 0,
+     "temperament": {
+      "aggression": 71,
+      "loyalty": 77,
+      "ambition": 58,
+      "honesty": 56,
+      "risk": 52,
+      "sociability": 48,
+      "grudge": 91
+     }
+    },
+    {
+     "index": 1006,
+     "faction": 0,
+     "persona": "avenger",
+     "creed_variant": 2,
+     "temperament": {
+      "aggression": 74,
+      "loyalty": 62,
+      "ambition": 50,
+      "honesty": 60,
+      "risk": 50,
+      "sociability": 45,
+      "grudge": 85
+     }
+    },
+    {
+     "index": 1007,
+     "faction": 1,
+     "persona": "conqueror",
+     "creed_variant": 2,
+     "temperament": {
+      "aggression": 70,
+      "loyalty": 57,
+      "ambition": 79,
+      "honesty": 57,
+      "risk": 78,
+      "sociability": 37,
+      "grudge": 50
+     }
+    },
+    {
+     "index": 1008,
+     "faction": 2,
+     "persona": "avenger",
+     "creed_variant": 2,
+     "temperament": {
+      "aggression": 62,
+      "loyalty": 61,
+      "ambition": 50,
+      "honesty": 53,
+      "risk": 67,
+      "sociability": 49,
+      "grudge": 99
+     }
+    },
+    {
+     "index": 1009,
+     "faction": 3,
+     "persona": "avenger",
+     "creed_variant": 3,
+     "temperament": {
+      "aggression": 56,
+      "loyalty": 70,
+      "ambition": 50,
+      "honesty": 63,
+      "risk": 54,
+      "sociability": 46,
+      "grudge": 94
+     }
+    },
+    {
+     "index": 1010,
+     "faction": 4,
+     "persona": "avenger",
+     "creed_variant": 1,
+     "temperament": {
+      "aggression": 75,
+      "loyalty": 61,
+      "ambition": 46,
+      "honesty": 65,
+      "risk": 53,
+      "sociability": 45,
+      "grudge": 80
+     }
+    },
+    {
+     "index": 1011,
+     "faction": 5,
+     "persona": "conqueror",
+     "creed_variant": 1,
+     "temperament": {
+      "aggression": 80,
+      "loyalty": 53,
+      "ambition": 86,
+      "honesty": 56,
+      "risk": 61,
+      "sociability": 36,
+      "grudge": 68
+     }
+    },
+    {
+     "index": 1012,
+     "faction": 0,
+     "persona": "conqueror",
+     "creed_variant": 4,
+     "temperament": {
+      "aggression": 81,
+      "loyalty": 52,
+      "ambition": 88,
+      "honesty": 47,
+      "risk": 67,
+      "sociability": 35,
+      "grudge": 51
+     }
+    },
+    {
+     "index": 1013,
+     "faction": 1,
+     "persona": "diplomat",
+     "creed_variant": 5,
+     "temperament": {
+      "aggression": 32,
+      "loyalty": 54,
+      "ambition": 48,
+      "honesty": 82,
+      "risk": 29,
+      "sociability": 82,
+      "grudge": 31
+     }
+    },
+    {
+     "index": 1014,
+     "faction": 2,
+     "persona": "conqueror",
+     "creed_variant": 0,
+     "temperament": {
+      "aggression": 82,
+      "loyalty": 41,
+      "ambition": 92,
+      "honesty": 55,
+      "risk": 78,
+      "sociability": 35,
+      "grudge": 58
+     }
+    },
+    {
+     "index": 1015,
+     "faction": 3,
+     "persona": "conqueror",
+     "creed_variant": 4,
+     "temperament": {
+      "aggression": 88,
+      "loyalty": 57,
+      "ambition": 94,
+      "honesty": 60,
+      "risk": 70,
+      "sociability": 43,
+      "grudge": 50
+     }
+    },
+    {
+     "index": 1016,
+     "faction": 4,
+     "persona": "conqueror",
+     "creed_variant": 2,
+     "temperament": {
+      "aggression": 88,
+      "loyalty": 47,
+      "ambition": 94,
+      "honesty": 49,
+      "risk": 68,
+      "sociability": 35,
+      "grudge": 59
+     }
+    },
+    {
+     "index": 1017,
+     "faction": 5,
+     "persona": "diplomat",
+     "creed_variant": 5,
+     "temperament": {
+      "aggression": 30,
+      "loyalty": 66,
+      "ambition": 57,
+      "honesty": 75,
+      "risk": 42,
+      "sociability": 86,
+      "grudge": 36
+     }
+    }
+   ]
+  },
+  {
+   "seed": "6609e9540205c446dee6187b32cc2d6644a4d7b5d4d94de372d0e1a291d5103c",
+   "deck": "deck-1",
+   "personas": [
+    "conqueror"
+   ],
+   "n": 6,
+   "deal": [
+    {
+     "index": 1000,
+     "faction": 0,
+     "persona": "conqueror",
+     "creed_variant": 3,
+     "temperament": {
+      "aggression": 90,
+      "loyalty": 59,
+      "ambition": 87,
+      "honesty": 64,
+      "risk": 79,
+      "sociability": 30,
+      "grudge": 69
+     }
+    },
+    {
+     "index": 1001,
+     "faction": 1,
+     "persona": "conqueror",
+     "creed_variant": 1,
+     "temperament": {
+      "aggression": 77,
+      "loyalty": 43,
+      "ambition": 94,
+      "honesty": 48,
+      "risk": 63,
+      "sociability": 31,
+      "grudge": 68
+     }
+    },
+    {
+     "index": 1002,
+     "faction": 2,
+     "persona": "conqueror",
+     "creed_variant": 0,
+     "temperament": {
+      "aggression": 79,
+      "loyalty": 59,
+      "ambition": 78,
+      "honesty": 48,
+      "risk": 60,
+      "sociability": 46,
+      "grudge": 64
+     }
+    },
+    {
+     "index": 1003,
+     "faction": 3,
+     "persona": "conqueror",
+     "creed_variant": 0,
+     "temperament": {
+      "aggression": 89,
+      "loyalty": 47,
+      "ambition": 88,
+      "honesty": 54,
+      "risk": 65,
+      "sociability": 48,
+      "grudge": 64
+     }
+    },
+    {
+     "index": 1004,
+     "faction": 4,
+     "persona": "conqueror",
+     "creed_variant": 1,
+     "temperament": {
+      "aggression": 77,
+      "loyalty": 56,
+      "ambition": 87,
+      "honesty": 49,
+      "risk": 68,
+      "sociability": 39,
+      "grudge": 61
+     }
+    },
+    {
+     "index": 1005,
+     "faction": 5,
+     "persona": "conqueror",
+     "creed_variant": 4,
+     "temperament": {
+      "aggression": 90,
+      "loyalty": 44,
+      "ambition": 75,
+      "honesty": 62,
+      "risk": 71,
+      "sociability": 31,
+      "grudge": 55
+     }
+    }
+   ]
+  },
+  {
+   "seed": "6609e9540205c446dee6187b32cc2d6644a4d7b5d4d94de372d0e1a291d5103c",
+   "deck": "deck-2",
+   "personas": [
+    "avenger",
+    "diplomat"
+   ],
+   "n": 12,
+   "deal": [
+    {
+     "index": 1000,
+     "faction": 0,
+     "persona": "diplomat",
+     "creed_variant": 3,
+     "temperament": {
+      "aggression": 35,
+      "loyalty": 69,
+      "ambition": 57,
+      "honesty": 84,
+      "risk": 44,
+      "sociability": 80,
+      "grudge": 39
+     }
+    },
+    {
+     "index": 1001,
+     "faction": 1,
+     "persona": "avenger",
+     "creed_variant": 1,
+     "temperament": {
+      "aggression": 62,
+      "loyalty": 63,
+      "ambition": 59,
+      "honesty": 53,
+      "risk": 53,
+      "sociability": 36,
+      "grudge": 98
+     }
+    },
+    {
+     "index": 1002,
+     "faction": 2,
+     "persona": "avenger",
+     "creed_variant": 0,
+     "temperament": {
+      "aggression": 64,
+      "loyalty": 79,
+      "ambition": 43,
+      "honesty": 53,
+      "risk": 50,
+      "sociability": 51,
+      "grudge": 94
+     }
+    },
+    {
+     "index": 1003,
+     "faction": 3,
+     "persona": "diplomat",
+     "creed_variant": 0,
+     "temperament": {
+      "aggression": 34,
+      "loyalty": 57,
+      "ambition": 58,
+      "honesty": 74,
+      "risk": 30,
+      "sociability": 98,
+      "grudge": 34
+     }
+    },
+    {
+     "index": 1004,
+     "faction": 4,
+     "persona": "avenger",
+     "creed_variant": 1,
+     "temperament": {
+      "aggression": 62,
+      "loyalty": 76,
+      "ambition": 52,
+      "honesty": 54,
+      "risk": 58,
+      "sociability": 44,
+      "grudge": 91
+     }
+    },
+    {
+     "index": 1005,
+     "faction": 5,
+     "persona": "avenger",
+     "creed_variant": 4,
+     "temperament": {
+      "aggression": 75,
+      "loyalty": 64,
+      "ambition": 40,
+      "honesty": 67,
+      "risk": 61,
+      "sociability": 36,
+      "grudge": 85
+     }
+    },
+    {
+     "index": 1006,
+     "faction": 0,
+     "persona": "avenger",
+     "creed_variant": 0,
+     "temperament": {
+      "aggression": 75,
+      "loyalty": 65,
+      "ambition": 58,
+      "honesty": 67,
+      "risk": 67,
+      "sociability": 41,
+      "grudge": 92
+     }
+    },
+    {
+     "index": 1007,
+     "faction": 1,
+     "persona": "diplomat",
+     "creed_variant": 1,
+     "temperament": {
+      "aggression": 34,
+      "loyalty": 65,
+      "ambition": 59,
+      "honesty": 81,
+      "risk": 36,
+      "sociability": 87,
+      "grudge": 25
+     }
+    },
+    {
+     "index": 1008,
+     "faction": 2,
+     "persona": "diplomat",
+     "creed_variant": 1,
+     "temperament": {
+      "aggression": 27,
+      "loyalty": 69,
+      "ambition": 58,
+      "honesty": 72,
+      "risk": 25,
+      "sociability": 84,
+      "grudge": 33
+     }
+    },
+    {
+     "index": 1009,
+     "faction": 3,
+     "persona": "avenger",
+     "creed_variant": 4,
+     "temperament": {
+      "aggression": 75,
+      "loyalty": 64,
+      "ambition": 60,
+      "honesty": 63,
+      "risk": 67,
+      "sociability": 49,
+      "grudge": 85
+     }
+    },
+    {
+     "index": 1010,
+     "faction": 4,
+     "persona": "diplomat",
+     "creed_variant": 2,
+     "temperament": {
+      "aggression": 35,
+      "loyalty": 70,
+      "ambition": 59,
+      "honesty": 75,
+      "risk": 27,
+      "sociability": 99,
+      "grudge": 21
+     }
+    },
+    {
+     "index": 1011,
+     "faction": 5,
+     "persona": "diplomat",
+     "creed_variant": 4,
+     "temperament": {
+      "aggression": 28,
+      "loyalty": 53,
+      "ambition": 54,
+      "honesty": 73,
+      "risk": 40,
+      "sociability": 89,
+      "grudge": 35
+     }
+    }
+   ]
+  },
+  {
+   "seed": "6609e9540205c446dee6187b32cc2d6644a4d7b5d4d94de372d0e1a291d5103c",
+   "deck": "deck-3",
+   "personas": [
+    "avenger",
+    "diplomat",
+    "conqueror"
+   ],
+   "n": 18,
+   "deal": [
+    {
+     "index": 1000,
+     "faction": 0,
+     "persona": "conqueror",
+     "creed_variant": 3,
+     "temperament": {
+      "aggression": 90,
+      "loyalty": 59,
+      "ambition": 87,
+      "honesty": 64,
+      "risk": 79,
+      "sociability": 30,
+      "grudge": 69
+     }
+    },
+    {
+     "index": 1001,
+     "faction": 1,
+     "persona": "avenger",
+     "creed_variant": 1,
+     "temperament": {
+      "aggression": 62,
+      "loyalty": 63,
+      "ambition": 59,
+      "honesty": 53,
+      "risk": 53,
+      "sociability": 36,
+      "grudge": 98
+     }
+    },
+    {
+     "index": 1002,
+     "faction": 2,
+     "persona": "avenger",
+     "creed_variant": 0,
+     "temperament": {
+      "aggression": 64,
+      "loyalty": 79,
+      "ambition": 43,
+      "honesty": 53,
+      "risk": 50,
+      "sociability": 51,
+      "grudge": 94
+     }
+    },
+    {
+     "index": 1003,
+     "faction": 3,
+     "persona": "diplomat",
+     "creed_variant": 0,
+     "temperament": {
+      "aggression": 34,
+      "loyalty": 57,
+      "ambition": 58,
+      "honesty": 74,
+      "risk": 30,
+      "sociability": 98,
+      "grudge": 34
+     }
+    },
+    {
+     "index": 1004,
+     "faction": 4,
+     "persona": "conqueror",
+     "creed_variant": 1,
+     "temperament": {
+      "aggression": 77,
+      "loyalty": 56,
+      "ambition": 87,
+      "honesty": 49,
+      "risk": 68,
+      "sociability": 39,
+      "grudge": 61
+     }
+    },
+    {
+     "index": 1005,
+     "faction": 5,
+     "persona": "avenger",
+     "creed_variant": 4,
+     "temperament": {
+      "aggression": 75,
+      "loyalty": 64,
+      "ambition": 40,
+      "honesty": 67,
+      "risk": 61,
+      "sociability": 36,
+      "grudge": 85
+     }
+    },
+    {
+     "index": 1006,
+     "faction": 0,
+     "persona": "avenger",
+     "creed_variant": 0,
+     "temperament": {
+      "aggression": 75,
+      "loyalty": 65,
+      "ambition": 58,
+      "honesty": 67,
+      "risk": 67,
+      "sociability": 41,
+      "grudge": 92
+     }
+    },
+    {
+     "index": 1007,
+     "faction": 1,
+     "persona": "conqueror",
+     "creed_variant": 1,
+     "temperament": {
+      "aggression": 89,
+      "loyalty": 55,
+      "ambition": 89,
+      "honesty": 61,
+      "risk": 71,
+      "sociability": 37,
+      "grudge": 55
+     }
+    },
+    {
+     "index": 1008,
+     "faction": 2,
+     "persona": "conqueror",
+     "creed_variant": 1,
+     "temperament": {
+      "aggression": 82,
+      "loyalty": 59,
+      "ambition": 88,
+      "honesty": 52,
+      "risk": 60,
+      "sociability": 34,
+      "grudge": 63
+     }
+    },
+    {
+     "index": 1009,
+     "faction": 3,
+     "persona": "conqueror",
+     "creed_variant": 4,
+     "temperament": {
+      "aggression": 90,
+      "loyalty": 44,
+      "ambition": 95,
+      "honesty": 58,
+      "risk": 77,
+      "sociability": 44,
+      "grudge": 55
+     }
+    },
+    {
+     "index": 1010,
+     "faction": 4,
+     "persona": "diplomat",
+     "creed_variant": 2,
+     "temperament": {
+      "aggression": 35,
+      "loyalty": 70,
+      "ambition": 59,
+      "honesty": 75,
+      "risk": 27,
+      "sociability": 99,
+      "grudge": 21
+     }
+    },
+    {
+     "index": 1011,
+     "faction": 5,
+     "persona": "conqueror",
+     "creed_variant": 4,
+     "temperament": {
+      "aggression": 83,
+      "loyalty": 43,
+      "ambition": 84,
+      "honesty": 53,
+      "risk": 75,
+      "sociability": 39,
+      "grudge": 65
+     }
+    },
+    {
+     "index": 1012,
+     "faction": 0,
+     "persona": "diplomat",
+     "creed_variant": 2,
+     "temperament": {
+      "aggression": 26,
+      "loyalty": 51,
+      "ambition": 51,
+      "honesty": 76,
+      "risk": 39,
+      "sociability": 98,
+      "grudge": 31
+     }
+    },
+    {
+     "index": 1013,
+     "faction": 1,
+     "persona": "diplomat",
+     "creed_variant": 0,
+     "temperament": {
+      "aggression": 24,
+      "loyalty": 68,
+      "ambition": 49,
+      "honesty": 75,
+      "risk": 42,
+      "sociability": 84,
+      "grudge": 28
+     }
+    },
+    {
+     "index": 1014,
+     "faction": 2,
+     "persona": "diplomat",
+     "creed_variant": 1,
+     "temperament": {
+      "aggression": 17,
+      "loyalty": 62,
+      "ambition": 56,
+      "honesty": 65,
+      "risk": 26,
+      "sociability": 89,
+      "grudge": 39
+     }
+    },
+    {
+     "index": 1015,
+     "faction": 3,
+     "persona": "avenger",
+     "creed_variant": 4,
+     "temperament": {
+      "aggression": 56,
+      "loyalty": 73,
+      "ambition": 50,
+      "honesty": 56,
+      "risk": 69,
+      "sociability": 37,
+      "grudge": 96
+     }
+    },
+    {
+     "index": 1016,
+     "faction": 4,
+     "persona": "avenger",
+     "creed_variant": 2,
+     "temperament": {
+      "aggression": 65,
+      "loyalty": 76,
+      "ambition": 50,
+      "honesty": 52,
+      "risk": 55,
+      "sociability": 50,
+      "grudge": 95
+     }
+    },
+    {
+     "index": 1017,
+     "faction": 5,
+     "persona": "diplomat",
+     "creed_variant": 3,
+     "temperament": {
+      "aggression": 34,
+      "loyalty": 67,
+      "ambition": 62,
+      "honesty": 83,
+      "risk": 33,
+      "sociability": 82,
+      "grudge": 23
+     }
+    }
+   ]
+  }
+ ]
+}

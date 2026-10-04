@@ -1,0 +1,34 @@
+{
+  "v": 1,
+  "lang": "ja",
+  "kinds": {
+    "attacked_own": {
+      "village": "鐘{b}で、{actor}があなたの村を({p},{q})で攻撃し、あなたは兵{x}を失った。",
+      "army": "鐘{b}で、{actor}があなたの軍を({p},{q})で攻撃し、あなたは兵{x}を失った。"
+    },
+    "strike": "鐘{b}で、あなたの国の攻撃命令が({p},{q})で開かれた。失った兵：あなた{x}、相手{y}。あなたの軍は{took_part}。",
+    "clash_own_win": "鐘{b}で、あなたの軍は({p},{q})で{target}に勝った。あなたは兵{x}、相手は兵{y}を失った。",
+    "clash_own_loss": "鐘{b}で、あなたの軍は({p},{q})で{target}と戦い、兵{x}を失った。相手は兵{y}を失った。",
+    "camp_cleared_own": "鐘{b}で、あなたの軍が({p},{q})の野営地を倒した。",
+    "camp_taken_by": "鐘{b}で、{nation}があなたより先に、({p},{q})の野営地を倒した。",
+    "threat": "鐘{b}で、{nation}が({p},{q})から兵{m}の軍を出した。到着は鐘{a}。行き先は不明。",
+    "dm": "鐘{b}で、{name}があなたにメッセージを送った。",
+    "motion": "鐘{b}で、{name}があなたの国の評議会で案{k}（{kind}）を提案した。",
+    "council_result": {
+      "adopted": "鐘{b}で、あなたの国の評議会が攻撃命令を採用した（行き先は、攻撃の時まで秘密）。",
+      "none": "鐘{b}で、あなたの国の評議会は何も採用しなかった。"
+    },
+    "build_done": "鐘{b}で、あなたの{item}が完成した。"
+  },
+  "words": {
+    "took_part": "参戦した",
+    "did_not_take_part": "参戦しなかった",
+    "camp": "野営地",
+    "actor_named": "{name}（{nation}）",
+    "actor_nation": "{nation}",
+    "target_named": "{name}（{nation}）",
+    "target_nation": "{nation}",
+    "option_kind": { "strike": "攻撃", "camp": "野営地", "raid": "村への襲撃", "unknown": "目標" }
+  },
+  "items": ["農場", "製材所", "採石場", "鉱山", "金庫", "図書館", "壁"]
+}

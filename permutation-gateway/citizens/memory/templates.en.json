@@ -1,0 +1,34 @@
+{
+  "v": 1,
+  "lang": "en",
+  "kinds": {
+    "attacked_own": {
+      "village": "At bell {b} {actor} attacked your village at ({p},{q}); you lost {x} troops.",
+      "army": "At bell {b} {actor} attacked your army at ({p},{q}); you lost {x} troops."
+    },
+    "strike": "At bell {b} your nation's Strike Order opened at ({p},{q}); troops lost: yours {x}, theirs {y}; your army {took_part}.",
+    "clash_own_win": "At bell {b} your army at ({p},{q}) beat {target}: you lost {x}, they lost {y}.",
+    "clash_own_loss": "At bell {b} your army at ({p},{q}) lost {x} troops against {target}; they lost {y}.",
+    "camp_cleared_own": "At bell {b} your army cleared the camp at ({p},{q}).",
+    "camp_taken_by": "At bell {b} nation {nation} cleared the camp at ({p},{q}) first.",
+    "threat": "At bell {b} nation {nation} sent an army of {m} troops from ({p},{q}); it arrives at bell {a}; its destination is not known.",
+    "dm": "At bell {b} {name} sent you a message.",
+    "motion": "At bell {b} {name} moved option {k} ({kind}) in your nation's council.",
+    "council_result": {
+      "adopted": "At bell {b} your nation's council adopted a Strike Order (its target stays sealed until the strike).",
+      "none": "At bell {b} your nation's council adopted nothing."
+    },
+    "build_done": "At bell {b} your {item} was finished."
+  },
+  "words": {
+    "took_part": "took part",
+    "did_not_take_part": "did not take part",
+    "camp": "the camp",
+    "actor_named": "{name} (nation {nation})",
+    "actor_nation": "nation {nation}",
+    "target_named": "{name} (nation {nation})",
+    "target_nation": "nation {nation}",
+    "option_kind": { "strike": "strike", "camp": "camp", "raid": "raid", "unknown": "target" }
+  },
+  "items": ["farm", "sawmill", "quarry", "mine", "treasury", "library", "walls"]
+}
