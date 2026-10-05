@@ -63,3 +63,7 @@ END {"detail":"stack complete, publication written (anchors: 169 anchored, 0 gap
 
 ## ai-record-1 — 2026-10-05T04:01:04Z
 RUN {"arm":null,"commitments_sha256":"dfb4328c132ba64220be094151da03bb6c9ab1671f5b512caaf1e165862aa5fd","configs":{"citizens_config_sha256":"c0f6fb405aec7f142418b78a527e0c909eea1f11c9a9447ed3b64bf0d25dc17f","injection_corpus_sha256":"a56fa2fbccf9501b47399284617db86763220331b16aa9850575118dddaf28cc","seat_script_sha256":null,"slots_sha256":"d9daee742482782c6d36bfebd52e57a632819293db1e35e0367e377a1a632281","stack_toml_sha256":"0e5c879b7ce2ff30b19be9d3f2871f250f1906b78a1d21ac88abb80180e78a38"},"rep":null,"run_id":"ai-record-1","start_unix":1791172864}
+END {"detail":"frontier-stack exited before it was running (see /Users/r0ze/Documents/Codex/2026-09-20/new-chat-2/outputs/.claude/worktrees/ai-run/.local/frontier/ai/ai-record-1/logs/stack.log)","end_unix":1791172868,"run_id":"ai-record-1","status":"aborted"}
+
+## ai-record-2 — 2026-10-05T04:01:37Z
+RUN {"arm":null,"commitments_sha256":"a8e49d82accc0c0e1598f4bc5725b0a009b5e096bf3549f29e837def21441187","configs":{"citizens_config_sha256":"c0f6fb405aec7f142418b78a527e0c909eea1f11c9a9447ed3b64bf0d25dc17f","injection_corpus_sha256":"a56fa2fbccf9501b47399284617db86763220331b16aa9850575118dddaf28cc","seat_script_sha256":null,"slots_sha256":"d9daee742482782c6d36bfebd52e57a632819293db1e35e0367e377a1a632281","stack_toml_sha256":"db342fcfd29e5558ad588e820bf6b58a73f0ba9a3443c1d93090897a22dbbac3"},"rep":null,"run_id":"ai-record-2","start_unix":1791172897}
