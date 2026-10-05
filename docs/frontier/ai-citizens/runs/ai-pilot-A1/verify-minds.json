@@ -1,0 +1,291 @@
+{
+ "v": 1,
+ "run_id": "ai-pilot-A1",
+ "season": 33,
+ "checks": {
+  "M1": {
+   "pass": true,
+   "n": 39,
+   "failures": [],
+   "notes": [
+    "model.sha256 compared with a fresh hash of the file (streamed now, not from a cache)"
+   ]
+  },
+  "M2": {
+   "pass": true,
+   "n": 18,
+   "failures": []
+  },
+  "M3": {
+   "pass": true,
+   "n": 677,
+   "failures": [],
+   "bells": {
+    "first": 0,
+    "last": 168
+   },
+   "redacted_leaves": 0,
+   "herald_last_closed_bell": 168,
+   "chain_anchored_bells": 169,
+   "sealed_records": 207,
+   "openings_checked_for_timing": 207,
+   "destination_claims": {
+    "reveal": 14,
+    "unrevealed": 3,
+    "not_sent": 0,
+    "planned": 0
+   }
+  },
+  "M7": {
+   "pass": true,
+   "n": 622,
+   "failures": [],
+   "notes": [
+    "12 session-signed onboarding transaction(s) (Join, SetSession, SetVigil or FileTicket) before the AI's first decision record are not required: the steps before a home holding make no mind call and leave no record (R5). Contract 7.3 names joins and settles only: this reading is the verifier's (AC8-NOTES.md); --strict-onboarding counts them as orphans.",
+    "the seat's transactions are excluded (it has no record); joins and settles are not session-signed and are not required"
+   ],
+   "listed_signatures": 299,
+   "session_signed_on_chain": 311,
+   "onboarding_exempt": 12,
+   "not_required_join_or_settle": 0
+  },
+  "M8": {
+   "pass": false,
+   "n": 138,
+   "failures": [
+    {
+     "code": "duplicate_use",
+     "decision": "14bb097f625446c91db875b64e0f92d5c7a622c0a13b12ff12c5dddf0f2369ec",
+     "item": 0,
+     "type": "ballot",
+     "inners": [
+      "fc5087eedd7aed5bf6f64f5304d95f284f450e8cb26c53f9b458ae293860c5ad",
+      "a22678a6577134d1a0cf6e8ff19362afe6323c8c4e3b79944d71ef911cf6a709"
+     ]
+    },
+    {
+     "code": "duplicate_use",
+     "decision": "be5e010fdfd6c5c0bb0ab23338326c6eb461811d65f0badec5a27492a8f6f5c3",
+     "item": 0,
+     "type": "ballot",
+     "inners": [
+      "7815fda5cb84ca053ec87eefdfc449680898b4cb9e1915c2bfc0447b055e69ed",
+      "69bf69a5cfac4aca49c8e6244ce8e601d887a798be6bce7841cf7d1616abd02f"
+     ]
+    },
+    {
+     "code": "duplicate_use",
+     "decision": "1a885da5e418ee6a982d0dd19b877b2ea9a0e5a9e0a00461b5aa9fba38cbbd10",
+     "item": 0,
+     "type": "ballot",
+     "inners": [
+      "c3c5bb5f0aad843441f8224945c1a7e29d8eafb9c0baeede59bbbe50cec5b702",
+      "a40aa20d426cebf440d170244c4f4866af98821d39c9dd59946f0e7bc145067d"
+     ]
+    }
+   ],
+   "ai_records_checked": 138,
+   "redacted_skipped": 0,
+   "redacted_skipped_ai": 0
+  },
+  "M9": {
+   "pass": true,
+   "n": 20,
+   "failures": [],
+   "m9_excluded_redacted": 0,
+   "model_records": 238,
+   "sampled": 20,
+   "llm_props": {
+    "n_ctx": 16384,
+    "alias": "gemma-4-26b-a4b-it"
+   },
+   "equal": 20,
+   "compared": 20,
+   "threshold": 18,
+   "mismatches": []
+  },
+  "M11": {
+   "pass": false,
+   "n": 1758,
+   "failures": [
+    {
+     "code": "episodes_mismatch",
+     "tag": "65252662be9d2720",
+     "replayed_sha256": "bbc4d68b25a54e493af21f74825ac9cea7fde017d6e0eadf491042c7be8b253c",
+     "published_sha256": "9b1f95602c166c8c4c1b22cffab289ae4b7409bc4505d37d4b9c31ae6beb60c1",
+     "missing_in_published": [],
+     "extra_in_published": [
+      "e7fe8b86d944c715",
+      "76d2f789b6a971ea"
+     ],
+     "changed": [],
+     "counts": {
+      "replayed": 33,
+      "published": 35
+     }
+    },
+    {
+     "code": "episodes_mismatch",
+     "tag": "39f2a8beb8b84e6e",
+     "replayed_sha256": "6693158b1b12b5792151af481eeb0ebf9790dbd3ded60b49d5d86a448e85576e",
+     "published_sha256": "5db314b806ac7caad1515bc171eb280dc8c105f3b3d81ce070e055c44d2d0650",
+     "missing_in_published": [],
+     "extra_in_published": [
+      "48efba8b7510b42e",
+      "f166f3924ea5f1b7"
+     ],
+     "changed": [],
+     "counts": {
+      "replayed": 31,
+      "published": 33
+     }
+    },
+    {
+     "code": "retrieved_mismatch",
+     "decision": "f33d6f248d525d7634da29db21666aad26ae08ec3fc9488332e876fd1c3a0365",
+     "bell": 147,
+     "ai": "f742d8794d851ad5",
+     "retrieved": [
+      "d983cbdea8a03e1d",
+      "b29d78a6de12a139",
+      "af508f283a10a8e2",
+      "a81b0cc359f56bb7",
+      "aa533606a203461e",
+      "cc8ac754cdc5fe6a",
+      "c8ace6d11c175170",
+      "1db3a35efb92d1fa",
+      "1588158428c70860",
+      "818c9a6e5ae1c3a9"
+     ],
+     "replayed": [
+      {
+       "variant": "stored",
+       "ids": [
+        "d983cbdea8a03e1d",
+        "af508f283a10a8e2",
+        "a81b0cc359f56bb7",
+        "aa533606a203461e",
+        "cc8ac754cdc5fe6a",
+        "c8ace6d11c175170",
+        "1db3a35efb92d1fa",
+        "1588158428c70860",
+        "818c9a6e5ae1c3a9"
+       ]
+      }
+     ],
+     "focus_source": "stored"
+    },
+    {
+     "code": "retrieved_mismatch",
+     "decision": "39942120b1bb1354042adb79376fa6c8fa7373fc52a1a95176b3042ea6a86a78",
+     "bell": 147,
+     "ai": "65252662be9d2720",
+     "retrieved": [
+      "ae033c3d17ed3b18",
+      "e7fe8b86d944c715",
+      "3aade812fce467e3",
+      "94bb91ea51efc0ee",
+      "f8d567163d001f96",
+      "a6017d225a98920d",
+      "e558a81cc0a7e360",
+      "e06d5184131ed2b9",
+      "88093becffef5123"
+     ],
+     "replayed": [
+      {
+       "variant": "stored",
+       "ids": [
+        "ae033c3d17ed3b18",
+        "59646d10b51b52ae",
+        "3aade812fce467e3",
+        "94bb91ea51efc0ee",
+        "f8d567163d001f96",
+        "a6017d225a98920d",
+        "e558a81cc0a7e360",
+        "e06d5184131ed2b9",
+        "88093becffef5123"
+       ]
+      }
+     ],
+     "focus_source": "stored"
+    }
+   ],
+   "notes": [
+    "1 sampled decision(s) match only after a budget cut (the oldest unprotected ids dropped). The cut is a plausibility reading, not a recomputation: the token cost of the memory block is not rebuilt, because the ledger and summary parts of the block are not published per decision"
+   ],
+   "through_bell": 169,
+   "replay_code": {
+    "checked": [
+     "memory/episodes.mjs",
+     "memory/templates.en.json",
+     "memory/templates.ja.json",
+     "memory/names.json",
+     "memory/retrieve.mjs",
+     "memory/store.mjs",
+     "memory/herald-view.mjs",
+     "memory/config.mjs",
+     "memory/safe.mjs",
+     "persona/deal.mjs",
+     "persona/names.mjs",
+     "watcher/feed.mjs",
+     "watcher/owners.mjs",
+     "mind/wiring.mjs"
+    ],
+    "same": 14,
+    "differ": []
+   },
+   "episode_rule": "current (R12: a win is a cleared camp or a destroyed stack)",
+   "sampled_ais": [
+    "65252662be9d2720",
+    "39f2a8beb8b84e6e",
+    "f8381256522ce6f9"
+   ],
+   "mem_checked": 1735,
+   "sampled_decisions": 20,
+   "retrieval": {
+    "sampled": 20,
+    "focus_stored": 20,
+    "focus_derived": 0,
+    "focus_rejected": 0,
+    "skipped_no_candidates": 0,
+    "with_budget_cut": 1
+   },
+   "episodes_total": {
+    "65252662be9d2720": 33,
+    "39f2a8beb8b84e6e": 31,
+    "f8381256522ce6f9": 42,
+    "1914d7f1efb5ca0f": 27,
+    "f742d8794d851ad5": 38,
+    "a02ad0c4a3d41b31": 23,
+    "83eedd2fbe314387": 34,
+    "79b2922ac01ee07e": 32,
+    "0bc195f29e9ff13c": 31,
+    "2329cca38b644e91": 42,
+    "2811df1c447cb4c0": 25,
+    "f4fb292ad7d93d34": 36
+   }
+  }
+ },
+ "verdict": "FAIL",
+ "audit_code_vs_committed": {
+  "checked": [
+   "memory/episodes.mjs",
+   "memory/templates.en.json",
+   "memory/templates.ja.json",
+   "memory/names.json",
+   "memory/retrieve.mjs",
+   "memory/store.mjs",
+   "memory/herald-view.mjs",
+   "memory/config.mjs",
+   "memory/safe.mjs",
+   "persona/deal.mjs",
+   "persona/names.mjs",
+   "watcher/feed.mjs",
+   "watcher/owners.mjs",
+   "mind/wiring.mjs"
+  ],
+  "same": 14,
+  "differ": []
+ },
+ "generated_unix": 1791169920
+}

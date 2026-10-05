@@ -1,0 +1,18 @@
+{
+  "ai_bots": 0,
+  "counters": {
+    "follow_calls_read": 355,
+    "follow_fetch_gets": 0,
+    "follow_no_plan": 8,
+    "follow_no_ready_invited_host": 4,
+    "follow_not_invited": 137,
+    "follow_read_refused:NotEligible": 211,
+    "follow_sent_script": 4,
+    "follow_window_script_bots": 355
+  },
+  "follow_council": true,
+  "mind": false,
+  "per_bot": {},
+  "timeline": {},
+  "v": 1
+}

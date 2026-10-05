@@ -1,0 +1,734 @@
+{
+ "v": 1,
+ "kind": "council-open-outcomes",
+ "updated_unix": 1791169785,
+ "periods": {
+  "1": {
+   "0": {
+    "status": "skipped",
+    "reason": "not_all_final",
+    "c0": 24,
+    "bell": 24,
+    "first_bell": 24,
+    "n": 1,
+    "detail": {
+     "members": 2,
+     "lacking": [
+      {
+       "tag": "2811df1c447cb4c0",
+       "villages": 1,
+       "final": 0,
+       "provisional": 1
+      }
+     ],
+     "seat": {
+      "tag": "8ded31ddb6a87025",
+      "villages": 1,
+      "final": 0,
+      "provisional": 1
+     }
+    },
+    "updated_unix": 1791161804
+   },
+   "1": {
+    "status": "skipped",
+    "reason": "not_all_final",
+    "c0": 24,
+    "bell": 24,
+    "first_bell": 24,
+    "n": 1,
+    "detail": {
+     "members": 2,
+     "lacking": [
+      {
+       "tag": "1914d7f1efb5ca0f",
+       "villages": 1,
+       "final": 0,
+       "provisional": 1
+      },
+      {
+       "tag": "f742d8794d851ad5",
+       "villages": 1,
+       "final": 0,
+       "provisional": 1
+      }
+     ],
+     "seat": null
+    },
+    "updated_unix": 1791161804
+   },
+   "2": {
+    "status": "skipped",
+    "reason": "not_all_final",
+    "c0": 24,
+    "bell": 24,
+    "first_bell": 24,
+    "n": 1,
+    "detail": {
+     "members": 2,
+     "lacking": [
+      {
+       "tag": "f4fb292ad7d93d34",
+       "villages": 1,
+       "final": 0,
+       "provisional": 1
+      },
+      {
+       "tag": "39f2a8beb8b84e6e",
+       "villages": 1,
+       "final": 0,
+       "provisional": 1
+      }
+     ],
+     "seat": null
+    },
+    "updated_unix": 1791161804
+   },
+   "3": {
+    "status": "skipped",
+    "reason": "not_all_final",
+    "c0": 24,
+    "bell": 24,
+    "first_bell": 24,
+    "n": 1,
+    "detail": {
+     "members": 2,
+     "lacking": [
+      {
+       "tag": "65252662be9d2720",
+       "villages": 1,
+       "final": 0,
+       "provisional": 1
+      },
+      {
+       "tag": "0bc195f29e9ff13c",
+       "villages": 1,
+       "final": 0,
+       "provisional": 1
+      }
+     ],
+     "seat": null
+    },
+    "updated_unix": 1791161804
+   },
+   "4": {
+    "status": "skipped",
+    "reason": "not_all_final",
+    "c0": 24,
+    "bell": 24,
+    "first_bell": 24,
+    "n": 1,
+    "detail": {
+     "members": 2,
+     "lacking": [
+      {
+       "tag": "79b2922ac01ee07e",
+       "villages": 1,
+       "final": 0,
+       "provisional": 1
+      }
+     ],
+     "seat": null
+    },
+    "updated_unix": 1791161804
+   },
+   "5": {
+    "status": "skipped",
+    "reason": "not_all_final",
+    "c0": 24,
+    "bell": 24,
+    "first_bell": 24,
+    "n": 1,
+    "detail": {
+     "members": 2,
+     "lacking": [
+      {
+       "tag": "2329cca38b644e91",
+       "villages": 1,
+       "final": 0,
+       "provisional": 1
+      },
+      {
+       "tag": "f8381256522ce6f9",
+       "villages": 1,
+       "final": 0,
+       "provisional": 1
+      }
+     ],
+     "seat": null
+    },
+    "updated_unix": 1791161804
+   }
+  },
+  "2": {
+   "0": {
+    "status": "opened",
+    "reason": null,
+    "c0": 48,
+    "bell": 49,
+    "first_bell": 49,
+    "n": 1,
+    "detail": {
+     "options": 3,
+     "eligible": 3,
+     "humans": 1,
+     "seat": {
+      "in_eligible_list": true,
+      "final_village": true
+     }
+    },
+    "updated_unix": 1791163304
+   },
+   "1": {
+    "status": "opened",
+    "reason": null,
+    "c0": 48,
+    "bell": 49,
+    "first_bell": 49,
+    "n": 1,
+    "detail": {
+     "options": 3,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791163304
+   },
+   "2": {
+    "status": "opened",
+    "reason": null,
+    "c0": 48,
+    "bell": 49,
+    "first_bell": 49,
+    "n": 1,
+    "detail": {
+     "options": 3,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791163304
+   },
+   "3": {
+    "status": "opened",
+    "reason": null,
+    "c0": 48,
+    "bell": 49,
+    "first_bell": 49,
+    "n": 1,
+    "detail": {
+     "options": 3,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791163304
+   },
+   "4": {
+    "status": "opened",
+    "reason": null,
+    "c0": 48,
+    "bell": 49,
+    "first_bell": 49,
+    "n": 1,
+    "detail": {
+     "options": 3,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791163304
+   },
+   "5": {
+    "status": "opened",
+    "reason": null,
+    "c0": 48,
+    "bell": 49,
+    "first_bell": 49,
+    "n": 1,
+    "detail": {
+     "options": 3,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791163304
+   }
+  },
+  "3": {
+   "0": {
+    "status": "opened",
+    "reason": null,
+    "c0": 72,
+    "bell": 73,
+    "first_bell": 73,
+    "n": 1,
+    "detail": {
+     "options": 3,
+     "eligible": 3,
+     "humans": 1,
+     "seat": {
+      "in_eligible_list": true,
+      "final_village": true
+     }
+    },
+    "updated_unix": 1791164742
+   },
+   "1": {
+    "status": "opened",
+    "reason": null,
+    "c0": 72,
+    "bell": 73,
+    "first_bell": 73,
+    "n": 1,
+    "detail": {
+     "options": 1,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791164743
+   },
+   "2": {
+    "status": "opened",
+    "reason": null,
+    "c0": 72,
+    "bell": 73,
+    "first_bell": 73,
+    "n": 1,
+    "detail": {
+     "options": 3,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791164743
+   },
+   "3": {
+    "status": "opened",
+    "reason": null,
+    "c0": 72,
+    "bell": 73,
+    "first_bell": 73,
+    "n": 1,
+    "detail": {
+     "options": 2,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791164743
+   },
+   "4": {
+    "status": "opened",
+    "reason": null,
+    "c0": 72,
+    "bell": 73,
+    "first_bell": 73,
+    "n": 1,
+    "detail": {
+     "options": 2,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791164743
+   },
+   "5": {
+    "status": "opened",
+    "reason": null,
+    "c0": 72,
+    "bell": 73,
+    "first_bell": 73,
+    "n": 1,
+    "detail": {
+     "options": 3,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791164743
+   }
+  },
+  "4": {
+   "0": {
+    "status": "opened",
+    "reason": null,
+    "c0": 96,
+    "bell": 97,
+    "first_bell": 97,
+    "n": 1,
+    "detail": {
+     "options": 3,
+     "eligible": 3,
+     "humans": 1,
+     "seat": {
+      "in_eligible_list": true,
+      "final_village": true
+     }
+    },
+    "updated_unix": 1791166183
+   },
+   "1": {
+    "status": "opened",
+    "reason": null,
+    "c0": 96,
+    "bell": 97,
+    "first_bell": 97,
+    "n": 1,
+    "detail": {
+     "options": 1,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791166183
+   },
+   "2": {
+    "status": "opened",
+    "reason": null,
+    "c0": 96,
+    "bell": 97,
+    "first_bell": 97,
+    "n": 1,
+    "detail": {
+     "options": 3,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791166183
+   },
+   "3": {
+    "status": "opened",
+    "reason": null,
+    "c0": 96,
+    "bell": 97,
+    "first_bell": 97,
+    "n": 1,
+    "detail": {
+     "options": 1,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791166183
+   },
+   "4": {
+    "status": "opened",
+    "reason": null,
+    "c0": 96,
+    "bell": 97,
+    "first_bell": 97,
+    "n": 1,
+    "detail": {
+     "options": 2,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791166183
+   },
+   "5": {
+    "status": "opened",
+    "reason": null,
+    "c0": 96,
+    "bell": 97,
+    "first_bell": 97,
+    "n": 1,
+    "detail": {
+     "options": 3,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791166183
+   }
+  },
+  "5": {
+   "0": {
+    "status": "opened",
+    "reason": null,
+    "c0": 120,
+    "bell": 121,
+    "first_bell": 121,
+    "n": 1,
+    "detail": {
+     "options": 2,
+     "eligible": 3,
+     "humans": 1,
+     "seat": {
+      "in_eligible_list": true,
+      "final_village": true
+     }
+    },
+    "updated_unix": 1791167623
+   },
+   "1": {
+    "status": "opened",
+    "reason": null,
+    "c0": 120,
+    "bell": 121,
+    "first_bell": 121,
+    "n": 1,
+    "detail": {
+     "options": 1,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791167623
+   },
+   "2": {
+    "status": "opened",
+    "reason": null,
+    "c0": 120,
+    "bell": 121,
+    "first_bell": 121,
+    "n": 1,
+    "detail": {
+     "options": 3,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791167623
+   },
+   "3": {
+    "status": "opened",
+    "reason": null,
+    "c0": 120,
+    "bell": 121,
+    "first_bell": 121,
+    "n": 1,
+    "detail": {
+     "options": 1,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791167623
+   },
+   "4": {
+    "status": "opened",
+    "reason": null,
+    "c0": 120,
+    "bell": 121,
+    "first_bell": 121,
+    "n": 1,
+    "detail": {
+     "options": 2,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791167623
+   },
+   "5": {
+    "status": "opened",
+    "reason": null,
+    "c0": 120,
+    "bell": 121,
+    "first_bell": 121,
+    "n": 1,
+    "detail": {
+     "options": 3,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791167623
+   }
+  },
+  "6": {
+   "0": {
+    "status": "opened",
+    "reason": null,
+    "c0": 144,
+    "bell": 145,
+    "first_bell": 145,
+    "n": 1,
+    "detail": {
+     "options": 3,
+     "eligible": 3,
+     "humans": 1,
+     "seat": {
+      "in_eligible_list": true,
+      "final_village": true
+     }
+    },
+    "updated_unix": 1791169063
+   },
+   "1": {
+    "status": "opened",
+    "reason": null,
+    "c0": 144,
+    "bell": 145,
+    "first_bell": 145,
+    "n": 1,
+    "detail": {
+     "options": 1,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791169063
+   },
+   "2": {
+    "status": "opened",
+    "reason": null,
+    "c0": 144,
+    "bell": 145,
+    "first_bell": 145,
+    "n": 1,
+    "detail": {
+     "options": 3,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791169063
+   },
+   "3": {
+    "status": "opened",
+    "reason": null,
+    "c0": 144,
+    "bell": 145,
+    "first_bell": 145,
+    "n": 1,
+    "detail": {
+     "options": 2,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791169063
+   },
+   "4": {
+    "status": "opened",
+    "reason": null,
+    "c0": 144,
+    "bell": 145,
+    "first_bell": 145,
+    "n": 1,
+    "detail": {
+     "options": 1,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791169063
+   },
+   "5": {
+    "status": "opened",
+    "reason": null,
+    "c0": 144,
+    "bell": 145,
+    "first_bell": 145,
+    "n": 1,
+    "detail": {
+     "options": 3,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791169063
+   }
+  },
+  "7": {
+   "0": {
+    "status": "opened",
+    "reason": null,
+    "c0": 168,
+    "bell": 169,
+    "first_bell": 169,
+    "n": 1,
+    "detail": {
+     "options": 3,
+     "eligible": 3,
+     "humans": 1,
+     "seat": {
+      "in_eligible_list": true,
+      "final_village": true
+     }
+    },
+    "updated_unix": 1791169785
+   },
+   "1": {
+    "status": "opened",
+    "reason": null,
+    "c0": 168,
+    "bell": 169,
+    "first_bell": 169,
+    "n": 1,
+    "detail": {
+     "options": 3,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791169785
+   },
+   "2": {
+    "status": "opened",
+    "reason": null,
+    "c0": 168,
+    "bell": 169,
+    "first_bell": 169,
+    "n": 1,
+    "detail": {
+     "options": 3,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791169785
+   },
+   "3": {
+    "status": "opened",
+    "reason": null,
+    "c0": 168,
+    "bell": 169,
+    "first_bell": 169,
+    "n": 1,
+    "detail": {
+     "options": 3,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791169785
+   },
+   "4": {
+    "status": "opened",
+    "reason": null,
+    "c0": 168,
+    "bell": 169,
+    "first_bell": 169,
+    "n": 1,
+    "detail": {
+     "options": 3,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791169785
+   },
+   "5": {
+    "status": "opened",
+    "reason": null,
+    "c0": 168,
+    "bell": 169,
+    "first_bell": 169,
+    "n": 1,
+    "detail": {
+     "options": 2,
+     "eligible": 2,
+     "humans": 0,
+     "seat": null
+    },
+    "updated_unix": 1791169785
+   }
+  }
+ }
+}

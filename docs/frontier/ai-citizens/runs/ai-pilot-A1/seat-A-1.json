@@ -1,0 +1,87 @@
+{
+ "v": 1,
+ "kind": "ab-seat",
+ "mode": "ab",
+ "scripted": true,
+ "ballot_label": {
+  "en": "scripted seat ballot: written by the operator's script (origin 2), not a live human ballot",
+  "ja": "運営の台本による席の票(origin 2)。人間がその場で投じた票ではない"
+ },
+ "arm": "A",
+ "rep": 1,
+ "nation": 0,
+ "origin": 2,
+ "season": 33,
+ "seat_wallet_listed": true,
+ "started_unix": 1791160314,
+ "period": 2,
+ "option_x": 1,
+ "ai_mover": {
+  "wallet": "KKwvCzEeoS2e3w62DT2NYS4pTReUNnoSdgKJ3okFpR6",
+  "tag": "2811df1c447cb4c0"
+ },
+ "ballot": {
+  "option": 1,
+  "bell": 52,
+  "status": 200,
+  "ok": true,
+  "inner": "941beb40849db46a188acb30b2947351640bc22eeda66fb73c3c0419b9f00ee1",
+  "origin": 2,
+  "scripted": true,
+  "code": null
+ },
+ "observed": {
+  "x": {
+   "option": 1,
+   "kind": "camp",
+   "p": 1,
+   "q": 1
+  },
+  "s": 60,
+  "observed_at_bell": 63,
+  "observer": "herald clash report through the AC6a feed",
+  "clash_report": false,
+  "engagements": 0,
+  "present": 0,
+  "bounced": 0,
+  "engaged_own": 0,
+  "own_lost": 0,
+  "enemy_lost": 0,
+  "nation0_involved": false
+ },
+ "skipped_periods": [],
+ "ineligible_periods": [],
+ "ballot_retries": 0,
+ "notes": [],
+ "finalise": {
+  "scripted": true,
+  "statement": "the operator's script touches the seat's own village so that it counts as a final village; it casts no vote and moves no troops",
+  "status": "final",
+  "final": true,
+  "attempts": 1,
+  "tries": 1,
+  "last_attempt_bell": 34,
+  "last_checked_bell": 35,
+  "final_bell": 35,
+  "last_result": {
+   "bell": 34,
+   "ok": true,
+   "code": null,
+   "state": "landed",
+   "signature": "5QqZQwxnxAyUDH5o9NM4LjymJYDNFTeDRqsf2qyKJ8KWF7khHk38w194gznqqqiaG2G3jihuwaU6mbS5D5RaNWH2"
+  },
+  "note": null
+ },
+ "c0": 48,
+ "council_at_end": {
+  "adopted": true,
+  "reason": "adopted",
+  "tally_split": {
+   "ai": 2,
+   "human": 0,
+   "scripted": 1
+  },
+  "options_hash": "1a830cba8e224194fad2c0ecaeece2811e86818a292bd3311faf43c5a8b8802f",
+  "candidates_hash": "f522791df8af4011d123bee2441f62a19afa98455947de7fae4318b4c207b679"
+ }
+}

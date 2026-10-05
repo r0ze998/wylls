@@ -1,0 +1,3449 @@
+{
+  "v": 1,
+  "kind": "run-report",
+  "generated_by": "citizens/report.mjs (AC9)",
+  "local_test_chain_only": true,
+  "ai_dir": "ai-pilot-A1",
+  "run_id": "ai-pilot-A1",
+  "sources": {
+    "public": true,
+    "private_records": true,
+    "metrics_snapshot": {
+      "bell": 169,
+      "uptime_s": 9475
+    },
+    "public_only_flag": false,
+    "minds_files": 169,
+    "first_bell": 0,
+    "last_bell": 168
+  },
+  "commitments": {
+    "available": true,
+    "run_id": "ai-pilot-A1",
+    "season_id": 33,
+    "deck": "deck-2",
+    "model_sha256": "d208665ab1cd3a69f7a9a4bc59430e8448c8093d9b06334f566ac59d6d504a03",
+    "llama_tree_sha256": "eddbad4575b59dae439629173c9c56db5cb555fe5d49ae59b4d33a902499be5f",
+    "request_shape": "response_format",
+    "code_git_commit": "89cfd5be1c86d5f73be5b834b9923513d4657c41",
+    "slots": 13,
+    "commit_memo": "audited",
+    "note": "a field printed \"unmeasured\" was not measured by the run script (a smoke run may leave AI_MODEL and AI_LLAMA_DIR unset): such a run is not cited for audit claims. The model sha256 here is the pinned constant if the field was filled without AI_MODEL; verify-minds M1 is what measures it."
+  },
+  "anchors": {
+    "closed_bells": 169,
+    "anchored": 169,
+    "gaps": 0,
+    "closed_without_anchor_file": [],
+    "index_last_bell": 168,
+    "index_present": true,
+    "closed_after_index": [],
+    "every_closed_bell_has_an_anchor_or_gap": true,
+    "note": "169 closed bells; 169 anchored, 0 anchor_gap. Whether each memo is on the chain with the right text is verify-minds M3, not read here."
+  },
+  "phases": {
+    "available": true,
+    "source": "logs/stack.log",
+    "play_end_bell": 144,
+    "play_bells": 144,
+    "drain_end_bell": 170,
+    "last_closed_bell": 168,
+    "drain_closed_bells": 25,
+    "note": "play: bells 0 to 143 (144 bells); drain: bells 144 to 168 (25 closed bells). The AI brains and the script bots stop at the end of play: the drain holds no AI action sent by a brain and no bot action. Anything decided in the drain (by the mind, on the watcher's council calls) was never carried to the chain or the social service by a brain.",
+    "records_in_drain": 24,
+    "records_in_drain_by_kind": {
+      "motion:model": 9,
+      "motion:autopilot": 3,
+      "ballot:model": 12
+    }
+  },
+  "runs_listed": [
+    {
+      "status": "aborted",
+      "run_id": "slice-1",
+      "start_unix": 1791076362,
+      "arm": null,
+      "rep": null,
+      "commitments_sha256": "6d519fc490ebd4ec7d8c033f9083eeedf4cff78f0a1b05fd1253c7dba617df39",
+      "configs": {
+        "citizens_config_sha256": "80e4ca17cd81b1214434cacffac949217cd61b7de88e3cc9882991cd1759e3b6",
+        "injection_corpus_sha256": null,
+        "seat_script_sha256": null,
+        "slots_sha256": "e33087069de562cbba0220ca3111340a6039c12cad8501b97029c3d44666ad36",
+        "stack_toml_sha256": "92e1c05169cd42656ff0b7d014659185aead7f34ff8fc337b7e7f86f999db56a"
+      },
+      "end_unix": 1791076453,
+      "detail": "stopped before the end",
+      "status_source": "END line"
+    },
+    {
+      "status": "aborted",
+      "run_id": "slice-2",
+      "start_unix": 1791076641,
+      "arm": null,
+      "rep": null,
+      "commitments_sha256": "0393dea9492b7fd4a0064e3e8a6ef6eb88a7aebeaee7f02a01c06c9c5c6cf1c0",
+      "configs": {
+        "citizens_config_sha256": "80e4ca17cd81b1214434cacffac949217cd61b7de88e3cc9882991cd1759e3b6",
+        "injection_corpus_sha256": null,
+        "seat_script_sha256": null,
+        "slots_sha256": "e33087069de562cbba0220ca3111340a6039c12cad8501b97029c3d44666ad36",
+        "stack_toml_sha256": "63b017bcbdc99cd8515ab795adcf3f1c7661944adbf236451234c1a63ea665e1"
+      },
+      "end_unix": 1791076705,
+      "detail": "the deal failed (see above)",
+      "status_source": "END line"
+    },
+    {
+      "status": "aborted",
+      "run_id": "slice-3",
+      "start_unix": 1791076779,
+      "arm": null,
+      "rep": null,
+      "commitments_sha256": "a9d3c89801c2e21c9302c60e4bc70645809dc65af71cb61cb7b4af882d4ef339",
+      "configs": {
+        "citizens_config_sha256": "80e4ca17cd81b1214434cacffac949217cd61b7de88e3cc9882991cd1759e3b6",
+        "injection_corpus_sha256": null,
+        "seat_script_sha256": null,
+        "slots_sha256": "e33087069de562cbba0220ca3111340a6039c12cad8501b97029c3d44666ad36",
+        "stack_toml_sha256": "199dda3e186c8e5a6c38296ec2b557b5f92e975db46381e0260d42074c47834a"
+      },
+      "end_unix": 1791077458,
+      "detail": "stopped before the end",
+      "status_source": "END line"
+    },
+    {
+      "status": "complete",
+      "run_id": "slice-4",
+      "start_unix": 1791077493,
+      "arm": null,
+      "rep": null,
+      "commitments_sha256": "087d2c3f5505a432d9fac0f336caa8e050e9ed6dfd9e419c61745e6ae0a161d3",
+      "configs": {
+        "citizens_config_sha256": "80e4ca17cd81b1214434cacffac949217cd61b7de88e3cc9882991cd1759e3b6",
+        "injection_corpus_sha256": null,
+        "seat_script_sha256": null,
+        "slots_sha256": "e33087069de562cbba0220ca3111340a6039c12cad8501b97029c3d44666ad36",
+        "stack_toml_sha256": "5f4eef0182feb787ee53fee51266d9db5eeb872781a3a37e3e2739178846b929"
+      },
+      "end_unix": 1791082735,
+      "detail": "stack complete, publication written",
+      "status_source": "END line"
+    },
+    {
+      "status": "aborted",
+      "run_id": "smoke-b1",
+      "start_unix": 1791092159,
+      "arm": null,
+      "rep": null,
+      "commitments_sha256": "ba7c076c93be5b3f2a4ff4ee4afdc869b94f8b99cce8ed3328f8a73495a340fa",
+      "configs": {
+        "citizens_config_sha256": "96081d5efdc3f225b0f7ae600bd3984ba170fee6cfd176375543182c19587b3d",
+        "injection_corpus_sha256": "5626f53de1a55e72a688a6e19ddcf3aa1234679978d6da6d0ff0b3ad8c50026b",
+        "seat_script_sha256": null,
+        "slots_sha256": "e33087069de562cbba0220ca3111340a6039c12cad8501b97029c3d44666ad36",
+        "stack_toml_sha256": "a6a4f3b52eae0386199bd60b602d5ec41223e01e4fab170d04e64420a0808bc2"
+      },
+      "end_unix": 1791092189,
+      "detail": "stopped before the end",
+      "status_source": "END line"
+    },
+    {
+      "status": "complete",
+      "run_id": "smoke-b2",
+      "start_unix": 1791092211,
+      "arm": null,
+      "rep": null,
+      "commitments_sha256": "28341d33218fe41cd751778775e727da4ebc6fd272b8cb6b8702bfbb63b2931c",
+      "configs": {
+        "citizens_config_sha256": "96081d5efdc3f225b0f7ae600bd3984ba170fee6cfd176375543182c19587b3d",
+        "injection_corpus_sha256": "5626f53de1a55e72a688a6e19ddcf3aa1234679978d6da6d0ff0b3ad8c50026b",
+        "seat_script_sha256": null,
+        "slots_sha256": "e33087069de562cbba0220ca3111340a6039c12cad8501b97029c3d44666ad36",
+        "stack_toml_sha256": "fdf2dcb4c54f78e1a105e10b4feb5c6bf9fc98f4580e4848004ced3f9581c383"
+      },
+      "end_unix": 1791097514,
+      "detail": "stack complete, publication written; season-end bundle written; verify-minds FAIL",
+      "status_source": "END line"
+    },
+    {
+      "status": "complete",
+      "run_id": "smoke-b3",
+      "start_unix": 1791097774,
+      "arm": null,
+      "rep": null,
+      "commitments_sha256": "fed8feb38afb0fc87dbe2e51edc456362f38773a0ca675be76f790db24b30a47",
+      "configs": {
+        "citizens_config_sha256": "96081d5efdc3f225b0f7ae600bd3984ba170fee6cfd176375543182c19587b3d",
+        "injection_corpus_sha256": "5626f53de1a55e72a688a6e19ddcf3aa1234679978d6da6d0ff0b3ad8c50026b",
+        "seat_script_sha256": null,
+        "slots_sha256": "e33087069de562cbba0220ca3111340a6039c12cad8501b97029c3d44666ad36",
+        "stack_toml_sha256": "29d520cd05400f69848ad58894ae27468aa8c46e67b956267552f3c7fbcaf63e"
+      },
+      "end_unix": 1791103089,
+      "detail": "stack complete, publication written; season-end bundle written; verify-minds PASS",
+      "status_source": "END line"
+    },
+    {
+      "status": "complete",
+      "run_id": "smoke-b4",
+      "start_unix": 1791115637,
+      "arm": null,
+      "rep": null,
+      "commitments_sha256": "89b78f9cdff495f5a65a1d34c7141332ed45cf584ef65e58f783066cb546084c",
+      "configs": {
+        "citizens_config_sha256": "96081d5efdc3f225b0f7ae600bd3984ba170fee6cfd176375543182c19587b3d",
+        "injection_corpus_sha256": "a56fa2fbccf9501b47399284617db86763220331b16aa9850575118dddaf28cc",
+        "seat_script_sha256": "c836d1430c2d8a37bb526ddc10fc6da002034fb541d83bbf22627ab00352c6c1",
+        "slots_sha256": "e33087069de562cbba0220ca3111340a6039c12cad8501b97029c3d44666ad36",
+        "stack_toml_sha256": "30fffa9a222a35e86929a40dfcb1fae05c1c875b4d562217808d1eb7647403e2"
+      },
+      "end_unix": 1791121675,
+      "detail": "stack complete, publication written (anchors: 97 anchored, 0 gap(s) of 97 closed bells); season-end bundle written; verify-minds FAIL",
+      "status_source": "END line"
+    },
+    {
+      "status": "complete",
+      "run_id": "smoke-b5",
+      "start_unix": 1791121915,
+      "arm": null,
+      "rep": null,
+      "commitments_sha256": "9a8dd020d20adf36ad729d09f7fda8b6465fb5ae806f7bc3eb5761313826ff69",
+      "configs": {
+        "citizens_config_sha256": "96081d5efdc3f225b0f7ae600bd3984ba170fee6cfd176375543182c19587b3d",
+        "injection_corpus_sha256": "a56fa2fbccf9501b47399284617db86763220331b16aa9850575118dddaf28cc",
+        "seat_script_sha256": "c836d1430c2d8a37bb526ddc10fc6da002034fb541d83bbf22627ab00352c6c1",
+        "slots_sha256": "e33087069de562cbba0220ca3111340a6039c12cad8501b97029c3d44666ad36",
+        "stack_toml_sha256": "4ff2699d128a93369f77c964639cfa1d5e28b0f53130efd49ad2cb8298587b64"
+      },
+      "end_unix": 1791127950,
+      "detail": "stack complete, publication written (anchors: 109 anchored, 0 gap(s) of 109 closed bells); season-end bundle written; verify-minds PASS",
+      "status_source": "END line"
+    },
+    {
+      "status": "complete",
+      "run_id": "smoke-r1",
+      "start_unix": 1791128682,
+      "arm": null,
+      "rep": null,
+      "commitments_sha256": "49372e07e794d916d66533eae2fdb0c87e11ec3d95b78ac6a96f6fb315f33f85",
+      "configs": {
+        "citizens_config_sha256": "96081d5efdc3f225b0f7ae600bd3984ba170fee6cfd176375543182c19587b3d",
+        "injection_corpus_sha256": "a56fa2fbccf9501b47399284617db86763220331b16aa9850575118dddaf28cc",
+        "seat_script_sha256": null,
+        "slots_sha256": "e33087069de562cbba0220ca3111340a6039c12cad8501b97029c3d44666ad36",
+        "stack_toml_sha256": "3abd4bf5a9aa200c33ae0f36f81a22cda45723a1aada6868f28273970a04f577"
+      },
+      "end_unix": 1791131823,
+      "detail": "stack complete, publication written (anchors: 61 anchored, 0 gap(s) of 61 closed bells); season-end bundle written; verify-minds PASS",
+      "status_source": "END line"
+    },
+    {
+      "status": "complete",
+      "run_id": "smoke-r2",
+      "start_unix": 1791132835,
+      "arm": null,
+      "rep": null,
+      "commitments_sha256": "a22f3c277c32be30bea7cd02a296ee8bce6434ebfe8bca4d905fc97da08c6d18",
+      "configs": {
+        "citizens_config_sha256": "96081d5efdc3f225b0f7ae600bd3984ba170fee6cfd176375543182c19587b3d",
+        "injection_corpus_sha256": "a56fa2fbccf9501b47399284617db86763220331b16aa9850575118dddaf28cc",
+        "seat_script_sha256": null,
+        "slots_sha256": "e33087069de562cbba0220ca3111340a6039c12cad8501b97029c3d44666ad36",
+        "stack_toml_sha256": "c94adc95a6bcf7dd5eb0c195cd7556f42758339c4581704560f0c96fb87a9c4e"
+      },
+      "end_unix": 1791138874,
+      "detail": "stack complete, publication written (anchors: 109 anchored, 0 gap(s) of 109 closed bells); season-end bundle written; verify-minds FAIL",
+      "status_source": "END line"
+    },
+    {
+      "status": "complete",
+      "run_id": "smoke-r3",
+      "start_unix": 1791140640,
+      "arm": null,
+      "rep": null,
+      "commitments_sha256": "da3fdc3340ad33d7e608d4a5432a19b5dd889a6370472b656ae6c639f2e7ea43",
+      "configs": {
+        "citizens_config_sha256": "96081d5efdc3f225b0f7ae600bd3984ba170fee6cfd176375543182c19587b3d",
+        "injection_corpus_sha256": "a56fa2fbccf9501b47399284617db86763220331b16aa9850575118dddaf28cc",
+        "seat_script_sha256": "8dce2863dce64307430fe34a8201689109a9557cc426a3dc059341210da8dcd8",
+        "slots_sha256": "e33087069de562cbba0220ca3111340a6039c12cad8501b97029c3d44666ad36",
+        "stack_toml_sha256": "b3952b3487898b0f7403e1597a17c890bbf9fd83d8bb588bf7c6648072891ee2"
+      },
+      "end_unix": 1791146680,
+      "detail": "stack complete, publication written (anchors: 109 anchored, 0 gap(s) of 109 closed bells); season-end bundle written; verify-minds PASS",
+      "status_source": "END line"
+    },
+    {
+      "status": "complete",
+      "run_id": "smoke-r4",
+      "start_unix": 1791148941,
+      "arm": null,
+      "rep": null,
+      "commitments_sha256": "0086864330416eda02c9b8da9e3369ce80b5dcdfc7a476588a3e5078dbe626c9",
+      "configs": {
+        "citizens_config_sha256": "96081d5efdc3f225b0f7ae600bd3984ba170fee6cfd176375543182c19587b3d",
+        "injection_corpus_sha256": "a56fa2fbccf9501b47399284617db86763220331b16aa9850575118dddaf28cc",
+        "seat_script_sha256": "d34a766b793b1ebc5567ef0914166f0e84be7fc86efe8251ba68563659e1bf26",
+        "slots_sha256": "e33087069de562cbba0220ca3111340a6039c12cad8501b97029c3d44666ad36",
+        "stack_toml_sha256": "e4fabe934b8aea60952c9079a1398b4f6537be75ad4da140ff758e81cf89cce2"
+      },
+      "end_unix": 1791154980,
+      "detail": "stack complete, publication written (anchors: 109 anchored, 0 gap(s) of 109 closed bells); season-end bundle written; verify-minds PASS",
+      "status_source": "END line"
+    },
+    {
+      "status": "no END line: aborted or still running",
+      "run_id": "ai-pilot-A1",
+      "start_unix": 1791160257,
+      "arm": "A",
+      "rep": 1,
+      "commitments_sha256": "ad7888a5119f24cf51731190f40ff0bd5313efffb14fb514ffaae0125f01a02d",
+      "configs": {
+        "citizens_config_sha256": "c0f6fb405aec7f142418b78a527e0c909eea1f11c9a9447ed3b64bf0d25dc17f",
+        "injection_corpus_sha256": "a56fa2fbccf9501b47399284617db86763220331b16aa9850575118dddaf28cc",
+        "seat_script_sha256": "4d1f4d3f13f5d112fe47a791079ba808f65555d90cef1a42e610714a2b016e95",
+        "slots_sha256": "d9daee742482782c6d36bfebd52e57a632819293db1e35e0367e377a1a632281",
+        "stack_toml_sha256": "0b84a435906433915275a9e1ff2f41b8f2884de7033023ab09ce374c2dd4cb76"
+      },
+      "status_source": "none"
+    }
+  ],
+  "roster": {
+    "ai": 12,
+    "deck": "deck-2",
+    "by_persona": {
+      "diplomat": 6,
+      "avenger": 6
+    }
+  },
+  "decisions": {
+    "records": 1735,
+    "by_kind": {
+      "session": 96,
+      "autopilot": 1456,
+      "reaction": 51,
+      "motion": 60,
+      "ballot": 60,
+      "reflection": 12
+    },
+    "by_mode": {
+      "model": 238,
+      "autopilot": 1497
+    },
+    "by_reason": {
+      "ok": 238,
+      "below_gate": 1037,
+      "invalid:V2": 15,
+      "invalid:V0": 15,
+      "budget": 419,
+      "invalid:V5b": 10,
+      "no_time": 1
+    },
+    "gate_open": 267,
+    "model_decisions": 266,
+    "valid_choices": 236,
+    "valid_rate_pct": 88.7,
+    "valid_rate_ci95_pct": [
+      84.4,
+      92
+    ],
+    "g1_threshold": {
+      "pct": 95,
+      "min_n": 300,
+      "met": false,
+      "underpowered": true,
+      "note": "n = 266 < 300: underpowered; the interval above is the only honest statement"
+    },
+    "model_decisions_unclassified": 0,
+    "invariant_valid_plus_fallbacks_equals_model_decisions": true,
+    "fallbacks": {
+      "total": 30,
+      "rate_pct": 11.3,
+      "by_reason": {
+        "invalid:V2": 15,
+        "invalid:V0": 15
+      },
+      "g2_max_pct": 5
+    },
+    "dropped_for_time": {
+      "n": 1,
+      "share_of_gate_open_pct": 0.4,
+      "g2_max_pct": 3
+    },
+    "feed_lag": {
+      "n": 0,
+      "by_kind": {},
+      "share_of_gate_open_pct": 0,
+      "note": null
+    },
+    "reflections": {
+      "n": 12,
+      "ok": 2,
+      "refused_or_failed": 10,
+      "by_reason": {
+        "invalid:V5b": 10,
+        "ok": 2
+      },
+      "note": "listed on their own; not in the valid-choice rate"
+    },
+    "latency_ms_by_kind": {
+      "session": {
+        "n": 96,
+        "p50": 3841,
+        "p90": 5572,
+        "p99": 7366,
+        "slack_min": 11543,
+        "slack_negative": 0
+      },
+      "reaction": {
+        "n": 51,
+        "p50": 3820,
+        "p90": 6234,
+        "p99": 12080,
+        "slack_min": 14183,
+        "slack_negative": 0
+      },
+      "motion": {
+        "n": 44,
+        "p50": 3383,
+        "p90": 4838,
+        "p99": 5981,
+        "slack_min": 61543,
+        "slack_negative": 0
+      },
+      "ballot": {
+        "n": 60,
+        "p50": 4151,
+        "p90": 4996,
+        "p99": 6359,
+        "slack_min": 95279,
+        "slack_negative": 0
+      },
+      "reflection": {
+        "n": 2,
+        "p50": 3907,
+        "p90": 3968,
+        "p99": 3968,
+        "slack_min": 697520.5895996094,
+        "slack_negative": 0
+      }
+    },
+    "g3": {
+      "latency_samples": 253,
+      "slack_negative": 0,
+      "share_with_slack_ge_0_pct": 100,
+      "note": "from the mind's own latency windows (llama call time and slack to the deadline); \"0 decisions executed after bell_start(b+1)\" needs the chain and is not read here"
+    }
+  },
+  "by_model": {
+    "per_ai": [
+      {
+        "index": 1000,
+        "tag": "2811df1c447cb4c0",
+        "persona": "diplomat",
+        "actions_by_model": 6,
+        "actions_by_autopilot": 18,
+        "by_model_share_pct": 25,
+        "decisions": 21,
+        "valid": 18,
+        "model_marches": 0,
+        "decisions_citing_memory": 16,
+        "messages": 11
+      },
+      {
+        "index": 1001,
+        "tag": "1914d7f1efb5ca0f",
+        "persona": "avenger",
+        "actions_by_model": 13,
+        "actions_by_autopilot": 17,
+        "by_model_share_pct": 43.3,
+        "decisions": 22,
+        "valid": 18,
+        "model_marches": 3,
+        "decisions_citing_memory": 16,
+        "messages": 5
+      },
+      {
+        "index": 1002,
+        "tag": "f4fb292ad7d93d34",
+        "persona": "diplomat",
+        "actions_by_model": 12,
+        "actions_by_autopilot": 14,
+        "by_model_share_pct": 46.2,
+        "decisions": 23,
+        "valid": 18,
+        "model_marches": 0,
+        "decisions_citing_memory": 14,
+        "messages": 9
+      },
+      {
+        "index": 1003,
+        "tag": "65252662be9d2720",
+        "persona": "diplomat",
+        "actions_by_model": 3,
+        "actions_by_autopilot": 20,
+        "by_model_share_pct": 13,
+        "decisions": 22,
+        "valid": 15,
+        "model_marches": 0,
+        "decisions_citing_memory": 12,
+        "messages": 6
+      },
+      {
+        "index": 1004,
+        "tag": "83eedd2fbe314387",
+        "persona": "diplomat",
+        "actions_by_model": 10,
+        "actions_by_autopilot": 20,
+        "by_model_share_pct": 33.3,
+        "decisions": 24,
+        "valid": 22,
+        "model_marches": 1,
+        "decisions_citing_memory": 19,
+        "messages": 11
+      },
+      {
+        "index": 1005,
+        "tag": "2329cca38b644e91",
+        "persona": "diplomat",
+        "actions_by_model": 10,
+        "actions_by_autopilot": 15,
+        "by_model_share_pct": 40,
+        "decisions": 25,
+        "valid": 21,
+        "model_marches": 0,
+        "decisions_citing_memory": 19,
+        "messages": 11
+      },
+      {
+        "index": 1006,
+        "tag": "a02ad0c4a3d41b31",
+        "persona": "avenger",
+        "actions_by_model": 0,
+        "actions_by_autopilot": 22,
+        "by_model_share_pct": 0,
+        "decisions": 22,
+        "valid": 21,
+        "model_marches": 0,
+        "decisions_citing_memory": 17,
+        "messages": 9
+      },
+      {
+        "index": 1007,
+        "tag": "f742d8794d851ad5",
+        "persona": "diplomat",
+        "actions_by_model": 12,
+        "actions_by_autopilot": 19,
+        "by_model_share_pct": 38.7,
+        "decisions": 20,
+        "valid": 18,
+        "model_marches": 1,
+        "decisions_citing_memory": 16,
+        "messages": 7
+      },
+      {
+        "index": 1008,
+        "tag": "39f2a8beb8b84e6e",
+        "persona": "avenger",
+        "actions_by_model": 5,
+        "actions_by_autopilot": 18,
+        "by_model_share_pct": 21.7,
+        "decisions": 25,
+        "valid": 22,
+        "model_marches": 1,
+        "decisions_citing_memory": 16,
+        "messages": 9
+      },
+      {
+        "index": 1009,
+        "tag": "0bc195f29e9ff13c",
+        "persona": "avenger",
+        "actions_by_model": 5,
+        "actions_by_autopilot": 20,
+        "by_model_share_pct": 20,
+        "decisions": 25,
+        "valid": 20,
+        "model_marches": 1,
+        "decisions_citing_memory": 14,
+        "messages": 7
+      },
+      {
+        "index": 1010,
+        "tag": "79b2922ac01ee07e",
+        "persona": "avenger",
+        "actions_by_model": 11,
+        "actions_by_autopilot": 18,
+        "by_model_share_pct": 37.9,
+        "decisions": 26,
+        "valid": 21,
+        "model_marches": 3,
+        "decisions_citing_memory": 20,
+        "messages": 9
+      },
+      {
+        "index": 1011,
+        "tag": "f8381256522ce6f9",
+        "persona": "avenger",
+        "actions_by_model": 5,
+        "actions_by_autopilot": 20,
+        "by_model_share_pct": 20,
+        "decisions": 25,
+        "valid": 22,
+        "model_marches": 1,
+        "decisions_citing_memory": 21,
+        "messages": 10
+      }
+    ],
+    "total": {
+      "actions_by_model": 92,
+      "actions_by_autopilot": 221,
+      "by_model_share_pct": 29.4,
+      "source": "the mind's counters (the Wyll card stats): every action sent in a step whose decision had mode \"model\""
+    },
+    "from_records_tx": {
+      "actions_in_model_records": 92,
+      "actions_in_autopilot_records": 221,
+      "by_model_share_pct": 29.4,
+      "intents_by_mode": {
+        "model:build": 33,
+        "autopilot:train": 43,
+        "model:harvest": 9,
+        "autopilot:build": 54,
+        "autopilot:harvest": 84,
+        "model:train": 9,
+        "autopilot:muster": 17,
+        "model:muster": 21,
+        "autopilot:explore": 11,
+        "model:explore": 4,
+        "model:depart": 13,
+        "autopilot:reveal": 11,
+        "autopilot:depart": 1,
+        "model:reveal": 3
+      }
+    },
+    "autopilot_economy_share": {
+      "economy_actions_in_autopilot_records": 209,
+      "all_actions": 313,
+      "share_pct": 66.8,
+      "g2_note": "reported next to the fallback rate",
+      "economy_intents": [
+        "harvest",
+        "build",
+        "train",
+        "muster",
+        "explore",
+        "walls",
+        "tier_up",
+        "tierup"
+      ]
+    },
+    "caveat": "an action in a model-mode step may be a duty or an autopilot economy action the brain sent in the same step: the by:model share is an upper bound on model-chosen actions. model_marches below is the exact count of marches."
+  },
+  "marches": {
+    "model_marches_sent": 7,
+    "model_marches_count_basis": "per record: min(chosen own-march candidates, sent departs); a recall and a Strike-Order follow are `depart` in the tx too, so they are told apart by the chosen candidates (recall:<handle>, Call-flagged march); a record that chose a recall or a follow beside a march and had the march refused is the one case this can overcount",
+    "records_with_model_march": 7,
+    "model_marches_unclassified": 0,
+    "model_marches_unclassified_records": [],
+    "model_marches_unclassified_note": null,
+    "chosen_march_candidates_all_kinds": 11,
+    "excluded_from_model_marches": {
+      "records_with_recall_chosen": 0,
+      "records_with_strike_order_chosen": 4
+    },
+    "opened": 7,
+    "y_basis": "episode_proxy",
+    "y_strict": 7,
+    "y_strict_definition": "model marches (not a recall, not a Strike-Order follow) whose decision record was opened (section 7.2) and whose army has a public clash_own_* episode of that AI (host id from the opened record, bell not before the march): an EPISODE PROXY for the clash report row (engaged: true), which this report does not read; counted as found, never rounded up",
+    "y_proxy_note": "Y is an episode proxy. The herald clash rows (engaged: true, contract 10.1) were not read. A clash_own_* episode is created only when an own army fought (contract 5.2) and carries losses, so a clash without a recorded loss can be missed; a later clash of a host id reused by a later march can be credited to an earlier march of the same host.",
+    "g12_met": true,
+    "y_proxy_clash_any_opening": 7,
+    "y_proxy_clash_any_opening_note": "NOT Y: the same episode proxy over every model march, opened or not (the record may have been opened; see y_proxy_clash_unopened_only for the unopened ones).",
+    "y_proxy_clash_unopened_only": 0,
+    "clash_results": {
+      "win": 4,
+      "win_cleared": 4,
+      "win_pre_r12_unverified": 0,
+      "fought": 0,
+      "loss": 3,
+      "camps_cleared": 4,
+      "note": "win = the camp or the enemy stack was cleared (R12); win_pre_r12_unverified = episodes from before R12, labelled a win when the enemy lost more; fought = a clash that cleared nothing; camps_cleared = model marches whose clash also has a camp_cleared_own episode for the same place and bell"
+    },
+    "marches_without_known_host": 0,
+    "marches": [
+      {
+        "record": "992a9bed07931370714ef75d45980ac7bdb23cd24caeffda62bcf9f59431f0ad",
+        "bell": 39,
+        "index": 1008,
+        "tag": "39f2a8beb8b84e6e",
+        "persona": "avenger",
+        "departs": 1,
+        "sent_departs_in_record": 1,
+        "release_bell": 43,
+        "opened": true,
+        "hosts_known": true,
+        "hosts_source": "opened record",
+        "clashes": [
+          {
+            "episode": "a5504c7662917113",
+            "kind": "clash_own_win",
+            "bell": 42,
+            "created_bell": 44,
+            "host": "479391364677632",
+            "camp": true,
+            "cleared": "camp",
+            "p": -3,
+            "q": 1,
+            "lost_own": 11,
+            "lost_enemy": 101
+          }
+        ]
+      },
+      {
+        "record": "71032d375e68e1ea67c4dae4337f57990150fea6785e5a751de37aba1b311814",
+        "bell": 54,
+        "index": 1001,
+        "tag": "1914d7f1efb5ca0f",
+        "persona": "avenger",
+        "departs": 1,
+        "sent_departs_in_record": 1,
+        "release_bell": 58,
+        "opened": true,
+        "hosts_known": true,
+        "hosts_source": "opened record",
+        "clashes": [
+          {
+            "episode": "fde52d86813594c7",
+            "kind": "clash_own_win",
+            "bell": 57,
+            "created_bell": 59,
+            "host": "415619690266625",
+            "camp": true,
+            "cleared": "camp",
+            "p": -1,
+            "q": 3,
+            "lost_own": 24,
+            "lost_enemy": 189
+          },
+          {
+            "episode": "912f075afa3c8457",
+            "kind": "clash_own_win",
+            "bell": 108,
+            "created_bell": 110,
+            "host": "415619690266625",
+            "camp": true,
+            "cleared": "camp",
+            "p": -3,
+            "q": 3,
+            "lost_own": 32,
+            "lost_enemy": 247
+          }
+        ]
+      },
+      {
+        "record": "9666e705f9fa2e320833f9c9c69c43c4092c64dd5fa1c1449a2154b65072a7f8",
+        "bell": 56,
+        "index": 1009,
+        "tag": "0bc195f29e9ff13c",
+        "persona": "avenger",
+        "departs": 1,
+        "sent_departs_in_record": 1,
+        "release_bell": 62,
+        "opened": true,
+        "hosts_known": true,
+        "hosts_source": "opened record",
+        "clashes": [
+          {
+            "episode": "042fccaff6e7d48b",
+            "kind": "clash_own_loss",
+            "bell": 60,
+            "created_bell": 62,
+            "host": "501381597233154",
+            "camp": false,
+            "cleared": null,
+            "p": -3,
+            "q": 1,
+            "lost_own": 22,
+            "lost_enemy": 21
+          }
+        ]
+      },
+      {
+        "record": "bf916f0582528670081fb9cd088efcdd8657b17c5c7f51ff4445703820c3670c",
+        "bell": 63,
+        "index": 1010,
+        "tag": "79b2922ac01ee07e",
+        "persona": "avenger",
+        "departs": 1,
+        "sent_departs_in_record": 1,
+        "release_bell": 67,
+        "opened": true,
+        "hosts_known": true,
+        "hosts_source": "opened record",
+        "clashes": [
+          {
+            "episode": "550ac2d3dfc1e987",
+            "kind": "clash_own_win",
+            "bell": 66,
+            "created_bell": 68,
+            "host": "584944480944129",
+            "camp": true,
+            "cleared": "camp",
+            "p": 1,
+            "q": -3,
+            "lost_own": 15,
+            "lost_enemy": 122
+          }
+        ]
+      },
+      {
+        "record": "bfb9881bc6b9e62d2e28165b70c5e2143fdb04c1fa9413171341ae1fcf09f779",
+        "bell": 64,
+        "index": 1011,
+        "tag": "f8381256522ce6f9",
+        "persona": "avenger",
+        "departs": 1,
+        "sent_departs_in_record": 1,
+        "release_bell": 68,
+        "opened": true,
+        "hosts_known": true,
+        "hosts_source": "opened record",
+        "clashes": [
+          {
+            "episode": "1c638578e48eaf84",
+            "kind": "clash_own_loss",
+            "bell": 67,
+            "created_bell": 69,
+            "host": "602536666988545",
+            "camp": false,
+            "cleared": null,
+            "p": 2,
+            "q": -3,
+            "lost_own": 90,
+            "lost_enemy": 75
+          }
+        ]
+      },
+      {
+        "record": "fe5766a5d649906636afd1b82e287de93e359232473355b5244d196b67b9d1aa",
+        "bell": 80,
+        "index": 1001,
+        "tag": "1914d7f1efb5ca0f",
+        "persona": "avenger",
+        "departs": 1,
+        "sent_departs_in_record": 1,
+        "release_bell": 86,
+        "opened": true,
+        "hosts_known": true,
+        "hosts_source": "opened record",
+        "clashes": [
+          {
+            "episode": "42a6ac7eb12480ea",
+            "kind": "clash_own_win",
+            "bell": 83,
+            "created_bell": 85,
+            "host": "415619690266624",
+            "camp": true,
+            "cleared": "camp",
+            "p": 0,
+            "q": 2,
+            "lost_own": 16,
+            "lost_enemy": 152
+          }
+        ]
+      },
+      {
+        "record": "a57272d0eb827248cd0bdf23d002cb53da3546c1a7f777d8ddc0c457adbef438",
+        "bell": 80,
+        "index": 1010,
+        "tag": "79b2922ac01ee07e",
+        "persona": "avenger",
+        "departs": 1,
+        "sent_departs_in_record": 1,
+        "release_bell": 86,
+        "opened": true,
+        "hosts_known": true,
+        "hosts_source": "opened record",
+        "clashes": [
+          {
+            "episode": "46241563edfd3f8d",
+            "kind": "clash_own_loss",
+            "bell": 83,
+            "created_bell": 85,
+            "host": "584944480944131",
+            "camp": false,
+            "cleared": null,
+            "p": 2,
+            "q": -3,
+            "lost_own": 51,
+            "lost_enemy": 33
+          }
+        ]
+      }
+    ]
+  },
+  "memory": {
+    "episodes_total": 410,
+    "episodes_by_kind": {
+      "build_done": 87,
+      "threat": 104,
+      "camp_taken_by": 6,
+      "motion": 54,
+      "council_result": 60,
+      "clash_own_loss": 3,
+      "strike": 52,
+      "camp_cleared_own": 9,
+      "clash_own_win": 9,
+      "dm": 18,
+      "attacked_own": 6,
+      "clash_own_fought": 2
+    },
+    "episodes_by_ai": [
+      {
+        "tag": "2811df1c447cb4c0",
+        "index": 1000,
+        "episodes": 25,
+        "by_kind": {
+          "build_done": 9,
+          "motion": 4,
+          "threat": 6,
+          "council_result": 5,
+          "strike": 1
+        }
+      },
+      {
+        "tag": "1914d7f1efb5ca0f",
+        "index": 1001,
+        "episodes": 29,
+        "by_kind": {
+          "build_done": 7,
+          "motion": 4,
+          "council_result": 5,
+          "camp_cleared_own": 3,
+          "clash_own_win": 3,
+          "strike": 5,
+          "threat": 2
+        }
+      },
+      {
+        "tag": "f4fb292ad7d93d34",
+        "index": 1002,
+        "episodes": 38,
+        "by_kind": {
+          "build_done": 9,
+          "dm": 1,
+          "threat": 12,
+          "motion": 4,
+          "council_result": 5,
+          "strike": 5,
+          "camp_taken_by": 2
+        }
+      },
+      {
+        "tag": "65252662be9d2720",
+        "index": 1003,
+        "episodes": 35,
+        "by_kind": {
+          "build_done": 6,
+          "threat": 12,
+          "motion": 4,
+          "council_result": 5,
+          "strike": 6,
+          "camp_cleared_own": 1,
+          "clash_own_win": 1
+        }
+      },
+      {
+        "tag": "83eedd2fbe314387",
+        "index": 1004,
+        "episodes": 36,
+        "by_kind": {
+          "build_done": 9,
+          "dm": 2,
+          "motion": 5,
+          "council_result": 5,
+          "threat": 5,
+          "clash_own_win": 1,
+          "strike": 6,
+          "camp_cleared_own": 1,
+          "attacked_own": 1,
+          "clash_own_fought": 1
+        }
+      },
+      {
+        "tag": "2329cca38b644e91",
+        "index": 1005,
+        "episodes": 42,
+        "by_kind": {
+          "build_done": 9,
+          "dm": 6,
+          "motion": 6,
+          "council_result": 5,
+          "threat": 12,
+          "strike": 3,
+          "camp_taken_by": 1
+        }
+      },
+      {
+        "tag": "a02ad0c4a3d41b31",
+        "index": 1006,
+        "episodes": 23,
+        "by_kind": {
+          "build_done": 6,
+          "motion": 4,
+          "threat": 6,
+          "council_result": 5,
+          "dm": 1,
+          "strike": 1
+        }
+      },
+      {
+        "tag": "f742d8794d851ad5",
+        "index": 1007,
+        "episodes": 40,
+        "by_kind": {
+          "build_done": 11,
+          "threat": 11,
+          "motion": 4,
+          "council_result": 5,
+          "camp_cleared_own": 1,
+          "clash_own_win": 1,
+          "strike": 5,
+          "clash_own_fought": 1,
+          "attacked_own": 1
+        }
+      },
+      {
+        "tag": "39f2a8beb8b84e6e",
+        "index": 1008,
+        "episodes": 33,
+        "by_kind": {
+          "build_done": 5,
+          "dm": 1,
+          "threat": 10,
+          "clash_own_win": 1,
+          "camp_cleared_own": 1,
+          "motion": 4,
+          "council_result": 5,
+          "strike": 5,
+          "camp_taken_by": 1
+        }
+      },
+      {
+        "tag": "0bc195f29e9ff13c",
+        "index": 1009,
+        "episodes": 33,
+        "by_kind": {
+          "build_done": 5,
+          "threat": 11,
+          "camp_taken_by": 1,
+          "motion": 4,
+          "council_result": 5,
+          "clash_own_loss": 1,
+          "strike": 6
+        }
+      },
+      {
+        "tag": "79b2922ac01ee07e",
+        "index": 1010,
+        "episodes": 34,
+        "by_kind": {
+          "build_done": 6,
+          "dm": 2,
+          "motion": 5,
+          "council_result": 5,
+          "strike": 6,
+          "camp_cleared_own": 2,
+          "clash_own_win": 2,
+          "threat": 4,
+          "attacked_own": 1,
+          "clash_own_loss": 1
+        }
+      },
+      {
+        "tag": "f8381256522ce6f9",
+        "index": 1011,
+        "episodes": 42,
+        "by_kind": {
+          "build_done": 5,
+          "dm": 5,
+          "motion": 6,
+          "council_result": 5,
+          "threat": 13,
+          "camp_taken_by": 1,
+          "clash_own_loss": 1,
+          "strike": 3,
+          "attacked_own": 3
+        }
+      }
+    ],
+    "decisions_with_known_choice_and_retrieved_set": 236,
+    "decisions_with_unknown_choice": 0,
+    "unknown_choice_note": null,
+    "retrieved_composition": {
+      "build_done": 267,
+      "threat": 358,
+      "dm": 96,
+      "clash_own_win": 65,
+      "camp_cleared_own": 49,
+      "motion": 371,
+      "camp_taken_by": 33,
+      "council_result": 159,
+      "strike": 247,
+      "clash_own_loss": 26,
+      "attacked_own": 41,
+      "clash_own_fought": 6
+    },
+    "decisions_citing_memory": {
+      "from_records": 200,
+      "from_mind_counter": 102,
+      "of_model_decisions_with_known_choice": 236,
+      "share_pct": 84.7
+    },
+    "citation_among_key_kind_decisions": {
+      "n_with_key_episode_retrieved": 175,
+      "n_citing_at_least_one": 156,
+      "share_pct": 89.1,
+      "key_kinds": [
+        "attacked_own",
+        "camp_taken_by",
+        "threat"
+      ],
+      "note": "a citation shows the line was shown and named, not that the choice rested on it (5.7)"
+    },
+    "cited_episode_kinds": {
+      "build_done": 35,
+      "dm": 36,
+      "threat": 25,
+      "motion": 167,
+      "council_result": 25,
+      "camp_taken_by": 2,
+      "clash_own_win": 2,
+      "strike": 15,
+      "attacked_own": 9,
+      "clash_own_loss": 6
+    },
+    "cited_episode_ages_bells": {
+      "n": 322,
+      "max": 87,
+      "min": 1,
+      "older_than_72": 4,
+      "all": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        4,
+        4,
+        4,
+        4,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+        7,
+        8,
+        8,
+        8,
+        8,
+        8,
+        8,
+        9,
+        9,
+        10,
+        10,
+        10,
+        10,
+        11,
+        11,
+        11,
+        13,
+        13,
+        13,
+        13,
+        13,
+        13,
+        13,
+        14,
+        14,
+        14,
+        14,
+        14,
+        14,
+        15,
+        15,
+        15,
+        15,
+        15,
+        16,
+        16,
+        16,
+        16,
+        16,
+        17,
+        17,
+        17,
+        17,
+        17,
+        18,
+        18,
+        19,
+        19,
+        19,
+        19,
+        19,
+        19,
+        20,
+        20,
+        20,
+        20,
+        20,
+        20,
+        21,
+        22,
+        23,
+        23,
+        23,
+        23,
+        23,
+        23,
+        23,
+        23,
+        23,
+        23,
+        23,
+        23,
+        23,
+        23,
+        23,
+        23,
+        23,
+        23,
+        23,
+        23,
+        23,
+        23,
+        23,
+        23,
+        23,
+        23,
+        23,
+        23,
+        23,
+        23,
+        24,
+        24,
+        24,
+        24,
+        24,
+        24,
+        24,
+        24,
+        24,
+        24,
+        24,
+        24,
+        24,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        25,
+        26,
+        28,
+        29,
+        29,
+        29,
+        29,
+        30,
+        30,
+        32,
+        37,
+        37,
+        37,
+        38,
+        38,
+        39,
+        39,
+        40,
+        41,
+        43,
+        47,
+        47,
+        47,
+        47,
+        47,
+        47,
+        47,
+        47,
+        47,
+        47,
+        47,
+        47,
+        48,
+        49,
+        49,
+        49,
+        49,
+        49,
+        49,
+        49,
+        49,
+        49,
+        49,
+        49,
+        49,
+        49,
+        54,
+        56,
+        61,
+        62,
+        63,
+        63,
+        63,
+        71,
+        71,
+        73,
+        73,
+        87,
+        87
+      ],
+      "earlier_in_the_season_may_be_said": true,
+      "mind_metric": {
+        "n": 158,
+        "max": 62
+      }
+    },
+    "mem_dropped": 0,
+    "feed_lag": 0,
+    "why_withheld_by_rule": {
+      "sealed_coordinate": 2,
+      "sealed_name": 1
+    },
+    "speech_drops_by_reason": {
+      "wrong_script": 4,
+      "target_kind": 7,
+      "echo": 3,
+      "why:sealed_coordinate": 2,
+      "why:sealed_name": 1,
+      "message_budget": 1,
+      "why:pact_word": 1
+    },
+    "say_withheld": 21,
+    "pact_word_and_uncited_claim_withholds": {
+      "why:pact_word": 1
+    },
+    "reflections": {
+      "due": 12,
+      "ran": 12,
+      "refused": 10,
+      "skipped": null,
+      "summaries_published": 2
+    },
+    "relevance_spot_check": "not run here: the integrator reads 20 opened decisions against the rubric fixed before reading (G14 (b))",
+    "probe": "see citizens/probe/memory.mjs (its result is not a number of this report)"
+  },
+  "brain": {
+    "available": true,
+    "brain_steps": 1687,
+    "steps_per_ai": 140.6,
+    "no_session": 61,
+    "no_session_source": "brain counter no_session",
+    "first_call_answers": 1603,
+    "answers_reused_same_bell": 23,
+    "records_in_pub": 1735,
+    "step_records_in_pub": 1603,
+    "job_records_in_pub": 132,
+    "step_record_kinds": [
+      "session",
+      "reaction",
+      "autopilot"
+    ],
+    "steps_equal_records_plus_no_session": true,
+    "steps_equation": "steps 1687 = step records 1603 (kinds session, reaction, autopilot) + no_session 61 + same-bell repeats 23; 132 further records are mind jobs (reflection, motion, ballot), not steps",
+    "model_marches_sent_brain": 7,
+    "model_strike_order_marches_sent_brain": 4,
+    "reobserved": 152,
+    "quota_floor_skips": 1120,
+    "quota_starved_bells": 935,
+    "gets_per_step": {
+      "gets": 10466,
+      "per_step": 6.2,
+      "keys": [
+        "gets:digest",
+        "gets:fetch_path",
+        "gets:me",
+        "gets:recall_events",
+        "gets:recall_owners",
+        "gets:reobserve"
+      ],
+      "per_step_per_ai": {
+        "per_ai": [
+          {
+            "index": 1000,
+            "tag": "2811df1c447cb4c0",
+            "steps": 146,
+            "no_session": 5,
+            "gets": 921,
+            "per_step": 6.31
+          },
+          {
+            "index": 1001,
+            "tag": "1914d7f1efb5ca0f",
+            "steps": 145,
+            "no_session": 5,
+            "gets": 962,
+            "per_step": 6.63
+          },
+          {
+            "index": 1002,
+            "tag": "f4fb292ad7d93d34",
+            "steps": 144,
+            "no_session": 5,
+            "gets": 820,
+            "per_step": 5.69
+          },
+          {
+            "index": 1003,
+            "tag": "65252662be9d2720",
+            "steps": 143,
+            "no_session": 5,
+            "gets": 916,
+            "per_step": 6.41
+          },
+          {
+            "index": 1004,
+            "tag": "83eedd2fbe314387",
+            "steps": 142,
+            "no_session": 5,
+            "gets": 911,
+            "per_step": 6.42
+          },
+          {
+            "index": 1005,
+            "tag": "2329cca38b644e91",
+            "steps": 141,
+            "no_session": 6,
+            "gets": 921,
+            "per_step": 6.53
+          },
+          {
+            "index": 1006,
+            "tag": "a02ad0c4a3d41b31",
+            "steps": 140,
+            "no_session": 5,
+            "gets": 883,
+            "per_step": 6.31
+          },
+          {
+            "index": 1007,
+            "tag": "f742d8794d851ad5",
+            "steps": 139,
+            "no_session": 5,
+            "gets": 863,
+            "per_step": 6.21
+          },
+          {
+            "index": 1008,
+            "tag": "39f2a8beb8b84e6e",
+            "steps": 138,
+            "no_session": 5,
+            "gets": 912,
+            "per_step": 6.61
+          },
+          {
+            "index": 1009,
+            "tag": "0bc195f29e9ff13c",
+            "steps": 139,
+            "no_session": 5,
+            "gets": 745,
+            "per_step": 5.36
+          },
+          {
+            "index": 1010,
+            "tag": "79b2922ac01ee07e",
+            "steps": 135,
+            "no_session": 5,
+            "gets": 870,
+            "per_step": 6.44
+          },
+          {
+            "index": 1011,
+            "tag": "f8381256522ce6f9",
+            "steps": 135,
+            "no_session": 5,
+            "gets": 742,
+            "per_step": 5.5
+          }
+        ],
+        "min": 5.36,
+        "max": 6.63,
+        "mean": 6.2,
+        "per_bot_sum_equals_total": true
+      },
+      "per_step_per_ai_note": null,
+      "note": "The brain's own extra GETs, the counters named gets:* only (follow_fetch_gets is the same figure as gets:fetch_path and is not added); gets:reobserve is a lower bound; the first observation of a step and the script bots' GETs are not counted"
+    },
+    "gets_note": null,
+    "herald_load": "not measured (no file of a run records the herald's request count or response times; only the brain's own GETs above are counted)",
+    "follow_window": {
+      "script_bots": null,
+      "ai_bots": 36
+    },
+    "counters": {
+      "answers_autopilot": 1471,
+      "answers_model": 132,
+      "answers_reused": 23,
+      "follow_calls_read": 36,
+      "follow_fetch_TooFar": 8,
+      "follow_fetch_gets": 11,
+      "follow_no_ready_invited_host": 27,
+      "follow_sent_ai": 7,
+      "follow_window_ai_bots": 36,
+      "gets:digest": 7659,
+      "gets:fetch_path": 11,
+      "gets:me": 1626,
+      "gets:recall_events": 140,
+      "gets:recall_owners": 151,
+      "gets:reobserve": 879,
+      "model_marches_sent": 7,
+      "model_strike_order_marches_sent": 4,
+      "no_session": 61,
+      "no_session:no_home": 61,
+      "quota_floor_skips": 1120,
+      "quota_starved_bells": 935,
+      "reobserved": 152,
+      "social_posted:ballot": 48,
+      "social_posted:talk": 90,
+      "social_refused:SeqReplay": 7,
+      "steps": 1687
+    },
+    "per_bot": {
+      "1000": {
+        "gets:digest": 700,
+        "gets:me": 141,
+        "gets:recall_events": 15,
+        "gets:recall_owners": 5,
+        "gets:reobserve": 60,
+        "no_session": 5,
+        "no_session:no_home": 5,
+        "reobserved": 10,
+        "steps": 146
+      },
+      "1001": {
+        "gets:digest": 729,
+        "gets:fetch_path": 2,
+        "gets:me": 140,
+        "gets:recall_events": 18,
+        "gets:reobserve": 73,
+        "no_session": 5,
+        "no_session:no_home": 5,
+        "reobserved": 12,
+        "steps": 145
+      },
+      "1002": {
+        "gets:digest": 548,
+        "gets:me": 139,
+        "gets:recall_events": 26,
+        "gets:recall_owners": 47,
+        "gets:reobserve": 60,
+        "no_session": 5,
+        "no_session:no_home": 5,
+        "reobserved": 12,
+        "steps": 144
+      },
+      "1003": {
+        "gets:digest": 680,
+        "gets:fetch_path": 3,
+        "gets:me": 138,
+        "gets:recall_events": 7,
+        "gets:recall_owners": 16,
+        "gets:reobserve": 72,
+        "no_session": 5,
+        "no_session:no_home": 5,
+        "reobserved": 12,
+        "steps": 143
+      },
+      "1004": {
+        "gets:digest": 675,
+        "gets:me": 137,
+        "gets:recall_events": 16,
+        "gets:recall_owners": 3,
+        "gets:reobserve": 80,
+        "no_session": 5,
+        "no_session:no_home": 5,
+        "reobserved": 13,
+        "steps": 142
+      },
+      "1005": {
+        "gets:digest": 670,
+        "gets:fetch_path": 3,
+        "gets:me": 135,
+        "gets:recall_events": 3,
+        "gets:recall_owners": 26,
+        "gets:reobserve": 84,
+        "no_session": 6,
+        "no_session:no_home": 6,
+        "reobserved": 14,
+        "steps": 141
+      },
+      "1006": {
+        "gets:digest": 665,
+        "gets:me": 135,
+        "gets:recall_events": 8,
+        "gets:recall_owners": 9,
+        "gets:reobserve": 66,
+        "no_session": 5,
+        "no_session:no_home": 5,
+        "reobserved": 11,
+        "steps": 140
+      },
+      "1007": {
+        "gets:digest": 660,
+        "gets:me": 134,
+        "gets:recall_events": 6,
+        "gets:recall_owners": 7,
+        "gets:reobserve": 56,
+        "no_session": 5,
+        "no_session:no_home": 5,
+        "reobserved": 9,
+        "steps": 139
+      },
+      "1008": {
+        "gets:digest": 655,
+        "gets:me": 133,
+        "gets:recall_events": 20,
+        "gets:recall_owners": 14,
+        "gets:reobserve": 90,
+        "no_session": 5,
+        "no_session:no_home": 5,
+        "reobserved": 15,
+        "steps": 138
+      },
+      "1009": {
+        "gets:digest": 520,
+        "gets:fetch_path": 3,
+        "gets:me": 134,
+        "gets:recall_events": 6,
+        "gets:reobserve": 82,
+        "no_session": 5,
+        "no_session:no_home": 5,
+        "reobserved": 16,
+        "steps": 139
+      },
+      "1010": {
+        "gets:digest": 645,
+        "gets:me": 130,
+        "gets:recall_events": 8,
+        "gets:recall_owners": 3,
+        "gets:reobserve": 84,
+        "no_session": 5,
+        "no_session:no_home": 5,
+        "reobserved": 14,
+        "steps": 135
+      },
+      "1011": {
+        "gets:digest": 512,
+        "gets:me": 130,
+        "gets:recall_events": 7,
+        "gets:recall_owners": 21,
+        "gets:reobserve": 72,
+        "no_session": 5,
+        "no_session:no_home": 5,
+        "reobserved": 14,
+        "steps": 135
+      }
+    },
+    "timeline": {
+      "1000": {
+        "first_final_bell": 4,
+        "first_model_march_bell": null,
+        "first_ready_bell": 31,
+        "second_ready_bell": 34
+      },
+      "1001": {
+        "first_final_bell": 6,
+        "first_model_march_bell": 54,
+        "first_ready_bell": 33,
+        "second_ready_bell": 54
+      },
+      "1002": {
+        "first_final_bell": 7,
+        "first_model_march_bell": null,
+        "first_ready_bell": 34,
+        "second_ready_bell": 37
+      },
+      "1003": {
+        "first_final_bell": 8,
+        "first_model_march_bell": null,
+        "first_ready_bell": 29,
+        "second_ready_bell": 36
+      },
+      "1004": {
+        "first_final_bell": 9,
+        "first_model_march_bell": null,
+        "first_ready_bell": 31,
+        "second_ready_bell": 37
+      },
+      "1005": {
+        "first_final_bell": 10,
+        "first_model_march_bell": null,
+        "first_ready_bell": 44,
+        "second_ready_bell": 55
+      },
+      "1006": {
+        "first_final_bell": 11,
+        "first_model_march_bell": null,
+        "first_ready_bell": 15,
+        "second_ready_bell": 19
+      },
+      "1007": {
+        "first_final_bell": 12,
+        "first_model_march_bell": null,
+        "first_ready_bell": 46,
+        "second_ready_bell": 59
+      },
+      "1008": {
+        "first_final_bell": 13,
+        "first_model_march_bell": 39,
+        "first_ready_bell": 36,
+        "second_ready_bell": 43
+      },
+      "1009": {
+        "first_final_bell": 14,
+        "first_model_march_bell": 56,
+        "first_ready_bell": 36,
+        "second_ready_bell": 39
+      },
+      "1010": {
+        "first_final_bell": 15,
+        "first_model_march_bell": 63,
+        "first_ready_bell": 37,
+        "second_ready_bell": 53
+      },
+      "1011": {
+        "first_final_bell": 16,
+        "first_model_march_bell": 64,
+        "first_ready_bell": 37,
+        "second_ready_bell": 45
+      }
+    }
+  },
+  "personas": {
+    "diplomat": {
+      "ai": 6,
+      "decisions": 135,
+      "model_marches": 2,
+      "messages": 55,
+      "actions_by_model": 53,
+      "actions_by_autopilot": 106,
+      "march_rate_per_model_decision_pct": 1.5
+    },
+    "avenger": {
+      "ai": 6,
+      "decisions": 145,
+      "model_marches": 9,
+      "messages": 49,
+      "actions_by_model": 39,
+      "actions_by_autopilot": 115,
+      "march_rate_per_model_decision_pct": 6.2
+    }
+  },
+  "social": {
+    "talk_files": 169,
+    "messages_in_talk_files": 90,
+    "council_files": 36,
+    "council_periods": [
+      {
+        "file": "2-0.json",
+        "period": 2,
+        "faction": 0,
+        "options_hash": "1a830cba8e224194fad2c0ecaeece2811e86818a292bd3311faf43c5a8b8802f",
+        "adopted": true,
+        "ballots_cast": 3,
+        "tally_split": {
+          "ai": 2,
+          "human": 0,
+          "scripted": 1
+        },
+        "result": {
+          "present": 0,
+          "bounced": 0
+        }
+      },
+      {
+        "file": "2-1.json",
+        "period": 2,
+        "faction": 1,
+        "options_hash": "23e982f1bf49e1169c4ba3256a2d37a38288d4363de90b799147bebdf46ffe94",
+        "adopted": true,
+        "ballots_cast": 2,
+        "tally_split": {
+          "ai": 2,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": {
+          "present": 1,
+          "bounced": 0
+        }
+      },
+      {
+        "file": "2-2.json",
+        "period": 2,
+        "faction": 2,
+        "options_hash": "eafdfdaf7c84f5b4848cc8767084d793503d25de60223b6c681cb052f0ef4b7e",
+        "adopted": true,
+        "ballots_cast": 2,
+        "tally_split": {
+          "ai": 2,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": {
+          "present": 0,
+          "bounced": 0
+        }
+      },
+      {
+        "file": "2-3.json",
+        "period": 2,
+        "faction": 3,
+        "options_hash": "a2324128c8870d41fd8d80c3c833e4709aa5e11225a75f6765492d19a96f9d60",
+        "adopted": true,
+        "ballots_cast": 2,
+        "tally_split": {
+          "ai": 2,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": {
+          "present": 1,
+          "bounced": 0
+        }
+      },
+      {
+        "file": "2-4.json",
+        "period": 2,
+        "faction": 4,
+        "options_hash": "30b3657e8b1302af20f21dc749bf4ad9d0fcb98eb4d38c3796ec0c79a5b15c99",
+        "adopted": true,
+        "ballots_cast": 2,
+        "tally_split": {
+          "ai": 2,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": {
+          "present": 2,
+          "bounced": 0
+        }
+      },
+      {
+        "file": "2-5.json",
+        "period": 2,
+        "faction": 5,
+        "options_hash": "f01ca81e29f00bea025e9aaa2849da5c8b6aed404d358355385af86ec32f155f",
+        "adopted": true,
+        "ballots_cast": 2,
+        "tally_split": {
+          "ai": 2,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": {
+          "present": 0,
+          "bounced": 0
+        }
+      },
+      {
+        "file": "3-0.json",
+        "period": 3,
+        "faction": 0,
+        "options_hash": "20fc3bbf39667a9146ff69cb438208e9a76986d8d986060206d32737d60d78cd",
+        "adopted": false,
+        "ballots_cast": 2,
+        "tally_split": {
+          "ai": 2,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": null
+      },
+      {
+        "file": "3-1.json",
+        "period": 3,
+        "faction": 1,
+        "options_hash": "6b7576a0f17d0ea35c1727310cca1937cb8dc5c9a8189bf845613412dc7155cd",
+        "adopted": true,
+        "ballots_cast": 2,
+        "tally_split": {
+          "ai": 2,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": {
+          "present": 1,
+          "bounced": 1
+        }
+      },
+      {
+        "file": "3-2.json",
+        "period": 3,
+        "faction": 2,
+        "options_hash": "6fbe72ced47fc086646cc337aa6e9e449c58dfa5563624a07ce70c107df1aedc",
+        "adopted": true,
+        "ballots_cast": 2,
+        "tally_split": {
+          "ai": 2,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": {
+          "present": 1,
+          "bounced": 0
+        }
+      },
+      {
+        "file": "3-3.json",
+        "period": 3,
+        "faction": 3,
+        "options_hash": "cc9a14e6eb06f9cc8cef184ef069b244ffc3353d24db3b22cf89baf5b2914b64",
+        "adopted": true,
+        "ballots_cast": 2,
+        "tally_split": {
+          "ai": 2,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": {
+          "present": 1,
+          "bounced": 0
+        }
+      },
+      {
+        "file": "3-4.json",
+        "period": 3,
+        "faction": 4,
+        "options_hash": "9b53640124a4923697e69b8998c27ef51d620b5a43debb1edc7f295541e808ad",
+        "adopted": true,
+        "ballots_cast": 2,
+        "tally_split": {
+          "ai": 2,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": {
+          "present": 0,
+          "bounced": 0
+        }
+      },
+      {
+        "file": "3-5.json",
+        "period": 3,
+        "faction": 5,
+        "options_hash": "19cecafb2a7c068912f4d382ed48c1d93bf656b5a0e10be3495e5c13f5aef909",
+        "adopted": true,
+        "ballots_cast": 2,
+        "tally_split": {
+          "ai": 2,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": {
+          "present": 0,
+          "bounced": 0
+        }
+      },
+      {
+        "file": "4-0.json",
+        "period": 4,
+        "faction": 0,
+        "options_hash": "04a589f06dc7034ab4d4751ffcfaa2721da69b1e22d85238decf78e2e224834b",
+        "adopted": false,
+        "ballots_cast": 2,
+        "tally_split": {
+          "ai": 2,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": null
+      },
+      {
+        "file": "4-1.json",
+        "period": 4,
+        "faction": 1,
+        "options_hash": "6b7576a0f17d0ea35c1727310cca1937cb8dc5c9a8189bf845613412dc7155cd",
+        "adopted": true,
+        "ballots_cast": 2,
+        "tally_split": {
+          "ai": 2,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": {
+          "present": 1,
+          "bounced": 0
+        }
+      },
+      {
+        "file": "4-2.json",
+        "period": 4,
+        "faction": 2,
+        "options_hash": "813aefee15d57f5331d508fbbe9769cd7437e6d9802b65555d5ec4df0d13c9a5",
+        "adopted": true,
+        "ballots_cast": 2,
+        "tally_split": {
+          "ai": 2,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": {
+          "present": 1,
+          "bounced": 0
+        }
+      },
+      {
+        "file": "4-3.json",
+        "period": 4,
+        "faction": 3,
+        "options_hash": "e99431e51bf0a16c982da10a1413b408ffc1cdb40dff8835c601774ef3211bba",
+        "adopted": true,
+        "ballots_cast": 2,
+        "tally_split": {
+          "ai": 2,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": {
+          "present": 0,
+          "bounced": 0
+        }
+      },
+      {
+        "file": "4-4.json",
+        "period": 4,
+        "faction": 4,
+        "options_hash": "9b53640124a4923697e69b8998c27ef51d620b5a43debb1edc7f295541e808ad",
+        "adopted": true,
+        "ballots_cast": 2,
+        "tally_split": {
+          "ai": 2,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": {
+          "present": 0,
+          "bounced": 0
+        }
+      },
+      {
+        "file": "4-5.json",
+        "period": 4,
+        "faction": 5,
+        "options_hash": "84ab79f6969bce139fb735aea1e51b9025da083b898aa8edcde444e3a53ce192",
+        "adopted": false,
+        "ballots_cast": 2,
+        "tally_split": {
+          "ai": 2,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": null
+      },
+      {
+        "file": "5-0.json",
+        "period": 5,
+        "faction": 0,
+        "options_hash": "93c5b7d59cd91027bf52f5b53864983ad866588b9f7b2eea6d6c6b719374d641",
+        "adopted": false,
+        "ballots_cast": 2,
+        "tally_split": {
+          "ai": 2,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": null
+      },
+      {
+        "file": "5-1.json",
+        "period": 5,
+        "faction": 1,
+        "options_hash": "0fe90495e74fc1f355fd0d9230e664246ce3d734d139b4693dfe8c783befba51",
+        "adopted": false,
+        "ballots_cast": 2,
+        "tally_split": {
+          "ai": 2,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": null
+      },
+      {
+        "file": "5-2.json",
+        "period": 5,
+        "faction": 2,
+        "options_hash": "7b9d5a7c99552162896241784c0bbdd40b5afa339846b70e1a5b6a67f7e02c44",
+        "adopted": false,
+        "ballots_cast": 2,
+        "tally_split": {
+          "ai": 2,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": null
+      },
+      {
+        "file": "5-3.json",
+        "period": 5,
+        "faction": 3,
+        "options_hash": "e99431e51bf0a16c982da10a1413b408ffc1cdb40dff8835c601774ef3211bba",
+        "adopted": true,
+        "ballots_cast": 2,
+        "tally_split": {
+          "ai": 2,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": {
+          "present": 0,
+          "bounced": 0
+        }
+      },
+      {
+        "file": "5-4.json",
+        "period": 5,
+        "faction": 4,
+        "options_hash": "9b53640124a4923697e69b8998c27ef51d620b5a43debb1edc7f295541e808ad",
+        "adopted": true,
+        "ballots_cast": 2,
+        "tally_split": {
+          "ai": 2,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": {
+          "present": 2,
+          "bounced": 0
+        }
+      },
+      {
+        "file": "5-5.json",
+        "period": 5,
+        "faction": 5,
+        "options_hash": "4ff7a5b06e46bd04e26e3cf475ad94aceb31283697c49ff0c9f07023699636bf",
+        "adopted": true,
+        "ballots_cast": 2,
+        "tally_split": {
+          "ai": 2,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": {
+          "present": 0,
+          "bounced": 0
+        }
+      },
+      {
+        "file": "6-0.json",
+        "period": 6,
+        "faction": 0,
+        "options_hash": "c29930087dfffe5a29fb5b787f2445f06322625df8bb261eb4c19ab07401b8a1",
+        "adopted": false,
+        "ballots_cast": 0,
+        "tally_split": {
+          "ai": 0,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": null
+      },
+      {
+        "file": "6-1.json",
+        "period": 6,
+        "faction": 1,
+        "options_hash": "0fe90495e74fc1f355fd0d9230e664246ce3d734d139b4693dfe8c783befba51",
+        "adopted": false,
+        "ballots_cast": 0,
+        "tally_split": {
+          "ai": 0,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": null
+      },
+      {
+        "file": "6-2.json",
+        "period": 6,
+        "faction": 2,
+        "options_hash": "29e0da06ef500c4d8325f35a8549f35378d5565028c835050a067dcfb27d9784",
+        "adopted": false,
+        "ballots_cast": 0,
+        "tally_split": {
+          "ai": 0,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": null
+      },
+      {
+        "file": "6-3.json",
+        "period": 6,
+        "faction": 3,
+        "options_hash": "b09e9232a2f604cd4d550fbfeedc9623df817faad1ad92006f350083edd1b448",
+        "adopted": false,
+        "ballots_cast": 0,
+        "tally_split": {
+          "ai": 0,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": null
+      },
+      {
+        "file": "6-4.json",
+        "period": 6,
+        "faction": 4,
+        "options_hash": "1aedcfa92f18a787d2f8c56d67ca53a419a0696eb14467df903adbff60438ae9",
+        "adopted": false,
+        "ballots_cast": 0,
+        "tally_split": {
+          "ai": 0,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": null
+      },
+      {
+        "file": "6-5.json",
+        "period": 6,
+        "faction": 5,
+        "options_hash": "4ff7a5b06e46bd04e26e3cf475ad94aceb31283697c49ff0c9f07023699636bf",
+        "adopted": false,
+        "ballots_cast": 0,
+        "tally_split": {
+          "ai": 0,
+          "human": 0,
+          "scripted": 0
+        },
+        "result": null
+      },
+      {
+        "file": "7-0.json",
+        "period": 7,
+        "faction": 0,
+        "options_hash": "a6eab4f1ec65f0c199983deadd210977f8c26626bee72189b519e408c8799e03",
+        "adopted": false,
+        "ballots_cast": 0,
+        "tally_split": null,
+        "result": null
+      },
+      {
+        "file": "7-1.json",
+        "period": 7,
+        "faction": 1,
+        "options_hash": "a8dad1d93f674057d14c5e97d9319531312760de4b6e3c22af7b4f86c067c189",
+        "adopted": false,
+        "ballots_cast": 0,
+        "tally_split": null,
+        "result": null
+      },
+      {
+        "file": "7-2.json",
+        "period": 7,
+        "faction": 2,
+        "options_hash": "4d2017386edbbe666fd836508335cf64ffba59484501ae179c4764a87405dd60",
+        "adopted": false,
+        "ballots_cast": 0,
+        "tally_split": null,
+        "result": null
+      },
+      {
+        "file": "7-3.json",
+        "period": 7,
+        "faction": 3,
+        "options_hash": "6ed8b16730aea1c316f6d672ef76a915ded25853cc0f85ed407a3e132585f8eb",
+        "adopted": false,
+        "ballots_cast": 0,
+        "tally_split": null,
+        "result": null
+      },
+      {
+        "file": "7-4.json",
+        "period": 7,
+        "faction": 4,
+        "options_hash": "6eba1b7fe5a77fd9d5dc984d6c5d165f4a412261b08f6dfb0568bf58a104adcf",
+        "adopted": false,
+        "ballots_cast": 0,
+        "tally_split": null,
+        "result": null
+      },
+      {
+        "file": "7-5.json",
+        "period": 7,
+        "faction": 5,
+        "options_hash": "b64022501fd480e600970c91905773c1e67ffbda369d79315938223451ff6d01",
+        "adopted": false,
+        "ballots_cast": 0,
+        "tally_split": null,
+        "result": null
+      }
+    ],
+    "origin": {},
+    "council_outcomes": {
+      "available": true,
+      "rows": [
+        {
+          "period": 1,
+          "nation": 0,
+          "kind": "skipped",
+          "reason": "not_all_final",
+          "phase": "play",
+          "c0": 24,
+          "bell": 24,
+          "detail": {
+            "members": 2,
+            "lacking": [
+              {
+                "tag": "2811df1c447cb4c0",
+                "villages": 1,
+                "final": 0,
+                "provisional": 1
+              }
+            ],
+            "seat": {
+              "tag": "8ded31ddb6a87025",
+              "villages": 1,
+              "final": 0,
+              "provisional": 1
+            }
+          },
+          "council_file": false,
+          "ballots_cast": null
+        },
+        {
+          "period": 1,
+          "nation": 1,
+          "kind": "skipped",
+          "reason": "not_all_final",
+          "phase": "play",
+          "c0": 24,
+          "bell": 24,
+          "detail": {
+            "members": 2,
+            "lacking": [
+              {
+                "tag": "1914d7f1efb5ca0f",
+                "villages": 1,
+                "final": 0,
+                "provisional": 1
+              },
+              {
+                "tag": "f742d8794d851ad5",
+                "villages": 1,
+                "final": 0,
+                "provisional": 1
+              }
+            ],
+            "seat": null
+          },
+          "council_file": false,
+          "ballots_cast": null
+        },
+        {
+          "period": 1,
+          "nation": 2,
+          "kind": "skipped",
+          "reason": "not_all_final",
+          "phase": "play",
+          "c0": 24,
+          "bell": 24,
+          "detail": {
+            "members": 2,
+            "lacking": [
+              {
+                "tag": "f4fb292ad7d93d34",
+                "villages": 1,
+                "final": 0,
+                "provisional": 1
+              },
+              {
+                "tag": "39f2a8beb8b84e6e",
+                "villages": 1,
+                "final": 0,
+                "provisional": 1
+              }
+            ],
+            "seat": null
+          },
+          "council_file": false,
+          "ballots_cast": null
+        },
+        {
+          "period": 1,
+          "nation": 3,
+          "kind": "skipped",
+          "reason": "not_all_final",
+          "phase": "play",
+          "c0": 24,
+          "bell": 24,
+          "detail": {
+            "members": 2,
+            "lacking": [
+              {
+                "tag": "65252662be9d2720",
+                "villages": 1,
+                "final": 0,
+                "provisional": 1
+              },
+              {
+                "tag": "0bc195f29e9ff13c",
+                "villages": 1,
+                "final": 0,
+                "provisional": 1
+              }
+            ],
+            "seat": null
+          },
+          "council_file": false,
+          "ballots_cast": null
+        },
+        {
+          "period": 1,
+          "nation": 4,
+          "kind": "skipped",
+          "reason": "not_all_final",
+          "phase": "play",
+          "c0": 24,
+          "bell": 24,
+          "detail": {
+            "members": 2,
+            "lacking": [
+              {
+                "tag": "79b2922ac01ee07e",
+                "villages": 1,
+                "final": 0,
+                "provisional": 1
+              }
+            ],
+            "seat": null
+          },
+          "council_file": false,
+          "ballots_cast": null
+        },
+        {
+          "period": 1,
+          "nation": 5,
+          "kind": "skipped",
+          "reason": "not_all_final",
+          "phase": "play",
+          "c0": 24,
+          "bell": 24,
+          "detail": {
+            "members": 2,
+            "lacking": [
+              {
+                "tag": "2329cca38b644e91",
+                "villages": 1,
+                "final": 0,
+                "provisional": 1
+              },
+              {
+                "tag": "f8381256522ce6f9",
+                "villages": 1,
+                "final": 0,
+                "provisional": 1
+              }
+            ],
+            "seat": null
+          },
+          "council_file": false,
+          "ballots_cast": null
+        },
+        {
+          "period": 2,
+          "nation": 0,
+          "kind": "council",
+          "reason": null,
+          "phase": "play",
+          "c0": 48,
+          "bell": 49,
+          "detail": {
+            "options": 3,
+            "eligible": 3,
+            "humans": 1,
+            "seat": {
+              "in_eligible_list": true,
+              "final_village": true
+            }
+          },
+          "council_file": true,
+          "ballots_cast": 3
+        },
+        {
+          "period": 2,
+          "nation": 1,
+          "kind": "council",
+          "reason": null,
+          "phase": "play",
+          "c0": 48,
+          "bell": 49,
+          "detail": {
+            "options": 3,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 2
+        },
+        {
+          "period": 2,
+          "nation": 2,
+          "kind": "council",
+          "reason": null,
+          "phase": "play",
+          "c0": 48,
+          "bell": 49,
+          "detail": {
+            "options": 3,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 2
+        },
+        {
+          "period": 2,
+          "nation": 3,
+          "kind": "council",
+          "reason": null,
+          "phase": "play",
+          "c0": 48,
+          "bell": 49,
+          "detail": {
+            "options": 3,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 2
+        },
+        {
+          "period": 2,
+          "nation": 4,
+          "kind": "council",
+          "reason": null,
+          "phase": "play",
+          "c0": 48,
+          "bell": 49,
+          "detail": {
+            "options": 3,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 2
+        },
+        {
+          "period": 2,
+          "nation": 5,
+          "kind": "council",
+          "reason": null,
+          "phase": "play",
+          "c0": 48,
+          "bell": 49,
+          "detail": {
+            "options": 3,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 2
+        },
+        {
+          "period": 3,
+          "nation": 0,
+          "kind": "council",
+          "reason": null,
+          "phase": "play",
+          "c0": 72,
+          "bell": 73,
+          "detail": {
+            "options": 3,
+            "eligible": 3,
+            "humans": 1,
+            "seat": {
+              "in_eligible_list": true,
+              "final_village": true
+            }
+          },
+          "council_file": true,
+          "ballots_cast": 2
+        },
+        {
+          "period": 3,
+          "nation": 1,
+          "kind": "council",
+          "reason": null,
+          "phase": "play",
+          "c0": 72,
+          "bell": 73,
+          "detail": {
+            "options": 1,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 2
+        },
+        {
+          "period": 3,
+          "nation": 2,
+          "kind": "council",
+          "reason": null,
+          "phase": "play",
+          "c0": 72,
+          "bell": 73,
+          "detail": {
+            "options": 3,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 2
+        },
+        {
+          "period": 3,
+          "nation": 3,
+          "kind": "council",
+          "reason": null,
+          "phase": "play",
+          "c0": 72,
+          "bell": 73,
+          "detail": {
+            "options": 2,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 2
+        },
+        {
+          "period": 3,
+          "nation": 4,
+          "kind": "council",
+          "reason": null,
+          "phase": "play",
+          "c0": 72,
+          "bell": 73,
+          "detail": {
+            "options": 2,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 2
+        },
+        {
+          "period": 3,
+          "nation": 5,
+          "kind": "council",
+          "reason": null,
+          "phase": "play",
+          "c0": 72,
+          "bell": 73,
+          "detail": {
+            "options": 3,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 2
+        },
+        {
+          "period": 4,
+          "nation": 0,
+          "kind": "council",
+          "reason": null,
+          "phase": "play",
+          "c0": 96,
+          "bell": 97,
+          "detail": {
+            "options": 3,
+            "eligible": 3,
+            "humans": 1,
+            "seat": {
+              "in_eligible_list": true,
+              "final_village": true
+            }
+          },
+          "council_file": true,
+          "ballots_cast": 2
+        },
+        {
+          "period": 4,
+          "nation": 1,
+          "kind": "council",
+          "reason": null,
+          "phase": "play",
+          "c0": 96,
+          "bell": 97,
+          "detail": {
+            "options": 1,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 2
+        },
+        {
+          "period": 4,
+          "nation": 2,
+          "kind": "council",
+          "reason": null,
+          "phase": "play",
+          "c0": 96,
+          "bell": 97,
+          "detail": {
+            "options": 3,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 2
+        },
+        {
+          "period": 4,
+          "nation": 3,
+          "kind": "council",
+          "reason": null,
+          "phase": "play",
+          "c0": 96,
+          "bell": 97,
+          "detail": {
+            "options": 1,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 2
+        },
+        {
+          "period": 4,
+          "nation": 4,
+          "kind": "council",
+          "reason": null,
+          "phase": "play",
+          "c0": 96,
+          "bell": 97,
+          "detail": {
+            "options": 2,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 2
+        },
+        {
+          "period": 4,
+          "nation": 5,
+          "kind": "council",
+          "reason": null,
+          "phase": "play",
+          "c0": 96,
+          "bell": 97,
+          "detail": {
+            "options": 3,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 2
+        },
+        {
+          "period": 5,
+          "nation": 0,
+          "kind": "council",
+          "reason": null,
+          "phase": "play",
+          "c0": 120,
+          "bell": 121,
+          "detail": {
+            "options": 2,
+            "eligible": 3,
+            "humans": 1,
+            "seat": {
+              "in_eligible_list": true,
+              "final_village": true
+            }
+          },
+          "council_file": true,
+          "ballots_cast": 2
+        },
+        {
+          "period": 5,
+          "nation": 1,
+          "kind": "council",
+          "reason": null,
+          "phase": "play",
+          "c0": 120,
+          "bell": 121,
+          "detail": {
+            "options": 1,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 2
+        },
+        {
+          "period": 5,
+          "nation": 2,
+          "kind": "council",
+          "reason": null,
+          "phase": "play",
+          "c0": 120,
+          "bell": 121,
+          "detail": {
+            "options": 3,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 2
+        },
+        {
+          "period": 5,
+          "nation": 3,
+          "kind": "council",
+          "reason": null,
+          "phase": "play",
+          "c0": 120,
+          "bell": 121,
+          "detail": {
+            "options": 1,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 2
+        },
+        {
+          "period": 5,
+          "nation": 4,
+          "kind": "council",
+          "reason": null,
+          "phase": "play",
+          "c0": 120,
+          "bell": 121,
+          "detail": {
+            "options": 2,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 2
+        },
+        {
+          "period": 5,
+          "nation": 5,
+          "kind": "council",
+          "reason": null,
+          "phase": "play",
+          "c0": 120,
+          "bell": 121,
+          "detail": {
+            "options": 3,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 2
+        },
+        {
+          "period": 6,
+          "nation": 0,
+          "kind": "council",
+          "reason": null,
+          "phase": "drain",
+          "c0": 144,
+          "bell": 145,
+          "detail": {
+            "options": 3,
+            "eligible": 3,
+            "humans": 1,
+            "seat": {
+              "in_eligible_list": true,
+              "final_village": true
+            }
+          },
+          "council_file": true,
+          "ballots_cast": 0
+        },
+        {
+          "period": 6,
+          "nation": 1,
+          "kind": "council",
+          "reason": null,
+          "phase": "drain",
+          "c0": 144,
+          "bell": 145,
+          "detail": {
+            "options": 1,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 0
+        },
+        {
+          "period": 6,
+          "nation": 2,
+          "kind": "council",
+          "reason": null,
+          "phase": "drain",
+          "c0": 144,
+          "bell": 145,
+          "detail": {
+            "options": 3,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 0
+        },
+        {
+          "period": 6,
+          "nation": 3,
+          "kind": "council",
+          "reason": null,
+          "phase": "drain",
+          "c0": 144,
+          "bell": 145,
+          "detail": {
+            "options": 2,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 0
+        },
+        {
+          "period": 6,
+          "nation": 4,
+          "kind": "council",
+          "reason": null,
+          "phase": "drain",
+          "c0": 144,
+          "bell": 145,
+          "detail": {
+            "options": 1,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 0
+        },
+        {
+          "period": 6,
+          "nation": 5,
+          "kind": "council",
+          "reason": null,
+          "phase": "drain",
+          "c0": 144,
+          "bell": 145,
+          "detail": {
+            "options": 3,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 0
+        },
+        {
+          "period": 7,
+          "nation": 0,
+          "kind": "council",
+          "reason": null,
+          "phase": "drain",
+          "c0": 168,
+          "bell": 169,
+          "detail": {
+            "options": 3,
+            "eligible": 3,
+            "humans": 1,
+            "seat": {
+              "in_eligible_list": true,
+              "final_village": true
+            }
+          },
+          "council_file": true,
+          "ballots_cast": 0
+        },
+        {
+          "period": 7,
+          "nation": 1,
+          "kind": "council",
+          "reason": null,
+          "phase": "drain",
+          "c0": 168,
+          "bell": 169,
+          "detail": {
+            "options": 3,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 0
+        },
+        {
+          "period": 7,
+          "nation": 2,
+          "kind": "council",
+          "reason": null,
+          "phase": "drain",
+          "c0": 168,
+          "bell": 169,
+          "detail": {
+            "options": 3,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 0
+        },
+        {
+          "period": 7,
+          "nation": 3,
+          "kind": "council",
+          "reason": null,
+          "phase": "drain",
+          "c0": 168,
+          "bell": 169,
+          "detail": {
+            "options": 3,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 0
+        },
+        {
+          "period": 7,
+          "nation": 4,
+          "kind": "council",
+          "reason": null,
+          "phase": "drain",
+          "c0": 168,
+          "bell": 169,
+          "detail": {
+            "options": 3,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 0
+        },
+        {
+          "period": 7,
+          "nation": 5,
+          "kind": "council",
+          "reason": null,
+          "phase": "drain",
+          "c0": 168,
+          "bell": 169,
+          "detail": {
+            "options": 2,
+            "eligible": 2,
+            "humans": 0,
+            "seat": null
+          },
+          "council_file": true,
+          "ballots_cast": 0
+        }
+      ],
+      "by_reason": {
+        "skipped:not_all_final": 6,
+        "council": 36
+      },
+      "seat_finalise": null,
+      "note": null
+    },
+    "council_calls": {
+      "available": true,
+      "ballot": {
+        "decided_by_mind": 60,
+        "ledger_rows": 60,
+        "attached": 48,
+        "expired": 0,
+        "dropped": 0,
+        "pending_never_carried": 12,
+        "decided_in_drain": 12,
+        "posted_by_brain": 48,
+        "ai_ballots_in_council_files": 48
+      },
+      "motion": {
+        "decided_by_mind": 44,
+        "ledger_rows": 45,
+        "attached": 34,
+        "expired": 0,
+        "dropped": 0,
+        "pending_never_carried": 11,
+        "decided_in_drain": 11
+      },
+      "brain_posted": {
+        "talk": 90,
+        "ballot": 48
+      },
+      "ballot_decisions_not_posted": 12,
+      "note": "60 ballot decisions and 44 motion decisions by the mind; 23 never carried to the brain (pending at the end), 0 expired before a brain answer could carry them, 0 dropped. \"Attached\" means handed to the brain's next answer, not accepted by the social service."
+    },
+    "note": null
+  },
+  "census": {
+    "v": 1,
+    "first_census": 13,
+    "ai": [
+      {
+        "tag": "2811df1c447cb4c0",
+        "first_final_bell": 4,
+        "first_can_depart_bell": 30,
+        "second_can_depart_bell": 34,
+        "bells_to_first_can_depart": 26,
+        "bells_to_second_can_depart": 30
+      },
+      {
+        "tag": "1914d7f1efb5ca0f",
+        "first_final_bell": 5,
+        "first_can_depart_bell": 32,
+        "second_can_depart_bell": 54,
+        "bells_to_first_can_depart": 27,
+        "bells_to_second_can_depart": 49
+      },
+      {
+        "tag": "f4fb292ad7d93d34",
+        "first_final_bell": 6,
+        "first_can_depart_bell": 33,
+        "second_can_depart_bell": 36,
+        "bells_to_first_can_depart": 27,
+        "bells_to_second_can_depart": 30
+      },
+      {
+        "tag": "65252662be9d2720",
+        "first_final_bell": 7,
+        "first_can_depart_bell": 28,
+        "second_can_depart_bell": 35,
+        "bells_to_first_can_depart": 21,
+        "bells_to_second_can_depart": 28
+      },
+      {
+        "tag": "83eedd2fbe314387",
+        "first_final_bell": 8,
+        "first_can_depart_bell": 30,
+        "second_can_depart_bell": 36,
+        "bells_to_first_can_depart": 22,
+        "bells_to_second_can_depart": 28
+      },
+      {
+        "tag": "2329cca38b644e91",
+        "first_final_bell": 9,
+        "first_can_depart_bell": 44,
+        "second_can_depart_bell": 55,
+        "bells_to_first_can_depart": 35,
+        "bells_to_second_can_depart": 46
+      },
+      {
+        "tag": "a02ad0c4a3d41b31",
+        "first_final_bell": 10,
+        "first_can_depart_bell": 15,
+        "second_can_depart_bell": 19,
+        "bells_to_first_can_depart": 5,
+        "bells_to_second_can_depart": 9
+      },
+      {
+        "tag": "f742d8794d851ad5",
+        "first_final_bell": 11,
+        "first_can_depart_bell": 46,
+        "second_can_depart_bell": 109,
+        "bells_to_first_can_depart": 35,
+        "bells_to_second_can_depart": 98
+      },
+      {
+        "tag": "39f2a8beb8b84e6e",
+        "first_final_bell": 12,
+        "first_can_depart_bell": 35,
+        "second_can_depart_bell": 88,
+        "bells_to_first_can_depart": 23,
+        "bells_to_second_can_depart": 76
+      },
+      {
+        "tag": "0bc195f29e9ff13c",
+        "first_final_bell": 13,
+        "first_can_depart_bell": 35,
+        "second_can_depart_bell": 39,
+        "bells_to_first_can_depart": 22,
+        "bells_to_second_can_depart": 26
+      },
+      {
+        "tag": "79b2922ac01ee07e",
+        "first_final_bell": 14,
+        "first_can_depart_bell": 36,
+        "second_can_depart_bell": 53,
+        "bells_to_first_can_depart": 22,
+        "bells_to_second_can_depart": 39
+      },
+      {
+        "tag": "f8381256522ce6f9",
+        "first_final_bell": 15,
+        "first_can_depart_bell": 37,
+        "second_can_depart_bell": 45,
+        "bells_to_first_can_depart": 22,
+        "bells_to_second_can_depart": 30
+      }
+    ]
+  },
+  "mind_counters": {
+    "model_decisions": 292,
+    "llm_calls": 316,
+    "bells_closed": 169,
+    "decisions_total": 1735,
+    "decisions_model": 238,
+    "valid_choices": 238,
+    "outcomes": 1626,
+    "decisions_autopilot": 1497,
+    "feed_wait": 140,
+    "retries": 36,
+    "decisions_citing_memory": 102,
+    "model_marches": 11,
+    "say_withheld": 21,
+    "params_stray_dropped": 9,
+    "calls_declined": 5,
+    "reflect_due": 12,
+    "reflections_run": 12,
+    "summaries_published": 2,
+    "reflection_refused": 10
+  },
+  "scheduler": {
+    "session": {
+      "p50": 4580,
+      "p90": 8783,
+      "n": 50
+    },
+    "motion": {
+      "p50": 3668,
+      "p90": 7784,
+      "n": 50
+    },
+    "ballot": {
+      "p50": 4134,
+      "p90": 4996,
+      "n": 50
+    },
+    "reaction": {
+      "p50": 3820,
+      "p90": 6234,
+      "n": 50
+    },
+    "reflection": {
+      "p50": 3729,
+      "p90": 4156,
+      "n": 22
+    }
+  },
+  "not_measured": [
+    "llama tokens per second and RSS (no field in the mind snapshot)",
+    "MC and playtest load at run time (the Mac load is recorded by hand next to each latency)",
+    "the herald load during the run (request counts and response times at the herald): no file of a run records them; the report counts only the brain's own extra GETs (the first observation of a step and the script bots' GETs are not in them), so the herald-load line of contract R6 is only partly met",
+    "the herald clash report rows (engaged: true) that contract 10.1 reads for Y: Y here is an episode proxy (public clash_own_* episodes), see marches.y_proxy_note",
+    "quota left at every model decision and quota-starved bells per AI (the brain counts quota_starved_bells in total only)",
+    "hostile acts, collisions, grievances opened and answered, strike results (they need the council and the herald; not read here)"
+  ],
+  "does_not_show": [
+    "human playtest results, traction, working money, strength of the AI against rule bots, or that the model wants or intends anything",
+    "that a cited episode was the reason for a choice (a citation shows the line was shown and named)",
+    "exact replay of model output beyond the M9 samples verify-minds checks"
+  ],
+  "checks": {
+    "brain_first_call_answers_equal_step_records": true,
+    "records_equal_metrics_decisions_total": true,
+    "every_closed_bell_has_an_anchor_or_gap": true,
+    "chosen_march_candidates_equal_mind_counter": true,
+    "model_marches_equal_brain_counter": true,
+    "valid_plus_fallbacks_equal_model_decisions": true,
+    "gets_per_bot_sum_equals_total": true
+  }
+}

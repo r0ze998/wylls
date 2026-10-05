@@ -1,0 +1,497 @@
+{
+ "v": 1,
+ "kind": "pilot-reader",
+ "run_id": "ai-pilot-A1",
+ "rep": 1,
+ "motion_rate": {
+  "periods_total": 4,
+  "periods_with_options": 4,
+  "periods_with_ai_motion": 4,
+  "periods_adopted": 1,
+  "periods_opened": 4
+ },
+ "seat": {
+  "period": 2,
+  "option_x": 1,
+  "ballots": [
+   {
+    "period": 2,
+    "option": 1,
+    "ok": true,
+    "bell": 52
+   }
+  ],
+  "ineligible_periods": [],
+  "skipped_periods": [],
+  "finalise": {
+   "scripted": true,
+   "statement": "the operator's script touches the seat's own village so that it counts as a final village; it casts no vote and moves no troops",
+   "status": "final",
+   "final": true,
+   "attempts": 1,
+   "tries": 1,
+   "last_attempt_bell": 34,
+   "last_checked_bell": 35,
+   "final_bell": 35,
+   "last_result": {
+    "bell": 34,
+    "ok": true,
+    "code": null,
+    "state": "landed",
+    "signature": "5QqZQwxnxAyUDH5o9NM4LjymJYDNFTeDRqsf2qyKJ8KWF7khHk38w194gznqqqiaG2G3jihuwaU6mbS5D5RaNWH2"
+   },
+   "note": null
+  }
+ },
+ "periods": [
+  {
+   "period": 2,
+   "c0": 48,
+   "strike_bell": 60,
+   "follow_from": 54,
+   "option": 1,
+   "target": {
+    "p": 1,
+    "q": 1,
+    "tile": 48
+   },
+   "options": [
+    {
+     "option": 1,
+     "kind": "camp",
+     "p": 1,
+     "q": 1,
+     "ratio": "favourable"
+    },
+    {
+     "option": 2,
+     "kind": "camp",
+     "p": 1,
+     "q": 2,
+     "ratio": "favourable"
+    },
+    {
+     "option": 3,
+     "kind": "camp",
+     "p": 2,
+     "q": -1,
+     "ratio": "favourable"
+    }
+   ],
+   "options_hash": "1a830cba8e224194fad2c0ecaeece2811e86818a292bd3311faf43c5a8b8802f",
+   "candidates_hash": "f522791df8af4011d123bee2441f62a19afa98455947de7fae4318b4c207b679",
+   "ai_motions": [
+    {
+     "name": "Sael Aridge",
+     "option": 1
+    }
+   ],
+   "ballots": [
+    {
+     "ai": false,
+     "option": 1,
+     "origin": 2
+    },
+    {
+     "ai": true,
+     "option": 1,
+     "origin": 1
+    },
+    {
+     "ai": true,
+     "option": 1,
+     "origin": 1
+    }
+   ],
+   "tally_split": {
+    "ai": 2,
+    "human": 0,
+    "scripted": 1
+   },
+   "pivot_condition": true,
+   "invited": {
+    "rows": [
+     {
+      "host_id": "354047039111168",
+      "kind": "ai",
+      "by_bell": {
+       "53": {
+        "ready": true,
+        "why": "ready",
+        "text": "ready",
+        "stamina": 120
+       },
+       "54": {
+        "ready": true,
+        "why": "ready",
+        "text": "ready",
+        "stamina": 120
+       },
+       "55": {
+        "ready": true,
+        "why": "ready",
+        "text": "ready",
+        "stamina": 120
+       },
+       "56": {
+        "ready": true,
+        "why": "ready",
+        "text": "ready",
+        "stamina": 120
+       },
+       "57": {
+        "ready": true,
+        "why": "ready",
+        "text": "ready",
+        "stamina": 120
+       },
+       "58": {
+        "ready": true,
+        "why": "ready",
+        "text": "ready",
+        "stamina": 120
+       },
+       "59": {
+        "ready": true,
+        "why": "ready",
+        "text": "ready",
+        "stamina": 120
+       }
+      },
+      "ready_at_c0_plus_6": true,
+      "ready_in_window": true
+     },
+     {
+      "host_id": "363942643761152",
+      "kind": "ai",
+      "by_bell": {
+       "53": {
+        "ready": true,
+        "why": "ready",
+        "text": "ready",
+        "stamina": 120
+       },
+       "54": {
+        "ready": true,
+        "why": "ready",
+        "text": "ready",
+        "stamina": 120
+       },
+       "55": {
+        "ready": true,
+        "why": "ready",
+        "text": "ready",
+        "stamina": 120
+       },
+       "56": {
+        "ready": true,
+        "why": "ready",
+        "text": "ready",
+        "stamina": 120
+       },
+       "57": {
+        "ready": true,
+        "why": "ready",
+        "text": "ready",
+        "stamina": 120
+       },
+       "58": {
+        "ready": true,
+        "why": "ready",
+        "text": "ready",
+        "stamina": 120
+       },
+       "59": {
+        "ready": true,
+        "why": "ready",
+        "text": "ready",
+        "stamina": 120
+       }
+      },
+      "ready_at_c0_plus_6": true,
+      "ready_in_window": true
+     },
+     {
+      "host_id": "354047039111169",
+      "kind": "ai",
+      "by_bell": {
+       "53": {
+        "ready": true,
+        "why": "ready",
+        "text": "ready",
+        "stamina": 120
+       },
+       "54": {
+        "ready": true,
+        "why": "ready",
+        "text": "ready",
+        "stamina": 120
+       },
+       "55": {
+        "ready": true,
+        "why": "ready",
+        "text": "ready",
+        "stamina": 120
+       },
+       "56": {
+        "ready": true,
+        "why": "ready",
+        "text": "ready",
+        "stamina": 120
+       },
+       "57": {
+        "ready": true,
+        "why": "ready",
+        "text": "ready",
+        "stamina": 120
+       },
+       "58": {
+        "ready": true,
+        "why": "ready",
+        "text": "ready",
+        "stamina": 120
+       },
+       "59": {
+        "ready": true,
+        "why": "ready",
+        "text": "ready",
+        "stamina": 120
+       }
+      },
+      "ready_at_c0_plus_6": true,
+      "ready_in_window": true
+     },
+     {
+      "host_id": "363942643761154",
+      "kind": "ai",
+      "by_bell": {
+       "53": {
+        "ready": true,
+        "why": "ready",
+        "text": "ready",
+        "stamina": 120
+       },
+       "54": {
+        "ready": true,
+        "why": "ready",
+        "text": "ready",
+        "stamina": 120
+       },
+       "55": {
+        "ready": true,
+        "why": "ready",
+        "text": "ready",
+        "stamina": 120
+       },
+       "56": {
+        "ready": true,
+        "why": "ready",
+        "text": "ready",
+        "stamina": 120
+       },
+       "57": {
+        "ready": true,
+        "why": "ready",
+        "text": "ready",
+        "stamina": 120
+       },
+       "58": {
+        "ready": true,
+        "why": "ready",
+        "text": "ready",
+        "stamina": 120
+       },
+       "59": {
+        "ready": true,
+        "why": "ready",
+        "text": "ready",
+        "stamina": 120
+       }
+      },
+      "ready_at_c0_plus_6": true,
+      "ready_in_window": true
+     }
+    ],
+    "ready_at_c0_plus_6": 4,
+    "ready_in_window": 4,
+    "invited": 4
+   },
+   "ready_invited_at_c0_plus_6": 4,
+   "nation0_departs_arriving_at_s": [],
+   "invited_hosts_departing": 0,
+   "nation0_revealed_at_target_at_s": [],
+   "result": {
+    "present": 0,
+    "bounced": 0,
+    "clash": null,
+    "present_hosts": []
+   },
+   "ai_follow_window": [
+    {
+     "bell": 54,
+     "ai": "2811df1c447cb4c0",
+     "kind": "autopilot",
+     "mode": "autopilot",
+     "reason": "below_gate",
+     "request_stored": false,
+     "strike_order_candidates": [],
+     "chose_strike_order": false,
+     "choice_ids": [
+      "c1"
+     ]
+    },
+    {
+     "bell": 54,
+     "ai": "a02ad0c4a3d41b31",
+     "kind": "autopilot",
+     "mode": "autopilot",
+     "reason": "below_gate",
+     "request_stored": false,
+     "strike_order_candidates": [],
+     "chose_strike_order": false,
+     "choice_ids": [
+      "c1"
+     ]
+    },
+    {
+     "bell": 55,
+     "ai": "2811df1c447cb4c0",
+     "kind": "session",
+     "mode": "model",
+     "reason": "ok",
+     "request_stored": true,
+     "strike_order_candidates": [],
+     "chose_strike_order": false,
+     "choice_ids": [
+      "c2"
+     ]
+    },
+    {
+     "bell": 55,
+     "ai": "a02ad0c4a3d41b31",
+     "kind": "session",
+     "mode": "model",
+     "reason": "ok",
+     "request_stored": true,
+     "strike_order_candidates": [],
+     "chose_strike_order": false,
+     "choice_ids": [
+      "c2"
+     ]
+    },
+    {
+     "bell": 56,
+     "ai": "2811df1c447cb4c0",
+     "kind": "autopilot",
+     "mode": "autopilot",
+     "reason": "below_gate",
+     "request_stored": false,
+     "strike_order_candidates": [],
+     "chose_strike_order": false,
+     "choice_ids": [
+      "c1"
+     ]
+    },
+    {
+     "bell": 56,
+     "ai": "a02ad0c4a3d41b31",
+     "kind": "reaction",
+     "mode": "model",
+     "reason": "ok",
+     "request_stored": true,
+     "strike_order_candidates": [],
+     "chose_strike_order": false,
+     "choice_ids": []
+    },
+    {
+     "bell": 57,
+     "ai": "2811df1c447cb4c0",
+     "kind": "session",
+     "mode": "model",
+     "reason": "ok",
+     "request_stored": true,
+     "strike_order_candidates": [],
+     "chose_strike_order": false,
+     "choice_ids": [
+      "c1"
+     ]
+    },
+    {
+     "bell": 57,
+     "ai": "a02ad0c4a3d41b31",
+     "kind": "autopilot",
+     "mode": "autopilot",
+     "reason": "below_gate",
+     "request_stored": false,
+     "strike_order_candidates": [],
+     "chose_strike_order": false,
+     "choice_ids": [
+      "c1"
+     ]
+    },
+    {
+     "bell": 58,
+     "ai": "2811df1c447cb4c0",
+     "kind": "autopilot",
+     "mode": "autopilot",
+     "reason": "below_gate",
+     "request_stored": false,
+     "strike_order_candidates": [],
+     "chose_strike_order": false,
+     "choice_ids": [
+      "c1"
+     ]
+    },
+    {
+     "bell": 58,
+     "ai": "a02ad0c4a3d41b31",
+     "kind": "autopilot",
+     "mode": "autopilot",
+     "reason": "below_gate",
+     "request_stored": false,
+     "strike_order_candidates": [],
+     "chose_strike_order": false,
+     "choice_ids": [
+      "c1"
+     ]
+    },
+    {
+     "bell": 59,
+     "ai": "2811df1c447cb4c0",
+     "kind": "autopilot",
+     "mode": "autopilot",
+     "reason": "below_gate",
+     "request_stored": false,
+     "strike_order_candidates": [],
+     "chose_strike_order": false,
+     "choice_ids": [
+      "c1"
+     ]
+    },
+    {
+     "bell": 59,
+     "ai": "a02ad0c4a3d41b31",
+     "kind": "autopilot",
+     "mode": "autopilot",
+     "reason": "below_gate",
+     "request_stored": false,
+     "strike_order_candidates": [],
+     "chose_strike_order": false,
+     "choice_ids": [
+      "c1"
+     ]
+    }
+   ]
+  }
+ ],
+ "ready_for_T": 4,
+ "T": 3,
+ "counters_ai_fleet": null,
+ "counters_script_bots": null,
+ "limits": [
+  "readiness comes from the province files (roster state, mustered, ready bell, stamina); a pending order and a host in transit are not in that view, so \"ready\" can over-count by those; a host that is not in the files near the target counts as away",
+  "host owners come from the public owners index; \"script\" means a citizen of nation 0 that is neither an AI nor the seat",
+  "the AI follow-window rows are operator-side (the mind's private records and stored request bodies) and are not part of the public audit",
+  "one pilot run: it sets T and says what happened, it is not a rate"
+ ]
+}
