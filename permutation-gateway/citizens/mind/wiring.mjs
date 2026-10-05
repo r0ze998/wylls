@@ -162,7 +162,7 @@ export function createEpisodePump({ feed, stores, views, roster, clock, config =
       stats.councils = Math.max(stats.councils, councils.length);
       try {
         const before = stores.episodes(tag).size;
-        const res = stores.ingest(tag, { events, talk, council: councils, council_options: social?.councilOptions?.(ai.faction) ?? councils }, ctx, { cursor: { event_seq: feed.cursor(), bell: through } });
+        const res = stores.ingest(tag, { events, talk, council: councils, council_options: social?.councilOptions?.(ai.faction) ?? councils, window_start: Math.max(0, through - lookback) }, ctx, { cursor: { event_seq: feed.cursor(), bell: through } });
         // an episode made from a redacted record is produced blanked, but its id is already stored: blank the stored one
         for (const ep of res.episodes ?? []) {
           if (ep.redacted && stores.episodes(tag).byId.get(ep.id)?.redacted !== true) {

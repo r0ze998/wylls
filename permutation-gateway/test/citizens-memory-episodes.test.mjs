@@ -461,6 +461,39 @@ test('synthetic: a Strike Order that produced no clash is remembered only at S +
   assert.match(s.text.en, /troops lost: yours 0, theirs 0; your army did not take part\.$/);
 });
 
+test('synthetic: the live pump reads only the last `lookback` bells: once the CLASH row has left the window no clash-less twin of the strike episode is made (pilot ai-pilot-A1, M11)', () => {
+  const sites = [4];
+  const before = province({ p: 4, q: 0, sites, entries: [{ id: EH, faction: 1, tile: 12, troops: 500 }] });
+  const after = province({ p: 4, q: 0, sites, entries: [{ id: AH, faction: 3, tile: 12, troops: 570 }, { id: EH, faction: 1, tile: 12, troops: 330 }] });
+  const mine = { id: AH, arrival: true, post: 570, engaged: true, fate: 'Stays', tile: 12 };
+  const theirs = { id: EH, arrival: false, post: 330, engaged: true, fate: 'Stays', tile: 12 };
+  const clash = clashFile({ p: 4, q: 0, bell: 306, fighters: [mine, theirs], before, arrivals: [{ id: AH, tag: dec(A), faction: 3, tile: 12, troops: 600 }] });
+  const h = fakeHerald({ provinces: { '4,0,305': before, '4,0,306': after }, clashes: [clash] });
+  const council = [{ faction: 3, period: 4, close_bell: 300, adopted: true, strike_bell: 306, open: { option: 2, p: 4, q: 0, tile: 12 } }];
+  const clashRow = row(50, 'sigS', 308, 'CLASH', { p: 4, q: 0, bell: 306 }, { engagements: 1 }); // logged at S + 2
+  const LOOKBACK = 30;
+  // the full replay: one episode, made from the clash
+  const full = episodes_from_events({ events: [clashRow], council }, ctxOf(h)).episodes.filter(e => e.kind === 'strike');
+  assert.equal(full.length, 1);
+  assert.equal(full[0].created_bell, 308);
+  // the live pump, pass by pass: the window is [through - LOOKBACK, through]; the row (log bell 308) is in it until through 338
+  const live = new Map();
+  for (const through of [308, 312, 320, 330, 338, 339, 360, 400, 500]) {
+    const windowStart = Math.max(0, through - LOOKBACK);
+    const events = through - LOOKBACK <= 308 ? [clashRow] : [];
+    for (const e of episodes_from_events({ events, council, window_start: windowStart }, ctxOf(h, { bellNow: through + 1 })).episodes) if (e.kind === 'strike') live.set(e.id, e);
+  }
+  assert.deepEqual([...live.values()].map(e => e.id), full.map(e => e.id), 'the live episodes equal the full replay: no twin made once the row had left the window');
+  // the old behaviour (no window given) makes the twin at S + 14
+  const twin = episodes_from_events({ events: [], council }, ctxOf(h, { bellNow: 501 })).episodes.filter(e => e.kind === 'strike');
+  assert.equal(twin.length, 1, 'without a window start the producer cannot know the row is out of view');
+  assert.equal(twin[0].created_bell, 320);
+  // a Strike Order with no clash at all is still remembered at S + 14 while S + 2 is inside the window
+  const quietLive = episodes_from_events({ council, window_start: 308 }, ctxOf(quiet, { bellNow: 321 })).episodes.filter(e => e.kind === 'strike');
+  assert.equal(quietLive.length, 1);
+  assert.equal(episodes_from_events({ council, window_start: 309 }, ctxOf(quiet, { bellNow: 321 })).episodes.filter(e => e.kind === 'strike').length, 0, 'a window that starts after S + 2 cannot say there was no clash');
+});
+
 // ---------------------------------------------------------------------------------------------- answered grievances, idempotence
 test('synthetic: an own march whose REVEAL destination is the wrongdoer\'s army at the departure bell answers the grievance (code-set)', () => {
   const sites = [4];

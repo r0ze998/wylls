@@ -90,6 +90,8 @@ const uniqSorted = a => [...new Set(a)].sort();
 export function episodes_from_events(batch = {}, ctx = {}) {
   const ai = { ...ctx.ai, tag: tagHex(ctx.ai.tag) };
   const bellNow = ctx.bellNow ?? Infinity;
+  // the first bell of the log the caller read: 0 in a full replay; the live pump reads only the last `lookback` bells (wiring.mjs) and says so
+  const windowStart = Number(batch.window_start ?? 0);
   const names = ctx.names ?? {};
   const nameOf = names.nameOf ?? defaultNameOf;
   const nationName = names.nationName ?? defaultNationName;
@@ -452,6 +454,10 @@ export function episodes_from_events(batch = {}, ctx = {}) {
       src.push(`event:${csRow.seq}`);
     } else {
       if (!(bellNow > S + WAIT)) continue; // a Strike Order with no clash is remembered at S + 14 (the row could still arrive)
+      // "no CLASH row" means "no clash" only while the log from S + 2 (when the row is logged) is in view. The live pump reads the last
+      // `lookback` bells only: once the row has left its window, a pass would add a clash-less twin of the episode the clash made (pilot
+      // ai-pilot-A1: every Strike Order that had a clash got one at S + 14, a run longer than the window later; M11 failed on 2 of 3 AIs).
+      if (windowStart > S + HOSTILE_EVAL_LAG) continue;
       created = S + WAIT;
     }
     add('strike', {
