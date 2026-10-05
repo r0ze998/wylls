@@ -9,7 +9,8 @@
 
 ## 0. 先に結論
 
-1. **本走(18体・3ゲーム日)も A/B も、実行されていません。** あなたが 10-05 12:02 に置いた HOLD ファイルが、今(10-06 06:48)も残っています。前の3つの作業(パイロット、A/B、本走)は、それぞれ6時間待ち、何も起動しませんでした。だから「本走で測る」と契約が決めたゲートには、合格も不合格もありません。**「未実施」** です。
+1. **本走(18体・3ゲーム日)も A/B も、実行されていません。** あなたが 10-05 12:02 に置いた HOLD ファイルが、この文書の数字を集めた時点(10-06 06:48)も残っていました。前の3つの作業(パイロット、A/B、本走)は、それぞれ6時間待ち、何も起動しませんでした。だから「本走で測る」と契約が決めたゲートには、合格も不合格もありません。**「未実施」** です。
+   **更新(10-06 06:54):** 06:54 に HOLD ファイルが無くなり、別のセッションが `ai-pilot-A2`(腕A、反復1のパイロットの再実行。RUNS.md のコミット `d853503`)を起動しました。それは私が起動したものではなく、この文書の数字にも、梱包にも含まれていません(終わっていません)。終わったら、その結果が第2節の G7(T、従う数)、G1(失敗の偏り)、G8 の行を変えます。起動中の `drand-replay`(41920)と、あなたの llama-server(41901)は、私のものではなく、触っていません。
 2. ただし、**完了した実行は4回あります**: `smoke-r4`(6体)、`ai-pilot-A1`(12体、A/Bの設定のパイロット)、`ai-record-2` と `ai-record-3`(12体、あなたの録画用の予行)。ここから、**n が小さい事実**は言えます。ゲートの合否としては言えません。
 3. **良いこと。**
    - verify-minds は、4回中3回で7項目すべて合格しました(`smoke-r4`、`ai-record-2`、`ai-record-3`)。
@@ -215,7 +216,7 @@
 
 **決めること**
 
-1. **HOLD ファイル**(`scratchpad/HOLD`、10-05 12:02 作成)を外す時期。本走(約8時間)と A/B(約8時間、T の決定が前提)は、どちらもMacを占有します。残りは10-12 23:59 まで。
+1. **HOLD ファイル**(`scratchpad/HOLD`、10-05 12:02 作成。06:54 時点では無く、`ai-pilot-A2` が走っています)について: 本走と A/B を始める時期。本走(約8時間)と A/B(約8時間、T の決定が前提)は、どちらもMacを占有します。残りは10-12 23:59 まで。
 2. **実行の順番。** 本走を先にする案(T が要らない)と、A/B を先にする案(T が要る)。どちらも、パイロットの修正の(R2・R3 では合格した)追跡になります。
 3. **T。** 式では T=3、実際に従えるのは2ホストまで(第2節 G7)。T=3 のまま(G7 は構造的に通らない)、T=2(従う側を数える、「2未満にならない」の範囲内)、または、従い方の規則を変える(1つのAIが招待ホストを2つ送れる。`bots/src/ai/**` の変更で、AIの管轄の範囲)。RUNS.md に、反復1の前に書く決まりです。
 4. **R02/R03(G5)。** (a) そのまま報告する(本書の第4節の真の文)、(b) 状況が行軍しか選べないように R02/R03 を直し、変更をコーパスのハッシュとともに宣言して、2ケースだけ再実行する(約1分)。ハッシュが変わるので、事前登録の定義の変更になります。私は (a) を推奨します。
@@ -267,7 +268,7 @@
 
 ## E1. AI citizens: results so far
 
-**Status.** Four AI runs have completed on the local test chain with Gemma 4 running locally: `smoke-r4` (6 AIs, one persona, 14 game hours), `ai-pilot-A1` (12 AIs, 24 game hours), `ai-record-2` and `ai-record-3` (12 AIs, 16 game hours, same configuration and seed). **The 18-AI main run (3 game days) and the A/B test have not been run.** Every threshold below was fixed in advance in [the contract, section 10.2](docs/frontier/ai-citizens/AI-CITIZENS-CONTRACT.md#102-gates). The "Main run" column is empty for every gate that the contract measures on the main run; the next column shows the nearest live evidence, which is **not** the gate's own measurement. All numbers are small-n counts from single runs, not rates. Run files: `docs/frontier/ai-citizens/runs/<run id>/` (`report.json`, `verify-minds.json`, council files, episodes; the stored request bodies stay offline).
+**Status.** Four AI runs have completed on the local test chain with Gemma 4 running locally: `smoke-r4` (6 AIs, one persona, 14 game hours), `ai-pilot-A1` (12 AIs, 24 game hours), `ai-record-2` and `ai-record-3` (12 AIs, 16 game hours, same configuration and seed). **The 18-AI main run (3 game days) and the A/B test have not been run.** (At 06:54 JST on 2026-10-06 another session started a further pilot, `ai-pilot-A2`; it is not part of the figures here.) Every threshold below was fixed in advance in [the contract, section 10.2](docs/frontier/ai-citizens/AI-CITIZENS-CONTRACT.md#102-gates). The "Main run" column is empty for every gate that the contract measures on the main run; the next column shows the nearest live evidence, which is **not** the gate's own measurement. All numbers are small-n counts from single runs, not rates. Run files: `docs/frontier/ai-citizens/runs/<run id>/` (`report.json`, `verify-minds.json`, council files, episodes; the stored request bodies stay offline).
 
 Runs: **r4** = `smoke-r4`, **P** = `ai-pilot-A1`, **R2** = `ai-record-2`, **R3** = `ai-record-3`.
 
