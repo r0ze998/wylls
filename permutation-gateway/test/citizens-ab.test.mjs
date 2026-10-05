@@ -80,7 +80,13 @@ test('summariseClash: present, bounced, own and enemy losses by faction; no repo
     { faction: 0, arrival: true, engaged: true, fate: 'Stays', lost: 30 }, { faction: 0, arrival: true, engaged: false, fate: 'Bounced', lost: 0 },
     { faction: 3, arrival: false, engaged: true, fate: 'Destroyed', lost: 120 }, { faction: null, arrival: false, engaged: true, fate: 'Stays', lost: 9 },
   ] };
-  assert.deepEqual(summariseClash(detail), { clash_report: true, engagements: 3, present: 2, bounced: 1, engaged_own: 1, own_lost: 30, enemy_lost: 120, nation0_involved: true, unknown_owner_fighters: 1 });
+  assert.deepEqual(summariseClash(detail), { clash_report: true, camp_lost: 0, engagements: 3, present: 2, bounced: 1, engaged_own: 1, own_lost: 30, enemy_lost: 120, nation0_involved: true, unknown_owner_fighters: 1 });
+  // a camp target: the report lists hosts only, the camp's own loss (from the province files) is the enemy's loss (pilot ai-pilot-A1: 'troops lost: Ember 22' and nothing for the camp)
+  const campOnly = { engagements: 2, camp_lost: 150, fighters: [{ faction: 0, arrival: true, engaged: true, fate: 'Stays', lost: 22 }, { faction: 0, arrival: true, engaged: true, fate: 'Stays', lost: 0 }] };
+  const sc = summariseClash(campOnly);
+  assert.deepEqual([sc.enemy_lost, sc.camp_lost, sc.own_lost, sc.present], [150, 150, 22, 2]);
+  assert.equal(armAPass({ adopted: true, call_option: 1, option_x: 1, measures: { present: 2, engagements: 2, enemy_lost: sc.enemy_lost } }, 2).pass, true, 'a camp strike with the camp\'s loss passes the enemy-loss clause');
+  assert.equal(armAPass({ adopted: true, call_option: 1, option_x: 1, measures: { present: 2, engagements: 2, enemy_lost: 0 } }, 2).checks.clash_with_engagement_and_enemy_loss, false, 'without it the clause fails (the old measure for every camp strike)');
   assert.deepEqual(summariseClash(null), { clash_report: false, engagements: 0, present: 0, bounced: 0, engaged_own: 0, own_lost: 0, enemy_lost: 0, nation0_involved: false });
 });
 
@@ -386,6 +392,8 @@ test('plan: arm A is the run script with --ab A --rep N; arm B writes its config
   assert.equal(JSON.parse(r.stdout).A.run_id, 'ai-ab-A-1');
   const t = spawnSync(process.execPath, [new URL('../citizens/ab/run-ab.mjs', import.meta.url).pathname, 'threshold', '--ready', '5'], { encoding: 'utf8' });
   assert.equal(JSON.parse(t.stdout).T, 3);
+  const t2 = JSON.parse(spawnSync(process.execPath, [new URL('../citizens/ab/run-ab.mjs', import.meta.url).pathname, 'threshold', '--ready', '4', '--followers', '2'], { encoding: 'utf8' }).stdout);
+  assert.deepEqual([t2.T, JSON.parse(t2.line.replace(/^PILOT /, '')).T_attainable, JSON.parse(t2.line.replace(/^PILOT /, '')).bots_that_can_follow], [3, false, 2], 'T = 3 from 4 ready hosts, but two followers can put at most two hosts at the target: the line says it cannot be met');
   assert.equal(spawnSync(process.execPath, [new URL('../citizens/ab/run-ab.mjs', import.meta.url).pathname, 'nonsense'], { encoding: 'utf8' }).status, 2);
 });
 

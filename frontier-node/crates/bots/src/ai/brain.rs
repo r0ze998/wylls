@@ -1933,11 +1933,11 @@ async fn step_ai_inner<H: HeraldPort, R: RelayPort, D: DirectPort>(
     // AC3b: the live Call and the live threats of this step (the member
     // read, the path fetch, the event feed), before anything is planned.
     let side = follow::prepare(sh, bot, &obs).await;
-    let follow = standing::filter_follow(
+    let follow = standing::filter_follow_call(
         super::follow_intents(bot, &obs),
         &bot.ai.standing,
         bell0,
-        None,
+        bot.ai.follow.live(bell0).map(|i| i.follow_from),
     );
     let quota_now = bot.ai_quota_left(&obs);
     let inp = Inputs {
@@ -2127,11 +2127,11 @@ async fn step_ai_inner<H: HeraldPort, R: RelayPort, D: DirectPort>(
             session,
         };
         let (_, rest2) = split_duties(policy::decide(obs2, &cx));
-        let follow2 = standing::filter_follow(
+        let follow2 = standing::filter_follow_call(
             super::follow_intents(bot, obs2),
             &bot.ai.standing,
             bell0,
-            None,
+            bot.ai.follow.live(bell0).map(|i| i.follow_from),
         );
         let (a, n) = autopilot_filter_counted(rest2, follow2, bot.ai_quota_left(obs2));
         floor_held.store(n, std::sync::atomic::Ordering::Relaxed);

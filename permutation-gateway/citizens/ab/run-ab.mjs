@@ -3,7 +3,7 @@
 //
 //   node citizens/ab/run-ab.mjs plan      --rep N                      the commands of both arms, nothing started
 //   node citizens/ab/run-ab.mjs run       --arm A|B --rep N [--dry]    one arm through citizens/bin/ai-citizens-run.sh (arm B behind the replay proxy)
-//   node citizens/ab/run-ab.mjs threshold --ready K [--append-runs RUNS.md]   T = min(3, K), never below 2 (from the pilot)
+//   node citizens/ab/run-ab.mjs threshold --ready K [--followers N] [--append-runs RUNS.md]   T = min(3, K), never below 2 (from the pilot); N = bots that can follow
 //   node citizens/ab/run-ab.mjs analyze   --rep N --a DIR --b DIR [--t T] [--out F]   one pair
 //   node citizens/ab/run-ab.mjs result    --pairs F1,F2,F3 [--t T] [--runs RUNS.md] [--out AB-RESULT.md] [--json F]
 //
@@ -86,7 +86,9 @@ export function readArm({ aiDir, arm, rep }) {
   else if (res) {
     const c = res.clash ?? {};
     const lostBy = c.lost_by_nation ?? c.lost ?? c.troops_lost ?? null;
-    const enemy = c.enemy_lost ?? (lostBy && typeof lostBy === 'object' ? Object.entries(lostBy).filter(([n]) => Number(n) !== NATION).reduce((s, [, v]) => s + (Number(v) || 0), 0) : null);
+    // enemy troops lost = the other nations' fighters' losses plus, for a camp target, the camp's own loss (the report lists hosts only, calls.mjs campLoss)
+    const enemyHosts = c.enemy_lost ?? (lostBy && typeof lostBy === 'object' ? Object.entries(lostBy).filter(([n]) => Number(n) !== NATION).reduce((s, [, v]) => s + (Number(v) || 0), 0) : null);
+    const enemy = enemyHosts == null && c.camp_lost == null ? null : (enemyHosts ?? 0) + (Number(c.camp_lost) || 0);
     const own = c.own_lost ?? (lostBy && typeof lostBy === 'object' ? Number(lostBy[NATION] ?? lostBy[String(NATION)] ?? 0) : null);
     measures = { source: 'council file result (watcher)', present: num(res.present), bounced: num(res.bounced), engagements: num(c.engagements), enemy_lost: enemy, own_lost: own, nation0_involved: (num(res.present) ?? 0) > 0 || (own ?? 0) > 0 };
   } else if (obs) measures = { source: 'seat observation without a clash report (no clash record at X at S)', present: obs.present ?? 0, bounced: obs.bounced ?? 0, engagements: 0, enemy_lost: 0, own_lost: 0, nation0_involved: Boolean(obs.nation0_involved) };
@@ -261,7 +263,10 @@ if (isMain()) {
     process.exit(r.dry ? 0 : r.exit_code);
   } else if (cmd === 'threshold') {
     const t = computeT(Number(a.ready));
-    const line = `PILOT ${JSON.stringify({ kind: 'ab-threshold', ready_invited_at_c0_plus_6: Number(a.ready), T: t, rule: 'T = min(3, ready invited hosts), never below 2' })}`;
+    // `--followers N` (optional): how many bots could follow at all. Each bot follows a Call at most once (6.6), so the hosts present at X
+    // cannot exceed the number of followers; a T above it can never be met. The line says so; the rule itself is not changed here.
+    const followers = a.followers !== undefined ? Number(a.followers) : null;
+    const line = `PILOT ${JSON.stringify({ kind: 'ab-threshold', ready_invited_at_c0_plus_6: Number(a.ready), T: t, rule: 'T = min(3, ready invited hosts), never below 2', ...(followers != null ? { bots_that_can_follow: followers, T_attainable: t <= followers } : {}) })}`;
     if (a['append-runs']) fs.appendFileSync(path.resolve(a['append-runs']), `\n${line}\n`);
     out({ T: t, line, appended: Boolean(a['append-runs']) });
   } else if (cmd === 'analyze') {

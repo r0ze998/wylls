@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { motionRef } from '../../permutation-server/web/frontier/council/aisocial.mjs';
-import { tileFor, invitedOrder, strikeResult, createCalls, INVITE_RADIUS } from '../citizens/watcher/calls.mjs';
+import { tileFor, invitedOrder, strikeResult, campLoss, createCalls, INVITE_RADIUS } from '../citizens/watcher/calls.mjs';
 import { ball } from '../citizens/watcher/council_gen.mjs';
 import { createCensus } from '../citizens/watcher/census.mjs';
 import { candidatesHash } from '../citizens/social/council.mjs';
@@ -69,6 +69,22 @@ test('strikeResult: present armies of the nation, bounced and displaced counted 
   assert.deepEqual(r.clash, { p: 4, q: 0, tile: 44, bell: 60, engagements: 3, fighters_on_tile: 3, engaged_on_tile: 3, lost: { 1: 90, 2: 150 } });
   // no clash record: still a result, the clash part is null
   assert.deepEqual(strikeResult({ faction: 1, p: 4, q: 0, tile: 44, strikeBell: 60, reveals: [], detail: null }), { present: 0, present_hosts: [], bounced: 0, bounced_hosts: [], displaced: 0, displaced_hosts: [], clash: null });
+});
+
+test('campLoss: the camp is not a fighter of the clash report; its loss is the difference of the province files of bell S - 1 and S, a cleared camp lost everything, an unknown camp is null', () => {
+  const pv = (state, troops, gen = 1) => ({ ...province({ p: 4, q: 0 }), camp: { tile: 44, troops, state, gen } });
+  assert.deepEqual(campLoss(pv(1, 150), pv(1, 90)), { before: 150, after: 90, lost: 60, cleared: false });
+  assert.deepEqual(campLoss(pv(1, 150), pv(0, 0)), { before: 150, after: 0, lost: 150, cleared: true });
+  assert.equal(campLoss(pv(1, 150), pv(1, 170)).lost, 0, 'never negative');
+  assert.equal(campLoss(pv(1, 150), pv(1, 90, 2)), null, 'another camp generation: not the same camp');
+  assert.equal(campLoss(province({ p: 4, q: 0 }), pv(1, 90)), null, 'no live camp before');
+  assert.equal(campLoss(pv(1, 150), pv(0, 0, 2)).cleared, true, 'cleared, whatever the generation field says');
+  assert.equal(campLoss(null, pv(1, 90)), null);
+  // in the strike result: the camp's loss is part of the clash and of the enemy's loss
+  const detail = { engagements: 2, fighters: [{ id: '11', faction: 1, tile: 44, engaged: true, fate: 'Stays', troops_before: 300000, troops_after: 278000, lost: 22000 }] };
+  const r = strikeResult({ faction: 1, p: 4, q: 0, tile: 44, strikeBell: 60, reveals: [{ host_id: '11', faction: 1 }], detail, camp: campLoss(pv(1, 150), pv(1, 90)) });
+  assert.equal(r.clash.camp_lost, 60);
+  assert.deepEqual(r.clash.lost, { 1: 22 });
 });
 
 // ---------------------------------------------------------------- the job against AC4's real council
@@ -190,6 +206,44 @@ test('three bells after the file bell a province that is still missing counts as
   v.feed.state.head = C0 + 5 + 3;
   await adopt(v);
   assert.equal(v.social.memberCall(0, K).tile, 43, 'the hint (the tile at C0 - 2)');
+});
+
+test('the files of bell C0 + 5 are not served yet: a province is read from its newest earlier file and the Call is sealed at the close, not two bells later (pilot ai-pilot-A1)', async () => {
+  const w = world({ withFiles: false });
+  w.census.start();
+  w.feed.state.head = C0 + 6; // the log is only a bell past the close: the files of bell C0 + 5 are not there, those of C0 + 3 and C0 + 2 are
+  w.feed.files.set(`4,0,${C0 + 3}`, province({ p: 4, q: 0, bell: C0 + 3, camp: { tile: 44, troops: 150 } }));
+  w.feed.files.set(`3,0,${C0 + 3}`, province({ p: 3, q: 0, bell: C0 + 3, hosts: w.hs.slice(0, 5) }));
+  w.feed.files.set(`3,1,${C0 + 2}`, province({ p: 3, q: 1, bell: C0 + 2, hosts: w.hs.slice(5) }));
+  await adopt(w);
+  const c = w.social.memberCall(0, K);
+  assert.ok(c, 'sealed at the close (the old rule waited for every province of the ball, outside-the-map ones included)');
+  assert.equal(c.tile, 44, 'the camp tile of the older file');
+  assert.deepEqual(c.invited, ['5001', '5003', '5006', '5004', '5002', '5008'], 'the hosts of the older files, ordered as before');
+  assert.equal(c.follow_from, C0 + 6);
+  assert.ok(w.stats.call_files_older >= 1, 'counted');
+  assert.equal(w.stats.calls_sealed_late ?? 0, 0, 'not a late seal');
+  // a file older than C0 + 5 - 1 - FALLBACK_BACK is not used
+  const v = world({ withFiles: false });
+  v.census.start();
+  v.feed.state.head = C0 + 6;
+  v.feed.files.set(`4,0,${C0}`, province({ p: 4, q: 0, bell: C0, camp: { tile: 44, troops: 150 } }));
+  await adopt(v);
+  assert.equal(v.social.memberCall(0, K), null, 'five bells old: the target counts as not served yet');
+});
+
+test('the target province must have a file before the Call is fixed: neighbours alone do not seal it before the log is three bells past C0 + 5', async () => {
+  const w = world({ withFiles: false });
+  w.census.start();
+  w.feed.state.head = C0 + 6;
+  w.feed.files.set(`3,0,${C0 + 5}`, province({ p: 3, q: 0, bell: C0 + 5, hosts: w.hs.slice(0, 5) }));
+  await adopt(w);
+  assert.equal(w.social.memberCall(0, K), null, 'no file of the target: unsealed');
+  w.feed.state.head = C0 + 8;
+  await w.calls.sealPending(C0 + 8);
+  const c = w.social.memberCall(0, K);
+  assert.equal(c.tile, 43, 'the hint (the tile at C0 - 2) once the target is taken as absent');
+  assert.deepEqual(c.invited, ['5001', '5003', '5004', '5002', '5005'], 'the hosts of the one served neighbour: voters first (ai0 5001, seat 5003), then troops desc');
 });
 
 test('nothing of the target reaches the public files before the Call opens; the member read has it; at S + 2 the council file carries open and the result', async () => {

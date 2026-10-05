@@ -48,6 +48,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { decodeBallot, encodeBallot, signRecord, fromBase58, fromBase64, toBase58, toHex } from '../../../permutation-server/web/frontier/council/aisocial.mjs';
 import { assertLoopbackUrl } from '../mind/guards.mjs';
+import { campLoss } from '../watcher/calls.mjs';
 
 export const BALLOT_AT = 4; // C0 + 4 (the ballot window is [C0 + 3, C0 + 6))
 export const OBSERVE_AFTER_STRIKE = 3; // read the clash report at S + 3
@@ -106,14 +107,17 @@ export function summariseClash(detail, nation = NATION) {
   const f = detail.fighters ?? [];
   const mine = f.filter((x) => x.faction === nation);
   const lost = (x) => (Number.isFinite(x.lost) ? Math.max(0, x.lost) : 0);
+  // a camp target: the clash report lists hosts only, so the camp's loss comes from the province files (calls.mjs campLoss, attached as detail.camp_lost)
+  const campLost = Number.isFinite(detail.camp_lost) ? Math.max(0, detail.camp_lost) : 0;
   return {
     clash_report: true,
+    camp_lost: campLost,
     engagements: detail.engagements ?? 0,
     present: mine.filter((x) => x.arrival).length,
     bounced: mine.filter((x) => x.arrival && /^Bounced/.test(String(x.fate))).length,
     engaged_own: mine.filter((x) => x.engaged).length,
     own_lost: mine.reduce((s, x) => s + lost(x), 0),
-    enemy_lost: f.filter((x) => x.faction !== nation && x.faction !== null && x.faction !== undefined).reduce((s, x) => s + lost(x), 0),
+    enemy_lost: f.filter((x) => x.faction !== nation && x.faction !== null && x.faction !== undefined).reduce((s, x) => s + lost(x), 0) + campLost,
     nation0_involved: mine.some((x) => x.arrival || x.engaged),
     unknown_owner_fighters: f.filter((x) => x.faction === null || x.faction === undefined).length,
   };
@@ -548,7 +552,7 @@ if (isMain()) {
     const { createFeed } = await import('../watcher/feed.mjs');
     feed = createFeed({ herald: a.herald, roster: readJson(path.join(aiDir, 'pub/roster.json')) });
   } catch { feed = null; }
-  const log = await runSeat({ arm: a.arm, rep: Number(a.rep), aiDir, social, key, config, getJson, postJson, bellNow, sleep, shouldStop, endBell, finaliser, observeAt: feed ? async (p, q, b) => { for (let i = 0; i < 5; i++) { const r = await feed.poll(); if (r.ok) break; } return feed.clashDetail(p, q, b); } : null });
+  const log = await runSeat({ arm: a.arm, rep: Number(a.rep), aiDir, social, key, config, getJson, postJson, bellNow, sleep, shouldStop, endBell, finaliser, observeAt: feed ? async (p, q, b) => { for (let i = 0; i < 5; i++) { const r = await feed.poll(); if (r.ok) break; } const d = await feed.clashDetail(p, q, b); if (d) { try { d.camp_lost = campLoss(await feed.provinceAt(p, q, b - 1), await feed.provinceAt(p, q, b))?.lost; } catch { /* the hosts' losses stand alone */ } } return d; } : null });
   console.log(JSON.stringify({ arm: log.arm, rep: log.rep, period: log.period, option_x: log.option_x, ballot: log.ballot && { option: log.ballot.option, ok: log.ballot.ok }, observed: Boolean(log.observed) }));
   process.exit(log.ballot?.ok ? 0 : 1);
 }
