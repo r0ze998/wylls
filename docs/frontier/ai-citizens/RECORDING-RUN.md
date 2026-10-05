@@ -19,7 +19,7 @@ Preconditions (the same as every run; the guards refuse otherwise): the machine 
 
 ```
 cd /Users/r0ze/Documents/Codex/2026-09-20/new-chat-2/outputs/.claude/worktrees/ai-run
-export FRONTIER_BIN=/private/tmp/claude-501/-Users-r0ze-Library-Application-Support-Claude-scratch-workspaces-59b0e37b-c381-4b5c-88fe-761b42e364f2-e1e340d9-5c30-4c5a-983e-525e18a0d520-scratch-2026-09-25-dd5411/ca3e79c1-f15f-4c2f-8555-107cb1f00a2a/scratchpad/frontier/ai-build/target-run/release
+export FRONTIER_BIN="$PWD/.local/frontier/bin"     # a durable copy (see below); the scratchpad build is not needed on the day
 export AI_MODEL=/Users/r0ze/Documents/Codex/2026-09-20/new-chat-2/outputs/.claude/data/models/gemma-4-26B-A4B-it-Q4_0.gguf
 export AI_LLAMA_DIR=/opt/homebrew/Cellar/llama.cpp/0.5.0
 # the pinned Gemma on 41901 (skip if the evidence workflow's llama-server is still up and healthy: the run script checks it against the commitments either way)
@@ -32,11 +32,14 @@ permutation-gateway/citizens/bin/ai-citizens-run.sh \
 
 * `--deck deck-2`: 12 AI citizens (2 per nation) and the presenter seat (index 1012). `ai-ab.toml` names deck-2 by default; it is given explicitly here.
 * `--seat-live` (new): the seat process runs `ab/seat.mjs --live 1`. No `--seat-script` (so the commitments carry no seat script and the roster says `scripted: false`), no `--ab`; the script refuses either together with `--seat-live`.
-* `--hold 7200` (new): after the run is complete (publication, verify-minds, report) the stack and the citizens service stay up for at most 7200 s; `touch <AI_DIR>/state/hold.stop` (the path is printed) or Ctrl-C ends it. Without `--hold` the script stops everything when the run is complete, as before.
+* `--hold 7200` (new): after the run is complete (publication, verify-minds, report) the herald, chain, relay and the citizens service stay up for at most 7200 s; `touch <AI_DIR>/state/hold.stop` (the path is printed) or Ctrl-C ends it. Without `--hold` the script stops everything when the run is complete, as before.
+  * **Liveness (review fix).** The `frontier-stack up` supervisor process EXITS when the stack reaches phase `complete` and leaves the services running (`up.rs`: "services left up"; `main.rs`: `process::exit` after `up::up`). The first version of `hold_run` tested that supervisor's pid and would have ended the hold at its first poll and torn the stack down at about T0 + 115 min. `hold_run` now holds while (a) `state.json` still says `complete`, (b) the herald answers `/h/season` (three failed polls in a row end the hold; one miss does not), (c) the citizens service process is alive. Tests (`citizens-seat-live-run.test.mjs`) run the script's own function with the supervisor dead, citizens alive and a fake herald on 127.0.0.1:0.
+  * The stop file works only once the run is complete: `hold_run` removes a stale `hold.stop` when the hold starts, so a file touched earlier is ignored. There is no way to end the run early except Ctrl-C, which marks it `aborted` and skips publication, verify-minds and the report.
+  * The map's highlights are empty once play is over (RUNTREE-NOTES 9.3, 11.6): during the hold the council page text is readable but the map must be recorded during play (before about T0 + 98 min).
 * The run id is used once (`ai-record-1`; `ai-record-2` for a repeat). The script writes and commits its RUNS.md line on `frontier/ai-run` (local) before genesis, like every run.
 * `ai-ab.toml` gives bot_seed 33 and season 33 (the same world as the A/B rep 1 and the pilot `ai-pilot-A1`; the LLM makes the run itself non-deterministic).
-* The environment of the evidence workflow is reused: the binaries in `FRONTIER_BIN` are the integrator's `target-run/release` build (RUNTREE-NOTES section 4; check that the directory exists on the day), `AI_MODEL` / `AI_LLAMA_DIR` are required because `ab.json` is not `smoke.json` (R9).
-* Keep the Mac awake for the whole run (about 2 h 15 min; `caffeinate -i` in another terminal tab).
+* The binaries in `FRONTIER_BIN` are a durable copy of the integrator's `target-run/release` build (RUNTREE-NOTES section 4), made on 2026-10-05 into `.local/frontier/bin/` (git-ignored, inside the run tree) so that a reboot or tmp cleaning cannot remove them: `frontier-stack`, `frontier-bots` (12:24, built after the follow fixes `b89b437`), `frontier-herald`, `frontier-keeper`, `frontier-localnet`, `drand-replay` (sha256 prefixes 17f204a9, 901ba0c7, 3e153ebf, 8c987cd7, 2101f217, 031a3f01). If a newer build exists when the evidence workflow finishes, copy it over with `cp -p`. `AI_MODEL` / `AI_LLAMA_DIR` are required because `ab.json` is not `smoke.json` (R9).
+* Keep the Mac awake for the whole run and the hold (about 2 h 15 min plus up to 2 h; `caffeinate -i` without a duration in another terminal tab, stopped when the run ends).
 
 `--dry-run` against a clean checkout prints the plan (checked with this command in the test tree: `guards: PASS`, 12 AI citizens, `--bots 13`, `PLAN start seat: ... ab/seat.mjs --live 1 ...`, `PLAN print: ... record-info.mjs ...`, `PLAN hold: ... 7200 s`).
 
@@ -80,7 +83,7 @@ Measured on `ai-pilot-A1` (same stack and config; the minds files `pub/minds/<b>
 | 96 | 98 | end of play; then the drain, publication, verify-minds (M9 re-sends to the llama server), report: about 10 to 15 min |
 | complete | about 110 to 115 | with `--hold`: stack and page stay up (nothing new is played) until the stop file, Ctrl-C or the time is up |
 
-During play the terminal prints, as `[seat]` lines with a clock time, when the council of nation 0 opens, when the ballot window opens ("BALLOT WINDOW OPEN ... the presenter votes on the council page now"), and how it closed (adopted with the strike bell, or the reason). If the seat's village is not final when the council opens, the line carries a `WARNING ... would be refused NotEligible`; if the seat process dies the script prints a warning.
+During play the terminal prints, as `[seat]` lines with a clock time, when the council of nation 0 opens, when the ballot window opens ("BALLOT WINDOW OPEN ... the presenter votes on the council page now"), and how it closed (adopted with the strike bell, or the reason). If the seat's village is not final when the council opens (or the finaliser is not running at all: it could not start, or `--finalise 0`), the opening line and the ballot-window line carry a `WARNING ... would be refused NotEligible`; if the seat process dies the script prints a warning.
 
 ## 4. What is printed, and where
 
@@ -99,10 +102,10 @@ The page needs WebCrypto Ed25519: Chrome or Edge 137+, Firefox 129+, Safari 17+ 
 | file | change |
 |---|---|
 | `citizens/ab/seat.mjs` | `--live 1` mode: `runSeatLive` (finaliser only; no `postJson` parameter, so it cannot post a ballot or a message; prints the council status lines with clock times and schedule estimates; refuses a roster that marks the seat scripted), `createSeatFinaliser({mode: 'live'})` (same single Build of walls, state `scripted: false`, line prefix "live seat (run harness): finalising its village"), `writePresenterKey`, `liveRecordOf` (`PUB/seat/live.json`: `scripted: false, casts_ballots: false, origin 0`, no option), `councilSchedule`, `scheduleLines`; the log is `AI_DIR/seat/seat-live-log.json`. The scripted and A/B modes are untouched (their tests pass unchanged). |
-| `citizens/bin/ai-citizens-run.sh` | `--seat-live` (starts the seat with `--live 1`; refused with `--ab` or `--seat-script`), `--hold SECS` (`hold_run`: stack and service stay up after completion until SECS pass, `<AI_DIR>/state/hold.stop` appears, or a process dies; Ctrl-C works), the `[seat]` lines and a dead-seat warning in the terminal, the info block, `PLAN` lines in the dry run. Without the new flags nothing changes. |
+| `citizens/bin/ai-citizens-run.sh` | `--seat-live` (starts the seat with `--live 1`; refused with `--ab` or `--seat-script`), `--hold SECS` (`hold_run`: services stay up after completion until SECS pass, `<AI_DIR>/state/hold.stop` appears, the state leaves `complete`, the herald stops answering or the citizens service dies; Ctrl-C works), the `[seat]` lines and a dead-seat warning in the terminal, the info block, `PLAN` lines in the dry run. Without the new flags nothing changes. |
 | `citizens/bin/record-info.mjs` (new) | prints the info block (text only). |
 | `citizens/report.mjs` | reads `seat-live-log.json` and prints "Live seat (run harness; the presenter votes on the page), finalising its village ..." instead of "Scripted seat ...". |
-| tests | `test/citizens-seat-live.test.mjs` (12), `test/citizens-seat-live-run.test.mjs` (6), `test/citizens-seat-live-chain.test.mjs` (2). |
+| tests | `test/citizens-seat-live.test.mjs` (13), `test/citizens-seat-live-run.test.mjs` (8), `test/citizens-seat-live-chain.test.mjs` (2). |
 
 No page file, no contract text, no never-edit file (program, herald, agents, session.mjs, the design session's web files) was touched. The roster flag needed no change: `scripted` is `seat_script_sha256 !== null`, which a run without `--seat-script` has `null`, so the roster says `scripted: false`, the page badges the seat "presenter seat (human operator)" (not the dashed "scripted for the A/B test" badge) and `verify-minds` M1's `seat_scripted_flag` holds.
 
@@ -113,7 +116,7 @@ No page file, no contract text, no never-edit file (program, herald, agents, ses
 * **Old setup** (no seat process): the seat's village stays provisional and the presenter's page ballot is refused `NotEligible`.
 * **Live seat**: one Build of walls at the first bell the program would take the flip (never before); the seat is on the council's eligible list at C0; `ballots_cast` is 1 (the AI) and nothing was posted by the seat; the presenter's ballot signed with `presenter-key.json` through the page's `castBallot` is accepted, counted as `human` (origin 0), `tally_split {ai 1, human 1, scripted 0}`, adopted (the human-present rule is satisfied by it); the page text reads "Ballots by who cast them: AI 1 · human (the presenter) 1 · scripted seat 0", "Strike Order adopted with 1 AI ballot(s) + the presenter's ballot — strike at bell 60 (target sealed)", and the pivotal verdict is "Yes ... (yours was the only human or scripted-seat ballot for it ...)"; the chronicle phrase is "with 1 AI ballot and the presenter's ballot". Without the presenter's ballot the AI's single ballot is below the quorum: not adopted.
 * **Process level** (`citizens-seat-live-chain`): the real Frontier relay over a scripted chain and a herald double: the live seat process sends one Build of walls, writes the presenter key (three fields, no wallet secret), prints the labelled lines, posts nothing to a recording social double, ends on the stop file.
-* **Run script**: dry-run plan, flag conflicts, the hold loop (the script's own function run with stubs: SECS, stop file, a dead process, a leftover stop file).
+* **Run script**: dry-run plan, flag conflicts, the hold loop (the script's own function run with stubs and a fake herald: the supervisor dead as after a real complete, SECS, stop file, a leftover stop file, herald gone, state no longer complete, citizens dead, a single failed poll).
 
 Not shown (not run, by instruction, while the evidence workflow holds the machine): a live stack with this flag, a real browser pasting the key (the page's modules are exercised under node with a fake DOM; the QuickTime recording and the browser's Ed25519 support are the owner's check on the day), a real llama, a real program flip (read, not run: integ-B-NOTES 12), and whether the AI hosts of nation 0 are ready to follow the order (the evidence workflow's follow fixes are in `b89b437`; the result of a strike is whatever the run produces).
 
@@ -145,3 +148,17 @@ Not run, by instruction (the evidence workflow holds the machine and the stack l
 ## 10. Rollback
 
 `git revert 5eacc8c` removes the live seat; the A/B, the scripted seat and every other run are unaffected by it (no flag, no behaviour of theirs was changed: the scripted finaliser state and lines are byte-identical, and `--seat-live` / `--hold` default off).
+
+## 11. Review fixes (after `a7da156`)
+
+Review of the preparation found one major and several minor issues; each was checked against the code before it was changed.
+
+| finding | verdict | fix |
+|---|---|---|
+| `--hold` ends at its first poll (major) | **confirmed**: `frontier-stack up` returns at phase complete and `main.rs` exits the process, the services are left up (`up.rs` "services left up"); the old `hold_run` tested `child_alive stack` | liveness is now state file `complete` + herald `/h/season` + citizens process; tests with the supervisor dead; the guide no longer needs the "until about T0 + 115" caveat, but says the hold starts at T0 + 110 to 115 |
+| stale stop file discarded at hold start | confirmed, intended (a reused AI_DIR must not end the hold at once) | the guide says the stop file works only after completion, and that early end is Ctrl-C (aborted) |
+| guide not self-contained | confirmed | exports, the Gemma start with a /health wait and the durable `.local/frontier/bin` copy are in the guide section 3 |
+| "three options" | confirmed (1 to 3) | wording fixed; the single-option button set and the retry of "Read the sealed order" added |
+| map highlights empty after play | confirmed (RUNTREE-NOTES 9.3, 11.6) | guide step 8 and section 8: record the map during play; `caffeinate -i` without a duration |
+| no warning when the finaliser is absent | confirmed | `runSeatLive` treats a null finaliser as not final: warning on the opening line and again on the ballot-window line; test added |
+| honesty sentence: adoption needs a strict lead | confirmed (`social/council.mjs` decide()) | guide section 1 now says strictly more than any other option and than none; allowed and forbidden wording unchanged |

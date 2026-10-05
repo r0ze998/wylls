@@ -251,15 +251,25 @@ show_seat_lines() { # live seat: the seat's new log lines (where the council sta
   fi
   return 0
 }
-# --hold SECS (run complete): wait here, children alive, until SECS pass, the stop file STATE/hold.stop appears, or the stack or the citizens
-# service dies. AI_HOLD_POLL_SECS (default 5) is the poll interval (tests). Appends the seconds held to DETAIL.
+# --hold SECS (run complete): wait here until SECS pass, the stop file STATE/hold.stop appears, or the services die. NOTE: the `frontier-stack up`
+# supervisor process EXITS when the stack reaches phase complete and leaves the herald, chain and relay running ("services left up", up.rs): so the
+# supervisor's pid is NOT the liveness test here. The hold is alive while the state file still says complete, the herald answers /h/season (three
+# failed polls in a row end it) and the citizens service process is alive. AI_HOLD_POLL_SECS (default 5) is the poll interval (tests).
+# A stop file touched before the hold starts is discarded (rm below): the stop file works only once the run is complete. Appends the seconds held to DETAIL.
 hold_run() {
-  local stopf="$STATE/hold.stop" poll=${AI_HOLD_POLL_SECS:-5} t=0
+  local stopf="$STATE/hold.stop" poll=${AI_HOLD_POLL_SECS:-5} t=0 bad=0 why=""
   rm -f "$stopf"
   echo "HOLD: the run is complete. The stack and the citizens service stay up for at most $HOLD s (nothing new is played)."
   "$NODE" "$HERE/record-info.mjs" --urls-only --run-id "$RUN_ID" --serve "$SERVE" --keys "$KEYS" --stop-file "$stopf" --hold "$HOLD" || true
   while [ "$t" -lt "$HOLD" ] && [ ! -f "$stopf" ]; do
-    child_alive stack && child_alive citizens || { echo "HOLD: the stack or the citizens service stopped; ending the hold"; break; }
+    if [ "$(stack_phase)" != complete ]; then why="the stack state is no longer complete (phase '$(stack_phase)')"
+    elif ! child_alive citizens; then why="the citizens service process stopped"
+    elif curl -sf -m 3 "$HERALD/h/season" >/dev/null 2>&1; then bad=0
+    else
+      bad=$((bad + 1))
+      if [ "$bad" -ge 3 ]; then why="the herald stopped answering $HERALD/h/season (3 polls in a row)"; fi
+    fi
+    [ -z "$why" ] || { echo "HOLD: $why; ending the hold"; break; }
     show_seat_lines
     sleep "$poll"; t=$((t + poll))
     [ $((t % 600)) -ge "$poll" ] || echo "HOLD: $((HOLD - t)) s left; to end it now: touch $stopf"

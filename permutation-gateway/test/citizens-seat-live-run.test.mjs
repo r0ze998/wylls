@@ -7,7 +7,8 @@
 // bin/record-info.mjs does not exist.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync, execFileSync } from 'node:child_process';
+import { spawnSync, spawn, execFileSync } from 'node:child_process';
+import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -96,14 +97,26 @@ test('a live seat is refused together with the scripted seat or the A/B; --hold 
 
 // ---------------------------------------------------------------- the hold loop, the script's own function with stubs
 const holdFn = fs.readFileSync(path.join(bin, 'ai-citizens-run.sh'), 'utf8').match(/^hold_run\(\) \{\n[\s\S]*?\n\}\n/m)?.[0];
-function holdRun({ hold, alive = true, stopAfter = null, poll = 1, leftover = false }) {
+/** The script's hold_run in bash. As in a real run the `frontier-stack up` supervisor has EXITED at phase complete (child_alive stack is false for
+ *  ever; the herald and the chain are left running), so the stubs say: stack process dead, citizens alive (a file), stack_phase read from a file,
+ *  the herald a fake server on 127.0.0.1:0 (the script's own curl asks it). `act(dir, server)` may change the world while the hold runs. */
+async function holdRun({ hold, poll = 1, leftover = false, stopAfter = null, act = null, herald = true }) {
   const dir = fs.mkdtempSync(path.join(tmp, 'hold-'));
   if (leftover) fs.writeFileSync(path.join(dir, 'hold.stop'), 'left from an earlier run');
+  fs.writeFileSync(path.join(dir, 'phase'), 'complete');
+  fs.writeFileSync(path.join(dir, 'citizens.alive'), '1');
+  const hits = { n: 0 };
+  const server = http.createServer((req, res) => { hits.n++; res.writeHead(req.url === '/h/season' ? 200 : 404); res.end('{"latestUnix":1}'); });
+  const sockets = new Set();
+  server.on('connection', (c) => { sockets.add(c); c.on('close', () => sockets.delete(c)); });
+  if (herald) await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const port = herald ? server.address().port : 9; // port 9 (discard): nothing listens, the connection is refused
   const script = [
     'set -u',
-    `HOLD=${hold}; STATE='${dir}'; NODE=true; HERE='${bin}'; RUN_ID=r; SERVE=http://127.0.0.1:41902; KEYS='${dir}/keys'; DETAIL='stack complete'`,
+    `HOLD=${hold}; STATE='${dir}'; NODE=true; HERE='${bin}'; RUN_ID=r; SERVE=http://127.0.0.1:41902; KEYS='${dir}/keys'; DETAIL='stack complete'; HERALD=http://127.0.0.1:${port}`,
     `AI_HOLD_POLL_SECS=${poll}`,
-    `child_alive() { ${alive ? 'return 0' : 'return 1'}; }`,
+    `stack_phase() { cat '${dir}/phase'; }`,
+    `child_alive() { [ "$1" = citizens ] && [ -f '${dir}/citizens.alive' ]; }`,
     'show_seat_lines() { :; }',
     holdFn,
     stopAfter !== null ? `( sleep ${stopAfter}; touch '${dir}/hold.stop' ) &` : '',
@@ -111,30 +124,71 @@ function holdRun({ hold, alive = true, stopAfter = null, poll = 1, leftover = fa
     'echo "DETAIL=$DETAIL"',
   ].join('\n');
   const t0 = Date.now();
-  const out = spawnSync('bash', ['-c', script], { encoding: 'utf8', timeout: 30_000 });
-  return { out: out.stdout + out.stderr, secs: (Date.now() - t0) / 1000, dir };
+  const child = spawn('bash', ['-c', script], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '';
+  child.stdout.on('data', (d) => { out += d; }); child.stderr.on('data', (d) => { out += d; });
+  const killer = setTimeout(() => child.kill('SIGKILL'), 30_000);
+  if (act) setTimeout(() => act(dir, server, sockets), 1200);
+  await new Promise((r) => child.on('close', r));
+  clearTimeout(killer);
+  for (const c of sockets) c.destroy();
+  if (herald) await new Promise((r) => server.close(r));
+  return { out, secs: (Date.now() - t0) / 1000, dir, hits: hits.n };
 }
 
-test('hold_run: the function exists; it holds until SECS pass', () => {
+test('hold_run: the supervisor has exited (as after a real complete) yet the hold lasts SECS while the herald answers and the phase is complete', async () => {
   assert.ok(holdFn, 'hold_run is defined in the run script');
-  const r = holdRun({ hold: 2 });
-  assert.match(r.out, /HOLD: the run is complete\. The stack and the citizens service stay up for at most 2 s/);
-  assert.match(r.out, /HOLD: ended after 2 s/);
-  assert.match(r.out, /DETAIL=stack complete; held up for 2 s after the end \(--hold 2\)/);
-  assert.ok(r.secs >= 2 && r.secs < 8, `${r.secs}`);
+  const r = await holdRun({ hold: 3 });
+  assert.match(r.out, /HOLD: the run is complete\. The stack and the citizens service stay up for at most 3 s/);
+  assert.match(r.out, /HOLD: ended after 3 s/);
+  assert.doesNotMatch(r.out, /ending the hold/, 'a dead supervisor process is not a reason to end the hold (the bug: child_alive stack)');
+  assert.match(r.out, /DETAIL=stack complete; held up for 3 s after the end \(--hold 3\)/);
+  assert.ok(r.secs >= 3 && r.secs < 9, `${r.secs}`);
+  assert.ok(r.hits >= 2, `the herald was polled (${r.hits})`);
 });
 
-test('hold_run: the stop file ends the hold early (and a stop file left from before is not honoured); a dead stack or citizens service ends it too', () => {
-  const r = holdRun({ hold: 25, stopAfter: 2 });
+test('hold_run: the stop file ends the hold early; a stop file left from before is not honoured', async () => {
+  const r = await holdRun({ hold: 25, stopAfter: 2 });
   assert.match(r.out, /HOLD: ended by the stop file after [2-4] s/);
   assert.ok(r.secs < 10, `ended early: ${r.secs}`);
-  const dead = holdRun({ hold: 25, alive: false });
-  assert.match(dead.out, /HOLD: the stack or the citizens service stopped; ending the hold/);
-  assert.match(dead.out, /HOLD: ended after 0 s/);
-  // a stop file left in a reused AI_DIR does not end the next hold at once
-  const left = holdRun({ hold: 2, leftover: true });
+  const left = await holdRun({ hold: 2, leftover: true });
   assert.match(left.out, /HOLD: ended after 2 s/);
   assert.doesNotMatch(left.out, /ended by the stop file/);
+});
+
+test('hold_run: it ends when the herald stops answering (three polls in a row), the stack state leaves complete, or the citizens service dies', async () => {
+  const noHerald = await holdRun({ hold: 25, herald: false });
+  assert.match(noHerald.out, /HOLD: the herald stopped answering http:\/\/127\.0\.0\.1:9\/h\/season \(3 polls in a row\); ending the hold/);
+  assert.match(noHerald.out, /HOLD: ended after [2-4] s/);
+  // the herald goes away while the hold runs (the server is closed and its sockets cut)
+  const gone = await holdRun({ hold: 25, act: (dir, server, sockets) => { for (const c of sockets) c.destroy(); server.close(); } });
+  assert.match(gone.out, /the herald stopped answering/);
+  assert.ok(gone.secs < 12, `${gone.secs}`);
+  const phase = await holdRun({ hold: 25, act: (dir) => fs.writeFileSync(path.join(dir, 'phase'), 'running') });
+  assert.match(phase.out, /the stack state is no longer complete \(phase 'running'\); ending the hold/);
+  const cit = await holdRun({ hold: 25, act: (dir) => fs.rmSync(path.join(dir, 'citizens.alive')) });
+  assert.match(cit.out, /the citizens service process stopped; ending the hold/);
+});
+
+test('hold_run: one failed herald poll does not end the hold (the counter resets)', async () => {
+  // the herald is closed at once, reopened on the same port before the third poll would fail: here the simplest check is that two misses then success holds
+  const dir = fs.mkdtempSync(path.join(tmp, 'hold-flaky-'));
+  fs.writeFileSync(path.join(dir, 'phase'), 'complete'); fs.writeFileSync(path.join(dir, 'citizens.alive'), '1');
+  const calls = path.join(dir, 'calls');
+  const script = [
+    'set -u',
+    `HOLD=6; STATE='${dir}'; NODE=true; HERE='${bin}'; RUN_ID=r; SERVE=x; KEYS=k; DETAIL=d; HERALD=http://127.0.0.1:1; AI_HOLD_POLL_SECS=1`,
+    `stack_phase() { cat '${dir}/phase'; }`,
+    `child_alive() { return 0; }`,
+    `curl() { echo x >> '${calls}'; [ "$(wc -l < '${calls}')" -ne 1 ] && [ "$(wc -l < '${calls}')" -ne 2 ] && [ "$(wc -l < '${calls}')" -ne 4 ] && [ "$(wc -l < '${calls}')" -ne 5 ]; }`,
+    'show_seat_lines() { :; }',
+    holdFn,
+    'hold_run',
+  ].join('\n');
+  const out = spawnSync('bash', ['-c', script], { encoding: 'utf8', timeout: 30_000 });
+  // misses on polls 1,2,4,5 and hits on 3 and 6: never three in a row
+  assert.doesNotMatch(out.stdout + out.stderr, /ending the hold/);
+  assert.match(out.stdout, /HOLD: ended after 6 s/);
 });
 
 // ---------------------------------------------------------------- record-info as a process

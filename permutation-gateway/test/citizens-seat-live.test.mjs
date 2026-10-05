@@ -311,6 +311,15 @@ test('the live seat prints where the council stands: open, BALLOT WINDOW, closed
   w.dir.dispose(); w2.dir.dispose();
 });
 
+test('the live seat warns when it has NO finaliser (it could not start, or --finalise 0): at the council opening and again at the ballot window', async () => {
+  const w = world();
+  await w.live({ finaliser: null, shouldStop: () => w.clock.bell() >= C0 + 4 });
+  const t = w.lines.join('\n');
+  assert.match(t, /council of nation 0, period 2: OPEN at bell 4[89]\..*WARNING: the seat's village is not being finalised \(the finaliser is not running\); the presenter would be refused NotEligible in this period/);
+  assert.match(t, /council of nation 0, period 2: BALLOT WINDOW OPEN at bell 51: .*ballots cast so far: \d+\. WARNING: the seat's village is not being finalised/);
+  w.dir.dispose();
+});
+
 test('the live seat refuses a roster that marks the seat scripted (a --seat-script run), and a key that is not the roster seat', async () => {
   const w = world();
   const r = JSON.parse(readFileSync(join(w.dir.dir, 'pub/roster.json'), 'utf8'));

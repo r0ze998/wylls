@@ -640,13 +640,16 @@ export async function runSeatLive({ aiDir, social, key, config = {}, getJson, be
       const c0 = st.c0 ?? (st.closes_bell != null ? st.closes_bell - 6 : null);
       const k = st.period;
       const fin = finaliser?.state?.() ?? null;
+      // A missing finaliser (it could not start, or --finalise 0) counts as NOT final: the village then stays provisional and the presenter is refused NotEligible.
+      const finWarning = !fin ? `. WARNING: the seat's village is not being finalised (the finaliser is not running); the presenter would be refused NotEligible in this period`
+        : fin.final ? '' : `. WARNING: the seat's village is not final (${fin.status}); the presenter would be refused NotEligible in this period`;
       const strike = st.strike_bell ?? (c0 != null ? c0 + 6 + strikeLead : null);
       let line = null;
       if (st.state === 'motions') {
         const wall = (b) => clock(now() + (b - bell) * bellMsOf(config)).slice(0, 5);
         line = `council of nation ${NATION}, period ${k}: OPEN at bell ${bell}. Motions until the end of bell ${c0 + 2}; BALLOT WINDOW bells ${c0 + 3} to ${c0 + 5} (about ${wall(c0 + 3)} to ${wall(c0 + 6)}; closes at bell ${c0 + 6}); ${(st.options ?? []).length} option(s)`;
-        if (fin && !fin.final) line += `. WARNING: the seat's village is not final (${fin.status}); the presenter would be refused NotEligible in this period`;
-      } else if (st.state === 'ballots') line = `council of nation ${NATION}, period ${k}: BALLOT WINDOW OPEN at bell ${bell}: the presenter votes on the council page now (last bell to vote: ${c0 + 5}); ballots cast so far: ${st.ballots_cast ?? 0}`;
+        line += finWarning;
+      } else if (st.state === 'ballots') line = `council of nation ${NATION}, period ${k}: BALLOT WINDOW OPEN at bell ${bell}: the presenter votes on the council page now (last bell to vote: ${c0 + 5}); ballots cast so far: ${st.ballots_cast ?? 0}${finWarning}`;
       else if (st.state === 'closed') {
         line = st.adopted
           ? `council of nation ${NATION}, period ${k}: CLOSED, Strike Order ADOPTED; strike at bell ${strike}, it opens at bell ${strike + 2}; read the sealed order on the page (members only)`
