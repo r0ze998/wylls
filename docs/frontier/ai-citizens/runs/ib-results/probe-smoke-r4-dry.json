@@ -1,0 +1,3084 @@
+{
+  "v": 1,
+  "kind": "memory-probe",
+  "dry_run": true,
+  "mode": "set",
+  "key_kinds": [
+    "attacked_own",
+    "camp_taken_by",
+    "threat"
+  ],
+  "token_counter": "approximate (1 token per 3 characters)",
+  "stored_requests": 75,
+  "eligible_prompts": 31,
+  "planned_calls": 93,
+  "calls_made": 0,
+  "not_run": [],
+  "loadavg_at_end": [
+    3.89,
+    4.61,
+    4.32
+  ],
+  "items": [
+    {
+      "id": "0113cfe0bd468743803471d2bfaac61bed76f9279f34774569189fc814b26257",
+      "bell": 5,
+      "index": 1000,
+      "request_sha256": "64826935c34b9aad96461c714762d5c34642d1da525e76677a20915702851405",
+      "request_matches_record": true,
+      "n_remembered": 0,
+      "remembered_kinds": [],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [
+          "c3",
+          "c5"
+        ],
+        "mem_ids": [],
+        "output_hash": "b44ddd5cd14f7c1f4a7f69f7995b8919cd8af99be80c356e145654b018e499eb"
+      }
+    },
+    {
+      "id": "01608669a953aec291b8d8bcfb5839c68c87e102e0dfaada7ea2651b54ec8ceb",
+      "bell": 82,
+      "index": 1003,
+      "request_sha256": "7f63c76266d284b764bc1f1456120a297b1ec0eea12c31e66e58c697be4da5f0",
+      "request_matches_record": true,
+      "n_remembered": 8,
+      "remembered_kinds": [
+        "motion",
+        "council_result",
+        "threat",
+        "build_done",
+        "threat",
+        "build_done",
+        "build_done",
+        "council_result"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M3",
+        "M5"
+      ],
+      "stored": {
+        "choose": [
+          "c7"
+        ],
+        "mem_ids": [],
+        "output_hash": "5a0969332b3fb6ebff6e2f31ab551c10ce2808e124215f0e7157e43f02c1602d"
+      },
+      "ablation": {
+        "removed_lines": 8,
+        "diff": {
+          "removed": [
+            "M1 [bell 50] <memory kind=\"episode\" id=\"M1\">At bell 50 Evesha moved option 1 (camp) in your nation's council.</memory>",
+            "M2 [bell 54] <memory kind=\"episode\" id=\"M2\">At bell 54 your nation's council adopted nothing.</memory>",
+            "M3 [bell 55] <memory kind=\"episode\" id=\"M3\">At bell 55 nation Cinder sent an army of 200 troops from (-3,2); it arrives at bell 58; its destination is not known.</memory>",
+            "M4 [bell 56] <memory kind=\"episode\" id=\"M4\">At bell 56 your library was finished.</memory>",
+            "M5 [bell 57] <memory kind=\"episode\" id=\"M5\">At bell 57 nation Ember sent an army of 100 troops from (0,-3); it arrives at bell 60; its destination is not known.</memory>",
+            "M6 [bell 67] <memory kind=\"episode\" id=\"M6\">At bell 67 your mine was finished.</memory>",
+            "M7 [bell 76] <memory kind=\"episode\" id=\"M7\">At bell 76 your treasury was finished.</memory>",
+            "M8 [bell 78] <memory kind=\"episode\" id=\"M8\">At bell 78 your nation's council adopted nothing.</memory>"
+          ],
+          "added": [
+            "(nothing remembered yet)"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 304
+      },
+      "control": {
+        "removed_handles": [
+          "M1",
+          "M2",
+          "M4",
+          "M6",
+          "M7",
+          "M8"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 199,
+        "target_tokens": 304,
+        "delta_tokens": -105,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "0656ab8d4c244f6fae2d8ba52e665f2c3f68bb7c43a5d2103c96f278795fc07e",
+      "bell": 57,
+      "index": 1004,
+      "request_sha256": "ac6cb450dcf24e1bea62383f81cfa128cb22b65516b935756d78c496a839a67d",
+      "request_matches_record": true,
+      "n_remembered": 7,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done",
+        "motion",
+        "build_done",
+        "council_result",
+        "threat"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M7"
+      ],
+      "stored": {
+        "choose": [
+          "c3"
+        ],
+        "mem_ids": [
+          "e6789fc7fa3a7b62",
+          "1886e751668a4386",
+          "eb8726f5148fe291"
+        ],
+        "output_hash": "0c0574af64e868d0929ebe3f98606038433a29b23a936f27939f20ccff54f792"
+      },
+      "ablation": {
+        "removed_lines": 7,
+        "diff": {
+          "removed": [
+            "M1 [bell 19] <memory kind=\"episode\" id=\"M1\">At bell 19 your sawmill was finished.</memory>",
+            "M2 [bell 28] <memory kind=\"episode\" id=\"M2\">At bell 28 your farm was finished.</memory>",
+            "M3 [bell 43] <memory kind=\"episode\" id=\"M3\">At bell 43 your sawmill was finished.</memory>",
+            "M4 [bell 50] <memory kind=\"episode\" id=\"M4\">At bell 50 Tomea moved option 1 (camp) in your nation's council.</memory>",
+            "M5 [bell 52] <memory kind=\"episode\" id=\"M5\">At bell 52 your quarry was finished.</memory>",
+            "M6 [bell 54] <memory kind=\"episode\" id=\"M6\">At bell 54 your nation's council adopted nothing.</memory>",
+            "M7 [bell 54] <memory kind=\"episode\" id=\"M7\">At bell 54 nation Fjordal sent an army of 200 troops from (3,-3); it arrives at bell 57; its destination is not known.</memory>",
+            "c3 [march] March H3 (100 troops) to a barbarian camp, 6 hexes away; earliest arrival at bell 60 | troops 100 | enemy troops 152; idle bells 23; provinces 1; ratio unfavourable; reward 10 Works (points, no use yet); target (0,-3) | params: retreat 0|5000|10000; stance hold|assault|flank|brace; timing earliest | see M5, M3, M2 | serves G2, G3, G4"
+          ],
+          "added": [
+            "(nothing remembered yet)",
+            "c3 [march] March H3 (100 troops) to a barbarian camp, 6 hexes away; earliest arrival at bell 60 | troops 100 | enemy troops 152; idle bells 23; provinces 1; ratio unfavourable; reward 10 Works (points, no use yet); target (0,-3) | params: retreat 0|5000|10000; stance hold|assault|flank|brace; timing earliest | serves G2, G3, G4"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 248
+      },
+      "control": {
+        "removed_handles": [
+          "M1",
+          "M4",
+          "M6"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 104,
+        "target_tokens": 248,
+        "delta_tokens": -144,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "07a1a9c0586f75fcba43f99b10bcdab4a457231e1b4da7bf88fd24599ea44782",
+      "bell": 60,
+      "index": 1005,
+      "request_sha256": "aaf5922aba228548dde43a757d32ba92cd0db40aec1b6aa7b73e6a4ef426ef78",
+      "request_matches_record": true,
+      "n_remembered": 8,
+      "remembered_kinds": [
+        "build_done",
+        "threat",
+        "threat",
+        "threat",
+        "clash_own_win",
+        "camp_cleared_own",
+        "build_done",
+        "threat"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M2",
+        "M3",
+        "M4",
+        "M8"
+      ],
+      "stored": {
+        "choose": [
+          "c3",
+          "c5"
+        ],
+        "mem_ids": [
+          "23f9aacbf3e48cf5",
+          "55c9360539231064"
+        ],
+        "output_hash": "70ba6c7197253d5d5e8e0793cb57309751ac09a7592754656088dae618b77226"
+      },
+      "ablation": {
+        "removed_lines": 8,
+        "diff": {
+          "removed": [
+            "M1 [bell 49] <memory kind=\"episode\" id=\"M1\">At bell 49 your quarry was finished.</memory>",
+            "M2 [bell 53] <memory kind=\"episode\" id=\"M2\">At bell 53 nation Aster sent an army of 400 troops from (3,0); it arrives at bell 56; its destination is not known.</memory>",
+            "M3 [bell 55] <memory kind=\"episode\" id=\"M3\">At bell 55 nation Aster sent an army of 200 troops from (3,0); it arrives at bell 58; its destination is not known.</memory>",
+            "M4 [bell 57] <memory kind=\"episode\" id=\"M4\">At bell 57 nation Ember sent an army of 100 troops from (0,-3); it arrives at bell 60; its destination is not known.</memory>",
+            "M5 [bell 57] <memory kind=\"episode\" id=\"M5\">At bell 57 your army at (2,-3) beat the camp: you lost 23, they lost 187.</memory>",
+            "M6 [bell 57] <memory kind=\"episode\" id=\"M6\">At bell 57 your army cleared the camp at (2,-3).</memory>",
+            "M7 [bell 58] <memory kind=\"episode\" id=\"M7\">At bell 58 your mine was finished.</memory>",
+            "M8 [bell 59] <memory kind=\"episode\" id=\"M8\">At bell 59 nation Aster sent an army of 100 troops from (3,0); it arrives at bell 63; its destination is not known.</memory>",
+            "c3 [march] March H2 (100 troops) to a barbarian camp, 3 hexes away; earliest arrival at bell 63 | troops 100 | enemy troops 343; provinces 1; ratio unfavourable; reward 10 Works (points, no use yet); target (3,-3) | params: retreat 0|5000|10000; stance hold|assault|flank|brace; timing earliest | see M7, M1 | serves G2, G3, G4"
+          ],
+          "added": [
+            "(nothing remembered yet)",
+            "c3 [march] March H2 (100 troops) to a barbarian camp, 3 hexes away; earliest arrival at bell 63 | troops 100 | enemy troops 343; provinces 1; ratio unfavourable; reward 10 Works (points, no use yet); target (3,-3) | params: retreat 0|5000|10000; stance hold|assault|flank|brace; timing earliest | serves G2, G3, G4"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 358
+      },
+      "control": {
+        "removed_handles": [
+          "M5",
+          "M6"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 77,
+        "target_tokens": 358,
+        "delta_tokens": -281,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "0da9dabf15e887b34b5b3a9f4c750777c72e4e8df8f8feffc907c70aa9a236c0",
+      "bell": 58,
+      "index": 1003,
+      "request_sha256": "832f086d7103a7347d3adaca09bddde4601b885def40b318af9848acac6d2dab",
+      "request_matches_record": true,
+      "n_remembered": 8,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done",
+        "motion",
+        "council_result",
+        "threat",
+        "build_done",
+        "threat"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M6",
+        "M8"
+      ],
+      "stored": {
+        "choose": [
+          "c3",
+          "c4"
+        ],
+        "mem_ids": [
+          "10aeefeb9190d602",
+          "03ca867176b3a0e1",
+          "6314bfd58d1e45e0"
+        ],
+        "output_hash": "e56e26cdb70ca3e0e4dfcb5f699649769d7206eab3580755eb0f3bb680dc9e57"
+      },
+      "ablation": {
+        "removed_lines": 8,
+        "diff": {
+          "removed": [
+            "M1 [bell 26] <memory kind=\"episode\" id=\"M1\">At bell 26 your farm was finished.</memory>",
+            "M2 [bell 35] <memory kind=\"episode\" id=\"M2\">At bell 35 your quarry was finished.</memory>",
+            "M3 [bell 47] <memory kind=\"episode\" id=\"M3\">At bell 47 your sawmill was finished.</memory>",
+            "M4 [bell 50] <memory kind=\"episode\" id=\"M4\">At bell 50 Evesha moved option 1 (camp) in your nation's council.</memory>",
+            "M5 [bell 54] <memory kind=\"episode\" id=\"M5\">At bell 54 your nation's council adopted nothing.</memory>",
+            "M6 [bell 55] <memory kind=\"episode\" id=\"M6\">At bell 55 nation Cinder sent an army of 200 troops from (-3,2); it arrives at bell 58; its destination is not known.</memory>",
+            "M7 [bell 56] <memory kind=\"episode\" id=\"M7\">At bell 56 your library was finished.</memory>",
+            "M8 [bell 57] <memory kind=\"episode\" id=\"M8\">At bell 57 nation Ember sent an army of 100 troops from (0,-3); it arrives at bell 60; its destination is not known.</memory>"
+          ],
+          "added": [
+            "(nothing remembered yet)"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 299
+      },
+      "control": {
+        "removed_handles": [
+          "M4",
+          "M5",
+          "M7"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 104,
+        "target_tokens": 299,
+        "delta_tokens": -195,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "14751df24b3711dac35c503b3d12454c26c6003300656957a3b73ef4098b62d0",
+      "bell": 49,
+      "index": 1001,
+      "request_sha256": "30ee116c850963b5c74b16eb32a42cc45773f09265ec5b9440490d71fdae3bd3",
+      "request_matches_record": true,
+      "n_remembered": 4,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done",
+        "build_done"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [],
+        "output_hash": "9f41e65bf729e8de10a5e683c1fb4e1cb99b9b535a3dac8d47e6bb77ac182dee"
+      }
+    },
+    {
+      "id": "152c423e7d9181872bfb22ffa422a5c09cd782f6c06316baaf3ac2388d16a13f",
+      "bell": 49,
+      "index": 1003,
+      "request_sha256": "b6e091513cf78db0396b71844ce37df830993ea19bc91da783b1792c0a05a596",
+      "request_matches_record": true,
+      "n_remembered": 4,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done",
+        "build_done"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [],
+        "output_hash": "83c6e976ac54fc74ef5a1b4440bc17f2b1d84ca499ce7cc66c2c59fa7029bbdb"
+      }
+    },
+    {
+      "id": "1549cc95c0502bef5a063555d8c53fcfedf8c60e33bf75f8b71c0d26eada578c",
+      "bell": 72,
+      "index": 1001,
+      "request_sha256": "f4a0c867053e80292de2da7d8b1671b3954a073af26391f44b6ee27552d43b9b",
+      "request_matches_record": true,
+      "n_remembered": 0,
+      "remembered_kinds": [],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [],
+        "output_hash": "7d2dc57bd5d75c1d592a3fed852350014d00149de0f13dba1c4d65fda192188a"
+      }
+    },
+    {
+      "id": "163770eae5a7d9d5b231b0cec3fb992c6deb71a78697388880c4845d2f915a9e",
+      "bell": 48,
+      "index": 1000,
+      "request_sha256": "1301f456d5db9d6d782216f82c98afe96ea253091b5fe8a53bfd039cf71d4c72",
+      "request_matches_record": true,
+      "n_remembered": 0,
+      "remembered_kinds": [],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [],
+        "output_hash": "53009ffc61e06f8706d40ec07c08ff5be42fb250d62b7989fce8f03eed48a512"
+      }
+    },
+    {
+      "id": "183605a4e70e11327ff7fe289bf2e33338511ea784fb42be662890fdf168b359",
+      "bell": 8,
+      "index": 1003,
+      "request_sha256": "a6b2fedf791ee4f516293b6b5d5474d38e3b85935e2ff790f29bac6cfa2806d0",
+      "request_matches_record": true,
+      "n_remembered": 0,
+      "remembered_kinds": [],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [
+          "c3",
+          "c5"
+        ],
+        "mem_ids": [],
+        "output_hash": "e3553bf833e56a66c4d94169be5d573fe4635d5214aef729b986271117665bdc"
+      }
+    },
+    {
+      "id": "1bf2d905ed3bf142111514b9bdf507d628fc0192c19bb46d78fc34054a37cbf0",
+      "bell": 51,
+      "index": 1003,
+      "request_sha256": "01498280e92979f2c827bf237992adb4ac1f5c09a01384c2aea6c24fdc8165d0",
+      "request_matches_record": true,
+      "n_remembered": 5,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done",
+        "build_done",
+        "motion"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [
+          "15fceaf51400b9a6"
+        ],
+        "output_hash": "3dbcd6cdbbc60ea852fa0c8cbe6d4a7cd497d54ea4b0389a6891a40a0b77a51f"
+      }
+    },
+    {
+      "id": "23151c2d7ba2e5a9deb16b0c3a26a555d658ca66c5251f0315631358828e8965",
+      "bell": 31,
+      "index": 1002,
+      "request_sha256": "d551296da01151689090088bdd8cbf02629b6aa05ca12f75c80c9cb3a89acc71",
+      "request_matches_record": true,
+      "n_remembered": 2,
+      "remembered_kinds": [
+        "build_done",
+        "build_done"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [
+          "c3"
+        ],
+        "mem_ids": [],
+        "output_hash": "aa4a44b8af492873bd395535f28e9651dee90b07594dc3a6330d2c8accc24f40"
+      }
+    },
+    {
+      "id": "23af41358767fcd5ee89fa1398121cf55c2648bf334a4b771cb6adee9fe11792",
+      "bell": 56,
+      "index": 1003,
+      "request_sha256": "8eb94e6fa0f9f63941c66f3e865002d8ab090f231e40e0174f1af1a29f363a32",
+      "request_matches_record": true,
+      "n_remembered": 7,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done",
+        "build_done",
+        "motion",
+        "council_result",
+        "threat"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M7"
+      ],
+      "stored": {
+        "choose": [
+          "c7"
+        ],
+        "mem_ids": [],
+        "output_hash": "51996f4a121aecf7fac589170f30609e9f9c6d3a15e6ae64b1356e0fc4d13b8c"
+      },
+      "ablation": {
+        "removed_lines": 7,
+        "diff": {
+          "removed": [
+            "M1 [bell 17] <memory kind=\"episode\" id=\"M1\">At bell 17 your sawmill was finished.</memory>",
+            "M2 [bell 26] <memory kind=\"episode\" id=\"M2\">At bell 26 your farm was finished.</memory>",
+            "M3 [bell 35] <memory kind=\"episode\" id=\"M3\">At bell 35 your quarry was finished.</memory>",
+            "M4 [bell 47] <memory kind=\"episode\" id=\"M4\">At bell 47 your sawmill was finished.</memory>",
+            "M5 [bell 50] <memory kind=\"episode\" id=\"M5\">At bell 50 Evesha moved option 1 (camp) in your nation's council.</memory>",
+            "M6 [bell 54] <memory kind=\"episode\" id=\"M6\">At bell 54 your nation's council adopted nothing.</memory>",
+            "M7 [bell 55] <memory kind=\"episode\" id=\"M7\">At bell 55 nation Cinder sent an army of 200 troops from (-3,2); it arrives at bell 58; its destination is not known.</memory>"
+          ],
+          "added": [
+            "(nothing remembered yet)"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 243
+      },
+      "control": {
+        "removed_handles": [
+          "M1",
+          "M2",
+          "M3",
+          "M4",
+          "M5",
+          "M6"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 194,
+        "target_tokens": 243,
+        "delta_tokens": -49,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "26eacb7062a19a221c9c68a6dc33fe04731867a34b8b122c03aef0b14e9affe9",
+      "bell": 48,
+      "index": 1004,
+      "request_sha256": "bd5bddc67e7a822826c0402ee1a604af228c8c813edd9547d6c8d5b49dfd766c",
+      "request_matches_record": true,
+      "n_remembered": 0,
+      "remembered_kinds": [],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [],
+        "output_hash": "069d9ac6a39561e9bf226d765643cef05e116ca58abdaa948d67133bacbec975"
+      }
+    },
+    {
+      "id": "27d6c4b9b8b9806d4e1d465686f71424a3a9576941620383ef6b19883d9fc862",
+      "bell": 66,
+      "index": 1000,
+      "request_sha256": "c48d209b440afd1adee947a73c1cb667632e85c0d9d164f3730360302c64bc1e",
+      "request_matches_record": true,
+      "n_remembered": 9,
+      "remembered_kinds": [
+        "motion",
+        "council_result",
+        "threat",
+        "threat",
+        "camp_cleared_own",
+        "clash_own_win",
+        "threat",
+        "build_done",
+        "clash_own_loss"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M3",
+        "M4",
+        "M7"
+      ],
+      "stored": {
+        "choose": [
+          "c3",
+          "c5"
+        ],
+        "mem_ids": [
+          "fde7fd5e255e2ec0"
+        ],
+        "output_hash": "9de9638ea252c963ca276cbfc46549f1c3813fbe5caa89b4b033db3ddfb2d667"
+      },
+      "ablation": {
+        "removed_lines": 9,
+        "diff": {
+          "removed": [
+            "M1 [bell 50] <memory kind=\"episode\" id=\"M1\">At bell 50 Nerin moved option 1 (camp) in your nation's council.</memory>",
+            "M2 [bell 54] <memory kind=\"episode\" id=\"M2\">At bell 54 your nation's council adopted a Strike Order (its target stays sealed until the strike).</memory>",
+            "M3 [bell 54] <memory kind=\"episode\" id=\"M3\">At bell 54 nation Fjordal sent an army of 200 troops from (3,-3); it arrives at bell 57; its destination is not known.</memory>",
+            "M4 [bell 56] <memory kind=\"episode\" id=\"M4\">At bell 56 nation Borealis sent an army of 300 troops from (0,3); it arrives at bell 60; its destination is not known.</memory>",
+            "M5 [bell 56] <memory kind=\"episode\" id=\"M5\">At bell 56 your army cleared the camp at (3,0).</memory>",
+            "M6 [bell 56] <memory kind=\"episode\" id=\"M6\">At bell 56 your army at (3,0) beat the camp: you lost 33, they lost 254.</memory>",
+            "M7 [bell 60] <memory kind=\"episode\" id=\"M7\">At bell 60 nation Fjordal sent an army of 100 troops from (3,-3); it arrives at bell 63; its destination is not known.</memory>",
+            "M8 [bell 61] <memory kind=\"episode\" id=\"M8\">At bell 61 your farm was finished.</memory>",
+            "M9 [bell 63] <memory kind=\"episode\" id=\"M9\">At bell 63 your army at (2,0) lost 32 troops against the camp; they lost 20.</memory>",
+            "c3 [march] March H5 (100 troops) to a barbarian camp, 9 hexes away; earliest arrival at bell 70 | troops 100 | enemy troops 267; idle bells 4; provinces 2; ratio unfavourable; reward 10 Works (points, no use yet); target (2,0) | params: retreat 0|5000|10000; stance hold|assault|flank|brace; timing earliest | see M9 | serves G2, G3, G4"
+          ],
+          "added": [
+            "(nothing remembered yet)",
+            "c3 [march] March H5 (100 troops) to a barbarian camp, 9 hexes away; earliest arrival at bell 70 | troops 100 | enemy troops 267; idle bells 4; provinces 2; ratio unfavourable; reward 10 Works (points, no use yet); target (2,0) | params: retreat 0|5000|10000; stance hold|assault|flank|brace; timing earliest | serves G2, G3, G4"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 406
+      },
+      "control": {
+        "removed_handles": [
+          "M1",
+          "M2",
+          "M5",
+          "M6",
+          "M8"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 196,
+        "target_tokens": 406,
+        "delta_tokens": -210,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "2bebe48344fd12b5f04a852df0b169e435be67f0d569bcd24b9882f21a759b84",
+      "bell": 32,
+      "index": 1003,
+      "request_sha256": "861b562d87c7683db46ba488c7fe956c389dff08324d4e9b08513e3e54d3fd89",
+      "request_matches_record": true,
+      "n_remembered": 2,
+      "remembered_kinds": [
+        "build_done",
+        "build_done"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [
+          "c1"
+        ],
+        "mem_ids": [],
+        "output_hash": "ef1f2e7be60f9227b9392fddd8bb7d112b8162a696df7d35eef4a3653fefabea"
+      }
+    },
+    {
+      "id": "305d2405e9d700cf2d587afa72c832e081e3cf2c882d2ab47e4702c4338a0fa9",
+      "bell": 24,
+      "index": 1000,
+      "request_sha256": "e26538b1198a6c93b163a61cd4a8af1ac926f13d0ed8739a63f34a5d8e8c1906",
+      "request_matches_record": true,
+      "n_remembered": 0,
+      "remembered_kinds": [],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [],
+        "output_hash": "6c23810cee8e58e107bcfc28a4f45c7763e74aad672aab3138f3e0f39c3b3ef5"
+      }
+    },
+    {
+      "id": "410eba9e4a56b06d33e4e98e4cd98fc221c28004a7e10201c199ee38c206ae7f",
+      "bell": 10,
+      "index": 1005,
+      "request_sha256": "f5515128d64cd42e0f1924e0d93e33db0866408c4daa3ca788b4e2720820f547",
+      "request_matches_record": true,
+      "n_remembered": 0,
+      "remembered_kinds": [],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [
+          "c3",
+          "c5"
+        ],
+        "mem_ids": [],
+        "output_hash": "a8ba8abedf3823aabfc365b7a2d473ad4f352ce3eece123ab262ae0060234a1b"
+      }
+    },
+    {
+      "id": "452f59e3e1f4cd21bf893ce8f24f5b1035ec2a39957af7d3f615598e2431df3d",
+      "bell": 57,
+      "index": 1000,
+      "request_sha256": "8b644ace4fb2cce360602f96bccd0beda7b553093f4c368c62a38b65c49ccec6",
+      "request_matches_record": true,
+      "n_remembered": 8,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done",
+        "build_done",
+        "motion",
+        "council_result",
+        "threat",
+        "threat"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M7",
+        "M8"
+      ],
+      "stored": {
+        "choose": [
+          "c4"
+        ],
+        "mem_ids": [
+          "8d3e24c743d428b7"
+        ],
+        "output_hash": "eae4220a88486539a52ce95fef6925d2b19396fa48eeba5a9d27d67dbbcb780d"
+      },
+      "ablation": {
+        "removed_lines": 8,
+        "diff": {
+          "removed": [
+            "M1 [bell 14] <memory kind=\"episode\" id=\"M1\">At bell 14 your sawmill was finished.</memory>",
+            "M2 [bell 23] <memory kind=\"episode\" id=\"M2\">At bell 23 your farm was finished.</memory>",
+            "M3 [bell 35] <memory kind=\"episode\" id=\"M3\">At bell 35 your sawmill was finished.</memory>",
+            "M4 [bell 44] <memory kind=\"episode\" id=\"M4\">At bell 44 your library was finished.</memory>",
+            "M5 [bell 50] <memory kind=\"episode\" id=\"M5\">At bell 50 Nerin moved option 1 (camp) in your nation's council.</memory>",
+            "M6 [bell 54] <memory kind=\"episode\" id=\"M6\">At bell 54 your nation's council adopted a Strike Order (its target stays sealed until the strike).</memory>",
+            "M7 [bell 54] <memory kind=\"episode\" id=\"M7\">At bell 54 nation Fjordal sent an army of 200 troops from (3,-3); it arrives at bell 57; its destination is not known.</memory>",
+            "M8 [bell 56] <memory kind=\"episode\" id=\"M8\">At bell 56 nation Borealis sent an army of 300 troops from (0,3); it arrives at bell 60; its destination is not known.</memory>"
+          ],
+          "added": [
+            "(nothing remembered yet)"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 317
+      },
+      "control": {
+        "removed_handles": [
+          "M1",
+          "M2",
+          "M3",
+          "M4",
+          "M6"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 171,
+        "target_tokens": 317,
+        "delta_tokens": -146,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "4b8869ae12dcf27eea6d31b6ff28cdfd8384c8b4a35f288598887784dec16819",
+      "bell": 80,
+      "index": 1000,
+      "request_sha256": "a72e47eba410560d876e3adb77621e856a1715a3c1b3340f3f5091683d574a7b",
+      "request_matches_record": true,
+      "n_remembered": 9,
+      "remembered_kinds": [
+        "motion",
+        "camp_cleared_own",
+        "clash_own_win",
+        "strike",
+        "clash_own_loss",
+        "clash_own_loss",
+        "motion",
+        "council_result",
+        "build_done"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [],
+        "output_hash": "b31fca6e17aa7d529e8ac7f527c26a8d721d7860a861ce73def2298e7e778f4f"
+      }
+    },
+    {
+      "id": "4d105f6353bb21ab0aa59c06c6667a168274a2124b8d3c3e55e64095ccc11bee",
+      "bell": 49,
+      "index": 1004,
+      "request_sha256": "44a1330b8cf5dc2ff4eb9cd1a4bdd5ee6b82d79d01fe0b2064572b768c918392",
+      "request_matches_record": true,
+      "n_remembered": 3,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [],
+        "output_hash": "9f41e65bf729e8de10a5e683c1fb4e1cb99b9b535a3dac8d47e6bb77ac182dee"
+      }
+    },
+    {
+      "id": "55ac52e5bb17cfed452b783e955a83f557a5e52cdd9c61e6f890c389824f8120",
+      "bell": 24,
+      "index": 1002,
+      "request_sha256": "712ec6b2a2ac831e2d51f72b56ccdac0b46ff51b0f20c053595877aa286d4353",
+      "request_matches_record": true,
+      "n_remembered": 0,
+      "remembered_kinds": [],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [],
+        "output_hash": "3e27b7ce3d44dc106d06727775ccd9499239e8a6c7a67f84f34ecff66e6cc18c"
+      }
+    },
+    {
+      "id": "564b8d7d16f2af22b126d863e3854c4eeba55e23b2fa1ad8033de831d2c49b9e",
+      "bell": 99,
+      "index": 1001,
+      "request_sha256": "c810153e50e03fd32b881dce3222cb48eb82f2cc1e1f72a2044aab138581f7b6",
+      "request_matches_record": true,
+      "n_remembered": 8,
+      "remembered_kinds": [
+        "motion",
+        "council_result",
+        "threat",
+        "camp_cleared_own",
+        "clash_own_win",
+        "build_done",
+        "clash_own_loss",
+        "build_done"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M3"
+      ],
+      "stored": {
+        "choose": [],
+        "mem_ids": [
+          "eabd629823dd33de",
+          "5f19ca4d34f7e8a1"
+        ],
+        "output_hash": "a936bc17748af9105424c0a16be18c30d6012a10e192fda624a319f9a89616df"
+      },
+      "ablation": {
+        "removed_lines": 8,
+        "diff": {
+          "removed": [
+            "M1 [bell 50] <memory kind=\"episode\" id=\"M1\">At bell 50 Kirika moved option 1 (camp) in your nation's council.</memory>",
+            "M2 [bell 54] <memory kind=\"episode\" id=\"M2\">At bell 54 your nation's council adopted nothing.</memory>",
+            "M3 [bell 55] <memory kind=\"episode\" id=\"M3\">At bell 55 nation Cinder sent an army of 200 troops from (-3,2); it arrives at bell 58; its destination is not known.</memory>",
+            "M4 [bell 57] <memory kind=\"episode\" id=\"M4\">At bell 57 your army cleared the camp at (-1,3).</memory>",
+            "M5 [bell 57] <memory kind=\"episode\" id=\"M5\">At bell 57 your army at (-1,3) beat the camp: you lost 23, they lost 189.</memory>",
+            "M6 [bell 63] <memory kind=\"episode\" id=\"M6\">At bell 63 your treasury was finished.</memory>",
+            "M7 [bell 63] <memory kind=\"episode\" id=\"M7\">At bell 63 your army at (-2,3) lost 46 troops against the camp; they lost 23.</memory>",
+            "M8 [bell 72] <memory kind=\"episode\" id=\"M8\">At bell 72 your library was finished.</memory>"
+          ],
+          "added": [
+            "(nothing remembered yet)"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 304
+      },
+      "control": {
+        "removed_handles": [
+          "M4",
+          "M5",
+          "M6",
+          "M7",
+          "M8"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 181,
+        "target_tokens": 304,
+        "delta_tokens": -123,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "5c8cd3a2c2e01597877ce01fb65c8674219a8b6c97654b353545d45ec4325bc9",
+      "bell": 75,
+      "index": 1000,
+      "request_sha256": "06cc18d7ba922c2f1817e0ba94ea19b36a4496494163ef3a7b49492c4b020136",
+      "request_matches_record": true,
+      "n_remembered": 9,
+      "remembered_kinds": [
+        "motion",
+        "council_result",
+        "camp_cleared_own",
+        "clash_own_win",
+        "strike",
+        "clash_own_loss",
+        "build_done",
+        "clash_own_loss",
+        "motion"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [
+          "8d3e24c743d428b7",
+          "4bc70e6771580fb8"
+        ],
+        "output_hash": "707b9acadfbb04a049830bf51a64c726946ca43065e5b4b6961341978215b5a5"
+      }
+    },
+    {
+      "id": "5d788270ad02989fb4e38b56e5d35138425deb87828163bc5fe3eb76cabf3056",
+      "bell": 51,
+      "index": 1001,
+      "request_sha256": "8c91c4c45788eb8e2b1712a3f65538ae396b23a886b0273dd88b19d4a4f1a540",
+      "request_matches_record": true,
+      "n_remembered": 5,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done",
+        "build_done",
+        "motion"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [
+          "eabd629823dd33de"
+        ],
+        "output_hash": "74c47a5abe42cdc2d2d16aa5e6f4a292dc529c50a531b8ffa7560774725fe691"
+      }
+    },
+    {
+      "id": "5fa11692522571ff3b45f520185a03540cc1cf34c7bdca0e0d7b62ef120d0cf6",
+      "bell": 66,
+      "index": 1005,
+      "request_sha256": "65f03aeccd38f29a6abe8bd85911eaa4ec54400709d421b08a474cf76b43f538",
+      "request_matches_record": true,
+      "n_remembered": 8,
+      "remembered_kinds": [
+        "threat",
+        "threat",
+        "threat",
+        "clash_own_win",
+        "camp_cleared_own",
+        "build_done",
+        "threat",
+        "clash_own_loss"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M1",
+        "M2",
+        "M3",
+        "M7"
+      ],
+      "stored": {
+        "choose": [
+          "c3",
+          "c6"
+        ],
+        "mem_ids": [
+          "51914db8279b0d6d"
+        ],
+        "output_hash": "6ddddc26986fe6c687277dff9e9f2d8d130bf13a24dd968c814f28317fdec49b"
+      },
+      "ablation": {
+        "removed_lines": 8,
+        "diff": {
+          "removed": [
+            "M1 [bell 53] <memory kind=\"episode\" id=\"M1\">At bell 53 nation Aster sent an army of 400 troops from (3,0); it arrives at bell 56; its destination is not known.</memory>",
+            "M2 [bell 55] <memory kind=\"episode\" id=\"M2\">At bell 55 nation Aster sent an army of 200 troops from (3,0); it arrives at bell 58; its destination is not known.</memory>",
+            "M3 [bell 57] <memory kind=\"episode\" id=\"M3\">At bell 57 nation Ember sent an army of 100 troops from (0,-3); it arrives at bell 60; its destination is not known.</memory>",
+            "M4 [bell 57] <memory kind=\"episode\" id=\"M4\">At bell 57 your army at (2,-3) beat the camp: you lost 23, they lost 187.</memory>",
+            "M5 [bell 57] <memory kind=\"episode\" id=\"M5\">At bell 57 your army cleared the camp at (2,-3).</memory>",
+            "M6 [bell 58] <memory kind=\"episode\" id=\"M6\">At bell 58 your mine was finished.</memory>",
+            "M7 [bell 59] <memory kind=\"episode\" id=\"M7\">At bell 59 nation Aster sent an army of 100 troops from (3,0); it arrives at bell 63; its destination is not known.</memory>",
+            "M8 [bell 63] <memory kind=\"episode\" id=\"M8\">At bell 63 your army at (3,-3) lost 38 troops against the camp; they lost 21.</memory>",
+            "c3 [march] March H3 (100 troops) to a barbarian camp, 3 hexes away; earliest arrival at bell 69 | troops 100 | enemy troops 322; idle bells 7; provinces 1; ratio unfavourable; reward 10 Works (points, no use yet); target (3,-3) | params: retreat 0|5000|10000; stance hold|assault|flank|brace; timing earliest | see M8, M6 | serves G2, G3, G4"
+          ],
+          "added": [
+            "(nothing remembered yet)",
+            "c3 [march] March H3 (100 troops) to a barbarian camp, 3 hexes away; earliest arrival at bell 69 | troops 100 | enemy troops 322; idle bells 7; provinces 1; ratio unfavourable; reward 10 Works (points, no use yet); target (3,-3) | params: retreat 0|5000|10000; stance hold|assault|flank|brace; timing earliest | serves G2, G3, G4"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 371
+      },
+      "control": {
+        "removed_handles": [
+          "M4",
+          "M5",
+          "M6"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 107,
+        "target_tokens": 371,
+        "delta_tokens": -264,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "64238abc4ded14318ebdbce4eabcf19fc1dbd8df5d28fae3f1edb1bc2f3aa460",
+      "bell": 51,
+      "index": 1004,
+      "request_sha256": "02085a8baf21ea7140aa84178443c695adfbd20b940ac046c4d5e3f5672a6610",
+      "request_matches_record": true,
+      "n_remembered": 4,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done",
+        "motion"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [
+          "6ca05b39cc6928b7"
+        ],
+        "output_hash": "33eed9e7182adb853d1625493ddcbf8c0e9443145d380b0e212814b5dca12242"
+      }
+    },
+    {
+      "id": "684253e5168a5d6fb16470c341854d0c1d6004aaf53f5d8c6182419c5ae87df1",
+      "bell": 33,
+      "index": 1004,
+      "request_sha256": "1691736a63c6838a8eca2962cdd6a4f8d5e0f96138ff7e4ed14201b1930c4060",
+      "request_matches_record": true,
+      "n_remembered": 2,
+      "remembered_kinds": [
+        "build_done",
+        "build_done"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [
+          "c5"
+        ],
+        "mem_ids": [],
+        "output_hash": "eeeb028b07a1898576b2f507c46240c4e4039019369b6ff86840668a7461088a"
+      }
+    },
+    {
+      "id": "6ef69755b14fbaf13b2d8dbde4a023d626470d918cf15de4003e4f23d48facfb",
+      "bell": 72,
+      "index": 1000,
+      "request_sha256": "85f1bde9213fad0fec80c9f37abf36c945e21b62d5eda9fbf1b10421fafec927",
+      "request_matches_record": true,
+      "n_remembered": 0,
+      "remembered_kinds": [],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [],
+        "output_hash": "b295df680f3e9543e43ed886b6f0feb42b3fdb5efec1003dc0acfa50d0ed94b3"
+      }
+    },
+    {
+      "id": "712f9d270e785b87a490fd500a7e359bae362fc92574c8985432b46b3072b6a9",
+      "bell": 72,
+      "index": 1005,
+      "request_sha256": "0477fdccca6acdd7bf1277612ae970818a638c89be4c6b0f70f3188aeb42ff86",
+      "request_matches_record": true,
+      "n_remembered": 9,
+      "remembered_kinds": [
+        "threat",
+        "threat",
+        "clash_own_win",
+        "camp_cleared_own",
+        "threat",
+        "clash_own_loss",
+        "threat",
+        "build_done",
+        "clash_own_loss"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M1",
+        "M2",
+        "M5",
+        "M7"
+      ],
+      "stored": {
+        "choose": [
+          "c5"
+        ],
+        "mem_ids": [
+          "51914db8279b0d6d",
+          "9634c55d2f1fa2f7"
+        ],
+        "output_hash": "b498bd78b9b878198bd250610d83c70844500c3eb08e6e6650e703ce9b6d22b8"
+      },
+      "ablation": {
+        "removed_lines": 9,
+        "diff": {
+          "removed": [
+            "M1 [bell 55] <memory kind=\"episode\" id=\"M1\">At bell 55 nation Aster sent an army of 200 troops from (3,0); it arrives at bell 58; its destination is not known.</memory>",
+            "M2 [bell 57] <memory kind=\"episode\" id=\"M2\">At bell 57 nation Ember sent an army of 100 troops from (0,-3); it arrives at bell 60; its destination is not known.</memory>",
+            "M3 [bell 57] <memory kind=\"episode\" id=\"M3\">At bell 57 your army at (2,-3) beat the camp: you lost 23, they lost 187.</memory>",
+            "M4 [bell 57] <memory kind=\"episode\" id=\"M4\">At bell 57 your army cleared the camp at (2,-3).</memory>",
+            "M5 [bell 59] <memory kind=\"episode\" id=\"M5\">At bell 59 nation Aster sent an army of 100 troops from (3,0); it arrives at bell 63; its destination is not known.</memory>",
+            "M6 [bell 63] <memory kind=\"episode\" id=\"M6\">At bell 63 your army at (3,-3) lost 38 troops against the camp; they lost 21.</memory>",
+            "M7 [bell 66] <memory kind=\"episode\" id=\"M7\">At bell 66 nation Aster sent an army of 100 troops from (3,0); it arrives at bell 70; its destination is not known.</memory>",
+            "M8 [bell 67] <memory kind=\"episode\" id=\"M8\">At bell 67 your treasury was finished.</memory>",
+            "M9 [bell 69] <memory kind=\"episode\" id=\"M9\">At bell 69 your army at (3,-3) lost 37 troops against the camp; they lost 22.</memory>"
+          ],
+          "added": [
+            "(nothing remembered yet)"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 412
+      },
+      "control": {
+        "removed_handles": [
+          "M3",
+          "M4",
+          "M8"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 107,
+        "target_tokens": 412,
+        "delta_tokens": -305,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "73722edc999579fd076411b99095e05baf2d7704dffa94e4624963d035bd9ca7",
+      "bell": 66,
+      "index": 1001,
+      "request_sha256": "3629fdd3f52032bd4ddc98508a1cdd6caf59c966404d9fd1441d7336edf7cc54",
+      "request_matches_record": true,
+      "n_remembered": 8,
+      "remembered_kinds": [
+        "motion",
+        "council_result",
+        "build_done",
+        "threat",
+        "camp_cleared_own",
+        "clash_own_win",
+        "build_done",
+        "clash_own_loss"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M4"
+      ],
+      "stored": {
+        "choose": [
+          "c6"
+        ],
+        "mem_ids": [
+          "eabd629823dd33de",
+          "5f19ca4d34f7e8a1",
+          "6c1ffe8f237821f8"
+        ],
+        "output_hash": "67da82c24d7faed7e83d30750f5099defb458e92e4e1e4832a6f75ccad6b49db"
+      },
+      "ablation": {
+        "removed_lines": 8,
+        "diff": {
+          "removed": [
+            "M1 [bell 50] <memory kind=\"episode\" id=\"M1\">At bell 50 Kirika moved option 1 (camp) in your nation's council.</memory>",
+            "M2 [bell 54] <memory kind=\"episode\" id=\"M2\">At bell 54 your nation's council adopted nothing.</memory>",
+            "M3 [bell 54] <memory kind=\"episode\" id=\"M3\">At bell 54 your mine was finished.</memory>",
+            "M4 [bell 55] <memory kind=\"episode\" id=\"M4\">At bell 55 nation Cinder sent an army of 200 troops from (-3,2); it arrives at bell 58; its destination is not known.</memory>",
+            "M5 [bell 57] <memory kind=\"episode\" id=\"M5\">At bell 57 your army cleared the camp at (-1,3).</memory>",
+            "M6 [bell 57] <memory kind=\"episode\" id=\"M6\">At bell 57 your army at (-1,3) beat the camp: you lost 23, they lost 189.</memory>",
+            "M7 [bell 63] <memory kind=\"episode\" id=\"M7\">At bell 63 your treasury was finished.</memory>",
+            "M8 [bell 63] <memory kind=\"episode\" id=\"M8\">At bell 63 your army at (-2,3) lost 46 troops against the camp; they lost 23.</memory>"
+          ],
+          "added": [
+            "(nothing remembered yet)"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 303
+      },
+      "control": {
+        "removed_handles": [
+          "M5",
+          "M6",
+          "M7",
+          "M8"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 151,
+        "target_tokens": 303,
+        "delta_tokens": -152,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "7521875bba8143f1b4d3e1782499968a7da6d7daedc0c364a8571d31e341e2ff",
+      "bell": 56,
+      "index": 1001,
+      "request_sha256": "12c09129c3e1f44e0d7febbd1fdccafc625ac62c6ec6fe41b3e122b34ee7aa69",
+      "request_matches_record": true,
+      "n_remembered": 8,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done",
+        "build_done",
+        "motion",
+        "council_result",
+        "build_done",
+        "threat"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M8"
+      ],
+      "stored": {
+        "choose": [
+          "c5",
+          "c6"
+        ],
+        "mem_ids": [
+          "887f173e14a6a165"
+        ],
+        "output_hash": "4ee77384c35bc0bb189120eeab65b7f8e14cca79f88a55d0bedfc21757639336"
+      },
+      "ablation": {
+        "removed_lines": 8,
+        "diff": {
+          "removed": [
+            "M1 [bell 15] <memory kind=\"episode\" id=\"M1\">At bell 15 your sawmill was finished.</memory>",
+            "M2 [bell 24] <memory kind=\"episode\" id=\"M2\">At bell 24 your farm was finished.</memory>",
+            "M3 [bell 36] <memory kind=\"episode\" id=\"M3\">At bell 36 your sawmill was finished.</memory>",
+            "M4 [bell 45] <memory kind=\"episode\" id=\"M4\">At bell 45 your quarry was finished.</memory>",
+            "M5 [bell 50] <memory kind=\"episode\" id=\"M5\">At bell 50 Kirika moved option 1 (camp) in your nation's council.</memory>",
+            "M6 [bell 54] <memory kind=\"episode\" id=\"M6\">At bell 54 your nation's council adopted nothing.</memory>",
+            "M7 [bell 54] <memory kind=\"episode\" id=\"M7\">At bell 54 your mine was finished.</memory>",
+            "M8 [bell 55] <memory kind=\"episode\" id=\"M8\">At bell 55 nation Cinder sent an army of 200 troops from (-3,2); it arrives at bell 58; its destination is not known.</memory>"
+          ],
+          "added": [
+            "(nothing remembered yet)"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 272
+      },
+      "control": {
+        "removed_handles": [
+          "M1",
+          "M2",
+          "M3",
+          "M4",
+          "M5",
+          "M6",
+          "M7"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 224,
+        "target_tokens": 272,
+        "delta_tokens": -48,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "796c5f2c3b9a65d37173dd777433877d109888e840b58b6a4b0ffeb7bf811fae",
+      "bell": 72,
+      "index": 1002,
+      "request_sha256": "1a037ed25de5c9c7aa04ef9af9ba9e129897afc451310f244bc7393f1fb162e0",
+      "request_matches_record": true,
+      "n_remembered": 0,
+      "remembered_kinds": [],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [],
+        "output_hash": "7a0de91552e3aa6a65900e88b2c5ce04e9e7c6f098f184b7c88224b5a8b82f06"
+      }
+    },
+    {
+      "id": "7a627bccd9c268e9a3d9c4b4bcc53c0a3bb120904f0120c803ad3e1939b23ebf",
+      "bell": 72,
+      "index": 1005,
+      "request_sha256": "7e84bba6f6c28012bf37b7434bc4f5bdee66fed029b23d8a49e0a447a13ca428",
+      "request_matches_record": true,
+      "n_remembered": 0,
+      "remembered_kinds": [],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [],
+        "output_hash": "72d1ebdee5bfbc187752c63487f0a92ed7ffa193322d3c0cebf50ddb4bec8719"
+      }
+    },
+    {
+      "id": "7a7b1e978af165643d6353c5b1f74720a0a56eb20c64ea1facf64eea21091bc7",
+      "bell": 55,
+      "index": 1000,
+      "request_sha256": "1b65874f4e4d796eccbd85939f1e7178d06f185394bf421938f4a829827e1f4c",
+      "request_matches_record": true,
+      "n_remembered": 7,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done",
+        "build_done",
+        "motion",
+        "council_result",
+        "threat"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M7"
+      ],
+      "stored": {
+        "choose": [
+          "c3",
+          "c7"
+        ],
+        "mem_ids": [
+          "cb5bb662a756e94c",
+          "5c77486ad34751bc"
+        ],
+        "output_hash": "f0aa147a3774b4eebe039b829148d19bfcf884034f1c38d0890b422cac93c9de"
+      },
+      "ablation": {
+        "removed_lines": 7,
+        "diff": {
+          "removed": [
+            "M1 [bell 14] <memory kind=\"episode\" id=\"M1\">At bell 14 your sawmill was finished.</memory>",
+            "M2 [bell 23] <memory kind=\"episode\" id=\"M2\">At bell 23 your farm was finished.</memory>",
+            "M3 [bell 35] <memory kind=\"episode\" id=\"M3\">At bell 35 your sawmill was finished.</memory>",
+            "M4 [bell 44] <memory kind=\"episode\" id=\"M4\">At bell 44 your library was finished.</memory>",
+            "M5 [bell 50] <memory kind=\"episode\" id=\"M5\">At bell 50 Nerin moved option 1 (camp) in your nation's council.</memory>",
+            "M6 [bell 54] <memory kind=\"episode\" id=\"M6\">At bell 54 your nation's council adopted a Strike Order (its target stays sealed until the strike).</memory>",
+            "M7 [bell 54] <memory kind=\"episode\" id=\"M7\">At bell 54 nation Fjordal sent an army of 200 troops from (3,-3); it arrives at bell 57; its destination is not known.</memory>",
+            "c3 [march] March H3 (200 troops) to a barbarian camp, 6 hexes away; earliest arrival at bell 58 | troops 200 | enemy troops 254; idle bells 1; provinces 1; ratio unfavourable; reward 10 Works (points, no use yet); target (3,0) | params: retreat 0|5000|10000; stance hold|assault|flank|brace; timing earliest | see M4, M3, M2 | serves G2, G3, G4"
+          ],
+          "added": [
+            "(nothing remembered yet)",
+            "c3 [march] March H3 (200 troops) to a barbarian camp, 6 hexes away; earliest arrival at bell 58 | troops 200 | enemy troops 254; idle bells 1; provinces 1; ratio unfavourable; reward 10 Works (points, no use yet); target (3,0) | params: retreat 0|5000|10000; stance hold|assault|flank|brace; timing earliest | serves G2, G3, G4"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 265
+      },
+      "control": {
+        "removed_handles": [
+          "M1",
+          "M2",
+          "M5",
+          "M6"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 151,
+        "target_tokens": 265,
+        "delta_tokens": -114,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "7ab576454d356ccf5bf47b82829ab5ec3c124fe9d400cf996a6b5695abe18d57",
+      "bell": 75,
+      "index": 1002,
+      "request_sha256": "851256b6b08adc4d4c2e2d0510cd598f12c8a1106a71f9fe46a30ff0daa614ee",
+      "request_matches_record": true,
+      "n_remembered": 9,
+      "remembered_kinds": [
+        "motion",
+        "threat",
+        "council_result",
+        "camp_cleared_own",
+        "clash_own_win",
+        "threat",
+        "build_done",
+        "build_done",
+        "motion"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M2",
+        "M6"
+      ],
+      "stored": {
+        "choose": [],
+        "mem_ids": [
+          "506cbceaff2a8dd2"
+        ],
+        "output_hash": "3edcc3a0a42f69808fe157cef202542acd02c0ebe2da59f0e6941bcc53a5b571"
+      },
+      "ablation": {
+        "removed_lines": 9,
+        "diff": {
+          "removed": [
+            "M1 [bell 50] <memory kind=\"episode\" id=\"M1\">At bell 50 Naveren moved option 1 (camp) in your nation's council.</memory>",
+            "M2 [bell 54] <memory kind=\"episode\" id=\"M2\">At bell 54 nation Borealis sent an army of 200 troops from (-1,3); it arrives at bell 57; its destination is not known.</memory>",
+            "M3 [bell 54] <memory kind=\"episode\" id=\"M3\">At bell 54 your nation's council adopted nothing.</memory>",
+            "M4 [bell 58] <memory kind=\"episode\" id=\"M4\">At bell 58 your army cleared the camp at (-3,2).</memory>",
+            "M5 [bell 58] <memory kind=\"episode\" id=\"M5\">At bell 58 your army at (-3,2) beat the camp: you lost 13, they lost 111.</memory>",
+            "M6 [bell 60] <memory kind=\"episode\" id=\"M6\">At bell 60 nation Borealis sent an army of 100 troops from (-1,3); it arrives at bell 63; its destination is not known.</memory>",
+            "M7 [bell 61] <memory kind=\"episode\" id=\"M7\">At bell 61 your mine was finished.</memory>",
+            "M8 [bell 70] <memory kind=\"episode\" id=\"M8\">At bell 70 your treasury was finished.</memory>",
+            "M9 [bell 74] <memory kind=\"episode\" id=\"M9\">At bell 74 Naveren moved option 1 (camp) in your nation's council.</memory>"
+          ],
+          "added": [
+            "(nothing remembered yet)"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 358
+      },
+      "control": {
+        "removed_handles": [
+          "M1",
+          "M3",
+          "M4",
+          "M5",
+          "M7",
+          "M8"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 211,
+        "target_tokens": 358,
+        "delta_tokens": -147,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "7ebeaaf2997669f3394b0b2de3da9d6db03c817434372ef70de32c02297e661e",
+      "bell": 49,
+      "index": 1000,
+      "request_sha256": "c4b01c1cc044f1b0f002c12c51f3581ae870d6951ea610f056a2a8e5c8f3babc",
+      "request_matches_record": true,
+      "n_remembered": 4,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done",
+        "build_done"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [],
+        "output_hash": "049d9cb19892560663984250f200893f080880e7491aedfcc99c274c2ab89268"
+      }
+    },
+    {
+      "id": "8214bf23dbd3e44363441c772cf83eda10e381626f772f44e4134cf0d3c31fcd",
+      "bell": 54,
+      "index": 1005,
+      "request_sha256": "292c86767c1a523226357c3ce63707208535205a7eaa80ad68557b4eed259eaf",
+      "request_matches_record": true,
+      "n_remembered": 5,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done",
+        "build_done",
+        "threat"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M5"
+      ],
+      "stored": {
+        "choose": [
+          "c4"
+        ],
+        "mem_ids": [],
+        "output_hash": "e66fe1d72f671bf9a0b83f897a7691bc2af59f68a3207b3c89d72ea8000e9350"
+      },
+      "ablation": {
+        "removed_lines": 5,
+        "diff": {
+          "removed": [
+            "M1 [bell 19] <memory kind=\"episode\" id=\"M1\">At bell 19 your sawmill was finished.</memory>",
+            "M2 [bell 28] <memory kind=\"episode\" id=\"M2\">At bell 28 your farm was finished.</memory>",
+            "M3 [bell 40] <memory kind=\"episode\" id=\"M3\">At bell 40 your sawmill was finished.</memory>",
+            "M4 [bell 49] <memory kind=\"episode\" id=\"M4\">At bell 49 your quarry was finished.</memory>",
+            "M5 [bell 53] <memory kind=\"episode\" id=\"M5\">At bell 53 nation Aster sent an army of 400 troops from (3,0); it arrives at bell 56; its destination is not known.</memory>",
+            "c3 [march] March H1 (200 troops) to a barbarian camp, 3 hexes away; earliest arrival at bell 57 | troops 200 | enemy troops 343; idle bells 19; provinces 1; ratio unfavourable; reward 10 Works (points, no use yet); target (3,-3) | params: retreat 0|5000|10000; stance hold|assault|flank|brace; timing earliest | see M4, M3, M2 | serves G2, G3, G4"
+          ],
+          "added": [
+            "(nothing remembered yet)",
+            "c3 [march] March H1 (200 troops) to a barbarian camp, 3 hexes away; earliest arrival at bell 57 | troops 200 | enemy troops 343; idle bells 19; provinces 1; ratio unfavourable; reward 10 Works (points, no use yet); target (3,-3) | params: retreat 0|5000|10000; stance hold|assault|flank|brace; timing earliest | serves G2, G3, G4"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 173
+      },
+      "control": {
+        "removed_handles": [
+          "M1",
+          "M2",
+          "M3",
+          "M4"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 125,
+        "target_tokens": 173,
+        "delta_tokens": -48,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "844b92137a2409997bc80c662ecaaf7bd245f15ab2cc3215c6a8f443bee3595c",
+      "bell": 73,
+      "index": 1000,
+      "request_sha256": "47f8cff8008179610c271346000d263f36729ef289c202bd2cdf770672d9093b",
+      "request_matches_record": true,
+      "n_remembered": 9,
+      "remembered_kinds": [
+        "motion",
+        "council_result",
+        "camp_cleared_own",
+        "clash_own_win",
+        "clash_own_loss",
+        "threat",
+        "threat",
+        "build_done",
+        "clash_own_loss"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M6",
+        "M7"
+      ],
+      "stored": {
+        "choose": [],
+        "mem_ids": [
+          "8d3e24c743d428b7"
+        ],
+        "output_hash": "341cabd09ff5a60cd690f0ad1ce9480ba4ed833174c67fea0a4a4c0620fccab2"
+      },
+      "ablation": {
+        "removed_lines": 9,
+        "diff": {
+          "removed": [
+            "M1 [bell 50] <memory kind=\"episode\" id=\"M1\">At bell 50 Nerin moved option 1 (camp) in your nation's council.</memory>",
+            "M2 [bell 54] <memory kind=\"episode\" id=\"M2\">At bell 54 your nation's council adopted a Strike Order (its target stays sealed until the strike).</memory>",
+            "M3 [bell 56] <memory kind=\"episode\" id=\"M3\">At bell 56 your army cleared the camp at (3,0).</memory>",
+            "M4 [bell 56] <memory kind=\"episode\" id=\"M4\">At bell 56 your army at (3,0) beat the camp: you lost 33, they lost 254.</memory>",
+            "M5 [bell 63] <memory kind=\"episode\" id=\"M5\">At bell 63 your army at (2,0) lost 32 troops against the camp; they lost 20.</memory>",
+            "M6 [bell 66] <memory kind=\"episode\" id=\"M6\">At bell 66 nation Fjordal sent an army of 100 troops from (3,-3); it arrives at bell 69; its destination is not known.</memory>",
+            "M7 [bell 68] <memory kind=\"episode\" id=\"M7\">At bell 68 nation Borealis sent an army of 200 troops from (0,3); it arrives at bell 72; its destination is not known.</memory>",
+            "M8 [bell 70] <memory kind=\"episode\" id=\"M8\">At bell 70 your quarry was finished.</memory>",
+            "M9 [bell 70] <memory kind=\"episode\" id=\"M9\">At bell 70 your army at (2,0) lost 34 troops against the camp; they lost 19.</memory>"
+          ],
+          "added": [
+            "(nothing remembered yet)"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 389
+      },
+      "control": {
+        "removed_handles": [
+          "M2",
+          "M3",
+          "M4",
+          "M5",
+          "M8",
+          "M9"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 243,
+        "target_tokens": 389,
+        "delta_tokens": -146,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "86d623e49dca6bfb5bbf93a843ed9bbdb5018ff373ea4a8fa2d9edc9ce35242e",
+      "bell": 29,
+      "index": 1000,
+      "request_sha256": "885ca865d83003d09548af73b1119fabb7df9fcd04a96bd03ccea22a8ba1533a",
+      "request_matches_record": true,
+      "n_remembered": 2,
+      "remembered_kinds": [
+        "build_done",
+        "build_done"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [
+          "c4"
+        ],
+        "mem_ids": [],
+        "output_hash": "146834f87978da8d378293fe2e43c132bdf1d9f9b47cd93706666d9d01c79d67"
+      }
+    },
+    {
+      "id": "8eee19d17bd55d6d00fb28dea0ffa634cdb5bcd4ce79f72c557cb991f136712b",
+      "bell": 60,
+      "index": 1001,
+      "request_sha256": "1fc6c583cfeeea9775002edbdc0f56037ce4172a8d48486354926903cdc5f313",
+      "request_matches_record": true,
+      "n_remembered": 8,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "motion",
+        "council_result",
+        "build_done",
+        "threat",
+        "camp_cleared_own",
+        "clash_own_win"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M6"
+      ],
+      "stored": {
+        "choose": [
+          "c3",
+          "c5"
+        ],
+        "mem_ids": [
+          "6babc7ad098ffc73",
+          "99661078671355ad"
+        ],
+        "output_hash": "a7f3980bd7195cd91ef0fc0f48bdf08d20152206f9d9c815e35cd03c5b88a9c3"
+      },
+      "ablation": {
+        "removed_lines": 8,
+        "diff": {
+          "removed": [
+            "M1 [bell 36] <memory kind=\"episode\" id=\"M1\">At bell 36 your sawmill was finished.</memory>",
+            "M2 [bell 45] <memory kind=\"episode\" id=\"M2\">At bell 45 your quarry was finished.</memory>",
+            "M3 [bell 50] <memory kind=\"episode\" id=\"M3\">At bell 50 Kirika moved option 1 (camp) in your nation's council.</memory>",
+            "M4 [bell 54] <memory kind=\"episode\" id=\"M4\">At bell 54 your nation's council adopted nothing.</memory>",
+            "M5 [bell 54] <memory kind=\"episode\" id=\"M5\">At bell 54 your mine was finished.</memory>",
+            "M6 [bell 55] <memory kind=\"episode\" id=\"M6\">At bell 55 nation Cinder sent an army of 200 troops from (-3,2); it arrives at bell 58; its destination is not known.</memory>",
+            "M7 [bell 57] <memory kind=\"episode\" id=\"M7\">At bell 57 your army cleared the camp at (-1,3).</memory>",
+            "M8 [bell 57] <memory kind=\"episode\" id=\"M8\">At bell 57 your army at (-1,3) beat the camp: you lost 23, they lost 189.</memory>"
+          ],
+          "added": [
+            "(nothing remembered yet)"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 288
+      },
+      "control": {
+        "removed_handles": [
+          "M1",
+          "M2",
+          "M3",
+          "M4",
+          "M5"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 163,
+        "target_tokens": 288,
+        "delta_tokens": -125,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "8f755f00d36ec51aae9461fbd24cb53f1c01036f5f00e37d224125fb7b27682a",
+      "bell": 48,
+      "index": 1001,
+      "request_sha256": "2857e6cce0526ce99e82c549bbc8a08c4d8d6dbb6963488b8e4f153c07bfbe89",
+      "request_matches_record": true,
+      "n_remembered": 0,
+      "remembered_kinds": [],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [],
+        "output_hash": "50bb1ce9d70e4387a791deed50d8a3c9366aa02cc25a9b0c737e07b511e45a16"
+      }
+    },
+    {
+      "id": "943b2eee5a23b5cb97a6c703c70cbcb4b3a9660eada9e1cca92716055df9f336",
+      "bell": 24,
+      "index": 1003,
+      "request_sha256": "4b8faf7b8c16b9bc8a8ccdd4948670406e129c9ed07718a3ab68c694215a9777",
+      "request_matches_record": true,
+      "n_remembered": 0,
+      "remembered_kinds": [],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [],
+        "output_hash": "aca255248fd9c1ad21ce399db7fda356ffd37ee73904327b0da50afb6e5a69db"
+      }
+    },
+    {
+      "id": "9449a64b44ac382ec52d3069b14bf6a5dff827b2812333d7b3b43f5f2ab5fe79",
+      "bell": 30,
+      "index": 1001,
+      "request_sha256": "05429a3b143d8da64b1e2e89b7576314466bf1bce42e9ffe73ef35b08814457a",
+      "request_matches_record": true,
+      "n_remembered": 2,
+      "remembered_kinds": [
+        "build_done",
+        "build_done"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [
+          "c3"
+        ],
+        "mem_ids": [],
+        "output_hash": "bb0256b93c89b64d4105ab8fb7941c25b7b6dd4031bf592e7eb5b4a002861ba7"
+      }
+    },
+    {
+      "id": "96ba4b612d414201dd0d9477b92f1134fbaec70a6188dfb61c8e39477780934f",
+      "bell": 61,
+      "index": 1004,
+      "request_sha256": "53bd0abde335660f5eac21cfb890b50c1b68ba10def606f5cedfd5cd4f2efab9",
+      "request_matches_record": true,
+      "n_remembered": 8,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done",
+        "motion",
+        "build_done",
+        "council_result",
+        "threat",
+        "threat"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M7",
+        "M8"
+      ],
+      "stored": {
+        "choose": [
+          "c5",
+          "c6"
+        ],
+        "mem_ids": [],
+        "output_hash": "4e603723261621da74759914a276f7077edd30c70f834d9b82bd2df765313a71"
+      },
+      "ablation": {
+        "removed_lines": 8,
+        "diff": {
+          "removed": [
+            "M1 [bell 19] <memory kind=\"episode\" id=\"M1\">At bell 19 your sawmill was finished.</memory>",
+            "M2 [bell 28] <memory kind=\"episode\" id=\"M2\">At bell 28 your farm was finished.</memory>",
+            "M3 [bell 43] <memory kind=\"episode\" id=\"M3\">At bell 43 your sawmill was finished.</memory>",
+            "M4 [bell 50] <memory kind=\"episode\" id=\"M4\">At bell 50 Tomea moved option 1 (camp) in your nation's council.</memory>",
+            "M5 [bell 52] <memory kind=\"episode\" id=\"M5\">At bell 52 your quarry was finished.</memory>",
+            "M6 [bell 54] <memory kind=\"episode\" id=\"M6\">At bell 54 your nation's council adopted nothing.</memory>",
+            "M7 [bell 54] <memory kind=\"episode\" id=\"M7\">At bell 54 nation Fjordal sent an army of 200 troops from (3,-3); it arrives at bell 57; its destination is not known.</memory>",
+            "M8 [bell 60] <memory kind=\"episode\" id=\"M8\">At bell 60 nation Fjordal sent an army of 100 troops from (3,-3); it arrives at bell 63; its destination is not known.</memory>"
+          ],
+          "added": [
+            "(nothing remembered yet)"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 300
+      },
+      "control": {
+        "removed_handles": [
+          "M1",
+          "M2",
+          "M3",
+          "M4",
+          "M5",
+          "M6"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 193,
+        "target_tokens": 300,
+        "delta_tokens": -107,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "96e43350f49afbabe91e77d4ac42432c3b1eb30ebace37d8f3879f7d15907e77",
+      "bell": 48,
+      "index": 1002,
+      "request_sha256": "cf9001d68365ac9629b1b30a88973b12dc8b19465fa45267520720256c3aa009",
+      "request_matches_record": true,
+      "n_remembered": 0,
+      "remembered_kinds": [],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [],
+        "output_hash": "8eeee7ae9a0ceff723ef7787c8542519f8e592492cb2f17bb3a4e7dbcea952db"
+      }
+    },
+    {
+      "id": "99dc3141deacf72a14d01bd5c3954248a31183a4507fa44280d4e209b5822bdc",
+      "bell": 7,
+      "index": 1002,
+      "request_sha256": "0c8f9496027af635879e6d226b17e9b79d9df65a89b629be14857019a80b43d3",
+      "request_matches_record": true,
+      "n_remembered": 0,
+      "remembered_kinds": [],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [
+          "c1"
+        ],
+        "mem_ids": [],
+        "output_hash": "503619855a87434a6984e3c81dd5a5b475fc538803c91423401086734140ab37"
+      }
+    },
+    {
+      "id": "9d61cb7d0c0d5d6eb45ebb19313c1f5ab30b73726ecfcc0536c4ce2297e3e251",
+      "bell": 9,
+      "index": 1004,
+      "request_sha256": "08be232ce6945a68f2878deb89096cf7710451729d079efa46a6b479d80cc789",
+      "request_matches_record": true,
+      "n_remembered": 0,
+      "remembered_kinds": [],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [
+          "c5"
+        ],
+        "mem_ids": [],
+        "output_hash": "3a4654b1b04d489925059e2f338b92117b165ab83a7bf6046cb2ce3e6cd048af"
+      }
+    },
+    {
+      "id": "a0a32fc69202a344d85755cafca64dd94ab823a3ee587d4fe4e886a3f9c3adbf",
+      "bell": 51,
+      "index": 1000,
+      "request_sha256": "da71cf08c20ccddff5e8b0520ee3dee881afc5bea1be04b25b1b1064201859d6",
+      "request_matches_record": true,
+      "n_remembered": 5,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done",
+        "build_done",
+        "motion"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [
+          "8d3e24c743d428b7"
+        ],
+        "output_hash": "74c47a5abe42cdc2d2d16aa5e6f4a292dc529c50a531b8ffa7560774725fe691"
+      }
+    },
+    {
+      "id": "b3cdf6345f77e48e21a49e72b652eae68aa53988770e60d25e1f3e034ad78783",
+      "bell": 58,
+      "index": 1005,
+      "request_sha256": "1f3d8294acd1dcee552e6cbf275c6a7889c8e6688faa726bf429eff5c7e7922c",
+      "request_matches_record": true,
+      "n_remembered": 7,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done",
+        "build_done",
+        "threat",
+        "threat",
+        "threat"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M5",
+        "M6",
+        "M7"
+      ],
+      "stored": {
+        "choose": [
+          "c4"
+        ],
+        "mem_ids": [],
+        "output_hash": "b15212cebb1c64e05360442a78cf4d53d8282d53357632d01daf66f690d3838f"
+      },
+      "ablation": {
+        "removed_lines": 7,
+        "diff": {
+          "removed": [
+            "M1 [bell 19] <memory kind=\"episode\" id=\"M1\">At bell 19 your sawmill was finished.</memory>",
+            "M2 [bell 28] <memory kind=\"episode\" id=\"M2\">At bell 28 your farm was finished.</memory>",
+            "M3 [bell 40] <memory kind=\"episode\" id=\"M3\">At bell 40 your sawmill was finished.</memory>",
+            "M4 [bell 49] <memory kind=\"episode\" id=\"M4\">At bell 49 your quarry was finished.</memory>",
+            "M5 [bell 53] <memory kind=\"episode\" id=\"M5\">At bell 53 nation Aster sent an army of 400 troops from (3,0); it arrives at bell 56; its destination is not known.</memory>",
+            "M6 [bell 55] <memory kind=\"episode\" id=\"M6\">At bell 55 nation Aster sent an army of 200 troops from (3,0); it arrives at bell 58; its destination is not known.</memory>",
+            "M7 [bell 57] <memory kind=\"episode\" id=\"M7\">At bell 57 nation Ember sent an army of 100 troops from (0,-3); it arrives at bell 60; its destination is not known.</memory>"
+          ],
+          "added": [
+            "(nothing remembered yet)"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 281
+      },
+      "control": {
+        "removed_handles": [
+          "M1",
+          "M2",
+          "M3",
+          "M4"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 120,
+        "target_tokens": 281,
+        "delta_tokens": -161,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "b653d0cf724143ae3ef2823c63825ae3462d9c58d3dfb3805251cc9b8c46468c",
+      "bell": 61,
+      "index": 1000,
+      "request_sha256": "9ef494863f9b4858eead9fb9098855abf7c78fdc6b92a8893794fe42b3be5a9f",
+      "request_matches_record": true,
+      "n_remembered": 8,
+      "remembered_kinds": [
+        "build_done",
+        "motion",
+        "council_result",
+        "threat",
+        "threat",
+        "camp_cleared_own",
+        "clash_own_win",
+        "threat"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M4",
+        "M5",
+        "M8"
+      ],
+      "stored": {
+        "choose": [
+          "c3"
+        ],
+        "mem_ids": [
+          "5c77486ad34751bc",
+          "8d3e24c743d428b7",
+          "184379cc6c34c966"
+        ],
+        "output_hash": "a360506e4768b47806944a39f087ec6edcdbaebfc8e976c68d2abe278c5ae09c"
+      },
+      "ablation": {
+        "removed_lines": 8,
+        "diff": {
+          "removed": [
+            "M1 [bell 44] <memory kind=\"episode\" id=\"M1\">At bell 44 your library was finished.</memory>",
+            "M2 [bell 50] <memory kind=\"episode\" id=\"M2\">At bell 50 Nerin moved option 1 (camp) in your nation's council.</memory>",
+            "M3 [bell 54] <memory kind=\"episode\" id=\"M3\">At bell 54 your nation's council adopted a Strike Order (its target stays sealed until the strike).</memory>",
+            "M4 [bell 54] <memory kind=\"episode\" id=\"M4\">At bell 54 nation Fjordal sent an army of 200 troops from (3,-3); it arrives at bell 57; its destination is not known.</memory>",
+            "M5 [bell 56] <memory kind=\"episode\" id=\"M5\">At bell 56 nation Borealis sent an army of 300 troops from (0,3); it arrives at bell 60; its destination is not known.</memory>",
+            "M6 [bell 56] <memory kind=\"episode\" id=\"M6\">At bell 56 your army cleared the camp at (3,0).</memory>",
+            "M7 [bell 56] <memory kind=\"episode\" id=\"M7\">At bell 56 your army at (3,0) beat the camp: you lost 33, they lost 254.</memory>",
+            "M8 [bell 60] <memory kind=\"episode\" id=\"M8\">At bell 60 nation Fjordal sent an army of 100 troops from (3,-3); it arrives at bell 63; its destination is not known.</memory>"
+          ],
+          "added": [
+            "(nothing remembered yet)"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 360
+      },
+      "control": {
+        "removed_handles": [
+          "M6",
+          "M7"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 76,
+        "target_tokens": 360,
+        "delta_tokens": -284,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "b77ffa49865cdb744c05243046e910a10b3616970f46c2a2e7143366598a2acd",
+      "bell": 72,
+      "index": 1004,
+      "request_sha256": "3f069490831e2d2cb0d4a68d7e79766bc65c0b39e2a4f450d8b2cb9cc46dd543",
+      "request_matches_record": true,
+      "n_remembered": 0,
+      "remembered_kinds": [],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [],
+        "output_hash": "619febbcae47c4e2c04e3a8c14cace203502f488bc9705729409b7290a5fe361"
+      }
+    },
+    {
+      "id": "b9a8a983747297104513ef7b685063310ef54ca5d29723ea6129453c55e7f63c",
+      "bell": 73,
+      "index": 1003,
+      "request_sha256": "2e2136fdd8fae7352401e7e4d028a1541e36c00545edc92bc6323d7dbac49e8d",
+      "request_matches_record": true,
+      "n_remembered": 8,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "motion",
+        "council_result",
+        "threat",
+        "build_done",
+        "threat",
+        "build_done"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M5",
+        "M7"
+      ],
+      "stored": {
+        "choose": [],
+        "mem_ids": [
+          "bc748e89b50d1b3b"
+        ],
+        "output_hash": "344e006e13ae86c7192628e93fb43e485ef13f41fb1e938677394158040649f1"
+      },
+      "ablation": {
+        "removed_lines": 8,
+        "diff": {
+          "removed": [
+            "M1 [bell 35] <memory kind=\"episode\" id=\"M1\">At bell 35 your quarry was finished.</memory>",
+            "M2 [bell 47] <memory kind=\"episode\" id=\"M2\">At bell 47 your sawmill was finished.</memory>",
+            "M3 [bell 50] <memory kind=\"episode\" id=\"M3\">At bell 50 Evesha moved option 1 (camp) in your nation's council.</memory>",
+            "M4 [bell 54] <memory kind=\"episode\" id=\"M4\">At bell 54 your nation's council adopted nothing.</memory>",
+            "M5 [bell 55] <memory kind=\"episode\" id=\"M5\">At bell 55 nation Cinder sent an army of 200 troops from (-3,2); it arrives at bell 58; its destination is not known.</memory>",
+            "M6 [bell 56] <memory kind=\"episode\" id=\"M6\">At bell 56 your library was finished.</memory>",
+            "M7 [bell 57] <memory kind=\"episode\" id=\"M7\">At bell 57 nation Ember sent an army of 100 troops from (0,-3); it arrives at bell 60; its destination is not known.</memory>",
+            "M8 [bell 67] <memory kind=\"episode\" id=\"M8\">At bell 67 your mine was finished.</memory>"
+          ],
+          "added": [
+            "(nothing remembered yet)"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 299
+      },
+      "control": {
+        "removed_handles": [
+          "M1",
+          "M2",
+          "M3",
+          "M6",
+          "M8"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 159,
+        "target_tokens": 299,
+        "delta_tokens": -140,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "bd08a667a9576ac523134d1e4c079c8a638f3562e8485554daa0af0d3ac63980",
+      "bell": 55,
+      "index": 1002,
+      "request_sha256": "b8e18f1663cff8e7e53119a12fb4c02dfcb6c07742145d5c74237bb41fe5c9ba",
+      "request_matches_record": true,
+      "n_remembered": 7,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done",
+        "build_done",
+        "motion",
+        "threat",
+        "council_result"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M6"
+      ],
+      "stored": {
+        "choose": [
+          "c3",
+          "c7"
+        ],
+        "mem_ids": [
+          "5dbe18a1ca8380b0",
+          "08d1c6acfd1c0c1b",
+          "85bd6de93463b89e"
+        ],
+        "output_hash": "d60fb8cc83bff32d86f10ac2c52e632d6f78a68267722b4bd03a4aa576b14d2a"
+      },
+      "ablation": {
+        "removed_lines": 7,
+        "diff": {
+          "removed": [
+            "M1 [bell 16] <memory kind=\"episode\" id=\"M1\">At bell 16 your sawmill was finished.</memory>",
+            "M2 [bell 25] <memory kind=\"episode\" id=\"M2\">At bell 25 your farm was finished.</memory>",
+            "M3 [bell 37] <memory kind=\"episode\" id=\"M3\">At bell 37 your sawmill was finished.</memory>",
+            "M4 [bell 46] <memory kind=\"episode\" id=\"M4\">At bell 46 your quarry was finished.</memory>",
+            "M5 [bell 50] <memory kind=\"episode\" id=\"M5\">At bell 50 Naveren moved option 1 (camp) in your nation's council.</memory>",
+            "M6 [bell 54] <memory kind=\"episode\" id=\"M6\">At bell 54 nation Borealis sent an army of 200 troops from (-1,3); it arrives at bell 57; its destination is not known.</memory>",
+            "M7 [bell 54] <memory kind=\"episode\" id=\"M7\">At bell 54 your nation's council adopted nothing.</memory>",
+            "c3 [march] March H1 (200 troops) to a barbarian camp, 1 hexes away; earliest arrival at bell 58 | troops 200 | enemy troops 111; idle bells 23; ratio even; reward 10 Works (points, no use yet); target (-3,2) | params: retreat 0|5000|10000; stance hold|assault|flank|brace; timing earliest | see M4, M3, M2 | serves G2, G3, G4"
+          ],
+          "added": [
+            "(nothing remembered yet)",
+            "c3 [march] March H1 (200 troops) to a barbarian camp, 1 hexes away; earliest arrival at bell 58 | troops 200 | enemy troops 111; idle bells 23; ratio even; reward 10 Works (points, no use yet); target (-3,2) | params: retreat 0|5000|10000; stance hold|assault|flank|brace; timing earliest | serves G2, G3, G4"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 250
+      },
+      "control": {
+        "removed_handles": [
+          "M1",
+          "M5",
+          "M7"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 105,
+        "target_tokens": 250,
+        "delta_tokens": -145,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "c1245d2fba4f236b15997c3b868f1ba6b65999ecb46f9b5c37bf8fd7dbf1adf1",
+      "bell": 53,
+      "index": 1000,
+      "request_sha256": "a2690d0477f4cfcca8cb8e66b5925394d1f15f7432b85a4706fb44f5f354b84f",
+      "request_matches_record": true,
+      "n_remembered": 5,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done",
+        "build_done",
+        "motion"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [
+          "c3",
+          "c7"
+        ],
+        "mem_ids": [
+          "15f1095fe6fdcd0f",
+          "cb5bb662a756e94c",
+          "5c77486ad34751bc"
+        ],
+        "output_hash": "8bfb8bef2c7cd86d068d0846ed08faa4d8f6f6a524fb7ca2f8f9b81fbbe19559"
+      }
+    },
+    {
+      "id": "c8e1c24c36e8a743f7e5e3e4bb438af85f7915879ac59a3a6c70082319b886f0",
+      "bell": 24,
+      "index": 1004,
+      "request_sha256": "2122546b5c2f4d7a30d1156db7aee46a283a723539e7a6fee5893ec8a5a1cbf6",
+      "request_matches_record": true,
+      "n_remembered": 0,
+      "remembered_kinds": [],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [],
+        "output_hash": "0982e2e8a785d316bfa581f29ba2223c6a5f5ccb98df50bb60ef93ea96cac5ce"
+      }
+    },
+    {
+      "id": "ca62ceec6c70c57cebff8dc98e7744a0ef9089a5c304430e3c7b2c08c63a9395",
+      "bell": 73,
+      "index": 1002,
+      "request_sha256": "93b879b30b17df9e71c8f829070168ee6d33d90f2194e6d75d88c8a788c8c1f8",
+      "request_matches_record": true,
+      "n_remembered": 8,
+      "remembered_kinds": [
+        "motion",
+        "threat",
+        "council_result",
+        "camp_cleared_own",
+        "clash_own_win",
+        "threat",
+        "build_done",
+        "build_done"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M2",
+        "M6"
+      ],
+      "stored": {
+        "choose": [],
+        "mem_ids": [
+          "fe16cf9f82f736c2"
+        ],
+        "output_hash": "80e67691c07bba4a91d229991b61b6f9ea0460ecfbee47df4e5c9ffe69a274fd"
+      },
+      "ablation": {
+        "removed_lines": 8,
+        "diff": {
+          "removed": [
+            "M1 [bell 50] <memory kind=\"episode\" id=\"M1\">At bell 50 Naveren moved option 1 (camp) in your nation's council.</memory>",
+            "M2 [bell 54] <memory kind=\"episode\" id=\"M2\">At bell 54 nation Borealis sent an army of 200 troops from (-1,3); it arrives at bell 57; its destination is not known.</memory>",
+            "M3 [bell 54] <memory kind=\"episode\" id=\"M3\">At bell 54 your nation's council adopted nothing.</memory>",
+            "M4 [bell 58] <memory kind=\"episode\" id=\"M4\">At bell 58 your army cleared the camp at (-3,2).</memory>",
+            "M5 [bell 58] <memory kind=\"episode\" id=\"M5\">At bell 58 your army at (-3,2) beat the camp: you lost 13, they lost 111.</memory>",
+            "M6 [bell 60] <memory kind=\"episode\" id=\"M6\">At bell 60 nation Borealis sent an army of 100 troops from (-1,3); it arrives at bell 63; its destination is not known.</memory>",
+            "M7 [bell 61] <memory kind=\"episode\" id=\"M7\">At bell 61 your mine was finished.</memory>",
+            "M8 [bell 70] <memory kind=\"episode\" id=\"M8\">At bell 70 your treasury was finished.</memory>"
+          ],
+          "added": [
+            "(nothing remembered yet)"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 317
+      },
+      "control": {
+        "removed_handles": [
+          "M3",
+          "M4",
+          "M5",
+          "M7",
+          "M8"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 170,
+        "target_tokens": 317,
+        "delta_tokens": -147,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "ccee0120fca15809a869c423a1636e4901a15a522467730b77f7a58e4b017872",
+      "bell": 34,
+      "index": 1005,
+      "request_sha256": "2483332619d7108f7b593b44a0f139b83c9f89af8c1e3e6cd776a752d4700ccb",
+      "request_matches_record": true,
+      "n_remembered": 2,
+      "remembered_kinds": [
+        "build_done",
+        "build_done"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [
+          "c3"
+        ],
+        "mem_ids": [],
+        "output_hash": "757dbdcce52dde1e21dde482d9634f3595905567d4bbefda7f4d3ed16079e78f"
+      }
+    },
+    {
+      "id": "cd5fc42b9b7c1e2fb04bb3d4daec7799b04951d29e22d6371973b72331e115c2",
+      "bell": 75,
+      "index": 1003,
+      "request_sha256": "9cdeae0d695e819fe0f9173c24afefea97efc64dc816f23fab5bff6d8c354288",
+      "request_matches_record": true,
+      "n_remembered": 8,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "motion",
+        "council_result",
+        "threat",
+        "build_done",
+        "threat",
+        "build_done"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M5",
+        "M7"
+      ],
+      "stored": {
+        "choose": [],
+        "mem_ids": [
+          "15fceaf51400b9a6",
+          "bc748e89b50d1b3b"
+        ],
+        "output_hash": "154bf6c38a0e51091a859e76804239c64d3a4eedac86bdfd360f04e48825300b"
+      },
+      "ablation": {
+        "removed_lines": 8,
+        "diff": {
+          "removed": [
+            "M1 [bell 35] <memory kind=\"episode\" id=\"M1\">At bell 35 your quarry was finished.</memory>",
+            "M2 [bell 47] <memory kind=\"episode\" id=\"M2\">At bell 47 your sawmill was finished.</memory>",
+            "M3 [bell 50] <memory kind=\"episode\" id=\"M3\">At bell 50 Evesha moved option 1 (camp) in your nation's council.</memory>",
+            "M4 [bell 54] <memory kind=\"episode\" id=\"M4\">At bell 54 your nation's council adopted nothing.</memory>",
+            "M5 [bell 55] <memory kind=\"episode\" id=\"M5\">At bell 55 nation Cinder sent an army of 200 troops from (-3,2); it arrives at bell 58; its destination is not known.</memory>",
+            "M6 [bell 56] <memory kind=\"episode\" id=\"M6\">At bell 56 your library was finished.</memory>",
+            "M7 [bell 57] <memory kind=\"episode\" id=\"M7\">At bell 57 nation Ember sent an army of 100 troops from (0,-3); it arrives at bell 60; its destination is not known.</memory>",
+            "M8 [bell 67] <memory kind=\"episode\" id=\"M8\">At bell 67 your mine was finished.</memory>"
+          ],
+          "added": [
+            "(nothing remembered yet)"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 299
+      },
+      "control": {
+        "removed_handles": [
+          "M1",
+          "M2",
+          "M6",
+          "M8"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 120,
+        "target_tokens": 299,
+        "delta_tokens": -179,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "d1b2dfea3891344230114b24931083b9dde4d7272a3299fc124fd69ca2eb5b73",
+      "bell": 75,
+      "index": 1004,
+      "request_sha256": "3db73f7d9e57bbf056d53f77c716122f7edd3c983d99c37d6daf7674db40cfc8",
+      "request_matches_record": true,
+      "n_remembered": 8,
+      "remembered_kinds": [
+        "motion",
+        "council_result",
+        "threat",
+        "threat",
+        "clash_own_fought",
+        "threat",
+        "build_done",
+        "motion"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M3",
+        "M4",
+        "M6"
+      ],
+      "stored": {
+        "choose": [],
+        "mem_ids": [
+          "6ca05b39cc6928b7",
+          "c5f0b950c7b3b1f2"
+        ],
+        "output_hash": "6b01102fa12248c600192ff5ad266147b13be4a30fa39d4e0b76c84ef4a36db3"
+      },
+      "ablation": {
+        "removed_lines": 8,
+        "diff": {
+          "removed": [
+            "M1 [bell 50] <memory kind=\"episode\" id=\"M1\">At bell 50 Tomea moved option 1 (camp) in your nation's council.</memory>",
+            "M2 [bell 54] <memory kind=\"episode\" id=\"M2\">At bell 54 your nation's council adopted nothing.</memory>",
+            "M3 [bell 54] <memory kind=\"episode\" id=\"M3\">At bell 54 nation Fjordal sent an army of 200 troops from (3,-3); it arrives at bell 57; its destination is not known.</memory>",
+            "M4 [bell 60] <memory kind=\"episode\" id=\"M4\">At bell 60 nation Fjordal sent an army of 100 troops from (3,-3); it arrives at bell 63; its destination is not known.</memory>",
+            "M5 [bell 60] <memory kind=\"episode\" id=\"M5\">At bell 60 your army at (0,-3) fought the camp: you lost 19, they lost 25; the camp held.</memory>",
+            "M6 [bell 66] <memory kind=\"episode\" id=\"M6\">At bell 66 nation Fjordal sent an army of 100 troops from (3,-3); it arrives at bell 69; its destination is not known.</memory>",
+            "M7 [bell 70] <memory kind=\"episode\" id=\"M7\">At bell 70 your treasury was finished.</memory>",
+            "M8 [bell 74] <memory kind=\"episode\" id=\"M8\">At bell 74 Tomea moved option 1 (camp) in your nation's council.</memory>"
+          ],
+          "added": [
+            "(nothing remembered yet)"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 355
+      },
+      "control": {
+        "removed_handles": [
+          "M2",
+          "M5",
+          "M7"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 113,
+        "target_tokens": 355,
+        "delta_tokens": -242,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "d26337416f27a9f061587eb2f699deed84e4ac27fd529e160b1783450ef0bf89",
+      "bell": 6,
+      "index": 1001,
+      "request_sha256": "8227f1ffce57955889cb9f61e41ef5b40faa1bc04436b38e301a18add12dfe0b",
+      "request_matches_record": true,
+      "n_remembered": 0,
+      "remembered_kinds": [],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [
+          "c3",
+          "c5"
+        ],
+        "mem_ids": [],
+        "output_hash": "44082804d61efaed34e00756636425134d4acb5b83b6563233bc99200059c3a2"
+      }
+    },
+    {
+      "id": "d272ca6925e740d18c403bac884a43e62bb41631aa507b07345ef15d34d350e9",
+      "bell": 54,
+      "index": 1001,
+      "request_sha256": "39bf3c8d7fd91cdf33eadfa3378c0914df0d1de73959aa761ca878a7a4f143dd",
+      "request_matches_record": true,
+      "n_remembered": 5,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done",
+        "build_done",
+        "motion"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [
+          "c3",
+          "c5"
+        ],
+        "mem_ids": [
+          "e75086cccae13a5b",
+          "40e8f0f68bb75c07",
+          "f08ea03b142b87f7"
+        ],
+        "output_hash": "423bf0e8fc17b2ce34a705572101b543d92347c96691c3eb6e0fd133c23a5a35"
+      }
+    },
+    {
+      "id": "d4751cffa6e1a56986201b51abbe8d9f5e6cf540b66f878f31c6d279aa4da0eb",
+      "bell": 97,
+      "index": 1001,
+      "request_sha256": "e1423c119ee003a4374bfcde71ae0fa3d7dd8c8b08fec81b9236cb9037e0ad08",
+      "request_matches_record": true,
+      "n_remembered": 8,
+      "remembered_kinds": [
+        "motion",
+        "council_result",
+        "threat",
+        "camp_cleared_own",
+        "clash_own_win",
+        "build_done",
+        "clash_own_loss",
+        "build_done"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M3"
+      ],
+      "stored": {
+        "choose": [],
+        "mem_ids": [
+          "7b3f53733c2fd833"
+        ],
+        "output_hash": "d86f5a5b8a091af2991e7cd9b06c058bbc0c1ccaea1d05152f7620c68b67666d"
+      },
+      "ablation": {
+        "removed_lines": 8,
+        "diff": {
+          "removed": [
+            "M1 [bell 50] <memory kind=\"episode\" id=\"M1\">At bell 50 Kirika moved option 1 (camp) in your nation's council.</memory>",
+            "M2 [bell 54] <memory kind=\"episode\" id=\"M2\">At bell 54 your nation's council adopted nothing.</memory>",
+            "M3 [bell 55] <memory kind=\"episode\" id=\"M3\">At bell 55 nation Cinder sent an army of 200 troops from (-3,2); it arrives at bell 58; its destination is not known.</memory>",
+            "M4 [bell 57] <memory kind=\"episode\" id=\"M4\">At bell 57 your army cleared the camp at (-1,3).</memory>",
+            "M5 [bell 57] <memory kind=\"episode\" id=\"M5\">At bell 57 your army at (-1,3) beat the camp: you lost 23, they lost 189.</memory>",
+            "M6 [bell 63] <memory kind=\"episode\" id=\"M6\">At bell 63 your treasury was finished.</memory>",
+            "M7 [bell 63] <memory kind=\"episode\" id=\"M7\">At bell 63 your army at (-2,3) lost 46 troops against the camp; they lost 23.</memory>",
+            "M8 [bell 72] <memory kind=\"episode\" id=\"M8\">At bell 72 your library was finished.</memory>"
+          ],
+          "added": [
+            "(nothing remembered yet)"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 303
+      },
+      "control": {
+        "removed_handles": [
+          "M1",
+          "M2",
+          "M4",
+          "M5",
+          "M6",
+          "M8"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 211,
+        "target_tokens": 303,
+        "delta_tokens": -92,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "dbf54ed3019af9231447fa4a16688630677f73f2b0f5c3572796ec470bfb9ecc",
+      "bell": 73,
+      "index": 1004,
+      "request_sha256": "b0d4ca8d838cd7026a7bc492dfc0eeed42ffba7fc9d6927c69f3681a11308500",
+      "request_matches_record": true,
+      "n_remembered": 8,
+      "remembered_kinds": [
+        "motion",
+        "council_result",
+        "threat",
+        "threat",
+        "clash_own_fought",
+        "build_done",
+        "threat",
+        "build_done"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M3",
+        "M4",
+        "M7"
+      ],
+      "stored": {
+        "choose": [],
+        "mem_ids": [
+          "6ca05b39cc6928b7"
+        ],
+        "output_hash": "104645ade8714161a6ee8d6e333da4f7387dae0d29f1e70a916a0cff9ed24b74"
+      },
+      "ablation": {
+        "removed_lines": 8,
+        "diff": {
+          "removed": [
+            "M1 [bell 50] <memory kind=\"episode\" id=\"M1\">At bell 50 Tomea moved option 1 (camp) in your nation's council.</memory>",
+            "M2 [bell 54] <memory kind=\"episode\" id=\"M2\">At bell 54 your nation's council adopted nothing.</memory>",
+            "M3 [bell 54] <memory kind=\"episode\" id=\"M3\">At bell 54 nation Fjordal sent an army of 200 troops from (3,-3); it arrives at bell 57; its destination is not known.</memory>",
+            "M4 [bell 60] <memory kind=\"episode\" id=\"M4\">At bell 60 nation Fjordal sent an army of 100 troops from (3,-3); it arrives at bell 63; its destination is not known.</memory>",
+            "M5 [bell 60] <memory kind=\"episode\" id=\"M5\">At bell 60 your army at (0,-3) fought the camp: you lost 19, they lost 25; the camp held.</memory>",
+            "M6 [bell 61] <memory kind=\"episode\" id=\"M6\">At bell 61 your mine was finished.</memory>",
+            "M7 [bell 66] <memory kind=\"episode\" id=\"M7\">At bell 66 nation Fjordal sent an army of 100 troops from (3,-3); it arrives at bell 69; its destination is not known.</memory>",
+            "M8 [bell 70] <memory kind=\"episode\" id=\"M8\">At bell 70 your treasury was finished.</memory>"
+          ],
+          "added": [
+            "(nothing remembered yet)"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 345
+      },
+      "control": {
+        "removed_handles": [
+          "M2",
+          "M5",
+          "M6",
+          "M8"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 142,
+        "target_tokens": 345,
+        "delta_tokens": -203,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "dec59facf11173c9f0b6b7702b97e2a44bf35990e8731c651ee11c58c53ab084",
+      "bell": 72,
+      "index": 1003,
+      "request_sha256": "894dbbacaa8148c94a4f607037c832d05ce73a74894f1cbfc461b1774062bffb",
+      "request_matches_record": true,
+      "n_remembered": 0,
+      "remembered_kinds": [],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [],
+        "output_hash": "7ae844776cd41d5ef8edc220b7572d53950e6927eac08c290c6f9dedda7e045d"
+      }
+    },
+    {
+      "id": "dfef4fa6affe81a96fb19088b2fc633a5072eea9b1fa0bef88d347116973efb6",
+      "bell": 48,
+      "index": 1005,
+      "request_sha256": "b2074204f4904479e82433dc2afb25011ccd463cefd965fe04cc2f3741238a4a",
+      "request_matches_record": true,
+      "n_remembered": 0,
+      "remembered_kinds": [],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [],
+        "output_hash": "30477efb6bc136140fbfd1b2055db4764425ce77768a715ff81242036b6e9cff"
+      }
+    },
+    {
+      "id": "e025ee51595caa1fd4cd819b22955011f55147743b7f6fa48463bc3dd4acc1ba",
+      "bell": 48,
+      "index": 1003,
+      "request_sha256": "8f8ed9a8d0bf3e43e481f0c46d06a84db7f3264cc2f2cd224975d05015a8d518",
+      "request_matches_record": true,
+      "n_remembered": 0,
+      "remembered_kinds": [],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [],
+        "output_hash": "b78d49c9a4eb94abcd0c52dfac9dae85a9db3eddd97b89e5213e69b6e3859a7d"
+      }
+    },
+    {
+      "id": "e28850b8d9505d2c4a81be9ff2e6f0d5902a7a7e67ad2ca0d38326c622f89c9a",
+      "bell": 49,
+      "index": 1002,
+      "request_sha256": "f8ccd483ff336226c0cc8e56312add3cea00e0fa6246d0798109ce3d4276ee93",
+      "request_matches_record": true,
+      "n_remembered": 4,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done",
+        "build_done"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [],
+        "output_hash": "4e4cc77c6007619ff7d7d1fc30ef2b4160c33f1c9484d0c2908bee3120eba1f3"
+      }
+    },
+    {
+      "id": "eb301836ae3efc35e138624bdfb3f79734b84d4baa684aa3dd5d2a2273631f2d",
+      "bell": 51,
+      "index": 1002,
+      "request_sha256": "92cb91fed91a27a15be9046f57ac48a72e7ccf68e5b9ace4e8dbb96c4abc1fc0",
+      "request_matches_record": true,
+      "n_remembered": 5,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done",
+        "build_done",
+        "motion"
+      ],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [
+          "fe16cf9f82f736c2"
+        ],
+        "output_hash": "8781b70a86c35a31f1f7d16aec1cf331218f38a546a0cf8e30aef191c4621509"
+      }
+    },
+    {
+      "id": "eb99b99a0ebbc2d933049e74218bf833aed201f7e931eb0ee5cd14e9c956e933",
+      "bell": 59,
+      "index": 1000,
+      "request_sha256": "d257a11b6cacfac72ba9e898c029bd3a3ce72ac84af8b5d4134e55148a38edc2",
+      "request_matches_record": true,
+      "n_remembered": 8,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "motion",
+        "council_result",
+        "threat",
+        "threat",
+        "camp_cleared_own",
+        "clash_own_win"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M5",
+        "M6"
+      ],
+      "stored": {
+        "choose": [
+          "c3",
+          "c5"
+        ],
+        "mem_ids": [
+          "8f98c8ba5d18f1f6",
+          "a1e4c92b7f43c62b"
+        ],
+        "output_hash": "54348030f8181019f09f09bba4a39fabee94e925e1802f4cb4c36b1da2618b23"
+      },
+      "ablation": {
+        "removed_lines": 8,
+        "diff": {
+          "removed": [
+            "M1 [bell 35] <memory kind=\"episode\" id=\"M1\">At bell 35 your sawmill was finished.</memory>",
+            "M2 [bell 44] <memory kind=\"episode\" id=\"M2\">At bell 44 your library was finished.</memory>",
+            "M3 [bell 50] <memory kind=\"episode\" id=\"M3\">At bell 50 Nerin moved option 1 (camp) in your nation's council.</memory>",
+            "M4 [bell 54] <memory kind=\"episode\" id=\"M4\">At bell 54 your nation's council adopted a Strike Order (its target stays sealed until the strike).</memory>",
+            "M5 [bell 54] <memory kind=\"episode\" id=\"M5\">At bell 54 nation Fjordal sent an army of 200 troops from (3,-3); it arrives at bell 57; its destination is not known.</memory>",
+            "M6 [bell 56] <memory kind=\"episode\" id=\"M6\">At bell 56 nation Borealis sent an army of 300 troops from (0,3); it arrives at bell 60; its destination is not known.</memory>",
+            "M7 [bell 56] <memory kind=\"episode\" id=\"M7\">At bell 56 your army cleared the camp at (3,0).</memory>",
+            "M8 [bell 56] <memory kind=\"episode\" id=\"M8\">At bell 56 your army at (3,0) beat the camp: you lost 33, they lost 254.</memory>"
+          ],
+          "added": [
+            "(nothing remembered yet)"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 333
+      },
+      "control": {
+        "removed_handles": [
+          "M1",
+          "M2",
+          "M3",
+          "M4"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 151,
+        "target_tokens": 333,
+        "delta_tokens": -182,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "f0091af817d3f893897b48437b62d3a4a1099de15072c22b61ebcbd6a9b58c61",
+      "bell": 56,
+      "index": 1005,
+      "request_sha256": "49aade0a93e0341024749b174ae3858398b2e88d2dcf96b621493b9d37b7f044",
+      "request_matches_record": true,
+      "n_remembered": 6,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "build_done",
+        "build_done",
+        "threat",
+        "threat"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M5",
+        "M6"
+      ],
+      "stored": {
+        "choose": [
+          "c4"
+        ],
+        "mem_ids": [],
+        "output_hash": "1c15e42ff55b3875ca0b491a13a9c0f3d923ebc7558bb5e21aec89a24ff37679"
+      },
+      "ablation": {
+        "removed_lines": 6,
+        "diff": {
+          "removed": [
+            "M1 [bell 19] <memory kind=\"episode\" id=\"M1\">At bell 19 your sawmill was finished.</memory>",
+            "M2 [bell 28] <memory kind=\"episode\" id=\"M2\">At bell 28 your farm was finished.</memory>",
+            "M3 [bell 40] <memory kind=\"episode\" id=\"M3\">At bell 40 your sawmill was finished.</memory>",
+            "M4 [bell 49] <memory kind=\"episode\" id=\"M4\">At bell 49 your quarry was finished.</memory>",
+            "M5 [bell 53] <memory kind=\"episode\" id=\"M5\">At bell 53 nation Aster sent an army of 400 troops from (3,0); it arrives at bell 56; its destination is not known.</memory>",
+            "M6 [bell 55] <memory kind=\"episode\" id=\"M6\">At bell 55 nation Aster sent an army of 200 troops from (3,0); it arrives at bell 58; its destination is not known.</memory>"
+          ],
+          "added": [
+            "(nothing remembered yet)"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 225
+      },
+      "control": {
+        "removed_handles": [
+          "M1",
+          "M2",
+          "M3",
+          "M4"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 120,
+        "target_tokens": 225,
+        "delta_tokens": -105,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "f0aa3452e77e464c8fc6ccaa61a720ad8c3d92f7b08d3288bec9d1054e7d55e8",
+      "bell": 24,
+      "index": 1001,
+      "request_sha256": "3f7bdee91a0997646e58e60bc78636c57614f7b53d8730dd89a8bbb916f4345a",
+      "request_matches_record": true,
+      "n_remembered": 0,
+      "remembered_kinds": [],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [],
+        "output_hash": "8380bd1f30885040f86aa9432742162015a8abbc586e1707344d49fae956e7c7"
+      }
+    },
+    {
+      "id": "f0e38008226177648b62de7016c937453f22e5f3385dff3c685db47cf61e16d6",
+      "bell": 63,
+      "index": 1004,
+      "request_sha256": "52c93b43c1c7c6fe91f6b6280120e1275a258f50c52d7399a725191ad0c4fb38",
+      "request_matches_record": true,
+      "n_remembered": 8,
+      "remembered_kinds": [
+        "build_done",
+        "motion",
+        "build_done",
+        "council_result",
+        "threat",
+        "threat",
+        "clash_own_fought",
+        "build_done"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M5",
+        "M6"
+      ],
+      "stored": {
+        "choose": [
+          "c3"
+        ],
+        "mem_ids": [
+          "1886e751668a4386",
+          "e6789fc7fa3a7b62",
+          "0438fe8751125879"
+        ],
+        "output_hash": "6bea6eee2cb2b995dfa5a851d5e9ca3c5056fe6839becb3efa84abf436ad21b6"
+      },
+      "ablation": {
+        "removed_lines": 8,
+        "diff": {
+          "removed": [
+            "M1 [bell 43] <memory kind=\"episode\" id=\"M1\">At bell 43 your sawmill was finished.</memory>",
+            "M2 [bell 50] <memory kind=\"episode\" id=\"M2\">At bell 50 Tomea moved option 1 (camp) in your nation's council.</memory>",
+            "M3 [bell 52] <memory kind=\"episode\" id=\"M3\">At bell 52 your quarry was finished.</memory>",
+            "M4 [bell 54] <memory kind=\"episode\" id=\"M4\">At bell 54 your nation's council adopted nothing.</memory>",
+            "M5 [bell 54] <memory kind=\"episode\" id=\"M5\">At bell 54 nation Fjordal sent an army of 200 troops from (3,-3); it arrives at bell 57; its destination is not known.</memory>",
+            "M6 [bell 60] <memory kind=\"episode\" id=\"M6\">At bell 60 nation Fjordal sent an army of 100 troops from (3,-3); it arrives at bell 63; its destination is not known.</memory>",
+            "M7 [bell 60] <memory kind=\"episode\" id=\"M7\">At bell 60 your army at (0,-3) fought the camp: you lost 19, they lost 25; the camp held.</memory>",
+            "M8 [bell 61] <memory kind=\"episode\" id=\"M8\">At bell 61 your mine was finished.</memory>"
+          ],
+          "added": [
+            "(nothing remembered yet)"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 317
+      },
+      "control": {
+        "removed_handles": [
+          "M2",
+          "M4",
+          "M7"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 121,
+        "target_tokens": 317,
+        "delta_tokens": -196,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "f78e0b67b4940ea08e71697bc8aee11c1956976d36a64da65aa5a90cd36d68dc",
+      "bell": 61,
+      "index": 1002,
+      "request_sha256": "67fc07af35f67ed204e1b839f16ca909c027bd8735f7fc550fd1cc895b5518cb",
+      "request_matches_record": true,
+      "n_remembered": 8,
+      "remembered_kinds": [
+        "build_done",
+        "build_done",
+        "motion",
+        "threat",
+        "council_result",
+        "camp_cleared_own",
+        "clash_own_win",
+        "threat"
+      ],
+      "eligible": true,
+      "key_kinds": [
+        "threat"
+      ],
+      "key_handles": [
+        "M4",
+        "M8"
+      ],
+      "stored": {
+        "choose": [
+          "c1"
+        ],
+        "mem_ids": [
+          "aff419d5a1e144e2"
+        ],
+        "output_hash": "7a99b2df31e21c365db502f3d2de6c14c1fd183b5be05fb88f8d36d9a38b32df"
+      },
+      "ablation": {
+        "removed_lines": 8,
+        "diff": {
+          "removed": [
+            "M1 [bell 37] <memory kind=\"episode\" id=\"M1\">At bell 37 your sawmill was finished.</memory>",
+            "M2 [bell 46] <memory kind=\"episode\" id=\"M2\">At bell 46 your quarry was finished.</memory>",
+            "M3 [bell 50] <memory kind=\"episode\" id=\"M3\">At bell 50 Naveren moved option 1 (camp) in your nation's council.</memory>",
+            "M4 [bell 54] <memory kind=\"episode\" id=\"M4\">At bell 54 nation Borealis sent an army of 200 troops from (-1,3); it arrives at bell 57; its destination is not known.</memory>",
+            "M5 [bell 54] <memory kind=\"episode\" id=\"M5\">At bell 54 your nation's council adopted nothing.</memory>",
+            "M6 [bell 58] <memory kind=\"episode\" id=\"M6\">At bell 58 your army cleared the camp at (-3,2).</memory>",
+            "M7 [bell 58] <memory kind=\"episode\" id=\"M7\">At bell 58 your army at (-3,2) beat the camp: you lost 13, they lost 111.</memory>",
+            "M8 [bell 60] <memory kind=\"episode\" id=\"M8\">At bell 60 nation Borealis sent an army of 100 troops from (-1,3); it arrives at bell 63; its destination is not known.</memory>"
+          ],
+          "added": [
+            "(nothing remembered yet)"
+          ]
+        },
+        "outside_user_and_mem_equal": true,
+        "tokens_removed_net": 318
+      },
+      "control": {
+        "removed_handles": [
+          "M1",
+          "M2",
+          "M3",
+          "M5",
+          "M6",
+          "M7"
+        ],
+        "removed_inbox_lines": 0,
+        "removed_tokens": 211,
+        "target_tokens": 318,
+        "delta_tokens": -107,
+        "source": "other Remembered lines",
+        "outside_user_and_mem_equal": true
+      }
+    },
+    {
+      "id": "fdeed605e16afa6570429c162f9be1db3bd8c534da5179f25893134f9ecc35ae",
+      "bell": 24,
+      "index": 1005,
+      "request_sha256": "f93526f0f851774c09b1a1ed6c3f3a8430ab83df5a02d9041fb84116dafe3b3c",
+      "request_matches_record": true,
+      "n_remembered": 0,
+      "remembered_kinds": [],
+      "eligible": false,
+      "key_kinds": [],
+      "key_handles": [],
+      "stored": {
+        "choose": [],
+        "mem_ids": [],
+        "output_hash": "0982e2e8a785d316bfa581f29ba2223c6a5f5ccb98df50bb60ef93ea96cac5ce"
+      }
+    }
+  ]
+}

@@ -1,0 +1,1199 @@
+{
+  "v": 1,
+  "kind": "g11-personas",
+  "pre_registered": true,
+  "reported_not_gated": true,
+  "n_situations": 10,
+  "n_decisions": 40,
+  "decisions_not_model_mode": 0,
+  "personas": [
+    "conqueror",
+    "diplomat"
+  ],
+  "situations": [
+    {
+      "situation": "T1",
+      "changed_en": true,
+      "changed_ja": true,
+      "changed": true,
+      "ids": {
+        "conqueror": [
+          [
+            "c3",
+            "c8",
+            "c9"
+          ],
+          [
+            "c3",
+            "c8",
+            "c9"
+          ]
+        ],
+        "diplomat": [
+          [
+            "c5",
+            "c6",
+            "c8"
+          ],
+          [
+            "c5",
+            "c6",
+            "c8"
+          ]
+        ]
+      }
+    },
+    {
+      "situation": "T2",
+      "changed_en": true,
+      "changed_ja": true,
+      "changed": true,
+      "ids": {
+        "conqueror": [
+          [
+            "c3",
+            "c8",
+            "c9"
+          ],
+          [
+            "c3",
+            "c8",
+            "c9"
+          ]
+        ],
+        "diplomat": [
+          [
+            "c5",
+            "c6",
+            "c8"
+          ],
+          [
+            "c5",
+            "c6",
+            "c8"
+          ]
+        ]
+      }
+    },
+    {
+      "situation": "T3",
+      "changed_en": true,
+      "changed_ja": true,
+      "changed": true,
+      "ids": {
+        "conqueror": [
+          [
+            "c10",
+            "c8",
+            "c9"
+          ],
+          [
+            "c10",
+            "c8",
+            "c9"
+          ]
+        ],
+        "diplomat": [
+          [
+            "c5",
+            "c6",
+            "c8"
+          ],
+          [
+            "c5",
+            "c6",
+            "c8"
+          ]
+        ]
+      }
+    },
+    {
+      "situation": "T4",
+      "changed_en": true,
+      "changed_ja": true,
+      "changed": true,
+      "ids": {
+        "conqueror": [
+          [
+            "c1"
+          ],
+          [
+            "c5",
+            "c8",
+            "c9"
+          ]
+        ],
+        "diplomat": [
+          [
+            "c5",
+            "c6",
+            "c8"
+          ],
+          [
+            "c5",
+            "c6",
+            "c8"
+          ]
+        ]
+      }
+    },
+    {
+      "situation": "T5",
+      "changed_en": true,
+      "changed_ja": true,
+      "changed": true,
+      "ids": {
+        "conqueror": [
+          [
+            "c3",
+            "c8",
+            "c9"
+          ],
+          [
+            "c3",
+            "c8",
+            "c9"
+          ]
+        ],
+        "diplomat": [
+          [
+            "c5",
+            "c6",
+            "c8"
+          ],
+          [
+            "c5",
+            "c6",
+            "c8"
+          ]
+        ]
+      }
+    },
+    {
+      "situation": "T6",
+      "changed_en": true,
+      "changed_ja": true,
+      "changed": true,
+      "ids": {
+        "conqueror": [
+          [
+            "c3",
+            "c4"
+          ],
+          [
+            "c3",
+            "c4"
+          ]
+        ],
+        "diplomat": [
+          [
+            "c4",
+            "c5",
+            "c7"
+          ],
+          [
+            "c4",
+            "c5",
+            "c7"
+          ]
+        ]
+      }
+    },
+    {
+      "situation": "T7",
+      "changed_en": true,
+      "changed_ja": true,
+      "changed": true,
+      "ids": {
+        "conqueror": [
+          [
+            "c3",
+            "c8",
+            "c9"
+          ],
+          [
+            "c3",
+            "c8",
+            "c9"
+          ]
+        ],
+        "diplomat": [
+          [
+            "c5",
+            "c6",
+            "c8"
+          ],
+          [
+            "c5",
+            "c6",
+            "c8"
+          ]
+        ]
+      }
+    },
+    {
+      "situation": "T8",
+      "changed_en": true,
+      "changed_ja": true,
+      "changed": true,
+      "ids": {
+        "conqueror": [
+          [
+            "c3",
+            "c8",
+            "c9"
+          ],
+          [
+            "c3",
+            "c8",
+            "c9"
+          ]
+        ],
+        "diplomat": [
+          [
+            "c5",
+            "c6",
+            "c8"
+          ],
+          [
+            "c5",
+            "c6",
+            "c8"
+          ]
+        ]
+      }
+    },
+    {
+      "situation": "T9",
+      "changed_en": true,
+      "changed_ja": true,
+      "changed": true,
+      "ids": {
+        "conqueror": [
+          [
+            "c10",
+            "c8",
+            "c9"
+          ],
+          [
+            "c10",
+            "c8"
+          ]
+        ],
+        "diplomat": [
+          [
+            "c5",
+            "c6",
+            "c8"
+          ],
+          [
+            "c5",
+            "c6",
+            "c8"
+          ]
+        ]
+      }
+    },
+    {
+      "situation": "T10",
+      "changed_en": true,
+      "changed_ja": true,
+      "changed": true,
+      "ids": {
+        "conqueror": [
+          [
+            "c3",
+            "c8",
+            "c9"
+          ],
+          [
+            "c3",
+            "c8",
+            "c9"
+          ]
+        ],
+        "diplomat": [
+          [
+            "c5",
+            "c6",
+            "c8"
+          ],
+          [
+            "c5",
+            "c6",
+            "c8"
+          ]
+        ]
+      }
+    }
+  ],
+  "changed_situations": 10,
+  "changed_share_pct": 100,
+  "march_rate": {
+    "conqueror": {
+      "decisions": 20,
+      "marches": 14,
+      "march_rate_pct": 70
+    },
+    "diplomat": {
+      "decisions": 20,
+      "marches": 0,
+      "march_rate_pct": 0
+    }
+  },
+  "message_counts": {
+    "conqueror": {
+      "messages": 5,
+      "messages_raw_model_output": 19,
+      "decisions": 20
+    },
+    "diplomat": {
+      "messages": 17,
+      "messages_raw_model_output": 17,
+      "decisions": 20
+    }
+  },
+  "checks": {
+    "changed_at_least_3_of_10": true,
+    "conqueror_march_rate_above_diplomat": true,
+    "diplomat_messages_above_conqueror": true
+  },
+  "pass": true,
+  "wording": "with only the persona swapped, the chosen candidate set differed in 10 of 10 fixture situations; the conqueror's march rate was 70 % against the diplomat's 0 %; the diplomat sent 17 messages against the conqueror's 5",
+  "does_not_show": "nothing about wants or intentions, and nothing about play strength; 10 fixture situations (not the spike's 10 citizens), 2 personas of the 6, one model, T = 0",
+  "model": "gemma-4-26b-a4b-it",
+  "real_model": true,
+  "model_calls": 40,
+  "rows": [
+    {
+      "persona": "conqueror",
+      "situation": "T1",
+      "lang": "en",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c3",
+        "c8",
+        "c9"
+      ],
+      "kinds": [
+        "march",
+        "train",
+        "muster"
+      ],
+      "march": true,
+      "says": 0,
+      "says_raw": 1,
+      "why": "I am marching H1 to a nearby camp to fulfill my daily march and clear camps, while training and mustering to maintain my combat strength."
+    },
+    {
+      "persona": "conqueror",
+      "situation": "T1",
+      "lang": "ja",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c3",
+        "c8",
+        "c9"
+      ],
+      "kinds": [
+        "march",
+        "train",
+        "muster"
+      ],
+      "march": true,
+      "says": 0,
+      "says_raw": 1,
+      "why": "I will march H1 to a nearby camp to fulfill my daily march goal and clear camps, while training and mustering to maintain my combat strength."
+    },
+    {
+      "persona": "diplomat",
+      "situation": "T1",
+      "lang": "en",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c5",
+        "c6",
+        "c8"
+      ],
+      "kinds": [
+        "build",
+        "build",
+        "train"
+      ],
+      "march": false,
+      "says": 0,
+      "says_raw": 0,
+      "why": "I am focusing on growing the village and strengthening my reserves."
+    },
+    {
+      "persona": "diplomat",
+      "situation": "T1",
+      "lang": "ja",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c5",
+        "c6",
+        "c8"
+      ],
+      "kinds": [
+        "build",
+        "build",
+        "train"
+      ],
+      "march": false,
+      "says": 0,
+      "says_raw": 0,
+      "why": "I am focusing on growing the village and strengthening my reserves."
+    },
+    {
+      "persona": "conqueror",
+      "situation": "T2",
+      "lang": "en",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c3",
+        "c8",
+        "c9"
+      ],
+      "kinds": [
+        "march",
+        "train",
+        "muster"
+      ],
+      "march": true,
+      "says": 0,
+      "says_raw": 1,
+      "why": "I am marching H1 to a nearby camp to fulfill my daily march and clear camps, while simultaneously training and mustering more troops to ensure I maintain my combat armies."
+    },
+    {
+      "persona": "conqueror",
+      "situation": "T2",
+      "lang": "ja",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c3",
+        "c8",
+        "c9"
+      ],
+      "kinds": [
+        "march",
+        "train",
+        "muster"
+      ],
+      "march": true,
+      "says": 0,
+      "says_raw": 1,
+      "why": "I will march H1 to the nearby camp to fulfill my daily march goal and clear a camp, while training and mustering to maintain my combat strength."
+    },
+    {
+      "persona": "diplomat",
+      "situation": "T2",
+      "lang": "en",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c5",
+        "c6",
+        "c8"
+      ],
+      "kinds": [
+        "build",
+        "build",
+        "train"
+      ],
+      "march": false,
+      "says": 1,
+      "says_raw": 1,
+      "why": "I am prioritizing village growth through production buildings and increasing our military reserves."
+    },
+    {
+      "persona": "diplomat",
+      "situation": "T2",
+      "lang": "ja",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c5",
+        "c6",
+        "c8"
+      ],
+      "kinds": [
+        "build",
+        "build",
+        "train"
+      ],
+      "march": false,
+      "says": 1,
+      "says_raw": 1,
+      "why": "I am focusing on growing the village and strengthening my reserves."
+    },
+    {
+      "persona": "conqueror",
+      "situation": "T3",
+      "lang": "en",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c10",
+        "c8",
+        "c9"
+      ],
+      "kinds": [
+        "explore",
+        "train",
+        "muster"
+      ],
+      "march": false,
+      "says": 1,
+      "says_raw": 1,
+      "why": "I am training and mustering troops to ensure I have the strength to clear camps and fulfill my duty to march."
+    },
+    {
+      "persona": "conqueror",
+      "situation": "T3",
+      "lang": "ja",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c10",
+        "c8",
+        "c9"
+      ],
+      "kinds": [
+        "explore",
+        "train",
+        "muster"
+      ],
+      "march": false,
+      "says": 1,
+      "says_raw": 1,
+      "why": "I am training and mustering troops to ensure I have combat armies ready for future marches."
+    },
+    {
+      "persona": "diplomat",
+      "situation": "T3",
+      "lang": "en",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c5",
+        "c6",
+        "c8"
+      ],
+      "kinds": [
+        "build",
+        "build",
+        "train"
+      ],
+      "march": false,
+      "says": 1,
+      "says_raw": 1,
+      "why": "I am prioritizing village growth through production buildings and increasing our military reserves."
+    },
+    {
+      "persona": "diplomat",
+      "situation": "T3",
+      "lang": "ja",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c5",
+        "c6",
+        "c8"
+      ],
+      "kinds": [
+        "build",
+        "build",
+        "train"
+      ],
+      "march": false,
+      "says": 1,
+      "says_raw": 1,
+      "why": "I am focusing on growing the village through production and strengthening my reserves."
+    },
+    {
+      "persona": "conqueror",
+      "situation": "T4",
+      "lang": "en",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c1"
+      ],
+      "kinds": [
+        "autopilot"
+      ],
+      "march": false,
+      "says": 0,
+      "says_raw": 0,
+      "why": "I will focus on building my economy and training troops to prepare for future conquests."
+    },
+    {
+      "persona": "conqueror",
+      "situation": "T4",
+      "lang": "ja",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c5",
+        "c8",
+        "c9"
+      ],
+      "kinds": [
+        "build",
+        "train",
+        "muster"
+      ],
+      "march": false,
+      "says": 1,
+      "says_raw": 1,
+      "why": "I am building economy, training more troops, and mustering a host to prepare for my first march of the day."
+    },
+    {
+      "persona": "diplomat",
+      "situation": "T4",
+      "lang": "en",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c5",
+        "c6",
+        "c8"
+      ],
+      "kinds": [
+        "build",
+        "build",
+        "train"
+      ],
+      "march": false,
+      "says": 1,
+      "says_raw": 1,
+      "why": "I am building producers to grow the village and training troops to bolster our reserves."
+    },
+    {
+      "persona": "diplomat",
+      "situation": "T4",
+      "lang": "ja",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c5",
+        "c6",
+        "c8"
+      ],
+      "kinds": [
+        "build",
+        "build",
+        "train"
+      ],
+      "march": false,
+      "says": 1,
+      "says_raw": 1,
+      "why": "I am focusing on village growth and training troops to ensure a strong foundation."
+    },
+    {
+      "persona": "conqueror",
+      "situation": "T5",
+      "lang": "en",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c3",
+        "c8",
+        "c9"
+      ],
+      "kinds": [
+        "march",
+        "train",
+        "muster"
+      ],
+      "march": true,
+      "says": 0,
+      "says_raw": 1,
+      "why": "I am marching H1 to clear a nearby camp to fulfill my daily march and camp clearing goals, while also training and mustering to maintain my combat strength."
+    },
+    {
+      "persona": "conqueror",
+      "situation": "T5",
+      "lang": "ja",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c3",
+        "c8",
+        "c9"
+      ],
+      "kinds": [
+        "march",
+        "train",
+        "muster"
+      ],
+      "march": true,
+      "says": 0,
+      "says_raw": 1,
+      "why": "I am marching H1 to clear a nearby camp to fulfill my daily march and camp clearing goals, while also training and mustering to maintain my combat strength."
+    },
+    {
+      "persona": "diplomat",
+      "situation": "T5",
+      "lang": "en",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c5",
+        "c6",
+        "c8"
+      ],
+      "kinds": [
+        "build",
+        "build",
+        "train"
+      ],
+      "march": false,
+      "says": 1,
+      "says_raw": 1,
+      "why": "I am prioritizing village growth through production buildings and increasing our military reserves to prepare for future needs."
+    },
+    {
+      "persona": "diplomat",
+      "situation": "T5",
+      "lang": "ja",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c5",
+        "c6",
+        "c8"
+      ],
+      "kinds": [
+        "build",
+        "build",
+        "train"
+      ],
+      "march": false,
+      "says": 1,
+      "says_raw": 1,
+      "why": "I am focusing on village growth and increasing my military reserves."
+    },
+    {
+      "persona": "conqueror",
+      "situation": "T6",
+      "lang": "en",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c3",
+        "c4"
+      ],
+      "kinds": [
+        "march",
+        "build"
+      ],
+      "march": true,
+      "says": 0,
+      "says_raw": 1,
+      "why": "I am marching H1 to a camp to fulfill my daily march and clear a camp for points."
+    },
+    {
+      "persona": "conqueror",
+      "situation": "T6",
+      "lang": "ja",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c3",
+        "c4"
+      ],
+      "kinds": [
+        "march",
+        "build"
+      ],
+      "march": true,
+      "says": 0,
+      "says_raw": 1,
+      "why": "I am marching H1 to a nearby camp to fulfill my daily march goal and clear a camp for points."
+    },
+    {
+      "persona": "diplomat",
+      "situation": "T6",
+      "lang": "en",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c4",
+        "c5",
+        "c7"
+      ],
+      "kinds": [
+        "build",
+        "build",
+        "train"
+      ],
+      "march": false,
+      "says": 1,
+      "says_raw": 1,
+      "why": "I am prioritizing village growth and training troops to ensure a strong foundation and defense."
+    },
+    {
+      "persona": "diplomat",
+      "situation": "T6",
+      "lang": "ja",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c4",
+        "c5",
+        "c7"
+      ],
+      "kinds": [
+        "build",
+        "build",
+        "train"
+      ],
+      "march": false,
+      "says": 1,
+      "says_raw": 1,
+      "why": "I am focusing on growing the village by building producers and increasing my reserve to ensure long-term stability."
+    },
+    {
+      "persona": "conqueror",
+      "situation": "T7",
+      "lang": "en",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c3",
+        "c8",
+        "c9"
+      ],
+      "kinds": [
+        "march",
+        "train",
+        "muster"
+      ],
+      "march": true,
+      "says": 0,
+      "says_raw": 1,
+      "why": "I am marching H1 to a nearby camp to fulfill my daily march and clear camps, while training and mustering to maintain my combat strength."
+    },
+    {
+      "persona": "conqueror",
+      "situation": "T7",
+      "lang": "ja",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c3",
+        "c8",
+        "c9"
+      ],
+      "kinds": [
+        "march",
+        "train",
+        "muster"
+      ],
+      "march": true,
+      "says": 0,
+      "says_raw": 1,
+      "why": "I am marching H1 to a nearby camp to fulfill my daily march goal and clear camps, while also training and mustering to maintain my combat strength."
+    },
+    {
+      "persona": "diplomat",
+      "situation": "T7",
+      "lang": "en",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c5",
+        "c6",
+        "c8"
+      ],
+      "kinds": [
+        "build",
+        "build",
+        "train"
+      ],
+      "march": false,
+      "says": 1,
+      "says_raw": 1,
+      "why": "I am prioritizing village growth through production buildings and increasing our reserve to prepare for future needs."
+    },
+    {
+      "persona": "diplomat",
+      "situation": "T7",
+      "lang": "ja",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c5",
+        "c6",
+        "c8"
+      ],
+      "kinds": [
+        "build",
+        "build",
+        "train"
+      ],
+      "march": false,
+      "says": 0,
+      "says_raw": 0,
+      "why": "I am focusing on growing the village and strengthening my reserves."
+    },
+    {
+      "persona": "conqueror",
+      "situation": "T8",
+      "lang": "en",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c3",
+        "c8",
+        "c9"
+      ],
+      "kinds": [
+        "march",
+        "train",
+        "muster"
+      ],
+      "march": true,
+      "says": 0,
+      "says_raw": 1,
+      "why": "I am marching to clear a camp to fulfill my goals and training more troops to ensure my strength."
+    },
+    {
+      "persona": "conqueror",
+      "situation": "T8",
+      "lang": "ja",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c3",
+        "c8",
+        "c9"
+      ],
+      "kinds": [
+        "march",
+        "train",
+        "muster"
+      ],
+      "march": true,
+      "says": 0,
+      "says_raw": 1,
+      "why": "I am marching H1 to a nearby camp to fulfill my daily march goal and clear camps for points."
+    },
+    {
+      "persona": "diplomat",
+      "situation": "T8",
+      "lang": "en",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c5",
+        "c6",
+        "c8"
+      ],
+      "kinds": [
+        "build",
+        "build",
+        "train"
+      ],
+      "march": false,
+      "says": 1,
+      "says_raw": 1,
+      "why": "I am prioritizing village growth through production buildings and increasing our military reserve to prepare for future needs."
+    },
+    {
+      "persona": "diplomat",
+      "situation": "T8",
+      "lang": "ja",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c5",
+        "c6",
+        "c8"
+      ],
+      "kinds": [
+        "build",
+        "build",
+        "train"
+      ],
+      "march": false,
+      "says": 1,
+      "says_raw": 1,
+      "why": "I am focusing on growing the village and strengthening the reserve to ensure long-term stability."
+    },
+    {
+      "persona": "conqueror",
+      "situation": "T9",
+      "lang": "en",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c10",
+        "c8",
+        "c9"
+      ],
+      "kinds": [
+        "explore",
+        "train",
+        "muster"
+      ],
+      "march": false,
+      "says": 1,
+      "says_raw": 1,
+      "why": "I am training and mustering troops to ensure I have the strength to clear camps and fulfill my ambition."
+    },
+    {
+      "persona": "conqueror",
+      "situation": "T9",
+      "lang": "ja",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c10",
+        "c8"
+      ],
+      "kinds": [
+        "explore",
+        "train"
+      ],
+      "march": false,
+      "says": 1,
+      "says_raw": 1,
+      "why": "I will send a scout to explore and train more troops to ensure I can maintain my combat armies."
+    },
+    {
+      "persona": "diplomat",
+      "situation": "T9",
+      "lang": "en",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c5",
+        "c6",
+        "c8"
+      ],
+      "kinds": [
+        "build",
+        "build",
+        "train"
+      ],
+      "march": false,
+      "says": 1,
+      "says_raw": 1,
+      "why": "I am prioritizing village growth through production buildings and increasing our reserve to bolster future hosts."
+    },
+    {
+      "persona": "diplomat",
+      "situation": "T9",
+      "lang": "ja",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c5",
+        "c6",
+        "c8"
+      ],
+      "kinds": [
+        "build",
+        "build",
+        "train"
+      ],
+      "march": false,
+      "says": 1,
+      "says_raw": 1,
+      "why": "I am focusing on growing the village economy and increasing my reserve troops for future needs."
+    },
+    {
+      "persona": "conqueror",
+      "situation": "T10",
+      "lang": "en",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c3",
+        "c8",
+        "c9"
+      ],
+      "kinds": [
+        "march",
+        "train",
+        "muster"
+      ],
+      "march": true,
+      "says": 0,
+      "says_raw": 1,
+      "why": "I am marching H1 to a nearby camp to fulfill my daily march and clear camps, while also training and mustering to maintain my combat strength."
+    },
+    {
+      "persona": "conqueror",
+      "situation": "T10",
+      "lang": "ja",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c3",
+        "c8",
+        "c9"
+      ],
+      "kinds": [
+        "march",
+        "train",
+        "muster"
+      ],
+      "march": true,
+      "says": 0,
+      "says_raw": 1,
+      "why": "I am marching H1 to a nearby camp to fulfill my daily march goal and clear camps, while also training and mustering to maintain my combat strength."
+    },
+    {
+      "persona": "diplomat",
+      "situation": "T10",
+      "lang": "en",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c5",
+        "c6",
+        "c8"
+      ],
+      "kinds": [
+        "build",
+        "build",
+        "train"
+      ],
+      "march": false,
+      "says": 1,
+      "says_raw": 1,
+      "why": "I am prioritizing village growth through production buildings and increasing our military reserves to prepare for future needs."
+    },
+    {
+      "persona": "diplomat",
+      "situation": "T10",
+      "lang": "ja",
+      "mode": "model",
+      "reason": "ok",
+      "ids": [
+        "c5",
+        "c6",
+        "c8"
+      ],
+      "kinds": [
+        "build",
+        "build",
+        "train"
+      ],
+      "march": false,
+      "says": 1,
+      "says_raw": 1,
+      "why": "I am focusing on village growth and increasing my military reserves."
+    }
+  ]
+}
