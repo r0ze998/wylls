@@ -1,0 +1,133 @@
+{
+  "ai_bots": 6,
+  "counters": {
+    "answers_autopilot": 422,
+    "answers_model": 37,
+    "answers_reused": 5,
+    "follow_calls_read": 2,
+    "follow_no_ready_invited_host": 7,
+    "follow_window_ai_bots": 2,
+    "gets:digest": 1991,
+    "gets:me": 464,
+    "gets:recall_events": 79,
+    "gets:recall_owners": 42,
+    "gets:reobserve": 197,
+    "model_marches_sent": 11,
+    "no_session": 31,
+    "no_session:no_home": 31,
+    "quota_floor_skips": 195,
+    "quota_starved_bells": 150,
+    "reobserved": 37,
+    "social_posted:ballot": 9,
+    "social_posted:talk": 25,
+    "steps": 495
+  },
+  "follow_council": true,
+  "mind": true,
+  "per_bot": {
+    "1000": {
+      "gets:digest": 316,
+      "gets:me": 81,
+      "gets:recall_events": 8,
+      "gets:recall_owners": 14,
+      "gets:reobserve": 47,
+      "no_session": 5,
+      "no_session:no_home": 5,
+      "reobserved": 9,
+      "steps": 86
+    },
+    "1001": {
+      "gets:digest": 390,
+      "gets:me": 78,
+      "gets:recall_events": 12,
+      "gets:reobserve": 36,
+      "no_session": 5,
+      "no_session:no_home": 5,
+      "reobserved": 6,
+      "steps": 83
+    },
+    "1002": {
+      "gets:digest": 385,
+      "gets:me": 77,
+      "gets:recall_events": 4,
+      "gets:recall_owners": 6,
+      "gets:reobserve": 24,
+      "no_session": 6,
+      "no_session:no_home": 6,
+      "reobserved": 4,
+      "steps": 83
+    },
+    "1003": {
+      "gets:digest": 304,
+      "gets:me": 78,
+      "gets:recall_events": 22,
+      "gets:recall_owners": 4,
+      "gets:reobserve": 25,
+      "no_session": 5,
+      "no_session:no_home": 5,
+      "reobserved": 5,
+      "steps": 83
+    },
+    "1004": {
+      "gets:digest": 300,
+      "gets:me": 76,
+      "gets:recall_events": 12,
+      "gets:recall_owners": 3,
+      "gets:reobserve": 25,
+      "no_session": 5,
+      "no_session:no_home": 5,
+      "reobserved": 5,
+      "steps": 81
+    },
+    "1005": {
+      "gets:digest": 296,
+      "gets:me": 74,
+      "gets:recall_events": 21,
+      "gets:recall_owners": 15,
+      "gets:reobserve": 40,
+      "no_session": 5,
+      "no_session:no_home": 5,
+      "reobserved": 8,
+      "steps": 79
+    }
+  },
+  "timeline": {
+    "1000": {
+      "first_final_bell": 5,
+      "first_model_march_bell": 53,
+      "first_ready_bell": 29,
+      "second_ready_bell": 55
+    },
+    "1001": {
+      "first_final_bell": 6,
+      "first_model_march_bell": 54,
+      "first_ready_bell": 33,
+      "second_ready_bell": 58
+    },
+    "1002": {
+      "first_final_bell": 7,
+      "first_model_march_bell": 55,
+      "first_ready_bell": 34,
+      "second_ready_bell": 59
+    },
+    "1003": {
+      "first_final_bell": 8,
+      "first_model_march_bell": null,
+      "first_ready_bell": 36,
+      "second_ready_bell": null
+    },
+    "1004": {
+      "first_final_bell": 9,
+      "first_model_march_bell": 57,
+      "first_ready_bell": 34,
+      "second_ready_bell": 36
+    },
+    "1005": {
+      "first_final_bell": 10,
+      "first_model_march_bell": 54,
+      "first_ready_bell": 37,
+      "second_ready_bell": 59
+    }
+  },
+  "v": 1
+}

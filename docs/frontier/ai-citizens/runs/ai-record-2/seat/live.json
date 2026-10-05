@@ -1,0 +1,22 @@
+{
+ "v": 1,
+ "kind": "seat-live",
+ "mode": "live",
+ "scripted": false,
+ "casts_ballots": false,
+ "origin": 0,
+ "nation": 0,
+ "label": {
+  "en": "live seat: the presenter casts the ballot on the council page (origin 0); this process casts no ballot",
+  "ja": "席は実演者本人が操作する(origin 0)。この処理は投票しない"
+ },
+ "statement": "A ballot of the live seat is cast by the presenter on the council page (origin 0, counted as human). This process never casts one. Only that live ballot supports \"a human and AI citizens decided together\", for nation 0, the operator being the human. The one Build of walls that makes the seat's village final is the run harness's act, not the presenter's.",
+ "finalise": {
+  "status": "final",
+  "final": true,
+  "final_bell": 35,
+  "attempts": 1,
+  "by": "run harness"
+ },
+ "updated_unix": 1791175106
+}

@@ -71,3 +71,4 @@ END {"detail":"stack complete, publication written (anchors: 121 anchored, 0 gap
 
 ## ai-record-3 — 2026-10-05T08:48:29Z
 RUN {"arm":null,"commitments_sha256":"1b43e98a9187d8763e25db48e33dae7cc73e0b043819822de1ff975583184971","configs":{"citizens_config_sha256":"c0f6fb405aec7f142418b78a527e0c909eea1f11c9a9447ed3b64bf0d25dc17f","injection_corpus_sha256":"a56fa2fbccf9501b47399284617db86763220331b16aa9850575118dddaf28cc","seat_script_sha256":null,"slots_sha256":"d9daee742482782c6d36bfebd52e57a632819293db1e35e0367e377a1a632281","stack_toml_sha256":"3fd4b1b2e1e5664317119bfc9d93c6d5cffed3c2ad5aa5bac5cbfaecbe63c9cc"},"rep":null,"run_id":"ai-record-3","start_unix":1791190109}
+END {"detail":"stack complete, publication written (anchors: 121 anchored, 0 gap(s) of 121 closed bells); season-end bundle written; verify-minds PASS; held up for 7200 s after the end (--hold 7200)","end_unix":1791204128,"run_id":"ai-record-3","status":"complete"}

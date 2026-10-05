@@ -1,0 +1,28 @@
+{
+ "v": 1,
+ "kind": "seat-ballots",
+ "scripted": true,
+ "origin": 2,
+ "nation": 0,
+ "mode": "ab",
+ "label": {
+  "en": "scripted seat ballot: written by the operator's script (origin 2), not a live human ballot",
+  "ja": "運営の台本による席の票(origin 2)。人間がその場で投じた票ではない"
+ },
+ "statement": "A Strike Order adopted with this ballot is the product of a scripted seat vote plus AI votes. It is not \"humans and AI decided together\"; only the recorded session, where the owner votes, can say that.",
+ "rule": "contract 9.3: arm A ballots the AI motion option X, arm B ballots none",
+ "ballots": [
+  {
+   "period": 2,
+   "option": 1,
+   "bell": 52,
+   "ok": true,
+   "rule": "ab_arm_a_ai_motion",
+   "ai_ballots_followed": 0,
+   "origin": 2,
+   "scripted": true
+  }
+ ],
+ "skipped_periods": [],
+ "updated_unix": 1791163605
+}

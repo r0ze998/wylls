@@ -1,0 +1,149 @@
+{
+ "v": 1,
+ "run_id": "smoke-r4",
+ "season": 41,
+ "checks": {
+  "M1": {
+   "pass": true,
+   "n": 33,
+   "failures": [],
+   "notes": [
+    "model.sha256 compared with a fresh hash of the file (streamed now, not from a cache)"
+   ]
+  },
+  "M2": {
+   "pass": true,
+   "n": 12,
+   "failures": []
+  },
+  "M3": {
+   "pass": true,
+   "n": 261,
+   "failures": [],
+   "bells": {
+    "first": 0,
+    "last": 108
+   },
+   "redacted_leaves": 0,
+   "herald_last_closed_bell": 108,
+   "chain_anchored_bells": 109,
+   "sealed_records": 19,
+   "openings_checked_for_timing": 19,
+   "destination_claims": {
+    "reveal": 11,
+    "unrevealed": 0,
+    "not_sent": 0,
+    "planned": 0
+   }
+  },
+  "M7": {
+   "pass": true,
+   "n": 338,
+   "failures": [],
+   "notes": [
+    "6 session-signed onboarding transaction(s) (Join, SetSession, SetVigil or FileTicket) before the AI's first decision record are not required: the steps before a home holding make no mind call and leave no record (R5). Contract 7.3 names joins and settles only: this reading is the verifier's (AC8-NOTES.md); --strict-onboarding counts them as orphans.",
+    "the seat's transactions are excluded (it has no record); joins and settles are not session-signed and are not required"
+   ],
+   "listed_signatures": 163,
+   "session_signed_on_chain": 169,
+   "onboarding_exempt": 6,
+   "not_required_join_or_settle": 0
+  },
+  "M8": {
+   "pass": true,
+   "n": 34,
+   "failures": [],
+   "ai_records_checked": 34,
+   "redacted_skipped": 0,
+   "redacted_skipped_ai": 0
+  },
+  "M9": {
+   "pass": true,
+   "n": 20,
+   "failures": [],
+   "m9_excluded_redacted": 0,
+   "model_records": 66,
+   "sampled": 20,
+   "llm_props": {
+    "n_ctx": 16384,
+    "alias": "gemma-4-26b-a4b-it"
+   },
+   "equal": 20,
+   "compared": 20,
+   "threshold": 18,
+   "mismatches": []
+  },
+  "M11": {
+   "pass": true,
+   "n": 520,
+   "failures": [],
+   "through_bell": 109,
+   "replay_code": {
+    "checked": [
+     "memory/episodes.mjs",
+     "memory/templates.en.json",
+     "memory/templates.ja.json",
+     "memory/names.json",
+     "memory/retrieve.mjs",
+     "memory/store.mjs",
+     "memory/herald-view.mjs",
+     "memory/config.mjs",
+     "memory/safe.mjs",
+     "persona/deal.mjs",
+     "persona/names.mjs",
+     "watcher/feed.mjs",
+     "watcher/owners.mjs",
+     "mind/wiring.mjs"
+    ],
+    "same": 14,
+    "differ": []
+   },
+   "episode_rule": "current (R12: a win is a cleared camp or a destroyed stack)",
+   "sampled_ais": [
+    "c529e020ebd4250b",
+    "a04c69b89a963310",
+    "4b593ba2f7e3674d"
+   ],
+   "mem_checked": 497,
+   "sampled_decisions": 20,
+   "retrieval": {
+    "sampled": 20,
+    "focus_stored": 20,
+    "focus_derived": 0,
+    "focus_rejected": 0,
+    "skipped_no_candidates": 0,
+    "with_budget_cut": 0
+   },
+   "episodes_total": {
+    "c529e020ebd4250b": 22,
+    "a04c69b89a963310": 12,
+    "4b593ba2f7e3674d": 14,
+    "65a993b45786f4c6": 14,
+    "35e201a3cf9e9aad": 16,
+    "07952efb501f06f4": 15
+   }
+  }
+ },
+ "verdict": "PASS",
+ "audit_code_vs_committed": {
+  "checked": [
+   "memory/episodes.mjs",
+   "memory/templates.en.json",
+   "memory/templates.ja.json",
+   "memory/names.json",
+   "memory/retrieve.mjs",
+   "memory/store.mjs",
+   "memory/herald-view.mjs",
+   "memory/config.mjs",
+   "memory/safe.mjs",
+   "persona/deal.mjs",
+   "persona/names.mjs",
+   "watcher/feed.mjs",
+   "watcher/owners.mjs",
+   "mind/wiring.mjs"
+  ],
+  "same": 14,
+  "differ": []
+ },
+ "generated_unix": 1791154969
+}

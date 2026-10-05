@@ -1,0 +1,157 @@
+{
+ "v": 1,
+ "run_id": "ai-record-3",
+ "season": 33,
+ "checks": {
+  "M1": {
+   "pass": true,
+   "n": 39,
+   "failures": [],
+   "notes": [
+    "model.sha256 compared with a fresh hash of the file (streamed now, not from a cache)"
+   ]
+  },
+  "M2": {
+   "pass": true,
+   "n": 18,
+   "failures": []
+  },
+  "M3": {
+   "pass": true,
+   "n": 428,
+   "failures": [],
+   "bells": {
+    "first": 0,
+    "last": 120
+   },
+   "redacted_leaves": 0,
+   "herald_last_closed_bell": 120,
+   "chain_anchored_bells": 121,
+   "sealed_records": 117,
+   "openings_checked_for_timing": 117,
+   "destination_claims": {
+    "reveal": 7,
+    "unrevealed": 3,
+    "not_sent": 0,
+    "planned": 0
+   }
+  },
+  "M7": {
+   "pass": true,
+   "n": 572,
+   "failures": [],
+   "notes": [
+    "12 session-signed onboarding transaction(s) (Join, SetSession, SetVigil or FileTicket) before the AI's first decision record are not required: the steps before a home holding make no mind call and leave no record (R5). Contract 7.3 names joins and settles only: this reading is the verifier's (AC8-NOTES.md); --strict-onboarding counts them as orphans.",
+    "the seat's transactions are excluded (it has no record); joins and settles are not session-signed and are not required"
+   ],
+   "listed_signatures": 274,
+   "session_signed_on_chain": 286,
+   "onboarding_exempt": 12,
+   "not_required_join_or_settle": 0
+  },
+  "M8": {
+   "pass": true,
+   "n": 84,
+   "failures": [],
+   "ai_records_checked": 84,
+   "redacted_skipped": 0,
+   "redacted_skipped_ai": 0
+  },
+  "M9": {
+   "pass": true,
+   "n": 20,
+   "failures": [],
+   "m9_excluded_redacted": 0,
+   "model_records": 159,
+   "sampled": 20,
+   "llm_props": {
+    "n_ctx": 16384,
+    "alias": "gemma-4-26b-a4b-it"
+   },
+   "equal": 20,
+   "compared": 20,
+   "threshold": 18,
+   "mismatches": []
+  },
+  "M11": {
+   "pass": true,
+   "n": 1138,
+   "failures": [],
+   "notes": [
+    "2 sampled decision(s) match only after a budget cut (the oldest unprotected ids dropped). The cut is a plausibility reading, not a recomputation: the token cost of the memory block is not rebuilt, because the ledger and summary parts of the block are not published per decision"
+   ],
+   "through_bell": 121,
+   "replay_code": {
+    "checked": [
+     "memory/episodes.mjs",
+     "memory/templates.en.json",
+     "memory/templates.ja.json",
+     "memory/names.json",
+     "memory/retrieve.mjs",
+     "memory/store.mjs",
+     "memory/herald-view.mjs",
+     "memory/config.mjs",
+     "memory/safe.mjs",
+     "persona/deal.mjs",
+     "persona/names.mjs",
+     "watcher/feed.mjs",
+     "watcher/owners.mjs",
+     "mind/wiring.mjs"
+    ],
+    "same": 14,
+    "differ": []
+   },
+   "episode_rule": "current (R12: a win is a cleared camp or a destroyed stack)",
+   "sampled_ais": [
+    "41f7fb8eb3c0017e",
+    "2d212ae0f47bd31a",
+    "eaeffd111fa178bd"
+   ],
+   "mem_checked": 1115,
+   "sampled_decisions": 20,
+   "retrieval": {
+    "sampled": 20,
+    "focus_stored": 20,
+    "focus_derived": 0,
+    "focus_rejected": 0,
+    "skipped_no_candidates": 0,
+    "with_budget_cut": 2
+   },
+   "episodes_total": {
+    "41f7fb8eb3c0017e": 36,
+    "2d212ae0f47bd31a": 31,
+    "eaeffd111fa178bd": 31,
+    "a8f2a8c503353c8a": 27,
+    "056d769ddf0bc276": 28,
+    "2bf325cf2e4ac464": 36,
+    "1eb50291242bdf3a": 41,
+    "ad297cd0803db176": 50,
+    "e63406bdc89f8425": 32,
+    "7842fa1b52d6b126": 31,
+    "d7cc47b518fb952c": 34
+   }
+  }
+ },
+ "verdict": "PASS",
+ "audit_code_vs_committed": {
+  "checked": [
+   "memory/episodes.mjs",
+   "memory/templates.en.json",
+   "memory/templates.ja.json",
+   "memory/names.json",
+   "memory/retrieve.mjs",
+   "memory/store.mjs",
+   "memory/herald-view.mjs",
+   "memory/config.mjs",
+   "memory/safe.mjs",
+   "persona/deal.mjs",
+   "persona/names.mjs",
+   "watcher/feed.mjs",
+   "watcher/owners.mjs",
+   "mind/wiring.mjs"
+  ],
+  "same": 14,
+  "differ": []
+ },
+ "generated_unix": 1791196875
+}
