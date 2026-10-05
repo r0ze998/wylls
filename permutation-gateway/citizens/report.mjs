@@ -563,8 +563,9 @@ export function councilOutcomesSection(run) {
     const c = readJson(path.join(run.pub, 'council', f));
     if (c && Number.isInteger(c.period) && Number.isInteger(c.faction)) withFile.set(`${c.period}|${c.faction}`, c);
   }
-  const seatLog = readJson(path.join(run.aiDir, 'seat', 'seat-script-log.json'));
-  const seat_finalise = seatLog?.finalise ? { status: seatLog.finalise.status ?? null, final: seatLog.finalise.final ?? null, attempts: seatLog.finalise.attempts ?? null, first_final_bell: seatLog.finalise.final_bell ?? null, note: seatLog.finalise.note ?? null } : null;
+  const liveLog = readJson(path.join(run.aiDir, 'seat', 'seat-live-log.json')); // live seat (recording run): the same finaliser, no ballots
+  const seatLog = readJson(path.join(run.aiDir, 'seat', 'seat-script-log.json')) ?? liveLog;
+  const seat_finalise = seatLog?.finalise ? { ...(liveLog !== null && seatLog === liveLog ? { live: true } : {}), status: seatLog.finalise.status ?? null, final: seatLog.finalise.final ?? null, attempts: seatLog.finalise.attempts ?? null, first_final_bell: seatLog.finalise.final_bell ?? null, note: seatLog.finalise.note ?? null } : null;
   if (!j?.periods && !withFile.size) return { available: false, rows: [], by_reason: {}, seat_finalise, note: 'no council-outcomes file and no council file: the verdicts were not recorded (runs before the seat-eligibility fix did not write them)' };
   const periods = new Set([...Object.keys(j?.periods ?? {}).map(Number), ...[...withFile.keys()].map((k) => Number(k.split('|')[0]))]);
   const lo = Math.min(...periods);
@@ -778,7 +779,7 @@ export function renderMarkdown(r) {
       for (const x of co.rows) L.push(row(x.period, x.nation, v(x.phase), x.kind, v(x.reason), v(x.bell), x.detail ? JSON.stringify(x.detail).replace(/\|/g, '/') : ''));
       L.push('');
     }
-    if (co.seat_finalise) L.push(`Scripted seat, finalising its village: status ${v(co.seat_finalise.status)}, final ${v(co.seat_finalise.final)}, attempts ${v(co.seat_finalise.attempts)}, final seen at bell ${v(co.seat_finalise.first_final_bell)}${co.seat_finalise.note ? ` (${co.seat_finalise.note})` : ''}.`, '');
+    if (co.seat_finalise) L.push(`${co.seat_finalise.live ? 'Live seat (run harness; the presenter votes on the page), finalising its village' : 'Scripted seat, finalising its village'}: status ${v(co.seat_finalise.status)}, final ${v(co.seat_finalise.final)}, attempts ${v(co.seat_finalise.attempts)}, final seen at bell ${v(co.seat_finalise.first_final_bell)}${co.seat_finalise.note ? ` (${co.seat_finalise.note})` : ''}.`, '');
   }
   const cc = r.social.council_calls;
   if (cc?.available) {

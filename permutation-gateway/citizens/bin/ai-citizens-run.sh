@@ -3,13 +3,22 @@
 #
 #   permutation-gateway/citizens/bin/ai-citizens-run.sh --stack permutation-gateway/citizens/stack/ai-citizens.toml \
 #       --citizens-config permutation-gateway/citizens/config/main.json [--ab A|B --rep N] [--run-id ID] [--deck deck-k]
-#       [--seat-script FILE] [--check | --dry-run]
+#       [--seat-script FILE | --seat-live [--hold SECS]] [--check | --dry-run]
 #
 #   --check     the guards only (run before every start as well): no paid-API key variable or key file, the old gateway
 #               not running, no uncommitted change under the guarded paths, only ports in 41901-41999 (the stack's base is
 #               41900; never 41000-41899 or a reserved port), none busy, a citizens config that names loopback URLs only,
 #               and no held stack lock. Exit 1 with every reason when any fails.
 #   --dry-run   the guards, then the plan (every command in start order), starting nothing.
+#   --seat-live the RECORDING run (docs/frontier/ai-citizens/RECORDING-RUN.md): the presenter (the operator) votes for real on the council page,
+#               so no ballot is scripted. The seat process runs `ab/seat.mjs --live 1`: it finalises the seat's own village (one Build of walls,
+#               the run harness's act) so that the presenter is eligible, writes KEYS/presenter-key.json (the session key in the form the page
+#               takes, no wallet secret), watches the council of nation 0 and prints a line at each change; it casts NO ballot. The roster says
+#               `scripted: false` (no --seat-script: the commitments carry no seat script). Not with --ab or --seat-script. Prints the page
+#               URLs and the timeline when the services are up.
+#   --hold SECS after the run is complete (publication, verify-minds, report written) keep the stack and the citizens service up for at most
+#               SECS seconds so the retained run can still be recorded (default 0 = stop at once, as before). `touch STATE/hold.stop`
+#               (printed) or Ctrl-C ends the hold early; either way every child is stopped and the lock released as usual.
 #
 # Start order (8.4): guards and lock -> llama check (/props alias, /health on 41901, then, once the commitments are built, the live
 # server's /props and command line against them) -> RUNS.md entry (committed locally)
@@ -59,6 +68,8 @@ REP=
 RUN_ID=
 DECK=
 SEAT_SCRIPT=
+SEAT_LIVE=0
+HOLD=0
 CHECK=0
 DRY=0
 NO_BUSY=0
@@ -76,6 +87,8 @@ while [ $# -gt 0 ]; do
     --run-id) RUN_ID=${2:?}; shift 2 ;;
     --deck) DECK=${2:?}; shift 2 ;;
     --seat-script) SEAT_SCRIPT=${2:?}; shift 2 ;;
+    --seat-live) SEAT_LIVE=1; shift ;;
+    --hold) HOLD=${2:?}; shift 2 ;;
     --check) CHECK=1; shift ;;
     --dry-run) DRY=1; shift ;;
     --no-busy-check) NO_BUSY=1; shift ;;   # tests only: the guard unit tests bind no stack
@@ -91,6 +104,11 @@ case "$STACK" in /*) ;; *) STACK=$(cd "$(dirname "$STACK")" && pwd)/$(basename "
 case "$CCONFIG" in /*) ;; *) CCONFIG=$(cd "$(dirname "$CCONFIG")" && pwd)/$(basename "$CCONFIG") ;; esac
 if [ -n "$AB" ] && [ -z "$REP" ]; then die "--ab needs --rep"; fi
 if [ -n "$REP" ] && [ -z "$AB" ]; then die "--rep needs --ab"; fi
+if [ "$SEAT_LIVE" = 1 ]; then
+  [ -z "$AB" ] || die "--seat-live (the presenter votes on the page) cannot be combined with --ab (the A/B seat script casts the ballot)"
+  [ -z "$SEAT_SCRIPT" ] || die "--seat-live cannot be combined with --seat-script: a scripted seat is marked scripted in the roster and casts ballots; the live seat does neither"
+fi
+case "$HOLD" in ''|*[!0-9]*) die "--hold SECS: a whole number of seconds" ;; esac
 
 # ------------------------------------------------------------------ guards
 GUARD_ARGS=(check --repo "$REPO" --stack "$STACK" --citizens-config "$CCONFIG" --lock-file "$LOCK")
@@ -219,6 +237,36 @@ wait_http() { # wait_http URL SECONDS
 }
 stack_phase() { sed -n 's/.*"phase": *"\([a-z]*\)".*/\1/p' "$STACK_RUNS/$RUN_ID/state.json" 2>/dev/null | head -1; }
 child_alive() { local want=$1 e; for e in ${PIDS[@]+"${PIDS[@]}"}; do [ "${e%%:*}" = "$want" ] && kill -0 "${e##*:}" 2>/dev/null && return 0; done; return 1; }
+SEAT_SHOWN=0
+SEAT_WARNED=0
+show_seat_lines() { # live seat: the seat's new log lines (where the council stands, when to vote) are shown in this terminal too
+  [ "$SEAT_LIVE" = 1 ] || return 0
+  if [ -f "$LOGS/seat.log" ]; then
+    local n; n=$(wc -l <"$LOGS/seat.log" | tr -d ' ')
+    if [ "$n" -gt "$SEAT_SHOWN" ]; then sed -n "$((SEAT_SHOWN + 1)),${n}p" "$LOGS/seat.log" | sed 's/^/[seat] /'; SEAT_SHOWN=$n; fi
+  fi
+  if [ "$SEAT_WARNED" = 0 ] && ! child_alive seat; then
+    SEAT_WARNED=1
+    echo "WARNING: the live seat process has exited (see $LOGS/seat.log): the seat's village may stay provisional and the presenter be refused NotEligible"
+  fi
+  return 0
+}
+# --hold SECS (run complete): wait here, children alive, until SECS pass, the stop file STATE/hold.stop appears, or the stack or the citizens
+# service dies. AI_HOLD_POLL_SECS (default 5) is the poll interval (tests). Appends the seconds held to DETAIL.
+hold_run() {
+  local stopf="$STATE/hold.stop" poll=${AI_HOLD_POLL_SECS:-5} t=0
+  rm -f "$stopf"
+  echo "HOLD: the run is complete. The stack and the citizens service stay up for at most $HOLD s (nothing new is played)."
+  "$NODE" "$HERE/record-info.mjs" --urls-only --run-id "$RUN_ID" --serve "$SERVE" --keys "$KEYS" --stop-file "$stopf" --hold "$HOLD" || true
+  while [ "$t" -lt "$HOLD" ] && [ ! -f "$stopf" ]; do
+    child_alive stack && child_alive citizens || { echo "HOLD: the stack or the citizens service stopped; ending the hold"; break; }
+    show_seat_lines
+    sleep "$poll"; t=$((t + poll))
+    [ $((t % 600)) -ge "$poll" ] || echo "HOLD: $((HOLD - t)) s left; to end it now: touch $stopf"
+  done
+  if [ -f "$stopf" ]; then echo "HOLD: ended by the stop file after $t s"; else echo "HOLD: ended after $t s"; fi
+  DETAIL="$DETAIL; held up for $t s after the end (--hold $HOLD)"
+}
 
 # ------------------------------------------------------------------ the plan (dry run) or the run
 echo "run $RUN_ID: stack $STACK_NAME base $BASE (herald $P_HERALD, rpc $P_RPC), $N AI citizens + the presenter seat ($DECK), bot seed $BOT_SEED, season $SEASON_ID${AB:+, arm $AB rep $REP}"
@@ -325,10 +373,12 @@ bg fleet "$FBIN/frontier-bots" --herald "$HERALD" --relay "$RELAY" --rpc "$RPC" 
 # every council period of nation 0 with options, no AI motion needed; it polls until this script stops it (SIGTERM) and says in its log
 # and in pub/seat/ballots.json that the ballot is scripted. A roster that says "scripted" without a script casting ballots was the
 # smoke-b4/b5 inconsistency (integ-B-NOTES.md, "seat ballot fix").
-if [ -n "$AB" ] || [ -n "$SEAT_SCRIPT" ]; then
+if [ -n "$AB" ] || [ -n "$SEAT_SCRIPT" ] || [ "$SEAT_LIVE" = 1 ]; then
   SEAT_ARGS=(--ai-dir "$AI_DIR" --herald "$HERALD" --social "http://127.0.0.1:$SOCIAL_PORT" --relay "$RELAY" --key-file "$KEYS/seat.txt" --config "$CCONFIG" --stop-file "$STATE/seat.stop")
   rm -f "$STATE/seat.stop" # a leftover stop file from an earlier run in a reused AI_DIR would end the seat at its first poll
   [ -z "$AB" ] || SEAT_ARGS=(--arm "$AB" --rep "$REP" "${SEAT_ARGS[@]}")
+  # live seat: the finaliser and the council watch only, never a ballot (ab/seat.mjs --live 1); the presenter votes on the council page
+  [ "$SEAT_LIVE" = 0 ] || SEAT_ARGS=(--live 1 "${SEAT_ARGS[@]}")
   if [ -f "$REPO/$CPUB/ab/seat.mjs" ]; then
     bg seat "$NODE" "$REPO/$CPUB/ab/seat.mjs" "${SEAT_ARGS[@]}"
   elif [ "$DRY" = 1 ]; then echo "PLAN note: $CPUB/ab/seat.mjs (unit AC9) is not in this tree; a run with a seat script would refuse here"
@@ -339,8 +389,14 @@ fi
 # the scenario census (reads the herald only; writes AI_DIR/census)
 bg census "$NODE" "$REPO/$CPUB/scenario/census.mjs" --herald "$HERALD" --ai-dir "$AI_DIR"
 
+REC_INFO=("$NODE" "$HERE/record-info.mjs" --config "$CCONFIG" --run-id "$RUN_ID" --serve "$SERVE" --keys "$KEYS" --stop-file "$STATE/hold.stop" --hold "$HOLD" --scale "$SCALE")
+if [ "$SEAT_LIVE" = 1 ]; then
+  if [ "$DRY" = 1 ]; then echo "PLAN print: ${REC_INFO[*]}"; else "${REC_INFO[@]}" || true; fi
+fi
+
 if [ "$DRY" = 1 ]; then
   echo "PLAN wait for the fleet to exit, then for the stack phase complete; then registrar publish (waits up to AI_WAIT_LAST_SECS for the last bell the chain closed, seals the season so the closer closes no later bell, waits for the last closed bell's talk and minds files, one more anchor pass, anchor_gap for any closed bell without an anchor, then the index), the END line of RUNS.md, stop every child in reverse order, release the lock"
+  [ "$HOLD" = 0 ] || echo "PLAN hold: after the run is complete keep the stack and the citizens service up for at most $HOLD s (stop file $STATE/hold.stop, or Ctrl-C), then stop every child"
   echo "dry run: nothing was started or written"
   exit 0
 fi
@@ -350,13 +406,16 @@ echo "running; follow with: tail -f $LOGS/*.log  (page: $SERVE/council.html)"
 while child_alive fleet; do
   child_alive stack || fail "the stack stopped while the fleet was running"
   child_alive citizens || fail "the citizens service stopped while the fleet was running"
+  show_seat_lines
   sleep 5
 done
+show_seat_lines
 echo "the fleet has exited; waiting for the stack to finish its drain"
 t=0
 while [ "$(stack_phase)" != complete ]; do
   child_alive stack || { [ "$(stack_phase)" = complete ] && break; fail "the stack stopped before it was complete (phase $(stack_phase))"; }
   [ "$t" -lt 7200 ] || fail "the stack was not complete 2 h after the fleet exited"
+  show_seat_lines
   sleep 5; t=$((t + 5))
 done
 # Season-end race fix: publish first waits (bounded, AI_WAIT_LAST_SECS) until the closer has closed every bell the chain closed, then SEALS the
@@ -388,4 +447,7 @@ echo "verify-minds: $VM_VERDICT (see $LOGS/verify-minds.log)"
 STATUS=complete
 DETAIL="stack complete, publication written (anchors: ${ANCHOR_NOTE:-not counted}); $FULL_NOTE; verify-minds $VM_VERDICT"
 if [ -f "$PUB/anchors/commit.json" ] && grep -q '"status":"unaudited"' "$PUB/anchors/commit.json"; then DETAIL="stack complete, publication written; the commit memo came after genesis: unaudited"; fi
+# --hold: the run is complete; keep the stack and the citizens service up (nothing new is played: the chain is paused) so that the retained run
+# can still be recorded and looked at (hold_run, above), until the stop file appears, Ctrl-C, or SECS pass. The trap then stops every child as usual.
+if [ "$HOLD" -gt 0 ]; then hold_run; fi
 exit 0

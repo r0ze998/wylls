@@ -21,6 +21,13 @@
 // (the flags are the ones citizens/bin/ai-citizens-run.sh passes). Loopback only; it holds the seat's key and reads it from the
 // key file only; it never prints it.
 //
+// LIVE SEAT (2026-10-05, the recording run; docs/frontier/ai-citizens/RECORDING-RUN.md). `--live 1` (instead of --arm or the council script): the
+// presenter (the operator) votes for real on the council page, so this process casts NO ballot and posts nothing (`runSeatLive` has no `postJson`).
+// It only (1) finalises the seat's own village, exactly as below, labelled as the run harness's act (`mode: 'live'`, `scripted: false`), (2) writes
+// KEYS/presenter-key.json, the seat's session key in the form the council page takes (no wallet secret), and (3) prints where the council of
+// nation 0 stands, with clock times, so the presenter knows when to be at the keyboard. Log: AI_DIR/seat/seat-live-log.json; published record:
+// PUB/seat/live.json. The roster says `scripted: false` when the run names no --seat-script (the run script refuses both together).
+//
 // SEAT BALLOT FIX (2026-10-05, owner decision 2026-10-04). The nation council needs two ballots for the leading option and each
 // nation has one AI, so nation 0 needs the operator's seat. Without --arm this file runs the COUNCIL SCRIPT (`runSeatScript`):
 // in EVERY council period of nation 0 that has options, with no AI motion needed, the seat casts ONE scripted ballot (origin 2,
@@ -64,6 +71,16 @@ export const SEAT_BALLOT_LABEL = Object.freeze({
 export const SEAT_NEVER_LIVE = 'A Strike Order adopted with this ballot is the product of a scripted seat vote plus AI votes. It is not "humans and AI decided together"; only the recorded session, where the owner votes, can say that.';
 /** The pinned choice rule of the council script (contract 9.3 pins none for a run without an AI motion; recorded in integ-B-NOTES.md). */
 export const SEAT_RULE_TEXT = 'in every council period of nation 0 that has options: ballot for the option most chosen by the nation-0 AI ballots already cast (ties: the lowest option number; none only when every AI cast none); with no AI ballot by the last ballot bell (C0 + 5): the option with the highest ratio word (favourable, even, unfavourable), ties the lowest option number';
+
+/** The live seat (recording run, `--live 1`): the presenter casts the ballot on the council page (origin 0); this process casts none. */
+export const SEAT_LIVE_LABEL = Object.freeze({
+  en: 'live seat: the presenter casts the ballot on the council page (origin 0); this process casts no ballot',
+  ja: '席は実演者本人が操作する(origin 0)。この処理は投票しない',
+});
+export const SEAT_LIVE_FINALISE_STATEMENT = 'the run harness touches the seat\'s own village (one Build of walls, signed with the seat key) so that it counts as a final village and the presenter is eligible; it casts no vote and moves no troops. The presenter\'s ballot is cast by the presenter on the council page.';
+export const SEAT_LIVE_STATEMENT = 'A ballot of the live seat is cast by the presenter on the council page (origin 0, counted as human). This process never casts one. Only that live ballot supports "a human and AI citizens decided together", for nation 0, the operator being the human. The one Build of walls that makes the seat\'s village final is the run harness\'s act, not the presenter\'s.';
+export const PRESENTER_KEY_FILE = 'presenter-key.json'; // KEYS/presenter-key.json: the session key of the seat in the form the council page takes (see writePresenterKey)
+export const LIVE_LOG_FILE = 'seat-live-log.json'; // AI_DIR/seat/seat-live-log.json (private) and PUB/seat/live.json (published)
 
 const readJson = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } };
 const PKCS8_ED25519 = Buffer.from('302e020100300506032b657004220420', 'hex');
@@ -125,6 +142,8 @@ export function summariseClash(detail, nation = NATION) {
 
 // ---- the seat's own village: provisional -> final (seat eligibility fix) --------------------------------------------------------
 export const FINALISE_LINE = 'scripted seat: finalising its village';
+/** The live seat's line: the Build of walls is the run harness's, not the presenter's, and nothing here votes (live seat mode, see the end of this file). */
+export const FINALISE_LINE_LIVE = 'live seat (run harness): finalising its village';
 export const ITEM_WALLS = 6; // catalog ITEM_WALLS: the only Build that names the holding's Province, hence the only one that runs the lazy flip
 export const WALL_STONE_NEEDED = 300; // catalog WALL_COST_STONE (a doctrine may cut it by 5 %: 300 is the safe upper bound), whole units
 export const FINALISE_MIN_QUOTA = 6; // the seat shares the relay's per-citizen daily quota: it sends nothing below this many left
@@ -138,12 +157,16 @@ export const FINALISE_SPACING_BELLS = 3; // bells between two sends
  *     `due` = the program would take the lazy flip now (frontier-abi finality_due: state 1, now >= final_ts, cohort closed), `stone` = whole units
  *   sendWalls() -> {ok, code?, state?, signature?, error?}   (a landed transaction is ok: true)
  *   quotaLeft() -> number | null
+ * `mode: 'live'` (live seat) only changes the labels: `scripted: false`, the line prefix FINALISE_LINE_LIVE and the statement; the actions are the same.
  * `step({bell})` does at most one thing per bell and never throws: read; final -> done; not due -> wait; not enough stone -> wait; quota
  * low -> wait; else one Build of walls. State (JSON, no key): {status, final, attempts, tries, last_attempt_bell, final_bell, last_result, note}.
  */
-export function createSeatFinaliser({ readSeat, sendWalls, quotaLeft = null, log = (m) => console.log(m), maxAttempts = FINALISE_MAX_ATTEMPTS, maxTries = FINALISE_MAX_TRIES, spacingBells = FINALISE_SPACING_BELLS, minQuota = FINALISE_MIN_QUOTA, stoneNeeded = WALL_STONE_NEEDED } = {}) {
-  const st = { scripted: true, statement: 'the operator\'s script touches the seat\'s own village so that it counts as a final village; it casts no vote and moves no troops', status: 'not_started', final: false, attempts: 0, tries: 0, last_attempt_bell: null, last_checked_bell: null, final_bell: null, last_result: null, note: null };
-  const say = (m) => { try { log(`${FINALISE_LINE}${m ? ` ${m}` : ''}`); } catch { /* a log failure must not stop the seat */ } };
+export function createSeatFinaliser({ readSeat, sendWalls, quotaLeft = null, log = (m) => console.log(m), maxAttempts = FINALISE_MAX_ATTEMPTS, maxTries = FINALISE_MAX_TRIES, spacingBells = FINALISE_SPACING_BELLS, minQuota = FINALISE_MIN_QUOTA, stoneNeeded = WALL_STONE_NEEDED, mode = 'scripted' } = {}) {
+  const LIVE = mode === 'live'; // live seat: the same single Build of walls, labelled as the run harness's act (the presenter votes on the page)
+  const st = LIVE
+    ? { scripted: false, mode: 'live', statement: SEAT_LIVE_FINALISE_STATEMENT, status: 'not_started', final: false, attempts: 0, tries: 0, last_attempt_bell: null, last_checked_bell: null, final_bell: null, last_result: null, note: null }
+    : { scripted: true, statement: 'the operator\'s script touches the seat\'s own village so that it counts as a final village; it casts no vote and moves no troops', status: 'not_started', final: false, attempts: 0, tries: 0, last_attempt_bell: null, last_checked_bell: null, final_bell: null, last_result: null, note: null };
+  const say = (m) => { try { log(`${LIVE ? FINALISE_LINE_LIVE : FINALISE_LINE}${m ? ` ${m}` : ''}`); } catch { /* a log failure must not stop the seat */ } };
   const to = (status, text = null) => { if (st.status !== status) { st.status = status; if (text) say(`(${text})`); } };
   return {
     state: () => ({ ...st }),
@@ -496,6 +519,148 @@ export async function runSeatScript({ aiDir, social, key, config = {}, getJson, 
   return log;
 }
 
+// ---- the live seat (recording run; `--live 1`) -------------------------------------------------------------------------------
+// In the recording run the presenter (the operator) votes for real on the council page, so no ballot may be scripted: this mode runs the
+// seat's finaliser ONLY (the same single Build of walls as above, labelled as the run harness's act, `scripted: false`) and tells the
+// operator's terminal where the council of nation 0 stands, so the presenter knows when to be at the keyboard. It posts NOTHING to the
+// social service (`runSeatLive` takes no `postJson`), never touches the council and writes no ballot record. The roster flag is unchanged:
+// a run started without `--seat-script` has `scripted: false`, so the page badges the seat "presenter seat (human operator)" and the
+// presenter's ballot from the page (origin 0) is counted as human. Honesty: the Build of walls is the harness's, the ballot is the presenter's.
+
+/**
+ * The seat's session key in the form the council page takes: `{wallet, session, session_keypair_b58}` (the page's `parseKeyText` reads
+ * exactly these; the seat file of `--export-seat-key` also holds the WALLET keypair, which the page must never be shown, so it is left
+ * out). Written next to the key file as KEYS/presenter-key.json, mode 600, one line (a pasted multi-line JSON would fill the textarea).
+ * Throws when the file is not a seat key file (the seed must give the listed session public key). Never logs the key.
+ */
+export function writePresenterKey({ keyFile, outFile = path.join(path.dirname(keyFile), PRESENTER_KEY_FILE) }) {
+  const key = loadSeatKey(keyFile);
+  const j = JSON.parse(fs.readFileSync(keyFile, 'utf8'));
+  const out = { wallet: key.wallet, session: key.sessionB58, session_keypair_b58: j.session_keypair_b58 };
+  const tmp = `${outFile}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(out)}\n`, { mode: 0o600 });
+  fs.renameSync(tmp, outFile);
+  try { fs.chmodSync(outFile, 0o600); } catch { /* the mode of the temp file already holds */ }
+  return outFile;
+}
+
+/** PUB/seat/live.json: what the footage may say about the live seat. No key, no ballot, no option. */
+export function liveRecordOf(log, now) {
+  const f = log.finalise;
+  return {
+    v: 1, kind: 'seat-live', mode: 'live', scripted: false, casts_ballots: false, origin: 0, nation: NATION,
+    label: { ...SEAT_LIVE_LABEL }, statement: SEAT_LIVE_STATEMENT,
+    finalise: f ? { status: f.status ?? null, final: Boolean(f.final), final_bell: f.final_bell ?? null, attempts: f.attempts ?? 0, by: 'run harness' } : null,
+    updated_unix: Math.floor(now() / 1000),
+  };
+}
+function makeLivePublisher(aiDir, now) {
+  const file = path.join(aiDir, 'pub', 'seat', 'live.json');
+  let last = null;
+  return (log) => {
+    try {
+      const rec = liveRecordOf(log, now);
+      const key = JSON.stringify({ ...rec, updated_unix: 0 });
+      if (key === last) return;
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      const tmp = `${file}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify(rec, null, 1));
+      fs.renameSync(tmp, file);
+      last = key;
+    } catch { /* the private log is the source */ }
+  };
+}
+
+/** The bells of council period k (contract 6.5): C0 = k * period + offset; motions [C0, C0+3), ballots [C0+3, C0+6), close at C0+6, strike S = C0+6+lead, open at S+2. */
+export function councilSchedule(council = {}, k) {
+  const period = council.period ?? 48, offset = council.offset ?? 12, lead = council.strike_lead ?? 6;
+  const c0 = k * period + offset;
+  return { k, c0, motions_from: c0, motions_to: c0 + 2, ballots_from: c0 + 3, ballots_to: c0 + 5, close: c0 + 6, follow_from: c0 + 6, strike: c0 + 6 + lead, opens: c0 + 6 + lead + 2 };
+}
+/** Real milliseconds in one bell: bell_secs of game time at `scale`x. */
+export const bellMsOf = (config = {}) => (Number(config.time?.bell_secs ?? 600) / Number(config.time?.scale ?? 10)) * 1000;
+const defaultClock = (ms) => new Date(ms).toLocaleTimeString('en-GB');
+/** Estimated clock times of the next councils from the bell now (`nowMs` falls somewhere inside `bell`, so the error is up to one bell; the page's bell chip is exact). */
+export function scheduleLines({ bell, nowMs, config = {}, periods = 3, clock = defaultClock }) {
+  const bm = bellMsOf(config);
+  const at = (b) => clock(nowMs + (b - bell) * bm).slice(0, 5);
+  const lines = [];
+  for (let k = 1; lines.length < periods && k < 200; k++) {
+    const c = councilSchedule(config.council, k);
+    if (c.close < bell) continue;
+    lines.push(`period ${k}: motions from about ${at(c.motions_from)} (bell ${c.motions_from}); BALLOT WINDOW about ${at(c.ballots_from)} to ${at(c.close)} (bells ${c.ballots_from} to ${c.ballots_to}); strike about ${at(c.strike)} (bell ${c.strike}); the order opens about ${at(c.opens)} (bell ${c.opens})`);
+  }
+  return lines;
+}
+
+/**
+ * The live seat's loop. All I/O is injected like `runSeat`; there is NO `postJson`: this loop cannot cast a ballot or write a message.
+ *   getJson(url) -> object, bellNow() -> bell (null before genesis), sleep(ms), finaliser (createSeatFinaliser({mode: 'live'})), say(line)
+ * Each poll: one finaliser step (the seat's village must count as final before C0), then a read of the nation-0 council; a line is
+ * printed when a period changes state (motion window, BALLOT WINDOW, closed: adopted or why not). It ends on the stop file or signal, an
+ * end bell or (tests only) maxPolls, never on a poll count by default. Returns the private log (AI_DIR/seat/seat-live-log.json).
+ */
+export async function runSeatLive({ aiDir, social, key, config = {}, getJson, bellNow, sleep, pollMs = 3000, maxPolls = null, endBell = null, shouldStop = null, now = () => Date.now(), finaliser = null, say = (m) => console.log(m), clock = defaultClock }) {
+  const out = (m) => { try { say(`[${clock(now())}] ${m}`); } catch { /* a log failure must not stop the seat */ } };
+  const log = { v: 1, kind: 'seat-live-log', mode: 'live', scripted: false, casts_ballots: false, ballot_label: { ...SEAT_LIVE_LABEL }, statement: SEAT_LIVE_STATEMENT, nation: NATION, origin: 0, season: null, seat_wallet_listed: false, started_unix: Math.floor(now() / 1000), finalise: null, councils: [], notes: [] };
+  const file = path.join(aiDir, 'seat', LIVE_LOG_FILE);
+  const publish = makeLivePublisher(aiDir, now);
+  const save = () => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(log, null, 1)); publish(log); };
+  const strikeLead = config.council?.strike_lead ?? 6;
+  out(`seat: ${SEAT_LIVE_LABEL.en}; it finalises the seat's village and watches the council of nation ${NATION}`);
+  save();
+  const seen = new Map(); // period -> last state announced
+  let roster = null;
+  let lastBell = null;
+  let scheduled = false;
+  for (let i = 0; ; i++) {
+    const why = await stopReason({ i, bell: lastBell, maxPolls, endBell, shouldStop });
+    if (why) { log.notes.push(why); break; }
+    if (!roster?.season) {
+      roster = readJson(path.join(aiDir, 'pub/roster.json'));
+      if (roster?.season != null) {
+        if (roster.seat?.wallet && roster.seat.wallet !== key.wallet) throw new Error('seat: the key file is not the roster seat');
+        if (roster.seat?.scripted === true) throw new Error('seat: the roster marks the seat scripted, but this is a live seat run (start the run without --seat-script)');
+        log.season = roster.season;
+        log.seat_wallet_listed = Boolean(roster.seat);
+        save();
+      }
+    }
+    let st = null;
+    try { st = await getJson(`${social}/f/ai/council?faction=${NATION}`); } catch { st = null; }
+    const bell = await bellNow();
+    lastBell = bell;
+    await finaliseTick(finaliser, bell, log, save);
+    if (!scheduled && bell != null && bell >= 0) {
+      scheduled = true; // once: the clock times of the next councils (estimates; the page's bell chip is exact)
+      for (const l of scheduleLines({ bell, nowMs: now(), config, clock })) out(`seat (live): ${l}`);
+    }
+    if (st?.period != null && st.state && bell != null && bell >= 0 && seen.get(st.period) !== st.state) {
+      seen.set(st.period, st.state);
+      const c0 = st.c0 ?? (st.closes_bell != null ? st.closes_bell - 6 : null);
+      const k = st.period;
+      const fin = finaliser?.state?.() ?? null;
+      const strike = st.strike_bell ?? (c0 != null ? c0 + 6 + strikeLead : null);
+      let line = null;
+      if (st.state === 'motions') {
+        const wall = (b) => clock(now() + (b - bell) * bellMsOf(config)).slice(0, 5);
+        line = `council of nation ${NATION}, period ${k}: OPEN at bell ${bell}. Motions until the end of bell ${c0 + 2}; BALLOT WINDOW bells ${c0 + 3} to ${c0 + 5} (about ${wall(c0 + 3)} to ${wall(c0 + 6)}; closes at bell ${c0 + 6}); ${(st.options ?? []).length} option(s)`;
+        if (fin && !fin.final) line += `. WARNING: the seat's village is not final (${fin.status}); the presenter would be refused NotEligible in this period`;
+      } else if (st.state === 'ballots') line = `council of nation ${NATION}, period ${k}: BALLOT WINDOW OPEN at bell ${bell}: the presenter votes on the council page now (last bell to vote: ${c0 + 5}); ballots cast so far: ${st.ballots_cast ?? 0}`;
+      else if (st.state === 'closed') {
+        line = st.adopted
+          ? `council of nation ${NATION}, period ${k}: CLOSED, Strike Order ADOPTED; strike at bell ${strike}, it opens at bell ${strike + 2}; read the sealed order on the page (members only)`
+          : `council of nation ${NATION}, period ${k}: CLOSED, no Strike Order (${st.reason ?? 'no reason given'})`;
+      }
+      if (line) { out(`seat (live): ${line}`); log.councils.push({ period: k, state: st.state, bell, c0, adopted: st.state === 'closed' ? Boolean(st.adopted) : null, reason: st.reason ?? null, ballots_cast: st.ballots_cast ?? null }); save(); }
+    }
+    publish(log);
+    await sleep(pollMs);
+  }
+  save();
+  return log;
+}
+
 function isMain() {
   try { return !!process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url)); } catch { return false; }
 }
@@ -505,6 +670,8 @@ if (isMain()) {
   for (let i = 0; i < argv.length; i++) if (argv[i].startsWith('--')) a[argv[i].slice(2)] = argv[++i];
   for (const k of ['ai-dir', 'herald', 'social', 'key-file']) if (!a[k]) { console.error(`seat: --${k} is required`); process.exit(2); }
   const ab = a.arm !== undefined;
+  const live = a.live !== undefined && a.live !== '0';
+  if (live && ab) { console.error('seat: --live (the presenter votes on the page) cannot be combined with --arm (the A/B script casts the ballot)'); process.exit(2); }
   if (ab && (!a.rep || (a.arm !== 'A' && a.arm !== 'B'))) { console.error('seat: --arm A|B needs --rep N (without --arm the seat runs the council script)'); process.exit(2); }
   assertLoopbackUrl(a.herald, 'herald');
   assertLoopbackUrl(a.social, 'social');
@@ -539,8 +706,15 @@ if (isMain()) {
       const relay = (a.relay ?? `${a.herald.replace(/\/+$/, '')}/gw`).replace(/\/+$/, '');
       assertLoopbackUrl(relay, 'relay');
       const io = await makeChainFinaliserIO({ herald: a.herald.replace(/\/+$/, ''), relay, key, seed: loadSeatSeed(path.resolve(a['key-file'])) });
-      finaliser = createSeatFinaliser({ readSeat: io.readSeat, sendWalls: io.sendWalls, quotaLeft: io.quotaLeft });
+      finaliser = createSeatFinaliser({ readSeat: io.readSeat, sendWalls: io.sendWalls, quotaLeft: io.quotaLeft, mode: live ? 'live' : 'scripted' });
     } catch (e) { console.error(`seat: the village finaliser could not start (${String(e?.message ?? e).slice(0, 200)}); the seat's village may stay provisional and its ballot be refused NotEligible`); }
+  }
+  if (live) {
+    // the presenter's key in the form the page takes (no wallet secret): KEYS/presenter-key.json, written once the fleet has exported the seat key
+    try { const f = writePresenterKey({ keyFile: path.resolve(a['key-file']) }); console.log(`seat (live): the presenter key for the council page is ${f}`); } catch (e) { console.error(`seat (live): the presenter key file could not be written (${String(e?.message ?? e).slice(0, 160)})`); }
+    const log = await runSeatLive({ aiDir, social, key, config, getJson, bellNow, sleep, shouldStop, endBell, finaliser });
+    console.log(JSON.stringify({ mode: log.mode, scripted: false, casts_ballots: false, councils: log.councils.length, finalise: log.finalise?.status ?? null, stopped: log.notes.at(-1) ?? null }));
+    process.exit(0);
   }
   if (!ab) {
     const log = await runSeatScript({ aiDir, social, key, config, getJson, postJson, bellNow, sleep, shouldStop, endBell, finaliser });
