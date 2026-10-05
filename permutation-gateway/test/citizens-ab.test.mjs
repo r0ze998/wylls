@@ -388,3 +388,60 @@ test('plan: arm A is the run script with --ab A --rep N; arm B writes its config
   assert.equal(JSON.parse(t.stdout).T, 3);
   assert.equal(spawnSync(process.execPath, [new URL('../citizens/ab/run-ab.mjs', import.meta.url).pathname, 'nonsense'], { encoding: 'utf8' }).status, 2);
 });
+
+// ---- pilot seam: a period in which the seat cannot vote must not use up the seat's one A/B ballot ---------------------------------
+async function runIneligibleWorld({ postFails = 0 } = {}) {
+  const clock = makeClock({ bell: C0 });
+  const dir = tmpAiDir();
+  const cits = { ai0: makeCitizen('ai0', { faction: 0 }), seat: makeCitizen('seat', { faction: 0 }) };
+  const herald = fakeHerald(Object.values(cits));
+  const roster = { v: 1, season: SEASON, ai: [{ index: 1000, wallet: cits.ai0.b58, tag: '0'.padStart(16, '0'), faction: 0, persona: 'avenger', name: { en: 'AI0', ja: 'AI0' } }], script: { wallets: [] }, seat: { index: 1012, wallet: cits.seat.b58, tag: 'bbbbbbbbbbbbbbb0', faction: 0, scripted: true } };
+  mkdirSync(join(dir.dir, 'pub'), { recursive: true });
+  writeFileSync(join(dir.dir, 'pub/roster.json'), JSON.stringify(roster));
+  const outputs = new Map();
+  const social = createSocial({ herald, aiDir: dir.dir, roster, clock, provenance: (id, item, type) => outputs.get(`${id}|${item}|${type}`) ?? null, config: CFG, season: SEASON, random: (n) => new Uint8Array(n).fill(0x11) });
+  const b = builders(clock);
+  // period K: the seat's village is not final at C0 (it is not on the eligible list); period K + 1: it is
+  social.council.open({ faction: 0, period: K, c0: C0, candidates: OPTIONS, eligible: [cits.ai0.b58] });
+  const C1 = C0 + 24;
+  let n = 0;
+  const motion = async (period, bell) => { const id = `m${n++}`; outputs.set(`${id}|0|talk`, { type: 'talk', bell, text: 'Strike the camp together.' }); await social.book.submit('talk', b.talk(cits.ai0, { channel: 1, target: 0, kind: 1, ref: motionRef(period, 2), origin: 1, text: 'Strike the camp together.' }, { decision_id: id, item: 0 }).body); };
+  const events = {
+    [C0 + 1]: () => motion(K, C0 + 1),
+    [C1]: async () => { social.council.open({ faction: 0, period: K + 1, c0: C1, candidates: OPTIONS, eligible: [cits.ai0.b58, cits.seat.b58] }); },
+    [C1 + 1]: () => motion(K + 1, C1 + 1),
+  };
+  const getJson = async (url) => { const u = new URL(url); const r = await social.routes.dispatch({ method: 'GET', path: u.pathname, query: Object.fromEntries(u.searchParams), headers: {}, peer: '127.0.0.1' }); if (r.status !== 200) throw new Error(`${r.status}`); return r.body; };
+  let fails = postFails;
+  const postJson = async (url, body) => { if (fails > 0 && clock.bell() >= C1) { fails--; throw new Error('connection reset'); } return social.routes.dispatch({ method: 'POST', path: new URL(url).pathname, body: JSON.stringify(body), headers: {}, peer: '127.0.0.1' }); };
+  const key = loadSeatKey(seatKeyFile(dir.dir, cits.seat));
+  const log = await runSeat({
+    arm: 'A', rep: 1, aiDir: dir.dir, social: 'http://127.0.0.1:1', key, config: CFG, getJson, postJson, bellNow: async () => clock.bell(), pollMs: 0, maxPolls: 80,
+    sleep: async () => { clock.advance(1); const e = events[clock.bell()]; if (e) await e(); await social.tick(); },
+    observeAt: async () => null,
+  });
+  return { log, dir, social };
+}
+
+test('seat loop: a NotEligible refusal marks the period untestable and the ballot goes to the next period with an AI motion', async () => {
+  const w = await runIneligibleWorld();
+  assert.equal(w.log.ineligible_periods.length, 1);
+  assert.equal(w.log.ineligible_periods[0].period, K);
+  assert.equal(w.log.ineligible_periods[0].code, 'NotEligible');
+  assert.match(w.log.skipped_periods[0].reason, /seat was not eligible/);
+  assert.equal(w.log.period, K + 1, 'the ballot was cast in the next period');
+  assert.equal(w.log.ballot.ok, true);
+  assert.equal(w.log.ballot.bell, C0 + 24 + 4);
+  assert.equal(w.log.ballot.origin, 2);
+  assert.equal(w.log.option_x, 2);
+  w.dir.dispose();
+});
+
+test('seat loop: a lost post (network error) is retried while the ballot window lasts, not counted as the seat\'s ballot', async () => {
+  const w = await runIneligibleWorld({ postFails: 1 });
+  assert.equal(w.log.ineligible_periods.length, 1, 'the first period is still the untestable one');
+  assert.equal(w.log.ballot.ok, true, 'one lost post, then the ballot landed');
+  assert.ok(w.log.ballot_retries >= 1);
+  assert.ok(w.log.ballot.bell < C0 + 24 + 6, 'inside the ballot window');
+  w.dir.dispose();
+});

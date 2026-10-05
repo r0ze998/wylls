@@ -343,7 +343,7 @@ export async function runSeat({ arm, rep, aiDir, social, key, config = {}, getJs
   if (season == null) throw new Error('seat: pub/roster.json has no season (the registrar writes it after the deal)');
   const aiWallets = new Set((roster.ai ?? []).filter((a) => a.faction === NATION).map((a) => a.wallet));
   if (roster.seat?.wallet && roster.seat.wallet !== key.wallet) throw new Error('seat: the key file is not the roster seat');
-  const log = { v: 1, kind: 'ab-seat', mode: 'ab', scripted: true, ballot_label: { ...SEAT_BALLOT_LABEL }, arm, rep, nation: NATION, origin: ORIGIN_SCRIPTED, season, seat_wallet_listed: Boolean(roster.seat), started_unix: Math.floor(now() / 1000), period: null, option_x: null, ai_mover: null, ballot: null, observed: null, skipped_periods: [], notes: [] };
+  const log = { v: 1, kind: 'ab-seat', mode: 'ab', scripted: true, ballot_label: { ...SEAT_BALLOT_LABEL }, arm, rep, nation: NATION, origin: ORIGIN_SCRIPTED, season, seat_wallet_listed: Boolean(roster.seat), started_unix: Math.floor(now() / 1000), period: null, option_x: null, ai_mover: null, ballot: null, observed: null, skipped_periods: [], ineligible_periods: [], ballot_retries: 0, notes: [] };
   const file = path.join(aiDir, 'ab', `seat-${arm}-${rep}.json`);
   let lastBell = null;
   const publish = makeSeatPublisher(aiDir, now);
@@ -351,6 +351,7 @@ export async function runSeat({ arm, rep, aiDir, social, key, config = {}, getJs
   console.log(`seat: ${SEAT_BALLOT_LABEL.en} (A/B arm ${arm}, rep ${rep})`);
   save();
   const seenNoMotion = new Set();
+  const ineligible = new Set(); // periods in which the council refused the seat's ballot as NotEligible (its village was not final at C0)
   let state = null;
   for (let i = 0; ; i++) {
     const why = await stopReason({ i, bell: lastBell, maxPolls, endBell, shouldStop });
@@ -364,7 +365,7 @@ export async function runSeat({ arm, rep, aiDir, social, key, config = {}, getJs
     if (st?.period != null) state = st;
     if (state?.period != null && bell != null) {
       const c0 = state.c0 ?? state.closes_bell - 6;
-      if (log.period === null) {
+      if (log.period === null && !ineligible.has(state.period)) {
         const mv = aiMotionOption(state, aiWallets);
         if (mv) { log.period = state.period; log.option_x = mv.option; log.ai_mover = { wallet: mv.wallet, tag: mv.tag }; log.c0 = c0; save(); }
         else if (bell >= c0 + 3 && !seenNoMotion.has(state.period)) { seenNoMotion.add(state.period); log.skipped_periods.push({ period: state.period, reason: 'no AI citizen of nation 0 moved an option in the motion window' }); save(); }
@@ -372,10 +373,25 @@ export async function runSeat({ arm, rep, aiDir, social, key, config = {}, getJs
       if (log.period !== null && !log.ballot && state.period === log.period && bell >= c0 + BALLOT_AT && bell < c0 + 6) {
         const option = ballotOption(arm, log.option_x);
         const body = await buildSeatBallot({ key, season, state, option });
-        const r = await postJson(`${social}/f/ai/ballot`, { bytes_b64: body.bytes_b64, sig_b64: body.sig_b64 });
-        log.ballot = { option, bell, status: r.status, ok: r.status === 200, inner: body.inner, origin: ORIGIN_SCRIPTED, scripted: true, code: r.body?.code ?? null };
-        console.log(`seat: ${SEAT_BALLOT_LABEL.en}: period ${state.period}, bell ${bell}, status ${r.status}`);
-        save();
+        let r;
+        try { r = await postJson(`${social}/f/ai/ballot`, { bytes_b64: body.bytes_b64, sig_b64: body.sig_b64 }); } catch { r = { status: 0, body: null }; } // a lost post is a retry, never the end of the seat
+        const code = r.body?.code ?? null;
+        if (r.status === 400 && code === 'NotEligible') {
+          // The council refused the seat (its village was not final at C0). No ballot is possible in this period, so it cannot test anything:
+          // it is recorded and the next period in which an AI moves an option is used (disclosed in the pilot and A/B results; both arms do this).
+          ineligible.add(state.period);
+          log.ineligible_periods.push({ period: state.period, c0, bell, option, code });
+          log.skipped_periods.push({ period: state.period, reason: 'the seat was not eligible (its village was not final at C0): no ballot was possible, the period is not testable' });
+          log.period = null; log.option_x = null; log.ai_mover = null; log.c0 = null;
+          console.log(`seat: ${SEAT_BALLOT_LABEL.en}: period ${state.period} refused NotEligible at bell ${bell}; waiting for the next period with an AI motion`);
+          save();
+        } else if ((r.status === 0 || r.status >= 500) && ++log.ballot_retries < 20) {
+          save(); // not final: the next poll tries again while the ballot window lasts
+        } else {
+          log.ballot = { option, bell, status: r.status, ok: r.status === 200, inner: body.inner, origin: ORIGIN_SCRIPTED, scripted: true, code };
+          console.log(`seat: ${SEAT_BALLOT_LABEL.en}: period ${state.period}, bell ${bell}, status ${r.status}`);
+          save();
+        }
       }
       if (log.ballot && !log.observed) {
         const strike = c0 + 6 + (config.council?.strike_lead ?? 6);
