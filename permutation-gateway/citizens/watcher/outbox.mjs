@@ -71,8 +71,12 @@ export function createOutbox({ records, stats = {}, ledger = null } = {}) {
         } else if (it.ballot && !social.ballot) {
           const exp = records.provenance(it.decision_id, 0, 'ballot');
           if (!exp) { bump('outbox_no_provenance'); note(() => ledger?.dropped(it, req.bell, 'no_provenance')); continue; }
-          attach('ballot', { ...exp, item: 0 });
-          social.ballot = { ...it.ballot, item: 0, decision_id: it.decision_id };
+          // The item number is the position in the brain's post order (its says, then the motion, then the ballot) and a (decision_id, item) pair is
+          // used once whatever the record type (verify-minds M8, FB3). A fixed 0 collided with the answer's own `say[0]` (a talk with item 0 under
+          // the same decide answer): pilot ai-pilot-A1 had 3 such ballots, M8 `duplicate_use`.
+          const item = social.say.length + (social.motion ? 1 : 0);
+          attach('ballot', { ...exp, item });
+          social.ballot = { ...it.ballot, item, decision_id: it.decision_id };
           attached++;
           note(() => ledger?.attached(it, req.bell));
         } else {

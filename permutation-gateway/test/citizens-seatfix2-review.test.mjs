@@ -66,6 +66,29 @@ test('a council call is written to the delivery ledger as pending, attached when
   assert.equal(createCallLedger({ file }).all().length, 3);
 });
 
+test('a ballot rides under an answer that has its own says: its item follows them (and the motion), never a second item 0 (M8 duplicate_use, pilot ai-pilot-A1)', () => {
+  const attached = [];
+  const records = { getPrivate: () => ({ priv: {} }), provenance: (id, it, type) => ({ decision_id: id, type, item: it }), attachSocial: (id, type, exp) => attached.push([id, type, exp.item]) };
+  const outbox = createOutbox({ records });
+  // an answer with one say: the say is item 0, the ballot must not be
+  outbox.push(item('ballot', 2, 51));
+  const a1 = outbox.decorate({ ai: { tag: TAG }, bell: 52 }, { decision_id: 'step-1', social: { say: [{ item: 0, text: 'hi' }] } });
+  assert.equal(a1.social.ballot.item, 1);
+  assert.deepEqual(attached.at(-1), ['step-1', 'ballot', 1], 'the provenance item is the posted item');
+  // an answer with two says
+  outbox.push(item('ballot', 3, 75));
+  const a2 = outbox.decorate({ ai: { tag: TAG }, bell: 76 }, { decision_id: 'step-2', social: { say: [{ item: 0 }, { item: 1 }] } });
+  assert.equal(a2.social.ballot.item, 2);
+  // no say: item 0 as before
+  outbox.push(item('ballot', 4, 99));
+  assert.equal(outbox.decorate({ ai: { tag: TAG }, bell: 100 }, { decision_id: 'step-3', social: {} }).social.ballot.item, 0);
+  // a motion and a ballot in one answer (rare): the motion follows the says, the ballot follows the motion
+  outbox.push(item('motion', 5, 120));
+  outbox.push(item('ballot', 5, 120));
+  const a4 = outbox.decorate({ ai: { tag: TAG }, bell: 120 }, { decision_id: 'step-4', social: { say: [{ item: 0 }] } });
+  assert.deepEqual([a4.social.motion.item, a4.social.ballot.item], [1, 2]);
+});
+
 test('an item taken but lost (no record, no provenance) is written as dropped with the reason', () => {
   const dir = tmpDir('ai-seatfix2-ledger-drop-');
   const file = join(dir, CALLS_FILE);

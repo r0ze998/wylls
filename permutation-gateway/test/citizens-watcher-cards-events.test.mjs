@@ -327,7 +327,7 @@ test('outbox: the motion of a council call rides on the next decide answer of th
   assert.equal(w.stats.outbox_attached, 1);
 });
 
-test('outbox: a motion item continues the numbering after the say items; the ballot rides along with item 0 and its own provenance (option, period, nonce)', () => {
+test('outbox: a motion item continues the numbering after the say items; the ballot rides along after them (item 2 under two says, never the says\' item 0) with its own provenance (option, period, nonce)', () => {
   const w = outboxWorld();
   const c = w.council('motion', 100);
   const b = w.council('ballot', 103);
@@ -339,8 +339,8 @@ test('outbox: a motion item continues the numbering after the say items; the bal
   const out = w.outbox.decorate({ ai: { tag: TAG }, bell: 103 }, ans);
   assert.equal(out.social.motion, null, 'the motion expired: its bell is 3 bells old (a motion is valid for 1)');
   assert.equal(w.stats.outbox_expired, 1);
-  assert.equal(out.social.ballot.item, 0);
-  const bp = w.records.provenance(s.id, 0, 'ballot');
+  assert.equal(out.social.ballot.item, 2, 'after the two says: a (decision_id, item) pair is used once whatever the record type (M8)');
+  const bp = w.records.provenance(s.id, 2, 'ballot');
   assert.deepEqual([bp.option, bp.period, bp.nonce], [2, 2, 'ab'.repeat(16)]);
   // a motion that is still valid: numbered after the two say items
   const w2 = outboxWorld();
