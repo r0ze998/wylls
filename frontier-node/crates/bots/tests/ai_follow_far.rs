@@ -371,6 +371,25 @@ async fn a_non_member_an_uninvited_host_a_reserved_host_and_a_declined_call_do_n
 }
 
 #[tokio::test]
+async fn a_hold_made_before_the_window_opened_does_not_stop_the_autopilot_follow_but_one_made_inside_it_does() {
+    // Pilot ai-pilot-A1: both AIs of nation 0 held their hosts (a threat) at the bell before the Call could be read; the 12-bell
+    // reservation then dropped the autopilot follow in the one bell in which the target could still be reached.
+    // A hold made at BELL0 - 3 (reserved until BELL0 + 9): the window opens at BELL0, so it was made without the Call: the host follows.
+    let social = FakeSocial::start().await;
+    let (r, mut bot) = follow_rig(&social).await;
+    bot.ai.standing.reserve(h1_id(), BELL0 - 3 + 12);
+    assert!(bot.ai.standing.is_reserved(h1_id(), BELL0));
+    bot.step(&r.sh, true).await;
+    assert_eq!(departs(&r), 1, "a hold made before the window does not stop the follow");
+    // A hold made at BELL0 (inside the window, the Call known): the host stays.
+    let social = FakeSocial::start().await;
+    let (r, mut bot) = follow_rig(&social).await;
+    bot.ai.standing.reserve(h1_id(), BELL0 + 12);
+    bot.step(&r.sh, true).await;
+    assert_eq!(departs(&r), 0, "an informed hold still stops it");
+}
+
+#[tokio::test]
 async fn a_bad_signature_or_a_down_service_follows_nothing_and_breaks_nothing() {
     let social = FakeSocial::start().await;
     social.register(FINAL);

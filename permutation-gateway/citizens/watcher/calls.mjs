@@ -18,6 +18,8 @@ import { SCOUT, STATE_ROSTER } from './feed.mjs';
 import { MAX_INVITED } from '../social/council.mjs';
 
 export const INVITE_RADIUS = 2;
+/** How many bells before C0 + 4 a province's newest served file may be when the file of C0 + 5 is not served yet (see closeCall). */
+export const FALLBACK_BACK = 3;
 const idCompare = (a, b) => { const x = BigInt(a), y = BigInt(b); return x < y ? -1 : x > y ? 1 : 0; };
 
 /** The tile of the Call from the province envelope of bell C0 + 5, or the hint when the file shows nothing there. Returns an integer or null. */
@@ -56,7 +58,24 @@ const FATE_BOUNCED = new Set(['Bounced', 'BouncedUnranked']);
  * the clash with before/after troops per fighter (feed.clashDetail) or null. Present = the nation's armies that arrived (bounced or
  * displaced ones count as present and are listed separately). The clash part reports the engaged fighters on the Call's tile.
  */
-export function strikeResult({ faction, p, q, tile, strikeBell, reveals, detail }) {
+/**
+ * What a barbarian camp lost in the clash of bell b: the clash report lists only the arriving and resident HOSTS, never the camp, so the camp's
+ * loss (the enemy's loss in a camp strike, which the A/B pass rule asks for) is read from the camp row of the province files of bell b - 1 and b.
+ * `before`/`after` = shaped province files (feed.provinceAt). Null when either file or the live camp is missing. A camp that is no longer live
+ * after the clash counts as cleared (all of its troops lost). Camp troops are whole troops; the number is the difference of the two files, so a
+ * regrowth inside the bell would make it a lower bound (the files do not say).
+ */
+export function campLoss(before, after) {
+  const b = before?.camp;
+  const a = after?.camp;
+  if (!b || b.state !== 1 || !a) return null;
+  if (a.state !== 1) return { before: Number(b.troops), after: 0, lost: Number(b.troops), cleared: true };
+  if (a.gen !== b.gen) return null; // a live camp of another generation is a respawn, not the same camp
+  const left = Number(a.troops);
+  return { before: Number(b.troops), after: left, lost: Math.max(0, Number(b.troops) - left), cleared: false };
+}
+
+export function strikeResult({ faction, p, q, tile, strikeBell, reveals, detail, camp = null }) {
   const mine = reveals.filter(r => r.faction === faction);
   const fighters = detail?.fighters ?? [];
   const byId = new Map(fighters.map(f => [String(f.id), f]));
@@ -72,6 +91,8 @@ export function strikeResult({ faction, p, q, tile, strikeBell, reveals, detail 
       lost[f.faction] = (lost[f.faction] ?? 0) + Math.floor(f.lost / MILLI);
     }
     clash = { p, q, tile, bell: strikeBell, engagements: detail.engagements ?? 0, fighters_on_tile: onTile.length, engaged_on_tile: engaged.length, lost };
+    // a camp target: the camp's loss is not in the fighters (see campLoss); it is the enemy's loss of this clash
+    if (camp) { clash.camp = camp; clash.camp_lost = camp.lost; }
   }
   return {
     present: mine.length, present_hosts: mine.map(r => String(r.host_id)).sort(idCompare),
@@ -103,17 +124,26 @@ export function createCalls({ feed, social, roster, census, hintOf = () => null,
     const around = ball(w.p, w.q, INVITE_RADIUS);
     const files = new Map();
     let missing = 0;
+    let older = 0;
     await mapLimit(around, fetchLimit, async c => {
       let pv = null;
       try { pv = await feed.provinceAt(c.p, c.q, bell); } catch (e) { onError(e); }
+      // The per-bell file of bell C0 + 5 is served about two bells after that bell, and a province outside the map never has one. Waiting for
+      // every province of the ball (the old rule) sealed the Call two to three bells after the close and left the members the last four bells of
+      // the window (pilot ai-pilot-A1: every nation's first W-CALL wake came at bell 56 or 57 for a close at 54). So a province whose file of
+      // C0 + 5 is not served yet is read from the newest served file at or before C0 + 4 (up to FALLBACK_BACK bells earlier: the same immutable
+      // per-bell files, an older state of the same province); a province with no file in that range counts as absent.
+      if (!pv && typeof feed.provinceBefore === 'function') {
+        try { pv = await feed.provinceBefore(c.p, c.q, bell - 1, FALLBACK_BACK); if (pv) older++; } catch (e) { onError(e); }
+      }
       if (pv) files.set(`${c.p},${c.q}`, pv); else missing++;
     });
     const target = files.get(`${w.p},${w.q}`) ?? null;
-    // the files of bell C0 + 5 appear about two bells after it. Until the log is three bells past it, every file counts (a missing one
-    // may only be late: the target's and its neighbours'); after that a province still missing is taken as absent (no such
-    // province, or none served) and the Call is fixed with what is there (the tile then falls back to the hint)
+    // Only the TARGET province must have a file (of C0 + 5 or an earlier bell) before the Call is fixed; until the log is three bells past C0 + 5
+    // a target with no file at all may only be late, after that it is taken as absent and the tile falls back to the hint.
     const waited = (feed.headBell?.() ?? -1) >= bell + 3;
-    if (!waited && (!target || missing > 0)) return null;
+    if (!waited && !target) return null;
+    if (older > 0) bump('call_files_older');
     const hint = hintOf(f, k, w.option);
     const tile = tileFor({ kind: w.kind, pv: target, faction: f, strikeBell, hint });
     if (!Number.isInteger(tile)) { bump('call_no_tile'); return null; }
@@ -124,7 +154,7 @@ export function createCalls({ feed, social, roster, census, hintOf = () => null,
       for (const h of pv.hosts ?? []) if (h.state === STATE_ROSTER && h.unit !== SCOUT && h.faction === f) hosts.push({ id: h.id, owner: h.owner, troops: h.troops });
     }
     const invited = invitedOrder({ hosts, voterTags });
-    return { tile, invited, meta: { bell, provinces: files.size, missing, voters: voterTags.size, hosts: hosts.length } };
+    return { tile, invited, meta: { bell, provinces: files.size, missing, older, voters: voterTags.size, hosts: hosts.length } };
   }
 
   /** Retry the sealing of an adopted Call whose files were not ready at the close, until S - 1. */
@@ -156,7 +186,11 @@ export function createCalls({ feed, social, roster, census, hintOf = () => null,
     }
     let detail = null;
     try { detail = await feed.clashDetail(p, q, S); } catch (e) { onError(e); }
-    const res = strikeResult({ faction: f, p, q, tile, strikeBell: S, reveals, detail });
+    let camp = null;
+    if (detail && P.call.kind === 'camp') {
+      try { camp = campLoss(await feed.provinceAt(p, q, S - 1), await feed.provinceAt(p, q, S)); } catch (e) { onError(e); }
+    }
+    const res = strikeResult({ faction: f, p, q, tile, strikeBell: S, reveals, detail, camp });
     council.setResult(f, k, res);
     bump('strike_results');
     onResult({ faction: f, period: k, result: res, call: { p, q, tile, kind: P.call.kind, strike_bell: S, option: P.call.option } });

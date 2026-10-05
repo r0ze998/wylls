@@ -79,6 +79,19 @@ impl Standing {
             .any(|r| r.host_id == host_id && r.until_bell > bell)
     }
 
+    /// Whether a reservation stops the Strike-Order follow of a Call whose window opened at `follow_from`: only a reservation made at
+    /// or after that bell does (a `hold` or a recall reserves for [`RESERVE_BELLS`], so it was made at `until_bell - RESERVE_BELLS`).
+    /// A `hold` chosen BEFORE the window opened was chosen without knowing the Call (pilot ai-pilot-A1: both AIs of nation 0 held their
+    /// hosts at the bell before the Call could be read, for a threat, and the 12-bell reservation then silenced the follow in the one
+    /// bell in which the target could still be reached); a hold chosen inside the window, with the Call known, still stops it.
+    pub fn reserved_for_call(&self, host_id: u64, bell: u32, follow_from: u32) -> bool {
+        self.reserved.iter().any(|r| {
+            r.host_id == host_id
+                && r.until_bell > bell
+                && r.until_bell.saturating_sub(RESERVE_BELLS) >= follow_from
+        })
+    }
+
     pub fn call_declined(&self, period: u32) -> bool {
         self.declined_calls.contains(&period)
     }
@@ -119,6 +132,26 @@ pub fn filter_follow(
         .collect()
 }
 
+/// [`filter_follow`] for a live Call: a reservation stops the follow only when it was made at or after `follow_from` (see
+/// [`Standing::reserved_for_call`]); with no live Call (`None`) it is the plain reserved-host filter.
+pub fn filter_follow_call(
+    follow: Vec<Intent>,
+    st: &Standing,
+    bell: u32,
+    follow_from: Option<u32>,
+) -> Vec<Intent> {
+    follow
+        .into_iter()
+        .filter(|i| match i {
+            Intent::Depart(d) => match follow_from {
+                Some(f) => !st.reserved_for_call(d.host_id, bell, f),
+                None => !st.is_reserved(d.host_id, bell),
+            },
+            _ => true,
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -152,6 +185,32 @@ mod tests {
                 .until_bell,
             420
         );
+    }
+
+    #[test]
+    fn a_reservation_made_before_the_call_window_does_not_stop_the_follow() {
+        let mut s = Standing::default();
+        // a hold at bell 52 reserves until 64; a hold at bell 55 until 67
+        s.reserve(1, 52 + RESERVE_BELLS);
+        s.reserve(2, 55 + RESERVE_BELLS);
+        let follow_from = 54;
+        assert!(s.is_reserved(1, 56), "the plain filter still sees it");
+        assert!(
+            !s.reserved_for_call(1, 56, follow_from),
+            "made before the window: the Call was not known"
+        );
+        assert!(
+            s.reserved_for_call(2, 56, follow_from),
+            "made inside the window: an informed hold"
+        );
+        assert!(
+            s.reserved_for_call(2, 54 + RESERVE_BELLS - 1, 55),
+            "at the window's first bell it counts"
+        );
+        assert!(!s.reserved_for_call(2, 67, follow_from), "expired");
+        // a later hold on the same host replaces the earlier date (the later wins)
+        s.reserve(1, 56 + RESERVE_BELLS);
+        assert!(s.reserved_for_call(1, 57, follow_from));
     }
 
     #[test]
