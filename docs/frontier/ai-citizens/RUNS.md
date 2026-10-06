@@ -75,3 +75,4 @@ END {"detail":"stack complete, publication written (anchors: 121 anchored, 0 gap
 
 ## ai-pilot-A2 — 2026-10-05T21:54:01Z — arm A rep 1
 RUN {"arm":"A","commitments_sha256":"cf8499669e7c2ff28b1e39678716102ea6654496f530e224a0ffb50487f19f2c","configs":{"citizens_config_sha256":"c0f6fb405aec7f142418b78a527e0c909eea1f11c9a9447ed3b64bf0d25dc17f","injection_corpus_sha256":"a56fa2fbccf9501b47399284617db86763220331b16aa9850575118dddaf28cc","seat_script_sha256":"60320cd72cafbb725036a9f97217e8175d5218c54f6629e7dce1b9ea9a7d98b5","slots_sha256":"d9daee742482782c6d36bfebd52e57a632819293db1e35e0367e377a1a632281","stack_toml_sha256":"dbfca37625b22ef2478b3d3424aee3c8b044a49c835fde92cdc24c40606982fa"},"rep":1,"run_id":"ai-pilot-A2","start_unix":1791237241}
+END {"detail":"stack complete, publication written (anchors: 169 anchored, 0 gap(s) of 169 closed bells); season-end bundle written; verify-minds PASS","end_unix":1791246902,"run_id":"ai-pilot-A2","status":"complete"}
