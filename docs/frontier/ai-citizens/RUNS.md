@@ -83,3 +83,4 @@ END {"detail":"stopped before the end","end_unix":1791266302,"run_id":"ai-main",
 
 ## ai-record-4 — 2026-10-06T08:02:51Z
 RUN {"arm":null,"commitments_sha256":"09566420e4e455c56fd2b95bf353766eb4f1ca4978527c352b6c8c650be154c2","configs":{"citizens_config_sha256":"c0f6fb405aec7f142418b78a527e0c909eea1f11c9a9447ed3b64bf0d25dc17f","injection_corpus_sha256":"a56fa2fbccf9501b47399284617db86763220331b16aa9850575118dddaf28cc","seat_script_sha256":null,"slots_sha256":"d9daee742482782c6d36bfebd52e57a632819293db1e35e0367e377a1a632281","stack_toml_sha256":"3c760c3e6ce39b878056f7801370c412648793f255a624ae331a5566439c76e9"},"rep":null,"run_id":"ai-record-4","start_unix":1791273771}
+END {"detail":"stack complete, publication written (anchors: 121 anchored, 0 gap(s) of 121 closed bells); season-end bundle written; verify-minds PASS; held up for 7200 s after the end (--hold 7200)","end_unix":1791287860,"run_id":"ai-record-4","status":"complete"}
