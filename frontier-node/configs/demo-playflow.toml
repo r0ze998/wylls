@@ -1,0 +1,43 @@
+# The play-flow recording stack (scripts/demo-playflow.sh): test key, 20
+# bots, 1 game day at 20x, at base 41200. The offsets keep clear of 41210-
+# 41239 (other local demo servers sit on 41210), so the stack uses
+# 41240 (herald) and 41250-41289 only. Flags override the scalars.
+#
+#   frontier-stack check-ports --config frontier-node/configs/demo-playflow.toml
+#   frontier-stack up --config frontier-node/configs/demo-playflow.toml --run-id demo-playflow
+run_id = "demo-playflow"
+mode = "accel"
+beacon = "test-key"
+scale = 20
+preseason_scale = 2000
+days = 1
+drain_bells = 26
+bots = 20
+bot_seed = 1
+season_id = 7
+base_port = 41200
+g0 = 1785542400
+
+[ports]
+localnet = 80
+localnet_ws = 81
+drand = 82
+relay_operator = 83
+relay_public = 86
+herald = 40
+keeper_a = 50
+keeper_b = 51
+bots = 70
+viewers = 75
+
+[paths]
+so_test_key = "permutation-frontier/target/deploy-test-beacon/permutation_frontier.so"
+so_release = "permutation-frontier/target/deploy/permutation_frontier.so"
+web = "permutation-server/web"
+relay = "permutation-gateway/src/frontier/server.mjs"
+
+[chaos]
+enabled = false
+
+[adversary]
+enabled = false
