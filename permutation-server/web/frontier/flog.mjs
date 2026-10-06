@@ -10,6 +10,7 @@
 // field for field against `frontier-abi/vectors/logs.json` by
 // web-frontier-march.test.mjs (a changed kind fails that test, never the
 // page silently).
+import { LOGS as CQ_LOGS } from '../sdk/frontier/abi-v2-logs.mjs';
 import { fromBase64 } from '../sdk/bytes.mjs';
 
 export const PS2_VERSION = 1;
@@ -37,6 +38,7 @@ export const KINDS = Object.freeze({
   43: { name: 'CAMP', key: [f('p', 4), f('q', 4)], payload: [f('tile', 1), f('troops', 4), f('day', 4)] },
 });
 /** Fields read as signed integers (coordinates, deltas). */
+const CQ_KINDS = Object.fromEntries(CQ_LOGS.kinds.map(x => [x.kind, { name: x.name, key: x.key.map(y => [y.name,y.len]), payload: x.payload.map(y => [y.name,y.len]) }]));
 const SIGNED = new Set(['p', 'q', 'origin_p', 'origin_q', 'delta']);
 /** Fields read as byte strings although they are 1–8 bytes long. */
 const BYTES = new Set(['tiles', 'works_per_tile']);
@@ -62,7 +64,7 @@ export function decodeRecord(body) {
   const b = typeof body === 'string' ? fromBase64(body) : Uint8Array.from(body);
   if (b.length < 6) throw new Error('PS2: short head');
   if (b[0] !== PS2_VERSION) throw new Error(`PS2: version ${b[0]}`);
-  const spec = KINDS[b[1]];
+  const spec = KINDS[b[1]] ?? CQ_KINDS[b[1]];
   if (!spec) return null;
   // `logBell`: the bell in the record's head (when it was written); `bell` is it too,
   // unless the kind's key has its own `bell` (CLASH: the clash's bell).

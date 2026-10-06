@@ -51,6 +51,29 @@ pub fn season_params(beacon: Beacon, end_bell: Option<u32>) -> SeasonParams {
     p
 }
 
+/// Human-world parameters. Acceleration changes wall time only; the rules
+/// remain fourteen days and ten-minute bells unless an explicit test end is set.
+pub fn conquest_params(
+    beacon: Beacon,
+    end_bell: Option<u32>,
+) -> frontier_abi::v2::presets::SeasonParamsV2 {
+    let mut p = frontier_abi::v2::presets::MC_LOCAL_14D;
+    if beacon == Beacon::TestKey {
+        p.base.quicknet_pk_hash = fclient::beacon::pk_hash(&fclient::beacon::TestKey::new().pk96);
+    }
+    if let Some(end) = end_bell {
+        p.base.end_bell = end;
+        p.base.join_close_bell = join_close_for(end);
+        let secs = end.saturating_mul(600);
+        p.cq.release_after_secs = p.cq.release_after_secs.min(secs);
+        p.cq.dormant_after_secs = p.cq.dormant_after_secs.min(secs);
+        p.base.release_after_secs = p.cq.release_after_secs;
+        p.base.dormant_after_secs = p.cq.dormant_after_secs;
+        p.cq.outpost_close_bells = p.cq.outpost_close_bells.min(end.saturating_sub(1) as u16);
+    }
+    p
+}
+
 /// Runs the operator steps; returns what the report needs.
 #[allow(clippy::too_many_arguments)]
 pub async fn run(
@@ -58,18 +81,28 @@ pub async fn run(
     addrs: &Addresses,
     authority: &Keypair,
     beacon: Beacon,
+    conquest: bool,
     end_bell: Option<u32>,
     preseason_scale: f64,
     scale: f64,
     log: &dyn Fn(&str, Value),
 ) -> Result<Value, String> {
     let land = Duration::from_secs(60);
-    let p = season_params(beacon, end_bell);
-    p.validate()
-        .map_err(|e| format!("season params refused before AnnounceSeason: {e} (§5.7)"))?;
-    let sp = p.to_bytes();
     let payout = permutation_rules::frontier::payout::PayoutParams::REV3.to_borsh();
-    let ph = frontier_abi::presets::params_hash(&sp, &payout);
+    let (sp, ph) = if conquest {
+        let p = conquest_params(beacon, end_bell);
+        p.validate()
+            .map_err(|e| format!("conquest season params: {e}"))?;
+        let sp = p.to_bytes();
+        let ph = frontier_abi::v2::presets::params_hash_v2(&sp, &payout);
+        (sp.to_vec(), ph)
+    } else {
+        let p = season_params(beacon, end_bell);
+        p.validate().map_err(|e| format!("season params: {e}"))?;
+        let sp = p.to_bytes();
+        let ph = frontier_abi::presets::params_hash(&sp, &payout);
+        (sp.to_vec(), ph)
+    };
     // Announce at the run's scale (at 2,000 a slot is 800 game seconds, so
     // the lead would shrink below the program's minimum before landing),
     // with 20 slots of margin, then run the lead at the pre-season scale.
@@ -149,6 +182,7 @@ pub async fn run(
         "join_close_bell": s.join_close_bell, "bell_secs": s.bell_secs,
         "quicknet_pk_hash": hex::encode(s.quicknet_pk_hash), "params_hash": hex::encode(ph),
         "season_end_at_play_end": end_bell.is_some(),
+        "conquest": conquest, "program_version": s.program_version, "ruleset_hash": hex::encode(s.ruleset_hash),
     });
     log("created", v.clone());
     Ok(v)
@@ -193,6 +227,21 @@ mod tests {
             crate::config::StackConfig::default().season_end_bell(),
             None
         );
+    }
+
+    #[test]
+    fn conquest_standard_and_short_integration_seasons_validate() {
+        for beacon in [Beacon::TestKey, Beacon::Archive] {
+            let standard = conquest_params(beacon, None);
+            assert_eq!(standard.base.end_bell, 14 * 144);
+            assert_eq!(standard.base.bell_secs, 600);
+            assert_eq!(standard.base.genesis_ring, 4);
+            assert_eq!(standard.validate(), Ok(()));
+            let short = conquest_params(beacon, Some(432));
+            assert_eq!(short.validate(), Ok(()));
+            assert_eq!(short.base.release_after_secs, 72 * 3600);
+            assert_eq!(short.cq.release_after_secs, short.base.release_after_secs);
+        }
     }
 
     #[test]

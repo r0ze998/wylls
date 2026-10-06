@@ -9,6 +9,11 @@
 //! everything before it. Body: the fields of [`State`] in declaration
 //! order, maps as `n u64` then entries, byte strings as `len u32 ‖ bytes`,
 //! all little-endian.
+//!
+//! **MC (CQ2-E):** an MC season's checkpoint appends, after the body and
+//! before the hash, `"PSFHCQ1\0"` · `len u32` · the conquest state's JSON
+//! ([`crate::conquest::Cq::to_json`]). An M1 season writes no section, so
+//! its checkpoint bytes are unchanged.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -19,6 +24,8 @@ use crate::files::atomic_write;
 use crate::fold::{Alarms, BrState, Capture, SealRec, SeedRec, State};
 
 pub const MAGIC: &[u8; 8] = b"PSFHCK1\0";
+/// The conquest section's marker (MC, CQ2-E).
+pub const CQ_MAGIC: &[u8; 8] = b"PSFHCQ1\0";
 
 #[derive(Default)]
 struct W(Vec<u8>);
@@ -109,6 +116,11 @@ impl<'a> R<'a> {
 
 /// The checkpoint bytes of `st` for `(program, season)`.
 pub fn encode(program: &[u8; 32], season: u64, st: &State) -> Vec<u8> {
+    encode_full(program, season, st, None)
+}
+
+/// [`encode`] with the conquest section (`None`: none, the M1 bytes).
+pub fn encode_full(program: &[u8; 32], season: u64, st: &State, cq: Option<&[u8]>) -> Vec<u8> {
     let mut w = W::default();
     w.raw(MAGIC).raw(program).u64(season);
     w.u64(st.folded_through)
@@ -157,6 +169,9 @@ pub fn encode(program: &[u8; 32], season: u64, st: &State) -> Vec<u8> {
         .u64(a.clash_mismatch)
         .u64(a.clash_unchecked)
         .u64(a.write_errors);
+    if let Some(c) = cq {
+        w.raw(CQ_MAGIC).bytes(c);
+    }
     let h = Sha256::digest(&w.0);
     w.raw(&h);
     w.0
@@ -164,6 +179,11 @@ pub fn encode(program: &[u8; 32], season: u64, st: &State) -> Vec<u8> {
 
 /// The state in `b`, if it is an intact checkpoint of `(program, season)`.
 pub fn decode(program: &[u8; 32], season: u64, b: &[u8]) -> Option<State> {
+    decode_full(program, season, b).map(|x| x.0)
+}
+
+/// [`decode`] with the conquest section, if present.
+pub fn decode_full(program: &[u8; 32], season: u64, b: &[u8]) -> Option<(State, Option<Vec<u8>>)> {
     if b.len() < 8 + 32 + 8 + 32 {
         return None;
     }
@@ -248,7 +268,15 @@ pub fn decode(program: &[u8; 32], season: u64, b: &[u8]) -> Option<State> {
         clash_unchecked: r.u64()?,
         write_errors: r.u64()?,
     };
-    (r.1 == body.len()).then_some(st)
+    let cq = if r.1 < body.len() {
+        if r.take(8)? != CQ_MAGIC {
+            return None;
+        }
+        Some(r.bytes()?)
+    } else {
+        None
+    };
+    (r.1 == body.len()).then_some((st, cq))
 }
 
 /// Saves a checkpoint at `path` atomically.
@@ -259,6 +287,22 @@ pub fn save(path: &Path, program: &[u8; 32], season: u64, st: &State) -> std::io
 /// Loads a checkpoint (`None` if missing, damaged or of another season).
 pub fn load(path: &Path, program: &[u8; 32], season: u64) -> Option<State> {
     decode(program, season, &std::fs::read(path).ok()?)
+}
+
+/// [`save`] with the conquest section (MC).
+pub fn save_full(
+    path: &Path,
+    program: &[u8; 32],
+    season: u64,
+    st: &State,
+    cq: Option<&[u8]>,
+) -> std::io::Result<()> {
+    atomic_write(path, &encode_full(program, season, st, cq))
+}
+
+/// [`load`] with the conquest section (MC).
+pub fn load_full(path: &Path, program: &[u8; 32], season: u64) -> Option<(State, Option<Vec<u8>>)> {
+    decode_full(program, season, &std::fs::read(path).ok()?)
 }
 
 #[cfg(test)]
@@ -318,12 +362,19 @@ mod tests {
         st.ring_seeds.insert(2, [3; 32]);
         st.alarms.rewrites = 1;
         let b = encode(&[8; 32], 3, &st);
-        assert_eq!(decode(&[8; 32], 3, &b), Some(st));
+        assert_eq!(decode(&[8; 32], 3, &b), Some(st.clone()));
         assert_eq!(decode(&[8; 32], 4, &b), None, "another season");
         assert_eq!(decode(&[7; 32], 3, &b), None, "another program");
         let mut bad = b.clone();
         bad[60] ^= 1;
         assert_eq!(decode(&[8; 32], 3, &bad), None, "damaged");
         assert_eq!(decode(&[8; 32], 3, &b[..b.len() - 1]), None, "truncated");
+        // MC (CQ2-E): the conquest section rides before the hash; without
+        // it the bytes are M1's exactly.
+        assert_eq!(encode_full(&[8; 32], 3, &st, None), b);
+        let c = encode_full(&[8; 32], 3, &st, Some(b"{\"v\":1}"));
+        let (st2, cq) = decode_full(&[8; 32], 3, &c).unwrap();
+        assert_eq!((st2, cq.as_deref()), (st.clone(), Some(&b"{\"v\":1}"[..])));
+        assert_eq!(decode(&[8; 32], 3, &c), Some(st));
     }
 }

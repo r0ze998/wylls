@@ -7,7 +7,8 @@ import { activeHolding } from '../fstate.mjs';
 import { html, raw } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { UNITS, errorText } from '../fi18n.mjs';
-import { hostsIn, UNIT_ORDER, SCOUT, actionBlocks } from '../fland.mjs';
+import { hostsIn, UNIT_ORDER, SCOUT, actionBlocks, ticketTimes } from '../fland.mjs';
+import { countdown } from '../clock.mjs';
 import { RULES, DEPART_STAMINA } from '../fmarch.mjs';
 import { miniCardUrl, MINI_KINDS } from '../people/minis.mjs';
 
@@ -22,7 +23,7 @@ export function hostRows(FS) {
   return out;
 }
 
-const STATE_TEXT = { 1: () => L`顔ぶれにいる`, 2: () => L`編成中（次の鐘から）`, 3: () => L`出発した` };
+const STATE_TEXT = { 1: () => L`行動可能`, 2: () => L`編成の反映待ち`, 3: () => L`出発した` };
 const PENDING_TEXT = { 0: () => '', 1: () => L`出発の支払い待ち`, 2: () => L`分割待ち`, 3: () => L`合流待ち`, 4: () => L`合流される`, 5: () => L`解散待ち（決着のあと控えに戻る）`, 6: () => L`不正な封で失われる` };
 
 /** The locked host's line (I-44). */
@@ -34,20 +35,24 @@ export function render(FS) {
   return html`<section aria-labelledby="hosts-title"><h3 id="hosts-title">${L`軍勢`}</h3><ul class="list hosts">${rows.map(r => {
     const blocks = actionBlocks('Depart', { holding: activeHolding(FS), province: r.province, nowBell: FS.nowBell ?? 0, now: FS.chain?.now() ?? 0, host: r });
     const cool = (FS.nowBell ?? 0) < r.readyBell;
+    const formingDue = r.state === 2 && FS.clock && Number.isInteger(r.fromBell) && r.fromBell > 0 ? ticketTimes(FS.clock, r.fromBell - 1).resultAbout : null;
+    const formWait = formingDue !== null ? Math.max(0, formingDue - (FS.chain?.now?.() ?? 0)) : null;
+    const locked = FS.inFlight > 0 || !!FS.homeActionBusy;
     const f = Number.isInteger(FS.citizen?.faction) ? FS.citizen.faction : 0;
     return html`<li class="host has-card${r.inTransit ? ' locked' : ''}" data-unit="${r.unit}">
       <img class="unit-card f${f}" src="${miniCardUrl(f, MINI_KINDS[r.unit])}" alt="" width="60" height="75" loading="lazy" decoding="async">
       <strong>${UNITS[UNIT_ORDER[r.unit]]} ${fmtNum(r.troops)}</strong>
       <span>${L`州 ${r.p},${r.q} · ${STATE_TEXT[r.state]?.() ?? ''}`}</span>
+      ${r.state === 2 ? html`<p class="muted">${formWait > 0 ? L`編成の反映の目安まで ${countdown(formWait)}（ゲーム内）` : L`世界の処理で編成が反映されるのを待っています。`}</p>` : ''}
       <span>${L`体力 ${r.stamina}/${RULES.STAMINA_CAP}`}${cool ? L`（第${fmtNum(r.readyBell)}鐘まで休息）` : ''}</span>
       ${r.pending ? html`<span class="muted">${PENDING_TEXT[r.pending]?.() ?? ''}</span>` : ''}
       ${r.inTransit ? html`<p class="locked-note" role="note">${lockedText()}</p>` : ''}
       <div class="actions">
-        <button type="button" class="btn" data-act="compose" data-host="${String(r.id)}" ${raw(blocks.length || r.stamina < DEPART_STAMINA ? 'disabled' : '')}>${L`進軍させる`}</button>
+        <button type="button" class="btn" data-act="compose" data-host="${String(r.id)}" ${raw(locked || cool || blocks.length || r.stamina < DEPART_STAMINA ? 'disabled' : '')}>${L`進軍させる`}</button>
         ${r.unit === SCOUT ? html`<button type="button" class="btn" data-act="explore-open" data-host="${String(r.id)}" ${raw(actionBlocks('Explore', { holding: activeHolding(FS), province: r.province, nowBell: FS.nowBell ?? 0, now: FS.chain?.now() ?? 0, host: r }).length ? 'disabled' : '')}>${L`探索`}</button>` : ''}
         <button type="button" class="btn" data-act="dissolve" data-host="${String(r.id)}" ${raw(actionBlocks('Dissolve', { holding: activeHolding(FS), province: r.province, nowBell: FS.nowBell ?? 0, now: FS.chain?.now() ?? 0, host: r }).length ? 'disabled' : '')}>${L`解散`}</button>
       </div>
-      ${blocks.length ? html`<p class="blocked">${blocks.map(errorText).join(' / ')}</p>` : ''}
+      ${blocks.length ? html`<p class="blocked">${blocks.map(errorText).join(' / ')}${blocks.includes('NotResident') ? html` <button type="button" class="btn small" data-act="nudge" data-p="${r.p}" data-q="${r.q}" ${raw(locked ? 'disabled' : '')}>${L`追いつかせる`}</button>` : ''}</p>` : ''}
     </li>`;
   })}</ul>
   <p class="muted">${L`出発には行き先にかかわらず体力 ${DEPART_STAMINA} を使います（道のりは封の中にあるため）。`}</p></section>`;

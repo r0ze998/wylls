@@ -1266,11 +1266,20 @@ fn ruleset_hash_binds_versions_and_catalog() {
         .flat_map(|x| x.to_le_bytes())
         .collect();
     assert!(a.ends_with(&k));
-    // Every module of the frontier tree has a version in the hash.
-    let names: Vec<&str> = permutation_rules::frontier::KERNEL_VERSIONS
+    // Every module of the frontier tree has a version in the hash: the M1
+    // hash binds every M1 module, the conquest rules' hash (MC §3.13,
+    // `KERNEL_VERSIONS_V2`) every module including `keep` and `control`,
+    // which the staged ABI keeps out of the M1 hash (MC §5.1, R-16).
+    let m1_names: Vec<&str> = permutation_rules::frontier::KERNEL_VERSIONS
         .iter()
         .map(|(n, _)| *n)
         .collect();
+    let names: Vec<&str> = permutation_rules::frontier::KERNEL_VERSIONS_V2
+        .iter()
+        .map(|(n, _)| *n)
+        .collect();
+    assert_eq!(&names[..m1_names.len()], &m1_names[..], "v2 appends to v1");
+    assert_eq!(&names[m1_names.len()..], &["keep", "control"]);
     let src = include_str!("../src/frontier/mod.rs");
     let mut modules = 0;
     for line in src.lines() {

@@ -235,6 +235,9 @@ pub struct Fold {
     /// The chain's latest `(slot, Clock unix time)` as last observed by the
     /// ingest loop (live views only; never folded into files).
     pub live: Option<(u64, i64)>,
+    // MC hook: the conquest state (CONQUEST-CONTRACT §4.5, §8.4)
+    pub cq: crate::conquest::Cq,
+    // MC hook end
 }
 
 fn kind_of(d: &[u8]) -> Option<AccountKind> {
@@ -271,6 +274,9 @@ impl Fold {
             diffs: vec![],
             version: 0,
             live: None,
+            // MC hook: the conquest state
+            cq: Default::default(),
+            // MC hook end
         };
         let all: Vec<([u8; 32], Vec<u8>)> =
             f.st.accounts
@@ -543,6 +549,11 @@ impl Fold {
             }
         };
         for body in &bodies {
+            // MC hook: record kinds 80–89 (CONQUEST-CONTRACT §6, §8.4)
+            if crate::conquest::on_record(self, tx, body) {
+                continue;
+            }
+            // MC hook end
             let Ok(r) = plog::decode(body) else {
                 self.st.alarms.bad_records += 1;
                 continue;
@@ -608,6 +619,9 @@ impl Fold {
                 _ => {}
             }
         }
+        // MC hook: conquest per-bell views (CONQUEST-CONTRACT §8.4)
+        crate::conquest::after_records(self, tx, &before, &resolved);
+        // MC hook end
         // 3. Per-bell closing.
         for (pq, old, new) in resolved {
             let Some(meta) = self.provinces.get(&pq).copied() else {
@@ -631,6 +645,9 @@ impl Fold {
         for (b, r) in br_keys {
             self.bell_region(b, r, tx.slot);
         }
+        // MC hook: conquest completeness (control, overview v2, sieges, days, standings)
+        crate::conquest::complete(self, tx);
+        // MC hook end
         self.st.folded_through = tx.seq;
     }
 

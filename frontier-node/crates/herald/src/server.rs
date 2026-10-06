@@ -131,6 +131,9 @@ pub fn router(app: Shared) -> Router {
         .route("/h/me/{wallet}", get(me))
         .route("/h/events", get(events))
         .route("/h/ws", get(ws_route))
+        // MC hook: the conquest read paths (CONQUEST-CONTRACT §4.5, §8.4)
+        .merge(crate::cqroutes::mount())
+        // MC hook end
         .route("/", get(|| async { redirect("/frontier/") }))
         .route("/frontier", get(|| async { redirect("/frontier/") }))
         .route("/frontier/", get(web))

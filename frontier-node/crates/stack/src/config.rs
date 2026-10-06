@@ -129,6 +129,8 @@ pub struct StackConfig {
     pub run_id: String,
     pub mode: Mode,
     pub beacon: Beacon,
+    /// Human conquest world: the version-3, fourteen-day territory season.
+    pub conquest: bool,
     /// Game seconds per real second after the pre-season (20× exit, 100×
     /// nightly, 2× latency run).
     pub scale: f64,
@@ -249,6 +251,7 @@ impl Default for StackConfig {
             run_id: "w5-smoke".into(),
             mode: Mode::Accel,
             beacon: Beacon::TestKey,
+            conquest: false,
             scale: 100.0,
             preseason_scale: 2_000.0,
             drain_scale: None,
@@ -369,6 +372,9 @@ impl StackConfig {
         }
         if let Some(v) = s!("beacon") {
             c.beacon = parse_beacon(&v)?;
+        }
+        if let Some(v) = b!("conquest") {
+            c.conquest = v;
         }
         if let Some(v) = f!("scale") {
             c.scale = pos(v, "scale")?;
@@ -705,6 +711,7 @@ impl StackConfig {
             "run_id": self.run_id,
             "mode": match self.mode { Mode::Accel => "accel", Mode::Realtime => "realtime" },
             "beacon": self.beacon.name(),
+            "conquest": self.conquest,
             "scale": self.scale,
             "preseason_scale": self.preseason_scale,
             "drain_scale": self.drain_scale(),
@@ -857,6 +864,7 @@ pub fn apply_flags(c: &mut StackConfig, flags: &[(String, Option<String>)]) -> R
             }
             "viewer-start-hours" => c.viewer_start_hours = num(k, v)?.max(0.0),
             "keep-running" => c.pause_at_end = false,
+            "conquest" => c.conquest = true,
             "eager-bots" => c.eager_bots = Some(true),
             "no-eager-bots" => c.eager_bots = Some(false),
             "no-keeper-b" => c.keeper_b = false,
@@ -885,6 +893,8 @@ pub const SWITCHES: &[&str] = &[
     "adversary",
     "no-adversary",
     "keep-running",
+    "start-paused",
+    "conquest",
     "no-keeper-b",
     "eager-bots",
     "no-eager-bots",

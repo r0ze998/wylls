@@ -15,6 +15,8 @@ Serve from `permutation-server/web`, not from `frontier/`: the page imports shar
 
 ## 2. The full local stack (the game, on a local test chain)
 
+**Current CQ preview:** use [the playable conquest runbook](frontier/conquest/PLAYABLE-2026-10-06.md) for the 14-day preset, accelerated preview and persistent restart. The commands below describe the older M1 smoke setup. Existing persisted worlds are preserved; use a new run id for a new world.
+
 Needs, installed by you (nothing here installs anything):
 
 - Rust via `rustup`, with both pinned toolchains: `rustup toolchain install 1.89.0 1.95.0 --profile minimal`. The root workspace, `permutation-rules` and `permutation-server` pin 1.89.0; `frontier-node`, `frontier-wasm` and the `svm-tests` folders pin 1.95.0. The `wasm32-unknown-unknown` target for 1.95.0 is only needed for `scripts/build-wasm.sh`.

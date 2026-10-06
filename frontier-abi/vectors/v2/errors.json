@@ -1,0 +1,561 @@
+{
+  "generator": "frontier-abi abi-vectors",
+  "abi_version": 2,
+  "contract": "docs/frontier/conquest/CONQUEST-CONTRACT.md v1.1",
+  "content": "ABI v2 error codes (§5.3), stable forever: M1's 1–61 and 99, MC's 62–78",
+  "errors": [
+    {
+      "code": 1,
+      "name": "BadData",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 2,
+      "name": "BadAccount",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 3,
+      "name": "BadAddress",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 4,
+      "name": "Auth",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 5,
+      "name": "WrongStatus",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 6,
+      "name": "RulesetMismatch",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 7,
+      "name": "WrongRound",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 8,
+      "name": "NoAnchor",
+      "program": true,
+      "mc": false,
+      "keeper": "wait"
+    },
+    {
+      "code": 9,
+      "name": "Crypto",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 10,
+      "name": "Capacity",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 11,
+      "name": "SiteTaken",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 12,
+      "name": "WindowClosed",
+      "program": true,
+      "mc": false,
+      "keeper": "stop"
+    },
+    {
+      "code": 13,
+      "name": "TooEarly",
+      "program": true,
+      "mc": false,
+      "keeper": "wait"
+    },
+    {
+      "code": 14,
+      "name": "Reserved14",
+      "program": false,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 15,
+      "name": "Kernel",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 16,
+      "name": "Archived",
+      "program": true,
+      "mc": false,
+      "keeper": "stop"
+    },
+    {
+      "code": 17,
+      "name": "Bucket",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 18,
+      "name": "NotTopLevel",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 19,
+      "name": "Overflow",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 20,
+      "name": "NotOwner",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 21,
+      "name": "Insufficient",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 22,
+      "name": "QueueFull",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 23,
+      "name": "NoTicket",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 24,
+      "name": "NotFinal",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 25,
+      "name": "TooManyAccounts",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 26,
+      "name": "NotResident",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 27,
+      "name": "ProvinceFull",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 28,
+      "name": "HostBusy",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 29,
+      "name": "Cooldown",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 30,
+      "name": "TransitState",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 31,
+      "name": "ArrivalBell",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 32,
+      "name": "Path",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 33,
+      "name": "CommitMismatch",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 34,
+      "name": "QuotaRefused",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 35,
+      "name": "SlotMoved",
+      "program": true,
+      "mc": false,
+      "keeper": "retry-slots"
+    },
+    {
+      "code": 36,
+      "name": "NeedArrivalDay",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 37,
+      "name": "Shielded",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 38,
+      "name": "DepartureUnsettled",
+      "program": true,
+      "mc": false,
+      "keeper": "wait"
+    },
+    {
+      "code": 39,
+      "name": "NotGathered",
+      "program": true,
+      "mc": false,
+      "keeper": "wait"
+    },
+    {
+      "code": 40,
+      "name": "OutOfOrder",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 41,
+      "name": "NotQuiet",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 42,
+      "name": "InputsOpen",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 43,
+      "name": "NotEligible",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 44,
+      "name": "FoldStale",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 45,
+      "name": "TicketState",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 46,
+      "name": "NotDormant",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 47,
+      "name": "Explored",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 48,
+      "name": "SessionExpired",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 49,
+      "name": "WrongRegion",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 50,
+      "name": "Aborted",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 51,
+      "name": "TipTooLow",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 52,
+      "name": "AlreadyDone",
+      "program": true,
+      "mc": false,
+      "keeper": "success"
+    },
+    {
+      "code": 53,
+      "name": "LatchClosed",
+      "program": true,
+      "mc": false,
+      "keeper": "stop"
+    },
+    {
+      "code": 54,
+      "name": "SeedNotReady",
+      "program": true,
+      "mc": false,
+      "keeper": "wait"
+    },
+    {
+      "code": 55,
+      "name": "BadPlaintext",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 56,
+      "name": "Announce",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 57,
+      "name": "ReservedSite",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 58,
+      "name": "HostInTransit",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 59,
+      "name": "JoinGate",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 60,
+      "name": "CohortFull",
+      "program": true,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 61,
+      "name": "TipNotPreset",
+      "program": false,
+      "mc": false,
+      "keeper": "refused"
+    },
+    {
+      "code": 62,
+      "name": "CapturePending",
+      "program": true,
+      "mc": true,
+      "keeper": "wait"
+    },
+    {
+      "code": 63,
+      "name": "Immune",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 64,
+      "name": "SiegeBusy",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 65,
+      "name": "StakeUnsettled",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 66,
+      "name": "SiegeCap",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 67,
+      "name": "NotOnHex",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 68,
+      "name": "TooLate",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 69,
+      "name": "HoldingsFull",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 70,
+      "name": "NotBesiegeable",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 71,
+      "name": "Friendly",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 72,
+      "name": "FrontierProtected",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 73,
+      "name": "Heartland",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 74,
+      "name": "NotDue",
+      "program": true,
+      "mc": true,
+      "keeper": "wait"
+    },
+    {
+      "code": 75,
+      "name": "OutpostRule",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 76,
+      "name": "FoldOutOfOrder",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 77,
+      "name": "FoldTooEarly",
+      "program": true,
+      "mc": true,
+      "keeper": "wait"
+    },
+    {
+      "code": 78,
+      "name": "NotLead",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 99,
+      "name": "NotImplemented",
+      "program": false,
+      "mc": false,
+      "keeper": "refused"
+    }
+  ]
+}

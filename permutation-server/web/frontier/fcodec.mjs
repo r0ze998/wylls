@@ -8,6 +8,10 @@
 // sub-records as objects (arrays of them for ×N). Reserved bytes are left
 // out. The magic, the size and (when given) the season id are checked.
 import { ACCOUNTS, RECORDS } from './abi.mjs';
+import { LAYOUTS as V2 } from '../sdk/frontier/abi-v2-layouts.mjs';
+const fields = xs => xs.map(x => [x.name, x.off, x.len, x.ty]);
+const ACCOUNTS_V2 = Object.fromEntries(V2.accounts.map(x => [x.kind, { ...x, fields: fields(x.fields) }]));
+const RECORDS_V2 = { ...RECORDS, ...Object.fromEntries(V2.records.map(x => [x.name, { ...x, fields: fields(x.fields) }])) };
 
 /** 'GENESIS_TS' → 'genesisTs'. */
 export const camel = name => name.toLowerCase().replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase());
@@ -26,7 +30,7 @@ const SCALAR = {
   i64: [8, (dv, o) => dv.getBigInt64(o, true)],
 };
 
-function readField(bytes, dv, base, [, off, len, ty]) {
+function readField(bytes, dv, base, [, off, len, ty], records = RECORDS) {
   const o = base + off;
   if (SCALAR[ty]) return SCALAR[ty][1](dv, o);
   let m = /^\[u8;(\d+)\]$/.exec(ty);
@@ -38,19 +42,19 @@ function readField(bytes, dv, base, [, off, len, ty]) {
   }
   m = /^rec:(\w+) x(\d+)$/.exec(ty);
   if (m) {
-    const rec = RECORDS[m[1]];
+    const rec = records[m[1]];
     if (!rec) throw new CodecError('BadLayout', `no record ${m[1]}`);
     const n = +m[2];
     if (rec.size * n !== len) throw new CodecError('BadLayout', `${m[1]} x${n} is not ${len} B`);
-    const one = i => readRecord(bytes, dv, o + i * rec.size, rec);
+    const one = i => readRecord(bytes, dv, o + i * rec.size, rec, records);
     return n === 1 ? one(0) : Array.from({ length: n }, (_, i) => one(i));
   }
   throw new CodecError('BadLayout', `unknown type ${ty}`);
 }
 
-function readRecord(bytes, dv, base, layout) {
+function readRecord(bytes, dv, base, layout, records) {
   const out = {};
-  for (const f of layout.fields) if (f[3] !== 'rsv') out[camel(f[0])] = readField(bytes, dv, base, f);
+  for (const f of layout.fields) if (f[3] !== 'rsv') out[camel(f[0])] = readField(bytes, dv, base, f, records);
   return out;
 }
 
@@ -61,8 +65,11 @@ const text = b => String.fromCharCode(...b);
  * must equal the header's. Throws CodecError (`WrongKind`, `WrongSize`,
  * `WrongMagic`, `WrongSeason`).
  */
-export function decode(kind, bytes, { seasonId } = {}) {
-  const layout = ACCOUNTS[kind];
+export function decode(kind, bytes, { seasonId, profile } = {}) {
+  const raw = bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes);
+  if (profile === undefined) profile = (ACCOUNTS_V2[kind] ?? ACCOUNTS[kind])?.chained && raw[16] === 2 && raw[17] === 0 ? 2 : 1;
+  const layout = (profile === 2 ? ACCOUNTS_V2 : ACCOUNTS)[kind];
+  const records = profile === 2 ? RECORDS_V2 : RECORDS;
   if (!layout) throw new CodecError('WrongKind', `unknown account kind ${kind}`);
   const b = bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes);
   // A closed Season is a 128-byte tombstone (contract §5.2).
@@ -72,7 +79,7 @@ export function decode(kind, bytes, { seasonId } = {}) {
   const out = { kind };
   for (const f of layout.fields) {
     if (f[3] === 'rsv' || f[1] + f[2] > b.length) continue;
-    out[camel(f[0])] = readField(b, dv, 0, f);
+    out[camel(f[0])] = readField(b, dv, 0, f, records);
   }
   if (seasonId !== undefined && seasonId !== null && out.seasonId !== BigInt(String(seasonId))) {
     throw new CodecError('WrongSeason', `${kind}: season ${out.seasonId}, expected ${seasonId}`);

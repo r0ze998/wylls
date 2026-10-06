@@ -1,0 +1,575 @@
+{
+  "date": "2026-10-06",
+  "mode": "production JavaScript client modules → local relay → SBF program → keepers → herald; no browser automation",
+  "smoke": {
+    "ok": true,
+    "season": "72",
+    "programId": "FBNsdtgJtMgajUQZ6Xoaao3f4yfqV2Uwifo2v1vb777T",
+    "endBell": 432,
+    "players": [
+      {
+        "wallet": "CUF1VwgpskX9t8sN8CUGeckufHhxJMPzHzHTyEPYcZGu",
+        "home": {
+          "p": -3,
+          "q": 3,
+          "site": 6,
+          "tile": 55,
+          "faction": 2,
+          "gen": 0
+        }
+      },
+      {
+        "wallet": "7vM2GZ4TAGQAz6EwqsvNf3H1ciVUsY4JhA9ioFxiMgr",
+        "home": {
+          "p": -3,
+          "q": 0,
+          "site": 6,
+          "tile": 25,
+          "faction": 3,
+          "gen": 0
+        }
+      }
+    ],
+    "target": {
+      "p": -3,
+      "q": 4,
+      "tile": 26
+    },
+    "actions": [
+      {
+        "name": "Join",
+        "ok": true,
+        "player": "CUF1VwgpskX9t8sN8CUGeckufHhxJMPzHzHTyEPYcZGu",
+        "signature": "fnXTuYKEaLrWYYzpozxWbBhN4EaMmFN81f29htEEJ7emrrsZJ3pazDM7UUUcbhqfBCQiFX9rTyvDfpPDyhCGgsk"
+      },
+      {
+        "name": "PlaceHome",
+        "ok": true,
+        "player": "CUF1VwgpskX9t8sN8CUGeckufHhxJMPzHzHTyEPYcZGu",
+        "signature": "9VRLfBbtS9MGGqCyEAWfGtrrQxCXwAGrtxG4SySjaPwmDD2kP72Puq4NTby2yVbRWNuJejiXir8RAz4QmqXDFN9"
+      },
+      {
+        "name": "Build",
+        "ok": true,
+        "player": "CUF1VwgpskX9t8sN8CUGeckufHhxJMPzHzHTyEPYcZGu",
+        "signature": "3vaJa2tR3Ad4NfEyA3o5gQHkrPgJqbbPSg7DLJh35eS9mbnJJNLpB2RzYaao2rNH2H3mAaQy3SxedHwHdjWRiWo8"
+      },
+      {
+        "name": "Join",
+        "ok": true,
+        "player": "7vM2GZ4TAGQAz6EwqsvNf3H1ciVUsY4JhA9ioFxiMgr",
+        "signature": "62F42yNmzHuhAhnXYMykVGeiFdgSydna8WxgXGzvoUgp9QQi62PeTS9g3ghuXbopjMRmnyJQSpcKaYXhwchrkoY6"
+      },
+      {
+        "name": "PlaceHome",
+        "ok": true,
+        "player": "7vM2GZ4TAGQAz6EwqsvNf3H1ciVUsY4JhA9ioFxiMgr",
+        "signature": "3dYoyj1zbVF3ged56jWxwSfs1aicvUG1pQAga2ptLg3sjWLfSrwGNxzzAxX5xVZkoKA2TYufmYHF6vuJSwWk6LMx"
+      },
+      {
+        "name": "Build",
+        "ok": true,
+        "player": "7vM2GZ4TAGQAz6EwqsvNf3H1ciVUsY4JhA9ioFxiMgr",
+        "signature": "47uEEN13thGTXNjvpuxRWrxNaPnKrHBZj2KvX3WcxJNULipKhxtLGT6rEhYYok9A83aog6LhdK11AaUC2bvjnLaT"
+      },
+      {
+        "name": "Harvest",
+        "ok": true,
+        "player": "CUF1VwgpskX9t8sN8CUGeckufHhxJMPzHzHTyEPYcZGu",
+        "signature": "4Woi3V3aX6NanN3tVe31NqDnULZFyyANiqWR8iQgruuB8NuofN33454vJmBc95awiuHUjBvbYp3w2S1wLXA8saGc"
+      },
+      {
+        "name": "Train",
+        "ok": true,
+        "player": "CUF1VwgpskX9t8sN8CUGeckufHhxJMPzHzHTyEPYcZGu",
+        "signature": "2nsnnaL5L61ZFnnJLD6BcAS8jVWBXqtvVv9ugjGSzsWQwwQgjqFgqW5D2j3efDyV18Kh6oCYGBDu6b3eQQ6C2rNq"
+      },
+      {
+        "name": "Muster",
+        "ok": true,
+        "player": "CUF1VwgpskX9t8sN8CUGeckufHhxJMPzHzHTyEPYcZGu",
+        "signature": "3d5tN6ARERYSstwmqY1jkHh2EzhptTj9JCcY17BemFu4p7f13yRxsr7ptvwXELDxYYtwKj3JArUx4ALrm5nBLCty"
+      },
+      {
+        "name": "Harvest",
+        "ok": true,
+        "player": "7vM2GZ4TAGQAz6EwqsvNf3H1ciVUsY4JhA9ioFxiMgr",
+        "signature": "qe2vbpYeTGmoThUSepWJt5vSNPntnmT63jmcmDtJDYQjWq77tmWbiGr5XRgrAdYqwJUxmu3uZJnk5JxoT8UdAW4"
+      },
+      {
+        "name": "Train",
+        "ok": true,
+        "player": "7vM2GZ4TAGQAz6EwqsvNf3H1ciVUsY4JhA9ioFxiMgr",
+        "signature": "5dCZTBw8unEugkQEQ8CbbhBwESoA7pRXc5Y4YFGRgxVkt1k9um8koTM9FWowx2dxn1CQdARcsXJ4BuLmyW15PEwA"
+      },
+      {
+        "name": "Muster",
+        "ok": true,
+        "player": "7vM2GZ4TAGQAz6EwqsvNf3H1ciVUsY4JhA9ioFxiMgr",
+        "signature": "2xF8DVq12VfU66LsUBEagGKPF9MjxN2PNYFkKZgm4s7SuhZdyauDBEE5GjrhTuWS34hzSdzxZoJTCvgLjhAibXnS"
+      },
+      {
+        "name": "Depart",
+        "ok": true,
+        "player": "CUF1VwgpskX9t8sN8CUGeckufHhxJMPzHzHTyEPYcZGu",
+        "signature": "sCzjCZLPFkG2uuFh55fMkwnMuqWjt6J6sKADAp3xj8zPb5wrkMwy9nVGhSKTyY1aRGMSqnDcFgNR9y92x24QDaz"
+      }
+    ],
+    "capture": {
+      "name": "keep-captured-and-scores-accrue",
+      "ok": true,
+      "keep": {
+        "tile": 26,
+        "holder": 2,
+        "contender": 255,
+        "progress": 0,
+        "required": 72,
+        "flags": 0,
+        "changes": 1,
+        "troops": 494,
+        "sinceBell": 229,
+        "consolidatedUntilBell": 517,
+        "contestFromBell": 157,
+        "gen": 1,
+        "lastTakenFrom": 1
+      },
+      "territoryBells": [
+        "0",
+        "229",
+        "203",
+        "0",
+        "0",
+        "0"
+      ],
+      "scoreNextBell": 432
+    },
+    "final": {
+      "name": "final-season-result",
+      "ok": true,
+      "final": {
+        "v": 1,
+        "official": false,
+        "season": "72",
+        "endBell": 432,
+        "control": {
+          "bell": 431,
+          "file": "/h/control/431.bin",
+          "sha256": "fbb24cc12d9f80d4785d47dceeca5a8db9b371e6a47886101135dfdad05059b2"
+        },
+        "standings": {
+          "v": 1,
+          "official": false,
+          "scoring": "territory-time",
+          "scoreUnit": "province-bell",
+          "bellSeconds": 600,
+          "hour": 71,
+          "bell": 431,
+          "factions": [
+            {
+              "faction": 0,
+              "provinces": 9,
+              "banners": 2,
+              "keepsTaken": 0,
+              "keepsLost": 0,
+              "dominionBells": 3888,
+              "captures": 0,
+              "dominion": 3888,
+              "territoryBells": 3888,
+              "territoryHours": 648,
+              "occupationsActive": 0,
+              "siegesWon": 0,
+              "siegesLost": 0,
+              "liberations": 0,
+              "holdings": 1,
+              "membersActive": 1,
+              "members": 1,
+              "index": 3888
+            },
+            {
+              "faction": 1,
+              "provinces": 8,
+              "banners": 2,
+              "keepsTaken": 0,
+              "keepsLost": 1,
+              "dominionBells": 3685,
+              "captures": 0,
+              "dominion": 3685,
+              "territoryBells": 3685,
+              "territoryHours": 614.1666666666666,
+              "occupationsActive": 0,
+              "siegesWon": 0,
+              "siegesLost": 0,
+              "liberations": 0,
+              "holdings": 1,
+              "membersActive": 1,
+              "members": 1,
+              "index": 3685
+            },
+            {
+              "faction": 2,
+              "provinces": 10,
+              "banners": 2,
+              "keepsTaken": 1,
+              "keepsLost": 0,
+              "dominionBells": 4091,
+              "captures": 0,
+              "dominion": 4091,
+              "territoryBells": 4091,
+              "territoryHours": 681.8333333333334,
+              "occupationsActive": 0,
+              "siegesWon": 0,
+              "siegesLost": 0,
+              "liberations": 0,
+              "holdings": 1,
+              "membersActive": 1,
+              "members": 1,
+              "index": 4091
+            },
+            {
+              "faction": 3,
+              "provinces": 9,
+              "banners": 2,
+              "keepsTaken": 0,
+              "keepsLost": 0,
+              "dominionBells": 3888,
+              "captures": 0,
+              "dominion": 3888,
+              "territoryBells": 3888,
+              "territoryHours": 648,
+              "occupationsActive": 0,
+              "siegesWon": 0,
+              "siegesLost": 0,
+              "liberations": 0,
+              "holdings": 1,
+              "membersActive": 1,
+              "members": 1,
+              "index": 3888
+            },
+            {
+              "faction": 4,
+              "provinces": 9,
+              "banners": 2,
+              "keepsTaken": 0,
+              "keepsLost": 0,
+              "dominionBells": 3888,
+              "captures": 0,
+              "dominion": 3888,
+              "territoryBells": 3888,
+              "territoryHours": 648,
+              "occupationsActive": 0,
+              "siegesWon": 0,
+              "siegesLost": 0,
+              "liberations": 0,
+              "holdings": 0,
+              "membersActive": 0,
+              "members": 0,
+              "index": 3888
+            },
+            {
+              "faction": 5,
+              "provinces": 9,
+              "banners": 2,
+              "keepsTaken": 0,
+              "keepsLost": 0,
+              "dominionBells": 3888,
+              "captures": 0,
+              "dominion": 3888,
+              "territoryBells": 3888,
+              "territoryHours": 648,
+              "occupationsActive": 0,
+              "siegesWon": 0,
+              "siegesLost": 0,
+              "liberations": 0,
+              "holdings": 0,
+              "membersActive": 0,
+              "members": 0,
+              "index": 3888
+            }
+          ]
+        },
+        "movement": {
+          "lastingChanges": 1,
+          "lastingByDay": [
+            0,
+            1,
+            0
+          ],
+          "daysWithChange": 1,
+          "twoControllers": {
+            "num": 1,
+            "den": 24,
+            "bps": 416
+          },
+          "bannerChanges": 0,
+          "marchesTwoBanners": {
+            "num": 0,
+            "den": 12,
+            "bps": 0
+          },
+          "netMovement": {
+            "num": 0,
+            "den": 24,
+            "bps": 0
+          },
+          "netMovement10e": {
+            "num": 0,
+            "den": 24,
+            "bps": 0
+          },
+          "breadth": 0,
+          "largest": {
+            "num": 10,
+            "den": 54,
+            "bps": 1851
+          },
+          "smallest": {
+            "num": 8,
+            "den": 54,
+            "bps": 1481
+          },
+          "holdingContest": {
+            "siegesDeclared": 0,
+            "siegesCompleted": 0,
+            "siegesFailed": 0,
+            "occupations": 0,
+            "liberations": 0,
+            "captures": 0,
+            "outposts": 0
+          },
+          "firstHoldingsTransferred": 0
+        },
+        "titles": [
+          {
+            "title": "Breaker of Keeps",
+            "tag": "c488a60f3b2495aa",
+            "faction": 2,
+            "value": 1
+          },
+          {
+            "title": "Warden of the Marches",
+            "tag": "c488a60f3b2495aa",
+            "faction": 2,
+            "value": 71
+          }
+        ]
+      },
+      "authoritativeTerritoryBells": [
+        "3888",
+        "3685",
+        "4091",
+        "3888",
+        "3888",
+        "3888"
+      ]
+    },
+    "deployedSoSha256": "357725468e8322f8cdcb0a562fd802037628a11675b4e978089594c27a0ae8b8"
+  },
+  "persistence": {
+    "before": {
+      "runId": "748a2605e69899473470b99e1736751b",
+      "slot": 3511,
+      "unixTimestamp": 1785894249,
+      "scale": 1,
+      "transactions": 23013,
+      "stateHash": "3cc6507caa4b7f7d69950da8cf029447f868e7edca554b33f8af98b4bd6f8cd2"
+    },
+    "after": {
+      "runId": "748a2605e69899473470b99e1736751b",
+      "slot": 3511,
+      "unixTimestamp": 1785894249,
+      "scale": 1,
+      "transactions": 23013,
+      "stateHash": "3cc6507caa4b7f7d69950da8cf029447f868e7edca554b33f8af98b4bd6f8cd2"
+    },
+    "identical": true,
+    "upWithoutConquestRefused": {
+      "exit": 2,
+      "message": "frontier-stack: CQ world human-world-cq-smoke already exists: use frontier-stack resume --run-id human-world-cq-smoke to preserve it, or choose a new run id",
+      "ledgerSha256Before": "bfbb711b9f428af82fc1d15c430d3440aa2817af963a43fea3be966fe515b127",
+      "ledgerSha256After": "bfbb711b9f428af82fc1d15c430d3440aa2817af963a43fea3be966fe515b127"
+    },
+    "resumedClock": {
+      "runId": "748a2605e69899473470b99e1736751b",
+      "slot": 3748,
+      "unixTimestamp": 1785894344,
+      "scale": 1,
+      "paused": false
+    }
+  },
+  "audit": {
+    "bells": 441,
+    "checks_run": [
+      "CQ1:event-chains-and-final-state",
+      "CQ2:program-and-season-identity",
+      "CQ3:territory-time-replay"
+    ],
+    "counts": {
+      "bad_seals": 0,
+      "clashes": 72,
+      "explores": 0,
+      "failed_tx": 204,
+      "reveals": 1,
+      "seals": 1,
+      "skips": 1223,
+      "tickets": 0,
+      "tx": 22373
+    },
+    "entities": 160,
+    "findings": [],
+    "liveness": null,
+    "mutated_build": null,
+    "program": "FBNsdtgJtMgajUQZ6Xoaao3f4yfqV2Uwifo2v1vb777T",
+    "provenance": "frontier-stack run human-world-cq-smoke (test-key, 1.0x, 0 bots) over http://127.0.0.1:41710; CQ audit coverage: event chains, final state, identity, territory time. Legacy combat/seal economic replay is not claimed.",
+    "season": "72",
+    "slot_range": [
+      5,
+      3511
+    ],
+    "verdict": "PASS"
+  },
+  "preview": {
+    "url": "http://127.0.0.1:41840/frontier/frontier/index.html",
+    "program": "EVVPtomJVt38fsBecVxbxSGxAUWoKm9T8WvJ3MoG6H8z",
+    "season": "73",
+    "programVersion": 3,
+    "layoutVersion": 2,
+    "endBell": 2016,
+    "bellSecs": 600,
+    "dormantAfterSecs": 432000,
+    "releaseAfterSecs": 1209600,
+    "scale": 10,
+    "controlBell": 0,
+    "standings": {
+      "v": 1,
+      "official": false,
+      "scoring": "territory-time",
+      "scoreUnit": "province-bell",
+      "bellSeconds": 600,
+      "hour": 0,
+      "bell": 0,
+      "factions": [
+        {
+          "faction": 0,
+          "provinces": 9,
+          "banners": 2,
+          "keepsTaken": 0,
+          "keepsLost": 0,
+          "dominionBells": 9,
+          "captures": 0,
+          "dominion": 9,
+          "territoryBells": 9,
+          "territoryHours": 1.5,
+          "occupationsActive": 0,
+          "siegesWon": 0,
+          "siegesLost": 0,
+          "liberations": 0,
+          "holdings": 0,
+          "membersActive": 0,
+          "members": 0,
+          "index": 9
+        },
+        {
+          "faction": 1,
+          "provinces": 9,
+          "banners": 2,
+          "keepsTaken": 0,
+          "keepsLost": 0,
+          "dominionBells": 9,
+          "captures": 0,
+          "dominion": 9,
+          "territoryBells": 9,
+          "territoryHours": 1.5,
+          "occupationsActive": 0,
+          "siegesWon": 0,
+          "siegesLost": 0,
+          "liberations": 0,
+          "holdings": 0,
+          "membersActive": 0,
+          "members": 0,
+          "index": 9
+        },
+        {
+          "faction": 2,
+          "provinces": 9,
+          "banners": 2,
+          "keepsTaken": 0,
+          "keepsLost": 0,
+          "dominionBells": 9,
+          "captures": 0,
+          "dominion": 9,
+          "territoryBells": 9,
+          "territoryHours": 1.5,
+          "occupationsActive": 0,
+          "siegesWon": 0,
+          "siegesLost": 0,
+          "liberations": 0,
+          "holdings": 0,
+          "membersActive": 0,
+          "members": 0,
+          "index": 9
+        },
+        {
+          "faction": 3,
+          "provinces": 9,
+          "banners": 2,
+          "keepsTaken": 0,
+          "keepsLost": 0,
+          "dominionBells": 9,
+          "captures": 0,
+          "dominion": 9,
+          "territoryBells": 9,
+          "territoryHours": 1.5,
+          "occupationsActive": 0,
+          "siegesWon": 0,
+          "siegesLost": 0,
+          "liberations": 0,
+          "holdings": 0,
+          "membersActive": 0,
+          "members": 0,
+          "index": 9
+        },
+        {
+          "faction": 4,
+          "provinces": 9,
+          "banners": 2,
+          "keepsTaken": 0,
+          "keepsLost": 0,
+          "dominionBells": 9,
+          "captures": 0,
+          "dominion": 9,
+          "territoryBells": 9,
+          "territoryHours": 1.5,
+          "occupationsActive": 0,
+          "siegesWon": 0,
+          "siegesLost": 0,
+          "liberations": 0,
+          "holdings": 0,
+          "membersActive": 0,
+          "members": 0,
+          "index": 9
+        },
+        {
+          "faction": 5,
+          "provinces": 9,
+          "banners": 2,
+          "keepsTaken": 0,
+          "keepsLost": 0,
+          "dominionBells": 9,
+          "captures": 0,
+          "dominion": 9,
+          "territoryBells": 9,
+          "territoryHours": 1.5,
+          "occupationsActive": 0,
+          "siegesWon": 0,
+          "siegesLost": 0,
+          "liberations": 0,
+          "holdings": 0,
+          "membersActive": 0,
+          "members": 0,
+          "index": 9
+        }
+      ]
+    }
+  },
+  "previewSoSha256": "90dc0c537fd9f8256e343896315f962d9de61ce2cb0b7599d5808c4fa1bfc7b7"
+}

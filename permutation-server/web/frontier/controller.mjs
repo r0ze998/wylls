@@ -6,6 +6,8 @@
 // self-reveal (I-24, §9.1), and turns every `data-act` of the screens into
 // one action: build → check → sign → relay → track (fplay.mjs), the march
 // through fmarch.sendMarch. Nothing here decides a rule; the program does.
+import { conquestEnabled, territoryStandings, keepFromProvince, applyControl, outpostOffer } from './fconquest.mjs';
+import { holdingByRef } from './fland.mjs';
 import { FS, invalidate, activeHolding } from './fstate.mjs';
 import { updateLife } from './people/life.mjs';
 import * as io from './fchainio.mjs';
@@ -18,8 +20,8 @@ import { planTicket } from './fjoin.mjs';
 import { toggleTile } from './screens/explore.mjs';
 import { sealMarch, unpack, ctHash as ctHashOf, sealRoot as sealRootOf } from './seal.mjs';
 import { bellAt, bellStart, pipeline, archivePartOf } from './clock.mjs';
-import { regionOf } from './fgeo.mjs';
-import { hostParts } from './faddr.mjs';
+import { regionOf, ringOf } from './fgeo.mjs';
+import { hostParts, hostId } from './faddr.mjs';
 import { decodePage } from './flog.mjs';
 import { nextPoll } from './herald.mjs';
 import { kernel as loadKernel, UNITS } from './wasm.mjs';
@@ -56,7 +58,7 @@ const failed = r => {
 /** The addresses and signer context of a player action. */
 function ctx(extra = {}) {
   const pin = io.pinned();
-  return { addresses: pin.addresses, wallet: FS.wallet.address, actor: FS.session?.publicKey, faction: FS.citizen?.faction, ...extra };
+  return { addresses: pin.addresses, wallet: FS.wallet.address, actor: FS.session?.publicKey, faction: FS.citizen?.faction, profile: pin.profile, ...extra };
 }
 
 /** The send and the follow-up (fplay.mjs); tests put stand-ins here to play a relay and a chain. */
@@ -92,7 +94,7 @@ async function act(name, { v = {}, fields = {}, signer, requester = null, label,
     // ask the keeper to catch it up, wait for the herald to show it, and send once more.
     if (!t.ok && retryAfterCatchUp(name, t.code)) {
       busy(() => L`州が追いつくのを待っています…`);
-      if (await catchUp()) {
+      if (await catchUp(typeof v === 'object' ? (v.province ?? v.holding) : null)) {
         r = await send();
         if (r.ok) onSent?.(r);
         t = r.ok ? await tx.track(r.signature) : r;
@@ -111,13 +113,14 @@ async function act(name, { v = {}, fields = {}, signer, requester = null, label,
   }
 }
 
-/** Ask the keeper to catch the home province up and wait (≤ 20 s) until the herald shows it resolved through the bell before this one. */
-async function catchUp() {
-  const h = activeHolding(FS);
-  if (!h) return false;
+/** Catch up the action's province, which may differ from the host's home. */
+async function catchUp(target = null) {
+  const h = target ?? activeHolding(FS);
+  if (!h || !Number.isInteger(h.p) || !Number.isInteger(h.q)) return false;
   const r = await io.nudge(h.p, h.q, FS.provinces.get(`${h.p},${h.q}`)?.province.resolvedNext ?? nowBell());
   if (!r.ok) return false;
-  FS.autoNudgeBell = nowBell();
+  const home = activeHolding(FS);
+  if (home?.p === h.p && home?.q === h.q) FS.autoNudgeBell = nowBell();
   for (let i = 0; i < 10; i++) {
     await new Promise(res => setTimeout(res, 2000));
     await loadEnvelope(h.p, h.q);
@@ -198,16 +201,34 @@ export const inviteRequired = season => !!season?.joinGate?.some?.(x => x !== 0)
 
 // ------------------------------------------------------------------ refresh
 const Buffer2hex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
-let herald = null, refreshTimer = null, cursor = 0;
+let herald = null, refreshTimer = null, cursor = 0, conquestRefresh = 0;
 
 function refreshSoon(ms = 1500) {
   clearTimeout(refreshTimer);
   refreshTimer = setTimeout(() => refresh().catch(e => console.error('frontier refresh:', e)), ms);
 }
 
+/** A slower response must not roll a province back to an earlier generation. */
+export function latestEnvelope(previous, next) {
+  if (!previous) return next;
+  for (const field of ['seq','slot','bell']) {
+    const a=previous[field], b=next?.[field];
+    if (a===undefined || a===null || a==='' || b===undefined || b===null || b==='') continue;
+    try { if(BigInt(b)<BigInt(a)) return previous; if(BigInt(b)>BigInt(a)) return next; } catch { /* another comparable field may remain */ }
+  }
+  return next;
+}
+
 async function loadEnvelope(p, q, bell = 'latest') {
   const r = await herald.province(p, q, bell);
-  if (r.ok) { if (bell === 'latest') FS.provinces.set(`${p},${q}`, r); return r; }
+  if (r.ok) {
+    if (bell !== 'latest') return r;
+    const key=`${p},${q}`, accepted=latestEnvelope(FS.provinces.get(key),r);
+    FS.provinces.set(key,accepted);
+    const k=keepFromProvince(accepted.province);
+    if (k && FS.conquest) FS.conquest.keeps.set(key,k);
+    return accepted;
+  }
   return null;
 }
 
@@ -310,7 +331,7 @@ async function refreshChronicle() {
 }
 
 /** The herald client this controller reads (startPlay sets it; tests pass a fake). */
-export function useHerald(h) { herald = h; cursor = 0; }
+export function useHerald(h) { herald = h; cursor = 0; conquestRefresh += 1; }
 
 /**
  * Load the latest envelope of a province the map draws at tile detail, the
@@ -394,10 +415,56 @@ export async function refresh() {
     }
   } else { FS.meStatus = 'ready'; FS.meError = null; }
   updateHomeGrant();
+  await refreshConquest();
   await refreshChronicle();
   invalidate('panel', 'tabs', 'chips', 'map');
   if (needsHomeChoice()) await refreshHomes();
   else autoTicket().catch(e => console.error('frontier auto ticket:', e));
+}
+
+/** Refresh conquest together; retain known state on transport failures. */
+export async function refreshConquest() {
+  if (!conquestEnabled(FS.season) || !herald?.control) return;
+  const request=++conquestRefresh;
+  const cq = FS.conquest ??= { status: 'loading', keeps: new Map(), standings: null, final: null };
+  await refreshOverviews(nowBell());
+  const results = await Promise.allSettled([herald.control(), herald.standings()]);
+  if (request!==conquestRefresh) return;
+  const control = results[0].status === 'fulfilled' ? results[0].value : null;
+  const standings = results[1].status === 'fulfilled' ? results[1].value : null;
+  if (control?.ok) {
+    cq.control = control.control; applyControl(FS.overviews, cq.control);
+    for (const c of cq.control.provinces) {
+      const ov = FS.overviews.get(ringOf(c.p,c.q))?.provinces.find(p => p.p === c.p && p.q === c.q);
+      if (ov?.keepTile !== null && ov?.keepTile !== undefined) cq.keeps.set(`${c.p},${c.q}`, {
+        p:c.p,q:c.q,tile:ov.keepTile,holder:c.control,troops:ov.keepTroops,
+        heartland:c.heartland,consolidatedUntil:null,contender:c.contender,progress:c.progress,requiredBells:c.required,asOfBell:cq.control.bell });
+    }
+    for (const e of FS.provinces.values()) { const k = keepFromProvince(e.province); if (k && k.asOfBell >= (cq.keeps.get(`${k.p},${k.q}`)?.asOfBell ?? 0)) cq.keeps.set(`${k.p},${k.q}`, k); }
+    cq.status = 'ready'; cq.error = null;
+  } else if (control?.code === 'NotFound' && nowBell() <= 1 + Math.ceil(Number(FS.season.revealWindow ?? 600) / Number(FS.season.bellSecs ?? 600)) && !cq.control) {
+    // A fresh world has no completed control snapshot until its first bell settles.
+    cq.status = 'loading'; cq.error = null;
+  } else { cq.status = 'error'; cq.error = L`領土の最新情報を取得できませんでした。再取得してください。`; }
+  if (standings?.ok) {
+    const next = territoryStandings(standings.standings);
+    if (next && next.bell >= (cq.standings?.bell ?? -1)) cq.standings = next;
+  }
+  // A control snapshot has a world bell, while a quiet province can have an
+  // older resolvedNext. Read its actual keep after the summary: comparing
+  // those different clocks would otherwise hide protection and disable it forever.
+  const selected=FS.selected;
+  if (selected) await loadEnvelope(selected.p,selected.q).catch(()=>null);
+  if (request!==conquestRefresh) return;
+  const s = FS.selected, pv = s && FS.provinces.get(`${s.p},${s.q}`)?.province;
+  const site = pv && Number.isInteger(s.idx) ? pv.sites.indexOf(s.idx) : -1;
+  cq.outpost = site >= 0 ? outpostOffer(FS,{p:s.p,q:s.q,site}) : null;
+  if (nowBell() >= FS.season.endBell && !cq.final && herald.final) {
+    const r = await herald.final();
+    if (request!==conquestRefresh) return;
+    if (r.ok && Number(r.final.endBell) === FS.season.endBell && r.final.control?.bell === FS.season.endBell-1 && r.final.standings?.bell === FS.season.endBell-1) cq.final = territoryStandings(r.final.standings);
+  }
+  invalidate('map','panel','rail');
 }
 
 function needsHomeChoice() {
@@ -429,7 +496,7 @@ export async function refreshHomes({ force = false } = {}) {
     if (force) FS.overviewsBell = undefined;
     await refreshOverviews(nowBell());
     const faction = FS.citizen?.faction ?? null;
-    const result = await planHomes({ overviews: FS.overviews, faction, nowBell: nowBell(), ringsOpen: FS.record?.rings?.length ?? 0,
+    const result = await planHomes({ overviews: FS.overviews, faction, nowBell: nowBell(), ringsOpen: conquestEnabled(FS.season) ? Math.min(FS.record?.rings?.length ?? 0, Number(FS.season.conquestParams?.heartlandMaxRing ?? FS.season.heartlandMaxRing ?? 3) + 1) : FS.record?.rings?.length ?? 0,
       seed: `${FS.wallet?.address ?? 'visitor'}|${old.rotation ?? 0}`, rotation: old.rotation ?? 0,
       read: async (p, q) => { const env = await loadEnvelope(p, q); return env?.province ?? null; } });
     const selected = old.selected && (faction === null || old.selected.faction === faction) ? old.selected : null;
@@ -610,18 +677,18 @@ async function refreshOverviews(b) {
   FS.overviewsBell = b;
   try {
     const r = await herald.season();
-    if (r?.ok && r.record) FS.record = r.record;
+    if (r?.ok && r.record) { FS.record = r.record; if (r.season) FS.season = r.season; }
   } catch { /* keep the last record */ }
   const rings = Math.max(1, FS.record?.rings?.length ?? 1);
   for (let d = FIRST_TICKET_RING; d < rings; d++) {   // rings 0–1 hold no ticket sites (re-check 3)
-    try { const o = await herald.overview(d); if (o.ok) FS.overviews.set(d, o); } catch { /* keep the last overview */ }
+    try { const o = await (conquestEnabled(FS.season) && herald.overview2 ? herald.overview2(d) : herald.overview(d)); if (o.ok) FS.overviews.set(d, o); } catch { /* keep the last overview */ }
   }
 }
 
 // ------------------------------------------------------------------ the composer
 async function kernelOrNull() {
   if (FS.kernel) return FS.kernel;
-  try { FS.kernel = await loadKernel(); FS.kernelError = null; } catch (e) { FS.kernelError = e.code ?? 'NoWasm'; FS.kernel = null; }
+  try { FS.kernel = await loadKernel({ ruleset: Buffer2hex(FS.season.rulesetHash), url: new URL(conquestEnabled(FS.season) ? './wasm/frontier-v2.wasm' : './wasm/frontier.wasm', import.meta.url) }); FS.kernelError = null; } catch (e) { FS.kernelError = e.code ?? 'NoWasm'; FS.kernel = null; }
   return FS.kernel;
 }
 
@@ -652,7 +719,10 @@ function quickDestinations() {
 }
 
 async function sendTheMarch() {
-  const c = FS.compose, h = activeHolding(FS);
+  const c = FS.compose;
+  if (!c || c.sending || FS.inFlight > 0) return;
+  const h = c.holding ? holdingByRef(FS.holdings,c.holding) : activeHolding(FS);
+  if (!h) return failed({code:'NotOwner'});
   const pin = io.pinned();
   const env = FS.provinces.get(`${c.origin.p},${c.origin.q}`);
   const m = { season: FS.season, nowBell: nowBell(), resolvedNext: env?.province.resolvedNext ?? null, province: env?.province ?? null, now: now(), holding: h, host: c.host, dest: c.dest, route: c.route,
@@ -754,6 +824,33 @@ async function homeAction(run) {
 }
 
 export const ACTIONS = {
+  'cq-refresh': () => refreshConquest(),
+  'cq-march': async d => {
+    if (FS.inFlight || !conquestEnabled(FS.season)) return;
+    if (!ACTIONS.compose({host:d.host,stay:'map'})) return;
+    FS.tab = 'map'; FS.compose.stance = FS.conquest?.keeps.get(`${d.p},${d.q}`)?.holder === FS.citizen?.faction ? 0 : 1;
+    await setDestination({p:num(d.p),q:num(d.q),tile:num(d.tile)});
+  },
+  'cq-outpost': d => homeAction(async () => {
+    const target = {p:num(d.p),q:num(d.q),site:num(d.site)};
+    const quoted=FS.conquest?.outpost, walletAddress=FS.wallet?.address;
+    if(!walletAddress || !conquestEnabled(FS.season)) return failed({code:'NoWallet'});
+    const me=await herald.me(walletAddress).catch(()=>({ok:false,code:'Unavailable'}));
+    if(!me.ok) return failed(me);
+    if(FS.wallet?.address!==walletAddress) return failed({code:'NotOwner'});
+    FS.citizen=me.citizen; FS.holdings=me.holdings; FS.land=landState(me.citizen);
+    const sources=[target,...FS.holdings.filter(h=>h.order===1 || h.order===2)];
+    for(const [i,p] of sources.entries()) {
+      if(sources.slice(0,i).some(s=>s.p===p.p && s.q===p.q)) continue;
+      if(!await loadEnvelope(p.p,p.q)) return failed({code:'Unavailable'});
+    }
+    const offer = outpostOffer(FS,target);
+    FS.conquest.outpost = offer;
+    if (!offer.eligible) return failed({code:offer.code ?? 'OutpostRule',text:offer.reason});
+    if(!quoted?.eligible || quoted.target?.p!==target.p || quoted.target?.q!==target.q || quoted.target?.site!==target.site || offer.cost.some((v,i)=>v!==quoted.cost?.[i])) return failed({code:'OutpostRule',text:L`入植の条件と費用が更新されました。内容を確認して、もう一度申請してください。`});
+    const anchor = FS.holdings.find(h => h.order===1), slot2 = FS.holdings.find(h => h.order===2) ?? anchor;
+    return act('FileOutpost',{v:{sites:[target],anchor,slot2},fields:{sites:[target],anchor_site_key:hostId({...anchor,seq:0})}});
+  }),
   'home-pick': d => {
     const h = FS.homeChoice?.candidates?.[num(d.i)];
     if (!h || FS.homeChoice.busy) return;
@@ -818,17 +915,19 @@ export const ACTIONS = {
   harvest: () => act('Harvest', { v: { holding: activeHolding(FS) } }),
   build: d => homeAction(() => act('Build', { v: { holding: activeHolding(FS), item: num(d.item) }, fields: { item: num(d.item) } })),
   // W6-D: re-read soon after the keeper was asked (the next poll could be 30 s away, past the window the catch-up opens).
-  nudge: () => { const h = activeHolding(FS), env = FS.provinces.get(`${h.p},${h.q}`); return io.nudge(h.p, h.q, env?.province.resolvedNext ?? nowBell()).then(r => { refreshSoon(4000); return r.ok ? done(() => L`キーパーに追いつくよう頼みました`) : failed(r); }); },
+  nudge: (d = {}) => { const h = Number.isInteger(num(d.p)) && Number.isInteger(num(d.q)) ? {p:num(d.p),q:num(d.q)} : activeHolding(FS); if(!h) return; const env = FS.provinces.get(`${h.p},${h.q}`); return io.nudge(h.p, h.q, env?.province.resolvedNext ?? nowBell()).then(r => { refreshSoon(4000); return r.ok ? done(() => L`キーパーに追いつくよう頼みました`) : failed(r); }); },
   dissolve: d => { const r = hostRow(d.host); return act('Dissolve', { v: { holding: activeHolding(FS), province: r ? { p: r.p, q: r.q } : null }, fields: { host_id: BigInt(d.host) } }); },
   compose: d => {
     const r = hostRow(d.host);
     if (!r) return;
+    const h = activeHolding(FS);
     const tips = tipOptions(FS.season);
-    FS.compose = { host: { ...r.entry, id: r.id, troops: r.troops, tile: r.tile, unit: r.unit }, origin: { p: r.p, q: r.q }, stance: 0, retreat: 'never', ratio: null,
+    FS.compose = { holding:{p:h.p,q:h.q,site:h.site,gen:h.gen}, host: { ...r.entry, id: r.id, troops: r.troops, tile: r.tile, unit: r.unit }, origin: { p: r.p, q: r.q }, stance: 0, retreat: 'never', ratio: null,
       tip: String(tips[0].lamports), quick: quickDestinations(), dest: null, route: null, arriveBell: arrivalWindow(FS.season, nowBell()).min };
     // from the map (the inspector) the march is composed on the map; from the Hosts tab, on the Marches tab
     if (d.stay !== 'map') FS.tab = 'marches';
     invalidate('panel', 'tabs', 'map');
+    return FS.compose;
   },
   // the march card (hud/marchcard.mjs): the arrival bell stepper, the stance and the retreat presets
   'mc-bell': d => {
@@ -844,11 +943,14 @@ export const ACTIONS = {
   'dest-from-map': () => { const s = FS.selected; if (s?.idx !== undefined) return setDestination({ p: s.p, q: s.q, tile: s.idx }); return undefined; },
   'dest-quick': d => setDestination({ p: num(d.p), q: num(d.q), tile: num(d.tile) }),
   'march-send': () => sendTheMarch(),
-  'explore-open': d => { const r = hostRow(d.host); FS.explore = r ? { host: r, tiles: [] } : null; FS.tab = 'hosts'; invalidate('panel', 'tabs'); },
+  'explore-open': d => { const r = hostRow(d.host), h=activeHolding(FS); FS.explore = r ? { holding:{p:h.p,q:h.q,site:h.site,gen:h.gen}, host: r, tiles: [] } : null; FS.tab = 'hosts'; invalidate('panel', 'tabs'); },
   'explore-tile': d => { FS.explore.tiles = toggleTile(FS.explore.tiles, num(d.tile)); invalidate('panel'); },
   'explore-send': () => {
     const x = FS.explore;
-    return act('Explore', { v: { holding: activeHolding(FS), province: { p: x.host.p, q: x.host.q } },
+    if(!x || FS.inFlight > 0) return;
+    const h=x.holding ? holdingByRef(FS.holdings,x.holding) : activeHolding(FS);
+    if(!h) return failed({code:'NotOwner'});
+    return act('Explore', { v: { holding: h, province: { p: x.host.p, q: x.host.q } },
       fields: { host_id: BigInt(x.host.id), n: x.tiles.length, tiles: Uint8Array.of(x.tiles[0], x.tiles[1] ?? 0) }, after: () => { FS.explore = null; } });
   },
   'settle-explore': () => settleExplore(),

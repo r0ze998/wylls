@@ -17,7 +17,7 @@
 import { addressBucket } from '../guards.mjs';
 import { baseFee, departEscrow, rent, seasonTipMin, tipPresets } from '../../client/src/frontier/fees.mjs';
 import { layoutOf } from '../../client/src/frontier/codec.mjs';
-import { DEPART_TAG, FILE_TICKET_TAG, JOIN_TAG, PLACE_HOME_TAG } from '../../client/src/frontier/shapes.mjs';
+import { DEPART_TAG, FILE_TICKET_TAG, JOIN_TAG, PLACE_HOME_TAG, FILE_OUTPOST_TAG, DECLARE_SIEGE_TAG } from '../../client/src/frontier/shapes.mjs';
 import { RouteError } from '../routes/errors.mjs';
 
 export const CITIZEN_RENT = rent(layoutOf('Citizen').size);
@@ -67,6 +67,9 @@ export function allowanceFor(shape, { season, citizen = null }) {
       const escrow = citizen ? BigInt(citizen.TICKET_ESCROW) : 0n;
       return escrow >= HOLDING_RENT ? 0n : HOLDING_RENT - escrow;
     }
+    // Existing escrow can be backing another capture slot. Bound new sponsorship
+    // to one holding rent; the simulated actual drain is what the quota charges.
+    case FILE_OUTPOST_TAG: case DECLARE_SIEGE_TAG: return HOLDING_RENT;
     case DEPART_TAG:
       checkDepartArrival(shape, season);
       return departEscrow(season, checkDepartTip(shape, season));
@@ -106,6 +109,6 @@ export function lamportsPerDay(season, departs = 24) {
  * request escaped the quota).
  */
 export function quotaKeyOf(shape, { requesterCitizen = null, ip }) {
-  if (shape.kind === 'player') return `citizen:${shape.accounts.citizen}`;
+  if (shape.kind === 'player' && shape.accounts.citizen) return `citizen:${shape.accounts.citizen}`;
   return requesterCitizen ? `citizen:${requesterCitizen}` : `addr:${addressBucket(ip)}`;
 }

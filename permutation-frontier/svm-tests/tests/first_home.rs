@@ -1,8 +1,10 @@
-//! Real VM coverage for the version-2 first-village path.
-use fclient::ix::{self, HoldingRef, Site};
-use frontier_abi::layout::player::{citizen as C, holding as H, queue_item as Q};
-use frontier_abi::layout::province::{province as P, site as S};
+//! Real VM coverage for the version-3 first-village path.
+use fclient::ix::{HoldingRef, Site};
+use fclient::ix::v2 as ix;
+use frontier_abi::v2::layout::player::{citizen as C, holding as H};
+use frontier_abi::v2::layout::province::{province as P, site as S};
 use frontier_abi::layout::world::{frontier as F, season as SE};
+use frontier_abi::layout::player::queue_item as Q;
 use frontier_abi::log::{EntityKind, Kind};
 use permutation_frontier_svm_tests::chain::{assert_code, expect_lands, with_account, Chain};
 use permutation_frontier_svm_tests::records::{one, ChainWatch};
@@ -23,7 +25,7 @@ fn setup() -> (Chain, World, Citizen, Site) {
 }
 fn place(c: &Chain, w: &World, who: &Citizen, s: Site) -> Instruction {
     let d = w.citizen_data(c, who);
-    ix::place_home(&w.a, &who.player(), s, who.faction, d[C::JOIN_SHARD])
+    fclient::ix::place_home(&w.a, &who.player(), s, who.faction, d[C::JOIN_SHARD])
 }
 fn href(s: Site) -> HoldingRef {
     HoldingRef {
@@ -48,7 +50,7 @@ fn first_home_is_final_sponsored_and_chained_immediately() {
     let sponsor = c.funded(b"home-sponsor", 10);
     let mut player = who.player();
     player.payer = sponsor.pubkey();
-    let tx = ix::place_home(&w.a, &player, s, 0, shard);
+    let tx = fclient::ix::place_home(&w.a, &player, s, 0, shard);
     c.prefund(&hk, 1);
     c.prefund(&hk, 1);
     let landed = expect_lands(c.send_client(&[tx], &[&who.wallet, &sponsor]), "PlaceHome");
@@ -204,7 +206,7 @@ fn first_home_allows_live_session_and_rejects_expiry() {
     let expiry = c.now + 600;
     expect_lands(
         c.send(
-            &[ix::set_session(
+            &[fclient::ix::set_session(
                 &w.a,
                 &who.player(),
                 &session.pubkey(),
@@ -217,7 +219,7 @@ fn first_home_allows_live_session_and_rejects_expiry() {
     let mut p = who.player();
     p.actor = session.pubkey();
     let shard = c.data(&ck)[C::JOIN_SHARD];
-    let tx = ix::place_home(&w.a, &p, s, 0, shard);
+    let tx = fclient::ix::place_home(&w.a, &p, s, 0, shard);
     let mut expired = c.fork();
     expired.advance(600);
     assert_code(

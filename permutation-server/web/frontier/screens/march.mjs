@@ -5,12 +5,15 @@
 // presets (no zero tip), the costs, and the four-step send indicator
 // (sealing, saved on this device, sent, on chain).
 import { activeHolding } from '../fstate.mjs';
+import { holdingByRef } from '../fland.mjs';
 import { html, raw } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { STANCES as STANCE_TEXT, UNITS, clientText, failureText } from '../fi18n.mjs';
 import { STANCES } from '../seal.mjs';
 import { RETREAT_CHOICES, tipOptions, marchCosts, arrivalWindow, checkMarch, SEND_STEPS, DEPART_STAMINA } from '../fmarch.mjs';
-import { UNIT_ORDER } from '../fland.mjs';
+import { UNIT_ORDER, ticketTimes } from '../fland.mjs';
+import { bellStart } from '../clock.mjs';
+import { span } from '../hud/hud.mjs';
 import { lamports } from './shell.mjs';
 
 const RETREAT_TEXT = {
@@ -49,14 +52,24 @@ export function composerChoices(FS) {
 /** The march under composition as checkMarch reads it. */
 export function composerMarch(FS) {
   const c = FS.compose ?? {};
-  const h = activeHolding(FS);
-  const env = h ? FS.provinces?.get(`${h.p},${h.q}`) : null;
+  const h = c.holding ? holdingByRef(FS.holdings,c.holding) : activeHolding(FS);
+  const origin = c.origin ?? h;
+  const env = origin ? FS.provinces?.get(`${origin.p},${origin.q}`) : null;
   const host = c.host ?? null;
   return {
     season: FS.season, nowBell: FS.nowBell ?? 0, resolvedNext: env?.province.resolvedNext ?? null, province: env?.province ?? null, now: FS.chain?.now() ?? 0, holding: h ?? null, host,
     dest: c.dest ?? null, route: c.route ?? null, earliest: c.earliest ?? null, arriveBell: c.arriveBell ?? null,
     stance: c.stance ?? 0, retreat: { choice: c.retreat ?? 'never', ratio: c.ratio ?? null }, tip: c.tip ?? null,
   };
+}
+
+/** Arrival starts a shared turn; resolution follows its end and reveal window. */
+export function marchTiming(FS, arriveBell) {
+  if (!FS.clock || !Number.isInteger(arriveBell)) return null;
+  const now = FS.chain?.now?.() ?? 0;
+  const arrivalAt = bellStart(FS.clock.genesisTs, arriveBell);
+  const resultAbout = ticketTimes(FS.clock, arriveBell).resultAbout;
+  return { arrivalAt, resultAbout, arrivalIn: Math.max(0, arrivalAt - now), resultIn: Math.max(0, resultAbout - now) };
 }
 
 export function render(FS) {
@@ -71,6 +84,7 @@ export function render(FS) {
   const costs = m.tip ? marchCosts(FS.season, m.tip) : null;
   const unit = UNITS[UNIT_ORDER[m.host.unit]];
   const busy = !!c.sending;
+  const timing = marchTiming(FS, m.arriveBell);
   return html`<section aria-labelledby="march-title"><h3 id="march-title">${L`進軍：${unit} ${fmtNum(m.host.troops)}`}</h3>
     <fieldset><legend>${L`1. 行き先`}</legend>
       <p class="sealed"><span class="lock" aria-hidden="true"></span>${L`行き先は封の中にあり、ほかの人には到着の鐘しか見えません（到着の鐘が始まるまで）。`}</p>
@@ -84,6 +98,7 @@ export function render(FS) {
     <fieldset><legend>${L`2. 道のりと到着`}</legend>
       ${c.route ? html`<p>${routeLine(c.route)}</p>` : html`<p class="muted">${c.routeError ? clientText(c.routeError) : L`行き先を決めると道のりを探します`}</p>`}
       <label>${L`到着の鐘`}<select data-bind="arriveBell">${bells.map(b => html`<option value="${b}" ${raw(b === m.arriveBell ? 'selected' : '')}>${L`第${fmtNum(b)}鐘`}</option>`)}</select></label>
+      ${timing ? html`<p>${L`到着まで ${span(timing.arrivalIn)} · 結果の目安まで ${span(timing.resultIn)}（ゲーム内）`}</p>` : ''}
       <p class="muted">${L`出発から早くても2鐘あと、遅くとも72鐘あと。出発には体力 ${DEPART_STAMINA} を使います。`}</p>
     </fieldset>
     <fieldset><legend>${L`3. 命令`}</legend>
@@ -101,6 +116,7 @@ export function render(FS) {
         <p class="muted">${L`M1 ではテスト用の SOL を中継が立て替えます。価値はありません。`}</p>` : ''}
     </fieldset>
     ${problems.length ? html`<ul class="problems">${problems.map(p => html`<li>${failureText({ code: p })}</li>`)}</ul>` : ''}
+    ${problems.includes('NotResident') && c.origin ? html`<button type="button" class="btn small" data-act="nudge" data-p="${c.origin.p}" data-q="${c.origin.q}">${L`追いつかせる`}</button>` : ''}
     <ol class="steps" aria-label="${L`送信の段階`}">${SEND_STEPS.map(s => html`<li class="${c.step === s ? 'now' : SEND_STEPS.indexOf(s) < SEND_STEPS.indexOf(c.step) ? 'done' : ''}">${STEP_TEXT[s]()}</li>`)}</ol>
     <button type="button" class="btn primary" data-act="march-send" ${raw(problems.length || busy ? 'disabled' : '')}>${L`封をして出発する`}</button>
     <button type="button" class="btn" data-act="compose-close">${L`やめる`}</button>

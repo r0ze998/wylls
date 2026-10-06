@@ -406,7 +406,7 @@ export class SpriteArt {
     const canPaint = () => now() - t0 < budget;
     // nearest the centre of the view first, so what the eye is on is painted first
     for (const e of entries.slice().sort((a, b) => (a.dist ?? 0) - (b.dist ?? 0))) {
-      const state = e.rec ? `${e.rec.owners.join('')}${e.rec.sites.join('')}` + (e.prov ? (e.prov.siteMirror ?? []).map(m => `${m.state}${m.tier}`).join('') : (e.tiers ?? []).join('')) : '';
+      const state = e.rec ? `${e.rec.control ?? ''}:${e.rec.owners.join('')}${e.rec.sites.join('')}` + (e.prov ? (e.prov.siteMirror ?? []).map(m => `${m.state}${m.tier}`).join('') : (e.tiers ?? []).join('')) : '';
       const b = this.farBitmap(e, { res, terrainAt, fogAt, alliedPairs, stateKey: state, canPaint });
       if (!b) { deferred++; if (e.t ?? e.terrain) { const th = this.thumb(e.p, e.q, e.t ?? e, zoom * dpr); if (th) ctx.drawImage(th.cv, th.x, th.y, th.w, th.h); } continue; }
       if (!this.farCache.has(`${e.p},${e.q}@${res}|${e.fog}|${state}`)) deferred++;
@@ -446,7 +446,7 @@ export class SpriteArt {
    * a stronghold). Cached until the drawn provinces' holdings change.
    */
   paintRealms(ctx, entries, { zoom, lod, lens = 'realm' }) {
-    const key = entries.map(e => (e.rec ? `${e.p},${e.q}:${e.rec.owners.join('')}${e.rec.sites.join('')}${e.prov ? (e.prov.siteMirror ?? []).map(m => m.tier).join('') : (e.tiers ?? []).join('')}` : '')).join('|');
+    const key = entries.map(e => (e.rec ? `${e.p},${e.q}:${e.rec.control ?? ''}:${e.rec.owners.join('')}${e.rec.sites.join('')}${e.prov ? (e.prov.siteMirror ?? []).map(m => m.tier).join('') : (e.tiers ?? []).join('')}` : '')).join('|');
     const rk = `${lod}|${key}`;
     if (this.realmKey !== rk) { this.realm = buildRealms(entries, { grow: 1 }); this.realmKey = rk; }
     const R = this.realm;

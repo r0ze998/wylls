@@ -26,6 +26,29 @@ export const FIRST_TICKET_RING = 2;
 export const UNIT_ORDER = Object.freeze(['Spearman', 'Archer', 'Horseman', 'Pikeman', 'Crossbowman', 'Knight', 'Scout', 'Settler']);
 export const SCOUT = 6;
 export const SETTLER = 7;
+/** Catalog prices, in whole resource units. CQ lowers the Horseman's surcharge. */
+export const TRAIN_PRODUCTION_COST = Object.freeze([6, 7, 9, 12, 14, 16, 10]);
+export const TRAIN_PRODUCTION_COST_CQ = Object.freeze([6, 7, 6, 12, 14, 16, 10]);
+export function trainingCost(unit, n, programVersion = 1) {
+  const pc = (programVersion >= 3 ? TRAIN_PRODUCTION_COST_CQ : TRAIN_PRODUCTION_COST)[unit];
+  if (!Number.isInteger(unit) || pc === undefined || !Number.isSafeInteger(n) || n < 1 || n > 0xffffffff) return null;
+  const k = Math.ceil(n / 100);
+  return [60 * k, 0, 0, Math.floor(20 * k * pc / 6), 0, Math.floor(10 * k * pc / 6), 0, 0];
+}
+/** Exact affordability, including batch rounding. Capped at one maximum-sized host. */
+export function trainingQuote(holding, unit, n, now, programVersion = 1) {
+  const stores = holding ? projectedHolding(holding, now).stores.map(a => Number(a.value / 1000n)) : Array(8).fill(0);
+  const cost = trainingCost(unit, n, programVersion);
+  const affordable = c => c && c.every((v, i) => v <= (stores[i] ?? 0));
+  let lo = 0, hi = 300;
+  while (lo < hi) { const mid = Math.ceil((lo + hi) / 2); if (affordable(trainingCost(unit, mid * 100, programVersion))) lo = mid; else hi = mid - 1; }
+  return { unit, n, cost, stores, max: lo * 100, affordable: !!affordable(cost), short: (cost ?? []).map((v, resource) => ({ resource, need: v - (stores[resource] ?? 0) })).filter(x => x.need > 0) };
+}
+export const TIER_UPGRADES = Object.freeze([
+  { cost: [0, 1000, 600, 0, 0, 300, 0, 0], secs: 21600 },
+  { cost: [0, 4000, 3000, 0, 0, 1500, 0, 0], secs: 43200 },
+  { cost: [0, 12000, 10000, 0, 0, 5000, 0, 0], secs: 86400 },
+].map(Object.freeze));
 /**
  * Build items (catalog `BUILDINGS` then walls, item ids 0–6): the resource
  * each building produces, its per-hour rate and the first copy's cost (later
@@ -164,6 +187,78 @@ export const TICKET_SEEN_BELLS = 3;
 
 // ------------------------------------------------------------------ the holding
 const HOUR = 3600;
+const I64_MAX = 0x7fffffffffffffffn;
+const clampBig = (n, min, max) => n < min ? min : n > max ? max : n;
+/** Economic dormancy still uses Holding::DORMANT_AFTER, not the season's lifecycle timer. */
+export const ECONOMIC_DORMANT_SECS = 5 * 86400;
+
+function settleAccrual(a, t) {
+  if (t <= a.t0) return 0n;
+  const num = a.frac + a.rate * (t-a.t0), rem = ((num % 3600n)+3600n)%3600n;
+  const next = a.value + (num-rem)/3600n;
+  a.frac = rem; a.t0 = t;
+  if (a.rate >= 0n) { if (a.value < a.cap) a.value = next < a.cap ? next : a.cap; }
+  else if (next < 0n) { a.value = 0n; return -next > I64_MAX ? I64_MAX : -next; }
+  else a.value = next;
+  return 0n;
+}
+
+/**
+ * Read-only projection of the economic state an owner action would settle.
+ * Mirrors Holding::settle and proc::holding::settle_tiered: apply completed
+ * effects at their completion time, carry Euclidean remainders, then accrue.
+ * It never wakes a dormant village, moves lastOwnerAction or changes raw FS.
+ * Finished walls free their queue slot only strictly after completion, as
+ * commit_walls(now) does; combat continues to read the original province.
+ */
+export function projectedHolding(holding, now) {
+  if (!holding?.stores?.length) return holding;
+  const time = BigInt(Math.floor(Number(now)));
+  const h = { ...holding,
+    stores: holding.stores.map(a => ({ ...a, value: BigInt(a.value), rate: BigInt(a.rate), cap: BigInt(a.cap), t0: BigInt(a.t0), frac: BigInt(a.frac ?? 0) })),
+    production: (holding.production ?? holding.stores.map(a => a.rate)).map(BigInt),
+    upkeep: (holding.upkeep ?? holding.stores.map(() => 0n)).map(BigInt),
+    queue: (holding.queue ?? []).map(q => q ? { ...q } : null),
+    foodShortfall: BigInt(holding.foodShortfall ?? 0),
+  };
+  if (time < h.stores[0].t0) return h;
+  const dorm = holding.lastOwnerAction === undefined ? null : BigInt(holding.lastOwnerAction)+BigInt(ECONOMIC_DORMANT_SECS);
+  const settle = t => { for (let i=0;i<h.stores.length;i++) { const short = settleAccrual(h.stores[i],t); if(i===0) h.foodShortfall = clampBig(h.foodShortfall+short,0n,I64_MAX); } };
+  const rates = t => { for(let i=0;i<h.stores.length;i++) { const prod=clampBig(h.production[i],0n,1000000n); h.stores[i].rate=(dorm!==null && t>=dorm ? prod/2n : prod)-clampBig(h.upkeep[i],0n,100000000000n); } };
+  while (true) {
+    const t0=h.stores[0].t0;
+    const due=h.queue.map((q,i)=>({q,i})).filter(({q})=>q && [1,2,3].includes(q.kind) && BigInt(q.doneAt)>0n && BigInt(q.doneAt)<=time)
+      .sort((a,b)=>Number(BigInt(a.q.doneAt)-BigInt(b.q.doneAt)) || a.i-b.i);
+    const next=due.length ? (BigInt(due[0].q.doneAt)>t0 ? BigInt(due[0].q.doneAt) : t0) : null;
+    if(dorm!==null && dorm>t0 && dorm<=time && (next===null || dorm<next)) { settle(dorm); rates(dorm); continue; }
+    if(next===null) break;
+    settle(next);
+    const oldTier=Number(h.tier ?? 0);
+    for(const {q,i} of due.filter(({q})=>BigInt(q.doneAt)<=next)) {
+      if(q.kind===1 || q.kind===2) {
+        const values=q.kind===1 ? h.production : h.upkeep;
+        if(Number.isInteger(q.arg) && q.arg>=0 && q.arg<values.length) values[q.arg]=clampBig(values[q.arg]+BigInt(q.delta ?? 0),0n,q.kind===1 ? 1000000n : 100000000000n);
+      } else if(q.kind===3 && Number(h.tier)<3) {
+        h.tier=Number(h.tier)+1;
+        const cap=BigInt([2000,6000,15000,40000][h.tier])*1000n;
+        for(const a of h.stores) a.cap=cap;
+      }
+      h.queue[i]=null;
+    }
+    if(Number(h.tier)!==oldTier) {
+      const before=baseProduction(oldTier),after=baseProduction(Number(h.tier));
+      h.production=h.production.map((p,i)=>p+after[i]-before[i]);
+    }
+    rates(next);
+  }
+  settle(time);
+  h.queue=h.queue.filter(q=>{
+    if(q?.kind===4 && BigInt(q.doneAt)<time) { h.walls=Math.min(1200,Number(h.walls ?? 0)+Number(q.delta ?? 0)); return false; }
+    return q!==null;
+  });
+  return h;
+}
+
 /** Accrual value at t (host `Accrual::value_at`: rate per hour, cap for positive rates, floored at 0). */
 export function accrualAt(a, t) {
   const t0 = BigInt(a.t0), tt = BigInt(Math.floor(t));
@@ -177,7 +272,7 @@ export function accrualAt(a, t) {
 
 /** Stores in whole units at chain time `t`: `[{resource, value, perHour, cap}]` (stores hold milli-units). */
 export function storesAt(holding, t, resources) {
-  return holding.stores.map((a, i) => ({
+  return projectedHolding(holding, t).stores.map((a, i) => ({
     resource: resources[i], value: Number(accrualAt(a, t) / 1000n), perHour: Number(BigInt(a.rate)) / 1000, cap: Number(BigInt(a.cap) / 1000n),
   }));
 }
@@ -206,6 +301,9 @@ export function hostOfHolding(id, holding) {
   const h = hostParts(id);
   return !!h && h.p === holding.p && h.q === holding.q && h.site === holding.site && h.gen === holding.gen;
 }
+
+/** A draft stays attached to its original village and generation. */
+export const holdingByRef = (holdings, ref) => (holdings ?? []).find(h => ref && h.p === ref.p && h.q === ref.q && h.site === ref.site && h.gen === ref.gen) ?? null;
 
 /**
  * The hosts of a holding in one decoded Province (its entries in states

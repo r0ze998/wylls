@@ -6,7 +6,7 @@ import { hash32 } from './fjoin.mjs';
 
 export const HOME_GRANTED = 32;
 export const INTRO_BUILD_AVAILABLE = 2;
-export const instantHomeEnabled = season => Number(season?.programVersion ?? 0) >= 2;
+export const instantHomeEnabled = season => ((Number(season?.layoutVersion ?? 1) === 1 && Number(season?.programVersion) === 2) || (Number(season?.layoutVersion) === 2 && Number(season?.programVersion) >= 3));
 export const sameHome = (a, b) => !!a && !!b && a.p === b.p && a.q === b.q && a.site === b.site;
 export const homeKey = (scope, wallet = 'visitor') => `wylls-home:v1:${scope.cluster}:${scope.programId}:${scope.seasonId}:${wallet}`;
 const validSite = s => !!s && Number.isInteger(s.p) && Number.isInteger(s.q) && Number.isInteger(s.site) && s.site >= 0 && s.site < 12 && ringOf(s.p, s.q) >= 2;

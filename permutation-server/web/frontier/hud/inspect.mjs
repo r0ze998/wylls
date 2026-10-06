@@ -20,6 +20,7 @@ import { activityText } from '../people/activity.mjs';
 import { hostRows } from '../screens/host.mjs';
 import { hasPin } from './pins.mjs';
 import { termButton } from './glossary.mjs';
+import { conquestEnabled, keepFor, renderKeep, renderOutpost } from '../screens/conquest.mjs';
 
 const TERRAIN_TEXT = { Grassland: () => L`草原`, Plains: () => L`平原`, Forest: () => L`森`, Hills: () => L`丘`, Mountain: () => L`山`, Water: () => L`水` };
 /** Site states as the overview carries them (herald SITE_STATE) and the mirror (3 = released: a Free City). */
@@ -64,7 +65,7 @@ export function inspectModel(FS, terrainOf) {
     if (e.tile !== s.idx || (e.state !== 1 && e.state !== 2)) continue;
     tile.hosts.push({ id: String(e.id), faction: e.faction, owner: hostOwner(FS.roster, e.id), unit: UNIT_ORDER[e.unit] ?? null, troops: troopsOf(e.troops), pending: e.state === 2 });
   }
-  if (prov?.camp?.state === 1 && prov.camp.tile === s.idx) tile.camp = { troops: troopsOf(prov.camp.troops) };
+  if (prov?.camp?.state === 1 && prov.camp.tile === s.idx) tile.camp = { troops: Number(prov.camp.troops) };
   out.tile = tile;
   return out;
 }
@@ -130,13 +131,15 @@ export function render(FS, terrainOf, activities = null) {
       ${site.garrison !== null && site.state === 'holding' ? html`<div class="row"><dt>${L`守備隊`}</dt><dd>${fmtNum(site.garrison)}</dd></div>` : ''}
       ${site.shield ? html`<div class="row"><dt>${L`保護`}</dt><dd>${L`保護中（攻撃されません）`}</dd></div>` : ''}
     </dl>` : '';
-  const hosts = t?.hosts?.length ? html`<h4>${L`このマスの軍勢`}</h4><ul class="list">${t.hosts.map(h => html`<li class="host-row">${h.unit ? html`<img class="unit-card small f${h.faction}" src="${miniCardUrl(h.faction, h.unit.toLowerCase())}" alt="" width="32" height="40" loading="lazy" decoding="async">` : ''}${h.owner ? personChip(h.owner, h.faction, { size: 24 }) : swatch(h.faction)}<span class="host-what">${factionName(h.faction)} · ${h.unit ? UNITS[h.unit] : ''} ${fmtNum(h.troops)}</span>${h.pending ? html` <span class="muted">${L`（次の鐘から）`}</span>` : ''}</li>`)}</ul>` : '';
+  const hosts = t?.hosts?.length ? html`<h4>${L`このマスの軍勢`}</h4><ul class="list">${t.hosts.map(h => html`<li class="host-row">${h.unit ? html`<img class="unit-card small f${h.faction}" src="${miniCardUrl(h.faction, h.unit.toLowerCase())}" alt="" width="32" height="40" loading="lazy" decoding="async">` : ''}${h.owner ? personChip(h.owner, h.faction, { size: 24 }) : swatch(h.faction)}<span class="host-what">${factionName(h.faction)} · ${h.unit ? UNITS[h.unit] : ''} ${fmtNum(h.troops)}</span>${h.pending ? html` <span class="muted">${L`（編成の反映待ち）`}</span>` : ''}</li>`)}</ul>` : '';
   const now = t ? (activities?.get(`${m.p},${m.q},${t.idx}`) ?? []).filter((a, i, all) => all.findIndex(b => b.kind === a.kind) === i) : [];
   const doing = now.length ? html`<h4>${L`いまの様子`}</h4><ul class="list doing">${now.map(a => html`<li class="doing-${a.kind}">${activityText(a)}</li>`)}</ul>` : '';
   const camp = t?.camp ? html`<p class="warn">${L`蛮族の野営地（${fmtNum(t.camp.troops)} 兵）`}</p>` : '';
   const acts = inspectActions(FS, m);
   return html`<section class="inspect" aria-labelledby="inspect-title"><h3 id="inspect-title">${title}</h3>
     <dl class="facts">${facts}</dl>${siteBlock}${doing}${hosts}${camp}
+    ${conquestEnabled(FS) && m.ring >= 2 ? renderKeep(FS, keepFor(FS, m.p, m.q)) : ''}
+    ${site && ['free', 'freeCity'].includes(site.state) ? renderOutpost(FS, { p: m.p, q: m.q, site: site.index }) : ''}
     ${!m.loaded && m.opened ? html`<p class="muted">${L`州の詳しい中身を読み込んでいます…`}</p>` : ''}
     ${acts.length ? html`<div class="actions">${acts.map(a => html`<button type="button" class="btn${a.primary ? ' primary' : ''}" data-act="${a.act}" ${dataAttrs(a.data)}>${a.text}</button>`)}</div>` : ''}
   </section>`;

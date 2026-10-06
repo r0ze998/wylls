@@ -29,6 +29,12 @@
 /// Version of this kernel, bound into `RULESET_HASH` (`super::KERNEL_VERSIONS`):
 /// bump it whenever an honest outcome changes. v1: as at M0.
 pub const TERRAIN_VERSION: u16 = 1;
+/// The conquest rules' version (MC §3.13): adds the genesis Free City site
+/// ([`free_city_site`]) and the keep tile (`keep::keep_tile`). Bound into
+/// `ruleset_hash_input_v2` only; [`TERRAIN_VERSION`] keeps the M1 value.
+pub const TERRAIN_VERSION_V2: u16 = 2;
+/// Domain of [`free_city_site`].
+pub const FREE_CITY_DOMAIN: &[u8] = b"PSF-FREE-CITY";
 
 use super::geometry::{
     tile_index, tile_offset, tile_turned, ProvinceCoord, PROVINCE_TILES, SITES_PER_PROVINCE,
@@ -289,6 +295,30 @@ pub fn generate_province(ring_seed: &Seed, p: ProvinceCoord) -> ProvinceTerrain 
         out.sites[s] = tile_index(o.rotate_by(k)).unwrap_or(0);
     }
     out
+}
+
+/// The site index (into `ProvinceTerrain::sites`) of province `p`'s
+/// genesis Free City (MC §3.7, K-08):
+/// `LE64(sha256("PSF-FREE-CITY" ‖ ring_seed ‖ LE32(P) ‖ LE32(Q))[0..8]) mod
+/// site_count` over the **canonical** (wedge-0) copy of `p`, so every wedge
+/// of a ring gets its Free City on the same site ([`generate_province`]
+/// keeps the canonical site order in every wedge). `p` may be given in any
+/// wedge. `0xFF` when the province has no site (`site_count == 0`).
+/// OpenProvince places it only for `ring ≥ free_city_min_ring`.
+pub fn free_city_site(ring_seed: &Seed, p: ProvinceCoord, site_count: u8) -> u8 {
+    if site_count == 0 {
+        return u8::MAX;
+    }
+    let c = p.turned(p.wedge().unwrap_or(0));
+    let h = crate::hash::sha256(&[
+        FREE_CITY_DOMAIN,
+        ring_seed,
+        &c.p.to_le_bytes(),
+        &c.q.to_le_bytes(),
+    ]);
+    let mut w = [0u8; 8];
+    w.copy_from_slice(&h[..8]);
+    (u64::from_le_bytes(w) % site_count as u64) as u8
 }
 
 #[cfg(test)]

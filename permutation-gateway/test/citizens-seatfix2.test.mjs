@@ -274,14 +274,12 @@ test('the A/B seat finalises its village too (its ballot was refused for the sam
   v.dir.dispose();
 });
 
-test('Harvest does not finalise a village; only an instruction that carries the holding\'s Province does (the program, read, not assumed)', () => {
-  // the program source is part of this tree: Harvest builds no province and never calls finality(); Build walls does
+test('CQ Harvest checks the holding province and capture lock before lazy finality', () => {
   const src = readFileSync(new URL('../../permutation-frontier/src/proc/holding.rs', import.meta.url), 'utf8');
   const harvest = src.slice(src.indexOf('pub fn harvest'), src.indexOf('pub fn build'));
-  assert.equal(/finality\(/.test(harvest), false, 'Harvest never calls finality()');
-  const build = src.slice(src.indexOf('pub fn build'), src.indexOf('fn faction_doctrine'));
-  assert.match(build, /own_province\([^)]*\)\?;\s*finality\(/, 'Build with a province (walls) runs the lazy flip');
-  assert.equal(seat.ITEM_WALLS, 6, 'the item the seat sends is the walls item (catalog ITEM_WALLS)');
+  assert.match(harvest, /own_province_unlocked\([^)]*\)\?;\s*finality\(/);
+  assert.match(harvest, /citizen, holding, province/);
+  assert.equal(seat.ITEM_WALLS, 6);
 });
 
 // ---------------------------------------------------------------- why a nation got no council

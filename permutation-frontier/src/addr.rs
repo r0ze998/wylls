@@ -21,6 +21,12 @@ pub use frontier_abi::addr::{
 };
 pub use frontier_abi::prologue::ids;
 
+/// ABI v2 addresses (MC contract §5.2.6): the MarchState seed `mc‖m,n` and
+/// the March geometry FoldMarch's account order follows.
+pub mod v2 {
+    pub use frontier_abi::v2::addr::{march_members, march_of, march_seed, march_state, MARCH};
+}
+
 /// Seed prefix of the Season PDA.
 pub const SEASON_PREFIX: &[u8] = frontier_abi::layout::world::season::PDA_PREFIX;
 

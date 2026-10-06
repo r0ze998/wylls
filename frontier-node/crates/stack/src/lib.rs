@@ -24,6 +24,7 @@ pub mod load;
 pub mod ports;
 pub mod procs;
 pub mod report;
+pub mod resume;
 pub mod run;
 pub mod setup;
 pub mod toml;

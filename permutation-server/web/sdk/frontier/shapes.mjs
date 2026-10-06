@@ -26,10 +26,14 @@ export const JOIN_TAG = 0x30;
 export const DEPART_TAG = 0x50;
 export const FILE_TICKET_TAG = 0x33;
 export const PLACE_HOME_TAG = 0x38;
+export const FILE_OUTPOST_TAG = 0xA3;
+export const DECLARE_SIEGE_TAG = 0xA0;
 /** Tags of the player shapes (from the ABI's `relay_player_shape`). */
 export const PLAYER_TAGS = Object.freeze(TAGS.instructions.filter(i => i.relay_player_shape).map(i => i.tag));
 /** Tags of the settle shapes (`relay_settle_shape`). */
 export const SETTLE_TAGS = Object.freeze(TAGS.instructions.filter(i => i.relay_settle_shape).map(i => i.tag));
+
+const writable = (a, name, data) => a.writable === 'w' || (a.writable === 'r|w' && name === 'Build' && [6, 7].includes(data?.item));
 
 const refuse = (code, problem) => ({ ok: false, code, problem });
 
@@ -40,7 +44,7 @@ const refuse = (code, problem) => ({ ok: false, code, problem });
  * `{ok: true, kind: 'player'|'settle', tag, name, feePayer, authority, signers, accounts: {name → key}, keys, data, budget, cu}`
  * or `{ok: false, code: 'UseRevealRoute'|'RelayRejected', problem}`.
  */
-export function classify(tx, { programId, wireBytes } = {}) {
+export function classify(tx, { programId, wireBytes, profile = 1 } = {}) {
   const ixs = tx.instructions;
   // A Reveal anywhere is refused first, whatever else the transaction holds.
   if (ixs.some(ix => ix.programId === programId && ix.data[0] === REVEAL_TAG)) {
@@ -54,10 +58,11 @@ export function classify(tx, { programId, wireBytes } = {}) {
   const ix = ixs[3];
   if (ix.programId !== programId) return refuse('RelayRejected', 'the fourth instruction must be the Frontier program\'s');
   const tag = ix.data[0];
-  const kind = PLAYER_TAGS.includes(tag) ? 'player' : SETTLE_TAGS.includes(tag) ? 'settle' : null;
+  const row = ixOf(tag, profile);
+  const kind = row?.relay_player_shape ? 'player' : row?.relay_settle_shape ? 'settle' : null;
   if (!kind) return refuse('RelayRejected', `instruction tag 0x${(tag ?? 0).toString(16)} is not a sponsored shape`);
-  const abi = ixOf(tag);
-  const budget = budgetOf(tag);
+  const abi = ixOf(tag, profile);
+  const budget = budgetOf(tag, profile);
   const [limit, price, loaded] = cb.map(x => x.value);
   if (price !== 0n) return refuse('RelayRejected', 'SetComputeUnitPrice must be 0 on a sponsored shape');
   if (limit !== budget.cuLimit) return refuse('RelayRejected', `SetComputeUnitLimit must be ${budget.cuLimit} for ${abi.name} (the budgets table)`);
@@ -66,8 +71,8 @@ export function classify(tx, { programId, wireBytes } = {}) {
     return refuse('RelayRejected', `${wireBytes} bytes is over ${abi.name}'s ceiling of ${budget.txCeiling}`);
   }
   let data;
-  try { data = decodeIxData(ix.data); } catch (e) { return refuse('RelayRejected', `malformed ${abi.name} data: ${e.message}`); }
-  const spec = accountSpec(tag, ix.keys.length);
+  try { data = decodeIxData(ix.data, profile); } catch (e) { return refuse('RelayRejected', `malformed ${abi.name} data: ${e.message}`); }
+  const spec = accountSpec(tag, ix.keys.length, profile);
   if (!spec) return refuse('RelayRejected', `${abi.name} does not take ${ix.keys.length} accounts`);
   const feePayer = tx.signers[0];
   const accounts = {};
@@ -79,12 +84,13 @@ export function classify(tx, { programId, wireBytes } = {}) {
     // transaction, e.g. the relay as SettleTransit's beneficiary; the
     // signer set itself is checked below.)
     if (want.signer && !have.isSigner) return refuse('RelayRejected', `${abi.name} account ${i} (${want.name}) must sign`);
-    if (want.writable === 'w' && !have.isWritable) return refuse('RelayRejected', `${abi.name} account ${i} (${want.name}) must be writable`);
+    if (writable(want, abi.name, data) && !have.isWritable) return refuse('RelayRejected', `${abi.name} account ${i} (${want.name}) must be writable`);
     if (want.kind === 'system' && have.pubkey !== SYSTEM_PROGRAM) return refuse('RelayRejected', `${abi.name} account ${i} must be the system program`);
     if (want.signer && !signersWanted.includes(have.pubkey)) signersWanted.push(have.pubkey);
     if (accounts[want.name] === undefined) accounts[want.name] = have.pubkey;
     else accounts[want.name] = [accounts[want.name], have.pubkey].flat();
   }
+  accounts.payer ??= accounts.fee_payer ?? accounts.any;
   if (accounts.payer !== feePayer) return refuse('RelayRejected', 'the instruction\'s payer account must be the fee payer');
   // The message's account keys are exactly the fee payer, the instruction's
   // accounts and the two programs, and every key's writability is what the
@@ -94,7 +100,7 @@ export function classify(tx, { programId, wireBytes } = {}) {
   const wantWritable = new Map([[feePayer, true]]);
   for (let i = 0; i < spec.length; i++) {
     const k = ix.keys[i].pubkey;
-    wantWritable.set(k, (wantWritable.get(k) ?? false) || spec[i].writable === 'w');
+    wantWritable.set(k, (wantWritable.get(k) ?? false) || writable(spec[i], abi.name, data));
   }
   for (const prog of [COMPUTE_BUDGET_PROGRAM, programId]) {
     if (wantWritable.has(prog)) return refuse('RelayRejected', `${abi.name} may not pass a program id (${prog}) as an account`);
@@ -129,31 +135,31 @@ export function classify(tx, { programId, wireBytes } = {}) {
  * an absent optional one omitted) and data fields (codec `encodeIxData`).
  * Flags come from the ABI list.
  */
-export function frontierIx(programId, name, accounts, fields) {
-  const abi = ixOf(name);
+export function frontierIx(programId, name, accounts, fields, profile = 1) {
+  const abi = ixOf(name, profile);
   if (!abi) throw new Error(`unknown instruction ${name}`);
   const keys = [];
   for (const g of abi.account_groups) {
-    const given = a => accounts[a.name] ?? (a.kind === 'system' ? SYSTEM_PROGRAM : undefined);
+    const given = a => accounts[a.name] ?? (['fee_payer','any'].includes(a.name) ? accounts.payer : undefined) ?? (a.kind === 'system' ? SYSTEM_PROGRAM : undefined);
     const reps = Math.max(...g.accounts.map(a => [given(a)].flat().filter(x => x !== undefined).length));
     if (reps < g.min || reps > g.max) throw new Error(`${name}: ${reps} × ${g.accounts.map(a => a.name).join('+')}, the ABI allows ${g.min}–${g.max}`);
     for (let r = 0; r < reps; r++) {
       for (const a of g.accounts) {
         const k = [given(a)].flat()[r];
         if (k === undefined) throw new Error(`${name}: missing account ${a.name}`);
-        keys.push({ pubkey: k, isSigner: a.signer, isWritable: a.writable === 'w' });
+        keys.push({ pubkey: k, isSigner: a.signer, isWritable: writable(a, name, fields) });
       }
     }
   }
-  return { programId, keys, data: encodeIxData(name, fields) };
+  return { programId, keys, data: encodeIxData(name, fields, profile) };
 }
 
 /**
  * The instructions of a sponsored shape: the budget prefix at CU price 0,
  * then `frontierIx(…)`.
  */
-export const shapeIxs = (programId, name, accounts, fields) => [...budgetPrefix(name), frontierIx(programId, name, accounts, fields)];
+export const shapeIxs = (programId, name, accounts, fields, profile = 1) => [...budgetPrefix(name, { profile }), frontierIx(programId, name, accounts, fields, profile)];
 
 /** The legacy message of a sponsored shape paid by `feePayer` (the relay's, from GET /f/relay). */
-export const shapeMessage = ({ programId, name, accounts, fields, feePayer, recentBlockhash }) => compileMessage({ feePayer, recentBlockhash,
-  instructions: shapeIxs(programId, name, { ...accounts, payer: accounts.payer ?? feePayer }, fields) });
+export const shapeMessage = ({ programId, name, accounts, fields, feePayer, recentBlockhash, profile = 1 }) => compileMessage({ feePayer, recentBlockhash,
+  instructions: shapeIxs(programId, name, { ...accounts, payer: accounts.payer ?? feePayer }, fields, profile) });

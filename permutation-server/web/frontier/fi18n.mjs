@@ -9,6 +9,7 @@
 import { L, lazyTable } from '../lang.mjs';
 import { CIV_COLORS, CIV_NAMES } from '../i18n.mjs';
 import { ERRORS } from './abi.mjs';
+import { ERRORS as CQ_ERRORS } from '../sdk/frontier/abi-v2-errors.mjs';
 
 export { CIV_COLORS as FACTION_COLORS };
 /** Faction display name by id 0–5 (6 = neutral: camps, Free Cities). */
@@ -124,12 +125,29 @@ const ERROR_TEXT = {
   JoinGate: () => L`参加には招待が必要です`,
   CohortFull: () => L`この州の入植希望の枠がいっぱいです。次の鐘に試してください`,
   TipNotPreset: () => L`チップは3つの選択肢から選んでください`,
+  CapturePending: () => L`占領処理中です。結果が確定してから操作してください`,
+  Immune: () => L`この土地は征服から保護されています`,
+  SiegeBusy: () => L`この軍勢は包囲に参加中です`,
+  StakeUnsettled: () => L`包囲の精算がまだ終わっていません`,
+  SiegeCap: () => L`この包囲の参加枠がいっぱいです`,
+  NotOnHex: () => L`対象の区画まで軍勢を進めてください`,
+  TooLate: () => L`この操作の受付は終了しました`,
+  HoldingsFull: () => L`保有できる村の上限に達しています`,
+  NotBesiegeable: () => L`この村は現在包囲できません`,
+  Friendly: () => L`味方の土地は攻撃できません`,
+  FrontierProtected: () => L`この村は辺境の保護期間中です`,
+  Heartland: () => L`本国の土地は征服できません`,
+  NotDue: () => L`結果を処理する時刻を待っています`,
+  OutpostRule: () => L`前哨地の条件を満たしていません。町と州の支配状況を確認してください`,
+  FoldOutOfOrder: () => L`領土の集計順序を確認しています。少し待ってください`,
+  FoldTooEarly: () => L`この鐘の領土の集計がまだ終わっていません`,
+  NotLead: () => L`この包囲の先導者だけが行える操作です`,
   NotImplemented: () => L`まだ実装されていません`,
 };
 
 /** The text of a program error (§5.4) by code, or by name; unknown codes say so with the number. */
 export function errorText(codeOrName) {
-  const name = typeof codeOrName === 'number' ? ERRORS.find(e => e[0] === codeOrName)?.[1] : codeOrName;
+  const name = typeof codeOrName === 'number' ? (CQ_ERRORS.errors.find(e => e.code === codeOrName)?.name ?? ERRORS.find(e => e[0] === codeOrName)?.[1]) : codeOrName;
   const fn = name && ERROR_TEXT[name];
   return fn ? fn() : L`不明なエラー（${codeOrName}）`;
 }
@@ -245,7 +263,7 @@ export const CLIENT_CODES = Object.freeze(Object.keys(CLIENT_TEXT));
  */
 export function failureText(r) {
   if (!r) return L`不明なエラー（${'?'}）`;
-  if (Number.isInteger(r.programCode) && ERRORS.some(e => e[0] === r.programCode)) return errorText(r.programCode);
+  if (Number.isInteger(r.programCode) && CQ_ERRORS.errors.some(e => e.code === r.programCode)) return errorText(r.programCode);
   const code = r.code ?? null;
   if (code && ERROR_TEXT[code]) return ERROR_TEXT[code]();
   if (code && CLIENT_TEXT[code]) return CLIENT_TEXT[code]();

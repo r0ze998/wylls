@@ -1827,3 +1827,103 @@ Written by fix unit U5 (W6-E) of the `w6-s7` triage (M1 contract v1.12 §28, DEC
 | §6.2 "Not revealed" | **A march refused by the shield rule is routed by rule** (a shielded holding's host cannot target another faction's holding; nobody can target another faction's shielded holding); the verifier lists it as a rule refusal, not a keeper-liveness miss; clients prevent it (bots, the keeper and relay `409 Shielded`, the web planner's greying of targets) | contract §5.11 step 6, §8.2, §8.5 (v1.12), O-M1-27, DECISIONS S5, S10, S12, S19, S20 |
 
 Not changed here: the keeper's latency obligations, the close limits and the verifier's camp rule are implementation (contract §28); the §13.4 criterion amendments A1–A3 are test definitions (contract §13.4, O-M1-26).
+
+---
+
+## 24. Conquest milestone (revision 3.2, 2026-10-01)
+
+Written by unit CQ1-D of the conquest milestone **MC "Contested Ground"**. The normative text is the MC integration contract [`conquest/CONQUEST-CONTRACT.md`](conquest/CONQUEST-CONTRACT.md) **v1.1** (**v1.3** since the Wave-1 close, contract §19 and DECISIONS CQ-I: the points marked v1.3 below); where this section and the contract differ, the contract wins, and where this section and earlier sections of this document differ, **this section wins for everything MC builds**. Decisions, defaults and the review record are in DECISIONS part CQ; the owner's summary is [`conquest/SUMMARY.ja.md`](conquest/SUMMARY.ja.md). The numbers here are the plan's: the measured ones arrive with Gate CQ1 (simulator) and the MC exit (stack), and CQ4-E rewrites this section with them.
+
+**The owner's direction (2026-10-01):** build the territory contest, the game's core, **before** M2 money, so that the faction map changes through play. Keep D9 unless the map cannot move with it. Everything ends with the season. Money stays in M2 (no laurels, no stakes in SOL, no tribute, no payouts); faction scores are game points; governance is M3, so MC runs on the defaults of §24.5.
+
+### 24.1 Why the map needs keeps
+
+M1 coloured a province by the majority owner of its holdings. Three independent labs show that **holding-based colour cannot move the map** with D9 kept [sim]:
+
+| Lab | Configuration | Movement |
+|---|---|---|
+| rules lab | M1 rules, 1,000 wallets, 7 days | 0–1% of provinces ever foreign |
+| off-chain lab | relaxed siege limits | 0 March flips after day 1 |
+| balance lab | 10k wallets, 28 days, every M1-excluded feature on | 0.2 March changes a day |
+
+Relaxing D9 moved the map no further in any lab (−1.2 to +0.4 points) and doubled the homes lost [sim]. Holdings are personal stakes; a home is hard to take on purpose (§6.6), so a map coloured by homes is a map of who joined where. The balance lab's **keep model** moved it: 8.2 March changes a day and 36% of provinces changing hands in a 1,000-wallet, 7-day season with the human mix (10.1 a day and 47% with simulated bots), the largest faction at ≤ 20.1% of provinces (no snowball), the doctrine band 6 of 6 with keeps scoring nothing, and the bot criterion's worst cell 0.986 against the M0 control's 0.985 [sim, `lab/simbal/out/cand.md`].
+
+### 24.2 The keep [design]
+
+- **One keep per province from ring 2 outward**, on a fixed tile, **the same tile in every wedge** (v1.3, owner PO-5: `keep::keep_tile_symmetric`, the wedge-0 keep turned into the wedge; v1.1's world-order rule `keep::keep_tile` put the keep in a different place relative to each wedge's land). It is a fort held by a faction and **owned by no wallet**. At opening it is held by the province's wedge faction with 100 troops (`keep_home_guard`).
+- **The contest has no instruction.** Inside every resolved or quiet bell (`keep::advance`): a hostile faction that holds the keep's hex with no defender of the keep's faction on it counts one bell; a defender's presence, or no hostile holder, breaks the contest; **72 counted bells (≈ 12 h) take the keep**. The first counted bell is public (a `KEEP_CONTEST` event), so defenders get at least 71 bells to relieve it, in any time zone.
+- **On capture** the taking faction's largest non-civilian host on the tile (the *donor*) leaves half its troops as the new garrison and returns home with the rest; the keep then consolidates for 288 bells (no contest counts). The garrison never regrows: hosts standing on the hex defend it. A keep's troops never exceed a host's cap (30,000), so a keep can never make a province's clash invalid (contract R-01).
+- **Heartland keeps** (rings 2..=`heartland_max_ring`, default 3, of their holder's own wedge) can never be contested in MC.
+- **A keep pays nothing**: no goods, Works, laurels or Dominion, and no combat or economic bonus. Taking land therefore does not make a faction stronger (no snowball loop) and does not pay a script (the bot criterion). The price, stated plainly: **a human player has no built-in reason to take a keep**. MC adds display-only recognition (per-player *keeps taken* and *keep-bells held*, Chronicle titles); whether keeps should score is owner decision OD-14 (default no), measured in Wave 1.
+- A host that stays on a taken keep can march on from it (M1's Depart already allows it); whether bots do so is OD-15 (default no).
+
+| Knob [sim] | Value | Effect of changing it (balance lab, 1k agents, 7 days) |
+|---|---|---|
+| opening guard | 100 | the dominant knob: 8.2 / 4.4 / 2.4 / 0.0 March changes a day at 100 / 200 / 300 / 1,000 |
+| contest length | 72 bells | 36 and 144 change little |
+| consolidation | 288 bells | re-taken within 3 days: 60–75% without it, 40–45% with it |
+| garrison left | 50% of the donor | 25% raises ping-pong to 70%; 100% cuts captures by 30% |
+
+### 24.3 The control layer [design]
+
+- **Province control** is its keep's holder. Rings 0–1 have no keep: the Concord shows neutral, a Seat shows its faction.
+- **A March's banner** is the faction holding strictly more than half of its open keeps; otherwise the March is contested.
+- **The faction map** is the per-bell control of every province and the banner of every March: a pure function of the Province accounts, computed by one kernel (`control::*`) in the herald, the verifier, the simulator, the bots, the stack report and the browser, so they cannot disagree. The herald publishes it per bell as the binary `PSFCT1` (`/h/control/{bell}.bin`, ≈ 1.5 KB per bell in the exit season), with a WS delta of the changed provinces.
+- **Dominion** (§5.6) stays a points path computed from holdings' strength weight and credited captures, folded hourly per March on chain (FoldMarch, MarchState). Its per-March controller is called the **Dominion lead** and is **never a map colour** (R-15): the map shows keeps; the standings show points. They can differ by design, and an occupation moves only points.
+- **What to expect** [sim]: movement mostly on the borders; heartland interiors never change. **v1.3, measured in Wave 1:** a captured keep is re-taken within 3 days in about 3% of cases in a 7-day season (p50 2.8%; 1.9–3.4% on other seed sets; 26–30% at 10k wallets / 28 days, contract A-29), not the plan's "about 40%"; equal factions stay at about 15–20% of provinces, but a faction three times the size of the others ends at 22–23.5% (p50) at 7 days, not 18–21% (20.2% at 28 days).
+
+### 24.4 The holding contest, with D9 kept [design]
+
+I-17's exclusions are lifted. This replaces §6.3's "on completion" paragraph and §5.4's laurel transfers for MC (laurels return with M2):
+
+- **Holdings 2–3 are outposts**: a site ticket through M1's cohort machinery, only outside every heartland, within 3 provinces of one of the citizen's holdings, in a province where the citizen's faction holds less than half of the strength weight, with a Town first holding and the 20% land gate. Sealed Settler marches wait for M3.
+- **Sieges are declared from the hex**: only a host that has won the field on the target's tile can sound the horn, and only the hex's **lead host** (the holding faction's largest non-civilian host there) may declare, so landing order inside a bell decides nothing. The stake is 500 Gold; at most 2 declarations per citizen per game day; progress, the vigil (snapshotted at the horn) and the 36 + walls/50 bells are §6.3's. A siege that cannot finish before the season's end cannot start. Immunity (36 bells) follows only a siege the defender broke, and bars only the besieging faction.
+- **A first holding is occupied, never taken** (D9). The occupier's faction gets the holding's Dominion weight while it holds the hex; the owner keeps playing; the occupation ends when the occupier's faction loses the hex or after its tenure (12 h in Frontier-7, 48 h in Frontier-28), and only expiry or the owner's own liberation grants Respite, against the occupier's faction alone. No tribute, no laurel share in MC.
+- **Holdings 2–3 and Free Cities are captured** into a holding slot **reserved at the horn** (with its rent escrowed), so the outcome is fixed at the completion bell and settles choose nothing; there is no raze. The captured holding keeps its buildings and loses its garrison and trained troops; its stores move only if the capture is *credited* (the victim held it at least 1 day in Frontier-7, 2 days in Frontier-28), which makes ping-pong between a whale's wallets worthless. The victim's hosts keep fighting until **the victim** sends them home.
+- **Genesis Free Cities**: one neutral town per province from ring 4 (300 troops, Hamlet, no walls, no regrowth), a target for captures. Released dormant homes become plain free sites, as in M1.
+- **v1.3 (owner PO-7):** Dominion's hourly snapshot counts every holding on the map, provisional ones included (a holding is provisional for at most about 24 bells, 4 hours, after it is won, the same for every faction).
+- **v1.3 (owner PO-2):** in an MC season the cavalry doctrines (B, F) train their Horseman troops at a Spearman's ore and gold (no unit-variant surcharge), because MC marches about five times as much as M1 and the surcharge pushed B and F out of the doctrine band; no MC doctrine may field the Knight, and the Knight keeps its full price (contract §3.16).
+
+### 24.5 The defaults MC runs on [design]
+
+| Lever | MC default (M3 changes the input, not the rules) |
+|---|---|
+| Relations | Rivalry between every pair; each faction its own side |
+| War decree | none: heartland sieges and heartland keep contests are disabled |
+| March truce / hostility, Peace, NAP, Alliance | none |
+| Mandates | Herald's Call as display data (one March per faction per day; no reward) |
+| Auto-reinforce | client, bots or opt-in relay automation only (no on-chain order) |
+| Seats, the Concord | never besieged |
+
+| Timer (SeasonParams v2) | Frontier-7 (exit, nightlies, demo) | Frontier-28 |
+|---|---|---|
+| shield, first holdings | 24 h | 48 h (72 h after day 7) |
+| outpost shield | 2 h | 2 h |
+| Frontier protection (after / for) | 12 h / 36 h | 2 days / 7 days |
+| dormant / released | 3 days / never within the season | 5 days / 10 days |
+| occupation tenure = Respite | 72 bells | 288 bells |
+| capture credit | 144 bells | 288 bells |
+| keep contest / consolidation / guard / garrison left | 72 bells / 288 bells / 100 / 50% | the same |
+| siege stake / daily cap / immunity | 500 Gold / 2 / 36 bells | the same |
+
+**How a home can still be lost:** only by M1's dormancy release in long seasons (Frontier-28, 10 days without an owner action); in a 7-day season no home is released.
+
+### 24.6 Everything ends with the season [design]
+
+No siege that cannot finish before `end_bell` may start; nothing completes at or after it; open sieges lapse with the stake returned and the reserved slot released; occupations end; the control map of `end_bell − 1` is the season's final map (`/h/season/final.json`, recomputed by the verifier). After the end only settles and closes remain.
+
+### 24.7 Chain cost and the ABI [estimate unless marked]
+
+- **ABI v2 is a strict superset of M1's.** The Province grows 4,096 → 4,736 B (a 640-B conquest block: one record per site, the keep, six hourly snapshots, capture and keep counters): +0.00325 SOL refundable per province, +40.6 SOL of ProvinceFund float at a full map. One new account kind (MarchState, 256 B). New instructions 0xA0–0xA7, errors 62–78, log kinds 80–89. `RULES_VERSION_FRONTIER` 10 → 11 and a new `RULESET_HASH`, so a conquest program never acts on an M1 season; M1's hash and seasons stay readable.
+- **Costs** [measured, lab probe on SBPF v2]: the conquest step +6.6k CU worst in a resolve (ResolveFromInputs est. ≈ 284k of a 290k gate), FoldMarch 8,335 CU, DeclareSiege checks 6,664 CU, SettleCapture bookkeeping 8,084 CU.
+- **Keeper load** [estimate]: ≈ 25–35k extra resolves per 7-day 1,000-bot season (contested provinces resolve every bell) and ≈ 5k FoldMarch, ≈ 15–25% over the M1 exit season's ≈ 144k transactions.
+
+### 24.8 How MC proves the map moved
+
+The exit is a 7-day accelerated 1,000-bot season on real drand rounds with the release `.so`, chaos and the adversary schedule. Its **criterion 10** is computed from the herald's `PSFCT1` series with the same kernel the simulator uses, and gates on fixed floors (**v1.3**, owner PO-1): ≥ 45 lasting changes (a change kept ≥ 6 bells), a lasting change on each of game days 2–7, ≥ 13% of contestable provinces with ≥ 2 controllers, ≥ 6 March banner changes and ≥ 10% of Marches with ≥ 2 banners, ≥ 6% of the provinces outside the heartlands that are open at the end of day 2 or open later with a different controller at the end than at the later of their opening and the end of day 2 (net movement, 10e′), ≥ 4 factions with both a gain and a loss, a largest faction ≤ 30% and a smallest ≥ 8% at the end, the holding contest played (sieges, ≥ 10 occupations, liberations, captures, outposts), and **zero first holdings changing owner**. Three negative controls (M1's static map; a map that only flickers; a map that moves only in heartland provinces) must fail it; CONQUEST-CONTRACT §13.4 has the full table.
+
+**The largest risk** [design]: the simulator's bots play 24 sessions a day with a keep roll in each, while M1's stack bots made ≈ 0.24 Departs per bot-day [measured]. Wave 1 therefore re-measures the keep model with a bot profile at the stack's planner cadence (`--bot-profile cq`, from which the thresholds are derived) and at M1's measured cadence (`--bot-profile m1`, reported beside it), and the stack gets a bot-activity gate in every nightly. If a coordinated faction ends above 22% of provinces against lone factions, work stops and the owner decides (OD-16).
+
+### 24.9 What is out of MC
+
+Laurels, fees, stakes, tribute and payouts (M2); War decrees, heartland sieges, truces, alliances, Ministers, Wardens and Mandates (M3); on-chain auto-reinforce and delegated command (M3); Settler marches and raids (M3); keep Dominion and contested-March weighting (an owner decision after a doctrine re-tune); Seam Towns (not planned); the replay page's conquest data (hand-off only, OD-13).

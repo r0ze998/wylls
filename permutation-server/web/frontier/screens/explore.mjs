@@ -7,7 +7,7 @@
 import { activeHolding } from '../fstate.mjs';
 import { html, raw } from '../../util.mjs';
 import { L, Lh, fmtNum } from '../../lang.mjs';
-import { exploreTargets, ticketTimes } from '../fland.mjs';
+import { exploreTargets, ticketTimes, holdingByRef } from '../fland.mjs';
 import { timeHtml } from './shell.mjs';
 
 /** Up to two chosen tiles. */
@@ -18,7 +18,7 @@ export function render(FS) {
   const rec = h?.explore;
   const floor = FS.citizen?.exploresFloorLeft ?? 0;
   const pending = rec && rec.state !== 0;
-  const draft = FS.explore;
+  const draft = FS.explore?.holding && !holdingByRef(h ? [h] : [],FS.explore.holding) ? null : FS.explore;
   let targets = [];
   if (draft?.host) targets = exploreTargets(draft.host.province, draft.host);
   const times = pending && FS.clock ? ticketTimes(FS.clock, rec.bell) : null;
@@ -30,7 +30,7 @@ export function render(FS) {
     ${draft?.host && !pending ? html`<p>${L`隣のマスを2つまで選んでください`}</p>
       <ul class="list">${targets.map(t => html`<li><button type="button" class="btn" data-act="explore-tile" data-tile="${t}" aria-pressed="${draft.tiles.includes(t) ? 'true' : 'false'}">${L`マス ${fmtNum(t + 1)}`}</button></li>`)}</ul>
       ${targets.length ? '' : html`<p class="muted">${L`隣に探索できるマスがありません`}</p>`}
-      <button type="button" class="btn primary" data-act="explore-send" ${raw(draft.tiles.length ? '' : 'disabled')}>${L`探索に出す`}</button>` : ''}
+      <button type="button" class="btn primary" data-act="explore-send" ${raw(draft.tiles.length && !(FS.inFlight > 0) ? '' : 'disabled')}>${L`探索に出す`}</button>` : ''}
     ${!draft?.host && !pending ? html`<p class="muted">${L`「軍勢」で斥候の軍勢の「探索」を押してください。`}</p>` : ''}
   </section>`;
 }

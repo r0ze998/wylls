@@ -307,6 +307,7 @@ fn worst_positions(ix: Ix) -> impl Iterator<Item = crate::prologue::Spec> {
 fn position_data(acc: Acc, ix_sysvar: u32) -> u32 {
     match acc {
         Acc::Kind(k) => k.size() as u32,
+        Acc::KindV2(k) => k.size() as u32,
         Acc::Either(a, b) => {
             let (x, y) = (a.size() as u32, b.size() as u32);
             if x > y {
@@ -537,7 +538,7 @@ mod tests {
         // round_up(1.25 × 1,048,576 = 1,310,720, 4,096) (integ-W4)
         assert_eq!(max_len_for(1_048_576), 1_310_720);
         // W5-A: the release `.so` [measured] fits under the table's length
-        assert_eq!(PLACEHOLDER_PROGRAMDATA_LEN, 1_105_920);
+        assert_eq!(PLACEHOLDER_PROGRAMDATA_LEN, 1_126_400);
         assert!(max_len_for(869_536) <= PLACEHOLDER_PROGRAMDATA_LEN);
         assert_eq!(max_len_for(4_096), 8_192);
     }

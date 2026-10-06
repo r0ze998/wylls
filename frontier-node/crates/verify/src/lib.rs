@@ -34,6 +34,7 @@
 pub mod checks;
 pub mod clash_input;
 pub mod codes;
+pub mod conquest;
 pub mod facts;
 pub mod fixture;
 pub mod holding;
@@ -213,5 +214,9 @@ pub fn exit_code(v: Verdict) -> i32 {
 
 /// Runs every check over `input` and builds the report.
 pub fn verify(input: &Input) -> Report {
-    checks::run(input)
+    if conquest::applies(input) {
+        conquest::verify(input)
+    } else {
+        checks::run(input)
+    }
 }

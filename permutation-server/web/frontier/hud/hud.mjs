@@ -24,6 +24,7 @@ import { swatch } from '../screens/shell.mjs';
 import { personChip, ownTag, ownIdentity, highlights, renderHighlights, holdingName } from '../people/ui.mjs';
 import { leaderSvg } from '../people/leaders.mjs';
 import { identityOf } from '../people/identity.mjs';
+import { conquestEnabled, renderStandings as renderConquestStandings } from '../screens/conquest.mjs';
 
 /** Seconds before the bell at which the pill turns amber, then red. */
 export const URGENCY = Object.freeze({ warn: 120, crit: 30 });
@@ -54,7 +55,7 @@ export function bellModel(clock, now) {
 export function resourceModel(holding, now) {
   if (!holding) return [];
   return storesAt(holding, now, RESOURCE_ORDER)
-    .filter(s => s.value > 0 || s.perHour > 0)
+    .filter(s => s.value > 0 || s.perHour !== 0)
     .map(s => {
       const fullIn = s.cap > 0 && s.value >= s.cap ? 0 : s.perHour > 0 && s.cap > 0 ? Math.ceil(((s.cap - s.value) / s.perHour) * 3600) : null;
       const state = fullIn === 0 ? 'full' : fullIn !== null && fullIn <= NEAR_FULL_SECS ? 'near' : 'ok';
@@ -73,8 +74,9 @@ export function span(secs) {
 /** One token's hover text: "食料 1,200 / 5,000 · 毎時 +120 · 満杯まで 31:40". */
 export function resourceTitle(r) {
   const full = r.fullIn === 0 ? L`満杯です（これ以上は貯まりません）` : r.fullIn === null ? '' : L`満杯まで ${span(r.fullIn)}`;
-  return [`${r.name} ${fmtNum(r.value)} / ${fmtNum(r.cap)}`, L`毎時 +${fmtNum(r.perHour)}`, full].filter(Boolean).join(' · ');
+  return [`${r.name} ${fmtNum(r.value)} / ${fmtNum(r.cap)}`, L`毎時 ${signedResourceRate(r.perHour)}`, full].filter(Boolean).join(' · ');
 }
+export const signedResourceRate = n => `${n >= 0 ? '+' : '−'}${fmtNum(Math.abs(n))}`;
 
 // ------------------------------------------------------------------ attention
 /**
@@ -148,7 +150,7 @@ export function renderStrip(tokens, open = null, max = tokens.length) {
     <span class="res-dot res-c-${r.resource}" aria-hidden="true"></span>
     <span class="res-name">${r.name}</span>
     <span class="res-val">${fmtNum(r.value)}</span><span class="res-short" aria-hidden="true">${shortNum(r.value)}</span>
-    ${r.perHour > 0 ? html`<span class="res-rate">${L`+${fmtNum(r.perHour)}/時`}</span>` : ''}
+    ${r.perHour !== 0 ? html`<span class="res-rate">${L`${signedResourceRate(r.perHour)}/時`}</span>` : ''}
     ${r.state === 'full' ? html`<span class="res-flag">${L`満杯`}</span>` : r.state === 'near' ? html`<span class="res-flag">${span(r.fullIn)}</span>` : ''}
   </button>`);
 }
@@ -187,17 +189,17 @@ export function renderAllBreakdowns(list) {
     <button type="button" class="btn small" data-act="res-close" aria-label="${L`閉じる`}">×</button></div>
     <ul class="list res-rows">${list.map(b => html`<li class="${b.rows.some(r => r.state === 'full') ? 'res-full' : ''}"><button type="button" class="res-row" data-act="res-open" data-r="${b.resource}">
       <span class="res-row-name"><span class="res-dot res-c-${b.resource}" aria-hidden="true"></span> ${b.name}</span><span>${fmtNum(b.total)}</span>
-      <span class="muted">${L`毎時 +${fmtNum(b.perHour)}`}</span><span class="muted">${b.rows.some(r => r.state === 'full') ? L`満杯` : ''}</span></button></li>`)}</ul>`;
+      <span class="muted">${L`毎時 ${signedResourceRate(b.perHour)}`}</span><span class="muted">${b.rows.some(r => r.state === 'full') ? L`満杯` : ''}</span></button></li>`)}</ul>`;
 }
 
 /** The breakdown popover's markup. */
 export function renderBreakdown(b) {
   if (!b) return '';
-  return html`<div class="res-pop-head"><strong>${b.name}</strong> <span>${L`合計 ${fmtNum(b.total)} · 毎時 +${fmtNum(b.perHour)}`}</span>
+  return html`<div class="res-pop-head"><strong>${b.name}</strong> <span>${L`合計 ${fmtNum(b.total)} · 毎時 ${signedResourceRate(b.perHour)}`}</span>
     <button type="button" class="btn small" data-act="res-close" aria-label="${L`閉じる`}">×</button></div>
     <ul class="list res-rows">${b.rows.map(r => html`<li class="res-${r.state}"><button type="button" class="res-row" data-act="goto" data-p="${r.holding.p}" data-q="${r.holding.q}">
       <span class="res-row-name">${holdingName(r.holding)}</span>
-      <span>${fmtNum(r.value)} / ${fmtNum(r.cap)}</span><span class="muted">${L`毎時 +${fmtNum(r.perHour)}`}</span>
+      <span>${fmtNum(r.value)} / ${fmtNum(r.cap)}</span><span class="muted">${L`毎時 ${signedResourceRate(r.perHour)}`}</span>
       <span class="muted">${r.fullIn === 0 ? L`満杯` : r.fullIn !== null ? L`満杯まで ${span(r.fullIn)}` : ''}</span></button></li>`)}</ul>
     <p class="muted">${L`増える量は建物と働く区画で決まります。満杯になると増えません。村の画面で収穫や建設ができます。`}</p>`;
 }
@@ -242,11 +244,13 @@ export function standings(overviews) {
 
 /** The standings list alone (the spectator's phone panel folds it). */
 export function renderStandingsList(FS) {
+  if (conquestEnabled(FS)) return renderConquestStandings(FS);
   return html`<ol class="rail-standings">${standings(FS.overviews).map((r, i) => html`<li><span class="rank">${i + 1}</span>${raw(leaderSvg(r.faction, { size: 34 }))}<strong>${factionName(r.faction)}</strong>
       <span class="muted">${L`村 ${fmtNum(r.holdings)} · ${fmtNum(r.provinces)} 州`}</span></li>`)}</ol>`;
 }
 
 function renderStandings(FS) {
+  if (conquestEnabled(FS)) return renderConquestStandings(FS);
   const rows = standings(FS.overviews);
   return html`<h2 class="rail-h">${L`国の順位`}</h2>
     <ol class="rail-standings">${rows.map((r, i) => html`<li><span class="rank">${i + 1}</span>${raw(leaderSvg(r.faction, { size: 34 }))}<strong>${factionName(r.faction)}</strong>
@@ -282,6 +286,7 @@ export function renderRail(FS) {
     ? html`<ol class="rail-todo">${items.map((x, i) => html`<li class="todo-${x.kind}"><button type="button" class="rail-todo-btn" data-act="attn-go" data-i="${i}"><span class="todo-glyph" aria-hidden="true">${TODO_GLYPH[x.kind] ?? '•'}</span>${x.text}</button></li>`)}</ol>`
     : html`<p class="muted">${L`次の鐘までにやることはありません`}</p>`;
   return html`${head}
+    ${conquestEnabled(FS) ? html`<button type="button" class="btn nation-link" data-act="tab" data-tab="nation">⚑ ${L`国と領土`}</button>` : ''}
     <h2 class="rail-h">${L`村`}</h2>${list}
     ${tiles}
     <h2 class="rail-h">${L`次の鐘までに`}</h2>${todo}`;

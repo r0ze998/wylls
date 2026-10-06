@@ -16,7 +16,7 @@
 // Every call answers `{…body, ok, httpStatus, code, error}` and never rejects.
 import { equal, toBase64 } from '../sdk/bytes.mjs';
 import { COMPUTE_BUDGET_PROGRAM, messageOf, parseMessage, pubkeyString } from '../sdk/solana-tx.mjs';
-import { RULESET_HASH } from './abi.mjs';
+import { profileForHash } from '../sdk/frontier/profile.mjs';
 import { classify } from '../sdk/frontier/shapes.mjs';
 import { seasonAddresses } from './faddr.mjs';
 import { L } from '../lang.mjs';
@@ -36,8 +36,9 @@ let pin = null;
 export function setPin({ programId, cluster, seasonId, seasonAddress = null, rulesetHash = null }) {
   const addresses = seasonAddresses(programId, seasonId);
   if (seasonAddress && seasonAddress !== addresses.season) throw Object.assign(new Error(L`シーズンの口座がプログラムから導いたものと一致しません`), { code: 'PinMismatch' });
-  if (rulesetHash !== null && String(rulesetHash).toLowerCase() !== RULESET_HASH) throw Object.assign(new Error(L`このシーズンは別のルールで動いています`), { code: 'RulesetMismatch' });
-  pin = Object.freeze({ programId: addresses.programId, cluster: String(cluster || 'localnet'), seasonId: addresses.seasonId, addresses });
+  const profile = rulesetHash === null ? 1 : profileForHash(rulesetHash);
+  if (!profile) throw Object.assign(new Error(L`このシーズンは別のルールで動いています`), { code: 'RulesetMismatch' });
+  pin = Object.freeze({ programId: addresses.programId, cluster: String(cluster || 'localnet'), seasonId: addresses.seasonId, addresses, profile });
   return pin;
 }
 export const pinned = () => pin;
@@ -102,7 +103,7 @@ export const quota = (citizen, opts) => request('GET', `/f/quota?citizen=${encod
 
 // ------------------------------------------------------------------ message checks (§9.4)
 /** Player shapes (session or wallet signer) and settle shapes (no authority signer) the relay accepts (§8.3). */
-export const PLAYER_TAGS = Object.freeze([0x30, 0x31, 0x32, 0x33, 0x38, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x50]);
+export const PLAYER_TAGS = Object.freeze([0x30, 0x31, 0x32, 0x33, 0x38, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x50, 0xA0, 0xA3, 0xA6]);
 export const SETTLE_TAGS = Object.freeze([0x47, 0x54]);
 export const REVEAL_TAG = 0x51;
 const CB = { limit: 2, price: 3, loaded: 4, heap: 1 };
@@ -150,7 +151,7 @@ export function messageProblems(message, { feePayer, blockhash, tag, signers = [
   }
   for (const i of ix) if (i.programId !== COMPUTE_BUDGET_PROGRAM && i.programId !== pin.programId) out.push(`unexpected program ${i.programId}`);
   if (f && f.programId === pin.programId && f.data[0] !== REVEAL_TAG) {
-    const c = classify(m, { programId: pin.programId });
+    const c = classify(m, { programId: pin.programId, profile: pin.profile });
     if (!c.ok) out.push(`not a relay shape: ${c.problem}`);
     else if (c.accounts.payer !== feePayer) out.push('the instruction\'s payer account is not the fee payer');
     if (!expected) out.push('no expected instruction to compare (build it from recomputed addresses)');

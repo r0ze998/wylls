@@ -31,6 +31,7 @@ use frontier_agents::{keys, Persona};
 use permutation_rules::frontier::geometry::ProvinceCoord;
 use serde_json::{json, Value};
 
+use crate::conquest::{Conquest, CqMem};
 use crate::journal::Journal;
 use crate::ports::{Answer, DirectPort, HeraldPort, RelayPort};
 use crate::report::{Outcome, Report};
@@ -160,6 +161,9 @@ pub struct Shared<H, R, D> {
     pub cfg: Config,
     pub clock: ClockSource,
     pub report: Mutex<Report>,
+    /// The conquest layer (`--conquest`, MC §8.6); `None` runs the M1
+    /// bots unchanged.
+    pub conquest: Option<Conquest>,
     cache: Mutex<Cache>,
     // AI hook
     /// The AI citizens' brain state (`ai/`), set by `ai::install`.
@@ -181,12 +185,23 @@ impl<H: HeraldPort, R: RelayPort, D: DirectPort> Shared<H, R, D> {
             cfg,
             clock,
             report: Mutex::new(Report::default()),
+            conquest: None,
             cache: Mutex::new(Cache::default()),
             // AI hook
             ai: None,
             outcome_sink: None,
             // AI hook end
         }
+    }
+
+    /// Turns the conquest layer on (`--conquest`): the report gains its
+    /// `conquest` and `activity` sections, and every bot's budgets are the
+    /// v2 table's.
+    pub fn with_conquest(mut self, c: Conquest) -> Self {
+        c.seed_report(&mut self.report.lock().expect("report").cq);
+        self.cfg.budgets = crate::txb::budgets_v2();
+        self.conquest = Some(c);
+        self
     }
 
     pub fn with_journal(mut self, j: Journal) -> Self {
@@ -292,6 +307,8 @@ pub struct Bot {
     /// The AI citizen's brain state (`on` only for slots `kind:"ai"`).
     pub ai: crate::ai::BotAi,
     // AI hook end
+    /// The conquest layer's memory (`--conquest`).
+    pub cq: CqMem,
 }
 
 /// Session retries after a nudge before the bot gives the session up.
@@ -336,6 +353,7 @@ impl Bot {
             // AI hook
             ai: Default::default(),
             // AI hook end
+            cq: CqMem::default(),
         }
     }
 
@@ -506,7 +524,9 @@ impl Bot {
                 direct: sh.direct.is_some(),
                 session,
             };
-            policy::decide(&obs, &cx)
+            // Under `--conquest` a bot with no M1 persona marches only as
+            // its faction's plan assigns it (§8.7 item 7, profile `cq`).
+            policy::decide_with(&obs, &cx, sh.conquest.is_none())
         };
         // AI hook
         if self.ai.on && sh.ai.is_some() {
@@ -533,6 +553,7 @@ impl Bot {
             }
             sent += self.act(sh, &obs, it).await;
         }
+        sent += self.cq_layer(sh, &obs).await;
         sh.report.lock().expect("report").steps += 1;
         sent
     }
@@ -653,7 +674,7 @@ impl Bot {
         self.spec.persona == Some(p)
     }
 
-    fn quota_left(&self, obs: &Observation) -> u32 {
+    pub(crate) fn quota_left(&self, obs: &Observation) -> u32 {
         obs.me.quota_left.unwrap_or(40).saturating_sub(self.spent)
     }
 
@@ -686,7 +707,7 @@ impl Bot {
     }
 
     /// A sponsored player instruction through `/f/relay` (or `/f/join`).
-    async fn sponsored<H, R: RelayPort, D>(
+    pub(crate) async fn sponsored<H, R: RelayPort, D>(
         &mut self,
         sh: &Shared<H, R, D>,
         action: &'static str,
@@ -916,17 +937,17 @@ impl Bot {
                 1
             }
             Intent::Harvest { h } => {
-                self.sponsored(sh, "harvest", None, |p| ix::harvest(&a, p, h))
+                self.sponsored(sh, "harvest", None, |p| if sh.conquest.is_some() { ix::v2::harvest(&a, p, h) } else { ix::harvest(&a, p, h) })
                     .await;
                 1
             }
             Intent::Build { h, item, walls } => {
-                self.sponsored(sh, "build", None, |p| ix::build_item(&a, p, h, item, walls))
+                self.sponsored(sh, "build", None, |p| if sh.conquest.is_some() { ix::v2::build_item(&a, p, h, item, walls || item == 7) } else { ix::build_item(&a, p, h, item, walls) })
                     .await;
                 1
             }
             Intent::Train { h, unit, n } => {
-                self.sponsored(sh, "train", None, |p| ix::train(&a, p, h, unit, n))
+                self.sponsored(sh, "train", None, |p| if sh.conquest.is_some() { ix::v2::train(&a, p, h, unit, n) } else { ix::train(&a, p, h, unit, n) })
                     .await;
                 1
             }
@@ -949,7 +970,7 @@ impl Bot {
                 tiles,
             } => {
                 self.sponsored(sh, "explore", None, |p| {
-                    ix::explore(&a, p, h, at, host_id, &tiles)
+                    if sh.conquest.is_some() { ix::v2::explore(&a, p, h, at, host_id, &tiles) } else { ix::explore(&a, p, h, at, host_id, &tiles) }
                 })
                 .await;
                 1
@@ -978,7 +999,7 @@ impl Bot {
                 let tag = forged.then_some("forged");
                 let r = self
                     .settle(sh, obs, "settle_transit", tag, |fp| {
-                        let mut i = ix::settle_transit(&a, fp, &args);
+                        let mut i = if sh.conquest.is_some() { ix::v2::settle_transit(&a, fp, &args, None) } else { ix::settle_transit(&a, fp, &args) };
                         if forged {
                             // A non-canonical slot key (account 5).
                             i.accounts[5].pubkey = Address::new_from_array([0xF0; 32]);
@@ -1012,7 +1033,7 @@ impl Bot {
                 let at = (m.dest.0 as i16, m.dest.1 as i16);
                 let r = self
                     .sponsored(sh, "depart", Some("redepart"), |p| {
-                        ix::depart(&a, p, m.h, at, &args)
+                        if sh.conquest.is_some() { ix::v2::depart(&a, p, m.h, at, &args) } else { ix::depart(&a, p, m.h, at, &args) }
                     })
                     .await;
                 // integ-W6t review: a try before the destination resolved
@@ -1117,7 +1138,7 @@ impl Bot {
                 let mut sent = 0;
                 for _ in 0..n {
                     let r = self
-                        .sponsored(sh, "harvest", Some("spam"), |p| ix::harvest(&a, p, h))
+                        .sponsored(sh, "harvest", Some("spam"), |p| if sh.conquest.is_some() { ix::v2::harvest(&a, p, h) } else { ix::harvest(&a, p, h) })
                         .await;
                     sent += 1;
                     let stop = r.status == 429
@@ -1198,12 +1219,13 @@ impl Bot {
         let ok = match plan.route {
             Route::Relay => self
                 .sponsored(sh, "depart", tag, |p| {
-                    ix::depart(&a, p, plan.h, plan.host_at, &args)
+                    if sh.conquest.is_some() { ix::v2::depart(&a, p, plan.h, plan.host_at, &args) } else { ix::depart(&a, p, plan.h, plan.host_at, &args) }
                 })
                 .await
                 .ok(),
             Route::Direct => {
-                let i = ix::depart(
+                let depart = if sh.conquest.is_some() { ix::v2::depart } else { ix::depart };
+                let i = depart(
                     &a,
                     &self.player(self.direct.pubkey()),
                     plan.h,
@@ -1216,6 +1238,12 @@ impl Bot {
             }
         };
         if ok {
+            {
+                let mut r = sh.report.lock().expect("report");
+                if r.cq.enabled {
+                    r.cq.day(obs.bell() / BELLS_PER_DAY).departs += 1;
+                }
+            }
             self.journal_state(sh, key, "sent");
             self.mem.marches.retain(|m| m.key != key);
             self.mem.marches.push(MarchMemo { sent: true, ..memo });

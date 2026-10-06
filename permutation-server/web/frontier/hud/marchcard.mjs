@@ -15,9 +15,10 @@ import { STANCES as STANCE_TEXT, UNITS, clientText, failureText, factionName } f
 import { STANCES } from '../seal.mjs';
 import { RETREAT_CHOICES, arrivalWindow, checkMarch, troopsOf } from '../fmarch.mjs';
 import { UNIT_ORDER } from '../fland.mjs';
-import { bellStart } from '../clock.mjs';
-import { composerMarch, routeLine } from '../screens/march.mjs';
-import { clockTime, swatch } from '../screens/shell.mjs';
+import { keepFor } from '../screens/conquest.mjs';
+import { composerMarch, routeLine, marchTiming } from '../screens/march.mjs';
+import { span } from './hud.mjs';
+import { swatch } from '../screens/shell.mjs';
 import { DIRECTIONS, tileHex } from '../fgeo.mjs';
 import { termButton } from './glossary.mjs';
 
@@ -50,7 +51,9 @@ export function defendersAt(FS, dest) {
   const m = j >= 0 ? prov.siteMirror?.[j] : null;
   const garrison = m && m.state === 1 && m.faction !== FS.citizen?.faction ? troopsOf(m.garrison) : 0;
   const camp = prov.camp?.state === 1 && prov.camp.tile === dest.tile ? Number(prov.camp.troops) : 0;
-  return { residents, garrison, camp, total: residents.reduce((a, r) => a + r.troops, 0) + garrison + camp };
+  const k = keepFor(FS, dest.p, dest.q);
+  const keep = k?.tile === dest.tile && k.holder !== FS.citizen?.faction ? Number(k.troops ?? 0) : 0;
+  return { residents, garrison, camp, keep, total: residents.reduce((a, r) => a + r.troops, 0) + garrison + camp + keep };
 }
 
 /** A guide word from the troop ratio (attacker ÷ defenders): no defenders → "unopposed". */
@@ -91,11 +94,11 @@ export function render(FS) {
   const m = composerMarch(FS);
   const unit = UNITS[UNIT_ORDER[c.host.unit]] ?? '';
   const w = bellWindow(FS);
-  const at = w && FS.clock ? clockTime(bellStart(FS.clock.genesisTs, w.value)) : null;
   const def = c.dest ? defendersAt(FS, c.dest) : null;
   const odds = c.dest && def ? oddsWord(c.host.troops, def.total) : null;
   const problems = c.dest ? checkMarch(m).filter(p => p !== 'NoDestination') : [];
   const busy = !!c.sending;
+  const timing = marchTiming(FS, c.arriveBell);
   const stance = STANCES[m.stance] ?? 'Hold';
   return html`<section class="marchcard" aria-labelledby="mc-title">
     <h3 id="mc-title">${L`進軍：${unit} ${fmtNum(c.host.troops)}`}</h3>
@@ -105,8 +108,9 @@ export function render(FS) {
       <p class="mc-route">${c.route ? routeLine(c.route) : c.routeError ? clientText(c.routeError) : L`道のりを探しています…`}</p>
       ${w ? html`<div class="mc-bell" role="group" aria-label="${L`到着の鐘`}">
         <button type="button" class="btn small" data-act="mc-bell" data-d="-1" aria-label="${L`1つ早い鐘`}" ${raw(w.value <= w.min ? 'disabled' : '')}>−</button>
-        <span class="mc-bell-v"><strong>${L`第${fmtNum(w.value)}鐘に到着`}</strong>${at ? html` <span class="muted">${L`${at.local} ごろ`}</span>` : ''}</span>
+        <span class="mc-bell-v"><strong>${L`第${fmtNum(w.value)}鐘に到着`}</strong></span>
         <button type="button" class="btn small" data-act="mc-bell" data-d="1" aria-label="${L`1つ遅い鐘`}" ${raw(w.value >= w.max ? 'disabled' : '')}>+</button></div>` : ''}
+      ${timing ? html`<p class="muted">${L`到着まで ${span(timing.arrivalIn)} · 結果の目安まで ${span(timing.resultIn)}（ゲーム内）`}</p>` : ''}
       <p class="mc-label">${L`構え`}${termButton('stance')}</p>
       <div class="mc-stances" role="radiogroup" aria-label="${L`構え`}">${STANCES.map((s, i) => html`<button type="button" class="mc-stance" role="radio" aria-checked="${i === m.stance ? 'true' : 'false'}" data-act="mc-stance" data-v="${i}">
         <span class="mc-glyph" aria-hidden="true">${STANCE_GLYPH[s]}</span><span>${STANCE_TEXT[s]}</span>${BEATS[s] ? html`<span class="mc-beats">${L`${STANCE_TEXT[BEATS[s]]}に強い`}</span>` : html`<span class="mc-beats">${L`相性なし`}</span>`}</button>`)}</div>
@@ -115,10 +119,11 @@ export function render(FS) {
       ${def ? html`<div class="mc-odds mc-odds-${odds.id}">
         <p><strong>${odds.text}</strong> <span class="muted">${L`目安（兵数の比べ。実際は鐘の始まりの顔ぶれと乱数で決まります）`}</span></p>
         <p>${L`あなた ${fmtNum(c.host.troops)}（${STANCE_TEXT[stance]}）対 守り ${fmtNum(def.total)}`}</p>
-        ${def.residents.length || def.garrison || def.camp ? html`<ul class="list mc-def">${def.residents.map(r => html`<li>${swatch(r.faction)}${factionName(r.faction)} ${fmtNum(r.troops)}</li>`)}${def.garrison ? html`<li>${L`守備隊 ${fmtNum(def.garrison)}`}</li>` : ''}${def.camp ? html`<li>${L`蛮族 ${fmtNum(def.camp)}`}</li>` : ''}</ul>` : ''}
+        ${def.residents.length || def.garrison || def.camp || def.keep ? html`<ul class="list mc-def">${def.residents.map(r => html`<li>${swatch(r.faction)}${factionName(r.faction)} ${fmtNum(r.troops)}</li>`)}${def.garrison ? html`<li>${L`守備隊 ${fmtNum(def.garrison)}`}</li>` : ''}${def.camp ? html`<li>${L`蛮族 ${fmtNum(def.camp)}`}</li>` : ''}${def.keep ? html`<li>${L`砦の守備兵`}: ${fmtNum(def.keep)}</li>` : ''}</ul>` : ''}
         ${renderForecast(c.forecast)}
       </div>` : html`<p class="muted">${L`行き先の州の中身を読み込むと、守り手が出ます。`}</p>`}
       ${problems.length ? html`<ul class="problems">${problems.map(p => html`<li>${failureText({ code: p })}</li>`)}</ul>` : ''}
+      ${problems.includes('NotResident') && c.origin ? html`<button type="button" class="btn small" data-act="nudge" data-p="${c.origin.p}" data-q="${c.origin.q}">${L`追いつかせる`}</button>` : ''}
       <div class="actions"><button type="button" class="btn primary" data-act="march-send" ${raw(problems.length || busy || !c.route ? 'disabled' : '')}>${L`封をして出発する`}</button>
         <button type="button" class="btn" data-act="tab" data-tab="marches">${L`詳しい設定`}</button>
         <button type="button" class="btn" data-act="compose-close">${L`やめる`}</button></div>`

@@ -42,6 +42,22 @@ pub struct Payers {
 /// larger cost; every in-play Reveal of the M1 runs so far was one).
 pub const REVEAL_FLOOR_WRITE_LOCKS: u8 = 3;
 
+/// The reveal pool's floor priced at the Reveal `budgets` requests (or
+/// `keeper.toml`'s `reveal_floor`). CQ2-D: an MC season reprices it with
+/// the v2 table (its larger `L(kind)`) when the keeper follows the ABI.
+pub fn reveal_floor_for(cfg: &KeeperConfig, budgets: &Budgets) -> u64 {
+    let reveal = budgets.get(fclient::abi::tag::REVEAL);
+    let reveal_cost = fclient::fees::cost(
+        reveal.cu_limit,
+        1,
+        REVEAL_FLOOR_WRITE_LOCKS,
+        reveal.loaded_limit,
+    );
+    cfg.reveal_floor.unwrap_or_else(|| {
+        payers::reveal_floor(cfg.r99_reveals, cfg.reveal_pool.max(1), reveal_cost)
+    })
+}
+
 impl Payers {
     /// Derives the pools of `cfg` from `master` with the canonical budgets
     /// table (`frontier-abi/vectors/budgets.json`). The reveal floor is
@@ -62,16 +78,7 @@ impl Payers {
         cfg: &KeeperConfig,
         budgets: &Budgets,
     ) -> Result<Payers, PoolError> {
-        let reveal = budgets.get(fclient::abi::tag::REVEAL);
-        let reveal_cost = fclient::fees::cost(
-            reveal.cu_limit,
-            1,
-            REVEAL_FLOOR_WRITE_LOCKS,
-            reveal.loaded_limit,
-        );
-        let fr = cfg.reveal_floor.unwrap_or_else(|| {
-            payers::reveal_floor(cfg.r99_reveals, cfg.reveal_pool.max(1), reveal_cost)
-        });
+        let fr = reveal_floor_for(cfg, budgets);
         Ok(Payers {
             reveal: Pool::new(
                 master,
@@ -206,7 +213,16 @@ mod tests {
         // F_r = 3 × ⌈4,000 / 150⌉ × (rent(slot) 1,463,040 + rent(day) 1,137,920
         // + fee(2.0, cost(26,500, 1 sig, 3 locks, 1,146,880 B) = 28,400) 54,300)
         // = 81 × 2,655,260 (DESIGN §22.4's per-reveal front).
-        assert_eq!(p.reveal.floor, 215_076_060, "F_r at R99 = 4,000, N = 150");
+        let row = Budgets::canonical().get(fclient::abi::tag::REVEAL);
+        assert_eq!(
+            p.reveal.floor,
+            fclient::payers::reveal_floor(
+                4000,
+                150,
+                fclient::fees::cost(row.cu_limit, 1, 3, row.loaded_limit)
+            ),
+            "F_r prices the current executable's loaded bytes"
+        );
         assert_eq!(p.reveal.ceiling, 2 * p.reveal.floor);
         assert_eq!(p.all_addresses().len(), 150 + 32 + 4);
     }
@@ -221,14 +237,16 @@ mod tests {
         use fclient::payers::{reveal_floor, R99_DEFAULT};
         let m = [3u8; 32];
         let canonical = Budgets::canonical().get(fclient::abi::tag::REVEAL);
-        assert_eq!(
-            (canonical.cu_limit, canonical.loaded_limit),
-            (26_500, 1_146_880)
-        );
+        assert_eq!(canonical.cu_limit, 26_500);
+        assert!(canonical.loaded_limit >= 1_146_880);
         let p = Payers::new(&m, &cfg(false, 150, 32)).unwrap();
         assert_eq!(
             p.reveal.floor,
-            reveal_floor(R99_DEFAULT, 150, fees::cost(26_500, 1, 3, 1_146_880))
+            reveal_floor(
+                R99_DEFAULT,
+                150,
+                fees::cost(canonical.cu_limit, 1, 3, canonical.loaded_limit)
+            )
         );
         let placeholder = reveal_floor(
             R99_DEFAULT,
@@ -236,7 +254,10 @@ mod tests {
             fees::cost(26_000, 1, 2, fees::DEFAULT_LOADED_LIMIT),
         );
         assert_eq!(placeholder, 214_942_572, "the pre-fix floor");
-        assert_eq!(p.reveal.floor - placeholder, 81 * (54_300 - 52_652));
+        assert!(
+            p.reveal.floor > placeholder,
+            "canonical loaded data must be fully priced"
+        );
         let mut b = Budgets::placeholder();
         b.set(
             fclient::abi::tag::REVEAL,

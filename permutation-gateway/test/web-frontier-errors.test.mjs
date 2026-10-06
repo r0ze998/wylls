@@ -19,7 +19,8 @@ afterEach(() => setLang('ja'));
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
 const JP = /[぀-ヿ一-鿿]/;
 const ABI = JSON.parse(readFileSync(join(REPO, 'frontier-abi/vectors/errors.json'), 'utf8'));
-const abiErrors = (ABI.errors ?? ABI).map(e => ({ code: e.code, name: e.name }));
+const CQ_ABI = JSON.parse(readFileSync(join(REPO, 'frontier-abi/vectors/v2/errors.json'), 'utf8'));
+const abiErrors = [...new Map([...(ABI.errors ?? ABI), ...CQ_ABI.errors].map(e => [e.code, e])).values()].map(e => ({ code: e.code, name: e.name }));
 
 const walk = dir => readdirSync(dir).flatMap(n => { const p = join(dir, n); return statSync(p).isDirectory() ? walk(p) : [p]; });
 const src = p => readFileSync(p, 'utf8');
@@ -61,7 +62,7 @@ const hasText = code => {
 
 test('every program error code of the ABI has its own Japanese and English text', () => {
   assert.ok(abiErrors.length >= 60);
-  assert.deepEqual(abiErrors.map(e => [e.code, e.name]), ERRORS.map(([c, n]) => [c, n]), 'abi.mjs carries frontier-abi\'s table');
+  assert.deepEqual((ABI.errors ?? ABI).map(e => [e.code, e.name]), ERRORS.map(([c, n]) => [c, n]), 'abi.mjs carries frontier-abi\'s table');
   const seen = new Map();
   for (const { code, name } of abiErrors) {
     setLang('ja');

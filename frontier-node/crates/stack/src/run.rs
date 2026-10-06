@@ -64,12 +64,39 @@ pub fn bin_dir() -> Result<PathBuf, String> {
         .ok_or("no executable directory".into())
 }
 
+pub struct RunLock(std::fs::File);
+impl Drop for RunLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct RunDir {
     pub root: PathBuf,
 }
 
 impl RunDir {
+    /// One supervisor per run, including its startup window. OS locks release
+    /// after a crash; the lock file is outside the replaceable run directory.
+    pub fn lock(&self) -> Result<RunLock, String> {
+        let parent = self.root.parent().ok_or("run has no parent")?;
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        let name = self
+            .root
+            .file_name()
+            .ok_or("run has no name")?
+            .to_string_lossy();
+        let f = std::fs::OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(parent.join(format!(".{name}.lock")))
+            .map_err(|e| e.to_string())?;
+        f.try_lock()
+            .map_err(|e| format!("run already has a supervisor: {e}"))?;
+        Ok(RunLock(f))
+    }
     pub fn new(runs: &Path, run_id: &str) -> RunDir {
         RunDir {
             root: runs.join(run_id),
@@ -87,6 +114,13 @@ impl RunDir {
     }
     pub fn log(&self, component: &str) -> PathBuf {
         self.path(&format!("logs/{component}.log"))
+    }
+    pub fn has_persistent_world(&self) -> bool {
+        self.path("localnet/ledger.wal").exists()
+            || self.path("program.so").exists()
+            || self
+                .load_state()
+                .is_ok_and(|s| s["config"]["conquest"] == true)
     }
     pub fn exists(&self) -> bool {
         self.state_path().is_file()
@@ -237,5 +271,116 @@ mod tests {
             assert_eq!(m & 0o777, 0o600);
         }
         let _ = std::fs::remove_dir_all(&d);
+    }
+}
+
+/// World-local service copies keep WAL replay stable after a later development build.
+pub fn pin_native_binaries(rd: &RunDir, source: &Path) -> Result<PathBuf, String> {
+    use sha2::{Digest, Sha256};
+    let dest = rd.path("bin");
+    std::fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
+    let mut manifest = serde_json::Map::new();
+    for name in [
+        "frontier-localnet",
+        "drand-replay",
+        "frontier-keeper",
+        "frontier-herald",
+        "frontier-bots",
+        "frontier-viewers",
+    ] {
+        let target = dest.join(name);
+        std::fs::copy(source.join(name), &target).map_err(|e| format!("pin {name}: {e}"))?;
+        let bytes = std::fs::read(&target).map_err(|e| e.to_string())?;
+        manifest.insert(name.into(), json!(hex::encode(Sha256::digest(bytes))));
+    }
+    write_atomic(
+        &rd.path("native-binaries.json"),
+        &serde_json::to_vec_pretty(&manifest).unwrap(),
+    )?;
+    Ok(dest)
+}
+
+pub fn check_native_binary(rd: &RunDir, path: &Path) -> Result<(), String> {
+    use sha2::{Digest, Sha256};
+    let manifest: Value = serde_json::from_slice(
+        &std::fs::read(rd.path("native-binaries.json"))
+            .map_err(|e| format!("native binary manifest: {e}"))?,
+    )
+    .map_err(|e| e.to_string())?;
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or("invalid native binary name")?;
+    let expected = manifest[name]
+        .as_str()
+        .ok_or("native binary is not pinned")?;
+    let actual = hex::encode(Sha256::digest(
+        std::fs::read(path).map_err(|e| e.to_string())?,
+    ));
+    if expected != actual {
+        return Err(format!(
+            "saved native binary {name} changed; refusing unsafe WAL replay"
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod persistence_tests {
+    use super::*;
+    #[test]
+    fn supervisor_lock_is_exclusive_and_released() {
+        let root = std::env::temp_dir().join(format!(
+            "frontier-lock-{}-{}",
+            std::process::id(),
+            wall_ms()
+        ));
+        let rd = RunDir::new(&root, "world");
+        let first = rd.lock().unwrap();
+        assert!(rd.lock().is_err());
+        drop(first);
+        assert!(rd.lock().is_ok());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn missing_or_corrupt_metadata_never_makes_a_saved_ledger_disposable() {
+        let root = std::env::temp_dir().join(format!(
+            "frontier-preserve-{}-{}",
+            std::process::id(),
+            wall_ms()
+        ));
+        let rd = RunDir::new(&root, "world");
+        rd.create().unwrap();
+        std::fs::write(rd.path("localnet/ledger.wal"), b"saved world").unwrap();
+        assert!(rd.has_persistent_world());
+        std::fs::write(rd.state_path(), b"{corrupt").unwrap();
+        assert!(rd.has_persistent_world());
+        rd.save_state(&json!({"config":{"conquest":false}}))
+            .unwrap();
+        assert!(rd.has_persistent_world());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn native_binary_hash_detects_changes() {
+        let root =
+            std::env::temp_dir().join(format!("frontier-pin-{}-{}", std::process::id(), wall_ms()));
+        std::fs::create_dir_all(root.join("source")).unwrap();
+        for name in [
+            "frontier-localnet",
+            "drand-replay",
+            "frontier-keeper",
+            "frontier-herald",
+            "frontier-bots",
+            "frontier-viewers",
+        ] {
+            std::fs::write(root.join("source").join(name), b"original").unwrap();
+        }
+        let rd = RunDir::new(&root, "world");
+        let bin = pin_native_binaries(&rd, &root.join("source")).unwrap();
+        let path = bin.join("frontier-localnet");
+        check_native_binary(&rd, &path).unwrap();
+        std::fs::write(&path, b"changed").unwrap();
+        assert!(check_native_binary(&rd, &path).is_err());
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

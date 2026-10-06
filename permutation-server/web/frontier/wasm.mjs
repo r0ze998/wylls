@@ -235,9 +235,10 @@ export async function loadKernel({ url = new URL('./wasm/frontier.wasm', import.
   return k;
 }
 
-let loading = null;
+const loading = new Map();
 /** The page's kernel, loaded once on first need (a failure is kept: the caller shows it and offers a retry). */
 export function kernel(opts) {
-  if (!loading) loading = loadKernel(opts).catch(e => { loading = null; throw e; });
-  return loading;
+  const key = `${opts?.ruleset ?? RULESET_HASH}|${opts?.url ?? 'default'}`;
+  if (!loading.has(key)) loading.set(key, loadKernel(opts).catch(e => { loading.delete(key); throw e; }));
+  return loading.get(key);
 }

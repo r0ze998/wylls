@@ -8,7 +8,14 @@
 //!               [--journal DIR] [--report FILE] [--invites FILE]
 //!               [--game-hours H] [--scale S] [--control 127.0.0.1:41070]
 //!               [--day0-share F] [--eager-personas]
+//!               [--conquest] [--conquest-personas N]
 //! ```
+//!
+//! `--conquest` (MC §8.6, CQ2-F) turns the conquest layer on: the faction
+//! campaign planner once per game hour from the herald's files, march
+//! orders, the horn, outposts, retire, and the nineteen conquest personas
+//! (`--conquest-personas N` bots each, at most max(1, bots / 100); default
+//! 1). The report gains `conquest` and `activity`.
 //!
 //! `--day0-share F` (0–1) is the share of the roster that joins on day 0
 //! (default: the mix's 0.6; `itest::inproc_day` uses 1.0); `--eager-personas`
@@ -54,10 +61,37 @@ struct Args {
     // AI hook
     ai: frontier_bots::ai::AiOpts,
     // AI hook end
+    conquest: bool,
+    conquest_personas: Option<u32>,
+    bot_share: Option<f64>,
 }
 
+/// The fleet's population mix. **`--conquest` plays the roster the
+/// simulator's reference was derived on** (W2R2-F4): `thresholds/mc-7d-1k.json`
+/// is `mapmove --bot-profile cq --bots 0.99`, and only `Arch::Bot` wallets
+/// follow the planner's epoch (the human archetypes of M1's roster make no
+/// conquest move under `--conquest`), so the conquest default is 99% bots;
+/// `--bot-share F` overrides it (the M1 default 0.05 stays without
+/// `--conquest`).
+fn mix_of(a: &Args) -> Mix {
+    let mut mix = Mix {
+        persona_count: a.personas,
+        ..Mix::for_season_days(a.days)
+    };
+    if let Some(f) = a.bot_share.or(a.conquest.then_some(CONQUEST_BOT_SHARE)) {
+        mix.bot_share = f;
+    }
+    if let Some(f) = a.day0_share {
+        mix.day0_share = f;
+    }
+    mix
+}
+
+/// The bot share `--conquest` runs (§8.7 item 7's reference: `--bots 0.99`).
+const CONQUEST_BOT_SHARE: f64 = 0.99;
+
 fn usage(e: &str) -> ! {
-    eprintln!("frontier-bots: {e}\nusage: frontier-bots --herald URL --relay URL [--rpc URL] [--seed N] [--bots N] [--first-index N] [--days N] [--personas default|off|N] [--journal DIR] [--report FILE] [--invites FILE] [--game-hours H] [--scale S] [--control 127.0.0.1:PORT] [--day0-share F] [--eager-personas]");
+    eprintln!("frontier-bots: {e}\nusage: frontier-bots --herald URL --relay URL [--rpc URL] [--seed N] [--bots N] [--first-index N] [--days N] [--personas default|off|N] [--journal DIR] [--report FILE] [--invites FILE] [--game-hours H] [--scale S] [--control 127.0.0.1:PORT] [--day0-share F] [--eager-personas] [--conquest] [--conquest-personas N] [--bot-share F]");
     std::process::exit(2);
 }
 
@@ -86,6 +120,9 @@ fn parse_from(args: impl Iterator<Item = String>) -> Args {
         // AI hook
         ai: Default::default(),
         // AI hook end
+        conquest: false,
+        conquest_personas: None,
+        bot_share: None,
     };
     let mut it = args;
     while let Some(k) = it.next() {
@@ -146,9 +183,28 @@ fn parse_from(args: impl Iterator<Item = String>) -> Args {
             "--follow-council" => a.ai.follow_council = true,
             "--export-seat-key" => a.ai.export_seat_key = Some(v().into()),
             // AI hook end
+            "--conquest" => a.conquest = true,
+            "--conquest-personas" => {
+                a.conquest_personas = Some(
+                    v().parse()
+                        .unwrap_or_else(|_| usage("--conquest-personas: a number")),
+                )
+            }
+            "--bot-share" => {
+                let f: f64 = v()
+                    .parse()
+                    .unwrap_or_else(|_| usage("--bot-share: a number in [0, 1]"));
+                if !(0.0..=1.0).contains(&f) {
+                    usage("--bot-share: a number in [0, 1]");
+                }
+                a.bot_share = Some(f);
+            }
             "-h" | "--help" => usage("help"),
             _ => usage(&format!("unknown argument {k}")),
         }
+    }
+    if a.conquest_personas.is_some() && !a.conquest {
+        usage("--conquest-personas needs --conquest");
     }
     for (n, u) in [("--herald", &a.herald), ("--relay", &a.relay)] {
         if u.is_empty() {
@@ -264,13 +320,7 @@ async fn go<D: frontier_bots::ports::DirectPort + 'static>(a: Args, direct: Opti
             }
         }
     }
-    let mut mix = Mix {
-        persona_count: a.personas,
-        ..Mix::for_season_days(a.days)
-    };
-    if let Some(f) = a.day0_share {
-        mix.day0_share = f;
-    }
+    let mix = mix_of(&a);
     let mut r = roster(a.bots, a.seed, &mix);
     for s in &mut r {
         s.index += a.first_index;
@@ -300,7 +350,7 @@ async fn go<D: frontier_bots::ports::DirectPort + 'static>(a: Args, direct: Opti
         None => end,
     };
     // AI hook
-    let shared = match frontier_bots::ai::setup(shared, &mut r, &a.ai, a.seed) {
+    let mut shared = match frontier_bots::ai::setup(shared, &mut r, &a.ai, a.seed) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("frontier-bots: {e}");
@@ -308,6 +358,18 @@ async fn go<D: frontier_bots::ports::DirectPort + 'static>(a: Args, direct: Opti
         }
     };
     // AI hook end
+    if a.conquest {
+        let cfg = frontier_bots::conquest::CqConfig {
+            personas_per: a.conquest_personas.unwrap_or(1),
+        };
+        let c = frontier_bots::conquest::Conquest::new(a.seed, &r, cfg);
+        eprintln!(
+            "frontier-bots: --conquest, {} conquest personas ({} each)",
+            c.personas().len(),
+            c.cfg.personas_per
+        );
+        shared = shared.with_conquest(c);
+    }
     let mut fleet = Fleet::new(shared, &r);
     // AI hook
     frontier_bots::ai::mark_bots(&mut fleet);
@@ -440,7 +502,7 @@ async fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_loopback_url, keep_previous_report, parse_from};
+    use super::{is_loopback_url, keep_previous_report, mix_of, parse_from, Args};
 
     /// integ-W6t review: a restarted fleet keeps the killed lifetime's
     /// report (`report-life-<n>.json`) instead of overwriting it.
@@ -519,6 +581,67 @@ mod tests {
         assert!(a.ai.follow_council && a.ai.slots.is_some() && a.ai.brain.is_none());
     }
     // AI hook end
+    /// §8.6: `--conquest` turns the conquest layer on and
+    /// `--conquest-personas N` sizes the personas; the latter needs the
+    /// former.
+    #[test]
+    fn cq_conquest_flag_parses() {
+        let args = |v: &[&str]| {
+            v.iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+                .into_iter()
+        };
+        let base = [
+            "--herald",
+            "http://127.0.0.1:41640",
+            "--relay",
+            "http://127.0.0.1:41633",
+        ];
+        let a = parse_from(args(&base));
+        assert!(!a.conquest && a.conquest_personas.is_none());
+        let mut v = base.to_vec();
+        v.extend(["--conquest", "--conquest-personas", "3", "--bots", "300"]);
+        let a = parse_from(args(&v));
+        assert!(a.conquest);
+        assert_eq!((a.conquest_personas, a.bots), (Some(3), 300));
+    }
+
+    /// W2R2-F4: `--conquest` runs the 99%-bot roster the thresholds file
+    /// was derived on, so the planner can dispatch (nearly) every wallet;
+    /// without it the M1 roster (5% bots) stays; `--bot-share` overrides.
+    #[test]
+    fn cq_conquest_roster_is_the_reference_bot_mix() {
+        use frontier_agents::profile::{roster, Arch};
+        let args = |v: &[&str]| {
+            v.iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+                .into_iter()
+        };
+        let base = [
+            "--herald",
+            "http://127.0.0.1:41640",
+            "--relay",
+            "http://127.0.0.1:41633",
+        ];
+        let bots = |a: &Args| {
+            roster(1_000, 7, &mix_of(a))
+                .iter()
+                .filter(|s| s.arch == Arch::Bot)
+                .count()
+        };
+        let plain = parse_from(args(&base));
+        assert!(bots(&plain) < 100, "M1's roster: about 5% bots");
+        let mut v = base.to_vec();
+        v.push("--conquest");
+        let cq = parse_from(args(&v));
+        let n = bots(&cq);
+        assert!(n >= 970, "--conquest: about 99% epoch-driven bots, got {n}");
+        v.extend(["--bot-share", "0.5"]);
+        let half = parse_from(args(&v));
+        assert!((400..600).contains(&bots(&half)));
+    }
 
     #[test]
     fn loopback_urls_only() {

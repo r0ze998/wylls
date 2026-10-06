@@ -577,3 +577,15 @@ body[data-urgency="crit"] main { box-shadow: inset 0 0 0 4px #c8412f; }
 .report-leader { display: flex; gap: 10px; align-items: center; margin: 8px 0 4px; font-style: italic; }
 .report-leader svg { flex: none; border-radius: 50%; background: rgba(0,0,0,.05); }
 .host-row .host-what { margin-left: 8px; }
+
+/* Province control and the season goal stay readable in the 360 px inspector. */
+.conquest-panel { display: grid; gap: 16px; }
+.conquest-keep, .conquest-standings { min-width: 0; border-top: 1px solid var(--line-soft); padding-top: 14px; }
+.conquest-scores { width: 100%; font-variant-numeric: tabular-nums; font-size: 13px; }
+.conquest-scores th, .conquest-scores td { padding: 8px 5px; }
+.conquest-scores th[scope="row"] { text-align: left; }
+.conquest-scores .is-mine { background: var(--ok-bg); }
+.conquest-scores .tag { display: block; width: fit-content; font-size: 11px; }
+.conquest-result { padding: 14px; background: var(--ok-bg); border-left: 4px solid var(--accent); font-weight: 700; }
+.conquest-season-clock { font-variant-numeric: tabular-nums; }
+.conquest-keep form, .conquest-keep select { max-width: 100%; }

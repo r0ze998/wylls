@@ -17,7 +17,7 @@ import { factionName, failureText } from '../fi18n.mjs';
 import { countdown } from '../clock.mjs';
 
 export const TAB_IDS = Object.freeze(['map', 'holding', 'hosts', 'marches', 'more']);
-const TAB_TEXT = { map: () => L`地図`, holding: () => L`村`, hosts: () => L`軍勢`, marches: () => L`進軍`, more: () => L`その他` };
+const TAB_TEXT = { map: () => L`地図`, holding: () => L`村`, hosts: () => L`軍勢`, marches: () => L`進軍`, nation: () => L`国と領土`, more: () => L`その他` };
 export const tabLabel = id => TAB_TEXT[id]?.() ?? id;
 
 /** Lamports with thousands separators ("14,441 lamports"). */
@@ -41,7 +41,8 @@ export const quotaChip = q => (q && Number.isFinite(Number(q.left)) ? L`中継 �
 export function tabs(FS) {
   const land = FS.land?.stage;
   const holds = land === 'provisional' || land === 'final';
-  return TAB_IDS.filter(id => holds || !['holding', 'hosts'].includes(id)).map(id => ({ id, label: tabLabel(id), current: (FS.tab ?? 'map') === id }));
+  const ids = Number(FS.season?.programVersion ?? 0) >= 3 ? ['map', 'holding', 'hosts', 'marches', 'nation', 'more'] : TAB_IDS;
+  return ids.filter(id => holds || !['holding', 'hosts'].includes(id)).map(id => ({ id, label: tabLabel(id), current: (FS.tab ?? 'map') === id }));
 }
 
 export function renderTabs(FS) {

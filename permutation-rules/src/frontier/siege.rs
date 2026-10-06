@@ -24,9 +24,17 @@
 /// Version of this kernel, bound into `RULESET_HASH` (`super::KERNEL_VERSIONS`):
 /// bump it whenever an honest outcome changes. v2: M1 CL-09 vigil change rule (midnight switch, first new window skipped unless a day after the last old one).
 pub const SIEGE_VERSION: u16 = 2;
+/// The conquest rules' version (MC §3.4–§3.6, §7): sieges declared from
+/// the hex (no start window), Free Cities without a vigil, the bounded
+/// `TooLate` check, faction-scoped immunity and Respite, capture credit
+/// and the heartland as a season parameter. The v3 API lives beside the v2
+/// one ([`SiegeCheckV3`], [`may_besiege_v3`], [`SiegeV3`], …); bound into
+/// `ruleset_hash_input_v2` only, [`SIEGE_VERSION`] keeps the M1 value
+/// (staged ABI, MC §5.1).
+pub const SIEGE_VERSION_V3: u16 = 3;
 
 use super::doctrine::bounds::SIEGE_EXTRA_MAX;
-use super::geometry::{is_heartland, march_of, valid_faction, ProvinceCoord};
+use super::geometry::{is_heartland, is_heartland_in, march_of, valid_faction, ProvinceCoord};
 use super::holding::{Holding, MAX_WALLS, RESOURCES};
 use crate::fixed::{Bps, Milli, MilliTroops, BPS_ONE};
 use alloc::vec;
@@ -596,4 +604,417 @@ pub fn raid(holding: &mut Holding, last_raid: Option<i64>, now: i64) -> Option<[
         core::array::from_fn(|r| stock[r].max(0) * RAID_MAX_BPS as i64 / BPS_ONE as i64);
     holding.pay(now, &loot).ok()?;
     Some(loot)
+}
+
+// ====================================================================
+// Siege v3: the conquest rules (MC contract §3.4–§3.6, §7)
+// ====================================================================
+
+/// Bells per day (a bell is 600 s).
+const BELLS_PER_DAY: u32 = 144;
+const BELL_SECS: i64 = 600;
+
+/// Any [`VIGIL_WINDOW_BOUND`] consecutive bells hold at least
+/// [`VIGIL_WINDOW_MIN_OUTSIDE`] bells whose start lies outside a vigil
+/// schedule (MC §3.4 step 9, R-08). CL-09 bounds the covered bells of any
+/// 144 consecutive bells by 48 (`Vigil`'s doc), so 288 bells hold at most
+/// 96 covered and at least 192 outside; the contract pins the weaker 96,
+/// which is ≥ every `required` a siege can need (`MAX_REQUIRED_BELLS` 84).
+/// `cq_vigil_window_bound` checks it over random schedules with pending
+/// changes.
+pub const VIGIL_WINDOW_BOUND: u32 = 288;
+/// See [`VIGIL_WINDOW_BOUND`].
+pub const VIGIL_WINDOW_MIN_OUTSIDE: u32 = 96;
+
+/// `barred_faction` of a post-capture immunity: every faction (MC §5.2.1).
+pub const BARRED_ALL: u8 = 0xFE;
+/// `barred_faction` of a record with no immunity.
+pub const BARRED_NONE: u8 = 0xFF;
+
+/// Whether bell `b`'s scheduled start lies inside `vigil` (a Free City,
+/// `None`, has no vigil).
+fn covered(vigil: Option<&Vigil>, genesis_ts: i64, b: u32) -> bool {
+    match vigil {
+        Some(v) => v.covers(genesis_ts + b as i64 * BELL_SECS),
+        None => false,
+    }
+}
+
+/// `may_besiege` input for the conquest rules (MC §3.4 step 8). The M1
+/// fields of [`SiegeCheck`] except `founded_day`, which the season
+/// parameters replace: Frontier protection applies to a holding founded
+/// more than `frontier_protect_after_secs` after `genesis_ts`, for
+/// `frontier_protect_secs` after its shield ends (M1: day > 2, 7 days).
+#[derive(Clone, Copy, Debug)]
+pub struct SiegeCheckV3 {
+    pub province: ProvinceCoord,
+    pub kind: HoldingKind,
+    pub owner_faction: u8,
+    pub attacker_faction: u8,
+    /// MC: always `Rivalry` (§3.9); M3 plugs in here.
+    pub relation: Relation,
+    /// MC: always `false`.
+    pub march_hostility: bool,
+    /// MC: always `false`.
+    pub march_truce: bool,
+    pub founded_ts: i64,
+    /// End of the target's shield (`shield_secs` or `outpost_shield_secs`
+    /// after founding, per the season's `LifecycleParams`).
+    pub shield_until: i64,
+    pub dormant: bool,
+    /// The attacker's faction has a **first** holding within 2 provinces
+    /// (the caller proves it with a named Province, MC §3.4 step 8).
+    pub attacker_nearby: bool,
+    pub now: i64,
+    pub heartland_max_ring: u8,
+    pub frontier_protect_secs: i64,
+    pub frontier_protect_after_secs: i64,
+    pub genesis_ts: i64,
+}
+
+/// Whether the attacker may declare a siege now under the conquest rules:
+/// [`may_besiege`]'s order (faction ids, Seat, Free City accepted, same
+/// faction or peace, shield unless dormant, Frontier protection, truce,
+/// heartland unless at war) with the season's protection timers and
+/// `heartland_max_ring`.
+pub fn may_besiege_v3(c: &SiegeCheckV3) -> Result<(), SiegeRefusal> {
+    if !valid_faction(c.attacker_faction, false)
+        || !valid_faction(c.owner_faction, c.kind == HoldingKind::FreeCity)
+    {
+        return Err(SiegeRefusal::BadFaction);
+    }
+    if c.kind == HoldingKind::Seat || c.province.is_seat() || c.province.is_concord() {
+        return Err(SiegeRefusal::Seat);
+    }
+    if c.kind == HoldingKind::FreeCity {
+        return Ok(());
+    }
+    if c.owner_faction == c.attacker_faction
+        || matches!(
+            c.relation,
+            Relation::Peace | Relation::Nap | Relation::Alliance
+        )
+    {
+        return Err(SiegeRefusal::Friendly);
+    }
+    if c.now < c.shield_until && !c.dormant {
+        return Err(SiegeRefusal::Shielded);
+    }
+    let late = c.founded_ts.saturating_sub(c.genesis_ts) > c.frontier_protect_after_secs;
+    if late && c.now < c.shield_until.saturating_add(c.frontier_protect_secs) && !c.attacker_nearby
+    {
+        return Err(SiegeRefusal::FrontierProtected);
+    }
+    if c.march_truce {
+        return Err(SiegeRefusal::Truce);
+    }
+    let war = c.relation == Relation::War || c.march_hostility;
+    if is_heartland_in(c.province, c.owner_faction, c.heartland_max_ring) && !war {
+        return Err(SiegeRefusal::Heartland);
+    }
+    Ok(())
+}
+
+/// A conquest-rules siege (MC §3.4), the state its 32-byte record holds.
+/// Declared from the hex by its lead host, so the besiegers hold the hex
+/// from the horn: there is no start window, and the first counted bell at
+/// which the attacker faction does not hold the hex fails it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct SiegeV3 {
+    pub attacker_faction: u8,
+    pub declared_bell: u32,
+    pub progress: u8,
+    /// `required_bells(walls at bell_start(declared), 0)` (≤ 60 in MC).
+    pub required: u8,
+    pub status: SiegeStatus,
+}
+
+impl SiegeV3 {
+    /// The horn at bell `b` (counting starts with `b + 1`). `required` is
+    /// `required_bells(walls, extra)` saturated to `u8`.
+    pub fn declare(attacker_faction: u8, b: u32, walls: u32, extra: u32) -> SiegeV3 {
+        SiegeV3 {
+            attacker_faction,
+            declared_bell: b,
+            progress: 0,
+            required: required_bells(walls, extra).min(u8::MAX as u32) as u8,
+            status: SiegeStatus::Active,
+        }
+    }
+
+    /// Count bell `b` (scheduled start `start`; the caller counts each bell
+    /// after `declared_bell` once, in order). `vigil` is the schedule
+    /// snapshotted at the horn, `None` for a Free City.
+    ///
+    /// * the attacker faction does not hold the hex → **Failed**;
+    /// * else a defender on the hex or a bell inside the vigil → no change;
+    /// * else progress + 1, **Completed** at `required`.
+    pub fn advance(
+        &mut self,
+        b: u32,
+        start: i64,
+        r: BellReport,
+        vigil: Option<&Vigil>,
+    ) -> SiegeStatus {
+        let _ = b;
+        if self.status != SiegeStatus::Active {
+            return self.status;
+        }
+        if !r.holds(self.attacker_faction) {
+            self.status = SiegeStatus::Failed;
+            return self.status;
+        }
+        if r.defender_present || vigil.is_some_and(|v| v.covers(start)) {
+            return self.status;
+        }
+        self.progress = self.progress.saturating_add(1);
+        if self.progress >= self.required {
+            self.status = SiegeStatus::Completed;
+        }
+        self.status
+    }
+
+    /// Count the quiet bells `b0 ..= b1` at once (every one reports `r`).
+    /// Returns the status and the last bell counted: the bell that failed
+    /// or completed the siege, else `b1`. Equal to calling
+    /// [`SiegeV3::advance`] for each bell (`cq_siege_v3_quiet_equals_bells`).
+    pub fn advance_quiet(
+        &mut self,
+        b0: u32,
+        b1: u32,
+        genesis_ts: i64,
+        r: BellReport,
+        vigil: Option<&Vigil>,
+    ) -> (SiegeStatus, u32) {
+        if self.status != SiegeStatus::Active || b1 < b0 {
+            return (self.status, b1);
+        }
+        if !r.holds(self.attacker_faction) {
+            self.status = SiegeStatus::Failed;
+            return (self.status, b0);
+        }
+        if r.defender_present {
+            return (self.status, b1);
+        }
+        let need = (self.required.saturating_sub(self.progress)) as u32;
+        let count = |e: u32| -> u32 {
+            match vigil {
+                Some(v) => bells_outside_vigil(v, genesis_ts, b0, e),
+                None => e - b0,
+            }
+        };
+        let got = count(b1 + 1);
+        if got < need {
+            self.progress = self.progress.saturating_add(got.min(255) as u8);
+            return (self.status, b1);
+        }
+        // The smallest e with `need` counted bells in [b0, e].
+        let (mut lo, mut hi) = (b0, b1);
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            if count(mid + 1) >= need {
+                hi = mid;
+            } else {
+                lo = mid + 1;
+            }
+        }
+        self.progress = self.required;
+        self.status = SiegeStatus::Completed;
+        (self.status, lo)
+    }
+}
+
+/// Whether a siege needing `required` bells, counted from bell `from`, can
+/// complete before `end_bell` (MC §3.4 step 9, `TooLate`): at least
+/// `required` bells of `[from, end_bell)` start outside `vigil` (`None`: a
+/// Free City, every bell counts).
+///
+/// **Bounded (R-08):** true at once when `end_bell − from ≥
+/// VIGIL_WINDOW_BOUND` and `required ≤ VIGIL_WINDOW_MIN_OUTSIDE`; otherwise
+/// a forward scan that stops when `required` bells are counted or the range
+/// ends: at most 287 `covers()` calls whatever the horizon or schedule.
+pub fn can_complete_before(
+    required: u8,
+    vigil: Option<&Vigil>,
+    from: u32,
+    end_bell: u32,
+    genesis: i64,
+) -> bool {
+    let mut calls = 0;
+    can_complete_before_counted(required, vigil, from, end_bell, genesis, &mut calls)
+}
+
+/// [`can_complete_before`] that adds its `covers()` calls to `calls` (the
+/// test hook of `cq_covers_bound`).
+pub fn can_complete_before_counted(
+    required: u8,
+    vigil: Option<&Vigil>,
+    from: u32,
+    end_bell: u32,
+    genesis: i64,
+    calls: &mut u32,
+) -> bool {
+    let need = required as u32;
+    let range = end_bell.saturating_sub(from);
+    if need == 0 {
+        return true;
+    }
+    if range < need {
+        return false;
+    }
+    let Some(v) = vigil else {
+        return true;
+    };
+    if range >= VIGIL_WINDOW_BOUND && need <= VIGIL_WINDOW_MIN_OUTSIDE {
+        return true;
+    }
+    if range >= VIGIL_WINDOW_BOUND {
+        // `required` above the pinned bound (never in MC: ≤ 84): the
+        // closed-form count, O(schedule segments).
+        return bells_outside_vigil(v, genesis, from, end_bell) >= need;
+    }
+    let mut got = 0u32;
+    let mut b = from;
+    while b < end_bell {
+        *calls += 1;
+        if !v.covers(genesis + b as i64 * BELL_SECS) {
+            got += 1;
+            if got >= need {
+                return true;
+            }
+        }
+        b += 1;
+    }
+    false
+}
+
+/// The earliest bell at which a siege needing `required` bells, counted
+/// from bell `from`, can complete: the smallest `e` with `required` bells
+/// of `[from, e]` outside `vigil` (MC §3.4: the ETA the herald, the web and
+/// the bots show; **off chain only**). A forward scan bounded by
+/// `required` plus the vigil bells of 3 days. `from − 1` when `required`
+/// is 0.
+pub fn earliest_completion_bell(
+    required: u8,
+    vigil: Option<&Vigil>,
+    from: u32,
+    genesis: i64,
+) -> u32 {
+    let need = required as u32;
+    if need == 0 {
+        return from.saturating_sub(1);
+    }
+    let limit = from.saturating_add(need + 3 * BELLS_PER_DAY);
+    let mut got = 0u32;
+    let mut b = from;
+    while b < limit {
+        if !covered(vigil, genesis, b) {
+            got += 1;
+            if got == need {
+                return b;
+            }
+        }
+        b += 1;
+    }
+    // Unreachable for a CL-09 schedule (≤ 48 covered bells in any 144).
+    limit
+}
+
+/// Whether a failed siege was broken by the defender's side (MC §3.4
+/// failure, K-06 / program F1): the failing bell had a defender present.
+/// "The owner's side held the hex" (`defender_present && holders == 0`)
+/// is a case of it. A garrison alone does not count: it also stands after
+/// a deserted siege, which must give no immunity and burn the stake.
+pub const fn broken_by_defender(r: BellReport) -> bool {
+    r.defender_present
+}
+
+/// Whether a record's immunity bars `attacker` at `now_bell` (MC §3.4
+/// step 5, K-06): `barred_faction` is the attacker or [`BARRED_ALL`] and
+/// `now_bell < immune_until_bell`.
+pub const fn immunity_bars(
+    barred_faction: u8,
+    immune_until_bell: u32,
+    attacker: u8,
+    now_bell: u32,
+) -> bool {
+    (barred_faction == attacker || barred_faction == BARRED_ALL) && now_bell < immune_until_bell
+}
+
+/// How an occupation ended (MC §3.5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum OccupationEndKind {
+    /// The occupier's faction no longer holds the hex (event `LIBERATED`).
+    Liberated,
+    /// Tenure reached (event `OCCUPATION_EXPIRED`).
+    Expired,
+}
+
+/// The end of an occupation and whether it grants Respite (against the
+/// occupier's faction only).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct OccupationEnd {
+    pub kind: OccupationEndKind,
+    pub respite: bool,
+}
+
+/// Whether an occupation that started at bell `start` ends at bell `b`
+/// (MC §3.5, R-05):
+///
+/// * `b ≥ start + tenure` → **Expired**, with Respite (tenure takes
+///   precedence when both hold at one bell);
+/// * else the occupier's faction does not hold the hex
+///   (`!holds_occupier`) → **Liberated**, with Respite only when the
+///   owner's faction holds the hex (`owner_holds`); an occupier that walks
+///   away, or a third faction taking the hex, gives none (`no_respite`);
+/// * else `None` (it continues).
+pub fn occupation_ends(
+    holds_occupier: bool,
+    owner_holds: bool,
+    b: u32,
+    start: u32,
+    tenure: u32,
+) -> Option<OccupationEnd> {
+    if b >= start.saturating_add(tenure) {
+        return Some(OccupationEnd {
+            kind: OccupationEndKind::Expired,
+            respite: true,
+        });
+    }
+    if !holds_occupier {
+        return Some(OccupationEnd {
+            kind: OccupationEndKind::Liberated,
+            respite: owner_holds,
+        });
+    }
+    None
+}
+
+/// Whether a capture completed at bell `b` is credited (MC §3.6, K-26):
+/// the victim held the site at least `min_bells`, counted from the hour it
+/// began to hold it (`b + 1 − 6 × held_since_hour ≥ min_bells`). A genesis
+/// Free City is always credited.
+pub fn capture_credited(
+    b: u32,
+    held_since_hour: u16,
+    min_bells: u32,
+    genesis_free_city: bool,
+) -> bool {
+    if genesis_free_city {
+        return true;
+    }
+    let since = 6u64 * held_since_hour as u64;
+    let next = b as u64 + 1;
+    next.saturating_sub(since) >= min_bells as u64
+}
+
+/// `held_since_hour` of a site taken over at bell `b + 1` (MC §3.6:
+/// `⌈(b + 1) / 6⌉`).
+pub const fn held_since_hour_from(next_bell: u32) -> u16 {
+    let h = next_bell.div_ceil(6);
+    if h > u16::MAX as u32 {
+        u16::MAX
+    } else {
+        h as u16
+    }
 }

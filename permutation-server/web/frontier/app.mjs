@@ -1,3 +1,5 @@
+import * as conquestScreen from './screens/conquest.mjs';
+import { conquestEnabled, outpostOffer } from './fconquest.mjs';
 // Boot of the Frontier pages (index, practice, spectate): config → the
 // herald's season record → pins (program, cluster, season, ruleset,
 // beacon) → the chain clock → the shell (bell chip, staleness banner,
@@ -172,6 +174,11 @@ export function myReports(FS) {
 /** The panel of the current tab (the game page). A report or a practice run open takes the panel. */
 export function panelMarkup(FS) {
   const tab = FS.tab ?? 'map';
+  if (FS.conquest) {
+    const s = FS.selected, pv = s && FS.provinces.get(`${s.p},${s.q}`)?.province;
+    const site = pv && Number.isInteger(s.idx) ? pv.sites.indexOf(s.idx) : -1;
+    FS.conquest.outpost = site >= 0 ? outpostOffer(FS, {p:s.p,q:s.q,site}) : null;
+  }
   const parts = [renderNotice(FS.notice)];
   if (FS.practice) return [...parts, practiceScreen.render(FS.practice, { kernelError: FS.practiceError ?? null, closable: true })];
   if (FS.report) return [...parts, reportScreen.render(FS, mineOf(FS.holdings), { ownerOf: reportOwner })];
@@ -193,6 +200,7 @@ export function panelMarkup(FS) {
   if (tab === 'map') {
     parts.push(joinScreen.render(FS));
   } else if (tab === 'holding') parts.push(holdingScreen.render(FS));
+  else if (tab === 'nation') parts.push(conquestScreen.render(FS));
   else if (tab === 'hosts') parts.push(hostScreen.render(FS), exploreScreen.render(FS));
   else if (tab === 'marches') parts.push(marchScreen.render(FS), trackerScreen.render(FS), reportScreen.renderLinks(myReports(FS), L`あなたの衝突の報告`), incomingScreen.render(FS));
   else parts.push(feed.renderCentre(FS.feed ?? [], FS.feedFilter ?? 'all'), bellScreen.render(FS), reportScreen.renderLinks(reportScreen.clashesFrom(FS.chronicle ?? []), L`最近の衝突`), chronicleScreen.render(FS), html`<section aria-labelledby="more-title"><h3 id="more-title">${L`設定`}</h3>
@@ -965,7 +973,7 @@ const setFlag = (flag, add = true) => setFlags(withFlag(FS.ui?.dismissed ?? [], 
 
 /** The page's kernel, with the season's ruleset required (practice and verify refuse another). */
 async function seasonKernel() {
-  const k = await loadKernel();
+  const k = await loadKernel(FS.season ? { ruleset: toHex(FS.season.rulesetHash), url: new URL(conquestEnabled(FS.season) ? './wasm/frontier-v2.wasm' : './wasm/frontier.wasm', import.meta.url) } : undefined);
   if (FS.season && k.rulesetHash() !== toHex(FS.season.rulesetHash)) { const e = new Error('ruleset'); e.code = 'RulesetMismatch'; throw e; }
   return k;
 }
@@ -1087,6 +1095,12 @@ function delegate(doc) {
     if (!fn) return;
     e.preventDefault();
     run(fn(f));
+  });
+  doc.addEventListener('input', e => {
+    const form = e.target.closest?.('form[data-form="train"]');
+    if (!form) return;
+    FS.trainingDraft = { unit: Number(form.elements.unit.value), n: Number(form.elements.n.value) };
+    invalidate('panel');
   });
   doc.addEventListener('change', e => {
     const el = e.target.closest?.('[data-bind]');

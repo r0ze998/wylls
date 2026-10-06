@@ -14,6 +14,7 @@
 // from the rules module lazily (terrain.mjs) when the caller gives none;
 // only provinces the viewer knows or sees are drawn as tiles, with the fog
 // veil over them; H goes to the viewer's first holding.
+import { FACTION_COLORS } from '../fi18n.mjs';
 import { paintPins } from '../hud/pins.mjs';
 import { paintReach } from '../hud/reach.mjs';
 import { inverseHex } from '../../map.mjs';
@@ -109,7 +110,8 @@ export function paintRealmLabels(ctx, recs, zoom, nameOf = null) {
   const acc = Array.from({ length: 6 }, () => ({ x: 0, y: 0, w: 0 }));
   for (const r of recs.values()) {
     const n = Array(6).fill(0);
-    r.owners.forEach((f, j) => { if (r.sites[j] === 1 && f < 6) n[f]++; });
+    if (Number.isInteger(r.control)) { if (r.control < 6) n[r.control] = 1; }
+    else r.owners.forEach((f, j) => { if (r.sites[j] === 1 && f < 6) n[f]++; });
     const best = n.indexOf(Math.max(...n));
     if (n[best] <= 0) continue;
     const c = provincePixel(r.p, r.q);
@@ -444,6 +446,7 @@ export class FrontierMap {
         // people (people/crowds.mjs): the source's departures, explores and holder names; tags nearest the view centre first
         people: src.people ? { ...src.people(), centre: { x: this.view.x, y: this.view.y } } : null });
     }
+    if (this.lod === 'tile') paintKeeps(ctx, recs, z);
     if (src.reach?.tiles?.length) { paintReach(ctx, src.reach.tiles, z, (globalThis.performance?.now?.() ?? Date.now()) / 1000, src.reach.t0); this.invalidateSoon(); }
     if (src.route) paintRoute(ctx, src.route, z);
     if (src.threats?.length) { paintThreats(ctx, src.threats, z, src.threatLabel ?? null); this.invalidateSoon(); }
@@ -453,4 +456,19 @@ export class FrontierMap {
   }
 
   destroy() { if (this.raf) globalThis.cancelAnimationFrame?.(this.raf); this.unlang?.(); this.unredraw?.(); this.tools?.remove(); }
+}
+
+/** A visible flag at the real keep tile; owner color comes from shared control. */
+export function paintKeeps(ctx, records, zoom) {
+  for (const r of records.values()) {
+    if (!Number.isInteger(r.keepTile) || r.keepTile < 0 || r.keepTile >= 61) continue;
+    const h = tileHex(r.p,r.q,r.keepTile), {x,y} = project(h.q,h.r), k = 1/zoom;
+    ctx.save(); ctx.translate(x,y);
+    ctx.beginPath(); ctx.arc(0,0,12*k,0,Math.PI*2); ctx.fillStyle='#f5eedb';ctx.fill();
+    ctx.strokeStyle=r.contender < 6 ? '#b35c33' : '#254d43';ctx.lineWidth=2*k;ctx.stroke();
+    ctx.fillStyle=FACTION_COLORS[r.control] ?? '#8b856d';
+    ctx.fillRect(-3*k,-10*k,2*k,19*k);
+    ctx.beginPath();ctx.moveTo(-1*k,-10*k);ctx.lineTo(10*k,-7*k);ctx.lineTo(-1*k,-2*k);ctx.closePath();ctx.fill();
+    ctx.restore();
+  }
 }

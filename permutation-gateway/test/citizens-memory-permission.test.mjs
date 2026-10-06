@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const READ = [
   'permutation-gateway/citizens/memory', 'permutation-gateway/citizens/persona',
+  'permutation-server/web/sdk/frontier/abi-v2-layouts.mjs', // read-only generated protocol data
   'permutation-server/web/frontier/fcodec.mjs', 'permutation-server/web/frontier/abi.mjs',
   'permutation-server/web/frontier/people/identity.mjs', 'permutation-server/web/lang.mjs', 'permutation-server/web/lang', 'permutation-server/web/util.mjs',
 ];

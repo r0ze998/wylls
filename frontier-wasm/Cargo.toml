@@ -14,6 +14,10 @@ description = "Wylls kernels for the web client (C ABI over linear memory)"
 license = "MIT"
 publish = false
 
+[features]
+default = []
+cq = []
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 

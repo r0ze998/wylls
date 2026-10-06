@@ -25,6 +25,7 @@ export const FS = {
   meError: null,
   homeChoice: null,      // decoded land candidates and current selected site
   homeGrant: null,       // confirmed first holding, until the player starts building
+  conquest: null,        // v3 territory controls and authoritative nation score
   homeFocus: null,       // one-shot camera request; no ownership is inferred from it
   book: [],              // marchbook entries
   // ---- the map

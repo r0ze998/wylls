@@ -72,6 +72,10 @@ fn fields(spec: &[(&str, usize)], b: &[u8]) -> Value {
 /// A PS2 body decoded: `{kind, name, bell, key: {…}, payload: {…}, links:
 /// [{entity, seq, head}]}`; `None` if the body does not decode.
 pub fn record_json(body: &[u8]) -> Option<Value> {
+    // MC kinds 80–89 (CQ2-E): the v2 decoder.
+    if body.get(1).is_some_and(|k| (80..=89).contains(k)) {
+        return crate::conquest::record_json(body);
+    }
     let r = plog::decode(body).ok()?;
     let spec = r.kind.spec();
     let links: Vec<Value> = r
