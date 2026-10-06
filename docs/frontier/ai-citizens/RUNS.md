@@ -79,3 +79,4 @@ END {"detail":"stack complete, publication written (anchors: 169 anchored, 0 gap
 
 ## ai-main — 2026-10-06T05:21:55Z
 RUN {"arm":null,"commitments_sha256":"b0819b74d23dad142b08b74407efc062b0129590254948ebf1f34c0820febc5c","configs":{"citizens_config_sha256":"a322a0b46004a3b59f31af11c7a400d7dd4208884207c87819922572da014791","injection_corpus_sha256":"a56fa2fbccf9501b47399284617db86763220331b16aa9850575118dddaf28cc","seat_script_sha256":"60320cd72cafbb725036a9f97217e8175d5218c54f6629e7dce1b9ea9a7d98b5","slots_sha256":"3c42e3ac9b89af2227a9aa50ddcdf180ecc8722a1310b9e3e7438925ab45b84d","stack_toml_sha256":"2dc006572e8ec72f2e097d803a22830f419e71f1988ce7c4e18a3b628d939a70"},"rep":null,"run_id":"ai-main","start_unix":1791264115}
+END {"detail":"stopped before the end","end_unix":1791266302,"run_id":"ai-main","status":"aborted"}
