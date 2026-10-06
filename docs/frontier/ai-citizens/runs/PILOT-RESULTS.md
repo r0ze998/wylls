@@ -1,20 +1,141 @@
 # A/B pilot results (contract 9.3 "Pilot and threshold T", 11.5 I-B)
 
-Local test chain only (no devnet, no mainnet, no paid API). Real Gemma 4 26B A4B Q4_0 (`gemma-4-26b-a4b-it`) through `citizens/llama/start-pinned.sh`, `AI_MODEL` and `AI_LLAMA_DIR=/opt/homebrew/Cellar/llama.cpp/0.5.0` as R9 requires. Every number below is from the run's own files (named); anything not run says "not run". The seat's ballot in these runs is **scripted** (origin 2): an adopted Strike Order here is "a scripted seat vote plus AI votes", never "humans and AI decided together". Nation 0 only. n is one run per row: nothing here is a rate.
+Local test chain only (no devnet, no mainnet, no paid API). Real Gemma 4 26B A4B Q4_0 (`gemma-4-26b-a4b-it`) through `citizens/llama/start-pinned.sh`. Every number below is from a named file of the run; anything not run says "not run". The seat's ballot in these runs is **scripted** (origin 2): an adopted Strike Order here is "a scripted seat vote plus AI votes", never "humans and AI decided together". Nation 0 only. n is one run per row: nothing here is a rate.
+
+This file has two parts. **Part 1 is run 2, `ai-pilot-A2`** (written 2026-10-06 while the main run `ai-main` is live). **Part 2 is run 1, `ai-pilot-A1`, kept as written** (its section numbers 0 to 8 refer to Part 2; only the "Run 2" column of its table and the notes marked "A2 note" were updated).
+
+# Part 1. Run 2: `ai-pilot-A2`
+
+## A2.0 Answer in one paragraph
+
+Every pilot condition that run 1 failed is met on A2, with the limits below: a Strike Order was adopted in nation 0 (period 2, scripted seat ballot plus 2 AI ballots) and **2 invited hosts departed** (one per nation-0 AI, both by the model's own choice at bell 56) and reached the target at bell 60; 3 model marches plus 6 model-chosen Strike-Order follows were released (opened); verify-minds is **7 of 7 PASS** (run 1: M8 and M11 failed); anchors are **169 of 169**. But (1) **the strike failed**: both hosts were bounced and the camp was not cleared (393 to 355 troops); (2) **T = min(3, 4) = 3 by the formula, and only 2 hosts can follow, so T = 3 is not attainable** (the same structural problem as run 1); (3) **G1 is not met**: 219 valid of 255 model decisions = 85.9 %, G2 fallbacks 14.1 %, and every one of the 36 fallbacks has one of two reproducible causes that are unfixed in the code the live main run uses (section A2.7). This is one arm-A run with a scripted seat: no arm B, no valid pair, no G7 claim.
+
+## A2.1 The pilot pass conditions
+
+| Condition | Result | Evidence (source file) | What it does not show |
+|---|---|---|---|
+| A Strike Order adopted in nation 0 with at least 2 invited hosts departing | **PASS** | Period 2 (C0 48, strike bell 60): adopted, tally AI 2 + scripted seat 1 (`pub/council/2-0.json` `tally_split`, `ab/seat-A-1.json`). Invited list (4 hosts, all AI-owned): 354047039111168, 363942643761152, 354047039111169, 363942643761154. Two departed at bell 56 for (1,1), arrival 60: 354047039111169 (AI 1006) and 363942643761154 (AI 1000) (`fleet/marchbook-33-1000.jsonl`: `sealed`, `sent`, `settled`; council `result.present_hosts`). Run 1 had 0. | It rests on a scripted seat ballot. Only the two 100-troop hosts went; the two 400-troop hosts did not. The strike was not won (A2.3). Period 1 of the same nation was adopted too and **nobody** went (A2.4). |
+| At least one released model march decision | **PASS** | 3 model marches that are not a Strike-Order follow (AI 1008 bell 47, AI 1009 bell 54, AI 1001 bell 63), all 3 opened, plus 6 model-chosen Strike-Order follows (`fleet/ai-brain.json` counters `model_marches_sent 3`, `model_strike_order_marches_sent 6`; `pub/open/`; `report.md` "Model marches and Y"). | Whether the page renders these opened records with their Remembered lines was **not checked** (no page read). n = 3, all by avenger personas. The reason texts are model-written, not verified. |
+| Pivot condition at C0 + 6 reported | **PASS** (reported: true) | Both nation-0 AIs ballotted the winning option 1, tally option 1 = 3 of 3 (`pub/council/2-0.json`; ballots decoded from `open.ballots[]` by reader 1). Periods 3 and 4 confirm it: the same 2 AI ballots and no seat ballot ended `human_present`, not adopted. | The seat's vote is scripted. It shows the scripted ballot was needed for adoption, not that a human and the AIs decided together. |
+| Ready invited hosts at C0 + 6 reported | **PASS** (reported: 4 of 4), with the method qualification below | Province files of `frontier-node/.local/frontier/ai-pilot-A2/herald/files/h/province/2,1/`: all 4 hosts state 1 (roster), stamina 120 of the 74 a Depart needs, at bells 53, 54, 55 (C0 + 6 = 54). Period 1: 4 of 4 at bells 29 to 31 (C0 + 6 = 30). | **`pilot.mjs` itself was not run**: it needs a live herald and starting one is forbidden while `ai-main` is live. I reproduced its logic offline: I imported its own `hostStatus` and the program's `parseEnvelope` over the static province files (read-only; script in the scratchpad). A file view: pending orders and hosts in transit are not in it, so it can over-count. |
+| T computed | **PASS** (computed: T = 3), **but not attainable** | `node permutation-gateway/citizens/ab/run-ab.mjs threshold --ready 4 --followers 2` prints `{"ready_invited_at_c0_plus_6":4,"T":3,"bots_that_can_follow":2,"T_attainable":false}` (I ran it; it printed `"appended": false`, nothing was written). | The formula was not changed. No PILOT line for T was written to `RUNS.md` (that file is the live run's to commit). See A2.6. |
+| verify-minds, all seven checks (M1 M2 M3 M7 M8 M9 M11) | **PASS** | `pub/verify-minds.json` verdict PASS: M1 n 39, M2 n 18, M3 n 701, M7 n 631, M8 n 127, M9 20 of 20 equal (threshold 18), M11 n 1754; 0 failures in each (`logs/verify-minds.log`). Run 1 failed M8 (3) and M11 (4). | M7 passes under the verifier's onboarding exemption (12 session-signed onboarding transactions before each AI's first record; `--strict-onboarding` would count them). M11 notes 4 sampled decisions that match only after a memory budget cut (a plausibility reading, not a recomputation). M9 is 20 samples. verify-minds checks the audit trail, not play quality. I did not re-run it. |
+| Anchors complete (anchored bells vs closed bells) | **PASS** | 169 anchored of 169 closed bells (0 to 168), 0 gaps (`pub/anchors/index.json`, `report.md` "Anchors", M3 `chain_anchored_bells 169`, `RUNS.md` END line). | The 12 decision records of bell 169 are outside any anchor (A2.8). I did not read any memo on chain (the localnet is down). |
+
+Also reported, **not** part of the pilot list, so that no pass above is read as more than it is:
+
+| Item | Result | Evidence | Note |
+|---|---|---|---|
+| Arm-A pair element of 9.3: at least T = 3 hosts of nation 0 present at X at S, with a CLASH of at least 1 engagement and enemy troops lost > 0 | **FAIL** | 2 hosts present (needs 3); the clash had 2 engagements and the camp lost 38 (the enemy-loss part holds) (`pub/council/2-0.json` `result`) | T = 3 cannot be reached with 2 followers (A2.6). |
+| A valid A/B pair | **NOT EVALUABLE** | arm B was not run | No G7 claim. |
+| The strike succeeded | **No** | both hosts `Bounced`, camp 393 to 355, `cleared: false` (A2.3) | Not a pilot condition; stated plainly because a demo must not show "hosts followed" without "both bounced". |
+| G1 valid choices at least 95 % with n at least 300 | **FAIL** | 219 of 255 = 85.9 % (A2.7) | Also underpowered (n 255 < 300). |
+| G2 fallbacks at most 5 % and dropped-for-time at most 3 % | **FAIL** | fallbacks 36 of 255 = 14.1 %; dropped for time 0 (`report.md`) | The dropped-for-time part alone passes; the condition as a whole fails. |
+| G3 slack at least 0 for at least 99 % of decisions (mind side) | **PASS** | slack >= 0 for all 1743 records; 0 negative in every kind (`state/records.jsonl` `deadline_slack_ms`, `pub/metrics/latest.json`) | Single run, 12 AIs. |
+| G3 zero decisions executed after bell_start(b + 1) (chain side) | **NOT EVALUABLE** | the report says it needs the chain and does not read it | Mind side: `late_tx 0`. |
+
+How I resolved the three readers' disagreements (I looked at the files myself):
+
+* Reader 2 marked "ready invited hosts and T" NOT EVALUABLE because `pilot.mjs` needs a herald; readers 1 and 3 reproduced it offline. I ran the same offline reproduction: 4 of 4 ready at bells 53 to 55 (period 2) and 4 of 4 at bells 29 to 31 (period 1), so the number is reported, with the "not `pilot.mjs` itself" qualification above.
+* Reader 2 found no load figure for A2; reader 3 found `frontier-node/.local/frontier/ai-pilot-A2/metrics/loadavg.jsonl`. It exists: 171 samples, 1-minute load 2.2 to 9.64, mean 4.18 (I computed this). Run 1 was 3.3 to 7.5 (Part 2). The load is not tied to latency per bell here.
+* Report scope: 255 model decisions (1731 records) in `report.md` versus 1743 records in `state/records.jsonl`: the 12 extra are all council motions at bell 169, which was never a closed bell (A2.8). I counted them myself: 1743 `add` records, 12 at bell 169.
+
+## A2.2 The councils of nation 0
+
+| Period | C0 / close | Options, AI motion | Ballots (tally split) | Result |
+|---|---|---|---|---|
+| 1 | 24 / 30 | 3 camp options, AI motions 1 + 1 | AI 2, no seat ballot (the seat was refused `NotEligible` at bell 28: its village was not final until bell 35) | **adopted**, S 36 |
+| 2 | 48 / 54 | 3 camps (1,1) / (1,2) / (2,-1); AI motion option 1 by AI 1000 at bell 50 | AI 2 + scripted seat 1 (origin 2, bell 52 = C0 + 4, HTTP 200) | **adopted**, S 60, target (1,1) |
+| 3 | 72 | options, AI motions | AI 2, no seat ballot | not adopted: `human_present` |
+| 4 | 96 | options, AI motions | AI 2, no seat ballot | not adopted: `human_present` |
+| 5 | 120 | options, AI motions | AI 2 (option 2 and option 1) | not adopted: `quorum` |
+| 6, 7 | 144, 168 | in the drain: no motions, no ballots (the brains stop at the end of play, bell 143) | none | period 6 `quorum`, period 7 no verdict |
+
+Source: `pub/council/{1..7}-0.json`, `pub/seat/ballots.json`, `ab/seat-A-1.json`. The seat acts once per A/B arm (first eligible period with an AI motion), so periods 3 to 5 had no seat ballot **by design**. Period 1 was adopted by AI ballots alone only because the seat's village was not yet final. Across all six nations: 35 council files, 17 adopted, 10 `quorum`, 2 `human_present` (both nation 0), 6 with no verdict (periods 6 and 7) (`pub/council/*.json`, counted by reader 1). In period 2 nations 1, 2, 3, 5 adopted on 2 AI ballots each; nation 4 was skipped (`not_all_final`). A council file shows adoption, not that an army moved.
+
+## A2.3 The Strike Order of period 2: what the hosts did
+
+* **Invited list**: 4 hosts, all AI-owned: AI 1006 owns ...168 (400 troops) and ...169 (100); AI 1000 owns ...152 (400) and ...154 (100). No script-bot host was invited (`pub/council/2-0.json` `open.invited`; owners from the fleet marchbook).
+* **Ready**: all 4 ready at bells 53 to 55 in province (2,1). At bell 56 the two departed hosts show state 3 and are absent from bell 57; the two 400-troop hosts stay ready, in province (2,1), through bell 59 (my offline read).
+* **Decisions at bell 56**: both nation-0 AIs took a model session, the first session of either after the Call; each was offered a candidate flagged Strike Order for **one 100-troop host** and chose it (`state/records.jsonl`, records at bell 56: choice `c3` with `timing: call`). Both records are sealed with release bell 62 and opened in `pub/open/62.json` (via `model`). The 400-troop hosts do not appear in any stored march candidate of the two AIs (reader 1). **Why the code offers only the 100-troop host is not in the files; I did not read the candidate generator.**
+* **At the target, bell 60**: `herald/files/h/clash/1,1/60.json`: 2 engagements, both hosts arrived and engaged, fate `Bounced`; troops after 74.570 and 77.678 from 100.000 each (about 47.75 troops lost together); camp 393 to 355 (38 lost), `cleared: false` (council `result.camp`). The council option's estimate called the target "favourable" because it counts the nation's four largest hosts (1000 troops); the force that went was 200 troops against a 393-troop camp.
+* **Record inconsistencies found** (not fixed):
+  1. The published chronicle line (`pub/chronicle/0.json`) reads "At bell 62 the Strike Order of Aster opened at (1,1) (camp): 2 of its armies arrived, 2 bounced; troops lost: no clash was recorded." The herald clash report lists 2 engagements, and the council file has `clash.lost: {}` beside `engagements 2` and `camp.lost 38`. "No clash was recorded" is wrong and loses the losses; the cause (the chronicle reads `clash.lost` by nation, which is empty) was not checked in code.
+  2. `ab/seat-A-1.json` `observed` mixes units: `own_lost 47752` is milli-troops (47.752 troops: 100.000 - 74.570 + 100.000 - 77.678 = 47.752), `enemy_lost 38` is whole troops.
+
+## A2.4 Period 1 of nation 0: adopted, nobody went
+
+Call adopted at bell 30 (strike bell 36), 4 of 4 invited hosts ready at C0 + 6 = 30, **0 departed**, `result.present 0`, chronicle "0 of its armies arrived". AI 1000 held at bell 32; AI 1006 chose `c2` (hold) at bell 33. Their prompts said a Strike Order of the nation was live and that the candidate flagged Strike Order lists its target, but the menu held **no flagged candidate** (state requests, bells 32 and 33; reader 1). Why the flagged candidate was missing is not in the files (a 7-hex march arrives at bell 36 = S, so by the stated rule it was not too far). So the sealing fix of run 1 worked in period 2 and the same failure mode returned in period 1: **the follow depends on a flagged candidate being offered, and that did not hold in 1 of 2 adopted periods of nation 0.** Not investigated in code.
+
+## A2.5 Model marches and Y
+
+`report.md` "Model marches and Y": Y (strict) = 3 of 3 model marches that are not Strike-Order follows. This is the report's episode proxy (it did not read the herald clash rows). I checked the herald clash files for the three hosts: host 479391364677634 engaged at (-3,1) at bell 50 (`Stays`), 501381597233154 at (-3,1) at bell 58 (`Bounced`), 415619690266625 at (-1,3) at bell 66 (`Stays`); `engaged: true` for all three. Outcomes per the report: two own wins with a cleared camp (own/enemy lost 11/101 and 21/189), one own loss (50/23). The 6 model Strike-Order follows (AI 1011 b54, 1000 b56, 1006 b56, 1001 b57, 1007 b80, 1001 b103) are excluded from Y by definition. n = 3, so this is not a rate. Run 1 reported 7 of 7 by the same proxy.
+
+## A2.6 T and what it means for the A/B
+
+* **T = min(3, 4) = 3** (never below 2), from 4 ready invited hosts at C0 + 6 (A2.1). **Observed best case: 2 hosts present at S.** Only 2 hosts can follow in this configuration: each AI sends one invited host at most per Call, and the script bots of nation 0 held no invited host (script-bot counters from `frontier-node/.local/frontier/ai-pilot-A2/bots/ai-brain.json`, read by reader 1: `follow_calls_read 337`, `follow_not_invited 138`, `follow_read_refused:NotEligible 195`, `follow_no_ready_invited_host 16`, `follow_no_plan 5`, no follow send). Same as run 1 (Part 2, section 4).
+* **Can the A/B be run validly with 2 followers?** Not under the pass condition as pre-registered. 9.3 requires "at least T hosts of nation 0 present at X at S" and T = 3 cannot be met by 2 followers, so an arm A could never pass. **The "pre-registered reduced claim" does not fix this**: it covers only reaching 1 valid pair instead of 2 in 3 reps (O-AI-5), not a lower T. Two ways out, both an **owner decision made before rep 1 and neither made here**: (a) set T = 2 (the formula allows "never below 2" but gives 3 for 4 ready hosts, so this deviates from the formula and must be written down as a deviation); (b) change the follow rule so that an AI can send two invited hosts (a change of 6.6 and of the V3 caps). I did not change the formula.
+* **If T = 2 were chosen**, A2's period 2 would satisfy arm A (2 hosts present, 2 engagements, enemy lost 38 > 0), but it needed **both** AIs to choose the flagged candidate in the same period and the follow window; period 1 had 0 of 2. One success in two adopted periods is n = 2. Arm B's validity conditions (equal `options_hash`, replayed AI answers, the seat pivotal because at least 1 AI ballotted X) were **not exercised** by this run.
+* A2 gives the pilot's numbers for a PILOT line (ready invited 4, T computed 3, 2 followers); I wrote none (RUNS.md is the live run's file).
+
+## A2.7 G1 cause analysis
+
+**Numbers.** 255 model decisions in the report's scope, 219 valid = **85.9 %** (Wilson 95 % interval 81.1 to 89.6 %, computed by reader 2), 36 fallbacks = 14.1 %: `invalid:V2` 17 (all sessions) and `invalid:V0` 19 (all motions) (`report.md` "Decisions"; I recounted `state/records.jsonl`: 219 model-ok, V2 17, V0 22 including 3 at bell 169, V5b 3 reflections). Counting the 12 bell-169 records: 228 of 267 = 85.4 %, 39 fallbacks = 14.6 % (reader 2's arithmetic on my recounted totals). Run 1 was 88.7 % (236 of 266); the difference is not distinguishable from noise (two-proportion z about 0.97, reader 2). Nothing else failed: 0 timeouts, 0 errors, 0 `no_time`, 0 `feed_lag`, 0 negative slack. Intervals treat decisions as independent; they are clustered by AI and persona, so the true uncertainty is wider.
+
+**By kind** (report scope): session 79 of 96 valid (82.3 %), motion 39 of 58 (67.2 %), ballot 58 of 58, reaction 43 of 43, reflection 9 of 12 (counted apart). By persona (my recount of failed records): all 19 in-scope motion failures and the 3 at bell 169 are **avengers**; 16 of the 17 session failures are **diplomats** (1 avenger).
+
+**Cause 1: session `invalid:V2` (17), the prompt and the model.** The first-call reason, read from the retry text in the stored request, is "2 builds chosen, 1 queue slots free" in **16 of 17** (I counted) and "autopilot must be chosen alone" in 1. The validator is right (contract 4.5 V2: builds at most the free queue slots). The prompt shows "QUEUE: 1/2 busy" but never states that only free slots can be filled, the diplomat goal G4 is "three builds a day" and every build candidate is tagged as serving it; the model asks for two builds even after the retry text says "1 queue slots free" (1 of 17 rescued, by reader 2's tally). Where the queue had exactly 1 free slot and 2 or more build candidates were offered (34 sessions), 16 failed (reader 2). The harness retry is ineffective for this class and costs a second llama call.
+
+**Cause 2: motion `invalid:V0` (19, plus 3), harness configuration.** All 6 motions that were rescued by the retry failed their first call with "the answer was cut off (finish length)" (I counted: 6 of 6). `max_tokens` for motion is 160 (`permutation-gateway/citizens/config/ab.json` and `main.json`); the AC1a probe measured 74 to 92 tokens at 160 on its sample and 12 of 12 at 224 (`AC1a-NOTES.md`, per reader 2). The 22 final failures are V0 on both calls by the counters, but the cut-off reason is **observed only on the 6 rescued first calls**; for the 22 it is inferred. The model output is never stored (only its hash) and a failed council call does not save its request body, so the 22 cannot be replayed. Whether the overrun is trust deltas, memory handles, a long `why` or JSON whitespace is unknown.
+
+**Retry and waste.** `counters.retries 42`, `counters.llm_calls 311`: 6 decisions rescued (2 sessions, 4 motions), 36 failed on both calls; 78 of 311 llama calls (25.1 %) returned an answer the validator refused (reader 2). 213 of 255 were valid on the first call (83.5 %).
+
+**Run 1's open item 3 is explained.** Run 1's private records hold 5 more `invalid:V0` motion records at bell 169 that the report excludes: 15 + 5 = 20 (reader 2, same scripts on `ai-pilot-A1`). Run 1 shows the same two mechanisms (session V2 mostly "builds > free queue slots", diplomats 15 of 48 sessions failing against 0 for avengers; motion V0 avengers 14 of 30 against diplomats 2 of 30). Two runs, so a pattern, not a proof.
+
+**Latency.** The llama call per kind (`report.md`, my read of the table): session n 96, p50 3351 / p90 4288 / p99 5226 ms, min slack 17532; reaction n 43, 3189 / 4442 / 6627; ballot n 58, 3027 / 3837 / 4400; motion n 39 (valid only), 3311 / 5305 / 6036, min slack 14682; no negative slack. The 19 fallback motions are slower and are not in the motion row (reader 2). `latency_ms` is the last llama call only.
+
+## A2.8 Anchors, verify-minds, the end of the run
+
+* 169 closed bells (0 to 168), 169 anchored, 0 gaps; play is bells 0 to 143, the drain 144 to 168. `stack.toml` asks for 26 drain bells but bell 169 was never closed (reader 3); the files do not say whether that is intended.
+* **12 decision records of bell 169** (9 model-ok, 3 `invalid:V0`; all council motions of period 7) are in `state/records.jsonl` but in no `pub/minds` file, so they are covered by neither M3 nor M11 nor an anchor. Record counts differ between files: `report.md` 1731 = `pub/minds` 1722 + 9 late; `state/records.jsonl` 1743 = 1731 + 12; `pub/full/index.json` says 1738, which nobody reconciled.
+* 9 records were added after their own bell closed (late adds at bells 73, 97, 145, 147: 7 motions, 2 ballots; `pub/minds/late/`); `late_tx 0`. Council deadlines are C0 + 3 and C0 + 6 by design, so this is the single llama slot working through 12 motion jobs plus retries, not a deadline miss (mind-side finish times only).
+* The report in the run directory was generated before the END line existed, so its "Every run in RUNS.md" table still lists A2 as having no END line.
+* `logs/citizens.log` repeats `watcher council: ledger: more than 16 records of one type in a bell` once (also in run 1; AI and bell still not identified). No error, panic or restart in any run log.
+
+## A2.9 What the pilot does not show
+
+* One run, arm A only, 12 AIs, 1 game day. No arm B, no valid pair, no G7 claim. Nation 0 only. The seat ballot is scripted: the adopted Strike Order is a scripted seat vote plus AI votes; periods 3 and 4 refused the same AI ballots as `human_present`.
+* Nothing here shows that an AI wants or intends anything, that a cited memory was the reason for a choice (a citation shows the line was shown and named), that the AI is stronger than rule bots, or that the strike works: the one strike that moved hosts was lost.
+* Not run: `pilot.mjs` itself (offline reproduction only), the G5 injection suite, the G14 relevance spot-check, any chain-side executed-after-bell check, `verify-minds` re-run, a re-hash of the 15 GB model file (M1's hash at season end is the evidence), any playtest with a human. No `llama-check` result file exists in the run directory (that it passed at start is an inference from the run script's order).
+* Which numbers transfer to the main run (reader 2's judgement): the failure mechanisms by kind and layer, per-call latency, slack margins, the session budget (8 per AI per day) and the share of wasted calls. They do **not** transfer: G1 as a gate (needs n at least 300), memory age beyond 87 bells, conqueror persona behaviour, queue contention at 18 motion jobs, Y (3 marches), and the V5b refusal rate (12 reflections).
+
+## A2.10 Consequences for the main run that is live now (`ai-main`)
+
+The main run uses the **same decision code and configuration** as A2: `git diff a09d4203..HEAD` over the code and config trees shows only two documentation files changed, and `main.json` differs from `ab.json` only in council period and offset (48 / 12 against 24 / 0); motion `max_tokens` is 160 in both. Its deck is `deck-3`: 6 avengers, 6 diplomats, 6 conquerors (`pub/roster.json`), so 12 of 18 AIs carry the two personas that produced every A2 fallback. I changed nothing and touched nothing in the run. What to watch, from files only:
+
+1. **G1 and G2 will probably fail again for the same two reasons** unless the prompt or `max_tokens` changes before the run ends: watch `invalid:V2` in diplomat sessions ("N builds chosen, 1 queue slots free") and `invalid:V0` in avenger motions at C0 + 1 bells (main run C0 = 60, 108, ...). Untested fixes: state the free-slot count and the one-build limit in the prompt, or truncate to the free slots as is already done for stray params; raise motion `max_tokens` (the AC1a probe measured 224 as 12 of 12) and log completion tokens. Whether to change a live run's config is the owner's decision.
+2. **Make failed council calls observable**: storing the request and raw output of failed motion calls would turn the inferred cause of the 22 failures into an observed one.
+3. **Strike Order follow**: count per adopted period how many invited hosts were ready at C0 + 6, how many departed, and whether the AIs' prompts held a candidate flagged Strike Order (the period-1 failure of A2 and the whole of run 1). Watch whether the 400-troop hosts are ever offered; if only small hosts follow, strikes will keep bouncing.
+4. **Chronicle line**: "troops lost: no clash was recorded" beside a recorded clash will appear in the main run's chronicle as well.
+5. **Latency and load**: the Mac load at 14:35 JST read 5.5 / 7.3 / 10.0 (1, 5, 15 min, `uptime`), above A2's mean of 4.18, so note the load by hand next to any latency read from the main run (the report does not record it). Queue contention at the council window grows from 12 to 18 motion jobs at once.
+6. **End of run**: expect bell-169-like leftovers at the end of the drain; those records fall outside the anchors and verify-minds.
+7. The live run's own numbers are not read here: its metrics file was at bell 12 when I looked (3 decisions), too early to say anything.
+
+# Part 2. Run 1: `ai-pilot-A1` (kept as written)
 
 ## 0. Answer in one table
 
-| Pass condition of the task | Run 1 `ai-pilot-A1` | Run 2 (after fixes) |
+| Pass condition of the task | Run 1 `ai-pilot-A1` | Run 2 `ai-pilot-A2` (after the fixes; A2 note, see Part 1) |
 |---|---|---|
-| a Strike Order adopted in nation 0 | **yes**, period 2 (C0 48, strike bell 60), tally AI 2 + scripted seat 1 | **not run** (section 6) |
-| at least 2 invited hosts of nation 0 departing for it | **no: 0** | **not run** (section 6) |
-| at least one released model march decision | yes: 7 model marches, 7 opened (`report.md`) | **not run** (section 6) |
-| pivot condition and ready invited hosts at C0 + 6 reported | pivot condition true (2 AI ballots for the winning option 1); **ready invited hosts at C0 + 6 = 4** (all four are AI hosts) | **not run** (section 6) |
-| T computed (9.3) | **T = min(3, 4) = 3 by the pre-registered formula; at most 2 hosts can reach the target** (section 4) | **not run** (section 6) |
-| verify-minds PASS | **FAIL**: M8 (3 failures) and M11 (4 failures); M1, M2, M3, M7, M9 pass (section 5) | **not run** (section 6) |
-| anchors complete | yes: 169 anchored, 0 gaps of 169 closed bells | **not run** (section 6) |
+| a Strike Order adopted in nation 0 | **yes**, period 2 (C0 48, strike bell 60), tally AI 2 + scripted seat 1 | **yes**, period 2 (C0 48, strike bell 60), tally AI 2 + scripted seat 1 |
+| at least 2 invited hosts of nation 0 departing for it | **no: 0** | **yes: 2** (one per nation-0 AI, bell 56; both at (1,1) at bell 60, both bounced) |
+| at least one released model march decision | yes: 7 model marches, 7 opened (`report.md`) | yes: 3 model marches, 3 opened, plus 6 model-chosen Strike-Order follows |
+| pivot condition and ready invited hosts at C0 + 6 reported | pivot condition true (2 AI ballots for the winning option 1); **ready invited hosts at C0 + 6 = 4** (all four are AI hosts) | pivot condition true; **ready invited hosts at C0 + 6 = 4** (offline reading of the province files; `pilot.mjs` itself not run) |
+| T computed (9.3) | **T = min(3, 4) = 3 by the pre-registered formula; at most 2 hosts can reach the target** (section 4) | **T = 3 by the formula; 2 hosts present; T = 3 not attainable** |
+| verify-minds PASS | **FAIL**: M8 (3 failures) and M11 (4 failures); M1, M2, M3, M7, M9 pass (section 5) | **PASS**, all seven checks, 0 failures |
+| anchors complete | yes: 169 anchored, 0 gaps of 169 closed bells | yes: 169 of 169, 0 gaps |
 
-The pilot's pass conditions were **not met on run 1**, and the second run (after the fixes) **was not made**: the owner's HOLD file stood for the whole 6-hour wait (section 6). So the fixes below are unit-tested and reproduced offline but **not shown live**; there is no live evidence yet that a hold-free, early-sealed Strike Order moves two nation-0 hosts or that M8 and M11 now pass. Section 3 says from the files why no host followed; section 5 says what verify-minds found; section 7 says what was changed and what is still open.
+*(Written after run 1. A2 note: run 2 was made later as `ai-pilot-A2`, started by another session once the HOLD file was gone; its result is Part 1. The paragraph below is the state after run 1.)* The pilot's pass conditions were **not met on run 1**, and the second run (after the fixes) **was not made**: the owner's HOLD file stood for the whole 6-hour wait (section 6). So the fixes below are unit-tested and reproduced offline but **not shown live**; there is no live evidence yet that a hold-free, early-sealed Strike Order moves two nation-0 hosts or that M8 and M11 now pass. Section 3 says from the files why no host followed; section 5 says what verify-minds found; section 7 says what was changed and what is still open.
 
 ## 1. What ran
 
@@ -67,7 +188,7 @@ Causes, both found by reading the files and reproduced offline against the run's
 * **M8.** A council ballot is carried by the brain on the AI's next decide answer. `watcher/outbox.mjs` numbered that ballot `item: 0` always, the same item as the answer's own first `say` (a talk, item 0, under the same decision id): the pair (decision, item 0) was used twice by two record types, which M8 refuses ("whatever the record type", FB3). 3 of the 60 ballot decisions had a say beside them.
 * **M11.** The live episode pump reads only the last 80 bells of the log; a Strike Order with no CLASH row is remembered as "no clash" at S + 14. Once a run is long enough that the CLASH row (logged at S + 2) has left the window, the pump adds a clash-less twin of the episode that the clash had already made (created at S + 14 instead of S + 2); the full replay, which reads the whole log, makes one. Every nation with a clash got twins (strike episodes at bells 60 and 84), and the retrieved sets of two sampled decisions at bell 147 contained a twin. smoke-r4 (14 hours, no clash at a strike) could not show it.
 
-## 6. Run 2 (the iteration after the fixes): not run
+## 6. Run 2 (the iteration after the fixes): not run in this form (A2 note: made later as `ai-pilot-A2`, Part 1; the text below is the state after run 1)
 
 The command that was prepared (everything it needs is committed; the tree was clean under the guarded paths at `8e37981`):
 
@@ -101,10 +222,10 @@ Gate after the fixes: `npm test` 1625 tests, 1623 pass on the first run, the 2 f
 
 Open after this work (not fixed):
 
-1. Run 2 (section 6).
-2. T cannot be met at 3 with 2 followers (section 4): an owner decision.
-3. G1: 236 valid of 266 model decisions (88.7 %, interval 84.4 to 92 %); the report's 30 fallbacks are 15 `invalid:V0` and 15 `invalid:V2`; counting the private records directly gives `invalid:V0` 20 (all motion jobs, mostly at bell 49, C0 + 1), `invalid:V2` 15 (session) and `invalid:V5b` 10 (reflections, counted apart): I did not reconcile 20 with 15. G1 would not be met on this run and the cause was not investigated (a motion answer that fails the schema, a session answer that names an id outside the menu).
-4. `watcher council: ledger: more than 16 records of one type in a bell` appeared once in `logs/citizens.log` (the talk sequence number of one AI overflowed in one bell); the AI and bell were not looked for.
+1. Run 2 (section 6). A2 note: made as `ai-pilot-A2`, Part 1.
+2. T cannot be met at 3 with 2 followers (section 4): an owner decision. A2 note: still open, A2.6.
+3. G1: 236 valid of 266 model decisions (88.7 %, interval 84.4 to 92 %); the report's 30 fallbacks are 15 `invalid:V0` and 15 `invalid:V2`; counting the private records directly gives `invalid:V0` 20 (all motion jobs, mostly at bell 49, C0 + 1), `invalid:V2` 15 (session) and `invalid:V5b` 10 (reflections, counted apart): I did not reconcile 20 with 15. G1 would not be met on this run and the cause was not investigated (a motion answer that fails the schema, a session answer that names an id outside the menu). A2 note: explained in A2.7 (5 more V0 records at bell 169 give 15 + 5 = 20; two mechanisms, builds above the free queue slots in diplomat sessions and avenger motions cut off at `max_tokens` 160).
+4. `watcher council: ledger: more than 16 records of one type in a bell` appeared once in `logs/citizens.log` (A2 note: once more in A2, still not identified) (the talk sequence number of one AI overflowed in one bell); the AI and bell were not looked for.
 5. The pilot reader measures readiness from the province files: a pending order and a host in transit are not in that view.
 
 ## 8. Everything started was stopped
