@@ -13,7 +13,7 @@
 import { html, raw } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { BUILDINGS, TIERS } from '../fi18n.mjs';
-import { BUILD_ITEMS } from '../fland.mjs';
+import { BUILD_ITEMS, queueBuildingItem } from '../fland.mjs';
 
 export const FEED_MAX = 60;
 export const TOAST_MAX = 3;
@@ -30,12 +30,13 @@ export function snapshot(FS, now = FS.chain?.now?.() ?? 0) {
     if (k) marches.set(k, { pipeline: m.facts?.pipeline ?? null, revealed: !!m.facts?.slotPresent, settle: !!m.facts?.settleReady,
       dest: m.dest ?? null, bell: m.entry?.arriveBell ?? m.transit?.arriveBell ?? null, outcome: m.transit?.outcome ?? null });
   }
-  const builds = new Set(), holdings = new Map();
+  const builds = new Set(), pendingBuilds = new Set(), holdings = new Map();
   for (const h of FS.holdings ?? []) {
     holdings.set(`${h.p},${h.q},${h.site}`, { state: h.state, tier: h.tier, p: h.p, q: h.q });
     for (const q of h.queue ?? []) {
+      if (!q) continue;
       const done = Number(q.doneAt ?? 0);
-      if (done > 0 && done <= now) builds.add(`${h.p},${h.q},${h.site},${q.kind},${done}`);
+      if (done > 0) (done <= now ? builds : pendingBuilds).add(`${h.p},${h.q},${h.site},${q.kind},${q.arg ?? 0},${done}`);
     }
   }
   const own = new Set((FS.holdings ?? []).map(h => `${h.p},${h.q}`));
@@ -44,7 +45,7 @@ export function snapshot(FS, now = FS.chain?.now?.() ?? 0) {
     const r = x.record ?? x;
     if (r.name === 'CLASH' && own.has(`${Number(r.p)},${Number(r.q)}`)) clashes.add(`${Number(r.p)},${Number(r.q)},${Number(r.bell)}`);
   }
-  return { bell: FS.nowBell ?? null, marches, builds, holdings, clashes, incoming: new Set((FS.incoming ?? []).map(w => `${w.bell},${w.holding.p},${w.holding.q}`)) };
+  return { bell: FS.nowBell ?? null, now, marches, builds, pendingBuilds, holdings, clashes, incoming: new Set((FS.incoming ?? []).map(w => `${w.bell},${w.holding.p},${w.holding.q}`)) };
 }
 
 /**
@@ -75,10 +76,16 @@ export function diffFeed(prev, next) {
     const [b, p, q] = w.split(',').map(Number);
     out.push({ id: `in:${w}`, kind: 'incoming', bell, p, q, text: L`第${fmtNum(b)}鐘に州 ${p},${q} の村へ敵が来るかもしれません` });
   }
-  for (const b of next.builds) {
+  // A transaction can consume the completed queue before the next poll.
+  const completed = new Set([...next.builds, ...[...(prev.pendingBuilds ?? [])].filter(b => {
+    const parts = b.split(',');
+    return next.holdings.has(parts.slice(0, 3).join(',')) && Number(parts[5]) <= next.now;
+  })]);
+  for (const b of completed) {
     if (prev.builds.has(b)) continue;
-    const [p, q, , kind] = b.split(',').map(Number);
-    out.push({ id: `bd:${b}`, kind: 'build', bell, p, q, text: L`${BUILDINGS[BUILD_ITEMS[kind]?.resource] ?? L`建物`}が完成しました（州 ${p},${q}）` });
+    const [p, q, , kind, arg] = b.split(',').map(Number);
+    const item = queueBuildingItem({ kind, arg });
+    out.push({ id: `bd:${b}`, kind: 'build', bell, p, q, text: L`${BUILDINGS[BUILD_ITEMS[item]?.resource] ?? L`建物`}が完成しました（州 ${p},${q}）` });
   }
   for (const [k, h] of next.holdings) {
     const was = prev.holdings.get(k);

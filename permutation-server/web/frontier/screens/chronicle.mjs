@@ -16,6 +16,7 @@ export function lineOf(r) {
     case 'JOIN': return L`新しい市民が加わった`;
     case 'SETTLE': return { fresh: () => L`州 ${r.p},${r.q} の区画 ${r.site + 1} に入植した`, displace: () => L`州 ${r.p},${r.q} の区画 ${r.site + 1} で仮の村が押し出された`,
       taken: () => null, expired: () => L`入植希望が期限切れになった` }[SETTLE_OUTCOMES[r.outcome]]?.() ?? null;
+    case 'HOME_PLACED':
     case 'HOLDING_FINAL': return L`州 ${r.p},${r.q} の区画 ${r.site + 1} の村が確定した`;
     case 'DEPART': return L`州 ${r.origin_p},${r.origin_q} から軍勢が出発した（第${fmtNum(r.arrive_bell)}鐘に到着）`;
     case 'REVEAL': return L`州 ${r.p},${r.q} の第${fmtNum(r.arrive)}鐘の到着が開封された`;

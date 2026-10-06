@@ -13,6 +13,9 @@ import * as LD from '../../permutation-server/web/frontier/people/leaders.mjs';
 import * as P from '../../permutation-server/web/frontier/people/profile.mjs';
 import { encode as toBase58 } from '../../permutation-server/web/sdk/base58.mjs';
 import { setLang, L } from '../../permutation-server/web/lang.mjs';
+import { wedgeOf } from '../../permutation-server/web/frontier/fgeo.mjs';
+import { chronicleRows } from '../../permutation-server/web/frontier/screens/chronicle.mjs';
+import { eventBells } from '../../permutation-server/web/frontier/screens/spectate.mjs';
 
 const tags = n => Array.from({ length: n }, (_, i) => BigInt.asUintN(64, BigInt(i + 1) * 0x9e3779b97f4a7c15n));
 
@@ -209,4 +212,38 @@ test('life: what a lord did lately decides who is out at the holding', () => {
   setLang('en');
   assert.equal(LIFE.lordLine('Kaito', 'build', (s, ...v) => L(s, ...v)), 'Lord Kaito oversees the building');
   setLang('ja');
+});
+
+test('a granted home shows its founder immediately and preserves the founding identity in the chronicle', () => {
+  setLang('ja');
+  const record = { name: 'HOME_PLACED', bell: 7, p: 3, q: 0, site: 0, citizen_tag: 9n, gen: 1, final_ts: 4200 };
+  const records = [{ seq: '12', record }];
+  const life = LIFE.updateLife(new Map(), records);
+  const arrival = LIFE.lifeAt(life.get('3,0,0'), 7, 4200);
+  assert.deepEqual([arrival.lord, arrival.doing, arrival.liveliness], [true, 'settle', 1]);
+  assert.equal(LIFE.lifeAt(life.get('3,0,0'), 10, 6000).lord, false, 'normal activity expiry still applies');
+  const laterOwner = { ownerOf: () => ({ tag: 123n, bell: 9 }) };
+  for (const overview of [new Map(), overviews]) {
+    const [highlight] = U.highlights(records, overview, laterOwner);
+    assert.equal(highlight.kind, 'settle');
+    assert.equal(highlight.faction, wedgeOf(3, 0), 'PlaceHome is in the founding citizen’s home wedge');
+    assert.equal(highlight.identity.tag, I.identityOf(9n).tag, 'the event’s citizen is the founder, not today’s owner');
+    assert.equal(U.highlights(records, overview, laterOwner, { faction: (highlight.faction + 1) % 6 }).length, 0);
+  }
+  assert.deepEqual(eventBells(records), [{ bell: 7, events: 1, clashes: 0 }]);
+  assert.deepEqual(chronicleRows(records, r => r.citizen_tag === 9n), [{ seq: '12', bell: 7, text: '州 3,0 の区画 1 の村が確定した', mine: true }]);
+});
+
+test('own construction badges decode queue effects and do not turn upkeep into a building', () => {
+  setLang('ja');
+  const e = { p: 3, q: 0 };
+  const own = [{ p: 3, q: 0, tile: 9, faction: 0, queue: [
+    { kind: 1, arg: 0, doneAt: 4260 },
+    { kind: 1, arg: 5, doneAt: 9660 },
+    { kind: 2, arg: 0, doneAt: 4500 },
+    { kind: 0, arg: 0, doneAt: 0 },
+  ] }];
+  const activities = ACT.tileActivities(e, { own }).get(9);
+  assert.deepEqual(activities.map(x => x.item), [0, 4]);
+  assert.deepEqual(activities.map(ACT.activityText), ['農場を建設中', '造幣所を建設中']);
 });

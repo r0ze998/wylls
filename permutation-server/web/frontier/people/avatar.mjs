@@ -1,11 +1,9 @@
-// Player portraits (design session, "people" request): a small bust drawn
-// from an identity's face (identity.mjs) in the faction's colours — the
-// garment, the frame and the sigil badge carry the faction, the face the
-// person. Pure SVG markup (attributes only, no style: the page CSP allows
-// no inline style), readable from 20 px (the map's name tag) to 96 px (the
-// panel). `avatarSvg` returns markup for the page; `avatarImage` a cached
-// HTMLImageElement for canvases (map, replay; `img-src data:` is allowed).
+// Painted player portraits in the faction's frame and sigil badge. The
+// procedural bust remains underneath as a network/decode fallback. SVG
+// markup uses attributes only (the page CSP allows no inline style), and
+// the canvas path composites same-origin art without external SVG images.
 import { SKIN, HAIR, EYES } from './identity.mjs';
+import { PORTRAIT_ART_URL, PORTRAIT_COLUMNS, PORTRAIT_ROWS, portraitCell, portraitAtlas } from './portrait-art.mjs';
 
 /** Faction colours (fi18n CIV_COLORS order) and their dark trims. */
 export const FACTION_FILL = Object.freeze(['#c1504a', '#2f8f84', '#c28f2c', '#7a5fb0', '#3f78c2', '#b5527f']);
@@ -13,6 +11,10 @@ export const FACTION_DARK = Object.freeze(['#7d2c27', '#1b5a53', '#7d5a14', '#4b
 export const FACTION_LIGHT = Object.freeze(['#f1d6d2', '#d3ebe7', '#f2e4c5', '#e2daf0', '#d6e2f3', '#f0d6e2']);
 const NEUTRAL = { fill: '#8a8a80', dark: '#55554e', light: '#e6e4dc' };
 const col = f => (Number.isInteger(f) && f >= 0 && f < 6 ? { fill: FACTION_FILL[f], dark: FACTION_DARK[f], light: FACTION_LIGHT[f] } : NEUTRAL);
+// Shared SVG/canvas geometry keeps painted art inside the team frame and
+// behind the badge. Both stay within the existing 64 × 64 portrait box.
+const FRAME = { x: 3.5, size: 57, radius: 12.5, outline: 6, band: 4 };
+const BADGE = { x: 52, y: 52, radius: 10, rim: 3, sigil: 6 };
 
 /** The sigil of a faction as an SVG path centred on (0, 0), radius 1 (map/layers.mjs SIGILS: circle, triangle, square, diamond, cross, hexagon). */
 export function sigilPath(f, r = 1) {
@@ -77,7 +79,7 @@ const MOUTH = ['M28.5 35.4 C30.5 36.6 33.5 36.6 35.5 35.4', 'M29 35.6 L35 35.6',
  * ids unique when several portraits share a page; `title` names it (else
  * it is decorative: aria-hidden).
  */
-export function avatarSvg(identity, faction, { size = 48, title = null, uid = identity?.tag ?? 'x', badge = size >= 28 } = {}) {
+export function avatarSvg(identity, faction, { size = 48, title = null, uid = identity?.tag ?? 'x', badge = size >= 28, art = true } = {}) {
   const f = identity?.face ?? { skin: 1, hair: 1, hairStyle: 0, eyes: 0, brow: 0, mouth: 0, jaw: 0, beard: 0, headwear: 'none', bg: 0 };
   const c = col(faction);
   const skin = SKIN[f.skin] ?? SKIN[1], skinD = shade(skin, -0.22), hair = HAIR[f.hair] ?? HAIR[1], hairD = shade(hair, -0.35);
@@ -91,6 +93,7 @@ export function avatarSvg(identity, faction, { size = 48, title = null, uid = id
     `<path d="M0 12 L64 0 L64 8 L0 22 Z" fill="${c.fill}" opacity=".08"/>`,
   ][f.bg % 4];
   const hood = f.headwear === 'hood';
+  const cell = portraitCell(identity, faction);
   const parts = [
     `<defs><radialGradient id="${g}b" cx=".5" cy=".35" r=".75"><stop offset="0" stop-color="#fffdf6"/><stop offset="1" stop-color="${c.light}"/></radialGradient>`,
     `<linearGradient id="${g}g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${shade(c.fill, 0.12)}"/><stop offset="1" stop-color="${c.dark}"/></linearGradient>`,
@@ -124,28 +127,78 @@ export function avatarSvg(identity, faction, { size = 48, title = null, uid = id
     f.headwear === 'band' ? `<path d="M19 20.5 C26 18 38 18 45 20.5 L45 23 C38 20.6 26 20.6 19 23 Z" fill="${c.fill}"/>` : '',
     f.headwear === 'circlet' ? `<path d="M19.5 19.5 C26 17.5 38 17.5 44.5 19.5 L44.5 21 C38 19.2 26 19.2 19.5 21 Z" fill="#d9b44a"/><path d="M30.6 17.4 L32 15 L33.4 17.4 L32 19.2 Z" fill="${c.fill}" stroke="#d9b44a" stroke-width=".5"/>` : '',
     f.headwear === 'cap' ? `<path d="M18 21 C18 9 46 9 46 21 C40 18 24 18 18 21 Z" fill="${c.fill}"/><path d="M18 21 C24 18.5 40 18.5 46 21 L46 22.6 C40 20.2 24 20.2 18 22.6 Z" fill="${c.dark}"/>` : '',
-    `</g></g>`,
+    `</g>`,
+    art ? `<image href="${PORTRAIT_ART_URL}" x="${2 - cell.column * 60}" y="${2 - cell.row * 60}" width="${PORTRAIT_COLUMNS * 60}" height="${PORTRAIT_ROWS * 60}" preserveAspectRatio="none"/>` : '',
+    `</g>`,
     // frame and sigil badge
-    `<rect x="2" y="2" width="60" height="60" rx="14" fill="none" stroke="${c.dark}" stroke-width="2.5"/>`,
+    `<rect x="${FRAME.x}" y="${FRAME.x}" width="${FRAME.size}" height="${FRAME.size}" rx="${FRAME.radius}" fill="none" stroke="${c.dark}" stroke-width="${FRAME.outline}"/>`,
+    `<rect x="${FRAME.x}" y="${FRAME.x}" width="${FRAME.size}" height="${FRAME.size}" rx="${FRAME.radius}" fill="none" stroke="${c.fill}" stroke-width="${FRAME.band}"/>`,
     // the badge only where it reads (a 20-px name tag keeps the frame colour)
-    badge ? `<g transform="translate(52.5 52.5)"><circle r="8" fill="#fffdf6" stroke="${c.dark}" stroke-width="1.6"/><path d="${sigilPath(faction, 4.4)}" fill="${c.fill}"/></g>` : '',
+    badge ? `<g transform="translate(${BADGE.x} ${BADGE.y})"><circle r="${BADGE.radius}" fill="${c.fill}" stroke="#fffdf6" stroke-width="${BADGE.rim}"/><path d="${sigilPath(faction, BADGE.sigil)}" fill="#fffdf6" stroke="${c.dark}" stroke-width=".8" stroke-linejoin="round"/></g>` : '',
   ];
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="${size}" height="${size}" class="avatar" ${a11y}>${parts.join('')}</svg>`;
 }
 
 // ------------------------------------------------------------------ canvas
 const images = new Map();
-/** A decoded <img> of the portrait for canvases (null until it loads; `onLoad` once it has). */
+/** A CanvasImageSource, or null until decoded; redraw again if the atlas arrives later. */
 export function avatarImage(identity, faction, onLoad = () => {}) {
   const key = `${identity?.tag ?? 'x'}:${faction}`;
   const hit = images.get(key);
-  if (hit) return hit.ready ? hit.img : null;
+  if (hit) {
+    if (!hit.failed && (!hit.ready || hit.atlas?.status === 'loading')) hit.listeners.add(onLoad);
+    return hit.ready ? hit.surface : null;
+  }
   if (typeof globalThis.Image !== 'function') return null;
   const img = new globalThis.Image();
-  const rec = { img, ready: false };
-  img.onload = () => { rec.ready = true; onLoad(); };
-  img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(avatarSvg(identity, faction, { size: 96, uid: 'c' }))}`;
+  const rec = { surface: img, ready: false, failed: false, atlas: null, listeners: new Set([onLoad]) };
+  let canvas = null, ctx = null;
+  try {
+    canvas = globalThis.document?.createElement('canvas') ?? null;
+    if (canvas) { canvas.width = canvas.height = 96; ctx = canvas.getContext('2d'); }
+  } catch { /* An image still works when a canvas is unavailable. */ }
+  const redraw = () => {
+    if (!rec.ready) return;
+    if (ctx && rec.atlas?.status === 'ready') {
+      const cell = portraitCell(identity, faction), source = rec.atlas.image;
+      const sw = source.naturalWidth / PORTRAIT_COLUMNS, sh = source.naturalHeight / PORTRAIT_ROWS;
+      ctx.save();
+      try {
+        ctx.clearRect(0, 0, 96, 96);
+        ctx.drawImage(img, 0, 0, 96, 96);
+        ctx.scale(1.5, 1.5);
+        // Keep the team frame and badge above the art. Clip just
+        // inside the frame, then cut the badge out of that aperture.
+        const inset = FRAME.outline / 2;
+        roundedRect(ctx, FRAME.x + inset, FRAME.x + inset, FRAME.size - 2 * inset, FRAME.size - 2 * inset, FRAME.radius - inset);
+        ctx.clip();
+        ctx.beginPath(); ctx.rect(0, 0, 64, 64);
+        const badgeMask = BADGE.radius + BADGE.rim / 2 + 0.1;
+        ctx.moveTo(BADGE.x + badgeMask, BADGE.y); ctx.arc(BADGE.x, BADGE.y, badgeMask, 0, Math.PI * 2);
+        ctx.clip('evenodd');
+        ctx.drawImage(source, cell.column * sw, cell.row * sh, sw, sh, 2, 2, 60, 60);
+        rec.surface = canvas;
+      } catch { rec.surface = img; }
+      finally { ctx.restore(); }
+    }
+    for (const listener of [...rec.listeners]) listener();
+    if (!ctx || rec.atlas?.status !== 'loading') rec.listeners.clear();
+  };
+  img.onload = () => { rec.ready = true; redraw(); };
+  img.onerror = () => { rec.failed = true; rec.listeners.clear(); };
   if (images.size > 4000) images.clear();
   images.set(key, rec);
+  if (ctx) rec.atlas = portraitAtlas(redraw);
+  // SVG loaded as an image cannot safely load its own external <image>.
+  // Decode the procedural fallback alone and composite the atlas above.
+  img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(avatarSvg(identity, faction, { size: 96, uid: 'c', art: false }))}`;
   return null;
+}
+
+function roundedRect(ctx, x, y, w, h, r) {
+  ctx.beginPath(); ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
 }

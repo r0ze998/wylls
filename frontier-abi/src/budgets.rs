@@ -53,7 +53,7 @@ pub const BUILTIN_DATA_LEN: u32 = 64;
 /// that length rounded up to 16 KiB (≈ 15 KB of growth headroom). The svm
 /// guard `g01_loaded_limit_table_covers_the_release_so` fails when the
 /// release `.so` outgrows it.
-pub const PLACEHOLDER_SO_LEN: u32 = 884_736;
+pub const PLACEHOLDER_SO_LEN: u32 = 901_120;
 pub const PLACEHOLDER_PROGRAMDATA_LEN: u32 = max_len_for(PLACEHOLDER_SO_LEN);
 
 /// `--max-len = round_up(1.25 × so_len, 4,096)` (I-45).
@@ -190,6 +190,7 @@ budgets! {
     ReleaseDormant: 25_000, 0, 480, 11_864;
     CloseHolding: 15_000, 0, 330, 6_750;
     CloseCitizen: 10_000, 0, 300, 6_191;
+    PlaceHome: 40_000, 0, 700, 0;
     Harvest: 17_500, 0, 320, 16_409;
     Build: 22_000, 0, 360, 19_145;
     Train: 17_500, 0, 330, 16_641;

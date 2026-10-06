@@ -41,6 +41,15 @@ export const BUILD_ITEMS = Object.freeze([
   { item: 5, resource: 'Science', perHour: 3, cost: [0, 60, 60, 0, 0, 20, 0, 0] },
   { item: 6, resource: 'Walls', perHour: 0, cost: null },
 ].map(Object.freeze));
+/** QueueItem is an effect (kind 1 = production, arg = Resource), not a Build item. */
+export function queueBuildingItem(q) {
+  if (!q) return null;
+  if (q.kind === 4) return 6;
+  if (q.kind === 3) return 7;
+  if (q.kind !== 1) return null;
+  const resource = ['Food', 'Wood', 'Stone', 'Ore', 'Horses', 'Gold', 'Science', 'Influence'][q.arg];
+  return BUILD_ITEMS.find(b => b.resource === resource)?.item ?? null;
+}
 /**
  * Base production per hour by resource (catalog `BASE_PROD`) and the tier
  * bonus in percent (catalog `tier_bonus_pct`, Hamlet … Stronghold): a

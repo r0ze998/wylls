@@ -99,6 +99,7 @@ tags! {
     ReleaseDormant = 0x35, N, false;
     CloseHolding = 0x36, N, false;
     CloseCitizen = 0x37, N, false;
+    PlaceHome = 0x38, P, false;
     // Holdings and resident actions (§5.10)
     Harvest = 0x40, P, false;
     Build = 0x41, P, false;
@@ -134,7 +135,7 @@ pub const fn is_reserved(t: u8) -> bool {
 
 /// Player instructions the relay may sponsor (§8.3 shape allowlist).
 pub const fn relay_player_shape(ix: Ix) -> bool {
-    matches!(ix.tag(), 0x30..=0x33 | 0x40..=0x46 | 0x50)
+    matches!(ix.tag(), 0x30..=0x33 | 0x38 | 0x40..=0x46 | 0x50)
 }
 
 /// Settle shapes the relay may sponsor without an authority signature.
@@ -153,7 +154,7 @@ mod tests {
 
     #[test]
     fn fifty_tags_unique_and_not_reserved() {
-        assert_eq!(Ix::ALL.len(), 50);
+        assert_eq!(Ix::ALL.len(), 51);
         for (i, a) in Ix::ALL.iter().enumerate() {
             assert_eq!(Ix::from_tag(a.tag()), Some(*a));
             assert!(!is_reserved(a.tag()), "{}", a.name());

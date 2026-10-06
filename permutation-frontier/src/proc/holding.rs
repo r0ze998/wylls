@@ -599,6 +599,11 @@ pub fn build(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         let n = if walls { 1 } else { copy_number(&h, x.item)? };
         catalog::building(x.item, n, doctrine).ok_or(FrontierError::BadData)?
     };
+    let intro = x.item < catalog::ITEM_WALLS && {
+        let hd = holding.try_borrow_data()?;
+        Ro(&hd).u8(H::FLAGS)? & H::FLAG_INTRO_BUILD_AVAILABLE != 0
+    };
+    let secs = if intro { H::INTRO_BUILD_SECS } else { secs };
     h.pay(now, &cost).map_err(holding_err)?;
     let done_at = h.enqueue(now, secs as i64, effect).map_err(holding_err)?;
     if walls {
@@ -608,6 +613,10 @@ pub fn build(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     {
         let mut hd = holding.try_borrow_mut_data()?;
         write_holding(&mut hd, &h, now)?;
+        if intro {
+            let flags = Ro(&hd).u8(H::FLAGS)?;
+            Rw(&mut hd).set_u8(H::FLAGS, flags & !H::FLAG_INTRO_BUILD_AVAILABLE)?;
+        }
     }
     let key = pqs_key(hh.p, hh.q, hh.site)?;
     let payload = Buf::<41>::new()

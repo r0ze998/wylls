@@ -56,7 +56,7 @@ test('the steps follow the chain: join, site, build, scout, march; the seen flag
   assert.equal(statuses(st).join, 'done');
   assert.equal(st.current, 'build');
   // A build in the queue.
-  const built = holding({ queue: [{ doneAt: 1_800_000_900, kind: 0 }, null, null, null] });
+  const built = holding({ queue: [{ doneAt: 1_800_000_900, kind: 1, arg: 0 }, null, null, null] });
   st = ob.onboardingState(facts(citizen(HELD), built));
   assert.equal(st.current, 'scout');
   // Or production above the tier's base from a finished building (a founded Hamlet already has the base: W6-D).
@@ -66,14 +66,14 @@ test('the steps follow the chain: join, site, build, scout, march; the seen flag
   assert.equal(ob.hasBuilt(holding()), false);
   // Scouts trained is not yet the step: the exploration is (pending in the Holding, then counted in the Citizen).
   assert.equal(ob.hasScouts(holding({ reserve: [0, 0, 0, 0, 0, 0, 120, 0] })), true);
-  const exploring = holding({ queue: [{ doneAt: 1, kind: 0 }, null, null, null], explore: { bell: 41, p: 2, q: 0, host: 5, state: 1 } });
+  const exploring = holding({ queue: [{ doneAt: 1, kind: 1, arg: 0 }, null, null, null], explore: { bell: 41, p: 2, q: 0, host: 5, state: 1 } });
   st = ob.onboardingState(facts(citizen(HELD), exploring));
   assert.equal(statuses(st).scout, 'done');
   assert.equal(st.current, 'practice');
   st = ob.onboardingState(facts(citizen({ ...HELD, explores: 2 }), built), [ob.FLAG.practice]);
   assert.equal(st.current, 'march');
   // A departure (the Citizen counts it; the transit sits in the Holding).
-  const marching = holding({ queue: [{ doneAt: 1, kind: 0 }, null, null, null], transit: [{ state: 1, hostId: 9, arriveBell: 50 }, null, null, null] });
+  const marching = holding({ queue: [{ doneAt: 1, kind: 1, arg: 0 }, null, null, null], transit: [{ state: 1, hostId: 9, arriveBell: 50 }, null, null, null] });
   const inFlight = [{ facts: { pipeline: 'revealing' }, dest: { p: 3, q: 0 }, entry: { arriveBell: 50 } }];
   st = ob.onboardingState(facts(citizen({ ...HELD, explores: 1 }), marching, inFlight), [ob.FLAG.practice], CLOCK);
   assert.equal(st.current, 'report');
@@ -94,7 +94,7 @@ test('a reload gives the same state (the flags go through ps-fui); a new device 
   const store = new Map();
   const storage = { get: k => store.get(k) ?? null, set: (k, v) => { store.set(k, v); return true; } };
   const key = 'ps-fui:localnet:prog:1';
-  const f = facts(citizen({ ...HELD, explores: 1 }), holding({ queue: [{ doneAt: 1, kind: 0 }, null, null, null] }));
+  const f = facts(citizen({ ...HELD, explores: 1 }), holding({ queue: [{ doneAt: 1, kind: 1, arg: 0 }, null, null, null] }));
   for (const flags of [[], [ob.FLAG.welcome], [ob.FLAG.practice], [ob.FLAG.practice, ob.FLAG.skip('march')], [ob.FLAG.dismissed]]) {
     const saved = saveUi(storage, key, { dismissed: flags });
     assert.deepEqual(ob.onboardingState(f, loadUi(storage, key).dismissed), ob.onboardingState(f, flags), JSON.stringify(flags));

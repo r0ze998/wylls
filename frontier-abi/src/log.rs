@@ -159,6 +159,7 @@ kinds! {
     SETTLE = 14; key ["p": 4, "q": 4, "site": 1]; payload ["outcome": 1, "citizen_tag": 8, "score": 8, "displaced_tag": 8, "gen": 1, "final_ts": 8, "ticket_bell": 4];
     RELEASE = 15; key ["p": 4, "q": 4, "site": 1]; payload ["citizen_tag": 8];
     HOLDING_FINAL = 16; key ["p": 4, "q": 4, "site": 1]; payload ["final_ts": 8];
+    HOME_PLACED = 17; key ["p": 4, "q": 4, "site": 1]; payload ["citizen_tag": 8, "gen": 1, "final_ts": 8, "funder": 32];
     HARVEST = 20; key ["p": 4, "q": 4, "site": 1]; payload ["stores_digest": 32];
     BUILD = 21; key ["p": 4, "q": 4, "site": 1]; payload ["item": 1, "cost_digest": 32, "done_at": 8];
     TRAIN = 22; key ["p": 4, "q": 4, "site": 1]; payload ["unit": 1, "n": 4, "done_at": 8];
@@ -653,6 +654,14 @@ pub fn chains_of(kind: Kind, key: &[u8], payload: &[u8]) -> Option<Chains> {
             for _ in 0..others {
                 c.push(E::Province, R::InTx, true);
             }
+        }
+        Kind::HOME_PLACED => {
+            let (p, q, site) = pqs(key)?;
+            let me = CitizenRef::Tag8(rd_u64(pay("citizen_tag")?, 0)?);
+            c.push(E::JoinShard, R::JoinShardOf(me), false);
+            c.push(E::Citizen, R::Citizen(me), false);
+            c.push(E::Holding, R::Holding { p, q, site }, false);
+            c.push(E::Province, R::Province { p, q }, false);
         }
         Kind::RELEASE => {
             let (p, q, site) = pqs(key)?;

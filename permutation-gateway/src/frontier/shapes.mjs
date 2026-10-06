@@ -17,7 +17,7 @@
 import { addressBucket } from '../guards.mjs';
 import { baseFee, departEscrow, rent, seasonTipMin, tipPresets } from '../../client/src/frontier/fees.mjs';
 import { layoutOf } from '../../client/src/frontier/codec.mjs';
-import { DEPART_TAG, FILE_TICKET_TAG, JOIN_TAG } from '../../client/src/frontier/shapes.mjs';
+import { DEPART_TAG, FILE_TICKET_TAG, JOIN_TAG, PLACE_HOME_TAG } from '../../client/src/frontier/shapes.mjs';
 import { RouteError } from '../routes/errors.mjs';
 
 export const CITIZEN_RENT = rent(layoutOf('Citizen').size);
@@ -62,6 +62,7 @@ export function checkDepartArrival(shape, season) {
 export function allowanceFor(shape, { season, citizen = null }) {
   switch (shape.tag) {
     case JOIN_TAG: return CITIZEN_RENT;
+    case PLACE_HOME_TAG: return HOLDING_RENT;
     case FILE_TICKET_TAG: {
       const escrow = citizen ? BigInt(citizen.TICKET_ESCROW) : 0n;
       return escrow >= HOLDING_RENT ? 0n : HOLDING_RENT - escrow;

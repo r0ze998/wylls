@@ -39,6 +39,7 @@ pub mod tag {
     pub const RELEASE_DORMANT: u8 = 0x35;
     pub const CLOSE_HOLDING: u8 = 0x36;
     pub const CLOSE_CITIZEN: u8 = 0x37;
+    pub const PLACE_HOME: u8 = 0x38;
     pub const HARVEST: u8 = 0x40;
     pub const BUILD: u8 = 0x41;
     pub const TRAIN: u8 = 0x42;
@@ -131,7 +132,7 @@ const fn ix(
 
 /// Every instruction of M1 (§5.5), in tag order. 49 + the test-only
 /// ResolveClash = 50 rows.
-pub const INSTRUCTIONS: [IxInfo; 50] = [
+pub const INSTRUCTIONS: [IxInfo; 51] = [
     ix(0x01, "CreateSeason", Class::O, 70_000, 1_100, false),
     ix(0x02, "InitShards", Class::O, 45_000, 600, false),
     ix(0x03, "ConsumeGenesisSeed", Class::D, 345_000, 760, true),
@@ -160,6 +161,7 @@ pub const INSTRUCTIONS: [IxInfo; 50] = [
     ix(0x35, "ReleaseDormant", Class::N, 25_000, 480, false),
     ix(0x36, "CloseHolding", Class::N, 15_000, 330, false),
     ix(0x37, "CloseCitizen", Class::N, 10_000, 300, false),
+    ix(0x38, "PlaceHome", Class::P, 40_000, 700, false),
     ix(0x40, "Harvest", Class::P, 17_500, 320, false),
     ix(0x41, "Build", Class::P, 22_000, 360, false),
     ix(0x42, "Train", Class::P, 17_500, 330, false),
@@ -421,6 +423,7 @@ pub mod kind {
     pub const SETTLE: u8 = 14;
     pub const RELEASE: u8 = 15;
     pub const HOLDING_FINAL: u8 = 16;
+    pub const HOME_PLACED: u8 = 17;
     pub const HARVEST: u8 = 20;
     pub const BUILD: u8 = 21;
     pub const TRAIN: u8 = 22;
@@ -450,7 +453,7 @@ pub mod kind {
     pub const CLOSE: u8 = 70;
 
     /// (kind, name) for every defined record kind.
-    pub const ALL: [(u8, &str); 41] = [
+    pub const ALL: [(u8, &str); 42] = [
         (ANNOUNCE, "ANNOUNCE"),
         (SEASON_CREATED, "SEASON_CREATED"),
         (GENESIS_SEED, "GENESIS_SEED"),
@@ -467,6 +470,7 @@ pub mod kind {
         (SETTLE, "SETTLE"),
         (RELEASE, "RELEASE"),
         (HOLDING_FINAL, "HOLDING_FINAL"),
+        (HOME_PLACED, "HOME_PLACED"),
         (HARVEST, "HARVEST"),
         (BUILD, "BUILD"),
         (TRAIN, "TRAIN"),
@@ -1046,7 +1050,7 @@ mod tests {
         let mut tags: Vec<u8> = INSTRUCTIONS.iter().map(|i| i.tag).collect();
         tags.sort();
         tags.dedup();
-        assert_eq!(tags.len(), 50);
+        assert_eq!(tags.len(), 51);
         assert!(ix_info(tag::RESERVED_PROVE_BAD_SEAL).is_none());
         assert_eq!(ix_info(tag::REVEAL).unwrap().class, Class::W);
         assert_eq!(ix_info(tag::SETTLE_TICKET).unwrap().class, Class::D);

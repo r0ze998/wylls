@@ -102,7 +102,7 @@ import * as glossary from './hud/glossary.mjs';
 import * as milestones from './hud/milestones.mjs';
 import * as guide from './hud/guide.mjs';
 import { forecast, forecastKey } from './hud/forecast.mjs';
-import { BUILD_ITEMS } from './fland.mjs';
+import { BUILD_ITEMS, queueBuildingItem } from './fland.mjs';
 import { UNIT_KINDS } from './people/units.mjs';
 import { reachTiles, reachSteps } from './hud/reach.mjs';
 import { momentSnapshot, detectMoments, liveMoments } from './people/moments.mjs';
@@ -114,6 +114,7 @@ import { tileHex } from './fgeo.mjs';
 import { project } from '../map.mjs';
 import { identityOf, displayName, withProfile, tagKey } from './people/identity.mjs';
 import { lifeAt, lordLine } from './people/life.mjs';
+import { instantHomeEnabled, homeSites, sameHome } from './home.mjs';
 
 const $ = id => globalThis.document?.getElementById(id);
 const setText = (id, text) => { const el = $(id); if (el && el.textContent !== text) el.textContent = text; };
@@ -174,6 +175,9 @@ export function panelMarkup(FS) {
   const parts = [renderNotice(FS.notice)];
   if (FS.practice) return [...parts, practiceScreen.render(FS.practice, { kernelError: FS.practiceError ?? null, closable: true })];
   if (FS.report) return [...parts, reportScreen.render(FS, mineOf(FS.holdings), { ownerOf: reportOwner })];
+  // Give the first decision and the confirmed grant the whole panel, on every tab.
+  if (instantHomeEnabled(FS.season) && (FS.homeGrant || !(FS.holdings ?? []).length)) return [...parts, joinScreen.render(FS)];
+  if (instantHomeEnabled(FS.season) && tab !== 'map') parts.push(html`<div class="rail-mini">${joinScreen.renderHomeIdentity(FS)}</div>`);
   // A march being composed on the map: its card first (hud/marchcard.mjs).
   if (tab === 'map' && FS.compose) parts.push(marchCard.render(FS));
   // Phones and tablets (no left rail below 1100 px): the rail's holdings and to-do list, folded (closed while composing).
@@ -249,6 +253,7 @@ function renderPlay() {
   if (title) setText('panel-title', sub ?? { map: L`地図`, holding: L`村`, hosts: L`軍勢`, marches: L`進軍`, more: L`その他` }[FS.tab ?? 'map'] ?? L`シーズン`);
   renderRail();
   renderMinimap();
+  focusHome();
   // the header follows new data at once, not only on the next one-second tick
   renderHudTick(FS.chain?.now() ?? null);
 }
@@ -437,8 +442,9 @@ function constructionsNow() {
     out.push({ p, q, site, name, share: Math.max(0, Math.min(1, 1 - (doneAt - now) / total)), label: `${name} ${hud.span(doneAt - now)}`.trim() });
   };
   for (const h of FS.holdings ?? []) for (const q of h.queue ?? []) {
+    if (!q) continue;
     const done = Number(q.doneAt ?? 0);
-    if (done > now) add(h.p, h.q, h.site, q.kind, done, done - buildSecsOf(q));
+    if (done > now) add(h.p, h.q, h.site, queueBuildingItem(q), done, done - buildSecsOf(q));
   }
   if (FS.clock) for (const [k, rec] of FS.life ?? []) {
     if (!rec.build || !(rec.build.doneAt > now)) continue;
@@ -570,8 +576,20 @@ function checkMoments() {
   if (fresh.length) { FS.moments = liveMoments([...(FS.moments ?? []), ...fresh], t); peopleCache.at = -1; mapRef?.invalidate(); }
 }
 
+let homeGuideDeadline = null;
 function renderHudTick(now) {
   const m = hud.bellModel(FS.clock, now);
+  if (instantHomeEnabled(FS.season)) {
+    if (Number.isInteger(m.bell) && FS.nowBell !== m.bell) { FS.nowBell = m.bell; invalidate('panel'); }
+    for (const el of globalThis.document?.querySelectorAll?.('[data-home-deadline]') ?? []) {
+      const left = Number(el.dataset.homeDeadline) - now;
+      el.textContent = countdown(left);
+      if (left <= 0) invalidate('panel');
+    }
+    const next = (hud.activeHolding(FS)?.queue ?? []).filter(q => q && Number(q.doneAt) > now).reduce((a, q) => Math.min(a, Number(q.doneAt)), Infinity);
+    if (homeGuideDeadline !== null && now >= homeGuideDeadline) invalidate('panel');
+    homeGuideDeadline = Number.isFinite(next) ? next : null;
+  }
   checkMoments();
   frameRoute();
   updateForecast();
@@ -801,6 +819,31 @@ function ringToll(bell) {
 function leaveReport() { if (FS.report) { FS.report = null; invalidate('panel'); } }
 const BATTLE_FX_TEXT = { normal: () => L`ふつう`, fast: () => L`早送り`, off: () => L`自動では見せない` };
 
+let homeCamera = 0;
+/** A one-shot focus request: polling must never keep pulling the camera back. */
+function focusHome() {
+  const h = FS.homeFocus;
+  if (!h || !mapRef || !Number.isInteger(h.tile)) return;
+  FS.homeFocus = null;
+  closeIntro();
+  const pos = tileHex(h.p, h.q, h.tile), centre = project(pos.q, pos.r);
+  const target = { x: centre.x, y: centre.y, zoom: 1.0 };
+  const canvas = $('frontier-map')?.getBoundingClientRect?.(), panel = $('panel')?.getBoundingClientRect?.();
+  if (canvas && panel && panel.top > canvas.top && panel.top < canvas.bottom && panel.left < canvas.right && panel.right > canvas.left) target.y += (canvas.bottom - panel.top) / 2;
+  FS.selected = { kind: 'tile', p: h.p, q: h.q, idx: h.tile };
+  mapRef.fitted = true;
+  const stamp = ++homeCamera;
+  if (!FS.homeGrant || globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches || !globalThis.requestAnimationFrame) { mapRef.setView(target); return; }
+  const from = { ...mapRef.view }, start = performance.now();
+  const frame = t => {
+    if (stamp !== homeCamera) return;
+    const k = Math.min(1, (t - start) / 650), ease = 1 - (1 - k) ** 3;
+    mapRef.setView(Object.fromEntries(Object.keys(target).map(key => [key, from[key] + (target[key] - from[key]) * ease])));
+    if (k < 1) requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+}
+
 function goToItem(x) {
   if (!x) return;
   // the item's holding becomes the active one (its tab then shows that holding)
@@ -836,6 +879,14 @@ function cycleHolding(dir) {
 }
 
 export const HUD_ACTIONS = {
+  'home-begin': () => {
+    ACTIONS['home-begin']();
+    requestAnimationFrame(() => {
+      const panel = $('hp-build');
+      panel?.scrollIntoView?.({ block: 'nearest', behavior: 'auto' });
+      panel?.querySelector?.('button:not(:disabled)')?.focus({ preventScroll: true });
+    });
+  },
   'search-go': d => { const x = searchHits[num(d.i)]; if (!x) return; goToItem({ ...x, tab: FS.mode === 'play' ? 'map' : undefined }); const el = $('map-search-results'); if (el) setHtml(el, ''); },
   lens: d => setLens(d.lens),
   goto: d => { leaveReport(); closeResPop(); goToItem({ p: num(d.p), q: num(d.q), tab: 'map' }); },
@@ -1177,12 +1228,23 @@ export async function boot() {
           provinceOf: ART_ON ? (p, q, { far = false } = {}) => { if (!far) wantProvince(p, q, () => map?.invalidate()); return FS.provinces.get(`${p},${q}`)?.province ?? null; } : undefined };
       },
       onSelect: hit0 => {
+        homeCamera++; // an intentional map gesture wins over the arrival animation
         // a tap selects what the zoom shows: a province from afar, a tile up close
         const hit = FS.view.lod === 'tile' ? hit0 : { kind: 'province', p: hit0.p, q: hit0.q };
         FS.selected = hit;
         setText('map-summary', L`州 ${hit.p},${hit.q} を選びました`);
         // The inspector reads the province envelope (loaded once, on demand).
-        if (FS.mode !== 'practice') wantProvince(hit.p, hit.q, () => { map?.invalidate(); invalidate('panel'); });
+        const chooseHome = () => {
+          if (FS.selected !== hit || !instantHomeEnabled(FS.season) || FS.holdings?.length || FS.homeChoice?.busy || !Number.isInteger(hit.idx)) return;
+          const candidate = homeSites(FS.provinces.get(`${hit.p},${hit.q}`)?.province, { faction: FS.citizen?.faction ?? null, nowBell: FS.nowBell, ringsOpen: FS.record?.rings?.length ?? 0 }).find(s => s.tile === hit.idx);
+          if (!candidate) return;
+          const choice = FS.homeChoice;
+          if (!choice) return;
+          let i = choice.candidates.findIndex(s => sameHome(s, candidate));
+          if (i < 0) { choice.candidates = [...choice.candidates.slice(0, 2), candidate]; i = choice.candidates.length - 1; }
+          ACTIONS['home-pick']({ i });
+        };
+        if (FS.mode !== 'practice') { wantProvince(hit.p, hit.q, () => { chooseHome(); map?.invalidate(); invalidate('panel'); }); chooseHome(); }
         // composing a march: a tap on another tile makes it the destination (Civ: select the unit, click where)
         const c = FS.compose;
         if (FS.mode === 'play' && c && !c.sending && Number.isInteger(hit.idx) && !(hit.p === c.origin.p && hit.q === c.origin.q && hit.idx === c.host.tile)) ACTIONS['dest-from-map']()?.catch?.(() => {});

@@ -102,7 +102,7 @@ export const quota = (citizen, opts) => request('GET', `/f/quota?citizen=${encod
 
 // ------------------------------------------------------------------ message checks (§9.4)
 /** Player shapes (session or wallet signer) and settle shapes (no authority signer) the relay accepts (§8.3). */
-export const PLAYER_TAGS = Object.freeze([0x30, 0x31, 0x32, 0x33, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x50]);
+export const PLAYER_TAGS = Object.freeze([0x30, 0x31, 0x32, 0x33, 0x38, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x50]);
 export const SETTLE_TAGS = Object.freeze([0x47, 0x54]);
 export const REVEAL_TAG = 0x51;
 const CB = { limit: 2, price: 3, loaded: 4, heap: 1 };

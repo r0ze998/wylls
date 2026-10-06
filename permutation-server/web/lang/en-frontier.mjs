@@ -319,7 +319,6 @@ export default {
   "州 {0},{1} の探索の結果を待っています。": "Waiting for the exploration of province {0},{1}.",
   "州 {0},{1} の第{2}鐘の到着が開封された": "An arrival at province {0},{1} in Bell {2} was revealed",
   "州の記録の形が正しくありません": "The province record is malformed.",
-  "建設（列は4つまで）": "Build (queue of 4)",
   "手放された": "Released",
   "招待を扱えません": "Invites cannot be handled.",
   "招待コード": "Invite code",

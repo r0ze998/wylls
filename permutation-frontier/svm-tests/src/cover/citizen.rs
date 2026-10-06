@@ -230,3 +230,28 @@ pub const CLOSE_CITIZEN: &[Cover] = &[
     ),
     Cover::Test("citizen::g01_land_other_instructions", &[Loaded]),
 ];
+
+/// Version-2 first-home instruction; the dedicated suite uses the real VM.
+pub const PLACE_HOME: &[Cover] = &[
+    Cover::Test(
+        "first_home::first_home_is_final_sponsored_and_chained_immediately",
+        &[Lands("PlaceHome"), Err(E::AlreadyDone)],
+    ),
+    Cover::Test(
+        "first_home::first_home_rejects_occupied_foreign_closed_and_reserved_sites",
+        &[Err(E::TicketState), Err(E::BadData), Err(E::ReservedSite)],
+    ),
+    Cover::Test(
+        "first_home::first_home_authentication_addresses_and_old_season_checked",
+        &[
+            Err(E::Auth),
+            Err(E::BadAddress),
+            Err(E::BadAccount),
+            Err(E::RulesetMismatch),
+        ],
+    ),
+    Cover::Test(
+        "first_home::first_home_allows_live_session_and_rejects_expiry",
+        &[Lands("session PlaceHome"), Err(E::SessionExpired)],
+    ),
+];

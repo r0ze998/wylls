@@ -41,7 +41,7 @@ export function eventBells(chronicle, limit = 12) {
   const by = new Map();
   for (const x of chronicle ?? []) {
     const r = x.record ?? x;
-    if (!['CLASH', 'DEPART', 'SETTLE', 'EXPLORE'].includes(r.name)) continue;
+    if (!['CLASH', 'DEPART', 'SETTLE', 'HOME_PLACED', 'EXPLORE'].includes(r.name)) continue;
     const b = Number(r.bell);
     const e = by.get(b) ?? { bell: b, events: 0, clashes: 0 };
     e.events++; if (r.name === 'CLASH') e.clashes++;

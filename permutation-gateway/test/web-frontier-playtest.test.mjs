@@ -98,7 +98,7 @@ test('catch-up (W6-D): the page asks the keeper once per bell while the home pro
   assert.equal(C.retryAfterCatchUp('Muster', 'NotFinal'), false);
 });
 
-test('no site picker anywhere (owner decision V2): joining is choosing a nation', () => {
+test('the old lottery picker stays retired; v2 land choices have their own confirmed-home actions', () => {
   for (const f of ['screens/onboarding.mjs', 'screens/join.mjs', 'hud/inspect.mjs']) assert.doesNotMatch(read(`${WEB}${f}`), /data-act="(pick-province|toggle-site|file-ticket)"|act: '(pick-province|toggle-site)'/, f);
   assert.equal(typeof card.renderOverflow, 'undefined');
 });

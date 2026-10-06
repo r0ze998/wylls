@@ -5,7 +5,8 @@ The chain keeps no names. Each person is derived from the owner's `citizen_tag`,
 | Module | What it gives |
 |---|---|
 | `identity.mjs` | `identityOf(tag)` returns `{given, house, face}`. `displayName(id, {full, language})` gives `Kaito` or `Kaito Saford` / `カイト・サフォード`. `IDENTITY_VERSION` freezes the tables. |
-| `avatar.mjs` | `avatarSvg(id, faction, {size})` returns markup. `avatarImage(id, faction, onLoad)` returns an `<img>` for canvases. Also `sigilPath` and the faction colours. |
+| `avatar.mjs` | `avatarSvg(id, faction, {size})` returns markup. `avatarImage(id, faction, onLoad)` returns a `CanvasImageSource` for canvases. Also `sigilPath` and the faction colours. |
+| `portrait-art.mjs` | The shared citizen portrait atlas, deterministic cell selection and one shared image loader. |
 | `leaders.mjs` | `LEADERS` (six names and titles), `DOCTRINE_PITCH`, and `leaderSvg(faction, {size})`. |
 | `roster.mjs` | `createRoster({base})`, with `.ensure(ring)` and `.ownerOf(p, q, site, bell?)`. It reads the herald's `/h/roster/{ring}/latest.bin`; `frontier-node/crates/herald/src/roster.rs` defines the format. Without the file, no names are shown. |
 | `scene.mjs` | `departuresAt(chronicle, overviews, bell)` gives the origin and arrival bell only. Also `exploresAt`, `namer(roster, {bell})` and `seedOwn(roster, holdings)`. |
@@ -23,6 +24,12 @@ The chain keeps no names. Each person is derived from the owner's `citizen_tag`,
   - Name tags: cities and strongholds from 30, every holding from 52, at most 60 per frame, nearest the view centre first.
   - At most 900 figures per frame.
 - Spectators fetch one roster file per ring at most once a minute. The herald caches it per fold version, and nothing else reaches the server.
+
+## Painted player portraits
+
+`art/people/wylls-citizens-v2.png` contains twelve stylized tabletop characters in a four-column, three-row atlas with no gutters. Cells 0–1 are Aster, 2–3 Borealis, 4–5 Cinder, 6–7 Dunmar, 8–9 Ember and 10–11 Fjordal. `portraitCell(identity, faction)` selects the faction pair and chooses its character using the citizen tag's low bit. An absent or invalid faction uses the first pair and the neutral frame. The same citizen keeps their character within their faction across devices and replays. Names and identity generation are unchanged, and people and AI citizens use the same artwork.
+
+The faction's colour appears in a broad frame and a larger badge with an ivory sigil, so allegiance remains visible at small sizes. The six existing colours and sigil shapes are unchanged. The procedural face remains underneath if the image cannot load. Page SVGs reference the same-origin atlas directly; map portraits decode that atlas once and composite it onto a canvas, using the same frame and badge geometry. Their fallback SVG contains no external image, so it works under the existing content security policy without tainting the map canvas. `avatarImage` notifies waiting consumers when its fallback decodes and again when the atlas arrives. `avatarSvg(..., {art: false})` is available for procedural-only rendering.
 
 ## Using it from another page (replay)
 

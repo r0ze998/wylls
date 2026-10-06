@@ -28,6 +28,7 @@ import * as wallet from '../wallet.mjs';
 import { decode as fromBase58, encode as toBase58 } from '../sdk/base58.mjs';
 import { fromBase64 } from '../sdk/bytes.mjs';
 import { L } from '../lang.mjs';
+import { instantHomeEnabled, HOME_GRANTED, planHomes, homeSites, sameHome, homeKey, loadHome, saveHome, grantId } from './home.mjs';
 
 const SESSION_DAYS = 30 * 86_400;
 const now = () => FS.chain?.now() ?? 0;
@@ -38,6 +39,9 @@ const saveUiPatch = patch => { const sc = scope(); if (sc) FS.ui = saveUi(uiStor
 /** The land record of this season and wallet (fui.mjs; the automatic site ticket's state). */
 const landKeyNow = () => (scope() && FS.wallet?.address ? landKey(scope(), FS.wallet.address) : null);
 const readLand = () => { const k = landKeyNow(); FS.landRec = k ? loadLand(uiStorage, k) : (FS.landRec ?? { ...LAND_DEFAULTS }); return FS.landRec; };
+const homeKeyNow = () => scope() ? homeKey(scope(), FS.wallet?.address) : null;
+const readHome = () => homeKeyNow() ? loadHome(uiStorage, homeKeyNow()) : { selected: null, pending: null, seen: null };
+const saveHomePatch = patch => homeKeyNow() ? saveHome(uiStorage, homeKeyNow(), patch) : null;
 const saveLandPatch = patch => { const k = landKeyNow(); FS.landRec = k ? saveLand(uiStorage, k, patch) : { ...(FS.landRec ?? LAND_DEFAULTS), ...patch }; return FS.landRec; };
 const bookKey = () => (FS.wallet && scope() ? book.bookKey(scope(), FS.wallet.address) : null);
 // Notices keep a thunk or the failure itself, so a language switch re-renders them in the new language.
@@ -337,8 +341,9 @@ export async function refresh() {
   // A gated season shows the invite field before any refusal (I-51).
   FS.inviteRequired = FS.inviteRequired || inviteRequired(FS.season);
   if (FS.wallet) {
-    const me = await herald.me(FS.wallet.address);
+    const me = await herald.me(FS.wallet.address).catch(e => ({ ok: false, code: e?.code ?? 'Unavailable' }));
     if (me.ok) {
+      FS.meStatus = 'ready'; FS.meError = null;
       const before = FS.land?.stage;
       FS.citizen = me.citizen;
       FS.holdings = me.holdings;
@@ -358,7 +363,12 @@ export async function refresh() {
         FS.sessionProblem = m.ok ? null : m.code;
       }
     } else if (me.code === 'NotFound') {
+      FS.meStatus = 'ready'; FS.meError = null;
       FS.citizen = null; FS.holdings = []; FS.land = landState(null);
+    } else {
+      FS.meStatus = 'error'; FS.meError = { code: me.code ?? 'Unavailable', text: L`自分の情報を読み込めませんでした。接続を確認して再試行してください。` };
+      invalidate('panel', 'chips');
+      return;
     }
     const h = activeHolding(FS);
     // every holding's province (the rail can switch between them), the active one first
@@ -382,10 +392,122 @@ export async function refresh() {
       const q = await io.quota(io.pinned().addresses.of('Citizen', { wallet: FS.wallet.address }));
       if (q.ok) FS.quota = q;
     }
-  }
+  } else { FS.meStatus = 'ready'; FS.meError = null; }
+  updateHomeGrant();
   await refreshChronicle();
   invalidate('panel', 'tabs', 'chips', 'map');
-  autoTicket().catch(e => console.error('frontier auto ticket:', e));
+  if (needsHomeChoice()) await refreshHomes();
+  else autoTicket().catch(e => console.error('frontier auto ticket:', e));
+}
+
+function needsHomeChoice() {
+  if (!instantHomeEnabled(FS.season) || FS.holdings?.length || FS.meStatus === 'error') return false;
+  if (!FS.citizen) return true;
+  return FS.land?.stage === 'joined' && !(FS.citizen.flags & (HOME_GRANTED | 4 | 16));
+}
+
+function updateHomeGrant() {
+  if (!instantHomeEnabled(FS.season) || !(FS.citizen?.flags & HOME_GRANTED)) { FS.homeGrant = null; return; }
+  const h = FS.holdings?.find(x => x.state === 2);
+  if (!h) { FS.homeGrant = null; return; }
+  const rec = readHome();
+  if (rec.pending || rec.selected) saveHomePatch({ pending: null, selected: null });
+  if (rec.seen !== grantId(h)) {
+    if (!sameHome(FS.homeGrant, h)) FS.homeFocus = h;
+    FS.homeGrant = h; FS.tab = 'map';
+  } else FS.homeGrant = null;
+}
+
+/** Read a bounded set of actual free sites, without signing or claiming land. */
+export async function refreshHomes({ force = false } = {}) {
+  if (!needsHomeChoice() || !herald) return;
+  const old = FS.homeChoice ?? { candidates: [], selected: readHome().selected, rotation: 0 };
+  if (old.loading || old.busy || (!force && old.loadedBell === nowBell() && old.faction === (FS.citizen?.faction ?? null))) return;
+  FS.homeChoice = { ...old, loading: true, error: null };
+  invalidate('panel');
+  try {
+    if (force) FS.overviewsBell = undefined;
+    await refreshOverviews(nowBell());
+    const faction = FS.citizen?.faction ?? null;
+    const result = await planHomes({ overviews: FS.overviews, faction, nowBell: nowBell(), ringsOpen: FS.record?.rings?.length ?? 0,
+      seed: `${FS.wallet?.address ?? 'visitor'}|${old.rotation ?? 0}`, rotation: old.rotation ?? 0,
+      read: async (p, q) => { const env = await loadEnvelope(p, q); return env?.province ?? null; } });
+    const selected = old.selected && (faction === null || old.selected.faction === faction) ? old.selected : null;
+    FS.homeChoice = { ...old, ...result, selected, faction, loadedBell: nowBell(), loading: false,
+      error: result.error ? { code: result.error, text: result.error === 'NoFreeHome' ? L`入植できる土地がまだ見つかりません。候補を更新してください。` : L`土地の情報を読み込めませんでした。もう一度お試しください。` } : null };
+  } catch (e) {
+    FS.homeChoice = { ...old, loading: false, error: { code: e?.code ?? 'Unavailable', text: L`土地の情報を読み込めませんでした。もう一度お試しください。` } };
+  }
+  invalidate('panel', 'map');
+}
+
+async function waitForOwn(predicate) {
+  for (let i = 0; i < 5; i++) {
+    await refresh();
+    if (predicate()) return true;
+    if (FS.meStatus === 'error') return false;
+    if (i < 4) await new Promise(r => setTimeout(r, 1000));
+  }
+  return false;
+}
+
+/** The second action is always based on confirmed Join state, never an optimistic Citizen. */
+export async function confirmHome() {
+  if (!instantHomeEnabled(FS.season) || FS.homeChoice?.busy || !FS.homeChoice?.selected) return;
+  FS.homeChoice.busy = true; FS.homeChoice.error = null;
+  const pending = p => { FS.homeChoice.pending = p; invalidate('panel'); };
+  const error = (code, text) => { FS.homeChoice.error = { code, text }; invalidate('panel'); };
+  try {
+    if (!FS.wallet) {
+      const i = (FS.walletList ?? []).findIndex(w => !w.why);
+      if (i < 0) return error('NoWallet', L`参加に使うウォレットを接続してください。`);
+      pending('connecting'); await ACTIONS.connect({ i: String(i) });
+      if (!FS.wallet) return;
+    }
+    if (FS.meStatus !== 'ready') { await refresh(); if (FS.meStatus !== 'ready') return; }
+    const saved = readHome();
+    if (saved.pending) {
+      pending('confirming');
+      const tracked = await tx.track(saved.pending.signature);
+      await refresh();
+      if (FS.homeGrant) return;
+      if (saved.pending.kind === 'Join' && FS.citizen) saveHomePatch({ pending: null });
+      else if (!tracked.ok && ['failed', 'expired'].includes(tracked.state)) saveHomePatch({ pending: null });
+      else return error('PendingHome', L`参加の結果を確認しています。土地を重ねて申請せず、しばらくしてから再確認してください。`);
+    }
+    let site = FS.homeChoice.selected;
+    if (FS.citizen && FS.citizen.faction !== site.faction) {
+      FS.homeChoice.selected = null;
+      return error('WrongFaction', L`参加済みの国の土地を選んでください。`);
+    }
+    const env = await loadEnvelope(site.p, site.q);
+    if (!homeSites(env?.province, { faction: site.faction, nowBell: nowBell(), ringsOpen: FS.record?.rings?.length ?? 0 }).some(s => sameHome(s, site))) {
+      FS.homeChoice.selected = null; saveHomePatch({ selected: null });
+      return error('SiteUnavailable', L`この土地は現在選べません。候補を更新して別の土地を選んでください。`);
+    }
+    saveHomePatch({ selected: site });
+    if (!FS.citizen) {
+      pending('joining'); FS.joinDraft = { ...(FS.joinDraft ?? {}), faction: site.faction };
+      const joined = await ACTIONS.join();
+      if (!joined?.ok) return;
+      if (!await waitForOwn(() => !!FS.citizen)) return error('PendingHome', L`参加が記録されました。自分の情報の反映を待っています。`);
+      saveHomePatch({ pending: null });
+    }
+    if (FS.holdings?.length) { updateHomeGrant(); return; }
+    if (!FS.session || FS.sessionProblem) {
+      await ACTIONS.session(); await refresh();
+      if (!FS.session || FS.sessionProblem) return;
+    }
+    pending('placing');
+    const placed = await act('PlaceHome', { v: { holding: site, faction: FS.citizen.faction }, fields: { p: site.p, q: site.q, site: site.site },
+      label: () => L`あなたの村を確定しています…`,
+      onSent: r => saveHomePatch({ pending: { kind: 'PlaceHome', signature: r.signature } }),
+      onLost: () => saveHomePatch({ pending: null }) });
+    if (!placed?.ok) { await refresh(); if (!FS.homeGrant) error(placed?.code ?? FS.notice?.code ?? 'PlaceFailed', L`土地の確定を確認できませんでした。再確認するか、候補を更新してください。`); return; }
+    pending('confirming');
+    if (!await waitForOwn(() => !!FS.homeGrant)) error('PendingHome', L`村の確定が記録されました。地図への反映を待っています。`);
+  } catch (e) { error(e?.code ?? 'Unavailable', L`参加を完了できませんでした。接続を確認して再試行してください。`); }
+  finally { if (FS.homeChoice) { FS.homeChoice.busy = false; FS.homeChoice.pending = null; } invalidate('panel', 'tabs', 'map'); }
 }
 
 // ------------------------------------------------------------------ the first holding, placed automatically (owner decision V2)
@@ -402,6 +524,7 @@ export async function refresh() {
  * `FS.autoTicket = {state: 'searching'|'sent'|'waiting'|'nofree'|'failed', bell, code?}`.
  */
 export async function autoTicket({ force = false } = {}) {
+  if (needsHomeChoice()) { FS.autoTicket = null; return; }
   const stage = FS.land?.stage;
   if (stage !== 'joined' && stage !== 'refugee') { FS.autoTicket = null; return; }
   if (!FS.session || FS.sessionProblem || !Number.isInteger(FS.citizen?.faction) || FS.autoTicketBusy) return;
@@ -622,7 +745,40 @@ async function settleTransit(hostId) {
 const num = x => Number.parseInt(x, 10);
 const formNum = (form, name) => Number(form?.elements?.[name]?.value ?? NaN);
 
+/** Hold the button lock until refreshed facts replace the previous offer. */
+async function homeAction(run) {
+  if (FS.homeActionBusy || FS.inFlight > 0) return;
+  FS.homeActionBusy = true; invalidate('panel');
+  try { const result = await run(); if (result?.ok) await refresh(); return result; }
+  finally { FS.homeActionBusy = false; invalidate('panel'); }
+}
+
 export const ACTIONS = {
+  'home-pick': d => {
+    const h = FS.homeChoice?.candidates?.[num(d.i)];
+    if (!h || FS.homeChoice.busy) return;
+    FS.homeChoice.selected = h; FS.homeChoice.error = null; FS.homeFocus = h;
+    FS.joinDraft = { ...(FS.joinDraft ?? {}), faction: h.faction };
+    saveHomePatch({ selected: h }); invalidate('panel', 'map');
+  },
+  'home-preview': () => { if (FS.homeChoice?.selected) { FS.homeFocus = FS.homeChoice.selected; invalidate('panel', 'map'); } },
+  'home-refresh': async () => {
+    if (FS.homeChoice?.busy) return;
+    if (FS.meStatus === 'error') await refresh();
+    if (FS.homeChoice) { FS.homeChoice.rotation = (FS.homeChoice.rotation ?? 0) + 3; FS.homeChoice.selected = null; }
+    saveHomePatch({ selected: null }); return refreshHomes({ force: true });
+  },
+  'home-confirm': () => confirmHome(),
+  'home-begin': () => {
+    const h = FS.homeGrant;
+    if (!h) return;
+    saveHomePatch({ seen: grantId(h), pending: null, selected: null });
+    FS.homeGrant = null; FS.homeFocus = h; FS.tab = 'holding';
+    invalidate('panel', 'tabs', 'map');
+  },
+  'home-scout-train': () => homeAction(() => act('Train', { v: { holding: activeHolding(FS) }, fields: { unit: 6, n: 100 } })),
+  'home-scout-muster': () => homeAction(() => act('Muster', { v: { holding: activeHolding(FS) }, fields: { unit: 6, troops: 100, tile: activeHolding(FS)?.tile } })),
+  'me-retry': () => refresh(),
   tab: d => { FS.tab = d.tab; FS.notice = FS.notice?.busy ? FS.notice : null; saveUiPatch({ tab: d.tab }); invalidate('panel', 'tabs'); },
   connect: async d => {
     const entry = (FS.walletList ?? [])[num(d.i)];
@@ -630,6 +786,7 @@ export const ACTIONS = {
       await wallet.connect(entry, { chain: wallet.chainOf(io.pinned()?.cluster ?? 'localnet') });
     } catch (e) { return failed({ code: e.code ?? 'WalletError', text: e.message }); }
     FS.wallet = wallet.connected();
+    FS.meStatus = 'loading'; FS.meError = null; FS.homeGrant = null;
     FS.session = await fsession.restore(scope(), FS.wallet.address);
     await refresh();
   },
@@ -642,7 +799,9 @@ export const ACTIONS = {
     FS.session = s;
     const gate = FS.season.joinGate.some(x => x !== 0) ? toBase58(FS.season.joinGate) : null;
     return act('Join', { v: { faction: FS.joinDraft.faction, joinGate: gate, invite: FS.joinDraft.invite },
-      fields: { faction: FS.joinDraft.faction, session: s.publicKeyBytes, session_expiry: BigInt(Math.floor(now()) + SESSION_DAYS - 600) } });
+      fields: { faction: FS.joinDraft.faction, session: s.publicKeyBytes, session_expiry: BigInt(Math.floor(now()) + SESSION_DAYS - 600) },
+      onSent: r => { if (FS.homeChoice?.busy) saveHomePatch({ pending: { kind: 'Join', signature: r.signature } }); },
+      onLost: () => { if (FS.homeChoice?.busy) saveHomePatch({ pending: null }); } });
   },
   session: async () => {
     const pin = io.pinned();
@@ -657,7 +816,7 @@ export const ACTIONS = {
   // the site picker is gone (owner decision V2): the client files the ticket itself; a retry now
   'auto-ticket': () => autoTicket({ force: true }),
   harvest: () => act('Harvest', { v: { holding: activeHolding(FS) } }),
-  build: d => act('Build', { v: { holding: activeHolding(FS), item: num(d.item) }, fields: { item: num(d.item) } }),
+  build: d => homeAction(() => act('Build', { v: { holding: activeHolding(FS), item: num(d.item) }, fields: { item: num(d.item) } })),
   // W6-D: re-read soon after the keeper was asked (the next poll could be 30 s away, past the window the catch-up opens).
   nudge: () => { const h = activeHolding(FS), env = FS.provinces.get(`${h.p},${h.q}`); return io.nudge(h.p, h.q, env?.province.resolvedNext ?? nowBell()).then(r => { refreshSoon(4000); return r.ok ? done(() => L`キーパーに追いつくよう頼みました`) : failed(r); }); },
   dissolve: d => { const r = hostRow(d.host); return act('Dissolve', { v: { holding: activeHolding(FS), province: r ? { p: r.p, q: r.q } : null }, fields: { host_id: BigInt(d.host) } }); },
@@ -789,4 +948,3 @@ async function revealTick() {
   if (!herald || !FS.clock || !FS.wallet || !(FS.book ?? []).some(e => e.state !== 'settled' && e.state !== 'failed')) return;
   await refreshMarches(activeHolding(FS) ?? null);
 }
-

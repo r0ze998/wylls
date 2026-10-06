@@ -98,6 +98,7 @@ pub fn covered_by(ix: I) -> &'static [Cover] {
         I::ReleaseDormant => citizen::RELEASE_DORMANT,
         I::CloseHolding => citizen::CLOSE_HOLDING,
         I::CloseCitizen => citizen::CLOSE_CITIZEN,
+        I::PlaceHome => citizen::PLACE_HOME,
         I::Harvest => holding::HARVEST,
         I::Build => holding::BUILD,
         I::Train => holding::TRAIN,

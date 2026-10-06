@@ -24,6 +24,7 @@ export const REVEAL_TAG = 0x51;
 export const JOIN_TAG = 0x30;
 export const DEPART_TAG = 0x50;
 export const FILE_TICKET_TAG = 0x33;
+export const PLACE_HOME_TAG = 0x38;
 /** Tags of the player shapes (from the ABI's `relay_player_shape`). */
 export const PLAYER_TAGS = Object.freeze(TAGS.instructions.filter(i => i.relay_player_shape).map(i => i.tag));
 /** Tags of the settle shapes (`relay_settle_shape`). */

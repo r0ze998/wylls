@@ -21,6 +21,11 @@ export const FS = {
   session: null,         // fsession key or null
   citizen: null,         // decoded Citizen or null
   holdings: [],          // decoded Holdings
+  meStatus: 'loading',   // loading | ready | error: an unread account is never "not joined"
+  meError: null,
+  homeChoice: null,      // decoded land candidates and current selected site
+  homeGrant: null,       // confirmed first holding, until the player starts building
+  homeFocus: null,       // one-shot camera request; no ownership is inferred from it
   book: [],              // marchbook entries
   // ---- the map
   overviews: new Map(),  // ring → decoded overview

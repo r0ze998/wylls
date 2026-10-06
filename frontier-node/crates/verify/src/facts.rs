@@ -297,6 +297,18 @@ impl Facts {
                         });
                     }
                 }
+                Kind::HOME_PLACED => {
+                    let owner = f.by_tag8.get(&r.pu64("citizen_tag")).copied();
+                    f.owners.entry(r.pqs()).or_default().push(OwnerChange {
+                        rec: n,
+                        owner,
+                        gen: r.pu8("gen"),
+                        score: 0,
+                        ticket_bell: frontier_abi::layout::player::citizen::NO_TICKET,
+                        final_ts: r.pi64("final_ts"),
+                        funder: r.p32("funder"),
+                    });
+                }
                 Kind::PROVINCE_OPEN => {
                     let (p, q) = r.pq();
                     f.provinces.insert(f.ctx.province(p, q), (p, q));

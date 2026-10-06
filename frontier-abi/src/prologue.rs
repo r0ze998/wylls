@@ -411,6 +411,20 @@ pub fn accounts_of(ix: Ix) -> &'static [Group] {
                 ]
             }
         }
+        Ix::PlaceHome => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("frontier", Kind(K::Frontier), false, R),
+                        PROVINCE_W,
+                        HOLDING_W,
+                        s!("joinshard", Kind(K::JoinShard), false, W),
+                        SYSTEM,
+                    ]),
+                ]
+            }
+        }
         Ix::SettleTicket => {
             const {
                 &[

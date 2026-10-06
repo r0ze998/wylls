@@ -654,6 +654,227 @@ pub fn file_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     events::emit(Kind::TICKET, now_bell, &tag15, payload.get()?, &mut chained)
 }
 
+// ------------------------------------------------------------ PlaceHome
+
+/// Validate the first-home entitlement before spending the sponsor's rent.
+/// HOME_GRANTED is deliberately never cleared by release/displacement.
+pub fn home_entitlement(citizen: &[u8]) -> R<()> {
+    let r = Ro(citizen);
+    let flags = r.u8(C::FLAGS)?;
+    if flags & C::FLAG_HOME_GRANTED != 0 {
+        return Err(FrontierError::AlreadyDone.into());
+    }
+    if flags & (C::FLAG_PROVISIONAL | C::FLAG_FIRST_HOLDING_FINAL | C::FLAG_REFUGEE) != 0
+        || r.u8(C::HOLDINGS_N)? != 0
+        || r.u32(C::TICKET_BELL)? != C::NO_TICKET
+    {
+        return Err(FrontierError::TicketState.into());
+    }
+    Ok(())
+}
+
+/// Immediate placement cannot jump ahead of any live legacy ticket cohort.
+/// Cohorts do not encode their selected sites, so reserve the whole province
+/// while any cohort remains unsettled. This is conservative and race safe.
+pub fn home_site(province: &[u8], site: u8, now_bell: u32) -> R<(u8, u8)> {
+    let r = Ro(province);
+    if site >= r.u8(PV::SITE_COUNT)? || site as usize >= PV::SITES_N {
+        return Err(FrontierError::BadData.into());
+    }
+    let o = PV::site(site as usize);
+    if !matches!(
+        r.u8(o + SM::STATE)?,
+        SM::STATE_FREE | SM::STATE_RELEASED_FREE
+    ) {
+        return Err(FrontierError::TicketState.into());
+    }
+    for i in 0..PV::COHORTS_N {
+        let o = PV::cohort(i);
+        if !CO::is_free(
+            r.u32(o + CO::BELL)?,
+            r.u16(o + CO::FILED)?,
+            r.u16(o + CO::SETTLED)?,
+            now_bell,
+        ) {
+            return Err(FrontierError::TicketState.into());
+        }
+    }
+    Ok((
+        r.u8(PV::SITES + site as usize)?,
+        r.u8(o + SM::GEN)?.checked_add(1).ok_or(OVERFLOW)?,
+    ))
+}
+
+/// 0x38 PlaceHome(P, Q, site): P + [frontier r, province w, holding w,
+/// joinshard w, system]. Program-version 2 seasons only. A sponsor funds
+/// the real Holding account; an unexpired session can place for its citizen.
+/// Legacy FileTicket/SettleTicket remains available and unchanged.
+pub fn place_home(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    check_accounts(Ix::PlaceHome, a, None)?;
+    let x = aix::PlaceHome::decode(d)?;
+    let now = prologue::now()?;
+    let pc = player(p, a, now.ts, true)?;
+    let [_, payer, season_ai, citizen, frontier, province, holding, shard, _system] = a else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    let hdr = pc.season;
+    let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
+    let (faction, shard_i, citizen_tag) = {
+        let cd = citizen.try_borrow_data()?;
+        home_entitlement(&cd)?;
+        let r = Ro(&cd);
+        (
+            r.u8(C::FACTION)?,
+            r.u8(C::JOIN_SHARD)?,
+            r.u64(C::CITIZEN_TAG)?,
+        )
+    };
+    let r_max = {
+        let sd = season_ai.try_borrow_data()?;
+        let r = Ro(&sd);
+        if r.u16(S::PROGRAM_VERSION)? < 2 {
+            return Err(FrontierError::RulesetMismatch.into());
+        }
+        r.u16(S::R_MAX)?
+    };
+    let coord = ProvinceCoord::checked(x.p as i32, x.q as i32, r_max)
+        .map_err(|_| FrontierError::BadData)?;
+    if coord.ring() < 2 {
+        return Err(FrontierError::ReservedSite.into());
+    }
+    present_at(frontier, &ctx.frontier(), p, AccountKind::Frontier, hdr.id)?;
+    {
+        let fd = frontier.try_borrow_data()?;
+        if coord.ring() >= Ro(&fd).u16(FR::RINGS_OPENED)? as u32 || coord.wedge() != Some(faction) {
+            return Err(FrontierError::BadData.into());
+        }
+    }
+    present_at(
+        province,
+        &ctx.province(x.p as i32, x.q as i32),
+        p,
+        AccountKind::Province,
+        hdr.id,
+    )?;
+    present_at(
+        shard,
+        &ctx.join_shard(faction, shard_i),
+        p,
+        AccountKind::JoinShard,
+        hdr.id,
+    )?;
+    expect_key(holding, &ctx.holding(x.p as i32, x.q as i32, x.site))?;
+    let (tile, gen) = {
+        let pd = province.try_borrow_data()?;
+        let r = Ro(&pd);
+        if r.i16(PV::P)? != x.p || r.i16(PV::Q)? != x.q || r.u8(PV::WEDGE)? != faction {
+            return Err(BAD_ACCOUNT);
+        }
+        home_site(&pd, x.site, pc.now_bell)?
+    };
+    let rent = init::rent(H::SIZE)?;
+    init::init_with_seed(
+        payer,
+        holding,
+        season_ai,
+        &SeasonSigner::new(hdr.id, hdr.bump),
+        &holding_seed(x.p as i32, x.q as i32, x.site),
+        H::SIZE,
+        rent,
+        p,
+    )?;
+    let h = founded_holding(now.ts, addr::day_of(pc.now_bell))?;
+    let f = Founding {
+        p: x.p,
+        q: x.q,
+        site: x.site,
+        gen,
+        tile,
+        owner: key(citizen),
+        score: 0,
+        faction,
+        ticket_bell: C::NO_TICKET,
+        rent_payer: key(payer),
+        final_ts: now.ts,
+        pool_owed: 0,
+    };
+    {
+        let mut hd = holding.try_borrow_mut_data()?;
+        init_header(&mut hd, AccountKind::Holding, hdr.id)?;
+        write_holding(&mut hd, &f, &h)?;
+        let mut w = Rw(&mut hd);
+        w.set_u8(H::STATE, H::STATE_FINAL)?;
+        w.set_u8(H::FLAGS, H::FLAG_INTRO_BUILD_AVAILABLE)?;
+    }
+    {
+        let mut cd = citizen.try_borrow_mut_data()?;
+        write_holding_ref(&mut cd, x.p, x.q, x.site, gen)?;
+        let mut w = Rw(&mut cd);
+        let flags = w.u8(C::FLAGS)?;
+        w.set_u8(
+            C::FLAGS,
+            flags | C::FLAG_HOME_GRANTED | C::FLAG_FIRST_HOLDING_FINAL,
+        )?;
+        w.set_u8(C::HOLDINGS_N, 1)?;
+    }
+    {
+        let mut pd = province.try_borrow_mut_data()?;
+        let mut w = Rw(&mut pd);
+        let o = PV::site(x.site as usize);
+        d_zero(&mut w, o)?;
+        w.set_u8(o + SM::STATE, SM::STATE_HOLDING)?;
+        w.set_u8(o + SM::FACTION, faction)?;
+        w.set_u8(o + SM::ORDER, 1)?;
+        w.set_u8(o + SM::TIER, Tier::Hamlet as u8)?;
+        w.set_u8(o + SM::GEN, gen)?;
+        w.set_u32(o + SM::PEND0_BELL, SM::NO_BELL)?;
+        w.set_u32(o + SM::PEND1_BELL, SM::NO_BELL)?;
+        w.set_u32(
+            o + SM::SHIELD_UNTIL_BELL,
+            bell_from(hdr.genesis_ts, h.shield_until()),
+        )?;
+        let used = w.u8(PV::N_SITES_USED)?.checked_add(1).ok_or(OVERFLOW)?;
+        w.set_u8(PV::N_SITES_USED, used)?;
+        let epoch = w.u32(PV::ROSTER_EPOCH)?;
+        w.set_u32(PV::ROSTER_EPOCH, epoch.wrapping_add(1))?;
+    }
+    let key = super::holding::pqs_key(x.p, x.q, x.site)?;
+    let payload = Buf::<49>::new()
+        .u64(citizen_tag)
+        .u8(gen)
+        .i64(now.ts)
+        .bytes(payer.key.as_ref());
+    let mut jd = shard.try_borrow_mut_data()?;
+    shard_holdings(&mut jd, faction, 1)?;
+    let mut cd = citizen.try_borrow_mut_data()?;
+    let mut hd = holding.try_borrow_mut_data()?;
+    let mut pd = province.try_borrow_mut_data()?;
+    events::emit(
+        Kind::HOME_PLACED,
+        pc.now_bell,
+        &key,
+        payload.get()?,
+        &mut [
+            Chained {
+                entity: EntityKind::JoinShard,
+                data: &mut jd,
+            },
+            Chained {
+                entity: EntityKind::Citizen,
+                data: &mut cd,
+            },
+            Chained {
+                entity: EntityKind::Holding,
+                data: &mut hd,
+            },
+            Chained {
+                entity: EntityKind::Province,
+                data: &mut pd,
+            },
+        ],
+    )
+}
+
 // ------------------------------------------------------------ SettleTicket
 
 /// The seed of `S(bell, region)` for a SettleTicket: THE anchor's

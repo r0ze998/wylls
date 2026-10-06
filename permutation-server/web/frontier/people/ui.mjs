@@ -6,6 +6,7 @@ import { html, raw } from '../../util.mjs';
 import { L, fmtNum, lang } from '../../lang.mjs';
 import { factionName, DOCTRINE_NAMES, TIERS } from '../fi18n.mjs';
 import { hostParts } from '../faddr.mjs';
+import { wedgeOf } from '../fgeo.mjs';
 import { decode as fromBase58 } from '../../sdk/base58.mjs';
 import { identityOf, displayName, tagOf, placeName, withProfile } from './identity.mjs';
 import { avatarSvg } from './avatar.mjs';
@@ -96,9 +97,11 @@ export function highlights(chronicle, overviews, roster, { limit = 8, faction = 
       const who = id ? displayName(id) : L`名もない領主`;
       push({ bell, kind: r.name === 'DEPART' ? 'depart' : 'explore', faction, identity: id, p: h.p, q: h.q,
         text: r.name === 'DEPART' ? L`${factionName(faction)}の${who}が出陣（第${fmtNum(Number(r.arrive_bell))}鐘に到着）` : L`${factionName(faction)}の${who}が州 ${Number(r.p)},${Number(r.q)} を探索` });
-    } else if (r.name === 'SETTLE' && (Number(r.outcome) === 0 || Number(r.outcome) === 1)) {
+    } else if (r.name === 'HOME_PLACED' || (r.name === 'SETTLE' && (Number(r.outcome) === 0 || Number(r.outcome) === 1))) {
       const p = Number(r.p), q = Number(r.q), site = Number(r.site);
-      const faction = ownerFaction(overviews, p, q, site);
+      // PlaceHome requires the citizen's home wedge. Its event remains about
+      // that founder even when the current owner or overview has changed.
+      const faction = r.name === 'HOME_PLACED' ? wedgeOf(p, q) : ownerFaction(overviews, p, q, site);
       const id = identityOf(tagOf(BigInt(String(r.citizen_tag))));
       if (faction === null) continue;
       push({ bell, kind: 'settle', faction, identity: id, p, q, text: L`${factionName(faction)}の${displayName(id)}が州 ${p},${q} に入植` });

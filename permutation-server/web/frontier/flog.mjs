@@ -22,6 +22,7 @@ export const KINDS = Object.freeze({
   13: { name: 'TICKET', key: [f('citizen_tag15', 15)], payload: [f('ticket_bell', 4), f('n', 1), f('sites', 15), f('escrow', 8), f('funder', 32)] },
   14: { name: 'SETTLE', key: [f('p', 4), f('q', 4), f('site', 1)], payload: [f('outcome', 1), f('citizen_tag', 8), f('score', 8), f('displaced_tag', 8), f('gen', 1), f('final_ts', 8), f('ticket_bell', 4)] },
   16: { name: 'HOLDING_FINAL', key: [f('p', 4), f('q', 4), f('site', 1)], payload: [f('final_ts', 8)] },
+  17: { name: 'HOME_PLACED', key: [f('p', 4), f('q', 4), f('site', 1)], payload: [f('citizen_tag', 8), f('gen', 1), f('final_ts', 8), f('funder', 32)] },
   20: { name: 'HARVEST', key: [f('p', 4), f('q', 4), f('site', 1)], payload: [f('stores_digest', 32)] },
   21: { name: 'BUILD', key: [f('p', 4), f('q', 4), f('site', 1)], payload: [f('item', 1), f('cost_digest', 32), f('done_at', 8)] },
   22: { name: 'TRAIN', key: [f('p', 4), f('q', 4), f('site', 1)], payload: [f('unit', 1), f('n', 4), f('done_at', 8)] },

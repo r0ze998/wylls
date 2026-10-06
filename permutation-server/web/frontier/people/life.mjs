@@ -1,7 +1,7 @@
 // The life of each holding, from what its lord did (design session: "tie the
 // walkers to real data, and let the players appear"). The chronicle is
 // public: HARVEST, BUILD (item, done at), TRAIN (unit, n, done at), MUSTER,
-// DEPART, EXPLORE and SETTLE name the holding (directly, or through the
+// DEPART, EXPLORE, SETTLE and HOME_PLACED name the holding (directly, or through the
 // host id). The page folds every record it reads into one small record per
 // holding, and the people layer (crowds.mjs) draws from it:
 //   the lord        appears at a holding whose lord acted in the last
@@ -36,7 +36,7 @@ const holdingOfRecord = r => {
 export function updateLife(life, records) {
   for (const x of records ?? []) {
     const r = x.record ?? x;
-    const kinds = { HARVEST: 'harvest', BUILD: 'build', TRAIN: 'train', MUSTER: 'muster', DEPART: 'depart', EXPLORE: 'explore', SETTLE: 'settle' };
+    const kinds = { HARVEST: 'harvest', BUILD: 'build', TRAIN: 'train', MUSTER: 'muster', DEPART: 'depart', EXPLORE: 'explore', SETTLE: 'settle', HOME_PLACED: 'settle' };
     const what = kinds[r.name];
     if (!what) continue;
     const k = holdingOfRecord(r);

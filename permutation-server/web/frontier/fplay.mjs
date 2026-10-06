@@ -44,7 +44,7 @@ export const campWinner = (mask, faction, i, fate) => fate === 1 && mask !== 0 &
 /** The shapes this page sends and who signs them. */
 export const SIGNED_BY = Object.freeze({
   Join: 'wallet', SetSession: 'wallet',
-  SetVigil: 'session', FileTicket: 'session', Harvest: 'session', Build: 'session', Train: 'session', Muster: 'session',
+  SetVigil: 'session', FileTicket: 'session', PlaceHome: 'session', Harvest: 'session', Build: 'session', Train: 'session', Muster: 'session',
   Dissolve: 'session', Garrison: 'session', Explore: 'session', Depart: 'session',
   SettleExplore: 'none', SettleTransit: 'none',
 });
@@ -85,6 +85,9 @@ export function accountsFor(name, v) {
       return base;
     case 'FileTicket':
       return { ...base, frontier: A.of('Frontier'), province: ticketProvinces(v.sites).map(p => A.of('Province', p)) };
+    case 'PlaceHome':
+      return { ...base, frontier: A.of('Frontier'), province: province(), holding: holding(),
+        joinshard: A.of('JoinShard', { faction: v.faction, shard: joinShardOf(v.wallet) }) };
     case 'Harvest': case 'Train':
       return { ...base, holding: holding() };
     case 'Build':

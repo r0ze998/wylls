@@ -9,7 +9,7 @@ import { activeHolding } from '../fstate.mjs';
 import { html, raw } from '../../util.mjs';
 import { L, Lh, fmtNum } from '../../lang.mjs';
 import { RESOURCES, RESOURCE_ORDER, UNITS, TIERS, BUILDINGS, HOLDING_STATES, errorText } from '../fi18n.mjs';
-import { storesAt, holdingFacts, BUILD_ITEMS, UNIT_ORDER, SETTLER, actionBlocks, baseProduction } from '../fland.mjs';
+import { storesAt, holdingFacts, BUILD_ITEMS, UNIT_ORDER, SETTLER, actionBlocks, baseProduction, queueBuildingItem } from '../fland.mjs';
 import { holdingName } from '../people/ui.mjs';
 import { span } from '../hud/hud.mjs';
 import { termButton } from '../hud/glossary.mjs';
@@ -37,6 +37,11 @@ export function blockedLine(blocks) {
 
 /** Seconds the n-th copy of a building takes (catalog `build_secs`: 1 h × (1 + n/2)). */
 export const buildSecs = n => 3_600 + 1_800 * n;
+/** The on-chain one-use introductory construction credit belongs to this holding. */
+export const introBuildAvailable = h => (Number(h?.flags ?? 0) & 2) !== 0;
+export const queueSlots = tier => [2, 3, 4, 4][Number(tier)] ?? 2;
+/** QueueItem.kind is an effect enum, not a Build item; arg is the resource. */
+export const queueItemLabel = q => { const item = queueBuildingItem(q); return item === 7 ? L`村の昇格` : item !== null ? BUILDINGS[BUILD_ITEMS[item]?.resource] ?? L`建物` : L`維持費の変更`; };
 
 /**
  * The build cards (UI plan E2, Civ VII's yield preview): per item `{item,
@@ -45,16 +50,19 @@ export const buildSecs = n => 3_600 + 1_800 * n;
  * queued, `short` what the stores lack for the first copy's cost (later
  * copies cost more: the program's duplicate cost; the card says so).
  */
-export function buildCards(h, stores) {
+export function buildCards(h, stores, { now = null } = {}) {
   const base = baseProduction(Number(h.tier ?? 0));
   const have = Object.fromEntries(stores.map(s => [s.resource, s.value]));
   return BUILD_ITEMS.map(b => {
     const r = RESOURCE_ORDER.indexOf(b.resource);
     const above = r >= 0 && h.production?.[r] !== undefined ? Number(BigInt(h.production[r]) - (base[r] ?? 0n)) / 1000 : 0;
-    const queued = (h.queue ?? []).filter(x => Number(x.doneAt) > 0 && x.kind === b.item).length;
+    const queued = (h.queue ?? []).filter(x => x && Number(x.doneAt) > 0 && x.kind === 1 && x.arg === r).length;
     const copies = (b.perHour > 0 ? Math.max(0, Math.round(above / b.perHour)) : 0) + queued;
-    const short = (b.cost ?? []).map((c, i) => ({ resource: RESOURCE_ORDER[i], need: c - (have[RESOURCE_ORDER[i]] ?? 0) })).filter(x => x.need > 0);
-    return { item: b.item, resource: b.resource, perHour: b.perHour, cost: b.cost, copies, secs: buildSecs(copies), short };
+    const cost = b.cost?.map(c => Math.floor(c * (2 + copies * copies) / 2)) ?? null;
+    const short = (cost ?? []).map((c, i) => ({ resource: RESOURCE_ORDER[i], need: c - (have[RESOURCE_ORDER[i]] ?? 0) })).filter(x => x.need > 0);
+    const intro = b.item < 6 && introBuildAvailable(h);
+    const wait = now === null ? 0 : Math.max(0, ...(h.queue ?? []).map(q => Number(q?.doneAt ?? 0) - now));
+    return { item: b.item, resource: b.resource, perHour: b.perHour, cost, copies, intro, secs: b.item === 6 ? 4 * 3600 : intro ? 60 : buildSecs(copies + 1), wait, short };
   });
 }
 
@@ -85,11 +93,22 @@ export function render(FS) {
   const m = holdingModel(FS);
   if (!m) return html`<p>${L`まだ村がありません。`}</p>`;
   const { holding: h, facts: f } = m;
+  const actionBusy = FS.inFlight > 0 || !!FS.homeActionBusy;
   const state = HOLDING_STATES[f.state];
   const units = UNIT_ORDER.map((u, i) => ({ u, i })).filter(x => x.i !== SETTLER);
   const full = m.stores.filter(s => s.cap > 0 && s.value >= s.cap);
-  const queueFull = f.queue.filter(q => q.doneIn > 0).length >= 4;
-  const cards = buildCards(h, m.stores);
+  const slots = queueSlots(h.tier);
+  const queueFull = f.queue.filter(q => q.doneIn > 0).length >= slots;
+  const cards = buildCards(h, m.stores, { now: FS.chain?.now?.() ?? 0 });
+  const first = introBuildAvailable(h);
+  const buildCard = c => {
+    const blocked = actionBusy || m.blocks.Build.length || queueFull || c.short.length;
+    return html`<li class="build-card ${c.short.length ? 'short' : ''}${c.intro ? ' intro-build' : ''}"><button type="button" class="btn" data-act="build" data-item="${c.item}" ${raw(blocked ? 'disabled' : '')}>${BUILDINGS[c.resource]}</button>
+      <span class="bc-yield">${c.perHour ? html`<span class="res-dot res-c-${c.resource}" aria-hidden="true"></span> ${L`${RESOURCES[c.resource]} +${c.perHour}/時`}` : L`守りを固める`}</span>
+      <span class="bc-time">⏱ ${L`工事 ${span(c.secs)}`}${c.intro ? html` <span class="intro-build-badge">${L`初めての建設`}</span>` : c.copies ? html` <span class="muted">${L`（${fmtNum(c.copies + 1)}つ目）`}</span>` : ''}${c.wait > 0 ? html` <span class="muted">${L`完成まで ${span(c.wait + c.secs)}`}</span>` : ''}</span>
+      <span class="bc-cost">${c.cost ? costText(c.cost) : L`石材で守りを固める（鐘の始まりの守り手に数えられるのは完成した次の鐘から）`}</span>
+      ${c.short.length ? html`<span class="bc-short">${L`足りない：${c.short.map(x => `${RESOURCES[x.resource]} ${fmtNum(x.need)}`).join(' · ')}`}</span>` : ''}</li>`;
+  };
   return html`<section aria-labelledby="holding-title" class="holding"><h3 id="holding-title">${holdingName(h)} <span class="muted">${L`村 州 ${h.p},${h.q} 区画 ${h.site + 1}`}</span></h3>
     <dl class="facts">
       ${row(L`段階`, html`${TIERS[h.tier] ?? h.tier} · ${state}${termButton('tier')}`)}
@@ -102,27 +121,22 @@ export function render(FS) {
     <section class="hpanel" id="hp-harvest" aria-labelledby="hp-harvest-h"><h4 id="hp-harvest-h">❦ ${L`資源`}</h4>
     <table class="stores"><thead><tr><th scope="col">${L`資源`}</th><th scope="col">${L`量`}</th><th scope="col">${L`毎時`}</th><th scope="col">${L`上限`}</th></tr></thead>
       <tbody>${m.stores.map(s => html`<tr class="${s.cap > 0 && s.value >= s.cap ? 'store-full' : ''}"><th scope="row"><span class="res-dot res-c-${s.resource}" aria-hidden="true"></span> ${RESOURCES[s.resource]}</th><td>${fmtNum(s.value)}${s.cap > 0 && s.value >= s.cap ? html` <span class="flag">${L`満杯`}</span>` : ''}</td><td>+${fmtNum(s.perHour)}</td><td>${fmtNum(s.cap)}</td></tr>`)}</tbody></table>
-    <p><button type="button" class="btn primary" data-act="harvest" ${raw(m.blocks.Harvest.length ? 'disabled' : '')}>${L`収穫する`}</button>
+    <p><button type="button" class="btn primary" data-act="harvest" ${raw(actionBusy || m.blocks.Harvest.length ? 'disabled' : '')}>${L`収穫する`}</button>
       ${full.length ? html`<span class="muted">${L`${full.map(s => RESOURCES[s.resource]).join(' / ')}が満杯：これ以上は増えません`}</span>` : ''}</p>
     ${blockedLine(m.blocks.Harvest)}</section>
 
-    <section class="hpanel" id="hp-build" aria-labelledby="hp-build-h"><h4 id="hp-build-h">⚒ ${L`建設（列は4つまで）`}</h4>
-    ${f.queue.length ? html`<ul class="list hp-queue">${f.queue.map(q => html`<li>${BUILDINGS[BUILD_ITEMS[q.kind]?.resource] ?? `#${q.kind}`} · ${q.doneIn > 0 ? html`${L`あと ${span(q.doneIn)}`}` : L`完成`}</li>`)}</ul>` : html`<p class="muted">${L`建設の列は空です`}</p>`}
-    <ul class="build-cards">${cards.map(c => {
-      const blocked = m.blocks.Build.length || queueFull || c.short.length;
-      return html`<li class="build-card ${c.short.length ? 'short' : ''}"><button type="button" class="btn" data-act="build" data-item="${c.item}" ${raw(blocked ? 'disabled' : '')}>${BUILDINGS[c.resource]}</button>
-        <span class="bc-yield">${c.perHour ? html`<span class="res-dot res-c-${c.resource}" aria-hidden="true"></span> ${L`${RESOURCES[c.resource]} +${c.perHour}/時`}` : L`守りを固める`}</span>
-        <span class="bc-time">⏱ ${span(c.secs)}${c.copies ? html` <span class="muted">${L`（${fmtNum(c.copies + 1)}つ目）`}</span>` : ''}</span>
-        <span class="bc-cost">${c.cost ? (c.copies ? L`${costText(c.cost)}（1つ目の費用。2つ目からは高くなります）` : costText(c.cost)) : L`石材で守りを固める（鐘の始まりの守り手に数えられるのは完成した次の鐘から）`}</span>
-        ${c.short.length ? html`<span class="bc-short">${L`足りない：${c.short.map(x => `${RESOURCES[x.resource]} ${fmtNum(x.need)}`).join(' · ')}`}</span>` : ''}</li>`;
-    })}</ul>
-    ${queueFull ? html`<p class="blocked">${L`建設の列がいっぱいです（4つまで）`}</p>` : ''}
+    <section class="hpanel${first ? ' first-build-panel' : ''}" id="hp-build" aria-labelledby="hp-build-h"><h4 id="hp-build-h">⚒ ${first ? L`最初の建設を選ぶ` : L`建設（列は${fmtNum(slots)}つまで）`}</h4>
+    ${first ? html`<p>${L`農場で食料を増やすか、伐採所で木材を増やすか。村の最初の仕事を選びましょう。`}</p><p class="muted">${L`最初の生産施設の工事は60秒です。ほかの工事があると順番を待ちます。資源の費用は通常どおりです。`}</p>` : ''}
+    ${f.queue.length ? html`<ul class="list hp-queue">${f.queue.map(q => html`<li>${queueItemLabel(q)} · ${q.doneIn > 0 ? html`${L`あと ${span(q.doneIn)}`}` : L`完成`}</li>`)}</ul>` : html`<p class="muted">${L`建設の列は空です`}</p>`}
+    <ul class="build-cards">${(first ? cards.slice(0, 2) : cards).map(buildCard)}</ul>
+    ${first ? html`<details class="guide-more"><summary>${L`ほかの建物を選ぶ`}</summary><ul class="build-cards">${cards.slice(2).map(buildCard)}</ul></details>` : ''}
+    ${queueFull ? html`<p class="blocked">${L`建設の列がいっぱいです（${fmtNum(slots)}つまで）`}</p>` : ''}
     ${blockedLine(m.blocks.Build)}</section>
 
     <section class="hpanel" id="hp-train" aria-labelledby="hp-train-h"><h4 id="hp-train-h">⚔ ${L`訓練（すぐに終わります）`}</h4>
     <form class="inline" data-form="train"><label>${L`兵種`}<select name="unit">${units.map(x => html`<option value="${x.i}">${UNITS[x.u]}</option>`)}</select></label>
       <label>${L`人数`}<input name="n" type="number" min="1" step="1" value="100" inputmode="numeric"></label>${steps('n')}
-      <button type="submit" class="btn" ${raw(m.blocks.Train.length ? 'disabled' : '')}>${L`訓練する`}</button></form>
+      <button type="submit" class="btn" ${raw(actionBusy || m.blocks.Train.length ? 'disabled' : '')}>${L`訓練する`}</button></form>
     ${blockedLine(m.blocks.Train)}
     <h4>${L`控えの兵`}</h4>
     ${f.reserve.length ? html`<ul class="list">${f.reserve.map(r => html`<li>${UNITS[UNIT_ORDER[r.unit]]} ${fmtNum(r.troops)}</li>`)}</ul>` : html`<p class="muted">${L`控えの兵はいません`}</p>`}</section>
@@ -130,7 +144,7 @@ export function render(FS) {
     <section class="hpanel" id="hp-muster" aria-labelledby="hp-muster-h"><h4 id="hp-muster-h">⚑ ${L`軍勢を編成する`}</h4>
     <form class="inline" data-form="muster"><label>${L`兵種`}<select name="unit">${f.reserve.filter(r => r.unit !== SETTLER).map(r => html`<option value="${r.unit}">${UNITS[UNIT_ORDER[r.unit]]}</option>`)}</select></label>
       <label>${L`兵数（100〜30,000）`}<input name="troops" type="number" min="100" max="30000" step="1" value="100" inputmode="numeric"></label>${steps('troops', { max: Math.min(30000, f.reserve.find(r => r.unit !== SETTLER)?.troops ?? 0) || null })}
-      <button type="submit" class="btn" ${raw(m.blocks.Muster.length || !f.reserve.length ? 'disabled' : '')}>${L`編成する`}</button></form>
+      <button type="submit" class="btn" ${raw(actionBusy || m.blocks.Muster.length || !f.reserve.length ? 'disabled' : '')}>${L`編成する`}</button></form>
     ${!f.reserve.length ? html`<p class="blocked">${L`控えの兵がいません：先に訓練しましょう`}</p>` : ''}
     <p class="muted">${L`新しい軍勢は次の鐘から顔ぶれに加わります。`}</p>
     ${blockedLine(m.blocks.Muster)}
@@ -139,13 +153,13 @@ export function render(FS) {
 
     <section class="hpanel" id="hp-garrison" aria-labelledby="hp-garrison-h"><h4 id="hp-garrison-h">⛨ ${L`守備隊`}${termButton('garrison')}</h4>
     <form class="inline" data-form="garrison"><label>${L`増員（控えの兵から）`}<input name="delta" type="number" min="1" step="1" value="100" inputmode="numeric"></label>${steps('delta', { max: f.reserve.filter(r => r.unit !== SETTLER).reduce((a, r) => a + r.troops, 0) || null })}
-      <button type="submit" class="btn" ${raw(m.blocks.Garrison.length ? 'disabled' : '')}>${L`守備隊を増やす`}</button></form>
+      <button type="submit" class="btn" ${raw(actionBusy || m.blocks.Garrison.length ? 'disabled' : '')}>${L`守備隊を増やす`}</button></form>
     <p class="muted">${L`M1 の守備隊は増やすだけです（引き上げは次の段階で）。`}</p>
     ${blockedLine(m.blocks.Garrison)}
     <h4>${L`夜番の時間`}${termButton('vigil')}</h4>
     <p class="muted">${L`${String(Math.floor((FS.citizen?.vigilStartMin ?? 0) / 60)).padStart(2, '0')}:${String((FS.citizen?.vigilStartMin ?? 0) % 60).padStart(2, '0')} から（UTC）`}</p>
     <form class="inline" data-form="vigil"><label>${L`開始（UTC の時）`}<select name="hour">${Array.from({ length: 24 }, (_, hr) => html`<option value="${hr}" ${raw(hr === Math.floor((FS.citizen?.vigilStartMin ?? 0) / 60) ? 'selected' : '')}>${L`${String(hr).padStart(2, '0')}:00 UTC（あなたの時刻 ${localHour(hr)}）`}</option>`)}</select></label>
-      <button type="submit" class="btn">${L`変える`}</button></form>
+      <button type="submit" class="btn" ${raw(actionBusy ? 'disabled' : '')}>${L`変える`}</button></form>
     <p class="muted">${L`変更は24時間以上あとの最初の UTC 0時から有効で、週に1回までです。`}</p></section>
     ${f.finalTs && f.state === 'provisional' ? html`<p class="muted">${Lh`早くても ${timeHtml(f.finalTs)} 以降に確定します。`}</p>` : ''}
   </section>`;

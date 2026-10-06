@@ -66,7 +66,7 @@ pub const QUICKNET_PK_HASH: [u8; 32] = crypto::quick::PK_HASH;
 
 /// Program version written by CreateSeason's parameters and logged; bumped
 /// with every deployable change of the instruction set.
-pub const PROGRAM_VERSION: u16 = 1;
+pub const PROGRAM_VERSION: u16 = 2;
 
 /// Routes one instruction by its tag (§5.5). Unknown and reserved tags are
 /// `BadData`; ResolveClash exists only in the `oracle` build.
@@ -116,6 +116,7 @@ pub fn dispatch(
         Ix::ReleaseDormant => citizen::release_dormant(p, a, data),
         Ix::CloseHolding => citizen::close_holding(p, a, data),
         Ix::CloseCitizen => citizen::close_citizen(p, a, data),
+        Ix::PlaceHome => citizen::place_home(p, a, data),
         // §5.10 holdings and resident actions
         Ix::Harvest => holding::harvest(p, a, data),
         Ix::Build => holding::build(p, a, data),

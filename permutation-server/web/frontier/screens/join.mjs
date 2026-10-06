@@ -11,7 +11,8 @@ import { L, Lh, fmtNum } from '../../lang.mjs';
 import { factionName, DOCTRINE_NAMES, HOLDING_STATES, failureText } from '../fi18n.mjs';
 import { freeByWedge, ticketTimes, homeWedge } from '../fland.mjs';
 import { lamports, swatch, timeHtml } from './shell.mjs';
-import { leaderCard } from '../people/ui.mjs';
+import { leaderCard, ownIdentity, personChip, holdingName } from '../people/ui.mjs';
+import { identityOf } from '../people/identity.mjs';
 
 const FACTIONS = [0, 1, 2, 3, 4, 5];
 const siteText = s => L`州 ${s.p},${s.q} の区画 ${s.site + 1}`;
@@ -103,8 +104,8 @@ function renderProvisional(FS) {
     <p class="muted">${L`仮の村でも収穫・建設・訓練はできます（押し出されると失われます）。軍勢の編成・出発・探索は確定してからです。`}</p></section>`;
 }
 
-/** The join screen for the viewer's stage. */
-export function render(FS) {
+/** The lottery flow remains usable on the seasons that were created with M1. */
+function renderLegacy(FS) {
   if (!FS.wallet) return renderWallets(FS);
   const stage = FS.land?.stage ?? 'none';
   if (stage === 'none') return renderFactions(FS);
@@ -113,4 +114,85 @@ export function render(FS) {
   if (stage === 'provisional') return renderProvisional(FS);
   if (stage === 'final') return html`<p>${L`村が確定しました。「村」から始めましょう。`}</p>`;
   return renderPlacing(FS);
+}
+
+const sameSite = (a, b) => !!a && !!b && a.p === b.p && a.q === b.q && a.site === b.site;
+
+/** A player has a visible place in the interface before they own any land. */
+export function renderHomeIdentity(FS, faction = FS.citizen?.faction ?? FS.homeChoice?.selected?.faction ?? 0) {
+  const identity = ownIdentity(FS) ?? { ...identityOf(0n), given: { ja: L`あなた`, en: L`あなた` }, house: { ja: '', en: '' } };
+  return html`<div class="home-identity">${personChip(identity, faction, { size: 44 })}<span class="home-identity-role">${FS.citizen ? factionName(FS.citizen.faction) : L`これから始まる、あなたの物語`}</span></div>`;
+}
+
+function renderGrant(FS) {
+  const h = FS.homeGrant;
+  const stores = h.stores ?? [];
+  const kit = [[0, L`食料`], [1, L`木材`], [2, L`石材`], [3, L`鉱石`], [5, L`金`]];
+  return html`<section class="home-start home-grant" aria-labelledby="home-grant-title">
+    ${renderHomeIdentity(FS, h.faction)}
+    <div class="home-grant-seal" aria-hidden="true">⚑</div>
+    <p class="home-eyebrow">${L`あなたの最初の土地`}</p>
+    <h3 id="home-grant-title">${L`ここが、あなたの村です。`}</h3>
+    <p class="home-village-name">${holdingName(h)}</p>
+    <p>${L`村の旗が立ちました。最初の建物を選び、この土地での暮らしを始めましょう。`}</p>
+    <div class="home-allegiance">${swatch(h.faction)}${factionName(h.faction)}<span>${L`所属国`}</span></div>
+    ${stores.length ? html`<dl class="home-supplies">${kit.map(([i, label]) => html`<div><dt>${label}</dt><dd>${fmtNum(Number(stores[i]?.value ?? 0) / 1000)}</dd></div>`)}</dl>` : ''}
+    <button type="button" class="btn primary home-primary" data-act="home-begin">${L`最初の建設を選ぶ`}</button>
+  </section>`;
+}
+
+const HOME_PENDING = {
+  connecting: () => L`参加の準備をしています…`,
+  joining: () => L`所属国への参加を確認しています…`,
+  placing: () => L`選んだ土地に村を築いています…`,
+  confirming: () => L`村の受け取りを確認しています…`,
+};
+
+function renderChoices(FS) {
+  const choice = FS.homeChoice ?? {};
+  const candidates = choice.candidates ?? [];
+  const selected = choice.selected;
+  const busy = !!choice.busy || !!choice.pending;
+  const loading = choice.loading || (FS.wallet && FS.meStatus === 'loading');
+  const err = choice.error ?? (FS.meStatus === 'error' ? FS.meError ?? { code: 'Unavailable' } : null);
+  const gated = FS.inviteRequired || !!FS.season?.joinGate?.some?.(x => x !== 0);
+  const valid = selected && (!FS.citizen || selected.faction === FS.citizen.faction);
+  return html`<section class="home-start" aria-labelledby="home-choice-title" aria-busy="${busy || loading ? 'true' : 'false'}">
+    ${renderHomeIdentity(FS)}
+    <p class="home-eyebrow">${L`01 / はじまりの土地`}</p>
+    <h3 id="home-choice-title">${L`どこから、物語を始めますか。`}</h3>
+    <p class="home-intro">${FS.citizen ? L`あなたの国の中から、最初の村を築く土地を選びましょう。` : L`土地を選ぶと、所属する国が決まります。ここが、あなたの村の始まりです。`}</p>
+    ${loading ? html`<p class="home-status" role="status">${L`村を築ける土地を探しています…`}</p>` : ''}
+    ${err ? html`<p class="notice error" role="alert">${err.text ?? failureText(err)}</p>` : ''}
+    <ul class="home-candidates" aria-label="${L`最初の土地の候補`}">${candidates.map((s, i) => {
+      const picked = sameSite(s, selected);
+      const foreign = FS.citizen && s.faction !== FS.citizen.faction;
+      return html`<li><button type="button" class="home-site" data-act="home-pick" data-i="${i}" aria-pressed="${picked ? 'true' : 'false'}" ${raw(busy || foreign ? 'disabled' : '')}>
+        <span class="home-site-mark f${s.faction}" aria-hidden="true">${picked ? '⚑' : '⌂'}</span>
+        <span class="home-site-copy"><strong>${holdingName(s)}</strong><span>${swatch(s.faction)}${factionName(s.faction)}</span><small>${L`州 ${s.p},${s.q} · 区画 ${s.site + 1}`}</small></span>
+        <span class="home-site-check" aria-hidden="true">${picked ? '✓' : '○'}</span>
+      </button></li>`;
+    })}</ul>
+    ${!loading && !candidates.length ? html`<p class="home-status">${L`いま選べる土地が見つかりません。候補を探し直してください。`}</p>` : ''}
+    ${valid ? html`<div class="home-nation"><p class="home-eyebrow">${L`この土地で暮らす国`}</p>${leaderCard(selected.faction, { size: 64 })}<button type="button" class="btn small" data-act="home-preview" ${raw(busy ? 'disabled' : '')}>${L`地図で場所を見る`}</button></div>` : ''}
+    ${gated && !FS.citizen ? html`<label class="field">${L`招待コード`}<input name="invite" autocomplete="off" data-bind="invite" value="${FS.joinDraft?.invite ?? ''}" ${raw(busy ? 'disabled' : '')}></label>` : ''}
+    <div class="home-confirm"><button type="button" class="btn primary home-primary" data-act="home-confirm" ${raw(!valid || busy || loading || FS.meStatus === 'error' ? 'disabled' : '')}>${busy ? L`村を準備しています…` : L`この土地に村を築く`}</button>
+      ${busy ? html`<p class="home-status" role="status">${(HOME_PENDING[choice.pending] ?? HOME_PENDING.confirming)()}</p>` : html`<p class="muted">${L`確定すると、選んだ土地があなたの村になります。`}</p>`}</div>
+    <button type="button" class="btn small home-refresh" data-act="home-refresh" ${raw(busy || loading ? 'disabled' : '')}>${L`候補を探し直す`}</button>
+    ${!FS.wallet && selected ? html`<details class="home-wallet"><summary>${L`参加に使うウォレット`}</summary>${renderWallets(FS)}</details>` : ''}
+  </section>`;
+}
+
+/** New seasons grant a real, final village; old seasons retain their lottery. */
+export function render(FS) {
+  if (Number(FS.season?.programVersion ?? 1) < 2) return html`<p class="muted home-legacy">${L`このシーズンは、土地が抽選で決まる以前のルールです。土地を選んですぐに始める体験は、新しいシーズンで遊べます。`}</p>${renderLegacy(FS)}`;
+  if (FS.homeGrant?.state === 2) return renderGrant(FS);
+  const stage = FS.land?.stage ?? 'none';
+  if (FS.citizen && (!FS.session || FS.sessionProblem)) return html`${renderHomeIdentity(FS)}${renderSessionFix(FS)}`;
+  if (!(FS.holdings?.length) && (stage === 'refugee' || (Number(FS.citizen?.flags ?? 0) & (32 | 4)))) return html`${renderHomeIdentity(FS)}${renderPlacing(FS)}`;
+  // An in-flight legacy ticket must finish before a new land action is possible.
+  if (stage === 'ticket') return html`${renderHomeIdentity(FS)}${renderTicket(FS)}`;
+  if (stage === 'provisional') return html`${renderHomeIdentity(FS)}${renderProvisional(FS)}`;
+  if (stage === 'final') return html`${renderHomeIdentity(FS)}<p>${L`村が確定しました。「村」から始めましょう。`}</p>`;
+  return renderChoices(FS);
 }
