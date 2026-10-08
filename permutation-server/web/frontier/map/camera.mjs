@@ -85,9 +85,13 @@ export const SEA_SHARE = 1 / 3;
  * the middle. `soft` (0..1) lets a drag pull past the limit with that much
  * give; the release settles back.
  */
-export function clampCentre(view, { ringsOpen = 1, size, soft = 0 } = {}) {
+export function clampCentre(view, { ringsOpen = 1, size, soft = 0, inset = null } = {}) {
+  // `inset`: what the page's sheets cover. The picture is then the part nothing covers: its middle is what is
+  // kept over the land, and its size what the sea's share is counted in (a phone's sheet over the lower half
+  // must not leave the upper half looking at the table)
   const b = landBox(ringsOpen);
-  const halfW = (size?.width ?? 0) / 2 / view.zoom, halfH = (size?.height ?? 0) / 2 / view.zoom;
+  const f = size && inset ? freeBox(size, inset) : { x: 0, y: 0, width: size?.width ?? 0, height: size?.height ?? 0 };
+  const halfW = f.width / 2 / view.zoom, halfH = f.height / 2 / view.zoom;
   // (the picture reaches `half` past its centre: with SEA_SHARE of its whole width beyond the land's edge, the centre
   // stands half · (1 − 2 · SEA_SHARE) inside that edge. A picture as wide as the land itself keeps the land whole)
   const reach = (land, half) => {
@@ -95,10 +99,11 @@ export function clampCentre(view, { ringsOpen = 1, size, soft = 0 } = {}) {
     return Math.max(land * 0.12, land - half * k);
   };
   const ax = reach(b.x, halfW), ay = reach(b.y, halfH);
-  const u = view.x / ax, v = view.y / ay, len = Math.hypot(u, v);
+  const cx = view.x + f.x / view.zoom, cy = view.y + f.y / view.zoom;
+  const u = cx / ax, v = cy / ay, len = Math.hypot(u, v);
   if (len <= 1) return view;
   const over = len - 1, keep = soft > 0 ? 1 + (1 - 1 / (over * 2.2 + 1)) * 0.5 * soft : 1;
-  return { ...view, x: (u / len) * keep * ax, y: (v / len) * keep * ay };
+  return { ...view, x: (u / len) * keep * ax - f.x / view.zoom, y: (v / len) * keep * ay - f.y / view.zoom };
 }
 
 /** The radius (world px) of the opened land alone: the open rings without the cloud around them. */

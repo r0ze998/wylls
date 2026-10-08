@@ -166,6 +166,13 @@ test('the pan stops where the cloud sea would take more than a third of the pict
   assert.ok(wide.x < b.x * 0.4, `at the far view the centre may leave the middle by ${Math.round(wide.x)} of ${Math.round(b.x)} only`);
   // more open rings, more room
   assert.ok(cam.clampCentre(out, { ringsOpen: 6, size }).x > hard.x);
+  // under a sheet the picture is the part nothing covers: its middle is kept over the land, not the canvas's
+  const sheet = { bottom: 440 }, f = cam.freeBox(phone, sheet);
+  const north = cam.clampCentre({ x: 0, y: -40_000, zoom: 1.2 }, { ringsOpen: 3, size: phone, inset: sheet });
+  const mid = north.y + f.y / 1.2, half = f.height / 2 / 1.2;
+  assert.ok(near((-mid + half - b.y) / (2 * half), cam.SEA_SHARE), 'a third of the uncovered part is sea, whatever the sheet covers');
+  const rest = cam.fitView(3, phone, { inset: sheet });
+  assert.equal(cam.clampCentre(rest, { ringsOpen: 3, size: phone, inset: sheet }), rest, 'the far view above a sheet is inside the limit: a zoom from it does not jump');
 });
 
 test('the uncovered part of the canvas: the far view fits it, a place is centred in it', () => {

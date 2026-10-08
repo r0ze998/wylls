@@ -559,7 +559,7 @@ export class FrontierMap {
     const size = this.size();
     const zoom = this.clampZoom(v.zoom, size);
     const out = zoom === v.zoom ? v : { ...v, zoom };
-    return clamp && size.width > 0 && size.height > 0 ? clampCentre(out, { ringsOpen: this.ringsNow(), size, soft }) : out;
+    return clamp && size.width > 0 && size.height > 0 ? clampCentre(out, { ringsOpen: this.ringsNow(), size, soft, inset: this.inset() }) : out;
   }
 
   /** Centre on a province (and zoom to its LOD); with `ms` the picture flies there. */
