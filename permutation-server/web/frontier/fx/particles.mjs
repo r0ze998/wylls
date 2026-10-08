@@ -27,7 +27,7 @@ const R = 44;   // the hex radius in world px (web/map.mjs RADIUS): sizes below 
  * `rise` is a steady climb (buoyant kinds). `add` draws with additive blending.
  */
 export const KINDS = Object.freeze({
-  dust:  { add: false, shape: 'puff',   speed: [50, 190],  up: [8, 40],    drag: 4.2, g: 0,   rise: 11, bounce: 0,    life: [0.6, 1.1],  size: [R * 0.12, R * 0.24], grow: 2.2,  alpha: 0.68, fadeIn: 0.05, fadeOut: 0.3,  sway: 0,   colors: ['#eadfc2', '#dccfaa', '#f3ebd6'] },
+  dust:  { add: false, shape: 'puff',   speed: [50, 190],  up: [8, 40],    drag: 4.2, g: 0,   rise: 10, bounce: 0,    life: [0.55, 1.0], size: [R * 0.12, R * 0.23], grow: 1.9,  alpha: 0.62, fadeIn: 0.05, fadeOut: 0.22, sway: 0,   colors: ['#eadfc2', '#dccfaa', '#f3ebd6'] },
   spark: { add: true,  shape: 'streak', speed: [90, 330],  up: [120, 380], drag: 1.3, g: 760, rise: 0,  bounce: 0.34, life: [0.32, 0.8], size: [1.3, 2.4],           grow: 0.4,  alpha: 1,    fadeIn: 0,    fadeOut: 0.55, sway: 0,   colors: ['#ffd27a', '#ffb347', '#ff8a3c'] },
   ember: { add: true,  shape: 'dot',    speed: [8, 46],    up: [26, 80],   drag: 1.6, g: 0,   rise: 30, bounce: 0,    life: [0.9, 1.9],  size: [1.6, 3.2],           grow: 0.5,  alpha: 0.95, fadeIn: 0.05, fadeOut: 0.5,  sway: 5,   colors: ['#ffb347', '#ff7a3c', '#e2553d'] },
   smoke: { add: false, shape: 'puff',   speed: [6, 30],    up: [18, 40],   drag: 1.1, g: 0,   rise: 26, bounce: 0,    life: [1.4, 2.6],  size: [R * 0.16, R * 0.3],  grow: 2.6,  alpha: 0.5,  fadeIn: 0.12, fadeOut: 0.35, sway: 4,   colors: ['#6a645b', '#857e75', '#57524b'] },
@@ -184,7 +184,7 @@ export function createParticles({ capacity = 2048 } = {}) {
         const hot = K.add && s.k < 0.22 ? '#fff6dc' : col[i];
         const img = softSprite(hot, K.shape === 'puff' && !K.flat);
         const r = Math.max(s.size, 0.8 / zoom) * (K.shape === 'dot' ? 2.2 : 1.6);
-        const ry = K.shape === 'puff' ? r * 0.82 : r;
+        const ry = K.shape === 'puff' ? r * 0.76 : r;
         if (img && ctx.drawImage) ctx.drawImage(img, sx - r, sy - ry, r * 2, ry * 2);
         else { ctx.beginPath(); ctx.ellipse?.(sx, sy, r * 0.6, ry * 0.6, 0, 0, Math.PI * 2); ctx.fillStyle = hot; ctx.fill(); }
         break;

@@ -174,7 +174,7 @@ function dust(a, env) {
   const HIT = 0.05;
   // a skirt that races out along the ground, a head that boils up in the middle, pebbles thrown clear
   env.fx.emit('dust', { x, y, n: Math.round(22 * power), seed: env.seed, t: env.now + HIT, radius: R * 0.26, power: 1.15 * power, up: 0.5, color: a.color ?? null });
-  env.fx.emit('dust', { x, y, n: Math.round(12 * power), seed: `${env.seed}|head`, t: env.now + HIT + 0.03, radius: R * 0.14, power: power * 0.4, up: 2.6, size: 1.35, stagger: 0.09, color: a.color ?? null });
+  env.fx.emit('dust', { x, y, n: Math.round(9 * power), seed: `${env.seed}|head`, t: env.now + HIT + 0.03, radius: R * 0.14, power: power * 0.4, up: 2.1, size: 1.15, stagger: 0.09, color: a.color ?? null });
   env.fx.emit('shard', { x, y, n: Math.round(7 * power), seed: env.seed, t: env.now + HIT, radius: R * 0.15, power: 0.8 * power, up: 0.7, size: 0.62, life: 0.8 });
   return { layer: 'ground', dur: 0.55, draw(ctx, s) {
     const t = s.t;
