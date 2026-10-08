@@ -76,7 +76,7 @@ test('the village drawer: five short cards, the common action first, the rest be
   assert.match(out, /data-act="harvest"/);
   // building: the queue's size, three buildings in sight (what can go up now first), the rest behind one fold
   const build = String(cards[2]);
-  assert.match(build, /列 0\/4/);
+  assert.match(build, /建設中 0\/4/);
   const [shown, folded] = build.split('data-fold="v-build"');
   assert.equal((shown.match(/data-act="build"/g) ?? []).length, holdingScreen.BUILD_SHOWN);
   assert.equal((folded.match(/data-act="build"/g) ?? []).length, 7 - holdingScreen.BUILD_SHOWN);

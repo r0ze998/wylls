@@ -67,8 +67,8 @@ export function closeDrawer(FS) {
 
 /** The drawer's title. */
 export function drawerTitle(d) {
-  return ({ practice: () => L`練習モード`, report: () => L`衝突の報告`, holding: () => L`村`, hosts: () => L`軍勢`, marches: () => L`進軍`, more: () => L`その他`,
-    march: () => L`進軍の準備`, inspect: () => L`選択`, guide: () => L`ガイド`, join: () => L`参加`, nation: () => L`国を選ぶ`, wait: () => L`村を待つ`, spectate: () => L`観戦` })[d?.kind]?.() ?? L`地図`;
+  return ({ practice: () => L`練習`, report: () => L`衝突の報告`, holding: () => L`村`, hosts: () => L`軍勢`, marches: () => L`進軍`, more: () => L`その他`,
+    march: () => L`進軍の準備`, inspect: () => L`選択`, guide: () => L`ガイド`, join: () => L`参加`, nation: () => L`国選び`, wait: () => L`村を待つ`, spectate: () => L`観戦` })[d?.kind]?.() ?? L`地図`;
 }
 
 /** The drawer's mark beside its title (hud/icons.mjs). */

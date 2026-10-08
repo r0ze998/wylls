@@ -72,7 +72,7 @@ function renderWatch(FS) {
     <div class="choice-col" role="group" aria-label="${L`国で絞る`}"><span class="choice-k">${L`国で絞る`}</span><span class="seg">
       <button type="button" class="seg-btn" data-act="watch-faction" data-f="" aria-pressed="${w.faction === null || w.faction === undefined ? 'true' : 'false'}">${L`すべて`}</button>
       ${[0, 1, 2, 3, 4, 5].map(f => html`<button type="button" class="seg-btn" data-act="watch-faction" data-f="${f}" aria-pressed="${w.faction === f ? 'true' : 'false'}">${swatch(f)}${factionName(f)}</button>`)}</span></div>
-    ${bells.length ? html`<div class="choice-col"><span class="choice-k">${L`見るターン`}</span>${stepper({ cls: 'watch-turn', label: L`見るターン`,
+    ${bells.length ? html`<div class="choice-col"><span class="choice-k">${L`ターンを選ぶ`}</span>${stepper({ cls: 'watch-turn', label: L`ターンを選ぶ`,
       prev: { act: 'watch-bell', data: { bell: st.older?.bell ?? '' }, label: L`前のターンへ`, disabled: !st.older },
       next: { act: 'watch-bell', data: { bell: st.newer?.bell ?? '' }, label: st.newer ? L`次のターンへ` : L`最新へ`, disabled: !st.canNewer },
       value: st.at ? html`<strong class="watch-turn-v">${icon('bell')}${L`ターン ${fmtNum(st.at.bell)}`}</strong><span class="muted">${L`出来事 ${fmtNum(st.at.events)}`}${st.at.clashes ? html` · ${icon('swords')}${L`衝突 ${fmtNum(st.at.clashes)}`}` : ''}</span>`

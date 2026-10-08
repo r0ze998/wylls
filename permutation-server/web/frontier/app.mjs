@@ -231,7 +231,7 @@ export function detailsMarkup(FS) {
       ${row(L`シーズン`, status)}
       ${FS.beacon?.kind ? row(L`乱数のビーコン`, FS.beacon.kind === 'test' ? L`テスト用ビーコン` : L`公開ビーコン（drand）`) : ''}
       ${row(L`ルールのモジュール`, FS.kernelError ? L`frontier.wasm を読み込めません（${FS.kernelError}）` : L`frontier.wasm（見込みの計算と報告の確かめに使います）`)}
-      ${FS.land?.escrowNeeded ? row(L`入植希望の預け金`, lamports(FS.land.escrowNeeded)) : ''}
+      ${FS.land ? row(L`入植希望の預け金（いま要る額）`, lamports(FS.land.escrowNeeded ?? 0n)) : ''}
     </dl>
     <p class="muted">${L`鐘ごとの開封・決着・精算は、キーパーと呼ばれる自動の係が代わりに行います。チップはその報酬です。`}</p>
     <p class="muted">${L`いまの段階（M1）に賞金はありません。費用はテスト用の SOL で、中継が立て替えます（価値はありません）。`}</p>
@@ -864,8 +864,16 @@ let noticeSeen = { ref: null, at: 0 };
 function statusNow() {
   const n = FS.notice ?? null;
   if (noticeSeen.ref !== n) noticeSeen = { ref: n, at: Date.now() };
-  return status.statusOf(FS, { age: Date.now() - noticeSeen.at, canRetry: !!FS.lastAct });
+  const st = status.statusOf(FS, { age: Date.now() - noticeSeen.at, canRetry: !!FS.lastAct });
+  // a hook for effects and sound (they are another track's): `wylls:status` {state: busy | done | refused | null, act} when it changes
+  const key = st?.state ?? null;
+  if (key !== statusShown) {
+    statusShown = key;
+    try { globalThis.dispatchEvent?.(new CustomEvent('wylls:status', { detail: { state: key, act: FS.lastAct?.name ?? null } })); } catch { /* no events here (tests) */ }
+  }
+  return st;
 }
+let statusShown = null;
 /**
  * The map's stack of notices: the status of the action in hand first, then what happened (at most
  * three). Kept by key, so a notice that arrives slides in and one that leaves fades out without the

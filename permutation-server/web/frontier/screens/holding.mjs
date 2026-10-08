@@ -156,7 +156,7 @@ export function render(FS) {
     ${blockedLine(m.blocks.Harvest)}</section>`;
 
   const build = html`<section class="vcard" id="hp-build" aria-labelledby="hp-build-h">
-    ${cardHead({ id: 'hp-build-h', ic: 'hammer', title: L`建設`, side: chip(L`列 ${fmtNum(building.length)}/4`, queueFull ? 'warn' : '') })}
+    ${cardHead({ id: 'hp-build-h', ic: 'hammer', title: L`建設`, side: chip(L`建設中 ${fmtNum(building.length)}/4`, queueFull ? 'warn' : '') })}
     ${f.queue.length ? html`<ul class="queue">${f.queue.map(q => html`<li>${icon(q.doneIn > 0 ? 'hourglass' : 'check')}<strong>${BUILDINGS[BUILD_ITEMS[q.kind]?.resource] ?? `#${q.kind}`}</strong><span class="queue-t">${q.doneIn > 0 ? L`あと ${span(q.doneIn)}` : L`完成`}</span></li>`)}</ul>` : html`<p class="muted">${L`建設の列は空です`}</p>`}
     <ul class="build-list">${shown.map(c => buildRow(c, blockedOf(c)))}</ul>
     ${rest.length ? fold('v-build', L`ほかの建物（${fmtNum(rest.length)}）`, html`<ul class="build-list">${rest.map(c => buildRow(c, blockedOf(c)))}</ul>`) : ''}
