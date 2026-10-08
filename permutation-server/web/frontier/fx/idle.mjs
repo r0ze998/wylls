@@ -9,10 +9,11 @@
 // cost one small pass over the tiles in view and nothing when the map is
 // not painting tiles. They are functions of the effects clock and a tile's
 // own position: no state, the same picture for the same time. While they
-// show, the map is asked for another frame about nine times a second (the
-// tile view repaints at that order anyway whenever a host is in view); when
-// the page is hidden, the view is far, or motion is reduced, nothing is
-// asked and nothing is drawn. They are decoration only: never the only sign
+// show and nothing else repaints the map, it is asked for another frame
+// about six times a second (the tile view repaints more often than that by
+// itself whenever a host is in view, and then nothing is asked); when the
+// page is hidden, the view is far, or motion is reduced, nothing is asked
+// and nothing is drawn. They are decoration only: never the only sign
 // of anything.
 import { RADIUS, FLATTEN } from '../../map.mjs';
 import { hash01, noise1 } from './rand.mjs';
@@ -20,8 +21,8 @@ import { hash01, noise1 } from './rand.mjs';
 const R = RADIUS, TAU = Math.PI * 2;
 /** Idle life is drawn from this many screen px of hex radius (about zoom 0.8). */
 export const IDLE_MIN_R = 34;
-/** The gap between two frames asked of the map, ms. */
-export const IDLE_FRAME_MS = 110;
+/** The longest the land stands still while idle life shows, ms (about six frames a second when nothing else repaints the map). */
+export const IDLE_FRAME_MS = 160;
 /** The cloud shadows repeat over this much world, and drift this fast (world px a second). */
 const CLOUD_SPAN = Object.freeze({ x: R * 46, y: R * 30 });
 const CLOUD_DRIFT = Object.freeze({ x: 15, y: 5 });
@@ -109,8 +110,22 @@ export function installIdle(fx) {
   let timer = null;
   const hidden = () => { try { return !!globalThis.document?.hidden; } catch { return false; } };
   const on = st => st.mode === 'full' && st.zoom * R >= IDLE_MIN_R && st.size.width > 0 && !hidden();
-  // another frame in a moment, once: the painter runs again only if the map still paints tiles
-  const again = st => { if (timer || !globalThis.setTimeout) return; timer = globalThis.setTimeout(() => { timer = null; st.invalidate(); }, IDLE_FRAME_MS); };
+  // Another frame, but only when the map is not repainting on its own account anyway (it does about fourteen
+  // times a second whenever a host is in view): the timer looks at when the painter last ran and asks only if
+  // nothing has painted for a whole interval.
+  let last = 0;
+  const wall = () => globalThis.performance?.now?.() ?? Date.now();
+  const again = st => {
+    last = wall();
+    if (timer || !globalThis.setTimeout) return;
+    const wake = () => {
+      timer = null;
+      const quiet = wall() - last;
+      if (quiet >= IDLE_FRAME_MS - 8) st.invalidate();
+      else timer = globalThis.setTimeout(wake, IDLE_FRAME_MS - quiet);
+    };
+    timer = globalThis.setTimeout(wake, IDLE_FRAME_MS);
+  };
   const offs = [
     fx.onPaint('ground', (ctx, st) => (on(st) ? paintWater(ctx, st) : 0)),
     fx.onPaint('over', (ctx, st) => {

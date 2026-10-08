@@ -23,7 +23,7 @@
 import { L, fmtNum } from '../../lang.mjs';
 import { RADIUS, FLATTEN } from '../../map.mjs';
 import { factionName } from '../fi18n.mjs';
-import { PHASE, BATTLE_HITS, HIT_POWER, battlePlan, battleStage, battleVerdict, paintBattle, sideColors, crossedSwords } from '../people/battle.mjs';
+import { PHASE, BATTLE_HITS, HIT_POWER, battlePlan, battleStage, battleFit, battleVerdict, paintBattle, preloadBattle, sideColors, crossedSwords } from '../people/battle.mjs';
 import { span, lerp, inQuad, outCubic, outExpo, outBack, envelope } from './ease.mjs';
 import { REDUCED_FADE } from './motion.mjs';
 import { noise1, hashSeed } from './rand.mjs';
@@ -102,14 +102,14 @@ function paintFar(ctx, s, T, ts, win) {
   for (let j = 0; j < BATTLE_HITS.length; j++) {
     const u = ts - BATTLE_HITS[j];
     if (u < 0 || u > 0.7) continue;
-    const kk = u / 0.7, r = lerp(16, 46 * Math.sqrt(HIT_POWER[j]), outExpo(kk)) * k;
+    const kk = u / 0.7, r = lerp(20, 62 * Math.sqrt(HIT_POWER[j]), outExpo(kk)) * k;
     ctx.strokeStyle = rgba(j % 2 ? colB : colA, (1 - kk) ** 1.5); ctx.lineWidth = lerp(5, 1.2, kk) * k;
     ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.stroke();
     ctx.strokeStyle = rgba(TONE.white, 0.8 * (1 - span(kk, 0, 0.3))); ctx.lineWidth = 1.5 * k;
     ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.stroke();
   }
   const beat = 1 + 0.1 * Math.max(0, ...BATTLE_HITS.map(h => { const u = ts - h; return u >= 0 && u < 0.25 ? 1 - u / 0.25 : 0; }));
-  const r = 17 * k * inn * beat;
+  const r = 22 * k * inn * beat;
   const after = ts >= PHASE.fates + 0.3 && win ? span(ts, PHASE.fates + 0.3, PHASE.fates + 0.6) : 0;
   ctx.fillStyle = rgba('#0c1614', 0.92); ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
   // the rim: half and half in the two sides' colours while it is fought, the holder's when it is decided
@@ -140,33 +140,49 @@ export function burn(a, env) {
   env.fx.emit('smoke', { x, y, z: w * 0.5, n: 26, seed: `${env.seed}|smoke`, t: env.now + 0.15, radius: w * 0.3, stagger: dur * 0.85, size: 1.5, life: 1.3, power: 1.2 });
   env.fx.emit('ember', { x, y, z: w * 0.3, n: 34, seed: `${env.seed}|ember`, t: env.now + 0.1, radius: w * 0.35, stagger: dur * 0.8, power: 1.5, size: 1.2 });
   env.fx.emit('spark', { x, y, z: w * 0.2, n: 14, seed: `${env.seed}|pop`, t: env.now + 0.05, power: 0.7, up: 1.2, colors: ['#ffd27a', '#ff8a3c', '#fff6dc'] });
-  const tongues = Array.from({ length: 9 }, (_, i) => ({ ox: ((i / 8) - 0.5) * w * 0.95, h: 0.75 + 0.5 * ((i * 37) % 10) / 10, f: 2.2 + ((i * 13) % 7) * 0.35, ph: i * 1.7 }));
+  const tongues = Array.from({ length: 11 }, (_, i) => ({ ox: ((i / 10) - 0.5) * w * 0.86, h: 0.6 + 0.6 * ((i * 37) % 10) / 10, f: 2.4 + ((i * 13) % 7) * 0.4, ph: i * 1.7, wd: 0.13 + 0.07 * ((i * 7) % 5) / 4 }));
+  /** One tongue: a teardrop that leans as it climbs, round at the foot. */
+  const tongue = (ctx, bx, by, wd, hgt, sway) => {
+    ctx.beginPath();
+    ctx.moveTo(bx - wd, by);
+    ctx.bezierCurveTo(bx - wd * 1.25, by - hgt * 0.38, bx - wd * 0.25 + sway * 0.5, by - hgt * 0.62, bx + sway, by - hgt);
+    ctx.bezierCurveTo(bx + wd * 0.5 + sway * 0.5, by - hgt * 0.6, bx + wd * 1.25, by - hgt * 0.34, bx + wd, by);
+    ctx.quadraticCurveTo(bx, by + wd * 0.7, bx - wd, by);
+    ctx.closePath(); ctx.fill();
+  };
   return { layer: 'top', dur, draw(ctx, s) {
     const t = s.t;
     const level = outCubic(span(t, 0, 0.3)) * (1 - inQuad(span(t, dur * 0.5, dur * 0.97)));
     // what it leaves: a scorched mark that stays to the end
-    ctx.fillStyle = rgba('#17100a', 0.5 * span(t, 0.2, 1.2) * (1 - span(t, dur - 0.4, dur)));
-    ctx.beginPath(); ctx.ellipse?.(x, y + w * 0.04, w * 0.62, w * 0.62 * FLATTEN * 0.72, 0, 0, TAU); ctx.fill();
+    const char = ctx.createRadialGradient?.(x, y + w * 0.04, 0, x, y + w * 0.04, w * 0.62);
+    const ca = 0.62 * span(t, 0.2, 1.2) * (1 - span(t, dur - 0.4, dur));
+    if (char?.addColorStop) { char.addColorStop(0, rgba('#120c07', ca)); char.addColorStop(0.6, rgba('#17100a', ca * 0.7)); char.addColorStop(1, rgba('#17100a', 0)); ctx.fillStyle = char; } else ctx.fillStyle = rgba('#17100a', ca * 0.5);
+    ctx.save(); ctx.translate(x, y + w * 0.04); ctx.scale(1, FLATTEN * 0.7); ctx.translate(-x, -(y + w * 0.04));
+    ctx.beginPath(); ctx.arc(x, y + w * 0.04, w * 0.62, 0, TAU); ctx.fill(); ctx.restore();
     if (level <= 0.01) return;
     ctx.globalCompositeOperation = 'lighter';
-    // the light it throws on the ground
+    // the light it throws on the ground and into the air
     const flick = 0.85 + 0.15 * noise1(t * 9, seed & 255);
     const gl = ctx.createRadialGradient?.(x, y, 0, x, y, w * 1.7);
     if (gl?.addColorStop) { gl.addColorStop(0, rgba('#ff9a3c', 0.5 * level * flick)); gl.addColorStop(0.5, rgba('#e2553d', 0.18 * level * flick)); gl.addColorStop(1, rgba('#e2553d', 0)); ctx.fillStyle = gl; ctx.beginPath(); ctx.ellipse?.(x, y, w * 1.7, w * 1.7 * FLATTEN, 0, 0, TAU); ctx.fill(); }
-    for (const [i, g] of tongues.entries()) {
-      const n = 0.6 + 0.4 * noise1(t * g.f + g.ph, i + 3);
-      const hgt = w * 1.25 * g.h * level * n * (1 - Math.abs(g.ox) / (w * 0.75) * 0.45);
-      const bx = x + g.ox, by = y + (Math.abs(g.ox) / w) * -w * 0.08 + w * 0.06;
-      const sway = noise1(t * 3.1 + g.ph, i + 40) * w * 0.12;
-      const wd = w * 0.2 * (0.8 + 0.3 * n);
+    const halo = ctx.createRadialGradient?.(x, y - w * 0.45, 0, x, y - w * 0.45, w * 0.95);
+    if (halo?.addColorStop) { halo.addColorStop(0, rgba('#ffb347', 0.34 * level * flick)); halo.addColorStop(1, rgba('#e2553d', 0)); ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(x, y - w * 0.45, w * 0.95, 0, TAU); ctx.fill(); }
+    // two passes: the red and orange body of the fire, then its yellow-white heart, smaller and lower
+    for (const pass of [0, 1]) for (const [i, g] of tongues.entries()) {
+      if (pass && i % 2) continue;
+      const n = 0.55 + 0.45 * noise1(t * g.f + g.ph, i + 3 + pass * 17);
+      const edge = 1 - (Math.abs(g.ox) / (w * 0.5)) ** 2 * 0.6;
+      const hgt = w * (pass ? 0.72 : 1.35) * g.h * level * n * edge;
+      const bx = x + g.ox * (pass ? 0.7 : 1), by = y + w * 0.05 - (1 - edge) * w * 0.05;
+      const sway = noise1(t * 3.1 + g.ph, i + 40) * w * 0.16;
+      const wd = w * g.wd * (0.8 + 0.3 * n) * (pass ? 0.62 : 1);
       const fill = ctx.createLinearGradient?.(0, by, 0, by - hgt);
-      if (fill?.addColorStop) { fill.addColorStop(0, rgba('#fff3c4', 0.9 * level)); fill.addColorStop(0.3, rgba('#ffb347', 0.82 * level)); fill.addColorStop(0.7, rgba('#e2553d', 0.5 * level)); fill.addColorStop(1, rgba('#e2553d', 0)); ctx.fillStyle = fill; }
-      else ctx.fillStyle = rgba('#ffb347', 0.5 * level);
-      ctx.beginPath();
-      ctx.moveTo(bx - wd, by);
-      ctx.quadraticCurveTo(bx - wd * 0.9 + sway * 0.3, by - hgt * 0.5, bx + sway, by - hgt);
-      ctx.quadraticCurveTo(bx + wd * 0.9 + sway * 0.3, by - hgt * 0.5, bx + wd, by);
-      ctx.closePath(); ctx.fill();
+      if (fill?.addColorStop) {
+        if (pass) { fill.addColorStop(0, rgba('#fffbe6', 0.95 * level)); fill.addColorStop(0.5, rgba('#ffe08a', 0.7 * level)); fill.addColorStop(1, rgba('#ffb347', 0)); }
+        else { fill.addColorStop(0, rgba('#ffc45a', 0.75 * level)); fill.addColorStop(0.35, rgba('#ff8a3c', 0.62 * level)); fill.addColorStop(0.75, rgba('#d8432b', 0.34 * level)); fill.addColorStop(1, rgba('#b02a1c', 0)); }
+        ctx.fillStyle = fill;
+      } else ctx.fillStyle = rgba('#ffb347', 0.4 * level);
+      tongue(ctx, bx, by, wd, hgt, sway);
     }
   } };
 }
@@ -200,13 +216,15 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
   const main = fights[0] ?? plan.tiles[0];
   const title = fights.length ? verdictTitle(scene, viewerFaction) : null;
   const z = zoom ?? fx.view().zoom;
-  const stage = battleStage(main, z);
+  const fit = battleFit(fx.size().width);
+  const stage = battleStage(main, z, fit);
   play.staged = true;
+  preloadBattle(scene);
 
   if (level === 'off') {
     // numbers and the title only; the map's tokens stay as they are
     play.t0 = -1e9;
-    for (const T of fights) for (const side of T.sides) if (side.loss) keep(fx.play('label', { q: T.q, r: T.r, text: texts.lossText(side.loss), color: '#ffb7a3', size: 24, lift: 0.9 + (side.sgn > 0 ? 0.5 : 0), dur: 3, seed: `${id}|loss|${side.sgn}`, mode: level }));
+    for (const T of fights) for (const side of T.sides) if (side.loss) keep(fx.play('label', { x: T.c.x + side.sgn * RADIUS * 1.1, y: T.c.y, text: texts.lossText(side.loss), color: '#ffb7a3', size: 24, lift: 0.9, dur: 3, seed: `${id}|loss|${side.sgn}`, mode: level }));
     if (title) keep(fx.play('banner', { title: title.title, sub: title.sub, color: title.color, tone: title.tone, y: 0.2, dur: 2.8, seed: `${id}|title`, mode: level }));
     const h = { cancel() { handles.forEach(x => x.cancel?.()); staged.delete(key); } };
     staged.set(key, h);
@@ -221,7 +239,7 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
       if (fights.length) paintDim(ctx, s, stage.cx, stage.cy, stage.s * 2.4, BATTLE_DIM.passing * o);
       ctx.globalAlpha = o;
       if (s.zoom * RADIUS < BATTLE_FAR_R) { for (const T of plan.tiles) if (T.fight) paintFar(ctx, s, T, PHASE.fates + 1, title?.color ?? null); }
-      else paintBattle(ctx, play, { zoom: s.zoom, at: PHASE.fates + 1.5, top: true, ...texts });
+      else paintBattle(ctx, play, { zoom: s.zoom, at: PHASE.fates + 1.5, top: true, fit: battleFit(s.size.width), ...texts });
     } }));
     if (title) keep(fx.play('banner', { title: title.title, sub: title.sub, color: title.color, tone: title.tone, y: 0.2, dur: Math.min(hold, 2.8), seed: `${id}|title`, mode: level }));
     const h = { cancel() { handles.forEach(x => x.cancel?.()); staged.delete(key); } };
@@ -239,18 +257,18 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
     const ts = t0 + s.t * speed;
     let punch = 0;
     for (const h of BATTLE_HITS) { const u = ts - h; if (u >= 0 && u < 0.3) punch = Math.max(punch, 1 - u / 0.3); }
-    const st = battleStage(main, s.zoom);
+    const st = battleStage(main, s.zoom, battleFit(s.size.width));
     paintDim(ctx, s, st.cx, st.cy - st.s * 0.2, st.s * 2.7, Math.min(0.85, dim * a * (1 + 0.12 * punch)));
   } }));
   // 2. the scene itself
   keep(fx.add({ name: 'battle', layer: 'top', dur, seed: id, draw(ctx, s) {
     const ts = t0 + s.t * speed;
     if (s.zoom * RADIUS < BATTLE_FAR_R) { for (const T of plan.tiles) if (T.fight) paintFar(ctx, s, T, ts, title?.color ?? null); return; }
-    paintBattle(ctx, play, { zoom: s.zoom, at: ts, top: true, ...texts });
+    paintBattle(ctx, play, { zoom: s.zoom, at: ts, top: true, fit: battleFit(s.size.width), ...texts });
   } }));
   // 3. every contact: sparks in both colours, dust at both lines, the shake, the sound
   for (const T of fights) {
-    const st = battleStage(T, z), s = st.s;
+    const st = battleStage(T, z, fit), s = st.s;
     const colA = sideColors(T.sides[0].faction), colB = sideColors(T.sides[1].faction);
     BATTLE_HITS.forEach((h, j) => {
       const p = HIT_POWER[j], t = now + at(h), sd = `${id}|${T.idx}|${j}`, last = j === BATTLE_HITS.length - 1;
@@ -258,7 +276,7 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
       fx.emit('spark', { x: st.cx, y: st.feet.y, z: s * 0.5, n: Math.round(16 * p), seed: `${sd}|b`, t, power: 0.85 * p, dir: Math.PI, spread: Math.PI * 1.3, life: 1.05, colors: [colB.light, colB.fill, '#fff6dc'] });
       fx.emit('spark', { x: st.cx, y: st.feet.y, z: s * 0.5, n: Math.round(8 * p), seed: `${sd}|w`, t: t + 0.02, power: 1.5 * p, size: 0.6, life: 0.55, up: 0.5, colors: ['#fff6dc', '#ffe2a0'] });
       for (const [side, dir] of [[st.left, Math.PI], [st.right, 0]]) {
-        fx.emit('dust', { x: side.x, y: side.y + s * 0.06, n: Math.round(9 * p), seed: `${sd}|d${dir ? 1 : 0}`, t, radius: s * 0.3, power: 0.8 * p, up: 0.7, dir, spread: Math.PI * 1.2, size: s / 34 });
+        fx.emit('dust', { x: side.x, y: side.y + s * 0.06, n: Math.round(6 * p), seed: `${sd}|d${dir ? 1 : 0}`, t, radius: s * 0.3, power: 0.8 * p, up: 0.6, dir, spread: Math.PI * 1.2, size: s / 46, alpha: 0.8 });
       }
       if (last) {
         fx.emit('shard', { x: st.cx, y: st.feet.y, n: 9, seed: sd, t, radius: s * 0.2, power: 0.9, up: 0.8, size: 0.7 });
@@ -283,8 +301,8 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
   for (const T of fights) {
     const camp = T.sides[1].groups.find(g => g.kind === 'camp');
     if (!camp || !(camp.fate === 'Destroyed' || camp.after === 0)) continue;
-    const st = battleStage(T, z);
-    keep(fx.play('burn', { x: st.right.x + st.s * 0.5, y: st.cy + st.s * 0.05, size: st.s * 1.25, dur: 3.3 / speed + 0.4, delay: at(PHASE.fates + 0.12), seed: `${id}|burn|${T.idx}` }));
+    const st = battleStage(T, z, fit);
+    keep(fx.play('burn', { x: st.right.x + st.s * 0.45, y: st.cy + st.s * 0.1, size: st.s * 1.7, dur: 3.3 / speed + 0.4, delay: at(PHASE.fates + 0.12), seed: `${id}|burn|${T.idx}` }));
   }
   const h = { cancel() { handles.forEach(x => x.cancel?.()); staged.delete(key); }, title, dur };
   staged.set(key, h);

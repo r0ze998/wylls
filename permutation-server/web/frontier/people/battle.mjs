@@ -235,7 +235,9 @@ export function formation(pose, n) {
 }
 
 /** A figure's height in world px at a zoom: about 80 px on screen where the camera flies in (zoom 2.1), 62 px at the default view, never under 40 px while figures are drawn. */
-export const battleScale = zoom => Math.max(40, Math.min(88, 34 + 22 * zoom)) / Math.max(0.05, zoom);
+export const battleScale = (zoom, fit = 1) => Math.max(40, Math.min(88, 34 + 22 * zoom) * fit) / Math.max(0.05, zoom);
+/** How much of its full size the scene takes on a map `width` CSS px wide (a phone shows it smaller, never under 40 px a figure). */
+export const battleFit = width => (width > 0 ? Math.max(0.5, Math.min(1, width / 720)) : 1);
 /** Where a side's formation is centred before the charge, and how far it closes for the melee (figure heights). */
 const REST = 1.6, ENGAGE = 1.0;
 /** A line across the field runs up and to the right on screen (the map's oblique view): how far a step across shifts a figure sideways, and how deep it reads. */
@@ -317,8 +319,8 @@ export function battlePlan(scene) {
 }
 
 /** Where a tile's scene stands at a zoom: its centre, the figure height `s`, the point of contact and each side's middle (world px). */
-export function battleStage(tile, zoom) {
-  const s = battleScale(zoom), cx = tile.c.x, cy = tile.c.y + RADIUS * 0.12;
+export function battleStage(tile, zoom, fit = 1) {
+  const s = battleScale(zoom, fit), cx = tile.c.x, cy = tile.c.y + RADIUS * 0.12;
   return { s, cx, cy, contact: { x: cx, y: cy - s * 0.48 }, feet: { x: cx, y: cy + s * 0.05 },
     left: { x: cx - (REST - ENGAGE + 0.1) * s, y: cy }, right: { x: cx + (REST - ENGAGE + 0.1) * s, y: cy } };
 }
@@ -396,6 +398,41 @@ function whiteCell(faction, kind, face, walking, step) {
   return cv;
 }
 
+/** The nation whose miniatures stand in for the neutral camp's fighters, drawn drained of colour and washed in leather. */
+const CAMP_SHEET = 5;
+const camps = new Map();
+/** A camp fighter's frame: a miniature greyed and washed brown (the camp has no sheet of its own); null until the sheet has loaded or where there is no canvas. */
+function campCell(kind, face, walking, step) {
+  const img = miniSheet(CAMP_SHEET, MINI_SIZES[0].key);
+  if (!img) return null;
+  const { row, col } = miniCell(kind, { face, walking, step });
+  const key = `${row}|${col}`;
+  if (camps.has(key)) return camps.get(key);
+  let cv = null;
+  try {
+    const cell = Math.round(img.width / 6);
+    cv = typeof globalThis.OffscreenCanvas === 'function' ? new globalThis.OffscreenCanvas(cell, cell) : globalThis.document?.createElement?.('canvas') ?? null;
+    if (cv) {
+      cv.width = cell; cv.height = cell;
+      const g = cv.getContext('2d');
+      if ('filter' in g) g.filter = 'grayscale(0.85) brightness(1.02) contrast(1.05)';
+      g.drawImage(img, col * cell, row * cell, cell, cell, 0, 0, cell, cell);
+      if ('filter' in g) g.filter = 'none';
+      g.globalCompositeOperation = 'source-atop'; g.fillStyle = 'rgba(112,78,44,0.3)'; g.fillRect(0, 0, cell, cell);
+    }
+  } catch { cv = null; }
+  camps.set(key, cv);
+  return cv;
+}
+
+/** Start loading the sheets a scene will need (so its first frames already have their figures). */
+export function preloadBattle(scene) {
+  for (const tile of scene?.tiles ?? []) for (const x of [...(tile.attackers ?? []), ...(tile.defenders ?? [])]) {
+    const f = x.faction >= 0 && x.faction < 6 ? x.faction : CAMP_SHEET;
+    for (const size of MINI_SIZES) miniSheet(f, size.key);
+  }
+}
+
 function paintFigure(ctx, f) {
   if (f.alpha <= 0.02) return;
   ctx.save();
@@ -403,13 +440,22 @@ function paintFigure(ctx, f) {
   if (f.rot) ctx.rotate(f.rot);
   if (f.sx !== 1 || f.sy !== 1) ctx.scale(f.sx, f.sy);
   const o = { faction: f.faction, face: f.face, step: f.step, walking: f.walking, alpha: f.alpha };
-  const mini = paintMini(ctx, 0, 0, f.s, f.kind, o);
-  if (!mini) { baseDisc(ctx, 0, 0, f.s, f.faction, { alpha: f.alpha }); unitFigure(ctx, 0, -f.s * 0.02, f.s, f.kind, o); }
+  const w = f.s * MINI_CELL_U, nation = f.faction >= 0 && f.faction < 6;
+  let drawn = false, white = null;
+  if (nation) { drawn = paintMini(ctx, 0, 0, f.s, f.kind, o); if (drawn && f.flash > 0.02) white = whiteCell(f.faction, f.kind, f.face, f.walking, f.step); }
+  else {
+    const cell = campCell(f.kind, f.face, f.walking, f.step);
+    if (cell && ctx.drawImage) { ctx.globalAlpha = f.alpha; ctx.drawImage(cell, -w * MINI_ANCHOR[0], -w * MINI_ANCHOR[1], w, w); drawn = true; if (f.flash > 0.02) white = whiteCell(CAMP_SHEET, f.kind, f.face, f.walking, f.step); }
+  }
+  // until its sheet has loaded a figure is only the shadow it will stand on (a page with no sheets at all draws the plain canvas figure)
+  if (!drawn) {
+    if (typeof globalThis.Image === 'undefined') { baseDisc(ctx, 0, 0, f.s, f.faction, { alpha: f.alpha }); unitFigure(ctx, 0, -f.s * 0.02, f.s, f.kind, o); }
+    else { ctx.fillStyle = `rgba(12,22,20,${(0.28 * f.alpha).toFixed(3)})`; ctx.beginPath(); ctx.ellipse?.(0, 0, f.s * 0.3, f.s * 0.12, 0, 0, Math.PI * 2); ctx.fill(); }
+  }
   if (f.flash > 0.02) {
-    const w = f.s * MINI_CELL_U, white = mini ? whiteCell(f.faction, f.kind, f.face, f.walking, f.step) : null;
     ctx.globalAlpha = f.alpha * f.flash;
     if (white && ctx.drawImage) ctx.drawImage(white, -w * MINI_ANCHOR[0], -w * MINI_ANCHOR[1], w, w);
-    else { ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.ellipse?.(0, -f.s * 0.45, f.s * 0.24, f.s * 0.5, 0, 0, Math.PI * 2); ctx.fill(); }
+    else if (!drawn) { ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.ellipse?.(0, -f.s * 0.45, f.s * 0.24, f.s * 0.5, 0, 0, Math.PI * 2); ctx.fill(); }
   }
   ctx.restore();
 }
@@ -583,9 +629,10 @@ export function crossedSwords(ctx, x, y, r, { color = BRASS_HI, ink = INK, alpha
 }
 
 /** The two strength bars over the scene: each side's sigil, its troops counting down, a fill that drains at each contact with a pale ghost behind it. */
-function paintBars(ctx, T, st, t, k, numText, nameText, show) {
+function paintBars(ctx, T, st, t, k, numText, nameText, show, fit = 1) {
   if (show <= 0.01) return;
-  const BW = 176 * k, BH = 14 * k, GAP = 52 * k, y = st.cy + st.s * 1.05 + 34 * k;
+  const bf = Math.max(0.62, Math.min(1, fit * 1.2));
+  const BW = 176 * k * bf, BH = 14 * k, GAP = 52 * k * bf, y = st.cy + st.s * 1.05 + 34 * k;
   const share = lossShare(t), ghost = lossShare(t, 0.32);
   let hit = 0;
   for (const h of BATTLE_HITS) { const u = t - h; if (u >= 0 && u < 0.16) hit = 1 - u / 0.16; }
@@ -621,19 +668,24 @@ function paintBars(ctx, T, st, t, k, numText, nameText, show) {
 }
 
 /** The numbers over a side: the running total of its losses, struck again at each contact; the record's own total and the fate at the end. */
-function paintLosses(ctx, side, st, t, k, lossText, fateText, numText) {
+function paintLosses(ctx, side, st, t, k, lossText, fateText, numText, fit = 1) {
   let hit = -1;
   for (let j = 0; j < BATTLE_HITS.length; j++) if (t >= BATTLE_HITS[j]) hit = j;
   if (hit < 0) return;
   const last = hit === BATTLE_HITS.length - 1;
-  const x = st.cx + side.sgn * (REST - 0.35) * st.s, y0 = st.cy - st.s * 2.0;
+  const y0 = st.cy - st.s * 2.0;
+  // over its side; two long numbers never run into each other (each keeps to its half)
+  const final = side.loss ? lossText(side.loss) : '', size = (last ? (fit < 0.8 ? 27 : 32) : 26) * k;
+  let half = 0;
+  if (last && final) { ctx.save(); ctx.font = `800 32px ${SANS}`; half = ((ctx.measureText?.(final)?.width ?? 0) * size) / 32 / 2 + 7 * k; ctx.restore(); }
+  const x = st.cx + side.sgn * Math.max((REST + 0.2) * st.s, half);
   const u = t - BATTLE_HITS[hit];
   const out = last ? 1 - inQuad(span(t, PHASE.end - 0.6, PHASE.end - 0.1)) : 1;
   const pop = lerp(0.35, 1, outBack(span(u, 0, 0.17), 2.6)), rise = 14 * k * outCubic(span(u, 0, 0.5));
   if (side.loss !== null && side.loss > 0) {
     const n = last ? side.loss : Math.round(side.loss * LOSS_BY_HIT[hit]);
     const lost = side.after === 0;
-    if (n > 0) inkText(ctx, last ? lossText(n) : `−${numText(n)}`, x, y0 - rise, (last ? 32 : 26) * k, last && lost ? '#ff8f76' : '#ffb7a3', { alpha: span(u, 0, 0.05) * out, scale: pop });
+    if (n > 0) inkText(ctx, last ? final : `−${numText(n)}`, x, y0 - rise, size, last && lost ? '#ff8f76' : '#ffb7a3', { alpha: span(u, 0, 0.05) * out, scale: pop });
   }
   if (last && fateText) {
     const ft = side.fate ? fateText(side.fate) : null;
@@ -643,7 +695,7 @@ function paintLosses(ctx, side, st, t, k, lossText, fateText, numText) {
 
 function paintTile(ctx, T, e) {
   const { t, tau, k, residents } = e;
-  const st = battleStage(T, e.zoom), s = st.s, cx = st.cx, cy = st.cy;
+  const st = battleStage(T, e.zoom, e.fit), s = st.s, cx = st.cx, cy = st.cy;
   const mist = residents ? 0 : 1 - span(t, 0.55, 1.5);
   if (mist > 0.01 && T.sides[0].groups.length) paintMist(ctx, cx - REST * s, cy - s * 0.3, s * 1.3, t, mist);
   // the figures, back to front
@@ -688,11 +740,11 @@ function paintTile(ctx, T, e) {
   }
   // the holder's standard
   const holder = T.sides.flatMap(sd => sd.groups.map(g => ({ g, sd }))).find(x => x.g.fate === 'Stays' && x.g.faction < NEUTRAL && x.g.after !== 0 && (!T.fight || x.sd.fate === 'Stays'));
-  if (holder && t >= PHASE.fates + 0.55) paintStandard(ctx, cx + holder.sd.sgn * (REST - 0.26 + 0.6) * s - holder.g.off * s * SKEW, cy + holder.g.off * s * DEPTH - s * 0.02, s, holder.g.faction, t, k);
+  if (holder && t >= PHASE.fates + 0.55) paintStandard(ctx, cx + holder.sd.sgn * (REST + 0.95) * s - holder.g.off * s * SKEW, cy + holder.g.off * s * DEPTH + s * 0.1, s * 0.86, holder.g.faction, t, k);
   if (T.fight) {
     const t0 = residents ? PHASE.deploy : 0;
-    paintBars(ctx, T, st, t, k, e.numText, e.nameText, outCubic(span(t, t0 + 0.2, t0 + 0.6)) * (1 - span(t, PHASE.end - 0.6, PHASE.end - 0.15)));
-    for (const side of T.sides) paintLosses(ctx, side, st, t, k, e.lossText, e.fateText, e.numText);
+    paintBars(ctx, T, st, t, k, e.numText, e.nameText, outCubic(span(t, t0 + 0.2, t0 + 0.6)) * (1 - span(t, PHASE.end - 0.6, PHASE.end - 0.15)), e.fit);
+    for (const side of T.sides) paintLosses(ctx, side, st, t, k, e.lossText, e.fateText, e.numText, e.fit);
   } else if (e.fateText && t >= PHASE.fates + 0.45) {
     const side = T.sides.find(sd => sd.groups.length);
     const ft = side?.fate ? e.fateText(side.fate) : null;
@@ -701,20 +753,20 @@ function paintTile(ctx, T, e) {
 }
 
 /**
- * Draw a playing scene. `{zoom, now | at, lossText, fateText, numText, nameText(side)}`:
+ * Draw a playing scene. `{zoom, now | at, fit (battleFit of the map's width), lossText, fateText, numText, nameText(side)}`:
  * `at` gives the scene's own time directly (the effects layer plays it on
  * its clock). When the effects layer has taken a scene (`play.staged`: it
  * draws it above the dimmed map, fx/battle.mjs), the map's own call draws
  * nothing and only says whether the scene is still playing. Returns false
  * once it is over.
  */
-export function paintBattle(ctx, play, { zoom = 1, now = wallNow(), at = null, top = false, lossText = n => `−${n}`, fateText = null, numText = n => String(n), nameText = null } = {}) {
+export function paintBattle(ctx, play, { zoom = 1, now = wallNow(), at = null, top = false, fit = 1, lossText = n => `−${n}`, fateText = null, numText = n => String(n), nameText = null } = {}) {
   if (!play) return false;
   const t = at ?? battleTime(play, now);
   if (t > PHASE.end) return false;
   if (play.staged && !top) return true;
   const plan = battlePlan(play.scene);
-  const e = { t, tau: poseTime(t), zoom, k: 1 / Math.max(0.05, zoom), residents: plan.residents, lossText, fateText, numText, nameText };
+  const e = { t, tau: poseTime(t), zoom, k: 1 / Math.max(0.05, zoom), residents: plan.residents, fit, lossText, fateText, numText, nameText };
   for (const T of plan.tiles) paintTile(ctx, T, e);
   ctx.globalAlpha = 1;
   return true;

@@ -236,9 +236,9 @@ export function playMoment(fx, m, { bus = defaultBus } = {}) {
     }
     case 'depart':
       // another nation's host (or an own one seen leaving): that it left, and from where; never a heading
-      fx.play('dust', { ...at, power: 0.9, seed });
-      fx.play('stamp', { ...at, size: 40, lift: 0.5, hold: 1.1, rest: 0.6, shake: 0, delay: 0.1, seed });
-      label(MOMENT_LABEL.depart(m), TONE.ivory, { delay: 0.4, lift: 1.5 });
+      fx.play('dust', { ...at, power: 0.7, seed });
+      fx.play('stamp', { ...at, size: 40, lift: 0.5, hold: 1.1, rest: 0.6, shake: 0, delay: 0.24, seed });
+      label(MOMENT_LABEL.depart(m), TONE.ivory, { delay: 0.55, lift: 1.5 });
       fx.play('pip', { ...at, color: '#d2533c', seed });
       break;
     default: break;
