@@ -552,6 +552,8 @@ export class SpriteArt {
         const near = this.groundStale(e);
         if (near) { ctx.imageSmoothingEnabled = true; ctx.drawImage(near.cv, near.x, near.y, near.w, near.h); }
         else if (e.t ?? e.terrain) { const th = this.thumb(e.p, e.q, e.t ?? e, zoom * dpr); if (th) ctx.drawImage(th.cv, th.x, th.y, th.w, th.h); }
+        // (a province of cloud sea whose picture is still on its way: pale, never a hole the table shows through)
+        else if (e.fog === 'unopened') { const o = this.outline(e.p, e.q); if (o?.fill) { ctx.fillStyle = '#dfe4e3'; ctx.fill(o.fill); } }
         continue;
       }
       if (b.key !== this.farKey(e, res, state, svOf(e)).key) deferred++;

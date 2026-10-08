@@ -135,7 +135,8 @@ export function startDemo({ fx, map = null, params, doc = globalThis.document })
   const fxcam = Number(params.get('fxcam'));
   if (fxcam > 0 && fxat.every(Number.isInteger) && fxat.length >= 2 && map?.setView) {
     const h = fxat.length >= 3 ? tileHex(fxat[0], fxat[1], fxat[2]) : { q: fxat[0], r: fxat[1] }, c = project(h.q, h.r);
-    win.setTimeout?.(() => map.setView({ x: c.x, y: c.y, zoom: Math.min(2.5, fxcam) }), 600);
+    // (as the page does for a battle: in the part of the map nothing covers, map/fmap.mjs flyTo; else the canvas centre)
+    win.setTimeout?.(() => (map.flyTo ? map.flyTo({ x: c.x, y: c.y, zoom: Math.min(2.5, fxcam) }, 1) : map.setView({ x: c.x, y: c.y, zoom: Math.min(2.5, fxcam) })), 600);
   }
 
   // ---- where: a tile and the bell's origin
