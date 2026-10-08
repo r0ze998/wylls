@@ -16,10 +16,15 @@ const norm = s => String(s ?? '').normalize('NFKC').toLowerCase().replace(/\s+/g
  * The results for a query: `[{kind, text, p, q, tile?}]`. `recs` the
  * overview records by "P,Q"; `roster` the roster store (entries()).
  */
-export function searchMap(query, { recs = new Map(), roster = null, sitesOf = () => null, pins = [] } = {}) {
+export function searchMap(query, { recs = new Map(), roster = null, sitesOf = () => null, pins = [], survey = null } = {}) {
   const q = norm(query);
   if (!q) return [];
   const out = [];
+  // with a survey (map/survey.mjs, the play page): a nation's lands and a lord are found where the viewer has
+  // surveyed their villages; a province is found by its coordinates wherever it is (the chart is everyone's)
+  const limited = !!survey && !survey.showAll;
+  const seenSite = (p, q2, site) => { if (!limited) return true; const tile = sitesOf(p, q2)?.[site]; return Number.isInteger(tile) && survey.levelOf(p, q2, tile) >= 2; };
+  const holds = (r, f) => (limited ? r.owners.some((o, j) => o === f && r.sites[j] === 1 && seenSite(r.p, r.q, j)) : majority(r) === f);
   // "ピン" / "pin": the viewer's pins (hud/pins.mjs)
   if (/^(?:\u30d4\u30f3|pins?)$/u.test(q)) for (const x of pins) out.push({ kind: 'pin', text: x.tile === null ? L`州 ${x.p},${x.q}` : L`州 ${x.p},${x.q} · マス ${x.tile + 1}`, p: x.p, q: x.q, ...(x.tile === null ? {} : { tile: x.tile }) });
   const m = /^(?:\u5dde|province)?\s*(-?\d+)\s*[,\uff0c\u3001 ]\s*(-?\d+)$/u.exec(q);   // 州 3,0 / province 3,0 / 3、0
@@ -31,17 +36,17 @@ export function searchMap(query, { recs = new Map(), roster = null, sitesOf = ()
     if (!norm(factionName(f)).includes(q)) continue;
     // the heart of its lands: the weighted centre of the provinces it holds most of
     let x = 0, y = 0, w = 0, best = null;
-    for (const r of recs.values()) if (majority(r) === f) { const c = provincePixel(r.p, r.q); x += c.x; y += c.y; w++; best = best ?? r; }
+    for (const r of recs.values()) if (holds(r, f)) { const c = provincePixel(r.p, r.q); x += c.x; y += c.y; w++; best = best ?? r; }
     if (!w) continue;
     let near = best, d0 = Infinity;
-    for (const r of recs.values()) if (majority(r) === f) { const c = provincePixel(r.p, r.q); const d = (c.x - x / w) ** 2 + (c.y - y / w) ** 2; if (d < d0) { d0 = d; near = r; } }
+    for (const r of recs.values()) if (holds(r, f)) { const c = provincePixel(r.p, r.q); const d = (c.x - x / w) ** 2 + (c.y - y / w) ** 2; if (d < d0) { d0 = d; near = r; } }
     out.push({ kind: 'faction', text: L`${factionName(f)}の領土`, p: near.p, q: near.q });
   }
   if (roster && q.length >= 2) for (const e of roster.entries()) {
     if (out.length >= SEARCH_MAX) break;
     const id = identityOf(e.tag);
     const names = [displayName(id, { full: true, language: 'en' }), displayName(id, { full: true, language: 'ja' })].map(norm);
-    if (!names.some(n => n.includes(q))) continue;
+    if (!names.some(n => n.includes(q)) || !seenSite(e.p, e.q, e.site)) continue;
     const tile = sitesOf(e.p, e.q)?.[e.site];
     out.push({ kind: 'lord', text: L`${displayName(id, { full: true })}（州 ${e.p},${e.q}）`, p: e.p, q: e.q, tile: Number.isInteger(tile) ? tile : undefined });
   }

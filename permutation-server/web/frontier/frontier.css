@@ -517,3 +517,32 @@ body[data-urgency="crit"] main { box-shadow: inset 0 0 0 4px #c8412f; }
 .report-leader { display: flex; gap: 10px; align-items: center; margin: 8px 0 4px; font-style: italic; }
 .report-leader svg { flex: none; border-radius: 50%; background: rgba(0,0,0,.05); }
 .host-row .host-what { margin-left: 8px; }
+/* ---- the survey's legend (map/legend.mjs): four swatches and one honest line */
+.survey-legend { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 8px; }
+.survey-legend li { display: grid; grid-template-columns: 28px 1fr; gap: 10px; align-items: start; }
+.survey-key { width: 28px; height: 22px; border-radius: 5px; border: 1px solid rgba(27,46,40,.55); margin-top: 1px; }
+.survey-sight { background: linear-gradient(160deg, #9cba6a, #6f9150 60%, #55793f); }
+.survey-surveyed { background: linear-gradient(160deg, #8b927c, #6d7564 60%, #5a6255); }
+.survey-chart { background: #e6d9b8; border-color: #7a6a46; box-shadow: inset 0 0 0 3px #e6d9b8, inset 0 0 0 4px rgba(122,106,70,.5); }
+.survey-cloud { background: linear-gradient(160deg, #ffffff, #dfe6ea); }
+.survey-line { margin: 8px 0; }
+
+/* ---- where am I (UX brief 5.3): the edge pointer home (map/homepointer.mjs); names before coordinates (map/names.mjs) */
+.home-pointer { position: absolute; left: 0; top: 0; z-index: 3; display: grid; place-items: center; width: 44px; height: 44px; margin: -22px 0 0 -22px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #f3d58a; cursor: pointer; transform: translate(var(--x, 0), var(--y, 0)); }
+.home-pointer[hidden] { display: none; }
+.home-pointer .hp-arrow { position: absolute; left: -10px; top: -10px; transform: rotate(var(--a, 0deg)); filter: drop-shadow(0 2px 4px rgba(0,0,0,.45)); pointer-events: none; }
+.home-pointer .hp-ring { fill: rgba(16,34,31,.94); stroke: #f3d58a; stroke-width: 2.25; }
+.home-pointer .hp-head { fill: #f3d58a; stroke: #10221f; stroke-width: 1; stroke-linejoin: round; }
+.home-pointer .hp-dist { position: relative; font: 700 14px/1 system-ui, sans-serif; font-variant-numeric: tabular-nums; color: #f3d58a; }
+.home-pointer:hover .hp-ring { fill: #1d3a34; }
+.home-pointer:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.place-where { font-size: 12px; font-weight: 400; white-space: nowrap; }
+.tip-place { font-weight: 700; }
+.lit-legend { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 8px; }
+.lit-legend li { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; align-items: start; }
+.lit-move { background: #d8f3ea; border-color: #f0fffa; box-shadow: inset 0 0 0 3px rgba(111,145,80,.9); }
+.lit-attack { background: #e2553d; border-color: #ff9678; }
+.lit-home { background: #f3d58a; border-color: #ffecb2; }
+.lit-explore { background: #7fc4e8; border-color: #bae4fc; }
+/* the map's live line is for a screen reader: what it says is on the map and in the panel already (it lay over the search field and the lens chips) */
+#map-summary { position: absolute; left: 0; top: 0; width: 1px; height: 1px; max-width: none; margin: 0; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; background: none; }

@@ -6,12 +6,16 @@
 //
 // The viewer is the page's own dev wallet with a fixed key (the page reads
 // `ps-dev-wallet` from its storage; the test writes it before load) and a
-// fixed in-game key, so /h/me can name them. Three viewer stages:
-//   none     no Citizen yet (join and faction)
-//   joined   a Citizen with its in-game key, no land (the site picker)
-//   holding  a Citizen with a final Holding at province (2,0), three hosts
-//            (one marching, one free, one Scout) and a resolved clash at
-//            bell 39 in its province (report, tracker, bell sheet)
+// fixed in-game key, so /h/me can name them. Five viewer stages:
+//   none         no Citizen yet (join and faction)
+//   joined       a Citizen with its in-game key, no land (the site picker)
+//   ticket       a Citizen with an open ticket for three candidate sites of its
+//                home wedge (the wait for the village)
+//   provisional  a Citizen with a provisional Holding at province (2,0): a
+//                hamlet, no hosts yet (they come with a final village)
+//   holding      a Citizen with a final Holding at province (2,0), three hosts
+//                (one marching, one free, one Scout) and a resolved clash at
+//                bell 39 in its province (report, tracker, bell sheet)
 import { readFileSync } from 'node:fs';
 import { keyFromSeed } from '../../permutation-server/web/session.mjs';
 import { ACCOUNTS } from '../../permutation-server/web/frontier/abi.mjs';
@@ -34,6 +38,11 @@ export const HOME_SITES = Object.freeze([22, 39, 3, 7, 10, 19, 24, 26, 43, 56, 0
 export const CAMP_TILE = 32;
 export const HOME = Object.freeze({ p: 2, q: 0, site: 3, gen: 0, tile: HOME_SITES[3] });
 export const REPORT_BELL = BELL - 1;
+/** The viewer stages the fixture answers for. */
+export const STAGES = Object.freeze(['none', 'joined', 'ticket', 'provisional', 'holding']);
+/** The ticket of stage `ticket`: its bell and its three candidate sites (free sites of the home wedge's ring 2). */
+export const TICKET_BELL = BELL + 1;
+export const TICKET_SITES = Object.freeze([{ p: 2, q: 0, site: 5 }, { p: 1, q: 1, site: 4 }, { p: 1, q: 1, site: 6 }]);
 const NO_BELL = 0xffffffff;
 const b64 = b => Buffer.from(b).toString('base64');
 
@@ -62,16 +71,24 @@ export function storageFor(v, { stage, lang, intro = false }) {
 
 // ------------------------------------------------------------------ accounts
 function citizenBytes(v, stage) {
-  const land = stage === 'holding';
+  const land = stage === 'holding' || stage === 'provisional', ticket = stage === 'ticket';
   return encodeAccount('Citizen', {
     wallet: fromBase58(v.wallet), session: fromBase58(v.session), sessionExpiry: GENESIS_TS + 30 * 86_400, faction: 0,
-    flags: land ? 1 | 4 : 1, holdingsN: land ? 1 : 0, exploresFloorLeft: 3, joinBell: 2, vigilStartMin: 0,
-    holding: land ? [{ p: HOME.p, q: HOME.q, site: HOME.site, gen: HOME.gen }] : [], ticketBell: NO_BELL, citizenTag: 0x5eed_0001n,
+    flags: stage === 'holding' ? 1 | 4 : stage === 'provisional' ? 1 | 8 : 1, holdingsN: land ? 1 : 0, exploresFloorLeft: 3, joinBell: 2, vigilStartMin: 0,
+    holding: land ? [{ p: HOME.p, q: HOME.q, site: HOME.site, gen: HOME.gen }] : [], ticketBell: ticket ? TICKET_BELL : NO_BELL, citizenTag: 0x5eed_0001n,
+    ...(ticket ? { ticketSites: TICKET_SITES.map(x => ({ ...x })), ticketNext: 0, ticketEscrow: 10_000_000n } : {}),
   });
 }
 
 const accrual = (value, rate, cap) => ({ value: value * 1000, rate: rate * 1000, cap: cap * 1000, t0: LATEST_UNIX - 1800, frac: 0 });
-function holdingBytes(v) {
+function holdingBytes(v, stage = 'holding') {
+  // a provisional village: a hamlet founded a moment ago; it harvests and builds, and has no hosts yet
+  if (stage === 'provisional') return encodeAccount('Holding', {
+    p: HOME.p, q: HOME.q, site: HOME.site, gen: HOME.gen, tile: HOME.tile, state: 1, ownerCitizen: fromBase58(v.citizen), faction: 0, order: 1, tier: 0,
+    ticketBell: BELL - 1, foundedTs: LATEST_UNIX - 900, foundedDay: 0, hostSeq: 0, lastOwnerAction: LATEST_UNIX - 300, shieldUntil: LATEST_UNIX + 7_200,
+    stores: [accrual(300, 40, 6_000), accrual(200, 30, 6_000), accrual(150, 25, 6_000), accrual(60, 10, 4_000), accrual(0, 5, 2_000), accrual(0, 0, 2_000), accrual(0, 0, 1_000), accrual(0, 0, 1_000)],
+    queue: [], reserve: [0, 0, 0, 0, 0, 0, 0, 0], transit: [null, null, null, null], finalTs: LATEST_UNIX + 9_000,
+  });
   return encodeAccount('Holding', {
     p: HOME.p, q: HOME.q, site: HOME.site, gen: HOME.gen, tile: HOME.tile, state: 2, ownerCitizen: fromBase58(v.citizen), faction: 0, order: 1, tier: 1,
     ticketBell: 3, foundedTs: GENESIS_TS + 1_300, foundedDay: 0, hostSeq: 10, lastOwnerAction: LATEST_UNIX - 3_600, shieldUntil: LATEST_UNIX + 7_200,
@@ -86,14 +103,15 @@ function holdingBytes(v) {
 
 const FREE_MIRROR = () => Array.from({ length: 12 }, () => ({ state: 0, faction: 6, pend0Bell: NO_BELL, pend1Bell: NO_BELL, wallItem0Bell: NO_BELL, wallItem1Bell: NO_BELL }));
 /** A province account: the home province carries the viewer's holding, hosts and the camp; every other one is open land. */
-function provinceBytes(p, q) {
+function provinceBytes(p, q, stage = 'holding') {
   const home = p === HOME.p && q === HOME.q;
   const mirror = FREE_MIRROR();
   const entries = [];
+  const hamlet = stage === 'provisional';
   if (home) {
-    mirror[HOME.site] = { state: 1, faction: 0, order: 1, tier: 1, gen: HOME.gen, garrison: 300_000, pend0Bell: NO_BELL, pend1Bell: NO_BELL, wallItem0Bell: NO_BELL, wallItem1Bell: NO_BELL };
+    mirror[HOME.site] = { state: 1, faction: 0, order: 1, tier: hamlet ? 0 : 1, gen: HOME.gen, garrison: hamlet ? 0 : 300_000, pend0Bell: NO_BELL, pend1Bell: NO_BELL, wallItem0Bell: NO_BELL, wallItem1Bell: NO_BELL };
     mirror[7] = { state: 1, faction: 2, order: 1, tier: 1, gen: 0, garrison: 120_000, pend0Bell: NO_BELL, pend1Bell: NO_BELL, wallItem0Bell: NO_BELL, wallItem1Bell: NO_BELL };
-    entries.push(
+    if (!hamlet) entries.push(
       { id: HOSTS.marching, faction: 0, unit: 0, tile: HOME.tile, state: 3, troops: 400_000, staminaValue: 46, staminaBell: BELL - 1, dealtBps: 10_000, fromBell: 20 },
       { id: HOSTS.free, faction: 0, unit: 0, tile: HOME.tile, state: 1, troops: 600_000, staminaValue: 110, staminaBell: BELL, dealtBps: 10_000, fromBell: 30 },
       { id: HOSTS.scout, faction: 0, unit: 6, tile: HOME.tile, state: 1, troops: 100_000, staminaValue: 120, staminaBell: BELL, dealtBps: 10_000, fromBell: 30 },
@@ -209,13 +227,13 @@ export const seasonRecord = () => ({ ...SEASON, headSeq: '812', bytes_b64: SEASO
 export function meRecord(v, stage) {
   if (stage === 'none') return { v: 1, wallet: v.wallet, citizen: null, holdings: [], slots: [] };
   const rec = { v: 1, wallet: v.wallet, citizen: { address: v.citizen, bytes_b64: b64(citizenBytes(v, stage)) }, holdings: [], slots: [], quota: { left: 38, resetsAt: GENESIS_TS + 86_400 } };
-  if (stage === 'holding') rec.holdings = [{ address: v.holding, bytes_b64: b64(holdingBytes(v)) }];
+  if (stage === 'holding' || stage === 'provisional') rec.holdings = [{ address: v.holding, bytes_b64: b64(holdingBytes(v, stage)) }];
   return rec;
 }
 
-/** `/h/province/{P},{Q}/{bell}` (the latest file is bell 40's). */
-export function provinceEnvelope(p, q, bell = BELL) {
-  return { v: 1, key: `pv:${p},${q}`, bell, slot: LATEST_SLOT - 50, seq: '9', head: '7e'.repeat(32), bytes: b64(provinceBytes(p, q)), slots: [], day: null, inputs: null };
+/** `/h/province/{P},{Q}/{bell}` (the latest file is bell 40's); `stage` matters for the home province only (a provisional village is a hamlet without hosts). */
+export function provinceEnvelope(p, q, bell = BELL, stage = 'holding') {
+  return { v: 1, key: `pv:${p},${q}`, bell, slot: LATEST_SLOT - 50, seq: '9', head: '7e'.repeat(32), bytes: b64(provinceBytes(p, q, stage)), slots: [], day: null, inputs: null };
 }
 
 export const overview = d => Buffer.from(overviewBytes(d));

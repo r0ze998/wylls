@@ -18,6 +18,16 @@ import { checkBeacon } from './seal.mjs';
 import { ChainClock, bellChip, countdown, seasonClock, bellStart } from './clock.mjs';
 import { effectiveStatus } from './fcodec.mjs';
 import { FrontierMap } from './map/fmap.mjs';
+import { openHint } from './map/opening.mjs';
+import { createSurveyor } from './map/survey.mjs';
+import { surveyInput } from './map/viewer.mjs';
+import { fxNow } from './map/chart.mjs';
+import { reducedMotion } from './map/camera.mjs';
+import { renderSurveyHelp } from './map/legend.mjs';
+import { NOTE_TEXT, createActions } from './map/actions.mjs';
+import { createLandingBook, landedKey } from './map/landing.mjs';
+import { placeName, villageLine } from './map/names.mjs';
+import { lastWalletName } from '../wallet.mjs';
 import { SEASON_STATUS_TEXT, clientText, factionName, TIERS, BUILDINGS } from './fi18n.mjs';
 import { L, fmtNum, mountLangToggle, onLangChange, lang } from '../lang.mjs';
 import { toHex } from '../sdk/bytes.mjs';
@@ -63,8 +73,6 @@ const ART_RIVERS = ART_PREVIEW && ART_Q.get('rivers') === '1';
 // ?art=1&ally=0-1,2-4 shows those faction pairs as allied (presentation only; real relations come from the Province).
 const ART_ALLY = ART_PREVIEW ? (ART_Q.get('ally') ?? '').split(',').map(x => x.split('-').map(Number)).filter(x => x.length === 2 && x.every(Number.isInteger)) : [];
 const ART_ENGINE = ART_PREVIEW ? Math.max(0, Math.min(5, Number(ART_Q.get('engine') ?? 0) | 0)) : 0;
-// ?art=1&fog=1 previews the fog as if the viewer held province (2,0) (presentation only).
-const ART_FOG = ART_PREVIEW && new URLSearchParams(globalThis.location?.search ?? '').get('fog') === '1';
 import * as joinScreen from './screens/join.mjs';
 import * as holdingScreen from './screens/holding.mjs';
 import * as hostScreen from './screens/host.mjs';
@@ -83,7 +91,8 @@ import { useHerald, refresh as refreshPlay } from './controller.mjs';
 import { kernel as loadKernel } from './wasm.mjs';
 import { scope } from './fchainio.mjs';
 import { hostParts } from './faddr.mjs';
-import { RETREAT_CHOICES, retreatBps, DEPART_STAMINA } from './fmarch.mjs';
+import { RETREAT_CHOICES, retreatBps, DEPART_STAMINA, DEPART_MARGIN_SECS, planRoute, earliestBell, arrivalWindow } from './fmarch.mjs';
+import { MAX_PATH_STEPS } from './seal.mjs';
 import { uiKey, uiStorage, loadUi, saveUi, UI_PREFIX } from './fui.mjs';
 import * as hud from './hud/hud.mjs';
 import * as inspect from './hud/inspect.mjs';
@@ -95,7 +104,7 @@ import * as search from './hud/search.mjs';
 import { createRoster } from './people/roster.mjs';
 import * as scene from './people/scene.mjs';
 import { activityText } from './people/activity.mjs';
-import { hostOwner, provinceFactions, renderNameForm, ownTag } from './people/ui.mjs';
+import { hostOwner, provinceFactions, renderNameForm, ownTag, holdingName } from './people/ui.mjs';
 import * as profile from './people/profile.mjs';
 import { leaderSvg } from './people/leaders.mjs';
 import * as glossary from './hud/glossary.mjs';
@@ -104,7 +113,6 @@ import * as guide from './hud/guide.mjs';
 import { forecast, forecastKey } from './hud/forecast.mjs';
 import { BUILD_ITEMS } from './fland.mjs';
 import { UNIT_KINDS } from './people/units.mjs';
-import { reachTiles, reachSteps } from './hud/reach.mjs';
 import { momentSnapshot, detectMoments, liveMoments } from './people/moments.mjs';
 import * as pins from './hud/pins.mjs';
 import { battleScene, startBattle, battleLive, BATTLE_SPEEDS, PHASE } from './people/battle.mjs';
@@ -176,6 +184,8 @@ export function panelMarkup(FS) {
   if (FS.report) return [...parts, reportScreen.render(FS, mineOf(FS.holdings), { ownerOf: reportOwner })];
   // A march being composed on the map: its card first (hud/marchcard.mjs).
   if (tab === 'map' && FS.compose) parts.push(marchCard.render(FS));
+  // tiles picked on the map for a Scout's exploration (map/actions.mjs): the explore card, here too
+  else if (tab === 'map' && FS.explore?.host && FS.mode === 'play') parts.push(exploreScreen.render(FS));
   // Phones and tablets (no left rail below 1100 px): the rail's holdings and to-do list, folded (closed while composing).
   if (tab === 'map' && (FS.holdings ?? []).length) {
     const n = hud.attentionItems(FS).length;
@@ -192,14 +202,13 @@ export function panelMarkup(FS) {
   else if (tab === 'hosts') parts.push(hostScreen.render(FS), exploreScreen.render(FS));
   else if (tab === 'marches') parts.push(marchScreen.render(FS), trackerScreen.render(FS), reportScreen.renderLinks(myReports(FS), L`あなたの衝突の報告`), incomingScreen.render(FS));
   else parts.push(feed.renderCentre(FS.feed ?? [], FS.feedFilter ?? 'all'), bellScreen.render(FS), reportScreen.renderLinks(reportScreen.clashesFrom(FS.chronicle ?? []), L`最近の衝突`), chronicleScreen.render(FS), html`<section aria-labelledby="more-title"><h3 id="more-title">${L`設定`}</h3>
-    <label class="choice"><input type="checkbox" data-act="fog" ${FS.view.fog ? '' : 'checked'}>${L`すべてを見せる（どの口座も公開されています）`}</label>
     <label class="choice"><input type="checkbox" data-act="autopan" ${FS.ui?.autoPan ? 'checked' : ''}>${L`自分に関わる戦いが決着したら、地図をそこへ動かして見せる`}</label>
     <div class="choice-row" role="group" aria-label="${L`ガイドの強さ`}"><span>${L`ガイドの強さ`}</span>${guide.GUIDE_LEVELS.map(v => html`<button type="button" class="btn small" data-act="guide-level" data-v="${v}" aria-pressed="${guide.guideLevel(FS) === v ? 'true' : 'false'}">${guide.GUIDE_TEXT[v]()}</button>`)}</div>
     <div class="choice-row" role="group" aria-label="${L`戦いの演出`}"><span>${L`戦いの演出`}</span>${['normal', 'fast', 'off'].map(v => html`<button type="button" class="btn small" data-act="battle-fx" data-v="${v}" aria-pressed="${(FS.ui?.battleFx ?? 'normal') === v ? 'true' : 'false'}">${BATTLE_FX_TEXT[v]()}</button>`)}</div>
     <button type="button" class="btn" data-act="forget">${L`この端末からこのシーズンの鍵を消す`}</button>
     ${onboardingCard.renderRestore(FS)}
     <p><button type="button" class="btn" data-act="practice-open">${L`練習モードを開く`}</button> <button type="button" class="btn" data-act="intro-open">${L`タイトルを見る`}</button></p>
-    <p><a href="practice.html">${L`練習`}</a> · <a href="spectate.html">${L`観戦`}</a></p></section>`, pins.renderPins(FS.pins ?? []), renderNameForm(FS), milestones.renderTimeline(FS.mileRecord), glossary.renderGlossary());
+    <p><a href="practice.html">${L`練習`}</a> · <a href="spectate.html">${L`観戦`}</a></p></section>`, renderSurveyHelp(), pins.renderPins(FS.pins ?? []), renderNameForm(FS), milestones.renderTimeline(FS.mileRecord), glossary.renderGlossary());
   return parts;
 }
 
@@ -265,6 +274,17 @@ let mapRef = null;
 let terrainRef = null;
 /** Who holds each site (people/roster.mjs): names and faces for tags, the rail, the inspector, reports. */
 let rosterRef = null;
+/** The viewer's survey (map/survey.mjs), kept on the page state for every surface that asks what may be told. */
+const surveyor = createSurveyor({ now: fxNow });
+let surveyDeps = [];
+function surveyNow() {
+  // asked every frame: the anchors are read again only when something they are read from was replaced
+  const deps = [FS.mode, FS.record, FS.wallet, FS.citizen, FS.land, FS.holdings, FS.chronicle, FS.marches, FS.activeHolding, FS.nowBell, viewerKnown, terrainRef?.status?.(), ...FS.provinces.values()];
+  if (FS.survey && deps.length === surveyDeps.length && deps.every((x, i) => x === surveyDeps[i])) return FS.survey;
+  surveyDeps = deps;
+  FS.survey = surveyor(surveyInput(FS, { terrainOf: terrainRef, ready: viewerKnown || !!FS.land, scope: scope() || null }));
+  return FS.survey;
+}
 /** The face and name of a report row's owner (a host id; holdings' ids give none). */
 const reportOwner = id => { try { return hostOwner(rosterRef, id); } catch { return null; } };
 /** The people layer's inputs, rebuilt at most once a second (the chronicle changes on polls only). */
@@ -328,8 +348,8 @@ function frameRoute() {
   const xs = hx.map(p => p.x), ys = hx.map(p => p.y);
   const size = mapRef.size(), span = Math.max(Math.max(...xs) - Math.min(...xs), (Math.max(...ys) - Math.min(...ys)) * 1.4, 1);
   const zoom = Math.max(0.55, Math.min(1.4, (Math.min(size.width, size.height) * 0.6) / span));
-  const phone = globalThis.matchMedia?.('(max-width: 759px)').matches;
-  mapRef.setView({ x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 + (phone ? size.height * 0.22 / zoom : 0), zoom });
+  // a fly, centred in the part of the map no sheet covers (map/fmap.mjs flyTo)
+  mapRef.flyTo({ x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2, zoom });
 }
 
 /** The resource breakdown under the header (hud.renderBreakdown): every holding's store of one resource. */
@@ -450,18 +470,146 @@ function constructionsNow() {
 /** A queued build's length (the first copy's hour when the queue does not say). */
 const buildSecsOf = q => (Number(q.secs) > 0 ? Number(q.secs) : 3_600);
 
-let reachCache = { key: null, tiles: [], t0: 0 };
-/** The tiles the composed march's host could reach (cached per host and loaded provinces). */
-function reachNow() {
-  const c = FS.compose;
-  if (!c?.host || c.dest || c.sending) { reachCache.key = null; return null; }
-  const key = `${c.host.id}|${FS.provinces.size}`;
-  if (reachCache.key !== key) {
-    const tiles = reachTiles({ start: { p: c.origin.p, q: c.origin.q, tile: c.host.tile }, steps: reachSteps(c.host.staminaValue ?? c.host.stamina ?? 120),
-      provinceOf: (p, q) => FS.provinces.get(`${p},${q}`)?.province ?? null, faction: FS.citizen?.faction ?? null });
-    reachCache = { key, tiles, t0: reachCache.key && reachCache.key.split('|')[0] === String(c.host.id) ? reachCache.t0 : performance.now() / 1000 };
+// ------------------------------------------------------------------ what the selection can do on the map (map/actions.mjs, UX brief §5.2)
+/** The lit tiles of the host that acts for the selection (or for the march being composed), kept between frames. */
+const actionsOf = createActions({ passableOf: (p, q) => terrainRef?.(p, q)?.passable ?? null });
+function actionsNow() {
+  if (FS.mode !== 'play' || (!FS.compose && !Number.isInteger(FS.selected?.idx))) return null;
+  return actionsOf({ mode: FS.mode, holdings: FS.holdings, provinces: FS.provinces, nowBell: FS.nowBell ?? 0, now: FS.chain?.now?.() ?? 0, selected: FS.view.lod === 'tile' ? FS.selected : null,
+    compose: FS.compose, explore: FS.explore, actor: FS.actor, citizen: FS.citizen, survey: FS.survey });
+}
+
+/** The rules module once it has loaded (the terrain loads it with the first tile view): the planner answers at once. */
+let kernelNow = null, kernelAsked = false;
+function wantKernel() {
+  if (!kernelNow && !kernelAsked) { kernelAsked = true; loadKernel().then(k => { kernelNow = k; hoverPlan(hoverHit); }).catch(() => { kernelAsked = false; }); }
+  return kernelNow;
+}
+const seedsNow = () => (FS.record?.rings ?? []).map(r => ({ ring: r.d, seed: r.seed }));
+
+/**
+ * The planner's route from the acting host to a tile, and the turn it would
+ * arrive (fmarch.mjs planRoute, earliestBell, arrivalWindow): `{ok, hexes,
+ * arriveBell}` or `{ok: false, code}`; null while the rules module loads.
+ */
+const routeCache = new Map();
+function routeTo(A, to) {
+  const k = wantKernel();
+  if (!k || !A?.actor) return null;
+  const key = `${A.actor.id}|${A.origin.p},${A.origin.q},${A.origin.tile}|${to.p},${to.q},${to.tile}|${FS.nowBell ?? 0}`;
+  if (routeCache.has(key)) return routeCache.get(key);
+  const r = planRoute(k, { from: A.origin, to, unit: A.actor.unit, seeds: seedsNow() });
+  let v;
+  if (!r.ok) v = { ok: false, code: r.code };
+  else {
+    const early = FS.clock ? earliestBell(k, { genesisTs: FS.clock.genesisTs, departTs: (FS.chain?.now?.() ?? 0) + DEPART_MARGIN_SECS, secs: r.route.secs }) : null;
+    v = { ok: true, hexes: marchCard.routeHexes({ route: r.route, origin: A.origin, host: { tile: A.origin.tile } }), arriveBell: FS.season ? arrivalWindow(FS.season, FS.nowBell ?? 0, early).min : null };
   }
-  return { tiles: reachCache.tiles, t0: reachCache.t0 };
+  if (routeCache.size > 96) routeCache.clear();
+  routeCache.set(key, v);
+  return v;
+}
+
+/** The route to the lit tile under the pointer (the map draws it as a ribbon with its arrival turn). */
+let hoverRoute = null, hoverHit = null;
+function hoverPlan(hit) {
+  hoverHit = hit ?? null;
+  const A = hit && Number.isInteger(hit.idx) ? actionsNow() : null;
+  if (A) wantKernel();
+  const t = A ? A.byHex.get(`${hit.tileQ},${hit.tileR}`) : null;
+  const dest = FS.compose?.dest;
+  // (not for a tile to explore: no march goes there; not for the destination already chosen: its own route is drawn)
+  const want = t && t.kind !== 'explore' && !(dest && dest.p === t.p && dest.q === t.q && dest.tile === t.tile) ? t : null;
+  const key = want ? `${A.actor.id}|${want.hq},${want.hr}` : null;
+  if ((hoverRoute?.key ?? null) === key) return;
+  const r = want ? routeTo(A, { p: want.p, q: want.q, tile: want.tile }) : null;
+  // (while the rules module loads there is no answer yet: asked again when it has loaded)
+  hoverRoute = r?.ok ? { key, q: want.hq, r: want.hr, hexes: r.hexes, arriveBell: r.arriveBell } : r ? { key, q: want.hq, r: want.hr, hexes: [], arriveBell: null } : null;
+  mapRef?.tick();
+}
+
+/** The map's own answer on a tile (a refusal never fails silently): drawn there for a moment, and said in the map's live line. */
+function mapNote(hit, say) {
+  FS.mapNote = { p: hit.p, q: hit.q, tile: hit.idx, say, get text() { return say(); }, at: fxNow() };
+  summary(say);
+  mapRef?.tick();
+}
+const refusalText = code => (code === 'Path' ? () => NOTE_TEXT.tooFar(MAX_PATH_STEPS) : code === 'NoKernel' ? NOTE_TEXT.wait : NOTE_TEXT.unreachable);
+/** The map's live line (`#map-summary`): `say()` gives its words, again when the language changes. */
+let summarySay = null;
+function summary(say) { summarySay = say; setText('map-summary', say()); }
+onLangChange(() => { if (summarySay) setText('map-summary', summarySay()); });
+
+/** Start the order card for the acting host with `hit` as its destination (the existing compose flow). */
+async function orderMarch(A, hit) {
+  if (Number.isInteger(A.actor.holdingIndex) && A.actor.holdingIndex !== (FS.activeHolding ?? 0)) FS.activeHolding = A.actor.holdingIndex;
+  ACTIONS.compose({ host: A.actor.id, stay: 'map' });
+  if (!FS.compose) return;
+  FS.tab = 'map'; FS.explore = null;
+  FS.selected = { kind: 'tile', p: hit.p, q: hit.q, idx: hit.idx, tileQ: hit.tileQ, tileR: hit.tileR };
+  invalidate('map', 'panel', 'tabs');
+  await ACTIONS['dest-from-map']();
+  if (FS.compose?.routeError) mapNote(hit, refusalText(FS.compose.routeError));
+}
+
+/**
+ * A tap on the map while one of the viewer's hosts is selected (UX brief
+ * §5.2). Returns true when the tap was an order or was answered on the map;
+ * false lets it select the tile as usual.
+ *   the selected tile again     the next host standing there acts
+ *   a sky-blue tile             picked for the Scout's exploration (the existing explore draft)
+ *   another lit tile            the order card for a march there
+ *   an unlit tile               put to the planner: a route means the order card; none is said on the map
+ *                               (and a second tap on that tile selects it)
+ */
+function mapTap(hit) {
+  if (FS.mode !== 'play' || FS.compose || !Number.isInteger(hit?.idx)) return false;
+  const A = actionsNow();
+  if (!A || A.mode !== 'select') return false;
+  const here = hit.p === A.origin.p && hit.q === A.origin.q && hit.idx === A.origin.tile;
+  if (here) {
+    if (A.actors.length < 2) return false;
+    FS.actor = { key: `${hit.p},${hit.q},${hit.idx}`, i: (A.index + 1) % A.actors.length };
+    FS.mapNote = null;
+    FS.explore = null;   // (tiles picked for a Scout's exploration belong to that Scout)
+    invalidate('map', 'panel');
+    return true;
+  }
+  const t = A.byHex.get(`${hit.tileQ},${hit.tileR}`);
+  if (t?.kind === 'explore') {
+    if (String(FS.explore?.host?.id ?? '') !== A.actor.id) { if (A.actor.holdingIndex !== (FS.activeHolding ?? 0)) FS.activeHolding = A.actor.holdingIndex; ACTIONS['explore-open']({ host: A.actor.id }); }
+    // (the explore card stays with the map: the tiles are picked here)
+    FS.tab = 'map';
+    if (FS.explore) ACTIONS['explore-tile']({ tile: String(t.tile) });
+    invalidate('map', 'panel', 'tabs');
+    return true;
+  }
+  if (!A.actor.march.ok) return false;
+  if (t) { orderMarch(A, hit).catch(() => {}); return true; }
+  // unlit: a second tap on the tile just refused selects it
+  const n = FS.mapNote;
+  if (n && n.p === hit.p && n.q === hit.q && n.tile === hit.idx && fxNow() - n.at < 6000) { FS.mapNote = null; return false; }
+  if (FS.survey && !FS.survey.showAll && FS.survey.levelOf(hit.p, hit.q, hit.idx) === 0) { mapNote(hit, NOTE_TEXT.unopened); return true; }
+  const r = routeTo(A, { p: hit.p, q: hit.q, tile: hit.idx });
+  if (r?.ok) { orderMarch(A, hit).catch(() => {}); return true; }
+  mapNote(hit, r ? refusalText(r.code) : NOTE_TEXT.wait);
+  return true;
+}
+
+// ------------------------------------------------------------------ the viewer's villages for the map (map/ownland.mjs)
+let ownCache = { holdings: null, lang: null, value: [] };
+/** The viewer's villages with their names (the far view's beacon carries the name). */
+function ownNow() {
+  const hs = FS.holdings ?? [];
+  if (ownCache.holdings !== hs || ownCache.lang !== lang()) ownCache = { holdings: hs, lang: lang(), value: hs.map(h => ({ p: h.p, q: h.q, tile: h.tile, tier: h.tier ?? 0, state: h.state ?? null, name: holdingName(h) })) };
+  return ownCache.value;
+}
+/** The village that lands now, the first time this device sees it (map/landing.mjs). */
+const landingBook = createLandingBook();
+function landingNow() {
+  if (FS.mode !== 'play' || !viewerKnown || !FS.wallet?.address) return null;
+  const sc = scope();
+  return sc ? landingBook.next(landedKey(sc, FS.wallet.address), FS.holdings ?? []) : null;
 }
 
 /** The map's name tags use the viewer's verified profile on their own holdings. */
@@ -659,7 +807,9 @@ function showTip(hit, at) {
   const owner = t && t.state === 1 && t.site !== undefined ? rosterRef?.ownerOf(hit.p, hit.q, t.site) : null;
   if (!acts?.length && !owner) { tip.hidden = true; return; }
   const lines = [];
-  if (owner) lines.push(html`<strong data-name>${displayName(identityOf(owner.tag), { full: true })}</strong>`);
+  // the place by its name first (map/names.mjs), then who holds it
+  if (owner) lines.push(html`<strong class="tip-place">${villageLine({ p: hit.p, q: hit.q, site: t.site }, t.tier, t.owner)}</strong>`);
+  if (owner) lines.push(html`<span data-name>${displayName(identityOf(owner.tag), { full: true })}</span>`);
   // the lord out on their land (people/life.mjs): what they are doing
   const lf = owner && FS.life ? lifeAt(FS.life.get(`${hit.p},${hit.q},${t.site}`), FS.nowBell ?? 0, FS.chain?.now() ?? 0) : null;
   if (lf?.lord) lines.push(html`<span class="tip-lord">${lordLine(displayName(identityOf(owner.tag)), lf.doing, L)}</span>`);
@@ -684,7 +834,7 @@ export async function playBattle(p, q, bell, { focus = false, auto = false } = {
   const after = FS.provinces.get(`${p},${q}`)?.province ?? null;
   const scene = battleScene({ p, q, bell, inputs: r.inputs, before, after: after && after.resolvedNext > bell ? after : null });
   if (!scene) return false;
-  if (focus && mapRef) { const h = tileHex(p, q, scene.tiles[0].idx), c = project(h.q, h.r); mapRef.setView({ x: c.x, y: c.y, zoom: 2.1 }); }
+  if (focus && mapRef) mapRef.flyTo({ p, q, tile: scene.tiles[0].idx, zoom: 2.1 }, 500);
   FS.battles = [...(FS.battles ?? []).filter(b => !(b.scene.p === p && b.scene.q === q)), startBattle(scene, performance.now() / 1000, BATTLE_SPEEDS[fx] || 1)];
   mapRef?.invalidate();
   return true;
@@ -702,7 +852,7 @@ function autoBattles() {
 }
 
 // ------------------------------------------------------------------ the minimap and the lenses (hud/minimap.mjs)
-let miniQueued = false;
+let miniQueued = false, miniPulse = null;
 function renderMinimap() {
   if (miniQueued) return;
   miniQueued = true;
@@ -714,8 +864,11 @@ function renderMinimap() {
     if (cv.width !== px * dpr) { cv.width = px * dpr; cv.height = px * dpr; }
     const recs = new Map();
     for (const ov of FS.overviews.values()) for (const r of ov.provinces) recs.set(`${r.p},${r.q}`, r);
+    const sv = FS.survey ?? null, pulse = !!sv?.home && !sv.showAll && !reducedMotion();
     minimap.paintMinimap(cv.getContext('2d'), { recs, rings: Math.max(1, (FS.record?.rings?.length ?? 1)), own: (FS.holdings ?? []).map(h => ({ p: h.p, q: h.q })),
-      view: mapRef.view, size: mapRef.size(), px, dpr, lens: FS.view.lens ?? 'realm', pins: FS.pins ?? [] });
+      view: mapRef.view, size: mapRef.size(), px, dpr, lens: FS.view.lens ?? 'realm', pins: FS.pins ?? [], survey: sv, now: fxNow() });
+    // the viewer's pip breathes: a few small repaints a second while it shows
+    if (pulse && !miniPulse) miniPulse = setTimeout(() => { miniPulse = null; renderMinimap(); }, 110);
   });
 }
 function renderLenses() {
@@ -729,7 +882,7 @@ let searchHits = [];
 function runSearch(q) {
   const recs = new Map();
   for (const ov of FS.overviews.values()) for (const r of ov.provinces) recs.set(`${r.p},${r.q}`, r);
-  searchHits = search.searchMap(q, { recs, roster: rosterRef, sitesOf: (p, q2) => terrainRef?.(p, q2)?.sites ?? null, pins: FS.pins ?? [] });
+  searchHits = search.searchMap(q, { recs, roster: rosterRef, sitesOf: (p, q2) => terrainRef?.(p, q2)?.sites ?? null, pins: FS.pins ?? [], survey: FS.survey ?? null });
   const el = $('map-search-results');
   if (el) setHtml(el, search.renderResults(searchHits, q));
 }
@@ -741,7 +894,10 @@ function setLens(l) {
 }
 
 // ------------------------------------------------------------------ the title and the bell toll (intro/title.mjs)
-let introDolly = null;
+/** Whether the title card is up (the map's opening drifts in slowly behind it: map/opening.mjs). */
+const titleUp = () => { const el = $('intro'); return !!el && !el.hidden; };
+// The map's opening waits for the viewer's record only when one may come: a wallet was used here before.
+let viewerKnown = !lastWalletName();
 function introLive() {
   const total = hud.standings(FS.overviews).reduce((a, r) => a + r.holdings, 0);
   const bell = FS.clock ? bellChip(FS.clock, FS.chain?.now() ?? null).bell : null;
@@ -759,24 +915,8 @@ export function openIntro() {
   lastHtml.delete('intro');
   renderIntro();
   el.querySelector('.intro-go')?.focus({ preventScroll: true });
-  // the camera drifts in from the mist toward the fitted view
-  if (mapRef) {
-    let target = null, t0 = 0;
-    const dur = 7000;
-    introDolly = () => {
-      if (el.hidden) { introDolly = null; return; }
-      // wait for the map's first fit (the season's rings), then drift from far above the Concord to it
-      if (!target) {
-        if (!FS.record) { requestAnimationFrame(introDolly); return; }
-        mapRef.fit(mapRef.source(), mapRef.size());   // every open ring, now that the season says how many
-        target = { ...mapRef.view }; t0 = performance.now();
-      }
-      const k = (performance.now() - t0) / dur;
-      mapRef.setView(title.dolly(target, k));
-      if (k < 1) requestAnimationFrame(introDolly); else introDolly = null;
-    };
-    requestAnimationFrame(introDolly);
-  }
+  // behind the card the camera drifts in from the mist toward this viewer's opening view (the map reads titleUp())
+  mapRef?.invalidate();
 }
 export function closeIntro() {
   const el = $('intro');
@@ -784,6 +924,7 @@ export function closeIntro() {
   el.hidden = true;
   title.markSeen(globalThis.localStorage);
   $('frontier-map')?.focus({ preventScroll: true });
+  mapRef?.invalidate();   // the drift ends now: the map flies the rest of the way
 }
 let tollBell = null;
 /** The bell toll: the new bell's number rings over the map for a moment. */
@@ -806,11 +947,10 @@ function goToItem(x) {
   // the item's holding becomes the active one (its tab then shows that holding)
   if (x.holding && FS.holdings?.includes(x.holding)) FS.activeHolding = FS.holdings.indexOf(x.holding);
   if (Number.isInteger(x.tile)) {
-    const h = tileHex(x.p, x.q, x.tile), c = project(h.q, h.r);
-    mapRef?.setView({ x: c.x, y: c.y, zoom: 1.0 });
+    mapRef?.flyTo({ p: x.p, q: x.q, tile: x.tile, zoom: 1.0 });
     FS.selected = { kind: 'tile', p: x.p, q: x.q, idx: x.tile };
   } else {
-    mapRef?.focus(x.p, x.q, 0.6);
+    mapRef?.flyTo({ p: x.p, q: x.q, zoom: 0.6 });
     FS.selected = { kind: 'province', p: x.p, q: x.q };
   }
   if (FS.mode === 'play' && x.tab) FS.tab = x.tab;
@@ -1014,6 +1154,8 @@ function delegate(doc) {
     if (intro && !intro.hidden && (e.key === 'Escape' || e.key === 'Enter')) { e.preventDefault(); closeIntro(); return; }
     if (e.key === 'Escape' && FS.resOpen) { e.preventDefault(); closeResPop(); return; }
     if (e.key === 'Escape' && FS.term) { e.preventDefault(); closeTermPop(); return; }
+    // Escape on the map lets the selection go (the lit tiles with it); a march being composed is closed from its card
+    if (e.key === 'Escape' && e.target?.id === 'frontier-map' && FS.selected && !FS.compose) { e.preventDefault(); FS.selected = null; FS.actor = null; FS.mapNote = null; FS.explore = null; invalidate('map', 'panel'); return; }
     // . , next / previous ready host; ] [ next / previous holding; 1–4 the lenses (never while typing)
     if ((FS.mode !== 'play' && !/^[1-4]$/.test(e.key)) || e.target?.closest?.('input, select, textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
     const k = { '.': () => cycleHost(1), ',': () => cycleHost(-1), ']': () => cycleHolding(1), '[': () => cycleHolding(-1),
@@ -1057,7 +1199,7 @@ function followBattles() {
   watchSeen = key;
   const f = FS.watch?.faction;
   if (FS.watch?.auto === false || FS.report || (Number.isInteger(f) && !provinceFactions(FS.overviews, c.p, c.q).includes(f))) return;
-  playBattle(c.p, c.q, c.bell, { focus: true }).then(ok => { if (!ok) mapRef?.focus(c.p, c.q, 0.6); });
+  playBattle(c.p, c.q, c.bell, { focus: true }).then(ok => { if (!ok) mapRef?.flyTo({ p: c.p, q: c.q, zoom: 0.6 }); });
 }
 
 function startSpectate(herald) {
@@ -1144,10 +1286,14 @@ export async function boot() {
     map = new FrontierMap(canvas, {
       source: () => {
         if (rosterRef) for (let d = 0; d < (FS.record?.rings?.length ?? 1); d++) rosterRef.ensure(d);
-        const own = ART_FOG ? [{ p: 2, q: 0 }] : (FS.holdings ?? []).map(h => ({ p: h.p, q: h.q, tile: h.tile }));
-        return { overviews: FS.overviews, ringsOpen: FS.record?.rings?.length ?? 1, own, known: new Set([...own.map(o => `${o.p},${o.q}`), ...(ART_FOG ? ['-1,0', '-1,1', '0,-2', '-2,1'] : [])]), showAll: (ART_PREVIEW && !ART_FOG) || !FS.view.fog, selected: FS.selected, terrainOf,
+        const own = ownNow();
+        return { overviews: FS.overviews, ringsOpen: FS.record?.rings?.length ?? 1, own, selected: FS.selected, terrainOf,
+          // what this viewer has surveyed (map/survey.mjs): the one rule for the map, the minimap, tips, the inspector and search
+          survey: surveyNow(),
           // art mode: the decoded Province (holdings' tiers, hosts on tiles, camp), loaded on demand
-          viewerFaction: ART_FOG ? 0 : FS.citizen?.faction ?? null,
+          viewerFaction: FS.citizen?.faction ?? null,
+          // who is looking, for the opening view (map/opening.mjs)
+          open: openHint(FS, { ready: viewerKnown, title: titleUp() }),
           demoRoads: ART_ROADS,
           engineStage: ART_ENGINE,
           demoSpecials: ART_RELICS,
@@ -1163,8 +1309,14 @@ export async function boot() {
           // incoming risk around the viewer's holdings (hud/hud.mjs attention, controller incoming warnings)
           threats: (FS.incoming ?? []).map(w => ({ p: w.holding.p, q: w.holding.q, tile: w.holding.tile, bell: w.bell })),
           threatLabel: w => L`来襲 第${fmtNum(w.bell)}鐘`,
-          // the move preview while a march has a host and no destination yet (hud/reach.mjs)
-          reach: reachNow(),
+          // the bell now (an overview older than the last bell no longer says "a clash this bell")
+          bell: FS.nowBell ?? null,
+          // what the selected host can do, lit on the map (map/actions.mjs); the route under the pointer; the map's own answer to a tap
+          actions: actionsNow(),
+          hoverRoute,
+          note: FS.mapNote ?? null,
+          // a village this device sees land for the first time (map/landing.mjs)
+          landing: landingNow(),
           // the viewer's pins (hud/pins.mjs)
           pins: FS.pins ?? [],
           // the guide's target of the current step (hud/guide.mjs; "all" only)
@@ -1173,23 +1325,32 @@ export async function boot() {
           // holdings' tiers for the far view from the roster (no province loads for a spectator's world map)
           tierOf: (p, q, site) => rosterRef?.tierOf(p, q, site) ?? null,
           // the march being composed: its route, drawn for this browser only (the destination is sealed)
-          route: FS.compose ? { hexes: marchCard.routeHexes(FS.compose), dest: FS.compose.dest ? tileHex(FS.compose.dest.p, FS.compose.dest.q, FS.compose.dest.tile) : null } : null,
+          route: FS.compose ? { hexes: marchCard.routeHexes(FS.compose), dest: FS.compose.dest ? tileHex(FS.compose.dest.p, FS.compose.dest.q, FS.compose.dest.tile) : null,
+            arriveBell: FS.compose.route ? marchCard.bellWindow(FS)?.value ?? null : null } : null,
           provinceOf: ART_ON ? (p, q, { far = false } = {}) => { if (!far) wantProvince(p, q, () => map?.invalidate()); return FS.provinces.get(`${p},${q}`)?.province ?? null; } : undefined };
       },
       onSelect: hit0 => {
         // a tap selects what the zoom shows: a province from afar, a tile up close
         const hit = FS.view.lod === 'tile' ? hit0 : { kind: 'province', p: hit0.p, q: hit0.q };
+        // one of the viewer's hosts is selected: the tap is its order, or the map answers it (map/actions.mjs)
+        if (mapTap(hit)) return;
         FS.selected = hit;
-        setText('map-summary', L`州 ${hit.p},${hit.q} を選びました`);
+        FS.actor = null; FS.mapNote = null;
+        // (an exploration being picked on the map belongs to its Scout's tile: another selection lets it go)
+        if (FS.explore?.host && !(hit.p === FS.explore.host.p && hit.q === FS.explore.host.q && hit.idx === FS.explore.host.tile)) FS.explore = null;
+        // one of the viewer's own villages: it becomes the active one (its hosts act from here)
+        const mine = Number.isInteger(hit.idx) ? (FS.holdings ?? []).findIndex(h => h.p === hit.p && h.q === hit.q && h.tile === hit.idx) : -1;
+        if (mine >= 0 && mine !== (FS.activeHolding ?? 0)) { FS.activeHolding = mine; invalidate('rail', 'tabs'); }
+        summary(() => (FS.selected === hit ? L`${placeName(inspect.inspectModel(FS, terrainOf))} を選びました` : ''));
         // The inspector reads the province envelope (loaded once, on demand).
         if (FS.mode !== 'practice') wantProvince(hit.p, hit.q, () => { map?.invalidate(); invalidate('panel'); });
         // composing a march: a tap on another tile makes it the destination (Civ: select the unit, click where)
         const c = FS.compose;
-        if (FS.mode === 'play' && c && !c.sending && Number.isInteger(hit.idx) && !(hit.p === c.origin.p && hit.q === c.origin.q && hit.idx === c.host.tile)) ACTIONS['dest-from-map']()?.catch?.(() => {});
+        if (FS.mode === 'play' && c && !c.sending && Number.isInteger(hit.idx) && !(hit.p === c.origin.p && hit.q === c.origin.q && hit.idx === c.host.tile)) Promise.resolve(ACTIONS['dest-from-map']()).then(() => { if (FS.compose === c && c.routeError) mapNote(hit, refusalText(c.routeError)); }).catch(() => {});
         invalidate('map', 'panel');
       },
       onView: (_, lod) => { FS.view.lod = lod; renderMinimap(); },
-      onHover: (hit, at) => showTip(hit, at),
+      onHover: (hit, at) => { showTip(hit, at); hoverPlan(hit); },
       // Sprite art at tile LOD, opt-in with ?art=1 (docs/frontier/art/tiles/LOD.md).
       art: ART_ON,
     });
@@ -1200,7 +1361,7 @@ export async function boot() {
       const r = mini.getBoundingClientRect();
       const fr = minimap.frameOf(Math.max(1, FS.record?.rings?.length ?? 1) + 1, r.width);
       const w = fr.toWorld(e.clientX - r.left, e.clientY - r.top);
-      map.setView({ x: w.x, y: w.y, zoom: map.view.zoom });
+      map.flyTo({ x: w.x, y: w.y }, null, { exact: true });
     });
     onLangChange(renderLenses);
     $('map-search-q')?.addEventListener('input', e => runSearch(e.target.value));
@@ -1227,8 +1388,10 @@ export async function boot() {
     // Practice runs without a season too (the kernel only needs its own ruleset); a season pins it and keeps its flags.
     if (FS.mode === 'practice') { FS.ui = loadUi(uiStorage, uiKey(scope())); invalidate('panel'); }
     if (FS.mode === 'spectate') startSpectate(herald);
-    if (FS.mode === 'play') startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e));
+    if (FS.mode === 'play') startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).finally(() => { viewerKnown = true; map?.invalidate(); });
   }
+  // without a season nobody's record will come: the map opens on what there is
+  if (FS.mode !== 'play' || !FS.record) { viewerKnown = true; map?.invalidate(); }
   // The chip ticks every second (never announced: aria-live is off on it).
   globalThis.setInterval?.(() => invalidate('chip'), 1000);
   // The season record every 30 s (own data poll), paused while hidden.

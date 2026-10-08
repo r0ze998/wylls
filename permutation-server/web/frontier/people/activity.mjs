@@ -10,7 +10,8 @@
 //   activity = {kind, faction, until?, n?, item?, host?}
 //
 // Kinds, in the order a badge shows them (the first is the badge):
-//   battle     a clash this bell in the province, on a tile with hosts
+//   battle     a clash was recorded this bell in the province, on a tile with hosts (clashes
+//              resolve at the toll: nothing is ever "fighting" between tolls)
 //   depart     a host left this tile and is on the road (arrival bell only)
 //   muster     a new host forms up here and joins the roster next bell
 //   walls      walls are being raised (done at `until`)
@@ -42,7 +43,13 @@ export function tileActivities(e, { bell = 0, departures = [], explores = [], ow
   const add = (idx, a) => { if (!Number.isInteger(idx)) return; if (!out.has(idx)) out.set(idx, []); out.get(idx).push(a); };
   const prov = e.prov ?? null;
   const sites = Array.from(prov?.sites ?? e.sites ?? []);
-  const fought = e.clash?.arrivals ? new Set(e.clash.arrivals.filter(a => a.present).map(a => a.tile)) : null;
+  // the overview's flag says a clash was recorded for its bell. It is told on the tiles only while the province's
+  // own last clash is that recent (an older one is history: nothing is happening there now), and the tiles of the
+  // loaded report are used only when it is the report of that clash
+  const last = prov?.resolveSummary?.bell;
+  const clashNow = !!e.rec?.clash && !(Number.isInteger(last) && last > 0 && last < bell - 1);
+  const mine = e.clash?.arrivals && (!Number.isInteger(e.clash.bell) || !Number.isInteger(last) || e.clash.bell === last);
+  const fought = mine ? new Set(e.clash.arrivals.filter(a => a.present).map(a => a.tile)) : null;
   const stanceOf = new Map();
   for (const a of e.clash?.arrivals ?? []) if (a.present) stanceOf.set(String(a.hostId), a.stance);
   // sites: walls, garrison, recruits, shield, dormant
@@ -66,9 +73,10 @@ export function tileActivities(e, { bell = 0, departures = [], explores = [], ow
     if (h.readyBell > bell || st < DEPART_STAMINA) add(h.tile, { kind: 'rest', faction: h.faction, until: Math.max(h.readyBell, bell + Math.max(0, DEPART_STAMINA - st)), host: String(h.id), n: troopsOf(h.troops) });
     else add(h.tile, { kind: 'guard', faction: h.faction, host: String(h.id), n: troopsOf(h.troops), stance: stanceOf.get(String(h.id)) ?? null });
     // a clash this bell: on the tiles its arrivals fought on once the clash report is loaded, else on every host tile
-    if (e.rec?.clash && (!fought || fought.has(h.tile))) add(h.tile, { kind: 'battle', faction: h.faction });
+    if (clashNow && (!fought || fought.has(h.tile))) add(h.tile, { kind: 'battle', faction: h.faction });
   }
-  if (prov?.camp?.state === 1) add(prov.camp.tile, { kind: 'camp', faction: 6, n: troopsOf(prov.camp.troops) });
+  // (a camp's troops are whole troops in the account, Camp.TROOPS: not the thousandths a host's are)
+  if (prov?.camp?.state === 1) add(prov.camp.tile, { kind: 'camp', faction: 6, n: Number(prov.camp.troops) });
   for (const d of departures) if (d.p === e.p && d.q === e.q) add(d.tile, { kind: 'depart', faction: d.faction, until: d.arriveBell, host: d.host, n: d.troops });
   for (const x of explores) if (x.p === e.p && x.q === e.q) for (const idx of x.tiles ?? []) add(idx, { kind: 'explore', faction: x.faction });
   // the viewer's own build queue
@@ -102,7 +110,7 @@ export function activitiesFor(entries, ctx) {
 export function activityText(a) {
   const until = Number.isInteger(a.until) ? fmtNum(a.until) : null;
   switch (a.kind) {
-    case 'battle': return L`戦闘中`;
+    case 'battle': return L`この鐘で衝突がありました`;
     case 'depart': return L`出陣中（第${until}鐘に到着、行き先は秘密）`;
     case 'muster': return L`編成中（第${until}鐘から加わる）`;
     case 'walls': return L`城壁を建設中（第${until}鐘に完成）`;

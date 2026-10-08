@@ -694,7 +694,6 @@ export const ACTIONS = {
   },
   'settle-explore': () => settleExplore(),
   'settle-transit': d => settleTransit(d.host),
-  fog: () => { FS.view.fog = !FS.view.fog; saveUiPatch({ fog: FS.view.fog }); invalidate('map', 'panel'); },
   forget: () => { if (FS.session) fsession.forget(FS.session); FS.session = null; invalidate('panel'); },
 };
 
@@ -751,7 +750,6 @@ export async function startPlay({ herald: h, cfg }) {
   const pin = io.pinned();
   if (pin) herald.pin(pin.seasonId, pin.addresses);
   FS.ui = scope() ? loadUi(uiStorage, uiKey(scope())) : loadUi(uiStorage, '');
-  FS.view.fog = FS.ui.fog;
   FS.tab = FS.ui.tab;
   wallet.discover();
   if (cfg.dev && pin?.cluster === 'localnet') await wallet.enableDevWallet({ cluster: 'localnet', allowed: true }).catch(() => false);

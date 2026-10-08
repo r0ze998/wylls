@@ -18,7 +18,7 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.mjs': 'text/javascript; c
 
 /**
  * Start the server: `{url, port, stage(name), requests, close()}`. `stage`
- * sets the viewer stage /h/me answers (none | joined | holding); `requests`
+ * sets the viewer stage /h/me answers (none | joined | ticket | provisional | holding; world.mjs STAGES); `requests`
  * logs every path served, with its status.
  */
 export async function startServer() {
@@ -44,7 +44,7 @@ export async function startServer() {
       res.end(W.roster(d));
       return 200;
     }
-    if ((m = /^\/h\/province\/(-?\d+),(-?\d+)\/(latest|\d+)$/.exec(path))) return json(res, 200, W.provinceEnvelope(Number(m[1]), Number(m[2]), m[3] === 'latest' ? W.BELL : Number(m[3])));
+    if ((m = /^\/h\/province\/(-?\d+),(-?\d+)\/(latest|\d+)$/.exec(path))) return json(res, 200, W.provinceEnvelope(Number(m[1]), Number(m[2]), m[3] === 'latest' ? W.BELL : Number(m[3]), stage));
     if ((m = /^\/h\/bell\/(\d+)\/region\/(\d+)$/.exec(path))) return json(res, 200, W.bellRegion(Number(m[1]), Number(m[2])));
     if ((m = /^\/h\/me\/(\w+)$/.exec(path))) return m[1] === v.wallet ? json(res, 200, W.meRecord(v, stage)) : json(res, 200, W.meRecord({ ...v, wallet: m[1] }, 'none'));
     if (path === '/h/events') {
@@ -101,7 +101,7 @@ export async function startServer() {
     url: `http://127.0.0.1:${port}`,
     port,
     viewer: v,
-    stage: s => { stage = s; },
+    stage: s => { stage = W.STAGES.includes(s) ? s : 'none'; },
     requests,
     close: () => new Promise(r => { server.closeAllConnections?.(); server.close(r); }),
   };

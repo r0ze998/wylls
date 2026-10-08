@@ -1,5 +1,5 @@
 // The Frontier screenshot smoke (contract §13.6 E7, web design §13.2):
-// 12 scenes (scenes.mjs) × JA and EN × 360×740, 390×844, 1440×900 in
+// The scenes of scenes.mjs × JA and EN × 360×740, 390×844, 1440×900 in
 // Playwright's Chromium, against the fixture server (server.mjs, 127.0.0.1
 // port 0). Each (scene, viewport) loads once in Japanese, is checked and
 // shot, then the language toggle switches it to English without a reload

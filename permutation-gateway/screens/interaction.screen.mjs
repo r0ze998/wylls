@@ -114,22 +114,52 @@ test('the sheet is a phone thing: on desktop the handle is hidden and Escape lea
   assert.equal(await page.locator('#holding-title').isVisible(), true);
 });
 
-test('the map by keyboard: + and − zoom, H goes to the viewer\'s holding, the buttons work with Enter', { timeout: 60_000 }, async t => {
+// UX brief §4 (the first view used to be the whole world at world LOD): a player with a village opens on that
+// village; M and the world chart button go to the far view and back; every key acts on the logical view at once
+// (the picture travels behind it), so the LOD is read right after each press.
+test('the map by keyboard: it opens on the viewer\'s village; M is the world chart and back; + and − zoom, H goes home, the buttons work with Enter', { timeout: 60_000 }, async t => {
   const page = await open(t);
   const lod = () => page.locator('#frontier-map').getAttribute('data-lod');
-  assert.equal(await lod(), 'world');
+  const view = () => page.evaluate(async ([p, q, tile]) => {
+    const { tileHex } = await import('/frontier/fgeo.mjs');
+    const { project } = await import('/map.mjs');
+    const { coveredInsets } = await import('/frontier/map/fmap.mjs');
+    const cv = document.getElementById('frontier-map'), h = tileHex(p, q, tile);
+    return { home: project(h.q, h.r), covered: coveredInsets(cv).bottom, height: cv.clientHeight, width: cv.clientWidth };
+  }, [HOME.p, HOME.q, HOME.tile]);
+  // the opening: the village's tile, as soon as the page knows whose village it is
+  await page.locator('#frontier-map[data-lod="tile"]').waitFor();
+  assert.equal(await lod(), 'tile', 'the opening view is the viewer\'s village, not the world');
   await page.locator('#frontier-map').focus();
+  // M: the far view at once (logically), M again: back to the village
+  await page.keyboard.press('m');
+  assert.equal(await lod(), 'world', 'M: the world chart');
+  assert.equal(await page.locator('[data-map="chart"]').getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.locator('[data-map="chart"]').getAttribute('aria-label'), 'もとの場所へ戻る');
   for (let i = 0; i < 4; i++) await page.keyboard.press('+');
-  assert.equal(await lod(), 'province');
+  assert.equal(await lod(), 'province', 'four steps in from the far view');
   await page.keyboard.press('h');
   assert.equal(await lod(), 'tile', 'home: the holding up close, on its tile');
+  // on a phone the village is centred in the part of the map the sheet leaves free
+  const v = await view();
+  assert.ok(v.covered > 100, `the sheet covers ${v.covered} px of the map`);
+  // the picture arrives where the logical view already is (a flight takes 1.2 s at most)
+  await page.waitForTimeout(1500);
+  await page.locator('#frontier-map[data-terrain="ready"]').waitFor();
+  // a tap in the middle of the uncovered part selects the village's own tile
+  const box = await page.locator('#frontier-map').boundingBox();
+  await page.mouse.click(box.x + box.width / 2, box.y + (box.height - v.covered) / 2);
+  const sel = await page.evaluate(async () => { const { FS } = await import('/frontier/fstate.mjs'); return FS.selected; });
+  assert.deepEqual([sel?.p, sel?.q, sel?.idx], [HOME.p, HOME.q, HOME.tile], 'the village sits in the middle of the map above the sheet');
   await page.locator('[data-map="in"]').focus();
   for (let i = 0; i < 6; i++) await page.keyboard.press('Enter');
   assert.equal(await lod(), 'tile');
-  await page.locator('#frontier-map[data-terrain="ready"]').waitFor();
   await page.locator('[data-map="out"]').focus();
   for (let i = 0; i < 16; i++) await page.keyboard.press('Enter');
-  assert.equal(await lod(), 'world');
+  assert.equal(await lod(), 'world', 'zooming out still reaches the world view');
+  await page.locator('[data-map="chart"]').focus();
+  await page.keyboard.press('Enter');
+  assert.equal(await lod(), 'tile', 'from the far view the world chart button goes home');
   assert.equal(await page.locator('.map-tools').getAttribute('aria-label'), '地図の操作');
 });
 
@@ -187,4 +217,86 @@ test('step counts: a selected host to "seal and depart" in 3 presses; the next t
   const before = await where();
   await pill.click();
   assert.notEqual(await where(), before, 'the pill took the player to the item');
+});
+
+// UX brief §5.2 and §5.3: the map itself is the control. Selecting the viewer's village lights what its host can
+// do at once; a tap on a lit tile is the order (two presses from nothing to the order card); a tap on a tile no
+// march can reach is answered on the map and keeps the host; the same tile again takes the next host; off screen,
+// a button at the map's edge points home and flies there.
+test('the land: lit tiles on selection, a tap is the order, a refusal on the map, the pointer home', { timeout: 90_000 }, async t => {
+  const Z = 1.4;
+  const page = await open(t, { width: 1440, height: 900, query: `?at=${HOME.p},${HOME.q},${HOME.tile},${Z}` });
+  await page.locator('#frontier-map[data-lod="tile"][data-terrain="ready"]').waitFor();
+  const box = await page.locator('#frontier-map').boundingBox();
+  const centre = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  // where things are, from the page's own rules module: the camp, and the nearest tile no host can stand on
+  const where = await page.evaluate(async ([p, q, from, camp]) => {
+    const { tileHex } = await import('/frontier/fgeo.mjs');
+    const { project } = await import('/map.mjs');
+    const { kernel } = await import('/frontier/wasm.mjs');
+    const { FS } = await import('/frontier/fstate.mjs');
+    const k = await kernel();
+    const seed = FS.record.rings.find(r => r.d === 2).seed;
+    const g = k.call('generate_province', { ring_seed: Uint8Array.from(seed.match(/../g), x => parseInt(x, 16)), p, q }).value;
+    const at = i => (h => project(h.q, h.r))(tileHex(p, q, i)), a = at(from);
+    const off = i => ({ x: at(i).x - a.x, y: at(i).y - a.y });
+    let wet = null;
+    for (let i = 0; i < 61; i++) if (!((BigInt(g.passableMask) >> BigInt(i)) & 1n)) { const o = off(i); if (!wet || Math.hypot(o.x, o.y) < Math.hypot(wet.x, wet.y)) wet = { ...o, tile: i }; }
+    return { camp: off(camp), wet };
+  }, [HOME.p, HOME.q, HOME.tile, CAMP_TILE]);
+  assert.ok(where.wet, 'the home province has a tile no host can stand on');
+  const state = () => page.evaluate(async () => {
+    const { FS } = await import('/frontier/fstate.mjs');
+    return { sel: FS.selected ? [FS.selected.p, FS.selected.q, FS.selected.idx] : null, actor: FS.actor?.i ?? 0, note: FS.mapNote?.text ?? null, noteTile: FS.mapNote?.tile ?? null,
+      compose: FS.compose ? { host: String(FS.compose.host.id), dest: FS.compose.dest ? [FS.compose.dest.p, FS.compose.dest.q, FS.compose.dest.tile] : null } : null, explore: FS.explore ? [...FS.explore.tiles] : null, tab: FS.tab ?? 'map' };
+  });
+  // 1. the village: selected, nothing composed yet
+  await page.mouse.click(centre.x, centre.y);
+  assert.deepEqual((await state()).sel, [HOME.p, HOME.q, HOME.tile]);
+  assert.equal((await state()).compose, null, 'selecting composes nothing');
+  // 2. a tile no host can stand on: said on the map (and in the live line), the host stays selected
+  await page.mouse.click(centre.x + where.wet.x * Z, centre.y + where.wet.y * Z);
+  await page.waitForFunction(async () => !!(await import('/frontier/fstate.mjs')).FS.mapNote);
+  let s = await state();
+  assert.deepEqual([s.note, s.noteTile, s.sel, s.compose], ['ここへは届きません', where.wet.tile, [HOME.p, HOME.q, HOME.tile], null], 'refused on the map; the village stays selected');
+  assert.equal(await page.locator('#map-summary').textContent(), 'ここへは届きません');
+  // 3. the village again: the next host standing there (the Scout); again: back to the first
+  await page.mouse.click(centre.x, centre.y);
+  assert.equal((await state()).actor, 1);
+  await page.mouse.click(centre.x, centre.y);
+  assert.equal((await state()).actor, 0);
+  // 4. the Scout: a sky-blue neighbour is picked for its exploration, and the explore card comes to the map tab
+  await page.mouse.click(centre.x, centre.y);
+  assert.equal((await state()).actor, 1);
+  const east = await page.evaluate(async () => { const { project } = await import('/map.mjs'); return project(1, 0); });
+  await page.mouse.click(centre.x + east.x * Z, centre.y + east.y * Z);
+  s = await state();
+  assert.equal(s.explore?.length, 1, 'one tile picked for the exploration');
+  await page.locator('#explore-title').waitFor();
+  assert.equal(s.tab, 'map');
+  // 5. back to the first host; the camp, a lit tile: the order card, with the destination, in one press (two from nothing)
+  await page.mouse.click(centre.x, centre.y);
+  assert.equal((await state()).actor, 0);
+  await page.mouse.click(centre.x + where.camp.x * Z, centre.y + where.camp.y * Z);
+  await page.locator('#mc-title').waitFor();
+  await page.locator('[data-act="march-send"]:not([disabled])').waitFor({ timeout: 15_000 });
+  s = await state();
+  assert.deepEqual([s.compose.dest, s.tab], [[HOME.p, HOME.q, CAMP_TILE], 'map'], 'the camp is the destination, composed on the map');
+  await page.locator('[data-act="compose-close"]').first().click();
+  // 6. Escape on the map lets the selection go
+  await page.locator('#frontier-map').focus();
+  await page.keyboard.press('Escape');
+  assert.equal((await state()).sel, null);
+  // 7. the pointer home: hidden while the village is in view; shown with the distance once it is not; a press flies home
+  const pointer = page.locator('[data-map="home-pointer"]');
+  assert.equal(await pointer.isHidden(), true);
+  for (let i = 0; i < 14; i++) await page.keyboard.press('ArrowRight');
+  await pointer.waitFor({ state: 'visible' });
+  assert.match(await pointer.getAttribute('aria-label'), /^自分の村へ移動（\d+ マス先）$/);
+  const pb = await pointer.boundingBox();
+  assert.ok(pb.width >= 44 && pb.height >= 44, 'a 44-px target');
+  assert.ok(pb.x + pb.width / 2 < centre.x, 'on the side the village lies');
+  await pointer.focus();
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => document.querySelector('[data-map="home-pointer"]').hidden, null, { timeout: 5000 });
 });

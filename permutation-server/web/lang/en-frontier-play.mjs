@@ -228,7 +228,7 @@ export default {
   'まだ見どころはありません': 'No highlights yet',
 
   // ---- activities (people/activity.mjs): badges and the hover tip
-  '戦闘中': 'Fighting',
+  'この鐘で衝突がありました': 'A clash this bell',
   '出陣中（第{0}鐘に到着、行き先は秘密）': 'On the march (arrives at bell {0}; destination sealed)',
   '編成中（第{0}鐘から加わる）': 'Mustering (joins at bell {0})',
   '城壁を建設中（第{0}鐘に完成）': 'Raising walls (done at bell {0})',
@@ -309,7 +309,6 @@ export default {
   '2倍で撤退': 'Retreat at 2×', '1.5倍で撤退': 'Retreat at 1.5×', '同数で撤退': 'Retreat at 1×', '半分で撤退': 'Retreat at 0.5×',
   '守り手なし': 'Unopposed', '優勢': 'Favoured', 'やや優勢': 'Slight edge', '互角': 'Even', 'やや不利': 'Slightly behind', '不利': 'Outmatched',
   '進軍：{0} {1}': 'March: {0} {1}',
-  '行き先 州 {0},{1} · マス {2}': 'Destination: province {0},{1} · tile {2}',
   '封の中（あなたにしか見えません）': 'Sealed (only you can see this)',
   '道のりを探しています…': 'Finding the route…',
   '1つ早い鐘': 'One bell earlier', '1つ遅い鐘': 'One bell later',

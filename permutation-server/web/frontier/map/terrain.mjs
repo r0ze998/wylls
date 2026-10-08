@@ -16,7 +16,8 @@ const hexBytes = h => Uint8Array.from(h.match(/../g), x => parseInt(x, 16));
 export const seasonSeed = ring => FS.record?.rings?.find?.(r => r.d === ring)?.seed ?? null;
 
 /**
- * `terrainOf(p, q)` → `{terrain: [61 indices], sites: [tile index], names}`
+ * `terrainOf(p, q)` → `{terrain: [61 indices], sites: [tile index], names, passable}`
+ * (`passable`: the generator's mask of the tiles a host can stand on, a BigInt)
  * or null while the module loads (then `onReady()` runs once) or when it
  * cannot answer. `load` returns the kernel; `seedOf(ring)` the ring seed.
  */
@@ -36,7 +37,7 @@ export function createTerrain({ load = loadKernel, seedOf = seasonSeed, onReady 
     if (!/^[0-9a-f]{64}$/i.test(seed ?? '')) return null;
     const r = k.call('generate_province', { ring_seed: hexBytes(seed), p, q });
     const t = r.ok ? r.value.terrain : null;
-    const v = t ? { terrain: t.terrain, sites: t.sites.slice(0, t.siteCount), names: TERRAIN } : null;
+    const v = t ? { terrain: t.terrain, sites: t.sites.slice(0, t.siteCount), names: TERRAIN, passable: r.value.passableMask ?? null } : null;
     cache.set(key, v);
     if (cache.size > limit) cache.delete(cache.keys().next().value);
     return v;

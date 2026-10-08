@@ -2,8 +2,8 @@
 // levels of detail with hysteresis, the screen/world projection and zoom
 // around a point, culling to the provinces in view, picking a tile and its
 // province under a point (v9's hex inverse + the province lattice),
-// province cells that tile the plane, presentation-only fog with the "show
-// everything" switch, fills from the overview; and the canvas class
+// province cells that tile the plane, the province-level fog names (the
+// survey itself: web-frontier-survey.test.mjs), fills from the overview; and the canvas class
 // running without a DOM. Plus v9's map.mjs: only additive exports.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -79,10 +79,17 @@ test('province cells tile the plane: neighbours share two corners', () => {
   }
 });
 
-test('fog is presentation only: levels, and the show-everything switch clears it', () => {
+// UX brief §3 (this test used to pin "sight = within 2 provinces of a holding, and a show-everything switch"):
+// what the play map draws is decided tile by tile by the survey (map/survey.mjs, web-frontier-survey.test.mjs).
+// fogLevel keeps its names and its signature for the painters that work province by province: a province is
+// in `sight` when a tile of it is (distance 0, not 2), `known` when some of it was surveyed, else `distant`
+// (the chart); a page that shows the whole public world (the spectator, practice) is `clear`.
+test('fog is presentation only: the province levels by name; the whole public world is clear', () => {
   assert.equal(layers.fogLevel({ ringOpen: false, showAll: true }), 'unopened', 'an unopened ring has nothing to show');
   assert.equal(layers.fogLevel({ ringOpen: true, showAll: true, known: false }), 'clear');
-  assert.equal(layers.fogLevel({ ringOpen: true, sightDistance: 2 }), 'sight');
+  assert.equal(layers.fogLevel({ ringOpen: true, sightDistance: 0 }), 'sight');
+  assert.equal(layers.fogLevel({ ringOpen: true, sightDistance: 1 }), 'distant', 'sight is no longer counted in provinces');
+  assert.equal(layers.fogLevel({ ringOpen: true, sightDistance: 2, known: true }), 'known');
   assert.equal(layers.fogLevel({ ringOpen: true, sightDistance: 3, known: true }), 'known');
   assert.equal(layers.fogLevel({ ringOpen: true, sightDistance: 3 }), 'distant');
   assert.equal(fmap.sightDistance(2, 0, [{ p: 0, q: 0 }, { p: 3, q: -1 }]), 1);
