@@ -312,10 +312,10 @@ test('fx engine: the shake stays in 2 to 8 px and 120 to 250 ms, decays, and onl
   for (const m of ['reduced', 'off']) { level = m; assert.equal(eng.shake(8, 200), false, `no shake when ${m}`); assert.equal(eng.emit('spark', { n: 20 }), 0, `no particles when ${m}`); }
 });
 
-test('fx vocabulary: ten named effects; each draws through its whole life in every motion level without a real canvas', () => {
-  assert.deepEqual(Object.keys(EFFECTS), ['flash', 'ripple', 'dust', 'spark', 'label', 'glow', 'banner', 'toll', 'number', 'chip']);
+test('fx vocabulary: eleven named effects; each draws through its whole life in every motion level without a real canvas', () => {
+  assert.deepEqual(Object.keys(EFFECTS), ['flash', 'ripple', 'dust', 'spark', 'label', 'glow', 'banner', 'toll', 'number', 'chip', 'burst']);
   const args = { flash: { q: 3, r: -2 }, ripple: { q: 3, r: -2 }, dust: { q: 3, r: -2 }, spark: { q: 3, r: -2, shake: 5 }, label: { q: 3, r: -2, text: '-120' }, glow: { q: 3, r: -2, radius: 2 },
-    banner: { title: 'Victory', sub: 'sample' }, toll: { x: 0, y: 0 }, number: { text: '+5', vx: 10, vy: 10 }, chip: { vx: 10, vy: 10 } };
+    banner: { title: 'Victory', sub: 'sample' }, toll: { x: 0, y: 0 }, number: { text: '+5', vx: 10, vy: 10 }, chip: { vx: 10, vy: 10 }, burst: { q: 3, r: -2, kind: 'leaf', n: 24 } };
   const view = { x: 200, y: -100, zoom: 1.3 }, size = { width: 800, height: 600 };
   const info = new Set(['label', 'banner', 'number']);
   for (const level of MOTION_LEVELS) {
@@ -326,11 +326,11 @@ test('fx vocabulary: ten named effects; each draws through its whole life in eve
       const handles = eng.play(name, { ...args[name], seed: 'unit' });
       const where = `${name} / ${level}`;
       if (level === 'off') assert.equal(handles.length > 0, info.has(name), `${where}: with effects off only what is information is shown`);
-      else if (name === 'dust') assert.equal(handles.length > 0, level === 'full', `${where}: dust is decoration, nothing of it in reduced motion`);
+      else if (name === 'dust' || name === 'burst') assert.equal(handles.length > 0, level === 'full', `${where}: particles are decoration, nothing of them in reduced motion`);
       else assert.ok(handles.length > 0, where);
       const start = eng.live();
       if (level !== 'full') assert.equal(eng.particles.count, 0, `${where}: no particles outside full motion`);
-      if (level === 'full' && ['dust', 'spark'].includes(name)) assert.ok(eng.particles.count >= 20, `${where}: 20 or more particles`);
+      if (level === 'full' && ['dust', 'spark', 'burst'].includes(name)) assert.ok(eng.particles.count >= 20, `${where}: 20 or more particles`);
       const ctx = proxyCtx();
       let frames = 0, ended = false;
       for (let ms = 0; ms <= 4000 && !ended; ms += 16) {
@@ -339,7 +339,7 @@ test('fx vocabulary: ten named effects; each draws through its whole life in eve
         const c = eng.live(); ended = c.live === 0 && c.pending === 0;
       }
       assert.ok(ended, `${where}: it ends`);
-      const canvasEffect = !['banner', 'number', 'chip'].includes(name);
+      const canvasEffect = !['banner', 'number', 'chip', 'burst'].includes(name);
       if (canvasEffect && handles.length) assert.ok(frames > 10, `${where}: it drew (${frames})`);
       if (start.live + start.pending === 0) assert.equal(frames, 0);
     }
@@ -463,4 +463,94 @@ test('fx audio: six synthesised sounds; silent before the first gesture and with
     b.setMuted(false); assert.equal(b.play('tick'), true);
     ms += 10; assert.equal(b.play('tick'), false, 'presses closer than 45 ms share one tick');
   } finally { if (AC) globalThis.AudioContext = AC; else delete globalThis.AudioContext; }
+});
+
+/** A page just large enough for the engine: elements with a style, a dataset, children and a 2D context that does nothing. */
+function fakePage() {
+  const made = [];
+  const el = (tag) => {
+    const vars = new Map(), attrs = new Map();
+    const e = {
+      tag, id: '', className: '', hidden: false, dataset: {}, children: [], parent: null, textContent: '',
+      style: { setProperty: (k, v) => vars.set(k, v), getPropertyValue: k => vars.get(k) ?? '' }, vars, attrs,
+      setAttribute: (k, v) => attrs.set(k, String(v)), getAttribute: k => attrs.get(k) ?? null,
+      append(...kids) { for (const k of kids) { k.parent = e; e.children.push(k); } },
+      after(k) { k.parent = e.parent; const list = e.parent?.children ?? []; list.splice(list.indexOf(e) + 1, 0, k); },
+      remove() { const list = e.parent?.children ?? []; const i = list.indexOf(e); if (i >= 0) list.splice(i, 1); e.parent = null; },
+      getBoundingClientRect: () => ({ left: 280, top: 52, width: 800, height: 848 }),
+      offsetLeft: 280, offsetTop: 52, clientWidth: 800, clientHeight: 848, width: 0, height: 0,
+      getContext: () => (e.ctx ??= proxyCtx()),
+      querySelector: () => null,
+    };
+    made.push(e);
+    return e;
+  };
+  const doc = { createElement: el, head: el('head'), body: el('body'), getElementById: id => made.find(e => e.id === id && e.parent) ?? null, querySelector: () => null, defaultView: null };
+  const main = el('main'); doc.body.append(main);
+  const canvas = el('canvas'); canvas.id = 'frontier-map'; canvas.ownerDocument = doc; main.append(canvas);
+  for (const e of made) e.ownerDocument = doc;
+  const mk = doc.createElement; doc.createElement = t => { const e = mk(t); e.ownerDocument = doc; return e; };
+  return { doc, main, canvas };
+}
+
+test('fx engine on a page: the top canvas and #fx-hud are made by script, aria-hidden; the loop runs only while something is live; the shake moves the two canvases only', () => {
+  const { doc, main, canvas } = fakePage();
+  const raf = globalThis.requestAnimationFrame, caf = globalThis.cancelAnimationFrame;
+  const queue = [];
+  globalThis.requestAnimationFrame = fn => { queue.push(fn); return queue.length; };
+  globalThis.cancelAnimationFrame = () => {};
+  const frames = n => { for (let i = 0; i < n && queue.length; i++) queue.shift()(0); };
+  try {
+    const { c: clock, tick } = handClock();
+    const eng = installEffects(createEngine({ clock, motion: () => 'full', bus: createBus() }));
+    let invalidated = 0;
+    const map = { view: { x: 100, y: 50, zoom: 1.3 }, lod: 'tile', art: {}, size: () => ({ width: 800, height: 848 }), invalidate: () => { invalidated++; } };
+    eng.mount({ map, canvas });
+    assert.equal(eng.mounted, true);
+    const top = eng.top, hud = eng.hud;
+    assert.equal(main.children.indexOf(top), main.children.indexOf(canvas) + 1, 'the top canvas sits right after the map canvas');
+    assert.equal(top.id, 'fx-top'); assert.equal(top.getAttribute('aria-hidden'), 'true');
+    assert.equal(hud.id, 'fx-hud'); assert.equal(hud.getAttribute('aria-hidden'), 'true'); assert.equal(hud.parent, doc.body, 'the HUD layer hangs from the body: no transform of the map reaches it');
+    assert.deepEqual(['--fx-l', '--fx-t', '--fx-w', '--fx-h'].map(k => top.vars.get(k)), ['280px', '52px', '800px', '848px'], 'laid over the map canvas by its measured box');
+    assert.equal(hud.vars.get('--fx-free'), '848px');
+    frames(3);
+    assert.equal(queue.length, 0, 'nothing live: no frame loop');
+    assert.equal(canvas.dataset.fx, '0');
+    // a ground effect and a top effect: the map is asked to repaint, the top canvas is sized at the device pixel ratio and drawn
+    eng.play('flash', { q: 0, r: 0, seed: 't' }); eng.play('spark', { q: 0, r: 0, seed: 't', shake: 6 });
+    assert.equal(queue.length, 1, 'one loop, however many effects');
+    tick(80); frames(1);
+    assert.ok(invalidated >= 1, 'ground effects repaint through the tile painter');
+    assert.equal(top.width, 800); assert.equal(top.height, 848);
+    assert.ok(top.ctx.calls.get('clearRect') >= 1 && top.ctx.calls.get('setTransform') >= 2);
+    assert.ok(Number(canvas.dataset.fx) > 20, 'data-fx carries the live count');
+    // the shake: the same offset on both canvases, nothing on the HUD layer
+    tick(20); frames(1);
+    const sx = canvas.vars.get('--fx-sx'), sy = canvas.vars.get('--fx-sy');
+    assert.match(sx, /^-?\d+\.\d\dpx$/); assert.notEqual(`${sx}${sy}`, '0.00px0.00px');
+    assert.equal(top.vars.get('--fx-sx'), sx); assert.equal(top.vars.get('--fx-sy'), sy);
+    assert.ok(Number(canvas.vars.get('--fx-ss')) > 1 && Number(canvas.vars.get('--fx-ss')) < 1.05, 'the layer swells a little so no edge shows');
+    assert.equal(hud.vars.has('--fx-sx'), false, 'the HUD never moves');
+    // a HUD effect: a node appears in #fx-hud for its life and is driven by custom properties
+    eng.play('banner', { title: 'Victory', sub: 'sample' });
+    tick(300); frames(1);
+    const banner = hud.children.find(k => k.className === 'fx-banner');
+    assert.ok(banner && !banner.hidden);
+    assert.deepEqual(banner.children.map(k => k.className.split(' ')[0]), ['fx-banner-band', 'fx-banner-rule', 'fx-banner-glint', 'fx-banner-title', 'fx-banner-sub', 'fx-banner-rule']);
+    assert.equal(banner.children[3].textContent, 'Victory');
+    assert.ok(Number(banner.vars.get('--fx-to')) > 0.9 && Number(banner.vars.get('--fx-band')) > 0.9);
+    assert.ok(parseFloat(banner.vars.get('--fx-fs')) >= 20 && parseFloat(banner.vars.get('--fx-fs')) <= 60);
+    // while the tile painter is not running (far view) the ground layer is drawn on the top canvas instead
+    map.lod = 'world'; const before = invalidated;
+    eng.play('glow', { q: 0, r: 0, radius: 1, seed: 'far' });
+    tick(100); frames(1);
+    assert.equal(invalidated, before, 'no repaint asked of a painter that is not painting tiles');
+    // everything ends: the loop stops, the shake is back at rest, the banner is gone, the count is 0
+    for (let i = 0; i < 40; i++) { tick(200); frames(1); }
+    assert.equal(queue.length, 0, 'the loop stopped');
+    assert.equal(canvas.dataset.fx, '0');
+    assert.equal(canvas.vars.get('--fx-sx'), '0.00px'); assert.equal(canvas.vars.get('--fx-ss'), '1');
+    assert.equal(hud.children.length, 0);
+    eng.unmount(); assert.equal(eng.mounted, false); assert.equal(main.children.includes(top), false);
+  } finally { globalThis.requestAnimationFrame = raf; globalThis.cancelAnimationFrame = caf; }
 });

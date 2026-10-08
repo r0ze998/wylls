@@ -30,10 +30,10 @@ export const KINDS = Object.freeze({
   dust:  { add: false, shape: 'puff',   speed: [50, 190],  up: [8, 40],    drag: 4.2, g: 0,   rise: 10, bounce: 0,    life: [0.55, 1.0], size: [R * 0.12, R * 0.23], grow: 1.9,  alpha: 0.62, fadeIn: 0.05, fadeOut: 0.22, sway: 0,   colors: ['#eadfc2', '#dccfaa', '#f3ebd6'] },
   spark: { add: true,  shape: 'streak', speed: [90, 330],  up: [120, 380], drag: 1.3, g: 760, rise: 0,  bounce: 0.34, life: [0.32, 0.8], size: [1.3, 2.4],           grow: 0.4,  alpha: 1,    fadeIn: 0,    fadeOut: 0.55, sway: 0,   colors: ['#ffd27a', '#ffb347', '#ff8a3c'] },
   ember: { add: true,  shape: 'dot',    speed: [8, 46],    up: [26, 80],   drag: 1.6, g: 0,   rise: 30, bounce: 0,    life: [0.9, 1.9],  size: [1.6, 3.2],           grow: 0.5,  alpha: 0.95, fadeIn: 0.05, fadeOut: 0.5,  sway: 5,   colors: ['#ffb347', '#ff7a3c', '#e2553d'] },
-  smoke: { add: false, shape: 'puff',   speed: [6, 30],    up: [18, 40],   drag: 1.1, g: 0,   rise: 26, bounce: 0,    life: [1.4, 2.6],  size: [R * 0.16, R * 0.3],  grow: 2.6,  alpha: 0.5,  fadeIn: 0.12, fadeOut: 0.35, sway: 4,   colors: ['#6a645b', '#857e75', '#57524b'] },
+  smoke: { add: false, shape: 'puff',   speed: [4, 20],    up: [22, 52],   drag: 1.0, g: 0,   rise: 34, bounce: 0,    life: [1.3, 2.4],  size: [R * 0.1, R * 0.19],  grow: 2.5,  alpha: 0.52, fadeIn: 0.1,  fadeOut: 0.35, sway: 5,   colors: ['#6a645b', '#857e75', '#57524b'] },
   shard: { add: false, shape: 'poly',   speed: [70, 230],  up: [140, 340], drag: 1.0, g: 820, rise: 0,  bounce: 0.38, life: [0.6, 1.15], size: [2.6, 5.2],           grow: 1,    alpha: 1,    fadeIn: 0,    fadeOut: 0.75, sway: 0,   colors: ['#6b6253', '#857c6b', '#544d41'] },
-  leaf:  { add: false, shape: 'leaf',   speed: [20, 90],   up: [50, 150],  drag: 2.2, g: 150, rise: 0,  bounce: 0,    life: [1.2, 2.2],  size: [2.6, 4.4],           grow: 1,    alpha: 0.95, fadeIn: 0.04, fadeOut: 0.7,  sway: 9,   colors: ['#5f9a4a', '#86b04c', '#3f7a3c', '#b9a64a'] },
-  coin:  { add: false, shape: 'coin',   speed: [40, 150],  up: [200, 400], drag: 1.2, g: 860, rise: 0,  bounce: 0.5,  life: [0.75, 1.3], size: [2.6, 3.8],           grow: 1,    alpha: 1,    fadeIn: 0,    fadeOut: 0.8,  sway: 0,   colors: ['#f0d48a', '#c9a24a', '#ffe9ae'] },
+  leaf:  { add: false, shape: 'leaf',   speed: [20, 90],   up: [50, 150],  drag: 2.2, g: 150, rise: 0,  bounce: 0,    life: [1.2, 2.2],  size: [3.4, 5.8],           grow: 1,    alpha: 0.98, fadeIn: 0.04, fadeOut: 0.7,  sway: 9,   colors: ['#8fc257', '#b5cf5a', '#e0bd52', '#d38d3f', '#5f9a4a'] },
+  coin:  { add: false, shape: 'coin',   speed: [40, 150],  up: [200, 400], drag: 1.2, g: 860, rise: 0,  bounce: 0.5,  life: [0.75, 1.3], size: [3.2, 4.6],           grow: 1,    alpha: 1,    fadeIn: 0,    fadeOut: 0.8,  sway: 0,   colors: ['#f0d48a', '#c9a24a', '#ffe9ae'] },
   mist:  { add: false, shape: 'puff', flat: true, speed: [10, 46],   up: [0, 6],     drag: 0.9, g: 0,   rise: 3,  bounce: 0,    life: [1.6, 3.0],  size: [R * 0.34, R * 0.6],  grow: 1.9,  alpha: 0.24, fadeIn: 0.25, fadeOut: 0.4,  sway: 3,   colors: ['#f4f1e8', '#e3e8ea'] },
   ink:   { add: false, shape: 'blot',   speed: [0, 26],    up: [0, 0],     drag: 6,   g: 0,   rise: 0,  bounce: 0,    life: [0.9, 1.7],  size: [R * 0.05, R * 0.13], grow: 2.4,  alpha: 0.6,  fadeIn: 0.03, fadeOut: 0.5,  sway: 0,   colors: ['#4a3b22', '#6b5630', '#3a2e1c'] },
 });
@@ -209,8 +209,9 @@ export function createParticles({ capacity = 2048 } = {}) {
       }
       case 'leaf': {
         const flip = Math.cos(s.rot * 1.7);
-        ctx.fillStyle = col[i];
-        ctx.beginPath(); ctx.ellipse?.(sx, sy, s.size, Math.max(0.5, Math.abs(flip) * s.size * 0.5), s.rot, 0, Math.PI * 2); ctx.fill();
+        // a dark underside as it turns over: it reads on grass of its own colour
+        ctx.fillStyle = flip < -0.2 ? '#3d5a2c' : col[i];
+        ctx.beginPath(); ctx.ellipse?.(sx, sy, s.size, Math.max(0.6, Math.abs(flip) * s.size * 0.5), s.rot, 0, Math.PI * 2); ctx.fill();
         break;
       }
       case 'coin': {

@@ -16,6 +16,7 @@
 //   toll    a brass ripple across the whole map     top + screen
 //   number  a number rises from a point of the HUD  hud  (information)
 //   chip    a ring bursts from a HUD element        hud
+//   burst   particles of one named kind             top
 //
 // Reduced motion (§8.5): nothing travels, scatters or shakes; what carries a
 // state shows at once with a 200 ms opacity change. With effects off only
@@ -189,6 +190,18 @@ function dust(a, env) {
     groundRing(ctx, x, y, r);
     ctx.strokeStyle = rgba('#efe6cc', 0.5 * (1 - k) * (1 - k)); ctx.lineWidth = lerp(7, 1, outCubic(k)) * s.px; ctx.stroke();
   } };
+}
+
+// ------------------------------------------------------------------ burst: particles of one kind
+/** `{…position, kind (a particle kind), n (default 20), power, height (tiles), radius (tiles), life, size, color}`: a plain burst, for kinds the pieces above do not use yet (leaf, coin, smoke, mist, ink, ember). */
+function burst(a, env) {
+  if (env.mode !== 'full') return null;
+  const p = pointOf(a);
+  const kind = a.kind ?? 'dust';
+  const n = env.fx.emit(kind, { x: p.x, y: p.y, z: (a.height ?? 0) * R, n: a.n ?? 20, seed: env.seed, t: env.now, power: a.power ?? 1, radius: (a.radius ?? 0.15) * R,
+    life: a.life ?? 1, size: a.size ?? 1, up: a.up ?? 1, stagger: a.stagger ?? 0, color: a.color ?? null, layer: a.layer ?? 'top' });
+  // the particles are the effect; this entry only gives the burst a handle and a name in the live count
+  return n ? { layer: 'top', dur: 0.05, draw() {} } : null;
 }
 
 // ------------------------------------------------------------------ spark: a point of contact
@@ -572,7 +585,7 @@ function chip(a, env) {
 }
 
 /** The vocabulary by name. */
-export const EFFECTS = Object.freeze({ flash, ripple, dust, spark, label, glow, banner, toll, number, chip });
+export const EFFECTS = Object.freeze({ flash, ripple, dust, spark, label, glow, banner, toll, number, chip, burst });
 
 /** Register the vocabulary on an engine. */
 export function installEffects(fx) {

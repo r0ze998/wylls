@@ -361,9 +361,15 @@ export function createAudio({ storage = null, now = () => globalThis.performance
       if (el && !el.disabled && el.getAttribute?.('aria-disabled') !== 'true') play('tick');
     };
     const key = e => { unlock(); if ((e.key === 'Enter' || e.key === ' ') && e.target?.closest?.(CONTROL)) play('tick'); };
+    // some browsers count only the end of a touch or a click as the gesture that may start sound
+    const wake = () => { unlock(); };
     doc.addEventListener('pointerdown', press, { capture: true, passive: true });
     doc.addEventListener('keydown', key, { capture: true });
-    return () => { doc.removeEventListener('pointerdown', press, { capture: true }); doc.removeEventListener('keydown', key, { capture: true }); };
+    for (const type of ['pointerup', 'touchend', 'click']) doc.addEventListener(type, wake, { capture: true, passive: true });
+    return () => {
+      doc.removeEventListener('pointerdown', press, { capture: true }); doc.removeEventListener('keydown', key, { capture: true });
+      for (const type of ['pointerup', 'touchend', 'click']) doc.removeEventListener(type, wake, { capture: true });
+    };
   }
 
   return {

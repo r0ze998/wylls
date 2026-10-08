@@ -42,6 +42,9 @@ export const SAMPLES = Object.freeze({
   toll: { secs: 3.2, cues: c => [['toll', { ...c.origin }]], sounds: [['bell', 0.2]] },
   number: { secs: 1.3, cues: () => [['number', { el: '#bell-chip', text: '+120', below: true, size: 20 }]] },
   chip: { secs: 1.0, cues: () => [['chip', { el: '#bell-chip' }]] },
+  // every particle kind side by side, on the six tiles around the demo tile and on it (dust, spark and shard are in the samples above)
+  kinds: { secs: 2.6, cues: c => [['leaf', 1, 0, { n: 16, height: 0.5, power: 1.2 }], ['coin', 1, -1, { n: 14, height: 0.2 }], ['smoke', 0, -1, { n: 10, stagger: 0.5 }], ['mist', -1, 0, { n: 9, radius: 0.5, stagger: 0.4 }],
+    ['ink', -1, 1, { n: 12, radius: 0.5, stagger: 0.3 }], ['ember', 0, 1, { n: 16, radius: 0.3, stagger: 0.5 }], ['shard', 0, 0, { n: 12 }]].map(([kind, dq, dr, o]) => ['burst', { q: c.at.q + dq, r: c.at.r + dr, kind, ...o }]) },
   // two compositions, to show how the pieces stack: the bell's turn, and one blow landing
   bell: { secs: 3.6, cues: c => [['toll', { ...c.origin }], ['chip', { el: '#bell-chip' }, 0.2], ['banner', { title: L`鐘が鳴りました — ターン ${43}`, dur: 2.9 }, 0.3]], sounds: [['bell', 0.2]] },
   strike: { secs: 1.8, cues: c => [['flash', { ...c.at, color: '#ffb347' }], ['spark', { ...c.at, shake: 6 }, 0.07], ['dust', { ...c.at, power: 0.8 }, 0.09], ['ripple', { ...c.at, color: '#ffd27a', radius: 1.8 }, 0.07], ['label', { ...c.at, text: '−120', color: '#ff9d86', size: 30 }, 0.16]], sounds: [['clash', 0.13]] },
@@ -95,7 +98,7 @@ export function startDemo({ fx, map = null, params, doc = globalThis.document })
     for (const n of names) {
       const s = SAMPLES[n];
       length = Math.max(length, s.secs);
-      for (const [effect, args, delay = 0] of s.cues(c)) fx.play(effect, { ...args, delay, seed: `demo|${n}|${effect}` });
+      s.cues(c).forEach(([effect, args, delay = 0], i) => fx.play(effect, { ...args, delay, seed: `demo|${n}|${i}|${effect}` }));
     }
   }
   function sounds() {

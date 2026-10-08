@@ -15,7 +15,7 @@ Rule of the house: **an effect is driven by a real record**. The one exception i
 | `bus.mjs` | `emit(type, payload)` / `on(type, fn)`. `emit('fx', {name: 'flash', q, r})` plays a named effect without importing the engine. |
 | `motion.mjs` | `motion()` → `'full' | 'reduced' | 'off'`: the calmer of the system's reduced-motion setting and the player's `effects` preference (`fui.mjs`). |
 | `engine.mjs` | The engine: ground pass, top canvas, `#fx-hud`, the world shake, named effects. |
-| `effects.mjs` | The first vocabulary: `flash`, `ripple`, `dust`, `spark`, `label`, `glow`, `banner`, `toll`, `number`, `chip`. |
+| `effects.mjs` | The first vocabulary: `flash`, `ripple`, `dust`, `spark`, `label`, `glow`, `banner`, `toll`, `number`, `chip`, and `burst` (particles of one kind). |
 | `audio.mjs` | WebAudio synthesis: `bell`, `seal`, `clash`, `tick`, `shimmer`, `drum`. Silent until the first user gesture; mute remembered (`ps-ffx:v1`). `globalThis.__fxAudio = {toggle(), muted, play(name)}`. |
 | `demo.mjs` | The demo switch `?fx=`. Loaded only when the address asks for it. |
 | `index.mjs` | `startFx({map, canvas, effects})`: the page's one call. |
@@ -63,7 +63,7 @@ Rules for a new effect:
 …/index.html?fx=strike&fxmotion=reduced     show a motion level
 ```
 
-`window.__fx.list() / play(names) / seek(t) / step(dt) / rate(n) / motion(level) / state() / sound(name)`. Samples: the ten effects by name, plus `bell` (toll, chip, banner, the bell's sound) and `strike` (flash, spark, dust, ripple, label). Combine `?at=p,q,tile,zoom` to place the camera. Frame-by-frame capture: seek, wait a frame, shoot.
+`window.__fx.list() / play(names) / seek(t) / step(dt) / rate(n) / motion(level) / state() / sound(name)`. Samples: the first ten effects by name, plus `kinds` (every particle kind side by side), `bell` (toll, chip, banner, the bell's sound) and `strike` (flash, spark, dust, ripple, label). Combine `?at=p,q,tile,zoom` to place the camera. Frame-by-frame capture: seek, wait a frame, shoot.
 
 ## For whoever merges the map and HUD work
 
