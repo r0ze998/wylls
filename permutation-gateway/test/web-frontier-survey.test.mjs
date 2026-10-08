@@ -267,7 +267,8 @@ test('the wet edge between paint and chart: the pigment thins toward a line just
   assert.equal(chart.wetPaint(-chart.WET.fade), 1);
   assert.ok(Math.abs(chart.WET.fade - Math.sqrt(3) / 3) < 0.02, 'a third of a hex (its width is √3 radii)');
   assert.ok(chart.wetPaint(-0.3) < 1 && chart.wetPaint(-0.3) > chart.wetPaint(-0.05));
-  assert.ok(chart.wetPaint(-1e-6) >= chart.WET.thin - 1e-3 && chart.WET.thin >= 0.5, 'still pigment at the line');
+  assert.ok(chart.wetPaint(-chart.WET.gap - 1e-6) >= chart.WET.thin - 1e-3 && chart.WET.thin >= 0.5, 'still pigment at the line');
+  assert.ok(chart.WET.gap > 0 && chart.WET.gap < 0.05, 'it stops a hair short of the line');
   assert.equal(chart.wetPaint(0), 0);
   assert.equal(chart.wetPaint(0.4), 0);
   // the chart's ink: none in the halo, half near the paint, whole further out; the halo is just beyond the line

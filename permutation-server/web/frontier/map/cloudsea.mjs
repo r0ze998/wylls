@@ -32,8 +32,10 @@ export const PIECE = 512;
 const GRID = 64;
 /** A piece is painted this many px wider on every side than it is shown: its edge pixels are whole, two pieces meet without a line. */
 const APRON = 2;
+/** The bank's grid reaches this many cells past the piece on every side (its shadow falls a little way off it, and must not stop at the piece's edge). */
+const SKIRT = 2;
 /** The pieces kept (pixels in all); the pieces newly painted in one frame. */
-export const SEA_PIXELS = 9_000_000;
+export const SEA_PIXELS = 6_500_000;
 export const SEA_BAKES = 3;
 /** The drift: one texture across DRIFT_SPAN world px (its features are a fifth of that), moving at DRIFT_SPEED world px a second. */
 export const DRIFT_SPAN = 2300;
@@ -226,7 +228,7 @@ export class CloudSea {
    * with no cloud at all, `whole` false while a sprite was still loading.
    */
   bake(ringsOpen, res, ix, iy, sheet) {
-    const size = PIECE / res, x0 = ix * size, y0 = iy * size, cell = size / GRID, n = GRID + 1;
+    const size = PIECE / res, x0 = ix * size, y0 = iy * size, cell = size / GRID, n = GRID + 1 + 2 * SKIRT;
     const F = seaField(ringsOpen);
     // the bank on the grid: one sample at every grid point (the pieces agree along their shared edges)
     const mcv = spare(n, n), mg = mcv?.getContext?.('2d');
@@ -235,7 +237,7 @@ export class CloudSea {
     let any = false;
     const [BR, BG, BB] = CLOUD.body;
     for (let j = 0, i = 0; j < n; j++) for (let k = 0; k < n; k++, i += 4) {
-      const x = x0 + k * cell, y = y0 + j * cell, a = F.cover(x, y, sheet);
+      const x = x0 + (k - SKIRT) * cell, y = y0 + (j - SKIRT) * cell, a = F.cover(x, y, sheet);
       if (!(a > 0.004)) continue;
       any = true;
       // lit crests and shaded troughs, large and slow
@@ -248,7 +250,7 @@ export class CloudSea {
     if (!g) return null;
     g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
     // (a grid point is the middle of its sample: the picture of the grid reaches half a cell past the piece on every side)
-    const k = PIECE / GRID, at = [APRON - k / 2, APRON - k / 2, n * k, n * k];
+    const k = PIECE / GRID, at = [APRON - k * (SKIRT + 0.5), APRON - k * (SKIRT + 0.5), n * k, n * k];
     // the shadow the bank casts on the paper: the bank itself, darkened, a little down and to the right
     const sc = this.scratch ??= spare(n, n), sg = sc.getContext('2d');
     sg.setTransform(1, 0, 0, 1, 0, 0); sg.globalCompositeOperation = 'copy'; sg.drawImage(mcv, 0, 0);
@@ -260,13 +262,13 @@ export class CloudSea {
     // the billows: large soft forms, each lit from the upper left with its shade under it
     const bw = 200, bh = 150;
     for (let by = Math.floor((y0 - bh) / bh); by <= Math.floor((y0 + size + bh) / bh); by++) for (let bx = Math.floor((x0 - bw) / bw); bx <= Math.floor((x0 + size + bw) / bw); bx++) {
-      if (hash(bx, by, 71) > 0.8) continue;
+      if (hash(bx, by, 71) > 0.88) continue;
       const x = (bx + hash(bx, by, 72)) * bw, y = (by + hash(bx, by, 73)) * bh, a = F.cover(x, y, sheet);
       if (!(a > 0.3)) continue;
       const r = 95 + hash(bx, by, 74) * 90;
       g.save(); g.translate(x, y); g.scale(1, FLATTEN * 0.92);
       let gr = g.createRadialGradient(r * 0.2, r * 0.26, r * 0.25, r * 0.2, r * 0.26, r * 1.05);
-      gr.addColorStop(0, `rgba(146,144,172,${0.2 * a})`); gr.addColorStop(1, 'rgba(146,144,172,0)');
+      gr.addColorStop(0, `rgba(140,138,170,${0.27 * a})`); gr.addColorStop(1, 'rgba(140,138,170,0)');
       g.fillStyle = gr; g.fillRect(-r * 1.3, -r * 1.3, r * 2.6, r * 2.6);
       gr = g.createRadialGradient(-r * 0.16, -r * 0.2, r * 0.08, -r * 0.16, -r * 0.2, r * 0.86);
       gr.addColorStop(0, `rgba(255,254,251,${0.62 * a})`); gr.addColorStop(0.5, `rgba(255,254,251,${0.3 * a})`); gr.addColorStop(1, 'rgba(255,254,251,0)');
@@ -364,20 +366,20 @@ export class CloudSea {
 
   /** The drift over one piece: the moving texture, cut to the piece's own bank. */
   drift(ctx, p, tex, t) {
-    const n = GRID + 1, cell = p.size / GRID;
+    const n = GRID + 1 + 2 * SKIRT, cell = p.size / GRID;
     const sc = this.driftCv ??= spare(n, n), sg = sc?.getContext?.('2d');
     if (!sg?.createPattern || typeof DOMMatrix === 'undefined') return;
     const pat = this.driftPat ??= sg.createPattern(tex, 'repeat');
     // the texture lies on the world and moves over it; in this scratch one px is one grid cell of the piece
     const k = DRIFT_SPAN / 256 / cell;
-    pat.setTransform(new DOMMatrix([k, 0, 0, k, (DRIFT_SPEED.x * t - p.x) / cell + 0.5, (DRIFT_SPEED.y * t - p.y) / cell + 0.5]));
+    pat.setTransform(new DOMMatrix([k, 0, 0, k, (DRIFT_SPEED.x * t - p.x) / cell + SKIRT + 0.5, (DRIFT_SPEED.y * t - p.y) / cell + SKIRT + 0.5]));
     sg.setTransform(1, 0, 0, 1, 0, 0);
     sg.globalCompositeOperation = 'copy'; sg.fillStyle = pat; sg.fillRect(0, 0, n, n);
     sg.globalCompositeOperation = 'destination-in'; sg.drawImage(p.mask, 0, 0);
     sg.globalCompositeOperation = 'source-over';
     ctx.save();
     ctx.beginPath(); ctx.rect(p.x, p.y, p.size, p.size); ctx.clip();
-    ctx.drawImage(sc, p.x - cell / 2, p.y - cell / 2, n * cell, n * cell);
+    ctx.drawImage(sc, p.x - cell * (SKIRT + 0.5), p.y - cell * (SKIRT + 0.5), n * cell, n * cell);
     ctx.restore();
   }
 }

@@ -382,10 +382,12 @@ function scratchOf(w, h, slot = 0) {
  * sliver of a neighbour's paint shows beyond it), `slow` and `quick` are the
  * two scales its line wavers at (`[wavelength in world px, reach]`), `fade`
  * how far in the pigment thins (a third of a hex), `thin` what is left of it
- * at the line, `halo` how far out the paper stays bare and pale, `quiet` how
- * far out the chart's ink is still at half.
+ * at the line, `gap` a hair of bare paper the pigment stops short of the line
+ * by (the masks are coarser than the line: no pigment may show beyond it),
+ * `halo` how far out the paper stays bare and pale, `quiet` how far out the
+ * chart's ink is still at half.
  */
-export const WET = Object.freeze({ bias: 0.075, slow: Object.freeze([52, 0.085]), quick: Object.freeze([13, 0.04]), fade: 0.58, thin: 0.6, halo: 0.2, quiet: 2.4, line: 'rgba(72,52,26,0.84)', soft: 'rgba(72,52,26,0.2)' });
+export const WET = Object.freeze({ gap: 0.03, bias: 0.075, slow: Object.freeze([52, 0.085]), quick: Object.freeze([13, 0.04]), fade: 0.58, thin: 0.6, halo: 0.2, quiet: 2.4, line: 'rgba(72,52,26,0.84)', soft: 'rgba(72,52,26,0.2)' });
 const HEX_K = [-SQRT3 / 2, 0.5, 1 / SQRT3];
 /** How far world point (x, y) lies outside the tile whose middle is (cx, cy), in hex radii on the unsquashed ground (0 on the tile). */
 export function hexGap(x, y, cx, cy) {
@@ -441,7 +443,7 @@ export function surveyEdge(survey, box, mres, level) {
 /** The edge's own waver at a world point (hex radii): two scales, and the bias that keeps it on the land's side. */
 export const wetWaver = (x, y) => vnoise(x / WET.slow[0], y / WET.slow[0], 7) * WET.slow[1] + vnoise(x / WET.quick[0], y / WET.quick[0], 8) * WET.quick[1] + WET.bias;
 /** How much pigment lies at edge distance `e` (hex radii, waver included): whole well inside, thinner over the last third of a hex, none past the line. */
-export const wetPaint = e => (e >= 0 ? 0 : e <= -WET.fade ? 1 : WET.thin + (1 - WET.thin) * smooth(-e / WET.fade));
+export const wetPaint = e => (e >= -WET.gap ? 0 : e <= -WET.fade ? 1 : WET.thin + (1 - WET.thin) * smooth(-e / WET.fade));
 /** How much of the chart's ink shows at edge distance `e`: none on the paint and in the halo, half near it, all of it further out. */
 export const wetInk = e => (e <= WET.halo ? 0 : e < 0.62 ? 0.5 * smooth((e - WET.halo) / (0.62 - WET.halo)) : e >= WET.quiet ? 1 : 0.5 + 0.5 * smooth((e - 0.62) / (WET.quiet - 0.62)));
 /** The pale halo of bare paper just beyond the line. */

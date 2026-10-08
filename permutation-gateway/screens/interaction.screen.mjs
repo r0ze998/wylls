@@ -532,7 +532,8 @@ test('the tilted board: the ground canvas is where the numbers say; a tap, a hov
   const v1 = await mapCall(page, 'return { ...m.view };');
   assert.ok(Math.abs((v0.x - v1.x) * v0.zoom - 80) < 1e-6 && v1.y === v0.y);
   await page.keyboard.press('h');
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(200);
+  await page.waitForFunction(() => !window.__map.cam.moving, null, { timeout: 8000 });
   const home = await mapCall(page, `
     const { tileHex } = await import('/frontier/fgeo.mjs'); const { project } = await import('/map.mjs'); const { freeBox } = await import('/frontier/map/camera.mjs');
     const h = tileHex(arg.p, arg.q, arg.tile), w = project(h.q, h.r), s = m.size(), f = freeBox(s, m.inset());
@@ -547,8 +548,8 @@ test('the tilted board: the ground canvas is where the numbers say; a tap, a hov
   // the minimap: a press flies the middle of the picture to that place; its frame is the four corners of the picture
   // (the drawer has just closed: the minimap slides back to its corner first)
   await page.waitForFunction(() => document.body.dataset.drawer === 'closed');
-  await page.waitForTimeout(450);
-  const mini = await page.locator('#minimap-canvas').boundingBox();
+  let mini = await page.locator('#minimap-canvas').boundingBox();
+  for (let i = 0; i < 20; i++) { await page.waitForTimeout(120); const next = await page.locator('#minimap-canvas').boundingBox(); const still = Math.abs(next.x - mini.x) < 0.01 && Math.abs(next.y - mini.y) < 0.01; mini = next; if (still && i > 1) break; }
   const press = { x: mini.x + mini.width * 0.42, y: mini.y + mini.height * 0.56 };
   const want = await page.evaluate(async ([px, py]) => {
     const { frameOf } = await import('/frontier/hud/minimap.mjs'); const { FS } = await import('/frontier/fstate.mjs');
@@ -556,7 +557,8 @@ test('the tilted board: the ground canvas is where the numbers say; a tap, a hov
     return frameOf(Math.max(1, FS.record?.rings?.length ?? 1) + 1, r.width).toWorld(px - r.left, py - r.top);
   }, [press.x, press.y]);
   await page.mouse.click(press.x, press.y);
-  await page.waitForTimeout(1600);
+  await page.waitForTimeout(200);
+  await page.waitForFunction(() => !window.__map.cam.moving, null, { timeout: 8000 });
   const got = await mapCall(page, 'return { at: m.unproject(m.canvas.clientWidth / 2, m.canvas.clientHeight / 2, { box: true }), view: { ...m.view }, quad: m.viewQuad() };');
   // (the camera goes there unless the pan's limit holds it back: the press was made well inside the land)
   assert.ok(Math.hypot(got.at.x - want.x, got.at.y - want.y) < 2, `the middle of the picture is the place pressed (${Math.hypot(got.at.x - want.x, got.at.y - want.y).toFixed(2)} world px away)`);
