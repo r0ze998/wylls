@@ -19,6 +19,7 @@ import { ChainClock, bellChip, countdown, seasonClock, bellStart } from './clock
 import { effectiveStatus } from './fcodec.mjs';
 import { FrontierMap } from './map/fmap.mjs';
 import { openHint } from './map/opening.mjs';
+import { lastWalletName } from '../wallet.mjs';
 import { SEASON_STATUS_TEXT, clientText, factionName, TIERS, BUILDINGS } from './fi18n.mjs';
 import { L, fmtNum, mountLangToggle, onLangChange, lang } from '../lang.mjs';
 import { toHex } from '../sdk/bytes.mjs';
@@ -744,7 +745,8 @@ function setLens(l) {
 // ------------------------------------------------------------------ the title and the bell toll (intro/title.mjs)
 /** Whether the title card is up (the map's opening drifts in slowly behind it: map/opening.mjs). */
 const titleUp = () => { const el = $('intro'); return !!el && !el.hidden; };
-let viewerKnown = false;
+// The map's opening waits for the viewer's record only when one may come: a wallet was used here before.
+let viewerKnown = !lastWalletName();
 function introLive() {
   const total = hud.standings(FS.overviews).reduce((a, r) => a + r.holdings, 0);
   const bell = FS.clock ? bellChip(FS.clock, FS.chain?.now() ?? null).bell : null;
