@@ -1,11 +1,9 @@
-// Depth without a tilt (UX brief §4): the map is a board seen from a seat,
-// not a sheet. Two things in screen space, painted over the finished scene:
-//
-//   the horizon haze   what is near the top edge is further away: it pales
-//                      into the mist (strong only at the near view; the far
-//                      view is a chart lying flat and gets none);
-//   the vignette       the table falls into shadow toward the corners and
-//                      the near edge, so the eye rests on the middle.
+// The depth dressing of a map WITHOUT the tilted stage (a page that has no
+// `#map-stage`, and the tests): a pale haze toward the top edge and a
+// vignette, painted over the finished scene in screen space. On the three
+// pages the board is really tilted (map/tilt.mjs) and the dressing is the
+// page's own `#map-dress` (frontier.css), driven by `nearness`: a warm haze on
+// the far edge only, at most 0.30, and a soft vignette.
 //
 // One function, tuned from screenshots. `near` is 0 at the far view and 1 at
 // the diorama; the context is in CSS px. Context-tolerant (tests draw into
@@ -15,8 +13,8 @@ import { LOD_NEAR, freeBox } from './camera.mjs';
 /** How "near" a zoom is: 0 up to the chart, 1 from the diorama on. */
 export const nearness = zoom => { const k = Math.max(0, Math.min(1, (zoom - LOD_NEAR.from) / (LOD_NEAR.to - LOD_NEAR.from))); return k * k * (3 - 2 * k); };
 
-export const HAZE = Object.freeze({ reach: 0.44, top: 0.78, mid: 0.3, rgb: '202,220,224' });
-export const VIGNETTE = Object.freeze({ far: 0.72, near: 0.5, rgb: '6,14,13' });
+export const HAZE = Object.freeze({ reach: 0.26, top: 0.3, mid: 0.13, rgb: '240,228,200' });
+export const VIGNETTE = Object.freeze({ far: 0.4, near: 0.3, rgb: '6,14,13' });
 
 export function paintDressing(ctx, size, { zoom = 1, near = nearness(zoom), inset = null } = {}) {
   if (!ctx?.createLinearGradient || !(size?.width > 0) || !(size?.height > 0)) return;

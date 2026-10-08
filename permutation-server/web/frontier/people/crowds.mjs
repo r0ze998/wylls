@@ -25,6 +25,7 @@ import { SKIN, HAIR } from './identity.mjs';
 import { lifeAt } from './life.mjs';
 import { paintToken, routePoints, alongPath, paintRoad, scaffold, progressBadge } from './units.mjs';
 import { paintBadge } from './activity.mjs';
+import { upright } from '../map/tilt.mjs';
 
 /** Screen px per hex radius from which figures are drawn, and from which every resident is. */
 export const PEOPLE_MIN_R = 22;
@@ -385,6 +386,8 @@ export function paintNameTags(ctx, { tiles = [], zoom = 1, nameOf = () => null, 
     const w = ctx.measureText(label).width + 32 * k, h = 22 * k;
     const x = u.x - w / 2, y = u.y - RADIUS * (0.62 + (zoomBoost(RADIUS * zoom) - 1) * 0.9) - h;
     boxes.push({ x, y, w, h });
+    // (the banner stands upright over its tile whatever the board's tilt: map/tilt.mjs)
+    upright(ctx, u.x, u.y, () => {
     ctx.globalAlpha = 0.94;
     ctx.fillStyle = '#fffaf0'; ctx.strokeStyle = FACTION_DARK[who.faction] ?? '#55554e'; ctx.lineWidth = 1.5 * k;
     ctx.beginPath(); ctx.roundRect?.(x, y, w, h, 10 * k); ctx.fill(); ctx.stroke();
@@ -396,6 +399,7 @@ export function paintNameTags(ctx, { tiles = [], zoom = 1, nameOf = () => null, 
     ctx.fillText(label, x + h + 4 * k, y + h / 2 + 0.5 * k);
     // protected: a small shield at the banner's end
     if (u.shield) { const sx = x + w + 2 * k, sy = y + h / 2; ctx.fillStyle = '#3f78c2'; ctx.strokeStyle = '#fffaf0'; ctx.lineWidth = 1.2 * k; ctx.beginPath(); ctx.moveTo(sx, sy - 6 * k); ctx.lineTo(sx + 6 * k, sy - 4 * k); ctx.lineTo(sx + 5 * k, sy + 3 * k); ctx.lineTo(sx + 3 * k, sy + 6 * k); ctx.lineTo(sx + 1 * k, sy + 3 * k); ctx.lineTo(sx, sy - 4 * k); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+    });
     n++;
   }
   ctx.restore();

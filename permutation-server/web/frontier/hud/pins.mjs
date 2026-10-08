@@ -9,6 +9,7 @@ import { tileHex } from '../fgeo.mjs';
 import { project } from '../../map.mjs';
 import { provincePixel } from '../map/layers.mjs';
 import { tilePlace } from './place.mjs';
+import { upright } from '../map/tilt.mjs';
 
 export const PIN_MAX = 20;
 export const PIN_KEY = 'ps-fpins:';
@@ -40,10 +41,13 @@ export function paintPins(ctx, pins, zoom) {
   ctx.save();
   for (const x of pins) {
     const c = pinPoint(x), r = 7 * k, top = c.y - 22 * k;
+    // (a pin stands upright on its place whatever the board's tilt: map/tilt.mjs)
+    upright(ctx, c.x, c.y, () => {
     ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.beginPath(); ctx.ellipse(c.x, c.y, 5 * k, 2 * k, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#26332f'; ctx.strokeStyle = '#f4efe0'; ctx.lineWidth = 1.6 * k;
     ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.bezierCurveTo(c.x - r * 1.2, top + r * 1.4, c.x - r * 1.3, top, c.x, top - r * 0.2); ctx.bezierCurveTo(c.x + r * 1.3, top, c.x + r * 1.2, top + r * 1.4, c.x, c.y); ctx.closePath(); ctx.fill(); ctx.stroke();
     ctx.fillStyle = '#f4efe0'; ctx.beginPath(); ctx.arc(c.x, top + r * 0.55, r * 0.38, 0, Math.PI * 2); ctx.fill();
+    });
   }
   ctx.restore();
 }

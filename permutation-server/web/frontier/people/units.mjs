@@ -10,6 +10,7 @@ import { FACTION_FILL, FACTION_DARK, shade } from './avatar.mjs';
 import { RADIUS, FLATTEN, project } from '../../map.mjs';
 import { tileHex, DIRECTIONS } from '../fgeo.mjs';
 import { paintMini } from './minis.mjs';
+import { upright } from '../map/tilt.mjs';
 
 export const UNIT_KINDS = Object.freeze(['spearman', 'archer', 'horseman', 'pikeman', 'crossbowman', 'knight', 'scout', 'settler']);
 const INK = '#1b1712', STEEL = '#aeb4b9', STEEL_D = '#6c7378', WOOD = '#7a5634', LEATHER = '#6b4a2e', HORSE = '#7b5636', HORSE_D = '#4e3522', SKIN = '#e2b58e';
@@ -229,7 +230,8 @@ export function placePills(ctx, items, k, t, boxes = []) {
     let cy = tok.y - s * 1.08;
     for (let i = 0; i < 6; i++) { const b = { x: tok.x - w / 2, y: cy - h, w, h }; if (!hit(b)) break; cy -= h + 3 * k; }
     taken.push({ x: tok.x - w / 2, y: cy - h, w, h });
-    unitPill(ctx, tok.x, cy, k, { faction: tok.faction, troops: tok.troops, n: tok.n ?? 1, own: !!tok.own, status: tok.status ?? null, text: tok.text ?? null, t, dashed: !!tok.dashed });
+    // (a pill stands upright over its figure whatever the board's tilt: map/tilt.mjs)
+    upright(ctx, tok.x, tok.y, () => unitPill(ctx, tok.x, cy, k, { faction: tok.faction, troops: tok.troops, n: tok.n ?? 1, own: !!tok.own, status: tok.status ?? null, text: tok.text ?? null, t, dashed: !!tok.dashed }));
   }
   return taken;
 }

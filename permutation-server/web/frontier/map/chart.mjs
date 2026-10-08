@@ -21,6 +21,7 @@ import { L } from '../../lang.mjs';
 import { DIRECTIONS, ringOf, ringProvinces, tileHex, wedgeOf, PROVINCE_TILES, locate } from '../fgeo.mjs';
 import { FACTION_COLORS } from '../fi18n.mjs';
 import { L2, L3, REVEAL_MS, WORKED_RADIUS, hexKey, keyHex } from './survey.mjs';
+import { upright } from './tilt.mjs';
 
 /** The chart's colours (the brief's --chart and --chart-ink, and the inks drawn with them). */
 export const CHART = Object.freeze({ paper: '#e6d9b8', paperRgb: [230, 217, 184], ink: '#7a6a46', line: 'rgba(110,94,60,0.4)', glyph: 'rgba(92,76,46,0.82)', coast: 'rgba(86,72,44,0.7)',
@@ -529,7 +530,8 @@ export function paintWedge(g, faction, ringsOpen, zoom, { lit = false } = {}) {
 }
 
 /** The candidate sites of an open ticket: a dashed ring on each tile, in ivory over ink, with a word. */
-export function paintCandidates(g, candidates, zoom, { now = fxNow(), still = false } = {}) {
+export function paintCandidates(g, candidates, zoom, { now = fxNow(), still = false, part = null } = {}) {
+  // `part` 'mark': the rings, on the ground; 'label': the words, upright over their tiles; null: both
   if (!candidates?.length || !g?.save) return;
   const k = 1 / zoom, turn = still ? 0 : (now / 1000) * 5;
   g.save();
@@ -539,16 +541,15 @@ export function paintCandidates(g, candidates, zoom, { now = fxNow(), still = fa
     if (!h) return;
     const at = project(h.q, h.r), rx = Math.max(RADIUS * 0.92, 15 * k), ry = rx * FLATTEN;
     const ring = (w, style, dash) => { g.beginPath(); g.ellipse?.(at.x, at.y, rx, ry, 0, 0, Math.PI * 2); g.setLineDash(dash ? [9 * k, 6 * k] : []); g.lineDashOffset = -turn * k; g.lineWidth = w * k; g.strokeStyle = style; g.stroke(); };
-    ring(5.2, 'rgba(22,30,26,.7)', false);
-    ring(2.6, '#f4efe0', true);
+    if (part !== 'label') { ring(5.2, 'rgba(22,30,26,.7)', false); ring(2.6, '#f4efe0', true); }
     g.setLineDash([]);
-    if (RADIUS * zoom >= 16) {
+    if (part !== 'mark' && RADIUS * zoom >= 16) upright(g, at.x, at.y, () => {
       const text = `${L`候補地`} ${i + 1}`;
       g.font = `700 ${11.5 * k}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
       const tw = g.measureText(text).width + 14 * k, th = 18 * k, ty = at.y - ry - 8 * k - th;
       g.fillStyle = 'rgba(22,30,26,.9)'; g.beginPath(); g.roundRect?.(at.x - tw / 2, ty, tw, th, 9 * k); g.fill();
       g.fillStyle = '#f4efe0'; g.fillText(text, at.x, ty + th / 2 + 0.5 * k);
-    }
+    });
   });
   g.restore();
 }

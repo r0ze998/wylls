@@ -1205,7 +1205,8 @@ function placeObjective(v, size, lod) {
   if (g && Number.isInteger(g.tile) && (!d || d.kind === 'inspect')) {
     const h = tileHex(g.p, g.q, g.tile), c = h ? project(h.q, h.r) : null;
     if (c) {
-      const x = (c.x - v.x) * v.zoom + size.width / 2, y = (c.y - v.y) * v.zoom + size.height / 2, ins = hudInsets();
+      // (where the tile is seen: the board is tilted, map.project)
+      const { x, y } = mapRef?.project ? mapRef.project(c.x, c.y, { box: true }) : { x: (c.x - v.x) * v.zoom + size.width / 2, y: (c.y - v.y) * v.zoom + size.height / 2 }, ins = hudInsets();
       // above the ring (map/fmap.mjs paintGuide: a little over a hex's radius) and what stands on the tile
       const top = y - Math.max(62 * v.zoom, 24) - 44;
       if (x > ins.left + 200 && x < size.width - ins.right - 200 && top > ins.top + 96 && y < size.height - ins.bottom - 24) at = { x: Math.round(x), y: Math.round(top) };
@@ -1321,7 +1322,7 @@ function renderMinimap() {
     for (const ov of FS.overviews.values()) for (const r of ov.provinces) recs.set(`${r.p},${r.q}`, r);
     const sv = FS.survey ?? null, pulse = !!sv?.home && !sv.showAll && !reducedMotion();
     minimap.paintMinimap(cv.getContext('2d'), { recs, rings: Math.max(1, (FS.record?.rings?.length ?? 1)), own: (FS.holdings ?? []).map(h => ({ p: h.p, q: h.q })),
-      view: mapRef.shown ?? mapRef.view, size: mapRef.size(), px, dpr, lens: FS.view.lens ?? 'realm', pins: FS.pins ?? [], survey: sv, now: fxNow() });
+      view: mapRef.shown ?? mapRef.view, size: mapRef.size(), quad: mapRef.viewQuad?.() ?? null, px, dpr, lens: FS.view.lens ?? 'realm', pins: FS.pins ?? [], survey: sv, now: fxNow() });
     // the viewer's pip breathes: a few small repaints a second while it shows
     if (pulse && !miniPulse) miniPulse = setTimeout(() => { miniPulse = null; renderMinimap(); }, 110);
   });

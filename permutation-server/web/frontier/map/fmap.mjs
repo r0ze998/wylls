@@ -19,9 +19,13 @@
 // changes at once; the picture travels toward it (fly, eased zoom, the glide
 // after a drag) and jumps under reduced motion. The opening view depends on
 // who is looking (map/opening.mjs) and never overrides a camera a person
-// moved. M and the "world chart" button go to the far view and back. Depth
-// without a tilt: a horizon haze and a vignette in screen space
-// (map/dressing.mjs); a change of level of detail dissolves instead of
+// moved. M and the "world chart" button go to the far view and back. The
+// board is tilted (map/tilt.mjs, UX brief §11.1): the ground is painted on
+// `#map-ground` inside the one tilted element `#map-stage`, larger than the
+// map's box so the trapezoid in view is always covered; this canvas lies flat
+// above it, takes every input (mapped back onto the board in numbers) and
+// carries what must stay upright. `project` / `unproject` say where a point
+// of the world is seen. A change of level of detail dissolves instead of
 // popping. At rest only the animated layers repaint on the timer: the still
 // ground and props wait in two bitmaps (map/sprites.mjs paints the parts).
 import { paintPins } from '../hud/pins.mjs';
@@ -32,7 +36,7 @@ import { fogLevel, paintProvince, paintTiles, paintVeil, provincePixel, PROVINCE
 import { createTerrain } from './terrain.mjs';
 import { SpriteArt, terrainLookup } from './sprites.mjs';
 import { project, RADIUS, FLATTEN } from '../../map.mjs';
-import { Camera, EASE, MOVE_MS, centreOn, clampCentre, fitView, focusOf, reducedMotion } from './camera.mjs';
+import { Camera, EASE, MOVE_MS, clampCentre, fitView, freeBox, reducedMotion } from './camera.mjs';
 import { OPEN_FROM, OPEN_WAIT_MS, TITLE_FROM, TITLE_MS, heroZoom, openingPlan, placePoint } from './opening.mjs';
 import { nearness, paintDressing } from './dressing.mjs';
 import { PROBE } from './probe.mjs';
@@ -47,6 +51,7 @@ import { ACTION_COLOURS } from './actions.mjs';
 import { LANDING } from './ownland.mjs';
 import { WORKED_RADIUS } from './survey.mjs';
 import { emit as fxEmit } from '../fx/bus.mjs';
+import { TILT, armUpright, disarmUpright, groundBox, groundView, nearQuad, tiltAt, tiltFromQuery, tiltGeo, upright } from './tilt.mjs';
 
 /** Fog levels drawn as tiles at tile LOD (a distant province stays a muted cell). */
 export const TILE_FOGS = Object.freeze(['sight', 'known', 'clear']);
@@ -85,7 +90,9 @@ export const TABLE = '#2a4742';
  * Bitmaps the size of the canvas (the two still layers, the dressing) are kept only up to this many
  * pixels each (about 36 MB): a larger canvas is painted whole every frame, as before.
  */
-export const STILL_MAX_PIXELS = 9_000_000;
+export const STILL_MAX_PIXELS = 11_000_000;
+/** On a screen of one device pixel per CSS pixel the tilted ground is painted this much finer (the near half of the board is drawn larger than life). */
+export const GROUND_FINER = 1.15;
 /** The still layers of a resting view are repainted at least this often (ms): a change nobody announced heals. */
 export const LAYER_MAX_AGE_MS = 2000;
 
@@ -101,15 +108,19 @@ export function lodFor(zoom, current = 'world') {
 export const worldToScreen = (view, size, x, y) => ({ x: (x - view.x) * view.zoom + size.width / 2, y: (y - view.y) * view.zoom + size.height / 2 });
 export const screenToWorld = (view, size, sx, sy) => ({ x: (sx - size.width / 2) / view.zoom + view.x, y: (sy - size.height / 2) / view.zoom + view.y });
 
-/** The provinces of rings 0..maxRing whose cell intersects the viewport, nearest the centre first. */
-export function visibleProvinces(view, size, maxRing) {
+/**
+ * The provinces of rings 0..maxRing whose cell intersects the viewport, nearest the centre first.
+ * `quad` (four world points in order): the part of the ground seen through a tilted board, a
+ * trapezoid inside the canvas; provinces in the canvas's unseen corners are left out.
+ */
+export function visibleProvinces(view, size, maxRing, quad = null) {
   const a = screenToWorld(view, size, 0, 0), b = screenToWorld(view, size, size.width, size.height);
   const m = PROVINCE_CIRCUMRADIUS;
   const out = [];
   for (let d = 0; d <= maxRing; d++) {
     for (const pr of ringProvinces(d)) {
       const c = provincePixel(pr.p, pr.q);
-      if (c.x >= a.x - m && c.x <= b.x + m && c.y >= a.y - m && c.y <= b.y + m) out.push({ ...pr, dist: Math.hypot(c.x - view.x, c.y - view.y) });
+      if (c.x >= a.x - m && c.x <= b.x + m && c.y >= a.y - m && c.y <= b.y + m && nearQuad(quad, c.x, c.y, m)) out.push({ ...pr, dist: Math.hypot(c.x - view.x, c.y - view.y) });
     }
   }
   return out.sort((x, y) => x.dist - y.dist).map(({ p, q }) => ({ p, q }));
@@ -213,8 +224,10 @@ export function paintRealmLabels(ctx, recs, zoom, nameOf = null, { seen = null, 
   for (const it of layoutLabels(items, { zoom })) {
     if (!it.text) continue;
     ctx.font = fontOf(it.size);
-    ctx.lineJoin = 'round'; ctx.lineWidth = 5 * k; ctx.strokeStyle = 'rgba(14,22,20,.78)'; ctx.strokeText(it.text, it.x, it.y);
-    ctx.fillStyle = it.fill; ctx.fillText(it.text, it.x, it.y);
+    upright(ctx, it.x, it.y, () => {
+      ctx.lineJoin = 'round'; ctx.lineWidth = 5 * k; ctx.strokeStyle = 'rgba(14,22,20,.78)'; ctx.strokeText(it.text, it.x, it.y);
+      ctx.fillStyle = it.fill; ctx.fillText(it.text, it.x, it.y);
+    });
   }
   ctx.restore();
 }
@@ -225,7 +238,8 @@ export function paintRealmLabels(ctx, recs, zoom, nameOf = null, { seen = null, 
  * arrive. `threats = [{p, q, tile, bell}]` (destinations are sealed: a
  * warning, never a certainty).
  */
-export function paintThreats(ctx, threats, zoom, label = null) {
+export function paintThreats(ctx, threats, zoom, label = null, part = null) {
+  // `part` 'mark': the halo and the ring, on the ground; 'label': the words, upright; null: both
   const t = fxNow() / 1000;
   const k = 1 / zoom, pulse = 0.5 + 0.5 * Math.sin(t * 3);
   const seen = new Set();
@@ -236,18 +250,20 @@ export function paintThreats(ctx, threats, zoom, label = null) {
     seen.add(key);
     const h = tileHex(w.p, w.q, w.tile), c = project(h.q, h.r);
     const r = Math.max(RADIUS * 1.3, 18 * k) * (1 + pulse * 0.12);
-    const g = ctx.createRadialGradient(c.x, c.y, r * 0.4, c.x, c.y, r);
-    g.addColorStop(0, 'rgba(200,40,30,0)'); g.addColorStop(0.75, `rgba(200,40,30,${0.18 + pulse * 0.14})`); g.addColorStop(1, 'rgba(200,40,30,0)');
-    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = `rgba(230,70,50,${0.6 + pulse * 0.4})`; ctx.lineWidth = 2.4 * k; ctx.setLineDash([6 * k, 4 * k]);
-    ctx.beginPath(); ctx.arc(c.x, c.y, r * 0.78, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
-    if (label) {
+    if (part !== 'label') {
+      const g = ctx.createRadialGradient(c.x, c.y, r * 0.4, c.x, c.y, r);
+      g.addColorStop(0, 'rgba(200,40,30,0)'); g.addColorStop(0.75, `rgba(200,40,30,${0.18 + pulse * 0.14})`); g.addColorStop(1, 'rgba(200,40,30,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = `rgba(230,70,50,${0.6 + pulse * 0.4})`; ctx.lineWidth = 2.4 * k; ctx.setLineDash([6 * k, 4 * k]);
+      ctx.beginPath(); ctx.arc(c.x, c.y, r * 0.78, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+    }
+    if (label && part !== 'mark') upright(ctx, c.x, c.y, () => {
       const text = label(w);
       ctx.font = `700 ${11 * k}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       const tw = ctx.measureText(text).width + 12 * k, th = 16 * k, y = c.y + r * 0.78 + 4 * k;
       ctx.fillStyle = 'rgba(120,20,12,.92)'; ctx.beginPath(); ctx.roundRect?.(c.x - tw / 2, y, tw, th, 8 * k); ctx.fill();
       ctx.fillStyle = '#fff2ee'; ctx.fillText(text, c.x, y + th / 2 + 0.5 * k);
-    }
+    });
   }
   ctx.restore();
 }
@@ -271,14 +287,15 @@ export function paintGuide(ctx, g, zoom, label = '', part = null) {
     ctx.strokeStyle = 'rgba(16,24,22,.55)'; ctx.lineWidth = 6 * k; ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, Math.PI * 2); ctx.stroke();
     ctx.strokeStyle = `rgba(244,239,224,${0.72 + pulse * 0.28})`; ctx.lineWidth = 3 * k; ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, Math.PI * 2); ctx.stroke();
   }
-  // a pointer above the ring
-  if (part !== 'ring') { ctx.fillStyle = '#f4efe0'; ctx.beginPath(); ctx.moveTo(c.x, y); ctx.lineTo(c.x - 7 * k, y - 11 * k); ctx.lineTo(c.x + 7 * k, y - 11 * k); ctx.closePath(); ctx.fill(); }
-  if (label && part !== 'ring') {
+  // a pointer above the ring (it and the words stand upright over the tile)
+  if (part !== 'ring') upright(ctx, c.x, c.y, () => {
+    ctx.fillStyle = '#f4efe0'; ctx.beginPath(); ctx.moveTo(c.x, y); ctx.lineTo(c.x - 7 * k, y - 11 * k); ctx.lineTo(c.x + 7 * k, y - 11 * k); ctx.closePath(); ctx.fill();
+    if (!label) return;
     ctx.font = `700 ${11 * k}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     const tw = ctx.measureText(label).width + 12 * k, th = 17 * k, ly = y - 13 * k - th;
     ctx.fillStyle = 'rgba(16,24,22,.94)'; ctx.beginPath(); ctx.roundRect?.(c.x - tw / 2, ly, tw, th, 8 * k); ctx.fill();
     ctx.fillStyle = '#f4efe0'; ctx.fillText(label, c.x, ly + th / 2 + 0.5 * k);
-  }
+  });
   ctx.restore();
 }
 
@@ -372,8 +389,19 @@ export class FrontierMap {
    * {terrain, sites, names} | null, open: opening.mjs openHint};
    * `onSelect(hit)`; `onView(view, lod)` (the logical view).
    */
-  constructor(canvas, { source, onSelect = () => {}, onView = () => {}, onHover = () => {}, onDraw = null, insets = null, art = false }) {
+  constructor(canvas, { source, onSelect = () => {}, onView = () => {}, onHover = () => {}, onDraw = null, insets = null, art = false, tilt = undefined }) {
     this.canvas = canvas;
+    // The tilted stage (map/tilt.mjs, UX brief §11.1): the ground is painted on `#map-ground` inside `#map-stage`,
+    // which carries the tilt; this canvas lies flat above it, takes every input and carries what must stay
+    // upright (names, pills, tags). A page without the stage (and every test) is the flat map on this one canvas.
+    const page = canvas?.ownerDocument ?? null;
+    const stage = page?.getElementById?.('map-stage') ?? null, ground = stage ? page.getElementById('map-ground') : null;
+    this.stage = stage && ground?.getContext ? stage : null;
+    this.ground = this.stage ? ground : canvas;
+    this.dress = this.stage ? page.getElementById('map-dress') : null;
+    /** The tilt at the near view (degrees): the constant chosen from screenshots, `?tilt=` for trials, 0 for the flat map. */
+    this.tiltMax = this.stage ? Math.max(0, Math.min(TILT.max, tilt ?? tiltFromQuery(globalThis.location?.search) ?? TILT.deg)) : 0;
+    if (this.stage?.dataset) { if (this.tiltMax > 0) delete this.stage.dataset.flat; else this.stage.dataset.flat = ''; }
     /** What the page's HUD covers of the canvas (`() => {top, right, bottom, left}`, hud/insets.mjs); without it, what `#panel` covers. */
     this.insetsOf = insets;
     /** Called after every picture with the view on screen and the canvas size (things of the page that follow the map: the objective's place). */
@@ -420,8 +448,85 @@ export class FrontierMap {
   get view() { return this.cam.view; }
   /** The view on screen right now (it travels toward `view`): for things that should follow the picture, like a minimap frame. */
   get shown() { return this.cam.drawn; }
+  /** The map's box on the page (CSS px): what the views, the insets and every flat formula are measured in. */
   size() { return { width: this.canvas.clientWidth, height: this.canvas.clientHeight }; }
   dpr() { return Math.min(globalThis.devicePixelRatio || 1, 2); }
+
+  // ------------------------------------------------------------------ the tilt (map/tilt.mjs)
+  /** The far view's zoom on a canvas of `size` with nothing covering it: there the board lies flat. */
+  flatZoom(size = this.size()) {
+    const key = `${this.ringsNow()}|${size.width}x${size.height}`;
+    if (this.flatKey !== key) { this.flatKey = key; this.flatAt = size.width > 0 && size.height > 0 ? fitView(this.ringsNow(), size, { cap: FAR_ZOOM_CAP, floor: ZOOM_MIN }).zoom : LOD_EDGES.provinceIn; }
+    return this.flatAt;
+  }
+  /** The board's angle at `zoom` (degrees): flat at the far view, `tiltMax` at the diorama. */
+  tiltDeg(zoom, size = this.size()) { return this.tiltMax > 0 ? tiltAt(zoom, { far: this.flatZoom(size) * 1.05, deg: this.tiltMax }) : 0; }
+  /** The tilt's geometry at `zoom` (default: the picture on screen): stage px to box px and back. */
+  geo(zoom = this.cam.drawn.zoom, size = this.size()) { return tiltGeo(size, this.tiltDeg(zoom, size)); }
+  /** The canvas's box in the viewport (read once a frame at most). */
+  rect() {
+    if (this.rectAt !== this.frameNo || !this.rectNow) { const r = this.canvas.getBoundingClientRect?.(); this.rectNow = r ? { left: r.left, top: r.top } : { left: 0, top: 0 }; this.rectAt = this.frameNo; }
+    return this.rectNow;
+  }
+  /**
+   * Where world point (x, y) is seen: client px (`box`: px from the map's own top left corner, for an
+   * element laid out with it). The picture on screen, or with `logical` where the camera is going.
+   */
+  project(x, y, { logical = false, box = false } = {}) {
+    const v = logical ? this.cam.view : this.cam.drawn, s = this.size();
+    const p = this.geo(v.zoom, s).toBox((x - v.x) * v.zoom + s.width / 2, (y - v.y) * v.zoom + s.height / 2);
+    if (box) return p;
+    const r = this.rect();
+    return { x: p.x + r.left, y: p.y + r.top };
+  }
+  /** The world point seen at client px (cx, cy) (`box`: px from the map's own corner). The inverse of `project`. */
+  unproject(cx, cy, { logical = false, box = false } = {}) {
+    const v = logical ? this.cam.view : this.cam.drawn, s = this.size(), r = box ? { left: 0, top: 0 } : this.rect();
+    const p = this.geo(v.zoom, s).toStage(cx - r.left, cy - r.top);
+    return { x: v.x + (p.x - s.width / 2) / v.zoom, y: v.y + (p.y - s.height / 2) / v.zoom };
+  }
+  /** The part of the world in the picture: four world points (top left, top right, bottom right, bottom left); a trapezoid under a tilt. */
+  viewQuad({ logical = false } = {}) {
+    const v = logical ? this.cam.view : this.cam.drawn, s = this.size();
+    return this.geo(v.zoom, s).quad().map(p => ({ x: v.x + (p.x - s.width / 2) / v.zoom, y: v.y + (p.y - s.height / 2) / v.zoom }));
+  }
+  /**
+   * The ground canvas in the stage: `{left, top, width, height, dx, dy}` (CSS px; map/tilt.mjs groundBox). It
+   * reaches past the map's box so the tilted board always fills the picture. Any other world-space canvas (the
+   * effects' top pass) is laid exactly over it and draws through `groundView()` with `groundSize()`.
+   */
+  groundLayout(size = this.size()) {
+    const key = `${size.width}x${size.height}|${this.tiltMax}`;
+    if (this.groundKey !== key) {
+      this.groundKey = key;
+      const g = this.groundNow = this.stage ? groundBox(size, this.tiltMax) : { left: 0, top: 0, width: size.width, height: size.height, dx: 0, dy: 0 };
+      const st = this.stage ? this.ground.style : null;
+      if (st?.setProperty) { st.setProperty('--map-gl', `${g.left}px`); st.setProperty('--map-gt', `${g.top}px`); st.setProperty('--map-gw', `${g.width}px`); st.setProperty('--map-gh', `${g.height}px`); }
+    }
+    return this.groundNow;
+  }
+  /** The flat view of the ground canvas on screen: a canvas laid over `#map-ground` shows world (x, y) at ((x − v.x) · v.zoom + width / 2, …) of its own box. */
+  groundView() { return groundView(this.cam.drawn, this.groundLayout()); }
+  groundSize() { const g = this.groundLayout(); return { width: g.width, height: g.height }; }
+  /** The view that shows world point `pt` at `zoom` in the middle of the part of the picture nothing covers (as it is seen, tilt and all). */
+  aim(pt, zoom, size = this.size(), inset = this.inset()) {
+    const f = freeBox(size, inset), s = this.geo(zoom, size).toStage(size.width / 2 + f.x, size.height / 2 + f.y);
+    return { x: pt.x - (s.x - size.width / 2) / zoom, y: pt.y - (s.y - size.height / 2) / zoom, zoom };
+  }
+  /** Write the board's angle and the depth dressing onto the page (custom properties: the page's CSP allows no inline style). */
+  dressPage(deg, { near = 0, shown = 1, inset = null } = {}) {
+    const set = (el, k, v) => { el.cache ??= {}; if (el.cache[k] !== v) { el.cache[k] = v; el.node.style.setProperty(k, v); } };
+    if (this.stage) set(this.stageVars ??= { node: this.stage }, '--map-tilt', `${deg.toFixed(2)}deg`);
+    // (the angle on screen, for whoever must know it without asking the map: the browser tests aim their presses with it)
+    const d0 = this.canvas.dataset, mark = deg.toFixed(2);
+    if (d0 && d0.tilt !== mark) d0.tilt = mark;
+    if (!this.dress) return;
+    const d = this.dressVars ??= { node: this.dress };
+    // the haze is the far edge of a tilted board: none on a flat one
+    set(d, '--map-haze', (this.tiltMax > 0 ? Math.min(1, deg / this.tiltMax) * shown : 0).toFixed(3));
+    set(d, '--map-near', (near * shown).toFixed(3));
+    set(d, '--map-top', `${Math.round(inset?.top ?? 0)}px`);
+  }
   /** What the page's sheets cover of the canvas (read once a frame at most). */
   inset() {
     if (this.insetAt !== this.frameNo || !this.insetNow) { let v = null; try { v = this.insetsOf?.() ?? null; } catch { v = null; } this.insetNow = v ?? coveredInsets(this.canvas); this.insetAt = this.frameNo; }
@@ -491,7 +596,7 @@ export class FrontierMap {
     const size = this.size(), v = this.cam.view;
     const zoom = this.clampZoom(target.zoom ?? v.zoom, size);
     const pt = Number.isInteger(target.p) && Number.isInteger(target.q) ? placePoint(target) : { x: target.x ?? v.x, y: target.y ?? v.y };
-    const to = exact || !(size.width > 0) ? { x: pt.x, y: pt.y, zoom } : centreOn(pt, zoom, size, this.inset());
+    const to = exact || !(size.width > 0) ? { x: pt.x, y: pt.y, zoom } : this.aim(pt, zoom, size);
     this.setView(to, { auto, ms: ms ?? flightMs(this.cam.drawn, to, size), kind: 'fly' });
   }
 
@@ -507,11 +612,13 @@ export class FrontierMap {
     const own = (src.own ?? []).filter(o => Number.isInteger(o.p) && Number.isInteger(o.q));
     if (!own.length) {
       const plan = openingPlan({ ...(src.open ?? {}), ready: true }, src, size, { inset, dpr: this.dpr() });
-      this.setView(plan.view, { ms: flightMs(this.cam.drawn, plan.view, size), kind: 'fly' });
+      const to = this.aim(plan.at, plan.view.zoom, size, inset);
+      this.setView(to, { ms: flightMs(this.cam.drawn, to, size), kind: 'fly' });
       return;
     }
     const at = own.map(placePoint);
-    const f = focusOf(this.cam.view, size, inset);
+    // (the world point in the middle of the part of the picture nothing covers, where the camera is going)
+    const f = (c => this.unproject(size.width / 2 + c.x, size.height / 2 + c.y, { logical: true, box: true }))(freeBox(size, inset));
     const here = at.findIndex(c => Math.hypot(c.x - f.x, c.y - f.y) < RADIUS * 0.5);
     const c = at[here >= 0 ? (here + 1) % at.length : Math.min(at.length - 1, Math.max(0, src.open?.active ?? 0))];
     this.flyTo({ x: c.x, y: c.y, zoom: Math.max(this.cam.view.zoom, heroZoom(this.dpr())) });
@@ -586,15 +693,21 @@ export class FrontierMap {
 
   /** Zoom by `factor` about the middle of the uncovered canvas (the buttons, + and −): eased. */
   zoomBy(factor, ms = MOVE_MS.zoom) {
-    const s = this.size(), f = focusOf({ x: 0, y: 0, zoom: 1 }, s, this.inset());
+    const s = this.size(), f = freeBox(s, this.inset());
     this.zoomAt(factor, s.width / 2 + f.x, s.height / 2 + f.y, { ms });
   }
 
-  /** Zoom by `factor` keeping the world point under screen point (sx, sy); the picture eases there when `move.ms`. */
-  zoomAt(factor, sx, sy, move = {}) {
+  /**
+   * Zoom by `factor` keeping the world point seen at (bx, by) (px from the map's own corner) where it is; the
+   * picture eases there when `move.ms`. The board's angle changes with the zoom, so the point is found on the
+   * board as it is and put back on the board as it will be.
+   */
+  zoomAt(factor, bx, by, move = {}) {
     const s = this.size(), v = this.cam.view;
     const z = this.clampZoom(v.zoom * factor, s);
-    this.setView(zoomAround(v, s, z / v.zoom, sx, sy), { clamp: true, ...move, anchor: { x: sx - s.width / 2, y: sy - s.height / 2 } });
+    const a = this.geo(v.zoom, s).toStage(bx, by), b = this.geo(z, s).toStage(bx, by);
+    const wx = v.x + (a.x - s.width / 2) / v.zoom, wy = v.y + (a.y - s.height / 2) / v.zoom;
+    this.setView({ x: wx - (b.x - s.width / 2) / z, y: wy - (b.y - s.height / 2) / z, zoom: z }, { clamp: true, ...move, anchor: { x: b.x - s.width / 2, y: b.y - s.height / 2 } });
   }
 
   /** The map buttons after the canvas (a DOM page only). */
@@ -656,7 +769,14 @@ export class FrontierMap {
   bind() {
     const c = this.canvas;
     if (!c.addEventListener) return;
-    const at = e => ({ x: e.offsetX, y: e.offsetY });
+    // Where an event is: `bx`, `by` px from the map's own corner (never offsetX: under a transform it lies), and
+    // `x`, `y` the stage point seen there (the flat picture every formula of the map speaks; map/tilt.mjs).
+    const at = e => {
+      const real = Number.isFinite(e.clientX) && typeof c.getBoundingClientRect === 'function';
+      const r = real ? this.rect() : null, bx = real ? e.clientX - r.left : e.offsetX, by = real ? e.clientY - r.top : e.offsetY;
+      const p = this.geo().toStage(bx, by);
+      return { x: p.x, y: p.y, bx, by };
+    };
     c.addEventListener('pointerdown', e => {
       c.setPointerCapture?.(e.pointerId);
       // a finger on the map stops a move where the picture is
@@ -668,7 +788,7 @@ export class FrontierMap {
     c.addEventListener('pointermove', e => {
       const prev = this.pointers.get(e.pointerId), p = at(e);
       // a mouse over the map with no button down: what is under it (the page's hover tip), in the picture on screen
-      if (!prev) { if (e.pointerType === 'mouse') { const hit = pick(this.cam.drawn, this.size(), p.x, p.y); this.setHover(hit); this.onHover(hit, p); } return; }
+      if (!prev) { if (e.pointerType === 'mouse') { const hit = pick(this.cam.drawn, this.size(), p.x, p.y); this.setHover(hit); this.onHover(hit, { x: p.bx, y: p.by }); } return; }
       this.setHover(null);
       this.onHover(null);
       if (this.pointers.size === 2) {
@@ -677,7 +797,7 @@ export class FrontierMap {
         this.pointers.set(e.pointerId, p);
         const [a2, b2] = [...this.pointers.values()];
         const after = Math.hypot(a2.x - b2.x, a2.y - b2.y);
-        if (before > 0) this.zoomAt(after / before, (a2.x + b2.x) / 2, (a2.y + b2.y) / 2);
+        if (before > 0) this.zoomAt(after / before, (a2.bx + b2.bx) / 2, (a2.by + b2.by) / 2);
         if (this.drag) { this.drag.moved = true; this.drag.track = []; }
         return;
       }
@@ -712,7 +832,8 @@ export class FrontierMap {
       e.preventDefault();
       // the wheel takes over a flight where the picture is; its own easing is only retargeted
       if (this.cam.tween && this.cam.tween.tag !== 'wheel' && this.cam.halt()) this.sync();
-      this.zoomAt(Math.exp(-e.deltaY * 0.0015), e.offsetX, e.offsetY, { ms: MOVE_MS.wheel, tag: 'wheel' });
+      const p = at(e);
+      this.zoomAt(Math.exp(-e.deltaY * 0.0015), p.bx, p.by, { ms: MOVE_MS.wheel, tag: 'wheel' });
     }, { passive: false });
     c.addEventListener('keydown', e => {
       const v = this.cam.view, step = 80 / v.zoom;
@@ -760,12 +881,14 @@ export class FrontierMap {
     const prev = this.opened ?? null, was = { ...this.cam.drawn };
     this.openKey = key;
     this.opened = { kind: plan.kind, rank: plan.rank, width: size.width, height: size.height, title, subject };
-    this.setView(plan.view, { auto: true });
-    const f = focusOf({ x: 0, y: 0, zoom: 1 }, size, inset);
+    // (the plan's view is the flat one: the subject goes where it is seen in the middle of the uncovered part)
+    const to = this.aim(plan.at, plan.view.zoom, size, inset);
+    this.setView(to, { auto: true });
+    const f = (b => ({ x: b.x, y: b.y }))(freeBox(size, inset));
     if (!prev) {
       // the first picture: the title card drifts in from the mist; a player's land is reached from a little above
       const k = title ? TITLE_FROM : plan.kind === 'fit' ? 1 : OPEN_FROM;
-      if (k < 1) this.cam.from(centreOn(plan.at, Math.max(ZOOM_MIN, plan.view.zoom * k), size, inset), { ms: title ? TITLE_MS : MOVE_MS.open, ease: EASE.outCubic, anchor: f });
+      if (k < 1) this.cam.from(this.aim(plan.at, Math.max(ZOOM_MIN, to.zoom * k), size, inset), { ms: title ? TITLE_MS : MOVE_MS.open, ease: EASE.outCubic, anchor: f });
       this.reveal = now;
     } else if (prev.width !== size.width || prev.height !== size.height) {
       // a new canvas size: framed again, at once
@@ -782,33 +905,53 @@ export class FrontierMap {
 
   draw(now = clock()) {
     this.dirty = false;
-    // the canvas is painted edge to edge every frame: no alpha to blend with the page
-    const ctx = this.canvas.getContext?.('2d', { alpha: false });
-    if (!ctx) return;
+    const staged = !!this.stage, gcv = this.ground;
+    // the ground is painted edge to edge every frame: no alpha to blend with the page
+    const ctx = gcv.getContext?.('2d', { alpha: false });
+    // what must stay upright and crisp (names, pills, tags) is drawn on this canvas, flat above the tilted stage
+    // (map/tilt.mjs upright); without a stage it is the ground's own canvas
+    const octx = staged ? this.canvas.getContext?.('2d') : ctx;
+    if (!ctx || !octx) return;
     PROBE.begin();
     const dpr = this.dpr();
     const { width, height } = this.size();
-    const W = Math.round(width * dpr), H = Math.round(height * dpr);
-    if (this.canvas.width !== W || this.canvas.height !== H) { this.canvas.width = W; this.canvas.height = H; this.sceneKey = null; this.fade = null; }
     if (!(width > 0) || !(height > 0)) return;
     const size = { width, height };
+    // the ground canvas reaches past the map's box (the tilted board must fill the picture): it has a flat view of its own
+    const G = this.groundLayout(size), gsize = { width: G.width, height: G.height };
+    // (the tilt draws the near half of the board a little larger than it was painted: on a screen of one device
+    // pixel per CSS pixel the ground is painted that much finer, so nothing is stretched)
+    const gr = dpr * (this.tiltMax > 0 && dpr < 1.5 ? GROUND_FINER : 1);
+    const W = Math.round(G.width * gr), H = Math.round(G.height * gr);
+    if (gcv.width !== W || gcv.height !== H) { gcv.width = W; gcv.height = H; this.sceneKey = null; this.fade = null; }
+    const OW = Math.round(width * dpr), OH = Math.round(height * dpr);
+    if (staged && (this.canvas.width !== OW || this.canvas.height !== OH)) { this.canvas.width = OW; this.canvas.height = OH; }
     // the table the world lies on: one colour (a gradient over the whole canvas every frame costs far more than
-    // the scene on a slow canvas); its fall into shadow toward the edges is the vignette of the depth dressing,
-    // which is painted once into a bitmap and copied
-    const table = g => { g.setTransform(dpr, 0, 0, dpr, 0, 0); g.fillStyle = TABLE; g.fillRect(0, 0, width, height); };
+    // the scene on a slow canvas); its fall into shadow toward the edges is the vignette of the depth dressing
+    const table = g => { g.setTransform(gr, 0, 0, gr, 0, 0); g.fillStyle = TABLE; g.fillRect(0, 0, G.width, G.height); };
     const inset = this.inset();
-    const dressing = zoom => { const step = Math.round(nearness(zoom) * 16); this.stamped(ctx, 'dressCv', `${W}x${H}|${step}|${inset.top},${inset.right},${inset.bottom},${inset.left}`, W, H, dpr, g => paintDressing(g, size, { near: step / 16, inset })); };
+    // the depth dressing: on the page, over the stage (custom properties of #map-dress); on a map without a stage, in the canvas
+    const dressing = (zoom, deg = 0, shown = 1) => {
+      if (staged) { this.dressPage(deg, { near: nearness(zoom), shown, inset }); return; }
+      const step = Math.round(nearness(zoom) * 16);
+      this.stamped(ctx, 'dressCv', `${W}x${H}|${step}|${inset.top},${inset.right},${inset.bottom},${inset.left}`, W, H, dpr, g => paintDressing(g, size, { near: step / 16, inset }));
+    };
+    const wipe = () => { if (staged) { octx.setTransform(1, 0, 0, 1, 0, 0); octx.clearRect(0, 0, OW, OH); } };
     const src = this.source();
     this.rings = src.ringsOpen ?? 1;
     if (!this.open(src, size, { dpr, now })) {
       // who is looking is not known yet: the bare table, never the whole world first
       table(ctx);
+      wipe();
       dressing(0);
       this.updatePointer(null);
       PROBE.end('wait', ctx);
       return;
     }
     const v = this.cam.drawn, logical = this.cam.view;
+    // the board's angle on screen follows the zoom on screen; `gv` is the ground canvas's own flat view of the same picture
+    const T = this.geo(v.zoom, size), gv = groundView(v, G);
+    const quadOf = (view, t) => (t.flat ? null : t.quad().map(p => ({ x: view.x + (p.x - width / 2) / view.zoom, y: view.y + (p.y - height / 2) / view.zoom })));
     const was = this.drawnLod, lod = lodFor(v.zoom, was);
     this.drawnLod = lod;
     const motion = !reducedMotion();
@@ -821,10 +964,10 @@ export class FrontierMap {
       const g = cv?.getContext?.('2d');
       if (g) {
         // (the world only: labels are always drawn fresh on top, a still of them would ghost as the zoom goes on)
-        this.paintScene(ctx, src, v, was, size, dpr, { now, table });
-        g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'copy'; g.drawImage(this.canvas, 0, 0); g.globalCompositeOperation = 'source-over';
+        this.paintScene(ctx, src, gv, was, gsize, gr, { now, table, quad: quadOf(v, T) });
+        g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'copy'; g.drawImage(gcv, 0, 0); g.globalCompositeOperation = 'source-over';
         this.fadeCv = cv;
-        this.fade = { view: { ...v }, since: now, t0: null };
+        this.fade = { view: { ...gv }, since: now, t0: null };
       }
     }
     // at rest (the same picture as the last frame) the still layers are kept and only the animated ones repaint
@@ -835,11 +978,11 @@ export class FrontierMap {
     if (this.cam.moving && this.lod === 'tile' && this.warmKey !== `${logical.x}|${logical.y}|${logical.zoom}`) {
       this.warmKey = `${logical.x}|${logical.y}|${logical.zoom}`;
       const terrainOf = src.terrainOf ?? this.terrainOf;
-      for (const pr of visibleProvinces(logical, size, Math.max(0, this.rings - 1) + 1)) { terrainOf?.(pr.p, pr.q); if (this.art && ringOf(pr.p, pr.q) < this.rings && (src.survey?.province(pr.p, pr.q).max ?? L3) >= L2) src.provinceOf?.(pr.p, pr.q); }
+      for (const pr of visibleProvinces(groundView(logical, G), gsize, Math.max(0, this.rings - 1) + 1, quadOf(logical, this.geo(logical.zoom, size)))) { terrainOf?.(pr.p, pr.q); if (this.art && ringOf(pr.p, pr.q) < this.rings && (src.survey?.province(pr.p, pr.q).max ?? L3) >= L2) src.provinceOf?.(pr.p, pr.q); }
     }
     // away from the tile view its still layers are let go (two bitmaps the size of the canvas)
     if (lod !== 'tile' && this.layers) this.layers = null;
-    const out = this.paintScene(ctx, src, v, lod, size, dpr, { now, rest, table, artZoom: Math.max(v.zoom, logical.zoom) });
+    const out = this.paintScene(ctx, src, gv, lod, gsize, gr, { now, rest, table, artZoom: Math.max(v.zoom, logical.zoom), quad: quadOf(v, T) });
     this.painted = true;
     if (this.fade) {
       // the old picture stays whole until the new level has its art (a moment at most), then fades; it is a still
@@ -850,10 +993,10 @@ export class FrontierMap {
       const k = Math.max(drift, this.fade.t0 === null ? 0 : (now - this.fade.t0) / LOD_FADE_MS);
       if (!(k < 1)) { this.fade = null; if (this.fadeCv) { this.fadeCv.width = 0; this.fadeCv.height = 0; this.fadeCv = null; } }
       else {
-        const f = this.fade.view, s = v.zoom / f.zoom;
+        const f = this.fade.view, s = gv.zoom / f.zoom;
         ctx.save();
         ctx.globalAlpha = 1 - EASE.inOutCubic(Math.max(0, k));
-        ctx.setTransform(s, 0, 0, s, dpr * ((width / 2) * (1 - s) + (f.x - v.x) * v.zoom), dpr * ((height / 2) * (1 - s) + (f.y - v.y) * v.zoom));
+        ctx.setTransform(s, 0, 0, s, gr * ((G.width / 2) * (1 - s) + (f.x - gv.x) * gv.zoom), gr * ((G.height / 2) * (1 - s) + (f.y - gv.y) * gv.zoom));
         ctx.drawImage(this.fadeCv, 0, 0);
         ctx.restore();
         this.dirty = true;
@@ -870,13 +1013,22 @@ export class FrontierMap {
         this.dirty = true;
       }
     }
-    dressing(v.zoom);
-    if (shown > 0.4) { ctx.save(); ctx.globalAlpha = shown; out.over(); ctx.restore(); }
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    dressing(v.zoom, T.deg, shown);
+    wipe();
+    if (shown > 0.4) {
+      // each label stands upright around its own place on the board (map/tilt.mjs)
+      if (staged) armUpright(octx, { place: (x, y) => T.toBox((x - v.x) * v.zoom + width / 2, (y - v.y) * v.zoom + height / 2), zoom: v.zoom, ratio: dpr });
+      octx.save(); octx.globalAlpha = shown;
+      out.over(octx, staged ? [dpr * v.zoom, 0, 0, dpr * v.zoom, dpr * (width / 2 - v.x * v.zoom), dpr * (height / 2 - v.y * v.zoom)] : null);
+      octx.restore();
+      disarmUpright(octx);
+    }
+    ctx.setTransform(gr, 0, 0, gr, 0, 0);
+    octx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.updatePointer(src, v, size, inset);
     this.mark(lod === this.lod && out.wanted > 0 && out.drawn === out.wanted ? 'ready' : 'pending');
     PROBE.end(out.kind, ctx);
-    PROBE.paint(ctx, size);
+    PROBE.paint(octx, size);
     try { this.onDraw?.(v, size, lod); } catch { /* the page's own follower */ }
   }
 
@@ -903,13 +1055,17 @@ export class FrontierMap {
   }
 
   /**
-   * One picture of the world at `view` and `lod` into `ctx`. Returns
-   * `{wanted, drawn, kind, over, pending}`: the tile LOD's terrain state, what
-   * kind of frame it was ('full' | 'live' | 'far'), `over()`, which paints
-   * what belongs above the depth dressing (labels, warnings, pins, the
-   * guide), and how much art of this picture is still on its way.
+   * One picture of the world at `view` and `lod` into `ctx` (the ground
+   * canvas: `view` and `size` are its own flat view and box; `quad` the part
+   * of the world a tilted board shows of it). Returns `{wanted, drawn, kind,
+   * over, pending}`: the tile LOD's terrain state, what kind of frame it was
+   * ('full' | 'live' | 'far'), `over(o, world)`, which paints what is read
+   * rather than looked at (labels, warnings' words, pins, the guide's words)
+   * into `o`, the label canvas, whose own flat transform is `world`
+   * (default: this canvas), and how much art of this picture is still on
+   * its way.
    */
-  paintScene(ctx, src, view, lod, size, dpr, { now = clock(), rest = false, artZoom = view.zoom, table = () => {} } = {}) {
+  paintScene(ctx, src, view, lod, size, dpr, { now = clock(), rest = false, artZoom = view.zoom, table = () => {}, quad = null } = {}) {
     const { width, height } = size, z = view.zoom;
     const world = [dpr * z, 0, 0, dpr * z, dpr * (width / 2 - view.x * z), dpr * (height / 2 - view.y * z)];
     // what lies under the art: the table, and the provinces drawn as plain cells (no terrain yet, or no art);
@@ -937,7 +1093,7 @@ export class FrontierMap {
     const fogAt = (q, r) => { const at = locate(q, r); return ringOf(at.p, at.q) < ringsOpen ? 'clear' : 'unopened'; };
     let wanted = 0, drawn = 0, kind = 'far', labels = null, pending = 0;
     const artTiles = [], artCells = [];
-    for (const pr of visibleProvinces(view, size, maxRing)) {
+    for (const pr of visibleProvinces(view, size, maxRing, quad)) {
       const key = `${pr.p},${pr.q}`;
       const fog = fogOf(pr.p, pr.q);
       // (a selected tile has its own ring: only a province chosen as a whole is framed)
@@ -1001,21 +1157,23 @@ export class FrontierMap {
     if (looked !== null) paintWedge(ctx, looked, ringsOpen, z, { lit: true });
     // from afar: the viewer's land in its colour, and on the world chart its village as a gold beacon with its name
     const names = lod === 'world' ? this.farPass(ctx, F) : (lod === 'province' && this.farPass(ctx, F), []);
+    // the names a map has (drawn with the other words, upright: `over`)
+    let realm = null;
     if (lod === 'world' && (artCells.length || names.length)) {
       const nations = artCells.length > 0 && (src.lens ?? 'realm') !== 'land';
       const box = waiting ? wedgeBox(survey.faction, ringsOpen) : looked !== null ? wedgeBox(looked, ringsOpen) : null;
-      paintRealmLabels(ctx, recs, z, src.realmName ?? null, { extra: names, nations, ...(limited ? { min: 3, home: box ? { faction: waiting ? survey.faction : looked, x: box.x, y: box.y } : null,
+      realm = o => paintRealmLabels(o, recs, z, src.realmName ?? null, { extra: names, nations, ...(limited ? { min: 3, home: box ? { faction: waiting ? survey.faction : looked, x: box.x, y: box.y } : null,
         seen: (r, j) => { if (survey.province(r.p, r.q).max < L2) return false; const t = terrainOf?.(r.p, r.q), idx = t?.sites?.[j]; return Number.isInteger(idx) && survey.levelOf(r.p, r.q, idx) >= L2; } } : {}) });
     }
     // (nearer than the world chart the wedge that is looked at, or waited in, still carries its nation's name)
     else if (lod === 'province' && (looked !== null || waiting)) {
       const f = waiting ? survey.faction : looked, box = wedgeBox(f, ringsOpen);
-      if (box) paintRealmLabels(ctx, recs, z, src.realmName ?? null, { nations: false, extra: [{ text: src.realmName?.(f) ?? String(f), x: box.x, y: box.y, below: -14, size: 22, fill: '#fff6e2' }] });
+      if (box) realm = o => paintRealmLabels(o, recs, z, src.realmName ?? null, { nations: false, extra: [{ text: src.realmName?.(f) ?? String(f), x: box.x, y: box.y, below: -14, size: 22, fill: '#fff6e2' }] });
     }
     if (tileOpts) {
       kind = layered === 'live' ? 'live' : 'full';
       if (!layered) this.art.paint(ctx, artTiles, { ...tileOpts, part: 'world' });
-      labels = () => this.art.labels(ctx, tileOpts);
+      labels = o => this.art.labels(o, tileOpts);
       pending += this.art.misses - missed;   // sprites still on their way
     }
     // the edge of the world: the cloud sea thins into the table's shadow (no stepped, unpainted corner beyond it)
@@ -1027,21 +1185,25 @@ export class FrontierMap {
     else if (F.live && !F.still) this.invalidateSoon(90);
     // what was kept in the still ground no longer fits (a roll-out or a landing ended, other tiles are lit): paint it again
     if (F.rebake && this.layers) { this.layers.key = null; this.dirty = true; }
-    // what is read rather than looked at goes over the depth dressing: labels, warnings, pins, the guide
-    const over = () => {
-      ctx.setTransform(...world);
-      const guide = F.guide;
-      // (the guide's ring lies under the labels it used to cut through: at the tile view on the ground itself, with
-      // the other ground marks; further out here, before the labels)
-      if (guide && lod !== 'tile') paintGuide(ctx, guide, z, '', 'ring');
-      labels?.();
-      if (src.threats?.length) { paintThreats(ctx, src.threats, z, src.threatLabel ?? null); this.invalidateSoon(); }
-      if (limited && survey.candidates?.length) { const still = reducedMotion(); paintCandidates(ctx, survey.candidates, z, { still }); if (!still) this.invalidateSoon(120); }
-      if (src.pins?.length) paintPins(ctx, src.pins, z);
+    // what lies on the land stays on the board: the guide's ring (at the tile view it is with the other ground
+    // marks), a warning's halo, the rings of the candidate sites
+    const guide = F.guide, calm = reducedMotion();
+    if (guide && lod !== 'tile') paintGuide(ctx, guide, z, '', 'ring');
+    if (src.threats?.length) paintThreats(ctx, src.threats, z, null, 'mark');
+    if (limited && survey.candidates?.length) paintCandidates(ctx, survey.candidates, z, { still: calm, part: 'mark' });
+    // what is read rather than looked at stands upright over the board and its depth dressing: names, labels,
+    // warnings' words, pins, the guide's words (`o`: the label canvas; `w`: its flat world transform)
+    const over = (o = ctx, w = null) => {
+      o.setTransform(...(w ?? world));
+      realm?.(o);
+      labels?.(o);
+      if (src.threats?.length) { paintThreats(o, src.threats, z, src.threatLabel ?? null, 'label'); this.invalidateSoon(); }
+      if (limited && survey.candidates?.length) { paintCandidates(o, survey.candidates, z, { still: calm, part: 'label' }); if (!calm) this.invalidateSoon(120); }
+      if (src.pins?.length) paintPins(o, src.pins, z);
       // (the page's objective chip may stand at the target itself: then the ring alone marks the tile)
-      if (guide && !src.guideChip) paintGuide(ctx, guide, z, src.guideLabel?.(guide) ?? '', 'label');
+      if (guide && !src.guideChip) paintGuide(o, guide, z, src.guideLabel?.(guide) ?? '', 'label');
       if (guide) this.invalidateSoon();
-      this.overPass(ctx, F);
+      this.overPass(o, F);
     };
     return { wanted, drawn, kind, over, pending };
   }
@@ -1233,20 +1395,20 @@ export class FrontierMap {
     // the host that acts, under the selected tile (tap the tile again for the next one)
     if (A && A.mode === 'select' && A.hex) {
       const c = project(A.hex.q, A.hex.r), y = c.y + RADIUS * FLATTEN * 1.04;
-      const box = paintTag(ctx, c.x, y, `${actorText(A.actor)}${A.actors.length > 1 ? ` \u00b7 ${A.index + 1}/${A.actors.length}` : ''}`, { zoom: z, tone: 'you', place: 'below', gap: 3 });
+      const box = paintTag(ctx, c.x, y, `${actorText(A.actor)}${A.actors.length > 1 ? ` \u00b7 ${A.index + 1}/${A.actors.length}` : ''}`, { zoom: z, tone: 'you', place: 'below', gap: 3, anchor: c });
       const why = blockText(A.actor);
-      if (why && box) paintTag(ctx, c.x, box.y + box.h, why, { zoom: z, tone: 'warn', place: 'below', gap: 3, size: 11.5 });
+      if (why && box) paintTag(ctx, c.x, box.y + box.h, why, { zoom: z, tone: 'warn', place: 'below', gap: 3, size: 11.5, anchor: c });
     }
     // when the march would arrive: on the composed route, or on the route under the pointer
     const hr = this.hoverRoute(F);
-    const tagAt = (hex, bell, tone) => { const d = project(hex.q, hex.r); paintTag(ctx, d.x, d.y - RADIUS * FLATTEN * 0.82, arrivalText(bell), { zoom: z, tone, place: 'above', gap: 4 }); };
+    const tagAt = (hex, bell, tone) => { const d = project(hex.q, hex.r); paintTag(ctx, d.x, d.y - RADIUS * FLATTEN * 0.82, arrivalText(bell), { zoom: z, tone, place: 'above', gap: 4, anchor: d }); };
     if (hr && Number.isInteger(hr.arriveBell)) tagAt(hr.hexes[hr.hexes.length - 1], hr.arriveBell, 'plain');
     else if (src.route?.dest && Number.isInteger(src.route.arriveBell)) tagAt(src.route.dest, src.route.arriveBell, 'you');
     const note = this.noteOf(F);
     if (note?.hex) {
       const d = project(note.hex.q, note.hex.r), fade = Math.max(0, Math.min(1, (NOTE_MS - note.age) / 400));
       const shake = F.still ? 0 : Math.sin(note.age / 28) * 5 * Math.exp(-note.age / 150);
-      paintTag(ctx, d.x, d.y - RADIUS * FLATTEN * 0.82, note.text, { zoom: z, tone: 'refuse', place: 'above', gap: 4, shake, alpha: fade });
+      paintTag(ctx, d.x, d.y - RADIUS * FLATTEN * 0.82, note.text, { zoom: z, tone: 'refuse', place: 'above', gap: 4, shake, alpha: fade, anchor: d });
     }
   }
 
@@ -1255,7 +1417,7 @@ export class FrontierMap {
     if (!this.pointer) return;
     const own = src ? (src.own ?? []).filter(o => Number.isInteger(o.p) && Number.isInteger(o.q)) : [];
     const at = own.length && !src.open?.title ? own[Math.min(own.length - 1, Math.max(0, src.open?.active ?? 0))] : null;
-    this.pointer.update(at ? edgePointer(view, size, placePoint(at), { inset }) : null);
+    this.pointer.update(at ? edgePointer(view, size, placePoint(at), { inset, geo: this.geo(view.zoom, size) }) : null);
   }
 
   /**
@@ -1270,7 +1432,7 @@ export class FrontierMap {
    * frame whole).
    */
   paintLayered(ctx, tiles, opts, world, now, under) {
-    const W = this.canvas.width, H = this.canvas.height;
+    const W = this.ground.width, H = this.ground.height;
     if (W * H > STILL_MAX_PIXELS) { this.layers = null; return null; }
     const L = this.layers ??= { key: null, at: 0 };
     for (const n of ['ground', 'props']) {

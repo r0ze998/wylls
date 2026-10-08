@@ -24,6 +24,7 @@ import { FACTION_COLORS } from '../fi18n.mjs';
 import { SIGILS } from './layers.mjs';
 import { WORKED_RADIUS } from './survey.mjs';
 import { YOU, fxNow } from './chart.mjs';
+import { upright } from './tilt.mjs';
 
 /** The fill of the viewer's own land: its strength at the rim and in the middle (the rim is the brief's 0.38). */
 export const OWN_FILL = Object.freeze({ rim: 0.38, middle: 0.2 });
@@ -248,9 +249,11 @@ export function paintProvisionalTag(g, land, { zoom = 1 } = {}) {
   g.font = `700 ${12 * k}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
   // on the lower edge of the land, clear of the village's name
   const tw = (g.measureText?.(text)?.width ?? 12 * k) + 14 * k, th = 18 * k, ty = c.y + (land.shape.maxD * 1.5 + 1) * RADIUS * FLATTEN;
-  g.fillStyle = `${INK}.92)`; g.beginPath(); g.roundRect?.(c.x - tw / 2, ty - th / 2, tw, th, 9 * k); g.fill();
-  g.strokeStyle = YOU; g.lineWidth = 1.2 * k; g.stroke();
-  g.fillStyle = YOU; g.fillText(text, c.x, ty + 0.5 * k);
+  upright(g, c.x, ty, () => {
+    g.fillStyle = `${INK}.92)`; g.beginPath(); g.roundRect?.(c.x - tw / 2, ty - th / 2, tw, th, 9 * k); g.fill();
+    g.strokeStyle = YOU; g.lineWidth = 1.2 * k; g.stroke();
+    g.fillStyle = YOU; g.fillText(text, c.x, ty + 0.5 * k);
+  });
   g.restore();
 }
 

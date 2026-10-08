@@ -38,6 +38,7 @@ import { paintMoments } from '../people/moments.mjs';
 import { paintOver as fxOver } from '../fx/engine.mjs';
 import { BOUNDARY_HALO, BOUNDARY_INK, FOG, UNOPENED_FILL, paintSigil, provincePixel, PROVINCE_CIRCUMRADIUS } from './layers.mjs';
 import { applySurvey, fxNow, mutedSprite, paintChart, paintReveal } from './chart.mjs';
+import { upright } from './tilt.mjs';
 import { FOG_OF_LEVEL, L2, L3, hexKey } from './survey.mjs';
 import { reducedMotion } from './camera.mjs';
 import { landShape } from './ownland.mjs';
@@ -1250,6 +1251,8 @@ export class SpriteArt {
       const k = 1 / zoom, w = 44 * k, h = 15 * k;
       const x = g.cx - w / 2 + i * (w + 3 * k), y = figures ? g.cy - RADIUS * 0.95 - h : g.cy + 4 * k;
       const fill = FACTION_COLORS[g.f] ?? '#8a8f86';
+      // (a flag stands upright over its hex whatever the board's tilt: map/tilt.mjs)
+      upright(ctx, g.cx, g.cy, () => {
       ctx.beginPath(); ctx.roundRect?.(x - 1.5 * k, y - 1.5 * k, w + 3 * k, h + 7 * k, 6 * k); ctx.fillStyle = '#1a1d22'; ctx.fill();
       ctx.beginPath(); ctx.roundRect?.(x, y, w, h, 5 * k); ctx.fillStyle = fill; ctx.fill();
       if (g.arriving) { ctx.setLineDash([3 * k, 2 * k]); ctx.strokeStyle = '#fffaf0'; ctx.lineWidth = 1.2 * k; ctx.stroke(); ctx.setLineDash([]); }
@@ -1261,6 +1264,7 @@ export class SpriteArt {
       const st = Math.max(0, Math.min(1, g.stamina / 120));
       ctx.fillStyle = 'rgba(255,255,255,.18)'; ctx.fillRect(x, y + h + 1.5 * k, w, 3 * k);
       ctx.fillStyle = g.stamina < 40 ? '#e0533d' : g.stamina < 74 ? '#e0a83d' : '#5fbf6a'; ctx.fillRect(x, y + h + 1.5 * k, w * st, 3 * k);
+      });
     }
     ctx.restore();
   }

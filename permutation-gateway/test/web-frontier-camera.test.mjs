@@ -376,7 +376,10 @@ test('the zoom range is useful: never much past the far view, never past the spr
   m.destroy();
 });
 
-test('depth without a tilt: the dressing is strong at the diorama and gone at the far view', () => {
+// Rewritten with the tilt (UX brief §11.1): the haze was a pale film of up to 0.78 over the top 44% of the picture;
+// it is now a warm haze of at most 0.30 on the far edge only. (On the three pages the board is really tilted and
+// the dressing is the page's #map-dress; this painter is what a map without the stage draws.)
+test('the depth dressing of a map without the stage: a warm haze of at most 0.30 at the far edge close up, none at the far view', () => {
   assert.equal(nearness(0.05), 0);
   assert.equal(nearness(cam.LOD_NEAR.from), 0);
   assert.equal(nearness(cam.LOD_NEAR.to), 1);
@@ -388,7 +391,10 @@ test('depth without a tilt: the dressing is strong at the diorama and gone at th
   paintDressing(ctx, size, { zoom: 1.3 });
   assert.equal(fills.length, 3, 'haze, vignette, the near edge');
   const alpha = c => Number(/,([\d.]+)\)$/.exec(c)[1]);
-  assert.ok(alpha(fills[0].stops[0][1]) > 0.3 && alpha(fills[0].stops.at(-1)[1]) === 0, 'the haze is strongest at the top edge and fades out');
+  const top = alpha(fills[0].stops[0][1]);
+  assert.ok(top > 0.1 && top <= 0.3 && alpha(fills[0].stops.at(-1)[1]) === 0, `the haze is strongest at the top edge (${top}, never more than 0.30) and fades out`);
+  assert.match(fills[0].stops[0][1], /^rgba\(240,228,200,/, 'warm, not a white film');
+  assert.ok(alpha(fills[1].stops.at(-1)[1]) <= 0.3, 'the vignette never muddies the corners');
   assert.equal(alpha(fills[1].stops[0][1]), 0, 'the middle of the picture is untouched');
   fills.length = 0;
   paintDressing(ctx, size, { zoom: 0.08 });

@@ -33,6 +33,7 @@ import { SCOUT, UNIT_ORDER, actionBlocks, exploreTargets, hostsIn } from '../fla
 import { DEPART_STAMINA, freeTransitSlot } from '../fmarch.mjs';
 import { reachSteps, reachTiles } from '../hud/reach.mjs';
 import { YOU, fxNow } from './chart.mjs';
+import { upright } from './tilt.mjs';
 
 /** The kinds of lit tile, in the order a tile takes them (the first that applies). */
 export const ACTION_KINDS = Object.freeze(['explore', 'home', 'attack', 'move']);
@@ -422,17 +423,20 @@ const TAG_TONES = Object.freeze({
  * `place` 'above' or 'below' the point by `gap` screen px; `shake` (px) moves
  * it sideways (a refusal). Returns its box in world px.
  */
-export function paintTag(g, x, y, text, { zoom = 1, tone = 'plain', place = 'above', gap = 10, size = 12.5, shake = 0, alpha = 1 } = {}) {
+export function paintTag(g, x, y, text, { zoom = 1, tone = 'plain', place = 'above', gap = 10, size = 12.5, shake = 0, alpha = 1, anchor = null } = {}) {
+  // `anchor` {x, y}: the place on the board the tag belongs to (its tile): the tag stands upright around it (map/tilt.mjs)
   if (!g?.save || !text) return null;
   const k = 1 / zoom, [plate, ink, rim] = TAG_TONES[tone] ?? TAG_TONES.plain;
   g.save();
   g.font = `700 ${size * k}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
   const tw = (g.measureText?.(text)?.width ?? text.length * size * k * 0.6) + 18 * k, th = (size + 10) * k;
   const cx = x + shake * k, top = place === 'below' ? y + gap * k : y - gap * k - th;
-  g.globalAlpha = alpha;
-  g.fillStyle = plate; g.beginPath(); g.roundRect?.(cx - tw / 2, top, tw, th, th / 2); g.fill();
-  g.strokeStyle = rim; g.lineWidth = 1.2 * k; g.stroke();
-  g.fillStyle = ink; g.fillText(text, cx, top + th / 2 + 0.5 * k);
+  upright(g, anchor?.x ?? x, anchor?.y ?? y, () => {
+    g.globalAlpha = alpha;
+    g.fillStyle = plate; g.beginPath(); g.roundRect?.(cx - tw / 2, top, tw, th, th / 2); g.fill();
+    g.strokeStyle = rim; g.lineWidth = 1.2 * k; g.stroke();
+    g.fillStyle = ink; g.fillText(text, cx, top + th / 2 + 0.5 * k);
+  });
   g.restore();
   return { x: cx - tw / 2, y: top, w: tw, h: th };
 }

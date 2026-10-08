@@ -22,11 +22,13 @@ export const POINTER_MARGIN = 40;
  * in the middle. `view` {x, y, zoom}; `size` {width, height}; `inset` what
  * the page's sheets cover.
  */
-export function edgePointer(view, size, home, { inset = null, margin = POINTER_MARGIN } = {}) {
+export function edgePointer(view, size, home, { inset = null, margin = POINTER_MARGIN, geo = null } = {}) {
+  // `geo` (map/tilt.mjs tiltGeo): the board's tilt; home is where it is seen, and the middle tile the one seen in the middle
   if (!home || !(size?.width > 0) || !(size?.height > 0) || !(view?.zoom > 0)) return null;
   const f = freeBox(size, inset);
   const cx = size.width / 2 + f.x, cy = size.height / 2 + f.y;
-  const hx = (home.x - view.x) * view.zoom + size.width / 2, hy = (home.y - view.y) * view.zoom + size.height / 2;
+  const flat = { x: (home.x - view.x) * view.zoom + size.width / 2, y: (home.y - view.y) * view.zoom + size.height / 2 };
+  const { x: hx, y: hy } = geo ? geo.toBox(flat.x, flat.y) : flat;
   const halfW = f.width / 2, halfH = f.height / 2;
   // on screen (with a little room to spare): no pointer
   if (Math.abs(hx - cx) <= halfW - 6 && Math.abs(hy - cy) <= halfH - 6) return null;
@@ -34,7 +36,8 @@ export function edgePointer(view, size, home, { inset = null, margin = POINTER_M
   const rx = Math.max(8, halfW - margin), ry = Math.max(8, halfH - margin);
   const s = Math.min(Math.abs(dx) > 1e-6 ? rx / Math.abs(dx) : Infinity, Math.abs(dy) > 1e-6 ? ry / Math.abs(dy) : Infinity);
   // the tile in the middle of the picture, and home's
-  const mid = { x: view.x + f.x / view.zoom, y: view.y + f.y / view.zoom };
+  const ms = geo ? geo.toStage(cx, cy) : { x: cx, y: cy };
+  const mid = { x: view.x + (ms.x - size.width / 2) / view.zoom, y: view.y + (ms.y - size.height / 2) / view.zoom };
   const [mq, mr] = inverseHex(mid.x, mid.y).split(',').map(Number), [hq, hr] = inverseHex(home.x, home.y).split(',').map(Number);
   return { x: cx + dx * s, y: cy + dy * s, angle: Math.atan2(dy, dx), tiles: hexDistance(mq, mr, hq, hr), from: { x: cx, y: cy } };
 }
