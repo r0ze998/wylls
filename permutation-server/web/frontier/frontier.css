@@ -544,3 +544,5 @@ body[data-urgency="crit"] main { box-shadow: inset 0 0 0 4px #c8412f; }
 .lit-attack { background: #e2553d; border-color: #ff9678; }
 .lit-home { background: #f3d58a; border-color: #ffecb2; }
 .lit-explore { background: #7fc4e8; border-color: #bae4fc; }
+/* the map's live line is for a screen reader: what it says is on the map and in the panel already (it lay over the search field and the lens chips) */
+#map-summary { position: absolute; left: 0; top: 0; width: 1px; height: 1px; max-width: none; margin: 0; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; background: none; }
