@@ -11,6 +11,18 @@
 // Province / world LOD: a Civ-style strategic view — each province is a cached bitmap of flat hexes
 // in muted terrain colours with small marks, under a translucent owner tint, the tile-edge
 // boundary, the sigil and the clash ring. A province without terrain yet uses the vector cell.
+//
+// Cost (UX brief §9). The tile view is painted in three parts — 'ground' (the land and what
+// lies flat on it), 'props' (what stands on it) and 'live' (hosts, people, moments, battles,
+// fog, labels) — so the map can keep the first two still while the camera rests and repaint
+// only the third on the animation timer (fmap.mjs paintLayered). The still ground of a
+// province (ground sprites, shores, roads and the hex grid) is also kept in a bitmap of its
+// own in world space (the ground part of paint), so a moving camera copies a few bitmaps
+// instead of drawing every ground sprite; it holds the territory wash and borders too and is
+// painted again when the province's roads or territory change.
+// The tiles of a frame are built once and kept while nothing changed (model), indexed by
+// hex, by province and by tile. Hosts stand in the scene: a tall thing on a tile in front of
+// a host (a mountain, a wood, a town) covers it.
 import { COLORS, FLATTEN, RADIUS, hexPoints, polygon, project, shade } from '../../map.mjs';
 import { PROVINCE_TILES, locate, provinceCentre, ringOf, ringProvinces, tileHex, wedgeOf } from '../fgeo.mjs';
 import { FACTION_COLORS } from '../fi18n.mjs';
@@ -20,14 +32,19 @@ import { activitiesFor } from '../people/activity.mjs';
 import { lifeAt } from '../people/life.mjs';
 import { paintBattle, battleTiles } from '../people/battle.mjs';
 import { provinceTokens, paintToken, placePills } from '../people/units.mjs';
-import { onMiniLoad } from '../people/minis.mjs';
+import { onMiniLoad, MINI_ANCHOR, MINI_CELL_U } from '../people/minis.mjs';
 import { paintMoments } from '../people/moments.mjs';
 import { BOUNDARY_HALO, BOUNDARY_INK, FOG, UNOPENED_FILL, paintSigil, provincePixel, PROVINCE_CIRCUMRADIUS } from './layers.mjs';
 
 const BASE = new URL('../art/', import.meta.url);
 /** The far bitmaps' resolutions (device px per world px) and their cache budget in pixels. */
-export const FAR_RES = Object.freeze([0.1, 0.2, 0.36]);
+export const FAR_RES = Object.freeze([0.1, 0.2, 0.36, 0.56, 0.8, 1]);
 export const FAR_PIXELS = 24_000_000;
+/** The ground bitmaps of the tile view: their cache budget in pixels, and how many may be painted in one frame. */
+export const GROUND_PIXELS = 12_000_000;
+export const GROUND_BAKES = 2;
+/** The hex grid's line (world px): it is part of the board and scales with it. */
+export const GRID_WORLD = 0.9;
 /** Milliseconds a frame may spend painting new far bitmaps (the rest wait for the next frame). */
 export const FAR_BUDGET_MS = 8;
 /** Dark inks of the six factions (borders), after the portraits' palette. */
@@ -172,6 +189,8 @@ export function buildRealms(entries, { grow = 0 } = {}) {
 }
 
 export const farRes = pxPerWorld => FAR_RES.find(r => r >= pxPerWorld * 0.85) ?? FAR_RES[FAR_RES.length - 1];
+/** How much a far bitmap made for zoom `z` (CSS px per world px) softens its ground: 1 from afar, almost 0 next to the tile view. */
+export const farSoftness = z => { const k = Math.max(0, Math.min(1, (0.46 - z) / 0.28)); return 0.08 + 0.92 * k * k * (3 - 2 * k); };
 /** Sprite sets by tile radius (px); anchor = the tile centre on the ground plane. */
 export const ART_SIZES = Object.freeze([
   { key: '@0.5x', r: 22, w: 44, h: 52, ax: 22, ay: 31 },
@@ -192,6 +211,11 @@ export const FLAT = Object.freeze({
   hills: ['#8e9a5c', '#737d49'], mountain: ['#8a847a', '#6c675f'], water: ['#467f8c', '#3a6c78'],
 });
 const GRID_INK = 'rgba(24,34,26,0.32)';
+/** A ground bitmap's box around its province's centre (world px): the tiles and their sprites' cells. */
+const GROUND_BOX = Object.freeze({ left: 352, right: 352, top: 258, bottom: 252 });
+/** Terrain whose props stand tall enough to cover a host on the tile behind. */
+const TALL = new Set(['mountain', 'forest']);
+const spare = (w, h) => (typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : typeof document !== 'undefined' ? Object.assign(document.createElement('canvas'), { width: w, height: h }) : null);
 /** Holding tiers by the account's TIER byte (0..3). */
 export const ART_TIERS = Object.freeze(['hamlet', 'town', 'city', 'stronghold']);
 /** Host sprites (1x: 32 x 34, anchor 16,22 on the ground plane) and the six slots around a hex centre (hosts.py). */
@@ -251,8 +275,10 @@ function sharedEdge(a, b) {
 }
 
 export class SpriteArt {
-  constructor({ onLoad = () => {}, base = BASE } = {}) {
+  /** `onLoad`: something still changed (art arrived): repaint all. `onTick`: an animation frame is due. */
+  constructor({ onLoad = () => {}, onTick = onLoad, base = BASE } = {}) {
     this.onLoad = onLoad;
+    this.onTick = onTick;
     onMiniLoad(onLoad);
     this.base = base;
     this.images = new Map();
@@ -262,10 +288,19 @@ export class SpriteArt {
     this.farCache = new Map();   // "P,Q@res|state" → {cv, x, y, w, h, px}
     this.farLast = new Map();    // "P,Q" → the last bitmap painted for it (shown while a newer one waits)
     this.farPixels = 0;
+    this.groundCache = new Map();   // "P,Q@set|state" → {cv, x, y, w, h, px}
+    this.groundPixels = 0;
   }
 
   /** The newest bitmap this province had, at any resolution or state (a stand-in while a new one waits its turn). */
   farStale(e) { return this.farLast.get(`${e.p},${e.q}`) ?? null; }
+  /** A ground bitmap of the tile view for this province, of any sprite set and state (the newest), or null. */
+  groundStale(e) {
+    const pre = `${e.p},${e.q}@`;
+    let hit = null;
+    for (const [k, v] of this.groundCache) if (k.startsWith(pre)) hit = v;
+    return hit;
+  }
 
   /**
    * The far view of one province (world and province LOD): the real tile
@@ -275,7 +310,7 @@ export class SpriteArt {
    * bitmap painted while some art was still loading is used but not kept.
    * The cache holds at most FAR_PIXELS pixels (oldest dropped first).
    */
-  farBitmap(e, { res, terrainAt, fogAt, alliedPairs = [], stateKey = '', canPaint = () => true }) {
+  farBitmap(e, { res, dpr = 1, terrainAt, fogAt, alliedPairs = [], stateKey = '', canPaint = () => true }) {
     const k = `${e.p},${e.q}@${res}|${e.fog}|${stateKey}`;
     const hit = this.farCache.get(k);
     if (hit) { this.farCache.delete(k); this.farCache.set(k, hit); return hit; }
@@ -294,10 +329,13 @@ export class SpriteArt {
     const gg = gcv.getContext('2d');
     gg.setTransform(res, 0, 0, res, (half - c.x) * res, (half - c.y) * res);
     this.paint(gg, [e], { zoom: res, dpr: 1, terrainAt, fogAt, alliedPairs, far: 'ground' });
-    const blur = Math.max(0.8, Math.min(7, RADIUS * res * 0.32));
+    // how soft: a land from afar; toward the near view the softening lets go, so the picture is already
+    // close to the tiles when the level of detail changes (no blurred band before the diorama)
+    const soft = farSoftness(res / dpr);
+    const blur = Math.max(0.6, Math.min(7 * dpr, RADIUS * res * 0.32 * soft));
     g.save(); g.setTransform(1, 0, 0, 1, 0, 0);
     g.drawImage(gcv, 0, 0);   // sharp underneath: the province's edge stays solid where it meets the next
-    if ('filter' in g) { g.filter = `blur(${blur.toFixed(2)}px) saturate(1.08)`; g.globalAlpha = 0.9; g.drawImage(gcv, 0, 0); g.filter = 'none'; g.globalAlpha = 1; }
+    if ('filter' in g && soft > 0.05) { g.filter = `blur(${blur.toFixed(2)}px) saturate(1.08)`; g.globalAlpha = 0.9 * Math.sqrt(soft); g.drawImage(gcv, 0, 0); g.filter = 'none'; g.globalAlpha = 1; }
     g.restore();
     this.paint(g, [e], { zoom: res, dpr: 1, terrainAt, fogAt, alliedPairs, far: 'props' });
     const v = { cv, x: c.x - half, y: c.y - half, w: 2 * half, h: 2 * half, px: size * size };
@@ -310,17 +348,24 @@ export class SpriteArt {
     return v;
   }
 
+  /**
+   * A sprite: the image once it has loaded. Until then the same sprite of another size that is already
+   * here stands in (every size has the same cell, so it is drawn into the same place), and the miss is
+   * counted: a picture painted with stand-ins is shown but not kept.
+   */
   image(set, size, name) {
     const key = `${set}/${size}/${name}`;
     const have = this.images.get(key);
-    if (have) { if (!have.ok) this.misses++; return have.ok ? have.img : null; }
+    if (have?.ok) return have.img;
     this.misses++;
-    if (typeof Image === 'undefined') return null;
-    const img = new Image();
-    const rec = { img, ok: false };
-    this.images.set(key, rec);
-    img.onload = () => { rec.ok = true; this.onLoad(); };
-    img.src = new URL(`${key}.webp`, this.base).href;
+    if (!have && typeof Image !== 'undefined') {
+      const img = new Image();
+      const rec = { img, ok: false };
+      this.images.set(key, rec);
+      img.onload = () => { rec.ok = true; this.onLoad(); };
+      img.src = new URL(`${key}.webp`, this.base).href;
+    }
+    for (const o of ART_SIZES) { const other = o.key === size ? null : this.images.get(`${set}/${o.key}/${name}`); if (other?.ok) return other.img; }
     return null;
   }
 
@@ -407,12 +452,22 @@ export class SpriteArt {
     // nearest the centre of the view first, so what the eye is on is painted first
     for (const e of entries.slice().sort((a, b) => (a.dist ?? 0) - (b.dist ?? 0))) {
       const state = e.rec ? `${e.rec.owners.join('')}${e.rec.sites.join('')}` + (e.prov ? (e.prov.siteMirror ?? []).map(m => `${m.state}${m.tier}`).join('') : (e.tiers ?? []).join('')) : '';
-      const b = this.farBitmap(e, { res, terrainAt, fogAt, alliedPairs, stateKey: state, canPaint });
-      if (!b) { deferred++; if (e.t ?? e.terrain) { const th = this.thumb(e.p, e.q, e.t ?? e, zoom * dpr); if (th) ctx.drawImage(th.cv, th.x, th.y, th.w, th.h); } continue; }
+      const b = this.farBitmap(e, { res, dpr, terrainAt, fogAt, alliedPairs, stateKey: state, canPaint });
+      if (!b) {
+        deferred++;
+        // not painted yet: the tile view's ground of this province when it is at hand (coming out of the tile
+        // view it is), else the flat stand-in
+        const near = this.groundStale(e);
+        if (near) { ctx.imageSmoothingEnabled = true; ctx.drawImage(near.cv, near.x, near.y, near.w, near.h); }
+        else if (e.t ?? e.terrain) { const th = this.thumb(e.p, e.q, e.t ?? e, zoom * dpr); if (th) ctx.drawImage(th.cv, th.x, th.y, th.w, th.h); }
+        continue;
+      }
       if (!this.farCache.has(`${e.p},${e.q}@${res}|${e.fog}|${state}`)) deferred++;
       ctx.imageSmoothingEnabled = true;
       ctx.drawImage(b.cv, b.x, b.y, b.w, b.h);
     }
+    /** How many provinces of the last far view still wait for their bitmap (the map holds a dissolve for them). */
+    this.farPending = deferred;
     if (deferred && !this.farTimer) this.farTimer = setTimeout(() => { this.farTimer = null; this.onLoad(); }, 16);
     // province edges only where provinces are the unit of play (faint, never a board grid)
     if (lod === 'province') for (const e of entries) {
@@ -513,34 +568,25 @@ export class SpriteArt {
   }
 
   /**
-   * Tile LOD: the tiles of every entry {p, q, terrain, names, sites, rec, fog, selected} together.
-   * An entry with fog 'unopened' (no terrain) is drawn as cloud sea.
+   * The tiles of a frame: `{tiles (back to front), byHex "q,r", byId "P,Q,idx", byProv "P,Q", owner
+   * (territory: "q,r" → {f, d}), war, washSig "P,Q" → text}`; each tile carries `wash` ({f, edges} or
+   * null: its nation and border kinds). Built once and kept while the same entries, options and map
+   * stamp come again (an animation frame builds nothing).
    */
-  paint(ctx, entries, { zoom, dpr = 1, terrainAt = () => null, fogAt = () => null, selected = null, viewerFaction = null, demoRoads = false,
-    ringsOpen = null, replayRing = null, replayEvery = 6000, engineStage = 0,
-    relics = [], waystones = [], demoSpecials = false, rivers = [], demoRivers = false, alliedPairs = [], people = null, far = false }) {
+  model(entries, { demoRoads = false, relics = [], waystones = [], demoSpecials = false, rivers = [], demoRivers = false, ringsOpen = null, alliedPairs = [], stamp = undefined }) {
+    const sig = [stamp, demoRoads, demoSpecials, demoRivers, ringsOpen, alliedPairs.join('|'), relics.length ? relics : 0, waystones.length ? waystones : 0, rivers.length ? rivers : 0];
+    for (const e of entries) sig.push(e.p, e.q, e.fog, e.terrain, e.sites, e.names, e.rec, e.prov, e.clash, e.tiers);
+    const old = this.modelSig;
+    if (old && old.length === sig.length && sig.every((x, i) => x === old[i])) return this.modelNow;
     const allied = new Set(alliedPairs.map(([a, b]) => `${Math.min(a, b)}-${Math.max(a, b)}`));
     const calm = (rel, a, b) => peaceful(rel, a, b) || allied.has(`${Math.min(a, b)}-${Math.max(a, b)}`);
-    const s = artSize(RADIUS * zoom * dpr);
-    // the ring-open moment starts when the open ring count grows (or, in the preview, on a timer)
-    const t0 = now();
-    if (ringsOpen !== null && this.lastRings !== undefined && ringsOpen > this.lastRings) this.opening = { ring: ringsOpen - 1, at: t0 };
-    if (ringsOpen !== null) this.lastRings = ringsOpen;
-    if (replayRing !== null && (!this.opening || t0 - this.opening.at > replayEvery)) this.opening = { ring: replayRing, at: t0 };
-    // preload every frame of the moment for this size so none is skipped on the first play
-    if (this.opening && this.opening.preloaded !== s.key) {
-      for (let f = 0; f < 8; f++) this.image('fog', s.key, `cloud_1_open_${f}`);
-      for (let k = 0; k < 6; k++) for (let l = 0; l < 4; l++) this.image('fog', s.key, `ringglow_${k}_${l}`);
-      this.opening.preloaded = s.key;
-    }
-    const openFrame = this.opening ? Math.floor((t0 - this.opening.at) / OPEN_FRAME_MS) : Infinity;
-    const opening = this.opening && openFrame < OPEN_GLOW.length ? this.opening.ring : null;
-    const k = RADIUS / s.r;
     const tiles = [];
-    const byHex = new Map();
+    const byHex = new Map(), byId = new Map(), byProv = new Map();
     for (const e of entries) {
       const siteOf = new Map();
       (e.sites ?? []).forEach((idx, j) => siteOf.set(idx, j));
+      const pk = `${e.p},${e.q}`, mine = [];
+      byProv.set(pk, mine);
       for (let i = 0; i < PROVINCE_TILES; i++) {
         const h = tileHex(e.p, e.q, i);
         const { x, y } = project(h.q, h.r);
@@ -548,7 +594,7 @@ export class SpriteArt {
         const name = cloud ? 'cloud' : TERRAIN_KEY[e.names?.[e.terrain[i]]] ?? 'plains';
         const j = siteOf.get(i);
         const m = j === undefined ? null : e.prov?.siteMirror?.[j] ?? null;
-        const t = { q: h.q, r: h.r, x, y, name, cloud, fog: e.fog, v: artVariant(h.q, h.r), p: e.p, pq: e.q, idx: i, site: j,
+        const t = { q: h.q, r: h.r, x, y, name, cloud, fog: e.fog, v: artVariant(h.q, h.r), p: e.p, pq: e.q, pk, idx: i, site: j,
           state: j === undefined ? undefined : m ? (m.state === 3 ? 5 : m.state === 4 ? 0 : m.state) : e.rec?.sites?.[j],
           owner: j === undefined ? undefined : m ? m.faction : e.rec?.owners?.[j],
           tier: m && m.state === 1 ? m.tier : (j !== undefined ? e.tiers?.[j] ?? 0 : 0), walls: !!(m && m.wallsCommitted > 0),
@@ -561,13 +607,15 @@ export class SpriteArt {
         const pc = provinceCentre(e.p, e.q);
         t.centre = h.q === pc.q && h.r === pc.r;
         tiles.push(t);
+        mine.push(t);
         byHex.set(keyOf(h.q, h.r), t);
+        byId.set(`${pk},${i}`, t);
       }
     }
     // preview only (?roads=1): a sample road from every held site to its nearest other site, when the account has none
     if (demoRoads) for (const e of entries) {
       if (!e.prov || BigInt(e.prov.roadMask ?? 0) !== 0n) continue;
-      const mine = tiles.filter((t) => t.p === e.p && t.pq === e.q && t.site !== undefined);
+      const mine = (byProv.get(`${e.p},${e.q}`) ?? []).filter((t) => t.site !== undefined);
       for (const a of mine.filter((t) => t.state === 1)) {
         const b = mine.filter((t) => t !== a).sort((u, v) => Math.hypot(u.x - a.x, u.y - a.y) - Math.hypot(v.x - a.x, v.y - a.y))[0];
         if (b) for (const h of hexLine(a, b)) { const t = byHex.get(keyOf(h.q, h.r)); if (t && SITE_LAND.has(t.name)) t.road = true; }
@@ -576,7 +624,7 @@ export class SpriteArt {
     // Relic Sites and Waystones: from the page ({p, q, tile, holder|faction}); none in M1, so the
     // preview (?relics=1) places samples: one Relic Site per wedge on the outermost open ring, and a
     // Waystone next to every town-or-larger holding.
-    const at = (p, q, idx) => tiles.find((u) => u.p === p && u.pq === q && u.idx === idx);
+    const at = (p, q, idx) => byId.get(`${p},${q},${idx}`);
     for (const r of relics) { const t = at(r.p, r.q, r.tile); if (t) t.relic = { holder: r.holder ?? null }; }
     for (const w of waystones) { const t = at(w.p, w.q, w.tile); if (t) t.waystone = { faction: w.faction }; }
     if (demoSpecials) {
@@ -588,7 +636,7 @@ export class SpriteArt {
         const w = wedgeOf(e.p, e.q);
         if (e.fog === 'unopened' || w === null || pick.get(w) !== `${e.p},${e.q}`) continue;
         const pc = provinceCentre(e.p, e.q);
-        const cand = tiles.filter((u) => u.p === e.p && u.pq === e.q && u.site === undefined && SITE_LAND.has(u.name) && !u.centre)
+        const cand = (byProv.get(`${e.p},${e.q}`) ?? []).filter((u) => u.site === undefined && SITE_LAND.has(u.name) && !u.centre)
           .sort((a, b) => Math.hypot(a.q - pc.q - 2, a.r - pc.r + 1) - Math.hypot(b.q - pc.q - 2, b.r - pc.r + 1))[0];
         if (!cand) continue;
         cand.relic = { holder: w % 2 ? w : null };
@@ -607,7 +655,7 @@ export class SpriteArt {
     for (const r of rivers) { const t = at(r.p, r.q, r.tile); if (t && SITE_LAND.has(t.name) && t.site === undefined) river.add(t); }
     if (demoRivers) for (const e of entries) {
       if (e.fog === 'unopened') continue;
-      const mine = tiles.filter((u) => u.p === e.p && u.pq === e.q);
+      const mine = byProv.get(`${e.p},${e.q}`) ?? [];
       const seas = mine.filter((u) => u.name === 'water');
       if (!seas.length) continue;
       const rank = { mountain: 0, hills: 1, forest: 2, grassland: 3, plains: 3 };
@@ -632,7 +680,7 @@ export class SpriteArt {
       if (mask) t.river = mask;
     }
     tiles.sort((a, b) => a.y - b.y || a.x - b.x);
-    const nameAt = (q, r) => byHex.get(keyOf(q, r))?.name ?? terrainAt(q, r);
+    for (const list of byProv.values()) list.sort((a, b) => a.y - b.y || a.x - b.x);   // back to front within a province too
     // territory: a held site owns itself and its ring-1 tiles (a hamlet's worked radius); nearer site wins
     const owner = new Map();
     for (const t of tiles) {
@@ -647,25 +695,78 @@ export class SpriteArt {
         if (!cur || d < cur.d) owner.set(key, { f: t.owner, d });
       }
     }
-    const ownerAt = (q, r) => owner.get(keyOf(q, r))?.f;
     const war = new Set();
     for (const e of entries) {
       const fs = new Set((e.clash?.arrivals ?? []).filter((a) => a.present && a.faction < 6).map((a) => a.faction));
       if (!fs.size) continue;
-      for (const t of tiles) if (t.p === e.p && t.pq === e.q && t.state === 1 && t.owner < 6) fs.add(t.owner);
+      for (const t of byProv.get(`${e.p},${e.q}`) ?? []) if (t.state === 1 && t.owner < 6) fs.add(t.owner);
       const list = [...fs];
       for (const a of list) for (const b of list) if (a < b && !calm(e.prov?.relations, a, b)) war.add(`${e.p},${e.q}:${a}-${b}`);
     }
-    const draw = (img, t) => ctx.drawImage(img, t.x - s.ax * k, t.y - s.ay * k + TOP_LIFT, s.w * k, s.h * k);
+    // territory as it is drawn: per tile the nation and the kind of border on each edge; per province a
+    // signature of it (a province's ground bitmap is kept until this changes)
+    const washSig = new Map();
+    for (const [pk, list] of byProv) {
+      let text = '';
+      for (const t of list) {
+        const f = t.cloud ? undefined : owner.get(keyOf(t.q, t.r))?.f;
+        if (f === undefined) { t.wash = null; text += '-'; continue; }
+        const edges = EDGE_DIRS.map(([dq, dr]) => {
+          const g2 = owner.get(keyOf(t.q + dq, t.r + dr))?.f;
+          return g2 === f ? null : g2 === undefined ? 'own' : calm(t.rel, f, g2) ? 'ally' : war.has(`${t.p},${t.pq}:${Math.min(f, g2)}-${Math.max(f, g2)}`) ? 'war' : 'own';
+        });
+        t.wash = { f, edges };
+        text += f + edges.map(e => (e ? e[0] : '=')).join('');
+      }
+      washSig.set(pk, text);
+    }
+    this.modelSig = sig;
+    this.modelNow = { tiles, byHex, byId, byProv, owner, war, washSig };
+    return this.modelNow;
+  }
+
+  /**
+   * Tile LOD: the tiles of every entry {p, q, terrain, names, sites, rec, fog, selected} together.
+   * An entry with fog 'unopened' (no terrain) is drawn as cloud sea.
+   * `part` paints one part of the picture: 'ground' (land, shores, roads, grid, territory), 'props'
+   * (what stands on the land), 'live' (hosts, people, moments, battles, fog, frames, the selection) or
+   * 'world' (those three in order); null paints the world and then its labels (labels()).
+   * `between(ctx)` is called after the ground and before the props (ground-level effects).
+   * `stamp` (the map's change counter) lets the tile model be kept between animation frames.
+   */
+  paint(ctx, entries, { zoom, dpr = 1, artZoom = zoom, terrainAt = () => null, fogAt = () => null, selected = null, viewerFaction = null, demoRoads = false,
+    ringsOpen = null, replayRing = null, replayEvery = 6000, engineStage = 0,
+    relics = [], waystones = [], demoSpecials = false, rivers = [], demoRivers = false, alliedPairs = [], people = null, far = false,
+    part = null, between = null, stamp = undefined }) {
+    // the sprite set of the nearer of the picture and where the camera is going (no change of set at the end of a flight)
+    const s = artSize(RADIUS * Math.max(zoom, artZoom) * dpr);
+    // the ring-open moment starts when the open ring count grows (or, in the preview, on a timer)
+    const t0 = now();
+    if (ringsOpen !== null && this.lastRings !== undefined && ringsOpen > this.lastRings) this.opening = { ring: ringsOpen - 1, at: t0 };
+    if (ringsOpen !== null) this.lastRings = ringsOpen;
+    if (replayRing !== null && (!this.opening || t0 - this.opening.at > replayEvery)) this.opening = { ring: replayRing, at: t0 };
+    // preload every frame of the moment for this size so none is skipped on the first play
+    if (this.opening && this.opening.preloaded !== s.key) {
+      for (let f = 0; f < 8; f++) this.image('fog', s.key, `cloud_1_open_${f}`);
+      for (let k = 0; k < 6; k++) for (let l = 0; l < 4; l++) this.image('fog', s.key, `ringglow_${k}_${l}`);
+      this.opening.preloaded = s.key;
+    }
+    const openFrame = this.opening ? Math.floor((t0 - this.opening.at) / OPEN_FRAME_MS) : Infinity;
+    const opening = this.opening && openFrame < OPEN_GLOW.length ? this.opening.ring : null;
+    const k = RADIUS / s.r;
+    const { tiles, byHex, byId, byProv, washSig } = this.model(entries, { demoRoads, relics, waystones, demoSpecials, rivers, demoRivers, ringsOpen, alliedPairs, stamp });
+    const nameAt = (q, r) => byHex.get(keyOf(q, r))?.name ?? terrainAt(q, r);
+    // every sprite goes to `g`: the canvas, a province's ground bitmap, or a host's scratch when a prop covers it
+    let g = ctx;
+    const draw = (img, t) => g.drawImage(img, t.x - s.ax * k, t.y - s.ay * k + TOP_LIFT, s.w * k, s.h * k);
     const nearCentre = (t) => { const pc = provinceCentre(t.p, t.pq); return Math.max(Math.abs(t.q - pc.q), Math.abs(t.r - pc.r), Math.abs(t.q + t.r - pc.q - pc.r)) <= 1; };
     const siteGround = (t) => t.site !== undefined && SITE_LAND.has(t.name);
-    // pass 1: ground and flat overlays (a far bitmap paints them on their own, then softens them: farBitmap)
-    for (const t of tiles) {
-      if (t.cloud || far === 'props') continue;
-      const g = t.river ? this.image('rivers', s.key, `${t.name}_${String(t.river).padStart(2, '0')}`)
+    // the still ground of one tile: its sprite, the Concord's paving, shores and beaches, roads
+    const groundOf = (t) => {
+      const img = t.river ? this.image('rivers', s.key, `${t.name}_${String(t.river).padStart(2, '0')}`)
         : this.image(siteGround(t) ? 'sites' : 'terrain', s.key, `${t.name}_${t.v}`);
-      if (!g) { polygon(ctx, hexPoints(t.x, t.y, 0), FLAT[t.name][0], null); continue; }
-      draw(g, t);
+      if (!img) { polygon(g, hexPoints(t.x, t.y, 0), FLAT[t.name][0], null); return; }
+      draw(img, t);
       if (t.ring === 0 && t.name !== 'water' && t.name !== 'mountain') { const pv = this.image('specials', s.key, 'concord_paving'); if (pv) draw(pv, t); }
       EDGE_DIRS.forEach(([dq, dr], e) => {
         const nb = nameAt(t.q + dq, t.r + dr);
@@ -685,26 +786,87 @@ export class SpriteArt {
         });
         const c = this.image('roads', s.key, `${pre}_c`); if (c) draw(c, t);
       }
-      const f = ownerAt(t.q, t.r);
-      if (f !== undefined) {
-        const o = this.image('factions', s.key, `wash_${ART_FACTIONS[f]}`); if (o) draw(o, t);
-        EDGE_DIRS.forEach(([dq, dr], e) => {
-          const g2 = ownerAt(t.q + dq, t.r + dr);
-          if (g2 === f) return;
-          const style = g2 === undefined ? 'own' : calm(t.rel, f, g2) ? 'ally' : war.has(`${t.p},${t.pq}:${Math.min(f, g2)}-${Math.max(f, g2)}`) ? 'war' : 'own';
-          const b = this.image('factions', s.key, `border_${ART_FACTIONS[f]}_${e}_${style}`); if (b) draw(b, t);
-        });
+    };
+    // territory over the ground of one tile: the nation's wash, and its border where the realm ends
+    const washOf = (t) => {
+      const w = t.wash;
+      if (!w) return;
+      const o = this.image('factions', s.key, `wash_${ART_FACTIONS[w.f]}`); if (o) draw(o, t);
+      w.edges.forEach((style, e) => { if (style) { const b = this.image('factions', s.key, `border_${ART_FACTIONS[w.f]}_${e}_${style}`); if (b) draw(b, t); } });
+    };
+    const gridOf = (list) => {
+      g.beginPath();
+      for (const t of list) if (!t.cloud) hexPoints(t.x, t.y, 0).forEach(([px, py], j) => (j ? g.lineTo(px, py) : g.moveTo(px, py)));
+      g.strokeStyle = GRID_INK; g.lineWidth = GRID_WORLD; g.stroke();
+    };
+    const has = (name) => part === null || part === name || part === 'world';
+    if (has('ground') && far !== 'props') {
+      // pass 1: ground and flat overlays (a far bitmap paints them on their own, then softens them: farBitmap)
+      const baked = new Set();
+      if (!far) {
+        // tile view: a province's still ground comes from its bitmap when there is one (north first: a tile's
+        // skirt is covered by the tiles in front of it); a few new bitmaps a frame, the rest drawn tile by tile
+        let bakes = GROUND_BAKES;
+        const bake = (e, list) => {
+          const key = `${e.p},${e.q}@${s.key}|${e.prov?.roadMask ?? ''}|${ringsOpen ?? ''}|${washSig.get(`${e.p},${e.q}`) ?? ''}`;
+          const hit = this.groundCache.get(key);
+          if (hit) { this.groundCache.delete(key); this.groundCache.set(key, hit); return hit; }
+          if (bakes <= 0) return null;
+          const c = provincePixel(e.p, e.q), res = s.r / RADIUS, B = GROUND_BOX;
+          const cv = spare(Math.ceil((B.left + B.right) * res), Math.ceil((B.top + B.bottom) * res)), gg = cv?.getContext?.('2d');
+          if (!gg) return null;
+          bakes--;
+          gg.setTransform(res, 0, 0, res, (B.left - c.x) * res, (B.top - c.y) * res);
+          const had = this.misses;
+          this.misses = 0;
+          g = gg;
+          for (const t of list) groundOf(t);
+          // a skirt that hangs over a tile of the next province belongs under that tile: cut it away (the
+          // neighbour's own bitmap has the tile), a hair inside the hex so no seam opens between the two;
+          // then the territory and the grid, which stay inside this province's own hexes
+          gg.globalCompositeOperation = 'destination-out'; gg.fillStyle = '#000'; gg.beginPath();
+          for (const t of list) for (const [dq, dr] of [EDGE_DIRS[2], EDGE_DIRS[3]]) {
+            const nq = t.q + dq, nr = t.r + dr, nb = byHex.get(keyOf(nq, nr));
+            // the tile in front: this province's own (drawn here), cloud or no land (the skirt shows), or the next province's land
+            if (nb ? nb.pk === t.pk || nb.cloud : !terrainAt(nq, nr)) continue;
+            const at = project(nq, nr);
+            hexPoints(at.x, at.y, 0.8).forEach(([px, py], j) => (j ? gg.lineTo(px, py) : gg.moveTo(px, py)));
+            gg.closePath();
+          }
+          gg.fill(); gg.globalCompositeOperation = 'source-over';
+          for (const t of list) washOf(t);
+          gridOf(list);
+          g = ctx;
+          const whole = this.misses === 0;
+          this.misses += had;
+          const v = { cv, x: c.x - B.left, y: c.y - B.top, w: B.left + B.right, h: B.top + B.bottom, px: cv.width * cv.height };
+          if (whole) {
+            this.groundCache.set(key, v);
+            this.groundPixels += v.px;
+            while (this.groundPixels > GROUND_PIXELS && this.groundCache.size > 1) { const [ok, ov] = this.groundCache.entries().next().value; this.groundCache.delete(ok); this.groundPixels -= ov.px; }
+          }
+          return v;
+        };
+        const bare = demoRoads || demoRivers || rivers.length > 0;   // preview roads and rivers change with the holdings: no bitmap
+        if (!bare) for (const e of entries.slice().sort((a, b) => provincePixel(a.p, a.q).y - provincePixel(b.p, b.q).y)) {
+          if (e.fog === 'unopened' || !e.terrain) continue;
+          const pk = `${e.p},${e.q}`, v = bake(e, byProv.get(pk) ?? []);
+          if (!v) continue;
+          ctx.imageSmoothingEnabled = true;
+          ctx.drawImage(v.cv, v.x, v.y, v.w, v.h);
+          baked.add(pk);
+        }
       }
+      const rest = baked.size ? tiles.filter(t => !baked.has(t.pk)) : tiles;
+      for (const t of rest) if (!t.cloud) groundOf(t);
+      for (const t of rest) washOf(t);
+      // the hex grid, exactly on the game's hexes, under the props (not in the far view: land, not a board)
+      if (!far) gridOf(rest);
+      if (!far) between?.(ctx);
     }
-    if (far === 'ground') return tiles.length;
-    // the hex grid, exactly on the game's hexes, under the props (not in the far view: land, not a board)
-    if (!far) {
-      ctx.beginPath();
-      for (const t of tiles) if (!t.cloud) hexPoints(t.x, t.y, 0).forEach(([px, py], j) => (j ? ctx.lineTo(px, py) : ctx.moveTo(px, py)));
-      ctx.strokeStyle = GRID_INK; ctx.lineWidth = 1 / zoom; ctx.stroke();
-    }
-    // pass 2: props, holdings, cloud sea
-    for (const t of tiles) {
+    if (far === 'ground' || part === 'ground') return tiles.length;
+    // what stands on one tile: cloud sea, the Engine, a Seat, relics, the terrain's props, a camp, a holding
+    const propsOf = (t) => {
       if (t.cloud) {
         const c = this.image('fog', s.key, `cloud_${t.v}`);
         if (c) draw(c, t);
@@ -714,32 +876,32 @@ export class SpriteArt {
           if (!open) return;
           const b = this.image('fog', s.key, `bank_${e}`); if (b) draw(b, t);
         });
-        continue;
+        return;
       }
       const paved = t.ring === 0 && t.name !== 'water' && t.name !== 'mountain';
       // the Engine stands over the Concord's centre and its six neighbours
       if (t.centre && t.ring === 0) {
         const es = ART_SIZES[Math.min(ART_SIZES.length - 1, ART_SIZES.indexOf(s) + 1)], kk = RADIUS / es.r, m = 2.4;
         const en = this.image('specials', es.key, `engine_${Math.max(0, Math.min(5, engineStage | 0))}`);
-        if (en) ctx.drawImage(en, t.x - es.ax * kk * m, t.y - es.ay * kk * m + TOP_LIFT * m, es.w * kk * m, es.h * kk * m);
-        continue;
+        if (en) g.drawImage(en, t.x - es.ax * kk * m, t.y - es.ay * kk * m + TOP_LIFT * m, es.w * kk * m, es.h * kk * m);
+        return;
       }
-      if (t.ring === 0 && nearCentre(t)) continue;
+      if (t.ring === 0 && nearCentre(t)) return;
       // a Seat's camp spreads over its province's centre and six neighbours
       if (t.centre && t.ring === 1) {
         const es = ART_SIZES[Math.min(ART_SIZES.length - 1, ART_SIZES.indexOf(s) + 1)], kk = RADIUS / es.r, m = 1.8;
         const st = this.image('specials', es.key, `seat_${ART_FACTIONS[wedgeOf(t.p, t.pq)] ?? 'ember'}`);
-        if (st) ctx.drawImage(st, t.x - es.ax * kk * m, t.y - es.ay * kk * m + TOP_LIFT * m, es.w * kk * m, es.h * kk * m);
-        continue;
+        if (st) g.drawImage(st, t.x - es.ax * kk * m, t.y - es.ay * kk * m + TOP_LIFT * m, es.w * kk * m, es.h * kk * m);
+        return;
       }
-      if (t.ring === 1 && nearCentre(t)) continue;
+      if (t.ring === 1 && nearCentre(t)) return;
       if (t.relic) {
         const f = t.relic.holder;
         const img = this.image('specials', s.key, f === null || f === undefined ? 'relic_open' : `relic_${ART_FACTIONS[f]}`);
         if (img) draw(img, t);
-        continue;
+        return;
       }
-      if (t.waystone) { const img = this.image('specials', s.key, `waystone_${ART_FACTIONS[t.waystone.faction] ?? 'ember'}`); if (img) draw(img, t); continue; }
+      if (t.waystone) { const img = this.image('specials', s.key, `waystone_${ART_FACTIONS[t.waystone.faction] ?? 'ember'}`); if (img) draw(img, t); return; }
       const decor = ((t.q * 5 + t.r * 11) % 3 + 3) % 3 === 0;
       const pr = paved ? (t.site === undefined && decor ? this.image('specials', s.key, `concord_plaza_${1 + (t.v % 2)}`) : null)
         : t.river ? this.image('rivers_props', s.key, `${t.name}_${String(t.river).padStart(2, '0')}`)
@@ -747,7 +909,7 @@ export class SpriteArt {
       if (pr) draw(pr, t);
       if (opening !== null && t.ring === opening && openFrame < 8) { const c = this.image('fog', s.key, `cloud_1_open_${openFrame}`); if (c) draw(c, t); }
       if (t.camp) { const c = this.image('specials', s.key, 'barbarian_1'); if (c) draw(c, t); }
-      if (t.site === undefined) continue;
+      if (t.site === undefined) return;
       let img = null;
       if (t.state === 1 && t.owner < 6) {
         const tier = ART_TIERS[t.tier] ?? 'hamlet';
@@ -757,9 +919,11 @@ export class SpriteArt {
       else if (SITE_LAND.has(t.name)) img = this.image('holdings', s.key, 'site');
       if (img) draw(img, t);
       if (t.shield) { const d = this.image('holdings', s.key, 'shield'); if (d) draw(d, t); }
-    }
+    };
+    // pass 2: props, holdings, cloud sea
+    if (has('props')) for (const t of tiles) propsOf(t);
     // the far view's bitmap stops here: land, props, holdings, territory (map/sprites.mjs farBitmap)
-    if (far) return tiles.length;
+    if (far || part === 'props') return tiles.length;
     // pass 2b: hosts on their tiles, back to front (hidden under fog unless the viewer's own)
     const hosts = [], tokens = [], pills = [];
     this.tokens = tokens; this.tokensMoving = false;
@@ -798,7 +962,7 @@ export class SpriteArt {
         for (const h of list) hosts.push({ x: c.x, y: c.y, h, cx: c.x, cy: c.y });
       }
       // the tokens (tile detail): one soldier per faction per tile (people/units.mjs, after the Eternum benchmark)
-      const holdingTiles = new Set(tiles.filter(u => u.p === e.p && u.pq === e.q && u.state === 1 && u.site !== undefined).map(u => u.idx));
+      const holdingTiles = new Set((byProv.get(`${e.p},${e.q}`) ?? []).filter(u => u.state === 1 && u.site !== undefined).map(u => u.idx));
       const all = [];
       for (const h of e.prov.entries) {
         if (h.state < 1 || h.state > 3 || hidden(h.faction)) continue;
@@ -816,7 +980,28 @@ export class SpriteArt {
     if (RADIUS * zoom >= HOST_FIGURE_MIN_R) {
       const t = (globalThis.performance?.now?.() ?? Date.now()) / 1000;
       const size = RADIUS * 0.66 * zoomBoost(RADIUS * zoom);
-      for (const tok of tokens) { paintToken(ctx, tok, { s: size, k: 1 / zoom, t, label: false }); pills.push({ tok, s: size }); }
+      // a host stands in the scene: a mountain, a wood or a town on a tile in front of it covers it. The figure
+      // is drawn on a scratch, the things in front are cut out of it, and what is left goes onto the map
+      const m = ctx.getTransform?.() ?? null, sc = m && m.a > 0 ? this.scratch ??= spare(8, 8) : null, sg = sc?.getContext?.('2d') ?? null;
+      const tall = (u) => !!u && !u.cloud && (TALL.has(u.name) || u.camp || (u.site !== undefined && u.state !== undefined && u.state !== 0) || (u.centre && u.ring <= 1));
+      for (const tok of tokens) {
+        const h = tileHex(tok.p, tok.q, tok.tile);
+        // in front: the two tiles below (lower left, lower right); the Engine and a Seat reach further up
+        const front = h ? [byHex.get(keyOf(h.q - 1, h.r + 1)), byHex.get(keyOf(h.q, h.r + 1)), byHex.get(keyOf(h.q - 1, h.r + 2))].filter((u, i) => tall(u) && (i < 2 || u.centre)) : [];
+        if (!front.length || !sg) { paintToken(ctx, tok, { s: size, k: 1 / zoom, t, label: false }); pills.push({ tok, s: size }); continue; }
+        // the scratch holds the miniature's whole cell (its cast shadow too) and the lunge of a fight
+        const cw = size * MINI_CELL_U, pad = size * 0.2;
+        const x0 = Math.floor((tok.x - cw * MINI_ANCHOR[0] - pad) * m.a + m.e), y0 = Math.floor((tok.y - cw * MINI_ANCHOR[1] - pad) * m.d + m.f);
+        const w = Math.ceil((cw + pad * 2) * m.a) + 2, hgt = Math.ceil((cw + pad * 2) * m.d) + 2;
+        if (sc.width < w || sc.height < hgt) { sc.width = Math.max(sc.width, w); sc.height = Math.max(sc.height, hgt); }
+        sg.setTransform(1, 0, 0, 1, 0, 0); sg.globalCompositeOperation = 'source-over'; sg.clearRect(0, 0, sc.width, sc.height);
+        sg.setTransform(m.a, 0, 0, m.d, m.e - x0, m.f - y0);
+        paintToken(sg, tok, { s: size, k: 1 / zoom, t, label: false });
+        sg.globalCompositeOperation = 'destination-out';
+        g = sg; for (const u of front) propsOf(u); g = ctx;
+        ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(sc, 0, 0, w, hgt, x0, y0, w, hgt); ctx.restore();
+        pills.push({ tok, s: size });
+      }
       if (tokens.length) this.tokensMoving = true;
     }
     // pass 2c: people (people/crowds.mjs): townsfolk, carriers, departing columns at their origin, scouts
@@ -852,46 +1037,9 @@ export class SpriteArt {
       ctx.fillStyle = '#808080'; ctx.fill(o.fill);
       ctx.restore();
       ctx.fillStyle = far ? 'rgba(210,218,228,0.46)' : 'rgba(223,230,238,0.1)'; ctx.fill(o.fill);
-      if (far) for (const t of tiles) if (t.p === e.p && t.pq === e.q) { const m = this.image('fog', s.key, `mist_${t.v}`); if (m) draw(m, t); }
+      if (far) for (const t of byProv.get(`${e.p},${e.q}`) ?? []) { const m = this.image('fog', s.key, `mist_${t.v}`); if (m) draw(m, t); }
     }
-    // the hosts' flags (Civ's unit flags): one per faction per hex — the faction's colour, its troops and the
-    // weakest host's stamina as a bar (green, amber when it cannot march yet, red when spent); above the
-    // figures when they show, in their place when the map is further out
-    const drawFlags = () => {
-      const groups = new Map();
-      for (const o of hosts) {
-        const key = `${o.cx},${o.cy},${o.h.faction}`;
-        const g = groups.get(key) ?? { cx: o.cx, cy: o.cy, f: o.h.faction, n: 0, troops: 0, stamina: 120, arriving: false };
-        g.n++; g.troops += o.h.troops ?? 0; g.stamina = Math.min(g.stamina, o.h.stamina ?? 120); g.arriving ||= !!o.h.arriving;
-        groups.set(key, g);
-      }
-      const perHex = new Map();
-      const figures = RADIUS * zoom >= HOST_FIGURE_MIN_R;
-      if (figures) return;   // the tokens carry their own labels at tile detail
-      ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      for (const g of groups.values()) {
-        const hk = `${g.cx},${g.cy}`;
-        const i = perHex.get(hk) ?? 0; perHex.set(hk, i + 1);
-        const k = 1 / zoom, w = 44 * k, h = 15 * k;
-        const x = g.cx - w / 2 + i * (w + 3 * k), y = figures ? g.cy - RADIUS * 0.95 - h : g.cy + 4 * k;
-        const fill = FACTION_COLORS[g.f] ?? '#8a8f86';
-        ctx.beginPath(); ctx.roundRect?.(x - 1.5 * k, y - 1.5 * k, w + 3 * k, h + 7 * k, 6 * k); ctx.fillStyle = '#1a1d22'; ctx.fill();
-        ctx.beginPath(); ctx.roundRect?.(x, y, w, h, 5 * k); ctx.fillStyle = fill; ctx.fill();
-        if (g.arriving) { ctx.setLineDash([3 * k, 2 * k]); ctx.strokeStyle = '#fffaf0'; ctx.lineWidth = 1.2 * k; ctx.stroke(); ctx.setLineDash([]); }
-        ctx.fillStyle = '#fffaf0'; ctx.font = `700 ${11 * k}px system-ui, sans-serif`;
-        const t = g.troops <= 0 ? '?' : g.troops >= 1000 ? `${(g.troops / 1000).toFixed(g.troops >= 10000 ? 0 : 1)}k` : String(g.troops);
-        ctx.fillText(`\u2694${t}`, x + w / 2 - (g.n > 1 ? 5 * k : 0), y + h / 2 + 0.5 * k);
-        // more than one host: their number in a small dot at the flag's corner (never read as part of the troops)
-        if (g.n > 1) { ctx.fillStyle = '#1a1d22'; ctx.beginPath(); ctx.arc(x + w - 1 * k, y + 1 * k, 6.5 * k, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#fffaf0'; ctx.font = `700 ${9 * k}px system-ui, sans-serif`; ctx.fillText(String(g.n), x + w - 1 * k, y + 1.5 * k); }
-        const st = Math.max(0, Math.min(1, g.stamina / 120));
-        ctx.fillStyle = 'rgba(255,255,255,.18)'; ctx.fillRect(x, y + h + 1.5 * k, w, 3 * k);
-        ctx.fillStyle = g.stamina < 40 ? '#e0533d' : g.stamina < 74 ? '#e0a83d' : '#5fbf6a'; ctx.fillRect(x, y + h + 1.5 * k, w * st, 3 * k);
-      }
-      ctx.restore();
-    };
     for (const e of entries) if (e.fog !== 'unopened') this.frame(ctx, { p: e.p, q: e.q, fog: 'clear', selected: e.selected, zoom });
-    // the hosts' flags over the province edges and the fog (they are what a player looks for)
-    drawFlags();
     if (opening !== null) {
       const lvl = OPEN_GLOW[openFrame];
       if (lvl !== null && lvl !== undefined) for (const t of tiles) {
@@ -905,18 +1053,71 @@ export class SpriteArt {
       this.onLoad();   // keep frames coming until the moment is over
     }
     if (selected) {
-      const t = tiles.find((u) => u.p === selected.p && u.pq === selected.q && u.idx === selected.idx);
+      const t = byId.get(`${selected.p},${selected.q},${selected.idx}`);
       if (t) polygon(ctx, hexPoints(t.x, t.y, 2), null, '#1b2e28', 3 / zoom);
     }
-    // name tags over the fog (the holder's face and name), then the next animation frame while figures move
+    // the next animation frame while figures move: only the animated layers repaint (onTick)
+    if ((moving || fighting || this.tokensMoving) && !this.peopleTimer) this.peopleTimer = setTimeout(() => { this.peopleTimer = null; this.onTick(); }, fighting ? 33 : PEOPLE_FRAME_MS);
+    // what the labels need of this frame (labels()); a whole painting draws them now
+    this.liveNow = { hosts, pills, tiles };
+    if (part === null) this.labels(ctx, { zoom, people });
+    return tiles.length;
+  }
+
+  /**
+   * the hosts' flags (Civ's unit flags): one per faction per hex — the faction's colour, its troops and the
+   * weakest host's stamina as a bar (green, amber when it cannot march yet, red when spent); above the
+   * figures when they show, in their place when the map is further out
+   */
+  flags(ctx, hosts, zoom) {
+    const groups = new Map();
+    for (const o of hosts) {
+      const key = `${o.cx},${o.cy},${o.h.faction}`;
+      const g = groups.get(key) ?? { cx: o.cx, cy: o.cy, f: o.h.faction, n: 0, troops: 0, stamina: 120, arriving: false };
+      g.n++; g.troops += o.h.troops ?? 0; g.stamina = Math.min(g.stamina, o.h.stamina ?? 120); g.arriving ||= !!o.h.arriving;
+      groups.set(key, g);
+    }
+    const perHex = new Map();
+    const figures = RADIUS * zoom >= HOST_FIGURE_MIN_R;
+    if (figures) return;   // the tokens carry their own labels at tile detail
+    ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const g of groups.values()) {
+      const hk = `${g.cx},${g.cy}`;
+      const i = perHex.get(hk) ?? 0; perHex.set(hk, i + 1);
+      const k = 1 / zoom, w = 44 * k, h = 15 * k;
+      const x = g.cx - w / 2 + i * (w + 3 * k), y = figures ? g.cy - RADIUS * 0.95 - h : g.cy + 4 * k;
+      const fill = FACTION_COLORS[g.f] ?? '#8a8f86';
+      ctx.beginPath(); ctx.roundRect?.(x - 1.5 * k, y - 1.5 * k, w + 3 * k, h + 7 * k, 6 * k); ctx.fillStyle = '#1a1d22'; ctx.fill();
+      ctx.beginPath(); ctx.roundRect?.(x, y, w, h, 5 * k); ctx.fillStyle = fill; ctx.fill();
+      if (g.arriving) { ctx.setLineDash([3 * k, 2 * k]); ctx.strokeStyle = '#fffaf0'; ctx.lineWidth = 1.2 * k; ctx.stroke(); ctx.setLineDash([]); }
+      ctx.fillStyle = '#fffaf0'; ctx.font = `700 ${11 * k}px system-ui, sans-serif`;
+      const t = g.troops <= 0 ? '?' : g.troops >= 1000 ? `${(g.troops / 1000).toFixed(g.troops >= 10000 ? 0 : 1)}k` : String(g.troops);
+      ctx.fillText(`\u2694${t}`, x + w / 2 - (g.n > 1 ? 5 * k : 0), y + h / 2 + 0.5 * k);
+      // more than one host: their number in a small dot at the flag's corner (never read as part of the troops)
+      if (g.n > 1) { ctx.fillStyle = '#1a1d22'; ctx.beginPath(); ctx.arc(x + w - 1 * k, y + 1 * k, 6.5 * k, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#fffaf0'; ctx.font = `700 ${9 * k}px system-ui, sans-serif`; ctx.fillText(String(g.n), x + w - 1 * k, y + 1.5 * k); }
+      const st = Math.max(0, Math.min(1, g.stamina / 120));
+      ctx.fillStyle = 'rgba(255,255,255,.18)'; ctx.fillRect(x, y + h + 1.5 * k, w, 3 * k);
+      ctx.fillStyle = g.stamina < 40 ? '#e0533d' : g.stamina < 74 ? '#e0a83d' : '#5fbf6a'; ctx.fillRect(x, y + h + 1.5 * k, w * st, 3 * k);
+    }
+    ctx.restore();
+  }
+
+  /**
+   * The labels of the last tile view painted (paint's 'live' part): the hosts' flags when the figures are too
+   * small, the holders' name tags, the units' pills. Text: it goes over the depth dressing, so the haze never
+   * takes its contrast (the map calls this after dressing.mjs; a whole `paint` calls it itself).
+   */
+  labels(ctx, { zoom, people = null }) {
+    if (!this.liveNow) return;
+    const { hosts, pills, tiles } = this.liveNow;
+    this.flags(ctx, hosts, zoom);
+    // name tags (the holder's face and name)
     const tagBoxes = [];
     if (people?.nameOf) paintNameTags(ctx, { tiles, zoom, nameOf: people.nameOf, centre: people.centre ?? null, onImage: this.onLoad, boxes: tagBoxes,
       tierName: people.tierName ?? null,
       present: people.life ? (p, q, site) => lifeAt(people.life.get(`${p},${q},${site}`), people.bell ?? 0, people.now ?? 0).lord : null });
     // the units' labels last: on top, nudged up off the name tags and each other
     if (pills.length && RADIUS * zoom >= HOST_FIGURE_MIN_R) placePills(ctx, pills, 1 / zoom, (globalThis.performance?.now?.() ?? Date.now()) / 1000, tagBoxes);
-    if ((moving || fighting || this.tokensMoving) && !this.peopleTimer) this.peopleTimer = setTimeout(() => { this.peopleTimer = null; this.onLoad(); }, fighting ? 33 : PEOPLE_FRAME_MS);
-    return tiles.length;
   }
 }
 
