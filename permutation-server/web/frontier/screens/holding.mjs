@@ -23,6 +23,7 @@ import { span, NEAR_FULL_SECS } from '../hud/hud.mjs';
 import { termButton } from '../hud/glossary.mjs';
 import { inTime, row, timeHtml } from './shell.mjs';
 import { cardHead, label, fold, chip, bar } from './parts.mjs';
+import { villagePic } from '../hud/place.mjs';
 
 /** How many buildings stand in sight before the fold. */
 export const BUILD_SHOWN = 3;
@@ -140,7 +141,7 @@ export function render(FS) {
   const vigilHour = Math.floor(vigil / 60);
 
   const head = html`<section class="vcard village-head" aria-labelledby="holding-title">
-    ${cardHead({ id: 'holding-title', ic: 'home', title: holdingName(h), sub: L`州 ${h.p},${h.q}`, side: chip(HOLDING_STATES[f.state], f.state === 'final' ? 'ok' : 'warn') })}
+    ${cardHead({ id: 'holding-title', ic: 'home', pic: villagePic(faction, h.tier), title: holdingName(h), sub: L`${TIERS[h.tier] ?? ''} · 州 ${h.p},${h.q}`, side: chip(HOLDING_STATES[f.state], f.state === 'final' ? 'ok' : 'warn') })}
     ${f.shieldLeft > 0 || f.dormantIn <= 0 || f.state === 'provisional' ? html`<ul class="fact-chips">
       ${f.shieldLeft > 0 ? html`<li>${chip(html`${L`保護`} ${inTime(f.shieldLeft)}`, 'info', 'shield')}${termButton('shield')}</li>` : ''}
       ${f.dormantIn <= 0 ? html`<li>${chip(L`休眠中`, 'bad', 'moon')}${termButton('dormant')}</li>` : ''}

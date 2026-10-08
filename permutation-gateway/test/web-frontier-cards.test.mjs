@@ -6,7 +6,8 @@
 // "More → details".
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { decode } from '../../permutation-server/web/frontier/fcodec.mjs';
 import { encodeAccount } from '../../permutation-server/web/sdk/frontier/codec.mjs';
 import { hostId } from '../../permutation-server/web/frontier/faddr.mjs';
@@ -69,7 +70,8 @@ test('the village drawer: five short cards, the common action first, the rest be
   const cards = holdingScreen.render(FS);
   assert.equal(cards.length, 5, 'village, stores, building, troops, the rest');
   const out = flat(cards);
-  assert.match(out, /<h3 id="holding-title">[^<]+の町<\/h3><span class="c-sub">州 2,0<\/span>/, 'the name first, then where');
+  assert.match(out, /<h3 id="holding-title">[^<]+の町<\/h3><span class="c-sub">町 · 州 2,0<\/span>/, 'the name first, then its tier and where');
+  assert.match(out, /<header class="c-head"><span class="c-pic"><img src="[^"]+town_o_ember\.webp"/, 'the village as the map paints it');
   assert.equal((out.match(/<li class="store/g) ?? []).length, 8, 'eight stores as tokens');
   assert.match(out, /data-act="harvest"/);
   // building: the queue's size, three buildings in sight (what can go up now first), the rest behind one fold
@@ -143,6 +145,14 @@ test('places by name: what stands on a tile, then its terrain; pins and the chro
   assert.equal(place.tilePlace(FS, 2, 0, 33), '蛮族の野営地（州 2,0）');
   assert.equal(pins.pinName({ p: 2, q: 0, tile: 33 }, FS), '蛮族の野営地（州 2,0）');
   assert.equal(pins.pinName({ p: 2, q: 0, tile: null }, FS), '州 2,0');
+  // the village as the map paints it, for its card and the inspector: a file of the art for every nation and tier (no 404)
+  for (let f = 0; f < 6; f++) for (let tier = 0; tier < 4; tier++) for (const walls of [false, true]) {
+    const url = place.villagePic(f, tier, { walls });
+    assert.ok(existsSync(fileURLToPath(url)), url);
+  }
+  assert.match(place.villagePic(0, 3), /stronghold_w_ember\.webp$/, 'a Stronghold is always walled');
+  assert.equal(place.villagePic(6, 0), null, 'no picture for a camp or a Free City');
+  assert.match(String(parts.cardHead({ id: 'v', pic: place.villagePic(1, 1), title: 'T' })), /<span class="c-pic"><img src="[^"]+town_o_tide\.webp" alt=""/);
   // the chronicle: grouped by turn, the latest turns in sight, the rest behind a fold, a line with a place goes there
   const rec = (name, bell, more = {}) => ({ seq: String(bell), record: { name, bell, ...more } });
   FS.chronicle = [rec('PROVINCE_OPEN', 38, { p: 2, q: 0, site_count: 12 }), rec('SETTLE', 39, { p: 2, q: 0, site: 3, outcome: 0 }), rec('HOLDING_FINAL', 40, { p: 2, q: 0, site: 3 }),

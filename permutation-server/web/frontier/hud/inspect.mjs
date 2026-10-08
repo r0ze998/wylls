@@ -21,7 +21,7 @@ import { activityText } from '../people/activity.mjs';
 import { hostRows } from '../screens/host.mjs';
 import { hasPin } from './pins.mjs';
 import { termButton } from './glossary.mjs';
-import { TERRAIN_TEXT, tileName } from './place.mjs';
+import { TERRAIN_TEXT, tileName, villagePic } from './place.mjs';
 import { cardHead, chip, fold, label } from '../screens/parts.mjs';
 
 /** Site states as the overview carries them (herald SITE_STATE) and the mirror (3 = released: a Free City). */
@@ -145,7 +145,7 @@ export function render(FS, terrainOf, activities = null) {
   if (terrain) facts.push(html`<div class="row"><dt>${L`地形`}</dt><dd>${terrain}</dd></div>`);
   if (m.owners.length) facts.push(html`<div class="row"><dt>${L`村を持つ国`}</dt><dd>${m.owners.map(f => html`<span class="nowrap">${swatch(f)}${factionName(f)}</span> `)}</dd></div>`);
   return html`<section class="inspect" aria-labelledby="inspect-title">
-    ${cardHead({ id: 'inspect-title', ic: mark, title: name ?? L`州 ${m.p},${m.q}`, sub: name ? where : (m.opened ? L`第${m.ring}輪` : L`第${m.ring}輪（まだひらいていません）`), side })}
+    ${cardHead({ id: 'inspect-title', ic: mark, pic: held ? villagePic(site.faction, site.tier ?? 0) : null, title: name ?? L`州 ${m.p},${m.q}`, sub: name ? where : (m.opened ? L`第${m.ring}輪` : L`第${m.ring}輪（まだひらいていません）`), side })}
     ${site?.owner ? html`<p class="inspect-owner">${personChip(site.owner, site.faction, { size: 36, full: true, note: L`この村の領主` })}</p>` : ''}
     ${chips.length ? html`<p class="fact-chips">${chips}</p>` : ''}
     ${main.length ? html`<div class="actions insp-acts">${main.map((a, i) => btn({ ...a, primary: a.primary && i === main.findIndex(x => x.primary) }))}</div>` : ''}

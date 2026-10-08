@@ -635,7 +635,8 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
 .order-head { display: flex; align-items: center; gap: var(--s3); margin: 0 0 var(--s2); padding: 2px 2px 10px; border-bottom: 1px dashed rgba(60,48,20,.4); }
 .pic-seal { flex: none; filter: drop-shadow(0 2px 2px rgba(60,20,10,.4)); }
 .seal-wax { fill: var(--seal); } .seal-ring { stroke: rgba(255,225,200,.5); } .seal-mark { fill: #f6d9c9; }
-.order-titles { min-width: 0; display: grid; }
+.order-titles { flex: 1 1 auto; min-width: 0; display: grid; }
+.order-unit { flex: none; width: 40px; height: 50px; border-radius: 7px; border-width: 1.5px; }
 .order-kicker { font: 650 var(--t1)/1.3 var(--ui); letter-spacing: .14em; color: var(--seal); }
 .order h3 { margin: 0; font: 700 var(--t3)/1.3 var(--display); letter-spacing: .03em; }
 .mc-dest { display: grid; gap: 2px; margin: 0 0 var(--s1); }
@@ -790,11 +791,11 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
   .panel[data-doc="wide"] .scene-list { grid-template-columns: 1fr; gap: 4px; }
   .panel[data-doc="wide"] .scene { min-height: 36px; padding: 4px 9px; }
   /* the document carries its own title: the drawer's head is only its way out, at the sheet's corner */
-  .panel[data-doc="wide"] .panel-head { position: absolute; top: 12px; right: 12px; z-index: 3; min-height: 0; padding: 0; border: 0; box-shadow: none; }
+  .panel[data-doc="wide"] .panel-head { position: absolute; top: -13px; right: -8px; z-index: 3; min-height: 0; padding: 0; border: 0; box-shadow: none; }
   .panel[data-doc="wide"] #panel-title, .panel[data-doc="wide"] .panel-ic { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  .panel[data-doc="wide"] .panel-close { width: 32px; height: 32px; border-color: rgba(60,48,20,.35); background: rgba(255,255,255,.6); color: var(--ink); -webkit-backdrop-filter: none; backdrop-filter: none; }
-  .panel[data-doc="wide"] .panel-close:hover { border-color: var(--ink); color: var(--ink); background: #fff; }
-  .panel[data-doc="wide"] .doc-head { padding-right: 40px; }
+  .panel[data-doc="wide"] .panel-close { width: 34px; height: 34px; border-radius: 50%; border-color: var(--brass-lo); background: linear-gradient(180deg, #2b5047, #12241f); color: var(--ivory); box-shadow: 0 0 0 2px #0a1815, 0 3px 8px rgba(0,0,0,.5); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .panel[data-doc="wide"] .panel-close:hover { border-color: var(--brass-hi); color: var(--brass-hi); }
+  .panel[data-doc="wide"] .doc-head { padding-right: 16px; }
   .panel[data-doc="wide"] .report-x, .panel[data-doc="wide"] .doc-head [data-act="practice-close"] { display: none; }
   .panel[data-doc="wide"] { background: none; border-color: transparent; box-shadow: none; overflow: visible; }
   .panel[data-doc="wide"] #panel-body { padding: 0; border-radius: 6px; box-shadow: 0 16px 48px rgba(0,0,0,.6), 0 0 0 1px rgba(125,100,40,.6); }
@@ -996,6 +997,11 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
 .c-head { display: flex; align-items: center; gap: var(--s2); margin: 0 0 var(--s2); padding-bottom: 7px; border-bottom: 1px solid var(--rule); box-shadow: 0 2px 0 -1px rgba(255,255,255,.55); }
 .c-ic { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: radial-gradient(circle at 50% 30%, #2b5047, #12241f); color: var(--brass-hi); box-shadow: 0 0 0 1px #0a1815, 0 0 0 2px var(--brass-lo); }
 .c-ic .ic { width: 16px; height: 16px; }
+/* a picture in a card's head: the village as the map paints it, standing on the paper */
+.c-pic { flex: none; position: relative; display: block; width: 72px; height: 56px; margin: -4px 0 -2px -4px; overflow: hidden; border-radius: 8px; background: radial-gradient(ellipse at 50% 70%, rgba(120,150,81,.55), rgba(120,150,81,0) 68%); }
+/* the sprite is wider than its window: on a phone the window keeps clear of the screen's edge */
+@media (max-width: 759px) { .c-pic { margin-left: 6px; } }
+.c-pic img { position: absolute; left: 50%; top: 50%; width: 122px; height: auto; max-width: none; transform: translate(-50%, -54%); filter: drop-shadow(0 2px 2px rgba(40,30,10,.4)); }
 .c-titles { flex: 1 1 auto; min-width: 0; display: grid; }
 .c-head h3 { margin: 0; font: 700 var(--t3)/1.3 var(--display); letter-spacing: .03em; overflow-wrap: anywhere; }
 .c-sub { font-size: var(--t1); line-height: 1.35; color: var(--ink-2); }

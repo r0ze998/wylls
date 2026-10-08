@@ -11,12 +11,12 @@ const pct = (value, max) => (max > 0 ? Math.max(0, Math.min(100, (Number(value) 
 const word = s => String(s ?? '').replace(/[^\w -]/g, '');
 
 /**
- * A card's head: a mark, the title in the serif (the `h3` carries `id` for
+ * A card's head: a mark (or a picture: `pic`, a URL), the title in the serif (the `h3` carries `id` for
  * `aria-labelledby`), a line under it and what stands at the right (a chip,
  * a count, a small button).
  */
-export function cardHead({ id, ic = null, title, sub = '', side = '' }) {
-  return html`<header class="c-head">${ic ? html`<span class="c-ic">${icon(ic)}</span>` : ''}<span class="c-titles"><h3 ${raw(id ? `id="${word(id)}"` : '')}>${title}</h3>${sub ? html`<span class="c-sub">${sub}</span>` : ''}</span>${side ? html`<span class="c-side">${side}</span>` : ''}</header>`;
+export function cardHead({ id, ic = null, pic = null, title, sub = '', side = '' }) {
+  return html`<header class="c-head">${pic ? html`<span class="c-pic"><img src="${pic}" alt="" width="176" height="208" decoding="async"></span>` : ic ? html`<span class="c-ic">${icon(ic)}</span>` : ''}<span class="c-titles"><h3 ${raw(id ? `id="${word(id)}"` : '')}>${title}</h3>${sub ? html`<span class="c-sub">${sub}</span>` : ''}</span>${side ? html`<span class="c-side">${side}</span>` : ''}</header>`;
 }
 
 /** A small heading inside a card (a label with a hairline to the right). */

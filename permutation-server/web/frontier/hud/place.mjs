@@ -33,3 +33,18 @@ export const tileName = (FS, p, q, tile) => tileWhat(FS, p, q, tile).name ?? L`�
 
 /** A tile's name with its province: 「蛮族の野営地（州 2,0）」. */
 export const tilePlace = (FS, p, q, tile) => L`${tileName(FS, p, q, tile)}（州 ${p},${q}）`;
+
+/**
+ * The painted village of a nation at a tier, as the map draws it (the same
+ * sprites: art/holdings, named as map/sprites.mjs names them — tier, open or
+ * walled, the nation's art name; a Stronghold is always walled). For the
+ * village's card and the inspector: the player sees their own village, not
+ * an icon. `null` for a nation or tier the art does not have.
+ */
+const PIC_NATIONS = ['ember', 'tide', 'lumen', 'iron', 'stone', 'verdant'];
+const PIC_TIERS = ['hamlet', 'town', 'city', 'stronghold'];
+export function villagePic(faction, tier = 0, { walls = false } = {}) {
+  const n = PIC_NATIONS[faction], t = PIC_TIERS[Number(tier)] ?? PIC_TIERS[0];
+  if (!n) return null;
+  return new URL(`../art/holdings/@2x/${t}_${t === 'stronghold' || walls ? 'w' : 'o'}_${n}.webp`, import.meta.url).href;
+}

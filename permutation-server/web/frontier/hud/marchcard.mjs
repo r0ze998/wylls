@@ -28,6 +28,7 @@ import { DIRECTIONS, tileHex } from '../fgeo.mjs';
 import { termButton } from './glossary.mjs';
 import { tileName } from './place.mjs';
 import { STANCE_PIC, RETREAT_PIC, sealPic } from './pictos.mjs';
+import { miniCardUrl, MINI_KINDS } from '../people/minis.mjs';
 
 const BEATS = { Assault: 'Flank', Flank: 'Brace', Brace: 'Assault' };
 const RETREAT_SHORT = { never: () => L`撤退しない`, x2: () => L`2倍で撤退`, 'x1.5': () => L`1.5倍で撤退`, x1: () => L`同数で撤退`, 'x0.5': () => L`半分で撤退`, custom: () => L`倍率を指定する` };
@@ -140,8 +141,10 @@ export function render(FS) {
   const stance = STANCES[m.stance] ?? 'Hold';
   const ch = composerChoices(FS);
   const from = tileName(FS, c.origin.p, c.origin.q, c.host.tile);
+  const faction = FS.citizen?.faction;
   const headBlock = html`<header class="order-head">${sealPic(46)}<span class="order-titles"><span class="order-kicker">${L`封をした命令`}</span>
-    <h3 id="mc-title">${L`進軍：${unit} ${fmtNum(c.host.troops)}`}</h3><span class="c-sub">${L`${from}（州 ${c.origin.p},${c.origin.q}）から`}</span></span></header>`;
+    <h3 id="mc-title">${L`進軍：${unit} ${fmtNum(c.host.troops)}`}</h3><span class="c-sub">${L`${from}（州 ${c.origin.p},${c.origin.q}）から`}</span></span>
+    ${Number.isInteger(faction) && MINI_KINDS[c.host.unit] ? html`<img class="unit-card order-unit f${faction}" src="${miniCardUrl(faction, MINI_KINDS[c.host.unit])}" alt="" width="40" height="50" decoding="async">` : ''}</header>`;
   const quick = (c.quick ?? []).filter(q => !(q.p === c.origin.p && q.q === c.origin.q && q.tile === c.host.tile));
   const quickList = quick.length ? html`${label(L`近くの行き先`)}<ul class="quick-dest">${quick.map(q => html`<li><button type="button" class="btn small" data-act="dest-quick" data-p="${q.p}" data-q="${q.q}" data-tile="${q.tile}">${icon(q.kind === 'camp' ? 'tent' : 'home')}${L`${tileName(FS, q.p, q.q, q.tile)}（州 ${q.p},${q.q}）`}</button></li>`)}</ul>` : '';
   if (!c.dest) {

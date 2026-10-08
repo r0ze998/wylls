@@ -640,4 +640,7 @@ export default {
   '進軍に出ています': 'Away on a march',
   '選ぶのは国だけです。最初の村の場所は自動で決まります。': 'You choose only the nation. The place of your first village is decided automatically.',
   '開封されなかった到着は衝突に加わらず、精算で敗走します（兵と体力とチップの半分を失います）。チップは封を開けてもらうための報酬です。': 'An unrevealed arrival takes no part in the clash and is routed at settlement (it loses half its troops, stamina and tip). The tip is the reward for having the seal opened.',
+
+  // ---- the village's card (its tier beside its province)
+  '{0} · 州 {1},{2}': '{0} · province {1},{2}',
 };
