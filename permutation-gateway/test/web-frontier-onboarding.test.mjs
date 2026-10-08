@@ -173,6 +173,20 @@ test('the card in both languages: open on the map tab, one line elsewhere, nothi
   assert.match(text(card.render(tk)), /about 11–21 min/);
   assert.match(text(card.render(store, { open: false })), /Guide 0\/7: Welcome/);
   assert.match(String(card.renderRestore({ ui: { dismissed: [ob.FLAG.dismissed] } })), /ob-restore/);
+  // the guide on the map (UX design 7.4): the current objective alone, one button, the steps on demand
+  setLang('ja');
+  const obj = String(card.renderObjective({ ...store, mode: 'play' }));
+  assert.match(obj, /<section class="ob-card" aria-labelledby="ob-title">/);
+  assert.match(obj, /ガイド 0\/7/);
+  assert.match(obj, /<h3 id="ob-title">ようこそ<\/h3>/);
+  assert.match(obj, /data-act="ob-seen" data-flag="welcome"/);
+  assert.match(obj, /data-act="guide-open"/);
+  assert.equal((obj.match(/<li/g) ?? []).length, 0, 'no list of steps on the map');
+  assert.equal(card.renderObjective({ ...store, mode: 'play', ui: { dismissed: [ob.FLAG.dismissed] } }), '');
+  assert.equal(card.renderObjective({ ...store, mode: 'play', ui: { dismissed: [], guide: 'warn' } }), '');
+  assert.match(String(card.renderObjective({ ...tk, mode: 'play' })), /data-act="join-open"/, 'the join step opens the join flow');
+  setLang('en');
+  assert.doesNotMatch(text(card.renderObjective({ ...tk, mode: 'play' })), JP);
   assert.equal(card.renderRestore({ ui: { dismissed: [ob.FLAG.welcome] } }), '');
 });
 

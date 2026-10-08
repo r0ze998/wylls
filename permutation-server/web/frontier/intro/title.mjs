@@ -87,5 +87,5 @@ export function dolly(target, k) {
   return { x: from.x + (target.x - from.x) * e, y: from.y + (target.y - from.y) * e, zoom: from.zoom * Math.pow(target.zoom / from.zoom, e) };
 }
 
-/** The bell toll's text. */
-export const tollText = bell => L`第${fmtNum(bell)}鐘`;
+/** The bell toll's banner: the bell tolled, the turn that begins (the page puts the bell icon beside it). */
+export const tollText = bell => L`鐘が鳴りました — ターン ${fmtNum(bell)}`;

@@ -296,7 +296,8 @@ unit on the map is 軍勢, a host), so the merged dictionary stays consistent.
 | Japanese | English | Notes |
 |---|---|---|
 | Wylls | Wylls | the game's name |
-| 鐘 / 第N鐘 / 鐘 N | bell / Bell N | never "tick" or "turn"; the chip reads `Bell 1,034 · 6:12 left` |
+| 鐘 / 第N鐘 / 鐘 N | bell / Bell N | the thing in the world that tolls every ten minutes, and the word of the mechanics copy (arrival bell, "resting until Bell 44"); never "tick". The line that ties it to the turn: 「鐘が鳴るたびにターンが進みます」 / "Each time the bell tolls, the turn advances" |
+| ターン / ターン N | turn / Turn N | the HUD's count of bells (UX design section 6, owner brief of 2026-10-09): only the turn dial (`Turn 1,034 · 6:12 left`), the toll banner (「鐘が鳴りました — ターン 43」 / "The bell tolls — Turn 43"), the to-do heading (「このターンにやること」 / "This turn") and the stamps of notifications read "turn", always with the bell icon beside them. Turn N is Bell N |
 | 州 | province | |
 | 輪 / 第d輪 | ring / Ring d | ring 0 is the Concord |
 | 扇区（本拠の扇区） | wedge (home wedge) | |

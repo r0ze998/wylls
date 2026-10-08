@@ -2,8 +2,10 @@
 // bells, driven by onboarding.mjs (chain facts first, local "seen" flags
 // only). The current step says what to do and, while the chain works, what
 // it is waiting for and about when (O-M1-13 times); each step can be
-// skipped and the card dismissed (it returns from the More tab). On the map
-// tab the card is open; on the other tabs it is one line that opens.
+// skipped and the card dismissed (it returns from "More"). On the map the
+// guide is one objective at a time (renderObjective: a small card with the
+// step and one button; UX design 7.4); the whole card with the list of steps
+// opens in the drawer on demand and stands in the join flow.
 import { html, raw } from '../../util.mjs';
 import { L, Lh, fmtNum } from '../../lang.mjs';
 import { PIPELINE_TEXT } from '../fi18n.mjs';
@@ -26,14 +28,14 @@ const DO = {
   // stage-neutral (a returning or refugee player too), following the automatic ticket (review finding 9)
   join: FS => {
     const stage = FS.land?.stage ?? 'none', st = FS.autoTicket?.state;
-    if (stage === 'none') return L`地図のタブで六つの国から一つを選び、ゲーム内の鍵を作って参加します。選ぶのは国だけです。`;
+    if (stage === 'none') return L`六つの国から一つを選び、ゲーム内の鍵を作って参加します。選ぶのは国だけです。`;
     if (stage === 'ticket' || st === 'sent') return L`入植希望を自動で出しました。次の鐘（約11〜21分後）に村が決まります。待つあいだに練習で戦ってみましょう。`;
     if (st === 'nofree') return L`空いた区画が見つかりません。鐘ごとに自動で探し直します。`;
     if (st === 'room') return L`この鐘の入植希望の枠がいっぱいです。次の鐘に自動で出します。`;
-    if (st === 'failed') return L`入植希望を出せませんでした。次の鐘に自動でもう一度出します（地図のタブからすぐ出し直せます）。`;
+    if (st === 'failed') return L`入植希望を出せませんでした。次の鐘に自動でもう一度出します（「様子を見る」からすぐ出し直せます）。`;
     return L`空いた区画に、村の入植希望を自動で出しています。`;
   },
-  build: () => L`村のタブで農場と木材所を建てます。`,
+  build: () => L`「村」で農場と木材所を建てます。`,
   scout: () => L`斥候を訓練して軍勢に編成し、隣の2マスを探索します。`,
   practice: () => L`練習モードで蛮族の野営地を襲ってみます。チェーンには何も送りません。`,
   march: () => L`届く範囲の蛮族の野営地へ、封をした進軍を送ります。行き先と構えは到着の鐘まであなたにしか見えません。チップはキーパーへの報酬で、このタブを閉じてもキーパーが開封します。`,
@@ -41,7 +43,7 @@ const DO = {
   done: () => L`最初の鐘の案内は終わりです。ガイドは「その他」からいつでも開けます。`,
 };
 const GO = {
-  join: () => html`<button type="button" class="btn" data-act="tab" data-tab="map">${L`地図を開く`}</button>`,
+  join: () => html`<button type="button" class="btn" data-act="join-open">${L`参加の画面を開く`}</button>`,
   build: () => html`<button type="button" class="btn" data-act="tab" data-tab="holding">${L`村を開く`}</button>`,
   scout: () => html`<button type="button" class="btn" data-act="tab" data-tab="hosts">${L`軍勢を開く`}</button>`,
   practice: () => html`<button type="button" class="btn" data-act="practice-open">${L`練習を開く`}</button>`,
@@ -86,6 +88,32 @@ export function render(FS, { open = true } = {}) {
   if (!open) return html`<details class="callout onboarding"><summary>${head}</summary><ol class="steps">${st.steps.map(stepItem)}</ol>${body}</details>`;
   return html`<section class="callout onboarding" aria-labelledby="ob-title"><h3 id="ob-title">${head}</h3>
     <ol class="steps">${st.steps.map(stepItem)}</ol>${body}</section>`;
+}
+
+/**
+ * The guide on the map: the current objective alone — which step, what to do in one line, and
+ * one button (the step's own: "show me" for a target on the map, else the screen it needs).
+ * "手順" opens the whole card with the list of steps in the drawer. Nothing when the guide is
+ * off, dismissed or done.
+ */
+export function renderObjective(FS) {
+  if (guideLevel(FS) !== 'all' || FS.mode !== 'play') return '';
+  let st;
+  try { st = onboardingState(factsOf(FS), FS.ui?.dismissed ?? [], FS.clock ?? null); } catch { return ''; }
+  if (st.dismissed) return '';
+  const cur = st.steps.find(s => s.id === st.current);
+  if (!cur || cur.id === 'done') return '';
+  const target = guideTarget(FS);
+  const n = st.steps.filter(s => s.status === 'done' || s.status === 'skipped').length;
+  const go = cur.id === 'welcome' ? html`<button type="button" class="btn primary small" data-act="ob-seen" data-flag="welcome">${L`わかりました`}</button>`
+    : target && target.step === cur.id ? html`<button type="button" class="btn primary small" data-act="ob-go">${goText(target)}</button>`
+    : cur.id === 'report' ? renderReportGo(FS) : GO[cur.id]?.() ?? '';
+  return html`<section class="ob-card" aria-labelledby="ob-title">
+    <p class="ob-kicker"><span class="ob-ring" aria-hidden="true"></span>${L`ガイド ${n}/${STEPS.length - 1}`}</p>
+    <h3 id="ob-title">${TITLE[cur.id]()}</h3>
+    <p class="ob-do">${cur.id === 'join' ? DO.join(FS) : DO[cur.id]()}</p>
+    <p class="ob-acts">${go}<button type="button" class="btn small ob-steps" data-act="guide-open">${L`手順を見る`}</button></p>
+  </section>`;
 }
 
 function renderReportGo(FS) {

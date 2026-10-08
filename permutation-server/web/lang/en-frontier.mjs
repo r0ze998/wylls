@@ -15,10 +15,14 @@ export default {
   '練習モード': 'Practice mode',
   'ウォレットなしで地図と鐘の進み具合を見られます。': 'Watch the map and the bells without a wallet.',
   '州 {0},{1} を選びました': 'Province {0},{1} selected',
-  '鐘 —': 'Bell —',
-  '鐘 {0} · 残り {1}': 'Bell {0} · {1} left',
-  '鐘 {0} · 終了': 'Bell {0} · ended',
+  // the turn dial (UX design section 6): the HUD clock counts turns; the bell is what tolls when one ends
+  'ターン —': 'Turn —',
+  'ターン {0} · 残り {1}': 'Turn {0} · {1} left',
+  'ターン {0} · 終了': 'Turn {0} · ended',
+  'ターン': 'Turn',
   '開始まで {0}': 'Starts in {0}',
+  '開始まで': 'Starts in',
+  '地図を探す': 'Search the map',
   '表示が {0} 秒遅れています。最新の状態が必要な操作の前に再読み込みしてください': 'This view is {0} s behind. Reload before an action that needs the latest state.',
   '（テスト用ビーコン）': ' (test beacon)',
 

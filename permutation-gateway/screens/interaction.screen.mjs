@@ -1,6 +1,10 @@
-// Keyboard, sheet and focus behaviour in Chromium (web design §7.1, §10):
-// the bottom sheet (handle states, Escape back to peek with focus on the
-// handle, a tab opens it), the map by keyboard (+/−, H home, the buttons),
+// Keyboard, sheet and focus behaviour in Chromium (web design §7.1, §10;
+// UX design section 6): the drawer (closed when nothing is selected or
+// open; the phone sheet rests at its peek, a dock press lifts it, "Map"
+// closes it, Escape collapses it with focus on the handle; on desktop it
+// slides in from the right and Escape puts it away), the full-bleed map
+// (at least 80% of a 1440 × 900 screen is map with nothing open), the map
+// by keyboard (+/−, H home, the buttons),
 // the language toggle by keyboard, and a visible focus ring. Same fixture
 // server as the matrix (127.0.0.1, port 0).
 import { test, before, after } from 'node:test';
@@ -31,30 +35,52 @@ async function open(t, { width = 390, height = 844, stage = 'holding', page: fil
 }
 const sheet = page => page.locator('#panel').getAttribute('data-sheet');
 
-test('the bottom sheet: the handle cycles its heights, Escape collapses it and returns focus, a tab opens it', { timeout: 60_000 }, async t => {
+const drawer = page => page.locator('#panel').getAttribute('data-drawer');
+
+// Rewritten with the redesign (UX design section 6): the sheet rested at half with the map tab's panel in it;
+// now the drawer is closed at load and the sheet rests at its peek (the plate and the to-do lines).
+test('the phone sheet: it rests at the peek with the drawer closed; a dock press opens it to half; the handle cycles; "Map" closes; Escape collapses it', { timeout: 60_000 }, async t => {
   const page = await open(t);
   const handle = page.locator('[data-sheet-handle]');
   await handle.waitFor();
-  assert.equal(await sheet(page), 'half');
-  assert.equal(await handle.getAttribute('aria-expanded'), 'true');
+  assert.equal(await drawer(page), 'closed', 'nothing selected or open');
+  assert.equal(await sheet(page), 'peek');
+  assert.equal(await handle.getAttribute('aria-expanded'), 'false');
   assert.equal(await handle.getAttribute('aria-controls'), 'panel-body');
+  // at rest the peek is about a quarter of the screen and shows the village plate
+  await page.locator('#panel-body [data-act="home"]').waitFor();
+  const peek = await page.locator('#panel').boundingBox();
+  assert.ok(peek.height / 844 > 0.2 && peek.height / 844 < 0.3, `the peek is ${Math.round(peek.height)} px of 844`);
+  await handle.click();
+  assert.equal(await sheet(page), 'half');
   await handle.click();
   assert.equal(await sheet(page), 'full');
   assert.equal(await handle.getAttribute('aria-label'), 'パネルを小さくする');
   await handle.click();
   assert.equal(await sheet(page), 'peek');
-  assert.equal(await handle.getAttribute('aria-expanded'), 'false');
   await page.locator('#tabs [data-tab="holding"]').click();
-  assert.equal(await sheet(page), 'half', 'choosing a tab opens the sheet');
+  assert.equal(await drawer(page), 'open');
+  assert.equal(await sheet(page), 'half', 'a dock press opens the sheet');
+  assert.equal(await page.locator('#tabs [data-tab="holding"]').getAttribute('aria-current'), 'page');
   await page.locator('#holding-title').waitFor();
   await page.locator('#panel-body [data-act="harvest"]').focus();
   await page.keyboard.press('Escape');
   assert.equal(await sheet(page), 'peek');
   assert.equal(await page.evaluate(() => document.activeElement?.hasAttribute('data-sheet-handle')), true, 'focus returns to the handle');
+  // the open tab pressed while the sheet is low lifts it; "Map" closes the drawer
+  await page.locator('#tabs [data-tab="holding"]').click();
+  assert.equal(await sheet(page), 'half');
+  await page.locator('#tabs [data-tab="map"]').click();
+  assert.equal(await drawer(page), 'closed');
+  assert.equal(await sheet(page), 'peek');
+  assert.equal(await page.locator('#holding-title').count(), 0);
+  assert.equal(await page.locator('#tabs [data-tab="map"]').getAttribute('aria-current'), 'page');
 });
 
 /** A real touch drag on the handle (CDP touch events: pointerdown/up, no click), `dy` px in 8 steps. */
 async function touchDrag(page, dy) {
+  // the sheet's height eases to its new state (visual only): the handle is measured where it comes to rest
+  await page.locator('#panel').evaluate(el => Promise.all(el.getAnimations().map(x => x.finished.catch(() => {}))));
   const box = await page.locator('[data-sheet-handle]').boundingBox();
   const x = box.x + box.width / 2, y = box.y + box.height / 2;
   const cdp = await page.context().newCDPSession(page);
@@ -69,9 +95,11 @@ test('a touch drag moves the sheet one step and the next single tap still works 
   const page = await open(t);
   const handle = page.locator('[data-sheet-handle]');
   await handle.waitFor();
-  assert.equal(await sheet(page), 'half');
+  assert.equal(await sheet(page), 'peek');
   await touchDrag(page, -80);
-  assert.equal(await sheet(page), 'full', 'dragging up expands one step');
+  assert.equal(await sheet(page), 'half', 'dragging up expands one step');
+  await touchDrag(page, -80);
+  assert.equal(await sheet(page), 'full');
   // Past the drag's own click window, one genuine tap changes the state.
   await page.waitForTimeout(450);
   await handle.tap();
@@ -88,12 +116,12 @@ test('a mouse drag that ends off the handle still moves the sheet (pointer captu
   await handle.waitFor();
   const box = await handle.boundingBox();
   const x = box.x + box.width / 2, y = box.y + box.height / 2;
-  assert.equal(await sheet(page), 'half');
+  assert.equal(await sheet(page), 'peek');
   await page.mouse.move(x, y);
   await page.mouse.down();
   await page.mouse.move(x + 120, y - 160, { steps: 8 });
   await page.mouse.up();
-  assert.equal(await sheet(page), 'full', 'released far from the 44-px handle');
+  assert.equal(await sheet(page), 'half', 'released far from the 44-px handle');
 });
 
 test('on a phone the relay quota is read in "More" (the chip is hidden below 760 px; wave-5 review D5)', { timeout: 60_000 }, async t => {
@@ -105,13 +133,38 @@ test('on a phone the relay quota is read in "More" (the chip is hidden below 760
   assert.match(await line.textContent(), /中継 残り \d+ 回/);
 });
 
-test('the sheet is a phone thing: on desktop the handle is hidden and Escape leaves the panel alone', { timeout: 60_000 }, async t => {
+// Rewritten with the redesign: on desktop the panel was a permanent column that Escape left alone; it is a drawer now.
+test('the desktop drawer: closed at load, a dock press slides it in, Escape and "Map" put it away; the map has at least 80% of the screen', { timeout: 60_000 }, async t => {
   const page = await open(t, { width: 1440, height: 900 });
   assert.equal(await page.locator('[data-sheet-handle]').isVisible(), false);
+  assert.equal(await drawer(page), 'closed');
+  assert.equal(await page.locator('#panel').isVisible(), false, 'nothing selected or open: no panel');
+  // the canvas is full-bleed, and with nothing open the HUD leaves at least 80% of the viewport to it
+  await page.locator('#rail [data-act="home"]').waitFor();
+  const share = await page.evaluate(() => {
+    let map = 0, all = 0;
+    for (let y = 2; y < innerHeight; y += 4) for (let x = 2; x < innerWidth; x += 4) { all++; if (document.elementFromPoint(x, y)?.id === 'frontier-map') map++; }
+    const c = document.getElementById('frontier-map').getBoundingClientRect();
+    return { map: map / all, canvas: [c.left, c.top, c.width, c.height] };
+  });
+  assert.deepEqual(share.canvas, [0, 0, 1440, 900], 'the canvas is the whole viewport');
+  assert.ok(share.map >= 0.8, `map share ${share.map.toFixed(3)}`);
   await page.locator('#tabs [data-tab="holding"]').click();
+  assert.equal(await drawer(page), 'open', 'the state is set at once (the slide is visual)');
+  await page.locator('#holding-title').waitFor();
+  const box = await page.locator('#panel').boundingBox();
+  assert.ok(box.x > 1440 / 2 && box.x + box.width <= 1440, 'it stands at the right');
   await page.locator('#panel-body [data-act="harvest"]').focus();
   await page.keyboard.press('Escape');
-  assert.equal(await page.locator('#holding-title').isVisible(), true);
+  assert.equal(await drawer(page), 'closed', 'Escape puts the drawer away');
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'frontier-map', 'the keyboard is back on the map');
+  await page.locator('#panel').waitFor({ state: 'hidden' });
+  // a selection on the map opens it; the dock's "Map" closes it
+  await page.locator('#tabs [data-tab="more"]').click();
+  await page.locator('#bell-title').waitFor();
+  await page.locator('#tabs [data-tab="map"]').click();
+  assert.equal(await drawer(page), 'closed');
+  await page.locator('#panel .panel-close').waitFor({ state: 'hidden' });
 });
 
 test('the map by keyboard: + and − zoom, H goes to the viewer\'s holding, the buttons work with Enter', { timeout: 60_000 }, async t => {
@@ -156,7 +209,8 @@ test('the language toggle by keyboard, and a visible focus ring on every focusab
 // The step counts of the UI plan (§5, Civ's "how many clicks"): from a host selected on the map to "seal and
 // depart" in at most 3 presses, and the next to-do item in 1. Presses are real clicks on the page and the canvas.
 test('step counts: a selected host to "seal and depart" in 3 presses; the next to-do in 1', { timeout: 90_000 }, async t => {
-  const Z = 1.4;
+  // 1.0 (it was 1.4): the drawer stands over the right 400 px of the map now, and the camp tile must stay left of it
+  const Z = 1.0;
   // the camera on the viewer's home tile, where the fixture's ready host stands (?at=P,Q,TILE,ZOOM)
   const page = await open(t, { width: 1440, height: 900, query: `?at=${HOME.p},${HOME.q},${HOME.tile},${Z}` });
   await page.locator('#frontier-map[data-lod="tile"]').waitFor();

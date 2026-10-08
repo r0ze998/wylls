@@ -18,7 +18,8 @@ import { FACTION_FILL, FACTION_DARK } from '../people/avatar.mjs';
 
 export const LENSES = Object.freeze(['realm', 'war', 'land', 'settle']);
 export const LENS_TEXT = { realm: () => L`領土`, war: () => L`軍事`, land: () => L`地形`, settle: () => L`入植` };
-export const LENS_GLYPH = { realm: '⚑', war: '⚔', land: '⛰', settle: '⌂' };
+/** The lens chips' icons (hud/icons.mjs). */
+export const LENS_ICON = { realm: 'banner', war: 'swords', land: 'mountain', settle: 'tent' };
 export const MINIMAP_PX = 188;
 
 const LAND = '#6f8f55', CLOUD = '#e8ecef';

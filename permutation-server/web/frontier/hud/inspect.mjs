@@ -6,6 +6,7 @@
 // open the holding, choose the tile as the march destination, add the site
 // to the settlement ticket, read the last clash report. Every action is an
 // existing `data-act` of the play screens; the inspector only offers it.
+import { icon } from './icons.mjs';
 import { html, raw } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { TIERS, UNITS, factionName } from '../fi18n.mjs';
@@ -108,7 +109,7 @@ export function renderBrief(FS, terrainOf) {
   const t = m.tile, site = t?.site;
   const what = site?.state === 'holding' ? html` · ${swatch(site.faction)}${holdingName({ p: m.p, q: m.q, site: site.index }, site.tier ?? 0)}` : t?.hosts?.length ? html` · ${L`軍勢 ${fmtNum(t.hosts.length)}`}` : '';
   return html`<div class="sel-brief" role="status"><span class="sel-what">${L`選択中`}: ${t ? L`州 ${m.p},${m.q} · マス ${t.idx + 1}` : L`州 ${m.p},${m.q}`}${what}</span>
-    <button type="button" class="btn small" data-act="tab" data-tab="map">${L`地図で詳しく`}</button><button type="button" class="btn small" data-act="sel-clear" aria-label="${L`選択を外す`}">×</button></div>`;
+    <button type="button" class="btn small" data-act="sel-open">${L`詳しく見る`}</button><button type="button" class="btn small" data-act="sel-clear" aria-label="${L`選択を外す`}">${icon('close')}</button></div>`;
 }
 
 export function render(FS, terrainOf, activities = null) {

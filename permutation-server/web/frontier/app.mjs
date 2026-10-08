@@ -21,9 +21,11 @@ import { FrontierMap } from './map/fmap.mjs';
 import { SEASON_STATUS_TEXT, clientText, factionName, TIERS, BUILDINGS } from './fi18n.mjs';
 import { L, fmtNum, mountLangToggle, onLangChange, lang } from '../lang.mjs';
 import { toHex } from '../sdk/bytes.mjs';
-import { html, raw, setHtml } from '../util.mjs';
+import { html, setHtml } from '../util.mjs';
 import { ACTIONS, FORMS, bind, startPlay, wantProvince } from './controller.mjs';
-import { renderTabs, renderNotice, factionChip, quotaChip, mountSheet } from './screens/shell.mjs';
+import { renderTabs, renderNotice, factionChip, quotaChip, mountSheet, PHONE_MAX } from './screens/shell.mjs';
+import { drawerOf, closeDrawer, drawerTitle, holdsLand, LIFTS } from './hud/drawer.mjs';
+import { icon, iconizeMapTools } from './hud/icons.mjs';
 import { createTerrain } from './map/terrain.mjs';
 import { provincePixel } from './map/layers.mjs';
 
@@ -97,7 +99,6 @@ import * as scene from './people/scene.mjs';
 import { activityText } from './people/activity.mjs';
 import { hostOwner, provinceFactions, renderNameForm, ownTag } from './people/ui.mjs';
 import * as profile from './people/profile.mjs';
-import { leaderSvg } from './people/leaders.mjs';
 import * as glossary from './hud/glossary.mjs';
 import * as milestones from './hud/milestones.mjs';
 import * as guide from './hud/guide.mjs';
@@ -118,17 +119,49 @@ import { lifeAt, lordLine } from './people/life.mjs';
 const $ = id => globalThis.document?.getElementById(id);
 const setText = (id, text) => { const el = $(id); if (el && el.textContent !== text) el.textContent = text; };
 
-/** The chip's text: "鐘 1,034 · 残り 6:12" / "Bell 1,034 · 6:12 left". */
+/**
+ * The turn dial's text in one line: "ターン 1,034 · 残り 6:12" / "Turn 1,034 · 6:12 left".
+ * The HUD clock counts turns (UX design section 6); the bell is the thing in the world
+ * that tolls when a turn ends, and the mechanics copy keeps that word.
+ */
 export function chipText(chip) {
-  if (!chip || (chip.bell === null && !chip.beforeGenesis)) return L`鐘 —`;
+  if (!chip || (chip.bell === null && !chip.beforeGenesis)) return L`ターン —`;
   if (chip.beforeGenesis) return L`開始まで ${countdown(chip.secondsLeft)}`;
-  if (chip.ended) return L`鐘 ${fmtNum(chip.bell)} · 終了`;
-  return L`鐘 ${fmtNum(chip.bell)} · 残り ${countdown(chip.secondsLeft)}`;
+  if (chip.ended) return L`ターン ${fmtNum(chip.bell)} · 終了`;
+  return L`ターン ${fmtNum(chip.bell)} · 残り ${countdown(chip.secondsLeft)}`;
+}
+
+/** The dial's three places: the small label, the large figure, the line under it. */
+export function dialParts(chip) {
+  if (!chip || (chip.bell === null && !chip.beforeGenesis)) return { label: L`ターン`, num: '—', left: '' };
+  if (chip.beforeGenesis) return { label: L`開始まで`, num: countdown(chip.secondsLeft), left: '' };
+  return { label: L`ターン`, num: fmtNum(chip.bell), left: chip.ended ? L`終了` : countdown(chip.secondsLeft) };
+}
+
+/**
+ * The dial's markup: the parts of `dialParts` cut out of the one-line text in order; what lies
+ * between them stays in the page for a screen reader (visually hidden), so the element's text
+ * is exactly `chipText`.
+ */
+export function dialMarkup(chip) {
+  const parts = dialParts(chip);
+  let rest = chipText(chip);
+  const out = [];
+  for (const [cls, text] of [['dial-label', parts.label], ['dial-num', parts.num], ['dial-left', parts.left]]) {
+    const i = text ? rest.indexOf(text) : -1;
+    if (i < 0) continue;
+    if (i > 0) out.push(html`<span class="visually-hidden">${rest.slice(0, i)}</span>`);
+    out.push(html`<span class="${cls}">${text}</span>`);
+    rest = rest.slice(i + text.length);
+  }
+  if (rest) out.push(html`<span class="visually-hidden">${rest}</span>`);
+  return out;
 }
 
 function renderChip() {
   const now = FS.chain?.now() ?? null;
-  setText('bell-chip', chipText(FS.clock ? bellChip(FS.clock, now) : null));
+  const chip = $('bell-chip');
+  if (chip) setHtmlIfChanged(chip, dialMarkup(FS.clock ? bellChip(FS.clock, now) : null));
   renderHudTick(now);
   FS.stale = staleness({ latestUnix: FS.record?.latestUnix, chainNow: now, behind: FS.chain?.behind() ?? null });
   const banner = $('stale-banner');
@@ -168,30 +201,9 @@ export function myReports(FS) {
   return out.slice(0, 12);
 }
 
-/** The panel of the current tab (the game page). A report or a practice run open takes the panel. */
-export function panelMarkup(FS) {
-  const tab = FS.tab ?? 'map';
-  const parts = [renderNotice(FS.notice)];
-  if (FS.practice) return [...parts, practiceScreen.render(FS.practice, { kernelError: FS.practiceError ?? null, closable: true })];
-  if (FS.report) return [...parts, reportScreen.render(FS, mineOf(FS.holdings), { ownerOf: reportOwner })];
-  // A march being composed on the map: its card first (hud/marchcard.mjs).
-  if (tab === 'map' && FS.compose) parts.push(marchCard.render(FS));
-  // Phones and tablets (no left rail below 1100 px): the rail's holdings and to-do list, folded (closed while composing).
-  if (tab === 'map' && (FS.holdings ?? []).length) {
-    const n = hud.attentionItems(FS).length;
-    parts.push(html`<details class="rail-mini" ${raw(n && !FS.compose ? 'open' : '')}><summary>${n ? L`村と次の鐘までにやること（${fmtNum(n)}）` : L`村と次の鐘までにやること`}</summary>${hud.renderRail(FS)}</details>`);
-  }
-  // The selection first on the map tab (the player just chose it), then the guide.
-  if (tab === 'map' && FS.selected) parts.push(inspect.render(FS, terrainRef, mapRef?.art?.activities ?? null));
-  else if (FS.selected) parts.push(inspect.renderBrief(FS, terrainRef));
-  parts.push(onboardingCard.render(FS, { open: tab === 'map' }));
-  // Another tab keeps one line of the selection (the inspector itself is on the map tab).
-  if (tab === 'map') {
-    parts.push(joinScreen.render(FS));
-  } else if (tab === 'holding') parts.push(holdingScreen.render(FS));
-  else if (tab === 'hosts') parts.push(hostScreen.render(FS), exploreScreen.render(FS));
-  else if (tab === 'marches') parts.push(marchScreen.render(FS), trackerScreen.render(FS), reportScreen.renderLinks(myReports(FS), L`あなたの衝突の報告`), incomingScreen.render(FS));
-  else parts.push(feed.renderCentre(FS.feed ?? [], FS.feedFilter ?? 'all'), bellScreen.render(FS), reportScreen.renderLinks(reportScreen.clashesFrom(FS.chronicle ?? []), L`最近の衝突`), chronicleScreen.render(FS), html`<section aria-labelledby="more-title"><h3 id="more-title">${L`設定`}</h3>
+/** The "more" drawer's settings card. */
+function settingsMarkup(FS) {
+  return html`<section aria-labelledby="more-title"><h3 id="more-title">${L`設定`}</h3>
     <label class="choice"><input type="checkbox" data-act="fog" ${FS.view.fog ? '' : 'checked'}>${L`すべてを見せる（どの口座も公開されています）`}</label>
     <label class="choice"><input type="checkbox" data-act="autopan" ${FS.ui?.autoPan ? 'checked' : ''}>${L`自分に関わる戦いが決着したら、地図をそこへ動かして見せる`}</label>
     <div class="choice-row" role="group" aria-label="${L`ガイドの強さ`}"><span>${L`ガイドの強さ`}</span>${guide.GUIDE_LEVELS.map(v => html`<button type="button" class="btn small" data-act="guide-level" data-v="${v}" aria-pressed="${guide.guideLevel(FS) === v ? 'true' : 'false'}">${guide.GUIDE_TEXT[v]()}</button>`)}</div>
@@ -199,7 +211,43 @@ export function panelMarkup(FS) {
     <button type="button" class="btn" data-act="forget">${L`この端末からこのシーズンの鍵を消す`}</button>
     ${onboardingCard.renderRestore(FS)}
     <p><button type="button" class="btn" data-act="practice-open">${L`練習モードを開く`}</button> <button type="button" class="btn" data-act="intro-open">${L`タイトルを見る`}</button></p>
-    <p><a href="practice.html">${L`練習`}</a> · <a href="spectate.html">${L`観戦`}</a></p></section>`, pins.renderPins(FS.pins ?? []), renderNameForm(FS), milestones.renderTimeline(FS.mileRecord), glossary.renderGlossary());
+    <p><a href="practice.html">${L`練習`}</a> · <a href="spectate.html">${L`観戦`}</a></p></section>`;
+}
+
+/**
+ * What stands in the phone sheet while the drawer is closed (its peek, about a quarter of the
+ * screen): the objective of the guide, the village plate and the to-do lines. On desktop these
+ * float over the map (`#objective`, `aside#rail`) and the closed drawer is empty.
+ */
+export function restMarkup(FS) {
+  return [hud.renderPlate(FS), onboardingCard.renderObjective(FS), hud.renderTodo(FS, { max: 8 })];
+}
+
+/**
+ * The drawer's content on the game page, for the one drawer state (hud/drawer.mjs `drawerOf`):
+ * a report or a practice run takes it whole; then a dock press; then, on the map, the order
+ * being composed, the selection, the guide's steps or the join flow.
+ */
+export function panelMarkup(FS, d = drawerOf(FS)) {
+  const parts = [renderNotice(FS.notice)];
+  if (!d) return [...parts, ...restMarkup(FS)];
+  if (d.kind === 'practice') return [...parts, practiceScreen.render(FS.practice, { kernelError: FS.practiceError ?? null, closable: true })];
+  if (d.kind === 'report') return [...parts, reportScreen.render(FS, mineOf(FS.holdings), { ownerOf: reportOwner })];
+  if (d.kind === 'march' || d.kind === 'inspect') {
+    // an order being composed on the map: its card first (hud/marchcard.mjs), then what is selected
+    if (FS.compose) parts.push(marchCard.render(FS));
+    if (FS.selected) parts.push(inspect.render(FS, terrainRef, mapRef?.art?.activities ?? null));
+    return parts;
+  }
+  if (d.kind === 'guide') return [...parts, onboardingCard.render(FS, { open: true }), holdsLand(FS) ? joinScreen.render(FS) : ''];
+  if (d.kind === 'join') return [...parts, joinScreen.render(FS), onboardingCard.render(FS, { open: true })];
+  // a dock tab keeps one line of the selection (the inspector itself opens from the map)
+  if (FS.selected) parts.push(inspect.renderBrief(FS, terrainRef));
+  if (d.kind === 'holding') parts.push(holdingScreen.render(FS));
+  else if (d.kind === 'hosts') parts.push(hostScreen.render(FS), exploreScreen.render(FS));
+  else if (d.kind === 'marches') parts.push(marchScreen.render(FS), trackerScreen.render(FS), reportScreen.renderLinks(myReports(FS), L`あなたの衝突の報告`), incomingScreen.render(FS));
+  else parts.push(feed.renderCentre(FS.feed ?? [], FS.feedFilter ?? 'all'), bellScreen.render(FS), reportScreen.renderLinks(reportScreen.clashesFrom(FS.chronicle ?? []), L`最近の衝突`), chronicleScreen.render(FS),
+    settingsMarkup(FS), pins.renderPins(FS.pins ?? []), renderNameForm(FS), milestones.renderTimeline(FS.mileRecord), glossary.renderGlossary());
   return parts;
 }
 
@@ -234,19 +282,63 @@ export function keepState(el, render, scroller = el) {
   if (scroller && scroller.scrollTop !== top) scroller.scrollTop = top;
 }
 
+// ------------------------------------------------------------------ the drawer (hud/drawer.mjs)
+/** The phone sheet (screens/shell.mjs `mountSheet`): `{set, state}` or null. */
+let sheetRef = null;
+const phone = () => !!globalThis.matchMedia?.(`(max-width: ${PHONE_MAX}px)`).matches;
+const calm = () => !!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+let drawerKind;            // the kind applied last (undefined before the first render)
+let drawerClear = null;    // the timer that empties a closed drawer after it has slid away
+/**
+ * Apply the drawer state to the page: `data-drawer` (open | closed) and `data-kind` on the
+ * panel and the body at once (state is synchronous; the slide is CSS on the stable panel
+ * element, never on its re-rendered content), and the phone sheet's height when the state
+ * changes: closed rests at the peek, a panel that opens lifts it to half.
+ */
+function applyDrawer(d) {
+  const panel = $('panel'), body = globalThis.document?.body;
+  const state = d ? 'open' : 'closed', kind = d?.kind ?? '';
+  for (const el of [panel, body]) {
+    if (!el?.dataset) continue;
+    if (el.dataset.drawer !== state) el.dataset.drawer = state;
+    if ((el.dataset.kind ?? '') !== kind) el.dataset.kind = kind;
+  }
+  if (kind === drawerKind) return false;
+  drawerKind = kind;
+  if (sheetRef && phone()) {
+    if (!d) sheetRef.set('peek');
+    else if (LIFTS.has(d.kind) && sheetRef.state() === 'peek') sheetRef.set('half');
+  }
+  return true;
+}
+
 let lastPanelView = null;
-function renderPlay() {
-  const tabs = $('tabs');
-  if (tabs) setHtml(tabs, renderTabs(FS));
+/** Write the drawer: its state, title and body (the same view keeps its scroll and typed values). */
+function renderDrawer(markupOf) {
+  const d = drawerOf(FS);
+  applyDrawer(d);
   const body = $('panel-body');
-  // the same view keeps its scroll; a new tab, report or practice run starts at the top
-  const view = `${FS.tab ?? 'map'}|${FS.report ? 'r' : ''}|${FS.practice ? 'p' : ''}`;
+  const view = `${d?.kind ?? ''}|${FS.mode}`;
   const same = view === lastPanelView;
   lastPanelView = view;
-  if (body) keepState(body, () => setHtml(body, panelMarkup(FS)), same ? $('panel') : null);
-  const title = $('panel-title');
-  const sub = FS.practice ? L`練習モード` : FS.report ? L`衝突の報告` : null;
-  if (title) setText('panel-title', sub ?? { map: L`地図`, holding: L`村`, hosts: L`軍勢`, marches: L`進軍`, more: L`その他` }[FS.tab ?? 'map'] ?? L`シーズン`);
+  clearTimeout(drawerClear); drawerClear = null;
+  if (body) {
+    const scroller = phone() ? $('panel') : body;
+    if (d || phone()) keepState(body, () => setHtml(body, markupOf(d)), same ? scroller : null);
+    // desktop, closed: the content leaves once the drawer has slid away (at once without motion)
+    else if (calm()) setHtml(body, '');
+    else drawerClear = setTimeout(() => { if (!drawerOf(FS)) setHtml(body, ''); }, 200);
+    if (!same && scroller) scroller.scrollTop = 0;
+  }
+  setText('panel-title', drawerTitle(d));
+  return d;
+}
+
+function renderPlay() {
+  const d = renderDrawer(dd => panelMarkup(FS, dd));
+  const tabs = $('tabs');
+  // what the map itself opens (a selection, an order, the guide, the join flow) leaves "Map" current; a report or a run, none
+  if (tabs) setHtml(tabs, renderTabs(FS, !d || ['inspect', 'march', 'guide', 'join'].includes(d.kind) ? 'map' : d.kind));
   renderRail();
   renderMinimap();
   // the header follows new data at once, not only on the next one-second tick
@@ -254,8 +346,7 @@ function renderPlay() {
 }
 
 function renderMode() {
-  const body = $('panel-body');
-  if (body) setHtml(body, modePanel(FS));
+  renderDrawer(() => modePanel(FS));
   renderRail();
   renderMinimap();
 }
@@ -590,9 +681,12 @@ function renderHudTick(now) {
   if (strip) {
     const tokens = FS.mode === 'play' ? hud.resourceModel(hud.activeHolding(FS), now ?? 0) : [];
     strip.hidden = !tokens.length;
+    // the room left of the dial: two tokens on a phone (the two most pressing), more as the strip widens
     const w = globalThis.innerWidth ?? 1440;
-    setHtmlIfChanged(strip, hud.renderStrip(tokens, FS.resOpen ?? null, w < 760 ? 1 : w < 1100 ? 3 : w < 1440 ? 3 : w < 1700 ? 5 : 8));
+    setHtmlIfChanged(strip, hud.renderStrip(tokens, FS.resOpen ?? null, w < 760 ? 2 : w < 1000 ? 3 : w < 1280 ? 4 : w < 1600 ? 5 : 8));
+    resChanges(strip, tokens);
   }
+  renderSound();
   renderResPop(now ?? 0);
   checkMilestones();
   checkOwnProfile();
@@ -605,11 +699,65 @@ function renderHudTick(now) {
     const text = hud.attentionText(items);
     attn.hidden = !text;
     // phones show only the count (the header keeps one row: no layout shift when it appears); the full text is its name
-    if (text && attn.getAttribute('aria-label') !== text) {
-      attn.setAttribute('aria-label', text);
-      setHtml(attn, html`<span class="attn-long" aria-hidden="true">${text}</span><span class="attn-short" aria-hidden="true">${fmtNum(items.length)}</span>`);
+    const key = text ? `${items[0].kind}|${text}` : '';
+    if (text && attn.dataset.key !== key) {
+      attn.dataset.key = key;
+      attn.setAttribute('aria-label', L`次にやること：${text}`);
+      attn.title = items[0].text ?? text;
+      setHtml(attn, html`${icon(hud.TODO_ICON[items[0].kind] ?? 'flag', 'next-ic')}<span class="attn-long" aria-hidden="true">${text}</span><span class="attn-short" aria-hidden="true">${fmtNum(items.length)}</span>${icon('next', 'next-go')}`);
     }
   }
+}
+
+// ------------------------------------------------------------------ the strip's small moves
+let resSeen = { key: null, values: new Map() };
+/**
+ * A resource that jumps (a harvest, a build paid for) counts up to its new value and flashes;
+ * the slow rise of production does neither. Visual only: the number in the page is already the
+ * new one, and nothing moves under reduced motion.
+ */
+function resChanges(strip, tokens) {
+  const h = hud.activeHolding(FS);
+  const key = h ? `${h.p},${h.q},${h.site}` : null;
+  const prev = resSeen.key === key ? resSeen.values : null;
+  resSeen = { key, values: new Map(tokens.map(r => [r.resource, r.value])) };
+  if (!prev || !strip.querySelector) return;
+  for (const r of tokens) {
+    const was = prev.get(r.resource);
+    if (was === undefined) continue;
+    const d = r.value - was;
+    if (Math.abs(d) <= Math.ceil((r.perHour / 3600) * 5) + 1) continue;
+    const el = strip.querySelector(`[data-res="${r.resource}"]`);
+    if (!el) continue;
+    el.classList.add('res-bump', d > 0 ? 'res-up' : 'res-down');
+    const val = el.querySelector('.res-val');
+    if (!val || calm() || !globalThis.requestAnimationFrame) continue;
+    const t0 = performance.now(), to = r.value;
+    const step = t => {
+      const k = Math.min(1, (t - t0) / 450);
+      val.textContent = fmtNum(Math.round(was + (to - was) * (1 - Math.pow(1 - k, 3))));
+      if (k < 1 && val.isConnected) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+}
+
+/**
+ * The speaker button: the effects track owns the sound (`globalThis.__fxAudio`: `{muted, toggle()}`).
+ * The button shows only when that exists, calls its `toggle` and reflects `muted`; without it the
+ * page has no sound and shows no button that would do nothing.
+ */
+function renderSound() {
+  const b = $('sound-btn');
+  if (!b) return;
+  const a = globalThis.__fxAudio;
+  const has = !!a && typeof a.toggle === 'function';
+  if (b.hidden === has) b.hidden = !has;
+  if (!has) return;
+  const on = !a.muted;
+  const label = on ? L`音を消す` : L`音を出す`;
+  if (b.getAttribute('aria-label') !== label) { b.setAttribute('aria-label', label); b.title = label; }
+  if (b.getAttribute('aria-pressed') !== String(on)) b.setAttribute('aria-pressed', String(on));
 }
 
 // ------------------------------------------------------------------ notifications (hud/feed.mjs)
@@ -641,9 +789,22 @@ function renderFeed() {
   setHtmlIfChanged(el, feed.renderToasts(FS.feed ?? [], { dismissed: FS.feedDismissed ?? new Set() }));
 }
 
+/**
+ * The bottom-left corner (the to-do lines and the village plate) and the guide's objective.
+ * On phones both stand in the sheet's peek instead (restMarkup): one copy in the page, never two.
+ */
 function renderRail() {
+  const small = phone();
   const el = $('rail');
-  if (el) setHtmlIfChanged(el, hud.renderRail(FS));
+  if (el) { setHtmlIfChanged(el, small ? '' : hud.renderRail(FS)); el.hidden = small || !el.firstElementChild; }
+  const ob = $('objective');
+  if (ob) {
+    // the full guide card is in the drawer while the join flow or the list of steps is open
+    const d = drawerOf(FS);
+    const show = FS.mode === 'play' && !small && d?.kind !== 'join' && d?.kind !== 'guide';
+    setHtmlIfChanged(ob, show ? onboardingCard.renderObjective(FS) : '');
+    ob.hidden = !ob.firstElementChild;
+  }
 }
 
 /**
@@ -722,7 +883,7 @@ function renderLenses() {
   const el = $('lenses');
   if (!el) return;
   const cur = FS.view.lens ?? 'realm';
-  setHtmlIfChanged(el, minimap.LENSES.map((l, i) => html`<button type="button" class="lens" data-act="lens" data-lens="${l}" aria-pressed="${l === cur ? 'true' : 'false'}" title="${minimap.LENS_TEXT[l]()} (${i + 1})"><span aria-hidden="true">${minimap.LENS_GLYPH[l]}</span><span class="lens-text">${minimap.LENS_TEXT[l]()}</span></button>`));
+  setHtmlIfChanged(el, minimap.LENSES.map((l, i) => html`<button type="button" class="lens" data-act="lens" data-lens="${l}" aria-pressed="${l === cur ? 'true' : 'false'}" aria-label="${minimap.LENS_TEXT[l]()}" title="${minimap.LENS_TEXT[l]()} (${i + 1})">${icon(minimap.LENS_ICON[l])}<span class="lens-text" aria-hidden="true">${minimap.LENS_TEXT[l]()}</span></button>`));
 }
 // ------------------------------------------------------------------ map search (hud/search.mjs)
 let searchHits = [];
@@ -732,6 +893,20 @@ function runSearch(q) {
   searchHits = search.searchMap(q, { recs, roster: rosterRef, sitesOf: (p, q2) => terrainRef?.(p, q2)?.sites ?? null, pins: FS.pins ?? [] });
   const el = $('map-search-results');
   if (el) setHtml(el, search.renderResults(searchHits, q));
+}
+
+/** The search field opens from its icon (UX design section 6) and closes again when it has done its work. */
+function setSearch(open, { focus = true } = {}) {
+  const form = $('map-search'), btn = $('search-btn');
+  if (!form) return;
+  form.hidden = !open;
+  btn?.setAttribute('aria-expanded', String(open));
+  if (open) { if (focus) $('map-search-q')?.focus({ preventScroll: true }); return; }
+  const q = $('map-search-q'), res = $('map-search-results');
+  if (q) q.value = '';
+  if (res) setHtml(res, '');
+  searchHits = [];
+  if (focus) btn?.focus({ preventScroll: true });
 }
 
 function setLens(l) {
@@ -791,7 +966,10 @@ function ringToll(bell) {
   if (!Number.isInteger(bell)) return;
   if (tollBell !== null && bell > tollBell) {
     const el = $('bell-toll');
-    if (el) { el.textContent = title.tollText(bell); el.classList.remove('ring'); void el.offsetWidth; el.classList.add('ring'); }
+    if (el) { setHtml(el, html`${icon('bell')}<span>${title.tollText(bell)}</span>`); el.classList.remove('ring'); void el.offsetWidth; el.classList.add('ring'); }
+    // the dial swings with the toll (visual only)
+    const dial = $('bell-pill');
+    if (dial) { dial.classList.remove('toll'); void dial.offsetWidth; dial.classList.add('toll'); }
   }
   tollBell = bell;
 }
@@ -835,8 +1013,54 @@ function cycleHolding(dir) {
   goToItem({ p: hs[i].p, q: hs[i].q, tile: hs[i].tile, tab: 'holding', holding: hs[i] });
 }
 
+/** Close the drawer ("Map", the drawer's ×, Escape): back to the world. */
+function shutDrawer({ focus = false } = {}) {
+  closeDrawer(FS);
+  if (FS.mode === 'play') ACTIONS.tab({ tab: 'map' }); else invalidate('panel');
+  invalidate('map', 'panel', 'tabs', 'rail');
+  if (focus) $('frontier-map')?.focus({ preventScroll: true });
+}
+
 export const HUD_ACTIONS = {
-  'search-go': d => { const x = searchHits[num(d.i)]; if (!x) return; goToItem({ ...x, tab: FS.mode === 'play' ? 'map' : undefined }); const el = $('map-search-results'); if (el) setHtml(el, ''); },
+  // the dock (screens/shell.mjs renderTabs): "Map" closes the drawer, a tab opens it, the open tab pressed again closes it
+  tab: d => {
+    if (FS.mode !== 'play') return;
+    const open = drawerOf(FS)?.kind === d.tab;
+    // on a phone a press on the open tab while the sheet rests at its peek lifts the sheet instead
+    if (open && phone() && sheetRef?.state() === 'peek') { sheetRef.set('half'); return; }
+    if (d.tab === 'map' || open) { shutDrawer(); return; }
+    FS.report = null; FS.practice = null; FS.guideOpen = false;
+    ACTIONS.tab(d);
+    invalidate('rail');
+  },
+  'drawer-close': () => shutDrawer({ focus: !phone() }),
+  'drawer-open': () => { FS.drawerShut = false; invalidate('panel'); },
+  // the join flow and the guide's steps open in the drawer from the plate and the objective
+  'join-open': () => { FS.joinShut = false; FS.tab = 'map'; FS.report = null; FS.practice = null; FS.selected = null; if (holdsLand(FS)) FS.guideOpen = true; invalidate('map', 'panel', 'tabs', 'rail'); },
+  'guide-open': () => { FS.tab = 'map'; FS.report = null; FS.practice = null; FS.selected = null; FS.guideOpen = true; FS.joinShut = false; invalidate('map', 'panel', 'tabs', 'rail'); },
+  // a selection named on a dock tab opens its inspector
+  'sel-open': () => { FS.tab = 'map'; invalidate('panel', 'tabs', 'rail'); },
+  // the village plate: one press home (pressed again while there: the next village)
+  home: () => {
+    mapRef?.home();
+    const hs = FS.holdings ?? [], v = mapRef?.view;
+    if (v && hs.length > 1) {
+      const at = hs.map(h => (c => Math.hypot(c.x - v.x, c.y - v.y))((x => project(x.q, x.r))(tileHex(h.p, h.q, h.tile))));
+      const i = at.indexOf(Math.min(...at));
+      if (i >= 0 && i !== (FS.activeHolding ?? 0)) { FS.activeHolding = i; invalidate('panel', 'rail'); }
+    }
+  },
+  'holding-go': d => {
+    const i = num(d.i), h = FS.holdings?.[i];
+    if (!h) return;
+    FS.activeHolding = i;
+    const c = (x => project(x.q, x.r))(tileHex(h.p, h.q, h.tile));
+    mapRef?.setView({ x: c.x, y: c.y, zoom: Math.max(mapRef.view.zoom, 1.0) });
+    invalidate('map', 'panel', 'rail');
+  },
+  sound: () => { try { globalThis.__fxAudio?.toggle?.(); } catch (e) { console.error('frontier sound:', e); } renderSound(); },
+  'search-toggle': () => setSearch(!!$('map-search')?.hidden),
+  'search-go': d => { const x = searchHits[num(d.i)]; if (!x) return; goToItem({ ...x, tab: FS.mode === 'play' ? 'map' : undefined }); setSearch(false, { focus: false }); },
   lens: d => setLens(d.lens),
   goto: d => { leaveReport(); closeResPop(); goToItem({ p: num(d.p), q: num(d.q), tab: 'map' }); },
   'intro-close': () => closeIntro(),
@@ -893,8 +1117,8 @@ export const HUD_ACTIONS = {
 function renderChips() {
   const f = $('faction-chip');
   const fc = factionChip(FS.citizen);
-  // the faction chip carries its leader's portrait (UI plan F1); on phones the portrait alone
-  if (f) { f.hidden = !fc; setHtmlIfChanged(f, fc ? html`${raw(leaderSvg(FS.citizen.faction, { size: 26 }))}<span class="chip-text">${fc}</span>` : ''); }
+  // the nation's crest and name (the leader's portrait stands on the village plate); on phones the crest alone
+  if (f) { f.hidden = !fc; setHtmlIfChanged(f, fc ? html`${hud.crestSvg(FS.citizen.faction, { size: 26 })}<span class="chip-text">${fc}</span>` : ''); }
   const q = $('quota-chip');
   const qc = quotaChip(FS.quota);
   if (q) { q.hidden = !qc; q.textContent = qc ?? ''; }
@@ -1014,6 +1238,13 @@ function delegate(doc) {
     if (intro && !intro.hidden && (e.key === 'Escape' || e.key === 'Enter')) { e.preventDefault(); closeIntro(); return; }
     if (e.key === 'Escape' && FS.resOpen) { e.preventDefault(); closeResPop(); return; }
     if (e.key === 'Escape' && FS.term) { e.preventDefault(); closeTermPop(); return; }
+    if (e.key === 'Escape' && $('map-search') && !$('map-search').hidden && e.target?.closest?.('.search-row')) { e.preventDefault(); setSearch(false); return; }
+    // desktop: Escape puts the drawer away (never out of a field being typed in; on phones the sheet has its own rule)
+    if (e.key === 'Escape' && !e.defaultPrevented && !phone() && $('panel')?.dataset.drawer === 'open' && !e.target?.closest?.('input, select, textarea')) {
+      const was = drawerOf(FS)?.kind;
+      shutDrawer({ focus: true });
+      if (drawerOf(FS)?.kind !== was) { e.preventDefault(); return; }
+    }
     // . , next / previous ready host; ] [ next / previous holding; 1–4 the lenses (never while typing)
     if ((FS.mode !== 'play' && !/^[1-4]$/.test(e.key)) || e.target?.closest?.('input, select, textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
     const k = { '.': () => cycleHost(1), ',': () => cycleHost(-1), ']': () => cycleHolding(1), '[': () => cycleHolding(-1),
@@ -1120,8 +1351,10 @@ export async function boot() {
   setRelay(cfg.relay);
   FS.chain = new ChainClock();
   mountLangToggle($('lang-box'));
-  // The phone bottom sheet (W5-E; mounted here since W6-D, R3).
-  mountSheet();
+  // The phone bottom sheet (W5-E; mounted here since W6-D, R3); the drawer state drives its height (applyDrawer).
+  sheetRef = mountSheet();
+  // the plate, the to-do lines and the objective stand in the sheet on phones and over the map on desktop
+  globalThis.matchMedia?.(`(max-width: ${PHONE_MAX}px)`)?.addEventListener?.('change', () => { drawerKind = undefined; invalidate('panel', 'tabs', 'rail'); });
   const herald = createHerald({ base: cfg.herald });
   rosterRef = createRoster({ base: cfg.herald ?? '', onChange: () => { mapRef?.invalidate(); invalidate('panel'); } });
   FS.roster = rosterRef;
@@ -1194,6 +1427,8 @@ export async function boot() {
       art: ART_ON,
     });
     mapRef = map;
+    // the map buttons take their icons from the sprite (hud/icons.mjs)
+    iconizeMapTools(globalThis.document);
     renderLenses();
     const mini = $('minimap-canvas');
     mini?.addEventListener('pointerup', e => {
@@ -1227,7 +1462,12 @@ export async function boot() {
     // Practice runs without a season too (the kernel only needs its own ruleset); a season pins it and keeps its flags.
     if (FS.mode === 'practice') { FS.ui = loadUi(uiStorage, uiKey(scope())); invalidate('panel'); }
     if (FS.mode === 'spectate') startSpectate(herald);
-    if (FS.mode === 'play') startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e));
+    if (FS.mode === 'play') {
+      // the first answer about the viewer decides whether the join flow opens by itself (hud/drawer.mjs)
+      startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).then(() => { FS.playReady = true; invalidate('panel', 'tabs', 'rail'); });
+      // the drawer starts closed: the tab of the last visit is not reopened over the map
+      FS.tab = 'map';
+    }
   }
   // The chip ticks every second (never announced: aria-live is off on it).
   globalThis.setInterval?.(() => invalidate('chip'), 1000);

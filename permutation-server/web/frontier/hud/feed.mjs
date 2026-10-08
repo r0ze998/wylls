@@ -14,6 +14,7 @@ import { html, raw } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { BUILDINGS, TIERS } from '../fi18n.mjs';
 import { BUILD_ITEMS } from '../fland.mjs';
+import { icon } from './icons.mjs';
 
 export const FEED_MAX = 60;
 export const TOAST_MAX = 3;
@@ -107,7 +108,7 @@ export function bellSummary(feed, bell) {
     n('battle') && L`戦い ${fmtNum(n('battle'))}`, n('march') && L`進軍の知らせ ${fmtNum(n('march'))}`, n('incoming') && L`来襲の恐れ ${fmtNum(n('incoming'))}`,
     n('build') && L`完成 ${fmtNum(n('build'))}`, n('holding') && L`村 ${fmtNum(n('holding'))}`,
   ].filter(Boolean);
-  return { id: `sum:${bell}`, kind: 'summary', bell: bell + 1, text: L`第${fmtNum(bell)}鐘のまとめ：${parts.join(' · ')}`, items: of.map(x => x.id) };
+  return { id: `sum:${bell}`, kind: 'summary', bell: bell + 1, text: L`ターン ${fmtNum(bell)} のまとめ：${parts.join(' · ')}`, items: of.map(x => x.id) };
 }
 
 /** Add notifications to a feed (newest first, no duplicates, at most FEED_MAX), stamping when they arrived. */
@@ -117,7 +118,10 @@ export function pushFeed(feed, items, at = Date.now()) {
   return [...fresh.reverse(), ...feed].slice(0, FEED_MAX);
 }
 
-const KIND_ICON = { battle: '⚔', march: '➚', incoming: '!', build: '⚒', holding: '⌂', summary: '≡' };
+/** A mark per kind (hud/icons.mjs); the summary of a turn carries the bell. */
+export const KIND_ICON = Object.freeze({ battle: 'swords', march: 'banner', incoming: 'alert', build: 'hammer', holding: 'home', summary: 'bell' });
+/** The stamp of a notification: the turn it belongs to, with the bell beside it (UX design section 6, turn wording). */
+const stamp = x => (Number.isInteger(x.bell) ? html`<span class="toast-stamp">${icon('bell')}${L`ターン ${fmtNum(x.bell)}`}</span>` : '');
 const KIND_TEXT = { battle: () => L`戦闘`, march: () => L`進軍`, incoming: () => L`来襲`, build: () => L`建設`, holding: () => L`村`, summary: () => L`まとめ` };
 
 function itemActions(x) {
@@ -134,9 +138,9 @@ function itemActions(x) {
 export function renderToasts(feed, { dismissed = new Set(), now = Date.now() } = {}) {
   const live = feed.filter(x => !dismissed.has(x.id) && now - (x.at ?? 0) < TOAST_MS).slice(0, TOAST_MAX);
   return live.map(x => html`<div class="toast toast-${x.kind}" role="status">
-    <span class="toast-icon" aria-hidden="true">${KIND_ICON[x.kind] ?? '•'}</span>
-    <span class="toast-text"><span class="toast-kind">${KIND_TEXT[x.kind]?.() ?? ''}</span>${x.text}</span>
-    <span class="toast-acts">${itemActions(x)}<button type="button" class="btn small toast-x" data-act="feed-dismiss" data-id="${x.id}" aria-label="${L`閉じる`}">×</button></span>
+    <span class="toast-icon">${icon(KIND_ICON[x.kind] ?? 'flag')}</span>
+    <span class="toast-text"><span class="toast-kind">${KIND_TEXT[x.kind]?.() ?? ''}${stamp(x)}</span>${x.text}</span>
+    <span class="toast-acts">${itemActions(x)}<button type="button" class="btn small toast-x" data-act="feed-dismiss" data-id="${x.id}" aria-label="${L`閉じる`}">${icon('close')}</button></span>
   </div>`);
 }
 
@@ -149,7 +153,7 @@ export function renderCentre(feed, filter = 'all') {
   const list = feed.filter(x => inFilter(x, filter));
   return html`<section aria-labelledby="feed-title"><h3 id="feed-title">${L`お知らせ`}</h3>
     <div class="feed-filters" role="group" aria-label="${L`絞り込み`}">${FEED_FILTERS.map(f => html`<button type="button" class="btn small" data-act="feed-filter" data-f="${f}" aria-pressed="${f === filter ? 'true' : 'false'}">${FILTER_TEXT[f]()}</button>`)}</div>
-    ${list.length ? html`<ol class="list feed-list">${list.map(x => html`<li class="feed-${x.kind}"><span class="toast-icon" aria-hidden="true">${KIND_ICON[x.kind] ?? ''}</span><span>${x.text}${Number.isInteger(x.bell) ? html` <span class="muted">${L`第${fmtNum(x.bell)}鐘`}</span>` : ''}</span><span class="toast-acts">${itemActions(x)}</span></li>`)}</ol>`
+    ${list.length ? html`<ol class="list feed-list">${list.map(x => html`<li class="feed-${x.kind}"><span class="toast-icon">${icon(KIND_ICON[x.kind] ?? 'flag')}</span><span>${x.text} ${stamp(x)}</span><span class="toast-acts">${itemActions(x)}</span></li>`)}</ol>`
       : html`<p class="muted">${L`まだお知らせはありません`}</p>`}</section>`;
 }
 

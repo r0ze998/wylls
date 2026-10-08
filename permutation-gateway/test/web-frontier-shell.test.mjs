@@ -1,16 +1,20 @@
 // The Frontier page's shell pieces: config (same-origin endpoints; the
 // ?herald= override only on a loopback page, only to a loopback herald),
 // the render scheduler (one pass per task, order kept, a failing renderer
-// isolated, a language switch re-renders all), the bell chip's text in
-// both languages, the enum tables and a JA/EN text for every program error
-// code of the ABI, and the pages' static markup (landmarks, the bell chip,
-// the map's accessible name, no inline script).
+// isolated, a language switch re-renders all), the turn dial's text in
+// both languages (UX design section 6: the HUD clock counts turns), the one
+// drawer state, the icon sprite, the enum tables and a JA/EN text for every
+// program error code of the ABI, and the pages' static markup (landmarks,
+// the HUD's hooks, the map's accessible name, no inline script).
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { config } from '../../permutation-server/web/frontier/config.mjs';
 import * as fstate from '../../permutation-server/web/frontier/fstate.mjs';
-import { chipText } from '../../permutation-server/web/frontier/app.mjs';
+import { chipText, dialParts, dialMarkup, panelMarkup } from '../../permutation-server/web/frontier/app.mjs';
+import { drawerOf, closeDrawer, drawerTitle } from '../../permutation-server/web/frontier/hud/drawer.mjs';
+import { ICONS, icon, RESOURCE_ICON, MAP_TOOL_ICON } from '../../permutation-server/web/frontier/hud/icons.mjs';
+import { renderTabs, TAB_ICON } from '../../permutation-server/web/frontier/screens/shell.mjs';
 import * as fi18n from '../../permutation-server/web/frontier/fi18n.mjs';
 import { ERRORS } from '../../permutation-server/web/frontier/abi.mjs';
 import { setLang } from '../../permutation-server/web/lang.mjs';
@@ -46,13 +50,84 @@ test('the render scheduler: one pass per task, in order, a failing renderer isol
   } finally { console.error = err; }
 });
 
-test('the bell chip text in both languages', () => {
-  assert.equal(chipText({ bell: 1034, secondsLeft: 372, beforeGenesis: false, ended: false }), '鐘 1,034 · 残り 6:12');
-  assert.equal(chipText(null), '鐘 —');
+// Rewritten with the redesign (UX design section 6, turn wording): the HUD clock reads ターン / Turn
+// (it read 鐘 / Bell); the bell stays the thing that tolls and the word of the mechanics copy.
+test('the turn dial: one line of text in both languages, cut into the dial\'s three places', () => {
+  const run = { bell: 1034, secondsLeft: 372, beforeGenesis: false, ended: false };
+  assert.equal(chipText(run), 'ターン 1,034 · 残り 6:12');
+  assert.equal(chipText(null), 'ターン —');
   assert.equal(chipText({ bell: null, secondsLeft: 65, beforeGenesis: true }), '開始まで 1:05');
+  assert.deepEqual(dialParts(run), { label: 'ターン', num: '1,034', left: '6:12' });
+  assert.deepEqual(dialParts({ bell: null, secondsLeft: 65, beforeGenesis: true }), { label: '開始まで', num: '1:05', left: '' });
+  const textOf = chip => dialMarkup(chip).map(String).join('').replace(/<[^>]*>/g, '');
   setLang('en');
-  assert.equal(chipText({ bell: 1034, secondsLeft: 372, beforeGenesis: false, ended: false }), 'Bell 1,034 · 6:12 left');
-  assert.equal(chipText({ bell: 1008, secondsLeft: 1, ended: true }), 'Bell 1,008 · ended');
+  assert.equal(chipText(run), 'Turn 1,034 · 6:12 left');
+  assert.equal(chipText({ bell: 1008, secondsLeft: 1, ended: true }), 'Turn 1,008 · ended');
+  // the dial's markup reads exactly as the one line (the glue between the places is visually hidden, not dropped)
+  for (const lang of ['ja', 'en']) {
+    setLang(lang);
+    for (const chip of [run, null, { bell: null, secondsLeft: 65, beforeGenesis: true }, { bell: 1008, secondsLeft: 1, ended: true }]) assert.equal(textOf(chip), chipText(chip), `${lang}: ${chipText(chip)}`);
+    const m = dialMarkup(run).map(String).join('');
+    assert.match(m, /<span class="dial-label">(ターン|Turn)<\/span>/);
+    assert.match(m, /<span class="dial-num">1,034<\/span>/);
+    assert.match(m, /<span class="dial-left">6:12<\/span>/);
+  }
+});
+
+test('the drawer: one state from the store; closed when nothing is selected or open; "map" closes it', () => {
+  const base = { mode: 'play', tab: 'map', land: { stage: 'final' }, playReady: true };
+  assert.equal(drawerOf(base), null, 'nothing selected or open: the world has the screen');
+  assert.equal(drawerOf({ ...base, selected: { kind: 'tile', p: 2, q: 0, idx: 7 } }).kind, 'inspect');
+  assert.equal(drawerOf({ ...base, selected: { kind: 'tile', p: 2, q: 0, idx: 7 }, compose: {} }).kind, 'march', 'an order being composed comes before the selection');
+  assert.equal(drawerOf({ ...base, tab: 'holding', selected: { kind: 'province', p: 2, q: 0 } }).kind, 'holding', 'a dock press');
+  assert.equal(drawerOf({ ...base, tab: 'more', report: { p: 2, q: 0, bell: 39 } }).kind, 'report');
+  assert.equal(drawerOf({ ...base, practice: {} }).kind, 'practice');
+  assert.equal(drawerOf({ ...base, guideOpen: true }).kind, 'guide');
+  // the join flow opens by itself until a village exists, once the first answer about the viewer is in
+  assert.equal(drawerOf({ ...base, land: { stage: 'none' } }).kind, 'join');
+  assert.equal(drawerOf({ ...base, land: { stage: 'ticket' } }).kind, 'join');
+  assert.equal(drawerOf({ ...base, land: { stage: 'none' }, playReady: false }), null, 'not before the page knows the viewer');
+  assert.equal(drawerOf({ ...base, land: { stage: 'provisional' } }), null);
+  // closing
+  const open = { ...base, tab: 'hosts', selected: { kind: 'province', p: 1, q: 1 }, report: { p: 1, q: 1, bell: 3 }, guideOpen: true };
+  assert.equal(drawerOf(closeDrawer(open)), null);
+  assert.deepEqual([open.tab, open.selected, open.report, open.guideOpen], ['map', null, null, false]);
+  const draft = { ...base, compose: { host: {} }, selected: { kind: 'tile', p: 2, q: 0, idx: 7 } };
+  assert.equal(drawerOf(closeDrawer(draft)).kind, 'march', 'a march being composed is an order, not a panel: it stays');
+  const visitor = { ...base, land: { stage: 'none' } };
+  assert.equal(drawerOf(closeDrawer(visitor)), null, 'the join flow can be put away (the plate opens it again)');
+  // the practice and spectator pages: one panel, put away and brought back
+  assert.equal(drawerOf({ mode: 'spectate' }).kind, 'spectate');
+  assert.equal(drawerOf(closeDrawer({ mode: 'practice' })), null);
+  // the closed drawer's content on the game page is the phone sheet's rest: the plate (never a tab screen)
+  const rest = panelMarkup({ ...base, citizen: { faction: 0 }, holdings: [], view: { fog: true }, ui: { dismissed: ['onboarding'] } }).flat(Infinity).map(String).join('');
+  assert.match(rest, /class="plate/);
+  assert.doesNotMatch(rest, /holding-title|bell-title/);
+  setLang('en');
+  assert.equal(drawerTitle({ kind: 'holding' }), 'Village');
+  assert.equal(drawerTitle(null), 'Map');
+});
+
+test('the dock and the icon sprite: icon-and-label buttons, every icon a symbol of art/ui/icons.svg, no glyph as an icon', () => {
+  const sprite = readFileSync(new URL('../../permutation-server/web/frontier/art/ui/icons.svg', import.meta.url), 'utf8');
+  const symbols = [...sprite.matchAll(/<symbol id="([\w-]+)" viewBox="0 0 24 24">/g)].map(m => m[1]);
+  assert.deepEqual([...symbols].sort(), [...ICONS].sort(), 'hud/icons.mjs lists exactly the sprite\'s symbols (24 px grid)');
+  for (const need of ['grain', 'wood', 'stone', 'ore', 'horse', 'bell', 'sword', 'banner', 'scroll', 'compass', 'home', 'eye', 'seal', 'shield', 'scout', 'hammer', 'speaker', 'speaker-off', 'chart', 'plus', 'minus', 'close']) assert.ok(symbols.includes(need), `the brief's icon: ${need}`);
+  assert.doesNotMatch(sprite, /\sstyle=|<style|<script/, 'the CSP allows no style attribute and no script');
+  assert.equal((sprite.match(/stroke-width="1\.75"/g) ?? []).length, symbols.length, 'one hand: 1.75 px strokes');
+  for (const name of [...Object.values(RESOURCE_ICON), ...Object.values(MAP_TOOL_ICON), ...Object.values(TAB_ICON)]) assert.ok(ICONS.includes(name), name);
+  assert.equal(String(icon('bell')), '<svg class="ic" aria-hidden="true" focusable="false"><use href="art/ui/icons.svg#bell"/></svg>');
+  const dock = renderTabs({ tab: 'map', land: { stage: 'final' } }, 'holding').map(String).join('');
+  assert.equal((dock.match(/class="tab"/g) ?? []).length, 5);
+  assert.match(dock, /data-act="tab" data-tab="holding" aria-current="page"><svg class="ic"[^>]*><use href="art\/ui\/icons\.svg#home"\/><\/svg><span class="tab-label">村<\/span>/);
+  assert.doesNotMatch(renderTabs({ tab: 'map', land: { stage: 'final' } }, 'report').map(String).join(''), /aria-current/, 'a report over a tab leaves no dock button current');
+  assert.match(renderTabs({ tab: 'map', land: { stage: 'none' } }, 'map').map(String).join(''), /data-tab="map" aria-current="page"/, 'closed: "Map" is current');
+  // the three pages reference the sprite and carry no symbol character as an icon
+  for (const page of ['index.html', 'practice.html', 'spectate.html']) {
+    const html = readFileSync(new URL(`../../permutation-server/web/frontier/${page}`, import.meta.url), 'utf8');
+    assert.match(html, /<use href="art\/ui\/icons\.svg#bell"\/>/, page);
+    assert.doesNotMatch(html.replace(/<svg[\s\S]*?<\/svg>/g, ''), /[←-⯿\u{1f300}-\u{1faff}]/u, `${page}: a glyph used as an icon`);
+  }
 });
 
 test('tables and every program error code have Japanese and English text', () => {
@@ -83,12 +158,18 @@ test('tables and every program error code have Japanese and English text', () =>
   assert.equal(fi18n.STANCES.Hold, '待機の構え');
 });
 
-test('the pages: landmarks, the bell chip, an accessible map, a module script and no inline code', () => {
+test('the pages: landmarks, the HUD\'s hooks, an accessible map, a module script and no inline code', () => {
   for (const page of ['index.html', 'practice.html', 'spectate.html']) {
     const html = readFileSync(new URL(`../../permutation-server/web/frontier/${page}`, import.meta.url), 'utf8');
     assert.match(html, /<html lang="ja">/);
     assert.match(html, /<meta name="viewport" content="width=device-width, initial-scale=1/);
     for (const re of [/<header /, /<main /, /<nav /, /id="bell-chip"/, /id="lang-box"/, /<canvas id="frontier-map" tabindex="0" aria-label="[^"]+"[^>]*aria-describedby="map-summary"/]) assert.match(html, re, `${page}: ${re}`);
+    // the hooks the page, the tests and the other tracks hold on to (UX design section 2)
+    for (const id of ['bell-pill', 'bell-fill', 'attn-pill', 'quota-chip', 'faction-chip', 'res-strip', 'sound-btn', 'search-btn', 'map-search', 'objective', 'rail', 'minimap', 'lenses', 'panel', 'panel-title', 'panel-body', 'feed', 'bell-toll', 'map-tip', 'intro']) assert.match(html, new RegExp(`id="${id}"`), `${page}: #${id}`);
+    assert.match(html, /<nav class="tabs"/, `${page}: nav.tabs`);
+    assert.match(html, /<body data-mode="(play|practice|spectate)" data-drawer="closed">/, `${page}: the drawer starts closed`);
+    assert.match(html, /data-act="drawer-close"/, `${page}: the drawer's close button`);
+    assert.doesNotMatch(html, /\sstyle="/, `${page}: inline style (the CSP allows none)`);
     assert.match(html, /<script type="module" src="app\.mjs"><\/script>/);
     assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)[^>]*>/, `${page}: inline script (the CSP allows 'self' only)`);
     assert.doesNotMatch(html, /\son[a-z]+="/, `${page}: inline handler`);

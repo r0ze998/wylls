@@ -4,9 +4,10 @@
 // definition never holds another term button — one level, no rabbit hole.
 import { html } from '../../util.mjs';
 import { L } from '../../lang.mjs';
+import { icon } from './icons.mjs';
 
 export const TERMS = Object.freeze({
-  bell: { name: () => L`鐘`, text: () => L`10分ごとの区切り。鐘の始まりの顔ぶれで、その州の衝突がまとめて決まります。` },
+  bell: { name: () => L`鐘`, text: () => L`10分ごとの区切り。鐘が鳴るたびにターンが進みます（画面上の「ターン 42」は第42鐘のことです）。鐘の始まりの顔ぶれで、その州の衝突がまとめて決まります。` },
   stance: { name: () => L`構え`, text: () => L`進軍の戦い方。突撃は側撃に、側撃は迎撃に、迎撃は突撃に強い。待機の構えは相性なし。` },
   retreat: { name: () => L`撤退の比率`, text: () => L`相手の兵がこの倍率を超えていたら、戦わずに引き返します（損失なし）。` },
   seal: { name: () => L`封`, text: () => L`進軍の行き先と構えは封をして送ります。着く鐘までは、あなたにしか見えません。他の人に見えるのは出発と到着の鐘だけです。` },
@@ -25,7 +26,7 @@ export const termButton = key => (TERMS[key] ? html`<button type="button" class=
 export function renderTerm(key) {
   const t = TERMS[key];
   if (!t) return '';
-  return html`<div class="res-pop-head"><strong>${t.name()}</strong><span></span><button type="button" class="btn small" data-act="term-close" aria-label="${L`閉じる`}">×</button></div>
+  return html`<div class="res-pop-head"><strong>${t.name()}</strong><span></span><button type="button" class="btn small pop-x" data-act="term-close" aria-label="${L`閉じる`}">${icon('close')}</button></div>
     <p>${t.text()}</p><p><button type="button" class="btn small" data-act="glossary-open">${L`用語集を開く`}</button></p>`;
 }
 
