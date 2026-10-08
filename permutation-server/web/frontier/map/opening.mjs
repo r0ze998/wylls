@@ -17,7 +17,7 @@ import { project } from '../../map.mjs';
 import { ringProvinces, tileHex, wedgeOf } from '../fgeo.mjs';
 import { homeWedge } from '../fland.mjs';
 import { provincePixel, PROVINCE_CIRCUMRADIUS, FLATTEN } from './layers.mjs';
-import { centreOn, fitView, freeBox } from './camera.mjs';
+import { centreOn, fitView, freeBox, landRadius } from './camera.mjs';
 
 /** The hero zoom: a hex about 90 to 100 CSS px wide; a little less on a dense screen, where the largest sprites are already stretched (never below the zoom at which every village carries its name tag). */
 export const heroZoom = (dpr = 1) => (dpr >= 1.5 ? 1.2 : 1.3);
@@ -29,7 +29,9 @@ export const TITLE_FROM = 0.35;
 export const TITLE_MS = 7000;
 /** The far view stays in the world level of detail. */
 const FAR_CAP = 0.114;
-const RANK = { fit: 0, wedge: 1, candidates: 2, home: 3 };
+/** The nation choice's backdrop may come nearer than the far view (the chart is drawn at every zoom). */
+const FRAME_CAP = 0.3;
+const RANK = { fit: 0, frame: 0, wedge: 1, candidates: 2, home: 3 };
 
 /**
  * What the page knows about the viewer, for the map's source:
@@ -37,12 +39,14 @@ const RANK = { fit: 0, wedge: 1, candidates: 2, home: 3 };
  * `ready` is false only on the play page while the viewer's record has not
  * answered yet; `title` is true while the title card is up.
  */
-export function openHint(fs, { ready = false, title = false } = {}) {
+export function openHint(fs, { ready = false, title = false, frame = null } = {}) {
   const mode = fs?.mode ?? 'play';
   if (mode !== 'play') return { mode, ready: true, stage: 'watch', faction: null, candidates: [], active: 0, title };
   const land = fs.land ?? null;
+  // `frame`: the nation choice stands along the foot of the map (UX brief §7.2): `{nation}` the nation that is
+  // looked at (its home wedge comes into the part above the banners), or `{}` for the chart itself
   return { mode, ready: ready || !!land, stage: land?.stage ?? 'none', faction: Number.isInteger(fs.citizen?.faction) ? fs.citizen.faction : null,
-    candidates: land?.ticket?.sites ?? [], active: Number.isInteger(fs.activeHolding) ? fs.activeHolding : 0, title };
+    candidates: land?.ticket?.sites ?? [], active: Number.isInteger(fs.activeHolding) ? fs.activeHolding : 0, title, frame: (land?.stage ?? 'none') === 'none' ? frame : null };
 }
 
 /** The world point of a holding `{p, q, tile?}`: its tile, or its province's centre. */
@@ -87,6 +91,17 @@ export function openingPlan(hint, src, size, { inset = null, dpr = 1 } = {}) {
   if (Number.isInteger(h.faction) && ['joined', 'ticket', 'refugee'].includes(h.stage)) {
     const box = wedgeBox(h.faction, rings);
     if (box) return plan('wedge', { x: box.x, y: box.y }, Math.max(0.16, Math.min(0.8, 0.92 * Math.min(free.width / box.width, free.height / box.height))));
+  }
+  if (h.frame) {
+    // the nation choice: the chart is the stage's backdrop. A nation that is looked at: its home wedge fills the part
+    // above the banners. None: the upper half of the chart stands there, the Concord at its foot (the rest lies
+    // behind the banners), larger than the far view so that it reads as a map and not as a mark
+    const box = Number.isInteger(h.frame.nation) ? wedgeBox(h.frame.nation, rings) : null;
+    if (box) return plan('frame', { x: box.x, y: box.y }, Math.max(0.05, Math.min(FRAME_CAP, 0.9 * Math.min(free.width / box.width, free.height / box.height))));
+    // (on a phone the banners stand in the sheet and the part above them is tall: the whole chart fits there)
+    if (free.height > free.width) return plan('frame', { x: 0, y: 0 }, fitView(rings, size, { inset, cap: FAR_CAP, floor: 0.02 }).zoom);
+    const R = landRadius(rings), zoom = Math.max(0.03, Math.min(FRAME_CAP, (0.78 * free.width) / (2 * R), (0.92 * free.height) / (R * FLATTEN)));
+    return plan('frame', { x: 0, y: -R * FLATTEN * 0.5 }, zoom);
   }
   return { kind: 'fit', at: { x: 0, y: 0 }, rank: RANK.fit, view: fitView(rings, size, { inset, cap: FAR_CAP, floor: 0.02 }) };
 }

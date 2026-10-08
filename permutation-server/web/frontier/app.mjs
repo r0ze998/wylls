@@ -40,7 +40,7 @@ import { icon, iconizeMapTools } from './hud/icons.mjs';
 import { hudInsets } from './hud/insets.mjs';
 import { createTerrain } from './map/terrain.mjs';
 import { provincePixel } from './map/layers.mjs';
-import { startFx } from './fx/index.mjs';
+import { startFx, motion as fxMotion, on as fxOn } from './fx/index.mjs';
 import { audio as fxAudio } from './fx/audio.mjs';
 import { emit as fxEmit } from './fx/bus.mjs';
 
@@ -356,7 +356,8 @@ export function keepState(el, render, scroller = el) {
 /** The phone sheet (screens/shell.mjs `mountSheet`): `{set, state}` or null. */
 let sheetRef = null;
 const phone = () => !!globalThis.matchMedia?.(`(max-width: ${PHONE_MAX}px)`).matches;
-const calm = () => !!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+// (one answer for everything that moves: fx/motion.mjs, the system's setting and the player's own)
+const calm = () => fxMotion() !== 'full';
 let drawerKind;            // the kind applied last (undefined before the first render)
 let drawerClear = null;    // the timer that empties a closed drawer after it has slid away
 /**
@@ -378,6 +379,8 @@ function applyDrawer(d) {
   }
   if (kind === drawerKind) return false;
   drawerKind = kind;
+  // what the drawer covers changes while it slides: the map frames its subject again (a camera nobody moved follows)
+  for (const ms of [0, 130, 260, 420]) setTimeout(() => mapRef?.tick(), ms);
   if (sheetRef && phone()) {
     if (!d) sheetRef.set('peek');
     else if (LIFTS.has(d.kind) && sheetRef.state() === 'peek') sheetRef.set('half');
@@ -1602,6 +1605,24 @@ function mountNationFocus(doc) {
   doc.addEventListener('click', e => { const f = at(e); if (f !== null) nationFocus(f); });
 }
 
+/**
+ * The map's side of the nation choice: while the six banners stand, the chart is their backdrop and the nation
+ * that is looked at has its home wedge lit and brought into the part of the map above the banners
+ * (map/opening.mjs `frame`). Null on every other screen.
+ */
+let nationLook = null;
+function stageFrame() {
+  if (FS.mode !== 'play' || drawerOf(FS)?.kind !== 'nation') return null;
+  return Number.isInteger(nationLook) ? { nation: nationLook } : {};
+}
+function mountNationLook() {
+  globalThis.addEventListener?.('wylls:nation-focus', e => {
+    const f = e?.detail?.faction;
+    nationLook = Number.isInteger(f) ? f : null;
+    mapRef?.invalidate();
+  });
+}
+
 /** Route the screens' clicks, forms and bound inputs: the wave-4 screens here, the play screens to the controller (game page only). */
 function delegate(doc) {
   doc.addEventListener('keydown', e => {
@@ -1750,6 +1771,7 @@ export async function boot() {
   ]);
   delegate(globalThis.document);
   mountNationFocus(globalThis.document);
+  mountNationLook();
   if (canvas) {
     // Tile-LOD terrain from the season record's ring seeds through the rules module (W5-E R3: passed by the app).
     const terrainOf = createTerrain({ onReady: () => { map?.invalidate(); invalidate('panel'); } });
@@ -1766,7 +1788,9 @@ export async function boot() {
           // art mode: the decoded Province (holdings' tiers, hosts on tiles, camp), loaded on demand
           viewerFaction: FS.citizen?.faction ?? null,
           // who is looking, for the opening view (map/opening.mjs)
-          open: openHint(FS, { ready: viewerKnown, title: titleUp() }),
+          open: openHint(FS, { ready: viewerKnown, title: titleUp(), frame: stageFrame() }),
+          // the nation that is looked at in the nation choice: its home wedge is lit on the chart (map/chart.mjs paintWedge)
+          focusNation: stageFrame()?.nation ?? null,
           demoRoads: ART_ROADS,
           engineStage: ART_ENGINE,
           demoSpecials: ART_RELICS,
@@ -1824,6 +1848,8 @@ export async function boot() {
       },
       onView: (_, lod) => { FS.view.lod = lod; renderMinimap(); },
       onHover: (hit, at) => { showTip(hit, at); hoverPlan(hit); },
+      // the camera centres in the part of the map the HUD leaves free (hud/insets.mjs): the strip, the open drawer, the dock, the phone's sheet
+      insets: () => hudInsets(),
       // Sprite art at tile LOD, opt-in with ?art=1 (docs/frontier/art/tiles/LOD.md).
       art: ART_ON,
     });

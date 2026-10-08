@@ -33,8 +33,13 @@ export const YOU = '#f3d58a';
 const SQRT3 = Math.sqrt(3);
 const TEX = 512;
 const spare = (w, h) => (typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : typeof document !== 'undefined' ? Object.assign(document.createElement('canvas'), { width: w, height: h }) : null);
-/** The clock of the reveal: the effects engine's when it has one (so it can be frozen or scaled), else the page's. */
-export const fxNow = () => globalThis.__fxNow?.() ?? globalThis.performance?.now?.() ?? Date.now();
+/**
+ * The clock of every tween the map draws by itself (the reveal, the landing's flood, the lit tiles' roll-out, the
+ * breath of the viewer's own land): milliseconds on the effects clock (fx/clock.mjs publishes it as
+ * `globalThis.__fxNow`, in seconds), so the demo switch freezes, slows and steps all of it together with the
+ * effects; the page's own clock where there is no effects layer.
+ */
+export const fxNow = () => { const f = globalThis.__fxNow; return typeof f === 'function' ? f() * 1000 : globalThis.performance?.now?.() ?? Date.now(); };
 
 // ------------------------------------------------------------------ noise
 const hash2 = (a, b, c = 0) => { let h = Math.imul(a | 0, 0x27d4eb2d) ^ Math.imul(b | 0, 0x165667b1) ^ Math.imul(c | 0, 0x9e3779b1); h ^= h >>> 15; h = Math.imul(h, 0x85ebca6b); h ^= h >>> 13; return (h >>> 0) / 4294967296; };
@@ -508,12 +513,13 @@ export function wedgePaths(faction, ringsOpen) {
 }
 
 /** The viewer's home wedge, outlined in the nation's colour on the chart (a viewer who has joined and has no village yet). */
-export function paintWedge(g, faction, ringsOpen, zoom) {
+export function paintWedge(g, faction, ringsOpen, zoom, { lit = false } = {}) {
   const w = wedgePaths(faction, ringsOpen);
   if (!w || !g?.save) return;
   const k = 1 / zoom, col = FACTION_COLORS[faction] ?? YOU;
   g.save();
-  g.globalAlpha = 0.07; g.fillStyle = col; g.fill(w.fill);
+  // `lit`: the nation that is looked at in the nation choice, its wedge washed in its colour on the chart
+  g.globalAlpha = lit ? 0.26 : 0.07; g.fillStyle = col; g.fill(w.fill);
   g.lineCap = 'round'; g.lineJoin = 'round';
   g.globalAlpha = 0.22; g.strokeStyle = col; g.lineWidth = 13 * k; g.stroke(w.edge);
   g.globalAlpha = 0.85; g.strokeStyle = 'rgba(22,30,26,.9)'; g.lineWidth = 5.4 * k; g.stroke(w.edge);

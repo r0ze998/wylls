@@ -222,7 +222,7 @@ export function paintRealmLabels(ctx, recs, zoom, nameOf = null, { seen = null, 
  * warning, never a certainty).
  */
 export function paintThreats(ctx, threats, zoom, label = null) {
-  const t = (globalThis.performance?.now?.() ?? Date.now()) / 1000;
+  const t = fxNow() / 1000;
   const k = 1 / zoom, pulse = 0.5 + 0.5 * Math.sin(t * 3);
   const seen = new Set();
   ctx.save();
@@ -257,8 +257,8 @@ export function paintThreats(ctx, threats, zoom, label = null) {
  */
 export function paintGuide(ctx, g, zoom, label = '', part = null) {
   if (!g || !Number.isInteger(g.tile)) return;
-  const t = (globalThis.performance?.now?.() ?? Date.now()) / 1000;
-  const k = 1 / zoom, pulse = 0.5 + 0.5 * Math.sin(t * 2.4);
+  const t = fxNow() / 1000;
+  const k = 1 / zoom, pulse = reducedMotion() ? 0.5 : 0.5 + 0.5 * Math.sin(t * 2.4);
   const h = tileHex(g.p, g.q, g.tile), c = project(h.q, h.r);
   const r = Math.max(RADIUS * 1.15, 20 * k) * (1 + pulse * 0.15);
   const y = c.y - r - (6 + pulse * 4) * k;
@@ -368,8 +368,12 @@ export class FrontierMap {
    * {terrain, sites, names} | null, open: opening.mjs openHint};
    * `onSelect(hit)`; `onView(view, lod)` (the logical view).
    */
-  constructor(canvas, { source, onSelect = () => {}, onView = () => {}, onHover = () => {}, art = false }) {
+  constructor(canvas, { source, onSelect = () => {}, onView = () => {}, onHover = () => {}, onDraw = null, insets = null, art = false }) {
     this.canvas = canvas;
+    /** What the page's HUD covers of the canvas (`() => {top, right, bottom, left}`, hud/insets.mjs); without it, what `#panel` covers. */
+    this.insetsOf = insets;
+    /** Called after every picture with the view on screen and the canvas size (things of the page that follow the map: the objective's place). */
+    this.onDraw = onDraw;
     this.source = source;
     this.onSelect = onSelect;
     this.onHover = onHover;
@@ -416,7 +420,7 @@ export class FrontierMap {
   dpr() { return Math.min(globalThis.devicePixelRatio || 1, 2); }
   /** What the page's sheets cover of the canvas (read once a frame at most). */
   inset() {
-    if (this.insetAt !== this.frameNo || !this.insetNow) { this.insetNow = coveredInsets(this.canvas); this.insetAt = this.frameNo; }
+    if (this.insetAt !== this.frameNo || !this.insetNow) { let v = null; try { v = this.insetsOf?.() ?? null; } catch { v = null; } this.insetNow = v ?? coveredInsets(this.canvas); this.insetAt = this.frameNo; }
     return this.insetNow;
   }
   /** Something the still picture is made of changed: repaint everything. */
@@ -749,7 +753,8 @@ export class FrontierMap {
       this.cam.from(was, { ms: MOVE_MS.settle, ease: EASE.outCubic });
     } else if (plan.kind !== 'fit' || prev.title) {
       // the viewer became more, or the title closed mid-drift: fly the rest of the way
-      this.cam.from(was, { ms: prev.title && !title && prev.kind === plan.kind ? MOVE_MS.far : MOVE_MS.open, ease: EASE.outCubic, kind: 'fly' });
+      // (the nation choice turns from one nation's wedge to the next: a short glide, not an opening)
+      this.cam.from(was, { ms: plan.kind === 'frame' && prev.kind === 'frame' ? MOVE_MS.fly : prev.title && !title && prev.kind === plan.kind ? MOVE_MS.far : MOVE_MS.open, ease: plan.kind === 'frame' ? EASE.inOutCubic : EASE.outCubic, kind: plan.kind === 'frame' ? 'anchor' : 'fly' });
     }
     return true;
   }
@@ -851,6 +856,7 @@ export class FrontierMap {
     this.mark(lod === this.lod && out.wanted > 0 && out.drawn === out.wanted ? 'ready' : 'pending');
     PROBE.end(out.kind, ctx);
     PROBE.paint(ctx, size);
+    try { this.onDraw?.(v, size, lod); } catch { /* the page's own follower */ }
   }
 
   /**
@@ -969,13 +975,21 @@ export class FrontierMap {
     // the marks of the viewer's stage, on the land: the home wedge while there is no village yet; the rim of the village's own land
     const waiting = limited && Number.isInteger(survey.faction) && ['joined', 'ticket', 'refugee'].includes(survey.stage);
     if (waiting) paintWedge(ctx, survey.faction, ringsOpen, z);
+    // the nation choice (UX brief §7.2): the home wedge of the nation that is looked at is lit on the chart
+    const looked = !waiting && limited && Number.isInteger(src.focusNation) ? src.focusNation : null;
+    if (looked !== null) paintWedge(ctx, looked, ringsOpen, z, { lit: true });
     // from afar: the viewer's land in its colour, and on the world chart its village as a gold beacon with its name
     const names = lod === 'world' ? this.farPass(ctx, F) : (lod === 'province' && this.farPass(ctx, F), []);
     if (lod === 'world' && (artCells.length || names.length)) {
       const nations = artCells.length > 0 && (src.lens ?? 'realm') !== 'land';
-      const box = waiting ? wedgeBox(survey.faction, ringsOpen) : null;
-      paintRealmLabels(ctx, recs, z, src.realmName ?? null, { extra: names, nations, ...(limited ? { min: 3, home: box ? { faction: survey.faction, x: box.x, y: box.y } : null,
+      const box = waiting ? wedgeBox(survey.faction, ringsOpen) : looked !== null ? wedgeBox(looked, ringsOpen) : null;
+      paintRealmLabels(ctx, recs, z, src.realmName ?? null, { extra: names, nations, ...(limited ? { min: 3, home: box ? { faction: waiting ? survey.faction : looked, x: box.x, y: box.y } : null,
         seen: (r, j) => { if (survey.province(r.p, r.q).max < L2) return false; const t = terrainOf?.(r.p, r.q), idx = t?.sites?.[j]; return Number.isInteger(idx) && survey.levelOf(r.p, r.q, idx) >= L2; } } : {}) });
+    }
+    // (nearer than the world chart the wedge that is looked at, or waited in, still carries its nation's name)
+    else if (lod === 'province' && (looked !== null || waiting)) {
+      const f = waiting ? survey.faction : looked, box = wedgeBox(f, ringsOpen);
+      if (box) paintRealmLabels(ctx, recs, z, src.realmName ?? null, { nations: false, extra: [{ text: src.realmName?.(f) ?? String(f), x: box.x, y: box.y, below: -14, size: 22, fill: '#fff6e2' }] });
     }
     if (tileOpts) {
       kind = layered === 'live' ? 'live' : 'full';

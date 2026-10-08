@@ -241,8 +241,9 @@ test('the edge between paint and chart: a distance field of the surveyed tiles, 
   chart.applySurvey(null, { box, res: 1, survey: sv, sig: '12' });
   assert.equal(chart.mutedSprite(null), null);
   assert.equal(typeof chart.fxNow(), 'number');
+  // (integration: the effects clock counts seconds, fx/clock.mjs; the map's tweens read it in milliseconds)
   globalThis.__fxNow = () => 42;
-  try { assert.equal(chart.fxNow(), 42, 'the effects engine\'s clock when it has one'); } finally { delete globalThis.__fxNow; }
+  try { assert.equal(chart.fxNow(), 42_000, 'the effects engine\'s clock when it has one, in milliseconds'); } finally { delete globalThis.__fxNow; }
 });
 
 // ------------------------------------------------------------------ every surface asks the same lookup

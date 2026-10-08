@@ -13,6 +13,7 @@
 // add up whatever the picture is doing.
 import { FLATTEN } from '../../map.mjs';
 import { provincePixel, PROVINCE_CIRCUMRADIUS } from './layers.mjs';
+import { motion } from '../fx/motion.mjs';
 
 /** Milliseconds of the standard moves. */
 export const MOVE_MS = Object.freeze({ open: 1400, fly: 720, far: 900, zoom: 170, pan: 150, wheel: 140, settle: 260 });
@@ -22,10 +23,12 @@ export const FLING_MIN = 0.12;
 /** A frame never advances a move by more than this (a slow frame slows the move, it does not skip it). */
 const MAX_STEP_MS = 50;
 
-let mql;
-/** Whether the viewer asked for reduced motion (guarded: no window in tests). */
+/**
+ * Whether nothing may travel: the one answer of the whole client (fx/motion.mjs: the calmer of the system's
+ * reduced-motion setting and the player's "effects: full / reduced / off").
+ */
 export function reducedMotion() {
-  try { mql ??= globalThis.matchMedia?.('(prefers-reduced-motion: reduce)') ?? null; return !!mql?.matches; } catch { return false; }
+  try { return motion() !== 'full'; } catch { return false; }
 }
 
 const clamp01 = x => Math.max(0, Math.min(1, x));
