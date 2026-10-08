@@ -48,9 +48,25 @@ test('the report headline in both languages: replay and map buttons, the proof f
   const ja = String(rep.render(FS, id => String(id) === '9'));
   assert.match(ja, /data-act="battle-play" data-p="2" data-q="0" data-bell="40"/);
   assert.match(ja, /data-act="goto" data-p="2" data-q="0"/);
-  assert.match(ja, /<details class="report-proof">/);
+  // the report is a document (UX design 8.3; it was a column of blocks): the outcome as a stamp, each side before and after
+  // as a bar with its loss, the leader's line; the rows, the tiles and the proof on demand, each behind a fold
+  assert.match(ja, /<section aria-labelledby="report-title" class="report doc">/);
+  assert.match(ja, /<details class="report-proof fold" data-fold="rep-proof">/);
   assert.match(ja, /report-won/);
+  assert.match(ja, /<p class="stamp stamp-won"><span class="stamp-in">勝利<\/span><\/p>/);
+  assert.match(ja, /<rect class="bar-lost" width="100\.0" height="8"\/><rect class="bar-fg" width="40\.0" height="8"\/>/, 'the viewer: 100 before, 40 after');
+  assert.match(ja, /<div class="versus-band"><div class="vs-side vs-a mine"><span class="vs-face"><svg[^>]*class="leader"/, 'the two main sides face to face, the viewer\'s first, each with its leader');
+  assert.equal((ja.match(/class="vs-side /g) ?? []).length, 2);
+  assert.match(ja, /<strong class="side-lost">−60<\/strong>/);
+  assert.match(ja, /<strong class="side-lost">−90<\/strong>/);
+  assert.match(ja, /data-fold="rep-rows"/);
+  assert.match(ja, /data-fold="rep-tiles"/);
   assert.match(ja, /マスごとの戦い/);
+  assert.doesNotMatch(ja.replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<[^>]*>/g, ' '), /マス \d|frontier\.wasm|キーパー/, 'no tile number and no word of the machinery in the report');
+  assert.deepEqual(rep.sidesOf([{ faction: 0, kind: 'arrival', before: 100, after: 40, mine: true }, { faction: 0, kind: 'resident', before: 50, after: 50, mine: true },
+    { faction: 6, kind: 'camp', before: 250, after: null, mine: false }, { faction: 2, kind: 'arrival', before: 300, after: 0, mine: false }]),
+  [{ faction: 0, camp: false, mine: true, before: 150, after: 90, lost: 60 }, { faction: 2, camp: false, mine: false, before: 300, after: 0, lost: 300 }, { faction: 6, camp: true, mine: false, before: 250, after: null, lost: null }],
+  'sides: the viewer first, then by troops; a side with an unknown row has no "after"');
   setLang('en');
   const en = String(rep.render(FS, () => false)).replace(/<[^>]+>/g, ' ');
   assert.doesNotMatch(en, /[぀-ヿ一-鿿]/);
@@ -116,7 +132,13 @@ test('the spectator: bells with events, highlights filtered by faction and bell,
   assert.deepEqual(U.highlights(chronicle, overviews, null, { bell: 40 }).map(x => x.bell), [40]);
   assert.match(String(U.renderHighlights(U.highlights(chronicle, overviews, null), { go: true })), /data-act="battle-play" data-p="1" data-q="0" data-bell="42"/);
   const panel = [SP.render({ chronicle, overviews, watch: { faction: 2, bell: 42 } })].flat(9).map(String).join('');
-  assert.match(panel, /data-act="watch-bell" data-bell="42" aria-pressed="true"/);
+  // the turns with events are stepped through (it was a row of one chip per bell): at turn 42 the older one is 40, the newer "the latest"
+  assert.deepEqual(SP.turnSteps(SP.eventBells(chronicle), 42), { at: { bell: 42, events: 1, clashes: 1 }, older: { bell: 40, events: 1, clashes: 1 }, newer: null, canNewer: true });
+  assert.deepEqual(SP.turnSteps(SP.eventBells(chronicle), null), { at: null, older: { bell: 42, events: 1, clashes: 1 }, newer: null, canNewer: false });
+  assert.match(panel, /class="step-btn step-prev" data-act="watch-bell" data-bell="40" aria-label="[^"]+" >/);
+  assert.match(panel, /class="step-btn step-next" data-act="watch-bell" data-bell="" aria-label="[^"]+" >/);
+  assert.match(panel, /ターン 42/);
+  assert.doesNotMatch(panel, /watch-bells/);
   assert.match(panel, /data-act="watch-faction" data-f="2" aria-pressed="true"/);
 });
 

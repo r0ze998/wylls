@@ -31,9 +31,13 @@ import { lastWalletName } from '../wallet.mjs';
 import { SEASON_STATUS_TEXT, clientText, factionName, TIERS, BUILDINGS } from './fi18n.mjs';
 import { L, fmtNum, mountLangToggle, onLangChange, lang } from '../lang.mjs';
 import { toHex } from '../sdk/bytes.mjs';
-import { html, raw, setHtml } from '../util.mjs';
+import { html, setHtml } from '../util.mjs';
 import { ACTIONS, FORMS, bind, startPlay, wantProvince } from './controller.mjs';
-import { renderTabs, renderNotice, factionChip, quotaChip, mountSheet } from './screens/shell.mjs';
+import { renderTabs, factionChip, quotaChip, mountSheet, PHONE_MAX, row, lamports } from './screens/shell.mjs';
+import { cardHead, fold, label } from './screens/parts.mjs';
+import { drawerOf, closeDrawer, drawerTitle, holdsLand, LIFTS, DRAWER_ICON, WIDE, STAGE } from './hud/drawer.mjs';
+import { icon, iconizeMapTools } from './hud/icons.mjs';
+import { hudInsets } from './hud/insets.mjs';
 import { createTerrain } from './map/terrain.mjs';
 import { provincePixel } from './map/layers.mjs';
 
@@ -91,12 +95,13 @@ import { useHerald, refresh as refreshPlay } from './controller.mjs';
 import { kernel as loadKernel } from './wasm.mjs';
 import { scope } from './fchainio.mjs';
 import { hostParts } from './faddr.mjs';
-import { RETREAT_CHOICES, retreatBps, DEPART_STAMINA, DEPART_MARGIN_SECS, planRoute, earliestBell, arrivalWindow } from './fmarch.mjs';
+import { RETREAT_CHOICES, retreatBps, DEPART_STAMINA, DEPART_MARGIN_SECS, planRoute, earliestBell, arrivalWindow, marchCosts } from './fmarch.mjs';
 import { MAX_PATH_STEPS } from './seal.mjs';
 import { uiKey, uiStorage, loadUi, saveUi, UI_PREFIX } from './fui.mjs';
 import * as hud from './hud/hud.mjs';
 import * as inspect from './hud/inspect.mjs';
 import * as feed from './hud/feed.mjs';
+import * as status from './hud/status.mjs';
 import * as title from './intro/title.mjs';
 import * as marchCard from './hud/marchcard.mjs';
 import * as minimap from './hud/minimap.mjs';
@@ -106,7 +111,6 @@ import * as scene from './people/scene.mjs';
 import { activityText } from './people/activity.mjs';
 import { hostOwner, provinceFactions, renderNameForm, ownTag, holdingName } from './people/ui.mjs';
 import * as profile from './people/profile.mjs';
-import { leaderSvg } from './people/leaders.mjs';
 import * as glossary from './hud/glossary.mjs';
 import * as milestones from './hud/milestones.mjs';
 import * as guide from './hud/guide.mjs';
@@ -126,17 +130,49 @@ import { lifeAt, lordLine } from './people/life.mjs';
 const $ = id => globalThis.document?.getElementById(id);
 const setText = (id, text) => { const el = $(id); if (el && el.textContent !== text) el.textContent = text; };
 
-/** The chip's text: "鐘 1,034 · 残り 6:12" / "Bell 1,034 · 6:12 left". */
+/**
+ * The turn dial's text in one line: "ターン 1,034 · 残り 6:12" / "Turn 1,034 · 6:12 left".
+ * The HUD clock counts turns (UX design section 6); the bell is the thing in the world
+ * that tolls when a turn ends, and the mechanics copy keeps that word.
+ */
 export function chipText(chip) {
-  if (!chip || (chip.bell === null && !chip.beforeGenesis)) return L`鐘 —`;
+  if (!chip || (chip.bell === null && !chip.beforeGenesis)) return L`ターン —`;
   if (chip.beforeGenesis) return L`開始まで ${countdown(chip.secondsLeft)}`;
-  if (chip.ended) return L`鐘 ${fmtNum(chip.bell)} · 終了`;
-  return L`鐘 ${fmtNum(chip.bell)} · 残り ${countdown(chip.secondsLeft)}`;
+  if (chip.ended) return L`ターン ${fmtNum(chip.bell)} · 終了`;
+  return L`ターン ${fmtNum(chip.bell)} · 残り ${countdown(chip.secondsLeft)}`;
+}
+
+/** The dial's three places: the small label, the large figure, the line under it. */
+export function dialParts(chip) {
+  if (!chip || (chip.bell === null && !chip.beforeGenesis)) return { label: L`ターン`, num: '—', left: '' };
+  if (chip.beforeGenesis) return { label: L`開始まで`, num: countdown(chip.secondsLeft), left: '' };
+  return { label: L`ターン`, num: fmtNum(chip.bell), left: chip.ended ? L`終了` : countdown(chip.secondsLeft) };
+}
+
+/**
+ * The dial's markup: the parts of `dialParts` cut out of the one-line text in order; what lies
+ * between them stays in the page for a screen reader (visually hidden), so the element's text
+ * is exactly `chipText`.
+ */
+export function dialMarkup(chip) {
+  const parts = dialParts(chip);
+  let rest = chipText(chip);
+  const out = [];
+  for (const [cls, text] of [['dial-label', parts.label], ['dial-num', parts.num], ['dial-left', parts.left]]) {
+    const i = text ? rest.indexOf(text) : -1;
+    if (i < 0) continue;
+    if (i > 0) out.push(html`<span class="visually-hidden">${rest.slice(0, i)}</span>`);
+    out.push(html`<span class="${cls}">${text}</span>`);
+    rest = rest.slice(i + text.length);
+  }
+  if (rest) out.push(html`<span class="visually-hidden">${rest}</span>`);
+  return out;
 }
 
 function renderChip() {
   const now = FS.chain?.now() ?? null;
-  setText('bell-chip', chipText(FS.clock ? bellChip(FS.clock, now) : null));
+  const chip = $('bell-chip');
+  if (chip) setHtmlIfChanged(chip, dialMarkup(FS.clock ? bellChip(FS.clock, now) : null));
   renderHudTick(now);
   FS.stale = staleness({ latestUnix: FS.record?.latestUnix, chainNow: now, behind: FS.chain?.behind() ?? null });
   const banner = $('stale-banner');
@@ -149,8 +185,8 @@ function renderChip() {
 function renderStatus() {
   const s = FS.season;
   const status = s ? SEASON_STATUS_TEXT[effectiveStatus(s, FS.chain?.now() ?? 0)] : L`読み込み中…`;
-  const beacon = FS.beacon?.kind === 'test' ? L`（テスト用ビーコン）` : '';
-  setText('season-status', `${status}${beacon}`);
+  // the beacon's kind is a detail: "More → details" names it (detailsMarkup)
+  setText('season-status', status);
   const err = $('error-line');
   if (err) { err.hidden = !FS.error; err.textContent = FS.error ? FS.error.text : ''; }
 }
@@ -176,86 +212,203 @@ export function myReports(FS) {
   return out.slice(0, 12);
 }
 
-/** The panel of the current tab (the game page). A report or a practice run open takes the panel. */
-export function panelMarkup(FS) {
-  const tab = FS.tab ?? 'map';
-  const parts = [renderNotice(FS.notice)];
-  if (FS.practice) return [...parts, practiceScreen.render(FS.practice, { kernelError: FS.practiceError ?? null, closable: true })];
-  if (FS.report) return [...parts, reportScreen.render(FS, mineOf(FS.holdings), { ownerOf: reportOwner })];
-  // A march being composed on the map: its card first (hud/marchcard.mjs).
-  if (tab === 'map' && FS.compose) parts.push(marchCard.render(FS));
-  // tiles picked on the map for a Scout's exploration (map/actions.mjs): the explore card, here too
-  else if (tab === 'map' && FS.explore?.host && FS.mode === 'play') parts.push(exploreScreen.render(FS));
-  // Phones and tablets (no left rail below 1100 px): the rail's holdings and to-do list, folded (closed while composing).
-  if (tab === 'map' && (FS.holdings ?? []).length) {
-    const n = hud.attentionItems(FS).length;
-    parts.push(html`<details class="rail-mini" ${raw(n && !FS.compose ? 'open' : '')}><summary>${n ? L`村と次の鐘までにやること（${fmtNum(n)}）` : L`村と次の鐘までにやること`}</summary>${hud.renderRail(FS)}</details>`);
-  }
-  // The selection first on the map tab (the player just chose it), then the guide.
-  if (tab === 'map' && FS.selected) parts.push(inspect.render(FS, terrainRef, mapRef?.art?.activities ?? null));
-  else if (FS.selected) parts.push(inspect.renderBrief(FS, terrainRef));
-  parts.push(onboardingCard.render(FS, { open: tab === 'map' }));
-  // Another tab keeps one line of the selection (the inspector itself is on the map tab).
-  if (tab === 'map') {
-    parts.push(joinScreen.render(FS));
-  } else if (tab === 'holding') parts.push(holdingScreen.render(FS));
-  else if (tab === 'hosts') parts.push(hostScreen.render(FS), exploreScreen.render(FS));
-  else if (tab === 'marches') parts.push(marchScreen.render(FS), trackerScreen.render(FS), reportScreen.renderLinks(myReports(FS), L`あなたの衝突の報告`), incomingScreen.render(FS));
-  else parts.push(feed.renderCentre(FS.feed ?? [], FS.feedFilter ?? 'all'), bellScreen.render(FS), reportScreen.renderLinks(reportScreen.clashesFrom(FS.chronicle ?? []), L`最近の衝突`), chronicleScreen.render(FS), html`<section aria-labelledby="more-title"><h3 id="more-title">${L`設定`}</h3>
+/** The "more" drawer's settings card. */
+function settingsMarkup(FS) {
+  return html`<section class="vcard" aria-labelledby="more-title">${cardHead({ id: 'more-title', ic: 'compass', title: L`設定` })}
     <label class="choice"><input type="checkbox" data-act="autopan" ${FS.ui?.autoPan ? 'checked' : ''}>${L`自分に関わる戦いが決着したら、地図をそこへ動かして見せる`}</label>
-    <div class="choice-row" role="group" aria-label="${L`ガイドの強さ`}"><span>${L`ガイドの強さ`}</span>${guide.GUIDE_LEVELS.map(v => html`<button type="button" class="btn small" data-act="guide-level" data-v="${v}" aria-pressed="${guide.guideLevel(FS) === v ? 'true' : 'false'}">${guide.GUIDE_TEXT[v]()}</button>`)}</div>
-    <div class="choice-row" role="group" aria-label="${L`戦いの演出`}"><span>${L`戦いの演出`}</span>${['normal', 'fast', 'off'].map(v => html`<button type="button" class="btn small" data-act="battle-fx" data-v="${v}" aria-pressed="${(FS.ui?.battleFx ?? 'normal') === v ? 'true' : 'false'}">${BATTLE_FX_TEXT[v]()}</button>`)}</div>
-    <button type="button" class="btn" data-act="forget">${L`この端末からこのシーズンの鍵を消す`}</button>
+    <div class="choice-row" role="group" aria-label="${L`ガイドの強さ`}"><span class="choice-k">${L`ガイドの強さ`}</span><span class="seg">${guide.GUIDE_LEVELS.map(v => html`<button type="button" class="seg-btn" data-act="guide-level" data-v="${v}" aria-pressed="${guide.guideLevel(FS) === v ? 'true' : 'false'}">${guide.GUIDE_TEXT[v]()}</button>`)}</span></div>
+    <div class="choice-row" role="group" aria-label="${L`戦いの演出`}"><span class="choice-k">${L`戦いの演出`}</span><span class="seg">${['normal', 'fast', 'off'].map(v => html`<button type="button" class="seg-btn" data-act="battle-fx" data-v="${v}" aria-pressed="${(FS.ui?.battleFx ?? 'normal') === v ? 'true' : 'false'}">${BATTLE_FX_TEXT[v]()}</button>`)}</span></div>
     ${onboardingCard.renderRestore(FS)}
-    <p><button type="button" class="btn" data-act="practice-open">${L`練習モードを開く`}</button> <button type="button" class="btn" data-act="intro-open">${L`タイトルを見る`}</button></p>
-    <p><a href="practice.html">${L`練習`}</a> · <a href="spectate.html">${L`観戦`}</a></p></section>`, renderSurveyHelp(), pins.renderPins(FS.pins ?? []), renderNameForm(FS), milestones.renderTimeline(FS.mileRecord), glossary.renderGlossary());
+    <div class="actions"><button type="button" class="btn" data-act="practice-open">${icon('swords')}${L`練習モードを開く`}</button><button type="button" class="btn" data-act="intro-open">${L`タイトルを見る`}</button></div>
+    <p class="link-row"><a href="practice.html">${L`練習`}</a> · <a href="spectate.html">${L`観戦`}</a></p></section>`;
+}
+
+/**
+ * "More → details": what a player does not need on the play screen but may want to check — the
+ * season's state and its beacon, how the bell's work gets done (the keepers), the rules module,
+ * what a march costs (the relay fronts it), and the key kept on this device.
+ */
+export function detailsMarkup(FS) {
+  const s = FS.season;
+  const status = s ? SEASON_STATUS_TEXT[effectiveStatus(s, FS.chain?.now() ?? 0)] : L`読み込み中…`;
+  const tips = s ? marchScreen.composerChoices(FS).tips : [];
+  const costs = tips.map(t => { try { return { text: t.text, ...marchCosts(s, t.lamports) }; } catch { return null; } }).filter(Boolean);
+  return html`<section class="vcard vcard-folds" aria-label="${L`詳細`}">${fold('more-details', html`${icon('scroll')}${L`詳細`}<span class="fold-val">${status}</span>`, html`
+    <dl class="facts">
+      ${row(L`シーズン`, status)}
+      ${FS.beacon?.kind ? row(L`乱数のビーコン`, FS.beacon.kind === 'test' ? L`テスト用ビーコン` : L`公開ビーコン（drand）`) : ''}
+      ${row(L`ルールのモジュール`, FS.kernelError ? L`frontier.wasm を読み込めません（${FS.kernelError}）` : L`frontier.wasm（見込みの計算と報告の確かめに使います）`)}
+      ${FS.land ? row(L`入植希望の預け金（いま要る額）`, lamports(FS.land.escrowNeeded ?? 0n)) : ''}
+    </dl>
+    <p class="muted">${L`鐘ごとの開封・決着・精算は、キーパーと呼ばれる自動の係が代わりに行います。チップはその報酬です。`}</p>
+    <p class="muted">${L`いまの段階（M1）に賞金はありません。費用はテスト用の SOL で、中継が立て替えます（価値はありません）。`}</p>
+    ${costs.length ? html`${label(L`進軍の費用（単位：ランポート）`)}<ul class="cost-list">${costs.map(c => html`<li><strong>${c.text}</strong><span>${L`チップ`} ${fmtNum(Number(c.tip))} · ${L`進軍の手数料（決着させた人へ）`} ${fmtNum(Number(c.marchFee))} · ${L`封の保証金（精算で戻る）`} ${fmtNum(Number(c.sealBond))} · ${L`合計`} ${fmtNum(Number(c.total))}</span></li>`)}</ul>` : ''}
+    <div class="actions"><button type="button" class="btn" data-act="forget">${L`この端末からこのシーズンの鍵を消す`}</button></div>`)}</section>`;
+}
+
+/** The rest of "More" as one card of folds: pins, the viewer's name, the season's timeline, the glossary. */
+function moreFolds(FS) {
+  const parts = [['more-pins', 'pin', L`ピン`, pins.renderPins(FS.pins ?? [], FS)], ['more-name', 'person', L`あなたの名前`, renderNameForm(FS)],
+    ['more-timeline', 'hourglass', L`シーズンの年表`, milestones.renderTimeline(FS.mileRecord)], ['more-glossary', 'tome', L`用語集`, glossary.renderGlossary()]].filter(x => String(x[3] ?? '') !== '');
+  return html`<section class="vcard vcard-folds" aria-label="${L`そのほか`}">${parts.map(([key, ic, title, body]) => fold(key, html`${icon(ic)}${title}`, body, { cls: 'fold-doc' }))}</section>`;
+}
+
+/**
+ * What stands in the phone sheet while the drawer is closed (its peek, about a quarter of the
+ * screen): the objective of the guide, the village plate and the to-do lines. On desktop these
+ * float over the map (`#objective`, `aside#rail`) and the closed drawer is empty.
+ */
+export function restMarkup(FS) {
+  return [hud.renderPlate(FS), onboardingCard.renderObjective(FS), hud.renderTodo(FS, { max: 8 })];
+}
+
+/**
+ * The drawer's content on the game page, for the one drawer state (hud/drawer.mjs `drawerOf`):
+ * a report or a practice run takes it whole; then a dock press; then, on the map, the order
+ * being composed, the selection, the guide's steps or the join flow.
+ */
+export function panelMarkup(FS, d = drawerOf(FS)) {
+  // the action's outcome is said at the map (hud/status.mjs, renderFeed), not in a box inside the drawer
+  const parts = [];
+  if (!d) return [...parts, ...restMarkup(FS)];
+  if (d.kind === 'practice') return [...parts, practiceScreen.render(FS.practice, { kernelError: FS.practiceError ?? null, closable: true })];
+  if (d.kind === 'report') return [...parts, reportScreen.render(FS, mineOf(FS.holdings), { ownerOf: reportOwner })];
+  if (d.kind === 'march' || d.kind === 'inspect') {
+    // an order being written on the map is the one document in the drawer (hud/marchcard.mjs); else what is selected
+    if (FS.compose) return [...parts, marchCard.render(FS)];
+    // tiles picked on the map for a Scout's exploration (map/actions.mjs): the explore card stands with the map too
+    if (FS.explore?.host && FS.mode === 'play') return [...parts, exploreScreen.render(FS)];
+    if (FS.selected) parts.push(inspect.render(FS, terrainRef, mapRef?.art?.activities ?? null));
+    return parts;
+  }
+  if (d.kind === 'guide') return [...parts, onboardingCard.render(FS, { open: true }), FS.land?.stage === 'provisional' ? joinScreen.render(FS) : ''];
+  // the first minute: the six banners, the wait for the village (with the guide's steps on demand under it), or what must be mended
+  if (d.kind === 'nation') return [...parts, joinScreen.render(FS)];
+  if (d.kind === 'wait' || d.kind === 'join') return [...parts, joinScreen.render(FS)];
+  // a dock tab keeps one line of the selection (the inspector itself opens from the map)
+  if (FS.selected) parts.push(inspect.renderBrief(FS, terrainRef));
+  if (d.kind === 'holding') parts.push(holdingScreen.render(FS));
+  else if (d.kind === 'hosts') parts.push(hostScreen.render(FS), exploreScreen.render(FS));
+  else if (d.kind === 'marches') {
+    // a warning of arrivals stands first; with none, its quiet line closes the screen
+    const warned = (FS.incoming ?? []).length > 0;
+    parts.push(warned ? incomingScreen.render(FS) : '', marchScreen.render(FS), trackerScreen.render(FS), reportScreen.renderLinks(myReports(FS), L`あなたの衝突の報告`), warned ? '' : incomingScreen.render(FS));
+  }
+  else parts.push(feed.renderCentre(FS.feed ?? [], FS.feedFilter ?? 'all'), chronicleScreen.render(FS), reportScreen.renderLinks(reportScreen.clashesFrom(FS.chronicle ?? []), L`最近の衝突`), bellScreen.render(FS),
+    settingsMarkup(FS), renderSurveyHelp(), moreFolds(FS), detailsMarkup(FS));
   return parts;
 }
 
 /** The panel of the practice and spectator pages. */
 export function modePanel(FS) {
-  if (FS.mode === 'practice') return [renderNotice(FS.notice), practiceScreen.render(FS.practice, { kernelError: FS.practiceError ?? null })];
-  return [FS.selected ? inspect.render(FS, terrainRef, mapRef?.art?.activities ?? null) : '', spectateScreen.render(FS, { ownerOf: reportOwner, standings: hud.renderStandingsList(FS) }), FS.report ? '' : pins.renderPins(FS.pins ?? [])];
+  if (FS.mode === 'practice') return [practiceScreen.render(FS.practice, { kernelError: FS.practiceError ?? null })];
+  return [FS.selected ? inspect.render(FS, terrainRef, mapRef?.art?.activities ?? null) : '', spectateScreen.render(FS, { ownerOf: reportOwner, standings: hud.renderStandingsList(FS) }), FS.report ? '' : pins.renderPins(FS.pins ?? [], FS)];
 }
 
 /**
  * Re-render a panel without losing what the player was doing: the values
  * typed into its forms (inputs whose value differs from the markup's), the
- * focused field and the scroll position come back after the new markup.
+ * choices made in them (a picture chosen from a row of radio buttons, an
+ * option of a list), the folds opened (`details[data-fold]`), the focused
+ * control (a field, or the same button again) and the scroll position come
+ * back after the new markup. `scroller` null: a different view, which starts
+ * from its own markup (only typed values are carried).
  */
 export function keepState(el, render, scroller = el) {
   if (!el?.querySelectorAll) { render(); return; }
   const keyOf = x => { const f = x.closest('form[data-form]')?.dataset.form ?? x.closest('[data-bind]')?.dataset.bind ?? ''; return `${f}|${x.name || x.dataset.bind || x.id}`; };
-  const typed = new Map();
+  // a button, a summary or a link is found again by what it does: its action and data, then its place among its like
+  const actOf = x => `${x.tagName}|${x.dataset?.act ?? ''}|${JSON.stringify({ ...x.dataset })}|${x.closest('[data-fold]')?.dataset.fold ?? ''}`;
+  const nthOf = x => [...el.querySelectorAll(x.tagName)].filter(y => actOf(y) === actOf(x)).indexOf(x);
+  const typed = new Map(), picked = new Map(), folds = new Map();
   for (const x of el.querySelectorAll('input, select, textarea')) {
-    if (x.type === 'checkbox' || x.type === 'radio') continue;
+    // a control bound to the store (data-bind, data-act) is the store's to restore
+    if (x.type === 'checkbox') continue;
+    if (x.type === 'radio') { if (x.checked && !x.defaultChecked && !x.dataset.bind && !x.dataset.act) picked.set(keyOf(x), x.value); continue; }
+    if (x.tagName === 'SELECT') { if (!x.dataset.bind && x.value !== ([...x.options].find(o => o.defaultSelected) ?? x.options[0])?.value) picked.set(keyOf(x), x.value); continue; }
     if (x.value !== (x.defaultValue ?? x.value)) typed.set(keyOf(x), x.value);
   }
+  if (scroller) for (const d of el.querySelectorAll('details[data-fold]')) folds.set(d.dataset.fold, d.open);
   const active = globalThis.document?.activeElement;
-  const focusKey = active && el.contains(active) && active.matches?.('input, select, textarea') ? keyOf(active) : null;
+  const inside = !!active && el.contains(active);
+  const focusKey = inside && active.matches?.('input, select, textarea') ? keyOf(active) : null;
+  const focusAct = inside && !focusKey && scroller && active.matches?.('button, summary, a') ? { key: actOf(active), nth: nthOf(active), tag: active.tagName } : null;
   const top = scroller?.scrollTop ?? 0;
   render();
-  if (typed.size || focusKey) for (const x of el.querySelectorAll('input, select, textarea')) {
+  if (typed.size || picked.size || focusKey) for (const x of el.querySelectorAll('input, select, textarea')) {
     const k = keyOf(x);
-    if (typed.has(k) && x.type !== 'checkbox' && x.type !== 'radio') x.value = typed.get(k);
-    if (k === focusKey) x.focus({ preventScroll: true });
+    if (x.type === 'radio') { if (picked.get(k) === x.value) x.checked = true; }
+    else if (x.tagName === 'SELECT') { if (picked.has(k) && [...x.options].some(o => o.value === picked.get(k))) x.value = picked.get(k); }
+    else if (typed.has(k) && x.type !== 'checkbox') x.value = typed.get(k);
+    if (k === focusKey && (x.type !== 'radio' || x.checked)) x.focus({ preventScroll: true });
   }
+  for (const d of folds.size ? el.querySelectorAll('details[data-fold]') : []) { const was = folds.get(d.dataset.fold); if (was !== undefined && d.open !== was) d.open = was; }
+  if (focusAct && !el.contains(globalThis.document?.activeElement)) [...el.querySelectorAll(focusAct.tag)].filter(y => actOf(y) === focusAct.key)[Math.max(0, focusAct.nth)]?.focus?.({ preventScroll: true });
   if (scroller && scroller.scrollTop !== top) scroller.scrollTop = top;
 }
 
+// ------------------------------------------------------------------ the drawer (hud/drawer.mjs)
+/** The phone sheet (screens/shell.mjs `mountSheet`): `{set, state}` or null. */
+let sheetRef = null;
+const phone = () => !!globalThis.matchMedia?.(`(max-width: ${PHONE_MAX}px)`).matches;
+const calm = () => !!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+let drawerKind;            // the kind applied last (undefined before the first render)
+let drawerClear = null;    // the timer that empties a closed drawer after it has slid away
+/**
+ * Apply the drawer state to the page: `data-drawer` (open | closed) and `data-kind` on the
+ * panel and the body at once (state is synchronous; the slide is CSS on the stable panel
+ * element, never on its re-rendered content), and the phone sheet's height when the state
+ * changes: closed rests at the peek, a panel that opens lifts it to half.
+ */
+function applyDrawer(d) {
+  const panel = $('panel'), body = globalThis.document?.body;
+  const state = d ? 'open' : 'closed', kind = d?.kind ?? '';
+  // a document over the map (the report, a practice battle) is wide and centred, not the side drawer
+  const doc = d && WIDE.has(d.kind) ? 'wide' : d && STAGE.has(d.kind) ? 'stage' : '';
+  for (const el of [panel, body]) {
+    if (!el?.dataset) continue;
+    if (el.dataset.drawer !== state) el.dataset.drawer = state;
+    if ((el.dataset.kind ?? '') !== kind) el.dataset.kind = kind;
+    if (el.dataset.doc !== doc) el.dataset.doc = doc;
+  }
+  if (kind === drawerKind) return false;
+  drawerKind = kind;
+  if (sheetRef && phone()) {
+    if (!d) sheetRef.set('peek');
+    else if (LIFTS.has(d.kind) && sheetRef.state() === 'peek') sheetRef.set('half');
+  }
+  return true;
+}
+
 let lastPanelView = null;
-function renderPlay() {
-  const tabs = $('tabs');
-  if (tabs) setHtml(tabs, renderTabs(FS));
+/** Write the drawer: its state, title and body (the same view keeps its scroll and typed values). */
+function renderDrawer(markupOf) {
+  const d = drawerOf(FS);
+  applyDrawer(d);
   const body = $('panel-body');
-  // the same view keeps its scroll; a new tab, report or practice run starts at the top
-  const view = `${FS.tab ?? 'map'}|${FS.report ? 'r' : ''}|${FS.practice ? 'p' : ''}`;
+  const view = `${d?.kind ?? ''}|${FS.mode}`;
   const same = view === lastPanelView;
   lastPanelView = view;
-  if (body) keepState(body, () => setHtml(body, panelMarkup(FS)), same ? $('panel') : null);
-  const title = $('panel-title');
-  const sub = FS.practice ? L`練習モード` : FS.report ? L`衝突の報告` : null;
-  if (title) setText('panel-title', sub ?? { map: L`地図`, holding: L`村`, hosts: L`軍勢`, marches: L`進軍`, more: L`その他` }[FS.tab ?? 'map'] ?? L`シーズン`);
+  clearTimeout(drawerClear); drawerClear = null;
+  if (body) {
+    const scroller = phone() ? $('panel') : body;
+    if (d || phone()) keepState(body, () => setHtml(body, markupOf(d)), same ? scroller : null);
+    // desktop, closed: the content leaves once the drawer has slid away (at once without motion)
+    else if (calm()) setHtml(body, '');
+    else drawerClear = setTimeout(() => { if (!drawerOf(FS)) setHtml(body, ''); }, 200);
+    if (!same && scroller) scroller.scrollTop = 0;
+  }
+  setText('panel-title', drawerTitle(d));
+  const mark = $('panel-ic');
+  if (mark && d) setHtmlIfChanged(mark, icon(DRAWER_ICON[d.kind] ?? 'chart'));
+  return d;
+}
+
+function renderPlay() {
+  const d = renderDrawer(dd => panelMarkup(FS, dd));
+  const tabs = $('tabs');
+  // what the map itself opens (a selection, an order, the guide, the join flow) leaves "Map" current; a report or a run, none
+  if (tabs) setHtml(tabs, renderTabs(FS, !d || ['inspect', 'march', 'guide', 'join', 'nation', 'wait'].includes(d.kind) ? 'map' : d.kind));
   renderRail();
   renderMinimap();
   // the header follows new data at once, not only on the next one-second tick
@@ -263,10 +416,10 @@ function renderPlay() {
 }
 
 function renderMode() {
-  const body = $('panel-body');
-  if (body) setHtml(body, modePanel(FS));
+  renderDrawer(() => modePanel(FS));
   renderRail();
   renderMinimap();
+  renderFeed();
 }
 
 // ------------------------------------------------------------------ the HUD (hud/hud.mjs)
@@ -718,8 +871,21 @@ function checkMoments() {
   if (fresh.length) { FS.moments = liveMoments([...(FS.moments ?? []), ...fresh], t); peopleCache.at = -1; mapRef?.invalidate(); }
 }
 
+/** The waiting view's countdown to the next turn (screens/join.mjs marks the two nodes): its text and its ring, every second. */
+function tickTurn() {
+  const doc = globalThis.document;
+  const el = doc?.querySelector?.('[data-turn-left]');
+  if (!el) return;
+  const t = joinScreen.turnLeft(FS);
+  if (!t) return;
+  const text = countdown(t.left);
+  if (el.textContent !== text) el.textContent = text;
+  doc.querySelector('[data-turn-ring] .ring-fg')?.setAttribute('stroke-dasharray', `${(t.share * 100).toFixed(1)} 100`);
+}
+
 function renderHudTick(now) {
   const m = hud.bellModel(FS.clock, now);
+  tickTurn();
   checkMoments();
   frameRoute();
   updateForecast();
@@ -738,9 +904,12 @@ function renderHudTick(now) {
   if (strip) {
     const tokens = FS.mode === 'play' ? hud.resourceModel(hud.activeHolding(FS), now ?? 0) : [];
     strip.hidden = !tokens.length;
+    // the room left of the dial: two tokens on a phone (the two most pressing), more as the strip widens
     const w = globalThis.innerWidth ?? 1440;
-    setHtmlIfChanged(strip, hud.renderStrip(tokens, FS.resOpen ?? null, w < 760 ? 1 : w < 1100 ? 3 : w < 1440 ? 3 : w < 1700 ? 5 : 8));
+    setHtmlIfChanged(strip, hud.renderStrip(tokens, FS.resOpen ?? null, w < 900 ? 2 : w < 1040 ? 3 : w < 1280 ? 4 : w < 1600 ? 5 : 8));
+    resChanges(strip, tokens);
   }
+  renderSound();
   renderResPop(now ?? 0);
   checkMilestones();
   checkOwnProfile();
@@ -753,11 +922,65 @@ function renderHudTick(now) {
     const text = hud.attentionText(items);
     attn.hidden = !text;
     // phones show only the count (the header keeps one row: no layout shift when it appears); the full text is its name
-    if (text && attn.getAttribute('aria-label') !== text) {
-      attn.setAttribute('aria-label', text);
-      setHtml(attn, html`<span class="attn-long" aria-hidden="true">${text}</span><span class="attn-short" aria-hidden="true">${fmtNum(items.length)}</span>`);
+    const key = text ? `${items[0].kind}|${text}` : '';
+    if (text && attn.dataset.key !== key) {
+      attn.dataset.key = key;
+      attn.setAttribute('aria-label', L`次にやること：${text}`);
+      attn.title = items[0].text ?? text;
+      setHtml(attn, html`${icon(hud.TODO_ICON[items[0].kind] ?? 'flag', 'next-ic')}<span class="attn-long" aria-hidden="true">${text}</span><span class="attn-short" aria-hidden="true">${fmtNum(items.length)}</span>${icon('next', 'next-go')}`);
     }
   }
+}
+
+// ------------------------------------------------------------------ the strip's small moves
+let resSeen = { key: null, values: new Map() };
+/**
+ * A resource that jumps (a harvest, a build paid for) counts up to its new value and flashes;
+ * the slow rise of production does neither. Visual only: the number in the page is already the
+ * new one, and nothing moves under reduced motion.
+ */
+function resChanges(strip, tokens) {
+  const h = hud.activeHolding(FS);
+  const key = h ? `${h.p},${h.q},${h.site}` : null;
+  const prev = resSeen.key === key ? resSeen.values : null;
+  resSeen = { key, values: new Map(tokens.map(r => [r.resource, r.value])) };
+  if (!prev || !strip.querySelector) return;
+  for (const r of tokens) {
+    const was = prev.get(r.resource);
+    if (was === undefined) continue;
+    const d = r.value - was;
+    if (Math.abs(d) <= Math.ceil((r.perHour / 3600) * 5) + 1) continue;
+    const el = strip.querySelector(`[data-res="${r.resource}"]`);
+    if (!el) continue;
+    el.classList.add('res-bump', d > 0 ? 'res-up' : 'res-down');
+    const val = el.querySelector('.res-val');
+    if (!val || calm() || !globalThis.requestAnimationFrame) continue;
+    const t0 = performance.now(), to = r.value;
+    const step = t => {
+      const k = Math.min(1, (t - t0) / 450);
+      val.textContent = fmtNum(Math.round(was + (to - was) * (1 - Math.pow(1 - k, 3))));
+      if (k < 1 && val.isConnected) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+}
+
+/**
+ * The speaker button: the effects track owns the sound (`globalThis.__fxAudio`: `{muted, toggle()}`).
+ * The button shows only when that exists, calls its `toggle` and reflects `muted`; without it the
+ * page has no sound and shows no button that would do nothing.
+ */
+function renderSound() {
+  const b = $('sound-btn');
+  if (!b) return;
+  const a = globalThis.__fxAudio;
+  const has = !!a && typeof a.toggle === 'function';
+  if (b.hidden === has) b.hidden = !has;
+  if (!has) return;
+  const on = !a.muted;
+  const label = on ? L`音を消す` : L`音を出す`;
+  if (b.getAttribute('aria-label') !== label) { b.setAttribute('aria-label', label); b.title = label; }
+  if (b.getAttribute('aria-pressed') !== String(on)) b.setAttribute('aria-pressed', String(on));
 }
 
 // ------------------------------------------------------------------ notifications (hud/feed.mjs)
@@ -783,15 +1006,84 @@ function tickFeed() {
   invalidate('panel');
 }
 
+/** When the notice in hand appeared (a landed action's chip leaves after a few seconds). */
+let noticeSeen = { ref: null, at: 0 };
+/** The status of the action in hand, for the map's stack (hud/status.mjs). */
+function statusNow() {
+  const n = FS.notice ?? null;
+  if (noticeSeen.ref !== n) noticeSeen = { ref: n, at: Date.now() };
+  const st = status.statusOf(FS, { age: Date.now() - noticeSeen.at, canRetry: !!FS.lastAct });
+  // a hook for effects and sound (they are another track's): `wylls:status` {state: busy | done | refused | null, act} when it changes
+  const key = st?.state ?? null;
+  if (key !== statusShown) {
+    statusShown = key;
+    try { globalThis.dispatchEvent?.(new CustomEvent('wylls:status', { detail: { state: key, act: FS.lastAct?.name ?? null } })); } catch { /* no events here (tests) */ }
+  }
+  return st;
+}
+let statusShown = null;
+/**
+ * The map's stack of notices: the status of the action in hand first, then what happened (at most
+ * three). Kept by key, so a notice that arrives slides in and one that leaves fades out without the
+ * others starting again (220 ms in, 160 ms out; at once under reduced motion).
+ */
 function renderFeed() {
   const el = $('feed');
   if (!el) return;
-  setHtmlIfChanged(el, feed.renderToasts(FS.feed ?? [], { dismissed: FS.feedDismissed ?? new Set() }));
+  const st = statusNow();
+  const items = [...(st ? [{ id: 'tx', markup: status.renderStatus(st) }] : []),
+    ...feed.liveToasts(FS.feed ?? [], { dismissed: FS.feedDismissed ?? new Set() }).map(x => ({ id: `n:${x.id}`, markup: feed.renderToast(x) }))];
+  syncStack(el, items);
+}
+const stackHtml = new WeakMap();
+function syncStack(el, items) {
+  if (!el.children || !globalThis.document?.createElement) { setHtml(el, items.map(x => x.markup)); return; }
+  const want = new Map(items.map(x => [x.id, String([x.markup].flat(Infinity).map(String).join(''))]));
+  for (const node of [...el.children]) {
+    const id = node.dataset.key;
+    if (want.has(id) && !node.classList.contains('leaving')) continue;
+    if (node.classList.contains('leaving')) continue;
+    // gone: it fades out (state first: it no longer takes the pointer or a place in the reading order)
+    node.classList.add('leaving'); node.setAttribute('aria-hidden', 'true'); node.inert = true;
+    if (calm()) node.remove(); else setTimeout(() => node.remove(), 170);
+  }
+  let before = el.firstElementChild;
+  for (const x of items) {
+    let node = [...el.children].find(n => n.dataset.key === x.id && !n.classList.contains('leaving'));
+    const markup = want.get(x.id);
+    if (!node) {
+      const tpl = globalThis.document.createElement('template');
+      tpl.innerHTML = markup;
+      node = tpl.content.firstElementChild;
+      if (!node) continue;
+      node.dataset.key = x.id;
+      stackHtml.set(node, markup);
+      el.insertBefore(node, before);
+    } else if (stackHtml.get(node) !== markup) {
+      const tpl = globalThis.document.createElement('template');
+      tpl.innerHTML = markup;
+      const next = tpl.content.firstElementChild;
+      if (next) { node.className = `${next.className} shown`; node.setAttribute('role', next.getAttribute('role') ?? 'status'); node.replaceChildren(...next.childNodes); stackHtml.set(node, markup); }
+    }
+    before = node.nextElementSibling;
+    while (before && before.classList.contains('leaving')) before = before.nextElementSibling;
+  }
 }
 
+/**
+ * The bottom-left corner (the to-do lines and the village plate) and the guide's objective.
+ * On phones both stand in the sheet's peek instead (restMarkup): one copy in the page, never two.
+ */
 function renderRail() {
+  const small = phone();
   const el = $('rail');
-  if (el) setHtmlIfChanged(el, hud.renderRail(FS));
+  // the guide's one objective stands with the plate (UX design 7.4), over the to-do lines; not while the
+  // first-minute stages (the nation choice, the wait) or the list of steps have the screen
+  const d = drawerOf(FS);
+  const show = FS.mode === 'play' && !small && !['join', 'nation', 'wait', 'guide'].includes(d?.kind);
+  if (el) { setHtmlIfChanged(el, small ? '' : [show ? onboardingCard.renderObjective(FS) : '', hud.renderRail(FS)]); el.hidden = small || !el.firstElementChild; }
+  const ob = $('objective');
+  if (ob && !ob.hidden) ob.hidden = true;
 }
 
 /**
@@ -816,8 +1108,13 @@ function showTip(hit, at) {
   for (const a of (acts ?? []).filter((a, i, all) => all.findIndex(b => b.kind === a.kind) === i)) lines.push(html`<span class="tip-${a.kind}">${activityText(a)}</span>`);
   setHtml(tip, lines.map(l => html`<span class="tip-line">${l}</span>`));
   tip.hidden = false;
-  tip.style.setProperty('--x', `${Math.round(at.x + 16)}px`);
-  tip.style.setProperty('--y', `${Math.round(at.y + 12)}px`);
+  // beside the pointer, inside the part of the map nothing covers (never under the drawer or the sheet)
+  const size = mapRef?.size?.() ?? { width: 0, height: 0 }, ins = hudInsets();
+  const w = tip.offsetWidth || 0, h = tip.offsetHeight || 0;
+  const x = at.x + 16 + w > size.width - ins.right - 8 ? at.x - 16 - w : at.x + 16;
+  const y = at.y + 12 + h > size.height - ins.bottom - 8 ? at.y - 12 - h : at.y + 12;
+  tip.style.setProperty('--x', `${Math.round(Math.max(8, x))}px`);
+  tip.style.setProperty('--y', `${Math.round(Math.max(ins.top + 8, y))}px`);
 }
 
 // ------------------------------------------------------------------ battle scenes (people/battle.mjs)
@@ -875,16 +1172,30 @@ function renderLenses() {
   const el = $('lenses');
   if (!el) return;
   const cur = FS.view.lens ?? 'realm';
-  setHtmlIfChanged(el, minimap.LENSES.map((l, i) => html`<button type="button" class="lens" data-act="lens" data-lens="${l}" aria-pressed="${l === cur ? 'true' : 'false'}" title="${minimap.LENS_TEXT[l]()} (${i + 1})"><span aria-hidden="true">${minimap.LENS_GLYPH[l]}</span><span class="lens-text">${minimap.LENS_TEXT[l]()}</span></button>`));
+  setHtmlIfChanged(el, minimap.LENSES.map((l, i) => html`<button type="button" class="lens" data-act="lens" data-lens="${l}" aria-pressed="${l === cur ? 'true' : 'false'}" aria-label="${minimap.LENS_TEXT[l]()}" title="${minimap.LENS_TEXT[l]()} (${i + 1})">${icon(minimap.LENS_ICON[l])}<span class="lens-text" aria-hidden="true">${minimap.LENS_TEXT[l]()}</span></button>`));
 }
 // ------------------------------------------------------------------ map search (hud/search.mjs)
 let searchHits = [];
 function runSearch(q) {
   const recs = new Map();
   for (const ov of FS.overviews.values()) for (const r of ov.provinces) recs.set(`${r.p},${r.q}`, r);
-  searchHits = search.searchMap(q, { recs, roster: rosterRef, sitesOf: (p, q2) => terrainRef?.(p, q2)?.sites ?? null, pins: FS.pins ?? [], survey: FS.survey ?? null });
+  searchHits = search.searchMap(q, { recs, roster: rosterRef, sitesOf: (p, q2) => terrainRef?.(p, q2)?.sites ?? null, pins: FS.pins ?? [], survey: FS.survey ?? null, pinName: x => pins.pinName(x, FS) });
   const el = $('map-search-results');
   if (el) setHtml(el, search.renderResults(searchHits, q));
+}
+
+/** The search field opens from its icon (UX design section 6) and closes again when it has done its work. */
+function setSearch(open, { focus = true } = {}) {
+  const form = $('map-search'), btn = $('search-btn');
+  if (!form) return;
+  form.hidden = !open;
+  btn?.setAttribute('aria-expanded', String(open));
+  if (open) { if (focus) $('map-search-q')?.focus({ preventScroll: true }); return; }
+  const q = $('map-search-q'), res = $('map-search-results');
+  if (q) q.value = '';
+  if (res) setHtml(res, '');
+  searchHits = [];
+  if (focus) btn?.focus({ preventScroll: true });
 }
 
 function setLens(l) {
@@ -927,12 +1238,23 @@ export function closeIntro() {
   mapRef?.invalidate();   // the drift ends now: the map flies the rest of the way
 }
 let tollBell = null;
-/** The bell toll: the new bell's number rings over the map for a moment. */
+let tollTimer = null;
+/** How long the toll banner stands (ms). A class and a timer, not an animation's end: it shows and leaves under reduced motion too. */
+const TOLL_MS = 3200;
+/** The bell toll: the banner drops from the dial for a moment ("the bell tolled, turn N") and the dial swings. */
 function ringToll(bell) {
   if (!Number.isInteger(bell)) return;
   if (tollBell !== null && bell > tollBell) {
     const el = $('bell-toll');
-    if (el) { el.textContent = title.tollText(bell); el.classList.remove('ring'); void el.offsetWidth; el.classList.add('ring'); }
+    if (el) {
+      setHtml(el, html`${icon('bell')}<span>${title.tollText(bell)}</span>`);
+      el.classList.remove('ring'); void el.offsetWidth; el.classList.add('ring');
+      clearTimeout(tollTimer);
+      tollTimer = setTimeout(() => el.classList.remove('ring'), TOLL_MS);
+    }
+    // the dial swings with the toll (visual only)
+    const dial = $('bell-pill');
+    if (dial) { dial.classList.remove('toll'); void dial.offsetWidth; dial.classList.add('toll'); }
   }
   tollBell = bell;
 }
@@ -975,8 +1297,68 @@ function cycleHolding(dir) {
   goToItem({ p: hs[i].p, q: hs[i].q, tile: hs[i].tile, tab: 'holding', holding: hs[i] });
 }
 
+/** Close the drawer ("Map", the drawer's ×, Escape): back to the world. */
+function shutDrawer({ focus = false } = {}) {
+  closeDrawer(FS);
+  if (FS.mode === 'play') ACTIONS.tab({ tab: 'map' }); else invalidate('panel');
+  invalidate('map', 'panel', 'tabs', 'rail');
+  if (focus) $('frontier-map')?.focus({ preventScroll: true });
+}
+
 export const HUD_ACTIONS = {
-  'search-go': d => { const x = searchHits[num(d.i)]; if (!x) return; goToItem({ ...x, tab: FS.mode === 'play' ? 'map' : undefined }); const el = $('map-search-results'); if (el) setHtml(el, ''); },
+  // the dock (screens/shell.mjs renderTabs): "Map" closes the drawer, a tab opens it, the open tab pressed again closes it
+  tab: d => {
+    if (FS.mode !== 'play') return;
+    const open = drawerOf(FS)?.kind === d.tab;
+    // on a phone a press on the open tab while the sheet rests at its peek lifts the sheet instead
+    if (open && phone() && sheetRef?.state() === 'peek') { sheetRef.set('half'); return; }
+    if (d.tab === 'map' || open) { shutDrawer(); return; }
+    FS.report = null; FS.practice = null; FS.guideOpen = false;
+    ACTIONS.tab(d);
+    invalidate('rail');
+  },
+  'drawer-close': () => shutDrawer({ focus: !phone() }),
+  // an order is written on the map, whatever screen it was started from: the drawer shows the order, the map its reach
+  compose: d => {
+    ACTIONS.compose(d);
+    const c = FS.compose;
+    if (!c) return;
+    FS.tab = 'map'; FS.report = null; FS.practice = null; FS.guideOpen = false;
+    if (d.stay === 'map' && !(FS.selected && FS.selected.p === c.origin.p && FS.selected.q === c.origin.q && FS.selected.idx === c.host.tile)) {
+      // started from a list: the host's tile comes into view (a selection made on the map is already there)
+      const at = (h => project(h.q, h.r))(tileHex(c.origin.p, c.origin.q, c.host.tile));
+      if (mapRef && FS.view.lod !== 'tile') mapRef.setView({ x: at.x, y: at.y, zoom: 1.0 });
+      FS.selected = { kind: 'tile', p: c.origin.p, q: c.origin.q, idx: c.host.tile };
+    }
+    invalidate('map', 'panel', 'tabs', 'rail');
+  },
+  'drawer-open': () => { FS.drawerShut = false; invalidate('panel'); },
+  // the join flow and the guide's steps open in the drawer from the plate and the objective
+  'join-open': () => { FS.joinShut = false; FS.tab = 'map'; FS.report = null; FS.practice = null; FS.selected = null; if (holdsLand(FS)) FS.guideOpen = true; invalidate('map', 'panel', 'tabs', 'rail'); },
+  'guide-open': () => { FS.tab = 'map'; FS.report = null; FS.practice = null; FS.selected = null; FS.guideOpen = true; FS.joinShut = false; invalidate('map', 'panel', 'tabs', 'rail'); },
+  // a selection named on a dock tab opens its inspector
+  'sel-open': () => { FS.tab = 'map'; invalidate('panel', 'tabs', 'rail'); },
+  // the village plate: one press home (pressed again while there: the next village)
+  home: () => {
+    mapRef?.home();
+    const hs = FS.holdings ?? [], v = mapRef?.view;
+    if (v && hs.length > 1) {
+      const at = hs.map(h => (c => Math.hypot(c.x - v.x, c.y - v.y))((x => project(x.q, x.r))(tileHex(h.p, h.q, h.tile))));
+      const i = at.indexOf(Math.min(...at));
+      if (i >= 0 && i !== (FS.activeHolding ?? 0)) { FS.activeHolding = i; invalidate('panel', 'rail'); }
+    }
+  },
+  'holding-go': d => {
+    const i = num(d.i), h = FS.holdings?.[i];
+    if (!h) return;
+    FS.activeHolding = i;
+    const c = (x => project(x.q, x.r))(tileHex(h.p, h.q, h.tile));
+    mapRef?.setView({ x: c.x, y: c.y, zoom: Math.max(mapRef.view.zoom, 1.0) });
+    invalidate('map', 'panel', 'rail');
+  },
+  sound: () => { try { globalThis.__fxAudio?.toggle?.(); } catch (e) { console.error('frontier sound:', e); } renderSound(); },
+  'search-toggle': () => setSearch(!!$('map-search')?.hidden),
+  'search-go': d => { const x = searchHits[num(d.i)]; if (!x) return; goToItem({ ...x, tab: FS.mode === 'play' ? 'map' : undefined }); setSearch(false, { focus: false }); },
   lens: d => setLens(d.lens),
   goto: d => { leaveReport(); closeResPop(); goToItem({ p: num(d.p), q: num(d.q), tab: 'map' }); },
   'intro-close': () => closeIntro(),
@@ -984,6 +1366,9 @@ export const HUD_ACTIONS = {
   'feed-go': d => goToItem((FS.feed ?? []).find(x => x.id === d.id)),
   'feed-dismiss': d => { FS.feedDismissed = new Set([...(FS.feedDismissed ?? []), d.id]); renderFeed(); },
   'feed-filter': d => { FS.feedFilter = feed.FEED_FILTERS.includes(d.f) ? d.f : 'all'; invalidate('panel'); },
+  // the status at the map: put a refusal away, or send the refused action once more
+  'notice-close': () => { FS.notice = null; renderFeed(); invalidate('panel'); },
+  'notice-retry': () => { const r = retryLast(); renderFeed(); return r; },
   autopan: () => { const sc = scope(); const v = !FS.ui?.autoPan; FS.ui = sc ? saveUi(uiStorage, uiKey(sc), { autoPan: v }) : { ...(FS.ui ?? {}), autoPan: v }; invalidate('panel'); },
   'battle-play': d => { leaveReport(); playBattle(num(d.p), num(d.q), num(d.bell), { focus: true }); },
   'res-open': d => { FS.resOpen = FS.resOpen === d.r ? null : d.r; renderHudTick(FS.chain?.now?.() ?? 0); },
@@ -1012,8 +1397,14 @@ export const HUD_ACTIONS = {
   'sel-clear': () => { FS.selected = null; invalidate('map', 'panel'); },
   term: d => { FS.term = FS.term === d.term || !glossary.TERMS[d.term] ? null : d.term; renderTermPop(); $('term-pop')?.querySelector('button')?.focus?.(); },
   'term-close': () => closeTermPop(),
-  'glossary-open': () => { closeTermPop(); leaveReport(); if (FS.mode === 'play') FS.tab = 'more'; invalidate('panel', 'tabs'); requestAnimationFrame(() => $('glossary')?.scrollIntoView?.({ block: 'start' })); },
-  'hp-jump': d => { const el = /^hp-[a-z]+$/.test(d.id ?? '') ? $(d.id) : null; el?.scrollIntoView?.({ block: 'start', behavior: 'smooth' }); el?.querySelector?.('h4')?.focus?.(); },
+  'glossary-open': () => { closeTermPop(); leaveReport(); if (FS.mode === 'play') FS.tab = 'more'; invalidate('panel', 'tabs'); requestAnimationFrame(() => { const g = $('glossary'); const d = g?.closest?.('details'); if (d) d.open = true; (d ?? g)?.scrollIntoView?.({ block: 'start' }); }); },
+  // a card of the village drawer by its id: the folds around it open, it comes into view
+  'hp-jump': d => {
+    const el = /^hp-[a-z]+$/.test(d.id ?? '') ? $(d.id) : null;
+    if (!el) return;
+    for (let x = el.closest?.('details'); x; x = x.parentElement?.closest?.('details')) x.open = true;
+    el.scrollIntoView?.({ block: 'start', behavior: calm() ? 'auto' : 'smooth' });
+  },
   'battle-fx': d => { if (!['normal', 'fast', 'off'].includes(d.v)) return; const sc = scope(); FS.ui = sc ? saveUi(uiStorage, uiKey(sc), { battleFx: d.v }) : { ...(FS.ui ?? {}), battleFx: d.v }; invalidate('panel'); },
   attn: () => {
     const items = pillItems();
@@ -1033,8 +1424,8 @@ export const HUD_ACTIONS = {
 function renderChips() {
   const f = $('faction-chip');
   const fc = factionChip(FS.citizen);
-  // the faction chip carries its leader's portrait (UI plan F1); on phones the portrait alone
-  if (f) { f.hidden = !fc; setHtmlIfChanged(f, fc ? html`${raw(leaderSvg(FS.citizen.faction, { size: 26 }))}<span class="chip-text">${fc}</span>` : ''); }
+  // the nation's crest and name (the leader's portrait stands on the village plate); on phones the crest alone
+  if (f) { f.hidden = !fc; setHtmlIfChanged(f, fc ? html`${hud.crestSvg(FS.citizen.faction, { size: 26 })}<span class="chip-text">${fc}</span>` : ''); }
   const q = $('quota-chip');
   const qc = quotaChip(FS.quota);
   if (q) { q.hidden = !qc; q.textContent = qc ?? ''; }
@@ -1110,6 +1501,8 @@ async function runPractice({ reroll = false } = {}) {
     if (st.result.ok) st.history = [...st.history, st.stance].slice(-12);
   }
   if (FS.pin) setFlag(FLAG.practice); else invalidate('panel');
+  // a phone: the result stands first in the sheet, above the orders; it comes into view (on desktop it is beside them)
+  if (phone()) globalThis.requestAnimationFrame?.(() => $('panel-body')?.querySelector?.('.pr-result')?.scrollIntoView?.({ block: 'start', behavior: calm() ? 'auto' : 'smooth' }));
 }
 
 /** The wave-4 actions (data-act). */
@@ -1147,6 +1540,49 @@ export function w4Bind(name, value) {
   return true;
 }
 
+/** The play actions that send something to the chain: a refusal of one offers "try again" (hud/status.mjs). */
+export const SENDS = Object.freeze(new Set(['harvest', 'build', 'dissolve', 'join', 'session', 'auto-ticket', 'nudge', 'explore-send', 'settle-explore', 'settle-transit', 'march-send']));
+/** Send the refused action once more, as it was (`FS.lastAct`: its name and data, or a form's name and values). */
+function retryLast() {
+  const a = FS.lastAct;
+  if (!a || FS.mode !== 'play') return undefined;
+  FS.notice = null;
+  if (a.kind === 'form') return FORMS[a.name]?.({ elements: Object.fromEntries(Object.entries(a.values ?? {}).map(([k, v]) => [k, { value: v }])), dataset: { form: a.name } });
+  return ACTIONS[a.name]?.(a.data ?? {});
+}
+/** A refused control shakes its head once (visual only; the toast at the map says why). */
+function shake(control) {
+  const body = $('panel-body');
+  if (!body?.querySelector || calm()) return;
+  const same = (el, data) => Object.entries(data ?? {}).every(([k, v]) => el.dataset[k] === v);
+  const el = control.form ? body.querySelector(`form[data-form="${String(control.form).replace(/[^\w-]/g, '')}"] [type="submit"]`)
+    : [...body.querySelectorAll(`[data-act="${String(control.act).replace(/[^\w-]/g, '')}"]`)].find(x => same(x, control.data));
+  if (!el) return;
+  el.classList.remove('refused'); void el.offsetWidth; el.classList.add('refused');
+  setTimeout(() => el.classList.remove('refused'), 400);
+}
+
+/**
+ * The nation choice tells the map which nation is looked at (UX design 7.2: its home wedge is lit on the
+ * chart): `wylls:nation-focus` with `{faction}` on hover, keyboard focus and choice of a banner
+ * (`[data-nation]`), and with the chosen nation (or null) when the pointer or the focus leaves the banners.
+ */
+let nationShown;
+function nationFocus(faction) {
+  const f = Number.isInteger(faction) && faction >= 0 && faction < 6 ? faction : null;
+  if (f === nationShown) return;
+  nationShown = f;
+  try { globalThis.dispatchEvent?.(new CustomEvent('wylls:nation-focus', { detail: { faction: f } })); } catch { /* no events here (tests) */ }
+}
+function mountNationFocus(doc) {
+  const chosen = () => (drawerOf(FS)?.kind === 'nation' && Number.isInteger(FS.joinDraft?.faction) ? FS.joinDraft.faction : null);
+  const at = e => { const el = e.target?.closest?.('[data-nation]'); return el ? Number(el.dataset.nation) : null; };
+  doc.addEventListener('pointerover', e => { if (e.target?.closest?.('.nations')) nationFocus(at(e) ?? chosen()); else if (nationShown !== null && nationShown !== undefined) nationFocus(chosen()); });
+  doc.addEventListener('focusin', e => { const f = at(e); if (f !== null) nationFocus(f); });
+  doc.addEventListener('focusout', e => { if (at(e) !== null && !e.relatedTarget?.closest?.('[data-nation]')) nationFocus(chosen()); });
+  doc.addEventListener('click', e => { const f = at(e); if (f !== null) nationFocus(f); });
+}
+
 /** Route the screens' clicks, forms and bound inputs: the wave-4 screens here, the play screens to the controller (game page only). */
 function delegate(doc) {
   doc.addEventListener('keydown', e => {
@@ -1154,8 +1590,15 @@ function delegate(doc) {
     if (intro && !intro.hidden && (e.key === 'Escape' || e.key === 'Enter')) { e.preventDefault(); closeIntro(); return; }
     if (e.key === 'Escape' && FS.resOpen) { e.preventDefault(); closeResPop(); return; }
     if (e.key === 'Escape' && FS.term) { e.preventDefault(); closeTermPop(); return; }
+    if (e.key === 'Escape' && $('map-search') && !$('map-search').hidden && e.target?.closest?.('.search-row')) { e.preventDefault(); setSearch(false); return; }
     // Escape on the map lets the selection go (the lit tiles with it); a march being composed is closed from its card
     if (e.key === 'Escape' && e.target?.id === 'frontier-map' && FS.selected && !FS.compose) { e.preventDefault(); FS.selected = null; FS.actor = null; FS.mapNote = null; FS.explore = null; invalidate('map', 'panel'); return; }
+    // desktop: Escape puts the drawer away (never out of a field being typed in; on phones the sheet has its own rule)
+    if (e.key === 'Escape' && !e.defaultPrevented && !phone() && $('panel')?.dataset.drawer === 'open' && !e.target?.closest?.('input, select, textarea')) {
+      const was = drawerOf(FS)?.kind;
+      shutDrawer({ focus: true });
+      if (drawerOf(FS)?.kind !== was) { e.preventDefault(); return; }
+    }
     // . , next / previous ready host; ] [ next / previous holding; 1–4 the lenses (never while typing)
     if ((FS.mode !== 'play' && !/^[1-4]$/.test(e.key)) || e.target?.closest?.('input, select, textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
     const k = { '.': () => cycleHost(1), ',': () => cycleHost(-1), ']': () => cycleHolding(1), '[': () => cycleHolding(-1),
@@ -1163,21 +1606,27 @@ function delegate(doc) {
     if (k) { e.preventDefault(); k(); }
   });
   const play = FS.mode === 'play';
-  const run = p => Promise.resolve(p).catch(e => { FS.notice = { ok: false, code: e?.code ?? 'Error', text: String(e?.message ?? e) }; invalidate('panel'); });
+  // `then`: a refusal (the notice the action left) shakes the control that was pressed, once
+  const run = (p, control = null) => Promise.resolve(p).catch(e => { FS.notice = { ok: false, code: e?.code ?? 'Error', text: String(e?.message ?? e) }; invalidate('panel'); })
+    .then(() => { if (control && FS.notice && FS.notice.ok === false && !FS.notice.busy) shake(control); });
   const action = name => HUD_ACTIONS[name] ?? W4_ACTIONS[name] ?? (play ? ACTIONS[name] : undefined);
   doc.addEventListener('click', e => {
     const el = e.target.closest?.('[data-act]');
     const fn = el && !el.disabled ? action(el.dataset.act) : undefined;
     if (!fn) return;
     if (el.tagName !== 'INPUT') e.preventDefault();
-    run(fn(el.dataset, el));
+    const sends = play && SENDS.has(el.dataset.act) && ACTIONS[el.dataset.act];
+    if (sends) FS.lastAct = { kind: 'act', name: el.dataset.act, data: { ...el.dataset } };
+    run(fn(el.dataset, el), sends ? { act: el.dataset.act, data: { ...el.dataset } } : null);
   });
   doc.addEventListener('submit', e => {
     const f = e.target.closest?.('form[data-form]');
     const fn = f ? W4_FORMS[f.dataset.form] ?? (play ? FORMS[f.dataset.form] : undefined) : undefined;
     if (!fn) return;
     e.preventDefault();
-    run(fn(f));
+    const sends = play && !!FORMS[f.dataset.form] && f.dataset.form !== 'dest';
+    if (sends) FS.lastAct = { kind: 'form', name: f.dataset.form, values: Object.fromEntries([...f.elements].filter(x => x.name && (x.type !== 'radio' || x.checked)).map(x => [x.name, x.value])) };
+    run(fn(f), sends ? { form: f.dataset.form } : null);
   });
   doc.addEventListener('change', e => {
     const el = e.target.closest?.('[data-bind]');
@@ -1262,8 +1711,10 @@ export async function boot() {
   setRelay(cfg.relay);
   FS.chain = new ChainClock();
   mountLangToggle($('lang-box'));
-  // The phone bottom sheet (W5-E; mounted here since W6-D, R3).
-  mountSheet();
+  // The phone bottom sheet (W5-E; mounted here since W6-D, R3); the drawer state drives its height (applyDrawer).
+  sheetRef = mountSheet();
+  // the plate, the to-do lines and the objective stand in the sheet on phones and over the map on desktop
+  globalThis.matchMedia?.(`(max-width: ${PHONE_MAX}px)`)?.addEventListener?.('change', () => { drawerKind = undefined; invalidate('panel', 'tabs', 'rail'); });
   const herald = createHerald({ base: cfg.herald });
   rosterRef = createRoster({ base: cfg.herald ?? '', onChange: () => { mapRef?.invalidate(); invalidate('panel'); } });
   FS.roster = rosterRef;
@@ -1279,10 +1730,13 @@ export async function boot() {
     ['rail', renderRail],
   ]);
   delegate(globalThis.document);
+  mountNationFocus(globalThis.document);
   if (canvas) {
     // Tile-LOD terrain from the season record's ring seeds through the rules module (W5-E R3: passed by the app).
     const terrainOf = createTerrain({ onReady: () => { map?.invalidate(); invalidate('panel'); } });
     terrainRef = terrainOf;
+    // places are named by what stands on them (hud/place.mjs reads the terrain through the store)
+    FS.terrainOf = terrainOf;
     map = new FrontierMap(canvas, {
       source: () => {
         if (rosterRef) for (let d = 0; d < (FS.record?.rings?.length ?? 1); d++) rosterRef.ensure(d);
@@ -1355,6 +1809,14 @@ export async function boot() {
       art: ART_ON,
     });
     mapRef = map;
+    // a press on the dimmed map behind a document (the report, a practice battle) puts the document away, and is not a selection
+    canvas.addEventListener?.('pointerdown', e => {
+      if (FS.mode !== 'play' || globalThis.document?.body?.dataset.doc !== 'wide') return;
+      e.stopImmediatePropagation(); e.preventDefault();
+      shutDrawer();
+    }, true);
+    // the map buttons take their icons from the sprite (hud/icons.mjs)
+    iconizeMapTools(globalThis.document);
     renderLenses();
     const mini = $('minimap-canvas');
     mini?.addEventListener('pointerup', e => {
@@ -1388,7 +1850,12 @@ export async function boot() {
     // Practice runs without a season too (the kernel only needs its own ruleset); a season pins it and keeps its flags.
     if (FS.mode === 'practice') { FS.ui = loadUi(uiStorage, uiKey(scope())); invalidate('panel'); }
     if (FS.mode === 'spectate') startSpectate(herald);
-    if (FS.mode === 'play') startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).finally(() => { viewerKnown = true; map?.invalidate(); });
+    if (FS.mode === 'play') {
+      // the first answer about the viewer decides whether the join flow opens by itself (hud/drawer.mjs) and where the map opens (map/opening.mjs)
+      startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).then(() => { FS.playReady = true; invalidate('panel', 'tabs', 'rail'); }).finally(() => { viewerKnown = true; map?.invalidate(); });
+      // the drawer starts closed: the tab of the last visit is not reopened over the map
+      FS.tab = 'map';
+    }
   }
   // without a season nobody's record will come: the map opens on what there is
   if (FS.mode !== 'play' || !FS.record) { viewerKnown = true; map?.invalidate(); }

@@ -14,6 +14,8 @@ import { html, raw } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { BUILDINGS, TIERS } from '../fi18n.mjs';
 import { BUILD_ITEMS } from '../fland.mjs';
+import { icon } from './icons.mjs';
+import { cardHead, chip, fold } from '../screens/parts.mjs';
 
 export const FEED_MAX = 60;
 export const TOAST_MAX = 3;
@@ -107,7 +109,7 @@ export function bellSummary(feed, bell) {
     n('battle') && L`戦い ${fmtNum(n('battle'))}`, n('march') && L`進軍の知らせ ${fmtNum(n('march'))}`, n('incoming') && L`来襲の恐れ ${fmtNum(n('incoming'))}`,
     n('build') && L`完成 ${fmtNum(n('build'))}`, n('holding') && L`村 ${fmtNum(n('holding'))}`,
   ].filter(Boolean);
-  return { id: `sum:${bell}`, kind: 'summary', bell: bell + 1, text: L`第${fmtNum(bell)}鐘のまとめ：${parts.join(' · ')}`, items: of.map(x => x.id) };
+  return { id: `sum:${bell}`, kind: 'summary', bell: bell + 1, text: L`ターン ${fmtNum(bell)} のまとめ：${parts.join(' · ')}`, items: of.map(x => x.id) };
 }
 
 /** Add notifications to a feed (newest first, no duplicates, at most FEED_MAX), stamping when they arrived. */
@@ -117,39 +119,59 @@ export function pushFeed(feed, items, at = Date.now()) {
   return [...fresh.reverse(), ...feed].slice(0, FEED_MAX);
 }
 
-const KIND_ICON = { battle: '⚔', march: '➚', incoming: '!', build: '⚒', holding: '⌂', summary: '≡' };
+/** A mark per kind (hud/icons.mjs); the summary of a turn carries the bell. */
+export const KIND_ICON = Object.freeze({ battle: 'swords', march: 'banner', incoming: 'alert', build: 'hammer', holding: 'home', summary: 'bell' });
+/** The stamp of a notification: the turn it belongs to, with the bell beside it (UX design section 6, turn wording). */
+const stamp = x => (Number.isInteger(x.bell) && x.kind !== 'summary' ? html`<span class="toast-stamp">${icon('bell')}${L`ターン ${fmtNum(x.bell)}`}</span>` : '');
 const KIND_TEXT = { battle: () => L`戦闘`, march: () => L`進軍`, incoming: () => L`来襲`, build: () => L`建設`, holding: () => L`村`, summary: () => L`まとめ` };
 
+/**
+ * What a notice offers: "see" goes there (a battle is played where it
+ * happened), and a battle has its report.
+ */
 function itemActions(x) {
   const acts = [];
-  if (Number.isInteger(x.p)) acts.push(html`<button type="button" class="btn small" data-act="feed-go" data-id="${x.id}">${L`そこへ移動`}</button>`);
   if (x.battle) {
-    acts.push(html`<button type="button" class="btn small" data-act="battle-play" data-p="${x.battle.p}" data-q="${x.battle.q}" data-bell="${x.battle.bell}">${L`戦いを見る`}</button>`);
+    acts.push(html`<button type="button" class="btn small primary" data-act="battle-play" data-p="${x.battle.p}" data-q="${x.battle.q}" data-bell="${x.battle.bell}">${L`見る`}</button>`);
     acts.push(html`<button type="button" class="btn small" data-act="report-open" data-p="${x.battle.p}" data-q="${x.battle.q}" data-bell="${x.battle.bell}">${L`報告`}</button>`);
-  }
+  } else if (Number.isInteger(x.p)) acts.push(html`<button type="button" class="btn small primary" data-act="feed-go" data-id="${x.id}">${L`見る`}</button>`);
   return acts;
 }
 
+/** The live, undismissed notifications: the newest TOAST_MAX. */
+export function liveToasts(feed, { dismissed = new Set(), now = Date.now() } = {}) {
+  return feed.filter(x => !dismissed.has(x.id) && now - (x.at ?? 0) < TOAST_MS).slice(0, TOAST_MAX);
+}
+
+/** One toast ("what happened this turn": at most three cards over the map, each with "see"). */
+export function renderToast(x) {
+  return html`<div class="toast toast-${x.kind}" role="status">
+    <span class="toast-icon">${icon(KIND_ICON[x.kind] ?? 'flag')}</span>
+    <span class="toast-text"><span class="toast-kind">${KIND_TEXT[x.kind]?.() ?? ''}${stamp(x)}</span>${x.text}</span>
+    <button type="button" class="toast-x" data-act="feed-dismiss" data-id="${x.id}" aria-label="${L`閉じる`}">${icon('close')}</button>
+    ${itemActions(x).length ? html`<span class="toast-acts">${itemActions(x)}</span>` : ''}
+  </div>`;
+}
+
 /** The toasts: the newest live, undismissed notifications. */
-export function renderToasts(feed, { dismissed = new Set(), now = Date.now() } = {}) {
-  const live = feed.filter(x => !dismissed.has(x.id) && now - (x.at ?? 0) < TOAST_MS).slice(0, TOAST_MAX);
-  return live.map(x => html`<div class="toast toast-${x.kind}" role="status">
-    <span class="toast-icon" aria-hidden="true">${KIND_ICON[x.kind] ?? '•'}</span>
-    <span class="toast-text"><span class="toast-kind">${KIND_TEXT[x.kind]?.() ?? ''}</span>${x.text}</span>
-    <span class="toast-acts">${itemActions(x)}<button type="button" class="btn small toast-x" data-act="feed-dismiss" data-id="${x.id}" aria-label="${L`閉じる`}">×</button></span>
-  </div>`);
+export function renderToasts(feed, opts = {}) {
+  return liveToasts(feed, opts).map(renderToast);
 }
 
 export const FEED_FILTERS = Object.freeze(['all', 'battle', 'march', 'holding']);
 const FILTER_TEXT = { all: () => L`すべて`, battle: () => L`戦闘`, march: () => L`進軍と来襲`, holding: () => L`村と建設` };
 const inFilter = (x, f) => f === 'all' || (f === 'battle' && x.kind === 'battle') || (f === 'march' && (x.kind === 'march' || x.kind === 'incoming')) || (f === 'holding' && (x.kind === 'holding' || x.kind === 'build'));
 
-/** The notification list (the More tab). */
+/** How many notifications of the list stand in sight before the fold. */
+export const CENTRE_SHOWN = 5;
+/** The notification list ("More"): the newest in sight, the rest behind a fold. */
 export function renderCentre(feed, filter = 'all') {
   const list = feed.filter(x => inFilter(x, filter));
-  return html`<section aria-labelledby="feed-title"><h3 id="feed-title">${L`お知らせ`}</h3>
-    <div class="feed-filters" role="group" aria-label="${L`絞り込み`}">${FEED_FILTERS.map(f => html`<button type="button" class="btn small" data-act="feed-filter" data-f="${f}" aria-pressed="${f === filter ? 'true' : 'false'}">${FILTER_TEXT[f]()}</button>`)}</div>
-    ${list.length ? html`<ol class="list feed-list">${list.map(x => html`<li class="feed-${x.kind}"><span class="toast-icon" aria-hidden="true">${KIND_ICON[x.kind] ?? ''}</span><span>${x.text}${Number.isInteger(x.bell) ? html` <span class="muted">${L`第${fmtNum(x.bell)}鐘`}</span>` : ''}</span><span class="toast-acts">${itemActions(x)}</span></li>`)}</ol>`
+  const rowOf = x => html`<li class="feed-${x.kind}"><span class="toast-icon">${icon(KIND_ICON[x.kind] ?? 'flag')}</span><span class="feed-text">${x.text} ${stamp(x)}</span>${itemActions(x).length ? html`<span class="toast-acts">${itemActions(x)}</span>` : ''}</li>`;
+  const first = list.slice(0, CENTRE_SHOWN), rest = list.slice(CENTRE_SHOWN);
+  return html`<section class="vcard" aria-labelledby="feed-title">${cardHead({ id: 'feed-title', ic: 'bell', title: L`お知らせ`, side: list.length ? chip(fmtNum(list.length)) : '' })}
+    <div class="seg" role="group" aria-label="${L`絞り込み`}">${FEED_FILTERS.map(f => html`<button type="button" class="seg-btn" data-act="feed-filter" data-f="${f}" aria-pressed="${f === filter ? 'true' : 'false'}">${FILTER_TEXT[f]()}</button>`)}</div>
+    ${list.length ? html`<ol class="list feed-list">${first.map(rowOf)}</ol>${rest.length ? fold('feed-old', L`もっと見る（${fmtNum(rest.length)}）`, html`<ol class="list feed-list">${rest.map(rowOf)}</ol>`) : ''}`
       : html`<p class="muted">${L`まだお知らせはありません`}</p>`}</section>`;
 }
 

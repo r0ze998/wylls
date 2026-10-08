@@ -659,7 +659,7 @@ export const ACTIONS = {
   harvest: () => act('Harvest', { v: { holding: activeHolding(FS) } }),
   build: d => act('Build', { v: { holding: activeHolding(FS), item: num(d.item) }, fields: { item: num(d.item) } }),
   // W6-D: re-read soon after the keeper was asked (the next poll could be 30 s away, past the window the catch-up opens).
-  nudge: () => { const h = activeHolding(FS), env = FS.provinces.get(`${h.p},${h.q}`); return io.nudge(h.p, h.q, env?.province.resolvedNext ?? nowBell()).then(r => { refreshSoon(4000); return r.ok ? done(() => L`キーパーに追いつくよう頼みました`) : failed(r); }); },
+  nudge: () => { const h = activeHolding(FS), env = FS.provinces.get(`${h.p},${h.q}`); return io.nudge(h.p, h.q, env?.province.resolvedNext ?? nowBell()).then(r => { refreshSoon(4000); return r.ok ? done(() => L`追いつくよう頼みました`) : failed(r); }); },
   dissolve: d => { const r = hostRow(d.host); return act('Dissolve', { v: { holding: activeHolding(FS), province: r ? { p: r.p, q: r.q } : null }, fields: { host_id: BigInt(d.host) } }); },
   compose: d => {
     const r = hostRow(d.host);

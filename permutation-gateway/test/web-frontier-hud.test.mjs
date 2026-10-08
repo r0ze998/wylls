@@ -70,15 +70,45 @@ test('active holding: the chosen index, else the first', () => {
   assert.equal(hud.activeHolding({ holdings: [] }), null);
 });
 
-test('rail markup: holdings with the warning mark, tiles, the to-do list', () => {
+// Rewritten with the redesign (UX design section 6): the left rail became the village plate with at most two
+// to-do lines above it; the action tiles are the dock (screens/shell.mjs, web-frontier-shell.test.mjs).
+test('the village plate and the to-do lines: one press home, the warning mark, at most two lines, the turn heading', () => {
   setLang('ja');
-  const FS = { mode: 'play', tab: 'holding', citizen: { faction: 0 }, holdings: [holding()], chain: { now: () => 0 },
-    incoming: [{ bell: 44, holding: { p: 2, q: 0 }, hosts: 1, troops: 100 }], marches: [] };
+  const FS = { mode: 'play', tab: 'holding', citizen: { faction: 0 }, holdings: [holding()], chain: { now: () => 0 }, land: { stage: 'provisional' },
+    incoming: [{ bell: 44, holding: { p: 2, q: 0 }, hosts: 1, troops: 100 }], marches: [{ facts: { settleReady: true }, dest: { p: 1, q: 1 } }] };
   const out = [hud.renderRail(FS)].flat(Infinity).map(String).join('');
-  assert.match(out, /data-act="holding-pick" data-i="0" aria-current="true"/);
+  assert.match(out, /class="plate plate-warned"/);
+  assert.match(out, /<button type="button" class="plate-main" data-act="home" aria-label="[^"]+へ移動"/, 'the plate is one press home');
   assert.match(out, /来襲の恐れ/);
-  assert.match(out, /data-act="tab" data-tab="holding" aria-pressed="true"/);
-  assert.match(out, /data-act="attn-go" data-i="0"/);
+  assert.match(out, /class="plate-tag">仮</, 'a village that is not final yet carries the tag');
+  assert.match(out, /icons\.svg#bell"\/><\/svg><span>このターンにやること<\/span><span class="todo-n">3<\/span>/, 'the heading reads "this turn" with the bell and counts what is left out');
+  assert.equal((out.match(/data-act="attn-go"/g) ?? []).length, hud.TODO_LINES, 'at most two lines');
+  assert.match(out, /data-act="attn-go" data-i="0"><svg class="ic todo-ic"[^>]*><use href="art\/ui\/icons\.svg#alert"\/>/, 'a mark per kind, from the sprite');
+  assert.doesNotMatch(out, /区画|data-act="tab"/, 'no site number and no action tiles on the plate');
+  // several villages: a pip each, the active one marked
+  const two = [hud.renderPlate({ ...FS, holdings: [holding(), holding(3, 1)], activeHolding: 1, incoming: [] })].flat(Infinity).map(String).join('');
+  assert.match(two, /data-act="holding-go" data-i="1" aria-current="true"/);
+  assert.match(two, /もう一度押すと次の村/);
+  // before a village: where the viewer stands, and the way into the join flow
+  const none = String(hud.renderPlate({ mode: 'play', citizen: null, holdings: [] }));
+  assert.match(none, /まだ国に加わっていません/);
+  assert.match(none, /data-act="join-open">国を選ぶ</);
+  const wait = [hud.renderPlate({ mode: 'play', citizen: { faction: 2 }, holdings: [], land: { stage: 'ticket' } })].flat(Infinity).map(String).join('');
+  assert.match(wait, /入植希望を自動で出しました/);
+  assert.match(wait, /data-act="join-open">様子を見る</);
+  assert.equal(hud.renderTodo({ mode: 'play', holdings: [], chain: { now: () => 0 } }), '', 'nothing to do: no heading');
+  // the strip's tokens: a drawn icon each, the full number and a short one for the phone strip
+  const strip = [hud.renderStrip(hud.resourceModel(holding(), 0))].flat(Infinity).map(String).join('');
+  assert.match(strip, /data-act="res-open" data-r="Food" data-res="Food"[^>]*>\s*<svg class="ic res-ic res-c-Food"[^>]*><use href="art\/ui\/icons\.svg#grain"\/>/);
+  assert.match(strip, /<span class="res-val">100<\/span><span class="res-short" aria-hidden="true">100<\/span>/);
+  assert.match(String(hud.crestSvg(0)), /^<svg class="crest"/);
+  assert.doesNotMatch(String(hud.crestSvg(0)), /style=/);
+  setLang('en');
+  const en = [hud.renderRail(FS)].flat(Infinity).map(String).join('').replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<[^>]*>/g, ' ');
+  assert.match(en, /This turn/);
+  assert.match(en, /Provisional/);
+  assert.doesNotMatch(en.replace(/Lamar|ラマール/g, ''), /[぀-ヿ㐀-鿿]/, en);
+  setLang('ja');
 });
 
 import * as inspect from '../../permutation-server/web/frontier/hud/inspect.mjs';
@@ -151,11 +181,13 @@ test('feed: changes between two polls become notifications; a turned bell folds 
   feed = FEED.pushFeed(feed, items, 2000);
   assert.equal(feed.length, items.length, 'no duplicates');
   const sum = FEED.bellSummary(feed.map(x => ({ ...x, bell: 41 })), 41);
-  assert.match(sum.text, /^第41鐘のまとめ：戦い 2 · 進軍の知らせ 2 · 来襲の恐れ 1 · 完成 1 · 村 1$/);
+  // the summary's stamp reads "turn" (UX design section 6, turn wording); it read 第41鐘のまとめ
+  assert.match(sum.text, /^ターン 41 のまとめ：戦い 2 · 進軍の知らせ 2 · 来襲の恐れ 1 · 完成 1 · 村 1$/);
   assert.equal(FEED.bellSummary([], 41), null);
   const toasts = [FEED.renderToasts(feed, { now: 1500 })].flat(Infinity).map(String).join('');
   assert.equal((toasts.match(/class="toast /g) ?? []).length, FEED.TOAST_MAX);
   assert.match(toasts, /data-act="feed-dismiss"/);
+  assert.match(toasts, /<span class="toast-stamp"><svg class="ic"[^>]*><use href="art\/ui\/icons\.svg#bell"\/><\/svg>ターン 41<\/span>/, 'a toast carries its turn, with the bell');
   assert.equal([FEED.renderToasts(feed, { now: 1000 + FEED.TOAST_MS + 1 })].flat(Infinity).join(''), '', 'toasts expire into the list');
 });
 

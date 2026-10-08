@@ -9,8 +9,10 @@
 //   - the attention pill: what needs the player before the next bell
 //     (possible arrivals at a holding, settlements due, full stores, a march
 //     left unsent), one press moves to the next item;
-//   - the left rail (desktop): the holdings with their warning mark, the
-//     action tiles that open the panel's tabs, and what is on the way.
+//   - the village plate (bottom left; UX design section 6): who the viewer
+//     is, the active village with its countdown and warning mark, one press
+//     home; above it at most two to-do lines. (It replaces the left rail;
+//     the action tiles are the dock, screens/shell.mjs.)
 // Models are pure (they read FS and return numbers and text the tests
 // check); the render functions return markup; app.mjs puts it in the page.
 import { html, raw } from '../../util.mjs';
@@ -20,10 +22,11 @@ import { storesAt, holdingFacts, SETTLER } from '../fland.mjs';
 import { hostRows } from '../screens/host.mjs';
 import { DEPART_STAMINA } from '../fmarch.mjs';
 import { bellChip, countdown, BELL_SECS } from '../clock.mjs';
-import { swatch } from '../screens/shell.mjs';
-import { personChip, ownTag, ownIdentity, highlights, renderHighlights, holdingName } from '../people/ui.mjs';
+import { ownTag, ownIdentity, holdingName } from '../people/ui.mjs';
 import { leaderSvg } from '../people/leaders.mjs';
-import { identityOf } from '../people/identity.mjs';
+import { displayName } from '../people/identity.mjs';
+import { avatarSvg, sigilPath, FACTION_FILL, FACTION_DARK } from '../people/avatar.mjs';
+import { icon, RESOURCE_ICON } from './icons.mjs';
 
 /** Seconds before the bell at which the pill turns amber, then red. */
 export const URGENCY = Object.freeze({ warn: 120, crit: 30 });
@@ -117,8 +120,8 @@ export function attentionItems(FS) {
   return out;
 }
 
-/** A mark per kind of item (not colour alone, UI plan E6). */
-export const TODO_GLYPH = Object.freeze({ incoming: '⚠', settle: '✓', draft: '✎', explore: '⌕', idle: '⚑', build: '⚒', muster: '⚔', dormant: '☾', full: '▣' });
+/** A mark per kind of item (not colour alone, UI plan E6): a sprite icon (hud/icons.mjs). */
+export const TODO_ICON = Object.freeze({ incoming: 'alert', settle: 'check', draft: 'quill', explore: 'scout', idle: 'banner', build: 'hammer', muster: 'swords', dormant: 'moon', full: 'crate' });
 
 /** A holding this close to dormancy (seconds) is an attention item. */
 export const DORMANT_WARN_SECS = 6 * 3600;
@@ -144,9 +147,8 @@ const STATE_RANK = { full: 0, near: 1, ok: 2 };
 export function renderStrip(tokens, open = null, max = tokens.length) {
   const all = tokens.length > max;
   const shown = all ? [...tokens].sort((a, b) => STATE_RANK[a.state] - STATE_RANK[b.state] || tokens.indexOf(a) - tokens.indexOf(b)).slice(0, max) : tokens;
-  return shown.map(r => html`<button type="button" class="res res-${r.state}" data-act="res-open" data-r="${all ? '*' : r.resource}" aria-expanded="${open === (all ? '*' : r.resource) ? 'true' : 'false'}" aria-haspopup="dialog" title="${resourceTitle(r)}" aria-label="${all ? L`${resourceTitle(r)} · ほか ${fmtNum(tokens.length - max)} 種` : resourceTitle(r)}">
-    <span class="res-dot res-c-${r.resource}" aria-hidden="true"></span>
-    <span class="res-name">${r.name}</span>
+  return shown.map(r => html`<button type="button" class="res res-${r.state}" data-act="res-open" data-r="${all ? '*' : r.resource}" data-res="${r.resource}" aria-expanded="${open === (all ? '*' : r.resource) ? 'true' : 'false'}" aria-haspopup="dialog" title="${resourceTitle(r)}" aria-label="${all ? L`${resourceTitle(r)} · ほか ${fmtNum(tokens.length - max)} 種` : resourceTitle(r)}">
+    ${icon(RESOURCE_ICON[r.resource] ?? 'crate', `res-ic res-c-${r.resource}`)}
     <span class="res-val">${fmtNum(r.value)}</span><span class="res-short" aria-hidden="true">${shortNum(r.value)}</span>
     ${r.perHour > 0 ? html`<span class="res-rate">${L`+${fmtNum(r.perHour)}/時`}</span>` : ''}
     ${r.state === 'full' ? html`<span class="res-flag">${L`満杯`}</span>` : r.state === 'near' ? html`<span class="res-flag">${span(r.fullIn)}</span>` : ''}
@@ -184,9 +186,9 @@ export function allBreakdowns(holdings, now) {
 /** The popover for every resource: one row each, a press opens that one's breakdown. */
 export function renderAllBreakdowns(list) {
   return html`<div class="res-pop-head"><strong>${L`資源`}</strong><span></span>
-    <button type="button" class="btn small" data-act="res-close" aria-label="${L`閉じる`}">×</button></div>
+    <button type="button" class="btn small pop-x" data-act="res-close" aria-label="${L`閉じる`}">${icon('close')}</button></div>
     <ul class="list res-rows">${list.map(b => html`<li class="${b.rows.some(r => r.state === 'full') ? 'res-full' : ''}"><button type="button" class="res-row" data-act="res-open" data-r="${b.resource}">
-      <span class="res-row-name"><span class="res-dot res-c-${b.resource}" aria-hidden="true"></span> ${b.name}</span><span>${fmtNum(b.total)}</span>
+      <span class="res-row-name">${icon(RESOURCE_ICON[b.resource] ?? 'crate', `res-ic res-c-${b.resource}`)} ${b.name}</span><span>${fmtNum(b.total)}</span>
       <span class="muted">${L`毎時 +${fmtNum(b.perHour)}`}</span><span class="muted">${b.rows.some(r => r.state === 'full') ? L`満杯` : ''}</span></button></li>`)}</ul>`;
 }
 
@@ -194,7 +196,7 @@ export function renderAllBreakdowns(list) {
 export function renderBreakdown(b) {
   if (!b) return '';
   return html`<div class="res-pop-head"><strong>${b.name}</strong> <span>${L`合計 ${fmtNum(b.total)} · 毎時 +${fmtNum(b.perHour)}`}</span>
-    <button type="button" class="btn small" data-act="res-close" aria-label="${L`閉じる`}">×</button></div>
+    <button type="button" class="btn small pop-x" data-act="res-close" aria-label="${L`閉じる`}">${icon('close')}</button></div>
     <ul class="list res-rows">${b.rows.map(r => html`<li class="res-${r.state}"><button type="button" class="res-row" data-act="goto" data-p="${r.holding.p}" data-q="${r.holding.q}">
       <span class="res-row-name">${holdingName(r.holding)}</span>
       <span>${fmtNum(r.value)} / ${fmtNum(r.cap)}</span><span class="muted">${L`毎時 +${fmtNum(r.perHour)}`}</span>
@@ -218,14 +220,6 @@ export function holdingCountdowns(FS, h) {
   return out;
 }
 
-/** The action tiles: each opens a tab of the panel (Eternum's Build · Military · Transfer row). */
-const TILES = [
-  { tab: 'holding', glyph: '⌂', text: () => L`村` },
-  { tab: 'hosts', glyph: '⚔', text: () => L`軍勢` },
-  { tab: 'marches', glyph: '➚', text: () => L`進軍` },
-  { tab: 'more', glyph: '☷', text: () => L`その他` },
-];
-
 /**
  * The standings of the six factions from the overviews (the spectator's rail):
  * `[{faction, holdings, provinces}]`, most holdings first.
@@ -246,43 +240,85 @@ export function renderStandingsList(FS) {
       <span class="muted">${L`村 ${fmtNum(r.holdings)} · ${fmtNum(r.provinces)} 州`}</span></li>`)}</ol>`;
 }
 
-function renderStandings(FS) {
-  const rows = standings(FS.overviews);
-  return html`<h2 class="rail-h">${L`国の順位`}</h2>
-    <ol class="rail-standings">${rows.map((r, i) => html`<li><span class="rank">${i + 1}</span>${raw(leaderSvg(r.faction, { size: 34 }))}<strong>${factionName(r.faction)}</strong>
-      <span class="muted">${L`村 ${fmtNum(r.holdings)} · ${fmtNum(r.provinces)} 州`}</span></li>`)}</ol>
-    <p class="muted">${L`村の数は最新の概観（鐘ごと）から数えています。`}</p>
-    <h2 class="rail-h">${L`見どころ`}</h2>${renderHighlights(highlights(FS.chronicle, FS.overviews, FS.roster))}`;
+/**
+ * A nation's crest: its sigil on a shield in its colour (the sigil carries the identity; colour
+ * is never the only signal). Presentation attributes only: the page's CSP allows no style attribute.
+ */
+export function crestSvg(faction, { size = 26 } = {}) {
+  const f = Number.isInteger(faction) && faction >= 0 && faction < 6 ? faction : null;
+  const fill = f === null ? '#8a8a80' : FACTION_FILL[f], dark = f === null ? '#55554e' : FACTION_DARK[f];
+  return raw(`<svg class="crest" viewBox="0 0 24 28" width="${Math.round(size * 24 / 28)}" height="${size}" aria-hidden="true" focusable="false"><path d="M12 1.2l9.6 2.9v9.9c0 5.8-3.9 9.8-9.6 12.6C6.3 23.8 2.4 19.8 2.4 14V4.1Z" fill="${fill}" stroke="#f0d48a" stroke-width="1.3" stroke-linejoin="round"/><path d="M12 3.4l7.5 2.3v8.3c0 4.6-3 7.9-7.5 10.3Z" fill="${dark}" opacity=".28"/><g transform="translate(12 12.6)"><path d="${sigilPath(f ?? 6, 5)}" fill="#fffaf0" stroke="${dark}" stroke-width=".7"/></g></svg>`);
 }
 
-/** The left rail: holdings, action tiles, what needs the player (the spectator: the standings). */
-export function renderRail(FS) {
-  if (FS.mode === 'spectate') return html`<p class="rail-faction muted">${L`観戦中`}</p>${renderStandings(FS)}`;
-  const hs = FS.holdings ?? [];
-  const active = activeHolding(FS);
-  const warned = new Set((FS.incoming ?? []).map(w => `${w.holding.p},${w.holding.q}`));
-  const items = attentionItems(FS);
+/** How many to-do lines stand above the plate (the rest is the count beside the heading and the "next thing" button). */
+export const TODO_LINES = 2;
+
+/**
+ * The to-do lines: the heading reads "this turn" with the bell beside it
+ * (UX design section 6, turn wording), then at most `max` items, each a
+ * press that goes there. Nothing when there is nothing to do.
+ */
+export function renderTodo(FS, { max = TODO_LINES } = {}) {
+  const items = FS.mode === 'play' ? attentionItems(FS) : [];
+  if (!items.length) return '';
+  return html`<div class="todo"><h2 class="todo-h">${icon('bell')}<span>${L`このターンにやること`}</span>${items.length > max ? html`<span class="todo-n">${fmtNum(items.length)}</span>` : ''}</h2>
+    <ol class="todo-list">${items.slice(0, max).map((x, i) => html`<li class="todo-${x.kind}"><button type="button" class="todo-btn" data-act="attn-go" data-i="${i}">${icon(TODO_ICON[x.kind] ?? 'flag', 'todo-ic')}<span class="todo-text">${x.text}</span></button></li>`)}</ol></div>`;
+}
+
+/** The plate's line for a viewer without a village yet (the built behaviour: the page files the site ticket itself). */
+function waitingLine(FS) {
+  const stage = FS.land?.stage ?? 'none';
+  return stage === 'ticket' ? L`村はまだありません。入植希望を自動で出しました（次の鐘ごろに決まります）。` : L`村はまだありません。入植希望を自動で出しています。`;
+}
+
+/**
+ * The village plate (bottom left, always on screen in play): the viewer's
+ * face, the active village's name (its tier is in the name), the nearest
+ * countdown and the warning mark; the whole plate is one press home
+ * (`data-act="home"`, pressed again: the next village). Before a village
+ * exists it says where the viewer stands and opens the join flow.
+ */
+export function renderPlate(FS) {
+  if (FS.mode !== 'play') return '';
   const faction = FS.citizen?.faction;
-  const tag = Number.isInteger(faction) ? ownTag(FS) : null;
-  const head = Number.isInteger(faction)
-    ? html`<div class="rail-me">${tag !== null ? personChip(ownIdentity(FS), faction, { size: 44, full: true, note: factionName(faction) }) : html`<p class="rail-faction">${swatch(faction)}<strong>${factionName(faction)}</strong></p>`}</div>`
-    : html`<p class="rail-faction muted">${FS.mode === 'spectate' ? L`観戦中` : L`まだ国に加わっていません`}</p>`;
-  const list = hs.length
-    ? html`<ul class="rail-list">${hs.map((h, i) => html`<li><button type="button" class="rail-holding" data-act="holding-pick" data-i="${i}" ${raw(h === active ? 'aria-current="true"' : '')}>
-        <span class="rail-tier">${holdingName(h)}</span>
-        <span class="rail-where">${L`州 ${h.p},${h.q} 区画 ${h.site + 1}`}</span>
-        ${warned.has(`${h.p},${h.q}`) ? html`<span class="rail-warn">${L`来襲の恐れ`}</span>` : ''}
-        ${(() => { const c = holdingCountdowns(FS, h); return c.length ? html`<span class="rail-clock">${c.join(' · ')}</span>` : ''; })()}
-      </button></li>`)}</ul>`
-    : html`<p class="muted">${FS.mode !== 'play' ? L`村はありません` : (FS.land?.stage ?? 'none') === 'none' ? L`村はまだありません。地図の「参加」から始めます。` : FS.land.stage === 'ticket' ? L`村はまだありません。入植希望を自動で出しました（次の鐘ごろに決まります）。` : L`村はまだありません。入植希望を自動で出しています。`}</p>`;
-  const tiles = FS.mode === 'play' && hs.length
-    ? html`<div class="rail-tiles">${TILES.map(t => html`<button type="button" class="rail-tile" data-act="tab" data-tab="${t.tab}" ${raw((FS.tab ?? 'map') === t.tab ? 'aria-pressed="true"' : 'aria-pressed="false"')}><span class="rail-glyph" aria-hidden="true">${t.glyph}</span><span>${t.text()}</span></button>`)}</div>`
-    : '';
-  const todo = items.length
-    ? html`<ol class="rail-todo">${items.map((x, i) => html`<li class="todo-${x.kind}"><button type="button" class="rail-todo-btn" data-act="attn-go" data-i="${i}"><span class="todo-glyph" aria-hidden="true">${TODO_GLYPH[x.kind] ?? '•'}</span>${x.text}</button></li>`)}</ol>`
-    : html`<p class="muted">${L`次の鐘までにやることはありません`}</p>`;
-  return html`${head}
-    <h2 class="rail-h">${L`村`}</h2>${list}
-    ${tiles}
-    <h2 class="rail-h">${L`次の鐘までに`}</h2>${todo}`;
+  const joined = Number.isInteger(faction);
+  if (!joined) {
+    return html`<div class="plate plate-open"><span class="plate-text"><strong class="plate-name">${L`まだ国に加わっていません`}</strong><span class="plate-sub">${L`選ぶのは国だけです。村の場所は自動で決まります。`}</span></span>
+      <span class="plate-acts"><button type="button" class="btn primary plate-go" data-act="join-open">${L`国を選ぶ`}</button></span></div>`;
+  }
+  const me = ownTag(FS) !== null ? ownIdentity(FS) : null;
+  const face = me ? raw(avatarSvg(me, faction, { size: 48, uid: 'plate' })) : raw(leaderSvg(faction, { size: 48 }));
+  const myName = me ? html`<span data-name>${displayName(me, { full: true })}</span>` : null;
+  const who = myName ? html`${myName} · ${factionName(faction)}` : factionName(faction);
+  const hs = FS.holdings ?? [];
+  const h = activeHolding(FS);
+  if (!h) {
+    return html`<div class="plate plate-open"><span class="plate-who"><span class="plate-face">${face}</span><span class="plate-text"><strong class="plate-name">${myName ?? factionName(faction)}</strong>${myName ? html`<span class="plate-sub">${factionName(faction)}</span>` : ''}</span></span>
+      <span class="plate-sub">${waitingLine(FS)}</span>
+      <span class="plate-acts"><button type="button" class="btn plate-go" data-act="join-open">${L`様子を見る`}</button></span></div>`;
+  }
+  const warned = (FS.incoming ?? []).some(w => w.holding.p === h.p && w.holding.q === h.q);
+  const clocks = holdingCountdowns(FS, h);
+  const name = holdingName(h);
+  const i = hs.indexOf(h);
+  return html`<div class="plate${warned ? ' plate-warned' : ''}"><span class="plate-bar f${faction}" aria-hidden="true"></span>
+    <button type="button" class="plate-main" data-act="home" aria-label="${hs.length > 1 ? L`${name}へ移動（もう一度押すと次の村）` : L`${name}へ移動`}">
+      <span class="plate-face">${face}</span>
+      <span class="plate-text"><strong class="plate-name">${name}${h.state === 2 ? '' : html` <span class="plate-tag">${L`仮`}</span>`}</strong>
+        <span class="plate-sub">${who}</span>
+        ${warned ? html`<span class="plate-warn">${icon('alert')}${L`来襲の恐れ`}</span>` : clocks.length ? html`<span class="plate-clock">${clocks[0]}</span>` : ''}</span>
+      <span class="plate-home">${icon('home')}</span>
+    </button>
+    ${hs.length > 1 ? html`<span class="plate-pips" role="group" aria-label="${L`村`}">${hs.map((o, k) => html`<button type="button" class="plate-pip" data-act="holding-go" data-i="${k}" ${raw(k === i ? 'aria-current="true"' : '')} aria-label="${holdingName(o)}" title="${holdingName(o)}"><span aria-hidden="true">${k + 1}</span></button>`)}</span>` : ''}
+  </div>`;
+}
+
+/**
+ * The bottom-left corner (`aside#rail`): the to-do lines, then the plate.
+ * The spectator sees the standings there instead.
+ */
+export function renderRail(FS) {
+  if (FS.mode === 'spectate') return html`<div class="plate plate-watch"><h2 class="todo-h">${icon('eye')}<span>${L`国の順位`}</span></h2>${renderStandingsList(FS)}<p class="plate-note">${L`村の数は最新の概観（鐘ごと）から数えています。`}</p></div>`;
+  if (FS.mode !== 'play') return '';
+  return html`${renderTodo(FS)}${renderPlate(FS)}`;
 }

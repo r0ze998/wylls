@@ -1,19 +1,32 @@
-// The holding panel (web design §7.4; contract §5.10, I-29, I-56): header
-// (site, tier, provisional/final, shield, dormancy), the eight stores
-// settled lazily as the kernel does, the build queue and the build list
-// (first-copy costs), training (immediate, I-56), the trained reserve,
-// muster into a host (joins the roster from the next bell), garrison,
-// vigil hours, and the transit records. Every action says why it cannot
-// run now, with a "catch up" nudge when the province lags (NotResident).
+// The village drawer (web design §7.4; contract §5.10, I-29, I-56; UX design
+// sections 1 and 6): short parchment cards with the common action first —
+//   the village (name, tier, state, shield);
+//   its stores as eight tokens with a bar to the cap, and "harvest";
+//   building: the queue, the three buildings that can go up now, the rest
+//     behind a fold;
+//   the troops: the reserve, then the action that makes sense now (muster
+//     when there is a reserve, else train), the other behind a fold;
+//   the rest (garrison, vigil hours, the village's details) as folds.
+// The stores are settled lazily as the kernel does; training is immediate
+// (I-56); a mustered host joins the roster from the next bell. Every action
+// says why it cannot run now, with a "catch up" nudge when the province
+// lags (NotResident).
 import { activeHolding } from '../fstate.mjs';
 import { html, raw } from '../../util.mjs';
+import { icon, RESOURCE_ICON } from '../hud/icons.mjs';
 import { L, Lh, fmtNum } from '../../lang.mjs';
 import { RESOURCES, RESOURCE_ORDER, UNITS, TIERS, BUILDINGS, HOLDING_STATES, errorText } from '../fi18n.mjs';
 import { storesAt, holdingFacts, BUILD_ITEMS, UNIT_ORDER, SETTLER, actionBlocks, baseProduction } from '../fland.mjs';
 import { holdingName } from '../people/ui.mjs';
-import { span } from '../hud/hud.mjs';
+import { miniCardUrl, MINI_KINDS } from '../people/minis.mjs';
+import { span, NEAR_FULL_SECS } from '../hud/hud.mjs';
 import { termButton } from '../hud/glossary.mjs';
 import { inTime, row, timeHtml } from './shell.mjs';
+import { cardHead, label, fold, chip, bar } from './parts.mjs';
+import { villagePic } from '../hud/place.mjs';
+
+/** How many buildings stand in sight before the fold. */
+export const BUILD_SHOWN = 3;
 
 /**
  * The − / + buttons and presets around a count (UI plan B4: no typing for
@@ -21,8 +34,8 @@ import { inTime, row, timeHtml } from './shell.mjs';
  * screen readers); `max` caps the presets ("all" when it is known).
  */
 const steps = (name, { d = 100, presets = [100, 500, 1000], max = null } = {}) => html`<span class="stepper" role="group" aria-label="${L`数を変える`}">
-  <button type="button" class="btn small" data-act="step" data-name="${name}" data-d="${-d}" aria-label="${L`${fmtNum(d)} 減らす`}">−</button>
-  <button type="button" class="btn small" data-act="step" data-name="${name}" data-d="${d}" aria-label="${L`${fmtNum(d)} 増やす`}">+</button>
+  <button type="button" class="btn small" data-act="step" data-name="${name}" data-d="${-d}" aria-label="${L`${fmtNum(d)} 減らす`}">${icon('minus')}</button>
+  <button type="button" class="btn small" data-act="step" data-name="${name}" data-d="${d}" aria-label="${L`${fmtNum(d)} 増やす`}">${icon('plus')}</button>
   ${presets.filter(v => max === null || v <= max).map(v => html`<button type="button" class="btn small" data-act="step-set" data-name="${name}" data-v="${v}">${fmtNum(v)}</button>`)}
   ${max !== null && max > 0 ? html`<button type="button" class="btn small" data-act="step-set" data-name="${name}" data-v="${max}">${L`全部（${fmtNum(max)}）`}</button>` : ''}</span>`;
 
@@ -76,77 +89,115 @@ export function holdingModel(FS) {
   };
 }
 
-const PANELS = [
-  { id: 'hp-harvest', text: () => L`収穫`, glyph: '❦' }, { id: 'hp-build', text: () => L`建設`, glyph: '⚒' },
-  { id: 'hp-train', text: () => L`訓練`, glyph: '⚔' }, { id: 'hp-muster', text: () => L`編成`, glyph: '⚑' }, { id: 'hp-garrison', text: () => L`守備`, glyph: '⛨' },
-];
+/** A resource's mark on parchment: the strip's icon on a dark coin. */
+export const resCoin = resource => html`<span class="res-coin">${icon(RESOURCE_ICON[resource] ?? (resource === 'Walls' ? 'shield' : 'crate'), `res-c-${resource}`)}</span>`;
+
+/** One store: the mark, the amount, a bar to the cap, the hourly rate. */
+function storeTile(s) {
+  const full = s.cap > 0 && s.value >= s.cap;
+  const near = !full && s.cap > 0 && s.perHour > 0 && ((s.cap - s.value) / s.perHour) * 3600 <= NEAR_FULL_SECS;
+  return html`<li class="store${full ? ' store-full' : ''}" title="${RESOURCES[s.resource]} ${fmtNum(s.value)} / ${fmtNum(s.cap)}">
+    <span class="store-top">${resCoin(s.resource)}<strong class="store-val">${fmtNum(s.value)}</strong></span>
+    <span class="store-name">${RESOURCES[s.resource]}</span>
+    ${bar(s.value, s.cap, full ? 'bar-bad' : near ? 'bar-warn' : '')}
+    <span class="store-rate">${full ? html`<span class="flag">${L`満杯`}</span>` : s.perHour > 0 ? L`+${fmtNum(s.perHour)}/時` : html`<span aria-hidden="true">—</span>`}</span>
+    <span class="visually-hidden">${L`上限 ${fmtNum(s.cap)}`}</span></li>`;
+}
+
+/** One building as a row: what it gives, how long, what it costs, and the one button. */
+function buildRow(c, blocked) {
+  const name = BUILDINGS[c.resource];
+  const cost = c.cost ? costText(c.cost) : L`石材を使う`;
+  return html`<li class="build-row${c.short.length ? ' short' : ''}">${resCoin(c.resource)}
+    <span class="br-main"><strong>${name}</strong><span class="br-yield">${c.perHour ? L`${RESOURCES[c.resource]} +${c.perHour}/時` : L`守りを固める`}</span></span>
+    <span class="br-meta">${icon('hourglass')}${span(c.secs)} · ${cost}${c.copies ? html` <span class="br-nth">${L`（${fmtNum(c.copies + 1)}つ目は高くなります）`}</span>` : ''}</span>
+    ${c.short.length ? html`<span class="br-short">${L`足りない：${c.short.map(x => `${RESOURCES[x.resource]} ${fmtNum(x.need)}`).join(' · ')}`}</span>` : ''}
+    <button type="button" class="btn small br-go" data-act="build" data-item="${c.item}" aria-label="${L`${name}を建てる`}" ${raw(blocked ? 'disabled' : '')}>${L`建てる`}</button></li>`;
+}
+
+/** The units as pictures to choose from (radio buttons named `unit`: the forms read `form.elements.unit.value`). */
+function unitPicks(f, list, legend) {
+  return html`<div class="unit-picks" role="radiogroup" aria-label="${legend}">${list.map((x, k) => html`<label class="unit-pick"><input type="radio" name="unit" value="${x.unit}" ${raw(k === 0 ? 'checked' : '')}>
+    <img class="unit-card f${f}" src="${miniCardUrl(f, MINI_KINDS[x.unit])}" alt="" width="44" height="55" loading="lazy" decoding="async">
+    <span class="unit-name">${UNITS[UNIT_ORDER[x.unit]]}</span>${x.troops !== undefined ? html`<span class="unit-n">${fmtNum(x.troops)}</span>` : ''}</label>`)}</div>`;
+}
 
 export function render(FS) {
   const m = holdingModel(FS);
   if (!m) return html`<p>${L`まだ村がありません。`}</p>`;
   const { holding: h, facts: f } = m;
-  const state = HOLDING_STATES[f.state];
-  const units = UNIT_ORDER.map((u, i) => ({ u, i })).filter(x => x.i !== SETTLER);
+  const faction = Number.isInteger(FS.citizen?.faction) ? FS.citizen.faction : 0;
   const full = m.stores.filter(s => s.cap > 0 && s.value >= s.cap);
-  const queueFull = f.queue.filter(q => q.doneIn > 0).length >= 4;
+  const building = f.queue.filter(q => q.doneIn > 0);
+  const queueFull = building.length >= 4;
   const cards = buildCards(h, m.stores);
-  return html`<section aria-labelledby="holding-title" class="holding"><h3 id="holding-title">${holdingName(h)} <span class="muted">${L`村 州 ${h.p},${h.q} 区画 ${h.site + 1}`}</span></h3>
-    <dl class="facts">
-      ${row(L`段階`, html`${TIERS[h.tier] ?? h.tier} · ${state}${termButton('tier')}`)}
-      ${f.state === 'provisional' ? row(L`確定`, L`同じ鐘の入植希望がすべて決まってから`) : ''}
-      ${f.shieldLeft > 0 ? row(L`保護`, html`${inTime(f.shieldLeft)}${termButton('shield')}`) : ''}
-      ${row(L`休眠まで`, html`${f.dormantIn > 0 ? inTime(f.dormantIn) : L`休眠中`}${termButton('dormant')}`)}
-    </dl>
-    <nav class="hp-nav" aria-label="${L`村の操作`}">${PANELS.map(x => html`<button type="button" class="hp-chip" data-act="hp-jump" data-id="${x.id}"><span aria-hidden="true">${x.glyph}</span>${x.text()}</button>`)}</nav>
+  const blockedOf = c => !!(m.blocks.Build.length || queueFull || c.short.length);
+  // what can go up now first; the catalog's order otherwise
+  const order = [...cards].sort((a, b) => Number(blockedOf(a)) - Number(blockedOf(b)) || a.item - b.item);
+  const shown = order.slice(0, BUILD_SHOWN), rest = order.slice(BUILD_SHOWN);
+  const reserve = f.reserve.filter(r => r.unit !== SETTLER);
+  const musterable = reserve.reduce((a, r) => a + r.troops, 0);
+  const vigil = FS.citizen?.vigilStartMin ?? 0;
+  const vigilHour = Math.floor(vigil / 60);
 
-    <section class="hpanel" id="hp-harvest" aria-labelledby="hp-harvest-h"><h4 id="hp-harvest-h">❦ ${L`資源`}</h4>
-    <table class="stores"><thead><tr><th scope="col">${L`資源`}</th><th scope="col">${L`量`}</th><th scope="col">${L`毎時`}</th><th scope="col">${L`上限`}</th></tr></thead>
-      <tbody>${m.stores.map(s => html`<tr class="${s.cap > 0 && s.value >= s.cap ? 'store-full' : ''}"><th scope="row"><span class="res-dot res-c-${s.resource}" aria-hidden="true"></span> ${RESOURCES[s.resource]}</th><td>${fmtNum(s.value)}${s.cap > 0 && s.value >= s.cap ? html` <span class="flag">${L`満杯`}</span>` : ''}</td><td>+${fmtNum(s.perHour)}</td><td>${fmtNum(s.cap)}</td></tr>`)}</tbody></table>
-    <p><button type="button" class="btn primary" data-act="harvest" ${raw(m.blocks.Harvest.length ? 'disabled' : '')}>${L`収穫する`}</button>
-      ${full.length ? html`<span class="muted">${L`${full.map(s => RESOURCES[s.resource]).join(' / ')}が満杯：これ以上は増えません`}</span>` : ''}</p>
-    ${blockedLine(m.blocks.Harvest)}</section>
-
-    <section class="hpanel" id="hp-build" aria-labelledby="hp-build-h"><h4 id="hp-build-h">⚒ ${L`建設（列は4つまで）`}</h4>
-    ${f.queue.length ? html`<ul class="list hp-queue">${f.queue.map(q => html`<li>${BUILDINGS[BUILD_ITEMS[q.kind]?.resource] ?? `#${q.kind}`} · ${q.doneIn > 0 ? html`${L`あと ${span(q.doneIn)}`}` : L`完成`}</li>`)}</ul>` : html`<p class="muted">${L`建設の列は空です`}</p>`}
-    <ul class="build-cards">${cards.map(c => {
-      const blocked = m.blocks.Build.length || queueFull || c.short.length;
-      return html`<li class="build-card ${c.short.length ? 'short' : ''}"><button type="button" class="btn" data-act="build" data-item="${c.item}" ${raw(blocked ? 'disabled' : '')}>${BUILDINGS[c.resource]}</button>
-        <span class="bc-yield">${c.perHour ? html`<span class="res-dot res-c-${c.resource}" aria-hidden="true"></span> ${L`${RESOURCES[c.resource]} +${c.perHour}/時`}` : L`守りを固める`}</span>
-        <span class="bc-time">⏱ ${span(c.secs)}${c.copies ? html` <span class="muted">${L`（${fmtNum(c.copies + 1)}つ目）`}</span>` : ''}</span>
-        <span class="bc-cost">${c.cost ? (c.copies ? L`${costText(c.cost)}（1つ目の費用。2つ目からは高くなります）` : costText(c.cost)) : L`石材で守りを固める（鐘の始まりの守り手に数えられるのは完成した次の鐘から）`}</span>
-        ${c.short.length ? html`<span class="bc-short">${L`足りない：${c.short.map(x => `${RESOURCES[x.resource]} ${fmtNum(x.need)}`).join(' · ')}`}</span>` : ''}</li>`;
-    })}</ul>
-    ${queueFull ? html`<p class="blocked">${L`建設の列がいっぱいです（4つまで）`}</p>` : ''}
-    ${blockedLine(m.blocks.Build)}</section>
-
-    <section class="hpanel" id="hp-train" aria-labelledby="hp-train-h"><h4 id="hp-train-h">⚔ ${L`訓練（すぐに終わります）`}</h4>
-    <form class="inline" data-form="train"><label>${L`兵種`}<select name="unit">${units.map(x => html`<option value="${x.i}">${UNITS[x.u]}</option>`)}</select></label>
-      <label>${L`人数`}<input name="n" type="number" min="1" step="1" value="100" inputmode="numeric"></label>${steps('n')}
-      <button type="submit" class="btn" ${raw(m.blocks.Train.length ? 'disabled' : '')}>${L`訓練する`}</button></form>
-    ${blockedLine(m.blocks.Train)}
-    <h4>${L`控えの兵`}</h4>
-    ${f.reserve.length ? html`<ul class="list">${f.reserve.map(r => html`<li>${UNITS[UNIT_ORDER[r.unit]]} ${fmtNum(r.troops)}</li>`)}</ul>` : html`<p class="muted">${L`控えの兵はいません`}</p>`}</section>
-
-    <section class="hpanel" id="hp-muster" aria-labelledby="hp-muster-h"><h4 id="hp-muster-h">⚑ ${L`軍勢を編成する`}</h4>
-    <form class="inline" data-form="muster"><label>${L`兵種`}<select name="unit">${f.reserve.filter(r => r.unit !== SETTLER).map(r => html`<option value="${r.unit}">${UNITS[UNIT_ORDER[r.unit]]}</option>`)}</select></label>
-      <label>${L`兵数（100〜30,000）`}<input name="troops" type="number" min="100" max="30000" step="1" value="100" inputmode="numeric"></label>${steps('troops', { max: Math.min(30000, f.reserve.find(r => r.unit !== SETTLER)?.troops ?? 0) || null })}
-      <button type="submit" class="btn" ${raw(m.blocks.Muster.length || !f.reserve.length ? 'disabled' : '')}>${L`編成する`}</button></form>
-    ${!f.reserve.length ? html`<p class="blocked">${L`控えの兵がいません：先に訓練しましょう`}</p>` : ''}
-    <p class="muted">${L`新しい軍勢は次の鐘から顔ぶれに加わります。`}</p>
-    ${blockedLine(m.blocks.Muster)}
-    <h4>${L`進軍の記録（4つ）`}</h4>
-    ${f.transits.length ? html`<ul class="list">${f.transits.map(t => html`<li>${L`枠 ${t.slot + 1}：第${fmtNum(t.arriveBell)}鐘に到着`}</li>`)}</ul>` : html`<p class="muted">${L`進軍中の軍勢はいません`}</p>`}</section>
-
-    <section class="hpanel" id="hp-garrison" aria-labelledby="hp-garrison-h"><h4 id="hp-garrison-h">⛨ ${L`守備隊`}${termButton('garrison')}</h4>
-    <form class="inline" data-form="garrison"><label>${L`増員（控えの兵から）`}<input name="delta" type="number" min="1" step="1" value="100" inputmode="numeric"></label>${steps('delta', { max: f.reserve.filter(r => r.unit !== SETTLER).reduce((a, r) => a + r.troops, 0) || null })}
-      <button type="submit" class="btn" ${raw(m.blocks.Garrison.length ? 'disabled' : '')}>${L`守備隊を増やす`}</button></form>
-    <p class="muted">${L`M1 の守備隊は増やすだけです（引き上げは次の段階で）。`}</p>
-    ${blockedLine(m.blocks.Garrison)}
-    <h4>${L`夜番の時間`}${termButton('vigil')}</h4>
-    <p class="muted">${L`${String(Math.floor((FS.citizen?.vigilStartMin ?? 0) / 60)).padStart(2, '0')}:${String((FS.citizen?.vigilStartMin ?? 0) % 60).padStart(2, '0')} から（UTC）`}</p>
-    <form class="inline" data-form="vigil"><label>${L`開始（UTC の時）`}<select name="hour">${Array.from({ length: 24 }, (_, hr) => html`<option value="${hr}" ${raw(hr === Math.floor((FS.citizen?.vigilStartMin ?? 0) / 60) ? 'selected' : '')}>${L`${String(hr).padStart(2, '0')}:00 UTC（あなたの時刻 ${localHour(hr)}）`}</option>`)}</select></label>
-      <button type="submit" class="btn">${L`変える`}</button></form>
-    <p class="muted">${L`変更は24時間以上あとの最初の UTC 0時から有効で、週に1回までです。`}</p></section>
-    ${f.finalTs && f.state === 'provisional' ? html`<p class="muted">${Lh`早くても ${timeHtml(f.finalTs)} 以降に確定します。`}</p>` : ''}
+  const head = html`<section class="vcard village-head" aria-labelledby="holding-title">
+    ${cardHead({ id: 'holding-title', ic: 'home', pic: villagePic(faction, h.tier), title: holdingName(h), sub: L`${TIERS[h.tier] ?? ''} · 州 ${h.p},${h.q}`, side: chip(HOLDING_STATES[f.state], f.state === 'final' ? 'ok' : 'warn') })}
+    ${f.shieldLeft > 0 || f.dormantIn <= 0 || f.state === 'provisional' ? html`<ul class="fact-chips">
+      ${f.shieldLeft > 0 ? html`<li>${chip(html`${L`保護`} ${inTime(f.shieldLeft)}`, 'info', 'shield')}${termButton('shield')}</li>` : ''}
+      ${f.dormantIn <= 0 ? html`<li>${chip(L`休眠中`, 'bad', 'moon')}${termButton('dormant')}</li>` : ''}
+      ${f.state === 'provisional' ? html`<li class="fact-note">${L`同じ鐘の入植希望がすべて決まると確定します。`}</li>` : ''}</ul>` : ''}
   </section>`;
+
+  const stores = html`<section class="vcard" id="hp-harvest" aria-labelledby="hp-harvest-h">
+    ${cardHead({ id: 'hp-harvest-h', ic: 'crate', title: L`資源`, side: full.length ? chip(L`満杯 ${fmtNum(full.length)}`, 'bad') : '' })}
+    <ul class="stores-grid">${m.stores.map(storeTile)}</ul>
+    <div class="actions"><button type="button" class="btn primary" data-act="harvest" ${raw(m.blocks.Harvest.length ? 'disabled' : '')}>${icon('grain')}${L`収穫する`}</button>
+      ${full.length ? html`<span class="muted">${L`${full.map(s => RESOURCES[s.resource]).join(' / ')}が満杯：これ以上は増えません`}</span>` : ''}</div>
+    ${blockedLine(m.blocks.Harvest)}</section>`;
+
+  const build = html`<section class="vcard" id="hp-build" aria-labelledby="hp-build-h">
+    ${cardHead({ id: 'hp-build-h', ic: 'hammer', title: L`建設`, side: chip(L`建設中 ${fmtNum(building.length)}/4`, queueFull ? 'warn' : '') })}
+    ${f.queue.length ? html`<ul class="queue">${f.queue.map(q => html`<li>${icon(q.doneIn > 0 ? 'hourglass' : 'check')}<strong>${BUILDINGS[BUILD_ITEMS[q.kind]?.resource] ?? `#${q.kind}`}</strong><span class="queue-t">${q.doneIn > 0 ? L`あと ${span(q.doneIn)}` : L`完成`}</span></li>`)}</ul>` : html`<p class="muted">${L`建設の列は空です`}</p>`}
+    <ul class="build-list">${shown.map(c => buildRow(c, blockedOf(c)))}</ul>
+    ${rest.length ? fold('v-build', L`ほかの建物（${fmtNum(rest.length)}）`, html`<ul class="build-list">${rest.map(c => buildRow(c, blockedOf(c)))}</ul>`) : ''}
+    ${queueFull ? html`<p class="blocked">${L`建設の列がいっぱいです（4つまで）`}</p>` : ''}
+    ${blockedLine(m.blocks.Build)}</section>`;
+
+  const trainForm = html`<form class="vform" id="hp-train" data-form="train">
+    ${unitPicks(faction, UNIT_ORDER.map((u, unit) => ({ unit })).filter(x => x.unit !== SETTLER), L`兵種`)}
+    <div class="count-row"><label class="count-label" for="f-n">${L`人数`}</label><input id="f-n" name="n" type="number" min="1" step="1" value="100" inputmode="numeric">${steps('n')}</div>
+    <div class="actions"><button type="submit" class="btn primary" ${raw(m.blocks.Train.length ? 'disabled' : '')}>${L`訓練する`}</button><span class="muted">${L`訓練はすぐに終わり、兵は控えに入ります。`}</span></div>
+    ${blockedLine(m.blocks.Train)}</form>`;
+  const musterForm = html`<form class="vform" id="hp-muster" data-form="muster">
+    ${reserve.length ? unitPicks(faction, reserve, L`兵種`) : ''}
+    <div class="count-row"><label class="count-label" for="f-troops">${L`兵数（100〜30,000）`}</label><input id="f-troops" name="troops" type="number" min="100" max="30000" step="1" value="100" inputmode="numeric">${steps('troops', { max: reserve.length === 1 ? Math.min(30000, reserve[0].troops) || null : null })}</div>
+    <div class="actions"><button type="submit" class="btn primary" ${raw(m.blocks.Muster.length || !reserve.length ? 'disabled' : '')}>${icon('banner')}${L`編成する`}</button><span class="muted">${L`新しい軍勢は次の鐘から顔ぶれに加わります。`}</span></div>
+    ${!reserve.length ? html`<p class="blocked">${L`控えの兵がいません：先に訓練しましょう`}</p>` : ''}
+    ${blockedLine(m.blocks.Muster)}</form>`;
+  // the action that makes sense now stands open; the other waits behind a fold
+  const musterFirst = musterable >= 100;
+  const troops = html`<section class="vcard" aria-labelledby="hp-troops-h">
+    ${cardHead({ id: 'hp-troops-h', ic: 'sword', title: L`兵`, side: chip(L`控え ${fmtNum(musterable)}`) })}
+    ${label(musterFirst ? L`軍勢を編成する` : L`兵を訓練する`)}
+    ${musterFirst ? musterForm : trainForm}
+    ${fold(musterFirst ? 'v-train' : 'v-muster', musterFirst ? L`兵を訓練する` : L`軍勢を編成する`, musterFirst ? trainForm : musterForm)}</section>`;
+
+  const others = html`<section class="vcard vcard-folds" aria-label="${L`そのほか`}">
+    ${fold('v-garrison', html`${icon('shield')}${L`守備隊を増やす`}`, html`<form class="vform" id="hp-garrison" data-form="garrison">
+      <div class="count-row"><label class="count-label" for="f-delta">${L`増員（控えの兵から）`}</label><input id="f-delta" name="delta" type="number" min="1" step="1" value="100" inputmode="numeric">${steps('delta', { max: musterable || null })}</div>
+      <div class="actions"><button type="submit" class="btn primary" ${raw(m.blocks.Garrison.length ? 'disabled' : '')}>${L`守備隊を増やす`}</button>${termButton('garrison')}</div>
+      <p class="muted">${L`守備隊は増やすことだけできます（引き上げはまだできません）。`}</p>
+      ${blockedLine(m.blocks.Garrison)}</form>`)}
+    ${fold('v-vigil', html`${icon('moon')}${L`夜番の時間`}<span class="fold-val">${L`${String(vigilHour).padStart(2, '0')}:${String(vigil % 60).padStart(2, '0')} から（UTC）`}</span>`, html`<form class="vform" data-form="vigil">
+      <label class="field">${L`開始（UTC の時）`}<select name="hour">${Array.from({ length: 24 }, (_, hr) => html`<option value="${hr}" ${raw(hr === vigilHour ? 'selected' : '')}>${L`${String(hr).padStart(2, '0')}:00 UTC（あなたの時刻 ${localHour(hr)}）`}</option>`)}</select></label>
+      <div class="actions"><button type="submit" class="btn">${L`変える`}</button>${termButton('vigil')}</div>
+      <p class="muted">${L`変更は24時間以上あとの最初の UTC 0時から有効で、週に1回までです。`}</p></form>`)}
+    ${fold('v-facts', html`${icon('scroll')}${L`村の詳細`}`, html`<dl class="facts">
+      ${row(L`段階`, html`${TIERS[h.tier] ?? h.tier} · ${HOLDING_STATES[f.state]}${termButton('tier')}`)}
+      ${f.state === 'provisional' ? row(L`確定`, f.finalTs ? Lh`早くても ${timeHtml(f.finalTs)} 以降に確定します。` : L`同じ鐘の入植希望がすべて決まってから`) : ''}
+      ${f.shieldLeft > 0 ? row(L`保護`, inTime(f.shieldLeft)) : ''}
+      ${row(L`休眠まで`, html`${f.dormantIn > 0 ? inTime(f.dormantIn) : L`休眠中`}${termButton('dormant')}`)}
+    </dl>`)}</section>`;
+
+  return [head, stores, build, troops, others];
 }

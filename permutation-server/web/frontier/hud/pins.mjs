@@ -3,10 +3,12 @@
 // and the minimap, and finds it again in More or by searching "pin". Kept
 // on this device per season (players and spectators alike); at most PIN_MAX.
 import { html } from '../../util.mjs';
+import { icon } from './icons.mjs';
 import { L } from '../../lang.mjs';
 import { tileHex } from '../fgeo.mjs';
 import { project } from '../../map.mjs';
 import { provincePixel } from '../map/layers.mjs';
+import { tilePlace } from './place.mjs';
 
 export const PIN_MAX = 20;
 export const PIN_KEY = 'ps-fpins:';
@@ -46,10 +48,13 @@ export function paintPins(ctx, pins, zoom) {
   ctx.restore();
 }
 
+/** A pin's name: the place by what stands there (`FS` gives the provinces and the terrain), else its province. */
+export const pinName = (x, FS = null) => (x.tile === null ? L`州 ${x.p},${x.q}` : tilePlace(FS, x.p, x.q, x.tile));
+
 /** The list (More): each pin goes there or comes off. */
-export function renderPins(pins) {
+export function renderPins(pins, FS = null) {
   return html`<section aria-labelledby="pins-title"><h3 id="pins-title">${L`ピン`}</h3>
-    ${pins.length ? html`<ul class="list pins">${pins.map(x => html`<li><button type="button" class="btn small" data-act="goto-pin" data-p="${x.p}" data-q="${x.q}" data-tile="${x.tile ?? ''}">📍 ${x.tile === null ? L`州 ${x.p},${x.q}` : L`州 ${x.p},${x.q} · マス ${x.tile + 1}`}</button>
-      <button type="button" class="btn small" data-act="pin-toggle" data-p="${x.p}" data-q="${x.q}" data-tile="${x.tile ?? ''}" aria-label="${L`ピンを外す`}">×</button></li>`)}</ul>`
+    ${pins.length ? html`<ul class="list pins">${pins.map(x => html`<li><button type="button" class="btn small" data-act="goto-pin" data-p="${x.p}" data-q="${x.q}" data-tile="${x.tile ?? ''}">${icon('pin')}${pinName(x, FS)}</button>
+      <button type="button" class="btn small quiet" data-act="pin-toggle" data-p="${x.p}" data-q="${x.q}" data-tile="${x.tile ?? ''}" aria-label="${L`ピンを外す`}">${icon('close')}</button></li>`)}</ul>`
       : html`<p class="muted">${L`地図でマスや州を選び、「ピンを立てる」で印を付けられます（この端末に保存）。`}</p>`}</section>`;
 }

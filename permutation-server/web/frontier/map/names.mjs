@@ -1,7 +1,7 @@
 // Names before coordinates (UX brief §5.3): what a selected place is called
 // wherever a person reads it (the inspector's title, the map's live line, the
-// hover tip). "ラマールの町 — アステル" first; "州 2,0 · マス 8" stays as the
-// small print for those who want it.
+// hover tip). "ラマールの町 — アステル" first; "州 2,0" stays as the small
+// print for those who want it.
 //
 // The names are read from the inspector's own model of the selection
 // (hud/inspect.mjs inspectModel), which already follows the survey: a village
@@ -28,8 +28,8 @@ export function placeName(m) {
   if (site?.state === 'freeCity') return L`自由都市`;
   if (t?.terrain && TERRAIN_NAME[t.terrain]) return TERRAIN_NAME[t.terrain]();
   if (!t && m.p === 0 && m.q === 0) return L`大協約`;
-  return t ? L`州 ${m.p},${m.q} · マス ${t.idx + 1}` : m.opened === false ? L`第${m.ring}輪（まだひらいていません）` : L`第${m.ring}輪の州`;
+  return t ? L`州 ${m.p},${m.q}` : m.opened === false ? L`第${m.ring}輪（まだひらいていません）` : L`第${m.ring}輪の州`;
 }
 
-/** The small print: where it is, in coordinates. */
-export const placeWhere = m => (!m ? '' : m.tile ? L`州 ${m.p},${m.q} · マス ${m.tile.idx + 1}` : L`州 ${m.p},${m.q}`);
+/** The small print: where it is, by its province (a tile's number is never shown on the play screen: UX brief §6). */
+export const placeWhere = m => (!m ? '' : L`州 ${m.p},${m.q}`);

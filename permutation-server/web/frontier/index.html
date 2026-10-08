@@ -3,48 +3,67 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#243e38">
+  <meta name="theme-color" content="#10221f">
   <title data-i18n>Wylls</title>
   <link rel="stylesheet" href="frontier.css">
 </head>
-<body data-mode="play">
-<header class="topbar">
-  <a class="brand" href="./" aria-label="Wylls" data-i18n-attr="aria-label"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 100 100" width="26" height="26" class="emblem" aria-hidden="true" focusable="false"><circle cx="50" cy="50" r="46" fill="none" stroke="#d9b44a" stroke-width="1.4" opacity=".85"/><circle cx="50" cy="50" r="34" fill="none" stroke="#d9b44a" stroke-width="0.8" stroke-dasharray="2 3" opacity=".7"/><path d="M50 30 C41 30 38 38 38 46 L37 56 L33 61 L67 61 L63 56 L62 46 C62 38 59 30 50 30 Z" fill="#d9b44a" stroke="#7a5a14" stroke-width="1.4"/><path d="M44 62 C44 66 56 66 56 62 Z" fill="#7a5a14"/><circle cx="50" cy="27.5" r="2.6" fill="#7a5a14"/><g transform="translate(50.00 16.00)"><circle r="9.5" fill="#fffaf0" stroke="#7d2c27" stroke-width="1.8"/><path d="M -5.40 0 A 5.40 5.40 0 1 0 5.40 0 A 5.40 5.40 0 1 0 -5.40 0 Z" fill="#c1504a"/></g><g transform="translate(79.44 33.00)"><circle r="9.5" fill="#fffaf0" stroke="#1b5a53" stroke-width="1.8"/><path d="M 0 -5.67 L 5.40 4.32 L -5.40 4.32 Z" fill="#2f8f84"/></g><g transform="translate(79.44 67.00)"><circle r="9.5" fill="#fffaf0" stroke="#7d5a14" stroke-width="1.8"/><path d="M -4.59 -4.59 H 4.59 V 4.59 H -4.59 Z" fill="#c28f2c"/></g><g transform="translate(50.00 84.00)"><circle r="9.5" fill="#fffaf0" stroke="#4b3874" stroke-width="1.8"/><path d="M 0 -5.94 L 5.40 0 L 0 5.94 L -5.40 0 Z" fill="#7a5fb0"/></g><g transform="translate(20.56 67.00)"><circle r="9.5" fill="#fffaf0" stroke="#24497b" stroke-width="1.8"/><path d="M -1.78 -5.40 H 1.78 V -1.78 H 5.40 V 1.78 H 1.78 V 5.40 H -1.78 V 1.78 H -5.40 V -1.78 H -1.78 Z" fill="#3f78c2"/></g><g transform="translate(20.56 33.00)"><circle r="9.5" fill="#fffaf0" stroke="#6f2d4c" stroke-width="1.8"/><path d="M -2.70 -4.70 H 2.70 L 5.40 0 L 2.70 4.70 H -2.70 L -5.40 0 Z" fill="#b5527f"/></g></svg></span><span data-i18n>Wylls</span></a>
-  <span class="chip" id="faction-chip" hidden></span>
-  <span class="res-strip" id="res-strip" hidden></span>
-  <span class="bell-pill" id="bell-pill" data-urgency="calm"><span class="chip bell-chip" id="bell-chip" aria-live="off">—</span><span class="bell-bar" aria-hidden="true"><span class="bell-fill" id="bell-fill"></span></span></span>
-  <button type="button" class="chip attn-pill" id="attn-pill" data-act="attn" hidden></button>
-  <span class="chip" id="quota-chip" hidden></span>
-  <span class="lang-box" id="lang-box"></span>
+<body data-mode="play" data-drawer="closed">
+<header class="topbar" id="topbar">
+  <div class="strip-side strip-l">
+    <a class="brand" href="./" aria-label="Wylls" data-i18n-attr="aria-label"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 100 100" width="26" height="26" class="emblem" aria-hidden="true" focusable="false"><circle cx="50" cy="50" r="46" fill="none" stroke="#d9b44a" stroke-width="1.4" opacity=".85"/><circle cx="50" cy="50" r="34" fill="none" stroke="#d9b44a" stroke-width="0.8" stroke-dasharray="2 3" opacity=".7"/><path d="M50 30 C41 30 38 38 38 46 L37 56 L33 61 L67 61 L63 56 L62 46 C62 38 59 30 50 30 Z" fill="#d9b44a" stroke="#7a5a14" stroke-width="1.4"/><path d="M44 62 C44 66 56 66 56 62 Z" fill="#7a5a14"/><circle cx="50" cy="27.5" r="2.6" fill="#7a5a14"/><g transform="translate(50.00 16.00)"><circle r="9.5" fill="#fffaf0" stroke="#7d2c27" stroke-width="1.8"/><path d="M -5.40 0 A 5.40 5.40 0 1 0 5.40 0 A 5.40 5.40 0 1 0 -5.40 0 Z" fill="#c1504a"/></g><g transform="translate(79.44 33.00)"><circle r="9.5" fill="#fffaf0" stroke="#1b5a53" stroke-width="1.8"/><path d="M 0 -5.67 L 5.40 4.32 L -5.40 4.32 Z" fill="#2f8f84"/></g><g transform="translate(79.44 67.00)"><circle r="9.5" fill="#fffaf0" stroke="#7d5a14" stroke-width="1.8"/><path d="M -4.59 -4.59 H 4.59 V 4.59 H -4.59 Z" fill="#c28f2c"/></g><g transform="translate(50.00 84.00)"><circle r="9.5" fill="#fffaf0" stroke="#4b3874" stroke-width="1.8"/><path d="M 0 -5.94 L 5.40 0 L 0 5.94 L -5.40 0 Z" fill="#7a5fb0"/></g><g transform="translate(20.56 67.00)"><circle r="9.5" fill="#fffaf0" stroke="#24497b" stroke-width="1.8"/><path d="M -1.78 -5.40 H 1.78 V -1.78 H 5.40 V 1.78 H 1.78 V 5.40 H -1.78 V 1.78 H -5.40 V -1.78 H -1.78 Z" fill="#3f78c2"/></g><g transform="translate(20.56 33.00)"><circle r="9.5" fill="#fffaf0" stroke="#6f2d4c" stroke-width="1.8"/><path d="M -2.70 -4.70 H 2.70 L 5.40 0 L 2.70 4.70 H -2.70 L -5.40 0 Z" fill="#b5527f"/></g></svg></span><span class="brand-name" data-i18n>Wylls</span></a>
+    <span class="crest-chip" id="faction-chip" hidden></span>
+    <span class="res-strip" id="res-strip" hidden></span>
+  </div>
+  <div class="dial" id="bell-pill" data-urgency="calm">
+    <svg class="dial-ring" viewBox="0 0 100 100" aria-hidden="true" focusable="false"><circle class="dial-track" cx="50" cy="50" r="45"/><circle class="dial-arc" id="bell-fill" cx="50" cy="50" r="45" pathLength="100"/></svg>
+    <span class="dial-text" id="bell-chip" aria-live="off">—</span>
+    <span class="dial-top" aria-hidden="true"><svg class="ic dial-bell" aria-hidden="true" focusable="false"><use href="art/ui/icons.svg#bell"/></svg><svg class="ic dial-mark dial-mark-warn" aria-hidden="true" focusable="false"><use href="art/ui/icons.svg#hourglass"/></svg><svg class="ic dial-mark dial-mark-crit" aria-hidden="true" focusable="false"><use href="art/ui/icons.svg#alert"/></svg></span>
+  </div>
+  <div class="strip-side strip-r">
+    <button type="button" class="next-btn" id="attn-pill" data-act="attn" hidden></button>
+    <span class="quota" id="quota-chip" hidden></span>
+    <button type="button" class="hud-btn" id="sound-btn" data-act="sound" aria-pressed="false" hidden><svg class="ic sound-on" aria-hidden="true" focusable="false"><use href="art/ui/icons.svg#speaker"/></svg><svg class="ic sound-off" aria-hidden="true" focusable="false"><use href="art/ui/icons.svg#speaker-off"/></svg></button>
+    <span class="lang-box" id="lang-box"></span>
+  </div>
 </header>
 <p class="banner" id="stale-banner" role="status" hidden></p>
 <p class="banner error" id="error-line" role="alert" hidden></p>
 <main id="frontier">
   <h1 class="visually-hidden" data-i18n>辺境の地図</h1>
-  <aside class="rail" id="rail" aria-label="村と行動" data-i18n-attr="aria-label"></aside>
   <canvas id="frontier-map" tabindex="0" aria-label="辺境の地図：矢印キーで移動、＋と－で拡大縮小、H で自分の村へ、M で全体図、Enter で中央の州を選択" aria-describedby="map-summary" data-i18n-attr="aria-label"></canvas>
-  <p class="map-summary" id="map-summary" aria-live="polite"></p>
+  <p class="map-summary visually-hidden" id="map-summary" aria-live="polite"></p>
   <div class="map-tip" id="map-tip" role="tooltip" hidden></div>
+  <div class="hud-tl" id="hud-tl">
+    <div class="search-row">
+      <button type="button" class="hud-btn" id="search-btn" data-act="search-toggle" aria-expanded="false" aria-controls="map-search" aria-label="地図を探す" data-i18n-attr="aria-label"><svg class="ic" aria-hidden="true" focusable="false"><use href="art/ui/icons.svg#search"/></svg></button>
+      <form class="map-search" id="map-search" role="search" data-form="map-search" hidden>
+        <input type="search" id="map-search-q" name="q" autocomplete="off" placeholder="州・国・領主を探す" aria-label="地図を探す（州の座標、国、領主の名前）" data-i18n-attr="placeholder aria-label">
+        <div class="search-results" id="map-search-results"></div>
+      </form>
+    </div>
+    <div class="objective" id="objective" hidden></div>
+  </div>
   <div class="feed" id="feed" aria-live="polite"></div>
   <p class="bell-toll" id="bell-toll" aria-hidden="true"></p>
-  <form class="map-search" id="map-search" role="search" data-form="map-search">
-    <input type="search" id="map-search-q" name="q" autocomplete="off" placeholder="州・国・領主を探す" aria-label="地図を探す（州の座標、国、領主の名前）" data-i18n-attr="placeholder aria-label">
-    <div class="search-results" id="map-search-results"></div>
-  </form>
+  <aside class="rail" id="rail" aria-label="村と行動" data-i18n-attr="aria-label"></aside>
   <div class="minimap" id="minimap">
     <div class="lenses" id="lenses" role="group" aria-label="レンズ" data-i18n-attr="aria-label"></div>
     <canvas id="minimap-canvas" role="img" aria-label="世界の小さな地図：押すとその場所へ移動します" data-i18n-attr="aria-label"></canvas>
   </div>
-  <section class="panel" id="panel" aria-labelledby="panel-title">
-    <h2 id="panel-title" data-i18n>シーズン</h2>
+  <section class="panel" id="panel" aria-labelledby="panel-title" data-drawer="closed">
+    <div class="panel-head">
+      <span class="panel-ic" id="panel-ic" aria-hidden="true"></span>
+      <h2 id="panel-title" data-i18n>シーズン</h2>
+      <button type="button" class="hud-btn panel-close" data-act="drawer-close" aria-label="閉じる" data-i18n-attr="aria-label"><svg class="ic" aria-hidden="true" focusable="false"><use href="art/ui/icons.svg#close"/></svg></button>
+    </div>
     <p id="season-status">—</p>
     <div id="panel-body"></div>
   </section>
 </main>
 <nav class="tabs" id="tabs" aria-label="画面" data-i18n-attr="aria-label">
-  <a class="tab" href="./" aria-current="page"><span data-i18n>地図</span></a>
-  <a class="tab" href="practice.html"><span data-i18n>練習</span></a>
-  <a class="tab" href="spectate.html"><span data-i18n>観戦</span></a>
+  <a class="tab" href="./" aria-current="page"><svg class="ic" aria-hidden="true" focusable="false"><use href="art/ui/icons.svg#chart"/></svg><span class="tab-label" data-i18n>地図</span></a>
+  <a class="tab" href="practice.html"><svg class="ic" aria-hidden="true" focusable="false"><use href="art/ui/icons.svg#swords"/></svg><span class="tab-label" data-i18n>練習</span></a>
+  <a class="tab" href="spectate.html"><svg class="ic" aria-hidden="true" focusable="false"><use href="art/ui/icons.svg#eye"/></svg><span class="tab-label" data-i18n>観戦</span></a>
 </nav>
 <div class="intro" id="intro" role="dialog" aria-modal="true" aria-labelledby="intro-title" hidden></div>
 <script type="module" src="app.mjs"></script>

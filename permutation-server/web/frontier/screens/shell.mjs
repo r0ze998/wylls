@@ -1,20 +1,25 @@
-// The play shell (web design §7.1): the faction and quota chips beside the
-// bell chip, the bottom tabs (Map, Holding, Hosts, Marches, More), the
-// panel each tab shows, and the shared bits the screens use (lamports,
+// The play shell (web design §7.1; UX design section 6): the nation and
+// quota chips of the top strip, the action dock (Map, Village, Hosts,
+// Marches, More: icon-and-label buttons, bottom centre on desktop and the
+// tab bar on phones), and the shared bits the screens use (lamports,
 // times, the action notice). Renderers are pure: they read the store and
 // return markup; app.mjs puts it in the page and routes `data-act` clicks.
 //
 // W5-E (web design §7.1, §10): on phones (< 760 px) the panel is a bottom
 // sheet with three heights — peek, half, full — changed by its handle
 // (tap cycles, a drag up or down moves one step), collapsed to peek by
-// Escape (focus returns to the handle), opened to half when a tab is
-// chosen, and sized to the visual viewport so the on-screen keyboard
-// never hides a field. `boot` (app.mjs) mounts it on every Frontier page;
-// on desktop the handle is hidden and the panel is the right column.
+// Escape (focus returns to the handle), and sized to the visual viewport
+// so the on-screen keyboard never hides a field. It rests at the peek
+// (about a quarter of the screen: the world has the rest); the page's
+// drawer state (hud/drawer.mjs, applied by app.mjs through the returned
+// `set`) lifts it to half when something opens. `boot` (app.mjs) mounts it
+// on every Frontier page; on desktop the handle is hidden and the panel is
+// the drawer that slides in from the right.
 import { html, raw } from '../../util.mjs';
 import { L, Lh, fmtNum, lang, onLangChange } from '../../lang.mjs';
 import { factionName, failureText } from '../fi18n.mjs';
 import { countdown } from '../clock.mjs';
+import { icon } from '../hud/icons.mjs';
 
 export const TAB_IDS = Object.freeze(['map', 'holding', 'hosts', 'marches', 'more']);
 const TAB_TEXT = { map: () => L`地図`, holding: () => L`村`, hosts: () => L`軍勢`, marches: () => L`進軍`, more: () => L`その他` };
@@ -37,15 +42,23 @@ export const factionChip = citizen => (citizen ? factionName(citizen.faction) : 
 /** The quota chip: sponsored transactions left today (§8.3), or null. */
 export const quotaChip = q => (q && Number.isFinite(Number(q.left)) ? L`中継 残り ${fmtNum(Number(q.left))} 回` : null);
 
-/** The tab bar: `[{id, label, current}]`; Holding and Hosts only once the viewer holds land. */
-export function tabs(FS) {
+/** The dock's icons (hud/icons.mjs). */
+export const TAB_ICON = Object.freeze({ map: 'chart', holding: 'home', hosts: 'sword', marches: 'banner', more: 'scroll' });
+
+/**
+ * The dock: `[{id, label, icon, current}]`; Village and Hosts only once the
+ * viewer holds land. `open` is what the drawer shows (hud/drawer.mjs): a
+ * report or a practice run over a tab leaves no dock button current, and
+ * with the drawer closed "Map" is.
+ */
+export function tabs(FS, open = FS.tab ?? 'map') {
   const land = FS.land?.stage;
   const holds = land === 'provisional' || land === 'final';
-  return TAB_IDS.filter(id => holds || !['holding', 'hosts'].includes(id)).map(id => ({ id, label: tabLabel(id), current: (FS.tab ?? 'map') === id }));
+  return TAB_IDS.filter(id => holds || !['holding', 'hosts'].includes(id)).map(id => ({ id, label: tabLabel(id), icon: TAB_ICON[id], current: open === id }));
 }
 
-export function renderTabs(FS) {
-  return tabs(FS).map(t => html`<button type="button" class="tab" data-act="tab" data-tab="${t.id}" ${raw(t.current ? 'aria-current="page"' : '')}>${t.label}</button>`);
+export function renderTabs(FS, open) {
+  return tabs(FS, open).map(t => html`<button type="button" class="tab" data-act="tab" data-tab="${t.id}" ${raw(t.current ? 'aria-current="page"' : '')}>${icon(t.icon)}<span class="tab-label">${t.label}</span></button>`);
 }
 
 /** The last action's outcome line: busy, done or the failure's text (§9.6). */
@@ -115,7 +128,7 @@ export function mountSheet(doc = globalThis.document, win = globalThis.window) {
     handle.setAttribute('aria-expanded', s === 'peek' ? 'false' : 'true');
     handle.setAttribute('aria-label', sheetLabel(s));
   };
-  set('half');
+  set('peek');
   onLangChange(() => set(panel.dataset.sheet));
   win?.addEventListener?.('popstate', () => {
     if (skipPop) { skipPop = false; return; }
@@ -151,10 +164,6 @@ export function mountSheet(doc = globalThis.document, win = globalThis.window) {
     if (e.defaultPrevented) return;
     set('peek');
     handle.focus();
-  });
-  // Choosing a tab (or opening a report) brings the sheet up to half.
-  doc.addEventListener('click', e => {
-    if (panel.dataset.sheet === 'peek' && e.target?.closest?.('[data-act="tab"], [data-act="report-open"], [data-act="practice-open"]')) set('half');
   });
   const vv = win?.visualViewport;
   if (vv) {

@@ -431,9 +431,11 @@ test('a place is called by its name; its coordinates are the small print', () =>
   const terrainOf = () => TERRAIN;
   const m = inspect.inspectModel(FS, terrainOf);
   assert.match(placeName(m), /の町 — アステル$/, 'the village\'s name and its nation');
-  assert.equal(placeWhere(m), '州 2,0 · マス 8');
+  // (integration of the HUD track: a tile's number is never shown on the play screen; the small print is the province)
+  assert.equal(placeWhere(m), '州 2,0');
   const title = String(inspect.render(FS, terrainOf));
-  assert.ok(title.indexOf('アステル') < title.indexOf('州 2,0 · マス 8'), 'the name comes first in the inspector');
+  assert.ok(title.indexOf('の町') >= 0 && title.indexOf('の町') < title.indexOf('州 2,0'), 'the name comes first in the inspector');
+  assert.doesNotMatch(title, /マス ?\d/, 'no tile number in the inspector');
   assert.match(String(inspect.renderBrief(FS, terrainOf)), /の町 — アステル/);
   FS.selected = { p: 2, q: 0, idx: 21 };
   assert.equal(placeName(inspect.inspectModel(FS, terrainOf)), '蛮族の野営地');

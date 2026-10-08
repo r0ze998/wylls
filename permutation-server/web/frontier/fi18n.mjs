@@ -49,7 +49,7 @@ export const DOCTRINE_C = () => L`炎`;
 export const PIPELINE_TEXT = lazyTable({
   open: () => L`受付中：この鐘の到着は封印され、守り手の顔ぶれは鐘の始まりで固定されています`,
   awaitingBeacon: () => L`ビーコン待ち：鐘のビーコンが記録されると封を開けられます`,
-  revealing: () => L`開封中：キーパーが封を開けています`,
+  revealing: () => L`開封中：封が順に開けられています`,
   awaitingSeed: () => L`シード待ち：この鐘の乱数が公開されるのを待っています`,
   resolving: () => L`決着処理中：衝突を解決しています`,
   resolved: () => L`決着：報告を見られます`,

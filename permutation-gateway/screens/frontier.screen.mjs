@@ -98,7 +98,8 @@ for (const vp of viewports) {
         await page.evaluate(() => { globalThis.__screensMarker = 'kept'; });
         await page.locator('#lang-box [data-lang-toggle]').click();
         await page.waitForFunction(() => document.documentElement.lang === 'en');
-        await page.waitForFunction(() => /^(Bell|Starts)/.test(document.getElementById('bell-chip')?.textContent ?? ''));
+        // the turn dial reads "Turn 42 · 9:23 left" (UX design section 6; it read "Bell 42 …")
+        await page.waitForFunction(() => /^(Turn|Starts)/.test(document.getElementById('bell-chip')?.textContent ?? ''));
         assert.equal(await page.evaluate(() => globalThis.__screensMarker), 'kept', 'the language switch reloaded the page');
         await shot(page, { scene, vp, lang: 'en', problems });
       } finally {

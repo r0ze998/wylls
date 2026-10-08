@@ -158,11 +158,12 @@ export const SCENES = [
     async go(page) {
       await tab(page, 'hosts');
       await click(page, `[data-act="compose"][data-host="${HOSTS.free}"]`);
+      // the order is one document written on the map (hud/marchcard.mjs): a nearby destination by its name, then the seal
+      await page.locator('#mc-title').waitFor();
       await click(page, '[data-act="dest-quick"]');
-      await page.locator('#march-title').waitFor();
-      await gone(page, '行き先を決めると道のりを探します');
-      // The planner found the way (the route line, not a refusal).
-      await page.locator('section[aria-labelledby="march-title"] fieldset:nth-of-type(2) > p:first-of-type:not(.muted)').waitFor();
+      await gone(page, '道のりを探しています');
+      // The planner found the way (the order can be sealed: no refusal).
+      await page.locator('section[aria-labelledby="mc-title"] [data-act="march-send"]:not([disabled])').waitFor();
       await sheetFull(page);
     },
   },
@@ -201,9 +202,14 @@ export const SCENES = [
     },
   },
   {
-    id: 'onboarding', title: 'onboarding card', page: 'index.html', stage: 'joined',
+    // the guide is one objective at a time by the village plate; its steps open on demand as a checklist in the drawer
+    // (it was the seven-chip card under the join flow of a viewer without a village)
+    id: 'onboarding', title: 'the guide\'s steps, on demand', page: 'index.html', stage: 'holding',
     async go(page) {
-      await page.locator('#ob-title').waitFor();
+      await page.locator('.ob-chip #ob-title').waitFor();
+      await click(page, '.ob-chip [data-act="guide-open"]');
+      await page.locator('#panel-body .checklist').waitFor();
+      await page.locator('#panel-body [aria-current="step"]').waitFor();
       await sheetFull(page);
     },
   },
