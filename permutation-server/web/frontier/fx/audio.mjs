@@ -21,9 +21,16 @@
 // handle the speaker button uses.
 //
 // Each sound is a function over any BaseAudioContext, so `render(name)` can
-// build it into an OfflineAudioContext: that is how the bell was tuned (its
-// envelope and spectrum measured from the rendered buffer; test and numbers
-// in the commit that added this file).
+// build it into an OfflineAudioContext. That is how the bell was tuned: it
+// was rendered in Chromium and measured, not judged from the code. Measured
+// (44.1 kHz, strike note 196 Hz): partials at 98, 196, 235, 294, 392, 492,
+// 590, 797, 1044, 1315, 1604 and 2078 Hz; in the first 93 ms the nominal
+// (392 Hz) leads at -21 dB and the spectrum rolls off to -52 dB at 2 kHz;
+// the level falls 14 dB in the first 2 s, 29 dB by 4 s and 43 dB by 6.5 s;
+// the spectral centroid sinks from 354 Hz at the strike to 108 Hz at 6 s
+// (the bright partials die first, the hum is left); the paired partials make
+// the tail swell and sink by 5 to 7 dB without dropping out; peak 0.41 of
+// full scale through the master chain.
 import { hashSeed, rng } from './rand.mjs';
 
 export const MUTE_KEY = 'ps-ffx:v1';
@@ -45,13 +52,14 @@ export const BELL_PARTIALS = Object.freeze([
   [1.2, 0.62, 6.0, 0.8],
   [1.5, 0.24, 4.2, 0],
   [2.0, 1.00, 4.6, 1.1],
-  [2.51, 0.30, 2.6, 0],
-  [3.01, 0.44, 2.1, 1.7],
-  [4.07, 0.34, 1.4, 0],
-  [5.33, 0.20, 0.9, 0],
-  [6.71, 0.14, 0.6, 0],
-  [8.21, 0.09, 0.38, 0],
-  [10.6, 0.05, 0.22, 0],
+  [2.51, 0.32, 2.6, 0],
+  [3.01, 0.46, 2.1, 1.7],
+  [4.07, 0.42, 1.4, 0],
+  [5.33, 0.30, 0.95, 0],
+  [6.71, 0.22, 0.62, 0],
+  [8.21, 0.15, 0.4, 0],
+  [10.6, 0.09, 0.24, 0],
+  [13.2, 0.05, 0.15, 0],
 ]);
 /** The bell's strike note in Hz (G3: a town bell, heavy but present on small speakers through its nominal at 392). */
 export const BELL_HZ = 196;
@@ -133,7 +141,8 @@ const BUILD = {
       const f = hz * ratio;
       // the low partials bloom a moment after the strike; the high ones are there at once
       const attack = ratio < 1 ? 0.045 : ratio < 2.2 ? 0.012 : 0.004;
-      const voices = beat ? [[f, amp * 0.62], [f + beat, amp * 0.5]] : [[f, amp]];
+      // a pair a fraction of a hertz apart: the tail swells and sinks (about 7 dB), it never drops out
+      const voices = beat ? [[f, amp * 0.8], [f + beat, amp * 0.3]] : [[f, amp]];
       for (const [vf, va] of voices) {
         const g = shaped(ac, t0, [[attack, va], [attack + t60, va * 0.001]]);
         g.connect(mix);
@@ -179,7 +188,7 @@ const BUILD = {
 
   clash(ac, { dry, wet }, t0, { level = 1, seed = 0 } = {}) {
     const r = rng(hashSeed(`clash|${seed}`));
-    const mix = ac.createGain(); mix.gain.value = 0.34 * level; mix.connect(dry);
+    const mix = ac.createGain(); mix.gain.value = 0.46 * level; mix.connect(dry);
     const send = ac.createGain(); send.gain.value = 0.16; mix.connect(send); send.connect(wet);
     // the crack of contact
     const crack = shaped(ac, t0, [[0.001, 0.9], [0.07 + r() * 0.03, 0.0006]]);
@@ -201,7 +210,7 @@ const BUILD = {
   },
 
   tick(ac, { dry }, t0, { level = 1 } = {}) {
-    const mix = ac.createGain(); mix.gain.value = 0.16 * level; mix.connect(dry);
+    const mix = ac.createGain(); mix.gain.value = 0.24 * level; mix.connect(dry);
     const g = shaped(ac, t0, [[0.0015, 0.7], [0.045, 0.0006]]);
     g.connect(mix);
     const o = tone(ac, 'sine', 1180, t0, t0 + 0.06, g);
@@ -216,7 +225,7 @@ const BUILD = {
 
   shimmer(ac, { dry, wet }, t0, { level = 1, seed = 0 } = {}) {
     const r = rng(hashSeed(`shimmer|${seed}`));
-    const mix = ac.createGain(); mix.gain.value = 0.26 * level; mix.connect(dry);
+    const mix = ac.createGain(); mix.gain.value = 0.36 * level; mix.connect(dry);
     const send = ac.createGain(); send.gain.value = 0.55; mix.connect(send); send.connect(wet);
     // a rising spray of partials (a pentatonic run two octaves up), each a small bell of glass
     const notes = [1318.5, 1568, 1760, 2093, 2637, 3136, 3520];
@@ -239,7 +248,7 @@ const BUILD = {
   },
 
   drum(ac, { dry, wet }, t0, { level = 1 } = {}) {
-    const mix = ac.createGain(); mix.gain.value = 0.62 * level; mix.connect(dry);
+    const mix = ac.createGain(); mix.gain.value = 0.5 * level; mix.connect(dry);
     const send = ac.createGain(); send.gain.value = 0.22; mix.connect(send); send.connect(wet);
     for (const [dt, vol] of [[0, 1], [0.46, 0.78]]) {
       const at = t0 + dt;

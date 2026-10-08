@@ -49,7 +49,7 @@
 .fx-banner-title {
   position: relative; max-width: 96%; white-space: nowrap;
   font-family: "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", "Noto Serif JP", "Noto Serif CJK JP", Georgia, "Times New Roman", serif;
-  font-weight: 700; font-size: clamp(24px, calc(var(--fx-w, 100vw) * 0.066), 60px); line-height: 1.2;
+  font-weight: 700; font-size: var(--fx-fs, 40px); line-height: 1.2;
   letter-spacing: calc(0.14em + var(--fx-tl, 0em)); text-indent: calc(0.14em + var(--fx-tl, 0em));
   color: #f4efe0;
   background-image: linear-gradient(180deg, #fffaf0 8%, #f4e4b4 46%, #d9b45a 78%, #b98d36 100%);
@@ -57,7 +57,7 @@
   filter: drop-shadow(0 2px 0 rgba(0,0,0,.6)) drop-shadow(0 0 18px color-mix(in srgb, var(--fx-c) 50%, transparent));
   opacity: var(--fx-to, 0); transform: scale(var(--fx-ts, 1));
 }
-.fx-banner[data-long] .fx-banner-title { font-size: clamp(20px, calc(var(--fx-w, 100vw) * 0.044), 44px); }
+.fx-banner[data-wrap="true"] .fx-banner-title { max-width: 84%; white-space: normal; text-wrap: balance; line-height: 1.3; }
 .fx-banner[data-tone="win"] { --fx-c: #f0d48a; }
 .fx-banner[data-tone="loss"] { --fx-c: #e2553d; }
 .fx-banner[data-tone="loss"] .fx-banner-title { background-image: linear-gradient(180deg, #f4efe0 10%, #d8d3c4 55%, #9aa39b 100%); }

@@ -92,9 +92,10 @@ function flash(a, env) {
     const b = phase(s.t, beats);
     if (b.name === 'wind') {
       // the tile dips and a rim closes in from outside: the eye is led to the spot before it burns
-      hexPath(ctx, x, y, 0); ctx.fillStyle = rgba(TONE.ink, 0.16 * b.k); ctx.fill();
-      hexPath(ctx, x, y, lerp(-13, 0, outCubic(b.k)));
-      ctx.strokeStyle = rgba(color, 0.95 * inQuad(b.k)); ctx.lineWidth = lerp(1, 3, b.k) * s.px; ctx.stroke();
+      hexPath(ctx, x, y, 0); ctx.fillStyle = rgba(TONE.ink, 0.2 * b.k); ctx.fill();
+      hexPath(ctx, x, y, lerp(-R * 0.42, 0, inQuad(b.k)));
+      ctx.strokeStyle = rgba(color, 0.35 * b.k); ctx.lineWidth = 6 * s.px; ctx.stroke();
+      ctx.strokeStyle = rgba(TONE.white, 0.5 + 0.5 * b.k); ctx.lineWidth = lerp(1.5, 3, b.k) * s.px; ctx.stroke();
       return;
     }
     if (b.name === 'hit') {
@@ -171,9 +172,10 @@ function dust(a, env) {
   const { x, y } = pointOf(a);
   const power = a.power ?? 1;
   const HIT = 0.05;
-  env.fx.emit('dust', { x, y, n: Math.round(26 * power), seed: env.seed, t: env.now + HIT, radius: R * 0.24, power, color: a.color ?? null });
-  env.fx.emit('dust', { x, y, n: Math.round(8 * power), seed: `${env.seed}|late`, t: env.now + HIT + 0.04, radius: R * 0.1, power: power * 0.45, up: 2.2, size: 1.3, alpha: 0.7, stagger: 0.08 });
-  env.fx.emit('shard', { x, y, n: Math.round(7 * power), seed: env.seed, t: env.now + HIT, radius: R * 0.15, power: 0.62 * power, size: 0.75 });
+  // a skirt that races out along the ground, a head that boils up in the middle, pebbles thrown clear
+  env.fx.emit('dust', { x, y, n: Math.round(22 * power), seed: env.seed, t: env.now + HIT, radius: R * 0.26, power: 1.15 * power, up: 0.5, color: a.color ?? null });
+  env.fx.emit('dust', { x, y, n: Math.round(12 * power), seed: `${env.seed}|head`, t: env.now + HIT + 0.03, radius: R * 0.14, power: power * 0.4, up: 2.6, size: 1.35, stagger: 0.09, color: a.color ?? null });
+  env.fx.emit('shard', { x, y, n: Math.round(7 * power), seed: env.seed, t: env.now + HIT, radius: R * 0.15, power: 0.8 * power, up: 0.7, size: 0.62, life: 0.8 });
   return { layer: 'ground', dur: 0.55, draw(ctx, s) {
     const t = s.t;
     if (t < HIT) {
@@ -206,9 +208,11 @@ function spark(a, env) {
     } };
   }
   const WIND = 0.06;
-  env.fx.emit('spark', { x: p.x, y: p.y, z, n: Math.round(26 * power), seed: env.seed, t: env.now + WIND, power, colors: [color, '#ffd27a', '#ff8a3c'] });
-  env.fx.emit('spark', { x: p.x, y: p.y, z, n: Math.round(9 * power), seed: `${env.seed}|fine`, t: env.now + WIND + 0.02, power: power * 1.5, size: 0.6, life: 0.6, up: 0.5, colors: ['#fff6dc', '#ffe2a0'] });
-  env.fx.emit('ember', { x: p.x, y: p.y, z, n: Math.round(8 * power), seed: env.seed, t: env.now + WIND + 0.03, radius: R * 0.12, power, stagger: 0.12 });
+  // the volley, a fine fast spray across it, a few heavy drops that land and skip, and embers that hang
+  env.fx.emit('spark', { x: p.x, y: p.y, z, n: Math.round(24 * power), seed: env.seed, t: env.now + WIND, power, life: 1.15, colors: [color, '#ffd27a', '#ff8a3c'] });
+  env.fx.emit('spark', { x: p.x, y: p.y, z, n: Math.round(10 * power), seed: `${env.seed}|fine`, t: env.now + WIND + 0.02, power: power * 1.6, size: 0.6, life: 0.6, up: 0.45, colors: ['#fff6dc', '#ffe2a0'] });
+  env.fx.emit('spark', { x: p.x, y: p.y, z, n: Math.round(8 * power), seed: `${env.seed}|drop`, t: env.now + WIND + 0.01, power: power * 0.7, size: 1.25, life: 1.5, up: 0.5, colors: ['#ffb347', '#ff8a3c'] });
+  env.fx.emit('ember', { x: p.x, y: p.y, z, n: Math.round(12 * power), seed: env.seed, t: env.now + WIND + 0.03, radius: R * 0.14, power: 1.4 * power, size: 1.3, stagger: 0.14 });
   if (a.shake) env.fx.shake(a.shake, 140, { seed: env.seed, delay: WIND });
   const rays = [[0, 1], [Math.PI / 2, 0.62], [Math.PI / 4, 0.4], [-Math.PI / 4, 0.4]];
   return { layer: 'top', dur: 0.8, draw(ctx, s) {
@@ -318,8 +322,8 @@ function glow(a, env) {
       let f, rim = 1, white = 0;
       if (!full) { f = 0.4 * span(u, 0, REDUCED_FADE); rim = span(u, 0, REDUCED_FADE); }
       else if (u < 0.06) { const k = u / 0.06; f = 0.1 * k; rim = k; }
-      else if (u < 0.2) { const k = (u - 0.06) / 0.14; f = lerp(0.1, 0.68, outCubic(k)); white = 0.55 * (1 - k); }
-      else if (u < 0.55) f = lerp(0.68, 0.4, inOutQuad((u - 0.2) / 0.35));
+      else if (u < 0.2) { const k = (u - 0.06) / 0.14; f = lerp(0.1, 0.56, outCubic(k)); white = 0.16 * Math.sin(k * Math.PI); }
+      else if (u < 0.55) f = lerp(0.56, 0.4, inOutQuad((u - 0.2) / 0.35));
       else f = 0.4 + 0.05 * Math.sin((u - 0.55) * 4.2);
       hexPath(ctx, h.x, h.y, 2 * s.px);
       ctx.fillStyle = rgba(color, f * gone); ctx.fill();
@@ -352,9 +356,9 @@ function toll(a, env) {
       groundRing(ctx, x, y, R * 1.6); ctx.strokeStyle = rgba(hi, 0.9 * o); ctx.lineWidth = 3 * s.px; ctx.stroke();
     } }];
   }
-  const WIND = 0.2, TRAVEL = 1.75, DUR = 2.7;
+  const WIND = 0.22, TRAVEL = 1.55, GAP = 0.4, DUR = WIND + 2 * GAP + TRAVEL + 0.1;
   if (a.shake !== 0) env.fx.shake(a.shake ?? 3, 200, { seed: env.seed, delay: WIND });
-  // how far the ring must run to pass every corner in view, measured on the ground plane
+  // how far a ring must run to pass every corner in view, measured on the ground plane
   const reach = s => {
     const hw = s.size.width / 2 / s.zoom, hh = s.size.height / 2 / s.zoom;
     let far = 0;
@@ -367,43 +371,47 @@ function toll(a, env) {
     lighter(ctx);
     if (t < WIND) {
       const k = t / WIND;
-      // the breath in: a thin ring falls to the centre, light gathers there
-      ctx.beginPath(); ctx.arc(0, 0, lerp(R * 3.4, R * 0.5, inCubic(k)), 0, TAU);
-      ctx.strokeStyle = rgba(hi, 0.5 * k); ctx.lineWidth = 1.5 * s.px; ctx.stroke();
-      ctx.fillStyle = radial(ctx, 0, 0, 0, R * 1.3, [[0, rgba(hi, 0.85 * inQuad(k))], [0.5, rgba(color, 0.3 * k)], [1, rgba(color, 0)]]);
-      ctx.beginPath(); ctx.arc(0, 0, R * 1.3, 0, TAU); ctx.fill();
+      // the breath in: a ring falls to the centre and light gathers there
+      ctx.beginPath(); ctx.arc(0, 0, lerp(R * 4.2, R * 0.6, inCubic(k)), 0, TAU);
+      ctx.strokeStyle = rgba(hi, 0.3 * k); ctx.lineWidth = 8 * s.px; ctx.stroke();
+      ctx.strokeStyle = rgba(hi, 0.85 * k); ctx.lineWidth = 2 * s.px; ctx.stroke();
+      ctx.fillStyle = radial(ctx, 0, 0, 0, R * 1.6, [[0, rgba(hi, 0.9 * inQuad(k))], [0.45, rgba(color, 0.4 * k)], [1, rgba(color, 0)]]);
+      ctx.beginPath(); ctx.arc(0, 0, R * 1.6, 0, TAU); ctx.fill();
       return;
     }
     const u = t - WIND;
-    // the stroke: a bloom at the origin
-    const kb = span(u, 0, 0.42);
-    if (kb < 1) {
-      const rr = lerp(R * 1.2, R * 3.6, outCubic(kb));
-      ctx.fillStyle = radial(ctx, 0, 0, 0, rr, [[0, rgba(TONE.white, 0.95 * (1 - kb) * (1 - kb))], [0.25, rgba(hi, 0.8 * (1 - kb) * (1 - kb))], [0.6, rgba(color, 0.35 * (1 - kb))], [1, rgba(color, 0)]]);
-      ctx.beginPath(); ctx.arc(0, 0, rr, 0, TAU); ctx.fill();
-    }
     const far = reach(s);
+    // three strokes of light, each fainter: the first is the bell, the others its ring dying away
     for (let i = 0; i < 3; i++) {
-      const start = i * 0.2;
-      if (u < start) continue;
-      const k = (u - start) / TRAVEL;
+      const v = u - i * GAP;
+      if (v < 0) continue;
+      const level = [1, 0.58, 0.32][i];
+      // the bloom at the origin when each leaves
+      const kb = span(v, 0, 0.45);
+      if (kb < 1) {
+        const rr = lerp(R * 1.2, R * (i ? 2.6 : 4), outCubic(kb));
+        ctx.fillStyle = radial(ctx, 0, 0, 0, rr, [[0, rgba(TONE.white, 0.95 * level * (1 - kb) * (1 - kb))], [0.25, rgba(hi, 0.85 * level * (1 - kb) * (1 - kb))], [0.6, rgba(color, 0.4 * level * (1 - kb))], [1, rgba(color, 0)]]);
+        ctx.beginPath(); ctx.arc(0, 0, rr, 0, TAU); ctx.fill();
+      }
+      const k = v / TRAVEL;
       if (k >= 1) continue;
-      // fast off the bell, slowing across the land, never stopping short of the far corner
-      const r = R * 0.5 + (far - R * 0.5) * (0.22 * k + 0.78 * outCubic(k));
-      const o = (1 - k) ** 1.15 * [1, 0.5, 0.28][i];
-      const band = Math.min(r, R * (i === 0 ? 3.4 : 1.8) * (0.5 + k));
-      // the wake: brass light that thins out behind the line
-      ctx.fillStyle = radial(ctx, 0, 0, r - band, r, [[0, rgba(color, 0)], [0.55, rgba(color, 0.1 * o)], [0.9, rgba(hi, 0.3 * o)], [1, rgba(hi, 0.55 * o)]]);
+      // quick off the bell, then a steady crossing that slows a little: it is still in view when the next leaves
+      const r = R * 0.6 + (far - R * 0.6) * (0.6 * k + 0.4 * outCubic(k));
+      const o = (1 - k * k) * level;
+      const band = Math.min(r, R * (i === 0 ? 5 : 3) * (0.4 + 0.6 * k));
+      // the wake: brass light on the land behind the line, thinning toward the bell
+      ctx.fillStyle = radial(ctx, 0, 0, r - band, r, [[0, rgba(color, 0)], [0.5, rgba(color, 0.12 * o)], [0.86, rgba(hi, 0.34 * o)], [1, rgba(hi, 0.62 * o)]]);
       ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
       // the line itself: wide and soft under, thin and white-hot over
       ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU);
-      ctx.strokeStyle = rgba(hi, 0.4 * o); ctx.lineWidth = (i === 0 ? 9 : 5) * s.px; ctx.stroke();
-      ctx.strokeStyle = rgba(i === 0 ? '#fff6dc' : hi, 0.95 * o); ctx.lineWidth = (i === 0 ? 2.6 : 1.6) * s.px; ctx.stroke();
+      ctx.strokeStyle = rgba(hi, 0.3 * o); ctx.lineWidth = (i === 0 ? 20 : 11) * s.px; ctx.stroke();
+      ctx.strokeStyle = rgba(hi, 0.6 * o); ctx.lineWidth = (i === 0 ? 8 : 5) * s.px; ctx.stroke();
+      ctx.strokeStyle = rgba(i === 0 ? '#fff6dc' : hi, 0.98 * o); ctx.lineWidth = (i === 0 ? 3 : 1.8) * s.px; ctx.stroke();
     }
     // the bell's own glow, last to go
     const kg = span(u, 0.1, DUR - WIND);
-    ctx.fillStyle = radial(ctx, 0, 0, 0, R * 1.6, [[0, rgba(hi, 0.5 * (1 - outCubic(kg)))], [1, rgba(color, 0)]]);
-    ctx.beginPath(); ctx.arc(0, 0, R * 1.6, 0, TAU); ctx.fill();
+    ctx.fillStyle = radial(ctx, 0, 0, 0, R * 1.8, [[0, rgba(hi, 0.55 * (1 - outCubic(kg)))], [1, rgba(color, 0)]]);
+    ctx.beginPath(); ctx.arc(0, 0, R * 1.8, 0, TAU); ctx.fill();
   } };
   const screen = { layer: 'screen', dur: DUR, draw(ctx, s) {
     const t = s.t, w = s.size.width, h = s.size.height;
@@ -418,7 +426,7 @@ function toll(a, env) {
     const dark = 0.34 * (1 - outCubic(span(u, 0, 0.5)));
     if (dark > 0.004) { ctx.fillStyle = radial(ctx, w / 2, h / 2, Math.min(w, h) * 0.25, Math.hypot(w, h) * 0.6, [[0, rgba(TONE.ink, 0)], [1, rgba(TONE.ink, dark)]]); ctx.fillRect(0, 0, w, h); }
     // the stroke lights everything warm for an instant, then the warmth drains
-    const warm = 0.2 * (1 - outExpo(span(u, 0, 0.9)));
+    const warm = 0.22 * (1 - outExpo(span(u, 0, 0.9))) + 0.07 * (1 - outExpo(span(u - GAP, 0, 0.7))) * (u >= GAP ? 1 : 0);
     if (warm > 0.004) { lighter(ctx); ctx.fillStyle = rgba(hi, warm); ctx.fillRect(0, 0, w, h); }
   } };
   return [screen, world];
@@ -439,6 +447,9 @@ function banner(a, env) {
   if (!title) return null;
   const dur = Math.max(1.2, a.dur ?? 2.8);
   const full = env.mode === 'full';
+  // the title's width in ems (full-width glyphs 1, others about 0.58, plus the letter spacing): it is sized to fit the map
+  const ems = [...title].reduce((w, ch) => w + (/[\u2e80-\u9fff\uff00-\uffef\u3000-\u30ff]/.test(ch) ? 1 : 0.58) + 0.14, 0);
+  const sizeFor = width => Math.max(20, Math.min(60, width * 0.066, (width * 0.76) / ems));
   return { layer: 'hud', dur, info: true, dom: {
     make(doc) {
       const el = node(doc, 'div', 'fx-banner');
@@ -453,6 +464,11 @@ function banner(a, env) {
     },
     update(el, s) {
       const t = s.t;
+      const fs = sizeFor(s.stage.width);
+      el.style.setProperty('--fx-fs', `${fs.toFixed(1)}px`);
+      // a long title on a narrow map breaks into balanced lines instead of running off the sides
+      const wrap = fs * ems > s.stage.width * 0.8 ? 'true' : 'false';
+      if (el.dataset.wrap !== wrap) el.dataset.wrap = wrap;
       if (!full) {
         const o = envelope(t, dur, REDUCED_FADE, REDUCED_FADE);
         setVars(el, { '--fx-o': o.toFixed(3), '--fx-band': '1', '--fx-rule': '1', '--fx-ts': '1', '--fx-to': '1', '--fx-tl': '0em', '--fx-so': '1', '--fx-gx': '-40%', '--fx-go': '0' });
@@ -465,7 +481,7 @@ function banner(a, env) {
       // lands from large with one small rebound, then drifts a hair larger while it is read
       const ts = (1 + 0.55 * (1 - outBack(kt, 1.4))) * (1 + 0.025 * span(t, 0.42, dur)) * (1 + 0.04 * inQuad(out));
       const to = span(t, 0.1, 0.17) * (1 - inQuad(out));
-      const tl = lerp(0.5, 0, outCubic(span(t, 0.1, 0.62))) + 0.14 * inQuad(out);
+      const tl = lerp(Math.min(0.5, 1.5 / ems), 0, outCubic(span(t, 0.1, 0.62))) + Math.min(0.14, 0.7 / ems) * inQuad(out);
       const kg = span(t, 0.3, 0.95);
       setVars(el, {
         '--fx-o': '1', '--fx-band': band.toFixed(3), '--fx-rule': rule.toFixed(3),

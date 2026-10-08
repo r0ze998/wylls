@@ -27,14 +27,14 @@ const R = 44;   // the hex radius in world px (web/map.mjs RADIUS): sizes below 
  * `rise` is a steady climb (buoyant kinds). `add` draws with additive blending.
  */
 export const KINDS = Object.freeze({
-  dust:  { add: false, shape: 'puff',   speed: [40, 150],  up: [10, 46],   drag: 3.6, g: 0,   rise: 9,  bounce: 0,    life: [0.55, 1.0], size: [R * 0.10, R * 0.2],  grow: 2.3,  alpha: 0.5,  fadeIn: 0.06, fadeOut: 0.3,  sway: 0,   colors: ['#d9c8a2', '#c7b48a', '#e7dcc0'] },
+  dust:  { add: false, shape: 'puff',   speed: [50, 190],  up: [8, 40],    drag: 4.2, g: 0,   rise: 11, bounce: 0,    life: [0.6, 1.1],  size: [R * 0.12, R * 0.24], grow: 2.2,  alpha: 0.68, fadeIn: 0.05, fadeOut: 0.3,  sway: 0,   colors: ['#eadfc2', '#dccfaa', '#f3ebd6'] },
   spark: { add: true,  shape: 'streak', speed: [90, 330],  up: [120, 380], drag: 1.3, g: 760, rise: 0,  bounce: 0.34, life: [0.32, 0.8], size: [1.3, 2.4],           grow: 0.4,  alpha: 1,    fadeIn: 0,    fadeOut: 0.55, sway: 0,   colors: ['#ffd27a', '#ffb347', '#ff8a3c'] },
   ember: { add: true,  shape: 'dot',    speed: [8, 46],    up: [26, 80],   drag: 1.6, g: 0,   rise: 30, bounce: 0,    life: [0.9, 1.9],  size: [1.6, 3.2],           grow: 0.5,  alpha: 0.95, fadeIn: 0.05, fadeOut: 0.5,  sway: 5,   colors: ['#ffb347', '#ff7a3c', '#e2553d'] },
-  smoke: { add: false, shape: 'puff',   speed: [6, 30],    up: [18, 40],   drag: 1.1, g: 0,   rise: 26, bounce: 0,    life: [1.4, 2.6],  size: [R * 0.16, R * 0.3],  grow: 2.6,  alpha: 0.34, fadeIn: 0.12, fadeOut: 0.35, sway: 4,   colors: ['#5d5850', '#77716a', '#4a4640'] },
-  shard: { add: false, shape: 'poly',   speed: [70, 230],  up: [140, 340], drag: 1.0, g: 820, rise: 0,  bounce: 0.38, life: [0.6, 1.15], size: [2.2, 4.6],           grow: 1,    alpha: 1,    fadeIn: 0,    fadeOut: 0.75, sway: 0,   colors: ['#6f6659', '#8d8473', '#4d463c'] },
+  smoke: { add: false, shape: 'puff',   speed: [6, 30],    up: [18, 40],   drag: 1.1, g: 0,   rise: 26, bounce: 0,    life: [1.4, 2.6],  size: [R * 0.16, R * 0.3],  grow: 2.6,  alpha: 0.5,  fadeIn: 0.12, fadeOut: 0.35, sway: 4,   colors: ['#6a645b', '#857e75', '#57524b'] },
+  shard: { add: false, shape: 'poly',   speed: [70, 230],  up: [140, 340], drag: 1.0, g: 820, rise: 0,  bounce: 0.38, life: [0.6, 1.15], size: [2.6, 5.2],           grow: 1,    alpha: 1,    fadeIn: 0,    fadeOut: 0.75, sway: 0,   colors: ['#6b6253', '#857c6b', '#544d41'] },
   leaf:  { add: false, shape: 'leaf',   speed: [20, 90],   up: [50, 150],  drag: 2.2, g: 150, rise: 0,  bounce: 0,    life: [1.2, 2.2],  size: [2.6, 4.4],           grow: 1,    alpha: 0.95, fadeIn: 0.04, fadeOut: 0.7,  sway: 9,   colors: ['#5f9a4a', '#86b04c', '#3f7a3c', '#b9a64a'] },
   coin:  { add: false, shape: 'coin',   speed: [40, 150],  up: [200, 400], drag: 1.2, g: 860, rise: 0,  bounce: 0.5,  life: [0.75, 1.3], size: [2.6, 3.8],           grow: 1,    alpha: 1,    fadeIn: 0,    fadeOut: 0.8,  sway: 0,   colors: ['#f0d48a', '#c9a24a', '#ffe9ae'] },
-  mist:  { add: false, shape: 'puff',   speed: [10, 46],   up: [0, 6],     drag: 0.9, g: 0,   rise: 3,  bounce: 0,    life: [1.6, 3.0],  size: [R * 0.34, R * 0.6],  grow: 1.9,  alpha: 0.24, fadeIn: 0.25, fadeOut: 0.4,  sway: 3,   colors: ['#f4f1e8', '#e3e8ea'] },
+  mist:  { add: false, shape: 'puff', flat: true, speed: [10, 46],   up: [0, 6],     drag: 0.9, g: 0,   rise: 3,  bounce: 0,    life: [1.6, 3.0],  size: [R * 0.34, R * 0.6],  grow: 1.9,  alpha: 0.24, fadeIn: 0.25, fadeOut: 0.4,  sway: 3,   colors: ['#f4f1e8', '#e3e8ea'] },
   ink:   { add: false, shape: 'blot',   speed: [0, 26],    up: [0, 0],     drag: 6,   g: 0,   rise: 0,  bounce: 0,    life: [0.9, 1.7],  size: [R * 0.05, R * 0.13], grow: 2.4,  alpha: 0.6,  fadeIn: 0.03, fadeOut: 0.5,  sway: 0,   colors: ['#4a3b22', '#6b5630', '#3a2e1c'] },
 });
 export const KIND_NAMES = Object.freeze(Object.keys(KINDS));
@@ -42,9 +42,15 @@ const KIND_LIST = KIND_NAMES.map(k => KINDS[k]);
 
 // ------------------------------------------------------------------ soft sprites (one small canvas per colour)
 const sprites = new Map();
-/** A 64-px soft disc of `color` (null where there is no canvas: node, tests). */
-function softSprite(color) {
-  if (sprites.has(color)) return sprites.get(color);
+const darker = (hex, f) => { const n = parseInt(String(hex).slice(1), 16) || 0; return `rgb(${Math.round(((n >> 16) & 255) * f)},${Math.round(((n >> 8) & 255) * f)},${Math.round((n & 255) * f)})`; };
+/**
+ * A 64-px soft disc of `color` (null where there is no canvas: node, tests).
+ * `shaded`: lit from above, its underside darker, so a puff of dust or smoke
+ * reads as a volume and stays visible on ground of its own colour.
+ */
+function softSprite(color, shaded = false) {
+  const key = shaded ? `${color}|s` : color;
+  if (sprites.has(key)) return sprites.get(key);
   let c = null;
   try {
     c = typeof globalThis.OffscreenCanvas === 'function' ? new globalThis.OffscreenCanvas(64, 64) : globalThis.document?.createElement?.('canvas') ?? null;
@@ -54,14 +60,23 @@ function softSprite(color) {
       // the colour everywhere, then an alpha falloff cut into it: the hue stays true out to the rim
       g.fillStyle = color;
       g.fillRect(0, 0, 64, 64);
+      if (shaded && /^#[0-9a-f]{6}$/i.test(color)) {
+        const sh = g.createLinearGradient(0, 14, 0, 58);
+        sh.addColorStop(0, 'rgba(255,255,255,0.28)'); sh.addColorStop(0.35, 'rgba(255,255,255,0)'); sh.addColorStop(0.5, 'rgba(0,0,0,0)');
+        g.fillStyle = sh; g.fillRect(0, 0, 64, 64);
+        const lo = g.createLinearGradient(0, 30, 0, 60);
+        lo.addColorStop(0, 'rgba(0,0,0,0)'); lo.addColorStop(1, darker(color, 0.5));
+        g.globalAlpha = 0.75; g.fillStyle = lo; g.fillRect(0, 0, 64, 64); g.globalAlpha = 1;
+      }
       g.globalCompositeOperation = 'destination-in';
       const a = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-      a.addColorStop(0, 'rgba(0,0,0,1)'); a.addColorStop(0.25, 'rgba(0,0,0,0.82)'); a.addColorStop(0.6, 'rgba(0,0,0,0.3)'); a.addColorStop(1, 'rgba(0,0,0,0)');
+      if (shaded) { a.addColorStop(0, 'rgba(0,0,0,1)'); a.addColorStop(0.45, 'rgba(0,0,0,0.92)'); a.addColorStop(0.75, 'rgba(0,0,0,0.42)'); a.addColorStop(1, 'rgba(0,0,0,0)'); }
+      else { a.addColorStop(0, 'rgba(0,0,0,1)'); a.addColorStop(0.25, 'rgba(0,0,0,0.82)'); a.addColorStop(0.6, 'rgba(0,0,0,0.3)'); a.addColorStop(1, 'rgba(0,0,0,0)'); }
       g.fillStyle = a; g.fillRect(0, 0, 64, 64);
     }
   } catch { c = null; }
   if (sprites.size > 96) sprites.clear();
-  sprites.set(color, c);
+  sprites.set(key, c);
   return c;
 }
 
@@ -167,7 +182,7 @@ export function createParticles({ capacity = 2048 } = {}) {
     switch (K.shape) {
       case 'puff': case 'dot': {
         const hot = K.add && s.k < 0.22 ? '#fff6dc' : col[i];
-        const img = softSprite(hot);
+        const img = softSprite(hot, K.shape === 'puff' && !K.flat);
         const r = Math.max(s.size, 0.8 / zoom) * (K.shape === 'dot' ? 2.2 : 1.6);
         const ry = K.shape === 'puff' ? r * 0.82 : r;
         if (img && ctx.drawImage) ctx.drawImage(img, sx - r, sy - ry, r * 2, ry * 2);

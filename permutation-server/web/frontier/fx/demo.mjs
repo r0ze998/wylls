@@ -7,7 +7,7 @@
 //   ?fx=<name>[,<name>…]   the samples to play (`?fx=` alone: none, the handle only)
 //   &fxt=<seconds>          freeze the effects clock at that time after the start
 //   &fxrate=<n>             play at that rate instead (0.25 = slow motion); loops
-//   &fxat=<p>,<q>,<tile>    where on the map (default: the viewer's village, else the tile at the view's centre)
+//   &fxat=<p>,<q>,<tile>    where on the map, or &fxat=<q>,<r> (a tile's axial hex); default: the viewer's village, else the tile at the view's centre
 //   &fxmotion=<full|reduced|off>   show that motion level whatever the system says
 //
 //   window.__fx.list()           the sample names
@@ -39,11 +39,11 @@ export const SAMPLES = Object.freeze({
   label: { secs: 1.5, cues: c => [['label', { ...c.at, text: '−120', color: '#ff9d86', size: 28 }]] },
   glow: { secs: 1.9, cues: c => [['glow', { ...c.at, radius: 2, color: TONE.reach }]] },
   banner: { secs: 3.0, cues: () => [['banner', { title: L`勝利`, sub: L`演出の見本です。実際の記録ではありません。`, tone: 'win' }]] },
-  toll: { secs: 3.0, cues: c => [['toll', { ...c.origin }]], sounds: [['bell', 0.2]] },
+  toll: { secs: 3.2, cues: c => [['toll', { ...c.origin }]], sounds: [['bell', 0.2]] },
   number: { secs: 1.3, cues: () => [['number', { el: '#bell-chip', text: '+120', below: true, size: 20 }]] },
   chip: { secs: 1.0, cues: () => [['chip', { el: '#bell-chip' }]] },
   // two compositions, to show how the pieces stack: the bell's turn, and one blow landing
-  bell: { secs: 3.4, cues: c => [['toll', { ...c.origin }], ['chip', { el: '#bell-chip' }, 0.2], ['banner', { title: L`鐘が鳴りました — ターン ${43}`, dur: 2.9 }, 0.3]], sounds: [['bell', 0.2]] },
+  bell: { secs: 3.6, cues: c => [['toll', { ...c.origin }], ['chip', { el: '#bell-chip' }, 0.2], ['banner', { title: L`鐘が鳴りました — ターン ${43}`, dur: 2.9 }, 0.3]], sounds: [['bell', 0.2]] },
   strike: { secs: 1.8, cues: c => [['flash', { ...c.at, color: '#ffb347' }], ['spark', { ...c.at, shake: 6 }, 0.07], ['dust', { ...c.at, power: 0.8 }, 0.09], ['ripple', { ...c.at, color: '#ffd27a', radius: 1.8 }, 0.07], ['label', { ...c.at, text: '−120', color: '#ff9d86', size: 30 }, 0.16]], sounds: [['clash', 0.13]] },
 });
 
@@ -62,6 +62,7 @@ export function startDemo({ fx, map = null, params, doc = globalThis.document })
   // ---- where: a tile and the bell's origin
   const anchor = () => {
     if (fxat.length >= 3 && fxat.every(Number.isInteger)) return tileHex(fxat[0], fxat[1], fxat[2]);
+    if (fxat.length === 2 && fxat.every(Number.isInteger)) return { q: fxat[0], r: fxat[1] };
     const own = (() => { try { return (map?.source?.()?.own ?? []).find(o => Number.isInteger(o.tile)); } catch { return null; } })();
     if (own) return tileHex(own.p, own.q, own.tile);
     const v = fx.view();
