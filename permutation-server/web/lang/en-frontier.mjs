@@ -22,6 +22,12 @@ export default {
   '表示が {0} 秒遅れています。最新の状態が必要な操作の前に再読み込みしてください': 'This view is {0} s behind. Reload before an action that needs the latest state.',
   '（テスト用ビーコン）': ' (test beacon)',
 
+  // ---- effects demo switch (?fx=, fx/demo.mjs): sample texts, shown only under the "effects demo" tag
+  '演出の見本': 'Effects demo',
+  '演出の見本です。実際の記録ではありません。': 'This is an effects demo, not a real record.',
+  '勝利': 'Victory',
+  '鐘が鳴りました — ターン {0}': 'The bell has tolled — Turn {0}',
+
   // ---- season status
   '予告済み': 'Announced',
   '作成済み': 'Created',

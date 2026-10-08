@@ -22,6 +22,7 @@ import { paintBattle, battleTiles } from '../people/battle.mjs';
 import { provinceTokens, paintToken, placePills } from '../people/units.mjs';
 import { onMiniLoad } from '../people/minis.mjs';
 import { paintMoments } from '../people/moments.mjs';
+import { paintGround as fxGround } from '../fx/engine.mjs';
 import { BOUNDARY_HALO, BOUNDARY_INK, FOG, UNOPENED_FILL, paintSigil, provincePixel, PROVINCE_CIRCUMRADIUS } from './layers.mjs';
 
 const BASE = new URL('../art/', import.meta.url);
@@ -696,6 +697,7 @@ export class SpriteArt {
         });
       }
     }
+    if (!far) fxGround(ctx, { zoom });   // effects on the ground: over the territory wash, under the grid and the props (fx/engine.mjs)
     if (far === 'ground') return tiles.length;
     // the hex grid, exactly on the game's hexes, under the props (not in the far view: land, not a board)
     if (!far) {

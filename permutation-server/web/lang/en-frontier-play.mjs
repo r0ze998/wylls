@@ -366,6 +366,7 @@ export default {
   '守り手の反撃で攻め手が {0} を失った': 'The defenders struck back: the attackers lost {0}',
   '与えた損害は、そのマスで相手側が失った兵の合計です（誰が誰を討ったかは記録にありません）。': 'Dealt is what the other sides lost on that tile (the record does not say who struck whom).',
   '戦いの演出': 'Battle scenes',
+  '動きの演出': 'Motion effects', '標準': 'Standard', '控えめ': 'Reduced', '音': 'Sound', 'オン': 'On',
   'ふつう': 'Normal',
   '早送り': 'Fast',
   '自動では見せない': 'Not automatically',

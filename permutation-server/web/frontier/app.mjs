@@ -26,6 +26,8 @@ import { ACTIONS, FORMS, bind, startPlay, wantProvince } from './controller.mjs'
 import { renderTabs, renderNotice, factionChip, quotaChip, mountSheet } from './screens/shell.mjs';
 import { createTerrain } from './map/terrain.mjs';
 import { provincePixel } from './map/layers.mjs';
+import { startFx } from './fx/index.mjs';
+import { audio as fxAudio } from './fx/audio.mjs';
 
 // Sprite art is on by default (?art=0 turns it off); ?art=1 adds the preview helpers below.
 const ART_ON = new URLSearchParams(globalThis.location?.search ?? '').get('art') !== '0';
@@ -196,6 +198,8 @@ export function panelMarkup(FS) {
     <label class="choice"><input type="checkbox" data-act="autopan" ${FS.ui?.autoPan ? 'checked' : ''}>${L`自分に関わる戦いが決着したら、地図をそこへ動かして見せる`}</label>
     <div class="choice-row" role="group" aria-label="${L`ガイドの強さ`}"><span>${L`ガイドの強さ`}</span>${guide.GUIDE_LEVELS.map(v => html`<button type="button" class="btn small" data-act="guide-level" data-v="${v}" aria-pressed="${guide.guideLevel(FS) === v ? 'true' : 'false'}">${guide.GUIDE_TEXT[v]()}</button>`)}</div>
     <div class="choice-row" role="group" aria-label="${L`戦いの演出`}"><span>${L`戦いの演出`}</span>${['normal', 'fast', 'off'].map(v => html`<button type="button" class="btn small" data-act="battle-fx" data-v="${v}" aria-pressed="${(FS.ui?.battleFx ?? 'normal') === v ? 'true' : 'false'}">${BATTLE_FX_TEXT[v]()}</button>`)}</div>
+    <div class="choice-row" role="group" aria-label="${L`動きの演出`}"><span>${L`動きの演出`}</span>${['full', 'reduced', 'off'].map(v => html`<button type="button" class="btn small" data-act="fx-level" data-v="${v}" aria-pressed="${(FS.ui?.effects ?? 'full') === v ? 'true' : 'false'}">${FX_LEVEL_TEXT[v]()}</button>`)}</div>
+    <div class="choice-row" role="group" aria-label="${L`音`}"><span>${L`音`}</span>${['on', 'off'].map(v => html`<button type="button" class="btn small" data-act="fx-sound" data-v="${v}" aria-pressed="${(fxAudio().muted ? 'off' : 'on') === v ? 'true' : 'false'}">${v === 'on' ? L`オン` : L`オフ`}</button>`)}</div>
     <button type="button" class="btn" data-act="forget">${L`この端末からこのシーズンの鍵を消す`}</button>
     ${onboardingCard.renderRestore(FS)}
     <p><button type="button" class="btn" data-act="practice-open">${L`練習モードを開く`}</button> <button type="button" class="btn" data-act="intro-open">${L`タイトルを見る`}</button></p>
@@ -799,6 +803,7 @@ function ringToll(bell) {
 /** Move the map to an attention item and open its tab. */
 /** The report's map buttons close it, so the map (and on phones the sheet's map) is in view. */
 function leaveReport() { if (FS.report) { FS.report = null; invalidate('panel'); } }
+const FX_LEVEL_TEXT = { full: () => L`標準`, reduced: () => L`控えめ`, off: () => L`オフ` };
 const BATTLE_FX_TEXT = { normal: () => L`ふつう`, fast: () => L`早送り`, off: () => L`自動では見せない` };
 
 function goToItem(x) {
@@ -874,6 +879,9 @@ export const HUD_ACTIONS = {
   'term-close': () => closeTermPop(),
   'glossary-open': () => { closeTermPop(); leaveReport(); if (FS.mode === 'play') FS.tab = 'more'; invalidate('panel', 'tabs'); requestAnimationFrame(() => $('glossary')?.scrollIntoView?.({ block: 'start' })); },
   'hp-jump': d => { const el = /^hp-[a-z]+$/.test(d.id ?? '') ? $(d.id) : null; el?.scrollIntoView?.({ block: 'start', behavior: 'smooth' }); el?.querySelector?.('h4')?.focus?.(); },
+  // how much may move (fx/motion.mjs reads FS.ui.effects) and the sound's mute (fx/audio.mjs, remembered on this device)
+  'fx-level': d => { if (!['full', 'reduced', 'off'].includes(d.v)) return; const sc = scope(); FS.ui = sc ? saveUi(uiStorage, uiKey(sc), { effects: d.v }) : { ...(FS.ui ?? {}), effects: d.v }; invalidate('panel', 'map'); },
+  'fx-sound': d => { fxAudio().setMuted(d.v !== 'on'); invalidate('panel'); },
   'battle-fx': d => { if (!['normal', 'fast', 'off'].includes(d.v)) return; const sc = scope(); FS.ui = sc ? saveUi(uiStorage, uiKey(sc), { battleFx: d.v }) : { ...(FS.ui ?? {}), battleFx: d.v }; invalidate('panel'); },
   attn: () => {
     const items = pillItems();
@@ -1194,6 +1202,7 @@ export async function boot() {
       art: ART_ON,
     });
     mapRef = map;
+    startFx({ map, canvas, effects: () => FS.ui?.effects });   // the effects layer and, with ?fx=, its demo switch (fx/index.mjs)
     renderLenses();
     const mini = $('minimap-canvas');
     mini?.addEventListener('pointerup', e => {
