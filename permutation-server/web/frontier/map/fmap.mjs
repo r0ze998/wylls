@@ -521,7 +521,13 @@ export class FrontierMap {
   /** A resize of the canvas repaints (and the backing store follows in draw). */
   watchSize() {
     const c = this.canvas;
-    if (typeof ResizeObserver !== 'undefined' && c?.nodeType === 1) { this.resizer = new ResizeObserver(() => this.invalidate()); this.resizer.observe(c); }
+    if (typeof ResizeObserver !== 'undefined' && c?.nodeType === 1) {
+      this.resizer = new ResizeObserver(() => this.invalidate());
+      this.resizer.observe(c);
+      // the page's sheet too: while nobody has moved the camera, its subject stays in the uncovered part
+      const panel = c.ownerDocument?.getElementById?.('panel');
+      if (panel) this.resizer.observe(panel);
+    }
     const win = c?.ownerDocument?.defaultView;
     if (win?.addEventListener) { this.onResize = () => this.invalidate(); win.addEventListener('resize', this.onResize); }
   }
@@ -601,9 +607,10 @@ export class FrontierMap {
 
   /**
    * The opening view (opening.mjs): once the viewer is known, and again when
-   * the viewer becomes more (a village lands, the title card closes, the
-   * canvas changes size) — never after a person moved the camera. Returns
-   * false while the map still waits to know who is looking.
+   * the viewer becomes more (a village lands), the title card closes, the
+   * canvas changes size or a sheet covers more or less of it — never after
+   * a person moved the camera. Returns false while the map still waits to
+   * know who is looking.
    */
   open(src, size, { dpr = this.dpr(), now = clock() } = {}) {
     if (this.cam.userMoved) return true;
@@ -615,11 +622,14 @@ export class FrontierMap {
       plan = openingPlan({ ready: true }, { ringsOpen: src?.ringsOpen }, size, { inset, dpr });
     }
     const title = !!src?.open?.title;
-    const key = `${plan.kind}|${Math.round(plan.at.x)},${Math.round(plan.at.y)}|${plan.kind === 'fit' ? src?.ringsOpen ?? 1 : ''}|${size.width}x${size.height}|${title ? 'title' : ''}`;
+    // what the sheets cover, in steps (a sheet settling by a pixel is not a new picture)
+    const cover = [inset.top, inset.right, inset.bottom, inset.left].map(n => Math.round((n ?? 0) / 8)).join(',');
+    const subject = `${plan.kind}|${Math.round(plan.at.x)},${Math.round(plan.at.y)}|${plan.kind === 'fit' ? src?.ringsOpen ?? 1 : ''}`;
+    const key = `${subject}|${size.width}x${size.height}|${title ? 'title' : ''}|${cover}`;
     if (key === this.openKey) return true;
     const prev = this.opened ?? null, was = { ...this.cam.drawn };
     this.openKey = key;
-    this.opened = { kind: plan.kind, rank: plan.rank, width: size.width, height: size.height, title };
+    this.opened = { kind: plan.kind, rank: plan.rank, width: size.width, height: size.height, title, subject };
     this.setView(plan.view, { auto: true });
     const f = focusOf({ x: 0, y: 0, zoom: 1 }, size, inset);
     if (!prev) {
@@ -627,7 +637,12 @@ export class FrontierMap {
       const k = title ? TITLE_FROM : plan.kind === 'fit' ? 1 : OPEN_FROM;
       if (k < 1) this.cam.from(centreOn(plan.at, Math.max(ZOOM_MIN, plan.view.zoom * k), size, inset), { ms: title ? TITLE_MS : MOVE_MS.open, ease: EASE.outCubic, anchor: f });
       this.reveal = now;
-    } else if (prev.width === size.width && prev.height === size.height && (plan.kind !== 'fit' || prev.title)) {
+    } else if (prev.width !== size.width || prev.height !== size.height) {
+      // a new canvas size: framed again, at once
+    } else if (prev.subject === subject && prev.title === title) {
+      // only the sheets moved (a phone's sheet opened or closed): the subject slides back into the uncovered part
+      this.cam.from(was, { ms: MOVE_MS.settle, ease: EASE.outCubic });
+    } else if (plan.kind !== 'fit' || prev.title) {
       // the viewer became more, or the title closed mid-drift: fly the rest of the way
       this.cam.from(was, { ms: prev.title && !title && prev.kind === plan.kind ? MOVE_MS.far : MOVE_MS.open, ease: EASE.outCubic, kind: 'fly' });
     }

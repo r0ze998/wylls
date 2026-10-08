@@ -484,3 +484,30 @@ test('the level of detail on screen follows the picture, the logical one the inp
   assert.equal(m.stamp, stamp + 1);
   m.destroy();
 });
+
+test('a phone\'s sheet opens or closes: the opening\'s subject slides back into the uncovered part, until a person moves the camera', () => {
+  let sheetTop = 427;
+  const cv = { clientWidth: 390, clientHeight: 734, getBoundingClientRect: () => ({ left: 0, top: 60, right: 390, bottom: 794, width: 390, height: 734 }) };
+  cv.ownerDocument = { getElementById: id => (id === 'panel' ? { getBoundingClientRect: () => ({ left: 0, top: sheetTop, right: 390, bottom: 794, width: 390, height: 794 - sheetTop }) } : null), defaultView: { getComputedStyle: () => ({ position: 'absolute' }) } };
+  const src = { ...lordSrc, own: lordSrc.own.slice(0, 1) };
+  const m = new fmap.FrontierMap(cv, { source: () => src });
+  const home = tilePoint(2, 0, 7), size = { width: 390, height: 734 };
+  const where = () => fmap.worldToScreen(m.view, size, home.x, home.y);
+  m.frameNo = 1;
+  m.open(src, size, { dpr: 1, now: 0 });
+  assert.ok(near(where().y, (427 - 60) / 2), `the village is in the middle of the ${427 - 60} px above the half sheet`);
+  m.cam.finish();
+  // the sheet drops to its peek: more map, and the village moves to its middle (a short slide, not a flight)
+  sheetTop = 662; m.frameNo = 2;
+  m.open(src, size, { dpr: 1, now: 3000 });
+  assert.ok(near(where().y, (662 - 60) / 2));
+  assert.ok(m.cam.moving && m.cam.tween.ms <= 300);
+  assert.equal(m.cam.userMoved, false);
+  // once a person has placed the camera, the sheet no longer moves it
+  m.setView({ x: m.view.x + 40 });
+  const kept = { ...m.view };
+  sheetTop = 427; m.frameNo = 3;
+  m.open(src, size, { dpr: 1, now: 6000 });
+  assert.deepEqual(m.view, kept);
+  m.destroy();
+});
