@@ -25,6 +25,7 @@ import { createParticles } from './particles.mjs';
 import { motion as defaultMotion } from './motion.mjs';
 import { hashSeed, noise1 } from './rand.mjs';
 import { bus as defaultBus } from './bus.mjs';
+import { audio as defaultAudio } from './audio.mjs';
 
 export const SHAKE_PX = Object.freeze([2, 8]);
 export const SHAKE_MS = Object.freeze([120, 250]);
@@ -43,11 +44,12 @@ const LAYERS = Object.freeze(['ground', 'top', 'screen', 'hud']);
  * An engine. The page uses the default one (`fx` below); tests make their own
  * with a hand-driven clock.
  */
-export function createEngine({ clock = defaultClock, motion = defaultMotion, bus = defaultBus, capacity = 2048 } = {}) {
+export function createEngine({ clock = defaultClock, motion = defaultMotion, bus = defaultBus, audio = defaultAudio, capacity = 2048 } = {}) {
   const particles = createParticles({ capacity });
   const effects = [];
   const shakes = [];
   const defs = new Map();
+  const painters = { ground: [], over: [] };   // painters that live inside the tile painter for as long as the page does (idle life)
   let nextId = 1, version = 0;
   let m = null;            // the mount: {map, canvas, top, ctx, hud, camera, size, invalidate, groundInPainter}
   let running = false, lastSig = '', lastGroundAsk = 0;
@@ -96,10 +98,11 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
       t0: (spec.at ?? now) + (spec.delay ?? 0), dur: spec.dur,
       draw: typeof spec.draw === 'function' ? spec.draw : null,
       dom: spec.dom ?? null, el: null, seed: typeof spec.seed === 'number' ? spec.seed : hashSeed(spec.seed ?? spec.name ?? nextId),
-      info: !!spec.info, onEnd: spec.onEnd ?? null,
+      info: !!spec.info, onEnd: spec.onEnd ?? null, still: !!spec.still, shown: false,
     };
     effects.push(e);
     version++;
+    if (e.still) { try { m?.invalidate?.(); } catch { /* no map */ } }
     kick();
     return { id: e.id, cancel: () => remove(e) };
   }
@@ -108,9 +111,11 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
     const i = effects.indexOf(e);
     if (i < 0) return;
     effects.splice(i, 1);
-    try { e.el?.remove?.(); } catch { /* already gone */ }
-    e.el = null;
+    if (e.dom?.el) { if (e.shown) { try { e.dom.off?.(e.dom.el); } catch { /* the page's element is gone */ } } }
+    else { try { e.el?.remove?.(); } catch { /* already gone */ } }
+    e.el = null; e.shown = false;
     version++;
+    if (e.still) { try { m?.invalidate?.(); } catch { /* no map */ } }
   }
 
   /** Launch particles (nothing in the reduced and off modes). Same options as particles.emit; `t` defaults to now. */
@@ -146,6 +151,7 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
   function counts(t) {
     let live = 0, pending = 0, ground = 0;
     for (const e of effects) {
+      if (e.still) continue;   // a still effect is drawn whenever the map paints; it never keeps the frame loop awake
       if (liveAt(e, t)) { live++; if (e.layer === 'ground') ground++; }
       else if (pendingAt(e, t)) pending++;
     }
@@ -170,11 +176,34 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
    * The ground pass, for the tile painter: `paintGround(ctx, {zoom})` with the
    * context already in the map's world space. Returns how many things it drew.
    */
-  function paintGround(ctx, { zoom = 1 } = {}) {
-    if (!effects.length && !particles.count) return 0;
+  function paintGround(ctx, { zoom = 1, tiles = null } = {}) {
+    let n = runPainters('ground', ctx, zoom, tiles);
+    if (!effects.length && !particles.count) return n;
     const t = clock.now();
     const v = { ...view(), zoom }, sz = size();
-    return drawLayer(ctx, 'ground', t, v, sz) + particles.draw(ctx, t, { layer: 'ground', zoom });
+    n += drawLayer(ctx, 'ground', t, v, sz) + particles.draw(ctx, t, { layer: 'ground', zoom });
+    return n;
+  }
+
+  /**
+   * The pass over the props, for the tile painter: `paintOver(ctx, {zoom, tiles})`
+   * after the land's props and holdings, before the hosts. Only the standing
+   * painters use it (cloud shadows, chimney smoke: fx/idle.mjs).
+   */
+  function paintOver(ctx, { zoom = 1, tiles = null } = {}) { return runPainters('over', ctx, zoom, tiles); }
+
+  function runPainters(layer, ctx, zoom, tiles) {
+    const list = painters[layer];
+    if (!list.length) return 0;
+    const mode = motion();
+    const st = { t: clock.now(), zoom, px: 1 / zoom, tiles: tiles ?? [], mode, view: { ...view(), zoom }, size: size(), invalidate: () => { try { m?.invalidate?.(); } catch { /* no map */ } } };
+    let n = 0;
+    for (const fn of list) {
+      ctx.save?.();
+      try { n += fn(ctx, st) || 0; } catch (err) { globalThis.console?.warn?.('fx painter:', err); }
+      ctx.restore?.();
+    }
+    return n;
   }
 
   /**
@@ -243,6 +272,12 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
     for (const e of effects) {
       if (!e.dom) continue;
       const on = liveAt(e, t);
+      if (e.dom.el) {
+        // an element of the page itself (the bell's banner): driven while live, handed back after
+        if (on !== e.shown) { e.shown = on; try { (on ? e.dom.on : e.dom.off)?.(e.dom.el); } catch (err) { globalThis.console?.warn?.('fx hud:', e.name, err); } }
+        if (on) { try { e.dom.update?.(e.dom.el, stateOf(e, t, v, sz)); } catch (err) { globalThis.console?.warn?.('fx hud:', e.name, err); } }
+        continue;
+      }
       if (on && !e.el) {
         try { e.el = e.dom.make(m.hud.ownerDocument); if (e.el) m.hud.append(e.el); } catch (err) { globalThis.console?.warn?.('fx hud:', e.name, err); e.dom = null; continue; }
       }
@@ -360,7 +395,7 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
     if (m.raf) globalThis.cancelAnimationFrame?.(m.raf);
     try { m.ro?.disconnect(); } catch { /* none */ }
     m.canvas?.ownerDocument?.defaultView?.removeEventListener?.('resize', m.onResize);
-    for (const e of effects) { try { e.el?.remove?.(); } catch { /* gone */ } e.el = null; }
+    for (const e of effects) { if (e.dom?.el && e.shown) { try { e.dom.off?.(e.dom.el); } catch { /* gone */ } e.shown = false; } try { e.el?.remove?.(); } catch { /* gone */ } e.el = null; }
     m.top?.remove?.(); m.hud?.remove?.();
     m = null; running = false;
   }
@@ -391,11 +426,31 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
     add, emit, shake, shakeAt, play, define,
     names: () => [...defs.keys()],
     has: name => defs.has(name),
-    paintGround, drawTop, frame, kick, mount, unmount,
+    paintGround, paintOver, drawTop, frame, kick, mount, unmount,
+    /** A painter that runs inside the tile painter on every map paint: `onPaint('ground' | 'over', (ctx, {t, zoom, px, tiles, mode, view, size, invalidate}) => n)`. Returns its remover. */
+    onPaint(layer, fn) { const list = painters[layer]; if (!list || typeof fn !== 'function') return () => {}; list.push(fn); return () => { const i = list.indexOf(fn); if (i >= 0) list.splice(i, 1); }; },
+    /** The motion level in force ('full' | 'reduced' | 'off'). */
+    motionLevel: () => motion(),
+    /**
+     * A sound on the effects clock: `sound('clash', {delay, seed, level})`. The delay is in effect
+     * seconds (a slowed clock stretches it); a frozen clock plays nothing.
+     */
+    sound(name, { delay = 0, ...rest } = {}) {
+      if (clock.frozen) return false;
+      try { return audio().play(name, { ...rest, delay: delay / Math.max(0.05, clock.rate || 1) }); } catch { return false; }
+    },
+    /** The map this engine is mounted on (null before mount). */
+    get map() { return m?.map ?? null; },
+    /** The document of the page (null without one). */
+    get doc() { return m?.canvas?.ownerDocument ?? null; },
+    /** The names of the effects that are playing or still to start, in the order they were added (still ones included). */
+    playing() { const t = clock.now(); return effects.filter(e => liveAt(e, t) || pendingAt(e, t)).map(e => e.name); },
     /** What is live at the clock's time: {live, pending, ground}. */
     live: () => counts(clock.now()),
     /** Remove everything (effects, particles, shakes). */
     clear() { for (const e of [...effects]) remove(e); particles.clear(); shakes.length = 0; version++; lastSig = ''; kick(); },
+    /** Cut the life of the live effects of these names to end `at` seconds after they began (the demo ends a waiting state on its own clock). */
+    trim(names, at) { for (const e of effects) if (names.includes(e.name) && e.dur > at) e.dur = at; version++; },
     /** Keep finished effects (the demo rewinds the clock). */
     set keep(v) { keep = !!v; }, get keep() { return keep; },
     get mounted() { return !!m; },
@@ -412,3 +467,5 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
 export const fx = createEngine();
 /** The ground pass for the tile painter (map/sprites.mjs): after the territory wash, before the grid and the props. */
 export const paintGround = (ctx, opts) => fx.paintGround(ctx, opts);
+/** The pass over the props for the tile painter (map/sprites.mjs): after the props and holdings, before the hosts. */
+export const paintOver = (ctx, opts) => fx.paintOver(ctx, opts);

@@ -28,6 +28,7 @@ import { createTerrain } from './map/terrain.mjs';
 import { provincePixel } from './map/layers.mjs';
 import { startFx } from './fx/index.mjs';
 import { audio as fxAudio } from './fx/audio.mjs';
+import { emit as fxEmit } from './fx/bus.mjs';
 
 // Sprite art is on by default (?art=0 turns it off); ?art=1 adds the preview helpers below.
 const ART_ON = new URLSearchParams(globalThis.location?.search ?? '').get('art') !== '0';
@@ -571,7 +572,8 @@ function checkMoments() {
   const t = performance.now() / 1000;
   const fresh = detectMoments(momentPrev, next, t);
   momentPrev = next;
-  if (fresh.length) { FS.moments = liveMoments([...(FS.moments ?? []), ...fresh], t); peopleCache.at = -1; mapRef?.invalidate(); }
+  // each is reported on the effects bus and played by fx/stage.mjs (`own`: the viewer's own village or host)
+  for (const m of fresh) fxEmit('moment', { ...m, own: (FS.holdings ?? []).some(h => h.p === m.p && h.q === m.q && (h.site === m.site || h.tile === m.tile)) || (m.faction !== undefined && m.faction === FS.citizen?.faction && ['muster', 'depart'].includes(m.kind) && (FS.holdings ?? []).some(h => h.p === m.p && h.q === m.q)) });
 }
 
 function renderHudTick(now) {
@@ -579,7 +581,7 @@ function renderHudTick(now) {
   checkMoments();
   frameRoute();
   updateForecast();
-  ringToll(m.bell);
+  ringToll(m.bell, m.secondsLeft);
   renderIntro();
   const pill = $('bell-pill');
   if (pill) {
@@ -631,12 +633,21 @@ function tickFeed() {
     if (sum) items = [sum, ...items];
   }
   if (snap.bell !== null) feedBell = snap.bell;
+  // this turn's own results for the effects layer (fx/stage.mjs plays them in order and emits `turn:results`)
+  if (fresh.length) fxEmit('feed', { turn: snap.bell, fresh: fresh.map(x => ({ ...x, tile: feedTile(x), faction: FS.citizen?.faction ?? null })) });
   if (!items.length) return;
   FS.feed = feed.pushFeed(FS.feed ?? [], items);
   // Civ VII's "pan to combat", opt-in: the newest battle of the viewer's plays where it happened
   const b = fresh.find(x => x.battle);
   if (b && FS.ui?.autoPan) playBattle(b.battle.p, b.battle.q, b.battle.bell, { focus: true });
   invalidate('panel');
+}
+
+/** The tile a notification is about: the march's destination, else the viewer's village in that province. */
+function feedTile(x) {
+  const k = String(x.id ?? '').split(':')[1];
+  const m = (FS.marches ?? []).find(y => String(y.entry?.host ?? y.transit?.hostId ?? '') === k);
+  return m?.dest && m.dest.p === x.p && m.dest.q === x.q ? m.dest.tile : (FS.holdings ?? []).find(h => h.p === x.p && h.q === x.q)?.tile ?? null;
 }
 
 function renderFeed() {
@@ -688,8 +699,12 @@ export async function playBattle(p, q, bell, { focus = false, auto = false } = {
   const after = FS.provinces.get(`${p},${q}`)?.province ?? null;
   const scene = battleScene({ p, q, bell, inputs: r.inputs, before, after: after && after.resolvedNext > bell ? after : null });
   if (!scene) return false;
-  if (focus && mapRef) { const h = tileHex(p, q, scene.tiles[0].idx), c = project(h.q, h.r); mapRef.setView({ x: c.x, y: c.y, zoom: 2.1 }); }
-  FS.battles = [...(FS.battles ?? []).filter(b => !(b.scene.p === p && b.scene.q === q)), startBattle(scene, performance.now() / 1000, BATTLE_SPEEDS[fx] || 1)];
+  // the camera flies in when the map can (map.flyTo, the map track), else it is set there
+  if (focus && mapRef) { const h = tileHex(p, q, scene.tiles[0].idx), c = project(h.q, h.r), to = { x: c.x, y: c.y, zoom: 2.1 }; if (typeof mapRef.flyTo === 'function') mapRef.flyTo(to, 500); else mapRef.setView(to); }
+  const play = startBattle(scene, performance.now() / 1000, BATTLE_SPEEDS[fx] || 1);
+  FS.battles = [...(FS.battles ?? []).filter(b => !(b.scene.p === p && b.scene.q === q)), play];
+  // staged by the effects layer (fx/battle.mjs): the dimmed map, the scene on its own canvas, the title
+  fxEmit('battle', { play, focus, zoom: focus ? 2.1 : null, viewerFaction: FS.citizen?.faction ?? null, lossText: n => L`−${fmtNum(n)} 兵`, numText: n => fmtNum(n) });
   mapRef?.invalidate();
   return true;
 }
@@ -789,14 +804,18 @@ export function closeIntro() {
   title.markSeen(globalThis.localStorage);
   $('frontier-map')?.focus({ preventScroll: true });
 }
-let tollBell = null;
-/** The bell toll: the new bell's number rings over the map for a moment. */
-function ringToll(bell) {
+let tollBell = null, urgentBell = null;
+/**
+ * The bell toll: reported on the effects bus; fx/stage.mjs sends the brass ripple across the map, writes
+ * 「鐘が鳴りました — ターン N」 into #bell-toll and sounds the bell. In the last 30 s of a turn `turn:urgent` goes out once.
+ */
+function ringToll(bell, left = null) {
   if (!Number.isInteger(bell)) return;
   if (tollBell !== null && bell > tollBell) {
-    const el = $('bell-toll');
-    if (el) { el.textContent = title.tollText(bell); el.classList.remove('ring'); void el.offsetWidth; el.classList.add('ring'); }
+    const h = hud.activeHolding(FS);
+    fxEmit('bell', { turn: bell, home: h && Number.isInteger(h.tile) ? { p: h.p, q: h.q, tile: h.tile } : null });
   }
+  if (Number.isFinite(left) && left <= 30 && left >= 0 && urgentBell !== bell) { urgentBell = bell; fxEmit('turn:urgent', { turn: bell, secondsLeft: left }); }
   tollBell = bell;
 }
 

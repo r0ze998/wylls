@@ -391,7 +391,9 @@ test('fx demo samples: every sample plays effects that exist, with sample data o
   for (const lang of ['ja', 'en']) {
     setLang(lang);
     for (const [name, s] of Object.entries(SAMPLES)) {
-      assert.ok(s.secs > 0.5 && s.secs < 5, name);
+      assert.ok(s.secs > 0.5 && s.secs < 8, name);
+      // a set piece is a composition run on a page (test/web-frontier-setpieces.test.mjs plays every one)
+      if (s.run) { assert.equal(typeof s.run, 'function', name); assert.equal(s.cues, undefined, name); continue; }
       const cues = s.cues(c);
       assert.ok(cues.length >= 1, name);
       for (const [effect, a] of cues) {
@@ -407,8 +409,8 @@ test('fx demo samples: every sample plays effects that exist, with sample data o
   assert.equal(startFx({}), fx); assert.ok(fx.has('toll') && !fx.mounted);
 });
 
-test('fx audio: six synthesised sounds; silent before the first gesture and without WebAudio; mute is remembered', () => {
-  assert.deepEqual(SOUND_NAMES, ['bell', 'seal', 'clash', 'tick', 'shimmer', 'drum']);
+test('fx audio: eight synthesised sounds; silent before the first gesture and without WebAudio; mute is remembered', () => {
+  assert.deepEqual(SOUND_NAMES, ['bell', 'seal', 'clash', 'tick', 'shimmer', 'drum', 'confirm', 'refuse']);
   for (const n of SOUND_NAMES) assert.ok(SOUND_SECS[n] > 0);
   // the bell: inharmonic partials of a cast bell, the low ones ringing longest
   const ratios = BELL_PARTIALS.map(p => p[0]);

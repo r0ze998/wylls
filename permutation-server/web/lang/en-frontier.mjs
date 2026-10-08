@@ -28,6 +28,25 @@ export default {
   '勝利': 'Victory',
   '鐘が鳴りました — ターン {0}': 'The bell has tolled — Turn {0}',
 
+  // ---- set pieces (fx/stage.mjs, fx/battle.mjs): the verdict of a battle, the turn's own results, moments of the map
+  '{0} 対 {1}': '{0} vs {1}',
+  '共倒れ': 'Both sides fell',
+  '野営地を制圧': 'Camp cleared',
+  '撃退': 'Repelled',
+  '敗北': 'Defeat',
+  '{0}が守り切った': '{0} held',
+  '{0}の勝利': '{0} wins',
+  '開封されました': 'Revealed',
+  '封印済み · あなたにだけ見えます': 'Sealed · only you can see this',
+  '{0}が完成': '{0} complete',
+  '建物が完成': 'Building complete',
+  '軍勢を編成': 'Host mustered',
+  '野営地がなくなった': 'The camp is gone',
+  '出発': 'Set out',
+  '{0}の新しい村': 'New village of {0}',
+  '{0}の村になった': 'Now a village of {0}',
+  '村がなくなった': 'The village is gone',
+
   // ---- season status
   '予告済み': 'Announced',
   '作成済み': 'Created',

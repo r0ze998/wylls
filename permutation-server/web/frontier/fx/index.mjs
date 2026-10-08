@@ -11,6 +11,7 @@
 // vocabulary.
 import { fx } from './engine.mjs';
 import { installEffects } from './effects.mjs';
+import { installStage } from './stage.mjs';
 import { audio } from './audio.mjs';
 import { setMotionSource } from './motion.mjs';
 
@@ -24,7 +25,7 @@ let installed = false;
 /** Start the effects layer on a page. Returns the engine. */
 export function startFx({ map = null, canvas = null, effects = null, search = globalThis.location?.search ?? '', stage = null } = {}) {
   if (effects) setMotionSource(effects);
-  if (!installed) { installEffects(fx); installed = true; }
+  if (!installed) { installEffects(fx); installStage(fx); installed = true; }
   const doc = canvas?.ownerDocument ?? null;
   if (!doc?.createElement || !doc.head) return fx;
   if (!doc.getElementById('fx-css')) {

@@ -22,7 +22,7 @@ import { paintBattle, battleTiles } from '../people/battle.mjs';
 import { provinceTokens, paintToken, placePills } from '../people/units.mjs';
 import { onMiniLoad } from '../people/minis.mjs';
 import { paintMoments } from '../people/moments.mjs';
-import { paintGround as fxGround } from '../fx/engine.mjs';
+import { paintGround as fxGround, paintOver as fxOver } from '../fx/engine.mjs';
 import { BOUNDARY_HALO, BOUNDARY_INK, FOG, UNOPENED_FILL, paintSigil, provincePixel, PROVINCE_CIRCUMRADIUS } from './layers.mjs';
 
 const BASE = new URL('../art/', import.meta.url);
@@ -697,7 +697,7 @@ export class SpriteArt {
         });
       }
     }
-    if (!far) fxGround(ctx, { zoom });   // effects on the ground: over the territory wash, under the grid and the props (fx/engine.mjs)
+    if (!far) fxGround(ctx, { zoom, tiles });   // effects on the ground: over the territory wash, under the grid and the props (fx/engine.mjs)
     if (far === 'ground') return tiles.length;
     // the hex grid, exactly on the game's hexes, under the props (not in the far view: land, not a board)
     if (!far) {
@@ -762,6 +762,7 @@ export class SpriteArt {
     }
     // the far view's bitmap stops here: land, props, holdings, territory (map/sprites.mjs farBitmap)
     if (far) return tiles.length;
+    fxOver(ctx, { zoom, tiles });   // idle life over the props: cloud shadows, chimney smoke (fx/idle.mjs)
     // pass 2b: hosts on their tiles, back to front (hidden under fog unless the viewer's own)
     const hosts = [], tokens = [], pills = [];
     this.tokens = tokens; this.tokensMoving = false;

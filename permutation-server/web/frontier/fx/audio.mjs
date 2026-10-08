@@ -34,11 +34,11 @@
 import { hashSeed, rng } from './rand.mjs';
 
 export const MUTE_KEY = 'ps-ffx:v1';
-export const SOUND_NAMES = Object.freeze(['bell', 'seal', 'clash', 'tick', 'shimmer', 'drum']);
+export const SOUND_NAMES = Object.freeze(['bell', 'seal', 'clash', 'tick', 'shimmer', 'drum', 'confirm', 'refuse']);
 /** Seconds each sound lasts (its tail included): the offline render length and the voice's lifetime. */
-export const SOUND_SECS = Object.freeze({ bell: 9, seal: 0.6, clash: 0.7, tick: 0.12, shimmer: 1.8, drum: 1.6 });
+export const SOUND_SECS = Object.freeze({ bell: 9, seal: 0.6, clash: 0.7, tick: 0.12, shimmer: 1.8, drum: 1.6, confirm: 0.9, refuse: 0.5 });
 /** The shortest gap between two plays of one sound, in ms (a volley must not stack into noise). */
-const MIN_GAP = { bell: 1500, seal: 180, clash: 55, tick: 45, shimmer: 250, drum: 600 };
+const MIN_GAP = { bell: 1500, seal: 180, clash: 55, tick: 45, shimmer: 250, drum: 600, confirm: 200, refuse: 200 };
 const MASTER = 0.5;
 
 /**
@@ -265,6 +265,38 @@ const BUILD = {
       const slap = shaped(ac, at, [[0.002, vol * 0.5], [0.05, 0.0008]]);
       slap.connect(mix);
       burst(ac, at, 0.07, filter(ac, 'lowpass', 620, 0.8, slap), dt + 0.2);
+    }
+  },
+
+  // an action landed: two struck brass notes, a fourth apart, the second a little brighter
+  confirm(ac, { dry, wet }, t0, { level = 1 } = {}) {
+    const mix = ac.createGain(); mix.gain.value = 0.3 * level; mix.connect(dry);
+    const send = ac.createGain(); send.gain.value = 0.3; mix.connect(send); send.connect(wet);
+    for (const [dt, f, vol] of [[0, 784, 0.8], [0.095, 1046.5, 1]]) {
+      const at = t0 + dt;
+      for (const [ratio, amp, d] of [[1, 0.5, 0.42], [2.01, 0.2, 0.26], [3.02, 0.1, 0.16], [4.2, 0.05, 0.09]]) {
+        const g = shaped(ac, at, [[0.004, amp * vol], [d, 0.0004]]);
+        g.connect(mix);
+        tone(ac, 'sine', f * ratio, at, at + d + 0.03, g);
+      }
+      const click = shaped(ac, at, [[0.001, 0.18 * vol], [0.014, 0.0005]]);
+      click.connect(mix);
+      burst(ac, at, 0.02, filter(ac, 'bandpass', 3600, 0.9, click), dt + 0.4);
+    }
+  },
+
+  // an action was refused: two dull knocks on wood, falling, no ring
+  refuse(ac, { dry }, t0, { level = 1 } = {}) {
+    const mix = ac.createGain(); mix.gain.value = 0.42 * level; mix.connect(dry);
+    for (const [dt, f, vol] of [[0, 196, 1], [0.12, 147, 0.85]]) {
+      const at = t0 + dt;
+      const g = shaped(ac, at, [[0.003, 0.8 * vol], [0.11, 0.0006]]);
+      g.connect(mix);
+      const o = tone(ac, 'triangle', f, at, at + 0.14, g);
+      o.frequency.exponentialRampToValueAtTime(f * 0.62, at + 0.09);
+      const knock = shaped(ac, at, [[0.001, 0.4 * vol], [0.03, 0.0006]]);
+      knock.connect(mix);
+      burst(ac, at, 0.04, filter(ac, 'lowpass', 900, 0.8, knock), dt + 0.62);
     }
   },
 };

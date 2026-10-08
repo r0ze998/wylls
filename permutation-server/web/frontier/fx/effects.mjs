@@ -58,22 +58,22 @@ export function hexDisc(q, r, radius) {
   return out.sort((a, b) => hexDistance(q, r, a.q, a.r) - hexDistance(q, r, b.q, b.r));
 }
 
-function hexPath(ctx, x, y, inset = 0) {
+export function hexPath(ctx, x, y, inset = 0) {
   ctx.beginPath();
   hexPoints(x, y, inset).forEach(([px, py], i) => (i ? ctx.lineTo(px, py) : ctx.moveTo(px, py)));
   ctx.closePath();
 }
 /** A circle lying on the ground (an ellipse under the map's camera). */
-function groundRing(ctx, x, y, r) { ctx.beginPath(); ctx.ellipse?.(x, y, Math.max(0.01, r), Math.max(0.01, r * FLATTEN), 0, 0, TAU); }
+export function groundRing(ctx, x, y, r) { ctx.beginPath(); ctx.ellipse?.(x, y, Math.max(0.01, r), Math.max(0.01, r * FLATTEN), 0, 0, TAU); }
 /** A radial gradient, or its middle colour where the context makes none (a test proxy). */
-function radial(ctx, x, y, r0, r1, stops) {
+export function radial(ctx, x, y, r0, r1, stops) {
   const g = ctx.createRadialGradient?.(x, y, Math.max(0, r0), x, y, Math.max(0.01, r1));
   if (!g?.addColorStop) return stops[Math.min(1, stops.length - 1)][1];
   for (const [o, c] of stops) g.addColorStop(clamp01(o), c);
   return g;
 }
 /** Additive blending from here on (light adds up; the engine restores the context after each effect). */
-const lighter = ctx => { ctx.globalCompositeOperation = 'lighter'; };
+export const lighter = ctx => { ctx.globalCompositeOperation = 'lighter'; };
 
 // ------------------------------------------------------------------ flash: one tile
 /** `{…position, color}`: a rim closes on the tile, it burns white for a few frames, the colour drains away. */
@@ -193,13 +193,13 @@ function dust(a, env) {
 }
 
 // ------------------------------------------------------------------ burst: particles of one kind
-/** `{…position, kind (a particle kind), n (default 20), power, height (tiles), radius (tiles), life, size, color}`: a plain burst, for kinds the pieces above do not use yet (leaf, coin, smoke, mist, ink, ember). */
+/** `{…position, kind (a particle kind), n (default 20), power, height (tiles), radius (tiles), life, size, color | colors}`: a plain burst, for kinds the pieces above do not use yet (leaf, coin, smoke, mist, ink, ember). */
 function burst(a, env) {
   if (env.mode !== 'full') return null;
   const p = pointOf(a);
   const kind = a.kind ?? 'dust';
   const n = env.fx.emit(kind, { x: p.x, y: p.y, z: (a.height ?? 0) * R, n: a.n ?? 20, seed: env.seed, t: env.now, power: a.power ?? 1, radius: (a.radius ?? 0.15) * R,
-    life: a.life ?? 1, size: a.size ?? 1, up: a.up ?? 1, stagger: a.stagger ?? 0, color: a.color ?? null, layer: a.layer ?? 'top' });
+    life: a.life ?? 1, size: a.size ?? 1, up: a.up ?? 1, stagger: a.stagger ?? 0, color: a.color ?? null, colors: a.colors ?? null, layer: a.layer ?? 'top' });
   // the particles are the effect; this entry only gives the burst a handle and a name in the live count
   return n ? { layer: 'top', dur: 0.05, draw() {} } : null;
 }
@@ -446,8 +446,8 @@ function toll(a, env) {
 }
 
 // ------------------------------------------------------------------ HUD: banner, number, chip
-const setVars = (el, vars) => { for (const k in vars) el.style.setProperty(k, vars[k]); };
-const node = (doc, tag, cls, text) => { const el = doc.createElement(tag); el.className = cls; if (text !== undefined) el.textContent = text; return el; };
+export const setVars = (el, vars) => { for (const k in vars) el.style.setProperty(k, vars[k]); };
+export const node = (doc, tag, cls, text) => { const el = doc.createElement(tag); el.className = cls; if (text !== undefined) el.textContent = text; return el; };
 
 /**
  * `{title, sub, color (accent), tone: 'brass' | 'win' | 'loss', dur (default 2.8)}`:
@@ -463,22 +463,32 @@ function banner(a, env) {
   // the title's width in ems (full-width glyphs 1, others about 0.58, plus the letter spacing): it is sized to fit the map
   const ems = [...title].reduce((w, ch) => w + (/[\u2e80-\u9fff\uff00-\uffef\u3000-\u30ff]/.test(ch) ? 1 : 0.58) + 0.14, 0);
   const sizeFor = width => Math.max(20, Math.min(60, width * 0.066, (width * 0.76) / ems));
+  const dress = (doc, el) => {
+    el.dataset.tone = a.tone ?? 'brass';
+    if (a.color) el.style.setProperty('--fx-c', a.color);
+    if (Number.isFinite(a.y)) el.style.setProperty('--fx-by', String(a.y));
+    el.replaceChildren?.();
+    el.append(node(doc, 'span', 'fx-banner-band'), node(doc, 'span', 'fx-banner-rule fx-banner-rule-a'), node(doc, 'span', 'fx-banner-glint'),
+      node(doc, 'span', 'fx-banner-title', title));
+    if (a.sub) el.append(node(doc, 'span', 'fx-banner-sub', String(a.sub)));
+    el.append(node(doc, 'span', 'fx-banner-rule fx-banner-rule-b'));
+    if (a.lang) el.lang = a.lang;
+    return el;
+  };
+  // `into`: an element of the page that carries the banner for its life (the bell's toll line) instead of a node in #fx-hud
+  const host = typeof a.into === 'string' ? globalThis.document?.querySelector?.(a.into) ?? null : a.into ?? null;
+  const VARS = ['--fx-c', '--fx-by', '--fx-fs', '--fx-o', '--fx-band', '--fx-rule', '--fx-ts', '--fx-to', '--fx-tl', '--fx-so', '--fx-gx', '--fx-go', '--fx-l', '--fx-t', '--fx-w', '--fx-free'];
   return { layer: 'hud', dur, info: true, dom: {
-    make(doc) {
-      const el = node(doc, 'div', 'fx-banner');
-      el.dataset.tone = a.tone ?? 'brass';
-      if (a.color) el.style.setProperty('--fx-c', a.color);
-      el.append(node(doc, 'span', 'fx-banner-band'), node(doc, 'span', 'fx-banner-rule fx-banner-rule-a'), node(doc, 'span', 'fx-banner-glint'),
-        node(doc, 'span', 'fx-banner-title', title));
-      if (a.sub) el.append(node(doc, 'span', 'fx-banner-sub', String(a.sub)));
-      el.append(node(doc, 'span', 'fx-banner-rule fx-banner-rule-b'));
-      if (a.lang) el.lang = a.lang;
-      return el;
-    },
+    el: host,
+    on(el) { dress(el.ownerDocument, el); el.classList.add('fx-banner', 'fx-banner-host'); },
+    off(el) { el.classList.remove('fx-banner', 'fx-banner-host'); delete el.dataset.tone; delete el.dataset.wrap; for (const v of VARS) el.style.removeProperty?.(v); el.replaceChildren?.(); el.textContent = title; },
+    make(doc) { return dress(doc, node(doc, 'div', 'fx-banner')); },
     update(el, s) {
       const t = s.t;
       const fs = sizeFor(s.stage.width);
       el.style.setProperty('--fx-fs', `${fs.toFixed(1)}px`);
+      // a host element is outside #fx-hud: it is told where the map is itself
+      if (host) setVars(el, { '--fx-l': `${s.stage.left}px`, '--fx-t': `${s.stage.top}px`, '--fx-w': `${s.stage.width}px`, '--fx-free': `${s.stage.free}px` });
       // a long title on a narrow map breaks into balanced lines instead of running off the sides
       const wrap = fs * ems > s.stage.width * 0.8 ? 'true' : 'false';
       if (el.dataset.wrap !== wrap) el.dataset.wrap = wrap;
@@ -507,7 +517,7 @@ function banner(a, env) {
 }
 
 /** The viewport point an argument names: `{el: Element | selector}` (its centre), `{vx, vy}` viewport px, or a world position. */
-function viewportPoint(a, s, doc) {
+export function viewportPoint(a, s, doc) {
   const el = typeof a.el === 'string' ? doc?.querySelector?.(a.el) : a.el;
   if (el?.getBoundingClientRect) { const r = el.getBoundingClientRect(); if (r.width || r.height) return { x: r.left + r.width / 2, y: r.top + r.height / 2, rect: r, el }; }
   if (Number.isFinite(a.vx) && Number.isFinite(a.vy)) return { x: a.vx, y: a.vy, rect: null, el: null };
@@ -544,7 +554,7 @@ function number(a, env) {
   } };
 }
 
-/** `{el: Element | selector, color}`: the element flashes and two rings leave its outline (a status chip that changed state). */
+/** `{el: Element | selector, color, fill (how white it flashes, default 0.95)}`: the element flashes and two rings leave its outline (a status chip that changed state). */
 function chip(a, env) {
   const dur = env.mode === 'full' ? 0.75 : 0.5;
   const full = env.mode === 'full';
@@ -574,7 +584,7 @@ function chip(a, env) {
       const wind = span(t, 0, 0.06), ka = span(t, 0.06, 0.55), kb = span(t, 0.16, 0.75);
       setVars(el, {
         ...vars,
-        '--fx-fo': (t < 0.06 ? 0.25 * wind : 0.95 * (1 - outCubic(span(t, 0.06, 0.4)))).toFixed(3),
+        '--fx-fo': ((a.fill ?? 0.95) * (t < 0.06 ? 0.26 * wind : 1 - outCubic(span(t, 0.06, 0.4)))).toFixed(3),
         '--fx-ag': `${(t < 0.06 ? lerp(5, 0, wind) : lerp(0, 16, outExpo(ka))).toFixed(1)}px`,
         '--fx-ao': (t < 0.06 ? 0.7 * wind : (1 - ka) ** 1.5).toFixed(3),
         '--fx-bg': `${lerp(0, 26, outExpo(kb)).toFixed(1)}px`,

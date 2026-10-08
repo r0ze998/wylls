@@ -22,14 +22,25 @@
 /* ---- a title across the map (effects.mjs banner) */
 .fx-banner {
   --fx-c: #c9a24a;
-  position: absolute; left: var(--fx-l, 0px); top: calc(var(--fx-t, 0px) + var(--fx-free, 100vh) * 0.37); width: var(--fx-w, 100vw);
+  position: absolute; left: var(--fx-l, 0px); top: calc(var(--fx-t, 0px) + var(--fx-free, 100vh) * var(--fx-by, 0.37)); width: var(--fx-w, 100vw);
   transform: translateY(-50%);
   display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 20px 0 22px;
   opacity: var(--fx-o, 0); text-align: center;
 }
+/* The same banner carried by an element of the page (the bell's #bell-toll): every other rule of that element is
+   set aside for as long as it wears the class. Its values default to the finished, visible state, so it reads
+   even if nothing ever drives it (reduced motion, a stalled clock); the clock only animates toward that state. */
+#bell-toll.fx-banner-host {
+  --fx-o: 1; --fx-band: 1; --fx-rule: 1; --fx-ts: 1; --fx-to: 1; --fx-so: 1; --fx-go: 0;
+  position: fixed; z-index: 61; margin: 0; border: 0; border-radius: 0; background: none; box-shadow: none;
+  grid-column: auto; grid-row: auto; justify-self: auto; align-self: auto;
+  animation: none; pointer-events: none; font-size: inherit; letter-spacing: normal;
+}
+#bell-toll.fx-banner-host::before { content: none; animation: none; }
 .fx-banner-band {
   position: absolute; inset: 0;
   background:
+    linear-gradient(90deg, transparent 18%, color-mix(in srgb, var(--fx-c) 30%, transparent) 50%, transparent 82%),
     linear-gradient(180deg, rgba(240,212,138,.10), rgba(240,212,138,0) 22%, rgba(240,212,138,0) 78%, rgba(240,212,138,.08)),
     linear-gradient(90deg, rgba(8,18,16,0) 0%, rgba(8,18,16,.78) 16%, rgba(8,18,16,.93) 50%, rgba(8,18,16,.78) 84%, rgba(8,18,16,0) 100%);
   -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 14%, #000 86%, transparent 100%);
@@ -95,6 +106,18 @@
 .fx-chip-ring { position: absolute; border: 2px solid var(--fx-c); }
 .fx-chip-ring-a { inset: calc(var(--fx-ag, 0px) * -1); border-radius: calc(var(--fx-r) + var(--fx-ag, 0px)); box-shadow: 0 0 10px 0 var(--fx-c); opacity: var(--fx-ao, 0); }
 .fx-chip-ring-b { inset: calc(var(--fx-bg, 0px) * -1); border-radius: calc(var(--fx-r) + var(--fx-bg, 0px)); border-width: 1px; opacity: var(--fx-bo, 0); }
+
+/* ---- tokens flying from a tile to the HUD (pieces.mjs fly: a harvest into the resource strip) */
+.fx-fly { position: absolute; left: 0; top: 0; }
+.fx-fly-token {
+  position: absolute; left: 0; top: 0; width: 30px; height: 30px; margin: -15px 0 0 -15px;
+  border-radius: 50%; border: 1.5px solid #f0d48a;
+  background: radial-gradient(circle at 35% 30%, #2c4a45, #10221f 70%);
+  box-shadow: 0 0 12px 2px rgba(240,212,138,.55), 0 2px 6px rgba(0,0,0,.45);
+  transform: translate(var(--fx-x, 0px), var(--fx-y, 0px)) scale(var(--fx-s, 1)) rotate(var(--fx-r, 0deg));
+  opacity: var(--fx-o, 0);
+}
+.fx-fly-token svg { position: absolute; inset: 4px; width: 19px; height: 19px; fill: none; stroke: #f4e4b4; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
 
 /* ---- the demo switch's corner tag (fx/demo.mjs): bottom right of the visible map */
 .fx-demo-tag {
