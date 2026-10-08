@@ -47,10 +47,30 @@ test('the phone sheet: it rests at the peek with the drawer closed; a dock press
   assert.equal(await sheet(page), 'peek');
   assert.equal(await handle.getAttribute('aria-expanded'), 'false');
   assert.equal(await handle.getAttribute('aria-controls'), 'panel-body');
-  // at rest the peek is about a quarter of the screen and shows the village plate
+  // at rest the sheet shows the village plate and the one "next thing" under it, whole, and with the tab bar takes about a
+  // quarter of the screen (wave 2, UX design 11.11: it was the sheet alone at 20–30%, 32% with the tab bar)
   await page.locator('#panel-body [data-act="home"]').waitFor();
   const peek = await page.locator('#panel').boundingBox();
-  assert.ok(peek.height / 844 > 0.2 && peek.height / 844 < 0.3, `the peek is ${Math.round(peek.height)} px of 844`);
+  const foot = (844 - peek.y) / 844;
+  assert.ok(foot > 0.22 && foot < 0.29, `the sheet and the tab bar take ${Math.round(844 - peek.y)} px of 844`);
+  const next = await page.locator('#panel-body .next-row-go').boundingBox();
+  assert.ok(next && next.y + next.height <= peek.y + peek.height + 0.5, 'the next thing is whole inside the peek');
+  assert.equal(await page.locator('#panel-body .todo').isVisible(), false, 'the to-do lines wait for a raised sheet');
+  // over the map: at most five controls (the search and the layers button, home and the world chart; no plus and minus on a touch screen)
+  const floating = await page.evaluate(() => [...document.querySelectorAll('main button')].filter(b => !b.closest('#panel') && b.getClientRects().length && getComputedStyle(b).visibility !== 'hidden').map(b => b.id || b.dataset.map || b.className));
+  assert.ok(floating.length <= 5, `floating controls: ${floating.join(', ')}`);
+  assert.deepEqual(floating.filter(x => x === 'in' || x === 'out'), []);
+  // one layers button opens the four lenses by name; choosing one puts the list away
+  await page.locator('.lens-toggle').click();
+  assert.equal(await page.locator('.lens-toggle').getAttribute('aria-expanded'), 'true');
+  assert.deepEqual(await page.locator('.lens-list .lens:visible .lens-text').allTextContents(), ['領土', '軍事', '地形', '入植']);
+  await page.locator('.lens[data-lens="war"]').click();
+  assert.equal(await page.locator('.lens-toggle').getAttribute('aria-expanded'), 'false');
+  assert.equal(await page.locator('.lens-list').isVisible(), false);
+  assert.equal(await page.locator('.lens[data-lens="war"]').getAttribute('aria-pressed'), 'true');
+  // every resource is in the strip: the row scrolls sideways
+  const strip = await page.locator('#res-strip').evaluate(el => ({ n: el.querySelectorAll('[data-res]').length, scrolls: el.scrollWidth > el.clientWidth + 1 }));
+  assert.ok(strip.n >= 5 && strip.scrolls, `the strip holds ${strip.n} resources and scrolls: ${strip.scrolls}`);
   await handle.click();
   assert.equal(await sheet(page), 'half');
   await handle.click();
@@ -204,16 +224,29 @@ test('the map by keyboard: it opens on the viewer\'s village; M is the world cha
   await page.mouse.click(box.x + box.width / 2, box.y + (box.height - v.covered) / 2);
   const sel = await page.evaluate(async () => { const { FS } = await import('/frontier/fstate.mjs'); return FS.selected; });
   assert.deepEqual([sel?.p, sel?.q, sel?.idx], [HOME.p, HOME.q, HOME.tile], 'the village sits in the middle of the map above the sheet');
-  await page.locator('[data-map="in"]').focus();
-  for (let i = 0; i < 6; i++) await page.keyboard.press('Enter');
+  // (wave 2, UX design 11.11: a touch screen has no plus and minus buttons — two fingers zoom there; the keys still do,
+  // and the buttons are checked on a desktop below)
+  assert.equal(await page.locator('[data-map="in"]').isVisible(), false);
+  assert.equal(await page.locator('[data-map="out"]').isVisible(), false);
+  await page.locator('#frontier-map').focus();
+  for (let i = 0; i < 6; i++) await page.keyboard.press('+');
   assert.equal(await lod(), 'tile');
-  await page.locator('[data-map="out"]').focus();
-  for (let i = 0; i < 16; i++) await page.keyboard.press('Enter');
+  for (let i = 0; i < 16; i++) await page.keyboard.press('-');
   assert.equal(await lod(), 'world', 'zooming out still reaches the world view');
   await page.locator('[data-map="chart"]').focus();
   await page.keyboard.press('Enter');
   assert.equal(await lod(), 'tile', 'from the far view the world chart button goes home');
   assert.equal(await page.locator('.map-tools').getAttribute('aria-label'), '地図の操作');
+  // a desktop (a mouse): the plus and minus buttons are there and work with Enter
+  const wide = await open(t, { width: 1440, height: 900 });
+  const lodW = () => wide.locator('#frontier-map').getAttribute('data-lod');
+  await wide.locator('#frontier-map[data-lod="tile"]').waitFor();
+  await wide.locator('[data-map="out"]').focus();
+  for (let i = 0; i < 16; i++) await wide.keyboard.press('Enter');
+  assert.equal(await lodW(), 'world');
+  await wide.locator('[data-map="in"]').focus();
+  for (let i = 0; i < 16; i++) await wide.keyboard.press('Enter');
+  assert.equal(await lodW(), 'tile', 'the buttons zoom with Enter');
 });
 
 test('the language toggle by keyboard, and a visible focus ring on every focusable control', { timeout: 60_000 }, async t => {
@@ -402,16 +435,27 @@ test('the nation choice: six banners along the foot of the map, one choice, one 
   await page.locator('#panel[data-doc="stage"] .banner-pick').first().waitFor();
   assert.equal(await page.locator('.banner-pick').count(), 6);
   await page.locator('#panel').evaluate(el => Promise.all(el.getAnimations().map(x => x.finished.catch(() => {}))));
-  const stage = await page.locator('.banners').boundingBox();
-  assert.ok(stage.y > 900 * 0.35, 'the banners leave the upper part of the map to the chart');
+  // (wave 2, UX design 11.9: it asked for the upper 35%; the heading and the banners now keep to the lower half)
+  const stage = await page.locator('#panel').boundingBox(), head = await page.locator('.nations-head').boundingBox();
+  assert.ok(Math.min(stage.y, head.y) >= 900 / 2 - 1, `the heading and the banners keep to the lower half of the screen (top at ${Math.round(Math.min(stage.y, head.y))})`);
+  // no creed is cut: nothing in the stage is clamped or ends in an ellipsis
+  const cut = await page.evaluate(() => [...document.querySelectorAll('.nations *')].filter(el => { const s = getComputedStyle(el); return s.textOverflow === 'ellipsis' || (s.webkitLineClamp && s.webkitLineClamp !== 'none'); }).length);
+  assert.equal(cut, 0, 'no clamped text in the nation choice');
   assert.equal(await page.locator('[data-act="join"]').isDisabled(), true, 'nothing to confirm yet');
   await page.evaluate(() => { window.__nation = []; addEventListener('wylls:nation-focus', e => window.__nation.push(e.detail.faction)); });
   await page.locator('[data-nation="1"]').hover();
   await page.locator('[data-nation="3"]').focus();
   await page.locator('[data-nation="2"]').click();
   assert.deepEqual(await page.evaluate(() => window.__nation), [1, 3, 2], 'hover, focus and choice each name the nation');
+  // the keyboard's place is shown by the banner itself (a brass pointer over it, its rim), not by a web outline
+  const focus = await page.locator('[data-nation="3"]').evaluate(el => { el.focus(); const s = getComputedStyle(el), a = getComputedStyle(el, '::after'); return { outline: s.outlineColor, mark: a.content, h: parseFloat(a.height) }; });
+  assert.ok(/rgba\(0, 0, 0, 0\)|transparent/.test(focus.outline), `no visible web outline on a banner: ${focus.outline}`);
   assert.equal(await page.locator('[data-nation="2"]').getAttribute('aria-pressed'), 'true');
   assert.equal(await page.locator('.banner-pick[aria-pressed="true"]').count(), 1);
+  // the chosen banner: lifted, marked, and the confirm line says its leader and creed in full
+  assert.equal(await page.locator('.banner-pick[aria-pressed="true"] .bn-mark').count(), 1);
+  await page.mouse.move(700, 200);
+  assert.match(await page.locator('.nc-item:visible .nc-pitch').textContent(), /突撃歩兵/);
   assert.equal(await page.locator('[data-act="join"]').isDisabled(), false, 'one confirm');
   assert.equal(await page.locator('[data-act="pick-province"], [data-act="toggle-site"], [data-act="file-ticket"]').count(), 0, 'no site picker');
 });

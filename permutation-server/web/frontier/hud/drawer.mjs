@@ -18,8 +18,11 @@ import { L } from '../../lang.mjs';
 /** The viewer has a village (provisional or final). */
 export const holdsLand = FS => ['provisional', 'final'].includes(FS.land?.stage);
 
-/** The join flow is open by itself until a village exists (after the first refresh; never for a spectator). */
-export const joinOpen = FS => !!FS.playReady && !holdsLand(FS) && !FS.joinShut;
+/**
+ * The join flow is open by itself until a village exists (after the first refresh; never for a spectator),
+ * and never while the title scene stands (`FS.titleUp`: nothing of the game opens behind it).
+ */
+export const joinOpen = FS => !!FS.playReady && !holdsLand(FS) && !FS.joinShut && !FS.titleUp;
 
 /** What the drawer shows: `{kind}` or null when it is closed. */
 export function drawerOf(FS) {

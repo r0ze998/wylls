@@ -14,7 +14,7 @@ import { RULES, DEPART_STAMINA } from '../fmarch.mjs';
 import { miniCardUrl, MINI_KINDS } from '../people/minis.mjs';
 import { holdingName } from '../people/ui.mjs';
 import { icon } from '../hud/icons.mjs';
-import { cardHead, chip, bar } from './parts.mjs';
+import { cardHead, stamp, bar } from './parts.mjs';
 
 /** Every host of the viewer's first holding in the provinces the page holds (home and destinations). */
 export function hostRows(FS) {
@@ -64,7 +64,7 @@ export function render(FS) {
     return html`<li class="vcard host-card${r.inTransit ? ' locked' : ''}" data-unit="${r.unit}">
       <img class="unit-card f${f}" src="${miniCardUrl(f, MINI_KINDS[r.unit])}" alt="" width="60" height="75" loading="lazy" decoding="async">
       <div class="host-main">
-        <div class="host-top"><strong class="host-name">${name}</strong>${chip(st.text, st.tone)}</div>
+        <div class="host-top"><strong class="host-name">${name}</strong>${stamp(st.text, st.tone)}</div>
         <div class="host-stamina"><span class="host-k">${L`体力`}</span>${bar(r.stamina, RULES.STAMINA_CAP, r.stamina < DEPART_STAMINA ? 'bar-warn' : '')}<span class="host-v">${r.stamina}/${RULES.STAMINA_CAP}</span></div>
         <p class="host-where">${r.inTransit || r.state === 3 ? L`進軍に出ています` : home ? L`${holdingName(h)}にいます` : L`州 ${r.p},${r.q} にいます`}${r.pending ? html` · ${PENDING_TEXT[r.pending]?.() ?? ''}` : ''}</p>
       </div>

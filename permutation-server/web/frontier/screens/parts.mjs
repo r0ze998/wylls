@@ -34,6 +34,12 @@ export function fold(key, summary, body, { open = false, cls = '' } = {}) {
 /** A chip: a short state word. `tone`: '' | ok | warn | bad | info | you. */
 export const chip = (text, tone = '', ic = null) => html`<span class="chip${tone ? ` chip-${word(tone)}` : ''}">${ic ? icon(ic) : ''}${text}</span>`;
 
+/**
+ * A state as a stamped word (UX design 11.12: a status is a word pressed on the paper, not a rounded pill): ink in
+ * the tone's colour inside a double rule, a little askew, its ink uneven. `tone`: '' | ok | warn | bad | info.
+ */
+export const stamp = (text, tone = '') => html`<span class="stamp-word${tone ? ` stamp-${word(tone)}` : ''}"><span class="stamp-ink">${text}</span></span>`;
+
 /** A horizontal bar filled to `value / max` (decorative: the number stands beside it). */
 export function bar(value, max, cls = '') {
   return raw(`<svg class="bar${cls ? ` ${word(cls)}` : ''}" viewBox="0 0 100 4" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="bar-bg" width="100" height="4"/><rect class="bar-fg" width="${pct(value, max).toFixed(1)}" height="4"/></svg>`);

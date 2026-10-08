@@ -282,6 +282,15 @@ test('the order offers the three tip presets only, "never" first among the retre
   assert.match(out, /data-act="mc-bell" data-d="-1" aria-label="1ターン早く" disabled/);
   assert.match(out, /ターン 43 に到着/);
   assert.match(out, /data-act="march-send" >|data-act="march-send"\s*>/, 'ready to send');
+  // (wave 2, UX design 11.12) the order's body scrolls by itself and its foot is always whole: one line that sums the
+  // order up (where to, the arrival turn, the stance), a press on which shows the whole order, then the seal
+  assert.match(out, /^<section class="order" aria-labelledby="mc-title"><div class="order-body" data-scroll="order">/);
+  const foot = out.slice(out.indexOf('<footer class="order-foot">'));
+  assert.match(foot, /^<footer class="order-foot"><button type="button" class="order-sum" data-act="order-open" aria-label="命令のまとめ：[^"]+へ、ターン 43 に到着、構えは待機の構え">/);
+  assert.match(foot, /<strong class="os-dest">[^<]+<\/strong><\/span><span class="os-part"><svg[^>]*><use[^>]*#bell"\/><\/svg>ターン 43<\/span><span class="os-part"><svg[^>]*><use[^>]*#shield"\/><\/svg>待機の構え<\/span>/);
+  assert.ok(foot.indexOf('class="order-sum"') < foot.indexOf('data-act="march-send"'), 'the summary stands above the seal');
+  assert.doesNotMatch(out.slice(0, out.indexOf('<footer')), /data-act="march-send"|data-act="compose-close"/, 'the seal is in the foot, not in what scrolls');
+  assert.match(out, /到着のターンが終わるまであなたにしか見えません/, 'the seal lasts until the arrival turn ends (one sentence everywhere)');
   // no tile number and no lamports on the play screen: the place by its name, the costs under "More → details"
   assert.doesNotMatch(out.replace(/<label>[^<]*<input name="tile"/, ''), /マス \d|ランポート|キーパー|frontier\.wasm/);
   const blocked = String(order.render({ ...FS, compose: { ...FS.compose, tip: '0' } }));
@@ -294,6 +303,7 @@ test('the order offers the three tip presets only, "never" first among the retre
   assert.match(empty, /data-act="dest-quick" data-p="2" data-q="0" data-tile="32"/);
   assert.match(empty, /<details class="fold" data-fold="o-coords"/);
   assert.doesNotMatch(empty, /data-act="march-send"/);
+  assert.match(empty, /<footer class="order-foot"><button type="button" class="order-sum order-sum-empty" data-act="order-open">[\s\S]*行き先はまだ決まっていません[\s\S]*data-act="compose-close"/, 'the foot says nothing is chosen yet and offers the way out');
   // the Marches screen leads back to an order in progress
   assert.match(String(composer.render(FS)), /data-act="sel-open"/);
   assert.doesNotMatch(String(composer.render({ ...FS, compose: null })), /data-act="sel-open"/);

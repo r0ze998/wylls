@@ -20,7 +20,9 @@ const text = x => flat(x).replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<[^>]*>/g
 const JP = /[぀-ヿ㐀-鿿]/;
 const NAMES = /data-name>[^<]*</g;
 
-test('the nation choice: six standing banners with the leader and the creed, one choice, one confirm, no site picker', () => {
+// (wave 2, UX design 11.9: the banners are cloth — a rim, the cloth, the portrait, a dyed field for the words — and the
+// confirm line carries every nation's leader and creed in full, of which the stylesheet shows the looked-at one)
+test('the nation choice: six standing banners of cloth with the leader and the doctrine, one choice, one confirm that says the creed in full, no site picker', () => {
   setLang('ja');
   const base = { mode: 'play', land: { stage: 'none' }, citizen: null, overviews: new Map(), season: { joinGate: new Uint8Array(32) }, wallet: { address: 'W' }, joinDraft: {}, playReady: true, tab: 'map' };
   const out = String(joinScreen.render(base));
@@ -28,7 +30,15 @@ test('the nation choice: six standing banners with the leader and the creed, one
   const banners = [...out.matchAll(/<button type="button" class="banner-pick bn(\d)" data-act="pick-faction" data-f="(\d)" data-nation="(\d)" aria-pressed="(true|false)">/g)];
   assert.deepEqual(banners.map(m => [m[1], m[2], m[3], m[4]]), [0, 1, 2, 3, 4, 5].map(f => [String(f), String(f), String(f), 'false']), 'six banners, each names its nation for the map');
   assert.equal((out.match(/<svg[^>]*class="leader"/g) ?? []).length, 6, 'the leader\'s portrait on each');
-  assert.equal((out.match(/class="bn-creed">教義：/g) ?? []).length, 6, 'the creed in one line');
+  assert.equal((out.match(/<span class="bn-rim"><span class="bn-cloth"><span class="bn-face">/g) ?? []).length, 6, 'a rim, the cloth, the portrait');
+  assert.equal((out.match(/<span class="bn-field"><strong class="bn-name">[^<]+<\/strong><span class="bn-leader"><span data-name>[^<]+<\/span><\/span><span class="bn-creed">教義：/g) ?? []).length, 6, 'name, leader and doctrine on the dyed field');
+  // the confirm line: every nation's leader and creed, whole (no line is cut: the stylesheet shows the looked-at one); nothing is the default before a choice but the hint
+  const says = [...out.matchAll(/<div class="nc-item( nc-def)?" data-n="(\d)" (aria-live="polite"|aria-hidden="true")>[\s\S]*?<span class="nc-pitch">([^<]+)<\/span>/g)];
+  assert.deepEqual(says.map(m => [m[1] ?? '', m[2], m[3]]), [0, 1, 2, 3, 4, 5].map(f => ['', String(f), 'aria-hidden="true"']));
+  for (const m of says) assert.ok(m[4].length > 12 && !/…|\.\.\.$/.test(m[4]), `the creed is whole: ${m[4]}`);
+  assert.match(out, /<div class="nc-item nc-def"><span class="nc-hint">/, 'before a choice the line asks for one');
+  assert.doesNotMatch(out, /bn-pitch|line-clamp/, 'no creed is squeezed into a banner');
+  assert.doesNotMatch(out, /bn-mark/, 'no banner is marked before a choice');
   assert.match(out, /data-act="join" disabled>/, 'nothing to confirm before a banner is chosen');
   assert.equal((out.match(/data-act="join"/g) ?? []).length, 1, 'one confirm');
   assert.doesNotMatch(out, /data-act="(pick-province|toggle-site|file-ticket)"|<select|type="number"/, 'no site picker (owner decision V2)');
@@ -40,6 +50,10 @@ test('the nation choice: six standing banners with the leader and the creed, one
   assert.equal((picked.match(/aria-pressed="true"/g) ?? []).length, 1);
   assert.match(picked, /<button type="button" class="btn primary nc-btn" data-act="join" ><svg[^>]*><use href="art\/ui\/icons\.svg#banner"\/><\/svg>シンダーで始める<\/button>/);
   assert.match(picked, /class="nc-pitch">[^<]+</);
+  assert.match(picked, /<div class="nc-item nc-def" data-n="2" aria-live="polite">/, 'the chosen nation is the confirm line\'s default');
+  assert.equal((picked.match(/class="bn-mark"/g) ?? []).length, 1, 'the chosen banner carries its mark (not colour alone)');
+  assert.match(picked, /村を置ける場所 約 \d+/);
+  assert.doesNotMatch(text(picked), /扇区|区画/, 'plain words on the play screen');
   // without a wallet the banners still stand; the confirm offers to connect one
   const noWallet = String(joinScreen.render({ ...base, wallet: null, walletList: [{ name: 'Dev wallet' }], joinDraft: { faction: 2 } }));
   assert.equal((noWallet.match(/class="banner-pick/g) ?? []).length, 6);
@@ -60,41 +74,76 @@ test('the nation choice: six standing banners with the leader and the creed, one
   setLang('ja');
 });
 
-test('the wait for the village: who was joined, the countdown to the next turn, practice offered, the candidates by name', () => {
+// Rewritten in wave 2 (UX design 11.10): the wait showed a countdown to the next turn in every state, the refusal as a
+// red box with a small button, and the candidates as a plain list. Now: one state line and one clock — with a request
+// in, how long until the village is decided and the turn whose bell decides it; a refusal is one clear state (the
+// heading, a warning chip, one button, one line with the one countdown); each candidate row asks the map to go there.
+test('the wait for the village: one state line and one clock; a refusal is one clear state with one retry; the candidates fly to their sites; practice offered', () => {
   setLang('ja');
   const clock = { genesisTs: 1_000, window: () => 60, margin: 6 };
   const base = { mode: 'play', tab: 'map', playReady: true, wallet: { address: 'W' }, session: { publicKey: 'S' }, citizen: { faction: 0 }, clock, chain: { now: () => 1_000 + 42 * 600 + 150 },
     overviews: new Map(), holdings: [], view: { fog: true }, ui: { dismissed: [] } };
   assert.deepEqual(joinScreen.turnLeft(base), { left: 450, share: 0.25 });
   assert.equal(joinScreen.turnLeft({ ...base, chain: { now: () => 5 } }), null, 'before the season runs');
-  // joined, no ticket yet: this browser is placing it
+  const clocks = m => (m.match(/data-wait-clock/g) ?? []).length;
+  // joined, no request yet: this browser is sending it; the one clock is the time left in this turn
   const placing = String(joinScreen.render({ ...base, land: { stage: 'joined' }, autoTicket: { state: 'searching' } }));
   assert.match(placing, /<section class="vcard wait-card" aria-labelledby="join-sites">/);
   assert.match(placing, /アステルに加わりました/);
-  assert.match(placing, /<h3 id="join-sites">最初の村を置いています<\/h3>/);
-  assert.match(placing, /<strong class="turn-wait-v" data-turn-left>7:30<\/strong>/, 'the time left in this turn');
-  assert.match(placing, /data-turn-ring><svg class="ring"[^>]*>[\s\S]*?stroke-dasharray="25\.0 100"/);
+  assert.match(placing, /<h3 id="join-sites">村の申し込みを出しています<\/h3>/);
+  assert.match(placing, /<span class="turn-wait-k">次のターンまで<\/span><strong class="turn-wait-v" data-wait-clock>7:30<\/strong>/, 'the time left in this turn');
+  assert.match(placing, /data-wait-ring><svg class="ring"[^>]*>[\s\S]*?stroke-dasharray="25\.0 100"/);
+  assert.equal(clocks(placing), 1, 'one clock');
   assert.match(placing, /data-act="practice-open"/, 'the practice battle is offered on the same screen');
   assert.doesNotMatch(placing, /data-act="(pick-province|toggle-site|file-ticket)"/);
-  // a refusal shows once, on the card, with the retry
+  // a refusal: one clear state
   const failed = String(joinScreen.render({ ...base, land: { stage: 'joined' }, autoTicket: { state: 'failed', code: 'Unavailable' } }));
-  assert.equal((failed.match(/role="alert"/g) ?? []).length, 1);
-  assert.match(failed, /data-act="auto-ticket"/);
-  // a ticket: its candidate places by the name a village there would carry, never by a site's number
-  const ticket = String(joinScreen.render({ ...base, land: { stage: 'ticket', ticket: { bell: 42, next: 1, sites: [{ p: 2, q: 0, site: 3 }, { p: 2, q: 1, site: 5 }] } } }));
-  assert.match(ticket, /<h3 id="join-sites">最初の村を待っています<\/h3>/);
-  assert.match(ticket, /<li class="done">ラマール（州 2,0）/);
-  assert.match(ticket, /約11〜21分/);
-  assert.doesNotMatch(text(ticket), /区画 ?\d|ランポート|キーパー|M1/);
+  assert.match(failed, /<section class="vcard wait-card wait-stuck"/);
+  assert.match(failed, /<h3 id="join-sites">まだ村の申し込みができていません<\/h3>/);
+  assert.equal((failed.match(/role="alert"/g) ?? []).length, 1, 'said once');
+  assert.match(failed, /<p class="wait-warn" role="alert"><span class="warn-chip"><svg[^>]*><use href="art\/ui\/icons\.svg#alert"\/><\/svg>受け付けられませんでした<\/span><span class="wait-why">[^<]+<\/span><\/p>/, 'a warning chip with its mark, then why');
+  assert.equal((failed.match(/data-act="auto-ticket"/g) ?? []).length, 1, 'one retry button');
+  assert.match(failed, /<button type="button" class="btn primary" data-act="auto-ticket"><svg[^>]*><use[^>]*\/><\/svg>いますぐやり直す<\/button>/);
+  assert.match(failed, /次のターンに自動でやり直します（あと <span class="wait-left" data-wait-clock>7:30<\/span>）/, 'when it is tried again by itself, with the one countdown');
+  assert.equal(clocks(failed), 1);
+  assert.doesNotMatch(failed, /class="turn-wait"/, 'no second clock beside it');
+  const nofree = String(joinScreen.render({ ...base, land: { stage: 'joined' }, autoTicket: { state: 'nofree' } }));
+  assert.match(nofree, /近くに空いた場所がありません/);
+  assert.equal((nofree.match(/data-act="auto-ticket"/g) ?? []).length, 1);
+  // a request is in: the one large number is the wait for the village, with the turn whose bell decides it
+  const landT = { stage: 'ticket', ticket: { bell: 42, next: 1, sites: [{ p: 2, q: 0, site: 3 }, { p: 2, q: 1, site: 5 }] } };
+  const wc = joinScreen.waitClock({ ...base, land: landT });
+  // (filed in turn 42 at 2:30; the result comes at the end of turn 42 + 60 s + 6 s: 516 s from now, in turn 43)
+  assert.deepEqual([wc.kind, wc.mins, wc.turn, wc.text], ['result', 9, 43, '約 9 分']);
+  assert.ok(wc.share > 0.2 && wc.share < 0.25);
+  assert.equal(joinScreen.waitClock({ ...base, land: landT, chain: { now: () => 1_000 + 44 * 600 } }).text, 'まもなく', 'past its time: any moment');
+  assert.equal(joinScreen.waitClock({ ...base, land: { stage: 'joined' } }).kind, 'turn');
+  const ticket = String(joinScreen.render({ ...base, land: landT }));
+  assert.match(ticket, /<h3 id="join-sites">村の場所が決まるのを待っています<\/h3>/);
+  assert.match(ticket, /<span class="turn-wait-k">村が決まるまで<\/span><strong class="turn-wait-v" data-wait-clock>約 9 分<\/strong><span class="turn-wait-n">（ターン 43 の鐘）<\/span>/);
+  assert.equal(clocks(ticket), 1);
+  // its candidate places by the name a village there would carry, numbered, each a press that asks the map to go there
+  const rows = [...ticket.matchAll(/<li (class="done")?><button type="button" class="doc-row site-row" data-act="site-go" data-i="(\d)" data-p="(\d)" data-q="(\d)" data-site="(\d)" aria-label="[^"]+を地図で見る"><span class="site-n" aria-hidden="true">(\d)<\/span><span class="doc-row-t">([^<]+)/g)];
+  assert.deepEqual(rows.map(m => [m[1] ?? '', m[2], m[3], m[4], m[5], m[6], m[7].trim()]), [['class="done"', '0', '2', '0', '3', '1', 'ラマール（州 2,0）'], ['', '1', '2', '1', '5', '2', rows[1]?.[7].trim()]]);
+  assert.match(ticket, /（ふさがっていた）/);
+  assert.doesNotMatch(text(ticket) + text(placing) + text(failed), /区画 ?\d|ランポート|キーパー|M1|入植希望|乱数|第\d+鐘/, 'plain words: no machinery, no bell numbers');
   assert.match(ticket, /data-act="practice-open"/);
   // nothing pretends the village exists: the waiting screens never name a village of the viewer's
   for (const m of [placing, failed, ticket]) assert.doesNotMatch(m, /holding-title|data-act="harvest"|の(集落|町|都市|城塞)/);
   assert.equal(drawerOf({ ...base, land: { stage: 'ticket' } }).kind, 'wait');
+  // while the title scene stands nothing of this opens behind it
+  assert.equal(drawerOf({ ...base, land: { stage: 'ticket' }, titleUp: true }), null);
+  assert.equal(drawerOf({ ...base, land: { stage: 'none' }, citizen: null, titleUp: true }), null);
   setLang('en');
   const en = text(joinScreen.render({ ...base, land: { stage: 'ticket', ticket: { bell: 42, next: 0, sites: [{ p: 2, q: 0, site: 3 }] } } }));
   assert.doesNotMatch(en.replace(/Ramar|Lamar/g, ''), JP, en);
-  assert.match(en, /Until the next turn/);
+  assert.match(en, /Your village is decided in\s+about 9 min\s+\(the bell of turn 43\)/);
   assert.match(en, /You joined Aster/);
+  const enFailed = text(joinScreen.render({ ...base, land: { stage: 'joined' }, autoTicket: { state: 'failed', code: 'Unavailable' } }));
+  assert.doesNotMatch(enFailed, JP, enFailed);
+  assert.match(enFailed, /Your village request has not gone through yet/);
+  assert.match(enFailed, /Try again now/);
+  assert.match(enFailed, /It is tried again by itself next turn \(in\s+7:30\s*\)/);
   setLang('ja');
 });
 

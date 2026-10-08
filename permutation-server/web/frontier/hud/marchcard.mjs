@@ -4,7 +4,7 @@
 // destination is set at once — and the order shows everything the decision
 // needs in one place:
 //   where to (the place by its name, the way and its length), sealed: only
-//   this browser knows it until the arrival turn begins;
+//   this browser knows it until the arrival turn ends;
 //   the arrival turn as a stepper over the window, with the local time;
 //   the four stances and the retreat sizes as pictures to choose from;
 //   the defenders frozen at the destination as the bell starts (from the
@@ -147,22 +147,30 @@ export function render(FS) {
     ${Number.isInteger(faction) && MINI_KINDS[c.host.unit] ? html`<img class="unit-card order-unit f${faction}" src="${miniCardUrl(faction, MINI_KINDS[c.host.unit])}" alt="" width="40" height="50" decoding="async">` : ''}</header>`;
   const quick = (c.quick ?? []).filter(q => !(q.p === c.origin.p && q.q === c.origin.q && q.tile === c.host.tile));
   const quickList = quick.length ? html`${label(L`近くの行き先`)}<ul class="quick-dest">${quick.map(q => html`<li><button type="button" class="btn small" data-act="dest-quick" data-p="${q.p}" data-q="${q.q}" data-tile="${q.tile}">${icon(q.kind === 'camp' ? 'tent' : 'home')}${L`${tileName(FS, q.p, q.q, q.tile)}（州 ${q.p},${q.q}）`}</button></li>`)}</ul>` : '';
+  // the order's last lines stay in sight whatever the drawer's height (UX design 11.12): one line that sums the order
+  // up — where to, the arrival turn, the stance — then the seal; a press on the line shows the whole order
+  const foot = (sum, acts) => html`<footer class="order-foot">${sum}<div class="actions order-acts">${acts}</div></footer>`;
   if (!c.dest) {
-    return html`<section class="order order-empty" aria-labelledby="mc-title">${headBlock}
+    return html`<section class="order order-empty" aria-labelledby="mc-title"><div class="order-body" data-scroll="order">${headBlock}
       <p class="mc-hint">${icon('pin')}${L`地図で行き先のマスを選んでください。`}</p>
       <p class="muted">${L`光っているマスが、この軍勢の届く目安です。`}</p>
       ${quickList}
-      ${fold('o-coords', L`座標で指定する`, coordsForm(c))}
-      <div class="actions order-acts"><button type="button" class="btn" data-act="compose-close">${L`やめる`}</button></div>
+      ${fold('o-coords', L`座標で指定する`, coordsForm(c))}</div>
+      ${foot(html`<button type="button" class="order-sum order-sum-empty" data-act="order-open">${icon('pin', 'os-ic')}<span class="os-main">${L`行き先はまだ決まっていません`}</span>${icon('chevron', 'os-go')}</button>`,
+        html`<button type="button" class="btn" data-act="compose-close">${L`やめる`}</button>`)}
     </section>`;
   }
   const custom = m.retreat.choice === 'custom';
   const sides = def ? Math.max(c.host.troops, def.total, 1) : 1;
-  return html`<section class="order" aria-labelledby="mc-title">${headBlock}
+  const destName = tileName(FS, c.dest.p, c.dest.q, c.dest.tile);
+  const stanceText = STANCE_TEXT[stance];
+  const sum = html`<button type="button" class="order-sum" data-act="order-open" aria-label="${w ? L`命令のまとめ：${destName}へ、ターン ${fmtNum(w.value)} に到着、構えは${stanceText}` : L`命令のまとめ：${destName}へ、構えは${stanceText}`}">
+    <span class="os-main">${icon('pin', 'os-ic')}<strong class="os-dest">${destName}</strong></span>${w ? html`<span class="os-part">${icon('bell', 'os-ic')}${L`ターン ${fmtNum(w.value)}`}</span>` : ''}<span class="os-part">${icon('shield', 'os-ic')}${stanceText}</span>${icon('chevron', 'os-go')}</button>`;
+  return html`<section class="order" aria-labelledby="mc-title"><div class="order-body" data-scroll="order">${headBlock}
     ${label(L`行き先`)}
-    <div class="mc-dest"><strong class="mc-dest-name">${tileName(FS, c.dest.p, c.dest.q, c.dest.tile)}</strong>
+    <div class="mc-dest"><strong class="mc-dest-name">${destName}</strong>
       <span class="mc-route">${L`州 ${c.dest.p},${c.dest.q}`} · ${c.route ? routeLine(c.route) : c.routeError ? clientText(c.routeError) : L`道のりを探しています…`}</span>
-      <span class="mc-sealed">${icon('lock')}<span>${L`行き先と構えは、到着のターンが始まるまであなたにしか見えません。`}</span></span></div>
+      <span class="mc-sealed">${icon('lock')}<span>${L`行き先と構えは、到着のターンが終わるまであなたにしか見えません。`}</span></span></div>
     ${w ? html`${label(L`到着`)}${stepper({ cls: 'mc-bell', label: L`到着のターン`,
       prev: { act: 'mc-bell', data: { d: -1 }, label: L`1ターン早く`, disabled: w.value <= w.min },
       next: { act: 'mc-bell', data: { d: 1 }, label: L`1ターン遅く`, disabled: w.value >= w.max },
@@ -191,8 +199,8 @@ export function render(FS) {
         ${custom ? html`<label class="count-field">${L`倍率（守り手 ÷ 自軍、0.0001〜6）`}<input data-bind="ratio" type="number" step="0.05" min="0.0001" max="6" value="${m.retreat.ratio ?? ''}"></label>` : ''}</div>
       ${label(L`座標で指定する`)}${coordsForm(c)}`)}
     ${problems.length ? html`<ul class="problems">${problems.map(p => html`<li>${failureText({ code: p })}</li>`)}</ul>` : ''}
-    ${busy || c.step ? html`<ol class="send-track" aria-label="${L`送信の段階`}">${SEND_STEPS.map(s => html`<li class="${c.step === s ? 'now' : SEND_STEPS.indexOf(s) < SEND_STEPS.indexOf(c.step) ? 'done' : ''}">${STEP_TEXT[s]()}</li>`)}</ol>` : ''}
-    <div class="actions order-acts"><button type="button" class="btn primary seal-btn" data-act="march-send" ${raw(problems.length || busy || !c.route ? 'disabled' : '')}>${icon('seal')}${L`封をして出発する`}</button>
-      <button type="button" class="btn quiet" data-act="compose-close">${L`やめる`}</button></div>
+    ${busy || c.step ? html`<ol class="send-track" aria-label="${L`送信の段階`}">${SEND_STEPS.map(s => html`<li class="${c.step === s ? 'now' : SEND_STEPS.indexOf(s) < SEND_STEPS.indexOf(c.step) ? 'done' : ''}">${STEP_TEXT[s]()}</li>`)}</ol>` : ''}</div>
+    ${foot(sum, html`<button type="button" class="btn primary seal-btn" data-act="march-send" ${raw(problems.length || busy || !c.route ? 'disabled' : '')}>${icon('seal')}${L`封をして出発する`}</button>
+      <button type="button" class="btn quiet" data-act="compose-close">${L`やめる`}</button>`)}
   </section>`;
 }

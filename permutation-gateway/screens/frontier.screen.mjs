@@ -60,8 +60,26 @@ async function shot(page, { scene, vp, lang, problems }) {
   if (lay.overflow.scrollWidth > lay.overflow.innerWidth) problems.push(`${where}: horizontal overflow ${lay.overflow.scrollWidth} > ${lay.overflow.innerWidth}`);
   if (Math.abs(lay.fill.bottom - lay.fill.innerHeight) > 2) problems.push(`${where}: the layout ends at ${lay.fill.bottom} px of ${lay.fill.innerHeight}`);
   for (const c of lay.clipped) problems.push(`${where}: cut off at the side (${c.left}..${c.right} of ${vp.width}): <${c.tag}${c.id ? `#${c.id}` : ''} class="${c.cls}"> "${c.text}"`);
-  for (const [k, ok] of Object.entries(lay.landmarks)) if (!ok) problems.push(`${where}: landmark ${k} not visible`);
-  if (!lay.bellChip.visible || !/\d/.test(lay.bellChip.text)) problems.push(`${where}: bell chip "${lay.bellChip.text}" (visible ${lay.bellChip.visible})`);
+  if (scene.intro) {
+    // (wave 2, UX design 11.9: the landmark and turn-dial checks below asked for the game's shell behind the title card;
+    // the title is an opaque scene now, and what is checked is that nothing of the game shows or can be reached behind it)
+    const behind = await page.evaluate(() => {
+      const shows = el => { const s = getComputedStyle(el), r = el.getBoundingClientRect(); return s.visibility !== 'hidden' && s.display !== 'none' && r.width > 0 && r.height > 0; };
+      const out = [];
+      for (const sel of ['nav.tabs', '#bell-pill', '.strip-l', '#panel', '.map-tools', '#minimap', '#rail', '#hud-tl', '#frontier-map', '.banner-pick', '#attn-pill']) for (const el of document.querySelectorAll(sel)) if (shows(el)) out.push(sel);
+      for (const id of ['frontier', 'tabs']) if (!document.getElementById(id)?.inert) out.push(`#${id} is not inert`);
+      const intro = document.getElementById('intro'), bg = getComputedStyle(intro).backgroundColor;
+      if (!/^rgb\(/.test(bg)) out.push(`the title's ground is ${bg}`);
+      if (document.body.dataset.drawer !== 'closed') out.push('a drawer is open');
+      return out;
+    });
+    for (const x of behind) problems.push(`${where}: behind the title: ${x}`);
+    if (!lay.landmarks.banner) problems.push(`${where}: the sound and language buttons are not with the title`);
+    if (!/\d/.test(lay.bellChip.text)) problems.push(`${where}: the turn dial has no figure (it is not shown, but it runs)`);
+  } else {
+    for (const [k, ok] of Object.entries(lay.landmarks)) if (!ok) problems.push(`${where}: landmark ${k} not visible`);
+    if (!lay.bellChip.visible || !/\d/.test(lay.bellChip.text)) problems.push(`${where}: bell chip "${lay.bellChip.text}" (visible ${lay.bellChip.visible})`);
+  }
   for (const s of lay.small) problems.push(`${where}: target ${s.w}×${s.h} < ${vp.phone ? 44 : 24}: <${s.tag}${s.id ? `#${s.id}` : ''}${s.act ? ` data-act=${s.act}` : ''}> "${s.text}"`);
   const violations = await axe(page);
   for (const v of violations) problems.push(`${where}: axe ${v.impact} ${v.id} (${v.help}): ${v.nodes.join(' | ')}`);

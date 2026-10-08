@@ -64,7 +64,7 @@ test('the parts: a card head, a fold that keeps its key, bars and rings as SVG g
   assert.deepEqual(Object.keys(RETREAT_PIC), ['never', 'x2', 'x1.5', 'x1', 'x0.5']);
 });
 
-test('the village drawer: five short cards, the common action first, the rest behind folds', () => {
+test('the village drawer: five short parts, the stores as a ruled ledger, the common action first, the rest behind folds', () => {
   setLang('ja');
   const { FS } = world();
   const cards = holdingScreen.render(FS);
@@ -72,7 +72,12 @@ test('the village drawer: five short cards, the common action first, the rest be
   const out = flat(cards);
   assert.match(out, /<h3 id="holding-title">[^<]+の町<\/h3><span class="c-sub">町 · 州 2,0<\/span>/, 'the name first, then its tier and where');
   assert.match(out, /<header class="c-head"><span class="c-pic"><img src="[^"]+town_o_ember\.webp"/, 'the village as the map paints it');
-  assert.equal((out.match(/<li class="store/g) ?? []).length, 8, 'eight stores as tokens');
+  // (wave 2, UX design 11.12: the stores were eight tokens in boxes; they are lines of a ruled ledger now)
+  assert.equal((out.match(/<tr class="ledger-row/g) ?? []).length, 8, 'eight stores as lines of the ledger');
+  assert.match(out, /<table class="ledger"><caption class="visually-hidden">資源<\/caption>\s*<thead><tr><th scope="col">品目<\/th><th scope="col">在庫<\/th><th scope="col">上限<\/th><th scope="col">毎時<\/th>/);
+  assert.match(out, /<th scope="row"><svg class="ic ledger-ic"[^>]*><use href="art\/ui\/icons\.svg#grain"\/><\/svg><span class="ledger-name">食料<\/span><\/th>\s*<td class="ledger-val">[\d,]+<\/td>/);
+  assert.match(out, /<span class="stamp-word stamp-(ok|warn)"><span class="stamp-ink">[^<]+<\/span><\/span>/, 'the village\'s state is a stamped word');
+  assert.doesNotMatch(out, /class="store[ "]|stores-grid/);
   assert.match(out, /data-act="harvest"/);
   // building: the queue's size, three buildings in sight (what can go up now first), the rest behind one fold
   const build = String(cards[2]);
@@ -99,13 +104,14 @@ test('the village drawer: five short cards, the common action first, the rest be
   setLang('ja');
 });
 
-test('the hosts drawer: one card per host with a state chip and a stamina bar; the order is written on the map', () => {
+test('the hosts drawer: one entry per host with its state stamped and a stamina bar; the order is written on the map', () => {
   setLang('ja');
   const { FS } = world();
   FS.tab = 'hosts';
   const out = String(hostScreen.render(FS));
   assert.equal((out.match(/<li class="vcard host-card/g) ?? []).length, 2);
-  assert.match(out, /<strong class="host-name">槍兵 600<\/strong><span class="chip chip-ok">出陣できる<\/span>/);
+  // (wave 2: the state is a stamped word, not a pill)
+  assert.match(out, /<strong class="host-name">槍兵 600<\/strong><span class="stamp-word stamp-ok"><span class="stamp-ink">出陣できる<\/span><\/span>/);
   assert.match(out, /<span class="host-v">112\/120<\/span>/);
   assert.match(out, /data-act="compose" data-host="\d+"\s+data-stay="map">/, 'a march is composed on the map');
   assert.equal((out.match(/data-act="explore-open"/g) ?? []).length, 1, 'only the scouts explore');

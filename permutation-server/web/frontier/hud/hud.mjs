@@ -250,25 +250,60 @@ export function crestSvg(faction, { size = 26 } = {}) {
   return raw(`<svg class="crest" viewBox="0 0 24 28" width="${Math.round(size * 24 / 28)}" height="${size}" aria-hidden="true" focusable="false"><path d="M12 1.2l9.6 2.9v9.9c0 5.8-3.9 9.8-9.6 12.6C6.3 23.8 2.4 19.8 2.4 14V4.1Z" fill="${fill}" stroke="#f0d48a" stroke-width="1.3" stroke-linejoin="round"/><path d="M12 3.4l7.5 2.3v8.3c0 4.6-3 7.9-7.5 10.3Z" fill="${dark}" opacity=".28"/><g transform="translate(12 12.6)"><path d="${sigilPath(f ?? 6, 5)}" fill="#fffaf0" stroke="${dark}" stroke-width=".7"/></g></svg>`);
 }
 
-/** How many to-do lines stand above the plate (the rest is the count beside the heading and the "next thing" button). */
-export const TODO_LINES = 2;
+/** How many to-do lines the opened list shows at most (the count beside the heading says how many there are). */
+export const TODO_LINES = 5;
 
 /**
- * The to-do lines: the heading reads "this turn" with the bell beside it
- * (UX design section 6, turn wording), then at most `max` items, each a
- * press that goes there. Nothing when there is nothing to do.
+ * The to-do lines (UX design 11.11: there is ONE "next thing" signal, the button of the top strip; the lines
+ * wait behind a count): a tab that reads "this turn" with the bell and the number of items; pressed
+ * (`data-act="todo-toggle"`), it opens the list — one plaque, rows of equal width, a medallion per kind — each
+ * row a press that goes there. `open` true: the list stands open (a phone's raised sheet shows it so). Nothing
+ * when there is nothing to do.
  */
-export function renderTodo(FS, { max = TODO_LINES } = {}) {
+export function renderTodo(FS, { max = TODO_LINES, open = false } = {}) {
   const items = FS.mode === 'play' ? attentionItems(FS) : [];
   if (!items.length) return '';
-  return html`<div class="todo"><h2 class="todo-h">${icon('bell')}<span>${L`このターンにやること`}</span>${items.length > max ? html`<span class="todo-n">${fmtNum(items.length)}</span>` : ''}</h2>
-    <ol class="todo-list">${items.slice(0, max).map((x, i) => html`<li class="todo-${x.kind}"><button type="button" class="todo-btn" data-act="attn-go" data-i="${i}">${icon(TODO_ICON[x.kind] ?? 'flag', 'todo-ic')}<span class="todo-text">${x.text}</span></button></li>`)}</ol></div>`;
+  return html`<div class="todo${open ? ' todo-open' : ''}"><h2 class="todo-h"><button type="button" class="todo-tab" data-act="todo-toggle" aria-expanded="${open ? 'true' : 'false'}" aria-controls="todo-list">${icon('bell')}<span>${L`このターンにやること`}</span><span class="todo-n">${fmtNum(items.length)}</span>${icon('chevron', 'todo-mark')}</button></h2>
+    ${open ? html`<ol class="todo-list" id="todo-list">${items.slice(0, max).map((x, i) => html`<li class="todo-${x.kind}"><button type="button" class="todo-btn" data-act="attn-go" data-i="${i}"><span class="todo-medal">${icon(TODO_ICON[x.kind] ?? 'flag', 'todo-ic')}</span><span class="todo-text">${x.text}</span>${icon('next', 'todo-go')}</button></li>`)}</ol>` : ''}</div>`;
 }
 
-/** The plate's line for a viewer without a village yet (the built behaviour: the page files the site ticket itself). */
+/**
+ * The one "next thing" (UX design 11.11): while the guide runs, the guide's step (`guide`:
+ * screens/onboarding.mjs objectiveModel) — unless an attack may be coming, which comes first; afterwards the
+ * most pressing to-do item (`items`, as the guide's level lets through). `{kind: 'guide' | 'todo', icon,
+ * kicker, title, label, text, act, data, more}`: `act` / `data` are what a press does, `text` the whole of it
+ * in one line (the control's name), `more` how many other items wait. Null when nothing needs the player.
+ */
+export function nextThing(FS, { guide = null, items = null } = {}) {
+  const list = items ?? (FS.mode === 'play' ? attentionItems(FS) : []);
+  const urgent = list[0]?.kind === 'incoming';
+  if (guide && !urgent) {
+    const kicker = L`ガイド ${fmtNum(guide.n)}/${fmtNum(guide.total)}`;
+    const go = guide.go ?? { act: 'guide-open', data: {}, label: L`手順を見る` };
+    return { kind: 'guide', icon: 'compass', kicker, title: guide.title, label: go.label, text: L`${kicker}：${guide.title}（${go.label}）`, hint: guide.text, act: go.act, data: go.data ?? {}, more: list.length };
+  }
+  if (!list.length) return null;
+  const x = list[0];
+  return { kind: 'todo', icon: TODO_ICON[x.kind] ?? 'flag', kicker: '', title: x.short ?? x.text, label: '', text: attentionText(list), hint: x.text ?? '', act: 'attn', data: {}, more: list.length - 1, item: x.kind };
+}
+
+const dataAttrs = d => raw(Object.entries(d ?? {}).map(([k, v]) => `data-${String(k).replace(/[^\w-]/g, '')}="${String(v).replace(/[^\w.,:-]/g, '')}"`).join(' '));
+
+/**
+ * The next thing as a line under the village plate (a phone's sheet at rest: the top strip has no room for
+ * it): the step or the item by name with its one press; for the guide, a second small button opens the steps.
+ */
+export function renderNextRow(next) {
+  if (!next) return '';
+  return html`<div class="next-row next-${next.kind}">
+    <button type="button" class="next-row-go" data-act="${next.act}" ${dataAttrs(next.data)} aria-label="${L`次にやること：${next.text}`}"><span class="todo-medal">${icon(next.icon, 'todo-ic')}</span><span class="next-row-t">${next.kicker ? html`<span class="next-kicker">${next.kicker}</span>` : ''}<strong>${next.title}</strong></span>${next.label ? html`<span class="next-row-do">${next.label}</span>` : next.more > 0 ? html`<span class="todo-n">${L`ほか ${fmtNum(next.more)}`}</span>` : ''}${icon('next', 'todo-go')}</button>
+    ${next.kind === 'guide' ? html`<button type="button" class="next-row-steps" data-act="guide-open" aria-label="${L`ガイドの手順を見る`}">${icon('more')}</button>` : ''}</div>`;
+}
+
+/** The plate's line for a viewer without a village yet (the built behaviour: the page asks for the village itself). */
 function waitingLine(FS) {
   const stage = FS.land?.stage ?? 'none';
-  return stage === 'ticket' ? L`村はまだありません。入植希望を自動で出しました（次の鐘ごろに決まります）。` : L`村はまだありません。入植希望を自動で出しています。`;
+  return stage === 'ticket' ? L`村はまだありません。村の申し込みは済んでいます（次のターンの鐘のあとに決まります）。` : L`村はまだありません。村の申し込みを自動で出しています。`;
 }
 
 /**
@@ -314,11 +349,11 @@ export function renderPlate(FS) {
 }
 
 /**
- * The bottom-left corner (`aside#rail`): the to-do lines, then the plate.
+ * The bottom-left corner (`aside#rail`): the to-do tab (its list when `todoOpen`), then the plate.
  * The spectator sees the standings there instead.
  */
-export function renderRail(FS) {
-  if (FS.mode === 'spectate') return html`<div class="plate plate-watch"><h2 class="todo-h">${icon('eye')}<span>${L`国の順位`}</span></h2>${renderStandingsList(FS)}<p class="plate-note">${L`村の数は最新の概観（鐘ごと）から数えています。`}</p></div>`;
+export function renderRail(FS, { todoOpen = false } = {}) {
+  if (FS.mode === 'spectate') return html`<div class="plate plate-watch"><h2 class="todo-h todo-h-plain">${icon('eye')}<span>${L`国の順位`}</span></h2>${renderStandingsList(FS)}<p class="plate-note">${L`村の数は最新の概観（鐘ごと）から数えています。`}</p></div>`;
   if (FS.mode !== 'play') return '';
-  return html`${renderTodo(FS)}${renderPlate(FS)}`;
+  return html`${renderTodo(FS, { open: todoOpen })}${renderPlate(FS)}`;
 }

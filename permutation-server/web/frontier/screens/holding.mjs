@@ -1,7 +1,7 @@
 // The village drawer (web design §7.4; contract §5.10, I-29, I-56; UX design
 // sections 1 and 6): short parchment cards with the common action first —
 //   the village (name, tier, state, shield);
-//   its stores as eight tokens with a bar to the cap, and "harvest";
+//   its stores as a ruled ledger (a line per resource: amount, cap, rate), and "harvest";
 //   building: the queue, the three buildings that can go up now, the rest
 //     behind a fold;
 //   the troops: the reserve, then the action that makes sense now (muster
@@ -22,7 +22,7 @@ import { miniCardUrl, MINI_KINDS } from '../people/minis.mjs';
 import { span, NEAR_FULL_SECS } from '../hud/hud.mjs';
 import { termButton } from '../hud/glossary.mjs';
 import { inTime, row, timeHtml } from './shell.mjs';
-import { cardHead, label, fold, chip, bar } from './parts.mjs';
+import { cardHead, label, fold, chip, stamp } from './parts.mjs';
 import { villagePic } from '../hud/place.mjs';
 
 /** How many buildings stand in sight before the fold. */
@@ -92,16 +92,24 @@ export function holdingModel(FS) {
 /** A resource's mark on parchment: the strip's icon on a dark coin. */
 export const resCoin = resource => html`<span class="res-coin">${icon(RESOURCE_ICON[resource] ?? (resource === 'Walls' ? 'shield' : 'crate'), `res-c-${resource}`)}</span>`;
 
-/** One store: the mark, the amount, a bar to the cap, the hourly rate. */
-function storeTile(s) {
+/**
+ * One store as a line of the ledger (UX design 11.12: resources on ink rules, not cards): the mark and the
+ * name, the amount, the cap, the hourly rate. A full store is said in a word (stamped) and in the amount's ink.
+ */
+function storeRow(s) {
   const full = s.cap > 0 && s.value >= s.cap;
   const near = !full && s.cap > 0 && s.perHour > 0 && ((s.cap - s.value) / s.perHour) * 3600 <= NEAR_FULL_SECS;
-  return html`<li class="store${full ? ' store-full' : ''}" title="${RESOURCES[s.resource]} ${fmtNum(s.value)} / ${fmtNum(s.cap)}">
-    <span class="store-top">${resCoin(s.resource)}<strong class="store-val">${fmtNum(s.value)}</strong></span>
-    <span class="store-name">${RESOURCES[s.resource]}</span>
-    ${bar(s.value, s.cap, full ? 'bar-bad' : near ? 'bar-warn' : '')}
-    <span class="store-rate">${full ? html`<span class="flag">${L`満杯`}</span>` : s.perHour > 0 ? L`+${fmtNum(s.perHour)}/時` : html`<span aria-hidden="true">—</span>`}</span>
-    <span class="visually-hidden">${L`上限 ${fmtNum(s.cap)}`}</span></li>`;
+  return html`<tr class="ledger-row${full ? ' ledger-full' : near ? ' ledger-near' : ''}">
+    <th scope="row">${icon(RESOURCE_ICON[s.resource] ?? 'crate', 'ledger-ic')}<span class="ledger-name">${RESOURCES[s.resource]}</span></th>
+    <td class="ledger-val">${fmtNum(s.value)}</td>
+    <td class="ledger-cap"><span aria-hidden="true">/ </span>${fmtNum(s.cap)}</td>
+    <td class="ledger-rate">${full ? stamp(L`満杯`, 'bad') : s.perHour > 0 ? L`+${fmtNum(s.perHour)}/時` : html`<span aria-hidden="true">—</span>`}</td></tr>`;
+}
+/** The stores as a ruled ledger: a line per resource. */
+export function renderLedger(stores) {
+  return html`<table class="ledger"><caption class="visually-hidden">${L`資源`}</caption>
+    <thead><tr><th scope="col">${L`品目`}</th><th scope="col">${L`在庫`}</th><th scope="col">${L`上限`}</th><th scope="col">${L`毎時`}</th></tr></thead>
+    <tbody>${stores.map(storeRow)}</tbody></table>`;
 }
 
 /** One building as a row: what it gives, how long, what it costs, and the one button. */
@@ -141,22 +149,22 @@ export function render(FS) {
   const vigilHour = Math.floor(vigil / 60);
 
   const head = html`<section class="vcard village-head" aria-labelledby="holding-title">
-    ${cardHead({ id: 'holding-title', ic: 'home', pic: villagePic(faction, h.tier), title: holdingName(h), sub: L`${TIERS[h.tier] ?? ''} · 州 ${h.p},${h.q}`, side: chip(HOLDING_STATES[f.state], f.state === 'final' ? 'ok' : 'warn') })}
+    ${cardHead({ id: 'holding-title', ic: 'home', pic: villagePic(faction, h.tier), title: holdingName(h), sub: L`${TIERS[h.tier] ?? ''} · 州 ${h.p},${h.q}`, side: stamp(HOLDING_STATES[f.state], f.state === 'final' ? 'ok' : 'warn') })}
     ${f.shieldLeft > 0 || f.dormantIn <= 0 || f.state === 'provisional' ? html`<ul class="fact-chips">
       ${f.shieldLeft > 0 ? html`<li>${chip(html`${L`保護`} ${inTime(f.shieldLeft)}`, 'info', 'shield')}${termButton('shield')}</li>` : ''}
       ${f.dormantIn <= 0 ? html`<li>${chip(L`休眠中`, 'bad', 'moon')}${termButton('dormant')}</li>` : ''}
-      ${f.state === 'provisional' ? html`<li class="fact-note">${L`同じ鐘の入植希望がすべて決まると確定します。`}</li>` : ''}</ul>` : ''}
+      ${f.state === 'provisional' ? html`<li class="fact-note">${L`同じターンの申し込みがすべて決まると確定します。`}</li>` : ''}</ul>` : ''}
   </section>`;
 
   const stores = html`<section class="vcard" id="hp-harvest" aria-labelledby="hp-harvest-h">
-    ${cardHead({ id: 'hp-harvest-h', ic: 'crate', title: L`資源`, side: full.length ? chip(L`満杯 ${fmtNum(full.length)}`, 'bad') : '' })}
-    <ul class="stores-grid">${m.stores.map(storeTile)}</ul>
+    ${cardHead({ id: 'hp-harvest-h', ic: 'crate', title: L`資源`, side: full.length ? html`<span class="c-count c-count-bad">${L`満杯 ${fmtNum(full.length)}`}</span>` : '' })}
+    ${renderLedger(m.stores)}
     <div class="actions"><button type="button" class="btn primary" data-act="harvest" ${raw(m.blocks.Harvest.length ? 'disabled' : '')}>${icon('grain')}${L`収穫する`}</button>
       ${full.length ? html`<span class="muted">${L`${full.map(s => RESOURCES[s.resource]).join(' / ')}が満杯：これ以上は増えません`}</span>` : ''}</div>
     ${blockedLine(m.blocks.Harvest)}</section>`;
 
   const build = html`<section class="vcard" id="hp-build" aria-labelledby="hp-build-h">
-    ${cardHead({ id: 'hp-build-h', ic: 'hammer', title: L`建設`, side: chip(L`建設中 ${fmtNum(building.length)}/4`, queueFull ? 'warn' : '') })}
+    ${cardHead({ id: 'hp-build-h', ic: 'hammer', title: L`建設`, side: html`<span class="c-count${queueFull ? ' c-count-warn' : ''}">${L`建設中 ${fmtNum(building.length)}/4`}</span>` })}
     ${f.queue.length ? html`<ul class="queue">${f.queue.map(q => html`<li>${icon(q.doneIn > 0 ? 'hourglass' : 'check')}<strong>${BUILDINGS[BUILD_ITEMS[q.kind]?.resource] ?? `#${q.kind}`}</strong><span class="queue-t">${q.doneIn > 0 ? L`あと ${span(q.doneIn)}` : L`完成`}</span></li>`)}</ul>` : html`<p class="muted">${L`建設の列は空です`}</p>`}
     <ul class="build-list">${shown.map(c => buildRow(c, blockedOf(c)))}</ul>
     ${rest.length ? fold('v-build', L`ほかの建物（${fmtNum(rest.length)}）`, html`<ul class="build-list">${rest.map(c => buildRow(c, blockedOf(c)))}</ul>`) : ''}
@@ -177,7 +185,7 @@ export function render(FS) {
   // the action that makes sense now stands open; the other waits behind a fold
   const musterFirst = musterable >= 100;
   const troops = html`<section class="vcard" aria-labelledby="hp-troops-h">
-    ${cardHead({ id: 'hp-troops-h', ic: 'sword', title: L`兵`, side: chip(L`控え ${fmtNum(musterable)}`) })}
+    ${cardHead({ id: 'hp-troops-h', ic: 'sword', title: L`兵`, side: html`<span class="c-count">${L`控え ${fmtNum(musterable)}`}</span>` })}
     ${label(musterFirst ? L`軍勢を編成する` : L`兵を訓練する`)}
     ${musterFirst ? musterForm : trainForm}
     ${fold(musterFirst ? 'v-train' : 'v-muster', musterFirst ? L`兵を訓練する` : L`軍勢を編成する`, musterFirst ? trainForm : musterForm)}</section>`;
@@ -194,7 +202,7 @@ export function render(FS) {
       <p class="muted">${L`変更は24時間以上あとの最初の UTC 0時から有効で、週に1回までです。`}</p></form>`)}
     ${fold('v-facts', html`${icon('scroll')}${L`村の詳細`}`, html`<dl class="facts">
       ${row(L`段階`, html`${TIERS[h.tier] ?? h.tier} · ${HOLDING_STATES[f.state]}${termButton('tier')}`)}
-      ${f.state === 'provisional' ? row(L`確定`, f.finalTs ? Lh`早くても ${timeHtml(f.finalTs)} 以降に確定します。` : L`同じ鐘の入植希望がすべて決まってから`) : ''}
+      ${f.state === 'provisional' ? row(L`確定`, f.finalTs ? Lh`早くても ${timeHtml(f.finalTs)} 以降に確定します。` : L`同じターンの申し込みがすべて決まってから`) : ''}
       ${f.shieldLeft > 0 ? row(L`保護`, inTime(f.shieldLeft)) : ''}
       ${row(L`休眠まで`, html`${f.dormantIn > 0 ? inTime(f.dormantIn) : L`休眠中`}${termButton('dormant')}`)}
     </dl>`)}</section>`;
