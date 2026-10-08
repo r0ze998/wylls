@@ -568,7 +568,8 @@ export class SpriteArt {
     if (lens === 'settle') paintSettleLens(ctx, entries, zoom, levelAt);
     // a clash this bell: a small crossed-swords mark, at province detail only (the world view stays a map)
     if (lod === 'province') for (const e of entries) {
-      if (!e.rec?.clash || (limited && svOf(e)?.max !== L3)) continue;
+      // (the mark stands on the province's centre: it is drawn when that tile is in the viewer's sight)
+      if (!e.rec?.clash || (limited && (c0 => survey.levelAt(c0.q, c0.r))(provinceCentre(e.p, e.q)) !== L3)) continue;
       const c = provincePixel(e.p, e.q), r = 7 / zoom;
       ctx.save(); ctx.translate(c.x, c.y);
       ctx.fillStyle = 'rgba(120,28,18,.85)'; ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();

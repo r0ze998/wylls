@@ -132,7 +132,9 @@ function glyph(g, dots, t, detail) {
     }
   } else if (name === 'forest') {
     if (detail === 0) return;
-    const spots = [[-16 + a, 7, 1], [-3, -8 + b, 1.12], [13 - a, 6, 1], [3 + b, 9, 0.86]];
+    // two or three trees, or a small stand of four: no two tiles of a wood alike
+    const all = [[-15 + a, 6, 1], [-1, -7 + b, 1.12], [13 - a, 7, 0.95], [4 + b, 10, 0.82]];
+    const spots = pick < 0.3 ? [all[0], all[2]] : pick < 0.78 ? all.slice(0, 3) : all;
     spots.forEach(([dx, dy, k], i) => {
       const tx = x + dx, ty = y + dy;
       // (a sign from the middle distance: two or three small firs, filled)
@@ -562,7 +564,8 @@ export function paintOwnRim(g, villages, zoom) {
     if (provisional && RADIUS * zoom >= 14) {
       const c = project(h.q, h.r), text = L`仮`;
       g.font = `700 ${12 * k}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
-      const tw = g.measureText(text).width + 14 * k, th = 18 * k, tx = c.x + RADIUS * 0.9, ty = c.y - RADIUS * 0.95;
+      // (on the lower edge of the land, clear of the village's name)
+      const tw = g.measureText(text).width + 14 * k, th = 18 * k, tx = c.x, ty = c.y + ((WORKED_RADIUS[v.tier ?? 0] ?? 1) * 1.5 + 1) * RADIUS * FLATTEN;
       g.fillStyle = 'rgba(22,30,26,.92)'; g.beginPath(); g.roundRect?.(tx - tw / 2, ty - th / 2, tw, th, 9 * k); g.fill();
       g.strokeStyle = YOU; g.lineWidth = 1.2 * k; g.stroke();
       g.fillStyle = YOU; g.fillText(text, tx, ty + 0.5 * k);

@@ -357,9 +357,8 @@ test('the minimap: chart for what is not surveyed, the surveyed tiles on it, the
   MINI.paintMinimap(ctx, { recs, rings: 3, survey: sv, now: 300 });
   assert.ok(fills.includes(MINI.MINI_SURVEY.chart) && fills.includes(MINI.MINI_SURVEY.sight) && fills.includes(MINI.MINI_SURVEY.you));
   assert.equal(fills.includes(FACTION_FILL[3]), false, 'no province is coloured by who holds most of it');
-  const inSight = [...recs.values()].filter(r => sv.province(r.p, r.q).max === S.L3).length;
-  assert.ok(inSight >= 1 && inSight < recs.size);
-  assert.equal(fills.filter(f => f === '#ff5a3c').length, inSight, 'a clash is marked only where some of the province is in sight');
+  assert.equal([...recs.values()].filter(r => sv.province(r.p, r.q).max === S.L3).length, 2, 'two provinces have tiles in sight');
+  assert.equal(fills.filter(f => f === '#ff5a3c').length, 1, 'a clash is marked only where the province\'s centre is in sight, as on the map');
   // the spectator's minimap: every realm, as before
   fills.length = 0;
   MINI.paintMinimap(ctx, { recs, rings: 3, survey: S.openSurvey(3) });

@@ -14,7 +14,7 @@
 import { L } from '../../lang.mjs';
 import { provincePixel, PROVINCE_CIRCUMRADIUS } from '../map/layers.mjs';
 import { project, RADIUS } from '../../map.mjs';
-import { ringProvinces, tileHex } from '../fgeo.mjs';
+import { ringProvinces, tileHex, TILE_OFFSETS } from '../fgeo.mjs';
 import { keyHex } from '../map/survey.mjs';
 import { FACTION_FILL, FACTION_DARK } from '../people/avatar.mjs';
 
@@ -24,6 +24,8 @@ export const LENS_GLYPH = { realm: '⚑', war: '⚔', land: '⛰', settle: '⌂'
 export const MINIMAP_PX = 188;
 
 const LAND = '#6f8f55', CLOUD = '#e8ecef';
+/** The tile index of a province's centre. */
+const CENTRE_TILE = TILE_OFFSETS.findIndex(o => o.q === 0 && o.r === 0);
 /** The survey's materials at this size (map/survey.mjs): the chart, surveyed land out of sight, land in sight, the viewer's gold. */
 export const MINI_SURVEY = Object.freeze({ chart: '#d8caa5', line: 'rgba(96,80,48,.45)', surveyed: '#7d8a70', sight: '#8fb866', you: '#f3d58a' });
 
@@ -74,8 +76,8 @@ export function paintMinimap(ctx, { recs, rings, own = [], view = null, size = n
     ctx.fill();
     ctx.globalAlpha = 1;
     if (limited && rec) { ctx.strokeStyle = MINI_SURVEY.line; ctx.lineWidth = 0.6; ctx.stroke(); }
-    // (the lenses' marks: of provinces the viewer has surveyed; a clash only where some of it is in sight)
-    if (sv && sv.max < (lens === 'settle' ? 2 : 3)) continue;
+    // (the lenses' marks: of provinces the viewer has surveyed; a clash only where the province's centre is in sight, as on the map)
+    if (sv && (lens === 'settle' ? sv.max < 2 : survey.levelOf(pr.p, pr.q, CENTRE_TILE) < 3)) continue;
     if (lens === 'settle' && rec) {
       const free = rec.sites.filter(s => s === 0).length;
       if (free) { ctx.fillStyle = '#f3d58a'; ctx.beginPath(); ctx.arc(c.x, c.y, Math.min(r * 0.6, 1 + free * 0.5), 0, Math.PI * 2); ctx.fill(); }
