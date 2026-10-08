@@ -65,6 +65,8 @@ export const FAR_ZOOM_CAP = LOD_EDGES.provinceOut * 0.95;
 /** A change of level of detail dissolves over this long (ms), after waiting at most LOD_HOLD_MS for the new level's art. */
 export const LOD_FADE_MS = 280;
 export const LOD_HOLD_MS = 700;
+/** The dissolve's still is gone once the zoom has travelled this far from it (natural log of the zoom ratio). */
+export const LOD_FADE_DRIFT = 0.32;
 /** The table under the world (the vignette of dressing.mjs darkens it toward the edges). */
 export const TABLE = '#2a4742';
 /** The still layers of a resting view are repainted at least this often (ms): a change nobody announced heals. */
@@ -690,9 +692,12 @@ export class FrontierMap {
     const out = this.paintScene(ctx, src, v, lod, size, dpr, { now, rest, table, artZoom: Math.max(v.zoom, logical.zoom) });
     this.painted = true;
     if (this.fade) {
-      // the old picture stays whole until the new level has its art (a moment at most), then fades
-      if (this.fade.t0 === null && (out.pending === 0 || now - this.fade.since > LOD_HOLD_MS)) this.fade.t0 = now;
-      const k = this.fade.t0 === null ? 0 : (now - this.fade.t0) / LOD_FADE_MS;
+      // the old picture stays whole until the new level has its art (a moment at most), then fades; it is a still
+      // of one zoom, so the further the zoom has travelled since, the less of it is left (a flight through the
+      // threshold does not drag a stale rectangle along)
+      const drift = Math.abs(Math.log(v.zoom / this.fade.view.zoom)) / LOD_FADE_DRIFT;
+      if (this.fade.t0 === null && (out.pending === 0 || now - this.fade.since > LOD_HOLD_MS || drift > 0.3)) this.fade.t0 = now;
+      const k = Math.max(drift, this.fade.t0 === null ? 0 : (now - this.fade.t0) / LOD_FADE_MS);
       if (!(k < 1)) { this.fade = null; if (this.fadeCv) { this.fadeCv.width = 0; this.fadeCv.height = 0; this.fadeCv = null; } }
       else {
         const f = this.fade.view, s = v.zoom / f.zoom;
@@ -805,7 +810,10 @@ export class FrontierMap {
     if (!layered) under(ctx);
     ctx.setTransform(...world);
     if (artCells.length) {
-      this.art.paintFar(ctx, artCells, { zoom: z, dpr, terrainAt: terrainLookup(terrainOf), fogAt, alliedPairs: src.alliedPairs ?? [], lod, lens: src.lens ?? 'realm' });
+      // while the picture travels, far bitmaps are not painted for zooms it only passes through (the ones at hand
+      // are stretched); arriving, they are painted for where it rests
+      this.art.paintFar(ctx, artCells, { zoom: z, dpr, terrainAt: terrainLookup(terrainOf), fogAt, alliedPairs: src.alliedPairs ?? [], lod, lens: src.lens ?? 'realm',
+        passing: this.cam.moving, resZoom: this.cam.moving ? Math.min(z, this.cam.view.zoom) : z });
       pending += this.art.farPending ?? 0;
       if (lod === 'world' && (src.lens ?? 'realm') !== 'land') paintRealmLabels(ctx, recs, z, src.realmName ?? null);
     }

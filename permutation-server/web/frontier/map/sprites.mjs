@@ -444,14 +444,18 @@ export class SpriteArt {
   }
 
   /** Province/world LOD: a far bitmap per province (the land itself), then the labels a map has. */
-  paintFar(ctx, entries, { zoom, dpr = 1, terrainAt, fogAt, alliedPairs = [], recs = new Map(), lod = 'world', lens = 'realm' }) {
-    const res = farRes(zoom * dpr);
+  paintFar(ctx, entries, { zoom, dpr = 1, terrainAt, fogAt, alliedPairs = [], recs = new Map(), lod = 'world', lens = 'realm', passing = false, resZoom = zoom }) {
+    // `passing`: the camera is on its way through this zoom: a province that has any bitmap keeps it for now,
+    // and what must be painted is painted for `resZoom` (the further of here and where the camera is going)
+    const res = farRes(resZoom * dpr);
     const t0 = now(), budget = FAR_BUDGET_MS;
     let deferred = 0;
-    const canPaint = () => now() - t0 < budget;
+    let stale = false;
+    const canPaint = () => !(passing && stale) && now() - t0 < budget;
     // nearest the centre of the view first, so what the eye is on is painted first
     for (const e of entries.slice().sort((a, b) => (a.dist ?? 0) - (b.dist ?? 0))) {
       const state = e.rec ? `${e.rec.owners.join('')}${e.rec.sites.join('')}` + (e.prov ? (e.prov.siteMirror ?? []).map(m => `${m.state}${m.tier}`).join('') : (e.tiers ?? []).join('')) : '';
+      stale = !!this.farStale(e);
       const b = this.farBitmap(e, { res, dpr, terrainAt, fogAt, alliedPairs, stateKey: state, canPaint });
       if (!b) {
         deferred++;
