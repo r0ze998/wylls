@@ -336,6 +336,8 @@ export class FrontierMap {
 
   /** The logical view {x, y, zoom}: where the camera is going (picking by keyboard, the LOD and tests read this). */
   get view() { return this.cam.view; }
+  /** The view on screen right now (it travels toward `view`): for things that should follow the picture, like a minimap frame. */
+  get shown() { return this.cam.drawn; }
   size() { return { width: this.canvas.clientWidth, height: this.canvas.clientHeight }; }
   dpr() { return Math.min(globalThis.devicePixelRatio || 1, 2); }
   /** What the page's sheets cover of the canvas (read once a frame at most). */
