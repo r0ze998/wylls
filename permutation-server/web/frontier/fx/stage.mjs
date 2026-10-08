@@ -12,6 +12,9 @@
 //   moment {kind, …}         app checkMoments   built, harvest, muster, arrive, camp, village, depart
 //   action:busy | sent | landed | refused      controller act / sendTheMarch
 //   march:sealed {…}         controller         the seal and the departure
+//   landing {p, q, tile, …}  map/fmap.mjs       a village lands: dust and sparks under the standard, its name
+//   tiles:lit {origin, tiles} map/fmap.mjs      the engine's glow runs over the tiles a selected host can act on
+//   reveal {n}               app surveyNow      land comes out of the chart: a shimmer
 //
 // Emitted here for the HUD: `turn:results {turn, items, fresh, startsIn}`,
 // `res:gain {p, q, site}` (when harvest tokens land in the resource strip).
@@ -153,6 +156,42 @@ export function playSealed(fx, a) {
   return rest;
 }
 
+/**
+ * A village lands (map/fmap.mjs tellLanding; UX-DESIGN §5.1): `{p, q, tile, faction, name, maxD, flood, impact
+ * (seconds on the map's own timeline), standard: {x, y}}`. The map floods the land ring by ring and drops the
+ * standard; here the flood's crest runs out as rings, and where the standard comes down the ground answers:
+ * dust, gold sparks, a short shake, the thud, and the village's name.
+ */
+export function playLanding(fx, a) {
+  const at = spot(a);
+  if (!at) return;
+  const seed = `landing|${a.p},${a.q},${a.tile}`, t = a.impact ?? 1.2, s = a.standard ?? worldOf(at);
+  fx.sound('shimmer', { delay: a.flood ?? 0.12, seed });
+  fx.play('ripple', { ...at, color: light(a.faction), radius: (a.maxD ?? 1) + 0.8, delay: a.flood ?? 0.12, seed });
+  fx.play('dust', { x: s.x, y: s.y, power: 1.15, delay: t, seed });
+  fx.play('burst', { x: s.x, y: s.y, kind: 'spark', n: 24, height: 0.35, power: 0.95, delay: t, seed, colors: ['#fff6dc', TONE.you, fill(a.faction)] });
+  fx.play('ripple', { x: s.x, y: s.y, color: TONE.you, radius: 1.5, delay: t + 0.02, seed: `${seed}|foot` });
+  fx.shake(3, 170, { delay: t, seed });
+  fx.sound('seal', { delay: t, seed });
+  fx.sound('drum', { delay: t + 0.03, seed, level: 0.55 });
+  // the village's name, in the viewer's gold (it is theirs): the one word of the moment, shown in every motion level
+  if (a.name) fx.play('label', { ...at, text: a.name, color: TONE.you, size: 26, lift: 2.1, dur: 2.6, serif: true, delay: fx.motionLevel() === 'full' ? t + 0.3 : 0, seed });
+  fx.play('pip', { ...at, color: TONE.you, delay: t, seed });
+}
+
+/**
+ * Tiles lit for a selected host (map/fmap.mjs; UX-DESIGN §5.2): `{origin: {q, r}, tiles: [{q, r, kind}],
+ * colours: {kind: [r, g, b]}}`. The engine's glow runs over them from the host outward as they roll out, kind
+ * by kind in its own colour, and lets go; the light that stays is the map's.
+ */
+export function playLit(fx, a) {
+  const byKind = new Map();
+  for (const t of a.tiles ?? []) { if (!byKind.has(t.kind)) byKind.set(t.kind, []); byKind.get(t.kind).push({ q: t.q, r: t.r }); }
+  const hex = c => (Array.isArray(c) ? `#${c.map(v => Math.max(0, Math.min(255, v | 0)).toString(16).padStart(2, '0')).join('')}` : TONE.reach);
+  for (const [kind, tiles] of byKind) fx.play('glow', { tiles, origin: a.origin, color: hex(a.colours?.[kind]), hold: 0.5, seed: `lit|${kind}|${a.origin?.q},${a.origin?.r}` });
+  fx.sound('tick', { seed: 'lit' });
+}
+
 const MOMENT_LABEL = {
   built: m => (m.label ? L`${m.label}が完成` : L`建物が完成`),
   muster: () => L`軍勢を編成`,
@@ -287,6 +326,11 @@ export function installStage(fx, { bus = defaultBus } = {}) {
     fx.play('chip', { el: '#bell-chip', color: TONE.ember, fill: 0.4, seed: `urgent|${turn}` });
     fx.sound('tick', { seed: 'urgent' });
   });
+
+  // ---- the land: a village lands, tiles light for a host, land comes out of the chart
+  on('landing', a => playLanding(fx, a));
+  on('tiles:lit', a => playLit(fx, a));
+  on('reveal', () => fx.sound('shimmer', { seed: 'reveal' }));
 
   // ---- battles
   on('battle', p => { if (p.play) stageBattle(fx, p.play, p); });

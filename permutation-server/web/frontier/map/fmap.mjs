@@ -43,6 +43,10 @@ import { STANDARD_AT, STANDARD_UNIT, landShape, landTiles, landingAt, paintBeaco
 import { NOTE_MS, actorText, arrivalText, blockText, paintActionGround, paintActionPulse, paintActionTop, rolledOut, paintHoverGround, paintHoverTop, paintRefusal, paintRibbon, paintSelectionGround, paintSelectionTop, paintTag } from './actions.mjs';
 import { edgePointer, mountHomePointer } from './homepointer.mjs';
 import { layoutLabels } from './labels.mjs';
+import { ACTION_COLOURS } from './actions.mjs';
+import { LANDING } from './ownland.mjs';
+import { WORKED_RADIUS } from './survey.mjs';
+import { emit as fxEmit } from '../fx/bus.mjs';
 
 /** Fog levels drawn as tiles at tile LOD (a distant province stays a muted cell). */
 export const TILE_FOGS = Object.freeze(['sight', 'known', 'clear']);
@@ -528,9 +532,25 @@ export class FrontierMap {
     const at = v && Number.isInteger(v.tile) ? v : own[Math.min(own.length - 1, Math.max(0, src.open?.active ?? 0))];
     if (!at) return false;
     this.landing = reducedMotion() ? null : { key: villageKey(at), t0: fxNow() };
+    this.tellLanding(at, src);
     if (fly) this.flyTo({ p: at.p, q: at.q, tile: at.tile, zoom: Math.max(this.cam.view.zoom, heroZoom(this.dpr())) }, 900, { auto: !this.cam.userMoved });
     this.tick();
     return true;
+  }
+
+  /**
+   * A landing begins: said on the effects bus (fx/stage.mjs plays the dust and sparks where the standard comes
+   * down, the shake, the sounds and the village's name) with the moments of the map's own timeline
+   * (map/ownland.mjs LANDING), in seconds. Under reduced motion the land is simply there, and so is the word.
+   */
+  tellLanding(at, src = this.source?.() ?? {}) {
+    const h = tileHex(at.p, at.q, at.tile);
+    if (!h) return;
+    const own = (src.own ?? []).find(o => villageKey(o) === villageKey(at)) ?? at;
+    const maxD = WORKED_RADIUS[Math.max(0, Math.min(WORKED_RADIUS.length - 1, Number(own.tier ?? 0)))] ?? 1, T = LANDING;
+    const c = project(h.q, h.r), u = standardUnit(this.cam.view.zoom) / STANDARD_UNIT;
+    fxEmit('landing', { p: at.p, q: at.q, tile: at.tile, faction: src.viewerFaction ?? null, name: own.name ?? null, maxD, flood: T.floodAt / 1000,
+      impact: (T.floodAt + maxD * T.ring + T.borderGap + T.standardGap + T.drop * T.impact) / 1000, standard: { x: c.x + STANDARD_AT.x * u, y: c.y + STANDARD_AT.y * u } });
   }
 
   /** The far view of this canvas: the opened world above the sheet, at world LOD. */
@@ -1045,11 +1065,19 @@ export class FrontierMap {
     const hover = tile && this.hover && ringOf(this.hover.p, this.hover.pq) < (src.ringsOpen ?? 1) ? this.hover : null;
     const hoverLit = hover && A ? A.byHex.get(`${hover.q},${hover.r}`) ?? null : null;
     const fx = fxNow(), still = reducedMotion();
+    // tiles that have just lit up (a host was selected): said once on the effects bus, where the engine's glow
+    // runs over them as they roll out and a tick sounds (fx/stage.mjs); the lasting light is the map's own
+    if (A?.mode === 'select' && A.t0 !== this.litT0) {
+      this.litT0 = A.t0;
+      if (fx - A.t0 < 250) fxEmit('tiles:lit', { origin: A.hex, tiles: A.tiles.map(t => ({ q: t.hq, r: t.hr, kind: t.kind })), colours: Object.fromEntries(Object.entries(ACTION_COLOURS).map(([k, c]) => [k, c.rim])) });
+    } else if (!A) this.litT0 = null;
     // a village the page says has just landed (and this map has not played yet) starts its landing with this frame
     const want = src.landing;
     if (want?.id && want.id !== this.landed) {
       this.landed = want.id;
       if (!still) { this.landing = { key: want.key, t0: fx }; if (this.cam.userMoved && want.at) this.landingFly = want.at; }
+      const [lp, lq, lt] = String(want.key).split(',').map(Number);
+      if ([lp, lq, lt].every(Number.isInteger)) this.tellLanding({ p: lp, q: lq, tile: lt }, src);
     }
     // the guide's target (on the world chart the beacon already marks the viewer's village: no ring is laid over it)
     const g0 = src.guide && !src.route ? src.guide : null;
@@ -1084,7 +1112,8 @@ export class FrontierMap {
     const l = this.landing;
     if (!l || l.key !== land.key) return null;
     const f = landingAt(fx - l.t0, land.shape.maxD);
-    if (f.done) { this.landing = null; return null; }
+    // (`keepLanding`: the demo switch rewinds the clock, the landing stays to be played again)
+    if (f.done) { if (!this.keepLanding) this.landing = null; return null; }
     return f;
   }
 

@@ -29,7 +29,7 @@ import { forceMotion, motion, MOTION_LEVELS } from './motion.mjs';
 import { audio } from './audio.mjs';
 import { TONE } from './effects.mjs';
 import { stageBattle } from './battle.mjs';
-import { playToll, playResult, playBusy, playSent, playLanded, playRefused, playSealed, playMoment } from './stage.mjs';
+import { playToll, playResult, playBusy, playSent, playLanded, playRefused, playSealed, playMoment, playLanding } from './stage.mjs';
 
 // ---- sample data for the set pieces: labelled as a demo on screen, never mixed with the page's records
 const T = n => n;   // whole troops, as people/battle.mjs scenes carry them
@@ -101,6 +101,9 @@ export const SAMPLES = Object.freeze({
   pending: { secs: 3, run: (c, fx) => { playBusy(fx, act(c)); } },
   // seal and depart: the route draws on, the seal stamps, the column sets off, the ribbon rests
   seal: { secs: 4.6, run: (c, fx, later) => { const a = march(c); playBusy(fx, a); playSealed(later(1.1), a); }, settle: 1.1 },
+  // the landing of the viewer's village, played again on the map's own timeline (map/fmap.mjs playLanding)
+  // (a viewer without a village: the engine's part alone, on the demo tile)
+  landing: { secs: 4.2, run: (c, fx) => { const m = fx.map; if (m?.playLanding) { m.keepLanding = true; if (m.playLanding(null, { fly: false })) return; } playLanding(fx, { ...tileOf(c), faction: 0, maxD: 2, flood: 0.12, impact: 1.21 }); } },
   // moments of the map
   built: moment('built', { label: L`伐採場` }),
   harvest: moment('harvest', { site: 0 }),

@@ -437,13 +437,17 @@ let terrainRef = null;
 let rosterRef = null;
 /** The viewer's survey (map/survey.mjs), kept on the page state for every surface that asks what may be told. */
 const surveyor = createSurveyor({ now: fxNow });
-let surveyDeps = [];
+let surveyDeps = [], revealTold = -Infinity;
 function surveyNow() {
   // asked every frame: the anchors are read again only when something they are read from was replaced
   const deps = [FS.mode, FS.record, FS.wallet, FS.citizen, FS.land, FS.holdings, FS.chronicle, FS.marches, FS.activeHolding, FS.nowBell, viewerKnown, terrainRef?.status?.(), ...FS.provinces.values()];
   if (FS.survey && deps.length === surveyDeps.length && deps.every((x, i) => x === surveyDeps[i])) return FS.survey;
   surveyDeps = deps;
   FS.survey = surveyor(surveyInput(FS, { terrainOf: terrainRef, ready: viewerKnown || !!FS.land, scope: scope() || null }));
+  // land that comes out of the chart now is told once on the effects bus (a shimmer: fx/stage.mjs)
+  let newest = -Infinity;
+  for (const t0 of FS.survey.reveals?.values?.() ?? []) if (t0 > newest) newest = t0;
+  if (newest > revealTold) { revealTold = newest; fxEmit('reveal', { n: FS.survey.reveals.size }); }
   return FS.survey;
 }
 /** The face and name of a report row's owner (a host id; holdings' ids give none). */
@@ -555,17 +559,38 @@ function checkMilestones() {
   const quiet = Date.now() - BOOT_AT < MILE_QUIET_MS;
   const { fresh, record } = milestones.newMilestones(quiet && !FS.mileRecord ? null : FS.mileRecord ?? { v: 1, seen: {} }, milestones.reachedMilestones(FS), FS.nowBell ?? 0);
   if (Object.keys(record.seen).length !== Object.keys(FS.mileRecord?.seen ?? {}).length) { FS.mileRecord = record; uiStorage.set(key, JSON.stringify(record)); }
-  if (!quiet && fresh.length) { FS.mileQueue = [...(FS.mileQueue ?? []), ...fresh]; showMilestone(); }
+  // (the first village's line comes with its landing on the map: mountLandingLine)
+  const say = fresh.filter(m => m.id !== 'first-holding' || !mapRef);
+  if (!quiet && say.length) { FS.mileQueue = [...(FS.mileQueue ?? []), ...say]; showMilestone(); }
 }
+const mileShown = new Set();
 function showMilestone() {
   const doc = globalThis.document;
   if (!doc || mileTimer || !(FS.mileQueue ?? []).length) return;
   const m = FS.mileQueue.shift();
+  // (one banner per milestone on this page: the landing brings the first village's line itself)
+  if (mileShown.has(m.id)) { showMilestone(); return; }
+  mileShown.add(m.id);
   let el = $('mile-banner');
   if (!el) { el = doc.createElement('div'); el.id = 'mile-banner'; el.className = 'mile-banner'; el.setAttribute('role', 'status'); doc.body.appendChild(el); }
   setHtml(el, milestones.renderBanner(m, FS.citizen?.faction));
   el.hidden = false;
   mileTimer = setTimeout(closeMilestone, milestones.BANNER_MS);
+}
+/**
+ * The landing of the viewer's village (map/fmap.mjs tellLanding) ends with the leader's first line (UX brief
+ * §5.1): the "first village" banner, once the standard stands. Only for a village the page holds.
+ */
+function mountLandingLine() {
+  fxOn('landing', a => {
+    const h = (FS.holdings ?? []).find(x => x.p === a.p && x.q === a.q && x.tile === a.tile);
+    if (FS.mode !== 'play' || !h || mileShown.has('first-holding') || (FS.holdings ?? []).indexOf(h) !== 0) return;
+    setTimeout(() => {
+      if (mileShown.has('first-holding')) return;
+      FS.mileQueue = [{ id: 'first-holding', kind: 'first-holding', p: h.p, q: h.q, site: h.site, tier: 0 }, ...(FS.mileQueue ?? [])];
+      showMilestone();
+    }, calm() ? 0 : Math.round(((a.impact ?? 1.2) + 0.9) * 1000));
+  });
 }
 function closeMilestone() {
   clearTimeout(mileTimer); mileTimer = null;
@@ -1772,6 +1797,7 @@ export async function boot() {
   delegate(globalThis.document);
   mountNationFocus(globalThis.document);
   mountNationLook();
+  mountLandingLine();
   if (canvas) {
     // Tile-LOD terrain from the season record's ring seeds through the rules module (W5-E R3: passed by the app).
     const terrainOf = createTerrain({ onReady: () => { map?.invalidate(); invalidate('panel'); } });

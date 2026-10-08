@@ -29,7 +29,10 @@ const CLOUD_DRIFT = Object.freeze({ x: 15, y: 5 });
 const CLOUDS = Object.freeze([[0.06, 0.18, 3.6, 0.6], [0.24, 0.62, 4.6, 0.52], [0.42, 0.3, 3.0, 0.66], [0.58, 0.82, 4.2, 0.55], [0.74, 0.14, 3.4, 0.62], [0.9, 0.56, 4.8, 0.5], [0.34, 0.96, 2.8, 0.64]]);   // x, y (shares of the span), radius (tiles), flatness
 
 const inView = (st, x, y, pad) => Math.abs(x - st.view.x) < st.size.width / 2 / st.zoom + pad && Math.abs(y - st.view.y) < st.size.height / 2 / st.zoom + pad;
-const visible = t => !t.cloud && t.fog !== 'unopened' && t.fog !== 'distant';
+// (the survey, map/survey.mjs: a tile carries `lv`; only land in sight is alive. The chart and the muted land
+// the viewer surveyed before are a drawn map and a memory: nothing moves on them)
+const visible = t => !t.cloud && t.fog !== 'unopened' && t.fog !== 'distant' && (t.lv === undefined || t.lv >= 3);
+const hexOutline = (ctx, x, y) => { for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + (i * Math.PI) / 3, px = x + Math.cos(a) * (R + 1), py = y + Math.sin(a) * (R + 1) * FLATTEN; if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); } ctx.closePath(); };
 
 /** Glints on the water: `paintWater(ctx, {t, zoom, px, tiles, view, size})` → how many tiles it touched. */
 export function paintWater(ctx, st) {
@@ -60,6 +63,16 @@ export function paintClouds(ctx, st) {
   const hw = st.size.width / 2 / st.zoom, hh = st.size.height / 2 / st.zoom;
   if (!(hw > 0)) return 0;
   let n = 0;
+  // the shadows fall on the living land only: under a survey they are cut to the tiles in sight (a shadow on the
+  // parchment of the chart reads as a stain)
+  const cut = st.tiles.some(t => t.lv !== undefined && t.lv < 3);
+  if (cut) {
+    ctx.beginPath();
+    let any = false;
+    for (const t of st.tiles) if (visible(t) && inView(st, t.x, t.y, R * 2)) { hexOutline(ctx, t.x, t.y); any = true; }
+    if (!any) return 0;
+    ctx.clip?.();
+  }
   for (const [cx, cy, rad, flat] of CLOUDS) {
     const r = rad * R;
     // where this cloud's shadow is now, wrapped so one copy is always near the view
