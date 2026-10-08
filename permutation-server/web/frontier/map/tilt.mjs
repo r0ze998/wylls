@@ -18,9 +18,22 @@
 // the zoom (`tiltAt`): the chart lies flat, the diorama is tilted. `?tilt=`
 // overrides the angle; 0 is the flat map, which must stay correct.
 //
+// Another world-space canvas (the effects' top pass) shares the transform by
+// lying INSIDE `#map-stage`, exactly over `#map-ground`: the same left, top,
+// width and height (the ground canvas carries them as `--map-gl`, `--map-gt`,
+// `--map-gw`, `--map-gh`; `map.groundLayout()` gives the numbers). It is
+// larger than the map's box, so it draws through the ground canvas's own flat
+// view, `map.groundView()`, in a box of `map.groundSize()` CSS px, with the
+// map's usual formula; nothing else changes for its painters. Screen-space
+// things stay outside the stage and ask `map.project(worldX, worldY)` (client
+// px; `{box: true}` for px from the map's corner) and `map.unproject`.
+//
 // Pure: no DOM. `upright` is the one helper painters use: text and marks that
-// must stay crisp and upright are drawn on an untransformed canvas, each
-// around its own anchor on the ground.
+// must stay crisp and upright are drawn on an untransformed canvas (the
+// page's `#frontier-map`, flat above the stage), each around its own anchor
+// on the ground: `upright(ctx, worldX, worldY, () => { …draw as before… })`.
+// A painter that does not say its anchor is drawn at its flat place, which
+// under a tilt is not where its tile is seen.
 
 /**
  * The tilt at the near view (degrees), the most the baked art allows, the viewing distance (CSS px), and the spare

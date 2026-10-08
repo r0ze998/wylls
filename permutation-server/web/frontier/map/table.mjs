@@ -200,9 +200,11 @@ export function paintSheet(g, sheet, { box, res = 1, zoom = 1 } = {}) {
   if (!inside) {
     // the cast shadow: the lamp stands up and to the left
     g.lineJoin = 'round';
-    for (const [w, a] of [[110, 0.07], [70, 0.09], [38, 0.12], [14, 0.16]]) {
-      g.save(); g.translate(13, 20);
-      g.strokeStyle = `rgba(4,3,2,${a})`; g.lineWidth = w; g.stroke(path);
+    // (sized with the sheet: at the far view of any world it is the same few pixels of soft dark)
+    const u = Math.max(1, X / 1100);
+    for (const [w, a] of [[104, 0.08], [64, 0.1], [34, 0.14], [13, 0.2]]) {
+      g.save(); g.translate(12 * u, 18 * u);
+      g.strokeStyle = `rgba(4,3,2,${a})`; g.lineWidth = w * u; g.stroke(path);
       g.fillStyle = `rgba(4,3,2,${a})`; g.fill(path);
       g.restore();
     }
