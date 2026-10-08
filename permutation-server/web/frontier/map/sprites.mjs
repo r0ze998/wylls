@@ -34,6 +34,8 @@ import { paintBattle, battleTiles } from '../people/battle.mjs';
 import { provinceTokens, paintToken, placePills } from '../people/units.mjs';
 import { onMiniLoad, MINI_ANCHOR, MINI_CELL_U } from '../people/minis.mjs';
 import { paintMoments } from '../people/moments.mjs';
+// (the effects engine's ground pass comes through the map's `between` hook: fx/index.mjs startFx)
+import { paintOver as fxOver } from '../fx/engine.mjs';
 import { BOUNDARY_HALO, BOUNDARY_INK, FOG, UNOPENED_FILL, paintSigil, provincePixel, PROVINCE_CIRCUMRADIUS } from './layers.mjs';
 import { applySurvey, fxNow, mutedSprite, paintChart, paintReveal } from './chart.mjs';
 import { FOG_OF_LEVEL, L2, L3, hexKey } from './survey.mjs';
@@ -1071,6 +1073,7 @@ export class SpriteArt {
     if (has('props')) for (const t of tiles) propsOf(t);
     // the far view's bitmap stops here: land, props, holdings, territory (map/sprites.mjs farBitmap)
     if (far || part === 'props') return tiles.length;
+    fxOver(ctx, { zoom, tiles });   // idle life over the props, under the hosts: cloud shadows, chimney smoke (fx/idle.mjs)
     // pass 2b: hosts on their tiles, back to front (hidden under fog unless the viewer's own)
     const hosts = [], tokens = [], pills = [];
     this.tokens = tokens; this.tokensMoving = false;

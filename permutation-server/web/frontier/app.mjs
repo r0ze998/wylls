@@ -40,6 +40,9 @@ import { icon, iconizeMapTools } from './hud/icons.mjs';
 import { hudInsets } from './hud/insets.mjs';
 import { createTerrain } from './map/terrain.mjs';
 import { provincePixel } from './map/layers.mjs';
+import { startFx } from './fx/index.mjs';
+import { audio as fxAudio } from './fx/audio.mjs';
+import { emit as fxEmit } from './fx/bus.mjs';
 
 // Sprite art is on by default (?art=0 turns it off); ?art=1 adds the preview helpers below.
 const ART_ON = new URLSearchParams(globalThis.location?.search ?? '').get('art') !== '0';
@@ -218,6 +221,8 @@ function settingsMarkup(FS) {
     <label class="choice"><input type="checkbox" data-act="autopan" ${FS.ui?.autoPan ? 'checked' : ''}>${L`自分に関わる戦いが決着したら、地図をそこへ動かして見せる`}</label>
     <div class="choice-row" role="group" aria-label="${L`ガイドの強さ`}"><span class="choice-k">${L`ガイドの強さ`}</span><span class="seg">${guide.GUIDE_LEVELS.map(v => html`<button type="button" class="seg-btn" data-act="guide-level" data-v="${v}" aria-pressed="${guide.guideLevel(FS) === v ? 'true' : 'false'}">${guide.GUIDE_TEXT[v]()}</button>`)}</span></div>
     <div class="choice-row" role="group" aria-label="${L`戦いの演出`}"><span class="choice-k">${L`戦いの演出`}</span><span class="seg">${['normal', 'fast', 'off'].map(v => html`<button type="button" class="seg-btn" data-act="battle-fx" data-v="${v}" aria-pressed="${(FS.ui?.battleFx ?? 'normal') === v ? 'true' : 'false'}">${BATTLE_FX_TEXT[v]()}</button>`)}</span></div>
+    <div class="choice-row" role="group" aria-label="${L`動きの演出`}"><span class="choice-k">${L`動きの演出`}</span><span class="seg">${['full', 'reduced', 'off'].map(v => html`<button type="button" class="seg-btn" data-act="fx-level" data-v="${v}" aria-pressed="${(FS.ui?.effects ?? 'full') === v ? 'true' : 'false'}">${FX_LEVEL_TEXT[v]()}</button>`)}</span></div>
+    <div class="choice-row" role="group" aria-label="${L`音`}"><span class="choice-k">${L`音`}</span><span class="seg">${['on', 'off'].map(v => html`<button type="button" class="seg-btn" data-act="fx-sound" data-v="${v}" aria-pressed="${(fxAudio().muted ? 'off' : 'on') === v ? 'true' : 'false'}">${v === 'on' ? L`オン` : L`オフ`}</button>`)}</span></div>
     ${onboardingCard.renderRestore(FS)}
     <div class="actions"><button type="button" class="btn" data-act="practice-open">${icon('swords')}${L`練習モードを開く`}</button><button type="button" class="btn" data-act="intro-open">${L`タイトルを見る`}</button></div>
     <p class="link-row"><a href="practice.html">${L`練習`}</a> · <a href="spectate.html">${L`観戦`}</a></p></section>`;
@@ -868,7 +873,8 @@ function checkMoments() {
   const t = performance.now() / 1000;
   const fresh = detectMoments(momentPrev, next, t);
   momentPrev = next;
-  if (fresh.length) { FS.moments = liveMoments([...(FS.moments ?? []), ...fresh], t); peopleCache.at = -1; mapRef?.invalidate(); }
+  // each is reported on the effects bus and played by fx/stage.mjs (`own`: the viewer's own village or host)
+  for (const m of fresh) fxEmit('moment', { ...m, own: (FS.holdings ?? []).some(h => h.p === m.p && h.q === m.q && (h.site === m.site || h.tile === m.tile)) || (m.faction !== undefined && m.faction === FS.citizen?.faction && ['muster', 'depart'].includes(m.kind) && (FS.holdings ?? []).some(h => h.p === m.p && h.q === m.q)) });
 }
 
 /** The waiting view's countdown to the next turn (screens/join.mjs marks the two nodes): its text and its ring, every second. */
@@ -889,7 +895,7 @@ function renderHudTick(now) {
   checkMoments();
   frameRoute();
   updateForecast();
-  ringToll(m.bell);
+  ringToll(m.bell, m.secondsLeft);
   renderIntro();
   const pill = $('bell-pill');
   if (pill) {
@@ -998,12 +1004,21 @@ function tickFeed() {
     if (sum) items = [sum, ...items];
   }
   if (snap.bell !== null) feedBell = snap.bell;
+  // this turn's own results for the effects layer (fx/stage.mjs plays them in order and emits `turn:results`)
+  if (fresh.length) fxEmit('feed', { turn: snap.bell, fresh: fresh.map(x => ({ ...x, tile: feedTile(x), faction: FS.citizen?.faction ?? null })) });
   if (!items.length) return;
   FS.feed = feed.pushFeed(FS.feed ?? [], items);
   // Civ VII's "pan to combat", opt-in: the newest battle of the viewer's plays where it happened
   const b = fresh.find(x => x.battle);
   if (b && FS.ui?.autoPan) playBattle(b.battle.p, b.battle.q, b.battle.bell, { focus: true });
   invalidate('panel');
+}
+
+/** The tile a notification is about: the march's destination, else the viewer's village in that province. */
+function feedTile(x) {
+  const k = String(x.id ?? '').split(':')[1];
+  const m = (FS.marches ?? []).find(y => String(y.entry?.host ?? y.transit?.hostId ?? '') === k);
+  return m?.dest && m.dest.p === x.p && m.dest.q === x.q ? m.dest.tile : (FS.holdings ?? []).find(h => h.p === x.p && h.q === x.q)?.tile ?? null;
 }
 
 /** When the notice in hand appeared (a landed action's chip leaves after a few seconds). */
@@ -1131,8 +1146,12 @@ export async function playBattle(p, q, bell, { focus = false, auto = false } = {
   const after = FS.provinces.get(`${p},${q}`)?.province ?? null;
   const scene = battleScene({ p, q, bell, inputs: r.inputs, before, after: after && after.resolvedNext > bell ? after : null });
   if (!scene) return false;
+  // the camera flies in, to the part of the map no sheet covers (map/fmap.mjs flyTo)
   if (focus && mapRef) mapRef.flyTo({ p, q, tile: scene.tiles[0].idx, zoom: 2.1 }, 500);
-  FS.battles = [...(FS.battles ?? []).filter(b => !(b.scene.p === p && b.scene.q === q)), startBattle(scene, performance.now() / 1000, BATTLE_SPEEDS[fx] || 1)];
+  const play = startBattle(scene, performance.now() / 1000, BATTLE_SPEEDS[fx] || 1);
+  FS.battles = [...(FS.battles ?? []).filter(b => !(b.scene.p === p && b.scene.q === q)), play];
+  // staged by the effects layer (fx/battle.mjs): the dimmed map, the scene on its own canvas, the title
+  fxEmit('battle', { play, focus, zoom: focus ? 2.1 : null, viewerFaction: FS.citizen?.faction ?? null, lossText: n => L`−${fmtNum(n)} 兵`, numText: n => fmtNum(n) });
   mapRef?.invalidate();
   return true;
 }
@@ -1237,31 +1256,28 @@ export function closeIntro() {
   $('frontier-map')?.focus({ preventScroll: true });
   mapRef?.invalidate();   // the drift ends now: the map flies the rest of the way
 }
-let tollBell = null;
-let tollTimer = null;
-/** How long the toll banner stands (ms). A class and a timer, not an animation's end: it shows and leaves under reduced motion too. */
-const TOLL_MS = 3200;
-/** The bell toll: the banner drops from the dial for a moment ("the bell tolled, turn N") and the dial swings. */
-function ringToll(bell) {
+let tollBell = null, urgentBell = null;
+/**
+ * The bell toll: reported on the effects bus; fx/stage.mjs sends the brass ripple across the map, writes
+ * 「鐘が鳴りました — ターン N」 into #bell-toll and sounds the bell; the dial swings (a class, visual only).
+ * In the last 30 s of a turn `turn:urgent` goes out once.
+ */
+function ringToll(bell, left = null) {
   if (!Number.isInteger(bell)) return;
   if (tollBell !== null && bell > tollBell) {
-    const el = $('bell-toll');
-    if (el) {
-      setHtml(el, html`${icon('bell')}<span>${title.tollText(bell)}</span>`);
-      el.classList.remove('ring'); void el.offsetWidth; el.classList.add('ring');
-      clearTimeout(tollTimer);
-      tollTimer = setTimeout(() => el.classList.remove('ring'), TOLL_MS);
-    }
-    // the dial swings with the toll (visual only)
+    const h = hud.activeHolding(FS);
+    fxEmit('bell', { turn: bell, home: h && Number.isInteger(h.tile) ? { p: h.p, q: h.q, tile: h.tile } : null });
     const dial = $('bell-pill');
-    if (dial) { dial.classList.remove('toll'); void dial.offsetWidth; dial.classList.add('toll'); }
+    if (dial?.classList) { dial.classList.remove('toll'); void dial.offsetWidth; dial.classList.add('toll'); }
   }
+  if (Number.isFinite(left) && left <= 30 && left >= 0 && urgentBell !== bell) { urgentBell = bell; fxEmit('turn:urgent', { turn: bell, secondsLeft: left }); }
   tollBell = bell;
 }
 
 /** Move the map to an attention item and open its tab. */
 /** The report's map buttons close it, so the map (and on phones the sheet's map) is in view. */
 function leaveReport() { if (FS.report) { FS.report = null; invalidate('panel'); } }
+const FX_LEVEL_TEXT = { full: () => L`標準`, reduced: () => L`控えめ`, off: () => L`オフ` };
 const BATTLE_FX_TEXT = { normal: () => L`ふつう`, fast: () => L`早送り`, off: () => L`自動では見せない` };
 
 function goToItem(x) {
@@ -1405,6 +1421,9 @@ export const HUD_ACTIONS = {
     for (let x = el.closest?.('details'); x; x = x.parentElement?.closest?.('details')) x.open = true;
     el.scrollIntoView?.({ block: 'start', behavior: calm() ? 'auto' : 'smooth' });
   },
+  // how much may move (fx/motion.mjs reads FS.ui.effects) and the sound's mute (fx/audio.mjs, remembered on this device)
+  'fx-level': d => { if (!['full', 'reduced', 'off'].includes(d.v)) return; const sc = scope(); FS.ui = sc ? saveUi(uiStorage, uiKey(sc), { effects: d.v }) : { ...(FS.ui ?? {}), effects: d.v }; invalidate('panel', 'map'); },
+  'fx-sound': d => { fxAudio().setMuted(d.v !== 'on'); renderSound(); invalidate('panel'); },
   'battle-fx': d => { if (!['normal', 'fast', 'off'].includes(d.v)) return; const sc = scope(); FS.ui = sc ? saveUi(uiStorage, uiKey(sc), { battleFx: d.v }) : { ...(FS.ui ?? {}), battleFx: d.v }; invalidate('panel'); },
   attn: () => {
     const items = pillItems();
@@ -1817,6 +1836,7 @@ export async function boot() {
     }, true);
     // the map buttons take their icons from the sprite (hud/icons.mjs)
     iconizeMapTools(globalThis.document);
+    startFx({ map, canvas, effects: () => FS.ui?.effects });   // the effects layer and, with ?fx=, its demo switch (fx/index.mjs)
     renderLenses();
     const mini = $('minimap-canvas');
     mini?.addEventListener('pointerup', e => {

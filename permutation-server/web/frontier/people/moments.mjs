@@ -1,11 +1,17 @@
 // Moments (docs/frontier/ui-shell/UNITS-REDESIGN.md, after Eternum's arrival punch and
-// reveal-yield): short, one-shot effects for changes the page has just seen, each tied to
-// a real record — never looping, never invented.
-//   harvest   the resources of the worked tiles fly from the fields into the holding
-//   built     a building finished: a gold burst and "✓ name" rising over the holding
-//   depart    a host set out: a puff of mist and a seal where it stood (its road is sealed)
-//   arrive    a revealed arrival: the mist it came out of clears
-// `detectMoments(prev, next, now)` compares two small snapshots of the page's state.
+// reveal-yield; UX-DESIGN §8.3): short, one-shot effects for changes the page has just seen,
+// each tied to a real record — never looping, never invented.
+//   harvest   a village brought its harvest in
+//   built     a building finished
+//   depart    a host set out (its road is sealed: only that it left, and from where)
+//   arrive    a revealed arrival came out of the mist on its tile
+//   muster    a new host stands at a village
+//   camp      a camp that stood on a tile is no longer there
+//   village   a site changed hands, was founded or was lost
+// `detectMoments(prev, next, now)` compares two small snapshots of the page's state and
+// returns what happened between them; the page reports each on the effects bus and
+// fx/stage.mjs plays it (`paintMoments` below is the older in-map drawing, kept for a page
+// without the effects layer).
 import { RADIUS, FLATTEN, project } from '../../map.mjs';
 import { tileHex } from '../fgeo.mjs';
 
@@ -14,30 +20,57 @@ export const MOMENT_MAX = 24;
 
 /**
  * The page's state the moments compare: `{harvest: Map key→bell, builds: Map key→{item,label},
- * hosts: Map id→{p, q, tile, state, faction}, arrivals: Set "p,q,tile,host"}`.
+ * hosts: Map id→{p, q, tile, state, faction, unit, troops}, arrivals: Map "p,q,tile,host"→faction,
+ * seen: Set "p,q" (the provinces loaded), camps: Map "p,q"→tile, sites: Map "p,q,site"→{tile,
+ * faction | null}, tiles: Map "p,q,site"→tile}`.
  */
 export function momentSnapshot({ life = new Map(), constructions = [], provinces = new Map() } = {}) {
-  const harvest = new Map(), builds = new Map(), hosts = new Map(), arrivals = new Set();
+  const harvest = new Map(), builds = new Map(), hosts = new Map(), arrivals = new Map();
+  const seen = new Set(), camps = new Map(), sites = new Map(), tiles = new Map();
   for (const [k, rec] of life) if (rec.harvest >= 0) harvest.set(k, rec.harvest);
   for (const c of constructions) builds.set(`${c.p},${c.q},${c.site}`, { label: c.name ?? c.label ?? '' });
   for (const env of provinces.values()) {
     const pv = env?.province;
     if (!pv) continue;
-    for (const e of pv.entries ?? []) if (e.state >= 1 && e.state <= 3) hosts.set(String(e.id), { p: pv.p, q: pv.q, tile: e.tile, state: e.state, faction: e.faction });
+    const pk = `${pv.p},${pv.q}`;
+    seen.add(pk);
+    for (const e of pv.entries ?? []) if (e.state >= 1 && e.state <= 3) hosts.set(String(e.id), { p: pv.p, q: pv.q, tile: e.tile, state: e.state, faction: e.faction, unit: e.unit ?? 0, troops: Number(e.troops ?? 0) });
     const pend = env.inputs;
-    if (pend && !pend.resolvedTs) for (const a of pend.arrivals ?? []) if (a.present) arrivals.add(`${pv.p},${pv.q},${a.tile},${a.hostId}`);
+    if (pend && !pend.resolvedTs) for (const a of pend.arrivals ?? []) if (a.present) arrivals.set(`${pv.p},${pv.q},${a.tile},${a.hostId}`, a.faction ?? null);
+    if (pv.camp?.state === 1) camps.set(pk, pv.camp.tile);
+    const st = Array.from(pv.sites ?? []);
+    st.forEach((tile, j) => {
+      tiles.set(`${pk},${j}`, tile);
+      const m = pv.siteMirror?.[j];
+      if (pv.siteMirror) sites.set(`${pk},${j}`, { tile, faction: m && m.state === 1 && m.faction < 6 ? m.faction : null });
+    });
   }
-  return { harvest, builds, hosts, arrivals };
+  return { harvest, builds, hosts, arrivals, seen, camps, sites, tiles };
 }
 
-/** The moments between two snapshots (the first snapshot of a page gives none). */
+/** The moments between two snapshots (the first snapshot of a page gives none; neither does the first sight of a province). */
 export function detectMoments(prev, next, now) {
   if (!prev) return [];
   const out = [];
-  for (const [k, b] of next.harvest) if ((prev.harvest.get(k) ?? -1) < b && prev.harvest.has(k)) { const [p, q, site] = k.split(',').map(Number); out.push({ kind: 'harvest', p, q, site, t0: now }); }
-  for (const [k, v] of prev.builds) if (!next.builds.has(k)) { const [p, q, site] = k.split(',').map(Number); out.push({ kind: 'built', p, q, site, label: v.label, t0: now }); }
-  for (const [id, h] of next.hosts) { const was = prev.hosts.get(id); if (was && was.state !== 3 && h.state === 3) out.push({ kind: 'depart', p: h.p, q: h.q, tile: h.tile, faction: h.faction, t0: now }); }
-  for (const k of next.arrivals) if (!prev.arrivals.has(k)) { const [p, q, tile] = k.split(',').map(Number); out.push({ kind: 'arrive', p, q, tile, t0: now }); }
+  const tileOf = k => next.tiles?.get(k) ?? prev.tiles?.get(k) ?? null;
+  for (const [k, b] of next.harvest) if ((prev.harvest.get(k) ?? -1) < b && prev.harvest.has(k)) { const [p, q, site] = k.split(',').map(Number); out.push({ kind: 'harvest', p, q, site, tile: tileOf(k), t0: now }); }
+  for (const [k, v] of prev.builds) if (!next.builds.has(k)) { const [p, q, site] = k.split(',').map(Number); out.push({ kind: 'built', p, q, site, tile: tileOf(k), label: v.label, t0: now }); }
+  for (const [id, h] of next.hosts) {
+    const was = prev.hosts.get(id);
+    if (was && was.state !== 3 && h.state === 3) out.push({ kind: 'depart', p: h.p, q: h.q, tile: h.tile, faction: h.faction, id, t0: now });
+    // a host nobody had seen, standing in a province the page already knew: it was mustered
+    else if (!was && h.state === 1 && prev.seen?.has(`${h.p},${h.q}`)) out.push({ kind: 'muster', p: h.p, q: h.q, tile: h.tile, faction: h.faction, unit: h.unit, troops: h.troops, id, t0: now });
+  }
+  const had = prev.arrivals;
+  for (const [k, faction] of next.arrivals) if (!had.has(k)) { const [p, q, tile] = k.split(',').map(Number); if (prev.seen && !prev.seen.has(`${p},${q}`)) continue; out.push({ kind: 'arrive', p, q, tile, faction, t0: now }); }
+  // (the camp and site checks need a province seen both times: a first load is not news)
+  for (const [pk, tile] of prev.camps ?? []) if (next.seen?.has(pk) && !next.camps.has(pk)) { const [p, q] = pk.split(',').map(Number); out.push({ kind: 'camp', p, q, tile, t0: now }); }
+  for (const [k, s] of next.sites ?? []) {
+    const was = prev.sites?.get(k);
+    if (!was || was.faction === s.faction) continue;
+    const [p, q, site] = k.split(',').map(Number);
+    out.push({ kind: 'village', p, q, site, tile: s.tile, from: was.faction, to: s.faction, t0: now });
+  }
   return out;
 }
 

@@ -1,0 +1,129 @@
+/* The effects layer (fx/engine.mjs, UX-DESIGN §8). This sheet is linked by
+   script (fx/index.mjs), so the three HTML pages carry nothing for it.
+
+   There is no CSS animation or transition here on purpose. Every moving
+   value is a custom property written from the effects clock (fx/clock.mjs):
+   a frozen or slowed clock holds the DOM effects exactly like the canvas
+   ones, and reduced motion is decided in one place (fx/motion.mjs), not by a
+   media query that would leave a title at opacity 0. */
+
+/* The top canvas: laid over the map canvas by its measured box; never takes input. */
+.fx-top {
+  position: absolute; left: var(--fx-l, 0px); top: var(--fx-t, 0px); width: var(--fx-w, 0px); height: var(--fx-h, 0px);
+  pointer-events: none;
+}
+/* The world shake: both canvases move together (and swell a hair so no edge shows); nothing else on the page reads these. */
+#frontier-map, .fx-top { translate: var(--fx-sx, 0px) var(--fx-sy, 0px); scale: var(--fx-ss, 1); }
+
+/* The HUD layer: the whole viewport, above the top strip, below the page's own banners and pop-overs. */
+.fx-hud { position: fixed; inset: 0; z-index: 62; overflow: hidden; pointer-events: none; contain: strict; }
+.fx-hud [hidden] { display: none !important; }
+
+/* ---- a title across the map (effects.mjs banner) */
+.fx-banner {
+  --fx-c: #c9a24a;
+  position: absolute; left: var(--fx-l, 0px); top: calc(var(--fx-t, 0px) + var(--fx-free, 100vh) * var(--fx-by, 0.37)); width: var(--fx-w, 100vw);
+  transform: translateY(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 20px 0 22px;
+  opacity: var(--fx-o, 0); text-align: center;
+}
+/* The same banner carried by an element of the page (the bell's #bell-toll): every other rule of that element is
+   set aside for as long as it wears the class. Its values default to the finished, visible state, so it reads
+   even if nothing ever drives it (reduced motion, a stalled clock); the clock only animates toward that state. */
+#bell-toll.fx-banner-host {
+  --fx-o: 1; --fx-band: 1; --fx-rule: 1; --fx-ts: 1; --fx-to: 1; --fx-so: 1; --fx-go: 0;
+  position: fixed; z-index: 61; margin: 0; border: 0; border-radius: 0; background: none; box-shadow: none;
+  grid-column: auto; grid-row: auto; justify-self: auto; align-self: auto;
+  animation: none; pointer-events: none; font-size: inherit; letter-spacing: normal;
+}
+#bell-toll.fx-banner-host::before { content: none; animation: none; }
+.fx-banner-band {
+  position: absolute; inset: 0;
+  background:
+    linear-gradient(90deg, transparent 18%, color-mix(in srgb, var(--fx-c) 30%, transparent) 50%, transparent 82%),
+    linear-gradient(180deg, rgba(240,212,138,.10), rgba(240,212,138,0) 22%, rgba(240,212,138,0) 78%, rgba(240,212,138,.08)),
+    linear-gradient(90deg, rgba(8,18,16,0) 0%, rgba(8,18,16,.78) 16%, rgba(8,18,16,.93) 50%, rgba(8,18,16,.78) 84%, rgba(8,18,16,0) 100%);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 14%, #000 86%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 14%, #000 86%, transparent 100%);
+  transform: scaleY(var(--fx-band, 0));
+}
+.fx-banner-rule {
+  position: relative; width: min(620px, 76%); height: 1px;
+  background: linear-gradient(90deg, rgba(201,162,74,0), var(--fx-c) 18%, #f0d48a 50%, var(--fx-c) 82%, rgba(201,162,74,0));
+  transform: scaleX(var(--fx-rule, 0));
+}
+.fx-banner-rule::after {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 7px; height: 7px;
+  background: #f0d48a; box-shadow: 0 0 10px 1px rgba(240,212,138,.7);
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+.fx-banner-title {
+  position: relative; max-width: 96%; white-space: nowrap;
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", "Noto Serif JP", "Noto Serif CJK JP", Georgia, "Times New Roman", serif;
+  font-weight: 700; font-size: var(--fx-fs, 40px); line-height: 1.2;
+  letter-spacing: calc(0.14em + var(--fx-tl, 0em)); text-indent: calc(0.14em + var(--fx-tl, 0em));
+  color: #f4efe0;
+  background-image: linear-gradient(180deg, #fffaf0 8%, #f4e4b4 46%, #d9b45a 78%, #b98d36 100%);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 2px 0 rgba(0,0,0,.6)) drop-shadow(0 0 18px color-mix(in srgb, var(--fx-c) 50%, transparent));
+  opacity: var(--fx-to, 0); transform: scale(var(--fx-ts, 1));
+}
+.fx-banner[data-wrap="true"] .fx-banner-title { max-width: 84%; white-space: normal; text-wrap: balance; line-height: 1.3; }
+.fx-banner[data-tone="win"] { --fx-c: #f0d48a; }
+.fx-banner[data-tone="loss"] { --fx-c: #e2553d; }
+.fx-banner[data-tone="loss"] .fx-banner-title { background-image: linear-gradient(180deg, #f4efe0 10%, #d8d3c4 55%, #9aa39b 100%); }
+.fx-banner-sub {
+  position: relative; max-width: 92%;
+  font: 500 14px/1.5 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; letter-spacing: .12em;
+  color: #e9e4d4; text-shadow: 0 1px 0 rgba(0,0,0,.6);
+  opacity: var(--fx-so, 0);
+}
+.fx-banner-glint {
+  position: absolute; top: 0; bottom: 0; left: var(--fx-gx, -40%); width: 24%;
+  background: linear-gradient(90deg, rgba(240,212,138,0), rgba(255,246,220,.2) 50%, rgba(240,212,138,0));
+  transform: translateX(-50%) skewX(-20deg) scaleY(var(--fx-band, 0));
+  opacity: var(--fx-go, 0);
+}
+
+/* ---- a number rising from a point of the HUD (effects.mjs number) */
+.fx-num {
+  --fx-c: #f0d48a;
+  position: absolute; left: 0; top: 0; white-space: nowrap;
+  transform: translate(var(--fx-x, 0px), var(--fx-y, 0px)) translate(-50%, -50%) scale(var(--fx-s, 1));
+  font: 800 var(--fx-fs, 20px)/1 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; font-variant-numeric: tabular-nums;
+  color: var(--fx-c);
+  text-shadow: 0 1.5px 0 #0c1614, 0 -1.5px 0 #0c1614, 1.5px 0 0 #0c1614, -1.5px 0 0 #0c1614, 1px 1px 0 #0c1614, -1px 1px 0 #0c1614, 1px -1px 0 #0c1614, -1px -1px 0 #0c1614, 0 3px 8px rgba(0,0,0,.5);
+  opacity: var(--fx-o, 0);
+}
+
+/* ---- a ring bursting from a HUD element (effects.mjs chip) */
+.fx-chip {
+  --fx-c: #f0d48a; --fx-r: 999px;
+  position: absolute; left: 0; top: 0; width: var(--fx-w, 0px); height: var(--fx-h, 0px);
+  transform: translate(var(--fx-x, 0px), var(--fx-y, 0px));
+}
+.fx-chip-fill { position: absolute; inset: 0; border-radius: var(--fx-r); background: #fffaf0; box-shadow: 0 0 16px 3px var(--fx-c); opacity: var(--fx-fo, 0); }
+.fx-chip-ring { position: absolute; border: 2px solid var(--fx-c); }
+.fx-chip-ring-a { inset: calc(var(--fx-ag, 0px) * -1); border-radius: calc(var(--fx-r) + var(--fx-ag, 0px)); box-shadow: 0 0 10px 0 var(--fx-c); opacity: var(--fx-ao, 0); }
+.fx-chip-ring-b { inset: calc(var(--fx-bg, 0px) * -1); border-radius: calc(var(--fx-r) + var(--fx-bg, 0px)); border-width: 1px; opacity: var(--fx-bo, 0); }
+
+/* ---- tokens flying from a tile to the HUD (pieces.mjs fly: a harvest into the resource strip) */
+.fx-fly { position: absolute; left: 0; top: 0; }
+.fx-fly-token {
+  position: absolute; left: 0; top: 0; width: 30px; height: 30px; margin: -15px 0 0 -15px;
+  border-radius: 50%; border: 1.5px solid #f0d48a;
+  background: radial-gradient(circle at 35% 30%, #2c4a45, #10221f 70%);
+  box-shadow: 0 0 12px 2px rgba(240,212,138,.55), 0 2px 6px rgba(0,0,0,.45);
+  transform: translate(var(--fx-x, 0px), var(--fx-y, 0px)) scale(var(--fx-s, 1)) rotate(var(--fx-r, 0deg));
+  opacity: var(--fx-o, 0);
+}
+.fx-fly-token svg { position: absolute; inset: 4px; width: 19px; height: 19px; fill: none; stroke: #f4e4b4; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---- the demo switch's corner tag (fx/demo.mjs): bottom right of the visible map */
+.fx-demo-tag {
+  position: absolute; left: calc(var(--fx-l, 0px) + var(--fx-w, 100vw) - 12px); top: calc(var(--fx-t, 0px) + var(--fx-free, 100vh) - 12px);
+  transform: translate(-100%, -100%);
+  padding: 4px 10px; border: 1px solid #c9a24a; border-radius: 4px;
+  background: rgba(16,34,31,.88); color: #f0d48a;
+  font: 600 12px/1.5 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; letter-spacing: .08em; white-space: nowrap;
+}

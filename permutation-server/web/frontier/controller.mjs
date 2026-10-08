@@ -28,6 +28,7 @@ import * as wallet from '../wallet.mjs';
 import { decode as fromBase58, encode as toBase58 } from '../sdk/base58.mjs';
 import { fromBase64 } from '../sdk/bytes.mjs';
 import { L } from '../lang.mjs';
+import { emit as fxEmit } from './fx/bus.mjs';
 
 const SESSION_DAYS = 30 * 86_400;
 const now = () => FS.chain?.now() ?? 0;
@@ -59,6 +60,13 @@ function ctx(extra = {}) {
 let tx = { submit, track };
 export function useTransport(t) { tx = t ? { submit: t.submit ?? submit, track: t.track ?? track } : { submit, track }; }
 
+/** The effects bus's word of an own action (fx/stage.mjs: busy, sent, landed, refused), with the tile it is about. */
+let fxSeq = 0;
+function fxAction(name, v) {
+  const h = (v && typeof v === 'object' && v.holding) || activeHolding(FS) || null;
+  return { id: `${name}#${++fxSeq}`, name, faction: FS.citizen?.faction ?? null, tile: h && Number.isInteger(h.tile) ? { p: h.p, q: h.q, tile: h.tile } : null };
+}
+
 /** One sponsored action, tracked to its landing; the notice says how it went. */
 async function act(name, { v = {}, fields = {}, signer, requester = null, label, after, onSent, onLost } = {}) {
   // `signer: null` = a settle shape (no authority signs; the session key signs the request only).
@@ -76,13 +84,16 @@ async function act(name, { v = {}, fields = {}, signer, requester = null, label,
     }
   }
   busy(label ?? (() => L`送信中…`));
+  const fxa = fxAction(name, v);
+  let fxDone = false;
+  fxEmit('action:busy', fxa);
   FS.inFlight = (FS.inFlight ?? 0) + 1;
   try {
     const accounts = typeof v === 'function' ? fp => accountsFor(name, v(fp)) : accountsFor(name, ctx(v));
     const send = () => tx.submit({ name, accounts, fields, signer: sign, requester, citizen: requester ? io.pinned().addresses.of('Citizen', { wallet: FS.wallet.address }) : undefined, invite: v.invite });
     let r = await send();
     // the transaction left this browser (a refusal before sending never reaches here)
-    if (r.ok) onSent?.(r);
+    if (r.ok) { onSent?.(r); fxEmit('action:sent', fxa); }
     let t = r.ok ? await tx.track(r.signature) : r;
     // W6-D: a resident action refused because the province fell a bell behind between the check and the landing:
     // ask the keeper to catch it up, wait for the herald to show it, and send once more.
@@ -99,9 +110,11 @@ async function act(name, { v = {}, fields = {}, signer, requester = null, label,
     if (!t.ok && (t.state === 'failed' || t.state === 'expired')) onLost?.(t);
     if (!t.ok) return failed(t);
     done(() => L`チェーンに記録されました`);
+    fxDone = true; fxEmit('action:landed', fxa);
     await after?.(r);
     return r;
   } finally {
+    if (!fxDone) fxEmit('action:refused', fxa);
     FS.inFlight -= 1;
     refreshSoon();
   }
@@ -537,6 +550,9 @@ async function sendTheMarch() {
     holdingAddress: pin.addresses.of('Holding', h) };
   c.sending = true; c.step = null;
   invalidate('panel');
+  // the effects layer draws the route on while the order is sealed and sent (own view only), then stamps it (fx/stage.mjs)
+  const fxa = { id: `Depart#${++fxSeq}`, name: 'Depart', faction: FS.citizen?.faction ?? null, unit: c.host?.unit ?? 0, tile: { p: c.origin.p, q: c.origin.q, tile: c.host.tile }, dest: c.dest ? { p: c.dest.p, q: c.dest.q, tile: c.dest.tile } : null, route: c.route ?? null };
+  fxEmit('action:busy', fxa);
   FS.inFlight = (FS.inFlight ?? 0) + 1;
   try {
     const r = await sendMarch(m, {
@@ -546,6 +562,7 @@ async function sendTheMarch() {
       submit, track, onStep: s => { c.step = s; invalidate('panel'); },
       earliestAtSend: () => (FS.kernel && c.route ? earliestBell(FS.kernel, { genesisTs: FS.clock.genesisTs, departTs: now() + DEPART_MARGIN_SECS, secs: c.route.secs }) : null),
     });
+    fxEmit(r.ok ? 'march:sealed' : 'action:refused', fxa);
     if (r.ok) { done(() => L`出発しました`); FS.compose = null; FS.tab = 'marches'; } else {
       // A stale earliest bell: show the new window (the player chooses again).
       if (r.code === 'ArrivalBell' && r.earliest !== null && r.earliest !== undefined) { c.earliest = r.earliest; c.arriveBell = Math.max(c.arriveBell, arrivalWindow(FS.season, nowBell(), r.earliest).min); }
