@@ -594,7 +594,7 @@ export default {
   '最新へ': 'To the latest',
   '村の候補地': 'Candidate places for the village',
   '村の場所の決まり方': 'How the village\'s place is decided',
-  '村を待つ': 'Waiting for your village',
+  '村を待つ': 'Waiting',
   '国選び': 'Nations',
   '構えと撤退比を決めて「もしもを計算する」を押すと、実際の結果と並べて出ます。': 'Choose a stance and a retreat ratio, press “Compute the what if”, and it appears beside the real result.',
   '次のターンへ': 'To the next turn',

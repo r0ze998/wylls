@@ -453,6 +453,9 @@ body[data-stage="none"] :is(.lenses, .map-btn[data-map="home"]) { display: none;
   .brand { min-height: var(--target); min-width: var(--target); justify-content: center; }
   .crest-chip { height: var(--target); min-width: 34px; padding: 0 2px; border: 0; justify-content: center; }
   .crest-chip .chip-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  /* before a village there are no stores to show: the nation's name stands beside its crest */
+  .crest-chip:has(~ .res-strip[hidden]) { padding: 0 8px 0 4px; }
+  .crest-chip:has(~ .res-strip[hidden]) .chip-text { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
   .res-strip { flex: 1 1 0; padding-left: 2px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scrollbar-width: none;
     -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 18px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 18px), transparent); }
   .res-strip::-webkit-scrollbar { display: none; }
@@ -1411,7 +1414,7 @@ body[data-title="up"] :is(#attn-pill, #next-steps, #quota-chip) { display: none 
   .intro-leaders { gap: 9px; margin: 10px 0 8px; } .intro-leader .leader { width: 50px; }
   .intro-leader span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .intro-lore { line-height: 1.65; }
-  .btn.primary.intro-go { width: 100%; max-width: 320px; }
+  .btn.primary.intro-go { width: 100%; max-width: 320px; min-width: 0; padding: 8px 14px 8px 18px; flex-wrap: nowrap; font-size: var(--t3); letter-spacing: .08em; white-space: nowrap; }
   .hl-go { min-height: 44px; }
   .stepper .btn { min-width: 44px; min-height: 44px; }
   .pop-x { min-width: var(--target); }
