@@ -1,8 +1,10 @@
 // The screens of the smoke matrix (contract §13.6 E7, web design §13.2):
 // the 10 screens — join/faction, site picker, the map's opening view (the
 // viewer's village), map world LOD (one press out), map tile LOD
-// with fog, holding, march composer, march tracker, bell sheet, clash
-// report, practice result — plus the onboarding card and the spectator.
+// with the survey, holding, march composer, march tracker, bell sheet, clash
+// report, practice result — plus the onboarding card, the spectator, and
+// (UX brief §3) the wait for the village, a provisional village and the
+// survey's legend.
 // Each scene names its page, the viewer stage the fixture herald answers,
 // and how the test reaches it: clicks on the page's own controls
 // (`data-act`, tabs, forms), never state written into the page.
@@ -75,11 +77,40 @@ export const SCENES = [
     },
   },
   {
-    id: 'map-tile', title: 'map, tile LOD with fog', page: 'index.html', stage: 'holding',
+    id: 'map-tile', title: 'map, tile LOD with the survey', page: 'index.html', stage: 'holding',
     async go(page) {
       await click(page, '[data-map="home"]');
       for (let i = 0; i < 16 && !(await page.locator('#frontier-map[data-lod="tile"]').count()); i++) await page.locator('[data-map="in"]').click();
       await page.locator('#frontier-map[data-lod="tile"][data-terrain="ready"]').waitFor();
+    },
+  },
+  {
+    // UX brief §3: the wait for the village. The map opens on the first candidate's province: chart, with the
+    // candidate sites as small discs of painted land
+    id: 'ticket', title: 'the wait for the village: candidate sites on the chart', page: 'index.html', stage: 'ticket',
+    async go(page) {
+      await page.locator('#join-ticket').waitFor();
+      await page.locator('#frontier-map[data-lod="tile"][data-terrain="ready"]').waitFor();
+    },
+  },
+  {
+    id: 'provisional', title: 'a provisional village: its disc of sight on the chart', page: 'index.html', stage: 'provisional',
+    async go(page) {
+      await page.locator('#join-prov').waitFor();
+      await page.locator('#frontier-map[data-lod="tile"][data-terrain="ready"]').waitFor();
+    },
+  },
+  {
+    // UX brief §3: the play page has no "show everything" switch; it has the legend, the help line and the way to the spectator page
+    id: 'survey', title: 'the survey\'s legend and help line', page: 'index.html', stage: 'holding',
+    async go(page) {
+      await tab(page, 'more');
+      await page.locator('.survey-help a[href="spectate.html"]').waitFor();
+      const n = await page.locator('[data-act="fog"]').count();
+      if (n) throw new Error(`a show-everything switch on the play page: ${n}`);
+      if ((await page.locator('.survey-legend li').count()) !== 4) throw new Error('the legend has four levels');
+      await sheetFull(page);
+      await page.locator('.survey-help').scrollIntoViewIfNeeded();
     },
   },
   {
