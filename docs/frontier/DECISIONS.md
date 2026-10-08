@@ -73,7 +73,7 @@ Numbers match the conflict register (`M1-CONTRACT.md` §2).
 | I-32 | Depart charges the maximum march stamina | default (O-M1-11) |
 | I-33 | Onboarding times restated (first holding 11–21 min, first clash report 31–41 min) | default (O-M1-13) |
 | I-34 | Doctrine C displayed as "Flame" | default (O-M1-14) |
-| I-35 | Presentation-only fog with a "show everything" switch | default (O-M1-14) |
+| I-35 | Presentation-only fog with a "show everything" switch | default (O-M1-14); **amended 2026-10-09 by Z1**: the play map draws what the viewer has surveyed, and the switch leaves the play screen |
 | I-36 | Bot profiles copied into `frontier-agents` with an equality test | architect |
 | I-37 | Program and ABI in the root workspace, own workspace if the lock does not resolve | architect |
 | I-38 | PS2 log contract with per-entity `(seq, head)` tails; DEPART carries commitment and seal | architect |
@@ -117,7 +117,7 @@ Numbers match the conflict register (`M1-CONTRACT.md` §2).
 | O-M1-11 | Depart charges the maximum march stamina (I-32) | yes |
 | O-M1-12 | Downloads and installs, asked 2026-09-28: wasm32 target (by 10-07), Playwright Chromium (by 11-16), ≈ 250k contiguous quicknet rounds (by 11-25; the exit needs them), Agave ≥ 4.0 for Mode R (optional) | **not approved** (2026-09-27): every gate item that needs one is `PENDING-OWNER`; the test-beacon build and `drand-replay --test-key` meanwhile. **Item 1 (wasm32 target) approved and installed 2026-09-28** (part A); items 2–4 still not approved |
 | O-M1-13 | Ticket finality by cohort and onboarding times in DESIGN §2.2/§2.3 (I-47, I-33) | yes |
-| O-M1-14 | Doctrine C display name; fog switch (I-34, I-35) | "Flame"; switch on |
+| O-M1-14 | Doctrine C display name; fog switch (I-34, I-35) | "Flame"; switch on. **The fog switch part is amended 2026-10-09 by Z1** (the display name stands) |
 | O-M1-15 | Holding 1,280 B (I-31) | yes |
 | O-M1-16 | D22 stake ramp, D24 Relic Sites, Season-1 sweep target (CL-17), D23 details (caretaker term not counted; vacant seats allowed) | closeout §7 defaults; not needed for M1 |
 | O-M1-17 | Fix the two legacy `civilization` tests (CL-35); a push approval when GitHub CI should run | **done locally (W1-D, option a), no push**: both were stale expectations (a ninth building kind; storage back-pressure) |
@@ -480,6 +480,18 @@ Other owner decisions already on record that remain valid next to part Y: memory
 
 Not decided by the owner and left as architect defaults or open questions (not part of Y): the order of work after the hackathon (Q13), the score formula (Q6), whether the labels on the audit page and the roster stay (Q2), the machine windows (Q27), and the 15 conquest questions (Y8 to Y10).
 
+## Z. Owner's point 9 of 2026-10-09: the play map draws what the viewer has surveyed (recorded by the presentation-redesign integration)
+
+Source: the project owner's nine points on the presentation, 2026-10-09 (`docs/frontier/ux/UX-DESIGN.md` §0), point 9: "At first only the player's surroundings may be visible; the whole map must not be." The design that answers it is UX-DESIGN §3 (the survey model). Presentation only: no rule, instruction, record or number of the game changes, and nothing is secret that was public before.
+
+| # | Item | Decision | Status of the build (branch `frontier/ux`, local) |
+|---|---|---|---|
+| Z1 | What the play map draws | The play page (`index.html`) draws only what the viewer has surveyed: land in sight of their villages and hosts is painted and alive, land seen before is painted and muted, opened land never seen is a drawn chart (terrain glyphs only), unopened rings are the cloud sea. One lookup decides it for the tile view, the far views, the minimap, labels, hover tips, the inspector and search (`map/survey.mjs`). **Amends I-35 / O-M1-14** (presentation-only fog with a "show everything" switch, switch on). | **Built.** Sight radii are presentation parameters (`survey.mjs` `SIGHT`). Text lists (chronicle, notifications, standings) still name public events anywhere; only map surfaces follow the survey. |
+| Z2 | The "show everything" switch | It leaves the play screen. In its place: a legend of the four levels, one help line (「地図には、あなたが見て測量した範囲を描いています。隠しているのではありません。…」) and a link to the spectator page. The action `fog` is removed from the controller; the stored preference `fog` in `ps-fui` stays in the record and is no longer read. The `?art=1&fog=1` preview is removed. | **Built.** |
+| Z3 | The spectator and practice pages | Unchanged: `spectate.html` and `practice.html` keep the whole public world. Every account stays public on chain and through the herald. | **Built** (the open survey: everything in sight). |
+| Z4 | What is truly not visible | Only what the rules seal: a sealed march's destination and stance until its arrival turn has ended, and an exploration's result until that turn's randomness is out. The help line says so; the play screen does not use the words 隠す / 秘密 / "fog of war hides" for the survey. | **Built** (wording). The older activity line 「出陣中（…行き先は秘密）」 describes a sealed destination and is kept. |
+| Z5 | Convenience keys on this device (never a record) | `ps-fsurvey:<cluster>:<program>:<season>:<wallet>` (land once in sight, merged with what the records rebuild), `ps-flanded:<cluster>:<program>:<season>:<wallet>` (villages this device has seen land), `ps-ffx:v1` (sound muted), field `effects` in `ps-fui` (motion: full / reduced / off). To be added to the M1 contract's list of localStorage keys when that document is next revised. | **Built.** |
+
 ## E. Change log
 
 | Version | Date | Change |
@@ -507,3 +519,4 @@ Not decided by the owner and left as architect defaults or open questions (not p
 | v1.13 (M1 exit, review corrections) | 2026-10-01 | U9: the exit report and JA summary corrected (scope of the season, verifier, viewers and spectator stated; quota, test count, `min_tip` evidence, hold coverage, U4's re-run consequence) |
 | v1.13 (unify, owner words) | 2026-10-04 | Part X: X1 (AI-citizen memory is the core and in the hackathon build), X2 (pacts and betrayal between AIs removed; supersedes W6's pact clause, noted under W6), X3 (the design spine), X4 (machine windows and ports; the playtest's end time is still to be recorded), X5 (the main run is 3 game days at 10x with 18 AIs); from AI citizens contract v1.2 §13.1 |
 | v1.13 (unify, owner decisions of 2026-10-04) | 2026-10-04 | Part Y: Y1 to Y12 (the owner's decisions D1 to D12 of the chat of 2026-10-04: total score per nation, AI shown without a mark, immediate first land, free season first, business plan, 14-day season, conquest in the design, 15 conquest questions left open, friends' playtest cancelled, 18 AIs for the main run, opening axis); W2 changed by Y2 (note under W2); notes on W4, W5, W8 and W9; X4's playtest part void by Y11a and X5's 18 AIs confirmed by Y11b (X3 and the rest of X4 and X5 stay architect defaults); X header updated for contract v1.3. Written from `docs/GAME-DESIGN.ja.md` §10.1 |
+| v1.13 (presentation redesign, owner's point 9) | 2026-10-09 | Part Z: Z1 (the play map draws what the viewer has surveyed; amends I-35 / O-M1-14), Z2 (the "show everything" switch leaves the play screen; legend, help line and spectator link in its place), Z3 (spectator and practice keep the whole public world), Z4 (what is truly sealed, and the wording), Z5 (convenience keys on the device); notes on I-35 and O-M1-14 |
