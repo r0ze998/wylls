@@ -244,7 +244,9 @@ const REST = 1.6, MEET = 0.74;
 /** The tallest a figure is drawn (screen px): the miniatures' sheets hold about 130 px a figure. */
 export const FIGURE_PX_MAX = 120;
 /** A fight fills the stage (UX-DESIGN §11.14): what the scene needs around its tile, in figure heights and screen px. */
-const NEED = Object.freeze({ back: 1.85, above: 2.0, below: 1.05, foot: 78, head: 36 });
+const NEED = Object.freeze({ back: 1.85, above: 1.72, below: 1.05, foot: 78, head: 36 });
+/** How far over its tile's centre a scene's loss numbers stand (figure heights): just over the heads of the rear rank. */
+export const BATTLE_ABOVE = NEED.above;
 /**
  * The scene sized to a stage of `width` × `height` screen px (what the HUD leaves free): `{px (a figure's
  * height), rest (how far apart the two sides stand, figure heights), bar (a strength bar's length, px),

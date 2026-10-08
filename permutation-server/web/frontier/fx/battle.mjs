@@ -26,7 +26,7 @@
 import { L, fmtNum } from '../../lang.mjs';
 import { RADIUS, FLATTEN } from '../../map.mjs';
 import { factionName } from '../fi18n.mjs';
-import { PHASE, BATTLE_HITS, HIT_POWER, battlePlan, battleStage, battleFit, battleLayout, battleVerdict, paintBattle, preloadBattle, sideColors, crossedSwords } from '../people/battle.mjs';
+import { PHASE, BATTLE_HITS, HIT_POWER, BATTLE_ABOVE, battlePlan, battleStage, battleFit, battleLayout, battleVerdict, paintBattle, preloadBattle, sideColors, crossedSwords } from '../people/battle.mjs';
 import { span, lerp, inQuad, outCubic, outExpo, outBack, envelope } from './ease.mjs';
 import { REDUCED_FADE } from './motion.mjs';
 import { noise1, hashSeed } from './rand.mjs';
@@ -258,13 +258,14 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
   // the title stands over the scene: above the loss numbers, inside the free stage (the banner keeps it there)
   const titleY = (s, h) => {
     const c = s.anchor(stage.cx, stage.cy), px = stage.s * s.zoom;
-    const above = c.y - 2.0 * px - 36 - h / 2;
-    const fr = s.free.stage ?? s.free.centre;
+    const above = c.y - BATTLE_ABOVE * px - 36 - h / 2;
+    const fr = (frame ? s.free.stage : null) ?? s.free.centre;
     return above - h / 2 >= fr.top ? above : Math.max(above, fr.top + h / 2 + 4);
   };
   // a number keeps on the free part of the screen (people/battle.mjs paintLosses asks)
   const placer = s => (x, y, hw, hh) => { const a = s.anchor(x, y), at = s.free.place(a.x, a.y, hw * 2 * s.zoom, hh * 2 * s.zoom, 4); return at.moved ? s.unanchor(at.x, at.y) : { x, y }; };
-  // the map's labels make way for as long as the scene has the stage
+  // the map's labels on the fight's tiles make way for as long as it plays; a battle the camera was sent to has the whole
+  // stage (every other label goes and the HUD's corner pieces step back), one that plays in passing does not take it
   const tiles = plan.tiles.map(T => `${scene.p},${scene.q},${T.idx}`);
 
   if (level === 'off') {
@@ -287,8 +288,8 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
       if (s.zoom * RADIUS < BATTLE_FAR_R) { for (const T of plan.tiles) if (T.fight) paintFar(ctx, s, T, PHASE.fates + 1, title?.color ?? null); }
       else paintBattle(ctx, play, { zoom: s.zoom, at: PHASE.fates + 1.5, top: true, fit: battleFit(s.size.width), layout, place: placer(s), ...texts });
     } }));
-    keep(fx.piece('battle', { dur: hold, tiles, stage: true }));
-    if (title) keep(fx.play('banner', { title: title.title, sub: title.sub, color: title.color, tone: title.tone, vy: titleY, room: 'stage', dur: Math.min(hold, 2.8), seed: `${id}|title`, mode: level }));
+    keep(fx.piece('battle', { dur: hold, tiles, stage: !!frame }));
+    if (title) keep(fx.play('banner', { title: title.title, sub: title.sub, color: title.color, tone: title.tone, vy: titleY, room: frame ? 'stage' : null, dur: Math.min(hold, 2.8), seed: `${id}|title`, mode: level }));
     const h = { cancel() { handles.forEach(x => x.cancel?.()); staged.delete(key); } };
     staged.set(key, h);
     return h;
@@ -307,7 +308,7 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
     const st = battleStage(main, s.zoom, battleFit(s.size.width), layout);
     paintDim(ctx, s, st.cx, st.cy - st.s * 0.2, st.s * (layout ? 3.3 : 2.7), Math.min(0.85, dim * a * (1 + 0.12 * punch)));
   } }));
-  keep(fx.piece('battle', { dur, tiles, stage: true }));
+  keep(fx.piece('battle', { dur, tiles, stage: !!frame }));
   // 2. the scene itself
   keep(fx.add({ name: 'battle', layer: 'top', dur, seed: id, draw(ctx, s) {
     const ts = t0 + s.t * speed;
@@ -340,7 +341,7 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
   }
   // 4. the verdict across the map, in the holder's colour
   if (title) {
-    keep(fx.play('banner', { title: title.title, sub: title.sub, color: title.color, tone: title.tone, vy: titleY, room: 'stage', dur: Math.max(1.6, 2.5 / speed), delay: at(PHASE.fates + 0.3), seed: `${id}|title` }));
+    keep(fx.play('banner', { title: title.title, sub: title.sub, color: title.color, tone: title.tone, vy: titleY, room: frame ? 'stage' : null, dur: Math.max(1.6, 2.5 / speed), delay: at(PHASE.fates + 0.3), seed: `${id}|title` }));
     if (title.won) fx.sound('shimmer', { delay: at(PHASE.fates + 0.3), seed: id });
     // 5. the aftermath: the tile and the land around it pulse in that colour
     if (title.verdict.winner !== null) {
