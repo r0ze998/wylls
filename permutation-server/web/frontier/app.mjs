@@ -24,7 +24,7 @@ import { toHex } from '../sdk/bytes.mjs';
 import { html, setHtml } from '../util.mjs';
 import { ACTIONS, FORMS, bind, startPlay, wantProvince } from './controller.mjs';
 import { renderTabs, renderNotice, factionChip, quotaChip, mountSheet, PHONE_MAX } from './screens/shell.mjs';
-import { drawerOf, closeDrawer, drawerTitle, holdsLand, LIFTS } from './hud/drawer.mjs';
+import { drawerOf, closeDrawer, drawerTitle, holdsLand, LIFTS, DRAWER_ICON } from './hud/drawer.mjs';
 import { icon, iconizeMapTools } from './hud/icons.mjs';
 import { hudInsets } from './hud/insets.mjs';
 import { createTerrain } from './map/terrain.mjs';
@@ -332,6 +332,8 @@ function renderDrawer(markupOf) {
     if (!same && scroller) scroller.scrollTop = 0;
   }
   setText('panel-title', drawerTitle(d));
+  const mark = $('panel-ic');
+  if (mark && d) setHtmlIfChanged(mark, icon(DRAWER_ICON[d.kind] ?? 'chart'));
   return d;
 }
 

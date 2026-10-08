@@ -301,7 +301,7 @@ export function renderPlate(FS) {
   const clocks = holdingCountdowns(FS, h);
   const name = holdingName(h);
   const i = hs.indexOf(h);
-  return html`<div class="plate${warned ? ' plate-warned' : ''}">
+  return html`<div class="plate${warned ? ' plate-warned' : ''}"><span class="plate-bar f${faction}" aria-hidden="true"></span>
     <button type="button" class="plate-main" data-act="home" aria-label="${hs.length > 1 ? L`${name}へ移動（もう一度押すと次の村）` : L`${name}へ移動`}">
       <span class="plate-face">${face}</span>
       <span class="plate-text"><strong class="plate-name">${name}${h.state === 2 ? '' : html` <span class="plate-tag">${L`仮`}</span>`}</strong>

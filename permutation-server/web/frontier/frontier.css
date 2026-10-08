@@ -80,6 +80,9 @@ body[data-urgency="crit"] main::after { box-shadow: inset 0 0 0 4px #c8412f; }
 .topbar { position: fixed; top: 0; left: 0; right: 0; z-index: 60; height: var(--strip); display: flex; align-items: center; gap: 8px; padding: 0 var(--edge); color: var(--hud-ink);
   background: linear-gradient(180deg, rgba(9,21,19,.93), var(--metal-glass)); -webkit-backdrop-filter: blur(8px) saturate(1.1); backdrop-filter: blur(8px) saturate(1.1);
   border-bottom: 1px solid var(--brass-lo); box-shadow: 0 1px 0 rgba(240,212,138,.3), 0 10px 24px -8px rgba(0,0,0,.55); }
+/* a lip under the strip holds the dial */
+.topbar::after { content: ""; position: absolute; left: 50%; top: 100%; translate: -50% 0; width: calc(var(--dial) + 60px); height: 17px; border: 1px solid var(--brass-lo); border-top: 0; border-radius: 0 0 26px 26px;
+  background: linear-gradient(180deg, var(--metal-glass), rgba(13,29,26,.7)); box-shadow: inset 0 -1px 0 rgba(240,212,138,.25), 0 6px 14px -4px rgba(0,0,0,.5); pointer-events: none; }
 .strip-side { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 6px; height: 100%; }
 .strip-l { padding-right: calc(var(--dial) / 2 + 8px); }
 .strip-r { justify-content: flex-end; padding-left: calc(var(--dial) / 2 + 8px); }
@@ -202,6 +205,7 @@ body[data-urgency="crit"] main::after { box-shadow: inset 0 0 0 4px #c8412f; }
 .todo-settle .todo-btn, .todo-idle .todo-btn { border-left-color: #6fcf9a; } .todo-settle .todo-ic, .todo-idle .todo-ic { color: #8fe0b4; }
 .todo-dormant .todo-btn { border-left-color: var(--hud-ink-2); } .todo-dormant .todo-ic { color: var(--hud-ink-2); }
 .plate { position: relative; display: flex; align-items: center; gap: 10px; margin: 0; padding: 0; border: 1px solid var(--brass-lo); border-radius: 14px; background: var(--plate-bg); box-shadow: var(--shadow), var(--plate-edge); color: var(--hud-ink); }
+.plate-bar { position: absolute; left: -1px; top: 14px; bottom: 14px; width: 3px; border-radius: 0 3px 3px 0; }
 .plate-open { display: grid; gap: 8px; padding: 12px; }
 .plate-who { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .plate-acts { display: flex; gap: 6px; }
@@ -304,6 +308,7 @@ body[data-urgency="crit"] main::after { box-shadow: inset 0 0 0 4px #c8412f; }
   transition: opacity .22s ease-out, transform .22s cubic-bezier(.2,.8,.2,1), visibility 0s; }
 .panel[data-drawer="closed"] { visibility: hidden; opacity: 0; transform: translateX(10px); pointer-events: none; transition: opacity .16s ease-in, transform .16s ease-in, visibility 0s .16s; }
 .panel-head { flex: none; display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 6px 8px 6px 16px; border-bottom: 1px solid rgba(201,162,74,.4); box-shadow: 0 1px 0 rgba(0,0,0,.4); }
+.panel-ic { flex: none; color: var(--brass-hi); } .panel-ic .ic { width: 20px; height: 20px; }
 #panel-title { flex: 1 1 auto; min-width: 0; margin: 0; font: 700 var(--t3)/1.3 var(--display); letter-spacing: .08em; color: var(--ivory); }
 .panel-close { flex: none; background: rgba(255,255,255,.04); box-shadow: none; }
 /* the season's status line belongs to the details in "More" */
@@ -356,6 +361,7 @@ body[data-urgency="crit"] main::after { box-shadow: inset 0 0 0 4px #c8412f; }
   :root { --dial: 72px; --edge: 8px; }
   main { bottom: calc(var(--tabs) + env(safe-area-inset-bottom)); }
   .topbar { padding: 0 6px; gap: 4px; }
+  .topbar::after { display: none; }
   .strip-side { gap: 2px; }
   .strip-l { padding-right: 0; }
   .strip-r { flex: none; padding-left: 0; }
@@ -411,15 +417,17 @@ body[data-urgency="crit"] main::after { box-shadow: inset 0 0 0 4px #c8412f; }
   .panel[data-sheet="peek"] { max-height: min(calc(100% * .28), calc(var(--vvh) * .25)); }
   .panel[data-sheet="half"] { max-height: min(54%, calc(var(--vvh) * .5)); }
   .panel[data-sheet="full"] { max-height: min(calc(100% - var(--strip) - 8px), calc(var(--vvh) - var(--strip) - 16px)); }
-  .sheet-handle { position: sticky; top: 0; z-index: 3; flex: none; display: block; width: 100%; min-height: var(--target); height: var(--target); margin: 0 0 -14px; padding: 0; border: 0; border-radius: 16px 16px 0 0; background: linear-gradient(180deg, #19352f 70%, rgba(25,53,47,0)); cursor: grab; touch-action: none; }
+  .sheet-handle { position: sticky; top: 0; z-index: 3; flex: none; display: block; width: 100%; min-height: var(--target); height: var(--target); margin: 0 0 -14px; padding: 0; border: 0; border-radius: 16px 16px 0 0; background: linear-gradient(180deg, #19352f 50%, rgba(25,53,47,0) 85%); cursor: grab; touch-action: none; }
   .sheet-handle:focus-visible { outline-offset: -3px; }
   .sheet-handle::before { content: ""; position: absolute; left: 50%; top: 8px; translate: -50% 0; width: 44px; height: 5px; border-radius: 3px; background: var(--brass); box-shadow: 0 1px 0 rgba(0,0,0,.5); }
   /* the title and the close button share the handle's row (the handle keeps the middle) */
-  .panel-head { position: sticky; top: 0; z-index: 4; height: var(--target); min-height: var(--target); margin: calc(-1 * var(--target) + 14px) 0 0; padding: 0 0 0 14px; border: 0; box-shadow: none; justify-content: space-between; pointer-events: none; }
-  #panel-title { flex: 0 1 auto; max-width: calc(50% - 40px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .panel-head { position: sticky; top: 0; z-index: 4; height: var(--target); min-height: var(--target); margin: calc(-1 * var(--target) + 14px) 0 0; padding: 0 0 0 14px; border: 0; box-shadow: none; pointer-events: none; }
+  .panel-close { margin-left: auto; }
+  .panel-ic { pointer-events: none; }
+  #panel-title { flex: 1 1 auto; max-width: calc(50% - 60px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .panel-close { pointer-events: auto; border-color: transparent; background: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
   .panel[data-drawer="closed"] .panel-head { display: none; }
-  .panel[data-drawer="closed"] .sheet-handle { margin-bottom: -18px; }
+  .panel[data-drawer="closed"] .sheet-handle { margin-bottom: -16px; }
   #panel-body { flex: none; overflow: visible; padding: 6px 10px 12px; }
   /* at rest: the plate and the to-do lines in the peek */
   #panel-body > .plate { margin: 0 0 8px; border: 0; background: none; box-shadow: none; }

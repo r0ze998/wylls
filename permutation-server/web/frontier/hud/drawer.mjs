@@ -58,5 +58,8 @@ export function drawerTitle(d) {
     march: () => L`進軍の準備`, inspect: () => L`選択`, guide: () => L`ガイド`, join: () => L`参加`, spectate: () => L`観戦` })[d?.kind]?.() ?? L`地図`;
 }
 
+/** The drawer's mark beside its title (hud/icons.mjs). */
+export const DRAWER_ICON = Object.freeze({ practice: 'swords', report: 'scroll', holding: 'home', hosts: 'sword', marches: 'banner', more: 'scroll', march: 'seal', inspect: 'eye', guide: 'compass', join: 'banner', spectate: 'eye' });
+
 /** The kinds that lift the phone sheet from its peek (a selection or an order stays low: the map is being used). */
 export const LIFTS = Object.freeze(new Set(['practice', 'report', 'holding', 'hosts', 'marches', 'more', 'guide', 'join', 'spectate']));
