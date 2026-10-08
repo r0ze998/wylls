@@ -464,7 +464,9 @@ function banner(a, env) {
   const full = env.mode === 'full';
   // the title's width in ems (full-width glyphs 1, others about 0.58, plus the letter spacing): it is sized to fit the map
   const ems = [...title].reduce((w, ch) => w + (/[\u2e80-\u9fff\uff00-\uffef\u3000-\u30ff]/.test(ch) ? 1 : 0.58) + 0.14, 0);
-  const sizeFor = width => Math.max(20, Math.min(60, width * 0.066, (width * 0.76) / ems));
+  // (a phone's map has the HUD's two columns of buttons down its sides: the title keeps between them)
+  const narrow = width => width < 600;
+  const sizeFor = width => Math.max(narrow(width) ? 16 : 20, Math.min(60, width * 0.066, (width * (narrow(width) ? 0.62 : 0.76)) / ems));
   const dress = (doc, el) => {
     el.dataset.tone = a.tone ?? 'brass';
     if (a.color) el.style.setProperty('--fx-c', a.color);
@@ -492,7 +494,7 @@ function banner(a, env) {
       // a host element is outside #fx-hud: it is told where the map is itself
       if (host) setVars(el, { '--fx-l': `${s.stage.left}px`, '--fx-t': `${s.stage.top}px`, '--fx-w': `${s.stage.width}px`, '--fx-free': `${s.stage.free}px` });
       // a long title on a narrow map breaks into balanced lines instead of running off the sides
-      const wrap = fs * ems > s.stage.width * 0.8 ? 'true' : 'false';
+      const wrap = fs * ems > s.stage.width * (narrow(s.stage.width) ? 0.68 : 0.8) ? 'true' : 'false';
       if (el.dataset.wrap !== wrap) el.dataset.wrap = wrap;
       if (!full) {
         const o = envelope(t, dur, REDUCED_FADE, REDUCED_FADE);

@@ -549,7 +549,8 @@ export class FrontierMap {
     const own = (src.own ?? []).find(o => villageKey(o) === villageKey(at)) ?? at;
     const maxD = WORKED_RADIUS[Math.max(0, Math.min(WORKED_RADIUS.length - 1, Number(own.tier ?? 0)))] ?? 1, T = LANDING;
     const c = project(h.q, h.r), u = standardUnit(this.cam.view.zoom) / STANDARD_UNIT;
-    fxEmit('landing', { p: at.p, q: at.q, tile: at.tile, faction: src.viewerFaction ?? null, name: own.name ?? null, maxD, flood: T.floodAt / 1000,
+    // (`replay`: the demo switch plays the landing of a village that landed long ago)
+    fxEmit('landing', { p: at.p, q: at.q, tile: at.tile, faction: src.viewerFaction ?? null, name: own.name ?? null, maxD, replay: !!this.keepLanding, flood: T.floodAt / 1000,
       impact: (T.floodAt + maxD * T.ring + T.borderGap + T.standardGap + T.drop * T.impact) / 1000, standard: { x: c.x + STANDARD_AT.x * u, y: c.y + STANDARD_AT.y * u } });
   }
 

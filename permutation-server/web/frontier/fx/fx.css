@@ -35,6 +35,9 @@
   position: fixed; z-index: 61; margin: 0; border: 0; border-radius: 0; background: none; box-shadow: none;
   grid-column: auto; grid-row: auto; justify-self: auto; align-self: auto;
   animation: none; pointer-events: none; font-size: inherit; letter-spacing: normal;
+  /* (the page's own rules for the resting element: hidden, shifted by half its width, one line; its fade is
+     switched off in the page's own sheet, frontier.css) */
+  visibility: visible; translate: none; white-space: normal; color: inherit;
 }
 #bell-toll.fx-banner-host::before { content: none; animation: none; }
 .fx-banner-band {
@@ -68,7 +71,7 @@
   filter: drop-shadow(0 2px 0 rgba(0,0,0,.6)) drop-shadow(0 0 18px color-mix(in srgb, var(--fx-c) 50%, transparent));
   opacity: var(--fx-to, 0); transform: scale(var(--fx-ts, 1));
 }
-.fx-banner[data-wrap="true"] .fx-banner-title { max-width: 84%; white-space: normal; text-wrap: balance; line-height: 1.3; }
+.fx-banner[data-wrap="true"] .fx-banner-title { max-width: min(84%, calc(100% - 128px)); white-space: normal; text-wrap: balance; line-height: 1.3; }
 .fx-banner[data-tone="win"] { --fx-c: #f0d48a; }
 .fx-banner[data-tone="loss"] { --fx-c: #e2553d; }
 .fx-banner[data-tone="loss"] .fx-banner-title { background-image: linear-gradient(180deg, #f4efe0 10%, #d8d3c4 55%, #9aa39b 100%); }

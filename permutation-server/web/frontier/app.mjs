@@ -588,7 +588,7 @@ function showMilestone() {
 function mountLandingLine() {
   fxOn('landing', a => {
     const h = (FS.holdings ?? []).find(x => x.p === a.p && x.q === a.q && x.tile === a.tile);
-    if (FS.mode !== 'play' || !h || mileShown.has('first-holding') || (FS.holdings ?? []).indexOf(h) !== 0) return;
+    if (FS.mode !== 'play' || a.replay || !h || mileShown.has('first-holding') || (FS.holdings ?? []).indexOf(h) !== 0) return;
     setTimeout(() => {
       if (mileShown.has('first-holding')) return;
       FS.mileQueue = [{ id: 'first-holding', kind: 'first-holding', p: h.p, q: h.q, site: h.site, tier: 0 }, ...(FS.mileQueue ?? [])];
@@ -1132,12 +1132,13 @@ let turnStrip = null;
 const TURN_STRIP_MS = 60_000;
 function turnStripNow() {
   const s = turnStrip;
-  if (!s || s.dismissed || Date.now() - s.at > TURN_STRIP_MS) return null;
-  return s;
+  if (!s || s.dismissed || fxNow() - s.at > TURN_STRIP_MS) return null;
+  // (the toll's banner has the top of the map first: the card comes as the first result plays)
+  return fxNow() - s.at < s.startsIn * 1000 - 40 ? null : s;
 }
 /** The row whose mark is playing on the map now (each plays for about a second and a half), or -1. */
 function turnRowNow(s) {
-  const t = (Date.now() - s.at) / 1000 - s.startsIn;
+  const t = (fxNow() - s.at) / 1000 - s.startsIn;
   if (t < 0) return -1;
   const i = Math.floor(t / s.gap);
   return i < s.items.length && t - i * s.gap < 1.5 ? i : i >= s.items.length && t - (s.items.length - 1) * s.gap < 1.5 ? s.items.length - 1 : -1;
@@ -1145,7 +1146,7 @@ function turnRowNow(s) {
 function mountTurnStrip() {
   fxOn('turn:results', p => {
     if (!p?.items?.length || (FS.mode !== 'play' && !p.demo)) return;
-    turnStrip = { turn: p.turn, items: p.items, demo: !!p.demo, at: Date.now(), startsIn: Math.max(0, p.startsIn ?? 0), gap: Math.max(0.2, p.gap ?? 0.7), dismissed: false };
+    turnStrip = { turn: p.turn, items: p.items, demo: !!p.demo, at: fxNow(), startsIn: Math.max(0, p.startsIn ?? 0), gap: Math.max(0.2, p.gap ?? 0.7), dismissed: false };
     renderFeed();
     // the lit row follows the map's marks (a few re-renders, then the card rests)
     const s = turnStrip;
@@ -1198,7 +1199,8 @@ function syncStack(el, items) {
 let obAt = null;
 function placeObjective(v, size, lod) {
   let at = null;
-  const g = FS.mode === 'play' && !phone() && lod === 'tile' && !FS.compose && !titleUp() ? guideNow() : null;
+  // (a landing has the land to itself: the village's name rises where the chip would stand)
+  const g = FS.mode === 'play' && !phone() && lod === 'tile' && !FS.compose && !titleUp() && !mapRef?.landing ? guideNow() : null;
   const d = g ? drawerOf(FS) : null;
   if (g && Number.isInteger(g.tile) && (!d || d.kind === 'inspect')) {
     const h = tileHex(g.p, g.q, g.tile), c = h ? project(h.q, h.r) : null;
