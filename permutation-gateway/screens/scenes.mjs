@@ -81,11 +81,12 @@ export const SCENES = [
     async go(page) {
       await tab(page, 'hosts');
       await click(page, `[data-act="compose"][data-host="${HOSTS.free}"]`);
+      // the order is one document written on the map (hud/marchcard.mjs): a nearby destination by its name, then the seal
+      await page.locator('#mc-title').waitFor();
       await click(page, '[data-act="dest-quick"]');
-      await page.locator('#march-title').waitFor();
-      await gone(page, '行き先を決めると道のりを探します');
-      // The planner found the way (the route line, not a refusal).
-      await page.locator('section[aria-labelledby="march-title"] fieldset:nth-of-type(2) > p:first-of-type:not(.muted)').waitFor();
+      await gone(page, '道のりを探しています');
+      // The planner found the way (the order can be sealed: no refusal).
+      await page.locator('section[aria-labelledby="mc-title"] [data-act="march-send"]:not([disabled])').waitFor();
       await sheetFull(page);
     },
   },

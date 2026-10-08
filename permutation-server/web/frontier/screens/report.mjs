@@ -42,6 +42,7 @@ import { factionName, UNITS as UNIT_TEXT, STANCES as STANCE_TEXT, FATES as FATE_
 import { UNIT_ORDER } from '../fland.mjs';
 import { swatch } from './shell.mjs';
 import { personChip } from '../people/ui.mjs';
+import { cardHead, fold, chip, lossBar, label } from './parts.mjs';
 import { LEADERS, leaderSvg } from '../people/leaders.mjs';
 
 // ------------------------------------------------------------------ the resolve_clash codec (borsh)
@@ -621,10 +622,16 @@ function renderTiles(list) {
     <p class="muted">${L`与えた損害は、そのマスで相手側が失った兵の合計です（誰が誰を討ったかは記録にありません）。`}</p></section>`;
 }
 
-/** The report links of resolved clashes: `[{p, q, bell}]` → buttons. */
-export function renderLinks(list, title) {
+/** How many report links stand in sight before the fold. */
+export const LINKS_SHOWN = 3;
+/** The report links of resolved clashes: `[{p, q, bell}]` → a short list of rows (the rest behind a fold). */
+export function renderLinks(list, title, { id = 'reports-title', key = 'reports' } = {}) {
   if (!list.length) return '';
-  return html`<section aria-labelledby="reports-title"><h3 id="reports-title">${title}</h3><ul class="list">${list.map(x => html`<li><button type="button" class="btn" data-act="report-open" data-p="${x.p}" data-q="${x.q}" data-bell="${x.bell}">${L`州 ${x.p},${x.q} · 第${fmtNum(x.bell)}鐘`}${x.mine ? html` <span class="muted">${L`（あなた）`}</span>` : ''}</button></li>`)}</ul></section>`;
+  const rowOf = x => html`<li><button type="button" class="doc-row" data-act="report-open" data-p="${x.p}" data-q="${x.q}" data-bell="${x.bell}">${icon('scroll')}<span class="doc-row-t">${L`州 ${x.p},${x.q} · 第${fmtNum(x.bell)}鐘`}${x.mine ? html` <span class="muted">${L`（あなた）`}</span>` : ''}</span>${icon('chevron', 'doc-row-go')}</button></li>`;
+  const first = list.slice(0, LINKS_SHOWN), rest = list.slice(LINKS_SHOWN);
+  return html`<section class="vcard" aria-labelledby="${id}">${cardHead({ id, ic: 'scroll', title })}
+    <ul class="doc-rows">${first.map(rowOf)}</ul>
+    ${rest.length ? fold(key, L`もっと見る（${fmtNum(rest.length)}）`, html`<ul class="doc-rows">${rest.map(rowOf)}</ul>`) : ''}</section>`;
 }
 
 /** Resolved clashes from the chronicle (CLASH records), newest first, distinct, at most `limit`. */

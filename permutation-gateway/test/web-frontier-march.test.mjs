@@ -32,6 +32,7 @@ import { seasonClock } from '../../permutation-server/web/frontier/clock.mjs';
 import { decodeOverview } from '../../permutation-server/web/frontier/herald.mjs';
 import { TEST_BEACON } from '../../permutation-server/web/frontier/abi.mjs';
 import * as composer from '../../permutation-server/web/frontier/screens/march.mjs';
+import * as order from '../../permutation-server/web/frontier/hud/marchcard.mjs';
 import * as trackerScreen from '../../permutation-server/web/frontier/screens/tracker.mjs';
 import * as hostScreen from '../../permutation-server/web/frontier/screens/host.mjs';
 import * as incomingScreen from '../../permutation-server/web/frontier/screens/incoming.mjs';
@@ -255,23 +256,52 @@ test('the WASM planner, the earliest bell and `reachable` feed the composer and 
   setLang('ja');
 });
 
-test('the composer offers the three presets only, "never" first, and names what blocks sending', () => {
+// Rewritten with the redesign (UX design sections 1 and 6): the composer was a four-step form on the Marches screen
+// (screens/march.mjs render); the order is now one document written on the map (hud/marchcard.mjs render), with the
+// stance and the retreat sizes as pictures, the arrival turn as a stepper, and the tip presets behind its fold.
+test('the order offers the three tip presets only, "never" first among the retreat choices, and names what blocks sending', () => {
   const w = world();
-  const FS = { season: SEASON, nowBell: 41, holdings: [w.holding], provinces: new Map([['2,0', { province: w.province }]]),
-    compose: { host: { ...w.host, troops: 500, unit: 0 }, dest: { p: 2, q: 0, tile: 33 }, route, arriveBell: 43, stance: 0, retreat: 'never', tip: '14668' } };
+  const FS = { season: SEASON, nowBell: 41, holdings: [w.holding], provinces: new Map([['2,0', { province: w.province }]]), citizen: { faction: 0 },
+    compose: { host: { ...w.host, troops: 500, unit: 0 }, origin: { p: 2, q: 0 }, dest: { p: 2, q: 0, tile: 33 }, route, arriveBell: 43, stance: 0, retreat: 'never', tip: '14668' } };
   const ch = composer.composerChoices(FS);
   assert.deepEqual(ch.tips.map(t => String(t.lamports)), ['14668', '22002', '29336']);
   assert.equal(ch.retreat[0].id, 'never');
-  const out = String(composer.render(FS));
+  setLang('ja');
+  const out = String(order.render(FS));
+  assert.match(out, /<section class="order" aria-labelledby="mc-title">/);
   const tips = [...out.matchAll(/name="tip" data-bind="tip" value="(\d+)"/g)].map(m => m[1]);
   assert.deepEqual(tips, ['14668', '22002', '29336'], 'exactly the presets; no zero, no custom tip');
   assert.doesNotMatch(out, /value="0" [^>]*data-bind="tip"|data-bind="tip" value="0"/);
-  assert.match(out, /<option value="never" selected>/);
+  // the retreat sizes: five pictures, "never" first and chosen
+  const retreat = [...out.matchAll(/class="pick" role="radio" aria-checked="(true|false)" aria-label="[^"]*" title="[^"]*" data-act="mc-retreat" data-v="([^"]+)"/g)].map(m => [m[2], m[1]]);
+  assert.deepEqual(retreat, [['never', 'true'], ['x2', 'false'], ['x1.5', 'false'], ['x1', 'false'], ['x0.5', 'false']]);
+  // the stances: four pictures, each an SVG drawing without a style attribute
+  assert.equal((out.match(/data-act="mc-stance" data-v="\d"><svg class="pic"/g) ?? []).length, 4);
+  assert.doesNotMatch(out, /\sstyle=/);
+  // the arrival turn is a stepper over the window (43 … 113): the earliest cannot go earlier
+  assert.match(out, /data-act="mc-bell" data-d="-1" aria-label="1ターン早く" disabled/);
+  assert.match(out, /ターン 43 に到着/);
   assert.match(out, /data-act="march-send" >|data-act="march-send"\s*>/, 'ready to send');
-  const blocked = String(composer.render({ ...FS, compose: { ...FS.compose, tip: '0' } }));
+  // no tile number and no lamports on the play screen: the place by its name, the costs under "More → details"
+  assert.doesNotMatch(out.replace(/<label>[^<]*<input name="tile"/, ''), /マス \d|ランポート|キーパー|frontier\.wasm/);
+  const blocked = String(order.render({ ...FS, compose: { ...FS.compose, tip: '0' } }));
   assert.match(blocked, /data-act="march-send" disabled/);
   assert.match(blocked, /チップが最低額に足りません/);
-  assert.match(String(composer.render({ ...FS, compose: { ...FS.compose, route: null, routeError: 'NoWasm' } })), /frontier\.wasm/);
+  assert.match(String(order.render({ ...FS, compose: { ...FS.compose, route: null, routeError: 'NoWasm' } })), /frontier\.wasm/, 'a module that failed to load is named in its error');
+  // before a destination: the hint, the nearby places by name, the coordinates behind a fold
+  const empty = String(order.render({ ...FS, compose: { ...FS.compose, dest: null, route: null, quick: [{ kind: 'camp', p: 2, q: 0, tile: 32 }] } }));
+  assert.match(empty, /地図で行き先のマスを選んでください/);
+  assert.match(empty, /data-act="dest-quick" data-p="2" data-q="0" data-tile="32"/);
+  assert.match(empty, /<details class="fold" data-fold="o-coords"/);
+  assert.doesNotMatch(empty, /data-act="march-send"/);
+  // the Marches screen leads back to an order in progress
+  assert.match(String(composer.render(FS)), /data-act="sel-open"/);
+  assert.doesNotMatch(String(composer.render({ ...FS, compose: null })), /data-act="sel-open"/);
+  setLang('en');
+  const en = String(order.render(FS)).replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<[^>]*>/g, ' ');
+  assert.doesNotMatch(en, /[぀-ヿ㐀-鿿]/, en);
+  assert.match(en, /Arrives on turn 43/);
+  setLang('ja');
 });
 
 // ------------------------------------------------------------------ the send flow

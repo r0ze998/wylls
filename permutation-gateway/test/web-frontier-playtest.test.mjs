@@ -25,7 +25,8 @@ const WEB = 'permutation-server/web/frontier/';
 /** Every `<input type="number">` of the Frontier page sources with its literal attributes. */
 function numberInputs() {
   const out = [];
-  const files = ['index.html', 'practice.html', 'spectate.html', ...readdirSync(`${ROOT}${WEB}screens`).map(f => `screens/${f}`)];
+  // the order's fields (coordinates, a retreat ratio of one's own) moved with the order to hud/marchcard.mjs: hud/ is scanned too
+  const files = ['index.html', 'practice.html', 'spectate.html', ...readdirSync(`${ROOT}${WEB}screens`).map(f => `screens/${f}`), ...readdirSync(`${ROOT}${WEB}hud`).map(f => `hud/${f}`)];
   for (const f of files) {
     const src = read(`${WEB}${f}`);
     for (const m of src.matchAll(/<input\b[^>]*type="number"[^>]*>/g)) {

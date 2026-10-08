@@ -15,6 +15,7 @@ import { L, fmtNum } from '../../lang.mjs';
 import { BUILDINGS, TIERS } from '../fi18n.mjs';
 import { BUILD_ITEMS } from '../fland.mjs';
 import { icon } from './icons.mjs';
+import { cardHead, chip, fold } from '../screens/parts.mjs';
 
 export const FEED_MAX = 60;
 export const TOAST_MAX = 3;
@@ -149,12 +150,16 @@ export const FEED_FILTERS = Object.freeze(['all', 'battle', 'march', 'holding'])
 const FILTER_TEXT = { all: () => L`すべて`, battle: () => L`戦闘`, march: () => L`進軍と来襲`, holding: () => L`村と建設` };
 const inFilter = (x, f) => f === 'all' || (f === 'battle' && x.kind === 'battle') || (f === 'march' && (x.kind === 'march' || x.kind === 'incoming')) || (f === 'holding' && (x.kind === 'holding' || x.kind === 'build'));
 
-/** The notification list (the More tab). */
+/** How many notifications of the list stand in sight before the fold. */
+export const CENTRE_SHOWN = 5;
+/** The notification list ("More"): the newest in sight, the rest behind a fold. */
 export function renderCentre(feed, filter = 'all') {
   const list = feed.filter(x => inFilter(x, filter));
-  return html`<section aria-labelledby="feed-title"><h3 id="feed-title">${L`お知らせ`}</h3>
-    <div class="feed-filters" role="group" aria-label="${L`絞り込み`}">${FEED_FILTERS.map(f => html`<button type="button" class="btn small" data-act="feed-filter" data-f="${f}" aria-pressed="${f === filter ? 'true' : 'false'}">${FILTER_TEXT[f]()}</button>`)}</div>
-    ${list.length ? html`<ol class="list feed-list">${list.map(x => html`<li class="feed-${x.kind}"><span class="toast-icon">${icon(KIND_ICON[x.kind] ?? 'flag')}</span><span>${x.text} ${stamp(x)}</span><span class="toast-acts">${itemActions(x)}</span></li>`)}</ol>`
+  const rowOf = x => html`<li class="feed-${x.kind}"><span class="toast-icon">${icon(KIND_ICON[x.kind] ?? 'flag')}</span><span class="feed-text">${x.text} ${stamp(x)}</span>${itemActions(x).length ? html`<span class="toast-acts">${itemActions(x)}</span>` : ''}</li>`;
+  const first = list.slice(0, CENTRE_SHOWN), rest = list.slice(CENTRE_SHOWN);
+  return html`<section class="vcard" aria-labelledby="feed-title">${cardHead({ id: 'feed-title', ic: 'bell', title: L`お知らせ`, side: list.length ? chip(fmtNum(list.length)) : '' })}
+    <div class="seg" role="group" aria-label="${L`絞り込み`}">${FEED_FILTERS.map(f => html`<button type="button" class="seg-btn" data-act="feed-filter" data-f="${f}" aria-pressed="${f === filter ? 'true' : 'false'}">${FILTER_TEXT[f]()}</button>`)}</div>
+    ${list.length ? html`<ol class="list feed-list">${first.map(rowOf)}</ol>${rest.length ? fold('feed-old', L`もっと見る（${fmtNum(rest.length)}）`, html`<ol class="list feed-list">${rest.map(rowOf)}</ol>`) : ''}`
       : html`<p class="muted">${L`まだお知らせはありません`}</p>`}</section>`;
 }
 
