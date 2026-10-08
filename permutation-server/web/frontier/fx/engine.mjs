@@ -443,6 +443,21 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
     get map() { return m?.map ?? null; },
     /** The document of the page (null without one). */
     get doc() { return m?.canvas?.ownerDocument ?? null; },
+    /**
+     * This engine with every cue pushed `d` seconds later: `later(0.7).play(…)`. A composition written for "now"
+     * (fx/stage.mjs) can be played as the second act of another, or staggered behind others.
+     */
+    later(d) {
+      if (!(d > 0)) return api;
+      const o = Object.create(api);
+      o.play = (n, a = {}) => api.play(n, { ...a, delay: (a.delay ?? 0) + d });
+      o.add = spec => api.add({ ...spec, delay: (spec?.delay ?? 0) + d });
+      o.emit = (k, a = {}) => api.emit(k, { ...a, delay: (a.delay ?? 0) + d });
+      o.sound = (n, a = {}) => api.sound(n, { ...a, delay: (a.delay ?? 0) + d });
+      o.shake = (px, ms, a = {}) => api.shake(px, ms, { ...a, delay: (a.delay ?? 0) + d });
+      o.later = more => api.later(d + more);
+      return o;
+    },
     /** The names of the effects that are playing or still to start, in the order they were added (still ones included). */
     playing() { const t = clock.now(); return effects.filter(e => liveAt(e, t) || pendingAt(e, t)).map(e => e.name); },
     /** What is live at the clock's time: {live, pending, ground}. */

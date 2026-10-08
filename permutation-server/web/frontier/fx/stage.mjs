@@ -37,6 +37,8 @@ const worldOf = at => { if (!at) return null; const h = Number.isInteger(at.tile
 /** How long the toll's banner stays (s), and the gap between two results played one after another. */
 export const TOLL_BANNER_SECS = 2.9;
 export const RESULT_GAP = 0.7;
+/** How many moments of other people play in full within one beat (the viewer's own always do). */
+export const MOMENTS_AT_ONCE = 8;
 /** The order this turn's own results are shown in. */
 export const RESULT_ORDER = Object.freeze(['arrival', 'battle', 'incoming']);
 
@@ -289,14 +291,19 @@ export function installStage(fx, { bus = defaultBus } = {}) {
   // ---- battles
   on('battle', p => { if (p.play) stageBattle(fx, p.play, p); });
 
-  // ---- moments (at most a handful at once: the viewer's own first)
-  const recent = new Map();   // "kind|p,q,tile" → clock time: one thing is not announced twice
+  // ---- moments: one thing is not announced twice; many at once (a bell resolving a whole view) follow one
+  // another a tenth of a second apart, and past MOMENTS_AT_ONCE only the viewer's own play in full (the rest
+  // show their far-view pip, so nothing is dropped without a trace)
+  const recent = new Map();   // "kind|p,q,tile" → clock time
+  let run = { t: -Infinity, n: 0 };
   on('moment', m => {
     const key = `${m.kind}|${m.p},${m.q},${m.tile}`, now = fx.clock.now();
     for (const [k, t] of recent) if (now - t > 30) recent.delete(k);
     if (recent.has(key) && now - recent.get(key) < 8) return;
     recent.set(key, now);
-    playMoment(fx, m, { bus });
+    run = now - run.t < 0.6 ? { t: run.t, n: run.n + 1 } : { t: now, n: 0 };
+    if (run.n >= MOMENTS_AT_ONCE && !m.own) { const at = spot(m); if (at) fx.play('pip', { ...at, color: TONE.brassHi, delay: run.n * 0.05, seed: key }); return; }
+    playMoment(fx.later(m.own ? 0 : run.n * 0.1), m, { bus });
   });
 
   // ---- own actions

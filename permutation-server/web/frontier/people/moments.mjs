@@ -62,7 +62,7 @@ export function detectMoments(prev, next, now) {
     else if (!was && h.state === 1 && prev.seen?.has(`${h.p},${h.q}`)) out.push({ kind: 'muster', p: h.p, q: h.q, tile: h.tile, faction: h.faction, unit: h.unit, troops: h.troops, id, t0: now });
   }
   const had = prev.arrivals;
-  for (const [k, faction] of next.arrivals) if (!had.has(k)) { const [p, q, tile] = k.split(',').map(Number); out.push({ kind: 'arrive', p, q, tile, faction, t0: now }); }
+  for (const [k, faction] of next.arrivals) if (!had.has(k)) { const [p, q, tile] = k.split(',').map(Number); if (prev.seen && !prev.seen.has(`${p},${q}`)) continue; out.push({ kind: 'arrive', p, q, tile, faction, t0: now }); }
   // (the camp and site checks need a province seen both times: a first load is not news)
   for (const [pk, tile] of prev.camps ?? []) if (next.seen?.has(pk) && !next.camps.has(pk)) { const [p, q] = pk.split(',').map(Number); out.push({ kind: 'camp', p, q, tile, t0: now }); }
   for (const [k, s] of next.sites ?? []) {

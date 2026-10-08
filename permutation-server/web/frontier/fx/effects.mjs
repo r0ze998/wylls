@@ -502,7 +502,8 @@ function banner(a, env) {
       const rule = outExpo(span(t, 0.04, 0.5)) * (1 - inCubic(out));
       const kt = span(t, 0.1, 0.42);
       // lands from large with one small rebound, then drifts a hair larger while it is read
-      const ts = (1 + 0.55 * (1 - outBack(kt, 1.4))) * (1 + 0.025 * span(t, 0.42, dur)) * (1 + 0.04 * inQuad(out));
+      // (a long title lands from less far out: it must not spill over the sides of the map on its way in)
+      const ts = (1 + 0.55 * Math.min(1, 6 / ems) * (1 - outBack(kt, 1.4))) * (1 + 0.025 * span(t, 0.42, dur)) * (1 + 0.04 * inQuad(out));
       const to = span(t, 0.1, 0.17) * (1 - inQuad(out));
       const tl = lerp(Math.min(0.5, 1.5 / ems), 0, outCubic(span(t, 0.1, 0.62))) + Math.min(0.14, 0.7 / ems) * inQuad(out);
       const kg = span(t, 0.3, 0.95);

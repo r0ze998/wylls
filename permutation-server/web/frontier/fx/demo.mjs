@@ -161,8 +161,7 @@ export function startDemo({ fx, map = null, params, doc = globalThis.document })
 
   // ---- one run: everything starts at clock 0
   /** The engine with every cue pushed `d` seconds later (a set piece's second act). */
-  const later = d => ({ ...fx, clock, play: (n, a = {}) => fx.play(n, { ...a, delay: (a.delay ?? 0) + d }), add: spec => fx.add({ ...spec, delay: (spec.delay ?? 0) + d }),
-    sound: (n, o = {}) => fx.sound(n, { ...o, delay: (o.delay ?? 0) + d }), shake: (px, ms, o = {}) => fx.shake(px, ms, { ...o, delay: (o.delay ?? 0) + d }), mounted: true });
+  const later = d => fx.later(d);
   /** A waiting state of a sample (a ring turning, a ribbon being drawn) ends at `at` seconds: under the demo finished effects are kept, so its length is cut instead. */
   const settleAt = at => { if (!(at > 0)) return; fx.trim?.(['pending', 'route'], at); };
   let key = '', length = 1;

@@ -17,7 +17,7 @@ import { createClock } from '../../permutation-server/web/frontier/fx/clock.mjs'
 import { createBus } from '../../permutation-server/web/frontier/fx/bus.mjs';
 import { createEngine } from '../../permutation-server/web/frontier/fx/engine.mjs';
 import { installEffects } from '../../permutation-server/web/frontier/fx/effects.mjs';
-import { installStage, playMoment, resultKind, orderResults, RESULT_ORDER, TOLL_BANNER_SECS } from '../../permutation-server/web/frontier/fx/stage.mjs';
+import { installStage, playMoment, resultKind, orderResults, RESULT_ORDER, TOLL_BANNER_SECS, MOMENTS_AT_ONCE } from '../../permutation-server/web/frontier/fx/stage.mjs';
 import { PIECES, SEAL_PX } from '../../permutation-server/web/frontier/fx/pieces.mjs';
 import { stageBattle, verdictTitle, BATTLE_FAR_R } from '../../permutation-server/web/frontier/fx/battle.mjs';
 import { paintWater, paintClouds, paintSmoke, installIdle, IDLE_MIN_R } from '../../permutation-server/web/frontier/fx/idle.mjs';
@@ -468,6 +468,7 @@ test('moments: what happened between two looks, never at the first sight of a pr
   // a revealed arrival carries its nation
   const c = M.momentSnapshot({ provinces: new Map([['2,0', { province: prov().get('2,0').province, inputs: { arrivals: [{ present: 1, tile: 9, hostId: 8n, faction: 4 }] } }]]) });
   assert.deepEqual(M.detectMoments(s0, c, 5).map(m => [m.kind, m.tile, m.faction]), [['arrive', 9, 4]]);
+  assert.deepEqual(M.detectMoments(M.momentSnapshot({}), c, 5), [], 'arrivals of a province seen for the first time are not news either');
 });
 
 test('moments on the page: each has its parts and a pip for the far view; an own harvest flies to the strip and says res:gain; another nation\'s departure draws no route, ribbon or column', () => {
@@ -501,6 +502,13 @@ test('moments on the page: each has its parts and a pip for the far view; an own
     const n = s.fx.playing().length;
     s.bus.emit('moment', { kind: 'camp', p: 4, q: 1, tile: 3 });
     assert.equal(s.fx.playing().length, n);
+    // a whole view resolving at once: the first few play in full, one after another; the rest leave their pip; the viewer's own always plays
+    s.fx.clear(); s.run(9000, 500);
+    for (let i = 0; i < 12; i++) s.bus.emit('moment', { kind: 'arrive', p: 5, q: 0, tile: i, faction: 2 });
+    assert.equal(s.fx.playing().filter(n => n === 'label').length, MOMENTS_AT_ONCE);
+    assert.equal(s.fx.playing().filter(n => n === 'pip').length, 12, 'none is dropped without a trace');
+    s.bus.emit('moment', { kind: 'built', p: 2, q: 0, tile: 9, own: true, label: 'Farm' });
+    assert.ok(s.fx.playing().includes('pillar'));
     // every part exists on the engine
     for (const name of Object.keys(PIECES)) assert.ok(s.fx.has(name), name);
   } finally { s.done(); }
