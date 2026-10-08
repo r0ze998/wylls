@@ -271,7 +271,12 @@ let terrainRef = null;
 let rosterRef = null;
 /** The viewer's survey (map/survey.mjs), kept on the page state for every surface that asks what may be told. */
 const surveyor = createSurveyor({ now: fxNow });
+let surveyDeps = [];
 function surveyNow() {
+  // asked every frame: the anchors are read again only when something they are read from was replaced
+  const deps = [FS.mode, FS.record, FS.wallet, FS.citizen, FS.land, FS.holdings, FS.chronicle, FS.marches, FS.activeHolding, FS.nowBell, viewerKnown, terrainRef?.status?.(), ...FS.provinces.values()];
+  if (FS.survey && deps.length === surveyDeps.length && deps.every((x, i) => x === surveyDeps[i])) return FS.survey;
+  surveyDeps = deps;
   FS.survey = surveyor(surveyInput(FS, { terrainOf: terrainRef, ready: viewerKnown || !!FS.land, scope: scope() || null }));
   return FS.survey;
 }

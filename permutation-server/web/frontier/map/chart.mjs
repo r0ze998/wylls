@@ -96,6 +96,21 @@ function paperFill(g, res) {
   return pat ?? CHART.paper;
 }
 
+const blots = [undefined, undefined];
+/** A soft blot (a stain, or a worn pale patch): a small bitmap made once and stretched where it is wanted (a gradient per stain costs far more). */
+function blot(pale) {
+  const i = pale ? 1 : 0;
+  if (blots[i] !== undefined) return blots[i];
+  const n = 96, cv = spare(n, n), g = cv?.getContext?.('2d');
+  if (!g?.createRadialGradient) { blots[i] = null; return null; }
+  const rgb = pale ? '255,249,230' : '126,96,48';
+  const gr = g.createRadialGradient(n / 2, n / 2, n * 0.07, n / 2, n / 2, n / 2);
+  gr.addColorStop(0, `rgba(${rgb},1)`); gr.addColorStop(0.7, `rgba(${rgb},0.45)`); gr.addColorStop(1, `rgba(${rgb},0)`);
+  g.fillStyle = gr; g.fillRect(0, 0, n, n);
+  blots[i] = cv;
+  return cv;
+}
+
 const hexPath = (g, x, y, inset = 0) => { hexPoints(x, y, inset).forEach(([px, py], j) => (j ? g.lineTo(px, py) : g.moveTo(px, py))); g.closePath(); };
 const EDGE_OF = [[1, -1], [1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1]];   // the neighbour across the edge between corners k−1 and k of hexPoints
 
@@ -175,9 +190,12 @@ function glyph(g, dots, t, detail) {
  * The chart of `tiles` (`[{q, r, x, y, name}]`, world px) into `g`, whose
  * user space is world px at `res` device px each. `nameAt(q, r)` names the
  * terrain of a tile outside the list (for coasts). The sheet is cut to the
- * tiles, a hair wider, so the sheets of neighbouring provinces meet.
+ * tiles, a hair wider, so the sheets of neighbouring provinces meet: by a
+ * clip, or with `own` (the canvas holds nothing but this sheet) by cutting
+ * the finished sheet once, which costs a slow canvas far less than a clip of
+ * sixty hexes under every stroke.
  */
-export function paintChart(g, tiles, { res = 1, nameAt = () => null } = {}) {
+export function paintChart(g, tiles, { res = 1, nameAt = () => null, own: alone = false } = {}) {
   if (!tiles.length || !g?.save) return;
   const detail = res >= 0.42 ? 2 : res >= 0.16 ? 1 : 0;
   const lw = Math.max(1.3, 0.8 / res);
@@ -186,19 +204,21 @@ export function paintChart(g, tiles, { res = 1, nameAt = () => null } = {}) {
   for (const t of tiles) { x0 = Math.min(x0, t.x); x1 = Math.max(x1, t.x); y0 = Math.min(y0, t.y); y1 = Math.max(y1, t.y); own.set(hexKey(t.q, t.r), t); }
   x0 -= RADIUS + 2; x1 += RADIUS + 2; y0 -= RADIUS; y1 += RADIUS;
   g.save();
-  g.beginPath(); for (const t of tiles) hexPath(g, t.x, t.y, -Math.min(1.6, 0.6 / res)); g.clip();
+  const shape = () => { g.beginPath(); for (const t of tiles) hexPath(g, t.x, t.y, -Math.min(1.6, 0.6 / res)); };
+  if (!alone) { shape(); g.clip(); }
   g.fillStyle = paperFill(g, res); g.fillRect(x0, y0, x1 - x0, y1 - y0);
   // age: wide stains and worn, paler patches, laid on the world (the same stain lies under two neighbouring sheets)
-  if (g.createRadialGradient) {
+  const dark = blot(false), pale = blot(true);
+  if (dark && pale) {
     const cell = 620;
     for (let cx = Math.floor((x0 - 400) / cell); cx <= Math.floor((x1 + 400) / cell); cx++) for (let cy = Math.floor((y0 - 400) / cell); cy <= Math.floor((y1 + 400) / cell); cy++) for (let n = 0; n < 2; n++) {
       const sx = (cx + hash2(cx, cy, 20 + n)) * cell, sy = (cy + hash2(cx, cy, 30 + n)) * cell, sr = 150 + hash2(cx, cy, 40 + n) * 260;
       if (sx + sr < x0 || sx - sr > x1 || sy + sr < y0 || sy - sr > y1) continue;
-      const pale = hash2(cx, cy, 50 + n) < 0.4, k = 0.07 + hash2(cx, cy, 60 + n) * 0.09;
-      const gr = g.createRadialGradient(sx, sy, sr * 0.15, sx, sy, sr);
-      gr.addColorStop(0, pale ? `rgba(255,249,230,${k * 1.5})` : `rgba(126,96,48,${k})`); gr.addColorStop(0.7, pale ? `rgba(255,249,230,${k * 0.5})` : `rgba(126,96,48,${k * 0.55})`); gr.addColorStop(1, pale ? 'rgba(255,249,230,0)' : 'rgba(126,96,48,0)');
-      g.fillStyle = gr; g.fillRect(sx - sr, sy - sr, sr * 2, sr * 2);
+      const light = hash2(cx, cy, 50 + n) < 0.4, k = 0.07 + hash2(cx, cy, 60 + n) * 0.09;
+      g.globalAlpha = light ? k * 1.5 : k;
+      g.drawImage(light ? pale : dark, sx - sr, sy - sr * 0.8, sr * 2, sr * 1.6);
     }
+    g.globalAlpha = 1;
   }
   // a thin wash for what the land is: water cool, high ground warm, woods green
   for (const [name, fill] of Object.entries(CHART.wash)) {
@@ -266,6 +286,7 @@ export function paintChart(g, tiles, { res = 1, nameAt = () => null } = {}) {
     for (let k = 0; k < 12; k++) { const an = (k * Math.PI) / 6, ca = Math.cos(an), sa = Math.sin(an) * FLATTEN, r1 = 2.52 * RADIUS * SQRT3 / 2, r2 = (k % 2 ? 2.72 : 2.95) * RADIUS * SQRT3 / 2; g.moveTo(c0.x + ca * r1, c0.y + sa * r1); g.lineTo(c0.x + ca * r2, c0.y + sa * r2); }
     g.strokeStyle = 'rgba(92,76,46,0.6)'; g.lineWidth = lw * 1.1; g.stroke();
   }
+  if (alone) { g.globalCompositeOperation = 'destination-in'; g.globalAlpha = 1; g.fillStyle = '#000'; shape(); g.fill(); }
   g.restore();
 }
 

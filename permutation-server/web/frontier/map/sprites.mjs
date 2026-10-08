@@ -354,7 +354,7 @@ export class SpriteArt {
       const cv = canvas(), g = cv.getContext('2d');
       world(g);
       const names = (q, r) => { const n = terrainAt(q, r); return n === 'cloud' ? null : n; };
-      paintChart(g, Array.from({ length: PROVINCE_TILES }, (_, i) => { const h = tileHex(e.p, e.q, i), at = project(h.q, h.r); return { q: h.q, r: h.r, x: at.x, y: at.y, name: TERRAIN_KEY[e.names?.[e.terrain?.[i]]] ?? 'plains' }; }), { res, nameAt: names });
+      paintChart(g, Array.from({ length: PROVINCE_TILES }, (_, i) => { const h = tileHex(e.p, e.q, i), at = project(h.q, h.r); return { q: h.q, r: h.r, x: at.x, y: at.y, name: TERRAIN_KEY[e.names?.[e.terrain?.[i]]] ?? 'plains' }; }), { res, nameAt: names, own: true });
       return { cv, g };
     };
     if (sv?.kind === 'chart') {
@@ -920,7 +920,7 @@ export class SpriteArt {
           const box = { x: c.x - B.left, y: c.y - B.top, w: B.left + B.right, h: B.top + B.bottom };
           if (chartOnly) {
             // nothing of this province is surveyed: its ground is the chart
-            paintChart(gg, list, { res, nameAt: chartName });
+            paintChart(gg, list, { res, nameAt: chartName, own: true });
             const v = { cv, x: box.x, y: box.y, w: box.w, h: box.h, px: cv.width * cv.height };
             this.groundCache.set(key, v);
             this.groundPixels += v.px;
@@ -952,7 +952,7 @@ export class SpriteArt {
             const sheet = spare(cv.width, cv.height), sg = sheet?.getContext?.('2d');
             if (sg) {
               sg.setTransform(res, 0, 0, res, (B.left - c.x) * res, (B.top - c.y) * res);
-              paintChart(sg, list, { res, nameAt: chartName });
+              paintChart(sg, list, { res, nameAt: chartName, own: true });
               applySurvey(gg, { box, res, survey, sig: sv.sig, chart: sheet });
             }
           }
