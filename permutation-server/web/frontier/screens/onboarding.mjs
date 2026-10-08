@@ -1,5 +1,5 @@
 // The onboarding card (web design §7.11): the checklist of the guided first
-// bells, driven by onboarding.mjs (chain facts first, local "seen" flags
+// turns, driven by onboarding.mjs (chain facts first, local "seen" flags
 // only). The current step says what to do and, while the chain works, what
 // it is waiting for and about when (O-M1-13 times); each step can be
 // skipped and the card dismissed (it returns from "More"). On the map the
@@ -12,6 +12,7 @@ import { PIPELINE_TEXT } from '../fi18n.mjs';
 import { STEPS, onboardingState, factsOf, reportOffer, overflowProvinces } from '../onboarding.mjs';
 import { timeHtml } from './shell.mjs';
 import { guideLevel, guideTarget, goText } from '../hud/guide.mjs';
+import { sealLine } from '../hud/glossary.mjs';
 import { icon } from '../hud/icons.mjs';
 import { cardHead } from './parts.mjs';
 
@@ -26,7 +27,7 @@ const TITLE = {
   done: () => L`完了`,
 };
 const DO = {
-  welcome: () => L`五つの言葉だけ覚えましょう：村（あなたの土地）、軍勢（動かす兵）、鐘（10分ごとの区切り）、進軍（封をした移動）、探索（斥候で周りを調べる）。`,
+  welcome: () => L`五つの言葉だけ覚えましょう。村（あなたの土地）、軍勢（動かす兵）、ターン（10分ごとの区切り。鐘が鳴ると進みます）、進軍（封をした移動）、探索（斥候で周りを調べる）です。`,
   // stage-neutral (a returning or refugee player too), following the automatic ticket (review finding 9)
   join: FS => {
     const stage = FS.land?.stage ?? 'none', st = FS.autoTicket?.state;
@@ -37,12 +38,13 @@ const DO = {
     if (st === 'failed') return L`村の申し込みができませんでした。次のターンに自動でやり直します（「様子を見る」からすぐやり直せます）。`;
     return L`空いた場所に、村の申し込みを自動で出しています。`;
   },
-  build: () => L`「村」で農場と木材所を建てます。`,
+  build: () => L`「村」で農場と伐採場を建てます。`,
   scout: () => L`斥候を訓練して軍勢に編成し、隣の2マスを探索します。`,
   practice: () => L`練習モードで蛮族の野営地を襲ってみます。チェーンには何も送りません。`,
-  march: () => L`届く範囲の蛮族の野営地へ、封をした進軍を送ります。行き先と構えは到着の鐘まであなたにしか見えません。このタブを閉じても、封は到着の鐘に自動で開けられます。`,
+  // (the seal in the one sentence the order card, the legend and the help say: hud/glossary.mjs sealLine)
+  march: () => `${L`届く範囲の蛮族の野営地へ、封をした進軍を送ります。`}${sealLine()}${L`このタブを閉じても、封は自動で開けられます。`}`,
   report: () => L`衝突の報告を読みます。「このブラウザで確かめる」で結果を自分で計算し直せます。`,
-  done: () => L`最初の鐘の案内は終わりです。ガイドは「その他」からいつでも開けます。`,
+  done: () => L`はじめの案内はここまでです。ガイドは「その他」からいつでも開けます。`,
 };
 /** What a step's one button does: the action (`data-act`), its data and its words. */
 const GO_ACT = {

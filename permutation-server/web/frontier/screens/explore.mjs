@@ -47,8 +47,8 @@ export function render(FS) {
   const times = pending && FS.clock ? ticketTimes(FS.clock, rec.bell) : null;
   return html`<section class="vcard" aria-labelledby="explore-title">
     ${cardHead({ id: 'explore-title', ic: 'scout', title: L`探索`, side: pending ? chip(L`結果待ち`, 'info') : '' })}
-    ${pending ? html`<div class="wait-row">${ring(FS.exploreSeedReady ? 1 : null)}<p>${L`州 ${rec.p},${rec.q} の探索の結果を待っています。`}${times ? html` ${Lh`結果は ${timeHtml(times.resultAbout)} ごろに出ます。`}` : ''}</p></div>
-      <div class="actions"><button type="button" class="btn${FS.exploreSeedReady ? ' primary' : ''}" data-act="settle-explore" ${raw(FS.exploreSeedReady ? '' : 'disabled')}>${L`結果を確定する`}</button><span class="muted">${L`ふつうは自動で確定します。`}</span></div>` : ''}
+    ${pending ? html`<div class="wait-row">${ring(FS.exploreSeedReady ? 1 : null)}<p>${L`探索の結果を待っています。`}${times ? html` ${Lh`結果は ${timeHtml(times.resultAbout)} ごろに出ます。`}` : ''}</p></div>
+      <div class="actions"><button type="button" class="btn${FS.exploreSeedReady ? ' primary' : ''}" data-act="settle-explore" ${raw(FS.exploreSeedReady ? '' : 'disabled')}>${L`結果を受け取る`}</button><span class="muted">${L`ふつうは自動で受け取ります。`}</span></div>` : ''}
     ${draft?.host && !pending ? html`<p>${L`斥候のまわりから、調べる場所を2つまで選んでください。`}</p>
       ${targets.length ? rose(draft.host, targets, draft.tiles) : html`<p class="muted">${L`隣に探索できるマスがありません`}</p>`}
       <div class="actions"><button type="button" class="btn primary" data-act="explore-send" ${raw(draft.tiles.length ? '' : 'disabled')}>${icon('scout')}${L`探索に出す`}</button></div>` : ''}

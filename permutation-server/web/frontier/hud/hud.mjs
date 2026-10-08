@@ -27,6 +27,7 @@ import { leaderSvg } from '../people/leaders.mjs';
 import { displayName } from '../people/identity.mjs';
 import { avatarSvg, sigilPath, FACTION_FILL, FACTION_DARK } from '../people/avatar.mjs';
 import { icon, RESOURCE_ICON } from './icons.mjs';
+import { tileWhat, provinceName } from './place.mjs';
 
 /** Seconds before the bell at which the pill turns amber, then red. */
 export const URGENCY = Object.freeze({ warn: 120, crit: 30 });
@@ -83,25 +84,29 @@ export function resourceTitle(r) {
 /**
  * What needs the player, most urgent first: `[{kind, text, p, q, tab}]`.
  *   incoming  another faction's host may arrive at one of the holdings
- *   settle    a march of the viewer's can be settled
+ *   settle    the result of a march of the viewer's can be collected
  *   draft     a march is being composed and not yet sent
+ * A place is said by its name (the village, the destination), never by coordinates (UX design 11.13).
  *   full      a store of the active holding is full
  */
 export function attentionItems(FS) {
   const out = [];
+  const villageOf = x => { const h = (FS.holdings ?? []).find(o => o.p === x.p && o.q === x.q && (x.site === undefined || o.site === x.site)); return h ? holdingName(h) : provinceName(FS, x.p, x.q); };
   for (const w of FS.incoming ?? []) {
-    out.push({ kind: 'incoming', p: w.holding.p, q: w.holding.q, tab: 'marches', bell: w.bell, short: L`来襲 第${fmtNum(w.bell)}鐘`, text: L`第${fmtNum(w.bell)}鐘に州 ${w.holding.p},${w.holding.q} へ敵が来るかもしれません` });
+    out.push({ kind: 'incoming', p: w.holding.p, q: w.holding.q, tab: 'marches', bell: w.bell, short: L`来襲 ターン ${fmtNum(w.bell)}`, text: L`ターン ${fmtNum(w.bell)} に、${villageOf(w.holding)}へ敵が来るかもしれません` });
   }
   for (const m of FS.marches ?? []) {
-    if (m.facts?.settleReady && m.dest) out.push({ kind: 'settle', p: m.dest.p, q: m.dest.q, tab: 'marches', short: L`精算できる進軍`, text: L`州 ${m.dest.p},${m.dest.q} の進軍を精算できます` });
+    if (!m.facts?.settleReady || !m.dest) continue;
+    const to = (Number.isInteger(m.dest.tile) ? tileWhat(FS, m.dest.p, m.dest.q, m.dest.tile).name : null) ?? provinceName(FS, m.dest.p, m.dest.q);
+    out.push({ kind: 'settle', p: m.dest.p, q: m.dest.q, tab: 'marches', short: L`進軍の結果`, text: L`${to}への進軍の結果を受け取れます` });
   }
   if (FS.compose && !FS.compose.sending) {
     const o = FS.compose.origin;
-    out.push({ kind: 'draft', p: o.p, q: o.q, tab: 'marches', short: L`進軍が未送信`, text: L`編成中の進軍がまだ送られていません` });
+    out.push({ kind: 'draft', p: o.p, q: o.q, tab: 'marches', short: L`書きかけの命令`, text: L`書きかけの進軍の命令が、まだ送られていません` });
   }
   if (FS.exploreSeedReady) {
     const h0 = activeHolding(FS);
-    if (h0) out.push({ kind: 'explore', p: h0.p, q: h0.q, tab: 'hosts', short: L`探索の結果`, text: L`探索の結果を確定できます` });
+    if (h0) out.push({ kind: 'explore', p: h0.p, q: h0.q, tab: 'hosts', short: L`探索の結果`, text: L`探索の結果を受け取れます` });
   }
   const now = FS.chain?.now() ?? 0, bell = FS.nowBell ?? 0;
   // hosts ready to march: in the roster, rested, not on the road, nothing pending
@@ -110,12 +115,12 @@ export function attentionItems(FS) {
   for (const h of FS.holdings ?? []) {
     const full = resourceModel(h, now).filter(r => r.state === 'full');
     const facts = FS.season ? holdingFacts(h, FS.season, now) : null;
-    if (!facts) { if (full.length) out.push({ kind: 'full', p: h.p, q: h.q, tab: 'holding', holding: h, short: L`満杯 ${fmtNum(full.length)}`, text: L`${full.map(r => r.name).join(' / ')}が満杯です。収穫するか使いましょう` }); continue; }
-    if (facts.final && !facts.queue.some(q => q.doneIn > 0)) out.push({ kind: 'build', p: h.p, q: h.q, tab: 'holding', holding: h, short: L`建設の列が空`, text: L`州 ${h.p},${h.q} の建設の列が空いています` });
+    if (!facts) { if (full.length) out.push({ kind: 'full', p: h.p, q: h.q, tab: 'holding', holding: h, short: L`満杯 ${fmtNum(full.length)}`, text: L`${full.map(r => r.name).join(' / ')}が満杯です。収穫するか使いましょう。` }); continue; }
+    if (facts.final && !facts.queue.some(q => q.doneIn > 0)) out.push({ kind: 'build', p: h.p, q: h.q, tab: 'holding', holding: h, short: L`建設の列が空`, text: L`${holdingName(h)}の建設の列が空いています` });
     const musterable = facts.reserve.filter(r => r.unit !== SETTLER).reduce((a, r) => a + r.troops, 0);
     if (facts.final && musterable >= 100) out.push({ kind: 'muster', p: h.p, q: h.q, tab: 'holding', holding: h, short: L`編成できる兵 ${fmtNum(musterable)}`, text: L`控えの兵 ${fmtNum(musterable)} を軍勢に編成できます` });
-    if (facts.dormantIn > 0 && facts.dormantIn < DORMANT_WARN_SECS) out.push({ kind: 'dormant', p: h.p, q: h.q, tab: 'holding', holding: h, short: L`休眠まで ${span(facts.dormantIn)}`, text: L`州 ${h.p},${h.q} の村はあと ${span(facts.dormantIn)} で休眠します。何か操作しましょう` });
-    if (full.length) out.push({ kind: 'full', p: h.p, q: h.q, tab: 'holding', holding: h, short: L`満杯 ${fmtNum(full.length)}`, text: L`${full.map(r => r.name).join(' / ')}が満杯です。収穫するか使いましょう` });
+    if (facts.dormantIn > 0 && facts.dormantIn < DORMANT_WARN_SECS) out.push({ kind: 'dormant', p: h.p, q: h.q, tab: 'holding', holding: h, short: L`休眠まで ${span(facts.dormantIn)}`, text: L`${holdingName(h)}はあと ${span(facts.dormantIn)} で休眠します。何か操作しましょう。` });
+    if (full.length) out.push({ kind: 'full', p: h.p, q: h.q, tab: 'holding', holding: h, short: L`満杯 ${fmtNum(full.length)}`, text: L`${full.map(r => r.name).join(' / ')}が満杯です。収穫するか使いましょう。` });
   }
   return out;
 }
@@ -128,7 +133,7 @@ export const DORMANT_WARN_SECS = 6 * 3600;
 
 /**
  * The pill's text (Civ's end-turn button names the next blocker): the first
- * item's short label, then how many more — "来襲 第1,040鐘 · ほか 2";
+ * item's short label, then how many more — "来襲 ターン 1,040 · ほか 2";
  * null when nothing needs the player.
  */
 export function attentionText(items) {
@@ -201,7 +206,7 @@ export function renderBreakdown(b) {
       <span class="res-row-name">${holdingName(r.holding)}</span>
       <span>${fmtNum(r.value)} / ${fmtNum(r.cap)}</span><span class="muted">${L`毎時 +${fmtNum(r.perHour)}`}</span>
       <span class="muted">${r.fullIn === 0 ? L`満杯` : r.fullIn !== null ? L`満杯まで ${span(r.fullIn)}` : ''}</span></button></li>`)}</ul>
-    <p class="muted">${L`増える量は建物と働く区画で決まります。満杯になると増えません。村の画面で収穫や建設ができます。`}</p>`;
+    <p class="muted">${L`増える量は、建物と村のまわりの土地で決まります。満杯になると増えません。村の画面で収穫や建設ができます。`}</p>`;
 }
 
 /**
@@ -353,7 +358,7 @@ export function renderPlate(FS) {
  * The spectator sees the standings there instead.
  */
 export function renderRail(FS, { todoOpen = false } = {}) {
-  if (FS.mode === 'spectate') return html`<div class="plate plate-watch"><h2 class="todo-h todo-h-plain">${icon('eye')}<span>${L`国の順位`}</span></h2>${renderStandingsList(FS)}<p class="plate-note">${L`村の数は最新の概観（鐘ごと）から数えています。`}</p></div>`;
+  if (FS.mode === 'spectate') return html`<div class="plate plate-watch"><h2 class="todo-h todo-h-plain">${icon('eye')}<span>${L`国の順位`}</span></h2>${renderStandingsList(FS)}<p class="plate-note">${L`村の数は、ターンごとにまとめられる記録から数えています。`}</p></div>`;
   if (FS.mode !== 'play') return '';
   return html`${renderTodo(FS, { open: todoOpen })}${renderPlate(FS)}`;
 }

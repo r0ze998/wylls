@@ -35,7 +35,7 @@ let pin = null;
  */
 export function setPin({ programId, cluster, seasonId, seasonAddress = null, rulesetHash = null }) {
   const addresses = seasonAddresses(programId, seasonId);
-  if (seasonAddress && seasonAddress !== addresses.season) throw Object.assign(new Error(L`シーズンの口座がプログラムから導いたものと一致しません`), { code: 'PinMismatch' });
+  if (seasonAddress && seasonAddress !== addresses.season) throw Object.assign(new Error(L`シーズンの記録の宛先が、プログラムから導いたものと一致しません`), { code: 'PinMismatch' });
   if (rulesetHash !== null && String(rulesetHash).toLowerCase() !== RULESET_HASH) throw Object.assign(new Error(L`このシーズンは別のルールで動いています`), { code: 'RulesetMismatch' });
   pin = Object.freeze({ programId: addresses.programId, cluster: String(cluster || 'localnet'), seasonId: addresses.seasonId, addresses });
   return pin;
@@ -50,7 +50,7 @@ export const fail = (code, error, extra = {}) => ({ ok: false, httpStatus: 0, co
 // ------------------------------------------------------------------ HTTP
 const TIMEOUT = { GET: 12_000, POST: 45_000 };
 export async function request(method, path, { body, fetch: f = (...a) => globalThis.fetch(...a) } = {}) {
-  if (!relayBase) return fail('NoRelay', L`中継の場所がわかりません`);
+  if (!relayBase) return fail('NoRelay', L`中継サーバーの場所がわかりません`);
   let r;
   try {
     r = await f(`${relayBase}${path}`, {
@@ -75,10 +75,10 @@ export async function relayInfo(opts) {
   if (!r.ok) return r;
   if (!pin) return fail('NoPin', L`シーズンがまだ決まっていません`);
   try {
-    if (pubkeyString(r.programId) !== pin.programId) return fail('PinMismatch', L`中継が別のプログラムを名乗っています`);
+    if (pubkeyString(r.programId) !== pin.programId) return fail('PinMismatch', L`中継サーバーが別のプログラムを名乗っています`);
     pubkeyString(r.feePayer);
   } catch {
-    return fail('BadRelayAnswer', L`中継の答えを読めませんでした`);
+    return fail('BadRelayAnswer', L`中継サーバーの答えを読めませんでした`);
   }
   return r;
 }

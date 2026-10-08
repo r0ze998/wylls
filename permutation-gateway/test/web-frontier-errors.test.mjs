@@ -80,8 +80,12 @@ test('every program error code of the ABI has its own Japanese and English text'
   // The codes the contract names for the UI (§5.4, I-08, I-44, I-47, I-51).
   setLang('en');
   assert.match(fi18n.errorText(51), /tip/i);
-  assert.match(fi18n.errorText(58), /settled/i);
-  assert.match(fi18n.errorText(60), /next bell/i);
+  // (hud-4, UX design 11.13: 精算 / "settled" and a numbered or counted bell are off the play screen. HostInTransit
+  // says the host waits for the result of its march to be collected; CohortFull says to try next turn)
+  assert.match(fi18n.errorText(58), /until the result of its march is collected/i);
+  assert.doesNotMatch(fi18n.errorText(58), /settle/i);
+  assert.match(fi18n.errorText(60), /next turn/i);
+  assert.doesNotMatch(fi18n.errorText(60), /bell|ticket/i);
   assert.match(fi18n.errorText(61), /three/i);
   assert.match(fi18n.errorText(24), /final/i);
 });
@@ -123,5 +127,9 @@ test('failureText: number, then name, then the page\'s codes, then the HTTP stat
   assert.equal(fi18n.failureText(null), 'Unknown error (?)');
   assert.ok(fi18n.CLIENT_CODES.includes('TipNotPreset') === false, 'TipNotPreset is an ABI code (61), not duplicated');
   setLang('ja');
-  assert.equal(fi18n.failureText({ code: 'QuotaExceeded' }), '今日の中継の枠を使い切りました。次のゲーム日まで待ってください');
+  // (hud-4: said as what the player can still do, not as "the relay's quota"; two sentences, each with its 。)
+  assert.equal(fi18n.failureText({ code: 'QuotaExceeded' }), '今日送れる操作の回数を使い切りました。シーズンの日付が変わると、また送れます。');
+  // no program or page text counts bells, names the beacon, a keeper or a site ticket, or says 精算
+  for (const name of fi18n.ERROR_NAMES) assert.doesNotMatch(fi18n.errorText(name), /鐘|ビーコン|キーパー|入植希望|精算|区画|口座/, name);
+  for (const code of fi18n.CLIENT_CODES) assert.doesNotMatch(fi18n.clientText(code), /鐘|ビーコン|キーパー|入植希望|精算|区画|口座|frontier\.wasm/, code);
 });

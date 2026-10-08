@@ -123,8 +123,10 @@ test('the wait for the village: one state line and one clock; a refusal is one c
   assert.match(ticket, /<span class="turn-wait-k">村が決まるまで<\/span><strong class="turn-wait-v" data-wait-clock>約 9 分<\/strong><span class="turn-wait-n">（ターン 43 の鐘）<\/span>/);
   assert.equal(clocks(ticket), 1);
   // its candidate places by the name a village there would carry, numbered, each a press that asks the map to go there
+  // (hud-4, UX design 11.13: the name alone; a row that flies to its site needs no coordinates)
   const rows = [...ticket.matchAll(/<li (class="done")?><button type="button" class="doc-row site-row" data-act="site-go" data-i="(\d)" data-p="(\d)" data-q="(\d)" data-site="(\d)" aria-label="[^"]+を地図で見る"><span class="site-n" aria-hidden="true">(\d)<\/span><span class="doc-row-t">([^<]+)/g)];
-  assert.deepEqual(rows.map(m => [m[1] ?? '', m[2], m[3], m[4], m[5], m[6], m[7].trim()]), [['class="done"', '0', '2', '0', '3', '1', 'ラマール（州 2,0）'], ['', '1', '2', '1', '5', '2', rows[1]?.[7].trim()]]);
+  assert.deepEqual(rows.map(m => [m[1] ?? '', m[2], m[3], m[4], m[5], m[6], m[7].trim()]), [['class="done"', '0', '2', '0', '3', '1', 'ラマール'], ['', '1', '2', '1', '5', '2', rows[1]?.[7].trim()]]);
+  assert.doesNotMatch(text(ticket), /州 -?\d/, 'no coordinates in the wait view');
   assert.match(ticket, /（ふさがっていた）/);
   assert.doesNotMatch(text(ticket) + text(placing) + text(failed), /区画 ?\d|ランポート|キーパー|M1|入植希望|乱数|第\d+鐘/, 'plain words: no machinery, no bell numbers');
   assert.match(ticket, /data-act="practice-open"/);
@@ -137,13 +139,13 @@ test('the wait for the village: one state line and one clock; a refusal is one c
   setLang('en');
   const en = text(joinScreen.render({ ...base, land: { stage: 'ticket', ticket: { bell: 42, next: 0, sites: [{ p: 2, q: 0, site: 3 }] } } }));
   assert.doesNotMatch(en.replace(/Ramar|Lamar/g, ''), JP, en);
-  assert.match(en, /Your village is decided in\s+about 9 min\s+\(the bell of turn 43\)/);
+  assert.match(en, /Your village is decided in\s+about 9 min\s+\(at the bell of turn 43\)/);
   assert.match(en, /You joined Aster/);
   const enFailed = text(joinScreen.render({ ...base, land: { stage: 'joined' }, autoTicket: { state: 'failed', code: 'Unavailable' } }));
   assert.doesNotMatch(enFailed, JP, enFailed);
   assert.match(enFailed, /Your village request has not gone through yet/);
   assert.match(enFailed, /Try again now/);
-  assert.match(enFailed, /It is tried again by itself next turn \(in\s+7:30\s*\)/);
+  assert.match(enFailed, /It will be retried automatically next turn \(in\s+7:30\s*\)/);
   setLang('ja');
 });
 
@@ -203,7 +205,8 @@ test('what happened this turn: at most three cards over the map, each with "see"
   assert.match(String(feed.renderToast(items[1])), /data-act="feed-go" data-id="b">見る</);
   assert.doesNotMatch(String(feed.renderToast(items[4])), /見る/, 'a summary has no place to go');
   setLang('en');
-  assert.match(String(feed.renderToast(items[1])), />See</);
+  // (hud-4: the button that goes to a place reads "View": "See" alone was not English a player would press)
+  assert.match(String(feed.renderToast(items[1])), />View</);
   setLang('ja');
 });
 

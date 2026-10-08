@@ -17,13 +17,14 @@ import { placeName } from '../people/identity.mjs';
 import { holdingName } from '../people/ui.mjs';
 import { crestSvg } from '../hud/hud.mjs';
 import { icon } from '../hud/icons.mjs';
+import { provinceName } from '../hud/place.mjs';
 import { countdown } from '../clock.mjs';
 import { cardHead, stamp, fold, ring } from './parts.mjs';
 import { bellStart, BELL_SECS } from '../clock.mjs';
 
 const FACTIONS = [0, 1, 2, 3, 4, 5];
-/** A candidate place by the name a village there would carry, never by its number. */
-const siteText = s => L`${placeName(s.p, s.q, s.site)[lang() === 'en' ? 'en' : 'ja']}（州 ${s.p},${s.q}）`;
+/** A candidate place by the name a village there would carry, never by its number or its coordinates (the row flies there). */
+const siteText = s => placeName(s.p, s.q, s.site)[lang() === 'en' ? 'en' : 'ja'];
 const leaderName = f => (lang() === 'en' ? LEADERS[f].name.en : LEADERS[f].name.ja);
 
 function walletButtons(FS) {
@@ -34,7 +35,7 @@ function walletButtons(FS) {
 
 function renderWallets(FS) {
   return html`<section class="vcard" aria-labelledby="join-wallet">${cardHead({ id: 'join-wallet', ic: 'seal', title: L`ウォレットをつなぐ` })}
-    <p>${L`参加の署名にだけウォレットを使います。遊ぶ操作はこの端末のゲーム内の鍵が署名し、手数料は中継が払います（テスト用の SOL、価値はありません）。`}</p>
+    <p>${L`ウォレットを使うのは、参加の署名のときだけです。そのあとの操作はこの端末のゲーム内の鍵が署名し、手数料はゲーム側が立て替えます（テスト用の SOL で、価値はありません）。`}</p>
     ${walletButtons(FS)}</section>`;
 }
 
@@ -74,7 +75,7 @@ export function renderNations(FS) {
       ${FS.wallet ? html`<button type="button" class="btn primary nc-btn" data-act="join" ${raw(pick ? '' : 'disabled')}>${icon('banner')}${pick ? L`${pick.name}で始める` : L`国を選んで始める`}</button>`
         : html`<div class="nc-wallet"><span class="nc-wallet-k">${L`始めるには、先にウォレットをつなぎます。`}</span>${walletButtons(FS)}</div>`}
     </div>
-    <p class="nc-note">${FS.wallet ? L`ウォレットが2回たずねます：ゲーム内の鍵のための文面への署名と、参加の取引への署名です。` : L`参加の署名にだけウォレットを使います。遊ぶ操作はこの端末のゲーム内の鍵が署名し、手数料は中継が払います（テスト用の SOL、価値はありません）。`}${pick ? html` ${L`村を置ける場所 約 ${fmtNum(pick.free)}`}` : ''}</p>
+    <p class="nc-note">${FS.wallet ? L`ウォレットが2回、確認を求めます。ゲーム内の鍵を作るための署名と、参加のための署名です。` : L`ウォレットを使うのは、参加の署名のときだけです。そのあとの操作はこの端末のゲーム内の鍵が署名し、手数料はゲーム側が立て替えます（テスト用の SOL で、価値はありません）。`}${pick ? html` ${L`村を置ける場所 約 ${fmtNum(pick.free)}`}` : ''}</p>
   </div>`;
   return html`<section class="nations" aria-labelledby="join-faction">
     <header class="nations-head"><h3 id="join-faction">${L`国を選ぶ`}</h3><p>${L`六つの国が、鐘のまわりの辺境を分け合っています。国で決まるのは、村を置く方角と教義です。賞金はありません。`}</p></header>
@@ -148,7 +149,7 @@ const practiceOffer = () => html`<div class="wait-offer"><p>${L`待つあいだ�
   <button type="button" class="btn" data-act="practice-open">${icon('swords')}${L`待つあいだに練習で戦ってみる`}</button></div>`;
 const howFold = body => fold('wait-how', L`村の場所の決まり方`, body);
 const HOW_PLACE = () => html`<p class="muted">${L`場所は選びません。同じターンの申し込みは、そのターンのくじでまとめて公平に決まり、村は次のターンの鐘のあと（約11〜21分後）に決まります。`}</p>
-  <p class="muted">${L`村の申し込みには預け金が要ります（村の口座の賃料。村ができればそこへ移り、できなければ払った人に戻ります）。額は「その他」の詳細にあります。`}</p>`;
+  <p class="muted">${L`村の申し込みには預け金が要ります（村の記録を置くための費用で、村ができればそこへ移り、できなければ払った人に戻ります）。額は「その他」の詳細にあります。`}</p>`;
 
 /**
  * Joined, no request filed yet: what this browser is doing about it (review finding 12). A refusal is one
@@ -212,7 +213,7 @@ function renderProvisional(FS) {
   const h = activeHolding(FS);
   const times = FS.clock && h ? ticketTimes(FS.clock, h.ticketBell) : null;
   return html`<section class="vcard" aria-labelledby="join-prov">${cardHead({ id: 'join-prov', ic: 'home', title: h ? holdingName(h) : HOLDING_STATES.provisional, side: stamp(HOLDING_STATES.provisional, 'warn') })}
-    ${h ? html`<p>${L`州 ${h.p},${h.q} に村を得ました。`}</p>` : ''}
+    ${h ? html`<p>${L`${provinceName(FS, h.p, h.q, { own: false })}に、あなたの村ができました。`}</p>` : ''}
     ${times ? html`<p>${Lh`同じターンの申し込みがすべて決まると確定します（遅くとも ${timeHtml(times.cohortEndsBy)}）。それまでは、より順位の高い申し込みに押し出されることがあります。`}</p>` : ''}
     <p class="muted">${L`仮の村でも収穫・建設・訓練はできます（押し出されると失われます）。軍勢の編成・出発・探索は確定してからです。`}</p></section>`;
 }

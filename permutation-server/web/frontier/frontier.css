@@ -762,6 +762,8 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
 .mc-bell { padding: 4px; border-radius: 26px; background: rgba(255,255,255,.5); box-shadow: inset 0 0 0 1px rgba(60,48,20,.18); }
 .mc-bell-v { display: inline-flex; align-items: center; gap: 6px; font: 700 var(--t3)/1.2 var(--display); }
 .mc-bell-v .ic { width: 16px; height: 16px; color: var(--brass-lo); }
+/* the one line that reconciles the arrival turn with the length of the way */
+.mc-when { margin: 6px 0 0 !important; font-size: var(--t1); line-height: 1.5; }
 /* choices as pictures: the stance and the retreat size (buttons of the order, radio buttons of a form) */
 .picks { display: grid; gap: 6px; }
 .picks-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); } .picks-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
@@ -827,6 +829,11 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
 .march-secret .ic { width: 14px; height: 14px; color: var(--seal); }
 .march-now { margin: 0 0 var(--s1) !important; font-size: var(--t2); }
 .march-out { font-weight: 700; }
+/* the rules' six steps of a march, behind the card's fold: a plain list, the one in progress in bold */
+.track-steps { margin: 0; padding-left: 1.3em; font-size: var(--t1); line-height: 1.6; color: var(--ink-2); }
+.track-steps li.done { color: var(--ink); }
+.track-steps li.now { color: var(--ink); font-weight: 700; }
+.track-steps li.now .muted { font-weight: 400; }
 .how-line { display: flex; align-items: flex-start; gap: var(--s2); }
 .how-line .ic { flex: none; width: 17px; height: 17px; margin-top: 1px; }
 #panel-body > .how-line { color: var(--ink-2); }
@@ -869,6 +876,9 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
 .chron-text { flex: 1 1 auto; min-width: 0; }
 .chron-go { flex: none; padding: 2px 8px; }
 .bells { display: grid; }
+/* the turn sheet inside "More → details" (screens/bell.mjs, bare) */
+.bell-sheet { margin: var(--s2) 0; }
+.bell-sheet .c-label .muted { font-weight: 400; }
 .bells li { padding: 7px 0; border-top: 1px solid rgba(60,48,20,.12); }
 .bell-row { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--s2); }
 .bell-row strong { font: 700 var(--t2)/1.3 var(--ui); font-variant-numeric: tabular-nums; }
@@ -1432,6 +1442,10 @@ body[data-title="up"] :is(#attn-pill, #next-steps, #quota-chip) { display: none 
 .survey-chart { background: #e6d9b8; border-color: #7a6a46; box-shadow: inset 0 0 0 3px #e6d9b8, inset 0 0 0 4px rgba(122,106,70,.5); }
 .survey-cloud { background: linear-gradient(160deg, #ffffff, #dfe6ea); }
 .survey-line { margin: 8px 0; }
+/* the two things that cannot be seen yet (the sealed march in the seal's one sentence, an exploration's result) */
+.survey-unseen { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 6px; font-size: var(--t2); }
+.survey-unseen li { padding-left: 12px; border-left: 2px solid var(--ink-rule); }
+.survey-unseen strong { display: block; }
 
 /* ---- where am I (UX brief 5.3): the edge pointer home (map/homepointer.mjs); names before coordinates (map/names.mjs) */
 .home-pointer { position: absolute; left: 0; top: 0; z-index: 3; display: grid; place-items: center; width: 44px; height: 44px; margin: -22px 0 0 -22px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #f3d58a; cursor: pointer; transform: translate(var(--x, 0), var(--y, 0)); }

@@ -6,6 +6,9 @@
 // and the rules module's terrain (FS.terrainOf, set by app.mjs at boot).
 import { L } from '../../lang.mjs';
 import { holdingName } from '../people/ui.mjs';
+import { factionName } from '../fi18n.mjs';
+import { ringOf, wedgeOf } from '../fgeo.mjs';
+import { homeWedge } from '../fland.mjs';
 
 export const TERRAIN_TEXT = { Grassland: () => L`草原`, Plains: () => L`平原`, Forest: () => L`森`, Hills: () => L`丘`, Mountain: () => L`山`, Water: () => L`水` };
 export const terrainName = id => TERRAIN_TEXT[id]?.() ?? (id ? String(id) : null);
@@ -31,8 +34,34 @@ export function tileWhat(FS, p, q, tile) {
 /** A tile's name alone: 「蛮族の野営地」, 「ラマールの町」, 「森」; 「土地」 when nothing is known. */
 export const tileName = (FS, p, q, tile) => tileWhat(FS, p, q, tile).name ?? L`土地`;
 
-/** A tile's name with its province: 「蛮族の野営地（州 2,0）」. */
+/** A tile's name with its province: 「蛮族の野営地（州 2,0）」 (for "details": the play screen reads the name alone). */
 export const tilePlace = (FS, p, q, tile) => L`${tileName(FS, p, q, tile)}（州 ${p},${q}）`;
+
+/** The nation on whose side of the frontier a province lies (its wedge), or null for the Concord. */
+export function sideOf(p, q) {
+  const w = wedgeOf(p, q);
+  if (w === null) return null;
+  for (let f = 0; f < 6; f++) if (homeWedge(f) === w) return f;
+  return null;
+}
+
+/**
+ * A province in words a person reads (UX design 11.13: names before coordinates; a province has no name of its
+ * own): the Concord by its name; a province where the viewer has a village by that village, 「ラマールの町のある州」;
+ * any other by the nation on whose side of the frontier it lies and its ring, 「シンダー方面・第2輪の州」. The
+ * coordinates stay under "details" (`provinceCoords`). `own: false` skips the village form (for a line that already
+ * names the village and says where it stands).
+ */
+export function provinceName(FS, p, q, { own: byVillage = true } = {}) {
+  if (p === 0 && q === 0) return L`大協約`;
+  const own = byVillage ? (FS?.holdings ?? []).find(h => h.p === p && h.q === q) : null;
+  if (own) return L`${holdingName(own)}のある州`;
+  const f = sideOf(p, q), d = ringOf(p, q);
+  return f === null ? L`第${d}輪の州` : L`${factionName(f)}方面・第${d}輪の州`;
+}
+
+/** A province by its coordinates: the small print of "details". */
+export const provinceCoords = (p, q) => L`州 ${p},${q}`;
 
 /**
  * The painted village of a nation at a tier, as the map draws it (the same

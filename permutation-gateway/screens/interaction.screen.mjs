@@ -63,7 +63,8 @@ test('the phone sheet: it rests at the peek with the drawer closed; a dock press
   // one layers button opens the four lenses by name; choosing one puts the list away
   await page.locator('.lens-toggle').click();
   assert.equal(await page.locator('.lens-toggle').getAttribute('aria-expanded'), 'true');
-  assert.deepEqual(await page.locator('.lens-list .lens:visible .lens-text').allTextContents(), ['領土', '軍事', '地形', '入植']);
+  // (hud-4: the fourth lens shows where a village could go; it read 「入植」 and reads 「空き地」 / "Free sites" now)
+  assert.deepEqual(await page.locator('.lens-list .lens:visible .lens-text').allTextContents(), ['領土', '軍事', '地形', '空き地']);
   await page.locator('.lens[data-lens="war"]').click();
   assert.equal(await page.locator('.lens-toggle').getAttribute('aria-expanded'), 'false');
   assert.equal(await page.locator('.lens-list').isVisible(), false);
@@ -144,13 +145,20 @@ test('a mouse drag that ends off the handle still moves the sheet (pointer captu
   assert.equal(await sheet(page), 'half', 'released far from the 44-px handle');
 });
 
-test('on a phone the relay quota is read in "More" (the chip is hidden below 760 px; wave-5 review D5)', { timeout: 60_000 }, async t => {
+// Rewritten with hud-4 (UX design 11.13: the relay counter leaves the play screen and surfaces only when low): the
+// line stood on the "More" tab itself and read 「中継 残り N 回」; it stands under "More → details" now, in the turn
+// sheet, and says what the player can still do, 「送れる操作 残り N 回」.
+test('on a phone the sponsored actions left are read under "More → details" (the chip shows only when low; wave-5 review D5)', { timeout: 60_000 }, async t => {
   const page = await open(t);
   assert.equal(await page.locator('#quota-chip').isVisible(), false, 'the chip waits');
   await page.locator('#tabs [data-tab="more"]').click();
   const line = page.locator('#panel-body [data-quota-line]');
+  await line.waitFor({ state: 'attached' });
+  assert.equal(await line.isVisible(), false, 'not on the play screen: it waits behind the details');
+  await page.locator('#panel-body details[data-fold="more-details"] > summary').click();
   await line.waitFor();
-  assert.match(await line.textContent(), /中継 残り \d+ 回/);
+  assert.match(await line.textContent(), /送れる操作 残り \d+ 回/);
+  assert.doesNotMatch(await page.locator('#panel-body').innerText(), /中継 残り|第\d+鐘/);
 });
 
 // Rewritten with the redesign: on desktop the panel was a permanent column that Escape left alone; it is a drawer now.
@@ -181,7 +189,8 @@ test('the desktop drawer: closed at load, a dock press slides it in, Escape and 
   await page.locator('#panel').waitFor({ state: 'hidden' });
   // a selection on the map opens it; the dock's "Map" closes it
   await page.locator('#tabs [data-tab="more"]').click();
-  await page.locator('#bell-title').waitFor();
+  // (hud-4: the turn sheet moved under "More → details"; the chronicle is the card of "More" that is always in sight)
+  await page.locator('#chronicle-title').waitFor();
   await page.locator('#tabs [data-tab="map"]').click();
   assert.equal(await drawer(page), 'closed');
   await page.locator('#panel .panel-close').waitFor({ state: 'hidden' });

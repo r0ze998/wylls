@@ -15,7 +15,7 @@ import { activeHolding } from '../fstate.mjs';
 import { html, raw } from '../../util.mjs';
 import { icon, RESOURCE_ICON } from '../hud/icons.mjs';
 import { L, Lh, fmtNum } from '../../lang.mjs';
-import { RESOURCES, RESOURCE_ORDER, UNITS, TIERS, BUILDINGS, HOLDING_STATES, errorText } from '../fi18n.mjs';
+import { RESOURCES, RESOURCE_ORDER, UNITS, TIERS, BUILDINGS, HOLDING_STATES, errorText, factionName } from '../fi18n.mjs';
 import { storesAt, holdingFacts, BUILD_ITEMS, UNIT_ORDER, SETTLER, actionBlocks, baseProduction } from '../fland.mjs';
 import { holdingName } from '../people/ui.mjs';
 import { miniCardUrl, MINI_KINDS } from '../people/minis.mjs';
@@ -23,7 +23,7 @@ import { span, NEAR_FULL_SECS } from '../hud/hud.mjs';
 import { termButton } from '../hud/glossary.mjs';
 import { inTime, row, timeHtml } from './shell.mjs';
 import { cardHead, label, fold, chip, stamp } from './parts.mjs';
-import { villagePic } from '../hud/place.mjs';
+import { villagePic, provinceCoords } from '../hud/place.mjs';
 
 /** How many buildings stand in sight before the fold. */
 export const BUILD_SHOWN = 3;
@@ -149,7 +149,7 @@ export function render(FS) {
   const vigilHour = Math.floor(vigil / 60);
 
   const head = html`<section class="vcard village-head" aria-labelledby="holding-title">
-    ${cardHead({ id: 'holding-title', ic: 'home', pic: villagePic(faction, h.tier), title: holdingName(h), sub: L`${TIERS[h.tier] ?? ''} · 州 ${h.p},${h.q}`, side: stamp(HOLDING_STATES[f.state], f.state === 'final' ? 'ok' : 'warn') })}
+    ${cardHead({ id: 'holding-title', ic: 'home', pic: villagePic(faction, h.tier), title: holdingName(h), sub: [TIERS[h.tier] ?? '', factionName(faction)].filter(Boolean).join(' · '), side: stamp(HOLDING_STATES[f.state], f.state === 'final' ? 'ok' : 'warn') })}
     ${f.shieldLeft > 0 || f.dormantIn <= 0 || f.state === 'provisional' ? html`<ul class="fact-chips">
       ${f.shieldLeft > 0 ? html`<li>${chip(html`${L`保護`} ${inTime(f.shieldLeft)}`, 'info', 'shield')}${termButton('shield')}</li>` : ''}
       ${f.dormantIn <= 0 ? html`<li>${chip(L`休眠中`, 'bad', 'moon')}${termButton('dormant')}</li>` : ''}
@@ -179,7 +179,7 @@ export function render(FS) {
   const musterForm = html`<form class="vform" id="hp-muster" data-form="muster">
     ${reserve.length ? unitPicks(faction, reserve, L`兵種`) : ''}
     <div class="count-row"><label class="count-label" for="f-troops">${L`兵数（100〜30,000）`}</label><input id="f-troops" name="troops" type="number" min="100" max="30000" step="1" value="100" inputmode="numeric">${steps('troops', { max: reserve.length === 1 ? Math.min(30000, reserve[0].troops) || null : null })}</div>
-    <div class="actions"><button type="submit" class="btn primary" ${raw(m.blocks.Muster.length || !reserve.length ? 'disabled' : '')}>${icon('banner')}${L`編成する`}</button><span class="muted">${L`新しい軍勢は次の鐘から顔ぶれに加わります。`}</span></div>
+    <div class="actions"><button type="submit" class="btn primary" ${raw(m.blocks.Muster.length || !reserve.length ? 'disabled' : '')}>${icon('banner')}${L`編成する`}</button><span class="muted">${L`新しい軍勢が使えるのは、次の鐘からです。`}</span></div>
     ${!reserve.length ? html`<p class="blocked">${L`控えの兵がいません：先に訓練しましょう`}</p>` : ''}
     ${blockedLine(m.blocks.Muster)}</form>`;
   // the action that makes sense now stands open; the other waits behind a fold
@@ -201,6 +201,7 @@ export function render(FS) {
       <div class="actions"><button type="submit" class="btn">${L`変える`}</button>${termButton('vigil')}</div>
       <p class="muted">${L`変更は24時間以上あとの最初の UTC 0時から有効で、週に1回までです。`}</p></form>`)}
     ${fold('v-facts', html`${icon('scroll')}${L`村の詳細`}`, html`<dl class="facts">
+      ${row(L`場所`, provinceCoords(h.p, h.q))}
       ${row(L`段階`, html`${TIERS[h.tier] ?? h.tier} · ${HOLDING_STATES[f.state]}${termButton('tier')}`)}
       ${f.state === 'provisional' ? row(L`確定`, f.finalTs ? Lh`早くても ${timeHtml(f.finalTs)} 以降に確定します。` : L`同じターンの申し込みがすべて決まってから`) : ''}
       ${f.shieldLeft > 0 ? row(L`保護`, inTime(f.shieldLeft)) : ''}

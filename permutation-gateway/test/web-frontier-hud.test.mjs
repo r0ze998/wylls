@@ -56,7 +56,12 @@ test('attention: incoming first, then settlements, the unsent draft, full stores
   assert.deepEqual([items[1].p, items[1].q, items[1].tab], [1, 1, 'marches']);
   assert.equal(items[3].tab, 'holding');
   setLang('ja');
-  assert.equal(hud.attentionText(items), '来襲 第44鐘 · ほか 3', 'the first item named, then how many more');
+  // (hud-4, UX design 11.13: every number is a turn's; a place is said by its name; 精算 is "collect the result")
+  assert.equal(hud.attentionText(items), '来襲 ターン 44 · ほか 3', 'the first item named, then how many more');
+  assert.equal(items[0].text, 'ターン 44 に、ラマールの町へ敵が来るかもしれません', 'the village by its name, the turn by its number');
+  assert.deepEqual([items[1].short, items[1].text], ['進軍の結果', 'アステル方面・第2輪の州への進軍の結果を受け取れます']);
+  assert.deepEqual([items[2].short, items[2].text], ['書きかけの命令', '書きかけの進軍の命令が、まだ送られていません']);
+  for (const x of items) assert.doesNotMatch(`${x.short} ${x.text}`, /第\d+鐘|州 -?\d|精算|編成中の進軍/, x.kind);
   assert.equal(hud.attentionText([]), null);
   FS.compose.sending = true;
   assert.ok(!hud.attentionItems(FS).some(x => x.kind === 'draft'), 'a march being sent is not a draft');
@@ -133,7 +138,8 @@ test('the village plate, the to-do lines behind their count, and the one next th
   assert.doesNotMatch(String(hud.crestSvg(0)), /style=/);
   setLang('en');
   const en = [hud.renderRail(FS)].flat(Infinity).map(String).join('').replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<[^>]*>/g, ' ');
-  assert.match(en, /This turn/);
+  // (hud-4: the heading says what the list is, "To do this turn"; "This turn" alone named the turn's results card too)
+  assert.match(en, /To do this turn/);
   assert.match(en, /Provisional/);
   assert.doesNotMatch(en.replace(/Lamar|ラマール/g, ''), /[぀-ヿ㐀-鿿]/, en);
   setLang('ja');

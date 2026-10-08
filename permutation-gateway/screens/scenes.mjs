@@ -201,11 +201,15 @@ export const SCENES = [
     },
   },
   {
-    id: 'bell', title: 'bell sheet', page: 'index.html', stage: 'holding',
+    // (hud-4, UX design 11.13: the turn sheet — each turn's pipeline, the sponsored actions left — is no longer a card
+    // of "More"; it stands under "More → details", so the scene opens that fold first)
+    id: 'bell', title: 'turn sheet (More, details)', page: 'index.html', stage: 'holding',
     async go(page) {
       await tab(page, 'more');
-      await page.locator('#bell-title').waitFor();
       await sheetFull(page);
+      await click(page, 'details[data-fold="more-details"] > summary');
+      await page.locator('details[data-fold="more-details"][open] #bell-title').waitFor();
+      await page.locator('details[data-fold="more-details"][open] [data-quota-line]').waitFor();
     },
   },
   {

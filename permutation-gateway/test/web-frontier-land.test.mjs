@@ -263,7 +263,10 @@ test('the roll-out: 30 ms a ring; the colours of the brief; a fill of at least 0
   assert.equal(ACT.arrivalText(44), '到着：ターン 44');
   setLang('en');
   assert.equal(ACT.arrivalText(44), 'Arrives: turn 44');
-  assert.equal(ACT.NOTE_TEXT.tooFar(32), 'Too far (at most 32 steps)');
+  // (hud-4: a distance is counted in tiles everywhere, 「マス」 / "tiles"; it said 「歩」 / "steps" here alone)
+  assert.equal(ACT.NOTE_TEXT.tooFar(32), 'Too far (at most 32 tiles)');
+  setLang('ja');
+  assert.equal(ACT.NOTE_TEXT.tooFar(32), '遠すぎます（32 マスまで）');
   setLang('ja');
 });
 
@@ -468,12 +471,13 @@ test('nothing is "fighting" for history: a clash is told only while it is this b
   const old = { bell: 30, arrivals: [{ present: 1, tile: 9, hostId: 5n, stance: 0 }] };
   assert.deepEqual(kinds(e(42, old)), ['battle', 'guard'], 'an older report does not say where this bell\'s clash was');
   assert.deepEqual(kinds(e(42, { bell: 42, arrivals: [{ present: 1, tile: 9, hostId: 5n, stance: 0 }] })), ['guard'], 'this bell\'s report: the clash was on another tile');
-  assert.equal(ACTIVITY.activityText({ kind: 'battle' }), 'この鐘で衝突がありました', 'said as what happened (a clash resolves at the toll), never as fighting');
+  // (hud-4, UX design 11.13: the period is a turn; the bell is only the toll)
+  assert.equal(ACTIVITY.activityText({ kind: 'battle' }), 'このターンに衝突がありました', 'said as what happened (a clash resolves at the toll), never as fighting');
   const camp = ACTIVITY.tileActivities(e(42), { bell: 42 }).get(21)[0];
   assert.deepEqual([camp.kind, camp.n], ['camp', 250]);
   assert.equal(ACTIVITY.activityText(camp), '蛮族の野営地（250 兵）');
   setLang('en');
-  assert.equal(ACTIVITY.activityText({ kind: 'battle' }), 'A clash this bell');
+  assert.equal(ACTIVITY.activityText({ kind: 'battle' }), 'A clash this turn');
   setLang('ja');
   // the inspector: an overview older than the last bell says nothing about now
   const FS = { mode: 'play', citizen: { faction: 0 }, holdings: [], nowBell: 42, overviews: new Map([[2, { bell: 40, provinces: [{ ...REC, clash: true }] }]]), provinces: new Map([['2,0', { province: PROV }]]), selected: { p: 2, q: 0, idx: 7 } };

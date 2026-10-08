@@ -28,7 +28,7 @@ import { NOTE_TEXT, createActions } from './map/actions.mjs';
 import { createLandingBook, landedKey } from './map/landing.mjs';
 import { placeName, villageLine } from './map/names.mjs';
 import { lastWalletName } from '../wallet.mjs';
-import { SEASON_STATUS_TEXT, clientText, factionName, TIERS, BUILDINGS } from './fi18n.mjs';
+import { SEASON_STATUS_TEXT, clientText, factionName, TIERS, BUILDINGS, FATES } from './fi18n.mjs';
 import { L, fmtNum, mountLangToggle, onLangChange, lang } from '../lang.mjs';
 import { toHex } from '../sdk/bytes.mjs';
 import { html, setHtml } from '../util.mjs';
@@ -182,7 +182,7 @@ function renderChip() {
   const banner = $('stale-banner');
   if (banner) {
     banner.hidden = !FS.stale.stale;
-    if (FS.stale.stale) banner.textContent = L`表示が ${Math.round(FS.stale.behind)} 秒遅れています。最新の状態が必要な操作の前に再読み込みしてください`;
+    if (FS.stale.stale) banner.textContent = L`表示が ${Math.round(FS.stale.behind)} 秒遅れています。最新の状態が必要な操作の前に再読み込みしてください。`;
   }
 }
 
@@ -226,13 +226,15 @@ function settingsMarkup(FS) {
     <div class="choice-row" role="group" aria-label="${L`音`}"><span class="choice-k">${L`音`}</span><span class="seg">${['on', 'off'].map(v => html`<button type="button" class="seg-btn" data-act="fx-sound" data-v="${v}" aria-pressed="${(fxAudio().muted ? 'off' : 'on') === v ? 'true' : 'false'}">${v === 'on' ? L`オン` : L`オフ`}</button>`)}</span></div>
     ${onboardingCard.renderRestore(FS)}
     <div class="actions"><button type="button" class="btn" data-act="practice-open">${icon('swords')}${L`練習モードを開く`}</button><button type="button" class="btn" data-act="intro-open">${L`タイトルを見る`}</button></div>
-    <p class="link-row"><a href="practice.html">${L`練習`}</a> · <a href="spectate.html">${L`観戦`}</a></p></section>`;
+    <p class="link-row"><a href="practice.html">${L`練習ページ`}</a> · <a href="spectate.html">${L`観戦ページ`}</a></p></section>`;
 }
 
 /**
  * "More → details": what a player does not need on the play screen but may want to check — the
- * season's state and its beacon, how the bell's work gets done (the keepers), the rules module,
- * what a march costs (the relay fronts it), and the key kept on this device.
+ * season's state and its beacon, the turn sheet (each turn's pipeline, the sponsored actions left),
+ * how a turn's work gets done (the keepers), the rules module, what a march costs (the relay fronts
+ * it), and the key kept on this device. The internal words (beacon, keeper, lamports, frontier.wasm)
+ * live here and nowhere on the play screen (UX design 11.13).
  */
 export function detailsMarkup(FS) {
   const s = FS.season;
@@ -244,11 +246,12 @@ export function detailsMarkup(FS) {
       ${row(L`シーズン`, status)}
       ${FS.beacon?.kind ? row(L`乱数のビーコン`, FS.beacon.kind === 'test' ? L`テスト用ビーコン` : L`公開ビーコン（drand）`) : ''}
       ${row(L`ルールのモジュール`, FS.kernelError ? L`frontier.wasm を読み込めません（${FS.kernelError}）` : L`frontier.wasm（見込みの計算と報告の確かめに使います）`)}
-      ${FS.land ? row(L`入植希望の預け金（いま要る額）`, lamports(FS.land.escrowNeeded ?? 0n)) : ''}
+      ${FS.land ? row(L`村の申し込みの預け金（いま要る額）`, lamports(FS.land.escrowNeeded ?? 0n)) : ''}
     </dl>
-    <p class="muted">${L`鐘ごとの開封・決着・精算は、キーパーと呼ばれる自動の係が代わりに行います。チップはその報酬です。`}</p>
-    <p class="muted">${L`いまの段階（M1）に賞金はありません。費用はテスト用の SOL で、中継が立て替えます（価値はありません）。`}</p>
-    ${costs.length ? html`${label(L`進軍の費用（単位：ランポート）`)}<ul class="cost-list">${costs.map(c => html`<li><strong>${c.text}</strong><span>${L`チップ`} ${fmtNum(Number(c.tip))} · ${L`進軍の手数料（決着させた人へ）`} ${fmtNum(Number(c.marchFee))} · ${L`封の保証金（精算で戻る）`} ${fmtNum(Number(c.sealBond))} · ${L`合計`} ${fmtNum(Number(c.total))}</span></li>`)}</ul>` : ''}
+    ${bellScreen.render(FS, { bare: true })}
+    <p class="muted">${L`封を開ける、衝突を決着させる、結果を届ける。こうした手続きは、ターンごとに自動の係（キーパー）が代わりに行います。チップはその報酬です。`}</p>
+    <p class="muted">${L`いまの段階に賞金はありません。費用はテスト用の SOL で、ゲーム側（中継サーバー）が立て替えます（価値はありません）。`}</p>
+    ${costs.length ? html`${label(L`進軍の費用（単位：ランポート）`)}<ul class="cost-list">${costs.map(c => html`<li><strong>${c.text}</strong><span>${L`チップ`} ${fmtNum(Number(c.tip))} · ${L`進軍の手数料（決着させた人へ）`} ${fmtNum(Number(c.marchFee))} · ${L`封の保証金（結果を受け取ると戻る）`} ${fmtNum(Number(c.sealBond))} · ${L`合計`} ${fmtNum(Number(c.total))}</span></li>`)}</ul>` : ''}
     <div class="actions"><button type="button" class="btn" data-act="forget">${L`この端末からこのシーズンの鍵を消す`}</button></div>`)}</section>`;
 }
 
@@ -300,9 +303,9 @@ export function panelMarkup(FS, d = drawerOf(FS)) {
   else if (d.kind === 'marches') {
     // a warning of arrivals stands first; with none, its quiet line closes the screen
     const warned = (FS.incoming ?? []).length > 0;
-    parts.push(warned ? incomingScreen.render(FS) : '', marchScreen.render(FS), trackerScreen.render(FS), reportScreen.renderLinks(myReports(FS), L`あなたの衝突の報告`), warned ? '' : incomingScreen.render(FS));
+    parts.push(warned ? incomingScreen.render(FS) : '', marchScreen.render(FS), trackerScreen.render(FS), reportScreen.renderLinks(myReports(FS), L`あなたの衝突の報告`, { FS }), warned ? '' : incomingScreen.render(FS));
   }
-  else parts.push(feed.renderCentre(FS.feed ?? [], FS.feedFilter ?? 'all'), chronicleScreen.render(FS), reportScreen.renderLinks(reportScreen.clashesFrom(FS.chronicle ?? []), L`最近の衝突`), bellScreen.render(FS),
+  else parts.push(feed.renderCentre(FS.feed ?? [], FS.feedFilter ?? 'all'), chronicleScreen.render(FS), reportScreen.renderLinks(reportScreen.clashesFrom(FS.chronicle ?? []), L`最近の衝突`, { FS }),
     settingsMarkup(FS), renderSurveyHelp(), moreFolds(FS), detailsMarkup(FS));
   return parts;
 }
@@ -486,11 +489,12 @@ export function peopleSource() {
     lordOf: (p, q, site) => { const o = rosterRef?.ownerOf(p, q, site); return o ? identityOf(o.tag) : null; },
     bell,
     own: FS.holdings ?? [],
-    columnLabel: d => L`出陣 · 第${fmtNum(d.arriveBell)}鐘に到着`,
+    columnLabel: d => L`出陣 · ターン ${fmtNum(d.arriveBell)} に到着`,
     demo: ART_PREVIEW && ART_Q.get('acts') === '1',
     battles: FS.battles ?? [],
     lossText: n => L`−${fmtNum(n)} 兵`,
-    fateText: f => ({ Stays: L`持ちこたえた`, Withdrew: L`隣へ退いた`, Bounced: L`押し戻された`, Retreated: L`撤退した`, Destroyed: L`壊滅` })[f] ?? null,
+    // (the fates in the report's own words: fi18n.mjs FATES, one vocabulary for an outcome)
+    fateText: f => FATES[f] ?? null,
   } };
   peopleCache.value.battles = (FS.battles ?? []).filter(b => battleLive(b, performance.now() / 1000));
   autoBattles();
@@ -1271,7 +1275,7 @@ function showTip(hit, at) {
   // the lord out on their land (people/life.mjs): what they are doing
   const lf = owner && FS.life ? lifeAt(FS.life.get(`${hit.p},${hit.q},${t.site}`), FS.nowBell ?? 0, FS.chain?.now() ?? 0) : null;
   if (lf?.lord) lines.push(html`<span class="tip-lord">${lordLine(displayName(identityOf(owner.tag)), lf.doing, L)}</span>`);
-  for (const a of (acts ?? []).filter((a, i, all) => all.findIndex(b => b.kind === a.kind) === i)) lines.push(html`<span class="tip-${a.kind}">${activityText(a)}</span>`);
+  for (const a of (acts ?? []).filter((a, i, all) => all.findIndex(b => b.kind === a.kind) === i)) lines.push(html`<span class="tip-${a.kind}">${activityText(a, inspect.hostInfoOf(FS))}</span>`);
   setHtml(tip, lines.map(l => html`<span class="tip-line">${l}</span>`));
   tip.hidden = false;
   // beside the pointer, inside the part of the map nothing covers (never under the drawer or the sheet)
@@ -1344,7 +1348,7 @@ function renderLenses() {
   const cur = FS.view.lens ?? 'realm';
   const open = el.dataset?.open === 'true';
   // a phone has one layers button that opens the four choices by name (UX design 11.11); wider screens show the four chips
-  setHtmlIfChanged(el, html`<button type="button" class="hud-btn lens-toggle" data-act="lens-menu" aria-expanded="${open ? 'true' : 'false'}" aria-controls="lens-list" aria-label="${L`地図の見方：${minimap.LENS_TEXT[cur]()}`}" title="${L`地図の見方`}">${icon('layers')}</button>
+  setHtmlIfChanged(el, html`<button type="button" class="hud-btn lens-toggle" data-act="lens-menu" aria-expanded="${open ? 'true' : 'false'}" aria-controls="lens-list" aria-label="${L`地図の表示：${minimap.LENS_TEXT[cur]()}`}" title="${L`地図の表示`}">${icon('layers')}</button>
     <div class="lens-list" id="lens-list">${minimap.LENSES.map((l, i) => html`<button type="button" class="lens" data-act="lens" data-lens="${l}" aria-pressed="${l === cur ? 'true' : 'false'}" aria-label="${minimap.LENS_TEXT[l]()}" title="${minimap.LENS_TEXT[l]()} (${i + 1})">${icon(minimap.LENS_ICON[l])}<span class="lens-text" aria-hidden="true">${minimap.LENS_TEXT[l]()}</span></button>`)}</div>`);
 }
 /** Open or close the phone's list of lenses (a DOM state of the HUD: nothing in the store follows it). */
@@ -2040,7 +2044,7 @@ export async function boot() {
           lens: FS.view.lens ?? 'realm',
           // incoming risk around the viewer's holdings (hud/hud.mjs attention, controller incoming warnings)
           threats: (FS.incoming ?? []).map(w => ({ p: w.holding.p, q: w.holding.q, tile: w.holding.tile, bell: w.bell })),
-          threatLabel: w => L`来襲 第${fmtNum(w.bell)}鐘`,
+          threatLabel: w => L`来襲 ターン ${fmtNum(w.bell)}`,
           // the bell now (an overview older than the last bell no longer says "a clash this bell")
           bell: FS.nowBell ?? null,
           // what the selected host can do, lit on the map (map/actions.mjs); the route under the pointer; the map's own answer to a tap

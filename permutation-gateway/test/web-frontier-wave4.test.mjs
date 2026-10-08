@@ -96,12 +96,16 @@ test('milestones: reached from state, the first load records quietly, later ones
   assert.deepEqual(next.fresh.map(m => m.id), ['first-march', 'first-win']);
   assert.equal(next.record.seen['first-win'].bell, 44);
   setLang('ja');
-  assert.match(String(M.renderBanner(next.fresh[1], 2)), /最初の勝利：州 3,1/);
+  // (hud-4, UX design 11.13: a province in words — the nation on whose side it lies and its ring — not coordinates; the timeline counts turns)
+  assert.match(String(M.renderBanner(next.fresh[1], 2)), /最初の勝利：[^<]+方面・第4輪の州/);
+  assert.match(String(M.renderTimeline(next.record)), /<span class="tl-bell">ターン 44<\/span>/);
+  assert.doesNotMatch(String(M.renderTimeline(next.record)) + String(M.renderBanner(next.fresh[1], 2)), /第\d+鐘|州 -?\d/);
   setLang('en');
   const tl = String(M.renderTimeline(next.record)).replace(/<[^>]+>/g, ' ');
   assert.match(tl, /Season timeline/);
   assert.doesNotMatch(tl.replace(/data-name/g, ''), /[぀-ヿ一-鿿]/);
-  assert.match(String(M.renderBanner(next.fresh[1], 2)), /First victory: province 3,1/);
+  assert.match(String(M.renderBanner(next.fresh[1], 2)), /First victory: a ring-4 province on \w+(&#39;|')s side/);
+  assert.match(tl, /Turn 44/);
   setLang('ja');
   assert.equal(M.loadSeen({ get: () => '{bad' }, 'k'), null);
 });

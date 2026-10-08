@@ -7,8 +7,8 @@
 // only says how an order is started, or leads back to the one in progress.
 import { activeHolding } from '../fstate.mjs';
 import { html } from '../../util.mjs';
-import { L, fmtNum } from '../../lang.mjs';
-import { STANCES as STANCE_TEXT, UNITS } from '../fi18n.mjs';
+import { L } from '../../lang.mjs';
+import { STANCES as STANCE_TEXT, unitCount } from '../fi18n.mjs';
 import { STANCES } from '../seal.mjs';
 import { RETREAT_CHOICES, tipOptions } from '../fmarch.mjs';
 import { UNIT_ORDER } from '../fland.mjs';
@@ -26,14 +26,16 @@ const TIP_TEXT = { standard: () => L`標準`, decisive: () => L`確実`, maximum
 
 /** The composer's choices as the markup offers them (the tests read these). */
 
-/** The route line with singular and plural forms (wave-5 review: "1 provinces"). */
+/** The minutes a route takes on foot (rounded up): said once, in the order's line about the arrival turn. */
+export const routeMinutes = route => Math.ceil(Number(route?.secs ?? 0) / 60);
+
+/**
+ * How far the destination is, in one short line: 「4 マス先」 / "4 tiles away" (singular and plural forms). The
+ * minutes of the way are not here: the order says them once, where it explains the arrival turn (UX design 11.13).
+ */
 export function routeLine(route) {
   const n = route.hexes;
-  const p = route.provinces.length;
-  const m = Math.ceil(route.secs / 60);
-  if (n === 1 && p === 1) return L`1 マス · 1 州 · 約 ${m} 分`;
-  if (p === 1) return L`${n} マス · 1 州 · 約 ${m} 分`;
-  return L`${n} マス · ${p} 州 · 約 ${m} 分`;
+  return n === 1 ? L`1 マス先` : L`${n} マス先`;
 }
 
 export function composerChoices(FS) {
@@ -65,6 +67,6 @@ export function composerMarch(FS) {
 export function render(FS) {
   const c = FS.compose;
   if (!c?.host) return html`<p class="muted how-line">${icon('banner')}${L`軍勢のカードか地図の軍勢で「進軍させる」を押すと、命令を書けます。`}</p>`;
-  return html`<section class="vcard draft-card" aria-labelledby="march-title"><h3 id="march-title">${L`書きかけの命令：${UNITS[UNIT_ORDER[c.host.unit]] ?? ''} ${fmtNum(c.host.troops)}`}</h3>
+  return html`<section class="vcard draft-card" aria-labelledby="march-title"><h3 id="march-title">${L`書きかけの命令：${unitCount(UNIT_ORDER[c.host.unit], c.host.troops)}`}</h3>
     <div class="actions"><button type="button" class="btn primary" data-act="sel-open">${icon('seal')}${L`命令を続ける`}</button><button type="button" class="btn quiet" data-act="compose-close">${L`やめる`}</button></div></section>`;
 }

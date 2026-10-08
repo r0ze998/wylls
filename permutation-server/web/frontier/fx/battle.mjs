@@ -41,7 +41,8 @@ export const BATTLE_DIM = Object.freeze({ focus: 0.66, passing: 0.42 });
 const defaultTexts = () => ({
   lossText: n => L`−${fmtNum(n)} 兵`,
   numText: n => fmtNum(n),
-  fateText: f => ({ Stays: L`持ちこたえた`, Withdrew: L`隣へ退いた`, Bounced: L`押し戻された`, Retreated: L`撤退した`, Destroyed: L`壊滅` })[f] ?? null,
+  // (the same words as fi18n.mjs FATES: one vocabulary for an outcome, UX design 11.13; the page passes that table)
+  fateText: f => ({ Stays: L`戦場に残った`, Withdrew: L`隣へ退いた`, Bounced: L`村へ押し戻された`, Retreated: L`撤退した`, Destroyed: L`壊滅した` })[f] ?? null,
   nameText: side => sideName(side),
 });
 
