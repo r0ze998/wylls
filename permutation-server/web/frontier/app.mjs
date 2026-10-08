@@ -23,9 +23,9 @@ import { L, fmtNum, mountLangToggle, onLangChange, lang } from '../lang.mjs';
 import { toHex } from '../sdk/bytes.mjs';
 import { html, setHtml } from '../util.mjs';
 import { ACTIONS, FORMS, bind, startPlay, wantProvince } from './controller.mjs';
-import { renderTabs, renderNotice, factionChip, quotaChip, mountSheet, PHONE_MAX, row } from './screens/shell.mjs';
+import { renderTabs, factionChip, quotaChip, mountSheet, PHONE_MAX, row, lamports } from './screens/shell.mjs';
 import { cardHead, fold, label } from './screens/parts.mjs';
-import { drawerOf, closeDrawer, drawerTitle, holdsLand, LIFTS, DRAWER_ICON } from './hud/drawer.mjs';
+import { drawerOf, closeDrawer, drawerTitle, holdsLand, LIFTS, DRAWER_ICON, WIDE, STAGE } from './hud/drawer.mjs';
 import { icon, iconizeMapTools } from './hud/icons.mjs';
 import { hudInsets } from './hud/insets.mjs';
 import { createTerrain } from './map/terrain.mjs';
@@ -92,6 +92,7 @@ import { uiKey, uiStorage, loadUi, saveUi, UI_PREFIX } from './fui.mjs';
 import * as hud from './hud/hud.mjs';
 import * as inspect from './hud/inspect.mjs';
 import * as feed from './hud/feed.mjs';
+import * as status from './hud/status.mjs';
 import * as title from './intro/title.mjs';
 import * as marchCard from './hud/marchcard.mjs';
 import * as minimap from './hud/minimap.mjs';
@@ -230,6 +231,7 @@ export function detailsMarkup(FS) {
       ${row(L`シーズン`, status)}
       ${FS.beacon?.kind ? row(L`乱数のビーコン`, FS.beacon.kind === 'test' ? L`テスト用ビーコン` : L`公開ビーコン（drand）`) : ''}
       ${row(L`ルールのモジュール`, FS.kernelError ? L`frontier.wasm を読み込めません（${FS.kernelError}）` : L`frontier.wasm（見込みの計算と報告の確かめに使います）`)}
+      ${FS.land?.escrowNeeded ? row(L`入植希望の預け金`, lamports(FS.land.escrowNeeded)) : ''}
     </dl>
     <p class="muted">${L`鐘ごとの開封・決着・精算は、キーパーと呼ばれる自動の係が代わりに行います。チップはその報酬です。`}</p>
     <p class="muted">${L`いまの段階（M1）に賞金はありません。費用はテスト用の SOL で、中継が立て替えます（価値はありません）。`}</p>
@@ -259,7 +261,8 @@ export function restMarkup(FS) {
  * being composed, the selection, the guide's steps or the join flow.
  */
 export function panelMarkup(FS, d = drawerOf(FS)) {
-  const parts = [renderNotice(FS.notice)];
+  // the action's outcome is said at the map (hud/status.mjs, renderFeed), not in a box inside the drawer
+  const parts = [];
   if (!d) return [...parts, ...restMarkup(FS)];
   if (d.kind === 'practice') return [...parts, practiceScreen.render(FS.practice, { kernelError: FS.practiceError ?? null, closable: true })];
   if (d.kind === 'report') return [...parts, reportScreen.render(FS, mineOf(FS.holdings), { ownerOf: reportOwner })];
@@ -269,8 +272,10 @@ export function panelMarkup(FS, d = drawerOf(FS)) {
     if (FS.selected) parts.push(inspect.render(FS, terrainRef, mapRef?.art?.activities ?? null));
     return parts;
   }
-  if (d.kind === 'guide') return [...parts, onboardingCard.render(FS, { open: true }), holdsLand(FS) ? joinScreen.render(FS) : ''];
-  if (d.kind === 'join') return [...parts, joinScreen.render(FS), onboardingCard.render(FS, { open: true })];
+  if (d.kind === 'guide') return [...parts, onboardingCard.render(FS, { open: true }), FS.land?.stage === 'provisional' ? joinScreen.render(FS) : ''];
+  // the first minute: the six banners, the wait for the village (with the guide's steps on demand under it), or what must be mended
+  if (d.kind === 'nation') return [...parts, joinScreen.render(FS)];
+  if (d.kind === 'wait' || d.kind === 'join') return [...parts, joinScreen.render(FS)];
   // a dock tab keeps one line of the selection (the inspector itself opens from the map)
   if (FS.selected) parts.push(inspect.renderBrief(FS, terrainRef));
   if (d.kind === 'holding') parts.push(holdingScreen.render(FS));
@@ -287,7 +292,7 @@ export function panelMarkup(FS, d = drawerOf(FS)) {
 
 /** The panel of the practice and spectator pages. */
 export function modePanel(FS) {
-  if (FS.mode === 'practice') return [renderNotice(FS.notice), practiceScreen.render(FS.practice, { kernelError: FS.practiceError ?? null })];
+  if (FS.mode === 'practice') return [practiceScreen.render(FS.practice, { kernelError: FS.practiceError ?? null })];
   return [FS.selected ? inspect.render(FS, terrainRef, mapRef?.art?.activities ?? null) : '', spectateScreen.render(FS, { ownerOf: reportOwner, standings: hud.renderStandingsList(FS) }), FS.report ? '' : pins.renderPins(FS.pins ?? [], FS)];
 }
 
@@ -349,10 +354,13 @@ let drawerClear = null;    // the timer that empties a closed drawer after it ha
 function applyDrawer(d) {
   const panel = $('panel'), body = globalThis.document?.body;
   const state = d ? 'open' : 'closed', kind = d?.kind ?? '';
+  // a document over the map (the report, a practice battle) is wide and centred, not the side drawer
+  const doc = d && WIDE.has(d.kind) ? 'wide' : d && STAGE.has(d.kind) ? 'stage' : '';
   for (const el of [panel, body]) {
     if (!el?.dataset) continue;
     if (el.dataset.drawer !== state) el.dataset.drawer = state;
     if ((el.dataset.kind ?? '') !== kind) el.dataset.kind = kind;
+    if (el.dataset.doc !== doc) el.dataset.doc = doc;
   }
   if (kind === drawerKind) return false;
   drawerKind = kind;
@@ -391,7 +399,7 @@ function renderPlay() {
   const d = renderDrawer(dd => panelMarkup(FS, dd));
   const tabs = $('tabs');
   // what the map itself opens (a selection, an order, the guide, the join flow) leaves "Map" current; a report or a run, none
-  if (tabs) setHtml(tabs, renderTabs(FS, !d || ['inspect', 'march', 'guide', 'join'].includes(d.kind) ? 'map' : d.kind));
+  if (tabs) setHtml(tabs, renderTabs(FS, !d || ['inspect', 'march', 'guide', 'join', 'nation', 'wait'].includes(d.kind) ? 'map' : d.kind));
   renderRail();
   renderMinimap();
   // the header follows new data at once, not only on the next one-second tick
@@ -402,6 +410,7 @@ function renderMode() {
   renderDrawer(() => modePanel(FS));
   renderRail();
   renderMinimap();
+  renderFeed();
 }
 
 // ------------------------------------------------------------------ the HUD (hud/hud.mjs)
@@ -714,8 +723,21 @@ function checkMoments() {
   if (fresh.length) { FS.moments = liveMoments([...(FS.moments ?? []), ...fresh], t); peopleCache.at = -1; mapRef?.invalidate(); }
 }
 
+/** The waiting view's countdown to the next turn (screens/join.mjs marks the two nodes): its text and its ring, every second. */
+function tickTurn() {
+  const doc = globalThis.document;
+  const el = doc?.querySelector?.('[data-turn-left]');
+  if (!el) return;
+  const t = joinScreen.turnLeft(FS);
+  if (!t) return;
+  const text = countdown(t.left);
+  if (el.textContent !== text) el.textContent = text;
+  doc.querySelector('[data-turn-ring] .ring-fg')?.setAttribute('stroke-dasharray', `${(t.share * 100).toFixed(1)} 100`);
+}
+
 function renderHudTick(now) {
   const m = hud.bellModel(FS.clock, now);
+  tickTurn();
   checkMoments();
   frameRoute();
   updateForecast();
@@ -836,10 +858,60 @@ function tickFeed() {
   invalidate('panel');
 }
 
+/** When the notice in hand appeared (a landed action's chip leaves after a few seconds). */
+let noticeSeen = { ref: null, at: 0 };
+/** The status of the action in hand, for the map's stack (hud/status.mjs). */
+function statusNow() {
+  const n = FS.notice ?? null;
+  if (noticeSeen.ref !== n) noticeSeen = { ref: n, at: Date.now() };
+  return status.statusOf(FS, { age: Date.now() - noticeSeen.at, canRetry: !!FS.lastAct });
+}
+/**
+ * The map's stack of notices: the status of the action in hand first, then what happened (at most
+ * three). Kept by key, so a notice that arrives slides in and one that leaves fades out without the
+ * others starting again (220 ms in, 160 ms out; at once under reduced motion).
+ */
 function renderFeed() {
   const el = $('feed');
   if (!el) return;
-  setHtmlIfChanged(el, feed.renderToasts(FS.feed ?? [], { dismissed: FS.feedDismissed ?? new Set() }));
+  const st = statusNow();
+  const items = [...(st ? [{ id: 'tx', markup: status.renderStatus(st) }] : []),
+    ...feed.liveToasts(FS.feed ?? [], { dismissed: FS.feedDismissed ?? new Set() }).map(x => ({ id: `n:${x.id}`, markup: feed.renderToast(x) }))];
+  syncStack(el, items);
+}
+const stackHtml = new WeakMap();
+function syncStack(el, items) {
+  if (!el.children || !globalThis.document?.createElement) { setHtml(el, items.map(x => x.markup)); return; }
+  const want = new Map(items.map(x => [x.id, String([x.markup].flat(Infinity).map(String).join(''))]));
+  for (const node of [...el.children]) {
+    const id = node.dataset.key;
+    if (want.has(id) && !node.classList.contains('leaving')) continue;
+    if (node.classList.contains('leaving')) continue;
+    // gone: it fades out (state first: it no longer takes the pointer or a place in the reading order)
+    node.classList.add('leaving'); node.setAttribute('aria-hidden', 'true'); node.inert = true;
+    if (calm()) node.remove(); else setTimeout(() => node.remove(), 170);
+  }
+  let before = el.firstElementChild;
+  for (const x of items) {
+    let node = [...el.children].find(n => n.dataset.key === x.id && !n.classList.contains('leaving'));
+    const markup = want.get(x.id);
+    if (!node) {
+      const tpl = globalThis.document.createElement('template');
+      tpl.innerHTML = markup;
+      node = tpl.content.firstElementChild;
+      if (!node) continue;
+      node.dataset.key = x.id;
+      stackHtml.set(node, markup);
+      el.insertBefore(node, before);
+    } else if (stackHtml.get(node) !== markup) {
+      const tpl = globalThis.document.createElement('template');
+      tpl.innerHTML = markup;
+      const next = tpl.content.firstElementChild;
+      if (next) { node.className = `${next.className} shown`; node.setAttribute('role', next.getAttribute('role') ?? 'status'); node.replaceChildren(...next.childNodes); stackHtml.set(node, markup); }
+    }
+    before = node.nextElementSibling;
+    while (before && before.classList.contains('leaving')) before = before.nextElementSibling;
+  }
 }
 
 /**
@@ -849,15 +921,13 @@ function renderFeed() {
 function renderRail() {
   const small = phone();
   const el = $('rail');
-  if (el) { setHtmlIfChanged(el, small ? '' : hud.renderRail(FS)); el.hidden = small || !el.firstElementChild; }
+  // the guide's one objective stands with the plate (UX design 7.4), over the to-do lines; not while the
+  // first-minute stages (the nation choice, the wait) or the list of steps have the screen
+  const d = drawerOf(FS);
+  const show = FS.mode === 'play' && !small && !['join', 'nation', 'wait', 'guide'].includes(d?.kind);
+  if (el) { setHtmlIfChanged(el, small ? '' : [show ? onboardingCard.renderObjective(FS) : '', hud.renderRail(FS)]); el.hidden = small || !el.firstElementChild; }
   const ob = $('objective');
-  if (ob) {
-    // the full guide card is in the drawer while the join flow or the list of steps is open
-    const d = drawerOf(FS);
-    const show = FS.mode === 'play' && !small && d?.kind !== 'join' && d?.kind !== 'guide';
-    setHtmlIfChanged(ob, show ? onboardingCard.renderObjective(FS) : '');
-    ob.hidden = !ob.firstElementChild;
-  }
+  if (ob && !ob.hidden) ob.hidden = true;
 }
 
 /**
@@ -1148,6 +1218,9 @@ export const HUD_ACTIONS = {
   'feed-go': d => goToItem((FS.feed ?? []).find(x => x.id === d.id)),
   'feed-dismiss': d => { FS.feedDismissed = new Set([...(FS.feedDismissed ?? []), d.id]); renderFeed(); },
   'feed-filter': d => { FS.feedFilter = feed.FEED_FILTERS.includes(d.f) ? d.f : 'all'; invalidate('panel'); },
+  // the status at the map: put a refusal away, or send the refused action once more
+  'notice-close': () => { FS.notice = null; renderFeed(); invalidate('panel'); },
+  'notice-retry': () => { const r = retryLast(); renderFeed(); return r; },
   autopan: () => { const sc = scope(); const v = !FS.ui?.autoPan; FS.ui = sc ? saveUi(uiStorage, uiKey(sc), { autoPan: v }) : { ...(FS.ui ?? {}), autoPan: v }; invalidate('panel'); },
   'battle-play': d => { leaveReport(); playBattle(num(d.p), num(d.q), num(d.bell), { focus: true }); },
   'res-open': d => { FS.resOpen = FS.resOpen === d.r ? null : d.r; renderHudTick(FS.chain?.now?.() ?? 0); },
@@ -1280,6 +1353,8 @@ async function runPractice({ reroll = false } = {}) {
     if (st.result.ok) st.history = [...st.history, st.stance].slice(-12);
   }
   if (FS.pin) setFlag(FLAG.practice); else invalidate('panel');
+  // a phone: the result stands first in the sheet, above the orders; it comes into view (on desktop it is beside them)
+  if (phone()) globalThis.requestAnimationFrame?.(() => $('panel-body')?.querySelector?.('.pr-result')?.scrollIntoView?.({ block: 'start', behavior: calm() ? 'auto' : 'smooth' }));
 }
 
 /** The wave-4 actions (data-act). */
@@ -1317,6 +1392,49 @@ export function w4Bind(name, value) {
   return true;
 }
 
+/** The play actions that send something to the chain: a refusal of one offers "try again" (hud/status.mjs). */
+export const SENDS = Object.freeze(new Set(['harvest', 'build', 'dissolve', 'join', 'session', 'auto-ticket', 'nudge', 'explore-send', 'settle-explore', 'settle-transit', 'march-send']));
+/** Send the refused action once more, as it was (`FS.lastAct`: its name and data, or a form's name and values). */
+function retryLast() {
+  const a = FS.lastAct;
+  if (!a || FS.mode !== 'play') return undefined;
+  FS.notice = null;
+  if (a.kind === 'form') return FORMS[a.name]?.({ elements: Object.fromEntries(Object.entries(a.values ?? {}).map(([k, v]) => [k, { value: v }])), dataset: { form: a.name } });
+  return ACTIONS[a.name]?.(a.data ?? {});
+}
+/** A refused control shakes its head once (visual only; the toast at the map says why). */
+function shake(control) {
+  const body = $('panel-body');
+  if (!body?.querySelector || calm()) return;
+  const same = (el, data) => Object.entries(data ?? {}).every(([k, v]) => el.dataset[k] === v);
+  const el = control.form ? body.querySelector(`form[data-form="${String(control.form).replace(/[^\w-]/g, '')}"] [type="submit"]`)
+    : [...body.querySelectorAll(`[data-act="${String(control.act).replace(/[^\w-]/g, '')}"]`)].find(x => same(x, control.data));
+  if (!el) return;
+  el.classList.remove('refused'); void el.offsetWidth; el.classList.add('refused');
+  setTimeout(() => el.classList.remove('refused'), 400);
+}
+
+/**
+ * The nation choice tells the map which nation is looked at (UX design 7.2: its home wedge is lit on the
+ * chart): `wylls:nation-focus` with `{faction}` on hover, keyboard focus and choice of a banner
+ * (`[data-nation]`), and with the chosen nation (or null) when the pointer or the focus leaves the banners.
+ */
+let nationShown;
+function nationFocus(faction) {
+  const f = Number.isInteger(faction) && faction >= 0 && faction < 6 ? faction : null;
+  if (f === nationShown) return;
+  nationShown = f;
+  try { globalThis.dispatchEvent?.(new CustomEvent('wylls:nation-focus', { detail: { faction: f } })); } catch { /* no events here (tests) */ }
+}
+function mountNationFocus(doc) {
+  const chosen = () => (drawerOf(FS)?.kind === 'nation' && Number.isInteger(FS.joinDraft?.faction) ? FS.joinDraft.faction : null);
+  const at = e => { const el = e.target?.closest?.('[data-nation]'); return el ? Number(el.dataset.nation) : null; };
+  doc.addEventListener('pointerover', e => { if (e.target?.closest?.('.nations')) nationFocus(at(e) ?? chosen()); else if (nationShown !== null && nationShown !== undefined) nationFocus(chosen()); });
+  doc.addEventListener('focusin', e => { const f = at(e); if (f !== null) nationFocus(f); });
+  doc.addEventListener('focusout', e => { if (at(e) !== null && !e.relatedTarget?.closest?.('[data-nation]')) nationFocus(chosen()); });
+  doc.addEventListener('click', e => { const f = at(e); if (f !== null) nationFocus(f); });
+}
+
 /** Route the screens' clicks, forms and bound inputs: the wave-4 screens here, the play screens to the controller (game page only). */
 function delegate(doc) {
   doc.addEventListener('keydown', e => {
@@ -1338,21 +1456,27 @@ function delegate(doc) {
     if (k) { e.preventDefault(); k(); }
   });
   const play = FS.mode === 'play';
-  const run = p => Promise.resolve(p).catch(e => { FS.notice = { ok: false, code: e?.code ?? 'Error', text: String(e?.message ?? e) }; invalidate('panel'); });
+  // `then`: a refusal (the notice the action left) shakes the control that was pressed, once
+  const run = (p, control = null) => Promise.resolve(p).catch(e => { FS.notice = { ok: false, code: e?.code ?? 'Error', text: String(e?.message ?? e) }; invalidate('panel'); })
+    .then(() => { if (control && FS.notice && FS.notice.ok === false && !FS.notice.busy) shake(control); });
   const action = name => HUD_ACTIONS[name] ?? W4_ACTIONS[name] ?? (play ? ACTIONS[name] : undefined);
   doc.addEventListener('click', e => {
     const el = e.target.closest?.('[data-act]');
     const fn = el && !el.disabled ? action(el.dataset.act) : undefined;
     if (!fn) return;
     if (el.tagName !== 'INPUT') e.preventDefault();
-    run(fn(el.dataset, el));
+    const sends = play && SENDS.has(el.dataset.act) && ACTIONS[el.dataset.act];
+    if (sends) FS.lastAct = { kind: 'act', name: el.dataset.act, data: { ...el.dataset } };
+    run(fn(el.dataset, el), sends ? { act: el.dataset.act, data: { ...el.dataset } } : null);
   });
   doc.addEventListener('submit', e => {
     const f = e.target.closest?.('form[data-form]');
     const fn = f ? W4_FORMS[f.dataset.form] ?? (play ? FORMS[f.dataset.form] : undefined) : undefined;
     if (!fn) return;
     e.preventDefault();
-    run(fn(f));
+    const sends = play && !!FORMS[f.dataset.form] && f.dataset.form !== 'dest';
+    if (sends) FS.lastAct = { kind: 'form', name: f.dataset.form, values: Object.fromEntries([...f.elements].filter(x => x.name && (x.type !== 'radio' || x.checked)).map(x => [x.name, x.value])) };
+    run(fn(f), sends ? { form: f.dataset.form } : null);
   });
   doc.addEventListener('change', e => {
     const el = e.target.closest?.('[data-bind]');
@@ -1456,6 +1580,7 @@ export async function boot() {
     ['rail', renderRail],
   ]);
   delegate(globalThis.document);
+  mountNationFocus(globalThis.document);
   if (canvas) {
     // Tile-LOD terrain from the season record's ring seeds through the rules module (W5-E R3: passed by the app).
     const terrainOf = createTerrain({ onReady: () => { map?.invalidate(); invalidate('panel'); } });

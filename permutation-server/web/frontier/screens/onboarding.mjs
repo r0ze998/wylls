@@ -12,6 +12,8 @@ import { PIPELINE_TEXT } from '../fi18n.mjs';
 import { STEPS, onboardingState, factsOf, reportOffer, overflowProvinces } from '../onboarding.mjs';
 import { timeHtml } from './shell.mjs';
 import { guideLevel, guideTarget, goText } from '../hud/guide.mjs';
+import { icon } from '../hud/icons.mjs';
+import { cardHead } from './parts.mjs';
 
 const TITLE = {
   welcome: () => L`ようこそ`,
@@ -38,16 +40,16 @@ const DO = {
   build: () => L`「村」で農場と木材所を建てます。`,
   scout: () => L`斥候を訓練して軍勢に編成し、隣の2マスを探索します。`,
   practice: () => L`練習モードで蛮族の野営地を襲ってみます。チェーンには何も送りません。`,
-  march: () => L`届く範囲の蛮族の野営地へ、封をした進軍を送ります。行き先と構えは到着の鐘まであなたにしか見えません。チップはキーパーへの報酬で、このタブを閉じてもキーパーが開封します。`,
+  march: () => L`届く範囲の蛮族の野営地へ、封をした進軍を送ります。行き先と構えは到着の鐘まであなたにしか見えません。このタブを閉じても、封は到着の鐘に自動で開けられます。`,
   report: () => L`衝突の報告を読みます。「このブラウザで確かめる」で結果を自分で計算し直せます。`,
   done: () => L`最初の鐘の案内は終わりです。ガイドは「その他」からいつでも開けます。`,
 };
 const GO = {
-  join: () => html`<button type="button" class="btn" data-act="join-open">${L`参加の画面を開く`}</button>`,
-  build: () => html`<button type="button" class="btn" data-act="tab" data-tab="holding">${L`村を開く`}</button>`,
-  scout: () => html`<button type="button" class="btn" data-act="tab" data-tab="hosts">${L`軍勢を開く`}</button>`,
-  practice: () => html`<button type="button" class="btn" data-act="practice-open">${L`練習を開く`}</button>`,
-  march: () => html`<button type="button" class="btn" data-act="tab" data-tab="marches">${L`進軍を開く`}</button>`,
+  join: (c = '') => html`<button type="button" class="btn ${c}" data-act="join-open">${L`参加の画面を開く`}</button>`,
+  build: (c = '') => html`<button type="button" class="btn ${c}" data-act="tab" data-tab="holding">${L`村を開く`}</button>`,
+  scout: (c = '') => html`<button type="button" class="btn ${c}" data-act="tab" data-tab="hosts">${L`軍勢を開く`}</button>`,
+  practice: (c = '') => html`<button type="button" class="btn ${c}" data-act="practice-open">${L`練習を開く`}</button>`,
+  march: (c = '') => html`<button type="button" class="btn ${c}" data-act="tab" data-tab="hosts">${L`軍勢を開く`}</button>`,
 };
 
 /** The wait line of a step: expected time, or the pipeline state of the march being waited for. */
@@ -62,12 +64,13 @@ export function waitText(w) {
 
 function stepItem(s) {
   const mark = s.status === 'done' ? L`済み` : s.status === 'skipped' ? L`飛ばした` : s.status === 'current' ? L`いま` : '';
-  return html`<li class="${s.status === 'done' ? 'done' : s.status === 'current' ? 'now' : ''}" ${raw(s.status === 'current' ? 'aria-current="step"' : '')}>${TITLE[s.id]()}${mark ? html` <span class="visually-hidden">${L`（${mark}）`}</span>` : ''}</li>`;
+  return html`<li class="${s.status === 'done' ? 'done' : s.status === 'current' ? 'now' : s.status === 'skipped' ? 'skipped' : ''}" ${raw(s.status === 'current' ? 'aria-current="step"' : '')}><span class="ck-mark" aria-hidden="true">${s.status === 'done' ? icon('check') : ''}</span><span class="ck-name">${TITLE[s.id]()}</span>${mark ? html` <span class="visually-hidden">${L`（${mark}）`}</span>` : ''}</li>`;
 }
 
 /**
- * The card for the store: `open` shows the current step in full (the map
- * tab), else one summary line that expands. Nothing when dismissed.
+ * The guide's steps, on demand (the drawer): the list as a checklist with
+ * the current step's text and its buttons under it. `open` false gives the
+ * same behind one summary line. Nothing when dismissed.
  */
 export function render(FS, { open = true } = {}) {
   if (guideLevel(FS) !== 'all') return '';
@@ -77,24 +80,25 @@ export function render(FS, { open = true } = {}) {
   const cur = st.steps.find(s => s.id === st.current);
   const n = st.steps.filter(s => s.status === 'done' || s.status === 'skipped').length;
   const total = STEPS.length - 1;
-  const body = html`<p>${cur.id === 'join' ? DO.join(FS) : DO[cur.id]()}</p>
+  const body = html`<div class="ck-now"><p>${cur.id === 'join' ? DO.join(FS) : DO[cur.id]()}</p>
     ${cur.wait ? html`<p class="muted">${waitText(cur.wait)}</p>` : ''}
-    <p>${cur.id === 'welcome' ? html`<button type="button" class="btn primary" data-act="ob-seen" data-flag="welcome">${L`わかりました`}</button>` : ''}
-      ${target && target.step === cur.id ? html`<button type="button" class="btn primary" data-act="ob-go">${goText(target)}</button>` : ''}
-      ${cur.id === 'report' ? renderReportGo(FS) : GO[cur.id]?.() ?? ''}
-      ${cur.id !== 'done' ? html`<button type="button" class="btn small" data-act="ob-skip" data-step="${cur.id}">${L`この手順を飛ばす`}</button>` : ''}
-      <button type="button" class="btn small" data-act="ob-dismiss">${L`ガイドを閉じる`}</button></p>`;
+    <div class="actions">${cur.id === 'welcome' ? html`<button type="button" class="btn primary" data-act="ob-seen" data-flag="welcome">${L`わかりました`}</button>` : ''}
+      ${target && target.step === cur.id ? html`<button type="button" class="btn primary" data-act="ob-go">${goText(target)}</button>`
+        : cur.id === 'report' ? renderReportGo(FS) : GO[cur.id]?.(cur.id === 'welcome' ? '' : 'primary') ?? ''}</div></div>
+    <div class="actions ck-foot">${cur.id !== 'done' ? html`<button type="button" class="btn small quiet" data-act="ob-skip" data-step="${cur.id}">${L`この手順を飛ばす`}</button>` : ''}
+      <button type="button" class="btn small quiet" data-act="ob-dismiss">${L`ガイドを閉じる`}</button></div>`;
   const head = L`ガイド ${n}/${total}：${TITLE[cur.id]()}`;
-  if (!open) return html`<details class="callout onboarding"><summary>${head}</summary><ol class="steps">${st.steps.map(stepItem)}</ol>${body}</details>`;
-  return html`<section class="callout onboarding" aria-labelledby="ob-title"><h3 id="ob-title">${head}</h3>
-    <ol class="steps">${st.steps.map(stepItem)}</ol>${body}</section>`;
+  if (!open) return html`<details class="callout onboarding"><summary>${head}</summary><ol class="checklist">${st.steps.map(stepItem)}</ol>${body}</details>`;
+  return html`<section class="vcard onboarding" aria-labelledby="ob-title">${cardHead({ id: 'ob-title', ic: 'compass', title: head })}
+    <ol class="checklist">${st.steps.map(stepItem)}</ol>${body}</section>`;
 }
 
 /**
- * The guide on the map: the current objective alone — which step, what to do in one line, and
- * one button (the step's own: "show me" for a target on the map, else the screen it needs).
- * "手順" opens the whole card with the list of steps in the drawer. Nothing when the guide is
- * off, dismissed or done.
+ * The guide on the map: ONE objective at a time, as a chip that stands by
+ * the village plate — which step, what to do in a line, and a single
+ * button (the step's own: "show me" for a target on the map, else the
+ * screen it needs). Its count ("guide 4/7") opens the list of steps in the
+ * drawer. Nothing when the guide is off, dismissed or done.
  */
 export function renderObjective(FS) {
   if (guideLevel(FS) !== 'all' || FS.mode !== 'play') return '';
@@ -107,18 +111,18 @@ export function renderObjective(FS) {
   const n = st.steps.filter(s => s.status === 'done' || s.status === 'skipped').length;
   const go = cur.id === 'welcome' ? html`<button type="button" class="btn primary small" data-act="ob-seen" data-flag="welcome">${L`わかりました`}</button>`
     : target && target.step === cur.id ? html`<button type="button" class="btn primary small" data-act="ob-go">${goText(target)}</button>`
-    : cur.id === 'report' ? renderReportGo(FS) : GO[cur.id]?.() ?? '';
-  return html`<section class="ob-card" aria-labelledby="ob-title">
-    <p class="ob-kicker"><span class="ob-ring" aria-hidden="true"></span>${L`ガイド ${n}/${STEPS.length - 1}`}</p>
+    : cur.id === 'report' ? renderReportGo(FS, 'small') : GO[cur.id]?.('small primary') ?? '';
+  return html`<section class="ob-chip" aria-labelledby="ob-title">
+    <button type="button" class="ob-steps" data-act="guide-open" aria-label="${L`ガイドの手順を見る（${n}/${STEPS.length - 1}）`}"><span class="ob-ring" aria-hidden="true"></span><span>${L`ガイド ${n}/${STEPS.length - 1}`}</span>${icon('chevron')}</button>
     <h3 id="ob-title">${TITLE[cur.id]()}</h3>
     <p class="ob-do">${cur.id === 'join' ? DO.join(FS) : DO[cur.id]()}</p>
-    <p class="ob-acts">${go}<button type="button" class="btn small ob-steps" data-act="guide-open">${L`手順を見る`}</button></p>
+    ${go ? html`<p class="ob-acts">${go}</p>` : ''}
   </section>`;
 }
 
-function renderReportGo(FS) {
+function renderReportGo(FS, c = '') {
   const r = reportOffer(FS.marches);
-  return r ? html`<button type="button" class="btn primary" data-act="report-open" data-p="${r.p}" data-q="${r.q}" data-bell="${r.bell}">${L`報告を開く`}</button>` : '';
+  return r ? html`<button type="button" class="btn primary ${c}" data-act="report-open" data-p="${r.p}" data-q="${r.q}" data-bell="${r.bell}">${L`報告を開く`}</button>` : '';
 }
 
 /** The "show the guide again" control for the More tab (only while the card is dismissed or steps are skipped). */

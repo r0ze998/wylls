@@ -125,9 +125,14 @@ export const SCENES = [
     },
   },
   {
-    id: 'onboarding', title: 'onboarding card', page: 'index.html', stage: 'joined',
+    // the guide is one objective at a time by the village plate; its steps open on demand as a checklist in the drawer
+    // (it was the seven-chip card under the join flow of a viewer without a village)
+    id: 'onboarding', title: 'the guide\'s steps, on demand', page: 'index.html', stage: 'holding',
     async go(page) {
-      await page.locator('#ob-title').waitFor();
+      await page.locator('.ob-chip #ob-title').waitFor();
+      await click(page, '.ob-chip [data-act="guide-open"]');
+      await page.locator('#panel-body .checklist').waitFor();
+      await page.locator('#panel-body [aria-current="step"]').waitFor();
       await sheetFull(page);
     },
   },

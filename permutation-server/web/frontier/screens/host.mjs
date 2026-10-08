@@ -66,7 +66,7 @@ export function render(FS) {
       <div class="host-main">
         <div class="host-top"><strong class="host-name">${name}</strong>${chip(st.text, st.tone)}</div>
         <div class="host-stamina"><span class="host-k">${L`体力`}</span>${bar(r.stamina, RULES.STAMINA_CAP, r.stamina < DEPART_STAMINA ? 'bar-warn' : '')}<span class="host-v">${r.stamina}/${RULES.STAMINA_CAP}</span></div>
-        <p class="host-where">${home ? L`${holdingName(h)}にいます` : L`州 ${r.p},${r.q} にいます`}${r.pending ? html` · ${PENDING_TEXT[r.pending]?.() ?? ''}` : ''}</p>
+        <p class="host-where">${r.inTransit || r.state === 3 ? L`進軍に出ています` : home ? L`${holdingName(h)}にいます` : L`州 ${r.p},${r.q} にいます`}${r.pending ? html` · ${PENDING_TEXT[r.pending]?.() ?? ''}` : ''}</p>
       </div>
       <div class="actions host-acts">
         <button type="button" class="btn primary small" data-act="compose" data-host="${String(r.id)}" ${raw(blocks.length || r.stamina < DEPART_STAMINA ? 'disabled' : '')} data-stay="map">${icon('banner')}${L`進軍させる`}</button>

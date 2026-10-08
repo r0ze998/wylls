@@ -17,6 +17,7 @@ import * as reportScreen from './report.mjs';
 import { highlights, renderHighlights, provinceFactions } from '../people/ui.mjs';
 import { factionName } from '../fi18n.mjs';
 import { swatch } from './shell.mjs';
+import { cardHead, stepper } from './parts.mjs';
 
 /** Recent clash links shown (newest first). */
 export const SPECTATE_REPORTS = 12;
@@ -51,19 +52,33 @@ export function eventBells(chronicle, limit = 12) {
   return [...by.values()].sort((a, b) => b.bell - a.bell).slice(0, limit);
 }
 
-/** The spectator's controls: faction filter, the bell timeline, the camera following battles. */
+/**
+ * The turn stepper's model: which turn with events is shown (null = the
+ * latest, every turn), the one before it and the one after — `{at, older,
+ * newer, canNewer}`; `newer` null with `canNewer` means "back to the latest".
+ */
+export function turnSteps(bells, bell) {
+  const i = bells.findIndex(b => b.bell === bell);
+  if (i < 0) return { at: null, older: bells[0] ?? null, newer: null, canNewer: false };
+  return { at: bells[i], older: bells[i + 1] ?? null, newer: i > 0 ? bells[i - 1] : null, canNewer: true };
+}
+
+/** The spectator's controls: the nation filter, the turn stepper (in place of a row of turn chips), the camera following battles. */
 function renderWatch(FS) {
   const w = FS.watch ?? {};
   const bells = eventBells(FS.chronicle);
-  return html`<section class="watch" aria-labelledby="watch-title"><h3 id="watch-title">${L`観戦の設定`}</h3>
-    <div class="choice-row" role="group" aria-label="${L`国で絞る`}"><span>${L`国で絞る`}</span>
-      <button type="button" class="btn small" data-act="watch-faction" data-f="" aria-pressed="${w.faction === null || w.faction === undefined ? 'true' : 'false'}">${L`すべて`}</button>
-      ${[0, 1, 2, 3, 4, 5].map(f => html`<button type="button" class="btn small" data-act="watch-faction" data-f="${f}" aria-pressed="${w.faction === f ? 'true' : 'false'}">${swatch(f)}${factionName(f)}</button>`)}</div>
-    ${bells.length ? html`<div class="watch-bells" role="group" aria-label="${L`鐘の年表`}">
-      <button type="button" class="btn small" data-act="watch-bell" data-bell="" aria-pressed="${w.bell === null || w.bell === undefined ? 'true' : 'false'}">${L`最新`}</button>
-      ${bells.map(b => html`<button type="button" class="btn small wb${b.clashes ? ' wb-clash' : ''}" data-act="watch-bell" data-bell="${b.bell}" aria-pressed="${w.bell === b.bell ? 'true' : 'false'}">${L`第${fmtNum(b.bell)}鐘`}${b.clashes ? icon('swords') : ''} <span class="muted">${fmtNum(b.events)}</span></button>`)}</div>` : ''}
+  const st = turnSteps(bells, Number.isInteger(w.bell) ? w.bell : null);
+  return html`<section class="vcard watch" aria-labelledby="watch-title">${cardHead({ id: 'watch-title', ic: 'eye', title: L`観戦の設定` })}
+    <div class="choice-col" role="group" aria-label="${L`国で絞る`}"><span class="choice-k">${L`国で絞る`}</span><span class="seg">
+      <button type="button" class="seg-btn" data-act="watch-faction" data-f="" aria-pressed="${w.faction === null || w.faction === undefined ? 'true' : 'false'}">${L`すべて`}</button>
+      ${[0, 1, 2, 3, 4, 5].map(f => html`<button type="button" class="seg-btn" data-act="watch-faction" data-f="${f}" aria-pressed="${w.faction === f ? 'true' : 'false'}">${swatch(f)}${factionName(f)}</button>`)}</span></div>
+    ${bells.length ? html`<div class="choice-col"><span class="choice-k">${L`見るターン`}</span>${stepper({ cls: 'watch-turn', label: L`見るターン`,
+      prev: { act: 'watch-bell', data: { bell: st.older?.bell ?? '' }, label: L`前のターンへ`, disabled: !st.older },
+      next: { act: 'watch-bell', data: { bell: st.newer?.bell ?? '' }, label: st.newer ? L`次のターンへ` : L`最新へ`, disabled: !st.canNewer },
+      value: st.at ? html`<strong class="watch-turn-v">${icon('bell')}${L`ターン ${fmtNum(st.at.bell)}`}</strong><span class="muted">${L`出来事 ${fmtNum(st.at.events)}`}${st.at.clashes ? html` · ${icon('swords')}${L`衝突 ${fmtNum(st.at.clashes)}`}` : ''}</span>`
+        : html`<strong class="watch-turn-v">${L`最新`}</strong><span class="muted">${L`すべてのターン`}</span>` })}</div>` : ''}
     <label class="choice"><input type="checkbox" data-act="watch-auto" ${w.auto === false ? '' : 'checked'}>${L`新しい戦いが起きたら、地図をそこへ動かして見せる`}</label>
-    <p><a class="btn" href="replay.html${Number.isInteger(w.bell) ? `?from=${w.bell}` : ''}">${L`シーズンを振り返る（リプレイ）`}</a></p></section>`;
+    <div class="actions"><a class="btn" href="replay.html${Number.isInteger(w.bell) ? `?from=${w.bell}` : ''}">${icon('play')}${L`シーズンを振り返る（リプレイ）`}</a></div></section>`;
 }
 
 /** The spectator's panel. */
@@ -74,12 +89,12 @@ export function render(FS, { ownerOf = null, standings = '' } = {}) {
   const clashes = reportScreen.clashesFrom(FS.chronicle ?? [], 200)
     .filter(c => (b === null || c.bell === b) && (f === null || provinceFactions(FS.overviews, c.p, c.q).includes(f))).slice(0, SPECTATE_REPORTS);
   const items = highlights(FS.chronicle, FS.overviews, FS.roster, { limit: 12, faction: f, bell: b });
-  const scope = [f !== null ? factionName(f) : null, b !== null ? L`第${fmtNum(b)}鐘` : null].filter(Boolean).join(' · ');
+  const scope = [f !== null ? factionName(f) : null, b !== null ? L`ターン ${fmtNum(b)}` : null].filter(Boolean).join(' · ');
   return [
-    html`<p class="muted">${L`ウォレットなしで地図と鐘の進み具合を見られます。`}</p>`,
+    html`<p class="muted how-line">${icon('eye')}${L`ウォレットなしで地図と鐘の進み具合を見られます。`}</p>`,
+    html`<section class="vcard" aria-labelledby="watch-hl-title">${cardHead({ id: 'watch-hl-title', ic: 'flag', title: scope ? L`見どころ（${scope}）` : L`見どころ` })}${renderHighlights(items, { go: true })}</section>`,
     renderWatch(FS),
     standings ? html`<details class="watch-mini"><summary>${L`国の順位`}</summary>${standings}</details>` : '',
-    html`<section aria-labelledby="watch-hl-title"><h3 id="watch-hl-title">${scope ? L`見どころ（${scope}）` : L`見どころ`}</h3>${renderHighlights(items, { go: true })}</section>`,
     FS.chain && FS.clock ? bellScreen.render(FS) : '',
     reportScreen.renderLinks(clashes, L`最近の衝突`) || html`<p class="muted">${L`まだ衝突はありません`}</p>`,
     chronicleScreen.render(FS),

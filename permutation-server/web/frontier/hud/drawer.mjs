@@ -8,7 +8,7 @@
 //   march                        an order being composed on the map
 //   inspect                      a selection on the map
 //   guide                        the list of the guide's steps, on demand
-//   join                         the join flow (until the viewer has a village)
+//   nation | wait | join         the first minute: the six banners, the wait for the village, something to mend
 //   null                         closed: the world has the screen
 //
 // "Map" closes it (closeDrawer). The practice and spectator pages have one
@@ -32,8 +32,21 @@ export function drawerOf(FS) {
   if (FS.compose) return { kind: 'march' };
   if (FS.selected) return { kind: 'inspect' };
   if (FS.guideOpen) return { kind: 'guide' };
-  if (joinOpen(FS)) return { kind: 'join' };
+  if (joinOpen(FS)) return { kind: joinKind(FS) };
   return null;
+}
+
+/**
+ * Which first-minute screen the join flow is at (UX design section 7): `nation` — the six
+ * banners, while the viewer has not joined; `wait` — joined, the first village is being
+ * placed (the camera rests over the home wedge, the countdown runs, practice is offered);
+ * `join` — something to mend first (no wallet after joining, the in-game key).
+ */
+export function joinKind(FS) {
+  const stage = FS.land?.stage ?? 'none';
+  if (stage === 'none') return 'nation';
+  if (!FS.wallet || !FS.session || FS.sessionProblem) return 'join';
+  return ['joined', 'ticket', 'refugee'].includes(stage) ? 'wait' : 'join';
 }
 
 /**
@@ -55,11 +68,21 @@ export function closeDrawer(FS) {
 /** The drawer's title. */
 export function drawerTitle(d) {
   return ({ practice: () => L`練習モード`, report: () => L`衝突の報告`, holding: () => L`村`, hosts: () => L`軍勢`, marches: () => L`進軍`, more: () => L`その他`,
-    march: () => L`進軍の準備`, inspect: () => L`選択`, guide: () => L`ガイド`, join: () => L`参加`, spectate: () => L`観戦` })[d?.kind]?.() ?? L`地図`;
+    march: () => L`進軍の準備`, inspect: () => L`選択`, guide: () => L`ガイド`, join: () => L`参加`, nation: () => L`国を選ぶ`, wait: () => L`村を待つ`, spectate: () => L`観戦` })[d?.kind]?.() ?? L`地図`;
 }
 
 /** The drawer's mark beside its title (hud/icons.mjs). */
-export const DRAWER_ICON = Object.freeze({ practice: 'swords', report: 'scroll', holding: 'home', hosts: 'sword', marches: 'banner', more: 'scroll', march: 'seal', inspect: 'eye', guide: 'compass', join: 'banner', spectate: 'eye' });
+export const DRAWER_ICON = Object.freeze({ practice: 'swords', report: 'scroll', holding: 'home', hosts: 'sword', marches: 'banner', more: 'scroll', march: 'seal', inspect: 'eye', guide: 'compass', join: 'banner', nation: 'banner', wait: 'hourglass', spectate: 'eye' });
+
+/**
+ * The kinds shown as a document over the map (UX design 8.3: a wide parchment card), not in
+ * the side drawer: the battle report and the practice battle. The page marks them with
+ * `data-doc="wide"` on the panel and the body; the corner pieces then stay where they are
+ * and the camera counts nothing as covered at the right (hud/insets.mjs).
+ */
+export const WIDE = Object.freeze(new Set(['practice', 'report']));
+/** The nation choice is a stage of its own: six banners standing along the foot of the map (`data-doc="stage"`). */
+export const STAGE = Object.freeze(new Set(['nation']));
 
 /** The kinds that lift the phone sheet from its peek (a selection or an order stays low: the map is being used). */
-export const LIFTS = Object.freeze(new Set(['practice', 'report', 'holding', 'hosts', 'marches', 'more', 'guide', 'join', 'spectate']));
+export const LIFTS = Object.freeze(new Set(['practice', 'report', 'holding', 'hosts', 'marches', 'more', 'guide', 'join', 'nation', 'wait', 'spectate']));

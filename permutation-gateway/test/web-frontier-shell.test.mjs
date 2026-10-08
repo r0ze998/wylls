@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs';
 import { config } from '../../permutation-server/web/frontier/config.mjs';
 import * as fstate from '../../permutation-server/web/frontier/fstate.mjs';
 import { chipText, dialParts, dialMarkup, panelMarkup } from '../../permutation-server/web/frontier/app.mjs';
-import { drawerOf, closeDrawer, drawerTitle } from '../../permutation-server/web/frontier/hud/drawer.mjs';
+import { drawerOf, closeDrawer, drawerTitle, WIDE, STAGE, LIFTS, DRAWER_ICON } from '../../permutation-server/web/frontier/hud/drawer.mjs';
 import { ICONS, icon, RESOURCE_ICON, MAP_TOOL_ICON } from '../../permutation-server/web/frontier/hud/icons.mjs';
 import { renderTabs, TAB_ICON } from '../../permutation-server/web/frontier/screens/shell.mjs';
 import { hudInsets, freeCentre } from '../../permutation-server/web/frontier/hud/insets.mjs';
@@ -84,9 +84,20 @@ test('the drawer: one state from the store; closed when nothing is selected or o
   assert.equal(drawerOf({ ...base, tab: 'more', report: { p: 2, q: 0, bell: 39 } }).kind, 'report');
   assert.equal(drawerOf({ ...base, practice: {} }).kind, 'practice');
   assert.equal(drawerOf({ ...base, guideOpen: true }).kind, 'guide');
-  // the join flow opens by itself until a village exists, once the first answer about the viewer is in
-  assert.equal(drawerOf({ ...base, land: { stage: 'none' } }).kind, 'join');
-  assert.equal(drawerOf({ ...base, land: { stage: 'ticket' } }).kind, 'join');
+  // the first minute opens by itself until a village exists, once the first answer about the viewer is in (UX design section 7;
+  // it was one kind, "join"): the six banners while the viewer has not joined, the wait once it has, "join" only to mend something
+  assert.equal(drawerOf({ ...base, land: { stage: 'none' } }).kind, 'nation');
+  assert.equal(drawerOf({ ...base, land: { stage: 'none' }, wallet: { address: 'W' } }).kind, 'nation');
+  const joined = { wallet: { address: 'W' }, session: { publicKey: 'S' } };
+  assert.equal(drawerOf({ ...base, ...joined, land: { stage: 'ticket' } }).kind, 'wait');
+  assert.equal(drawerOf({ ...base, ...joined, land: { stage: 'joined' } }).kind, 'wait');
+  assert.equal(drawerOf({ ...base, ...joined, land: { stage: 'refugee' } }).kind, 'wait');
+  assert.equal(drawerOf({ ...base, ...joined, session: null, land: { stage: 'ticket' } }).kind, 'join', 'the in-game key must be made again first');
+  assert.equal(drawerOf({ ...base, ...joined, sessionProblem: 'Expired', land: { stage: 'joined' } }).kind, 'join');
+  // documents over the map are wide; the nation choice is a stage of its own; everything else is the side drawer
+  assert.deepEqual([...WIDE].sort(), ['practice', 'report']);
+  assert.deepEqual([...STAGE], ['nation']);
+  for (const k of ['nation', 'wait']) assert.ok(LIFTS.has(k) && DRAWER_ICON[k], k);
   assert.equal(drawerOf({ ...base, land: { stage: 'none' }, playReady: false }), null, 'not before the page knows the viewer');
   assert.equal(drawerOf({ ...base, land: { stage: 'provisional' } }), null);
   // closing

@@ -173,15 +173,21 @@ test('the card in both languages: open on the map tab, one line elsewhere, nothi
   assert.match(text(card.render(tk)), /about 11–21 min/);
   assert.match(text(card.render(store, { open: false })), /Guide 0\/7: Welcome/);
   assert.match(String(card.renderRestore({ ui: { dismissed: [ob.FLAG.dismissed] } })), /ob-restore/);
-  // the guide on the map (UX design 7.4): the current objective alone, one button, the steps on demand
+  // the guide on the map (UX design 7.4): ONE objective at a time, as a chip by the village plate with a single action button;
+  // its count opens the list of steps on demand (it was a card top left with two buttons, class ob-card)
   setLang('ja');
   const obj = String(card.renderObjective({ ...store, mode: 'play' }));
-  assert.match(obj, /<section class="ob-card" aria-labelledby="ob-title">/);
+  assert.match(obj, /<section class="ob-chip" aria-labelledby="ob-title">/);
+  assert.match(obj, /<button type="button" class="ob-steps" data-act="guide-open" aria-label="ガイドの手順を見る（0\/7）">/);
   assert.match(obj, /ガイド 0\/7/);
   assert.match(obj, /<h3 id="ob-title">ようこそ<\/h3>/);
   assert.match(obj, /data-act="ob-seen" data-flag="welcome"/);
-  assert.match(obj, /data-act="guide-open"/);
+  assert.equal((obj.match(/class="btn /g) ?? []).length, 1, 'a single action button');
   assert.equal((obj.match(/<li/g) ?? []).length, 0, 'no list of steps on the map');
+  // on demand: the steps as a checklist (not seven chips), the current one marked, its text and buttons under the list
+  assert.match(m, /<ol class="checklist">/);
+  assert.match(m, /<li class="now" aria-current="step"><span class="ck-mark" aria-hidden="true"><\/span><span class="ck-name">ようこそ<\/span>/);
+  assert.doesNotMatch(m, /class="steps"/);
   assert.equal(card.renderObjective({ ...store, mode: 'play', ui: { dismissed: [ob.FLAG.dismissed] } }), '');
   assert.equal(card.renderObjective({ ...store, mode: 'play', ui: { dismissed: [], guide: 'warn' } }), '');
   assert.match(String(card.renderObjective({ ...tk, mode: 'play' })), /data-act="join-open"/, 'the join step opens the join flow');

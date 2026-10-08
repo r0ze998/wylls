@@ -31,7 +31,10 @@ export function hudInsets(doc = globalThis.document) {
   const sheet = !!panel && view?.getComputedStyle?.(panel).position === 'absolute';
   if (p && shown(panel, view)) {
     if (sheet) out.bottom = Math.max(0, c.bottom - Math.max(c.top, p.top));
-    else if (panel.dataset.drawer === 'open') out.right = Math.max(0, c.right - Math.max(c.left, p.left));
+    // a wide document stands over the middle of the map: it is not an edge, and nothing is counted for it
+    else if (panel.dataset.drawer === 'open' && !panel.dataset.doc) out.right = Math.max(0, c.right - Math.max(c.left, p.left));
+    // the nation choice stands along the foot of the map: the free part is what is above its banners
+    else if (panel.dataset.drawer === 'open' && panel.dataset.doc === 'stage') out.bottom = Math.max(out.bottom, c.bottom - Math.max(c.top, p.top));
   }
   const dock = doc.querySelector?.('nav.tabs'), d = rectOf(dock);
   if (d && shown(dock, view) && d.top < c.bottom) out.bottom = Math.max(out.bottom, c.bottom - d.top);

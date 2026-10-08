@@ -125,25 +125,37 @@ export const KIND_ICON = Object.freeze({ battle: 'swords', march: 'banner', inco
 const stamp = x => (Number.isInteger(x.bell) && x.kind !== 'summary' ? html`<span class="toast-stamp">${icon('bell')}${L`ターン ${fmtNum(x.bell)}`}</span>` : '');
 const KIND_TEXT = { battle: () => L`戦闘`, march: () => L`進軍`, incoming: () => L`来襲`, build: () => L`建設`, holding: () => L`村`, summary: () => L`まとめ` };
 
+/**
+ * What a notice offers: "see" goes there (a battle is played where it
+ * happened), and a battle has its report.
+ */
 function itemActions(x) {
   const acts = [];
-  if (Number.isInteger(x.p)) acts.push(html`<button type="button" class="btn small" data-act="feed-go" data-id="${x.id}">${L`そこへ移動`}</button>`);
   if (x.battle) {
-    acts.push(html`<button type="button" class="btn small" data-act="battle-play" data-p="${x.battle.p}" data-q="${x.battle.q}" data-bell="${x.battle.bell}">${L`戦いを見る`}</button>`);
+    acts.push(html`<button type="button" class="btn small primary" data-act="battle-play" data-p="${x.battle.p}" data-q="${x.battle.q}" data-bell="${x.battle.bell}">${L`見る`}</button>`);
     acts.push(html`<button type="button" class="btn small" data-act="report-open" data-p="${x.battle.p}" data-q="${x.battle.q}" data-bell="${x.battle.bell}">${L`報告`}</button>`);
-  }
+  } else if (Number.isInteger(x.p)) acts.push(html`<button type="button" class="btn small primary" data-act="feed-go" data-id="${x.id}">${L`見る`}</button>`);
   return acts;
 }
 
-/** The toasts: the newest live, undismissed notifications. */
-export function renderToasts(feed, { dismissed = new Set(), now = Date.now() } = {}) {
-  const live = feed.filter(x => !dismissed.has(x.id) && now - (x.at ?? 0) < TOAST_MS).slice(0, TOAST_MAX);
-  return live.map(x => html`<div class="toast toast-${x.kind}" role="status">
+/** The live, undismissed notifications: the newest TOAST_MAX. */
+export function liveToasts(feed, { dismissed = new Set(), now = Date.now() } = {}) {
+  return feed.filter(x => !dismissed.has(x.id) && now - (x.at ?? 0) < TOAST_MS).slice(0, TOAST_MAX);
+}
+
+/** One toast ("what happened this turn": at most three cards over the map, each with "see"). */
+export function renderToast(x) {
+  return html`<div class="toast toast-${x.kind}" role="status">
     <span class="toast-icon">${icon(KIND_ICON[x.kind] ?? 'flag')}</span>
     <span class="toast-text"><span class="toast-kind">${KIND_TEXT[x.kind]?.() ?? ''}${stamp(x)}</span>${x.text}</span>
     <button type="button" class="toast-x" data-act="feed-dismiss" data-id="${x.id}" aria-label="${L`閉じる`}">${icon('close')}</button>
     ${itemActions(x).length ? html`<span class="toast-acts">${itemActions(x)}</span>` : ''}
-  </div>`);
+  </div>`;
+}
+
+/** The toasts: the newest live, undismissed notifications. */
+export function renderToasts(feed, opts = {}) {
+  return liveToasts(feed, opts).map(renderToast);
 }
 
 export const FEED_FILTERS = Object.freeze(['all', 'battle', 'march', 'holding']);
