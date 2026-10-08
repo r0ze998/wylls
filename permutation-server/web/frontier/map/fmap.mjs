@@ -37,6 +37,9 @@ import { Camera, EASE, MOVE_MS, centreOn, clampCentre, fitView, focusOf, reduced
 import { OPEN_FROM, OPEN_WAIT_MS, TITLE_FROM, TITLE_MS, heroZoom, openingPlan, placePoint } from './opening.mjs';
 import { nearness, paintDressing } from './dressing.mjs';
 import { PROBE } from './probe.mjs';
+import { L2, L3, openSurvey } from './survey.mjs';
+import { paintCandidates, paintOwnRim, paintWedge } from './chart.mjs';
+import { wedgeBox } from './opening.mjs';
 
 /** Fog levels drawn as tiles at tile LOD (a distant province stays a muted cell). */
 export const TILE_FOGS = Object.freeze(['sight', 'known', 'clear']);
@@ -166,11 +169,13 @@ export function flightMs(from, to, size) {
  * heart of its land (the weighted centre of the provinces it holds most of
  * in), and the Concord at the centre. Screen-sized type in the display face.
  */
-export function paintRealmLabels(ctx, recs, zoom, nameOf = null) {
+export function paintRealmLabels(ctx, recs, zoom, nameOf = null, { seen = null, min = 3, home = null } = {}) {
+  // with a survey (`seen(rec, site)`): a nation is named over the villages the viewer has surveyed, and the
+  // viewer's own nation over its home wedge while it has no village (`home` = {faction, x, y})
   const acc = Array.from({ length: 6 }, () => ({ x: 0, y: 0, w: 0 }));
   for (const r of recs.values()) {
     const n = Array(6).fill(0);
-    r.owners.forEach((f, j) => { if (r.sites[j] === 1 && f < 6) n[f]++; });
+    r.owners.forEach((f, j) => { if (r.sites[j] === 1 && f < 6 && (!seen || seen(r, j))) n[f]++; });
     const best = n.indexOf(Math.max(...n));
     if (n[best] <= 0) continue;
     const c = provincePixel(r.p, r.q);
@@ -186,7 +191,7 @@ export function paintRealmLabels(ctx, recs, zoom, nameOf = null) {
     ctx.fillStyle = fill; ctx.fillText(text, x, y);
   };
   acc.forEach((a, f) => {
-    if (a.w < 3) return;
+    if (a.w < min) { if (home && home.faction === f) label(nameOf ? nameOf(f) : String(f), home.x, home.y, 22, '#fff6e2'); return; }
     const name = nameOf ? nameOf(f) : String(f);
     label(name, a.x / a.w, a.y / a.w, 22, '#fff6e2');
   });
@@ -710,7 +715,7 @@ export class FrontierMap {
     if (this.cam.moving && this.lod === 'tile' && this.warmKey !== `${logical.x}|${logical.y}|${logical.zoom}`) {
       this.warmKey = `${logical.x}|${logical.y}|${logical.zoom}`;
       const terrainOf = src.terrainOf ?? this.terrainOf;
-      for (const pr of visibleProvinces(logical, size, Math.max(0, this.rings - 1) + 1)) { terrainOf?.(pr.p, pr.q); if (this.art && ringOf(pr.p, pr.q) < this.rings) src.provinceOf?.(pr.p, pr.q); }
+      for (const pr of visibleProvinces(logical, size, Math.max(0, this.rings - 1) + 1)) { terrainOf?.(pr.p, pr.q); if (this.art && ringOf(pr.p, pr.q) < this.rings && (src.survey?.province(pr.p, pr.q).max ?? L3) >= L2) src.provinceOf?.(pr.p, pr.q); }
     }
     // away from the tile view its still layers are let go (two bitmaps the size of the canvas)
     if (lod !== 'tile' && this.layers) this.layers = null;
@@ -794,24 +799,30 @@ export class FrontierMap {
     const recs = new Map();
     for (const ov of src.overviews?.values?.() ?? []) for (const r of ov.provinces) recs.set(`${r.p},${r.q}`, r);
     const terrainOf = src.terrainOf ?? this.terrainOf;
-    // the fog of a province, and of the province a tile is in: one rule for every painter of this frame
-    const fogOf = (p, q) => fogLevel({ ringOpen: ringOf(p, q) < ringsOpen, showAll: src.showAll, known: src.known?.has(`${p},${q}`), sightDistance: sightDistance(p, q, own) });
-    const fogAt = (q, r) => { const at = locate(q, r); return fogOf(at.p, at.q); };
+    // what the viewer has surveyed (map/survey.mjs): one lookup for every painter of this frame. A page with no
+    // viewer (the spectator, practice, a test) gives none: every open tile is in sight
+    const survey = src.survey ?? (this.openSv?.ringsOpen === ringsOpen ? this.openSv : (this.openSv = openSurvey(ringsOpen)));
+    const limited = !survey.showAll;
+    // the fog of a province, in the names the province-level painters know: its ring is not open; the survey
+    // is off (clear); some of it is in sight; some of it is surveyed (known); else the chart (distant)
+    const fogOf = (p, q) => { const sv = survey.province(p, q); return fogLevel({ ringOpen: ringOf(p, q) < ringsOpen, showAll: survey.showAll, known: sv.max >= L2, sightDistance: sv.max === L3 ? 0 : Infinity }); };
+    const fogAt = (q, r) => { const at = locate(q, r); return ringOf(at.p, at.q) < ringsOpen ? 'clear' : 'unopened'; };
     let wanted = 0, drawn = 0, kind = 'far', labels = null, pending = 0;
     const artTiles = [], artCells = [];
     for (const pr of visibleProvinces(view, size, maxRing)) {
       const key = `${pr.p},${pr.q}`;
       const fog = fogOf(pr.p, pr.q);
       const selected = !!src.selected && src.selected.p === pr.p && src.selected.q === pr.q;
-      const rec = recs.get(key);
+      // the records of a province reach the painters only when the viewer has surveyed some of it (and what
+      // happens there now only when some of it is in sight); the tile model then gates tile by tile
+      const sv = survey.province(pr.p, pr.q), seen = sv.max >= L2, sight = sv.max === L3;
+      const rec = seen ? recs.get(key) : null;
       if (lod === 'tile' && this.art) {
-        // Art: every fog level is drawn as tiles (distant muted, unopened as cloud sea; LOD.md).
+        // Art: every level is drawn as tiles (the chart, muted land, land in sight; unopened as cloud sea)
         if (fog === 'unopened') { artTiles.push({ ...pr, fog, selected }); continue; }
-        // a viewer with no holdings (spectator, before joining) sees the land clear: fog is relative to one's own
-        const artFog = own.length ? fog : 'clear';
         const t = terrainOf?.(pr.p, pr.q);
-        if (TILE_FOGS.includes(fog)) wanted++;
-        if (t) { artTiles.push({ ...pr, ...t, rec, fog: artFog, selected, prov: src.provinceOf?.(pr.p, pr.q) ?? null, clash: src.clashOf?.(pr.p, pr.q) ?? null, pending: src.pendingOf?.(pr.p, pr.q) ?? null }); if (TILE_FOGS.includes(fog)) drawn++; continue; }
+        wanted++;
+        if (t) { artTiles.push({ ...pr, ...t, rec, fog, selected, prov: seen ? src.provinceOf?.(pr.p, pr.q) ?? null : null, clash: sight ? src.clashOf?.(pr.p, pr.q) ?? null : null, pending: sight ? src.pendingOf?.(pr.p, pr.q) ?? null : null }); drawn++; continue; }
         plain.push(g => paintProvince(g, { ...pr, rec, fog, selected, scale: z }));
         continue;
       }
@@ -828,12 +839,12 @@ export class FrontierMap {
       if (this.art && fog === 'unopened') { artCells.push({ ...pr, fog, selected }); continue; }
       if (this.art) {
         const t = terrainOf?.(pr.p, pr.q);
-        if (t) { artCells.push({ ...pr, ...t, rec, fog: own.length ? fog : 'clear', selected, prov: src.provinceOf?.(pr.p, pr.q, { far: true }) ?? null, tiers: src.tierOf ? Array.from({ length: 12 }, (_, j) => src.tierOf(pr.p, pr.q, j)) : null }); continue; }
+        if (t) { artCells.push({ ...pr, ...t, rec, fog, selected, prov: seen ? src.provinceOf?.(pr.p, pr.q, { far: true }) ?? null : null, tiers: seen && src.tierOf ? Array.from({ length: 12 }, (_, j) => src.tierOf(pr.p, pr.q, j)) : null }); continue; }
       }
       plain.push(g => paintProvince(g, { ...pr, rec, fog, selected, scale: z }));
     }
     // a resting tile view: the still layers (the table is in the ground layer), then the animated ones
-    const tileOpts = artTiles.length ? { zoom: z, dpr, artZoom, stamp: this.stamp, between: this.between ? c => this.between(c, { zoom: z, now }) : null, terrainAt: terrainLookup(terrainOf), fogAt, selected: src.selected, viewerFaction: src.viewerFaction ?? null, demoRoads: !!src.demoRoads, ringsOpen: src.ringsOpen ?? null, replayRing: src.artReplayRing ?? null, engineStage: src.engineStage ?? 0, relics: src.relics ?? [], waystones: src.waystones ?? [], demoSpecials: !!src.demoSpecials, rivers: src.rivers ?? [], demoRivers: !!src.demoRivers, alliedPairs: src.alliedPairs ?? [],
+    const tileOpts = artTiles.length ? { zoom: z, dpr, artZoom, stamp: this.stamp, between: this.between ? c => this.between(c, { zoom: z, now }) : null, terrainAt: terrainLookup(terrainOf), fogAt, selected: src.selected, viewerFaction: src.viewerFaction ?? null, demoRoads: !!src.demoRoads, ringsOpen: src.ringsOpen ?? null, replayRing: src.artReplayRing ?? null, engineStage: src.engineStage ?? 0, relics: src.relics ?? [], waystones: src.waystones ?? [], demoSpecials: !!src.demoSpecials, rivers: src.rivers ?? [], demoRivers: !!src.demoRivers, alliedPairs: src.alliedPairs ?? [], survey,
       // people (people/crowds.mjs): the source's departures, explores and holder names; tags nearest the view centre first
       people: src.people ? { ...src.people(), centre: { x: view.x, y: view.y } } : null } : null;
     const missed = this.art?.misses ?? 0;
@@ -843,10 +854,17 @@ export class FrontierMap {
     if (artCells.length) {
       // while the picture travels, far bitmaps are not painted for zooms it only passes through (the ones at hand
       // are stretched); arriving, they are painted for where it rests
-      this.art.paintFar(ctx, artCells, { zoom: z, dpr, terrainAt: terrainLookup(terrainOf), fogAt, alliedPairs: src.alliedPairs ?? [], lod, lens: src.lens ?? 'realm',
+      this.art.paintFar(ctx, artCells, { zoom: z, dpr, terrainAt: terrainLookup(terrainOf), fogAt, alliedPairs: src.alliedPairs ?? [], lod, lens: src.lens ?? 'realm', survey,
         passing: this.cam.moving, resZoom: this.cam.moving ? Math.min(z, this.cam.view.zoom) : z });
       pending += this.art.farPending ?? 0;
-      if (lod === 'world' && (src.lens ?? 'realm') !== 'land') paintRealmLabels(ctx, recs, z, src.realmName ?? null);
+    }
+    // the marks of the viewer's stage, on the land: the home wedge while there is no village yet; the rim of the village's own land
+    const waiting = limited && Number.isInteger(survey.faction) && ['joined', 'ticket', 'refugee'].includes(survey.stage);
+    if (waiting) paintWedge(ctx, survey.faction, ringsOpen, z);
+    if (artCells.length && lod === 'world' && (src.lens ?? 'realm') !== 'land') {
+      const box = waiting ? wedgeBox(survey.faction, ringsOpen) : null;
+      paintRealmLabels(ctx, recs, z, src.realmName ?? null, limited ? { min: 3, home: box ? { faction: survey.faction, x: box.x, y: box.y } : null,
+        seen: (r, j) => { if (survey.province(r.p, r.q).max < L2) return false; const t = terrainOf?.(r.p, r.q), idx = t?.sites?.[j]; return Number.isInteger(idx) && survey.levelOf(r.p, r.q, idx) >= L2; } } : {});
     }
     if (tileOpts) {
       kind = layered === 'live' ? 'live' : 'full';
@@ -854,6 +872,7 @@ export class FrontierMap {
       labels = () => this.art.labels(ctx, tileOpts);
       pending += this.art.misses - missed;   // sprites still on their way
     }
+    if (limited) paintOwnRim(ctx, survey.villages, z);
     if (src.reach?.tiles?.length) { paintReach(ctx, src.reach.tiles, z, clock() / 1000, src.reach.t0); this.invalidateSoon(); }
     if (src.route) paintRoute(ctx, src.route, z);
     // what is read rather than looked at goes over the depth dressing: labels, warnings, pins, the guide
@@ -861,6 +880,7 @@ export class FrontierMap {
       ctx.setTransform(...world);
       labels?.();
       if (src.threats?.length) { paintThreats(ctx, src.threats, z, src.threatLabel ?? null); this.invalidateSoon(); }
+      if (limited && survey.candidates?.length) { const still = reducedMotion(); paintCandidates(ctx, survey.candidates, z, { still }); if (!still) this.invalidateSoon(120); }
       if (src.pins?.length) paintPins(ctx, src.pins, z);
       if (src.guide && !src.route) { paintGuide(ctx, src.guide, z, src.guideLabel?.(src.guide) ?? ''); this.invalidateSoon(); }
     };

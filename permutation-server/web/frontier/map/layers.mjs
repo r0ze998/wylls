@@ -42,16 +42,20 @@ export function provinceCorners(p, q, inset = 0) {
 /** Fog levels (presentation only: every account is public; §7.3). */
 export const FOG = Object.freeze({ unopened: 1, distant: 0.55, known: 0.18, sight: 0, clear: 0 });
 
+/** How many provinces away from one with a tile in sight a province still counts as in sight: none (sight is counted in tiles: map/survey.mjs). */
+export const SIGHT_PROVINCES = 0;
 /**
- * The fog of one province: `unopened` (its ring is not open), `sight`
- * (within 2 provinces of the viewer's holdings and hosts), `known`
- * (holdings, hosts, past arrivals, explored hexes), else `distant`; the
- * "show everything" switch clears it (`clear`).
+ * The fog of one province, for the painters that work province by province
+ * (the survey of map/survey.mjs decides tile by tile; these are its levels
+ * by name): `unopened` (its ring is not open: the cloud sea), `sight` (some
+ * of it is in the viewer's sight: `sightDistance` 0), `known` (some of it
+ * was surveyed before), else `distant` (the chart). A page that shows the
+ * whole public world (the spectator, practice) has it `clear` (`showAll`).
  */
 export function fogLevel({ ringOpen, showAll = false, known = false, sightDistance = Infinity }) {
   if (!ringOpen) return 'unopened';
   if (showAll) return 'clear';
-  if (sightDistance <= 2) return 'sight';
+  if (sightDistance <= SIGHT_PROVINCES) return 'sight';
   return known ? 'known' : 'distant';
 }
 

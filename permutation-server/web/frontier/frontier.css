@@ -517,3 +517,12 @@ body[data-urgency="crit"] main { box-shadow: inset 0 0 0 4px #c8412f; }
 .report-leader { display: flex; gap: 10px; align-items: center; margin: 8px 0 4px; font-style: italic; }
 .report-leader svg { flex: none; border-radius: 50%; background: rgba(0,0,0,.05); }
 .host-row .host-what { margin-left: 8px; }
+/* ---- the survey's legend (map/legend.mjs): four swatches and one honest line */
+.survey-legend { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 8px; }
+.survey-legend li { display: grid; grid-template-columns: 28px 1fr; gap: 10px; align-items: start; }
+.survey-key { width: 28px; height: 22px; border-radius: 5px; border: 1px solid rgba(27,46,40,.55); margin-top: 1px; }
+.survey-sight { background: linear-gradient(160deg, #9cba6a, #6f9150 60%, #55793f); }
+.survey-surveyed { background: linear-gradient(160deg, #8b927c, #6d7564 60%, #5a6255); }
+.survey-chart { background: #e6d9b8; border-color: #7a6a46; box-shadow: inset 0 0 0 3px #e6d9b8, inset 0 0 0 4px rgba(122,106,70,.5); }
+.survey-cloud { background: linear-gradient(160deg, #ffffff, #dfe6ea); }
+.survey-line { margin: 8px 0; }

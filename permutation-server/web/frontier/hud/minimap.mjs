@@ -13,7 +13,9 @@
 // Drawn from the overviews only (no province loads): cheap for spectators.
 import { L } from '../../lang.mjs';
 import { provincePixel, PROVINCE_CIRCUMRADIUS } from '../map/layers.mjs';
-import { ringProvinces } from '../fgeo.mjs';
+import { project, RADIUS } from '../../map.mjs';
+import { ringProvinces, tileHex } from '../fgeo.mjs';
+import { keyHex } from '../map/survey.mjs';
 import { FACTION_FILL, FACTION_DARK } from '../people/avatar.mjs';
 
 export const LENSES = Object.freeze(['realm', 'war', 'land', 'settle']);
@@ -22,6 +24,8 @@ export const LENS_GLYPH = { realm: '⚑', war: '⚔', land: '⛰', settle: '⌂'
 export const MINIMAP_PX = 188;
 
 const LAND = '#6f8f55', CLOUD = '#e8ecef';
+/** The survey's materials at this size (map/survey.mjs): the chart, surveyed land out of sight, land in sight, the viewer's gold. */
+export const MINI_SURVEY = Object.freeze({ chart: '#d8caa5', line: 'rgba(96,80,48,.45)', surveyed: '#7d8a70', sight: '#8fb866', you: '#f3d58a' });
 
 /** The faction that holds most of a province's sites in an overview record, or null. */
 export function majority(rec) {
@@ -45,7 +49,10 @@ export function frameOf(rings, px = MINIMAP_PX) {
  * `dpr`): `{recs: Map "P,Q" → overview record, rings, own: [{p, q}], view,
  * size}` (`view` and `size` the main map's, for the frame).
  */
-export function paintMinimap(ctx, { recs, rings, own = [], view = null, size = null, px = MINIMAP_PX, dpr = 1, lens = 'realm', pins = [] }) {
+export function paintMinimap(ctx, { recs, rings, own = [], view = null, size = null, px = MINIMAP_PX, dpr = 1, lens = 'realm', pins = [], survey = null, now = 0 }) {
+  // with a survey (the play page): the open world is chart, the surveyed tiles are painted on it, and the
+  // viewer is a gold pip that breathes; without one (the spectator) every province shows its realm, as before
+  const limited = !!survey && !survey.showAll;
   const fr = frameOf(rings + 1, px);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, px, px);
@@ -61,17 +68,30 @@ export function paintMinimap(ctx, { recs, rings, own = [], view = null, size = n
     const rec = recs.get(`${pr.p},${pr.q}`);
     const owner = rec ? majority(rec) : null;
     hex(c.x, c.y, r);
-    ctx.fillStyle = !rec ? CLOUD : pr.d === 0 ? '#e6dcc2' : owner !== null && lens !== 'land' ? FACTION_FILL[owner] : LAND;
-    ctx.globalAlpha = !rec ? 0.55 : lens === 'war' && owner !== null ? 0.55 : 1;
+    const sv = limited && rec ? survey.province(pr.p, pr.q) : null;
+    ctx.fillStyle = !rec ? CLOUD : limited ? MINI_SURVEY.chart : pr.d === 0 ? '#e6dcc2' : owner !== null && lens !== 'land' ? FACTION_FILL[owner] : LAND;
+    ctx.globalAlpha = !rec ? 0.55 : !limited && lens === 'war' && owner !== null ? 0.55 : 1;
     ctx.fill();
     ctx.globalAlpha = 1;
+    if (limited && rec) { ctx.strokeStyle = MINI_SURVEY.line; ctx.lineWidth = 0.6; ctx.stroke(); }
+    // (the lenses' marks: of provinces the viewer has surveyed; a clash only where some of it is in sight)
+    if (sv && sv.max < (lens === 'settle' ? 2 : 3)) continue;
     if (lens === 'settle' && rec) {
       const free = rec.sites.filter(s => s === 0).length;
       if (free) { ctx.fillStyle = '#f3d58a'; ctx.beginPath(); ctx.arc(c.x, c.y, Math.min(r * 0.6, 1 + free * 0.5), 0, Math.PI * 2); ctx.fill(); }
     }
     if (rec?.clash && (lens === 'war' || lens === 'realm')) { ctx.fillStyle = '#ff5a3c'; ctx.beginPath(); ctx.arc(c.x, c.y, Math.max(1.6, r * 0.32), 0, Math.PI * 2); ctx.fill(); }
   }
-  for (const o of own) {
+  if (limited) {
+    // the surveyed tiles, one small mark each: muted where out of sight, bright where in sight
+    const w = Math.max(1.3, RADIUS * 1.74 * fr.k), h = Math.max(1.3, RADIUS * 1.2 * fr.k);
+    for (const level of [2, 3]) {
+      ctx.fillStyle = level === 3 ? MINI_SURVEY.sight : MINI_SURVEY.surveyed;
+      for (const [k, lv] of survey.tiles) { if (lv !== level) continue; const t = keyHex(k), at = project(t.q, t.r), c = fr.toPx(at.x, at.y); ctx.fillRect(c.x - w / 2, c.y - h / 2, w, h); }
+    }
+    // the Engine: the one landmark everyone has
+    ctx.fillStyle = '#c9a24a'; ctx.strokeStyle = '#3a2a08'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(px / 2, px / 2, 2.6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  } else for (const o of own) {
     const c = (pp => fr.toPx(pp.x, pp.y))(provincePixel(o.p, o.q));
     ctx.strokeStyle = '#fffaf0'; ctx.lineWidth = 2; hex(c.x, c.y, r * 1.05); ctx.stroke();
   }
@@ -86,6 +106,13 @@ export function paintMinimap(ctx, { recs, rings, own = [], view = null, size = n
     const b = fr.toPx(view.x + size.width / 2 / view.zoom, view.y + size.height / 2 / view.zoom);
     ctx.strokeStyle = '#f3d58a'; ctx.lineWidth = 1.6;
     ctx.strokeRect(Math.max(1, a.x), Math.max(1, a.y), Math.min(px - 2, b.x) - Math.max(1, a.x), Math.min(px - 2, b.y) - Math.max(1, a.y));
+  }
+  // where the viewer is: the active village, in gold, breathing
+  const home = limited && survey.home ? tileHex(survey.home.p, survey.home.q, survey.home.tile) : null;
+  if (home) {
+    const at = project(home.q, home.r), c = fr.toPx(at.x, at.y), u = ((now / 1000) % 1.8) / 1.8;
+    ctx.strokeStyle = `rgba(243,213,138,${0.85 * (1 - u)})`; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(c.x, c.y, 3.5 + u * 8, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = MINI_SURVEY.you; ctx.strokeStyle = '#2a1e06'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(c.x, c.y, 3.4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
   }
   ctx.strokeStyle = 'rgba(217,180,74,.7)'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(px / 2, px / 2, px / 2 - 1, 0, Math.PI * 2); ctx.stroke();
 }

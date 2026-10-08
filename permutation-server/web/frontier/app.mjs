@@ -19,6 +19,11 @@ import { ChainClock, bellChip, countdown, seasonClock, bellStart } from './clock
 import { effectiveStatus } from './fcodec.mjs';
 import { FrontierMap } from './map/fmap.mjs';
 import { openHint } from './map/opening.mjs';
+import { createSurveyor } from './map/survey.mjs';
+import { surveyInput } from './map/viewer.mjs';
+import { fxNow } from './map/chart.mjs';
+import { reducedMotion } from './map/camera.mjs';
+import { renderSurveyHelp } from './map/legend.mjs';
 import { lastWalletName } from '../wallet.mjs';
 import { SEASON_STATUS_TEXT, clientText, factionName, TIERS, BUILDINGS } from './fi18n.mjs';
 import { L, fmtNum, mountLangToggle, onLangChange, lang } from '../lang.mjs';
@@ -65,8 +70,6 @@ const ART_RIVERS = ART_PREVIEW && ART_Q.get('rivers') === '1';
 // ?art=1&ally=0-1,2-4 shows those faction pairs as allied (presentation only; real relations come from the Province).
 const ART_ALLY = ART_PREVIEW ? (ART_Q.get('ally') ?? '').split(',').map(x => x.split('-').map(Number)).filter(x => x.length === 2 && x.every(Number.isInteger)) : [];
 const ART_ENGINE = ART_PREVIEW ? Math.max(0, Math.min(5, Number(ART_Q.get('engine') ?? 0) | 0)) : 0;
-// ?art=1&fog=1 previews the fog as if the viewer held province (2,0) (presentation only).
-const ART_FOG = ART_PREVIEW && new URLSearchParams(globalThis.location?.search ?? '').get('fog') === '1';
 import * as joinScreen from './screens/join.mjs';
 import * as holdingScreen from './screens/holding.mjs';
 import * as hostScreen from './screens/host.mjs';
@@ -194,14 +197,13 @@ export function panelMarkup(FS) {
   else if (tab === 'hosts') parts.push(hostScreen.render(FS), exploreScreen.render(FS));
   else if (tab === 'marches') parts.push(marchScreen.render(FS), trackerScreen.render(FS), reportScreen.renderLinks(myReports(FS), L`あなたの衝突の報告`), incomingScreen.render(FS));
   else parts.push(feed.renderCentre(FS.feed ?? [], FS.feedFilter ?? 'all'), bellScreen.render(FS), reportScreen.renderLinks(reportScreen.clashesFrom(FS.chronicle ?? []), L`最近の衝突`), chronicleScreen.render(FS), html`<section aria-labelledby="more-title"><h3 id="more-title">${L`設定`}</h3>
-    <label class="choice"><input type="checkbox" data-act="fog" ${FS.view.fog ? '' : 'checked'}>${L`すべてを見せる（どの口座も公開されています）`}</label>
     <label class="choice"><input type="checkbox" data-act="autopan" ${FS.ui?.autoPan ? 'checked' : ''}>${L`自分に関わる戦いが決着したら、地図をそこへ動かして見せる`}</label>
     <div class="choice-row" role="group" aria-label="${L`ガイドの強さ`}"><span>${L`ガイドの強さ`}</span>${guide.GUIDE_LEVELS.map(v => html`<button type="button" class="btn small" data-act="guide-level" data-v="${v}" aria-pressed="${guide.guideLevel(FS) === v ? 'true' : 'false'}">${guide.GUIDE_TEXT[v]()}</button>`)}</div>
     <div class="choice-row" role="group" aria-label="${L`戦いの演出`}"><span>${L`戦いの演出`}</span>${['normal', 'fast', 'off'].map(v => html`<button type="button" class="btn small" data-act="battle-fx" data-v="${v}" aria-pressed="${(FS.ui?.battleFx ?? 'normal') === v ? 'true' : 'false'}">${BATTLE_FX_TEXT[v]()}</button>`)}</div>
     <button type="button" class="btn" data-act="forget">${L`この端末からこのシーズンの鍵を消す`}</button>
     ${onboardingCard.renderRestore(FS)}
     <p><button type="button" class="btn" data-act="practice-open">${L`練習モードを開く`}</button> <button type="button" class="btn" data-act="intro-open">${L`タイトルを見る`}</button></p>
-    <p><a href="practice.html">${L`練習`}</a> · <a href="spectate.html">${L`観戦`}</a></p></section>`, pins.renderPins(FS.pins ?? []), renderNameForm(FS), milestones.renderTimeline(FS.mileRecord), glossary.renderGlossary());
+    <p><a href="practice.html">${L`練習`}</a> · <a href="spectate.html">${L`観戦`}</a></p></section>`, renderSurveyHelp(), pins.renderPins(FS.pins ?? []), renderNameForm(FS), milestones.renderTimeline(FS.mileRecord), glossary.renderGlossary());
   return parts;
 }
 
@@ -267,6 +269,12 @@ let mapRef = null;
 let terrainRef = null;
 /** Who holds each site (people/roster.mjs): names and faces for tags, the rail, the inspector, reports. */
 let rosterRef = null;
+/** The viewer's survey (map/survey.mjs), kept on the page state for every surface that asks what may be told. */
+const surveyor = createSurveyor({ now: fxNow });
+function surveyNow() {
+  FS.survey = surveyor(surveyInput(FS, { terrainOf: terrainRef, ready: viewerKnown || !!FS.land, scope: scope() || null }));
+  return FS.survey;
+}
 /** The face and name of a report row's owner (a host id; holdings' ids give none). */
 const reportOwner = id => { try { return hostOwner(rosterRef, id); } catch { return null; } };
 /** The people layer's inputs, rebuilt at most once a second (the chronicle changes on polls only). */
@@ -704,7 +712,7 @@ function autoBattles() {
 }
 
 // ------------------------------------------------------------------ the minimap and the lenses (hud/minimap.mjs)
-let miniQueued = false;
+let miniQueued = false, miniPulse = null;
 function renderMinimap() {
   if (miniQueued) return;
   miniQueued = true;
@@ -716,8 +724,11 @@ function renderMinimap() {
     if (cv.width !== px * dpr) { cv.width = px * dpr; cv.height = px * dpr; }
     const recs = new Map();
     for (const ov of FS.overviews.values()) for (const r of ov.provinces) recs.set(`${r.p},${r.q}`, r);
+    const sv = FS.survey ?? null, pulse = !!sv?.home && !sv.showAll && !reducedMotion();
     minimap.paintMinimap(cv.getContext('2d'), { recs, rings: Math.max(1, (FS.record?.rings?.length ?? 1)), own: (FS.holdings ?? []).map(h => ({ p: h.p, q: h.q })),
-      view: mapRef.view, size: mapRef.size(), px, dpr, lens: FS.view.lens ?? 'realm', pins: FS.pins ?? [] });
+      view: mapRef.shown, size: mapRef.size(), px, dpr, lens: FS.view.lens ?? 'realm', pins: FS.pins ?? [], survey: sv, now: fxNow() });
+    // the viewer's pip breathes: a few small repaints a second while it shows
+    if (pulse && !miniPulse) miniPulse = setTimeout(() => { miniPulse = null; renderMinimap(); }, 110);
   });
 }
 function renderLenses() {
@@ -731,7 +742,7 @@ let searchHits = [];
 function runSearch(q) {
   const recs = new Map();
   for (const ov of FS.overviews.values()) for (const r of ov.provinces) recs.set(`${r.p},${r.q}`, r);
-  searchHits = search.searchMap(q, { recs, roster: rosterRef, sitesOf: (p, q2) => terrainRef?.(p, q2)?.sites ?? null, pins: FS.pins ?? [] });
+  searchHits = search.searchMap(q, { recs, roster: rosterRef, sitesOf: (p, q2) => terrainRef?.(p, q2)?.sites ?? null, pins: FS.pins ?? [], survey: FS.survey ?? null });
   const el = $('map-search-results');
   if (el) setHtml(el, search.renderResults(searchHits, q));
 }
@@ -1133,10 +1144,12 @@ export async function boot() {
     map = new FrontierMap(canvas, {
       source: () => {
         if (rosterRef) for (let d = 0; d < (FS.record?.rings?.length ?? 1); d++) rosterRef.ensure(d);
-        const own = ART_FOG ? [{ p: 2, q: 0 }] : (FS.holdings ?? []).map(h => ({ p: h.p, q: h.q, tile: h.tile }));
-        return { overviews: FS.overviews, ringsOpen: FS.record?.rings?.length ?? 1, own, known: new Set([...own.map(o => `${o.p},${o.q}`), ...(ART_FOG ? ['-1,0', '-1,1', '0,-2', '-2,1'] : [])]), showAll: (ART_PREVIEW && !ART_FOG) || !FS.view.fog, selected: FS.selected, terrainOf,
+        const own = (FS.holdings ?? []).map(h => ({ p: h.p, q: h.q, tile: h.tile }));
+        return { overviews: FS.overviews, ringsOpen: FS.record?.rings?.length ?? 1, own, selected: FS.selected, terrainOf,
+          // what this viewer has surveyed (map/survey.mjs): the one rule for the map, the minimap, tips, the inspector and search
+          survey: surveyNow(),
           // art mode: the decoded Province (holdings' tiers, hosts on tiles, camp), loaded on demand
-          viewerFaction: ART_FOG ? 0 : FS.citizen?.faction ?? null,
+          viewerFaction: FS.citizen?.faction ?? null,
           // who is looking, for the opening view (map/opening.mjs)
           open: openHint(FS, { ready: viewerKnown, title: titleUp() }),
           demoRoads: ART_ROADS,
