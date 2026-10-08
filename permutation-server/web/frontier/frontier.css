@@ -559,7 +559,10 @@ details > summary { min-height: var(--target); display: flex; align-items: cente
 .inline label, .field { display: grid; gap: 2px; font-size: var(--t1); min-width: 0; }
 .field { margin: 6px 0; }
 /* 17 px in fields on phones: below 16 px a phone zooms the page on focus */
-input, select, textarea { min-height: var(--target); font: inherit; font-size: var(--t3); padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); max-width: 100%; }
+input, select, textarea { min-height: var(--target); font: inherit; font-size: var(--t3); padding: 0 8px; border: 1px solid #a2977a; border-radius: 8px; background: #fffdf6; color: var(--ink); max-width: 100%; box-shadow: inset 0 1px 2px rgba(60,48,20,.18); transition: border-color var(--out), box-shadow var(--out); }
+input:hover, select:hover, textarea:hover { border-color: #6f6548; }
+/* a list to choose from: the paper's own arrow, not the system's */
+select { -webkit-appearance: none; appearance: none; padding-right: 28px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234c5852' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9.5l6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 7px center; background-size: 16px 16px; }
 /* An empty select (the Muster unit list before any troops are trained) keeps a 44-px target (W6-D onboarding run: 38 × 44). */
 select { min-width: var(--target); }
 input[type="number"] { width: 8.5em; }
@@ -567,6 +570,13 @@ fieldset { border: 1px solid var(--line-soft); border-radius: 10px; margin: 8px 
 legend { padding: 0 4px; font-weight: 600; }
 .choice { display: flex; align-items: center; gap: 4px 8px; min-height: var(--target); font-size: var(--t2); line-height: 1.45; cursor: pointer; }
 .choice input { flex: none; min-height: 0; width: 20px; height: 20px; margin: 0; accent-color: var(--accent); }
+/* a switch for a setting that is on or off; a seal-coloured dot for one of several */
+.choice input[type="checkbox"] { -webkit-appearance: none; appearance: none; position: relative; width: 38px; height: 22px; padding: 0; border: 1px solid #8a7f63; border-radius: 11px; background: rgba(60,48,20,.18); box-shadow: inset 0 1px 2px rgba(60,48,20,.3); cursor: pointer; transition: background-color var(--out), border-color var(--out); }
+.choice input[type="checkbox"]::before { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: linear-gradient(180deg, #fffdf6, #e6dcc2); box-shadow: 0 1px 2px rgba(40,30,10,.45); transition: transform var(--out); }
+.choice input[type="checkbox"]:checked { background: linear-gradient(180deg, #2a6a60, #174a43); border-color: #0d2f2a; }
+.choice input[type="checkbox"]:checked::before { transform: translateX(16px); }
+.choice input[type="radio"] { -webkit-appearance: none; appearance: none; width: 20px; height: 20px; padding: 0; border: 1px solid #8a7f63; border-radius: 50%; background: #fffdf6; box-shadow: inset 0 1px 2px rgba(60,48,20,.25); cursor: pointer; transition: box-shadow var(--out), border-color var(--out); }
+.choice input[type="radio"]:checked { border-color: #0d2f2a; box-shadow: inset 0 0 0 4px #fffdf6, inset 0 0 0 10px var(--accent); }
 /* the guide's steps on demand: a checklist, the current step with its text under it */
 .checklist { list-style: none; margin: 0 0 var(--s2); padding: 0; display: grid; }
 .checklist li { display: flex; align-items: center; gap: var(--s2); min-height: 30px; padding: 2px 0; color: var(--ink-2); font-size: var(--t2); }
@@ -1106,7 +1116,9 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
 .unit-n { font-variant-numeric: tabular-nums; color: var(--ink-2); font-weight: 500; }
 .count-row { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--s2); }
 .count-label { flex: 1 0 100%; font-size: var(--t1); color: var(--ink-2); }
-.count-row > input { width: 5.2em; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.count-row > input { width: 4.4em; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.order .inline { align-items: end; gap: 6px; margin: 0; }
+.order .inline input[type="number"] { width: 4.2em; }
 .count-field { display: grid; gap: 2px; font-size: var(--t1); color: var(--ink-2); }
 .count-field input { width: 6.5em; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
 .stepper { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
