@@ -176,7 +176,8 @@ test('the uncovered part of the canvas: the far view fits it, a place is centred
   assert.equal(cam.freeBox(phone, { bottom: 720 }).height, 734 * 0.4);
   // the far view: the opened world in the smaller side of the free part, lifted above the sheet
   const far = cam.fitView(3, phone, { inset: sheet, cap: 0.114 });
-  assert.ok(near(far.zoom, (0.9 * 367) / (2 * cam.worldRadius(3))));
+  assert.ok(near(far.zoom, (0.9 * 367) / (2 * cam.landRadius(3))), 'the open land fills the free part; its cloud may run off the edge');
+  assert.ok(cam.landRadius(3) < cam.worldRadius(3) && near(cam.landRadius(1), layers.PROVINCE_CIRCUMRADIUS));
   const centre = fmap.worldToScreen(far, phone, 0, 0);
   assert.ok(near(centre.y, 367 / 2), 'the Concord in the middle of the free part');
   assert.equal(cam.fitView(1, { width: 2000, height: 2000 }, { cap: 0.114 }).zoom, 0.114, 'never nearer than the cap');

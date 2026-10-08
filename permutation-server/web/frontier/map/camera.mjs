@@ -87,13 +87,20 @@ export function clampCentre(view, { ringsOpen = 1, size, soft = 0 } = {}) {
   return { ...view, x: (u / len) * keep * ax, y: (v / len) * keep * ay };
 }
 
+/** The radius (world px) of the opened land alone: the open rings without the cloud around them. */
+export function landRadius(ringsOpen) {
+  const edge = provincePixel(Math.max(0, (ringsOpen ?? 1) - 1), 0);
+  return Math.hypot(edge.x, edge.y) + PROVINCE_CIRCUMRADIUS;
+}
+
 /**
- * The far view ("the world chart"): the opened world fills the smaller side
- * of the part of the canvas nothing covers. `inset` = {top, right, bottom,
- * left} CSS px covered by the page's sheets. Never nearer than `cap`.
+ * The far view ("the world chart"): the opened land fills the smaller side
+ * of the part of the canvas nothing covers (the cloud around it may run off
+ * the edges). `inset` = {top, right, bottom, left} CSS px covered by the
+ * page's sheets. Never nearer than `cap`.
  */
 export function fitView(ringsOpen, size, { inset = null, cap = Infinity, floor = 0 } = {}) {
-  const radius = worldRadius(ringsOpen);
+  const radius = landRadius(ringsOpen);
   const free = freeBox(size, inset);
   const zoom = Math.max(floor, Math.min(cap, (0.9 * Math.min(free.width, free.height)) / (2 * radius)));
   return centreOn({ x: 0, y: 0 }, zoom, size, inset);
