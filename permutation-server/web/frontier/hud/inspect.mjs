@@ -116,7 +116,10 @@ export function render(FS, terrainOf, activities = null) {
   const m = inspectModel(FS, terrainOf);
   if (!m) return html`<section class="inspect" aria-labelledby="inspect-title"><h3 id="inspect-title">${L`選択`}</h3><p class="muted">${L`地図のマスを選ぶと、ここに中身が出ます。`}</p></section>`;
   const t = m.tile;
-  const title = t ? L`州 ${m.p},${m.q} · マス ${t.idx + 1}` : L`州 ${m.p},${m.q}`;
+  // a name before coordinates (UX design 5.3): the village, the camp or the land, then where it is
+  const where = L`州 ${m.p},${m.q}`;
+  const name = t?.site?.state === 'holding' ? holdingName({ p: m.p, q: m.q, site: t.site.index }, t.site.tier ?? 0) : t?.camp ? SITE_TEXT.camp() : t?.terrain ? (TERRAIN_TEXT[t.terrain]?.() ?? t.terrain) : null;
+  const title = name ? html`${name} <span class="muted">${where}</span>` : where;
   const facts = [];
   facts.push(html`<div class="row"><dt>${L`輪`}</dt><dd>${m.opened ? L`第${m.ring}輪` : L`第${m.ring}輪（まだひらいていません）`}${termButton('ring')}</dd></div>`);
   if (t?.terrain) facts.push(html`<div class="row"><dt>${L`地形`}</dt><dd>${TERRAIN_TEXT[t.terrain]?.() ?? t.terrain}</dd></div>`);
@@ -127,7 +130,6 @@ export function render(FS, terrainOf, activities = null) {
   const siteBlock = site ? html`<h4>${site.state === 'holding' ? html`${swatch(site.faction)}${L`${holdingName({ p: m.p, q: m.q, site: site.index }, site.tier ?? 0)}（${factionName(site.faction)}）`}` : SITE_TEXT[site.state]()}${site.mine ? html` <span class="tag">${L`あなたの村`}</span>` : ''}</h4>
     ${site.owner ? html`<p class="inspect-owner">${personChip(site.owner, site.faction, { size: 40, full: true, note: L`この村の領主` })}</p>` : ''}
     <dl class="facts">
-      <div class="row"><dt>${L`区画`}</dt><dd>${fmtNum(site.index + 1)}</dd></div>
       ${site.garrison !== null && site.state === 'holding' ? html`<div class="row"><dt>${L`守備隊`}</dt><dd>${fmtNum(site.garrison)}</dd></div>` : ''}
       ${site.shield ? html`<div class="row"><dt>${L`保護`}</dt><dd>${L`保護中（攻撃されません）`}</dd></div>` : ''}
     </dl>` : '';

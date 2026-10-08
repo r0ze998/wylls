@@ -314,6 +314,7 @@ body[data-urgency="crit"] main::after { box-shadow: inset 0 0 0 4px #c8412f; }
 :where(#panel-body) > * { margin: 0 0 8px; padding: 10px 12px; border-radius: 9px; background: var(--paper); color: var(--ink); box-shadow: inset 0 0 0 1px rgba(125,100,40,.4), 0 1px 3px rgba(0,0,0,.3); max-width: 100%; }
 :where(#panel-body) > :last-child { margin-bottom: 0; }
 #panel-body > * > :first-child { margin-top: 0; }
+#panel-body > * > :last-child { margin-bottom: 0; }
 .panel h3 { margin: 12px 0 6px; font: 700 var(--t3)/1.35 var(--display); letter-spacing: .03em; }
 .panel h4 { margin: 10px 0 4px; font-size: var(--t2); font-weight: 700; }
 .sheet-handle { display: none; }
@@ -502,7 +503,9 @@ legend { padding: 0 4px; font-weight: 600; }
 .steps { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; padding: 0; margin: 6px 0; font-size: var(--t1); }
 .steps li { padding: 4px 8px; border-radius: 12px; background: #e3dcc8; }
 .steps li.done { background: #cfe5dd; } .steps li.now { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
-.lock::before { content: "\1F512\FE0E"; margin-right: 4px; }
+/* a small drawn lock (a data: image: the CSP allows it; the sprite cannot be CSS content) */
+.lock::before, .mc-sealed::before { content: ""; display: inline-block; width: 14px; height: 14px; margin-right: 4px; vertical-align: -2px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234c5852' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6.5 10.5h11a1.5 1.5 0 0 1 1.5 1.5v6.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 18.5V12a1.5 1.5 0 0 1 1.5-1.5Z' fill='%234c5852' fill-opacity='.2'/%3E%3Cpath d='M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5'/%3E%3C/svg%3E") center / contain no-repeat; }
 .secret, .mine { font-weight: 650; }
 .as-of { font-size: var(--t1); color: var(--ink-2); }
 .march, .host { padding: 8px 0; border-bottom: 1px solid var(--line-soft); }
@@ -560,14 +563,13 @@ legend { padding: 0 4px; font-weight: 600; }
 .marchcard h3 { margin-top: 0; }
 .mc-dest { display: grid; gap: 2px; margin: 4px 0; }
 .mc-sealed { font-size: var(--t1); color: var(--ink-2); }
-.mc-sealed::before { content: "\1F512\FE0E"; margin-right: 4px; }
 .mc-route { margin: 2px 0 6px; font-size: var(--t2); }
 .mc-bell { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; margin: 6px 0; text-align: center; }
 .mc-bell .btn { min-width: var(--target); font-size: var(--t3); }
 .mc-stances { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 8px 0; }
 .mc-stance { display: grid; justify-items: center; gap: 2px; min-height: 72px; padding: 6px 2px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--ink); font: inherit; font-size: var(--t2); cursor: pointer; }
 .mc-stance[aria-checked="true"] { border-color: #b07a12; background: #fbf1dc; box-shadow: inset 0 0 0 2px #b07a12; font-weight: 700; }
-.mc-glyph { font-size: var(--t4); line-height: 1; }
+.mc-glyph .ic { width: 24px; height: 24px; }
 .mc-beats { font-size: var(--t1); color: var(--ink-2); }
 .mc-retreat { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 8px; }
 .mc-retreat .btn[aria-checked="true"] { outline: 3px solid #b07a12; outline-offset: 1px; font-weight: 650; }
@@ -590,7 +592,9 @@ legend { padding: 0 4px; font-weight: 600; }
 .report-head { border-radius: 10px; padding: 10px 12px; margin: 8px 0 10px; background: rgba(217, 180, 74, .10); border: 1px solid rgba(217, 180, 74, .35); }
 .report-head p { margin: 2px 0; }
 .report-result { font-size: var(--t3); display: flex; align-items: center; gap: 8px; }
-.report-glyph { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: #3b3122; color: #f3d58a; font-size: var(--t2); }
+.report-glyph { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: #3b3122; color: #f3d58a; }
+.report-glyph .ic { width: 17px; height: 17px; }
+.report-edge { display: flex; align-items: center; gap: 6px; } .report-edge .ic { width: 16px; height: 16px; }
 .report-won .report-glyph { background: #2f6b3f; color: #fff; }
 .report-held .report-glyph { background: #3f5f78; color: #fff; }
 .report-fell .report-glyph { background: #8a2f2a; color: #fff; }
@@ -636,6 +640,11 @@ legend { padding: 0 4px; font-weight: 600; }
 .hp-chip { display: inline-flex; align-items: center; gap: 4px; min-height: var(--target); padding: 0 12px; border: 1px solid var(--line-soft); border-radius: 18px; background: var(--card); color: var(--ink); font: inherit; font-size: var(--t2); white-space: nowrap; cursor: pointer; }
 .hpanel { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--card); scroll-margin-top: 56px; }
 .hpanel > h4:first-child { margin-top: 0; }
+.hpanel > h4, .bc-time { display: flex; align-items: center; gap: 6px; }
+.hpanel > h4 .ic, .hp-chip .ic { width: 17px; height: 17px; color: var(--accent); }
+.bc-time .ic { width: 14px; height: 14px; }
+.btn > .ic { width: 17px; height: 17px; }
+.pins .btn { gap: 4px; }
 .store-full td { color: #8a2f2a; font-weight: 650; }
 .store-full .flag { padding: 0 5px; border-radius: 6px; background: var(--err-bg); color: var(--err-ink); font-size: var(--t1); }
 .build-cards { list-style: none; padding: 0; margin: 8px 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }

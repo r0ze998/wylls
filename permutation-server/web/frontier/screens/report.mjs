@@ -29,6 +29,7 @@
 // against the recorded native call in frontier-wasm/vectors/wasm-vectors.json
 // by web-frontier-practice.test.mjs.
 import { html, raw } from '../../util.mjs';
+import { icon } from '../hud/icons.mjs';
 import { L, fmtNum, lang } from '../../lang.mjs';
 import { sha256 } from '../../sdk/sha256.mjs';
 import { toHex, fromBase64 } from '../../sdk/bytes.mjs';
@@ -578,7 +579,8 @@ export function render(FS, mine = () => false, { whatIf = true, ownerOf = null }
 const RESULT_TEXT = {
   won: () => L`勝利：相手は退いた`, held: () => L`持ちこたえた`, fell: () => L`壊滅した`, turned: () => L`退いた`, none: () => L`結末はまだ確かめていません`,
 };
-const RESULT_GLYPH = { won: '★', held: '◆', fell: '✕', turned: '↩', none: '…' };
+/** A mark per result, from the sprite (hud/icons.mjs). */
+const RESULT_ICON = { won: 'crown', held: 'shield', fell: 'close', turned: 'return', none: 'more' };
 
 /** The leader's word on a result (UI plan F1): the viewer's faction, or the side that held the field. */
 const LEADER_LINE = {
@@ -597,13 +599,13 @@ function leaderLine(f, key) {
 
 /** The headline: the viewer's result, losses and whether the march got there; replay and map buttons. */
 function renderHeadline(sum, r) {
-  const buttons = html`<div class="actions"><button type="button" class="btn primary" data-act="battle-play" data-p="${r.p}" data-q="${r.q}" data-bell="${r.bell}">▶ ${L`戦いを再生`}</button>
+  const buttons = html`<div class="actions"><button type="button" class="btn primary" data-act="battle-play" data-p="${r.p}" data-q="${r.q}" data-bell="${r.bell}">${icon('play')}${L`戦いを再生`}</button>
     <button type="button" class="btn" data-act="goto" data-p="${r.p}" data-q="${r.q}">${L`地図で見る`}</button></div>`;
   if (!sum.mine) {
     return html`<div class="report-head report-head-watch"><p class="report-result"><strong>${sum.leader !== null ? html`${swatch(sum.leader)}${L`${factionName(sum.leader)}が戦場に残った`}` : L`${fmtNum(sum.factions)}つの国がぶつかった`}</strong></p>
       <p class="muted">${L`全体の損害 ${fmtNum(sum.lost)}`}</p>${sum.leader !== null ? leaderLine(sum.leader, 'watch') : ''}${buttons}</div>`;
   }
-  return html`<div class="report-head report-${sum.result}"><p class="report-result"><span class="report-glyph" aria-hidden="true">${RESULT_GLYPH[sum.result]}</span><strong>${RESULT_TEXT[sum.result]()}</strong></p>
+  return html`<div class="report-head report-${sum.result}"><p class="report-result"><span class="report-glyph">${icon(RESULT_ICON[sum.result] ?? 'more')}</span><strong>${RESULT_TEXT[sum.result]()}</strong></p>
     <p>${L`あなたの損害 ${fmtNum(sum.lost)} / ${fmtNum(sum.before)}`}${sum.reached === null ? '' : sum.reached ? html` · ${L`行き先に着いた`}` : html` · ${L`行き先に残れなかった`}`}</p>
     ${sum.fates.length ? html`<p class="muted">${[...new Set(sum.fates)].map(f => FATE_TEXT[f] ?? f).join(' · ')}</p>` : ''}${leaderLine(sum.faction, sum.result)}${buttons}</div>`;
 }
@@ -614,7 +616,7 @@ function renderTiles(list) {
   return html`<section class="report-tiles" aria-labelledby="report-tiles-title"><h4 id="report-tiles-title">${L`マスごとの戦い`}</h4><ul class="list">${list.map(t => html`<li>
     <strong>${L`マス ${t.tile + 1}`}</strong>${t.walls ? html` <span class="muted">${L`城壁あり`}</span>` : ''}
     <ul class="report-sides">${t.sides.map(s => html`<li class="${s.mine ? 'mine' : ''}">${swatch(s.faction)}${factionName(s.faction)}${s.stance !== null ? html` · ${postureName(s.stance)}` : ''} — ${L`受けた損害 ${fmtNum(s.lost)} · 与えた損害 ${fmtNum(s.dealt)}`}</li>`)}</ul>
-    ${t.edges.map(e => html`<p class="report-edge">▲ ${L`${factionName(e.winner)}の${postureName(e.stance)}が${postureName(e.against)}に有利`}</p>`)}
+    ${t.edges.map(e => html`<p class="report-edge">${icon('sword')}${L`${factionName(e.winner)}の${postureName(e.stance)}が${postureName(e.against)}に有利`}</p>`)}
     ${t.retaliation ? html`<p class="muted">${L`守り手の反撃で攻め手が ${fmtNum(t.retaliation)} を失った`}</p>` : ''}</li>`)}</ul>
     <p class="muted">${L`与えた損害は、そのマスで相手側が失った兵の合計です（誰が誰を討ったかは記録にありません）。`}</p></section>`;
 }

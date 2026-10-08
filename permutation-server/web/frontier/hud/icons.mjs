@@ -14,7 +14,7 @@ export const ICONS = Object.freeze([
   'bell', 'hourglass', 'alert',
   'sword', 'swords', 'banner', 'flag', 'shield', 'seal', 'scout', 'hammer', 'quill', 'crate', 'moon', 'check',
   'home', 'tent', 'mountain', 'chart', 'compass', 'pin', 'eye', 'search', 'person',
-  'speaker', 'speaker-off', 'plus', 'minus', 'close', 'next', 'chevron', 'more', 'scroll',
+  'speaker', 'speaker-off', 'plus', 'minus', 'close', 'next', 'chevron', 'more', 'scroll', 'lock', 'play', 'flank', 'return',
 ]);
 
 const CLS = /^[\w -]*$/;

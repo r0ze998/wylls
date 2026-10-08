@@ -32,7 +32,7 @@ export function render(FS) {
   const offset = FS.pin?.cluster === 'localnet' ? 0 : FS.chain.offset?.() ?? 0;
   const current = FS.clock ? Math.max(0, Math.floor((now - FS.clock.genesisTs) / 600)) : null;
   return html`<section aria-labelledby="bell-title"><h3 id="bell-title">${L`鐘の進み具合`}${termButton('bell')}</h3>
-    ${current !== null && now >= FS.clock.genesisTs ? html`<p>${L`いまは第${fmtNum(current)}鐘`}</p>` : ''}
+    ${current !== null && now >= FS.clock.genesisTs ? html`<p>${L`いまは第${fmtNum(current)}鐘`} <span class="muted">${L`鐘が鳴るたびにターンが進みます（ターン ${fmtNum(current)}）。`}</span></p>` : ''}
     ${Math.abs(offset) > 2 ? html`<p class="muted">${L`この端末の時計はチェーンより ${Math.round(offset)} 秒ずれています`}</p>` : ''}
     ${quotaChip(FS.quota) ? html`<p class="quota-line" data-quota-line>${quotaChip(FS.quota)}</p>` : ''}
     <ul class="list bells">${rows.map(r => html`<li><strong>${L`第${fmtNum(r.bell)}鐘`}</strong>${WHY[r.why] ? html` · ${WHY[r.why]()}` : ''}${Number.isInteger(r.region) ? html` · ${L`地域 ${r.region}`}` : ''}

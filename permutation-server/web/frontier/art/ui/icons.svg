@@ -197,4 +197,20 @@
     <path d="M16 20H6.5A2.5 2.5 0 0 1 4 17.5V16h9.5v1.5A2.5 2.5 0 0 0 16 20Z"/>
     <path d="M9.5 8.5h5.5M9.5 12h5.5"/>
   </g></symbol>
+  <symbol id="lock" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6.5 10.5h11a1.5 1.5 0 0 1 1.5 1.5v6.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 18.5V12a1.5 1.5 0 0 1 1.5-1.5Z" fill="currentColor" fill-opacity=".18"/>
+    <path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>
+    <path d="M12 14.5v2"/>
+  </g></symbol>
+  <symbol id="play" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8 5.5v13L18.5 12Z" fill="currentColor" fill-opacity=".18"/>
+  </g></symbol>
+  <symbol id="flank" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4.5 8.5h13M14 5l3.5 3.5L14 12"/>
+    <path d="M19.5 15.5h-13M10 12l-3.5 3.5L10 19"/>
+  </g></symbol>
+  <symbol id="return" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 14.5L4.5 10 9 5.5"/>
+    <path d="M4.5 10H14a5 5 0 0 1 0 10h-3.5"/>
+  </g></symbol>
 </svg>

@@ -26,6 +26,7 @@ import { ACTIONS, FORMS, bind, startPlay, wantProvince } from './controller.mjs'
 import { renderTabs, renderNotice, factionChip, quotaChip, mountSheet, PHONE_MAX } from './screens/shell.mjs';
 import { drawerOf, closeDrawer, drawerTitle, holdsLand, LIFTS } from './hud/drawer.mjs';
 import { icon, iconizeMapTools } from './hud/icons.mjs';
+import { hudInsets } from './hud/insets.mjs';
 import { createTerrain } from './map/terrain.mjs';
 import { provincePixel } from './map/layers.mjs';
 
@@ -827,8 +828,13 @@ function showTip(hit, at) {
   for (const a of (acts ?? []).filter((a, i, all) => all.findIndex(b => b.kind === a.kind) === i)) lines.push(html`<span class="tip-${a.kind}">${activityText(a)}</span>`);
   setHtml(tip, lines.map(l => html`<span class="tip-line">${l}</span>`));
   tip.hidden = false;
-  tip.style.setProperty('--x', `${Math.round(at.x + 16)}px`);
-  tip.style.setProperty('--y', `${Math.round(at.y + 12)}px`);
+  // beside the pointer, inside the part of the map nothing covers (never under the drawer or the sheet)
+  const size = mapRef?.size?.() ?? { width: 0, height: 0 }, ins = hudInsets();
+  const w = tip.offsetWidth || 0, h = tip.offsetHeight || 0;
+  const x = at.x + 16 + w > size.width - ins.right - 8 ? at.x - 16 - w : at.x + 16;
+  const y = at.y + 12 + h > size.height - ins.bottom - 8 ? at.y - 12 - h : at.y + 12;
+  tip.style.setProperty('--x', `${Math.round(Math.max(8, x))}px`);
+  tip.style.setProperty('--y', `${Math.round(Math.max(ins.top + 8, y))}px`);
 }
 
 // ------------------------------------------------------------------ battle scenes (people/battle.mjs)

@@ -10,6 +10,7 @@
 // The full form stays on the Marches tab (tip, costs, custom ratio, the
 // coordinate list for keyboard and screen-reader use).
 import { html, raw } from '../../util.mjs';
+import { icon } from './icons.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { STANCES as STANCE_TEXT, UNITS, clientText, failureText, factionName } from '../fi18n.mjs';
 import { STANCES } from '../seal.mjs';
@@ -21,8 +22,8 @@ import { clockTime, swatch } from '../screens/shell.mjs';
 import { DIRECTIONS, tileHex } from '../fgeo.mjs';
 import { termButton } from './glossary.mjs';
 
-/** Stance glyphs (the triangle: Assault beats Flank, Flank beats Brace, Brace beats Assault). */
-const STANCE_GLYPH = { Hold: '■', Assault: '▲', Flank: '⇄', Brace: '❙' };
+/** Stance icons from the sprite (the triangle: Assault beats Flank, Flank beats Brace, Brace beats Assault). */
+const STANCE_ICON = { Hold: 'flag', Assault: 'sword', Flank: 'flank', Brace: 'shield' };
 const BEATS = { Assault: 'Flank', Flank: 'Brace', Brace: 'Assault' };
 const RETREAT_SHORT = { never: () => L`撤退しない`, x2: () => L`2倍で撤退`, 'x1.5': () => L`1.5倍で撤退`, x1: () => L`同数で撤退`, 'x0.5': () => L`半分で撤退` };
 
@@ -109,7 +110,7 @@ export function render(FS) {
         <button type="button" class="btn small" data-act="mc-bell" data-d="1" aria-label="${L`1つ遅い鐘`}" ${raw(w.value >= w.max ? 'disabled' : '')}>+</button></div>` : ''}
       <p class="mc-label">${L`構え`}${termButton('stance')}</p>
       <div class="mc-stances" role="radiogroup" aria-label="${L`構え`}">${STANCES.map((s, i) => html`<button type="button" class="mc-stance" role="radio" aria-checked="${i === m.stance ? 'true' : 'false'}" data-act="mc-stance" data-v="${i}">
-        <span class="mc-glyph" aria-hidden="true">${STANCE_GLYPH[s]}</span><span>${STANCE_TEXT[s]}</span>${BEATS[s] ? html`<span class="mc-beats">${L`${STANCE_TEXT[BEATS[s]]}に強い`}</span>` : html`<span class="mc-beats">${L`相性なし`}</span>`}</button>`)}</div>
+        <span class="mc-glyph">${icon(STANCE_ICON[s] ?? 'flag')}</span><span>${STANCE_TEXT[s]}</span>${BEATS[s] ? html`<span class="mc-beats">${L`${STANCE_TEXT[BEATS[s]]}に強い`}</span>` : html`<span class="mc-beats">${L`相性なし`}</span>`}</button>`)}</div>
       <p class="mc-label">${L`撤退の比率`}${termButton('retreat')}</p>
       <div class="mc-retreat" role="radiogroup" aria-label="${L`撤退`}">${RETREAT_CHOICES.filter(r => r.id !== 'custom').map(r => html`<button type="button" class="btn small" role="radio" aria-checked="${r.id === m.retreat.choice ? 'true' : 'false'}" data-act="mc-retreat" data-v="${r.id}">${RETREAT_SHORT[r.id]()}</button>`)}</div>
       ${def ? html`<div class="mc-odds mc-odds-${odds.id}">

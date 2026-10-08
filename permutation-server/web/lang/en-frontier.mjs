@@ -327,7 +327,6 @@ export default {
   "手放された": "Released",
   "招待を扱えません": "Invites cannot be handled.",
   "招待コード": "Invite code",
-  "村 州 {0},{1} 区画 {2}": "Village: province {0},{1}, site {2}",
   "村": "Village",
   "村が確定しました。「村」から始めましょう。": "Your village is final. Start from Village.",
   "探索": "Explore",
