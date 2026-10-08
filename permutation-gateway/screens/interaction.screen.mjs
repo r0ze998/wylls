@@ -278,7 +278,9 @@ test('step counts: a selected host to "seal and depart" in 3 presses; the next t
 // march can reach is answered on the map and keeps the host; the same tile again takes the next host; off screen,
 // a button at the map's edge points home and flies there.
 test('the land: lit tiles on selection, a tap is the order, a refusal on the map, the pointer home', { timeout: 90_000 }, async t => {
-  const Z = 1.4;
+  // (integration: zoom 1.0, not 1.4: a selection opens the inspector in the drawer over the right 396 px of the map,
+  // and the camp tile must stay left of it, as in the step-count test above)
+  const Z = 1.0;
   const page = await open(t, { width: 1440, height: 900, query: `?at=${HOME.p},${HOME.q},${HOME.tile},${Z}` });
   await page.locator('#frontier-map[data-lod="tile"][data-terrain="ready"]').waitFor();
   const box = await page.locator('#frontier-map').boundingBox();

@@ -564,6 +564,9 @@ function checkMilestones() {
   if (!quiet && say.length) { FS.mileQueue = [...(FS.mileQueue ?? []), ...say]; showMilestone(); }
 }
 const mileShown = new Set();
+/** The milestone whose banner stands (its words follow the page's language). */
+let mileNow = null;
+onLangChange(() => { const el = $('mile-banner'); if (el && !el.hidden && mileNow) setHtml(el, milestones.renderBanner(mileNow, FS.citizen?.faction)); });
 function showMilestone() {
   const doc = globalThis.document;
   if (!doc || mileTimer || !(FS.mileQueue ?? []).length) return;
@@ -573,6 +576,7 @@ function showMilestone() {
   mileShown.add(m.id);
   let el = $('mile-banner');
   if (!el) { el = doc.createElement('div'); el.id = 'mile-banner'; el.className = 'mile-banner'; el.setAttribute('role', 'status'); doc.body.appendChild(el); }
+  mileNow = m;
   setHtml(el, milestones.renderBanner(m, FS.citizen?.faction));
   el.hidden = false;
   mileTimer = setTimeout(closeMilestone, milestones.BANNER_MS);

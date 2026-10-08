@@ -90,15 +90,19 @@ export const SCENES = [
     // candidate sites as small discs of painted land
     id: 'ticket', title: 'the wait for the village: candidate sites on the chart', page: 'index.html', stage: 'ticket',
     async go(page) {
-      await page.locator('#join-ticket').waitFor();
+      // (integration: the wait is the HUD track's waiting view in the drawer, with its countdown to the next turn)
+      await page.locator('.wait-card #join-sites').waitFor();
+      await page.locator('[data-turn-left]').waitFor();
       await page.locator('#frontier-map[data-lod="tile"][data-terrain="ready"]').waitFor();
     },
   },
   {
     id: 'provisional', title: 'a provisional village: its disc of sight on the chart', page: 'index.html', stage: 'provisional',
     async go(page) {
-      await page.locator('#join-prov').waitFor();
+      // (integration: with a village the drawer starts closed; the provisional card stands with the guide's steps, on demand)
       await page.locator('#frontier-map[data-lod="tile"][data-terrain="ready"]').waitFor();
+      await page.locator('[data-act="guide-open"]').first().click();
+      await page.locator('#join-prov').waitFor();
     },
   },
   {
