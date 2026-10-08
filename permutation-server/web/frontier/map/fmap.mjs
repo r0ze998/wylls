@@ -65,6 +65,8 @@ export const FAR_ZOOM_CAP = LOD_EDGES.provinceOut * 0.95;
 /** A change of level of detail dissolves over this long (ms), after waiting at most LOD_HOLD_MS for the new level's art. */
 export const LOD_FADE_MS = 280;
 export const LOD_HOLD_MS = 700;
+/** The opening fades in from the bare table over this long (ms). */
+export const REVEAL_MS = 520;
 /** The dissolve's still is gone once the zoom has travelled this far from it (natural log of the zoom ratio). */
 export const LOD_FADE_DRIFT = 0.32;
 /** The table under the world (the vignette of dressing.mjs darkens it toward the edges). */
@@ -671,7 +673,8 @@ export class FrontierMap {
       const cv = this.fadeCv?.width === W && this.fadeCv?.height === H ? this.fadeCv : spareCanvas(this.canvas.ownerDocument, W, H);
       const g = cv?.getContext?.('2d');
       if (g) {
-        this.paintScene(ctx, src, v, was, size, dpr, { now, table }).over();
+        // (the world only: labels are always drawn fresh on top, a still of them would ghost as the zoom goes on)
+        this.paintScene(ctx, src, v, was, size, dpr, { now, table });
         g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'copy'; g.drawImage(this.canvas, 0, 0); g.globalCompositeOperation = 'source-over';
         this.fadeCv = cv;
         this.fade = { view: { ...v }, since: now, t0: null };
@@ -709,15 +712,20 @@ export class FrontierMap {
         this.dirty = true;
       }
     }
-    dressing(v.zoom);
-    out.over();
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    // the opening comes out of the mist
+    // the opening comes out of the bare table it waited on: the land first, its labels with it
+    let shown = 1;
     if (this.reveal !== undefined && this.reveal !== null) {
-      const k = motion ? (now - this.reveal) / 520 : 1;
+      const k = motion ? (now - this.reveal) / REVEAL_MS : 1;
       if (!(k < 1)) this.reveal = null;
-      else { ctx.fillStyle = `rgba(20,38,35,${Math.pow(1 - Math.max(0, k), 2)})`; ctx.fillRect(0, 0, width, height); this.dirty = true; }
+      else {
+        shown = 1 - Math.pow(1 - Math.max(0, k), 2);
+        ctx.save(); ctx.globalAlpha = 1 - shown; table(ctx); ctx.restore();
+        this.dirty = true;
+      }
     }
+    dressing(v.zoom);
+    if (shown > 0.4) { ctx.save(); ctx.globalAlpha = shown; out.over(); ctx.restore(); }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.mark(lod === this.lod && out.wanted > 0 && out.drawn === out.wanted ? 'ready' : 'pending');
     PROBE.end(out.kind, ctx);
     PROBE.paint(ctx, size);
