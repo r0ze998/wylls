@@ -454,7 +454,7 @@ function fly(a, env) {
       return el;
     },
     update(el, s) {
-      const from = s.toViewport(w.x, w.y - R * 0.5);
+      const from = s.anchor(w.x, w.y - R * 0.5);
       const r = target.getBoundingClientRect();
       const to = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
       [...el.children].forEach((tok, i) => {

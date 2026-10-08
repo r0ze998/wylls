@@ -179,8 +179,7 @@ export function startDemo({ fx, map = null, params, doc = globalThis.document })
   const context = () => {
     const at = anchor();
     const here = project(at.q, at.r);
-    const e = fx.toScreen(0, 0), sz = fx.size();
-    const engineInView = e.x >= 0 && e.y >= 0 && e.x <= sz.width && e.y <= sz.height;
+    const engineInView = fx.onStage(0, 0);
     // (the resource strip appears when the page has the village's stores: a sample that flies to it is rebuilt then)
     const strip = doc.getElementById?.('res-strip');
     const turn = Number(String(doc.querySelector?.('#bell-pill .dial-num')?.textContent ?? '').replace(/[^0-9]/g, '')) || null;

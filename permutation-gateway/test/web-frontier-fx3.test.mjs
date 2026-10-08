@@ -464,6 +464,19 @@ test('captions are tags (bell metal, the serif, a leader to the tile); words and
     } finally { s.done(); }
   }
   assert.equal(POP_SECS, 0.12); assert.equal(POP_FROM, 1.3);
+  // words are nodes of the page: when the language changes, the ones written in the language before are taken down at once
+  setLang('ja');
+  const l = staged();
+  try {
+    l.fx.play('label', { q: 3, r: -2, text: 'ラマールの町', serif: true, dur: 3 });
+    l.fx.play('tag', { q: 3, r: -2, text: '伐採場が完成', dur: 3 });
+    l.fx.play('flash', { q: 3, r: -2 });
+    l.run(200);
+    assert.equal(hudNodes(l, 'fx-word').length + hudNodes(l, 'fx-tag').length, 2);
+    setLang('en');
+    assert.equal(hudNodes(l, 'fx-word').length + hudNodes(l, 'fx-tag').length, 0, 'no caption is left standing in the old language');
+    assert.ok(l.fx.playing().includes('flash'), 'what is not words plays on');
+  } finally { l.done(); setLang('ja'); }
   const css = readFileSync(`${WEB}fx/fx.css`, 'utf8');
   const plate = /\.fx-tag-plate\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
   assert.match(plate, /Mincho|serif/); assert.match(plate, /#10221f/, 'bell metal');

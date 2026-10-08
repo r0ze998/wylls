@@ -252,7 +252,8 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
   preloadBattle(scene);
   // the camera: the tile's centre where the whole block (title, numbers, figures, bars) sits in the middle of the stage
   if (frame && fx.map?.flyTo && level !== 'off') {
-    const sz = fx.size(), r = fx.top?.getBoundingClientRect?.() ?? { left: 0, top: 0 };
+    // (a flat view's arithmetic; under a tilted map the title and the numbers are still kept in place by `anchor`)
+    const sz = fx.size(), o = fx.anchor(0, 0), v = fx.view(), r = { left: o.x - (sz.width / 2 - v.x * v.zoom), top: o.y - (sz.height / 2 - v.y * v.zoom) };
     try { fx.map.flyTo({ x: stage.cx - (frame.x - r.left - sz.width / 2) / z, y: stage.cy - (frame.y - r.top - sz.height / 2) / z, zoom: z }, level === 'full' ? 500 : 1, { exact: true }); } catch { /* a map that cannot fly */ }
   }
   // the title stands over the scene: above the loss numbers, inside the free stage (the banner keeps it there)

@@ -18,7 +18,7 @@
 //
 // Emitted here for the HUD: `turn:results {turn, items, fresh, startsIn}`,
 // `res:gain {p, q, site}` (when harvest tokens land in the resource strip).
-import { L, fmtNum } from '../../lang.mjs';
+import { L, fmtNum, onLangChange } from '../../lang.mjs';
 import { project } from '../../map.mjs';
 import { tileHex, hexDistance } from '../fgeo.mjs';
 import { keyHex } from '../map/survey.mjs';
@@ -65,8 +65,7 @@ export function orderResults(list) {
 // ------------------------------------------------------------------ the compositions
 /** The bell tolls: `{turn, home: {p, q, tile} | null}`. */
 export function playToll(fx, { turn, home = null } = {}) {
-  const e = fx.toScreen(0, 0), sz = fx.size();
-  const engineInView = e.x >= 0 && e.y >= 0 && e.x <= sz.width && e.y <= sz.height;
+  const engineInView = fx.onStage(0, 0);
   const h = worldOf(home), v = fx.view();
   // from the Engine when it is in view; else from the viewer's own village; else from the middle of what is looked at
   const o = engineInView ? { x: 0, y: 0 } : h ?? { x: v.x, y: v.y };
@@ -188,6 +187,8 @@ export function playLanding(fx, a) {
   // the village's name, in the viewer's gold (it is theirs): the one word of the moment, shown in every motion level
   if (a.name) fx.play('label', { ...at, text: a.name, color: TONE.you, size: 26, lift: 2.1, dur: 2.6, serif: true, delay: fx.motionLevel() === 'full' ? t + 0.3 : 0, seed });
   fx.play('pip', { ...at, color: TONE.you, delay: t, seed });
+  // the village's own labels make way until its name has been read
+  fx.hush(at, t + 3.0);
 }
 
 /**
@@ -436,6 +437,11 @@ export function installStage(fx, { bus = defaultBus } = {}) {
     if (at) recent.set(`depart|${at.p},${at.q},${at.tile}`, fx.clock.now());
     for (const h of playSealed(fx, { ...rec?.a, ...a })) resting.add(h);
   });
+
+  // ---- the language changed: words written in the one before are taken down at once (they are nodes of the page now,
+  // and a caption is never left standing in a language the page is no longer in)
+  const offLang = onLangChange?.(() => { if (fx.mounted) fx.drop(['label', 'tag', 'banner']); });
+  if (typeof offLang === 'function') offs.push(offLang);
 
   fx.staged = { off() { offs.forEach(f => f()); fx.staged = null; } };
   return fx.staged;

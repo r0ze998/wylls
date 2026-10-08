@@ -581,6 +581,8 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
     clear() { for (const e of [...effects]) remove(e); particles.clear(); shakes.length = 0; pieces.length = 0; syncPieces(clock.now()); version++; lastSig = ''; kick(); },
     /** Cut the life of the live effects of these names to end `at` seconds after they began (the demo ends a waiting state on its own clock). */
     trim(names, at) { for (const e of effects) if (names.includes(e.name) && e.dur > at) e.dur = at; version++; },
+    /** Remove the effects of these names now (words in a language the page has just left). Returns how many went. */
+    drop(names) { const gone = effects.filter(e => names.includes(e.name)); for (const e of gone) remove(e); if (gone.length) { lastSig = ''; kick(); } return gone.length; },
     /** Keep finished effects (the demo rewinds the clock). */
     set keep(v) { keep = !!v; }, get keep() { return keep; },
     get mounted() { return !!m; },
@@ -588,6 +590,8 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
     get top() { return m?.top ?? null; },
     view, size,
     toScreen: (x, y) => toScreen(view(), size(), x, y),
+    /** Whether a world point is on the map on screen (through `anchor`, so under a tilt too); `margin` px of grace. */
+    onStage(x, y, margin = 0) { const p = anchor(x, y), sz = size(), r = m?.rect ?? { left: 0, top: 0, width: sz.width, height: sz.height }; return p.x >= r.left - margin && p.y >= r.top - margin && p.x <= r.left + r.width + margin && p.y <= r.top + r.height + margin; },
     destroy() { offBus?.(); unmount(); },
   };
   return api;
