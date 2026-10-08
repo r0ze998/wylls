@@ -239,7 +239,7 @@ export const battleScale = (zoom, fit = 1) => Math.max(40, Math.min(88, 34 + 22 
 /** How much of its full size the scene takes on a map `width` CSS px wide (a phone shows it smaller, never under 40 px a figure). */
 export const battleFit = width => (width > 0 ? Math.max(0.5, Math.min(1, width / 720)) : 1);
 /** Where a side's formation is centred before the charge, and how far it closes for the melee (figure heights). */
-const REST = 1.6, ENGAGE = 1.0;
+const REST = 1.6, ENGAGE = 0.86;
 /** A line across the field runs up and to the right on screen (the map's oblique view): how far a step across shifts a figure sideways, and how deep it reads. */
 const SKEW = 0.34, DEPTH = 0.8;
 
@@ -322,7 +322,7 @@ export function battlePlan(scene) {
 export function battleStage(tile, zoom, fit = 1) {
   const s = battleScale(zoom, fit), cx = tile.c.x, cy = tile.c.y + RADIUS * 0.12;
   return { s, cx, cy, contact: { x: cx, y: cy - s * 0.48 }, feet: { x: cx, y: cy + s * 0.05 },
-    left: { x: cx - (REST - ENGAGE + 0.1) * s, y: cy }, right: { x: cx + (REST - ENGAGE + 0.1) * s, y: cy } };
+    left: { x: cx - (REST - ENGAGE) * s, y: cy }, right: { x: cx + (REST - ENGAGE) * s, y: cy } };
 }
 
 /**

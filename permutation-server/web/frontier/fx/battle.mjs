@@ -26,6 +26,7 @@ import { factionName } from '../fi18n.mjs';
 import { PHASE, BATTLE_HITS, HIT_POWER, battlePlan, battleStage, battleFit, battleVerdict, paintBattle, preloadBattle, sideColors, crossedSwords } from '../people/battle.mjs';
 import { span, lerp, inQuad, outCubic, outExpo, outBack, envelope } from './ease.mjs';
 import { REDUCED_FADE } from './motion.mjs';
+import { toScreen } from './engine.mjs';
 import { noise1, hashSeed } from './rand.mjs';
 import { TONE, rgba } from './effects.mjs';
 
@@ -220,12 +221,22 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
   const stage = battleStage(main, z, fit);
   play.staged = true;
   preloadBattle(scene);
+  // the title sits clear of the scene: above the loss numbers, or under the bars when the fight is near the top of the map
+  const titleY = (() => {
+    const sz = fx.size();
+    if (!(sz.height > 0)) return 0.2;
+    // where the scene will be on screen: by the map's own view (the target of a camera that is still flying), at the zoom it will be watched at
+    const v = fx.map?.view ?? fx.view();
+    const cy = toScreen({ x: v.x, y: v.y, zoom: z }, sz, stage.cx, stage.cy).y, px = stage.s * z;
+    const above = (cy - 2.0 * px - 44 - 64) / sz.height;
+    return Math.max(0.1, Math.min(0.86, above >= 0.1 ? above : (cy + 1.05 * px + 34 + 50 + 70) / sz.height));
+  })();
 
   if (level === 'off') {
     // numbers and the title only; the map's tokens stay as they are
     play.t0 = -1e9;
     for (const T of fights) for (const side of T.sides) if (side.loss) keep(fx.play('label', { x: T.c.x + side.sgn * RADIUS * 1.1, y: T.c.y, text: texts.lossText(side.loss), color: '#ffb7a3', size: 24, lift: 0.9, dur: 3, seed: `${id}|loss|${side.sgn}`, mode: level }));
-    if (title) keep(fx.play('banner', { title: title.title, sub: title.sub, color: title.color, tone: title.tone, y: 0.2, dur: 2.8, seed: `${id}|title`, mode: level }));
+    if (title) keep(fx.play('banner', { title: title.title, sub: title.sub, color: title.color, tone: title.tone, y: titleY, dur: 2.8, seed: `${id}|title`, mode: level }));
     const h = { cancel() { handles.forEach(x => x.cancel?.()); staged.delete(key); } };
     staged.set(key, h);
     return h;
@@ -241,7 +252,7 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
       if (s.zoom * RADIUS < BATTLE_FAR_R) { for (const T of plan.tiles) if (T.fight) paintFar(ctx, s, T, PHASE.fates + 1, title?.color ?? null); }
       else paintBattle(ctx, play, { zoom: s.zoom, at: PHASE.fates + 1.5, top: true, fit: battleFit(s.size.width), ...texts });
     } }));
-    if (title) keep(fx.play('banner', { title: title.title, sub: title.sub, color: title.color, tone: title.tone, y: 0.2, dur: Math.min(hold, 2.8), seed: `${id}|title`, mode: level }));
+    if (title) keep(fx.play('banner', { title: title.title, sub: title.sub, color: title.color, tone: title.tone, y: titleY, dur: Math.min(hold, 2.8), seed: `${id}|title`, mode: level }));
     const h = { cancel() { handles.forEach(x => x.cancel?.()); staged.delete(key); } };
     staged.set(key, h);
     return h;
@@ -289,7 +300,7 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
   }
   // 4. the verdict across the map, in the holder's colour
   if (title) {
-    keep(fx.play('banner', { title: title.title, sub: title.sub, color: title.color, tone: title.tone, y: 0.2, dur: Math.max(1.6, 2.5 / speed), delay: at(PHASE.fates + 0.3), seed: `${id}|title` }));
+    keep(fx.play('banner', { title: title.title, sub: title.sub, color: title.color, tone: title.tone, y: titleY, dur: Math.max(1.6, 2.5 / speed), delay: at(PHASE.fates + 0.3), seed: `${id}|title` }));
     if (title.won) fx.sound('shimmer', { delay: at(PHASE.fates + 0.3), seed: id });
     // 5. the aftermath: the tile and the land around it pulse in that colour
     if (title.verdict.winner !== null) {
