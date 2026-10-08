@@ -32,7 +32,7 @@ const STEP_TEXT = {
   settled: () => L`結果を受け取った`,
 };
 /** What a march waits for next (the first step not done). */
-const WAIT_TEXT = { departed: () => L`出発が記録されるのを待っています`, arrivalBell: () => L`到着のターンを待っています`, anchored: () => L`到着しました。ターンが終わるのを待っています。`, revealed: () => L`封が開けられるのを待っています`, resolved: () => L`衝突の結果を待っています`, settled: () => L`結果が出ました。受け取りを待っています。` };
+const WAIT_TEXT = { departed: () => L`出発が記録されるのを待っています`, arrivalBell: () => L`到着のターンを待っています`, anchored: () => L`到着しました。封を開ける鍵が出るのを待っています（ターンが終わると出ます）。`, revealed: () => L`封が開けられるのを待っています`, resolved: () => L`衝突の結果を待っています`, settled: () => L`結果が出ました。受け取りを待っています。` };
 const HINT_TEXT = {
   keepersWillReveal: () => L`この端末には封の控えがありません。封は、到着のターンが終わったあと自動で開けられます。`,
   sealMismatch: () => L`チェーンに記録された封が、この端末で作った封と違います。この端末からは開けません。`,

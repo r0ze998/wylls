@@ -298,7 +298,7 @@ unit on the map is 軍勢, a host), so the merged dictionary stays consistent.
 | Wylls | Wylls | the game's name |
 | 鐘 | bell | the thing in the world that tolls every ten minutes. It is said only for the unnumbered event (「鐘が鳴りました」 / "The bell has tolled", 「次の鐘から」 / "from the next bell") and in the help's one line that ties it to the turn: 「鐘が鳴るたびにターンが進みます」 / "Each time the bell tolls, the turn advances". Never numbered (no 第N鐘, no Bell N), never "tick" |
 | ターン / ターン N | turn / Turn N | the ten-minute step and its number: EVERY numbered reference on the play, practice and spectator pages (UX design 11.13, owner brief of 2026-10-09): the dial (`Turn 1,034 · 6:12 left`), the toll banner (「鐘が鳴りました — ターン 43」 / "The bell has tolled — Turn 43"), lists, the inspector, the order card, the marches, the chronicle, a report's stamp, the spectator's stepper, notifications, the canvas's labels. In a sentence "on turn 43"; as a label "Turn 43". The period is a turn too: 到着のターン / "the arrival turn", このターン / "this turn", ターンの始まり / "when the turn begins" |
-| 州 | province | a province has no name of its own: a person reads it in words, 「ラマールの町のある州」 / "the province of Ramar's Town" (the viewer's village in it) or 「シンダー方面・第2輪の州」 / "a ring-2 province on Cinder's side" (`hud/place.mjs` provinceName); 「州 2,0」 / "Province 2,0" only under details |
+| 州 | province | a province has no name of its own: a person reads it in words, 「ラマールの町のある州」 / "Ramar's Town province" (the viewer's village in it) or 「シンダー方面・第2輪の州」 / "a ring-2 province on Cinder's side" (`hud/place.mjs` provinceName); 「州 2,0」 / "Province 2,0" only under details |
 | 輪 / 第d輪 | ring / Ring d | ring 0 is the Concord |
 | 扇区（本拠の扇区） | wedge (home wedge) | |
 | 辺境区 | March | the 7-province district; capital M |

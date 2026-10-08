@@ -160,7 +160,9 @@ test('places by name: what stands on a tile, then its terrain; pins and the chro
   assert.equal(place.tileName(null, 9, 9, 5), '土地', 'nothing known: the land');
   assert.equal(place.tilePlace(FS, 2, 0, 33), '蛮族の野営地（州 2,0）');
   assert.equal(pins.pinName({ p: 2, q: 0, tile: 33 }, FS), '蛮族の野営地（州 2,0）');
-  assert.equal(pins.pinName({ p: 2, q: 0, tile: null }, FS), '州 2,0');
+  // (hud-4, UX design 11.13: a pinned province is said in words first; its coordinates follow in brackets, since a pin is a bookmark)
+  assert.match(pins.pinName({ p: 2, q: 0, tile: null }, FS), /の町のある州（州 2,0）$/);
+  assert.equal(pins.pinName({ p: 1, q: 1, tile: null }, FS), 'アステル方面・第2輪の州（州 1,1）');
   // the village as the map paints it, for its card and the inspector: a file of the art for every nation and tier (no 404)
   for (let f = 0; f < 6; f++) for (let tier = 0; tier < 4; tier++) for (const walls of [false, true]) {
     const url = place.villagePic(f, tier, { walls });

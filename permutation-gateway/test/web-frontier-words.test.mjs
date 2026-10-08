@@ -94,7 +94,7 @@ test('a unit with its count, a province in words: names before coordinates', () 
   setLang('en');
   assert.equal(fi18n.unitCount('Spearman', 600), '600 Spearmen', 'English counts a plural: "Spearman 600" was not English');
   assert.deepEqual(['Archer', 'Horseman', 'Pikeman', 'Crossbowman', 'Knight', 'Scout', 'Settler'].map(u => fi18n.unitCount(u, 100)), ['100 Archers', '100 Horsemen', '100 Pikemen', '100 Crossbowmen', '100 Knights', '100 Scouts', '100 Settlers']);
-  assert.equal(place.provinceName(FS, 2, 0), `the province of ${placeName(2, 0, 3).en}'s Town`);
+  assert.equal(place.provinceName(FS, 2, 0), `${placeName(2, 0, 3).en}'s Town province`);
   assert.equal(place.provinceName(null, 1, 1), 'a ring-2 province on Aster\'s side');
   assert.equal(routeLine({ hexes: 4 }), '4 tiles away');
   assert.equal(routeLine({ hexes: 1 }), '1 tile away');

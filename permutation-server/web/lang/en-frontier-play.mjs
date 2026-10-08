@@ -532,11 +532,11 @@ export default {
   '空いた場所に、村の申し込みを自動で出しています。': 'Sending your village request for a free site automatically.',
   // ---- hud-4 (the words, UX design 11.13): turn N for every number; names before coordinates; the seal in one sentence; one outcome vocabulary
   // ---- places in words (hud/place.mjs): a province by the viewer's village in it, else by the nation on whose side it lies
-  '{0}のある州': 'the province of {0}',
+  '{0}のある州': '{0} province',
   '{0}方面・第{1}輪の州': 'a ring-{1} province on {0}\'s side',
   // ---- the seal in one sentence (hud/glossary.mjs sealLine): the order card, the legend, the help, the guide
   '行き先と構えは封印され、到着のターンが終わるまで、ほかの人には開けられません。': 'The destination and the stance are sealed: nobody else can open the seal until the arrival turn ends.',
-  'ほかの人に見えるのは、出発したことと、出発地と、到着のターンだけです。到着のターンが始まると、あなたの端末が先に封を開けることがあります。そのときにはもう、そのターンの到着も守り手も変えられません。': ' Others see only that the march set out, where from, and its arrival turn. Once the arrival turn begins, your own device may open the seal first; by then nobody can change that turn\'s arrivals or its defenders.',
+  'ほかの人に見えるのは、出発したこと、出発地、兵の数、到着のターンです。到着のターンが始まると、あなたの端末が先に封を開けることがあります。そのときにはもう、そのターンの到着も守り手も変えられません。': ' Others see that the march set out, where from, how many troops and its arrival turn. Once the arrival turn begins, your own device may open the seal first; by then nobody can change that turn\'s arrivals or its defenders.',
   '届く範囲の蛮族の野営地へ、封をした進軍を送ります。': 'Send a sealed march to a barbarian camp within reach. ',
   'このタブを閉じても、封は自動で開けられます。': ' If you close this tab, the seal is still opened automatically.',
   // ---- the help (hud/glossary.mjs)
@@ -594,7 +594,7 @@ export default {
   '結果を受け取った': 'The result was collected',
   '出発が記録されるのを待っています': 'Waiting for the departure to be recorded',
   '到着のターンを待っています': 'Waiting for the arrival turn',
-  '到着しました。ターンが終わるのを待っています。': 'Arrived. Waiting for the turn to end.',
+  '到着しました。封を開ける鍵が出るのを待っています（ターンが終わると出ます）。': 'Arrived. Waiting for the key that opens the seal (it comes out when the turn ends).',
   '封が開けられるのを待っています': 'Waiting for the seal to be opened',
   '衝突の結果を待っています': 'Waiting for the result of the clash',
   '結果が出ました。受け取りを待っています。': 'The result is out. Waiting for it to be collected.',
