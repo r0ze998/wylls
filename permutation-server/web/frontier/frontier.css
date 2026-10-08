@@ -1252,3 +1252,28 @@ button.rose-d3:active { transform: translate(-66px, 0) scale(.94); } button.rose
 .lit-attack { background: #e2553d; border-color: #ff9678; }
 .lit-home { background: #f3d58a; border-color: #ffecb2; }
 .lit-explore { background: #7fc4e8; border-color: #bae4fc; }
+
+/* ---- integration of the three tracks: the objective on the map, this turn's results, the pointer home over the HUD's edge shade */
+/* the guide's one objective at its target on the map (app.mjs placeObjective): a compact chip above the ivory ring, with a tail */
+.ob-map { position: absolute; left: 0; top: 0; z-index: 19; transform: translate(calc(var(--x, 0px) - 50%), calc(var(--y, 0px) - 100%)); pointer-events: none; }
+.ob-map[hidden] { display: none; }
+.ob-map .ob-chip { position: relative; display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto; align-items: center; gap: 0 14px; padding: 6px 8px 7px 12px; border-color: rgba(244,239,224,.7); white-space: nowrap; }
+.ob-map .ob-chip::after { content: ""; position: absolute; left: 50%; bottom: -7px; width: 12px; height: 12px; margin-left: -6px; transform: rotate(45deg); background: rgba(16,34,31,.92); border-right: 1px solid rgba(244,239,224,.7); border-bottom: 1px solid rgba(244,239,224,.7); }
+.ob-map .ob-steps { grid-column: 1; grid-row: 1; justify-self: start; min-height: 20px; }
+.ob-map .ob-chip h3 { grid-column: 1; grid-row: 2; margin: 0; }
+.ob-map .ob-do { display: none; }
+.ob-map .ob-acts { grid-column: 2; grid-row: 1 / 3; flex-wrap: nowrap; }
+/* what happened this turn (hud/feed.mjs renderTurnStrip): one card, a row per result, the row that plays on the map lit */
+.turn-strip { box-shadow: var(--shadow), var(--plate-edge), inset 4px 0 0 var(--brass); }
+.turn-rows { grid-column: 1 / -1; list-style: none; margin: 2px 0 0; padding: 0; display: grid; gap: 4px; }
+.turn-row { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 40px; padding: 4px 6px 4px 8px; border-radius: 8px; background: rgba(255,255,255,.05); border: 1px solid transparent; font-size: var(--t2); line-height: 1.4; transition: background-color var(--in), border-color var(--in); }
+.turn-row.now { background: rgba(240,212,138,.16); border-color: rgba(240,212,138,.6); }
+.turn-ic { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: rgba(0,0,0,.25); color: var(--brass-hi); }
+.turn-ic .ic { width: 15px; height: 15px; }
+.turn-battle .turn-ic, .turn-incoming .turn-ic { color: #ff9a86; }
+.turn-acts { display: flex; gap: 6px; }
+.turn-acts .btn + .btn { margin-left: 0; }
+/* a store that waits for the harvest's tokens to land (app.mjs resGain) */
+.res-wait .res-val { opacity: .75; }
+/* the pointer home stands over the map's edge shade, under the HUD's own pieces */
+.home-pointer { z-index: 19; }

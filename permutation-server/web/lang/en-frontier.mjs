@@ -30,6 +30,11 @@ export default {
   '演出の見本です。実際の記録ではありません。': 'This is an effects demo, not a real record.',
   '勝利': 'Victory',
   '鐘が鳴りました — ターン {0}': 'The bell has tolled — Turn {0}',
+  '進軍が開封されました': 'A march was revealed',
+  '衝突が決着しました': 'A clash was resolved',
+
+  // ---- this turn's own results, one card over the map (hud/feed.mjs renderTurnStrip)
+  'このターンのできごと': 'This turn',
 
   // ---- set pieces (fx/stage.mjs, fx/battle.mjs): the verdict of a battle, the turn's own results, moments of the map
   '{0} 対 {1}': '{0} vs {1}',

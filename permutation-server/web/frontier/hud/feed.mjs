@@ -153,6 +153,25 @@ export function renderToast(x) {
   </div>`;
 }
 
+/** A mark per kind of own result at the turn (fx/stage.mjs `turn:results`). */
+const RESULT_ICON = Object.freeze({ arrival: 'seal', battle: 'swords', incoming: 'alert' });
+/**
+ * What happened this turn (UX design 8.3: after the toll this turn's own results play on the map in order,
+ * each offering "see"): one card over the map with a row per result. `strip` = `{turn, items: [{id, kind,
+ * p, q, tile, text, battle}], demo}`; `now`: the index of the row whose mark is playing on the map (-1: none).
+ */
+export function renderTurnStrip(strip, { now = -1 } = {}) {
+  if (!strip?.items?.length) return '';
+  const see = x => (x.battle ? html`<button type="button" class="btn small primary" data-act="battle-play" data-p="${x.battle.p}" data-q="${x.battle.q}" data-bell="${x.battle.bell}">${L`見る`}</button><button type="button" class="btn small" data-act="report-open" data-p="${x.battle.p}" data-q="${x.battle.q}" data-bell="${x.battle.bell}">${L`報告`}</button>`
+    : Number.isInteger(x.p) ? html`<button type="button" class="btn small primary" data-act="turn-go" data-id="${x.id}">${L`見る`}</button>` : '');
+  return html`<div class="toast turn-strip" role="status">
+    <span class="toast-icon">${icon('bell')}</span>
+    <span class="toast-text"><span class="toast-kind">${L`このターンのできごと`}<span class="toast-stamp">${icon('bell')}${L`ターン ${fmtNum(strip.turn)}`}</span></span></span>
+    <button type="button" class="toast-x" data-act="turn-dismiss" aria-label="${L`閉じる`}">${icon('close')}</button>
+    <ol class="turn-rows">${strip.items.map((x, i) => html`<li class="turn-row turn-${x.kind}${i === now ? ' now' : ''}"><span class="turn-ic">${icon(RESULT_ICON[x.kind] ?? 'flag')}</span><span class="turn-text">${x.text}</span><span class="turn-acts">${see(x)}</span></li>`)}</ol>
+  </div>`;
+}
+
 /** The toasts: the newest live, undismissed notifications. */
 export function renderToasts(feed, opts = {}) {
   return liveToasts(feed, opts).map(renderToast);

@@ -188,7 +188,7 @@ export function playLit(fx, a) {
   const byKind = new Map();
   for (const t of a.tiles ?? []) { if (!byKind.has(t.kind)) byKind.set(t.kind, []); byKind.get(t.kind).push({ q: t.q, r: t.r }); }
   const hex = c => (Array.isArray(c) ? `#${c.map(v => Math.max(0, Math.min(255, v | 0)).toString(16).padStart(2, '0')).join('')}` : TONE.reach);
-  for (const [kind, tiles] of byKind) fx.play('glow', { tiles, origin: a.origin, color: hex(a.colours?.[kind]), hold: 0.5, seed: `lit|${kind}|${a.origin?.q},${a.origin?.r}` });
+  for (const [kind, tiles] of byKind) fx.play('glow', { tiles, origin: a.origin, color: hex(a.colours?.[kind]), hold: 0.5, gain: 0.5, seed: `lit|${kind}|${a.origin?.q},${a.origin?.r}` });
   fx.sound('tick', { seed: 'lit' });
 }
 

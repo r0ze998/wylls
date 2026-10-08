@@ -21,7 +21,7 @@ import { FrontierMap } from './map/fmap.mjs';
 import { openHint } from './map/opening.mjs';
 import { createSurveyor } from './map/survey.mjs';
 import { surveyInput } from './map/viewer.mjs';
-import { fxNow } from './map/chart.mjs';
+import { fxNow } from './map/chart.mjs';   // (milliseconds on the effects clock)
 import { reducedMotion } from './map/camera.mjs';
 import { renderSurveyHelp } from './map/legend.mjs';
 import { NOTE_TEXT, createActions } from './map/actions.mjs';
@@ -968,6 +968,39 @@ function renderHudTick(now) {
 
 // ------------------------------------------------------------------ the strip's small moves
 let resSeen = { key: null, values: new Map() };
+/** Jumps that wait for the harvest's tokens to land in the strip (fx/stage.mjs `res:gain`): resource → {was, to}. */
+const resHeld = new Map();
+let harvestDue = 0;
+/** Count one token up from `was` to `to` and flash it (visual only; nothing moves under reduced motion). */
+function countUp(el, was, to) {
+  if (!el) return;
+  el.classList.remove('res-wait');
+  el.classList.remove('res-bump', 'res-up', 'res-down'); void el.offsetWidth;
+  el.classList.add('res-bump', to >= was ? 'res-up' : 'res-down');
+  const val = el.querySelector('.res-val');
+  if (!val || calm() || !globalThis.requestAnimationFrame) { if (val) val.textContent = fmtNum(to); return; }
+  const t0 = fxNow();
+  const step = () => {
+    const k = Math.min(1, (fxNow() - t0) / 450);
+    val.textContent = fmtNum(Math.round(was + (to - was) * (1 - Math.pow(1 - k, 3))));
+    if (k < 1 && val.isConnected) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+/** The harvest's tokens landed: what waited counts up now; with nothing waiting the strip only answers with a flash. */
+function resGain() {
+  const strip = $('res-strip');
+  if (!strip?.querySelector) return;
+  harvestDue = 0;
+  if (!resHeld.size) { for (const el of strip.querySelectorAll('[data-res]')) { el.classList.remove('res-bump', 'res-up'); void el.offsetWidth; el.classList.add('res-bump', 'res-up'); } return; }
+  for (const [res, j] of resHeld) countUp(strip.querySelector(`[data-res="${res}"]`), j.was, j.to);
+  resHeld.clear();
+}
+function mountResGain() {
+  // an own harvest is on its way to the strip: a jump of the stores waits for the tokens (at most two and a half seconds)
+  fxOn('moment', m => { if (m?.kind === 'harvest' && m.own && !calm()) harvestDue = Date.now() + 2500; });
+  fxOn('res:gain', () => resGain());
+}
 /**
  * A resource that jumps (a harvest, a build paid for) counts up to its new value and flashes;
  * the slow rise of production does neither. Visual only: the number in the page is already the
@@ -978,24 +1011,28 @@ function resChanges(strip, tokens) {
   const key = h ? `${h.p},${h.q},${h.site}` : null;
   const prev = resSeen.key === key ? resSeen.values : null;
   resSeen = { key, values: new Map(tokens.map(r => [r.resource, r.value])) };
-  if (!prev || !strip.querySelector) return;
+  if (!strip.querySelector) return;
+  if (!prev) { resHeld.clear(); return; }
+  const waiting = Date.now() < harvestDue;
+  // (the tokens never came: what waited counts up now)
+  if (!waiting && resHeld.size) { for (const [res, j] of resHeld) countUp(strip.querySelector(`[data-res="${res}"]`), j.was, tokens.find(r => r.resource === res)?.value ?? j.to); resHeld.clear(); }
   for (const r of tokens) {
+    const el = strip.querySelector(`[data-res="${r.resource}"]`);
+    const held = resHeld.get(r.resource);
+    if (held) {
+      // still waiting for the tokens: the number shown stays the old one (the page's value is already the new one)
+      held.to = r.value;
+      const val = el?.querySelector('.res-val');
+      if (val) val.textContent = fmtNum(held.was);
+      continue;
+    }
     const was = prev.get(r.resource);
     if (was === undefined) continue;
     const d = r.value - was;
     if (Math.abs(d) <= Math.ceil((r.perHour / 3600) * 5) + 1) continue;
-    const el = strip.querySelector(`[data-res="${r.resource}"]`);
     if (!el) continue;
-    el.classList.add('res-bump', d > 0 ? 'res-up' : 'res-down');
-    const val = el.querySelector('.res-val');
-    if (!val || calm() || !globalThis.requestAnimationFrame) continue;
-    const t0 = performance.now(), to = r.value;
-    const step = t => {
-      const k = Math.min(1, (t - t0) / 450);
-      val.textContent = fmtNum(Math.round(was + (to - was) * (1 - Math.pow(1 - k, 3))));
-      if (k < 1 && val.isConnected) requestAnimationFrame(step);
-    };
-    requestAnimationFrame(step);
+    if (waiting && d > 0) { resHeld.set(r.resource, { was, to: r.value }); const val = el.querySelector('.res-val'); if (val) val.textContent = fmtNum(was); el.classList.add('res-wait'); continue; }
+    countUp(el, was, r.value);
   }
 }
 
@@ -1004,6 +1041,7 @@ function resChanges(strip, tokens) {
  * The button shows only when that exists, calls its `toggle` and reflects `muted`; without it the
  * page has no sound and shows no button that would do nothing.
  */
+function mountSound() { try { globalThis.__fxAudio?.onChange?.(() => { renderSound(); invalidate('panel'); }); } catch { /* no sound here */ } }
 function renderSound() {
   const b = $('sound-btn');
   if (!b) return;
@@ -1074,9 +1112,44 @@ function renderFeed() {
   const el = $('feed');
   if (!el) return;
   const st = statusNow();
+  // this turn's own results stand together in one card (fx/stage.mjs `turn:results`); they are not said twice as single notices
+  const strip = turnStripNow(), inStrip = new Set((strip?.items ?? []).map(x => x.id));
   const items = [...(st ? [{ id: 'tx', markup: status.renderStatus(st) }] : []),
-    ...feed.liveToasts(FS.feed ?? [], { dismissed: FS.feedDismissed ?? new Set() }).map(x => ({ id: `n:${x.id}`, markup: feed.renderToast(x) }))];
+    ...(strip ? [{ id: `turn:${strip.turn}`, markup: feed.renderTurnStrip(strip, { now: turnRowNow(strip) }) }] : []),
+    ...feed.liveToasts((FS.feed ?? []).filter(x => !inStrip.has(x.id)), { dismissed: FS.feedDismissed ?? new Set() }).map(x => ({ id: `n:${x.id}`, markup: feed.renderToast(x) }))];
   syncStack(el, items);
+}
+/**
+ * "What happened this turn" (UX design 8.3): after the toll the effects layer plays this turn's own results on
+ * the map in order and says so on the bus (`turn:results`); the HUD shows them as one card, the row that is
+ * playing lit, each with "see" (which flies there: goToItem, playBattle).
+ */
+let turnStrip = null;
+const TURN_STRIP_MS = 60_000;
+function turnStripNow() {
+  const s = turnStrip;
+  if (!s || s.dismissed || Date.now() - s.at > TURN_STRIP_MS) return null;
+  return s;
+}
+/** The row whose mark is playing on the map now (each plays for about a second and a half), or -1. */
+function turnRowNow(s) {
+  const t = (Date.now() - s.at) / 1000 - s.startsIn;
+  if (t < 0) return -1;
+  const i = Math.floor(t / s.gap);
+  return i < s.items.length && t - i * s.gap < 1.5 ? i : i >= s.items.length && t - (s.items.length - 1) * s.gap < 1.5 ? s.items.length - 1 : -1;
+}
+function mountTurnStrip() {
+  fxOn('turn:results', p => {
+    if (!p?.items?.length || (FS.mode !== 'play' && !p.demo)) return;
+    turnStrip = { turn: p.turn, items: p.items, demo: !!p.demo, at: Date.now(), startsIn: Math.max(0, p.startsIn ?? 0), gap: Math.max(0.2, p.gap ?? 0.7), dismissed: false };
+    renderFeed();
+    // the lit row follows the map's marks (a few re-renders, then the card rests)
+    const s = turnStrip;
+    for (let i = 0; i <= p.items.length; i++) setTimeout(() => { if (turnStrip === s) renderFeed(); }, Math.round((s.startsIn + i * s.gap) * 1000) + 30);
+    setTimeout(() => { if (turnStrip === s) renderFeed(); }, Math.round((s.startsIn + (p.items.length - 1) * s.gap + 1.5) * 1000) + 60);
+  });
+  // the next toll clears the card of the turn before
+  fxOn('bell', () => { if (turnStrip && !turnStrip.demo) { turnStrip = null; renderFeed(); } });
 }
 const stackHtml = new WeakMap();
 function syncStack(el, items) {
@@ -1114,6 +1187,34 @@ function syncStack(el, items) {
 }
 
 /**
+ * The guide's one objective, anchored on the map (UX brief §7.4): while its target tile is in the free part of
+ * the picture at the tile view, the chip stands over that tile (the ivory ring on the ground marks the tile; the
+ * canvas's own label makes way); otherwise it stands with the plate. Desktop: on a phone it is in the sheet.
+ */
+let obAt = null;
+function placeObjective(v, size, lod) {
+  let at = null;
+  const g = FS.mode === 'play' && !phone() && lod === 'tile' && !FS.compose && !titleUp() ? guideNow() : null;
+  const d = g ? drawerOf(FS) : null;
+  if (g && Number.isInteger(g.tile) && (!d || d.kind === 'inspect')) {
+    const h = tileHex(g.p, g.q, g.tile), c = h ? project(h.q, h.r) : null;
+    if (c) {
+      const x = (c.x - v.x) * v.zoom + size.width / 2, y = (c.y - v.y) * v.zoom + size.height / 2, ins = hudInsets();
+      // above the ring (map/fmap.mjs paintGuide: a little over a hex's radius) and what stands on the tile
+      const top = y - Math.max(62 * v.zoom, 24) - 44;
+      if (x > ins.left + 200 && x < size.width - ins.right - 200 && top > ins.top + 96 && y < size.height - ins.bottom - 24) at = { x: Math.round(x), y: Math.round(top) };
+    }
+  }
+  const doc = globalThis.document;
+  let el = $('ob-map');
+  if (!el && at && doc?.createElement) { el = doc.createElement('div'); el.id = 'ob-map'; el.className = 'ob-map'; el.hidden = true; $('frontier')?.append(el); }
+  const was = !!obAt;
+  if (at && el && (obAt?.x !== at.x || obAt?.y !== at.y)) { el.style.setProperty('--x', `${at.x}px`); el.style.setProperty('--y', `${at.y}px`); }
+  obAt = at && el ? at : null;
+  if (was !== !!obAt) { renderRail(); mapRef?.tick(); }
+}
+
+/**
  * The bottom-left corner (the to-do lines and the village plate) and the guide's objective.
  * On phones both stand in the sheet's peek instead (restMarkup): one copy in the page, never two.
  */
@@ -1124,7 +1225,11 @@ function renderRail() {
   // first-minute stages (the nation choice, the wait) or the list of steps have the screen
   const d = drawerOf(FS);
   const show = FS.mode === 'play' && !small && !['join', 'nation', 'wait', 'guide'].includes(d?.kind);
-  if (el) { setHtmlIfChanged(el, small ? '' : [show ? onboardingCard.renderObjective(FS) : '', hud.renderRail(FS)]); el.hidden = small || !el.firstElementChild; }
+  const chip = show ? onboardingCard.renderObjective(FS) : '';
+  const onMap = !!obAt && !small && String(chip) !== '';
+  if (el) { setHtmlIfChanged(el, small ? '' : [onMap ? '' : chip, hud.renderRail(FS)]); el.hidden = small || !el.firstElementChild; }
+  const om = $('ob-map');
+  if (om) { setHtmlIfChanged(om, onMap ? chip : ''); om.hidden = !onMap; }
   const ob = $('objective');
   if (ob && !ob.hidden) ob.hidden = true;
 }
@@ -1210,7 +1315,7 @@ function renderMinimap() {
     for (const ov of FS.overviews.values()) for (const r of ov.provinces) recs.set(`${r.p},${r.q}`, r);
     const sv = FS.survey ?? null, pulse = !!sv?.home && !sv.showAll && !reducedMotion();
     minimap.paintMinimap(cv.getContext('2d'), { recs, rings: Math.max(1, (FS.record?.rings?.length ?? 1)), own: (FS.holdings ?? []).map(h => ({ p: h.p, q: h.q })),
-      view: mapRef.view, size: mapRef.size(), px, dpr, lens: FS.view.lens ?? 'realm', pins: FS.pins ?? [], survey: sv, now: fxNow() });
+      view: mapRef.shown ?? mapRef.view, size: mapRef.size(), px, dpr, lens: FS.view.lens ?? 'realm', pins: FS.pins ?? [], survey: sv, now: fxNow() });
     // the viewer's pip breathes: a few small repaints a second while it shows
     if (pulse && !miniPulse) miniPulse = setTimeout(() => { miniPulse = null; renderMinimap(); }, 110);
   });
@@ -1344,6 +1449,8 @@ function cycleHolding(dir) {
 /** Close the drawer ("Map", the drawer's ×, Escape): back to the world. */
 function shutDrawer({ focus = false } = {}) {
   closeDrawer(FS);
+  // (the selection went with the drawer: so do the host that acted for it and the map's last answer)
+  if (!FS.selected) { FS.actor = null; FS.mapNote = null; }
   if (FS.mode === 'play') ACTIONS.tab({ tab: 'map' }); else invalidate('panel');
   invalidate('map', 'panel', 'tabs', 'rail');
   if (focus) $('frontier-map')?.focus({ preventScroll: true });
@@ -1408,6 +1515,9 @@ export const HUD_ACTIONS = {
   'intro-close': () => closeIntro(),
   'intro-open': () => openIntro(),
   'feed-go': d => goToItem((FS.feed ?? []).find(x => x.id === d.id)),
+  // the card of this turn's results: "see" flies to the place (a battle is played there by its own button); × puts the card away
+  'turn-go': d => { const x = turnStrip?.items.find(y => y.id === d.id); if (x) goToItem({ p: x.p, q: x.q, tile: Number.isInteger(x.tile) ? x.tile : undefined, tab: 'map' }); },
+  'turn-dismiss': () => { if (turnStrip) turnStrip.dismissed = true; renderFeed(); },
   'feed-dismiss': d => { FS.feedDismissed = new Set([...(FS.feedDismissed ?? []), d.id]); renderFeed(); },
   'feed-filter': d => { FS.feedFilter = feed.FEED_FILTERS.includes(d.f) ? d.f : 'all'; invalidate('panel'); },
   // the status at the map: put a refusal away, or send the refused action once more
@@ -1798,6 +1908,9 @@ export async function boot() {
   mountNationFocus(globalThis.document);
   mountNationLook();
   mountLandingLine();
+  mountTurnStrip();
+  mountResGain();
+  mountSound();
   if (canvas) {
     // Tile-LOD terrain from the season record's ring seeds through the rules module (W5-E R3: passed by the app).
     const terrainOf = createTerrain({ onReady: () => { map?.invalidate(); invalidate('panel'); } });
@@ -1845,6 +1958,8 @@ export async function boot() {
           // the guide's target of the current step (hud/guide.mjs; "all" only)
           guide: guideNow(),
           guideLabel: guide.guideLabel,
+          // the objective's chip stands at the target (placeObjective): the canvas's own label makes way for it
+          guideChip: !!obAt,
           // holdings' tiers for the far view from the roster (no province loads for a spectator's world map)
           tierOf: (p, q, site) => rosterRef?.tierOf(p, q, site) ?? null,
           // the march being composed: its route, drawn for this browser only (the destination is sealed)
@@ -1876,6 +1991,8 @@ export async function boot() {
       onHover: (hit, at) => { showTip(hit, at); hoverPlan(hit); },
       // the camera centres in the part of the map the HUD leaves free (hud/insets.mjs): the strip, the open drawer, the dock, the phone's sheet
       insets: () => hudInsets(),
+      // what follows the picture on screen: the objective's chip at its target, the minimap's frame while the camera travels
+      onDraw: (v, size, lod) => { placeObjective(v, size, lod); if (map?.cam?.moving) renderMinimap(); },
       // Sprite art at tile LOD, opt-in with ?art=1 (docs/frontier/art/tiles/LOD.md).
       art: ART_ON,
     });

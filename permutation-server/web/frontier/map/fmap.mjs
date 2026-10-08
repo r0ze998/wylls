@@ -1037,7 +1037,9 @@ export class FrontierMap {
       if (src.threats?.length) { paintThreats(ctx, src.threats, z, src.threatLabel ?? null); this.invalidateSoon(); }
       if (limited && survey.candidates?.length) { const still = reducedMotion(); paintCandidates(ctx, survey.candidates, z, { still }); if (!still) this.invalidateSoon(120); }
       if (src.pins?.length) paintPins(ctx, src.pins, z);
-      if (guide) { paintGuide(ctx, guide, z, src.guideLabel?.(guide) ?? '', 'label'); this.invalidateSoon(); }
+      // (the page's objective chip may stand at the target itself: then the ring alone marks the tile)
+      if (guide && !src.guideChip) paintGuide(ctx, guide, z, src.guideLabel?.(guide) ?? '', 'label');
+      if (guide) this.invalidateSoon();
       this.overPass(ctx, F);
     };
     return { wanted, drawn, kind, over, pending };

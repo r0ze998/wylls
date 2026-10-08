@@ -309,7 +309,7 @@ function label(a, env) {
 // ------------------------------------------------------------------ glow: a set of tiles lights up
 /**
  * `{tiles: [{q, r}] | …position + radius (tiles, default 2), origin: {q, r},
- * color, hold (seconds lit, default 1.5)}`: each tile catches, overshoots
+ * color, hold (seconds lit, default 1.5), gain (0..1, default 1)}`: each tile catches, overshoots
  * bright, settles and breathes; the set rolls out from the origin 30 ms a
  * step (UX-DESIGN §5.2) and lets go together.
  */
@@ -325,10 +325,12 @@ function glow(a, env) {
   const far = cells.reduce((m2, h) => Math.max(m2, h.d), 0);
   const hold = Math.max(0.5, a.hold ?? 1.5);
   const dur = hold + far * STEP;
+  // `gain` < 1: a lighter pass (over tiles that carry a light of their own: the map's lit tiles)
+  const gain = Math.max(0, Math.min(1, a.gain ?? 1));
   const OUT = full ? 0.42 : REDUCED_FADE;
   return { layer: 'ground', dur, draw(ctx, s) {
     const t = s.t;
-    const gone = 1 - inQuad(span(t, dur - OUT, dur));
+    const gone = (1 - inQuad(span(t, dur - OUT, dur))) * gain;
     for (const h of cells) {
       const u = t - h.d * STEP;
       if (u < 0) continue;

@@ -25,6 +25,7 @@ import { inverseHex, project } from '../../map.mjs';
 import { tileHex, locate, DIRECTIONS } from '../fgeo.mjs';
 import { startBattle } from '../people/battle.mjs';
 import { clock } from './clock.mjs';
+import { bus } from './bus.mjs';
 import { forceMotion, motion, MOTION_LEVELS } from './motion.mjs';
 import { audio } from './audio.mjs';
 import { TONE } from './effects.mjs';
@@ -91,7 +92,10 @@ export const SAMPLES = Object.freeze({
   // the turn: the toll, then this turn's own results one after another
   turn: { secs: 6.2, run: (c, fx, later) => {
     playToll(fx, { turn: 43, home: tileOf(c) });
-    [['arrival', 2, -1], ['battle', -1, 1], ['incoming', 0, 0]].forEach(([result, dq, dr], i) => playResult(later(2.4 + i * 0.7), { id: `demo-${result}`, result, ...tileOf(c, dq, dr), faction: 0 }));
+    const items = [['arrival', 2, -1, L`進軍が開封されました`], ['battle', -1, 1, L`衝突が決着しました`], ['incoming', 0, 0, L`来襲の恐れ`]].map(([result, dq, dr, text]) => ({ id: `demo-${result}`, result, kind: result, text, ...tileOf(c, dq, dr), faction: 0 }));
+    items.forEach((x, i) => playResult(later(2.4 + i * 0.7), x));
+    // the HUD's strip of this turn's results (app.mjs listens): the same sample items, under the demo's tag
+    bus.emit('turn:results', { turn: 43, demo: true, items, fresh: items, startsIn: 2.4, gap: 0.7 });
   } },
   results: { secs: 3.4, run: (c, fx, later) => [['arrival', 2, -1], ['battle', -1, 1], ['incoming', 0, 0]].forEach(([result, dq, dr], i) => playResult(later(i * 0.7), { id: `demo-${result}`, result, ...tileOf(c, dq, dr), faction: 0 })) },
   // an own action: tracked, sent, landed; and refused
