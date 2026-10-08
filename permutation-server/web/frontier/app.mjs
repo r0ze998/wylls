@@ -529,19 +529,23 @@ function hoverPlan(hit) {
 }
 
 /** The map's own answer on a tile (a refusal never fails silently): drawn there for a moment, and said in the map's live line. */
-function mapNote(hit, text) {
-  FS.mapNote = { p: hit.p, q: hit.q, tile: hit.idx, text, at: fxNow() };
-  setText('map-summary', text);
+function mapNote(hit, say) {
+  FS.mapNote = { p: hit.p, q: hit.q, tile: hit.idx, say, get text() { return say(); }, at: fxNow() };
+  summary(say);
   mapRef?.tick();
 }
-const refusalText = code => (code === 'Path' ? NOTE_TEXT.tooFar(MAX_PATH_STEPS) : code === 'NoKernel' ? NOTE_TEXT.wait() : NOTE_TEXT.unreachable());
+const refusalText = code => (code === 'Path' ? () => NOTE_TEXT.tooFar(MAX_PATH_STEPS) : code === 'NoKernel' ? NOTE_TEXT.wait : NOTE_TEXT.unreachable);
+/** The map's live line (`#map-summary`): `say()` gives its words, again when the language changes. */
+let summarySay = null;
+function summary(say) { summarySay = say; setText('map-summary', say()); }
+onLangChange(() => { if (summarySay) setText('map-summary', summarySay()); });
 
 /** Start the order card for the acting host with `hit` as its destination (the existing compose flow). */
 async function orderMarch(A, hit) {
   if (Number.isInteger(A.actor.holdingIndex) && A.actor.holdingIndex !== (FS.activeHolding ?? 0)) FS.activeHolding = A.actor.holdingIndex;
   ACTIONS.compose({ host: A.actor.id, stay: 'map' });
   if (!FS.compose) return;
-  FS.tab = 'map';
+  FS.tab = 'map'; FS.explore = null;
   FS.selected = { kind: 'tile', p: hit.p, q: hit.q, idx: hit.idx, tileQ: hit.tileQ, tileR: hit.tileR };
   invalidate('map', 'panel', 'tabs');
   await ACTIONS['dest-from-map']();
@@ -567,6 +571,7 @@ function mapTap(hit) {
     if (A.actors.length < 2) return false;
     FS.actor = { key: `${hit.p},${hit.q},${hit.idx}`, i: (A.index + 1) % A.actors.length };
     FS.mapNote = null;
+    FS.explore = null;   // (tiles picked for a Scout's exploration belong to that Scout)
     invalidate('map', 'panel');
     return true;
   }
@@ -584,10 +589,10 @@ function mapTap(hit) {
   // unlit: a second tap on the tile just refused selects it
   const n = FS.mapNote;
   if (n && n.p === hit.p && n.q === hit.q && n.tile === hit.idx && fxNow() - n.at < 6000) { FS.mapNote = null; return false; }
-  if (FS.survey && !FS.survey.showAll && FS.survey.levelOf(hit.p, hit.q, hit.idx) === 0) { mapNote(hit, NOTE_TEXT.unopened()); return true; }
+  if (FS.survey && !FS.survey.showAll && FS.survey.levelOf(hit.p, hit.q, hit.idx) === 0) { mapNote(hit, NOTE_TEXT.unopened); return true; }
   const r = routeTo(A, { p: hit.p, q: hit.q, tile: hit.idx });
   if (r?.ok) { orderMarch(A, hit).catch(() => {}); return true; }
-  mapNote(hit, r ? refusalText(r.code) : NOTE_TEXT.wait());
+  mapNote(hit, r ? refusalText(r.code) : NOTE_TEXT.wait);
   return true;
 }
 
@@ -1336,7 +1341,7 @@ export async function boot() {
         // one of the viewer's own villages: it becomes the active one (its hosts act from here)
         const mine = Number.isInteger(hit.idx) ? (FS.holdings ?? []).findIndex(h => h.p === hit.p && h.q === hit.q && h.tile === hit.idx) : -1;
         if (mine >= 0 && mine !== (FS.activeHolding ?? 0)) { FS.activeHolding = mine; invalidate('rail', 'tabs'); }
-        setText('map-summary', L`${placeName(inspect.inspectModel(FS, terrainOf))} を選びました`);
+        summary(() => (FS.selected === hit ? L`${placeName(inspect.inspectModel(FS, terrainOf))} を選びました` : ''));
         // The inspector reads the province envelope (loaded once, on demand).
         if (FS.mode !== 'practice') wantProvince(hit.p, hit.q, () => { map?.invalidate(); invalidate('panel'); });
         // composing a march: a tap on another tile makes it the destination (Civ: select the unit, click where)

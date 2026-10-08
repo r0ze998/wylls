@@ -4,7 +4,8 @@
 // with the survey, holding, march composer, march tracker, bell sheet, clash
 // report, practice result — plus the onboarding card, the spectator, and
 // (UX brief §3) the wait for the village, a provisional village and the
-// survey's legend.
+// survey's legend, and (UX brief §5) the village selected with its host's
+// tiles lit and the pointer home.
 // Each scene names its page, the viewer stage the fixture herald answers,
 // and how the test reaches it: clicks on the page's own controls
 // (`data-act`, tabs, forms), never state written into the page.
@@ -109,8 +110,39 @@ export const SCENES = [
       const n = await page.locator('[data-act="fog"]').count();
       if (n) throw new Error(`a show-everything switch on the play page: ${n}`);
       if ((await page.locator('.survey-legend li').count()) !== 4) throw new Error('the legend has four levels');
+      if ((await page.locator('.lit-legend li').count()) !== 4) throw new Error('the lit tiles have four kinds');
       await sheetFull(page);
       await page.locator('.survey-help').scrollIntoViewIfNeeded();
+    },
+  },
+  {
+    // UX brief §5.2: selecting the viewer's village on the map lights what its host can do; a tap on the village
+    // again takes the next host (nothing is sent: the fixture's relay refuses every write)
+    id: 'lit', title: 'the village selected on the map: its host\'s tiles are lit', page: 'index.html', stage: 'holding',
+    async go(page) {
+      await page.locator('#frontier-map[data-lod="tile"][data-terrain="ready"]').waitFor();
+      const at = await page.evaluate(async () => {
+        const { coveredInsets } = await import('/frontier/map/fmap.mjs');
+        const cv = document.getElementById('frontier-map'), b = cv.getBoundingClientRect(), i = coveredInsets(cv);
+        return { x: b.left + i.left + (b.width - i.left - i.right) / 2, y: b.top + i.top + (b.height - i.top - i.bottom) / 2 };
+      });
+      await page.mouse.click(at.x, at.y);
+      await page.mouse.move(2, 2);   // (a mouse resting on the map keeps its hover tip up; a finger leaves none)
+      const ok = await page.evaluate(async () => { const { FS } = await import('/frontier/fstate.mjs'); return Number.isInteger(FS.selected?.idx) && (FS.holdings ?? []).some(h => h.p === FS.selected.p && h.q === FS.selected.q && h.tile === FS.selected.idx); });
+      if (!ok) throw new Error('the tap in the middle of the opening view did not select the viewer\'s village');
+      await page.locator('#inspect-title').waitFor();
+    },
+  },
+  {
+    // UX brief §5.3: with the village out of the picture a button at the map's edge points home
+    id: 'pointer', title: 'the pointer home at the edge of the map', page: 'index.html', stage: 'holding',
+    async go(page) {
+      await page.locator('#frontier-map[data-lod="tile"]').waitFor();
+      await page.locator('#frontier-map').focus();
+      for (let i = 0; i < 14; i++) await page.keyboard.press('ArrowRight');
+      await page.locator('[data-map="home-pointer"]').waitFor({ state: 'visible' });
+      const name = await page.locator('[data-map="home-pointer"]').getAttribute('aria-label');
+      if (!/\d/.test(name ?? '')) throw new Error(`the pointer does not say how far: ${name}`);
     },
   },
   {

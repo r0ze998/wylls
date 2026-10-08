@@ -995,11 +995,10 @@ export class FrontierMap {
     // what is read rather than looked at goes over the depth dressing: labels, warnings, pins, the guide
     const over = () => {
       ctx.setTransform(...world);
-      // (on the world chart the beacon already marks the viewer's village: the guide's ring is not laid over it)
-      const onHome = g => lod === 'world' && F.villages.some(v => v.p === g.p && v.q === g.q && v.tile === g.tile);
-      const guide = src.guide && !src.route && !onHome(src.guide) ? src.guide : null;
-      // (the guide's ring lies under the labels: it used to cut through them)
-      if (guide) paintGuide(ctx, guide, z, '', 'ring');
+      const guide = F.guide;
+      // (the guide's ring lies under the labels it used to cut through: at the tile view on the ground itself, with
+      // the other ground marks; further out here, before the labels)
+      if (guide && lod !== 'tile') paintGuide(ctx, guide, z, '', 'ring');
       labels?.();
       if (src.threats?.length) { paintThreats(ctx, src.threats, z, src.threatLabel ?? null); this.invalidateSoon(); }
       if (limited && survey.candidates?.length) { const still = reducedMotion(); paintCandidates(ctx, survey.candidates, z, { still }); if (!still) this.invalidateSoon(120); }
@@ -1038,7 +1037,10 @@ export class FrontierMap {
       this.landed = want.id;
       if (!still) { this.landing = { key: want.key, t0: fx }; if (this.cam.userMoved && want.at) this.landingFly = want.at; }
     }
-    return { src, survey, lod, z, fx, still, limited, villages, faction: limited ? survey.faction : null, A, selHex, selOwn, hover, hoverLit,
+    // the guide's target (on the world chart the beacon already marks the viewer's village: no ring is laid over it)
+    const g0 = src.guide && !src.route ? src.guide : null;
+    const guide = g0 && !(lod === 'world' && villages.some(v => v.p === g0.p && v.q === g0.q && v.tile === g0.tile)) ? g0 : null;
+    return { src, survey, lod, z, fx, still, limited, guide, villages, faction: limited ? survey.faction : null, A, selHex, selOwn, hover, hoverLit,
       lands: () => this.ownLands(survey, villages, lod, terrainOf) };
   }
 
@@ -1101,6 +1103,7 @@ export class FrontierMap {
       F.live = true;
     } else if (phase === 'live' && kept.lit) F.rebake = true;
     if (phase === 'still') return;
+    if (F.guide) { paintGuide(ctx, F.guide, z, '', 'ring'); F.live = true; }
     if (F.hover) paintHoverGround(ctx, F.hover, { zoom: z, kind: F.hoverLit?.kind ?? null });
     if (F.selHex) { paintSelectionGround(ctx, F.selHex, { zoom: z, own: F.selOwn, now: fx, still }); F.live = true; }
   }

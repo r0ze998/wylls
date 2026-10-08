@@ -470,6 +470,7 @@ export default {
   'ルールを読み込んでいます': 'Loading the rules',
   '到着：ターン {0}': 'Arrives: turn {0}',
   '第{0}輪の州': 'A province of ring {0}',
+  '位置': 'Position',
   '軍勢を選ぶと光るマス': 'Tiles that light up when you select a host',
   '進める': 'Move',
   '軍勢が近くで進めるマスです。光っていないマスも、タップすれば届くかどうかを確かめます。': 'Tiles the host can march to nearby. Tap a tile that is not lit and the route there is checked too.',

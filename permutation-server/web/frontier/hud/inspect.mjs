@@ -135,7 +135,8 @@ export function render(FS, terrainOf, activities = null) {
   const name = placeName(m), where = placeWhere(m);
   const title = name === where ? where : html`${name} <span class="muted place-where">${where}</span>`;
   const facts = [];
-  facts.push(html`<div class="row"><dt>${L`輪`}</dt><dd>${m.opened ? L`第${m.ring}輪` : L`第${m.ring}輪（まだひらいていません）`}${termButton('ring')}</dd></div>`);
+  // (the label is "position": in English "Ring" beside "Ring 2" read as a doubled word)
+  facts.push(html`<div class="row"><dt>${L`位置`}</dt><dd>${m.opened ? L`第${m.ring}輪` : L`第${m.ring}輪（まだひらいていません）`}${termButton('ring')}</dd></div>`);
   if (t?.terrain) facts.push(html`<div class="row"><dt>${L`地形`}</dt><dd>${TERRAIN_TEXT[t.terrain]?.() ?? t.terrain}</dd></div>`);
   // what the map draws here (map/survey.mjs): said when it is not everything
   if (m.opened && m.level < 3) facts.push(html`<div class="row"><dt>${L`地図`}</dt><dd>${m.level === 2 ? html`${L`測量済み`} <span class="muted">${L`前に見た範囲です。土地と村を、色を落として描きます。`}</span>` : html`${L`未測量`} <span class="muted">${L`まだ見ていない範囲です。地形だけを図にしています。`}</span>`}</dd></div>`);
