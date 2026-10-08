@@ -10,7 +10,8 @@
 //   ripple  rings spread on the ground from a tile  ground
 //   dust    a burst of dust and pebbles             top (particles) + ground
 //   spark   a burst of sparks from a point of contact  top
-//   label   a number or word rises from a tile      top  (information)
+//   label   a number or word rises from a tile      hud  (information)
+//   tag     a caption on a small bell-metal tag with a leader to its tile  hud  (information)
 //   glow    a set of tiles lights, rolled out by distance  ground
 //   banner  a title across the map                  hud  (information)
 //   toll    a brass ripple across the whole map     top + screen
@@ -103,7 +104,7 @@ function flash(a, env) {
       lighter(ctx);
       ctx.fillStyle = radial(ctx, x, y, R * 0.2, R * 1.9, [[0, rgba(TONE.white, 0.6 * (1 - b.k * 0.5))], [0.5, rgba(color, 0.32 * (1 - b.k * 0.4))], [1, rgba(color, 0)]]);
       groundRing(ctx, x, y, R * 1.9); ctx.fill();
-      hexPath(ctx, x, y, 0); ctx.fillStyle = rgba(TONE.white, lerp(0.96, 0.7, b.k)); ctx.fill();
+      hexPath(ctx, x, y, 0); ctx.fillStyle = rgba(TONE.white, lerp(0.72, 0.5, b.k)); ctx.fill();
       ctx.strokeStyle = rgba(TONE.white, 1); ctx.lineWidth = 3 * s.px; ctx.stroke();
       return;
     }
@@ -264,45 +265,123 @@ function spark(a, env) {
 }
 
 // ------------------------------------------------------------------ label: a number or a word over a tile
+/** The serif of names, titles and captions (UX-DESIGN §6). */
+export const SERIF = '"Hiragino Mincho ProN", "Yu Mincho", "YuMincho", "Noto Serif JP", "Noto Serif CJK JP", Georgia, "Times New Roman", serif';
+/** A number or a word pops from 1.3 to 1.0 in this long (s), at full opacity from its first frame (UX-DESIGN §11.14). */
+export const POP_SECS = 0.12;
+export const POP_FROM = 1.3;
+/** The size of a box of text nobody has measured yet (no layout: tests, the first frame): full-width glyphs 1 em, others 0.6. */
+const textBox = (text, px) => ({ w: [...String(text)].reduce((w, ch) => w + (/[\u2e80-\u9fff\uff00-\uffef\u3000-\u30ff]/.test(ch) ? 1 : 0.6), 0) * px, h: px * 1.3 });
+const boxOf = (el, text, px) => { const w = el?.offsetWidth, h = el?.offsetHeight; return w > 0 && h > 0 ? { w, h } : textBox(text, px); };
+
 /**
- * `{…position, text, color, size (screen px, default 24), lift (tiles above the
- * tile, default 0.75), rise (screen px, default 40), dur (default 1.25), serif}`:
- * pops with an overshoot, rises fast then slowly, holds, lets go upward.
+ * `{…position, text, color, size (screen px, default 28), lift (tiles above the
+ * tile, default 0.75), rise (screen px, default 36), dur (default 1.25), serif}`:
+ * a number or a word over a tile, ivory with an ink outline. It is there at
+ * full opacity and 1.3 times its size on its first frame, settles to 1.0 in
+ * 120 ms, rises fast then slowly, holds, lets go upward. A node of the HUD
+ * layer placed through the engine's `anchor`, so it is upright under a tilted
+ * map and never leaves what the HUD leaves free.
  */
 function label(a, env) {
   const { x, y } = pointOf(a);
   const text = String(a.text ?? '');
   if (!text) return null;
-  const color = a.color ?? TONE.ivory;
-  const sizePx = Math.max(14, a.size ?? 24);
+  const sizePx = Math.max(14, a.size ?? 28);
   const lift = (a.lift ?? 0.75) * R;
-  const rise = a.rise ?? 40;
+  const rise = a.rise ?? 36;
   const dur = Math.max(0.6, a.dur ?? 1.25);
-  const font = a.serif ? `700 ${sizePx}px "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", Georgia, serif` : `800 ${sizePx}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif`;
   const full = env.mode === 'full';
-  return { layer: 'top', dur, info: true, draw(ctx, s) {
-    const t = s.t;
-    let scale = 1, alpha = 1, up = rise, sx = 1, sy = 1;
-    if (full) {
-      const kp = span(t, 0, 0.17);
-      scale = lerp(0.3, 1, outBack(kp, 2.6));
-      // squash as it leaves the ground, stretch as it overshoots
-      sx = 1 + 0.16 * (1 - kp); sy = 1 - 0.2 * (1 - kp) * (1 - kp);
-      up = rise * outQuart(span(t, 0, dur * 0.8));
-      const ko = span(t, dur - 0.34, dur);
-      alpha = span(t, 0, 0.05) * (1 - inQuad(ko));
-      up += 9 * inQuad(ko); scale *= 1 - 0.05 * ko;
-    } else alpha = envelope(t, dur, REDUCED_FADE, REDUCED_FADE);
-    ctx.translate(x, y - lift - up * s.px);
-    ctx.scale(s.px * scale * sx, s.px * scale * sy);
-    ctx.font = font; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
-    ctx.globalAlpha = alpha;
-    ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 8; ctx.shadowOffsetY = 2;
-    ctx.strokeStyle = rgba(TONE.ink, 0.94); ctx.lineWidth = Math.max(3.5, sizePx * 0.2);
-    ctx.strokeText?.(text, 0, 0);
-    ctx.shadowColor = 'rgba(0,0,0,0)'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
-    ctx.fillStyle = color;
-    ctx.fillText?.(text, 0, 0);
+  return { layer: 'hud', dur, info: true, dom: {
+    make(doc) {
+      const el = node(doc, 'span', 'fx-word', text);
+      if (a.serif) el.dataset.serif = 'true';
+      if (a.color) el.style.setProperty('--fx-c', a.color);
+      el.style.setProperty('--fx-fs', `${sizePx}px`);
+      return el;
+    },
+    update(el, s) {
+      const t = s.t;
+      let scale = 1, alpha = 1, up = rise;
+      if (full) {
+        scale = lerp(POP_FROM, 1, outCubic(span(t, 0, POP_SECS)));
+        up = rise * outQuart(span(t, 0, dur * 0.8));
+        const ko = span(t, dur - 0.34, dur);
+        alpha = 1 - inQuad(ko);
+        up += 9 * inQuad(ko);
+      } else alpha = envelope(t, dur, REDUCED_FADE, REDUCED_FADE);
+      const p = s.anchor(x, y - lift), box = boxOf(el, text, sizePx);
+      const at = s.free.place(p.x, p.y - up, box.w, box.h, 4);
+      setVars(el, { '--fx-x': `${at.x.toFixed(1)}px`, '--fx-y': `${at.y.toFixed(1)}px`, '--fx-s': scale.toFixed(3), '--fx-o': alpha.toFixed(3) });
+    },
+  } };
+}
+
+// ------------------------------------------------------------------ tag: a caption on a small bell-metal tag
+const SVG_NS = 'http://www.w3.org/2000/svg';
+/** The HUD's icon sprite, relative to the page (hud/icons.mjs SPRITE: the three pages sit beside it). */
+export const TAG_SPRITE = 'art/ui/icons.svg';
+/** How long a caption stands when nothing says otherwise (s). */
+export const TAG_SECS = 2.2;
+
+/**
+ * `{…position, text, icon (a symbol of the HUD's sprite), tone: 'brass' | 'ember' | 'gold' | 'ivory', color (the
+ * accent, e.g. a nation's), lift (tiles above the tile's centre where the tag sits, default 1.35), foot (tiles
+ * above the centre where its leader starts, default 0.3), dur (default 2.2)}`: a caption of the map. A small
+ * bell-metal tag in the serif stands above its tile on a thin brass leader; when the HUD or the edge of the
+ * map is in the way the tag moves aside and the leader still points at the tile. A caption whose tile is not
+ * on the map on screen is not shown.
+ */
+function tag(a, env) {
+  const { x, y } = pointOf(a);
+  const text = String(a.text ?? '');
+  if (!text) return null;
+  const lift = (a.lift ?? 1.35) * R, foot = (a.foot ?? 0.3) * R;
+  const dur = Math.max(0.8, a.dur ?? TAG_SECS);
+  const full = env.mode === 'full';
+  return { layer: 'hud', dur, info: true, dom: {
+    make(doc) {
+      const el = node(doc, 'span', 'fx-tag');
+      el.dataset.tone = a.tone ?? 'brass';
+      if (a.color) el.style.setProperty('--fx-c', a.color);
+      const plate = node(doc, 'span', 'fx-tag-plate');
+      if (a.icon && /^[\w-]+$/.test(a.icon) && doc.createElementNS) {
+        const svg = doc.createElementNS(SVG_NS, 'svg');
+        svg.setAttribute('class', 'fx-tag-ic'); svg.setAttribute('aria-hidden', 'true'); svg.setAttribute('focusable', 'false');
+        const use = doc.createElementNS(SVG_NS, 'use');
+        use.setAttribute('href', `${TAG_SPRITE}#${a.icon}`);
+        svg.append(use); plate.append(svg);
+      }
+      plate.append(node(doc, 'span', 'fx-tag-text', text));
+      el.append(node(doc, 'span', 'fx-tag-lead'), node(doc, 'span', 'fx-tag-dot'), plate);
+      el.plate = plate;
+      return el;
+    },
+    update(el, s) {
+      const t = s.t;
+      const A = s.anchor(x, y - foot), P = s.anchor(x, y - lift);
+      const box = boxOf(el.plate, text, 14);
+      if (!(el.plate?.offsetWidth > 0)) { box.w += 22 + (a.icon ? 18 : 0); box.h = 26; }
+      // above its tile by the leader's length (never a stub), then wherever the HUD lets it stand
+      const want = { x: P.x, y: Math.min(P.y, A.y - 20) - box.h / 2 };
+      const at = s.free.place(want.x, want.y, box.w, box.h, 5, A);
+      // the leader runs from the tile to the nearest point of the tag's edge
+      const ex = Math.min(at.x + box.w / 2 - 6, Math.max(at.x - box.w / 2 + 6, A.x)), ey = Math.min(at.y + box.h / 2, Math.max(at.y - box.h / 2, A.y));
+      const len = Math.hypot(ex - A.x, ey - A.y), ang = Math.atan2(ey - A.y, ex - A.x);
+      const st = s.stage, off = A.x < st.left - 24 || A.x > st.left + st.width + 24 || A.y < st.top - 24 || A.y > st.top + st.height + 24;
+      let o, lead = 1, pop = 1;
+      if (full) {
+        const out = span(t, dur - 0.22, dur);
+        o = 1 - inQuad(out);
+        lead = outCubic(span(t, 0, 0.12));
+        pop = lerp(1.18, 1, outCubic(span(t, 0.04, 0.04 + POP_SECS)));
+      } else o = envelope(t, dur, REDUCED_FADE, REDUCED_FADE);
+      setVars(el, {
+        '--fx-x': `${at.x.toFixed(1)}px`, '--fx-y': `${at.y.toFixed(1)}px`, '--fx-ax': `${A.x.toFixed(1)}px`, '--fx-ay': `${A.y.toFixed(1)}px`,
+        '--fx-len': `${(len * lead).toFixed(1)}px`, '--fx-ang': `${ang.toFixed(4)}rad`,
+        '--fx-o': (off ? 0 : o).toFixed(3), '--fx-po': (full ? span(t, 0.04, 0.09) : 1).toFixed(3), '--fx-s': pop.toFixed(3),
+      });
+    },
   } };
 }
 
@@ -451,29 +530,52 @@ function toll(a, env) {
 export const setVars = (el, vars) => { for (const k in vars) el.style.setProperty(k, vars[k]); };
 export const node = (doc, tag, cls, text) => { const el = doc.createElement(tag); el.className = cls; if (text !== undefined) el.textContent = text; return el; };
 
+/** When a banner begun at 0 and lasting `dur` s has faded under a tenth of its opacity (what follows it waits for this: UX-DESIGN §11.14). */
+export const bannerGone = dur => dur - 0.02;
+const BANNER_OUT = 0.42;
+
 /**
- * `{title, sub, color (accent), tone: 'brass' | 'win' | 'loss', dur (default 2.8)}`:
+ * `{title, sub, color (accent), tone: 'brass' | 'win' | 'loss', dur (default 2.8), y, vy, into}`:
  * a dark band opens across the map from its middle line, two brass rules
  * shoot outward, the title lands large and settles while its letters gather,
  * a glint crosses it; it leaves by the same door.
+ *
+ * Where: inside the stage the HUD leaves free (fx/safe.mjs `centre`), never
+ * over the top strip, the dial or a phone's columns of buttons. `y` is its
+ * place in that stage (0 = against its top, 1 = against its foot; default
+ * 0.25); `vy` a middle line in client px (or a function of the state) that
+ * is then kept inside the stage. Its width is the free stretch of the map at
+ * that height, and the title is sized to it. `room: 'stage'`: the stage of a
+ * set piece (the HUD's corner pieces have stepped back).
  */
 function banner(a, env) {
   const title = String(a.title ?? '');
   if (!title) return null;
   const dur = Math.max(1.2, a.dur ?? 2.8);
   const full = env.mode === 'full';
-  // the title's width in ems (full-width glyphs 1, others about 0.58, plus the letter spacing): it is sized to fit the map
-  const ems = [...title].reduce((w, ch) => w + (/[\u2e80-\u9fff\uff00-\uffef\u3000-\u30ff]/.test(ch) ? 1 : 0.58) + 0.14, 0);
-  // (a phone's map has the HUD's two columns of buttons down its sides: the title keeps between them)
+  // the title's width in ems (full-width glyphs 1, others about 0.58, plus the letter spacing): it is sized to fit
+  const emsOf = text => [...text].reduce((w, ch) => w + (/[\u2e80-\u9fff\uff00-\uffef\u3000-\u30ff]/.test(ch) ? 1 : 0.58) + 0.14, 0);
+  const ems = emsOf(title);
+  // a title of two parts ("the bell has tolled — Turn 43") breaks between them when it must take two lines
+  const parts = title.split(' — ');
+  const two = parts.length === 2 ? Math.max(emsOf(parts[0]), emsOf(parts[1])) : ems * 0.56;
   const narrow = width => width < 600;
-  const sizeFor = width => Math.max(narrow(width) ? 16 : 20, Math.min(60, width * 0.066, (width * (narrow(width) ? 0.62 : 0.76)) / ems));
+  /** One line when it fits at a size worth reading; else two balanced lines (a phone, a long English title). */
+  const fit = width => {
+    const cap = narrow(width) ? Math.min(40, width * 0.15) : Math.min(60, width * 0.066);
+    const one = Math.min(cap, (width * 0.86) / ems);
+    const least = narrow(width) ? 22 : 30;
+    if (one >= least || ems < 6) return { fs: Math.max(16, one), wrap: false };
+    return { fs: Math.max(16, Math.min(cap, (width * 0.86) / two)), wrap: true };
+  };
   const dress = (doc, el) => {
     el.dataset.tone = a.tone ?? 'brass';
     if (a.color) el.style.setProperty('--fx-c', a.color);
-    if (Number.isFinite(a.y)) el.style.setProperty('--fx-by', String(a.y));
     el.replaceChildren?.();
-    el.append(node(doc, 'span', 'fx-banner-band'), node(doc, 'span', 'fx-banner-rule fx-banner-rule-a'), node(doc, 'span', 'fx-banner-glint'),
-      node(doc, 'span', 'fx-banner-title', title));
+    const head = node(doc, 'span', 'fx-banner-title');
+    if (parts.length === 2) head.append(node(doc, 'span', 'fx-banner-part', parts[0]), node(doc, 'span', 'fx-banner-sep', ' — '), node(doc, 'span', 'fx-banner-part', parts[1]));
+    else head.textContent = title;
+    el.append(node(doc, 'span', 'fx-banner-band'), node(doc, 'span', 'fx-banner-rule fx-banner-rule-a'), node(doc, 'span', 'fx-banner-glint'), head);
     if (a.sub) el.append(node(doc, 'span', 'fx-banner-sub', String(a.sub)));
     el.append(node(doc, 'span', 'fx-banner-rule fx-banner-rule-b'));
     if (a.lang) el.lang = a.lang;
@@ -481,38 +583,48 @@ function banner(a, env) {
   };
   // `into`: an element of the page that carries the banner for its life (the bell's toll line) instead of a node in #fx-hud
   const host = typeof a.into === 'string' ? globalThis.document?.querySelector?.(a.into) ?? null : a.into ?? null;
-  const VARS = ['--fx-c', '--fx-by', '--fx-fs', '--fx-o', '--fx-band', '--fx-rule', '--fx-ts', '--fx-to', '--fx-tl', '--fx-so', '--fx-gx', '--fx-go', '--fx-l', '--fx-t', '--fx-w', '--fx-free'];
+  const VARS = ['--fx-c', '--fx-cy', '--fx-fs', '--fx-o', '--fx-band', '--fx-rule', '--fx-ts', '--fx-to', '--fx-tl', '--fx-so', '--fx-gx', '--fx-go', '--fx-l', '--fx-w'];
   return { layer: 'hud', dur, info: true, dom: {
     el: host,
-    on(el) { dress(el.ownerDocument, el); el.classList.add('fx-banner', 'fx-banner-host'); },
-    off(el) { el.classList.remove('fx-banner', 'fx-banner-host'); delete el.dataset.tone; delete el.dataset.wrap; for (const v of VARS) el.style.removeProperty?.(v); el.replaceChildren?.(); el.textContent = title; },
+    on(el) { dress(el.ownerDocument, el); el.hidden = false; el.classList.add('fx-banner', 'fx-banner-host'); },
+    // (handed back hidden: the page's resting style for it is an invisible line, and no frame of that style is to show)
+    off(el) { el.hidden = true; el.classList.remove('fx-banner', 'fx-banner-host'); delete el.dataset.tone; delete el.dataset.wrap; for (const v of VARS) el.style.removeProperty?.(v); el.replaceChildren?.(); el.textContent = title; },
     make(doc) { return dress(doc, node(doc, 'div', 'fx-banner')); },
     update(el, s) {
       const t = s.t;
-      const fs = sizeFor(s.stage.width);
-      el.style.setProperty('--fx-fs', `${fs.toFixed(1)}px`);
-      // a host element is outside #fx-hud: it is told where the map is itself
-      if (host) setVars(el, { '--fx-l': `${s.stage.left}px`, '--fx-t': `${s.stage.top}px`, '--fx-w': `${s.stage.width}px`, '--fx-free': `${s.stage.free}px` });
-      // a long title on a narrow map breaks into balanced lines instead of running off the sides
-      const wrap = fs * ems > s.stage.width * (narrow(s.stage.width) ? 0.68 : 0.8) ? 'true' : 'false';
-      if (el.dataset.wrap !== wrap) el.dataset.wrap = wrap;
+      // the stage the HUD leaves free; the band's height once it has been laid out (an estimate before)
+      const onStage = a.room === 'stage';
+      const fr = (onStage ? s.free.stage : null) ?? s.free.centre;
+      const guess = fit(fr.width);
+      const h = el.offsetHeight > 0 ? el.offsetHeight : guess.fs * 1.25 * (guess.wrap ? 2 : 1) + 42 + (a.sub ? 29 : 0);
+      const want = a.vy !== undefined && a.vy !== null ? (typeof a.vy === 'function' ? a.vy(s, h) : a.vy) : fr.top + h / 2 + (fr.height - h) * (a.y ?? 0.25);
+      const cy = fr.height > h + 8 ? Math.min(fr.bottom - h / 2 - 4, Math.max(fr.top + h / 2 + 4, want)) : fr.top + fr.height / 2;
+      // as wide as the map is free at that height (a phone's two columns of buttons stand beside it)
+      const sp = s.free.span(cy - h / 2, cy + h / 2, { stage: onStage });
+      const w = sp.width > 120 ? sp : { left: fr.left, width: fr.width };
+      const { fs, wrap } = fit(w.width);
+      setVars(el, { '--fx-fs': `${fs.toFixed(1)}px`, '--fx-l': `${w.left.toFixed(1)}px`, '--fx-w': `${w.width.toFixed(1)}px`, '--fx-cy': `${cy.toFixed(1)}px` });
+      const wrapped = wrap ? 'true' : 'false';
+      if (el.dataset.wrap !== wrapped) el.dataset.wrap = wrapped;
       if (!full) {
         const o = envelope(t, dur, REDUCED_FADE, REDUCED_FADE);
         setVars(el, { '--fx-o': o.toFixed(3), '--fx-band': '1', '--fx-rule': '1', '--fx-ts': '1', '--fx-to': '1', '--fx-tl': '0em', '--fx-so': '1', '--fx-gx': '-40%', '--fx-go': '0' });
         return;
       }
-      const out = span(t, dur - 0.42, dur);
+      const out = span(t, dur - BANNER_OUT, dur);
       const band = outCubic(span(t, 0, 0.16)) * (1 - inCubic(span(t, dur - 0.24, dur)));
       const rule = outExpo(span(t, 0.04, 0.5)) * (1 - inCubic(out));
       const kt = span(t, 0.1, 0.42);
       // lands from large with one small rebound, then drifts a hair larger while it is read
       // (a long title lands from less far out: it must not spill over the sides of the map on its way in)
-      const ts = (1 + 0.55 * Math.min(1, 6 / ems) * (1 - outBack(kt, 1.4))) * (1 + 0.025 * span(t, 0.42, dur)) * (1 + 0.04 * inQuad(out));
+      // (and never from so large that it leaves the free stretch: a phone's title lands almost in place)
+      const line = fs * (wrap ? two : ems), amp = Math.max(0, Math.min(0.55 * Math.min(1, 6 / ems), (w.width * 0.98) / Math.max(1, line) - 1.04));
+      const ts = (1 + amp * (1 - outBack(kt, 1.4))) * (1 + 0.025 * span(t, 0.42, dur)) * (1 + 0.04 * inQuad(out));
       const to = span(t, 0.1, 0.17) * (1 - inQuad(out));
       const tl = lerp(Math.min(0.5, 1.5 / ems), 0, outCubic(span(t, 0.1, 0.62))) + Math.min(0.14, 0.7 / ems) * inQuad(out);
       const kg = span(t, 0.3, 0.95);
       setVars(el, {
-        '--fx-o': '1', '--fx-band': band.toFixed(3), '--fx-rule': rule.toFixed(3),
+        '--fx-o': (1 - inQuad(out)).toFixed(3), '--fx-band': band.toFixed(3), '--fx-rule': rule.toFixed(3),
         '--fx-ts': ts.toFixed(3), '--fx-to': to.toFixed(3), '--fx-tl': `${tl.toFixed(3)}em`,
         '--fx-so': (span(t, 0.36, 0.6) * (1 - inQuad(out))).toFixed(3),
         '--fx-gx': `${lerp(-40, 140, inOutQuad(kg)).toFixed(1)}%`, '--fx-go': (Math.sin(kg * Math.PI) * 0.9).toFixed(3),
@@ -527,7 +639,7 @@ export function viewportPoint(a, s, doc) {
   if (el?.getBoundingClientRect) { const r = el.getBoundingClientRect(); if (r.width || r.height) return { x: r.left + r.width / 2, y: r.top + r.height / 2, rect: r, el }; }
   if (Number.isFinite(a.vx) && Number.isFinite(a.vy)) return { x: a.vx, y: a.vy, rect: null, el: null };
   const w = pointOf(a);
-  return { ...s.toViewport(w.x, w.y), rect: null, el: null };
+  return { ...s.anchor(w.x, w.y), rect: null, el: null };
 }
 
 /** `{text, color, size, el | vx, vy | …position, dy (px it rises, default 30), dur (default 1.1)}`: a number pops and rises from a point of the HUD. */
@@ -600,7 +712,7 @@ function chip(a, env) {
 }
 
 /** The vocabulary by name. */
-export const EFFECTS = Object.freeze({ flash, ripple, dust, spark, label, glow, banner, toll, number, chip, burst });
+export const EFFECTS = Object.freeze({ flash, ripple, dust, spark, label, glow, banner, toll, number, chip, burst, tag });
 
 /** Register the vocabulary on an engine. */
 export function installEffects(fx) {

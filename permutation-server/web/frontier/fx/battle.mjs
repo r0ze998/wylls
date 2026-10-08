@@ -2,11 +2,14 @@
 // scene itself (figures, arrows, contact flashes, bars, numbers) as a pure
 // function of a time; this file puts it on the page:
 //
-//   the rest of the map dims around the tile (a spotlight on the top canvas)
-//   the scene is drawn above it at the display's frame rate, on the effects clock
-//   each contact throws dust and sparks in both nations' colours, shakes the
-//     world layer (never the HUD) and sounds
-//   at the verdict a title crosses the map in the winner's colour
+//   the rest of the map dims around the tile (a spotlight on the top canvas),
+//     its labels make way and the HUD's corner pieces step back (`fx.piece`)
+//   the scene fills the stage the HUD leaves free (battleLayout) and is drawn
+//     above the dim at the display's frame rate, on the effects clock
+//   each contact throws sparks and textured dust in both nations' colours,
+//     shakes the world layer (never the HUD) and sounds
+//   at the verdict a title stands over the scene in the winner's colour,
+//     under the top strip and inside the free stage on every size of screen
 //   afterwards the tile and its neighbours pulse in that colour; a camp that
 //     was destroyed burns down
 //   from far away, where figures cannot be read, crossed swords pulse on the
@@ -23,18 +26,41 @@
 import { L, fmtNum } from '../../lang.mjs';
 import { RADIUS, FLATTEN } from '../../map.mjs';
 import { factionName } from '../fi18n.mjs';
-import { PHASE, BATTLE_HITS, HIT_POWER, battlePlan, battleStage, battleFit, battleVerdict, paintBattle, preloadBattle, sideColors, crossedSwords } from '../people/battle.mjs';
+import { PHASE, BATTLE_HITS, HIT_POWER, battlePlan, battleStage, battleFit, battleLayout, battleVerdict, paintBattle, preloadBattle, sideColors, crossedSwords } from '../people/battle.mjs';
 import { span, lerp, inQuad, outCubic, outExpo, outBack, envelope } from './ease.mjs';
 import { REDUCED_FADE } from './motion.mjs';
-import { toScreen } from './engine.mjs';
 import { noise1, hashSeed } from './rand.mjs';
 import { TONE, rgba } from './effects.mjs';
+import { hexMix } from './draw.mjs';
 
 const TAU = Math.PI * 2;
 /** Below this many screen px of hex radius the figures give way to the far view's mark. */
 export const BATTLE_FAR_R = 17;
 /** The zoom the camera takes when it flies to a battle. */
 export const BATTLE_ZOOM = 2.1;
+/** The height kept over the scene for the verdict's title (screen px): wide stages, and narrow ones. */
+export const TITLE_ROOM = Object.freeze({ wide: 128, narrow: 96 });
+
+/** The dust a nation's line kicks up: earth with its colour in it (never grey). */
+export const dustColors = col => [hexMix(col.light, '#e4d3ab', 0.3), hexMix(col.fill, '#d6c296', 0.4), hexMix(col.light, '#f1e6c8', 0.55)];
+
+/**
+ * The stage a focused battle is sized to and where its tile's centre belongs on it (client px): the part of
+ * the map the HUD leaves free while a set piece plays (its corner pieces step back: fx.css), with room for
+ * the title over the scene and the strength bars under it. Null without a page.
+ */
+export function battleFrame(fx) {
+  const free = fx.free?.();
+  const st = free?.stage ?? free?.centre;
+  if (!st || !(st.width > 40) || !(st.height > 40)) return null;
+  const title = st.width < 520 ? TITLE_ROOM.narrow : TITLE_ROOM.wide;
+  const layout = battleLayout(st, { title });
+  if (!layout) return null;
+  const used = title + layout.above + layout.below;
+  // the whole block (title, numbers, figures, bars) in the middle of the stage
+  const top = st.top + Math.max(0, (st.height - used) / 2);
+  return { stage: st, layout, title, x: (st.left + st.right) / 2, y: top + title + layout.above, titleY: top + title / 2 };
+}
 /** How dark the rest of the map goes: when the camera was sent there, and when the scene plays where the viewer already looks. */
 export const BATTLE_DIM = Object.freeze({ focus: 0.66, passing: 0.42 });
 
@@ -217,26 +243,35 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
   const main = fights[0] ?? plan.tiles[0];
   const title = fights.length ? verdictTitle(scene, viewerFaction) : null;
   const z = zoom ?? fx.view().zoom;
+  // a battle the camera is sent to fills the stage the HUD leaves free; one that plays where the viewer already looks keeps to its tile
+  const frame = focus ? battleFrame(fx) : null;
+  const layout = frame?.layout ?? null;
   const fit = battleFit(fx.size().width);
-  const stage = battleStage(main, z, fit);
+  const stage = battleStage(main, z, fit, layout);
   play.staged = true;
   preloadBattle(scene);
-  // the title sits clear of the scene: above the loss numbers, or under the bars when the fight is near the top of the map
-  const titleY = (() => {
-    const sz = fx.size();
-    if (!(sz.height > 0)) return 0.2;
-    // where the scene will be on screen: by the map's own view (the target of a camera that is still flying), at the zoom it will be watched at
-    const v = fx.map?.view ?? fx.view();
-    const cy = toScreen({ x: v.x, y: v.y, zoom: z }, sz, stage.cx, stage.cy).y, px = stage.s * z;
-    const above = (cy - 2.0 * px - 44 - 64) / sz.height;
-    return Math.max(0.1, Math.min(0.86, above >= 0.1 ? above : (cy + 1.05 * px + 34 + 50 + 70) / sz.height));
-  })();
+  // the camera: the tile's centre where the whole block (title, numbers, figures, bars) sits in the middle of the stage
+  if (frame && fx.map?.flyTo && level !== 'off') {
+    const sz = fx.size(), r = fx.top?.getBoundingClientRect?.() ?? { left: 0, top: 0 };
+    try { fx.map.flyTo({ x: stage.cx - (frame.x - r.left - sz.width / 2) / z, y: stage.cy - (frame.y - r.top - sz.height / 2) / z, zoom: z }, level === 'full' ? 500 : 1, { exact: true }); } catch { /* a map that cannot fly */ }
+  }
+  // the title stands over the scene: above the loss numbers, inside the free stage (the banner keeps it there)
+  const titleY = (s, h) => {
+    const c = s.anchor(stage.cx, stage.cy), px = stage.s * s.zoom;
+    const above = c.y - 2.0 * px - 36 - h / 2;
+    const fr = s.free.stage ?? s.free.centre;
+    return above - h / 2 >= fr.top ? above : Math.max(above, fr.top + h / 2 + 4);
+  };
+  // a number keeps on the free part of the screen (people/battle.mjs paintLosses asks)
+  const placer = s => (x, y, hw, hh) => { const a = s.anchor(x, y), at = s.free.place(a.x, a.y, hw * 2 * s.zoom, hh * 2 * s.zoom, 4); return at.moved ? s.unanchor(at.x, at.y) : { x, y }; };
+  // the map's labels make way for as long as the scene has the stage
+  const tiles = plan.tiles.map(T => `${scene.p},${scene.q},${T.idx}`);
 
   if (level === 'off') {
     // numbers and the title only; the map's tokens stay as they are
     play.t0 = -1e9;
     for (const T of fights) for (const side of T.sides) if (side.loss) keep(fx.play('label', { x: T.c.x + side.sgn * RADIUS * 1.1, y: T.c.y, text: texts.lossText(side.loss), color: '#ffb7a3', size: 24, lift: 0.9, dur: 3, seed: `${id}|loss|${side.sgn}`, mode: level }));
-    if (title) keep(fx.play('banner', { title: title.title, sub: title.sub, color: title.color, tone: title.tone, y: titleY, dur: 2.8, seed: `${id}|title`, mode: level }));
+    if (title) keep(fx.play('banner', { title: title.title, sub: title.sub, color: title.color, tone: title.tone, y: 0, dur: 2.8, seed: `${id}|title`, mode: level }));
     const h = { cancel() { handles.forEach(x => x.cancel?.()); staged.delete(key); } };
     staged.set(key, h);
     return h;
@@ -247,12 +282,13 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
     const hold = Math.min(4.2, Math.max(2.4, dur));
     keep(fx.add({ name: 'battle', layer: 'top', dur: hold, seed: id, mode: level, info: true, draw(ctx, s) {
       const o = envelope(s.t, hold, REDUCED_FADE, REDUCED_FADE);
-      if (fights.length) paintDim(ctx, s, stage.cx, stage.cy, stage.s * 2.4, BATTLE_DIM.passing * o);
+      if (fights.length) paintDim(ctx, s, stage.cx, stage.cy, stage.s * (layout ? 3.3 : 2.4), (focus ? BATTLE_DIM.focus : BATTLE_DIM.passing) * o);
       ctx.globalAlpha = o;
       if (s.zoom * RADIUS < BATTLE_FAR_R) { for (const T of plan.tiles) if (T.fight) paintFar(ctx, s, T, PHASE.fates + 1, title?.color ?? null); }
-      else paintBattle(ctx, play, { zoom: s.zoom, at: PHASE.fates + 1.5, top: true, fit: battleFit(s.size.width), ...texts });
+      else paintBattle(ctx, play, { zoom: s.zoom, at: PHASE.fates + 1.5, top: true, fit: battleFit(s.size.width), layout, place: placer(s), ...texts });
     } }));
-    if (title) keep(fx.play('banner', { title: title.title, sub: title.sub, color: title.color, tone: title.tone, y: titleY, dur: Math.min(hold, 2.8), seed: `${id}|title`, mode: level }));
+    keep(fx.piece('battle', { dur: hold, tiles, stage: true }));
+    if (title) keep(fx.play('banner', { title: title.title, sub: title.sub, color: title.color, tone: title.tone, vy: titleY, room: 'stage', dur: Math.min(hold, 2.8), seed: `${id}|title`, mode: level }));
     const h = { cancel() { handles.forEach(x => x.cancel?.()); staged.delete(key); } };
     staged.set(key, h);
     return h;
@@ -268,26 +304,30 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
     const ts = t0 + s.t * speed;
     let punch = 0;
     for (const h of BATTLE_HITS) { const u = ts - h; if (u >= 0 && u < 0.3) punch = Math.max(punch, 1 - u / 0.3); }
-    const st = battleStage(main, s.zoom, battleFit(s.size.width));
-    paintDim(ctx, s, st.cx, st.cy - st.s * 0.2, st.s * 2.7, Math.min(0.85, dim * a * (1 + 0.12 * punch)));
+    const st = battleStage(main, s.zoom, battleFit(s.size.width), layout);
+    paintDim(ctx, s, st.cx, st.cy - st.s * 0.2, st.s * (layout ? 3.3 : 2.7), Math.min(0.85, dim * a * (1 + 0.12 * punch)));
   } }));
+  keep(fx.piece('battle', { dur, tiles, stage: true }));
   // 2. the scene itself
   keep(fx.add({ name: 'battle', layer: 'top', dur, seed: id, draw(ctx, s) {
     const ts = t0 + s.t * speed;
     if (s.zoom * RADIUS < BATTLE_FAR_R) { for (const T of plan.tiles) if (T.fight) paintFar(ctx, s, T, ts, title?.color ?? null); return; }
-    paintBattle(ctx, play, { zoom: s.zoom, at: ts, top: true, fit: battleFit(s.size.width), ...texts });
+    paintBattle(ctx, play, { zoom: s.zoom, at: ts, top: true, fit: battleFit(s.size.width), layout, place: placer(s), ...texts });
   } }));
   // 3. every contact: sparks in both colours, dust at both lines, the shake, the sound
   for (const T of fights) {
-    const st = battleStage(T, z, fit), s = st.s;
+    const st = battleStage(T, z, fit, layout), s = st.s;
     const colA = sideColors(T.sides[0].faction), colB = sideColors(T.sides[1].faction);
+    const dustA = dustColors(colA), dustB = dustColors(colB);
     BATTLE_HITS.forEach((h, j) => {
       const p = HIT_POWER[j], t = now + at(h), sd = `${id}|${T.idx}|${j}`, last = j === BATTLE_HITS.length - 1;
       fx.emit('spark', { x: st.cx, y: st.feet.y, z: s * 0.5, n: Math.round(16 * p), seed: `${sd}|a`, t, power: 0.85 * p, dir: 0, spread: Math.PI * 1.3, life: 1.05, colors: [colA.light, colA.fill, '#fff6dc'] });
       fx.emit('spark', { x: st.cx, y: st.feet.y, z: s * 0.5, n: Math.round(16 * p), seed: `${sd}|b`, t, power: 0.85 * p, dir: Math.PI, spread: Math.PI * 1.3, life: 1.05, colors: [colB.light, colB.fill, '#fff6dc'] });
       fx.emit('spark', { x: st.cx, y: st.feet.y, z: s * 0.5, n: Math.round(8 * p), seed: `${sd}|w`, t: t + 0.02, power: 1.5 * p, size: 0.6, life: 0.55, up: 0.5, colors: ['#fff6dc', '#ffe2a0'] });
-      for (const [side, dir] of [[st.left, Math.PI], [st.right, 0]]) {
-        fx.emit('dust', { x: side.x, y: side.y + s * 0.06, n: Math.round(6 * p), seed: `${sd}|d${dir ? 1 : 0}`, t, radius: s * 0.3, power: 0.8 * p, up: 0.6, dir, spread: Math.PI * 1.2, size: s / 46, alpha: 0.8 });
+      // dust at both lines, each in its own nation's colour: a skirt thrown back along the ground and a little hanging over the line
+      for (const [side, dir, colors] of [[st.left, Math.PI, dustA], [st.right, 0, dustB]]) {
+        fx.emit('dust', { x: side.x, y: side.y + s * 0.16, n: Math.round(8 * p), seed: `${sd}|d${dir ? 1 : 0}`, t, radius: s * 0.4, power: 0.9 * p * (s / 46), up: 0.35, dir, spread: Math.PI * 1.1, size: s / 40, alpha: 0.85, colors });
+        fx.emit('dust', { x: side.x, y: side.y + s * 0.1, n: Math.round(2 * p), seed: `${sd}|h${dir ? 1 : 0}`, t: t + 0.04, radius: s * 0.45, power: 0.3 * p, up: 1.1, size: s / 36, alpha: 0.5, life: 1.2, stagger: 0.12, colors });
       }
       if (last) {
         fx.emit('shard', { x: st.cx, y: st.feet.y, n: 9, seed: sd, t, radius: s * 0.2, power: 0.9, up: 0.8, size: 0.7 });
@@ -300,7 +340,7 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
   }
   // 4. the verdict across the map, in the holder's colour
   if (title) {
-    keep(fx.play('banner', { title: title.title, sub: title.sub, color: title.color, tone: title.tone, y: titleY, dur: Math.max(1.6, 2.5 / speed), delay: at(PHASE.fates + 0.3), seed: `${id}|title` }));
+    keep(fx.play('banner', { title: title.title, sub: title.sub, color: title.color, tone: title.tone, vy: titleY, room: 'stage', dur: Math.max(1.6, 2.5 / speed), delay: at(PHASE.fates + 0.3), seed: `${id}|title` }));
     if (title.won) fx.sound('shimmer', { delay: at(PHASE.fates + 0.3), seed: id });
     // 5. the aftermath: the tile and the land around it pulse in that colour
     if (title.verdict.winner !== null) {
@@ -312,7 +352,7 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
   for (const T of fights) {
     const camp = T.sides[1].groups.find(g => g.kind === 'camp');
     if (!camp || !(camp.fate === 'Destroyed' || camp.after === 0)) continue;
-    const st = battleStage(T, z, fit);
+    const st = battleStage(T, z, fit, layout);
     keep(fx.play('burn', { x: st.right.x + st.s * 0.45, y: st.cy + st.s * 0.1, size: st.s * 1.7, dur: 3.3 / speed + 0.4, delay: at(PHASE.fates + 0.12), seed: `${id}|burn|${T.idx}` }));
   }
   const h = { cancel() { handles.forEach(x => x.cancel?.()); staged.delete(key); }, title, dur };

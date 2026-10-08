@@ -46,6 +46,8 @@ export default {
   '{0}の勝利': '{0} wins',
   '開封されました': 'Revealed',
   '封印済み · あなたにだけ見えます': 'Sealed · only you can see this',
+  '封印済み': 'Sealed',
+  '新しく {0} マスを測量しました': 'Surveyed {0} new tiles',
   '{0}が完成': '{0} complete',
   '建物が完成': 'Building complete',
   '軍勢を編成': 'Host mustered',

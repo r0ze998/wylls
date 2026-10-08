@@ -4,7 +4,7 @@
 // context whose methods do nothing (tests draw into a proxy).
 import { RADIUS } from '../../map.mjs';
 import { clamp01, lerp, span, outCubic, outExpo } from './ease.mjs';
-import { TONE, rgba } from './effects.mjs';
+import { TONE, rgba, SERIF } from './effects.mjs';
 
 const TAU = Math.PI * 2;
 /** Below this many screen px of hex radius a set piece shows its far-view form (a pip, a mark) instead of figures and particles. */
@@ -107,33 +107,118 @@ export function tracePath(ctx, path, k0 = 0, k1 = 1) {
   return true;
 }
 
+/** Two `#rrggbb` colours mixed: `k` of the second. */
+export const hexMix = (a, b, k) => { const n = h => parseInt(String(h).slice(1), 16) || 0, x = n(a), y = n(b); const c = sh => Math.round(((x >> sh) & 255) * (1 - k) + ((y >> sh) & 255) * k); return `#${[16, 8, 0].map(sh => c(sh).toString(16).padStart(2, '0')).join('')}`; };
+/** A ribbon's width on screen (px): while an order is drawn or waits, and at rest once it is sealed. */
+export const RIBBON_PX = Object.freeze({ live: 10, sealed: 8 });
+/** The dash rhythm stitched along a ribbon (screen px): a dash and its gap. */
+export const RIBBON_DASH = Object.freeze([9, 7]);
+
 /**
- * The ribbon of a route: a dark underlay, the nation's colour, a light edge.
- * `k` how much of it is drawn (0..1), `px` one screen pixel in the context's
- * units, `level` its overall strength, `sealed` the quieter resting look.
+ * The two edges of a flat ribbon along a smoothed path from share k0 to k1: `{left, right, mid}` point lists.
+ * `w` its width in the context's units; it tapers to a point over `tip` at both ends and its width wanders a
+ * little along the way (two slow waves from the path's own length), as cloth does and a tube does not.
  */
-export function ribbon(ctx, path, { k = 1, px = 1, color = TONE.you, level = 1, sealed = false, glint = -1 } = {}) {
-  if (level <= 0.01 || k <= 0.001 || path.pts.length < 2) return;
-  ctx.save();
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  const w = sealed ? 0.8 : 1;
-  if (tracePath(ctx, path, 0, k)) {
-    ctx.strokeStyle = rgba('#0c1614', (sealed ? 0.55 : 0.66) * level); ctx.lineWidth = 12 * w * px; ctx.stroke();
-    ctx.strokeStyle = rgba(color, (sealed ? 0.9 : 1) * level); ctx.lineWidth = 7.5 * w * px; ctx.stroke();
-    ctx.strokeStyle = rgba(TONE.ivory, (sealed ? 0.55 : 0.9) * level); ctx.lineWidth = 2 * w * px; ctx.stroke();
+export function ribbonEdges(path, w, { k0 = 0, k1 = 1, tip = w * 2.2 } = {}) {
+  const { pts, len, total } = path;
+  const left = [], right = [], mid = [];
+  if (pts.length < 2 || total <= 0 || k1 <= k0) return { left, right, mid };
+  const from = k0 * total, to = k1 * total, span = to - from;
+  const stations = [from];
+  for (let i = 0; i < pts.length; i++) if (len[i] > from + 0.5 && len[i] < to - 0.5) stations.push(len[i]);
+  // close stations inside the two tips, so the taper is a curve and not a wedge
+  for (const d of [0.25, 0.5, 0.75, 1]) { stations.push(from + tip * d, to - tip * d); }
+  stations.push(to);
+  const list = [...new Set(stations.filter(d => d >= from && d <= to).map(d => Math.round(d * 100) / 100))].sort((p, q) => p - q);
+  for (const d of list) {
+    const p = pathAt(path, d / total), n = Math.hypot(p.dx, p.dy) || 1, nx = -p.dy / n, ny = p.dx / n;
+    const fromEnd = Math.min(d - from, to - d), t = Math.min(1, fromEnd / Math.max(0.001, Math.min(tip, span / 2)));
+    const taper = Math.sin(t * Math.PI / 2) ** 0.8;
+    const wander = 1 + 0.1 * Math.sin(d / (w * 5.2) + 0.7) + 0.06 * Math.sin(d / (w * 2.1) + 2.3);
+    const h = (w / 2) * taper * wander;
+    left.push({ x: p.x + nx * h, y: p.y + ny * h }); right.push({ x: p.x - nx * h, y: p.y - ny * h }); mid.push({ x: p.x, y: p.y });
   }
-  // a glint running along it (the pen's tip while it is drawn; a slow shimmer while an order waits)
-  if (glint >= 0 && glint <= 1) {
-    const g0 = Math.max(0, glint - 0.12), g1 = Math.min(k, glint);
-    if (g1 > g0 && tracePath(ctx, path, g0, g1)) {
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.strokeStyle = rgba(TONE.white, 0.8 * level); ctx.lineWidth = 5 * px; ctx.stroke();
-      const p = pathAt(path, g1);
-      const gr = ctx.createRadialGradient?.(p.x, p.y, 0, p.x, p.y, 18 * px);
-      if (gr?.addColorStop) { gr.addColorStop(0, rgba(TONE.white, 0.9 * level)); gr.addColorStop(0.4, rgba(color, 0.5 * level)); gr.addColorStop(1, rgba(color, 0)); ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(p.x, p.y, 18 * px, 0, TAU); ctx.fill(); }
-    }
+  return { left, right, mid };
+}
+
+const polyline = (ctx, list) => { list.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); };
+
+/**
+ * The ribbon of a route (UX-DESIGN §11.14): a flat band of cloth in the nation's colour lying on the land,
+ * not a tube. Tapered ends, a width that wanders slightly, a darker hem on its lower edge and a pale one on
+ * its upper, a thin cast shadow, and a stitched rhythm of pale dashes down its middle. `k` how much of it is
+ * drawn (0..1), `px` one screen pixel in the context's units, `level` its overall strength, `sealed` the
+ * quieter resting look, `march` (seconds) walks the dashes toward the far end while an order waits, `glint`
+ * (0..1) a light running along it.
+ */
+export function ribbon(ctx, path, { k = 1, px = 1, color = TONE.you, level = 1, sealed = false, glint = -1, march = 0 } = {}) {
+  if (level <= 0.01 || k <= 0.001 || path.pts.length < 2) return;
+  const w = (sealed ? RIBBON_PX.sealed : RIBBON_PX.live) * px;
+  const { left, right, mid } = ribbonEdges(path, w, { k1: k });
+  if (left.length < 2) return;
+  const body = () => { ctx.beginPath(); polyline(ctx, left); for (let i = right.length - 1; i >= 0; i--) ctx.lineTo(right[i].x, right[i].y); ctx.closePath(); };
+  ctx.save();
+  ctx.lineJoin = 'round'; ctx.lineCap = 'butt';
+  // its shadow on the land: the same band a little lower
+  ctx.save(); ctx.translate?.(0, 2.2 * px); body(); ctx.fillStyle = rgba('#0c1614', (sealed ? 0.3 : 0.4) * level); ctx.fill(); ctx.restore();
+  // the cloth, with an ink line round it so it reads on land of its own colour
+  body();
+  ctx.fillStyle = rgba(color, (sealed ? 0.92 : 1) * level); ctx.fill();
+  ctx.strokeStyle = rgba('#1a0f0c', 0.7 * level); ctx.lineWidth = 1.1 * px; ctx.stroke();
+  // hems: pale above (the light), dark below
+  ctx.beginPath(); polyline(ctx, left); ctx.strokeStyle = rgba(hexMix(color, '#000000', 0.42), 0.85 * level); ctx.lineWidth = 1.4 * px; ctx.stroke();
+  ctx.beginPath(); polyline(ctx, right); ctx.strokeStyle = rgba(hexMix(color, '#fff6dc', 0.62), 0.9 * level); ctx.lineWidth = 1.2 * px; ctx.stroke();
+  // the stitched rhythm down its middle (kept off the two tips)
+  if (mid.length > 4 && ctx.setLineDash) {
+    const inner = mid.slice(2, -2);
+    ctx.beginPath(); polyline(ctx, inner);
+    ctx.setLineDash([RIBBON_DASH[0] * px, RIBBON_DASH[1] * px]); ctx.lineDashOffset = -march * 22 * px;
+    ctx.strokeStyle = rgba(TONE.ivory, (sealed ? 0.62 : 0.9) * level); ctx.lineWidth = 1.7 * px; ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  // a glint running along it (the pen's tip while it is drawn; one pass as the seal comes down)
+  if (glint >= 0 && glint <= 1.05) {
+    const p = pathAt(path, Math.min(k, glint));
+    ctx.globalCompositeOperation = 'lighter';
+    const gr = ctx.createRadialGradient?.(p.x, p.y, 0, p.x, p.y, 16 * px);
+    if (gr?.addColorStop) { gr.addColorStop(0, rgba(TONE.white, 0.85 * level)); gr.addColorStop(0.4, rgba(color, 0.45 * level)); gr.addColorStop(1, rgba(color, 0)); ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(p.x, p.y, 16 * px, 0, TAU); ctx.fill(); }
   }
   ctx.restore();
+}
+
+/**
+ * A caption on a small bell-metal tag, drawn on the canvas (what rests on the land for minutes: the sealed
+ * ribbon's mark; the passing captions are HUD nodes, effects.mjs `tag`). The plate's middle at (x, y), a thin
+ * brass leader from (ax, ay) to its nearest edge; `px` one screen pixel in the context's units. Returns the
+ * plate's half size in the context's units.
+ */
+export function canvasTag(ctx, x, y, text, { px = 1, ax = null, ay = null, accent = TONE.brass, alpha = 1 } = {}) {
+  if (alpha <= 0.01 || !text) return { hw: 0, hh: 0 };
+  ctx.save();
+  ctx.font = `600 13px ${SERIF}`;
+  const tw = ctx.measureText?.(text)?.width ?? String(text).length * 13;
+  const hw = (tw / 2 + 11) * px, hh = 11.5 * px;
+  ctx.globalAlpha *= alpha;
+  if (ax !== null && ay !== null) {
+    const ex = Math.min(x + hw - 5 * px, Math.max(x - hw + 5 * px, ax)), ey = Math.min(y + hh, Math.max(y - hh, ay));
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = rgba('#081210', 0.55); ctx.lineWidth = 3.5 * px; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ex, ey); ctx.stroke();
+    ctx.strokeStyle = TONE.brassHi; ctx.lineWidth = 1.5 * px; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ex, ey); ctx.stroke();
+  }
+  // the plate: bell metal, a brass hairline, the accent down its left edge
+  ctx.beginPath(); ctx.roundRect?.(x - hw, y - hh, hw * 2, hh * 2, 3 * px);
+  const g = ctx.createLinearGradient?.(0, y - hh, 0, y + hh);
+  if (g?.addColorStop) { g.addColorStop(0, '#1d3a33'); g.addColorStop(0.72, '#10221f'); ctx.fillStyle = g; } else ctx.fillStyle = '#10221f';
+  ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = 8; ctx.shadowOffsetY = 3;
+  ctx.fill();
+  ctx.shadowColor = 'rgba(0,0,0,0)'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+  ctx.strokeStyle = rgba(TONE.brass, 0.92); ctx.lineWidth = 1 * px; ctx.stroke();
+  ctx.fillStyle = accent; ctx.fillRect?.(x - hw + 1 * px, y - hh + 2 * px, 2.5 * px, hh * 2 - 4 * px);
+  ctx.translate(x + 1.5 * px, y + 0.5 * px); ctx.scale(px, px);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = TONE.ivory; ctx.fillText?.(text, 0, 0);
+  ctx.restore();
+  return { hw, hh };
 }
 
 /** A round mark over a tile (screen-sized): a dark disc with a ring in `color` and, drawn on by `k`, a tick ('ok') or a cross ('no'). */

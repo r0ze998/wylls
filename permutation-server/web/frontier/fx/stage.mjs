@@ -20,13 +20,14 @@
 // `res:gain {p, q, site}` (when harvest tokens land in the resource strip).
 import { L, fmtNum } from '../../lang.mjs';
 import { project } from '../../map.mjs';
-import { tileHex } from '../fgeo.mjs';
+import { tileHex, hexDistance } from '../fgeo.mjs';
+import { keyHex } from '../map/survey.mjs';
 import { factionName } from '../fi18n.mjs';
 import { FACTION_FILL, FACTION_DARK, FACTION_LIGHT } from '../people/avatar.mjs';
 import { UNIT_KINDS, routePoints } from '../people/units.mjs';
 import { bus as defaultBus } from './bus.mjs';
-import { TONE } from './effects.mjs';
-import { installPieces, FLY_LANDS, SEAL_PX } from './pieces.mjs';
+import { TONE, bannerGone } from './effects.mjs';
+import { installPieces, FLY_LANDS, SEAL_PX, COLUMN_SECS, FORMING_SECS } from './pieces.mjs';
 import { stageBattle } from './battle.mjs';
 import { installIdle } from './idle.mjs';
 
@@ -37,9 +38,12 @@ const dark = f => FACTION_DARK[f] ?? TONE.brassLo;
 const spot = a => (a && [a.p, a.q, a.tile].every(Number.isInteger) ? { p: a.p, q: a.q, tile: a.tile } : a && Number.isInteger(a.q) && Number.isInteger(a.r) && !Number.isInteger(a.p) ? { q: a.q, r: a.r } : null);
 const worldOf = at => { if (!at) return null; const h = Number.isInteger(at.tile) ? tileHex(at.p, at.q, at.tile) : at; return h ? project(h.q, h.r) : null; };
 
-/** How long the toll's banner stays (s), and the gap between two results played one after another. */
-export const TOLL_BANNER_SECS = 2.9;
+/** When the toll's banner comes after the stroke and how long it stays (s), and the gap between two results played one after another. */
+export const TOLL_BANNER_AT = 0.3;
+export const TOLL_BANNER_SECS = 2.6;
 export const RESULT_GAP = 0.7;
+/** Seconds after the stroke at which the banner has faded under a tenth of its opacity: this turn's results and their card wait for it (UX-DESIGN §11.14). */
+export const TOLL_CLEAR = TOLL_BANNER_AT + bannerGone(TOLL_BANNER_SECS);
 /** How many moments of other people play in full within one beat (the viewer's own always do). */
 export const MOMENTS_AT_ONCE = 8;
 /** The order this turn's own results are shown in. */
@@ -69,7 +73,8 @@ export function playToll(fx, { turn, home = null } = {}) {
   const seed = `bell|${turn}`;
   fx.play('toll', { ...o, seed });
   fx.play('chip', { el: '#bell-chip', delay: 0.2, seed });
-  fx.play('banner', { title: L`鐘が鳴りました — ターン ${fmtNum(turn)}`, into: fx.doc?.getElementById?.('bell-toll') ?? '#bell-toll', y: 0.2, dur: TOLL_BANNER_SECS, delay: 0.3, seed });
+  // under the dial, at the top of the stage the HUD leaves free (a phone: between its two columns of buttons, on two lines)
+  fx.play('banner', { title: L`鐘が鳴りました — ターン ${fmtNum(turn)}`, into: fx.doc?.getElementById?.('bell-toll') ?? '#bell-toll', y: 0, dur: TOLL_BANNER_SECS, delay: TOLL_BANNER_AT, seed });
   fx.sound('bell', { delay: 0.2, seed });
 }
 
@@ -81,7 +86,8 @@ export function playResult(fx, x, delay = 0) {
   if (x.result === 'arrival') {
     fx.play('unseal', { ...at, color: fill(x.faction), delay, seed });
     fx.play('ripple', { ...at, color: light(x.faction), radius: 2, delay: delay + 0.3, seed });
-    fx.play('label', { ...at, text: L`開封されました`, color: TONE.ivory, size: 21, lift: 1.25, delay: delay + 0.34, seed });
+    fx.play('tag', { ...at, text: L`開封されました`, icon: 'seal', color: fill(x.faction), delay: delay + 0.34, dur: 1.9, seed });
+    fx.hush(at, 2.3, delay);
     fx.sound('shimmer', { delay: delay + 0.3, seed });
   } else if (x.result === 'battle') {
     fx.play('swords', { ...at, delay, seed });
@@ -89,7 +95,8 @@ export function playResult(fx, x, delay = 0) {
     fx.sound('clash', { delay: delay + 0.14, seed });
   } else if (x.result === 'incoming') {
     fx.play('alarm', { ...at, delay, seed });
-    fx.play('label', { ...at, text: L`来襲の恐れ`, color: '#ffb09a', size: 22, lift: 0.95, delay: delay + 0.3, seed });
+    fx.play('tag', { ...at, text: L`来襲の恐れ`, icon: 'alert', tone: 'ember', delay: delay + 0.3, dur: 1.9, seed });
+    fx.hush(at, 2.3, delay);
     fx.sound('drum', { delay, seed });
   }
 }
@@ -103,7 +110,7 @@ export function playBusy(fx, a) {
     const points = routePoints(a.route, from && to ? { from, to } : null);
     if (points.length > 1) { handles.push(...fx.play('route', { points, color: fill(a.faction), seed })); a.points = points; }
   }
-  if (at) handles.push(...fx.play('pending', { ...at, color: light(a.faction), seed }));
+  if (at) handles.push(...fx.play('pending', { ...at, seed }));
   return handles;
 }
 /** It left this browser. */
@@ -121,6 +128,7 @@ export function playLanded(fx, a) {
   fx.play('burst', { ...at, kind: 'spark', n: 20, height: 0.3, power: 0.85, delay: 0.08, seed, colors: [light(a.faction), fill(a.faction), '#fff6dc'] });
   fx.play('mark', { ...at, kind: 'ok', color: fill(a.faction), delay: 0.1, seed });
   fx.play('pip', { ...at, color: fill(a.faction), seed });
+  fx.hush(at, 1.6);
 }
 /** It was refused: the tile beats red. */
 export function playRefused(fx, a) {
@@ -131,6 +139,7 @@ export function playRefused(fx, a) {
   fx.play('mark', { ...at, kind: 'no', color: TONE.ember, delay: 0.05, seed });
   fx.play('pip', { ...at, color: TONE.ember, seed });
   fx.shake(2.5, 130, { seed });
+  fx.hush(at, 1.6);
 }
 
 /**
@@ -143,16 +152,18 @@ export function playSealed(fx, a) {
   const at = spot(a.tile), seed = `sealed|${a.id}`;
   const from = worldOf(at), to = worldOf(a.dest);
   const points = a.points ?? routePoints(a.route, from && to ? { from, to } : null);
-  if (!points || points.length < 2) { if (at) { fx.play('stamp', { ...at, lift: 0.5, seed }); fx.sound('seal', { delay: 0.16, seed }); } return []; }
+  if (!points || points.length < 2) { if (at) { fx.play('stamp', { ...at, lift: 0.5, seed }); fx.play('tag', { ...at, text: L`封印済み`, icon: 'seal', tone: 'ember', delay: 0.4, seed }); fx.sound('seal', { delay: 0.16, seed }); } return []; }
   const end = points[points.length - 1], color = fill(a.faction);
   const caption = L`封印済み · あなたにだけ見えます`;
-  // the ribbon is already there (drawn while the order was sealed); it flashes as the seal comes down on its end
-  const rest = fx.play('sealed', { points, color, caption, captionAfter: 2.5, seed });
+  // the ribbon is already there (drawn while the order was sealed); a glint crosses it as the seal comes down on its end
+  const rest = fx.play('sealed', { points, color, caption, captionAfter: 0.75, seed });
   fx.play('route', { points, color, dur: 0.6, drawn: true, seed: `${seed}|flash` });
-  fx.play('stamp', { x: end.x, y: end.y, size: SEAL_PX, caption, hold: 2.2, rest: 0.5, seed });
+  fx.play('stamp', { x: end.x, y: end.y, size: SEAL_PX, hold: 1.7, rest: 0.54, seed });
   fx.sound('seal', { delay: 0.16, seed });
+  // the column sets off: out of the village, along the ribbon, for everyone at the table to see (every motion level)
   fx.play('walker', { points, kind: UNIT_KINDS[a.unit ?? 0] ?? 'spearman', faction: a.faction ?? 0, delay: 0.42, seed });
   fx.play('pip', { x: points[0].x, y: points[0].y, color, seed });
+  if (at) fx.hush(at, 0.42 + COLUMN_SECS);
   return rest;
 }
 
@@ -200,37 +211,50 @@ const MOMENT_LABEL = {
   depart: () => L`出発`,
   village: m => (Number.isInteger(m.to) && m.to < 6 ? (m.from === null || m.from === undefined ? L`${factionName(m.to)}の新しい村` : L`${factionName(m.to)}の村になった`) : L`村がなくなった`),
 };
+/** The icon of a moment's caption (the HUD's sprite, hud/icons.mjs). */
+const MOMENT_ICON = Object.freeze({ built: 'hammer', muster: 'banner', arrive: 'flag', camp: 'tent', depart: 'seal', village: 'home' });
 
 /**
  * A moment of the map (people/moments.mjs): `{kind, p, q, tile, …}` with
- * `own` true for the viewer's own village or host. Each has a form readable
- * at the default zoom and a pip for the far view.
+ * `own` true for the viewer's own village or host. Each is as large as the
+ * tile and its neighbours (readable at the hero zoom), has its caption on a
+ * tag above the tile (the tile's own labels make way while it plays: `fx.hush`)
+ * and a pip for the far view.
  */
 export function playMoment(fx, m, { bus = defaultBus } = {}) {
   const at = spot(m);
   if (!at) return;
   const seed = `moment|${m.kind}|${m.p},${m.q},${m.tile}|${m.id ?? ''}`;
-  const label = (text, color, extra = {}) => fx.play('label', { ...at, text, color, size: 21, lift: 1.3, dur: 1.9, delay: 0.25, seed, ...extra });
+  // the caption: over the tile, above whatever stands on it
+  const caption = (text, extra = {}) => {
+    const delay = extra.delay ?? 0.25, dur = extra.dur ?? 2.1;
+    fx.play('tag', { ...at, text, icon: MOMENT_ICON[m.kind], lift: 1.5, seed, ...extra, delay, dur });
+    fx.hush(at, delay + dur + 0.1);
+  };
   switch (m.kind) {
     case 'built':
+      // the tile and the land round it catch the light of the work finished: a shaft, a wide ring, a shower of brass
       fx.play('flash', { ...at, color: TONE.brassHi, seed });
+      fx.play('glow', { ...at, radius: 1, color: TONE.brassHi, hold: 0.9, gain: 0.55, delay: 0.06, seed });
       fx.play('pillar', { ...at, delay: 0.07, seed });
-      fx.play('dust', { ...at, power: 1.15, delay: 0.08, seed });
-      fx.play('burst', { ...at, kind: 'coin', n: 18, height: 1.0, radius: 0.25, power: 0.9, delay: 0.12, seed });
-      fx.play('burst', { ...at, kind: 'spark', n: 10, height: 0.9, power: 0.6, delay: 0.1, seed: `${seed}|s`, colors: ['#fff6dc', TONE.brassHi, TONE.brass] });
-      label(MOMENT_LABEL.built(m), TONE.brassHi);
+      fx.play('ripple', { ...at, color: TONE.brassHi, radius: 2.3, delay: 0.08, seed });
+      fx.play('dust', { ...at, power: 1.35, delay: 0.08, seed });
+      fx.play('burst', { ...at, kind: 'coin', n: 28, height: 1.2, radius: 0.4, power: 1.25, up: 1.15, delay: 0.12, seed });
+      fx.play('burst', { ...at, kind: 'spark', n: 16, height: 1.1, power: 0.85, delay: 0.1, seed: `${seed}|s`, colors: ['#fff6dc', TONE.brassHi, TONE.brass] });
+      caption(MOMENT_LABEL.built(m), { tone: 'gold' });
       fx.play('pip', { ...at, color: TONE.brassHi, seed });
       if (m.own) fx.sound('confirm', { delay: 0.08, seed });
       break;
     case 'harvest': {
       fx.play('flash', { ...at, color: '#e8c35a', seed });
-      fx.play('burst', { ...at, kind: 'leaf', n: 26, height: 0.4, radius: 0.55, power: 1.5, size: 1.7, life: 0.9, delay: 0.07, seed });
-      fx.play('burst', { ...at, kind: 'spark', n: 10, height: 0.4, power: 0.6, delay: 0.08, seed: `${seed}|s`, colors: ['#fff6dc', '#f0d48a', '#e8c35a'] });
-      fx.play('ripple', { ...at, color: '#e8c35a', radius: 1.7, delay: 0.07, seed });
+      fx.play('burst', { ...at, kind: 'leaf', n: 34, height: 0.4, radius: 0.8, power: 1.7, size: 1.9, life: 0.95, delay: 0.07, seed });
+      fx.play('burst', { ...at, kind: 'spark', n: 12, height: 0.4, power: 0.7, delay: 0.08, seed: `${seed}|s`, colors: ['#fff6dc', '#f0d48a', '#e8c35a'] });
+      fx.play('ripple', { ...at, color: '#e8c35a', radius: 2.1, delay: 0.07, seed });
       fx.play('pip', { ...at, color: '#e0bd52', seed });
       if (!m.own) break;
+      fx.hush(at, 1.4);
       const gain = () => bus.emit('res:gain', { p: m.p, q: m.q, site: m.site ?? null, tile: m.tile });
-      const flown = fx.play('fly', { ...at, to: m.to ?? '#res-strip', n: 6, delay: 0.16, seed });
+      const flown = fx.play('fly', { ...at, to: m.to ?? '#res-strip', n: 8, delay: 0.16, seed });
       if (flown.length) {
         fx.play('chip', { el: m.to ?? '#res-strip', color: TONE.brassHi, fill: 0.3, delay: 0.16 + FLY_LANDS, seed });
         // the strip counts up as the first token lands (a zero-size effect is the timer: it follows the effects clock)
@@ -240,37 +264,43 @@ export function playMoment(fx, m, { bus = defaultBus } = {}) {
       break;
     }
     case 'muster':
-      fx.play('glow', { ...at, radius: 0, color: fill(m.faction), hold: 1.0, seed });
-      fx.play('forming', { ...at, kind: UNIT_KINDS[m.unit ?? 0] ?? 'spearman', faction: m.faction ?? 0, n: m.n ?? 5, seed });
-      label(MOMENT_LABEL.muster(m), light(m.faction), { delay: 0.5 });
+      fx.play('glow', { ...at, radius: 0, color: fill(m.faction), hold: 1.2, seed });
+      fx.play('ripple', { ...at, color: light(m.faction), radius: 1.8, delay: 0.5, seed });
+      fx.play('forming', { ...at, kind: UNIT_KINDS[m.unit ?? 0] ?? 'spearman', faction: m.faction ?? 0, n: m.n ?? 7, seed });
+      caption(MOMENT_LABEL.muster(m), { color: fill(m.faction), delay: 0.55, dur: FORMING_SECS - 0.55 });
       fx.play('pip', { ...at, color: fill(m.faction), seed });
-      if (m.own) fx.sound('drum', { delay: 0.4, seed, level: 0.6 });
+      if (m.own) fx.sound('drum', { delay: 0.5, seed, level: 0.6 });
       break;
     case 'arrive':
       fx.play('burst', { ...at, kind: 'mist', n: 12, radius: 0.45, power: 1.4, life: 0.6, seed });
       fx.play('flash', { ...at, color: TONE.ivory, delay: 0.12, seed });
       fx.play('ripple', { ...at, color: light(m.faction), radius: 1.8, delay: 0.18, seed });
-      label(MOMENT_LABEL.arrive(m), TONE.ivory, { delay: 0.3 });
+      caption(MOMENT_LABEL.arrive(m), { color: fill(m.faction), delay: 0.3, dur: 1.7 });
       fx.play('pip', { ...at, color: TONE.ivory, seed });
       break;
     case 'camp':
-      fx.play('dust', { ...at, power: 1.2, seed });
-      fx.play('burst', { ...at, kind: 'smoke', n: 16, height: 0.3, radius: 0.35, stagger: 0.7, seed });
-      label(MOMENT_LABEL.camp(m), TONE.ivory);
+      // it is gone, not burnt (fire is only for a camp a clash destroyed): its dust settles, a little smoke, cloth and poles thrown clear
+      fx.play('pulse', { ...at, color: '#d8cfb8', beats: 1, seed });
+      fx.play('dust', { ...at, power: 1.5, seed });
+      fx.play('burst', { ...at, kind: 'shard', n: 14, height: 0.2, radius: 0.3, power: 0.9, up: 0.9, seed: `${seed}|bits`, colors: ['#8a7a5c', '#4a3626', '#c9b98f'] });
+      fx.play('burst', { ...at, kind: 'smoke', n: 18, height: 0.3, radius: 0.4, stagger: 0.8, seed });
+      fx.play('ripple', { ...at, color: '#e9dfc6', radius: 1.9, delay: 0.1, seed });
+      caption(MOMENT_LABEL.camp(m), { tone: 'ivory' });
       fx.play('pip', { ...at, color: '#d8cfb8', seed });
       break;
     case 'village': {
       const to = Number.isInteger(m.to) && m.to < 6 ? m.to : null;
       if (to !== null) {
-        fx.play('glow', { ...at, radius: 1, color: fill(to), hold: 1.5, seed });
+        fx.play('glow', { ...at, radius: 1, color: fill(to), hold: 1.6, seed });
         fx.play('flash', { ...at, color: light(to), seed });
+        fx.play('ripple', { ...at, color: light(to), radius: 2.6, delay: 0.12, seed });
         fx.play('raise', { ...at, fill: fill(to), dark: dark(to), delay: 0.1, seed });
       } else {
         fx.play('pulse', { ...at, color: '#d8cfb8', beats: 1, seed });
-        fx.play('burst', { ...at, kind: 'smoke', n: 12, height: 0.3, radius: 0.3, stagger: 0.6, seed });
+        fx.play('burst', { ...at, kind: 'smoke', n: 14, height: 0.3, radius: 0.35, stagger: 0.6, seed });
       }
-      fx.play('dust', { ...at, power: 1, delay: 0.1, seed });
-      label(MOMENT_LABEL.village(m), to !== null ? light(to) : TONE.ivory, { delay: 0.45, serif: true, size: 23 });
+      fx.play('dust', { ...at, power: 1.2, delay: 0.1, seed });
+      caption(MOMENT_LABEL.village(m), { ...(to !== null ? { color: fill(to), icon: 'banner' } : { tone: 'ivory' }), delay: 0.45, dur: 2.3, lift: to !== null ? 2.95 : 1.5 });
       fx.play('pip', { ...at, color: to !== null ? fill(to) : '#d8cfb8', seed });
       if (m.own) fx.sound('drum', { delay: 0.1, seed, level: 0.7 });
       break;
@@ -279,10 +309,37 @@ export function playMoment(fx, m, { bus = defaultBus } = {}) {
       // another nation's host (or an own one seen leaving): that it left, and from where; never a heading
       fx.play('dust', { ...at, power: 0.7, seed });
       fx.play('stamp', { ...at, size: 40, lift: 0.5, hold: 1.1, rest: 0.6, shake: 0, delay: 0.24, seed });
-      label(MOMENT_LABEL.depart(m), TONE.ivory, { delay: 0.55, lift: 1.5 });
+      caption(MOMENT_LABEL.depart(m), { tone: 'ember', delay: 0.55, dur: 1.5 });
       fx.play('pip', { ...at, color: '#d2533c', seed });
       break;
     default: break;
+  }
+}
+
+/**
+ * Land comes out of the chart (map/survey.mjs `reveals`: hexKey → the effects-clock ms its dissolve starts;
+ * the map dissolves each tile from chart to paint, map/chart.mjs paintReveal). Here the survey is felt: the
+ * chart's ink lifts off each tile as its paint comes, a pale line runs outward ahead of it, a few glints,
+ * and one caption counts what was surveyed. `{tiles: [{q, r, at (seconds from now)}]}`.
+ */
+export function playReveal(fx, { tiles = [], seed = 'reveal' } = {}) {
+  const list = tiles.filter(t => Number.isInteger(t.q) && Number.isInteger(t.r));
+  fx.sound('shimmer', { seed });
+  if (!list.length) return;
+  const first = list.reduce((a, b) => (b.at < a.at ? b : a));
+  const far = list.reduce((d, t) => Math.max(d, hexDistance(first.q, first.r, t.q, t.r)), 0);
+  fx.play('ripple', { q: first.q, r: first.r, color: '#fff4d0', radius: far + 1.2, delay: Math.max(0, first.at), layer: 'top', seed });
+  for (const t of list) {
+    const d = Math.max(0, t.at), sd = `${seed}|${t.q},${t.r}`;
+    fx.play('burst', { q: t.q, r: t.r, kind: 'ink', n: 3, radius: 0.45, power: 1.2, life: 0.7, size: 0.55, delay: d, seed: sd });
+    fx.play('burst', { q: t.q, r: t.r, kind: 'spark', n: 2, height: 0.25, power: 0.35, up: 0.6, size: 0.8, delay: d + 0.35, seed: `${sd}|g`, colors: ['#fffaf0', '#f4e4b4'] });
+  }
+  // one caption for the whole survey, over the tile nearest its middle
+  if (list.length >= 3) {
+    const cq = list.reduce((a, t) => a + t.q, 0) / list.length, cr = list.reduce((a, t) => a + t.r, 0) / list.length;
+    const mid = list.reduce((a, b) => (Math.hypot(b.q - cq, b.r - cr) < Math.hypot(a.q - cq, a.r - cr) ? b : a));
+    const last = list.reduce((a, t) => Math.max(a, t.at), 0);
+    fx.play('tag', { q: mid.q, r: mid.r, text: L`新しく ${fmtNum(list.length)} マスを測量しました`, icon: 'chart', tone: 'ivory', lift: 1.2, delay: Math.max(0.3, last * 0.5), dur: 2.4, seed });
   }
 }
 
@@ -306,7 +363,7 @@ export function installStage(fx, { bus = defaultBus } = {}) {
     resting.clear();
     turn = p.turn ?? null; results = [];
     playToll(fx, p);
-    tollEnds = fx.clock.now() + 0.3 + TOLL_BANNER_SECS - 0.9;
+    tollEnds = fx.clock.now() + TOLL_CLEAR;
   });
   on('feed', p => {
     const fresh = (p.fresh ?? []).map(x => ({ ...x, result: resultKind(x) })).filter(x => x.result && !results.some(r => r.id === x.id));
@@ -330,7 +387,21 @@ export function installStage(fx, { bus = defaultBus } = {}) {
   // ---- the land: a village lands, tiles light for a host, land comes out of the chart
   on('landing', a => playLanding(fx, a));
   on('tiles:lit', a => playLit(fx, a));
-  on('reveal', () => fx.sound('shimmer', { seed: 'reveal' }));
+  // (the tiles and their start times are the map's own: map/survey.mjs `reveals`, read from the map's source)
+  let revealSeen = -Infinity;
+  on('reveal', a => {
+    let tiles = a.tiles ?? null;
+    if (!tiles) {
+      tiles = [];
+      try {
+        const now = fx.clock.now();
+        const reveals = fx.map?.source?.()?.survey?.reveals;
+        for (const [k, t0] of reveals ?? []) { if (t0 <= revealSeen) continue; const h = keyHex(k); tiles.push({ q: h.q, r: h.r, at: t0 / 1000 - now }); }
+        for (const t0 of reveals?.values?.() ?? []) revealSeen = Math.max(revealSeen, t0);
+      } catch { tiles = []; }
+    }
+    playReveal(fx, { tiles, seed: `reveal|${a.n ?? tiles.length}|${Math.round(fx.clock.now() * 10)}` });
+  });
 
   // ---- battles
   on('battle', p => { if (p.play) stageBattle(fx, p.play, p); });

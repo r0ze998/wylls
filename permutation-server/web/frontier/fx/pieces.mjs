@@ -29,7 +29,7 @@ import { battleScale, crossedSwords } from '../people/battle.mjs';
 import { clamp01, lerp, span, inQuad, inCubic, outQuad, outCubic, outExpo, outBack, envelope } from './ease.mjs';
 import { REDUCED_FADE } from './motion.mjs';
 import { TONE, rgba, pointOf, hexPath, groundRing, radial, lighter, viewportPoint, setVars, node } from './effects.mjs';
-import { waxSeal, ribbon, smoothPath, pathAt, roundMark, farPip, standard, isFar } from './draw.mjs';
+import { waxSeal, ribbon, smoothPath, pathAt, roundMark, farPip, standard, isFar, canvasTag } from './draw.mjs';
 import { burn } from './battle.mjs';
 
 const R = RADIUS, TAU = Math.PI * 2;
@@ -37,11 +37,11 @@ const R = RADIUS, TAU = Math.PI * 2;
 export const SEAL_PX = 56;
 
 // ------------------------------------------------------------------ mark: landed / refused
-/** `{…position, kind: 'ok' | 'no', color, size (px radius, default 19), lift (tiles, default 0.95)}` */
+/** `{…position, kind: 'ok' | 'no', color, size (px radius, default 21), lift (tiles above the tile: default 1.35, the caption's own place over a tile's name)}` */
 function mark(a, env) {
   const { x, y } = pointOf(a);
   const kind = a.kind === 'no' ? 'no' : 'ok', color = a.color ?? (kind === 'no' ? TONE.ember : TONE.you);
-  const r = a.size ?? 19, lift = (a.lift ?? 0.95) * R, dur = 1.35;
+  const r = a.size ?? 21, lift = (a.lift ?? 1.35) * R, dur = 1.35;
   const full = env.mode === 'full';
   return { layer: 'top', dur, draw(ctx, s) {
     const t = s.t, px = s.px;
@@ -67,13 +67,15 @@ function pending(a, env) {
   const full = env.mode === 'full';
   return { layer: 'top', dur, draw(ctx, s) {
     const t = s.t, px = s.px, o = span(t, 0, 0.2) * (1 - span(t, dur - 0.3, dur));
-    const rr = R * 0.66, ry = rr * FLATTEN;
+    const rr = R * 0.7, ry = rr * FLATTEN;
     ctx.lineCap = 'round';
-    ctx.strokeStyle = rgba('#0c1614', 0.4 * o); ctx.lineWidth = 6 * px; ctx.beginPath(); ctx.ellipse?.(x, y, rr, ry, 0, 0, TAU); ctx.stroke();
+    // a dark seat with a faint brass track, so the turning arcs read on any land (the viewer's own colour too)
+    ctx.strokeStyle = rgba('#0c1614', 0.62 * o); ctx.lineWidth = 8.5 * px; ctx.beginPath(); ctx.ellipse?.(x, y, rr, ry, 0, 0, TAU); ctx.stroke();
+    ctx.strokeStyle = rgba(TONE.brass, 0.4 * o); ctx.lineWidth = 1.5 * px; ctx.beginPath(); ctx.ellipse?.(x, y, rr, ry, 0, 0, TAU); ctx.stroke();
     const turn = full ? t * 2.6 : 0;
     for (let i = 0; i < 3; i++) {
       const a0 = turn + (i / 3) * TAU;
-      ctx.strokeStyle = rgba(color, (i === 0 ? 1 : 0.6) * o); ctx.lineWidth = (i === 0 ? 3.4 : 2.6) * px;
+      ctx.strokeStyle = rgba(i === 0 ? '#fff6dc' : color, (i === 0 ? 1 : 0.8) * o); ctx.lineWidth = (i === 0 ? 4.6 : 3.6) * px;
       ctx.beginPath(); ctx.ellipse?.(x, y, rr, ry, 0, a0, a0 + TAU * 0.2); ctx.stroke();
     }
     if (full) { lighter(ctx); ctx.fillStyle = radial(ctx, x, y, 0, rr, [[0, rgba(color, 0.16 * o * (0.6 + 0.4 * Math.sin(t * 3.2)))], [1, rgba(color, 0)]]); groundRing(ctx, x, y, rr); ctx.fill(); }
@@ -89,7 +91,7 @@ function pulse(a, env) {
     const dur = 0.6;
     return { layer: 'ground', dur, draw(ctx, s) {
       const o = envelope(s.t, dur, REDUCED_FADE, REDUCED_FADE);
-      hexPath(ctx, x, y, 1); ctx.fillStyle = rgba(color, 0.42 * o); ctx.fill(); ctx.strokeStyle = rgba(color, 0.95 * o); ctx.lineWidth = 3 * s.px; ctx.stroke();
+      hexPath(ctx, x, y, 1); ctx.fillStyle = rgba(color, 0.42 * o); ctx.fill(); ctx.strokeStyle = rgba(TONE.ivory, 0.85 * o); ctx.lineWidth = 6 * s.px; ctx.stroke(); ctx.strokeStyle = rgba(color, 0.98 * o); ctx.lineWidth = 3.4 * s.px; ctx.stroke();
     } };
   }
   const dur = (beats - 1) * GAP + 0.6;
@@ -98,8 +100,10 @@ function pulse(a, env) {
       const u = s.t - i * GAP;
       if (u < 0 || u > 0.6) continue;
       const k = u / 0.6, hit = 1 - outCubic(span(u, 0, 0.34));
-      hexPath(ctx, x, y, 1); ctx.fillStyle = rgba(color, 0.6 * hit); ctx.fill();
-      ctx.strokeStyle = rgba(color, 0.95 * (1 - k)); ctx.lineWidth = lerp(4.5, 1.5, k) * s.px; ctx.stroke();
+      hexPath(ctx, x, y, 1); ctx.fillStyle = rgba(color, 0.66 * hit); ctx.fill();
+      // (a pale line under the colour: the beat reads on land of its own colour)
+      ctx.strokeStyle = rgba(TONE.ivory, 0.85 * (1 - k)); ctx.lineWidth = lerp(8, 3, k) * s.px; ctx.stroke();
+      ctx.strokeStyle = rgba(color, 0.98 * (1 - k)); ctx.lineWidth = lerp(5, 1.8, k) * s.px; ctx.stroke();
       // a ring that closes on the tile: the refusal comes back to where it was asked
       groundRing(ctx, x, y, lerp(R * 1.7, R * 0.78, outCubic(span(u, 0, 0.3))));
       ctx.strokeStyle = rgba(color, 0.8 * (1 - span(u, 0.1, 0.4))); ctx.lineWidth = 2.5 * s.px; ctx.stroke();
@@ -109,29 +113,19 @@ function pulse(a, env) {
 
 // ------------------------------------------------------------------ stamp: the wax seal
 /**
- * `{…position, size (px across, default 56), lift (tiles, default 0), caption, hold (s, default 1.5), rest (the scale it shrinks to as it leaves, default 0.5)}`:
+ * `{…position, size (px across, default 56), lift (tiles, default 0), hold (s, default 1.5), rest (the scale it shrinks to as it leaves, default 0.5)}`:
  * the seal comes down fast, lands with squash and a white flash, a brass ring
  * leaves it, drops of wax and a little dust fly; it holds, then settles small.
  */
 function stamp(a, env) {
   const p = pointOf(a);
   const size = a.size ?? SEAL_PX, x = p.x, y = p.y - (a.lift ?? 0) * R;
-  const hold = a.hold ?? 1.5, rest = a.rest ?? 0.5, caption = a.caption ? String(a.caption) : '';
+  const hold = a.hold ?? 1.5, rest = a.rest ?? 0.5;
   const HIT = 0.16, dur = HIT + hold + 0.3;
-  const text = (ctx, s, o) => {
-    if (!caption || o <= 0.01) return;
-    ctx.save();
-    ctx.translate(x, y + (size * 0.5 + 15) * s.px); ctx.scale(s.px, s.px);
-    ctx.globalAlpha = o; ctx.font = '700 13px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
-    ctx.strokeStyle = rgba('#0c1614', 0.92); ctx.lineWidth = 4; ctx.strokeText?.(caption, 0, 0);
-    ctx.fillStyle = TONE.ivory; ctx.fillText?.(caption, 0, 0);
-    ctx.restore();
-  };
   if (env.mode !== 'full') {
-    return { layer: 'top', dur, info: !!caption, draw(ctx, s) {
+    return { layer: 'top', dur, draw(ctx, s) {
       const o = envelope(s.t, dur, REDUCED_FADE, REDUCED_FADE);
       waxSeal(ctx, x, y, (size / 2) * s.px, { alpha: o });
-      text(ctx, s, o);
     } };
   }
   env.fx.emit('shard', { x, y, n: 9, seed: `${env.seed}|wax`, t: env.now + HIT, radius: R * 0.1, power: 0.75, up: 0.55, size: 0.7, life: 0.7, colors: ['#9a2617', '#d2533c', '#5a130b'] });
@@ -152,7 +146,6 @@ function stamp(a, env) {
     const sq = u < 0.06 ? 1 : 1 - outBack(span(u, 0.06, 0.3), 2.2);
     const scale = lerp(1, rest, inQuad(out));
     waxSeal(ctx, x, y, r * scale, { sx: 1 + 0.2 * sq, sy: 1 - 0.24 * sq, alpha: 1 - 0.15 * out });
-    text(ctx, s, span(u, 0.25, 0.5) * (1 - out));
     lighter(ctx);
     // the white of the blow
     const kf = span(u, 0, 0.14);
@@ -169,7 +162,7 @@ function stamp(a, env) {
 }
 
 // ------------------------------------------------------------------ route / sealed: the ribbon of an own march
-/** `{points: [{x, y}] (world), color, dur (default 90: until it is replaced), drawn}`: the ribbon draws on from the origin; while the order waits a glint runs along it. `drawn`: it is there already and only the glint crosses it once. */
+/** `{points: [{x, y}] (world), color, dur (default 90: until it is replaced), drawn}`: the ribbon draws on from the origin; while the order waits its stitches walk toward the far end. `drawn`: it is there already and only a glint crosses it once. */
 function route(a, env) {
   const path = smoothPath(a.points);
   if (path.pts.length < 2) return null;
@@ -179,8 +172,8 @@ function route(a, env) {
     if (isFar(s)) return;
     const t = s.t, o = span(t, 0, full ? 0.08 : REDUCED_FADE) * (1 - span(t, dur - 0.3, dur));
     const k = full && !a.drawn ? outCubic(span(t, 0, 0.6)) : 1;
-    const glint = !full ? -1 : a.drawn ? outCubic(span(t, 0, 0.5)) * 1.12 : t < 0.6 ? k : ((t - 0.6) % 1.8) / 1.1;
-    ribbon(ctx, path, { k, px: s.px, color, level: o, glint });
+    const glint = !full ? -1 : a.drawn ? outCubic(span(t, 0, 0.5)) * 1.05 : t < 0.6 ? k : -1;
+    ribbon(ctx, path, { k, px: s.px, color, level: o, glint, march: full && !a.drawn ? Math.max(0, t - 0.6) : 0 });
     // the far end: a ring where the order will be sealed
     if (k > 0.98 && !a.drawn) { const e = path.pts[path.pts.length - 1]; groundRing(ctx, e.x, e.y + R * 0.1, R * 0.44); ctx.strokeStyle = rgba(TONE.you, 0.9 * o); ctx.lineWidth = 2.4 * s.px; ctx.stroke(); }
   } };
@@ -188,8 +181,10 @@ function route(a, env) {
 
 /**
  * `{points, color, caption, dur}`: the ribbon at rest on the ground (props
- * stand on it) with its seal at the far end. A still effect: it is drawn
- * with every map paint and wakes nothing; the caller cancels it at the turn.
+ * stand on it) with its seal at the far end and its caption on a small
+ * bell-metal tag beside the seal (kept inside what the HUD leaves free). A
+ * still effect: it is drawn with every map paint and wakes nothing; the
+ * caller cancels it at the turn.
  */
 function sealed(a, env) {
   const path = smoothPath(a.points);
@@ -201,40 +196,61 @@ function sealed(a, env) {
     ribbon(ctx, path, { k: 1, px: s.px, color, level: o, sealed: true });
     const e = path.pts[path.pts.length - 1];
     waxSeal(ctx, e.x, e.y, 15 * s.px, { alpha: o * late });
-    if (caption && late > 0.01) {
-      ctx.save();
-      ctx.translate(e.x, e.y + 25 * s.px); ctx.scale(s.px, s.px);
-      ctx.globalAlpha = 0.95 * o * late; ctx.font = '700 12px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
-      ctx.strokeStyle = rgba('#0c1614', 0.9); ctx.lineWidth = 3.5; ctx.strokeText?.(caption, 0, 0);
-      ctx.fillStyle = TONE.ivory; ctx.fillText?.(caption, 0, 0);
-      ctx.restore();
+    if (caption && late > 0.01 && !isFar(s)) {
+      // under the seal on a short leader; moved aside when the HUD or the edge of the map is in the way
+      let tx = e.x, ty = e.y + 40 * s.px;
+      try {
+        const c = s.anchor(tx, ty), box = { w: caption.length * 13 + 30, h: 26 };
+        const at = s.free.place(c.x, c.y, box.w, box.h, 4);
+        if (at.moved) { const w = s.unanchor(at.x, at.y); tx = w.x; ty = w.y; }
+      } catch { /* no page: where it stands */ }
+      canvasTag(ctx, tx, ty, caption, { px: s.px, ax: e.x, ay: e.y + 13 * s.px, accent: color, alpha: 0.96 * o * late });
     }
   } };
 }
 
 const figure = (ctx, x, y, s, kind, o) => { if (!paintMini(ctx, x, y, s, kind, o)) { baseDisc(ctx, x, y, s, o.faction, { alpha: o.alpha }); unitFigure(ctx, x, y - s * 0.02, s, kind, o); } };
 
-/** `{points, kind, faction, reach (tiles, default 0.8), n (default 3)}`: a short column steps off along the path and is gone into the march. */
+/** How long the departing column is on the map (s), and how far along its route it walks (tiles). */
+export const COLUMN_SECS = 2.8;
+export const COLUMN_REACH = 2.6;
+/**
+ * `{points, kind, faction, reach (tiles, default 2.6), n (default 5)}`: the column sets off. A file of figures
+ * at the size the map's hosts have steps onto the ribbon one behind another, walks along it for a good two
+ * tiles in the open, and fades into the march. Reduced motion: the file stands on the first stretch of the
+ * route for a moment and goes (nothing travels, the departure is still shown).
+ */
 function walker(a, env) {
-  if (env.mode !== 'full') return null;
   const path = smoothPath(a.points);
   if (path.pts.length < 2) return null;
-  const n = Math.max(1, Math.min(4, a.n ?? 3)), reach = Math.min(1, ((a.reach ?? 0.8) * R * 1.6) / Math.max(1, path.total)), dur = 1.7;
+  const full = env.mode === 'full';
+  const n = Math.max(1, Math.min(6, a.n ?? 5));
+  const reach = Math.min(0.9, ((a.reach ?? COLUMN_REACH) * R * 1.75) / Math.max(1, path.total));
+  const dur = full ? COLUMN_SECS : 1.6;
   const o0 = path.pts[0];
-  env.fx.emit('dust', { x: o0.x, y: o0.y + R * 0.1, n: 14, seed: `${env.seed}|off`, t: env.now + 0.05, radius: R * 0.25, power: 0.8, up: 0.6 });
-  env.fx.emit('dust', { x: o0.x, y: o0.y + R * 0.1, n: 8, seed: `${env.seed}|trail`, t: env.now + 0.3, radius: R * 0.2, power: 0.4, up: 0.5, stagger: 0.8 });
+  if (full) {
+    // a kick of dust as they step off, low and behind them, and a little more along the first stretch
+    env.fx.emit('dust', { x: o0.x, y: o0.y + R * 0.16, n: 9, seed: `${env.seed}|off`, t: env.now + 0.08, radius: R * 0.3, power: 0.55, up: 0.3, size: 0.9, alpha: 0.7 });
+    const mid = pathAt(path, reach * 0.4);
+    if (mid) env.fx.emit('dust', { x: mid.x, y: mid.y + R * 0.14, n: 6, seed: `${env.seed}|trail`, t: env.now + 0.9, radius: R * 0.3, power: 0.35, up: 0.3, size: 0.8, alpha: 0.5, stagger: 0.6 });
+  }
   return { layer: 'top', dur, draw(ctx, s) {
     if (isFar(s)) return;
-    const t = s.t, size = battleScale(s.zoom) * 0.82;
+    const t = s.t, size = battleScale(s.zoom) * 0.92;
+    // one behind another along the path, a little under half a figure apart
+    const gap = (size * 0.46) / Math.max(1, path.total);
+    const lead = full ? reach * (0.12 + 0.88 * (span(t, 0.1, dur - 0.5) ** 0.85)) : reach * 0.42;
+    const out = full ? 1 - inQuad(span(t, dur - 0.55, dur)) : envelope(t, dur, REDUCED_FADE, REDUCED_FADE);
     const list = [];
     for (let i = 0; i < n; i++) {
-      const k = outQuad(span(t, i * 0.14, 1.3 + i * 0.14)) * reach - 0;
-      const p = pathAt(path, Math.max(0, k));
+      const k = lead - i * gap;
+      if (k < 0) continue;   // still inside the village
+      const p = pathAt(path, k);
       if (!p) continue;
-      list.push({ ...p, a: span(t, i * 0.14, i * 0.14 + 0.15) * (1 - span(t, dur - 0.45, dur)), i });
+      list.push({ ...p, a: (full ? span(k, 0, gap * 0.8) : 1) * out, i });
     }
     list.sort((u, v) => u.y - v.y);
-    for (const p of list) figure(ctx, p.x, p.y + R * 0.1, size, a.kind ?? 'spearman', { faction: a.faction ?? 0, face: p.dx < 0 ? -1 : 1, step: (t * 1.9 + p.i * 0.3) % 1, walking: true, alpha: p.a });
+    for (const p of list) figure(ctx, p.x, p.y + R * 0.1, size, a.kind ?? 'spearman', { faction: a.faction ?? 0, face: p.dx < 0 ? -1 : 1, step: (t * 2.1 + p.i * 0.31) % 1, walking: full, alpha: p.a });
   } };
 }
 
@@ -329,7 +345,7 @@ function pillar(a, env) {
   return { layer: 'top', dur, draw(ctx, s) {
     if (isFar(s)) return;
     const t = s.t, up = outBack(span(t, 0, 0.2), 1.8), o = 1 - inQuad(span(t, 0.2, dur));
-    const h = R * 2.3 * up, w0 = R * lerp(0.34, 0.14, span(t, 0.1, dur));
+    const h = R * 3.6 * up, w0 = R * lerp(0.5, 0.2, span(t, 0.1, dur));
     lighter(ctx);
     // a narrow beam, soft at its edges: three nested columns, the innermost white
     for (const [wk, a0, c] of [[1, 0.28, color], [0.6, 0.4, color], [0.26, 0.7, TONE.white]]) {
@@ -338,27 +354,43 @@ function pillar(a, env) {
       if (g?.addColorStop) { g.addColorStop(0, rgba(c, a0 * o)); g.addColorStop(0.5, rgba(c, a0 * 0.6 * o)); g.addColorStop(1, rgba(c, 0)); ctx.fillStyle = g; } else ctx.fillStyle = rgba(c, a0 * 0.4 * o);
       ctx.beginPath(); ctx.moveTo(x - w, y); ctx.lineTo(x - w * 0.7, y - h); ctx.lineTo(x + w * 0.7, y - h); ctx.lineTo(x + w, y); ctx.closePath(); ctx.fill();
     }
-    ctx.fillStyle = radial(ctx, x, y, 0, R * 1.0, [[0, rgba(TONE.white, 0.75 * o)], [0.4, rgba(color, 0.4 * o)], [1, rgba(color, 0)]]); groundRing(ctx, x, y, R * 1.0); ctx.fill();
+    ctx.fillStyle = radial(ctx, x, y, 0, R * 1.5, [[0, rgba(TONE.white, 0.75 * o)], [0.4, rgba(color, 0.4 * o)], [1, rgba(color, 0)]]); groundRing(ctx, x, y, R * 1.5); ctx.fill();
   } };
 }
 
-/** `{…position, kind, faction, n (default 5)}`: the host runs out from the village and forms a line in front of it. */
+/** How long a mustered host is shown forming up (s). */
+export const FORMING_SECS = 2.3;
+/**
+ * `{…position, kind, faction, n (default 7)}`: the host forms up. Figures at the size the map's hosts have run
+ * out of the village one after another and take their places in two ranks in front of it (never on top of
+ * it), land with a small stamp of dust, stand a moment as a host, and give way to the map's own token.
+ * Reduced motion: the two ranks stand at once.
+ */
 function forming(a, env) {
   const { x, y } = pointOf(a);
-  const n = Math.max(2, Math.min(7, a.n ?? 5)), dur = 1.7;
+  const n = Math.max(2, Math.min(9, a.n ?? 7)), dur = FORMING_SECS;
   const full = env.mode === 'full';
-  if (full) env.fx.emit('dust', { x, y: y + R * 0.32, n: 16, seed: `${env.seed}|form`, t: env.now + 0.42, radius: R * 0.5, power: 0.6, up: 0.5 });
+  const front = Math.ceil(n / 2);
+  if (full) {
+    env.fx.emit('dust', { x, y: y + R * 0.62, n: 14, seed: `${env.seed}|form`, t: env.now + 0.5, radius: R * 0.75, power: 0.5, up: 0.3, size: 0.9, alpha: 0.7, stagger: 0.25 });
+    env.fx.emit('dust', { x, y: y + R * 0.2, n: 6, seed: `${env.seed}|run`, t: env.now + 0.1, radius: R * 0.3, power: 0.5, up: 0.4, size: 0.8, alpha: 0.6, stagger: 0.3 });
+  }
   return { layer: 'top', dur, draw(ctx, s) {
     if (isFar(s)) return;
-    const t = s.t, size = battleScale(s.zoom) * 0.8;
-    const out = full ? 1 - span(t, dur - 0.4, dur) : envelope(t, dur, REDUCED_FADE, REDUCED_FADE);
+    const t = s.t, size = battleScale(s.zoom) * 0.96;
+    const out = full ? 1 - inQuad(span(t, dur - 0.45, dur)) : envelope(t, dur, REDUCED_FADE, REDUCED_FADE);
+    const figs = [];
     for (let i = 0; i < n; i++) {
-      const k = full ? outBack(span(t, i * 0.05, 0.42 + i * 0.05), 1.3) : 1;
-      const tx = x + (i - (n - 1) / 2) * size * 0.46, ty = y + R * 0.36 + (i % 2) * size * 0.06;
-      const px = lerp(x, tx, k), py = lerp(y + R * 0.05, ty, k);
-      const land = full ? Math.sin(span(t, 0.42 + i * 0.05, 0.62 + i * 0.05) * Math.PI) * size * 0.08 : 0;
-      figure(ctx, px, py - land, size, a.kind ?? 'spearman', { faction: a.faction ?? 0, face: 1, step: (t * 2 + i * 0.3) % 1, walking: full && k < 0.98, alpha: (full ? span(t, i * 0.05, i * 0.05 + 0.12) : 1) * out });
+      const rank = i < front ? 0 : 1, j = rank ? i - front : i, inRank = rank ? n - front : front;
+      const t0 = i * 0.07;
+      const k = full ? outBack(span(t, t0, t0 + 0.5), 1.2) : 1;
+      const tx = x + (j - (inRank - 1) / 2) * size * 0.5 + rank * size * 0.14, ty = y + R * 0.78 - rank * size * 0.3;
+      const px = lerp(x, tx, k), py = lerp(y + R * 0.12, ty, k);
+      const land = full ? Math.sin(span(t, t0 + 0.5, t0 + 0.7) * Math.PI) * size * 0.07 : 0;
+      figs.push({ px, py: py - land, i, alpha: (full ? span(t, t0, t0 + 0.12) : 1) * out, walking: full && k < 0.98, face: tx < x && k < 0.98 ? -1 : 1 });
     }
+    figs.sort((u, v) => u.py - v.py);
+    for (const f of figs) figure(ctx, f.px, f.py, size, a.kind ?? 'spearman', { faction: a.faction ?? 0, face: f.face, step: (t * 2 + f.i * 0.3) % 1, walking: f.walking, alpha: f.alpha });
   } };
 }
 
@@ -371,7 +403,7 @@ function raise(a, env) {
     if (isFar(s)) return;
     const t = s.t;
     ctx.globalAlpha = full ? 1 - inQuad(span(t, dur - 0.4, dur)) : envelope(t, dur, REDUCED_FADE, REDUCED_FADE);
-    standard(ctx, x + R * 0.3, y + R * 0.05, R * 1.7, { fill: a.fill ?? TONE.you, dark: a.dark ?? TONE.brassLo, up: full ? outBack(span(t, 0.06, 0.46), 1.7) : 1, t, px: s.px });
+    standard(ctx, x + R * 0.34, y + R * 0.08, R * 2.5, { fill: a.fill ?? TONE.you, dark: a.dark ?? TONE.brassLo, up: full ? outBack(span(t, 0.06, 0.46), 1.7) : 1, t, px: s.px });
   } };
 }
 

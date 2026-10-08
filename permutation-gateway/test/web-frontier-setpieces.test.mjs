@@ -17,7 +17,7 @@ import { createClock } from '../../permutation-server/web/frontier/fx/clock.mjs'
 import { createBus } from '../../permutation-server/web/frontier/fx/bus.mjs';
 import { createEngine } from '../../permutation-server/web/frontier/fx/engine.mjs';
 import { installEffects } from '../../permutation-server/web/frontier/fx/effects.mjs';
-import { installStage, playMoment, resultKind, orderResults, RESULT_ORDER, TOLL_BANNER_SECS, MOMENTS_AT_ONCE } from '../../permutation-server/web/frontier/fx/stage.mjs';
+import { installStage, playMoment, resultKind, orderResults, RESULT_ORDER, TOLL_BANNER_SECS, TOLL_BANNER_AT, TOLL_CLEAR, MOMENTS_AT_ONCE } from '../../permutation-server/web/frontier/fx/stage.mjs';
 import { PIECES, SEAL_PX } from '../../permutation-server/web/frontier/fx/pieces.mjs';
 import { stageBattle, verdictTitle, BATTLE_FAR_R } from '../../permutation-server/web/frontier/fx/battle.mjs';
 import { paintWater, paintClouds, paintSmoke, installIdle, IDLE_MIN_R } from '../../permutation-server/web/frontier/fx/idle.mjs';
@@ -307,15 +307,22 @@ test('the bell: the banner is carried by #bell-toll and is visible in every moti
       assert.ok(s.sounds.some(x => x[0] === 'bell'), 'the bell');
       s.run(900);
       assert.ok(s.toll.classList.contains('fx-banner-host') && s.toll.classList.contains('fx-banner'), level);
+      // (wave 2: the title is two parts and the dash between them, so a narrow map breaks it between the parts, never inside a word)
       const title = s.toll.children.find(k => k.classes.has('fx-banner-title'));
-      assert.equal(title.textContent, '鐘が鳴りました — ターン 43');
+      assert.deepEqual(title.children.map(k => k.textContent), ['鐘が鳴りました', ' — ', 'ターン 43']);
+      assert.equal(s.toll.hidden, false);
       assert.ok(Number(s.toll.vars.get('--fx-o')) > 0.9, `${level}: fully visible`);
       assert.ok(Number(s.toll.vars.get('--fx-to')) > 0.9);
-      assert.equal(s.toll.vars.get('--fx-l'), '280px', 'placed over the map by its measured box');
+      // (wave 2: placed by the stage the HUD leaves free, in client px: its left edge, its width and its middle line)
+      assert.equal(s.toll.vars.get('--fx-l'), '280.0px', 'placed over the map by its measured box');
+      assert.equal(s.toll.vars.get('--fx-w'), '800.0px');
+      const cy = parseFloat(s.toll.vars.get('--fx-cy'));
+      assert.ok(cy > 52 && cy < 52 + 848 * 0.3, `under the top of the free stage (${cy})`);
       if (level === 'full') assert.ok(s.fx.playing().includes('toll'));
       else assert.ok(!s.fx.playing().includes('chip') || level === 'reduced');
       s.run((TOLL_BANNER_SECS + 0.5) * 1000);
       assert.equal(s.toll.classList.contains('fx-banner-host'), false, 'handed back');
+      assert.equal(s.toll.hidden, true, 'and hidden: no frame of its resting style shows');
       assert.equal(s.toll.children.length, 0);
       assert.equal(s.toll.textContent, '鐘が鳴りました — ターン 43');
       assert.equal(s.toll.vars.size, 0);
@@ -326,7 +333,7 @@ test('the bell: the banner is carried by #bell-toll and is visible in every moti
   try {
     s.bus.emit('bell', { turn: 1234 });
     s.run(600);
-    assert.equal(s.toll.children.find(k => k.classes.has('fx-banner-title')).textContent, 'The bell has tolled — Turn 1,234');
+    assert.equal(s.toll.children.find(k => k.classes.has('fx-banner-title')).children.map(k => k.textContent).join(''), 'The bell has tolled — Turn 1,234');
   } finally { s.done(); setLang('ja'); }
   // the stylesheet gives the carried banner a visible state of its own (no animation needed)
   const css = readFileSync(`${WEB}fx/fx.css`, 'utf8');
@@ -359,7 +366,8 @@ test('the turn\'s own results: arrivals, then battles, then warnings, played aft
     assert.deepEqual(got[0].items.map(x => x.kind), ['arrival', 'battle', 'incoming']);
     assert.deepEqual(got[0].items[0], { id: 'rv:77', kind: 'arrival', p: 3, q: 0, tile: 12, text: 'a', battle: null });
     assert.equal(got[0].turn, 43);
-    assert.ok(got[0].startsIn > 1.5, 'they start when the toll\'s banner lets go');
+    // (wave 2: not before the banner has faded under a tenth of its opacity; it was 0.9 s before its end)
+    assert.ok(Math.abs(got[0].startsIn - TOLL_CLEAR) < 1e-6 && TOLL_CLEAR >= TOLL_BANNER_AT + TOLL_BANNER_SECS - 0.05, 'they start when the toll\'s banner has gone');
     assert.ok(['unseal', 'swords', 'alarm'].every(n => s.fx.playing().includes(n)));
     s.bus.emit('feed', { turn: 43, fresh });
     assert.equal(got.length, 1, 'the same results are not played twice');
@@ -480,14 +488,15 @@ test('moments on the page: each has its parts and a pip for the far view; an own
     s.bus.on('res:gain', p => gains.push(p));
     const parts = kind => { s.fx.clear(); s.bus.emit('moment', { kind, ...at, faction: 3, id: kind, own: false, label: 'Farm', from: 0, to: 3 }); return s.fx.playing(); };
     const has = (kind, names) => { const list = parts(kind); return names.every(n => list.includes(n)); };
-    assert.ok(has('built', ['flash', 'pillar', 'dust', 'burst', 'label', 'pip']), 'built');
-    assert.ok(has('muster', ['glow', 'forming', 'label', 'pip']), 'muster');
-    assert.ok(has('arrive', ['burst', 'flash', 'ripple', 'label', 'pip']), 'arrive');
-    assert.ok(has('camp', ['dust', 'burst', 'label', 'pip']), 'camp');
-    assert.ok(has('village', ['glow', 'raise', 'label', 'pip']), 'village');
+    // (wave 2: a moment's caption is a `tag` (a bell-metal tag on a leader), not a floating `label`; built and village take in the land round the tile)
+    assert.ok(has('built', ['flash', 'glow', 'pillar', 'ripple', 'dust', 'burst', 'tag', 'pip']), 'built');
+    assert.ok(has('muster', ['glow', 'forming', 'tag', 'pip']), 'muster');
+    assert.ok(has('arrive', ['burst', 'flash', 'ripple', 'tag', 'pip']), 'arrive');
+    assert.ok(has('camp', ['dust', 'burst', 'ripple', 'tag', 'pip']), 'camp');
+    assert.ok(has('village', ['glow', 'raise', 'ripple', 'tag', 'pip']), 'village');
     // another nation's host set out: dust, a seal, a word, a pip, and nothing that could show where to
     const dep = parts('depart');
-    assert.deepEqual([...new Set(dep)].sort(), ['dust', 'label', 'pip', 'stamp']);
+    assert.deepEqual([...new Set(dep)].sort(), ['dust', 'pip', 'stamp', 'tag']);
     for (const banned of ['route', 'sealed', 'walker']) assert.ok(!dep.includes(banned), banned);
     // harvest: another nation's stays on the map
     assert.ok(has('harvest', ['flash', 'burst', 'ripple', 'pip']), 'harvest');
@@ -505,7 +514,7 @@ test('moments on the page: each has its parts and a pip for the far view; an own
     // a whole view resolving at once: the first few play in full, one after another; the rest leave their pip; the viewer's own always plays
     s.fx.clear(); s.run(9000, 500);
     for (let i = 0; i < 12; i++) s.bus.emit('moment', { kind: 'arrive', p: 5, q: 0, tile: i, faction: 2 });
-    assert.equal(s.fx.playing().filter(n => n === 'label').length, MOMENTS_AT_ONCE);
+    assert.equal(s.fx.playing().filter(n => n === 'tag').length, MOMENTS_AT_ONCE);
     assert.equal(s.fx.playing().filter(n => n === 'pip').length, 12, 'none is dropped without a trace');
     s.bus.emit('moment', { kind: 'built', p: 2, q: 0, tile: 9, own: true, label: 'Farm' });
     assert.ok(s.fx.playing().includes('pillar'));
@@ -519,7 +528,7 @@ test('moments on the page: each has its parts and a pip for the far view; an own
     for (const kind of ['built', 'muster', 'arrive', 'camp', 'village', 'depart']) {
       e.fx.clear();
       playMoment(e.fx, { kind, p: 2, q: 0, tile: 7, faction: 1, from: 0, to: 1, label: 'Farm' });
-      assert.deepEqual(e.fx.playing(), ['label'], `${kind}: with effects off, the word only`);
+      assert.deepEqual(e.fx.playing(), ['tag'], `${kind}: with effects off, the caption only`);
     }
   } finally { e.done(); setLang('ja'); }
 });
@@ -577,7 +586,7 @@ test('the page reports real events on the bus; every set piece has a demo sample
   assert.match(app, /mapRef\.flyTo\(\{ p, q, tile: scene\.tiles\[0\]\.idx, zoom: 2\.1 \}, 500\)/, 'the camera flies to a battle');
   assert.match(readFileSync(`${WEB}fx/index.mjs`, 'utf8'), /map\.between = \(ctx, \{ zoom \}\) => paintGround\(ctx, \{ zoom, tiles: map\.art\?\.tiles \?\? null \}\)/, 'the ground pass is the map\'s between hook');
   assert.match(art, /fxOver\(ctx, \{ zoom, tiles \}\)/);
-  for (const n of ['battle', 'battle-camp', 'battle-held', 'battle-others', 'battle-fast', 'bell', 'turn', 'results', 'action', 'landed', 'refused', 'pending', 'seal', 'built', 'harvest', 'harvest-other', 'muster', 'arrive', 'camp', 'village', 'village-lost', 'depart']) {
+  for (const n of ['battle', 'battle-camp', 'battle-held', 'battle-others', 'battle-fast', 'bell', 'turn', 'results', 'action', 'landed', 'refused', 'pending', 'seal', 'built', 'harvest', 'harvest-other', 'muster', 'arrive', 'camp', 'village', 'village-lost', 'depart', 'reveal']) {
     assert.ok(typeof SAMPLES[n]?.run === 'function', `a sample for ${n}`);
   }
   // the samples run on a page, in both languages, and add effects

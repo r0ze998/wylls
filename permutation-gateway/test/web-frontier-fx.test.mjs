@@ -312,12 +312,13 @@ test('fx engine: the shake stays in 2 to 8 px and 120 to 250 ms, decays, and onl
   for (const m of ['reduced', 'off']) { level = m; assert.equal(eng.shake(8, 200), false, `no shake when ${m}`); assert.equal(eng.emit('spark', { n: 20 }), 0, `no particles when ${m}`); }
 });
 
-test('fx vocabulary: eleven named effects; each draws through its whole life in every motion level without a real canvas', () => {
-  assert.deepEqual(Object.keys(EFFECTS), ['flash', 'ripple', 'dust', 'spark', 'label', 'glow', 'banner', 'toll', 'number', 'chip', 'burst']);
+test('fx vocabulary: twelve named effects; each draws through its whole life in every motion level without a real canvas', () => {
+  // (wave 2: `tag`, a caption on a bell-metal tag, joined the vocabulary; `label` became a node of the HUD layer placed through the engine's anchor)
+  assert.deepEqual(Object.keys(EFFECTS), ['flash', 'ripple', 'dust', 'spark', 'label', 'glow', 'banner', 'toll', 'number', 'chip', 'burst', 'tag']);
   const args = { flash: { q: 3, r: -2 }, ripple: { q: 3, r: -2 }, dust: { q: 3, r: -2 }, spark: { q: 3, r: -2, shake: 5 }, label: { q: 3, r: -2, text: '-120' }, glow: { q: 3, r: -2, radius: 2 },
-    banner: { title: 'Victory', sub: 'sample' }, toll: { x: 0, y: 0 }, number: { text: '+5', vx: 10, vy: 10 }, chip: { vx: 10, vy: 10 }, burst: { q: 3, r: -2, kind: 'leaf', n: 24 } };
+    banner: { title: 'Victory', sub: 'sample' }, toll: { x: 0, y: 0 }, number: { text: '+5', vx: 10, vy: 10 }, chip: { vx: 10, vy: 10 }, burst: { q: 3, r: -2, kind: 'leaf', n: 24 }, tag: { q: 3, r: -2, text: 'Sealed', icon: 'seal' } };
   const view = { x: 200, y: -100, zoom: 1.3 }, size = { width: 800, height: 600 };
-  const info = new Set(['label', 'banner', 'number']);
+  const info = new Set(['label', 'banner', 'number', 'tag']);
   for (const level of MOTION_LEVELS) {
     for (const name of Object.keys(EFFECTS)) {
       const { c: clock, tick } = handClock();
@@ -339,7 +340,7 @@ test('fx vocabulary: eleven named effects; each draws through its whole life in 
         const c = eng.live(); ended = c.live === 0 && c.pending === 0;
       }
       assert.ok(ended, `${where}: it ends`);
-      const canvasEffect = !['banner', 'number', 'chip', 'burst'].includes(name);
+      const canvasEffect = !['banner', 'number', 'chip', 'burst', 'label', 'tag'].includes(name);
       if (canvasEffect && handles.length) assert.ok(frames > 10, `${where}: it drew (${frames})`);
       if (start.live + start.pending === 0) assert.equal(frames, 0);
     }
@@ -378,7 +379,8 @@ test('fx vocabulary: anticipation, impact and decay are separate beats (not one 
   }
   const at = ms => samples[Math.round(ms / 10)];
   assert.equal(at(30), 0, 'no white during the wind-up');
-  assert.ok(at(80) > 0.85, 'the impact burns white');
+  // (wave 2: the impact lights the tile, it no longer blanks it: 0.72 of white at its peak, was 0.96)
+  assert.ok(at(80) > 0.6 && at(80) < 0.8, 'the impact lights the tile without blanking it');
   assert.ok(at(200) < at(80) * 0.6, 'and is mostly gone 120 ms later');
   assert.equal(at(600), 0, 'the tail carries colour only');
   const peakAt = samples.indexOf(Math.max(...samples)) * 10;

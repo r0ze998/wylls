@@ -27,7 +27,7 @@ const R = 44;   // the hex radius in world px (web/map.mjs RADIUS): sizes below 
  * `rise` is a steady climb (buoyant kinds). `add` draws with additive blending.
  */
 export const KINDS = Object.freeze({
-  dust:  { add: false, shape: 'puff',   speed: [50, 190],  up: [8, 40],    drag: 4.2, g: 0,   rise: 10, bounce: 0,    life: [0.55, 1.0], size: [R * 0.12, R * 0.23], grow: 1.9,  alpha: 0.62, fadeIn: 0.05, fadeOut: 0.22, sway: 0,   colors: ['#eadfc2', '#dccfaa', '#f3ebd6'] },
+  dust:  { add: false, shape: 'puff',   speed: [50, 190],  up: [8, 40],    drag: 4.2, g: 0,   rise: 10, bounce: 0,    life: [0.55, 1.0], size: [R * 0.12, R * 0.23], grow: 1.9,  alpha: 0.56, fadeIn: 0.05, fadeOut: 0.22, sway: 0,   colors: ['#ecdfbf', '#dfcda4', '#f4ead2'] },
   spark: { add: true,  shape: 'streak', speed: [90, 330],  up: [120, 380], drag: 1.3, g: 760, rise: 0,  bounce: 0.34, life: [0.32, 0.8], size: [1.3, 2.4],           grow: 0.4,  alpha: 1,    fadeIn: 0,    fadeOut: 0.55, sway: 0,   colors: ['#ffd27a', '#ffb347', '#ff8a3c'] },
   ember: { add: true,  shape: 'dot',    speed: [8, 46],    up: [26, 80],   drag: 1.6, g: 0,   rise: 30, bounce: 0,    life: [0.9, 1.9],  size: [1.6, 3.2],           grow: 0.5,  alpha: 0.95, fadeIn: 0.05, fadeOut: 0.5,  sway: 5,   colors: ['#ffb347', '#ff7a3c', '#e2553d'] },
   smoke: { add: false, shape: 'puff',   speed: [4, 20],    up: [22, 52],   drag: 1.0, g: 0,   rise: 34, bounce: 0,    life: [1.3, 2.4],  size: [R * 0.1, R * 0.19],  grow: 2.5,  alpha: 0.52, fadeIn: 0.1,  fadeOut: 0.35, sway: 5,   colors: ['#6a645b', '#857e75', '#57524b'] },
@@ -76,6 +76,77 @@ function softSprite(color, shaded = false) {
     }
   } catch { c = null; }
   if (sprites.size > 96) sprites.clear();
+  sprites.set(key, c);
+  return c;
+}
+
+/** How many different puffs a colour has (a cloud of dust is never one stamp repeated). */
+export const PUFF_VARIANTS = 4;
+const shade = (hex, f) => { const n = parseInt(String(hex).slice(1), 16) || 0; const c = sh => Math.max(0, Math.min(255, Math.round(((n >> sh) & 255) * f + (f > 1 ? 255 * (f - 1) * 0.6 : 0)))); return `rgb(${c(16)},${c(8)},${c(0)})`; };
+/**
+ * A puff of dust or smoke in `color`, drawn by code (null where there is no canvas): a billow of many small
+ * lobes of slightly different tone thrown together off-centre, each lit from above, the whole dark beneath,
+ * its edge broken and a little darker earth carried in it, so it reads as churned dust and not as a soft
+ * disc. Seeded by its colour and variant: the same puff on every device.
+ */
+function puffSprite(color, variant = 0) {
+  const key = `${color}|p${variant}`;
+  if (sprites.has(key)) return sprites.get(key);
+  let c = null;
+  try {
+    const S = 96, cx = S / 2, cy = S * 0.54;
+    c = typeof globalThis.OffscreenCanvas === 'function' ? new globalThis.OffscreenCanvas(S, S) : globalThis.document?.createElement?.('canvas') ?? null;
+    if (c) {
+      c.width = S; c.height = S;
+      const g = c.getContext('2d'), r = rng(hashSeed(key));
+      const plain = /^#[0-9a-f]{6}$/i.test(color);
+      // the billow: a core and two rings of lobes, the outer ones smaller; wider than it is tall
+      const lobes = [[cx + r.range(-3, 3), cy, r.range(17, 21)]];
+      const n1 = 6 + (variant % 2), n2 = 8 + (variant % 3);
+      for (let i = 0; i < n1; i++) { const a = (i / n1) * Math.PI * 2 + r.range(-0.4, 0.4), d = r.range(10, 17); lobes.push([cx + Math.cos(a) * d * 1.2, cy + Math.sin(a) * d * 0.72, r.range(10, 15)]); }
+      for (let i = 0; i < n2; i++) { const a = (i / n2) * Math.PI * 2 + r.range(-0.4, 0.4), d = r.range(21, 31); lobes.push([cx + Math.cos(a) * d * 1.16, cy + Math.sin(a) * d * 0.66, r.range(5, 10)]); }
+      // back to front (lower lobes over higher ones), each its own tone
+      lobes.sort((p, q) => p[1] - q[1]);
+      for (const [x, y, rad] of lobes) {
+        const tone = plain ? shade(color, r.range(0.95, 1.04)) : color;
+        const gr = g.createRadialGradient(x, y, 0, x, y, rad * 1.25);
+        gr.addColorStop(0, tone); gr.addColorStop(0.3, tone); gr.addColorStop(1, 'rgba(0,0,0,0)');
+        g.globalAlpha = 0.8; g.fillStyle = gr; g.beginPath(); g.arc(x, y, rad, 0, Math.PI * 2); g.fill();
+        if (plain) {
+          // lit from above and a little to the left
+          const hi = g.createRadialGradient(x - rad * 0.28, y - rad * 0.36, 0, x - rad * 0.28, y - rad * 0.36, rad * 0.8);
+          hi.addColorStop(0, 'rgba(255,252,240,0.26)'); hi.addColorStop(1, 'rgba(255,252,240,0)');
+          g.globalCompositeOperation = 'source-atop'; g.globalAlpha = 1; g.fillStyle = hi; g.beginPath(); g.arc(x, y, rad, 0, Math.PI * 2); g.fill();
+          g.globalCompositeOperation = 'source-over';
+        }
+      }
+      g.globalAlpha = 1;
+      if (plain) {
+        // its own shadow beneath, and darker earth carried in it
+        g.globalCompositeOperation = 'source-atop';
+        const lo = g.createLinearGradient(0, S * 0.5, 0, S * 0.9);
+        lo.addColorStop(0, 'rgba(0,0,0,0)'); lo.addColorStop(1, darker(color, 0.4));
+        g.globalAlpha = 0.34; g.fillStyle = lo; g.fillRect(0, 0, S, S);
+        g.fillStyle = darker(color, 0.7);
+        for (let i = 0; i < 8; i++) { g.globalAlpha = r.range(0.04, 0.09); g.beginPath(); g.ellipse(r.range(22, S - 22), r.range(34, S - 24), r.range(0.8, 2.2), r.range(0.6, 1.4), r() * 3, 0, Math.PI * 2); g.fill(); }
+        g.globalAlpha = 1;
+      }
+      // the edge breaks up: a few bites out of the rim, none out of the body
+      g.globalCompositeOperation = 'destination-out';
+      for (let i = 0; i < 12; i++) {
+        const a = r() * Math.PI * 2, d = r.range(30, 44);
+        g.globalAlpha = r.range(0.25, 0.55);
+        g.beginPath(); g.arc(cx + Math.cos(a) * d * 1.12, cy + Math.sin(a) * d * 0.7, r.range(2.5, 6), 0, Math.PI * 2); g.fill();
+      }
+      g.globalAlpha = 1;
+      // and feathered as a whole: no hard rim anywhere
+      g.globalCompositeOperation = 'destination-in';
+      const f = g.createRadialGradient(cx, cy, S * 0.16, cx, cy, S * 0.5);
+      f.addColorStop(0, 'rgba(0,0,0,1)'); f.addColorStop(0.7, 'rgba(0,0,0,0.75)'); f.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = f; g.fillRect(0, 0, S, S);
+    }
+  } catch { c = null; }
+  if (sprites.size > 160) sprites.clear();
   sprites.set(key, c);
   return c;
 }
@@ -180,9 +251,25 @@ export function createParticles({ capacity = 2048 } = {}) {
     const sx = s.x, sy = s.y - s.z;
     ctx.globalAlpha = s.alpha;
     switch (K.shape) {
-      case 'puff': case 'dot': {
+      case 'puff': if (!K.flat) {
+        // a textured puff: one of a few drawn clouds, turned, and drawn out along its way while it is still fast
+        const img = puffSprite(col[i], i % PUFF_VARIANTS);
+        const r = Math.max(s.size, 0.8 / zoom) * 2.1;
+        if (img && ctx.drawImage && ctx.translate && ctx.rotate) {
+          const stretch = 1 + Math.min(0.7, s.speed * 0.0042);
+          ctx.save();
+          ctx.translate(sx, sy);
+          ctx.rotate(s.speed > 6 ? Math.atan2(s.dy, s.dx) * 0.6 + Math.sin(ph[i] * 6.283) * 0.5 : Math.sin(ph[i] * 6.283) * 0.5 + s.rot * 0.04);
+          ctx.scale(stretch * (ph[i] > 0.5 ? 1 : -1), 0.8);
+          ctx.drawImage(img, -r, -r, r * 2, r * 2);
+          ctx.restore();
+        } else { ctx.beginPath(); ctx.ellipse?.(sx, sy, r * 0.5, r * 0.36, 0, 0, Math.PI * 2); ctx.fillStyle = col[i]; ctx.fill(); }
+        break;
+      }
+      // falls through: a flat puff (mist) is a soft disc
+      case 'dot': {
         const hot = K.add && s.k < 0.22 ? '#fff6dc' : col[i];
-        const img = softSprite(hot, K.shape === 'puff' && !K.flat);
+        const img = softSprite(hot, false);
         const r = Math.max(s.size, 0.8 / zoom) * (K.shape === 'dot' ? 2.2 : 1.6);
         const ry = K.shape === 'puff' ? r * 0.76 : r;
         if (img && ctx.drawImage) ctx.drawImage(img, sx - r, sy - ry, r * 2, ry * 2);
