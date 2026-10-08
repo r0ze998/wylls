@@ -547,54 +547,6 @@ export function paintCandidates(g, candidates, zoom, { now = fxNow(), still = fa
   g.restore();
 }
 
-const rims = new Map();
-/** The outline of the tiles within `radius` of hex (q, r) (a village's worked land), as a path. */
-function rimPath(q, r, radius) {
-  if (typeof Path2D === 'undefined') return null;
-  const key = `${q},${r},${radius}`;
-  if (rims.has(key)) return rims.get(key);
-  const p = new Path2D();
-  const inside = (a, b) => Math.max(Math.abs(a - q), Math.abs(b - r), Math.abs(a + b - q - r)) <= radius;
-  for (let dq = -radius; dq <= radius; dq++) for (let dr = Math.max(-radius, -dq - radius); dr <= Math.min(radius, -dq + radius); dr++) {
-    const hq = q + dq, hr = r + dr, c = project(hq, hr), pts = hexPoints(c.x, c.y, 0);
-    for (let k = 0; k < 6; k++) { const [eq, er] = EDGE_OF[k]; if (inside(hq + eq, hr + er)) continue; const a = pts[(k + 5) % 6], b = pts[k]; p.moveTo(a[0], a[1]); p.lineTo(b[0], b[1]); }
-  }
-  if (rims.size > 64) rims.clear();
-  rims.set(key, p);
-  return p;
-}
-
-/**
- * The rim of the viewer's own village land: gold, solid for a village that
- * is final, dashed with the word for a provisional one. (The filled, breathing
- * land of brief §5.1 is the land step's; this is the survey's part of it.)
- */
-export function paintOwnRim(g, villages, zoom) {
-  if (!villages?.length || !g?.save) return;
-  const k = 1 / zoom;
-  g.save();
-  g.lineCap = 'round'; g.lineJoin = 'round';
-  for (const v of villages) {
-    const h = tileHex(v.p, v.q, v.tile);
-    const path = h ? rimPath(h.q, h.r, WORKED_RADIUS[v.tier ?? 0] ?? 1) : null;
-    if (!path) continue;
-    const provisional = v.state === 1;
-    g.setLineDash([]); g.strokeStyle = 'rgba(22,30,26,.6)'; g.lineWidth = 5 * k; g.stroke(path);
-    g.setLineDash(provisional ? [10 * k, 7 * k] : []); g.strokeStyle = YOU; g.lineWidth = 2.6 * k; g.stroke(path);
-    g.setLineDash([]);
-    if (provisional && RADIUS * zoom >= 14) {
-      const c = project(h.q, h.r), text = L`仮`;
-      g.font = `700 ${12 * k}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
-      // (on the lower edge of the land, clear of the village's name)
-      const tw = g.measureText(text).width + 14 * k, th = 18 * k, tx = c.x, ty = c.y + ((WORKED_RADIUS[v.tier ?? 0] ?? 1) * 1.5 + 1) * RADIUS * FLATTEN;
-      g.fillStyle = 'rgba(22,30,26,.92)'; g.beginPath(); g.roundRect?.(tx - tw / 2, ty - th / 2, tw, th, 9 * k); g.fill();
-      g.strokeStyle = YOU; g.lineWidth = 1.2 * k; g.stroke();
-      g.fillStyle = YOU; g.fillText(text, tx, ty + 0.5 * k);
-    }
-  }
-  g.restore();
-}
-
 /** The hexes of the survey that are surveyed, for small pictures of it (the minimap): `[{x, y, level}]` in world px. */
 export function surveyedPoints(survey) {
   const out = [];

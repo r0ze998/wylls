@@ -18,7 +18,7 @@ import * as BOOK from '../../permutation-server/web/frontier/map/landing.mjs';
 import { placeName, placeWhere } from '../../permutation-server/web/frontier/map/names.mjs';
 import * as S from '../../permutation-server/web/frontier/map/survey.mjs';
 import { SpriteArt, buildRealms, OTHER_WASH } from '../../permutation-server/web/frontier/map/sprites.mjs';
-import { FrontierMap, paintRealmLabels, worldRim } from '../../permutation-server/web/frontier/map/fmap.mjs';
+import { CLOUD_RINGS, FrontierMap, paintRealmLabels, worldRim } from '../../permutation-server/web/frontier/map/fmap.mjs';
 import * as inspect from '../../permutation-server/web/frontier/hud/inspect.mjs';
 import * as ACTIVITY from '../../permutation-server/web/frontier/people/activity.mjs';
 import { DIRECTIONS, hexDistance, locate, ringOf, ringProvinces, tileHex, PROVINCE_TILES } from '../../permutation-server/web/frontier/fgeo.mjs';
@@ -368,12 +368,13 @@ test('the edge of the world: the cloud thins into the table before its own outer
   assert.ok(r3.from < r3.to && r3.to < r3.out);
   assert.ok(r5.from > r3.to, 'further out with more rings open');
   const far = (q, r) => { const c = project(q, r); return Math.hypot(c.x, c.y / 0.76); };
-  // the outer edge of the cloud ring (the first ring that is not open): its tiles that touch the ring beyond
+  // the outer edge of the cloud sea (two rings of it are drawn): the tiles of its outer ring that touch what lies beyond
+  assert.equal(CLOUD_RINGS, 2);
   let nearest = Infinity, furthest = 0, land = 0;
-  for (const pr of ringProvinces(3)) for (let i = 0; i < PROVINCE_TILES; i++) {
+  for (const pr of ringProvinces(4)) for (let i = 0; i < PROVINCE_TILES; i++) {
     const h = tileHex(pr.p, pr.q, i);
     furthest = Math.max(furthest, far(h.q, h.r));
-    if (DIRECTIONS.some(([dq, dr]) => { const at = locate(h.q + dq, h.r + dr); return ringOf(at.p, at.q) === 4; })) nearest = Math.min(nearest, far(h.q, h.r));
+    if (DIRECTIONS.some(([dq, dr]) => { const at = locate(h.q + dq, h.r + dr); return ringOf(at.p, at.q) === 5; })) nearest = Math.min(nearest, far(h.q, h.r));
   }
   for (const pr of ringProvinces(2)) for (let i = 0; i < PROVINCE_TILES; i++) { const h = tileHex(pr.p, pr.q, i); land = Math.max(land, far(h.q, h.r)); }
   assert.ok(r3.to < nearest, 'the cloud is gone before the nearest point of its stepped outer edge');

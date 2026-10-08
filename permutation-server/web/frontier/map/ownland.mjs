@@ -162,12 +162,13 @@ const lineScale = zoom => (0.72 + 0.28 * Math.min(1.8, Math.max(0.3, zoom))) * M
  * the three-stroke border. `land` = `{shape, provisional}`; `flood` the
  * landing's state (landingAt) while it plays, else null; `still`: no breath.
  */
-export function paintOwnLand(g, land, { zoom = 1, faction = 0, now = fxNow(), still = false, flood = null, far = false } = {}) {
+export function paintOwnLand(g, land, { zoom = 1, faction = 0, now = fxNow(), still = false, flood = null, far = false, base = false } = {}) {
   const P = pathsOf(land?.shape);
   if (!P || !g?.save) return;
   const col = FACTION_COLORS[faction] ?? YOU, ink = NATION_INK[faction] ?? '#3a3a34';
   const k = lineScale(zoom);
-  const breath = still ? 0.6 : 0.5 + 0.5 * Math.sin((now / 1000) * (2 * Math.PI / BREATH_SECS));
+  // (`base`: the picture without its breath, for a layer that is kept; paintOwnBreath lays the breath over it)
+  const breath = base ? 0 : still ? 0.6 : breathAt(now);
   const shown = flood ? flood.border : 1;
   g.save();
   g.lineJoin = 'round'; g.lineCap = 'round';
@@ -207,6 +208,22 @@ export function paintOwnLand(g, land, { zoom = 1, faction = 0, now = fxNow(), st
     g.globalAlpha = (0.78 + 0.22 * breath) * shown; g.strokeStyle = YOU; g.lineWidth = 2 * k; g.stroke(P.edge);
     g.setLineDash([]);
   }
+  g.restore();
+}
+
+const breathAt = now => 0.5 + 0.5 * Math.sin((now / 1000) * (2 * Math.PI / BREATH_SECS));
+/** The breath of the gold line alone, over a land painted with `base` (two strokes: what a resting frame costs). */
+export function paintOwnBreath(g, land, { zoom = 1, now = fxNow() } = {}) {
+  const P = pathsOf(land?.shape);
+  if (!P || !g?.save) return;
+  const k = lineScale(zoom), breath = breathAt(now);
+  g.save();
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  g.strokeStyle = YOU;
+  g.globalAlpha = 0.2 * breath; g.lineWidth = 12 * k; g.stroke(P.edge);
+  g.setLineDash(land.provisional ? [9 * k, 7 * k] : []);
+  g.globalAlpha = 0.5 * breath; g.lineWidth = 2 * k; g.stroke(P.edge);
+  g.setLineDash([]);
   g.restore();
 }
 

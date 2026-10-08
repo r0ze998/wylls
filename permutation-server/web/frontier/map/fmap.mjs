@@ -39,8 +39,8 @@ import { PROBE } from './probe.mjs';
 import { L2, L3, openSurvey } from './survey.mjs';
 import { fxNow, paintCandidates, paintWedge } from './chart.mjs';
 import { wedgeBox } from './opening.mjs';
-import { STANDARD_AT, STANDARD_UNIT, landShape, landTiles, landingAt, paintBeacon, paintOwnLand, paintOwnOutline, paintProvisionalTag, paintStandard, standardUnit, villageKey } from './ownland.mjs';
-import { NOTE_MS, actorText, arrivalText, blockText, paintActionGround, paintActionTop, paintHoverGround, paintHoverTop, paintRefusal, paintRibbon, paintSelectionGround, paintSelectionTop, paintTag } from './actions.mjs';
+import { STANDARD_AT, STANDARD_UNIT, landShape, landTiles, landingAt, paintBeacon, paintOwnBreath, paintOwnLand, paintOwnOutline, paintProvisionalTag, paintStandard, standardUnit, villageKey } from './ownland.mjs';
+import { NOTE_MS, actorText, arrivalText, blockText, paintActionGround, paintActionPulse, paintActionTop, rolledOut, paintHoverGround, paintHoverTop, paintRefusal, paintRibbon, paintSelectionGround, paintSelectionTop, paintTag } from './actions.mjs';
 import { edgePointer, mountHomePointer } from './homepointer.mjs';
 import { layoutLabels } from './labels.mjs';
 
@@ -288,26 +288,28 @@ export function paintRoute(ctx, route, zoom, { now = fxNow(), still = false } = 
   paintRibbon(ctx, route.hexes ?? [], { zoom, own: true, now, still });
 }
 
+/** Rings of cloud sea drawn around the open rings: the first is the ring that opens next; the second gives the sea room to thin out in. */
+export const CLOUD_RINGS = 2;
 const rims = new Map();
 /**
  * The radii (world px from the Concord, on the unflattened ground) between
  * which the cloud sea around the open rings thins into the table: `from`
- * just beyond the furthest open land (the land itself is never dimmed), `to`
- * just inside the nearest point of the cloud ring's own stepped outer edge
- * (so that edge is never left showing), `out` beyond its furthest corner.
+ * beyond the furthest open land (the land itself is never dimmed), `to`
+ * just inside the nearest point of the outermost cloud ring's own stepped
+ * edge (so that edge is never left showing), `out` beyond its furthest corner.
  */
 export function worldRim(ringsOpen) {
-  const d = Math.max(1, ringsOpen ?? 1);
+  const d = Math.max(1, ringsOpen ?? 1), outer = d + CLOUD_RINGS - 1;
   if (rims.has(d)) return rims.get(d);
   const far = (q, r) => { const c = project(q, r); return Math.hypot(c.x, c.y / FLATTEN); };
   let land = 0, nearest = Infinity, furthest = 0;
   for (const pr of d > 1 ? ringProvinces(d - 1) : [{ p: 0, q: 0 }]) for (let i = 0; i < PROVINCE_TILES; i++) { const h = tileHex(pr.p, pr.q, i); land = Math.max(land, far(h.q, h.r)); }
-  for (const pr of ringProvinces(d)) for (let i = 0; i < PROVINCE_TILES; i++) {
+  for (const pr of ringProvinces(outer)) for (let i = 0; i < PROVINCE_TILES; i++) {
     const h = tileHex(pr.p, pr.q, i), r = far(h.q, h.r);
     if (r > furthest) furthest = r;
-    if (r < nearest && DIRECTIONS.some(([dq, dr]) => { const at = locate(h.q + dq, h.r + dr); return ringOf(at.p, at.q) > d; })) nearest = r;
+    if (r < nearest && DIRECTIONS.some(([dq, dr]) => { const at = locate(h.q + dq, h.r + dr); return ringOf(at.p, at.q) > outer; })) nearest = r;
   }
-  const to = nearest - RADIUS * 0.4, from = Math.min(land + RADIUS * 0.6, to - RADIUS * 2.5);
+  const to = nearest - RADIUS * 0.4, from = Math.max(land + RADIUS * 0.6, to - PROVINCE_CIRCUMRADIUS * 1.5);
   const v = { from, to, out: furthest + RADIUS * 2.5 };
   if (rims.size > 8) rims.clear();
   rims.set(d, v);
@@ -888,7 +890,7 @@ export class FrontierMap {
     const plain = [];
     const under = g => { table(g); g.setTransform(...world); for (const f of plain) f(g); };
     const ringsOpen = src.ringsOpen ?? 1, own = src.own ?? [];
-    const maxRing = Math.max(0, ringsOpen - 1) + 1;
+    const maxRing = Math.max(0, ringsOpen - 1) + CLOUD_RINGS;
     const recs = new Map();
     // (an overview's clash flag speaks of the overview's own bell: an overview older than the last bell says nothing
     // about now, so the flag is dropped from what the painters see, and nothing reads "a clash this bell" for history)
@@ -948,7 +950,7 @@ export class FrontierMap {
     const F = this.youFrame(src, survey, lod, z, terrainOf);
     // a resting tile view: the still layers (the table is in the ground layer), then the animated ones
     // (`between`: on the ground, under what stands on it: the viewer's land and the lit tiles, then the effects engine's ground pass)
-    const tileOpts = artTiles.length ? { zoom: z, dpr, artZoom, stamp: this.stamp, between: c => { this.groundPass(c, F); this.between?.(c, { zoom: z, now }); }, terrainAt: terrainLookup(terrainOf), fogAt, selected: null, viewerFaction: src.viewerFaction ?? null, demoRoads: !!src.demoRoads, ringsOpen: src.ringsOpen ?? null, replayRing: src.artReplayRing ?? null, engineStage: src.engineStage ?? 0, relics: src.relics ?? [], waystones: src.waystones ?? [], demoSpecials: !!src.demoSpecials, rivers: src.rivers ?? [], demoRivers: !!src.demoRivers, alliedPairs: src.alliedPairs ?? [], survey,
+    const tileOpts = artTiles.length ? { zoom: z, dpr, artZoom, stamp: this.stamp, between: c => { this.groundPass(c, F, 'all'); this.between?.(c, { zoom: z, now }); }, ground: (c, phase) => this.groundPass(c, F, phase), terrainAt: terrainLookup(terrainOf), fogAt, selected: null, viewerFaction: src.viewerFaction ?? null, demoRoads: !!src.demoRoads, ringsOpen: src.ringsOpen ?? null, replayRing: src.artReplayRing ?? null, engineStage: src.engineStage ?? 0, relics: src.relics ?? [], waystones: src.waystones ?? [], demoSpecials: !!src.demoSpecials, rivers: src.rivers ?? [], demoRivers: !!src.demoRivers, alliedPairs: src.alliedPairs ?? [], survey,
       // people (people/crowds.mjs): the source's departures, explores and holder names; tags nearest the view centre first
       people: src.people ? { ...src.people(), centre: { x: view.x, y: view.y } } : null } : null;
     const missed = this.art?.misses ?? 0;
@@ -956,7 +958,7 @@ export class FrontierMap {
     if (!layered) under(ctx);
     ctx.setTransform(...world);
     // (tiles without the art, ?art=0: the ground marks go straight over the plain tiles)
-    if (!tileOpts && lod === 'tile') this.groundPass(ctx, F);
+    if (!tileOpts && lod === 'tile') this.groundPass(ctx, F, 'all');
     if (artCells.length) {
       // while the picture travels, far bitmaps are not painted for zooms it only passes through (the ones at hand
       // are stretched); arriving, they are painted for where it rests
@@ -988,6 +990,8 @@ export class FrontierMap {
     // the ground marks move: a landing and a roll-out every frame, breathing a few times a second
     if (this.landing || F.rolling || F.shaking) this.dirty = true;
     else if (F.live && !F.still) this.invalidateSoon(90);
+    // what was kept in the still ground no longer fits (a roll-out or a landing ended, other tiles are lit): paint it again
+    if (F.rebake && this.layers) { this.layers.key = null; this.dirty = true; }
     // what is read rather than looked at goes over the depth dressing: labels, warnings, pins, the guide
     const over = () => {
       ctx.setTransform(...world);
@@ -1024,7 +1028,8 @@ export class FrontierMap {
     const sel = tile && src.selected && Number.isInteger(src.selected.idx) ? src.selected : null;
     const selHex = sel ? tileHex(sel.p, sel.q, sel.idx) : null;
     const selOwn = !!sel && (villages.some(v => v.p === sel.p && v.q === sel.q && v.tile === sel.idx) || (!!A && A.mode === 'select'));
-    const hover = tile ? this.hover : null;
+    // (the hexagon under the pointer: on land that exists, never on the cloud sea or the table beyond it)
+    const hover = tile && this.hover && ringOf(this.hover.p, this.hover.pq) < (src.ringsOpen ?? 1) ? this.hover : null;
     const hoverLit = hover && A ? A.byHex.get(`${hover.q},${hover.r}`) ?? null : null;
     const fx = fxNow(), still = reducedMotion();
     // a village the page says has just landed (and this map has not played yet) starts its landing with this frame
@@ -1067,11 +1072,35 @@ export class FrontierMap {
     return f;
   }
 
-  /** On the ground, under what stands on it: the viewer's land, the lit tiles, the hexagon under the pointer, the selection. */
-  groundPass(ctx, F) {
+  /**
+   * On the ground, under what stands on it: the viewer's land, the lit tiles,
+   * the hexagon under the pointer, the selection. `phase`:
+   *   'all'    everything, alive (a frame painted whole: the camera is moving)
+   *   'still'  what does not move, into the still ground layer of a resting view: the land without its
+   *            breath, the lit tiles once they are out
+   *   'live'   over that layer, every animation frame: only the breath, a roll-out or a landing that is
+   *            playing, the hover and the selection (a resting frame costs a few strokes, not the whole land)
+   */
+  groundPass(ctx, F, phase = 'all') {
     const { z, fx, still } = F;
-    for (const land of F.lands()) { paintOwnLand(ctx, land, { zoom: z, faction: F.faction, now: fx, still, flood: this.floodOf(land, fx) }); F.live = true; }
-    if (F.A) { F.rolling = paintActionGround(ctx, F.A, { zoom: z, now: fx, still, dim: F.A.dest ? 0.5 : 1 }); F.live = true; }
+    const kept = phase === 'still' ? (this.kept = { lands: new Set(), lit: null }) : phase === 'live' ? this.kept ?? { lands: new Set(), lit: null } : null;
+    for (const land of F.lands()) {
+      const flood = this.floodOf(land, fx), id = `${land.key}|${land.shape.key}|${land.provisional}`;
+      if (phase === 'still') { if (!flood) { paintOwnLand(ctx, land, { zoom: z, faction: F.faction, base: true }); kept.lands.add(id); } }
+      else if (phase === 'live' && kept.lands.has(id) && !flood) { if (!still) paintOwnBreath(ctx, land, { zoom: z, now: fx }); }
+      else { paintOwnLand(ctx, land, { zoom: z, faction: F.faction, now: fx, still, flood }); if (phase === 'live' && !flood) F.rebake = true; }
+      F.live = true;
+    }
+    if (phase === 'live' && kept.lands.size > F.lands().length) F.rebake = true;
+    const A = F.A, dim = A?.dest ? 0.5 : 1;
+    if (A) {
+      const out = still || rolledOut(A, fx);
+      if (phase === 'still') { if (out) { paintActionGround(ctx, A, { zoom: z, dim, base: true }); kept.lit = A; } }
+      else if (phase === 'live' && kept.lit === A) { if (!still) paintActionPulse(ctx, A, { zoom: z, now: fx, dim }); }
+      else { F.rolling = paintActionGround(ctx, A, { zoom: z, now: fx, still, dim }) || F.rolling; if (phase === 'live' && (out || kept.lit)) F.rebake = true; }
+      F.live = true;
+    } else if (phase === 'live' && kept.lit) F.rebake = true;
+    if (phase === 'still') return;
     if (F.hover) paintHoverGround(ctx, F.hover, { zoom: z, kind: F.hoverLit?.kind ?? null });
     if (F.selHex) { paintSelectionGround(ctx, F.selHex, { zoom: z, own: F.selOwn, now: fx, still }); F.live = true; }
   }
@@ -1208,6 +1237,7 @@ export class FrontierMap {
       under(L.ground.g);
       L.ground.g.setTransform(...world);
       this.art.paint(L.ground.g, tiles, { ...opts, part: 'ground', between: null });
+      opts.ground?.(L.ground.g, 'still');   // the ground marks that do not move are kept with the ground
       const g = L.props.g;
       g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, W, H); g.setTransform(...world);
       this.art.paint(g, tiles, { ...opts, part: 'props' });
@@ -1217,7 +1247,9 @@ export class FrontierMap {
     ctx.globalCompositeOperation = 'copy'; ctx.drawImage(L.ground.cv, 0, 0); ctx.globalCompositeOperation = 'source-over';
     ctx.restore();
     ctx.setTransform(...world);
-    opts.between?.(ctx);   // ground-level effects: over the land, under what stands on it
+    // over the land, under what stands on it: what moves of the ground marks, then the effects engine's ground pass
+    if (opts.ground) { opts.ground(ctx, 'live'); this.between?.(ctx, { zoom: opts.zoom, now }); }
+    else opts.between?.(ctx);
     ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(L.props.cv, 0, 0); ctx.restore();
     this.art.paint(ctx, tiles, { ...opts, part: 'live' });
     return fresh ? 'fresh' : 'live';

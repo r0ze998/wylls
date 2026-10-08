@@ -236,12 +236,13 @@ export const rollAt = (age, d) => Math.max(0, Math.min(1, (age - d * ROLL_RING_M
  * and then breathing. `dim` < 1 while a destination is chosen (the route
  * reads over them). Returns whether the roll-out is still running.
  */
-export function paintActionGround(g, A, { zoom = 1, now = fxNow(), still = false, dim = 1 } = {}) {
+export function paintActionGround(g, A, { zoom = 1, now = fxNow(), still = false, dim = 1, base = false } = {}) {
   const G = A?.tiles?.length ? groups(A) : null;
   if (!G || !g?.save) return false;
   const k = lineScale(zoom), age = now - A.t0;
-  const rolled = still || age >= G.maxD * ROLL_RING_MS + ROLL_FADE_MS;
-  const breath = still ? 0.5 : 0.5 + 0.5 * Math.sin(now / 1000 * 2.4);
+  const rolled = still || base || age >= G.maxD * ROLL_RING_MS + ROLL_FADE_MS;
+  // (`base`: the tiles fully out and without their breath, for a layer that is kept; paintActionPulse lays the breath over it)
+  const breath = base ? 0 : still ? 0.5 : 0.5 + 0.5 * Math.sin(now / 1000 * 2.4);
   g.save();
   g.lineJoin = 'round';
   const one = (x, show) => {
@@ -257,6 +258,28 @@ export function paintActionGround(g, A, { zoom = 1, now = fxNow(), still = false
   else for (const x of G.byRing.values()) one(x, rollAt(age, x.d));
   g.restore();
   return !rolled;
+}
+
+/** Whether the roll-out of `A` is over at `now`. */
+export function rolledOut(A, now = fxNow()) {
+  let maxD = 0;
+  for (const t of A?.tiles ?? []) if (t.d > maxD) maxD = t.d;
+  return now - (A?.t0 ?? 0) >= maxD * ROLL_RING_MS + ROLL_FADE_MS;
+}
+
+/** The breath of the lit tiles alone, over tiles painted with `base`: their rims brighten and fade. */
+export function paintActionPulse(g, A, { zoom = 1, now = fxNow(), dim = 1 } = {}) {
+  const G = A?.tiles?.length ? groups(A) : null;
+  if (!G || !g?.save) return;
+  const k = lineScale(zoom), breath = 0.5 + 0.5 * Math.sin(now / 1000 * 2.4);
+  g.save();
+  g.lineJoin = 'round';
+  for (const [kind, x] of G.byKind) {
+    g.strokeStyle = rgba(ACTION_COLOURS[kind].rim, 1);
+    g.globalAlpha = 0.2 * breath * dim; g.lineWidth = 7.5 * k; g.stroke(x.rim);
+    g.globalAlpha = 0.3 * breath * dim; g.lineWidth = 2.5 * k; g.stroke(x.rim);
+  }
+  g.restore();
 }
 
 /** A small mark for what a lit tile is (colour is never the only sign): crossed blades, a house, an eye, or a tick for a chosen tile. */

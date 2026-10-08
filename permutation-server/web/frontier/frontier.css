@@ -538,3 +538,7 @@ body[data-urgency="crit"] main { box-shadow: inset 0 0 0 4px #c8412f; }
 .home-pointer:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .place-where { font-size: 12px; font-weight: 400; white-space: nowrap; }
 .tip-place { font-weight: 700; }
+.lit-move { background: #d8f3ea; border-color: #f0fffa; box-shadow: inset 0 0 0 3px rgba(111,145,80,.9); }
+.lit-attack { background: #e2553d; border-color: #ff9678; }
+.lit-home { background: #f3d58a; border-color: #ffecb2; }
+.lit-explore { background: #7fc4e8; border-color: #bae4fc; }
