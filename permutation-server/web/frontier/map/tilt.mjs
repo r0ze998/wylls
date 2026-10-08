@@ -22,8 +22,15 @@
 // must stay crisp and upright are drawn on an untransformed canvas, each
 // around its own anchor on the ground.
 
-/** The tilt at the near view (degrees), the most the baked art allows, the viewing distance (CSS px), and the spare rim of the ground canvas. */
-export const TILT = Object.freeze({ deg: 17, max: 22, perspective: 1600, margin: 10 });
+/**
+ * The tilt at the near view (degrees), the most the baked art allows, the viewing distance (CSS px), and the spare
+ * rim of the ground canvas. The angle was chosen from side-by-side pictures at 0, 12, 16 and 20 degrees (1440 × 900
+ * and 390 × 844): at 12 the board still reads as a flat sheet; at 16 the rows visibly shorten toward the far edge; at
+ * 20 straight things (the sheet's edge, its neatline, the province borders) also lean together toward the far
+ * edge, which is what makes it a board seen from a seat, and the painted props (drawn for a steeper view) are not
+ * yet squashed: they lose 6% of their height. Past 22 they would be.
+ */
+export const TILT = Object.freeze({ deg: 20, max: 22, perspective: 1600, margin: 10 });
 /** The zoom from which the board is fully tilted (below the far view's zoom it lies flat). */
 export const TILT_NEAR = 0.62;
 

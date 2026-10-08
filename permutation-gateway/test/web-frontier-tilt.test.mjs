@@ -67,7 +67,7 @@ test('the geometry is the CSS transform: stage to box as a browser works it out,
 });
 
 test('the four corners of the picture are a trapezoid of the stage: wider and further at the top', () => {
-  const g = tilt.tiltGeo(desk, 17), q = g.quad();
+  const g = tilt.tiltGeo(desk, tilt.TILT.deg), q = g.quad();
   // each corner of the quad is seen exactly at a corner of the box
   const corners = [[0, 0], [desk.width, 0], [desk.width, desk.height], [0, desk.height]];
   q.forEach((p, i) => { const b = g.toBox(p.x, p.y); assert.ok(near(b.x, corners[i][0], 1e-7) && near(b.y, corners[i][1], 1e-7), `corner ${i}`); });
@@ -92,12 +92,12 @@ test('no tilt is the flat map: the same numbers in and out', () => {
 
 test('the ground canvas covers the trapezoid at every angle up to its own, and its flat view is the map\'s', () => {
   for (const size of [desk, phone, { width: 2560, height: 1300 }, { width: 800, height: 380 }]) {
-    const box = tilt.groundBox(size, 17);
-    for (const deg of [0, 4, 9, 13, 17]) for (const p of tilt.tiltGeo(size, deg).quad()) {
+    const box = tilt.groundBox(size, tilt.TILT.deg);
+    for (const deg of [0, 4, 9, 13, 17, tilt.TILT.deg]) for (const p of tilt.tiltGeo(size, deg).quad()) {
       assert.ok(p.x >= box.left && p.x <= box.left + box.width && p.y >= box.top && p.y <= box.top + box.height, `${size.width}x${size.height} at ${deg}°: (${p.x.toFixed(1)}, ${p.y.toFixed(1)}) is on the canvas`);
     }
-    // not wastefully: under a fifth more pixels than the box at the brief's sizes
-    if (size === desk || size === phone) assert.ok((box.width * box.height) / (size.width * size.height) < 1.26, `${size.width}: ${(box.width * box.height / (size.width * size.height)).toFixed(3)} of the box`);
+    // not wastefully: under a third more pixels than the box at the brief's sizes
+    if (size === desk || size === phone) assert.ok((box.width * box.height) / (size.width * size.height) < 1.32, `${size.width}: ${(box.width * box.height / (size.width * size.height)).toFixed(3)} of the box`);
     // a world point's place on the ground canvas, by the canvas's own flat view, is its stage point less the canvas's corner
     const view = { x: 812.5, y: -340.25, zoom: 1.3 }, gv = tilt.groundView(view, box), w = { x: 600, y: -700 };
     const stage = fmap.worldToScreen(view, size, w.x, w.y), onCanvas = fmap.worldToScreen(gv, { width: box.width, height: box.height }, w.x, w.y);
@@ -274,7 +274,7 @@ test('a fly puts the place in the middle of what the HUD leaves free, as it is s
 });
 
 test('the pointer home: under a tilt it judges by where home is seen', () => {
-  const g = tilt.tiltGeo(desk, 17), view = { x: 0, y: 0, zoom: 1.3 };
+  const g = tilt.tiltGeo(desk, tilt.TILT.deg), view = { x: 0, y: 0, zoom: 1.3 };
   // a home whose flat place is just above the top edge of the box, but which the tilted board shows inside it
   const y = -(desk.height / 2 + 20) / view.zoom, home = { x: 0, y };
   assert.ok(g.toBox(720, 450 + y * view.zoom).y > 6, 'seen inside the picture');

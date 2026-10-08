@@ -65,6 +65,7 @@ const fields = new Map();
  *   steps(q, r)   hex steps from a tile to the nearest opened tile (0 on the land, FAR beyond the search)
  *   depth(x, y)   the same as a smooth number over the world (about 0.5 on the land's own edge)
  *   cover(x, y, sheet)   how much cloud lies at a world point, 0..1
+ *   inland(x, y)  whether a world point has opened land five tiles deep all around it
  */
 export function seaField(ringsOpen) {
   const d = Math.max(1, ringsOpen ?? 1);
@@ -120,7 +121,21 @@ export function seaField(ringsOpen) {
     if (sheet) { const m = Math.min(sheet.x - Math.abs(x), (sheet.y - Math.abs(y)) / FLATTEN) / HEX_W; edge = step(SHEET.margin * 0.45, SHEET.margin * 1.25, m); }
     return inner * outer * edge;
   };
-  const v = { ringsOpen: d, steps, depth, cover };
+  // (deep in the land: every tile within five steps is opened; kept per tile)
+  const deep = new Map();
+  const inland = (x, y) => {
+    const fy = y / FLATTEN, r = Math.round(((2 / 3) * fy) / RADIUS), q = Math.round(((SQRT3 / 3) * x - fy / 3) / RADIUS), k = key(q, r);
+    let v = deep.get(k);
+    if (v !== undefined) return v;
+    v = open(q, r);
+    for (let n = 1; v && n <= 5; n++) {
+      let hq = q + RINGS[4][0] * n, hr = r + RINGS[4][1] * n;
+      for (let side = 0; v && side < 6; side++) for (let i = 0; v && i < n; i++) { v = open(hq, hr); hq += RINGS[side][0]; hr += RINGS[side][1]; }
+    }
+    deep.set(k, v);
+    return v;
+  };
+  const v = { ringsOpen: d, steps, depth, cover, inland };
   if (fields.size > 6) fields.clear();
   fields.set(d, v);
   return v;

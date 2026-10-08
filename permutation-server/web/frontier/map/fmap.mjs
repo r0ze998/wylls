@@ -36,14 +36,14 @@ import { fogLevel, paintProvince, paintTiles, paintVeil, provincePixel, PROVINCE
 import { createTerrain } from './terrain.mjs';
 import { SpriteArt, artSize, farRes, terrainLookup } from './sprites.mjs';
 import { paintSheet, paintTable, sheetOf, tableShows } from './table.mjs';
-import { CloudSea, DRIFT_SPEED } from './cloudsea.mjs';
+import { CloudSea, DRIFT_SPEED, seaField } from './cloudsea.mjs';
 import { project, RADIUS, FLATTEN } from '../../map.mjs';
 import { Camera, EASE, FAR_CAP, MOVE_MS, clampCentre, fitView, freeBox, reducedMotion } from './camera.mjs';
 import { OPEN_FROM, OPEN_WAIT_MS, TITLE_FROM, TITLE_MS, heroZoom, openingPlan, placePoint } from './opening.mjs';
 import { nearness, paintDressing } from './dressing.mjs';
 import { PROBE } from './probe.mjs';
 import { L2, L3, openSurvey } from './survey.mjs';
-import { fxNow, paintCandidates, paintWedge } from './chart.mjs';
+import { CHART, fxNow, paintCandidates, paintWedge } from './chart.mjs';
 import { wedgeBox } from './opening.mjs';
 import { STANDARD_AT, STANDARD_UNIT, landShape, landTiles, landingAt, paintBeacon, paintOwnBreath, paintOwnLand, paintOwnOutline, paintProvisionalTag, paintStandard, standardUnit, villageKey } from './ownland.mjs';
 import { NOTE_MS, actorText, arrivalText, blockText, paintActionGround, paintActionPulse, paintActionTop, rolledOut, paintHoverGround, paintHoverTop, paintRefusal, paintRibbon, paintSelectionGround, paintSelectionTop, paintTag } from './actions.mjs';
@@ -94,8 +94,10 @@ export const LOD_FADE_DRIFT = 0.32;
  * pixels each (about 36 MB): a larger canvas is painted whole every frame, as before.
  */
 export const STILL_MAX_PIXELS = 11_000_000;
+/** The picture of the table and the sheet kept under the world has at most this many pixels. */
+export const BACKDROP_PIXELS = 6_000_000;
 /** On a screen of one device pixel per CSS pixel the tilted ground is painted this much finer (the near half of the board is drawn larger than life). */
-export const GROUND_FINER = 1.15;
+export const GROUND_FINER = 1.08;
 /** The still layers of a resting view are repainted at least this often (ms): a change nobody announced heals. */
 export const LAYER_MAX_AGE_MS = 2000;
 
@@ -915,14 +917,15 @@ export class FrontierMap {
     const src = this.source();
     this.rings = src.ringsOpen ?? 1;
     if (!this.open(src, size, { dpr, now })) {
-      // who is looking is not known yet: the bare table, never the whole world first
-      table(ctx);
+      // who is looking is not known yet: the bare table, never the whole world first (painted once: it does not change)
+      if (this.bare !== `${W}x${H}`) { table(ctx); this.bare = `${W}x${H}`; }
       wipe();
       dressing(0);
       this.updatePointer(null);
       PROBE.end('wait', ctx);
       return;
     }
+    this.bare = null;
     const v = this.cam.drawn, logical = this.cam.view;
     // the board's angle on screen follows the zoom on screen; `gv` is the ground canvas's own flat view of the same picture
     const T = this.geo(v.zoom, size), gv = groundView(v, G);
@@ -1011,6 +1014,56 @@ export class FrontierMap {
   }
 
   /**
+   * What lies under the world: the table and the sheet (map/table.mjs). Both are still and lie on the world, so
+   * they are painted once into a picture of the part of the world around the view (a third wider on every side)
+   * and copied from it frame by frame; the picture is made again when the view leaves it or the zoom has moved a
+   * step. Deep inside the land nothing of either can show: one flat fill of paper stands in until the land's
+   * own bitmaps are there. `seen` and `corners`: the part of the world on the canvas.
+   */
+  backdrop(g, { view, size, ratio, sheet, paperRes, seen, corners, ringsOpen }) {
+    const W = g.canvas?.width ?? Math.round(size.width * ratio), H = g.canvas?.height ?? Math.round(size.height * ratio);
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    // (inland: every sample of the picture has land five tiles deep around it; the land is close to convex)
+    const field = seaField(ringsOpen);
+    let inland = true;
+    for (let j = 0; j < 4 && inland; j++) for (let i = 0; i < 5 && inland; i++) inland = field.inland(seen.x0 + ((seen.x1 - seen.x0) * i) / 4, seen.y0 + ((seen.y1 - seen.y0) * j) / 3);
+    if (inland) { g.fillStyle = CHART.paper; g.fillRect(0, 0, W, H); return; }
+    const px = ratio * view.zoom, w = seen.x1 - seen.x0, h = seen.y1 - seen.y0;
+    const doc = this.canvas.ownerDocument;
+    let b = this.under;
+    // while the camera travels a picture made a little finer than the screen serves a range of zooms; at rest it is
+    // made for the screen's own pixels (a plain copy, and sharp)
+    const moving = this.cam.moving || !!this.drag?.moved;
+    const cap = wide => Math.sqrt(BACKDROP_PIXELS / (wide * wide * w * h));
+    const fits = b && b.rings === ringsOpen && b.paper === paperRes && seen.x0 >= b.x0 && seen.y0 >= b.y0 && seen.x1 <= b.x1 && seen.y1 <= b.y1
+      && (moving ? px <= b.res * 1.02 && px >= b.res * 0.7 : Math.abs(px - b.res) < 1e-9 || (px > b.res && b.res >= cap(1.68) * 0.999));
+    if (!fits) {
+      // a third more on every side (never more than BACKDROP_PIXELS in all)
+      const x0 = seen.x0 - w * 0.34, y0 = seen.y0 - h * 0.34, bw = w * 1.68, bh = h * 1.68;
+      const res = Math.min(moving ? px * 1.12 : px, cap(1.68));
+      const cw = Math.max(1, Math.ceil(bw * res)), ch = Math.max(1, Math.ceil(bh * res));
+      const cv = b?.cv && b.cv.width === cw && b.cv.height === ch ? b.cv : spareCanvas(doc, cw, ch), bg = cv?.getContext?.('2d', { alpha: false });
+      if (!bg) {
+        // no spare canvas: straight onto the picture
+        if (tableShows(corners, sheet)) paintTable(g, { view, size, ratio, sheet });
+        g.setTransform(ratio * view.zoom, 0, 0, ratio * view.zoom, ratio * (size.width / 2 - view.x * view.zoom), ratio * (size.height / 2 - view.y * view.zoom));
+        paintSheet(g, sheet, { box: seen, res: paperRes, zoom: view.zoom });
+        return;
+      }
+      const box = { x0, y0, x1: x0 + bw, y1: y0 + bh };
+      paintTable(bg, { view: { x: x0 + bw / 2, y: y0 + bh / 2, zoom: res }, size: { width: bw * res, height: bh * res }, ratio: 1, sheet });
+      bg.setTransform(res, 0, 0, res, -x0 * res, -y0 * res);
+      paintSheet(bg, sheet, { box, res: paperRes, zoom: view.zoom });
+      b = this.under = { cv, ...box, res, rings: ringsOpen, paper: paperRes };
+    }
+    const k = b.res;
+    // (pixel for pixel when the picture was made for this zoom: a copy)
+    if (Math.abs(px - k) < 1e-9) { g.drawImage(b.cv, Math.round((seen.x0 - b.x0) * k), Math.round((seen.y0 - b.y0) * k), W, H, 0, 0, W, H); return; }
+    g.imageSmoothingEnabled = true;
+    g.drawImage(b.cv, (seen.x0 - b.x0) * k, (seen.y0 - b.y0) * k, w * k, h * k, 0, 0, W, H);
+  }
+
+  /**
    * Copy a picture that only changes with `key` onto the canvas: `paint(g)`
    * draws it (in CSS px) into a bitmap of its own the first time and when the
    * key changes (a gradient over the whole canvas costs far more than a
@@ -1058,9 +1111,8 @@ export class FrontierMap {
     const seen = { x0: view.x - width / 2 / z, y0: view.y - height / 2 / z, x1: view.x + width / 2 / z, y1: view.y + height / 2 / z };
     const corners = [{ x: seen.x0, y: seen.y0 }, { x: seen.x1, y: seen.y0 }, { x: seen.x1, y: seen.y1 }, { x: seen.x0, y: seen.y1 }];
     const under = g => {
-      if (tableShows(corners, sheet)) table(g, view);
+      this.backdrop(g, { view, size, ratio: dpr, sheet, paperRes, seen, corners, ringsOpen });
       g.setTransform(...world);
-      paintSheet(g, sheet, { box: seen, res: paperRes, zoom: z });
       for (const f of plain) f(g);
     };
     const maxRing = Math.max(0, ringsOpen - 1) + CLOUD_RINGS;
