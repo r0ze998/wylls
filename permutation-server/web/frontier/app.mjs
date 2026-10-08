@@ -1640,6 +1640,12 @@ export async function boot() {
       art: ART_ON,
     });
     mapRef = map;
+    // a press on the dimmed map behind a document (the report, a practice battle) puts the document away, and is not a selection
+    canvas.addEventListener?.('pointerdown', e => {
+      if (FS.mode !== 'play' || globalThis.document?.body?.dataset.doc !== 'wide') return;
+      e.stopImmediatePropagation(); e.preventDefault();
+      shutDrawer();
+    }, true);
     // the map buttons take their icons from the sprite (hud/icons.mjs)
     iconizeMapTools(globalThis.document);
     renderLenses();

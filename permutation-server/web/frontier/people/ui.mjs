@@ -53,7 +53,7 @@ export function renderNameForm(FS) {
     <form class="inline" data-form="profile-name"><label>${L`新しい名前（24文字まで）`}<input name="name" maxlength="24" autocomplete="nickname" value="${id.profile ? id.given.ja : ''}"></label>
       <button type="submit" class="btn primary" ${raw(FS.nameBusy ? 'disabled' : '')}>${FS.nameBusy ? L`署名を待っています…` : L`ウォレットで署名して使う`}</button></form>
     ${id.profile ? html`<p><button type="button" class="btn small" data-act="profile-clear">${L`元の名前（${displayName(derived, { full: true })}）に戻す`}</button></p>` : ''}
-    <p class="muted">${L`名前はウォレットの署名つきで、この端末に保存されます。ほかの人の画面に出るのは、名前の置き場所が決まる次の段階（M2）からです。`}</p></section>`;
+    <p class="muted">${L`名前はウォレットの署名つきで、この端末に保存されます。ほかの人の画面に出るのは、名前の置き場所が決まる次の段階からです。`}</p></section>`;
 }
 
 /** The identity of a host's owner (its holding's holder in the roster), or null. */

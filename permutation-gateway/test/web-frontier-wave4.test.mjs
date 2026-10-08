@@ -55,6 +55,8 @@ test('the report headline in both languages: replay and map buttons, the proof f
   assert.match(ja, /report-won/);
   assert.match(ja, /<p class="stamp stamp-won"><span class="stamp-in">勝利<\/span><\/p>/);
   assert.match(ja, /<rect class="bar-lost" width="100\.0" height="8"\/><rect class="bar-fg" width="40\.0" height="8"\/>/, 'the viewer: 100 before, 40 after');
+  assert.match(ja, /<div class="versus-band"><div class="vs-side vs-a mine"><span class="vs-face"><svg[^>]*class="leader"/, 'the two main sides face to face, the viewer\'s first, each with its leader');
+  assert.equal((ja.match(/class="vs-side /g) ?? []).length, 2);
   assert.match(ja, /<strong class="side-lost">−60<\/strong>/);
   assert.match(ja, /<strong class="side-lost">−90<\/strong>/);
   assert.match(ja, /data-fold="rep-rows"/);

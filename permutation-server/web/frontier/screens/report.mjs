@@ -562,6 +562,28 @@ export function renderSides(rows) {
     <span class="side-n"><span class="side-ba">${fmtNum(s.before)} → ${s.after === null ? '—' : fmtNum(s.after)}</span>${s.lost ? html`<strong class="side-lost">−${fmtNum(s.lost)}</strong>` : ''}</span></li>`)}</ul>`;
 }
 
+/**
+ * The two main sides face to face (the viewer's first, then the largest): a portrait of each
+ * nation's leader (a camp has its tent), the troops before and after, the loss, a bar. Further
+ * sides follow as bars under it.
+ */
+export function renderVersus(rows) {
+  const sides = sidesOf(rows);
+  if (!sides.length) return html`<p class="muted">${L`戦った軍勢はいません`}</p>`;
+  const max = Math.max(1, ...sides.map(s => s.before));
+  const face = s => (s.camp || !(s.faction >= 0 && s.faction < 6) ? html`<span class="vs-face vs-camp">${icon('tent')}</span>` : html`<span class="vs-face">${raw(leaderSvg(s.faction, { size: 56 }))}</span>`);
+  const block = (s, cls) => html`<div class="vs-side ${cls}${s.mine ? ' mine' : ''}">${face(s)}
+    <div class="vs-text"><span class="vs-who">${s.camp ? KIND_TEXT.camp() : html`${swatch(s.faction)}${factionName(s.faction)}`}${s.mine ? html`<span class="mine-mark">${L`（あなた）`}</span>` : ''}</span>
+      <span class="vs-n"><span class="side-ba">${fmtNum(s.before)} → ${s.after === null ? '—' : fmtNum(s.after)}</span>${s.lost ? html`<strong class="side-lost">−${fmtNum(s.lost)}</strong>` : ''}</span></div>
+    ${lossBar(s.before, s.after, max, s.mine ? 'bar-own' : 'bar-foe')}</div>`;
+  const [a, b, ...rest] = sides;
+  return html`<div class="versus-band${b ? '' : ' vs-one'}">${block(a, 'vs-a')}${b ? html`<span class="vs-mark" aria-hidden="true">${icon('swords')}</span>${block(b, 'vs-b')}` : ''}</div>
+    ${rest.length ? html`<ul class="sides sides-rest">${rest.map(s => html`<li class="side${s.mine ? ' mine' : ''}">
+      <span class="side-who">${s.camp ? html`${swatch(NEUTRAL)}${KIND_TEXT.camp()}` : html`${swatch(s.faction)}${factionName(s.faction)}`}</span>
+      ${lossBar(s.before, s.after, max, 'bar-foe')}
+      <span class="side-n"><span class="side-ba">${fmtNum(s.before)} → ${s.after === null ? '—' : fmtNum(s.after)}</span>${s.lost ? html`<strong class="side-lost">−${fmtNum(s.lost)}</strong>` : ''}</span></li>`)}</ul>` : ''}`;
+}
+
 function renderSteps(v) {
   return html`<ol class="list">${VERIFY_STEPS.map(id => {
     const s = v.steps[id];
@@ -601,11 +623,11 @@ export function render(FS, mine = () => false, { whatIf = true, ownerOf = null }
   const steps = v ? html`${renderSteps(v)}${v.builder === 'page' ? html`<p class="muted">${L`入力はこのページが契約の手順どおりに組み立てました。`}</p>` : ''}` : '';
   const tiles = tileDetail(rows);
   return html`<section aria-labelledby="report-title" class="report doc">${head}
+    <h4 class="visually-hidden">${L`兵の前と後`}</h4>
+    ${renderVersus(rows)}
     <div class="doc-cols">
       <div class="doc-col">${renderHeadline(summaryOf(rows), r)}</div>
       <div class="doc-col">
-        ${label(L`兵の前と後`)}
-        ${renderSides(rows)}
         ${v?.outcome ? '' : html`<p class="muted">${L`確かめる前は、チェーンに書かれた到着軍勢の結末だけを表示しています。`}</p>`}
         ${fold('rep-rows', L`軍勢ごとの内訳`, renderRows(rows, title, ownerOf))}
         ${tiles.length ? fold('rep-tiles', L`マスごとの戦い`, renderTiles(tiles, FS, r)) : ''}

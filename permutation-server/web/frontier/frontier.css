@@ -195,7 +195,7 @@ body[data-urgency="crit"] main::after { box-shadow: inset 0 0 0 4px #c8412f; }
 .ob-do { margin: 0 0 8px; font-size: var(--t2); line-height: 1.5; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
 .ob-acts { margin: 0; display: flex; flex-wrap: wrap; gap: 6px; }
 .ob-acts .btn + .btn { margin-left: 0; }
-.ob-chip .btn { min-height: 32px; padding: 4px 14px; border-color: var(--ivory); background: var(--ivory); color: #14251f; font-size: var(--t2); font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,.35); }
+.ob-chip .btn, .ob-chip .btn.primary { min-height: 32px; padding: 4px 14px; border-color: var(--ivory); background: var(--ivory); color: #14251f; font-size: var(--t2); font-weight: 700; letter-spacing: 0; box-shadow: 0 1px 3px rgba(0,0,0,.35); }
 
 /* ================================================================== bottom left: the to-do lines and the village plate */
 .rail { position: absolute; left: var(--edge); bottom: var(--edge); z-index: 20; width: var(--plate-w); max-width: calc(100% - 2 * var(--edge)); display: grid; gap: 8px; pointer-events: none; }
@@ -479,7 +479,7 @@ body[data-urgency="crit"] main::after { box-shadow: inset 0 0 0 4px #c8412f; }
   #panel-body > .ob-chip h3 { grid-column: 1; margin: 0 0 4px; }
   #panel-body > .ob-chip .ob-do { display: none; }
   #panel-body > .ob-chip .ob-acts { grid-column: 2; grid-row: 1 / 3; flex-wrap: nowrap; }
-  .ob-chip .btn { min-height: var(--target); }
+  .ob-chip .btn, .ob-chip .btn.primary { min-height: var(--target); }
   .plate .btn, .toast .btn { min-height: var(--target); }
   .toast-x { width: var(--target); height: var(--target); margin: -6px -6px 0 0; }
   .plate-pip { min-width: var(--target); height: var(--target); border-radius: 9px; }
@@ -511,6 +511,10 @@ body[data-urgency="crit"] main::after { box-shadow: inset 0 0 0 4px #c8412f; }
 /* a control the program refused: it shakes its head once (the toast at the map says why) */
 .refused { animation: refused .32s ease-in-out; }
 @keyframes refused { 20% { transform: translateX(-5px); } 45% { transform: translateX(4px); } 70% { transform: translateX(-3px); } 90% { transform: translateX(1px); } }
+/* lists that are pressed (search hits, resource rows, highlights, the language) answer the same way */
+.search-hit, .res-row, .hl-go, .lang-box [data-lang-toggle], .fold > summary { transition: background-color var(--out), border-color var(--out), color var(--out), transform var(--out); }
+.search-hit:active, .res-row:active, .hl-go:active, .lang-box [data-lang-toggle]:active { transform: translateY(1px) scale(.985); transition-duration: 70ms; }
+.fold > summary:active { color: var(--accent); }
 /* the HUD's own buttons take the same press */
 .tab, .hud-btn, .map-btn, .lens, .todo-btn, .plate-main, .next-btn, .res, .plate-pip, .toast-x, .step-btn, .term-q { transition: background-color var(--out), border-color var(--out), color var(--out), transform var(--out), box-shadow var(--out); }
 .tab:active, .hud-btn:active, .map-btn:active, .lens:active, .todo-btn:active, .next-btn:active, .res:active, .plate-pip:active, .toast-x:active, .step-btn:active, .term-q:active { transform: translateY(1px) scale(.97); transition-duration: 70ms; }
@@ -549,7 +553,7 @@ details > summary { min-height: var(--target); display: flex; align-items: cente
 .stores th, .stores td { padding: 4px 6px; text-align: right; border-bottom: 1px solid #e3dcc8; vertical-align: top; }
 .stores tr > :first-child { text-align: left; }
 .stores th { word-break: keep-all; }
-.stores td { hyphens: auto; }
+.stores td { white-space: nowrap; }
 .stores thead th { font-size: var(--t1); color: var(--ink-2); font-weight: 600; }
 .inline { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin: 6px 0; }
 .inline label, .field { display: grid; gap: 2px; font-size: var(--t1); min-width: 0; }
@@ -807,6 +811,35 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
 .report-leader svg { flex: none; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
 .report-leader q { font-family: var(--display); font-size: var(--t2); }
 .report-leader .muted { font-style: normal; white-space: nowrap; }
+/* the two main sides face to face: a portrait each, the troops before and after, the loss */
+.versus-band { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: var(--s3); margin: 0 0 var(--s3); padding: var(--s3); border-radius: 10px; background: linear-gradient(180deg, rgba(255,255,255,.55), rgba(255,255,255,.3)); box-shadow: inset 0 0 0 1px rgba(60,48,20,.18); }
+.versus-band.vs-one { grid-template-columns: minmax(0, 1fr); }
+.vs-side { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--s1) var(--s3); min-width: 0; }
+.vs-side .bar { grid-column: 1 / -1; height: 12px; border-radius: 3px; }
+.vs-b { grid-template-columns: minmax(0, 1fr) auto; text-align: right; }
+.vs-b .vs-face { grid-column: 2; grid-row: 1; } .vs-b .vs-text { grid-column: 1; grid-row: 1; justify-items: end; }
+.vs-b .bar { transform: scaleX(-1); }
+.vs-face { flex: none; display: block; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,.35); }
+.vs-face .leader { display: block; border-radius: 8px; }
+.vs-camp { display: grid; place-items: center; width: 56px; height: 70px; background: radial-gradient(circle at 50% 30%, #4a4334, #221d14); color: #e8d9b0; }
+.vs-camp .ic { width: 30px; height: 30px; }
+.vs-text { display: grid; gap: 2px; min-width: 0; }
+.vs-who { display: inline-flex; align-items: center; flex-wrap: wrap; font: 700 var(--t3)/1.3 var(--display); letter-spacing: .03em; }
+.vs-who .mine-mark { margin-left: .35em; font: 700 var(--t1)/1.4 var(--ui); }
+.vs-n { display: inline-flex; align-items: baseline; gap: var(--s2); font-size: var(--t2); font-variant-numeric: tabular-nums; }
+.vs-b .vs-who, .vs-b .vs-n { justify-content: flex-end; }
+.vs-mark { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: radial-gradient(circle at 50% 30%, #b8452f, #6b1d14); color: #fff3e6; box-shadow: 0 0 0 2px rgba(255,255,255,.6), 0 2px 5px rgba(0,0,0,.35); }
+.vs-mark .ic { width: 22px; height: 22px; }
+.sides-rest { margin-top: calc(-1 * var(--s1)); }
+@media (max-width: 759px) {
+  .versus-band { gap: var(--s2); padding: var(--s2); }
+  .vs-side, .vs-b { grid-template-columns: minmax(0, 1fr); justify-items: start; text-align: left; }
+  .vs-b .vs-face, .vs-b .vs-text { grid-column: 1; grid-row: auto; justify-items: start; } .vs-b .vs-who, .vs-b .vs-n { justify-content: flex-start; }
+  .vs-b .bar { transform: none; }
+  .vs-face .leader { width: 44px; height: 55px; } .vs-camp { width: 44px; height: 55px; }
+  .vs-who { font-size: var(--t2); }
+  .vs-mark { width: 30px; height: 30px; } .vs-mark .ic { width: 17px; height: 17px; }
+}
 /* each side before and after: the loss is the pale part of its bar */
 .sides { list-style: none; margin: 0 0 var(--s2); padding: 0; display: grid; gap: var(--s2); }
 .side { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px var(--s2); align-items: center; }
