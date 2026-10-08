@@ -129,10 +129,10 @@ export function ribbonEdges(path, w, { k0 = 0, k1 = 1, tip = w * 2.2 } = {}) {
   // close stations inside the two tips, so the taper is a curve and not a wedge
   for (const d of [0.25, 0.5, 0.75, 1]) { stations.push(from + tip * d, to - tip * d); }
   stations.push(to);
-  const list = [...new Set(stations.filter(d => d >= from && d <= to).map(d => Math.round(d * 100) / 100))].sort((p, q) => p - q);
+  const list = stations.filter(d => d >= from && d <= to).sort((p, q) => p - q).filter((d, i, all) => i === 0 || d - all[i - 1] > 0.01 || i === all.length - 1);
   for (const d of list) {
     const p = pathAt(path, d / total), n = Math.hypot(p.dx, p.dy) || 1, nx = -p.dy / n, ny = p.dx / n;
-    const fromEnd = Math.min(d - from, to - d), t = Math.min(1, fromEnd / Math.max(0.001, Math.min(tip, span / 2)));
+    const fromEnd = Math.max(0, Math.min(d - from, to - d)), t = Math.min(1, fromEnd / Math.max(0.001, Math.min(tip, span / 2)));
     const taper = Math.sin(t * Math.PI / 2) ** 0.8;
     const wander = 1 + 0.1 * Math.sin(d / (w * 5.2) + 0.7) + 0.06 * Math.sin(d / (w * 2.1) + 2.3);
     const h = (w / 2) * taper * wander;

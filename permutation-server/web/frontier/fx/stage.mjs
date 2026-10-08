@@ -253,6 +253,8 @@ export function playMoment(fx, m, { bus = defaultBus } = {}) {
       fx.play('pip', { ...at, color: '#e0bd52', seed });
       if (!m.own) break;
       fx.hush(at, 1.4);
+      // where nothing may fly (reduced motion, effects off) a word says it instead of the tokens
+      if (fx.motionLevel() !== 'full') caption(L`収穫しました`, { icon: 'grain', tone: 'gold', delay: 0, dur: 1.8 });
       const gain = () => bus.emit('res:gain', { p: m.p, q: m.q, site: m.site ?? null, tile: m.tile });
       const flown = fx.play('fly', { ...at, to: m.to ?? '#res-strip', n: 8, delay: 0.16, seed });
       if (flown.length) {
