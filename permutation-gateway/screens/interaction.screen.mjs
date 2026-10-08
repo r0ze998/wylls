@@ -114,22 +114,52 @@ test('the sheet is a phone thing: on desktop the handle is hidden and Escape lea
   assert.equal(await page.locator('#holding-title').isVisible(), true);
 });
 
-test('the map by keyboard: + and − zoom, H goes to the viewer\'s holding, the buttons work with Enter', { timeout: 60_000 }, async t => {
+// UX brief §4 (the first view used to be the whole world at world LOD): a player with a village opens on that
+// village; M and the world chart button go to the far view and back; every key acts on the logical view at once
+// (the picture travels behind it), so the LOD is read right after each press.
+test('the map by keyboard: it opens on the viewer\'s village; M is the world chart and back; + and − zoom, H goes home, the buttons work with Enter', { timeout: 60_000 }, async t => {
   const page = await open(t);
   const lod = () => page.locator('#frontier-map').getAttribute('data-lod');
-  assert.equal(await lod(), 'world');
+  const view = () => page.evaluate(async ([p, q, tile]) => {
+    const { tileHex } = await import('/frontier/fgeo.mjs');
+    const { project } = await import('/map.mjs');
+    const { coveredInsets } = await import('/frontier/map/fmap.mjs');
+    const cv = document.getElementById('frontier-map'), h = tileHex(p, q, tile);
+    return { home: project(h.q, h.r), covered: coveredInsets(cv).bottom, height: cv.clientHeight, width: cv.clientWidth };
+  }, [HOME.p, HOME.q, HOME.tile]);
+  // the opening: the village's tile, as soon as the page knows whose village it is
+  await page.locator('#frontier-map[data-lod="tile"]').waitFor();
+  assert.equal(await lod(), 'tile', 'the opening view is the viewer\'s village, not the world');
   await page.locator('#frontier-map').focus();
+  // M: the far view at once (logically), M again: back to the village
+  await page.keyboard.press('m');
+  assert.equal(await lod(), 'world', 'M: the world chart');
+  assert.equal(await page.locator('[data-map="chart"]').getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.locator('[data-map="chart"]').getAttribute('aria-label'), 'もとの場所へ戻る');
   for (let i = 0; i < 4; i++) await page.keyboard.press('+');
-  assert.equal(await lod(), 'province');
+  assert.equal(await lod(), 'province', 'four steps in from the far view');
   await page.keyboard.press('h');
   assert.equal(await lod(), 'tile', 'home: the holding up close, on its tile');
+  // on a phone the village is centred in the part of the map the sheet leaves free
+  const v = await view();
+  assert.ok(v.covered > 100, `the sheet covers ${v.covered} px of the map`);
+  // the picture arrives where the logical view already is (a flight takes 1.2 s at most)
+  await page.waitForTimeout(1500);
+  await page.locator('#frontier-map[data-terrain="ready"]').waitFor();
+  // a tap in the middle of the uncovered part selects the village's own tile
+  const box = await page.locator('#frontier-map').boundingBox();
+  await page.mouse.click(box.x + box.width / 2, box.y + (box.height - v.covered) / 2);
+  const sel = await page.evaluate(async () => { const { FS } = await import('/frontier/fstate.mjs'); return FS.selected; });
+  assert.deepEqual([sel?.p, sel?.q, sel?.idx], [HOME.p, HOME.q, HOME.tile], 'the village sits in the middle of the map above the sheet');
   await page.locator('[data-map="in"]').focus();
   for (let i = 0; i < 6; i++) await page.keyboard.press('Enter');
   assert.equal(await lod(), 'tile');
-  await page.locator('#frontier-map[data-terrain="ready"]').waitFor();
   await page.locator('[data-map="out"]').focus();
   for (let i = 0; i < 16; i++) await page.keyboard.press('Enter');
-  assert.equal(await lod(), 'world');
+  assert.equal(await lod(), 'world', 'zooming out still reaches the world view');
+  await page.locator('[data-map="chart"]').focus();
+  await page.keyboard.press('Enter');
+  assert.equal(await lod(), 'tile', 'from the far view the world chart button goes home');
   assert.equal(await page.locator('.map-tools').getAttribute('aria-label'), '地図の操作');
 });
 

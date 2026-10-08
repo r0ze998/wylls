@@ -18,6 +18,7 @@ import { checkBeacon } from './seal.mjs';
 import { ChainClock, bellChip, countdown, seasonClock, bellStart } from './clock.mjs';
 import { effectiveStatus } from './fcodec.mjs';
 import { FrontierMap } from './map/fmap.mjs';
+import { openHint } from './map/opening.mjs';
 import { SEASON_STATUS_TEXT, clientText, factionName, TIERS, BUILDINGS } from './fi18n.mjs';
 import { L, fmtNum, mountLangToggle, onLangChange, lang } from '../lang.mjs';
 import { toHex } from '../sdk/bytes.mjs';
@@ -328,8 +329,8 @@ function frameRoute() {
   const xs = hx.map(p => p.x), ys = hx.map(p => p.y);
   const size = mapRef.size(), span = Math.max(Math.max(...xs) - Math.min(...xs), (Math.max(...ys) - Math.min(...ys)) * 1.4, 1);
   const zoom = Math.max(0.55, Math.min(1.4, (Math.min(size.width, size.height) * 0.6) / span));
-  const phone = globalThis.matchMedia?.('(max-width: 759px)').matches;
-  mapRef.setView({ x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 + (phone ? size.height * 0.22 / zoom : 0), zoom });
+  // a fly, centred in the part of the map no sheet covers (map/fmap.mjs flyTo)
+  mapRef.flyTo({ x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2, zoom });
 }
 
 /** The resource breakdown under the header (hud.renderBreakdown): every holding's store of one resource. */
@@ -684,7 +685,7 @@ export async function playBattle(p, q, bell, { focus = false, auto = false } = {
   const after = FS.provinces.get(`${p},${q}`)?.province ?? null;
   const scene = battleScene({ p, q, bell, inputs: r.inputs, before, after: after && after.resolvedNext > bell ? after : null });
   if (!scene) return false;
-  if (focus && mapRef) { const h = tileHex(p, q, scene.tiles[0].idx), c = project(h.q, h.r); mapRef.setView({ x: c.x, y: c.y, zoom: 2.1 }); }
+  if (focus && mapRef) mapRef.flyTo({ p, q, tile: scene.tiles[0].idx, zoom: 2.1 }, 500);
   FS.battles = [...(FS.battles ?? []).filter(b => !(b.scene.p === p && b.scene.q === q)), startBattle(scene, performance.now() / 1000, BATTLE_SPEEDS[fx] || 1)];
   mapRef?.invalidate();
   return true;
@@ -741,7 +742,9 @@ function setLens(l) {
 }
 
 // ------------------------------------------------------------------ the title and the bell toll (intro/title.mjs)
-let introDolly = null;
+/** Whether the title card is up (the map's opening drifts in slowly behind it: map/opening.mjs). */
+const titleUp = () => { const el = $('intro'); return !!el && !el.hidden; };
+let viewerKnown = false;
 function introLive() {
   const total = hud.standings(FS.overviews).reduce((a, r) => a + r.holdings, 0);
   const bell = FS.clock ? bellChip(FS.clock, FS.chain?.now() ?? null).bell : null;
@@ -759,24 +762,8 @@ export function openIntro() {
   lastHtml.delete('intro');
   renderIntro();
   el.querySelector('.intro-go')?.focus({ preventScroll: true });
-  // the camera drifts in from the mist toward the fitted view
-  if (mapRef) {
-    let target = null, t0 = 0;
-    const dur = 7000;
-    introDolly = () => {
-      if (el.hidden) { introDolly = null; return; }
-      // wait for the map's first fit (the season's rings), then drift from far above the Concord to it
-      if (!target) {
-        if (!FS.record) { requestAnimationFrame(introDolly); return; }
-        mapRef.fit(mapRef.source(), mapRef.size());   // every open ring, now that the season says how many
-        target = { ...mapRef.view }; t0 = performance.now();
-      }
-      const k = (performance.now() - t0) / dur;
-      mapRef.setView(title.dolly(target, k));
-      if (k < 1) requestAnimationFrame(introDolly); else introDolly = null;
-    };
-    requestAnimationFrame(introDolly);
-  }
+  // behind the card the camera drifts in from the mist toward this viewer's opening view (the map reads titleUp())
+  mapRef?.invalidate();
 }
 export function closeIntro() {
   const el = $('intro');
@@ -784,6 +771,7 @@ export function closeIntro() {
   el.hidden = true;
   title.markSeen(globalThis.localStorage);
   $('frontier-map')?.focus({ preventScroll: true });
+  mapRef?.invalidate();   // the drift ends now: the map flies the rest of the way
 }
 let tollBell = null;
 /** The bell toll: the new bell's number rings over the map for a moment. */
@@ -806,11 +794,10 @@ function goToItem(x) {
   // the item's holding becomes the active one (its tab then shows that holding)
   if (x.holding && FS.holdings?.includes(x.holding)) FS.activeHolding = FS.holdings.indexOf(x.holding);
   if (Number.isInteger(x.tile)) {
-    const h = tileHex(x.p, x.q, x.tile), c = project(h.q, h.r);
-    mapRef?.setView({ x: c.x, y: c.y, zoom: 1.0 });
+    mapRef?.flyTo({ p: x.p, q: x.q, tile: x.tile, zoom: 1.0 });
     FS.selected = { kind: 'tile', p: x.p, q: x.q, idx: x.tile };
   } else {
-    mapRef?.focus(x.p, x.q, 0.6);
+    mapRef?.flyTo({ p: x.p, q: x.q, zoom: 0.6 });
     FS.selected = { kind: 'province', p: x.p, q: x.q };
   }
   if (FS.mode === 'play' && x.tab) FS.tab = x.tab;
@@ -1057,7 +1044,7 @@ function followBattles() {
   watchSeen = key;
   const f = FS.watch?.faction;
   if (FS.watch?.auto === false || FS.report || (Number.isInteger(f) && !provinceFactions(FS.overviews, c.p, c.q).includes(f))) return;
-  playBattle(c.p, c.q, c.bell, { focus: true }).then(ok => { if (!ok) mapRef?.focus(c.p, c.q, 0.6); });
+  playBattle(c.p, c.q, c.bell, { focus: true }).then(ok => { if (!ok) mapRef?.flyTo({ p: c.p, q: c.q, zoom: 0.6 }); });
 }
 
 function startSpectate(herald) {
@@ -1148,6 +1135,8 @@ export async function boot() {
         return { overviews: FS.overviews, ringsOpen: FS.record?.rings?.length ?? 1, own, known: new Set([...own.map(o => `${o.p},${o.q}`), ...(ART_FOG ? ['-1,0', '-1,1', '0,-2', '-2,1'] : [])]), showAll: (ART_PREVIEW && !ART_FOG) || !FS.view.fog, selected: FS.selected, terrainOf,
           // art mode: the decoded Province (holdings' tiers, hosts on tiles, camp), loaded on demand
           viewerFaction: ART_FOG ? 0 : FS.citizen?.faction ?? null,
+          // who is looking, for the opening view (map/opening.mjs)
+          open: openHint(FS, { ready: viewerKnown, title: titleUp() }),
           demoRoads: ART_ROADS,
           engineStage: ART_ENGINE,
           demoSpecials: ART_RELICS,
@@ -1200,7 +1189,7 @@ export async function boot() {
       const r = mini.getBoundingClientRect();
       const fr = minimap.frameOf(Math.max(1, FS.record?.rings?.length ?? 1) + 1, r.width);
       const w = fr.toWorld(e.clientX - r.left, e.clientY - r.top);
-      map.setView({ x: w.x, y: w.y, zoom: map.view.zoom });
+      map.flyTo({ x: w.x, y: w.y }, null, { exact: true });
     });
     onLangChange(renderLenses);
     $('map-search-q')?.addEventListener('input', e => runSearch(e.target.value));
@@ -1227,8 +1216,10 @@ export async function boot() {
     // Practice runs without a season too (the kernel only needs its own ruleset); a season pins it and keeps its flags.
     if (FS.mode === 'practice') { FS.ui = loadUi(uiStorage, uiKey(scope())); invalidate('panel'); }
     if (FS.mode === 'spectate') startSpectate(herald);
-    if (FS.mode === 'play') startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e));
+    if (FS.mode === 'play') startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).finally(() => { viewerKnown = true; map?.invalidate(); });
   }
+  // without a season nobody's record will come: the map opens on what there is
+  if (FS.mode !== 'play' || !FS.record) { viewerKnown = true; map?.invalidate(); }
   // The chip ticks every second (never announced: aria-live is off on it).
   globalThis.setInterval?.(() => invalidate('chip'), 1000);
   // The season record every 30 s (own data poll), paused while hidden.

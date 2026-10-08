@@ -1,5 +1,6 @@
 // The screens of the smoke matrix (contract §13.6 E7, web design §13.2):
-// the 10 screens — join/faction, site picker, map world LOD, map tile LOD
+// the 10 screens — join/faction, site picker, the map's opening view (the
+// viewer's village), map world LOD (one press out), map tile LOD
 // with fog, holding, march composer, march tracker, bell sheet, clash
 // report, practice result — plus the onboarding card and the spectator.
 // Each scene names its page, the viewer stage the fixture herald answers,
@@ -54,10 +55,23 @@ export const SCENES = [
     },
   },
   {
-    id: 'map-world', title: 'map, world LOD', page: 'index.html', stage: 'holding',
+    // UX brief §4: a player with a village opens on that village, close up, never on the whole world
+    id: 'map-open', title: 'map, the opening view: the viewer\'s village at tile LOD', page: 'index.html', stage: 'holding',
     async go(page) {
       await page.locator('#ob-title').waitFor();
+      await page.locator('#frontier-map[data-lod="tile"][data-terrain="ready"]').waitFor();
+      const at = await page.evaluate(() => document.getElementById('frontier-map').dataset.lod);
+      if (at !== 'tile') throw new Error(`the opening view is at ${at} LOD`);
+    },
+  },
+  {
+    // the world view is one press away (the world chart button, or M) and one press back
+    id: 'map-world', title: 'map, world LOD by the world chart button', page: 'index.html', stage: 'holding',
+    async go(page) {
+      await page.locator('#frontier-map[data-lod="tile"]').waitFor();
+      await click(page, '[data-map="chart"]');
       await page.locator('#frontier-map[data-lod="world"]').waitFor();
+      await page.locator('[data-map="chart"][aria-pressed="true"]').waitFor();
     },
   },
   {

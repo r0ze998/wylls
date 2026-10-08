@@ -1,7 +1,8 @@
 // The first impression (design session: "no impact, no world when the game
 // opens"): a title card over the living map the first time a device opens
 // the Frontier (and on demand: More → "show the title", ?intro=1 for the
-// demo). The camera drifts in from the mist toward the Concord while the
+// demo). The camera drifts in from the mist toward this viewer's opening
+// view (their village, their nation's wedge, or the world: map/opening.mjs) while the
 // emblem, the title, the six leaders and three lines of the world appear;
 // the live line says the season is real ("Season 7 · bell 1,034 · 1,055
 // holdings"). One button enters (the game page) or starts watching (the
@@ -78,13 +79,6 @@ export function render({ mode = 'play', live = '' } = {}) {
       ${live ? html`<p class="intro-live"><span class="intro-dot" aria-hidden="true"></span>${live}</p>` : ''}
       <button type="button" class="btn primary intro-go" data-act="intro-close">${cta}</button>
     </div>`;
-}
-
-/** The camera's drift during the title: from far over the Concord to the fitted view (`k` 0..1, eased). */
-export function dolly(target, k) {
-  const e = 1 - Math.pow(1 - Math.max(0, Math.min(1, k)), 3);
-  const from = { x: 0, y: 0, zoom: Math.max(0.02, target.zoom * 0.35) };
-  return { x: from.x + (target.x - from.x) * e, y: from.y + (target.y - from.y) * e, zoom: from.zoom * Math.pow(target.zoom / from.zoom, e) };
 }
 
 /** The bell toll's text. */

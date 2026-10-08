@@ -9,10 +9,11 @@ import * as shell from '../../permutation-server/web/frontier/screens/shell.mjs'
 import * as join from '../../permutation-server/web/frontier/screens/join.mjs';
 import { createTerrain, TERRAIN_CACHE } from '../../permutation-server/web/frontier/map/terrain.mjs';
 import { FrontierMap, MAP_TOOLS, TILE_FOGS, coveredBelow, LOD_EDGES } from '../../permutation-server/web/frontier/map/fmap.mjs';
+import { heroZoom, openHint } from '../../permutation-server/web/frontier/map/opening.mjs';
 import { SIGILS, paintSigil, paintVeil, FOG, BOUNDARY_INK, BOUNDARY_HALO, NEUTRAL_FILL, EMPTY_FILL, UNOPENED_FILL } from '../../permutation-server/web/frontier/map/layers.mjs';
 import { FACTION_COLORS } from '../../permutation-server/web/frontier/fi18n.mjs';
-import { COLORS } from '../../permutation-server/web/map.mjs';
-import { ringProvinces, wedgeOf } from '../../permutation-server/web/frontier/fgeo.mjs';
+import { COLORS, project } from '../../permutation-server/web/map.mjs';
+import { ringProvinces, tileHex, wedgeOf } from '../../permutation-server/web/frontier/fgeo.mjs';
 import { homeWedge } from '../../permutation-server/web/frontier/fland.mjs';
 
 afterEach(() => setLang('ja'));
@@ -34,13 +35,19 @@ test('the bottom sheet: a tap cycles peek → half → full → peek; a drag mov
   assert.equal(shell.mountSheet(undefined), null, 'no document: nothing to mount');
 });
 
-test('the map buttons: three, ASCII or symbol glyphs, names in both languages', () => {
-  assert.deepEqual(MAP_TOOLS.map(t => t.id), ['in', 'out', 'home']);
+// UX brief §4: a fourth button, the world chart (the far view and back), and drawn icons instead of glyphs.
+test('the map buttons: zoom in, zoom out, home and the world chart; drawn icons with a glyph to fall back on; names in both languages', () => {
+  assert.deepEqual(MAP_TOOLS.map(t => t.id), ['in', 'out', 'home', 'chart']);
   for (const t of MAP_TOOLS) assert.doesNotMatch(t.glyph, /[　-鿿＀-￯]/, `${t.id}: the glyph is not text to translate`);
+  for (const t of MAP_TOOLS) assert.match(t.icon, /^M[\d .,a-zA-Z-]+$/, `${t.id}: an icon path on the 24-px grid`);
   const ja = MAP_TOOLS.map(t => t.label());
+  const chart = MAP_TOOLS.find(t => t.id === 'chart');
+  assert.equal(chart.label(), '全体図を見る');
+  assert.equal(chart.labelOn(), 'もとの場所へ戻る');
   setLang('en');
   const en = MAP_TOOLS.map(t => t.label());
-  assert.deepEqual(en, ['Zoom in', 'Zoom out', 'Go to my village']);
+  assert.deepEqual(en, ['Zoom in', 'Zoom out', 'Go to my village', 'World chart']);
+  assert.equal(chart.labelOn(), 'Back to where you were');
   assert.notDeepEqual(ja, en);
   assert.deepEqual(TILE_FOGS, ['sight', 'known', 'clear'], 'a distant province is never drawn as tiles');
 });
@@ -74,17 +81,42 @@ test('terrain for the tile LOD: lazy module, one onReady, cached (LRU), null wit
   assert.equal(failed(0, 0), null, 'a missing module leaves province detail');
 });
 
-test('the map\'s first view fits the open rings above the sheet, at world or province LOD; never after the viewer moved it', () => {
-  const m = new FrontierMap({ clientWidth: 390, clientHeight: 700 }, { source: () => ({ overviews: new Map(), ringsOpen: 3 }) });
+// UX brief §4 (this test used to pin "the first view is the whole world for everyone"): the first view depends
+// on who is looking. A viewer with no land and a watcher still get the open rings at world LOD; a viewer with a
+// village opens on that village's tile at the hero zoom (the map waits for the viewer's record instead of
+// showing the world first); a moved view is never overridden. The camera's own tests: web-frontier-camera.test.mjs.
+test('the map\'s first view: the open rings at world LOD for a watcher, the village\'s tile for its holder; never after the viewer moved it', () => {
+  const size = { width: 390, height: 700 };
+  const canvas = () => ({ clientWidth: size.width, clientHeight: size.height });
   assert.equal(coveredBelow({}), 0, 'no page: nothing covers the canvas');
-  m.fit({ ringsOpen: 3 }, { width: 390, height: 700 });
-  assert.ok(m.view.zoom > 0.06 && m.view.zoom < LOD_EDGES.provinceOut, `zoom ${m.view.zoom}`);
-  assert.equal(m.lod, 'world');
-  m.setView({ zoom: 0.3 });
-  m.fitted = false;
-  m.fit({ ringsOpen: 3 }, { width: 390, height: 700 });
-  assert.equal(m.view.zoom, 0.3, 'a moved view is kept');
-  m.destroy();
+  // a watcher (no viewer to wait for): the far view, as before
+  const far = new FrontierMap(canvas(), { source: () => ({ overviews: new Map(), ringsOpen: 3 }) });
+  assert.equal(far.open({ ringsOpen: 3 }, size, { dpr: 1, now: 0 }), true);
+  assert.ok(far.view.zoom > 0.06 && far.view.zoom < LOD_EDGES.provinceOut, `zoom ${far.view.zoom}`);
+  assert.equal(far.lod, 'world');
+  assert.deepEqual([far.view.x, far.view.y], [0, 0], 'centred on the Concord');
+  far.fit({ ringsOpen: 3 }, size);
+  assert.equal(far.lod, 'world', 'fit(): the far view');
+  far.setView({ zoom: 0.3 });
+  far.fit({ ringsOpen: 3 }, size);
+  assert.equal(far.view.zoom, 0.3, 'a moved view is kept');
+  assert.equal(far.open({ ringsOpen: 3 }, size, { dpr: 1, now: 10 }), true);
+  assert.equal(far.view.zoom, 0.3, 'the opening never overrides a moved view');
+  far.destroy();
+  // the play page before the viewer's record answered: the map waits (no whole world first)
+  const own = [{ p: 2, q: 0, tile: 7 }];
+  const play = new FrontierMap(canvas(), { source: () => ({ overviews: new Map(), ringsOpen: 3 }) });
+  assert.equal(play.open({ ringsOpen: 3, open: openHint({ mode: 'play' }) }, size, { dpr: 1, now: 0 }), false, 'waiting for the viewer');
+  assert.equal(play.lod, 'world', 'nothing was placed yet');
+  // the record is in: a village → its tile at the hero zoom, tile LOD, at once (the picture flies there)
+  const src = { ringsOpen: 3, own, open: openHint({ mode: 'play', land: { stage: 'final' }, citizen: { faction: 0 } }) };
+  assert.equal(play.open(src, size, { dpr: 1, now: 30 }), true);
+  const h = tileHex(2, 0, 7), c = project(h.q, h.r);
+  assert.equal(play.lod, 'tile');
+  assert.equal(play.view.zoom, heroZoom(1));
+  assert.ok(Math.abs(play.view.x - c.x) < 1e-6 && Math.abs(play.view.y - c.y) < 1e-6, 'centred on the village\'s tile');
+  assert.ok(play.cam.moving && play.cam.drawn.zoom < play.view.zoom, 'the picture starts a little above and travels down');
+  play.destroy();
 });
 
 /** A 2D context that records paths and fills. */
