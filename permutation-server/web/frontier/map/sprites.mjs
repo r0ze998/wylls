@@ -1087,6 +1087,10 @@ export class SpriteArt {
       for (const t of tiles) { const key = hexKey(t.q, t.r); if (byKey.has(key)) byKey.set(key, t); }
       if (paintReveal(ctx, { reveals: survey.reveals, byKey: key => byKey.get(key), res: s.r / RADIUS, now: fxNow(), nameAt: chartName }) > 0 && !this.revealTimer) this.revealTimer = setTimeout(() => { this.revealTimer = null; this.onTick(); }, 33);
     }
+    // (the survey is in the ground and the sprites already: muted land, the chart and their edge; nothing veils the frame)
+    // province borders: ink with its halo over painted land, a quiet sepia line on the chart. Under the hosts, the
+    // people and their labels (a border used to run through a label that stood on it)
+    for (const e of entries) if (e.fog !== 'unopened') this.frame(ctx, { p: e.p, q: e.q, fog: 'clear', selected: e.selected, zoom, sv: svOf(e), survey });
     // a tile whose battle is playing shows the scene's figures, not the hosts' sprites (UI plan D4)
     const fightingAt = battleTiles((people?.battles ?? []).filter(shown), (globalThis.performance?.now?.() ?? Date.now()) / 1000);
     for (const e of entries) {
@@ -1196,9 +1200,6 @@ export class SpriteArt {
     // pass 2d: battle scenes playing (people/battle.mjs)
     let fighting = 0;
     for (const b of people?.battles ?? []) if (shown(b) && paintBattle(ctx, b, { zoom, lossText: people.lossText, fateText: people.fateText })) fighting++;
-    // (the survey is in the ground and the sprites already: muted land, the chart and their edge; nothing veils the frame)
-    // province borders: ink with its halo over painted land, a quiet sepia line on the chart
-    for (const e of entries) if (e.fog !== 'unopened') this.frame(ctx, { p: e.p, q: e.q, fog: 'clear', selected: e.selected, zoom, sv: svOf(e), survey });
     if (opening !== null) {
       const lvl = OPEN_GLOW[openFrame];
       if (lvl !== null && lvl !== undefined) for (const t of tiles) {

@@ -309,7 +309,6 @@ export default {
   '2倍で撤退': 'Retreat at 2×', '1.5倍で撤退': 'Retreat at 1.5×', '同数で撤退': 'Retreat at 1×', '半分で撤退': 'Retreat at 0.5×',
   '守り手なし': 'Unopposed', '優勢': 'Favoured', 'やや優勢': 'Slight edge', '互角': 'Even', 'やや不利': 'Slightly behind', '不利': 'Outmatched',
   '進軍：{0} {1}': 'March: {0} {1}',
-  '行き先 州 {0},{1} · マス {2}': 'Destination: province {0},{1} · tile {2}',
   '封の中（あなたにしか見えません）': 'Sealed (only you can see this)',
   '道のりを探しています…': 'Finding the route…',
   '1つ早い鐘': 'One bell earlier', '1つ遅い鐘': 'One bell later',

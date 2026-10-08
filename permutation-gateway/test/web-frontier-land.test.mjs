@@ -302,6 +302,7 @@ test('the pointer home: none while the village is in the picture; else on the li
   // home far to the right (east): the pointer sits at the right edge and points right
   const east = PTR.edgePointer({ x: at.x - 2000, y: at.y, zoom: 1 }, size, at);
   assert.deepEqual([Math.round(east.x), Math.round(east.y), Math.round(east.angle * 100)], [800 - PTR.POINTER_MARGIN, 300, 0]);
+  assert.ok(PTR.POINTER_MARGIN >= 32, 'the arrow\'s head stays inside the map');
   const mid = { q: Math.round((at.x - 2000) / (Math.sqrt(3) * RADIUS) - home.r / 2), r: home.r };
   assert.ok(Math.abs(east.tiles - dist(mid, home)) <= 1, `about ${dist(mid, home)} tiles away`);
   assert.ok(east.tiles > 20);

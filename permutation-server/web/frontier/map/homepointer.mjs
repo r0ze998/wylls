@@ -11,7 +11,7 @@ import { freeBox } from './camera.mjs';
 
 /** The button's size (CSS px) and how far its centre keeps from the edge of the part of the map nothing covers. */
 export const POINTER_SIZE = 44;
-export const POINTER_MARGIN = 34;
+export const POINTER_MARGIN = 40;
 
 /**
  * Where the pointer goes for a home at world point `home` `{x, y}`:
@@ -78,12 +78,12 @@ export function mountHomePointer(canvas, { onPress = () => {} } = {}) {
   b.hidden = true;
   if (doc.createElementNS) {
     const svg = doc.createElementNS(SVG_NS, 'svg');
-    for (const [k, v] of Object.entries({ viewBox: '0 0 44 44', width: '44', height: '44', 'aria-hidden': 'true', focusable: 'false', class: 'hp-arrow' })) svg.setAttribute(k, v);
-    // a ring with a head pointing right (the stylesheet turns it toward home)
+    for (const [k, v] of Object.entries({ viewBox: '-32 -32 64 64', width: '64', height: '64', 'aria-hidden': 'true', focusable: 'false', class: 'hp-arrow' })) svg.setAttribute(k, v);
+    // a disc with a head pointing right (the stylesheet turns it toward home); it is drawn a little larger than the 44-px target
     const ring = doc.createElementNS(SVG_NS, 'circle');
-    for (const [k, v] of Object.entries({ cx: '22', cy: '22', r: '15.5', class: 'hp-ring' })) ring.setAttribute(k, v);
+    for (const [k, v] of Object.entries({ cx: '0', cy: '0', r: '18', class: 'hp-ring' })) ring.setAttribute(k, v);
     const head = doc.createElementNS(SVG_NS, 'path');
-    head.setAttribute('d', 'M34.6 12.6 44.4 22l-9.8 9.4c2.6-6 2.6-12.8 0-18.8z');
+    head.setAttribute('d', 'M16.5-11.5 30.5 0 16.5 11.5c3.4-7.4 3.4-15.6 0-23z');
     head.setAttribute('class', 'hp-head');
     svg.append(ring, head);
     b.append(svg);

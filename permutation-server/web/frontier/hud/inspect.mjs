@@ -83,6 +83,12 @@ export function inspectModel(FS, terrainOf) {
   return out;
 }
 
+/** What a place `{p, q, tile}` is called and where it is (map/names.mjs): `{name, where}`, by the same rules as the selection. */
+export function placeAt(FS, place, terrainOf = null) {
+  const m = inspectModel({ ...FS, selected: { p: place.p, q: place.q, idx: place.tile } }, terrainOf);
+  return { name: placeName(m), where: placeWhere(m) };
+}
+
 /** The viewer's hosts standing on a tile and able to march (state 1, not on the road). */
 export function ownHostsOn(FS, p, q, idx) {
   try { return hostRows(FS).filter(r => r.p === p && r.q === q && r.tile === idx && r.state === 1 && !r.inTransit && !r.pending).map(r => ({ id: String(r.id), troops: r.troops })); } catch { return []; }

@@ -20,6 +20,7 @@ import { composerMarch, routeLine } from '../screens/march.mjs';
 import { clockTime, swatch } from '../screens/shell.mjs';
 import { DIRECTIONS, tileHex } from '../fgeo.mjs';
 import { termButton } from './glossary.mjs';
+import { placeAt } from './inspect.mjs';
 
 /** Stance glyphs (the triangle: Assault beats Flank, Flank beats Brace, Brace beats Assault). */
 const STANCE_GLYPH = { Hold: '■', Assault: '▲', Flank: '⇄', Brace: '❙' };
@@ -100,7 +101,7 @@ export function render(FS) {
   return html`<section class="marchcard" aria-labelledby="mc-title">
     <h3 id="mc-title">${L`進軍：${unit} ${fmtNum(c.host.troops)}`}</h3>
     ${c.dest ? html`
-      <p class="mc-dest"><strong>${L`行き先 州 ${c.dest.p},${c.dest.q} · マス ${c.dest.tile + 1}`}</strong>
+      <p class="mc-dest"><strong>${(d => (d.name === d.where ? L`行き先 ${d.where}` : html`${L`行き先 ${d.name}`} <span class="muted place-where">${d.where}</span>`))(placeAt(FS, c.dest))}</strong>
         <span class="mc-sealed">${L`封の中（あなたにしか見えません）`}${termButton('seal')}</span></p>
       <p class="mc-route">${c.route ? routeLine(c.route) : c.routeError ? clientText(c.routeError) : L`道のりを探しています…`}</p>
       ${w ? html`<div class="mc-bell" role="group" aria-label="${L`到着の鐘`}">
