@@ -34,9 +34,11 @@ import { L, onLangChange } from '../../lang.mjs';
 import { DIRECTIONS, PROVINCE_TILES, locate, ringOf, ringProvinces, hexDistance, tileHex } from '../fgeo.mjs';
 import { fogLevel, paintProvince, paintTiles, paintVeil, provincePixel, PROVINCE_CIRCUMRADIUS } from './layers.mjs';
 import { createTerrain } from './terrain.mjs';
-import { SpriteArt, terrainLookup } from './sprites.mjs';
+import { SpriteArt, artSize, farRes, terrainLookup } from './sprites.mjs';
+import { paintSheet, paintTable, sheetOf, tableShows } from './table.mjs';
+import { CloudSea, DRIFT_SPEED } from './cloudsea.mjs';
 import { project, RADIUS, FLATTEN } from '../../map.mjs';
-import { Camera, EASE, MOVE_MS, clampCentre, fitView, freeBox, reducedMotion } from './camera.mjs';
+import { Camera, EASE, FAR_CAP, MOVE_MS, clampCentre, fitView, freeBox, reducedMotion } from './camera.mjs';
 import { OPEN_FROM, OPEN_WAIT_MS, TITLE_FROM, TITLE_MS, heroZoom, openingPlan, placePoint } from './opening.mjs';
 import { nearness, paintDressing } from './dressing.mjs';
 import { PROBE } from './probe.mjs';
@@ -75,8 +77,11 @@ export const ZOOM_MIN = 0.02;
 export const ZOOM_MAX = 2.2;
 /** Home's zoom on a dpr-1 screen (opening.mjs heroZoom): tile detail, the holding and the hosts beside it in view. */
 export const HOME_ZOOM = 1.3;
-/** The far view never leaves the world level of detail. */
-export const FAR_ZOOM_CAP = LOD_EDGES.provinceOut * 0.95;
+/**
+ * The far view is never nearer than this (map/camera.mjs FAR_CAP). It is always the world's level of detail: on a
+ * small world, where the far view is nearer than the fixed edges above, the edges follow it (`lodEdges`).
+ */
+export const FAR_ZOOM_CAP = FAR_CAP;
 /** A change of level of detail dissolves over this long (ms), after waiting at most LOD_HOLD_MS for the new level's art. */
 export const LOD_FADE_MS = 280;
 export const LOD_HOLD_MS = 700;
@@ -96,9 +101,19 @@ export const GROUND_FINER = 1.15;
 /** The still layers of a resting view are repainted at least this often (ms): a change nobody announced heals. */
 export const LAYER_MAX_AGE_MS = 2000;
 
-/** The level of detail at `zoom`, given the current one (no flicker at an edge). */
-export function lodFor(zoom, current = 'world') {
-  const e = LOD_EDGES;
+/**
+ * The edges for a map whose far view is at zoom `far`: the far view (the opened world fitted to the picture, UX
+ * brief §11.2) and a little nearer are the world's level of detail whatever the size of the world; the province
+ * level begins past it and still ends where the tiles begin.
+ */
+export function lodEdges(far = 0) {
+  const out = Math.min(LOD_EDGES.tileOut * 0.86, far * 1.08);
+  if (!(out > LOD_EDGES.provinceOut)) return LOD_EDGES;
+  return { ...LOD_EDGES, provinceOut: out, provinceIn: out * 1.1 };
+}
+
+/** The level of detail at `zoom`, given the current one (no flicker at an edge). `e`: the edges (lodEdges). */
+export function lodFor(zoom, current = 'world', e = LOD_EDGES) {
   if (current === 'world') return zoom >= e.tileIn ? 'tile' : zoom >= e.provinceIn ? 'province' : 'world';
   if (current === 'province') return zoom >= e.tileIn ? 'tile' : zoom < e.provinceOut ? 'world' : 'province';
   return zoom < e.provinceOut ? 'world' : zoom < e.tileOut ? 'province' : 'tile';
@@ -411,7 +426,7 @@ export class FrontierMap {
     this.onHover = onHover;
     this.onView = onView;
     this.cam = new Camera({ view: { x: 0, y: 0, zoom: 0.06 }, limit: (v, o) => this.limitView(v, o) });
-    this.lod = lodFor(this.cam.view.zoom);
+    this.lod = lodFor(this.cam.view.zoom, 'world', this.edges());
     /** The level of detail on screen (it follows the drawn view; `lod` follows the logical one). */
     this.drawnLod = this.lod;
     this.dirty = true;
@@ -424,6 +439,8 @@ export class FrontierMap {
     this.unredraw = onLangChange(() => this.invalidate());
     // Opt-in sprite art at tile LOD (map/sprites.mjs); the vector tiles stay the default.
     this.art = art ? new SpriteArt({ onLoad: () => this.invalidate(), onTick: () => this.tick() }) : null;
+    // the cloud sea beyond the opened rings (map/cloudsea.mjs): one body of cloud over the sheet; its puffs are the art's cloud sprites
+    this.sea = new CloudSea({ image: this.art ? (set, size, name) => this.art.image(set, size, name) : null });
     this.mark();
     this.bind();
     this.mountTools();
@@ -456,9 +473,11 @@ export class FrontierMap {
   /** The far view's zoom on a canvas of `size` with nothing covering it: there the board lies flat. */
   flatZoom(size = this.size()) {
     const key = `${this.ringsNow()}|${size.width}x${size.height}`;
-    if (this.flatKey !== key) { this.flatKey = key; this.flatAt = size.width > 0 && size.height > 0 ? fitView(this.ringsNow(), size, { cap: FAR_ZOOM_CAP, floor: ZOOM_MIN }).zoom : LOD_EDGES.provinceIn; }
+    if (this.flatKey !== key) { this.flatKey = key; this.flatAt = size.width > 0 && size.height > 0 ? fitView(this.ringsNow(), size, { cap: FAR_ZOOM_CAP, floor: ZOOM_MIN }).zoom : 0; }
     return this.flatAt;
   }
+  /** The edges between the levels of detail on this canvas (lodEdges). */
+  edges(size = this.size()) { return lodEdges(this.flatZoom(size)); }
   /** The board's angle at `zoom` (degrees): flat at the far view, `tiltMax` at the diorama. */
   tiltDeg(zoom, size = this.size()) { return this.tiltMax > 0 ? tiltAt(zoom, { far: this.flatZoom(size) * 1.05, deg: this.tiltMax }) : 0; }
   /** The tilt's geometry at `zoom` (default: the picture on screen): stage px to box px and back. */
@@ -552,7 +571,7 @@ export class FrontierMap {
 
   /** After the logical view changed: the LOD, the canvas marks, the buttons, the page. */
   sync() {
-    this.lod = lodFor(this.cam.view.zoom, this.lod);
+    this.lod = lodFor(this.cam.view.zoom, this.lod, this.edges());
     this.dirty = true;
     this.mark();
     this.syncTools();
@@ -926,9 +945,8 @@ export class FrontierMap {
     if (gcv.width !== W || gcv.height !== H) { gcv.width = W; gcv.height = H; this.sceneKey = null; this.fade = null; }
     const OW = Math.round(width * dpr), OH = Math.round(height * dpr);
     if (staged && (this.canvas.width !== OW || this.canvas.height !== OH)) { this.canvas.width = OW; this.canvas.height = OH; }
-    // the table the world lies on: one colour (a gradient over the whole canvas every frame costs far more than
-    // the scene on a slow canvas); its fall into shadow toward the edges is the vignette of the depth dressing
-    const table = g => { g.setTransform(gr, 0, 0, gr, 0, 0); g.fillStyle = TABLE; g.fillRect(0, 0, G.width, G.height); };
+    // the table the world's sheet lies on (map/table.mjs): stained boards and a pool of lamp light, laid on the world
+    const table = (g, view = groundView(this.cam.drawn, G)) => paintTable(g, { view, size: gsize, ratio: gr, sheet: sheetOf(this.rings ?? 1) });
     const inset = this.inset();
     // the depth dressing: on the page, over the stage (custom properties of #map-dress); on a map without a stage, in the canvas
     const dressing = (zoom, deg = 0, shown = 1) => {
@@ -952,7 +970,10 @@ export class FrontierMap {
     // the board's angle on screen follows the zoom on screen; `gv` is the ground canvas's own flat view of the same picture
     const T = this.geo(v.zoom, size), gv = groundView(v, G);
     const quadOf = (view, t) => (t.flat ? null : t.quad().map(p => ({ x: view.x + (p.x - width / 2) / view.zoom, y: view.y + (p.y - height / 2) / view.zoom })));
-    const was = this.drawnLod, lod = lodFor(v.zoom, was);
+    // (the edges between the levels follow the far view of this canvas: a new size, or a ring opening, may move them)
+    const E = this.edges(size), now0 = lodFor(logical.zoom, this.lod, E);
+    if (now0 !== this.lod) { this.lod = now0; this.mark(); this.syncTools(); this.onView(logical, this.lod); }
+    const was = this.drawnLod, lod = lodFor(v.zoom, was, E);
     this.drawnLod = lod;
     const motion = !reducedMotion();
     // a change of level of detail dissolves: the last picture of the old level fades over the new one
@@ -1071,8 +1092,20 @@ export class FrontierMap {
     // what lies under the art: the table, and the provinces drawn as plain cells (no terrain yet, or no art);
     // painted onto the canvas, or once into the ground layer of a resting tile view
     const plain = [];
-    const under = g => { table(g); g.setTransform(...world); for (const f of plain) f(g); };
     const ringsOpen = src.ringsOpen ?? 1, own = src.own ?? [];
+    // the sheet the world is drawn on (map/table.mjs), and the table where the picture reaches past it. The paper's
+    // grain is made for the same resolution as the provinces' own sheets (the tile view's sprite set, the far
+    // bitmaps' step), so the paper is one
+    const sheet = sheetOf(ringsOpen);
+    const paperRes = lod === 'tile' ? artSize(RADIUS * Math.max(z, artZoom) * dpr).r / RADIUS : farRes((this.cam.moving ? Math.min(z, this.cam.view.zoom) : z) * dpr);
+    const seen = { x0: view.x - width / 2 / z, y0: view.y - height / 2 / z, x1: view.x + width / 2 / z, y1: view.y + height / 2 / z };
+    const corners = [{ x: seen.x0, y: seen.y0 }, { x: seen.x1, y: seen.y0 }, { x: seen.x1, y: seen.y1 }, { x: seen.x0, y: seen.y1 }];
+    const under = g => {
+      if (tableShows(corners, sheet)) table(g, view);
+      g.setTransform(...world);
+      paintSheet(g, sheet, { box: seen, res: paperRes, zoom: z });
+      for (const f of plain) f(g);
+    };
     const maxRing = Math.max(0, ringsOpen - 1) + CLOUD_RINGS;
     const recs = new Map();
     // (an overview's clash flag speaks of the overview's own bell: an overview older than the last bell says nothing
@@ -1105,6 +1138,7 @@ export class FrontierMap {
       const rec = seen ? recs.get(key) : null;
       if (lod === 'tile' && this.art) {
         // Art: every level is drawn as tiles (the chart, muted land, land in sight; unopened as cloud sea)
+        // (unopened: its tiles are in the model so the land knows where it ends; the cloud itself is the sea's)
         if (fog === 'unopened') { artTiles.push({ ...pr, fog, selected }); continue; }
         const t = terrainOf?.(pr.p, pr.q);
         wanted++;
@@ -1121,8 +1155,9 @@ export class FrontierMap {
           continue;
         }
       }
-      // Art, far: the land itself, painted once per province (sprites.mjs farBitmap); clouds beyond the rim
-      if (this.art && fog === 'unopened') { artCells.push({ ...pr, fog, selected }); continue; }
+      // beyond the opened rings there is no land to draw: the cloud sea lies over the sheet there (map/cloudsea.mjs)
+      if (fog === 'unopened') continue;
+      // Art, far: the land itself, painted once per province (sprites.mjs farBitmap)
       if (this.art) {
         const t = terrainOf?.(pr.p, pr.q);
         if (t) { artCells.push({ ...pr, ...t, rec, fog, selected, prov: seen ? src.provinceOf?.(pr.p, pr.q, { far: true }) ?? null : null, tiers: seen && src.tierOf ? Array.from({ length: 12 }, (_, j) => src.tierOf(pr.p, pr.q, j)) : null }); continue; }
@@ -1133,7 +1168,15 @@ export class FrontierMap {
     const F = this.youFrame(src, survey, lod, z, terrainOf);
     // a resting tile view: the still layers (the table is in the ground layer), then the animated ones
     // (`between`: on the ground, under what stands on it: the viewer's land and the lit tiles, then the effects engine's ground pass)
-    const tileOpts = artTiles.length ? { zoom: z, dpr, artZoom, stamp: this.stamp, between: c => { this.groundPass(c, F, 'all'); this.between?.(c, { zoom: z, now }); }, ground: (c, phase) => this.groundPass(c, F, phase), terrainAt: terrainLookup(terrainOf), fogAt, selected: null, viewerFaction: src.viewerFaction ?? null, demoRoads: !!src.demoRoads, ringsOpen: src.ringsOpen ?? null, replayRing: src.artReplayRing ?? null, engineStage: src.engineStage ?? 0, relics: src.relics ?? [], waystones: src.waystones ?? [], demoSpecials: !!src.demoSpecials, rivers: src.rivers ?? [], demoRivers: !!src.demoRivers, alliedPairs: src.alliedPairs ?? [], survey,
+    // the cloud sea: its still part (the bank and the puffs) and the light and shade that drift over it
+    const sea = (g, part) => {
+      const r = this.sea.paint(g, { box: seen, res: paperRes, ringsOpen, sheet, now: fxNow(), still: reducedMotion(), part });
+      if (r.pending) { pending += r.pending; this.dirty = true; }
+      // (the drift moves a few px a second: a frame when it has moved about one)
+      else if (r.seen && part !== 'still' && !reducedMotion()) this.invalidateSoon(Math.max(110, Math.min(420, 1300 / (Math.hypot(DRIFT_SPEED.x, DRIFT_SPEED.y) * z))));
+      return r;
+    };
+    const tileOpts = artTiles.length ? { zoom: z, dpr, artZoom, stamp: this.stamp, sea: true, seaPass: sea, between: c => { this.groundPass(c, F, 'all'); this.between?.(c, { zoom: z, now }); }, ground: (c, phase) => this.groundPass(c, F, phase), terrainAt: terrainLookup(terrainOf), fogAt, selected: null, viewerFaction: src.viewerFaction ?? null, demoRoads: !!src.demoRoads, ringsOpen: src.ringsOpen ?? null, replayRing: src.artReplayRing ?? null, engineStage: src.engineStage ?? 0, relics: src.relics ?? [], waystones: src.waystones ?? [], demoSpecials: !!src.demoSpecials, rivers: src.rivers ?? [], demoRivers: !!src.demoRivers, alliedPairs: src.alliedPairs ?? [], survey,
       // people (people/crowds.mjs): the source's departures, explores and holder names; tags nearest the view centre first
       people: src.people ? { ...src.people(), centre: { x: view.x, y: view.y } } : null } : null;
     const missed = this.art?.misses ?? 0;
@@ -1149,6 +1192,8 @@ export class FrontierMap {
         passing: this.cam.moving, resZoom: this.cam.moving ? Math.min(z, this.cam.view.zoom) : z });
       pending += this.art.farPending ?? 0;
     }
+    // away from the tile view: the sea over the far picture (at the tile view it lies between the props and the people)
+    if (lod !== 'tile' || !tileOpts) { ctx.setTransform(...world); sea(ctx, null); }
     // the marks of the viewer's stage, on the land: the home wedge while there is no village yet; the rim of the village's own land
     const waiting = limited && Number.isInteger(survey.faction) && ['joined', 'ticket', 'refugee'].includes(survey.stage);
     if (waiting) paintWedge(ctx, survey.faction, ringsOpen, z);
@@ -1172,12 +1217,16 @@ export class FrontierMap {
     }
     if (tileOpts) {
       kind = layered === 'live' ? 'live' : 'full';
-      if (!layered) this.art.paint(ctx, artTiles, { ...tileOpts, part: 'world' });
+      // (a frame painted whole: the land and what stands on it, the cloud sea, then what lives)
+      if (!layered) {
+        this.art.paint(ctx, artTiles, { ...tileOpts, part: 'ground' });
+        this.art.paint(ctx, artTiles, { ...tileOpts, part: 'props' });
+        ctx.setTransform(...world); sea(ctx, null);
+        this.art.paint(ctx, artTiles, { ...tileOpts, part: 'live' });
+      }
       labels = o => this.art.labels(o, tileOpts);
       pending += this.art.misses - missed;   // sprites still on their way
     }
-    // the edge of the world: the cloud sea thins into the table's shadow (no stepped, unpainted corner beyond it)
-    paintWorldRim(ctx, ringsOpen, view, size);
     // over what stands on the land: thin outlines of the ground marks, the route, the standards
     this.topPass(ctx, F);
     // the ground marks move: a landing and a roll-out every frame, breathing a few times a second
@@ -1452,7 +1501,10 @@ export class FrontierMap {
       const g = L.props.g;
       g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, W, H); g.setTransform(...world);
       this.art.paint(g, tiles, { ...opts, part: 'props' });
-      L.key = key; L.at = now;
+      // the cloud sea's still part is kept with the props; while a piece of it waits its turn the layer is not final
+      g.setTransform(...world);
+      const sea = opts.seaPass?.(g, 'still');
+      L.key = sea?.pending ? null : key; L.at = now;
     }
     ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'copy'; ctx.drawImage(L.ground.cv, 0, 0); ctx.globalCompositeOperation = 'source-over';
@@ -1462,6 +1514,8 @@ export class FrontierMap {
     if (opts.ground) { opts.ground(ctx, 'live'); this.between?.(ctx, { zoom: opts.zoom, now }); }
     else opts.between?.(ctx);
     ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(L.props.cv, 0, 0); ctx.restore();
+    ctx.setTransform(...world);
+    opts.seaPass?.(ctx, 'drift');
     this.art.paint(ctx, tiles, { ...opts, part: 'live' });
     return fresh ? 'fresh' : 'live';
   }

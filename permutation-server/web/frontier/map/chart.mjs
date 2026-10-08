@@ -7,9 +7,11 @@
 //                       (mountain, hills, forest, water, grass, plain). Terrain is
 //                       public (it comes from the ring seeds); nothing else is on it.
 //   surveyed (L2)       the painted land, muted (saturation 0.35, brightness 0.7)
-//   the edge            paint bleeds a little way out over the ink, and the ink
-//                       pools along the paint: a soft, uneven border made from a
-//                       distance field of the surveyed tiles, never a cut
+//   the edge            a wet edge, as watercolour meets paper (UX brief §11.4):
+//                       the pigment thins over the last third of a hex, ends in
+//                       a thin darker line that wavers at two scales, and
+//                       leaves a pale halo of bare paper beyond it; the chart's
+//                       own ink is quieter near the paint (about half)
 //   the reveal          a tile seen for the first time dissolves out of the chart
 //
 // Everything is drawn into the bitmaps the map already keeps (a province's
@@ -117,6 +119,27 @@ function blot(pale) {
   return cv;
 }
 
+/**
+ * Bare paper over the box `{x0, y0, x1, y1}` (world px) of a context whose user space is world px at `res` device
+ * px each: the parchment, and its age: wide stains and worn, paler patches, laid on the world (the same stain lies
+ * under two neighbouring sheets, and under the sheet's own margin: map/table.mjs).
+ */
+export function paintPaper(g, { x0, y0, x1, y1 }, res = 1) {
+  if (!g?.fillRect) return;
+  g.fillStyle = paperFill(g, res); g.fillRect(x0, y0, x1 - x0, y1 - y0);
+  const dark = blot(false), pale = blot(true);
+  if (!dark || !pale) return;
+  const cell = 620, was = g.globalAlpha;
+  for (let cx = Math.floor((x0 - 400) / cell); cx <= Math.floor((x1 + 400) / cell); cx++) for (let cy = Math.floor((y0 - 400) / cell); cy <= Math.floor((y1 + 400) / cell); cy++) for (let n = 0; n < 2; n++) {
+    const sx = (cx + hash2(cx, cy, 20 + n)) * cell, sy = (cy + hash2(cx, cy, 30 + n)) * cell, sr = 150 + hash2(cx, cy, 40 + n) * 260;
+    if (sx + sr < x0 || sx - sr > x1 || sy + sr < y0 || sy - sr > y1) continue;
+    const light = hash2(cx, cy, 50 + n) < 0.4, k = 0.07 + hash2(cx, cy, 60 + n) * 0.09;
+    g.globalAlpha = was * (light ? k * 1.5 : k);
+    g.drawImage(light ? pale : dark, sx - sr, sy - sr * 0.8, sr * 2, sr * 1.6);
+  }
+  g.globalAlpha = was;
+}
+
 const hexPath = (g, x, y, inset = 0) => { hexPoints(x, y, inset).forEach(([px, py], j) => (j ? g.lineTo(px, py) : g.moveTo(px, py))); g.closePath(); };
 const EDGE_OF = [[1, -1], [1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1]];   // the neighbour across the edge between corners k−1 and k of hexPoints
 
@@ -201,7 +224,9 @@ function glyph(g, dots, t, detail) {
  * the finished sheet once, which costs a slow canvas far less than a clip of
  * sixty hexes under every stroke.
  */
-export function paintChart(g, tiles, { res = 1, nameAt = () => null, own: alone = false } = {}) {
+export function paintChart(g, tiles, { res = 1, nameAt = () => null, own: alone = false, ink = true } = {}) {
+  // `ink` false: the bare sheet (paper, its age, the thin washes), with no lattice, coast or glyph: what the chart
+  // is next to painted land, where its ink is let through only in part (applySurvey)
   if (!tiles.length || !g?.save) return;
   const detail = res >= 0.42 ? 2 : res >= 0.16 ? 1 : 0;
   const lw = Math.max(1.3, 0.8 / res);
@@ -212,20 +237,7 @@ export function paintChart(g, tiles, { res = 1, nameAt = () => null, own: alone 
   g.save();
   const shape = () => { g.beginPath(); for (const t of tiles) hexPath(g, t.x, t.y, -Math.min(1.6, 0.6 / res)); };
   if (!alone) { shape(); g.clip(); }
-  g.fillStyle = paperFill(g, res); g.fillRect(x0, y0, x1 - x0, y1 - y0);
-  // age: wide stains and worn, paler patches, laid on the world (the same stain lies under two neighbouring sheets)
-  const dark = blot(false), pale = blot(true);
-  if (dark && pale) {
-    const cell = 620;
-    for (let cx = Math.floor((x0 - 400) / cell); cx <= Math.floor((x1 + 400) / cell); cx++) for (let cy = Math.floor((y0 - 400) / cell); cy <= Math.floor((y1 + 400) / cell); cy++) for (let n = 0; n < 2; n++) {
-      const sx = (cx + hash2(cx, cy, 20 + n)) * cell, sy = (cy + hash2(cx, cy, 30 + n)) * cell, sr = 150 + hash2(cx, cy, 40 + n) * 260;
-      if (sx + sr < x0 || sx - sr > x1 || sy + sr < y0 || sy - sr > y1) continue;
-      const light = hash2(cx, cy, 50 + n) < 0.4, k = 0.07 + hash2(cx, cy, 60 + n) * 0.09;
-      g.globalAlpha = light ? k * 1.5 : k;
-      g.drawImage(light ? pale : dark, sx - sr, sy - sr * 0.8, sr * 2, sr * 1.6);
-    }
-    g.globalAlpha = 1;
-  }
+  paintPaper(g, { x0, y0, x1, y1 }, res);
   // a thin wash for what the land is: water cool, high ground warm, woods green
   for (const [name, fill] of Object.entries(CHART.wash)) {
     g.beginPath();
@@ -233,6 +245,7 @@ export function paintChart(g, tiles, { res = 1, nameAt = () => null, own: alone 
     for (const t of tiles) if (t.name === name) { hexPath(g, t.x, t.y, -0.4); any = true; }
     if (any) { g.fillStyle = fill; g.fill(); if (detail === 0) g.fill(); }
   }
+  if (!ink) { if (alone) { g.globalCompositeOperation = 'destination-in'; g.globalAlpha = 1; g.fillStyle = '#000'; shape(); g.fill(); } g.restore(); return; }
   // the lattice: every edge once, drawn a little unsteadily
   g.lineCap = 'round'; g.lineJoin = 'round';
   const wob = (x, y, n) => (hash2(Math.round(x * 2), Math.round(y * 2), n) - 0.5) * 2.2;
@@ -297,8 +310,11 @@ export function paintChart(g, tiles, { res = 1, nameAt = () => null, own: alone 
 }
 
 // ------------------------------------------------------------------ the edge
-/** How far out a surveyed tile's paint reaches (in hex radii from its centre): solid to `inner`, gone at `outer`, pushed about by `rough`. */
-export const EDGE = Object.freeze({ paint: { inner: 1, outer: 1.36, rough: 0.17 }, sight: { inner: 0.9, outer: 1.7, rough: 0.12 } });
+/**
+ * The edge of the land in sight against the muted land out of sight (in hex radii from a tile's centre): alive to
+ * `inner`, muted from `outer`, pushed about by `rough`. (The edge of the paint against the chart is the wet edge, below.)
+ */
+export const EDGE = Object.freeze({ sight: Object.freeze({ inner: 0.9, outer: 1.7, rough: 0.12 }) });
 const REACH = 2;
 
 /**
@@ -332,7 +348,7 @@ export function surveyField(survey, box, mres, level) {
 }
 
 /** How much paint a field value leaves at world point (x, y): 1 on the tile, 0 beyond its reach, uneven between. */
-export function coverage(d, x, y, e = EDGE.paint) {
+export function coverage(d, x, y, e = EDGE.sight) {
   if (d <= e.inner - e.rough) return 1;
   if (!(d < e.outer + e.rough)) return 0;
   const n = vnoise(x / 30, y / 30, 7) * 0.55 + vnoise(x / 9, y / 9, 8) * 0.45;
@@ -340,31 +356,139 @@ export function coverage(d, x, y, e = EDGE.paint) {
   return k <= 0 ? 1 : k >= 1 ? 0 : 1 - smooth(k);
 }
 
-/** A bitmap whose alpha is the coverage of `field` (and, with `ink`, a second one: the ink that pools along the edge). */
-function maskOf(field, box, mres, e, ink = false) {
+/** A bitmap whose alpha is the coverage of `field`. */
+function maskOf(field, box, mres, e) {
   const { f, w, h } = field;
   const cv = spare(w, h), g = cv?.getContext?.('2d');
   if (!g?.createImageData) return null;
   const img = g.createImageData(w, h), d = img.data;
-  const icv = ink ? spare(w, h) : null, ig = icv?.getContext?.('2d') ?? null, iimg = ig ? ig.createImageData(w, h) : null, id = iimg?.data ?? null;
-  for (let py = 0, i = 0, j = 0; py < h; py++) for (let px = 0; px < w; px++, i++, j += 4) {
-    const a = coverage(f[i], (px + 0.5) / mres + box.x, (py + 0.5) / mres + box.y, e);
-    d[j + 3] = a * 255;
-    if (id && a > 0.02 && a < 0.98) {
-      // the pool: darkest a little outside the middle of the fade, thinning both ways
-      const e2 = 4 * a * (1 - a), b = Math.pow(e2, 3) * 0.72 + Math.pow(e2, 0.9) * 0.2 * (1 - a);
-      id[j] = 62; id[j + 1] = 46; id[j + 2] = 24; id[j + 3] = b * 215;
-    }
-  }
+  for (let py = 0, i = 0, j = 0; py < h; py++) for (let px = 0; px < w; px++, i++, j += 4) d[j + 3] = coverage(f[i], (px + 0.5) / mres + box.x, (py + 0.5) / mres + box.y, e) * 255;
   g.putImageData(img, 0, 0);
-  if (ig) ig.putImageData(iimg, 0, 0);
-  return { cv, ink: icv };
+  return { cv };
 }
 
-let scratch = null;
-function scratchOf(w, h) {
-  if (!scratch || scratch.width < w || scratch.height < h) scratch = spare(Math.max(w, scratch?.width ?? 0), Math.max(h, scratch?.height ?? 0));
-  return scratch;
+const scratches = [];
+/** A scratch canvas of at least w × h (two are kept: a composition needs both at once). */
+function scratchOf(w, h, slot = 0) {
+  const have = scratches[slot];
+  if (!have || have.width < w || have.height < h) scratches[slot] = spare(Math.max(w, have?.width ?? 0), Math.max(h, have?.height ?? 0));
+  return scratches[slot];
+}
+
+// ------------------------------------------------------------------ the wet edge
+/**
+ * The edge of the paint, in hex radii from the outline of the surveyed tiles
+ * (negative: on them): `bias` keeps the line a hair inside that outline (no
+ * sliver of a neighbour's paint shows beyond it), `slow` and `quick` are the
+ * two scales its line wavers at (`[wavelength in world px, reach]`), `fade`
+ * how far in the pigment thins (a third of a hex), `thin` what is left of it
+ * at the line, `halo` how far out the paper stays bare and pale, `quiet` how
+ * far out the chart's ink is still at half.
+ */
+export const WET = Object.freeze({ bias: 0.075, slow: Object.freeze([52, 0.085]), quick: Object.freeze([13, 0.04]), fade: 0.58, thin: 0.6, halo: 0.2, quiet: 2.4, line: 'rgba(72,52,26,0.84)', soft: 'rgba(72,52,26,0.2)' });
+const HEX_K = [-SQRT3 / 2, 0.5, 1 / SQRT3];
+/** How far world point (x, y) lies outside the tile whose middle is (cx, cy), in hex radii on the unsquashed ground (0 on the tile). */
+export function hexGap(x, y, cx, cy) {
+  // (the tiles stand on a point: the usual flat-topped hexagon distance with its axes swapped; apothem √3/2)
+  let px = Math.abs((y - cy) / (RADIUS * FLATTEN)), py = Math.abs((x - cx) / RADIUS);
+  const dot = Math.min(HEX_K[0] * px + HEX_K[1] * py, 0);
+  px -= 2 * dot * HEX_K[0]; py -= 2 * dot * HEX_K[1];
+  const r = SQRT3 / 2;
+  px -= Math.max(-HEX_K[2] * r, Math.min(HEX_K[2] * r, px)); py -= r;
+  return py > 0 ? Math.hypot(px, py) : 0;
+}
+
+const NEAR = (() => { const out = []; for (let dq = -2; dq <= 2; dq++) for (let dr = Math.max(-2, -dq - 2); dr <= Math.min(2, -dq + 2); dr++) if (dq || dr) out.push([dq, dr]); return out; })();
+const BEYOND = 2.6;
+/**
+ * The signed distance to the edge of the land at `level` or above, over
+ * `box` (world px `{x, y, w, h}`) at `mres` px per world px: for every pixel
+ * the distance in hex radii to the nearest tile of the other kind, negative
+ * on the land itself (±BEYOND where the edge is more than two tiles away).
+ */
+export function surveyEdge(survey, box, mres, level) {
+  const w = Math.max(1, Math.ceil(box.w * mres)), h = Math.max(1, Math.ceil(box.h * mres));
+  const f = new Float32Array(w * h);
+  // per tile: whether it is land, and the middles of the tiles of the other kind within two steps
+  const tiles = new Map();
+  const tile = (q, r) => {
+    const k = (q + 4096) * 8192 + (r + 4096);
+    let t = tiles.get(k);
+    if (t) return t;
+    const land = survey.levelAt(q, r) >= level, others = [];
+    for (const [dq, dr] of NEAR) if ((survey.levelAt(q + dq, r + dr) >= level) !== land) { const c = project(q + dq, r + dr); others.push(c.x, c.y); }
+    t = { land, others };
+    tiles.set(k, t);
+    return t;
+  };
+  for (let py = 0, i = 0; py < h; py++) {
+    const y = (py + 0.5) / mres + box.y, fy = y / FLATTEN;
+    for (let px = 0; px < w; px++, i++) {
+      const x = (px + 0.5) / mres + box.x;
+      const rf = ((2 / 3) * fy) / RADIUS, qf = ((SQRT3 / 3) * x - fy / 3) / RADIUS;
+      let q = Math.round(qf), r = Math.round(rf);
+      const sx = Math.round(-qf - rf), dq = Math.abs(q - qf), dr = Math.abs(r - rf), ds = Math.abs(sx + qf + rf);
+      if (dq > dr && dq > ds) q = -r - sx; else if (dr > ds) r = -q - sx;
+      const t = tile(q, r), o = t.others;
+      let d = BEYOND;
+      for (let j = 0; j < o.length; j += 2) { const v = hexGap(x, y, o[j], o[j + 1]); if (v < d) d = v; }
+      f[i] = t.land ? -d : d;
+    }
+  }
+  return { f, w, h };
+}
+
+/** The edge's own waver at a world point (hex radii): two scales, and the bias that keeps it on the land's side. */
+export const wetWaver = (x, y) => vnoise(x / WET.slow[0], y / WET.slow[0], 7) * WET.slow[1] + vnoise(x / WET.quick[0], y / WET.quick[0], 8) * WET.quick[1] + WET.bias;
+/** How much pigment lies at edge distance `e` (hex radii, waver included): whole well inside, thinner over the last third of a hex, none past the line. */
+export const wetPaint = e => (e >= 0 ? 0 : e <= -WET.fade ? 1 : WET.thin + (1 - WET.thin) * smooth(-e / WET.fade));
+/** How much of the chart's ink shows at edge distance `e`: none on the paint and in the halo, half near it, all of it further out. */
+export const wetInk = e => (e <= WET.halo ? 0 : e < 0.62 ? 0.5 * smooth((e - WET.halo) / (0.62 - WET.halo)) : e >= WET.quiet ? 1 : 0.5 + 0.5 * smooth((e - 0.62) / (WET.quiet - 0.62)));
+/** The pale halo of bare paper just beyond the line. */
+export const wetHalo = e => (e <= 0 || e >= WET.halo * 1.5 ? 0 : Math.sin((e / (WET.halo * 1.5)) * Math.PI));
+
+/**
+ * The wet edge over `box` at `mres`: three masks (alpha only) the size of the
+ * field, `paint`, `ink` and `halo`, and `line`, the edge itself as segments
+ * `[x0, y0, x1, y1, …]` in world px (where the field crosses nothing: empty).
+ */
+export function wetEdge(survey, box, mres, level = L2) {
+  const { f, w, h } = surveyEdge(survey, box, mres, level);
+  const e = new Float32Array(w * h);
+  for (let py = 0, i = 0; py < h; py++) for (let px = 0; px < w; px++, i++) {
+    const d = f[i];
+    e[i] = Math.abs(d) >= 1 ? d : d + wetWaver((px + 0.5) / mres + box.x, (py + 0.5) / mres + box.y);
+  }
+  // the line: where the field crosses zero, cell by cell (marching squares; a pixel's value sits at its middle)
+  const line = [];
+  const cut = (a, b) => a / (a - b);
+  for (let py = 0; py < h - 1; py++) for (let px = 0, i = py * w; px < w - 1; px++, i++) {
+    const a = e[i], b = e[i + 1], c = e[i + w + 1], d = e[i + w];
+    const n = (a < 0 ? 1 : 0) | (b < 0 ? 2 : 0) | (c < 0 ? 4 : 0) | (d < 0 ? 8 : 0);
+    if (n === 0 || n === 15) continue;
+    const x0 = (px + 0.5) / mres + box.x, y0 = (py + 0.5) / mres + box.y, u = 1 / mres;
+    const T = () => [x0 + cut(a, b) * u, y0], R = () => [x0 + u, y0 + cut(b, c) * u], B = () => [x0 + cut(d, c) * u, y0 + u], Lf = () => [x0, y0 + cut(a, d) * u];
+    const seg = (p, q) => line.push(p[0], p[1], q[0], q[1]);
+    switch (n) {
+      case 1: case 14: seg(Lf(), T()); break;
+      case 2: case 13: seg(T(), R()); break;
+      case 3: case 12: seg(Lf(), R()); break;
+      case 4: case 11: seg(R(), B()); break;
+      case 6: case 9: seg(T(), B()); break;
+      case 7: case 8: seg(Lf(), B()); break;
+      case 5: seg(Lf(), T()); seg(R(), B()); break;
+      default: seg(T(), R()); seg(Lf(), B());   // 10
+    }
+  }
+  const mask = of => {
+    const cv = spare(w, h), g = cv?.getContext?.('2d');
+    if (!g?.createImageData) return null;
+    const img = g.createImageData(w, h), d = img.data;
+    for (let i = 0, j = 3; i < e.length; i++, j += 4) d[j] = of(e[i]) * 255;
+    g.putImageData(img, 0, 0);
+    return cv;
+  };
+  return { e, w, h, line, paint: mask(wetPaint), ink: mask(wetInk), halo: mask(wetHalo) };
 }
 
 /** Mute what is on `g`'s canvas (device px, no transform): the saturation and brightness of surveyed land out of sight. */
@@ -380,11 +504,13 @@ function mute(g, w, h) {
  * that holds a province's painted land over `box` (world px) at `res` px per
  * world px. What is surveyed but out of sight is muted; what is not surveyed
  * is covered by `chart` (a canvas of the same size holding the province's
- * chart, clear outside its own tiles), with the soft edge between them.
+ * chart, clear outside its own tiles), with the wet edge between them.
+ * `plain` is the same sheet without its ink (paintChart `ink: false`): with
+ * it the chart's ink is quiet near the paint.
  * `sig` is the province's survey signature (survey.province(p, q).sig): it
  * says whether the province has any chart or any muted land at all.
  */
-export function applySurvey(g, { box, res, survey, sig = '', chart = null }) {
+export function applySurvey(g, { box, res, survey, sig = '', chart = null, plain = null }) {
   const cv = g?.canvas;
   if (!cv || !g.getTransform || survey?.showAll) return;
   const W = cv.width, H = cv.height;
@@ -408,15 +534,42 @@ export function applySurvey(g, { box, res, survey, sig = '', chart = null }) {
     }
   }
   if (has1 && chart) {
-    const m = maskOf(surveyField(survey, box, mres, L2), box, mres, EDGE.paint, true);
-    if (m) {
-      clear(); sg.drawImage(chart, 0, 0);
-      sg.globalCompositeOperation = 'destination-out'; sg.drawImage(m.cv, 0, 0, W, H);
-      g.drawImage(sc, 0, 0, W, H, 0, 0, W, H);
-      if (m.ink) {
-        clear(); sg.drawImage(m.ink, 0, 0, W, H);
-        sg.globalCompositeOperation = 'destination-in'; sg.drawImage(chart, 0, 0);
+    // the wet edge: the chart (its ink quiet near the paint, bare and pale just beyond it) with the painted land over
+    // it, the pigment thinning toward its line; then the line itself. Nothing of the painted bitmap shows beyond the
+    // line: no sliver of a neighbouring tile, no skirt of a tile that is only chart
+    const m = wetEdge(survey, box, mres, L2);
+    const sb = scratchOf(W, H, 1), bg = sb?.getContext?.('2d');
+    if (m.paint && bg) {
+      // (b) the painted land, cut to its pigment
+      bg.setTransform(1, 0, 0, 1, 0, 0); bg.globalAlpha = 1; bg.imageSmoothingEnabled = true;
+      bg.globalCompositeOperation = 'copy'; bg.drawImage(cv, 0, 0);
+      bg.globalCompositeOperation = 'destination-in'; bg.drawImage(m.paint, 0, 0, W, H);
+      bg.globalCompositeOperation = 'source-over';
+      // (a) the chart under it: the bare sheet, then as much of its ink as the edge lets through
+      g.globalCompositeOperation = 'copy'; g.drawImage(plain ?? chart, 0, 0);
+      g.globalCompositeOperation = 'source-over';
+      if (plain && m.ink) {
+        clear(); sg.drawImage(chart, 0, 0);
+        sg.globalCompositeOperation = 'destination-in'; sg.drawImage(m.ink, 0, 0, W, H);
         g.drawImage(sc, 0, 0, W, H, 0, 0, W, H);
+      }
+      if (m.halo) {
+        // the pale halo: bare paper, a little lighter than the aged sheet, only on the sheet itself
+        clear(); sg.drawImage(m.halo, 0, 0, W, H);
+        sg.globalCompositeOperation = 'source-in'; sg.fillStyle = 'rgb(250,243,222)'; sg.fillRect(0, 0, W, H);
+        sg.globalCompositeOperation = 'destination-in'; sg.drawImage(chart, 0, 0);
+        g.globalAlpha = 0.62; g.drawImage(sc, 0, 0, W, H, 0, 0, W, H); g.globalAlpha = 1;
+      }
+      g.drawImage(sb, 0, 0, W, H, 0, 0, W, H);
+      // the line: thin and dark, with a soft shoulder (world px through the bitmap's own transform)
+      if (m.line.length && g.setTransform) {
+        g.setTransform(res, 0, 0, res, -box.x * res, -box.y * res);
+        g.beginPath();
+        for (let i = 0; i < m.line.length; i += 4) { g.moveTo(m.line[i], m.line[i + 1]); g.lineTo(m.line[i + 2], m.line[i + 3]); }
+        g.lineCap = 'round'; g.lineJoin = 'round';
+        g.strokeStyle = WET.soft; g.lineWidth = 3.4 / res; g.stroke();
+        g.strokeStyle = WET.line; g.lineWidth = 1.3 / res; g.stroke();
+        g.setTransform(1, 0, 0, 1, 0, 0);
       }
     }
   }

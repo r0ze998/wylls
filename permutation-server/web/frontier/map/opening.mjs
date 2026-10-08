@@ -17,7 +17,7 @@ import { project } from '../../map.mjs';
 import { ringProvinces, tileHex, wedgeOf } from '../fgeo.mjs';
 import { homeWedge } from '../fland.mjs';
 import { provincePixel, PROVINCE_CIRCUMRADIUS, FLATTEN } from './layers.mjs';
-import { centreOn, fitView, freeBox, landRadius } from './camera.mjs';
+import { FAR_CAP, centreOn, fitView, freeBox, landRadius } from './camera.mjs';
 
 /** The hero zoom: a hex about 90 to 100 CSS px wide; a little less on a dense screen, where the largest sprites are already stretched (never below the zoom at which every village carries its name tag). */
 export const heroZoom = (dpr = 1) => (dpr >= 1.5 ? 1.2 : 1.3);
@@ -27,8 +27,6 @@ export const OPEN_WAIT_MS = 4000;
 export const OPEN_FROM = 0.5;
 export const TITLE_FROM = 0.35;
 export const TITLE_MS = 7000;
-/** The far view stays in the world level of detail. */
-const FAR_CAP = 0.114;
 /** The nation choice's backdrop may come nearer than the far view (the chart is drawn at every zoom). */
 const FRAME_CAP = 0.3;
 const RANK = { fit: 0, frame: 0, wedge: 1, candidates: 2, home: 3 };

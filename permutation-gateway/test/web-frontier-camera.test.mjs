@@ -139,24 +139,31 @@ test('the glide after a drag: the logical view is where it will end; too slow a 
   assert.ok(n < frames, `${n} frames for a short glide`);
 });
 
-test('the pan is kept over the opened world plus a margin: softly during a drag, firmly after it', () => {
-  const R = cam.worldRadius(3);
-  assert.ok(near(R, Math.hypot(layers.provincePixel(3, 0).x, layers.provincePixel(3, 0).y) + layers.PROVINCE_CIRCUMRADIUS));
+// Rewritten with UX brief §11.3 (the pan was kept over the opened world plus its first ring of cloud and a margin, so
+// most of a picture could be cloud): the centre now stops where the cloud sea would take a third of the picture.
+test('the pan stops where the cloud sea would take more than a third of the picture: softly during a drag, firmly after it', () => {
+  const b = cam.landBox(3), R = cam.landRadius(3);
+  assert.ok(b.x > b.y && b.x < R && b.x > R * 0.9 && b.y > R * 0.7, `the land's own box: ${b.x} by ${b.y} (a radius of ${R}, squashed)`);
+  assert.equal(cam.landBox(3), b, 'kept');
   const inside = { x: 800, y: -300, zoom: 1.3 };
   assert.equal(cam.clampCentre(inside, { ringsOpen: 3, size }), inside, 'inside: untouched');
   const out = { x: 40_000, y: 0, zoom: 1.3 };
   const hard = cam.clampCentre(out, { ringsOpen: 3, size });
-  assert.ok(hard.x < R + layers.PROVINCE_CIRCUMRADIUS && hard.x > R * 0.8, `the centre stops near the rim (${hard.x} of ${R})`);
+  const halfW = size.width / 2 / 1.3, halfH = size.height / 2 / 1.3;
+  assert.ok(near((hard.x + halfW - b.x) / (2 * halfW), cam.SEA_SHARE), `of the picture's width, ${((hard.x + halfW - b.x) / (2 * halfW)).toFixed(3)} lies beyond the land's edge`);
+  assert.ok(near(cam.SEA_SHARE, 1 / 3));
+  const down = cam.clampCentre({ x: 0, y: 40_000, zoom: 1.3 }, { ringsOpen: 3, size });
+  assert.ok(near((down.y + halfH - b.y) / (2 * halfH), cam.SEA_SHARE), 'and of its height');
   assert.equal(hard.zoom, 1.3);
   const soft = cam.clampCentre(out, { ringsOpen: 3, size, soft: 1 });
   assert.ok(soft.x > hard.x && soft.x < hard.x * 1.6, 'a drag gives, within reason');
   const a = cam.clampCentre({ x: hard.x + 30, y: 0, zoom: 1.3 }, { ringsOpen: 3, size, soft: 1 });
-  const b = cam.clampCentre({ x: hard.x + 300, y: 0, zoom: 1.3 }, { ringsOpen: 3, size, soft: 1 });
-  assert.ok(b.x > a.x && b.x - a.x < 270, 'the further the pull, the stiffer');
+  const c = cam.clampCentre({ x: hard.x + 300, y: 0, zoom: 1.3 }, { ringsOpen: 3, size, soft: 1 });
+  assert.ok(c.x > a.x && c.x - a.x < 270, 'the further the pull, the stiffer');
   // zoomed out to the far view the world stays near the middle
   const far = cam.fitView(3, size);
   const wide = cam.clampCentre({ x: 40_000, y: 0, zoom: far.zoom }, { ringsOpen: 3, size });
-  assert.ok(wide.x < R * 0.4, `at the far view the centre may leave the middle by ${Math.round(wide.x)} of ${Math.round(R)} only`);
+  assert.ok(wide.x < b.x * 0.4, `at the far view the centre may leave the middle by ${Math.round(wide.x)} of ${Math.round(b.x)} only`);
   // more open rings, more room
   assert.ok(cam.clampCentre(out, { ringsOpen: 6, size }).x > hard.x);
 });
@@ -174,13 +181,23 @@ test('the uncovered part of the canvas: the far view fits it, a place is centred
   assert.ok(near(f.x, pt.x) && near(f.y, pt.y), 'focusOf is the inverse');
   // a full sheet never pushes the map off the screen: at least 40% of the height counts as free
   assert.equal(cam.freeBox(phone, { bottom: 720 }).height, 734 * 0.4);
-  // the far view: the opened world in the smaller side of the free part, lifted above the sheet
-  const far = cam.fitView(3, phone, { inset: sheet, cap: 0.114 });
-  assert.ok(near(far.zoom, (0.9 * 367) / (2 * cam.landRadius(3))), 'the open land fills the free part; its cloud may run off the edge');
+  // the far view (rewritten with UX brief §11.2: it was 0.9 of the smaller side by the land's radius, capped at
+  // 0.114 so it stayed small on a small world): the opened land takes 0.7 of the free part by its tighter side
+  // (the sheet it is drawn on lies on the table with room around it), lifted above the phone's sheet
+  const far = cam.fitView(3, phone, { inset: sheet });
+  const land = cam.landBox(3);
+  assert.equal(cam.FAR_FILL, 0.7);
+  assert.ok(near(far.zoom, 0.7 * Math.min(390 / (2 * land.x), 367 / (2 * land.y))), `zoom ${far.zoom}`);
+  assert.ok(2 * land.x * far.zoom <= 0.7 * 390 + 1e-9 && 2 * land.y * far.zoom <= 0.7 * 367 + 1e-9, 'the land fits in 70% of both sides');
+  const desk = cam.fitView(3, { width: 1440, height: 900 }, { inset: { top: 48 } });
+  assert.ok(near(2 * land.y * desk.zoom, 0.7 * 852), 'on a wide screen: 70% of the free height');
+  assert.ok(desk.zoom > 0.2, 'three rings are no longer a small mark on a wide screen');
   assert.ok(cam.landRadius(3) < cam.worldRadius(3) && near(cam.landRadius(1), layers.PROVINCE_CIRCUMRADIUS));
   const centre = fmap.worldToScreen(far, phone, 0, 0);
   assert.ok(near(centre.y, 367 / 2), 'the Concord in the middle of the free part');
   assert.equal(cam.fitView(1, { width: 2000, height: 2000 }, { cap: 0.114 }).zoom, 0.114, 'never nearer than the cap');
+  assert.equal(cam.fitView(1, { width: 2000, height: 2000 }).zoom, cam.FAR_CAP, 'a very small world: the far view stays a chart');
+  assert.equal(fmap.FAR_ZOOM_CAP, cam.FAR_CAP);
   // a drawer over the map's right side on a wide screen
   const d = cam.freeBox(size, { right: 360 });
   assert.deepEqual([d.width, d.x], [640, -180]);
@@ -209,7 +226,9 @@ test('the opening view depends on who is looking: village, candidate sites, home
     const p = opening.openingPlan(hint, src, size);
     assert.equal(p.kind, 'fit');
     assert.deepEqual([p.view.x, p.view.y], [0, 0]);
-    assert.ok(p.view.zoom < fmap.LOD_EDGES.provinceOut, 'world LOD');
+    // (it was "below the fixed province edge": the far view of a small world is nearer now, and the edges follow it)
+    assert.equal(p.view.zoom, cam.fitView(3, size).zoom, 'the far view');
+    assert.equal(fmap.lodFor(p.view.zoom, 'tile', fmap.lodEdges(p.view.zoom)), 'world', 'world LOD');
   }
   // the play page before the viewer's record answered: no plan yet (the map waits; never the world first)
   assert.equal(opening.openHint({ mode: 'play' }).ready, false);
@@ -303,6 +322,29 @@ test('the title card: the opening drifts in slowly behind it and flies the rest 
   assert.deepEqual(m.cam.drawn, mid, 'from where the drift was');
   assert.ok(m.cam.tween.ms <= 1000, 'quickly now');
   assert.equal(m.view.zoom, 1.3);
+  m.destroy();
+});
+
+test('the levels of detail follow the far view: it is the world\'s level whatever the size of the world', () => {
+  assert.equal(fmap.lodEdges(0), fmap.LOD_EDGES);
+  assert.equal(fmap.lodEdges(0.09), fmap.LOD_EDGES, 'a large world: the fixed edges');
+  const e = fmap.lodEdges(0.26);
+  assert.ok(e.provinceOut > 0.26 && e.provinceIn > e.provinceOut && e.provinceIn < e.tileOut, JSON.stringify(e));
+  assert.deepEqual([e.tileIn, e.tileOut], [fmap.LOD_EDGES.tileIn, fmap.LOD_EDGES.tileOut], 'the tiles begin where they did');
+  assert.equal(fmap.lodFor(0.26, 'tile', e), 'world');
+  assert.equal(fmap.lodFor(0.26 * 1.25, 'world', e), 'province', 'one step in');
+  assert.equal(fmap.lodFor(0.6, 'world', e), 'tile');
+  // the nearest far view there is still leaves a province level before the tiles
+  const tight = fmap.lodEdges(cam.FAR_CAP);
+  assert.ok(tight.provinceOut > cam.FAR_CAP && tight.provinceIn < tight.tileOut + 0.01 && tight.provinceIn < tight.tileIn);
+  // on a map: three open rings on a wide canvas
+  const m = new fmap.FrontierMap(canvas(1440, 900), { source: () => ({ overviews: new Map(), ringsOpen: 3 }) });
+  const far = m.farView().zoom;
+  assert.ok(far > fmap.LOD_EDGES.provinceIn, 'nearer than the fixed edge');
+  m.setView({ x: 0, y: 0, zoom: far });
+  assert.equal(m.lod, 'world');
+  m.setView({ zoom: far * 1.25 });
+  assert.equal(m.lod, 'province');
   m.destroy();
 });
 

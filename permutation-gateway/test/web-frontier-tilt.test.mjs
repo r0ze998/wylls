@@ -248,7 +248,7 @@ test('zooming about a point keeps that point of the world under the pointer alth
   const { m } = mapOn(desk);
   // (from the middle of the world, so that the camera's own limits stay out of it)
   m.setView({ x: 0, y: 0, zoom: 0.3 });
-  const at = { x: 1100, y: 240 };   // px from the map's corner, well away from the middle
+  const at = { x: 860, y: 330 };   // px from the map's corner, away from the middle (near enough that the pan's limit stays out of it too)
   let turned = 0;
   for (const factor of [1.25, 1.6, 2, 0.8, 1.5]) {
     const before = m.unproject(at.x, at.y, { box: true, logical: true }), was = m.tiltDeg(m.view.zoom);

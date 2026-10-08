@@ -360,11 +360,11 @@ export class SpriteArt {
       this.farPixels += v.px;
       while (this.farPixels > FAR_PIXELS && this.farCache.size > 1) { const [ok, ov] = this.farCache.entries().next().value; this.farCache.delete(ok); this.farPixels -= ov.px; }
     };
-    const sheet = () => {
+    const sheet = (ink = true) => {
       const cv = canvas(), g = cv.getContext('2d');
       world(g);
       const names = (q, r) => { const n = terrainAt(q, r); return n === 'cloud' ? null : n; };
-      paintChart(g, Array.from({ length: PROVINCE_TILES }, (_, i) => { const h = tileHex(e.p, e.q, i), at = project(h.q, h.r); return { q: h.q, r: h.r, x: at.x, y: at.y, name: TERRAIN_KEY[e.names?.[e.terrain?.[i]]] ?? 'plains' }; }), { res, nameAt: names, own: true });
+      paintChart(g, Array.from({ length: PROVINCE_TILES }, (_, i) => { const h = tileHex(e.p, e.q, i), at = project(h.q, h.r); return { q: h.q, r: h.r, x: at.x, y: at.y, name: TERRAIN_KEY[e.names?.[e.terrain?.[i]]] ?? 'plains' }; }), { res, nameAt: names, own: true, ink });
       return { cv, g };
     };
     if (sv?.kind === 'chart') {
@@ -406,7 +406,7 @@ export class SpriteArt {
       // the survey over a copy of the painted province
       const cv = canvas(), g = cv.getContext('2d');
       g.drawImage(rawBitmap.cv, 0, 0);
-      applySurvey(g, { box, res, survey, sig: sv.sig, chart: sheet().cv });
+      applySurvey(g, { box, res, survey, sig: sv.sig, chart: sheet().cv, plain: sheet(false).cv });
       v = { cv, ...box, px: size * size };
       if (rawBitmap.whole !== false) keep(k, v);
     }
@@ -848,11 +848,12 @@ export class SpriteArt {
    * 'world' (those three in order); null paints the world and then its labels (labels()).
    * `between(ctx)` is called after the ground and before the props (ground-level effects).
    * `stamp` (the map's change counter) lets the tile model be kept between animation frames.
+   * `sea`: the caller paints the cloud sea itself (map/cloudsea.mjs): cloud tiles carry no sprite here.
    */
   paint(ctx, entries, { zoom, dpr = 1, artZoom = zoom, terrainAt = () => null, fogAt = () => null, selected = null, viewerFaction = null, demoRoads = false,
     ringsOpen = null, replayRing = null, replayEvery = 6000, engineStage = 0,
     relics = [], waystones = [], demoSpecials = false, rivers = [], demoRivers = false, alliedPairs = [], people = null, far = false,
-    part = null, between = null, stamp = undefined, survey = null }) {
+    part = null, between = null, stamp = undefined, survey = null, sea = false }) {
     // the sprite set of the nearer of the picture and where the camera is going (no change of set at the end of a flight)
     const s = artSize(RADIUS * Math.max(zoom, artZoom) * dpr);
     // the ring-open moment starts when the open ring count grows (or, in the preview, on a timer)
@@ -981,7 +982,10 @@ export class SpriteArt {
             if (sg) {
               sg.setTransform(res, 0, 0, res, (B.left - c.x) * res, (B.top - c.y) * res);
               paintChart(sg, list, { res, nameAt: chartName, own: true });
-              applySurvey(gg, { box, res, survey, sig: sv.sig, chart: sheet });
+              // (the same sheet without its ink: the chart is quiet next to painted land)
+              const bare = spare(cv.width, cv.height), bg = bare?.getContext?.('2d');
+              if (bg) { bg.setTransform(res, 0, 0, res, (B.left - c.x) * res, (B.top - c.y) * res); paintChart(bg, list, { res, nameAt: chartName, own: true, ink: false }); }
+              applySurvey(gg, { box, res, survey, sig: sv.sig, chart: sheet, plain: bg ? bare : null });
             }
           }
           const whole = this.misses === 0;
@@ -1017,6 +1021,8 @@ export class SpriteArt {
     // what stands on one tile: cloud sea, the Engine, a Seat, relics, the terrain's props, a camp, a holding
     const propsOf = (t) => {
       if (t.cloud) {
+        // (`sea`: the map paints the cloud sea as one body over the tiles: map/cloudsea.mjs; no stamp per hex)
+        if (sea) return;
         const c = this.image('fog', s.key, `cloud_${t.v}`);
         if (c) draw(c, t);
         EDGE_DIRS.forEach(([dq, dr], e) => {
