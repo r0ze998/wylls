@@ -16,7 +16,7 @@ import { LOD_NEAR, freeBox } from './camera.mjs';
 export const nearness = zoom => { const k = Math.max(0, Math.min(1, (zoom - LOD_NEAR.from) / (LOD_NEAR.to - LOD_NEAR.from))); return k * k * (3 - 2 * k); };
 
 export const HAZE = Object.freeze({ reach: 0.44, top: 0.78, mid: 0.3, rgb: '202,220,224' });
-export const VIGNETTE = Object.freeze({ far: 0.34, near: 0.5, rgb: '6,14,13' });
+export const VIGNETTE = Object.freeze({ far: 0.72, near: 0.5, rgb: '6,14,13' });
 
 export function paintDressing(ctx, size, { zoom = 1, near = nearness(zoom), inset = null } = {}) {
   if (!ctx?.createLinearGradient || !(size?.width > 0) || !(size?.height > 0)) return;
@@ -34,8 +34,9 @@ export function paintDressing(ctx, size, { zoom = 1, near = nearness(zoom), inse
   }
   // the vignette sits a little below the middle: the top already fades into the haze
   const cy = cy0 + f.height * 0.06 * near, a = VIGNETTE.far + (VIGNETTE.near - VIGNETTE.far) * near;
-  const v = ctx.createRadialGradient(cx, cy, Math.min(f.width, f.height) * 0.38, cx, cy, Math.hypot(f.width, f.height) * 0.62);
-  v.addColorStop(0, `rgba(${VIGNETTE.rgb},0)`); v.addColorStop(0.55, `rgba(${VIGNETTE.rgb},${a * 0.32})`); v.addColorStop(1, `rgba(${VIGNETTE.rgb},${a})`);
+  // (at the far view it starts nearer the middle: there it is the table's own falling into shadow)
+  const v = ctx.createRadialGradient(cx, cy, Math.min(f.width, f.height) * (0.2 + 0.18 * near), cx, cy, Math.hypot(f.width, f.height) * 0.62);
+  v.addColorStop(0, `rgba(${VIGNETTE.rgb},0)`); v.addColorStop(0.55, `rgba(${VIGNETTE.rgb},${a * (0.5 - 0.18 * near)})`); v.addColorStop(1, `rgba(${VIGNETTE.rgb},${a})`);
   ctx.fillStyle = v; ctx.fillRect(0, 0, w, h);
   // the near edge of the table (under a sheet there is none to see)
   if (near > 0.01 && !(inset?.bottom > 0)) {

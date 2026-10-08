@@ -418,3 +418,69 @@ test('the frame probe: kinds, averages and percentiles; off unless asked for', (
   PROBE.reset();
   assert.deepEqual(PROBE.stats(), {});
 });
+
+/** A 2D context that accepts everything and counts what was called (gradients and text measured as stubs). */
+function countingContext() {
+  const calls = {};
+  const grad = { addColorStop() {} };
+  const target = { createLinearGradient: () => grad, createRadialGradient: () => grad, measureText: () => ({ width: 10 }), getTransform: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }) };
+  const ctx = new Proxy(target, { get: (t, k) => (k in t ? t[k] : (...a) => { calls[k] = (calls[k] ?? 0) + 1; return a; }), set: () => true });
+  return { ctx, calls };
+}
+
+test('a frame without a DOM: the bare table while the viewer is unknown, then the opening; the backing store follows a height-only resize', () => {
+  const { ctx, calls } = countingContext();
+  const cv = { clientWidth: 390, clientHeight: 734, width: 0, height: 0, dataset: {}, getContext: () => ctx };
+  let src = { overviews: new Map(), ringsOpen: 3, own: [], open: opening.openHint({ mode: 'play' }) };
+  const m = new fmap.FrontierMap(cv, { source: () => src });
+  m.draw(0);
+  assert.deepEqual([cv.width, cv.height], [390, 734]);
+  assert.equal(cv.dataset.lod, 'world', 'nothing placed yet');
+  assert.equal(calls.moveTo ?? 0, 0, 'no province was drawn: only the table');
+  assert.ok(calls.fillRect >= 1);
+  assert.equal(m.dirty, true, 'the map keeps asking until the viewer is known');
+  // the viewer's record arrives: the village, tile LOD, the picture in flight
+  src = { ...lordSrc };
+  m.draw(100);
+  assert.equal(cv.dataset.lod, 'tile');
+  assert.equal(cv.dataset.terrain, 'pending', 'no terrain here: provinces as plain cells');
+  assert.ok(calls.moveTo > 0, 'the land is drawn now');
+  assert.equal(m.drawnLod, 'tile', 'the opening starts a little above its target, inside the tile view (no change of level on the way down)');
+  for (let t = 116; m.cam.moving && t < 4000; t += 16) { m.cam.step(t); m.draw(t); }
+  assert.deepEqual(m.cam.drawn, m.view, 'arrived');
+  // the regression this replaces: a height-only change kept the old canvas.height (the width was the only thing compared)
+  cv.clientHeight = 500;
+  m.draw(5000);
+  assert.deepEqual([cv.width, cv.height], [390, 500]);
+  // and with the size the opening is framed again (nobody moved the camera)
+  const at = fmap.worldToScreen(m.view, { width: 390, height: 500 }, tilePoint(2, 0, 7).x, tilePoint(2, 0, 7).y);
+  assert.ok(near(at.x, 195) && near(at.y, 250), 'the village is in the middle of the new canvas');
+  m.destroy();
+});
+
+test('the level of detail on screen follows the picture, the logical one the input; a resting view is recognised', () => {
+  const { ctx } = countingContext();
+  const cv = { clientWidth: 800, clientHeight: 600, width: 0, height: 0, dataset: {}, getContext: () => ctx };
+  const m = new fmap.FrontierMap(cv, { source: () => ({ overviews: new Map(), ringsOpen: 3 }) });
+  m.draw(0);
+  assert.equal(m.lod, 'world');
+  m.flyTo({ p: 2, q: 0, tile: 7, zoom: 1.3 }, 800);
+  assert.equal(m.lod, 'tile', 'logical: at once');
+  assert.equal(cv.dataset.lod, 'tile');
+  m.cam.step(16); m.draw(16);
+  assert.equal(m.drawnLod, 'world', 'on screen: still far out');
+  m.cam.step(32); m.draw(32);
+  const moving = m.sceneKey;
+  for (let t = 48; m.cam.moving && t < 4000; t += 16) { m.cam.step(t); m.draw(t); }
+  assert.equal(m.drawnLod, 'tile');
+  assert.notEqual(m.sceneKey, moving);
+  const rest = m.sceneKey;
+  m.tick(); m.draw(5000);
+  assert.equal(m.sceneKey, rest, 'an animation tick at rest: the same picture (the still layers are reused)');
+  const stamp = m.stamp;
+  m.invalidate();
+  assert.equal(m.stamp, stamp + 1, 'a data change is told apart from a tick');
+  m.tick();
+  assert.equal(m.stamp, stamp + 1);
+  m.destroy();
+});

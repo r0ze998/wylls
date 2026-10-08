@@ -65,6 +65,8 @@ export const FAR_ZOOM_CAP = LOD_EDGES.provinceOut * 0.95;
 /** A change of level of detail dissolves over this long (ms), after waiting at most LOD_HOLD_MS for the new level's art. */
 export const LOD_FADE_MS = 280;
 export const LOD_HOLD_MS = 700;
+/** The table under the world (the vignette of dressing.mjs darkens it toward the edges). */
+export const TABLE = '#2a4742';
 /** The still layers of a resting view are repainted at least this often (ms): a change nobody announced heals. */
 export const LAYER_MAX_AGE_MS = 2000;
 
@@ -640,21 +642,17 @@ export class FrontierMap {
     if (this.canvas.width !== W || this.canvas.height !== H) { this.canvas.width = W; this.canvas.height = H; this.sceneKey = null; this.fade = null; }
     if (!(width > 0) || !(height > 0)) return;
     const size = { width, height };
-    // the table and the depth dressing are gradients over the whole canvas: painted once into bitmaps and copied
-    const table = () => this.stamped(ctx, 'tableCv', `${W}x${H}`, W, H, dpr, g => {
-      // the world floats on a sea of mist: deep at the edges, lighter where the eye rests
-      const sea = g.createRadialGradient(width / 2, height * 0.45, Math.min(width, height) * 0.1, width / 2, height / 2, Math.max(width, height) * 0.75);
-      sea.addColorStop(0, '#2c4a45'); sea.addColorStop(0.6, '#1d3531'); sea.addColorStop(1, '#0f1f1c');
-      g.fillStyle = sea;
-      g.fillRect(0, 0, width, height);
-    }, 'copy');
+    // the table the world lies on: one colour (a gradient over the whole canvas every frame costs far more than
+    // the scene on a slow canvas); its fall into shadow toward the edges is the vignette of the depth dressing,
+    // which is painted once into a bitmap and copied
+    const table = g => { g.setTransform(dpr, 0, 0, dpr, 0, 0); g.fillStyle = TABLE; g.fillRect(0, 0, width, height); };
     const inset = this.inset();
     const dressing = zoom => { const step = Math.round(nearness(zoom) * 16); this.stamped(ctx, 'dressCv', `${W}x${H}|${step}|${inset.top},${inset.right},${inset.bottom},${inset.left}`, W, H, dpr, g => paintDressing(g, size, { near: step / 16, inset })); };
-    table();
     const src = this.source();
     this.rings = src.ringsOpen ?? 1;
     if (!this.open(src, size, { dpr, now })) {
       // who is looking is not known yet: the bare table, never the whole world first
+      table(ctx);
       dressing(0);
       PROBE.end('wait', ctx);
       return;
@@ -671,11 +669,10 @@ export class FrontierMap {
       const cv = this.fadeCv?.width === W && this.fadeCv?.height === H ? this.fadeCv : spareCanvas(this.canvas.ownerDocument, W, H);
       const g = cv?.getContext?.('2d');
       if (g) {
-        this.paintScene(ctx, src, v, was, size, dpr, { now }).over();
+        this.paintScene(ctx, src, v, was, size, dpr, { now, table }).over();
         g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'copy'; g.drawImage(this.canvas, 0, 0); g.globalCompositeOperation = 'source-over';
         this.fadeCv = cv;
         this.fade = { view: { ...v }, since: now, t0: null };
-        table();
       }
     }
     // at rest (the same picture as the last frame) the still layers are kept and only the animated ones repaint
@@ -688,7 +685,9 @@ export class FrontierMap {
       const terrainOf = src.terrainOf ?? this.terrainOf;
       for (const pr of visibleProvinces(logical, size, Math.max(0, this.rings - 1) + 1)) { terrainOf?.(pr.p, pr.q); if (this.art && ringOf(pr.p, pr.q) < this.rings) src.provinceOf?.(pr.p, pr.q); }
     }
-    const out = this.paintScene(ctx, src, v, lod, size, dpr, { now, rest, artZoom: Math.max(v.zoom, logical.zoom) });
+    // away from the tile view its still layers are let go (two bitmaps the size of the canvas)
+    if (lod !== 'tile' && this.layers) this.layers = null;
+    const out = this.paintScene(ctx, src, v, lod, size, dpr, { now, rest, table, artZoom: Math.max(v.zoom, logical.zoom) });
     this.painted = true;
     if (this.fade) {
       // the old picture stays whole until the new level has its art (a moment at most), then fades
@@ -722,9 +721,10 @@ export class FrontierMap {
   /**
    * Copy a picture that only changes with `key` onto the canvas: `paint(g)`
    * draws it (in CSS px) into a bitmap of its own the first time and when the
-   * key changes. Without a spare canvas it is painted straight onto `ctx`.
+   * key changes (a gradient over the whole canvas costs far more than a
+   * copy). Without a spare canvas it is painted straight onto `ctx`.
    */
-  stamped(ctx, name, key, W, H, dpr, paint, op = 'source-over') {
+  stamped(ctx, name, key, W, H, dpr, paint) {
     let slot = this[name];
     if (!slot || slot.cv.width !== W || slot.cv.height !== H) {
       const cv = spareCanvas(this.canvas.ownerDocument, W, H), g = cv?.getContext?.('2d');
@@ -736,7 +736,7 @@ export class FrontierMap {
       paint(slot.g);
       slot.key = key;
     }
-    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalCompositeOperation = op; ctx.drawImage(slot.cv, 0, 0); ctx.restore();
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(slot.cv, 0, 0); ctx.restore();
   }
 
   /**
@@ -746,10 +746,13 @@ export class FrontierMap {
    * what belongs above the depth dressing (labels, warnings, pins, the
    * guide), and how much art of this picture is still on its way.
    */
-  paintScene(ctx, src, view, lod, size, dpr, { now = clock(), rest = false, artZoom = view.zoom } = {}) {
+  paintScene(ctx, src, view, lod, size, dpr, { now = clock(), rest = false, artZoom = view.zoom, table = () => {} } = {}) {
     const { width, height } = size, z = view.zoom;
     const world = [dpr * z, 0, 0, dpr * z, dpr * (width / 2 - view.x * z), dpr * (height / 2 - view.y * z)];
-    ctx.setTransform(...world);
+    // what lies under the art: the table, and the provinces drawn as plain cells (no terrain yet, or no art);
+    // painted onto the canvas, or once into the ground layer of a resting tile view
+    const plain = [];
+    const under = g => { table(g); g.setTransform(...world); for (const f of plain) f(g); };
     const ringsOpen = src.ringsOpen ?? 1, own = src.own ?? [];
     const maxRing = Math.max(0, ringsOpen - 1) + 1;
     const recs = new Map();
@@ -773,15 +776,14 @@ export class FrontierMap {
         const t = terrainOf?.(pr.p, pr.q);
         if (TILE_FOGS.includes(fog)) wanted++;
         if (t) { artTiles.push({ ...pr, ...t, rec, fog: artFog, selected, prov: src.provinceOf?.(pr.p, pr.q) ?? null, clash: src.clashOf?.(pr.p, pr.q) ?? null, pending: src.pendingOf?.(pr.p, pr.q) ?? null }); if (TILE_FOGS.includes(fog)) drawn++; continue; }
-        paintProvince(ctx, { ...pr, rec, fog, selected, scale: z });
+        plain.push(g => paintProvince(g, { ...pr, rec, fog, selected, scale: z }));
         continue;
       }
       if (lod === 'tile' && TILE_FOGS.includes(fog)) {
         wanted++;
         const t = terrainOf?.(pr.p, pr.q);
         if (t) {
-          paintTiles(ctx, { ...pr, ...t, rec, selectedTile: selected ? src.selected.idx : null });
-          paintVeil(ctx, { ...pr, fog, scale: z, selected });
+          plain.push(g => { paintTiles(g, { ...pr, ...t, rec, selectedTile: selected ? src.selected.idx : null }); paintVeil(g, { ...pr, fog, scale: z, selected }); });
           drawn++;
           continue;
         }
@@ -792,23 +794,26 @@ export class FrontierMap {
         const t = terrainOf?.(pr.p, pr.q);
         if (t) { artCells.push({ ...pr, ...t, rec, fog: own.length ? fog : 'clear', selected, prov: src.provinceOf?.(pr.p, pr.q, { far: true }) ?? null, tiers: src.tierOf ? Array.from({ length: 12 }, (_, j) => src.tierOf(pr.p, pr.q, j)) : null }); continue; }
       }
-      paintProvince(ctx, { ...pr, rec, fog, selected, scale: z });
+      plain.push(g => paintProvince(g, { ...pr, rec, fog, selected, scale: z }));
     }
+    // a resting tile view: the still layers (the table is in the ground layer), then the animated ones
+    const tileOpts = artTiles.length ? { zoom: z, dpr, artZoom, stamp: this.stamp, between: this.between ? c => this.between(c, { zoom: z, now }) : null, terrainAt: terrainLookup(terrainOf), fogAt, selected: src.selected, viewerFaction: src.viewerFaction ?? null, demoRoads: !!src.demoRoads, ringsOpen: src.ringsOpen ?? null, replayRing: src.artReplayRing ?? null, engineStage: src.engineStage ?? 0, relics: src.relics ?? [], waystones: src.waystones ?? [], demoSpecials: !!src.demoSpecials, rivers: src.rivers ?? [], demoRivers: !!src.demoRivers, alliedPairs: src.alliedPairs ?? [],
+      // people (people/crowds.mjs): the source's departures, explores and holder names; tags nearest the view centre first
+      people: src.people ? { ...src.people(), centre: { x: view.x, y: view.y } } : null } : null;
+    const missed = this.art?.misses ?? 0;
+    const layered = tileOpts && rest ? this.paintLayered(ctx, artTiles, tileOpts, world, now, under) : null;
+    if (!layered) under(ctx);
+    ctx.setTransform(...world);
     if (artCells.length) {
       this.art.paintFar(ctx, artCells, { zoom: z, dpr, terrainAt: terrainLookup(terrainOf), fogAt, alliedPairs: src.alliedPairs ?? [], lod, lens: src.lens ?? 'realm' });
       pending += this.art.farPending ?? 0;
       if (lod === 'world' && (src.lens ?? 'realm') !== 'land') paintRealmLabels(ctx, recs, z, src.realmName ?? null);
     }
-    if (artTiles.length) {
-      const opts = { zoom: z, dpr, artZoom, stamp: this.stamp, between: this.between ? c => this.between(c, { zoom: z, now }) : null, terrainAt: terrainLookup(terrainOf), fogAt, selected: src.selected, viewerFaction: src.viewerFaction ?? null, demoRoads: !!src.demoRoads, ringsOpen: src.ringsOpen ?? null, replayRing: src.artReplayRing ?? null, engineStage: src.engineStage ?? 0, relics: src.relics ?? [], waystones: src.waystones ?? [], demoSpecials: !!src.demoSpecials, rivers: src.rivers ?? [], demoRivers: !!src.demoRivers, alliedPairs: src.alliedPairs ?? [],
-        // people (people/crowds.mjs): the source's departures, explores and holder names; tags nearest the view centre first
-        people: src.people ? { ...src.people(), centre: { x: view.x, y: view.y } } : null };
-      const missed = this.art.misses;
-      kind = rest && this.paintLayered(ctx, artTiles, opts, world, now) ? 'live' : 'full';
-      if (kind === 'full' && !this.layerFresh) this.art.paint(ctx, artTiles, { ...opts, part: 'world' });
-      this.layerFresh = false;
+    if (tileOpts) {
+      kind = layered === 'live' ? 'live' : 'full';
+      if (!layered) this.art.paint(ctx, artTiles, { ...tileOpts, part: 'world' });
+      labels = () => this.art.labels(ctx, tileOpts);
       pending += this.art.misses - missed;   // sprites still on their way
-      labels = () => this.art.labels(ctx, opts);
     }
     if (src.reach?.tiles?.length) { paintReach(ctx, src.reach.tiles, z, clock() / 1000, src.reach.t0); this.invalidateSoon(); }
     if (src.route) paintRoute(ctx, src.route, z);
@@ -824,41 +829,44 @@ export class FrontierMap {
   }
 
   /**
-   * The tile view of a resting camera: the still ground and the still props
-   * are painted once into two bitmaps the size of the canvas and kept until
-   * the picture or the data changes; every frame after that is two copies
-   * and the animated layers (hosts, people, moments, battles, labels).
-   * Returns false when it could not (no spare canvas) or when this frame had
-   * to paint the layers first (`layerFresh`: the frame is whole, but it was
-   * a full one).
+   * The tile view of a resting camera: the still ground (with the table
+   * under it) and the still props are painted once into two bitmaps the size
+   * of the canvas and kept until the picture or the data changes; every
+   * frame after that is two copies and the animated layers (hosts, people,
+   * moments, battles). `under(g)` paints what lies under the art. Returns
+   * 'live' (only the animated layers were painted), 'fresh' (this frame had
+   * to paint the still layers first: a full frame) or null (no spare
+   * canvas: the caller paints the frame whole).
    */
-  paintLayered(ctx, tiles, opts, world, now) {
+  paintLayered(ctx, tiles, opts, world, now, under) {
     const W = this.canvas.width, H = this.canvas.height;
     const L = this.layers ??= { key: null, at: 0 };
     for (const n of ['ground', 'props']) {
       if (L[n]?.cv.width === W && L[n].cv.height === H) continue;
-      const cv = spareCanvas(this.canvas.ownerDocument, W, H), g = cv?.getContext?.('2d');
-      if (!g) return false;
+      const cv = spareCanvas(this.canvas.ownerDocument, W, H), g = cv?.getContext?.('2d', n === 'ground' ? { alpha: false } : undefined);
+      if (!g) { this.layers = null; return null; }
       L[n] = { cv, g };
       L.key = null;
     }
     const key = `${this.stamp}|${this.sceneKey}`;
     const fresh = L.key !== key || now - L.at > LAYER_MAX_AGE_MS;
     if (fresh) {
-      for (const n of ['ground', 'props']) {
-        const g = L[n].g;
-        g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, W, H); g.setTransform(...world);
-        this.art.paint(g, tiles, { ...opts, part: n, between: null });
-      }
+      under(L.ground.g);
+      L.ground.g.setTransform(...world);
+      this.art.paint(L.ground.g, tiles, { ...opts, part: 'ground', between: null });
+      const g = L.props.g;
+      g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, W, H); g.setTransform(...world);
+      this.art.paint(g, tiles, { ...opts, part: 'props' });
       L.key = key; L.at = now;
     }
-    const copy = cv => { ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(cv, 0, 0); ctx.restore(); };
-    copy(L.ground.cv);
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'copy'; ctx.drawImage(L.ground.cv, 0, 0); ctx.globalCompositeOperation = 'source-over';
+    ctx.restore();
+    ctx.setTransform(...world);
     opts.between?.(ctx);   // ground-level effects: over the land, under what stands on it
-    copy(L.props.cv);
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(L.props.cv, 0, 0); ctx.restore();
     this.art.paint(ctx, tiles, { ...opts, part: 'live' });
-    this.layerFresh = fresh;
-    return !fresh;
+    return fresh ? 'fresh' : 'live';
   }
 
   destroy() {
