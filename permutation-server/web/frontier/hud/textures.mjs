@@ -50,11 +50,11 @@ function tiled(size, fn) { for (const dx of [-size, 0, size]) for (const dy of [
 function paperTile(doc) {
   const S = 256, c = canvasOf(doc, S, S), g = c.getContext('2d'), rnd = seeded(41);
   // faint stains: large soft pools, a little darker or lighter
-  for (let i = 0; i < 9; i++) {
-    const x = rnd() * S, y = rnd() * S, r = 40 + rnd() * 70, dark = rnd() < 0.6;
+  for (let i = 0; i < 7; i++) {
+    const x = rnd() * S, y = rnd() * S, r = 50 + rnd() * 80, dark = rnd() < 0.5;
     tiled(S, (dx, dy) => {
       const k = g.createRadialGradient(x + dx, y + dy, 0, x + dx, y + dy, r);
-      k.addColorStop(0, dark ? 'rgba(120,92,40,.055)' : 'rgba(255,252,240,.09)'); k.addColorStop(1, 'rgba(0,0,0,0)');
+      k.addColorStop(0, dark ? 'rgba(120,92,40,.026)' : 'rgba(255,252,240,.07)'); k.addColorStop(1, 'rgba(0,0,0,0)');
       g.fillStyle = k; g.fillRect(0, 0, S, S);
     });
   }

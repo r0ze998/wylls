@@ -297,7 +297,7 @@ export function renderNextRow(next) {
   if (!next) return '';
   return html`<div class="next-row next-${next.kind}">
     <button type="button" class="next-row-go" data-act="${next.act}" ${dataAttrs(next.data)} aria-label="${L`次にやること：${next.text}`}"><span class="todo-medal">${icon(next.icon, 'todo-ic')}</span><span class="next-row-t">${next.kicker ? html`<span class="next-kicker">${next.kicker}</span>` : ''}<strong>${next.title}</strong></span>${next.label ? html`<span class="next-row-do">${next.label}</span>` : next.more > 0 ? html`<span class="todo-n">${L`ほか ${fmtNum(next.more)}`}</span>` : ''}${icon('next', 'todo-go')}</button>
-    ${next.kind === 'guide' ? html`<button type="button" class="next-row-steps" data-act="guide-open" aria-label="${L`ガイドの手順を見る`}">${icon('more')}</button>` : ''}</div>`;
+    ${next.kind === 'guide' ? html`<button type="button" class="next-row-steps" data-act="guide-open" aria-label="${L`ガイドの手順を見る`}">${icon('list')}</button>` : ''}</div>`;
 }
 
 /** The plate's line for a viewer without a village yet (the built behaviour: the page asks for the village itself). */
@@ -336,7 +336,7 @@ export function renderPlate(FS) {
   const clocks = holdingCountdowns(FS, h);
   const name = holdingName(h);
   const i = hs.indexOf(h);
-  return html`<div class="plate${warned ? ' plate-warned' : ''}"><span class="plate-bar f${faction}" aria-hidden="true"></span>
+  return html`<div class="plate${warned ? ' plate-warned' : ''}">
     <button type="button" class="plate-main" data-act="home" aria-label="${hs.length > 1 ? L`${name}へ移動（もう一度押すと次の村）` : L`${name}へ移動`}">
       <span class="plate-face">${face}</span>
       <span class="plate-text"><strong class="plate-name">${name}${h.state === 2 ? '' : html` <span class="plate-tag">${L`仮`}</span>`}</strong>

@@ -401,7 +401,7 @@ export default {
   'すべて': 'All', '警告だけ': 'Warnings only', 'オフ': 'Off', 'ガイドの強さ': 'Guide',
   'この野営地へ進軍を準備する': 'Prepare a march on this camp',
   '野営地を地図で見る': 'Show the camp on the map',
-  '建設のパネルへ': 'Go to building',
+  '建設をひらく': 'Open building',
   '村と軍勢を見る': 'Show the village and hosts',
   'ガイド：蛮族の野営地': 'Guide: barbarian camp',
   'ガイド：あなたの村': 'Guide: your village',
