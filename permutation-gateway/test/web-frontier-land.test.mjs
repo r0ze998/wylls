@@ -18,7 +18,10 @@ import * as BOOK from '../../permutation-server/web/frontier/map/landing.mjs';
 import { placeName, placeWhere } from '../../permutation-server/web/frontier/map/names.mjs';
 import * as S from '../../permutation-server/web/frontier/map/survey.mjs';
 import { SpriteArt, buildRealms, OTHER_WASH } from '../../permutation-server/web/frontier/map/sprites.mjs';
-import { CLOUD_RINGS, FrontierMap, paintRealmLabels, worldRim } from '../../permutation-server/web/frontier/map/fmap.mjs';
+import { CLOUD_RINGS, FrontierMap, paintRealmLabels } from '../../permutation-server/web/frontier/map/fmap.mjs';
+import { HEX_W, SHEET, paintSheet, paintTable, sheetOf, tableShows, woodTexture } from '../../permutation-server/web/frontier/map/table.mjs';
+import { CloudSea, PUFF, driftTexture, puffsOf, seaField } from '../../permutation-server/web/frontier/map/cloudsea.mjs';
+import { landBox } from '../../permutation-server/web/frontier/map/camera.mjs';
 import * as inspect from '../../permutation-server/web/frontier/hud/inspect.mjs';
 import * as ACTIVITY from '../../permutation-server/web/frontier/people/activity.mjs';
 import { DIRECTIONS, hexDistance, locate, ringOf, ringProvinces, tileHex, PROVINCE_TILES } from '../../permutation-server/web/frontier/fgeo.mjs';
@@ -364,23 +367,65 @@ test('the world chart names through the layout and writes the names it is given'
   assert.deepEqual(quiet.calls.filter(c => c[0] === 'fillText').map(c => c[1]), ['My Town'], 'the land lens: the viewer\'s village still has its name');
 });
 
-test('the edge of the world: the cloud thins into the table before its own outer edge', () => {
-  const r3 = worldRim(3), r5 = worldRim(5);
-  assert.ok(r3.from < r3.to && r3.to < r3.out);
-  assert.ok(r5.from > r3.to, 'further out with more rings open');
-  const far = (q, r) => { const c = project(q, r); return Math.hypot(c.x, c.y / 0.76); };
-  // the outer edge of the cloud sea (two rings of it are drawn): the tiles of its outer ring that touch what lies beyond
-  assert.equal(CLOUD_RINGS, 2);
-  let nearest = Infinity, furthest = 0, land = 0;
-  for (const pr of ringProvinces(4)) for (let i = 0; i < PROVINCE_TILES; i++) {
-    const h = tileHex(pr.p, pr.q, i);
-    furthest = Math.max(furthest, far(h.q, h.r));
-    if (DIRECTIONS.some(([dq, dr]) => { const at = locate(h.q + dq, h.r + dr); return ringOf(at.p, at.q) === 5; })) nearest = Math.min(nearest, far(h.q, h.r));
+// Rewritten with UX brief §11.2 and §11.3. The world used to end in two rings of stamped cloud that a gradient
+// dissolved into the table's colour (worldRim). It now ends as a sheet: the cloud sea is a bank between the land's
+// edge and the sheet's bare margin, and the sheet has an edge of its own.
+test('the edge of the world: a cloud bank between the land and the sheet\'s bare margin; the sheet ends as a sheet', () => {
+  assert.equal(CLOUD_RINGS, 1, 'one ring of unopened provinces is in the model, so the land knows where it ends');
+  const sheet = sheetOf(3), land = landBox(3);
+  assert.equal(sheetOf(3), sheet, 'the same sheet every time');
+  const room = (SHEET.sea + SHEET.fade + SHEET.margin) * HEX_W;
+  assert.ok(sheet.x >= land.x + room - 1e-6 && sheet.y > land.y + room * 0.7, 'room beyond the land for the bank, its thinning and a bare margin');
+  assert.ok(sheet.x > sheet.y, 'wider than tall, as the squashed ground is');
+  assert.ok(sheetOf(6).x > sheet.x + 1000, 'a larger world lies on a larger sheet');
+  // the outline: a rectangle whose edge is deckled (never ruler-straight, never far from the rectangle)
+  let off = 0;
+  for (const [x, y] of sheet.points) {
+    const d = Math.max(Math.abs(x) - sheet.x, Math.abs(y) - sheet.y);
+    assert.ok(d < 20 && d > -60, `an outline point ${d.toFixed(1)} px from the rectangle`);
+    off = Math.max(off, Math.abs(d));
   }
-  for (const pr of ringProvinces(2)) for (let i = 0; i < PROVINCE_TILES; i++) { const h = tileHex(pr.p, pr.q, i); land = Math.max(land, far(h.q, h.r)); }
-  assert.ok(r3.to < nearest, 'the cloud is gone before the nearest point of its stepped outer edge');
-  assert.ok(r3.out >= furthest + RADIUS, 'and the table is painted out to its furthest corner');
-  assert.ok(r3.from > land, 'the open land itself is never dimmed');
+  assert.ok(off > 6 && sheet.points.length > 300, 'deckled');
+  assert.ok(Math.abs(sheet.rose.x) < sheet.x && Math.abs(sheet.rose.y) < sheet.y, 'the compass rose stands on the sheet');
+  // the table shows only where the picture reaches past the sheet
+  const inside = [{ x: -500, y: -300 }, { x: 500, y: -300 }, { x: 500, y: 300 }, { x: -500, y: 300 }];
+  assert.equal(tableShows(inside, sheet), false);
+  assert.equal(tableShows([...inside.slice(0, 3), { x: -sheet.x - 100, y: 300 }], sheet), true);
+  // the sea's field: steps from the land, and how much cloud lies at a point
+  const sea = seaField(3);
+  assert.equal(sea.steps(0, 0), 0, 'the Concord is land');
+  const rim = (() => { let q = 0; while (sea.steps(q + 1, 0) === 0) q++; return q; })();
+  assert.deepEqual([sea.steps(rim, 0), sea.steps(rim + 1, 0), sea.steps(rim + 2, 0), sea.steps(rim + 3, 0)], [0, 1, 2, 3], 'one step a tile, outward from the last tile of land');
+  const at = n => project(rim + n, 0);
+  assert.equal(sea.cover(0, 0, sheet), 0, 'no cloud over the land');
+  assert.equal(sea.cover(at(-2).x, at(-2).y, sheet), 0, 'two tiles inside its edge: none');
+  assert.ok(sea.cover(at(0).x, at(0).y, sheet) < 0.5, 'on the last tile of land at most a thin mist');
+  assert.ok(sea.depth(at(0).x + HEX_W / 2, at(0).y) > 0.35 && sea.depth(at(0).x + HEX_W / 2, at(0).y) < 0.65, 'about half a step on the land\'s own edge');
+  let thick = 0;
+  for (let i = 0; i < 40; i++) { const a = (i / 40) * Math.PI * 2, R = land.x + HEX_W * 2.6; if (sea.cover(Math.cos(a) * R, Math.sin(a) * R * 0.76, sheet) > 0.85) thick++; }
+  assert.ok(thick >= 14, `${thick} of 40 points two to three tiles out are deep in the bank (the land is a hexagon: some of that circle is nearer, some further)`);
+  // it never reaches the sheet's edge: the margin is bare paper
+  for (let i = 0; i < 60; i++) {
+    const t = (i / 59) * 2 - 1;
+    assert.equal(sea.cover(sheet.x - HEX_W * 0.4, t * sheet.y, sheet), 0);
+    assert.equal(sea.cover(t * sheet.x, sheet.y - HEX_W * 0.4 * 0.76, sheet), 0);
+  }
+  // the puffs: seeded by the tile (the same every time), turned, flipped, sized and moved; never on the lattice
+  const a1 = puffsOf(40, -3, 2), a2 = puffsOf(40, -3, 2);
+  assert.deepEqual(a1, a2);
+  const many = [];
+  for (let q = 0; q < 30; q++) for (let r = 0; r < 30; r++) many.push(...puffsOf(q, r, 2));
+  assert.ok(many.length > 600 && many.length < 1700, `${many.length} puffs on 900 tiles: not one a tile`);
+  assert.ok(many.every(p => Math.abs(p.turn) <= PUFF.turn + 1e-9 && [1, 2, 3].includes(p.variant) && p.size > 0.4 && p.size < 2));
+  assert.ok(many.some(p => p.flip) && many.some(p => !p.flip) && new Set(many.map(p => p.variant)).size === 3);
+  assert.ok(many.filter(p => Math.hypot(p.dx, p.dy) > 0.1).length > many.length * 0.8, 'moved off their tiles\' middles');
+  assert.ok(Math.max(...many.map(p => p.size)) / Math.min(...many.map(p => p.size)) > 2.2, 'small and large');
+  // without a canvas the painters return quietly
+  assert.equal(woodTexture(), null);
+  assert.equal(driftTexture(), null);
+  paintTable(null, { view: { x: 0, y: 0, zoom: 1 }, size: { width: 10, height: 10 } });
+  paintSheet(null, sheet);
+  assert.deepEqual(new CloudSea().paint(null, { box: { x0: 0, y0: 0, x1: 10, y1: 10 } }), { pending: 0, seen: false });
 });
 
 test('the landing book: a provisional village lands once on a device; one that is already final is old news', () => {

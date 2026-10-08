@@ -283,3 +283,25 @@ test('the pointer home: under a tilt it judges by where home is seen', () => {
   const far = edgePointer(view, desk, { x: 4000, y: -200 }, { geo: g });
   assert.ok(far && far.x > desk.width / 2 && far.tiles > 0);
 });
+
+test('the minimap frame: the four projected corners of the picture, not a rectangle', async () => {
+  const MINI = await import('../../permutation-server/web/frontier/hud/minimap.mjs');
+  const rec = () => { const calls = []; const grad = { addColorStop() {} }; return new Proxy({ calls }, { get: (t, k) => (k === 'calls' ? calls : k === 'createRadialGradient' ? () => grad : (...a) => { calls.push([k, ...a]); }), set: () => true }); };
+  const { m } = mapOn(desk);
+  m.setView({ x: homePoint.x, y: homePoint.y, zoom: 1.3 });
+  const quad = m.viewQuad(), fr = MINI.frameOf(4, MINI.MINIMAP_PX);
+  const g = rec();
+  MINI.paintMinimap(g, { recs: new Map(), rings: 3, view: m.shown, size: desk, quad });
+  // the last closed path before the rim is the frame: it goes through the four corners in order
+  const pts = quad.map(w => fr.toPx(w.x, w.y));
+  const moves = g.calls.filter(c => c[0] === 'moveTo' || c[0] === 'lineTo').map(c => [c[1], c[2]]);
+  const at = moves.findIndex(([x, y]) => Math.abs(x - pts[0].x) < 1e-6 && Math.abs(y - pts[0].y) < 1e-6);
+  assert.ok(at >= 0, 'the frame starts at the far left corner');
+  pts.forEach((p, i) => assert.ok(Math.abs(moves[at + i][0] - p.x) < 1e-6 && Math.abs(moves[at + i][1] - p.y) < 1e-6, `corner ${i}`));
+  assert.ok(pts[1].x - pts[0].x > pts[2].x - pts[3].x, 'a trapezoid: wider along the far edge');
+  assert.equal(g.calls.some(c => c[0] === 'strokeRect'), false, 'no rectangle');
+  // without the corners (an older caller): the rectangle of the flat view, as before
+  const flat = rec();
+  MINI.paintMinimap(flat, { recs: new Map(), rings: 3, view: m.shown, size: desk });
+  assert.equal(flat.calls.filter(c => c[0] === 'strokeRect').length, 1);
+});

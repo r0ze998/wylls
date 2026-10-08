@@ -143,7 +143,9 @@ export const SCENES = [
     async go(page) {
       await page.locator('#frontier-map[data-lod="tile"]').waitFor();
       await page.locator('#frontier-map').focus();
-      for (let i = 0; i < 14; i++) await page.keyboard.press('ArrowRight');
+      // (west: the village stands near the land's eastern edge, and the pan stops where the cloud sea would take a
+      // third of the picture, UX brief §11.3; it was fourteen steps east, into the cloud)
+      for (let i = 0; i < 14; i++) await page.keyboard.press('ArrowLeft');
       await page.locator('[data-map="home-pointer"]').waitFor({ state: 'visible' });
       const name = await page.locator('[data-map="home-pointer"]').getAttribute('aria-label');
       if (!/\d/.test(name ?? '')) throw new Error(`the pointer does not say how far: ${name}`);

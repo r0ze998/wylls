@@ -31,7 +31,7 @@
 import { paintPins } from '../hud/pins.mjs';
 import { inverseHex } from '../../map.mjs';
 import { L, onLangChange } from '../../lang.mjs';
-import { DIRECTIONS, PROVINCE_TILES, locate, ringOf, ringProvinces, hexDistance, tileHex } from '../fgeo.mjs';
+import { locate, ringOf, ringProvinces, hexDistance, tileHex } from '../fgeo.mjs';
 import { fogLevel, paintProvince, paintTiles, paintVeil, provincePixel, PROVINCE_CIRCUMRADIUS } from './layers.mjs';
 import { createTerrain } from './terrain.mjs';
 import { SpriteArt, artSize, farRes, terrainLookup } from './sprites.mjs';
@@ -89,8 +89,6 @@ export const LOD_HOLD_MS = 700;
 export const REVEAL_MS = 520;
 /** The dissolve's still is gone once the zoom has travelled this far from it (natural log of the zoom ratio). */
 export const LOD_FADE_DRIFT = 0.32;
-/** The table under the world (the vignette of dressing.mjs darkens it toward the edges). */
-export const TABLE = '#2a4742';
 /**
  * Bitmaps the size of the canvas (the two still layers, the dressing) are kept only up to this many
  * pixels each (about 36 MB): a larger canvas is painted whole every frame, as before.
@@ -324,52 +322,11 @@ export function paintRoute(ctx, route, zoom, { now = fxNow(), still = false } = 
   paintRibbon(ctx, route.hexes ?? [], { zoom, own: true, now, still });
 }
 
-/** Rings of cloud sea drawn around the open rings: the first is the ring that opens next; the second gives the sea room to thin out in. */
-export const CLOUD_RINGS = 2;
-const rims = new Map();
 /**
- * The radii (world px from the Concord, on the unflattened ground) between
- * which the cloud sea around the open rings thins into the table: `from`
- * beyond the furthest open land (the land itself is never dimmed), `to`
- * just inside the nearest point of the outermost cloud ring's own stepped
- * edge (so that edge is never left showing), `out` beyond its furthest corner.
+ * Rings of unopened provinces kept in the picture's model around the open rings: the land's last tiles know that
+ * cloud, not land, lies beyond them. (The cloud itself is one body over the sheet: map/cloudsea.mjs.)
  */
-export function worldRim(ringsOpen) {
-  const d = Math.max(1, ringsOpen ?? 1), outer = d + CLOUD_RINGS - 1;
-  if (rims.has(d)) return rims.get(d);
-  const far = (q, r) => { const c = project(q, r); return Math.hypot(c.x, c.y / FLATTEN); };
-  let land = 0, nearest = Infinity, furthest = 0;
-  for (const pr of d > 1 ? ringProvinces(d - 1) : [{ p: 0, q: 0 }]) for (let i = 0; i < PROVINCE_TILES; i++) { const h = tileHex(pr.p, pr.q, i); land = Math.max(land, far(h.q, h.r)); }
-  for (const pr of ringProvinces(outer)) for (let i = 0; i < PROVINCE_TILES; i++) {
-    const h = tileHex(pr.p, pr.q, i), r = far(h.q, h.r);
-    if (r > furthest) furthest = r;
-    if (r < nearest && DIRECTIONS.some(([dq, dr]) => { const at = locate(h.q + dq, h.r + dr); return ringOf(at.p, at.q) > outer; })) nearest = r;
-  }
-  const to = nearest - RADIUS * 0.4, from = Math.max(land + RADIUS * 0.6, to - PROVINCE_CIRCUMRADIUS * 1.5);
-  const v = { from, to, out: furthest + RADIUS * 2.5 };
-  if (rims.size > 8) rims.clear();
-  rims.set(d, v);
-  return v;
-}
-
-/** Paint that edge where the view reaches it (the context is in world px). */
-export function paintWorldRim(ctx, ringsOpen, view, size) {
-  if (!ctx?.createRadialGradient || !ctx.save) return;
-  const R = worldRim(ringsOpen);
-  const hw = size.width / 2 / view.zoom, hh = size.height / 2 / view.zoom;
-  // the furthest corner of the view from the Concord, on the unflattened ground
-  const far = Math.hypot(Math.abs(view.x) + hw, (Math.abs(view.y) + hh) / FLATTEN);
-  if (far <= R.from) return;
-  ctx.save();
-  ctx.scale(1, FLATTEN);
-  const g = ctx.createRadialGradient(0, 0, R.from, 0, 0, R.to);
-  g.addColorStop(0, 'rgba(42,71,66,0)'); g.addColorStop(0.55, 'rgba(42,71,66,.62)'); g.addColorStop(1, TABLE);
-  ctx.fillStyle = g;
-  // only the ring where the cloud thins and the corners beyond it (the table further out is the table already)
-  ctx.beginPath(); ctx.arc(0, 0, R.out, 0, Math.PI * 2); ctx.arc(0, 0, R.from, 0, Math.PI * 2, true);
-  ctx.fill();
-  ctx.restore();
-}
+export const CLOUD_RINGS = 1;
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const clock = () => globalThis.performance?.now?.() ?? Date.now();

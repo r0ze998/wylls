@@ -493,8 +493,12 @@ export class SpriteArt {
     ctx.lineCap = 'round';
     if (chart) { ctx.strokeStyle = 'rgba(96,80,48,0.5)'; ctx.lineWidth = 1.5 / zoom; ctx.stroke(chart); }
     if (over) {
-      ctx.strokeStyle = BOUNDARY_HALO; ctx.lineWidth = (ink + 2) / zoom; ctx.stroke(over);
-      ctx.strokeStyle = BOUNDARY_INK; ctx.lineWidth = ink / zoom; ctx.stroke(over);
+      // over painted land a border is quiet ink with a breath of pale beside it (it read as a white crack across
+      // the diorama); the selected province keeps the whole two-tone line
+      const was = ctx.globalAlpha;
+      ctx.globalAlpha = was * (selected ? 1 : 0.26); ctx.strokeStyle = BOUNDARY_HALO; ctx.lineWidth = (ink + (selected ? 2 : 1.5)) / zoom; ctx.stroke(over);
+      ctx.globalAlpha = was * (selected ? 1 : 0.6); ctx.strokeStyle = BOUNDARY_INK; ctx.lineWidth = ink / zoom; ctx.stroke(over);
+      ctx.globalAlpha = was;
     }
     ctx.lineCap = 'butt';
   }

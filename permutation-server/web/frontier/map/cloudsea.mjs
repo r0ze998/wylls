@@ -112,7 +112,8 @@ export function seaField(ringsOpen) {
     // (it reaches a little way over the land's last tiles: up to half a hex here, not at all there)
     const lip = step(0.06, 1.15, s + noise(x / 300, y / 240, 41) * 0.5 + noise(x / 95, y / 76, 42) * 0.2);
     if (!(lip > 0)) return 0;
-    const inner = 1 - Math.pow(1 - lip, 1.7);
+    // (over the land itself it is never more than a thin mist: what stands on a tile in sight stays in sight)
+    const inner = (1 - Math.pow(1 - lip, 1.7)) * (s < 0.5 ? 0.4 + 1.2 * s : 1);
     // where it thins into the bare paper, and the sheet's own margin, which it never reaches
     const outer = 1 - step(SHEET.sea, SHEET.sea + SHEET.fade, s - 0.5 + noise(x / 240, y / 200, 43) * 0.7);
     let edge = 1;
@@ -270,7 +271,8 @@ export class CloudSea {
         if (dep === 0 || dep >= FAR) continue;
         for (const p of puffsOf(q, r, dep, thin)) {
           const x = cx + p.dx * HEX_W, y = cy + p.dy * HEX_W * FLATTEN, a = F.cover(x, y, sheet);
-          if (a > 0.16) list.push({ x, y, a: Math.min(1, a * 1.3), p });
+          // (no puff stands over the land: next to it they are small, so none hangs over a tile in sight)
+          if (a > 0.16 && F.depth(x, y) > 0.62) list.push({ x, y, a: Math.min(1, a * 1.3), p: dep === 1 ? { ...p, size: Math.min(p.size, 0.9) } : p });
         }
       }
     }
