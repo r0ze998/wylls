@@ -38,6 +38,7 @@ import { BOUNDARY_HALO, BOUNDARY_INK, FOG, UNOPENED_FILL, paintSigil, provincePi
 import { applySurvey, fxNow, mutedSprite, paintChart, paintReveal } from './chart.mjs';
 import { FOG_OF_LEVEL, L2, L3, hexKey } from './survey.mjs';
 import { reducedMotion } from './camera.mjs';
+import { landShape } from './ownland.mjs';
 
 const BASE = new URL('../art/', import.meta.url);
 /** The far bitmaps' resolutions (device px per world px) and their cache budget in pixels. */
@@ -46,6 +47,9 @@ export const FAR_PIXELS = 24_000_000;
 /** The ground bitmaps of the tile view: their cache budget in pixels, and how many may be painted in one frame. */
 export const GROUND_PIXELS = 12_000_000;
 export const GROUND_BAKES = 2;
+/** How strong another nation's territory is drawn for a viewer who has a nation (its wash, its borders): quieter than the viewer's own nation's. */
+export const OTHER_WASH = 0.6;
+export const OTHER_BORDER = 0.82;
 /** The hex grid's line (world px): it is part of the board and scales with it. */
 export const GRID_WORLD = 0.9;
 /** Milliseconds a frame may spend painting new far bitmaps (the rest wait for the next frame). */
@@ -86,7 +90,7 @@ export function paintSettleLens(ctx, entries, zoom, levelAt = null) {
       const h = tileHex(e.p, e.q, idx), c = project(h.q, h.r);
       if (levelAt && levelAt(h.q, h.r) < L2) return;
       ctx.beginPath(); ctx.arc(c.x, c.y, Math.max(RADIUS * 0.45, 5 * k), 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(243,213,138,.35)'; ctx.fill(); ctx.strokeStyle = '#f3d58a'; ctx.lineWidth = 2 * k; ctx.stroke();
+      ctx.fillStyle = 'rgba(244,239,224,.3)'; ctx.fill(); ctx.strokeStyle = '#f4efe0'; ctx.lineWidth = 2 * k; ctx.stroke();
     });
   }
   ctx.restore();
@@ -129,7 +133,9 @@ export function paintSettlement(ctx, x, y, s, f, tier = 0) {
 }
 
 /** The realms of a set of far entries: per faction a fill path and a border path, and the holdings' marks. */
-export function buildRealms(entries, { grow = 0, levelAt = null } = {}) {
+export function buildRealms(entries, { grow = 0, levelAt = null, own = null } = {}) {
+  // `own`: a Set "P,Q,tile" of the viewer's own villages: they keep their mark and claim no realm land here
+  // (the viewer's land is painted as the viewer's own, in its true size: map/ownland.mjs)
   // with a survey: only the villages the viewer has surveyed, and their land only as far as it is surveyed
   const seen = (q, r) => !levelAt || levelAt(q, r) >= L2;
   if (typeof Path2D === 'undefined') return null;
@@ -149,6 +155,7 @@ export function buildRealms(entries, { grow = 0, levelAt = null } = {}) {
       if (!seen(h.q, h.r)) return;
       const c = project(h.q, h.r);
       holdings.push({ x: c.x, y: c.y, f, tier });
+      if (own?.has(`${e.p},${e.q},${idx}`)) return;
       const rad = ([1, 2, 2, 3][tier] ?? 1) + grow;
       for (let dq = -rad; dq <= rad; dq++) for (let dr = Math.max(-rad, -dq - rad); dr <= Math.min(rad, -dq + rad); dr++) {
         const d = Math.max(Math.abs(dq), Math.abs(dr), Math.abs(dq + dr));
@@ -559,11 +566,13 @@ export class SpriteArt {
       if (!o.path) continue;
       // (on the chart a border is a sepia line)
       ctx.strokeStyle = svOf(e)?.kind === 'chart' ? 'rgba(96,80,48,0.34)' : 'rgba(24,30,26,0.22)'; ctx.lineWidth = 1.4 / zoom; ctx.stroke(o.path);
-      if (e.selected) { ctx.strokeStyle = '#f3d58a'; ctx.lineWidth = 3 / zoom; ctx.stroke(o.path); }
+      // (the selected province: ivory over ink; gold is kept for what is the viewer's own)
+      if (e.selected) { ctx.strokeStyle = 'rgba(14,22,20,.7)'; ctx.lineWidth = 5.5 / zoom; ctx.stroke(o.path); ctx.strokeStyle = '#f4efe0'; ctx.lineWidth = 2.6 / zoom; ctx.stroke(o.path); }
     }
     // realms, hosts and free sites: of the land the viewer has surveyed (hosts: of provinces in sight)
     const levelAt = limited ? survey.levelAt : null;
-    if (lens !== 'land') this.paintRealms(ctx, entries, { zoom, lod, lens, levelAt, rev: limited ? survey.rev : 0 });
+    const own = limited && survey.villages?.length ? new Set(survey.villages.map(v => `${v.p},${v.q},${v.tile}`)) : null;
+    if (lens !== 'land') this.paintRealms(ctx, entries, { zoom, lod, lens, levelAt, rev: limited ? survey.rev : 0, own });
     if (lens === 'war') paintWarLens(ctx, limited ? entries.filter(e => svOf(e)?.max === L3) : entries, zoom);
     if (lens === 'settle') paintSettleLens(ctx, entries, zoom, levelAt);
     // a clash this bell: a small crossed-swords mark, at province detail only (the world view stays a map)
@@ -587,10 +596,10 @@ export class SpriteArt {
    * and each holding as a mark in its faction's colour (larger for a city or
    * a stronghold). Cached until the drawn provinces' holdings change.
    */
-  paintRealms(ctx, entries, { zoom, lod, lens = 'realm', levelAt = null, rev = 0 }) {
+  paintRealms(ctx, entries, { zoom, lod, lens = 'realm', levelAt = null, rev = 0, own = null }) {
     const key = entries.map(e => (e.rec ? `${e.p},${e.q}:${e.rec.owners.join('')}${e.rec.sites.join('')}${e.prov ? (e.prov.siteMirror ?? []).map(m => m.tier).join('') : (e.tiers ?? []).join('')}` : '')).join('|');
     const rk = `${lod}|${rev}|${key}`;
-    if (this.realmKey !== rk) { this.realm = buildRealms(entries, { grow: 1, levelAt }); this.realmKey = rk; }
+    if (this.realmKey !== rk) { this.realm = buildRealms(entries, { grow: 1, levelAt, own }); this.realmKey = rk; }
     const R = this.realm;
     if (!R) return;
     ctx.save();
@@ -656,9 +665,11 @@ export class SpriteArt {
 
   /**
    * The tiles of a frame: `{tiles (back to front), byHex "q,r", byId "P,Q,idx", byProv "P,Q", owner
-   * (territory: "q,r" → {f, d}), war, washSig "P,Q" → text}`; each tile carries `wash` ({f, edges} or
-   * null: its nation and border kinds). Built once and kept while the same entries, options and map
-   * stamp come again (an animation frame builds nothing).
+   * (territory: "q,r" → {f, d, s: the claiming site's tile}), war, washSig "P,Q" → text, lands}`; each
+   * tile carries `wash` ({f, edges, mine} or null: its nation, its border kinds, and whether the site
+   * that claims it is one of the viewer's own villages). `lands` are the viewer's own lands
+   * (`[{key "P,Q,tile", village, tiles, shape, provisional}]`, map/ownland.mjs paints them). Built once
+   * and kept while the same entries, options and map stamp come again (an animation frame builds nothing).
    */
   model(entries, { demoRoads = false, relics = [], waystones = [], demoSpecials = false, rivers = [], demoRivers = false, ringsOpen = null, alliedPairs = [], stamp = undefined, survey = null }) {
     const sig = [stamp, survey, demoRoads, demoSpecials, demoRivers, ringsOpen, alliedPairs.join('|'), relics.length ? relics : 0, waystones.length ? waystones : 0, rivers.length ? rivers : 0];
@@ -784,9 +795,15 @@ export class SpriteArt {
         const nb = byHex.get(key);
         if (!nb || nb.cloud || nb.lv < L2 || (d > 0 && nb.name === 'water')) continue;
         const cur = owner.get(key);
-        if (!cur || d < cur.d) owner.set(key, { f: t.owner, d });
+        if (!cur || d < cur.d) owner.set(key, { f: t.owner, d, s: t, q: t.q + dq, r: t.r + dr });
       }
     }
+    // the viewer's own villages: the land each of them claims (map/ownland.mjs), told from a nation-mate's by the claiming site
+    const mine = new Map();
+    if (survey && !survey.showAll) for (const v of survey.villages ?? []) { const t = byId.get(`${v.p},${v.q},${v.tile}`); if (t && t.state === 1) mine.set(t, { key: `${v.p},${v.q},${v.tile}`, village: v, tiles: [], provisional: v.state === 1 }); }
+    if (mine.size) for (const o of owner.values()) mine.get(o.s)?.tiles.push({ q: o.q, r: o.r, d: o.d });
+    const lands = [...mine.values()].map(x => ({ ...x, shape: landShape(x.tiles) }));
+    const viewer = survey && !survey.showAll && Number.isInteger(survey.faction) ? survey.faction : null;
     const war = new Set();
     for (const e of entries) {
       const fs = new Set((e.clash?.arrivals ?? []).filter((a) => a.present && a.faction < 6).map((a) => a.faction));
@@ -799,21 +816,22 @@ export class SpriteArt {
     // signature of it (a province's ground bitmap is kept until this changes)
     const washSig = new Map();
     for (const [pk, list] of byProv) {
-      let text = '';
+      let text = viewer === null ? '' : `v${viewer}`;
       for (const t of list) {
-        const f = t.cloud ? undefined : owner.get(keyOf(t.q, t.r))?.f;
+        const o = t.cloud ? undefined : owner.get(keyOf(t.q, t.r));
+        const f = o?.f;
         if (f === undefined) { t.wash = null; text += '-'; continue; }
         const edges = EDGE_DIRS.map(([dq, dr]) => {
           const g2 = owner.get(keyOf(t.q + dq, t.r + dr))?.f;
           return g2 === f ? null : g2 === undefined ? 'own' : calm(t.rel, f, g2) ? 'ally' : war.has(`${t.p},${t.pq}:${Math.min(f, g2)}-${Math.max(f, g2)}`) ? 'war' : 'own';
         });
-        t.wash = { f, edges };
-        text += f + edges.map(e => (e ? e[0] : '=')).join('');
+        t.wash = { f, edges, mine: mine.has(o.s), quiet: viewer !== null && f !== viewer };
+        text += (t.wash.mine ? 'm' : '') + f + edges.map(e => (e ? e[0] : '=')).join('');
       }
       washSig.set(pk, text);
     }
     this.modelSig = sig;
-    this.modelNow = { tiles, byHex, byId, byProv, owner, war, washSig };
+    this.modelNow = { tiles, byHex, byId, byProv, owner, war, washSig, lands };
     return this.modelNow;
   }
 
@@ -888,9 +906,14 @@ export class SpriteArt {
     // territory over the ground of one tile: the nation's wash, and its border where the realm ends
     const washOf = (t) => {
       const w = t.wash;
-      if (!w) return;
+      // the viewer's own land is painted over the ground, alive (map/ownland.mjs); a nation-mate's keeps the
+      // nation's quiet wash; another nation's is quieter still (UX brief §5.1)
+      if (!w || w.mine) return;
+      if (w.quiet) g.globalAlpha = OTHER_WASH;
       const o = this.image('factions', s.key, `wash_${ART_FACTIONS[w.f]}`); if (o) draw(o, t);
+      if (w.quiet) g.globalAlpha = OTHER_BORDER;
       w.edges.forEach((style, e) => { if (style) { const b = this.image('factions', s.key, `border_${ART_FACTIONS[w.f]}_${e}_${style}`); if (b) draw(b, t); } });
+      if (w.quiet) g.globalAlpha = 1;
     };
     const gridOf = (list) => {
       g.beginPath();
@@ -1112,7 +1135,11 @@ export class SpriteArt {
         all.push({ id: a.hostId, faction: a.faction, unit: a.unit, tile: a.tile, state: 1, troops: Math.floor(Number(a.troops) / 1000), stamina: Number(a.stamina ?? 120), arriving: true });
       }
       const skip = new Set([...fightingAt].filter(k => k.startsWith(`${e.p},${e.q},`)).map(k => Number(k.split(',')[2])));
-      for (const tok of provinceTokens({ p: e.p, q: e.q, hosts: all, holdingTiles, viewerFaction, exploring: people?.exploringHosts ?? new Set(), marching: people?.marchingHosts ?? new Set(), restBelow: people?.restBelow ?? 0, skipTiles: skip })) tokens.push(tok);
+      for (const tok of provinceTokens({ p: e.p, q: e.q, hosts: all, holdingTiles, viewerFaction, exploring: people?.exploringHosts ?? new Set(), marching: people?.marchingHosts ?? new Set(), restBelow: people?.restBelow ?? 0, skipTiles: skip })) {
+        // the gold ring is the viewer's own hosts, never a whole nation's (gold means "yours": UX brief §5.3)
+        if (limited) tok.own = (tok.hosts ?? []).some(id => ownHosts.has(String(id)));
+        tokens.push(tok);
+      }
     }
     tokens.sort((a, b) => a.y - b.y || a.x - b.x);
     if (RADIUS * zoom >= HOST_FIGURE_MIN_R) {
@@ -1184,10 +1211,8 @@ export class SpriteArt {
       }
       this.onLoad();   // keep frames coming until the moment is over
     }
-    if (selected) {
-      const t = byId.get(`${selected.p},${selected.q},${selected.idx}`);
-      if (t) polygon(ctx, hexPoints(t.x, t.y, 2), null, '#1b2e28', 3 / zoom);
-    }
+    // (the selected tile's ring is drawn by the map: bright, on the ground and again over what stands there: map/actions.mjs)
+    void selected;
     // the next animation frame while figures move: only the animated layers repaint (onTick)
     if ((moving || fighting || this.tokensMoving) && !this.peopleTimer) this.peopleTimer = setTimeout(() => { this.peopleTimer = null; this.onTick(); }, fighting ? 33 : PEOPLE_FRAME_MS);
     // what the labels need of this frame (labels()); a whole painting draws them now

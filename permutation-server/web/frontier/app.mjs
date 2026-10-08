@@ -24,6 +24,9 @@ import { surveyInput } from './map/viewer.mjs';
 import { fxNow } from './map/chart.mjs';
 import { reducedMotion } from './map/camera.mjs';
 import { renderSurveyHelp } from './map/legend.mjs';
+import { NOTE_TEXT, createActions } from './map/actions.mjs';
+import { createLandingBook, landedKey } from './map/landing.mjs';
+import { placeName, villageLine } from './map/names.mjs';
 import { lastWalletName } from '../wallet.mjs';
 import { SEASON_STATUS_TEXT, clientText, factionName, TIERS, BUILDINGS } from './fi18n.mjs';
 import { L, fmtNum, mountLangToggle, onLangChange, lang } from '../lang.mjs';
@@ -88,7 +91,8 @@ import { useHerald, refresh as refreshPlay } from './controller.mjs';
 import { kernel as loadKernel } from './wasm.mjs';
 import { scope } from './fchainio.mjs';
 import { hostParts } from './faddr.mjs';
-import { RETREAT_CHOICES, retreatBps, DEPART_STAMINA } from './fmarch.mjs';
+import { RETREAT_CHOICES, retreatBps, DEPART_STAMINA, DEPART_MARGIN_SECS, planRoute, earliestBell, arrivalWindow } from './fmarch.mjs';
+import { MAX_PATH_STEPS } from './seal.mjs';
 import { uiKey, uiStorage, loadUi, saveUi, UI_PREFIX } from './fui.mjs';
 import * as hud from './hud/hud.mjs';
 import * as inspect from './hud/inspect.mjs';
@@ -100,7 +104,7 @@ import * as search from './hud/search.mjs';
 import { createRoster } from './people/roster.mjs';
 import * as scene from './people/scene.mjs';
 import { activityText } from './people/activity.mjs';
-import { hostOwner, provinceFactions, renderNameForm, ownTag } from './people/ui.mjs';
+import { hostOwner, provinceFactions, renderNameForm, ownTag, holdingName } from './people/ui.mjs';
 import * as profile from './people/profile.mjs';
 import { leaderSvg } from './people/leaders.mjs';
 import * as glossary from './hud/glossary.mjs';
@@ -109,7 +113,6 @@ import * as guide from './hud/guide.mjs';
 import { forecast, forecastKey } from './hud/forecast.mjs';
 import { BUILD_ITEMS } from './fland.mjs';
 import { UNIT_KINDS } from './people/units.mjs';
-import { reachTiles, reachSteps } from './hud/reach.mjs';
 import { momentSnapshot, detectMoments, liveMoments } from './people/moments.mjs';
 import * as pins from './hud/pins.mjs';
 import { battleScene, startBattle, battleLive, BATTLE_SPEEDS, PHASE } from './people/battle.mjs';
@@ -181,6 +184,8 @@ export function panelMarkup(FS) {
   if (FS.report) return [...parts, reportScreen.render(FS, mineOf(FS.holdings), { ownerOf: reportOwner })];
   // A march being composed on the map: its card first (hud/marchcard.mjs).
   if (tab === 'map' && FS.compose) parts.push(marchCard.render(FS));
+  // tiles picked on the map for a Scout's exploration (map/actions.mjs): the explore card, here too
+  else if (tab === 'map' && FS.explore?.host && FS.mode === 'play') parts.push(exploreScreen.render(FS));
   // Phones and tablets (no left rail below 1100 px): the rail's holdings and to-do list, folded (closed while composing).
   if (tab === 'map' && (FS.holdings ?? []).length) {
     const n = hud.attentionItems(FS).length;
@@ -465,18 +470,141 @@ function constructionsNow() {
 /** A queued build's length (the first copy's hour when the queue does not say). */
 const buildSecsOf = q => (Number(q.secs) > 0 ? Number(q.secs) : 3_600);
 
-let reachCache = { key: null, tiles: [], t0: 0 };
-/** The tiles the composed march's host could reach (cached per host and loaded provinces). */
-function reachNow() {
-  const c = FS.compose;
-  if (!c?.host || c.dest || c.sending) { reachCache.key = null; return null; }
-  const key = `${c.host.id}|${FS.provinces.size}`;
-  if (reachCache.key !== key) {
-    const tiles = reachTiles({ start: { p: c.origin.p, q: c.origin.q, tile: c.host.tile }, steps: reachSteps(c.host.staminaValue ?? c.host.stamina ?? 120),
-      provinceOf: (p, q) => FS.provinces.get(`${p},${q}`)?.province ?? null, faction: FS.citizen?.faction ?? null });
-    reachCache = { key, tiles, t0: reachCache.key && reachCache.key.split('|')[0] === String(c.host.id) ? reachCache.t0 : performance.now() / 1000 };
+// ------------------------------------------------------------------ what the selection can do on the map (map/actions.mjs, UX brief §5.2)
+/** The lit tiles of the host that acts for the selection (or for the march being composed), kept between frames. */
+const actionsOf = createActions({ passableOf: (p, q) => terrainRef?.(p, q)?.passable ?? null });
+function actionsNow() {
+  if (FS.mode !== 'play' || (!FS.compose && !Number.isInteger(FS.selected?.idx))) return null;
+  return actionsOf({ mode: FS.mode, holdings: FS.holdings, provinces: FS.provinces, nowBell: FS.nowBell ?? 0, now: FS.chain?.now?.() ?? 0, selected: FS.view.lod === 'tile' ? FS.selected : null,
+    compose: FS.compose, explore: FS.explore, actor: FS.actor, citizen: FS.citizen, survey: FS.survey });
+}
+
+/** The rules module once it has loaded (the terrain loads it with the first tile view): the planner answers at once. */
+let kernelNow = null, kernelAsked = false;
+function wantKernel() {
+  if (!kernelNow && !kernelAsked) { kernelAsked = true; loadKernel().then(k => { kernelNow = k; hoverPlan(hoverHit); }).catch(() => { kernelAsked = false; }); }
+  return kernelNow;
+}
+const seedsNow = () => (FS.record?.rings ?? []).map(r => ({ ring: r.d, seed: r.seed }));
+
+/**
+ * The planner's route from the acting host to a tile, and the turn it would
+ * arrive (fmarch.mjs planRoute, earliestBell, arrivalWindow): `{ok, hexes,
+ * arriveBell}` or `{ok: false, code}`; null while the rules module loads.
+ */
+const routeCache = new Map();
+function routeTo(A, to) {
+  const k = wantKernel();
+  if (!k || !A?.actor) return null;
+  const key = `${A.actor.id}|${A.origin.p},${A.origin.q},${A.origin.tile}|${to.p},${to.q},${to.tile}|${FS.nowBell ?? 0}`;
+  if (routeCache.has(key)) return routeCache.get(key);
+  const r = planRoute(k, { from: A.origin, to, unit: A.actor.unit, seeds: seedsNow() });
+  let v;
+  if (!r.ok) v = { ok: false, code: r.code };
+  else {
+    const early = FS.clock ? earliestBell(k, { genesisTs: FS.clock.genesisTs, departTs: (FS.chain?.now?.() ?? 0) + DEPART_MARGIN_SECS, secs: r.route.secs }) : null;
+    v = { ok: true, hexes: marchCard.routeHexes({ route: r.route, origin: A.origin, host: { tile: A.origin.tile } }), arriveBell: FS.season ? arrivalWindow(FS.season, FS.nowBell ?? 0, early).min : null };
   }
-  return { tiles: reachCache.tiles, t0: reachCache.t0 };
+  if (routeCache.size > 96) routeCache.clear();
+  routeCache.set(key, v);
+  return v;
+}
+
+/** The route to the lit tile under the pointer (the map draws it as a ribbon with its arrival turn). */
+let hoverRoute = null, hoverHit = null;
+function hoverPlan(hit) {
+  hoverHit = hit ?? null;
+  const A = hit && Number.isInteger(hit.idx) ? actionsNow() : null;
+  if (A) wantKernel();
+  const t = A ? A.byHex.get(`${hit.tileQ},${hit.tileR}`) : null;
+  const dest = FS.compose?.dest;
+  // (not for a tile to explore: no march goes there; not for the destination already chosen: its own route is drawn)
+  const want = t && t.kind !== 'explore' && !(dest && dest.p === t.p && dest.q === t.q && dest.tile === t.tile) ? t : null;
+  const key = want ? `${A.actor.id}|${want.hq},${want.hr}` : null;
+  if ((hoverRoute?.key ?? null) === key) return;
+  const r = want ? routeTo(A, { p: want.p, q: want.q, tile: want.tile }) : null;
+  // (while the rules module loads there is no answer yet: asked again when it has loaded)
+  hoverRoute = r?.ok ? { key, q: want.hq, r: want.hr, hexes: r.hexes, arriveBell: r.arriveBell } : r ? { key, q: want.hq, r: want.hr, hexes: [], arriveBell: null } : null;
+  mapRef?.tick();
+}
+
+/** The map's own answer on a tile (a refusal never fails silently): drawn there for a moment, and said in the map's live line. */
+function mapNote(hit, text) {
+  FS.mapNote = { p: hit.p, q: hit.q, tile: hit.idx, text, at: fxNow() };
+  setText('map-summary', text);
+  mapRef?.tick();
+}
+const refusalText = code => (code === 'Path' ? NOTE_TEXT.tooFar(MAX_PATH_STEPS) : code === 'NoKernel' ? NOTE_TEXT.wait() : NOTE_TEXT.unreachable());
+
+/** Start the order card for the acting host with `hit` as its destination (the existing compose flow). */
+async function orderMarch(A, hit) {
+  if (Number.isInteger(A.actor.holdingIndex) && A.actor.holdingIndex !== (FS.activeHolding ?? 0)) FS.activeHolding = A.actor.holdingIndex;
+  ACTIONS.compose({ host: A.actor.id, stay: 'map' });
+  if (!FS.compose) return;
+  FS.tab = 'map';
+  FS.selected = { kind: 'tile', p: hit.p, q: hit.q, idx: hit.idx, tileQ: hit.tileQ, tileR: hit.tileR };
+  invalidate('map', 'panel', 'tabs');
+  await ACTIONS['dest-from-map']();
+  if (FS.compose?.routeError) mapNote(hit, refusalText(FS.compose.routeError));
+}
+
+/**
+ * A tap on the map while one of the viewer's hosts is selected (UX brief
+ * §5.2). Returns true when the tap was an order or was answered on the map;
+ * false lets it select the tile as usual.
+ *   the selected tile again     the next host standing there acts
+ *   a sky-blue tile             picked for the Scout's exploration (the existing explore draft)
+ *   another lit tile            the order card for a march there
+ *   an unlit tile               put to the planner: a route means the order card; none is said on the map
+ *                               (and a second tap on that tile selects it)
+ */
+function mapTap(hit) {
+  if (FS.mode !== 'play' || FS.compose || !Number.isInteger(hit?.idx)) return false;
+  const A = actionsNow();
+  if (!A || A.mode !== 'select') return false;
+  const here = hit.p === A.origin.p && hit.q === A.origin.q && hit.idx === A.origin.tile;
+  if (here) {
+    if (A.actors.length < 2) return false;
+    FS.actor = { key: `${hit.p},${hit.q},${hit.idx}`, i: (A.index + 1) % A.actors.length };
+    FS.mapNote = null;
+    invalidate('map', 'panel');
+    return true;
+  }
+  const t = A.byHex.get(`${hit.tileQ},${hit.tileR}`);
+  if (t?.kind === 'explore') {
+    if (String(FS.explore?.host?.id ?? '') !== A.actor.id) { if (A.actor.holdingIndex !== (FS.activeHolding ?? 0)) FS.activeHolding = A.actor.holdingIndex; ACTIONS['explore-open']({ host: A.actor.id }); }
+    // (the explore card stays with the map: the tiles are picked here)
+    FS.tab = 'map';
+    if (FS.explore) ACTIONS['explore-tile']({ tile: String(t.tile) });
+    invalidate('map', 'panel', 'tabs');
+    return true;
+  }
+  if (!A.actor.march.ok) return false;
+  if (t) { orderMarch(A, hit).catch(() => {}); return true; }
+  // unlit: a second tap on the tile just refused selects it
+  const n = FS.mapNote;
+  if (n && n.p === hit.p && n.q === hit.q && n.tile === hit.idx && fxNow() - n.at < 6000) { FS.mapNote = null; return false; }
+  if (FS.survey && !FS.survey.showAll && FS.survey.levelOf(hit.p, hit.q, hit.idx) === 0) { mapNote(hit, NOTE_TEXT.unopened()); return true; }
+  const r = routeTo(A, { p: hit.p, q: hit.q, tile: hit.idx });
+  if (r?.ok) { orderMarch(A, hit).catch(() => {}); return true; }
+  mapNote(hit, r ? refusalText(r.code) : NOTE_TEXT.wait());
+  return true;
+}
+
+// ------------------------------------------------------------------ the viewer's villages for the map (map/ownland.mjs)
+let ownCache = { holdings: null, lang: null, value: [] };
+/** The viewer's villages with their names (the far view's beacon carries the name). */
+function ownNow() {
+  const hs = FS.holdings ?? [];
+  if (ownCache.holdings !== hs || ownCache.lang !== lang()) ownCache = { holdings: hs, lang: lang(), value: hs.map(h => ({ p: h.p, q: h.q, tile: h.tile, tier: h.tier ?? 0, state: h.state ?? null, name: holdingName(h) })) };
+  return ownCache.value;
+}
+/** The village that lands now, the first time this device sees it (map/landing.mjs). */
+const landingBook = createLandingBook();
+function landingNow() {
+  if (FS.mode !== 'play' || !viewerKnown || !FS.wallet?.address) return null;
+  const sc = scope();
+  return sc ? landingBook.next(landedKey(sc, FS.wallet.address), FS.holdings ?? []) : null;
 }
 
 /** The map's name tags use the viewer's verified profile on their own holdings. */
@@ -674,7 +802,9 @@ function showTip(hit, at) {
   const owner = t && t.state === 1 && t.site !== undefined ? rosterRef?.ownerOf(hit.p, hit.q, t.site) : null;
   if (!acts?.length && !owner) { tip.hidden = true; return; }
   const lines = [];
-  if (owner) lines.push(html`<strong data-name>${displayName(identityOf(owner.tag), { full: true })}</strong>`);
+  // the place by its name first (map/names.mjs), then who holds it
+  if (owner) lines.push(html`<strong class="tip-place">${villageLine({ p: hit.p, q: hit.q, site: t.site }, t.tier, t.owner)}</strong>`);
+  if (owner) lines.push(html`<span data-name>${displayName(identityOf(owner.tag), { full: true })}</span>`);
   // the lord out on their land (people/life.mjs): what they are doing
   const lf = owner && FS.life ? lifeAt(FS.life.get(`${hit.p},${hit.q},${t.site}`), FS.nowBell ?? 0, FS.chain?.now() ?? 0) : null;
   if (lf?.lord) lines.push(html`<span class="tip-lord">${lordLine(displayName(identityOf(owner.tag)), lf.doing, L)}</span>`);
@@ -1019,6 +1149,8 @@ function delegate(doc) {
     if (intro && !intro.hidden && (e.key === 'Escape' || e.key === 'Enter')) { e.preventDefault(); closeIntro(); return; }
     if (e.key === 'Escape' && FS.resOpen) { e.preventDefault(); closeResPop(); return; }
     if (e.key === 'Escape' && FS.term) { e.preventDefault(); closeTermPop(); return; }
+    // Escape on the map lets the selection go (the lit tiles with it); a march being composed is closed from its card
+    if (e.key === 'Escape' && e.target?.id === 'frontier-map' && FS.selected && !FS.compose) { e.preventDefault(); FS.selected = null; FS.actor = null; FS.mapNote = null; FS.explore = null; invalidate('map', 'panel'); return; }
     // . , next / previous ready host; ] [ next / previous holding; 1–4 the lenses (never while typing)
     if ((FS.mode !== 'play' && !/^[1-4]$/.test(e.key)) || e.target?.closest?.('input, select, textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
     const k = { '.': () => cycleHost(1), ',': () => cycleHost(-1), ']': () => cycleHolding(1), '[': () => cycleHolding(-1),
@@ -1149,7 +1281,7 @@ export async function boot() {
     map = new FrontierMap(canvas, {
       source: () => {
         if (rosterRef) for (let d = 0; d < (FS.record?.rings?.length ?? 1); d++) rosterRef.ensure(d);
-        const own = (FS.holdings ?? []).map(h => ({ p: h.p, q: h.q, tile: h.tile }));
+        const own = ownNow();
         return { overviews: FS.overviews, ringsOpen: FS.record?.rings?.length ?? 1, own, selected: FS.selected, terrainOf,
           // what this viewer has surveyed (map/survey.mjs): the one rule for the map, the minimap, tips, the inspector and search
           survey: surveyNow(),
@@ -1172,8 +1304,14 @@ export async function boot() {
           // incoming risk around the viewer's holdings (hud/hud.mjs attention, controller incoming warnings)
           threats: (FS.incoming ?? []).map(w => ({ p: w.holding.p, q: w.holding.q, tile: w.holding.tile, bell: w.bell })),
           threatLabel: w => L`来襲 第${fmtNum(w.bell)}鐘`,
-          // the move preview while a march has a host and no destination yet (hud/reach.mjs)
-          reach: reachNow(),
+          // the bell now (an overview older than the last bell no longer says "a clash this bell")
+          bell: FS.nowBell ?? null,
+          // what the selected host can do, lit on the map (map/actions.mjs); the route under the pointer; the map's own answer to a tap
+          actions: actionsNow(),
+          hoverRoute,
+          note: FS.mapNote ?? null,
+          // a village this device sees land for the first time (map/landing.mjs)
+          landing: landingNow(),
           // the viewer's pins (hud/pins.mjs)
           pins: FS.pins ?? [],
           // the guide's target of the current step (hud/guide.mjs; "all" only)
@@ -1182,23 +1320,32 @@ export async function boot() {
           // holdings' tiers for the far view from the roster (no province loads for a spectator's world map)
           tierOf: (p, q, site) => rosterRef?.tierOf(p, q, site) ?? null,
           // the march being composed: its route, drawn for this browser only (the destination is sealed)
-          route: FS.compose ? { hexes: marchCard.routeHexes(FS.compose), dest: FS.compose.dest ? tileHex(FS.compose.dest.p, FS.compose.dest.q, FS.compose.dest.tile) : null } : null,
+          route: FS.compose ? { hexes: marchCard.routeHexes(FS.compose), dest: FS.compose.dest ? tileHex(FS.compose.dest.p, FS.compose.dest.q, FS.compose.dest.tile) : null,
+            arriveBell: FS.compose.route ? marchCard.bellWindow(FS)?.value ?? null : null } : null,
           provinceOf: ART_ON ? (p, q, { far = false } = {}) => { if (!far) wantProvince(p, q, () => map?.invalidate()); return FS.provinces.get(`${p},${q}`)?.province ?? null; } : undefined };
       },
       onSelect: hit0 => {
         // a tap selects what the zoom shows: a province from afar, a tile up close
         const hit = FS.view.lod === 'tile' ? hit0 : { kind: 'province', p: hit0.p, q: hit0.q };
+        // one of the viewer's hosts is selected: the tap is its order, or the map answers it (map/actions.mjs)
+        if (mapTap(hit)) return;
         FS.selected = hit;
-        setText('map-summary', L`州 ${hit.p},${hit.q} を選びました`);
+        FS.actor = null; FS.mapNote = null;
+        // (an exploration being picked on the map belongs to its Scout's tile: another selection lets it go)
+        if (FS.explore?.host && !(hit.p === FS.explore.host.p && hit.q === FS.explore.host.q && hit.idx === FS.explore.host.tile)) FS.explore = null;
+        // one of the viewer's own villages: it becomes the active one (its hosts act from here)
+        const mine = Number.isInteger(hit.idx) ? (FS.holdings ?? []).findIndex(h => h.p === hit.p && h.q === hit.q && h.tile === hit.idx) : -1;
+        if (mine >= 0 && mine !== (FS.activeHolding ?? 0)) { FS.activeHolding = mine; invalidate('rail', 'tabs'); }
+        setText('map-summary', L`${placeName(inspect.inspectModel(FS, terrainOf))} を選びました`);
         // The inspector reads the province envelope (loaded once, on demand).
         if (FS.mode !== 'practice') wantProvince(hit.p, hit.q, () => { map?.invalidate(); invalidate('panel'); });
         // composing a march: a tap on another tile makes it the destination (Civ: select the unit, click where)
         const c = FS.compose;
-        if (FS.mode === 'play' && c && !c.sending && Number.isInteger(hit.idx) && !(hit.p === c.origin.p && hit.q === c.origin.q && hit.idx === c.host.tile)) ACTIONS['dest-from-map']()?.catch?.(() => {});
+        if (FS.mode === 'play' && c && !c.sending && Number.isInteger(hit.idx) && !(hit.p === c.origin.p && hit.q === c.origin.q && hit.idx === c.host.tile)) Promise.resolve(ACTIONS['dest-from-map']()).then(() => { if (FS.compose === c && c.routeError) mapNote(hit, refusalText(c.routeError)); }).catch(() => {});
         invalidate('map', 'panel');
       },
       onView: (_, lod) => { FS.view.lod = lod; renderMinimap(); },
-      onHover: (hit, at) => showTip(hit, at),
+      onHover: (hit, at) => { showTip(hit, at); hoverPlan(hit); },
       // Sprite art at tile LOD, opt-in with ?art=1 (docs/frontier/art/tiles/LOD.md).
       art: ART_ON,
     });

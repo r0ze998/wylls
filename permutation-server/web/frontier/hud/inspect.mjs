@@ -20,13 +20,18 @@ import { activityText } from '../people/activity.mjs';
 import { hostRows } from '../screens/host.mjs';
 import { hasPin } from './pins.mjs';
 import { termButton } from './glossary.mjs';
+import { placeName, placeWhere } from '../map/names.mjs';
 
 const TERRAIN_TEXT = { Grassland: () => L`草原`, Plains: () => L`平原`, Forest: () => L`森`, Hills: () => L`丘`, Mountain: () => L`山`, Water: () => L`水` };
 /** Site states as the overview carries them (herald SITE_STATE) and the mirror (3 = released: a Free City). */
 const SITE_TEXT = { free: () => L`空き区画`, holding: () => L`村`, camp: () => L`蛮族の野営地`, reserved: () => L`予約済みの区画`, freeCity: () => L`自由都市` };
 
 const overviewRec = (FS, p, q) => {
-  for (const o of FS.overviews?.values?.() ?? []) { const r = o.provinces?.find(x => x.p === p && x.q === q); if (r) return r; }
+  for (const o of FS.overviews?.values?.() ?? []) {
+    const r = o.provinces?.find(x => x.p === p && x.q === q);
+    // (the clash flag speaks of the overview's own bell: an overview older than the last bell says nothing about now)
+    if (r) return r.clash && Number.isInteger(o.bell) && Number.isInteger(FS.nowBell) && o.bell < FS.nowBell - 1 ? { ...r, clash: false } : r;
+  }
   return null;
 };
 
@@ -72,7 +77,8 @@ export function inspectModel(FS, terrainOf) {
     if (here < 3 && !sv?.ownHosts?.has(String(e.id))) continue;   // other people's hosts: in sight only
     tile.hosts.push({ id: String(e.id), faction: e.faction, owner: hostOwner(FS.roster, e.id), unit: UNIT_ORDER[e.unit] ?? null, troops: troopsOf(e.troops), pending: e.state === 2 });
   }
-  if (here === 3 && prov?.camp?.state === 1 && prov.camp.tile === s.idx) tile.camp = { troops: troopsOf(prov.camp.troops) };
+  // (a camp's troops are whole troops in the account, Camp.TROOPS: not the thousandths a host's are)
+  if (here === 3 && prov?.camp?.state === 1 && prov.camp.tile === s.idx) tile.camp = { troops: Number(prov.camp.troops) };
   out.tile = tile;
   return out;
 }
@@ -114,8 +120,10 @@ export function renderBrief(FS, terrainOf) {
   const m = inspectModel(FS, terrainOf);
   if (!m) return '';
   const t = m.tile, site = t?.site;
-  const what = site?.state === 'holding' ? html` · ${swatch(site.faction)}${holdingName({ p: m.p, q: m.q, site: site.index }, site.tier ?? 0)}` : t?.hosts?.length ? html` · ${L`軍勢 ${fmtNum(t.hosts.length)}`}` : '';
-  return html`<div class="sel-brief" role="status"><span class="sel-what">${L`選択中`}: ${t ? L`州 ${m.p},${m.q} · マス ${t.idx + 1}` : L`州 ${m.p},${m.q}`}${what}</span>
+  // names before coordinates (map/names.mjs): the place by its name, its hosts, then where it is
+  const name = placeName(m), where = placeWhere(m);
+  const what = html`${site?.state === 'holding' ? swatch(site.faction) : ''}<span>${name}</span>${t?.hosts?.length ? html` · ${L`軍勢 ${fmtNum(t.hosts.length)}`}` : ''}${name === where ? '' : html` <span class="muted place-where">${where}</span>`}`;
+  return html`<div class="sel-brief" role="status"><span class="sel-what">${L`選択中`}: ${what}</span>
     <button type="button" class="btn small" data-act="tab" data-tab="map">${L`地図で詳しく`}</button><button type="button" class="btn small" data-act="sel-clear" aria-label="${L`選択を外す`}">×</button></div>`;
 }
 
@@ -123,7 +131,9 @@ export function render(FS, terrainOf, activities = null) {
   const m = inspectModel(FS, terrainOf);
   if (!m) return html`<section class="inspect" aria-labelledby="inspect-title"><h3 id="inspect-title">${L`選択`}</h3><p class="muted">${L`地図のマスを選ぶと、ここに中身が出ます。`}</p></section>`;
   const t = m.tile;
-  const title = t ? L`州 ${m.p},${m.q} · マス ${t.idx + 1}` : L`州 ${m.p},${m.q}`;
+  // the place by its name; its coordinates after it, small (map/names.mjs)
+  const name = placeName(m), where = placeWhere(m);
+  const title = name === where ? where : html`${name} <span class="muted place-where">${where}</span>`;
   const facts = [];
   facts.push(html`<div class="row"><dt>${L`輪`}</dt><dd>${m.opened ? L`第${m.ring}輪` : L`第${m.ring}輪（まだひらいていません）`}${termButton('ring')}</dd></div>`);
   if (t?.terrain) facts.push(html`<div class="row"><dt>${L`地形`}</dt><dd>${TERRAIN_TEXT[t.terrain]?.() ?? t.terrain}</dd></div>`);

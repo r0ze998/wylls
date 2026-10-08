@@ -228,7 +228,7 @@ export default {
   'まだ見どころはありません': 'No highlights yet',
 
   // ---- activities (people/activity.mjs): badges and the hover tip
-  '戦闘中': 'Fighting',
+  'この鐘で衝突がありました': 'A clash this bell',
   '出陣中（第{0}鐘に到着、行き先は秘密）': 'On the march (arrives at bell {0}; destination sealed)',
   '編成中（第{0}鐘から加わる）': 'Mustering (joins at bell {0})',
   '城壁を建設中（第{0}鐘に完成）': 'Raising walls (done at bell {0})',

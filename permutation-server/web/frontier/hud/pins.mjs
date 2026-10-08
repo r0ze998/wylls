@@ -31,7 +31,7 @@ export const hasPin = (pins, place) => !!place && (pins ?? []).some(x => pinKey(
 /** A pin's world point (a tile's centre, or the province's). */
 export const pinPoint = x => (x.tile === null ? provincePixel(x.p, x.q) : (h => project(h.q, h.r))(tileHex(x.p, x.q, x.tile)));
 
-/** Draw the pins (screen sized): a gold map pin with a dark rim. */
+/** Draw the pins (screen sized): a map pin in neutral ink with an ivory rim (gold is kept for what is the viewer's own: UX brief §5.3). */
 export function paintPins(ctx, pins, zoom) {
   if (!pins?.length) return;
   const k = 1 / zoom;
@@ -39,9 +39,9 @@ export function paintPins(ctx, pins, zoom) {
   for (const x of pins) {
     const c = pinPoint(x), r = 7 * k, top = c.y - 22 * k;
     ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.beginPath(); ctx.ellipse(c.x, c.y, 5 * k, 2 * k, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#f3d58a'; ctx.strokeStyle = '#3a2a08'; ctx.lineWidth = 1.6 * k;
+    ctx.fillStyle = '#26332f'; ctx.strokeStyle = '#f4efe0'; ctx.lineWidth = 1.6 * k;
     ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.bezierCurveTo(c.x - r * 1.2, top + r * 1.4, c.x - r * 1.3, top, c.x, top - r * 0.2); ctx.bezierCurveTo(c.x + r * 1.3, top, c.x + r * 1.2, top + r * 1.4, c.x, c.y); ctx.closePath(); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#3a2a08'; ctx.beginPath(); ctx.arc(c.x, top + r * 0.55, r * 0.38, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#f4efe0'; ctx.beginPath(); ctx.arc(c.x, top + r * 0.55, r * 0.38, 0, Math.PI * 2); ctx.fill();
   }
   ctx.restore();
 }

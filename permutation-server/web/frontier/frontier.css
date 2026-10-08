@@ -526,3 +526,15 @@ body[data-urgency="crit"] main { box-shadow: inset 0 0 0 4px #c8412f; }
 .survey-chart { background: #e6d9b8; border-color: #7a6a46; box-shadow: inset 0 0 0 3px #e6d9b8, inset 0 0 0 4px rgba(122,106,70,.5); }
 .survey-cloud { background: linear-gradient(160deg, #ffffff, #dfe6ea); }
 .survey-line { margin: 8px 0; }
+
+/* ---- where am I (UX brief 5.3): the edge pointer home (map/homepointer.mjs); names before coordinates (map/names.mjs) */
+.home-pointer { position: absolute; left: 0; top: 0; z-index: 3; display: grid; place-items: center; width: 44px; height: 44px; margin: -22px 0 0 -22px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #f3d58a; cursor: pointer; transform: translate(var(--x, 0), var(--y, 0)); }
+.home-pointer[hidden] { display: none; }
+.home-pointer .hp-arrow { position: absolute; inset: 0; transform: rotate(var(--a, 0deg)); filter: drop-shadow(0 2px 4px rgba(0,0,0,.45)); }
+.home-pointer .hp-ring { fill: rgba(16,34,31,.94); stroke: #f3d58a; stroke-width: 2.25; }
+.home-pointer .hp-head { fill: #f3d58a; stroke: #10221f; stroke-width: 1; stroke-linejoin: round; }
+.home-pointer .hp-dist { position: relative; font: 700 13px/1 system-ui, sans-serif; font-variant-numeric: tabular-nums; color: #f3d58a; }
+.home-pointer:hover .hp-ring { fill: #1d3a34; }
+.home-pointer:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.place-where { font-size: 12px; font-weight: 400; white-space: nowrap; }
+.tip-place { font-weight: 700; }
