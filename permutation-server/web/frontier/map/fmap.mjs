@@ -71,6 +71,11 @@ export const REVEAL_MS = 520;
 export const LOD_FADE_DRIFT = 0.32;
 /** The table under the world (the vignette of dressing.mjs darkens it toward the edges). */
 export const TABLE = '#2a4742';
+/**
+ * Bitmaps the size of the canvas (the two still layers, the dressing) are kept only up to this many
+ * pixels each (about 36 MB): a larger canvas is painted whole every frame, as before.
+ */
+export const STILL_MAX_PIXELS = 9_000_000;
 /** The still layers of a resting view are repainted at least this often (ms): a change nobody announced heals. */
 export const LAYER_MAX_AGE_MS = 2000;
 
@@ -756,6 +761,7 @@ export class FrontierMap {
    */
   stamped(ctx, name, key, W, H, dpr, paint) {
     let slot = this[name];
+    if (W * H > STILL_MAX_PIXELS) { this[name] = null; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); paint(ctx); return; }
     if (!slot || slot.cv.width !== W || slot.cv.height !== H) {
       const cv = spareCanvas(this.canvas.ownerDocument, W, H), g = cv?.getContext?.('2d');
       slot = this[name] = g ? { cv, g, key: null } : null;
@@ -869,10 +875,12 @@ export class FrontierMap {
    * moments, battles). `under(g)` paints what lies under the art. Returns
    * 'live' (only the animated layers were painted), 'fresh' (this frame had
    * to paint the still layers first: a full frame) or null (no spare
-   * canvas: the caller paints the frame whole).
+   * canvas, or a canvas too large to keep copies of: the caller paints the
+   * frame whole).
    */
   paintLayered(ctx, tiles, opts, world, now, under) {
     const W = this.canvas.width, H = this.canvas.height;
+    if (W * H > STILL_MAX_PIXELS) { this.layers = null; return null; }
     const L = this.layers ??= { key: null, at: 0 };
     for (const n of ['ground', 'props']) {
       if (L[n]?.cv.width === W && L[n].cv.height === H) continue;
