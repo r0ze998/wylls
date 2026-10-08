@@ -731,7 +731,7 @@ function renderMinimap() {
     for (const ov of FS.overviews.values()) for (const r of ov.provinces) recs.set(`${r.p},${r.q}`, r);
     const sv = FS.survey ?? null, pulse = !!sv?.home && !sv.showAll && !reducedMotion();
     minimap.paintMinimap(cv.getContext('2d'), { recs, rings: Math.max(1, (FS.record?.rings?.length ?? 1)), own: (FS.holdings ?? []).map(h => ({ p: h.p, q: h.q })),
-      view: mapRef.shown, size: mapRef.size(), px, dpr, lens: FS.view.lens ?? 'realm', pins: FS.pins ?? [], survey: sv, now: fxNow() });
+      view: mapRef.view, size: mapRef.size(), px, dpr, lens: FS.view.lens ?? 'realm', pins: FS.pins ?? [], survey: sv, now: fxNow() });
     // the viewer's pip breathes: a few small repaints a second while it shows
     if (pulse && !miniPulse) miniPulse = setTimeout(() => { miniPulse = null; renderMinimap(); }, 110);
   });

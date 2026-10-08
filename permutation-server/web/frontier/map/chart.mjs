@@ -26,7 +26,7 @@ import { L2, L3, REVEAL_MS, WORKED_RADIUS, hexKey, keyHex } from './survey.mjs';
 export const CHART = Object.freeze({ paper: '#e6d9b8', paperRgb: [230, 217, 184], ink: '#7a6a46', line: 'rgba(110,94,60,0.4)', glyph: 'rgba(92,76,46,0.82)', coast: 'rgba(86,72,44,0.7)',
   wash: Object.freeze({ water: 'rgba(84,122,130,0.27)', mountain: 'rgba(108,88,58,0.17)', hills: 'rgba(134,108,60,0.11)', forest: 'rgba(92,110,58,0.15)' }) });
 /** The muted look of surveyed land that is not in sight. */
-export const MUTED = Object.freeze({ saturation: 0.35, brightness: 0.7, paper: 0.14 });
+export const MUTED = Object.freeze({ saturation: 0.35, brightness: 0.7, paper: 0.18 });
 /** The gold of what is the viewer's own (the brief's --you). */
 export const YOU = '#f3d58a';
 

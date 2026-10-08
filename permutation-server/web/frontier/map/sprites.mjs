@@ -1008,7 +1008,8 @@ export class SpriteArt {
         return;
       }
       // the chart carries nothing that stands: the Engine above is its one landmark (everyone hears the bell)
-      if (t.lv < L2) return;
+      // (a ring that has just opened still sheds its cloud: the chart comes out from under it)
+      if (t.lv < L2) { if (opening !== null && t.ring === opening && openFrame < 8) { const c = this.image('fog', s.key, `cloud_1_open_${openFrame}`); if (c) draw(c, t); } return; }
       if (t.ring === 0 && nearCentre(t)) return;
       // a Seat's camp spreads over its province's centre and six neighbours
       if (t.centre && t.ring === 1) {
