@@ -176,7 +176,7 @@ export function render(FS) {
   // the action that makes sense now stands open; the other waits behind a fold
   const musterFirst = musterable >= 100;
   const troops = html`<section class="vcard" aria-labelledby="hp-troops-h">
-    ${cardHead({ id: 'hp-troops-h', ic: 'sword', title: L`兵`, side: chip(L`控え ${fmtNum(musterable)}`, musterable ? 'you' : '') })}
+    ${cardHead({ id: 'hp-troops-h', ic: 'sword', title: L`兵`, side: chip(L`控え ${fmtNum(musterable)}`) })}
     ${label(musterFirst ? L`軍勢を編成する` : L`兵を訓練する`)}
     ${musterFirst ? musterForm : trainForm}
     ${fold(musterFirst ? 'v-train' : 'v-muster', musterFirst ? L`兵を訓練する` : L`軍勢を編成する`, musterFirst ? trainForm : musterForm)}</section>`;

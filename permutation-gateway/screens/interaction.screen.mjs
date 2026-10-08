@@ -242,3 +242,62 @@ test('step counts: a selected host to "seal and depart" in 3 presses; the next t
   await pill.click();
   assert.notEqual(await where(), before, 'the pill took the player to the item');
 });
+
+// hud-2 (UX design 8.2, 8.3): the outcome of an action is said at the map, and documents stand over it.
+test('a refusal is a toast at the map with "try again"; the report is a wide sheet over the map that a press outside puts away', { timeout: 90_000 }, async t => {
+  const page = await open(t, { width: 1440, height: 900, query: `?at=${HOME.p},${HOME.q},${HOME.tile},1.0` });
+  const posts = [];
+  page.on('request', r => { if (r.method() === 'POST' && r.url().includes('/f/relay')) posts.push(r.url()); });
+  await page.locator('#tabs [data-tab="holding"]').click();
+  await page.locator('#panel-body [data-act="harvest"]').click();
+  // the fixture relay refuses every write: the refusal stands at the map, not in a box inside the drawer
+  const toast = page.locator('#feed .tx-refused[role="alert"]');
+  await toast.waitFor();
+  assert.equal(await page.locator('#panel-body .notice.error').count(), 0, 'no box in the scrolled panel');
+  // the stack makes room for the drawer and the toast slides in (visual only): measured where they come to rest
+  await page.evaluate(() => Promise.all(['feed', 'panel'].flatMap(id => { const el = document.getElementById(id); return [el, ...el.querySelectorAll('*')].flatMap(x => x.getAnimations()); }).map(a => a.finished.catch(() => {}))));
+  const box = await toast.boundingBox(), drawerBox = await page.locator('#panel').boundingBox();
+  assert.ok(box.x + box.width <= drawerBox.x, 'the toast stands over the map, beside the drawer');
+  const before = posts.length;
+  assert.ok(before >= 1, 'the action was sent once');
+  await toast.locator('[data-act="notice-retry"]').click();
+  for (let i = 0; i < 50 && posts.length <= before; i++) await page.waitForTimeout(100);
+  assert.ok(posts.length > before, '"try again" sends the same action once more');
+  await page.locator('#feed .tx-refused [data-act="notice-close"]').click();
+  await page.locator('#feed .tx-refused:not(.leaving)').waitFor({ state: 'detached' });
+  // the report: a wide document, centred, with the outcome stamp and the two sides face to face
+  await page.locator('#tabs [data-tab="marches"]').click();
+  await page.locator('#panel-body [data-act="report-open"]').first().click();
+  await page.locator('#panel[data-doc="wide"] #report-title').waitFor();
+  await page.locator('#panel .stamp').waitFor();
+  await page.locator('#panel').evaluate(el => Promise.all(el.getAnimations().map(x => x.finished.catch(() => {}))));
+  const doc = await page.locator('#panel').boundingBox();
+  assert.ok(doc.width >= 700, `a wide sheet: ${Math.round(doc.width)} px`);
+  assert.ok(Math.abs(doc.x + doc.width / 2 - 720) <= 2, 'centred over the map');
+  assert.equal(await page.locator('#panel .vs-side').count(), 2);
+  assert.equal(await page.evaluate(() => document.body.dataset.doc), 'wide');
+  // a press on the dimmed map behind it puts it away, and selects nothing
+  await page.mouse.click(120, 700);
+  assert.equal(await drawer(page), 'closed');
+  assert.equal(await page.evaluate(async () => { const { FS } = await import('/frontier/fstate.mjs'); return [FS.report, FS.selected]; }).then(JSON.stringify), '[null,null]');
+});
+
+// hud-2 (UX design 7.2): joining is choosing one of six standing banners; the map is told which nation is looked at.
+test('the nation choice: six banners along the foot of the map, one choice, one confirm; the map hears which nation is looked at', { timeout: 60_000 }, async t => {
+  const page = await open(t, { width: 1440, height: 900, stage: 'none' });
+  await page.locator('#panel[data-doc="stage"] .banner-pick').first().waitFor();
+  assert.equal(await page.locator('.banner-pick').count(), 6);
+  await page.locator('#panel').evaluate(el => Promise.all(el.getAnimations().map(x => x.finished.catch(() => {}))));
+  const stage = await page.locator('.banners').boundingBox();
+  assert.ok(stage.y > 900 * 0.35, 'the banners leave the upper part of the map to the chart');
+  assert.equal(await page.locator('[data-act="join"]').isDisabled(), true, 'nothing to confirm yet');
+  await page.evaluate(() => { window.__nation = []; addEventListener('wylls:nation-focus', e => window.__nation.push(e.detail.faction)); });
+  await page.locator('[data-nation="1"]').hover();
+  await page.locator('[data-nation="3"]').focus();
+  await page.locator('[data-nation="2"]').click();
+  assert.deepEqual(await page.evaluate(() => window.__nation), [1, 3, 2], 'hover, focus and choice each name the nation');
+  assert.equal(await page.locator('[data-nation="2"]').getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.locator('.banner-pick[aria-pressed="true"]').count(), 1);
+  assert.equal(await page.locator('[data-act="join"]').isDisabled(), false, 'one confirm');
+  assert.equal(await page.locator('[data-act="pick-province"], [data-act="toggle-site"], [data-act="file-ticket"]').count(), 0, 'no site picker');
+});

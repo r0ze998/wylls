@@ -1101,7 +1101,7 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
 .count-field { display: grid; gap: 2px; font-size: var(--t1); color: var(--ink-2); }
 .count-field input { width: 6.5em; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
 .stepper { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-.stepper .btn { min-width: 36px; padding: 4px 8px; font-variant-numeric: tabular-nums; font-weight: 600; }
+.stepper .btn { min-width: 32px; padding: 4px 7px; font-variant-numeric: tabular-nums; font-weight: 600; }
 .stepper .btn .ic { width: 14px; height: 14px; }
 
 /* ---- the hosts drawer (screens/host.mjs, screens/explore.mjs): one card per host */
