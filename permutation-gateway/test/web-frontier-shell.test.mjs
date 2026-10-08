@@ -15,6 +15,7 @@ import { chipText, dialParts, dialMarkup, panelMarkup } from '../../permutation-
 import { drawerOf, closeDrawer, drawerTitle } from '../../permutation-server/web/frontier/hud/drawer.mjs';
 import { ICONS, icon, RESOURCE_ICON, MAP_TOOL_ICON } from '../../permutation-server/web/frontier/hud/icons.mjs';
 import { renderTabs, TAB_ICON } from '../../permutation-server/web/frontier/screens/shell.mjs';
+import { hudInsets, freeCentre } from '../../permutation-server/web/frontier/hud/insets.mjs';
 import * as fi18n from '../../permutation-server/web/frontier/fi18n.mjs';
 import { ERRORS } from '../../permutation-server/web/frontier/abi.mjs';
 import { setLang } from '../../permutation-server/web/lang.mjs';
@@ -106,6 +107,26 @@ test('the drawer: one state from the store; closed when nothing is selected or o
   setLang('en');
   assert.equal(drawerTitle({ kind: 'holding' }), 'Village');
   assert.equal(drawerTitle(null), 'Map');
+});
+
+test('what the HUD covers: the strip above, the open drawer at the right, the sheet or the dock below; the free centre', () => {
+  const rect = (left, top, width, height) => ({ left, top, width, height, right: left + width, bottom: top + height });
+  const page = ({ panel, position, drawer, dock }) => {
+    const els = {
+      'frontier-map': { getBoundingClientRect: () => rect(0, 0, 1440, 900) },
+      topbar: { getBoundingClientRect: () => rect(0, 0, 1440, 48) },
+      panel: { dataset: { drawer }, hidden: false, getBoundingClientRect: () => panel, position },
+    };
+    const nav = { getBoundingClientRect: () => dock, hidden: false };
+    return { getElementById: id => els[id] ?? null, querySelector: () => nav, defaultView: { getComputedStyle: el => ({ position: el.position ?? 'fixed', display: 'block', visibility: el === els.panel && drawer === 'closed' && position !== 'absolute' ? 'hidden' : 'visible' }) } };
+  };
+  const dock = rect(530, 826, 380, 62);
+  assert.deepEqual(hudInsets(page({ panel: rect(1044, 60, 384, 828), drawer: 'closed', dock })), { top: 48, right: 0, bottom: 74, left: 0 });
+  assert.deepEqual(hudInsets(page({ panel: rect(1044, 60, 384, 828), drawer: 'open', dock })), { top: 48, right: 396, bottom: 74, left: 0 });
+  assert.deepEqual(freeCentre(page({ panel: rect(1044, 60, 384, 828), drawer: 'open', dock })), { x: 522, y: 437, width: 1044, height: 778 });
+  // a phone: the sheet is laid over the map's lower part whether the drawer is open or not
+  assert.deepEqual(hudInsets(page({ panel: rect(0, 689, 1440, 211), position: 'absolute', drawer: 'closed', dock: rect(0, 900, 1440, 58) })), { top: 48, right: 0, bottom: 211, left: 0 });
+  assert.deepEqual(hudInsets(undefined), { top: 0, right: 0, bottom: 0, left: 0 }, 'no page: nothing is covered');
 });
 
 test('the dock and the icon sprite: icon-and-label buttons, every icon a symbol of art/ui/icons.svg, no glyph as an icon', () => {

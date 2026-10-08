@@ -306,10 +306,9 @@ export function renderPlate(FS) {
       <span class="plate-face">${face}</span>
       <span class="plate-text"><strong class="plate-name">${name}${h.state === 2 ? '' : html` <span class="plate-tag">${L`仮`}</span>`}</strong>
         <span class="plate-sub">${who}</span>
-        ${clocks.length ? html`<span class="plate-clock">${clocks[0]}</span>` : ''}</span>
+        ${warned ? html`<span class="plate-warn">${icon('alert')}${L`来襲の恐れ`}</span>` : clocks.length ? html`<span class="plate-clock">${clocks[0]}</span>` : ''}</span>
       <span class="plate-home">${icon('home')}</span>
     </button>
-    ${warned ? html`<span class="plate-warn">${icon('alert')}${L`来襲の恐れ`}</span>` : ''}
     ${hs.length > 1 ? html`<span class="plate-pips" role="group" aria-label="${L`村`}">${hs.map((o, k) => html`<button type="button" class="plate-pip" data-act="holding-go" data-i="${k}" ${raw(k === i ? 'aria-current="true"' : '')} aria-label="${holdingName(o)}" title="${holdingName(o)}"><span aria-hidden="true">${k + 1}</span></button>`)}</span>` : ''}
   </div>`;
 }

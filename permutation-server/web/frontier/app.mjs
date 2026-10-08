@@ -683,7 +683,7 @@ function renderHudTick(now) {
     strip.hidden = !tokens.length;
     // the room left of the dial: two tokens on a phone (the two most pressing), more as the strip widens
     const w = globalThis.innerWidth ?? 1440;
-    setHtmlIfChanged(strip, hud.renderStrip(tokens, FS.resOpen ?? null, w < 760 ? 2 : w < 1000 ? 3 : w < 1280 ? 4 : w < 1600 ? 5 : 8));
+    setHtmlIfChanged(strip, hud.renderStrip(tokens, FS.resOpen ?? null, w < 900 ? 2 : w < 1040 ? 3 : w < 1280 ? 4 : w < 1600 ? 5 : 8));
     resChanges(strip, tokens);
   }
   renderSound();
@@ -961,12 +961,20 @@ export function closeIntro() {
   $('frontier-map')?.focus({ preventScroll: true });
 }
 let tollBell = null;
-/** The bell toll: the new bell's number rings over the map for a moment. */
+let tollTimer = null;
+/** How long the toll banner stands (ms). A class and a timer, not an animation's end: it shows and leaves under reduced motion too. */
+const TOLL_MS = 3200;
+/** The bell toll: the banner drops from the dial for a moment ("the bell tolled, turn N") and the dial swings. */
 function ringToll(bell) {
   if (!Number.isInteger(bell)) return;
   if (tollBell !== null && bell > tollBell) {
     const el = $('bell-toll');
-    if (el) { setHtml(el, html`${icon('bell')}<span>${title.tollText(bell)}</span>`); el.classList.remove('ring'); void el.offsetWidth; el.classList.add('ring'); }
+    if (el) {
+      setHtml(el, html`${icon('bell')}<span>${title.tollText(bell)}</span>`);
+      el.classList.remove('ring'); void el.offsetWidth; el.classList.add('ring');
+      clearTimeout(tollTimer);
+      tollTimer = setTimeout(() => el.classList.remove('ring'), TOLL_MS);
+    }
     // the dial swings with the toll (visual only)
     const dial = $('bell-pill');
     if (dial) { dial.classList.remove('toll'); void dial.offsetWidth; dial.classList.add('toll'); }

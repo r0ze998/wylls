@@ -121,7 +121,7 @@ export function pushFeed(feed, items, at = Date.now()) {
 /** A mark per kind (hud/icons.mjs); the summary of a turn carries the bell. */
 export const KIND_ICON = Object.freeze({ battle: 'swords', march: 'banner', incoming: 'alert', build: 'hammer', holding: 'home', summary: 'bell' });
 /** The stamp of a notification: the turn it belongs to, with the bell beside it (UX design section 6, turn wording). */
-const stamp = x => (Number.isInteger(x.bell) ? html`<span class="toast-stamp">${icon('bell')}${L`ターン ${fmtNum(x.bell)}`}</span>` : '');
+const stamp = x => (Number.isInteger(x.bell) && x.kind !== 'summary' ? html`<span class="toast-stamp">${icon('bell')}${L`ターン ${fmtNum(x.bell)}`}</span>` : '');
 const KIND_TEXT = { battle: () => L`戦闘`, march: () => L`進軍`, incoming: () => L`来襲`, build: () => L`建設`, holding: () => L`村`, summary: () => L`まとめ` };
 
 function itemActions(x) {
@@ -140,7 +140,8 @@ export function renderToasts(feed, { dismissed = new Set(), now = Date.now() } =
   return live.map(x => html`<div class="toast toast-${x.kind}" role="status">
     <span class="toast-icon">${icon(KIND_ICON[x.kind] ?? 'flag')}</span>
     <span class="toast-text"><span class="toast-kind">${KIND_TEXT[x.kind]?.() ?? ''}${stamp(x)}</span>${x.text}</span>
-    <span class="toast-acts">${itemActions(x)}<button type="button" class="btn small toast-x" data-act="feed-dismiss" data-id="${x.id}" aria-label="${L`閉じる`}">${icon('close')}</button></span>
+    <button type="button" class="toast-x" data-act="feed-dismiss" data-id="${x.id}" aria-label="${L`閉じる`}">${icon('close')}</button>
+    ${itemActions(x).length ? html`<span class="toast-acts">${itemActions(x)}</span>` : ''}
   </div>`);
 }
 

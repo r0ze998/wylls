@@ -36,7 +36,7 @@
   --display: "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", "Noto Serif JP", "Noto Serif CJK JP", Georgia, "Times New Roman", serif;
   /* geometry */
   --gutter: 16px; --edge: 12px; --strip: 48px; --bar: var(--strip); --dial: 84px; --tabs: 58px; --target: 44px;
-  --drawer-w: 384px; --plate-w: 292px; --mini: 172px; --dock-h: 62px;
+  --drawer-w: 384px; --plate-w: 288px; --mini: 168px; --dock-h: 62px;
   --vvh: 100dvh;
   color-scheme: light;
   font: var(--t2)/1.5 var(--ui);
@@ -163,7 +163,7 @@ body[data-urgency="crit"] main::after { box-shadow: inset 0 0 0 4px #c8412f; }
 .banner.error { top: calc(var(--strip) + 110px); background: #4a1712; border-color: #ff8a70; color: #ffe9e4; }
 
 /* ================================================================== top left: search, the guide's objective */
-.hud-tl { position: absolute; top: calc(var(--strip) + var(--edge)); left: var(--edge); z-index: 20; display: grid; gap: 8px; width: min(320px, calc(100% - 2 * var(--edge))); pointer-events: none; }
+.hud-tl { position: absolute; top: calc(var(--strip) + var(--edge)); left: var(--edge); z-index: 20; display: grid; gap: 8px; width: min(304px, calc(100% - 2 * var(--edge))); pointer-events: none; }
 .search-row { display: flex; align-items: flex-start; gap: 6px; }
 .search-row > *, .objective { pointer-events: auto; }
 .map-search { position: relative; flex: 1 1 auto; min-width: 0; margin: 0; }
@@ -185,14 +185,16 @@ body[data-urgency="crit"] main::after { box-shadow: inset 0 0 0 4px #c8412f; }
 .ob-acts .btn + .btn { margin-left: 0; }
 
 /* ================================================================== bottom left: the to-do lines and the village plate */
-.rail { position: absolute; left: var(--edge); bottom: var(--edge); z-index: 20; width: var(--plate-w); max-width: calc(100% - 2 * var(--edge)); display: grid; gap: 8px; }
+.rail { position: absolute; left: var(--edge); bottom: var(--edge); z-index: 20; width: var(--plate-w); max-width: calc(100% - 2 * var(--edge)); display: grid; gap: 8px; pointer-events: none; }
+/* only what is drawn takes the pointer: the map stays reachable between the pieces */
+.rail .plate, .rail .todo-h, .rail .todo-btn, .lens, .minimap canvas { pointer-events: auto; }
 .todo { display: grid; gap: 4px; }
 .todo-h { justify-self: start; margin: 0; display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px 3px 7px; border-radius: 999px; background: var(--metal-glass); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
   font: 650 var(--t1)/1.2 var(--ui); letter-spacing: .06em; color: var(--brass-hi); }
 .todo-h .ic { width: 14px; height: 14px; }
 .todo-n { min-width: 18px; padding: 1px 5px; border-radius: 9px; background: var(--brass); color: #1d1608; font-variant-numeric: tabular-nums; text-align: center; letter-spacing: 0; }
-.todo-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
-.todo-btn { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 36px; padding: 6px 10px; border: 1px solid rgba(201,162,74,.32); border-left: 3px solid var(--brass); border-radius: 9px;
+.todo-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; justify-items: start; }
+.todo-btn { display: flex; align-items: center; gap: 9px; max-width: 100%; min-height: 36px; padding: 6px 10px; border: 1px solid rgba(201,162,74,.32); border-left: 3px solid var(--brass); border-radius: 9px;
   background: var(--metal-glass); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); color: var(--hud-ink); font: var(--t2)/1.35 var(--ui); text-align: left; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.28); }
 .todo-btn:hover { border-color: var(--brass-hi); color: var(--ivory); }
 .todo-ic { width: 18px; height: 18px; color: var(--brass-hi); }
@@ -215,7 +217,7 @@ body[data-urgency="crit"] main::after { box-shadow: inset 0 0 0 4px #c8412f; }
 .plate-home { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--brass); color: var(--you); background: rgba(0,0,0,.22); }
 .plate-main:hover .plate-home { border-color: var(--you); background: rgba(243,213,138,.14); }
 .plate-go { flex: 1 1 auto; }
-.plate-warn { position: absolute; right: 12px; top: -11px; display: inline-flex; align-items: center; gap: 4px; padding: 1px 9px 1px 6px; border-radius: 999px; background: #8f2418; border: 1px solid #ff8a70; color: #fff; font: 650 var(--t1)/1.5 var(--ui); }
+.plate-warn { justify-self: start; display: inline-flex; align-items: center; gap: 4px; margin-top: 2px; padding: 0 9px 0 6px; border-radius: 999px; background: #8f2418; border: 1px solid #ff8a70; color: #fff; font: 650 var(--t1)/1.6 var(--ui); }
 .plate-warn .ic { width: 14px; height: 14px; }
 .plate-warned { border-color: #ff8a70; }
 .plate-pips { position: absolute; left: 12px; top: -13px; display: flex; gap: 4px; }
@@ -244,7 +246,7 @@ body[data-urgency="crit"] main::after { box-shadow: inset 0 0 0 4px #c8412f; }
 .tab[aria-current="page"] { color: var(--brass-hi); background: linear-gradient(180deg, rgba(201,162,74,.28), rgba(201,162,74,.08)); box-shadow: inset 0 0 0 1px rgba(201,162,74,.6), inset 0 1px 0 rgba(255,255,255,.12); }
 
 /* ================================================================== bottom right: the minimap, its lens chips, the map buttons */
-.minimap { position: absolute; right: var(--edge); bottom: var(--edge); z-index: 20; width: var(--mini); height: var(--mini); transition: right .22s cubic-bezier(.2,.8,.2,1); }
+.minimap { position: absolute; right: var(--edge); bottom: var(--edge); z-index: 20; width: var(--mini); height: var(--mini); pointer-events: none; transition: right .22s cubic-bezier(.2,.8,.2,1); }
 .minimap canvas { display: block; width: 100%; height: 100%; border-radius: 50%; cursor: pointer; background: #0c1b18;
   box-shadow: 0 0 0 2px #0a1815, 0 0 0 4.5px var(--brass), 0 0 0 5.5px #3a2f12, 0 0 0 8px rgba(13,29,26,.88), 0 0 0 9px rgba(125,100,40,.7), 0 8px 22px rgba(0,0,0,.55); }
 .lenses { position: absolute; right: 0; bottom: calc(100% + 16px); display: flex; justify-content: flex-end; gap: 5px; }
@@ -261,7 +263,7 @@ body[data-urgency="crit"] main::after { box-shadow: inset 0 0 0 4px #c8412f; }
 /* ================================================================== over the map: toasts, the toll, the hover tip */
 .feed { position: absolute; top: calc(var(--strip) + var(--edge)); right: var(--edge); z-index: 35; display: grid; gap: 8px; width: min(348px, calc(100% - 2 * var(--edge))); pointer-events: none; transition: right .22s cubic-bezier(.2,.8,.2,1); }
 .feed:empty { display: none; }
-.toast { pointer-events: auto; display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: start; padding: 9px 10px; border: 1px solid rgba(201,162,74,.4); border-left: 4px solid var(--brass); border-radius: 11px;
+.toast { pointer-events: auto; display: grid; grid-template-columns: auto 1fr auto; gap: 6px 10px; align-items: start; padding: 9px 10px; border: 1px solid rgba(201,162,74,.4); border-left: 4px solid var(--brass); border-radius: 11px;
   background: var(--plate-bg); box-shadow: var(--shadow); color: var(--hud-ink); font-size: var(--t2); }
 .toast-icon { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: rgba(255,255,255,.09); color: var(--brass-hi); }
 .toast-icon .ic { width: 17px; height: 17px; }
@@ -269,9 +271,10 @@ body[data-urgency="crit"] main::after { box-shadow: inset 0 0 0 4px #c8412f; }
 .toast-kind { display: flex; align-items: center; gap: 8px; font-size: var(--t1); font-weight: 700; letter-spacing: .04em; color: var(--brass-hi); }
 .toast-stamp { display: inline-flex; align-items: center; gap: 3px; font-weight: 500; letter-spacing: 0; color: var(--hud-ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .toast-stamp .ic { width: 13px; height: 13px; }
-.toast-acts { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+.toast-acts { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 4px; }
 .toast-acts .btn + .btn { margin-left: 0; }
-.toast-x { min-width: 32px; padding: 0 !important; }
+.toast-x { display: grid; place-items: center; width: 28px; height: 28px; margin: -2px -2px 0 0; padding: 0; border: 0; border-radius: 7px; background: none; color: var(--hud-ink-2); cursor: pointer; }
+.toast-x:hover { color: var(--ivory); background: rgba(255,255,255,.1); }
 .toast-x .ic, .pop-x .ic { width: 16px; height: 16px; }
 .toast-battle, .toast-incoming { border-left-color: var(--ember); } .toast-battle .toast-icon, .toast-incoming .toast-icon { color: #ff9a86; }
 .toast-build, .toast-holding { border-left-color: #6fcf9a; } .toast-build .toast-icon, .toast-holding .toast-icon { color: #8fe0b4; }
@@ -335,6 +338,8 @@ body[data-urgency="crit"] main::after { box-shadow: inset 0 0 0 4px #c8412f; }
   body[data-drawer="open"] .tabs { left: calc(50% - (var(--drawer-w) + 38px + 2 * var(--edge) - var(--plate-w)) / 2); }
   body[data-drawer="open"] .tab { min-width: 62px; }
 }
+/* small tablets: the dial hangs where the drawer's corner would be, so the drawer starts under it */
+@media (min-width: 760px) and (max-width: 899px) { .panel { top: calc(var(--strip) + var(--dial) - 30px); max-height: calc(100dvh - var(--strip) - var(--dial) + 30px - var(--edge)); } }
 /* tablets: the corners stand above the dock's row; with the drawer open the dock keeps to the free side */
 @media (min-width: 760px) and (max-width: 1099px) {
   .rail, .minimap, .map-tools { bottom: calc(var(--dock-h) + 2 * var(--edge)); }
@@ -390,6 +395,8 @@ body[data-urgency="crit"] main::after { box-shadow: inset 0 0 0 4px #c8412f; }
   .map-search input { min-height: var(--target); height: var(--target); font-size: var(--t3); }
   .objective, .rail { display: none !important; }
   .feed { top: calc(var(--strip) + var(--target) + 16px); left: var(--edge); right: calc(var(--edge) + var(--target) + 8px); width: auto; z-index: 18; }
+  /* one toast at a time over a phone's map (the newest; the list in "More" has them all) */
+  .feed .toast:nth-child(n + 2) { display: none; }
   .bell-toll { top: calc(var(--strip) + var(--target) + 20px); font-size: var(--t2); letter-spacing: .04em; padding: 8px 14px 8px 12px; }
   .banner { top: calc(var(--strip) + var(--target) + 16px); }
   .banner.error { top: calc(var(--strip) + var(--target) + 64px); }
@@ -419,7 +426,8 @@ body[data-urgency="crit"] main::after { box-shadow: inset 0 0 0 4px #c8412f; }
   #panel-body > .plate .plate-main { min-height: 56px; padding: 2px 4px; }
   #panel-body > .todo { margin: 0 0 8px; }
   #panel-body > .todo .todo-h { background: none; padding-left: 4px; -webkit-backdrop-filter: none; backdrop-filter: none; }
-  #panel-body > .todo .todo-btn { min-height: var(--target); background: rgba(255,255,255,.06); box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+  #panel-body > .todo .todo-list { justify-items: stretch; }
+  #panel-body > .todo .todo-btn { width: 100%; min-height: var(--target); background: rgba(255,255,255,.06); box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
   /* the objective in the peek: its name and its one button on a line (the text and the steps open from "steps") */
   #panel-body > .ob-card { margin: 0 0 8px; padding: 6px 6px 6px 12px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 8px; background: rgba(255,255,255,.05); box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
   #panel-body > .ob-card h3 { grid-column: 1; margin: 0; }
@@ -428,7 +436,7 @@ body[data-urgency="crit"] main::after { box-shadow: inset 0 0 0 4px #c8412f; }
   #panel-body > .ob-card .ob-acts { grid-column: 2; grid-row: 1 / 3; flex-wrap: nowrap; }
   #panel-body > .ob-card .ob-acts .btn.primary ~ .ob-steps { display: none; }
   .plate .btn, .ob-card .btn, .toast .btn { min-height: var(--target); }
-  .toast-x { min-width: var(--target); }
+  .toast-x { width: var(--target); height: var(--target); margin: -6px -6px 0 0; }
   .plate-pip { min-width: var(--target); height: var(--target); border-radius: 9px; }
   .plate-pips { position: static; margin: 0 4px 0 0; }
 }
