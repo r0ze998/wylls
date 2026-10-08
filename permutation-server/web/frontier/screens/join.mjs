@@ -58,7 +58,7 @@ export function renderNations(FS) {
   const gated = FS.inviteRequired || !!FS.season?.joinGate?.some?.(x => x !== 0);
   const banners = cards.map(c => html`<li><button type="button" class="banner-pick bn${c.faction}" data-act="pick-faction" data-f="${c.faction}" data-nation="${c.faction}" aria-pressed="${c.chosen ? 'true' : 'false'}">
     <span class="bn-cloth"><span class="bn-crest">${crestSvg(c.faction, { size: 30 })}</span>${raw(leaderSvg(c.faction, { size: 104 }))}</span>
-    <span class="bn-plate"><strong class="bn-name">${c.name}</strong><span class="bn-leader"><span data-name>${leaderName(c.faction)}</span></span><span class="bn-creed">${L`教義：${c.doctrine}`}</span></span>
+    <span class="bn-plate"><strong class="bn-name">${c.name}</strong><span class="bn-leader"><span data-name>${leaderName(c.faction)}</span></span><span class="bn-creed">${L`教義：${c.doctrine}`}</span><span class="bn-pitch">${DOCTRINE_PITCH[c.faction]()}</span></span>
   </button></li>`);
   // one confirm: the chosen nation's creed in a line, then the one button (or, without a wallet, the way to connect one)
   const confirm = html`<div class="nation-confirm${pick ? '' : ' nc-empty'}">
