@@ -816,7 +816,7 @@ function ownNow() {
 /**
  * The times of the wait for the village, for the map's countdown (map/waitview.mjs): `{now, nextTurnAt, resultAt,
  * first}` in chain seconds; `resultAt` when the open request's result is due (fland.mjs ticketTimes), `first` the
- * candidate tried first. Null outside the wait.
+ * candidate tried first; `said` while the wait view shows the same time itself. Null outside the wait.
  */
 function waitNow() {
   const st = FS.land?.stage;
@@ -826,7 +826,9 @@ function waitNow() {
   const bell = FS.nowBell ?? Math.max(0, Math.floor((now - FS.clock.genesisTs) / 600)), t = st === 'ticket' ? FS.land.ticket ?? null : null;
   let resultAt = null;
   try { resultAt = t ? ticketTimes(FS.clock, t.bell).resultAbout : null; } catch { resultAt = null; }
-  return { now, nextTurnAt: bellStart(FS.clock.genesisTs, bell + 1), resultAt, first: t ? t.next ?? 0 : null };
+  // one countdown on the screen (UX design 11.10): while the wait view stands open with its own clock, the map leaves its line out
+  const said = drawerOf(FS)?.kind === 'wait' && !(phone() && sheetRef?.state() === 'peek');
+  return { now, nextTurnAt: bellStart(FS.clock.genesisTs, bell + 1), resultAt, first: t ? t.next ?? 0 : null, said };
 }
 /** The village that lands now, the first time this device sees it (map/landing.mjs). */
 const landingBook = createLandingBook();

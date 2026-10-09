@@ -92,28 +92,40 @@ export function paintClouds(ctx, st) {
   return n;
 }
 
-/** A thin plume over every village in view. */
+/**
+ * Where the smoke rises over the viewer's own village, which the map draws larger (map/plates.mjs HERO): three
+ * chimneys among its roofs (hex radii from the tile's centre), each a thinner plume than a village's one, so the
+ * houses are seen through it.
+ */
+export const HERO_CHIMNEYS = Object.freeze([[-0.52, -0.5], [0.34, -0.66], [0.02, 0.02]]);
+const PLUME = Object.freeze({ village: { puffs: 7, r0: 0.15, r1: 0.34, rise: 1.25, drift: 0.55, o: 0.92 }, hero: { puffs: 5, r0: 0.06, r1: 0.17, rise: 0.95, drift: 0.42, o: 0.6 } });
+
+function plume(ctx, st, x0, y0, seed, P) {
+  for (let i = 0; i < P.puffs; i++) {
+    const k = ((st.t * 0.2 + i / P.puffs + hash01(seed, 2)) % 1);
+    const rise = k * R * P.rise, drift = k * k * R * P.drift + noise1(st.t * 0.5 + i * 3.1, seed & 255) * R * 0.08 * k;
+    const r = R * (P.r0 + P.r1 * k), o = Math.sin(Math.min(1, k * 7) * Math.PI / 2) * (1 - k) ** 0.8 * P.o;
+    const x = x0 + drift, y = y0 - rise;
+    // a soft shade under each puff, so it reads on pale ground too
+    const sh = ctx.createRadialGradient?.(x + r * 0.15, y + r * 0.2, 0, x + r * 0.15, y + r * 0.2, r);
+    if (sh?.addColorStop) { sh.addColorStop(0, `rgba(70,74,72,${(o * 0.3).toFixed(3)})`); sh.addColorStop(1, 'rgba(70,74,72,0)'); ctx.fillStyle = sh; ctx.beginPath(); ctx.arc(x + r * 0.15, y + r * 0.2, r, 0, TAU); ctx.fill(); }
+    const g = ctx.createRadialGradient?.(x, y, 0, x, y, r);
+    if (g?.addColorStop) { g.addColorStop(0, `rgba(252,250,246,${o.toFixed(3)})`); g.addColorStop(0.6, `rgba(238,234,226,${(o * 0.7).toFixed(3)})`); g.addColorStop(1, 'rgba(214,208,196,0)'); ctx.fillStyle = g; }
+    else ctx.fillStyle = `rgba(238,234,224,${(o * 0.4).toFixed(3)})`;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+  }
+}
+
+/** A thin plume over every village in view; over the viewer's own, larger village (`tile.hero`) one from each of its chimneys. */
 export function paintSmoke(ctx, st) {
   let n = 0;
   for (const tile of st.tiles) {
     if (tile.site === undefined || tile.state !== 1 || !(tile.owner < 6) || !visible(tile) || !inView(st, tile.x, tile.y, R * 2)) continue;
     n++;
     const seed = (tile.q * 73 + tile.r * 151) | 0;
+    if (tile.hero) { HERO_CHIMNEYS.forEach(([cx, cy], i) => plume(ctx, st, tile.x + cx * R, tile.y + cy * R, seed + i * 977, PLUME.hero)); continue; }
     // from the roofs at the middle of the village (the sprite's centre is the tile's)
-    const x0 = tile.x + (hash01(seed, 1) - 0.5) * R * 0.24 + R * 0.06, y0 = tile.y - R * 0.08;
-    for (let i = 0; i < 7; i++) {
-      const k = ((st.t * 0.2 + i / 7 + hash01(seed, 2)) % 1);
-      const rise = k * R * 1.25, drift = k * k * R * 0.55 + noise1(st.t * 0.5 + i * 3.1, seed & 255) * R * 0.08 * k;
-      const r = R * (0.15 + 0.34 * k), o = Math.sin(Math.min(1, k * 7) * Math.PI / 2) * (1 - k) ** 0.8 * 0.92;
-      const x = x0 + drift, y = y0 - rise;
-      // a soft shade under each puff, so it reads on pale ground too
-      const sh = ctx.createRadialGradient?.(x + r * 0.15, y + r * 0.2, 0, x + r * 0.15, y + r * 0.2, r);
-      if (sh?.addColorStop) { sh.addColorStop(0, `rgba(70,74,72,${(o * 0.3).toFixed(3)})`); sh.addColorStop(1, 'rgba(70,74,72,0)'); ctx.fillStyle = sh; ctx.beginPath(); ctx.arc(x + r * 0.15, y + r * 0.2, r, 0, TAU); ctx.fill(); }
-      const g = ctx.createRadialGradient?.(x, y, 0, x, y, r);
-      if (g?.addColorStop) { g.addColorStop(0, `rgba(252,250,246,${o.toFixed(3)})`); g.addColorStop(0.6, `rgba(238,234,226,${(o * 0.7).toFixed(3)})`); g.addColorStop(1, 'rgba(214,208,196,0)'); ctx.fillStyle = g; }
-      else ctx.fillStyle = `rgba(238,234,224,${(o * 0.4).toFixed(3)})`;
-      ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
-    }
+    plume(ctx, st, tile.x + (hash01(seed, 1) - 0.5) * R * 0.24 + R * 0.06, tile.y - R * 0.08, seed, PLUME.village);
   }
   return n;
 }

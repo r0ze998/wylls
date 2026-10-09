@@ -108,6 +108,8 @@ export const GROUND_FINER = 1.08;
  */
 export const NOGO_SELECTORS = '#bell-pill, #bell-pill .dial-top, #topbar .strip-side, #hud-tl > *, #rail > *, #minimap, .map-tools, #tabs, #panel, #ob-map, .feed > *, #mile-banner';
 export const NOGO_EVERY_MS = 300;
+/** What a pick names, as one word (the tile, or the province from afar). */
+const hoverId = hit => (hit ? `${hit.p},${hit.q},${hit.idx ?? ''}` : '');
 /** The map's words fade out for a set piece, and back in after it, over this long (ms). */
 export const PIECE_LABELS_MS = 200;
 /**
@@ -904,7 +906,16 @@ export class FrontierMap {
     c.addEventListener('pointermove', e => {
       const prev = this.pointers.get(e.pointerId), p = at(e);
       // a mouse over the map with no button down: what is under it (the page's hover tip), in the picture on screen
-      if (!prev) { if (e.pointerType === 'mouse') { const hit = pick(this.cam.drawn, this.size(), p.x, p.y); this.setHover(hit); this.onHover(hit, { x: p.bx, y: p.by }); } return; }
+      if (!prev) {
+        if (e.pointerType === 'mouse') {
+          const v = this.cam.drawn, hit = pick(v, this.size(), p.x, p.y);
+          // (where the mouse rests: when the picture moves under it, what is under it is asked again: rehover)
+          this.mouse = { bx: p.bx, by: p.by, view: `${v.x}|${v.y}|${v.zoom}`, id: hoverId(hit) };
+          this.setHover(hit); this.onHover(hit, { x: p.bx, y: p.by });
+        }
+        return;
+      }
+      this.mouse = null;
       this.setHover(null);
       this.onHover(null);
       if (this.pointers.size === 2) {
@@ -942,7 +953,7 @@ export class FrontierMap {
       this.sync();
     };
     c.addEventListener('pointerup', up);
-    c.addEventListener('pointerleave', () => { this.setHover(null); this.onHover(null); });
+    c.addEventListener('pointerleave', () => { this.mouse = null; this.setHover(null); this.onHover(null); });
     c.addEventListener('pointercancel', up);
     c.addEventListener('wheel', e => {
       e.preventDefault();
@@ -962,6 +973,23 @@ export class FrontierMap {
       else if (e.key === 'm' || e.key === 'M') this.worldChart();
       else if (e.key === 'Enter') this.onSelect(pick(v, s, s.width / 2, s.height / 2));
     });
+  }
+
+  /**
+   * The picture moved under a resting mouse (keys, a flight, a zoom that the pan's limit pulled aside): the tile
+   * under it is another one now, so the lit hexagon and the page's hover tip follow the picture, not the past.
+   */
+  rehover(v, size) {
+    const m = this.mouse;
+    if (!m) return;
+    const view = `${v.x}|${v.y}|${v.zoom}`;
+    if (m.view === view) return;
+    m.view = view;
+    const p = this.geo(v.zoom, size).toStage(m.bx, m.by), hit = pick(v, size, p.x, p.y), id = hoverId(hit);
+    if (id === m.id) return;
+    m.id = id;
+    this.setHover(hit);
+    try { this.onHover(hit, { x: m.bx, y: m.by }); } catch { /* the page's own follower */ }
   }
 
   /** The tile under the pointer (a pick, or null): the map lights it (UX brief §5.2). */
@@ -1073,6 +1101,7 @@ export class FrontierMap {
     }
     this.bare = null;
     const v = this.cam.drawn, logical = this.cam.view;
+    this.rehover(v, size);
     // the board's angle on screen follows the zoom on screen; `gv` is the ground canvas's own flat view of the same picture
     const T = this.geo(v.zoom, size), gv = groundView(v, G);
     const quadOf = (view, t) => (t.flat ? null : t.quad().map(p => ({ x: view.x + (p.x - width / 2) / view.zoom, y: view.y + (p.y - height / 2) / view.zoom })));
@@ -1364,7 +1393,8 @@ export class FrontierMap {
     if (waiting) paintWedge(ctx, survey.faction, ringsOpen, z);
     // the wait for the village (map/waitview.mjs): the nation's standard stands in its home wedge; what the countdown says
     const homeAt = waiting ? this.wedgeHome(survey.faction, ringsOpen) : null;
-    const waitSay = waiting ? waitLine(src.wait ?? null) : null;
+    // (the page's wait view says the same time while it stands open: then the map does not say it a second time)
+    const waitSay = waiting && !src.wait?.said ? waitLine(src.wait ?? null) : null;
     // the nation choice (UX brief §7.2): the home wedge of the nation that is looked at is lit on the chart
     const looked = !waiting && limited && Number.isInteger(src.focusNation) ? src.focusNation : null;
     if (looked !== null) paintWedge(ctx, looked, ringsOpen, z, { lit: true });
