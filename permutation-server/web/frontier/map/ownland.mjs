@@ -31,13 +31,17 @@ import { upright } from './tilt.mjs';
  * The fill of the viewer's own land (UX brief §11.5): a band, not a flood. The nation's colour at `rim` along the
  * border, falling to `middle` `depth` world px inward (two thirds of a hex), laid over the ground with `blend` so
  * the land keeps its own colour and takes a cast: grass stays grass. `steps`: how many strokes make the fall.
- * Chosen from pictures of six blends on all six nations: 'multiply' reads as a shadow, 'soft-light' and plain
- * alpha as mud; 'overlay' laid twice (`passes`) is a warm glow of the nation's colour that leaves the land's own
- * light and shade alone. It lies under what stands on the land: no prop or building is tinted.
+ * The second review saw the band as a patchwork: with a slow fall and 'overlay' the whole border ring of tiles
+ * turned orange on plains and olive on grass, two more kinds of terrain. So the fall is steep (`curve`: most of it
+ * within the first third of a hex, a glow that hugs the border) and the cast is 'soft-light', which shifts the
+ * ground toward the nation's hue without changing how light it is. It lies under what stands on the land: no
+ * prop or building is tinted.
  */
-export const OWN_FILL = Object.freeze({ rim: 0.38, middle: 0.08, depth: RADIUS * Math.sqrt(3) * (2 / 3), steps: 7, curve: 1.5, blend: 'overlay', passes: 2 });
-/** A little of the colour itself over the cast, along the border only (so the band reads on any ground): its share of the band's strength. */
-export const OWN_BODY = 0.3;
+export const OWN_FILL = Object.freeze({ rim: 0.38, middle: 0.08, depth: RADIUS * Math.sqrt(3) * (2 / 3), steps: 12, curve: 2.6, blend: 'soft-light', passes: 2 });
+/** The colour itself over the cast, along the border only (so the band reads on any ground): its share of the band's strength. */
+export const OWN_BODY = 2;
+/** From afar (the far views): the land's fill in the colour itself, and one rim of ink, the nation's colour and a hair of gold (widths in screen px before the zoom's own scale). */
+export const OWN_FAR = Object.freeze({ fill: 0.25, ink: 4.2, colour: 2.8, gold: 1.1 });
 /**
  * The band as strokes along the outline, clipped to the land: `[{width (world px), alpha}]`, widest first. Laid
  * over a fill of `middle`, the strokes that cover a point `d` px inside the border add up to
@@ -209,19 +213,19 @@ export function paintOwnLand(g, land, { zoom = 1, faction = 0, now = fxNow(), st
     });
   }
   // (while the landing floods, the band comes on with the border; else it is the land's kept picture, laid on in two copies)
-  const kept = flood ? null : bandBitmap(land.shape, P, col);
-  if (kept) {
+  const kept = flood || far ? null : bandBitmap(land.shape, P, col);
+  if (far) {
+    // from afar the band would be a few pixels: the land carries a quarter of the colour itself, and nothing else
+    if (!flood) { g.globalAlpha = OWN_FAR.fill; g.fillStyle = col; g.fill(P.fill); }
+  } else if (kept) {
     g.imageSmoothingEnabled = true;
     g.globalCompositeOperation = blend; g.globalAlpha = 1; g.drawImage(kept.cast, kept.x, kept.y, kept.w, kept.h);
     g.globalCompositeOperation = 'source-over';
     if (RADIUS * zoom > 9) g.drawImage(kept.body, kept.x, kept.y, kept.w, kept.h);
-    // (from afar the band is a few pixels: the land also carries a little of the colour itself, or it would not read)
-    if (far) { g.globalAlpha = 0.14; g.fillStyle = col; g.fill(P.fill); }
   } else {
     if (!flood) {
       g.globalCompositeOperation = blend; g.globalAlpha = OWN_FILL.middle; g.fillStyle = col; g.fill(P.fill);
       g.globalCompositeOperation = 'source-over';
-      if (far) { g.globalAlpha = 0.14; g.fill(P.fill); }
     }
     if (shown > 0 && RADIUS * zoom > 9) {
       g.save();
@@ -231,7 +235,16 @@ export function paintOwnLand(g, land, { zoom = 1, faction = 0, now = fxNow(), st
     }
   }
   // ---- the border: a glow of gold, dark ink, the nation's colour, the gold line
-  if (shown > 0) {
+  if (shown > 0 && far) {
+    // one rim from afar: ink, the nation's colour, a hair of gold (the viewer's own mark), each inside the one before
+    const dash = land.provisional ? [7 * k, 5 * k] : [];
+    g.setLineDash([]);
+    g.globalAlpha = 0.8 * shown; g.strokeStyle = `${INK}1)`; g.lineWidth = OWN_FAR.ink * k; g.stroke(P.edge);
+    g.globalAlpha = shown; g.strokeStyle = col; g.lineWidth = OWN_FAR.colour * k; g.stroke(P.edge);
+    g.setLineDash(dash);
+    g.globalAlpha = (0.8 + 0.2 * breath) * shown; g.strokeStyle = YOU; g.lineWidth = OWN_FAR.gold * k; g.stroke(P.edge);
+    g.setLineDash([]);
+  } else if (shown > 0) {
     const dash = land.provisional ? [9 * k, 7 * k] : [];
     g.setLineDash([]);
     g.globalAlpha = (0.12 + 0.2 * breath) * shown; g.strokeStyle = YOU; g.lineWidth = 12 * k; g.stroke(P.edge);

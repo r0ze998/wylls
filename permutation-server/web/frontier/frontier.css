@@ -77,9 +77,10 @@ main { position: fixed; inset: 0; overflow: hidden; }
 .map-ground { position: absolute; left: var(--map-gl, 0px); top: var(--map-gt, 0px); width: var(--map-gw, 100%); height: var(--map-gh, 100%); display: block; }
 .map-dress, .map-dress::before, .map-dress::after { position: absolute; inset: 0; pointer-events: none; }
 .map-dress::before, .map-dress::after { content: ""; }
-/* the far edge of the board pales into a warm haze (at most .30, and only under a tilt) */
-.map-dress::before { top: var(--map-top, 0px); bottom: auto; height: 26%; opacity: var(--map-haze, 0);
-  background: linear-gradient(to bottom, rgba(240,228,200,.30), rgba(240,228,200,.13) 42%, rgba(240,228,200,0)); }
+/* the far edge of the board pales into a warm haze (at most .30, and only under a tilt). It begins at the very top of
+   the picture, behind the HUD's plaques, and thins out evenly: no edge of its own anywhere on the map */
+.map-dress::before { top: 0; bottom: auto; height: 30%; opacity: var(--map-haze, 0);
+  background: linear-gradient(to bottom, rgba(240,228,200,.30), rgba(240,228,200,.22) 22%, rgba(240,228,200,.1) 55%, rgba(240,228,200,.03) 82%, rgba(240,228,200,0)); }
 /* the table falls into shadow toward the corners and the near edge */
 .map-dress::after { opacity: calc(.55 + .45 * var(--map-near, 0));
   background: radial-gradient(ellipse 78% 74% at 50% 52%, rgba(6,14,13,0) 58%, rgba(6,14,13,.26)), linear-gradient(to top, rgba(6,14,13,.2), rgba(6,14,13,0) 13%); }

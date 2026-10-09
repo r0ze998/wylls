@@ -41,7 +41,9 @@ export const SEA_BAKES = 3;
 export const DRIFT_SPAN = 2300;
 export const DRIFT_SPEED = Object.freeze({ x: 11, y: 4 });
 /** The cloud's own colours: the body, its lit crests, its shaded troughs, the shadow it casts on the paper. */
-export const CLOUD = Object.freeze({ body: [234, 231, 235], lit: [10, 10, 8], shade: [-17, -16, -9], cast: '74,60,52' });
+export const CLOUD = Object.freeze({ body: [228, 227, 236], lit: [16, 16, 12], shade: [-30, -28, -14], cast: '74,60,52' });
+/** How much cloud lies next to the land, and from how many tiles out the bank is at its full depth: it thickens away from the land, all the way to the sheet's margin. */
+export const BANK = Object.freeze({ near: 0.7, full: 2.4 });
 /** A puff's seeded variety: how far it is turned (radians either way), its sizes, how far it is moved (of a hex). */
 export const PUFF = Object.freeze({ turn: 0.4, min: 0.72, max: 1.5, shift: 0.3 });
 
@@ -117,10 +119,11 @@ export function seaField(ringsOpen) {
     if (!(lip > 0)) return 0;
     // (over the land itself it is never more than a thin mist: what stands on a tile in sight stays in sight)
     const inner = (1 - Math.pow(1 - lip, 1.7)) * (s < 0.5 ? 0.4 + 1.2 * s : 1);
-    // where it thins into the bare paper, and the sheet's own margin, which it never reaches
-    const outer = 1 - step(SHEET.sea, SHEET.sea + SHEET.fade, s - 0.5 + noise(x / 240, y / 200, 43) * 0.7);
+    // it thickens away from the land (UX brief §11.3) and lies over all the paper beyond the opened rings: the land
+    // that does not exist yet is under cloud, not bare. Only the sheet's own margin, with its ruled line, stays clear
+    const outer = BANK.near + (1 - BANK.near) * step(0.8, BANK.full, s + noise(x / 240, y / 200, 43) * 0.5);
     let edge = 1;
-    if (sheet) { const m = Math.min(sheet.x - Math.abs(x), (sheet.y - Math.abs(y)) / FLATTEN) / HEX_W; edge = step(SHEET.margin * 0.45, SHEET.margin * 1.25, m); }
+    if (sheet) { const m = Math.min(sheet.x - Math.abs(x), (sheet.y - Math.abs(y)) / FLATTEN) / HEX_W + noise(x / 170, y / 150, 46) * 0.16; edge = step(SHEET.margin * 0.5, SHEET.margin * 1.2, m); }
     return inner * outer * edge;
   };
   // (deep in the land: every tile within five steps is opened; kept per tile)
@@ -182,6 +185,33 @@ export function driftTexture() {
   g.putImageData(img, 0, 0);
   driftTex = cv;
   return driftTex;
+}
+
+// ------------------------------------------------------------------ a heap of cloud
+/**
+ * One heap of cloud about (x, y), `r` across (world px): a handful of soft rounds, each with its shade under it to the
+ * lower right and its light on its upper left shoulder; seeded, so the same heap every time. `bank`: a wide, low one.
+ */
+export function paintHeap(g, x, y, r, seed = 0, alpha = 1, bank = false) {
+  if (!g?.createRadialGradient || !(r > 0) || !(alpha > 0)) return 0;
+  const n = (bank ? 9 : 4) + Math.floor(hash(seed, 1) * (bank ? 6 : 5));
+  const rounds = [];
+  for (let i = 0; i < n; i++) {
+    const a = hash(seed, 10 + i) * Math.PI * 2, d = Math.sqrt(hash(seed, 40 + i)) * r * (bank ? 0.72 : 0.56);
+    rounds.push({ x: x + Math.cos(a) * d * 1.25, y: y + Math.sin(a) * d * 0.62, r: r * (bank ? 0.3 + 0.24 * hash(seed, 70 + i) : 0.36 + 0.3 * hash(seed, 70 + i)) });
+  }
+  rounds.sort((p, q) => p.y - q.y);
+  g.save();
+  for (const b of rounds) {
+    let gr = g.createRadialGradient(b.x + b.r * 0.2, b.y + b.r * 0.3, b.r * 0.2, b.x + b.r * 0.2, b.y + b.r * 0.3, b.r * 1.08);
+    gr.addColorStop(0, `rgba(120,122,160,${(0.42 * alpha).toFixed(3)})`); gr.addColorStop(1, 'rgba(120,122,160,0)');
+    g.fillStyle = gr; g.fillRect(b.x - b.r * 1.3, b.y - b.r * 1.3, b.r * 2.6, b.r * 2.6);
+    gr = g.createRadialGradient(b.x - b.r * 0.2, b.y - b.r * 0.24, b.r * 0.06, b.x - b.r * 0.08, b.y - b.r * 0.1, b.r * 0.92);
+    gr.addColorStop(0, `rgba(255,255,253,${(0.96 * alpha).toFixed(3)})`); gr.addColorStop(0.5, `rgba(250,250,252,${(0.72 * alpha).toFixed(3)})`); gr.addColorStop(0.82, `rgba(240,240,248,${(0.22 * alpha).toFixed(3)})`); gr.addColorStop(1, 'rgba(240,240,248,0)');
+    g.fillStyle = gr; g.fillRect(b.x - b.r, b.y - b.r, b.r * 2, b.r * 2);
+  }
+  g.restore();
+  return rounds.length;
 }
 
 // ------------------------------------------------------------------ the painter
@@ -256,7 +286,7 @@ export class CloudSea {
     sg.setTransform(1, 0, 0, 1, 0, 0); sg.globalCompositeOperation = 'copy'; sg.drawImage(mcv, 0, 0);
     sg.globalCompositeOperation = 'source-in'; sg.fillStyle = `rgb(${CLOUD.cast})`; sg.fillRect(0, 0, n, n);
     sg.globalCompositeOperation = 'source-over';
-    g.globalAlpha = 0.34; g.drawImage(sc, at[0] + 6 * res, at[1] + 9 * res, at[2], at[3]);
+    g.globalAlpha = 0.44; g.drawImage(sc, at[0] + 7 * res, at[1] + 11 * res, at[2], at[3]);
     g.globalAlpha = 1; g.drawImage(mcv, ...at);
     g.setTransform(res, 0, 0, res, APRON - x0 * res, APRON - y0 * res);
     // the billows: large soft forms, each lit from the upper left with its shade under it
@@ -266,44 +296,46 @@ export class CloudSea {
       const x = (bx + hash(bx, by, 72)) * bw, y = (by + hash(bx, by, 73)) * bh, a = F.cover(x, y, sheet);
       if (!(a > 0.3)) continue;
       const r = 95 + hash(bx, by, 74) * 90;
+      // (a billow keeps whole on the sheet)
+      if (sheet && Math.min(sheet.x - Math.abs(x), (sheet.y - Math.abs(y)) / FLATTEN) < r * 1.05 + HEX_W * 0.3) continue;
       g.save(); g.translate(x, y); g.scale(1, FLATTEN * 0.92);
       let gr = g.createRadialGradient(r * 0.2, r * 0.26, r * 0.25, r * 0.2, r * 0.26, r * 1.05);
-      gr.addColorStop(0, `rgba(140,138,170,${0.27 * a})`); gr.addColorStop(1, 'rgba(140,138,170,0)');
+      gr.addColorStop(0, `rgba(128,128,168,${0.4 * a})`); gr.addColorStop(1, 'rgba(128,128,168,0)');
       g.fillStyle = gr; g.fillRect(-r * 1.3, -r * 1.3, r * 2.6, r * 2.6);
       gr = g.createRadialGradient(-r * 0.16, -r * 0.2, r * 0.08, -r * 0.16, -r * 0.2, r * 0.86);
-      gr.addColorStop(0, `rgba(255,254,251,${0.62 * a})`); gr.addColorStop(0.5, `rgba(255,254,251,${0.3 * a})`); gr.addColorStop(1, 'rgba(255,254,251,0)');
+      gr.addColorStop(0, `rgba(255,254,251,${0.78 * a})`); gr.addColorStop(0.5, `rgba(255,254,251,${0.4 * a})`); gr.addColorStop(1, 'rgba(255,254,251,0)');
       g.fillStyle = gr; g.fillRect(-r * 1.3, -r * 1.3, r * 2.6, r * 2.6);
       g.restore();
     }
-    // the puffs: every tile near the piece gives its own, back to front
-    const set = SETS.find(s => s.r >= RADIUS * res * 0.9) ?? SETS[SETS.length - 1];
-    const thin = Math.min(1, Math.max(0.12, res * 3.4));
-    let whole = true;
+    // the heaps: every tile near the piece gives its own, back to front. Each is drawn here, soft and lit from the
+    // upper left (the art's cloud stamps had one embossed shape: a field of them read as cotton balls); now and then
+    // a few tiles share one large bank
+    // (from afar a heap would be a speck: fewer of them, each larger)
+    const afar = Math.max(1, Math.min(3.4, 0.7 / res));
+    const thin = Math.min(1, Math.max(0.08, 1 / (afar * afar)));
+    const whole = true;
     const list = [];
-    const rowH = RADIUS * 1.5 * FLATTEN, pad = HEX_W * 1.6;
+    const rowH = RADIUS * 1.5 * FLATTEN, pad = HEX_W * 3.4 * afar;
+    // a heap keeps whole on the sheet: none hangs over the sheet's edge onto the table
+    const onSheet = (x, y, r) => !sheet || Math.min(sheet.x - Math.abs(x), (sheet.y - Math.abs(y)) / FLATTEN) > r * 1.15 + HEX_W * 0.5;
     for (let r = Math.floor((y0 - pad) / rowH); r <= Math.ceil((y0 + size + pad) / rowH); r++) {
       for (let q = Math.floor((x0 - pad) / HEX_W - r / 2); q <= Math.ceil((x0 + size + pad) / HEX_W - r / 2); q++) {
         const cx = HEX_W * (q + r / 2), cy = rowH * r;
         const dep = F.steps(q, r);
-        if (dep === 0 || dep >= FAR) continue;
-        for (const p of puffsOf(q, r, dep, thin)) {
+        if (dep === 0) continue;
+        puffsOf(q, r, dep, thin).forEach((p, i) => {
           const x = cx + p.dx * HEX_W, y = cy + p.dy * HEX_W * FLATTEN, a = F.cover(x, y, sheet);
-          // (no puff stands over the land: next to it they are small, so none hangs over a tile in sight)
-          if (a > 0.16 && F.depth(x, y) > 0.62) list.push({ x, y, a: Math.min(1, a * 1.3), p: dep === 1 ? { ...p, size: Math.min(p.size, 0.9) } : p });
-        }
+          // (`puffsOf` already makes the few heaps of a far view larger)
+          const pr = RADIUS * 0.74 * (dep === 1 ? Math.min(p.size, 0.9 * afar) : p.size);
+          // (no heap stands over the land: next to it they are small, so none hangs over a tile in sight)
+          if (a > 0.16 && F.depth(x, y) > 0.62 && onSheet(x, y, pr)) list.push({ x, y, a: Math.min(1, a * 1.3), r: pr, seed: (q * 131 + r * 977 + i * 7919) | 0 });
+        });
+        // a bank: a heap three or four tiles wide, well out from the land
+        if (dep >= 3 && hash(q, r, 81) < 0.07 * Math.min(1, thin * 1.6)) { const a = F.cover(cx, cy, sheet), br = RADIUS * (2.3 + hash(q, r, 82) * 1.5) * Math.sqrt(afar); if (a > 0.5 && onSheet(cx, cy, br)) list.push({ x: cx, y: cy, a, r: br, seed: (q * 733 + r * 389) | 0, bank: true }); }
       }
     }
-    list.sort((a, b) => a.y - b.y || a.x - b.x);
-    for (const { x, y, a, p } of list) {
-      const s = this.puff(set, p.variant);
-      if (!s) { whole = whole && !this.image; continue; }
-      const sc2 = (RADIUS / s.r) * p.size;
-      g.save();
-      g.translate(x, y); g.rotate(p.turn); g.scale(p.flip ? -sc2 : sc2, sc2);
-      g.globalAlpha = a;
-      g.drawImage(s.cv, -s.cx, -s.cy);
-      g.restore();
-    }
+    list.sort((a, b) => (b.bank ? 1 : 0) - (a.bank ? 1 : 0) || a.y - b.y || a.x - b.x);
+    for (const h of list) paintHeap(g, h.x, h.y, h.r, h.seed, h.a, h.bank);
     return { cv, mask: mcv, x: x0, y: y0, size, px: (PIECE + 2 * APRON) ** 2, whole, empty: false };
   }
 

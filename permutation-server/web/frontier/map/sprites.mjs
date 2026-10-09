@@ -235,6 +235,10 @@ export const FLAT = Object.freeze({
 const GRID_INK = 'rgba(24,34,26,0.32)';
 /** A ground bitmap's box around its province's centre (world px): the tiles and their sprites' cells. */
 const GROUND_BOX = Object.freeze({ left: 352, right: 352, top: 258, bottom: 252 });
+/** A nation's land from afar: how strong its wash is on the world chart and nearer, and its one rim (screen px). */
+export const REALM_FAR = Object.freeze({ fill: 0.22, fillNear: 0.18, colour: 3.6, ink: 1.4 });
+/** The relief of the tile view: how much wider and taller than its sprite a mountain or a wood is drawn, about a foot `foot` hex radii below its tile's centre, and how dark its cast shadow is. */
+export const RISE = Object.freeze({ mountain: Object.freeze({ w: 1.22, h: 1.42, foot: 0.3, shadow: 0.2 }), forest: Object.freeze({ w: 1.06, h: 1.2, foot: 0.34, shadow: 0 }) });
 /** Terrain whose props stand tall enough to cover a host on the tile behind. */
 const TALL = new Set(['mountain', 'forest']);
 const spare = (w, h) => (typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : typeof document !== 'undefined' ? Object.assign(document.createElement('canvas'), { width: w, height: h }) : null);
@@ -618,16 +622,15 @@ export class SpriteArt {
     ctx.save();
     for (let f = 0; f < 6; f++) {
       if (!R.fill[f]) continue;
-      ctx.globalAlpha = (lod === 'world' ? 0.34 : 0.24) * (lens === 'realm' ? 1 : 0.4); ctx.fillStyle = FACTION_COLORS[f]; ctx.fill(R.fill[f]);
+      ctx.globalAlpha = (lod === 'world' ? REALM_FAR.fill : REALM_FAR.fillNear) * (lens === 'realm' ? 1 : 0.4); ctx.fillStyle = FACTION_COLORS[f]; ctx.fill(R.fill[f]);
     }
     ctx.globalAlpha = 1; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     for (let f = 0; f < 6; f++) {
       if (!R.edge[f]) continue;
-      // a soft glow of the realm's colour inside, then the border: light rim and dark ink (a painted map's frontier)
-      ctx.globalAlpha = 0.45; ctx.strokeStyle = FACTION_COLORS[f]; ctx.lineWidth = 9 / zoom; ctx.stroke(R.edge[f]);
+      // one rim: the nation's colour, and its dark ink in it (the second review: three nested lines read as a blob's crust)
+      ctx.globalAlpha = 0.9; ctx.strokeStyle = FACTION_COLORS[f]; ctx.lineWidth = REALM_FAR.colour / zoom; ctx.stroke(R.edge[f]);
       ctx.globalAlpha = 1;
-      ctx.strokeStyle = 'rgba(255,250,236,.8)'; ctx.lineWidth = 3.4 / zoom; ctx.stroke(R.edge[f]);
-      ctx.strokeStyle = FACTION_DARK_INK[f]; ctx.lineWidth = 1.8 / zoom; ctx.stroke(R.edge[f]);
+      ctx.strokeStyle = FACTION_DARK_INK[f]; ctx.lineWidth = REALM_FAR.ink / zoom; ctx.stroke(R.edge[f]);
     }
     // holdings: a mark per site, white-rimmed (a town is read from afar by its mark, Civ's city banner in miniature)
     const unit = 1 / zoom;
@@ -1089,7 +1092,11 @@ export class SpriteArt {
         : t.river ? this.image('rivers_props', s.key, `${t.name}_${String(t.river).padStart(2, '0')}`)
         : this.image(siteGround(t) ? 'sites_props' : 'props', s.key, `${t.name}_${t.v}`);
       // (the Concord's paving and what floats on water lie in the plane)
-      if (pr) { if (paved || t.name === 'water') draw(t.lv === L2 && !far ? mutedSprite(pr) : pr, t); else stand(pr, t); }
+      if (pr) {
+        if (paved || t.name === 'water') draw(t.lv === L2 && !far ? mutedSprite(pr) : pr, t);
+        else if (!far && (t.name === 'mountain' || t.name === 'forest') && !t.river) risen(pr, t);
+        else stand(pr, t);
+      }
       if (opening !== null && t.ring === opening && openFrame < 8) { const c = this.image('fog', s.key, `cloud_1_open_${openFrame}`); if (c) draw(c, t); }
       if (t.camp) { const c = this.image('specials', s.key, 'barbarian_1'); if (c) stand(c, t); }
       if (t.site === undefined) return;
@@ -1105,6 +1112,18 @@ export class SpriteArt {
       else if (SITE_LAND.has(t.name)) img = this.image('holdings', s.key, 'site');
       if (img) stand(img, t);
       shieldOf(t);
+    };
+    // a mountain and a wood are the relief of the board: drawn larger than their tile's sprite about their foot, with
+    // a shadow cast on the ground toward the lower right (the light of every prop comes from the upper left)
+    const risen = (img, t) => {
+      const M = RISE[t.name], fy = t.y + RADIUS * M.foot, pic = t.lv === L2 ? mutedSprite(img) : img;
+      if (M.shadow && g.ellipse) {
+        g.save(); g.translate(t.x, fy); g.rotate(0.3);
+        g.fillStyle = `rgba(26,22,14,${M.shadow})`; g.beginPath(); g.ellipse(RADIUS * 0.58, RADIUS * 0.02, RADIUS * 0.92, RADIUS * 0.3, 0, 0, Math.PI * 2); g.fill();
+        g.fillStyle = `rgba(26,22,14,${M.shadow * 0.8})`; g.beginPath(); g.ellipse(RADIUS * 0.36, 0, RADIUS * 0.6, RADIUS * 0.2, 0, 0, Math.PI * 2); g.fill();
+        g.restore();
+      }
+      raise(t.x, fy, () => { g.save(); g.translate(t.x, fy); g.scale(M.w, M.h); g.translate(-t.x, -fy); draw(pic, t); g.restore(); });
     };
     const shieldOf = (t) => { if (t.shield) { const d = this.image('holdings', s.key, 'shield'); if (d) stand(d, t); } };
     // a village: its picture for this size on screen (the tilt draws the near rows larger: the picture is made for that)

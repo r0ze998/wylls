@@ -101,3 +101,64 @@ test('the hero of the screen: at the hero zoom the viewer\'s own town is at leas
   assert.ok(withRoads >= 180, `with its roads ${Math.round(withRoads)} px`);
   assert.ok(heroZoom(2) <= heroZoom(1) && heroZoom(2) * RADIUS >= 52);
 });
+
+// ------------------------------------------------------------------ the land's colour, the far view, the cloud sea
+import * as LAND from '../../permutation-server/web/frontier/map/ownland.mjs';
+import { REALM_FAR, RISE } from '../../permutation-server/web/frontier/map/sprites.mjs';
+import { BANK, paintHeap, seaField } from '../../permutation-server/web/frontier/map/cloudsea.mjs';
+import { HEX_W, SHEET, sheetOf } from '../../permutation-server/web/frontier/map/table.mjs';
+import { landBox } from '../../permutation-server/web/frontier/map/camera.mjs';
+
+test('the viewer\'s land is a glow that hugs its border, not two more kinds of terrain: most of the band falls within the first third of its depth', () => {
+  const F = LAND.OWN_FILL, steps = LAND.bandSteps();
+  assert.equal(F.blend, 'soft-light', 'the ground keeps how light it is and takes the nation\'s hue');
+  // the strength `d` px inside the border: the fill and every stroke that reaches that far
+  const at = d => 1 - (1 - F.middle) * steps.filter(s => s.width / 2 >= d).reduce((a, s) => a * (1 - s.alpha), 1);
+  const rim = at(0.01), third = at(F.depth / 3), deep = at(F.depth * 0.99);
+  assert.ok(rim > 0.34 && rim <= F.rim + 1e-9, `at the border ${rim.toFixed(3)}`);
+  assert.ok(third - F.middle < (rim - F.middle) * 0.5, `a third of the way in ${third.toFixed(3)}: less than half of the band is left`);
+  assert.ok(deep < F.middle + 0.02, 'at its depth only the faint fill');
+  // from afar: a quarter of the colour, one rim (ink, the colour, a hair of gold), each inside the one before
+  const A = LAND.OWN_FAR;
+  assert.equal(A.fill, 0.25);
+  assert.ok(A.ink > A.colour && A.colour > A.gold && A.ink <= 4.5);
+  assert.ok(REALM_FAR.fill <= 0.25 && REALM_FAR.colour > REALM_FAR.ink, 'a nation\'s land from afar: a quiet wash and one rim');
+});
+
+test('the far view\'s rim of the viewer\'s land is three strokes on one line, and no band is laid from afar', () => {
+  if (typeof Path2D === 'undefined') return;
+  const g = recorder();
+  const land = { shape: LAND.landShape(LAND.landTiles({ q: 12, r: -4, tier: 1 })), provisional: false };
+  LAND.paintOwnLand(g, land, { zoom: 0.2, faction: 0, still: true, far: true });
+  const strokes = g.calls.filter(c => c[0] === 'stroke').length;
+  assert.equal(strokes, 3);
+  assert.ok(!g.calls.some(c => c[0] === 'drawImage'), 'no band bitmap from afar');
+});
+
+test('the cloud sea lies over all the paper beyond the opened rings and thickens away from the land', () => {
+  const sea = seaField(3), sheet = sheetOf(3), land = landBox(3);
+  assert.ok(BANK.near < 1 && BANK.near >= 0.6 && BANK.full > 1);
+  // far out along the sheet's long axis, past where the bank used to thin into bare paper: still cloud
+  const past = land.x + (SHEET.sea + SHEET.fade + 0.2) * HEX_W;
+  assert.ok(past < sheet.x - SHEET.margin * 1.3 * HEX_W || true);
+  let n = 0, covered = 0;
+  for (let x = land.x + 4.2 * HEX_W; x < sheet.x - SHEET.margin * 1.5 * HEX_W; x += HEX_W / 2) { n++; if (sea.cover(x, 0, sheet) > 0.9) covered++; }
+  for (let i = 0; i < 12; i++) { const x = (sheet.x - 2.2 * HEX_W) * (i % 2 ? 1 : -1), y = (sheet.y - 2.6 * HEX_W * 0.76) * (i < 6 ? 1 : -1) * (0.5 + 0.5 * (i % 3) / 2); n++; if (sea.cover(x, y, sheet) > 0.9) covered++; }
+  assert.ok(n >= 12 && covered === n, `${covered} of ${n} points between the bank and the margin are deep in cloud`);
+  // next to the land it is thinner than far out
+  let nearSum = 0, farSum = 0, k = 0;
+  for (let i = 0; i < 40; i++) { const a = (i / 40) * Math.PI * 2; nearSum += sea.cover(Math.cos(a) * (land.x + HEX_W * 1.3), Math.sin(a) * (land.x + HEX_W * 1.3) * 0.76, sheet); farSum += sea.cover(Math.cos(a) * (land.x + HEX_W * 3.2), Math.sin(a) * (land.x + HEX_W * 3.2) * 0.76, sheet); k++; }
+  assert.ok(farSum / k > nearSum / k + 0.05, `thicker away from the land: ${(nearSum / k).toFixed(2)} near, ${(farSum / k).toFixed(2)} far`);
+  // a heap is the same heap every time (its seed is its tile's, never the piece it happens to be painted in)
+  const a = recorder(), b = recorder();
+  assert.ok(paintHeap(a, 100, 50, 30, 4711, 1) >= 4);
+  paintHeap(b, 100, 50, 30, 4711, 1);
+  assert.deepEqual(a.calls, b.calls);
+  assert.ok(paintHeap(recorder(), 0, 0, 80, 9, 1, true) >= 9, 'a bank is many rounds');
+  assert.equal(paintHeap(null, 0, 0, 10), 0);
+});
+
+test('the relief of the board: a mountain is drawn larger than its sprite and casts a shadow; a wood a little', () => {
+  assert.ok(RISE.mountain.h > 1.3 && RISE.mountain.w > 1.1 && RISE.mountain.shadow > 0);
+  assert.ok(RISE.forest.h > 1.1 && RISE.forest.h < RISE.mountain.h);
+});

@@ -249,8 +249,8 @@ export function paintRealmLabels(ctx, recs, zoom, nameOf = null, { seen = null, 
   };
   // the viewer's own names first, then the Concord, then the nations (the larger realm first)
   for (const e of extra) {
-    if (e.block) items.push({ text: '', x: e.x, y: e.y, w: e.block, h: e.block, priority: 10, fixed: true });
-    else add(e.text, e.x, e.y + ((e.below ?? 0) + (e.size ?? 13) * 0.65) * k, e.size ?? 13, e.fill ?? '#f3d58a', 9, { fixed: true });
+    if (e.block) items.push({ text: '', x: e.x, y: e.y, w: e.block, h: e.blockH ?? e.block, priority: 10, fixed: true });
+    else add(e.text, e.x, e.y + ((e.below ?? 0) + (e.size ?? 13) * 0.65 + (e.tag ? 5 : 0)) * k, e.size ?? 13, e.fill ?? '#f3d58a', 9, { fixed: true, tag: !!e.tag });
   }
   if (nations) {
     add(nameOf ? nameOf('concord') : 'Concord', c0.x, c0.y, 15, '#efe6cf', 8, { fixed: true });
@@ -264,6 +264,15 @@ export function paintRealmLabels(ctx, recs, zoom, nameOf = null, { seen = null, 
     if (!it.text) continue;
     ctx.font = fontOf(it.size);
     upright(ctx, it.x, it.y, () => {
+      if (it.tag) {
+        // the viewer's own village: its name on a small plate of bell metal with a gold hairline (read at a glance, on any ground)
+        const w = (it.w + 6) * k, h = (it.size + 10) * k;
+        ctx.fillStyle = 'rgba(4,10,9,.3)'; ctx.beginPath(); ctx.roundRect?.(it.x - w / 2, it.y - h / 2 + 1.5 * k, w, h, 6 * k); ctx.fill();
+        ctx.fillStyle = 'rgba(15,32,29,.94)'; ctx.beginPath(); ctx.roundRect?.(it.x - w / 2, it.y - h / 2, w, h, 6 * k); ctx.fill();
+        ctx.strokeStyle = '#f3d58a'; ctx.lineWidth = 1 * k; ctx.stroke();
+        ctx.fillStyle = '#fff3cf'; ctx.fillText(it.text, it.x, it.y + 0.5 * k);
+        return;
+      }
       ctx.lineJoin = 'round'; ctx.lineWidth = 5 * k; ctx.strokeStyle = 'rgba(14,22,20,.78)'; ctx.strokeText(it.text, it.x, it.y);
       ctx.fillStyle = it.fill; ctx.fillText(it.text, it.x, it.y);
     });
@@ -546,7 +555,7 @@ export class FrontierMap {
     return { x: pt.x - (s.x - size.width / 2) / zoom, y: pt.y - (s.y - size.height / 2) / zoom, zoom };
   }
   /** Write the board's angle and the depth dressing onto the page (custom properties: the page's CSP allows no inline style). */
-  dressPage(deg, { near = 0, shown = 1, inset = null } = {}) {
+  dressPage(deg, { near = 0, shown = 1, inset = null, haze = 1 } = {}) {
     const set = (el, k, v) => { el.cache ??= {}; if (el.cache[k] !== v) { el.cache[k] = v; el.node.style.setProperty(k, v); } };
     if (this.stage) set(this.stageVars ??= { node: this.stage }, '--map-tilt', `${deg.toFixed(2)}deg`);
     // (the angle on screen, for whoever must know it without asking the map: the browser tests aim their presses with it)
@@ -555,7 +564,7 @@ export class FrontierMap {
     if (!this.dress) return;
     const d = this.dressVars ??= { node: this.dress };
     // the haze is the far edge of a tilted board: none on a flat one
-    set(d, '--map-haze', (this.tiltMax > 0 ? Math.min(1, deg / this.tiltMax) * shown : 0).toFixed(3));
+    set(d, '--map-haze', (this.tiltMax > 0 ? Math.min(1, deg / this.tiltMax) * shown * haze : 0).toFixed(3));
     set(d, '--map-near', (near * shown).toFixed(3));
     set(d, '--map-top', `${Math.round(inset?.top ?? 0)}px`);
   }
@@ -1087,8 +1096,8 @@ export class FrontierMap {
     const table = (g, view = groundView(this.cam.drawn, G)) => paintTable(g, { view, size: gsize, ratio: gr, sheet: sheetOf(this.rings ?? 1) });
     const inset = this.inset();
     // the depth dressing: on the page, over the stage (custom properties of #map-dress); on a map without a stage, in the canvas
-    const dressing = (zoom, deg = 0, shown = 1) => {
-      if (staged) { this.dressPage(deg, { near: nearness(zoom), shown, inset }); return; }
+    const dressing = (zoom, deg = 0, shown = 1, haze = 1) => {
+      if (staged) { this.dressPage(deg, { near: nearness(zoom), shown, inset, haze }); return; }
       const step = Math.round(nearness(zoom) * 16);
       this.stamped(ctx, 'dressCv', `${W}x${H}|${step}|${inset.top},${inset.right},${inset.bottom},${inset.left}`, W, H, dpr, g => paintDressing(g, size, { near: step / 16, inset }));
     };
@@ -1176,8 +1185,6 @@ export class FrontierMap {
         this.dirty = true;
       }
     }
-    dressing(v.zoom, T.deg, shown);
-    wipe();
     // a set piece has the stage: the words fade out, and back in after it (at once when nothing may move)
     const want = this.piece ? 0 : 1, had = this.wordsShown ?? 1;
     if (had !== want) {
@@ -1187,6 +1194,9 @@ export class FrontierMap {
     }
     this.wordsAt = now;
     const words = this.wordsShown ?? 1;
+    // (the far edge's haze goes with the words: over a map dimmed for a battle it would be a lighter slab)
+    dressing(v.zoom, T.deg, shown, words);
+    wipe();
     if (shown > 0.4 && words > 0.02) {
       // each label stands upright around its own place on the board (map/tilt.mjs)
       if (staged) armUpright(octx, { place: (x, y) => T.toBox((x - v.x) * v.zoom + width / 2, (y - v.y) * v.zoom + height / 2), zoom: v.zoom, ratio: dpr, scaleAt: T.flat ? null : (x, y) => T.scaleAt((y - v.y) * v.zoom + height / 2) });
@@ -1686,7 +1696,7 @@ export class FrontierMap {
     for (const land of F.lands()) paintOwnLand(ctx, land, { zoom: z, faction: F.faction, now: fx, still, flood: this.floodOf(land, fx), far: true });
     F.live = true;
     if (F.lod !== 'world') return [];
-    const own = F.src.own ?? [], active = F.survey.home ? villageKey(F.survey.home) : null;
+    const own = F.src.own ?? [], active = F.survey.home ? villageKey(F.survey.home) : null, lands = F.lands();
     const names = [];
     for (const v of F.villages) {
       const h = tileHex(v.p, v.q, v.tile);
@@ -1694,8 +1704,10 @@ export class FrontierMap {
       const c = project(h.q, h.r), key = villageKey(v);
       paintBeacon(ctx, c.x, c.y, { zoom: z, now: fx, still, active: !active || key === active });
       const name = own.find(o => villageKey(o) === key)?.name ?? null;
-      names.push({ block: 30, x: c.x, y: c.y });
-      if (name) names.push({ text: name, x: c.x, y: c.y, below: 11, size: 13, fill: '#f3d58a' });
+      // (no other name stands on the viewer's own land: the land's box is taken, and the village's name hangs under its beacon on a plate)
+      const land = lands.find(x => x.key === key), R = land ? (land.shape.maxD + 0.6) * RADIUS : 0;
+      names.push({ block: Math.max(30, R * 2 * Math.sqrt(3) / 2 * z * 1.05), blockH: Math.max(30, R * 1.5 * FLATTEN * z * 1.05), x: c.x, y: c.y });
+      if (name) names.push({ text: name, x: c.x, y: c.y, below: 11, size: 14, fill: '#fff3cf', tag: true });
     }
     return names;
   }
