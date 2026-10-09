@@ -24,7 +24,6 @@
 .leader-card-art { display: block; flex: none; }
 /* the leader standing: a canvas of one stage cell (288 x 360) that the sprite player paints; its place says how tall it is */
 .lfig { display: block; flex: none; width: auto; height: 120px; aspect-ratio: 4 / 5; }
-.lfig[data-flip] { transform: scaleX(-1); }
 
 /* ---- the top plaque: the leader's icon in the crest chip (it stands a little proud of the plaque) */
 .crest-chip .leader-hex { width: 36px; height: 36px; margin: -6px -2px -6px -4px; filter: drop-shadow(0 2px 3px rgba(0,0,0,.55)); }
@@ -35,7 +34,8 @@
 .vs-face .leader-hex { width: 60px; height: 60px; border-radius: 0; filter: drop-shadow(0 2px 4px rgba(0,0,0,.4)); }
 .plate-face:has(.leader-hex) { border-radius: 0; box-shadow: none; background: none; }
 .plate-face .leader-hex { width: 52px; height: 52px; margin: -2px; border-radius: 0; }
-.chip > .leader-hex { display: inline-block; vertical-align: -6px; margin: -3px 5px -3px -3px; }
+/* (the inspector's nation chip: the icon is 30 px, where a face still reads, and stands a little proud of the chip) */
+.chip > .leader-hex { display: inline-block; vertical-align: -9px; margin: -7px 6px -7px -5px; }
 
 /* ---- the title: the six stand in a row on the scene's dark foot, each over a pool of its nation's colour */
 .intro-leaders { gap: 0; margin: 0; align-items: end; }

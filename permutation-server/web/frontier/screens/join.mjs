@@ -64,7 +64,7 @@ export function renderNations(FS) {
   const pick = cards.find(c => c.chosen) ?? null;
   // The season's join gate (I-51), or a relay that answered InviteRequired.
   const gated = FS.inviteRequired || !!FS.season?.joinGate?.some?.(x => x !== 0);
-  const banners = cards.map(c => html`<li><button type="button" class="banner-pick bn${c.faction}" data-act="pick-faction" data-f="${c.faction}" data-nation="${c.faction}" aria-pressed="${c.chosen ? 'true' : 'false'}">
+  const banners = cards.map(c => html`<li><button type="button" class="banner-pick bn${c.faction}" data-act="pick-faction" data-f="${c.faction}" data-nation="${c.faction}" data-flourish="attack" aria-pressed="${c.chosen ? 'true' : 'false'}">
     <span class="bn-rim"><span class="bn-cloth"><span class="bn-face"></span>
       <span class="bn-field"><strong class="bn-name">${c.name}</strong><span class="bn-leader"><span data-name>${leaderName(c.faction)}</span></span><span class="bn-creed">${L`教義：${c.doctrine}`}</span></span></span></span>
     <span class="bn-hex">${raw(leaderHex(c.faction, { size: 44 }))}</span>

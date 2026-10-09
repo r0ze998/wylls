@@ -18,8 +18,18 @@
 //     is painted in the same task, before the next paint;
 //   * an icon or a bust in markup (an SVG <image data-art>: leader-art.mjs
 //     artImage) gets its picture from the player too, as a data URL;
-//   * a sheet is fetched only when a figure may move and is in view; until it
-//     has arrived the still stands (same size, same place: no shift);
+//   * a sheet is fetched only when a figure may move and is in view, and only
+//     after the stills in view have come (the stills are the first picture;
+//     the sheets never stand in their way); until a sheet has arrived the
+//     still stands (same size, same place: no shift);
+//   * a flourish (the chosen leader's attack) begins when its sheet is here,
+//     a moment after the press (`FLOURISH_LEAD`: the page's own re-render is
+//     over), never on a clock that ran while the sheet was on its way; while
+//     it plays the player looks on every animation frame, and a look that
+//     comes late shows the next picture, never one further on, so a busy
+//     page slows the flourish and loses none of it. The sheet is asked
+//     for as soon as a banner that would play it is looked at (`data-flourish`
+//     on the banner: hover, focus or press), so it is here at the press;
 //   * a figure out of view, in a hidden part of the page or in a background
 //     tab is not moved, and with no moving figure the loop stops;
 //   * reduced motion (fx/motion.mjs: the system's setting or the player's
@@ -35,6 +45,12 @@ import { NATION_KEYS } from '../palette.mjs';
 
 /** Seconds between the breaths of two neighbouring leaders (six in a row do not move as one). */
 export const PHASE_STEP = 0.37;
+/** A flourish begins this many seconds after it is first seen on the page: the press's own re-render is over by then. */
+export const FLOURISH_LEAD = 0.15;
+/** A flourish answers a press: a sheet that has not come this many seconds after it is let go, and the figure breathes on. */
+export const FLOURISH_PATIENCE = 4;
+/** A pointer rests this long (ms) on a banner before its flourish is fetched (a pointer that only crosses the row fetches nothing). */
+export const WARM_DWELL = 120;
 
 /** The frame of a stage clip `t` seconds on the clock: a loop wraps (offset by `phase`), a one-shot begun at `start` ends on its last picture. */
 export function spriteFrame(clip, t, { start = 0, phase = 0 } = {}) {
@@ -46,14 +62,15 @@ export function spriteFrame(clip, t, { start = 0, phase = 0 } = {}) {
 /**
  * What a figure shows at clock time `t`: `{clip, frame, ended}`. `clip` null is the still (reduced motion, effects
  * off, `motion: 'still'`, or a figure that is not live now). A flourish plays from `start` for its length, then
- * `ended` is true and the figure breathes again.
+ * `ended` is true and the figure breathes again; with no `start` yet (its sheet is on its way, or the press is a
+ * moment old) the figure breathes and waits.
  */
 export function figurePose({ motion = 'idle', level = 'full', t = 0, start = null, done = false, phase = 0, live = true } = {}) {
   // (a flourish is over at once only where nothing may move; a figure that is merely out of sight does not end it for the others that carry its name)
   if (level !== 'full' || motion === 'still' || !live) return { clip: null, frame: 0, ended: motion === 'attack' && level !== 'full' };
-  if (motion === 'attack' && !done) {
-    const from = start ?? t, c = STAGE_CLIPS.attack;
-    if (t - from < c.duration) return { clip: 'attack', frame: spriteFrame(c, t, { start: from }), ended: false };
+  if (motion === 'attack' && !done && start !== null) {
+    const c = STAGE_CLIPS.attack;
+    if (t - start < c.duration) return { clip: 'attack', frame: spriteFrame(c, t, { start }), ended: false };
     return { clip: 'idle', frame: spriteFrame('idle', t, { phase }), ended: true };
   }
   return { clip: 'idle', frame: spriteFrame('idle', t, { phase }), ended: false };
@@ -68,14 +85,16 @@ const clockNow = () => {
  * A player over `doc`. `now()` seconds, `level()` the motion level, `load(url, done)` fetches a picture and gives
  * `done` something a canvas can draw (default: an Image; null when it cannot be had), `frame(fn)` asks for the
  * next animation frame (default: requestAnimationFrame), `every` the least milliseconds between two looks of the
- * running loop (the clips change 4 to 10 times a second: the page's player looks 15 times). `tick()` paints every
- * figure once and says how many are moving or waiting for a picture; `kick()` starts the loop if something may move.
+ * running loop (the breath changes twice a second: the page's player looks 15 times; while a flourish waits or plays
+ * it looks on every frame). `tick()` paints every figure once and says how many are moving or waiting for a picture;
+ * `kick()` starts the loop if something may move; `warm(faction, clip)` fetches a sheet ahead of its use (nothing
+ * where motion is reduced).
  */
 export function createSpritePlayer({ doc = globalThis.document, now = clockNow, level = motionLevel, load = null, frame = null, hold = holdArt, heldNow = heldArt, every = 0 } = {}) {
   const pictures = new Map();   // url → {img, state: 'loading' | 'ready' | 'failed'}
-  const plays = new Map();      // once-name (or the canvas itself) → {start, done}
+  const plays = new Map();      // once-name (or the canvas itself) → {seen, start, shown, done}
   const shown = new WeakMap();  // canvas → what is painted on it now
-  let looping = false;
+  let looping = false, urgent = false, stillsWait = false;
   const win = doc?.defaultView ?? globalThis;
   const nextFrame = frame ?? (fn => (win.requestAnimationFrame ? win.requestAnimationFrame(fn) : win.setTimeout?.(fn, 50)));
   const fetchPicture = load ?? ((url, done) => {
@@ -113,8 +132,10 @@ export function createSpritePlayer({ doc = globalThis.document, now = clockNow, 
     const still = picture(leaderStillUrl(f));
     let src = null, at = 0, what = '', busy = false;
     if (pose.clip) {
-      const sheet = picture(leaderStageUrl(f, pose.clip));
-      if (sheet.state === 'ready') { src = sheet.img; at = pose.frame; what = `${pose.clip}:${at}`; busy = true; }
+      // (a sheet that is not held yet is asked for once every still in view has come: the first picture is not kept waiting)
+      const url = leaderStageUrl(f, pose.clip), sheet = pictures.get(url) ?? (stillsWait ? null : picture(url));
+      if (!sheet) busy = true;
+      else if (sheet.state === 'ready') { src = sheet.img; at = pose.frame; what = `${pose.clip}:${at}`; busy = true; }
       else if (sheet.state === 'loading') busy = true;
     }
     if (!src) { if (still.state === 'ready') { src = still.img; what = 'still'; } else if (still.state === 'loading') busy = true; }
@@ -153,25 +174,47 @@ export function createSpritePlayer({ doc = globalThis.document, now = clockNow, 
   /** Paint every figure once and fill every picture; returns how many figures are moving or waiting for a picture. */
   function tick() {
     const hosts = doc?.querySelectorAll ? [...doc.querySelectorAll('canvas.lfig')] : [];
-    const lv = level(), t = now(), named = new Set();
-    let moving = 0;
+    const lv = level(), t = now(), named = new Set(), stepped = new Set();
+    let moving = 0, hurry = false;
     fill();
-    for (const el of hosts) {
-      const f = Math.max(0, NATION_KEYS.indexOf(el.getAttribute('data-leader')));
+    const figs = hosts.map(el => ({ el, f: Math.max(0, NATION_KEYS.indexOf(el.getAttribute('data-leader'))), seen: inView(el) }));
+    // the stills first: while one that is in view is still on its way, no sheet is asked for
+    stillsWait = false;
+    for (const { f, seen } of figs) if (seen && picture(leaderStillUrl(f)).state === 'loading') stillsWait = true;
+    for (const { el, f, seen } of figs) {
       const motion = el.getAttribute('data-motion') ?? 'idle', name = el.getAttribute('data-once');
-      const seen = inView(el), live = seen && (el.getAttribute('data-when') !== 'look' || looked(el));
+      const live = seen && (el.getAttribute('data-when') !== 'look' || looked(el));
       let play = null;
       if (motion === 'attack') {
         const key = name ?? el;
         if (name) named.add(name);
         play = plays.get(key);
         // (reduced motion: the flourish is over before it begins, so it does not play when motion comes back either)
-        if (!play) { play = { start: t, done: lv !== 'full' }; plays.set(key, play); }
+        if (!play) { play = { seen: t, start: null, shown: -1, done: lv !== 'full' }; plays.set(key, play); }
+        if (!play.done && lv === 'full' && live && !stepped.has(play)) {
+          stepped.add(play);
+          if (play.start === null) {
+            // it begins when its sheet is here and the press is a moment old; a sheet that cannot be had, or comes far too late, is let go
+            const sheet = picture(leaderStageUrl(f, 'attack'));
+            if (sheet.state === 'failed' || t - play.seen > FLOURISH_PATIENCE) play.done = true;
+            else if (sheet.state === 'ready' && t - play.seen >= FLOURISH_LEAD) play.start = t;
+          }
+          if (play.start !== null) {
+            // a look shows the next picture at the most: when the page was busy and the clock ran on, the clip waited for it
+            const c = STAGE_CLIPS.attack, per = c.duration / (c.frames - 1), next = play.shown + 1;
+            const due = t - play.start >= c.duration ? c.frames : spriteFrame(c, t, { start: play.start });
+            if (due > next) play.start = t - (next >= c.frames ? c.duration : Math.max(0, (next - 0.49) * per));   // (a hair inside the picture's own time)
+            play.shown = Math.min(due, next);
+          }
+        }
       }
       const pose = figurePose({ motion, level: lv, t, start: play?.start ?? null, done: !!play?.done, phase: f * PHASE_STEP, live });
       if (play && pose.ended) play.done = true;
-      if (paint(el, f, pose, seen)) moving++;
+      const waits = !!play && !play.done && live;
+      if (waits) hurry = true;
+      if (paint(el, f, pose, seen) || waits) moving++;
     }
+    urgent = hurry;
     // a flourish's name is forgotten once nothing on the page carries it: chosen again later, it plays again
     for (const key of [...plays.keys()]) if (typeof key === 'string' ? !named.has(key) : !hosts.includes(key)) plays.delete(key);
     return moving;
@@ -181,8 +224,8 @@ export function createSpritePlayer({ doc = globalThis.document, now = clockNow, 
   function loop() {
     looping = false;
     if (doc?.hidden) return;
-    // (between two looks the loop only waits: a frame of a clip lasts 80 ms at the least)
-    if (every > 0 && wallMs() - lastLook < every) { looping = true; nextFrame(loop); return; }
+    // (between two looks the loop only waits: a breath's picture lasts half a second. A flourish is looked at on every frame)
+    if (every > 0 && !urgent && wallMs() - lastLook < every) { looping = true; nextFrame(loop); return; }
     lastLook = wallMs();
     if (tick() > 0) { looping = true; nextFrame(loop); }
   }
@@ -192,7 +235,13 @@ export function createSpritePlayer({ doc = globalThis.document, now = clockNow, 
     looping = true;
     nextFrame(loop);
   }
-  return { tick, kick, pictures, plays, get looping() { return looping; } };
+  /** Fetch a nation's sheet ahead of its use (the flourish of a banner that is looked at); nothing where motion is reduced. */
+  function warm(faction, clip = 'attack') {
+    if (level() !== 'full' || !Number.isInteger(faction) || faction < 0 || faction >= NATION_KEYS.length || !STAGE_CLIPS[clip]) return false;
+    picture(leaderStageUrl(faction, clip));
+    return true;
+  }
+  return { tick, kick, warm, pictures, plays, get looping() { return looping; }, get urgent() { return urgent; } };
 }
 
 let player = null;
@@ -211,6 +260,17 @@ export function startLeaderSprites(doc = globalThis.document) {
       new win.MutationObserver(() => { player.tick(); wake(); }).observe(doc.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'aria-pressed', 'data-motion', 'data-title', 'data-sheet', 'data-drawer', 'data-look'] });
     }
     for (const type of ['pointerover', 'pointerout', 'focusin', 'focusout', 'visibilitychange']) doc.addEventListener(type, wake, { passive: true });
+    // a banner whose choosing plays a flourish (`data-flourish` beside `data-nation`): the sheet is fetched while it is looked
+    // at, so it is here at the press. Focus and press ask at once; a pointer must rest on it a moment
+    const banner = e => e.target?.closest?.('[data-nation][data-flourish]') ?? null;
+    const warm = b => { if (b) player.warm(Number(b.getAttribute('data-nation')), b.getAttribute('data-flourish')); };
+    let rest = 0;
+    doc.addEventListener('pointerover', e => {
+      const b = banner(e);
+      win.clearTimeout?.(rest);
+      if (b) rest = win.setTimeout?.(() => { try { if (b.isConnected && b.matches(':hover')) warm(b); } catch { /* gone */ } }, WARM_DWELL);
+    }, { passive: true });
+    for (const type of ['focusin', 'pointerdown']) doc.addEventListener(type, e => warm(banner(e)), { passive: true });
     win.addEventListener?.('scroll', wake, { passive: true, capture: true });
     win.addEventListener?.('resize', wake, { passive: true });
     win.matchMedia?.('(prefers-reduced-motion: reduce)')?.addEventListener?.('change', wake);

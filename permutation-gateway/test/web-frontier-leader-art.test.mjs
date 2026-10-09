@@ -59,14 +59,11 @@ test('the package\'s 24 motion sheets are in the client byte for byte, each a ro
   assert.equal(readdirSync(ART_DIR, { recursive: true }).filter(f => /\.(glb|blend)$/.test(String(f))).length, 0);
 });
 
-test('the portrait set: hexagon icons at two sizes, the bust, the stage still and its two clips; transparent, and no larger than a dpr-2 screen needs', () => {
+test('the portrait set: the hexagon icon, the bust, the stage still and its two clips; transparent, no larger than a dpr-2 screen needs, and no file that no screen asks for', () => {
   for (let f = 0; f < 6; f++) {
     const k = KEYS[f];
-    assert.ok(ART.leaderHexUrl(f, 34).endsWith(`/art/leaders3d/hex-v1/${k}@128.webp`), 'up to 64 px: the 128 px file');
-    assert.ok(ART.leaderHexUrl(f, 64).endsWith(`/hex-v1/${k}@128.webp`));
-    assert.ok(ART.leaderHexUrl(f, 96).endsWith(`/hex-v1/${k}@256.webp`), 'above it: the 256 px file');
-    assert.deepEqual((({ w, h, alpha }) => [w, h, alpha])(webpSize(new URL(ART.leaderHexUrl(f, 64)))), [128, 128, true]);
-    assert.deepEqual((({ w, h, alpha }) => [w, h, alpha])(webpSize(new URL(ART.leaderHexUrl(f, 128)))), [256, 256, true]);
+    assert.ok(ART.leaderHexUrl(f).endsWith(`/art/leaders3d/hex-v1/${k}@128.webp`), 'one icon file a leader: 128 px, sharp up to 64 px on a dpr-2 screen');
+    assert.deepEqual((({ w, h, alpha }) => [w, h, alpha])(webpSize(new URL(ART.leaderHexUrl(f)))), [128, 128, true]);
     assert.deepEqual((({ w, h, alpha }) => [w, h, alpha])(webpSize(new URL(ART.leaderPortraitUrl(f)))), [320, 320, true]);
     assert.ok(ART.leaderStillUrl(f).endsWith(`/art/leaders3d/stage-v1/${k}.webp`));
     assert.deepEqual((({ w, h, alpha }) => [w, h, alpha])(webpSize(new URL(ART.leaderStillUrl(f)))), [ART.STAGE_CELL.w, ART.STAGE_CELL.h, true]);
@@ -76,18 +73,28 @@ test('the portrait set: hexagon icons at two sizes, the bust, the stage still an
     }
     assert.ok(ART.leaderStageUrl(f, 'walk').endsWith(`/${k}_idle.webp`), 'a clip the stage does not have reads as idle');
   }
-  assert.deepEqual(ART.STAGE_CLIPS.idle, { key: 'idle', frames: 8, duration: 2, loop: true });
+  // (the breath is quiet: four pictures across its two seconds, as the package's own idle sprite has)
+  assert.deepEqual(ART.STAGE_CLIPS.idle, { key: 'idle', frames: 4, duration: 2, loop: true });
   assert.deepEqual(ART.STAGE_CLIPS.attack, { key: 'attack', frames: 8, duration: 0.8, loop: false });
+  // nothing is shipped that no screen can ask for: every file under art/leaders3d is one the modules name
+  const named = new Set();
+  for (let f = 0; f < 6; f++) {
+    for (const u of [ART.leaderHexUrl(f), ART.leaderPortraitUrl(f), ART.leaderStillUrl(f), ART.leaderStageUrl(f, 'idle'), ART.leaderStageUrl(f, 'attack')]) named.add(fileURLToPath(u));
+    for (const m of LEADER_MOTIONS) named.add(fileURLToPath(motionSpriteUrl(KEYS[f], m.key)));
+  }
+  const shipped = readdirSync(ART_DIR, { recursive: true, withFileTypes: true }).filter(e => e.isFile()).map(e => fileURLToPath(new URL(e.name, new URL(`file://${e.parentPath ?? e.path}/`))));
+  assert.deepEqual(shipped.filter(f => !named.has(f)), [], 'no unused file');
+  assert.equal(shipped.length, 6 + 6 + 6 + 12 + 24);
 });
 
-test('the asset budget: everything the leaders add stays under 3 MB, and a first screen needs a small part of it', () => {
+test('the asset budget: everything the leaders add stays under 2.4 MB (the aim was 3), and a first screen needs a small part of it', () => {
   const total = dirBytes(ART_DIR);
-  assert.ok(total < 3_000_000, `art/leaders3d is ${total} bytes`);
+  assert.ok(total < 2_400_000, `art/leaders3d is ${total} bytes`);
   const size = url => statSync(new URL(url)).size;
   const stills = KEYS.reduce((n, _, f) => n + size(ART.leaderStillUrl(f)), 0), idles = KEYS.reduce((n, _, f) => n + size(ART.leaderStageUrl(f, 'idle')), 0);
-  const hex = KEYS.reduce((n, _, f) => n + size(ART.leaderHexUrl(f, 34)), 0);
+  const hex = KEYS.reduce((n, _, f) => n + size(ART.leaderHexUrl(f)), 0);
   assert.ok(stills < 120_000, `the six stills: ${stills}`);
-  assert.ok(stills + idles < 700_000, `the title with motion: ${stills + idles}`);
+  assert.ok(stills + idles < 400_000, `the title with motion: ${stills + idles}`);
   assert.ok(hex < 60_000, `the six small icons: ${hex}`);
 });
 
@@ -108,7 +115,7 @@ test('leaderSvg: the hexagon icon up to 64 px, the portrait card above it; attri
     assert.ok(big.indexOf('<image') < big.indexOf('<g transform="translate(206 34)">'), 'the sigil badge stays above the picture');
     assert.ok(big.includes(`fill="${FACTION_ON[f]}"`), 'the sigil in the colour that reads on the nation\'s fill');
     assert.match(LD.leaderSvg(f, { size: 40, shape: 'card' }), /leader-card-art/);
-    assert.match(LD.leaderSvg(f, { size: 200, shape: 'hex' }), new RegExp(`leader-hex[^>]*>.*hex-v1/${k}@256\\.webp`));
+    assert.match(LD.leaderSvg(f, { size: 200, shape: 'hex' }), new RegExp(`leader-hex[^>]*>.*hex-v1/${k}@128\\.webp`), 'the one icon file at any size');
     for (const svg of [small, big, LD.leaderSvg(f, { size: 34, sigil: true }), LD.leaderFigure(f)]) {
       assert.doesNotMatch(svg, /style=|onload=|onerror=|<script/);
       // (the old busts: a head ellipse at cx 80, skin gradients, the costume paths)
@@ -123,11 +130,13 @@ test('leaderSvg: the hexagon icon up to 64 px, the portrait card above it; attri
   assert.doesNotMatch(src, /function face\(|function costume\(|const SKIN = /);
 });
 
-test('the leader standing: a canvas of one stage cell, marked for the sprite player (it names no picture: the player holds them); mirrored and named on request', () => {
+test('the leader standing: a canvas of one stage cell, marked for the sprite player (it names no picture: the player holds them); named on request, never mirrored', () => {
   const fig = LD.leaderFigure(3);
   assert.equal(fig, '<canvas class="lfig" width="288" height="360" data-leader="dunmar" data-motion="idle" aria-hidden="true" focusable="false"></canvas>');
+  // (`flip` is not an option: Aster's badge, Cinder's clasp and Ember's emblem sit on one side, and a mirrored figure would move them)
   const one = LD.leaderFigure(5, { motion: 'attack', once: 'pick-5', when: 'look', flip: true, title: 'Torvald Hride', shadow: false });
-  assert.equal(one, '<canvas class="lfig" width="288" height="360" data-leader="fjordal" data-motion="attack" data-once="pick-5" data-when="look" data-flip="1" data-shadow="0" role="img" aria-label="Torvald Hride"></canvas>');
+  assert.equal(one, '<canvas class="lfig" width="288" height="360" data-leader="fjordal" data-motion="attack" data-once="pick-5" data-when="look" data-shadow="0" role="img" aria-label="Torvald Hride"></canvas>');
+  assert.doesNotMatch(readFileSync(new URL('people/leaders.css', WEB), 'utf8'), /data-flip|scaleX\(-1\)/, 'no rule mirrors a figure');
   assert.doesNotMatch(fig + one, /\.webp|href=|src=/, 'no picture in the markup: writing it again fetches nothing');
   assert.match(LD.leaderFigure(0, { motion: 'nonsense' }), /data-motion="idle"/);
   assert.match(LD.leaderFigure(0, { motion: 'still' }), /data-motion="still"/);

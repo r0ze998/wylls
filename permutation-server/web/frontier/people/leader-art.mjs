@@ -4,17 +4,17 @@
 // a leader on the map as an actor (people/leader-motion.mjs is the map's
 // painter, used by the effects demo alone).
 //
-//   art/leaders3d/hex-v1/<key>@128.webp, @256.webp   the hexagon icon (nation-coloured frame, thin gold edge):
+//   art/leaders3d/hex-v1/<key>@128.webp              the hexagon icon (nation-coloured frame, thin gold edge), 128 px:
 //                                                    the crest chip, the plate, standings, the versus band, the legend
 //   art/leaders3d/portrait-v1/<key>.webp             the bust from the latest model, 320 px, transparent: the portrait card
 //   art/leaders3d/stage-v1/<key>.webp                the leader standing, three-quarter view, 288 × 360, transparent (a still)
-//   art/leaders3d/stage-v1/<key>_idle.webp           the same view breathing: 8 frames in a row, 2 s, a loop
+//   art/leaders3d/stage-v1/<key>_idle.webp           the same view breathing: 4 frames in a row, 2 s, a loop
 //   art/leaders3d/stage-v1/<key>_attack.webp         the flourish: 8 frames, 0.8 s, once, back to the stance
 //   art/leaders3d/motion-v1/sprite/<key>_<clip>.webp the package's map sprites (overhead view; leader-motion-data.mjs)
 //
 // The stage pictures are rendered from the package's own rigged models and
 // clips (Idle, Attack) with the package's light recipe, seen from the front
-// instead of from above (docs/frontier/art/leaders3d/README.md says how).
+// instead of from above (docs/frontier/art/leaders3d/STAGE.md says how).
 //
 // Markup carries attributes only (the page's CSP allows no style attribute);
 // a picture that has not loaded leaves its place empty, never a broken-image
@@ -42,12 +42,12 @@ export const leaderKey = f => MOTION_LEADERS[ok(f) ? f : 0].key;
 export const STAGE_CELL = Object.freeze({ w: 288, h: 360 });
 export const STAGE_FOOT = Object.freeze([0.5, 0.985]);
 export const STAGE_CLIPS = Object.freeze({
-  idle: Object.freeze({ key: 'idle', frames: 8, duration: 2, loop: true }),
+  idle: Object.freeze({ key: 'idle', frames: 4, duration: 2, loop: true }),
   attack: Object.freeze({ key: 'attack', frames: 8, duration: 0.8, loop: false }),
 });
 
-/** The hexagon icon for a box of `size` CSS px on a screen of up to 2 device px per px: 128 px up to 64, else 256. */
-export const leaderHexUrl = (f, size = 64) => new URL(`hex-v1/${leaderKey(f)}@${size > 64 ? 256 : 128}.webp`, BASE).href;
+/** The hexagon icon (one file a leader, 128 px: sharp up to 64 CSS px on a screen of 2 device px per px; no screen shows it larger). */
+export const leaderHexUrl = f => new URL(`hex-v1/${leaderKey(f)}@128.webp`, BASE).href;
 export const leaderPortraitUrl = f => new URL(`portrait-v1/${leaderKey(f)}.webp`, BASE).href;
 export const leaderStillUrl = f => new URL(`stage-v1/${leaderKey(f)}.webp`, BASE).href;
 export const leaderStageUrl = (f, clip = 'idle') => new URL(`stage-v1/${leaderKey(f)}_${STAGE_CLIPS[clip] ? clip : 'idle'}.webp`, BASE).href;
@@ -93,7 +93,7 @@ const a11y = title => (title ? `role="img" aria-label="${esc(title)}"` : 'aria-h
 export function leaderHex(faction, { size = 40, title = null, sigil = false } = {}) {
   const f = ok(faction) ? faction : 0;
   const badge = sigil ? `<g transform="translate(79 79)"><circle r="17" fill="${NATION_FILL[f]}" stroke="#14110a" stroke-width="3.5"/><circle r="15.2" fill="none" stroke="#f0d48a" stroke-width="1.6"/><path d="${sigilPath(f, 8.6)}" fill="${NATION_ON[f]}"/></g>` : '';
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="${size}" height="${size}" class="leader leader-hex" data-leader="${leaderKey(f)}" ${a11y(title)}>${artImage(leaderHexUrl(f, size), 'width="100" height="100"')}${badge}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="${size}" height="${size}" class="leader leader-hex" data-leader="${leaderKey(f)}" ${a11y(title)}>${artImage(leaderHexUrl(f), 'width="100" height="100"')}${badge}</svg>`;
 }
 
 /**
@@ -102,13 +102,14 @@ export function leaderHex(faction, { size = 40, title = null, sigil = false } = 
  * where it stands (people/leaders.css `.lfig`: 120 px tall unless its place says otherwise). `motion: 'idle'`
  * breathes, `'attack'` plays the flourish once and goes back to breathing, `'still'` stays a still. `once`: a name
  * for one playing of the flourish (the same name does not play again while it stays on the page). `when: 'look'`:
- * it moves only while the thing that holds it (`[data-nation]`) is hovered, focused or chosen. `flip` mirrors it;
- * `shadow: false` leaves out the shadow under the feet. Decorative unless `title` names it.
+ * it moves only while the thing that holds it (`[data-nation]`) is hovered, focused or chosen. `shadow: false`
+ * leaves out the shadow under the feet. Decorative unless `title` names it. (A figure is never mirrored: Aster's
+ * badge, Cinder's clasp and Ember's emblem sit on one side, as the owner's models have them.)
  */
-export function stageFigure(faction, { motion = 'idle', once = null, when = null, flip = false, title = null, shadow = true, cls = '' } = {}) {
+export function stageFigure(faction, { motion = 'idle', once = null, when = null, title = null, shadow = true, cls = '' } = {}) {
   const f = ok(faction) ? faction : 0, { w, h } = STAGE_CELL;
   const m = motion === 'attack' || motion === 'still' ? motion : 'idle';
-  const attrs = [`data-leader="${leaderKey(f)}"`, `data-motion="${m}"`, once ? `data-once="${esc(once)}"` : '', when === 'look' ? 'data-when="look"' : '', flip ? 'data-flip="1"' : '', shadow ? '' : 'data-shadow="0"'].filter(Boolean).join(' ');
+  const attrs = [`data-leader="${leaderKey(f)}"`, `data-motion="${m}"`, once ? `data-once="${esc(once)}"` : '', when === 'look' ? 'data-when="look"' : '', shadow ? '' : 'data-shadow="0"'].filter(Boolean).join(' ');
   return `<canvas class="lfig${cls ? ` ${esc(cls)}` : ''}" width="${w}" height="${h}" ${attrs} ${a11y(title)}></canvas>`;
 }
 
@@ -120,9 +121,13 @@ const images = new Map();
 let redraw = () => {};
 /** A canvas painter that uses a leader's hexagon asks to be drawn again when the picture arrives. */
 export function onLeaderArtLoad(fn) { redraw = typeof fn === 'function' ? fn : () => {}; }
-/** The decoded hexagon icon for a canvas (null until it has loaded; the load starts on the first call). */
-export function leaderHexImage(faction, size = 64) {
-  const url = leaderHexUrl(faction, size);
+/**
+ * The decoded hexagon icon for a canvas (null until it has loaded; the load starts on the first call). On a page
+ * the picture is decoded from what the page holds (`holdArt`: the one fetch that also serves the icon in markup),
+ * so the map's tag and the crest chip never fetch the same file twice.
+ */
+export function leaderHexImage(faction) {
+  const url = leaderHexUrl(faction);
   const hit = images.get(url);
   if (hit) return hit.ready ? hit.img : null;
   if (typeof globalThis.Image !== 'function') return null;
@@ -130,6 +135,7 @@ export function leaderHexImage(faction, size = 64) {
   images.set(url, rec);
   img.onload = () => { rec.ready = true; try { redraw(); } catch { /* the painter is gone */ } };
   img.onerror = () => { rec.ready = false; };
-  img.src = url;
+  if (onPage()) holdArt(url).then(data => { if (data) img.src = data; });
+  else img.src = url;
   return null;
 }

@@ -1,17 +1,18 @@
 // The sprite player for the leaders on stage (people/leader-sprite.mjs): the frame is a pure function of the
 // clock; the player holds the pictures (one fetch a file, however often the markup is written again); reduced
 // motion is a complete mode (a still, no flourish, no sheet fetched); a figure out of view asks for nothing and
-// one that is not looked at is its still; a flourish plays once per name.
+// one that is not looked at is its still; the stills come before any sheet; a flourish plays once per name, begins
+// when its sheet is here (a moment after the press), is looked at on every frame and loses no picture to a busy page.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spriteFrame, figurePose, createSpritePlayer, PHASE_STEP } from '../../permutation-server/web/frontier/people/leader-sprite.mjs';
+import { spriteFrame, figurePose, createSpritePlayer, PHASE_STEP, FLOURISH_LEAD, FLOURISH_PATIENCE } from '../../permutation-server/web/frontier/people/leader-sprite.mjs';
 import { STAGE_CLIPS, STAGE_CELL, leaderStageUrl, leaderStillUrl } from '../../permutation-server/web/frontier/people/leader-art.mjs';
 
-test('the frame from the time: idle loops through its eight pictures in two seconds; the flourish ends on its last picture', () => {
+test('the frame from the time: idle loops through its four pictures in two seconds; the flourish ends on its last picture', () => {
   const idle = STAGE_CLIPS.idle, attack = STAGE_CLIPS.attack;
-  assert.deepEqual([0, 0.24, 0.25, 0.5, 1, 1.75, 1.99, 2, 2.25, 4].map(t => spriteFrame('idle', t)), [0, 0, 1, 2, 4, 7, 7, 0, 1, 0]);
-  assert.equal(spriteFrame(idle, 0.1, { phase: 0.37 }), 1, 'a phase moves a loop on');
-  assert.equal(spriteFrame(idle, -0.1), 7, 'a clock before zero still gives a frame of the loop');
+  assert.deepEqual([0, 0.49, 0.5, 1, 1.5, 1.99, 2, 2.5, 4].map(t => spriteFrame('idle', t)), [0, 0, 1, 2, 3, 3, 0, 1, 0]);
+  assert.equal(spriteFrame(idle, 0.2, { phase: 0.37 }), 1, 'a phase moves a loop on');
+  assert.equal(spriteFrame(idle, -0.1), 3, 'a clock before zero still gives a frame of the loop');
   // a one-shot samples both ends: 8 pictures over 0.8 s, then it holds the last (the stance)
   assert.deepEqual([0, 0.05, 0.06, 0.4, 0.75, 0.8, 5].map(t => spriteFrame('attack', t)), [0, 0, 1, 4, 7, 7, 7]);
   assert.equal(spriteFrame(attack, 10.4, { start: 10 }), 4, 'from its own start');
@@ -20,9 +21,10 @@ test('the frame from the time: idle loops through its eight pictures in two seco
 });
 
 test('what a figure shows: breathing, a flourish that plays once and gives way to breathing, a still in reduced motion', () => {
-  assert.deepEqual(figurePose({ motion: 'idle', t: 0.5 }), { clip: 'idle', frame: 2, ended: false });
-  assert.deepEqual(figurePose({ motion: 'idle', t: 0.5, phase: PHASE_STEP * 2 }), { clip: 'idle', frame: 4, ended: false });
+  assert.deepEqual(figurePose({ motion: 'idle', t: 0.5 }), { clip: 'idle', frame: 1, ended: false });
+  assert.deepEqual(figurePose({ motion: 'idle', t: 0.5, phase: PHASE_STEP * 2 }), { clip: 'idle', frame: 2, ended: false });
   assert.deepEqual(figurePose({ motion: 'attack', t: 10.4, start: 10 }), { clip: 'attack', frame: 4, ended: false });
+  assert.deepEqual(figurePose({ motion: 'attack', t: 10.4 }), { clip: 'idle', frame: spriteFrame('idle', 10.4), ended: false }, 'a flourish that has not begun (its sheet is on its way): the figure breathes and waits');
   assert.deepEqual(figurePose({ motion: 'attack', t: 10.8, start: 10 }), { clip: 'idle', frame: spriteFrame('idle', 10.8), ended: true }, 'over: it breathes again');
   assert.deepEqual(figurePose({ motion: 'attack', t: 10.1, start: 10, done: true }), { clip: 'idle', frame: spriteFrame('idle', 10.1), ended: false }, 'a flourish already played does not play again');
   assert.deepEqual(figurePose({ motion: 'still', t: 3 }), { clip: null, frame: 0, ended: false });
@@ -61,35 +63,40 @@ test('the player holds the pictures: the still at once, the sheet when it has co
   let t = 0; const asked = [], frames = [];
   const player = createSpritePlayer({ doc, now: () => t, level: () => 'full', load: (url, done) => asked.push({ url, done }), frame: fn => frames.push(fn) });
   assert.equal(player.tick(), 2, 'both wait for their pictures');
-  assert.deepEqual(asked.map(a => a.url), [leaderStillUrl(0), leaderStageUrl(0, 'idle'), leaderStillUrl(4), leaderStageUrl(4, 'idle')]);
+  assert.deepEqual(asked.map(a => a.url), [leaderStillUrl(0), leaderStillUrl(4)], 'the stills first: no sheet is asked for while a still in view is on its way');
   assert.equal(on(hosts[0]), null, 'nothing is painted before a picture is here (the canvas keeps its place: no shift)');
   const give = (i, ok = true) => asked[i].done(ok ? { url: asked[i].url } : null);
-  give(0); give(2);
+  give(0);
   assert.equal(frames.length, 1, 'an arrival wakes the loop once');
   player.tick();
+  assert.deepEqual(on(hosts[0]), { url: leaderStillUrl(0), frame: 0 }, 'a still is painted as soon as it has come');
+  assert.equal(asked.length, 2, 'the other still is not here yet: still no sheet');
+  give(1);
+  player.tick();
+  assert.deepEqual(asked.slice(2).map(a => a.url), [leaderStageUrl(0, 'idle'), leaderStageUrl(4, 'idle')], 'every still has come and is painted: now the sheets');
   assert.deepEqual(on(hosts[0]), { url: leaderStillUrl(0), frame: 0 }, 'the still stands until the sheet has come');
   assert.deepEqual(hosts[0].draws.at(-1).slice(1), [0, 0, 288, 360, 0, 0, 288, 360], 'one cell, unscaled');
   assert.equal(hosts[0].shadows, 1, 'on its shadow');
-  give(1); give(3, false);
+  give(2); give(3, false);
   assert.equal(player.tick(), 1, 'a sheet that cannot be had leaves its figure a still for good');
   assert.deepEqual(on(hosts[0]), { url: leaderStageUrl(0, 'idle'), frame: 0 });
   assert.deepEqual(on(hosts[1]), { url: leaderStillUrl(4), frame: 0 });
-  t = 0.5; player.tick(); assert.deepEqual(on(hosts[0]), { url: leaderStageUrl(0, 'idle'), frame: 2 });
+  t = 1; player.tick(); assert.deepEqual(on(hosts[0]), { url: leaderStageUrl(0, 'idle'), frame: 2 });
   assert.deepEqual(hosts[0].draws.at(-1).slice(1), [2 * 288, 0, 288, 360, 0, 0, 288, 360], 'the frame is cut from the row');
   const n = hosts[0].draws.length; player.tick(); assert.equal(hosts[0].draws.length, n, 'the same frame paints nothing');
-  t = 1.99; player.tick(); assert.equal(on(hosts[0]).frame, 7);
+  t = 1.99; player.tick(); assert.equal(on(hosts[0]).frame, 3);
   assert.equal(hosts[0].clears, hosts[0].draws.length, 'each frame replaces the last');
   // the markup is written again (new canvases): they are painted from what the player holds, and nothing is fetched
   const again = page([{ leader: 'aster' }, { leader: 'ember' }]);
   doc.querySelectorAll = again.doc.querySelectorAll;
   player.tick();
-  assert.deepEqual(on(again.hosts[0]), { url: leaderStageUrl(0, 'idle'), frame: 7 });
+  assert.deepEqual(on(again.hosts[0]), { url: leaderStageUrl(0, 'idle'), frame: 3 });
   assert.equal(asked.length, 4, 'one fetch a file, however often the page is rendered');
   // six in a row do not breathe as one: the white leader is four phase steps on
   const two = page([{ leader: 'aster' }, { leader: 'ember' }]);
-  createSpritePlayer({ doc: two.doc, now: () => 0.1, level: () => 'full', load: instant(), frame: () => {} }).tick();
+  createSpritePlayer({ doc: two.doc, now: () => 0.2, level: () => 'full', load: instant(), frame: () => {} }).tick();
   assert.equal(on(two.hosts[0]).frame, 0);
-  assert.equal(on(two.hosts[1]).frame, spriteFrame('idle', 0.1, { phase: 4 * PHASE_STEP }));
+  assert.equal(on(two.hosts[1]).frame, spriteFrame('idle', 0.2, { phase: 4 * PHASE_STEP }));
   assert.notEqual(on(two.hosts[1]).frame, 0);
   // a figure without a shadow
   const bare = page([{ leader: 'cinder', shadow: false }]);
@@ -109,6 +116,8 @@ test('reduced motion is a complete mode: every figure is its still, no sheet is 
     assert.equal(frames.length, 1); frames.pop()(); assert.equal(frames.length, 0, 'one look, then the loop rests');
     player.kick(); assert.equal(frames.length, 1); frames.pop()(); assert.equal(frames.length, 0);
     assert.equal(player.plays.get('pick-2').done, true, 'the flourish does not wait for motion to come back');
+    assert.equal(player.warm(2, 'attack'), false, 'and no flourish is fetched ahead for a banner that is looked at');
+    assert.deepEqual(asked, [leaderStillUrl(0), leaderStillUrl(2)]);
   }
   // a figure that was moving goes back to its still when motion is turned down
   const { doc, hosts } = page([{ leader: 'dunmar' }]);
@@ -147,17 +156,119 @@ test('the flourish plays once per name, on every figure that carries the name, a
   let hosts = [];
   const show = specs => { hosts = page(specs).hosts; };
   const player = createSpritePlayer({ doc: { hidden: false, defaultView: { innerWidth: 1440, innerHeight: 900 }, querySelectorAll: sel => (sel === 'canvas.lfig' ? hosts : []) }, now: () => t, level: () => 'full', load: instant(), frame: () => {} });
+  /** Go to `to` in looks a sixtieth of a second apart, as a page that keeps its frames does. */
+  const run = to => { while (t < to - 1e-9) { t = Math.min(to, t + 1 / 60); player.tick(); } };
   show(spec); player.tick();
+  assert.deepEqual(hosts.map(h => on(h).url), [leaderStageUrl(4, 'idle'), leaderStageUrl(4, 'idle')], 'just pressed: the figure breathes on for a moment (the page is rendering itself again)');
+  assert.equal(player.plays.get('pick-4').start, null);
+  run(5 + FLOURISH_LEAD - 0.02);
+  assert.equal(player.plays.get('pick-4').start, null, 'not yet');
+  run(5 + FLOURISH_LEAD + 0.02);
+  const start = player.plays.get('pick-4').start;
+  assert.ok(start >= 5 + FLOURISH_LEAD - 1e-9 && start <= 5 + FLOURISH_LEAD + 0.02 + 1e-9, 'it begins a moment after the press');
   assert.deepEqual(hosts.map(on), [{ url: leaderStageUrl(4, 'attack'), frame: 0 }, { url: leaderStageUrl(4, 'attack'), frame: 0 }]);
-  t = 5.4; player.tick(); assert.deepEqual(hosts.map(h => on(h).frame), [4, 4], 'both at the same picture');
+  run(start + 0.4); assert.deepEqual(hosts.map(h => on(h).frame), [4, 4], 'both at the same picture');
   // (a third figure of the same name that cannot be seen, a desktop's banner on a phone, does not end it for the others)
   show([...spec, { leader: 'ember', motion: 'attack', once: 'pick-4', box: { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 } }]);
-  t = 5.5; player.tick(); assert.deepEqual(hosts.map(on), [{ url: leaderStageUrl(4, 'attack'), frame: spriteFrame('attack', 5.5, { start: 5 }) }, { url: leaderStageUrl(4, 'attack'), frame: spriteFrame('attack', 5.5, { start: 5 }) }, null]);
+  run(start + 0.5); assert.deepEqual(hosts.map(on), [{ url: leaderStageUrl(4, 'attack'), frame: spriteFrame('attack', 0.5) }, { url: leaderStageUrl(4, 'attack'), frame: spriteFrame('attack', 0.5) }, null]);
   // the page is rendered again in the middle of it: the new canvases go on from where the old ones were
-  show(spec); t = 5.6; player.tick(); assert.deepEqual(on(hosts[0]), { url: leaderStageUrl(4, 'attack'), frame: spriteFrame('attack', 5.6, { start: 5 }) });
-  t = 5.9; player.tick(); assert.deepEqual(hosts.map(h => on(h).url), [leaderStageUrl(4, 'idle'), leaderStageUrl(4, 'idle')], 'over: breathing');
+  show(spec); run(start + 0.6); assert.deepEqual(on(hosts[0]), { url: leaderStageUrl(4, 'attack'), frame: spriteFrame('attack', 0.6) });
+  run(start + 0.9); assert.deepEqual(hosts.map(h => on(h).url), [leaderStageUrl(4, 'idle'), leaderStageUrl(4, 'idle')], 'over: breathing');
   show(spec); t = 9; player.tick(); assert.equal(on(hosts[0]).url, leaderStageUrl(4, 'idle'), 'rendered again later: it does not play again');
   // another nation is chosen (the name leaves the page), then this one again: it plays again
   show([{ leader: 'ember', motion: 'idle', when: 'look', holder }]); t = 10; player.tick(); assert.equal(player.plays.size, 0);
-  show(spec); t = 11; player.tick(); assert.equal(on(hosts[0]).url, leaderStageUrl(4, 'attack'));
+  show(spec); t = 11; player.tick(); run(11 + FLOURISH_LEAD + 0.05); assert.equal(on(hosts[0]).url, leaderStageUrl(4, 'attack'));
+});
+
+test('the flourish begins when its sheet is here, not when the press was: a slow network delays it and loses none of it; a sheet that never comes is let go', () => {
+  for (const late of [0.4, 0.9, 2.5]) {
+    let t = 20; const asked = [];
+    const { doc, hosts } = page([{ leader: 'cinder', motion: 'attack', once: 'pick-2' }]);
+    const load = (url, done) => { if (url === leaderStageUrl(2, 'attack')) asked.push(done); else done({ url }); };
+    const player = createSpritePlayer({ doc, now: () => t, level: () => 'full', load, frame: () => {} });
+    const seen = [];
+    const run = to => { while (t < to - 1e-9) { t = Math.min(to, t + 1 / 60); player.tick(); const o = on(hosts[0]); if (o?.url === leaderStageUrl(2, 'attack') && seen.at(-1) !== o.frame) seen.push(o.frame); } };
+    player.tick();
+    assert.equal(asked.length, 1, 'the flourish\'s sheet is asked for at once');
+    run(20 + late);
+    assert.deepEqual(seen, [], `${late} s: nothing of the flourish before its sheet`);
+    assert.equal(on(hosts[0]).url, leaderStageUrl(2, 'idle'), 'the figure breathes while it waits');
+    assert.ok(player.tick() > 0 && player.urgent, 'and the player goes on looking, on every frame');
+    asked[0]({ url: leaderStageUrl(2, 'attack') });
+    run(20 + late + 1.2);
+    assert.deepEqual(seen, [0, 1, 2, 3, 4, 5, 6, 7], `${late} s late: every picture of the flourish, in order`);
+    assert.equal(on(hosts[0]).url, leaderStageUrl(2, 'idle'), 'then it breathes');
+    assert.equal(player.urgent, false, 'and the player looks at its slow pace again');
+  }
+  // the sheet cannot be had, or comes later than a press is remembered: no flourish, the figure breathes on, nothing waits
+  for (const how of ['failed', 'never']) {
+    let t = 30; let give = null;
+    const { doc, hosts } = page([{ leader: 'aster', motion: 'attack', once: 'pick-0' }]);
+    const load = (url, done) => { if (url !== leaderStageUrl(0, 'attack')) done({ url }); else if (how === 'failed') done(null); else give = done; };
+    const player = createSpritePlayer({ doc, now: () => t, level: () => 'full', load, frame: () => {} });
+    player.tick(); t = 30 + (how === 'failed' ? 0.05 : FLOURISH_PATIENCE + 0.1); player.tick();
+    assert.equal(player.plays.get('pick-0').done, true, how);
+    give?.({ url: leaderStageUrl(0, 'attack') }); t += 0.3; player.tick();
+    assert.equal(on(hosts[0]).url, leaderStageUrl(0, 'idle'), `${how}: it breathes`);
+    assert.equal(player.urgent, false);
+  }
+});
+
+test('a busy page slows the flourish and loses none of it: a look that comes late shows the next picture, never one further on', () => {
+  let t = 40;
+  const { doc, hosts } = page([{ leader: 'fjordal', motion: 'attack', once: 'pick-5' }]);
+  const player = createSpritePlayer({ doc, now: () => t, level: () => 'full', load: instant(), frame: () => {} });
+  const seen = [];
+  const look = dt => { t += dt; player.tick(); const o = on(hosts[0]); if (o?.url === leaderStageUrl(5, 'attack') && seen.at(-1) !== o.frame) seen.push(o.frame); };
+  player.tick();
+  // (the gaps a reviewer measured right after a press: 150 to 350 ms between two animation frames, then an uneven second)
+  for (const dt of [0.21, 0.16, 0.35, 0.15, 0.05, 0.095, 0.245, 0.3, 0.12, 0.2, 0.33, 0.07, 0.15, 0.15, 0.2, 0.2]) look(dt);
+  assert.deepEqual(seen, [0, 1, 2, 3, 4, 5, 6, 7], 'every picture is shown, in order, however the frames fall');
+  assert.equal(on(hosts[0]).url, leaderStageUrl(5, 'idle'), 'and it ends');
+  // looks that come only every third of a second: still one picture after another, the last one too
+  const slow = page([{ leader: 'ember', motion: 'attack', once: 'pick-4' }]);
+  const p2 = createSpritePlayer({ doc: slow.doc, now: () => t, level: () => 'full', load: instant(), frame: () => {} });
+  const order = [];
+  p2.tick();
+  for (let i = 0; i < 12; i++) { t += 0.34; p2.tick(); const o = on(slow.hosts[0]); if (o?.url === leaderStageUrl(4, 'attack')) order.push(o.frame); }
+  assert.deepEqual(order, [0, 1, 2, 3, 4, 5, 6, 7]);
+  assert.equal(p2.plays.get('pick-4').done, true);
+  // a page that keeps its frames is not slowed: the eight pictures take the clip's own 0.8 s
+  const quick = page([{ leader: 'aster', motion: 'attack', once: 'pick-0' }]);
+  const p3 = createSpritePlayer({ doc: quick.doc, now: () => t, level: () => 'full', load: instant(), frame: () => {} });
+  p3.tick(); const t0 = t; let began = null, over = null;
+  while (over === null && t < t0 + 3) { t += 1 / 60; p3.tick(); const o = on(quick.hosts[0]); if (began === null && o?.url === leaderStageUrl(0, 'attack')) began = t; if (began !== null && o?.url === leaderStageUrl(0, 'idle')) over = t; }
+  assert.ok(Math.abs(over - began - STAGE_CLIPS.attack.duration) < 0.03, `at 60 frames a second the flourish lasts ${(over - began).toFixed(3)} s`);
+});
+
+test('the loop: fifteen looks a second while the six only breathe, every animation frame while a flourish waits or plays; a banner looked at fetches its flourish ahead', () => {
+  let t = 0, wall = 0; const frames = [], asked = [];
+  const { doc, hosts } = page([{ leader: 'aster' }]);
+  let specs = hosts;
+  doc.querySelectorAll = sel => (sel === 'canvas.lfig' ? specs : []);
+  const realNow = globalThis.performance.now;
+  globalThis.performance.now = () => wall;
+  try {
+    const player = createSpritePlayer({ doc, now: () => t, level: () => 'full', load: instant(asked), frame: fn => frames.push(fn), every: 66 });
+    const step = ms => { wall += ms; t += ms / 1000; frames.shift()?.(); };
+    player.kick();
+    // one second of animation frames at 60 a second, breathing only
+    let looks = 0; const orig = doc.querySelectorAll; doc.querySelectorAll = sel => { if (sel === 'canvas.lfig') looks++; return orig(sel); };
+    for (let i = 0; i < 60; i++) step(1000 / 60);
+    assert.ok(looks >= 13 && looks <= 16, `breathing: about fifteen looks a second (${looks})`);
+    // a nation is chosen: the flourish waits, then plays; every frame is a look
+    specs = page([{ leader: 'aster', motion: 'attack', once: 'pick-0' }]).hosts;
+    looks = 0;
+    for (let i = 0; i < 60; i++) step(1000 / 60);
+    assert.ok(looks >= 55, `a flourish: a look on every animation frame until it is over (${looks})`);
+    assert.equal(player.plays.get('pick-0').done, true);
+    looks = 0;
+    for (let i = 0; i < 60; i++) step(1000 / 60);
+    assert.ok(looks <= 16, `over: the slow pace again (${looks})`);
+    // looked at before it is chosen: the sheet is fetched ahead, once
+    assert.equal(player.warm(3, 'attack'), true);
+    assert.equal(player.warm(3, 'attack'), true);
+    assert.equal(asked.filter(u => u === leaderStageUrl(3, 'attack')).length, 1, 'one fetch');
+    assert.equal(player.warm(9, 'attack'), false); assert.equal(player.warm(3, 'walk'), false);
+  } finally { globalThis.performance.now = realNow; }
 });

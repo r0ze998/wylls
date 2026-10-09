@@ -30,7 +30,7 @@ test('the nation choice: six standing banners of cloth with the leader and the d
   const base = { mode: 'play', land: { stage: 'none' }, citizen: null, overviews: new Map(), season: { joinGate: new Uint8Array(32) }, wallet: { address: 'W' }, joinDraft: {}, playReady: true, tab: 'map' };
   const out = String(joinScreen.render(base));
   assert.match(out, /^<section class="nations" aria-labelledby="join-faction">/);
-  const banners = [...out.matchAll(/<button type="button" class="banner-pick bn(\d)" data-act="pick-faction" data-f="(\d)" data-nation="(\d)" aria-pressed="(true|false)">/g)];
+  const banners = [...out.matchAll(/<button type="button" class="banner-pick bn(\d)" data-act="pick-faction" data-f="(\d)" data-nation="(\d)" data-flourish="attack" aria-pressed="(true|false)">/g)];   // (data-flourish: looked at, the banner has its leader's flourish fetched ahead of the press)
   assert.deepEqual(banners.map(m => [m[1], m[2], m[3], m[4]]), [0, 1, 2, 3, 4, 5].map(f => [String(f), String(f), String(f), 'false']), 'six banners, each names its nation for the map');
   const KEYS = ['aster', 'borealis', 'cinder', 'dunmar', 'ember', 'fjordal'];
   assert.equal((out.match(/<span class="bn-rim"><span class="bn-cloth"><span class="bn-face"><\/span>/g) ?? []).length, 6, 'a rim, the cloth, the lit field the leader stands before');
@@ -57,7 +57,7 @@ test('the nation choice: six standing banners of cloth with the leader and the d
   assert.doesNotMatch(text(out), /M1|区画 ?\d|キーパー|ランポート/);
   // one choice: the banner is pressed, the confirm names the nation and says its creed in a line
   const picked = String(joinScreen.render({ ...base, joinDraft: { faction: 2 } }));
-  assert.match(picked, /data-f="2" data-nation="2" aria-pressed="true"/);
+  assert.match(picked, /data-f="2" data-nation="2" data-flourish="attack" aria-pressed="true"/);
   assert.equal((picked.match(/aria-pressed="true"/g) ?? []).length, 1);
   assert.match(picked, /<button type="button" class="btn primary nc-btn" data-act="join" ><svg[^>]*><use href="art\/ui\/icons\.svg#banner"\/><\/svg>シンダーで始める<\/button>/);
   assert.match(picked, /class="nc-pitch">[^<]+</);
