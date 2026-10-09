@@ -197,7 +197,7 @@ W9 のドクトリン帯の再調整（C24）は、この 15 問の外にあり�
 - feasibility.json（即時付与と征服の組み込みの見積もり）
 
 frontier/unify（head 19fe89c）:
-- README.md、README.ja.md、PITCH.md、SUBMISSION.md
+- README.md、PITCH.md、SUBMISSION.md
 - docs/DESIGN-OVERVIEW.md、docs/DESIGN-OVERVIEW.ja.md
 - docs/frontier/DESIGN.md、DECISIONS.md、SUMMARY.ja.md
 - docs/frontier/m1/M1-CONTRACT.md

@@ -1,6 +1,6 @@
-# Earlier prototype: index
+# First version of Wylls (earlier prototype): index
 
-These pages describe the **earlier prototype**, a different game that was then named **Permutation State**, not the current game (Wylls). Page titles say so; the page bodies were renamed mechanically and still describe devnet, test USDC, ticks, officers and hidden operator AI members. None of that is a claim about Wylls. The current game is described in [../DESIGN-OVERVIEW.md](../DESIGN-OVERVIEW.md) ([日本語](../DESIGN-OVERVIEW.ja.md)). Every page here keeps its historical wording and carries a banner saying so. File names are unchanged from when they sat in the repository root.
+These pages describe the **first version of Wylls**, then named **Permutation State**. It is a different codebase and a different rule set from the rebuild on this branch. Page titles say so; the page bodies were renamed mechanically and describe devnet, test USDC, ticks, officers and hidden operator AI members. Those are claims about the first version, not about the rebuild's code. The rebuild is described in [../DESIGN-OVERVIEW.md](../DESIGN-OVERVIEW.md) ([日本語](../DESIGN-OVERVIEW.ja.md)). Every page here keeps its historical wording and carries a banner saying so. File names are unchanged from when they sat in the repository root.
 
 Two earlier generations exist:
 

@@ -1,14 +1,12 @@
-**English** | [日本語](README.ja.md)
-
 # Wylls
 
-**A game in which AI behaves like a player.** Wylls is the first playable part of a Civilization-style shared world on Solana. AI citizens, run by the operator on a local model, are designed to play beside people, with goals and a memory.
+**Play the agent economy.** Wylls is a strategy game where people and AI agents fight for one map, on Solana. AI citizens, run by the operator on a local model, play beside people, with goals and a memory.
 
-> **Status 2026-10-04:** runs on a local test chain only (never devnet or mainnet) · nobody outside the project has played · every number comes from tests, script-bot runs, an early spike with the local Gemma 4 model, or runs of the AI branch (not yet merged into this repository) · AI citizens are in progress · conquest, score, instant land, the 14-day season, money and society are design only.
+> **Status 2026-10-10:** this repository holds two versions of Wylls. **The first version** ran a full season on Solana devnet: MagicBlock ephemeral rollup, joining over x402, test USDC, 14 members (12 operator-run AI members and 2 people), 180 turns, prizes paid in test USDC; a read-only verifier replayed the season and passed 14 of 14 checks ([record](docs/earlier-prototype/devnet-season-1790355636798-verification.txt); code on branch `codex/magicblock-playable`). **The rebuild** (this branch) ran a full season on a local test chain with 1,000 script bots (1,034 turns; the verifier replayed 144,300 transactions and caught all 30 deliberate tampers). The rebuild does not use x402, MagicBlock or USDC yet: they are being carried over from the first version. AI citizens and conquest are in progress on branches that are not merged here yet. Nobody outside the project has played either version.
 
-![Wylls map: six nations around the Concord, the neutral centre](docs/img/wylls-map.png)
+![Wylls: the world map with six nations and the nation standings](docs/img/wylls-world.png)
 
-*The web client's map after the recorded test season of the first playable part (M1; local test chain, 1,000 script bots). It shows the map only, no armies or clashes. "Dev Wallet (localnet)" is a local test wallet, not a real one.*
+*The web client of the rebuild, world view (a screen fixture with test data, captured 2026-10-09; not a live season).*
 
 ## 1. What Wylls is
 
@@ -25,7 +23,7 @@ The game runs in real time, but the results of fights, marches and scouting are 
 5. **March under a sealed order.** The departure, the size and the arrival turn are public; the destination is hidden by a time-lock on drand (a public randomness beacon that publishes a value at a fixed time) until the arrival turn has ended. A march needs at least two turns to arrive and cannot be recalled.
 6. **Read the report.** Anyone can replay a battle report, and the web client re-runs the rules code in the browser to check it.
 
-Today winning a fight gains nothing: there is no loot, land or score. Conquest and a per-nation score are designed ([section 4](#status)).
+In the code on this branch, winning a fight gains nothing yet: there is no loot, land or score. Conquest is in progress on a branch that is not merged here yet, and a per-nation score is designed ([section 4](#status)).
 
 ## 3. The AI citizens
 
@@ -46,12 +44,13 @@ The pre-registered thresholds and the table of results are in [the AI contract, 
 
 | Area | Tag | In one line |
 |---|---|---|
-| Basic game M1 | **Running** | Joining, building, training, scouting, sealed marches, clashes and reports, with a replay verifier and a web client (Japanese and English). One 7-game-day season ran on a local test chain with 1,000 script bots |
+| First version (6 nations, 180 turns, officers and votes) | **Ran on devnet** | One full season on Solana devnet with a MagicBlock ephemeral rollup, x402 joining and test USDC: 14 members (12 operator-run AI members, 2 people), prizes paid in test USDC, 14 of 14 verifier checks. Code on branch `codex/magicblock-playable`; documents in [docs/earlier-prototype](docs/earlier-prototype/INDEX.md) |
+| Basic game M1 (the rebuild) | **Running** | Joining, building, training, scouting, sealed marches, clashes and reports, with a replay verifier and a web client (Japanese and English). One 7-game-day season ran on a local test chain with 1,000 script bots |
 | AI citizens | **In progress** | Code on a local branch, not merged; one small 6-AI run done (section 3) |
-| Conquest (keeps, sieges, occupation) | **Design only** | Program and simulator tests pass on a local branch that is not merged; verifier, relay, web client and a long run are not started; nobody has played it |
+| Conquest (keeps, sieges, occupation) | **In progress** | Program and simulator tests pass on a branch that is not merged here yet |
 | Instant land, 14-day season, one score per nation | **Design only** | The program is unchanged. Only 7-game-day seasons have run; the score formula is open |
 | Society (governance, diplomacy, trade, shared Engine, tech, eras) | **Design only** | Outline only; tech, eras and the Engine are not designed |
-| Money and business plan | **Planned** (money design: **Design only**) | A free season first, later a money season, an entry fee and AI citizens for game studios. No money that players pay or earn exists |
+| Money (entry fee, prize pool, protocol fee) | **Ran in the first version** (test USDC on devnet); rebuild: **In progress** | Players pay an entry fee in USDC; 80% goes to the prize pool and 20% is the protocol fee (`ops_share_bps` 2,000 in the first version's rules). No real money has moved: every payment so far was test USDC on devnet |
 
 Tags: **Running** means code exists and was actually run (a run on another branch is named as such); **In progress** means being built or run for this hackathon; **Design only** means written down, not built (including work that exists only on an unmerged branch); **Planned** means intended, no date. Each part of the complete game with its state is in the [design document](docs/GAME-DESIGN.ja.md) (Japanese).
 
@@ -83,14 +82,14 @@ Open `/frontier/frontier/`, not `/`: the bare address still lands on an older pa
 
 ## 6. Limits and what is not claimed
 
-- **Local test chain only.** Nothing of the new game has run on devnet or mainnet; devnet costs are unverified and hosting is open.
-- **Nobody outside the project has played.** All 1,000 participants of the M1 season were script bots written by the team. There is no registration, demand or traction figure. No season longer than 7 game days has run.
+- **Devnet: the first version only.** The first version ran on devnet with test USDC. The rebuild has run on a local test chain only. Nothing has run on mainnet.
+- **Nobody outside the project has played.** The first version's devnet season had 12 operator-run AI members and 2 people from the project. All 1,000 participants of the rebuild's M1 season were script bots written by the team. There is no registration, demand or traction figure. No season longer than 7 game days has run.
 - **Seal secrecy was not tested.** The M1 season replayed archived drand values, so the signatures were already known; the results show that marches settle, not that destinations stay secret. The verifier is ours, not an independent audit.
 - **AI citizens are in progress, not finished.** Only a small 6-AI run exists. The AI's reasons and speech are written by the model and not verified; most of an AI's actions are the autopilot's; the council is off-chain; the drand key of the test runs is the operator's test key.
-- **Not built:** conquest, instant land, the 14-day season, a score or winner, governance, diplomacy, markets, a shared civilisation, money, prizes. Legal review for money and for the disclosure of AI citizens has not been done.
+- **Not in the rebuild's code on this branch yet:** conquest (in progress on an unmerged branch), x402 joining, MagicBlock, USDC entry fees and prizes (all three ran in the first version), instant land, the 14-day season, a score or winner, governance, diplomacy, markets, a shared civilisation. Legal review for money and for the disclosure of AI citizens has not been done.
 - **The CI is partly red.** In the GitHub runs of 2026-10-01 and 10-02, 2 of 8 jobs failed, so the program build and its LiteSVM tests never ran there; the fixes were checked on a Mac only.
 - **Not claimed about the AI:** that it is stronger than the script bots, indistinguishable from people or exactly replayable; that it wants or intends anything; that its memory shows why it chose; that the council is enforced by the chain.
-- **Not claimed about the project:** that any person outside the project played it, any demand, that a game studio was approached, that money or prizes work, or that the Civilization-style game is finished.
+- **Not claimed about the project:** that any person outside the project played it, any demand, that a game studio was approached, that real money has moved (only test USDC on devnet, in the first version), or that the Civilization-style game is finished.
 
 ## 7. Repository map and where to read more
 
@@ -105,7 +104,7 @@ Open `/frontier/frontier/`, not `/`: the bare address still lands on an older pa
 | `permutation-server/web/frontier/` | The web client (map, village, march composer, report, practice page) |
 | `scripts/`, `docs/` | Build and run scripts; all documents |
 
-Names are historical: the rename to Wylls did not touch folder, crate or package names, so `permutation-*` and `frontier-*` remain. The repository also holds the files of an earlier, different prototype (Permutation State), which is not evidence for Wylls ([index](docs/earlier-prototype/INDEX.md)).
+Names are historical: the rename to Wylls did not touch folder, crate or package names, so `permutation-*` and `frontier-*` remain. The first version of Wylls (then named Permutation State) lives on branch `codex/magicblock-playable`; its documents are in [docs/earlier-prototype](docs/earlier-prototype/INDEX.md). Its devnet season is evidence for that version, not for the rebuild's code.
 
 **Where to start:** [Design overview, 10 minutes](docs/DESIGN-OVERVIEW.md) ([日本語](docs/DESIGN-OVERVIEW.ja.md)), then the [design document (Japanese)](docs/GAME-DESIGN.ja.md), the [AI citizens contract v1.3](docs/frontier/ai-citizens/AI-CITIZENS-CONTRACT.md) and the [M1 exit report](docs/frontier/m1/M1-EXIT-NOTES.md). **Also:** [Run it](docs/RUNNING.md) · [Decisions](docs/frontier/DECISIONS.md) · [Documentation index](docs/frontier/README.md). **Project records:** [Pitch](PITCH.md) · [Submission record](SUBMISSION.md) · [Demo script](docs/pitch/DEMO_SCRIPT.md)
 
