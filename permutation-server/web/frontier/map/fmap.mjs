@@ -1427,7 +1427,8 @@ export class FrontierMap {
     // runs over them as they roll out and a tick sounds (fx/stage.mjs); the lasting light is the map's own
     if (A?.mode === 'select' && A.t0 !== this.litT0) {
       this.litT0 = A.t0;
-      if (fx - A.t0 < 250) fxEmit('tiles:lit', { origin: A.hex, tiles: A.tiles.map(t => ({ q: t.hq, r: t.hr, kind: t.kind })), colours: Object.fromEntries(Object.entries(actionPalette(limited ? survey.faction : null)).map(([k, c]) => [k, c.rim])) });
+      // (reach is one shape now: the engine's glow is given the targets only, never a frame for every tile of the reach; `reach` says how many tiles it is)
+      if (fx - A.t0 < 250) fxEmit('tiles:lit', { origin: A.hex, reach: A.tiles.length, tiles: A.tiles.filter(t => t.kind !== 'move').map(t => ({ q: t.hq, r: t.hr, kind: t.kind })), colours: Object.fromEntries(Object.entries(actionPalette(limited ? survey.faction : null)).map(([k, c]) => [k, c.rim])) });
     } else if (!A) this.litT0 = null;
     // the camera eases out until the reach's edge is in the picture (UX brief §11.7)
     if (A?.mode === 'select') this.frameReach(A); else this.reachFit = null;

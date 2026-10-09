@@ -207,23 +207,28 @@ export function paintOwnLand(g, land, { zoom = 1, faction = 0, now = fxNow(), st
       // the flood's front: the colour itself and a breath of warm light run ahead and settle into the cast
       if (s.flash > 0) { g.globalAlpha = 0.34 * s.flash; g.fillStyle = col; g.fill(P.ring[d]); g.globalAlpha = 0.4 * s.flash; g.fillStyle = '#fff1c8'; g.fill(P.ring[d]); }
     });
-  } else {
-    g.globalCompositeOperation = blend; g.globalAlpha = OWN_FILL.middle; g.fillStyle = col; g.fill(P.fill);
-    g.globalCompositeOperation = 'source-over';
-    // (from afar the band is a few pixels: the land also carries a little of the colour itself, or it would not read)
-    if (far) { g.globalAlpha = 0.14; g.fill(P.fill); }
   }
-  if (shown > 0 && RADIUS * zoom > 9) {
-    // the band: strokes along the outline, kept inside the land, the widest first
-    g.save();
-    g.clip(P.fill);
-    g.strokeStyle = col; g.lineJoin = 'round';
-    for (let n = 0; n < OWN_FILL.passes; n++) for (const { width, alpha } of BAND) {
-      g.globalCompositeOperation = blend; g.globalAlpha = alpha * shown; g.lineWidth = width; g.stroke(P.edge);
-    }
+  // (while the landing floods, the band comes on with the border; else it is the land's kept picture, laid on in two copies)
+  const kept = flood ? null : bandBitmap(land.shape, P, col);
+  if (kept) {
+    g.imageSmoothingEnabled = true;
+    g.globalCompositeOperation = blend; g.globalAlpha = 1; g.drawImage(kept.cast, kept.x, kept.y, kept.w, kept.h);
     g.globalCompositeOperation = 'source-over';
-    for (const { width, alpha } of BAND.slice(-3)) { g.globalAlpha = alpha * OWN_BODY * shown; g.lineWidth = width; g.stroke(P.edge); }
-    g.restore();
+    if (RADIUS * zoom > 9) g.drawImage(kept.body, kept.x, kept.y, kept.w, kept.h);
+    // (from afar the band is a few pixels: the land also carries a little of the colour itself, or it would not read)
+    if (far) { g.globalAlpha = 0.14; g.fillStyle = col; g.fill(P.fill); }
+  } else {
+    if (!flood) {
+      g.globalCompositeOperation = blend; g.globalAlpha = OWN_FILL.middle; g.fillStyle = col; g.fill(P.fill);
+      g.globalCompositeOperation = 'source-over';
+      if (far) { g.globalAlpha = 0.14; g.fill(P.fill); }
+    }
+    if (shown > 0 && RADIUS * zoom > 9) {
+      g.save();
+      g.clip(P.fill);
+      paintBand(g, P, col, shown, blend);
+      g.restore();
+    }
   }
   // ---- the border: a glow of gold, dark ink, the nation's colour, the gold line
   if (shown > 0) {
@@ -239,6 +244,48 @@ export function paintOwnLand(g, land, { zoom = 1, faction = 0, now = fxNow(), st
     g.setLineDash([]);
   }
   g.restore();
+}
+
+/** The band's strokes along the outline (the caller clips them to the land): the cast in `blend`, `passes` times, then a little of the colour itself along the border. */
+function paintBand(g, P, col, shown = 1, blend = OWN_FILL.blend, { cast = true, body = true } = {}) {
+  g.strokeStyle = col; g.lineJoin = 'round';
+  if (cast) for (let n = 0; n < OWN_FILL.passes; n++) for (const { width, alpha } of BAND) {
+    g.globalCompositeOperation = blend; g.globalAlpha = alpha * shown; g.lineWidth = width; g.stroke(P.edge);
+  }
+  g.globalCompositeOperation = 'source-over';
+  if (body) for (const { width, alpha } of BAND.slice(-3)) { g.globalAlpha = alpha * OWN_BODY * shown; g.lineWidth = width; g.stroke(P.edge); }
+}
+
+const bandCache = new Map();
+/** Device px per world px of a land's kept band (it is a soft fall of colour: the border's strokes are drawn over its edge). */
+const BAND_RES = 1.5;
+/**
+ * The band of a land as two kept pictures in world space (painted once per shape and colour; a moving camera
+ * copies them instead of stroking the outline fourteen times through a blend): `cast` (the fill and the band's
+ * fall, to be laid on with OWN_FILL.blend) and `body` (the colour itself along the border): `{cast, body, x, y, w,
+ * h}`, or null where no spare canvas can be made (the caller strokes it).
+ */
+function bandBitmap(shape, P, col) {
+  const key = `${shape.key}|${col}`;
+  if (bandCache.has(key)) return bandCache.get(key);
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const t of shape.tiles) { const c = project(t.q, t.r); x0 = Math.min(x0, c.x - RADIUS); x1 = Math.max(x1, c.x + RADIUS); y0 = Math.min(y0, c.y - RADIUS); y1 = Math.max(y1, c.y + RADIUS); }
+  const w = x1 - x0, h = y1 - y0, W = Math.ceil(w * BAND_RES), H = Math.ceil(h * BAND_RES);
+  const make = () => (typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(W, H) : typeof document !== 'undefined' ? Object.assign(document.createElement('canvas'), { width: W, height: H }) : null);
+  const cast = Number.isFinite(w) && W > 0 && H > 0 && W * H < 6_000_000 ? make() : null, body = cast ? make() : null;
+  const a = cast?.getContext?.('2d'), b = body?.getContext?.('2d');
+  let v = null;
+  if (a && b) {
+    for (const g of [a, b]) { g.setTransform(BAND_RES, 0, 0, BAND_RES, -x0 * BAND_RES, -y0 * BAND_RES); g.clip(P.fill); }
+    // (the picture holds the cast's strength as plain alpha: two passes of a at a point are 1 − (1 − a)² there)
+    a.globalAlpha = OWN_FILL.middle; a.fillStyle = col; a.fill(P.fill);
+    paintBand(a, P, col, 1, 'source-over', { body: false });
+    paintBand(b, P, col, 1, 'source-over', { cast: false });
+    v = { cast, body, x: x0, y: y0, w, h };
+  }
+  if (bandCache.size > 24) bandCache.clear();
+  bandCache.set(key, v);
+  return v;
 }
 
 const breathAt = now => 0.5 + 0.5 * Math.sin((now / 1000) * (2 * Math.PI / BREATH_SECS));
