@@ -113,25 +113,29 @@ export function turnLeft(FS) {
 }
 
 /**
- * The waiting view's one clock (UX design 11.10: one state line and one countdown). With a request filed:
- * how long until the village is decided — `{kind: 'result', mins, turn, share, text}` ("約 12 分", the turn
- * whose bell decides it); else the time left in this turn, when this browser tries again — `{kind: 'turn',
- * left, share, text}`. Null before the season runs. The page refreshes the marked node (`data-wait-clock`)
- * and its ring every second (app.mjs tickTurn).
+ * The waiting view's one clock (UX design 11.10: one state line and one countdown). With a request filed it counts
+ * to the bell that decides the village, second for second with the turn dial above it (the second review: "about
+ * 11 min (turn 43's bell)" stood under a dial that said turn 43 was 9:22 away, because the figure counted on to the
+ * result, a minute after that toll) — `{kind: 'result', left, turn, after (minutes from that toll to the result),
+ * tolled, share, text}`; else the time left in this turn, when this browser tries again — `{kind: 'turn', left,
+ * share, text}`. Null before the season runs. The page refreshes the marked node (`data-wait-clock`) and its
+ * ring every second (app.mjs tickTurn).
  */
 export function waitClock(FS) {
   const now = FS.chain?.now?.() ?? null;
   const t = FS.land?.stage === 'ticket' ? FS.land.ticket : null;
   if (t && FS.clock && now !== null) {
     const at = ticketTimes(FS.clock, t.bell).resultAbout, from = bellStart(FS.clock.genesisTs, t.bell);
-    const left = at - now;
-    const mins = Math.max(1, Math.ceil(left / 60));
-    // (the turn whose bell comes just before the result: the result is drawn a little after that toll)
-    return { kind: 'result', mins, turn: Math.floor((at - FS.clock.genesisTs) / BELL_SECS), share: Math.max(0, Math.min(1, (now - from) / Math.max(1, at - from))), text: left > 0 ? L`約 ${fmtNum(mins)} 分` : L`まもなく` };
+    // the bell whose toll decides it: the one that ends the turn the request was filed in (the result is drawn a little after)
+    const turn = Math.floor((at - FS.clock.genesisTs) / BELL_SECS), toll = bellStart(FS.clock.genesisTs, turn);
+    const left = toll - now, tolled = !(left > 0);
+    return { kind: 'result', left: Math.max(0, Math.ceil(left)), turn, after: Math.max(1, Math.round((at - toll) / 60)), tolled, share: Math.max(0, Math.min(1, (now - from) / Math.max(1, toll - from))), text: tolled ? L`まもなく` : countdown(Math.ceil(left)) };
   }
   const tl = turnLeft(FS);
   return tl ? { kind: 'turn', ...tl, text: countdown(tl.left) } : null;
 }
+/** What follows the clock of a request, said once: which bell it is, and that the village is decided a little after it. */
+export const waitNote = c => (c?.kind !== 'result' ? '' : c.tolled ? L`鐘が鳴りました。約 ${fmtNum(c.after)} 分で決まります。` : L`ターン ${fmtNum(c.turn)} の鐘です。鐘のあと約 ${fmtNum(c.after)} 分で決まります。`);
 
 /** The waiting view's head: who the viewer joined, and the state in one line (the card's title). */
 function waitHead(FS, title) {
@@ -143,7 +147,7 @@ function waitHead(FS, title) {
 function waitClockBox(c, label) {
   if (!c) return '';
   return html`<div class="turn-wait"><span class="turn-ring" data-wait-ring>${ring(c.share)}${icon('bell', 'turn-ring-ic')}</span>
-    <div class="turn-wait-t"><span class="turn-wait-k">${label}</span><strong class="turn-wait-v" data-wait-clock>${c.text}</strong>${c.kind === 'result' ? html`<span class="turn-wait-n">${L`（ターン ${fmtNum(c.turn)} の鐘）`}</span>` : ''}</div></div>`;
+    <div class="turn-wait-t"><span class="turn-wait-k">${label}</span><strong class="turn-wait-v" data-wait-clock>${c.text}</strong>${c.kind === 'result' ? html`<span class="turn-wait-n" data-wait-note>${waitNote(c)}</span>` : ''}</div></div>`;
 }
 const practiceOffer = () => html`<div class="wait-offer"><p>${L`待つあいだに、練習で戦ってみましょう。何も送らず、何も失いません。`}</p>
   <button type="button" class="btn" data-act="practice-open">${icon('swords')}${L`待つあいだに練習で戦ってみる`}</button></div>`;
@@ -199,7 +203,7 @@ function renderTicket(FS) {
   const c = waitClock(FS);
   return html`<section class="vcard wait-card" aria-labelledby="join-sites">
     ${waitHead(FS, L`村の場所が決まるのを待っています`)}
-    ${waitClockBox(c, L`村が決まるまで`)}
+    ${waitClockBox(c, L`村が決まる鐘まで`)}
     <div class="wait-state"><p role="status">${L`村の申し込みは済んでいます。候補地のどれかに、あなたの最初の村ができます。`}</p></div>
     <p class="c-label"><span>${L`村の候補地`}</span></p>
     <ol class="doc-rows site-rows">${t.sites.map((s, i) => html`<li ${raw(i < t.next ? 'class="done"' : '')}><button type="button" class="doc-row site-row" data-act="site-go" data-i="${i}" data-p="${s.p}" data-q="${s.q}" data-site="${s.site}" aria-label="${L`${siteText(s)}を地図で見る`}"><span class="site-n" aria-hidden="true">${i + 1}</span><span class="doc-row-t">${siteText(s)}${i < t.next ? html` <span class="muted">${L`（ふさがっていた）`}</span>` : ''}</span>${icon('pin', 'doc-row-go')}</button></li>`)}</ol>

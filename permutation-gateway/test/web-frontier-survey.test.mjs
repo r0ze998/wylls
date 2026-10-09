@@ -33,7 +33,8 @@ const survey = (anchors, extra = {}) => S.buildSurvey({ ringsOpen: 3, anchors: S
 
 test('sight is counted in tiles: a village 3 + its worked radius, a host 2, a Scout 3', () => {
   assert.deepEqual([0, 1, 2, 3].map(S.SIGHT.village), [4, 5, 5, 6], 'a hamlet sees 4 tiles');
-  assert.deepEqual([S.SIGHT.host, S.SIGHT.scout, S.SIGHT.candidate, S.SIGHT.explored], [2, 3, 1, 1]);
+  // (a candidate site is a disc of two tiles about it since the second review: one tile about it was a speck of paint in the wait view)
+  assert.deepEqual([S.SIGHT.host, S.SIGHT.scout, S.SIGHT.candidate, S.SIGHT.explored], [2, 3, 2, 1]);
   assert.deepEqual(S.LEVELS, ['cloud', 'chart', 'surveyed', 'sight']);
   assert.deepEqual(S.FOG_OF_LEVEL, ['unopened', 'distant', 'known', 'sight'], 'the levels by the names the province painters know');
   const sv = survey({ villages: [village(0)] });

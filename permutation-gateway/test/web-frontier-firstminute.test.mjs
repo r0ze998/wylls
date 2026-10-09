@@ -110,17 +110,24 @@ test('the wait for the village: one state line and one clock; a refusal is one c
   const nofree = String(joinScreen.render({ ...base, land: { stage: 'joined' }, autoTicket: { state: 'nofree' } }));
   assert.match(nofree, /近くに空いた場所がありません/);
   assert.equal((nofree.match(/data-act="auto-ticket"/g) ?? []).length, 1);
-  // a request is in: the one large number is the wait for the village, with the turn whose bell decides it
+  // a request is in: the one clock counts to the bell that decides the village, second for second with the turn dial,
+  // and says once that the village is decided a little after that toll. (Rewritten with the fix pass on the second
+  // review: it read 「約 9 分（ターン 43 の鐘）」, a figure that counted on to the result, under a dial that said that
+  // bell was 7:30 away.)
   const landT = { stage: 'ticket', ticket: { bell: 42, next: 1, sites: [{ p: 2, q: 0, site: 3 }, { p: 2, q: 1, site: 5 }] } };
   const wc = joinScreen.waitClock({ ...base, land: landT });
-  // (filed in turn 42 at 2:30; the result comes at the end of turn 42 + 60 s + 6 s: 516 s from now, in turn 43)
-  assert.deepEqual([wc.kind, wc.mins, wc.turn, wc.text], ['result', 9, 43, '約 9 分']);
-  assert.ok(wc.share > 0.2 && wc.share < 0.25);
-  assert.equal(joinScreen.waitClock({ ...base, land: landT, chain: { now: () => 1_000 + 44 * 600 } }).text, 'まもなく', 'past its time: any moment');
+  // (filed in turn 42 at 2:30; the bell of turn 43 tolls in 450 s, the dial's own 7:30; the result comes 66 s after it)
+  assert.deepEqual([wc.kind, wc.left, wc.turn, wc.after, wc.tolled, wc.text], ['result', 450, 43, 1, false, '7:30']);
+  assert.equal(wc.left, joinScreen.turnLeft(base).left, 'the dial\'s own seconds');
+  assert.ok(wc.share > 0.24 && wc.share < 0.26);
+  assert.equal(joinScreen.waitNote(wc), 'ターン 43 の鐘です。鐘のあと約 1 分で決まります。');
+  const tolled = joinScreen.waitClock({ ...base, land: landT, chain: { now: () => 1_000 + 43 * 600 + 20 } });
+  assert.deepEqual([tolled.text, tolled.tolled, joinScreen.waitNote(tolled)], ['まもなく', true, '鐘が鳴りました。約 1 分で決まります。'], 'after the toll: any moment');
+  assert.equal(joinScreen.waitNote(joinScreen.waitClock({ ...base, land: { stage: 'joined' } })), '');
   assert.equal(joinScreen.waitClock({ ...base, land: { stage: 'joined' } }).kind, 'turn');
   const ticket = String(joinScreen.render({ ...base, land: landT }));
   assert.match(ticket, /<h3 id="join-sites">村の場所が決まるのを待っています<\/h3>/);
-  assert.match(ticket, /<span class="turn-wait-k">村が決まるまで<\/span><strong class="turn-wait-v" data-wait-clock>約 9 分<\/strong><span class="turn-wait-n">（ターン 43 の鐘）<\/span>/);
+  assert.match(ticket, /<span class="turn-wait-k">村が決まる鐘まで<\/span><strong class="turn-wait-v" data-wait-clock>7:30<\/strong><span class="turn-wait-n" data-wait-note>ターン 43 の鐘です。鐘のあと約 1 分で決まります。<\/span>/);
   assert.equal(clocks(ticket), 1);
   // its candidate places by the name a village there would carry, numbered, each a press that asks the map to go there
   // (hud-4, UX design 11.13: the name alone; a row that flies to its site needs no coordinates)
@@ -139,7 +146,7 @@ test('the wait for the village: one state line and one clock; a refusal is one c
   setLang('en');
   const en = text(joinScreen.render({ ...base, land: { stage: 'ticket', ticket: { bell: 42, next: 0, sites: [{ p: 2, q: 0, site: 3 }] } } }));
   assert.doesNotMatch(en.replace(/Ramar|Lamar/g, ''), JP, en);
-  assert.match(en, /Your village is decided in\s+about 9 min\s+\(at the bell of turn 43\)/);
+  assert.match(en, /Until the deciding bell\s+7:30\s+That is turn 43&#39;s bell\. Your village is decided about 1 min after it\./);
   assert.match(en, /You joined Aster/);
   const enFailed = text(joinScreen.render({ ...base, land: { stage: 'joined' }, autoTicket: { state: 'failed', code: 'Unavailable' } }));
   assert.doesNotMatch(enFailed, JP, enFailed);

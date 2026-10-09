@@ -43,13 +43,17 @@ test('the countdown: with a request out, the time until its result is due, on th
   assert.equal(WAIT.clockText(5), '0:05');
   assert.equal(WAIT.clockText(3850), '1:04:10');
   assert.equal(WAIT.clockText(-3), '0:00');
-  assert.deepEqual(WAIT.waitLine({ now: 1000, nextTurnAt: 1560, resultAt: 1619, first: 1 }), { at: 'candidate', index: 1, glyph: 'hourglass', text: '村が決まるまで 10:19' });
+  // (rewritten with the fix pass on the second review: the map's line counts to the bell that decides the village,
+  // `tollAt`, as the drawer and the dial do; it counted to the result, a minute later, and read 10:19 under a dial at 9:20)
+  assert.deepEqual(WAIT.waitLine({ now: 1000, nextTurnAt: 1560, resultAt: 1619, tollAt: 1560, share: 0.4, first: 1 }), { at: 'candidate', index: 1, glyph: 'bell', share: 0.4, text: '村が決まる鐘まで 9:20' });
+  assert.equal(WAIT.waitLine({ now: 1000, nextTurnAt: 1560, resultAt: 1619, first: 1 }).text, '村が決まる鐘まで 10:19', 'a page that gives no toll: the result\'s own time');
+  assert.equal(WAIT.waitLine({ now: 1570, nextTurnAt: 2160, resultAt: 1619, tollAt: 1560, first: 0 }).text, 'まもなく村が決まります', 'after the toll');
   assert.equal(WAIT.waitLine({ now: 2000, nextTurnAt: 2100, resultAt: 1619, first: 0 }).text, 'まもなく村が決まります', 'past the time: no negative clock, no claim that it is decided');
   assert.deepEqual(WAIT.waitLine({ now: 1000, nextTurnAt: 1560, resultAt: null, first: null }), { at: 'home', index: null, glyph: 'bell', text: '次のターンまで 9:20' });
   assert.equal(WAIT.waitLine(null), null);
   assert.equal(WAIT.waitLine({ now: NaN }), null);
   setLang('en');
-  assert.equal(WAIT.waitLine({ now: 1000, nextTurnAt: 1560, resultAt: 1619, first: 0 }).text, 'Village decided in 10:19');
+  assert.equal(WAIT.waitLine({ now: 1000, nextTurnAt: 1560, resultAt: 1619, tollAt: 1560, first: 0 }).text, 'Deciding bell in 9:20');
   assert.equal(WAIT.waitLine({ now: 1000, nextTurnAt: 1560 }).text, 'Next turn in 9:20');
   setLang('ja');
 });
@@ -65,7 +69,7 @@ test('painted: the nation\'s name and 「あなたの国の土地」 under the s
   const c = recorder();
   const first = WAIT.waitLine({ now: 1000, nextTurnAt: 1560, resultAt: 1619, first: 0 });
   assert.equal(WAIT.paintCandidateLabels(c, SITES, { zoom: 1, line: first }), 3);
-  assert.deepEqual(texts(c), ['1', placeName(2, 0, 0).ja, '2', placeName(1, 1, 2).ja, '3', placeName(1, 1, 4).ja, '村が決まるまで 10:19'], 'the names first, then the one countdown');
+  assert.deepEqual(texts(c), ['1', placeName(2, 0, 0).ja, '2', placeName(1, 1, 2).ja, '3', placeName(1, 1, 4).ja, '村が決まる鐘まで 10:19'], 'the names first, then the one countdown');
   // with a request out the standard's tag carries no countdown of its own (one countdown on the map)
   const h = recorder();
   WAIT.paintHomeTag(h, at, { zoom: 1, faction: 0, line: first });

@@ -81,7 +81,9 @@ test('the village drawer: five short parts, the stores as a ruled ledger, the co
   assert.doesNotMatch(text(upper), /州 -?\d/, 'no coordinates above the details');
   assert.match(facts, /<dt>場所<\/dt><dd>州 2,0<\/dd>/, 'the coordinates are a row of the details');
   assert.doesNotMatch(text(out), BANNED_JA);
-  assert.match(out, /<header class="c-head"><span class="c-pic"><img src="[^"]+town_o_ember\.webp"/, 'the village as the map paints it');
+  // (rewritten with the fix pass on the second review: the card shows the village as the map draws it now, by code,
+  // into a canvas: map/village.mjs paintVillagePics; it showed the baked sprite, some ninety px stretched)
+  assert.match(out, /<header class="c-head"><span class="c-pic c-pic-vil"><canvas class="c-vil" width="216" height="168" data-vil="0,1,0" aria-hidden="true"><\/canvas><\/span>/, 'the village as the map draws it');
   // (wave 2, UX design 11.12: the stores were eight tokens in boxes; they are lines of a ruled ledger now)
   assert.equal((out.match(/<tr class="ledger-row/g) ?? []).length, 8, 'eight stores as lines of the ledger');
   assert.match(out, /<table class="ledger"><caption class="visually-hidden">資源<\/caption>\s*<thead><tr><th scope="col">品目<\/th><th scope="col">在庫<\/th><th scope="col">上限<\/th><th scope="col">毎時<\/th>/);

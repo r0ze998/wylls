@@ -112,7 +112,8 @@ test('the fixture stages and the survey: chart only before a village; small disc
       if (stage === 'holding') assert.equal(sv.ownHosts.size, 3, 'the viewer\'s three hosts');
     }
     assert.deepEqual([seen.none, seen.joined], [0, 0], 'nothing in sight before there is land');
-    assert.ok(seen.ticket > 0 && seen.ticket <= 21, `three small discs (${seen.ticket} tiles)`);
+    // (a candidate site is a disc of two tiles about it since the second review: at most 19 tiles each, less where two overlap or water lies)
+    assert.ok(seen.ticket > 21 && seen.ticket <= 57, `three discs of two tiles about each site (${seen.ticket} tiles)`);
     assert.equal(seen.provisional, 61, 'a hamlet sees 4 tiles around it');
     assert.equal(seen.holding, 91, 'a town sees 5 (its hosts stand inside that)');
   } finally {

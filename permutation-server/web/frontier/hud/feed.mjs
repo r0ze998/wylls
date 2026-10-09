@@ -145,9 +145,9 @@ const KIND_TEXT = { battle: () => L`戦闘`, march: () => L`進軍`, incoming: (
 function itemActions(x) {
   const acts = [];
   if (x.battle) {
-    acts.push(html`<button type="button" class="btn small primary" data-act="battle-play" data-p="${x.battle.p}" data-q="${x.battle.q}" data-bell="${x.battle.bell}">${L`見る`}</button>`);
+    acts.push(html`<button type="button" class="btn small go" data-act="battle-play" data-p="${x.battle.p}" data-q="${x.battle.q}" data-bell="${x.battle.bell}">${L`見る`}${icon('chevron', 'go-ic')}</button>`);
     acts.push(html`<button type="button" class="btn small" data-act="report-open" data-p="${x.battle.p}" data-q="${x.battle.q}" data-bell="${x.battle.bell}">${L`報告`}</button>`);
-  } else if (Number.isInteger(x.p)) acts.push(html`<button type="button" class="btn small primary" data-act="feed-go" data-id="${x.id}">${L`見る`}</button>`);
+  } else if (Number.isInteger(x.p)) acts.push(html`<button type="button" class="btn small go" data-act="feed-go" data-id="${x.id}">${L`見る`}${icon('chevron', 'go-ic')}</button>`);
   return acts;
 }
 
@@ -175,8 +175,8 @@ const RESULT_ICON = Object.freeze({ arrival: 'seal', battle: 'swords', incoming:
  */
 export function renderTurnStrip(strip, { now = -1 } = {}) {
   if (!strip?.items?.length) return '';
-  const see = x => (x.battle ? html`<button type="button" class="btn small primary" data-act="battle-play" data-p="${x.battle.p}" data-q="${x.battle.q}" data-bell="${x.battle.bell}">${L`見る`}</button><button type="button" class="btn small" data-act="report-open" data-p="${x.battle.p}" data-q="${x.battle.q}" data-bell="${x.battle.bell}">${L`報告`}</button>`
-    : Number.isInteger(x.p) ? html`<button type="button" class="btn small primary" data-act="turn-go" data-id="${x.id}">${L`見る`}</button>` : '');
+  const see = x => (x.battle ? html`<button type="button" class="btn small go" data-act="battle-play" data-p="${x.battle.p}" data-q="${x.battle.q}" data-bell="${x.battle.bell}">${L`見る`}${icon('chevron', 'go-ic')}</button><button type="button" class="btn small" data-act="report-open" data-p="${x.battle.p}" data-q="${x.battle.q}" data-bell="${x.battle.bell}">${L`報告`}</button>`
+    : Number.isInteger(x.p) ? html`<button type="button" class="btn small go" data-act="turn-go" data-id="${x.id}">${L`見る`}${icon('chevron', 'go-ic')}</button>` : '');
   return html`<div class="toast turn-strip" role="status">
     <span class="toast-icon">${icon('bell')}</span>
     <span class="toast-text"><span class="toast-kind">${L`このターンのできごと`}<span class="toast-stamp">${icon('bell')}${L`ターン ${fmtNum(strip.turn)}`}</span></span></span>

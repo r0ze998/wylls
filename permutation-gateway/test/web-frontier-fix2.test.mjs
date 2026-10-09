@@ -211,3 +211,110 @@ function recorder2() {
   const grad = { addColorStop() {} };
   return new Proxy({}, { get: (_, k) => (k === 'calls' ? calls : k === 'canvas' ? null : k === 'createLinearGradient' || k === 'createRadialGradient' ? () => grad : typeof k === 'string' ? (...a) => { calls.push([k, ...a]); } : undefined), set: (_, k, v) => { calls.push(['=', k, v]); return true; } });
 }
+
+// ------------------------------------------------------------------ the HUD: the dial is a button, one clock in the wait, one button language
+import { readFileSync } from 'node:fs';
+import * as dialcard from '../../permutation-server/web/frontier/hud/dialcard.mjs';
+import * as hud from '../../permutation-server/web/frontier/hud/hud.mjs';
+import { rowGap, ROW_GAP_MAX } from '../../permutation-server/web/frontier/hud/drawer.mjs';
+import * as WAIT from '../../permutation-server/web/frontier/map/waitview.mjs';
+
+const WEB = new URL('../../permutation-server/web/frontier/', import.meta.url);
+const text = name => readFileSync(new URL(name, WEB), 'utf8');
+
+test('the turn dial is a button on all three pages; its card says the turn, the bell\'s tie to it, and what the next bell brings', () => {
+  for (const page of ['index.html', 'practice.html', 'spectate.html']) {
+    const html = text(page);
+    assert.match(html, /<button type="button" class="dial" id="bell-pill" data-act="dial" data-urgency="calm" aria-haspopup="dialog" aria-expanded="false" aria-label="ターンと次の鐘" data-i18n-attr="aria-label">[\s\S]*?id="bell-chip"[\s\S]*?<\/button>/, page);
+    assert.doesNotMatch(html, /<div class="dial"/, page);
+  }
+  const css = text('frontier.css');
+  assert.match(css, /button\.dial \{[^}]*pointer-events: auto;/, 'a press on the dial never reaches the map under it');
+  setLang('ja');
+  const chip = { bell: 42, secondsLeft: 562, beforeGenesis: false, ended: false };
+  const FS = { mode: 'play', nowBell: 42, incoming: [{ bell: 43, holding: { p: 2, q: 0, site: 0, tier: 1 } }, { bell: 44, holding: { p: 2, q: 0, site: 0, tier: 1 } }],
+    holdings: [{ p: 2, q: 0, site: 0, transit: [{ state: 1, arriveBell: 43, hostId: 7n }, { state: 1, arriveBell: 45, hostId: 8n }, { state: 0, arriveBell: 43, hostId: 9n }] }] };
+  const items = dialcard.nextBellItems(FS, { hostInfo: id => (id === 7n ? { mine: true, unit: 'Spearman', troops: 400, dest: '森' } : null), decides: { turn: 43, after: 1 } });
+  assert.deepEqual(items.map(x => x.icon), ['alert', 'seal', 'home'], 'only what the next bell brings: one warning, one arrival, the village');
+  assert.match(items[1].text, /^あなたの槍兵 400が森に着きます$/);
+  assert.equal(items[2].text, '村の場所が決まります（鐘のあと約 1 分）');
+  assert.deepEqual(dialcard.nextBellItems({ ...FS, mode: 'spectate' }), [], 'a watcher has nothing of their own');
+  assert.equal(dialcard.nextBellItems(FS, { hostInfo: () => ({ mine: true, unit: 'Spearman', troops: 400, dest: null }) })[1].text, 'あなたの槍兵 400が行き先に着きます', 'no destination is named that this device does not hold');
+  const card = String(dialcard.renderDialCard(chip, items));
+  assert.match(card, /<strong>ターン 42<\/strong><span class="dial-pop-left">次の鐘まで <span class="num" data-dial-left>9:22<\/span><\/span>/);
+  assert.match(card, /鐘が鳴るたびにターンが進みます。/, 'the one sentence that ties the bell to the turn');
+  assert.match(card, /<h4 class="dial-pop-h">次の鐘で<\/h4><ul class="dial-pop-list">/);
+  assert.match(String(dialcard.renderDialCard(chip, [])), /次の鐘であなたに届くものは、いまはありません。/, 'nothing is invented');
+  assert.doesNotMatch(String(dialcard.renderDialCard(null, [])), /次の鐘で/);
+});
+
+test('the plate says what the village request is doing, in the wait view\'s own words', () => {
+  setLang('ja');
+  const clock = { genesisTs: 1_000, window: () => 60, margin: 6 };
+  const say = (land, autoTicket) => hud.waitingLine({ land, autoTicket, clock });
+  assert.equal(say({ stage: 'ticket', ticket: { bell: 42 } }), '村の申し込みは済んでいます。ターン 43 の鐘のあとに決まります。');
+  assert.equal(say({ stage: 'joined' }, { state: 'failed' }), '村の申し込みはまだ通っていません。次のターンにやり直します。');
+  assert.doesNotMatch(say({ stage: 'joined' }, { state: 'failed' }), /自動で出しています/, 'a refused request is not "being sent"');
+  assert.equal(say({ stage: 'joined' }, { state: 'nofree' }), '空いた場所が見つかりません。ターンごとに探し直します。');
+  assert.equal(say({ stage: 'joined' }, { state: 'searching' }), '村の申し込みを出しています。');
+  setLang('en');
+  assert.equal(say({ stage: 'joined' }, { state: 'failed' }), 'Your village request has not gone through yet. It will be retried next turn.');
+  setLang('ja');
+});
+
+test('a part of the drawer that scrolls above a foot rests on a whole row: the room of a cut row is left bare', () => {
+  // three whole rows, then a row the foot would cut at 300 px
+  const rows = [{ top: 0, bottom: 80, leaf: true }, { top: 90, bottom: 180, leaf: true }, { top: 190, bottom: 270, leaf: true }, { top: 280, bottom: 330, leaf: true }];
+  assert.equal(rowGap(300, rows), 30, 'from the last whole row to the foot');
+  assert.equal(rowGap(340, rows), 0, 'nothing is cut: no gap');
+  assert.equal(rowGap(300, [...rows.slice(0, 3), { top: 280, bottom: 330, leaf: false }]), 0, 'a box of rows is not a row');
+  assert.equal(rowGap(300, [{ top: 0, bottom: 80, leaf: true }, { top: 100, bottom: 520, leaf: true }]), 0, `a gap of more than ${ROW_GAP_MAX} px is no gain`);
+  const css = text('frontier.css');
+  assert.doesNotMatch(css, /\.order-body \{[^}]*mask-image/, 'no row fades to half its contrast under the foot');
+  assert.match(css, /\.order-body \{[^}]*margin-bottom: var\(--row-gap, 0px\)/);
+});
+
+test('one button language per material: nothing on bell metal is filled white or cream; on paper a key is ink', () => {
+  const css = text('frontier.css');
+  const tail = css.slice(css.indexOf('one button language per material'));
+  assert.ok(tail.length > 500);
+  // the metal's keys (the plate, a toast, the objective's chip): dark with a brass rim, or brass for the one that confirms
+  assert.match(tail, /\.plate \.btn, \.toast \.btn, \.ob-chip \.btn[^{]*\{[^}]*background: linear-gradient\(180deg, #24463e, #152b26\)/);
+  assert.match(tail, /\.plate \.btn\.primary, \.toast \.btn\.primary, \.ob-chip \.btn, \.ob-chip \.btn\.primary \{[^}]*background: linear-gradient\(180deg, #f4dc94/);
+  assert.doesNotMatch(tail, /\.(plate|toast|ob-chip)[^{]*\{[^}]*background: (var\(--ivory\)|#fff|linear-gradient\(180deg, #fffaf0)/);
+  // "see" is a link with an arrow
+  assert.match(tail, /\.toast \.btn\.go \{[^}]*background: none;[^}]*text-decoration: underline/);
+  const feed = text('hud/feed.mjs');
+  assert.equal((feed.match(/class="btn small go"/g) ?? []).length, 4);
+  assert.doesNotMatch(feed, /class="btn small primary" data-act="(battle-play|feed-go|turn-go)"/);
+  // paper: the key is drawn in ink, the order's choices are tokens inside a stamped ring
+  assert.match(tail, /\n\.btn \{ border: 1\.5px solid rgba\(64,48,18,\.6\); border-radius: 5px; background: rgba\(64,48,18,\.05\); box-shadow: none; \}/);
+  assert.match(tail, /\.pick::before \{[^}]*border: 2px solid var\(--seal\); border-radius: 50%/);
+  assert.match(tail, /\.pick \{[^}]*border: 0;[^}]*background: none;/);
+});
+
+test('the wait is a view: the leader\'s line by the standard, the surveyors\' lines to the sites, a slow arc round each site', () => {
+  setLang('ja');
+  assert.deepEqual(WAIT.leaderWords(0, 'ticket'), { who: 'オリアーヌ・ヴェル', text: '村の場所はもうすぐ決まる。待つあいだに、戦い方を確かめておけ。' });
+  assert.equal(WAIT.leaderWords(0, 'failed').text, 'まずは村の申し込みだ。通りしだい、候補地を知らせよう。');
+  assert.equal(WAIT.leaderWords(9), null);
+  setLang('en');
+  assert.equal(WAIT.leaderWords(2, 'ticket').who, 'Sedra Ashfane');
+  assert.match(WAIT.leaderWords(2, 'ticket').text, /^Your village will be placed soon\./);
+  setLang('ja');
+  const g = recorder2();
+  WAIT.paintHomeTag(g, { x: 100, y: 200 }, { zoom: 1, faction: 0, say: WAIT.leaderWords(0, 'ticket') });
+  const said = g.calls.filter(c => c[0] === 'fillText').map(c => c[1]);
+  assert.deepEqual(said.slice(0, 2), ['アステル', 'あなたの国の土地']);
+  assert.ok(said.slice(2, -1).join('').includes('村の場所はもうすぐ決まる。'), 'the line, wrapped');
+  assert.equal(said[said.length - 1], '— オリアーヌ・ヴェル');
+  // wrapped lines never begin with a closing mark
+  const lines = WAIT.wrapText({ measureText: t => ({ width: t.length * 13 }) }, '「村の場所はもうすぐ決まる。待つあいだに、戦い方を確かめておけ。」', 238, 13);
+  assert.ok(lines.length >= 2 && lines.every(l => !/^[、。」]/.test(l)), lines.join(' / '));
+  assert.deepEqual(WAIT.wrapText({ measureText: t => ({ width: t.length * 7 }) }, 'Use the wait to learn how a battle goes.', 140, 13), ['Use the wait to', 'learn how a battle', 'goes.']);
+  // the lines: one to every site that has a place, none without a canvas
+  const s = recorder2();
+  const sites = [{ p: 2, q: 0, site: 0, tile: 7 }, { p: 1, q: 1, site: 2, tile: 30 }];
+  assert.equal(WAIT.paintSurveyLines(s, { x: 0, y: 0 }, sites, { zoom: 1, still: true }), 2);
+  assert.equal(WAIT.paintSurveyLines(null, { x: 0, y: 0 }, sites), 0);
+});

@@ -18,7 +18,7 @@
 import { html, raw } from '../../util.mjs';
 import { L, fmtNum, lang } from '../../lang.mjs';
 import { RESOURCES, RESOURCE_ORDER, TIERS, factionName } from '../fi18n.mjs';
-import { storesAt, holdingFacts, SETTLER } from '../fland.mjs';
+import { storesAt, holdingFacts, SETTLER, ticketTimes } from '../fland.mjs';
 import { hostRows } from '../screens/host.mjs';
 import { DEPART_STAMINA } from '../fmarch.mjs';
 import { bellChip, countdown, BELL_SECS } from '../clock.mjs';
@@ -305,10 +305,25 @@ export function renderNextRow(next) {
     ${next.kind === 'guide' ? html`<button type="button" class="next-row-steps" data-act="guide-open" aria-label="${L`ガイドの手順を見る`}">${icon('list')}</button>` : ''}</div>`;
 }
 
-/** The plate's line for a viewer without a village yet (the built behaviour: the page asks for the village itself). */
-function waitingLine(FS) {
-  const stage = FS.land?.stage ?? 'none';
-  return stage === 'ticket' ? L`村はまだありません。村の申し込みは済んでいます（次のターンの鐘のあとに決まります）。` : L`村はまだありません。村の申し込みを自動で出しています。`;
+/**
+ * The plate's line for a viewer without a village yet: what the request for the village is doing right now, in the
+ * same words as the wait view (the second review: the plate said "is being sent automatically" under a drawer that
+ * said the request had been refused).
+ */
+export function waitingLine(FS) {
+  const stage = FS.land?.stage ?? 'none', st = FS.autoTicket?.state ?? null;
+  if (stage === 'ticket') {
+    // (the bell that decides it: the toll just before the result, as the wait view and the dial's card say it)
+    let turn = null;
+    try { turn = FS.clock && Number.isInteger(FS.land?.ticket?.bell) ? Math.floor((ticketTimes(FS.clock, FS.land.ticket.bell).resultAbout - FS.clock.genesisTs) / BELL_SECS) : null; } catch { turn = null; }
+    return turn === null ? L`村の申し込みは済んでいます。次のターンの鐘のあとに決まります。` : L`村の申し込みは済んでいます。ターン ${fmtNum(turn)} の鐘のあとに決まります。`;
+  }
+  if (st === 'failed') return L`村の申し込みはまだ通っていません。次のターンにやり直します。`;
+  if (st === 'nofree') return L`空いた場所が見つかりません。ターンごとに探し直します。`;
+  if (st === 'room') return L`このターンの申し込みの枠がいっぱいです。次のターンに出します。`;
+  if (st === 'sent') return L`村の申し込みを出しました。記録に現れるのを待っています。`;
+  if (st === 'waiting') return L`このターンの申し込みは済みました。次のターンにもう一度出します。`;
+  return L`村の申し込みを出しています。`;
 }
 
 /**
@@ -335,7 +350,7 @@ export function renderPlate(FS) {
   if (!h) {
     return html`<div class="plate plate-open"><span class="plate-who"><span class="plate-face">${face}</span><span class="plate-text"><strong class="plate-name">${myName ?? factionName(faction)}</strong>${myName ? html`<span class="plate-sub">${factionName(faction)}</span>` : ''}</span></span>
       <span class="plate-sub">${waitingLine(FS)}</span>
-      <span class="plate-acts"><button type="button" class="btn plate-go" data-act="join-open">${L`様子を見る`}</button></span></div>`;
+      <span class="plate-acts"><button type="button" class="btn plate-go" data-act="join-open">${L`様子を見る`}</button><button type="button" class="btn plate-go plate-practice" data-act="practice-open">${icon('swords')}${L`練習で戦う`}</button></span></div>`;
   }
   const warned = (FS.incoming ?? []).some(w => w.holding.p === h.p && w.holding.q === h.q);
   const clocks = holdingCountdowns(FS, h);

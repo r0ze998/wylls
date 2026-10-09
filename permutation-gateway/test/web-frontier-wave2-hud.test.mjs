@@ -152,7 +152,9 @@ test('small parts: a state as a stamped word; the relay\'s count shows only when
   // the three pages carry the same strip: two plaques around the dial, and the steps button beside the next thing
   for (const page of ['index.html', 'practice.html', 'spectate.html']) {
     const html = readFileSync(new URL(page, WEB), 'utf8');
-    assert.match(html, /<div class="plaque strip-side strip-l">[\s\S]*<div class="dial" id="bell-pill"[\s\S]*<div class="plaque strip-side strip-r">/, page);
+    // (rewritten with the fix pass on the second review: the dial is a button; it was a div that took no press, and a
+    // press on it fell through to the tile under it)
+    assert.match(html, /<div class="plaque strip-side strip-l">[\s\S]*<button type="button" class="dial" id="bell-pill" data-act="dial"[^>]*aria-haspopup="dialog"[^>]*>[\s\S]*<\/button>\s*<div class="plaque strip-side strip-r">/, page);
     assert.match(html, /id="attn-pill" data-act="attn" hidden><\/button>\s*<button type="button" class="hud-btn next-steps" id="next-steps" data-act="guide-open" hidden>/, page);
     assert.doesNotMatch(html, /\sstyle=|<style/, page);
   }

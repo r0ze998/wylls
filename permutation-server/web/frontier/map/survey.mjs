@@ -44,7 +44,7 @@ export const SIGHT = Object.freeze({
   village: tier => 3 + (WORKED_RADIUS[tier] ?? WORKED_RADIUS[0]),
   host: 2,
   scout: 3,
-  candidate: 1,
+  candidate: 2,
   explored: 1,
   destination: 1,
 });

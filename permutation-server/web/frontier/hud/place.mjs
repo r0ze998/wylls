@@ -77,3 +77,6 @@ export function villagePic(faction, tier = 0, { walls = false } = {}) {
   if (!n) return null;
   return new URL(`../art/holdings/@2x/${t}_${t === 'stronghold' || walls ? 'w' : 'o'}_${n}.webp`, import.meta.url).href;
 }
+
+/** The same village as the map draws it now (map/village.mjs), for a card's head: `{village: {faction, tier, walls}}`, or null for no nation. */
+export const villageDrawn = (faction, tier = 0, { walls = false } = {}) => (Number.isInteger(faction) && faction >= 0 && faction < 6 ? { village: { faction, tier: Number(tier) || 0, walls: !!walls } } : null);

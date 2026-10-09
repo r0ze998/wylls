@@ -89,3 +89,32 @@ export const STAGE = Object.freeze(new Set(['nation']));
 
 /** The kinds that lift the phone sheet from its peek (a selection or an order stays low: the map is being used). */
 export const LIFTS = Object.freeze(new Set(['practice', 'report', 'holding', 'hosts', 'marches', 'more', 'guide', 'join', 'nation', 'wait', 'spectate']));
+
+/** A part of the drawer that scrolls by itself above a foot that stays (the order's body above its seal: `data-scroll`) never rests with a row cut by the foot. */
+export const ROW_GAP_MAX = 140;
+/**
+ * At rest (not scrolled) such a part ends on a whole row: the room a half-seen row would take is left as bare paper
+ * (`--row-gap` on the part, its bottom margin: frontier.css `.order-body`). The second review: a strength bar lay half
+ * under the order's summary line. Scrolling shows the rest as before. `rowsOf(part)` gives the rows to look at.
+ */
+export function settleRows(doc = globalThis.document, rowsOf = part => part.querySelectorAll(':scope > *, :scope .versus > div, :scope .mc-odds > *, :scope .mc-def > li')) {
+  let n = 0;
+  for (const part of doc?.querySelectorAll?.('[data-scroll]') ?? []) {
+    part.style?.setProperty?.('--row-gap', '0px');
+    if (!(part.clientHeight > 0) || part.scrollTop > 0 || part.scrollHeight <= part.clientHeight + 1) continue;
+    const gap = rowGap(part.clientHeight, [...rowsOf(part)].map(el => { const r = el.getBoundingClientRect(), t = part.getBoundingClientRect().top; return { top: r.top - t, bottom: r.bottom - t, leaf: !el.querySelector?.(':scope > *:not(span):not(strong):not(svg):not(input):not(small)') || el.matches?.('.versus > div, .picks, p, li, header, .stepper, .mc-dest') }; }));
+    if (gap > 0) { part.style.setProperty('--row-gap', `${gap}px`); n++; }
+  }
+  return n;
+}
+/** The gap for a part `height` px tall whose rows are `[{top, bottom, leaf}]` (px from its top): from the last whole row to its foot when a leaf row is cut there, else 0. */
+export function rowGap(height, rows) {
+  let last = 0, cut = false;
+  for (const r of rows) {
+    if (!(r.bottom > r.top)) continue;
+    if (r.bottom <= height + 0.5) { if (r.leaf) last = Math.max(last, r.bottom); }
+    else if (r.top < height - 0.5 && r.leaf) cut = true;
+  }
+  const gap = Math.ceil(height - last);
+  return cut && last > 0 && gap > 0 && gap <= ROW_GAP_MAX ? gap : 0;
+}

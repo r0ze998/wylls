@@ -56,7 +56,7 @@ import { LANDING } from './ownland.mjs';
 import { WORKED_RADIUS } from './survey.mjs';
 import { emit as fxEmit } from '../fx/bus.mjs';
 import { createLabelPass, rectOf, tileKeyOf } from './labelpass.mjs';
-import { paintCandidateLabels, paintHomeTag, paintWaitStandard, standardBox, waitLine } from './waitview.mjs';
+import { leaderWords, paintCandidateLabels, paintHomeTag, paintSurveyLines, paintWaitStandard, standardBox, waitLine } from './waitview.mjs';
 import { TILT, armUpright, disarmUpright, groundBox, groundView, nearQuad, perspFromQuery, standing, tiltAt, tiltFromQuery, tiltGeo, upright } from './tilt.mjs';
 
 /** Fog levels drawn as tiles at tile LOD (a distant province stays a muted cell). */
@@ -1472,7 +1472,11 @@ export class FrontierMap {
     const guide = F.guide, calm = reducedMotion();
     if (guide && lod !== 'tile') paintGuide(ctx, guide, z, '', 'ring');
     if (src.threats?.length) paintThreats(ctx, src.threats, z, null, 'mark');
-    if (limited && survey.candidates?.length) paintCandidates(ctx, survey.candidates, z, { still: calm, part: 'mark' });
+    if (limited && survey.candidates?.length) {
+      // the surveyors' lines from the standard to the sites, then each site's ring with the wait's slow arc round it
+      if (homeAt && lod !== 'world') paintSurveyLines(ctx, homeAt, survey.candidates, { zoom: z, now: F.fx, still: calm });
+      paintCandidates(ctx, survey.candidates, z, { still: calm, part: 'mark', share: src.wait?.share ?? null });
+    }
     if (homeAt) { standing(ctx, up?.(homeAt.x, homeAt.y) ?? null, homeAt.x, homeAt.y, () => paintWaitStandard(ctx, homeAt, { zoom: z, faction: survey.faction, now: F.fx, still: calm })); if (!calm) this.invalidateSoon(90); }
     // what is read rather than looked at stands upright over the board and its depth dressing: names, labels,
     // warnings' words, pins, the guide's words (`o`: the label canvas; `w`: its flat world transform)
@@ -1488,7 +1492,7 @@ export class FrontierMap {
       const sites = limited && survey.candidates?.length ? survey.candidates : null;
       if (homeAt) pass.block(homeAt.x, homeAt.y, standardBox(homeAt, z));
       if (sites) { paintCandidateLabels(o, sites, { zoom: z, line: waitSay, pass }); if (!calm) this.invalidateSoon(120); }
-      if (homeAt) paintHomeTag(o, homeAt, { zoom: z, faction: survey.faction, line: waitSay, pass, keep: !sites });
+      if (homeAt) paintHomeTag(o, homeAt, { zoom: z, faction: survey.faction, line: waitSay, pass, keep: !sites, say: leaderWords(survey.faction, src.wait?.state ?? null) });
       // (a countdown is read to the second: the words are drawn again a few times a second)
       if (waitSay) this.invalidateSoon(400);
       if (src.pins?.length) paintPins(o, src.pins, z);

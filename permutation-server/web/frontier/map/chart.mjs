@@ -685,7 +685,8 @@ export function paintWedge(g, faction, ringsOpen, zoom, { lit = false } = {}) {
 }
 
 /** The candidate sites of an open request: a dashed ring on each tile, in ivory over ink (their numbers and names are the wait view's: map/waitview.mjs). */
-export function paintCandidates(g, candidates, zoom, { now = fxNow(), still = false } = {}) {
+export function paintCandidates(g, candidates, zoom, { now = fxNow(), still = false, share = null } = {}) {
+  // `share` (0..1): how much of the wait for the deciding bell has gone: a brass arc fills round every site, slowly
   if (!candidates?.length || !g?.save) return;
   const k = 1 / zoom, turn = still ? 0 : (now / 1000) * 5;
   g.save();
@@ -697,6 +698,12 @@ export function paintCandidates(g, candidates, zoom, { now = fxNow(), still = fa
     const ring = (w, style, dash) => { g.beginPath(); g.ellipse?.(at.x, at.y, rx, ry, 0, 0, Math.PI * 2); g.setLineDash(dash ? [9 * k, 6 * k] : []); g.lineDashOffset = -turn * k; g.lineWidth = w * k; g.strokeStyle = style; g.stroke(); };
     ring(5.2, 'rgba(22,30,26,.7)', false); ring(2.6, '#f4efe0', true);
     g.setLineDash([]);
+    if (Number.isFinite(share)) {
+      const ox = rx + 7 * k, oy = ox * FLATTEN, sh = Math.max(0.015, Math.min(1, share));
+      g.strokeStyle = 'rgba(22,30,26,.55)'; g.lineWidth = 5 * k; g.beginPath(); g.ellipse?.(at.x, at.y, ox, oy, 0, 0, Math.PI * 2); g.stroke();
+      g.strokeStyle = 'rgba(201,162,74,.35)'; g.lineWidth = 3 * k; g.beginPath(); g.ellipse?.(at.x, at.y, ox, oy, 0, 0, Math.PI * 2); g.stroke();
+      g.strokeStyle = '#f0d48a'; g.lineWidth = 3 * k; g.beginPath(); g.ellipse?.(at.x, at.y, ox, oy, 0, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * sh); g.stroke();
+    }
   });
   g.restore();
 }

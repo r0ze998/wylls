@@ -16,7 +16,11 @@ const word = s => String(s ?? '').replace(/[^\w -]/g, '');
  * a count, a small button).
  */
 export function cardHead({ id, ic = null, pic = null, title, sub = '', side = '' }) {
-  return html`<header class="c-head">${pic ? html`<span class="c-pic"><img src="${pic}" alt="" width="176" height="208" decoding="async"></span>` : ic ? html`<span class="c-ic">${icon(ic)}</span>` : ''}<span class="c-titles"><h3 ${raw(id ? `id="${word(id)}"` : '')}>${title}</h3>${sub ? html`<span class="c-sub">${sub}</span>` : ''}</span>${side ? html`<span class="c-side">${side}</span>` : ''}</header>`;
+  // (`pic` `{village: {faction, tier, walls}}`: the village as the map draws it, painted into the canvas after the
+  // card is on the page: map/village.mjs paintVillagePics; a string is a picture's address)
+  const v = pic && typeof pic === 'object' ? pic.village : null;
+  const shown = v ? html`<span class="c-pic c-pic-vil"><canvas class="c-vil" width="216" height="168" data-vil="${Number(v.faction) | 0},${Number(v.tier) | 0},${v.walls ? 1 : 0}" aria-hidden="true"></canvas></span>` : pic ? html`<span class="c-pic"><img src="${pic}" alt="" width="176" height="208" decoding="async"></span>` : null;
+  return html`<header class="c-head">${shown ? shown : ic ? html`<span class="c-ic">${icon(ic)}</span>` : ''}<span class="c-titles"><h3 ${raw(id ? `id="${word(id)}"` : '')}>${title}</h3>${sub ? html`<span class="c-sub">${sub}</span>` : ''}</span>${side ? html`<span class="c-side">${side}</span>` : ''}</header>`;
 }
 
 /** A small heading inside a card (a label with a hairline to the right). */

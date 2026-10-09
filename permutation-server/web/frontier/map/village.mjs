@@ -395,3 +395,26 @@ export function villageSprite(px, { tier = 0, faction = 0, walls = false, varian
   if (sprites.size > 96) sprites.delete(sprites.keys().next().value);
   return v;
 }
+
+/**
+ * Paint every village picture of a card on the page (`canvas[data-vil="faction,tier,walls"]`, screens/parts.mjs
+ * cardHead): the village as the map draws it, fitted to the canvas. A canvas is painted once for what it names.
+ */
+export function paintVillagePics(root = globalThis.document) {
+  let n = 0;
+  for (const cv of root?.querySelectorAll?.('canvas[data-vil]') ?? []) {
+    const key = cv.dataset.vil;
+    if (cv.dataset.done === key) continue;
+    const g = cv.getContext?.('2d');
+    if (!g) continue;
+    const [faction, tier, walls] = key.split(',').map(Number), t = Math.max(0, Math.min(3, tier | 0));
+    const W = cv.width, H = cv.height, r = VILLAGE.ring[t];
+    // as large as the canvas holds: its ring across the width, its tallest roof and its gate inside the height
+    const u = Math.min((W * 0.94) / (r * 2.25), (H * 0.96) / (VILLAGE.top[t] + r * F + 0.16));
+    g.clearRect(0, 0, W, H);
+    paintVillage(g, W / 2, H - (r * F + 0.1) * u, u, { tier: t, faction, walls: !!walls });
+    cv.dataset.done = key;
+    n++;
+  }
+  return n;
+}

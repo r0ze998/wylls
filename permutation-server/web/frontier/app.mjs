@@ -25,6 +25,8 @@ import { fxNow } from './map/chart.mjs';   // (milliseconds on the effects clock
 import { reducedMotion } from './map/camera.mjs';
 import { renderSurveyHelp } from './map/legend.mjs';
 import { NOTE_TEXT, createActions } from './map/actions.mjs';
+import * as dialcard from './hud/dialcard.mjs';
+import { paintVillagePics } from './map/village.mjs';
 import { createLandingBook, landedKey } from './map/landing.mjs';
 import { placeName, villageLine } from './map/names.mjs';
 import { lastWalletName } from '../wallet.mjs';
@@ -35,7 +37,7 @@ import { html, setHtml } from '../util.mjs';
 import { ACTIONS, FORMS, bind, startPlay, wantProvince } from './controller.mjs';
 import { renderTabs, factionChip, quotaChip, mountSheet, PHONE_MAX, row, lamports } from './screens/shell.mjs';
 import { cardHead, fold, label } from './screens/parts.mjs';
-import { drawerOf, closeDrawer, drawerTitle, holdsLand, LIFTS, DRAWER_ICON, WIDE, STAGE } from './hud/drawer.mjs';
+import { drawerOf, closeDrawer, drawerTitle, holdsLand, LIFTS, DRAWER_ICON, WIDE, STAGE, settleRows } from './hud/drawer.mjs';
 import { icon, iconizeMapTools } from './hud/icons.mjs';
 import { hudInsets, noGoRects } from './hud/insets.mjs';
 import { mountTextures } from './hud/textures.mjs';
@@ -362,6 +364,12 @@ export function keepState(el, render, scroller = el) {
 }
 
 // ------------------------------------------------------------------ the drawer (hud/drawer.mjs)
+let settleAt = null;
+function settleSoon() {
+  if (settleAt !== null || !globalThis.requestAnimationFrame) return;
+  settleAt = globalThis.requestAnimationFrame(() => { settleAt = null; try { settleRows(); paintVillagePics(); } catch { /* a page without the drawer */ } });
+}
+globalThis.addEventListener?.('resize', settleSoon);
 /** The phone sheet (screens/shell.mjs `mountSheet`): `{set, state}` or null. */
 let sheetRef = null;
 const phone = () => !!globalThis.matchMedia?.(`(max-width: ${PHONE_MAX}px)`).matches;
@@ -415,6 +423,8 @@ function renderDrawer(markupOf) {
     else drawerClear = setTimeout(() => { if (!drawerOf(FS)) setHtml(body, ''); }, 200);
     if (!same && scroller) scroller.scrollTop = 0;
   }
+  // (a part of the drawer that scrolls above a foot rests on a whole row: after this picture is laid out)
+  settleSoon();
   setText('panel-title', drawerTitle(d));
   const mark = $('panel-ic');
   if (mark && d) setHtmlIfChanged(mark, icon(DRAWER_ICON[d.kind] ?? 'chart'));
@@ -558,6 +568,21 @@ function renderTermPop() {
   setHtmlIfChanged(el, glossary.renderTerm(FS.term));
 }
 function closeTermPop() { if (FS.term) { FS.term = null; renderTermPop(); } }
+/** The dial's card (hud/dialcard.mjs): the turn, the time to the next bell, what that bell brings; under the dial. */
+function renderDialPop(now = FS.chain?.now?.() ?? null) {
+  let el = $('dial-pop');
+  const pill = $('bell-pill');
+  if (pill && pill.getAttribute('aria-expanded') !== String(!!FS.dialOpen)) pill.setAttribute('aria-expanded', String(!!FS.dialOpen));
+  if (!FS.dialOpen) { if (el) el.hidden = true; return; }
+  const doc = globalThis.document;
+  if (!el && doc) { el = doc.createElement('div'); el.id = 'dial-pop'; el.className = 'dial-pop'; el.setAttribute('role', 'dialog'); doc.body.appendChild(el); }
+  if (!el) return;
+  el.hidden = false;
+  el.setAttribute('aria-label', L`ターンと次の鐘`);
+  const c = FS.mode === 'play' ? joinScreen.waitClock(FS) : null;
+  setHtmlIfChanged(el, dialcard.renderDialCard(FS.clock ? bellChip(FS.clock, now) : null, dialcard.nextBellItems(FS, { hostInfo: inspect.hostInfoOf(FS), decides: c?.kind === 'result' ? c : null })));
+}
+function closeDialPop({ focus = false } = {}) { if (FS.dialOpen) { FS.dialOpen = false; renderDialPop(); if (focus) $('bell-pill')?.focus?.({ preventScroll: true }); } }
 // ------------------------------------------------------------------ milestones (hud/milestones.mjs)
 const BOOT_AT = Date.now();
 const MILE_QUIET_MS = 20_000;   // what loads in the first seconds is old news, recorded without a banner
@@ -830,11 +855,13 @@ function waitNow() {
   const now = FS.chain?.now?.() ?? null;
   if (!Number.isFinite(now)) return null;
   const bell = FS.nowBell ?? Math.max(0, Math.floor((now - FS.clock.genesisTs) / 600)), t = st === 'ticket' ? FS.land.ticket ?? null : null;
-  let resultAt = null;
+  let resultAt = null, tollAt = null, share = null;
   try { resultAt = t ? ticketTimes(FS.clock, t.bell).resultAbout : null; } catch { resultAt = null; }
+  // (the bell that decides the village: the toll just before the result; the wait's clocks all count to it, as the dial does)
+  if (resultAt !== null) { tollAt = bellStart(FS.clock.genesisTs, Math.floor((resultAt - FS.clock.genesisTs) / 600)); const from = bellStart(FS.clock.genesisTs, t.bell); share = Math.max(0, Math.min(1, (now - from) / Math.max(1, tollAt - from))); }
   // one countdown on the screen (UX design 11.10): while the wait view stands open with its own clock, the map leaves its line out
   const said = drawerOf(FS)?.kind === 'wait' && !(phone() && sheetRef?.state() === 'peek');
-  return { now, nextTurnAt: bellStart(FS.clock.genesisTs, bell + 1), resultAt, first: t ? t.next ?? 0 : null, said };
+  return { now, nextTurnAt: bellStart(FS.clock.genesisTs, bell + 1), resultAt, tollAt, share, first: t ? t.next ?? 0 : null, said, state: st === 'ticket' ? 'ticket' : FS.autoTicket?.state ?? null };
 }
 /** The village that lands now, the first time this device sees it (map/landing.mjs). */
 const landingBook = createLandingBook();
@@ -968,11 +995,14 @@ function tickTurn() {
   if (!c) return;
   if (el.textContent !== c.text) el.textContent = c.text;
   doc.querySelector('[data-wait-ring] .ring-fg')?.setAttribute('stroke-dasharray', `${(c.share * 100).toFixed(1)} 100`);
+  const note = doc.querySelector('[data-wait-note]'), words = joinScreen.waitNote(c);
+  if (note && note.textContent !== words) note.textContent = words;
 }
 
 function renderHudTick(now) {
   const m = hud.bellModel(FS.clock, now);
   tickTurn();
+  if (FS.dialOpen) renderDialPop(now);
   checkMoments();
   frameRoute();
   updateForecast();
@@ -1659,6 +1689,8 @@ export const HUD_ACTIONS = {
   'guide-level': d => { if (!guide.GUIDE_LEVELS.includes(d.v)) return; const sc = scope(); FS.ui = sc ? saveUi(uiStorage, uiKey(sc), { guide: d.v }) : { ...(FS.ui ?? {}), guide: d.v }; guideCache.at = 0; invalidate('panel', 'map', 'rail'); renderHudTick(FS.chain?.now?.() ?? 0); },
   'mile-close': () => closeMilestone(),
   'sel-clear': () => { FS.selected = null; invalidate('map', 'panel'); },
+  dial: () => { FS.dialOpen = !FS.dialOpen; closeTermPop(); renderDialPop(); if (FS.dialOpen) $('dial-pop')?.querySelector('button')?.focus?.({ preventScroll: true }); },
+  'dial-close': () => closeDialPop({ focus: true }),
   term: d => { FS.term = FS.term === d.term || !glossary.TERMS[d.term] ? null : d.term; renderTermPop(); $('term-pop')?.querySelector('button')?.focus?.(); },
   'term-close': () => closeTermPop(),
   'glossary-open': () => { closeTermPop(); leaveReport(); if (FS.mode === 'play') FS.tab = 'more'; invalidate('panel', 'tabs'); requestAnimationFrame(() => { const g = $('glossary'); const d = g?.closest?.('details'); if (d) d.open = true; (d ?? g)?.scrollIntoView?.({ block: 'start' }); }); },
@@ -1881,6 +1913,7 @@ function delegate(doc) {
   // a press elsewhere puts small things away: the phone's list of lenses; on a phone the leader's line (its first touch)
   doc.addEventListener('pointerdown', e => {
     if ($('lenses')?.dataset.open === 'true' && !e.target?.closest?.('#lenses')) setLensMenu(false);
+    if (FS.dialOpen && !e.target?.closest?.('#dial-pop, #bell-pill')) closeDialPop();
     if (phone() && mileTimer && Date.now() - mileAt > 350 && !e.target?.closest?.('#mile-banner')) closeMilestone();
   }, true);
   doc.addEventListener('keydown', e => {
@@ -1888,6 +1921,7 @@ function delegate(doc) {
     const intro = $('intro');
     if (intro && !intro.hidden && (e.key === 'Escape' || e.key === 'Enter')) { e.preventDefault(); closeIntro(); return; }
     if (e.key === 'Escape' && FS.resOpen) { e.preventDefault(); closeResPop(); return; }
+    if (e.key === 'Escape' && FS.dialOpen) { e.preventDefault(); closeDialPop({ focus: true }); return; }
     if (e.key === 'Escape' && FS.term) { e.preventDefault(); closeTermPop(); return; }
     if (e.key === 'Escape' && $('map-search') && !$('map-search').hidden && e.target?.closest?.('.search-row')) { e.preventDefault(); setSearch(false); return; }
     // Escape on the map lets the selection go (the lit tiles with it); a march being composed is closed from its card
