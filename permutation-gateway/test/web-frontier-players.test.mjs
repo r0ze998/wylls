@@ -441,3 +441,13 @@ test('one function draws a host\'s figure on the board, in the set pieces and in
   const readme = readFileSync(new URL('people/README.md', WEB), 'utf8');
   assert.match(readme, /## Host art/); assert.match(readme, /paintMini/); assert.match(readme, /MINI_ANCHOR/);
 });
+
+test('the card of the turn\'s own results is headed by the viewer\'s own face; the bell where the nation is not known', async () => {
+  const feed = await import('../../permutation-server/web/frontier/hud/feed.mjs');
+  setLang('ja');
+  const strip = { turn: 43, items: [{ id: 'a', kind: 'arrival', p: 2, q: 0, tile: 7, text: 'x' }] };
+  const mine = flat(feed.renderTurnStrip(strip, { faction: 3 }));
+  assert.match(mine, /<div class="toast turn-strip" role="status">\s*<span class="toast-face"><svg [^>]*width="34" height="34" class="leader leader-hex leader-own" data-leader="dunmar" data-own="1"/);
+  assert.doesNotMatch(mine, /class="toast-icon"/);
+  assert.match(flat(feed.renderTurnStrip(strip)), /<span class="toast-icon"><svg[^>]*><use href="art\/ui\/icons\.svg#bell"\/><\/svg><\/span>/);
+});
