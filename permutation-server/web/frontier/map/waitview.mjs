@@ -330,9 +330,11 @@ export function paintSiteMarks(g, from, sites, { zoom = 1, lines = 5 } = {}) {
  * The spot beside the standard that the wait view keeps clear for the player's character (UX brief §13.2, §13.6): to
  * the left of the pole (the cloth flies to the right), feet on the ground a little in front of the standard's foot.
  * `x`, `y`: where the feet stand, as shares of the standard's height unit from its foot; `tall`, `wide`: the room
- * kept, in the same unit (the pole is 1.5 units tall: a figure of `tall` reaches four fifths of the way up it).
+ * kept, in the same unit (the pole is 1.5 units tall; since 2026-10-10 the character is as tall against this standard
+ * as beside its village's, four fifths of the pole, and stands on a ring a little up the room: people/onboard.mjs
+ * STANDARD_SHARE, WAIT_LIFT. The room holds its head, its body's width and its ring: a test holds the two together).
  */
-export const WAIT_SPOT = Object.freeze({ x: -0.5, y: 0.05, tall: 1.2, wide: 0.72 });
+export const WAIT_SPOT = Object.freeze({ x: -0.7, y: 0.05, tall: 1.48, wide: 1.12 });
 /** The spot for a standard whose foot is at `at` (world px) at `zoom`: `{x, y}` the feet, `u` the unit, `box` the room kept (world px). */
 export function waitSpotAt(at, zoom) {
   const u = waitUnit(zoom), x = at.x + WAIT_SPOT.x * u, y = at.y + WAIT_SPOT.y * u;

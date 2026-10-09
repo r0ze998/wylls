@@ -33,6 +33,7 @@ import { activitiesFor } from '../people/activity.mjs';
 import { lifeAt } from '../people/life.mjs';
 import { paintBattle, battleTiles } from '../people/battle.mjs';
 import { provinceTokens, paintToken } from '../people/units.mjs';
+import { characterCell } from '../people/onboard.mjs';
 import { onMiniLoad, MINI_ANCHOR, MINI_CELL_U } from '../people/minis.mjs';
 import { paintMoments } from '../people/moments.mjs';
 // (the effects engine's ground pass comes through the map's `between` hook: fx/index.mjs startFx)
@@ -304,6 +305,8 @@ const SLOT_ANG = [270, 210, 330, 150, 30, 90].map((d) => (d * Math.PI) / 180);
 const SLOT_R = 0.46;
 /** Below this on-screen tile radius hosts are chips, not figures (LOD.md, tile S). */
 export const HOST_FIGURE_MIN_R = 35;
+/** A player's character beside its village is drawn down to this on-screen tile radius (the viewer's own is some 1.7 radii tall: 34 px there, where a host's figure would be 13; another player's, drawn in proportion to its smaller village, from the radius at which it is as tall). */
+export const CHARACTER_FIGURE_MIN_R = 20;
 /** Stance by its plaintext byte (0..3, rules stance.rs); fates 3 bounced, 4 retreated, 5 destroyed read as disarray. */
 export const ART_STANCES = Object.freeze(['hold', 'assault', 'flank', 'brace']);
 const BROKEN_FATES = new Set([3, 4, 5]);
@@ -1334,6 +1337,9 @@ export class SpriteArt {
     }
     // (the survey is in the ground and the sprites already: muted land, the chart and their edge; nothing veils the frame)
     // a tile whose battle is playing shows the scene's figures, not the hosts' sprites (UI plan D4)
+    // ground a player's character can stand on beside its village (people/onboard.mjs characterSpot): painted land
+    // the viewer has surveyed, with no water, wood or mountain, nothing built or camped on it, and not the Concord
+    const openGround = (hq, hr) => { const u = byHex.get(keyOf(hq, hr)); return !!u && !u.cloud && u.lv >= L2 && LOW_PROPS.has(u.name) && u.name !== 'water' && u.site === undefined && !u.camp && !(u.centre && u.ring <= 1) && u.ring !== 0; };
     const fightingAt = battleTiles((people?.battles ?? []).filter(shown), (globalThis.performance?.now?.() ?? Date.now()) / 1000);
     for (const e of entries) {
       if (!e.prov?.entries || e.fog === 'unopened') continue;
@@ -1383,14 +1389,17 @@ export class SpriteArt {
       const skip = new Set([...fightingAt].filter(k => k.startsWith(`${e.p},${e.q},`)).map(k => Number(k.split(',')[2])));
       // (on the viewer's own village the hosts stand in front of the houses, not on them: map/plates.mjs HERO)
       const heroTiles = new Set((byProv.get(`${e.p},${e.q}`) ?? []).filter(u => u.hero).map(u => u.idx));
-      for (const tok of provinceTokens({ p: e.p, q: e.q, hosts: all, holdingTiles, heroTiles, heroSpots: HERO.hosts, viewerFaction, exploring: people?.exploringHosts ?? new Set(), marching: people?.marchingHosts ?? new Set(), restBelow: people?.restBelow ?? 0, skipTiles: skip })) {
+      for (const tok of provinceTokens({ p: e.p, q: e.q, hosts: all, holdingTiles, heroTiles, heroSpots: HERO.hosts, viewerFaction, exploring: people?.exploringHosts ?? new Set(), marching: people?.marchingHosts ?? new Set(), restBelow: people?.restBelow ?? 0, skipTiles: skip, unit: 0.66 * zoomBoost(RADIUS * zoom), open: openGround, ownHosts })) {
         // the gold ring is the viewer's own hosts, never a whole nation's (gold means "yours": UX brief §5.3)
         if (limited) tok.own = (tok.hosts ?? []).some(id => ownHosts.has(String(id)));
         tokens.push(tok);
       }
     }
     tokens.sort((a, b) => a.y - b.y || a.x - b.x);
-    if (RADIUS * zoom >= HOST_FIGURE_MIN_R) {
+    // (hosts are figures from HOST_FIGURE_MIN_R; a player's character is larger and still reads further out, down
+    // to CHARACTER_FIGURE_MIN_R: a phone's selection framing shows it beside its village while the hosts are chips)
+    const figures = RADIUS * zoom >= HOST_FIGURE_MIN_R;
+    if (figures || (RADIUS * zoom >= CHARACTER_FIGURE_MIN_R && tokens.some(tok => tok.character))) {
       const t = (globalThis.performance?.now?.() ?? Date.now()) / 1000;
       const size = RADIUS * 0.66 * zoomBoost(RADIUS * zoom);
       // a host stands in the scene: a mountain, a wood or a town on a tile in front of it covers it. The figure
@@ -1398,14 +1407,17 @@ export class SpriteArt {
       const m = ctx.getTransform?.() ?? null, sc = m && m.a > 0 ? this.scratch ??= spare(8, 8) : null, sg = sc?.getContext?.('2d') ?? null;
       const tall = (u) => !!u && !u.cloud && (TALL.has(u.name) || u.camp || (u.site !== undefined && u.state !== undefined && u.state !== 0) || (u.centre && u.ring <= 1));
       for (const tok of tokens) {
-        const h = tileHex(tok.p, tok.q, tok.tile);
+        if (!figures && !(tok.character && RADIUS * zoom * (tok.character.share ?? 1) >= CHARACTER_FIGURE_MIN_R)) continue;
+        // (a player's character stands beside its village, often on the tile next door: what is in front of it is in front of THAT hex)
+        const h = tok.hex ?? tileHex(tok.p, tok.q, tok.tile);
         // in front: the two tiles below (lower left, lower right); the Engine and a Seat reach further up
         const front = h ? [byHex.get(keyOf(h.q - 1, h.r + 1)), byHex.get(keyOf(h.q, h.r + 1)), byHex.get(keyOf(h.q - 1, h.r + 2))].filter((u, i) => tall(u) && (i < 2 || u.centre)) : [];
-        if (!front.length || !sg) { paintToken(ctx, tok, { s: size, k: 1 / zoom, t, label: false, up }); pills.push({ tok, s: size }); continue; }
+        if (!front.length || !sg) { paintToken(ctx, tok, { s: size, k: 1 / zoom, t, label: false, up }); if (!tok.character) pills.push({ tok, s: size }); continue; }
         // the scratch holds the miniature's whole cell (its cast shadow too) and the lunge of a fight
         // (a figure that stands upright on the tilted board is drawn taller and leaning in the plane: room for that)
-        const cw = size * MINI_CELL_U, pad = size * 0.2 + (up ? cw * 0.34 : 0);
-        const x0 = Math.floor((tok.x - cw * MINI_ANCHOR[0] - pad) * m.a + m.e), y0 = Math.floor((tok.y - cw * MINI_ANCHOR[1] - pad) * m.d + m.f);
+        // (a character's picture is larger than a host's: its own cell and anchor)
+        const box = tok.character ? characterCell(tok.character.share ?? 1) : null, cw = box ? box.cell : size * MINI_CELL_U, ax = box ? box.ax : MINI_ANCHOR[0], ay = box ? box.ay : MINI_ANCHOR[1], pad = size * 0.2 + (up ? cw * 0.34 : 0);
+        const x0 = Math.floor((tok.x - cw * ax - pad) * m.a + m.e), y0 = Math.floor((tok.y - cw * ay - pad) * m.d + m.f);
         const w = Math.ceil((cw + pad * 2) * m.a) + 2, hgt = Math.ceil((cw + pad * 2) * m.d) + 2;
         if (sc.width < w || sc.height < hgt) { sc.width = Math.max(sc.width, w); sc.height = Math.max(sc.height, hgt); }
         sg.setTransform(1, 0, 0, 1, 0, 0); sg.globalCompositeOperation = 'source-over'; sg.clearRect(0, 0, sc.width, sc.height);
@@ -1414,9 +1426,9 @@ export class SpriteArt {
         sg.globalCompositeOperation = 'destination-out';
         g = sg; for (const u of front) propsOf(u); g = ctx;
         ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(sc, 0, 0, w, hgt, x0, y0, w, hgt); ctx.restore();
-        pills.push({ tok, s: size });
+        if (!tok.character) pills.push({ tok, s: size });
       }
-      if (tokens.length) this.tokensMoving = true;
+      if (figures ? tokens.length : tokens.some(tok => tok.character)) this.tokensMoving = true;
     }
     // pass 2c: people (people/crowds.mjs): townsfolk, carriers, departing columns at their origin, scouts
     // what every tile is doing (people/activity.mjs); kept for the page's hover tip
