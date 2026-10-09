@@ -1810,3 +1810,17 @@ body[data-kind="wait"] .plate .plate-go[data-act="join-open"] { display: none; }
   /* the nation choice pulled down to its peek: the line that says what to do, whole (its heading's words were half under the bar) */
   .panel[data-sheet="peek"][data-kind="nation"] .nations-head { display: none; }
 }
+/* ---- the map's search: its results are a bell-metal list like every other piece over the map (they were a white card), and
+   the field's clear mark is drawn in the HUD's ink (the browser's own was blue) ---- */
+.search-results { padding: 4px; border: 1px solid var(--brass-lo); background: var(--tex-metal, none), var(--plate-bg); box-shadow: var(--shadow), var(--plate-edge); }
+.search-hit { min-height: 36px; border-radius: 7px; color: var(--hud-ink); }
+.search-hit:hover, .search-hit:focus-visible { background: rgba(240,212,138,.12); color: var(--ivory); }
+.search-none { color: var(--hud-ink-2); }
+.map-search input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; margin: 0 0 0 6px; cursor: pointer; opacity: .9;
+  background: linear-gradient(45deg, transparent 45%, var(--hud-ink) 45% 55%, transparent 55%), linear-gradient(-45deg, transparent 45%, var(--hud-ink) 45% 55%, transparent 55%); }
+@media (max-width: 759px) {
+  /* a phone's search field opens on the second row, beside the layers key: on the first it lay under the dial and over the world-chart key; the map's keys at the right wait while it is open */
+  .map-search { top: calc(var(--target) + 6px); }
+  body:has(#search-btn[aria-expanded="true"]) .map-tools { visibility: hidden; }
+  .search-hit { min-height: var(--target); }
+}

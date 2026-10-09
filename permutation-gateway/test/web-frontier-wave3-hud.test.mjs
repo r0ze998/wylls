@@ -226,3 +226,11 @@ test('a phone\'s refusal notice: the retry on the first row, the words on the fu
   const drawer = readFileSync(new URL('hud/drawer.mjs', WEB), 'utf8');
   assert.match(drawer, /:scope \.mc-dest > \*'\)/);
 });
+
+test('the map\'s search: results on bell metal, the clear mark in the HUD\'s ink, a phone\'s field clear of the dial', () => {
+  const css = readFileSync(new URL('frontier.css', WEB), 'utf8');
+  const last = css.slice(css.lastIndexOf('\n.search-results {'));
+  assert.match(last, /^\n\.search-results \{[^}]*background: var\(--tex-metal, none\), var\(--plate-bg\);/);
+  assert.match(css, /\.map-search input::-webkit-search-cancel-button \{ -webkit-appearance: none;/);
+  assert.match(css, /\.map-search \{ top: calc\(var\(--target\) \+ 6px\); \}\s*body:has\(#search-btn\[aria-expanded="true"\]\) \.map-tools \{ visibility: hidden; \}/);
+});
