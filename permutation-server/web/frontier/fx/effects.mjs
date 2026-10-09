@@ -369,6 +369,9 @@ function tag(a, env) {
       const ex = Math.min(at.x + box.w / 2 - 6, Math.max(at.x - box.w / 2 + 6, A.x)), ey = Math.min(at.y + box.h / 2, Math.max(at.y - box.h / 2, A.y));
       const len = Math.hypot(ex - A.x, ey - A.y), ang = Math.atan2(ey - A.y, ex - A.x);
       const st = s.stage, off = A.x < st.left - 24 || A.x > st.left + st.width + 24 || A.y < st.top - 24 || A.y > st.top + st.height + 24;
+      // (not on the map on screen: the tag takes no place on the page at all, so its leader never reaches past the screen's edge)
+      if (el.hidden !== off) el.hidden = off;
+      if (off) { setVars(el, { '--fx-o': '0.000' }); return; }
       let o, lead = 1, pop = 1;
       if (full) {
         const out = span(t, dur - 0.22, dur);

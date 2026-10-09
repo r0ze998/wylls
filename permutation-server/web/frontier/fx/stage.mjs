@@ -323,9 +323,9 @@ export function playMoment(fx, m, { bus = defaultBus } = {}) {
  * Land comes out of the chart (map/survey.mjs `reveals`: hexKey → the effects-clock ms its dissolve starts;
  * the map dissolves each tile from chart to paint, map/chart.mjs paintReveal). Here the survey is felt: the
  * chart's ink lifts off each tile as its paint comes, a pale line runs outward ahead of it, a few glints,
- * and one caption counts what was surveyed. `{tiles: [{q, r, at (seconds from now)}]}`.
+ * and one caption counts what was surveyed. `{tiles: [{q, r, at (seconds from now)}], caption}`.
  */
-export function playReveal(fx, { tiles = [], seed = 'reveal' } = {}) {
+export function playReveal(fx, { tiles = [], seed = 'reveal', caption = true } = {}) {
   const list = tiles.filter(t => Number.isInteger(t.q) && Number.isInteger(t.r));
   fx.sound('shimmer', { seed });
   if (!list.length) return;
@@ -337,8 +337,9 @@ export function playReveal(fx, { tiles = [], seed = 'reveal' } = {}) {
     fx.play('burst', { q: t.q, r: t.r, kind: 'ink', n: 3, radius: 0.45, power: 1.2, life: 0.7, size: 0.55, delay: d, seed: sd });
     fx.play('burst', { q: t.q, r: t.r, kind: 'spark', n: 2, height: 0.25, power: 0.35, up: 0.6, size: 0.8, delay: d + 0.35, seed: `${sd}|g`, colors: ['#fffaf0', '#f4e4b4'] });
   }
-  // one caption for the whole survey, over the tile nearest its middle
-  if (list.length >= 3) {
+  // one caption for the whole survey, over the tile nearest its middle (`caption` false: land that only came into
+  // the picture, such as the candidate sites of the wait, is not called a survey)
+  if (caption && list.length >= 3) {
     const cq = list.reduce((a, t) => a + t.q, 0) / list.length, cr = list.reduce((a, t) => a + t.r, 0) / list.length;
     const mid = list.reduce((a, b) => (Math.hypot(b.q - cq, b.r - cr) < Math.hypot(a.q - cq, a.r - cr) ? b : a));
     const last = list.reduce((a, t) => Math.max(a, t.at), 0);
@@ -403,7 +404,7 @@ export function installStage(fx, { bus = defaultBus } = {}) {
         for (const t0 of reveals?.values?.() ?? []) revealSeen = Math.max(revealSeen, t0);
       } catch { tiles = []; }
     }
-    playReveal(fx, { tiles, seed: `reveal|${a.n ?? tiles.length}|${Math.round(fx.clock.now() * 10)}` });
+    playReveal(fx, { tiles, caption: a.words !== false, seed: `reveal|${a.n ?? tiles.length}|${Math.round(fx.clock.now() * 10)}` });
   });
 
   // ---- battles

@@ -456,7 +456,9 @@ function surveyNow() {
   // land that comes out of the chart now is told once on the effects bus (a shimmer: fx/stage.mjs)
   let newest = -Infinity;
   for (const t0 of FS.survey.reveals?.values?.() ?? []) if (t0 > newest) newest = t0;
-  if (newest > revealTold) { revealTold = newest; fxEmit('reveal', { n: FS.survey.reveals.size }); }
+  // (it is called a survey only for a viewer whose people see land: a village's or a host's sight, an exploration.
+  // The candidate sites of the wait come into the picture without words: nobody surveyed them)
+  if (newest > revealTold) { revealTold = newest; fxEmit('reveal', { n: FS.survey.reveals.size, words: (FS.holdings ?? []).length > 0 }); }
   return FS.survey;
 }
 /** The face and name of a report row's owner (a host id; holdings' ids give none). */

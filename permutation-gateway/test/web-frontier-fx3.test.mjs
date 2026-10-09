@@ -491,6 +491,8 @@ test('captions are tags (bell metal, the serif, a leader to the tile); words and
       s.fx.play('tag', { x: away.x, y: away.y, text: 'x' });
       s.run(200);
       assert.equal(Number(hudNodes(s, 'fx-tag').at(-1).vars.get('--fx-o')), 0);
+      // (integration of wave 2: and it takes no place on the page: its leader would reach past the screen's edge to the tile)
+      assert.equal(hudNodes(s, 'fx-tag').at(-1).hidden, true);
     } finally { s.done(); }
   }
   assert.equal(POP_SECS, 0.12); assert.equal(POP_FROM, 1.3);
@@ -558,6 +560,11 @@ test('every ordinary action has a demo sample; a muster forms up large beside it
     s.fx.clear();
     playReveal(s.fx, { tiles: tiles.slice(0, 2) });
     assert.equal(s.fx.playing().filter(n => n === 'tag').length, 0, 'a tile or two: no caption');
+    // (integration of wave 2) land that only came into the picture (the candidate sites of the wait) is not called a survey
+    s.fx.clear();
+    playReveal(s.fx, { tiles, caption: false });
+    assert.equal(s.fx.playing().filter(n => n === 'tag').length, 0, 'no words');
+    assert.ok(s.fx.playing().includes('ripple'), 'the land still comes out of the chart');
     // the page's own event: the tiles are read from the map's survey, each reveal once
     s.fx.clear();
     const reveals = new Map([[(12 + 2048) * 4096 + (-5 + 2048), 0], [(13 + 2048) * 4096 + (-5 + 2048), 80], [(14 + 2048) * 4096 + (-5 + 2048), 160]]);
