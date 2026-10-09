@@ -19,7 +19,8 @@
 // changes at once; the picture travels toward it (fly, eased zoom, the glide
 // after a drag) and jumps under reduced motion. The opening view depends on
 // who is looking (map/opening.mjs) and never overrides a camera a person
-// moved. M and the "world chart" button go to the far view and back. The
+// moved; it is a dive from the waiting sheet, one picture from the first
+// frame on (UX brief §13.4: `open`, `draw`). M and the "world chart" button go to the far view and back. The
 // board is tilted (map/tilt.mjs, UX brief §11.1): the ground is painted on
 // `#map-ground` inside the one tilted element `#map-stage`, larger than the
 // map's box so the trapezoid in view is always covered; this canvas lies flat
@@ -40,7 +41,7 @@ import { INERT_CTX, SpriteArt, artSize, farRes, terrainLookup } from './sprites.
 import { paintSheet, paintTable, sheetOf, tableShows } from './table.mjs';
 import { CloudSea, DRIFT_SPEED, SEA_BAKES, seaField, seaRes } from './cloudsea.mjs';
 import { project, RADIUS, FLATTEN } from '../../map.mjs';
-import { Camera, EASE, FAR_CAP, MOVE_MS, ZOOM_GIVE, between, centreReach, clampCentre, fitView, freeBox, reducedMotion } from './camera.mjs';
+import { Camera, EASE, FAR_CAP, MOVE_MS, ZOOM_GIVE, centreReach, clampCentre, fitView, freeBox, reducedMotion } from './camera.mjs';
 import { OPEN_FROM, OPEN_WAIT_MS, heroZoom, lookPoint, openingPlan, placePoint } from './opening.mjs';
 import { nearness, paintDressing } from './dressing.mjs';
 import { PROBE } from './probe.mjs';
