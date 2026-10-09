@@ -1806,3 +1806,7 @@ body[data-kind="wait"] .plate .plate-go[data-act="join-open"] { display: none; }
   .tx-refused .tx-what, .tx-refused .tx-why { grid-column: 1 / -1; }
   .tx-refused .tx-why { font-size: var(--t1); line-height: 1.5; color: var(--hud-ink-2); }
 }
+@media (max-width: 759px) {
+  /* the nation choice pulled down to its peek: the line that says what to do, whole (its heading's words were half under the bar) */
+  .panel[data-sheet="peek"][data-kind="nation"] .nations-head { display: none; }
+}
