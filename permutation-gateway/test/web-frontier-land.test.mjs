@@ -366,44 +366,64 @@ test('the painters draw into any context and write their words through the langu
 });
 
 // ------------------------------------------------------------------ where am I
-test('the pointer home: none while the village is in the picture; else on the line to it, at the edge, with the distance in tiles', () => {
+// Rewritten with UX brief §11.8 (it pinned a round 44-px button standing 40 px inside the edge with a bare number): the
+// pointer is a gold tab flush with the edge of the free part of the picture, where the line to the village leaves it;
+// it says the village's name when it appears and then the distance with its unit.
+test('the pointer home: none while the village is in the picture; else a tab flush with the edge where the line to it leaves, with the distance in tiles', () => {
   const size = { width: 800, height: 600 }, at = project(home.q, home.r);
   assert.equal(PTR.edgePointer({ x: at.x, y: at.y, zoom: 1.3 }, size, at), null, 'home in the middle');
   assert.equal(PTR.edgePointer({ x: at.x + 250, y: at.y, zoom: 1.3 }, size, at), null, 'home still on screen');
-  // home far to the right (east): the pointer sits at the right edge and points right
+  // home far to the right (east): the right edge, pointing right
   const east = PTR.edgePointer({ x: at.x - 2000, y: at.y, zoom: 1 }, size, at);
-  assert.deepEqual([Math.round(east.x), Math.round(east.y), Math.round(east.angle * 100)], [800 - PTR.POINTER_MARGIN, 300, 0]);
-  assert.ok(PTR.POINTER_MARGIN >= 32, 'the arrow\'s head stays inside the map');
+  assert.deepEqual([east.edge, Math.round(east.x), Math.round(east.y), Math.round(east.angle * 100)], ['right', 800, 300, 0], 'flush with the edge');
   const mid = { q: Math.round((at.x - 2000) / (Math.sqrt(3) * RADIUS) - home.r / 2), r: home.r };
   assert.ok(Math.abs(east.tiles - dist(mid, home)) <= 1, `about ${dist(mid, home)} tiles away`);
   assert.ok(east.tiles > 20);
-  // up and to the left: on the line, inside the margin
+  assert.deepEqual(PTR.tabBox(east, { w: 96, h: 44 }), { x: 800 - 96, y: 300 - 22, w: 96, h: 44 });
+  // up and to the left by the same amount of screen: the wider side decides (the top edge of an 800 x 600 picture), and the tab keeps off the corner
   const nw = PTR.edgePointer({ x: at.x + 3000, y: at.y + 3000, zoom: 1 }, size, at);
-  assert.ok(nw.x >= PTR.POINTER_MARGIN - 1e-6 && nw.y >= PTR.POINTER_MARGIN - 1e-6 && nw.x < 400 && nw.y < 300);
-  assert.ok(Math.abs((nw.y - 300) / (nw.x - 400) - 1) < 1e-6, 'on the line from the middle toward home');
+  assert.equal(nw.edge, 'top');
+  assert.ok(nw.y === 0 && nw.x >= PTR.POINTER_MARGIN - 1e-6 && nw.x < 400);
   assert.ok(nw.angle < -Math.PI / 2);
-  // a sheet over the lower part of a phone: the pointer keeps to the part nothing covers
+  assert.deepEqual(PTR.tabBox(nw, { w: 96, h: 44 }).y, 0);
+  assert.ok(PTR.tabBox({ ...nw, x: 10 }, { w: 96, h: 44 }).x === 0, 'never out of the picture along its edge');
+  // a sheet over the lower part of a phone and a strip above: the edges are those of the part nothing covers
   const phone = { width: 390, height: 734 };
-  const below = PTR.edgePointer({ x: at.x, y: at.y - 3000, zoom: 1 }, phone, at, { inset: { bottom: 367 } });
-  assert.ok(below.y <= 734 - 367 - PTR.POINTER_MARGIN + 1e-6, 'above the sheet');
+  const below = PTR.edgePointer({ x: at.x, y: at.y - 3000, zoom: 1 }, phone, at, { inset: { top: 48, bottom: 367 } });
+  assert.deepEqual([below.edge, below.y], ['bottom', 734 - 367], 'on the sheet\'s upper edge');
+  assert.equal(PTR.tabBox(below, { w: 96, h: 44 }).y, 734 - 367 - 44);
+  const above = PTR.edgePointer({ x: at.x, y: at.y + 3000, zoom: 1 }, phone, at, { inset: { top: 48, bottom: 367 } });
+  assert.deepEqual([above.edge, above.y], ['top', 48], 'under the strip');
   assert.equal(PTR.POINTER_SIZE, 44, 'a 44-px target');
+  assert.ok(PTR.POINTER_MIN >= 56, 'about 56 px at least');
   setLang('ja');
   assert.equal(PTR.pointerLabel(12), '自分の村へ移動（12 マス先）');
+  assert.equal(PTR.distanceText(5), '5 マス', 'the distance with its unit');
   setLang('en');
   assert.equal(PTR.pointerLabel(12), 'Go to my village (12 tiles away)');
+  assert.equal(PTR.distanceText(5), '5 tiles');
   setLang('ja');
   assert.equal(PTR.mountHomePointer({ clientWidth: 1, clientHeight: 1 }), null, 'no document: no button, nothing thrown');
   assert.equal(PTR.edgePointer({ x: 0, y: 0, zoom: 1 }, size, null), null);
 });
 
-test('the pointer keeps clear of the map\'s own controls: it moves inward along its line', () => {
-  const place = { x: 760, y: 60, angle: -0.5, tiles: 9, from: { x: 400, y: 300 } };
-  assert.equal(PTR.clearOf(place, []), place);
-  assert.equal(PTR.clearOf(place, [{ x: 0, y: 0, w: 100, h: 100 }]), place, 'nothing in its way');
-  const moved = PTR.clearOf(place, [{ x: 740, y: 0, w: 60, h: 200 }]);
-  assert.ok(moved.x < 740 - 22 - 6 + 8 && moved.x > 500, 'left of the controls');
-  assert.ok(Math.abs((moved.y - 300) / (moved.x - 400) - (60 - 300) / (760 - 400)) < 1e-6, 'still on its line');
-  assert.deepEqual([moved.angle, moved.tiles], [-0.5, 9]);
+// Rewritten with UX brief §11.8 (the round pointer moved inward along its line; a tab stays on its edge).
+test('the pointer keeps out of the HUD\'s columns: it slides along its edge, the shortest way, and never leaves the edge', () => {
+  const place = { edge: 'right', x: 800, y: 80, angle: 0, tiles: 9, box: { x0: 0, y0: 48, x1: 800, y1: 600 } };
+  const box = PTR.tabBox(place, { w: 90, h: 44 });
+  assert.equal(PTR.slideClear(place, box, []), box);
+  assert.equal(PTR.slideClear(place, box, [{ x: 0, y: 0, w: 100, h: 100 }]), box, 'nothing in its way');
+  // a column of buttons down the right side from y 40 to 300: the tab goes below it
+  const moved = PTR.slideClear(place, box, [{ x: 744, y: 40, w: 48, h: 260 }]);
+  assert.equal(moved.x, box.x, 'still flush with its edge');
+  assert.ok(moved.y >= 300 + PTR.POINTER_GAP && moved.y < 300 + PTR.POINTER_GAP + 8, `just below the column (${moved.y})`);
+  // a thing in the middle of the top edge (the dial): the tab steps aside
+  const top = { edge: 'top', x: 400, y: 48, angle: -1.5, tiles: 4, box: place.box };
+  const tb = PTR.tabBox(top, { w: 90, h: 44 }), side = PTR.slideClear(top, tb, [{ x: 350, y: 0, w: 100, h: 100 }]);
+  assert.equal(side.y, 48);
+  assert.ok(side.x + 90 <= 350 - PTR.POINTER_GAP + 6 || side.x >= 450 + PTR.POINTER_GAP);
+  // nowhere on the edge is free: it stays where it was
+  assert.equal(PTR.slideClear(place, box, [{ x: 700, y: 0, w: 100, h: 600 }]), box);
 });
 
 test('the far view\'s names never cover each other; a fixed name stays where it is', () => {

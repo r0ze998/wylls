@@ -102,9 +102,10 @@ export const GROUND_FINER = 1.08;
 /**
  * The page's own things over the map that no label may stand under, until the page says them (`map.setNoGo`): the
  * dial and the strip's two sides, the search button and the objective, the to-do lines and the village plate, the
- * minimap with its lens chips, the map's buttons, the dock, the drawer, the objective's chip, the pointer home.
+ * minimap with its lens chips, the map's buttons, the dock, the drawer, the objective's chip. (The pointer home
+ * is the map's own: it keeps clear of these, and the labels keep clear of it.)
  */
-export const NOGO_SELECTORS = '#bell-pill, #bell-pill .dial-top, #topbar .strip-side, #hud-tl > *, #rail > *, #minimap, .map-tools, #tabs, #panel, #ob-map, .home-pointer, .feed > *';
+export const NOGO_SELECTORS = '#bell-pill, #bell-pill .dial-top, #topbar .strip-side, #hud-tl > *, #rail > *, #minimap, .map-tools, #tabs, #panel, #ob-map, .feed > *';
 export const NOGO_EVERY_MS = 300;
 /**
  * The camera eases out to a lit reach: the reach's box takes at most this share of the uncovered picture, keeps
@@ -602,7 +603,8 @@ export class FrontierMap {
   /** The label pass of a frame at zoom `z` (`screen`: the labels stand upright on the flat canvas over the tilted board). */
   labelPass(z, screen = true) {
     const size = this.size(), hidden = this.hiddenLabels;
-    return createLabelPass({ nogo: screen ? this.nogoBoxes() : [], zoom: z, hidden: hidden?.size ? hidden : null, bounds: screen ? { w: size.width, h: size.height } : null,
+    const tab = screen ? this.pointer?.box?.() ?? null : null;
+    return createLabelPass({ nogo: screen ? (tab ? [...this.nogoBoxes(), tab] : this.nogoBoxes()) : [], zoom: z, hidden: hidden?.size ? hidden : null, bounds: screen ? { w: size.width, h: size.height } : null,
       screen: screen ? (x, y) => this.project(x, y, { box: true }) : null });
   }
 
@@ -1608,12 +1610,12 @@ export class FrontierMap {
     }
   }
 
-  /** The edge pointer home (map/homepointer.mjs): shown while the viewer's active village is out of the picture. */
+  /** The pointer home (map/homepointer.mjs): a gold tab on the map's edge while the viewer's active village is out of the picture; put away while a set piece plays. */
   updatePointer(src, view, size, inset) {
     if (!this.pointer) return;
     const own = src ? (src.own ?? []).filter(o => Number.isInteger(o.p) && Number.isInteger(o.q)) : [];
-    const at = own.length && !src.open?.title ? own[Math.min(own.length - 1, Math.max(0, src.open?.active ?? 0))] : null;
-    this.pointer.update(at ? edgePointer(view, size, placePoint(at), { inset, geo: this.geo(view.zoom, size) }) : null);
+    const at = own.length && !src.open?.title && !this.piece ? own[Math.min(own.length - 1, Math.max(0, src.open?.active ?? 0))] : null;
+    this.pointer.update(at ? edgePointer(view, size, placePoint(at), { inset, geo: this.geo(view.zoom, size) }) : null, { name: at?.name ?? '', avoid: at ? this.nogoBoxes() : [] });
   }
 
   /**

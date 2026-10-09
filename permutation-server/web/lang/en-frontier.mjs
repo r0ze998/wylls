@@ -442,6 +442,7 @@ export default {
   '仮': 'Provisional',
   // the land, the lit tiles, where am I (UX brief §5: map/ownland.mjs, map/actions.mjs, map/homepointer.mjs, map/names.mjs)
   '自分の村へ移動（{0} マス先）': 'Go to my village ({0} tiles away)',
+  '{0} マス': '{0} tiles',
   'ここへは届きません': 'Out of reach from here',
   '遠すぎます（{0}歩まで）': 'Too far (at most {0} steps)',
   'まだひらいていない土地です': 'This land is not open yet',
