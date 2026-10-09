@@ -122,8 +122,14 @@ test('the village plate, the to-do lines behind their count, and the one next th
   assert.match(two, /data-act="holding-go" data-i="1" aria-current="true"/);
   assert.match(two, /もう一度押すと次の村/);
   // before a village: where the viewer stands, and the way into the join flow
-  const none = String(hud.renderPlate({ mode: 'play', citizen: null, holdings: [] }));
+  // (rewritten with wave 3, UX design 12.3: the plate says "not joined" only once the viewer's record has answered so;
+  // until then it says that the record is being read and offers no key)
+  const none = String(hud.renderPlate({ mode: 'play', citizen: null, holdings: [], playReady: true }));
   assert.match(none, /まだ国に加わっていません/);
+  const asking = String(hud.renderPlate({ mode: 'play', citizen: null, holdings: [] }));
+  assert.match(asking, /class="plate plate-load" role="status"/);
+  assert.match(asking, /記録を読み込んでいます…/);
+  assert.doesNotMatch(asking, /<button|国を選ぶ|加わっていません/, 'no state of the game and no key before the answer');
   assert.match(none, /data-act="join-open">国を選ぶ</);
   const wait = [hud.renderPlate({ mode: 'play', citizen: { faction: 2 }, holdings: [], land: { stage: 'ticket' } })].flat(Infinity).map(String).join('');
   assert.match(wait, /村の申し込みは済んでいます/);

@@ -5,6 +5,14 @@
 import { plural } from './helpers.mjs';
 
 export default {
+  // ---- wave 3, the HUD's finish (UX design section 12, items 3, 5 and 6): the plate while the viewer's record is
+  // being read, the wait for the village, the last words. (Kept at the head of the file: other tracks add at its foot.)
+  '記録を読み込んでいます…': 'Reading the record…',
+  '記録をまだ読み込めていません': 'Your record has not loaded yet',
+  '通信の状態を確かめてください。読み込み直すと、もう一度試します。': 'Check your connection. Reloading tries again.',
+  '読み込み直す': 'Reload',
+  // ---- (end of the wave 3 block)
+
   // ---- pages and shell
   '練習モード — Wylls': 'Practice mode — Wylls',
   '観戦 — Wylls': 'Spectate — Wylls',

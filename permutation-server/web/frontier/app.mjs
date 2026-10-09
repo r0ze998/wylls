@@ -37,7 +37,7 @@ import { html, setHtml } from '../util.mjs';
 import { ACTIONS, FORMS, bind, startPlay, wantProvince } from './controller.mjs';
 import { renderTabs, factionChip, quotaChip, mountSheet, PHONE_MAX, row, lamports } from './screens/shell.mjs';
 import { cardHead, fold, label } from './screens/parts.mjs';
-import { drawerOf, closeDrawer, drawerTitle, holdsLand, LIFTS, DRAWER_ICON, WIDE, STAGE, settleRows } from './hud/drawer.mjs';
+import { drawerOf, closeDrawer, drawerTitle, holdsLand, viewerState, LIFTS, DRAWER_ICON, WIDE, STAGE, settleRows } from './hud/drawer.mjs';
 import { icon, iconizeMapTools } from './hud/icons.mjs';
 import { hudInsets, noGoRects } from './hud/insets.mjs';
 import { mountTextures } from './hud/textures.mjs';
@@ -433,6 +433,8 @@ function renderDrawer(markupOf) {
 }
 
 function renderPlay() {
+  // (the stage mark of the page follows the same answer as the plate, in the same render: never a village's plate over a waiting dock)
+  renderChips();
   const d = renderDrawer(dd => panelMarkup(FS, dd));
   const tabs = $('tabs');
   // what the map itself opens (a selection, an order, the guide, the join flow) leaves "Map" current; a report or a run, none
@@ -1478,7 +1480,7 @@ function renderIntro() {
   const el = $('intro');
   if (!el || el.hidden) return;
   // the button says where it leads once the viewer's stage is known (intro/title.mjs ctaText)
-  const stage = FS.mode === 'play' && FS.playReady ? FS.land?.stage ?? 'none' : null;
+  const stage = FS.mode === 'play' && FS.playReady && viewerState(FS) === 'known' ? FS.land?.stage ?? 'none' : null;
   setHtmlIfChanged(el, title.render({ mode: FS.mode, live: introLive(), stage }));
   // the scene's picture (intro/scene.mjs) is painted into the markup's canvas while the title stands (a new canvas when the words changed)
   const cv = el.querySelector('.intro-scene');
@@ -1713,6 +1715,8 @@ export const HUD_ACTIONS = {
   'sel-clear': () => { FS.selected = null; invalidate('map', 'panel'); },
   dial: () => { FS.dialOpen = !FS.dialOpen; closeTermPop(); renderDialPop(); if (FS.dialOpen) $('dial-pop')?.querySelector('button')?.focus?.({ preventScroll: true }); },
   'dial-close': () => closeDialPop({ focus: true }),
+  // the plate's one key while the viewer's record cannot be read (hud/hud.mjs renderPlate): the page again, from the start
+  reload: () => globalThis.location?.reload?.(),
   term: d => { FS.term = FS.term === d.term || !glossary.TERMS[d.term] ? null : d.term; renderTermPop(); $('term-pop')?.querySelector('button')?.focus?.(); },
   'term-close': () => closeTermPop(),
   // the legend of the map (map/legend.mjs), from the "?" beside the lenses: the More sheet opens on it
@@ -1756,7 +1760,8 @@ function renderChips() {
   const qc = quotaChip(FS.quota);
   if (q) { q.hidden = !qc || !(Number(FS.quota?.left) <= QUOTA_LOW); q.textContent = qc ?? ''; }
   // the viewer's stage, for the stylesheet (what has no use before joining is not shown)
-  const body = globalThis.document?.body, stage = FS.mode === 'play' ? FS.land?.stage ?? 'none' : '';
+  // (`loading` until the viewer's record has answered: nothing that depends on the answer is offered, UX design 12.3)
+  const body = globalThis.document?.body, stage = FS.mode === 'play' ? (viewerState(FS) === 'known' ? FS.land?.stage ?? 'none' : 'loading') : '';
   if (body?.dataset && body.dataset.stage !== stage) body.dataset.stage = stage;
 }
 
@@ -2222,7 +2227,7 @@ export async function boot() {
       map.setView({ x: c.x, y: c.y, zoom: Number.isFinite(az) && az > 0 ? Math.min(az, 2.5) : 0.8 });
     }
   }
-  invalidate('chip', 'status', 'panel');
+  invalidate('chip', 'status', 'panel', 'chips');
   if (title.shouldOpen({ storage: globalThis.localStorage, search: globalThis.location?.search ?? '' })) openIntro();
   if (await loadSeason(herald)) {
     await loadOverviews(herald);
@@ -2231,7 +2236,7 @@ export async function boot() {
     if (FS.mode === 'spectate') startSpectate(herald);
     if (FS.mode === 'play') {
       // the first answer about the viewer decides whether the join flow opens by itself (hud/drawer.mjs) and where the map opens (map/opening.mjs)
-      startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).then(() => { FS.playReady = true; invalidate('panel', 'tabs', 'rail'); }).finally(() => { viewerKnown = true; map?.invalidate(); });
+      startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).then(() => { FS.playReady = true; FS.viewerMissed = !!FS.wallet && !FS.land; invalidate('panel', 'tabs', 'rail', 'chips'); }).finally(() => { viewerKnown = true; map?.invalidate(); });
       // the drawer starts closed: the tab of the last visit is not reopened over the map
       FS.tab = 'map';
     }

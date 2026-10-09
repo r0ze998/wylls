@@ -19,10 +19,27 @@ import { L } from '../../lang.mjs';
 export const holdsLand = FS => ['provisional', 'final'].includes(FS.land?.stage);
 
 /**
- * The join flow is open by itself until a village exists (after the first refresh; never for a spectator),
- * and never while the title scene stands (`FS.titleUp`: nothing of the game opens behind it).
+ * What the page knows about who is looking (UX design 12.3: no false state at load). `known`: the viewer's
+ * record has answered (a village, a request, a nation, or truly nothing), or there is nobody to ask about (no
+ * wallet on this device); `pending`: the page is still asking; `unreachable`: it asked and got no answer (the
+ * season's record did not come, or the first look at the viewer's record failed: `FS.viewerMissed`, set once by
+ * app.mjs when play starts). Until it is `known` the HUD says that it is reading the record and offers nothing
+ * that depends on the answer: never "not joined" with a join button for a player who has a village.
  */
-export const joinOpen = FS => !!FS.playReady && !holdsLand(FS) && !FS.joinShut && !FS.titleUp;
+export function viewerState(FS) {
+  if ((FS.mode ?? 'play') !== 'play') return 'known';
+  if (FS.land || FS.citizen || (FS.holdings ?? []).length) return 'known';
+  if (!FS.playReady) return FS.error && !FS.record ? 'unreachable' : 'pending';
+  return FS.viewerMissed ? 'unreachable' : 'known';
+}
+export const viewerKnown = FS => viewerState(FS) === 'known';
+
+/**
+ * The join flow is open by itself until a village exists (after the first refresh, and only once the viewer's
+ * record has answered; never for a spectator), and never while the title scene stands (`FS.titleUp`: nothing
+ * of the game opens behind it).
+ */
+export const joinOpen = FS => !!FS.playReady && viewerKnown(FS) && !holdsLand(FS) && !FS.joinShut && !FS.titleUp;
 
 /** What the drawer shows: `{kind}` or null when it is closed. */
 export function drawerOf(FS) {
