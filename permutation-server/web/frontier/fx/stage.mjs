@@ -109,7 +109,12 @@ export function playBusy(fx, a) {
     const points = routePoints(a.route, from && to ? { from, to } : null);
     if (points.length > 1) { handles.push(...fx.play('route', { points, color: fill(a.faction), seed })); a.points = points; }
   }
-  if (at) handles.push(...fx.play('pending', { ...at, seed }));
+  if (at) {
+    // a ring turns round the tile, and a small tag over it says what is happening, on the map (the HUD's chip stands
+    // across the screen; the second review: "a small ring plus a chip 650 px away")
+    handles.push(...fx.play('pending', { ...at, radius: a.radius ?? 1.45, seed }));
+    handles.push(...fx.play('tag', { ...at, text: L`送信中…`, icon: 'hourglass', tone: 'brass', lift: 3.05, dur: 75, seed }));
+  }
   return handles;
 }
 /** It left this browser. */
@@ -135,10 +140,12 @@ export function playRefused(fx, a) {
   fx.sound('refuse', { seed });
   if (!at) return;
   fx.play('pulse', { ...at, color: TONE.ember, seed });
-  fx.play('mark', { ...at, kind: 'no', color: TONE.ember, delay: 0.05, seed });
+  // an ember ring with a bar on a chip of bell metal, beside the village (its plate stays: the mark is not in its
+  // place), and the word for it on a tag
+  fx.play('mark', { ...at, kind: 'no', color: TONE.ember, delay: 0.05, size: 19, lift: 0.5, side: 1.7, seed });
+  fx.play('tag', { ...at, text: L`送られていません`, icon: 'alert', tone: 'ember', lift: 3.05, dur: 2.2, delay: 0.1, seed });
   fx.play('pip', { ...at, color: TONE.ember, seed });
   fx.shake(2.5, 130, { seed });
-  fx.hush(at, 1.6);
 }
 
 /**

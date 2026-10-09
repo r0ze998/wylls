@@ -42,7 +42,11 @@ export const BATTLE_ZOOM = 2.1;
 export const TITLE_ROOM = Object.freeze({ wide: 128, narrow: 96 });
 
 /** The dust a nation's line kicks up: earth with its colour in it (never grey). */
-export const dustColors = col => [hexMix(col.light, '#e4d3ab', 0.3), hexMix(col.fill, '#d6c296', 0.4), hexMix(col.light, '#f1e6c8', 0.55)];
+export const dustColors = col => (col.fill === NEUTRAL_DUST.of ? NEUTRAL_DUST.colors : [hexMix(col.light, '#e4d3ab', 0.3), hexMix(col.fill, '#d6c296', 0.4), hexMix(col.light, '#f1e6c8', 0.55)]);
+/** A camp has no nation's colour: its dust is warm earth (its leather mixed with pale dust read as grey smoke over a dimmed map). */
+const NEUTRAL_DUST = Object.freeze({ of: sideColors(-1).fill, colors: Object.freeze(['#dcb27a', '#b98a4a', '#efd9ae']) });
+/** What the map asks of a thing that stands on its tilted board (map.standAt), for the scene's figures and numbers; null on a flat one. */
+const standOf = () => { const map = globalThis.__wyllsMap; return typeof map?.standAt === 'function' ? (x, y) => map.standAt(x, y) : null; };
 
 /**
  * The stage a focused battle is sized to and where its tile's centre belongs on it (client px): the part of
@@ -294,7 +298,7 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
       if (fights.length) paintDim(ctx, s, stage.cx, stage.cy, stage.s * (layout ? 3.3 : 2.4), (focus ? BATTLE_DIM.focus : BATTLE_DIM.passing) * o);
       ctx.globalAlpha = o;
       if (s.zoom * RADIUS < BATTLE_FAR_R) { for (const T of plan.tiles) if (T.fight) paintFar(ctx, s, T, PHASE.fates + 1, title?.color ?? null); }
-      else paintBattle(ctx, play, { zoom: s.zoom, at: PHASE.fates + 1.5, top: true, fit: battleFit(s.stage?.width ?? s.size.width), layout, place: placer(s), ...texts });
+      else paintBattle(ctx, play, { zoom: s.zoom, at: PHASE.fates + 1.5, top: true, fit: battleFit(s.stage?.width ?? s.size.width), layout, place: placer(s), up: standOf(), ...texts });
     } }));
     keep(fx.piece('battle', { dur: hold, tiles, stage: !!frame }));
     if (title) keep(fx.play('banner', { title: title.title, sub: title.sub, color: title.color, tone: title.tone, vy: titleY, room: frame ? 'stage' : null, dur: Math.min(hold, 2.8), seed: `${id}|title`, mode: level }));
@@ -321,7 +325,7 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
   keep(fx.add({ name: 'battle', layer: 'top', dur, seed: id, draw(ctx, s) {
     const ts = t0 + s.t * speed;
     if (s.zoom * RADIUS < BATTLE_FAR_R) { for (const T of plan.tiles) if (T.fight) paintFar(ctx, s, T, ts, title?.color ?? null); return; }
-    paintBattle(ctx, play, { zoom: s.zoom, at: ts, top: true, fit: battleFit(s.stage?.width ?? s.size.width), layout, place: placer(s), ...texts });
+    paintBattle(ctx, play, { zoom: s.zoom, at: ts, top: true, fit: battleFit(s.stage?.width ?? s.size.width), layout, place: placer(s), up: standOf(), ...texts });
   } }));
   // 3. every contact: sparks in both colours, dust at both lines, the shake, the sound
   for (const T of fights) {

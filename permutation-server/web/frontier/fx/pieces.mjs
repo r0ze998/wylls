@@ -29,7 +29,7 @@ import { battleScale, crossedSwords } from '../people/battle.mjs';
 import { clamp01, lerp, span, inQuad, inCubic, outQuad, outCubic, outExpo, outBack, envelope } from './ease.mjs';
 import { REDUCED_FADE } from './motion.mjs';
 import { TONE, rgba, pointOf, hexPath, groundRing, radial, lighter, viewportPoint, setVars, node } from './effects.mjs';
-import { waxSeal, ribbon, smoothPath, pathAt, roundMark, farPip, standard, isFar, canvasTag } from './draw.mjs';
+import { waxSeal, ribbon, smoothPath, pathAt, roundMark, farPip, standard, isFar, canvasTag, stood } from './draw.mjs';
 import { burn } from './battle.mjs';
 
 const R = RADIUS, TAU = Math.PI * 2;
@@ -37,9 +37,9 @@ const R = RADIUS, TAU = Math.PI * 2;
 export const SEAL_PX = 56;
 
 // ------------------------------------------------------------------ mark: landed / refused
-/** `{…position, kind: 'ok' | 'no', color, size (px radius, default 21), lift (tiles above the tile: default 1.35, the caption's own place over a tile's name)}` */
+/** `{…position, kind: 'ok' | 'no', color, size (px radius, default 21), lift (tiles above the tile: default 1.35, the caption's own place over a tile's name), side (tiles to the right of it: a refusal stands beside a village's plate, not on it)}` */
 function mark(a, env) {
-  const { x, y } = pointOf(a);
+  const at = pointOf(a), x = at.x + (a.side ?? 0) * R, y = at.y;
   const kind = a.kind === 'no' ? 'no' : 'ok', color = a.color ?? (kind === 'no' ? TONE.ember : TONE.you);
   const r = a.size ?? 21, lift = (a.lift ?? 1.35) * R, dur = 1.35;
   const full = env.mode === 'full';
@@ -67,7 +67,8 @@ function pending(a, env) {
   const full = env.mode === 'full';
   return { layer: 'top', dur, draw(ctx, s) {
     const t = s.t, px = s.px, o = span(t, 0, 0.2) * (1 - span(t, dur - 0.3, dur));
-    const rr = R * 0.7, ry = rr * FLATTEN;
+    // (wide enough to stand round a village, not under it: the viewer's own is drawn larger than its tile)
+    const rr = R * (a.radius ?? 1.05), ry = rr * FLATTEN;
     ctx.lineCap = 'round';
     // a dark seat with a faint brass track, so the turning arcs read on any land (the viewer's own colour too)
     ctx.strokeStyle = rgba('#0c1614', 0.62 * o); ctx.lineWidth = 8.5 * px; ctx.beginPath(); ctx.ellipse?.(x, y, rr, ry, 0, 0, TAU); ctx.stroke();
@@ -209,7 +210,8 @@ function sealed(a, env) {
   } };
 }
 
-const figure = (ctx, x, y, s, kind, o) => { if (!paintMini(ctx, x, y, s, kind, o)) { baseDisc(ctx, x, y, s, o.faction, { alpha: o.alpha }); unitFigure(ctx, x, y - s * 0.02, s, kind, o); } };
+const figure = (ctx, x, y, s, kind, o) => stood(ctx, x, y, () => figureFlat(ctx, x, y, s, kind, o));
+const figureFlat = (ctx, x, y, s, kind, o) => { if (!paintMini(ctx, x, y, s, kind, o)) { baseDisc(ctx, x, y, s, o.faction, { alpha: o.alpha }); unitFigure(ctx, x, y - s * 0.02, s, kind, o); } };
 
 /** How long the departing column is on the map (s), and how far along its route it walks (tiles). */
 export const COLUMN_SECS = 2.8;

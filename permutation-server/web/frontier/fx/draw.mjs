@@ -5,8 +5,19 @@
 import { RADIUS } from '../../map.mjs';
 import { clamp01, lerp, span, outCubic, outExpo } from './ease.mjs';
 import { TONE, rgba, SERIF } from './effects.mjs';
+import { standing } from '../map/tilt.mjs';
 
 const TAU = Math.PI * 2;
+/**
+ * Draw something that stands on the board about (x, y): on the map's tilted board it is drawn in the plane so that
+ * the tilt shows it upright and as large as its row (map/tilt.mjs standing, the map's own `standAt`); on a flat
+ * board, or without the map, it simply draws.
+ */
+export function stood(ctx, x, y, draw) {
+  let m = null;
+  try { m = globalThis.__wyllsMap?.standAt?.(x, y) ?? null; } catch { m = null; }
+  return standing(ctx, m, x, y, draw);
+}
 /** Below this many screen px of hex radius a set piece shows its far-view form (a pip, a mark) instead of figures and particles. */
 export const FAR_R = 17;
 export const isFar = s => s.zoom * RADIUS < FAR_R;
@@ -193,7 +204,11 @@ export function ribbon(ctx, path, { k = 1, px = 1, color = TONE.you, level = 1, 
  * brass leader from (ax, ay) to its nearest edge; `px` one screen pixel in the context's units. Returns the
  * plate's half size in the context's units.
  */
-export function canvasTag(ctx, x, y, text, { px = 1, ax = null, ay = null, accent = TONE.brass, alpha = 1 } = {}) {
+export function canvasTag(ctx, x, y, text, opts = {}) {
+  // (it stands upright over its place: words lying in the tilted plane were keystoned and soft)
+  return stood(ctx, opts.ax ?? x, opts.ay ?? y, () => canvasTagFlat(ctx, x, y, text, opts));
+}
+function canvasTagFlat(ctx, x, y, text, { px = 1, ax = null, ay = null, accent = TONE.brass, alpha = 1 } = {}) {
   if (alpha <= 0.01 || !text) return { hw: 0, hh: 0 };
   ctx.save();
   ctx.font = `600 13px ${SERIF}`;
@@ -222,24 +237,35 @@ export function canvasTag(ctx, x, y, text, { px = 1, ax = null, ay = null, accen
   return { hw, hh };
 }
 
-/** A round mark over a tile (screen-sized): a dark disc with a ring in `color` and, drawn on by `k`, a tick ('ok') or a cross ('no'). */
-export function roundMark(ctx, x, y, r, { kind = 'ok', color = TONE.you, k = 1, alpha = 1, scale = 1 } = {}) {
-  if (alpha <= 0.01) return;
+/**
+ * A round mark beside a tile (screen-sized), on a chip of bell metal with a brass hairline: for 'ok' a ring in
+ * `color` and a tick drawn on by `k`; for 'no' an ember ring with a bar through it (the second review: the refusal
+ * was a black disc with a red arc that read as a blob). It stands upright over its place.
+ */
+export function roundMark(ctx, x, y, r, opts = {}) { if ((opts.alpha ?? 1) > 0.01) stood(ctx, x, y, () => roundMarkFlat(ctx, x, y, r, opts)); }
+function roundMarkFlat(ctx, x, y, r, { kind = 'ok', color = TONE.you, k = 1, alpha = 1, scale = 1 } = {}) {
   ctx.save();
   ctx.translate(x, y); ctx.scale(scale, scale);
   ctx.globalAlpha *= alpha;
-  ctx.fillStyle = rgba('#0c1614', 0.9); ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
-  ctx.strokeStyle = color; ctx.lineWidth = r * 0.16; ctx.beginPath(); ctx.arc(0, 0, r * 0.9, -Math.PI / 2, -Math.PI / 2 + TAU * clamp01(k * 1.4)); ctx.stroke();
-  ctx.strokeStyle = TONE.ivory; ctx.lineWidth = r * 0.2; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  // the chip: its shadow, the metal, the hairline
+  ctx.fillStyle = rgba('#040a09', 0.4); ctx.beginPath(); ctx.arc(0, r * 0.12, r * 1.04, 0, TAU); ctx.fill();
+  const metal = ctx.createLinearGradient?.(0, -r, 0, r);
+  if (metal?.addColorStop) { metal.addColorStop(0, '#1d3a33'); metal.addColorStop(0.75, '#10221f'); ctx.fillStyle = metal; } else ctx.fillStyle = '#10221f';
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
+  ctx.strokeStyle = rgba(TONE.brass, 0.95); ctx.lineWidth = Math.max(1, r * 0.06); ctx.stroke();
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   const kk = clamp01((k - 0.25) / 0.75);
   if (kind === 'ok') {
-    const a = [-r * 0.42, r * 0.02], b = [-r * 0.12, r * 0.32], c = [r * 0.44, -r * 0.3];
+    ctx.strokeStyle = color; ctx.lineWidth = r * 0.16; ctx.beginPath(); ctx.arc(0, 0, r * 0.74, -Math.PI / 2, -Math.PI / 2 + TAU * clamp01(k * 1.4)); ctx.stroke();
+    ctx.strokeStyle = TONE.ivory; ctx.lineWidth = r * 0.2;
+    const a = [-r * 0.36, r * 0.02], b = [-r * 0.1, r * 0.28], c = [r * 0.38, -r * 0.26];
     const k1 = clamp01(kk / 0.4), k2 = clamp01((kk - 0.4) / 0.6);
     if (k1 > 0) { ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(lerp(a[0], b[0], k1), lerp(a[1], b[1], k1)); if (k2 > 0) ctx.lineTo(lerp(b[0], c[0], k2), lerp(b[1], c[1], k2)); ctx.stroke(); }
   } else {
-    const d = r * 0.34, k1 = clamp01(kk / 0.5), k2 = clamp01((kk - 0.5) / 0.5);
-    if (k1 > 0) { ctx.beginPath(); ctx.moveTo(-d, -d); ctx.lineTo(lerp(-d, d, k1), lerp(-d, d, k1)); ctx.stroke(); }
-    if (k2 > 0) { ctx.beginPath(); ctx.moveTo(d, -d); ctx.lineTo(lerp(d, -d, k2), lerp(-d, d, k2)); ctx.stroke(); }
+    // the ring, then the bar across it from the upper left to the lower right
+    const rr = r * 0.6;
+    ctx.strokeStyle = '#ff7a5c'; ctx.lineWidth = r * 0.2; ctx.beginPath(); ctx.arc(0, 0, rr, -Math.PI * 0.75, -Math.PI * 0.75 + TAU * clamp01(k * 1.4)); ctx.stroke();
+    if (kk > 0) { const d = rr * 0.707; ctx.beginPath(); ctx.moveTo(-d, -d); ctx.lineTo(lerp(-d, d, kk), lerp(-d, d, kk)); ctx.stroke(); }
   }
   ctx.restore();
 }
@@ -268,7 +294,8 @@ export function farPip(ctx, s, x, y, color, t) {
 }
 
 /** A standard on a pole: a swallow-tail pennon in `fill` with a `dark` edge and a gold finial; `up` 0..1 raises it, `t` waves it. */
-export function standard(ctx, x, y, h, { fill, dark, up = 1, t = 0, px = 1 } = {}) {
+export function standard(ctx, x, y, h, opts = {}) { if ((opts.up ?? 1) > 0) stood(ctx, x, y, () => standardFlat(ctx, x, y, h, opts)); }
+function standardFlat(ctx, x, y, h, { fill, dark, up = 1, t = 0, px = 1 } = {}) {
   if (up <= 0) return;
   const top = y - h * up, wv = Math.sin(t * 5.2) * h * 0.03, wv2 = Math.sin(t * 5.2 + 1.1) * h * 0.045;
   ctx.save();

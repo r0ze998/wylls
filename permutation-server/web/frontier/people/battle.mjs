@@ -40,6 +40,7 @@ import { FACTION_FILL, FACTION_DARK, FACTION_LIGHT, sigilPath } from './avatar.m
 import { baseDisc, unitFigure, UNIT_KINDS } from './units.mjs';
 import { paintMini, miniSheet, miniCell, MINI_CELL_U, MINI_ANCHOR, MINI_SIZES } from './minis.mjs';
 import { clamp01, lerp, span, inQuad, inCubic, outQuad, outCubic, outExpo, outBack, inOutQuad } from '../fx/ease.mjs';
+import { standing } from '../map/tilt.mjs';
 
 export const FATES = Object.freeze(['Stays', 'Withdrew', 'Bounced', 'Retreated', 'Destroyed']);
 export const STANCE_POSE = Object.freeze(['hold', 'assault', 'flank', 'brace']);
@@ -381,7 +382,15 @@ const SANS = 'system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-se
 const rgba = (hex, a) => { const n = parseInt(String(hex).slice(1), 16) || 0; return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${clamp01(a).toFixed(3)})`; };
 
 /** Text with a dark outline, readable on any ground. `px` is its size in world units. */
-function inkText(ctx, text, x, y, px, color, { align = 'center', weight = 800, alpha = 1, scale = 1 } = {}) {
+/**
+ * What stands on the tilted board stands upright (map/tilt.mjs standing): the figures, the holder's standard and
+ * the scene's own numbers. `paintBattle` sets it for one painting (`up(x, y)` of the map, or null on a flat board).
+ */
+let UP = null;
+const upright = (ctx, x, y, draw) => standing(ctx, UP ? UP(x, y) : null, x, y, draw);
+
+function inkText(ctx, text, x, y, px, color, opts = {}) { if (opts.alpha !== undefined && opts.alpha <= 0.01) return; upright(ctx, x, y, () => inkTextFlat(ctx, text, x, y, px, color, opts)); }
+function inkTextFlat(ctx, text, x, y, px, color, { align = 'center', weight = 800, alpha = 1, scale = 1 } = {}) {
   if (alpha <= 0.01 || !text) return;
   ctx.save();
   ctx.translate(x, y); ctx.scale(scale * px / 32, scale * px / 32);
@@ -464,7 +473,8 @@ export function preloadBattle(scene) {
   }
 }
 
-function paintFigure(ctx, f) {
+function paintFigure(ctx, f) { if (f.alpha > 0.02) upright(ctx, f.x, f.y, () => paintFigureFlat(ctx, f)); }
+function paintFigureFlat(ctx, f) {
   if (f.alpha <= 0.02) return;
   ctx.save();
   ctx.translate(f.x, f.y - f.hop);
@@ -582,7 +592,11 @@ function paintContact(ctx, st, u, power, colA, colB, k) {
   ctx.save();
   // the shock running out along the ground
   const kr = u / 0.4, rr = lerp(s * 0.3, s * 1.5 * Math.sqrt(power), outExpo(kr));
-  ctx.strokeStyle = `rgba(239,230,204,${(0.5 * (1 - kr) * (1 - kr)).toFixed(3)})`; ctx.lineWidth = lerp(5, 1, outCubic(kr)) * k;
+  // (in the two sides' colours, the attacker's on its side and the defender's on the other: never a grey ring)
+  const ring = ctx.createLinearGradient?.(feet.x - rr, 0, feet.x + rr, 0), ra = 0.62 * (1 - kr) * (1 - kr);
+  if (ring?.addColorStop) { ring.addColorStop(0, rgba(colA, ra)); ring.addColorStop(0.5, `rgba(255,244,214,${ra.toFixed(3)})`); ring.addColorStop(1, rgba(colB, ra)); ctx.strokeStyle = ring; }
+  else ctx.strokeStyle = `rgba(239,230,204,${ra.toFixed(3)})`;
+  ctx.lineWidth = lerp(5, 1.4, outCubic(kr)) * k;
   ctx.beginPath(); ctx.ellipse?.(feet.x, feet.y, rr, rr * FLATTEN * 0.62, 0, 0, Math.PI * 2); ctx.stroke();
   ctx.globalCompositeOperation = 'lighter';
   const kb = span(u, 0, 0.16);
@@ -614,7 +628,8 @@ function paintContact(ctx, st, u, power, colA, colB, k) {
 }
 
 /** The holder's standard, planted when the fates are known: a pole, a swallow-tail pennon in the nation's colour, a gold finial. */
-function paintStandard(ctx, x, y, s, faction, t, k) {
+function paintStandard(ctx, x, y, s, faction, t, k) { upright(ctx, x, y, () => paintStandardFlat(ctx, x, y, s, faction, t, k)); }
+function paintStandardFlat(ctx, x, y, s, faction, t, k) {
   const up = outBack(span(t, PHASE.fates + 0.55, PHASE.fates + 1.0), 1.6);
   if (up <= 0) return;
   const col = sideColors(faction), top = y - s * 1.75 * up, wv = Math.sin(t * 5.2) * s * 0.05, wv2 = Math.sin(t * 5.2 + 1.1) * s * 0.07;
@@ -808,14 +823,15 @@ function paintTile(ctx, T, e) {
  * nothing and only says whether the scene is still playing. Returns false
  * once it is over.
  */
-export function paintBattle(ctx, play, { zoom = 1, now = wallNow(), at = null, top = false, fit = 1, layout = null, place = null, lossText = n => `−${n}`, fateText = null, numText = n => String(n), nameText = null } = {}) {
+export function paintBattle(ctx, play, { zoom = 1, now = wallNow(), at = null, top = false, fit = 1, layout = null, place = null, lossText = n => `−${n}`, fateText = null, numText = n => String(n), nameText = null, up = null } = {}) {
   if (!play) return false;
   const t = at ?? battleTime(play, now);
   if (t > PHASE.end) return false;
   if (play.staged && !top) return true;
   const plan = battlePlan(play.scene);
   const e = { t, tau: poseTime(t), zoom, k: 1 / Math.max(0.05, zoom), residents: plan.residents, fit, layout, place, lossText, fateText, numText, nameText };
-  for (const T of plan.tiles) paintTile(ctx, T, e);
+  UP = typeof up === 'function' ? up : null;
+  try { for (const T of plan.tiles) paintTile(ctx, T, e); } finally { UP = null; }
   ctx.globalAlpha = 1;
   return true;
 }

@@ -1271,7 +1271,7 @@ export class SpriteArt {
     if (moments.length && RADIUS * zoom >= HOST_FIGURE_MIN_R * 0.8 && paintMoments(ctx, moments, { tiles, k: 1 / zoom, now: (globalThis.performance?.now?.() ?? Date.now()) / 1000 })) this.tokensMoving = true;
     // pass 2d: battle scenes playing (people/battle.mjs)
     let fighting = 0;
-    for (const b of people?.battles ?? []) if (shown(b) && paintBattle(ctx, b, { zoom, lossText: people.lossText, fateText: people.fateText })) fighting++;
+    for (const b of people?.battles ?? []) if (shown(b) && paintBattle(ctx, b, { zoom, lossText: people.lossText, fateText: people.fateText, up })) fighting++;
     if (opening !== null) {
       const lvl = OPEN_GLOW[openFrame];
       if (lvl !== null && lvl !== undefined) for (const t of tiles) {

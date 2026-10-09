@@ -70,7 +70,8 @@ export function noGoRects(doc = globalThis.document) {
   const out = [];
   for (const [id, sel] of NO_GO) {
     // (the notices are a stack: each one is a piece, the column they stand in is not)
-    const els = id === 'notices' ? [...(doc.querySelectorAll?.(sel) ?? [])] : [doc.querySelector(sel)];
+    // (the effects' sample page stands its own notice beside them, fx/demo.mjs: it is a piece like any other)
+    const els = id === 'notices' ? [...(doc.querySelectorAll?.(sel) ?? []), ...(doc.querySelectorAll?.('#fx-demo-feed > *') ?? [])] : [doc.querySelector(sel)];
     for (const el of els) {
       if (!el || !shown(el, view)) continue;
       if (id === 'drawer' && el.dataset?.drawer !== 'open' && view?.getComputedStyle?.(el).position !== 'absolute') continue;

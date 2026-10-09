@@ -396,7 +396,7 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
     if (!m) { prune(t); return c; }
     syncPieces(t);
     const v = view(), sz = size();
-    const dpr = Math.min(globalThis.devicePixelRatio || 1, DPR_CAP);
+    const dpr = m.ratio?.() ?? Math.min(globalThis.devicePixelRatio || 1, DPR_CAP);
     const sig = `${t}|${v.x}|${v.y}|${v.zoom}|${sz.width}|${sz.height}|${dpr}|${version}`;
     if (sig !== lastSig) {
       lastSig = sig;
@@ -457,11 +457,11 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
    */
   function mount(arg = {}) {
     if (arg && typeof arg.append === 'function' && arg.nodeType !== undefined) { reparent(arg); return api; }
-    const { map = null, canvas = null, camera = null, size: sizeOf = null, invalidate = null, groundInPainter = null, stage = null, parent = null, toViewport = null } = arg ?? {};
+    const { map = null, canvas = null, camera = null, size: sizeOf = null, invalidate = null, groundInPainter = null, stage = null, parent = null, toViewport = null, ratio = null } = arg ?? {};
     if (m) unmount();
     const c = canvas ?? map?.canvas ?? null;
     m = {
-      map, canvas: c, stage, toViewport, rect: null, crect: null, top: null, ctx: null, hud: null,
+      map, canvas: c, stage, toViewport, ratio, rect: null, crect: null, top: null, ctx: null, hud: null,
       camera: camera ?? (() => map?.drawn ?? map?.drawnView ?? map?.view),
       size: sizeOf ?? (() => (map?.size ? map.size() : { width: c?.clientWidth ?? 0, height: c?.clientHeight ?? 0 })),
       invalidate: invalidate ?? (() => map?.invalidate?.()),

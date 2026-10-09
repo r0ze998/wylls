@@ -391,12 +391,13 @@ test('own actions: a ring turns while it is tracked; landed bursts in the nation
   try {
     const a = { id: 'Build#1', name: 'Build', faction: 0, tile: { p: 2, q: 0, tile: 7 } };
     s.bus.emit('action:busy', a);
-    assert.deepEqual(s.fx.playing(), ['pending']);
+    // (fix pass 2: the ring is said on the map too, on a small tag over the tile)
+    assert.deepEqual(s.fx.playing(), ['pending', 'tag']);
     s.bus.emit('action:sent', a);
     assert.ok(s.fx.playing().includes('ripple'));
     s.run(400);
     s.bus.emit('action:landed', a);
-    assert.ok(!s.fx.playing().includes('pending'), 'the ring is gone');
+    assert.ok(!s.fx.playing().includes('pending') && !s.fx.playing().includes('tag'), 'the ring and its tag are gone');
     assert.ok(['flash', 'mark', 'burst', 'pip'].every(n => s.fx.playing().includes(n)));
     assert.ok(s.sounds.some(x => x[0] === 'confirm'));
     s.run(2500);
@@ -404,7 +405,8 @@ test('own actions: a ring turns while it is tracked; landed bursts in the nation
     const b = { id: 'Train#2', name: 'Train', faction: 0, tile: { p: 2, q: 0, tile: 7 } };
     s.bus.emit('action:busy', b);
     s.bus.emit('action:refused', b);
-    assert.deepEqual(s.fx.playing(), ['pulse', 'mark', 'pip']);
+    // (fix pass 2: the refusal is named on the map; the pending ring and its tag are gone)
+    assert.deepEqual(s.fx.playing(), ['pulse', 'mark', 'tag', 'pip']);
     assert.ok(s.sounds.some(x => x[0] === 'refuse'));
     // an action with no tile (joining): the sound only
     s.run(2500);
@@ -416,7 +418,7 @@ test('own actions: a ring turns while it is tracked; landed bursts in the nation
   try {
     r.bus.emit('action:refused', { id: 'x', name: 'Build', faction: 0, tile: { p: 2, q: 0, tile: 7 } });
     assert.equal(r.fx.particles.count, 0);
-    assert.deepEqual(r.fx.playing(), ['pulse', 'mark', 'pip']);
+    assert.deepEqual(r.fx.playing(), ['pulse', 'mark', 'tag', 'pip']);
   } finally { r.done(); }
 });
 
@@ -426,7 +428,7 @@ test('seal and depart: the route draws on while the order is sent, the seal stam
   try {
     const a = { id: 'Depart#1', name: 'Depart', faction: 0, unit: 0, tile: { p: 2, q: 0, tile: 7 }, dest: { p: 2, q: 0, tile: 32 }, route: { p: 2, q: 0, tile: 7, dirs: [0, 0, 1] } };
     s.bus.emit('action:busy', a);
-    assert.deepEqual(s.fx.playing(), ['route', 'pending']);
+    assert.deepEqual(s.fx.playing(), ['route', 'pending', 'tag']);
     s.run(900);
     s.bus.emit('march:sealed', a);
     assert.deepEqual(s.fx.playing(), ['sealed', 'route', 'stamp', 'walker', 'pip'], 'the waiting ribbon and ring gave way to the seal');

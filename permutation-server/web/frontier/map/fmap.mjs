@@ -551,6 +551,13 @@ export class FrontierMap {
     }
     return this.groundNow;
   }
+  /** What the tilt asks of a picture that stands on the board at world point (x, y) (map/tilt.mjs standing): `{sh, vs, k}`, or null on a flat board. For another world-space painter (the effects' battle). */
+  standAt(x, y) {
+    const v = this.cam.drawn, s = this.size(), T = this.geo(v.zoom, s);
+    return T.flat ? null : T.standAt((x - v.x) * v.zoom + s.width / 2, (y - v.y) * v.zoom + s.height / 2);
+  }
+  /** Device px per CSS px of the ground canvas (finer than the screen's own on a screen of one device px per px: the tilt draws the near rows larger). Another canvas laid over it uses the same. */
+  groundRatio() { const d = this.dpr(); return d * (this.tiltMax > 0 && d < 1.5 ? GROUND_FINER : 1); }
   /** The flat view of the ground canvas on screen: a canvas laid over `#map-ground` shows world (x, y) at ((x − v.x) · v.zoom + width / 2, …) of its own box. */
   groundView() { return groundView(this.cam.drawn, this.groundLayout()); }
   groundSize() { const g = this.groundLayout(); return { width: g.width, height: g.height }; }
@@ -1100,7 +1107,7 @@ export class FrontierMap {
     const G = this.groundLayout(size), gsize = { width: G.width, height: G.height };
     // (the tilt draws the near half of the board a little larger than it was painted: on a screen of one device
     // pixel per CSS pixel the ground is painted that much finer, so nothing is stretched)
-    const gr = dpr * (this.tiltMax > 0 && dpr < 1.5 ? GROUND_FINER : 1);
+    const gr = this.groundRatio();
     const W = Math.round(G.width * gr), H = Math.round(G.height * gr);
     if (gcv.width !== W || gcv.height !== H) { gcv.width = W; gcv.height = H; this.sceneKey = null; this.fade = null; }
     const OW = Math.round(width * dpr), OH = Math.round(height * dpr);
