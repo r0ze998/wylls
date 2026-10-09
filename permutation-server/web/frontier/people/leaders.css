@@ -118,12 +118,12 @@
 @media (min-width: 760px) and (max-height: 799px) { .bn-face { display: block; } .bn-field { padding-top: 6px; } .bn-cloth { grid-template-rows: auto 1fr; } .banners { --bn-fig: clamp(64px, calc(50dvh - 300px), 100px); --bn-rise: 24px; } }
 @media (max-width: 759px) {
   /* a phone's banners stay compact (all six in sight): the leader's icon hangs where the crest did, the sigil at its foot */
-  .banners { padding-top: 22px; --bn-rise: 0px; }
+  .banners { padding-top: 19px; --bn-rise: 0px; }
   .bn-face, .bn-figure { display: none; }
-  .bn-field { margin: 0 4px; padding: 26px 4px calc(var(--tail) + 8px); }
-  .bn-cloth { padding-top: 4px; }
-  .bn-hex { display: block; position: absolute; top: -20px; left: 50%; translate: -50% 0; }
-  .bn-hex .leader-hex { width: 46px; height: 46px; filter: drop-shadow(0 2px 3px rgba(0,0,0,.6)); }
+  .bn-field { margin: 0 3px; padding: 25px 1px calc(var(--tail) + 7px); }
+  .bn-cloth { padding-top: 0; }
+  .bn-hex { display: block; position: absolute; top: -19px; left: 50%; translate: -50% 0; }
+  .bn-hex .leader-hex { width: 44px; height: 44px; filter: drop-shadow(0 2px 3px rgba(0,0,0,.6)); }
   .bn-crest { left: calc(50% + 12px); top: 8px; }
   .bn-crest .crest { width: 15px; height: 18px; }
   .bn-mark { left: calc(50% - 30px); top: -8px; }
