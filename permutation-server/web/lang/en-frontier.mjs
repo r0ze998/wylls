@@ -451,7 +451,7 @@ export default {
   '位置': 'Position',
   '軍勢を選ぶと光るマス': 'Tiles that light up when you select a host',
   '進める': 'Move',
-  '軍勢が近くで進めるマスです。光っていないマスも、タップすれば届くかどうかを確かめます。': 'Tiles the host can march to nearby. Tap a tile that is not lit and the route there is checked too.',
+  '淡い線で囲んだ内側が、軍勢が近くで進める範囲です。外側のマスも、タップすれば届くかどうかを確かめます。': 'The pale outline marks how far the host can march nearby. Tap a tile outside it and the map checks whether the host can get there.',
   '攻める': 'Attack',
   '蛮族の野営地、敵対する国の村や軍勢がいるマスです。': 'A tile with a barbarian camp, or a village or host of a hostile nation.',
   '自分の村': 'Your village',

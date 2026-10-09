@@ -17,7 +17,7 @@ import { provincePixel, PROVINCE_CIRCUMRADIUS } from './layers.mjs';
 import { motion } from '../fx/motion.mjs';
 
 /** Milliseconds of the standard moves. */
-export const MOVE_MS = Object.freeze({ open: 1400, fly: 720, far: 900, zoom: 170, pan: 150, wheel: 140, settle: 260 });
+export const MOVE_MS = Object.freeze({ open: 1400, fly: 720, far: 900, zoom: 170, pan: 150, wheel: 140, settle: 260, reach: 520 });
 /** The glide after a drag: speed decays with this time constant (ms); slower than FLING_MIN px/ms does not glide. */
 export const FLING_TAU = 300;
 export const FLING_MIN = 0.12;

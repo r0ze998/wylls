@@ -27,11 +27,11 @@ import { COLORS, FLATTEN, RADIUS, hexPoints, polygon, project, shade } from '../
 import { PROVINCE_TILES, locate, provinceCentre, ringOf, ringProvinces, tileHex, wedgeOf } from '../fgeo.mjs';
 import { FACTION_COLORS } from '../fi18n.mjs';
 import { majorityOwner } from '../herald.mjs';
-import { paintPeople, paintNameTags, paintBadges, PEOPLE_FRAME_MS, zoomBoost } from '../people/crowds.mjs';
+import { paintPeople, PEOPLE_FRAME_MS, zoomBoost } from '../people/crowds.mjs';
 import { activitiesFor } from '../people/activity.mjs';
 import { lifeAt } from '../people/life.mjs';
 import { paintBattle, battleTiles } from '../people/battle.mjs';
-import { provinceTokens, paintToken, placePills } from '../people/units.mjs';
+import { provinceTokens, paintToken } from '../people/units.mjs';
 import { onMiniLoad, MINI_ANCHOR, MINI_CELL_U } from '../people/minis.mjs';
 import { paintMoments } from '../people/moments.mjs';
 // (the effects engine's ground pass comes through the map's `between` hook: fx/index.mjs startFx)
@@ -42,6 +42,8 @@ import { upright } from './tilt.mjs';
 import { FOG_OF_LEVEL, L2, L3, hexKey } from './survey.mjs';
 import { reducedMotion } from './camera.mjs';
 import { landShape } from './ownland.mjs';
+import { HERO, paintPlates, scaffoldAt } from './plates.mjs';
+import { OPEN_PASS } from './labelpass.mjs';
 
 const BASE = new URL('../art/', import.meta.url);
 /** The far bitmaps' resolutions (device px per world px) and their cache budget in pixels. */
@@ -708,6 +710,8 @@ export class SpriteArt {
           state: j === undefined ? undefined : m ? (m.state === 3 ? 5 : m.state === 4 ? 0 : m.state) : e.rec?.sites?.[j],
           owner: j === undefined ? undefined : m ? m.faction : e.rec?.owners?.[j],
           tier: m && m.state === 1 ? m.tier : (j !== undefined ? e.tiers?.[j] ?? 0 : 0), walls: !!(m && m.wallsCommitted > 0),
+          // (the garrison is told where the village is in the viewer's sight: whole troops, as the inspector says it)
+          garrison: lv === L3 && m && m.state === 1 && m.garrison !== undefined ? Math.floor(Number(m.garrison) / 1000) : null,
           camp: !!(lv === L3 && e.prov?.camp?.state === 1 && e.prov.camp.tile === i && j === undefined),
           shield: !!(lv === L3 && m && m.shieldUntilBell > 0 && m.shieldUntilBell !== 0xffffffff && m.shieldUntilBell >= (e.prov?.resolvedNext ?? 0)) };
         t.road = lv >= L2 && SITE_LAND.has(name) && roadBit(e.prov?.roadMask, i);
@@ -811,6 +815,8 @@ export class SpriteArt {
     const mine = new Map();
     if (survey && !survey.showAll) for (const v of survey.villages ?? []) { const t = byId.get(`${v.p},${v.q},${v.tile}`); if (t && t.state === 1) mine.set(t, { key: `${v.p},${v.q},${v.tile}`, village: v, tiles: [], provisional: v.state === 1 }); }
     if (mine.size) for (const o of owner.values()) mine.get(o.s)?.tiles.push({ q: o.q, r: o.r, d: o.d });
+    // the viewer's own villages are the heroes of the picture (map/plates.mjs HERO): drawn larger, their hosts in front of them
+    for (const [t, x] of mine) { t.hero = true; t.provisional = x.provisional; }
     const lands = [...mine.values()].map(x => ({ ...x, shape: landShape(x.tiles) }));
     const viewer = survey && !survey.showAll && Number.isInteger(survey.faction) ? survey.faction : null;
     const war = new Set();
@@ -1079,7 +1085,16 @@ export class SpriteArt {
       } else if (t.state === 2) img = this.image('specials', s.key, 'barbarian_1');
       else if (t.state === 5) img = this.image('specials', s.key, 'freecity_town');
       else if (SITE_LAND.has(t.name)) img = this.image('holdings', s.key, 'site');
-      if (img) stand(img, t);
+      if (img && t.hero && !far) {
+        // the viewer's own village, larger than life about its tile's centre (the largest sprites: it must stay sharp)
+        const es = ART_SIZES[ART_SIZES.length - 1], kk = (RADIUS / es.r) * HERO.scale;
+        const tier = ART_TIERS[t.tier] ?? 'hamlet';
+        const big = es === s ? img : this.image('holdings', es.key, `${tier}_${tier === 'stronghold' || t.walls ? 'w' : 'o'}_${ART_FACTIONS[t.owner]}`) ?? img;
+        const was = g.imageSmoothingQuality; g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+        // (the sprite's anchor is the tile's ground point; its top face lies TOP_LIFT lower: scaled about the top face's centre)
+        g.drawImage(big, t.x + HERO.at.x - es.ax * kk, t.y + HERO.at.y - (es.ay * kk - TOP_LIFT * HERO.scale), es.w * kk, es.h * kk);
+        g.imageSmoothingQuality = was ?? 'low';
+      } else if (img) stand(img, t);
       if (t.shield) { const d = this.image('holdings', s.key, 'shield'); if (d) stand(d, t); }
     };
     // pass 2: props, holdings, cloud sea
@@ -1140,7 +1155,7 @@ export class SpriteArt {
       for (const [idx, list] of byTile) {
         if (fightingAt.has(`${e.p},${e.q},${idx}`)) continue;
         const hx = tileHex(e.p, e.q, idx), c = project(hx.q, hx.r);
-        for (const h of list) hosts.push({ x: c.x, y: c.y, h, cx: c.x, cy: c.y });
+        for (const h of list) hosts.push({ x: c.x, y: c.y, h, cx: c.x, cy: c.y, key: `${e.p},${e.q},${idx}` });
       }
       // the tokens (tile detail): one soldier per faction per tile (people/units.mjs, after the Eternum benchmark)
       const holdingTiles = new Set((byProv.get(`${e.p},${e.q}`) ?? []).filter(u => u.state === 1 && u.site !== undefined).map(u => u.idx));
@@ -1155,7 +1170,9 @@ export class SpriteArt {
         all.push({ id: a.hostId, faction: a.faction, unit: a.unit, tile: a.tile, state: 1, troops: Math.floor(Number(a.troops) / 1000), stamina: Number(a.stamina ?? 120), arriving: true });
       }
       const skip = new Set([...fightingAt].filter(k => k.startsWith(`${e.p},${e.q},`)).map(k => Number(k.split(',')[2])));
-      for (const tok of provinceTokens({ p: e.p, q: e.q, hosts: all, holdingTiles, viewerFaction, exploring: people?.exploringHosts ?? new Set(), marching: people?.marchingHosts ?? new Set(), restBelow: people?.restBelow ?? 0, skipTiles: skip })) {
+      // (on the viewer's own village the hosts stand in front of the houses, not on them: map/plates.mjs HERO)
+      const heroTiles = new Set((byProv.get(`${e.p},${e.q}`) ?? []).filter(u => u.hero).map(u => u.idx));
+      for (const tok of provinceTokens({ p: e.p, q: e.q, hosts: all, holdingTiles, heroTiles, heroSpots: HERO.hosts, viewerFaction, exploring: people?.exploringHosts ?? new Set(), marching: people?.marchingHosts ?? new Set(), restBelow: people?.restBelow ?? 0, skipTiles: skip })) {
         // the gold ring is the viewer's own hosts, never a whole nation's (gold means "yours": UX brief §5.3)
         if (limited) tok.own = (tok.hosts ?? []).some(id => ownHosts.has(String(id)));
         tokens.push(tok);
@@ -1209,7 +1226,8 @@ export class SpriteArt {
     this.tiles = tiles;
     // (other people's scouts, works and moments are live things: in sight only; the viewer's own always)
     const explores = !limited ? people?.explores ?? [] : (people?.explores ?? []).filter(x => (x.host && ownHosts.has(String(x.host))) || (x.tiles ?? []).some(idx => lvAt(x.p, x.q, idx) === L3));
-    const moving = people ? paintPeople(ctx, { tiles, zoom, explores, marches: people.marches ?? [], constructions: people.constructions ?? [], pills }) : 0;
+    // (a building's ring is a label: drawn upright with the plates, on the scaffold that stands here)
+    const moving = people ? paintPeople(ctx, { tiles, zoom, explores, marches: people.marches ?? [], constructions: people.constructions ?? [], pills, ring: false, scaffoldAt }) : 0;
     // one-shot moments: harvest yields, a building done, a host setting out, an arrival out of the mist
     const moments = !limited ? people?.moments ?? [] : (people?.moments ?? []).filter(m => (Number.isInteger(m.tile) ? lvAt(m.p, m.q, m.tile) : siteLv(m.p, m.q, m.site)) === L3);
     if (moments.length && RADIUS * zoom >= HOST_FIGURE_MIN_R * 0.8 && paintMoments(ctx, moments, { tiles, k: 1 / zoom, now: (globalThis.performance?.now?.() ?? Date.now()) / 1000 })) this.tokensMoving = true;
@@ -1233,7 +1251,7 @@ export class SpriteArt {
     // the next animation frame while figures move: only the animated layers repaint (onTick)
     if ((moving || fighting || this.tokensMoving) && !this.peopleTimer) this.peopleTimer = setTimeout(() => { this.peopleTimer = null; this.onTick(); }, fighting ? 33 : PEOPLE_FRAME_MS);
     // what the labels need of this frame (labels()); a whole painting draws them now
-    this.liveNow = { hosts, pills, tiles };
+    this.liveNow = { hosts, pills, tiles, constructions: people?.constructions ?? [] };
     if (part === null) this.labels(ctx, { zoom, people });
     return tiles.length;
   }
@@ -1281,20 +1299,25 @@ export class SpriteArt {
 
   /**
    * The labels of the last tile view painted (paint's 'live' part): the hosts' flags when the figures are too
-   * small, the holders' name tags, the units' pills. Text: it goes over the depth dressing, so the haze never
-   * takes its contrast (the map calls this after dressing.mjs; a whole `paint` calls it itself).
+   * small, one nameplate per village (its name, tier, garrison and hosts: map/plates.mjs), a ring on a building
+   * going up, the pills of the hosts in the field. Text: it goes over the depth dressing, so the haze never takes
+   * its contrast (the map calls this after the dressing; a whole `paint` calls it itself). `pass`: the frame's
+   * label pass (map/labelpass.mjs): the labels keep clear of the HUD and of each other.
    */
-  labels(ctx, { zoom, people = null }) {
+  labels(ctx, { zoom, people = null, pass = OPEN_PASS }) {
     if (!this.liveNow) return;
-    const { hosts, pills, tiles } = this.liveNow;
-    this.flags(ctx, hosts, zoom);
-    // name tags (the holder's face and name)
-    const tagBoxes = [];
-    if (people?.nameOf) paintNameTags(ctx, { tiles, zoom, nameOf: people.nameOf, centre: people.centre ?? null, onImage: this.onLoad, boxes: tagBoxes,
-      tierName: people.tierName ?? null,
-      present: people.life ? (p, q, site) => lifeAt(people.life.get(`${p},${q},${site}`), people.bell ?? 0, people.now ?? 0).lord : null });
-    // the units' labels last: on top, nudged up off the name tags and each other
-    if (pills.length && RADIUS * zoom >= HOST_FIGURE_MIN_R) placePills(ctx, pills, 1 / zoom, (globalThis.performance?.now?.() ?? Date.now()) / 1000, tagBoxes);
+    const { hosts, pills, tiles, constructions } = this.liveNow;
+    // the hosts that stand on a village of their own nation are told by that village's plate (one badge), not by a flag or a pill of their own
+    const owner = new Map(), garrisoned = new Map();
+    for (const u of tiles) if (u.state === 1 && u.owner < 6 && u.site !== undefined && !u.cloud) owner.set(`${u.p},${u.pq},${u.idx}`, u.owner);
+    const afield = [];
+    for (const o of hosts) {
+      if (o.key && owner.get(o.key) === o.h.faction && !o.h.arriving && o.h.stance !== 'disarray') garrisoned.set(o.key, (garrisoned.get(o.key) ?? 0) + (o.h.troops ?? 0));
+      else afield.push(o);
+    }
+    this.flags(ctx, afield, zoom);
+    const figures = RADIUS * zoom >= HOST_FIGURE_MIN_R;
+    paintPlates(ctx, { tiles, pills: figures ? pills : [], constructions, hostsOn: garrisoned, zoom, centre: people?.centre ?? null, pass, t: (globalThis.performance?.now?.() ?? Date.now()) / 1000 });
   }
 }
 

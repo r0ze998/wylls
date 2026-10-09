@@ -46,13 +46,14 @@ import { L2, L3, openSurvey } from './survey.mjs';
 import { CHART, fxNow, paintCandidates, paintWedge } from './chart.mjs';
 import { wedgeBox } from './opening.mjs';
 import { STANDARD_AT, STANDARD_UNIT, landShape, landTiles, landingAt, paintBeacon, paintOwnBreath, paintOwnLand, paintOwnOutline, paintProvisionalTag, paintStandard, standardUnit, villageKey } from './ownland.mjs';
-import { NOTE_MS, actorText, arrivalText, blockText, paintActionGround, paintActionPulse, paintActionTop, rolledOut, paintHoverGround, paintHoverTop, paintRefusal, paintRibbon, paintSelectionGround, paintSelectionTop, paintTag } from './actions.mjs';
+import { NOTE_MS, actionPalette, actorText, arrivalText, blockText, paintActionGround, paintActionPulse, paintActionTop, paintReachDim, reachBox, rolledOut, paintHoverGround, paintHoverTop, paintRefusal, paintRibbon, paintSelectionGround, paintSelectionTop, paintTag } from './actions.mjs';
 import { edgePointer, mountHomePointer } from './homepointer.mjs';
 import { layoutLabels } from './labels.mjs';
-import { ACTION_COLOURS } from './actions.mjs';
+import { plateRise } from './plates.mjs';
 import { LANDING } from './ownland.mjs';
 import { WORKED_RADIUS } from './survey.mjs';
 import { emit as fxEmit } from '../fx/bus.mjs';
+import { createLabelPass, rectOf, tileKeyOf } from './labelpass.mjs';
 import { TILT, armUpright, disarmUpright, groundBox, groundView, nearQuad, tiltAt, tiltFromQuery, tiltGeo, upright } from './tilt.mjs';
 
 /** Fog levels drawn as tiles at tile LOD (a distant province stays a muted cell). */
@@ -98,6 +99,21 @@ export const STILL_MAX_PIXELS = 11_000_000;
 export const BACKDROP_PIXELS = 6_000_000;
 /** On a screen of one device pixel per CSS pixel the tilted ground is painted this much finer (the near half of the board is drawn larger than life). */
 export const GROUND_FINER = 1.08;
+/**
+ * The page's own things over the map that no label may stand under, until the page says them (`map.setNoGo`): the
+ * dial and the strip's two sides, the search button and the objective, the to-do lines and the village plate, the
+ * minimap with its lens chips, the map's buttons, the dock, the drawer, the objective's chip, the pointer home.
+ */
+export const NOGO_SELECTORS = '#bell-pill, #bell-pill .dial-top, #topbar .strip-side, #hud-tl > *, #rail > *, #minimap, .map-tools, #tabs, #panel, #ob-map, .home-pointer, .feed > *';
+export const NOGO_EVERY_MS = 300;
+/**
+ * The camera eases out to a lit reach: the reach's box takes at most this share of the uncovered picture, keeps
+ * this many px clear of its edges, and the zoom never goes below this factor of the tile view's own edge (a
+ * phone's picture is too narrow for a whole reach: there it eases out as far as the tiles stay tiles).
+ */
+export const REACH_FIT = 0.9;
+export const REACH_PAD = 14;
+export const REACH_ZOOM_FLOOR = 1.14;
 /** The still layers of a resting view are repainted at least this often (ms): a change nobody announced heals. */
 export const LAYER_MAX_AGE_MS = 2000;
 
@@ -290,27 +306,39 @@ export function paintThreats(ctx, threats, zoom, label = null, part = null) {
  * `part` 'ring' draws the ring alone (under the map's labels, which it used
  * to cut through), 'label' the pointer and the words, null both.
  */
-export function paintGuide(ctx, g, zoom, label = '', part = null) {
+export function paintGuide(ctx, g, zoom, label = '', part = null, { rise = null, pass = null } = {}) {
+  // `rise` (screen px): how far above the tile's centre the pointer's tip stands (over a village's nameplate:
+  // map/plates.mjs plateRise); `pass`: the frame's label pass (the words slide out from under the HUD)
   if (!g || !Number.isInteger(g.tile)) return;
   const t = fxNow() / 1000;
   const k = 1 / zoom, pulse = reducedMotion() ? 0.5 : 0.5 + 0.5 * Math.sin(t * 2.4);
   const h = tileHex(g.p, g.q, g.tile), c = project(h.q, h.r);
   const r = Math.max(RADIUS * 1.15, 20 * k) * (1 + pulse * 0.15);
-  const y = c.y - r - (6 + pulse * 4) * k;
+  const y = rise === null ? c.y - r - (6 + pulse * 4) * k : c.y - (rise + 3 + pulse * 4) * k;
   ctx.save();
   if (part !== 'label') {
-    ctx.strokeStyle = 'rgba(16,24,22,.55)'; ctx.lineWidth = 6 * k; ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, Math.PI * 2); ctx.stroke();
-    ctx.strokeStyle = `rgba(244,239,224,${0.72 + pulse * 0.28})`; ctx.lineWidth = 3 * k; ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, Math.PI * 2); ctx.stroke();
+    // a mark laid on the ground around the tile: dashed, quiet (the words and their pointer are what is read)
+    ctx.setLineDash([7 * k, 6 * k]); ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(16,24,22,.4)'; ctx.lineWidth = 4.4 * k; ctx.beginPath(); ctx.ellipse?.(c.x, c.y, r, r * FLATTEN, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = `rgba(244,239,224,${0.6 + pulse * 0.3})`; ctx.lineWidth = 2.2 * k; ctx.beginPath(); ctx.ellipse?.(c.x, c.y, r, r * FLATTEN, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
   }
-  // a pointer above the ring (it and the words stand upright over the tile)
-  if (part !== 'ring') upright(ctx, c.x, c.y, () => {
-    ctx.fillStyle = '#f4efe0'; ctx.beginPath(); ctx.moveTo(c.x, y); ctx.lineTo(c.x - 7 * k, y - 11 * k); ctx.lineTo(c.x + 7 * k, y - 11 * k); ctx.closePath(); ctx.fill();
-    if (!label) return;
-    ctx.font = `700 ${11 * k}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    const tw = ctx.measureText(label).width + 12 * k, th = 17 * k, ly = y - 13 * k - th;
-    ctx.fillStyle = 'rgba(16,24,22,.94)'; ctx.beginPath(); ctx.roundRect?.(c.x - tw / 2, ly, tw, th, 8 * k); ctx.fill();
-    ctx.fillStyle = '#f4efe0'; ctx.fillText(label, c.x, ly + th / 2 + 0.5 * k);
-  });
+  // a pointer above the tile (it and the words stand upright over it)
+  if (part !== 'ring') {
+    ctx.font = `700 ${12 * k}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const tw = label ? ctx.measureText(label).width + 14 * k : 14 * k, th = label ? 20 * k : 0;
+    const move = pass?.place(c.x, c.y, { x: c.x - tw / 2, y: y - 11 * k - 2 * k - th, w: tw, h: th + 13 * k }, { keep: true, free: true }) ?? { dx: 0, dy: 0 };
+    upright(ctx, c.x, c.y, () => {
+      const px = c.x + move.dx, py = y + move.dy;
+      ctx.fillStyle = 'rgba(16,24,22,.6)'; ctx.beginPath(); ctx.moveTo(px, py + 1.5 * k); ctx.lineTo(px - 8.5 * k, py - 11.5 * k); ctx.lineTo(px + 8.5 * k, py - 11.5 * k); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#f4efe0'; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px - 7 * k, py - 11 * k); ctx.lineTo(px + 7 * k, py - 11 * k); ctx.closePath(); ctx.fill();
+      if (!label) return;
+      const ly = py - 13 * k - th;
+      ctx.fillStyle = 'rgba(16,24,22,.94)'; ctx.beginPath(); ctx.roundRect?.(px - tw / 2, ly, tw, th, 9 * k); ctx.fill();
+      ctx.strokeStyle = 'rgba(244,239,224,.5)'; ctx.lineWidth = 1 * k; ctx.stroke();
+      ctx.fillStyle = '#f4efe0'; ctx.fillText(label, px, ly + th / 2 + 0.5 * k);
+    });
+  }
   ctx.restore();
 }
 
@@ -413,6 +441,8 @@ export class FrontierMap {
       const now = ts ?? clock();
       // a landing that began while the village was out of the picture: the camera goes there (never from inside a draw)
       if (this.landingFly) { const f = this.landingFly; this.landingFly = null; this.flyTo({ ...f, zoom: Math.max(this.cam.view.zoom, heroZoom(this.dpr())) }, 900, { auto: !this.cam.userMoved }); }
+      // the reach of a host that was just selected is not all in the picture: the camera eases out to it
+      if (this.reachFly) { const to = this.reachFly; this.reachFly = null; this.setView(to, { auto: true, ms: MOVE_MS.reach, kind: 'fly', ease: EASE.inOutCubic }); }
       if (this.cam.step(now)) this.dirty = true;
       if (this.dirty) this.draw(now);
       this.raf = globalThis.requestAnimationFrame?.(this.frame);
@@ -510,6 +540,72 @@ export class FrontierMap {
     if (this.insetAt !== this.frameNo || !this.insetNow) { let v = null; try { v = this.insetsOf?.() ?? null; } catch { v = null; } this.insetNow = v ?? coveredInsets(this.canvas); this.insetAt = this.frameNo; }
     return this.insetNow;
   }
+  // ------------------------------------------------------------------ where labels may stand (map/labelpass.mjs, UX brief §11.6)
+  /**
+   * The HUD's rectangles over the map, which no label of the map may stand under: `[{x, y, width, height}]` (or
+   * `{left, top, right, bottom}`) in client px, as getBoundingClientRect gives them (the dial, the village plate,
+   * the dock, the minimap, the button columns). `null`: the map measures the page's known elements itself
+   * (NOGO_SELECTORS), a few times a second.
+   */
+  setNoGo(rects) { this.nogoFed = Array.isArray(rects) ? rects.map(rectOf).filter(Boolean) : null; this.tick(); }
+  /**
+   * Put a tile's label pile away (`on` true) while an effect plays there, and bring it back (`on` false).
+   * `tile`: "P,Q,tile" or `{p, q, tile}`. Counted: two effects on one tile each hide and show once.
+   */
+  hideLabelsAt(tile, on = true) {
+    const key = tileKeyOf(tile);
+    if (!key) return;
+    const H = this.hiddenLabels ??= new Map(), n = (H.get(key) ?? 0) + (on ? 1 : -1);
+    if (n > 0) H.set(key, n); else H.delete(key);
+    this.tick();
+  }
+  /**
+   * A set piece plays (a battle, the toll's results) or is over: while one plays, the pointer home and the frames
+   * of the wait view stand aside. Counted like hideLabelsAt.
+   */
+  setPiece(on = true) { this.pieces = Math.max(0, (this.pieces ?? 0) + (on ? 1 : -1)); this.tick(); }
+  get piece() { return (this.pieces ?? 0) > 0; }
+  /**
+   * How far above tile (p, q, tile) the top of its label pile stands (px from the map's own top; null when the
+   * tile carries none): the page's own things that point at a tile (the objective's chip) stand above that.
+   */
+  pileTop(p, q, tile) {
+    const u = this.villageAt(p, q, tile);
+    return u ? this.project(u.x, u.y, { box: true }).y - plateRise(u, this.cam.drawn.zoom) : null;
+  }
+  /** The village the tile view draws on tile (p, q, tile), or null (the tile model's own tile: map/sprites.mjs). */
+  villageAt(p, q, tile) {
+    if (this.drawnLod !== 'tile' || !Number.isInteger(tile)) return null;
+    const u = this.art?.modelNow?.byId?.get(`${p},${q},${tile}`);
+    return u && u.state === 1 && u.owner < 6 && u.site !== undefined ? u : null;
+  }
+  /** How far above the centre of place `at` `{p, q, tile}` its label pile reaches at zoom `z` (screen px), or null when it carries none. */
+  pileRise(at, z) { const u = at ? this.villageAt(at.p, at.q, at.tile) : null; return u ? plateRise(u, z) : null; }
+  /** The no-go rectangles in px from the map's own corner (read from the page at most a few times a second). */
+  nogoBoxes() {
+    const c = this.canvas, doc = c?.ownerDocument;
+    if (!doc?.querySelectorAll || !c.getBoundingClientRect) return [];
+    const now = clock();
+    if (this.nogoNow && now - this.nogoAt < NOGO_EVERY_MS && this.nogoSrc === this.nogoFed) return this.nogoNow;
+    const r = c.getBoundingClientRect(), out = [];
+    const add = b => { if (!b || b.x + b.w <= r.left || b.x >= r.right || b.y + b.h <= r.top || b.y >= r.bottom) return; out.push({ x: b.x - r.left, y: b.y - r.top, w: b.w, h: b.h }); };
+    if (this.nogoFed) for (const b of this.nogoFed) add(b);
+    else for (const el of doc.querySelectorAll(NOGO_SELECTORS)) {
+      if (el.hidden || el.closest?.('[hidden]')) continue;
+      const b = rectOf(el.getBoundingClientRect?.());
+      // (something that covers most of the map is not a thing to step around: a sheet, a wide document)
+      if (b && b.w * b.h < r.width * r.height * 0.5) add(b);
+    }
+    this.nogoNow = out; this.nogoAt = now; this.nogoSrc = this.nogoFed;
+    return out;
+  }
+  /** The label pass of a frame at zoom `z` (`screen`: the labels stand upright on the flat canvas over the tilted board). */
+  labelPass(z, screen = true) {
+    const size = this.size(), hidden = this.hiddenLabels;
+    return createLabelPass({ nogo: screen ? this.nogoBoxes() : [], zoom: z, hidden: hidden?.size ? hidden : null, bounds: screen ? { w: size.width, h: size.height } : null,
+      screen: screen ? (x, y) => this.project(x, y, { box: true }) : null });
+  }
+
   /** Something the still picture is made of changed: repaint everything. */
   invalidate() { this.stamp++; this.dirty = true; }
   /** An animation frame is due: the animated layers repaint (the still ones are kept while the view rests). */
@@ -523,7 +619,7 @@ export class FrontierMap {
    * moving the camera (the opening view stops framing); `auto` does not.
    */
   setView(v, { auto = false, ...move } = {}) {
-    if (!auto) this.cam.userMoved = true;
+    if (!auto) { this.cam.userMoved = true; this.moves = (this.moves ?? 0) + 1; }
     this.cam.set(v, move);
     this.sync();
   }
@@ -843,6 +939,8 @@ export class FrontierMap {
    */
   open(src, size, { dpr = this.dpr(), now = clock() } = {}) {
     if (this.cam.userMoved) return true;
+    // a lit reach is framed (frameReach): the opening view waits until that host is let go, then frames its subject again
+    if (this.reachFit?.held && this.opened) { this.openKey = null; return true; }
     const inset = this.inset();
     let plan = openingPlan(src?.open, src, size, { inset, dpr });
     if (!plan) {
@@ -1175,6 +1273,7 @@ export class FrontierMap {
     }
     // what is the viewer's own and what the selection can do (UX brief §5): one bundle for this frame's passes
     const F = this.youFrame(src, survey, lod, z, terrainOf);
+    F.seen = seen;
     // a resting tile view: the still layers (the table is in the ground layer), then the animated ones
     // (`between`: on the ground, under what stands on it: the viewer's land and the lit tiles, then the effects engine's ground pass)
     // the cloud sea: its still part (the bank and the puffs) and the light and shade that drift over it
@@ -1233,7 +1332,7 @@ export class FrontierMap {
         ctx.setTransform(...world); sea(ctx, null);
         this.art.paint(ctx, artTiles, { ...tileOpts, part: 'live' });
       }
-      labels = o => this.art.labels(o, tileOpts);
+      labels = (o, pass) => this.art.labels(o, { ...tileOpts, pass });
       pending += this.art.misses - missed;   // sprites still on their way
     }
     // over what stands on the land: thin outlines of the ground marks, the route, the standards
@@ -1253,13 +1352,15 @@ export class FrontierMap {
     // warnings' words, pins, the guide's words (`o`: the label canvas; `w`: its flat world transform)
     const over = (o = ctx, w = null) => {
       o.setTransform(...(w ?? world));
+      // where this frame's words may stand (map/labelpass.mjs): clear of the HUD, of each other, and not on a tile whose pile is put away
+      const pass = F.pass = this.labelPass(z, !!w);
       realm?.(o);
-      labels?.(o);
+      labels?.(o, pass);
       if (src.threats?.length) { paintThreats(o, src.threats, z, src.threatLabel ?? null, 'label'); this.invalidateSoon(); }
       if (limited && survey.candidates?.length) { paintCandidates(o, survey.candidates, z, { still: calm, part: 'label' }); if (!calm) this.invalidateSoon(120); }
       if (src.pins?.length) paintPins(o, src.pins, z);
       // (the page's objective chip may stand at the target itself: then the ring alone marks the tile)
-      if (guide && !src.guideChip) paintGuide(o, guide, z, src.guideLabel?.(guide) ?? '', 'label');
+      if (guide && !src.guideChip) paintGuide(o, guide, z, src.guideLabel?.(guide) ?? '', 'label', { rise: this.pileRise(guide, z), pass });
       if (guide) this.invalidateSoon();
       this.overPass(o, F);
     };
@@ -1292,8 +1393,10 @@ export class FrontierMap {
     // runs over them as they roll out and a tick sounds (fx/stage.mjs); the lasting light is the map's own
     if (A?.mode === 'select' && A.t0 !== this.litT0) {
       this.litT0 = A.t0;
-      if (fx - A.t0 < 250) fxEmit('tiles:lit', { origin: A.hex, tiles: A.tiles.map(t => ({ q: t.hq, r: t.hr, kind: t.kind })), colours: Object.fromEntries(Object.entries(ACTION_COLOURS).map(([k, c]) => [k, c.rim])) });
+      if (fx - A.t0 < 250) fxEmit('tiles:lit', { origin: A.hex, tiles: A.tiles.map(t => ({ q: t.hq, r: t.hr, kind: t.kind })), colours: Object.fromEntries(Object.entries(actionPalette(limited ? survey.faction : null)).map(([k, c]) => [k, c.rim])) });
     } else if (!A) this.litT0 = null;
+    // the camera eases out until the reach's edge is in the picture (UX brief §11.7)
+    if (A?.mode === 'select') this.frameReach(A); else this.reachFit = null;
     // a village the page says has just landed (and this map has not played yet) starts its landing with this frame
     const want = src.landing;
     if (want?.id && want.id !== this.landed) {
@@ -1305,8 +1408,36 @@ export class FrontierMap {
     // the guide's target (on the world chart the beacon already marks the viewer's village: no ring is laid over it)
     const g0 = src.guide && !src.route ? src.guide : null;
     const guide = g0 && !(lod === 'world' && villages.some(v => v.p === g0.p && v.q === g0.q && v.tile === g0.tile)) ? g0 : null;
-    return { src, survey, lod, z, fx, still, limited, guide, villages, faction: limited ? survey.faction : null, A, selHex, selOwn, hover, hoverLit,
+    return { src, survey, lod, z, fx, still, limited, guide, villages, faction: limited ? survey.faction : null, palette: actionPalette(limited ? survey.faction : null), A, selHex, selOwn, hover, hoverLit,
       lands: () => this.ownLands(survey, villages, lod, terrainOf) };
+  }
+
+  /**
+   * A host was selected and its reach is lit: when the reach's edge is not in the part of the picture nothing
+   * covers, the camera eases out (never in) until it is, and no further than the tile view goes. Once per
+   * selection, and again when the reach grows (a province arrived) as long as no person has moved the camera
+   * since the selection; never after that. The move itself is made by the next frame, never inside a draw.
+   */
+  frameReach(A) {
+    const R = this.reachFit, moves = this.moves ?? 0, size = this.size(), inset = this.inset();
+    // (what the sheets cover, in steps: the inspector's drawer opens a moment after the selection, and the reach is framed again in what is left)
+    const cover = [inset.top, inset.right, inset.bottom, inset.left].map(n => Math.round((n ?? 0) / 8)).join(',');
+    const fresh = !R || R.t0 !== A.t0 || R.id !== A.actor?.id;
+    if (!fresh && ((R.n === A.tiles.length && R.cover === cover) || R.moves !== moves)) return;
+    this.reachFit = { t0: A.t0, id: A.actor?.id, n: A.tiles.length, cover, moves: fresh ? moves : R.moves, held: fresh ? false : R.held };
+    const box = reachBox(A);
+    if (!box || !(size.width > 0) || !(size.height > 0)) return;
+    const f = freeBox(size, inset), v = this.cam.view, pad = REACH_PAD;
+    // in the picture already (as it is seen, tilt and all)?
+    const cx = size.width / 2 + f.x, cy = size.height / 2 + f.y;
+    const inside = [[box.x0, box.y0], [box.x1, box.y0], [box.x1, box.y1], [box.x0, box.y1]].every(([x, y]) => { const p = this.project(x, y, { logical: true, box: true }); return Math.abs(p.x - cx) <= f.width / 2 - pad && Math.abs(p.y - cy) <= f.height / 2 - pad; });
+    if (inside) return;
+    // (the far rows of a tilted board are drawn smaller and the near rows larger: a little room for both)
+    const fit = REACH_FIT * Math.min((f.width - 2 * pad) / (box.x1 - box.x0), (f.height - 2 * pad) / (box.y1 - box.y0));
+    const zoom = Math.min(v.zoom, Math.max(this.edges(size).tileIn * REACH_ZOOM_FLOOR, fit));
+    this.reachFly = this.aim({ x: (box.x0 + box.x1) / 2, y: (box.y0 + box.y1) / 2 }, zoom, size, inset);
+    // (the reach has the camera now: the opening view does not take it back while this host stays selected)
+    this.reachFit.held = true;
   }
 
   /**
@@ -1363,14 +1494,16 @@ export class FrontierMap {
     const A = F.A, dim = A?.dest ? 0.5 : 1;
     if (A) {
       const out = still || rolledOut(A, fx);
-      if (phase === 'still') { if (out) { paintActionGround(ctx, A, { zoom: z, dim, base: true }); kept.lit = A; } }
-      else if (phase === 'live' && kept.lit === A) { if (!still) paintActionPulse(ctx, A, { zoom: z, now: fx, dim }); }
-      else { F.rolling = paintActionGround(ctx, A, { zoom: z, now: fx, still, dim }) || F.rolling; if (phase === 'live' && (out || kept.lit)) F.rebake = true; }
+      const palette = F.palette;
+      if (phase === 'still') { if (out) { paintActionGround(ctx, A, { zoom: z, dim, base: true, palette }); kept.lit = A; } }
+      else if (phase === 'live' && kept.lit === A) { if (!still) paintActionPulse(ctx, A, { zoom: z, now: fx, dim, palette }); }
+      else { F.rolling = paintActionGround(ctx, A, { zoom: z, now: fx, still, dim, palette }) || F.rolling; if (phase === 'live' && (out || kept.lit)) F.rebake = true; }
       F.live = true;
     } else if (phase === 'live' && kept.lit) F.rebake = true;
     if (phase === 'still') return;
-    if (F.guide) { paintGuide(ctx, F.guide, z, '', 'ring'); F.live = true; }
-    if (F.hover) paintHoverGround(ctx, F.hover, { zoom: z, kind: F.hoverLit?.kind ?? null });
+    // (the page's own chip may stand at the target and point at it: then no ring is laid around the tile)
+    if (F.guide && !F.src.guideChip && this.pileRise(F.guide, z) === null) { paintGuide(ctx, F.guide, z, '', 'ring'); F.live = true; }
+    if (F.hover) paintHoverGround(ctx, F.hover, { zoom: z, kind: F.hoverLit?.kind ?? null, palette: F.palette });
     if (F.selHex) { paintSelectionGround(ctx, F.selHex, { zoom: z, own: F.selOwn, now: fx, still }); F.live = true; }
   }
 
@@ -1395,13 +1528,16 @@ export class FrontierMap {
   topPass(ctx, F) {
     const { z, fx, still, src } = F;
     if (F.lod === 'tile') {
-      for (const land of F.lands()) { const flood = this.floodOf(land, fx); paintOwnOutline(ctx, land, { zoom: z, shown: flood ? flood.border : 1 }); }
-      if (F.A) paintActionTop(ctx, F.A, { zoom: z, now: fx, still, dim: F.A.dest ? 0.5 : 1 });
+      // a reach is lit by contrast: everything outside it is a little darker (the land, what stands on it, who walks there)
+      if (F.A && F.seen) paintReachDim(ctx, F.A, { box: F.seen, now: fx, still, dim: F.A.dest ? 0.5 : 1 });
+      // (the gold line of the viewer's land stays in sight through the reach and its dim: drawn again, and stronger then)
+      for (const land of F.lands()) { const flood = this.floodOf(land, fx); paintOwnOutline(ctx, land, { zoom: z, shown: flood ? flood.border : 1, strong: !!F.A }); }
+      if (F.A) paintActionTop(ctx, F.A, { zoom: z, now: fx, still, dim: F.A.dest ? 0.5 : 1, palette: F.palette });
     }
     // the march being composed (this browser only), and the route to the lit tile under the pointer
     if (src.route?.hexes?.length > 1) { paintRoute(ctx, src.route, z, { now: fx, still }); F.live = true; }
     const hr = this.hoverRoute(F);
-    if (hr) { paintRibbon(ctx, hr.hexes, { zoom: z, kind: hr.kind, now: fx, still }); F.live = true; }
+    if (hr) { paintRibbon(ctx, hr.hexes, { zoom: z, kind: hr.kind, now: fx, still, palette: F.palette }); F.live = true; }
     if (F.lod === 'tile') {
       if (F.hover) paintHoverTop(ctx, F.hover, { zoom: z });
       if (F.selHex) paintSelectionTop(ctx, F.selHex, { zoom: z, own: F.selOwn });
@@ -1446,27 +1582,29 @@ export class FrontierMap {
 
   /** Over the depth dressing: the words of the ground marks (the provisional tag, the acting host, the arrival, a refusal). */
   overPass(ctx, F) {
-    const { z, src } = F;
-    if (F.lod !== 'world') for (const land of F.lands()) paintProvisionalTag(ctx, land, { zoom: z });
+    const { z, src } = F, pass = F.pass ?? null;
+    // (at the tile view a provisional village's plate carries 仮: map/plates.mjs)
+    if (F.lod === 'province') for (const land of F.lands()) paintProvisionalTag(ctx, land, { zoom: z });
     if (F.lod !== 'tile') return;
     const A = F.A;
+    const hid = hex => { const at = hex ? locate(hex.q, hex.r) : null; return !!at && !!pass?.hiddenAt(`${at.p},${at.q},${at.idx}`); };
     // the host that acts, under the selected tile (tap the tile again for the next one)
-    if (A && A.mode === 'select' && A.hex) {
+    if (A && A.mode === 'select' && A.hex && !hid(A.hex)) {
       const c = project(A.hex.q, A.hex.r), y = c.y + RADIUS * FLATTEN * 1.04;
-      const box = paintTag(ctx, c.x, y, `${actorText(A.actor)}${A.actors.length > 1 ? ` \u00b7 ${A.index + 1}/${A.actors.length}` : ''}`, { zoom: z, tone: 'you', place: 'below', gap: 3, anchor: c });
+      const box = paintTag(ctx, c.x, y, `${actorText(A.actor)}${A.actors.length > 1 ? ` \u00b7 ${A.index + 1}/${A.actors.length}` : ''}`, { zoom: z, tone: 'you', place: 'below', gap: 3, anchor: c, pass });
       const why = blockText(A.actor);
-      if (why && box) paintTag(ctx, c.x, box.y + box.h, why, { zoom: z, tone: 'warn', place: 'below', gap: 3, size: 11.5, anchor: c });
+      if (why && box) paintTag(ctx, c.x, box.y + box.h, why, { zoom: z, tone: 'warn', place: 'below', gap: 3, size: 12, anchor: c, pass });
     }
     // when the march would arrive: on the composed route, or on the route under the pointer
     const hr = this.hoverRoute(F);
-    const tagAt = (hex, bell, tone) => { const d = project(hex.q, hex.r); paintTag(ctx, d.x, d.y - RADIUS * FLATTEN * 0.82, arrivalText(bell), { zoom: z, tone, place: 'above', gap: 4, anchor: d }); };
+    const tagAt = (hex, bell, tone) => { const d = project(hex.q, hex.r); paintTag(ctx, d.x, d.y - RADIUS * FLATTEN * 0.82, arrivalText(bell), { zoom: z, tone, place: 'above', gap: 4, anchor: d, pass }); };
     if (hr && Number.isInteger(hr.arriveBell)) tagAt(hr.hexes[hr.hexes.length - 1], hr.arriveBell, 'plain');
     else if (src.route?.dest && Number.isInteger(src.route.arriveBell)) tagAt(src.route.dest, src.route.arriveBell, 'you');
     const note = this.noteOf(F);
     if (note?.hex) {
       const d = project(note.hex.q, note.hex.r), fade = Math.max(0, Math.min(1, (NOTE_MS - note.age) / 400));
       const shake = F.still ? 0 : Math.sin(note.age / 28) * 5 * Math.exp(-note.age / 150);
-      paintTag(ctx, d.x, d.y - RADIUS * FLATTEN * 0.82, note.text, { zoom: z, tone: 'refuse', place: 'above', gap: 4, shake, alpha: fade, anchor: d });
+      paintTag(ctx, d.x, d.y - RADIUS * FLATTEN * 0.82, note.text, { zoom: z, tone: 'refuse', place: 'above', gap: 4, shake, alpha: fade, anchor: d, pass });
     }
   }
 

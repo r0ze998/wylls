@@ -29,6 +29,8 @@ import { hostId } from '../../permutation-server/web/frontier/faddr.mjs';
 import { DEPART_STAMINA } from '../../permutation-server/web/frontier/fmarch.mjs';
 import { setLang } from '../../permutation-server/web/lang.mjs';
 import { RADIUS, project } from '../../permutation-server/web/map.mjs';
+import { GLYPHS } from '../../permutation-server/web/frontier/map/glyphs.mjs';
+import { FACTION_COLORS } from '../../permutation-server/web/frontier/fi18n.mjs';
 
 const HOME = { p: 2, q: 0, tile: 7 };
 const home = tileHex(HOME.p, HOME.q, HOME.tile);
@@ -83,9 +85,29 @@ test('the landing: the colour floods ring by ring about 90 ms apart, then the bo
   for (let k = 0; k <= 1; k += 0.05) assert.ok(LAND.dropCurve(k) >= 0 && LAND.dropCurve(k) <= 1);
 });
 
-test('the fill of the viewer\'s land is the brief\'s 0.38 at the rim, lighter in the middle; another nation is drawn quieter', () => {
-  assert.equal(LAND.OWN_FILL.rim, 0.38);
-  assert.ok(LAND.OWN_FILL.middle < LAND.OWN_FILL.rim && LAND.OWN_FILL.middle > 0.1);
+test('the viewer\'s land is a band, not a flood: 0.38 at the border falling to 0.08 two thirds of a hex inward, laid on as a cast; another nation is drawn quieter', () => {
+  const F = LAND.OWN_FILL;
+  assert.deepEqual([F.rim, F.middle], [0.38, 0.08], 'the brief\'s numbers (section 11.5)');
+  assert.ok(Math.abs(F.depth - (2 / 3) * Math.sqrt(3) * RADIUS) < 1e-9, 'two thirds of a hex');
+  assert.ok(['overlay', 'soft-light', 'multiply'].includes(F.blend), 'a blend that keeps the ground\'s own colour, never a plain flood');
+  // the strokes: widest first, each inside the one before, never past the depth; over the fill they add up to the
+  // rim at the border and fall toward the middle
+  const steps = LAND.bandSteps();
+  assert.equal(steps.length, F.steps);
+  assert.ok(Math.abs(steps[0].width - 2 * F.depth) < 1e-9 && steps.every((s, i) => i === 0 || s.width < steps[i - 1].width));
+  assert.ok(steps.every(s => s.alpha > 0 && s.alpha < 0.2), 'no step is a visible line');
+  const total = n => 1 - (1 - F.middle) * steps.slice(0, n).reduce((a, s) => a * (1 - s.alpha), 1);
+  assert.ok(total(steps.length) > 0.34 && total(steps.length) <= F.rim + 1e-9, `at the border: ${total(steps.length).toFixed(3)}`);
+  assert.ok(total(1) < 0.12 && total(1) > F.middle, 'the innermost step is almost the middle');
+  for (let n = 2; n <= steps.length; n++) assert.ok(total(n) > total(n - 1), 'stronger toward the border');
+  // painted under what stands on the land: the fill and the band use the blend, the border plain strokes
+  const g = recorder();
+  if (typeof Path2D !== 'undefined') {
+    LAND.paintOwnLand(g, { shape: LAND.landShape(LAND.landTiles({ ...home, tier: 1 })), provisional: false }, { zoom: 1.3, faction: 0, still: true });
+    const modes = g.calls.filter(c => c[0] === '=' && c[1] === 'globalCompositeOperation').map(c => c[2]);
+    assert.ok(modes.includes(F.blend) && modes[modes.length - 1] === 'source-over', 'the cast, then plain painting again');
+    assert.ok(!modes.includes('color'), 'the ground is never repainted in the nation\'s hue');
+  }
   assert.ok(OTHER_WASH < 1);
 });
 
@@ -251,11 +273,29 @@ test('the page\'s actions: lit on selection with no button first; the same tile 
   assert.ok(D.tiles.every(x => x.kind === 'move'), 'nothing surveyed: every lit tile is a plain move');
 });
 
-test('the roll-out: 30 ms a ring; the colours of the brief; a fill of at least 0.35 inside the rim', () => {
+// Rewritten with UX brief §11.7 (it pinned "a fill of at least 0.35 inside the rim" of every lit tile, the whitewash
+// the first review named): reach is one shape. No fill per tile for a move; an inward light of at most 0.15; the
+// rest of the map 15 to 20% darker; only targets keep a hexagon of their own, with a glyph; and a red nation's
+// attack is not the hue of its own land.
+test('reach is one shape: 30 ms a ring; a 2.5-px rim, an inward light of at most 0.15, the rest 15 to 20% darker; targets alone keep a hexagon and a glyph', () => {
   assert.equal(ACT.ROLL_RING_MS, 30);
   assert.deepEqual([ACT.rollAt(0, 1), ACT.rollAt(29, 1) === 0, ACT.rollAt(30 + ACT.ROLL_FADE_MS, 1), ACT.rollAt(1e6, 6)], [0, true, 1, 1]);
   assert.ok(ACT.rollAt(100, 1) > ACT.rollAt(100, 2));
-  for (const k of ['move', 'attack', 'home', 'explore']) assert.ok(ACT.ACTION_COLOURS[k].alpha >= 0.35, `${k}: lit strongly enough`);
+  assert.equal(ACT.rollMs(6), 6 * 30 + ACT.ROLL_FADE_MS);
+  const R = ACT.REACH;
+  assert.equal(R.rim, 2.5);
+  assert.ok(R.inner <= 0.15 && R.inner > 0.05, 'the inward light: at most 0.15');
+  assert.ok(R.dim >= 0.15 && R.dim <= 0.2, 'everything outside the set dims by 15 to 20%');
+  // the strokes of the inward light add up to no more than `inner` at the contour and fall away inward
+  const steps = ACT.innerSteps();
+  const total = n => 1 - steps.slice(0, n).reduce((a, x) => a * (1 - x.alpha), 1);
+  assert.ok(total(steps.length) <= R.inner + 1e-9 && total(steps.length) > R.inner * 0.8);
+  for (let n = 2; n <= steps.length; n++) assert.ok(total(n) > total(n - 1) && steps[n - 1].width < steps[n - 2].width);
+  // a move has no fill of its own; the three kinds of target have one, and each has its glyph
+  assert.equal(ACT.ACTION_COLOURS.move.veil, undefined, 'no frame or fill per tile for a move');
+  assert.deepEqual([...ACT.TARGET_KINDS].sort(), ['attack', 'explore', 'home']);
+  for (const k of ACT.TARGET_KINDS) { assert.ok(ACT.ACTION_COLOURS[k].veil >= 0.3, `${k}: its own hexagon reads`); assert.ok(GLYPHS[ACT.KIND_GLYPH[k]], `${k}: a glyph of the HUD's sprite`); }
+  assert.deepEqual([ACT.KIND_GLYPH.attack, ACT.KIND_GLYPH.home, ACT.KIND_GLYPH.explore], ['swords', 'home', 'eye']);
   assert.deepEqual(ACT.ACTION_COLOURS.move.fill, [216, 243, 234], 'pale teal-white (--reach)');
   assert.deepEqual(ACT.ACTION_COLOURS.attack.fill, [226, 85, 61], 'ember (--ember)');
   assert.deepEqual(ACT.ACTION_COLOURS.home.fill, [243, 213, 138], 'gold (--you)');
@@ -268,6 +308,34 @@ test('the roll-out: 30 ms a ring; the colours of the brief; a fill of at least 0
   assert.equal(ACT.arrivalText(44), 'Arrives: turn 44');
   assert.equal(ACT.NOTE_TEXT.tooFar(32), 'Too far (at most 32 steps)');
   setLang('ja');
+});
+
+test('attack is never the hue of the viewer\'s own land: a red, rose or amber nation attacks in violet, the others in ember', () => {
+  const hue = ([r, g, b]) => { const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn; const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return (h * 60 + 360) % 360; };
+  const rgb = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16));
+  const gap = (a, b) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b));
+  for (let f = 0; f < 6; f++) {
+    const P = ACT.actionPalette(f), own = hue(rgb(FACTION_COLORS[f]));
+    assert.ok(gap(hue(P.attack.fill), own) >= ACT.ATTACK_HUE_GAP, `nation ${f}: attack is ${Math.round(gap(hue(P.attack.fill), own))} degrees from its own colour`);
+    if (P.attack === ACT.ATTACK_ALT) assert.ok(gap(hue(P.attack.fill), hue(P.home.fill)) > 60, 'the other colour is far from gold too (gold is the viewer\'s own)');
+    assert.equal(P.move, ACT.ACTION_COLOURS.move); assert.equal(P.home, ACT.ACTION_COLOURS.home);
+  }
+  assert.equal(ACT.actionPalette(0).attack, ACT.ATTACK_ALT, 'Aster (red)');
+  assert.equal(ACT.actionPalette(1).attack, ACT.ACTION_COLOURS.attack, 'Borealis (teal) keeps ember');
+  assert.equal(ACT.actionPalette(null), ACT.ACTION_COLOURS, 'no nation (the spectator): the brief\'s colours');
+});
+
+test('the reach set as one box and one outline: the host\'s own tile is part of it; a lit tile knows whether it is chart', () => {
+  const A = ACT.createActions({ passableOf: () => (1n << 61n) - 1n })({ ...page([entryOf(1)]), selected: { p: 2, q: 0, idx: 7 } });
+  assert.ok(A.tiles.length > 20);
+  assert.ok(A.tiles.every(t => Number.isInteger(t.lv)), 'every lit tile carries the survey\'s level');
+  const box = ACT.reachBox(A), c = project(home.q, home.r);
+  assert.ok(box.x0 < c.x && box.x1 > c.x && box.y0 < c.y && box.y1 > c.y, 'around the host');
+  for (const t of A.tiles) { const at = project(t.hq, t.hr); assert.ok(at.x - RADIUS >= box.x0 - 1e-6 && at.x + RADIUS <= box.x1 + 1e-6 && at.y >= box.y0 && at.y <= box.y1); }
+  assert.equal(ACT.reachBox(null), null);
+  // the outline of the set with the host's tile is one closed loop when nothing inside it is impassable
+  const shape = LAND.landShape([...A.tiles.map(t => ({ q: t.hq, r: t.hr, d: t.d })), { q: home.q, r: home.r, d: 0 }]);
+  assert.equal(shape.loops.length, 1, 'one contour, no frame per tile');
 });
 
 /** A context that records what is called on it (the painters only need these). */

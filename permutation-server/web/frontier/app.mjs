@@ -1207,8 +1207,9 @@ function placeObjective(v, size, lod) {
     if (c) {
       // (where the tile is seen: the board is tilted, map.project)
       const { x, y } = mapRef?.project ? mapRef.project(c.x, c.y, { box: true }) : { x: (c.x - v.x) * v.zoom + size.width / 2, y: (c.y - v.y) * v.zoom + size.height / 2 }, ins = hudInsets();
-      // above the ring (map/fmap.mjs paintGuide: a little over a hex's radius) and what stands on the tile
-      const top = y - Math.max(62 * v.zoom, 24) - 44;
+      // above what stands on the tile, and above the village's nameplate when the tile carries one (map.pileTop: UX brief 11.6)
+      const pile = mapRef?.pileTop?.(g.p, g.q, g.tile) ?? null;
+      const top = pile === null ? y - Math.max(62 * v.zoom, 24) - 44 : pile - 16;
       if (x > ins.left + 200 && x < size.width - ins.right - 200 && top > ins.top + 96 && y < size.height - ins.bottom - 24) at = { x: Math.round(x), y: Math.round(top) };
     }
   }

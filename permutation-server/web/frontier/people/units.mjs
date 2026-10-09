@@ -259,10 +259,10 @@ const SPOTS_HOLDING = [[[0.44, 0.4]], [[0.44, 0.4], [-0.1, 0.62]], [[0.44, 0.4],
 /**
  * The tokens of one province: `[{x, y, faction, kind, troops, n, status, face, alpha, own, dashed, hosts}]`.
  * `hosts` = `[{id, faction, unit, troops (whole), stamina, state, arriving?, broken?}]` (already filtered by fog);
- * `holdingTiles` = Set of tile indices with a holding; `exploring` / `marching` = Sets of host ids;
+ * `holdingTiles` = Set of tile indices with a holding (`heroTiles`, `heroSpots`: the viewer's own); `exploring` / `marching` = Sets of host ids;
  * `restBelow` the stamina a march needs.
  */
-export function provinceTokens({ p, q, hosts, holdingTiles = new Set(), viewerFaction = null, exploring = new Set(), marching = new Set(), restBelow = 0, skipTiles = new Set() }) {
+export function provinceTokens({ p, q, hosts, holdingTiles = new Set(), viewerFaction = null, exploring = new Set(), marching = new Set(), restBelow = 0, skipTiles = new Set(), heroTiles = null, heroSpots = null }) {
   const byTile = new Map();
   for (const h of hosts) {
     if (marching.has(String(h.id))) continue;   // the viewer's own column walks its road (movers)
@@ -277,7 +277,8 @@ export function provinceTokens({ p, q, hosts, holdingTiles = new Set(), viewerFa
   for (const [tile, groups] of byTile) {
     const list = [...groups.values()].sort((a, b) => (a.out - b.out) || (a.faction === viewerFaction ? -1 : b.faction === viewerFaction ? 1 : a.faction - b.faction));
     const c = centre(p, q, tile);
-    const spots = (holdingTiles.has(tile) ? SPOTS_HOLDING : SPOTS)[Math.min(list.length, 3) - 1];
+    // (`heroTiles`: the viewer's own villages, drawn larger: their hosts stand at `heroSpots`, in front of the houses)
+    const spots = (heroSpots && heroTiles?.has(tile) ? heroSpots : holdingTiles.has(tile) ? SPOTS_HOLDING : SPOTS)[Math.min(list.length, 3) - 1];
     const contested = new Set(list.filter(g => !g.out).map(g => g.faction)).size > 1;
     list.slice(0, 3).forEach((g, i) => {
       const main = [...g.hosts].sort((a, b) => b.troops - a.troops)[0];

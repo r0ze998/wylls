@@ -316,7 +316,7 @@ function banner(ctx, x, y, s, faction, t) {
  *   constructions  a scaffold beside the holding, a progress ring and the time left
  * Returns how many movers were drawn (the map keeps animating while any are).
  */
-export function paintPeople(ctx, { tiles = [], zoom = 1, t = (globalThis.performance?.now?.() ?? Date.now()) / 1000, explores = [], marches = [], constructions = [], fogOf = () => 'clear', pills = [] } = {}) {
+export function paintPeople(ctx, { tiles = [], zoom = 1, t = (globalThis.performance?.now?.() ?? Date.now()) / 1000, explores = [], marches = [], constructions = [], fogOf = () => 'clear', pills = [], ring = true, scaffoldAt = null } = {}) {
   const r = RADIUS * zoom;
   if (r < PEOPLE_MIN_R) return 0;
   const k = 1 / zoom, size = RADIUS * 0.66 * zoomBoost(r);
@@ -327,9 +327,10 @@ export function paintPeople(ctx, { tiles = [], zoom = 1, t = (globalThis.perform
   for (const c of constructions) {
     const u = holdingAt(c.p, c.q, c.site);
     if (!u || !seen(u.fog ?? fogOf(u.p, u.pq))) continue;
-    const x = u.x - RADIUS * 0.44, y = u.y + RADIUS * 0.22;
+    // (`scaffoldAt(u)`: the map says where the scaffold stands on this village; `ring` false: it draws the ring itself, upright, with its labels)
+    const { x, y } = scaffoldAt?.(u) ?? { x: u.x - RADIUS * 0.44, y: u.y + RADIUS * 0.22 };
     scaffold(ctx, x, y, size * 0.9, t);
-    if (r >= PEOPLE_FULL_R) progressBadge(ctx, x - size * 0.1, y - size * 0.7, k, c.share ?? 0, c.label ?? '', { side: 'left' });
+    if (ring && r >= PEOPLE_FULL_R) progressBadge(ctx, x - size * 0.1, y - size * 0.7, k, c.share ?? 0, c.label ?? '', { side: 'left' });
     n++;
   }
   // the viewer's own marches on their road

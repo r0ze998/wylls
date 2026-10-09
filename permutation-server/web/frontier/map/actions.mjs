@@ -2,12 +2,16 @@
 //
 // Selecting one of the viewer's own hosts on the map (on its village, or
 // wherever it stands) lights at once what it can do, with no panel button
-// first:
+// first. Reach is one shape (UX brief §11.7): the outer contour of everything
+// the host can reach, pale teal with a glow, a light just inside it, and
+// everything outside it a little darker. Only the targets keep a hexagon of
+// their own, each with its glyph:
 //
-//   march reach     pale teal-white where it can go, ember red where a camp, a
-//                   village of a hostile nation or a hostile host stands, gold
-//                   for the way back to one of the viewer's own villages
-//   explore         sky blue: the tiles a Scout can explore from where it stands
+//   attack          ember red and crossed swords where a camp, a village of a
+//                   hostile nation or a hostile host stands (violet for a
+//                   viewer whose own nation is red: never the land's own hue)
+//   home            gold and a house: the way back to one of the viewer's villages
+//   explore         sky blue and an eye: the tiles a Scout can explore from where it stands
 //
 // What is lit comes from the rule functions, never from this file:
 //   hud/reach.mjs reachTiles   a breadth-first walk over passable tiles, at most
@@ -32,17 +36,24 @@ import { UNITS, errorText } from '../fi18n.mjs';
 import { SCOUT, UNIT_ORDER, actionBlocks, exploreTargets, hostsIn } from '../fland.mjs';
 import { DEPART_STAMINA, freeTransitSlot } from '../fmarch.mjs';
 import { reachSteps, reachTiles } from '../hud/reach.mjs';
+import { FACTION_COLORS } from '../fi18n.mjs';
 import { YOU, fxNow } from './chart.mjs';
 import { upright } from './tilt.mjs';
+import { landShape } from './ownland.mjs';
+import { paintGlyph } from './glyphs.mjs';
 
 /** The kinds of lit tile, in the order a tile takes them (the first that applies). */
 export const ACTION_KINDS = Object.freeze(['explore', 'home', 'attack', 'move']);
-/** Their colours (the brief's --sky, --you, --ember, --reach): the fill (`alpha`: its strength in the band inside the rim; `veil`: over the whole tile), and the brighter rim. */
+/**
+ * Their colours (the brief's --reach, --ember, --you, --sky): `fill` and the brighter `rim`. Move is the reach
+ * itself: one contour in its rim colour, never a fill per tile (REACH). A target keeps a hexagon of its own, filled
+ * with `veil`.
+ */
 export const ACTION_COLOURS = Object.freeze({
-  move: Object.freeze({ fill: [216, 243, 234], rim: [240, 255, 250], alpha: 0.38, veil: 0.1 }),
-  attack: Object.freeze({ fill: [226, 85, 61], rim: [255, 150, 120], alpha: 0.5, veil: 0.34 }),
-  home: Object.freeze({ fill: [243, 213, 138], rim: [255, 236, 178], alpha: 0.46, veil: 0.3 }),
-  explore: Object.freeze({ fill: [127, 196, 232], rim: [186, 228, 252], alpha: 0.5, veil: 0.3 }),
+  move: Object.freeze({ fill: [216, 243, 234], rim: [206, 246, 235] }),
+  attack: Object.freeze({ fill: [226, 85, 61], rim: [255, 150, 120], veil: 0.36 }),
+  home: Object.freeze({ fill: [243, 213, 138], rim: [255, 236, 178], veil: 0.32 }),
+  explore: Object.freeze({ fill: [127, 196, 232], rim: [186, 228, 252], veil: 0.32 }),
 });
 /** The roll-out: a ring of tiles appears this long after the one before it (ms) and takes this long to come up. */
 export const ROLL_RING_MS = 30;
@@ -114,7 +125,7 @@ export function actorsAt(state, p, q, idx) {
 }
 
 /**
- * The lit tiles of one acting host: `{tiles: [{p, q, tile, hq, hr, d, kind}],
+ * The lit tiles of one acting host: `{tiles: [{p, q, tile, hq, hr, d, kind, lv (the survey's level of the tile)}],
  * byHex: Map "q,r" → tile}`. `provinceOf(p, q)` → the decoded Province or
  * null; `passableOf(p, q)` → the rules module's passable mask of that
  * province or null (an unknown province stops the walk); `levelOf(p, q,
@@ -135,10 +146,11 @@ export function litTiles({ origin, stamina = 0, faction = null, provinceOf = () 
     };
     for (const t of reachTiles({ start: origin, steps: reachSteps(stamina), provinceOf: walkOf, faction })) {
       const prov = provinceOf(t.p, t.q);
-      add({ p: t.p, q: t.q, tile: t.tile, d: t.d, kind: kindOf(prov, t.tile, { faction, level: levelOf(t.p, t.q, t.tile), own, nowBell }) });
+      const lv = levelOf(t.p, t.q, t.tile);
+      add({ p: t.p, q: t.q, tile: t.tile, d: t.d, lv, kind: kindOf(prov, t.tile, { faction, level: lv, own, nowBell }) });
     }
   }
-  for (const idx of explore) add({ p: origin.p, q: origin.q, tile: idx, d: 1, kind: 'explore' });
+  for (const idx of explore) add({ p: origin.p, q: origin.q, tile: idx, d: 1, lv: levelOf(origin.p, origin.q, idx), kind: 'explore' });
   return { tiles, byHex };
 }
 
@@ -203,60 +215,149 @@ const hexInto = (path, x, y, inset) => { hexPoints(x, y, inset).forEach(([px, py
 const INSET = 2.4;
 const lineScale = zoom => (0.72 + 0.28 * Math.min(1.8, Math.max(0.3, zoom))) / zoom;
 
-/** The band of light inside a lit tile's rim (world px): the fill is strongest there and lets the land show in the middle. */
-const BAND = 12;
-const groupsOf = new WeakMap();
-/** The lit tiles as paths, by kind and by kind and ring (made once per model): each `{rim, band}`. */
-function groups(A) {
-  if (typeof Path2D === 'undefined') return null;
-  const hit = groupsOf.get(A);
+/**
+ * Reach is one shape (UX brief §11.7): the outer contour of the reach set, an inward light of at most `inner`
+ * that is gone `depth` world px inside it, everything outside the set dimmed by `dim`. No frame per tile. `rim`
+ * and `glow` are screen px; `target` is how far a target's own hexagon is set in from its tile's edge (world px).
+ */
+export const REACH = Object.freeze({ rim: 2.5, glow: 11, inner: 0.15, depth: RADIUS * Math.sqrt(3) * 1.25, steps: 5, dim: 0.18, target: 5.5 });
+/** On the chart a pale line is lost on the parchment: the contour there is dark ink (teal-black), and the tiles take a breath of it. */
+const CHART_INK = [18, 58, 56];
+/** The kinds that are targets: each keeps a hexagon of its own, set in from the tile's edge, and a glyph (colour is never the only sign). */
+export const TARGET_KINDS = Object.freeze(['home', 'attack', 'explore']);
+/** The glyph of a kind (map/glyphs.mjs, the HUD sprite's own pictures). */
+export const KIND_GLYPH = Object.freeze({ attack: 'swords', home: 'home', explore: 'eye', chosen: 'check' });
+
+const hueOf = ([r, g, b]) => { const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn; if (!d) return null; const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return (h * 60 + 360) % 360; };
+const hexRgb = c => { const m = /^#?([0-9a-f]{6})$/i.exec(String(c ?? '')); return m ? [0, 2, 4].map(i => parseInt(m[1].slice(i, i + 2), 16)) : null; };
+const hueGap = (a, b) => (a === null || b === null ? 180 : Math.min(Math.abs(a - b), 360 - Math.abs(a - b)));
+/** A nation whose colour is within this many degrees of ember red takes another colour for attack. */
+export const ATTACK_HUE_GAP = 45;
+/** Attack for a nation that is itself red (Aster), rose (Fjordal) or amber (Cinder): violet, far from the land's own cast and from gold. */
+export const ATTACK_ALT = Object.freeze({ fill: [168, 78, 226], rim: [224, 178, 255], veil: 0.38 });
+/**
+ * The colours of the lit tiles for a viewer of nation `faction`: the brief's, except that attack is never the hue
+ * of the viewer's own land (a red nation's attack tiles would read as more of its land: UX brief §11.7).
+ */
+export function actionPalette(faction = null) {
+  const own = hexRgb(FACTION_COLORS[faction]);
+  if (!own || hueGap(hueOf(own), hueOf(ACTION_COLOURS.attack.fill)) >= ATTACK_HUE_GAP) return ACTION_COLOURS;
+  return paletteAlt;
+}
+const paletteAlt = Object.freeze({ ...ACTION_COLOURS, attack: ATTACK_ALT });
+
+/** The band of light inside the contour as strokes clipped to the set, widest first: `[{width, alpha}]` (the same sum as the land's band). */
+export function innerSteps({ inner, depth, steps } = REACH) {
+  const at = j => inner * Math.pow(1 - (j - 0.5) / steps, 1.3);
+  const out = [];
+  for (let j = steps; j >= 1; j--) out.push({ width: 2 * depth * (j / steps), alpha: 1 - (1 - at(j)) / (1 - (j === steps ? 0 : at(j + 1))) });
+  return out;
+}
+const INNER = innerSteps();
+
+const shapes = new WeakMap();
+/**
+ * The reach set of a model as one shape (made once per model): `{shape (ownland.mjs landShape: the set with the
+ * host's own tile, its outline as closed loops), fill, edge, hole (the loops, for the dim outside), chart (the
+ * set's chart tiles) and chartEdge (the contour along them) or null, targets: Map kind → Path2D of their own
+ * hexagons, maxD, centre}`; null without Path2D.
+ */
+function shapeOf(A) {
+  if (typeof Path2D === 'undefined' || !A?.tiles?.length) return null;
+  const hit = shapes.get(A);
   if (hit) return hit;
-  const byKind = new Map(), byRing = new Map();
-  const make = (kind, d) => ({ kind, d, rim: new Path2D(), band: new Path2D() });
-  let maxD = 0;
+  const tiles = A.tiles.map(t => ({ q: t.hq, r: t.hr, d: t.d }));
+  if (A.hex && !A.byHex?.has?.(`${A.hex.q},${A.hex.r}`)) tiles.push({ q: A.hex.q, r: A.hex.r, d: 0 });
+  const shape = landShape(tiles);
+  const fill = new Path2D(), edge = new Path2D(), targets = new Map();
+  const inSet = new Set(tiles.map(t => `${t.q},${t.r}`));
+  let chart = null, chartEdge = null;
+  for (const t of tiles) { const c = project(t.q, t.r); hexInto(fill, c.x, c.y, 0); }
+  for (const loop of shape.loops) { loop.forEach(([x, y], i) => (i ? edge.lineTo(x, y) : edge.moveTo(x, y))); edge.closePath(); }
   for (const t of A.tiles) {
     const c = project(t.hq, t.hr);
-    const rk = `${t.kind}|${t.d}`;
-    if (!byKind.has(t.kind)) byKind.set(t.kind, make(t.kind, 0));
-    if (!byRing.has(rk)) byRing.set(rk, make(t.kind, t.d));
-    for (const x of [byKind.get(t.kind), byRing.get(rk)]) { hexInto(x.rim, c.x, c.y, INSET); hexInto(x.band, c.x, c.y, INSET + BAND / 2); }
-    if (t.d > maxD) maxD = t.d;
+    if (TARGET_KINDS.includes(t.kind)) { if (!targets.has(t.kind)) targets.set(t.kind, new Path2D()); hexInto(targets.get(t.kind), c.x, c.y, REACH.target); }
+    if ((t.lv ?? 3) >= 2) continue;
+    // a chart tile of the set, and the part of the contour that runs along it
+    hexInto(chart ??= new Path2D(), c.x, c.y, 0);
+    const pts = hexPoints(c.x, c.y, 0);
+    EDGE_OF.forEach(([dq, dr], k) => {
+      if (inSet.has(`${t.hq + dq},${t.hr + dr}`)) return;
+      const a = pts[(k + 5) % 6], b = pts[k];
+      (chartEdge ??= new Path2D()).moveTo(a[0], a[1]); chartEdge.lineTo(b[0], b[1]);
+    });
   }
-  const v = { byKind, byRing, maxD };
-  groupsOf.set(A, v);
+  const v = { shape, fill, edge, chart, chartEdge, targets, maxD: shape.maxD, centre: A.hex ? project(A.hex.q, A.hex.r) : shape.centre };
+  shapes.set(A, v);
   return v;
+}
+/** The neighbour across the edge between corners k−1 and k of hexPoints (as map/ownland.mjs). */
+const EDGE_OF = [[1, -1], [1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1]];
+
+/** The box (world px) around the reach set of `A` with the host's own tile: `{x0, y0, x1, y1}`, or null. */
+export function reachBox(A) {
+  if (!A?.tiles?.length) return null;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  const add = (q, r) => { const c = project(q, r); x0 = Math.min(x0, c.x - RADIUS); x1 = Math.max(x1, c.x + RADIUS); y0 = Math.min(y0, c.y - RADIUS * FLATTEN); y1 = Math.max(y1, c.y + RADIUS * FLATTEN); };
+  for (const t of A.tiles) add(t.hq, t.hr);
+  if (A.hex) add(A.hex.q, A.hex.r);
+  return { x0, y0, x1, y1 };
 }
 
 /** How much of ring d shows `age` ms after the tiles were lit (the roll-out). */
 export const rollAt = (age, d) => Math.max(0, Math.min(1, (age - d * ROLL_RING_MS) / ROLL_FADE_MS));
+/** How long the roll-out of a set of rings 0..maxD lasts (ms). */
+export const rollMs = maxD => maxD * ROLL_RING_MS + ROLL_FADE_MS;
+/** The light spreads from the host: clip to a round of this radius (world px) `age` ms after the tiles were lit. */
+const rollClip = (g, S, age) => {
+  const rx = (age / ROLL_RING_MS + 0.9) * Math.sqrt(3) * RADIUS;
+  g.beginPath(); g.ellipse?.(S.centre.x, S.centre.y, rx, rx * FLATTEN, 0, 0, Math.PI * 2); g.clip?.();
+};
 
 /**
- * The lit tiles on the ground (after the land, before what stands on it):
- * each a cell of light: a veil over the whole tile, a band of the full fill
- * inside its rim, an outer glow and the rim itself, rolling out ring by ring
- * and then breathing. `dim` < 1 while a destination is chosen (the route
- * reads over them). Returns whether the roll-out is still running.
+ * The reach on the ground (after the land, before what stands on it): a light inside the contour that is gone a
+ * little way in, the targets' own hexagons, the outer glow and the rim, spreading from the host and then
+ * breathing. `dim` < 1 while a destination is chosen (the route reads over it). `palette`: actionPalette of the
+ * viewer. Returns whether the roll-out is still running.
  */
-export function paintActionGround(g, A, { zoom = 1, now = fxNow(), still = false, dim = 1, base = false } = {}) {
-  const G = A?.tiles?.length ? groups(A) : null;
-  if (!G || !g?.save) return false;
+export function paintActionGround(g, A, { zoom = 1, now = fxNow(), still = false, dim = 1, base = false, palette = ACTION_COLOURS } = {}) {
+  const S = g?.save ? shapeOf(A) : null;
+  if (!S) return false;
   const k = lineScale(zoom), age = now - A.t0;
-  const rolled = still || base || age >= G.maxD * ROLL_RING_MS + ROLL_FADE_MS;
-  // (`base`: the tiles fully out and without their breath, for a layer that is kept; paintActionPulse lays the breath over it)
+  const rolled = still || base || age >= rollMs(S.maxD);
+  // (`base`: the reach fully out and without its breath, for a layer that is kept; paintActionPulse lays the breath over it)
   const breath = base ? 0 : still ? 0.5 : 0.5 + 0.5 * Math.sin(now / 1000 * 2.4);
+  const a = dim * (rolled ? 1 : Math.min(1, Math.max(0, age) / 140));
+  const M = palette.move;
   g.save();
-  g.lineJoin = 'round';
-  const one = (x, show) => {
-    const C = ACTION_COLOURS[x.kind];
-    if (!C || show <= 0) return;
-    g.globalAlpha = C.veil * show * dim; g.fillStyle = rgba(C.fill, 1); g.fill(x.rim);
-    g.globalAlpha = (C.alpha + 0.08 * breath) * show * dim; g.strokeStyle = rgba(C.fill, 1); g.lineWidth = BAND; g.stroke(x.band);
-    g.strokeStyle = rgba(C.rim, 1);
-    g.globalAlpha = 0.22 * show * dim; g.lineWidth = 7.5 * k; g.stroke(x.rim);
-    g.globalAlpha = (0.82 + 0.18 * breath) * show * dim; g.lineWidth = 2.5 * k; g.stroke(x.rim);
-  };
-  if (rolled) for (const kind of ['move', 'home', 'attack', 'explore']) { const x = G.byKind.get(kind); if (x) one(x, 1); }
-  else for (const x of G.byRing.values()) one(x, rollAt(age, x.d));
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  if (!rolled) rollClip(g, S, age);
+  // the light inside the contour
+  g.save();
+  g.clip(S.fill);
+  g.strokeStyle = rgba(M.fill, 1);
+  for (const { width, alpha } of INNER) { g.globalAlpha = alpha * a; g.lineWidth = width; g.stroke(S.edge); }
+  g.restore();
+  if (S.chart) { g.globalAlpha = 0.11 * a; g.fillStyle = rgba(CHART_INK, 1); g.fill(S.chart); }
+  // the targets: a hexagon of their own
+  for (const kind of TARGET_KINDS) {
+    const path = S.targets.get(kind), C = palette[kind];
+    if (!path || !C) continue;
+    g.globalAlpha = (C.veil + 0.06 * breath) * a; g.fillStyle = rgba(C.fill, 1); g.fill(path);
+    g.globalAlpha = 0.5 * a; g.strokeStyle = 'rgba(12,20,18,1)'; g.lineWidth = 4.2 * k; g.stroke(path);
+    g.globalAlpha = 0.95 * a; g.strokeStyle = rgba(C.rim, 1); g.lineWidth = 2 * k; g.stroke(path);
+  }
+  // the contour: its glow reaching outward, ink under it, the pale rim
+  g.strokeStyle = rgba(M.rim, 1);
+  g.globalAlpha = (0.1 + 0.06 * breath) * a; g.lineWidth = REACH.glow * 1.7 * k; g.stroke(S.edge);
+  g.globalAlpha = (0.2 + 0.1 * breath) * a; g.lineWidth = REACH.glow * 0.8 * k; g.stroke(S.edge);
+  g.globalAlpha = 0.5 * a; g.strokeStyle = 'rgba(10,26,24,1)'; g.lineWidth = (REACH.rim + 2.4) * k; g.stroke(S.edge);
+  g.globalAlpha = (0.9 + 0.1 * breath) * a; g.strokeStyle = rgba(M.rim, 1); g.lineWidth = REACH.rim * k; g.stroke(S.edge);
+  if (S.chartEdge) {
+    // along the chart: dark ink, with the pale line as a hair inside it
+    g.globalAlpha = 0.92 * a; g.strokeStyle = rgba(CHART_INK, 1); g.lineWidth = (REACH.rim + 1.6) * k; g.stroke(S.chartEdge);
+    g.globalAlpha = 0.85 * a; g.strokeStyle = rgba(M.rim, 1); g.lineWidth = 1 * k; g.stroke(S.chartEdge);
+  }
   g.restore();
   return !rolled;
 }
@@ -265,78 +366,91 @@ export function paintActionGround(g, A, { zoom = 1, now = fxNow(), still = false
 export function rolledOut(A, now = fxNow()) {
   let maxD = 0;
   for (const t of A?.tiles ?? []) if (t.d > maxD) maxD = t.d;
-  return now - (A?.t0 ?? 0) >= maxD * ROLL_RING_MS + ROLL_FADE_MS;
+  return now - (A?.t0 ?? 0) >= rollMs(maxD);
 }
 
-/** The breath of the lit tiles alone, over tiles painted with `base`: their rims brighten and fade. */
-export function paintActionPulse(g, A, { zoom = 1, now = fxNow(), dim = 1 } = {}) {
-  const G = A?.tiles?.length ? groups(A) : null;
-  if (!G || !g?.save) return;
+/** The breath of the reach alone, over a reach painted with `base`: the contour's glow brightens and fades. */
+export function paintActionPulse(g, A, { zoom = 1, now = fxNow(), dim = 1, palette = ACTION_COLOURS } = {}) {
+  const S = g?.save ? shapeOf(A) : null;
+  if (!S) return;
   const k = lineScale(zoom), breath = 0.5 + 0.5 * Math.sin(now / 1000 * 2.4);
   g.save();
   g.lineJoin = 'round';
-  for (const [kind, x] of G.byKind) {
-    g.strokeStyle = rgba(ACTION_COLOURS[kind].rim, 1);
-    g.globalAlpha = 0.2 * breath * dim; g.lineWidth = 7.5 * k; g.stroke(x.rim);
-    g.globalAlpha = 0.3 * breath * dim; g.lineWidth = 2.5 * k; g.stroke(x.rim);
-  }
+  g.strokeStyle = rgba(palette.move.rim, 1);
+  g.globalAlpha = 0.16 * breath * dim; g.lineWidth = REACH.glow * 0.8 * k; g.stroke(S.edge);
+  g.globalAlpha = 0.22 * breath * dim; g.lineWidth = REACH.rim * k; g.stroke(S.edge);
+  for (const kind of TARGET_KINDS) { const path = S.targets.get(kind); if (path) { g.globalAlpha = 0.07 * breath * dim; g.fillStyle = rgba(palette[kind].fill, 1); g.fill(path); } }
   g.restore();
-}
-
-/** A small mark for what a lit tile is (colour is never the only sign): crossed blades, a house, an eye, or a tick for a chosen tile. */
-function mark(g, kind, x, y, s) {
-  g.beginPath();
-  if (kind === 'attack') {
-    g.moveTo(x - s, y - s); g.lineTo(x + s, y + s); g.moveTo(x + s, y - s); g.lineTo(x - s, y + s);
-    g.moveTo(x - s * 1.05, y + s * 0.35); g.lineTo(x - s * 0.35, y + s * 1.05); g.moveTo(x + s * 1.05, y + s * 0.35); g.lineTo(x + s * 0.35, y + s * 1.05);
-  } else if (kind === 'home') {
-    g.moveTo(x - s * 1.1, y - s * 0.05); g.lineTo(x, y - s * 1.05); g.lineTo(x + s * 1.1, y - s * 0.05);
-    g.moveTo(x - s * 0.72, y - s * 0.3); g.lineTo(x - s * 0.72, y + s); g.lineTo(x + s * 0.72, y + s); g.lineTo(x + s * 0.72, y - s * 0.3);
-  } else if (kind === 'chosen') {
-    g.moveTo(x - s, y + s * 0.05); g.lineTo(x - s * 0.25, y + s * 0.8); g.lineTo(x + s * 1.05, y - s * 0.75);
-  } else {
-    g.moveTo(x - s * 1.2, y); g.quadraticCurveTo(x, y - s * 1.25, x + s * 1.2, y); g.quadraticCurveTo(x, y + s * 1.25, x - s * 1.2, y);
-    g.moveTo(x + s * 0.38, y); g.arc(x, y, s * 0.38, 0, Math.PI * 2);
-  }
 }
 
 /**
- * Over what stands on the land: a thin outline of every lit tile (a wood
- * never hides that it is lit) and a small mark on the tiles that are more
- * than a move.
+ * Everything outside the reach set dims (the reach is lit by contrast, not by a wash): over the land and what
+ * stands on it, never over the set. `box` `{x0, y0, x1, y1}` (world px): the part of the world in the picture.
  */
-export function paintActionTop(g, A, { zoom = 1, now = fxNow(), still = false, dim = 1 } = {}) {
-  const G = A?.tiles?.length ? groups(A) : null;
-  if (!G || !g?.save) return;
+export function paintReachDim(g, A, { box, now = fxNow(), still = false, dim = 1 } = {}) {
+  const S = g?.save && box ? shapeOf(A) : null;
+  if (!S) return;
+  const age = now - A.t0, show = still ? 1 : Math.min(1, Math.max(0, age) / Math.max(1, rollMs(S.maxD)));
+  if (!(show > 0)) return;
+  const path = new Path2D();
+  path.rect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0);
+  path.addPath?.(S.edge);
+  g.save();
+  g.globalAlpha = REACH.dim * show * dim; g.fillStyle = 'rgba(8,16,15,1)';
+  g.fill(path, 'evenodd');
+  g.restore();
+}
+
+/**
+ * Over what stands on the land: the contour once more, thin (a wood never hides where the reach ends), and a
+ * badge with its glyph on every target: crossed swords, a house, an eye, or a tick for a tile that was chosen.
+ */
+export function paintActionTop(g, A, { zoom = 1, now = fxNow(), still = false, dim = 1, palette = ACTION_COLOURS } = {}) {
+  const S = g?.save ? shapeOf(A) : null;
+  if (!S) return;
   const k = lineScale(zoom), age = still ? Infinity : now - A.t0;
   g.save();
   g.lineJoin = 'round'; g.lineCap = 'round';
-  for (const [kind, x] of G.byKind) { g.globalAlpha = 0.5 * dim * rollAt(age, 1); g.strokeStyle = rgba(ACTION_COLOURS[kind].rim, 1); g.lineWidth = 1 * k; g.stroke(x.rim); }
+  g.save();
+  if (age < rollMs(S.maxD)) rollClip(g, S, age);
+  g.globalAlpha = 0.55 * dim; g.strokeStyle = rgba(palette.move.rim, 1); g.lineWidth = 1.1 * k; g.stroke(S.edge);
+  if (S.chartEdge) { g.globalAlpha = 0.7 * dim; g.strokeStyle = rgba(CHART_INK, 1); g.lineWidth = 1.4 * k; g.stroke(S.chartEdge); }
+  g.restore();
   const chosen = new Set(A.chosen ?? []);
   for (const t of A.tiles) {
-    const picked = t.kind === 'explore' && chosen.has(t.tile);
-    if (t.kind === 'move') continue;
+    if (!TARGET_KINDS.includes(t.kind)) continue;
     const show = rollAt(age, t.d);
     if (show <= 0) continue;
-    const c = project(t.hq, t.hr), r = 9.5 * k, x = c.x, y = c.y + RADIUS * FLATTEN * 0.56;
-    const C = ACTION_COLOURS[t.kind];
-    g.globalAlpha = show * dim;
-    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fillStyle = picked ? rgba(C.rim, 1) : 'rgba(14,22,20,.9)'; g.fill();
-    g.strokeStyle = rgba(C.rim, 1); g.lineWidth = 1.5 * k; g.stroke();
-    mark(g, picked ? 'chosen' : t.kind, x, y, r * 0.46);
-    g.strokeStyle = picked ? '#10201c' : rgba(C.rim, 1); g.lineWidth = 1.7 * k; g.stroke();
+    const c = project(t.hq, t.hr);
+    paintKindBadge(g, c.x, c.y + RADIUS * FLATTEN * 0.5, t.kind === 'explore' && chosen.has(t.tile) ? 'chosen' : t.kind, { zoom, alpha: show * dim, colour: palette[t.kind], filled: t.kind === 'explore' && chosen.has(t.tile) });
   }
   g.restore();
 }
 
-/** The hexagon under the pointer, on the ground: bright, and in the tile's colour when the tile is lit. */
-export function paintHoverGround(g, hex, { zoom = 1, kind = null } = {}) {
+/** A target's badge: a dark disc rimmed in the kind's colour with its glyph (`filled`: the disc in the colour, the glyph dark). */
+export function paintKindBadge(g, x, y, kind, { zoom = 1, alpha = 1, colour = ACTION_COLOURS.move, filled = false, r = 11 } = {}) {
+  if (!g?.save) return;
+  const k = lineScale(zoom), rr = r * k;
+  g.save();
+  g.globalAlpha = alpha * 0.35; g.fillStyle = '#060c0b'; g.beginPath(); g.arc(x, y + 1.5 * k, rr + 1.5 * k, 0, Math.PI * 2); g.fill();
+  g.globalAlpha = alpha;
+  g.beginPath(); g.arc(x, y, rr, 0, Math.PI * 2); g.fillStyle = filled ? rgba(colour.rim, 1) : 'rgba(13,24,22,.94)'; g.fill();
+  g.strokeStyle = rgba(colour.rim, 1); g.lineWidth = 1.6 * k; g.stroke();
+  paintGlyph(g, KIND_GLYPH[kind] ?? KIND_GLYPH.explore, x, y, rr * 1.42, { colour: filled ? '#10201c' : rgba(colour.rim, 1), weight: 2, alpha });
+  g.restore();
+}
+
+/**
+ * The hexagon under the pointer, on the ground: bright, set in from the tile's edge, and in the tile's colour
+ * when the tile is lit (the one tile of the reach that shows a frame of its own).
+ */
+export function paintHoverGround(g, hex, { zoom = 1, kind = null, palette = ACTION_COLOURS } = {}) {
   if (!hex || !g?.save) return;
-  const k = lineScale(zoom), c = project(hex.q, hex.r), C = kind ? ACTION_COLOURS[kind] : null;
+  const k = lineScale(zoom), c = project(hex.q, hex.r), C = kind ? palette[kind] : null;
   g.save();
   g.lineJoin = 'round';
-  g.beginPath(); hexPoints(c.x, c.y, INSET).forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath();
-  g.globalAlpha = C ? 0.5 : 0.2; g.fillStyle = C ? rgba(C.rim, 1) : '#ffffff'; g.fill();
+  g.beginPath(); hexPoints(c.x, c.y, C ? REACH.target * 0.6 : INSET).forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath();
+  g.globalAlpha = C ? 0.42 : 0.2; g.fillStyle = C ? rgba(C.rim, 1) : '#ffffff'; g.fill();
   g.globalAlpha = 0.3; g.strokeStyle = '#ffffff'; g.lineWidth = 8 * k; g.stroke();
   g.globalAlpha = 1; g.lineWidth = 2.8 * k; g.stroke();
   g.restore();
@@ -383,10 +497,10 @@ export function paintSelectionTop(g, hex, { zoom = 1, own = false } = {}) {
  * tile. Ink under it, the colour of what it leads to, light running along it
  * the way the host would go, an arrowhead at the end.
  */
-export function paintRibbon(g, hexes, { zoom = 1, kind = 'move', own = false, now = fxNow(), still = false } = {}) {
+export function paintRibbon(g, hexes, { zoom = 1, kind = 'move', own = false, now = fxNow(), still = false, palette = ACTION_COLOURS } = {}) {
   if (!g?.save || !(hexes?.length > 1)) return;
   const pts = hexes.map(h => project(h.q, h.r));
-  const k = lineScale(zoom), col = own ? [243, 213, 138] : ACTION_COLOURS[kind]?.rim ?? ACTION_COLOURS.move.rim;
+  const k = lineScale(zoom), col = own ? [243, 213, 138] : palette[kind]?.rim ?? palette.move.rim;
   const n = pts.length, a = pts[n - 2], b = pts[n - 1];
   const ang = Math.atan2(b.y - a.y, b.x - a.x), head = 11 * k;
   // the line stops short of the last tile's centre: the arrowhead and the tile's own mark have the room
@@ -423,15 +537,18 @@ const TAG_TONES = Object.freeze({
  * `place` 'above' or 'below' the point by `gap` screen px; `shake` (px) moves
  * it sideways (a refusal). Returns its box in world px.
  */
-export function paintTag(g, x, y, text, { zoom = 1, tone = 'plain', place = 'above', gap = 10, size = 12.5, shake = 0, alpha = 1, anchor = null } = {}) {
+export function paintTag(g, x, y, text, { zoom = 1, tone = 'plain', place = 'above', gap = 10, size = 12.5, shake = 0, alpha = 1, anchor = null, pass = null } = {}) {
   // `anchor` {x, y}: the place on the board the tag belongs to (its tile): the tag stands upright around it (map/tilt.mjs)
+  // `pass`: the frame's label pass (map/labelpass.mjs): the tag slides out from under the HUD (it is never left out)
   if (!g?.save || !text) return null;
   const k = 1 / zoom, [plate, ink, rim] = TAG_TONES[tone] ?? TAG_TONES.plain;
   g.save();
   g.font = `700 ${size * k}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
   const tw = (g.measureText?.(text)?.width ?? text.length * size * k * 0.6) + 18 * k, th = (size + 10) * k;
-  const cx = x + shake * k, top = place === 'below' ? y + gap * k : y - gap * k - th;
-  upright(g, anchor?.x ?? x, anchor?.y ?? y, () => {
+  const ax = anchor?.x ?? x, ay = anchor?.y ?? y;
+  const move = pass?.place(ax, ay, { x: x - tw / 2, y: place === 'below' ? y + gap * k : y - gap * k - th, w: tw, h: th }, { keep: true }) ?? { dx: 0, dy: 0 };
+  const cx = x + shake * k + move.dx, top = (place === 'below' ? y + gap * k : y - gap * k - th) + move.dy;
+  upright(g, ax, ay, () => {
     g.globalAlpha = alpha;
     g.fillStyle = plate; g.beginPath(); g.roundRect?.(cx - tw / 2, top, tw, th, th / 2); g.fill();
     g.strokeStyle = rim; g.lineWidth = 1.2 * k; g.stroke();

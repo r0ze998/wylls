@@ -55,6 +55,25 @@ const mapOf = page => page.evaluate(async () => {
   return !!window.__map;
 });
 
+/**
+ * Where a tile is seen now (viewport px), once the camera has come to rest: `at` is `{p, q, tile}` or a hex
+ * `{q, r}`. Selecting a host lights its reach and the camera eases out until the reach's edge is in the picture
+ * (UX brief §11.7), so a press meant for a tile is aimed at the tile, never at a place on the screen.
+ */
+const tileAt = async (page, at) => {
+  await mapOf(page);
+  return page.evaluate(async at => {
+    const m = window.__map, frame = () => new Promise(r => requestAnimationFrame(r));
+    // at rest: no move under way and none asked for, for a few frames in a row (the drawer slides in and the reach is framed again in what is left)
+    for (let still = 0, i = 0; still < 10 && i < 400; i++) { await frame(); still = m.cam.moving || m.reachFly ? 0 : still + 1; }
+    const { tileHex } = await import('/frontier/fgeo.mjs');
+    const { project } = await import('/map.mjs');
+    const h = Number.isInteger(at.tile) ? tileHex(at.p, at.q, at.tile) : at, c = project(h.q, h.r);
+    return m.project(c.x, c.y);
+  }, at);
+};
+const tapTile = async (page, at) => { const p = await tileAt(page, at); await page.mouse.click(p.x, p.y); };
+
 const drawer = page => page.locator('#panel').getAttribute('data-drawer');
 
 // Rewritten with the redesign (UX design section 6): the sheet rested at half with the map tab's panel in it;
@@ -269,21 +288,15 @@ test('step counts: a selected host to "seal and depart" in 3 presses; the next t
   // the camera on the viewer's home tile, where the fixture's ready host stands (?at=P,Q,TILE,ZOOM)
   const page = await open(t, { width: 1440, height: 900, query: `?at=${HOME.p},${HOME.q},${HOME.tile},${Z}` });
   await page.locator('#frontier-map[data-lod="tile"]').waitFor();
-  const box = await page.locator('#frontier-map').boundingBox();
-  const centre = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-  const offset = await page.evaluate(async ([p, q, from, to]) => {
-    const { tileHex } = await import('/frontier/fgeo.mjs');
-    const { project } = await import('/map.mjs');
-    const a = (h => project(h.q, h.r))(tileHex(p, q, from)), b = (h => project(h.q, h.r))(tileHex(p, q, to));
-    return { x: b.x - a.x, y: b.y - a.y };
-  }, [HOME.p, HOME.q, HOME.tile, CAMP_TILE]);
   // the host selected: a press on its tile (the selection itself is not counted)
-  await page.mouse.click(centre.x, centre.y);
+  // (rewritten with UX brief §11.7: the presses were aimed at fixed places on the screen; a selection now eases the
+  // camera out to the lit reach, so each press is aimed at its tile where the map shows it: tapTile)
+  await tapTile(page, HOME);
   await page.locator('#panel-body [data-act="compose"]').first().waitFor();
   let presses = 0;
   presses++; await page.locator('#panel-body [data-act="compose"]').first().click();
   await page.locator('#mc-title').waitFor();
-  presses++; await tap(page, centre.x + offset.x * Z, centre.y + offset.y * Z);   // (where the tile is seen: the board is tilted)
+  presses++; await tapTile(page, { ...HOME, tile: CAMP_TILE });
   const send = page.locator('[data-act="march-send"]:not([disabled])');
   await send.waitFor({ timeout: 15_000 });
   presses++;
@@ -310,6 +323,10 @@ test('the land: lit tiles on selection, a tap is the order, a refusal on the map
   await page.locator('#frontier-map[data-lod="tile"][data-terrain="ready"]').waitFor();
   const box = await page.locator('#frontier-map').boundingBox();
   const centre = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  // (rewritten with UX brief §11.7: every press on a tile was aimed at a fixed place on the screen, counted from
+  // the camera the test had set; selecting the village now eases the camera out to its reach, so each press is
+  // aimed at its tile where the map shows it, once the camera rests: tapTile. What is asserted is unchanged.)
+  const home = () => tapTile(page, HOME);
   // where things are, from the page's own rules module: the camp, and the nearest tile no host can stand on
   const where = await page.evaluate(async ([p, q, from, camp]) => {
     const { tileHex } = await import('/frontier/fgeo.mjs');
@@ -332,33 +349,45 @@ test('the land: lit tiles on selection, a tap is the order, a refusal on the map
       compose: FS.compose ? { host: String(FS.compose.host.id), dest: FS.compose.dest ? [FS.compose.dest.p, FS.compose.dest.q, FS.compose.dest.tile] : null } : null, explore: FS.explore ? [...FS.explore.tiles] : null, tab: FS.tab ?? 'map' };
   });
   // 1. the village: selected, nothing composed yet
-  await page.mouse.click(centre.x, centre.y);
+  await home();
   assert.deepEqual((await state()).sel, [HOME.p, HOME.q, HOME.tile]);
   assert.equal((await state()).compose, null, 'selecting composes nothing');
+  // 1b. its reach is lit and the camera has eased out to it: the reach's box is in the part of the picture nothing covers
+  const framed = await page.evaluate(async () => {
+    const m = window.__map, frame = () => new Promise(r => requestAnimationFrame(r));
+    for (let still = 0, i = 0; still < 10 && i < 400; i++) { await frame(); still = m.cam.moving || m.reachFly ? 0 : still + 1; }
+    const { reachBox } = await import('/frontier/map/actions.mjs');
+    const { hudInsets } = await import('/frontier/hud/insets.mjs');
+    const b = reachBox(m.source().actions), ins = hudInsets(), w = m.canvas.clientWidth, h = m.canvas.clientHeight;
+    const pts = [[b.x0, b.y0], [b.x1, b.y0], [b.x1, b.y1], [b.x0, b.y1]].map(([x, y]) => m.project(x, y, { box: true }));
+    return { zoom: m.view.zoom, lod: m.lod, inside: pts.every(p => p.x >= ins.left && p.x <= w - ins.right && p.y >= ins.top && p.y <= h - ins.bottom), held: !!m.reachFit?.held };
+  });
+  assert.ok(framed.zoom < Z && framed.lod === 'tile', `the camera eased out (zoom ${framed.zoom.toFixed(2)}) and the tiles are still tiles`);
+  assert.equal(framed.inside, true, 'the whole reach is in the free part of the picture');
   // 2. a tile no host can stand on: said on the map (and in the live line), the host stays selected
-  await tap(page, centre.x + where.wet.x * Z, centre.y + where.wet.y * Z);
+  await tapTile(page, { ...HOME, tile: where.wet.tile });
   await page.waitForFunction(async () => !!(await import('/frontier/fstate.mjs')).FS.mapNote);
   let s = await state();
   assert.deepEqual([s.note, s.noteTile, s.sel, s.compose], ['ここへは届きません', where.wet.tile, [HOME.p, HOME.q, HOME.tile], null], 'refused on the map; the village stays selected');
   assert.equal(await page.locator('#map-summary').textContent(), 'ここへは届きません');
   // 3. the village again: the next host standing there (the Scout); again: back to the first
-  await page.mouse.click(centre.x, centre.y);
+  await home();
   assert.equal((await state()).actor, 1);
-  await page.mouse.click(centre.x, centre.y);
+  await home();
   assert.equal((await state()).actor, 0);
   // 4. the Scout: a sky-blue neighbour is picked for its exploration, and the explore card comes to the map tab
-  await page.mouse.click(centre.x, centre.y);
+  await home();
   assert.equal((await state()).actor, 1);
-  const east = await page.evaluate(async () => { const { project } = await import('/map.mjs'); return project(1, 0); });
-  await tap(page, centre.x + east.x * Z, centre.y + east.y * Z);
+  const east = await page.evaluate(async ([p, q, tile]) => { const { tileHex } = await import('/frontier/fgeo.mjs'); const h = tileHex(p, q, tile); return { q: h.q + 1, r: h.r }; }, [HOME.p, HOME.q, HOME.tile]);
+  await tapTile(page, east);
   s = await state();
   assert.equal(s.explore?.length, 1, 'one tile picked for the exploration');
   await page.locator('#explore-title').waitFor();
   assert.equal(s.tab, 'map');
   // 5. back to the first host; the camp, a lit tile: the order card, with the destination, in one press (two from nothing)
-  await page.mouse.click(centre.x, centre.y);
+  await home();
   assert.equal((await state()).actor, 0);
-  await tap(page, centre.x + where.camp.x * Z, centre.y + where.camp.y * Z);
+  await tapTile(page, { ...HOME, tile: CAMP_TILE });
   await page.locator('#mc-title').waitFor();
   await page.locator('[data-act="march-send"]:not([disabled])').waitFor({ timeout: 15_000 });
   s = await state();
