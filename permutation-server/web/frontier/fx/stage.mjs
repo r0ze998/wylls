@@ -6,7 +6,8 @@
 //
 //   event (who emits it)                       → what plays
 //   bell {turn, home}        app ringToll       the toll: brass ripple, the banner in #bell-toll, the bell
-//   feed {fresh, turn}       app tickFeed       this turn's own results in order → `turn:results`
+//   feed {fresh, turn}       app tickFeed       this turn's own results in order → `turn:results` (a battle the page
+//                                               will play by itself is its own result: its scene has its place in the order)
 //   turn:urgent {turn}       app ringToll       the bell chip beats once (the last 30 s)
 //   battle {play, …}         app playBattle     the battle (fx/battle.mjs)
 //   moment {kind, …}         app checkMoments   built, harvest, muster, arrive, camp, village, depart
@@ -16,7 +17,9 @@
 //   tiles:lit {origin, tiles} map/fmap.mjs      the engine's glow runs over the tiles a selected host can act on
 //   reveal {n}               app surveyNow      land comes out of the chart: a shimmer
 //
-// Emitted here for the HUD: `turn:results {turn, items, fresh, startsIn}`,
+// Emitted here for the HUD: `turn:results {turn, items, fresh, startsIn}` (each item with the effects-clock second
+// `at` its mark or scene starts, how long it plays, `secs`, and `plays` when its battle is its own result),
+// `turn:scene {…item}` at that second (the page starts the battle then: app playBattle),
 // `res:gain {p, q, site}` (when harvest tokens land in the resource strip).
 import { L, fmtNum, onLangChange } from '../../lang.mjs';
 import { project } from '../../map.mjs';
@@ -30,6 +33,7 @@ import { TONE, bannerGone } from './effects.mjs';
 import { installPieces, FLY_LANDS, SEAL_PX, COLUMN_SECS, FORMING_SECS } from './pieces.mjs';
 import { stageBattle } from './battle.mjs';
 import { installIdle } from './idle.mjs';
+import { NARROW } from './safe.mjs';
 
 const fill = f => FACTION_FILL[f] ?? TONE.brassHi;
 const light = f => FACTION_LIGHT[f] ?? TONE.ivory;
@@ -42,6 +46,11 @@ const worldOf = at => { if (!at) return null; const h = Number.isInteger(at.tile
 export const TOLL_BANNER_AT = 0.3;
 export const TOLL_BANNER_SECS = 2.6;
 export const RESULT_GAP = 0.7;
+/** How long one result's mark plays (the card's row is lit as long), and the pause after a battle that played as its own result. */
+export const RESULT_SECS = 1.5;
+export const SCENE_REST = 0.4;
+/** On a phone a scene does not start before the turn's card has stood this long (s). */
+export const CARD_READ = 2.2;
 /** Seconds after the stroke at which the banner has faded under a tenth of its opacity: this turn's results and their card wait for it (UX-DESIGN §11.14). */
 export const TOLL_CLEAR = TOLL_BANNER_AT + bannerGone(TOLL_BANNER_SECS);
 /** How many moments of other people play in full within one beat (the viewer's own always do). */
@@ -57,6 +66,8 @@ export function resultKind(x) {
   if (x?.kind === 'incoming') return 'incoming';
   return null;
 }
+/** A result as the bus carries it (`turn:results`, `turn:scene`). */
+const pubResult = x => ({ id: x.id, kind: x.result, p: x.p, q: x.q, tile: x.tile ?? null, text: x.text ?? '', battle: x.battle ?? null, at: x.at, secs: x.secs, plays: x.plays, focus: !!x.focus });
 /** Own results in the order they are shown: arrivals, then battles, then warnings; otherwise as they came. */
 export function orderResults(list) {
   return list.map((x, i) => ({ x, i, k: RESULT_ORDER.indexOf(x.result) })).sort((a, b) => a.k - b.k || a.i - b.i).map(o => o.x);
@@ -128,8 +139,11 @@ export function playLanded(fx, a) {
   fx.sound('confirm', { seed });
   if (!at) return;
   fx.play('flash', { ...at, color: fill(a.faction), seed });
+  // the tile and the land round it take the nation's colour for a breath (the real landing read thin: a pale ring and a few streaks)
+  fx.play('glow', { ...at, radius: 1, color: fill(a.faction), hold: 0.5, gain: 0.6, delay: 0.03, seed });
   fx.play('ripple', { ...at, color: light(a.faction), radius: 2.1, delay: 0.07, seed });
-  fx.play('burst', { ...at, kind: 'spark', n: 20, height: 0.3, power: 0.85, delay: 0.08, seed, colors: [light(a.faction), fill(a.faction), '#fff6dc'] });
+  fx.play('ripple', { ...at, color: fill(a.faction), radius: 1.3, delay: 0.16, seed: `${seed}|in` });
+  fx.play('burst', { ...at, kind: 'spark', n: 28, height: 0.3, power: 1.0, delay: 0.08, seed, colors: [light(a.faction), fill(a.faction), '#fff6dc'] });
   fx.play('mark', { ...at, kind: 'ok', color: fill(a.faction), delay: 0.1, seed });
   fx.play('pip', { ...at, color: fill(a.faction), seed });
   fx.hush(at, 1.6);
@@ -371,8 +385,11 @@ export function installStage(fx, { bus = defaultBus } = {}) {
   const on = (type, fn) => offs.push(bus.on(type, p => { if (fx.mounted) fn(p ?? {}); }));
 
   // ---- the bell and the turn's own results
-  let turn = null, results = [], tollEnds = -Infinity;
+  let turn = null, results = [], tollEnds = -Infinity, seqEnds = -Infinity;
   const resting = new Set();   // sealed ribbons at rest: they go at the turn
+  // tiles a battle has for itself: "p,q,tile" → the effects-clock second it ends (what else would play there waits)
+  const held = new Map();
+  const hold = (key, until) => { held.set(key, Math.max(held.get(key) ?? -Infinity, until)); };
   on('bell', p => {
     for (const h of resting) h.cancel?.();
     resting.clear();
@@ -380,19 +397,48 @@ export function installStage(fx, { bus = defaultBus } = {}) {
     playToll(fx, p);
     tollEnds = fx.clock.now() + TOLL_CLEAR;
   });
+  /**
+   * How long the battle of a result plays as its own result (0: it is only marked). The page says with `scene`
+   * (the scene's seconds at its playback speed) that it plays battles by itself, and with `focus` that it sends
+   * the camera; without the camera the scene plays only where the viewer is looking.
+   */
+  const sceneSecs = x => {
+    if (x.result !== 'battle' || !(x.scene > 0)) return 0;
+    const w = worldOf(spot(x));
+    if (!x.focus && !(w && fx.onStage(w.x, w.y))) return 0;
+    const level = fx.motionLevel?.() ?? 'full';
+    return level === 'off' ? 3 : level === 'reduced' ? Math.min(4.2, Math.max(2.4, x.scene)) : x.scene;
+  };
   on('feed', p => {
     const fresh = (p.fresh ?? []).map(x => ({ ...x, result: resultKind(x) })).filter(x => x.result && !results.some(r => r.id === x.id));
     if (!fresh.length) return;
     if (p.turn !== undefined && p.turn !== turn) { turn = p.turn; results = []; }
     const ordered = orderResults(fresh);
-    const wait = Math.max(0, tollEnds - fx.clock.now());
-    ordered.forEach((x, i) => {
-      playResult(fx, x, wait + i * RESULT_GAP);
-      if (x.result === 'arrival' && Number.isInteger(x.tile)) recent.set(`arrive|${x.p},${x.q},${x.tile}`, fx.clock.now() + wait + i * RESULT_GAP);
-    });
+    const now = fx.clock.now();
+    // after the toll's banner, and after what an earlier poll is still playing
+    const wait = Math.max(0, tollEnds - now, seqEnds - now);
+    let t = wait;
+    // (on a phone the turn's card steps back for a scene, fx.css: it is given the time to be read first, or it would
+    // show for the length of one gap and be gone)
+    const narrow = (fx.doc?.defaultView?.innerWidth ?? Infinity) < NARROW;
+    for (const x of ordered) {
+      const scene = sceneSecs(x);
+      if (scene > 0 && narrow) t = Math.max(t, wait + CARD_READ);
+      Object.assign(x, { at: now + t, secs: scene || RESULT_SECS, plays: scene > 0 });
+      // (a battle that plays is not also marked with crossed swords: the page starts its scene at `at`, and the
+      // tile is the battle's until it ends. The first real turn showed the scene, the mark and the toll's banner at once)
+      if (scene > 0) {
+        if (spot(x)) hold(`${x.p},${x.q},${x.tile}`, x.at + scene);
+        // (a zero-size effect is the timer: the cue follows the effects clock, as everything else of the sequence does)
+        const cue = pubResult(x);
+        fx.add({ name: 'scene-cue', layer: 'top', dur: Math.max(0.02, t), info: true, draw() {}, onEnd: () => bus.emit('turn:scene', cue) });
+      } else playResult(fx, x, t);
+      if (x.result === 'arrival' && Number.isInteger(x.tile)) recent.set(`arrive|${x.p},${x.q},${x.tile}`, x.at);
+      t += scene > 0 ? scene + SCENE_REST : RESULT_GAP;
+    }
+    seqEnds = now + t;
     results = orderResults([...results, ...ordered]);
-    const pub = x => ({ id: x.id, kind: x.result, p: x.p, q: x.q, tile: x.tile ?? null, text: x.text ?? '', battle: x.battle ?? null });
-    bus.emit('turn:results', { turn, items: results.map(pub), fresh: ordered.map(pub), startsIn: wait, gap: RESULT_GAP });
+    bus.emit('turn:results', { turn, items: results.map(pubResult), fresh: ordered.map(pubResult), startsIn: wait, gap: RESULT_GAP });
   });
   on('turn:urgent', () => {
     fx.play('chip', { el: '#bell-chip', color: TONE.ember, fill: 0.4, seed: `urgent|${turn}` });
@@ -418,8 +464,12 @@ export function installStage(fx, { bus = defaultBus } = {}) {
     playReveal(fx, { tiles, caption: a.words !== false, seed: `reveal|${a.n ?? tiles.length}|${Math.round(fx.clock.now() * 10)}` });
   });
 
-  // ---- battles
-  on('battle', p => { if (p.play) stageBattle(fx, p.play, p); });
+  // ---- battles (the tiles of a scene are its own for as long as it plays: a moment there waits, see below)
+  on('battle', p => {
+    if (!p.play) return;
+    const h = stageBattle(fx, p.play, p), sc = p.play.scene;
+    if (h && sc) for (const T of sc.tiles ?? []) hold(`${sc.p},${sc.q},${T.idx}`, fx.clock.now() + (h.dur ?? 3));
+  });
 
   // ---- moments: one thing is not announced twice; many at once (a bell resolving a whole view) follow one
   // another a tenth of a second apart, and past MOMENTS_AT_ONCE only the viewer's own play in full (the rest
@@ -433,7 +483,10 @@ export function installStage(fx, { bus = defaultBus } = {}) {
     recent.set(key, now);
     run = now - run.t < 0.6 ? { t: run.t, n: run.n + 1 } : { t: now, n: 0 };
     if (run.n >= MOMENTS_AT_ONCE && !m.own) { const at = spot(m); if (at) fx.play('pip', { ...at, color: TONE.brassHi, delay: run.n * 0.05, seed: key }); return; }
-    playMoment(fx.later(m.own ? 0 : run.n * 0.1), m, { bus });
+    // a battle playing on that tile has it: the moment (its light, its caption) comes when the field is clear
+    for (const [k, until] of held) if (until <= now) held.delete(k);
+    const busy = Math.max(0, (held.get(`${m.p},${m.q},${m.tile}`) ?? -Infinity) - now);
+    playMoment(fx.later((m.own ? 0 : run.n * 0.1) + busy), m, { bus });
   });
 
   // ---- own actions

@@ -16,7 +16,7 @@ import { html, raw } from '../../util.mjs';
 import { icon, RESOURCE_ICON } from '../hud/icons.mjs';
 import { L, Lh, fmtNum } from '../../lang.mjs';
 import { RESOURCES, RESOURCE_ORDER, UNITS, TIERS, BUILDINGS, HOLDING_STATES, errorText, factionName } from '../fi18n.mjs';
-import { storesAt, holdingFacts, BUILD_ITEMS, UNIT_ORDER, SETTLER, actionBlocks, baseProduction, ticketTimes } from '../fland.mjs';
+import { storesAt, holdingFacts, BUILD_ITEMS, UNIT_ORDER, SETTLER, actionBlocks, baseProduction, ticketTimes, queueItem } from '../fland.mjs';
 import { holdingName } from '../people/ui.mjs';
 import { miniCardUrl, MINI_KINDS } from '../people/minis.mjs';
 import { span, NEAR_FULL_SECS } from '../hud/hud.mjs';
@@ -76,7 +76,7 @@ export function buildCards(h, stores) {
   return BUILD_ITEMS.map(b => {
     const r = RESOURCE_ORDER.indexOf(b.resource);
     const above = r >= 0 && h.production?.[r] !== undefined ? Number(BigInt(h.production[r]) - (base[r] ?? 0n)) / 1000 : 0;
-    const queued = (h.queue ?? []).filter(x => Number(x.doneAt) > 0 && x.kind === b.item).length;
+    const queued = (h.queue ?? []).filter(x => Number(x.doneAt) > 0 && queueItem(x) === b.item).length;
     const copies = (b.perHour > 0 ? Math.max(0, Math.round(above / b.perHour)) : 0) + queued;
     const short = (b.cost ?? []).map((c, i) => ({ resource: RESOURCE_ORDER[i], need: c - (have[RESOURCE_ORDER[i]] ?? 0) })).filter(x => x.need > 0);
     return { item: b.item, resource: b.resource, perHour: b.perHour, cost: b.cost, copies, secs: buildSecs(copies), short };
@@ -177,7 +177,7 @@ export function render(FS) {
 
   const build = html`<section class="vcard" id="hp-build" aria-labelledby="hp-build-h">
     ${cardHead({ id: 'hp-build-h', ic: 'hammer', title: L`建設`, side: html`<span class="c-count${queueFull ? ' c-count-warn' : ''}">${L`建設中 ${fmtNum(building.length)}/4`}</span>` })}
-    ${f.queue.length ? html`<ul class="queue">${f.queue.map(q => html`<li>${icon(q.doneIn > 0 ? 'hourglass' : 'check')}<strong>${BUILDINGS[BUILD_ITEMS[q.kind]?.resource] ?? `#${q.kind}`}</strong><span class="queue-t">${q.doneIn > 0 ? L`あと ${span(q.doneIn)}` : L`完成`}</span></li>`)}</ul>` : html`<p class="muted">${L`建設の列は空です`}</p>`}
+    ${f.queue.length ? html`<ul class="queue">${f.queue.map(q => html`<li>${icon(q.doneIn > 0 ? 'hourglass' : 'check')}<strong>${BUILDINGS[BUILD_ITEMS[queueItem(q)]?.resource] ?? `#${q.kind}`}</strong><span class="queue-t">${q.doneIn > 0 ? L`あと ${span(q.doneIn)}` : L`完成`}</span></li>`)}</ul>` : html`<p class="muted">${L`建設の列は空です`}</p>`}
     <ul class="build-list">${shown.map(c => buildRow(c, blockedOf(c)))}</ul>
     ${rest.length ? fold('v-build', L`ほかの建物（${fmtNum(rest.length)}）`, html`<ul class="build-list">${rest.map(c => buildRow(c, blockedOf(c)))}</ul>`) : ''}
     ${queueFull ? html`<p class="blocked">${L`建設の列がいっぱいです（4つまで）`}</p>` : ''}

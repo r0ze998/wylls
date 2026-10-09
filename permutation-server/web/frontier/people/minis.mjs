@@ -47,10 +47,38 @@ export function miniCell(kind, { face = 1, walking = false, step = 0 } = {}) {
 }
 
 /**
- * Draw one miniature, feet at (x, y), `s` the token's height (world px); `{faction, face, step,
- * walking, alpha, lunge, own, pulse}`. Returns false when its sheet has not loaded yet.
+ * A frame of a sheet with its baked cast shadow let through: the render throws each figure's shadow on the
+ * ground as pure black at up to 0.73, which is right for one token on the map and heavy where figures stand
+ * shoulder to shoulder (a battle's lines, a column setting off: the shadows pile into one dark mass). The
+ * shadow is exactly the sheet's black, translucent pixels; their alpha is multiplied by `shade`. One small
+ * canvas per frame used, kept; null where there is no canvas (the frame is then drawn as it is).
  */
-export function paintMini(ctx, x, y, s, kind, { faction = 0, face = 1, step = 0, walking = false, alpha = 1, lunge = 0, own = false, pulse = 0 } = {}) {
+const softCells = new Map();
+function softCell(img, cell, row, col, shade) {
+  const key = `${img.src}|${row}|${col}|${shade}`;
+  if (softCells.has(key)) return softCells.get(key);
+  let cv = null;
+  try {
+    cv = typeof globalThis.OffscreenCanvas === 'function' ? new globalThis.OffscreenCanvas(cell, cell) : globalThis.document?.createElement?.('canvas') ?? null;
+    if (cv) {
+      cv.width = cell; cv.height = cell;
+      const g = cv.getContext('2d', { willReadFrequently: true });
+      g.drawImage(img, col * cell, row * cell, cell, cell, 0, 0, cell, cell);
+      const im = g.getImageData(0, 0, cell, cell), d = im.data;
+      for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 0 && d[i + 3] < 250 && d[i] < 8 && d[i + 1] < 8 && d[i + 2] < 8) d[i + 3] = Math.round(d[i + 3] * shade);
+      g.putImageData(im, 0, 0);
+    }
+  } catch { cv = null; }
+  softCells.set(key, cv);
+  return cv;
+}
+
+/**
+ * Draw one miniature, feet at (x, y), `s` the token's height (world px); `{faction, face, step,
+ * walking, alpha, lunge, own, pulse, shade}`. `shade` (0..1, default 1): how much of the baked cast
+ * shadow is kept (figures that stand in a group pass less). Returns false when its sheet has not loaded yet.
+ */
+export function paintMini(ctx, x, y, s, kind, { faction = 0, face = 1, step = 0, walking = false, alpha = 1, lunge = 0, own = false, pulse = 0, shade = 1 } = {}) {
   if (!(faction >= 0 && faction < 6)) return false;
   const m = typeof ctx.getTransform === 'function' ? ctx.getTransform() : null;
   const scale = m && Number.isFinite(m.a) ? Math.hypot(m.a, m.b) : 1;
@@ -64,7 +92,9 @@ export function paintMini(ctx, x, y, s, kind, { faction = 0, face = 1, step = 0,
   const bob = walking ? Math.abs(Math.sin(step * Math.PI * 2)) * s * 0.02 : 0;
   ctx.save();
   ctx.globalAlpha *= alpha;
-  ctx.drawImage(img, col * cell, row * cell, cell, cell, lx - w * MINI_ANCHOR[0], y - bob - w * MINI_ANCHOR[1], w, w);
+  const soft = shade < 1 ? softCell(img, Math.round(cell), row, col, shade) : null;
+  if (soft) ctx.drawImage(soft, lx - w * MINI_ANCHOR[0], y - bob - w * MINI_ANCHOR[1], w, w);
+  else ctx.drawImage(img, col * cell, row * cell, cell, cell, lx - w * MINI_ANCHOR[0], y - bob - w * MINI_ANCHOR[1], w, w);
   if (own) {   // the viewer's own: a gold ring around the base
     const r = s * miniBaseR(kind) * 1.18;
     ctx.globalAlpha = alpha * (0.75 + pulse * 0.25);

@@ -30,7 +30,7 @@ const holdingOfRecord = r => {
 
 /**
  * Fold chronicle records (`{record}` or bare records) into a life map:
- * "P,Q,site" → `{last, harvest, build: {item, doneAt}|null, train: {unit, n, doneAt}|null, muster, depart, explore}`
+ * "P,Q,site" → `{last, harvest, harvests (how many were read), build: {item, doneAt}|null, train: {unit, n, doneAt}|null, muster, depart, explore}`
  * (bells; done-at in chain seconds). Returns the same map (mutated), at most LIFE_MAX holdings.
  */
 export function updateLife(life, records) {
@@ -42,8 +42,10 @@ export function updateLife(life, records) {
     const k = holdingOfRecord(r);
     if (!k) continue;
     const bell = Number(r.bell);
-    const rec = life.get(k) ?? { last: -1, harvest: -1, build: null, train: null, muster: -1, depart: -1, explore: -1, settle: -1 };
+    const rec = life.get(k) ?? { last: -1, harvest: -1, harvests: 0, build: null, train: null, muster: -1, depart: -1, explore: -1, settle: -1 };
     rec.last = Math.max(rec.last, bell);
+    // (how many harvests were read: two in one bell are two, people/moments.mjs)
+    if (what === 'harvest') rec.harvests = (rec.harvests ?? 0) + 1;
     if (what === 'build') rec.build = { item: Number(r.item), doneAt: Number(r.done_at), bell };
     else if (what === 'train') rec.train = { unit: Number(r.unit), n: Number(r.n), doneAt: Number(r.done_at), bell };
     else rec[what] = Math.max(rec[what], bell);

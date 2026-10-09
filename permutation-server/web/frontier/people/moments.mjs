@@ -19,15 +19,16 @@ export const MOMENT_SECS = { harvest: 2.2, built: 2.8, depart: 2.2, arrive: 1.8 
 export const MOMENT_MAX = 24;
 
 /**
- * The page's state the moments compare: `{harvest: Map key→bell, builds: Map key→{item,label},
+ * The page's state the moments compare: `{bell (now, or null), logged (the log was read), harvest: Map key→{bell, n} (a bare bell is read too), builds: Map key→{item,label},
  * hosts: Map id→{p, q, tile, state, faction, unit, troops}, arrivals: Map "p,q,tile,host"→faction,
  * seen: Set "p,q" (the provinces loaded), camps: Map "p,q"→tile, sites: Map "p,q,site"→{tile,
  * faction | null}, tiles: Map "p,q,site"→tile}`.
  */
-export function momentSnapshot({ life = new Map(), constructions = [], provinces = new Map() } = {}) {
+export function momentSnapshot({ life = new Map(), constructions = [], provinces = new Map(), bell = null, logged = false } = {}) {
   const harvest = new Map(), builds = new Map(), hosts = new Map(), arrivals = new Map();
   const seen = new Set(), camps = new Map(), sites = new Map(), tiles = new Map();
-  for (const [k, rec] of life) if (rec.harvest >= 0) harvest.set(k, rec.harvest);
+  // (`n`: how many harvests of the village were read; `bell`: the last one's)
+  for (const [k, rec] of life) if (rec.harvest >= 0) harvest.set(k, { bell: rec.harvest, n: rec.harvests ?? rec.harvest + 1 });
   for (const c of constructions) builds.set(`${c.p},${c.q},${c.site}`, { label: c.name ?? c.label ?? '' });
   for (const env of provinces.values()) {
     const pv = env?.province;
@@ -45,7 +46,7 @@ export function momentSnapshot({ life = new Map(), constructions = [], provinces
       if (pv.siteMirror) sites.set(`${pk},${j}`, { tile, faction: m && m.state === 1 && m.faction < 6 ? m.faction : null });
     });
   }
-  return { harvest, builds, hosts, arrivals, seen, camps, sites, tiles };
+  return { harvest, builds, hosts, arrivals, seen, camps, sites, tiles, bell, logged: !!logged };
 }
 
 /** The moments between two snapshots (the first snapshot of a page gives none; neither does the first sight of a province). */
@@ -53,13 +54,24 @@ export function detectMoments(prev, next, now) {
   if (!prev) return [];
   const out = [];
   const tileOf = k => next.tiles?.get(k) ?? prev.tiles?.get(k) ?? null;
-  for (const [k, b] of next.harvest) if ((prev.harvest.get(k) ?? -1) < b && prev.harvest.has(k)) { const [p, q, site] = k.split(',').map(Number); out.push({ kind: 'harvest', p, q, site, tile: tileOf(k), t0: now }); }
+  // a harvest: one more was read of a village whose harvests the page already counted; or the first one read of a
+  // village once the log had been read (`logged`: the load itself is not news), when it is of this bell or the one
+  // before (older ones are the log being read up). It asked for an earlier harvest in the log and for a later bell,
+  // so a village's first harvest never played and neither did a second one in the same turn: found with the live fixture.
+  const harvestOf = v => (v === undefined ? null : typeof v === 'object' ? v : { bell: v, n: v + 1 });
+  for (const [k, v] of next.harvest) {
+    const is = harvestOf(v), was = harvestOf(prev.harvest.get(k));
+    const news = was ? is.n > was.n || is.bell > was.bell : prev.logged === true && Number.isInteger(next.bell) && is.bell >= next.bell - 1;
+    if (news) { const [p, q, site] = k.split(',').map(Number); out.push({ kind: 'harvest', p, q, site, tile: tileOf(k), t0: now }); }
+  }
   for (const [k, v] of prev.builds) if (!next.builds.has(k)) { const [p, q, site] = k.split(',').map(Number); out.push({ kind: 'built', p, q, site, tile: tileOf(k), label: v.label, t0: now }); }
   for (const [id, h] of next.hosts) {
     const was = prev.hosts.get(id);
     if (was && was.state !== 3 && h.state === 3) out.push({ kind: 'depart', p: h.p, q: h.q, tile: h.tile, faction: h.faction, id, t0: now });
-    // a host nobody had seen, standing in a province the page already knew: it was mustered
-    else if (!was && h.state === 1 && prev.seen?.has(`${h.p},${h.q}`)) out.push({ kind: 'muster', p: h.p, q: h.q, tile: h.tile, faction: h.faction, unit: h.unit, troops: h.troops, id, t0: now });
+    // a host nobody had seen, standing in a province the page already knew: it was mustered. (On chain a mustered
+    // host is muster-pending, state 2, until the next bell, and only then of the roster, state 1: the moment is its
+    // first sight in either. It asked for state 1 alone, so a real muster never played: found with the live fixture.)
+    else if (!was && (h.state === 1 || h.state === 2) && prev.seen?.has(`${h.p},${h.q}`)) out.push({ kind: 'muster', p: h.p, q: h.q, tile: h.tile, faction: h.faction, unit: h.unit, troops: h.troops, id, t0: now });
   }
   const had = prev.arrivals;
   for (const [k, faction] of next.arrivals) if (!had.has(k)) { const [p, q, tile] = k.split(',').map(Number); if (prev.seen && !prev.seen.has(`${p},${q}`)) continue; out.push({ kind: 'arrive', p, q, tile, faction, t0: now }); }

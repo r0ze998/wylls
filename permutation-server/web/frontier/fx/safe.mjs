@@ -45,7 +45,12 @@ export const HUD_PIECES = Object.freeze({
 export const HUD_IDS = Object.freeze({
   ghost: ['search', 'search-field', 'todo', 'todo-list', 'plate', 'lenses', 'minimap', 'map-tools'],
   strip: ['plaque-left', 'plaque-right'],
+  // on a phone the notices stand over the middle of the map, between its two columns of buttons: there they step
+  // back for a set piece as the corner pieces do (fx.css); on a wide screen they stand at the side and stay
+  narrowGhost: ['notices'],
 });
+/** Below this width of the map the page is a phone's (frontier.css: the sheet, the two columns of buttons, the notices in the middle). */
+export const NARROW = 760;
 
 /** Any rectangle shape as `{left, top, right, bottom, width, height}` (null when it is not one). */
 export function normRect(r) {
@@ -71,10 +76,13 @@ function carve(st, boxes, band) {
     else if (b.height >= st.height * 0.5 && b.width < st.width * 0.4 && (b.left <= st.left + SIDE_GAP || b.right >= st.right - SIDE_GAP)) { if ((b.left + b.right) / 2 < midX) left = Math.max(left, b.right); else right = Math.min(right, b.left); }
     else pieces.push(b);
   }
+  // (bands that leave no map to speak of: a phone's sheet at its full height. The bounds fall back to the whole
+  // stage so that arithmetic on them holds, and `covered` says that nothing of the map is in sight)
+  const covered = right - left < 40 || bottom - top < 40;
   if (right - left < 40) { left = st.left; right = st.right; }
   if (bottom - top < 40) { top = st.top; bottom = st.bottom; }
   const bounds = rect(left, top, right, bottom);
-  return { bounds, pieces: pieces.filter(b => overlaps(b, bounds)) };
+  return { bounds, covered, pieces: pieces.filter(b => overlaps(b, bounds)) };
 }
 
 /**
@@ -104,6 +112,7 @@ function stageOf(bounds, pieces) {
  * a column (it cuts that side off); the rest are pieces to keep off.
  *
  *   bounds  the map without its bands and columns                      (a caption is kept inside it)
+ *   covered whether the bands leave no map in sight (a sheet at full height): a caption of the map is not shown
  *   centre  the stage around the middle line free of every piece        (a title; everyday)
  *   stage   the same when the ghost pieces have stepped back            (a set piece: a battle and its title)
  *   place   a box moved off every piece, soft ones too
@@ -115,8 +124,10 @@ export function freeFrom(stageRect, boxes = [], { band = 0.6 } = {}) {
   const hard = all.filter(b => b.kind !== 'soft'), fixed = all.filter(b => b.kind === 'fixed'), soft = all.filter(b => b.kind === 'soft');
   const day = carve(st, hard, band), set = carve(st, fixed, band);
   const bounds = day.bounds, keepOff = [...day.pieces, ...soft.filter(b => overlaps(b, bounds))];
-  return { bounds, centre: stageOf(bounds, day.pieces), stage: stageOf(set.bounds, set.pieces), boxes: keepOff,
+  return { bounds, covered: day.covered, centre: stageOf(bounds, day.pieces), stage: stageOf(set.bounds, set.pieces), boxes: keepOff,
     place: (x, y, w, h, pad = 6, from = null) => placeBox(x, y, w, h, bounds, keepOff, pad, from),
+    // (for what belongs to a set piece that has the stage: off the pieces that stay, inside what they leave)
+    placeStage: (x, y, w, h, pad = 6, from = null) => placeBox(x, y, w, h, set.bounds, set.pieces, pad, from),
     span: (y0, y1, { stage = false } = {}) => (stage ? spanOf(y0, y1, set.bounds, set.pieces) : spanOf(y0, y1, bounds, day.pieces)) };
 }
 
@@ -179,10 +190,11 @@ const visible = (el, win) => {
 };
 
 /** The HUD's boxes on a page (client px): every known piece that is shown and has a size. */
-export function hudBoxes(doc = globalThis.document) {
+export function hudBoxes(doc = globalThis.document, st = null) {
   const out = [];
   if (!doc?.querySelectorAll) return out;
   const win = doc.defaultView;
+  const narrow = !!st && st.width < NARROW;
   for (const [kind, sels] of Object.entries(HUD_PIECES)) for (const sel of sels) {
     let list = [];
     try { list = [...doc.querySelectorAll(sel)]; } catch { list = []; }
@@ -191,7 +203,7 @@ export function hudBoxes(doc = globalThis.document) {
       // a closed drawer keeps its box off screen or folded: it covers nothing
       if (el.id === 'panel' && el.dataset?.drawer === 'closed' && win?.getComputedStyle?.(el).position !== 'absolute') continue;
       const r = normRect(el.getBoundingClientRect?.());
-      if (r && r.width > 2 && r.height > 2) out.push({ ...r, kind });
+      if (r && r.width > 2 && r.height > 2) out.push({ ...r, kind: narrow && sel === '#feed' ? 'ghost' : kind });
     }
   }
   return out;
@@ -207,11 +219,12 @@ export function hudOwnBoxes(doc = globalThis.document, st = null) {
   if (!Array.isArray(list) || !list.length) return null;
   const out = [];
   let strip = null;
+  const narrow = !!st && st.width < NARROW;
   for (const b of list) {
     const r = normRect(b);
     if (!r) continue;
     if (HUD_IDS.strip.includes(b.id)) { strip = Math.max(strip ?? -Infinity, r.bottom); continue; }
-    out.push({ ...r, kind: HUD_IDS.ghost.includes(b.id) ? 'ghost' : 'fixed' });
+    out.push({ ...r, kind: HUD_IDS.ghost.includes(b.id) || (narrow && HUD_IDS.narrowGhost.includes(b.id)) ? 'ghost' : 'fixed' });
   }
   if (strip !== null && st && strip > st.top + 1) out.push({ left: st.left, top: st.top, right: st.right, bottom: strip, width: st.width, height: strip - st.top, kind: 'fixed' });
   if (doc?.querySelectorAll) for (const sel of HUD_PIECES.soft) {
@@ -233,5 +246,5 @@ export function freeOf(doc = globalThis.document, stage = null) {
   if (own && own.width >= 40 && own.height >= 40) return { bounds: own, centre: own, stage: own, boxes: [], hud: true, place: (x, y, w, h, pad = 6) => placeBox(x, y, w, h, own, [], pad), span: () => ({ left: own.left, right: own.right, width: own.width }) };
   if (!st) { const z = rect(0, 0, 0, 0); return { bounds: z, centre: z, stage: z, boxes: [], place: (x, y) => ({ x, y, moved: false }), span: () => ({ left: 0, right: 0, width: 0 }) }; }
   const listed = hudOwnBoxes(doc, st);
-  return listed ? { ...freeFrom(st, listed), hud: 'list' } : freeFrom(st, hudBoxes(doc));
+  return listed ? { ...freeFrom(st, listed), hud: 'list' } : freeFrom(st, hudBoxes(doc, st));
 }

@@ -575,6 +575,8 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
     },
     /** The names of the effects that are playing or still to start, in the order they were added (still ones included). */
     playing() { const t = clock.now(); return effects.filter(e => liveAt(e, t) || pendingAt(e, t)).map(e => e.name); },
+    /** The effects still to start, with the seconds until each does: `[{name, seed, in}]` (a composition's timing can be read from it). */
+    pending() { const t = clock.now(); return effects.filter(e => pendingAt(e, t)).map(e => ({ name: e.name, seed: e.seed ?? null, in: -ageOf(e, t) })); },
     /** What is live at the clock's time: {live, pending, ground}. */
     live: () => counts(clock.now()),
     /** Remove everything (effects, particles, shakes). */
