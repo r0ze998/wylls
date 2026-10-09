@@ -30,7 +30,7 @@
 // Once a picture is held, markup carries it at once. Without a page (tests)
 // markup names the file itself.
 import { MOTION_LEADERS } from '../leader-motion-data.mjs';
-import { NATION_FILL, NATION_DARK, NATION_ON } from '../palette.mjs';
+import { NATION_FILL, NATION_DARK, NATION_ON, YOURS_MARK } from '../palette.mjs';
 import { sigilPath } from './avatar.mjs';
 
 const BASE = new URL('../art/leaders3d/', import.meta.url);
@@ -92,7 +92,8 @@ const a11y = title => (title ? `role="img" aria-label="${esc(title)}"` : 'aria-h
  * apart from the icon's frame in the nation's colour, so it reads beside Cinder's yellow and Fjordal's orange too.
  */
 export const HEX_OUTLINE = 'M49.6 1 L92.4 26.6 L92.4 70.3 L49.6 95.5 L7 70.3 L7 26.6 Z';
-export const YOURS = Object.freeze({ gold: '#ffd76a', core: '#fff8e2', key: '#14110a', inset: 0.8 });
+// (the three tones are the board's own: palette.mjs YOURS_MARK, which map/chart.mjs reads for the rim of the viewer's land)
+export const YOURS = Object.freeze({ ...YOURS_MARK, inset: 0.8 });
 const ownRing = () => `<g fill="none" stroke-linejoin="round"><path d="${HEX_OUTLINE}" stroke="${YOURS.key}" stroke-width="11"/><path d="${HEX_OUTLINE}" stroke="${YOURS.gold}" stroke-width="6.5"/><path d="${HEX_OUTLINE}" stroke="${YOURS.core}" stroke-width="1.6"/></g>`;
 
 /**

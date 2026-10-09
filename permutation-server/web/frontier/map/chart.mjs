@@ -21,7 +21,7 @@
 import { FLATTEN, RADIUS, hexPoints, project } from '../../map.mjs';
 import { L } from '../../lang.mjs';
 import { DIRECTIONS, ringOf, ringProvinces, tileHex, wedgeOf, PROVINCE_TILES, locate } from '../fgeo.mjs';
-import { NATION_LAND, nationPale } from '../palette.mjs';
+import { NATION_LAND, YOURS_MARK, nationPale } from '../palette.mjs';
 import { L2, L3, REVEAL_MS, WORKED_RADIUS, hexKey, keyHex } from './survey.mjs';
 import { upright } from './tilt.mjs';
 
@@ -39,8 +39,9 @@ export const YOU = '#f3d58a';
  * nation's line has a light core or a dark edge on both sides; a rim, a ring or a pip built this way is the viewer's
  * own whatever colour runs beside it, at every zoom, and in a picture without colour too.
  * `key`, `gold`, `core`: the three tones; `rail`: their widths as shares of the gold's.
+ * (The tones themselves are palette.mjs YOURS_MARK, which the people's rings read too.)
  */
-export const YOURS = Object.freeze({ gold: '#ffd24d', core: '#fffcf0', key: '#171006', rail: Object.freeze({ key: 1.42, gold: 1, core: 0.4 }) });
+export const YOURS = Object.freeze({ ...YOURS_MARK, rail: Object.freeze({ key: 1.42, gold: 1, core: 0.4 }) });
 /**
  * Stroke the path `p` (a Path2D, or null for the context's current path) as the viewer's rail, the gold `w` wide
  * (the context's units). `alpha`: of the whole rail; `core`: of its ivory core alone (the breath); `dash`: a

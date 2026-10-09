@@ -33,6 +33,15 @@
 // A nation is never told by colour alone: the sigil goes with it everywhere.
 // The older pages one level up keep their own table (i18n.mjs CIV_COLORS).
 
+/**
+ * The viewer's own mark, the three tones of "yours" (UX design 5.3, 13.3): bright gold with an ivory core on a dark
+ * keyline. One table for the board (map/chart.mjs YOURS: the rim of the viewer's land, the standard's finial, the
+ * beacon, the plate) and for the people (people/leader-art.mjs YOURS: the ring round the viewer's own face, the ring
+ * at the feet of the viewer's character), so that "yours" is one gold wherever it is drawn. It is told by how it is
+ * built, not by its hue alone: two nations wear the colours next to gold (Cinder's yellow, Fjordal's orange).
+ */
+export const YOURS_MARK = Object.freeze({ gold: '#ffd24d', core: '#fffcf0', key: '#171006' });
+
 export const NATION_KEYS = Object.freeze(['aster', 'borealis', 'cinder', 'dunmar', 'ember', 'fjordal']);
 export const NATION_FILL = Object.freeze(['#cc303b', '#31bedb', '#eac21b', '#a34cd8', '#edeee7', '#f19232']);
 export const NATION_DARK = Object.freeze(['#81242c', '#237489', '#8c721c', '#69338c', '#5f6a68', '#9c581f']);

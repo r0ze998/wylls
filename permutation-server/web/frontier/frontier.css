@@ -90,9 +90,7 @@ main { position: fixed; inset: 0; overflow: hidden; }
 /* the table falls into shadow toward the corners and the near edge */
 .map-dress::after { opacity: calc(.55 + .45 * var(--map-near, 0));
   background: radial-gradient(ellipse 78% 74% at 50% 52%, rgba(6,14,13,0) 58%, rgba(6,14,13,.26)), linear-gradient(to top, rgba(6,14,13,.2), rgba(6,14,13,0) 13%); }
-/* the waiting picture (UX-DESIGN 12.3: until the viewer's record has answered the map shows the bare sheet on its table):
-   a stage of its own over the ground, made by the map, at the seat's angle; the land comes out of it as one dissolve */
-.map-wait { opacity: var(--map-wait, 0); pointer-events: none; }
+/* (the waiting picture of UX-DESIGN 12.3 is painted on the ground canvas itself since wave 4: the map makes no second stage for it) */
 #frontier-map { position: absolute; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; background: transparent; }
 #frontier-map:focus-visible { outline: 3px solid var(--brass-hi); outline-offset: -3px; }
 /* The screen edge while composing a march close to the turn's end (above the canvas, under the HUD). */

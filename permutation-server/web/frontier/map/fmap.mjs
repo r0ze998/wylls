@@ -58,6 +58,7 @@ import { LANDING } from './ownland.mjs';
 import { WORKED_RADIUS } from './survey.mjs';
 import { emit as fxEmit } from '../fx/bus.mjs';
 import { createLabelPass, rectOf, tileKeyOf } from './labelpass.mjs';
+import { paintWaitCharacter } from '../people/onboard.mjs';
 import { leaderWords, paintCandidateLabels, paintHomeTag, paintSiteMarks, paintSurveyLines, paintWaitStandard, standardBox, waitLine, waitSpotAt, wedgeSites } from './waitview.mjs';
 import { TILT, armUpright, disarmUpright, groundBox, groundView, nearQuad, perspFromQuery, standing, tiltAt, tiltFromQuery, tiltGeo, tiltNear, upright } from './tilt.mjs';
 
@@ -1981,6 +1982,8 @@ export class FrontierMap {
       paintCandidates(ctx, survey.candidates, z, { still: calm, part: 'mark', share: src.wait?.share ?? null });
     }
     if (homeAt) { standing(ctx, up?.(homeAt.x, homeAt.y) ?? null, homeAt.x, homeAt.y, () => paintWaitStandard(ctx, homeAt, { zoom: z, faction: survey.faction, now: F.fx, still: calm })); if (!calm) this.invalidateSoon(90); }
+    // (the player's own character in the spot kept beside the standard: people/onboard.mjs paints it, upright as the standard is; UX brief §13.6)
+    if (homeAt && lod !== 'world') paintWaitCharacter(ctx, waitSpotAt(homeAt, z), { faction: survey.faction, up });
     // what is read rather than looked at stands upright over the board and its depth dressing: names, labels,
     // warnings' words, pins, the guide's words (`o`: the label canvas; `w`: its flat world transform)
     const over = (o = ctx, w = null) => {

@@ -11,6 +11,11 @@
 //   the landing        when the viewer's first village lands, the character
 //                      walks to its place while the colour floods (the walk
 //                      sheet), then stands
+//   the wait           before the first village, while the viewer has joined a
+//                      nation: the viewer's own stands beside the nation's
+//                      standard in the home wedge, in the spot the map keeps
+//                      clear for it (`paintWaitCharacter`; the map calls it
+//                      where it paints the standard)
 //
 // This presents real things (a player and that player's village) and invents
 // no event: the character never leaves its village, never marches and is no
@@ -234,3 +239,42 @@ export function paintCharacter(ctx, tok, { s, t = 0, up = null, now = fxSecs(), 
 
 /** How tall a character's figure is drawn for a token height `s` (world px): about 0.33 of its sheet's cell, measured on the files. */
 export const characterHeight = s => s * LEADER_SPRITE_CELL_U * LEADER_DRAW_SCALE * 0.33;
+
+// ------------------------------------------------------------------ the wait for the village (UX design 13.6)
+/**
+ * How much of the room the map keeps beside the standard the figure fills (its height as a share of the room's):
+ * chosen from pictures of the wait view at 1440 × 900 and 390 × 844, so that the figure stands a head under the
+ * standard's cloth and reads as a person at the wedge's framing.
+ */
+export const WAIT_FILL = 0.94;
+/** How far up the room the feet stand, as a share of the token unit: the half height of the ring on the ground, so the ring keeps inside the room. */
+export const WAIT_LIFT = 0.2;
+const waitSeen = new Map();   // "wait|nation" → the clock's seconds of the first frame its sheet was here
+/**
+ * The viewer's own character in the wait for the village: it stands in the spot the map keeps clear beside the
+ * nation's standard (map/waitview.mjs `waitSpotAt`: `{x, y, box}` in world px; the map calls this where it paints the
+ * standard, with `up(x, y)`: what the tilt asks of a thing that stands there, null on a flat board). A player who has joined a nation and waits for a village is real; nothing
+ * here says a village exists. The figure breathes on the idle sheet, with the ring that says "yours" on the ground
+ * at its feet; under reduced motion it is the sheet's first frame, there at once. Returns whether a figure was drawn
+ * (false until its sheet is here: the spot stays empty, and the map is asked for one more frame when it comes).
+ */
+export function paintWaitCharacter(ctx, spot, { faction, up = null, now = fxSecs(), level = motionLevel() } = {}) {
+  if (!ctx?.save || !spot?.box || !ok(faction)) return false;
+  const key = keyOf(faction), id = `wait|${faction}`;
+  if (!warmCharacter(faction, 'idle')) return false;
+  const full = level === 'full';
+  if (!waitSeen.has(id)) waitSeen.set(id, now);
+  const alpha = full ? clamp01((now - waitSeen.get(id)) / FADE_IN) : 1;
+  // (the token unit that gives a figure of the wanted height: `characterHeight` the other way round; the feet a
+  // little up the room, so that the ring on the ground keeps inside it and clear of the tag under the standard)
+  const s = spot.box.h * WAIT_FILL / characterHeight(1), x = spot.x, y = spot.y - s * WAIT_LIFT;
+  // on the ground: a soft shadow and the ring; on them, upright as the standard is, the figure
+  ctx.save();
+  ctx.globalAlpha *= 0.3 * alpha; ctx.fillStyle = '#0a120f';
+  ctx.beginPath(); ctx.ellipse?.(x + s * 0.05, y + s * 0.02, s * 0.32, s * 0.12, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  paintYoursRing(ctx, x, y, s, alpha, true);
+  let drawn = false;
+  standing(ctx, up?.(x, y) ?? null, x, y, () => { drawn = paintLeaderMotion(ctx, x, y, s, { leader: key, motion: 'idle', share: full ? now / clip('idle').duration : 0, looping: true, face: 1, alpha, own: false }); });
+  return drawn;
+}
