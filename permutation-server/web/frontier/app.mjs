@@ -61,14 +61,18 @@ function artClashOf(p, q) {
   const env = FS.provinces.get(`${p},${q}`);
   if (!env || !heraldRef) return null;
   const key = `${p},${q}`;
-  if (artClash.has(key)) return artClash.get(key);
-  artClash.set(key, null);
   const rb = env.province?.resolveSummary?.bell;
+  // (kept per province and resolved bell: once loaded, the report of an earlier clash stayed for good, so the marks of
+  // a clash that resolved while the page was open never showed; seen on the live fixture's turn)
+  const have = artClash.get(key);
+  if (have && have.bell === (rb ?? 0)) return have.inputs;
+  const rec = { bell: rb ?? 0, inputs: null };
+  artClash.set(key, rec);
   const bells = rb ? [rb] : ART_PREVIEW ? [env.bell - 1, env.bell - 2, env.bell - 3].filter(b => b > 0) : [];
   (async () => {
     for (const b of bells) {
       const r = await heraldRef.clash(p, q, b).catch(() => null);
-      if (r?.ok && r.inputs) { artClash.set(key, r.inputs); mapRef?.invalidate(); return; }
+      if (r?.ok && r.inputs) { if (artClash.get(key) === rec) { rec.inputs = r.inputs; mapRef?.invalidate(); } return; }
     }
   })();
   return null;

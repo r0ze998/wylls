@@ -33,6 +33,7 @@ import { TONE, bannerGone } from './effects.mjs';
 import { installPieces, FLY_LANDS, SEAL_PX, COLUMN_SECS, FORMING_SECS } from './pieces.mjs';
 import { stageBattle } from './battle.mjs';
 import { installIdle } from './idle.mjs';
+import { NARROW } from './safe.mjs';
 
 const fill = f => FACTION_FILL[f] ?? TONE.brassHi;
 const light = f => FACTION_LIGHT[f] ?? TONE.ivory;
@@ -48,6 +49,8 @@ export const RESULT_GAP = 0.7;
 /** How long one result's mark plays (the card's row is lit as long), and the pause after a battle that played as its own result. */
 export const RESULT_SECS = 1.5;
 export const SCENE_REST = 0.4;
+/** On a phone a scene does not start before the turn's card has stood this long (s). */
+export const CARD_READ = 2.2;
 /** Seconds after the stroke at which the banner has faded under a tenth of its opacity: this turn's results and their card wait for it (UX-DESIGN §11.14). */
 export const TOLL_CLEAR = TOLL_BANNER_AT + bannerGone(TOLL_BANNER_SECS);
 /** How many moments of other people play in full within one beat (the viewer's own always do). */
@@ -415,8 +418,12 @@ export function installStage(fx, { bus = defaultBus } = {}) {
     // after the toll's banner, and after what an earlier poll is still playing
     const wait = Math.max(0, tollEnds - now, seqEnds - now);
     let t = wait;
+    // (on a phone the turn's card steps back for a scene, fx.css: it is given the time to be read first, or it would
+    // show for the length of one gap and be gone)
+    const narrow = (fx.doc?.defaultView?.innerWidth ?? Infinity) < NARROW;
     for (const x of ordered) {
       const scene = sceneSecs(x);
+      if (scene > 0 && narrow) t = Math.max(t, wait + CARD_READ);
       Object.assign(x, { at: now + t, secs: scene || RESULT_SECS, plays: scene > 0 });
       // (a battle that plays is not also marked with crossed swords: the page starts its scene at `at`, and the
       // tile is the battle's until it ends. The first real turn showed the scene, the mark and the toll's banner at once)
