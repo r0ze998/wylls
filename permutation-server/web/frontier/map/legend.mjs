@@ -6,9 +6,9 @@
 // hud/glossary.mjs sealLine, UX design 11.13) and what an exploration finds.
 // Markup only; the swatches are classes of frontier.css (no inline style).
 import { html, raw } from '../../util.mjs';
-import { L, fmtNum, lang } from '../../lang.mjs';
-import { factionName } from '../fi18n.mjs';
-import { LEADERS, leaderHex } from '../people/leaders.mjs';
+import { L, fmtNum } from '../../lang.mjs';
+import { factionName, DOCTRINE_NAMES } from '../fi18n.mjs';
+import { CHARACTERS, leaderHex } from '../people/leaders.mjs';
 import { sealLine } from '../hud/glossary.mjs';
 import { icon } from '../hud/icons.mjs';
 import { reachSteps } from '../hud/reach.mjs';
@@ -56,13 +56,14 @@ export const UNSEEN = Object.freeze([
 ]);
 
 /**
- * The six nations' key: each nation's leader (the hexagon icon), its sigil in its colour, its name and who leads it.
- * A nation is told by colour and by mark together; the colours are the ones the leaders wear (palette.mjs).
+ * The six nations' key: each nation's character (the hexagon icon), its sigil in its colour, its name and its doctrine
+ * (no name and no title of a person: the six are the players, DECISIONS ZP1, ZP3). A nation is told by colour and by
+ * mark together; the colours are the ones the characters wear (palette.mjs).
  */
 export function renderNationKey() {
   return html`<h4>${L`六つの国とその色`}</h4>
-    <ul class="nation-legend">${LEADERS.map(l => html`<li>${raw(leaderHex(l.faction, { size: 32 }))}<span class="survey-what"><strong><span class="swatch f${l.faction}" aria-hidden="true"></span>${factionName(l.faction)}</strong> <span class="nation-leader"><span data-name>${lang() === 'en' ? l.name.en : l.name.ja}</span> · ${l.title()}</span></span></li>`)}</ul>
-    <p class="nation-note">${L`国は、色と印（丸・三角・四角・ひし形・十字・六角）の両方で見分けられます。色は、国を率いる人の服の色です。`}</p>`;
+    <ul class="nation-legend">${CHARACTERS.map(l => html`<li>${raw(leaderHex(l.faction, { size: 32 }))}<span class="survey-what"><strong><span class="swatch f${l.faction}" aria-hidden="true"></span>${factionName(l.faction)}</strong> <span class="nation-creed">${L`教義：${DOCTRINE_NAMES[l.faction]}`}</span></span></li>`)}</ul>
+    <p class="nation-note">${L`国は、色と印（丸・三角・四角・ひし形・十字・六角）の両方で見分けられます。色は、その国の人の服の色です。`}</p>`;
 }
 
 /** The section for the play page's panel: the legend, the line, the way to the whole public world. */

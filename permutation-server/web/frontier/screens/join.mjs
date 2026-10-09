@@ -12,7 +12,7 @@ import { L, Lh, fmtNum, lang } from '../../lang.mjs';
 import { factionName, DOCTRINE_NAMES, HOLDING_STATES, failureText } from '../fi18n.mjs';
 import { freeByWedge, ticketTimes, homeWedge } from '../fland.mjs';
 import { dueHtml } from './shell.mjs';
-import { LEADERS, leaderFigure, leaderHex, leaderSvg, DOCTRINE_PITCH } from '../people/leaders.mjs';
+import { leaderFigure, leaderHex, leaderSvg, DOCTRINE_PITCH } from '../people/leaders.mjs';
 import { placeName } from '../people/identity.mjs';
 import { holdingName } from '../people/ui.mjs';
 import { crestSvg } from '../hud/hud.mjs';
@@ -26,7 +26,6 @@ import { leaderWords } from '../map/waitview.mjs';
 const FACTIONS = [0, 1, 2, 3, 4, 5];
 /** A candidate place by the name a village there would carry, never by its number or its coordinates (the row flies there). */
 const siteText = s => placeName(s.p, s.q, s.site)[lang() === 'en' ? 'en' : 'ja'];
-const leaderName = f => (lang() === 'en' ? LEADERS[f].name.en : LEADERS[f].name.ja);
 
 function walletButtons(FS) {
   const list = FS.walletList ?? [];
@@ -48,14 +47,15 @@ export function factionCards(FS) {
 
 /**
  * The nation choice (UX design 7.2 and 11.9; owner decision V2: joining is choosing one of the six nations,
- * nothing else): six standing banners of cloth — the nation's crest on the rail, its leader standing lit before the
+ * nothing else): six standing banners of cloth — the nation's crest on the rail, its character (the look every player
+ * of that nation wears: choosing a nation is choosing your character; no name, no title) standing lit before the
  * cloth (breathing while the banner is looked at; the chosen one's flourish plays once: people/leader-sprite.mjs;
  * the figure is the banner's neighbour in the list item, laid over it: a canvas inside the banner's own shadow filter
  * made the browser work the filter out again on every frame),
- * the nation's name, its leader and its doctrine on the dyed field under it — and one confirm line. One choice, one
+ * the nation's name and its doctrine on the dyed field under it — and one confirm line. One choice, one
  * confirm, no site picker. A banner carries `data-nation`: app.mjs sends `wylls:nation-focus` on hover, focus
  * and choice (the map lights that nation's home wedge) and marks the panel with `data-look`, so the confirm
- * line says the leader and the creed of the banner that is looked at (all six are in the markup; the stylesheet
+ * line says the doctrine and the creed of the banner that is looked at (all six are in the markup; the stylesheet
  * shows one). On a phone the banners are compact (crest, name, doctrine: all six in sight) and the confirm line
  * carries the rest. Without a wallet the confirm line offers to connect one first; the choice is already made.
  */
@@ -66,12 +66,12 @@ export function renderNations(FS) {
   const gated = FS.inviteRequired || !!FS.season?.joinGate?.some?.(x => x !== 0);
   const banners = cards.map(c => html`<li><button type="button" class="banner-pick bn${c.faction}" data-act="pick-faction" data-f="${c.faction}" data-nation="${c.faction}" data-flourish="attack" aria-pressed="${c.chosen ? 'true' : 'false'}">
     <span class="bn-rim"><span class="bn-cloth"><span class="bn-face"></span>
-      <span class="bn-field"><strong class="bn-name">${c.name}</strong><span class="bn-leader"><span data-name>${leaderName(c.faction)}</span></span><span class="bn-creed">${L`教義：${c.doctrine}`}</span></span></span></span>
+      <span class="bn-field"><strong class="bn-name">${c.name}</strong><span class="bn-creed">${L`教義：${c.doctrine}`}</span></span></span></span>
     <span class="bn-hex">${raw(leaderHex(c.faction, { size: 44 }))}</span>
     <span class="bn-crest">${crestSvg(c.faction, { size: 30 })}</span>${c.chosen ? html`<span class="bn-mark" aria-hidden="true">${icon('check')}</span>` : ''}
   </button><span class="bn-figure">${raw(leaderFigure(c.faction, { motion: c.chosen ? 'attack' : 'idle', once: c.chosen ? `pick-${c.faction}` : null, when: 'look' }))}</span></li>`);
-  // who leads each nation and what it is good at, in a line: the looked-at banner's, else the chosen one's
-  const says = cards.map(c => html`<div class="nc-item${c.chosen ? ' nc-def' : ''}" data-n="${c.faction}" ${raw(c.chosen ? 'aria-live="polite"' : 'aria-hidden="true"')}><span class="nc-fig">${raw(leaderFigure(c.faction, { motion: c.chosen ? 'attack' : 'idle', once: c.chosen ? `pick-${c.faction}` : null }))}</span><span class="nc-face">${raw(leaderSvg(c.faction, { size: 76, shape: 'card' }))}</span>${crestSvg(c.faction, { size: 34 })}<div class="nc-text"><strong class="nc-name">${c.name} <span class="nc-title">— <span data-name>${leaderName(c.faction)}</span> · ${LEADERS[c.faction].title()}</span></strong>
+  // each nation's character, its doctrine and what it is good at, in a line: the looked-at banner's, else the chosen one's
+  const says = cards.map(c => html`<div class="nc-item${c.chosen ? ' nc-def' : ''}" data-n="${c.faction}" ${raw(c.chosen ? 'aria-live="polite"' : 'aria-hidden="true"')}><span class="nc-fig">${raw(leaderFigure(c.faction, { motion: c.chosen ? 'attack' : 'idle', once: c.chosen ? `pick-${c.faction}` : null }))}</span><span class="nc-face">${raw(leaderSvg(c.faction, { size: 76, shape: 'card' }))}</span>${crestSvg(c.faction, { size: 34 })}<div class="nc-text"><strong class="nc-name">${c.name} <span class="nc-title">— ${L`教義：${c.doctrine}`}</span></strong>
       <span class="nc-pitch">${DOCTRINE_PITCH[c.faction]()}</span></div></div>`);
   const confirm = html`<div class="nation-confirm${pick ? '' : ' nc-empty'}">
     <div class="nc-what">${says}${pick ? '' : html`<div class="nc-item nc-def"><span class="nc-hint">${icon('banner')}</span><div class="nc-text"><strong class="nc-name">${L`旗を一つ選んでください`}</strong><span class="nc-pitch">${L`選ぶのは国だけです。最初の村の場所は自動で決まります。`}</span></div></div>`}</div>
@@ -151,7 +151,7 @@ function waitHead(FS, title, state = null) {
   const say = Number.isInteger(f) ? leaderWords(f, state) : null;
   return html`<div class="wait-top">${Number.isInteger(f) ? html`<span class="wait-face">${raw(leaderFigure(f))}</span>` : ''}
     <div class="wait-who">${Number.isInteger(f) ? html`<span class="wait-nation">${crestSvg(f, { size: 20 })}${L`${factionName(f)}に加わりました`}</span>` : ''}<h3 id="join-sites">${title}</h3></div></div>
-    ${say ? html`<p class="wait-says"><span class="wait-says-t">${L`「${say.text}」`}</span><span class="wait-says-who">— <span data-name>${say.who}</span></span></p>` : ''}`;
+    ${say ? html`<p class="wait-says"><span class="wait-says-t">${L`「${say.text}」`}</span></p>` : ''}`;
 }
 /** The one clock, large: what it counts to, the figure, and (for a result) the turn whose bell decides it. */
 function waitClockBox(c, label) {

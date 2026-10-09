@@ -30,7 +30,7 @@ import { NATION_INK, NATION_ON } from '../palette.mjs';
 import { paintGlyph } from './glyphs.mjs';
 import { paintStandard } from './ownland.mjs';
 import { OPEN_PASS } from './labelpass.mjs';
-import { LEADERS, leaderHexImage, onLeaderArtLoad } from '../people/leaders.mjs';
+import { leaderHexImage, onLeaderArtLoad } from '../people/leaders.mjs';
 
 // (the leader's icon beside the line under the standard: when the picture arrives, the map draws once more)
 onLeaderArtLoad(() => { try { globalThis.__wyllsMap?.invalidate?.(); } catch { /* no map on this page */ } });
@@ -87,15 +87,17 @@ export function waitLine(wait) {
 }
 
 /**
- * What the nation's leader says under the standard while the viewer waits (UX brief §11.10): one line that says what
- * the wait is for, in the leader's voice. `state`: 'ticket' with a request in, else the request is still on its way.
- * (Leaders are presentation; the line claims nothing that has not happened.) `{text, who}` or null without a nation.
+ * The nation's words under its standard while the viewer waits (UX brief §11.10, §13): one line that says what the
+ * wait is for. They are the nation's own words, with no named speaker (no leader names or titles: DECISIONS ZP3).
+ * `state`: 'ticket' with a request in, else the request is still on its way. The line claims nothing that has not
+ * happened. `{text}` or null without a nation.
  */
-export function leaderWords(faction, state = null) {
-  const l = LEADERS[faction];
-  if (!l) return null;
-  return { who: lang() === 'en' ? l.name.en : l.name.ja, text: state === 'ticket' ? L`村の場所はもうすぐ決まる。待つあいだに、戦い方を確かめておけ。` : L`まずは村の申し込みだ。通りしだい、候補地を知らせよう。` };
+export function nationWords(faction, state = null) {
+  if (!(Number.isInteger(faction) && faction >= 0 && faction < 6)) return null;
+  return { text: state === 'ticket' ? L`村の場所はもうすぐ決まる。待つあいだに、戦い方を確かめておこう。` : L`まずは村の申し込みだ。通りしだい、候補地が地図に並ぶ。` };
 }
+/** (the name the map still asks by) */
+export const leaderWords = nationWords;
 
 /**
  * The surveyors' lines of the wait (UX brief §11.10: the wait is a view, something to look at): from the standard to
@@ -187,15 +189,15 @@ export function paintHomeTag(g, at, { zoom = 1, faction = 0, line = null, pass =
   const nw = g.measureText?.(name)?.width ?? name.length * 19 * k;
   g.font = `600 ${12.5 * k}px ${SANS}`;
   const cw = g.measureText?.(caption)?.width ?? caption.length * 12.5 * k;
-  // the leader's line, under the caption: in the serif, on three lines at most, and who says it
+  // the nation's words, under the caption: in the serif, on three lines at most (no speaker is named)
   const sayW = 238 * k;
   g.font = `600 ${13 * k}px ${SERIF}`;
   let lines = say?.text ? wrapText(g, L`「${say.text}」`, sayW, 13 * k).slice(0, 3) : [];
   const sig = 20 * k, extra = line?.at === 'home' ? 30 * k : 0, top = at.y + 12 * k;
-  // (beside the line stands who says it: the leader's hexagon icon, 36 px on the board, which is 30 px or more on the screen
+  // (beside the line stands the nation's character: the hexagon icon, 36 px on the board, which is 30 px or more on the screen
   // at the tilt's far rows; below that the face is a blot of colour. Its place is kept whether or not the picture has come)
   const faceW = 36 * k, faceGap = 9 * k;
-  const sizeOf = n => ({ w: Math.max(sig + 8 * k + nw, cw, n ? sayW + faceW + faceGap : 0) + 28 * k, h: 58 * k + (n ? (Math.max(2, n) * 19 + 24) * k : 0) });
+  const sizeOf = n => ({ w: Math.max(sig + 8 * k + nw, cw, n ? sayW + faceW + faceGap : 0) + 28 * k, h: 58 * k + (n ? (Math.max(2, n) * 19 + 12) * k : 0) });
   // where it may stand: under the standard, else beside its pole (left, then right of its cloth); with the leader's
   // line while there is room for that, else the name and the caption alone
   // (`keep` false: with candidate sites to read, the tag is left out where it has no room at all)
@@ -236,12 +238,9 @@ export function paintHomeTag(g, at, { zoom = 1, faction = 0, line = null, pass =
       const rows = Math.max(2, lines.length), tx = x + (faceW + faceGap) / 2, pad = (rows - lines.length) * 19 / 2;
       g.font = `600 ${13 * k}px ${SERIF}`; g.textAlign = 'center'; g.fillStyle = IVORY;
       lines.forEach((t, i) => g.fillText(t, tx, y + (72 + pad + i * 19) * k));
-      g.font = `600 ${12 * k}px ${SANS}`; g.textAlign = 'right'; g.fillStyle = BRASS_HI;
-      const who = `\u2014 ${say.who}`, wy = y + (72 + rows * 19 + 1) * k;
-      g.fillText(who, x + w / 2 - 14 * k, wy);
-      // who says it: the leader's hexagon icon at the line's left (nothing until the picture has loaded)
+      // the nation's character at the line's left (nothing until the picture has loaded)
       const face = leaderHexImage(faction);
-      if (face && g.drawImage) { g.imageSmoothingQuality = 'high'; g.drawImage(face, x - w / 2 + 12 * k, y + (62 + (rows * 19 + 16) / 2) * k - faceW / 2, faceW, faceW); }
+      if (face && g.drawImage) { g.imageSmoothingQuality = 'high'; g.drawImage(face, x - w / 2 + 12 * k, y + (62 + (rows * 19 + 4) / 2) * k - faceW / 2, faceW, faceW); }
     }
     if (extra) chip(g, x, y + h + 6 * k, line.text, k, { glyph: line.glyph });
   });

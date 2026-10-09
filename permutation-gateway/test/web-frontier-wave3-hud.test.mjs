@@ -68,9 +68,10 @@ test('the wait for the village: the leader\'s line stands in the card (phones), 
   assert.match(failed, /<h3 id="join-sites">村の申し込みが通っていません<\/h3>/);
   assert.equal((failed.match(/data-act="auto-ticket"/g) ?? []).length, 1, 'one retry');
   assert.match(text(failed), /次のターンに自動でやり直します（あと 7:30 ）/, 'the countdown says what it counts');
-  // the leader's line, the same words the map writes under the standard
+  // the nation's words, the same the map writes under the standard, with no named speaker
   const say = leaderWords(0, 'failed');
-  assert.ok(failed.includes(`<p class="wait-says"><span class="wait-says-t">「${say.text}」</span><span class="wait-says-who">— <span data-name>${say.who}</span></span></p>`), failed.slice(0, 900));
+  assert.ok(failed.includes(`<span class="wait-says-t">「${say.text}」</span>`), failed.slice(0, 900));
+  assert.doesNotMatch(failed, /wait-says-who|data-name/);
   const ticket = flat(joinScreen.render({ ...base, land: { stage: 'ticket', ticket: { bell: 42, sites: [{ p: 2, q: 0, site: 3 }], next: 0 } } }));
   assert.match(ticket, /<h3 id="join-sites">村が決まるのを待っています<\/h3>/);
   assert.ok(ticket.includes(`「${leaderWords(0, 'ticket').text}」`), 'the ticket view has the line too (a phone\'s map leaves it out)');
@@ -83,7 +84,8 @@ test('the wait for the village: the leader\'s line stands in the card (phones), 
   try {
     const en = text(joinScreen.render({ ...base, land: { stage: 'joined' }, autoTicket: { state: 'failed', code: 'Unavailable' } }));
     assert.doesNotMatch(en, JP, en);
-    assert.match(en, /“First, the village request\. Once it is in, I will show you the candidate sites\.” — Oriane Vell/);
+    assert.match(en, /“First, the village request\. Once it is in, the candidate sites appear on the map\.”/);
+    assert.doesNotMatch(en, /Oriane|Marshal/);
   } finally { setLang('ja'); }
   // the stylesheet: the line is the phone's; the wait's first sight there holds the practice battle before the list of places
   const css = readFileSync(new URL('frontier.css', WEB), 'utf8');

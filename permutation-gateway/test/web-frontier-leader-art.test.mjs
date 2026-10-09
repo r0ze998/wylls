@@ -15,7 +15,7 @@ import * as ART from '../../permutation-server/web/frontier/people/leader-art.mj
 import { MOTION_LEADERS, LEADER_MOTIONS, LEADER_SPRITE_CELL, motionSpriteUrl } from '../../permutation-server/web/frontier/leader-motion-data.mjs';
 import * as P from '../../permutation-server/web/frontier/palette.mjs';
 import { FACTION_FILL, FACTION_DARK, FACTION_LIGHT, FACTION_ON, FACTION_MARK, avatarSvg } from '../../permutation-server/web/frontier/people/avatar.mjs';
-import { FACTION_COLORS } from '../../permutation-server/web/frontier/fi18n.mjs';
+import { FACTION_COLORS, factionName } from '../../permutation-server/web/frontier/fi18n.mjs';
 import { leaderCard } from '../../permutation-server/web/frontier/people/ui.mjs';
 import { crestSvg, leaderCrest, renderStandingsList, renderPlate } from '../../permutation-server/web/frontier/hud/hud.mjs';
 import { renderBanner } from '../../permutation-server/web/frontier/hud/milestones.mjs';
@@ -41,7 +41,10 @@ test('the six leaders follow faction order (red, sky cyan, yellow, purple, white
   assert.deepEqual(MOTION_LEADERS.map(l => l.key), KEYS);
   assert.deepEqual([0, 1, 2, 3, 4, 5].map(ART.leaderKey), KEYS);
   for (const invalid of [-1, 6, null, undefined, '1', 0.5]) assert.equal(ART.leaderKey(invalid), 'aster');
-  assert.equal(LD.LEADERS.length, 6);
+  assert.deepEqual(LD.CHARACTERS.map(c => [c.faction, c.key]), KEYS.map((k, f) => [f, k]));
+  // the six are the players: a character has no name and no title (DECISIONS ZP1, ZP3)
+  assert.equal(LD.LEADERS, undefined);
+  for (const c of LD.CHARACTERS) assert.deepEqual(Object.keys(c), ['faction', 'key']);
 });
 
 test('the package\'s 24 motion sheets are in the client byte for byte, each a row of 256 px frames', () => {
@@ -100,8 +103,8 @@ test('the asset budget: everything the leaders add stays under 2.4 MB (the aim w
 
 test('leaderSvg: the hexagon icon up to 64 px, the portrait card above it; attributes only; the flat vector busts are gone', () => {
   setLang('ja');
-  for (const l of LD.LEADERS) {
-    const f = l.faction, k = KEYS[f], title = `${l.name.ja}、${l.title()}`;
+  for (const l of LD.CHARACTERS) {
+    const f = l.faction, k = KEYS[f], title = `${factionName(f)}`;
     const small = LD.leaderSvg(f, { size: 34 });
     assert.match(small, new RegExp(`^<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="34" height="34" class="leader leader-hex" data-leader="${k}" aria-hidden="true" focusable="false"><image href="[^"]*/hex-v1/${k}@128\\.webp" width="100" height="100"/></svg>$`));
     assert.equal(LD.leaderSvg(f, { size: 64 }), LD.leaderHex(f, { size: 64 }), 'one source: the same icon whoever asks');
@@ -142,17 +145,17 @@ test('the leader standing: a canvas of one stage cell, marked for the sprite pla
   assert.match(LD.leaderFigure(0, { motion: 'still' }), /data-motion="still"/);
 });
 
-test('the leaders are on every screen that names them: faction cards, the crest chip, standings, the first-village banner', () => {
+test('the six characters are on every screen that shows a nation: nation cards, the crest chip, standings, the first-village banner; no leader is named', () => {
   setLang('ja');
-  for (const l of LD.LEADERS) {
+  for (const l of LD.CHARACTERS) {
     const card = flat(leaderCard(l.faction));
     assert.match(card, new RegExp(`portrait-v1/${KEYS[l.faction]}\\.webp`));
-    assert.ok(card.includes(l.name.ja) || card.includes(l.name.en));
+    assert.ok(card.includes(factionName(l.faction))); assert.doesNotMatch(card, /leader-name|data-name/);
     assert.match(card, /leader-doctrine/); assert.match(card, /leader-text/);
     assert.match(flat(leaderCrest(l.faction)), new RegExp(`class="leader leader-hex" data-leader="${KEYS[l.faction]}"[^>]*>.*<g transform="translate\\(79 79\\)">`), 'the top plaque: the icon with the sigil at its foot');
     const banner = flat(renderBanner({ id: 'first-holding', kind: 'first-holding', p: 2, q: 0, site: 1, tier: 0 }, l.faction));
     assert.match(banner, new RegExp(`<span class="mile-fig"><canvas class="lfig" width="288" height="360" data-leader="${KEYS[l.faction]}" data-motion="idle"`), 'the leader stands by the line and breathes');
-    assert.ok(banner.includes(l.name.ja));
+    assert.ok(banner.includes(`— ${factionName(l.faction)}</span>`), 'the words are the nation\'s'); assert.doesNotMatch(banner, /data-name/);
   }
   // the village plate: the leader's icon stands in only while the viewer has no face of their own (a citizen whose
   // tag cannot be worked out yet: no village, and the season's addresses not read); a person's own face otherwise

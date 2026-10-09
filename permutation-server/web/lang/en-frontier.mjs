@@ -478,8 +478,8 @@ export default {
   '村が決まる鐘まで': 'Until the deciding bell',
   '鐘が鳴りました。約 {0} 分で決まります。': 'The bell has tolled. Decided in about {0} min.',
   'ターン {0} の鐘です。鐘のあと約 {1} 分で決まります。': 'That is turn {0}\'s bell. Your village is decided about {1} min after it.',
-  '村の場所はもうすぐ決まる。待つあいだに、戦い方を確かめておけ。': 'Your village will be placed soon. Use the wait to learn how a battle goes.',
-  'まずは村の申し込みだ。通りしだい、候補地を知らせよう。': 'First, the village request. Once it is in, I will show you the candidate sites.',
+  '村の場所はもうすぐ決まる。待つあいだに、戦い方を確かめておこう。': 'The village will be placed soon. The wait is a good time to learn how a battle goes.',
+  'まずは村の申し込みだ。通りしだい、候補地が地図に並ぶ。': 'First, the village request. Once it is in, the candidate sites appear on the map.',
   '十分ごとに鐘が鳴り、封をして送り出した進軍がいっせいに着いて、同じ州の軍勢とぶつかる。': 'Every ten minutes the bell tolls: the marches sent under seal arrive together and meet whoever stands in the same province.',
   '確定した村': 'Confirmed',
   'はじめの探索はあと {0} 回、必ず功績 4 を得ます。': n => plural(n, 'Your next exploration is sure to earn 4 Works (the season\'s score).', 'Your next {0} explorations are each sure to earn 4 Works (the season\'s score).'),
@@ -522,5 +522,5 @@ export default {
   '建設中です。輪が一周すると完成します。': 'A building is going up. It is done when the ring closes.',
   '村のまわりの印': 'Marks around a village',
   '六つの国とその色': 'The six nations and their colours',
-  '国は、色と印（丸・三角・四角・ひし形・十字・六角）の両方で見分けられます。色は、国を率いる人の服の色です。': 'A nation is told by its colour and by its mark together (circle, triangle, square, diamond, cross, hexagon). The colour is the one its leader wears.',
+  '国は、色と印（丸・三角・四角・ひし形・十字・六角）の両方で見分けられます。色は、その国の人の服の色です。': 'A nation is told by its colour and by its mark together (circle, triangle, square, diamond, cross, hexagon). The colour is the one its people wear.',
 };

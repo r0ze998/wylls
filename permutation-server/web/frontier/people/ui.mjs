@@ -1,5 +1,5 @@
 // People in the page's panels (design session, "people" request): a person
-// chip (portrait and name), the leader card of a faction, and the
+// chip (the face and the name), a nation's card, and the
 // spectator's highlights ("Kaito of Ember sets out"). Markup only; names
 // carry data-name (proper names, not translated text).
 import { html, raw } from '../../util.mjs';
@@ -9,7 +9,7 @@ import { hostParts } from '../faddr.mjs';
 import { decode as fromBase58 } from '../../sdk/base58.mjs';
 import { identityOf, displayName, tagOf, placeName, withProfile } from './identity.mjs';
 import { avatarSvg } from './avatar.mjs';
-import { leaderSvg, LEADERS, DOCTRINE_PITCH } from './leaders.mjs';
+import { leaderSvg, DOCTRINE_PITCH } from './leaders.mjs';
 import { ownerFaction } from './scene.mjs';
 
 let uid = 0;
@@ -66,15 +66,13 @@ export function hostOwner(roster, hostId) {
 }
 
 /**
- * A faction's leader card: portrait, leader name and title, doctrine and its one-line pitch. (No screen of the
- * redesign calls it since the nation banners; the other line of work's join screen does, so the export stays.)
+ * A nation's card: its character, its name, its doctrine and the doctrine's one-line pitch (no name and no title
+ * of a person: DECISIONS ZP3). (No screen of the redesign calls it since the nation banners; the other line of
+ * work's join screen does, so the export stays.)
  */
 export function leaderCard(f, { size = 96 } = {}) {
-  const l = LEADERS[f];
-  const name = lang() === 'en' ? l.name.en : l.name.ja;
   return html`<span class="leader-card">${raw(leaderSvg(f, { size }))}<span class="leader-text">
     <strong>${factionName(f)}</strong>
-    <span class="leader-name"><span data-name>${name}</span> · ${l.title()}</span>
     <span class="leader-doctrine">${L`教義：${DOCTRINE_NAMES[f]}`}</span>
     <span class="muted">${DOCTRINE_PITCH[f]()}</span></span></span>`;
 }

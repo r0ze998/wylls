@@ -30,7 +30,7 @@
 // by web-frontier-practice.test.mjs.
 import { html, raw } from '../../util.mjs';
 import { icon } from '../hud/icons.mjs';
-import { L, fmtNum, lang } from '../../lang.mjs';
+import { L, fmtNum } from '../../lang.mjs';
 import { sha256 } from '../../sdk/sha256.mjs';
 import { toHex, fromBase64 } from '../../sdk/bytes.mjs';
 import { Writer, Reader, OK } from '../wasm.mjs';
@@ -44,7 +44,7 @@ import { swatch } from './shell.mjs';
 import { personChip } from '../people/ui.mjs';
 import { cardHead, fold, chip, lossBar, label, ring } from './parts.mjs';
 import { tileName, provinceName } from '../hud/place.mjs';
-import { LEADERS, leaderSvg, leaderFigure } from '../people/leaders.mjs';
+import { leaderSvg, leaderFigure } from '../people/leaders.mjs';
 
 // ------------------------------------------------------------------ the resolve_clash codec (borsh)
 /** Postures in borsh order: Stance(Hold|Assault|Flank|Brace), then Disarray. */
@@ -670,19 +670,18 @@ export function verdictOf(sum) {
   return sum.role === 'defend' ? { key: 'held', tone: 'held', text: L`戦場に残った` } : { key: 'arrived', tone: 'held', text: L`行き先に着き、戦場に残った` };
 }
 
-/** The leader's word on a result (UI plan F1): the viewer's faction, or the side that held the field. */
-const LEADER_LINE = {
-  won: () => L`見事だ。この地の名は、今日のおまえたちのものだ。`,
-  held: () => L`よく踏みとどまった。次の鐘で押し返せ。`,
+/** The nation's words on a result (UI plan F1; no named speaker: DECISIONS ZP3): the viewer's nation, or the side that held the field. */
+const NATION_LINE = {
+  won: () => L`見事な勝利だ。この地の名は、今日の我らのものだ。`,
+  held: () => L`よく踏みとどまった。次の鐘で押し返そう。`,
   turned: () => L`退くのも兵法のうちだ。兵は残った。`,
-  fell: () => L`痛い負けだ。だが辺境は広い、立て直せ。`,
+  fell: () => L`痛い負けだ。だが辺境は広い。立て直そう。`,
   none: () => L`結末はまだ分からぬ。確かめてから語ろう。`,
   watch: () => L`この地はわれらのものだ。`,
 };
 function leaderLine(f, key) {
   if (!Number.isInteger(f) || f < 0 || f > 5) return '';
-  const l = LEADERS[f];
-  return html`<p class="report-leader"><span class="report-fig">${raw(leaderFigure(f))}</span><span><q>${LEADER_LINE[key]()}</q> <span class="muted">— <span data-name>${lang() === 'en' ? l.name.en : l.name.ja}</span></span></span></p>`;
+  return html`<p class="report-leader"><span class="report-fig">${raw(leaderFigure(f))}</span><span><q>${NATION_LINE[key]()}</q> <span class="muted">— ${factionName(f)}</span></span></p>`;
 }
 
 /** The outcome stamp: a word pressed on the paper (its tone is a class; the word says it too). */

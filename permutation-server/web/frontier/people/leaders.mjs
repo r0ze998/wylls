@@ -1,21 +1,27 @@
-// The six nations' leaders: who they are (names, titles, the doctrine's one
-// line) and the one way their pictures reach a screen. The pictures are the
-// owner's six characters (people/leader-art.mjs says where each file is):
+// The six characters, one for each nation: the look of every player of that
+// nation (people and AI citizens alike, with no mark), and the one way their
+// pictures reach a screen. The pictures are the owner's six characters
+// (people/leader-art.mjs says where each file is):
 //
-//   0 Aster    · A Wardens of Stone — red marshal's coat, gold epaulettes
+//   0 Aster    · A Wardens of Stone — red coat, gold epaulettes
 //   1 Borealis · B Tide              — sky-cyan coat and hood, brass mask and goggles
 //   2 Cinder   · C Flame             — yellow cape over bronze plate, grey hair and beard
 //   3 Dunmar   · D Verdant           — purple hooded mantle, a silver circlet
 //   4 Ember    · E Lumen             — white surveyor's coat, white hair, goggles at the collar
 //   5 Fjordal  · F Iron              — orange coat with a white fur collar, chestnut hair
 //
-// Leaders are presentation: the chain has no leader, and no leader walks the
-// map. Names are fixed per faction (proper names: data-name in markup).
+// The six are the players (owner decision of 2026-10-09, DECISIONS ZP1): a
+// character has no name and no title of its own; choosing a nation is
+// choosing your character, and a player's own name stays the player's. A
+// nation is shown by its name, its sigil, its doctrine and its character.
+// ("leader" in the names of these files and functions is from the day the
+// six were drawn as the nations' leaders: it now reads "a nation's character".)
 //
-//   leaderSvg(f, {size})      the portrait at any size: the hexagon icon up to 64 px, above that the
+//   leaderSvg(f, {size})      the character at any size: the hexagon icon up to 64 px, above that the
 //                             portrait card (the bust before a cloth of the nation's colour, 4 : 5)
 //   leaderHex(f, {size})      the hexagon icon (people/leader-art.mjs)
-//   leaderFigure(f, {motion}) the leader standing, breathing where motion is allowed (people/leader-sprite.mjs)
+//   leaderFigure(f, {motion}) the character standing, breathing where motion is allowed (people/leader-sprite.mjs)
+//   playerFace(f, {size, own}) a player's face: that player's nation's character (people/faces.mjs)
 //
 // Markup carries attributes only (no style: the page's CSP). The flat
 // vector busts this file used to draw are gone from every screen.
@@ -27,15 +33,8 @@ import { leaderHex, leaderKey, leaderPortraitUrl, artImage } from './leader-art.
 export { leaderHex, leaderKey, leaderHexUrl, leaderPortraitUrl, leaderStillUrl, leaderStageUrl, leaderHexImage, onLeaderArtLoad, STAGE_CELL, STAGE_CLIPS } from './leader-art.mjs';
 export { leaderFigure, startLeaderSprites } from './leader-sprite.mjs';
 
-/** The leaders' names (both languages) and titles. */
-export const LEADERS = Object.freeze([
-  { faction: 0, name: { en: 'Oriane Vell', ja: '\u30aa\u30ea\u30a2\u30fc\u30cc\u30fb\u30f4\u30a7\u30eb' }, title: () => L`石の守り手の元帥` },
-  { faction: 1, name: { en: 'Kaito Marrow', ja: '\u30ab\u30a4\u30c8\u30fb\u30de\u30ed\u30a6' }, title: () => L`潮の船長` },
-  { faction: 2, name: { en: 'Sedra Ashfane', ja: '\u30bb\u30c9\u30e9\u30fb\u30a2\u30c3\u30b7\u30e5\u30d5\u30a7\u30a4\u30f3' }, title: () => L`炎の伝令` },
-  { faction: 3, name: { en: 'Brannoc Elm', ja: '\u30d6\u30e9\u30ce\u30c3\u30af\u30fb\u30a8\u30eb\u30e0' }, title: () => L`新緑の森番の長` },
-  { faction: 4, name: { en: 'Ilse Ardent', ja: '\u30a4\u30eb\u30bc\u30fb\u30a2\u30fc\u30c7\u30f3\u30c8' }, title: () => L`光明の測量長` },
-  { faction: 5, name: { en: 'Torvald Hride', ja: '\u30c8\u30fc\u30f4\u30a1\u30eb\u30fb\u30d5\u30ea\u30fc\u30c7' }, title: () => L`鉄のヤール` },
-]);
+/** The six characters in faction order: `{faction, key}` (the file key of the nation's pictures). No names, no titles. */
+export const CHARACTERS = Object.freeze([0, 1, 2, 3, 4, 5].map(faction => Object.freeze({ faction, key: leaderKey(faction) })));
 
 /** One-line doctrine pitch per faction (join cards, standings). */
 export const DOCTRINE_PITCH = Object.freeze([
@@ -72,9 +71,9 @@ function portraitCard(f, { size, a11y }) {
 }
 
 /**
- * A leader's portrait as inline SVG markup, `size` px wide: the hexagon icon (square) up to `HEX_UP_TO` px, the
+ * A nation's character as inline SVG markup, `size` px wide: the hexagon icon (square) up to `HEX_UP_TO` px, the
  * portrait card (height 1.25 ×) above it; `shape: 'hex' | 'card'` asks for one of them at any size. Decorative
- * (beside the leader's or the nation's name) unless `title` names it. An invalid faction reads as Aster.
+ * (beside the nation's or the player's name) unless `title` names it. An invalid faction reads as Aster.
  */
 export function leaderSvg(faction, { size = 160, title = null, shape = 'auto', sigil = false } = {}) {
   const f = Number.isInteger(faction) && faction >= 0 && faction < 6 ? faction : 0;

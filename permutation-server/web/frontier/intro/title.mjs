@@ -20,7 +20,7 @@ import { html, raw } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { factionName } from '../fi18n.mjs';
 import { FACTION_FILL, FACTION_DARK, FACTION_MARK, sigilPath } from '../people/avatar.mjs';
-import { leaderFigure, LEADERS } from '../people/leaders.mjs';
+import { leaderFigure, CHARACTERS } from '../people/leaders.mjs';
 import { icon } from '../hud/icons.mjs';
 
 export const INTRO_KEY = 'ps-fintro:v1';
@@ -85,13 +85,13 @@ export const sentences = text => String(text).match(/[^\u3002.!?]+[\u3002.!?]?\s
 /**
  * The title scene's markup. `mode` 'play' | 'spectate' | 'practice'; `stage` as `ctaText`. The picture is a canvas
  * the page paints (intro/scene.mjs: the bell's tower on the chart at dusk, the six standards round it); over its
- * dark foot stand the wordmark, one line, one sentence of what the game is, the six leaders standing in a row,
+ * dark foot stand the wordmark, one line, one sentence of what the game is, the six characters standing in a row,
  * the live line and the one button. (The second review: the first five seconds showed an emblem and a paragraph,
  * no picture of the game; in English the tagline broke with one orphan word and its ornaments drifted apart.)
  */
 export function render({ mode = 'play', live = '', stage = null } = {}) {
   // the six stand in a row and breathe (a still each in reduced motion): the nation's name and its sigil under each
-  const leaders = LEADERS.map((l, i) => html`<li class="intro-leader intro-leader-${i}"><span class="intro-fig">${raw(leaderFigure(l.faction))}</span><span class="intro-nation"><svg class="intro-sigil" viewBox="-8 -8 16 16" width="12" height="12" aria-hidden="true" focusable="false"><path d="${sigilPath(l.faction, 6)}" fill="${FACTION_FILL[l.faction]}" stroke="#0a1412" stroke-width="1.2"/></svg>${factionName(l.faction)}</span></li>`);
+  const leaders = CHARACTERS.map((l, i) => html`<li class="intro-leader intro-leader-${i}"><span class="intro-fig">${raw(leaderFigure(l.faction))}</span><span class="intro-nation"><svg class="intro-sigil" viewBox="-8 -8 16 16" width="12" height="12" aria-hidden="true" focusable="false"><path d="${sigilPath(l.faction, 6)}" fill="${FACTION_FILL[l.faction]}" stroke="#0a1412" stroke-width="1.2"/></svg>${factionName(l.faction)}</span></li>`);
   return html`<canvas class="intro-scene" aria-hidden="true"></canvas><div class="intro-veil" aria-hidden="true"></div>
     <div class="intro-card">
       <h2 class="intro-title" id="intro-title" data-name>Wylls</h2>
