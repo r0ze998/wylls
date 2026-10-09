@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { setLang } from '../../permutation-server/web/lang.mjs';
 import * as LD from '../../permutation-server/web/frontier/people/leaders.mjs';
 import * as ART from '../../permutation-server/web/frontier/people/leader-art.mjs';
-import { MOTION_LEADERS, LEADER_MOTIONS, LEADER_SPRITE_CELL, motionSpriteUrl } from '../../permutation-server/web/frontier/leader-motion-data.mjs';
+import { MOTION_LEADERS, LEADER_MOTIONS, LEADER_SPRITE_CELL, LEADER_SHEET_SETS, motionInSet, motionSpriteUrl } from '../../permutation-server/web/frontier/leader-motion-data.mjs';
 import * as P from '../../permutation-server/web/frontier/palette.mjs';
 import { FACTION_FILL, FACTION_DARK, FACTION_LIGHT, FACTION_ON, FACTION_MARK, avatarSvg } from '../../permutation-server/web/frontier/people/avatar.mjs';
 import { FACTION_COLORS, factionName } from '../../permutation-server/web/frontier/fi18n.mjs';
@@ -62,6 +62,39 @@ test('the package\'s 24 motion sheets are in the client byte for byte, each a ro
   assert.equal(readdirSync(ART_DIR, { recursive: true }).filter(f => /\.(glb|blend)$/.test(String(f))).length, 0);
 });
 
+test('the sharp set: 24 sheets of 512 px frames beside the package\'s own, the idle with eight frames; the package\'s files are untouched by it', () => {
+  // (rendered on 2026-10-10 from the owner's models by the owner's own script: docs/frontier/art/leaders3d/STAGE.md)
+  const dir = new URL('motion-v1/sprite@2x/', ART_DIR);
+  const files = readdirSync(dir).sort();
+  assert.deepEqual(files, MOTION_LEADERS.flatMap(l => LEADER_MOTIONS.map(m => `${l.key}_${m.key}.webp`)).sort(), 'the same 24 names, nothing else');
+  const S = LEADER_SHEET_SETS['2x'];
+  assert.deepEqual([S.folder, S.cell, S.frames], ['sprite@2x', 512, { idle: 8 }]);
+  assert.deepEqual([LEADER_SHEET_SETS['1x'].folder, LEADER_SHEET_SETS['1x'].cell, LEADER_SHEET_SETS['1x'].frames], ['sprite', 256, {}]);
+  let total = 0;
+  for (const l of MOTION_LEADERS) for (const m of LEADER_MOTIONS) {
+    const url = new URL(motionSpriteUrl(l.key, m.key, '2x'));
+    assert.ok(url.pathname.endsWith(`/motion-v1/sprite%402x/${l.key}_${m.key}.webp`) || url.pathname.endsWith(`/motion-v1/sprite@2x/${l.key}_${m.key}.webp`));
+    const frames = motionInSet(m, '2x').frames, s = webpSize(url);
+    assert.equal(frames, m.key === 'idle' ? 8 : m.frames, 'only the idle has more frames than the package\'s sheet');
+    assert.deepEqual([s.w, s.h, s.alpha], [512 * frames, 512, true], `${l.key}_${m.key}`);
+    total += s.bytes;
+    // the same clip, the same length, the same way of playing
+    assert.deepEqual([motionInSet(m, '2x').clip, motionInSet(m, '2x').duration, motionInSet(m, '2x').loop], [m.clip, m.duration, m.loop]);
+    assert.equal(motionInSet(m, '1x'), m);
+  }
+  // (the digest of the 24 sha-256 lines, in file-name order: the files as assembled on 2026-10-10)
+  const lines = files.map(f => createHash('sha256').update(readFileSync(new URL(f, dir))).digest('hex')).join('\n') + '\n';
+  assert.equal(createHash('sha256').update(lines).digest('hex'), 'a96c727ce7f31d1284c77f3436478ec0907789a12339c5e469038baa8fee5239');
+  assert.equal(total, 1_014_998);
+  // what one screen asks for: the viewer's idle sheet at the hero frame; a battle's three sheets a nation; a landing's walk
+  for (const l of MOTION_LEADERS) {
+    const size = m => statSync(new URL(motionSpriteUrl(l.key, m, '2x'))).size;
+    assert.ok(size('idle') < 45_000, `${l.key}: the idle sheet is ${size('idle')}`);
+    assert.ok(size('idle') + size('attack') + size('hit') < 125_000, `${l.key}: a battle's sheets`);
+    assert.ok(size('walk') < 56_000);
+  }
+});
+
 test('the portrait set: the hexagon icon, the bust, the stage still and its two clips; transparent, no larger than a dpr-2 screen needs, and no file that no screen asks for', () => {
   for (let f = 0; f < 6; f++) {
     const k = KEYS[f];
@@ -83,16 +116,19 @@ test('the portrait set: the hexagon icon, the bust, the stage still and its two 
   const named = new Set();
   for (let f = 0; f < 6; f++) {
     for (const u of [ART.leaderHexUrl(f), ART.leaderPortraitUrl(f), ART.leaderStillUrl(f), ART.leaderStageUrl(f, 'idle'), ART.leaderStageUrl(f, 'attack')]) named.add(fileURLToPath(u));
-    for (const m of LEADER_MOTIONS) named.add(fileURLToPath(motionSpriteUrl(KEYS[f], m.key)));
+    for (const m of LEADER_MOTIONS) for (const set of ['1x', '2x']) named.add(fileURLToPath(motionSpriteUrl(KEYS[f], m.key, set)));
   }
   const shipped = readdirSync(ART_DIR, { recursive: true, withFileTypes: true }).filter(e => e.isFile()).map(e => fileURLToPath(new URL(e.name, new URL(`file://${e.parentPath ?? e.path}/`))));
   assert.deepEqual(shipped.filter(f => !named.has(f)), [], 'no unused file');
-  assert.equal(shipped.length, 6 + 6 + 6 + 12 + 24);
+  assert.equal(shipped.length, 6 + 6 + 6 + 12 + 24 + 24);
 });
 
-test('the asset budget: everything the leaders add stays under 2.4 MB (the aim was 3), and a first screen needs a small part of it', () => {
+test('the asset budget: everything the six characters add stays under 3.5 MB on disk (2.4 MB before the sharp set of 2026-10-10: DECISIONS ZQ3), and a first screen needs a small part of it', () => {
+  // (rewritten on 2026-10-10: this pinned 2.4 MB, the brief's aim being 3. The owner's "make it larger" needs frames
+  // of 512 px for the characters on the board: 1,014,998 bytes more on disk, of which a screen fetches one sheet)
   const total = dirBytes(ART_DIR);
-  assert.ok(total < 2_400_000, `art/leaders3d is ${total} bytes`);
+  assert.ok(total < 3_500_000, `art/leaders3d is ${total} bytes`);
+  assert.equal(total - dirBytes(new URL('motion-v1/sprite@2x/', ART_DIR)), 2_341_924, 'everything that was there before is as it was');
   const size = url => statSync(new URL(url)).size;
   const stills = KEYS.reduce((n, _, f) => n + size(ART.leaderStillUrl(f)), 0), idles = KEYS.reduce((n, _, f) => n + size(ART.leaderStageUrl(f, 'idle')), 0);
   const hex = KEYS.reduce((n, _, f) => n + size(ART.leaderHexUrl(f)), 0);

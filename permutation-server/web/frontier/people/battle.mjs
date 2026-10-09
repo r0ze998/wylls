@@ -53,8 +53,9 @@ import { paintMini, preloadMinis } from './minis.mjs';
 import { clamp01, lerp, span, inQuad, inCubic, outQuad, outCubic, outExpo, outBack, inOutQuad } from '../fx/ease.mjs';
 import { standing } from '../map/tilt.mjs';
 import { sideOutcome } from './outcome.mjs';
-import { paintLeaderMotion, leaderMotionSheet } from './leader-motion.mjs';
-import { MOTION_LEADERS, LEADER_MOTIONS } from '../leader-motion-data.mjs';
+import { paintLeaderMotion, paintContactShadow, leaderMotionPick, leaderCellWidth, leaderBreath } from './leader-motion.mjs';
+import { motion as motionLevel } from '../fx/motion.mjs';
+import { MOTION_LEADERS, LEADER_MOTIONS, BOARD_CHARACTER_SCALE, LEADER_FIGURE } from '../leader-motion-data.mjs';
 import { VILLAGE } from '../map/village.mjs';
 import { HERO, VILLAGE_SCALE, VILLAGE_AT } from '../map/plates.mjs';
 
@@ -424,8 +425,21 @@ export function exchangeWinners(A, D) {
 
 /** A character's clips in a scene (seconds): the strike begins `lead` before its contact and is over in `secs`; a blow is taken from the contact on. */
 export const CHARACTER_CLIP = Object.freeze({ attack: Object.freeze({ lead: 0.24, secs: 0.56 }), hit: Object.freeze({ lead: 0, secs: 0.5 }) });
-/** Where a side's character stands: this far behind its formation's middle and this far upstage (figure heights), and how large (of a figure's height unit: the size it has on the board beside a host). */
-export const CHARACTER_STAND = Object.freeze({ back: 1.3, up: 0.35, scale: 1 });
+/**
+ * A side's character in a scene. How large: the size it has beside its village, in the world (the one rule of
+ * leader-motion-data.mjs: BOARD_CHARACTER_SCALE of a host's token unit on the board, `CHARACTER_STAND.unit` world
+ * px), whatever the height of the scene's own figures: a character whose village is fought over keeps its size when
+ * the scene takes the tile, and a scene the camera is sent to shows it as much larger as it shows the land. On a
+ * narrow stage it is at most as wide as the room between its rear rank and the stage's edge (`fit`). Where: its body
+ * clear of its rear rank, which reaches `rear` figure heights behind the formation's middle, and `up` upstage.
+ */
+export const CHARACTER_STAND = Object.freeze({ unit: RADIUS * 0.66 * BOARD_CHARACTER_SCALE, rear: 0.85, up: 0.3, fit: 0.94 });
+/** The height unit a side's character is drawn in (world px) on a stage whose figures are `s` tall, that rests its lines `rest` figure heights from the middle and is `edge` world px to either side (0: no edge). */
+export function characterStandUnit(s, rest, edge = 0) {
+  if (!(edge > 0)) return CHARACTER_STAND.unit;
+  const room = (edge - (rest + CHARACTER_STAND.rear) * s) * CHARACTER_STAND.fit;
+  return Math.max(s, Math.min(CHARACTER_STAND.unit, room / (2 * LEADER_FIGURE.half * leaderCellWidth(1))));
+}
 const IDLE_SECS = LEADER_MOTIONS.find(m => m.key === 'idle').duration;
 /**
  * What the character of the side with sign `sgn` does at posed time `tau` (scene seconds `t` for the idle loop):
@@ -540,23 +554,23 @@ export const HIT_TINT_SECS = Object.freeze([0.034, 0.07]);
 /** The tint of a blow at `since` seconds after its contact frame (0..1 of HIT_TINT). */
 export const hitTint = since => (since < 0 ? 0 : since < HIT_TINT_SECS[0] ? 1 : 1 - span(since, HIT_TINT_SECS[0], HIT_TINT_SECS[1]));
 /** Start loading the sheets a scene will need (so its first frames already have their figures). */
-export function preloadBattle(scene) {
+export function preloadBattle(scene, figurePx = 0) {
+  // (`figurePx`: the characters' height unit on screen in CSS px, where the caller knows the stage; their sheets are
+  // asked for in the set that size calls for: people/leader-motion.mjs leaderMotionPick)
+  const px = leaderCellWidth(figurePx > 0 ? figurePx : CHARACTER_STAND.unit) * (globalThis.devicePixelRatio || 1);
   for (const tile of scene?.tiles ?? []) for (const x of [...(tile.attackers ?? []), ...(tile.defenders ?? [])]) {
     const nation = x.faction >= 0 && x.faction < 6;
     preloadMinis(nation ? x.faction : null);
     // the side's player (a nation's side): the three sheets its character plays in a scene
-    if (nation && x.kind !== 'camp') for (const m of ['idle', 'attack', 'hit']) leaderMotionSheet(MOTION_LEADERS[x.faction].key, m);
+    if (nation && x.kind !== 'camp') for (const m of ['idle', 'attack', 'hit']) leaderMotionPick(MOTION_LEADERS[x.faction].key, m, px);
   }
 }
 
 function paintFigure(ctx, f) { if (f.alpha > 0.02) { if (f.character) paintCharacterFigure(ctx, f); else upright(ctx, f.x, f.y, () => paintFigureFlat(ctx, f)); } }
 /** A side's character: a soft shadow on the ground, the figure upright on it (people/leader-motion.mjs; nothing until its sheet is here). */
 function paintCharacterFigure(ctx, f) {
-  ctx.save();
-  ctx.globalAlpha *= 0.3 * f.alpha; ctx.fillStyle = '#0a120f';
-  ctx.beginPath(); ctx.ellipse?.(f.x + f.s * 0.05, f.y + f.s * 0.02, f.s * 0.32, f.s * 0.12, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.restore();
-  upright(ctx, f.x, f.y, () => paintLeaderMotion(ctx, f.x, f.y, f.s, { leader: f.character, motion: f.motion, share: f.share, looping: f.looping, face: f.face, alpha: f.alpha, own: false }));
+  paintContactShadow(ctx, f.x, f.y, f.s, f.alpha);
+  upright(ctx, f.x, f.y, () => paintLeaderMotion(ctx, f.x, f.y, f.s, { leader: f.character, motion: f.motion, share: f.share, looping: f.looping, face: f.face, alpha: f.alpha, own: false, breath: f.breath ?? 0 }));
 }
 function paintFigureFlat(ctx, f) {
   if (f.alpha <= 0.02) return;
@@ -896,14 +910,15 @@ function paintTile(ctx, T, e) {
   for (const side of T.sides) {
     if (!side.character || !side.groups.length) continue;
     const act = characterAct(T.wins, side.sgn, tau, t);
-    let x = cx + side.sgn * (REST + CHARACTER_STAND.back) * s, alpha = span(t, t0c + 0.2, t0c + 0.6) * (1 - span(t, PHASE.end - 0.5, PHASE.end - 0.1));
+    const cu = characterStandUnit(s, REST, edge), half = leaderCellWidth(cu) * LEADER_FIGURE.half;
+    let x = cx + side.sgn * ((REST + CHARACTER_STAND.rear) * s + half), alpha = span(t, t0c + 0.2, t0c + 0.6) * (1 - span(t, PHASE.end - 0.5, PHASE.end - 0.1));
     // (a narrow stage: the whole figure stays in the picture, the near rows of a tilted board being drawn a little wider)
-    if (edge > 0) x = Math.max(cx - edge + s * 0.56, Math.min(cx + edge - s * 0.56, x));
+    if (edge > 0) x = Math.max(cx - edge + half * 1.06, Math.min(cx + edge - half * 1.06, x));
     // (it comes with its line out of the mist, and goes with it: a side that left the field walks off, one that fell is gone when the field is left)
     if (side.sgn < 0 && !residents) alpha *= span(t, 0.15, 0.95);
     const fk = span(t, PHASE.fates + 0.14, PHASE.fates + 1.4);
     if (fk > 0 && side.fate && side.fate !== 'Stays') alpha *= side.fate === 'Destroyed' ? 1 - span(t, PHASE.losses, PHASE.losses + 0.8) : 1 - 0.92 * smooth(fk);
-    figs.push({ character: side.character, x, y: cy - CHARACTER_STAND.up * s, s: s * CHARACTER_STAND.scale, face: -side.sgn, alpha, motion: act.motion, share: act.share, looping: act.looping });
+    figs.push({ character: side.character, x, y: cy - CHARACTER_STAND.up * s, s: cu, face: -side.sgn, alpha, motion: act.motion, share: act.share, looping: act.looping, breath: act.motion === 'idle' && motionLevel() === 'full' ? leaderBreath(t) : 0 });
   }
   figs.sort((a, b) => a.y - b.y);
   for (const f of figs) paintFigure(ctx, f);

@@ -27,7 +27,7 @@ import { L, fmtNum } from '../../lang.mjs';
 import { RADIUS, FLATTEN } from '../../map.mjs';
 import { factionName, FATES, VERDICTS } from '../fi18n.mjs';
 import { sideOutcome, verdictKey } from '../people/outcome.mjs';
-import { PHASE, BATTLE_HITS, HIT_POWER, BATTLE_ABOVE, battlePlan, battleStage, battleFit, battleLayout, battleVerdict, paintBattle, preloadBattle, sideColors, crossedSwords } from '../people/battle.mjs';
+import { PHASE, BATTLE_HITS, HIT_POWER, BATTLE_ABOVE, battlePlan, battleStage, battleFit, battleLayout, battleVerdict, paintBattle, preloadBattle, characterStandUnit, sideColors, crossedSwords } from '../people/battle.mjs';
 import { span, lerp, inQuad, outCubic, outExpo, outBack, envelope } from './ease.mjs';
 import { REDUCED_FADE } from './motion.mjs';
 import { noise1, hashSeed } from './rand.mjs';
@@ -269,7 +269,8 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
   const fit = battleFit(fx.map?.size?.().width ?? fx.size().width);
   const stage = battleStage(main, z, fit, layout);
   play.staged = true;
-  preloadBattle(scene);
+  // (the characters' size on screen: their sheets come in the set that size calls for)
+  preloadBattle(scene, characterStandUnit(stage.s, stage.rest, layout?.half > 0 ? layout.half / Math.max(0.05, z) : 0) * z);
   // the camera: the tile's centre where the whole block (title, numbers, figures, bars) sits in the middle of the stage
   if (frame && fx.map?.flyTo && level !== 'off') {
     // (a tilted board says itself which view shows a point at a place on screen: map.viewShowing; a flat one is plain arithmetic)

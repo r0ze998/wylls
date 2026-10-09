@@ -267,9 +267,9 @@ const SPOTS_HOLDING = [[[0.44, 0.4]], [[0.44, 0.4], [-0.1, 0.62]], [[0.44, 0.4],
  * The tokens of one province: `[{x, y, faction, kind, troops, n, status, face, alpha, own, dashed, hosts}]`.
  * `hosts` = `[{id, faction, unit, troops (whole), stamina, state, arriving?, broken?}]` (already filtered by fog);
  * `holdingTiles` = Set of tile indices with a holding (`heroTiles`, `heroSpots`: the viewer's own); `exploring` / `marching` = Sets of host ids;
- * `restBelow` the stamina a march needs.
+ * `restBelow` the stamina a march needs; `unit`, `open`: for the players' characters (people/onboard.mjs characterTokens).
  */
-export function provinceTokens({ p, q, hosts, holdingTiles = new Set(), viewerFaction = null, exploring = new Set(), marching = new Set(), restBelow = 0, skipTiles = new Set(), heroTiles = null, heroSpots = null }) {
+export function provinceTokens({ p, q, hosts, holdingTiles = new Set(), viewerFaction = null, exploring = new Set(), marching = new Set(), restBelow = 0, skipTiles = new Set(), heroTiles = null, heroSpots = null, unit = undefined, open = null }) {
   const byTile = new Map();
   for (const h of hosts) {
     if (marching.has(String(h.id))) continue;   // the viewer's own column walks its road (movers)
@@ -302,7 +302,8 @@ export function provinceTokens({ p, q, hosts, holdingTiles = new Set(), viewerFa
   }
   // the players' characters that stand by a village of this province (people/onboard.mjs): the viewer's own beside
   // the viewer's active village, another player's beside a village that is selected; clear of the hosts above
-  out.push(...characterTokens({ p, q, tokens: out, villages: holdingTiles, heroTiles, skipTiles }));
+  // (`unit`: a host's token unit in hex radii at this zoom; `open(q, r)`: whether a hex is ground a character can stand on)
+  out.push(...characterTokens({ p, q, tokens: out, villages: holdingTiles, heroTiles, skipTiles, unit, open }));
   return out;
 }
 
