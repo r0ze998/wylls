@@ -97,7 +97,7 @@ export function renderMarch(m, FS = null) {
     <div class="march-top">${icon('banner')}<strong class="march-to">${title}</strong>${chip(html`${icon('bell')}${L`ターン ${fmtNum(t.arriveBell ?? 0)} に到着`}`, resolved ? 'ok' : 'info')}</div>
     ${sealed}
     <ol class="track track-phases" aria-label="${L`進軍の流れ`}">${phasesOf(t).map(s => html`<li class="${s.state}"><span class="track-dot" aria-hidden="true"></span><span class="track-name">${PHASE_TEXT[s.id]()}</span>${state(s)}</li>`)}</ol>
-    <p class="march-now"><strong>${now ? WAIT_TEXT[now.id]() : L`すべて済みました`}</strong>${hint ? html` <span class="muted">${hint}</span>` : ''}</p>
+    <p class="march-now"><strong>${now ? WAIT_TEXT[now.id]() : L`すべて済みました`}</strong>${hint ? html`<span class="muted march-hint">${hint}</span>` : ''}</p>
     ${t.closedUnrevealed ? html`<p class="warn">${L`封が開けられないまま、受付が終わりました。軍勢は敗走する（兵・体力・チップの半分を失う）か、同じ国の到着が多すぎたときは損失なしで村へ戻ります。`}</p>` : ''}
     ${t.outcome ? html`<p class="march-out">${TRANSIT_OUTCOME_TEXT[t.outcome] ?? t.outcome}</p>` : ''}
     ${m.entry?.failure ? html`<p class="notice error">${failureText({ code: m.entry.failure })}</p>` : ''}

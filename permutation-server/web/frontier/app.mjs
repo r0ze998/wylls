@@ -1406,7 +1406,7 @@ function renderLenses() {
   const open = el.dataset?.open === 'true';
   // a phone has one layers button that opens the four choices by name (UX design 11.11); wider screens show the four chips
   setHtmlIfChanged(el, html`<button type="button" class="hud-btn lens-toggle" data-act="lens-menu" aria-expanded="${open ? 'true' : 'false'}" aria-controls="lens-list" aria-label="${L`地図の表示：${minimap.LENS_TEXT[cur]()}`}" title="${L`地図の表示`}">${icon('layers')}</button>
-    <div class="lens-list" id="lens-list">${minimap.LENSES.map((l, i) => html`<button type="button" class="lens" data-act="lens" data-lens="${l}" aria-pressed="${l === cur ? 'true' : 'false'}" aria-label="${minimap.LENS_TEXT[l]()}" title="${minimap.LENS_TEXT[l]()} (${i + 1})">${icon(minimap.LENS_ICON[l])}<span class="lens-text" aria-hidden="true">${minimap.LENS_TEXT[l]()}</span></button>`)}</div>`);
+    <div class="lens-list" id="lens-list">${minimap.LENSES.map((l, i) => html`<button type="button" class="lens" data-act="lens" data-lens="${l}" aria-pressed="${l === cur ? 'true' : 'false'}" aria-label="${minimap.LENS_TEXT[l]()}" title="${minimap.LENS_TEXT[l]()} (${i + 1})">${icon(minimap.LENS_ICON[l])}<span class="lens-text" aria-hidden="true">${minimap.LENS_TEXT[l]()}</span></button>`)}${FS.mode === 'play' ? html`<button type="button" class="lens lens-help" data-act="legend-open" aria-label="${L`地図の見かた`}" title="${L`地図の見かた`}"><span class="lens-q" aria-hidden="true">?</span><span class="lens-text" aria-hidden="true">${L`地図の見かた`}</span></button>` : ''}</div>`);
 }
 /** Open or close the phone's list of lenses (a DOM state of the HUD: nothing in the store follows it). */
 function setLensMenu(open) {
@@ -1698,6 +1698,8 @@ export const HUD_ACTIONS = {
   'dial-close': () => closeDialPop({ focus: true }),
   term: d => { FS.term = FS.term === d.term || !glossary.TERMS[d.term] ? null : d.term; renderTermPop(); $('term-pop')?.querySelector('button')?.focus?.(); },
   'term-close': () => closeTermPop(),
+  // the legend of the map (map/legend.mjs), from the "?" beside the lenses: the More sheet opens on it
+  'legend-open': () => { closeTermPop(); setLensMenu(false); leaveReport(); if (FS.mode === 'play') { FS.tab = 'more'; FS.practice = null; } invalidate('panel', 'tabs'); requestAnimationFrame(() => { const g = $('survey-help'); for (let d = g?.closest?.('details'); d; d = d.parentElement?.closest?.('details')) d.open = true; g?.scrollIntoView?.({ block: 'start' }); g?.querySelector?.('h3')?.focus?.({ preventScroll: true }); }); },
   'glossary-open': () => { closeTermPop(); leaveReport(); if (FS.mode === 'play') FS.tab = 'more'; invalidate('panel', 'tabs'); requestAnimationFrame(() => { const g = $('glossary'); const d = g?.closest?.('details'); if (d) d.open = true; (d ?? g)?.scrollIntoView?.({ block: 'start' }); }); },
   // a card of the village drawer by its id: the folds around it open, it comes into view
   'hp-jump': d => {

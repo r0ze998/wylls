@@ -168,21 +168,27 @@ test('activities: walls, recruits, garrison, muster, rest, guard, battle, depart
   assert.deepEqual(acts.get(20).map(a => a.kind), ['depart']);
   assert.deepEqual(acts.get(40).map(a => a.kind), ['camp']);
   // (hud-4, UX design 11.13) a march on the road names whose it is and its arrival TURN. Another player's says the
-  // destination is sealed (never "secret") and names none; the viewer's own names the host and says only they see it.
+  // destination is sealed (never "secret") and names none; the viewer's own names the host and, when this device holds
+  // the seal's copy, where it goes (only they see it); without the copy it says this device does not know it. (Rewritten
+  // with the fix pass on the second review: the line said "only you can see where it is going" with no place named
+  // anywhere on a device that did not even hold the seal.)
   const road = { ...acts.get(20)[0], n: 900_000 };
   assert.equal(ACT.activityText(road), 'シンダーの軍勢 900 — ターン 44 に到着（行き先は封印中）', 'without a namer: the nation');
   assert.equal(ACT.activityText(road, () => ({ mine: false, owner: 'トキリク' })), 'トキリクの軍勢 900 — ターン 44 に到着（行き先は封印中）', 'its owner by name');
-  assert.equal(ACT.activityText(road, id => (id === '7' ? { mine: true, unit: 'Spearman', troops: 400 } : null)), 'あなたの槍兵 400 — ターン 44 に到着（行き先はあなたにだけ見えます）', 'the viewer\'s own');
-  assert.equal(ACT.activityText(road, () => ({ mine: true, unit: null, troops: null })), 'あなたの軍勢 900 — ターン 44 に到着（行き先はあなたにだけ見えます）');
+  assert.equal(ACT.activityText(road, id => (id === '7' ? { mine: true, unit: 'Spearman', troops: 400, dest: '森' } : null)), 'あなたの槍兵 400 → 森 — ターン 44 に到着（行き先はあなたにだけ見えます）', 'the viewer\'s own, the seal on this device');
+  assert.equal(ACT.activityText(road, id => (id === '7' ? { mine: true, unit: 'Spearman', troops: 400 } : null)), 'あなたの槍兵 400 — ターン 44 に到着（行き先はこの端末ではわかりません）', 'the viewer\'s own, no copy of the seal here');
+  assert.equal(ACT.activityText(road, () => ({ mine: true, unit: null, troops: null })), 'あなたの軍勢 900 — ターン 44 に到着（行き先はこの端末ではわかりません）');
+  assert.equal(ACT.activityText(road, () => ({ mine: true, unit: null, troops: null, dest: '蛮族の野営地' })), 'あなたの軍勢 900 → 蛮族の野営地 — ターン 44 に到着（行き先はあなたにだけ見えます）');
   assert.equal(ACT.activityText(acts.get(20)[0]), 'シンダーの軍勢 — ターン 44 に到着（行き先は封印中）', 'a departure without a size says no number');
   for (const who of [null, () => ({ mine: false, owner: 'X' }), () => ({ mine: true, unit: 'Scout', troops: 100 })]) assert.doesNotMatch(ACT.activityText(road, who), /秘密|鐘|州|へ/, 'no secrecy wording, no bell, no destination');
   assert.equal(ACT.activityText(acts.get(9)[1]), '城壁を建設中（ターン 45 に完成）');
   assert.equal(ACT.activityText(acts.get(9)[0]), '編成中（ターン 42 から使えます）');
   assert.equal(ACT.activityText(acts.get(9)[2]), '守備隊を増員中（ターン 43 から +100）');
-  assert.equal(ACT.tileSummary(acts.get(20), () => ({ mine: true, unit: 'Spearman', troops: 400 })), 'シンダー：あなたの槍兵 400 — ターン 44 に到着（行き先はあなたにだけ見えます）', 'the tip line passes the namer on');
+  assert.equal(ACT.tileSummary(acts.get(20), () => ({ mine: true, unit: 'Spearman', troops: 400 })), 'シンダー：あなたの槍兵 400 — ターン 44 に到着（行き先はこの端末ではわかりません）', 'the tip line passes the namer on');
   setLang('en');
   assert.match(ACT.activityText(acts.get(13)[1]), /^Resting \(ready on turn \d+\)$/, 'ready once it has the stamina to march again');
-  assert.equal(ACT.activityText(road, () => ({ mine: true, unit: 'Spearman', troops: 400 })), 'Your 400 Spearmen — arriving on turn 44 (only you can see where they are going)');
+  assert.equal(ACT.activityText(road, () => ({ mine: true, unit: 'Spearman', troops: 400, dest: 'Forest' })), 'Your 400 Spearmen → Forest — arriving on turn 44 (only you can see where they are going)');
+  assert.equal(ACT.activityText(road, () => ({ mine: true, unit: 'Spearman', troops: 400 })), 'Your 400 Spearmen — arriving on turn 44 (this device does not hold their destination)');
   assert.equal(ACT.activityText(road, () => ({ mine: false, owner: 'Tokirik' })), "Tokirik's host of 900 — arriving on turn 44 (destination sealed)");
   assert.equal(ACT.activityText({ kind: 'guard', n: 600 }), 'Stationed here (600 troops)', 'it read "Village the tile (600 troops)"');
   setLang('ja');

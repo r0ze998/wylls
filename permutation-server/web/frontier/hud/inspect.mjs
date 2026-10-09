@@ -23,7 +23,9 @@ import { hostRows } from '../screens/host.mjs';
 import { hasPin } from './pins.mjs';
 import { termButton } from './glossary.mjs';
 import { placeName, placeWhere } from '../map/names.mjs';
-import { TERRAIN_TEXT, villageDrawn, provinceName, provinceCoords } from './place.mjs';
+import { TERRAIN_TEXT, villageDrawn, provinceName, provinceCoords, tileName } from './place.mjs';
+import { unpack } from '../seal.mjs';
+import { materialBytes } from '../marchbook.mjs';
 import { cardHead, chip, fold, label } from '../screens/parts.mjs';
 
 /** Site states as the overview carries them (herald SITE_STATE) and the mirror (3 = released: a Free City). */
@@ -99,7 +101,8 @@ export function ownHostsOn(FS, p, q, idx) {
 
 /**
  * Who a host is, for a line that names one (people/activity.mjs: a march on the road): `id → {mine, unit, troops,
- * owner}` — the viewer's own by its unit and troops (from the province the page holds), anyone else's by its
+ * owner, dest, sealHere}` — the viewer's own by its unit and troops (from the province the page holds) and, when
+ * this device holds the copy of its seal, where it goes (`dest`, a place's name; `sealHere`); anyone else's by its
  * owner's name (the roster); null for an id that names no host.
  */
 export function hostInfoOf(FS) {
@@ -108,7 +111,11 @@ export function hostInfoOf(FS) {
     if (!hp) return null;
     if ((FS.holdings ?? []).some(o => o.p === hp.p && o.q === hp.q && o.site === hp.site && o.gen === hp.gen)) {
       const e = (FS.provinces?.get?.(`${hp.p},${hp.q}`)?.province?.entries ?? []).find(x => String(x.id) === String(id));
-      return { mine: true, unit: e ? UNIT_ORDER[e.unit] ?? null : null, troops: e ? troopsOf(e.troops) : null, owner: null };
+      // where it goes, when this device holds the copy of its seal (the march book): by the place's name; else nothing is known here
+      const kept = (FS.book ?? []).find(b => String(b.host) === String(id) && b.state !== 'settled' && b.state !== 'failed') ?? null;
+      let dest = null;
+      try { if (kept) { const m = unpack(materialBytes(kept).plain); dest = tileName(FS, m.destP, m.destQ, m.destTile); } } catch { dest = null; }
+      return { mine: true, unit: e ? UNIT_ORDER[e.unit] ?? null : null, troops: e ? troopsOf(e.troops) : null, owner: null, dest, sealHere: !!kept };
     }
     const o = hostOwner(FS.roster, id);
     return { mine: false, unit: null, troops: null, owner: o ? displayName(o) : null };

@@ -200,7 +200,7 @@ const CLIENT_TEXT = {
   OperatorOnly: () => L`運営者だけの操作です`,
   TokenError: () => L`運営者の鍵が正しくありません`,
   TimeoutError: () => L`時間内に答えがありませんでした`,
-  Unavailable: () => L`いまは使えません。しばらくしてから試してください。`,
+  Unavailable: () => L`サーバーが応じませんでした。少し待ってから、もう一度試してください。`,
   // ---- this page's own steps (W3-F)
   NoRelay: () => L`中継サーバーの場所がわかりません`,
   NoPin: () => L`シーズンがまだ決まっていません`,

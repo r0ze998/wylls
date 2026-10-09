@@ -82,7 +82,7 @@ test('every program error code of the ABI has its own Japanese and English text'
   assert.match(fi18n.errorText(51), /tip/i);
   // (hud-4, UX design 11.13: 精算 / "settled" and a numbered or counted bell are off the play screen. HostInTransit
   // says the host waits for the result of its march to be collected; CohortFull says to try next turn)
-  assert.match(fi18n.errorText(58), /until the result of its march is collected/i);
+  assert.match(fi18n.errorText(58), /until its march is resolved/i);
   assert.doesNotMatch(fi18n.errorText(58), /settle/i);
   assert.match(fi18n.errorText(60), /next turn/i);
   assert.doesNotMatch(fi18n.errorText(60), /bell|ticket/i);

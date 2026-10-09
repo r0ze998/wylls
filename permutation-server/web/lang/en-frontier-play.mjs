@@ -229,7 +229,6 @@ export default {
   '2倍で撤退': 'Retreat at 2×', '1.5倍で撤退': 'Retreat at 1.5×', '同数で撤退': 'Retreat at 1×', '半分で撤退': 'Retreat at 0.5×',
   '守り手なし': 'Unopposed', '優勢': 'Favored', 'やや優勢': 'Slight edge', '互角': 'Even', 'やや不利': 'Slightly behind', '不利': 'Outmatched',
   '道のりを探しています…': 'Finding the route…',
-  '{0} ごろ': 'around {0}',
   '{0}に強い': 'beats {0}', '相性なし': 'no edge',
   '撤退': 'Retreat',
   '守備隊 {0}': 'Garrison {0}', '蛮族 {0}': 'Barbarians {0}',
@@ -491,7 +490,6 @@ export default {
   '六つの国が、鐘のまわりの辺境を分け合っています。国で決まるのは、村を置く方角と教義です。賞金はありません。': 'Six nations share the frontier around the bell. Your nation decides which side your village stands on, and your doctrine. There is no prize money.',
   '受け付けられませんでした': 'The request was not accepted',
   '同じターンの申し込みがすべて決まってから': 'Once every request from the same turn is decided',
-  '同じターンの申し込みがすべて決まると確定します。': 'It becomes final once every request from the same turn is decided.',
   '同じターンの申し込みがすべて決まると確定します（遅くとも {0}）。それまでは、より順位の高い申し込みに押し出されることがあります。': 'It becomes final once every request from the same turn is decided ({0} at the latest). Until then a higher-ranked request can displace it.',
   '同じターンの申し込みは、そのターンのくじでまとめて公平に決まります（申し込んでから約11〜21分）。': 'All requests from one turn are decided together in that turn\'s fair draw (about 11 to 21 minutes after the request).',
   '命令のまとめ：{0}へ、ターン {1} に到着、構えは{2}': 'The order in short: to {0}, arriving on turn {1}, stance: {2}',
@@ -524,8 +522,8 @@ export default {
   '空いた場所に、村の申し込みを自動で出しています。': 'Automatically sending your village request for a free site.',
   // ---- hud-4 (the words, UX design 11.13): turn N for every number; names before coordinates; the seal in one sentence; one outcome vocabulary
   // ---- places in words (hud/place.mjs): a province by the viewer's village in it, else by the nation on whose side it lies
-  '{0}のある州': '{0} province',
-  '{0}方面・第{1}輪の州': 'a ring-{1} province on {0}\'s side',
+  '{0}のある州': '{0}\'s province',
+  '{0}方面・第{1}輪の州': '{0} side, ring {1}',
   // ---- the seal in one sentence (hud/glossary.mjs sealLine): the order card, the legend, the help, the guide
   '行き先と構えは封印され、到着のターンが終わるまで、ほかの人には開けられません。': 'The destination and the stance are sealed: nobody else can open the seal until the arrival turn ends.',
   'ほかの人に見えるのは、出発したこと、出発地、兵の数、到着のターンです。到着のターンが始まると、あなたの端末が先に封を開けることがあります。そのときにはもう、そのターンの到着も守り手も変えられません。': ' Others see that the march set out, where from, how many troops and its arrival turn. Once the arrival turn begins, your own device may open the seal first; by then nobody can change that turn\'s arrivals or its defenders.',
@@ -541,8 +539,6 @@ export default {
   '村に残る守り手です。ターンの始まりにいた分が数えられ、攻め手に反撃します。城壁があると強くなります。': 'The defenders who stay in a village. Those present when the turn began are counted, and they strike back at attackers; walls make them stronger.',
   '集落・町・都市・城塞の四つです。上がるほど生産と守りが増えます。': 'There are four: Hamlet, Town, City, Stronghold. Each step raises production and defense.',
   // ---- what is happening on a tile (people/activity.mjs): a march on the road names its owner; a sealed destination is never said
-  'あなたの{0} — ターン {1} に到着（行き先はあなたにだけ見えます）': 'Your {0} — arriving on turn {1} (only you can see where they are going)',
-  'あなたの軍勢 {0} — ターン {1} に到着（行き先はあなたにだけ見えます）': 'Your host of {0} — arriving on turn {1} (only you can see where it is going)',
   '{0}の軍勢 {1} — ターン {2} に到着（行き先は封印中）': '{0}\'s host of {1} — arriving on turn {2} (destination sealed)',
   '軍勢 {0} — ターン {1} に到着（行き先は封印中）': 'A host of {0} — arriving on turn {1} (destination sealed)',
   'このターンに衝突がありました': 'A clash this turn',
@@ -565,7 +561,6 @@ export default {
   '{0}から': 'From {0}',
   '1 マス先': '1 tile away',
   '{0} マス先': '{0} tiles away',
-  '進軍は、ターンの始まりにそろって到着します。いちばん早くてターン {0} です（道のりは約 {1} 分）。': 'Marches arrive together as a turn begins. The earliest for this one is turn {0} (the way itself takes about {1} min).',
   '進軍は、ターンの始まりにそろって到着します。': 'Marches arrive together as a turn begins.',
   'あなた {0}（{1}）対 守り {2}。実際の結果は、到着のターンが始まるときにそこにいる守り手と、戦いの運で決まります。': 'You {0} ({1}) against {2} defending. The real result depends on who is defending there when the arrival turn begins, and on the luck of the battle.',
   'ルールで{0}回試した結果の幅です。ほかの軍勢の到着は封印中のため、数えていません。': 'The range over {0} trial runs of the rules. Other hosts\' arrivals are sealed, so they are not counted.',
@@ -603,7 +598,7 @@ export default {
   '封が開けられないまま、受付が終わりました。軍勢は敗走する（兵・体力・チップの半分を失う）か、同じ国の到着が多すぎたときは損失なしで村へ戻ります。': 'The time for opening seals ended with this seal still closed. The host is routed (it loses half its troops, stamina and tip) or, if too many hosts of your nation arrived, it returns home without loss.',
   '結果を受け取る': 'Collect the result',
   'ふつうは自動で受け取ります。': 'It is normally collected automatically.',
-  '進軍の結果を受け取るまで、この軍勢は出発・解散・探索ができません（ふつうは自動で受け取ります）。': 'Until the result of its march is collected, this host cannot march, dissolve or explore (the result is normally collected automatically).',
+  '進軍の結果を受け取るまで、この軍勢は出発・解散・探索ができません（ふつうは自動で受け取ります）。': 'Until this march is resolved, the host cannot march, dissolve or explore (it is normally resolved automatically).',
   'ターン {0} まで休息': 'Resting until turn {0}',
   '出発の手続き中': 'Departure in progress',
   '封が正しくなかったため失われます': 'Will be lost: its seal was not valid',

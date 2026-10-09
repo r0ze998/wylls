@@ -598,7 +598,7 @@ test('a place is called by its name; its coordinates are the small print', () =>
   assert.equal(placeName(inspect.inspectModel(FS, terrainOf)), '第2輪の州');
   setLang('en');
   FS.selected = { p: 2, q: 0, idx: 7 };
-  assert.match(placeName(inspect.inspectModel(FS, terrainOf)), /Town — Aster$/);
+  assert.match(placeName(inspect.inspectModel(FS, terrainOf)), /^Town of \w+ — Aster$/);
   setLang('ja');
   assert.equal(placeName(null), '');
 });

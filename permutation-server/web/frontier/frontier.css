@@ -1593,3 +1593,23 @@ body[data-title="up"] .dial-pop { display: none; }
 @media (max-height: 760px) and (min-width: 760px) { .intro-leaders { display: none; } }
 @media (max-height: 640px) { .intro-lore { display: none; } .intro-leaders { display: none; } }
 @media (prefers-reduced-motion: reduce) { .intro-title, .intro-tagline, .intro-lore, .intro-leader, .intro-live { animation: none; } }
+
+/* words (the second review): a refusal says what was not done; the order card says it above its seal; a march's hint has a line of its own */
+.tx-what { display: block; font-weight: 700; color: #fff3ea; }
+.order-unsent { display: flex; align-items: flex-start; gap: 6px; margin: 0; padding: 4px 8px; border: 1.5px solid var(--bad); border-radius: 3px; background: rgba(155,47,36,.08); color: #7c231a; font: 700 var(--t2)/1.45 var(--ui); }
+.order-unsent .ic { flex: none; width: 16px; height: 16px; margin-top: 2px; }
+.march-hint { display: block; margin-top: 2px; }
+.mc-unseen { margin: 2px 0 !important; }
+
+/* the legend of the map: reached from the "?" beside the lenses; a target's swatch carries its glyph; the map's two lines */
+.lens-help { min-width: 34px; padding: 0; } .lens-q { font: 700 var(--t3)/1 var(--display); }
+.survey-key { display: grid; place-items: center; }
+.survey-key .ic { width: 15px; height: 15px; color: #fffaf0; filter: drop-shadow(0 0 1px rgba(0,0,0,.6)); }
+.survey-help h4 { margin: 12px 0 4px; }
+.lit-move { background: rgba(216,243,234,.3); border: 2px solid #d8f3ea; box-shadow: 0 0 0 1px rgba(10,34,30,.55), 0 0 5px rgba(120,220,200,.7); }
+.lit-attack { background: rgba(226,85,61,.5); border: 2px solid #ff7a5c; box-shadow: 0 0 0 1px rgba(12,20,18,.6); }
+.lit-home { background: rgba(243,213,138,.55); border: 2px solid #ffecb2; box-shadow: 0 0 0 1px rgba(12,20,18,.6); }
+.lit-explore { background: rgba(127,196,232,.55); border: 2px solid #bae4fc; box-shadow: 0 0 0 1px rgba(12,20,18,.6); }
+.line-own { background: linear-gradient(180deg, rgba(193,80,74,.5), rgba(193,80,74,.08)), #8fae58; border: 2px solid var(--you); box-shadow: 0 0 0 1.5px #c1504a, 0 0 0 2.5px rgba(14,22,20,.8); border-radius: 3px; }
+.line-province { background: #8fae58; border: 0; border-radius: 0; box-shadow: inset -3px 0 0 rgba(24,34,26,.85), inset -5px 0 0 rgba(255,250,236,.55); }
+@media (max-width: 759px) { .lens-help { justify-content: flex-start; padding: 0 12px 0 10px; } .lens-q { width: 18px; text-align: center; } }

@@ -24,8 +24,8 @@ import { STANCES } from '../seal.mjs';
 import { RETREAT_CHOICES, arrivalWindow, checkMarch, troopsOf, SEND_STEPS } from '../fmarch.mjs';
 import { UNIT_ORDER } from '../fland.mjs';
 import { bellStart } from '../clock.mjs';
-import { composerMarch, composerChoices, routeLine, routeMinutes } from '../screens/march.mjs';
-import { clockTime, swatch } from '../screens/shell.mjs';
+import { composerMarch, composerChoices, routeLine } from '../screens/march.mjs';
+import { swatch } from '../screens/shell.mjs';
 import { fold, label, stepper, bar } from '../screens/parts.mjs';
 import { DIRECTIONS, tileHex } from '../fgeo.mjs';
 import { termButton, sealLine } from './glossary.mjs';
@@ -136,8 +136,14 @@ export function render(FS) {
   if (!c?.host) return '';
   const m = composerMarch(FS);
   const w = bellWindow(FS);
-  const at = w && FS.clock ? clockTime(bellStart(FS.clock.genesisTs, w.value)) : null;
-  const def = c.dest ? defendersAt(FS, c.dest) : null;
+  // how far off the arrival is, in minutes from now: the one other time on the card, and it counts as the dial does
+  // (the second review: the arrival turn, a bare clock time and the road's minutes stood beside a dial at 9:12)
+  const nowTs = FS.chain?.now?.() ?? null;
+  const away = w && FS.clock && Number.isFinite(nowTs) ? Math.max(1, Math.round((bellStart(FS.clock.genesisTs, w.value) - nowTs) / 60)) : null;
+  // (the forecast follows the survey like every other surface: of a tile the viewer does not have in sight the card
+  // says no number of defenders. The second review: 「守り手なし · 守り 0」 for a tile the map draws as unsurveyed)
+  const sight = c.dest && FS.survey && !FS.survey.showAll ? FS.survey.levelOf(c.dest.p, c.dest.q, c.dest.tile) : 3;
+  const def = c.dest && sight >= 3 ? defendersAt(FS, c.dest) : null;
   const odds = c.dest && def ? oddsWord(c.host.troops, def.total) : null;
   const problems = c.dest ? checkMarch(m).filter(p => p !== 'NoDestination') : [];
   const busy = !!c.sending;
@@ -180,8 +186,8 @@ export function render(FS) {
     ${w ? html`${label(L`到着`)}${stepper({ cls: 'mc-bell', label: L`到着のターン`,
       prev: { act: 'mc-bell', data: { d: -1 }, label: L`1ターン早く`, disabled: w.value <= w.min },
       next: { act: 'mc-bell', data: { d: 1 }, label: L`1ターン遅く`, disabled: w.value >= w.max },
-      value: html`<strong class="mc-bell-v">${icon('bell')}${L`ターン ${fmtNum(w.value)} に到着`}</strong>${at ? html`<span class="muted">${L`${at.local} ごろ`}</span>` : ''}` })}
-      <p class="muted mc-when">${c.route ? L`進軍は、ターンの始まりにそろって到着します。いちばん早くてターン ${fmtNum(w.min)} です（道のりは約 ${routeMinutes(c.route)} 分）。` : L`進軍は、ターンの始まりにそろって到着します。`}</p>` : ''}
+      value: html`<strong class="mc-bell-v">${icon('bell')}${L`ターン ${fmtNum(w.value)} に到着`}</strong>${away !== null ? html`<span class="muted">${L`約 ${fmtNum(away)} 分後`}</span>` : ''}` })}
+      <p class="muted mc-when">${c.route ? L`進軍は、ターンの始まりにそろって到着します。いちばん早くてターン ${fmtNum(w.min)} です。` : L`進軍は、ターンの始まりにそろって到着します。`}</p>` : ''}
     ${label(L`構え`, termButton('stance'))}
     ${stancePicks(m.stance)}
     ${label(L`撤退`, termButton('retreat'))}
@@ -196,7 +202,7 @@ export function render(FS) {
         ${def.residents.length || def.garrison || def.camp ? html`<ul class="list mc-def">${def.residents.map(r => html`<li>${swatch(r.faction)}${factionName(r.faction)} ${fmtNum(r.troops)}</li>`)}${def.garrison ? html`<li>${L`守備隊 ${fmtNum(def.garrison)}`}</li>` : ''}${def.camp ? html`<li>${L`蛮族 ${fmtNum(def.camp)}`}</li>` : ''}</ul>` : html`<p class="muted">${L`いまは守り手がいません。`}</p>`}
         <p class="muted">${L`あなた ${fmtNum(c.host.troops)}（${STANCE_TEXT[stance]}）対 守り ${fmtNum(def.total)}。実際の結果は、到着のターンが始まるときにそこにいる守り手と、戦いの運で決まります。`}</p>
         ${renderForecast(c.forecast)}`)}
-    </div>` : html`<p class="muted">${L`行き先のようすを読み込むと、守り手が出ます。`}</p>`}
+    </div>` : html`<p class="muted mc-unseen">${sight < 2 ? L`未測量の土地です。守り手は、ここからはわかりません。` : sight < 3 ? L`いまは見えていない土地です。守り手は、ここからはわかりません。` : L`行き先のようすを読み込むと、守り手が出ます。`}</p>`}
     ${fold('o-more', L`詳しい設定`, html`
       ${label(L`開封のチップ`, termButton('seal'))}
       <div class="tip-picks" role="radiogroup" aria-label="${L`開封のチップ`}">${ch.tips.map(t => html`<label class="choice"><input type="radio" name="tip" data-bind="tip" value="${String(t.lamports)}" ${raw(String(t.lamports) === String(m.tip) ? 'checked' : '')}>${t.text ?? TIP_TEXT[t.id]?.()}</label>`)}</div>
@@ -207,7 +213,7 @@ export function render(FS) {
       ${label(L`座標で指定する`)}${coordsForm(c)}`)}
     ${problems.length ? html`<ul class="problems">${problems.map(p => html`<li>${failureText({ code: p })}</li>`)}</ul>` : ''}
     ${busy || c.step ? html`<ol class="send-track" aria-label="${L`送信の段階`}">${SEND_STEPS.map(s => html`<li class="${c.step === s ? 'now' : SEND_STEPS.indexOf(s) < SEND_STEPS.indexOf(c.step) ? 'done' : ''}">${STEP_TEXT[s]()}</li>`)}</ol>` : ''}</div>
-    ${foot(sum, html`<button type="button" class="btn primary seal-btn" data-act="march-send" ${raw(problems.length || busy || !c.route ? 'disabled' : '')}>${icon('seal')}${L`封をして出発する`}</button>
+    ${foot(html`${FS.notice && FS.notice.ok === false && !FS.notice.busy && FS.lastAct?.name === 'march-send' ? html`<p class="order-unsent" role="status">${icon('alert')}<span>${L`まだ送られていません。もう一度、封をして出発してください。`}</span></p>` : ''}${sum}`, html`<button type="button" class="btn primary seal-btn" data-act="march-send" ${raw(problems.length || busy || !c.route ? 'disabled' : '')}>${icon('seal')}${L`封をして出発する`}</button>
       <button type="button" class="btn quiet" data-act="compose-close">${L`やめる`}</button>`)}
   </section>`;
 }

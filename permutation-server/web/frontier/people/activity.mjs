@@ -108,17 +108,22 @@ export function activitiesFor(entries, ctx) {
 }
 
 /**
- * A host on the road, in one line (UX design 11.13). The viewer's own names its owner and its troops and says who can
- * see where it goes: 「あなたの槍兵 400 — ターン 43 に到着（行き先はあなたにだけ見えます）」. Anyone else's names its
+ * A host on the road, in one line (UX design 11.13). The viewer's own names its owner and its troops, and where it
+ * goes when this device holds the seal: 「あなたの槍兵 400 → 森 — ターン 43 に到着（行き先はあなたにだけ見えます）」;
+ * without the seal's copy: 「…（行き先はこの端末ではわかりません）」. Anyone else's names its
  * owner (else its nation) and says the destination is sealed: no destination is ever part of this line.
- * `info`: `{mine, unit, owner}` of the host (hud/inspect.mjs hostInfoOf), or null when nothing is known of it.
+ * `info`: `{mine, unit, owner, dest}` of the host (hud/inspect.mjs hostInfoOf), or null when nothing is known of it.
  */
 function departText(a, info) {
   const turn = Number.isInteger(a.until) ? fmtNum(a.until) : '—';
   const n = troopsOf(a.n ?? 0);
   if (info?.mine) {
+    // (the second review: the line said "only you can see where it is going" while nothing on the screen showed where,
+    // and this device did not even hold the seal. So: with the seal's copy here the destination is named in the line;
+    // without it the line says that this device does not know it)
     const mine = info.troops ?? n;
-    return info.unit ? L`あなたの${unitCount(info.unit, mine)} — ターン ${turn} に到着（行き先はあなたにだけ見えます）` : L`あなたの軍勢 ${fmtNum(mine)} — ターン ${turn} に到着（行き先はあなたにだけ見えます）`;
+    if (info.dest) return info.unit ? L`あなたの${unitCount(info.unit, mine)} → ${info.dest} — ターン ${turn} に到着（行き先はあなたにだけ見えます）` : L`あなたの軍勢 ${fmtNum(mine)} → ${info.dest} — ターン ${turn} に到着（行き先はあなたにだけ見えます）`;
+    return info.unit ? L`あなたの${unitCount(info.unit, mine)} — ターン ${turn} に到着（行き先はこの端末ではわかりません）` : L`あなたの軍勢 ${fmtNum(mine)} — ターン ${turn} に到着（行き先はこの端末ではわかりません）`;
   }
   const who = info?.owner ?? (a.faction < 6 ? factionName(a.faction) : null);
   // (its size is the departure's public mass; a record without one says no number rather than "0")

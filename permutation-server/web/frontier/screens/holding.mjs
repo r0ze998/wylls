@@ -16,12 +16,13 @@ import { html, raw } from '../../util.mjs';
 import { icon, RESOURCE_ICON } from '../hud/icons.mjs';
 import { L, Lh, fmtNum } from '../../lang.mjs';
 import { RESOURCES, RESOURCE_ORDER, UNITS, TIERS, BUILDINGS, HOLDING_STATES, errorText, factionName } from '../fi18n.mjs';
-import { storesAt, holdingFacts, BUILD_ITEMS, UNIT_ORDER, SETTLER, actionBlocks, baseProduction } from '../fland.mjs';
+import { storesAt, holdingFacts, BUILD_ITEMS, UNIT_ORDER, SETTLER, actionBlocks, baseProduction, ticketTimes } from '../fland.mjs';
 import { holdingName } from '../people/ui.mjs';
 import { miniCardUrl, MINI_KINDS } from '../people/minis.mjs';
 import { span, NEAR_FULL_SECS } from '../hud/hud.mjs';
 import { termButton } from '../hud/glossary.mjs';
 import { inTime, row, timeHtml } from './shell.mjs';
+import { countdown } from '../clock.mjs';
 import { cardHead, label, fold, chip, stamp } from './parts.mjs';
 import { villageDrawn, provinceCoords } from '../hud/place.mjs';
 
@@ -42,6 +43,17 @@ const steps = (name, { d = 100, presets = [100, 500, 1000], max = null } = {}) =
 const costText = cost => cost.map((c, i) => (c ? `${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(c)}` : null)).filter(Boolean).join(' · ');
 
 /** Why an action is blocked, as text, with the catch-up offer for a lagging province. */
+/**
+ * When a provisional village becomes final, said with a time (the second review: "once every request from the same
+ * turn is decided" gave none): by the clock when the page has the request's turn, else by how long it can take at
+ * the most (24 turns: fland.mjs ticketTimes).
+ */
+export function provisionalNote(FS, h) {
+  let by = null;
+  try { by = FS?.clock && Number.isInteger(h?.ticketBell) ? ticketTimes(FS.clock, h.ticketBell).cohortEndsBy : null; } catch { by = null; }
+  return by ? Lh`同じターンの申し込みがすべて決まると確定します（遅くとも ${timeHtml(by)}）。` : L`同じターンの申し込みがすべて決まると確定します（遅くとも申し込みから約 4 時間）。`;
+}
+
 export function blockedLine(blocks) {
   if (!blocks.length) return '';
   const lag = blocks.includes('NotResident');
@@ -151,9 +163,9 @@ export function render(FS) {
   const head = html`<section class="vcard village-head" aria-labelledby="holding-title">
     ${cardHead({ id: 'holding-title', ic: 'home', pic: villageDrawn(faction, h.tier), title: holdingName(h), sub: [TIERS[h.tier] ?? '', factionName(faction)].filter(Boolean).join(' · '), side: stamp(HOLDING_STATES[f.state], f.state === 'final' ? 'ok' : 'warn') })}
     ${f.shieldLeft > 0 || f.dormantIn <= 0 || f.state === 'provisional' ? html`<ul class="fact-chips">
-      ${f.shieldLeft > 0 ? html`<li>${chip(html`${L`保護`} ${inTime(f.shieldLeft)}`, 'info', 'shield')}${termButton('shield')}</li>` : ''}
+      ${f.shieldLeft > 0 ? html`<li>${chip(L`保護 あと ${countdown(f.shieldLeft)}`, 'info', 'shield')}${termButton('shield')}</li>` : ''}
       ${f.dormantIn <= 0 ? html`<li>${chip(L`休眠中`, 'bad', 'moon')}${termButton('dormant')}</li>` : ''}
-      ${f.state === 'provisional' ? html`<li class="fact-note">${L`同じターンの申し込みがすべて決まると確定します。`}</li>` : ''}</ul>` : ''}
+      ${f.state === 'provisional' ? html`<li class="fact-note">${provisionalNote(FS, h)}</li>` : ''}</ul>` : ''}
   </section>`;
 
   const stores = html`<section class="vcard" id="hp-harvest" aria-labelledby="hp-harvest-h">
@@ -204,7 +216,7 @@ export function render(FS) {
       ${row(L`場所`, provinceCoords(h.p, h.q))}
       ${row(L`段階`, html`${TIERS[h.tier] ?? h.tier} · ${HOLDING_STATES[f.state]}${termButton('tier')}`)}
       ${f.state === 'provisional' ? row(L`確定`, f.finalTs ? Lh`早くても ${timeHtml(f.finalTs)} 以降に確定します。` : L`同じターンの申し込みがすべて決まってから`) : ''}
-      ${f.shieldLeft > 0 ? row(L`保護`, inTime(f.shieldLeft)) : ''}
+      ${f.shieldLeft > 0 ? row(L`保護`, L`残り ${countdown(f.shieldLeft)}`) : ''}
       ${row(L`休眠まで`, html`${f.dormantIn > 0 ? inTime(f.dormantIn) : L`休眠中`}${termButton('dormant')}`)}
     </dl>`)}</section>`;
 

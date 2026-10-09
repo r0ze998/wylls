@@ -94,8 +94,8 @@ test('a unit with its count, a province in words: names before coordinates', () 
   setLang('en');
   assert.equal(fi18n.unitCount('Spearman', 600), '600 Spearmen', 'English counts a plural: "Spearman 600" was not English');
   assert.deepEqual(['Archer', 'Horseman', 'Pikeman', 'Crossbowman', 'Knight', 'Scout', 'Settler'].map(u => fi18n.unitCount(u, 100)), ['100 Archers', '100 Horsemen', '100 Pikemen', '100 Crossbowmen', '100 Knights', '100 Scouts', '100 Settlers']);
-  assert.equal(place.provinceName(FS, 2, 0), `${placeName(2, 0, 3).en}'s Town province`);
-  assert.equal(place.provinceName(null, 1, 1), 'a ring-2 province on Aster\'s side');
+  assert.equal(place.provinceName(FS, 2, 0), `Town of ${placeName(2, 0, 3).en}'s province`);
+  assert.equal(place.provinceName(null, 1, 1), 'Aster side, ring 2');
   assert.equal(routeLine({ hexes: 4 }), '4 tiles away');
   assert.equal(routeLine({ hexes: 1 }), '1 tile away');
   setLang('ja');
@@ -182,7 +182,7 @@ test('the chronicle and the notifications: a turn for every number, a name for e
   for (const x of [...out, ...feed.diffFeed(snap([h]), snap([]))]) assert.doesNotMatch(x.text, /第\d+鐘|州 -?\d|精算|入植希望|開封されました/, x.text);
   setLang('en');
   assert.equal(chronicle.lineOf({ name: 'DEPART', host_id: host, origin_p: 2, origin_q: 0, arrive_bell: 43 }, FS), `A host from ${placeName(2, 0, 3).en} set out (arrives on turn 43)`);
-  assert.equal(chronicle.lineOf({ name: 'CLASH', p: 1, q: 1, bell: 39 }, null), 'The clash in a ring-2 province on Aster\'s side was resolved');
+  assert.equal(chronicle.lineOf({ name: 'CLASH', p: 1, q: 1, bell: 39 }, null), 'The clash in Aster side, ring 2 was resolved');
   assert.equal(chronicle.lineOf({ name: 'TRANSIT_SETTLED', outcome: 4 }, null), 'A march ended: Destroyed');
   setLang('ja');
 });
@@ -194,7 +194,10 @@ test('a sealed march names its owner; the seal is one sentence; the inspector ke
   const FS = { holdings: [{ p: 2, q: 0, site: 3, gen: 1, tier: 1 }], provinces: new Map([['2,0', { province: { entries: [{ id: own, unit: 0, troops: 400_000 }] } }]]),
     roster: { ownerOf: (p, q, s) => (p === 3 && q === -1 && s === 0 ? { tag: 9n } : null) } };
   const who = inspect.hostInfoOf(FS);
-  assert.deepEqual(who(String(own)), { mine: true, unit: 'Spearman', troops: 400, owner: null });
+  // (`dest`, `sealHere`: where it goes when this device's march book holds the copy of its seal; here it holds none)
+  assert.deepEqual(who(String(own)), { mine: true, unit: 'Spearman', troops: 400, owner: null, dest: null, sealHere: false });
+  assert.equal(inspect.hostInfoOf({ ...FS, book: [{ host: String(own), state: 'settled' }] })(String(own)).sealHere, false, 'a march that is over is not on the road');
+  assert.deepEqual((x => [x.sealHere, x.dest])(inspect.hostInfoOf({ ...FS, book: [{ host: String(own), state: 'landed', plain_b64: '!' }] })(String(own))), [true, null], 'a copy that cannot be read names no place');
   const o = who(String(other));
   assert.deepEqual([o.mine, o.unit, typeof o.owner], [false, null, 'string'], 'another player\'s: the owner\'s name, nothing of the host');
   assert.equal(inspect.hostInfoOf({ holdings: [], roster: null })(String(other)).owner, null);

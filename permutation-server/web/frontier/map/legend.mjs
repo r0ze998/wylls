@@ -6,8 +6,14 @@
 // hud/glossary.mjs sealLine, UX design 11.13) and what an exploration finds.
 // Markup only; the swatches are classes of frontier.css (no inline style).
 import { html } from '../../util.mjs';
-import { L } from '../../lang.mjs';
+import { L, fmtNum } from '../../lang.mjs';
 import { sealLine } from '../hud/glossary.mjs';
+import { icon } from '../hud/icons.mjs';
+import { reachSteps } from '../hud/reach.mjs';
+import { MAX_PATH_STEPS } from '../seal.mjs';
+
+/** How many tiles about a rested host the lit reach covers (hud/reach.mjs: the preview's cap). */
+const REACH_NEAR = reachSteps(Infinity);
 
 /** The four levels: `[{id, name(), text()}]`, nearest first. */
 export const SURVEY_LEGEND = Object.freeze([
@@ -22,10 +28,15 @@ export const SURVEY_LEGEND = Object.freeze([
  * target also carries its own mark on the map, so the colour is never the only sign.
  */
 export const ACTION_LEGEND = Object.freeze([
-  { id: 'move', name: () => L`進める`, text: () => L`淡い線で囲んだ内側が、軍勢が近くで進める範囲です。外側のマスも、タップすれば届くかどうかを確かめます。` },
-  { id: 'attack', name: () => L`攻める`, text: () => L`蛮族の野営地、敵対する国の村や軍勢がいるマスです。` },
-  { id: 'home', name: () => L`自分の村`, text: () => L`あなたの村へ戻るマスです。` },
-  { id: 'explore', name: () => L`探索`, text: () => L`斥候が探索できる隣のマスです。` },
+  { id: 'move', name: () => L`進める`, text: () => L`淡い線で囲んだ内側が、軍勢のまわり ${fmtNum(REACH_NEAR)} マスです。線の外のマスも、道がつながっていれば行き先にできます（${fmtNum(MAX_PATH_STEPS)} マスまで）。` },
+  { id: 'attack', glyph: 'swords', name: () => L`攻める`, text: () => L`蛮族の野営地、敵対する国の村や軍勢がいるマスです。` },
+  { id: 'home', glyph: 'home', name: () => L`自分の村`, text: () => L`あなたの村へ戻るマスです。` },
+  { id: 'explore', glyph: 'eye', name: () => L`探索`, text: () => L`斥候が探索できる隣のマスです。` },
+]);
+/** The lines of the map: `[{id, name(), text()}]`: the rim of the viewer's own land, and where one province ends. */
+export const LINE_LEGEND = Object.freeze([
+  { id: 'own', name: () => L`あなたの村のまわり`, text: () => L`国の色の帯と金の線で囲んだ内側が、あなたの村がはたらく土地です。仮の村は線が点線です。` },
+  { id: 'province', name: () => L`州の境`, text: () => L`濃い線が州の境です。同じターンに同じ州へ着いた軍勢がぶつかります。` },
 ]);
 
 /** The help line of the brief: the map draws what was surveyed, nothing is kept back, and only two things cannot be seen yet. */
@@ -38,11 +49,13 @@ export const UNSEEN = Object.freeze([
 
 /** The section for the play page's panel: the legend, the line, the way to the whole public world. */
 export function renderSurveyHelp() {
-  return html`<section class="survey-help" aria-labelledby="survey-help-title"><h3 id="survey-help-title">${L`地図の見かた`}</h3>
+  return html`<section class="survey-help" id="survey-help" aria-labelledby="survey-help-title"><h3 id="survey-help-title">${L`地図の見かた`}</h3>
     <ul class="survey-legend">${SURVEY_LEGEND.map(x => html`<li><span class="survey-key survey-${x.id}" aria-hidden="true"></span><span class="survey-what"><strong>${x.name()}</strong> ${x.text()}</span></li>`)}</ul>
     <p class="survey-line">${surveyLine()}</p>
     <ul class="survey-unseen">${UNSEEN.map(x => html`<li><strong>${x.name()}</strong> ${x.text()}</li>`)}</ul>
     <h4>${L`軍勢を選ぶと光るマス`}</h4>
-    <ul class="lit-legend">${ACTION_LEGEND.map(x => html`<li><span class="survey-key lit-${x.id}" aria-hidden="true"></span><span class="survey-what"><strong>${x.name()}</strong> ${x.text()}</span></li>`)}</ul>
+    <ul class="lit-legend">${ACTION_LEGEND.map(x => html`<li><span class="survey-key lit-${x.id}" aria-hidden="true">${x.glyph ? icon(x.glyph) : ''}</span><span class="survey-what"><strong>${x.name()}</strong> ${x.text()}</span></li>`)}</ul>
+    <h4>${L`地図の線`}</h4>
+    <ul class="lit-legend">${LINE_LEGEND.map(x => html`<li><span class="survey-key line-${x.id}" aria-hidden="true"></span><span class="survey-what"><strong>${x.name()}</strong> ${x.text()}</span></li>`)}</ul>
     <p><a class="survey-all" href="spectate.html">${L`観戦ページで世界全体を見る`}</a></p></section>`;
 }

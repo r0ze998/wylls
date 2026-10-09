@@ -310,8 +310,11 @@ test('the order offers the three tip presets only, "never" first among the retre
   // the order's numbers can be reconciled by a new player: the place by its name and how far it is (no coordinates,
   // no minutes there), then the arrival turn, and ONE line that says why a short way still waits for its turn
   assert.match(out, /<strong class="mc-dest-name">[^<]+<\/strong>\s*<span class="mc-route">\d+ マス先<\/span>/, 'where to and how far: no coordinates, no minutes');
-  assert.match(out, /<p class="muted mc-when">進軍は、ターンの始まりにそろって到着します。いちばん早くてターン 43 です（道のりは約 \d+ 分）。<\/p>/, 'the travel time is said once, with the earliest turn');
-  assert.equal((out.match(/約 \d+ 分/g) ?? []).length, 1, 'the minutes of the way are said once');
+  // (rewritten with the fix pass on the second review: the card had three notions of time beside the dial, the
+  // arrival turn, a bare clock time and the road's minutes; it keeps the turn and how far off it is)
+  assert.match(out, /<p class="muted mc-when">進軍は、ターンの始まりにそろって到着します。いちばん早くてターン 43 です。<\/p>/, 'the earliest turn, in one sentence');
+  assert.doesNotMatch(out, /道のりは約|ごろ<\/span>/, 'no road minutes and no bare clock time on the card');
+  assert.ok((out.match(/約 \d+ 分/g) ?? []).length <= 1, 'at most one count of minutes on the card: how far off the arrival is');
   assert.match(out, /<h3 id="mc-title">進軍：槍兵 500<\/h3><span class="c-sub">[^<（]+から<\/span>/, 'the host by its unit and troops, from a place by its name');
   assert.doesNotMatch(out.replace(/<details class="fold" data-fold="o-more"[\s\S]*?<\/details>/, ''), /州 -?\d|乱数|鐘|顔ぶれ|中継/, 'no coordinates, no seed, no bell and no relay outside the order\'s details');
   // no tile number and no lamports on the play screen: the place by its name, the costs under "More → details"
@@ -339,7 +342,7 @@ test('the order offers the three tip presets only, "never" first among the retre
   assert.match(en, /Arrives on turn 43/);
   assert.match(en, /March: 500 Spearmen/, 'a unit with its count as English says it');
   assert.match(en, /The destination and the stance are sealed: nobody else can open the seal until the arrival turn ends\./);
-  assert.match(en, /Marches arrive together as a turn begins\. The earliest for this one is turn 43 \(the way itself takes about \d+ min\)\./);
+  assert.match(en, /Marches arrive together as a turn begins\. The earliest for this one is turn 43\./);
   assert.match(en, /\d+ tiles? away/);
   setLang('ja');
 });
@@ -499,7 +502,7 @@ test('the tracker: steps from chain facts; the host stays locked until its trans
   assert.doesNotMatch(trackerScreen.privateLine(e), /州|（/);
   setLang('en');
   const cardEn = String(trackerScreen.renderMarch(m0)).replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<[^>]*>/g, ' ');
-  assert.match(cardEn, /Until the result of its march is collected, this host cannot march, dissolve or explore/);
+  assert.match(cardEn, /Until this march is resolved, the host cannot march, dissolve or explore/);
   assert.match(cardEn, /Departure\s+\(done\)\s+Arrival\s+\(now\)\s+Result/);
   assert.match(cardEn, /Waiting for the arrival turn/);
   assert.doesNotMatch(cardEn, /beacon|settle|\bbell\b|Anchored|[぀-ヿ㐀-鿿]/i);

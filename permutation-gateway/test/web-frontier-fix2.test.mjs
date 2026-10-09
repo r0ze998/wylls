@@ -318,3 +318,65 @@ test('the wait is a view: the leader\'s line by the standard, the surveyors\' li
   assert.equal(WAIT.paintSurveyLines(s, { x: 0, y: 0 }, sites, { zoom: 1, still: true }), 2);
   assert.equal(WAIT.paintSurveyLines(null, { x: 0, y: 0 }, sites), 0);
 });
+
+// ------------------------------------------------------------------ words
+import * as status from '../../permutation-server/web/frontier/hud/status.mjs';
+import * as legend from '../../permutation-server/web/frontier/map/legend.mjs';
+import { provisionalNote } from '../../permutation-server/web/frontier/screens/holding.mjs';
+import { holdingName } from '../../permutation-server/web/frontier/people/ui.mjs';
+import { placeName } from '../../permutation-server/web/frontier/people/identity.mjs';
+
+test('a refusal says what was not done and where the host still is; the server\'s silence is said as that', () => {
+  setLang('ja');
+  const FS = { notice: { ok: false, code: 'Unavailable' }, lastAct: { name: 'march-send' }, compose: { host: { unit: 0, troops: 600, tile: 7 }, origin: { p: 2, q: 0 } }, provinces: new Map() };
+  const st = status.statusOf(FS, { canRetry: true });
+  assert.equal(st.state, 'refused');
+  assert.match(st.what, /^進軍は送られていません（槍兵 600 は.+にいます）。$/);
+  assert.equal(st.text, 'サーバーが応じませんでした。少し待ってから、もう一度試してください。');
+  const out = String(status.renderStatus(st));
+  assert.match(out, /<strong class="tx-what">進軍は送られていません/);
+  assert.match(out, /data-act="notice-retry"/);
+  assert.equal(status.unsentText({ lastAct: { name: 'harvest' } }), '収穫はまだされていません。');
+  assert.equal(status.unsentText({ lastAct: { name: 'something-else' } }), null, 'an action the table does not know says only the reason');
+  setLang('en');
+  assert.match(status.statusOf(FS).what, /^The march was not sent \(600 Spearmen are still at .+\)\.$/);
+  assert.equal(status.statusOf(FS).text, 'The server did not answer. Wait a moment, then try again.');
+  setLang('ja');
+});
+
+test('words the second review asked for: a village\'s English name, the shield, the confirmed stamp, a province, a time for the provisional village', () => {
+  setLang('en');
+  assert.equal(holdingName({ p: 2, q: 0, site: 3 }, 1), `Town of ${placeName(2, 0, 3).en}`);
+  assert.equal(holdingName({ p: 2, q: 0, site: 3 }, 0), `Hamlet of ${placeName(2, 0, 3).en}`);
+  const en = JSON.stringify([String(provisionalNote(null, null)), String(provisionalNote({ clock: { genesisTs: 0, window: () => 60, margin: 6 } }, { ticketBell: 40 }))]);
+  assert.match(en, /about 4 hours after the request at the latest/);
+  assert.match(en, /It is confirmed once every request from the same turn is decided \(<time datetime=/);
+  setLang('ja');
+  assert.equal(holdingName({ p: 2, q: 0, site: 3 }, 1), `${placeName(2, 0, 3).ja}の町`, 'the Japanese name is as it was');
+  assert.match(String(provisionalNote(null, null)), /遅くとも申し込みから約 4 時間/);
+  // the dictionaries say them
+  const dict = text('../lang/en-frontier.mjs') + text('../lang/en-frontier-play.mjs') + text('../lang/en-pages.mjs');
+  for (const [ja, en2] of [['保護 あと {0}', 'Shielded for {0}'], ['確定した村', 'Confirmed'], ['{0}方面・第{1}輪の州', '{0} side, ring {1}'], ['観戦', 'Spectate']]) assert.ok(dict.includes(`'${ja}': '${en2}'`), `${ja} → ${en2}`);
+  assert.doesNotMatch(dict, /Shield in |Final village|the way itself|is collected, this host|ring-\{1\} province/);
+});
+
+test('the legend: the reach in its true words, a glyph on every target\'s swatch, the map\'s two lines, and a way to it beside the lenses', () => {
+  setLang('ja');
+  const out = String(legend.renderSurveyHelp());
+  assert.match(out, /<section class="survey-help" id="survey-help"/);
+  assert.match(out, /軍勢のまわり 6 マスです。線の外のマスも、道がつながっていれば行き先にできます（32 マスまで）。/);
+  for (const [id, glyph] of [['attack', 'swords'], ['home', 'home'], ['explore', 'eye']]) assert.match(out, new RegExp(`<span class="survey-key lit-${id}" aria-hidden="true"><svg class="ic"[^>]*><use href="art/ui/icons.svg#${glyph}"/></svg></span>`), id);
+  assert.deepEqual(legend.LINE_LEGEND.map(x => x.id), ['own', 'province']);
+  assert.match(out, /<span class="survey-key line-own" aria-hidden="true"><\/span>/);
+  const app = text('app.mjs');
+  assert.match(app, /class="lens lens-help" data-act="legend-open"/);
+  assert.match(app, /'legend-open': \(\) => \{/);
+  assert.match(text('frontier.css'), /\.lit-attack \{ background: rgba\(226,85,61,\.5\)/, 'the legend\'s attack swatch is the map\'s ember');
+});
+
+test('the order card says nothing of defenders it does not have in sight', () => {
+  const src = text('hud/marchcard.mjs');
+  assert.match(src, /const def = c\.dest && sight >= 3 \? defendersAt\(FS, c\.dest\) : null;/);
+  assert.match(src, /未測量の土地です。守り手は、ここからはわかりません。/);
+  assert.doesNotMatch(src, /at\.local\} ごろ|道のりは約/);
+});

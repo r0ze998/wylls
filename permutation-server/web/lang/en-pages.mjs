@@ -99,7 +99,7 @@ export default {
   // top bar
   'ティック {0}': 'Tick {0}',
   '次の解決まで {0}秒': 'Next resolution in {0}s',
-  '観戦': 'Spectating',
+  '観戦': 'Spectate',
   '全体表示': 'Whole civilization',
   '全ての勢力': 'All factions',
   '<span class="badge fog">勢力</span><b>{0}</b><span>の立場から見ています（情報は全員に同じです）</span>':

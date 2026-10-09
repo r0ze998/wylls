@@ -24,7 +24,9 @@ export function personChip(identity, faction, { size = 28, full = false, note = 
 export function holdingName(h, tier = h?.tier) {
   if (!h) return '';
   const n = placeName(h.p, h.q, h.site)[lang() === 'en' ? 'en' : 'ja'];
-  return L`${n}の${TIERS[tier] ?? TIERS[0]}`;
+  // (the empty third value gives a village's name a template of its own: English reads "Town of Ramar", while
+  // 「アステルの槍兵」, the same Japanese shape, stays "Aster's Spearmen")
+  return L`${n}の${TIERS[tier] ?? TIERS[0]}${''}`;
 }
 
 /** The viewer's own citizen tag: a holding's owner, else the Citizen address of the wallet. */
