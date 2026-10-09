@@ -38,17 +38,17 @@ import { rowScale } from './tilt.mjs';
  *             a desktop: wider than its own tile, its palisade reaching a quarter of the way into the tiles on
  *             either side, and no taller than the tile (the houses in front stay clear).
  *   at        where the middle of its ground stands from the tile's centre: a little up, so the ground in front stays clear
- *   hosts     where the groups of hosts stand (units of RADIUS and of the tokens' row: people/units.mjs): in front of
- *             the gate, on the tile's lower edge
- *   scaffold  where a building going up stands, and its ring
+ *   hosts     where the groups of hosts stand (units of RADIUS and of the tokens' row: people/units.mjs): outside the
+ *             palisade, either side of the gate road and then in front of it (the second review: they stood on the houses)
+ *   scaffold  where a building going up stands, and its ring: outside the wall on the left, over the road (not on the houses)
  *   standard  where the viewer's standard stands (map/ownland.mjs STANDARD_AT is this): beside the ring, to the right
  *   top       the top of a town's tallest roof above the tile's centre (`villageTop` gives it for every tier)
  */
 export const HERO = Object.freeze({
   scale: 1.65,
   at: Object.freeze({ x: 0, y: -RADIUS * 0.12 }),
-  hosts: Object.freeze([[[0.46, 0.64]], [[0.5, 0.62], [-0.46, 0.64]], [[0.5, 0.62], [-0.46, 0.64], [0.02, 0.74]]]),
-  scaffold: Object.freeze({ x: -RADIUS * 0.6, y: RADIUS * 0.34 }),
+  hosts: Object.freeze([[[0.7, 0.76]], [[0.72, 0.76], [-0.68, 0.76]], [[0.72, 0.76], [-0.68, 0.76], [0.04, 0.79]]]),
+  scaffold: Object.freeze({ x: -RADIUS * 1.16, y: -RADIUS * 0.1 }),
   standard: Object.freeze({ x: RADIUS * 1.36, y: -RADIUS * 0.3 }),
   top: RADIUS * (VILLAGE.top[1] * 1.65 + 0.12),
 });
@@ -149,8 +149,11 @@ export function paintPlate(g, ax, ay, m, S, { k = 1, faction = 0, own = false, m
   const r1 = { x: ax + dx - S.w1 / 2, y: y0, w: S.w1, h: S.h1 }, r2 = S.h2 ? { x: ax + dx - S.w2 / 2, y: y0 + S.h1 - 1 * u, w: S.w2, h: S.h2 } : null;
   const rr = (r, rad) => { g.beginPath(); g.roundRect?.(r.x, r.y, r.w, r.h, rad); };
   // its cast shadow on the map
+  // (each row casts its own: one shadow as wide as the name's row under both showed as a grey box either side of
+  // the narrower badges' row, the "ghost" of the second review)
   g.fillStyle = 'rgba(4,10,9,.32)';
-  rr({ ...r1, y: r1.y + 2 * k, h: r1.h + (r2 ? r2.h - 2 * u : 0) }, 7 * u); g.fill();
+  rr({ ...r1, y: r1.y + 2 * k }, 7 * u); g.fill();
+  if (r2) { rr({ ...r2, y: r2.y + 2 * k }, [0, 0, 8 * u, 8 * u]); g.fill(); }
   if (r2) { rr(r2, [0, 0, 8 * u, 8 * u]); g.fillStyle = METAL_2; g.fill(); g.strokeStyle = rim; g.globalAlpha *= 0.75; g.lineWidth = 1 * k; g.stroke(); g.globalAlpha = muted ? 0.8 : 1; }
   rr(r1, 7 * u); g.fillStyle = METAL; g.fill();
   g.strokeStyle = rim; g.lineWidth = (own ? 1.5 : 1) * k; g.stroke();

@@ -39,6 +39,12 @@ export const LINE_LEGEND = Object.freeze([
   { id: 'province', name: () => L`州の境`, text: () => L`濃い線が州の境です。同じターンに同じ州へ着いた軍勢がぶつかります。` },
 ]);
 
+/** The marks on a village and its hosts: `[{id, glyph, name(), text()}]` (the second review: a red keyhole dot and a ring with a hammer stood unexplained). */
+export const MARK_LEGEND = Object.freeze([
+  { id: 'sealed', glyph: 'lock', name: () => L`薄い軍勢と封の印`, text: () => L`進軍に出た軍勢です。到着のターンまで村にはいません。` },
+  { id: 'build', glyph: 'hammer', name: () => L`槌の輪`, text: () => L`建設中です。輪が一周すると完成します。` },
+]);
+
 /** The help line of the brief: the map draws what was surveyed, nothing is kept back, and only two things cannot be seen yet. */
 export const surveyLine = () => L`地図には、あなたが見て測量した範囲を描いています。隠しているのではありません。チェーンの記録はすべて公開で、観戦ページでは全体を見られます。いま見られないものは、次の二つだけです。`;
 /** The two things: `[{id, name(), text()}]` — the sealed march in the seal's one sentence, and an exploration's result. */
@@ -55,6 +61,8 @@ export function renderSurveyHelp() {
     <ul class="survey-unseen">${UNSEEN.map(x => html`<li><strong>${x.name()}</strong> ${x.text()}</li>`)}</ul>
     <h4>${L`軍勢を選ぶと光るマス`}</h4>
     <ul class="lit-legend">${ACTION_LEGEND.map(x => html`<li><span class="survey-key lit-${x.id}" aria-hidden="true">${x.glyph ? icon(x.glyph) : ''}</span><span class="survey-what"><strong>${x.name()}</strong> ${x.text()}</span></li>`)}</ul>
+    <h4>${L`村のまわりの印`}</h4>
+    <ul class="lit-legend">${MARK_LEGEND.map(x => html`<li><span class="survey-key mark-${x.id}" aria-hidden="true">${icon(x.glyph)}</span><span class="survey-what"><strong>${x.name()}</strong> ${x.text()}</span></li>`)}</ul>
     <h4>${L`地図の線`}</h4>
     <ul class="lit-legend">${LINE_LEGEND.map(x => html`<li><span class="survey-key line-${x.id}" aria-hidden="true"></span><span class="survey-what"><strong>${x.name()}</strong> ${x.text()}</span></li>`)}</ul>
     <p><a class="survey-all" href="spectate.html">${L`観戦ページで世界全体を見る`}</a></p></section>`;

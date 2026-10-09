@@ -84,9 +84,10 @@ test('the viewer\'s own village: 1.6 to 2 times larger, its plate above the spri
   assert.ok(a.ay === u.y - H.top && a.leader >= 10);
   assert.equal(PLATES.plateAnchor({ x: 0, y: 0 }, S, 1).lean, 0, 'another village: centred');
   assert.ok(PLATES.plateRise({ hero: true }, 1.3) > PLATES.plateRise({}, 1.3));
-  // hosts: every spot in front of the houses (below the centre), on the tile's own lower edge: the feet at most a
-  // few px past it (a hexagon of 1.3 times the tile's), never as far as the middle of the tile in front
-  const inHex = (x, y) => { const ax = Math.abs(x) / (RADIUS * Math.sqrt(3) / 2), ay = Math.abs(y) / (RADIUS * FLATTEN); return ax <= 1.04 && ay + ax * 0.5 <= 1.3; };
+  // hosts: every spot in front of the houses (below the centre), outside the palisade either side of the gate road:
+  // within the village's own footprint (fix pass 2: the town is drawn 1.65 times a tile, and hosts kept inside a
+  // hexagon of 1.3 times the tile stood on its lower houses), never as far as the middle of the tile in front
+  const inHex = (x, y) => { const ax = Math.abs(x) / (RADIUS * Math.sqrt(3) / 2), ay = Math.abs(y) / (RADIUS * FLATTEN); return ax <= 1.04 && ay + ax * 0.5 <= H.scale; };
   for (const spots of H.hosts) for (const [dx, dy] of spots) {
     const x = dx * RADIUS, y = dy * RADIUS * FLATTEN * 1.6;
     assert.ok(y > RADIUS * FLATTEN * 0.6, 'in front of the village');

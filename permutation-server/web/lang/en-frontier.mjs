@@ -493,4 +493,9 @@ export default {
   '進軍は送られていません（{0} は{1}にいます）。': 'The march was not sent ({0} are still at {1}).',
   '送られていません': 'Not sent',
   '全体図': 'World',
+  '薄い軍勢と封の印': 'A faded host with a seal',
+  '進軍に出た軍勢です。到着のターンまで村にはいません。': 'A host that has marched out. It is away from the village until its arrival turn.',
+  '槌の輪': 'A ring with a hammer',
+  '建設中です。輪が一周すると完成します。': 'A building is going up. It is done when the ring closes.',
+  '村のまわりの印': 'Marks around a village',
 };

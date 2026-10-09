@@ -1629,3 +1629,7 @@ body[data-title="up"] .dial-pop { display: none; }
   body:has(.plate-main[data-act="home"]) .map-btn[data-map="home"] { display: none; }
   .map-btn[data-worded] { border-radius: 9px; padding: 0 10px 0 8px; }
 }
+.survey-key.mark-sealed, .survey-key.mark-build { display: grid; place-items: center; border-radius: 50%; }
+.survey-key.mark-sealed { background: #7a2a1f; border: 1.5px solid #fffaf0; color: #fffaf0; }
+.survey-key.mark-build { background: #10221f; border: 2px solid var(--brass-hi); color: #f4ecd8; }
+.survey-key.mark-sealed .ic, .survey-key.mark-build .ic { width: 11px; height: 11px; }
