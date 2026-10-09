@@ -136,8 +136,11 @@ export function playLanded(fx, a) {
   fx.sound('confirm', { seed });
   if (!at) return;
   fx.play('flash', { ...at, color: fill(a.faction), seed });
+  // the tile and the land round it take the nation's colour for a breath (the real landing read thin: a pale ring and a few streaks)
+  fx.play('glow', { ...at, radius: 1, color: fill(a.faction), hold: 0.5, gain: 0.6, delay: 0.03, seed });
   fx.play('ripple', { ...at, color: light(a.faction), radius: 2.1, delay: 0.07, seed });
-  fx.play('burst', { ...at, kind: 'spark', n: 20, height: 0.3, power: 0.85, delay: 0.08, seed, colors: [light(a.faction), fill(a.faction), '#fff6dc'] });
+  fx.play('ripple', { ...at, color: fill(a.faction), radius: 1.3, delay: 0.16, seed: `${seed}|in` });
+  fx.play('burst', { ...at, kind: 'spark', n: 28, height: 0.3, power: 1.0, delay: 0.08, seed, colors: [light(a.faction), fill(a.faction), '#fff6dc'] });
   fx.play('mark', { ...at, kind: 'ok', color: fill(a.faction), delay: 0.1, seed });
   fx.play('pip', { ...at, color: fill(a.faction), seed });
   fx.hush(at, 1.6);
