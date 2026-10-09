@@ -24,10 +24,19 @@ import { RADIUS } from '../../map.mjs';
 import { TOWER } from './belltower.mjs';
 import { candidatesBox } from './waitview.mjs';
 
-/** The hero zoom: the viewer's own town is some 180 CSS px wide on a desktop (a hex about 115 px); a little less on a phone, whose picture is narrow (never below the zoom at which every village carries its name tag). */
-export const heroZoom = (dpr = 1) => (dpr >= 1.5 ? 1.3 : 1.5);
-/** The opening never waits longer than this for the viewer's record (ms); then the world view. */
-export const OPEN_WAIT_MS = 4000;
+/**
+ * The hero zoom (UX brief §12.1): the camera stands a little further back than it did, a hex some 85 CSS px wide at
+ * the middle of the picture (it was 115), so the far rows and the horizon they end in are in the everyday frame; a
+ * little less on a phone, whose picture is narrow (never below the zoom at which every village carries its plate and
+ * badges: map/plates.mjs PLATE_BADGES_R).
+ */
+export const heroZoom = (dpr = 1) => (dpr >= 1.5 ? 1.1 : 1.15);
+/**
+ * The opening never waits longer than this for the viewer's record (ms); then the world view. A safety net only: the
+ * page says the viewer is known as soon as the record has answered or failed, and until then the map shows the bare
+ * sheet on its table (UX brief §12.3). It was 4 s: on a slow connection the whole world came up first.
+ */
+export const OPEN_WAIT_MS = 15000;
 /** How much higher than its target the opening starts (zoom factor). Behind the title the camera waits there (the title is opaque: fmap.mjs open). */
 export const OPEN_FROM = 0.5;
 /**

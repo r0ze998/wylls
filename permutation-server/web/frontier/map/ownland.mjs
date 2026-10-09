@@ -40,8 +40,13 @@ import { upright } from './tilt.mjs';
 export const OWN_FILL = Object.freeze({ rim: 0.38, middle: 0.08, depth: RADIUS * Math.sqrt(3) * (2 / 3), steps: 12, curve: 2.6, blend: 'soft-light', passes: 2 });
 /** The colour itself over the cast, along the border only (so the band reads on any ground): its share of the band's strength. */
 export const OWN_BODY = 2;
-/** From afar (the far views): the land's fill in the colour itself, and one rim of ink, the nation's colour and a hair of gold (widths in screen px before the zoom's own scale). */
-export const OWN_FAR = Object.freeze({ fill: 0.25, ink: 4.2, colour: 2.8, gold: 1.1 });
+/**
+ * From afar (the far views): the land carries a quarter of the nation's colour, and one rim: a gold line (the
+ * viewer's own mark) on a dark underlay that only gives it an edge on any ground (widths in screen px before the
+ * zoom's own scale). It was ink, the nation's colour and a hair of gold on one line: three tones in four pixels read
+ * as a doubled outline, and beside the nation's own rim as outlines nested in outlines (the second check).
+ */
+export const OWN_FAR = Object.freeze({ fill: 0.25, ink: 3.8, gold: 2 });
 /**
  * The band as strokes along the outline, clipped to the land: `[{width (world px), alpha}]`, widest first. Laid
  * over a fill of `middle`, the strokes that cover a point `d` px inside the border add up to
@@ -236,13 +241,11 @@ export function paintOwnLand(g, land, { zoom = 1, faction = 0, now = fxNow(), st
   }
   // ---- the border: a glow of gold, dark ink, the nation's colour, the gold line
   if (shown > 0 && far) {
-    // one rim from afar: ink, the nation's colour, a hair of gold (the viewer's own mark), each inside the one before
+    // one rim from afar: a gold line (the viewer's own mark) on its dark underlay; dashed while the village is provisional
     const dash = land.provisional ? [7 * k, 5 * k] : [];
-    g.setLineDash([]);
-    g.globalAlpha = 0.8 * shown; g.strokeStyle = `${INK}1)`; g.lineWidth = OWN_FAR.ink * k; g.stroke(P.edge);
-    g.globalAlpha = shown; g.strokeStyle = col; g.lineWidth = OWN_FAR.colour * k; g.stroke(P.edge);
     g.setLineDash(dash);
-    g.globalAlpha = (0.8 + 0.2 * breath) * shown; g.strokeStyle = YOU; g.lineWidth = OWN_FAR.gold * k; g.stroke(P.edge);
+    g.globalAlpha = 0.72 * shown; g.strokeStyle = `${INK}1)`; g.lineWidth = OWN_FAR.ink * k; g.stroke(P.edge);
+    g.globalAlpha = (0.86 + 0.14 * breath) * shown; g.strokeStyle = YOU; g.lineWidth = OWN_FAR.gold * k; g.stroke(P.edge);
     g.setLineDash([]);
   } else if (shown > 0) {
     const dash = land.provisional ? [9 * k, 7 * k] : [];
@@ -327,7 +330,9 @@ export function paintOwnOutline(g, land, { zoom = 1, shown = 1, strong = false }
   g.setLineDash(land.provisional ? [10 * k, 7 * k] : []);
   // (`strong`: while a reach is lit over the land and the rest of the map is dimmed, the gold line is drawn whole)
   if (strong) { g.globalAlpha = 0.6 * shown; g.strokeStyle = `${INK}1)`; g.lineWidth = 4.4 * k; g.stroke(P.edge); }
-  g.globalAlpha = (strong ? 0.95 : 0.42) * shown; g.strokeStyle = YOU; g.lineWidth = (strong ? 2 : 1.2) * k; g.stroke(P.edge);
+  // (else a breath of it: what stands on the border is taller since the third wave, a mountain, a wood of single trees,
+  // and a line at .42 across them read as a wire)
+  g.globalAlpha = (strong ? 0.95 : 0.24) * shown; g.strokeStyle = YOU; g.lineWidth = (strong ? 2 : 1.2) * k; g.stroke(P.edge);
   g.setLineDash([]);
   g.restore();
 }

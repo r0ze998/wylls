@@ -36,21 +36,25 @@
 // under a tilt is not where its tile is seen.
 
 /**
- * The tilt at the near view (degrees), the most the baked art allows, the viewing distance (CSS px), and the spare
- * rim of the ground canvas. The angle was chosen from side-by-side pictures at 0, 12, 16 and 20 degrees (1440 × 900
- * and 390 × 844): at 12 the board still reads as a flat sheet; at 16 the rows visibly shorten toward the far edge; at
- * 20 straight things (the sheet's edge, its neatline, the province borders) also lean together toward the far
- * edge, which is what makes it a board seen from a seat, and the painted props (drawn for a steeper view) are not
- * yet squashed: they lose 6% of their height. Past 22 they would be.
+ * The tilt at the near view (degrees), the most the art allows, the viewing distance (CSS px), and the spare rim of
+ * the ground canvas. The angle was chosen from side-by-side pictures. The second wave took 20 from 0, 12, 16 and 20:
+ * the painted props were then part of the tilted ground and would have been squashed past 22. Since the fix pass
+ * everything that stands on the board is drawn upright (`standing`), so the third wave looked again, at 20, 23 and 26
+ * with the camera further back (a hex about 88 px wide), 1440 × 900 and 390 × 844: at 20 the far rows are four
+ * fifths of the middle one and the land still reads as a sheet seen from above; at 23 it begins to lie down; at 26 a
+ * far row is three quarters of the middle one and six tenths of the nearest, hexes are clearly wider than tall, and
+ * with the haze of the far rows the picture has a far edge: a board seen from a seat. 28 and 30 were looked at too
+ * (the clamp lifted for the trial): there the baked ground's own relief (grass mounds painted for a view from some
+ * 40 degrees) is squashed flat and the near hexes are stretched more than twice as wide as tall. 26 is the brief's
+ * own limit (§12.1) and the clamp.
  */
-export const TILT = Object.freeze({ deg: 20, max: 22, perspective: 900, margin: 10 });
+export const TILT = Object.freeze({ deg: 26, max: 26, perspective: 900, margin: 10 });
 /** The zoom from which the board is fully tilted (below the far view's zoom it lies flat). */
 export const TILT_NEAR = 0.62;
 
 const RAD = Math.PI / 180;
 const clamp01 = x => Math.max(0, Math.min(1, x));
 
-/** `?tilt=<deg>` of an address: the angle (0 to TILT.max), or null when it says nothing. */
 /** `?persp=<px>` of an address: the viewing distance for trials (600 to 4000), or null when it says nothing. */
 export function perspFromQuery(search = '') {
   const m = /[?&]persp=(\d+(?:\.\d+)?)(?:&|$)/.exec(String(search ?? ''));
@@ -59,6 +63,7 @@ export function perspFromQuery(search = '') {
   return Number.isFinite(v) ? Math.max(600, Math.min(4000, v)) : null;
 }
 
+/** `?tilt=<deg>` of an address: the angle (0 to TILT.max), or null when it says nothing. */
 export function tiltFromQuery(search = '') {
   const m = /[?&]tilt=(-?\d+(?:\.\d+)?)(?:&|$)/.exec(String(search ?? ''));
   if (!m) return null;

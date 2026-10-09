@@ -41,11 +41,12 @@ import { applySurvey, fxNow, mutedSprite, paintChart, paintReveal } from './char
 import { standing, upright } from './tilt.mjs';
 import { FOG_OF_LEVEL, L2, L3, hexKey } from './survey.mjs';
 import { reducedMotion } from './camera.mjs';
-import { landShape } from './ownland.mjs';
+import { landShape, landTiles } from './ownland.mjs';
 import { HERO, paintPlates, scaffoldAt, villagePlace } from './plates.mjs';
 import { villageSprite } from './village.mjs';
 import { OPEN_PASS } from './labelpass.mjs';
 import { paintBellTower, towerSprite } from './belltower.mjs';
+import { RELIEF, paintMountainShadow, paintWoodFloor, reliefSprite, woodOf } from './relief.mjs';
 
 const BASE = new URL('../art/', import.meta.url);
 /** The far bitmaps' resolutions (device px per world px) and their cache budget in pixels. */
@@ -147,12 +148,14 @@ export function paintSettlement(ctx, x, y, s, f, tier = 0) {
 
 /** The realms of a set of far entries: per faction a fill path and a border path, and the holdings' marks. */
 export function buildRealms(entries, { grow = 0, levelAt = null, own = null } = {}) {
-  // `own`: a Set "P,Q,tile" of the viewer's own villages: they keep their mark and claim no realm land here
-  // (the viewer's land is painted as the viewer's own, in its true size: map/ownland.mjs)
+  // `own`: a Set "P,Q,tile" of the viewer's own villages: they keep their mark; their land is the viewer's own, painted
+  // in its true size by map/ownland.mjs (a quarter of the colour and one rim). Here it belongs to the nation's realm
+  // without being washed or rimmed a second time: the realm's wash stops at it and the realm's rim does not run
+  // round it (the second check: a solid hexagon inside nested outlines)
   // with a survey: only the villages the viewer has surveyed, and their land only as far as it is surveyed
   const seen = (q, r) => !levelAt || levelAt(q, r) >= L2;
   if (typeof Path2D === 'undefined') return null;
-  const owner = new Map(), holdings = [];
+  const owner = new Map(), holdings = [], mineAt = [];
   const hexOf = new Map(), water = new Set();
   for (const e of entries) {
     if (!e.terrain) continue;
@@ -168,7 +171,7 @@ export function buildRealms(entries, { grow = 0, levelAt = null, own = null } = 
       if (!seen(h.q, h.r)) return;
       const c = project(h.q, h.r);
       holdings.push({ x: c.x, y: c.y, f, tier });
-      if (own?.has(`${e.p},${e.q},${idx}`)) return;
+      if (own?.has(`${e.p},${e.q},${idx}`)) { mineAt.push({ q: h.q, r: h.r, tier, f }); return; }
       const rad = ([1, 2, 2, 3][tier] ?? 1) + grow;
       for (let dq = -rad; dq <= rad; dq++) for (let dr = Math.max(-rad, -dq - rad); dr <= Math.min(rad, -dq + rad); dr++) {
         const d = Math.max(Math.abs(dq), Math.abs(dr), Math.abs(dq + dr));
@@ -179,6 +182,8 @@ export function buildRealms(entries, { grow = 0, levelAt = null, own = null } = 
       }
     });
   }
+  // the viewer's own land, whoever else reaches it (as map/ownland.mjs draws it: the tiles the village works, less water and what is not surveyed)
+  for (const v of mineAt) for (const t of landTiles(v, (q, r) => !water.has(keyOf(q, r)) && seen(q, r))) { const k = keyOf(t.q, t.r); owner.set(k, { f: v.f, d: -1, mine: true }); hexOf.set(k, { q: t.q, r: t.r }); }
   // close the small pockets a realm leaves (land with at least 4 of its 6 neighbours of one faction), twice
   const land = new Set();
   for (const e of entries) if (e.terrain) for (let i = 0; i < PROVINCE_TILES; i++) { const h = tileHex(e.p, e.q, i); const k = keyOf(h.q, h.r); if (!water.has(k)) { land.add(k); if (!hexOf.has(k)) hexOf.set(k, { q: h.q, r: h.r }); } }
@@ -199,6 +204,8 @@ export function buildRealms(entries, { grow = 0, levelAt = null, own = null } = 
   for (const [k, o] of owner) {
     const h = hexOf.get(k);
     const c = project(h.q, h.r);
+    // (the viewer's own land: no wash of the realm's over its own quarter fill, no rim of the realm's beside its own rim)
+    if (o.mine) continue;
     if (!fill[o.f]) fill[o.f] = new Path2D();
     hexPoints(c.x, c.y, 0).forEach(([x, y], i) => (i ? fill[o.f].lineTo(x, y) : fill[o.f].moveTo(x, y)));
     fill[o.f].closePath();
@@ -245,6 +252,19 @@ const GROUND_BOX = Object.freeze({ left: 352, right: 352, top: 258, bottom: 252 
 export const REALM_FAR = Object.freeze({ fill: 0.22, fillNear: 0.18, colour: 3.6, ink: 1.4 });
 /** The relief of the tile view: how much wider and taller than its sprite a mountain or a wood is drawn, about a foot `foot` hex radii below its tile's centre, and how dark its cast shadow is. */
 export const RISE = Object.freeze({ mountain: Object.freeze({ w: 1.22, h: 1.42, foot: 0.3, shadow: 0.2 }), forest: Object.freeze({ w: 1.06, h: 1.2, foot: 0.34, shadow: 0 }) });
+/**
+ * The relief drawn by code (map/relief.mjs, UX brief §12.2): which terrain is (hills keep their baked ground: its
+ * soft mounds won the side-by-side picture), how large a mountain and a tree are drawn (units of the hex radius per
+ * unit of their own), and the plain ground laid under each (the baked
+ * ground of a mountain or a wood has the mountain or the trees painted into it). `?relief=0` shows the baked art
+ * (for side-by-side pictures).
+ */
+export const CODE_RELIEF = Object.freeze({ mountain: true, forest: true });
+export const RELIEF_SCALE = Object.freeze({ mountain: 1.06, tree: 1 });
+const RELIEF_GROUND = Object.freeze({ mountain: 'hills', forest: 'grassland' });
+const RELIEF_OFF = /[?&]relief=0(?:&|$)/.test(globalThis.location?.search ?? '');
+/** Terrain whose props lie low (tufts, flowers, stones, what floats): at the tile view they are part of the still ground. */
+const LOW_PROPS = new Set(['grassland', 'plains', 'hills', 'water']);
 /** Terrain whose props stand tall enough to cover a host on the tile behind. */
 const TALL = new Set(['mountain', 'forest']);
 const spare = (w, h) => (typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : typeof document !== 'undefined' ? Object.assign(document.createElement('canvas'), { width: w, height: h }) : null);
@@ -883,7 +903,7 @@ export class SpriteArt {
   paint(ctx, entries, { zoom, dpr = 1, artZoom = zoom, passing = false, terrainAt = () => null, fogAt = () => null, selected = null, viewerFaction = null, demoRoads = false,
     ringsOpen = null, replayRing = null, replayEvery = 6000, engineStage = 0,
     relics = [], waystones = [], demoSpecials = false, rivers = [], demoRivers = false, alliedPairs = [], people = null, far = false,
-    part = null, between = null, stamp = undefined, survey = null, sea = false, up = null }) {
+    part = null, between = null, stamp = undefined, survey = null, sea = false, up = null, rush = false }) {
     // the sprite set of the nearer of the picture and where the camera is going (no change of set at the end of a flight)
     const s = artSize(RADIUS * Math.max(zoom, artZoom) * dpr);
     // the ring-open moment starts when the open ring count grows (or, in the preview, on a timer)
@@ -915,12 +935,24 @@ export class SpriteArt {
     const stand = (img, t) => raise(t.x, t.y, () => draw(t.lv === L2 && !far ? mutedSprite(img) : img, t));
     const nearCentre = (t) => { const pc = provinceCentre(t.p, t.pq); return Math.max(Math.abs(t.q - pc.q), Math.abs(t.r - pc.r), Math.abs(t.q + t.r - pc.q - pc.r)) <= 1; };
     const siteGround = (t) => t.site !== undefined && SITE_LAND.has(t.name);
+    // a tile whose relief is drawn by code (not one a river or a road runs through, nor a site's clearing: their baked ground is their own)
+    // (a site in a wood keeps its clearing: its ground is a site's on grass, and the wood stands round it)
+    const coded = (t) => !RELIEF_OFF && CODE_RELIEF[t.name] === true && !t.river && !t.road && (!siteGround(t) || t.name === 'forest');
+    const woodAt = (t) => (t.wood ??= woodOf(t.q, t.r, t.v, { ring: siteGround(t) }));
+    // what lies low on a tile (tufts and flowers on grass, plains and hills, what floats on water) is part of its still
+    // ground at the tile view: it is in the province's ground bitmap, not drawn tile by tile on every moving frame
+    // (some 600 sprites a frame, most of a moving frame's props). Not where a tile carries something of its own
+    const lowProp = (t) => !far && !t.cloud && t.lv >= L2 && LOW_PROPS.has(t.name) && !t.river && !siteGround(t) && !t.relic && !t.waystone
+      && !(t.ring === 0 && t.name !== 'water') && !(t.ring <= 1 && (t.centre || nearCentre(t)));
     // the still ground of one tile: its sprite, the Concord's paving, shores and beaches, roads
     const groundOf = (t) => {
       const img = t.river ? this.image('rivers', s.key, `${t.name}_${String(t.river).padStart(2, '0')}`)
-        : this.image(siteGround(t) ? 'sites' : 'terrain', s.key, `${t.name}_${t.v}`);
+        : this.image(siteGround(t) ? 'sites' : 'terrain', s.key, `${coded(t) ? RELIEF_GROUND[t.name] : t.name}_${t.v}`);
       if (!img) { polygon(g, hexPoints(t.x, t.y, 0), FLAT[t.name][0], null); return; }
       draw(img, t);
+      if (lowProp(t)) { const low = this.image('props', s.key, `${t.name}_${t.v}`); if (low) draw(low, t); }
+      // (a wood's floor lies on the ground: the shade under the crowns, each tree's own shadow)
+      if (t.name === 'forest' && coded(t)) paintWoodFloor(g, t.x, t.y, RADIUS, woodAt(t), { ring: siteGround(t) });
       if (t.ring === 0 && t.name !== 'water' && t.name !== 'mountain') { const pv = this.image('specials', s.key, 'concord_paving'); if (pv) draw(pv, t); }
       EDGE_DIRS.forEach(([dq, dr], e) => {
         const nb = nameAt(t.q + dq, t.r + dr);
@@ -968,7 +1000,9 @@ export class SpriteArt {
         // (`passing`: the camera is on its way. A province that has any bitmap keeps it for now and gets its own once
         // the camera rests; one that has none gets its own, one a frame. Making two of the large bitmaps on every
         // frame of a flight cost more than the rest of the frame)
-        let bakes = passing ? 1 : GROUND_BAKES, charts = 8;
+        // (`rush`: the opening holds its first picture until it is whole, and nobody is watching these frames: more a frame)
+        // (a camera on its way has two sheets of chart a frame: a far picture stands in for the rest until it rests)
+        let bakes = rush ? GROUND_BAKES * 2 : passing ? 1 : GROUND_BAKES, charts = passing && !rush ? 2 : 8;
         const pass = this.groundPass = (this.groundPass ?? 0) + 1;
         const bake = (e, list) => {
           const sv = svOf(e), chartOnly = sv?.kind === 'chart';
@@ -977,7 +1011,11 @@ export class SpriteArt {
           if (hit) { hit.pass = pass; this.groundCache.delete(key); this.groundCache.set(key, hit); return hit; }
           // (a sheet of chart is cheap: it does not wait for its turn as painted ground does)
           if (bakes <= 0 && !(chartOnly && charts > 0)) return null;
-          if (passing && !chartOnly && this.groundStale(e)) return null;
+          if (passing && !rush && !chartOnly && this.groundStale(e)) return null;
+          // (a sheet of chart that has any picture, of the tile view or the far view, keeps it while the camera travels:
+          // chart is chart, and making the sheets of every province a flight passes over pushed the land's own ground
+          // out of the cache, so the way back had none)
+          if (passing && !rush && chartOnly && (this.groundStale(e) || this.farStale(e))) return null;
           const c = provincePixel(e.p, e.q), res = s.r / RADIUS, B = GROUND_BOX;
           const cv = spare(Math.ceil((B.left + B.right) * res), Math.ceil((B.top + B.bottom) * res)), gg = cv?.getContext?.('2d');
           if (!gg) return null;
@@ -1048,7 +1086,9 @@ export class SpriteArt {
             // (asked for again only while the cache has room for it: a picture larger than the cache can hold is
             // not made again every frame)
             if (this.groundPixels < GROUND_PIXELS_MAX - 1_500_000) this.misses++;
-            v = list.length ? this.groundStale(e) : null;
+            // (flying in from afar a province has no ground of the tile view yet: its far picture, which was on screen a
+            // moment ago, stands in until its turn comes; drawing it tile by tile cost a flight's frame a tenth of a second)
+            v = list.length ? this.groundStale(e) ?? (passing ? this.farStale(e) : null) : null;
             if (!v) continue;
           }
           ctx.imageSmoothingEnabled = true;
@@ -1121,7 +1161,8 @@ export class SpriteArt {
       const decor = ((t.q * 5 + t.r * 11) % 3 + 3) % 3 === 0;
       const pr = paved ? (t.site === undefined && decor ? this.image('specials', s.key, `concord_plaza_${1 + (t.v % 2)}`) : null)
         : t.river ? this.image('rivers_props', s.key, `${t.name}_${String(t.river).padStart(2, '0')}`)
-        : this.image(siteGround(t) ? 'sites_props' : 'props', s.key, `${t.name}_${t.v}`);
+        : coded(t) || lowProp(t) ? null : this.image(siteGround(t) ? 'sites_props' : 'props', s.key, `${t.name}_${t.v}`);
+      if (!paved && coded(t)) reliefOf(t);
       // (the Concord's paving and what floats on water lie in the plane)
       if (pr) {
         if (paved || t.name === 'water') draw(t.lv === L2 && !far ? mutedSprite(pr) : pr, t);
@@ -1156,6 +1197,22 @@ export class SpriteArt {
       }
       raise(t.x, fy, () => { g.save(); g.translate(t.x, fy); g.scale(M.w, M.h); g.translate(-t.x, -fy); draw(pic, t); g.restore(); });
     };
+    // the relief drawn by code (map/relief.mjs): a mountain stands on its tile, a wood is its trees, each upright on
+    // its own spot and as large as its row; kept as bitmaps for the size on screen, so each is one copy
+    const reliefOf = (t) => {
+      const px = Math.max(zoom, artZoom) * dpr, muted = t.lv === L2 && !far;
+      const put = (kind, variant, x, y, u, fy) => {
+        const sp = reliefSprite(kind, u * px, variant);
+        if (!sp) return;
+        const pic = muted ? mutedSprite(sp.cv) : sp.cv;
+        raise(x, fy, () => { const was = g.imageSmoothingEnabled; g.imageSmoothingEnabled = true; g.drawImage(pic, x - sp.ox * u, y - sp.oy * u, sp.w * u, sp.h * u); g.imageSmoothingEnabled = was; });
+      };
+      if (t.name === 'forest') { for (const tr of woodAt(t)) { const x = t.x + tr.x * RADIUS, y = t.y + tr.y * RADIUS; put(tr.kind, tr.variant, x, y, RADIUS * tr.s * RELIEF_SCALE.tree, y); } return; }
+      const u = RADIUS * RELIEF_SCALE.mountain;
+      // (its shadow lies on the ground: laid flat, and not cut out of a host that stands behind it)
+      if (g === ctx) paintMountainShadow(g, t.x, t.y, u, { alpha: RELIEF.shadow * (muted ? 0.6 : 1) });
+      put('mountain', t.v - 1, t.x, t.y, u, t.y + RADIUS * RELIEF.foot);
+    };
     const shieldOf = (t) => { if (t.shield) { const d = this.image('holdings', s.key, 'shield'); if (d) stand(d, t); } };
     // a village: its picture for this size on screen (the tilt draws the near rows larger: the picture is made for that)
     const villageOf = (t) => {
@@ -1165,6 +1222,10 @@ export class SpriteArt {
       const pic = t.lv === L2 ? mutedSprite(v.cv) : v.cv;
       raise(cx, cy, () => { const was = g.imageSmoothingEnabled; g.imageSmoothingEnabled = true; g.drawImage(pic, cx - v.ox * U, cy - v.oy * U, v.w * U, v.h * U); g.imageSmoothingEnabled = was; });
     };
+    // province borders: ink with its halo over painted land, a quiet sepia line on the chart. A line on the ground: laid
+    // before what stands on it (it ran across the crowns of a wood and the face of a mountain once those stood upright),
+    // and so under the hosts, the people and their labels too
+    if (has('props') && !far) for (const e of entries) if (e.fog !== 'unopened') this.frame(ctx, { p: e.p, q: e.q, fog: 'clear', selected: e.selected, zoom, sv: svOf(e), survey });
     // pass 2: props, holdings, cloud sea
     if (has('props')) { for (const t of tiles) propsOf(t); for (const t of tiles) if (t.hero && !t.cloud && t.state === 1 && t.owner < 6 && t.lv >= L2 && !far) villageOf(t); }
     // the far view's bitmap stops here: land, props, holdings, territory (map/sprites.mjs farBitmap)
@@ -1187,9 +1248,6 @@ export class SpriteArt {
       if (paintReveal(ctx, { reveals: survey.reveals, byKey: key => byKey.get(key), res: s.r / RADIUS, now: fxNow(), nameAt: chartName }) > 0 && !this.revealTimer) this.revealTimer = setTimeout(() => { this.revealTimer = null; this.onTick(); }, 33);
     }
     // (the survey is in the ground and the sprites already: muted land, the chart and their edge; nothing veils the frame)
-    // province borders: ink with its halo over painted land, a quiet sepia line on the chart. Under the hosts, the
-    // people and their labels (a border used to run through a label that stood on it)
-    for (const e of entries) if (e.fog !== 'unopened') this.frame(ctx, { p: e.p, q: e.q, fog: 'clear', selected: e.selected, zoom, sv: svOf(e), survey });
     // a tile whose battle is playing shows the scene's figures, not the hosts' sprites (UI plan D4)
     const fightingAt = battleTiles((people?.battles ?? []).filter(shown), (globalThis.performance?.now?.() ?? Date.now()) / 1000);
     for (const e of entries) {

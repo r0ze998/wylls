@@ -152,15 +152,18 @@ export const SCENES = [
     id: 'lit', title: 'the village selected on the map: its host\'s tiles are lit', page: 'index.html', stage: 'holding',
     async go(page) {
       await page.locator('#frontier-map[data-lod="tile"][data-terrain="ready"]').waitFor();
+      // (the opening view is the seat's frame, UX design 12.1: the village stands a little below the middle of the free
+      // part, so the press is aimed where the map says the village is seen, once the camera rests)
+      await page.waitForFunction(() => { const m = window.__wyllsMap; return !!m && !m.cam.moving && !m.openHold; }, null, { timeout: 15000 });
       const at = await page.evaluate(async () => {
-        const { coveredInsets } = await import('/frontier/map/fmap.mjs');
-        const cv = document.getElementById('frontier-map'), b = cv.getBoundingClientRect(), i = coveredInsets(cv);
-        return { x: b.left + i.left + (b.width - i.left - i.right) / 2, y: b.top + i.top + (b.height - i.top - i.bottom) / 2 };
+        const { FS } = await import('/frontier/fstate.mjs'); const { tileHex } = await import('/frontier/fgeo.mjs'); const { project } = await import('/map.mjs');
+        const h0 = (FS.holdings ?? [])[Number.isInteger(FS.activeHolding) ? FS.activeHolding : 0], h = tileHex(h0.p, h0.q, h0.tile), w = project(h.q, h.r);
+        return window.__wyllsMap.project(w.x, w.y);
       });
       await page.mouse.click(at.x, at.y);
       await page.mouse.move(2, 2);   // (a mouse resting on the map keeps its hover tip up; a finger leaves none)
       const ok = await page.evaluate(async () => { const { FS } = await import('/frontier/fstate.mjs'); return Number.isInteger(FS.selected?.idx) && (FS.holdings ?? []).some(h => h.p === FS.selected.p && h.q === FS.selected.q && h.tile === FS.selected.idx); });
-      if (!ok) throw new Error('the tap in the middle of the opening view did not select the viewer\'s village');
+      if (!ok) throw new Error('the tap on the village in the opening view did not select the viewer\'s village');
       await page.locator('#inspect-title').waitFor();
     },
   },

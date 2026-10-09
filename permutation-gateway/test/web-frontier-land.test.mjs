@@ -159,6 +159,18 @@ test('the far view: the viewer\'s own village keeps its mark and claims no realm
   assert.equal(mine.fill[0], undefined, 'no nation wash under the viewer\'s own land');
   assert.ok(mine.fill[4]);
   assert.deepEqual(mine.holdings.map(h => h.f), [0, 4], 'the village is still marked');
+  // (the third wave: nor does the realm's rim run round it: the viewer's land has its own one rim, never an outline inside an outline)
+  assert.equal(mine.edge[0], undefined, 'no realm rim beside the viewer\'s own rim');
+  // a nation-mate next door: the realm is the mate's land alone, and its rim stops where the viewer's land begins
+  class Rec { constructor() { this.segs = []; this.hexes = 0; } moveTo(x, y) { this.at = [x, y]; } lineTo(x, y) { this.segs.push([this.at, [x, y]]); this.at = [x, y]; } closePath() { this.hexes++; } }
+  const was = globalThis.Path2D; globalThis.Path2D = Rec;
+  try {
+    const two = { ...entry, rec: { ...entry.rec, owners: [0, 0, 4, 7, 7, 7, 7, 7, 7, 7, 7, 7], sites: [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0] } };
+    const both = buildRealms([two], { grow: 1 }), apart = buildRealms([two], { grow: 1, own: new Set(['2,0,7']) });
+    assert.ok(apart.fill[0].hexes > 0 && apart.fill[0].hexes < both.fill[0].hexes, 'the mate\'s land is washed, the viewer\'s is not');
+    assert.ok(both.fill[0].hexes - apart.fill[0].hexes >= 7, `the viewer's own tiles are left out of the wash (${both.fill[0].hexes} against ${apart.fill[0].hexes})`);
+    assert.ok(apart.edge[0].segs.length > 0 && apart.edge[0].segs.length < both.edge[0].segs.length + 12);
+  } finally { globalThis.Path2D = was; }
 });
 
 // ------------------------------------------------------------------ the lit tiles
@@ -530,7 +542,7 @@ test('the edge of the world: a cloud bank between the land and the sheet\'s bare
   assert.equal(driftTexture(), null);
   paintTable(null, { view: { x: 0, y: 0, zoom: 1 }, size: { width: 10, height: 10 } });
   paintSheet(null, sheet);
-  assert.deepEqual(new CloudSea().paint(null, { box: { x0: 0, y0: 0, x1: 10, y1: 10 } }), { pending: 0, seen: false });
+  assert.deepEqual(new CloudSea().paint(null, { box: { x0: 0, y0: 0, x1: 10, y1: 10 } }), { pending: 0, seen: false, rough: 0 });
 });
 
 test('the landing book: a provisional village lands once on a device; one that is already final is old news', () => {
