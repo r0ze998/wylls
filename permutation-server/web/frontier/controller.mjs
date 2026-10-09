@@ -554,7 +554,10 @@ async function sendTheMarch() {
   c.sending = true; c.step = null;
   invalidate('panel');
   // the effects layer draws the route on while the order is sealed and sent (own view only), then stamps it (fx/stage.mjs)
-  const fxa = { id: `Depart#${++fxSeq}`, name: 'Depart', faction: FS.citizen?.faction ?? null, unit: c.host?.unit ?? 0, tile: { p: c.origin.p, q: c.origin.q, tile: c.host.tile }, dest: c.dest ? { p: c.dest.p, q: c.dest.q, tile: c.dest.tile } : null, route: c.route ?? null };
+  // (the route with its origin, as the march book keeps it: the planner's answer alone has no starting tile, so the
+  // ribbon was a straight line from the village to the destination instead of the road the host takes)
+  const fxa = { id: `Depart#${++fxSeq}`, name: 'Depart', faction: FS.citizen?.faction ?? null, unit: c.host?.unit ?? 0, tile: { p: c.origin.p, q: c.origin.q, tile: c.host.tile }, dest: c.dest ? { p: c.dest.p, q: c.dest.q, tile: c.dest.tile } : null,
+    route: Array.isArray(c.route?.dirs) ? { p: c.origin.p, q: c.origin.q, tile: c.host.tile, dirs: [...c.route.dirs] } : null };
   fxEmit('action:busy', fxa);
   FS.inFlight = (FS.inFlight ?? 0) + 1;
   try {

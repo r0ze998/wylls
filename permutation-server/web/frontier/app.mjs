@@ -1222,7 +1222,8 @@ function renderFeed() {
   // this turn's own results stand together in one card (fx/stage.mjs `turn:results`); they are not said twice as single
   // notices, not even in the moment before the card comes (it waits for the toll's banner: the single notices stood
   // under the banner for a second and were then replaced by the card)
-  const strip = turnStripNow(), inStrip = new Set((turnStripHeld()?.items ?? []).map(x => x.id));
+  // (nor after the card was put away: its rows came back as single notices)
+  const strip = turnStripNow(), inStrip = new Set((turnStrip && fxNow() - turnStrip.at <= TURN_STRIP_MS ? turnStrip.items : []).map(x => x.id));
   const items = [...(st ? [{ id: 'tx', markup: status.renderStatus(st) }] : []),
     ...(strip ? [{ id: `turn:${strip.turn}`, markup: feed.renderTurnStrip(strip, { now: turnRowNow(strip) }) }] : []),
     ...feed.liveToasts((FS.feed ?? []).filter(x => !inStrip.has(x.id)), { dismissed: FS.feedDismissed ?? new Set() }).map(x => ({ id: `n:${x.id}`, markup: feed.renderToast(x) }))];

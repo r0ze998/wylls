@@ -105,3 +105,100 @@ test('the page\'s controller across the live turn: the march has its tile, the f
     await srv.close();
   }
 });
+
+// ------------------------------------------------------------------ the polish of the final check (UX design 12.5)
+import * as B from '../../permutation-server/web/frontier/people/battle.mjs';
+import { dustColors } from '../../permutation-server/web/frontier/fx/battle.mjs';
+import { FILE_SHADE } from '../../permutation-server/web/frontier/fx/pieces.mjs';
+import { freeFrom, NARROW, HUD_IDS } from '../../permutation-server/web/frontier/fx/safe.mjs';
+import { FACTION_FILL } from '../../permutation-server/web/frontier/people/avatar.mjs';
+import { readFileSync } from 'node:fs';
+
+/** A context that records what is stroked, filled and written (colours, fonts, widths). */
+function recorder() {
+  const log = [];
+  const grad = () => { const stops = []; return { stops, addColorStop: (o, c) => stops.push([o, c]) }; };
+  const state = { font: '', fillStyle: '', strokeStyle: '', lineWidth: 1, globalAlpha: 1 };
+  return new Proxy(state, {
+    get: (o, k) => {
+      if (k === 'log') return log;
+      if (k in o) return o[k];
+      if (k === 'measureText') return t => ({ width: String(t).length * 13 });
+      if (k === 'createLinearGradient' || k === 'createRadialGradient') return grad;
+      if (k === 'getTransform') return () => ({ a: 1, b: 0 });
+      if (k === 'stroke') return () => { log.push(['stroke', o.strokeStyle, o.lineWidth]); };
+      if (k === 'fill') return () => { log.push(['fill', o.fillStyle]); };
+      if (k === 'fillRect') return (...a) => { log.push(['fillRect', o.fillStyle, ...a]); };
+      if (k === 'fillText') return (t, ...a) => { log.push(['fillText', String(t), o.font, o.fillStyle]); };
+      if (k === 'strokeText') return (t, ...a) => { log.push(['strokeText', String(t), o.font]); };
+      return () => undefined;
+    },
+    set: (o, k, v) => { o[k] = v; return true; },
+  });
+}
+const scene = () => ({ p: 2, q: 0, bell: 41, tiles: [{ idx: 7,
+  attackers: [{ id: 'a', faction: 2, unit: 0, stance: 1, before: 900, after: 0, fate: 'Destroyed', kind: 'arrival' }],
+  defenders: [{ id: 'd', faction: 0, unit: 0, stance: 0, before: 640, after: 600, fate: 'Stays', kind: 'resident' }] }] });
+const hex = c => { const n = parseInt(c.slice(1), 16); return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},`; };
+
+test('the battle\'s polish: the shock on the ground is in the two nations\' own colours, the outcomes stand on bell-metal tags in the serif, the baked shadows are let through', () => {
+  const play = B.startBattle(scene(), 0, 1);
+  // ---- a contact frame: the ring's gradient runs from the attacker's colour to the defender's, with no ivory between
+  const ctx = recorder();
+  B.paintBattle(ctx, play, { zoom: 2.1, at: B.BATTLE_HITS[0] + 0.08, top: true, fateText: f => f, lossText: n => `−${n}` });
+  const rings = ctx.log.filter(x => x[0] === 'stroke' && x[1]?.stops?.length === 4).map(x => x[1].stops.map(st => st[1]));
+  assert.ok(rings.length >= 1, 'the shock is stroked with a gradient');
+  for (const stops of rings) {
+    assert.ok(stops[0].startsWith(hex(FACTION_FILL[2])) && stops[1].startsWith(hex(FACTION_FILL[2])), `the attacker's half is Cinder's colour: ${stops[0]}`);
+    assert.ok(stops[2].startsWith(hex(FACTION_FILL[0])) && stops[3].startsWith(hex(FACTION_FILL[0])), `the defender's half is Aster's colour: ${stops[3]}`);
+    assert.ok(stops.every(c => !/rgba\(255,24\d,2\d\d/.test(c)), 'no ivory stop');
+    assert.ok(Number(/,([\d.]+)\)$/.exec(stops[0])[1]) > 0.5, 'at strength');
+  }
+  // ---- after the fates: each outcome is written once, in the serif at 13 px, ivory, on a plate (never outlined bare text)
+  const end = recorder();
+  B.paintBattle(end, play, { zoom: 2.1, at: B.PHASE.fates + 1.2, top: true, fateText: f => ({ Stays: '戦場に残った', Destroyed: '壊滅した' })[f], lossText: n => `−${n} 兵` });
+  const fates = end.log.filter(x => x[0] === 'fillText' && ['戦場に残った', '壊滅した'].includes(x[1]));
+  assert.deepEqual(fates.map(x => x[1]).sort(), ['壊滅した', '戦場に残った']);
+  for (const f of fates) { assert.match(f[2], new RegExp(`^600 ${B.FATE_PX}px "Hiragino Mincho ProN"`)); assert.equal(f[3], '#f4efe0'); }
+  assert.deepEqual(end.log.filter(x => x[0] === 'strokeText' && ['戦場に残った', '壊滅した'].includes(x[1])), [], 'no outlined caption');
+  // the plates: bell metal under each, the accent down its edge (ember where nothing is left, else the side's colour)
+  const accents = end.log.filter(x => x[0] === 'fillRect' && (x[1] === '#e2553d' || x[1] === FACTION_FILL[0])).map(x => x[1]);
+  assert.deepEqual(accents.sort(), ['#e2553d', FACTION_FILL[0]].sort());
+  assert.ok(B.FATE_PX >= 12 && B.FATE_PLATE_PX >= 20);
+  // ---- shadows: a battle's figures and a file's keep under half of the sheet's baked shadow; a token on the map keeps it all
+  assert.ok(B.FIGURE_SHADE > 0.2 && B.FIGURE_SHADE < 0.5 && FILE_SHADE > 0.2 && FILE_SHADE < 0.5);
+  const minis = readFileSync(new URL('../../permutation-server/web/frontier/people/minis.mjs', import.meta.url), 'utf8');
+  assert.match(minis, /shade = 1 \} = \{\}\)/, 'the map\'s own tokens are drawn as they were (shade 1 by default)');
+  assert.match(minis, /d\[i \+ 3\] < 250 && d\[i\] < 8 && d\[i \+ 1\] < 8 && d\[i \+ 2\] < 8/, 'only the sheet\'s black, translucent pixels are the shadow');
+  // ---- dust: each nation's own colour is in every puff of its line (it was mostly the pale tint, and read grey)
+  const sat = c => { const n = parseInt(c.slice(1), 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255; return (Math.max(r, g, b) - Math.min(r, g, b)) / Math.max(r, g, b); };
+  for (const f of [0, 2]) for (const c of dustColors(B.sideColors(f))) assert.ok(sat(c) > 0.2, `${c} carries the nation's colour`);
+});
+
+test('on a phone the notices step back for a set piece: they are not an obstacle to its stage, and the stylesheet hides them only there', () => {
+  assert.equal(NARROW, 760);
+  assert.deepEqual(HUD_IDS.narrowGhost, ['notices']);
+  const card = { left: 60, top: 80, right: 330, bottom: 250 };
+  // the same boxes on a phone's map and on a wide one
+  const phone = freeFrom({ left: 0, top: 0, width: 390, height: 520 }, [{ ...card, kind: 'ghost' }]);
+  assert.ok(phone.stage.top < 80 && phone.stage.height > 400, 'the stage is the whole map');
+  assert.ok(phone.centre.top >= 250 || phone.centre.bottom <= 80, 'the everyday stage keeps off the card');
+  // what belongs to the scene is placed off what stays, not off what stepped back (the numbers were pushed under the figures)
+  assert.deepEqual(phone.placeStage(195, 160, 80, 30), { x: 195, y: 160, moved: false });
+  assert.equal(phone.place(195, 160, 80, 30).moved, true);
+  const css = readFileSync(new URL('../../permutation-server/web/frontier/fx/fx.css', import.meta.url), 'utf8');
+  assert.match(css, /@media \(max-width: 759px\) \{\s*body\[data-fx-piece\] #feed \{ opacity: 0; \}/);
+  assert.match(css, /body\[data-fx-piece\] #feed:has\(:focus-visible\) \{ opacity: 1; \}/, 'a key\'s focus brings them back, a finger\'s press does not');
+  assert.doesNotMatch(css, /@keyframes|animation:(?!\s*none)|transition:/);
+});
+
+test('the triggers as written: the departure\'s effect gets the road with its origin; a result card put away does not come back as single notices', () => {
+  const ctl = readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
+  // (the planner's answer has no starting tile: fx/stage.mjs routePoints then drew a straight line from the village to the destination)
+  assert.match(ctl, /route: Array\.isArray\(c\.route\?\.dirs\) \? \{ p: c\.origin\.p, q: c\.origin\.q, tile: c\.host\.tile, dirs: \[\.\.\.c\.route\.dirs\] \} : null/);
+  assert.match(ctl, /const dest = \{ p: p\.destP, q: p\.destQ, tile: p\.destTile \};/);
+  const app = readFileSync(new URL('../../permutation-server/web/frontier/app.mjs', import.meta.url), 'utf8');
+  assert.match(app, /inStrip = new Set\(\(turnStrip && fxNow\(\) - turnStrip\.at <= TURN_STRIP_MS \? turnStrip\.items : \[\]\)\.map\(x => x\.id\)\)/, 'the card\'s rows are not single notices before it shows nor after it is dismissed');
+  assert.match(app, /if \(FS\.mode === 'play' && feedAnnounces\(env\.province\.p, env\.province\.q, b\)\) continue;/, 'a clash the feed announces is not also played in passing');
+  assert.doesNotMatch(app, /autoPan\) playBattle\(/, 'the pan to combat waits its turn in the results (turn:scene), it does not start at the poll');
+});
