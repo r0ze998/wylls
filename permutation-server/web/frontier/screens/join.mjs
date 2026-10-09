@@ -14,7 +14,10 @@ import { freeByWedge, ticketTimes, homeWedge } from '../fland.mjs';
 import { dueHtml } from './shell.mjs';
 import { leaderFigure, leaderHex, leaderSvg, DOCTRINE_PITCH } from '../people/leaders.mjs';
 import { placeName } from '../people/identity.mjs';
-import { holdingName } from '../people/ui.mjs';
+import { holdingName, ownIdentity } from '../people/ui.mjs';
+import { displayName } from '../people/identity.mjs';
+import { sigilPath } from '../people/avatar.mjs';
+import { NATION_FILL, NATION_DARK, NATION_ON } from '../palette.mjs';
 import { crestSvg } from '../hud/hud.mjs';
 import { icon } from '../hud/icons.mjs';
 import { provinceName } from '../hud/place.mjs';
@@ -142,15 +145,41 @@ export function waitClock(FS) {
 /** What follows the clock of a request, said once: which bell it is, and that the village is decided a little after it. */
 export const waitNote = c => (c?.kind !== 'result' ? '' : c.tolled ? L`鐘が鳴りました。約 ${fmtNum(c.after)} 分で決まります。` : L`ターン ${fmtNum(c.turn)} の鐘です。鐘のあと約 ${fmtNum(c.after)} 分で決まります。`);
 
-/** The waiting view's head: who the viewer joined, and the state in one line (the card's title). */
+/**
+ * A nation's standard as a picture for the page (the one the map plants in the home wedge, map/ownland.mjs
+ * paintStandard): a pole with a gold finial, a swallow-tail pennon in the nation's colour, the nation's sigil on it.
+ * Attributes only (the page's CSP allows no style attribute); decorative: the nation is named beside it.
+ */
+export function standardSvg(faction, { height = 120 } = {}) {
+  const f = Number.isInteger(faction) && faction >= 0 && faction < 6 ? faction : 0;
+  const fill = NATION_FILL[f], dark = NATION_DARK[f], on = NATION_ON[f];
+  return raw(`<svg class="standard" viewBox="0 0 80 150" width="${Math.round((height * 80) / 150)}" height="${height}" aria-hidden="true" focusable="false">
+    <ellipse cx="13" cy="146" rx="11" ry="3" fill="#000" opacity=".4"/>
+    <path d="M13 146V9" stroke="#0c1614" stroke-width="5.5" stroke-linecap="round"/><path d="M13 146V9" stroke="#7a5634" stroke-width="3" stroke-linecap="round"/><path d="M12 146V9" stroke="#b08a5a" stroke-width="1" stroke-linecap="round" opacity=".7"/>
+    <path d="M14.5 13C34 10 54 16 76 12L62 30 76 49C54 52 34 46 14.5 49Z" fill="${fill}" stroke="${dark}" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M16 15.5C34 13 52 18 70 15.5L66 20.5C50 23 34 18 16 20.5Z" fill="#fff" opacity=".22"/>
+    <g transform="translate(36 31)"><path d="${sigilPath(f, 8.6)}" fill="${on}" stroke="${dark}" stroke-width=".8" stroke-linejoin="round"/></g>
+    <path d="M13 1.5L17.5 8 13 14.5 8.500 8Z" fill="#f0d48a" stroke="#7d6428" stroke-width="1.2" stroke-linejoin="round"/></svg>`);
+}
+
+/**
+ * The waiting view's scene and head (UX design 13.6: the wait is a view worth looking at, on a phone too): on a
+ * small stage in the dark of the table, lit in the nation's colour, the nation's standard and the player's own
+ * character standing by it (breathing; a still under reduced motion: people/leader-sprite.mjs); beside them who the
+ * viewer is and which nation was joined, and the state in one line (the card's title). Under the stage the nation's
+ * words, with no named speaker (map/waitview.mjs nationWords: the same words the map writes under the standard in
+ * the home wedge; while this card stands open the page tells the map, `wait.wordsSaid`, and the map leaves its own out).
+ */
 function waitHead(FS, title, state = null) {
-  const f = FS.citizen?.faction;
-  // the leader's line (map/waitview.mjs leaderWords: the words the map writes under the nation's standard). A phone's
-  // map has no room for them beside the candidate sites, so the card says them there (the stylesheet shows this line
-  // on phones only; app.mjs tells the map with `wait.wordsSaid`, and the map then leaves its own out)
-  const say = Number.isInteger(f) ? leaderWords(f, state) : null;
-  return html`<div class="wait-top">${Number.isInteger(f) ? html`<span class="wait-face">${raw(leaderFigure(f))}</span>` : ''}
-    <div class="wait-who">${Number.isInteger(f) ? html`<span class="wait-nation">${crestSvg(f, { size: 20 })}${L`${factionName(f)}に加わりました`}</span>` : ''}<h3 id="join-sites">${title}</h3></div></div>
+  const f = FS.citizen?.faction, known = Number.isInteger(f) && f >= 0 && f < 6;
+  const say = known ? leaderWords(f, state) : null;
+  let me = null;
+  try { me = known ? ownIdentity(FS) : null; } catch { me = null; }
+  return html`<div class="wait-scene${known ? '' : ' wait-scene-plain'}" ${raw(known ? `data-nation="${f}"` : '')}>
+      ${known ? html`<span class="ws-cast"><span class="ws-standard">${standardSvg(f)}</span><span class="ws-figure">${raw(leaderFigure(f))}</span></span>` : ''}
+      <div class="wait-who">${known ? html`<span class="wait-nation">${crestSvg(f, { size: 20 })}${L`${factionName(f)}に加わりました`}</span>` : ''}
+        <h3 id="join-sites">${title}</h3>
+        ${known ? html`<span class="ws-you">${me ? html`<span class="ws-name" data-name>${displayName(me, { full: true })}</span>` : ''}<span class="ws-creed">${L`教義：${DOCTRINE_NAMES[f]}`}</span></span>` : ''}</div></div>
     ${say ? html`<p class="wait-says"><span class="wait-says-t">${L`「${say.text}」`}</span></p>` : ''}`;
 }
 /** The one clock, large: what it counts to, the figure, and (for a result) the turn whose bell decides it. */

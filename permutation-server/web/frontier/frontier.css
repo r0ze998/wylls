@@ -1158,8 +1158,6 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
   .nc-wallet { justify-items: start; }
 }
 /* the wait for the village: who was joined and the state in one line; one clock; a refusal as one clear state; the candidate places; practice offered */
-.wait-top { display: flex; align-items: center; gap: var(--s3); margin: 0 0 var(--s3); }
-.wait-face .leader { display: block; border-radius: 6px; box-shadow: 0 0 0 1px rgba(60,48,20,.5), 0 2px 5px rgba(0,0,0,.3); }
 .wait-who { min-width: 0; display: grid; gap: 3px; }
 .wait-nation { display: inline-flex; align-items: center; gap: 6px; font-size: var(--t1); font-weight: 650; color: var(--ink-2); }
 .wait-card h3 { margin: 0; font: 700 var(--t3)/1.35 var(--display); letter-spacing: .02em; }
@@ -1672,18 +1670,38 @@ body[data-stage="loading"] .tabs > * { visibility: hidden; }
   .panel[data-sheet="peek"]:has(#panel-body > .order) { max-height: min(calc(var(--vvh) * .5), 380px); }
   .order-unsent { padding: 6px 8px; }
 }
-/* ---- the wait for the village: the leader's line in the card on phones (the map has no room for it there; on desktop the
-   map writes it under the nation's standard) ---- */
-.wait-says { display: none; }
+/* ---- the wait for the village is a view (UX design 13.6): a small stage in the dark of the table, lit in the nation's
+   colour, with the nation's standard and the player's own character standing by it; beside them who was joined and the
+   state in one line; under the stage the nation's words (no named speaker). On every size: a phone's stage is lower. ---- */
+.wait-scene { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: end; gap: 0 var(--s3); margin: 0 0 var(--s3); padding: 10px 14px 12px 6px; min-height: 148px; border-radius: 10px; overflow: hidden; color: var(--ivory);
+  background: radial-gradient(120% 90% at 22% 100%, rgba(var(--nc, 240,212,138), .34), rgba(var(--nc, 240,212,138), .1) 46%, rgba(var(--nc, 240,212,138), 0) 72%), var(--tex-metal, none), linear-gradient(180deg, #17302a, #0c1a17);
+  box-shadow: 0 0 0 1px #0a1815, 0 0 0 2px var(--brass-lo), 0 2px 0 2px rgba(60,48,20,.35), inset 0 1px 0 rgba(255,248,224,.12); }
+.wait-scene[data-nation="0"] { --nc: 204,48,59; } .wait-scene[data-nation="1"] { --nc: 49,190,219; } .wait-scene[data-nation="2"] { --nc: 234,194,27; }
+.wait-scene[data-nation="3"] { --nc: 163,76,216; } .wait-scene[data-nation="4"] { --nc: 237,238,231; } .wait-scene[data-nation="5"] { --nc: 241,146,50; }
+/* the ground the two stand on: a low pool of light at their feet */
+.wait-scene::before { content: ""; position: absolute; left: -6%; right: 34%; bottom: -14px; height: 46px; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(closest-side, rgba(var(--nc, 240,212,138), .42), rgba(var(--nc, 240,212,138), .12) 60%, rgba(var(--nc, 240,212,138), 0)); }
+.ws-cast { position: relative; display: flex; align-items: flex-end; height: 132px; padding-left: 4px; }
+.ws-standard { position: relative; display: block; margin-right: -44px; }
+.ws-standard .standard { display: block; height: 132px; width: auto; filter: drop-shadow(0 3px 4px rgba(0,0,0,.5)); }
+.ws-figure { position: relative; display: block; }
+.ws-figure .lfig { height: 124px; filter: drop-shadow(0 6px 8px rgba(0,0,0,.55)); }
+.wait-scene .wait-who { position: relative; align-self: center; display: grid; gap: 4px; min-width: 0; }
+.wait-scene .wait-nation { color: var(--brass-hi); letter-spacing: .04em; }
+/* (a title of two lines breaks between phrases where the browser knows Japanese phrases) */
+.wait-scene h3 { color: #fff6e2; text-shadow: 0 1px 2px rgba(0,0,0,.5); word-break: auto-phrase; }
+.ws-you { display: grid; font-size: var(--t1); line-height: 1.45; color: var(--hud-ink-2); overflow-wrap: anywhere; }
+.ws-name { color: var(--hud-ink); font-weight: 650; }
+.wait-scene-plain { min-height: 0; padding: 12px 14px; grid-template-columns: minmax(0, 1fr); }
+.wait-says { position: relative; display: block; margin: 0 0 var(--s3); padding: 7px 14px 9px; border-radius: 4px; background: rgba(64,48,18,.07); box-shadow: inset 0 0 0 1px var(--ink-soft); font: 600 var(--t2)/1.6 var(--display); color: var(--ink); text-wrap: pretty; }
+.wait-says::before { content: ""; position: absolute; left: 62px; top: -7px; border: solid transparent; border-width: 0 7px 7px; border-bottom-color: rgba(64,48,18,.16); }
 @media (max-width: 759px) {
-  .wait-says { position: relative; display: block; margin: -4px 0 var(--s3); padding: 6px 12px 8px; border-radius: 4px; background: rgba(64,48,18,.07); box-shadow: inset 0 0 0 1px var(--ink-soft); font: 600 var(--t2)/1.6 var(--display); color: var(--ink); }
-  .wait-says::before { content: ""; position: absolute; left: 17px; top: -7px; border: solid transparent; border-width: 0 7px 7px; border-bottom-color: rgba(64,48,18,.16); }
-  /* who says it: at the end of the last line when there is room, else on a line of its own, at the right either way */
-  .wait-says-who { float: right; margin-left: 12px; font: 600 var(--t1)/1.87 var(--ui); color: var(--ink-2); white-space: nowrap; }
-  .wait-says::after { content: ""; display: block; clear: both; }
-  .wait-face .leader { width: 48px; height: 48px; }
-  /* the wait is a view of its own: its first sight is a little taller than a half sheet, so that the practice battle is in it */
-  .panel[data-kind="wait"][data-sheet="half"] { max-height: min(60%, calc(var(--vvh) * .56)); }
+  .wait-scene { min-height: 112px; padding: 8px 12px 8px 2px; margin-bottom: 10px; }
+  .ws-cast { height: 100px; } .ws-standard .standard { height: 100px; } .ws-standard { margin-right: -32px; } .ws-figure .lfig { height: 96px; }
+  .wait-says { margin-bottom: 10px; padding: 5px 12px 7px; }
+  .wait-says::before { left: 48px; }
+  /* the wait is a view of its own: its first sight is taller than a half sheet, so that the one retry (or the one clock) and the practice battle are in it */
+  .panel[data-kind="wait"][data-sheet="half"] { max-height: min(66%, calc(var(--vvh) * .62)); }
 }
 .wait-card h3 { text-wrap: balance; }
 .wo-lead + .wo-note::before { content: " "; }
@@ -1691,12 +1709,11 @@ body[data-stage="loading"] .tabs > * { visibility: hidden; }
   /* a phone's wait view in its first sight (the half sheet): the state, the leader's line, the one clock or the one retry, and the practice battle; the list of candidate places follows (the map above shows them) */
   .wait-card { display: flex; flex-direction: column; }
   .wait-card > * { order: 2; }
-  .wait-card > :is(.wait-top, .wait-says, .turn-wait, .wait-state) { order: 0; }
+  .wait-card > :is(.wait-scene, .wait-says, .turn-wait, .wait-state) { order: 0; }
   .wait-card > .wait-offer { order: 1; margin: 0 0 var(--s3); padding: 0; border: 0; display: grid; gap: 4px; }
   .wait-offer .wo-lead { display: none; }
   .wait-offer p { order: 2; margin: 0; font-size: var(--t1); color: var(--ink-2); text-align: center; }
   .wait-offer .btn { width: 100%; justify-content: center; }
-  .wait-top { margin-bottom: var(--s3); }
   .wait-state p:last-child { margin-bottom: var(--s3); }
 }
 /* ---- a phone's sheets, each height looked at (UX design 12.6): nothing is pushed under the tab bar, and nothing the

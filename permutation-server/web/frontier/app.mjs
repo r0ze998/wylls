@@ -901,7 +901,8 @@ function waitNow() {
   // one countdown on the screen (UX design 11.10): while the wait view stands open with its own clock, the map leaves its line out
   const said = drawerOf(FS)?.kind === 'wait' && !(phone() && sheetRef?.state() === 'peek');
   // the leader's line likewise: a phone's wait view says it in the sheet (screens/join.mjs waitHead), so the map leaves its own out
-  const wordsSaid = phone() && drawerOf(FS)?.kind === 'wait' && sheetRef?.state() !== 'peek';
+  // (the card says the nation's words whenever it stands open, on every size: the map then leaves its own out)
+  const wordsSaid = drawerOf(FS)?.kind === 'wait' && !(phone() && sheetRef?.state() === 'peek');
   return { now, nextTurnAt: bellStart(FS.clock.genesisTs, bell + 1), resultAt, tollAt, share, first: t ? t.next ?? 0 : null, said, wordsSaid, state: st === 'ticket' ? 'ticket' : FS.autoTicket?.state ?? null };
 }
 /** The village that lands now, the first time this device sees it (map/landing.mjs). */

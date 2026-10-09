@@ -56,7 +56,7 @@ test('no false state at load: the page says what it knows about the viewer, and 
   assert.match(app, /viewerState\(FS\) === 'known' \? FS\.land\?\.stage \?\? 'none' : 'loading'/, 'the stage mark of the page follows the same answer');
 });
 
-test('the wait for the village: the leader\'s line stands in the card (phones), the state fits one line, the practice battle is offered', async () => {
+test('the wait for the village is a view on every size: the player\'s character by the nation\'s standard, the nation\'s words, one state, one retry, the practice battle offered', async () => {
   const joinScreen = await import('../../permutation-server/web/frontier/screens/join.mjs');
   const { leaderWords } = await import('../../permutation-server/web/frontier/map/waitview.mjs');
   setLang('ja');
@@ -87,12 +87,33 @@ test('the wait for the village: the leader\'s line stands in the card (phones), 
     assert.match(en, /“First, the village request\. Once it is in, the candidate sites appear on the map\.”/);
     assert.doesNotMatch(en, /Oriane|Marshal/);
   } finally { setLang('ja'); }
-  // the stylesheet: the line is the phone's; the wait's first sight there holds the practice battle before the list of places
+  // the scene (UX design 13.6): a stage lit in the nation's colour with the nation's standard and the player's own
+  // character standing by it (breathing: a canvas the sprite player paints), who was joined, the state as the title,
+  // the nation's doctrine; no leader is named, the player's own name may stand there
+  for (const m of [failed, ticket]) {
+    assert.match(m, /<div class="wait-scene" data-nation="0">\s*<span class="ws-cast"><span class="ws-standard"><svg class="standard" viewBox="0 0 80 150"[^>]*aria-hidden="true"/, m.slice(0, 400));
+    assert.match(m, /<span class="ws-figure"><canvas class="lfig" width="288" height="360" data-leader="aster" data-motion="idle" aria-hidden="true" focusable="false"><\/canvas><\/span><\/span>/);
+    assert.match(m, /<span class="wait-nation"><svg class="crest"[^>]*>.*?<\/svg>アステルに加わりました<\/span>\s*<h3 id="join-sites">/);
+    assert.match(m, /<span class="ws-you"><span class="ws-creed">教義：石の守り手<\/span><\/span>/);
+    assert.equal((m.match(/class="lfig"/g) ?? []).length, 1, 'one figure');
+    assert.doesNotMatch(m, /\sstyle=/);
+  }
+  // a stage for each nation, in its colour and with its sigil on the cloth
+  const cssAll = readFileSync(new URL('frontier.css', WEB), 'utf8');
+  for (let f = 0; f < 6; f++) {
+    assert.match(cssAll, new RegExp(`\\.wait-scene\\[data-nation="${f}"\\] \\{ --nc: \\d+,\\d+,\\d+; \\}`));
+    const other = flat(joinScreen.render({ ...base, citizen: { faction: f }, land: { stage: 'joined' }, autoTicket: { state: 'failed', code: 'Unavailable' } }));
+    assert.match(other, new RegExp(`<div class="wait-scene" data-nation="${f}">`));
+  }
+  assert.equal(String(joinScreen.standardSvg(2, { height: 150 })).includes('width="80" height="150"'), true);
+  // the stylesheet: the words stand in the card on every size; a phone's stage is lower, and its first sight holds the practice battle before the list of places
   const css = readFileSync(new URL('frontier.css', WEB), 'utf8');
-  assert.match(css, /\n\.wait-says \{ display: none; \}/);
+  assert.doesNotMatch(css, /\n\.wait-says \{ display: none; \}/);
+  assert.match(css, /\n\.wait-says \{ position: relative; display: block;/);
+  assert.match(css, /\.wait-card > :is\(\.wait-scene, \.wait-says, \.turn-wait, \.wait-state\) \{ order: 0; \}/);
   assert.match(css, /\.wait-card > \.wait-offer \{ order: 1;/);
-  // the page tells the map when the card says the line, and the map then leaves its own out
-  assert.match(readFileSync(new URL('app.mjs', WEB), 'utf8'), /const wordsSaid = phone\(\) && drawerOf\(FS\)\?\.kind === 'wait' && sheetRef\?\.state\(\) !== 'peek';/);
+  // the page tells the map whenever the card says the words (on every size), and the map then leaves its own out
+  assert.match(readFileSync(new URL('app.mjs', WEB), 'utf8'), /const wordsSaid = drawerOf\(FS\)\?\.kind === 'wait' && !\(phone\(\) && sheetRef\?\.state\(\) === 'peek'\);/);
   assert.match(readFileSync(new URL('map/fmap.mjs', WEB), 'utf8'), /say: src\.wait\?\.wordsSaid \? null : leaderWords\(/);
 });
 
