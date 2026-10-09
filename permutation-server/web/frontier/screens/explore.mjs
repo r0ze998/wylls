@@ -11,7 +11,7 @@ import { html, raw } from '../../util.mjs';
 import { L, Lh, fmtNum } from '../../lang.mjs';
 import { exploreTargets, ticketTimes } from '../fland.mjs';
 import { DIRECTIONS, TILE_OFFSETS } from '../fgeo.mjs';
-import { timeHtml } from './shell.mjs';
+import { dueHtml } from './shell.mjs';
 import { icon } from '../hud/icons.mjs';
 import { cardHead, chip, ring } from './parts.mjs';
 
@@ -47,7 +47,7 @@ export function render(FS) {
   const times = pending && FS.clock ? ticketTimes(FS.clock, rec.bell) : null;
   return html`<section class="vcard" aria-labelledby="explore-title">
     ${cardHead({ id: 'explore-title', ic: 'scout', title: L`探索`, side: pending ? chip(L`結果待ち`, 'info') : '' })}
-    ${pending ? html`<div class="wait-row">${ring(FS.exploreSeedReady ? 1 : null)}<p>${L`探索の結果を待っています。`}${times ? html` ${Lh`結果は ${timeHtml(times.resultAbout)} ごろに出ます。`}` : ''}</p></div>
+    ${pending ? html`<div class="wait-row">${ring(FS.exploreSeedReady ? 1 : null)}<p>${L`探索の結果を待っています。`}${times ? html` ${Lh`結果は${dueHtml(times.resultAbout, FS.chain?.now?.() ?? null)}に出ます。`}` : ''}</p></div>
       <div class="actions"><button type="button" class="btn${FS.exploreSeedReady ? ' primary' : ''}" data-act="settle-explore" ${raw(FS.exploreSeedReady ? '' : 'disabled')}>${L`結果を受け取る`}</button><span class="muted">${L`ふつうは自動で受け取ります。`}</span></div>` : ''}
     ${draft?.host && !pending ? html`<p>${L`斥候のまわりから、調べる場所を2つまで選んでください。`}</p>
       ${targets.length ? rose(draft.host, targets, draft.tiles) : html`<p class="muted">${L`隣に探索できるマスがありません`}</p>`}

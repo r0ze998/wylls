@@ -55,3 +55,95 @@ test('no false state at load: the page says what it knows about the viewer, and 
   const app = readFileSync(new URL('app.mjs', WEB), 'utf8');
   assert.match(app, /viewerState\(FS\) === 'known' \? FS\.land\?\.stage \?\? 'none' : 'loading'/, 'the stage mark of the page follows the same answer');
 });
+
+test('the wait for the village: the leader\'s line stands in the card (phones), the state fits one line, the practice battle is offered', async () => {
+  const joinScreen = await import('../../permutation-server/web/frontier/screens/join.mjs');
+  const { leaderWords } = await import('../../permutation-server/web/frontier/map/waitview.mjs');
+  setLang('ja');
+  const clock = { genesisTs: 1_000, window: () => 60, margin: 6 };
+  const base = { mode: 'play', tab: 'map', playReady: true, wallet: { address: 'W' }, session: { publicKey: 'S' }, citizen: { faction: 0 }, clock, chain: { now: () => 1_000 + 42 * 600 + 150 },
+    overviews: new Map(), holdings: [], view: { fog: true }, ui: { dismissed: [] } };
+  const failed = flat(joinScreen.render({ ...base, land: { stage: 'joined' }, autoTicket: { state: 'failed', code: 'Unavailable' } }));
+  // one clear state: a title of one line, one retry, one labelled countdown
+  assert.match(failed, /<h3 id="join-sites">村の申し込みが通っていません<\/h3>/);
+  assert.equal((failed.match(/data-act="auto-ticket"/g) ?? []).length, 1, 'one retry');
+  assert.match(text(failed), /次のターンに自動でやり直します（あと 7:30 ）/, 'the countdown says what it counts');
+  // the leader's line, the same words the map writes under the standard
+  const say = leaderWords(0, 'failed');
+  assert.ok(failed.includes(`<p class="wait-says"><span class="wait-says-t">「${say.text}」</span><span class="wait-says-who">— <span data-name>${say.who}</span></span></p>`), failed.slice(0, 900));
+  const ticket = flat(joinScreen.render({ ...base, land: { stage: 'ticket', ticket: { bell: 42, sites: [{ p: 2, q: 0, site: 3 }], next: 0 } } }));
+  assert.match(ticket, /<h3 id="join-sites">村が決まるのを待っています<\/h3>/);
+  assert.ok(ticket.includes(`「${leaderWords(0, 'ticket').text}」`), 'the ticket view has the line too (a phone\'s map leaves it out)');
+  // the practice battle: the button, and the two sentences marked apart (a phone keeps the second)
+  for (const m of [failed, ticket]) {
+    assert.match(m, /<span class="wo-lead">待つあいだに、練習で戦ってみましょう。<\/span><span class="wo-note">何も送らず、何も失いません。<\/span>/);
+    assert.match(m, /data-act="practice-open"/);
+  }
+  setLang('en');
+  try {
+    const en = text(joinScreen.render({ ...base, land: { stage: 'joined' }, autoTicket: { state: 'failed', code: 'Unavailable' } }));
+    assert.doesNotMatch(en, JP, en);
+    assert.match(en, /“First, the village request\. Once it is in, I will show you the candidate sites\.” — Oriane Vell/);
+  } finally { setLang('ja'); }
+  // the stylesheet: the line is the phone's; the wait's first sight there holds the practice battle before the list of places
+  const css = readFileSync(new URL('frontier.css', WEB), 'utf8');
+  assert.match(css, /\n\.wait-says \{ display: none; \}/);
+  assert.match(css, /\.wait-card > \.wait-offer \{ order: 1;/);
+  // the page tells the map when the card says the line, and the map then leaves its own out
+  assert.match(readFileSync(new URL('app.mjs', WEB), 'utf8'), /const wordsSaid = phone\(\) && drawerOf\(FS\)\?\.kind === 'wait' && sheetRef\?\.state\(\) !== 'peek';/);
+  assert.match(readFileSync(new URL('map/fmap.mjs', WEB), 'utf8'), /say: src\.wait\?\.wordsSaid \? null : leaderWords\(/);
+});
+
+test('a phone\'s order after a refusal keeps its seal on screen; an order rests on a whole row at every height', async () => {
+  const { rowGap, ROW_GAP_MAX, GAP_MARK_MIN } = await import('../../permutation-server/web/frontier/hud/drawer.mjs');
+  const css = readFileSync(new URL('frontier.css', WEB), 'utf8');
+  // the resting sheet of an order is as tall as its foot needs, not a fixed height (the refusal's line pushed the seal under the tab bar)
+  assert.match(css, /\.panel\[data-sheet="peek"\]:has\(#panel-body > \.order\) \{ max-height: min\(calc\(var\(--vvh\) \* \.5\), 380px\); \}/);
+  // a full sheet ends under the dial
+  assert.match(css, /\.panel\[data-sheet="full"\] \{ max-height: min\(calc\(100% - var\(--dial\) - 18px\)/);
+  // a selection at rest: its head and its actions, whole
+  assert.match(css, /\.panel\[data-sheet="peek"\]\[data-kind="inspect"\] \.inspect > :not\(\.c-head, \.insp-acts\) \{ display: none; \}/);
+  // the sheet's height changes: the rows are settled again
+  assert.match(readFileSync(new URL('app.mjs', WEB), 'utf8'), /attributeFilter: \['data-sheet'\]/);
+  // a heading is never left as the last whole row above what it heads
+  const rows = [{ top: 0, bottom: 70, leaf: true }, { top: 80, bottom: 120, leaf: true }, { top: 130, bottom: 174, leaf: true, head: true }, { top: 178, bottom: 265, leaf: true }];
+  assert.equal(rowGap(200, rows), 80, 'the heading goes below the fold with its row');
+  assert.equal(rowGap(176, rows), 56, 'also when its row is wholly below');
+  assert.equal(rowGap(270, rows), 0, 'everything whole: no gap');
+  assert.equal(rowGap(200, rows.map(r => ({ ...r, head: false }))), 26, 'a plain row may be the last');
+  assert.ok(GAP_MARK_MIN > 0 && GAP_MARK_MIN < ROW_GAP_MAX);
+  assert.match(css, /\.order-body\[data-gap="more"\] \+ \.order-foot::before/);
+});
+
+test('words: a chip explains itself, a due time says what it is', async () => {
+  const inspect = await import('../../permutation-server/web/frontier/hud/inspect.mjs');
+  const { dueHtml } = await import('../../permutation-server/web/frontier/screens/shell.mjs');
+  setLang('ja');
+  const prov = {
+    p: 2, q: 0, relations: 0n, sites: Uint8Array.from([9, 20]), resolveSummary: { bell: 41 },
+    siteMirror: [{ state: 1, faction: 2, tier: 1, garrison: 300000, shieldUntilBell: 0 }, { state: 1, faction: 0, tier: 1, garrison: 100000, shieldUntilBell: 0 }],
+    entries: [], camp: { state: 0 },
+  };
+  const FS = { mode: 'play', citizen: { faction: 0 }, holdings: [{ p: 2, q: 0, site: 1, tile: 20, tier: 1, state: 2 }], nowBell: 42, land: { stage: 'final' },
+    overviews: new Map([[2, { provinces: [{ p: 2, q: 0, owners: [2, 0, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7], sites: [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], clash: false }] }]]),
+    provinces: new Map([['2,0', { province: prov }]]), selected: { p: 2, q: 0, idx: 20 } };
+  const terrainOf = () => ({ terrain: Array(61).fill(0), sites: [9, 20], names: ['Grassland'] });
+  // the viewer's own village: no chip about another nation; the province's other nations wait under details, said in full
+  const own = flat(inspect.render(FS, terrainOf));
+  const chips = /<p class="fact-chips">([\s\S]*?)<\/p>/.exec(own)?.[1] ?? '';
+  assert.doesNotMatch(chips, /敵対|友好/, 'the second check: 「シンダー 敵対」 on the own village said nothing about whose stance');
+  assert.match(own, /<dt>この州に村を持つほかの国<\/dt>/);
+  assert.match(text(own), /（あなたの国と敵対）/);
+  // another nation's village: the chip says how that nation stands toward the viewer's
+  const theirs = flat(inspect.render({ ...FS, selected: { p: 2, q: 0, idx: 9 } }, terrainOf));
+  assert.match(/<p class="fact-chips">([\s\S]*?)<\/p>/.exec(theirs)?.[1] ?? '', /あなたの国と敵対/);
+  // a due time: how long from now, then the clock; never a bare 03:30
+  assert.match(text(dueHtml(3600 * 5, 3600 * 1 + 120)), /^あと約 3時間58分（ \S+ ごろ）$/);
+  assert.match(text(dueHtml(600, 0)), /^あと約 10 分（ \S+ ごろ）$/);
+  assert.match(text(dueHtml(600, 900)), /^\S+ ごろ$/);
+  setLang('en');
+  try {
+    assert.match(text(dueHtml(3600 * 5, 3600 * 1 + 120)), /^in about 3 h 58 min \(around \S+ \)$/);
+    assert.match(text(inspect.render({ ...FS, selected: { p: 2, q: 0, idx: 9 } }, terrainOf)), /Hostile to your nation/);
+  } finally { setLang('ja'); }
+});

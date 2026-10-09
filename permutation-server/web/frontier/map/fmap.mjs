@@ -1562,7 +1562,7 @@ export class FrontierMap {
       const sites = limited && survey.candidates?.length ? survey.candidates : null;
       if (homeAt) pass.block(homeAt.x, homeAt.y, standardBox(homeAt, z));
       if (sites) { paintCandidateLabels(o, sites, { zoom: z, line: waitSay, pass }); if (!calm) this.invalidateSoon(120); }
-      if (homeAt) paintHomeTag(o, homeAt, { zoom: z, faction: survey.faction, line: waitSay, pass, keep: !sites, say: leaderWords(survey.faction, src.wait?.state ?? null) });
+      if (homeAt) paintHomeTag(o, homeAt, { zoom: z, faction: survey.faction, line: waitSay, pass, keep: !sites, say: src.wait?.wordsSaid ? null : leaderWords(survey.faction, src.wait?.state ?? null) });
       // (a countdown is read to the second: the words are drawn again a few times a second)
       if (waitSay) this.invalidateSoon(400);
       if (src.pins?.length) paintPins(o, src.pins, z);

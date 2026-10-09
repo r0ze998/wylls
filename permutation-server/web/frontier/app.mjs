@@ -866,7 +866,9 @@ function waitNow() {
   if (resultAt !== null) { tollAt = bellStart(FS.clock.genesisTs, Math.floor((resultAt - FS.clock.genesisTs) / 600)); const from = bellStart(FS.clock.genesisTs, t.bell); share = Math.max(0, Math.min(1, (now - from) / Math.max(1, tollAt - from))); }
   // one countdown on the screen (UX design 11.10): while the wait view stands open with its own clock, the map leaves its line out
   const said = drawerOf(FS)?.kind === 'wait' && !(phone() && sheetRef?.state() === 'peek');
-  return { now, nextTurnAt: bellStart(FS.clock.genesisTs, bell + 1), resultAt, tollAt, share, first: t ? t.next ?? 0 : null, said, state: st === 'ticket' ? 'ticket' : FS.autoTicket?.state ?? null };
+  // the leader's line likewise: a phone's wait view says it in the sheet (screens/join.mjs waitHead), so the map leaves its own out
+  const wordsSaid = phone() && drawerOf(FS)?.kind === 'wait' && sheetRef?.state() !== 'peek';
+  return { now, nextTurnAt: bellStart(FS.clock.genesisTs, bell + 1), resultAt, tollAt, share, first: t ? t.next ?? 0 : null, said, wordsSaid, state: st === 'ticket' ? 'ticket' : FS.autoTicket?.state ?? null };
 }
 /** The village that lands now, the first time this device sees it (map/landing.mjs). */
 const landingBook = createLandingBook();
@@ -2077,6 +2079,8 @@ export async function boot() {
   mountLangToggle($('lang-box'));
   // The phone bottom sheet (W5-E; mounted here since W6-D, R3); the drawer state drives its height (applyDrawer).
   sheetRef = mountSheet();
+  // a sheet that changes its height shows another part of an order: the row its foot would cut is settled again (hud/drawer.mjs settleRows), now and once the sheet has moved
+  { const sheetEl = $('panel'); if (sheetEl && globalThis.MutationObserver) new MutationObserver(() => { settleSoon(); setTimeout(settleSoon, 280); mapRef?.invalidate?.(); }).observe(sheetEl, { attributes: true, attributeFilter: ['data-sheet'] }); }
   // the plate, the to-do lines and the objective stand in the sheet on phones and over the map on desktop
   globalThis.matchMedia?.(`(max-width: ${PHONE_MAX}px)`)?.addEventListener?.('change', () => { drawerKind = undefined; invalidate('panel', 'tabs', 'rail'); });
   const herald = createHerald({ base: cfg.herald });

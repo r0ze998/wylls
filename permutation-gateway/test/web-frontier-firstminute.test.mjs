@@ -99,7 +99,8 @@ test('the wait for the village: one state line and one clock; a refusal is one c
   // a refusal: one clear state
   const failed = String(joinScreen.render({ ...base, land: { stage: 'joined' }, autoTicket: { state: 'failed', code: 'Unavailable' } }));
   assert.match(failed, /<section class="vcard wait-card wait-stuck"/);
-  assert.match(failed, /<h3 id="join-sites">まだ村の申し込みができていません<\/h3>/);
+  // (rewritten with wave 3: the state's title is short enough for one line of a phone's sheet)
+  assert.match(failed, /<h3 id="join-sites">村の申し込みが通っていません<\/h3>/);
   assert.equal((failed.match(/role="alert"/g) ?? []).length, 1, 'said once');
   assert.match(failed, /<p class="wait-warn" role="alert"><span class="warn-chip"><svg[^>]*><use href="art\/ui\/icons\.svg#alert"\/><\/svg>受け付けられませんでした<\/span><span class="wait-why">[^<]+<\/span><\/p>/, 'a warning chip with its mark, then why');
   assert.equal((failed.match(/data-act="auto-ticket"/g) ?? []).length, 1, 'one retry button');
@@ -126,7 +127,7 @@ test('the wait for the village: one state line and one clock; a refusal is one c
   assert.equal(joinScreen.waitNote(joinScreen.waitClock({ ...base, land: { stage: 'joined' } })), '');
   assert.equal(joinScreen.waitClock({ ...base, land: { stage: 'joined' } }).kind, 'turn');
   const ticket = String(joinScreen.render({ ...base, land: landT }));
-  assert.match(ticket, /<h3 id="join-sites">村の場所が決まるのを待っています<\/h3>/);
+  assert.match(ticket, /<h3 id="join-sites">村が決まるのを待っています<\/h3>/);
   assert.match(ticket, /<span class="turn-wait-k">村が決まる鐘まで<\/span><strong class="turn-wait-v" data-wait-clock>7:30<\/strong><span class="turn-wait-n" data-wait-note>ターン 43 の鐘です。鐘のあと約 1 分で決まります。<\/span>/);
   assert.equal(clocks(ticket), 1);
   // its candidate places by the name a village there would carry, numbered, each a press that asks the map to go there
@@ -150,7 +151,7 @@ test('the wait for the village: one state line and one clock; a refusal is one c
   assert.match(en, /You joined Aster/);
   const enFailed = text(joinScreen.render({ ...base, land: { stage: 'joined' }, autoTicket: { state: 'failed', code: 'Unavailable' } }));
   assert.doesNotMatch(enFailed, JP, enFailed);
-  assert.match(enFailed, /Your village request has not gone through yet/);
+  assert.match(enFailed, /Your village request has not gone through /);
   assert.match(enFailed, /Try again now/);
   assert.match(enFailed, /It will be retried automatically next turn \(in\s+7:30\s*\)/);
   setLang('ja');

@@ -350,7 +350,10 @@ test('words the second review asked for: a village\'s English name, the shield, 
   assert.equal(holdingName({ p: 2, q: 0, site: 3 }, 0), `Hamlet of ${placeName(2, 0, 3).en}`);
   const en = JSON.stringify([String(provisionalNote(null, null)), String(provisionalNote({ clock: { genesisTs: 0, window: () => 60, margin: 6 } }, { ticketBell: 40 }))]);
   assert.match(en, /about 4 hours after the request at the latest/);
-  assert.match(en, /It is confirmed once every request from the same turn is decided \(<time datetime=/);
+  // (rewritten with wave 3, UX design 12.6: no bare clock time. The time says what it is: how long from now, then the clock)
+  assert.match(en, /It is confirmed once every request from the same turn is decided: around <time datetime=[^>]*>[^<]*<\/time> at the latest\./, 'without a "now": the clock time with its word');
+  const due = String(provisionalNote({ clock: { genesisTs: 0, window: () => 60, margin: 6 }, chain: { now: () => 40 * 600 } }, { ticketBell: 40 }));
+  assert.match(due, /decided: in about \d+ h \d+ min \(around <time datetime=[^>]*>[^<]*<\/time>\) at the latest\./, due);
   setLang('ja');
   assert.equal(holdingName({ p: 2, q: 0, site: 3 }, 1), `${placeName(2, 0, 3).ja}の町`, 'the Japanese name is as it was');
   assert.match(String(provisionalNote(null, null)), /遅くとも申し込みから約 4 時間/);

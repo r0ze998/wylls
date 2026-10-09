@@ -11,6 +11,21 @@ export default {
   '記録をまだ読み込めていません': 'Your record has not loaded yet',
   '通信の状態を確かめてください。読み込み直すと、もう一度試します。': 'Check your connection. Reloading tries again.',
   '読み込み直す': 'Reload',
+  // a due time says what it is (screens/shell.mjs dueHtml): how long from now, then the clock
+  '約 {0}時間{1}分': 'about {0} h {1} min',
+  'あと{0}（{1} ごろ）': 'in {0} (around {1})',
+  '{0} ごろ': 'around {0}',
+  '同じターンの申し込みがすべて決まると確定します。遅くとも{0}です。': 'It is confirmed once every request from the same turn is decided: {0} at the latest.',
+  'それまでは、より順位の高い申し込みに押し出されることがあります。': 'Until then a higher-ranked request can displace it.',
+  '早くて{0}': '{0} at the earliest',
+  '結果は{0}に出ます。': 'The result is due {0}.',
+  // the inspector: a chip says whose stance toward whom; the province's other nations wait under details
+  'あなたの国と友好': 'Friendly to your nation',
+  'あなたの国と敵対': 'Hostile to your nation',
+  'この州に村を持つほかの国': 'Other nations with villages in this province',
+  '{0}（{1}）': '{0} ({1})',
+  '約 {0} 分': 'about {0} min',
+  '「{0}」': '“{0}”',
   // ---- (end of the wave 3 block)
 
   // ---- pages and shell
@@ -247,7 +262,6 @@ export default {
   "敗走した（兵・体力・チップの半分を失った）": "Routed (lost half its troops, stamina and tip)",
   "教義：{0}": "Doctrine: {0}",
   "新緑": "Verdant",
-  "早くても {0} 以降に確定します。": "It becomes final at {0} at the earliest.",
   "時間内に答えがありませんでした": "No answer in time.",
   "書庫": "Library",
   "最大": "Maximum",
@@ -264,7 +278,6 @@ export default {
   "確実": 'Reliable',
   "第{0}輪がひらかれた": 'Ring {0} opened',
   "答えを読めませんでした": "The answer could not be read.",
-  "結果は {0} ごろに出ます。": 'The result is due at about {0}.',
   "編成する": "Muster",
   "編成中（次の鐘から）": 'Mustering (ready at the next bell)',
   "署名する前の点検で取引を止めました": "The check before signing stopped the transaction.",
@@ -473,7 +486,6 @@ export default {
   '{0}の{1}{2}': '{1} of {0}',
   '保護 あと {0}': 'Shielded for {0}',
   '残り {0}': '{0} left',
-  '同じターンの申し込みがすべて決まると確定します（遅くとも {0}）。': 'It is confirmed once every request from the same turn is decided ({0} at the latest).',
   '同じターンの申し込みがすべて決まると確定します（遅くとも申し込みから約 4 時間）。': 'It is confirmed once every request from the same turn is decided (about 4 hours after the request at the latest).',
   '未測量の土地です。守り手は、ここからはわかりません。': 'Unsurveyed land. Its defenders cannot be told from here.',
   'いまは見えていない土地です。守り手は、ここからはわかりません。': 'This land is out of your sight now. Its defenders cannot be told from here.',

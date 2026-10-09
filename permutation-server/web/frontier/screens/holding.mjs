@@ -21,7 +21,7 @@ import { holdingName } from '../people/ui.mjs';
 import { miniCardUrl, MINI_KINDS } from '../people/minis.mjs';
 import { span, NEAR_FULL_SECS } from '../hud/hud.mjs';
 import { termButton } from '../hud/glossary.mjs';
-import { inTime, row, timeHtml } from './shell.mjs';
+import { inTime, row, dueHtml } from './shell.mjs';
 import { countdown } from '../clock.mjs';
 import { cardHead, label, fold, chip, stamp } from './parts.mjs';
 import { villageDrawn, provinceCoords } from '../hud/place.mjs';
@@ -51,7 +51,8 @@ const costText = cost => cost.map((c, i) => (c ? `${RESOURCES[RESOURCE_ORDER[i]]
 export function provisionalNote(FS, h) {
   let by = null;
   try { by = FS?.clock && Number.isInteger(h?.ticketBell) ? ticketTimes(FS.clock, h.ticketBell).cohortEndsBy : null; } catch { by = null; }
-  return by ? Lh`同じターンの申し込みがすべて決まると確定します（遅くとも ${timeHtml(by)}）。` : L`同じターンの申し込みがすべて決まると確定します（遅くとも申し込みから約 4 時間）。`;
+  // (the time says what it is: how long from now, then the clock; `dueHtml`)
+  return by ? Lh`同じターンの申し込みがすべて決まると確定します。遅くとも${dueHtml(by, FS.chain?.now?.() ?? null)}です。` : L`同じターンの申し込みがすべて決まると確定します（遅くとも申し込みから約 4 時間）。`;
 }
 
 export function blockedLine(blocks) {
@@ -215,7 +216,7 @@ export function render(FS) {
     ${fold('v-facts', html`${icon('scroll')}${L`村の詳細`}`, html`<dl class="facts">
       ${row(L`場所`, provinceCoords(h.p, h.q))}
       ${row(L`段階`, html`${TIERS[h.tier] ?? h.tier} · ${HOLDING_STATES[f.state]}${termButton('tier')}`)}
-      ${f.state === 'provisional' ? row(L`確定`, f.finalTs ? Lh`早くても ${timeHtml(f.finalTs)} 以降に確定します。` : L`同じターンの申し込みがすべて決まってから`) : ''}
+      ${f.state === 'provisional' ? row(L`確定`, f.finalTs ? Lh`早くて${dueHtml(f.finalTs, FS.chain?.now?.() ?? null)}` : L`同じターンの申し込みがすべて決まってから`) : ''}
       ${f.shieldLeft > 0 ? row(L`保護`, L`残り ${countdown(f.shieldLeft)}`) : ''}
       ${row(L`休眠まで`, html`${f.dormantIn > 0 ? inTime(f.dormantIn) : L`休眠中`}${termButton('dormant')}`)}
     </dl>`)}</section>`;
