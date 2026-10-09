@@ -880,7 +880,7 @@ export class SpriteArt {
    * `stamp` (the map's change counter) lets the tile model be kept between animation frames.
    * `sea`: the caller paints the cloud sea itself (map/cloudsea.mjs): cloud tiles carry no sprite here.
    */
-  paint(ctx, entries, { zoom, dpr = 1, artZoom = zoom, terrainAt = () => null, fogAt = () => null, selected = null, viewerFaction = null, demoRoads = false,
+  paint(ctx, entries, { zoom, dpr = 1, artZoom = zoom, passing = false, terrainAt = () => null, fogAt = () => null, selected = null, viewerFaction = null, demoRoads = false,
     ringsOpen = null, replayRing = null, replayEvery = 6000, engineStage = 0,
     relics = [], waystones = [], demoSpecials = false, rivers = [], demoRivers = false, alliedPairs = [], people = null, far = false,
     part = null, between = null, stamp = undefined, survey = null, sea = false, up = null }) {
@@ -965,7 +965,10 @@ export class SpriteArt {
       if (!far) {
         // tile view: a province's still ground comes from its bitmap when there is one (north first: a tile's
         // skirt is covered by the tiles in front of it); a few new bitmaps a frame, the rest drawn tile by tile
-        let bakes = GROUND_BAKES, charts = 8;
+        // (`passing`: the camera is on its way. A province that has any bitmap keeps it for now and gets its own once
+        // the camera rests; one that has none gets its own, one a frame. Making two of the large bitmaps on every
+        // frame of a flight cost more than the rest of the frame)
+        let bakes = passing ? 1 : GROUND_BAKES, charts = 8;
         const pass = this.groundPass = (this.groundPass ?? 0) + 1;
         const bake = (e, list) => {
           const sv = svOf(e), chartOnly = sv?.kind === 'chart';
@@ -974,6 +977,7 @@ export class SpriteArt {
           if (hit) { hit.pass = pass; this.groundCache.delete(key); this.groundCache.set(key, hit); return hit; }
           // (a sheet of chart is cheap: it does not wait for its turn as painted ground does)
           if (bakes <= 0 && !(chartOnly && charts > 0)) return null;
+          if (passing && !chartOnly && this.groundStale(e)) return null;
           const c = provincePixel(e.p, e.q), res = s.r / RADIUS, B = GROUND_BOX;
           const cv = spare(Math.ceil((B.left + B.right) * res), Math.ceil((B.top + B.bottom) * res)), gg = cv?.getContext?.('2d');
           if (!gg) return null;

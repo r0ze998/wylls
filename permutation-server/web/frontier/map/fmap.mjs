@@ -100,6 +100,8 @@ export const LOD_FADE_DRIFT = 0.32;
 export const STILL_MAX_PIXELS = 11_000_000;
 /** The picture of the table and the sheet kept under the world has at most this many pixels. */
 export const BACKDROP_PIXELS = 6_000_000;
+/** While the camera travels, the kept sheet under the land serves until the zoom has grown this much past the fineness it was made at. */
+export const BACKDROP_STRETCH = 1.4;
 /** On a screen of one device pixel per CSS pixel the tilted ground is painted this much finer (the near half of the board is drawn larger than life). */
 export const GROUND_FINER = 1.4;
 /**
@@ -1305,7 +1307,11 @@ export class FrontierMap {
       // (a picture already as fine as its budget allows serves any closer zoom, travelling or at rest: with the finer
       // ground of the fix pass the travelling rule alone never held near the hero zoom, and the sheet was painted
       // again on every frame of a flight, some 110 ms of each)
-      && ((moving ? px <= b.res * 1.02 && px >= b.res * 0.7 : Math.abs(px - b.res) < 1e-9) || (px > b.res && b.res >= cap(1.68) * 0.999));
+      // (travelling, the sheet under the land may be stretched by up to BACKDROP_STRETCH before it is made again: paper
+      // in motion; made again at every 2% it was painted on most frames of a flight in)
+      // (counted from the zoom it was made at: where the pixel budget holds its fineness below the screen's, it was
+      // still made again on every frame of a flight in, as the budget's own limit rose with the narrowing view)
+      && ((moving ? px <= Math.max(b.res, b.px ?? 0) * BACKDROP_STRETCH && px >= b.res * 0.6 : Math.abs(px - b.res) < 1e-9) || (px > b.res && b.res >= cap(1.68) * 0.999));
     if (!fits) {
       // a third more on every side (never more than BACKDROP_PIXELS in all)
       const x0 = seen.x0 - w * 0.34, y0 = seen.y0 - h * 0.34, bw = w * 1.68, bh = h * 1.68;
@@ -1323,7 +1329,7 @@ export class FrontierMap {
       paintTable(bg, { view: { x: x0 + bw / 2, y: y0 + bh / 2, zoom: res }, size: { width: bw * res, height: bh * res }, ratio: 1, sheet });
       bg.setTransform(res, 0, 0, res, -x0 * res, -y0 * res);
       paintSheet(bg, sheet, { box, res: paperRes, zoom: view.zoom });
-      b = this.under = { cv, ...box, res, rings: ringsOpen, paper: paperRes };
+      b = this.under = { cv, ...box, res, px, rings: ringsOpen, paper: paperRes };
     }
     const k = b.res;
     // (pixel for pixel when the picture was made for this zoom: a copy)
@@ -1457,7 +1463,7 @@ export class FrontierMap {
       else if (r.seen && part !== 'still' && !reducedMotion()) this.invalidateSoon(Math.max(110, Math.min(420, 1300 / (Math.hypot(DRIFT_SPEED.x, DRIFT_SPEED.y) * z))));
       return r;
     };
-    const tileOpts = artTiles.length ? { zoom: z, dpr, artZoom, stamp: this.stamp, sea: true, up, seaPass: sea, between: c => { this.groundPass(c, F, 'all'); this.between?.(c, { zoom: z, now }); }, ground: (c, phase) => this.groundPass(c, F, phase), terrainAt: terrainLookup(terrainOf), fogAt, selected: null, viewerFaction: src.viewerFaction ?? null, demoRoads: !!src.demoRoads, ringsOpen: src.ringsOpen ?? null, replayRing: src.artReplayRing ?? null, engineStage: src.engineStage ?? 0, relics: src.relics ?? [], waystones: src.waystones ?? [], demoSpecials: !!src.demoSpecials, rivers: src.rivers ?? [], demoRivers: !!src.demoRivers, alliedPairs: src.alliedPairs ?? [], survey,
+    const tileOpts = artTiles.length ? { zoom: z, dpr, artZoom, passing: this.cam.moving, stamp: this.stamp, sea: true, up, seaPass: sea, between: c => { this.groundPass(c, F, 'all'); this.between?.(c, { zoom: z, now }); }, ground: (c, phase) => this.groundPass(c, F, phase), terrainAt: terrainLookup(terrainOf), fogAt, selected: null, viewerFaction: src.viewerFaction ?? null, demoRoads: !!src.demoRoads, ringsOpen: src.ringsOpen ?? null, replayRing: src.artReplayRing ?? null, engineStage: src.engineStage ?? 0, relics: src.relics ?? [], waystones: src.waystones ?? [], demoSpecials: !!src.demoSpecials, rivers: src.rivers ?? [], demoRivers: !!src.demoRivers, alliedPairs: src.alliedPairs ?? [], survey,
       // people (people/crowds.mjs): the source's departures, explores and holder names; tags nearest the view centre first
       people: src.people ? { ...src.people(), centre: { x: view.x, y: view.y } } : null } : null;
     const missed = this.art?.misses ?? 0;
