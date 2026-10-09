@@ -93,8 +93,14 @@
 .nation-confirm { margin-top: 6px; }
 .banners { --bn-fig: clamp(72px, calc(50dvh - 346px), 150px); --bn-rise: 26px; padding-top: calc(var(--bn-rise) + 11px); }
 .banners::before { top: calc(var(--bn-rise) + 2px); }
-.bn-figure { position: absolute; left: 50%; top: calc(7px - var(--bn-rise)); height: calc(var(--bn-fig) + var(--bn-rise) + 4px); translate: -50% 0; pointer-events: none; filter: drop-shadow(0 3px 4px rgba(0,0,0,.45)); }
+.banners > li { position: relative; }
+/* (the figure is the banner's neighbour, laid over it: it lifts with the banner and dims with it, by the same rules) */
+.bn-figure { position: absolute; left: 50%; top: calc(7px - var(--bn-rise)); height: calc(var(--bn-fig) + var(--bn-rise) + 4px); translate: -50% 0; pointer-events: none; transition: transform var(--out), opacity var(--out); }
 .bn-figure .lfig { height: 100%; width: auto; }
+.banner-pick:is(:hover, :focus-visible) + .bn-figure { transform: translateY(-5px); transition: transform var(--in); }
+.banner-pick:active + .bn-figure { transform: translateY(-2px); transition-duration: 70ms; }
+.banner-pick[aria-pressed="true"] + .bn-figure { transform: translateY(-10px); }
+.banners:has([aria-pressed="true"]) .banner-pick[aria-pressed="false"]:not(:hover):not(:focus-visible) + .bn-figure { opacity: .72; }
 .bn-hex { display: none; }
 /* the crest hangs at the left ring; the chosen banner's seal beside it */
 .bn-crest { left: 13px; top: -12px; translate: 0 0; }

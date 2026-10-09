@@ -67,10 +67,11 @@ const clockNow = () => {
 /**
  * A player over `doc`. `now()` seconds, `level()` the motion level, `load(url, done)` fetches a picture and gives
  * `done` something a canvas can draw (default: an Image; null when it cannot be had), `frame(fn)` asks for the
- * next animation frame (default: requestAnimationFrame). `tick()` paints every figure once and says how many are
- * moving or waiting for a picture; `kick()` starts the loop if something may move.
+ * next animation frame (default: requestAnimationFrame), `every` the least milliseconds between two looks of the
+ * running loop (the clips change 4 to 10 times a second: the page's player looks 15 times). `tick()` paints every
+ * figure once and says how many are moving or waiting for a picture; `kick()` starts the loop if something may move.
  */
-export function createSpritePlayer({ doc = globalThis.document, now = clockNow, level = motionLevel, load = null, frame = null, hold = holdArt, heldNow = heldArt } = {}) {
+export function createSpritePlayer({ doc = globalThis.document, now = clockNow, level = motionLevel, load = null, frame = null, hold = holdArt, heldNow = heldArt, every = 0 } = {}) {
   const pictures = new Map();   // url → {img, state: 'loading' | 'ready' | 'failed'}
   const plays = new Map();      // once-name (or the canvas itself) → {start, done}
   const shown = new WeakMap();  // canvas → what is painted on it now
@@ -99,7 +100,8 @@ export function createSpritePlayer({ doc = globalThis.document, now = clockNow, 
     return r.bottom > 0 && r.right > 0 && r.top < vh && r.left < vw;
   };
   const looked = el => {
-    const holder = el.closest?.('[data-nation]');
+    // (the thing that holds it: an ancestor that names a nation, or the nation's banner beside it in the same list item)
+    const holder = el.closest?.('[data-nation]') ?? el.parentElement?.parentElement?.querySelector?.('[data-nation]') ?? null;
     if (!holder) return true;
     try { return holder.getAttribute('aria-pressed') === 'true' || !!holder.matches?.(':hover, :focus-visible'); } catch { return false; }
   };
@@ -174,9 +176,14 @@ export function createSpritePlayer({ doc = globalThis.document, now = clockNow, 
     for (const key of [...plays.keys()]) if (typeof key === 'string' ? !named.has(key) : !hosts.includes(key)) plays.delete(key);
     return moving;
   }
+  let lastLook = -Infinity;
+  const wallMs = () => globalThis.performance?.now?.() ?? Date.now();
   function loop() {
     looping = false;
     if (doc?.hidden) return;
+    // (between two looks the loop only waits: a frame of a clip lasts 80 ms at the least)
+    if (every > 0 && wallMs() - lastLook < every) { looping = true; nextFrame(loop); return; }
+    lastLook = wallMs();
     if (tick() > 0) { looping = true; nextFrame(loop); }
   }
   /** Something may have changed (new markup, a hover, a picture arrived): look once now, and keep going if anything moves. */
@@ -195,7 +202,7 @@ let player = null;
  */
 export function startLeaderSprites(doc = globalThis.document) {
   if (player || !doc?.querySelectorAll || !doc.addEventListener) return player;
-  player = createSpritePlayer({ doc });
+  player = createSpritePlayer({ doc, every: 66 });
   const wake = () => player.kick();
   try {
     const win = doc.defaultView ?? globalThis;

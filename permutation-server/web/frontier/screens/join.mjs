@@ -48,7 +48,9 @@ export function factionCards(FS) {
 /**
  * The nation choice (UX design 7.2 and 11.9; owner decision V2: joining is choosing one of the six nations,
  * nothing else): six standing banners of cloth — the nation's crest on the rail, its leader standing lit before the
- * cloth (breathing while the banner is looked at; the chosen one's flourish plays once: people/leader-sprite.mjs),
+ * cloth (breathing while the banner is looked at; the chosen one's flourish plays once: people/leader-sprite.mjs;
+ * the figure is the banner's neighbour in the list item, laid over it: a canvas inside the banner's own shadow filter
+ * made the browser work the filter out again on every frame),
  * the nation's name, its leader and its doctrine on the dyed field under it — and one confirm line. One choice, one
  * confirm, no site picker. A banner carries `data-nation`: app.mjs sends `wylls:nation-focus` on hover, focus
  * and choice (the map lights that nation's home wedge) and marks the panel with `data-look`, so the confirm
@@ -64,10 +66,9 @@ export function renderNations(FS) {
   const banners = cards.map(c => html`<li><button type="button" class="banner-pick bn${c.faction}" data-act="pick-faction" data-f="${c.faction}" data-nation="${c.faction}" aria-pressed="${c.chosen ? 'true' : 'false'}">
     <span class="bn-rim"><span class="bn-cloth"><span class="bn-face"></span>
       <span class="bn-field"><strong class="bn-name">${c.name}</strong><span class="bn-leader"><span data-name>${leaderName(c.faction)}</span></span><span class="bn-creed">${L`教義：${c.doctrine}`}</span></span></span></span>
-    <span class="bn-figure">${raw(leaderFigure(c.faction, { motion: c.chosen ? 'attack' : 'idle', once: c.chosen ? `pick-${c.faction}` : null, when: 'look' }))}</span>
     <span class="bn-hex">${raw(leaderHex(c.faction, { size: 44 }))}</span>
     <span class="bn-crest">${crestSvg(c.faction, { size: 30 })}</span>${c.chosen ? html`<span class="bn-mark" aria-hidden="true">${icon('check')}</span>` : ''}
-  </button></li>`);
+  </button><span class="bn-figure">${raw(leaderFigure(c.faction, { motion: c.chosen ? 'attack' : 'idle', once: c.chosen ? `pick-${c.faction}` : null, when: 'look' }))}</span></li>`);
   // who leads each nation and what it is good at, in a line: the looked-at banner's, else the chosen one's
   const says = cards.map(c => html`<div class="nc-item${c.chosen ? ' nc-def' : ''}" data-n="${c.faction}" ${raw(c.chosen ? 'aria-live="polite"' : 'aria-hidden="true"')}><span class="nc-fig">${raw(leaderFigure(c.faction, { motion: c.chosen ? 'attack' : 'idle', once: c.chosen ? `pick-${c.faction}` : null }))}</span><span class="nc-face">${raw(leaderSvg(c.faction, { size: 76, shape: 'card' }))}</span>${crestSvg(c.faction, { size: 34 })}<div class="nc-text"><strong class="nc-name">${c.name} <span class="nc-title">— <span data-name>${leaderName(c.faction)}</span> · ${LEADERS[c.faction].title()}</span></strong>
       <span class="nc-pitch">${DOCTRINE_PITCH[c.faction]()}</span></div></div>`);

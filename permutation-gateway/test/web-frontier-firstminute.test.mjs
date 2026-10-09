@@ -34,7 +34,8 @@ test('the nation choice: six standing banners of cloth with the leader and the d
   assert.deepEqual(banners.map(m => [m[1], m[2], m[3], m[4]]), [0, 1, 2, 3, 4, 5].map(f => [String(f), String(f), String(f), 'false']), 'six banners, each names its nation for the map');
   const KEYS = ['aster', 'borealis', 'cinder', 'dunmar', 'ember', 'fjordal'];
   assert.equal((out.match(/<span class="bn-rim"><span class="bn-cloth"><span class="bn-face"><\/span>/g) ?? []).length, 6, 'a rim, the cloth, the lit field the leader stands before');
-  const figs = [...out.matchAll(/<span class="bn-figure"><canvas class="lfig" width="288" height="360" data-leader="([a-z]+)" data-motion="(\w+)" data-when="look" aria-hidden="true" focusable="false"><\/canvas><\/span>/g)];
+  // (the figure is the banner's neighbour in the list item, laid over it by the stylesheet: outside the banner's shadow filter)
+  const figs = [...out.matchAll(/<\/button><span class="bn-figure"><canvas class="lfig" width="288" height="360" data-leader="([a-z]+)" data-motion="(\w+)" data-when="look" aria-hidden="true" focusable="false"><\/canvas><\/span><\/li>/g)];
   assert.deepEqual(figs.map(m => [m[1], m[2]]), KEYS.map(k => [k, 'idle']), 'each nation\'s leader standing before its cloth (a canvas the sprite player paints): breathing only while the banner is looked at');
   assert.deepEqual([...out.matchAll(/<span class="bn-hex"><svg[^>]*class="leader leader-hex" data-leader="([a-z]+)"/g)].map(m => m[1]), KEYS, 'and the leader\'s icon for a phone\'s compact banner');
   assert.deepEqual([...out.matchAll(/<span class="nc-fig"><canvas class="lfig" width="288" height="360" data-leader="([a-z]+)" data-motion="idle" aria-hidden/g)].map(m => m[1]), KEYS, 'the confirm line carries each leader standing');
