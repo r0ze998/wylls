@@ -188,3 +188,24 @@ test('English: a place inside a sentence takes its article; one spelling; a vill
   assert.match(dict, /nation\\'s colour/);
   assert.doesNotMatch(dict, /\b(is|not|now|became|until it is) final\b/, 'a village is "confirmed", as its stamp says');
 });
+
+test('the craft pass: keys keep their material under the pointer, rings stand on every material, no white surface is left', () => {
+  const css = readFileSync(new URL('frontier.css', WEB), 'utf8');
+  // the plain teal key keeps its metal on hover; the seal, the brass keys and the keys on metal are not touched by that rule
+  assert.match(css, /\.btn\.primary:where\(:not\(\[disabled\], \.seal-btn, \.nc-btn, \.intro-go\)\):hover \{ background: linear-gradient\(/);
+  assert.doesNotMatch(css, /\.btn\.primary:not\(\[disabled\]\):hover/, 'a heavier selector would repaint the seal and the brass keys');
+  assert.match(css, /\.btn\.primary\[disabled\]:not\(\.seal-btn, \.nc-btn, \.intro-go\) \{ color: var\(--ink-2\);/);
+  // focus: brass on the metal inside the panel; a halo for what floats over the map; rings inside plaques and the dock
+  assert.match(css, /\.panel\[data-drawer="closed"\] #panel-body :focus-visible, \.panel\[data-kind="nation"\] #panel-body :focus-visible[^{]*\{ outline-color: var\(--brass-hi\); \}/);
+  assert.match(css, /\.map-btn:focus-visible, \.lens:focus-visible[^{]*\{ box-shadow: 0 0 0 7px rgba\(8,18,16,\.8\); \}/);
+  assert.match(css, /\.res:focus-visible, \.brand:focus-visible[^{]*\{ outline-offset: -3px; \}/);
+  // the popovers of the HUD are bell metal
+  const pop = css.slice(css.lastIndexOf('\n.res-pop {'));
+  assert.match(pop, /^\n\.res-pop \{[^}]*background: var\(--tex-metal, none\), var\(--plate-bg\); color: var\(--hud-ink\);/);
+  assert.match(css, /\n\.res-row \{[^}]*border: 0;[^}]*background: none; color: var\(--hud-ink\); \}/);
+  // beside an open drawer on a narrow desktop the world-chart key is its glyph alone
+  assert.match(css, /@media \(min-width: 760px\) and \(max-width: 1279px\) \{\s*body\[data-drawer="open"\]\[data-doc=""\] \.map-btn\[data-worded\] \{ width: 38px;/);
+  // the spectator's status is a word in the bar, and the map is given its own top edge
+  assert.match(css, /\.panel\[data-kind="spectate"\] #season-status \{ position: absolute;/);
+  assert.match(readFileSync(new URL('app.mjs', WEB), 'utf8'), /rects\.push\(\{ id: 'edge-top',/);
+});

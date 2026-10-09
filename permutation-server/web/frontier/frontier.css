@@ -1726,8 +1726,9 @@ body[data-stage="loading"] .tabs > * { visibility: hidden; }
 }
 /* ---- the last craft pass (UX design 12, hud-5): hover, pressed and focus on every material ---- */
 /* a primary key under the pointer keeps its own metal (the paper keys' hover wash had replaced it: pale key, ivory words) */
-.btn.primary:not([disabled]):hover { background: linear-gradient(180deg, #3b8b7d, #23645a 55%, #184d45); border-color: #0a2622; filter: none; }
-.btn.primary:not([disabled]):active { background: linear-gradient(180deg, #2b6f63, #18483f 55%, #113832); }
+/* (only the plain teal key: the seal, the brass keys of the first minute and the keys on metal keep their own; `:where` keeps this as light as the rule it mends) */
+.btn.primary:where(:not([disabled], .seal-btn, .nc-btn, .intro-go)):hover { background: linear-gradient(180deg, #3b8b7d, #23645a 55%, #184d45); border-color: #0a2622; filter: none; }
+.btn.primary:where(:not([disabled], .seal-btn, .nc-btn, .intro-go)):active { background: linear-gradient(180deg, #2b6f63, #18483f 55%, #113832); }
 /* a primary key that cannot be pressed is paper with ink words (ivory words on pale paper could not be read) */
 .btn.primary[disabled]:not(.seal-btn, .nc-btn, .intro-go) { color: var(--ink-2); text-shadow: none; }
 /* rings that would be cut by a plaque's edge or cross the dock's rim stand inside their control */
@@ -1755,3 +1756,26 @@ body[data-stage="loading"] .tabs > * { visibility: hidden; }
   .next-row-t strong { white-space: normal; overflow: visible; text-wrap: balance; }
   .next-row-do { max-width: 8.5em; font-size: var(--t1); line-height: 1.3; }
 }
+/* ---- the popovers that hang from the HUD (a store's breakdown, a term's meaning) are bell metal like the dial's card: they
+   were white web cards with boxed rows, the one white surface left on the screen ---- */
+.res-pop { padding: 12px 14px 10px; border: 0; border-radius: 10px; background: var(--tex-metal, none), var(--plate-bg); color: var(--hud-ink); box-shadow: var(--plate-edge), 0 0 0 1px var(--brass-lo), var(--shadow); font: var(--t2)/1.55 var(--ui); }
+.res-pop-head { padding-bottom: 8px; border-bottom: 1px solid rgba(201,162,74,.35); }
+.res-pop-head strong { color: #fffaf0; letter-spacing: .04em; }
+.res-pop-head span { color: var(--hud-ink-2); }
+.res-pop p { margin: 8px 0 0; }
+.res-pop .muted { color: var(--hud-ink-2); }
+.res-rows { gap: 0; margin: 2px 0 4px; }
+.res-row { grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; min-height: 40px; padding: 6px 4px; border: 0; border-bottom: 1px solid rgba(240,212,138,.14); border-radius: 4px; background: none; color: var(--hud-ink); }
+.res-rows li:last-child .res-row { border-bottom: 0; }
+.res-row:hover { background: rgba(240,212,138,.1); color: var(--ivory); }
+.res-row .res-ic { align-self: center; color: var(--brass-hi); }
+.res-row-name { color: var(--ivory); }
+.res-rows .res-full .res-row { border-color: rgba(240,212,138,.14); }
+.res-rows .res-full .res-row .muted:last-child { color: #ffb4a4; font-weight: 650; }
+.res-pop .btn { border: 1px solid rgba(201,162,74,.7); background: linear-gradient(180deg, #24463e, #152b26); color: var(--ivory); box-shadow: inset 0 1px 0 rgba(240,212,138,.22), 0 2px 0 #06100e, 0 3px 6px rgba(0,0,0,.35); text-shadow: 0 1px 0 rgba(0,0,0,.4); }
+.res-pop .btn:hover { border-color: var(--brass-hi); background: linear-gradient(180deg, #2c5449, #1a352f); }
+.res-pop .btn:active { transform: translateY(2px); background: #132824; box-shadow: inset 0 2px 4px rgba(0,0,0,.6), 0 0 0 #06100e; }
+.res-pop .pop-x { border-color: transparent; background: none; box-shadow: none; color: var(--hud-ink); }
+.res-pop .pop-x:hover { border-color: var(--brass-hi); background: rgba(240,212,138,.1); color: var(--brass-hi); }
+/* while the wait's own view stands open, the plate's key to it has nothing to open */
+body[data-kind="wait"] .plate .plate-go[data-act="join-open"] { display: none; }
