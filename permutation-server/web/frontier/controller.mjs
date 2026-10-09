@@ -256,7 +256,10 @@ async function refreshMarches(holding) {
   const b = nowBell();
   for (const e of entries.filter(x => x.state !== 'settled' && x.state !== 'failed')) {
     const p = unpack(book.materialBytes(e).plain);
-    const dest = { p: p.destP, q: p.destQ };
+    // (the tile too: the feed names it, the survey keeps it, the column walks to it and the turn's results play on it.
+    // It was left out, so with a march sealed on this device the people layer threw on every frame and the arrival's
+    // mark fell on the province's middle tile: found with the live fixture)
+    const dest = { p: p.destP, q: p.destQ, tile: p.destTile };
     const region = regionOf(dest.p, dest.q);
     const { slot, env } = b >= e.arriveBell ? await slotOf(dest, e.arriveBell, e.host) : { slot: null, env: null };
     if (slot) revealed.push(e.host);

@@ -41,6 +41,21 @@ export const BUILD_ITEMS = Object.freeze([
   { item: 5, resource: 'Science', perHour: 3, cost: [0, 60, 60, 0, 0, 20, 0, 0] },
   { item: 6, resource: 'Walls', perHour: 0, cost: null },
 ].map(Object.freeze));
+/** The kinds of a Holding's queue record (the program's `queue_kind`): what is under way. */
+export const QUEUE_KIND = Object.freeze({ FREE: 0, PRODUCTION: 1, UPKEEP: 2, TIER_UP: 3, WALLS: 4 });
+/** Resources in kernel order (a queue record's `arg`, a store's index). */
+const QUEUE_RESOURCES = Object.freeze(['Food', 'Wood', 'Stone', 'Ore', 'Horses', 'Gold', 'Science', 'Influence']);
+/**
+ * The build item (0–6) a queue record `{kind, arg}` is, or null when it is not a building of the list (a tier-up,
+ * an upkeep change): a production record names its resource in `arg`, and the building is the one that produces
+ * it; the walls have their own kind. (The page read `kind` as the item, so every building under way was named as
+ * item 1, the woodcutter's: found with the live fixture, whose relay writes the record as the program does.)
+ */
+export function queueItem(q) {
+  if (!q) return null;
+  if (q.kind === QUEUE_KIND.PRODUCTION) { const i = BUILD_ITEMS.findIndex(b => b.resource === QUEUE_RESOURCES[q.arg]); return i >= 0 ? i : null; }
+  return q.kind === QUEUE_KIND.WALLS ? BUILD_ITEMS.findIndex(b => b.resource === 'Walls') : null;
+}
 /**
  * Base production per hour by resource (catalog `BASE_PROD`) and the tier
  * bonus in percent (catalog `tier_bonus_pct`, Hamlet … Stronghold): a

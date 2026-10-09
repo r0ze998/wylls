@@ -193,7 +193,7 @@ test('the live fixture: the clock starts at the first /h/season and the turn end
     let me = await h.me(srv.viewer.wallet);
     assert.ok(me.ok, `${me.code} ${me.error ?? ''}`);
     const before = me.holdings[0];
-    assert.deepEqual(before.queue.filter(q => Number(q.doneAt) > 0).map(q => [Number(q.doneAt) - world.tollAt, q.kind, q.arg, Number(q.delta)]), [[LIVE.BUILT_AFTER, 1, 1, 10_000]], 'one building in the queue, done six seconds into the next turn (QueueItem: production of wood)');
+    assert.deepEqual(before.queue.filter(q => Number(q.doneAt) > 0).map(q => [Number(q.doneAt) - world.tollAt, q.kind, q.arg, Number(q.delta)]), [[LIVE.BUILT_AFTER, 1, 1, 10_000]], 'one building in the queue, done twelve seconds into the next turn (QueueItem: production of wood)');
     let env = await h.province(W.HOME.p, W.HOME.q, 'latest');
     assert.ok(env.ok, env.code);
     assert.deepEqual([env.bell, env.province.resolvedNext, env.province.resolveSummary.bell, env.slots.length], [W.BELL, W.BELL + 1, W.REPORT_BELL, 0]);
@@ -234,7 +234,7 @@ test('the live fixture: the clock starts at the first /h/season and the turn end
     s = await h.season();
     assert.equal(bellAt(genesis, s.record.latestUnix), 43);
     assert.equal(world.turn(), 43);
-    const now = world.now() + 7;   // a little after the building's done_at
+    const now = world.now() + LIVE.BUILT_AFTER + 1;   // a little after the building's done_at
     me = await h.me(srv.viewer.wallet);
     assert.ok(me.ok, `${me.code} ${me.error ?? ''}`);
     const after = me.holdings[0];

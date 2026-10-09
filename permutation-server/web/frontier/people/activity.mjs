@@ -27,7 +27,7 @@
 //   camp       a barbarian camp
 import { L, fmtNum } from '../../lang.mjs';
 import { BUILDINGS, factionName, unitCount } from '../fi18n.mjs';
-import { BUILD_ITEMS } from '../fland.mjs';
+import { BUILD_ITEMS, queueItem } from '../fland.mjs';
 import { RULES, staminaAt, DEPART_STAMINA, troopsOf } from '../fmarch.mjs';
 
 export const NO_BELL = 0xffffffff;
@@ -85,7 +85,7 @@ export function tileActivities(e, { bell = 0, departures = [], explores = [], ow
     if (h.p !== e.p || h.q !== e.q) continue;
     for (const q of h.queue ?? []) {
       const done = Number(q.doneAt ?? 0);
-      if (done > 0) add(h.tile, { kind: 'build', faction: h.faction, item: q.kind, untilTs: done });
+      if (done > 0) add(h.tile, { kind: 'build', faction: h.faction, item: queueItem(q), untilTs: done });
     }
   }
   for (const list of out.values()) {

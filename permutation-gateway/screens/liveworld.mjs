@@ -10,7 +10,8 @@
 //                latestSlot then follow the wall clock). The page tolls by
 //                its own chain clock; this world turns at the same moment.
 //   the turn     From turn 43 on the herald's answers show: the building in
-//                the viewer's queue done (its done_at passed), the stores
+//                the viewer's queue done (its done_at passes twelve seconds
+//                into the turn; the page sees that by its own clock), the stores
 //                risen (a credit, as loot or a refund leaves them), the
 //                viewer's sealed march revealed at the camp (its
 //                ArrivalSlot in the home province's envelope of bell 43 and
@@ -51,8 +52,11 @@ export const LIVE = Object.freeze({
   DELAY: 8,
   /** Wall ms a relayed transaction takes to land (GET /f/tx says `unknown` until then). */
   LAND_MS: 1_200,
-  /** The building in the viewer's queue is done this many seconds after the toll: a woodcutter's (catalog item 1), +10 wood an hour. */
-  BUILT_AFTER: 6,
+  /**
+   * The building in the viewer's queue is done this many seconds after the toll: a woodcutter's (catalog item 1),
+   * +10 wood an hour. (Twelve: after the toll's banner, the unsealing and the battle of the turn have played.)
+   */
+  BUILT_AFTER: 12,
   BUILDING: Object.freeze({ kind: 1, arg: 1, delta: 10_000, item: 1 }),
   /** What the stores gain at the turn (whole units by resource). */
   CREDIT: Object.freeze([180, 120, 0, 0, 0, 0, 0, 0]),

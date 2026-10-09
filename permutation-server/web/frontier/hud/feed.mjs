@@ -15,7 +15,7 @@
 import { html, raw } from '../../util.mjs';
 import { L, fmtNum, lang } from '../../lang.mjs';
 import { BUILDINGS, TIERS } from '../fi18n.mjs';
-import { BUILD_ITEMS } from '../fland.mjs';
+import { BUILD_ITEMS, queueItem } from '../fland.mjs';
 import { holdingName } from '../people/ui.mjs';
 import { placeName } from '../people/identity.mjs';
 import { icon } from './icons.mjs';
@@ -44,7 +44,7 @@ export function snapshot(FS, now = FS.chain?.now?.() ?? 0) {
     holdings.set(`${h.p},${h.q},${h.site}`, { state: h.state, tier: h.tier, p: h.p, q: h.q, site: h.site });
     for (const q of h.queue ?? []) {
       const done = Number(q.doneAt ?? 0);
-      if (done > 0 && done <= now) builds.add(`${h.p},${h.q},${h.site},${q.kind},${done}`);
+      if (done > 0 && done <= now) builds.add(`${h.p},${h.q},${h.site},${queueItem(q) ?? -1},${done}`);
     }
   }
   const own = new Set((FS.holdings ?? []).map(h => `${h.p},${h.q}`));
