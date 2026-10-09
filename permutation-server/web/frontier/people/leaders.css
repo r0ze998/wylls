@@ -84,10 +84,13 @@
     var(--tex-cloth, none) 0 0 / 48px 48px,
     linear-gradient(180deg, var(--bn-deep-hi, #555), var(--bn-deep, #333)); }
 .bn-cloth::after { display: none; }
-.bn-field { margin: 0 7px; padding: 6px 4px calc(var(--tail) + 9px); box-shadow: inset 0 1px 0 rgba(250,232,176,.45); }
-/* the leader stands before the cloth, feet on the words' field, head over the rail */
-.banners { --bn-fig: clamp(84px, calc(50dvh - 326px), 150px); --bn-rise: 30px; padding-top: calc(var(--bn-rise) + 16px); }
-.banners::before { top: calc(var(--bn-rise) + 7px); }
+.bn-field { margin: 0 7px; padding: 4px 4px calc(var(--tail) + 6px); box-shadow: inset 0 1px 0 rgba(250,232,176,.45); }
+/* the leader stands before the cloth, feet on the words' field, head over the rail. The whole choice keeps to the lower half
+   of the screen (the chart and the looked-at nation's wedge have the upper half): the figure takes what the height leaves */
+.nations-head { margin-bottom: 3px; }
+.nation-confirm { margin-top: 6px; }
+.banners { --bn-fig: clamp(72px, calc(50dvh - 346px), 150px); --bn-rise: 26px; padding-top: calc(var(--bn-rise) + 11px); }
+.banners::before { top: calc(var(--bn-rise) + 2px); }
 .bn-figure { position: absolute; left: 50%; top: calc(7px - var(--bn-rise)); height: calc(var(--bn-fig) + var(--bn-rise) + 4px); translate: -50% 0; pointer-events: none; filter: drop-shadow(0 3px 4px rgba(0,0,0,.45)); }
 .bn-figure .lfig { height: 100%; width: auto; }
 .bn-hex { display: none; }

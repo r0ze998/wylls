@@ -18,8 +18,10 @@ RA.SAMPLES = int(ARGV[1]) if len(ARGV) > 1 else 128
 OUT = os.path.join(HERE, "..", "_out")
 
 # ------------------------------------------------------------------ the six peoples (faction order of the UI)
-FILL = ["#c1504a", "#2f8f84", "#c28f2c", "#7a5fb0", "#3f78c2", "#b5527f"]
-DARK = ["#7d2c27", "#1b5a53", "#7d5a14", "#4b3874", "#24497b", "#6f2d4c"]
+# (2026-10-09: the nations' colours are the six leaders' clothes, permutation-server/web/frontier/palette.mjs. The sheets in the
+# client were repainted from the old colours by docs/frontier/art/_src/recolour_nations.mjs; a fresh render takes these.)
+FILL = ["#cc303b", "#31bedb", "#eac21b", "#a34cd8", "#edeee7", "#f19232"]
+DARK = ["#81242c", "#237489", "#8c721c", "#69338c", "#5f6a68", "#9c581f"]
 PEOPLE = [
     dict(key="aster", skin=["#e7c2a2", "#d6a684", "#bf8f72"], hair=["#2a2420", "#4d4540", "#a39d96"], eye="#4c5c66", steel="#a9afb4"),
     dict(key="borealis", skin=["#c48b62", "#a8704a", "#87583a"], hair=["#1e1a18", "#c9a66c", "#6a4a30"], eye="#2f4f5a", steel="#8a6036"),
