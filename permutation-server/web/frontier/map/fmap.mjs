@@ -40,7 +40,7 @@ import { INERT_CTX, SpriteArt, artSize, farRes, terrainLookup } from './sprites.
 import { paintSheet, paintTable, sheetOf, tableShows } from './table.mjs';
 import { CloudSea, DRIFT_SPEED, SEA_BAKES, seaField, seaRes } from './cloudsea.mjs';
 import { project, RADIUS, FLATTEN } from '../../map.mjs';
-import { Camera, EASE, FAR_CAP, MOVE_MS, between, clampCentre, fitView, freeBox, reducedMotion } from './camera.mjs';
+import { Camera, EASE, FAR_CAP, MOVE_MS, ZOOM_GIVE, between, centreReach, clampCentre, fitView, freeBox, reducedMotion } from './camera.mjs';
 import { OPEN_FROM, OPEN_WAIT_MS, heroZoom, lookPoint, openingPlan, placePoint } from './opening.mjs';
 import { nearness, paintDressing } from './dressing.mjs';
 import { PROBE } from './probe.mjs';
@@ -58,7 +58,7 @@ import { WORKED_RADIUS } from './survey.mjs';
 import { emit as fxEmit } from '../fx/bus.mjs';
 import { createLabelPass, rectOf, tileKeyOf } from './labelpass.mjs';
 import { leaderWords, paintCandidateLabels, paintHomeTag, paintSurveyLines, paintWaitStandard, standardBox, waitLine } from './waitview.mjs';
-import { TILT, armUpright, disarmUpright, groundBox, groundView, nearQuad, perspFromQuery, standing, tiltAt, tiltFromQuery, tiltGeo, upright } from './tilt.mjs';
+import { TILT, armUpright, disarmUpright, groundBox, groundView, nearQuad, perspFromQuery, standing, tiltAt, tiltFromQuery, tiltGeo, tiltNear, upright } from './tilt.mjs';
 
 /** Fog levels drawn as tiles at tile LOD (a distant province stays a muted cell). */
 export const TILE_FOGS = Object.freeze(['sight', 'known', 'clear']);
@@ -576,7 +576,9 @@ export class FrontierMap {
   /** The board's angle at `zoom` (degrees): flat at the far view, `tiltMax` at the diorama. */
   tiltDeg(zoom, size = this.size()) {
     if (!(this.tiltMax > 0)) return 0;
-    const at = z => tiltAt(z, { far: this.flatZoom(size) * 1.05, deg: this.tiltMax }), own = at(zoom);
+    // (fully tilted from a little over twice the far view's zoom: on a phone, whose far view is far out, well before
+    // the tile view; map/tilt.mjs tiltNear)
+    const far = this.flatZoom(size) * 1.05, at = z => tiltAt(z, { far, near: tiltNear(far), deg: this.tiltMax }), own = at(zoom);
     // (the opening's dive begins at the seat's own angle, the waiting picture's, whatever the zoom, and goes over
     // evenly to the angle of the view it ends on; never flatter than the zoom's own. Only the picture on screen: where
     // the camera is going is worked out with the angle it will have there)
@@ -826,11 +828,20 @@ export class FrontierMap {
   }
   clampZoom(zoom, size = this.size()) { return Math.min(ZOOM_MAX, Math.max(this.zoomMin(size), zoom)); }
   /** The camera's limits: the zoom range always; the opened world plus a margin for a pan a person makes (`clamp`). */
-  limitView(v, { clamp = false, soft = 0 } = {}) {
+  limitView(v, { clamp = false, soft = 0, give = 0 } = {}) {
     const size = this.size();
     const zoom = this.clampZoom(v.zoom, size);
     const out = zoom === v.zoom ? v : { ...v, zoom };
-    return clamp && size.width > 0 && size.height > 0 ? clampCentre(out, { ringsOpen: this.ringsNow(), size, soft, inset: this.inset() }) : out;
+    return clamp && size.width > 0 && size.height > 0 ? clampCentre(out, { ringsOpen: this.ringsNow(), size, soft, give, inset: this.inset() }) : out;
+  }
+  /**
+   * How far past the pan's limit the camera rests now (of the limit's radius; 0 inside it, ZOOM_GIVE at most): a
+   * zoom about the pointer may leave it there, and a step by the keys from there is not first pulled back inside.
+   */
+  pastLimit() {
+    const size = this.size();
+    if (!(size.width > 0) || !(size.height > 0)) return 0;
+    return Math.max(0, Math.min(ZOOM_GIVE, centreReach(this.cam.view, { ringsOpen: this.ringsNow(), size, inset: this.inset() }).len - 1));
   }
 
   /** Centre on a province (and zoom to its LOD); with `ms` the picture flies there. */
@@ -1004,7 +1015,14 @@ export class FrontierMap {
     const z = this.clampZoom(v.zoom * factor, s);
     const a = this.geo(v.zoom, s).toStage(bx, by), b = this.geo(z, s).toStage(bx, by);
     const wx = v.x + (a.x - s.width / 2) / v.zoom, wy = v.y + (a.y - s.height / 2) / v.zoom;
-    this.setView({ x: wx - (b.x - s.width / 2) / z, y: wy - (b.y - s.height / 2) / z, zoom: z }, { clamp: true, ...move, anchor: { x: b.x - s.width / 2, y: b.y - s.height / 2 } });
+    const want = { x: wx - (b.x - s.width / 2) / z, y: wy - (b.y - s.height / 2) / z, zoom: z };
+    // (UX brief §13.6: the point stays under the pointer as far as the pan's limit allows, and the limit gives a
+    // little for a zoom, ZOOM_GIVE. What it does not allow, out toward the far view where the world comes to the
+    // middle of the picture, is a glide of its own length, not the zoom's own 140 ms: nothing jumps)
+    const to = this.limitView(want, { clamp: true, give: ZOOM_GIVE });
+    const pull = Math.hypot(to.x - want.x, to.y - want.y) * to.zoom;
+    const slow = pull > 2 && move.ms > 0 ? { ms: move.ms + Math.min(MOVE_MS.pull, pull * 1.6), ease: EASE.inOutCubic } : null;
+    this.setView(want, { clamp: true, give: ZOOM_GIVE, ...move, ...slow, anchor: { x: b.x - s.width / 2, y: b.y - s.height / 2 } });
   }
 
   /** The map buttons after the canvas (a DOM page only). */
@@ -1155,7 +1173,7 @@ export class FrontierMap {
       if (shut()) return;
       const v = this.cam.view, step = 80 / v.zoom;
       const k = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
-      if (k) { e.preventDefault(); this.setView({ x: v.x + k[0], y: v.y + k[1] }, { clamp: true, ms: MOVE_MS.pan }); return; }
+      if (k) { e.preventDefault(); this.setView({ x: v.x + k[0], y: v.y + k[1] }, { clamp: true, give: this.pastLimit(), ms: MOVE_MS.pan }); return; }
       const s = this.size();
       if (e.key === '+' || e.key === '=') this.zoomBy(1.25);
       else if (e.key === '-') this.zoomBy(0.8);
