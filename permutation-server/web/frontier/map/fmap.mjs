@@ -119,7 +119,7 @@ export const PIECE_LABELS_MS = 200;
  * this many px clear of its edges, and the zoom never goes below this factor of the tile view's own edge (a
  * phone's picture is too narrow for a whole reach: there it eases out as far as the tiles stay tiles).
  */
-export const REACH_FIT = 0.9;
+export const REACH_FIT = 0.97;
 export const REACH_PAD = 14;
 export const REACH_ZOOM_FLOOR = 1.14;
 /** What the pale line of a reach is, is said beside it for this long after a host is selected (ms). */
@@ -1639,8 +1639,13 @@ export class FrontierMap {
     const cx = size.width / 2 + f.x, cy = size.height / 2 + f.y;
     const inside = [[box.x0, box.y0], [box.x1, box.y0], [box.x1, box.y1], [box.x0, box.y1]].every(([x, y]) => { const p = this.project(x, y, { logical: true, box: true }); return Math.abs(p.x - cx) <= f.width / 2 - pad && Math.abs(p.y - cy) <= f.height / 2 - pad; });
     if (inside) return;
-    // (the far rows of a tilted board are drawn smaller and the near rows larger: a little room for both)
-    const fit = REACH_FIT * Math.min((f.width - 2 * pad) / (box.x1 - box.x0), (f.height - 2 * pad) / (box.y1 - box.y0));
+    // (the near rows of a tilted board are drawn larger than the middle row: the reach's near edge must fit, as wide
+    // as the tilt shows it there; REACH_FIT is the room left over. The board is seen from nearer since the fix pass:
+    // a flat 0.9 no longer held the near corners)
+    const plain = Math.min((f.width - 2 * pad) / (box.x1 - box.x0), (f.height - 2 * pad) / (box.y1 - box.y0));
+    const g = this.geo(Math.min(v.zoom, plain), size), near = g.flat ? 1 : g.scaleAt(g.toStage(cx, cy + f.height / 2).y);
+    const lean = g.flat ? 1 : Math.cos((g.deg * Math.PI) / 180);
+    const fit = REACH_FIT * Math.min((f.width - 2 * pad) / ((box.x1 - box.x0) * near), (f.height - 2 * pad) / ((box.y1 - box.y0) * lean * near));
     const zoom = Math.min(v.zoom, Math.max(this.edges(size).tileIn * REACH_ZOOM_FLOOR, fit));
     this.reachFly = { to: this.aim({ x: (box.x0 + box.x1) / 2, y: (box.y0 + box.y1) / 2 }, zoom, size, inset), moves };
     // (the reach has the camera now: the opening view does not take it back while this host stays selected)

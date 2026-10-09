@@ -103,14 +103,18 @@ test('the phone sheet: it rests at the peek with the drawer closed; a dock press
   await page.locator('.lens-toggle').click();
   assert.equal(await page.locator('.lens-toggle').getAttribute('aria-expanded'), 'true');
   // (hud-4: the fourth lens shows where a village could go; it read 「入植」 and reads 「空き地」 / "Free sites" now)
-  assert.deepEqual(await page.locator('.lens-list .lens:visible .lens-text').allTextContents(), ['領土', '軍事', '地形', '空き地']);
+  // (fix pass 2: the way to the map's legend stands with the lenses, the fifth row of the list)
+  assert.deepEqual(await page.locator('.lens-list .lens:visible .lens-text').allTextContents(), ['領土', '軍事', '地形', '空き地', '地図の見かた']);
   await page.locator('.lens[data-lens="war"]').click();
   assert.equal(await page.locator('.lens-toggle').getAttribute('aria-expanded'), 'false');
   assert.equal(await page.locator('.lens-list').isVisible(), false);
   assert.equal(await page.locator('.lens[data-lens="war"]').getAttribute('aria-pressed'), 'true');
-  // every resource is in the strip: the row scrolls sideways
-  const strip = await page.locator('#res-strip').evaluate(el => ({ n: el.querySelectorAll('[data-res]').length, scrolls: el.scrollWidth > el.clientWidth + 1 }));
-  assert.ok(strip.n >= 5 && strip.scrolls, `the strip holds ${strip.n} resources and scrolls: ${strip.scrolls}`);
+  // (fix pass 2: the strip no longer scrolls sideways, it ended in half an icon at the plaque's point) the most
+  // pressing resources stand whole, the last carries how many more there are, and a press opens them all
+  const strip = await page.locator('#res-strip').evaluate(el => ({ n: el.querySelectorAll('[data-res]').length, cut: el.scrollWidth > el.clientWidth + 1, more: el.querySelector('.res:last-child .res-more-n')?.textContent ?? '', all: [...el.querySelectorAll('[data-res]')].every(b => b.dataset.r === '*') }));
+  assert.ok(strip.n >= 1 && strip.n <= 2 && !strip.cut, `the strip holds ${strip.n} resources, none cut: ${!strip.cut}`);
+  assert.match(strip.more, /^\+\d+$/, 'the last token says how many more there are');
+  assert.equal(strip.all, true, 'each opens every resource');
   await handle.click();
   assert.equal(await sheet(page), 'half');
   await handle.click();

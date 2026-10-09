@@ -1622,9 +1622,9 @@ body[data-title="up"] .dial-pop { display: none; }
 @media (max-width: 759px) {
   /* two tokens and the chip: nothing scrolls, nothing is cut */
   .res-strip { overflow: hidden; -webkit-mask-image: none; mask-image: none; }
-  .res { padding: 0 4px; gap: 3px; }
+  .res { padding: 0 3px; gap: 2px; }
   .res:last-child { margin-right: 0; }
-  .res-more-n { margin-left: 2px; padding: 1px 3px; }
+  .res-more-n { margin-left: 1px; padding: 1px 2px; }
   /* the plate in the sheet has the way home: the map does not carry a second one */
   body:has(.plate-main[data-act="home"]) .map-btn[data-map="home"] { display: none; }
   .map-btn[data-worded] { border-radius: 9px; padding: 0 10px 0 8px; }
@@ -1635,3 +1635,8 @@ body[data-title="up"] .dial-pop { display: none; }
 .survey-key.mark-sealed { background: #7a2a1f; border: 1.5px solid #fffaf0; color: #fffaf0; }
 .survey-key.mark-build { background: #10221f; border: 2px solid var(--brass-hi); color: #f4ecd8; }
 .survey-key.mark-sealed .ic, .survey-key.mark-build .ic { width: 11px; height: 11px; }
+/* the highlights of the spectator's sheet: ruled lines of the paper, like the hosts' rows (they were white web cards) */
+.highlights { gap: 0; }
+.highlights li { padding: 5px 2px; border-radius: 0; background: none; border-bottom: 1px solid var(--ink-soft); }
+.highlights li:first-child { border-top: 1px solid var(--ink-soft); }
+.hl-go { border-radius: 4px; }

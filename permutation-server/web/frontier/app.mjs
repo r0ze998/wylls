@@ -624,6 +624,8 @@ function showMilestone() {
   mileTimer = setTimeout(closeMilestone, small ? MILE_PHONE_MS : milestones.BANNER_MS);
   publishNoGo();
 }
+/** How many tokens the resource strip has room for at the width it was last measured at (renderHudTick). */
+let stripFit = { w: 0, max: 8 };
 /** How long the leader's line stands on a phone (ms), and when the one on screen appeared. */
 const MILE_PHONE_MS = 4200;
 let mileAt = 0;
@@ -1032,7 +1034,15 @@ function renderHudTick(now) {
     const w = globalThis.innerWidth ?? 1440;
     // (a phone's strip: the two most pressing and a chip for the rest, which opens them all; the second review:
     // a strip that scrolled sideways ended in half an icon at the plaque's point)
-    setHtmlIfChanged(strip, hud.renderStrip(tokens, FS.resOpen ?? null, w < 380 ? 1 : w <= PHONE_MAX ? 2 : w < 900 ? 2 : w < 1040 ? 3 : w < 1280 ? 4 : w < 1600 ? 5 : 8));
+    const room = w < 380 ? 1 : w <= PHONE_MAX ? 2 : w < 900 ? 2 : w < 1040 ? 3 : w < 1280 ? 4 : w < 1600 ? 5 : 8;
+    // (what does not fit is never cut: a strip that overflows its plaque shows one token fewer, and stays so at this width)
+    // (tried again now and then: the first measure may have been taken before the fonts were in)
+    if (stripFit.w !== w || (stripFit.n = (stripFit.n ?? 0) + 1) % 5 === 0) stripFit = { w, max: room, n: stripFit.w === w ? stripFit.n : 0 };
+    setHtmlIfChanged(strip, hud.renderStrip(tokens, FS.resOpen ?? null, Math.min(room, stripFit.max)));
+    if (tokens.length && stripFit.max > 1 && strip.scrollWidth > strip.clientWidth + 1) {
+      stripFit.max = Math.min(room, stripFit.max, tokens.length) - 1;
+      setHtmlIfChanged(strip, hud.renderStrip(tokens, FS.resOpen ?? null, Math.max(1, stripFit.max)));
+    }
     resChanges(strip, tokens);
   }
   renderSound();
