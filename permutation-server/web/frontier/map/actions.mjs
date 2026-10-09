@@ -32,7 +32,7 @@
 import { FLATTEN, RADIUS, hexPoints, project } from '../../map.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { tileHex } from '../fgeo.mjs';
-import { UNITS, errorText } from '../fi18n.mjs';
+import { errorText, unitCount } from '../fi18n.mjs';
 import { SCOUT, UNIT_ORDER, actionBlocks, exploreTargets, hostsIn } from '../fland.mjs';
 import { DEPART_STAMINA, freeTransitSlot } from '../fmarch.mjs';
 import { reachSteps, reachTiles } from '../hud/reach.mjs';
@@ -154,8 +154,8 @@ export function litTiles({ origin, stamina = 0, faction = null, provinceOf = () 
   return { tiles, byHex };
 }
 
-/** The host's name on the map: its unit and troops ("槍兵 600"). */
-export const actorText = a => `${UNITS[UNIT_ORDER[a.unit]] ?? ''} ${fmtNum(a.troops)}`.trim();
+/** The host's name on the map: its unit and troops, counted as everywhere else ("槍兵 600" / "600 Spearmen": fi18n.mjs unitCount). */
+export const actorText = a => unitCount(UNIT_ORDER[a.unit], a.troops);
 /** Why an acting host lights nothing (the first thing that blocks it), or ''. */
 export const blockText = a => { const c = a?.march?.ok || a?.explore?.ok ? null : a?.march?.blocks?.[0] ?? null; return c ? errorText(c) : ''; };
 

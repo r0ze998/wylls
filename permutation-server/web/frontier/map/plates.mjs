@@ -53,6 +53,8 @@ export const HERO = Object.freeze({
 export const VILLAGE_TOP = RADIUS * 0.56;
 /** Plates: other villages are named from this many screen px of hex radius (cities and strongholds from the lower one); badges from PLATE_BADGES_R; at most PLATE_MAX a frame. */
 export const PLATE_MIN_R = 26;
+/** A plate of another's village that would be moved down by more than this (screen px) is left out. */
+export const PLATE_DROP = 6;
 export const PLATE_ALL_R = 38;
 export const PLATE_BADGES_R = 48;
 export const PLATE_MAX = 48;
@@ -249,6 +251,11 @@ export function paintPlates(g, { tiles = [], pills = [], constructions = [], hos
     const w = RADIUS * 1.5, top = HERO.top * 0.86;
     pass.block(u.x, u.y, { x: u.x + HERO.at.x - w / 2, y: u.y - top, w, h: top + RADIUS * 0.3 });
   }
+  // (nor onto any other village's houses: a plate the dial pushes aside goes beside its village, not down onto it)
+  for (const u of list) if (!u.hero && !pass.hiddenAt(key(u))) {
+    const w = RADIUS * 0.9, top = VILLAGE_TOP * 0.8;
+    pass.block(u.x, u.y, { x: u.x - w / 2, y: u.y - top, w, h: top + RADIUS * 0.2 });
+  }
   for (const u of list) {
     if (n >= PLATE_MAX) break;
     if (pass.hiddenAt(key(u))) continue;
@@ -258,6 +265,9 @@ export function paintPlates(g, { tiles = [], pills = [], constructions = [], hos
     const { ax, ay, leader, lean } = plateAnchor(u, S, k);
     const at = pass.place(u.x, u.y, { x: ax + lean - S.w / 2, y: ay - leader * k - S.h, w: S.w, h: S.h }, { keep: false, reach: u.hero ? 150 : undefined });
     if (!at) continue;
+    // (another village's plate that the HUD pushes down would land on its own houses: a village half under the dial
+    // goes without its name rather than wear it. Sideways it may step, and the viewer's own plate always stands)
+    if (!u.hero && at.dy > PLATE_DROP * k) continue;
     upright(g, u.x, u.y, () => paintPlate(g, ax, ay, m, S, { k, faction: u.owner, own: !!u.hero, muted: !sight, leader, dx: lean + at.dx, dy: at.dy }));
     n++;
   }

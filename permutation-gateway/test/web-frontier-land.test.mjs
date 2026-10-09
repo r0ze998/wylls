@@ -230,7 +230,8 @@ test('the hosts that act for a selected tile: who may march, who may explore, an
   assert.equal(ACT.blockText(actors[0]), '');
   assert.equal(ACT.actorText(actors[0]), '槍兵 600');
   setLang('en');
-  assert.equal(ACT.actorText(actors[1]), 'Scout 100');
+  // (integration of wave 2: the map counts a unit as the drawer does, fi18n.mjs unitCount; it read 'Scout 100')
+  assert.equal(ACT.actorText(actors[1]), '100 Scouts');
   setLang('ja');
   // no free transit record: the host cannot depart
   assert.deepEqual(ACT.actorsAt(page([entryOf(1)], { holding: { transit: [{ state: 1, hostId: 99n }] } }), 2, 0, 7)[0].march.blocks, ['TransitState']);
