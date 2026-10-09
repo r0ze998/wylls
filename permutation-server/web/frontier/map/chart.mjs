@@ -21,7 +21,7 @@
 import { FLATTEN, RADIUS, hexPoints, project } from '../../map.mjs';
 import { L } from '../../lang.mjs';
 import { DIRECTIONS, ringOf, ringProvinces, tileHex, wedgeOf, PROVINCE_TILES, locate } from '../fgeo.mjs';
-import { FACTION_COLORS } from '../fi18n.mjs';
+import { NATION_LAND, nationPale } from '../palette.mjs';
 import { L2, L3, REVEAL_MS, WORKED_RADIUS, hexKey, keyHex } from './survey.mjs';
 import { upright } from './tilt.mjs';
 
@@ -672,15 +672,17 @@ export function wedgePaths(faction, ringsOpen) {
 export function paintWedge(g, faction, ringsOpen, zoom, { lit = false } = {}) {
   const w = wedgePaths(faction, ringsOpen);
   if (!w || !g?.save) return;
-  const k = 1 / zoom, col = FACTION_COLORS[faction] ?? YOU;
+  // (the colour as it is laid on parchment: palette.mjs NATION_LAND. Ember's white cloth would be nothing on paper;
+  // its wedge is a veil of blue slate, a little stronger, and its line keeps a white core: a white nation's border)
+  const k = 1 / zoom, col = NATION_LAND[faction] ?? YOU, pale = nationPale(faction);
   g.save();
   // `lit`: the nation that is looked at in the nation choice, its wedge washed in its colour on the chart
-  g.globalAlpha = lit ? 0.26 : 0.07; g.fillStyle = col; g.fill(w.fill);
+  g.globalAlpha = (lit ? 0.26 : 0.07) * (pale ? 1.4 : 1); g.fillStyle = col; g.fill(w.fill);
   g.lineCap = 'round'; g.lineJoin = 'round';
   g.globalAlpha = 0.22; g.strokeStyle = col; g.lineWidth = 13 * k; g.stroke(w.edge);
   g.globalAlpha = 0.85; g.strokeStyle = 'rgba(22,30,26,.9)'; g.lineWidth = 5.4 * k; g.stroke(w.edge);
   g.globalAlpha = 1; g.strokeStyle = col; g.lineWidth = 3 * k; g.stroke(w.edge);
-  g.strokeStyle = 'rgba(255,246,222,.75)'; g.lineWidth = 0.9 * k; g.stroke(w.edge);
+  g.strokeStyle = pale ? '#ffffff' : 'rgba(255,246,222,.75)'; g.lineWidth = (pale ? 1.3 : 0.9) * k; g.stroke(w.edge);
   g.restore();
 }
 

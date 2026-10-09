@@ -1,6 +1,8 @@
 # The nations' colours in the baked art
 
-Since 2026-10-09 the six nations wear the colours of their leaders' clothes: Aster red `#cc303b`, Borealis sky cyan `#31bedb`, Cinder yellow `#eac21b`, Dunmar purple `#a34cd8`, Ember white `#edeee7`, Fjordal orange `#f19232` (`permutation-server/web/frontier/palette.mjs`, which also holds each nation's trim, tint, ink and the two mark colours). Everything the client draws by code reads that table.
+Since 2026-10-09 the six nations wear the colours of their leaders' clothes: Aster red `#cc303b`, Borealis sky cyan `#31bedb`, Cinder yellow `#eac21b`, Dunmar purple `#a34cd8`, Ember white `#edeee7`, Fjordal orange `#f19232` (`permutation-server/web/frontier/palette.mjs`, which also holds each nation's trim, tint, ink and the two mark colours). Everything the client draws by code reads that table. The change awaits the owner's yes (`docs/frontier/DECISIONS.md` ZL3, which also says how to go back).
+
+Ember's white needs one more column. White on the chart's parchment is nothing (1.2:1, no hue of its own), so what is laid on parchment for a nation (the wash and line of its home wedge) takes `NATION_LAND`: the cloth's colour for five nations, a blue slate `#58727e` for Ember, whose border keeps a white core. White stays for cloth, roofs and the wash over painted land.
 
 The sprites that were baked in the earlier colours (red, teal, ochre, purple, blue, magenta) were repainted, not rendered again:
 

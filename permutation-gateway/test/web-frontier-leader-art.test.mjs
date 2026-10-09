@@ -176,6 +176,11 @@ test('the nations\' colours are the leaders\' clothes, one table for the client;
     assert.ok(emblemSvg().includes(`fill="${FACTION_MARK[f]}"`));
   }
   assert.equal(P.nationColors(6), null); assert.equal(P.nationColors(-1), null);
+  // the colour laid on the chart's parchment: the cloth's own for five nations; white is nothing on paper, so Ember's land is blue slate
+  assert.deepEqual(P.NATION_LAND.map((c, f) => c === P.NATION_FILL[f]), [true, true, true, true, false, true]);
+  assert.deepEqual([0, 1, 2, 3, 4, 5, 6].map(P.nationPale), [false, false, false, false, true, false, false]);
+  assert.ok(P.contrast(P.NATION_FILL[4], '#e6d9b8') < 1.3, 'the white cloth on parchment: nothing');
+  assert.ok(P.contrast(P.NATION_LAND[4], '#e6d9b8') >= 3, `Ember's line on parchment ${P.contrast(P.NATION_LAND[4], '#e6d9b8').toFixed(2)}`);
   // the stylesheet that carries them: the banners' cloth, the swatches, the unit cards' grounds
   const css = readFileSync(new URL('people/leaders.css', WEB), 'utf8');
   for (let f = 0; f < 6; f++) {
@@ -188,4 +193,30 @@ test('the nations\' colours are the leaders\' clothes, one table for the client;
   // every picture the stylesheet or the modules name exists, and the pages link the stylesheet after the client's own
   for (const page of ['index.html', 'practice.html', 'spectate.html']) assert.match(readFileSync(new URL(page, WEB), 'utf8'), /<link rel="stylesheet" href="frontier\.css">\n  <link rel="stylesheet" href="people\/leaders\.css">/);
   assert.ok(fileURLToPath(ART_DIR).endsWith('/frontier/art/leaders3d/'));
+});
+
+test('a home wedge on the chart is drawn in the land colour: Ember\'s wash and line are blue slate with a white core, never white on parchment', async () => {
+  const { paintWedge } = await import('../../permutation-server/web/frontier/map/chart.mjs');
+  // (node has no Path2D: the wedge's outline is built into a stand-in for the length of this test)
+  const had = globalThis.Path2D;
+  globalThis.Path2D = class { moveTo() {} lineTo() {} closePath() {} };
+  test.after?.(() => { if (had) globalThis.Path2D = had; else delete globalThis.Path2D; });
+  const paint = (f, lit) => {
+    const ops = []; let alpha = 1, fill = '', stroke = '', width = 0;
+    const g = { save() {}, restore() {}, fill() { ops.push(['fill', fill, alpha]); }, stroke() { ops.push(['stroke', stroke, width, alpha]); },
+      set globalAlpha(v) { alpha = v; }, get globalAlpha() { return alpha; }, set fillStyle(v) { fill = v; }, set strokeStyle(v) { stroke = v; }, set lineWidth(v) { width = v; }, set lineCap(v) {}, set lineJoin(v) {} };
+    paintWedge(g, f, 3, 1, { lit });
+    return ops;
+  };
+  for (let f = 0; f < 6; f++) {
+    const ops = paint(f, true);
+    assert.equal(ops.length, 5, `${KEYS[f]}: a wash and four strokes`);
+    assert.deepEqual(ops[0].slice(0, 2), ['fill', P.NATION_LAND[f]]);
+    assert.deepEqual(ops.filter(o => o[0] === 'stroke').map(o => o[1]).slice(0, 3), [P.NATION_LAND[f], 'rgba(22,30,26,.9)', P.NATION_LAND[f]], 'a glow, the dark underlay, the coloured line');
+    assert.ok(!ops.some(o => o[1] === P.NATION_FILL[4] && f === 4), 'no white wash or white line of the cloth');
+  }
+  const ember = paint(4, true), aster = paint(0, true);
+  assert.ok(ember[0][2] > aster[0][2], 'the slate veil is laid a little stronger than a colour');
+  assert.deepEqual(ember.at(-1).slice(0, 2), ['stroke', '#ffffff'], 'a white core: the white nation\'s border');
+  assert.ok(paint(4, false)[0][2] < ember[0][2], 'the wedge that is only waited in is quieter than the one looked at');
 });

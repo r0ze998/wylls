@@ -24,6 +24,11 @@
 //   ON      a mark drawn ON the fill: a sigil on a shield or a flag (at least 4.5:1 on FILL)
 //   MARK    the nation's colour as a mark on ivory or parchment: a sigil in a badge,
 //           a coloured word (at least 3:1 on ivory #fffaf0 and on the chart's parchment #e6d9b8)
+//   LAND    the nation's colour laid on the chart's parchment: the wash and the line of a home wedge, the viewer's
+//           land on the minimap's chart. It is the cloth's own colour for five nations. Ember's cloth is white, and
+//           white on parchment is nothing (1.2:1, no hue of its own to tell it by), so Ember's land is drawn in the
+//           blue slate of its banner's ground: a cool veil on the warm paper and a line of at least 3:1. White
+//           stays for what is cloth or paint (flags, coats, roofs, the wash over painted land).
 //
 // A nation is never told by colour alone: the sigil goes with it everywhere.
 // The older pages one level up keep their own table (i18n.mjs CIV_COLORS).
@@ -36,10 +41,13 @@ export const NATION_DEEP = Object.freeze(['#701c2c', '#145c77', '#986a0e', '#502
 export const NATION_INK = Object.freeze(['#5e1a20', '#17586a', '#6a5510', '#4e2470', '#434c4a', '#74400f']);
 export const NATION_ON = Object.freeze(['#fffaf0', '#0e3a46', '#3b2f06', '#ffffff', '#333c3a', '#3d2206']);
 export const NATION_MARK = Object.freeze(['#cc303b', '#127a92', '#8a6d00', '#a34cd8', '#6b7573', '#b05a0a']);
+export const NATION_LAND = Object.freeze(['#cc303b', '#31bedb', '#eac21b', '#a34cd8', '#58727e', '#f19232']);
+/** A nation whose cloth cannot be told from paper or ivory by itself (white): its marks there take an ink edge. */
+export const nationPale = f => NATION_LAND[f] !== undefined && NATION_LAND[f] !== NATION_FILL[f];
 
 const ok = f => Number.isInteger(f) && f >= 0 && f < 6;
 /** Every column of one nation, or null for anything that is not a nation (neutral camps, free cities). */
-export const nationColors = f => (ok(f) ? { fill: NATION_FILL[f], dark: NATION_DARK[f], light: NATION_LIGHT[f], deep: NATION_DEEP[f], ink: NATION_INK[f], on: NATION_ON[f], mark: NATION_MARK[f] } : null);
+export const nationColors = f => (ok(f) ? { fill: NATION_FILL[f], dark: NATION_DARK[f], light: NATION_LIGHT[f], deep: NATION_DEEP[f], ink: NATION_INK[f], on: NATION_ON[f], mark: NATION_MARK[f], land: NATION_LAND[f] } : null);
 
 /** WCAG 2.x relative luminance of #rrggbb, and the contrast of two colours (for the palette's own test). */
 export function luminance(hex) {

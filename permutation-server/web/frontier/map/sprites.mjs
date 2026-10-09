@@ -26,7 +26,7 @@
 import { COLORS, FLATTEN, RADIUS, hexPoints, polygon, project, shade } from '../../map.mjs';
 import { PROVINCE_TILES, locate, provinceCentre, ringOf, ringProvinces, tileHex, wedgeOf } from '../fgeo.mjs';
 import { FACTION_COLORS } from '../fi18n.mjs';
-import { NATION_DARK } from '../palette.mjs';
+import { NATION_DARK, nationPale } from '../palette.mjs';
 import { majorityOwner } from '../herald.mjs';
 import { paintPeople, PEOPLE_FRAME_MS, zoomBoost } from '../people/crowds.mjs';
 import { activitiesFor } from '../people/activity.mjs';
@@ -682,7 +682,8 @@ export class SpriteArt {
       const r = (h.tier >= 2 ? 4.2 : h.tier === 1 ? 3.2 : 2.4) * unit * (lod === 'world' ? 1 : 1.3);
       ctx.beginPath(); ctx.arc(h.x, h.y, r + 1.2 * unit, 0, Math.PI * 2); ctx.fillStyle = '#fffaf0'; ctx.fill();
       ctx.beginPath(); ctx.arc(h.x, h.y, r, 0, Math.PI * 2); ctx.fillStyle = FACTION_COLORS[h.f]; ctx.fill();
-      if (h.tier >= 3) { ctx.lineWidth = 1.2 * unit; ctx.strokeStyle = FACTION_DARK_INK[h.f]; ctx.stroke(); }
+      // (a city's mark has an ink edge; so has every mark of a nation whose colour is white, which the ivory rim alone would swallow)
+      if (h.tier >= 3 || nationPale(h.f)) { ctx.lineWidth = (h.tier >= 3 ? 1.2 : 0.9) * unit; ctx.strokeStyle = FACTION_DARK_INK[h.f]; ctx.stroke(); }
     }
     ctx.restore();
   }
