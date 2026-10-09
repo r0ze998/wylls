@@ -485,3 +485,19 @@ test('what lies low on a tile is part of its still ground; a mountain and a wood
   art.paint(gf, [entry], { zoom: 0.3, far: 'ground' });
   assert.equal(far.filter(d => d.startsWith('props/')).length, 0);
 });
+
+test('close on the bell before joining the far haze is thinner: the tower stands up into that band; the dark above the horizon stays', () => {
+  const page = livePage(desk);
+  const src = { overviews: new Map(), ringsOpen: 3, own: [], open: { mode: 'play', ready: true, stage: 'none', frame: {} } };
+  const m = new fmap.FrontierMap(page.canvas, { source: () => src });
+  m.draw(0); m.draw(fmap.REVEAL_MS + fmap.OPEN_HOLD_MS + 100); m.draw(fmap.REVEAL_MS * 2 + fmap.OPEN_HOLD_MS + 200);
+  assert.equal(m.opened.kind, 'frame');
+  assert.equal(page.dress.style.vars['--map-haze'], fmap.BELL_HAZE.toFixed(3));
+  assert.equal(page.dress.style.vars['--map-dusk'], '1.000');
+  assert.ok(fmap.BELL_HAZE >= 0.3 && fmap.BELL_HAZE <= 0.6);
+  // a person who has moved the camera away from the bell has the board's own haze again
+  m.setView({ x: 900, y: -300, zoom: 1.15 });
+  m.draw(5000);
+  assert.equal(page.dress.style.vars['--map-haze'], '1.000');
+  m.destroy();
+});

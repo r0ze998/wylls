@@ -139,6 +139,8 @@ export const OPEN_HOLD_MS = 1600;
 export const APRON = Object.freeze({ margin: 256, pixels: 12_000_000, lead: 0.7, out: 0.8, in: 1.6, away: 0.7, retry: 250 });
 /** The seat's frame: the viewer's village is seen this share of the uncovered height below its middle (a tilted board only). */
 export const SEAT_DROP = 0.08;
+/** The far rows' haze in the view of the bell before joining (of its full strength): the tower stands up into that band. */
+export const BELL_HAZE = 0.4;
 /** The haze of the far rows stops this far inside the sheet's edge (world px): the deckle's nicks reach about that far in. */
 export const HAZE_INSET = 22;
 /** What a pick names, as one word (the tile, or the province from afar). */
@@ -1369,7 +1371,10 @@ export class FrontierMap {
     const words = this.wordsShown ?? 1;
     // (the far edge's haze goes with the words: over a map dimmed for a battle it would be a lighter slab)
     // (the dark of the room above the horizon stays through the dissolve out of the waiting picture: only the picture changes)
-    dressing(v.zoom, T.deg, shown, words, staged ? this.sheetClip(v, size, T, G) : 'none', fromWait ? 1 - shown : 0);
+    // (close on the bell before joining, the tower is the picture's subject and stands up into the far rows' band: the
+    // haze is thinner there, BELL_HAZE, or its spire pales with the horizon)
+    const thin = this.opened?.kind === 'frame' && !this.cam.userMoved ? BELL_HAZE : 1;
+    dressing(v.zoom, T.deg, shown, words * thin, staged ? this.sheetClip(v, size, T, G) : 'none', (fromWait ? 1 - shown : 0) + (1 - thin) * (fromWait ? shown : 1));
     wipe();
     if (shown > 0.4 && words > 0.02) {
       // each label stands upright around its own place on the board (map/tilt.mjs)
