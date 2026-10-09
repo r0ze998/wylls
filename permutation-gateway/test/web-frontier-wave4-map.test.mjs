@@ -397,3 +397,44 @@ test('mountains and woods are in the ground\'s soft hand: no outline, faces that
   assert.equal(relief.paintHill, undefined);
   assert.equal(relief.RELIEF.hill, undefined);
 });
+
+// ------------------------------------------------------------------ gold still means yours beside a yellow nation (UX brief §13.3)
+import * as LAND from '../../permutation-server/web/frontier/map/ownland.mjs';
+import { YOURS, strokeYours } from '../../permutation-server/web/frontier/map/chart.mjs';
+import { NATION_FILL, contrast, nationPale } from '../../permutation-server/web/frontier/palette.mjs';
+
+test('the viewer\'s own mark is told by how it is built: bright gold with an ivory core between dark keylines, whatever nation\'s colour runs beside it', () => {
+  // the three tones stand well apart in lightness, so the build reads without colour (a grey picture, a colour-blind eye)
+  assert.ok(contrast(YOURS.core, YOURS.gold) >= 1.3, `core on gold ${contrast(YOURS.core, YOURS.gold).toFixed(2)}`);
+  assert.ok(contrast(YOURS.gold, YOURS.key) >= 10, `gold on its keyline ${contrast(YOURS.gold, YOURS.key).toFixed(1)}`);
+  // and the keyline stands against every nation's cloth, the yellow and the orange and the white among them: at least 3:1 (a stroke)
+  for (let f = 0; f < 6; f++) assert.ok(contrast(NATION_FILL[f], YOURS.key) >= 3, `nation ${f}: ${contrast(NATION_FILL[f], YOURS.key).toFixed(1)}`);
+  assert.ok(YOURS.rail.key > 1.25 && YOURS.rail.key < 1.7 && YOURS.rail.core >= 0.3 && YOURS.rail.core <= 0.5);
+  // the rail is three strokes of one path: key under, gold on it, the core in the gold; dashed as one when asked
+  const g = recorder();
+  strokeYours(g, null, 3, { dash: [9, 7] });
+  const set = k => g.calls.filter(c => c[0] === '=' + k).map(c => c[1]);
+  assert.deepEqual(set('strokeStyle'), [YOURS.key, YOURS.gold, YOURS.core]);
+  assert.deepEqual(set('lineWidth'), [3 * YOURS.rail.key, 3, 3 * YOURS.rail.core]);
+  assert.deepEqual(g.calls.filter(c => c[0] === 'setLineDash').map(c => c[1]), [[9, 7], []]);
+  assert.equal(g.calls.filter(c => c[0] === 'stroke').length, 3);
+  // nothing is drawn of a rail with no width or no strength
+  const none = recorder(); strokeYours(none, null, 0); strokeYours(none, null, 3, { alpha: 0 });
+  assert.equal(none.calls.length, 0);
+  // the tile view's rim: the nation's colour is still in it, either side of the rail, on its dark underlay
+  const R = LAND.OWN_RIM;
+  assert.ok(R.ink > R.colour && R.colour > R.gold * YOURS.rail.key + 2.5, 'at least a pixel and a quarter of the nation\'s colour either side of the rail');
+  assert.ok(R.ink <= 10, 'and the whole rim is no wider than a third of a hex side at the hero zoom');
+  // from afar the rail alone, wide enough for its core to be a line
+  assert.ok(LAND.OWN_FAR.gold * YOURS.rail.core >= 1);
+  // a white nation's band is paint, not a cast (a cast of white on grass was faint)
+  assert.ok(nationPale(4) && !nationPale(2) && !nationPale(5));
+  assert.ok(LAND.OWN_PALE.rim > LAND.OWN_FILL.rim && LAND.OWN_PALE.rim <= 0.6 && LAND.OWN_PALE.body > 1);
+  // the standard's finial and the far view's beacon are built the same way: key, gold, ivory heart
+  for (const paint of [gg => LAND.paintStandard(gg, 0, 0, { u: 50, zoom: 1, faction: 2, still: true }), gg => LAND.paintBeacon(gg, 0, 0, { zoom: 0.3, still: true })]) {
+    const p = recorder(); paint(p);
+    const fills = p.calls.filter(c => c[0] === '=fillStyle').map(c => c[1]);
+    assert.ok(fills.indexOf(YOURS.gold) >= 0 && fills.lastIndexOf(YOURS.core) > fills.indexOf(YOURS.gold), 'gold, then its ivory heart');
+    assert.ok([...p.calls.filter(c => c[0] === '=fillStyle' || c[0] === '=strokeStyle').map(c => c[1])].includes(YOURS.key));
+  }
+});

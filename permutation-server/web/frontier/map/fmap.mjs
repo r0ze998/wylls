@@ -45,7 +45,7 @@ import { OPEN_FROM, OPEN_WAIT_MS, heroZoom, lookPoint, openingPlan, placePoint }
 import { nearness, paintDressing } from './dressing.mjs';
 import { PROBE } from './probe.mjs';
 import { L2, L3, openSurvey } from './survey.mjs';
-import { CHART, fxNow, paintCandidates, paintWedge } from './chart.mjs';
+import { CHART, YOURS, fxNow, paintCandidates, paintWedge } from './chart.mjs';
 import { wedgeBox } from './opening.mjs';
 import { STANDARD_AT, STANDARD_UNIT, landShape, landTiles, landingAt, paintBeacon, paintOwnBreath, paintOwnLand, paintOwnOutline, paintProvisionalTag, paintStandard, standardUnit, villageKey } from './ownland.mjs';
 import { reachSteps } from '../hud/reach.mjs';
@@ -330,7 +330,9 @@ export function paintRealmLabels(ctx, recs, zoom, nameOf = null, { seen = null, 
         const w = (it.w + 6) * k, h = (it.size + 10) * k;
         ctx.fillStyle = 'rgba(4,10,9,.3)'; ctx.beginPath(); ctx.roundRect?.(it.x - w / 2, it.y - h / 2 + 1.5 * k, w, h, 6 * k); ctx.fill();
         ctx.fillStyle = 'rgba(15,32,29,.94)'; ctx.beginPath(); ctx.roundRect?.(it.x - w / 2, it.y - h / 2, w, h, 6 * k); ctx.fill();
-        ctx.strokeStyle = '#f3d58a'; ctx.lineWidth = 1 * k; ctx.stroke();
+        // (ruled twice, as the viewer's own plate at the tile view is: gold, and an ivory hair inside it)
+        ctx.strokeStyle = YOURS.gold; ctx.lineWidth = 1.4 * k; ctx.stroke();
+        ctx.beginPath(); ctx.roundRect?.(it.x - w / 2 + 2.4 * k, it.y - h / 2 + 2.4 * k, w - 4.8 * k, h - 4.8 * k, 4 * k); ctx.strokeStyle = 'rgba(255,252,240,.7)'; ctx.lineWidth = 0.8 * k; ctx.stroke();
         ctx.fillStyle = '#fff3cf'; ctx.fillText(it.text, it.x, it.y + 0.5 * k);
         return;
       }

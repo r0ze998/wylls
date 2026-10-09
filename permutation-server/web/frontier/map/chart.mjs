@@ -32,6 +32,29 @@ export const CHART = Object.freeze({ paper: '#e6d9b8', paperRgb: [230, 217, 184]
 export const MUTED = Object.freeze({ saturation: 0.35, brightness: 0.7, paper: 0.18 });
 /** The gold of what is the viewer's own (the brief's --you). */
 export const YOU = '#f3d58a';
+/**
+ * The viewer's own mark on the board (UX brief §13.3). Two nations wear the colours next to gold, Cinder's yellow
+ * and Fjordal's orange, and a pale gold line beside a yellow rim was one more yellow line. So "yours" is told by how
+ * the line is built, not by its hue alone: a rail of bright gold with an ivory core, between two dark keylines. No
+ * nation's line has a light core or a dark edge on both sides; a rim, a ring or a pip built this way is the viewer's
+ * own whatever colour runs beside it, at every zoom, and in a picture without colour too.
+ * `key`, `gold`, `core`: the three tones; `rail`: their widths as shares of the gold's.
+ */
+export const YOURS = Object.freeze({ gold: '#ffd24d', core: '#fffcf0', key: '#171006', rail: Object.freeze({ key: 1.42, gold: 1, core: 0.4 }) });
+/**
+ * Stroke the path `p` (a Path2D, or null for the context's current path) as the viewer's rail, the gold `w` wide
+ * (the context's units). `alpha`: of the whole rail; `core`: of its ivory core alone (the breath); `dash`: a
+ * provisional village's rail is dashed, key and all.
+ */
+export function strokeYours(g, p, w, { alpha = 1, core = 1, dash = null } = {}) {
+  if (!g?.stroke || !(w > 0) || !(alpha > 0)) return;
+  const st = () => (p ? g.stroke(p) : g.stroke());
+  g.setLineDash?.(dash ?? []);
+  g.globalAlpha = alpha * 0.92; g.strokeStyle = YOURS.key; g.lineWidth = w * YOURS.rail.key; st();
+  g.globalAlpha = alpha; g.strokeStyle = YOURS.gold; g.lineWidth = w; st();
+  if (core > 0) { g.globalAlpha = alpha * core; g.strokeStyle = YOURS.core; g.lineWidth = w * YOURS.rail.core; st(); }
+  g.setLineDash?.([]);
+}
 
 const SQRT3 = Math.sqrt(3);
 const TEX = 512;

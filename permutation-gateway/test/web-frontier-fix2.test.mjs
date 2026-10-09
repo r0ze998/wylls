@@ -108,6 +108,7 @@ test('the hero of the screen: the camera stands a little further back (a hex som
 
 // ------------------------------------------------------------------ the land's colour, the far view, the cloud sea
 import * as LAND from '../../permutation-server/web/frontier/map/ownland.mjs';
+import { YOURS } from '../../permutation-server/web/frontier/map/chart.mjs';
 import { REALM_FAR, RISE } from '../../permutation-server/web/frontier/map/sprites.mjs';
 import { BANK, paintHeap, seaField } from '../../permutation-server/web/frontier/map/cloudsea.mjs';
 import { HEX_W, SHEET, sheetOf } from '../../permutation-server/web/frontier/map/table.mjs';
@@ -122,21 +123,24 @@ test('the viewer\'s land is a glow that hugs its border, not two more kinds of t
   assert.ok(rim > 0.34 && rim <= F.rim + 1e-9, `at the border ${rim.toFixed(3)}`);
   assert.ok(third - F.middle < (rim - F.middle) * 0.5, `a third of the way in ${third.toFixed(3)}: less than half of the band is left`);
   assert.ok(deep < F.middle + 0.02, 'at its depth only the faint fill');
-  // from afar: a quarter of the colour, one rim (a gold line on its dark underlay)
+  // from afar: a quarter of the colour, one rim: the viewer's rail (rewritten in wave 4, UX brief §13.3: it pinned a
+  // pale gold line on a dark underlay, which beside a yellow nation's rim was one more yellow line; the rail is gold
+  // with an ivory core between dark keylines, map/chart.mjs YOURS, and still one line with no nation's colour in it)
   const A = LAND.OWN_FAR;
   assert.equal(A.fill, 0.25);
-  assert.ok(A.ink > A.gold && A.gold >= 1.5 && A.ink <= 4.5 && A.colour === undefined);
+  assert.ok(A.gold >= 2 && A.gold * YOURS.rail.key <= 4.5 && A.ink === undefined && A.colour === undefined);
   assert.ok(REALM_FAR.fill <= 0.25 && REALM_FAR.colour > REALM_FAR.ink, 'a nation\'s land from afar: a quiet wash and one rim');
 });
 
-test('the far view\'s rim of the viewer\'s land is one gold line on its underlay, and no band is laid from afar', () => {
+test('the far view\'s rim of the viewer\'s land is one line, the viewer\'s rail, and no band is laid from afar', () => {
   if (typeof Path2D === 'undefined') return;
   const g = recorder();
   const land = { shape: LAND.landShape(LAND.landTiles({ q: 12, r: -4, tier: 1 })), provisional: false };
   LAND.paintOwnLand(g, land, { zoom: 0.2, faction: 0, still: true, far: true });
   // (the third wave: it was three strokes, ink, the nation's colour and a hair of gold, which read as a doubled outline)
+  // (wave 4: the rail's three strokes on one path, dark key, gold, ivory core; no stroke in the nation's colour)
   const strokes = g.calls.filter(c => c[0] === 'stroke').length;
-  assert.equal(strokes, 2);
+  assert.equal(strokes, 3);
   assert.ok(!g.calls.some(c => c[0] === 'drawImage'), 'no band bitmap from afar');
 });
 
