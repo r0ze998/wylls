@@ -12,7 +12,7 @@ import { L, Lh, fmtNum, lang } from '../../lang.mjs';
 import { factionName, DOCTRINE_NAMES, HOLDING_STATES, failureText } from '../fi18n.mjs';
 import { freeByWedge, ticketTimes, homeWedge } from '../fland.mjs';
 import { timeHtml } from './shell.mjs';
-import { LEADERS, leaderFigure, leaderHex, DOCTRINE_PITCH } from '../people/leaders.mjs';
+import { LEADERS, leaderFigure, leaderHex, leaderSvg, DOCTRINE_PITCH } from '../people/leaders.mjs';
 import { placeName } from '../people/identity.mjs';
 import { holdingName } from '../people/ui.mjs';
 import { crestSvg } from '../hud/hud.mjs';
@@ -69,7 +69,7 @@ export function renderNations(FS) {
     <span class="bn-crest">${crestSvg(c.faction, { size: 30 })}</span>${c.chosen ? html`<span class="bn-mark" aria-hidden="true">${icon('check')}</span>` : ''}
   </button></li>`);
   // who leads each nation and what it is good at, in a line: the looked-at banner's, else the chosen one's
-  const says = cards.map(c => html`<div class="nc-item${c.chosen ? ' nc-def' : ''}" data-n="${c.faction}" ${raw(c.chosen ? 'aria-live="polite"' : 'aria-hidden="true"')}><span class="nc-fig">${raw(leaderFigure(c.faction, { motion: c.chosen ? 'attack' : 'idle', once: c.chosen ? `pick-${c.faction}` : null }))}</span>${crestSvg(c.faction, { size: 34 })}<div class="nc-text"><strong class="nc-name">${c.name} <span class="nc-title">— <span data-name>${leaderName(c.faction)}</span> · ${LEADERS[c.faction].title()}</span></strong>
+  const says = cards.map(c => html`<div class="nc-item${c.chosen ? ' nc-def' : ''}" data-n="${c.faction}" ${raw(c.chosen ? 'aria-live="polite"' : 'aria-hidden="true"')}><span class="nc-fig">${raw(leaderFigure(c.faction, { motion: c.chosen ? 'attack' : 'idle', once: c.chosen ? `pick-${c.faction}` : null }))}</span><span class="nc-face">${raw(leaderSvg(c.faction, { size: 76, shape: 'card' }))}</span>${crestSvg(c.faction, { size: 34 })}<div class="nc-text"><strong class="nc-name">${c.name} <span class="nc-title">— <span data-name>${leaderName(c.faction)}</span> · ${LEADERS[c.faction].title()}</span></strong>
       <span class="nc-pitch">${DOCTRINE_PITCH[c.faction]()}</span></div></div>`);
   const confirm = html`<div class="nation-confirm${pick ? '' : ' nc-empty'}">
     <div class="nc-what">${says}${pick ? '' : html`<div class="nc-item nc-def"><span class="nc-hint">${icon('banner')}</span><div class="nc-text"><strong class="nc-name">${L`旗を一つ選んでください`}</strong><span class="nc-pitch">${L`選ぶのは国だけです。最初の村の場所は自動で決まります。`}</span></div></div>`}</div>

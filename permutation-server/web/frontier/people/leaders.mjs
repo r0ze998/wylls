@@ -21,7 +21,7 @@
 // vector busts this file used to draw are gone from every screen.
 import { L } from '../../lang.mjs';
 import { sigilPath, shade } from './avatar.mjs';
-import { NATION_FILL, NATION_DARK, NATION_LIGHT, NATION_ON } from '../palette.mjs';
+import { NATION_FILL, NATION_DEEP, NATION_ON } from '../palette.mjs';
 import { leaderHex, leaderKey, leaderPortraitUrl, artImage } from './leader-art.mjs';
 
 export { leaderHex, leaderKey, leaderHexUrl, leaderPortraitUrl, leaderStillUrl, leaderStageUrl, leaderHexImage, onLeaderArtLoad, STAGE_CELL, STAGE_CLIPS } from './leader-art.mjs';
@@ -51,22 +51,23 @@ export const DOCTRINE_PITCH = Object.freeze([
 export const HEX_UP_TO = 64;
 
 /**
- * The portrait card (viewBox 240 × 300): the bust from the latest model before a cloth of the nation's colour, lit
- * from the upper left as the model is, in a frame of the nation's trim with a thin gold edge and the sigil badge.
- * Until the picture has loaded the cloth and the sigil stand alone (no flat stand-in face).
+ * The portrait card (viewBox 240 × 300), in the language of the hexagon icons: the bust from the latest model on a
+ * deep ground of the nation's dye with a brighter halo behind the head, in a rim of the nation's colour with a
+ * charcoal edge and a fine gold bevel, the sigil badge at the corner. Until the picture has loaded the ground and
+ * the sigil stand alone (no flat stand-in face).
  */
 function portraitCard(f, { size, a11y }) {
-  const fill = NATION_FILL[f], dark = NATION_DARK[f], light = NATION_LIGHT[f], id = `L${f}`;
+  const fill = NATION_FILL[f], deep = NATION_DEEP[f], id = `L${f}`;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 300" width="${size}" height="${Math.round(size * 1.25)}" class="leader leader-card-art" data-leader="${leaderKey(f)}" ${a11y}>
-    <defs><linearGradient id="${id}g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${shade(fill, 0.16)}"/><stop offset=".55" stop-color="${fill}"/><stop offset="1" stop-color="${shade(dark, -0.2)}"/></linearGradient>
-    <radialGradient id="${id}l" cx=".34" cy=".2" r=".8"><stop offset="0" stop-color="${light}" stop-opacity=".7"/><stop offset=".55" stop-color="${light}" stop-opacity=".12"/><stop offset="1" stop-color="#000" stop-opacity=".3"/></radialGradient>
-    <pattern id="${id}w" width="6" height="6" patternUnits="userSpaceOnUse"><path d="M0 0V6M3 0V6" stroke="#000" stroke-width=".6" opacity=".1"/><path d="M0 3H6" stroke="#fff" stroke-width=".5" opacity=".08"/></pattern>
-    <clipPath id="${id}c"><rect x="0" y="0" width="240" height="300" rx="18"/></clipPath></defs>
-    <g clip-path="url(#${id}c)"><rect width="240" height="300" fill="url(#${id}g)"/><rect width="240" height="300" fill="url(#${id}w)"/><rect width="240" height="300" fill="url(#${id}l)"/>
-    <ellipse cx="120" cy="292" rx="118" ry="30" fill="#000" opacity=".28"/>
+    <defs><linearGradient id="${id}g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${shade(deep, 0.1)}"/><stop offset="1" stop-color="${shade(deep, -0.42)}"/></linearGradient>
+    <radialGradient id="${id}l" cx=".5" cy=".36" r=".62"><stop offset="0" stop-color="${fill}" stop-opacity=".62"/><stop offset=".6" stop-color="${fill}" stop-opacity=".16"/><stop offset="1" stop-color="${fill}" stop-opacity="0"/></radialGradient>
+    <clipPath id="${id}c"><rect x="8" y="8" width="224" height="284" rx="12"/></clipPath></defs>
+    <rect x="1.5" y="1.5" width="237" height="297" rx="18" fill="#14110a"/>
+    <g clip-path="url(#${id}c)"><rect width="240" height="300" fill="url(#${id}g)"/><rect width="240" height="300" fill="url(#${id}l)"/>
+    <path d="M0 300 L120 150 L240 300 Z M0 0 L70 0 L0 110 Z M240 0 L170 0 L240 110 Z" fill="#fff" opacity=".035"/>
     ${artImage(leaderPortraitUrl(f), 'x="-30" y="4" width="300" height="300" preserveAspectRatio="xMidYMid slice"')}</g>
-    <rect x="3" y="3" width="234" height="294" rx="16" fill="none" stroke="${shade(dark, -0.25)}" stroke-width="6"/><rect x="6.5" y="6.5" width="227" height="287" rx="13" fill="none" stroke="#f0d48a" stroke-width="1.6" opacity=".9"/>
-    <g transform="translate(208 32)"><circle r="20" fill="${fill}" stroke="#14110a" stroke-width="3.5"/><circle r="17.6" fill="none" stroke="#f0d48a" stroke-width="1.6"/><path d="${sigilPath(f, 10.5)}" fill="${NATION_ON[f]}"/></g>
+    <rect x="6" y="6" width="228" height="288" rx="14" fill="none" stroke="${fill}" stroke-width="7"/><rect x="10.2" y="10.2" width="219.6" height="279.6" rx="10.5" fill="none" stroke="#f0d48a" stroke-width="1.5" opacity=".9"/>
+    <g transform="translate(206 34)"><circle r="20" fill="${fill}" stroke="#14110a" stroke-width="3.5"/><circle r="17.6" fill="none" stroke="#f0d48a" stroke-width="1.6"/><path d="${sigilPath(f, 10.5)}" fill="${NATION_ON[f]}"/></g>
   </svg>`;
 }
 

@@ -26,8 +26,11 @@ import { zoomBoost } from './crowds.mjs';
 const clip = key => LEADER_MOTIONS.find(m => m.key === key);
 /** The demo's beats in seconds. */
 export const LEADER_DEMO = Object.freeze({ secs: 6.4, walk: Object.freeze([0, 2.6]), attack: Object.freeze([3.2, 3.2 + clip('attack').duration]), hit: Object.freeze([4.6, 4.6 + clip('hit').duration]), stagger: 0.07 });
-/** Where the six stand, in tiles from the demo tile (axial): three on the row of the village, three on the row below, as in game-fit.png. */
-export const LEADER_DEMO_TILES = Object.freeze([[2, -1], [3, -1], [4, -1], [0, 1], [1, 1], [2, 1]].map(t => Object.freeze(t)));
+/**
+ * Where the six stand, in tiles from the demo tile (axial): two rows of three to the east of the village, as in
+ * game-fit.png, clear of the village's own hosts (at its foot) and, in the fixture world, of the camp to the south-east.
+ */
+export const LEADER_DEMO_TILES = Object.freeze([[2, -1], [3, -1], [4, -1], [2, 0], [3, 0], [4, 0]].map(t => Object.freeze(t)));
 
 /**
  * What leader `i` (0–5) does `t` seconds into the demo: `{motion, share, looping, walk}`: the clip, how far through

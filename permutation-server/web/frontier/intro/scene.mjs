@@ -34,7 +34,7 @@ const spare = (w, h) => (typeof OffscreenCanvas !== 'undefined' ? new OffscreenC
 export function titleView(w, h, top = null) {
   const V = TITLE_VIEW, phone = w < 760;
   // (`top`: where the words begin, px from the picture's top: on a low screen the tower's foot stands above them, and the tower is made to fit)
-  const foot0 = h * (phone ? 0.31 : V.foot), footY = Number.isFinite(top) && top > 0 ? Math.max(h * 0.24, Math.min(foot0, top - h * 0.06)) : foot0;
+  const foot0 = h * (phone ? 0.31 : V.foot), footY = Number.isFinite(top) && top > 0 ? Math.max(h * 0.24, Math.min(foot0, top - h * 0.085)) : foot0;
   const cx = w / 2, eye = h * V.eye, L = V.far, hy = footY - eye;
   // (a narrow picture is the same picture made smaller about the tower's foot: the standards' ring fits its width)
   const unit = Math.max(0.5, Math.min(1, w / 1180)) * Math.min(1.1, h / 860);

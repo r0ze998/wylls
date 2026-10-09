@@ -103,8 +103,9 @@ test('leaderSvg: the hexagon icon up to 64 px, the portrait card above it; attri
     assert.ok(big.includes(`role="img" aria-label="${title}"`));
     assert.match(big, new RegExp(`<image href="[^"]*/portrait-v1/${k}\\.webp" x="-30" y="4" width="300" height="300"`), 'the bust, unstretched');
     assert.ok(big.includes(`<clipPath id="L${f}c">`) && big.includes(`clip-path="url(#L${f}c)"`), 'inside the rounded frame');
-    assert.ok(big.includes(`stop-color="${FACTION_FILL[f]}"`), 'before a cloth of the nation\'s colour');
-    assert.ok(big.indexOf('<image') < big.indexOf('<g transform="translate(208 32)">'), 'the sigil badge stays above the picture');
+    assert.ok(big.includes(`stop-color="${FACTION_FILL[f]}"`) && big.includes(`stroke="${FACTION_FILL[f]}" stroke-width="7"`), 'a halo and a rim of the nation\'s colour');
+    assert.match(big, /<clipPath id="L\d+c"><rect x="8" y="8" width="224" height="284" rx="12"\/><\/clipPath>/);
+    assert.ok(big.indexOf('<image') < big.indexOf('<g transform="translate(206 34)">'), 'the sigil badge stays above the picture');
     assert.ok(big.includes(`fill="${FACTION_ON[f]}"`), 'the sigil in the colour that reads on the nation\'s fill');
     assert.match(LD.leaderSvg(f, { size: 40, shape: 'card' }), /leader-card-art/);
     assert.match(LD.leaderSvg(f, { size: 200, shape: 'hex' }), new RegExp(`leader-hex[^>]*>.*hex-v1/${k}@256\\.webp`));
@@ -158,6 +159,7 @@ test('the nations\' colours are the leaders\' clothes, one table for the client;
     assert.ok(P.contrast(c.on, c.fill) >= 4.5, `${KEYS[f]}: a sigil on the fill ${P.contrast(c.on, c.fill).toFixed(2)}`);
     assert.ok(P.contrast(c.mark, '#fffaf0') >= 3 && P.contrast(c.mark, '#e6d9b8') >= 3, `${KEYS[f]}: the mark on ivory and on parchment`);
     assert.ok(P.contrast(c.ink, '#e6d9b8') >= 4.5, `${KEYS[f]}: the ink on parchment`);
+    assert.ok(P.contrast(c.fill, c.deep) >= 2, `${KEYS[f]}: the coat reads against the deep ground ${P.contrast(c.fill, c.deep).toFixed(2)}`);
     assert.ok(P.luminance(c.ink) < P.luminance(c.dark) && P.luminance(c.dark) < P.luminance(c.fill) && P.luminance(c.fill) <= P.luminance(c.light) + 0.02);
     // the crest: the sigil in the colour that reads on the shield; the person chip's badge and the emblem: the mark colour on ivory
     assert.ok(flat(crestSvg(f)).includes(`fill="${FACTION_ON[f]}"`));
@@ -168,7 +170,7 @@ test('the nations\' colours are the leaders\' clothes, one table for the client;
   // the stylesheet that carries them: the banners' cloth, the swatches, the unit cards' grounds
   const css = readFileSync(new URL('people/leaders.css', WEB), 'utf8');
   for (let f = 0; f < 6; f++) {
-    assert.match(css, new RegExp(`\\.bn${f} \\{ --bn: ${P.NATION_FILL[f]};`), `the banner's border is ${KEYS[f]}'s colour`);
+    assert.match(css, new RegExp(`\\.bn${f} \\{ --bn: ${P.NATION_FILL[f]}; --bn-hi: #[0-9a-f]{6}; --bn-deep-hi: ${P.NATION_DEEP[f]};`), `the banner's border is ${KEYS[f]}'s colour, its field the deep tone of the icon's ground`);
     assert.match(css, new RegExp(`\\.swatch\\.f${f} \\{ background-image: url\\("data:image/svg\\+xml,[^"]*fill='%23${P.NATION_FILL[f].slice(1)}' stroke='%23${P.NATION_INK[f].slice(1)}'`), 'a swatch is the sigil in the fill with an ink edge');
     assert.match(css, new RegExp(`\\.unit-card\\.f${f} \\{ --uc: ${P.NATION_LIGHT[f]}; --ucd: ${P.NATION_FILL[f]};`));
   }
