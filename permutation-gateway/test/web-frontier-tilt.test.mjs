@@ -34,7 +34,7 @@ test('?tilt= gives the angle, clamped to what the art allows; anything else says
   assert.equal(tilt.tiltFromQuery('?tilted=9'), null);
   assert.equal(tilt.tiltFromQuery(''), null);
   assert.equal(tilt.tiltFromQuery(undefined), null);
-  assert.ok(tilt.TILT.deg >= 14 && tilt.TILT.deg <= 20, 'the constant is in the brief\'s range');
+  assert.ok(tilt.TILT.deg >= 14 && tilt.TILT.deg <= 26, 'the constant is in the brief\'s range (§4: 14 to 20; §12.1: up to 26 now that what stands is drawn upright)');
 });
 
 test('the angle follows the zoom: the chart lies flat, the diorama is tilted, and it never goes back on the way in', () => {
@@ -98,7 +98,8 @@ test('the ground canvas covers the trapezoid at every angle up to its own, and i
     }
     // not wastefully: under a half more pixels than the box at the brief's sizes (the board is seen from nearer since the
     // second review, 900 px in place of 1600: its far rows are a sixth narrower and the canvas reaches that much further)
-    if (size === desk || size === phone) assert.ok((box.width * box.height) / (size.width * size.height) < 1.5, `${size.width}: ${(box.width * box.height / (size.width * size.height)).toFixed(3)} of the box`);
+    // (at 26 degrees, the third wave, the far rows are narrower again: about two thirds more on a desktop)
+    if (size === desk || size === phone) assert.ok((box.width * box.height) / (size.width * size.height) < 1.75, `${size.width}: ${(box.width * box.height / (size.width * size.height)).toFixed(3)} of the box`);
     // a world point's place on the ground canvas, by the canvas's own flat view, is its stage point less the canvas's corner
     const view = { x: 812.5, y: -340.25, zoom: 1.3 }, gv = tilt.groundView(view, box), w = { x: 600, y: -700 };
     const stage = fmap.worldToScreen(view, size, w.x, w.y), onCanvas = fmap.worldToScreen(gv, { width: box.width, height: box.height }, w.x, w.y);
@@ -267,11 +268,21 @@ test('a fly puts the place in the middle of what the HUD leaves free, as it is s
   m.flyTo({ ...HOME, zoom: 1.2 });
   const c = m.project(homePoint.x, homePoint.y, { box: true, logical: true });
   assert.ok(near(c.x, phone.width / 2, 1e-6) && near(c.y, 48 + (phone.height - 48 - 320) / 2, 1e-6), `the village is seen at ${c.x.toFixed(2)}, ${c.y.toFixed(2)}`);
-  // home, pressed while there: the village stays in the middle of the free part (closer, at the hero zoom)
-  m.home();
-  const d = m.project(homePoint.x, homePoint.y, { box: true, logical: true });
-  assert.ok(near(d.x, phone.width / 2, 1e-6) && near(d.y, 48 + (phone.height - 48 - 320) / 2, 1e-6));
+  // home: the seat's frame (brief §12.1). The village stands a little below the middle of the free part, so the far
+  // rows and their horizon are in the picture; pressed again while there, it stays
+  const free = phone.height - 48 - 320, seat = 48 + free / 2 + fmap.SEAT_DROP * free;
+  assert.ok(fmap.SEAT_DROP > 0.03 && fmap.SEAT_DROP < 0.15);
+  for (let i = 0; i < 2; i++) {
+    m.home();
+    const d = m.project(homePoint.x, homePoint.y, { box: true, logical: true });
+    assert.ok(near(d.x, phone.width / 2, 1e-6) && near(d.y, seat, 1e-6), `home ${i}: the village is seen at ${d.x.toFixed(2)}, ${d.y.toFixed(2)}`);
+  }
   assert.ok(m.view.zoom >= 1.2);
+  // a flat board has no far rows to show: the village stays in the middle
+  const flat = mapOn(phone, {}, { insets: () => inset, tilt: 0 });
+  flat.m.home();
+  const e = flat.m.project(homePoint.x, homePoint.y, { box: true, logical: true });
+  assert.ok(near(e.y, 48 + free / 2, 1e-6), 'flat: the middle');
 });
 
 test('the pointer home: under a tilt it judges by where home is seen', () => {

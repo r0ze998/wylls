@@ -276,11 +276,18 @@ test('the map by keyboard: it opens on the viewer\'s village; M is the world cha
   // the picture arrives where the logical view already is (a flight takes 1.2 s at most)
   await page.waitForTimeout(1500);
   await page.locator('#frontier-map[data-terrain="ready"]').waitFor();
-  // a tap in the middle of the uncovered part selects the village's own tile
-  const box = await page.locator('#frontier-map').boundingBox();
-  await page.mouse.click(box.x + box.width / 2, box.y + (box.height - v.covered) / 2);
+  // the seat's frame (UX design 12.1): the village is seen in the part of the map the sheet leaves free, in the middle
+  // across and a little below the middle down (the far rows and their horizon are above it); a tap there selects its tile
+  const seat = await page.evaluate(async ([p, q, tile]) => {
+    const { tileHex } = await import('/frontier/fgeo.mjs'); const { project } = await import('/map.mjs'); const { freeBox } = await import('/frontier/map/camera.mjs'); const { SEAT_DROP } = await import('/frontier/map/fmap.mjs');
+    const m = window.__wyllsMap, h = tileHex(p, q, tile), w = project(h.q, h.r), s = m.size(), f = freeBox(s, m.inset());
+    return { seen: m.project(w.x, w.y, { box: true }), want: { x: s.width / 2 + f.x, y: s.height / 2 + f.y + SEAT_DROP * f.height }, free: f, size: s, client: m.project(w.x, w.y) };
+  }, [HOME.p, HOME.q, HOME.tile]);
+  assert.ok(Math.hypot(seat.seen.x - seat.want.x, seat.seen.y - seat.want.y) < 1, `the village is seen at ${seat.seen.x.toFixed(1)}, ${seat.seen.y.toFixed(1)}; the seat's place is ${seat.want.x.toFixed(1)}, ${seat.want.y.toFixed(1)}`);
+  assert.ok(seat.seen.y > seat.size.height / 2 + seat.free.y && seat.seen.y < seat.size.height - v.covered - 40, 'below the middle of the free part and well above the sheet');
+  await page.mouse.click(seat.client.x, seat.client.y);
   const sel = await page.evaluate(async () => { const { FS } = await import('/frontier/fstate.mjs'); return FS.selected; });
-  assert.deepEqual([sel?.p, sel?.q, sel?.idx], [HOME.p, HOME.q, HOME.tile], 'the village sits in the middle of the map above the sheet');
+  assert.deepEqual([sel?.p, sel?.q, sel?.idx], [HOME.p, HOME.q, HOME.tile], 'the village sits in the free part of the map above the sheet');
   // (wave 2, UX design 11.11: a touch screen has no plus and minus buttons — two fingers zoom there; the keys still do,
   // and the buttons are checked on a desktop below)
   assert.equal(await page.locator('[data-map="in"]').isVisible(), false);
@@ -621,10 +628,11 @@ test('the tilted board: the ground canvas is where the numbers say; a tap, a hov
   await page.waitForTimeout(200);
   await page.waitForFunction(() => !window.__map.cam.moving, null, { timeout: 8000 });
   const home = await mapCall(page, `
-    const { tileHex } = await import('/frontier/fgeo.mjs'); const { project } = await import('/map.mjs'); const { freeBox } = await import('/frontier/map/camera.mjs');
+    const { tileHex } = await import('/frontier/fgeo.mjs'); const { project } = await import('/map.mjs'); const { freeBox } = await import('/frontier/map/camera.mjs'); const { SEAT_DROP } = await import('/frontier/map/fmap.mjs');
     const h = tileHex(arg.p, arg.q, arg.tile), w = project(h.q, h.r), s = m.size(), f = freeBox(s, m.inset());
-    return { seen: m.project(w.x, w.y, { box: true }), want: { x: s.width / 2 + f.x, y: s.height / 2 + f.y } };`, HOME);
-  assert.ok(Math.hypot(home.seen.x - home.want.x, home.seen.y - home.want.y) < 1, 'H: the village in the middle of what the HUD leaves free');
+    return { seen: m.project(w.x, w.y, { box: true }), want: { x: s.width / 2 + f.x, y: s.height / 2 + f.y + SEAT_DROP * f.height } };`, HOME);
+  // (the seat's frame, UX design 12.1: a little below the middle of what the HUD leaves free)
+  assert.ok(Math.hypot(home.seen.x - home.want.x, home.seen.y - home.want.y) < 1, 'H: the village at the seat\'s place in what the HUD leaves free');
   // Enter picks the tile in the middle of the canvas (the board turns about that point: it is the view's own)
   await page.keyboard.press('Escape');
   await page.keyboard.press('Enter');

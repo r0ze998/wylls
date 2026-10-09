@@ -308,7 +308,7 @@ test('the opening view depends on who is looking: village, candidate sites, home
   assert.equal(h.kind, 'home');
   assert.equal(h.view.zoom, opening.heroZoom(2));
   assert.deepEqual([h.view.x, h.view.y], [tilePoint(1, 1, 30).x, tilePoint(1, 1, 30).y], 'the active village');
-  assert.ok(opening.heroZoom(2) <= opening.heroZoom(1) && opening.heroZoom(2) * RADIUS >= 52, 'the dense-screen hero zoom keeps every village\'s name tag');
+  assert.ok(opening.heroZoom(2) <= opening.heroZoom(1) && opening.heroZoom(2) * RADIUS >= 48, 'the dense-screen hero zoom keeps every village\'s name tag and its badges (map/plates.mjs PLATE_BADGES_R)');
   assert.ok(h.rank > cnd.rank && cnd.rank > w.rank && w.rank > opening.openingPlan(undefined, src, size).rank, 'village > candidates > wedge > world');
   assert.equal(opening.openingPlan(none, src, size).rank, opening.openingPlan(undefined, src, size).rank, 'the bell before joining ranks with the world: anything the viewer becomes takes the camera');
   // on a phone: in the part of the map above the sheet

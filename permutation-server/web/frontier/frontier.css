@@ -77,13 +77,21 @@ main { position: fixed; inset: 0; overflow: hidden; }
 .map-ground { position: absolute; left: var(--map-gl, 0px); top: var(--map-gt, 0px); width: var(--map-gw, 100%); height: var(--map-gh, 100%); display: block; }
 .map-dress, .map-dress::before, .map-dress::after { position: absolute; inset: 0; pointer-events: none; }
 .map-dress::before, .map-dress::after { content: ""; }
-/* the far edge of the board pales into a warm haze (at most .30, and only under a tilt). It begins at the very top of
-   the picture, behind the HUD's plaques, and thins out evenly: no edge of its own anywhere on the map */
-.map-dress::before { top: 0; bottom: auto; height: 30%; opacity: var(--map-haze, 0);
-  background: linear-gradient(to bottom, rgba(240,228,200,.30), rgba(240,228,200,.22) 22%, rgba(240,228,200,.1) 55%, rgba(240,228,200,.03) 82%, rgba(240,228,200,0)); }
+/* aerial perspective (UX-DESIGN 12.1): the far rows of the tilted board grow paler and warmer with distance and end in
+   a soft band of haze near the top, the horizon of the everyday frame; above it the picture falls into the dark of the
+   room, with the lamp's glow along the band. The haze lies on the sheet only (the map clips it to the sheet's own
+   outline as it is seen: where the sheet's far edge is in the picture, the table beyond it stays the table). Both go
+   with the tilt: none on a flat board, none at the far view */
+.map-dress::before { top: 0; bottom: auto; height: 64%; opacity: var(--map-haze, 0); clip-path: var(--map-sheet, none);
+  background: linear-gradient(to bottom, rgba(247,233,200,.9), rgba(247,233,200,.9) 18%, rgba(244,230,198,.7) 23%, rgba(241,227,196,.46) 31%, rgba(240,226,196,.26) 44%, rgba(240,226,196,.1) 66%, rgba(240,226,196,.03) 86%, rgba(240,226,196,0)); }
+.map-dusk { position: absolute; left: 0; right: 0; top: 0; height: 15%; pointer-events: none; opacity: var(--map-dusk, 0);
+  background: linear-gradient(to bottom, rgba(13,9,7,.95), rgba(34,23,16,.93) 46%, rgba(120,84,48,.72) 72%, rgba(206,166,104,.3) 90%, rgba(226,190,130,0)); }
 /* the table falls into shadow toward the corners and the near edge */
 .map-dress::after { opacity: calc(.55 + .45 * var(--map-near, 0));
   background: radial-gradient(ellipse 78% 74% at 50% 52%, rgba(6,14,13,0) 58%, rgba(6,14,13,.26)), linear-gradient(to top, rgba(6,14,13,.2), rgba(6,14,13,0) 13%); }
+/* the waiting picture (UX-DESIGN 12.3: until the viewer's record has answered the map shows the bare sheet on its table):
+   a stage of its own over the ground, made by the map, at the seat's angle; the land comes out of it as one dissolve */
+.map-wait { opacity: var(--map-wait, 0); pointer-events: none; }
 #frontier-map { position: absolute; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; background: transparent; }
 #frontier-map:focus-visible { outline: 3px solid var(--brass-hi); outline-offset: -3px; }
 /* The screen edge while composing a march close to the turn's end (above the canvas, under the HUD). */
