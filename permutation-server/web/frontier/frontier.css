@@ -1717,3 +1717,41 @@ body[data-stage="loading"] .tabs > * { visibility: hidden; }
    bar and the paper (it peeked out above the sheet) ---- */
 .panel[data-kind="spectate"] #season-status { position: absolute; z-index: 3; top: 13px; right: 52px; display: block; margin: 0; padding: 1px 8px; border: 1px solid rgba(201,162,74,.5); border-radius: 10px; background: rgba(0,0,0,.22); font: 600 var(--t1)/1.5 var(--ui); letter-spacing: .04em; color: var(--hud-ink); pointer-events: none; }
 @media (max-width: 759px) { .panel[data-kind="spectate"] #season-status { display: none; } }
+/* ---- focus on every material: brass on bell metal (the phone's resting sheet, the nation choice and the wait's clock are
+   metal inside the panel), ink-teal on paper; a ring is never cut by the sheet's edge ---- */
+.panel[data-drawer="closed"] #panel-body :focus-visible, .panel[data-kind="nation"] #panel-body :focus-visible, .turn-wait :focus-visible, .res-pop :focus-visible, .dial-pop :focus-visible, .mile-banner :focus-visible { outline-color: var(--brass-hi); }
+.home-pointer:focus-visible { outline: 3px solid #10221f; outline-offset: 1px; box-shadow: 0 0 0 6px rgba(255,250,240,.9); }
+@media (max-width: 759px) {
+  #panel-body > .plate .plate-main:focus-visible, .next-row-go:focus-visible, .next-row-steps:focus-visible, .tab:focus-visible { outline-offset: -3px; }
+}
+/* ---- the last craft pass (UX design 12, hud-5): hover, pressed and focus on every material ---- */
+/* a primary key under the pointer keeps its own metal (the paper keys' hover wash had replaced it: pale key, ivory words) */
+.btn.primary:not([disabled]):hover { background: linear-gradient(180deg, #3b8b7d, #23645a 55%, #184d45); border-color: #0a2622; filter: none; }
+.btn.primary:not([disabled]):active { background: linear-gradient(180deg, #2b6f63, #18483f 55%, #113832); }
+/* a primary key that cannot be pressed is paper with ink words (ivory words on pale paper could not be read) */
+.btn.primary[disabled]:not(.seal-btn, .nc-btn, .intro-go) { color: var(--ink-2); text-shadow: none; }
+/* rings that would be cut by a plaque's edge or cross the dock's rim stand inside their control */
+.res:focus-visible, .brand:focus-visible, .strip-side .hud-btn:focus-visible, .lang-box :focus-visible, .tab:focus-visible, .todo-btn:focus-visible, .res-row:focus-visible { outline-offset: -3px; }
+/* a control that floats over the map carries a dark halo round its brass ring: the ring reads on parchment and cloud as it does on grass */
+.map-btn:focus-visible, .lens:focus-visible, .lens-toggle:focus-visible, .hud-tl .hud-btn:focus-visible, .todo-tab:focus-visible, .plate-main:focus-visible, .plate-pip:focus-visible, button.dial:focus-visible { box-shadow: 0 0 0 7px rgba(8,18,16,.8); }
+/* the brand is a way home too: it answers the pointer and the press like its neighbours */
+.brand { border-radius: 8px; transition: filter var(--out), transform var(--out); }
+.brand:hover { filter: brightness(1.18) drop-shadow(0 0 5px rgba(240,212,138,.45)); }
+.brand:active { transform: translateY(1px) scale(.97); }
+/* the settings' rows: every switch ends on the paper's right edge, also the one that needs a line of its own */
+.choice-row .seg { margin-left: auto; }
+/* beside an open drawer on a narrow desktop the world-chart key keeps its glyph and puts its word away (it lay half under the dock) */
+@media (min-width: 760px) and (max-width: 1279px) {
+  body[data-drawer="open"][data-doc=""] .map-btn[data-worded] { width: 38px; padding: 0; justify-content: center; border-radius: 50%; }
+  body[data-drawer="open"][data-doc=""] .map-btn[data-worded] .map-btn-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+}
+@media (max-width: 759px) {
+  /* the language key takes no more than its word needs: at 390 px the English strip then shows two stores, as the Japanese does */
+  .lang-box [data-lang-toggle] { padding: 0 4px !important; letter-spacing: .02em; }
+  .res-strip { padding-left: 0; }
+  .res { padding: 0 2px; }
+  /* the next thing's name is never cut to "First …": it may take two lines, and what a press does stands beside it in the room that is left */
+  .next-row-go { grid-template-columns: auto minmax(min-content, 1fr) minmax(0, auto) auto; }
+  .next-row-t strong { white-space: normal; overflow: visible; text-wrap: balance; }
+  .next-row-do { max-width: 8.5em; font-size: var(--t1); line-height: 1.3; }
+}
