@@ -36,7 +36,6 @@ const clamp01 = x => Math.max(0, Math.min(1, x));
 export const EASE = Object.freeze({
   linear: k => k,
   outCubic: k => 1 - Math.pow(1 - k, 3),
-  outQuart: k => 1 - Math.pow(1 - k, 4),
   outQuint: k => 1 - Math.pow(1 - k, 5),
   inOutCubic: k => (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2),
   /** A glide that starts at the release speed and dies away (6 time constants long). */

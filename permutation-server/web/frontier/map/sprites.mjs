@@ -254,8 +254,8 @@ export const REALM_FAR = Object.freeze({ fill: 0.22, fillNear: 0.18, colour: 3.6
 /** The relief of the tile view: how much wider and taller than its sprite a mountain or a wood is drawn, about a foot `foot` hex radii below its tile's centre, and how dark its cast shadow is. */
 export const RISE = Object.freeze({ mountain: Object.freeze({ w: 1.22, h: 1.42, foot: 0.3, shadow: 0.2 }), forest: Object.freeze({ w: 1.06, h: 1.2, foot: 0.34, shadow: 0 }) });
 /**
- * The relief drawn by code (map/relief.mjs, UX brief §12.2): which terrain is (hills keep their baked ground: its
- * soft mounds won the side-by-side picture), how large a mountain and a tree are drawn (units of the hex radius per
+ * The relief drawn by code (map/relief.mjs, UX brief §12.2, §13.5): which terrain is (hills keep their baked ground: its
+ * soft mounds won the side-by-side picture, in the third wave and again in the fourth), how large a mountain and a tree are drawn (units of the hex radius per
  * unit of their own), and the plain ground laid under each (the baked
  * ground of a mountain or a wood has the mountain or the trees painted into it). `?relief=0` shows the baked art
  * (for side-by-side pictures).
@@ -1068,6 +1068,8 @@ export class SpriteArt {
         const pass = this.groundPass = (this.groundPass ?? 0) + 1;
         let made = 0;
         const late = () => budget !== null && made > 0 && now() - t0 > budget;
+        /** Provinces of this picture whose ground bitmap waits its turn (another one stands in): the picture is not final. */
+        this.waiting = 0;
         const bake = (e, list) => {
           const sv = svOf(e), chartOnly = sv?.kind === 'chart';
           const key = `${e.p},${e.q}@${s.key}${lo ? `~${lo}` : ''}|${e.prov?.roadMask ?? ''}|${ringsOpen ?? ''}|${washSig.get(`${e.p},${e.q}`) ?? ''}|${sv?.sig ?? ''}`;
@@ -1168,7 +1170,7 @@ export class SpriteArt {
             // with the next frame
             // (asked for again only while the cache has room for it: a picture larger than the cache can hold is
             // not made again every frame)
-            if (this.groundPixels < GROUND_PIXELS_MAX - 1_500_000) this.misses++;
+            if (this.groundPixels < GROUND_PIXELS_MAX - 1_500_000) { this.misses++; this.waiting++; }
             // (flying in from afar a province has no ground of the tile view yet: its far picture, which was on screen a
             // moment ago, stands in until its turn comes; drawing it tile by tile cost a flight's frame a tenth of a second)
             v = list.length ? this.groundStale(e) ?? (passing ? this.farStale(e) : null) : null;

@@ -139,7 +139,7 @@ export const OPEN_HOLD_MS = 1600;
  * ground of a dive is made at `lo` of its fineness, and its sea as fine as a picture at `sea0` of its zoom needs (a
  * picture in motion, and cloud is soft; the resting picture makes its own, and these stand in until it has).
  */
-export const DIVE = Object.freeze({ ms: 1050, land: 380, ground: 64, sea: 30, near: 0.72, rest: 900, lo: 0.5, sea0: 0.6 });
+export const DIVE = Object.freeze({ ms: 1100, land: 380, ground: 64, sea: 30, near: 0.72, rest: 900, lo: 0.5, sea0: 0.6 });
 /**
  * The apron of a travelling picture (FrontierMap.groundApron): how far it reaches past the canvas (device px), the
  * most pixels it may have, how far ahead of the camera's way it is laid (of the margin), between which zooms (of the
@@ -1263,7 +1263,7 @@ export class FrontierMap {
       // (from the waiting picture as it was last shown: the page's sheets may have moved since, with the answer that
       // said who is looking, and the picture must not jump to where they would put it now)
       const from = this.waitAt ?? this.waitView(size, inset), calm = this.cam.reduced();
-      this.cam.from(from, { ms: DIVE.ms, ease: EASE.outQuart, kind: 'fly', real: true });
+      this.cam.from(from, { ms: DIVE.ms, ease: EASE.outQuint, kind: 'fly', real: true });
       this.dive = { t0: now, from, calm, seat: !calm && this.tiltMax > 0, p: calm ? 1 : 0, landAt: null };
       this.reveal = now;
     } else if (prev.width !== size.width || prev.height !== size.height) {
@@ -2315,7 +2315,11 @@ export class FrontierMap {
       const g = L.props.g;
       g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, W, H); g.setTransform(...world);
       this.art.paint(g, tiles, { ...opts, part: 'props' });
-      L.key = sea?.pending ? null : key; L.at = now;
+      // (nor while a province's ground waits its turn, another bitmap of it standing in: the next frame makes it. A
+      // resting picture was left with its stand-ins until the layers' own age had passed, two seconds a turn)
+      const waiting = (this.art.waiting ?? 0) > 0;
+      L.key = sea?.pending || waiting ? null : key; L.at = now;
+      if (waiting) this.dirty = true;
     }
     ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'copy'; ctx.drawImage(L.ground.cv, 0, 0); ctx.globalCompositeOperation = 'source-over';

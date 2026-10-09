@@ -31,12 +31,12 @@ const homeSrc = (own = [{ ...HOME }]) => ({ overviews: new Map(), ringsOpen: 3, 
 // ------------------------------------------------------------------ the camera's new moves
 test('a flight can end somewhere else without starting again, says how far it has come, and may keep the clock\'s own time', () => {
   const c = new cam.Camera({ view: { x: 0, y: 0, zoom: 0.2 }, reduced: () => false });
-  c.set({ x: 1000, y: 0, zoom: 1 }, { ms: 1000, kind: 'fly', ease: cam.EASE.outQuart, real: true });
+  c.set({ x: 1000, y: 0, zoom: 1 }, { ms: 1000, kind: 'fly', ease: cam.EASE.outQuint, real: true });
   assert.equal(c.progress(), 0);
   c.step(0); c.step(400);
   const before = { ...c.drawn }, from = { ...c.tween.from }, elapsed = c.tween.elapsed;
   assert.equal(elapsed, 400, 'a real move takes a long frame whole (any other move is slowed to 50 ms of it)');
-  assert.ok(c.progress() > 0.8 && c.progress() < 1, `outQuart: most of the way after two fifths of the time (${c.progress()})`);
+  assert.ok(c.progress() > 0.8 && c.progress() < 1, `eased out steeply: most of the way after two fifths of the time (${c.progress()})`);
   c.retarget({ x: 1040, y: 20 });
   assert.deepEqual(c.view, { x: 1040, y: 20, zoom: 1 }, 'the logical view is the new end at once');
   assert.deepEqual(c.tween.from, from);
@@ -162,7 +162,7 @@ test('the opening\'s numbers', () => {
   assert.ok(D.rest < fmap.OPEN_HOLD_MS);
   assert.ok(D.lo > 0 && D.lo < 1 && D.sea0 > 0 && D.sea0 < 1);
   // the dive is steep: by a third of its time the camera has come most of its way down
-  assert.ok(cam.EASE.outQuart(1 / 3) > 0.78);
+  assert.ok(cam.EASE.outQuint(1 / 3) > 0.85);
 });
 
 // ------------------------------------------------------------------ what the opening is made with
@@ -338,4 +338,62 @@ test('on a phone the board is fully tilted from a little over twice its far zoom
   const far = m2.flatZoom(desk) * 1.05;
   for (const z of [0.3, 0.4, 0.5, 0.62, 1.15]) assert.ok(Math.abs(m2.tiltDeg(z, desk) - tilt.tiltAt(z, { far, deg: 26 })) < 0.25, `zoom ${z}`);
   m2.destroy();
+});
+
+// ------------------------------------------------------------------ one drawing hand (UX brief §13.5)
+import * as relief from '../../permutation-server/web/frontier/map/relief.mjs';
+import { CODE_RELIEF } from '../../permutation-server/web/frontier/map/sprites.mjs';
+import { luminance } from '../../permutation-server/web/frontier/palette.mjs';
+
+/** A context that writes down every call and every style set on it. */
+function recorder() {
+  const calls = [], grads = [];
+  const grad = () => { const g = { stops: [], addColorStop(k, c) { this.stops.push([k, c]); } }; grads.push(g); return g; };
+  const t = { calls, grads, createLinearGradient: grad, createRadialGradient: grad };
+  return new Proxy(t, { get: (o, k) => (k in o ? o[k] : (...a) => { calls.push([k, ...a]); }), set: (o, k, v) => { calls.push(['=' + String(k), v]); return true; } });
+}
+
+test('mountains and woods are in the ground\'s soft hand: no outline, faces that turn in a wash, the ground art\'s own colours; hills stay baked', () => {
+  // the colours are the baked sprites' own, light to dark
+  const P = relief.GROUND_PALETTE;
+  for (const k of ['rock', 'snow', 'turf', 'fir', 'leaf']) {
+    const tones = Object.values(P[k]).map(luminance);
+    assert.ok(tones.every((v, i) => i === 0 || v < tones[i - 1]), `${k}: light to dark`);
+  }
+  // (rock: the render's greys, a warm grey and never the tan of the first drawn mountains; red, green and blue stay close)
+  for (const hex of Object.values(P.rock)) { const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)); assert.ok(r >= g && g >= b && r - b < 40, hex); }
+  for (let v = 0; v < 3; v++) {
+    const g = recorder();
+    relief.paintMountain(g, 0, 0, 100, { variant: v });
+    // no outline: the only strokes are the grain's single short lines and a tree's light (no stroke runs along a silhouette)
+    let lines = 0, worst = 0;
+    for (const c of g.calls) { if (c[0] === 'beginPath') lines = 0; else if (c[0] === 'lineTo') lines++; else if (c[0] === 'stroke') worst = Math.max(worst, lines); }
+    assert.ok(worst <= 1, `variant ${v}: a stroke along ${worst} points`);
+    const widths = g.calls.filter(c => c[0] === '=lineWidth').map(c => c[1]);
+    assert.ok(Math.max(...widths) <= 2.4, `variant ${v}: hair lines only (${Math.max(...widths)} of a radius of 100)`);
+    // no ink: no stroke in the dark line colours of the first drawn relief
+    assert.ok(!g.calls.some(c => c[0] === '=strokeStyle' && /rgba\(4[0-9],3[0-9],2[0-9]/.test(String(c[1]))));
+    // the faces are gradients of the rock's tones, the foot is rubbed into the ground
+    assert.ok(g.grads.length > 20);
+    assert.ok(g.grads.some(x => x.stops.some(s => s[1] === P.rock.top)) && g.grads.some(x => x.stops.some(s => s[1] === P.rock.deep)));
+    assert.ok(g.calls.some(c => c[0] === '=globalCompositeOperation' && c[1] === 'destination-out'), 'a foothill melts into the tile');
+  }
+  for (const kind of ['fir', 'leaf']) for (let v = 0; v < 3; v++) {
+    const g = recorder();
+    relief.paintTree(g, 0, 0, 60, { kind, variant: v });
+    assert.ok(!g.calls.some(c => c[0] === '=strokeStyle' && /rgba\(26,36,20/.test(String(c[1]))), `${kind} ${v}: no ink line`);
+    assert.ok(g.grads.length >= 3, `${kind} ${v}: it turns from light to shade`);
+  }
+  // the shade a wood and a mountain throw is soft to its edge: a gradient that ends in nothing
+  const f = recorder();
+  relief.paintWoodFloor(f, 0, 0, 44, relief.woodOf(0, 0, 1));
+  assert.ok(f.grads.length >= 19 && f.grads.every(x => / ?0\)$/.test(x.stops[x.stops.length - 1][1].replace(/\s/g, ''))), 'every shadow of the floor fades out');
+  const s = recorder();
+  relief.paintMountainShadow(s, 0, 0, 100);
+  assert.equal(s.grads.length, 1);
+  assert.match(s.grads[0].stops[s.grads[0].stops.length - 1][1], /,0\)$/);
+  // hills: tried again as soft upright mounds, and the baked ground won again (the code is gone)
+  assert.equal(CODE_RELIEF.hills, undefined);
+  assert.equal(relief.paintHill, undefined);
+  assert.equal(relief.RELIEF.hill, undefined);
 });
