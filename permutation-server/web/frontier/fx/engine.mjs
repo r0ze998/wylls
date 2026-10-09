@@ -18,6 +18,13 @@
 // The world shake moves the two canvases only (CSS `translate` through two
 // custom properties): the HUD never moves.
 //
+// Under a tilted map (UX-DESIGN §11.1) the top canvas lives inside the tilted
+// stage with the ground canvas (`mount({parent})` or `mount(stageEl)`), and a
+// world point is found on screen through ONE function, `anchor(x, y)`, which
+// asks `map.project` when the map has it. Words keep inside what the HUD
+// leaves free (`free()`, fx/safe.mjs). While a set piece plays the map is told
+// (`map.setPiece`, `map.hideLabelsAt`) so its labels make way.
+//
 // Everything is tolerant of what it is given: no DOM (node tests), a context
 // whose methods do nothing (the map tests draw into a proxy), no map.
 import { clock as defaultClock } from './clock.mjs';
@@ -26,6 +33,7 @@ import { motion as defaultMotion } from './motion.mjs';
 import { hashSeed, noise1 } from './rand.mjs';
 import { bus as defaultBus } from './bus.mjs';
 import { audio as defaultAudio } from './audio.mjs';
+import { freeOf } from './safe.mjs';
 
 export const SHAKE_PX = Object.freeze([2, 8]);
 export const SHAKE_MS = Object.freeze([120, 250]);
@@ -54,6 +62,9 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
   let m = null;            // the mount: {map, canvas, top, ctx, hud, camera, size, invalidate, groundInPainter}
   let running = false, lastSig = '', lastGroundAsk = 0;
   let keep = false;        // the demo: finished effects stay so the clock can be rewound
+  const pieces = [];       // set pieces and hushed tiles: {name, t0, t1, tiles, stage}
+  let pieceSig = '', hushed = new Set(), staging = false;
+  let freeAt = -Infinity, freeNow = null;
 
   const view = () => {
     try { const v = m?.camera?.(); if (v && Number.isFinite(v.zoom) && v.zoom > 0) return v; } catch { /* a camera that is not ready */ }
@@ -69,13 +80,53 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
   const liveAt = (e, t) => { const a = ageOf(e, t); return a >= 0 && a < e.dur; };
   const pendingAt = (e, t) => ageOf(e, t) < 0;
 
+  /**
+   * A world point on screen, in client px: THE way from the map to the page (titles, captions, numbers,
+   * tokens that fly to the HUD). The map's own `project` when it has one (a tilted stage, UX-DESIGN §11.1);
+   * else the mount's `toViewport`; else the flat view over the canvas's box.
+   */
+  function anchor(x, y, v = view(), sz = size()) {
+    try {
+      const p = m?.map?.project?.(x, y);
+      if (Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1])) return { x: p[0], y: p[1] };
+      if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) return { x: p.x, y: p.y };
+    } catch { /* a map that is not ready */ }
+    if (m?.toViewport) { const p = m.toViewport(x, y); if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) return p; }
+    const p = toScreen(v, sz, x, y), r = m?.crect ?? m?.rect;
+    return r ? { x: p.x + r.left, y: p.y + r.top } : p;
+  }
+  /** The other way: a client point in world px (the map's `unproject`, else the flat view). */
+  function unanchor(cx, cy, v = view(), sz = size()) {
+    try {
+      const p = m?.map?.unproject?.(cx, cy);
+      if (Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1])) return { x: p[0], y: p[1] };
+      if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) return { x: p.x, y: p.y };
+    } catch { /* a map that is not ready */ }
+    const r = m?.crect ?? m?.rect ?? { left: 0, top: 0 };
+    return { x: (cx - r.left - sz.width / 2) / v.zoom + v.x, y: (cy - r.top - sz.height / 2) / v.zoom + v.y };
+  }
+  /**
+   * What the HUD leaves free of the map, in client px (fx/safe.mjs): `{bounds, centre, boxes, place}`.
+   * Measured at most four times a second (and again after a resize).
+   */
+  function free() {
+    const w = clock.wall?.() ?? 0;
+    if (freeNow && w - freeAt < 250) return freeNow;
+    freeAt = w;
+    const doc = m?.canvas?.ownerDocument ?? null;
+    const sz = size(), st = m?.rect ?? { left: 0, top: 0, width: sz.width, height: sz.height };
+    try { freeNow = freeOf(doc, st); } catch { freeNow = freeOf(null, st); }
+    return freeNow;
+  }
+
   function stateOf(e, t, v, sz) {
     const age = ageOf(e, t);
     return { t: age, k: e.dur > 0 ? clamp(age / e.dur, 0, 1) : 1, dur: e.dur, now: t, zoom: v.zoom, px: 1 / v.zoom, mode: e.mode, seed: e.seed, view: v, size: sz,
       // the map's box in the viewport (HUD nodes are placed in viewport pixels) and a world point in that frame
       stage: m?.rect ?? { left: 0, top: 0, width: sz.width, height: sz.height, free: sz.height },
       toScreen: (x, y) => toScreen(v, sz, x, y),
-      toViewport: (x, y) => { const p = (m?.toViewport ?? null)?.(x, y) ?? toScreen(v, sz, x, y); const r = m?.rect; return m?.toViewport || !r ? p : { x: p.x + r.left, y: p.y + r.top }; } };
+      anchor: (x, y) => anchor(x, y, v, sz), unanchor: (x, y) => unanchor(x, y, v, sz), toViewport: (x, y) => anchor(x, y, v, sz),
+      get free() { return free(); } };
   }
 
   /**
@@ -158,6 +209,7 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
     const pl = particles.liveAt(t), pg = pl ? particles.liveAt(t, 'ground') : 0;
     let sh = 0;
     for (const s of shakes) if (t < s.t0 + s.dur) sh++;
+    for (const p of pieces) { if (t >= p.t0 && t < p.t1) live++; else if (t < p.t0) pending++; }
     return { live: live + pl + sh, pending: pending + (t < particles.until && !pl ? 1 : 0), ground: ground + pg };
   }
 
@@ -248,6 +300,9 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
       }
     } catch { /* no layout */ }
     m.rect = { left: r.left, top: r.top, width: r.width, height: r.height, free };
+    const cr = c.getBoundingClientRect?.();
+    m.crect = cr ? { left: cr.left, top: cr.top, width: cr.width, height: cr.height } : null;
+    freeAt = -Infinity;
     if (m.hud) {
       setVar(m.hud, '--fx-l', `${r.left}px`); setVar(m.hud, '--fx-t', `${r.top}px`);
       setVar(m.hud, '--fx-w', `${r.width}px`); setVar(m.hud, '--fx-h', `${r.height}px`); setVar(m.hud, '--fx-free', `${free}px`);
@@ -287,6 +342,44 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
     }
   }
 
+  /**
+   * A set piece is on stage: `piece(name, {dur, delay, tiles, stage})`. While it plays the map hides the label
+   * pile of each of `tiles` ("p,q,tile": `map.hideLabelsAt(key, true)`), and with `stage: true` (a battle) it is
+   * told that a set piece has the screen (`map.setPiece(true)`: every other label goes, the pointer home too);
+   * `<body data-fx-piece>` and the bus event `piece {name, on}` say the same to the HUD. All of it is read from
+   * the clock, so a frozen or rewound clock (the demo) is right too. Returns `{cancel()}`.
+   */
+  function piece(name, { dur = 1, delay = 0, tiles = [], stage = false } = {}) {
+    if (!(dur > 0)) return null;
+    const t0 = clock.now() + delay;
+    const p = { name: String(name), t0, t1: t0 + dur, tiles: tiles.filter(k => typeof k === 'string' && k), stage: !!stage };
+    pieces.push(p);
+    version++;
+    kick();
+    return { cancel() { const i = pieces.indexOf(p); if (i >= 0) { pieces.splice(i, 1); version++; kick(); } } };
+  }
+  /** Tell the map and the page what is on stage at clock time t (only when it changed). */
+  function syncPieces(t) {
+    const on = pieces.filter(p => t >= p.t0 && t < p.t1);
+    const keys = new Set(on.flatMap(p => p.tiles)), lead = on.find(p => p.stage) ?? null;
+    const sig = `${lead?.name ?? ''}|${[...keys].sort().join(';')}`;
+    if (sig !== pieceSig) {
+      pieceSig = sig;
+      const map = m?.map;
+      for (const k of hushed) if (!keys.has(k)) { try { map?.hideLabelsAt?.(k, false); } catch { /* the map's own fault */ } }
+      for (const k of keys) if (!hushed.has(k)) { try { map?.hideLabelsAt?.(k, true); } catch { /* the map's own fault */ } }
+      hushed = keys;
+      if (!!lead !== staging) {
+        staging = !!lead;
+        try { map?.setPiece?.(staging); } catch { /* the map's own fault */ }
+      }
+      const body = m?.canvas?.ownerDocument?.body;
+      if (body?.dataset) { if (lead) body.dataset.fxPiece = lead.name; else delete body.dataset.fxPiece; }
+      try { bus?.emit?.('piece', { name: lead?.name ?? null, on: !!lead, tiles: [...keys] }); } catch { /* no bus */ }
+    }
+    if (!keep) for (let i = pieces.length - 1; i >= 0; i--) if (t >= pieces[i].t1) pieces.splice(i, 1);
+  }
+
   function prune(t) {
     if (keep) return;
     for (let i = effects.length - 1; i >= 0; i--) {
@@ -301,6 +394,7 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
     const t = clock.now();
     const c = counts(t);
     if (!m) { prune(t); return c; }
+    syncPieces(t);
     const v = view(), sz = size();
     const dpr = Math.min(globalThis.devicePixelRatio || 1, DPR_CAP);
     const sig = `${t}|${v.x}|${v.y}|${v.zoom}|${sz.width}|${sz.height}|${dpr}|${version}`;
@@ -350,16 +444,24 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
    * the map's drawn view, else its view), `size()` → {width, height} in CSS
    * px, `invalidate()` (default map.invalidate), `groundInPainter()` → true
    * while the tile painter calls paintGround (default: tile detail with art),
+   * `parent`: the element the top canvas is put into (default: right after
+   * the map canvas, so in whatever holds it; give the tilted stage,
+   * `#map-stage`, when the map canvas is not its direct child),
    * `stage`: the element whose box is "the map on screen" for HUD effects
-   * (default the map canvas; a clipping wrapper when the canvas is overscanned
-   * or tilted), `toViewport(x, y)`: a world point in viewport px when the map
-   * is not a flat affine view (a CSS 3D tilt).
+   * (default the map canvas; the clipping wrapper when the canvas is
+   * overscanned or tilted), `toViewport(x, y)`: a world point in client px
+   * for a map without `project` that is not a flat view either.
+   *
+   * `mount(stageEl)` on a mounted engine only moves the top canvas into that
+   * element (the integrator's one call for the tilted stage).
    */
-  function mount({ map = null, canvas = null, camera = null, size: sizeOf = null, invalidate = null, groundInPainter = null, stage = null, toViewport = null } = {}) {
+  function mount(arg = {}) {
+    if (arg && typeof arg.append === 'function' && arg.nodeType !== undefined) { reparent(arg); return api; }
+    const { map = null, canvas = null, camera = null, size: sizeOf = null, invalidate = null, groundInPainter = null, stage = null, parent = null, toViewport = null } = arg ?? {};
     if (m) unmount();
     const c = canvas ?? map?.canvas ?? null;
     m = {
-      map, canvas: c, stage, toViewport, rect: null, top: null, ctx: null, hud: null,
+      map, canvas: c, stage, toViewport, rect: null, crect: null, top: null, ctx: null, hud: null,
       camera: camera ?? (() => map?.drawn ?? map?.drawnView ?? map?.view),
       size: sizeOf ?? (() => (map?.size ? map.size() : { width: c?.clientWidth ?? 0, height: c?.clientHeight ?? 0 })),
       invalidate: invalidate ?? (() => map?.invalidate?.()),
@@ -370,7 +472,7 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
       const top = doc.createElement('canvas');
       top.className = 'fx-top'; top.id = 'fx-top';
       top.setAttribute('aria-hidden', 'true');
-      c.after(top);
+      if (parent?.append) parent.append(top); else c.after(top);
       m.top = top; m.ctx = top.getContext?.('2d') ?? null;
       let hud = doc.getElementById?.('fx-hud');
       if (!hud) {
@@ -390,8 +492,17 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
     return api;
   }
 
+  /** Move the top canvas into `el` (the tilted stage that holds the ground canvas): it then shares that element's transform. */
+  function reparent(el) {
+    if (!m?.top || !el?.append) return false;
+    el.append(m.top);
+    syncBox(); lastSig = ''; kick();
+    return true;
+  }
+
   function unmount() {
     if (!m) return;
+    pieces.length = 0; syncPieces(clock.now());
     if (m.raf) globalThis.cancelAnimationFrame?.(m.raf);
     try { m.ro?.disconnect(); } catch { /* none */ }
     m.canvas?.ownerDocument?.defaultView?.removeEventListener?.('resize', m.onResize);
@@ -423,7 +534,9 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
 
   const api = {
     clock, particles,
-    add, emit, shake, shakeAt, play, define,
+    add, emit, shake, shakeAt, play, define, piece, anchor, unanchor, free, reparent,
+    /** Hide the label pile of one tile while something plays on it: `hush({p, q, tile}, seconds, delay)`. */
+    hush(at, dur = 1.5, delay = 0) { return at && [at.p, at.q, at.tile].every(Number.isInteger) ? piece('hush', { dur, delay, tiles: [`${at.p},${at.q},${at.tile}`] }) : null; },
     names: () => [...defs.keys()],
     has: name => defs.has(name),
     paintGround, paintOver, drawTop, frame, kick, mount, unmount,
@@ -455,6 +568,8 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
       o.emit = (k, a = {}) => api.emit(k, { ...a, delay: (a.delay ?? 0) + d });
       o.sound = (n, a = {}) => api.sound(n, { ...a, delay: (a.delay ?? 0) + d });
       o.shake = (px, ms, a = {}) => api.shake(px, ms, { ...a, delay: (a.delay ?? 0) + d });
+      o.piece = (n, a = {}) => api.piece(n, { ...a, delay: (a.delay ?? 0) + d });
+      o.hush = (at, dur, delay = 0) => api.hush(at, dur, delay + d);
       o.later = more => api.later(d + more);
       return o;
     },
@@ -463,9 +578,11 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
     /** What is live at the clock's time: {live, pending, ground}. */
     live: () => counts(clock.now()),
     /** Remove everything (effects, particles, shakes). */
-    clear() { for (const e of [...effects]) remove(e); particles.clear(); shakes.length = 0; version++; lastSig = ''; kick(); },
+    clear() { for (const e of [...effects]) remove(e); particles.clear(); shakes.length = 0; pieces.length = 0; syncPieces(clock.now()); version++; lastSig = ''; kick(); },
     /** Cut the life of the live effects of these names to end `at` seconds after they began (the demo ends a waiting state on its own clock). */
     trim(names, at) { for (const e of effects) if (names.includes(e.name) && e.dur > at) e.dur = at; version++; },
+    /** Remove the effects of these names now (words in a language the page has just left). Returns how many went. */
+    drop(names) { const gone = effects.filter(e => names.includes(e.name)); for (const e of gone) remove(e); if (gone.length) { lastSig = ''; kick(); } return gone.length; },
     /** Keep finished effects (the demo rewinds the clock). */
     set keep(v) { keep = !!v; }, get keep() { return keep; },
     get mounted() { return !!m; },
@@ -473,6 +590,8 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
     get top() { return m?.top ?? null; },
     view, size,
     toScreen: (x, y) => toScreen(view(), size(), x, y),
+    /** Whether a world point is on the map on screen (through `anchor`, so under a tilt too); `margin` px of grace. */
+    onStage(x, y, margin = 0) { const p = anchor(x, y), sz = size(), r = m?.rect ?? { left: 0, top: 0, width: sz.width, height: sz.height }; return p.x >= r.left - margin && p.y >= r.top - margin && p.x <= r.left + r.width + margin && p.y <= r.top + r.height + margin; },
     destroy() { offBus?.(); unmount(); },
   };
   return api;

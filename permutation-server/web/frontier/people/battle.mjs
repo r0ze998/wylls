@@ -13,9 +13,10 @@
 //                 (a log scale, `figuresFor`).
 //   3  2.2–4.0 s  the melee: three exchanges. Each has its anticipation
 //                 (150 ms, the lines draw back), a charge, a contact frame
-//                 held for 70 ms with the struck figures white, a knockback,
-//                 and the losses so far struck over each side while its bar
-//                 drains. Archers loose a volley before each contact.
+//                 held for 70 ms (the struck figures lit for two frames, a
+//                 star where the lines meet), a knockback, and the losses so
+//                 far struck over each side while its bar drains. Archers
+//                 loose a volley before each contact.
 //   4  4.0–5.6 s  the blow that decides it, then the fates (ClashInputs):
 //                 Stays plants the standard, Retreated walks off unhurt,
 //                 Bounced is thrown back, Withdrew steps aside, Destroyed
@@ -238,8 +239,28 @@ export function formation(pose, n) {
 export const battleScale = (zoom, fit = 1) => Math.max(40, Math.min(88, 34 + 22 * zoom) * fit) / Math.max(0.05, zoom);
 /** How much of its full size the scene takes on a map `width` CSS px wide (a phone shows it smaller, never under 40 px a figure). */
 export const battleFit = width => (width > 0 ? Math.max(0.5, Math.min(1, width / 720)) : 1);
-/** Where a side's formation is centred before the charge, and how far it closes for the melee (figure heights). */
-const REST = 1.6, ENGAGE = 0.86;
+/** Where a side's formation is centred before the charge, and how near the two centres come at a contact (figure heights). */
+const REST = 1.6, MEET = 0.74;
+/** The tallest a figure is drawn (screen px): the miniatures' sheets hold about 130 px a figure. */
+export const FIGURE_PX_MAX = 120;
+/** A fight fills the stage (UX-DESIGN §11.14): what the scene needs around its tile, in figure heights and screen px. */
+const NEED = Object.freeze({ back: 1.85, above: 1.72, below: 1.05, foot: 78, head: 36 });
+/** How far over its tile's centre a scene's loss numbers stand (figure heights): just over the heads of the rear rank. */
+export const BATTLE_ABOVE = NEED.above;
+/**
+ * The scene sized to a stage of `width` × `height` screen px (what the HUD leaves free): `{px (a figure's
+ * height), rest (how far apart the two sides stand, figure heights), bar (a strength bar's length, px),
+ * above, below (how far the scene reaches over and under its tile's centre, px)}`. `title`: the height kept
+ * for the verdict over the scene. A narrow stage (a phone) stands the sides closer so the figures can be larger.
+ */
+export function battleLayout({ width = 0, height = 0 } = {}, { title = 0 } = {}) {
+  if (!(width > 0) || !(height > 0)) return null;
+  const rest = width < 520 ? 1.2 : REST;
+  const px = Math.max(40, Math.min(FIGURE_PX_MAX, width / (2 * (rest + NEED.back)), (height - NEED.foot - NEED.head - title) / (NEED.above + NEED.below)));
+  return { px, rest, bar: Math.max(84, Math.min(196, (width - 150) / 2, px * 2.1)), above: NEED.above * px + NEED.head, below: NEED.below * px + NEED.foot };
+}
+/** A figure's height in world px at a zoom for a layout (or by the zoom alone, `battleScale`, without one). */
+const figureSize = (zoom, fit, layout) => (layout?.px > 0 ? layout.px / Math.max(0.05, zoom) : battleScale(zoom, fit));
 /** A line across the field runs up and to the right on screen (the map's oblique view): how far a step across shifts a figure sideways, and how deep it reads. */
 const SKEW = 0.34, DEPTH = 0.8;
 
@@ -319,10 +340,10 @@ export function battlePlan(scene) {
 }
 
 /** Where a tile's scene stands at a zoom: its centre, the figure height `s`, the point of contact and each side's middle (world px). */
-export function battleStage(tile, zoom, fit = 1) {
-  const s = battleScale(zoom, fit), cx = tile.c.x, cy = tile.c.y + RADIUS * 0.12;
-  return { s, cx, cy, contact: { x: cx, y: cy - s * 0.48 }, feet: { x: cx, y: cy + s * 0.05 },
-    left: { x: cx - (REST - ENGAGE) * s, y: cy }, right: { x: cx + (REST - ENGAGE) * s, y: cy } };
+export function battleStage(tile, zoom, fit = 1, layout = null) {
+  const s = figureSize(zoom, fit, layout), cx = tile.c.x, cy = tile.c.y + RADIUS * 0.12, rest = layout?.rest ?? REST;
+  return { s, cx, cy, rest, contact: { x: cx, y: cy - s * 0.48 }, feet: { x: cx, y: cy + s * 0.05 },
+    left: { x: cx - MEET * s, y: cy }, right: { x: cx + MEET * s, y: cy } };
 }
 
 /**
@@ -371,14 +392,23 @@ function inkText(ctx, text, x, y, px, color, { align = 'center', weight = 800, a
   ctx.restore();
 }
 
-/** The white copy of a miniature's frame (the hit flash); null where there is no canvas or the sheet has not loaded. */
-const whites = new Map();
-function whiteCell(faction, kind, face, walking, step) {
+/** How much light a blow adds to a struck figure, and for how long (s): two frames at full, gone before the hit-stop ends (UX-DESIGN §11.14). */
+export const HIT_TINT = 0.6;
+export const HIT_TINT_SECS = Object.freeze([0.034, 0.07]);
+/** The tint of a blow at `since` seconds after its contact frame (0..1 of HIT_TINT). */
+export const hitTint = since => (since < 0 ? 0 : since < HIT_TINT_SECS[0] ? 1 : 1 - span(since, HIT_TINT_SECS[0], HIT_TINT_SECS[1]));
+/**
+ * A miniature's frame as light to add to it (the hit tint): its own picture with warm light mixed in, the base
+ * it stands on and its shadow left out. Drawn additively at HIT_TINT it lifts the figure's colours and keeps
+ * its drawing and its nation's colour: never a white silhouette. Null where there is no canvas or the sheet has not loaded.
+ */
+const tints = new Map();
+function tintCell(faction, kind, face, walking, step) {
   const img = faction >= 0 && faction < 6 ? miniSheet(faction, MINI_SIZES[0].key) : null;
   if (!img) return null;
   const { row, col } = miniCell(kind, { face, walking, step });
   const key = `${faction}|${row}|${col}`;
-  if (whites.has(key)) return whites.get(key);
+  if (tints.has(key)) return tints.get(key);
   let cv = null;
   try {
     const cell = Math.round(img.width / 6);
@@ -387,14 +417,15 @@ function whiteCell(faction, kind, face, walking, step) {
       cv.width = cell; cv.height = cell;
       const g = cv.getContext('2d');
       g.drawImage(img, col * cell, row * cell, cell, cell, 0, 0, cell, cell);
-      g.globalCompositeOperation = 'source-in'; g.fillStyle = '#ffffff'; g.fillRect(0, 0, cell, cell);
+      // its own colours with warm light mixed in: added to the figure it brightens every colour toward that light
+      g.globalCompositeOperation = 'source-atop'; g.fillStyle = 'rgba(255,238,206,0.16)'; g.fillRect(0, 0, cell, cell);
       // the figure only: the base it stands on and its shadow stay as they are
       const m = g.createLinearGradient(0, cell * (MINI_ANCHOR[1] - 0.2), 0, cell * (MINI_ANCHOR[1] - 0.06));
       m.addColorStop(0, 'rgba(0,0,0,1)'); m.addColorStop(1, 'rgba(0,0,0,0)');
       g.globalCompositeOperation = 'destination-in'; g.fillStyle = m; g.fillRect(0, 0, cell, cell);
     }
   } catch { cv = null; }
-  whites.set(key, cv);
+  tints.set(key, cv);
   return cv;
 }
 
@@ -441,27 +472,28 @@ function paintFigure(ctx, f) {
   if (f.sx !== 1 || f.sy !== 1) ctx.scale(f.sx, f.sy);
   const o = { faction: f.faction, face: f.face, step: f.step, walking: f.walking, alpha: f.alpha };
   const w = f.s * MINI_CELL_U, nation = f.faction >= 0 && f.faction < 6;
-  let drawn = false, white = null;
-  if (nation) { drawn = paintMini(ctx, 0, 0, f.s, f.kind, o); if (drawn && f.flash > 0.02) white = whiteCell(f.faction, f.kind, f.face, f.walking, f.step); }
+  let drawn = false, tint = null;
+  if (nation) { drawn = paintMini(ctx, 0, 0, f.s, f.kind, o); if (drawn && f.flash > 0.02) tint = tintCell(f.faction, f.kind, f.face, f.walking, f.step); }
   else {
     const cell = campCell(f.kind, f.face, f.walking, f.step);
-    if (cell && ctx.drawImage) { ctx.globalAlpha = f.alpha; ctx.drawImage(cell, -w * MINI_ANCHOR[0], -w * MINI_ANCHOR[1], w, w); drawn = true; if (f.flash > 0.02) white = whiteCell(CAMP_SHEET, f.kind, f.face, f.walking, f.step); }
+    if (cell && ctx.drawImage) { ctx.globalAlpha = f.alpha; ctx.drawImage(cell, -w * MINI_ANCHOR[0], -w * MINI_ANCHOR[1], w, w); drawn = true; if (f.flash > 0.02) tint = tintCell(CAMP_SHEET, f.kind, f.face, f.walking, f.step); }
   }
   // until its sheet has loaded a figure is only the shadow it will stand on (a page with no sheets at all draws the plain canvas figure)
   if (!drawn) {
     if (typeof globalThis.Image === 'undefined') { baseDisc(ctx, 0, 0, f.s, f.faction, { alpha: f.alpha }); unitFigure(ctx, 0, -f.s * 0.02, f.s, f.kind, o); }
     else { ctx.fillStyle = `rgba(12,22,20,${(0.28 * f.alpha).toFixed(3)})`; ctx.beginPath(); ctx.ellipse?.(0, 0, f.s * 0.3, f.s * 0.12, 0, 0, Math.PI * 2); ctx.fill(); }
   }
-  if (f.flash > 0.02) {
-    ctx.globalAlpha = f.alpha * f.flash;
-    if (white && ctx.drawImage) ctx.drawImage(white, -w * MINI_ANCHOR[0], -w * MINI_ANCHOR[1], w, w);
-    else if (!drawn) { ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.ellipse?.(0, -f.s * 0.45, f.s * 0.24, f.s * 0.5, 0, 0, Math.PI * 2); ctx.fill(); }
+  // the blow: light added to the figure for a frame or two (it keeps its colours and its drawing)
+  if (f.flash > 0.02 && tint && ctx.drawImage) {
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = f.alpha * f.flash * HIT_TINT;
+    ctx.drawImage(tint, -w * MINI_ANCHOR[0], -w * MINI_ANCHOR[1], w, w);
   }
   ctx.restore();
 }
 
 /** How a group stands at scene time `t` (posed at `tau`): its advance toward the enemy, its lean, whether it walks, its alpha and facing. */
-function groupState(T, side, g, t, tau, residents) {
+function groupState(T, side, g, t, tau, residents, ENGAGE = REST - MEET) {
   const sgn = side.sgn;
   let adv = 0, lean = 0, alpha = 1, walking = false, face = -sgn, hop = 0, hit = -1;
   // out of the mist on the tile it arrived at (never from a direction)
@@ -543,36 +575,40 @@ function paintArrow(ctx, a, b, u, s, k, alpha) {
   ctx.restore();
 }
 
-/** The flash of a contact: a white core, a star and a low shock on the ground, in the two sides' colours. */
+/** The mark of a contact: a small star where the lines meet, a tight core of light in the two sides' colours, a low shock on the ground. */
 function paintContact(ctx, st, u, power, colA, colB, k) {
   const { contact: c, feet, s } = st;
   if (u < 0 || u >= 0.4) return;
   ctx.save();
   // the shock running out along the ground
-  const kr = u / 0.4, rr = lerp(s * 0.3, s * 1.7 * Math.sqrt(power), outExpo(kr));
-  ctx.strokeStyle = `rgba(239,230,204,${(0.6 * (1 - kr) * (1 - kr)).toFixed(3)})`; ctx.lineWidth = lerp(6, 1, outCubic(kr)) * k;
+  const kr = u / 0.4, rr = lerp(s * 0.3, s * 1.5 * Math.sqrt(power), outExpo(kr));
+  ctx.strokeStyle = `rgba(239,230,204,${(0.5 * (1 - kr) * (1 - kr)).toFixed(3)})`; ctx.lineWidth = lerp(5, 1, outCubic(kr)) * k;
   ctx.beginPath(); ctx.ellipse?.(feet.x, feet.y, rr, rr * FLATTEN * 0.62, 0, 0, Math.PI * 2); ctx.stroke();
   ctx.globalCompositeOperation = 'lighter';
-  const kb = span(u, 0, 0.2);
+  const kb = span(u, 0, 0.16);
   if (kb < 1) {
-    const r = lerp(s * 0.3, s * 0.85 * Math.sqrt(power), outCubic(kb));
+    const r = lerp(s * 0.16, s * 0.46 * Math.sqrt(power), outCubic(kb));
     const g = ctx.createRadialGradient?.(c.x, c.y, 0, c.x, c.y, r);
     if (g?.addColorStop) {
-      g.addColorStop(0, `rgba(255,255,255,${((1 - kb) * (1 - kb)).toFixed(3)})`); g.addColorStop(0.3, rgba('#ffe9b8', 0.8 * (1 - kb) * (1 - kb)));
-      g.addColorStop(0.62, rgba(kb < 0.5 ? colA : colB, 0.4 * (1 - kb))); g.addColorStop(1, rgba(colA, 0));
+      g.addColorStop(0, `rgba(255,250,236,${(0.9 * (1 - kb)).toFixed(3)})`); g.addColorStop(0.4, rgba(colA, 0.55 * (1 - kb)));
+      g.addColorStop(0.75, rgba(colB, 0.3 * (1 - kb))); g.addColorStop(1, rgba(colB, 0));
       ctx.fillStyle = g;
-    } else ctx.fillStyle = `rgba(255,255,255,${(0.5 * (1 - kb)).toFixed(3)})`;
+    } else ctx.fillStyle = `rgba(255,255,255,${(0.4 * (1 - kb)).toFixed(3)})`;
     ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, Math.PI * 2); ctx.fill();
   }
-  const ks = span(u, 0, 0.26);
+  // the star: four points and four short ones between them, stabbing out and dying back within a quarter second
+  const ks = span(u, 0, 0.24);
   if (ks < 1) {
-    const len = s * 1.25 * Math.sqrt(power) * outBack(Math.min(1, ks * 2.4), 2.2) * (1 - inQuad(ks));
-    ctx.lineCap = 'round';
-    for (const [ang, m] of [[0, 1], [Math.PI / 2, 0.6], [Math.PI / 4, 0.42], [-Math.PI / 4, 0.42]]) {
-      const dx = Math.cos(ang) * len * m, dy = Math.sin(ang) * len * m;
-      ctx.strokeStyle = `rgba(255,243,208,${(0.95 * (1 - ks)).toFixed(3)})`; ctx.lineWidth = Math.max(1, 2.6 * (1 - ks)) * k;
-      ctx.beginPath(); ctx.moveTo(c.x - dx, c.y - dy); ctx.lineTo(c.x + dx, c.y + dy); ctx.stroke();
+    const len = s * 0.52 * Math.sqrt(power) * outBack(Math.min(1, ks * 2.6), 2.2) * (1 - inQuad(ks));
+    const wd = Math.max(1.2 * k, s * 0.05 * (1 - ks));
+    ctx.fillStyle = `rgba(255,246,220,${(0.95 * (1 - ks * ks)).toFixed(3)})`;
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const ang = (i / 8) * Math.PI * 2 + 0.2, L1 = len * (i % 2 ? 0.45 : 1) * (i % 4 === 0 ? 1.15 : 1);
+      const ax = Math.cos(ang), ay = Math.sin(ang);
+      ctx.moveTo(c.x - ay * wd, c.y + ax * wd); ctx.lineTo(c.x + ax * L1, c.y + ay * L1); ctx.lineTo(c.x + ay * wd, c.y - ax * wd);
     }
+    ctx.closePath(); ctx.fill();
   }
   ctx.restore();
 }
@@ -629,10 +665,10 @@ export function crossedSwords(ctx, x, y, r, { color = BRASS_HI, ink = INK, alpha
 }
 
 /** The two strength bars over the scene: each side's sigil, its troops counting down, a fill that drains at each contact with a pale ghost behind it. */
-function paintBars(ctx, T, st, t, k, numText, nameText, show, fit = 1) {
+function paintBars(ctx, T, st, t, k, numText, nameText, show, fit = 1, layout = null) {
   if (show <= 0.01) return;
   const bf = Math.max(0.62, Math.min(1, fit * 1.2));
-  const BW = 176 * k * bf, BH = 14 * k, GAP = 52 * k * bf, y = st.cy + st.s * 1.05 + 34 * k;
+  const BW = (layout?.bar ?? 176 * bf) * k, BH = 14 * k, GAP = (layout ? Math.max(34, Math.min(56, layout.bar * 0.3)) : 52 * bf) * k, y = st.cy + st.s * NEED.below + 34 * k;
   const share = lossShare(t), ghost = lossShare(t, 0.32);
   let hit = 0;
   for (const h of BATTLE_HITS) { const u = t - h; if (u >= 0 && u < 0.16) hit = 1 - u / 0.16; }
@@ -667,35 +703,46 @@ function paintBars(ctx, T, st, t, k, numText, nameText, show, fit = 1) {
   ctx.restore();
 }
 
-/** The numbers over a side: the running total of its losses, struck again at each contact; the record's own total and the fate at the end. */
-function paintLosses(ctx, side, st, t, k, lossText, fateText, numText, fit = 1) {
+/** The size of a loss number on screen (px): the running total after each contact, and the record's own total at the end. */
+export const LOSS_PX = 28;
+export const LOSS_PX_FINAL = 32;
+/** A number is there at full opacity on its first frame, 1.3 times its size, and settles to 1.0 in 120 ms (UX-DESIGN §11.14). */
+export const LOSS_POP = Object.freeze({ from: 1.3, secs: 0.12 });
+
+/**
+ * The numbers over a side: the running total of its losses, struck again at each contact; the record's own total
+ * and the fate at the end. Ivory with an ink outline, readable from the first exchange. `e.place(x, y, halfW,
+ * halfH)` (the effects layer's) keeps a number inside what the HUD leaves free.
+ */
+function paintLosses(ctx, side, st, t, k, e) {
+  const { lossText, fateText, numText, layout } = e;
   let hit = -1;
   for (let j = 0; j < BATTLE_HITS.length; j++) if (t >= BATTLE_HITS[j]) hit = j;
   if (hit < 0) return;
   const last = hit === BATTLE_HITS.length - 1;
-  const y0 = st.cy - st.s * 2.0;
+  const narrow = layout ? layout.rest < REST : e.fit < 0.8;
+  const size = (last ? (narrow ? LOSS_PX : LOSS_PX_FINAL) : LOSS_PX) * k;
+  const final = side.loss ? lossText(side.loss) : '';
+  const n = side.loss !== null && side.loss > 0 ? (last ? side.loss : Math.round(side.loss * LOSS_BY_HIT[hit])) : 0;
+  const text = n > 0 ? (last ? final : `−${numText(n)}`) : '';
   // over its side; two long numbers never run into each other (each keeps to its half)
-  const final = side.loss ? lossText(side.loss) : '', size = (last ? (fit < 0.8 ? 27 : 32) : 26) * k;
   let half = 0;
-  if (last && final) { ctx.save(); ctx.font = `800 32px ${SANS}`; half = ((ctx.measureText?.(final)?.width ?? 0) * size) / 32 / 2 + 7 * k; ctx.restore(); }
-  const x = st.cx + side.sgn * Math.max((REST + 0.2) * st.s, half);
+  if (text) { ctx.save(); ctx.font = `800 32px ${SANS}`; half = ((ctx.measureText?.(text)?.width ?? 0) * size) / 32 / 2; ctx.restore(); }
   const u = t - BATTLE_HITS[hit];
   const out = last ? 1 - inQuad(span(t, PHASE.end - 0.6, PHASE.end - 0.1)) : 1;
-  const pop = lerp(0.35, 1, outBack(span(u, 0, 0.17), 2.6)), rise = 14 * k * outCubic(span(u, 0, 0.5));
-  if (side.loss !== null && side.loss > 0) {
-    const n = last ? side.loss : Math.round(side.loss * LOSS_BY_HIT[hit]);
-    const lost = side.after === 0;
-    if (n > 0) inkText(ctx, last ? final : `−${numText(n)}`, x, y0 - rise, size, last && lost ? '#ff8f76' : '#ffb7a3', { alpha: span(u, 0, 0.05) * out, scale: pop });
-  }
+  const pop = lerp(LOSS_POP.from, 1, outCubic(span(u, 0, LOSS_POP.secs))), rise = 8 * k * outCubic(span(u, 0, 0.4));
+  let x = st.cx + side.sgn * Math.max((st.rest + 0.2) * st.s, half + 8 * k), y = st.cy - st.s * NEED.above;
+  if (e.place && text) { const at = e.place(x, y, half + 4 * k, size * 0.6 + (last ? 16 * k : 0)); x = at.x; y = at.y; }
+  if (text) inkText(ctx, text, x, y - rise, size, IVORY, { alpha: out, scale: pop });
   if (last && fateText) {
     const ft = side.fate ? fateText(side.fate) : null;
-    if (ft) inkText(ctx, ft, x, y0 + 27 * k - rise, 16 * k, IVORY, { weight: 700, alpha: span(t, PHASE.fates + 0.45, PHASE.fates + 0.8) * out });
+    if (ft) inkText(ctx, ft, x, y + size * 0.5 + 12 * k - rise, 16 * k, side.after === 0 ? '#ffb09a' : BRASS_HI, { weight: 700, alpha: span(t, PHASE.fates + 0.45, PHASE.fates + 0.8) * out });
   }
 }
 
 function paintTile(ctx, T, e) {
   const { t, tau, k, residents } = e;
-  const st = battleStage(T, e.zoom, e.fit), s = st.s, cx = st.cx, cy = st.cy;
+  const st = battleStage(T, e.zoom, e.fit, e.layout), s = st.s, cx = st.cx, cy = st.cy, REST = st.rest, ENGAGE = REST - MEET;
   const mist = residents ? 0 : 1 - span(t, 0.55, 1.5);
   if (mist > 0.01 && T.sides[0].groups.length) paintMist(ctx, cx - REST * s, cy - s * 0.3, s * 1.3, t, mist);
   // the figures, back to front
@@ -704,14 +751,14 @@ function paintTile(ctx, T, e) {
   for (let j = 0; j < BATTLE_HITS.length; j++) if (t >= BATTLE_HITS[j]) hit = j;
   const sinceHit = hit >= 0 ? t - BATTLE_HITS[hit] : Infinity;
   for (const side of T.sides) for (const g of side.groups) {
-    const gs = groupState(T, side, g, t, tau, residents);
+    const gs = groupState(T, side, g, t, tau, residents, ENGAGE);
     for (const f of g.figs) {
       // from a loose crowd into the stance's formation
       const dk = outBack(span(t, PHASE.deploy + f.j * 0.22, PHASE.deploy + 0.6 + f.j * 0.22), 1.25);
       const px = lerp(f.fx * 0.5 - 0.22 + (f.j - 0.5) * 0.34, f.fx, dk), py = lerp((f.fy - g.off) * 0.55 + g.off + (hash(Math.round(f.j * 1e6), 5) - 0.5) * 0.3, f.fy, dk);
       let x = cx + side.sgn * ((REST - gs.adv * (f.front || g.ranged ? 1 : 0.88)) - px) * s - py * s * SKEW, y = cy + py * s * DEPTH;
       let alpha = gs.alpha, rot = -side.sgn * gs.lean, hop = gs.hop * s * (f.front ? 1 : 0.7), flash = 0, sx = 1, sy = 1, walking = gs.walking;
-      if (T.fight && hit >= 0 && sinceHit < 0.13 && (f.front || f.fall === hit)) flash = 0.85 * (1 - span(sinceHit, 0.03, 0.13));
+      if (T.fight && hit >= 0 && sinceHit < HIT_TINT_SECS[1] && (f.front || f.fall === hit)) flash = hitTint(sinceHit);
       if (T.fight && hit >= 0 && sinceHit < HIT_STOP && !g.ranged) { sx = 1.1; sy = 0.92; }
       if (f.fall >= 0 && tau >= BATTLE_HITS[f.fall]) {
         const h = BATTLE_HITS[f.fall], fk = outCubic(span(tau, h + 0.02, h + 0.44));
@@ -743,8 +790,8 @@ function paintTile(ctx, T, e) {
   if (holder && t >= PHASE.fates + 0.55) paintStandard(ctx, cx + holder.sd.sgn * (REST + 0.95) * s - holder.g.off * s * SKEW, cy + holder.g.off * s * DEPTH + s * 0.1, s * 0.86, holder.g.faction, t, k);
   if (T.fight) {
     const t0 = residents ? PHASE.deploy : 0;
-    paintBars(ctx, T, st, t, k, e.numText, e.nameText, outCubic(span(t, t0 + 0.2, t0 + 0.6)) * (1 - span(t, PHASE.end - 0.6, PHASE.end - 0.15)), e.fit);
-    for (const side of T.sides) paintLosses(ctx, side, st, t, k, e.lossText, e.fateText, e.numText, e.fit);
+    paintBars(ctx, T, st, t, k, e.numText, e.nameText, outCubic(span(t, t0 + 0.2, t0 + 0.6)) * (1 - span(t, PHASE.end - 0.6, PHASE.end - 0.15)), e.fit, e.layout);
+    for (const side of T.sides) paintLosses(ctx, side, st, t, k, e);
   } else if (e.fateText && t >= PHASE.fates + 0.45) {
     const side = T.sides.find(sd => sd.groups.length);
     const ft = side?.fate ? e.fateText(side.fate) : null;
@@ -753,20 +800,21 @@ function paintTile(ctx, T, e) {
 }
 
 /**
- * Draw a playing scene. `{zoom, now | at, fit (battleFit of the map's width), lossText, fateText, numText, nameText(side)}`:
+ * Draw a playing scene. `{zoom, now | at, fit (battleFit of the map's width), layout (battleLayout of the stage:
+ * the scene fills it), place (keeps a number on the free part of the screen), lossText, fateText, numText, nameText(side)}`:
  * `at` gives the scene's own time directly (the effects layer plays it on
  * its clock). When the effects layer has taken a scene (`play.staged`: it
  * draws it above the dimmed map, fx/battle.mjs), the map's own call draws
  * nothing and only says whether the scene is still playing. Returns false
  * once it is over.
  */
-export function paintBattle(ctx, play, { zoom = 1, now = wallNow(), at = null, top = false, fit = 1, lossText = n => `−${n}`, fateText = null, numText = n => String(n), nameText = null } = {}) {
+export function paintBattle(ctx, play, { zoom = 1, now = wallNow(), at = null, top = false, fit = 1, layout = null, place = null, lossText = n => `−${n}`, fateText = null, numText = n => String(n), nameText = null } = {}) {
   if (!play) return false;
   const t = at ?? battleTime(play, now);
   if (t > PHASE.end) return false;
   if (play.staged && !top) return true;
   const plan = battlePlan(play.scene);
-  const e = { t, tau: poseTime(t), zoom, k: 1 / Math.max(0.05, zoom), residents: plan.residents, fit, lossText, fateText, numText, nameText };
+  const e = { t, tau: poseTime(t), zoom, k: 1 / Math.max(0.05, zoom), residents: plan.residents, fit, layout, place, lossText, fateText, numText, nameText };
   for (const T of plan.tiles) paintTile(ctx, T, e);
   ctx.globalAlpha = 1;
   return true;
