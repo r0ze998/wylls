@@ -84,7 +84,7 @@ function peak(g, x, y, u, P, R, lw) {
     const shoulder = 0.3 + R() * 0.35, sh = (R() - 0.3) * 0.2;
     for (let i = 1; i < n; i++) {
       // (a mountain is broad in the shoulder: the slope swells outward below the summit and steepens again at the foot)
-      const k = i / n, bulge = Math.sin(Math.pow(k, 0.8) * Math.PI) * (P.h < 1 ? 0.3 : 0.17) + (Math.abs(k - shoulder) < 0.16 ? sh : 0);
+      const k = i / n, bulge = Math.sin(Math.pow(k, 0.8) * Math.PI) * (P.h < 1 ? 0.24 : 0.17) + (Math.abs(k - shoulder) < 0.16 ? sh : 0);
       pts.push([lerp(sx, end[0], k) + dir * (bulge + (R() - 0.5) * 0.1 * k) * w, lerp(top, end[1], Math.pow(k, 1.06)) + (R() - 0.5) * 0.06 * h * k]);
     }
     pts.push(end);
@@ -187,7 +187,11 @@ export function paintMountain(g, x, y, u, { variant = 0 } = {}) {
   for (const p of tall) peak(g, x, y, u, p, R, lw);
   // pines on the flanks, behind the low spurs
   for (const [dx, dy, s, k] of [[-0.86, 0.02, 0.62, 0], [0.84, 0.06, 0.56, 1], [-0.7, 0.16, 0.5, 2]].slice(0, 2 + (v % 2))) paintTree(g, x + dx * u, y + dy * u, u * s, { kind: 'fir', variant: k });
-  for (const p of low) peak(g, x, y + 0.1 * u, u, p, R, lw);
+  for (const p of low) {
+    // (a spur stands in front of the massif: the shade it throws on the face behind it)
+    if (g.ellipse && p.h < 0.7 && Math.abs(p.x) < 0.3) { g.fillStyle = 'rgba(30,22,14,.2)'; g.beginPath(); g.ellipse(x + (p.x + 0.06) * u, y + (0.1 - p.h * 0.42) * u, p.w * 0.72 * u, p.h * 0.66 * u, 0, 0, Math.PI * 2); g.fill(); }
+    peak(g, x, y + 0.1 * u, u, p, R, lw);
+  }
   // foothills and boulders along the near base
   const hills = [[-0.66, 0.26, 0.3, 0.17], [0.62, 0.28, 0.32, 0.16], [0.02, 0.36, 0.36, 0.15], [-0.3, 0.33, 0.24, 0.12], [0.34, 0.36, 0.22, 0.11]];
   for (const [dx, dy, w, h] of hills.slice(0, 4 + (v === 2 ? 1 : 0))) mound(g, x + (dx + (R() - 0.5) * 0.08) * u, y + dy * u, w * u, h * u, lw);

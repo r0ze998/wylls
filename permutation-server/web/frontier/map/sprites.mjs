@@ -1222,6 +1222,10 @@ export class SpriteArt {
       const pic = t.lv === L2 ? mutedSprite(v.cv) : v.cv;
       raise(cx, cy, () => { const was = g.imageSmoothingEnabled; g.imageSmoothingEnabled = true; g.drawImage(pic, cx - v.ox * U, cy - v.oy * U, v.w * U, v.h * U); g.imageSmoothingEnabled = was; });
     };
+    // province borders: ink with its halo over painted land, a quiet sepia line on the chart. A line on the ground: laid
+    // before what stands on it (it ran across the crowns of a wood and the face of a mountain once those stood upright),
+    // and so under the hosts, the people and their labels too
+    if (has('props') && !far) for (const e of entries) if (e.fog !== 'unopened') this.frame(ctx, { p: e.p, q: e.q, fog: 'clear', selected: e.selected, zoom, sv: svOf(e), survey });
     // pass 2: props, holdings, cloud sea
     if (has('props')) { for (const t of tiles) propsOf(t); for (const t of tiles) if (t.hero && !t.cloud && t.state === 1 && t.owner < 6 && t.lv >= L2 && !far) villageOf(t); }
     // the far view's bitmap stops here: land, props, holdings, territory (map/sprites.mjs farBitmap)
@@ -1244,9 +1248,6 @@ export class SpriteArt {
       if (paintReveal(ctx, { reveals: survey.reveals, byKey: key => byKey.get(key), res: s.r / RADIUS, now: fxNow(), nameAt: chartName }) > 0 && !this.revealTimer) this.revealTimer = setTimeout(() => { this.revealTimer = null; this.onTick(); }, 33);
     }
     // (the survey is in the ground and the sprites already: muted land, the chart and their edge; nothing veils the frame)
-    // province borders: ink with its halo over painted land, a quiet sepia line on the chart. Under the hosts, the
-    // people and their labels (a border used to run through a label that stood on it)
-    for (const e of entries) if (e.fog !== 'unopened') this.frame(ctx, { p: e.p, q: e.q, fog: 'clear', selected: e.selected, zoom, sv: svOf(e), survey });
     // a tile whose battle is playing shows the scene's figures, not the hosts' sprites (UI plan D4)
     const fightingAt = battleTiles((people?.battles ?? []).filter(shown), (globalThis.performance?.now?.() ?? Date.now()) / 1000);
     for (const e of entries) {

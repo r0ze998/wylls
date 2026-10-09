@@ -330,7 +330,9 @@ export function paintOwnOutline(g, land, { zoom = 1, shown = 1, strong = false }
   g.setLineDash(land.provisional ? [10 * k, 7 * k] : []);
   // (`strong`: while a reach is lit over the land and the rest of the map is dimmed, the gold line is drawn whole)
   if (strong) { g.globalAlpha = 0.6 * shown; g.strokeStyle = `${INK}1)`; g.lineWidth = 4.4 * k; g.stroke(P.edge); }
-  g.globalAlpha = (strong ? 0.95 : 0.42) * shown; g.strokeStyle = YOU; g.lineWidth = (strong ? 2 : 1.2) * k; g.stroke(P.edge);
+  // (else a breath of it: what stands on the border is taller since the third wave, a mountain, a wood of single trees,
+  // and a line at .42 across them read as a wire)
+  g.globalAlpha = (strong ? 0.95 : 0.24) * shown; g.strokeStyle = YOU; g.lineWidth = (strong ? 2 : 1.2) * k; g.stroke(P.edge);
   g.setLineDash([]);
   g.restore();
 }
