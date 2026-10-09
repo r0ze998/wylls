@@ -30,7 +30,7 @@
 // by web-frontier-practice.test.mjs.
 import { html, raw } from '../../util.mjs';
 import { icon } from '../hud/icons.mjs';
-import { L, fmtNum, lang } from '../../lang.mjs';
+import { L, fmtNum } from '../../lang.mjs';
 import { sha256 } from '../../sdk/sha256.mjs';
 import { toHex, fromBase64 } from '../../sdk/bytes.mjs';
 import { Writer, Reader, OK } from '../wasm.mjs';
@@ -44,7 +44,9 @@ import { swatch } from './shell.mjs';
 import { personChip } from '../people/ui.mjs';
 import { cardHead, fold, chip, lossBar, label, ring } from './parts.mjs';
 import { tileName, provinceName } from '../hud/place.mjs';
-import { LEADERS, leaderSvg, leaderFigure } from '../people/leaders.mjs';
+import { leaderFigure } from '../people/leaders.mjs';
+import { playerFace } from '../people/faces.mjs';
+import { sideOutcome, verdictKey } from '../people/outcome.mjs';
 
 // ------------------------------------------------------------------ the resolve_clash codec (borsh)
 /** Postures in borsh order: Stance(Hold|Assault|Flank|Brace), then Disarray. */
@@ -432,13 +434,13 @@ export function summaryOf(rows) {
   const lost = own.reduce((a, r) => a + lossOf(r), 0), before = own.reduce((a, r) => a + r.before, 0);
   const arrivals = own.filter(r => r.kind === 'arrival');
   const reached = arrivals.length ? arrivals.some(r => r.fate === 'Stays') : null;
-  const fell = own.every(r => r.fate === 'Destroyed' || r.after === 0);
-  const turned = own.every(r => ['Withdrew', 'Bounced', 'Retreated', 'Routed'].includes(r.fate));
   const foes = rows.filter(r => !r.mine && r.faction !== own[0].faction);
-  const foesLeft = foes.filter(r => r.after !== null && r.after > 0 && (r.fate === null || r.fate === 'Stays')).length;
-  const result = !known ? 'none' : fell ? 'fell' : turned ? 'turned' : foesLeft === 0 ? 'won' : 'held';
-  const foe = !foes.length ? 'none' : foesLeft > 0 ? 'stays' : foes.some(r => r.after !== null && r.after > 0) ? 'left' : foes.every(r => r.kind === 'camp') ? 'camp' : 'destroyed';
-  return { mine: true, known, lost, before, result, reached, fates: own.map(r => r.fate).filter(Boolean), faction: own[0].faction, role: arrivals.length ? 'attack' : 'defend', foe };
+  // what became of each side: the one function the battle on the map asks too (people/outcome.mjs), so the stamp
+  // here, the title across the map and the tags under the losses say one thing of one result
+  const ownOut = sideOutcome(own), foeOut = foes.length ? sideOutcome(foes) : undefined;
+  const result = !known || ownOut === null ? 'none' : ownOut === 'Destroyed' ? 'fell' : ownOut !== 'Stays' ? 'turned' : foeOut === 'Stays' ? 'held' : 'won';
+  const foe = !foes.length ? 'none' : foeOut === null ? 'unknown' : foeOut === 'Stays' ? 'stays' : foeOut !== 'Destroyed' ? 'left' : foes.every(r => r.kind === 'camp') ? 'camp' : 'destroyed';
+  return { mine: true, known, lost, before, result, reached, fates: own.map(r => r.fate).filter(Boolean), faction: own[0].faction, role: arrivals.length ? 'attack' : 'defend', foe, own: ownOut, other: foeOut };
 }
 
 /**
@@ -527,7 +529,7 @@ function rowHtml(r, ownerOf = null) {
   const stance = r.kind === 'arrival' || r.kind === 'resident' ? postureName(r.posture) : r.walls ? L`城壁あり` : '';
   const fate = r.fate ? FATE_TEXT[r.fate] ?? r.fate : r.kind === 'garrison' || r.kind === 'camp' ? L`守った` : '—';
   const who = ownerOf && r.kind !== 'camp' ? ownerOf(r.id) : null;
-  return html`<tr class="${r.mine ? 'mine' : ''}"><th scope="row">${who ? raw(personChip(who, r.faction, { size: 24 })) : ''}${swatch(r.faction)}${factionName(r.faction)} · ${KIND_TEXT[r.kind]()}${r.unit !== undefined ? html` · ${unitName(r.unit)}` : ''}${r.mine ? html` <span class="mine-mark">${L`（あなた）`}</span>` : ''}</th>
+  return html`<tr class="${r.mine ? 'mine' : ''}"><th scope="row">${who ? raw(personChip(who, r.faction, { size: 30, own: !!r.mine })) : ''}${swatch(r.faction)}${factionName(r.faction)} · ${KIND_TEXT[r.kind]()}${r.unit !== undefined ? html` · ${unitName(r.unit)}` : ''}${r.mine ? html` <span class="mine-mark">${L`（あなた）`}</span>` : ''}</th>
     <td>${fmtNum(r.before)} → ${r.after === null ? '—' : fmtNum(r.after)}</td><td>${stance}</td><td>${fate}</td></tr>`;
 }
 
@@ -570,15 +572,16 @@ export function renderSides(rows) {
 }
 
 /**
- * The two main sides face to face (the viewer's first, then the largest): a portrait of each
- * nation's leader (a camp has its tent), the troops before and after, the loss, a bar. Further
+ * The two main sides face to face (the viewer's first, then the largest): each side's face, the
+ * character of its nation (the viewer's own in the gold ring; a camp has its tent), the troops
+ * before and after, the loss, a bar. Further
  * sides follow as bars under it.
  */
 export function renderVersus(rows) {
   const sides = sidesOf(rows);
   if (!sides.length) return html`<p class="muted">${L`戦った軍勢はいません`}</p>`;
   const max = Math.max(1, ...sides.map(s => s.before));
-  const face = s => (s.camp || !(s.faction >= 0 && s.faction < 6) ? html`<span class="vs-face vs-camp">${icon('tent')}</span>` : html`<span class="vs-face">${raw(leaderSvg(s.faction, { size: 56 }))}</span>`);
+  const face = s => (s.camp || !(s.faction >= 0 && s.faction < 6) ? html`<span class="vs-face vs-camp">${icon('tent')}</span>` : html`<span class="vs-face">${raw(playerFace(s.faction, { size: 56, own: !!s.mine }))}</span>`);
   const block = (s, cls) => html`<div class="vs-side ${cls}${s.mine ? ' mine' : ''}">${face(s)}
     <div class="vs-text"><span class="vs-who">${s.camp ? KIND_TEXT.camp() : html`${swatch(s.faction)}${factionName(s.faction)}`}${s.mine ? html`<span class="mine-mark">${L`（あなた）`}</span>` : ''}</span>
       <span class="vs-n"><span class="side-ba">${fmtNum(s.before)} → ${s.after === null ? '—' : fmtNum(s.after)}</span>${s.lost ? html`<strong class="side-lost">−${fmtNum(s.lost)}</strong>` : ''}</span></div>
@@ -660,29 +663,29 @@ export function render(FS, mine = () => false, { whatIf = true, ownerOf = null }
  */
 export function verdictOf(sum) {
   if (!sum?.mine) return { key: 'watch', tone: 'watch', text: '' };
-  if (sum.result === 'none') return { key: 'none', tone: 'none', text: L`結果はまだ確かめていません` };
-  if (sum.result === 'fell') return { key: 'fell', tone: 'fell', text: L`壊滅：あなたの兵は残らなかった` };
-  if (sum.result === 'turned') return { key: 'turned', tone: 'turned', text: L`撤退：戦場には残らなかった` };
-  if (sum.result === 'held') return { key: 'held', tone: 'held', text: L`持ちこたえた：相手も戦場に残っている` };
-  if (sum.foe === 'camp') return { key: 'won', tone: 'won', text: L`勝利：野営地を制圧した` };
-  if (sum.foe === 'destroyed') return { key: 'won', tone: 'won', text: L`勝利：相手は壊滅した` };
-  if (sum.foe === 'left') return sum.role === 'defend' ? { key: 'repelled', tone: 'won', text: L`撃退：攻め手は退いた` } : { key: 'won', tone: 'won', text: L`勝利：相手は退いた` };
-  return sum.role === 'defend' ? { key: 'held', tone: 'held', text: L`戦場に残った` } : { key: 'arrived', tone: 'held', text: L`行き先に着き、戦場に残った` };
+  // the word: people/outcome.mjs verdictKey, the one the battle's title on the map asks
+  const key = sum.result === 'none' ? 'none' : verdictKey({ own: sum.own, foe: sum.other, role: sum.role });
+  if (key === 'none') return { key, tone: 'none', text: L`結果はまだ確かめていません` };
+  if (key === 'fell') return { key, tone: 'fell', text: L`壊滅：あなたの兵は残らなかった` };
+  if (key === 'turned') return { key, tone: 'turned', text: L`撤退：戦場には残らなかった` };
+  if (key === 'repelled') return { key, tone: 'won', text: L`撃退：攻め手は退いた` };
+  if (key === 'won') return { key, tone: 'won', text: sum.foe === 'camp' ? L`勝利：野営地を制圧した` : sum.foe === 'destroyed' ? L`勝利：相手は壊滅した` : L`勝利：相手は退いた` };
+  if (key === 'arrived') return { key, tone: 'held', text: L`行き先に着き、戦場に残った` };
+  return { key: 'held', tone: 'held', text: sum.foe === 'none' ? L`戦場に残った` : L`持ちこたえた：相手も戦場に残っている` };
 }
 
-/** The leader's word on a result (UI plan F1): the viewer's faction, or the side that held the field. */
-const LEADER_LINE = {
-  won: () => L`見事だ。この地の名は、今日のおまえたちのものだ。`,
-  held: () => L`よく踏みとどまった。次の鐘で押し返せ。`,
+/** The nation's words on a result (UI plan F1; no named speaker: DECISIONS ZP3): the viewer's nation, or the side that held the field. */
+const NATION_LINE = {
+  won: () => L`見事な勝利だ。この地の名は、今日の我らのものだ。`,
+  held: () => L`よく踏みとどまった。次の鐘で押し返そう。`,
   turned: () => L`退くのも兵法のうちだ。兵は残った。`,
-  fell: () => L`痛い負けだ。だが辺境は広い、立て直せ。`,
+  fell: () => L`痛い負けだ。だが辺境は広い。立て直そう。`,
   none: () => L`結末はまだ分からぬ。確かめてから語ろう。`,
   watch: () => L`この地はわれらのものだ。`,
 };
 function leaderLine(f, key) {
   if (!Number.isInteger(f) || f < 0 || f > 5) return '';
-  const l = LEADERS[f];
-  return html`<p class="report-leader"><span class="report-fig">${raw(leaderFigure(f))}</span><span><q>${LEADER_LINE[key]()}</q> <span class="muted">— <span data-name>${lang() === 'en' ? l.name.en : l.name.ja}</span></span></span></p>`;
+  return html`<p class="report-leader"><span class="report-fig">${raw(leaderFigure(f))}</span><span><q>${NATION_LINE[key]()}</q> <span class="muted">— ${factionName(f)}</span></span></p>`;
 }
 
 /** The outcome stamp: a word pressed on the paper (its tone is a class; the word says it too). */

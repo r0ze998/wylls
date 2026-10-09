@@ -11,6 +11,7 @@ import { RADIUS, FLATTEN, project } from '../../map.mjs';
 import { tileHex, DIRECTIONS } from '../fgeo.mjs';
 import { paintMini } from './minis.mjs';
 import { standing, upright } from '../map/tilt.mjs';
+import { characterTokens, paintCharacter } from './onboard.mjs';
 
 export const UNIT_KINDS = Object.freeze(['spearman', 'archer', 'horseman', 'pikeman', 'crossbowman', 'knight', 'scout', 'settler']);
 const INK = '#1b1712', STEEL = '#aeb4b9', STEEL_D = '#6c7378', WOOD = '#7a5634', LEATHER = '#6b4a2e', HORSE = '#7b5636', HORSE_D = '#4e3522', SKIN = '#e2b58e';
@@ -238,6 +239,9 @@ export function placePills(ctx, items, k, t, boxes = []) {
 
 /** A whole token: disc, soldier, and (when `label`) the pill above it. `s` is its height (world px). */
 export function paintToken(ctx, tok, { s, k, t = 0, label = true, up = null }) {
+  // a player's character beside its village (people/onboard.mjs): a token like a host's for the map's depth
+  // order and its cut behind what stands in front, a figure of its own, no pill
+  if (tok.character) { paintCharacter(ctx, tok, { s, t, up }); return; }
   const { x, y, faction, kind, face = 1, alpha = 1, walking = false, own = false } = tok;
   const step = (t * (walking ? 1.6 : 0.5) + (tok.phase ?? 0)) % 1;
   const pulse = 0.5 + 0.5 * Math.sin(t * 2.4);
@@ -296,6 +300,9 @@ export function provinceTokens({ p, q, hosts, holdingTiles = new Set(), viewerFa
         alpha: st === 'sealed' ? 0.55 : st === 'muster' ? 0.75 : 1, own: g.faction === viewerFaction, dashed: st === 'arriving', phase: hash(tile, i, g.faction), tile, p, q, hosts: g.hosts.map(h => String(h.id)) });
     });
   }
+  // the players' characters that stand by a village of this province (people/onboard.mjs): the viewer's own beside
+  // the viewer's active village, another player's beside a village that is selected; clear of the hosts above
+  out.push(...characterTokens({ p, q, tokens: out, villages: holdingTiles, heroTiles, skipTiles }));
   return out;
 }
 

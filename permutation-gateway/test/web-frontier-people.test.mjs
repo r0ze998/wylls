@@ -115,14 +115,14 @@ test('highlights: departures name their lord and the arrival turn; new villages 
   assert.doesNotMatch(ja[0].text, /鐘/);
 });
 
-test('leaders: six portraits, one per faction, with names in both languages', () => {
-  assert.equal(LD.LEADERS.length, 6);
+test('the six characters: six portraits, one per nation, with no name and no title', () => {
+  assert.equal(LD.CHARACTERS.length, 6);
   for (let f = 0; f < 6; f++) {
     const svg = LD.leaderSvg(f, { size: 120 });
     assert.match(svg, /viewBox="0 0 240 300"/);
     assert.doesNotMatch(svg, /style=/);
     assert.match(svg, new RegExp(A.FACTION_FILL[f]));
-    assert.match(LD.LEADERS[f].name.en, /^[A-Z][a-z]+ [A-Z][a-z]+$/);
+    assert.equal(LD.CHARACTERS[f].name, undefined); assert.equal(LD.CHARACTERS[f].title, undefined);
   }
 });
 

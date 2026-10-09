@@ -1,10 +1,15 @@
-// A reusable map-art consumer for leader actors. The current game has army
-// actors and UI leaders only; this does not replace a soldier or invent an actor.
+// The map's painter of a nation's character (ported from the other line of
+// work). The six are the players (DECISIONS ZP1): a player's character stands
+// beside that player's village (people/onboard.mjs) and behind that player's
+// line in a battle scene (people/battle.mjs); it replaces no soldier and is
+// no unit of the game.
 import { motionSelection, motionSpriteUrl, motionSpriteFrame, LEADER_SPRITE_CELL, LEADER_SPRITE_ANCHOR, LEADER_SPRITE_CELL_U, LEADER_DRAW_SCALE } from '../leader-motion-data.mjs';
 
 const images = new Map();
-let redraw = () => {};
-export function onLeaderMotionLoad(fn) { redraw = typeof fn === 'function' ? fn : () => {}; }
+const listeners = new Set();
+const redraw = () => { for (const fn of [...listeners]) { try { fn(); } catch { /* a painter that is gone */ } } };
+/** Ask to be told when a sheet has arrived (or failed); returns the way to stop being told. Every asker is told. */
+export function onLeaderMotionLoad(fn) { if (typeof fn !== 'function') return () => {}; listeners.add(fn); return () => listeners.delete(fn); }
 
 export function leaderMotionSheet(leader, motion = 'idle') {
   const selected = motionSelection(leader, motion), url = motionSpriteUrl(selected.leader.key, selected.motion.key);
@@ -13,9 +18,10 @@ export function leaderMotionSheet(leader, motion = 'idle') {
   const image = new Image(), record = { image, ready: false, failed: false };
   images.set(url, record);
   image.onload = () => {
-    record.ready = image.width === LEADER_SPRITE_CELL * selected.motion.frames && image.height === LEADER_SPRITE_CELL;
-    record.failed = !record.ready;
-    redraw();
+    const good = image.width === LEADER_SPRITE_CELL * selected.motion.frames && image.height === LEADER_SPRITE_CELL;
+    const done = () => { record.ready = good; record.failed = !good; redraw(); };
+    // (decoded before it is called ready, where the browser can: the first frame drawn does not wait for the row's decoding)
+    if (good && typeof image.decode === 'function') image.decode().then(done, done); else done();
   };
   image.onerror = () => { record.ready = false; record.failed = true; redraw(); };
   image.src = url;

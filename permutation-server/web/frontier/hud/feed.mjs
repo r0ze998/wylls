@@ -17,6 +17,7 @@ import { L, fmtNum, lang } from '../../lang.mjs';
 import { BUILDINGS, TIERS } from '../fi18n.mjs';
 import { BUILD_ITEMS, queueItem } from '../fland.mjs';
 import { holdingName } from '../people/ui.mjs';
+import { playerFace } from '../people/faces.mjs';
 import { placeName } from '../people/identity.mjs';
 import { icon } from './icons.mjs';
 import { tileWhat, provinceName } from './place.mjs';
@@ -171,14 +172,17 @@ const RESULT_ICON = Object.freeze({ arrival: 'seal', battle: 'swords', incoming:
 /**
  * What happened this turn (UX design 8.3: after the toll this turn's own results play on the map in order,
  * each offering "see"): one card over the map with a row per result. `strip` = `{turn, items: [{id, kind,
- * p, q, tile, text, battle}], demo}`; `now`: the index of the row whose mark is playing on the map (-1: none).
+ * p, q, tile, text, battle}], demo}`; `now`: the index of the row whose mark is playing on the map (-1: none);
+ * `faction`: the viewer's nation. These are the viewer's own results, so the card is headed by the viewer's own face
+ * (the nation's character in the gold ring: people/faces.mjs), the bell where the nation is not known.
  */
-export function renderTurnStrip(strip, { now = -1 } = {}) {
+export function renderTurnStrip(strip, { now = -1, faction = null } = {}) {
   if (!strip?.items?.length) return '';
   const see = x => (x.battle ? html`<button type="button" class="btn small go" data-act="battle-play" data-p="${x.battle.p}" data-q="${x.battle.q}" data-bell="${x.battle.bell}">${L`見る`}${icon('chevron', 'go-ic')}</button><button type="button" class="btn small" data-act="report-open" data-p="${x.battle.p}" data-q="${x.battle.q}" data-bell="${x.battle.bell}">${L`報告`}</button>`
     : Number.isInteger(x.p) ? html`<button type="button" class="btn small go" data-act="turn-go" data-id="${x.id}">${L`見る`}${icon('chevron', 'go-ic')}</button>` : '');
+  const face = playerFace(faction, { size: 34, own: true });
   return html`<div class="toast turn-strip" role="status">
-    <span class="toast-icon">${icon('bell')}</span>
+    ${face ? html`<span class="toast-face">${raw(face)}</span>` : html`<span class="toast-icon">${icon('bell')}</span>`}
     <span class="toast-text"><span class="toast-kind">${L`このターンのできごと`}<span class="toast-stamp">${icon('bell')}${L`ターン ${fmtNum(strip.turn)}`}</span></span></span>
     <button type="button" class="toast-x" data-act="turn-dismiss" aria-label="${L`閉じる`}">${icon('close')}</button>
     <ol class="turn-rows">${strip.items.map((x, i) => html`<li class="turn-row turn-${x.kind}${i === now ? ' now' : ''}"><span class="turn-ic">${icon(RESULT_ICON[x.kind] ?? 'flag')}</span><span class="turn-text">${x.text}</span><span class="turn-acts">${see(x)}</span></li>`)}</ol>

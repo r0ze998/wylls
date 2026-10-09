@@ -109,13 +109,19 @@ test('one outcome vocabulary: a host\'s fate, a side\'s verdict; the report\'s h
   assert.deepEqual(['Stays', 'Withdrew', 'Bounced', 'Retreated', 'Destroyed', 'Routed'].map(f => fi18n.FATES[f]), ['戦場に残った', '隣へ退いた', '村へ押し戻された', '撤退した', '壊滅した', '敗走した']);
   for (const f of ['Stays', 'Withdrew', 'Bounced', 'Retreated', 'Destroyed']) assert.equal(fi18n.TRANSIT_OUTCOME_TEXT[f], fi18n.FATES[f], `${f}: the marches and the chronicle say the report's word`);
   const battleSrc = readFileSync(join(WEB, 'fx/battle.mjs'), 'utf8'), appSrc = readFileSync(join(WEB, 'app.mjs'), 'utf8'), cardSrc = readFileSync(join(WEB, 'hud/marchcard.mjs'), 'utf8');
-  for (const f of ['Stays', 'Withdrew', 'Bounced', 'Retreated', 'Destroyed']) assert.ok(battleSrc.includes(`${f}: L\`${fi18n.FATES[f]}\``), `fx/battle.mjs says ${fi18n.FATES[f]} for ${f}`);
+  // (the battle on the map reads the table itself, not a copy of its words)
+  assert.match(battleSrc, /fateText: f => FATES\[f\] \?\? null/, 'fx/battle.mjs says the report\'s own table');
+  assert.doesNotMatch(battleSrc, /L`(戦場に残った|隣へ退いた|村へ押し戻された|撤退した|壊滅した)`/);
   assert.match(appSrc, /fateText: f => FATES\[f\] \?\? null/, 'the page hands the battle the report\'s table');
   // the forecast says the same words in the future tense
   for (const w of ['戦場に残る', '隣へ退く', '村へ押し戻される', '撤退する', '壊滅する']) assert.ok(cardSrc.includes(`L\`${w}\``), w);
   // a side's verdict: the words the battle's title uses (fx/battle.mjs verdictTitle)
   assert.deepEqual(['won', 'repelled', 'held', 'fell', 'turned', 'lost', 'ruin', 'cleared'].map(k => fi18n.VERDICTS[k]), ['勝利', '撃退', '持ちこたえた', '壊滅', '撤退', '敗北', '共倒れ', '野営地を制圧']);
-  for (const w of ['勝利', '撃退', '壊滅', '撤退', '敗北', '共倒れ', '野営地を制圧']) assert.ok(battleSrc.includes(`L\`${w}\``), `the battle's title says ${w}`);
+  // (the title's words are the table's, chosen by the function the report's stamp asks too: people/outcome.mjs)
+  assert.match(battleSrc, /title: VERDICTS\[key\]/); assert.match(battleSrc, /VERDICTS\.ruin/); assert.match(battleSrc, /VERDICTS\.cleared/);
+  assert.doesNotMatch(battleSrc, /L`(勝利|撃退|壊滅|撤退|敗北|共倒れ|野営地を制圧)`/, 'no second copy of an outcome word in the battle\'s staging');
+  const repSrc = readFileSync(join(WEB, 'screens/report.mjs'), 'utf8');
+  for (const src of [battleSrc, repSrc]) assert.match(src, /import \{ sideOutcome, verdictKey \} from '\.\.\/people\/outcome\.mjs'/);
 
   // the headline: the word and the line follow what the rows say became of the other side
   const v = rows => { const s = rep.summaryOf(rows); const x = rep.verdictOf(s); return [s.result, s.role, s.foe, fi18n.VERDICTS[x.key], x.text]; };

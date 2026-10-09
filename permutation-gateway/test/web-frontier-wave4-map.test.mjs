@@ -444,7 +444,7 @@ import * as WAIT from '../../permutation-server/web/frontier/map/waitview.mjs';
 import * as opening from '../../permutation-server/web/frontier/map/opening.mjs';
 import { WEDGE_WAIT } from '../../permutation-server/web/frontier/map/chart.mjs';
 import { wedgeOf, tileHex, ringProvinces } from '../../permutation-server/web/frontier/fgeo.mjs';
-import { LEADERS } from '../../permutation-server/web/frontier/people/leaders.mjs';
+import * as PEOPLE from '../../permutation-server/web/frontier/people/leaders.mjs';
 import { setLang } from '../../permutation-server/web/lang.mjs';
 import { RADIUS, project } from '../../permutation-server/web/map.mjs';
 
@@ -488,14 +488,17 @@ test('the tag under the standard says what the marks are; the nation\'s words ca
   const t = said(g);
   assert.deepEqual(t.slice(0, 3), ['アステル', 'あなたの国の土地', '村を置ける場所']);
   assert.ok(t.slice(3).join('').startsWith('「まずは村の申し込みだ'));
-  // (the owner's decision of 2026-10-09: no leader names; every text of the tag, and whoever is named as speaking, is checked)
+  // (the owner's decision of 2026-10-09: no leader names. Rewritten at the integration of wave 4: the people module
+  // carries no name any more and the words name no speaker anywhere, so `who` is gone, on the page's card as well)
+  assert.equal(PEOPLE.LEADERS, undefined);
+  assert.equal(WAIT.leaderWords, WAIT.nationWords);
   for (let f = 0; f < 6; f++) {
     const w = WAIT.leaderWords(f, 'ticket');
-    const names = [LEADERS[f]?.name?.ja, LEADERS[f]?.name?.en].filter(Boolean);
-    assert.ok(typeof w.who === 'string' && w.who.length > 0, '(`who` is the page\'s, until its card names no speaker: the map prints none)');
+    assert.deepEqual(Object.keys(w), ['text'], 'the words alone: no speaker');
     const h = writer();
     WAIT.paintHomeTag(h, at, { zoom: 1, faction: f, say: w });
-    assert.ok(!said(h).some(x => names.some(n => String(x).includes(n))), `nation ${f}: no leader's name on the tag`);
+    assert.deepEqual(said(h).slice(0, 2).map(x => typeof x), ['string', 'string']);
+    assert.ok(said(h).slice(2).join('').startsWith('「') && said(h).slice(2).join('').endsWith('」'), `nation ${f}: after the name and the caption, the words and nothing else`);
     assert.ok(!said(h).some(x => /^—/.test(String(x))), 'and no line that names a speaker');
   }
   assert.equal(WAIT.leaderWords(9), null);

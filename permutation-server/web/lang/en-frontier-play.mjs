@@ -154,15 +154,9 @@ export default {
   '国の順位': 'Nation standings',
   '村 {0} · {1} 州': (h, p) => `${plural(h, '{0} village', '{0} villages')} · ${plural(p, '{1} province', '{1} provinces')}`,
 
-  // ---- people (people/*.mjs): leaders, names, highlights, the departing column
+  // ---- people (people/*.mjs): the nations' characters, names, highlights, the departing column
   '見どころ': 'Highlights',
   'この村の領主': 'Lord of this village',
-  '石の守り手の元帥': 'Marshal of the Stone Wardens',
-  '潮の船長': 'Captain of the Tide',
-  '炎の伝令': 'Herald of the Flame',
-  '新緑の森番の長': 'Warden-Elder of the Verdant',
-  '光明の測量長': 'Chief Surveyor of the Lumen',
-  '鉄のヤール': 'Jarl of Iron',
   '城壁が安く、長槍兵は迎撃に強い。本拠を落とすには時間がかかる。': 'Cheaper walls, and pikemen who excel in Brace. Its heartland is slow to take.',
   '隊商が速く、軽騎兵で動き回る。街道の道標を多く持てる。': 'Faster caravans and roving light cavalry. More Waystones on its roads.',
   '補給の消耗が半分。側撃に強い森番が遠くまで行く。': 'Half the supply attrition. Rangers who are strong in Flank and range far.',
@@ -301,11 +295,11 @@ export default {
   '{0}になった': a => `Became ${inText(a)}`,
   '第{0}輪がひらいた': 'Ring {0} opened',
   '旗は立った。ここが我らの始まりの地だ。': 'The banner is raised. Here our story begins.',
-  'もう誰にも奪わせはしない。この地を守り抜け。': 'No one takes this from us now. Hold it.',
+  'もう誰にも奪わせはしない。この地は我らが守り抜く。': 'No one takes this from us now. We hold it.',
   '封は閉じた。行き先を知るのは我らだけだ。': 'The seal is closed. Only we know where we ride.',
-  '見事だ。辺境は勇む者の手に渡る。': 'Well done. The frontier belongs to the bold.',
-  '民が増え、壁が伸びる。次の鐘も怠るな。': 'More hands, taller walls. Do not rest at the next bell.',
-  '霧が晴れ、新しい地が見えた。誰より先に向かえ。': 'The mist lifts on new land. Be first there.',
+  '見事な勝利だ。辺境は勇む者の手に渡る。': 'A fine victory. The frontier belongs to the bold.',
+  '民が増え、壁が伸びる。次の鐘も手を休めまい。': 'More hands, taller walls. No rest at the next bell either.',
+  '霧が晴れ、新しい地が見えた。誰より先に向かおう。': 'The mist lifts on new land. Let us be first there.',
   'シーズンの年表': 'Season timeline',
   // ---- the guide on the map and its level (hud/guide.mjs, UI plan G1, G2)
   'すべて': 'All', '警告だけ': 'Warnings only', 'オフ': 'Off', 'ガイドの強さ': 'Guide',
@@ -344,12 +338,12 @@ export default {
   // ---- map pins (hud/pins.mjs, UI plan C5)
   'ピン': 'Pins', 'ピンを立てる': 'Pin this place', 'ピンを外す': 'Remove the pin',
   '地図でマスや州を選び、「ピンを立てる」で印を付けられます（この端末に保存）。': 'Select a tile or a province on the map and choose “Pin this place” (kept on this device).',
-  // ---- the leader's word in the clash report (screens/report.mjs, UI plan F1)
-  '見事だ。この地の名は、今日のおまえたちのものだ。': 'Well fought. Today this land carries your name.',
-  'よく踏みとどまった。次の鐘で押し返せ。': 'You held. Push back at the next bell.',
-  '退くのも兵法のうちだ。兵は残った。': 'Falling back is part of the art of war. Your troops live.',
-  '痛い負けだ。だが辺境は広い、立て直せ。': 'A hard loss. The frontier is wide; rebuild.',
-  '結末はまだ分からぬ。確かめてから語ろう。': 'The outcome is not known yet. Check it first.',
+  // ---- the nation's words in the clash report (screens/report.mjs, UI plan F1)
+  '見事な勝利だ。この地の名は、今日の我らのものだ。': 'Well fought. Today this land carries our name.',
+  'よく踏みとどまった。次の鐘で押し返そう。': 'We held. At the next bell we push back.',
+  '退くのも兵法のうちだ。兵は残った。': 'Falling back is part of the art of war. The troops live.',
+  '痛い負けだ。だが辺境は広い。立て直そう。': 'A hard loss. But the frontier is wide: we rebuild.',
+  '結末はまだ分からぬ。確かめてから語ろう。': 'The outcome is not known yet. Let us check it first.',
   'この地はわれらのものだ。': 'This ground is ours.',
   // ---- joining is choosing a faction; the first holding's site ticket is filed automatically (owner decision V2)
   '国を選ぶ': 'Choose a nation',
@@ -487,7 +481,7 @@ export default {
   'ターン {0}：村を失いました。': 'Turn {0}: you lost your village.',
   '上限': 'Cap',
   '候補地は自分の国の土地から自動で選びました。場所を得られなければ、自動でもう一度申し込みます。': 'The candidate sites were chosen for you on your nation\'s land. If none of them becomes yours, a new request is sent automatically.',
-  '六つの国が、鐘のまわりの辺境を分け合っています。国で決まるのは、村を置く方角と教義です。': 'Six nations share the frontier around the bell. Your nation decides which side your village stands on, and your doctrine.',
+  '六つの国が、鐘のまわりの辺境を分け合っています。国で決まるのは、村を置く方角と教義、そしてあなたの姿です。': 'Six nations share the frontier around the bell. Your nation decides which side your village stands on, your doctrine, and how you look.',
   '受け付けられませんでした': 'The request was not accepted',
   '同じターンの申し込みがすべて決まってから': 'Once every request from the same turn is decided',
   '同じターンの申し込みは、そのターンのくじでまとめて公平に決まります（申し込んでから約11〜21分）。': 'All requests from one turn are decided together in that turn\'s fair draw (about 11 to 21 minutes after the request).',

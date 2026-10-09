@@ -23,6 +23,17 @@
 //                 falls. The record's own losses stand over each side.
 //   5  5.6–7.0 s  the field as it was left; the numbers let go.
 //
+// The players (UX design 13.2: the six are the players): each side that is
+// a nation has its player's character standing behind its formation, facing
+// the enemy. It strikes (the attack sheet) on an exchange its side wins,
+// takes the blow (the hit sheet) on one it loses, and stands between. A camp
+// has none. Which side wins an exchange follows the record's own losses
+// (`exchangeWinners`): nothing is invented, the staging only says who had
+// the better of it.
+//
+// A fight on a tile that holds a village is staged on the ground before the
+// village (`villageDrop`), never over its houses.
+//
 // `paintBattle` is a pure function of the scene and a time: it draws the
 // figures, the arrows, the contact flashes, the bars and the numbers. What
 // needs the page (the dimmed map, particles, the shake, sound, the title
@@ -38,9 +49,14 @@ import { tileHex } from '../fgeo.mjs';
 import { troopsOf } from '../fmarch.mjs';
 import { FACTION_FILL, FACTION_DARK, FACTION_LIGHT, FACTION_MARK, sigilPath } from './avatar.mjs';
 import { baseDisc, unitFigure, UNIT_KINDS } from './units.mjs';
-import { paintMini, miniSheet, miniCell, MINI_CELL_U, MINI_ANCHOR, MINI_SIZES } from './minis.mjs';
+import { paintMini, preloadMinis } from './minis.mjs';
 import { clamp01, lerp, span, inQuad, inCubic, outQuad, outCubic, outExpo, outBack, inOutQuad } from '../fx/ease.mjs';
 import { standing } from '../map/tilt.mjs';
+import { sideOutcome } from './outcome.mjs';
+import { paintLeaderMotion, leaderMotionSheet } from './leader-motion.mjs';
+import { MOTION_LEADERS, LEADER_MOTIONS } from '../leader-motion-data.mjs';
+import { VILLAGE } from '../map/village.mjs';
+import { HERO, VILLAGE_SCALE, VILLAGE_AT } from '../map/plates.mjs';
 
 export const FATES = Object.freeze(['Stays', 'Withdrew', 'Bounced', 'Retreated', 'Destroyed']);
 export const STANCE_POSE = Object.freeze(['hold', 'assault', 'flank', 'brace']);
@@ -57,9 +73,29 @@ const NEUTRAL = 6;
  * of a long season), the tiles where sides met and someone lost troops
  * between the province before and after (`residentScene`); null if none.
  */
-export function battleScene({ p, q, bell, inputs, before = null, after = null }) {
+export function battleScene({ p, q, bell, inputs, before = null, after = null, ownTiles = null }) {
   const arrivals = (inputs?.arrivals ?? []).filter(a => a.present === 1 || a.present === true);
-  if (!arrivals.length) return residentScene({ p, q, bell, before, after });
+  if (!arrivals.length) return withVillages(residentScene({ p, q, bell, before, after }), before ?? after, ownTiles);
+  return withVillages(arrivalScene({ p, q, bell, arrivals, before, after }), before ?? after, ownTiles);
+}
+
+/**
+ * Mark the tiles of a scene that hold a village (the Province's own sites): `tile.village = {tier, own}`; `own`:
+ * the tile is one of `ownTiles` (the viewer's villages, which the map draws larger). The scene on such a tile is
+ * staged before the village, not on its houses (`villageDrop`).
+ */
+function withVillages(scene, province, ownTiles = null) {
+  if (!scene || !province) return scene;
+  const sites = Array.from(province.sites ?? []);
+  (province.siteMirror ?? []).forEach((m, j) => {
+    if (!m || m.state !== 1) return;
+    const tile = scene.tiles.find(t => t.idx === sites[j]);
+    if (tile) tile.village = { tier: Math.max(0, Math.min(3, Number(m.tier ?? 0))), own: !!ownTiles?.has?.(sites[j]) };
+  });
+  return scene;
+}
+
+function arrivalScene({ p, q, bell, arrivals, before, after }) {
   const byTile = new Map();
   const tileOf = idx => { if (!byTile.has(idx)) byTile.set(idx, { idx, attackers: [], defenders: [] }); return byTile.get(idx); };
   for (const a of arrivals) {
@@ -317,7 +353,10 @@ function sideOf(list, sgn, idx) {
   const lead = [...groups].sort((a, b) => b.before - a.before)[0] ?? null;
   const rel = known && before > 0 ? clamp01((before - after) / before) : 0.3;
   return { sgn, groups, before, after, loss: known ? Math.max(0, before - after) : null, faction: lead?.faction ?? null,
-    fate: groups.find(g => g.fate && g.fate !== 'Stays')?.fate ?? (groups.length && groups.every(g => g.fate === 'Stays') ? 'Stays' : null),
+    // what became of the side: the one function the title and the report ask too (people/outcome.mjs)
+    fate: sideOutcome(list),
+    // the side's player: a nation's side has its character behind its line (a camp has none)
+    character: lead && lead.kind !== 'camp' && lead.faction >= 0 && lead.faction < NEUTRAL ? MOTION_LEADERS[lead.faction].key : null,
     // how far each contact throws this side back (figure heights): more the more it lost; the last blow is the hardest for the side that broke
     kb: HIT_POWER.map((p, j) => (0.1 + 0.2 * rel) * (j === HIT_POWER.length - 1 ? 1.5 : 1) * p) };
 }
@@ -334,7 +373,8 @@ export function battlePlan(scene) {
   plan = { residents: !!scene.residents, tiles: scene.tiles.map(tile => {
     const h = tile.hex ?? tileHex(scene.p, scene.q, tile.idx);
     const sides = [sideOf(tile.attackers ?? [], -1, tile.idx), sideOf(tile.defenders ?? [], 1, tile.idx)];
-    return { idx: tile.idx, q: h.q, r: h.r, c: project(h.q, h.r), sides, fight: sides.every(s => s.groups.length > 0) };
+    const fight = sides.every(s => s.groups.length > 0);
+    return { idx: tile.idx, q: h.q, r: h.r, c: project(h.q, h.r), sides, fight, village: tile.village ?? null, wins: fight ? exchangeWinners(sides[0], sides[1]) : [] };
   }) };
   plans.set(scene, plan);
   return plan;
@@ -342,9 +382,65 @@ export function battlePlan(scene) {
 
 /** Where a tile's scene stands at a zoom: its centre, the figure height `s`, the point of contact and each side's middle (world px). */
 export function battleStage(tile, zoom, fit = 1, layout = null) {
-  const s = figureSize(zoom, fit, layout), cx = tile.c.x, cy = tile.c.y + RADIUS * 0.12, rest = layout?.rest ?? REST;
+  // (a fight in passing before a village: a little smaller, so that the whole of it, numbers to strength bars, stands
+  // between the village's foot and the foot of the picture where the camera already is)
+  const s = figureSize(zoom, fit, layout) * (tile.village && !layout ? PASSING_AT_VILLAGE : 1), cx = tile.c.x, cy = tile.c.y + RADIUS * 0.12 + villageDrop(tile.village, s), rest = layout?.rest ?? REST;
   return { s, cx, cy, rest, contact: { x: cx, y: cy - s * 0.48 }, feet: { x: cx, y: cy + s * 0.05 },
     left: { x: cx - MEET * s, y: cy }, right: { x: cx + MEET * s, y: cy } };
+}
+
+/**
+ * How far below its tile's centre a scene stands when the tile holds a village (world px; `s` a figure's height):
+ * past the village's foot (its palisade, by tier and by the scale it is drawn at: map/village.mjs, map/plates.mjs),
+ * then the height of the scene's own rear rank and of the numbers over it. The fight is on the ground before the
+ * village, and nothing of it is drawn over the houses (UX design 13.6). 0 for a tile without one.
+ */
+export const PASSING_AT_VILLAGE = 0.82;
+export function villageDrop(village, s) {
+  if (!village) return 0;
+  const t = Math.max(0, Math.min(3, Number.isInteger(village.tier) ? village.tier : 1)), scale = village.own ? HERO.scale : VILLAGE_SCALE;
+  const foot = (village.own ? HERO.at.y : VILLAGE_AT.y) + RADIUS * VILLAGE.ring[t] * scale * FLATTEN * 0.8;
+  return foot + RADIUS * 0.1 + s * (NEED.above + 0.2);
+}
+
+/**
+ * Who has the better of each contact, from the record's own losses: `[sgn]`, one for each of BATTLE_HITS, −1 the
+ * attackers, +1 the defenders, 0 neither (the losses are not known, or nobody lost anything). The last blow goes to
+ * the side that holds the field (else to the one that lost the smaller share); of the others, each side wins as
+ * many as the other's share of the losses calls for. The players' characters strike and take blows by it.
+ */
+export function exchangeWinners(A, D) {
+  const n = BATTLE_HITS.length, rel = s => (s.loss !== null && s.before > 0 ? clamp01(s.loss / s.before) : null);
+  const a = rel(A), d = rel(D);
+  if (a === null || d === null || (a === 0 && d === 0)) return Array(n).fill(0);
+  const holds = (D.fate === 'Stays') !== (A.fate === 'Stays') ? (D.fate === 'Stays' ? 1 : -1) : a === d ? 0 : a > d ? 1 : -1;
+  if (holds === 0) return Array.from({ length: n }, (_, j) => (j % 2 ? 1 : -1));
+  // (the holder's count: the other side's share of all that was lost, one at the least: the last blow is its own)
+  const mine = Math.max(1, Math.min(n, Math.round(n * (holds > 0 ? a : d) / (a + d))));
+  const out = Array(n).fill(holds);
+  [1, 0, 2].slice(0, n - mine).forEach(j => { out[j] = -holds; });
+  return out;
+}
+
+/** A character's clips in a scene (seconds): the strike begins `lead` before its contact and is over in `secs`; a blow is taken from the contact on. */
+export const CHARACTER_CLIP = Object.freeze({ attack: Object.freeze({ lead: 0.24, secs: 0.56 }), hit: Object.freeze({ lead: 0, secs: 0.5 }) });
+/** Where a side's character stands: this far behind its formation's middle and this far upstage (figure heights), and how large (of a figure's height unit: the size it has on the board beside a host). */
+export const CHARACTER_STAND = Object.freeze({ back: 1.3, up: 0.35, scale: 1 });
+const IDLE_SECS = LEADER_MOTIONS.find(m => m.key === 'idle').duration;
+/**
+ * What the character of the side with sign `sgn` does at posed time `tau` (scene seconds `t` for the idle loop):
+ * `{motion: 'idle' | 'attack' | 'hit', share, looping}`. The latest exchange whose clip has begun decides.
+ */
+export function characterAct(wins, sgn, tau, t = tau) {
+  for (let j = BATTLE_HITS.length - 1; j >= 0; j--) {
+    const w = wins?.[j];
+    if (!w) continue;
+    const strike = w === sgn, c = strike ? CHARACTER_CLIP.attack : CHARACTER_CLIP.hit, t0 = BATTLE_HITS[j] - c.lead;
+    if (tau < t0) continue;
+    if (tau < t0 + c.secs) return { motion: strike ? 'attack' : 'hit', share: (tau - t0) / c.secs, looping: false };
+    break;
+  }
+  return { motion: 'idle', share: t / IDLE_SECS, looping: true };
 }
 
 /**
@@ -443,98 +539,39 @@ export const HIT_TINT = 0.6;
 export const HIT_TINT_SECS = Object.freeze([0.034, 0.07]);
 /** The tint of a blow at `since` seconds after its contact frame (0..1 of HIT_TINT). */
 export const hitTint = since => (since < 0 ? 0 : since < HIT_TINT_SECS[0] ? 1 : 1 - span(since, HIT_TINT_SECS[0], HIT_TINT_SECS[1]));
-/**
- * A miniature's frame as light to add to it (the hit tint): its own picture with warm light mixed in, the base
- * it stands on and its shadow left out. Drawn additively at HIT_TINT it lifts the figure's colours and keeps
- * its drawing and its nation's colour: never a white silhouette. Null where there is no canvas or the sheet has not loaded.
- */
-const tints = new Map();
-function tintCell(faction, kind, face, walking, step) {
-  const img = faction >= 0 && faction < 6 ? miniSheet(faction, MINI_SIZES[0].key) : null;
-  if (!img) return null;
-  const { row, col } = miniCell(kind, { face, walking, step });
-  const key = `${faction}|${row}|${col}`;
-  if (tints.has(key)) return tints.get(key);
-  let cv = null;
-  try {
-    const cell = Math.round(img.width / 6);
-    cv = typeof globalThis.OffscreenCanvas === 'function' ? new globalThis.OffscreenCanvas(cell, cell) : globalThis.document?.createElement?.('canvas') ?? null;
-    if (cv) {
-      cv.width = cell; cv.height = cell;
-      const g = cv.getContext('2d');
-      g.drawImage(img, col * cell, row * cell, cell, cell, 0, 0, cell, cell);
-      // its own colours with warm light mixed in: added to the figure it brightens every colour toward that light
-      g.globalCompositeOperation = 'source-atop'; g.fillStyle = 'rgba(255,238,206,0.16)'; g.fillRect(0, 0, cell, cell);
-      // the figure only: the base it stands on and its shadow stay as they are
-      const m = g.createLinearGradient(0, cell * (MINI_ANCHOR[1] - 0.2), 0, cell * (MINI_ANCHOR[1] - 0.06));
-      m.addColorStop(0, 'rgba(0,0,0,1)'); m.addColorStop(1, 'rgba(0,0,0,0)');
-      g.globalCompositeOperation = 'destination-in'; g.fillStyle = m; g.fillRect(0, 0, cell, cell);
-    }
-  } catch { cv = null; }
-  tints.set(key, cv);
-  return cv;
-}
-
-/** The nation whose miniatures stand in for the neutral camp's fighters, drawn drained of colour and washed in leather. */
-const CAMP_SHEET = 5;
-const camps = new Map();
-/** A camp fighter's frame: a miniature greyed and washed brown (the camp has no sheet of its own); null until the sheet has loaded or where there is no canvas. */
-function campCell(kind, face, walking, step) {
-  const img = miniSheet(CAMP_SHEET, MINI_SIZES[0].key);
-  if (!img) return null;
-  const { row, col } = miniCell(kind, { face, walking, step });
-  const key = `${row}|${col}`;
-  if (camps.has(key)) return camps.get(key);
-  let cv = null;
-  try {
-    const cell = Math.round(img.width / 6);
-    cv = typeof globalThis.OffscreenCanvas === 'function' ? new globalThis.OffscreenCanvas(cell, cell) : globalThis.document?.createElement?.('canvas') ?? null;
-    if (cv) {
-      cv.width = cell; cv.height = cell;
-      const g = cv.getContext('2d');
-      if ('filter' in g) g.filter = 'grayscale(0.85) brightness(1.02) contrast(1.05)';
-      g.drawImage(img, col * cell, row * cell, cell, cell, 0, 0, cell, cell);
-      if ('filter' in g) g.filter = 'none';
-      g.globalCompositeOperation = 'source-atop'; g.fillStyle = 'rgba(112,78,44,0.3)'; g.fillRect(0, 0, cell, cell);
-    }
-  } catch { cv = null; }
-  camps.set(key, cv);
-  return cv;
-}
-
 /** Start loading the sheets a scene will need (so its first frames already have their figures). */
 export function preloadBattle(scene) {
   for (const tile of scene?.tiles ?? []) for (const x of [...(tile.attackers ?? []), ...(tile.defenders ?? [])]) {
-    const f = x.faction >= 0 && x.faction < 6 ? x.faction : CAMP_SHEET;
-    for (const size of MINI_SIZES) miniSheet(f, size.key);
+    const nation = x.faction >= 0 && x.faction < 6;
+    preloadMinis(nation ? x.faction : null);
+    // the side's player (a nation's side): the three sheets its character plays in a scene
+    if (nation && x.kind !== 'camp') for (const m of ['idle', 'attack', 'hit']) leaderMotionSheet(MOTION_LEADERS[x.faction].key, m);
   }
 }
 
-function paintFigure(ctx, f) { if (f.alpha > 0.02) upright(ctx, f.x, f.y, () => paintFigureFlat(ctx, f)); }
+function paintFigure(ctx, f) { if (f.alpha > 0.02) { if (f.character) paintCharacterFigure(ctx, f); else upright(ctx, f.x, f.y, () => paintFigureFlat(ctx, f)); } }
+/** A side's character: a soft shadow on the ground, the figure upright on it (people/leader-motion.mjs; nothing until its sheet is here). */
+function paintCharacterFigure(ctx, f) {
+  ctx.save();
+  ctx.globalAlpha *= 0.3 * f.alpha; ctx.fillStyle = '#0a120f';
+  ctx.beginPath(); ctx.ellipse?.(f.x + f.s * 0.05, f.y + f.s * 0.02, f.s * 0.32, f.s * 0.12, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  upright(ctx, f.x, f.y, () => paintLeaderMotion(ctx, f.x, f.y, f.s, { leader: f.character, motion: f.motion, share: f.share, looping: f.looping, face: f.face, alpha: f.alpha, own: false }));
+}
 function paintFigureFlat(ctx, f) {
   if (f.alpha <= 0.02) return;
   ctx.save();
   ctx.translate(f.x, f.y - f.hop);
   if (f.rot) ctx.rotate(f.rot);
   if (f.sx !== 1 || f.sy !== 1) ctx.scale(f.sx, f.sy);
-  const o = { faction: f.faction, face: f.face, step: f.step, walking: f.walking, alpha: f.alpha, shade: FIGURE_SHADE };
-  const w = f.s * MINI_CELL_U, nation = f.faction >= 0 && f.faction < 6;
-  let drawn = false, tint = null;
-  if (nation) { drawn = paintMini(ctx, 0, 0, f.s, f.kind, o); if (drawn && f.flash > 0.02) tint = tintCell(f.faction, f.kind, f.face, f.walking, f.step); }
-  else {
-    const cell = campCell(f.kind, f.face, f.walking, f.step);
-    if (cell && ctx.drawImage) { ctx.globalAlpha = f.alpha; ctx.drawImage(cell, -w * MINI_ANCHOR[0], -w * MINI_ANCHOR[1], w, w); drawn = true; if (f.flash > 0.02) tint = tintCell(CAMP_SHEET, f.kind, f.face, f.walking, f.step); }
-  }
+  // a host's figure: the one painter of the host art (people/minis.mjs paintMini: a nation's miniature, or the
+  // camp's; the blow's light on it for a frame or two)
+  const nation = f.faction >= 0 && f.faction < 6;
+  const o = { faction: f.faction, face: f.face, step: f.step, walking: f.walking, alpha: f.alpha, shade: FIGURE_SHADE, camp: !nation, flash: f.flash > 0.02 ? f.flash * HIT_TINT : 0 };
   // until its sheet has loaded a figure is only the shadow it will stand on (a page with no sheets at all draws the plain canvas figure)
-  if (!drawn) {
+  if (!paintMini(ctx, 0, 0, f.s, f.kind, o)) {
     if (typeof globalThis.Image === 'undefined') { baseDisc(ctx, 0, 0, f.s, f.faction, { alpha: f.alpha }); unitFigure(ctx, 0, -f.s * 0.02, f.s, f.kind, o); }
     else { ctx.fillStyle = `rgba(12,22,20,${(0.28 * f.alpha).toFixed(3)})`; ctx.beginPath(); ctx.ellipse?.(0, 0, f.s * 0.3, f.s * 0.12, 0, 0, Math.PI * 2); ctx.fill(); }
-  }
-  // the blow: light added to the figure for a frame or two (it keeps its colours and its drawing)
-  if (f.flash > 0.02 && tint && ctx.drawImage) {
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.globalAlpha = f.alpha * f.flash * HIT_TINT;
-    ctx.drawImage(tint, -w * MINI_ANCHOR[0], -w * MINI_ANCHOR[1], w, w);
   }
   ctx.restore();
 }
@@ -625,9 +662,12 @@ function paintArrow(ctx, a, b, u, s, k, alpha) {
 /**
  * The mark of a contact: a small star where the lines meet, a tight core of light in the two sides' colours, a
  * low shock on the ground. `colA`, `colB`: the light of the side that lands this blow and of the other (the
- * core); `ringL`, `ringR`: the nation's own colour of the side standing on the left and on the right (the shock).
+ * core); `ringL`, `ringR`: the nation's own colour of the side standing on the left and on the right (the shock);
+ * `starA`, `starB`: the nations' own colours of the side that lands the blow and of the other (the star: its four
+ * long points in the first, the four short ones between them in the second, on a dark keyline, a small ivory heart:
+ * UX design 13.6, it was plain ivory).
  */
-function paintContact(ctx, st, u, power, colA, colB, k, ringL = colA, ringR = colB) {
+function paintContact(ctx, st, u, power, colA, colB, k, ringL = colA, ringR = colB, starA = ringL, starB = ringR) {
   const { contact: c, feet, s } = st;
   if (u < 0 || u >= 0.4) return;
   ctx.save();
@@ -656,16 +696,24 @@ function paintContact(ctx, st, u, power, colA, colB, k, ringL = colA, ringR = co
   // the star: four points and four short ones between them, stabbing out and dying back within a quarter second
   const ks = span(u, 0, 0.24);
   if (ks < 1) {
-    const len = s * 0.52 * Math.sqrt(power) * outBack(Math.min(1, ks * 2.6), 2.2) * (1 - inQuad(ks));
-    const wd = Math.max(1.2 * k, s * 0.05 * (1 - ks));
-    ctx.fillStyle = `rgba(255,246,220,${(0.95 * (1 - ks * ks)).toFixed(3)})`;
-    ctx.beginPath();
-    for (let i = 0; i < 8; i++) {
-      const ang = (i / 8) * Math.PI * 2 + 0.2, L1 = len * (i % 2 ? 0.45 : 1) * (i % 4 === 0 ? 1.15 : 1);
-      const ax = Math.cos(ang), ay = Math.sin(ang);
-      ctx.moveTo(c.x - ay * wd, c.y + ax * wd); ctx.lineTo(c.x + ax * L1, c.y + ay * L1); ctx.lineTo(c.x + ay * wd, c.y - ax * wd);
-    }
-    ctx.closePath(); ctx.fill();
+    const len = s * 0.56 * Math.sqrt(power) * outBack(Math.min(1, ks * 2.6), 2.2) * (1 - inQuad(ks));
+    const wd = Math.max(1.6 * k, s * 0.07 * (1 - ks)), fade = 1 - ks * ks;
+    // (painted, not added as light: on a bright ground light in two colours burns out to white)
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.lineJoin = 'round';
+    const points = (odd, fill) => {
+      ctx.beginPath();
+      for (let i = odd; i < 8; i += 2) {
+        const ang = (i / 8) * Math.PI * 2 + 0.2, L1 = len * (i % 2 ? 0.5 : 1) * (i % 4 === 0 ? 1.15 : 1);
+        const ax = Math.cos(ang), ay = Math.sin(ang);
+        ctx.moveTo(c.x - ay * wd, c.y + ax * wd); ctx.lineTo(c.x + ax * L1, c.y + ay * L1); ctx.lineTo(c.x + ay * wd, c.y - ax * wd); ctx.closePath();
+      }
+      ctx.strokeStyle = rgba(INK, 0.7 * fade); ctx.lineWidth = 2.2 * k; ctx.stroke();
+      ctx.fillStyle = rgba(fill, 0.97 * fade); ctx.fill();
+    };
+    points(1, starB); points(0, starA);
+    ctx.fillStyle = `rgba(255,248,226,${(0.95 * fade).toFixed(3)})`;
+    ctx.beginPath(); ctx.arc(c.x, c.y, Math.max(1.5 * k, wd * 1.25), 0, Math.PI * 2); ctx.fill();
   }
   ctx.restore();
 }
@@ -843,6 +891,20 @@ function paintTile(ctx, T, e) {
       if (T.fight && g.ranged && !(f.fall >= 0 && tau >= BATTLE_HITS[f.fall])) for (const w of [0, 1]) volleys.push({ x, y: y - s * 0.72, sgn: side.sgn, j: (f.j + w * 0.37) % 1 });
     }
   }
+  // the players: each nation's side has its character behind its line, facing the enemy
+  const t0c = residents ? PHASE.deploy : 0;
+  for (const side of T.sides) {
+    if (!side.character || !side.groups.length) continue;
+    const act = characterAct(T.wins, side.sgn, tau, t);
+    let x = cx + side.sgn * (REST + CHARACTER_STAND.back) * s, alpha = span(t, t0c + 0.2, t0c + 0.6) * (1 - span(t, PHASE.end - 0.5, PHASE.end - 0.1));
+    // (a narrow stage: the whole figure stays in the picture, the near rows of a tilted board being drawn a little wider)
+    if (edge > 0) x = Math.max(cx - edge + s * 0.56, Math.min(cx + edge - s * 0.56, x));
+    // (it comes with its line out of the mist, and goes with it: a side that left the field walks off, one that fell is gone when the field is left)
+    if (side.sgn < 0 && !residents) alpha *= span(t, 0.15, 0.95);
+    const fk = span(t, PHASE.fates + 0.14, PHASE.fates + 1.4);
+    if (fk > 0 && side.fate && side.fate !== 'Stays') alpha *= side.fate === 'Destroyed' ? 1 - span(t, PHASE.losses, PHASE.losses + 0.8) : 1 - 0.92 * smooth(fk);
+    figs.push({ character: side.character, x, y: cy - CHARACTER_STAND.up * s, s: s * CHARACTER_STAND.scale, face: -side.sgn, alpha, motion: act.motion, share: act.share, looping: act.looping });
+  }
   figs.sort((a, b) => a.y - b.y);
   for (const f of figs) paintFigure(ctx, f);
   // archers and crossbowmen: a volley in the air before each contact, landing with it
@@ -857,11 +919,16 @@ function paintTile(ctx, T, e) {
   if (T.fight) {
     const cA = sideColors(T.sides[0].faction), cB = sideColors(T.sides[1].faction);
     // (the attackers stand on the left, the defenders on the right: the shock's halves keep to their sides; the core's light alternates with the blow)
-    for (let j = 0; j < BATTLE_HITS.length; j++) paintContact(ctx, st, t - BATTLE_HITS[j], HIT_POWER[j], j % 2 ? cB.light : cA.light, j % 2 ? cA.light : cB.light, k, cA.fill, cB.fill);
+    // (the star: its long points in the colour of the nation that has the better of this contact, `T.wins`)
+    for (let j = 0; j < BATTLE_HITS.length; j++) {
+      const w = T.wins[j] || (j % 2 ? 1 : -1);
+      paintContact(ctx, st, t - BATTLE_HITS[j], HIT_POWER[j], j % 2 ? cB.light : cA.light, j % 2 ? cA.light : cB.light, k, cA.fill, cB.fill, w < 0 ? cA.fill : cB.fill, w < 0 ? cB.fill : cA.fill);
+    }
   }
   // the holder's standard
   const holder = T.sides.flatMap(sd => sd.groups.map(g => ({ g, sd }))).find(x => x.g.fate === 'Stays' && x.g.faction < NEUTRAL && x.g.after !== 0 && (!T.fight || x.sd.fate === 'Stays'));
-  if (holder && t >= PHASE.fates + 0.55) paintStandard(ctx, cx + holder.sd.sgn * (REST + 0.95) * s - holder.g.off * s * SKEW, cy + holder.g.off * s * DEPTH + s * 0.1, s * 0.86, holder.g.faction, t, k);
+  // (planted upstage of the side's character, so that its cloth flies over the character's head, not on it)
+  if (holder && t >= PHASE.fates + 0.55) paintStandard(ctx, cx + holder.sd.sgn * (REST + 0.95) * s - holder.g.off * s * SKEW, cy + holder.g.off * s * DEPTH + s * (holder.sd.character ? -0.62 : 0.1), s * 0.86, holder.g.faction, t, k);
   if (T.fight) {
     const t0 = residents ? PHASE.deploy : 0;
     paintBars(ctx, T, st, t, k, e.numText, e.nameText, outCubic(span(t, t0 + 0.2, t0 + 0.6)) * (1 - span(t, PHASE.end - 0.6, PHASE.end - 0.15)), e.fit, e.layout);

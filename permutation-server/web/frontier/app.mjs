@@ -28,6 +28,7 @@ import { NOTE_TEXT, createActions } from './map/actions.mjs';
 import * as dialcard from './hud/dialcard.mjs';
 import { paintVillagePics } from './map/village.mjs';
 import { createLandingBook, landedKey } from './map/landing.mjs';
+import { setBoardCharacters, landingAge } from './people/onboard.mjs';
 import { placeName, villageLine } from './map/names.mjs';
 import { lastWalletName } from '../wallet.mjs';
 import { SEASON_STATUS_TEXT, clientText, factionName, TIERS, BUILDINGS, FATES } from './fi18n.mjs';
@@ -481,8 +482,37 @@ function surveyNow() {
 /** The face and name of a report row's owner (a host id; holdings' ids give none). */
 const reportOwner = id => { try { return hostOwner(rosterRef, id); } catch { return null; } };
 /** The people layer's inputs, rebuilt at most once a second (the chronicle changes on polls only). */
+/**
+ * Who stands on the board (people/onboard.mjs; UX design 13.2: the six are the players): the viewer's character
+ * beside the viewer's active village, and another player's beside that player's village while it is selected (what
+ * the inspector says of the selection, so only a village the viewer has surveyed). `pending`: the village's landing
+ * has been reported and has not begun on the map yet (the character walks in with it).
+ */
+let otherCharacter = { key: '', value: null };
+export function boardCharactersNow() {
+  if (FS.mode !== 'play') return [];
+  const out = [], f = FS.citizen?.faction, h = hud.activeHolding(FS);
+  if (Number.isInteger(f) && h && Number.isInteger(h.tile)) {
+    const key = `${h.p},${h.q},${h.tile}`;
+    out.push({ p: h.p, q: h.q, tile: h.tile, faction: f, own: true, tier: Number(h.tier ?? 0), pending: landingAge(key) === null && (landingSoon() === key || landingNow()?.key === key) });
+  }
+  const s = FS.selected;
+  if (s && Number.isInteger(s.p) && Number.isInteger(s.idx)) {
+    const key = `${s.p},${s.q},${s.idx}|${Math.floor(Date.now() / 1000)}`;
+    if (otherCharacter.key !== key) {
+      let site = null;
+      try { site = inspect.inspectModel(FS, terrainRef)?.tile?.site ?? null; } catch { site = null; }
+      otherCharacter = { key, value: site && site.state === 'holding' && !site.mine && Number.isInteger(site.faction) && site.faction >= 0 && site.faction < 6 ? { p: s.p, q: s.q, tile: s.idx, faction: site.faction, own: false, tier: Number(site.tier ?? 1) } : null };
+    }
+    if (otherCharacter.value) out.push(otherCharacter.value);
+  }
+  return out;
+}
+
 let peopleCache = { at: -1, value: null };
 export function peopleSource() {
+  // (every frame, outside the second's cache: a selection shows its village's character at once)
+  setBoardCharacters(boardCharactersNow());
   const bell = FS.nowBell ?? (FS.clock ? Math.max(0, Math.floor(((FS.chain?.now() ?? 0) - FS.clock.genesisTs) / 600)) : 0);
   const sec = Math.floor(Date.now() / 1000);
   if (peopleCache.at === sec && peopleCache.lang === lang() && peopleCache.value) { peopleCache.value.battles = (FS.battles ?? []).filter(b => battleLive(b, performance.now() / 1000)); return peopleCache.value; }
@@ -871,7 +901,8 @@ function waitNow() {
   // one countdown on the screen (UX design 11.10): while the wait view stands open with its own clock, the map leaves its line out
   const said = drawerOf(FS)?.kind === 'wait' && !(phone() && sheetRef?.state() === 'peek');
   // the leader's line likewise: a phone's wait view says it in the sheet (screens/join.mjs waitHead), so the map leaves its own out
-  const wordsSaid = phone() && drawerOf(FS)?.kind === 'wait' && sheetRef?.state() !== 'peek';
+  // (the card says the nation's words whenever it stands open, on every size: the map then leaves its own out)
+  const wordsSaid = drawerOf(FS)?.kind === 'wait' && !(phone() && sheetRef?.state() === 'peek');
   return { now, nextTurnAt: bellStart(FS.clock.genesisTs, bell + 1), resultAt, tollAt, share, first: t ? t.next ?? 0 : null, said, wordsSaid, state: st === 'ticket' ? 'ticket' : FS.autoTicket?.state ?? null };
 }
 /** The village that lands now, the first time this device sees it (map/landing.mjs). */
@@ -1233,7 +1264,7 @@ function renderFeed() {
   // (nor after the card was put away: its rows came back as single notices)
   const strip = turnStripNow(), inStrip = new Set((turnStrip && fxNow() - turnStrip.at <= TURN_STRIP_MS ? turnStrip.items : []).map(x => x.id));
   const items = [...(st ? [{ id: 'tx', markup: status.renderStatus(st) }] : []),
-    ...(strip ? [{ id: `turn:${strip.turn}`, markup: feed.renderTurnStrip(strip, { now: turnRowNow(strip) }) }] : []),
+    ...(strip ? [{ id: `turn:${strip.turn}`, markup: feed.renderTurnStrip(strip, { now: turnRowNow(strip), faction: FS.citizen?.faction ?? null }) }] : []),
     ...feed.liveToasts((FS.feed ?? []).filter(x => !inStrip.has(x.id)), { dismissed: FS.feedDismissed ?? new Set() }).map(x => ({ id: `n:${x.id}`, markup: feed.renderToast(x) }))];
   syncStack(el, items);
   publishNoGo();
@@ -1403,7 +1434,9 @@ export async function playBattle(p, q, bell, { focus = false, auto = false } = {
   let before = null;
   try { before = r.report?.province_before_b64 ? decodeAccount('Province', fromBase64(r.report.province_before_b64)) : null; } catch { before = null; }
   const after = FS.provinces.get(`${p},${q}`)?.province ?? null;
-  const scene = battleScene({ p, q, bell, inputs: r.inputs, before, after: after && after.resolvedNext > bell ? after : null });
+  // (the viewer's own villages in the province: the map draws them larger, and a fight there is staged before them)
+  const ownTiles = new Set((FS.holdings ?? []).filter(h => h.p === p && h.q === q && Number.isInteger(h.tile)).map(h => h.tile));
+  const scene = battleScene({ p, q, bell, inputs: r.inputs, before, after: after && after.resolvedNext > bell ? after : null, ownTiles });
   if (!scene) return false;
   // the camera flies in, to the part of the map no sheet covers (map/fmap.mjs flyTo)
   if (focus && mapRef) mapRef.flyTo({ p, q, tile: scene.tiles[0].idx, zoom: 2.1 }, 500);

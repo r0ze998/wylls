@@ -169,7 +169,7 @@ test('the battle\'s polish: the shock on the ground is in the two nations\' own 
   // ---- shadows: a battle's figures and a file's keep under half of the sheet's baked shadow; a token on the map keeps it all
   assert.ok(B.FIGURE_SHADE > 0.2 && B.FIGURE_SHADE < 0.5 && FILE_SHADE > 0.2 && FILE_SHADE < 0.5);
   const minis = readFileSync(new URL('../../permutation-server/web/frontier/people/minis.mjs', import.meta.url), 'utf8');
-  assert.match(minis, /shade = 1 \} = \{\}\)/, 'the map\'s own tokens are drawn as they were (shade 1 by default)');
+  assert.match(minis, /shade = 1, camp = false, flash = 0 \} = \{\}\)/, 'the map\'s own tokens are drawn as they were (shade 1, no camp wash and no blow\'s light by default)');
   assert.match(minis, /d\[i \+ 3\] < 250 && d\[i\] < 8 && d\[i \+ 1\] < 8 && d\[i \+ 2\] < 8/, 'only the sheet\'s black, translucent pixels are the shadow');
   // ---- dust: each nation's own colour is in every puff of its line (it was mostly the pale tint, and read grey)
   const sat = c => { const n = parseInt(c.slice(1), 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255; return (Math.max(r, g, b) - Math.min(r, g, b)) / Math.max(r, g, b); };

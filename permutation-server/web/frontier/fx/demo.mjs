@@ -54,7 +54,8 @@ export const DEMO_SCENES = Object.freeze({
   others: at => ({ attackers: [{ id: 'd1', faction: 3, unit: 5, stance: 2, before: T(700), after: T(420), fate: 'Stays', kind: 'arrival' }],
     defenders: [{ id: 'd3', faction: 1, unit: 0, stance: 0, before: T(650), after: 0, fate: 'Destroyed', kind: 'resident' }], at }),
 });
-const demoScene = (name, c) => { const l = locate(c.at.q, c.at.r), d = DEMO_SCENES[name](c.at); return { p: l.p, q: l.q, bell: 43, tiles: [{ idx: l.idx, hex: d.at, attackers: d.attackers, defenders: d.defenders }] }; };
+// (`c.village`: the demo tile is the viewer's own village, as it is by default: the sample fight is staged before it, as the page's is)
+const demoScene = (name, c) => { const l = locate(c.at.q, c.at.r), d = DEMO_SCENES[name](c.at); return { p: l.p, q: l.q, bell: 43, tiles: [{ idx: l.idx, hex: d.at, attackers: d.attackers, defenders: d.defenders, ...(c.village ? { village: c.village } : {}) }] }; };
 const battle = (name, opts = {}) => ({ secs: 7.6, run: (c, fx) => { stageBattle(fx, startBattle(demoScene(name, c), 0, opts.speed ?? 1), { focus: c.cam, zoom: c.cam ? BATTLE_ZOOM : null, viewerFaction: 0, seed: `demo|battle|${name}`, ...opts }); } });
 const tileOf = (c, dq = 0, dr = 0) => { const l = locate(c.at.q + dq, c.at.r + dr); return { p: l.p, q: l.q, tile: l.idx }; };
 /** A sample route of four steps from the demo tile (east, north-east, east, east). */
@@ -188,7 +189,9 @@ export function startDemo({ fx, map = null, params, doc = globalThis.document })
     // (the resource strip appears when the page has the village's stores: a sample that flies to it is rebuilt then)
     const strip = doc.getElementById?.('res-strip');
     const turn = Number(String(doc.querySelector?.('#bell-pill .dial-num')?.textContent ?? '').replace(/[^0-9]/g, '')) || null;
-    return { at: { q: at.q, r: at.r }, cam: fxcam > 0 && camReady, turn, status: (st, from) => statuses.push({ st, from }), origin: engineInView ? { x: 0, y: 0 } : { x: here.x, y: here.y }, key: `${at.q},${at.r},${engineInView ? 1 : 0}${strip && !strip.hidden ? 's' : ''}` };
+    // (the demo tile is the viewer's village unless the address names another: a battle there stands before the village)
+    const home = (() => { try { const l = locate(at.q, at.r); const o = (map?.source?.()?.own ?? []).find(h => h.p === l.p && h.q === l.q && h.tile === l.idx); return o ? { tier: Math.max(0, Math.min(3, Number(o.tier ?? 0))), own: true } : null; } catch { return null; } })();
+    return { at: { q: at.q, r: at.r }, village: home, cam: fxcam > 0 && camReady, turn, status: (st, from) => statuses.push({ st, from }), origin: engineInView ? { x: 0, y: 0 } : { x: here.x, y: here.y }, key: `${at.q},${at.r},${engineInView ? 1 : 0}${strip && !strip.hidden ? 's' : ''}` };
   };
 
   // ---- the corner tag

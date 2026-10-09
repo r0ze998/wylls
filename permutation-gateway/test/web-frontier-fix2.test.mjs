@@ -302,14 +302,15 @@ test('one button language per material: nothing on bell metal is filled white or
   assert.match(tail, /\.pick \{[^}]*border: 0;[^}]*background: none;/);
 });
 
-test('the wait is a view: the leader\'s line by the standard, the surveyors\' lines to the sites, a slow arc round each site', () => {
+test('the wait is a view: the nation\'s words by the standard (no named speaker), the surveyors\' lines to the sites, a slow arc round each site', () => {
   setLang('ja');
-  assert.deepEqual(WAIT.leaderWords(0, 'ticket'), { who: 'オリアーヌ・ヴェル', text: '村の場所はもうすぐ決まる。待つあいだに、戦い方を確かめておけ。' });
-  assert.equal(WAIT.leaderWords(0, 'failed').text, 'まずは村の申し込みだ。通りしだい、候補地を知らせよう。');
-  assert.equal(WAIT.leaderWords(9), null);
+  assert.deepEqual(WAIT.nationWords(0, 'ticket'), { text: '村の場所はもうすぐ決まる。待つあいだに、戦い方を確かめておこう。' }, 'the words only: no speaker is named');
+  assert.equal(WAIT.nationWords(0, 'failed').text, 'まずは村の申し込みだ。通りしだい、候補地が地図に並ぶ。');
+  assert.equal(WAIT.nationWords(9), null);
+  assert.equal(WAIT.leaderWords, WAIT.nationWords, 'the name the map asks by is the same function');
   setLang('en');
-  assert.equal(WAIT.leaderWords(2, 'ticket').who, 'Sedra Ashfane');
-  assert.match(WAIT.leaderWords(2, 'ticket').text, /^Your village will be placed soon\./);
+  assert.deepEqual(Object.keys(WAIT.nationWords(2, 'ticket')), ['text']);
+  assert.match(WAIT.nationWords(2, 'ticket').text, /^The village will be placed soon\./);
   setLang('ja');
   const g = recorder2();
   WAIT.paintHomeTag(g, { x: 100, y: 200 }, { zoom: 1, faction: 0, say: WAIT.leaderWords(0, 'ticket') });
@@ -321,7 +322,7 @@ test('the wait is a view: the leader\'s line by the standard, the surveyors\' li
   assert.ok(!said.some(t => /オリアーヌ|^\u2014/.test(t)), said.join(' / '));
   assert.ok(said[said.length - 1].endsWith('」'), 'the tag ends with the words themselves');
   // wrapped lines never begin with a closing mark
-  const lines = WAIT.wrapText({ measureText: t => ({ width: t.length * 13 }) }, '「村の場所はもうすぐ決まる。待つあいだに、戦い方を確かめておけ。」', 238, 13);
+  const lines = WAIT.wrapText({ measureText: t => ({ width: t.length * 13 }) }, '「村の場所はもうすぐ決まる。待つあいだに、戦い方を確かめておこう。」', 238, 13);
   assert.ok(lines.length >= 2 && lines.every(l => !/^[、。」]/.test(l)), lines.join(' / '));
   assert.deepEqual(WAIT.wrapText({ measureText: t => ({ width: t.length * 7 }) }, 'Use the wait to learn how a battle goes.', 140, 13), ['Use the wait to', 'learn how a battle', 'goes.']);
   // the lines: one to every site that has a place, none without a canvas

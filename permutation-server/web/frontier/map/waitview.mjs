@@ -38,7 +38,7 @@ import { NATION_INK, NATION_ON } from '../palette.mjs';
 import { paintGlyph } from './glyphs.mjs';
 import { paintStandard } from './ownland.mjs';
 import { OPEN_PASS } from './labelpass.mjs';
-import { LEADERS, leaderHexImage, onLeaderArtLoad } from '../people/leaders.mjs';
+import { leaderHexImage, onLeaderArtLoad } from '../people/leaders.mjs';
 
 // (the leader's icon beside the line under the standard: when the picture arrives, the map draws once more)
 onLeaderArtLoad(() => { try { globalThis.__wyllsMap?.invalidate?.(); } catch { /* no map on this page */ } });
@@ -95,18 +95,17 @@ export function waitLine(wait) {
 }
 
 /**
- * The nation's words under the standard while the viewer waits (UX brief §11.10, §13): one line that says what the
- * wait is for. `state`: 'ticket' with a request in, else the request is still on its way. (Presentation; the line
- * claims nothing that has not happened.) `{text, who}` or null without a nation.
+ * The nation's words under its standard while the viewer waits (UX brief §11.10, §13): one line that says what the
+ * wait is for. They are the nation's own words, with no named speaker (no leader names or titles: DECISIONS ZP3).
+ * `state`: 'ticket' with a request in, else the request is still on its way. The line claims nothing that has not
+ * happened. `{text}` or null without a nation.
  */
-export function leaderWords(faction, state = null) {
-  // (the owner's decision of 2026-10-09: no leader has a name; the words are the nation's own, and the map's tag
-  // prints no speaker. `who` is kept for the page's card until that track takes the names off it: the name the
-  // people module still carries, and the nation's own once it carries none)
-  if (!Number.isInteger(faction) || faction < 0 || faction > 5) return null;
-  const n = LEADERS?.[faction]?.name ?? null;
-  return { who: (lang() === 'en' ? n?.en : n?.ja) ?? factionName(faction), text: state === 'ticket' ? L`村の場所はもうすぐ決まる。待つあいだに、戦い方を確かめておけ。` : L`まずは村の申し込みだ。通りしだい、候補地を知らせよう。` };
+export function nationWords(faction, state = null) {
+  if (!(Number.isInteger(faction) && faction >= 0 && faction < 6)) return null;
+  return { text: state === 'ticket' ? L`村の場所はもうすぐ決まる。待つあいだに、戦い方を確かめておこう。` : L`まずは村の申し込みだ。通りしだい、候補地が地図に並ぶ。` };
 }
+/** (the name the map still asks by) */
+export const leaderWords = nationWords;
 
 /**
  * The surveyors' lines of the wait (UX brief §11.10: the wait is a view, something to look at): from the standard to

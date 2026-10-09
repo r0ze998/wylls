@@ -86,14 +86,27 @@ const esc = s => String(s).replace(/[<>&"]/g, '');
 const a11y = title => (title ? `role="img" aria-label="${esc(title)}"` : 'aria-hidden="true" focusable="false"');
 
 /**
+ * The outline of the hexagon icon in its 100-unit box (measured on the files: a pointed top at (49.6, 1), flat
+ * sides at x 7 and 92.4), and the ring that says "yours" (UX design 5.3, 13.3): the icon drawn a little smaller
+ * inside a second hexagon of bright gold with an ivory core on a dark keyline. The ring is a shape of its own,
+ * apart from the icon's frame in the nation's colour, so it reads beside Cinder's yellow and Fjordal's orange too.
+ */
+export const HEX_OUTLINE = 'M49.6 1 L92.4 26.6 L92.4 70.3 L49.6 95.5 L7 70.3 L7 26.6 Z';
+export const YOURS = Object.freeze({ gold: '#ffd76a', core: '#fff8e2', key: '#14110a', inset: 0.8 });
+const ownRing = () => `<g fill="none" stroke-linejoin="round"><path d="${HEX_OUTLINE}" stroke="${YOURS.key}" stroke-width="11"/><path d="${HEX_OUTLINE}" stroke="${YOURS.gold}" stroke-width="6.5"/><path d="${HEX_OUTLINE}" stroke="${YOURS.core}" stroke-width="1.6"/></g>`;
+
+/**
  * The hexagon icon as markup, `size` px square. `sigil: true` adds the nation's sigil on a small shield of its
  * colour at the foot (where the icon stands alone for the nation: the sigil carries the identity, never the
- * colour by itself). Decorative unless `title` is given.
+ * colour by itself). `own: true` marks it as the viewer's own (the gold ring, `data-own`). Decorative unless
+ * `title` is given.
  */
-export function leaderHex(faction, { size = 40, title = null, sigil = false } = {}) {
+export function leaderHex(faction, { size = 40, title = null, sigil = false, own = false } = {}) {
   const f = ok(faction) ? faction : 0;
   const badge = sigil ? `<g transform="translate(79 79)"><circle r="17" fill="${NATION_FILL[f]}" stroke="#14110a" stroke-width="3.5"/><circle r="15.2" fill="none" stroke="#f0d48a" stroke-width="1.6"/><path d="${sigilPath(f, 8.6)}" fill="${NATION_ON[f]}"/></g>` : '';
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="${size}" height="${size}" class="leader leader-hex" data-leader="${leaderKey(f)}" ${a11y(title)}>${artImage(leaderHexUrl(f), 'width="100" height="100"')}${badge}</svg>`;
+  // (the viewer's own: the icon at four fifths about the hexagon's middle, the ring where its edge was)
+  const k = YOURS.inset, at = own ? `x="${(49.7 * (1 - k)).toFixed(2)}" y="${(48.2 * (1 - k)).toFixed(2)}" width="${100 * k}" height="${100 * k}"` : 'width="100" height="100"';
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="${size}" height="${size}" class="leader leader-hex${own ? ' leader-own' : ''}" data-leader="${leaderKey(f)}"${own ? ' data-own="1"' : ''} ${a11y(title)}>${artImage(leaderHexUrl(f), at)}${own ? ownRing() : ''}${badge}</svg>`;
 }
 
 /**

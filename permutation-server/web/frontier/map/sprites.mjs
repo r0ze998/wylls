@@ -1486,6 +1486,9 @@ export class SpriteArt {
     if (figures) return;   // the tokens carry their own labels at tile detail
     ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     for (const g of groups.values()) {
+      // (a host the last clash broke and that is no longer there has no troops to tell: no flag, where it carried a bare
+      // question mark; an arrival that is not resolved yet keeps its dashed flag and its question mark)
+      if (!(g.troops > 0) && !g.arriving) continue;
       const hk = `${g.cx},${g.cy}`;
       const i = perHex.get(hk) ?? 0; perHex.set(hk, i + 1);
       const k = 1 / zoom, w = 44 * k, h = 15 * k;

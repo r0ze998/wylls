@@ -25,7 +25,7 @@ const NAMES = /data-name>[^<]*</g;
 // The leaders' track, wave 3: the flat portrait in a frame is gone; the nation's leader stands lit before the cloth
 // (a canvas the sprite player paints: breathing while the banner is looked at; the chosen one's flourish once), a
 // phone's compact banner carries the leader's hexagon icon, and the confirm line carries the leader standing too.)
-test('the nation choice: six standing banners of cloth with the leader and the doctrine, one choice, one confirm that says the creed in full, no site picker', () => {
+test('the nation choice: six standing banners of cloth with the nation\'s character and its doctrine (no leader names or titles), one choice, one confirm that says the creed in full, no site picker', () => {
   setLang('ja');
   const base = { mode: 'play', land: { stage: 'none' }, citizen: null, overviews: new Map(), season: { joinGate: new Uint8Array(32) }, wallet: { address: 'W' }, joinDraft: {}, playReady: true, tab: 'map' };
   const out = String(joinScreen.render(base));
@@ -42,7 +42,13 @@ test('the nation choice: six standing banners of cloth with the leader and the d
   assert.deepEqual([...out.matchAll(/<span class="nc-face"><svg[^>]*class="leader leader-card-art" data-leader="([a-z]+)"/g)].map(m => m[1]), KEYS, 'and each leader\'s face, large (the portrait card), for the wide screen\'s confirm line');
   assert.doesNotMatch(out, /data-once=|data-motion="attack"/, 'no flourish before a choice');
   assert.doesNotMatch(out, /<ellipse cx="80"|class="leader"[ >]/, 'the flat vector portrait is gone');
-  assert.equal((out.match(/<span class="bn-field"><strong class="bn-name">[^<]+<\/strong><span class="bn-leader"><span data-name>[^<]+<\/span><\/span><span class="bn-creed">教義：/g) ?? []).length, 6, 'name, leader and doctrine on the dyed field');
+  assert.equal((out.match(/<span class="bn-field"><strong class="bn-name">[^<]+<\/strong><span class="bn-creed">教義：/g) ?? []).length, 6, 'name and doctrine on the dyed field');
+  // the six are the players (UX design 13, DECISIONS ZP1, ZP3): no name and no title of a leader, in either language
+  const NO_LEADER = /オリアーヌ|カイト・マロウ|セドラ|ブラノック|イルゼ|トーヴァル|Oriane|Marrow|Sedra|Brannoc|Ilse|Torvald|元帥|船長|伝令|森番の長|測量長|ヤール|Marshal|Captain|Herald|Warden-Elder|Surveyor|Jarl/;
+  assert.doesNotMatch(out, NO_LEADER); assert.doesNotMatch(out, /bn-leader|data-name/);
+  assert.deepEqual([...out.matchAll(/<strong class="nc-name">([^<]+) <span class="nc-title">— 教義：([^<]+)<\/span><\/strong>/g)].map(m => m[1]), ['アステル', 'ボレアリス', 'シンダー', 'ダンマール', 'エンバー', 'フィヨルダル'], 'the confirm line: the nation and its doctrine');
+  setLang('en');
+  try { assert.doesNotMatch(String(joinScreen.render(base)), NO_LEADER); } finally { setLang('ja'); }
   // the confirm line: every nation's leader and creed, whole (no line is cut: the stylesheet shows the looked-at one); nothing is the default before a choice but the hint
   const says = [...out.matchAll(/<div class="nc-item( nc-def)?" data-n="(\d)" (aria-live="polite"|aria-hidden="true")>[\s\S]*?<span class="nc-pitch">([^<]+)<\/span>/g)];
   assert.deepEqual(says.map(m => [m[1] ?? '', m[2], m[3]]), [0, 1, 2, 3, 4, 5].map(f => ['', String(f), 'aria-hidden="true"']));

@@ -125,20 +125,26 @@ test('playLeaderDemo adds one effect on the top canvas that paints the six by th
   assert.ok(draws().every(d => /_idle\.webp$/.test(d[1].src)), 'reduced motion: stills');
 });
 
-test('the truth rule: no leader walks the map in normal play: the painter and the demo are reached from the demo switch alone', () => {
+test('the truth rule: the six are the players: a character stands by its player\'s village and nowhere else; the demo of the six is the demo switch\'s alone', () => {
   const files = [];
   const walk = (dir, rel = '') => { for (const e of readdirSync(dir, { withFileTypes: true })) { if (e.isDirectory()) { if (!['art', 'wasm', 'council'].includes(e.name)) walk(new URL(`${e.name}/`, dir), `${rel}${e.name}/`); } else if (/\.(mjs|html)$/.test(e.name)) files.push(`${rel}${e.name}`); } };
   walk(WEB);
   const importers = name => files.filter(f => new RegExp(`from '[^']*${name}'|import\\('[^']*${name}'\\)`).test(readFileSync(new URL(f, WEB), 'utf8')));
   assert.deepEqual(importers('leader-demo\\.mjs'), ['fx/demo.mjs'], 'the demo of the six is the demo switch\'s alone');
-  assert.deepEqual(importers('leader-motion\\.mjs'), ['people/leader-demo.mjs'], 'the map painter is used by that demo alone');
+  // (UX design 13.2, DECISIONS ZP2: the map painter is used by that demo, by the one module that stands a player's
+  // character beside that player's village, and by the battle scene, where each nation's side has its player behind
+  // its line; the walk clip is the landing's and the demo's)
+  assert.deepEqual(importers('leader-motion\\.mjs').sort(), ['people/battle.mjs', 'people/leader-demo.mjs', 'people/onboard.mjs'], 'the map painter: the demo, the characters by their villages, and the two sides\' players in a battle scene');
   // and fx/demo.mjs itself is loaded only when the address carries ?fx=
   assert.deepEqual(importers('/demo\\.mjs').sort(), ['fx/index.mjs']);
   assert.match(readFileSync(new URL('fx/index.mjs', WEB), 'utf8'), /if \(q\.has\('fx'\)\) import\('\.\/demo\.mjs'\)/);
   const demo = readFileSync(new URL('fx/demo.mjs', WEB), 'utf8');
   assert.match(demo, /leaders: \{ secs: LEADER_DEMO\.secs, run: \(c, fx\) => playLeaderDemo\(fx, c, \{ stand: stood \}\) \}/);
   assert.match(demo, /tag\.className = 'fx-demo-tag'/, 'the corner tag stands while any sample plays');
-  // the map sprites are named by the demo's painter only: no screen, no map module asks for them
+  // the map sprites are named by the painter's users only: no screen and no map module asks for them
   const users = files.filter(f => /motionSpriteUrl|leaderMotionSheet|paintLeaderMotion/.test(readFileSync(new URL(f, WEB), 'utf8')));
-  assert.deepEqual(users.sort(), ['leader-motion-data.mjs', 'people/leader-demo.mjs', 'people/leader-motion.mjs']);
+  assert.deepEqual(users.sort(), ['leader-motion-data.mjs', 'people/battle.mjs', 'people/leader-demo.mjs', 'people/leader-motion.mjs', 'people/onboard.mjs']);
+  // a character is no unit of the game: the module that stands it on the board knows no march, no route and no destination
+  const onboard = readFileSync(new URL('people/onboard.mjs', WEB), 'utf8');
+  assert.doesNotMatch(onboard, /fmarch|marchbook|routePoints|alongPath|\bdest\b|arriveBell/);
 });

@@ -197,8 +197,12 @@ test('battle titles: the viewer\'s own words, a nation\'s name for a spectator, 
     assert.equal(t('win', 0).title, lang === 'ja' ? '勝利' : 'Victory');
     assert.equal(t('win', 2).title, lang === 'ja' ? '壊滅' : 'Destroyed');
     assert.equal(t('held', 0).title, lang === 'ja' ? '撃退' : 'Repelled');
-    assert.equal(t('held', 4).title, lang === 'ja' ? '壊滅' : 'Destroyed', 'the Destroyed host decides the word, not the one that turned back unhurt');
-    assert.equal(t('camp', 0).title, lang === 'ja' ? '野営地を制圧' : 'Camp cleared');
+    // (one outcome word per result, UX design 13.6: 壊滅 only when nothing of the side is left; a side of which a part
+    // left with troops withdrew, and the tag under its losses says the same: people/outcome.mjs)
+    assert.equal(t('held', 4).title, lang === 'ja' ? '撤退' : 'Retreat', 'a part of it turned back with its troops: the side withdrew, it was not destroyed');
+    // (the viewer's word for a camp cleared is the report's stamp: 勝利; a spectator's title names the camp)
+    assert.equal(t('camp', 0).title, lang === 'ja' ? '勝利' : 'Victory');
+    assert.equal(t('camp', null).title, lang === 'ja' ? '野営地を制圧' : 'Camp cleared');
     assert.equal(t('others', null).title, lang === 'ja' ? 'ダンマールの勝利' : 'Dunmar wins');
     assert.equal(t('win', 0).tone, 'win'); assert.equal(t('win', 2).tone, 'loss'); assert.equal(t('others', 0).tone, 'brass');
     // (the nations' colours are the leaders' clothes now: palette.mjs; Aster's red)
@@ -273,7 +277,7 @@ test('battle on the page: staged above the dimmed map with sparks, dust, shake a
     const h = stageBattle(s.fx, play, { viewerFaction: 0 });
     assert.ok(Math.abs(h.dur - 2.8) < 1e-9);
     assert.ok(s.fx.playing().includes('burn'));
-    assert.equal(h.title.title, '野営地を制圧');
+    assert.equal(h.title.title, '勝利');
   } finally { s.done(); }
   // reduced
   s = staged('reduced');
