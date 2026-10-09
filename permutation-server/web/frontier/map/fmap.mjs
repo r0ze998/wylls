@@ -54,6 +54,7 @@ import { LANDING } from './ownland.mjs';
 import { WORKED_RADIUS } from './survey.mjs';
 import { emit as fxEmit } from '../fx/bus.mjs';
 import { createLabelPass, rectOf, tileKeyOf } from './labelpass.mjs';
+import { paintCandidateLabels, paintHomeTag, paintWaitStandard, standardBox, waitLine } from './waitview.mjs';
 import { TILT, armUpright, disarmUpright, groundBox, groundView, nearQuad, tiltAt, tiltFromQuery, tiltGeo, upright } from './tilt.mjs';
 
 /** Fog levels drawn as tiles at tile LOD (a distant province stays a muted cell). */
@@ -115,6 +116,8 @@ export const NOGO_EVERY_MS = 300;
 export const REACH_FIT = 0.9;
 export const REACH_PAD = 14;
 export const REACH_ZOOM_FLOOR = 1.14;
+/** A place the page asks the map to fly to (`wylls:fly-to`) is seen at this zoom at least: its tiles, and what stands on them. */
+export const FLY_TO_ZOOM = 1.0;
 /** The still layers of a resting view are repainted at least this often (ms): a change nobody announced heals. */
 export const LAYER_MAX_AGE_MS = 2000;
 
@@ -437,6 +440,9 @@ export class FrontierMap {
     this.landing = null;
     this.pointer = mountHomePointer(canvas, { onPress: () => this.home() });
     this.watchSize();
+    // a row of a list flies to its place (the wait drawer's candidate sites): `wylls:fly-to` with `{p, q, tile}` (or `site`)
+    this.onFlyTo = e => { try { this.flyToPlace(e?.detail); } catch { /* a malformed event */ } };
+    globalThis.addEventListener?.('wylls:fly-to', this.onFlyTo);
     this.frame = ts => {
       this.frameNo = (this.frameNo ?? 0) + 1;
       const now = ts ?? clock();
@@ -674,6 +680,19 @@ export class FrontierMap {
     const pt = Number.isInteger(target.p) && Number.isInteger(target.q) ? placePoint(target) : { x: target.x ?? v.x, y: target.y ?? v.y };
     const to = exact || !(size.width > 0) ? { x: pt.x, y: pt.y, zoom } : this.aim(pt, zoom, size);
     this.setView(to, { auto, ms: ms ?? flightMs(this.cam.drawn, to, size), kind: 'fly' });
+  }
+
+  /**
+   * Fly to a place the page names (`wylls:fly-to`): `{p, q, tile}`, or `{p, q, site}` (the site's tile, once its
+   * province's terrain is known), or `{p, q}` (the province). Near enough to see its tiles; a closer view is kept.
+   * Returns whether there was a place to go to.
+   */
+  flyToPlace(d) {
+    if (!d || !Number.isInteger(d.p) || !Number.isInteger(d.q)) return false;
+    const terrainOf = this.source?.()?.terrainOf ?? this.terrainOf;
+    const tile = Number.isInteger(d.tile) ? d.tile : Number.isInteger(d.site) ? terrainOf?.(d.p, d.q)?.sites?.[d.site] : null;
+    this.flyTo({ p: d.p, q: d.q, tile: Number.isInteger(tile) ? tile : undefined, zoom: Math.max(this.cam.view.zoom, Number.isFinite(d.zoom) ? d.zoom : FLY_TO_ZOOM) });
+    return true;
   }
 
   /**
@@ -1307,6 +1326,9 @@ export class FrontierMap {
     // the marks of the viewer's stage, on the land: the home wedge while there is no village yet; the rim of the village's own land
     const waiting = limited && Number.isInteger(survey.faction) && ['joined', 'ticket', 'refugee'].includes(survey.stage);
     if (waiting) paintWedge(ctx, survey.faction, ringsOpen, z);
+    // the wait for the village (map/waitview.mjs): the nation's standard stands in its home wedge; what the countdown says
+    const homeAt = waiting ? this.wedgeHome(survey.faction, ringsOpen) : null;
+    const waitSay = waiting ? waitLine(src.wait ?? null) : null;
     // the nation choice (UX brief §7.2): the home wedge of the nation that is looked at is lit on the chart
     const looked = !waiting && limited && Number.isInteger(src.focusNation) ? src.focusNation : null;
     if (looked !== null) paintWedge(ctx, looked, ringsOpen, z, { lit: true });
@@ -1317,12 +1339,13 @@ export class FrontierMap {
     if (lod === 'world' && (artCells.length || names.length)) {
       const nations = artCells.length > 0 && (src.lens ?? 'realm') !== 'land';
       const box = waiting ? wedgeBox(survey.faction, ringsOpen) : looked !== null ? wedgeBox(looked, ringsOpen) : null;
-      realm = o => paintRealmLabels(o, recs, z, src.realmName ?? null, { extra: names, nations, ...(limited ? { min: 3, home: box ? { faction: waiting ? survey.faction : looked, x: box.x, y: box.y } : null,
+      // (while the viewer waits for a village the standard's own tag names the nation in its wedge: no second name there)
+      realm = o => paintRealmLabels(o, recs, z, src.realmName ?? null, { extra: names, nations, ...(limited ? { min: 3, home: box && !waiting ? { faction: looked, x: box.x, y: box.y } : null,
         seen: (r, j) => { if (survey.province(r.p, r.q).max < L2) return false; const t = terrainOf?.(r.p, r.q), idx = t?.sites?.[j]; return Number.isInteger(idx) && survey.levelOf(r.p, r.q, idx) >= L2; } } : {}) });
     }
     // (nearer than the world chart the wedge that is looked at, or waited in, still carries its nation's name)
-    else if (lod === 'province' && (looked !== null || waiting)) {
-      const f = waiting ? survey.faction : looked, box = wedgeBox(f, ringsOpen);
+    else if (lod === 'province' && looked !== null) {
+      const f = looked, box = wedgeBox(f, ringsOpen);
       if (box) realm = o => paintRealmLabels(o, recs, z, src.realmName ?? null, { nations: false, extra: [{ text: src.realmName?.(f) ?? String(f), x: box.x, y: box.y, below: -14, size: 22, fill: '#fff6e2' }] });
     }
     if (tileOpts) {
@@ -1350,6 +1373,7 @@ export class FrontierMap {
     if (guide && lod !== 'tile') paintGuide(ctx, guide, z, '', 'ring');
     if (src.threats?.length) paintThreats(ctx, src.threats, z, null, 'mark');
     if (limited && survey.candidates?.length) paintCandidates(ctx, survey.candidates, z, { still: calm, part: 'mark' });
+    if (homeAt) { paintWaitStandard(ctx, homeAt, { zoom: z, faction: survey.faction, now: F.fx, still: calm }); if (!calm) this.invalidateSoon(90); }
     // what is read rather than looked at stands upright over the board and its depth dressing: names, labels,
     // warnings' words, pins, the guide's words (`o`: the label canvas; `w`: its flat world transform)
     const over = (o = ctx, w = null) => {
@@ -1359,7 +1383,14 @@ export class FrontierMap {
       realm?.(o);
       labels?.(o, pass);
       if (src.threats?.length) { paintThreats(o, src.threats, z, src.threatLabel ?? null, 'label'); this.invalidateSoon(); }
-      if (limited && survey.candidates?.length) { paintCandidates(o, survey.candidates, z, { still: calm, part: 'label' }); if (!calm) this.invalidateSoon(120); }
+      // the wait's words, the candidates' first: they keep clear of the standard's cloth, and the standard's own tag
+      // gives way to them (with sites to look at, the nation's name may be left out where there is no room for it)
+      const sites = limited && survey.candidates?.length ? survey.candidates : null;
+      if (homeAt) pass.block(homeAt.x, homeAt.y, standardBox(homeAt, z));
+      if (sites) { paintCandidateLabels(o, sites, { zoom: z, line: waitSay, pass }); if (!calm) this.invalidateSoon(120); }
+      if (homeAt) paintHomeTag(o, homeAt, { zoom: z, faction: survey.faction, line: waitSay, pass, keep: !sites });
+      // (a countdown is read to the second: the words are drawn again a few times a second)
+      if (waitSay) this.invalidateSoon(400);
       if (src.pins?.length) paintPins(o, src.pins, z);
       // (the page's objective chip may stand at the target itself: then the ring alone marks the tile)
       if (guide && !src.guideChip) paintGuide(o, guide, z, src.guideLabel?.(guide) ?? '', 'label', { rise: this.pileRise(guide, z), pass });
@@ -1412,6 +1443,18 @@ export class FrontierMap {
     const guide = g0 && !(lod === 'world' && villages.some(v => v.p === g0.p && v.q === g0.q && v.tile === g0.tile)) ? g0 : null;
     return { src, survey, lod, z, fx, still, limited, guide, villages, faction: limited ? survey.faction : null, palette: actionPalette(limited ? survey.faction : null), A, selHex, selOwn, hover, hoverLit,
       lands: () => this.ownLands(survey, villages, lod, terrainOf) };
+  }
+
+  /** Where the nation's standard stands in its home wedge while the viewer has no village: the middle of a tile near the wedge's own middle (world px), or null. */
+  wedgeHome(faction, ringsOpen) {
+    const key = `${faction}|${ringsOpen}`;
+    if (this.homeKey !== key) {
+      this.homeKey = key;
+      const box = wedgeBox(faction, ringsOpen);
+      if (!box) this.homeNow = null;
+      else { const [q, r] = inverseHex(box.x, box.y).split(',').map(Number); this.homeNow = project(q, r); }
+    }
+    return this.homeNow;
   }
 
   /**
@@ -1674,6 +1717,7 @@ export class FrontierMap {
     if (this.soon) clearTimeout(this.soon);
     this.resizer?.disconnect?.();
     if (this.onResize) this.canvas?.ownerDocument?.defaultView?.removeEventListener?.('resize', this.onResize);
+    if (this.onFlyTo) globalThis.removeEventListener?.('wylls:fly-to', this.onFlyTo);
     this.unlang?.(); this.unredraw?.(); this.tools?.remove(); this.pointer?.remove();
   }
 }

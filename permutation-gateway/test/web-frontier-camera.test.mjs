@@ -278,12 +278,20 @@ test('the opening view depends on who is looking: village, candidate sites, home
   const tl = fmap.worldToScreen(w.view, size, box.x - box.width / 2, box.y - box.height / 2), br = fmap.worldToScreen(w.view, size, box.x + box.width / 2, box.y + box.height / 2);
   assert.ok(tl.x >= 0 && tl.y >= 0 && br.x <= size.width && br.y <= size.height, 'the whole wedge fits');
   assert.equal(wedgeOf(...Object.values(fmap.pick(w.view, size, size.width / 2, size.height / 2)).slice(2, 4)), 2, 'and its middle is in wedge 2');
-  // a ticket: the first candidate's province, at tile detail
+  // a ticket (rewritten with UX brief §11.10: it pinned the first candidate's province alone): every candidate site
+  // is in the part of the picture nothing covers, as near as that allows; with their tiles known (the survey's
+  // candidates) it is the tiles that are framed
   const ticket = opening.openHint({ mode: 'play', land: { stage: 'ticket', ticket: { sites: [{ p: 2, q: 0, site: 3 }, { p: 1, q: 1, site: 0 }] } }, citizen: { faction: 0 } });
   const cnd = opening.openingPlan(ticket, src, size);
   assert.equal(cnd.kind, 'candidates');
-  assert.deepEqual([cnd.view.x, cnd.view.y], [layers.provincePixel(2, 0).x, layers.provincePixel(2, 0).y]);
-  assert.ok(cnd.view.zoom >= fmap.LOD_EDGES.tileIn && cnd.view.zoom <= opening.heroZoom(1), 'its tiles are drawn');
+  for (const [p, q] of [[2, 0], [1, 1]]) { const c = layers.provincePixel(p, q), at = fmap.worldToScreen(cnd.view, size, c.x, c.y); assert.ok(at.x > 40 && at.x < size.width - 40 && at.y > 40 && at.y < size.height - 40, `candidate province ${p},${q} is in the picture`); }
+  assert.ok(cnd.view.zoom >= opening.CANDIDATES_MIN && cnd.view.zoom <= opening.heroZoom(1));
+  const known = [{ p: 2, q: 0, site: 3, tile: 7 }, { p: 1, q: 1, site: 0, tile: 30 }, { p: 1, q: 1, site: 1, tile: 50 }];
+  const drawer = { top: 48, right: 400, bottom: 72 };
+  const all = opening.openingPlan(ticket, { ...src, survey: { candidates: known } }, { width: 1440, height: 900 }, { inset: drawer });
+  for (const k of known) { const c = tilePoint(k.p, k.q, k.tile), at = fmap.worldToScreen(all.view, { width: 1440, height: 900 }, c.x, c.y); assert.ok(at.x > 30 && at.x < 1440 - 400 - 30 && at.y > 48 + 30 && at.y < 900 - 72 - 20, `site ${k.site} is in the free part (${Math.round(at.x)}, ${Math.round(at.y)})`); }
+  assert.ok(all.view.zoom >= fmap.LOD_EDGES.tileIn, 'three sites of one wedge: still the tile view');
+  assert.equal(opening.openingPlan(ticket, { ...src, survey: { candidates: known.slice(0, 1) } }, size).view.zoom, opening.heroZoom(1), 'one site: as near as a village');
   // a village: its tile at the hero zoom; the active village when there are several
   const own = [{ p: 2, q: 0, tile: 7 }, { p: 1, q: 1, tile: 30 }];
   const lord = opening.openHint({ mode: 'play', land: { stage: 'final' }, citizen: { faction: 0 }, activeHolding: 1 });

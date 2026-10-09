@@ -684,27 +684,19 @@ export function paintWedge(g, faction, ringsOpen, zoom, { lit = false } = {}) {
   g.restore();
 }
 
-/** The candidate sites of an open ticket: a dashed ring on each tile, in ivory over ink, with a word. */
-export function paintCandidates(g, candidates, zoom, { now = fxNow(), still = false, part = null } = {}) {
-  // `part` 'mark': the rings, on the ground; 'label': the words, upright over their tiles; null: both
+/** The candidate sites of an open request: a dashed ring on each tile, in ivory over ink (their numbers and names are the wait view's: map/waitview.mjs). */
+export function paintCandidates(g, candidates, zoom, { now = fxNow(), still = false } = {}) {
   if (!candidates?.length || !g?.save) return;
   const k = 1 / zoom, turn = still ? 0 : (now / 1000) * 5;
   g.save();
   g.lineCap = 'round';
-  candidates.forEach((c, i) => {
+  candidates.forEach(c => {
     const h = tileHex(c.p, c.q, c.tile);
     if (!h) return;
     const at = project(h.q, h.r), rx = Math.max(RADIUS * 0.92, 15 * k), ry = rx * FLATTEN;
     const ring = (w, style, dash) => { g.beginPath(); g.ellipse?.(at.x, at.y, rx, ry, 0, 0, Math.PI * 2); g.setLineDash(dash ? [9 * k, 6 * k] : []); g.lineDashOffset = -turn * k; g.lineWidth = w * k; g.strokeStyle = style; g.stroke(); };
-    if (part !== 'label') { ring(5.2, 'rgba(22,30,26,.7)', false); ring(2.6, '#f4efe0', true); }
+    ring(5.2, 'rgba(22,30,26,.7)', false); ring(2.6, '#f4efe0', true);
     g.setLineDash([]);
-    if (part !== 'mark' && RADIUS * zoom >= 16) upright(g, at.x, at.y, () => {
-      const text = `${L`候補地`} ${i + 1}`;
-      g.font = `700 ${11.5 * k}px system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
-      const tw = g.measureText(text).width + 14 * k, th = 18 * k, ty = at.y - ry - 8 * k - th;
-      g.fillStyle = 'rgba(22,30,26,.9)'; g.beginPath(); g.roundRect?.(at.x - tw / 2, ty, tw, th, 9 * k); g.fill();
-      g.fillStyle = '#f4efe0'; g.fillText(text, at.x, ty + th / 2 + 0.5 * k);
-    });
   });
   g.restore();
 }

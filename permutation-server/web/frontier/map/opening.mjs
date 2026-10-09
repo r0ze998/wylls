@@ -2,7 +2,7 @@
 // opens. It depends on who is looking:
 //
 //   a village (provisional or final)   the active village's tile at the hero zoom
-//   a ticket with candidate sites      the first candidate's province
+//   a ticket with candidate sites      every candidate site, in the part nothing covers
 //   joined, no land yet                the nation's home wedge
 //   not joined (the nation choice)     close on the bell at the Concord; a nation that is looked at:
 //                                      its home wedge with the bell at its point
@@ -22,6 +22,7 @@ import { provincePixel, PROVINCE_CIRCUMRADIUS, FLATTEN } from './layers.mjs';
 import { FAR_CAP, centreOn, fitView, freeBox } from './camera.mjs';
 import { RADIUS } from '../../map.mjs';
 import { TOWER } from './belltower.mjs';
+import { candidatesBox } from './waitview.mjs';
 
 /** The hero zoom: a hex about 90 to 100 CSS px wide; a little less on a dense screen, where the largest sprites are already stretched (never below the zoom at which every village carries its name tag). */
 export const heroZoom = (dpr = 1) => (dpr >= 1.5 ? 1.2 : 1.3);
@@ -38,6 +39,8 @@ const FRAME_CAP = 0.3;
  * (the tiles stay tiles and the board keeps its tilt) and `max`; the picture's middle is `middle` of the way up it.
  */
 export const ENGINE_VIEW = Object.freeze({ share: 0.78, min: 0.62, max: 1.3, middle: 0.44, aside: 0.13 });
+/** Candidate sites are never framed from further out than this (the far bitmaps still show their painted discs). */
+export const CANDIDATES_MIN = 0.3;
 const RANK = { fit: 0, frame: 0, wedge: 1, candidates: 2, home: 3 };
 
 /**
@@ -89,11 +92,14 @@ export function openingPlan(hint, src, size, { inset = null, dpr = 1 } = {}) {
   const plan = (kind, at, zoom) => ({ kind, at, rank: RANK[kind], view: centreOn(at, zoom, size, inset) });
   const own = (src?.own ?? []).filter(o => Number.isInteger(o.p) && Number.isInteger(o.q));
   if (own.length) return plan('home', placePoint(own[Math.min(own.length - 1, Math.max(0, h.active ?? 0))]), hero);
-  const first = (h.candidates ?? []).find(s => Number.isInteger(s?.p) && Number.isInteger(s?.q));
-  if (first) {
-    // one province fills the uncovered part: its tiles are drawn, so the candidate sites can be seen
-    const zoom = Math.max(0.55, Math.min(hero, (0.85 * Math.min(free.width, free.height / FLATTEN)) / (2 * PROVINCE_CIRCUMRADIUS)));
-    return plan('candidates', provincePixel(first.p, first.q), zoom);
+  // candidate sites (UX brief §11.10): all of them in the uncovered part, as near as that allows (their tiles are
+  // drawn from the tile view on; a request whose sites lie far apart is seen from further out). The survey knows
+  // their tiles once the terrain is there; until then their provinces stand in
+  const sites = (src?.survey?.candidates?.length ? src.survey.candidates : h.candidates ?? []).filter(s => Number.isInteger(s?.p) && Number.isInteger(s?.q));
+  const cb = candidatesBox(sites);
+  if (cb) {
+    const zoom = Math.max(CANDIDATES_MIN, Math.min(hero, 0.9 * Math.min(free.width / (cb.x1 - cb.x0), free.height / (cb.y1 - cb.y0))));
+    return plan('candidates', { x: (cb.x0 + cb.x1) / 2, y: (cb.y0 + cb.y1) / 2 }, zoom);
   }
   if (Number.isInteger(h.faction) && ['joined', 'ticket', 'refugee'].includes(h.stage)) {
     const box = wedgeBox(h.faction, rings);

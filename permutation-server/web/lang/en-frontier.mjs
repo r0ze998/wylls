@@ -438,11 +438,15 @@ export default {
   '地図には、あなたが見て測量した範囲を描いています。隠しているのではありません。チェーンの記録はすべて公開で、観戦ページでは全体を見られます。本当に見えないのは、封印した進軍の行き先と構え（到着のターンが終わるまで）と、探索の結果（そのターンの乱数が出るまで）だけです。':
     'The map draws what you have seen and surveyed. Nothing is being kept from you: every record on the chain is public, and the spectator page shows the whole world. The only things nobody can see are where a sealed march is going and its stance (until its arrival turn ends), and what an exploration finds (until the random seed of that turn is out).',
   '観戦ページで世界全体を見る': 'See the whole world on the spectator page',
-  '候補地': 'Candidate site',
   '仮': 'Provisional',
   // the land, the lit tiles, where am I (UX brief §5: map/ownland.mjs, map/actions.mjs, map/homepointer.mjs, map/names.mjs)
   '自分の村へ移動（{0} マス先）': 'Go to my village ({0} tiles away)',
   '{0} マス': '{0} tiles',
+  // the wait for the village on the map (map/waitview.mjs)
+  'あなたの国の土地': 'Your nation\'s land',
+  '村が決まるまで {0}': 'Village decided in {0}',
+  'まもなく村が決まります': 'Your village is about to be decided',
+  '次のターンまで {0}': 'Next turn in {0}',
   'ここへは届きません': 'Out of reach from here',
   '遠すぎます（{0}歩まで）': 'Too far (at most {0} steps)',
   'まだひらいていない土地です': 'This land is not open yet',
