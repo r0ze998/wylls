@@ -91,7 +91,7 @@ export const sentences = text => String(text).match(/[^\u3002.!?]+[\u3002.!?]?\s
  */
 export function render({ mode = 'play', live = '', stage = null } = {}) {
   // the six stand in a row and breathe (a still each in reduced motion): the nation's name and its sigil under each
-  const leaders = LEADERS.map((l, i) => html`<li class="intro-leader intro-leader-${i}"><span class="intro-fig">${raw(leaderFigure(l.faction, { size: 190 }))}</span><span class="intro-nation"><svg class="intro-sigil" viewBox="-8 -8 16 16" width="12" height="12" aria-hidden="true" focusable="false"><path d="${sigilPath(l.faction, 6)}" fill="${FACTION_FILL[l.faction]}" stroke="#0a1412" stroke-width="1.2"/></svg>${factionName(l.faction)}</span></li>`);
+  const leaders = LEADERS.map((l, i) => html`<li class="intro-leader intro-leader-${i}"><span class="intro-fig">${raw(leaderFigure(l.faction))}</span><span class="intro-nation"><svg class="intro-sigil" viewBox="-8 -8 16 16" width="12" height="12" aria-hidden="true" focusable="false"><path d="${sigilPath(l.faction, 6)}" fill="${FACTION_FILL[l.faction]}" stroke="#0a1412" stroke-width="1.2"/></svg>${factionName(l.faction)}</span></li>`);
   return html`<canvas class="intro-scene" aria-hidden="true"></canvas><div class="intro-veil" aria-hidden="true"></div>
     <div class="intro-card">
       <h2 class="intro-title" id="intro-title" data-name>Wylls</h2>

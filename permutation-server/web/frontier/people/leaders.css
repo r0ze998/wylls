@@ -22,7 +22,8 @@
 /* ---- the pictures */
 .leader-hex { display: block; flex: none; border-radius: 0; filter: drop-shadow(0 1px 2px rgba(0,0,0,.45)); }
 .leader-card-art { display: block; flex: none; }
-.lfig { display: block; flex: none; overflow: hidden; }
+/* the leader standing: a canvas of one stage cell (288 x 360) that the sprite player paints; its place says how tall it is */
+.lfig { display: block; flex: none; width: auto; height: 120px; aspect-ratio: 4 / 5; }
 .lfig[data-flip] { transform: scaleX(-1); }
 
 /* ---- the top plaque: the leader's icon in the crest chip (it stands a little proud of the plaque) */
@@ -126,3 +127,11 @@
 .report-leader .report-fig .lfig { height: 92px; width: auto; border-radius: 0; box-shadow: none; filter: drop-shadow(0 2px 3px rgba(60,48,20,.45)); }
 .wait-face .lfig { height: 88px; width: auto; margin: -12px -8px -4px -10px; border-radius: 0; box-shadow: none; filter: drop-shadow(0 2px 3px rgba(60,48,20,.45)); }
 .leader-card .leader-card-art { border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,.35); }
+
+/* ---- the legend's key of the six nations: the leader's icon, the sigil in its colour, the nation and who leads it */
+.nation-legend { list-style: none; margin: 8px 0 6px; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; }
+.nation-legend li { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 10px; align-items: center; }
+.nation-legend .survey-what { display: grid; gap: 0; line-height: 1.35; }
+.nation-leader { font-size: var(--t1); color: var(--ink-2); }
+.nation-note { margin: 0 0 8px; font-size: var(--t1); line-height: 1.6; color: var(--ink-2); }
+@media (max-width: 420px) { .nation-legend { grid-template-columns: 1fr; } }

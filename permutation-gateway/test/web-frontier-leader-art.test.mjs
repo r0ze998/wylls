@@ -108,7 +108,7 @@ test('leaderSvg: the hexagon icon up to 64 px, the portrait card above it; attri
     assert.ok(big.includes(`fill="${FACTION_ON[f]}"`), 'the sigil in the colour that reads on the nation\'s fill');
     assert.match(LD.leaderSvg(f, { size: 40, shape: 'card' }), /leader-card-art/);
     assert.match(LD.leaderSvg(f, { size: 200, shape: 'hex' }), new RegExp(`leader-hex[^>]*>.*hex-v1/${k}@256\\.webp`));
-    for (const svg of [small, big, LD.leaderSvg(f, { size: 34, sigil: true }), LD.leaderFigure(f, { size: 120 })]) {
+    for (const svg of [small, big, LD.leaderSvg(f, { size: 34, sigil: true }), LD.leaderFigure(f)]) {
       assert.doesNotMatch(svg, /style=|onload=|onerror=|<script/);
       // (the old busts: a head ellipse at cx 80, skin gradients, the costume paths)
       assert.doesNotMatch(svg, /<ellipse cx="80"|#e9c3a0|#c99a72|M100 150 L140 150/);
@@ -122,12 +122,12 @@ test('leaderSvg: the hexagon icon up to 64 px, the portrait card above it; attri
   assert.doesNotMatch(src, /function face\(|function costume\(|const SKIN = /);
 });
 
-test('the leader standing: a still of 288 × 360 with its shadow, marked for the sprite player; mirrored and named on request', () => {
-  const svg = LD.leaderFigure(3, { size: 150 });
-  assert.match(svg, /^<svg xmlns="http:\/\/www.w3.org\/2000\/svg" viewBox="0 0 288 360" width="120" height="150" class="lfig" data-leader="dunmar" data-motion="idle" aria-hidden="true" focusable="false"><ellipse class="lfig-shadow"[^>]*\/><image class="lfig-still" href="[^"]*\/stage-v1\/dunmar\.webp" width="288" height="360"\/><\/svg>$/);
-  const one = LD.leaderFigure(5, { size: 90, motion: 'attack', once: 'pick-5', when: 'look', flip: true, title: 'Torvald Hride', shadow: false });
-  assert.match(one, /class="lfig" data-leader="fjordal" data-motion="attack" data-once="pick-5" data-when="look" data-flip="1" role="img" aria-label="Torvald Hride">/);
-  assert.doesNotMatch(one, /lfig-shadow/);
+test('the leader standing: a canvas of one stage cell, marked for the sprite player (it names no picture: the player holds them); mirrored and named on request', () => {
+  const fig = LD.leaderFigure(3);
+  assert.equal(fig, '<canvas class="lfig" width="288" height="360" data-leader="dunmar" data-motion="idle" aria-hidden="true" focusable="false"></canvas>');
+  const one = LD.leaderFigure(5, { motion: 'attack', once: 'pick-5', when: 'look', flip: true, title: 'Torvald Hride', shadow: false });
+  assert.equal(one, '<canvas class="lfig" width="288" height="360" data-leader="fjordal" data-motion="attack" data-once="pick-5" data-when="look" data-flip="1" data-shadow="0" role="img" aria-label="Torvald Hride"></canvas>');
+  assert.doesNotMatch(fig + one, /\.webp|href=|src=/, 'no picture in the markup: writing it again fetches nothing');
   assert.match(LD.leaderFigure(0, { motion: 'nonsense' }), /data-motion="idle"/);
   assert.match(LD.leaderFigure(0, { motion: 'still' }), /data-motion="still"/);
 });
@@ -141,7 +141,7 @@ test('the leaders are on every screen that names them: faction cards, the crest 
     assert.match(card, /leader-doctrine/); assert.match(card, /leader-text/);
     assert.match(flat(leaderCrest(l.faction)), new RegExp(`class="leader leader-hex" data-leader="${KEYS[l.faction]}"[^>]*>.*<g transform="translate\\(79 79\\)">`), 'the top plaque: the icon with the sigil at its foot');
     const banner = flat(renderBanner({ id: 'first-holding', kind: 'first-holding', p: 2, q: 0, site: 1, tier: 0 }, l.faction));
-    assert.match(banner, new RegExp(`<span class="mile-fig"><svg[^>]*class="lfig" data-leader="${KEYS[l.faction]}" data-motion="idle"`), 'the leader stands by the line and breathes');
+    assert.match(banner, new RegExp(`<span class="mile-fig"><canvas class="lfig" width="288" height="360" data-leader="${KEYS[l.faction]}" data-motion="idle"`), 'the leader stands by the line and breathes');
     assert.ok(banner.includes(l.name.ja));
   }
   const list = flat(renderStandingsList({ overviews: new Map() }));
@@ -173,6 +173,7 @@ test('the nations\' colours are the leaders\' clothes, one table for the client;
     assert.match(css, new RegExp(`\\.unit-card\\.f${f} \\{ --uc: ${P.NATION_LIGHT[f]}; --ucd: ${P.NATION_FILL[f]};`));
   }
   assert.doesNotMatch(css, /@keyframes|animation:/, 'no CSS animation: a leader\'s motion is the sprite player\'s (a still in reduced motion)');
+  assert.match(css, /\.lfig \{ display: block; flex: none; width: auto; height: 120px; aspect-ratio: 4 \/ 5; \}/, 'a figure has a size before it is painted: nothing shifts');
   // every picture the stylesheet or the modules name exists, and the pages link the stylesheet after the client's own
   for (const page of ['index.html', 'practice.html', 'spectate.html']) assert.match(readFileSync(new URL(page, WEB), 'utf8'), /<link rel="stylesheet" href="frontier\.css">\n  <link rel="stylesheet" href="people\/leaders\.css">/);
   assert.ok(fileURLToPath(ART_DIR).endsWith('/frontier/art/leaders3d/'));

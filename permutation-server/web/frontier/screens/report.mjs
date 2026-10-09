@@ -682,7 +682,7 @@ const LEADER_LINE = {
 function leaderLine(f, key) {
   if (!Number.isInteger(f) || f < 0 || f > 5) return '';
   const l = LEADERS[f];
-  return html`<p class="report-leader"><span class="report-fig">${raw(leaderFigure(f, { size: 84 }))}</span><span><q>${LEADER_LINE[key]()}</q> <span class="muted">— <span data-name>${lang() === 'en' ? l.name.en : l.name.ja}</span></span></span></p>`;
+  return html`<p class="report-leader"><span class="report-fig">${raw(leaderFigure(f))}</span><span><q>${LEADER_LINE[key]()}</q> <span class="muted">— <span data-name>${lang() === 'en' ? l.name.en : l.name.ja}</span></span></span></p>`;
 }
 
 /** The outcome stamp: a word pressed on the paper (its tone is a class; the word says it too). */

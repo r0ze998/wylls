@@ -16,9 +16,19 @@
 // clips (Idle, Attack) with the package's light recipe, seen from the front
 // instead of from above (docs/frontier/art/leaders3d/README.md says how).
 //
-// Markup is SVG with attributes only (the page's CSP allows no style
-// attribute); a picture that has not loaded leaves its place empty, never a
-// broken-image mark, and nothing changes size when it arrives.
+// Markup carries attributes only (the page's CSP allows no style attribute);
+// a picture that has not loaded leaves its place empty, never a broken-image
+// mark, and nothing changes size when it arrives.
+//
+// The servers send every file with `Cache-Control: no-store`, so a picture
+// named in markup would be fetched again each time that markup is written
+// again, and would blink. So markup names no file on a page: the standing
+// figure is a canvas, and an icon or a bust is an SVG <image> that carries its
+// file as `data-art`; the sprite player (people/leader-sprite.mjs) holds the
+// pictures (one fetch a file a page, none for a part of the page that is put
+// away), paints the canvases and gives each <image> its picture as a data URL.
+// Once a picture is held, markup carries it at once. Without a page (tests)
+// markup names the file itself.
 import { MOTION_LEADERS } from '../leader-motion-data.mjs';
 import { NATION_FILL, NATION_DARK, NATION_ON } from '../palette.mjs';
 import { sigilPath } from './avatar.mjs';
@@ -42,6 +52,36 @@ export const leaderPortraitUrl = f => new URL(`portrait-v1/${leaderKey(f)}.webp`
 export const leaderStillUrl = f => new URL(`stage-v1/${leaderKey(f)}.webp`, BASE).href;
 export const leaderStageUrl = (f, clip = 'idle') => new URL(`stage-v1/${leaderKey(f)}_${STAGE_CLIPS[clip] ? clip : 'idle'}.webp`, BASE).href;
 
+// ------------------------------------------------------------------ pictures in markup, read once
+const held = new Map();   // url → a data URL once read; a promise meanwhile; null when it cannot be had
+let wanted = () => {};
+/** The player says how it is woken when markup asks for a picture (people/leader-sprite.mjs). */
+export function onArtWanted(fn) { wanted = typeof fn === 'function' ? fn : () => {}; }
+const onPage = () => typeof globalThis.document === 'object' && typeof globalThis.fetch === 'function' && typeof globalThis.FileReader === 'function';
+/** The picture at `url` as a data URL if this page holds it, else null. */
+export const heldArt = url => (typeof held.get(url) === 'string' ? held.get(url) : null);
+/** Read the picture at `url` once: a promise of its data URL (null when it cannot be had). */
+export function holdArt(url) {
+  const hit = held.get(url);
+  if (hit !== undefined) return Promise.resolve(hit);
+  const p = globalThis.fetch(url).then(r => (r.ok ? r.blob() : Promise.reject(new Error(String(r.status)))))
+    .then(blob => new Promise((done, fail) => { const fr = new globalThis.FileReader(); fr.onload = () => done(String(fr.result)); fr.onerror = fail; fr.readAsDataURL(blob); }))
+    .then(data => { held.set(url, data); return data; }, () => { held.set(url, null); return null; });
+  held.set(url, p);
+  return p;
+}
+/**
+ * An SVG `<image>` for the picture at `url` (`attrs`: its geometry). On a page it carries the picture itself once
+ * held, else `data-art` for the player to fill; without a page (tests) it names the file.
+ */
+export function artImage(url, attrs = '') {
+  const data = heldArt(url);
+  if (data) return `<image href="${data}" ${attrs}/>`;
+  if (!onPage()) return `<image href="${url}" ${attrs}/>`;
+  try { wanted(); } catch { /* no player: the place stays empty */ }
+  return `<image data-art="${url}" ${attrs}/>`;
+}
+
 const esc = s => String(s).replace(/[<>&"]/g, '');
 const a11y = title => (title ? `role="img" aria-label="${esc(title)}"` : 'aria-hidden="true" focusable="false"');
 
@@ -53,21 +93,23 @@ const a11y = title => (title ? `role="img" aria-label="${esc(title)}"` : 'aria-h
 export function leaderHex(faction, { size = 40, title = null, sigil = false } = {}) {
   const f = ok(faction) ? faction : 0;
   const badge = sigil ? `<g transform="translate(79 79)"><circle r="17" fill="${NATION_FILL[f]}" stroke="#14110a" stroke-width="3.5"/><circle r="15.2" fill="none" stroke="#f0d48a" stroke-width="1.6"/><path d="${sigilPath(f, 8.6)}" fill="${NATION_ON[f]}"/></g>` : '';
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="${size}" height="${size}" class="leader leader-hex" data-leader="${leaderKey(f)}" ${a11y(title)}><image href="${leaderHexUrl(f, size)}" width="100" height="100"/>${badge}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="${size}" height="${size}" class="leader leader-hex" data-leader="${leaderKey(f)}" ${a11y(title)}>${artImage(leaderHexUrl(f, size), 'width="100" height="100"')}${badge}</svg>`;
 }
 
 /**
- * The leader standing (the stage picture) as markup, `size` px tall and four fifths as wide: a still. The sprite
- * player (people/leader-sprite.mjs `leaderFigure`, which is what a screen calls) moves it: `motion: 'idle'`
+ * The leader standing (the stage picture) as markup: a canvas of one stage cell (288 × 360) that the sprite player
+ * paints (people/leader-sprite.mjs `leaderFigure`, which is what a screen calls); the stylesheet gives it its size
+ * where it stands (people/leaders.css `.lfig`: 120 px tall unless its place says otherwise). `motion: 'idle'`
  * breathes, `'attack'` plays the flourish once and goes back to breathing, `'still'` stays a still. `once`: a name
  * for one playing of the flourish (the same name does not play again while it stays on the page). `when: 'look'`:
- * it moves only while the thing that holds it (`[data-nation]`) is hovered, focused or chosen. `flip` mirrors it.
+ * it moves only while the thing that holds it (`[data-nation]`) is hovered, focused or chosen. `flip` mirrors it;
+ * `shadow: false` leaves out the shadow under the feet. Decorative unless `title` names it.
  */
-export function stageFigureSvg(faction, { size = 120, motion = 'idle', once = null, when = null, flip = false, title = null, shadow = true, cls = '' } = {}) {
+export function stageFigure(faction, { motion = 'idle', once = null, when = null, flip = false, title = null, shadow = true, cls = '' } = {}) {
   const f = ok(faction) ? faction : 0, { w, h } = STAGE_CELL;
   const m = motion === 'attack' || motion === 'still' ? motion : 'idle';
-  const attrs = [`data-leader="${leaderKey(f)}"`, `data-motion="${m}"`, once ? `data-once="${esc(once)}"` : '', when === 'look' ? 'data-when="look"' : '', flip ? 'data-flip="1"' : ''].filter(Boolean).join(' ');
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${Math.round(size * w / h)}" height="${Math.round(size)}" class="lfig${cls ? ` ${esc(cls)}` : ''}" ${attrs} ${a11y(title)}>${shadow ? `<ellipse class="lfig-shadow" cx="${w / 2}" cy="${Math.round(h * STAGE_FOOT[1]) - 6}" rx="74" ry="9" fill="#000" opacity=".34"/>` : ''}<image class="lfig-still" href="${leaderStillUrl(f)}" width="${w}" height="${h}"/></svg>`;
+  const attrs = [`data-leader="${leaderKey(f)}"`, `data-motion="${m}"`, once ? `data-once="${esc(once)}"` : '', when === 'look' ? 'data-when="look"' : '', flip ? 'data-flip="1"' : '', shadow ? '' : 'data-shadow="0"'].filter(Boolean).join(' ');
+  return `<canvas class="lfig${cls ? ` ${esc(cls)}` : ''}" width="${w}" height="${h}" ${attrs} ${a11y(title)}></canvas>`;
 }
 
 /** The nation's sigil on its colour, for a place where the leader's picture stands for the nation (attributes only). */

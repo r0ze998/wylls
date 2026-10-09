@@ -498,4 +498,6 @@ export default {
   '槌の輪': 'A ring with a hammer',
   '建設中です。輪が一周すると完成します。': 'A building is going up. It is done when the ring closes.',
   '村のまわりの印': 'Marks around a village',
+  '六つの国とその色': 'The six nations and their colours',
+  '国は、色と印（丸・三角・四角・ひし形・十字・六角）の両方で見分けられます。色は、国を率いる人の服の色です。': 'A nation is told by its colour and by its mark together (circle, triangle, square, diamond, cross, hexagon). The colour is the one its leader wears.',
 };

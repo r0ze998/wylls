@@ -23,7 +23,7 @@ const NAMES = /data-name>[^<]*</g;
 // (wave 2, UX design 11.9: the banners are cloth — a rim, the cloth, a dyed field for the words — and the confirm line
 // carries every nation's leader and creed in full, of which the stylesheet shows the looked-at one.
 // The leaders' track, wave 3: the flat portrait in a frame is gone; the nation's leader stands lit before the cloth
-// (a still that the sprite player moves while the banner is looked at; the chosen one's flourish plays once), a
+// (a canvas the sprite player paints: breathing while the banner is looked at; the chosen one's flourish once), a
 // phone's compact banner carries the leader's hexagon icon, and the confirm line carries the leader standing too.)
 test('the nation choice: six standing banners of cloth with the leader and the doctrine, one choice, one confirm that says the creed in full, no site picker', () => {
   setLang('ja');
@@ -34,10 +34,10 @@ test('the nation choice: six standing banners of cloth with the leader and the d
   assert.deepEqual(banners.map(m => [m[1], m[2], m[3], m[4]]), [0, 1, 2, 3, 4, 5].map(f => [String(f), String(f), String(f), 'false']), 'six banners, each names its nation for the map');
   const KEYS = ['aster', 'borealis', 'cinder', 'dunmar', 'ember', 'fjordal'];
   assert.equal((out.match(/<span class="bn-rim"><span class="bn-cloth"><span class="bn-face"><\/span>/g) ?? []).length, 6, 'a rim, the cloth, the lit field the leader stands before');
-  const figs = [...out.matchAll(/<span class="bn-figure"><svg[^>]*class="lfig" data-leader="([a-z]+)" data-motion="(\w+)" data-when="look" aria-hidden="true"[^>]*><ellipse class="lfig-shadow"[^>]*\/><image class="lfig-still" href="[^"]*\/art\/leaders3d\/stage-v1\/([a-z]+)\.webp" width="288" height="360"\/><\/svg><\/span>/g)];
-  assert.deepEqual(figs.map(m => [m[1], m[2], m[3]]), KEYS.map(k => [k, 'idle', k]), 'each nation\'s leader standing before its cloth: a still, breathing only while the banner is looked at');
+  const figs = [...out.matchAll(/<span class="bn-figure"><canvas class="lfig" width="288" height="360" data-leader="([a-z]+)" data-motion="(\w+)" data-when="look" aria-hidden="true" focusable="false"><\/canvas><\/span>/g)];
+  assert.deepEqual(figs.map(m => [m[1], m[2]]), KEYS.map(k => [k, 'idle']), 'each nation\'s leader standing before its cloth (a canvas the sprite player paints): breathing only while the banner is looked at');
   assert.deepEqual([...out.matchAll(/<span class="bn-hex"><svg[^>]*class="leader leader-hex" data-leader="([a-z]+)"/g)].map(m => m[1]), KEYS, 'and the leader\'s icon for a phone\'s compact banner');
-  assert.deepEqual([...out.matchAll(/<span class="nc-fig"><svg[^>]*class="lfig" data-leader="([a-z]+)" data-motion="idle" aria-hidden/g)].map(m => m[1]), KEYS, 'the confirm line carries each leader standing');
+  assert.deepEqual([...out.matchAll(/<span class="nc-fig"><canvas class="lfig" width="288" height="360" data-leader="([a-z]+)" data-motion="idle" aria-hidden/g)].map(m => m[1]), KEYS, 'the confirm line carries each leader standing');
   assert.doesNotMatch(out, /data-once=|data-motion="attack"/, 'no flourish before a choice');
   assert.doesNotMatch(out, /<ellipse cx="80"|class="leader"[ >]/, 'the flat vector portrait is gone');
   assert.equal((out.match(/<span class="bn-field"><strong class="bn-name">[^<]+<\/strong><span class="bn-leader"><span data-name>[^<]+<\/span><\/span><span class="bn-creed">教義：/g) ?? []).length, 6, 'name, leader and doctrine on the dyed field');

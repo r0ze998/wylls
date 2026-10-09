@@ -15,14 +15,14 @@
 //   leaderSvg(f, {size})      the portrait at any size: the hexagon icon up to 64 px, above that the
 //                             portrait card (the bust before a cloth of the nation's colour, 4 : 5)
 //   leaderHex(f, {size})      the hexagon icon (people/leader-art.mjs)
-//   leaderFigure(f, {size})   the leader standing, breathing where motion is allowed (people/leader-sprite.mjs)
+//   leaderFigure(f, {motion}) the leader standing, breathing where motion is allowed (people/leader-sprite.mjs)
 //
-// Markup is SVG with attributes only (no style: the page's CSP). The flat
+// Markup carries attributes only (no style: the page's CSP). The flat
 // vector busts this file used to draw are gone from every screen.
 import { L } from '../../lang.mjs';
 import { sigilPath, shade } from './avatar.mjs';
 import { NATION_FILL, NATION_DARK, NATION_LIGHT, NATION_ON } from '../palette.mjs';
-import { leaderHex, leaderKey, leaderPortraitUrl } from './leader-art.mjs';
+import { leaderHex, leaderKey, leaderPortraitUrl, artImage } from './leader-art.mjs';
 
 export { leaderHex, leaderKey, leaderHexUrl, leaderPortraitUrl, leaderStillUrl, leaderStageUrl, leaderHexImage, onLeaderArtLoad, STAGE_CELL, STAGE_CLIPS } from './leader-art.mjs';
 export { leaderFigure, startLeaderSprites } from './leader-sprite.mjs';
@@ -64,7 +64,7 @@ function portraitCard(f, { size, a11y }) {
     <clipPath id="${id}c"><rect x="0" y="0" width="240" height="300" rx="18"/></clipPath></defs>
     <g clip-path="url(#${id}c)"><rect width="240" height="300" fill="url(#${id}g)"/><rect width="240" height="300" fill="url(#${id}w)"/><rect width="240" height="300" fill="url(#${id}l)"/>
     <ellipse cx="120" cy="292" rx="118" ry="30" fill="#000" opacity=".28"/>
-    <image href="${leaderPortraitUrl(f)}" x="-30" y="4" width="300" height="300" preserveAspectRatio="xMidYMid slice"/></g>
+    ${artImage(leaderPortraitUrl(f), 'x="-30" y="4" width="300" height="300" preserveAspectRatio="xMidYMid slice"')}</g>
     <rect x="3" y="3" width="234" height="294" rx="16" fill="none" stroke="${shade(dark, -0.25)}" stroke-width="6"/><rect x="6.5" y="6.5" width="227" height="287" rx="13" fill="none" stroke="#f0d48a" stroke-width="1.6" opacity=".9"/>
     <g transform="translate(208 32)"><circle r="20" fill="${fill}" stroke="#14110a" stroke-width="3.5"/><circle r="17.6" fill="none" stroke="#f0d48a" stroke-width="1.6"/><path d="${sigilPath(f, 10.5)}" fill="${NATION_ON[f]}"/></g>
   </svg>`;

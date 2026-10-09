@@ -30,7 +30,10 @@ import { NATION_INK, NATION_ON } from '../palette.mjs';
 import { paintGlyph } from './glyphs.mjs';
 import { paintStandard } from './ownland.mjs';
 import { OPEN_PASS } from './labelpass.mjs';
-import { LEADERS } from '../people/leaders.mjs';
+import { LEADERS, leaderHexImage, onLeaderArtLoad } from '../people/leaders.mjs';
+
+// (the leader's icon beside the line under the standard: when the picture arrives, the map draws once more)
+onLeaderArtLoad(() => { try { globalThis.__wyllsMap?.invalidate?.(); } catch { /* no map on this page */ } });
 
 const SERIF = '"Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", Georgia, serif';
 const SANS = 'system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif';
@@ -229,7 +232,11 @@ export function paintHomeTag(g, at, { zoom = 1, faction = 0, line = null, pass =
       g.font = `600 ${13 * k}px ${SERIF}`; g.textAlign = 'center'; g.fillStyle = IVORY;
       lines.forEach((t, i) => g.fillText(t, x, y + (72 + i * 19) * k));
       g.font = `600 ${12 * k}px ${SANS}`; g.textAlign = 'right'; g.fillStyle = BRASS_HI;
-      g.fillText(`\u2014 ${say.who}`, x + w / 2 - 14 * k, y + (72 + lines.length * 19 + 1) * k);
+      const who = `\u2014 ${say.who}`, wy = y + (72 + lines.length * 19 + 1) * k;
+      g.fillText(who, x + w / 2 - 14 * k, wy);
+      // who says it: the leader's hexagon icon before the name (nothing until the picture has loaded)
+      const face = leaderHexImage(faction, 64), fs = 24 * k;
+      if (face && g.drawImage) g.drawImage(face, x + w / 2 - 14 * k - (g.measureText?.(who)?.width ?? who.length * 12 * k) - fs - 5 * k, wy - fs / 2 - 2.5 * k, fs, fs);
     }
     if (extra) chip(g, x, y + h + 6 * k, line.text, k, { glyph: line.glyph });
   });

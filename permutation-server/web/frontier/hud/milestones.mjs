@@ -73,7 +73,7 @@ export function renderBanner(m, faction) {
   const t = TEXT[m.kind];
   if (!t) return '';
   const f = Number.isInteger(faction) ? faction : 0;
-  return html`<div class="mile-inner"><span class="mile-fig">${raw(leaderFigure(f, { size: 96 }))}</span><div class="mile-text">
+  return html`<div class="mile-inner"><span class="mile-fig">${raw(leaderFigure(f))}</span><div class="mile-text">
     <strong class="mile-title">${t.title(m)}</strong>
     <q class="mile-line">${t.line()}</q> <span class="muted">— <span data-name>${leaderName(f)}</span> · ${factionName(f)}</span></div>
     <button type="button" class="btn small" data-act="mile-close" aria-label="${L`閉じる`}">${icon('close')}</button></div>`;
