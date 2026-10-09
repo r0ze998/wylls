@@ -109,6 +109,7 @@ import * as inspect from './hud/inspect.mjs';
 import * as feed from './hud/feed.mjs';
 import * as status from './hud/status.mjs';
 import * as title from './intro/title.mjs';
+import { mountTitleScene } from './intro/scene.mjs';
 import * as marchCard from './hud/marchcard.mjs';
 import * as minimap from './hud/minimap.mjs';
 import * as search from './hud/search.mjs';
@@ -1455,12 +1456,16 @@ function introLive() {
   const bell = FS.clock ? bellChip(FS.clock, FS.chain?.now() ?? null).bell : null;
   return title.liveLine({ seasonId: FS.record?.season ?? null, bell, holdings: total });
 }
+let stopTitleScene = null, titleCanvas = null;
 function renderIntro() {
   const el = $('intro');
   if (!el || el.hidden) return;
   // the button says where it leads once the viewer's stage is known (intro/title.mjs ctaText)
   const stage = FS.mode === 'play' && FS.playReady ? FS.land?.stage ?? 'none' : null;
   setHtmlIfChanged(el, title.render({ mode: FS.mode, live: introLive(), stage }));
+  // the scene's picture (intro/scene.mjs) is painted into the markup's canvas while the title stands (a new canvas when the words changed)
+  const cv = el.querySelector('.intro-scene');
+  if (cv && cv !== titleCanvas) { stopTitleScene?.(); titleCanvas = cv; stopTitleScene = mountTitleScene(cv, { calm }); }
 }
 /**
  * The title is a scene of its own (UX design 11.9): while it stands the page is marked `data-title="up"`, the
@@ -1479,10 +1484,9 @@ export function openIntro() {
   if (!el) return;
   el.hidden = false;
   markTitle(true);
-  // the scene's own art (intro/title.mjs sceneSvg), handed to the stylesheet as an image
-  if (!el.style.getPropertyValue('--intro-art')) el.style.setProperty('--intro-art', title.sceneUrl());
   lastHtml.delete('intro');
   renderIntro();
+
   el.querySelector('.intro-go')?.focus({ preventScroll: true });
   // behind the scene the map waits at its opening view's start (the map reads titleUp()); the drawer follows FS.titleUp
   mapRef?.invalidate();
@@ -1493,6 +1497,7 @@ export function closeIntro() {
   if (!el || el.hidden) return;
   el.hidden = true;
   markTitle(false);
+  stopTitleScene?.(); stopTitleScene = null; titleCanvas = null;
   title.markSeen(globalThis.localStorage);
   // the scene lifts like a curtain (visual only: the game is already there and usable under it)
   const doc = globalThis.document;

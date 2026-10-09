@@ -6,6 +6,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { setLang } from '../../permutation-server/web/lang.mjs';
 import * as title from '../../permutation-server/web/frontier/intro/title.mjs';
+import * as scene from '../../permutation-server/web/frontier/intro/scene.mjs';
+import { TOWER } from '../../permutation-server/web/frontier/map/belltower.mjs';
 import * as tex from '../../permutation-server/web/frontier/hud/textures.mjs';
 import { noGoRects, NO_GO } from '../../permutation-server/web/frontier/hud/insets.mjs';
 import { drawerOf } from '../../permutation-server/web/frontier/hud/drawer.mjs';
@@ -20,7 +22,10 @@ const flat = x => [x].flat(Infinity).map(String).join('');
 const text = x => flat(x).replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<[^>]*>/g, ' ');
 const JP = /[぀-ヿ㐀-鿿]/;
 
-test('the title: an opaque scene of its own (the bell, the six leaders, three lines); its button says where it leads; nothing of the game is in it', () => {
+// Rewritten with the fix pass on the second review ("an emblem page, not a game title"): the scene's picture is drawn
+// into a canvas (intro/scene.mjs: the bell's tower on the chart at dusk, the six standards round it); the emblem and
+// the SVG backdrop are gone; the three lines are one sentence; the tagline's ornaments are elements pinned to its box.
+test('the title: an opaque scene of its own (the bell\'s tower and the six standards as a picture, the six leaders, one line and one sentence); its button says where it leads; nothing of the game is in it', () => {
   setLang('ja');
   // the call to action follows the stage (UX design 7.1)
   assert.equal(title.ctaText('play', null), '辺境へ入る', 'before the viewer is known');
@@ -31,26 +36,32 @@ test('the title: an opaque scene of its own (the bell, the six leaders, three li
   assert.equal(title.ctaText('spectate', 'final'), '観戦をはじめる');
   assert.equal(title.ctaText('practice'), '練習をはじめる');
   const out = flat(title.render({ mode: 'play', live: title.liveLine({ seasonId: 1, bell: 42, holdings: 44 }), stage: 'none' }));
-  assert.match(out, /^<div class="intro-veil" aria-hidden="true"><\/div>/, 'the veil (its art is an image the page hands to the stylesheet)');
+  assert.match(out, /^<canvas class="intro-scene" aria-hidden="true"><\/canvas><div class="intro-veil" aria-hidden="true"><\/div>/, 'the picture, then the veil the words stand on');
   assert.match(out, /<h2 class="intro-title" id="intro-title" data-name>Wylls<\/h2>/);
   assert.equal((out.match(/<li class="intro-leader intro-leader-\d">/g) ?? []).length, 6, 'the six leaders');
-  assert.equal((out.match(/<div class="intro-lore">([\s\S]*?)<\/div>/)?.[1].match(/<p>/g) ?? []).length, 3, 'three lines');
+  assert.equal((out.match(/<p class="intro-lore">/g) ?? []).length, 1, 'one sentence of what the game is');
+  assert.match(out, /<p class="intro-tagline"><span class="intro-orn" aria-hidden="true"><\/span><span class="intro-tag"><span class="nowrap">六つの国。<\/span><wbr><span class="nowrap">十分ごとの鐘。<\/span><wbr><span class="nowrap">封じられた進軍。<\/span><wbr><\/span><span class="intro-orn intro-orn-r" aria-hidden="true"><\/span><\/p>/, 'the line breaks between its sentences only, its ornaments are pinned to it');
   assert.match(out, /<button type="button" class="btn primary intro-go" data-act="intro-close">国を選ぶ<svg/);
   assert.equal((out.match(/<button/g) ?? []).length, 1, 'one button');
   assert.doesNotMatch(out, /banner-pick|data-act="pick-faction"|data-tab=|data-map=|class="lens/, 'nothing of the nation choice, the dock or the map buttons');
   assert.doesNotMatch(out, /\sstyle=|<style|<script|https?:\/\/(?!www\.w3\.org)/, 'no inline style, no remote asset');
-  // the numbered reference is a turn; the seal is said truthfully (the sender knows the destination)
+  // the numbered reference is a turn; nothing claims secrecy
   assert.equal(title.liveLine({ seasonId: 1, bell: 1034, holdings: 1055 }), '第1季 · ターン 1,034 · 1,055 の村 · 6 つの国');
-  assert.doesNotMatch(text(out), /誰にもわからない|秘密|第\d+鐘/);
-  assert.match(text(out), /行き先を知るのは送った者だけ/);
-  // the art: hexes of the frontier in rings, the nations' wedges, the bell's rings; attributes only
-  const art = title.sceneSvg();
-  assert.ok((art.match(/<path /g) ?? []).length >= 60, 'rings of province hexes');
-  assert.equal((art.match(/<circle /g) ?? []).length, 7, 'the bell\'s rings');
-  assert.match(art, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" viewBox="0 0 1600 1000" width="1600" height="1000">/, 'a whole SVG document');
-  assert.doesNotMatch(art, /\sstyle=|<style|<script|href=/);
-  assert.match(title.sceneUrl(), /^url\("data:image\/svg\+xml;charset=utf-8,%3Csvg/);
-  assert.deepEqual([title.SCENE.cx, title.SCENE.cy], [800, 318]);
+  assert.doesNotMatch(text(out), /誰にもわからない|秘密|第\d+鐘|知るのは送った者だけ/);
+  assert.match(text(out), /十分ごとに鐘が鳴り、封をして送り出した進軍がいっせいに着いて、同じ州の軍勢とぶつかる。/);
+  assert.deepEqual(title.sentences('Six nations. A bell every ten minutes. Every march sealed.'), ['Six nations. ', 'A bell every ten minutes. ', 'Every march sealed.']);
+  // the picture: the tower's foot in the upper half, the six standards round it inside the picture, far ones first
+  for (const [w, h] of [[1440, 900], [390, 844], [2560, 1300]]) {
+    const view = scene.titleView(w, h);
+    assert.ok(view.footY > h * 0.3 && view.footY < h * 0.5, `${w}: the tower's foot at ${Math.round(view.footY)}`);
+    assert.ok(view.tower * TOWER.height < view.footY, `${w}: the tower is whole in the picture`);
+    const st = scene.titleStandards(view);
+    assert.deepEqual(st.map(s => s.faction).sort(), [0, 1, 2, 3, 4, 5]);
+    for (let i = 1; i < st.length; i++) assert.ok(st[i].z <= st[i - 1].z, 'the far ones first');
+    for (const s of st) assert.ok(s.x > 20 && s.x < w - 40 && s.y > view.footY - h * 0.2 && s.y < h * 0.66, `${w}: nation ${s.faction}'s standard at ${Math.round(s.x)}, ${Math.round(s.y)}`);
+    assert.ok(st.every(s => s.k > 0.3), 'never a speck');
+  }
+  assert.equal(scene.paintTitleScene(null, 100, 100), null, 'nothing without a canvas');
   // while it stands nothing of the first minute opens behind it (hud/drawer.mjs)
   const fs = { mode: 'play', playReady: true, land: { stage: 'none' }, tab: 'map' };
   assert.equal(drawerOf(fs).kind, 'nation');
@@ -66,8 +77,9 @@ test('the title: an opaque scene of its own (the bell, the six leaders, three li
   setLang('ja');
   // the stylesheet: the scene is opaque and hides the game while it stands
   const css = readFileSync(new URL('frontier.css', WEB), 'utf8');
-  assert.match(css, /\.intro \{[^}]*background: #0a1614;/, 'a solid ground under the scene');
-  assert.match(css, /\.intro-veil \{[^}]*background: var\(--intro-art, none\) 50% calc\(var\(--intro-top\) \+ 66px - 318px\) \/ 1600px 1000px no-repeat,/, 'the art lies with the bell on the emblem');
+  assert.match(css, /\.intro \{[^}]*background: #0a0d0c;/, 'a solid ground under the scene');
+  assert.match(css, /\.intro-scene \{ position: fixed; inset: 0; display: block; width: 100%; height: 100%; \}/, 'the picture fills the scene');
+  assert.match(css, /\.intro-tagline \{ display: grid; grid-template-columns: 64px minmax\(0, max-content\) 64px;/, 'the ornaments stand beside the line\'s own box');
   assert.match(css, /body\[data-title="up"\] :is\(main, main \*, \.tabs, \.strip-l, \.dial,[^)]*\) \{ visibility: hidden !important; \}/);
 });
 

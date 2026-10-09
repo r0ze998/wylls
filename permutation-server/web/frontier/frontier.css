@@ -1394,29 +1394,28 @@ button.rose-d3:active { transform: translate(-66px, 0) scale(.94); } button.rose
    rings drawn in brass (the art is an SVG the module draws), the Engine's bell, the six leaders, three lines. While it
    stands nothing of the game shows or can be reached; the sound and language buttons stay with it. */
 .intro-title, .inspect h3 { font-family: var(--display); letter-spacing: .02em; }
-.intro { --intro-top: max(calc(var(--strip) + 14px), calc((100dvh - 700px) / 2)); position: fixed; inset: 0; z-index: 50; display: grid; justify-items: center; align-items: start; padding: var(--intro-top) 16px 28px; overflow: auto; color: #f4efe0; background: #0a1614; }
+.intro { position: fixed; inset: 0; z-index: 50; display: grid; justify-items: center; align-items: end; padding: calc(var(--strip) + 8px) 16px max(22px, 3.2vh); overflow: auto; color: #f4efe0; background: #0a0d0c; }
 .intro[hidden] { display: none !important; }
-/* the art (--intro-art: the frontier's rings and the bell's, drawn by intro/title.mjs) lies with the bell's point (800, 318 of 1600 × 1000) on the emblem's centre: the emblem stands at the top of the card, 132 px high */
-.intro-veil { position: fixed; inset: 0; overflow: hidden; background: var(--intro-art, none) 50% calc(var(--intro-top) + 66px - 318px) / 1600px 1000px no-repeat, radial-gradient(ellipse 80% 62% at 50% 28%, #24463e 0%, #152c27 38%, #0b1917 72%, #060e0c 100%); }
-.intro-veil::before { content: ""; position: absolute; inset: 0; background-image: var(--tex-metal, none); opacity: .22; }
-/* the edges fall away into the dark, and a low mist lies along the foot (the cloud sea beyond the rings) */
-.intro-veil::after { content: ""; position: absolute; inset: 0; background: radial-gradient(ellipse 120% 46% at 50% 112%, rgba(214,222,220,.2), rgba(214,222,220,0) 70%), radial-gradient(ellipse 75% 70% at 50% 36%, rgba(6,14,12,0) 52%, rgba(4,10,9,.86) 100%); }
-.intro-card { position: relative; width: min(760px, 100%); display: grid; justify-items: center; gap: 6px; text-align: center; }
-.intro-emblem { position: relative; display: grid; place-items: center; width: 132px; height: 132px; border-radius: 50%; background: radial-gradient(circle, #1c3832 0%, #0f211d 68%, rgba(15,33,29,0) 72%); animation: intro-rise 1.4s ease-out both; filter: drop-shadow(0 0 22px rgba(240,212,138,.4)); }
-/* the bell tolls: a ring leaves it, slowly, again and again */
-.intro-toll { position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid rgba(240,212,138,.7); animation: intro-toll 4.2s ease-out 1.2s infinite; opacity: 0; }
-.intro-title { margin: 6px 0 0; font-size: clamp(52px, 8vw, 84px); font-weight: 700; line-height: 1.05; letter-spacing: .05em; color: #f6e2a4; background: linear-gradient(180deg, #fff8dd 8%, #f0d48a 48%, #b98d2f 92%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; filter: drop-shadow(0 3px 10px rgba(0,0,0,.65)); animation: intro-rise 1.6s .45s ease-out both; }
-.intro-tagline { display: flex; align-items: center; gap: 14px; margin: 4px 0 6px; font: 600 var(--t3)/1.5 var(--display); letter-spacing: .12em; color: #f3d58a; animation: intro-rise 1.6s .9s ease-out both; }
-.intro-tagline::before, .intro-tagline::after { content: ""; flex: none; width: 64px; height: 10px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 10'%3E%3Cpath d='M0 5h46' stroke='%23c9a24a' stroke-width='1'/%3E%3Cpath d='M56 .8l4.2 4.2-4.2 4.2-4.2-4.2z' fill='%23f0d48a'/%3E%3Ccircle cx='47.5' cy='5' r='1.3' fill='%23c9a24a'/%3E%3C/svg%3E") right center / 64px 10px no-repeat; }
-.intro-tagline::after { transform: scaleX(-1); }
-.intro-leaders { list-style: none; margin: 10px 0 8px; padding: 0; display: flex; flex-wrap: nowrap; justify-content: center; gap: 14px; }
-.intro-leader { display: grid; justify-items: center; gap: 6px; font: 600 var(--t1)/1.2 var(--display); letter-spacing: .08em; color: #e8e2d0; animation: intro-rise 1s ease-out both; }
-.intro-leader .leader { display: block; width: 76px; height: auto; border-radius: 5px; box-shadow: 0 0 0 1px #06100e, 0 0 0 2.5px var(--brass), 0 0 0 3.5px #3a2f12, 0 10px 20px rgba(0,0,0,.55); }
-.intro-leader-0 { animation-delay: 1.3s; } .intro-leader-1 { animation-delay: 1.52s; } .intro-leader-2 { animation-delay: 1.74s; }
-.intro-leader-3 { animation-delay: 1.96s; } .intro-leader-4 { animation-delay: 2.18s; } .intro-leader-5 { animation-delay: 2.4s; }
-.intro-lore { max-width: 600px; display: grid; gap: 3px; margin: 6px 0 4px; font-size: var(--t2); line-height: 1.75; color: #ddd7c7; animation: intro-rise 1.6s 2.6s ease-out both; }
-.intro-lore p { margin: 0; }
-.intro-live { display: inline-flex; align-items: center; gap: 8px; margin: 8px 0 2px; padding: 4px 14px; border: 1px solid rgba(217,180,74,.5); border-radius: 999px; background: rgba(6,14,12,.5); font-size: var(--t1); letter-spacing: .04em; font-variant-numeric: tabular-nums; color: #f4efe0; animation: intro-rise 1.2s 3s ease-out both; }
+/* the picture (intro/scene.mjs paints it): the bell's tower on the chart at dusk, the six standards round it. It fills the scene; the words stand over its dark foot */
+.intro-scene { position: fixed; inset: 0; display: block; width: 100%; height: 100%; }
+.intro-veil { position: fixed; inset: 0; pointer-events: none; background: linear-gradient(180deg, rgba(5,10,9,0) 46%, rgba(5,10,9,.34) 62%, rgba(5,10,9,.5) 100%); }
+.intro-card { position: relative; width: min(900px, 100%); display: grid; justify-items: center; gap: 4px; text-align: center; }
+.intro-title { margin: 0; font-size: clamp(60px, 8.4vw, 96px); font-weight: 700; line-height: 1.02; letter-spacing: .05em; color: #f6e2a4; background: linear-gradient(180deg, #fff8dd 8%, #f0d48a 48%, #b98d2f 92%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; filter: drop-shadow(0 3px 12px rgba(0,0,0,.8)); animation: intro-rise 1.6s .3s ease-out both; }
+/* the one line, with its two ornaments pinned to the text's own box: they stand beside it whatever its width, and a long line breaks evenly */
+.intro-tagline { display: grid; grid-template-columns: 64px minmax(0, max-content) 64px; align-items: center; justify-content: center; gap: 14px; margin: 2px 0 2px; max-width: 100%; font: 600 var(--t3)/1.5 var(--display); letter-spacing: .12em; color: #f3d58a; text-shadow: 0 1px 6px rgba(0,0,0,.8); animation: intro-rise 1.6s .7s ease-out both; }
+.intro-tag { text-wrap: balance; }
+:lang(en) .intro-tagline { letter-spacing: .07em; }
+.intro-orn { display: block; width: 64px; height: 10px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 10'%3E%3Cpath d='M0 5h46' stroke='%23c9a24a' stroke-width='1'/%3E%3Cpath d='M56 .8l4.2 4.2-4.2 4.2-4.2-4.2z' fill='%23f0d48a'/%3E%3Ccircle cx='47.5' cy='5' r='1.3' fill='%23c9a24a'/%3E%3C/svg%3E") right center / 64px 10px no-repeat; }
+.intro-orn-r { transform: scaleX(-1); }
+.intro-lore { max-width: 640px; margin: 0 0 6px; font-size: var(--t2); line-height: 1.7; color: #e6e0cf; text-shadow: 0 1px 4px rgba(0,0,0,.85); text-wrap: balance; animation: intro-rise 1.6s 1.1s ease-out both; }
+/* the six leaders: small medallions in a row, each nation's name under its face */
+.intro-leaders { list-style: none; margin: 4px 0 4px; padding: 0; display: flex; flex-wrap: nowrap; justify-content: center; gap: 16px; }
+.intro-leader { display: grid; justify-items: center; gap: 4px; font: 600 var(--t1)/1.2 var(--display); letter-spacing: .06em; color: #e8e2d0; text-shadow: 0 1px 3px rgba(0,0,0,.85); animation: intro-rise 1s ease-out both; }
+.intro-face { display: block; width: 52px; height: 52px; border-radius: 50%; overflow: hidden; box-shadow: 0 0 0 1px #06100e, 0 0 0 2.5px var(--brass), 0 0 0 3.5px #3a2f12, 0 6px 14px rgba(0,0,0,.6); }
+.intro-face .leader { display: block; width: 52px; height: auto; }
+.intro-leader-0 { animation-delay: 1.3s; } .intro-leader-1 { animation-delay: 1.42s; } .intro-leader-2 { animation-delay: 1.54s; }
+.intro-leader-3 { animation-delay: 1.66s; } .intro-leader-4 { animation-delay: 1.78s; } .intro-leader-5 { animation-delay: 1.9s; }
+.intro-live { display: inline-flex; align-items: center; gap: 8px; margin: 6px 0 0; padding: 4px 14px; border: 1px solid rgba(217,180,74,.5); border-radius: 999px; background: rgba(6,14,12,.62); font-size: var(--t1); letter-spacing: .04em; color: #e8e2d0; font-variant-numeric: tabular-nums; animation: intro-rise 1.2s 2s ease-out both; }
 .intro-dot { width: 8px; height: 8px; border-radius: 50%; background: #7fd1a8; box-shadow: 0 0 0 0 rgba(127,209,168,.7); animation: intro-pulse 1.8s infinite; }
 .btn.primary.intro-go { margin-top: 10px; min-height: 54px; min-width: 240px; padding: 8px 22px 8px 30px; gap: 10px; border: 1px solid #fff0bf; border-radius: 6px; font: 700 20px/1.2 var(--display); letter-spacing: .14em; color: #241a05;
   background: linear-gradient(180deg, #f8e4a3 0%, #e2bf5f 46%, #b88d2e 100%); box-shadow: inset 0 1px 0 rgba(255,255,255,.7), inset 0 -3px 0 rgba(90,64,10,.45), 0 0 0 3px rgba(10,22,20,.9), 0 0 0 4px var(--brass-lo), 0 0 34px rgba(240,212,138,.38), 0 10px 22px rgba(0,0,0,.5); animation: intro-rise 1.2s 3.2s ease-out both; }
@@ -1425,7 +1424,6 @@ button.rose-d3:active { transform: translate(-66px, 0) scale(.94); } button.rose
 .intro-go .ic { width: 20px; height: 20px; }
 .intro-go:focus-visible { outline: 3px solid #fffaf0; outline-offset: 6px; }
 @keyframes intro-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-@keyframes intro-toll { 0% { opacity: .75; transform: scale(1); } 70% { opacity: 0; transform: scale(3.6); } 100% { opacity: 0; transform: scale(3.6); } }
 @keyframes intro-pulse { 0% { box-shadow: 0 0 0 0 rgba(127,209,168,.7); } 70% { box-shadow: 0 0 0 8px rgba(127,209,168,0); } 100% { box-shadow: 0 0 0 0 rgba(127,209,168,0); } }
 /* while the title stands, nothing of the game is on screen (app.mjs markTitle also makes the map and the dock inert) */
 body[data-title="up"] :is(main, main *, .tabs, .strip-l, .dial, .banner, .mile-banner, .res-pop) { visibility: hidden !important; }
@@ -1436,15 +1434,13 @@ body[data-title="up"] :is(#attn-pill, #next-steps, #quota-chip) { display: none 
 
 /* ---- phones: targets and stacked choices inside the sheet */
 @media (max-width: 759px) {
-  .intro { --intro-top: calc(var(--strip) + 18px); padding-bottom: 20px; }
-  .intro-veil { background-position: 50% calc(var(--intro-top) + 48px - 207px), 0 0; background-size: 1040px 650px, auto; }
-  .intro-emblem { width: 96px; height: 96px; } .intro-emblem .emblem { width: 96px; height: 96px; }
-  .intro-title { font-size: 48px; }
-  .intro-tagline { gap: 6px; font-size: var(--t2); letter-spacing: .06em; } .intro-tagline::before, .intro-tagline::after { width: 20px; }
+  .intro { padding: calc(var(--strip) + 6px) 12px calc(16px + env(safe-area-inset-bottom)); }
+  .intro-title { font-size: 54px; }
+  .intro-tagline { grid-template-columns: 20px minmax(0, max-content) 20px; gap: 8px; font-size: var(--t2); letter-spacing: .06em; } .intro-orn { width: 20px; }
   /* six in a row: the faces alone (each carries its sigil); the names are read out, and the nation choice names them next */
-  .intro-leaders { gap: 9px; margin: 10px 0 8px; } .intro-leader .leader { width: 50px; }
-  .intro-leader span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  .intro-lore { line-height: 1.65; }
+  .intro-leaders { gap: 10px; margin: 6px 0 4px; } .intro-face { width: 42px; height: 42px; } .intro-face .leader { width: 42px; }
+  .intro-nation { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .intro-lore { line-height: 1.6; }
   .btn.primary.intro-go { width: 100%; max-width: 320px; min-width: 0; padding: 8px 14px 8px 18px; flex-wrap: nowrap; font-size: var(--t3); letter-spacing: .08em; white-space: nowrap; }
   .hl-go { min-height: 44px; }
   .stepper .btn { min-width: 44px; min-height: 44px; }
@@ -1592,3 +1588,8 @@ button.dial[aria-expanded="true"] { box-shadow: 0 0 0 1px #06100e, 0 0 0 3px var
 .dial-pop-acts { display: flex; justify-content: flex-end; margin-top: 10px !important; }
 body[data-title="up"] .dial-pop { display: none; }
 @media (max-width: 759px) { .dial-pop { top: calc(var(--dial) + 4px); left: 50%; } .dial-pop::before { left: 62%; } }
+
+/* the title on a low window: the leaders' row gives way first, then the sentence */
+@media (max-height: 760px) and (min-width: 760px) { .intro-leaders { display: none; } }
+@media (max-height: 640px) { .intro-lore { display: none; } .intro-leaders { display: none; } }
+@media (prefers-reduced-motion: reduce) { .intro-title, .intro-tagline, .intro-lore, .intro-leader, .intro-live { animation: none; } }

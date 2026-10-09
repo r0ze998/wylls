@@ -460,4 +460,5 @@ export default {
   'ターン {0} の鐘です。鐘のあと約 {1} 分で決まります。': 'That is turn {0}\'s bell. Your village is decided about {1} min after it.',
   '村の場所はもうすぐ決まる。待つあいだに、戦い方を確かめておけ。': 'Your village will be placed soon. Use the wait to learn how a battle goes.',
   'まずは村の申し込みだ。通りしだい、候補地を知らせよう。': 'First, the village request. Once it is in, I will show you the candidate sites.',
+  '十分ごとに鐘が鳴り、封をして送り出した進軍がいっせいに着いて、同じ州の軍勢とぶつかる。': 'Every ten minutes the bell tolls: the marches sent under seal arrive together and meet whoever stands in the same province.',
 };
