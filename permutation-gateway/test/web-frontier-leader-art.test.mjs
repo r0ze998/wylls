@@ -123,11 +123,23 @@ test('the portrait set: the hexagon icon, the bust, the stage still and its two 
   assert.equal(shipped.length, 6 + 6 + 6 + 12 + 24 + 24);
 });
 
-test('the asset budget: everything the six characters add stays under 3.5 MB on disk (2.4 MB before the sharp set of 2026-10-10: DECISIONS ZQ3), and a first screen needs a small part of it', () => {
-  // (rewritten on 2026-10-10: this pinned 2.4 MB, the brief's aim being 3. The owner's "make it larger" needs frames
-  // of 512 px for the characters on the board: 1,014,998 bytes more on disk, of which a screen fetches one sheet)
+test('the asset budget: the brief\'s 3 MB holds for the set that stays either way; with the sharp walk and hit sheets the total is under 3.5 MB, which awaits the owner\'s yes (DECISIONS ZQ3); a first screen needs a small part of it', () => {
+  // (rewritten on 2026-10-10: this pinned 2.4 MB, the brief's limit being 3. The owner's "make it larger" needs frames
+  // of 512 px for the characters on the board: 1,014,998 bytes more on disk, of which a screen fetches one sheet.
+  // Rewritten again the same day after the review: the limit of the brief is 3 MB and only the owner can raise it. So
+  // two things are pinned. What stays whatever the owner answers (everything but the 2x walk and hit sheets: with
+  // them gone the landing and a blow taken are drawn from the owner's 256 px frames) is under the brief's 3 MB. The
+  // whole as it stands is under 3.5 MB: a ceiling for the build while the question is open, not the brief's rule.)
   const total = dirBytes(ART_DIR);
+  const optional = KEYS.reduce((n, k) => n + ['walk', 'hit'].reduce((m, c) => m + statSync(new URL(motionSpriteUrl(k, c, '2x'))).size, 0), 0);
+  assert.equal(optional, 464_288, 'the 2x walk and hit sheets: what leaves if the owner keeps the limit at 3 MB');
+  assert.ok(total - optional < 3_000_000, `without them art/leaders3d is ${total - optional} bytes: the brief's limit holds`);
   assert.ok(total < 3_500_000, `art/leaders3d is ${total} bytes`);
+  // (the brief words the larger number as awaiting the owner's yes, never as the rule)
+  const brief = readFileSync(new URL('../../docs/frontier/ux/UX-DESIGN.md', import.meta.url), 'utf8');
+  assert.match(brief, /their total stays under 3 MB/);
+  assert.match(brief, /awaiting the owner's yes/);
+  assert.doesNotMatch(brief, /their total stays under 3\.5 MB/);
   assert.equal(total - dirBytes(new URL('motion-v1/sprite@2x/', ART_DIR)), 2_341_924, 'everything that was there before is as it was');
   const size = url => statSync(new URL(url)).size;
   const stills = KEYS.reduce((n, _, f) => n + size(ART.leaderStillUrl(f)), 0), idles = KEYS.reduce((n, _, f) => n + size(ART.leaderStageUrl(f, 'idle')), 0);

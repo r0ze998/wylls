@@ -42,14 +42,19 @@ export function leaderMotionStatus(leader, motion = 'idle', set = '1x') {
  * The sheet to draw a cell `devicePx` wide from: `{image, set}` or null. The set the size calls for is asked for
  * (lazily: nothing is fetched before something is drawn that large). While it is on its way the other set is drawn
  * if it is here already; a finer sheet that has been asked for is used for a smaller figure too (nothing more is
- * fetched for it); the other set is asked for as a stand-in only when the wanted one failed.
+ * fetched for it; until it is here a 1x sheet that is here already is drawn); the other set is asked for as a
+ * stand-in only when the wanted one failed.
  */
 export function leaderMotionPick(leader, motion = 'idle', devicePx = 0) {
   const selected = motionSelection(leader, motion), k = selected.leader.key, m = selected.motion.key;
   const want = motionSheetSet(devicePx), other = want === '2x' ? '1x' : '2x';
   const here = set => { const r = images.get(motionSpriteUrl(k, m, set)); return r?.ready ? r.image : null; };
-  // (a finer sheet that has been asked for serves a smaller figure too: here, it is drawn; on its way, it is waited for)
-  if (want === '1x') { const fine = images.get(motionSpriteUrl(k, m, '2x')); if (fine && !fine.failed) return fine.ready ? { image: fine.image, set: '2x' } : null; }
+  // (a finer sheet that has been asked for serves a smaller figure too: here, it is drawn; on its way, the 1x sheet is
+  // drawn if that one is here already, and nothing more is fetched: a figure that is on screen stays on screen)
+  if (want === '1x') {
+    const fine = images.get(motionSpriteUrl(k, m, '2x'));
+    if (fine && !fine.failed) { if (fine.ready) return { image: fine.image, set: '2x' }; const coarse = here('1x'); return coarse ? { image: coarse, set: '1x' } : null; }
+  }
   const wanted = leaderMotionSheet(k, m, want);
   if (wanted) return { image: wanted, set: want };
   const alt = here(other) ?? (leaderMotionStatus(k, m, want) === 'failed' ? leaderMotionSheet(k, m, other) : null);
@@ -84,6 +89,9 @@ export function paintLeaderMotion(ctx, x, y, height, { leader = 'aster', motion 
   if (breath > 0) ctx.scale(1 - LEADER_BREATH.narrow * breath, 1 + LEADER_BREATH.rise * breath);
   // (a 512 px frame drawn small is reduced with the browser's better filter: a plain one skips rows and glitters)
   if (S.cell > devicePx) { ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; }
+  // (measured 2026-10-10, the map's own probe at rest on a 1440 screen: the figure costs 0.3 to 0.45 ms of a frame of
+  // some 12.4 ms, its shadow nothing that can be measured; drawn from a copy of the frame reduced once the frame took
+  // 12.7 to 12.8 ms, so the sheet is drawn directly)
   ctx.drawImage(picked.image, frame * S.cell, 0, S.cell, S.cell,
     -width * LEADER_SPRITE_ANCHOR[0], -width * LEADER_SPRITE_ANCHOR[1], width, width);
   if (own) {

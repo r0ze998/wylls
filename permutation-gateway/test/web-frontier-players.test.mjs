@@ -102,6 +102,7 @@ import { LEADER_MOTIONS, LEADER_SPRITE_CELL_U, LEADER_DRAW_SCALE, LEADER_SPRITE_
 import { HERO, VILLAGE_SCALE } from '../../permutation-server/web/frontier/map/plates.mjs';
 import { VILLAGE } from '../../permutation-server/web/frontier/map/village.mjs';
 import { provinceTokens } from '../../permutation-server/web/frontier/people/units.mjs';
+import { noteStage, stagesNow, clearStages, STAGE_HOLD } from '../../permutation-server/web/frontier/people/onstage.mjs';
 
 let life = 0;
 // A page's Image for the rest of this file (the board module and the map painter share one sheet cache, whichever
@@ -113,6 +114,8 @@ const loadAll = () => { for (const img of requests) { const m = LEADER_MOTIONS.f
 async function board() {
   globalThis.Image = class { constructor() { requests.push(this); } load(w, h) { this.width = w; this.height = h; this.onload?.(); } };
   const tag = `?board=${++life}`;
+  // (no battle scene is on stage when a test of the board begins: people/onstage.mjs is one note for the whole page)
+  clearStages();
   const O = await import(`../../permutation-server/web/frontier/people/onboard.mjs${tag}`);
   const calls = [], state = { globalAlpha: 1, stack: [] };
   const ctx = new Proxy({}, {
@@ -172,7 +175,11 @@ test('where a character stands: a body clear of the palisade, of the standard\'s
     assert.ok(rx0 - B.half >= rx + 0.09 && -lx0 - B.half >= rx + 0.09, `${where}: outside the palisade`);
     assert.equal(ry0, ly0); assert.ok(ry0 > cy && ry0 < foot, `${where}: beside the houses, not behind them and not before the gate`);
     if (own) {
-      assert.ok(rx0 - B.half >= HERO.standard.x / RADIUS + 0.1, `${where}: to the right of the standard's pole, a hand clear of it`);
+      // (2026-10-10, after the review: a hamlet's land may be its tile and the six around it, whose east edge is one and
+      // a half tiles out; a body's width beyond the pole the figure stood on that border. At a hamlet it stands at the
+      // pole, the widest of the six a hair's breadth under it, and its whole body inside that edge)
+      if (tier === 0) { assert.ok(rx0 - B.half >= HERO.standard.x / RADIUS - 0.06 && rx0 - B.half < HERO.standard.x / RADIUS + 0.1, `${where}: at the pole`); assert.ok(rx0 + B.half < 1.5 * Math.sqrt(3) - 0.03, `${where}: inside the border of a land of one ring`); }
+      else assert.ok(rx0 - B.half >= HERO.standard.x / RADIUS + 0.1, `${where}: to the right of the standard's pole, a hand clear of it`);
       assert.ok(ry0 - B.up > HERO.standard.y / RADIUS - 1.5 * 1.15 + 0.5, `${where}: the head under the standard's cloth`);
       assert.ok(-lx0 - B.half >= -HERO.scaffold.x / RADIUS + 0.4, `${where}: to the left of the scaffold and its ring`);
     }
@@ -231,12 +238,21 @@ test('the rule of the ground: a character does not stand in water, in a wood or 
   const [wet] = O.characterTokens({ p: 2, q: 0, villages: new Set([7]), heroTiles: new Set([7]), open: () => false });
   assert.deepEqual([dry.hex, dry.character.home], [hexes[0], false]);
   assert.deepEqual([wet.x, wet.y, wet.hex, wet.character.home], [spots[4].x, spots[4].y, { q: HOME.q, r: HOME.r }, true]);
-  // the landing's walk starts on open ground too: from behind where that is open, else a short way out on its own tile's side
-  assert.deepEqual(dry.character.from, O.LANDING_WALK.from);
-  const start = O.hexAt(dry.x + O.LANDING_WALK.from[0] * RADIUS, dry.y + O.LANDING_WALK.from[1] * RADIUS);
-  const [short] = O.characterTokens({ p: 2, q: 0, villages: new Set([7]), heroTiles: new Set([7]), open: (q, r) => !(q === start.q && r === start.r) });
-  assert.deepEqual(short.character.from, [O.LANDING_WALK.from[0] * O.LANDING_WALK.short, O.LANDING_WALK.from[1] * O.LANDING_WALK.short]);
-  assert.deepEqual(wet.character.from, O.LANDING_WALK.home, 'a character on its own tile comes from before the gate');
+  // the landing's walk (rewritten 2026-10-10 after the review: the walk is three steps long, as far as the clip's
+  // stride carries the body; it was a tile and a half, and the figure slid): it begins three steps behind its place
+  // and a little to the left, on the tile it will stand on; where it would begin on another tile whose ground is
+  // closed it is half as long
+  const W = O.LANDING_WALK, len = O.walkLength();
+  assert.deepEqual(dry.character.walk, { from: [-W.way[0] * len, -W.way[1] * len], cycles: W.cycles });
+  assert.deepEqual(O.hexAt(dry.x + dry.character.walk.from[0] * RADIUS, dry.y + dry.character.walk.from[1] * RADIUS), dry.hex, 'by the fixture\'s village the walk begins on the tile the character stands on');
+  assert.deepEqual(wet.character.walk, dry.character.walk, 'a character on its own tile walks the same three steps (its tile is ground it may walk on)');
+  // a place near its tile's upper edge: the walk would begin on the tile behind
+  const edge = (() => { for (let dy = 0; dy < 1.2; dy += 0.05) { const p = { x: dry.x, y: dry.y - dy * RADIUS }; p.hex = O.hexAt(p.x, p.y); const st = O.hexAt(p.x - W.way[0] * len * RADIUS, p.y - W.way[1] * len * RADIUS); if (st.q !== p.hex.q || st.r !== p.hex.r) return { p, st }; } return null; })();
+  assert.ok(edge, 'a place whose walk begins on another tile');
+  assert.equal(O.walkFrom(edge.p, () => true).cycles, W.cycles, 'open ground behind: the whole walk');
+  const short = O.walkFrom(edge.p, (q, r) => !(q === edge.st.q && r === edge.st.r));
+  assert.equal(short.cycles, W.cycles * W.short);
+  assert.ok(Math.abs(short.from[0] - dry.character.walk.from[0] * W.short) < 1e-12 && Math.abs(short.from[1] - dry.character.walk.from[1] * W.short) < 1e-12, 'closed ground behind: half the way, and half the time (the clip\'s phase is the distance)');
   O.setBoardCharacters([]);
 });
 
@@ -245,7 +261,8 @@ test('the map says which ground is open and cuts a character behind what stands 
   // open ground: painted land the viewer has surveyed, with no water, wood or mountain, nothing built or camped on it, not the Concord
   assert.match(src, /const openGround = \(hq, hr\) => \{ const u = byHex\.get\(keyOf\(hq, hr\)\); return !!u && !u\.cloud && u\.lv >= L2 && LOW_PROPS\.has\(u\.name\) && u\.name !== 'water' && u\.site === undefined && !u\.camp && !\(u\.centre && u\.ring <= 1\) && u\.ring !== 0; \};/);
   assert.match(src, /const LOW_PROPS = new Set\(\['grassland', 'plains', 'hills', 'water'\]\);/);
-  assert.match(src, /provinceTokens\(\{[^\n]*unit: 0\.66 \* zoomBoost\(RADIUS \* zoom\), open: openGround \}\)/);
+  // (and whose hosts are the viewer's own: a battle scene that shows the viewer's character with one of them has taken it)
+  assert.match(src, /provinceTokens\(\{[^\n]*unit: 0\.66 \* zoomBoost\(RADIUS \* zoom\), open: openGround, ownHosts \}\)/);
   assert.match(src, /const h = tok\.hex \?\? tileHex\(tok\.p, tok\.q, tok\.tile\);/);
   // its picture is larger than a host's: the scratch it is cut on is its own cell
   assert.match(src, /const box = tok\.character \? characterCell\(tok\.character\.share \?\? 1\) : null/);
@@ -272,8 +289,20 @@ test('the tokens: the viewer\'s character by the active village, another player\
   assert.equal(mine.own, false, 'the ring is the character\'s own: the map never takes it for a host of the viewer');
   // a village the viewer has not surveyed is not drawn: nobody stands there
   assert.equal(O.characterTokens({ p: 2, q: 0, villages: new Set([7]), heroTiles: new Set([7]) }).length, 1);
-  // a battle scene has the tile: the scene shows the characters
-  assert.equal(O.characterTokens({ p: 2, q: 0, villages: new Set([7, 26]), heroTiles: new Set([7]), skipTiles: new Set([7]) }).length, 1);
+  // a battle scene has the tile: the scene shows the characters, and the board's own gives way. (Rewritten 2026-10-10
+  // after the review: it was simply left out, at once; it now keeps its token and fades, and comes back as slowly.)
+  const at = 5000, both = { p: 2, q: 0, villages: new Set([7, 26]), heroTiles: new Set([7]), stages: [], level: 'full' };
+  assert.deepEqual(O.characterTokens({ ...both, now: at }).map(x => [x.alpha, x.character.taken]), [[1, false], [1, false]]);
+  const going = O.characterTokens({ ...both, skipTiles: new Set([7]), now: at + O.SCENE_YIELD.fade / 2 });
+  assert.equal(going.length, 2); assert.equal(going[0].character.taken, true);
+  assert.ok(Math.abs(going[0].alpha - 0.5) < 1e-9 && going[1].alpha === 1, 'half gone after half the fade; the other village\'s character stays');
+  assert.equal(O.characterTokens({ ...both, skipTiles: new Set([7]), now: at + 1 })[0].alpha, 0, 'unseen while the scene has the tile');
+  const back = O.characterTokens({ ...both, now: at + 1 + O.SCENE_YIELD.fade / 3 });
+  assert.ok(back[0].alpha > 0.3 && back[0].alpha < 0.4 && back[0].character.taken === false, 'the scene has left: it comes back as slowly');
+  assert.equal(O.characterTokens({ ...both, now: at + 2 })[0].alpha, 1);
+  // reduced motion: at once, both ways
+  assert.equal(O.characterTokens({ ...both, skipTiles: new Set([7]), now: at + 2.01, level: 'reduced' })[0].alpha, 0);
+  assert.equal(O.characterTokens({ ...both, now: at + 2.02, level: 'reduced' })[0].alpha, 1);
   assert.equal(O.characterTokens({ p: 9, q: 9, villages: new Set([7]) }).length, 0);
   // close in a host's token unit is larger (the zoom's boost); the character keeps its size and its place beside the standard
   const [near] = O.characterTokens({ p: 2, q: 0, villages: new Set([7]), heroTiles: new Set([7]), unit: O.TOKEN_UNIT * 1.3 });
@@ -283,19 +312,54 @@ test('the tokens: the viewer\'s character by the active village, another player\
   assert.equal(O.characterTokens({ p: 2, q: 0, villages: new Set([7, 26]), heroTiles: new Set([7]) }).length, 0, 'an empty list clears the board');
 });
 
-test('the pose: a landing\'s walk to the spot, then the idle loop; reduced motion is a still, at once', async t => {
+test('the pose: a landing\'s walk to the spot, then the idle loop; the walk clip\'s phase is the distance covered; reduced motion is a still, at once', async t => {
+  // (rewritten 2026-10-10 after the review: the clip ran on the time, a cycle a second, while the body travelled four
+  // to five times as far as its feet stepped. Its phase is now the distance: a cycle of the clip for every stride.)
   const { O } = await board(t);
-  const W = O.LANDING_WALK;
+  const W = O.LANDING_WALK, secs = O.walkSecs();
+  assert.equal(secs, W.cycles / W.rate);
   assert.deepEqual(O.characterPose(null, 0), { motion: 'idle', share: 0, looping: true, walk: 0, alpha: 1 });
   assert.equal(O.characterPose(null, 1).share, 0.5, 'the idle loop takes two seconds (the package\'s README)');
   const start = O.characterPose(W.delay, 0);
   assert.deepEqual([start.motion, start.walk, start.alpha], ['walk', 1, 0]);
-  const mid = O.characterPose(W.delay + W.secs / 2, 0);
+  const mid = O.characterPose(W.delay + secs / 2, 0);
   assert.equal(mid.motion, 'walk'); assert.ok(mid.walk > 0.4 && mid.walk < 0.6); assert.equal(mid.alpha, 1);
-  assert.ok(Math.abs(mid.share - W.secs / 2) < 1e-9, 'the walk clip loops once a second');
-  let last = 2; for (let k = 0; k <= 20; k++) { const p = O.characterPose(W.delay + (W.secs * k) / 20, 0); if (p.motion !== 'walk') break; assert.ok(p.walk <= last, 'it never steps back'); last = p.walk; }
-  assert.deepEqual([O.characterPose(W.delay + W.secs, 3).motion, O.characterPose(W.delay + W.secs, 3).walk], ['idle', 0], 'arrived: it stands');
+  // no slide: between any two moments of the walk the clip advances exactly as many cycles as the body covers strides
+  let last = null;
+  for (let k = 0; k <= 40; k++) {
+    const p = O.characterPose(W.delay + (secs * k) / 40 - 1e-9, 0);
+    assert.equal(p.motion, 'walk');
+    if (last) { assert.ok(p.walk <= last.walk, 'it never steps back'); assert.ok(Math.abs((p.share - last.share) - (last.walk - p.walk) * W.cycles) < 1e-9, 'the feet step the ground the body covers'); }
+    last = p;
+  }
+  assert.ok(Math.abs(last.share - W.end) < 1e-6 && last.walk < 1e-6, 'at its place the clip is on the frame whose feet stand as the idle\'s do');
+  assert.ok(Math.abs(start.share - (W.end - W.cycles)) < 1e-12);
+  // a shorter way (closed ground behind): fewer cycles, less time, the same pace and the same last frame
+  const half = W.cycles * W.short;
+  assert.equal(O.characterPose(W.delay + O.walkSecs(half) + 0.001, 3, { cycles: half }).motion, 'idle');
+  assert.ok(Math.abs(O.characterPose(W.delay, 0, { cycles: half }).share - (W.end - half)) < 1e-12);
+  assert.deepEqual([O.characterPose(W.delay + secs, 3).motion, O.characterPose(W.delay + secs, 3).walk], ['idle', 0], 'arrived: it stands');
   assert.deepEqual(O.characterPose(0.5, 7, { full: false }), { motion: 'idle', share: 0, looping: true, walk: 0, alpha: 1 }, 'reduced motion: the first frame of the idle sheet, no walk');
+});
+
+test('the walk\'s stride is the sheet\'s: the path is as long as the clip\'s steps carry the body, along the way the feet step', async t => {
+  // (added 2026-10-10 after the review. Measured on the six walk sheets, frames of 512 px: a planted foot travels 10 to
+  // 15 px sideways and 13 to 15 px up the picture in half a cycle, so the body comes some 36 px down the picture and
+  // to the right in a cycle. On the board, where the tilt shows a step down it 0.93 as long as a step across:)
+  const { O } = await board(t);
+  const W = O.LANDING_WALK, cell = O.characterBody().cell;
+  const onScreen = [W.way[0] * W.stride * 512, W.way[1] * 0.93 * W.stride * 512], px = Math.hypot(...onScreen);
+  assert.ok(px > 32 && px < 40, `a cycle carries the body ${px.toFixed(1)} px of a 512 px cell`);
+  assert.ok(onScreen[0] > 20 && onScreen[0] < 30 && onScreen[1] > 26 && onScreen[1] < 30, 'down the picture and to the right, as the feet step');
+  assert.ok(Math.abs(Math.hypot(...W.way) - 1) < 0.01);
+  // three steps: under half a hex radius... the reviewer's "0.4 to 0.6 hex radii"; it was 1.6
+  assert.equal(W.cycles, 1.5);
+  assert.ok(Math.abs(O.walkLength() - W.cycles * W.stride * cell) < 1e-12 && O.walkLength() > 0.4 && O.walkLength() < 0.6);
+  assert.equal(O.walkLength(1, 0.5), O.walkLength(1) / 2, 'a smaller figure takes smaller steps');
+  // a brisk pace: the clip a little faster than its own second a cycle, the walk over in about a second
+  assert.ok(W.rate > 1 && W.rate <= 1.5 && O.walkSecs() > 0.9 && O.walkSecs() < 1.3);
+  // the idle's feet are those of the walk's third frame (and its seventh): the walk ends there
+  assert.equal(Math.floor((((W.end % 1) + 1) % 1) * 8), 2);
 });
 
 /** What a recording context was asked to draw (asking it for its transform is no drawing). */
@@ -308,8 +372,12 @@ test('painting: nothing until the sheet is here (no stand-in, no pop), then the 
   // (four fifths of a 256 px frame and more: the 2x sheet, with its eight idle frames), 400 on a dense one
   assert.equal(O.heroSheetSet(1), '2x'); assert.equal(O.heroSheetSet(2), '2x'); assert.ok(O.heroCellPx(1) > 205 && O.heroCellPx(1) < 256 && O.heroCellPx(2) > 380);
   const asked = requests.map(r => String(r.src).split('/motion-v1/')[1]).filter(Boolean);
-  assert.ok(asked.includes('sprite@2x/ember_idle.webp') && asked.includes('sprite@2x/borealis_idle.webp'), 'the idle sheets are asked for as soon as the page says who stands');
-  assert.ok(!asked.includes('sprite/ember_idle.webp') && !asked.includes('sprite/borealis_idle.webp'), 'one sheet a figure: the package\'s 256 px sheet is not fetched beside it');
+  // (2026-10-10, after the review: another player's character is drawn 0.63 as large and is asked for at its own size:
+  // on a plain screen that is the package's 256 px sheet. It was asked for at the viewer's size, the 2x sheet.)
+  assert.ok(asked.includes('sprite@2x/ember_idle.webp') && asked.includes('sprite/borealis_idle.webp'), 'the idle sheets are asked for as soon as the page says who stands');
+  assert.ok(!asked.includes('sprite/ember_idle.webp') && !asked.includes('sprite@2x/borealis_idle.webp'), 'one sheet a figure, in the set its own size calls for');
+  assert.ok(O.askPx(0, 1) === O.heroCellPx() && O.askPx(0, O.villageShare(false)) < 205 && O.askPx(0, O.villageShare(false)) * 2 >= 205, 'the other\'s: 1x on a plain screen, 2x on a dense one');
+  assert.equal(O.askPx(300, 1), 300, 'closer in than the hero frame: the size it is drawn at'); assert.equal(O.askPx(40, 1), O.heroCellPx(), 'a flight\'s first frames: the hero frame\'s set, asked for once');
   assert.ok(!requests.some(r => /_walk|_attack|_hit/.test(r.src)), 'and nothing else');
   const [mine, other] = O.characterTokens({ p: 2, q: 0, villages: new Set([7, 26]), heroTiles: new Set([7]) });
   const s = 30;
@@ -373,16 +441,19 @@ test('the shadow under a character is a soft pool: darkest at the feet, gone at 
   assert.equal(log.filter(c => c[0] === 'flat').length, 1); assert.ok(Math.abs(flat.globalAlpha - 0.3) < 1e-12);
 });
 
-test('the landing: the standard falls first; then the character comes forward on the walk sheet, from behind and a little to the left, and stands', async t => {
+test('the landing: the standard falls first; then the character comes forward its last three steps on the walk sheet, from behind and a little to the left, and stands', async t => {
   const { O, ctx, calls, draws, requests, loadAll } = await board(t);
   const W = O.LANDING_WALK;
   // (the walk begins when the standard is on the ground: map/ownland.mjs LANDING, with the fixture's two rings of land)
   const L = (await import('../../permutation-server/web/frontier/map/ownland.mjs')).LANDING;
   assert.ok(W.delay * 1000 >= L.floodAt + 2 * L.ring + L.borderGap + L.standardGap + L.drop * L.impact - 60, 'not before the standard lands: it never walks through the place the standard falls on');
-  assert.ok(W.from[0] < 0 && W.from[1] < -1, 'from behind (further up the board) and a little to the left');
-  // a walking pace for a figure of its size: the clip takes two steps a second, a step some two fifths of its height
-  const pace = Math.hypot(W.from[0], W.from[1]) / W.secs, tall = O.characterBody().up + O.characterBody().down;
-  assert.ok(pace > 0.5 * tall && pace < 0.95 * tall, `it walks ${pace.toFixed(2)} radii a second, ${tall.toFixed(2)} tall`);
+  // (rewritten 2026-10-10 after the review: it came a tile and a half at 0.6 of its height a second and slid; it
+  // comes the last three steps, as far as the clip's stride carries it)
+  const from = O.walkFrom(null).from, secs = O.walkSecs();
+  assert.ok(from[0] < 0 && from[1] < 0 && from[1] < from[0], 'from behind (further up the board) and a little to the left');
+  // its whole way it is to the right of the standard's pole: where it starts, its body's left side is clear of it
+  const [sx] = O.characterSpots(true, 1)[0];
+  assert.ok(sx + from[0] - 0.11 * O.characterBody().cell > HERO.standard.x / RADIUS, 'it never crosses the pole (the map draws the standard over the figure)');
   O.setBoardCharacters([{ p: 2, q: 0, tile: 7, faction: 0, own: true, tier: 0, pending: true }]);
   assert.ok(requests.some(r => r.src.endsWith('sprite@2x/aster_walk.webp')), 'the walk sheet is asked for while the landing is on its way');
   loadAll();
@@ -393,14 +464,17 @@ test('the landing: the standard falls first; then the character comes forward on
   assert.equal(O.landingAge('2,0,7', 102), 1); assert.equal(O.landingAge('9,9,9', 102), null);
   O.paintCharacter(ctx, tok, { s: 30, t: 0, now: 101 + W.delay + 0.3, level: 'full' });
   calls.length = 0;
-  O.paintCharacter(ctx, tok, { s: 30, t: 0, now: 101 + W.delay + 0.6, level: 'full' });
+  O.paintCharacter(ctx, tok, { s: 30, t: 0, now: 101 + W.delay + secs * 0.5, level: 'full' });
   const d = draws();
   assert.equal(d.length, 1); assert.match(d[0][1].src, /sprite@2x\/aster_walk\.webp$/);
   const moved = calls.find(c => c[0] === 'translate');
   assert.ok(moved[1] < tok.x && moved[2] < tok.y, 'on its way: behind its place and a little to the left');
   assert.equal(calls.filter(c => c[0] === 'scale').length, 0, 'a walking figure does not breathe');
   calls.length = 0;
-  O.paintCharacter(ctx, tok, { s: 30, t: 0.2, now: 101 + W.delay + W.secs + 0.1, level: 'full' });
+  // (half way: the clip is where the distance puts it, three quarters of a cycle before its last frame)
+  assert.equal(d[0][2], Math.floor((((W.end - O.characterPose(W.delay + secs * 0.5, 0).walk * W.cycles) % 1) + 1) % 1 * 8) * 512);
+  calls.length = 0;
+  O.paintCharacter(ctx, tok, { s: 30, t: 0.2, now: 101 + W.delay + secs + 0.1, level: 'full' });
   assert.match(draws()[0][1].src, /sprite@2x\/aster_idle\.webp$/);
   assert.deepEqual(calls.find(c => c[0] === 'translate').slice(1), [tok.x, tok.y], 'arrived');
   // a landing that never begins does not hide the character for ever
@@ -413,6 +487,7 @@ test('the landing: the standard falls first; then the character comes forward on
 test('a province\'s tokens carry the characters after its hosts (people/units.mjs provinceTokens): one painter path, no pill of their own', async () => {
   // (the module the token painter itself imports: its registry is the page's)
   const O = await import('../../permutation-server/web/frontier/people/onboard.mjs');
+  clearStages();
   O.setBoardCharacters([{ p: 2, q: 0, tile: 7, faction: 0, own: true, tier: 1 }]);
   try {
     const hosts = [{ id: '1', faction: 0, unit: 0, tile: 7, state: 1, troops: 600, stamina: 120 }];
@@ -428,8 +503,15 @@ test('a province\'s tokens carry the characters after its hosts (people/units.mj
     const east = hosts.concat([{ id: '2', faction: 3, unit: 0, tile: O.hexAt(chr.x, chr.y) && tileOf(chr), state: 1, troops: 300, stamina: 120 }]);
     const moved = provinceTokens({ p: 2, q: 0, hosts: east, holdingTiles: new Set([7]), heroTiles: new Set([7]), heroSpots: HERO.hosts, viewerFaction: 0 }).find(x => x.kind === 'character');
     assert.ok(moved.x !== chr.x || moved.y !== chr.y, 'it gives way to a host that stands where it would');
-    // skipped where a battle scene has the tile
-    assert.deepEqual(provinceTokens({ p: 2, q: 0, hosts, holdingTiles: new Set([7]), heroTiles: new Set([7]), heroSpots: HERO.hosts, skipTiles: new Set([7]) }), []);
+    // where a battle scene has the tile the hosts are left out, and the character gives way (rewritten 2026-10-10: it
+    // keeps its token while it fades and while it is unseen, so that the map goes on asking and it comes back)
+    const during = provinceTokens({ p: 2, q: 0, hosts, holdingTiles: new Set([7]), heroTiles: new Set([7]), heroSpots: HERO.hosts, skipTiles: new Set([7]) });
+    assert.deepEqual(during.map(x => [x.kind, x.character.taken]), [['character', true]]);
+    // the viewer's own hosts' ids reach the character's rule (a scene far away that shows the viewer has taken the character)
+    noteStage({ p: 9, q: 9, tile: 0, box: { x0: 1e6, y0: 1e6, x1: 1e6 + 10, y1: 1e6 + 10 }, characters: [{ key: 'aster', x: 1e6, y: 1e6 }], hosts: ['77'], live: () => true });
+    const away = o => provinceTokens({ p: 2, q: 0, hosts, holdingTiles: new Set([7]), heroTiles: new Set([7]), heroSpots: HERO.hosts, viewerFaction: 0, ...o }).find(x => x.kind === 'character').character.taken;
+    assert.equal(away({}), false); assert.equal(away({ ownHosts: new Set(['5']) }), false); assert.equal(away({ ownHosts: new Set(['77']) }), true);
+    clearStages();
   } finally { O.setBoardCharacters([]); }
 });
 /** The tile of province (2, 0) whose hex a token's feet stand on. */
@@ -550,6 +632,14 @@ test('the scene paints both characters behind their lines, facing the enemy, at 
   const asked = requests.slice(before).map(r => String(r.src).split('/motion-v1/')[1]).filter(Boolean);
   for (const f of ['cinder_attack.webp', 'cinder_hit.webp', 'aster_attack.webp', 'aster_hit.webp']) assert.ok(asked.includes(`sprite@2x/${f}`) || requests.some(r => r.src.endsWith(`sprite@2x/${f}`)), f);
   assert.ok(!asked.some(a => a.startsWith('sprite/')), 'drawn that large, only the 2x sheets are fetched');
+  // (2026-10-10, after the review) a scene staged while the camera is still far out: its sheets are asked for in the set
+  // the hero frame of this screen calls for, never a coarser one (they were fetched in both sets, one after the other)
+  const early = requests.length;
+  B.preloadBattle(clash([M({ id: 'e1', faction: 3 })], [M({ id: 'e2', faction: 4, kind: 'resident' })]), 6);
+  const first = requests.slice(early).map(r => String(r.src).split('/motion-v1/')[1]).filter(Boolean);
+  for (const f of ['dunmar_attack.webp', 'dunmar_hit.webp', 'ember_attack.webp', 'ember_hit.webp']) assert.ok(first.includes(`sprite@2x/${f}`), f);
+  assert.ok(first.length >= 4 && first.every(f => f.startsWith('sprite@2x/')), 'nothing of the 1x set');
+  assert.match(readFileSync(new URL('fx/battle.mjs', WEB), 'utf8'), /const zAim = zoom \?\? aimZoom\(fx\) \?\? z, aim = zAim === z \? stage : battleStage\(main, zAim, fit, layout\);/, 'and by the zoom the camera is on its way to');
   loadAll();
   const log = [], state = { globalAlpha: 1, stack: [] };
   const ctx = new Proxy({}, { get(_, k) { if (k === 'globalAlpha') return state.globalAlpha; if (k === 'save') return () => state.stack.push(state.globalAlpha); if (k === 'restore') return () => { state.globalAlpha = state.stack.pop(); };
@@ -622,6 +712,90 @@ test('a fight on a village\'s tile is staged before the village, never over its 
   const before = { sites: [3, 7], siteMirror: [{ state: 0 }, { state: 1, faction: 0, tier: 1, garrison: 1080000n }], entries: [] };
   const sc = B.battleScene({ p: 2, q: 0, bell: 41, inputs: { arrivals: [{ present: 1, tile: 7, hostId: 9n, faction: 2, unit: 0, stance: 1, troops: 900000n, troopsAfter: 0n, fate: 5 }] }, before, after: null, ownTiles: new Set([7]) });
   assert.deepEqual(sc.tiles[0].village, { tier: 1, own: true });
+});
+
+// ------------------------------------------------------------------ one place at a time (added 2026-10-10 after the review)
+/** A context that paints nothing and says it is scaled `zoom` times. */
+const blank = zoom => new Proxy({}, { get(_, k) { if (k === 'globalAlpha') return 1; if (k === 'getTransform') return () => ({ a: zoom, b: 0, c: 0, d: zoom, e: 0, f: 0 }); if (k === 'createLinearGradient' || k === 'createRadialGradient') return () => ({ addColorStop() {} }); if (k === 'measureText') return t => ({ width: String(t).length * 10 }); return () => {}; }, set: () => true });
+/** The tile of province (2, 0) at hex (q, r). */
+const tileAt = (q, r) => { for (let i = 0; i < 61; i++) { const h = tileHex(2, 0, i); if (h && h.q === q && h.r === r) return i; } return -1; };
+
+test('a scene says what it has on stage: how far its figures, numbers and bars reach, whose characters stand in it and whose hosts they lead', () => {
+  clearStages();
+  const zoom = 1.15, scene = { p: 2, q: 0, bell: 41, tiles: [{ idx: tileAt(HOME.q + 2, HOME.r), attackers: [M({ id: 'a1', faction: 0, unit: 2, stance: 2, before: 600, after: 510 })], defenders: [M({ id: 'camp', faction: 6, before: 420, after: 0, fate: 'Destroyed', kind: 'camp' })] }] };
+  const play = B.startBattle(scene, 0, 1), T = B.battlePlan(scene).tiles[0], st = B.battleStage(T, zoom, 1, null);
+  assert.equal(B.paintBattle(blank(zoom), play, { zoom, at: 3, top: true, stamp: 100 }), true);
+  const [note] = stagesNow(100);
+  assert.deepEqual([note.p, note.q, note.tile], [2, 0, scene.tiles[0].idx]);
+  assert.deepEqual(note.characters.map(c => c.key), ['aster'], 'the nation\'s side has its character; the camp has none');
+  assert.deepEqual(note.hosts, ['a1']);
+  // the character stands inside the box, behind its line on the attackers' side (the left); the box holds both lines
+  const [chr] = note.characters;
+  assert.ok(chr.x < st.cx - (st.rest + B.CHARACTER_STAND.rear) * st.s && chr.x > note.box.x0 && note.box.x1 > st.cx + st.rest * st.s);
+  assert.ok(note.box.y0 < st.cy - B.BATTLE_ABOVE * st.s && note.box.y1 > st.cy + st.s, 'the numbers over the heads and the bars under the feet are in it');
+  // nobody stages it (the map's own painter drew it): the note lasts while the scene is painted
+  assert.equal(stagesNow(100 + STAGE_HOLD - 0.01).length, 1);
+  assert.equal(stagesNow(100 + STAGE_HOLD + 0.01).length, 0, 'not painted any more: gone');
+  // the effects layer stages it on its own clock, which the demo switch can hold still: it says itself how long
+  let on = true;
+  B.paintBattle(blank(zoom), play, { zoom, at: 3, top: true, stamp: 200, live: () => on });
+  assert.equal(stagesNow(900).length, 1, 'a held clock: the scene is on stage however long ago it was painted');
+  on = false;
+  assert.equal(stagesNow(900).length, 0);
+  // a scene the effects layer has taken is not noted by the map's own call (it paints nothing then), and one that is over notes nothing
+  play.staged = true;
+  B.paintBattle(blank(zoom), play, { zoom, at: 3, stamp: 300 }); assert.equal(stagesNow(300).length, 0);
+  B.paintBattle(blank(zoom), play, { zoom, at: B.PHASE.end + 0.1, top: true, stamp: 300 }); assert.equal(stagesNow(300).length, 0);
+  // the effects layer says so for both of its painters, and a cancelled scene is off the stage
+  const fxSrc = readFileSync(new URL('fx/battle.mjs', WEB), 'utf8');
+  assert.match(fxSrc, /const onStageFor = secs => \(\) => \{ if \(off\) return false; const a = \(fx\.clock\?\.now\?\.\(\) \?\? 0\) - began; return a >= 0 && a < secs; \};/);
+  assert.match(fxSrc, /at: ts, top: true,[^\n]*live: onStageFor\(dur\)/); assert.match(fxSrc, /at: PHASE\.fates \+ 1\.5, top: true,[^\n]*live: onStageFor\(hold\)/);
+  assert.equal((fxSrc.match(/cancel\(\) \{ off = true; handles\.forEach/g) ?? []).length, 3);
+  clearStages();
+});
+
+test('a player\'s character is in one place at a time: while a battle scene on a tile nearby shows it, the board\'s own gives way', async t => {
+  const { O } = await board(t);
+  const zoom = 1.15, VIEW = { p: 2, q: 0, villages: new Set([7]), heroTiles: new Set([7]), level: 'full' };
+  O.setBoardCharacters([{ p: 2, q: 0, tile: 7, faction: 0, own: true, tier: 1 }]);
+  const [mine] = O.characterTokens({ ...VIEW, now: 10 });
+  assert.deepEqual([mine.alpha, mine.character.taken], [1, false]);
+  const camp = dq => ({ p: 2, q: 0, bell: 41, tiles: [{ idx: tileAt(HOME.q + dq, HOME.r), attackers: [M({ id: 'a1', faction: 0, unit: 2, stance: 2, before: 600, after: 510 })], defenders: [M({ id: 'camp', faction: 6, before: 420, after: 0, fate: 'Destroyed', kind: 'camp' })] }] });
+  const stage = (scene, stamp) => { clearStages(); B.paintBattle(blank(zoom), B.startBattle(scene, 0, 1), { zoom, at: 3, top: true, stamp }); };
+  // the reviewer's two cases, at the hero frame's zoom: a fight on the tile next door (east), and on the camp's tile, two tiles east
+  for (const [dq, what] of [[1, 'the neighbouring tile'], [2, 'the camp\'s tile']]) {
+    assert.ok(tileAt(HOME.q + dq, HOME.r) >= 0 && tileAt(HOME.q + dq, HOME.r) !== 7);
+    stage(camp(dq), 20);
+    const [tok] = O.characterTokens({ ...VIEW, now: 20 });
+    assert.equal(tok.character.taken, true, `${what}: the scene shows Aster behind its line; the board's Aster gives way`);
+    assert.equal(O.characterTokens({ ...VIEW, now: 20 + O.SCENE_YIELD.fade + 0.01, stages: stagesNow(20) })[0].alpha, 0, `${what}: unseen within the fade`);
+    // the scene has left the stage: it comes back
+    assert.equal(O.characterTokens({ ...VIEW, now: 30 })[0].character.taken, false);
+    assert.equal(O.characterTokens({ ...VIEW, now: 31 })[0].alpha, 1);
+  }
+  // the rule, piece by piece (the board's Aster stands at `mine`; boxes in world px)
+  const B0 = O.characterBody(), R = RADIUS, near = O.SCENE_YIELD.near * R;
+  const beside = gap => ({ x0: mine.x + B0.half * R + gap, x1: mine.x + B0.half * R + gap + 200, y0: mine.y - 100, y1: mine.y + 60 });
+  const me = { key: 'aster', own: true }, spot = { x: mine.x, y: mine.y };
+  const note = (box, keys, hosts = []) => [{ p: 2, q: 0, tile: 1, box, characters: keys.map(key => ({ key, x: box.x0, y: box.y1 })), hosts }];
+  assert.equal(O.takenByScene(me, spot, []), false, 'no scene: it stands');
+  // any scene whose figures reach the place it stands: it would stand in the fight
+  assert.equal(O.takenByScene(me, spot, note(beside(-4), ['cinder', 'dunmar'])), true);
+  assert.equal(O.takenByScene(me, spot, note(beside(4), ['cinder', 'dunmar'])), false, 'another two nations\' fight beside it, not on it: it stands');
+  // the same character close by: one person twice
+  assert.equal(O.takenByScene(me, spot, note(beside(near - 4), ['aster'])), true);
+  assert.equal(O.takenByScene(me, spot, note(beside(near + 4), ['aster'])), false, 'a fight of the same nation further off: another player of that nation');
+  // the viewer's own hosts on the side the character leads: the viewer is in that scene, wherever it plays
+  const far = { x0: 1e5, x1: 1e5 + 100, y0: 1e5, y1: 1e5 + 100 };
+  assert.equal(O.takenByScene(me, spot, note(far, ['aster'], ['h9']), { ownHosts: new Set(['h9']) }), true);
+  assert.equal(O.takenByScene(me, spot, note(far, ['aster'], ['h9']), { ownHosts: new Set(['h1']) }), false);
+  assert.equal(O.takenByScene({ key: 'aster', own: false }, spot, note(far, ['aster'], ['h9']), { ownHosts: new Set(['h9']) }), false, 'another player\'s character is not the viewer');
+  assert.equal(O.takenByScene(me, spot, note(far, ['cinder'], ['h9']), { ownHosts: new Set(['h9']) }), false);
+  // another player's smaller figure (beside a selected village) has a smaller body
+  const small = O.characterBody(O.villageShare(false));
+  assert.equal(O.takenByScene({ key: 'cinder', own: false }, spot, note({ ...beside(0), x0: mine.x + small.half * R + 2 }, ['dunmar']), { share: O.villageShare(false) }), false);
+  assert.equal(O.takenByScene({ key: 'cinder', own: false }, spot, note({ ...beside(0), x0: mine.x + small.half * R - 2 }, ['dunmar']), { share: O.villageShare(false) }), true);
+  O.setBoardCharacters([]); clearStages();
 });
 
 // ------------------------------------------------------------------ the host art has one painter (the owner will hand over army art later)

@@ -230,6 +230,9 @@ export function burn(a, env) {
   } };
 }
 
+/** The zoom the map's camera is on its way to (its view at rest), where the map says it; null otherwise. */
+const aimZoom = fx => { try { const z = fx.map?.view?.zoom; return z > 0 ? z : null; } catch { return null; } };
+
 const staged = new Map();   // "p,q" → the handles of the scene playing there
 
 /**
@@ -255,6 +258,11 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
   const handles = [];
   const keep = h => { if (h) handles.push(...(Array.isArray(h) ? h : [h])); };
   const level = mode ?? fx.motionLevel?.() ?? 'full';
+  // (for the board, people/onstage.mjs: the scene is on stage from now for as long as its effect lasts on the effects
+  // clock, which the demo switch can hold still or rewind, and no longer once it is cancelled)
+  let off = false;
+  const began = fx.clock?.now?.() ?? 0;
+  const onStageFor = secs => () => { if (off) return false; const a = (fx.clock?.now?.() ?? 0) - began; return a >= 0 && a < secs; };
   const fights = plan.tiles.filter(T => T.fight);
   const main = fights[0] ?? plan.tiles[0];
   const title = fights.length ? verdictTitle(scene, viewerFaction) : null;
@@ -269,8 +277,11 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
   const fit = battleFit(fx.map?.size?.().width ?? fx.size().width);
   const stage = battleStage(main, z, fit, layout);
   play.staged = true;
-  // (the characters' size on screen: their sheets come in the set that size calls for)
-  preloadBattle(scene, characterStandUnit(stage.s, stage.rest, layout?.half > 0 ? layout.half / Math.max(0.05, z) : 0) * z);
+  // (the characters' size on screen: their sheets come in the set that size calls for. A scene that plays where the
+  // viewer already looks is watched at the zoom the camera is on its way to, not the one of a flight's frame it
+  // was staged in: a sheet asked for at that frame's size was fetched in both sets)
+  const zAim = zoom ?? aimZoom(fx) ?? z, aim = zAim === z ? stage : battleStage(main, zAim, fit, layout);
+  preloadBattle(scene, characterStandUnit(aim.s, aim.rest, layout?.half > 0 ? layout.half / Math.max(0.05, zAim) : 0) * zAim);
   // the camera: the tile's centre where the whole block (title, numbers, figures, bars) sits in the middle of the stage
   if (frame && fx.map?.flyTo && level !== 'off') {
     // (a tilted board says itself which view shows a point at a place on screen: map.viewShowing; a flat one is plain arithmetic)
@@ -302,7 +313,7 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
     play.t0 = -1e9;
     for (const T of fights) for (const side of T.sides) if (side.loss) keep(fx.play('label', { x: T.c.x + side.sgn * RADIUS * 1.1, y: T.c.y, text: texts.lossText(side.loss), color: '#ffb7a3', size: 24, lift: 0.9, dur: 3, seed: `${id}|loss|${side.sgn}`, mode: level }));
     if (title) keep(fx.play('banner', { title: title.title, sub: title.sub, color: title.color, tone: title.tone, y: 0, dur: 2.8, seed: `${id}|title`, mode: level }));
-    const h = { cancel() { handles.forEach(x => x.cancel?.()); staged.delete(key); } };
+    const h = { cancel() { off = true; handles.forEach(x => x.cancel?.()); staged.delete(key); } };
     staged.set(key, h);
     return h;
   }
@@ -315,11 +326,11 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
       if (fights.length) paintDim(ctx, s, stage.cx, stage.cy, stage.s * (layout ? 3.3 : 2.4), (focus ? BATTLE_DIM.focus : BATTLE_DIM.passing) * o);
       ctx.globalAlpha = o;
       if (s.zoom * RADIUS < BATTLE_FAR_R) { for (const T of plan.tiles) if (T.fight) paintFar(ctx, s, T, PHASE.fates + 1, title?.color ?? null); }
-      else paintBattle(ctx, play, { zoom: s.zoom, at: PHASE.fates + 1.5, top: true, fit: battleFit(s.stage?.width ?? s.size.width), layout, place: placer(s), up: standOf(), ...texts });
+      else paintBattle(ctx, play, { zoom: s.zoom, at: PHASE.fates + 1.5, top: true, fit: battleFit(s.stage?.width ?? s.size.width), layout, place: placer(s), up: standOf(), live: onStageFor(hold), ...texts });
     } }));
     keep(fx.piece('battle', { dur: hold, tiles, stage: takes }));
     if (title) keep(fx.play('banner', { title: title.title, sub: title.sub, color: title.color, tone: title.tone, vy: titleY, room: takes ? 'stage' : null, dur: Math.min(hold, 2.8), seed: `${id}|title`, mode: level }));
-    const h = { cancel() { handles.forEach(x => x.cancel?.()); staged.delete(key); } };
+    const h = { cancel() { off = true; handles.forEach(x => x.cancel?.()); staged.delete(key); } };
     staged.set(key, h);
     return h;
   }
@@ -342,7 +353,7 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
   keep(fx.add({ name: 'battle', layer: 'top', dur, seed: id, draw(ctx, s) {
     const ts = t0 + s.t * speed;
     if (s.zoom * RADIUS < BATTLE_FAR_R) { for (const T of plan.tiles) if (T.fight) paintFar(ctx, s, T, ts, title?.color ?? null); return; }
-    paintBattle(ctx, play, { zoom: s.zoom, at: ts, top: true, fit: battleFit(s.stage?.width ?? s.size.width), layout, place: placer(s), up: standOf(), ...texts });
+    paintBattle(ctx, play, { zoom: s.zoom, at: ts, top: true, fit: battleFit(s.stage?.width ?? s.size.width), layout, place: placer(s), up: standOf(), live: onStageFor(dur), ...texts });
   } }));
   // 3. every contact: sparks in both colours, dust at both lines, the shake, the sound
   for (const T of fights) {
@@ -385,7 +396,7 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
     const st = battleStage(T, z, fit, layout);
     keep(fx.play('burn', { x: st.right.x + st.s * 0.45, y: st.cy + st.s * 0.1, size: st.s * 1.7, dur: 3.3 / speed + 0.4, delay: at(PHASE.fates + 0.12), seed: `${id}|burn|${T.idx}` }));
   }
-  const h = { cancel() { handles.forEach(x => x.cancel?.()); staged.delete(key); }, title, dur };
+  const h = { cancel() { off = true; handles.forEach(x => x.cancel?.()); staged.delete(key); }, title, dur };
   staged.set(key, h);
   return h;
 }

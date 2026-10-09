@@ -1389,7 +1389,7 @@ export class SpriteArt {
       const skip = new Set([...fightingAt].filter(k => k.startsWith(`${e.p},${e.q},`)).map(k => Number(k.split(',')[2])));
       // (on the viewer's own village the hosts stand in front of the houses, not on them: map/plates.mjs HERO)
       const heroTiles = new Set((byProv.get(`${e.p},${e.q}`) ?? []).filter(u => u.hero).map(u => u.idx));
-      for (const tok of provinceTokens({ p: e.p, q: e.q, hosts: all, holdingTiles, heroTiles, heroSpots: HERO.hosts, viewerFaction, exploring: people?.exploringHosts ?? new Set(), marching: people?.marchingHosts ?? new Set(), restBelow: people?.restBelow ?? 0, skipTiles: skip, unit: 0.66 * zoomBoost(RADIUS * zoom), open: openGround })) {
+      for (const tok of provinceTokens({ p: e.p, q: e.q, hosts: all, holdingTiles, heroTiles, heroSpots: HERO.hosts, viewerFaction, exploring: people?.exploringHosts ?? new Set(), marching: people?.marchingHosts ?? new Set(), restBelow: people?.restBelow ?? 0, skipTiles: skip, unit: 0.66 * zoomBoost(RADIUS * zoom), open: openGround, ownHosts })) {
         // the gold ring is the viewer's own hosts, never a whole nation's (gold means "yours": UX brief §5.3)
         if (limited) tok.own = (tok.hosts ?? []).some(id => ownHosts.has(String(id)));
         tokens.push(tok);

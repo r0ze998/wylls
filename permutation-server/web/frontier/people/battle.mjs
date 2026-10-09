@@ -58,6 +58,8 @@ import { motion as motionLevel } from '../fx/motion.mjs';
 import { MOTION_LEADERS, LEADER_MOTIONS, BOARD_CHARACTER_SCALE, LEADER_FIGURE } from '../leader-motion-data.mjs';
 import { VILLAGE } from '../map/village.mjs';
 import { HERO, VILLAGE_SCALE, VILLAGE_AT } from '../map/plates.mjs';
+import { noteStage } from './onstage.mjs';
+import { heroZoom } from '../map/opening.mjs';
 
 export const FATES = Object.freeze(['Stays', 'Withdrew', 'Bounced', 'Retreated', 'Destroyed']);
 export const STANCE_POSE = Object.freeze(['hold', 'assault', 'flank', 'brace']);
@@ -283,6 +285,8 @@ const REST = 1.6, MEET = 0.74;
 export const FIGURE_PX_MAX = 120;
 /** A fight fills the stage (UX-DESIGN §11.14): what the scene needs around its tile, in figure heights and screen px. */
 const NEED = Object.freeze({ back: 1.85, above: 1.72, below: 1.05, foot: 78, head: 36 });
+/** How far under the scene's own foot its strength bars reach (screen px: `paintBars`' plate, its numbers and names). */
+const STAGE_BARS = 76;
 /** How far over its tile's centre a scene's loss numbers stand (figure heights): just over the heads of the rear rank. */
 export const BATTLE_ABOVE = NEED.above;
 /**
@@ -557,7 +561,10 @@ export const hitTint = since => (since < 0 ? 0 : since < HIT_TINT_SECS[0] ? 1 : 
 export function preloadBattle(scene, figurePx = 0) {
   // (`figurePx`: the characters' height unit on screen in CSS px, where the caller knows the stage; their sheets are
   // asked for in the set that size calls for: people/leader-motion.mjs leaderMotionPick)
-  const px = leaderCellWidth(figurePx > 0 ? figurePx : CHARACTER_STAND.unit) * (globalThis.devicePixelRatio || 1);
+  // (never a coarser set than the hero frame of this screen calls for: a scene may be staged while the camera is still
+  // far out, and its sheets were then fetched in both sets; the 2x sheets are also the smaller files)
+  const dpr = globalThis.devicePixelRatio || 1;
+  const px = Math.max(leaderCellWidth(figurePx > 0 ? figurePx : CHARACTER_STAND.unit) * dpr, leaderCellWidth(CHARACTER_STAND.unit) * heroZoom(dpr) * dpr);
   for (const tile of scene?.tiles ?? []) for (const x of [...(tile.attackers ?? []), ...(tile.defenders ?? [])]) {
     const nation = x.faction >= 0 && x.faction < 6;
     preloadMinis(nation ? x.faction : null);
@@ -906,7 +913,7 @@ function paintTile(ctx, T, e) {
     }
   }
   // the players: each nation's side has its character behind its line, facing the enemy
-  const t0c = residents ? PHASE.deploy : 0;
+  const t0c = residents ? PHASE.deploy : 0, onStage = [];
   for (const side of T.sides) {
     if (!side.character || !side.groups.length) continue;
     const act = characterAct(T.wins, side.sgn, tau, t);
@@ -919,6 +926,14 @@ function paintTile(ctx, T, e) {
     const fk = span(t, PHASE.fates + 0.14, PHASE.fates + 1.4);
     if (fk > 0 && side.fate && side.fate !== 'Stays') alpha *= side.fate === 'Destroyed' ? 1 - span(t, PHASE.losses, PHASE.losses + 0.8) : 1 - 0.92 * smooth(fk);
     figs.push({ character: side.character, x, y: cy - CHARACTER_STAND.up * s, s: cu, face: -side.sgn, alpha, motion: act.motion, share: act.share, looping: act.looping, breath: act.motion === 'idle' && motionLevel() === 'full' ? leaderBreath(t) : 0 });
+    onStage.push({ key: side.character, x, y: cy - CHARACTER_STAND.up * s, half, hosts: side.groups.flatMap(g => g.members.map(m => String(m.id))) });
+  }
+  // what this tile's scene has on stage, for the board (people/onstage.mjs: a player's character is in one place at a
+  // time, and nothing of the board's stands inside a scene): how far the figures, the numbers and the bars reach
+  if (e.scene) {
+    const reach = Math.max((REST + NEED.back) * s, ...onStage.map(c => Math.abs(c.x - cx) + c.half));
+    noteStage({ p: e.scene.p, q: e.scene.q, tile: T.idx, box: { x0: cx - reach, x1: cx + reach, y0: cy - (NEED.above + 0.3) * s, y1: cy + NEED.below * s + (T.fight ? STAGE_BARS * k : 0) },
+      characters: onStage.map(c => ({ key: c.key, x: c.x, y: c.y })), hosts: onStage.flatMap(c => c.hosts), live: e.live }, e.wall);
   }
   figs.sort((a, b) => a.y - b.y);
   for (const f of figs) paintFigure(ctx, f);
@@ -962,15 +977,18 @@ function paintTile(ctx, T, e) {
  * its clock). When the effects layer has taken a scene (`play.staged`: it
  * draws it above the dimmed map, fx/battle.mjs), the map's own call draws
  * nothing and only says whether the scene is still playing. Returns false
- * once it is over.
+ * once it is over. Each tile it paints leaves a note of what it has on stage
+ * (people/onstage.mjs; `live`: whoever stages the scene says whether it is
+ * still on stage, else the note lasts while the scene is being painted;
+ * `stamp`: the wall clock's seconds the note is made at, for a test).
  */
-export function paintBattle(ctx, play, { zoom = 1, now = wallNow(), at = null, top = false, fit = 1, layout = null, place = null, lossText = n => `−${n}`, fateText = null, numText = n => String(n), nameText = null, up = null } = {}) {
+export function paintBattle(ctx, play, { zoom = 1, now = wallNow(), at = null, top = false, fit = 1, layout = null, place = null, lossText = n => `−${n}`, fateText = null, numText = n => String(n), nameText = null, up = null, stamp = null, live = null } = {}) {
   if (!play) return false;
   const t = at ?? battleTime(play, now);
   if (t > PHASE.end) return false;
   if (play.staged && !top) return true;
   const plan = battlePlan(play.scene);
-  const e = { t, tau: poseTime(t), zoom, k: 1 / Math.max(0.05, zoom), residents: plan.residents, fit, layout, place, lossText, fateText, numText, nameText };
+  const e = { t, tau: poseTime(t), zoom, k: 1 / Math.max(0.05, zoom), residents: plan.residents, fit, layout, place, lossText, fateText, numText, nameText, scene: play.scene, wall: stamp ?? wallNow(), live: typeof live === 'function' ? live : null };
   UP = typeof up === 'function' ? up : null;
   try { for (const T of plan.tiles) paintTile(ctx, T, e); } finally { UP = null; }
   ctx.globalAlpha = 1;

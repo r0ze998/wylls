@@ -156,6 +156,20 @@ test('a finer sheet that has been asked for serves a smaller figure too: nothing
   find('/sprite/dunmar_idle.webp').load(1024, 256);
   assert.deepEqual(C.leaderMotionPick('dunmar', 'idle', 600), { image: find('/sprite/dunmar_idle.webp'), set: '1x' });
   assert.deepEqual(C.leaderMotionPick('dunmar', 'idle', 30), { image: find('/sprite/dunmar_idle.webp'), set: '1x' });
+  // (added 2026-10-10 after the review) a figure drawn small first (its 1x sheet is here), then large (the 2x sheet
+  // is asked for), then small again before the 2x sheet has come: the 1x sheet goes on being drawn. It returned
+  // nothing there, and the figure left the screen until the 2x sheet arrived.
+  assert.equal(C.leaderMotionPick('ember', 'idle', 100), null);
+  const coarse = find('/sprite/ember_idle.webp'); coarse.load(1024, 256);
+  assert.deepEqual(C.leaderMotionPick('ember', 'idle', 100), { image: coarse, set: '1x' });
+  assert.deepEqual(C.leaderMotionPick('ember', 'idle', 420), { image: coarse, set: '1x' }, 'closer in: the 2x sheet is asked for, the 1x one stands until it is here');
+  const asked = requests.length;
+  assert.equal(C.leaderMotionStatus('ember', 'idle', '2x'), 'pending');
+  assert.deepEqual(C.leaderMotionPick('ember', 'idle', 100), { image: coarse, set: '1x' }, 'out again while the 2x sheet is on its way: the 1x sheet that is here is drawn');
+  assert.equal(C.paintLeaderMotion(ctx, 0, 0, 20, { leader: 'ember' }), true);
+  assert.equal(draws.at(-1)[0], coarse); assert.equal(requests.length, asked, 'and nothing more is fetched');
+  const sharp = find('/sprite@2x/ember_idle.webp'); sharp.load(4096, 512);
+  assert.deepEqual(C.leaderMotionPick('ember', 'idle', 100), { image: sharp, set: '2x' }, 'once it is here the finer sheet serves the smaller figure too');
 });
 
 test('a standing figure breathes: a little taller and narrower about its feet on a slow sine; the frames themselves are the package\'s', async t => {
