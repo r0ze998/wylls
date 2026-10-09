@@ -98,10 +98,13 @@ for (const vp of viewports) {
   for (const scene of scenes) {
     test(`${scene.title} @ ${vp.width}×${vp.height}: JA, then EN by the toggle`, { timeout: 120_000 }, async () => {
       srv.stage(scene.stage);
+      // (a `live` scene: the fixture's relay takes orders and its herald shows them, liveworld.mjs; the turn is left long,
+      // and the page's clock stands still as in every scene)
+      srv.live(!!scene.live, { delay: 566 });
       const context = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: 1, isMobile: vp.phone, hasTouch: vp.phone, locale: 'ja-JP', timezoneId: 'UTC', reducedMotion: 'reduce' });
       const problems = [];
       try {
-        await context.addInitScript(initScript, { storage: storageFor(srv.viewer, { stage: scene.stage, lang: 'ja', intro: !!scene.intro }) });
+        await context.addInitScript(initScript, { storage: storageFor(srv.viewer, { stage: scene.stage, lang: 'ja', intro: !!scene.intro, live: !!scene.live }) });
         const page = await context.newPage();
         await page.clock.setFixedTime(new Date(LATEST_UNIX * 1000 + 500));
         page.on('console', m => { if (m.type() === 'error') problems.push(`${scene.id} ${vp.id}: console error: ${m.text()}`); });

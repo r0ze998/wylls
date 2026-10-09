@@ -76,10 +76,13 @@ function carve(st, boxes, band) {
     else if (b.height >= st.height * 0.5 && b.width < st.width * 0.4 && (b.left <= st.left + SIDE_GAP || b.right >= st.right - SIDE_GAP)) { if ((b.left + b.right) / 2 < midX) left = Math.max(left, b.right); else right = Math.min(right, b.left); }
     else pieces.push(b);
   }
+  // (bands that leave no map to speak of: a phone's sheet at its full height. The bounds fall back to the whole
+  // stage so that arithmetic on them holds, and `covered` says that nothing of the map is in sight)
+  const covered = right - left < 40 || bottom - top < 40;
   if (right - left < 40) { left = st.left; right = st.right; }
   if (bottom - top < 40) { top = st.top; bottom = st.bottom; }
   const bounds = rect(left, top, right, bottom);
-  return { bounds, pieces: pieces.filter(b => overlaps(b, bounds)) };
+  return { bounds, covered, pieces: pieces.filter(b => overlaps(b, bounds)) };
 }
 
 /**
@@ -109,6 +112,7 @@ function stageOf(bounds, pieces) {
  * a column (it cuts that side off); the rest are pieces to keep off.
  *
  *   bounds  the map without its bands and columns                      (a caption is kept inside it)
+ *   covered whether the bands leave no map in sight (a sheet at full height): a caption of the map is not shown
  *   centre  the stage around the middle line free of every piece        (a title; everyday)
  *   stage   the same when the ghost pieces have stepped back            (a set piece: a battle and its title)
  *   place   a box moved off every piece, soft ones too
@@ -120,7 +124,7 @@ export function freeFrom(stageRect, boxes = [], { band = 0.6 } = {}) {
   const hard = all.filter(b => b.kind !== 'soft'), fixed = all.filter(b => b.kind === 'fixed'), soft = all.filter(b => b.kind === 'soft');
   const day = carve(st, hard, band), set = carve(st, fixed, band);
   const bounds = day.bounds, keepOff = [...day.pieces, ...soft.filter(b => overlaps(b, bounds))];
-  return { bounds, centre: stageOf(bounds, day.pieces), stage: stageOf(set.bounds, set.pieces), boxes: keepOff,
+  return { bounds, covered: day.covered, centre: stageOf(bounds, day.pieces), stage: stageOf(set.bounds, set.pieces), boxes: keepOff,
     place: (x, y, w, h, pad = 6, from = null) => placeBox(x, y, w, h, bounds, keepOff, pad, from),
     // (for what belongs to a set piece that has the stage: off the pieces that stay, inside what they leave)
     placeStage: (x, y, w, h, pad = 6, from = null) => placeBox(x, y, w, h, set.bounds, set.pieces, pad, from),

@@ -384,7 +384,7 @@ function tag(a, env) {
       const st = s.stage, fb = s.free.bounds, GRACE = 10;
       // (nor when a sheet, a drawer or the strip lies over its tile: on a phone with the order card open the refusal's
       // tag stood on the sheet's title, its leader pointing into the sheet; the card says it there)
-      const covered = !!fb && fb.width > 0 && (A.x < fb.left - GRACE || A.x > fb.right + GRACE || A.y < fb.top - GRACE || A.y > fb.bottom + GRACE);
+      const covered = !!s.free.covered || (!!fb && fb.width > 0 && (A.x < fb.left - GRACE || A.x > fb.right + GRACE || A.y < fb.top - GRACE || A.y > fb.bottom + GRACE));
       const off = covered || A.x < st.left - 24 || A.x > st.left + st.width + 24 || A.y < st.top - 24 || A.y > st.top + st.height + 24;
       // (not on the map on screen: the tag takes no place on the page at all, so its leader never reaches past the screen's edge)
       if (el.hidden !== off) el.hidden = off;

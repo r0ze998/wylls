@@ -202,3 +202,15 @@ test('the triggers as written: the departure\'s effect gets the road with its or
   assert.match(app, /if \(FS\.mode === 'play' && feedAnnounces\(env\.province\.p, env\.province\.q, b\)\) continue;/, 'a clash the feed announces is not also played in passing');
   assert.doesNotMatch(app, /autoPan\) playBattle\(/, 'the pan to combat waits its turn in the results (turn:scene), it does not start at the poll');
 });
+
+test('a map that a sheet covers has no place for a caption: the free rectangle says so', () => {
+  const st = { left: 0, top: 0, width: 390, height: 780 };
+  const strip = { left: 0, top: 0, right: 390, bottom: 56 }, dock = { left: 0, top: 724, right: 390, bottom: 780 };
+  const half = freeFrom(st, [strip, { left: 0, top: 420, right: 390, bottom: 724 }, dock]);
+  assert.equal(half.covered, false);
+  assert.ok(half.bounds.top >= 56 && half.bounds.bottom <= 420);
+  const full = freeFrom(st, [strip, { left: 0, top: 60, right: 390, bottom: 724 }, dock]);
+  assert.equal(full.covered, true, 'four pixels of map between the strip and the sheet are no map');
+  const effects = readFileSync(new URL('../../permutation-server/web/frontier/fx/effects.mjs', import.meta.url), 'utf8');
+  assert.match(effects, /const covered = !!s\.free\.covered \|\|/, 'the tag of a covered tile is not shown');
+});
