@@ -258,7 +258,7 @@ export function battleLayout({ width = 0, height = 0 } = {}, { title = 0 } = {})
   if (!(width > 0) || !(height > 0)) return null;
   const rest = width < 520 ? 1.2 : REST;
   const px = Math.max(40, Math.min(FIGURE_PX_MAX, width / (2 * (rest + NEED.back)), (height - NEED.foot - NEED.head - title) / (NEED.above + NEED.below)));
-  return { px, rest, bar: Math.max(84, Math.min(196, (width - 150) / 2, px * 2.1)), above: NEED.above * px + NEED.head, below: NEED.below * px + NEED.foot };
+  return { px, rest, half: width / 2, bar: Math.max(84, Math.min(196, (width - 150) / 2, px * 2.1)), above: NEED.above * px + NEED.head, below: NEED.below * px + NEED.foot };
 }
 /** A figure's height in world px at a zoom for a layout (or by the zoom alone, `battleScale`, without one). */
 const figureSize = (zoom, fit, layout) => (layout?.px > 0 ? layout.px / Math.max(0.05, zoom) : battleScale(zoom, fit));
@@ -688,6 +688,16 @@ function paintBars(ctx, T, st, t, k, numText, nameText, show, fit = 1, layout = 
   let hit = 0;
   for (const h of BATTLE_HITS) { const u = t - h; if (u >= 0 && u < 0.16) hit = 1 - u / 0.16; }
   ctx.save();
+  // one plate of bell metal under both bars, their numbers and their names (the second review: the names and the
+  // counts were bare letters on the land)
+  {
+    const half = GAP / 2 + BW + 12 * k, top = y - 9 * k, h = BH + 36 * k;
+    ctx.globalAlpha = show;
+    ctx.beginPath(); ctx.roundRect?.(st.cx - half, top, half * 2, h, 9 * k);
+    const metal = ctx.createLinearGradient?.(0, top, 0, top + h);
+    if (metal?.addColorStop) { metal.addColorStop(0, 'rgba(24,46,41,.9)'); metal.addColorStop(1, 'rgba(10,22,20,.9)'); ctx.fillStyle = metal; } else ctx.fillStyle = 'rgba(12,22,20,.88)';
+    ctx.fill(); ctx.strokeStyle = rgba(BRASS, 0.7); ctx.lineWidth = 1 * k; ctx.stroke();
+  }
   for (const side of T.sides) {
     const d = side.sgn, col = sideColors(side.faction);
     const inner = st.cx + d * (GAP / 2), outer = inner + d * BW, x0 = Math.min(inner, outer);
@@ -758,6 +768,8 @@ function paintLosses(ctx, side, st, t, k, e) {
 function paintTile(ctx, T, e) {
   const { t, tau, k, residents } = e;
   const st = battleStage(T, e.zoom, e.fit, e.layout), s = st.s, cx = st.cx, cy = st.cy, REST = st.rest, ENGAGE = REST - MEET;
+  // half the stage's width in world px (a layout made for a stage knows it): figures are kept inside it
+  const edge = e.layout?.half > 0 ? e.layout.half / Math.max(0.05, e.zoom) : 0;
   const mist = residents ? 0 : 1 - span(t, 0.55, 1.5);
   if (mist > 0.01 && T.sides[0].groups.length) paintMist(ctx, cx - REST * s, cy - s * 0.3, s * 1.3, t, mist);
   // the figures, back to front
@@ -772,6 +784,8 @@ function paintTile(ctx, T, e) {
       const dk = outBack(span(t, PHASE.deploy + f.j * 0.22, PHASE.deploy + 0.6 + f.j * 0.22), 1.25);
       const px = lerp(f.fx * 0.5 - 0.22 + (f.j - 0.5) * 0.34, f.fx, dk), py = lerp((f.fy - g.off) * 0.55 + g.off + (hash(Math.round(f.j * 1e6), 5) - 0.5) * 0.3, f.fy, dk);
       let x = cx + side.sgn * ((REST - gs.adv * (f.front || g.ranged ? 1 : 0.88)) - px) * s - py * s * SKEW, y = cy + py * s * DEPTH;
+      // (a narrow stage: the rear rank stands in from the edge of the picture, never half out of it)
+      if (edge > 0) x = Math.max(cx - edge + s * 0.42, Math.min(cx + edge - s * 0.42, x));
       let alpha = gs.alpha, rot = -side.sgn * gs.lean, hop = gs.hop * s * (f.front ? 1 : 0.7), flash = 0, sx = 1, sy = 1, walking = gs.walking;
       if (T.fight && hit >= 0 && sinceHit < HIT_TINT_SECS[1] && (f.front || f.fall === hit)) flash = hitTint(sinceHit);
       if (T.fight && hit >= 0 && sinceHit < HIT_STOP && !g.ranged) { sx = 1.1; sy = 0.92; }
