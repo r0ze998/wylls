@@ -39,7 +39,7 @@ import { paintSheet, paintTable, sheetOf, tableShows } from './table.mjs';
 import { CloudSea, DRIFT_SPEED, seaField } from './cloudsea.mjs';
 import { project, RADIUS, FLATTEN } from '../../map.mjs';
 import { Camera, EASE, FAR_CAP, MOVE_MS, clampCentre, fitView, freeBox, reducedMotion } from './camera.mjs';
-import { OPEN_FROM, OPEN_WAIT_MS, heroZoom, openingPlan, placePoint } from './opening.mjs';
+import { OPEN_FROM, OPEN_WAIT_MS, heroZoom, lookPoint, openingPlan, placePoint } from './opening.mjs';
 import { nearness, paintDressing } from './dressing.mjs';
 import { PROBE } from './probe.mjs';
 import { L2, L3, openSurvey } from './survey.mjs';
@@ -1410,14 +1410,12 @@ export class FrontierMap {
     if (lod !== 'tile' || !tileOpts) { ctx.setTransform(...world); sea(ctx, null); }
     // the marks of the viewer's stage, on the land: the home wedge while there is no village yet; the rim of the village's own land
     const waiting = limited && Number.isInteger(survey.faction) && ['joined', 'ticket', 'refugee'].includes(survey.stage);
-    if (waiting) paintWedge(ctx, survey.faction, ringsOpen, z);
     // the wait for the village (map/waitview.mjs): the nation's standard stands in its home wedge; what the countdown says
     const homeAt = waiting ? this.wedgeHome(survey.faction, ringsOpen) : null;
     // (the page's wait view says the same time while it stands open: then the map does not say it a second time)
     const waitSay = waiting && !src.wait?.said ? waitLine(src.wait ?? null) : null;
     // the nation choice (UX brief §7.2): the home wedge of the nation that is looked at is lit on the chart
     const looked = !waiting && limited && Number.isInteger(src.focusNation) ? src.focusNation : null;
-    if (looked !== null) paintWedge(ctx, looked, ringsOpen, z, { lit: true });
     // from afar: the viewer's land in its colour, and on the world chart its village as a gold beacon with its name
     const names = lod === 'world' ? this.farPass(ctx, F) : (lod === 'province' && this.farPass(ctx, F), []);
     // the names a map has (drawn with the other words, upright: `over`)
@@ -1430,9 +1428,10 @@ export class FrontierMap {
         seen: (r, j) => { if (survey.province(r.p, r.q).max < L2) return false; const t = terrainOf?.(r.p, r.q), idx = t?.sites?.[j]; return Number.isInteger(idx) && survey.levelOf(r.p, r.q, idx) >= L2; } } : {}) });
     }
     // (nearer than the world chart the wedge that is looked at, or waited in, still carries its nation's name)
-    else if (lod === 'province' && looked !== null) {
-      const f = looked, box = wedgeBox(f, ringsOpen);
-      if (box) realm = o => paintRealmLabels(o, recs, z, src.realmName ?? null, { nations: false, extra: [{ text: src.realmName?.(f) ?? String(f), x: box.x, y: box.y, below: -14, size: 22, fill: '#fff6e2' }] });
+    else if (lod !== 'world' && looked !== null) {
+      // (close on the bell the wedge runs out of the picture: its name stands where the camera looks, `lookPoint`)
+      const f = looked, box = lod === 'tile' ? lookPoint(f, ringsOpen) : wedgeBox(f, ringsOpen);
+      if (box) realm = o => paintRealmLabels(o, recs, z, src.realmName ?? null, { nations: false, extra: [{ text: src.realmName?.(f) ?? String(f), x: box.x, y: box.y, below: -14, size: 24, fill: '#fff6e2' }] });
     }
     if (tileOpts) {
       kind = layered === 'live' ? 'live' : 'full';
@@ -1446,6 +1445,11 @@ export class FrontierMap {
       labels = (o, pass) => this.art.labels(o, { ...tileOpts, pass });
       pending += this.art.misses - missed;   // sprites still on their way
     }
+    // the wedge of the viewer's stage (waited in, or looked at in the nation choice): over the land of every kind of
+    // frame (a frame painted whole lays its ground after the far marks: the wedge was lost under it at the tile view)
+    ctx.setTransform(...world);
+    if (waiting) paintWedge(ctx, survey.faction, ringsOpen, z);
+    if (looked !== null) paintWedge(ctx, looked, ringsOpen, z, { lit: true });
     // over what stands on the land: thin outlines of the ground marks, the route, the standards
     this.topPass(ctx, F);
     // the ground marks move: a landing and a roll-out every frame, breathing a few times a second

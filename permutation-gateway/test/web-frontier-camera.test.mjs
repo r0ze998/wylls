@@ -256,15 +256,24 @@ test('the opening view depends on who is looking: village, candidate sites, home
     if (sz.width === 1440) assert.ok(tip.x < sz.width / 2 - 100, 'left of the dial');
     else assert.ok(Math.abs(tip.x - sz.width / 2) < 2, 'in the middle');
   }
-  // a nation that is looked at: its home wedge and the bell at its point, both in the picture
+  // a nation that is looked at (rewritten with the second review: the camera pulled out to the whole world, sheet,
+  // cloud ring and table). It stays close on the bell and turns toward that nation's home wedge: the tower whole
+  // and the wedge's near part (`lookPoint`, inside the wedge) in the free part, at the tile view
+  const rest = opening.openingPlan({ ...none, frame: {} }, src, { width: 1440, height: 900 }, { inset: { top: 48, bottom: 450 } });
   for (let f = 0; f < 6; f++) {
-    const sz = { width: 1440, height: 900 }, inset = { top: 48, bottom: 600 };
+    const sz = { width: 1440, height: 900 }, inset = { top: 48, bottom: 450 };
     const p = opening.openingPlan({ ...none, frame: { nation: f } }, src, sz, { inset });
-    const b = opening.wedgeBox(f, 3);
-    for (const [x, y] of [[b.x - b.width / 2, b.y - b.height / 2], [b.x + b.width / 2, b.y + b.height / 2], [0, -TOWER.height * RADIUS], [0, 0]]) {
+    const P = opening.lookPoint(f, 3), b = opening.wedgeBox(f, 3);
+    assert.ok(P.x >= b.x - b.width / 2 && P.x <= b.x + b.width / 2 && P.y >= b.y - b.height / 2 && P.y <= b.y + b.height / 2, `nation ${f}: the camera looks at a point of the wedge`);
+    for (const [x, y] of [[P.x, P.y], [0, -TOWER.height * RADIUS], [0, 0]]) {
       const at = fmap.worldToScreen(p.view, sz, x, y);
-      assert.ok(at.x >= -1 && at.x <= sz.width + 1 && at.y >= inset.top - 1 && at.y <= sz.height - inset.bottom + 1, `nation ${f}: wedge and bell in the free part`);
+      assert.ok(at.x >= -1 && at.x <= sz.width + 1 && at.y >= inset.top - 1 && at.y <= sz.height - inset.bottom + 1, `nation ${f}: the wedge's near part and the bell in the free part`);
     }
+    assert.ok(p.view.zoom >= opening.ENGINE_VIEW.min && p.view.zoom <= opening.LOOK.max, `nation ${f}: close (zoom ${p.view.zoom.toFixed(2)})`);
+    assert.equal(fmap.lodFor(p.view.zoom, 'tile', fmap.lodEdges(cam.fitView(3, sz).zoom)), 'tile', 'the tile view: never the world');
+    // the picture is a part of the land around the bell: less than half of the opened world's width
+    assert.ok(sz.width / p.view.zoom < cam.landBox(3).x * 2 * 0.95, `nation ${f}: ${Math.round(sz.width / p.view.zoom)} world px across`);
+    assert.ok(Math.hypot(p.view.x - rest.view.x, p.view.y - rest.view.y) < cam.landBox(3).x * 0.5, 'a turn about the bell, not a journey');
   }
   // the play page before the viewer's record answered: no plan yet (the map waits; never the world first)
   assert.equal(opening.openHint({ mode: 'play' }).ready, false);

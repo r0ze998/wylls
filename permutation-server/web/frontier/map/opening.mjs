@@ -30,13 +30,26 @@ export const heroZoom = (dpr = 1) => (dpr >= 1.5 ? 1.3 : 1.5);
 export const OPEN_WAIT_MS = 4000;
 /** How much higher than its target the opening starts (zoom factor). Behind the title the camera waits there (the title is opaque: fmap.mjs open). */
 export const OPEN_FROM = 0.5;
-/** A nation's home wedge with the bell at its point may come nearer than the far view (the chart is drawn at every zoom). */
-const FRAME_CAP = 0.3;
 /**
  * The view of the bell before joining: its tower takes `share` of the height nothing covers, between the zooms `min`
  * (the tiles stay tiles and the board keeps its tilt) and `max`; the picture's middle is `middle` of the way up it.
  */
 export const ENGINE_VIEW = Object.freeze({ share: 0.78, min: 0.62, max: 1.3, middle: 0.44, aside: 0.13 });
+/**
+ * A nation that is looked at before joining: the camera comes no nearer than `max`, and looks `reach` of the way from
+ * the bell to the middle of the first province of that nation's home wedge (the wedge begins half way there: the
+ * picture holds the bell and the wedge's near edge with a few tiles of its lit land).
+ */
+export const LOOK = Object.freeze({ max: 1.15, reach: 0.72 });
+/** The point of nation `faction`'s home wedge the camera turns to from the bell (world px; the wedge's name stands there), or null. */
+export function lookPoint(faction, ringsOpen) {
+  void ringsOpen;
+  const w = homeWedge(faction);
+  const first = ringProvinces(1).find(pr => wedgeOf(pr.p, pr.q) === w);
+  if (!first) return null;
+  const c = provincePixel(first.p, first.q);
+  return { x: c.x * LOOK.reach, y: c.y * LOOK.reach };
+}
 /** Candidate sites are never framed from further out than this (the far bitmaps still show their painted discs). */
 export const CANDIDATES_MIN = 0.3;
 const RANK = { fit: 0, frame: 0, wedge: 1, candidates: 2, home: 3 };
@@ -114,13 +127,15 @@ export function openingPlan(hint, src, size, { inset = null, dpr = 1 } = {}) {
     const lift = free.height > room ? (inset?.top ?? 0) + room / 2 - (size.height / 2 + free.y) : 0;
     const tall = TOWER.height * RADIUS, mid = { x: 0, y: -tall * ENGINE_VIEW.middle };
     const near = Math.max(ENGINE_VIEW.min, Math.min(ENGINE_VIEW.max, (ENGINE_VIEW.share * room) / tall, (0.9 * free.width) / (TOWER.plinth * 2 * RADIUS)));
-    // a nation that is looked at: its home wedge (the only land that lights) comes into the picture with the bell at
-    // its point, as far out as that takes (the chart is drawn at every zoom)
-    const box = Number.isInteger(frame.nation) ? wedgeBox(frame.nation, rings) : null;
-    if (box) {
-      const x0 = Math.min(box.x - box.width / 2, -TOWER.plinth * RADIUS), x1 = Math.max(box.x + box.width / 2, TOWER.plinth * RADIUS);
-      const y0 = Math.min(box.y - box.height / 2, -tall), y1 = Math.max(box.y + box.height / 2, RADIUS);
-      const zoom = Math.max(0.05, Math.min(FRAME_CAP, near, 0.92 * Math.min(free.width / (x1 - x0), room / (y1 - y0))));
+    // a nation that is looked at (UX brief §11.9; the second review: the camera pulled out to the whole world, sheet,
+    // cloud ring and table, and the bell became a toy): the camera stays close on the bell and turns toward that
+    // nation's home wedge, the only land that lights. In the picture: the tower, whole, and the near part of the
+    // wedge (`lookPoint`); the rest of the wedge runs out of the picture, as the chart does
+    const P = Number.isInteger(frame.nation) ? lookPoint(frame.nation, rings) : null;
+    if (P) {
+      const x0 = Math.min(P.x - RADIUS * 2.6, -TOWER.plinth * RADIUS), x1 = Math.max(P.x + RADIUS * 2.6, TOWER.plinth * RADIUS);
+      const y0 = Math.min(P.y - RADIUS * 1.9, -tall), y1 = Math.max(P.y + RADIUS * 1.9, RADIUS);
+      const zoom = Math.max(ENGINE_VIEW.min, Math.min(LOOK.max, near, 0.92 * Math.min(free.width / (x1 - x0), room / (y1 - y0))));
       return plan('frame', { x: (x0 + x1) / 2, y: (y0 + y1) / 2 - lift / zoom }, zoom);
     }
     // (in a wide picture the tower stands a little left of the middle: the turn's dial hangs in the middle of the top edge)
