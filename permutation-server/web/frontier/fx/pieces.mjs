@@ -216,8 +216,10 @@ const figureFlat = (ctx, x, y, s, kind, o) => { if (!paintMini(ctx, x, y, s, kin
 /** How long the departing column is on the map (s), and how far along its route it walks (tiles). */
 export const COLUMN_SECS = 2.8;
 export const COLUMN_REACH = 2.6;
+/** How far apart the figures of the column walk, in figures. */
+export const COLUMN_GAP = 0.78;
 /**
- * `{points, kind, faction, reach (tiles, default 2.6), n (default 5)}`: the column sets off. A file of figures
+ * `{points, kind, faction, reach (tiles, default 2.6), n (default 4)}`: the column sets off. A file of figures
  * at the size the map's hosts have steps onto the ribbon one behind another, walks along it for a good two
  * tiles in the open, and fades into the march. Reduced motion: the file stands on the first stretch of the
  * route for a moment and goes (nothing travels, the departure is still shown).
@@ -226,7 +228,7 @@ function walker(a, env) {
   const path = smoothPath(a.points);
   if (path.pts.length < 2) return null;
   const full = env.mode === 'full';
-  const n = Math.max(1, Math.min(6, a.n ?? 5));
+  const n = Math.max(1, Math.min(6, a.n ?? 4));
   const reach = Math.min(0.9, ((a.reach ?? COLUMN_REACH) * R * 1.75) / Math.max(1, path.total));
   const dur = full ? COLUMN_SECS : 1.6;
   const o0 = path.pts[0];
@@ -239,8 +241,8 @@ function walker(a, env) {
   return { layer: 'top', dur, draw(ctx, s) {
     if (isFar(s)) return;
     const t = s.t, size = battleScale(s.zoom) * 0.92;
-    // one behind another along the path, a little under half a figure apart
-    const gap = (size * 0.46) / Math.max(1, path.total);
+    // one behind another along the path, most of a figure apart (closer, their ground shadows ran into one dark smear)
+    const gap = (size * COLUMN_GAP) / Math.max(1, path.total);
     const lead = full ? reach * (0.12 + 0.88 * (span(t, 0.1, dur - 0.5) ** 0.85)) : reach * 0.42;
     const out = full ? 1 - inQuad(span(t, dur - 0.55, dur)) : envelope(t, dur, REDUCED_FADE, REDUCED_FADE);
     const list = [];

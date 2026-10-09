@@ -168,13 +168,26 @@ function ripple(a, env) {
 }
 
 // ------------------------------------------------------------------ dust: something landed
-/** `{…position, power (default 1), color}`: the ground is pressed, a low pale shock runs out, dust and pebbles fly and settle. */
+/** `{…position, power (default 1), color, ring (tiles: a skirt from the rim of a disc this wide, round something that stands there)}`: the ground is pressed, a low pale shock runs out, dust and pebbles fly and settle. */
 function dust(a, env) {
   if (env.mode !== 'full') return null;
   const { x, y } = pointOf(a);
   const power = a.power ?? 1;
   const HIT = 0.05;
   // a skirt that races out along the ground, a head that boils up in the middle, pebbles thrown clear
+  if (a.ring > 0) {
+    // round something that stands there (a village whose building is done): a low skirt from its foot outward, thin,
+    // in the colour of the earth; nothing boils up over the houses (the second review: a grey fur-ball on the town)
+    env.fx.emit('dust', { x, y, n: Math.round(26 * power), seed: env.seed, t: env.now + HIT, radius: R * a.ring, ring: true, power: 0.55 * power, up: 0.35, size: 0.8, alpha: 0.7, life: 0.9, color: a.color ?? null, colors: a.color ? null : ['#ead9ae', '#e2cc98', '#f1e6c6'] });
+    env.fx.emit('shard', { x, y, n: Math.round(5 * power), seed: env.seed, t: env.now + HIT, radius: R * a.ring, ring: true, power: 0.5 * power, up: 0.6, size: 0.55, life: 0.7 });
+    const rim = R * a.ring;
+    return { layer: 'ground', dur: 0.55, draw(ctx, s) {
+      const k = span(s.t, HIT, 0.55);
+      if (s.t < HIT) return;
+      groundRing(ctx, x, y, lerp(rim, rim + R * 0.9 * Math.sqrt(power), outExpo(k)));
+      ctx.strokeStyle = rgba('#efe6cc', 0.45 * (1 - k) * (1 - k)); ctx.lineWidth = lerp(6, 1, outCubic(k)) * s.px; ctx.stroke();
+    } };
+  }
   env.fx.emit('dust', { x, y, n: Math.round(22 * power), seed: env.seed, t: env.now + HIT, radius: R * 0.26, power: 1.15 * power, up: 0.5, color: a.color ?? null });
   env.fx.emit('dust', { x, y, n: Math.round(9 * power), seed: `${env.seed}|head`, t: env.now + HIT + 0.03, radius: R * 0.14, power: power * 0.4, up: 2.1, size: 1.15, stagger: 0.09, color: a.color ?? null });
   env.fx.emit('shard', { x, y, n: Math.round(7 * power), seed: env.seed, t: env.now + HIT, radius: R * 0.15, power: 0.8 * power, up: 0.7, size: 0.62, life: 0.8 });
@@ -715,7 +728,8 @@ function chip(a, env) {
 }
 
 /** The vocabulary by name. */
-export const EFFECTS = Object.freeze({ flash, ripple, dust, spark, label, glow, banner, toll, number, chip, burst, tag });
+// (`waiting`: the same tag under its own name, for a state that lasts until it is settled: "sending…" over a tile)
+export const EFFECTS = Object.freeze({ flash, ripple, dust, spark, label, glow, banner, toll, number, chip, burst, tag, waiting: tag });
 
 /** Register the vocabulary on an engine. */
 export function installEffects(fx) {

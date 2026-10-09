@@ -212,7 +212,7 @@ export function startDemo({ fx, map = null, params, doc = globalThis.document })
   /** The engine with every cue pushed `d` seconds later (a set piece's second act). */
   const later = d => fx.later(d);
   /** A waiting state of a sample (a ring turning, a ribbon being drawn) ends at `at` seconds: under the demo finished effects are kept, so its length is cut instead. */
-  const settleAt = at => { if (!(at > 0)) return; fx.trim?.(['pending', 'route'], at); };
+  const settleAt = at => { if (!(at > 0)) return; fx.trim?.(['pending', 'route', 'waiting'], at); };
   let key = '', length = 1;
   function spawn() {
     const c = context();

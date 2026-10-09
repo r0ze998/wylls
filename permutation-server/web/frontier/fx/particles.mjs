@@ -216,7 +216,7 @@ export function createParticles({ capacity = 2048 } = {}) {
    * Returns the number launched.
    */
   function emit(kindName, { x = 0, y = 0, z = 0, n = 12, seed = 0, t = 0, power = 1, dir = 0, spread = Math.PI * 2, radius = 0, stagger = 0,
-    life: lifeK = 1, size: sizeK = 1, up = 1, color = null, colors = null, alpha = 1, layer: lay = 'top' } = {}) {
+    life: lifeK = 1, size: sizeK = 1, up = 1, color = null, colors = null, alpha = 1, layer: lay = 'top', ring = false } = {}) {
     const ki = KIND_NAMES.indexOf(kindName);
     if (ki < 0 || !(n > 0)) return 0;
     const K = KIND_LIST[ki];
@@ -226,9 +226,10 @@ export function createParticles({ capacity = 2048 } = {}) {
     for (let j = 0; j < count; j++) {
       const i = head; head = (head + 1) % N;
       if (!used[i]) { used[i] = 1; live++; }
-      const a = dir + (r() - 0.5) * spread;
       // launch from a disc on the ground, faster ones a little later in the fan: even coverage
-      const rr = radius * Math.sqrt(r()), ra = r() * Math.PI * 2;
+      // (`ring`: from the rim of that disc, each one straight outward: a skirt round something that stands there)
+      const ra = r() * Math.PI * 2, rr = ring ? radius * r.range(0.92, 1.08) : radius * Math.sqrt(r());
+      const a = ring ? ra + (r() - 0.5) * 0.5 : dir + (r() - 0.5) * spread;
       const sp = r.range(K.speed[0], K.speed[1]) * power;
       born[i] = t + (stagger > 0 ? r() * stagger : 0);
       life[i] = r.range(K.life[0], K.life[1]) * lifeK;

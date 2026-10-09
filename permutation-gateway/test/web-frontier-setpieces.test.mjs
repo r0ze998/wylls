@@ -392,12 +392,12 @@ test('own actions: a ring turns while it is tracked; landed bursts in the nation
     const a = { id: 'Build#1', name: 'Build', faction: 0, tile: { p: 2, q: 0, tile: 7 } };
     s.bus.emit('action:busy', a);
     // (fix pass 2: the ring is said on the map too, on a small tag over the tile)
-    assert.deepEqual(s.fx.playing(), ['pending', 'tag']);
+    assert.deepEqual(s.fx.playing(), ['pending', 'waiting']);
     s.bus.emit('action:sent', a);
     assert.ok(s.fx.playing().includes('ripple'));
     s.run(400);
     s.bus.emit('action:landed', a);
-    assert.ok(!s.fx.playing().includes('pending') && !s.fx.playing().includes('tag'), 'the ring and its tag are gone');
+    assert.ok(!s.fx.playing().includes('pending') && !s.fx.playing().includes('waiting'), 'the ring and its tag are gone');
     assert.ok(['flash', 'mark', 'burst', 'pip'].every(n => s.fx.playing().includes(n)));
     assert.ok(s.sounds.some(x => x[0] === 'confirm'));
     s.run(2500);
@@ -428,7 +428,7 @@ test('seal and depart: the route draws on while the order is sent, the seal stam
   try {
     const a = { id: 'Depart#1', name: 'Depart', faction: 0, unit: 0, tile: { p: 2, q: 0, tile: 7 }, dest: { p: 2, q: 0, tile: 32 }, route: { p: 2, q: 0, tile: 7, dirs: [0, 0, 1] } };
     s.bus.emit('action:busy', a);
-    assert.deepEqual(s.fx.playing(), ['route', 'pending', 'tag']);
+    assert.deepEqual(s.fx.playing(), ['route', 'pending', 'waiting']);
     s.run(900);
     s.bus.emit('march:sealed', a);
     assert.deepEqual(s.fx.playing(), ['sealed', 'route', 'stamp', 'walker', 'pip'], 'the waiting ribbon and ring gave way to the seal');

@@ -426,11 +426,13 @@ test('seal and depart: the column is seen: a file of figures walks a good two ti
   try {
     playSealed(s.fx, a);
     assert.deepEqual(s.fx.playing(), ['sealed', 'route', 'stamp', 'walker', 'pip']);
-    // the figures: five of them, one behind another, spread along the route and moving on
+    // the figures: four of them, one behind another most of a figure apart (fix pass 2: five at half a figure ran their
+    // ground shadows into one dark smear), spread along the route and moving on
     const origin = project(tileHex(2, 0, 7).q, tileHex(2, 0, 7).r);
     const spreadAt = ms => { s.run(ms); const ctx = recCtx(1.3); s.fx.drawTop(ctx, { t: s.clock.now(), view: s.map.view, size: s.map.size() }); const xs = figuresOf(ctx).map(i => i.x); return { n: xs.length, min: Math.min(...xs), max: Math.max(...xs) }; };
     const early = spreadAt(1200), late = spreadAt(900);
-    assert.equal(early.n, 5, 'five figures on the map');
+    assert.ok(early.n >= 3, 'the head of the file is on the map');
+    assert.equal(late.n, 4, 'four figures on the map');
     assert.ok(early.max - early.min > RADIUS * 0.8, 'a file, not one spot');
     assert.ok(late.max > early.max + RADIUS * 0.5, 'and it walks on');
     assert.ok(late.max - origin.x > RADIUS * 2.2, 'well out of the village');

@@ -113,7 +113,7 @@ export function playBusy(fx, a) {
     // a ring turns round the tile, and a small tag over it says what is happening, on the map (the HUD's chip stands
     // across the screen; the second review: "a small ring plus a chip 650 px away")
     handles.push(...fx.play('pending', { ...at, radius: a.radius ?? 1.45, seed }));
-    handles.push(...fx.play('tag', { ...at, text: L`送信中…`, icon: 'hourglass', tone: 'brass', lift: 3.05, dur: 75, seed }));
+    handles.push(...fx.play('waiting', { ...at, text: L`送信中…`, icon: 'hourglass', tone: 'brass', lift: 3.05, dur: 75, seed }));
   }
   return handles;
 }
@@ -247,7 +247,7 @@ export function playMoment(fx, m, { bus = defaultBus } = {}) {
       fx.play('glow', { ...at, radius: 1, color: TONE.brassHi, hold: 0.9, gain: 0.55, delay: 0.06, seed });
       fx.play('pillar', { ...at, delay: 0.07, seed });
       fx.play('ripple', { ...at, color: TONE.brassHi, radius: 2.3, delay: 0.08, seed });
-      fx.play('dust', { ...at, power: 1.35, delay: 0.08, seed });
+      fx.play('dust', { ...at, power: 1.2, ring: m.own === false ? 0.6 : 1.0, delay: 0.08, seed });
       fx.play('burst', { ...at, kind: 'coin', n: 28, height: 1.2, radius: 0.4, power: 1.25, up: 1.15, delay: 0.12, seed });
       fx.play('burst', { ...at, kind: 'spark', n: 16, height: 1.1, power: 0.85, delay: 0.1, seed: `${seed}|s`, colors: ['#fff6dc', TONE.brassHi, TONE.brass] });
       caption(MOMENT_LABEL.built(m), { tone: 'gold' });
