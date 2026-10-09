@@ -28,6 +28,7 @@ import { NOTE_TEXT, createActions } from './map/actions.mjs';
 import * as dialcard from './hud/dialcard.mjs';
 import { paintVillagePics } from './map/village.mjs';
 import { createLandingBook, landedKey } from './map/landing.mjs';
+import { setBoardCharacters, landingAge } from './people/onboard.mjs';
 import { placeName, villageLine } from './map/names.mjs';
 import { lastWalletName } from '../wallet.mjs';
 import { SEASON_STATUS_TEXT, clientText, factionName, TIERS, BUILDINGS, FATES } from './fi18n.mjs';
@@ -481,8 +482,37 @@ function surveyNow() {
 /** The face and name of a report row's owner (a host id; holdings' ids give none). */
 const reportOwner = id => { try { return hostOwner(rosterRef, id); } catch { return null; } };
 /** The people layer's inputs, rebuilt at most once a second (the chronicle changes on polls only). */
+/**
+ * Who stands on the board (people/onboard.mjs; UX design 13.2: the six are the players): the viewer's character
+ * beside the viewer's active village, and another player's beside that player's village while it is selected (what
+ * the inspector says of the selection, so only a village the viewer has surveyed). `pending`: the village's landing
+ * has been reported and has not begun on the map yet (the character walks in with it).
+ */
+let otherCharacter = { key: '', value: null };
+export function boardCharactersNow() {
+  if (FS.mode !== 'play') return [];
+  const out = [], f = FS.citizen?.faction, h = hud.activeHolding(FS);
+  if (Number.isInteger(f) && h && Number.isInteger(h.tile)) {
+    const key = `${h.p},${h.q},${h.tile}`;
+    out.push({ p: h.p, q: h.q, tile: h.tile, faction: f, own: true, tier: Number(h.tier ?? 0), pending: landingAge(key) === null && (landingSoon() === key || landingNow()?.key === key) });
+  }
+  const s = FS.selected;
+  if (s && Number.isInteger(s.p) && Number.isInteger(s.idx)) {
+    const key = `${s.p},${s.q},${s.idx}|${Math.floor(Date.now() / 1000)}`;
+    if (otherCharacter.key !== key) {
+      let site = null;
+      try { site = inspect.inspectModel(FS, terrainRef)?.tile?.site ?? null; } catch { site = null; }
+      otherCharacter = { key, value: site && site.state === 'holding' && !site.mine && Number.isInteger(site.faction) && site.faction >= 0 && site.faction < 6 ? { p: s.p, q: s.q, tile: s.idx, faction: site.faction, own: false, tier: Number(site.tier ?? 1) } : null };
+    }
+    if (otherCharacter.value) out.push(otherCharacter.value);
+  }
+  return out;
+}
+
 let peopleCache = { at: -1, value: null };
 export function peopleSource() {
+  // (every frame, outside the second's cache: a selection shows its village's character at once)
+  setBoardCharacters(boardCharactersNow());
   const bell = FS.nowBell ?? (FS.clock ? Math.max(0, Math.floor(((FS.chain?.now() ?? 0) - FS.clock.genesisTs) / 600)) : 0);
   const sec = Math.floor(Date.now() / 1000);
   if (peopleCache.at === sec && peopleCache.lang === lang() && peopleCache.value) { peopleCache.value.battles = (FS.battles ?? []).filter(b => battleLive(b, performance.now() / 1000)); return peopleCache.value; }
