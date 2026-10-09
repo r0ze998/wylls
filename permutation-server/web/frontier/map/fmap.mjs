@@ -112,6 +112,8 @@ export const GROUND_FINER = 1.4;
  */
 export const NOGO_SELECTORS = '#bell-pill, #bell-pill .dial-top, #topbar .strip-side, #hud-tl > *, #rail > *, #minimap, .map-tools, #tabs, #panel, #ob-map, .feed > *, #mile-banner';
 export const NOGO_EVERY_MS = 300;
+/** The air the map's labels keep round the dial beyond its own box (px). */
+export const DIAL_AIR = 8;
 /** What a pick names, as one word (the tile, or the province from afar). */
 const hoverId = hit => (hit ? `${hit.p},${hit.q},${hit.idx ?? ''}` : '');
 /** The map's words fade out for a set piece, and back in after it, over this long (ms). */
@@ -608,7 +610,12 @@ export class FrontierMap {
    * the dock, the minimap, the button columns). `null`: the map measures the page's known elements itself
    * (NOGO_SELECTORS), a few times a second.
    */
-  setNoGo(rects) { this.nogoFed = Array.isArray(rects) ? rects.map(rectOf).filter(Boolean) : null; this.tick(); }
+  setNoGo(rects) {
+    // (the dial is round and the largest piece of the strip: the map's plates keep a little air from it, DIAL_AIR;
+    // the second review: a village's plate pressed against the dial)
+    const aired = r => { const b = rectOf(r); return b && r?.id === 'dial' ? { ...b, x: b.x - DIAL_AIR, y: b.y - DIAL_AIR, w: b.w + 2 * DIAL_AIR, h: b.h + 2 * DIAL_AIR } : b; };
+    this.nogoFed = Array.isArray(rects) ? rects.map(aired).filter(Boolean) : null; this.tick();
+  }
   /**
    * Put a tile's label pile away (`on` true) while an effect plays there, and bring it back (`on` false).
    * `tile`: "P,Q,tile" or `{p, q, tile}`. Counted: two effects on one tile each hide and show once.
