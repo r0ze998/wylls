@@ -21,6 +21,8 @@
 
 /** Room kept between a label and what it avoids (px), and how far a label may be moved (px). */
 export const LABEL_PASS = Object.freeze({ gap: 5, reach: 96 });
+/** A label keeps this far inside the picture's sides (px) when its own place is in the picture. */
+const EDGE = 6;
 
 const hits = (a, b, gap) => a.x < b.x + b.w + gap && b.x < a.x + a.w + gap && a.y < b.y + b.h + gap && b.y < a.y + a.h + gap;
 
@@ -64,7 +66,14 @@ export function createLabelPass({ nogo = [], screen = null, zoom = 1, hidden = n
     hiddenAt: key => !!key && !!hidden?.has?.(key),
     place(ax, ay, box, { keep = false, solid = true, free = false, reach = LABEL_PASS.reach } = {}) {
       const s = toScreen(ax, ay, box);
-      const done = (dx, dy) => { if (solid) taken.push({ x: s.x + dx, y: s.y + dy, w: s.w, h: s.h }); return { dx: dx / zoom, dy: dy / zoom }; };
+      // a label whose own place is in the picture is not cut by the picture's side: it slides in (its leader leans)
+      let inX = 0;
+      if (bounds && s.w + 2 * EDGE <= bounds.w) {
+        const a = screen ? screen(ax, ay) : { x: ax * zoom, y: ay * zoom };
+        if (a.x >= 0 && a.x <= bounds.w && a.y >= 0 && a.y <= bounds.h) inX = s.x < EDGE ? EDGE - s.x : s.x + s.w > bounds.w - EDGE ? bounds.w - EDGE - s.x - s.w : 0;
+      }
+      s.x += inX;
+      const done = (dx, dy) => { if (solid) taken.push({ x: s.x + dx, y: s.y + dy, w: s.w, h: s.h }); return { dx: (dx + inX) / zoom, dy: dy / zoom }; };
       const first = blocker(s, free);
       if (!first) return done(0, 0);
       // one move out from under what covers it; when that lands on something else, one more from there
