@@ -27,6 +27,7 @@ import { leaderSvg } from '../people/leaders.mjs';
 import { displayName } from '../people/identity.mjs';
 import { avatarSvg, sigilPath, FACTION_FILL, FACTION_DARK } from '../people/avatar.mjs';
 import { icon, RESOURCE_ICON } from './icons.mjs';
+import { tileWhat, provinceName } from './place.mjs';
 
 /** Seconds before the bell at which the pill turns amber, then red. */
 export const URGENCY = Object.freeze({ warn: 120, crit: 30 });
@@ -83,25 +84,29 @@ export function resourceTitle(r) {
 /**
  * What needs the player, most urgent first: `[{kind, text, p, q, tab}]`.
  *   incoming  another faction's host may arrive at one of the holdings
- *   settle    a march of the viewer's can be settled
+ *   settle    the result of a march of the viewer's can be collected
  *   draft     a march is being composed and not yet sent
+ * A place is said by its name (the village, the destination), never by coordinates (UX design 11.13).
  *   full      a store of the active holding is full
  */
 export function attentionItems(FS) {
   const out = [];
+  const villageOf = x => { const h = (FS.holdings ?? []).find(o => o.p === x.p && o.q === x.q && (x.site === undefined || o.site === x.site)); return h ? holdingName(h) : provinceName(FS, x.p, x.q); };
   for (const w of FS.incoming ?? []) {
-    out.push({ kind: 'incoming', p: w.holding.p, q: w.holding.q, tab: 'marches', bell: w.bell, short: L`来襲 第${fmtNum(w.bell)}鐘`, text: L`第${fmtNum(w.bell)}鐘に州 ${w.holding.p},${w.holding.q} へ敵が来るかもしれません` });
+    out.push({ kind: 'incoming', p: w.holding.p, q: w.holding.q, tab: 'marches', bell: w.bell, short: L`来襲 ターン ${fmtNum(w.bell)}`, text: L`ターン ${fmtNum(w.bell)} に、${villageOf(w.holding)}へ敵が来るかもしれません` });
   }
   for (const m of FS.marches ?? []) {
-    if (m.facts?.settleReady && m.dest) out.push({ kind: 'settle', p: m.dest.p, q: m.dest.q, tab: 'marches', short: L`精算できる進軍`, text: L`州 ${m.dest.p},${m.dest.q} の進軍を精算できます` });
+    if (!m.facts?.settleReady || !m.dest) continue;
+    const to = (Number.isInteger(m.dest.tile) ? tileWhat(FS, m.dest.p, m.dest.q, m.dest.tile).name : null) ?? provinceName(FS, m.dest.p, m.dest.q);
+    out.push({ kind: 'settle', p: m.dest.p, q: m.dest.q, tab: 'marches', short: L`進軍の結果`, text: L`${to}への進軍の結果を受け取れます` });
   }
   if (FS.compose && !FS.compose.sending) {
     const o = FS.compose.origin;
-    out.push({ kind: 'draft', p: o.p, q: o.q, tab: 'marches', short: L`進軍が未送信`, text: L`編成中の進軍がまだ送られていません` });
+    out.push({ kind: 'draft', p: o.p, q: o.q, tab: 'marches', short: L`書きかけの命令`, text: L`書きかけの進軍の命令が、まだ送られていません` });
   }
   if (FS.exploreSeedReady) {
     const h0 = activeHolding(FS);
-    if (h0) out.push({ kind: 'explore', p: h0.p, q: h0.q, tab: 'hosts', short: L`探索の結果`, text: L`探索の結果を確定できます` });
+    if (h0) out.push({ kind: 'explore', p: h0.p, q: h0.q, tab: 'hosts', short: L`探索の結果`, text: L`探索の結果を受け取れます` });
   }
   const now = FS.chain?.now() ?? 0, bell = FS.nowBell ?? 0;
   // hosts ready to march: in the roster, rested, not on the road, nothing pending
@@ -110,12 +115,12 @@ export function attentionItems(FS) {
   for (const h of FS.holdings ?? []) {
     const full = resourceModel(h, now).filter(r => r.state === 'full');
     const facts = FS.season ? holdingFacts(h, FS.season, now) : null;
-    if (!facts) { if (full.length) out.push({ kind: 'full', p: h.p, q: h.q, tab: 'holding', holding: h, short: L`満杯 ${fmtNum(full.length)}`, text: L`${full.map(r => r.name).join(' / ')}が満杯です。収穫するか使いましょう` }); continue; }
-    if (facts.final && !facts.queue.some(q => q.doneIn > 0)) out.push({ kind: 'build', p: h.p, q: h.q, tab: 'holding', holding: h, short: L`建設の列が空`, text: L`州 ${h.p},${h.q} の建設の列が空いています` });
+    if (!facts) { if (full.length) out.push({ kind: 'full', p: h.p, q: h.q, tab: 'holding', holding: h, short: L`満杯 ${fmtNum(full.length)}`, text: L`${full.map(r => r.name).join(' / ')}が満杯です。収穫するか使いましょう。` }); continue; }
+    if (facts.final && !facts.queue.some(q => q.doneIn > 0)) out.push({ kind: 'build', p: h.p, q: h.q, tab: 'holding', holding: h, short: L`建設の列が空`, text: L`${holdingName(h)}の建設の列が空いています` });
     const musterable = facts.reserve.filter(r => r.unit !== SETTLER).reduce((a, r) => a + r.troops, 0);
     if (facts.final && musterable >= 100) out.push({ kind: 'muster', p: h.p, q: h.q, tab: 'holding', holding: h, short: L`編成できる兵 ${fmtNum(musterable)}`, text: L`控えの兵 ${fmtNum(musterable)} を軍勢に編成できます` });
-    if (facts.dormantIn > 0 && facts.dormantIn < DORMANT_WARN_SECS) out.push({ kind: 'dormant', p: h.p, q: h.q, tab: 'holding', holding: h, short: L`休眠まで ${span(facts.dormantIn)}`, text: L`州 ${h.p},${h.q} の村はあと ${span(facts.dormantIn)} で休眠します。何か操作しましょう` });
-    if (full.length) out.push({ kind: 'full', p: h.p, q: h.q, tab: 'holding', holding: h, short: L`満杯 ${fmtNum(full.length)}`, text: L`${full.map(r => r.name).join(' / ')}が満杯です。収穫するか使いましょう` });
+    if (facts.dormantIn > 0 && facts.dormantIn < DORMANT_WARN_SECS) out.push({ kind: 'dormant', p: h.p, q: h.q, tab: 'holding', holding: h, short: L`休眠まで ${span(facts.dormantIn)}`, text: L`${holdingName(h)}はあと ${span(facts.dormantIn)} で休眠します。何か操作しましょう。` });
+    if (full.length) out.push({ kind: 'full', p: h.p, q: h.q, tab: 'holding', holding: h, short: L`満杯 ${fmtNum(full.length)}`, text: L`${full.map(r => r.name).join(' / ')}が満杯です。収穫するか使いましょう。` });
   }
   return out;
 }
@@ -128,7 +133,7 @@ export const DORMANT_WARN_SECS = 6 * 3600;
 
 /**
  * The pill's text (Civ's end-turn button names the next blocker): the first
- * item's short label, then how many more — "来襲 第1,040鐘 · ほか 2";
+ * item's short label, then how many more — "来襲 ターン 1,040 · ほか 2";
  * null when nothing needs the player.
  */
 export function attentionText(items) {
@@ -201,7 +206,7 @@ export function renderBreakdown(b) {
       <span class="res-row-name">${holdingName(r.holding)}</span>
       <span>${fmtNum(r.value)} / ${fmtNum(r.cap)}</span><span class="muted">${L`毎時 +${fmtNum(r.perHour)}`}</span>
       <span class="muted">${r.fullIn === 0 ? L`満杯` : r.fullIn !== null ? L`満杯まで ${span(r.fullIn)}` : ''}</span></button></li>`)}</ul>
-    <p class="muted">${L`増える量は建物と働く区画で決まります。満杯になると増えません。村の画面で収穫や建設ができます。`}</p>`;
+    <p class="muted">${L`増える量は、建物と村のまわりの土地で決まります。満杯になると増えません。村の画面で収穫や建設ができます。`}</p>`;
 }
 
 /**
@@ -250,25 +255,60 @@ export function crestSvg(faction, { size = 26 } = {}) {
   return raw(`<svg class="crest" viewBox="0 0 24 28" width="${Math.round(size * 24 / 28)}" height="${size}" aria-hidden="true" focusable="false"><path d="M12 1.2l9.6 2.9v9.9c0 5.8-3.9 9.8-9.6 12.6C6.3 23.8 2.4 19.8 2.4 14V4.1Z" fill="${fill}" stroke="#f0d48a" stroke-width="1.3" stroke-linejoin="round"/><path d="M12 3.4l7.5 2.3v8.3c0 4.6-3 7.9-7.5 10.3Z" fill="${dark}" opacity=".28"/><g transform="translate(12 12.6)"><path d="${sigilPath(f ?? 6, 5)}" fill="#fffaf0" stroke="${dark}" stroke-width=".7"/></g></svg>`);
 }
 
-/** How many to-do lines stand above the plate (the rest is the count beside the heading and the "next thing" button). */
-export const TODO_LINES = 2;
+/** How many to-do lines the opened list shows at most (the count beside the heading says how many there are). */
+export const TODO_LINES = 5;
 
 /**
- * The to-do lines: the heading reads "this turn" with the bell beside it
- * (UX design section 6, turn wording), then at most `max` items, each a
- * press that goes there. Nothing when there is nothing to do.
+ * The to-do lines (UX design 11.11: there is ONE "next thing" signal, the button of the top strip; the lines
+ * wait behind a count): a tab that reads "this turn" with the bell and the number of items; pressed
+ * (`data-act="todo-toggle"`), it opens the list — one plaque, rows of equal width, a medallion per kind — each
+ * row a press that goes there. `open` true: the list stands open (a phone's raised sheet shows it so). Nothing
+ * when there is nothing to do.
  */
-export function renderTodo(FS, { max = TODO_LINES } = {}) {
+export function renderTodo(FS, { max = TODO_LINES, open = false } = {}) {
   const items = FS.mode === 'play' ? attentionItems(FS) : [];
   if (!items.length) return '';
-  return html`<div class="todo"><h2 class="todo-h">${icon('bell')}<span>${L`このターンにやること`}</span>${items.length > max ? html`<span class="todo-n">${fmtNum(items.length)}</span>` : ''}</h2>
-    <ol class="todo-list">${items.slice(0, max).map((x, i) => html`<li class="todo-${x.kind}"><button type="button" class="todo-btn" data-act="attn-go" data-i="${i}">${icon(TODO_ICON[x.kind] ?? 'flag', 'todo-ic')}<span class="todo-text">${x.text}</span></button></li>`)}</ol></div>`;
+  return html`<div class="todo${open ? ' todo-open' : ''}"><h2 class="todo-h"><button type="button" class="todo-tab" data-act="todo-toggle" aria-expanded="${open ? 'true' : 'false'}" aria-controls="todo-list">${icon('bell')}<span>${L`このターンにやること`}</span><span class="todo-n">${fmtNum(items.length)}</span>${icon('chevron', 'todo-mark')}</button></h2>
+    ${open ? html`<ol class="todo-list" id="todo-list">${items.slice(0, max).map((x, i) => html`<li class="todo-${x.kind}"><button type="button" class="todo-btn" data-act="attn-go" data-i="${i}"><span class="todo-medal">${icon(TODO_ICON[x.kind] ?? 'flag', 'todo-ic')}</span><span class="todo-text">${x.text}</span>${icon('next', 'todo-go')}</button></li>`)}</ol>` : ''}</div>`;
 }
 
-/** The plate's line for a viewer without a village yet (the built behaviour: the page files the site ticket itself). */
+/**
+ * The one "next thing" (UX design 11.11): while the guide runs, the guide's step (`guide`:
+ * screens/onboarding.mjs objectiveModel) — unless an attack may be coming, which comes first; afterwards the
+ * most pressing to-do item (`items`, as the guide's level lets through). `{kind: 'guide' | 'todo', icon,
+ * kicker, title, label, text, act, data, more}`: `act` / `data` are what a press does, `text` the whole of it
+ * in one line (the control's name), `more` how many other items wait. Null when nothing needs the player.
+ */
+export function nextThing(FS, { guide = null, items = null } = {}) {
+  const list = items ?? (FS.mode === 'play' ? attentionItems(FS) : []);
+  const urgent = list[0]?.kind === 'incoming';
+  if (guide && !urgent) {
+    const kicker = L`ガイド ${fmtNum(guide.n)}/${fmtNum(guide.total)}`;
+    const go = guide.go ?? { act: 'guide-open', data: {}, label: L`手順を見る` };
+    return { kind: 'guide', icon: 'compass', kicker, title: guide.title, label: go.label, text: L`${kicker}：${guide.title}（${go.label}）`, hint: guide.text, act: go.act, data: go.data ?? {}, more: list.length };
+  }
+  if (!list.length) return null;
+  const x = list[0];
+  return { kind: 'todo', icon: TODO_ICON[x.kind] ?? 'flag', kicker: '', title: x.short ?? x.text, label: '', text: attentionText(list), hint: x.text ?? '', act: 'attn', data: {}, more: list.length - 1, item: x.kind };
+}
+
+const dataAttrs = d => raw(Object.entries(d ?? {}).map(([k, v]) => `data-${String(k).replace(/[^\w-]/g, '')}="${String(v).replace(/[^\w.,:-]/g, '')}"`).join(' '));
+
+/**
+ * The next thing as a line under the village plate (a phone's sheet at rest: the top strip has no room for
+ * it): the step or the item by name with its one press; for the guide, a second small button opens the steps.
+ */
+export function renderNextRow(next) {
+  if (!next) return '';
+  return html`<div class="next-row next-${next.kind}">
+    <button type="button" class="next-row-go" data-act="${next.act}" ${dataAttrs(next.data)} aria-label="${L`次にやること：${next.text}`}"><span class="todo-medal">${icon(next.icon, 'todo-ic')}</span><span class="next-row-t">${next.kicker ? html`<span class="next-kicker">${next.kicker}</span>` : ''}<strong>${next.title}</strong></span>${next.label ? html`<span class="next-row-do">${next.label}</span>` : next.more > 0 ? html`<span class="todo-n">${L`ほか ${fmtNum(next.more)}`}</span>` : ''}${icon('next', 'todo-go')}</button>
+    ${next.kind === 'guide' ? html`<button type="button" class="next-row-steps" data-act="guide-open" aria-label="${L`ガイドの手順を見る`}">${icon('list')}</button>` : ''}</div>`;
+}
+
+/** The plate's line for a viewer without a village yet (the built behaviour: the page asks for the village itself). */
 function waitingLine(FS) {
   const stage = FS.land?.stage ?? 'none';
-  return stage === 'ticket' ? L`村はまだありません。入植希望を自動で出しました（次の鐘ごろに決まります）。` : L`村はまだありません。入植希望を自動で出しています。`;
+  return stage === 'ticket' ? L`村はまだありません。村の申し込みは済んでいます（次のターンの鐘のあとに決まります）。` : L`村はまだありません。村の申し込みを自動で出しています。`;
 }
 
 /**
@@ -301,7 +341,7 @@ export function renderPlate(FS) {
   const clocks = holdingCountdowns(FS, h);
   const name = holdingName(h);
   const i = hs.indexOf(h);
-  return html`<div class="plate${warned ? ' plate-warned' : ''}"><span class="plate-bar f${faction}" aria-hidden="true"></span>
+  return html`<div class="plate${warned ? ' plate-warned' : ''}">
     <button type="button" class="plate-main" data-act="home" aria-label="${hs.length > 1 ? L`${name}へ移動（もう一度押すと次の村）` : L`${name}へ移動`}">
       <span class="plate-face">${face}</span>
       <span class="plate-text"><strong class="plate-name">${name}${h.state === 2 ? '' : html` <span class="plate-tag">${L`仮`}</span>`}</strong>
@@ -314,11 +354,11 @@ export function renderPlate(FS) {
 }
 
 /**
- * The bottom-left corner (`aside#rail`): the to-do lines, then the plate.
+ * The bottom-left corner (`aside#rail`): the to-do tab (its list when `todoOpen`), then the plate.
  * The spectator sees the standings there instead.
  */
-export function renderRail(FS) {
-  if (FS.mode === 'spectate') return html`<div class="plate plate-watch"><h2 class="todo-h">${icon('eye')}<span>${L`国の順位`}</span></h2>${renderStandingsList(FS)}<p class="plate-note">${L`村の数は最新の概観（鐘ごと）から数えています。`}</p></div>`;
+export function renderRail(FS, { todoOpen = false } = {}) {
+  if (FS.mode === 'spectate') return html`<div class="plate plate-watch"><h2 class="todo-h todo-h-plain">${icon('eye')}<span>${L`国の順位`}</span></h2>${renderStandingsList(FS)}<p class="plate-note">${L`村の数は、ターンごとにまとめられる記録から数えています。`}</p></div>`;
   if (FS.mode !== 'play') return '';
-  return html`${renderTodo(FS)}${renderPlate(FS)}`;
+  return html`${renderTodo(FS, { open: todoOpen })}${renderPlate(FS)}`;
 }

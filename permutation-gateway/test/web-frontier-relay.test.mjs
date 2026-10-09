@@ -345,7 +345,8 @@ test('program refusals come back by name and number; GET /f/tx reports landed, f
     assert.deepEqual([r.ok, r.code, r.programCode, r.httpStatus], [false, 'HostInTransit', 58, 409]);
     setLang('en');
     assert.equal(failureText(r), errorText(58));
-    assert.match(failureText(r), /settled/);
+    // (hud-4, UX design 11.13: the play screen does not say "settled"; the host waits for the result of its march)
+    assert.match(failureText(r), /result of its march is collected/);
     setLang('ja');
   } finally {
     R.chain.fail = () => null;

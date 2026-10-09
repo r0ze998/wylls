@@ -38,12 +38,12 @@ import { decode as decodeAccount } from '../fcodec.mjs';
 import { hostId } from '../faddr.mjs';
 import { regionOf } from '../fgeo.mjs';
 import { seedRound, bellEnd, dayOf } from '../clock.mjs';
-import { factionName, UNITS as UNIT_TEXT, STANCES as STANCE_TEXT, FATES as FATE_TEXT } from '../fi18n.mjs';
+import { factionName, UNITS as UNIT_TEXT, STANCES as STANCE_TEXT, FATES as FATE_TEXT, VERDICTS } from '../fi18n.mjs';
 import { UNIT_ORDER } from '../fland.mjs';
 import { swatch } from './shell.mjs';
 import { personChip } from '../people/ui.mjs';
 import { cardHead, fold, chip, lossBar, label, ring } from './parts.mjs';
-import { tileName } from '../hud/place.mjs';
+import { tileName, provinceName } from '../hud/place.mjs';
 import { LEADERS, leaderSvg } from '../people/leaders.mjs';
 
 // ------------------------------------------------------------------ the resolve_clash codec (borsh)
@@ -410,9 +410,14 @@ const lossOf = r => (r.after === null ? 0 : Math.max(0, r.before - r.after));
 
 /**
  * The headline of a clash for the viewer (UI plan D1): `{mine, lost, before,
- * result: 'won'|'held'|'fell'|'turned'|'none', reached, fates}` from the
- * rows; `mine` false for a spectator (then `leader` is the faction with the
- * most troops left on the field, or null).
+ * result: 'won'|'held'|'fell'|'turned'|'none', reached, fates, role, foe}`
+ * from the rows; `mine` false for a spectator (then `leader` is the faction
+ * with the most troops left on the field, or null). `role` says whether the
+ * viewer arrived ('attack') or was there ('defend'); `foe` what became of
+ * the other side, so that the headline agrees with the numbers under it
+ * (UX design 11.13): 'none' (the rows name no other side), 'stays' (some of
+ * it holds the field), 'camp' (a barbarian camp with nothing left),
+ * 'destroyed' (nothing left of it), 'left' (it has troops but did not stay).
  */
 export function summaryOf(rows) {
   const own = rows.filter(r => r.mine);
@@ -432,7 +437,8 @@ export function summaryOf(rows) {
   const foes = rows.filter(r => !r.mine && r.faction !== own[0].faction);
   const foesLeft = foes.filter(r => r.after !== null && r.after > 0 && (r.fate === null || r.fate === 'Stays')).length;
   const result = !known ? 'none' : fell ? 'fell' : turned ? 'turned' : foesLeft === 0 ? 'won' : 'held';
-  return { mine: true, known, lost, before, result, reached, fates: own.map(r => r.fate).filter(Boolean), faction: own[0].faction };
+  const foe = !foes.length ? 'none' : foesLeft > 0 ? 'stays' : foes.some(r => r.after !== null && r.after > 0) ? 'left' : foes.every(r => r.kind === 'camp') ? 'camp' : 'destroyed';
+  return { mine: true, known, lost, before, result, reached, fates: own.map(r => r.fate).filter(Boolean), faction: own[0].faction, role: arrivals.length ? 'attack' : 'defend', foe };
 }
 
 /**
@@ -475,34 +481,35 @@ export function tileDetail(rows) {
 
 // ------------------------------------------------------------------ rendering
 const KIND_TEXT = { resident: () => L`駐留`, arrival: () => L`到着`, garrison: () => L`守備隊`, camp: () => L`蛮族の野営地` };
+// (the steps and their refusals stand under the report's "proof details": the words of the proof — 乱数, 要約 — may be said there)
 const STEP_TEXT = {
-  kernel: () => L`ルールのモジュールがシーズンと同じ`,
-  seed: () => L`乱数がこの鐘の公式ビーコンのもの`,
-  inputs: () => L`衝突の入力がこの州とこの鐘のもの`,
+  kernel: () => L`ルールがシーズンのものと同じ`,
+  seed: () => L`乱数がこのターンの公開乱数のもの`,
+  inputs: () => L`衝突の入力がこの州とこのターンのもの`,
   recompute: () => L`このブラウザで衝突を計算し直した`,
   digest: () => L`結果の要約がチェーンの記録と一致`,
-  fates: () => L`到着軍勢の結末がチェーンの記録と一致`,
+  fates: () => L`到着した軍勢の結果がチェーンの記録と一致`,
 };
 const CODE_TEXT = {
-  NoWasm: () => L`ルールのモジュールを読み込めません`,
-  RulesetMismatch: () => L`モジュールのルールがシーズンと違います`,
-  NoBellRecord: () => L`この鐘の記録をまだ読めません`,
-  NoAnchor: () => L`この鐘のビーコンの記録がありません`,
-  SeedNotReady: () => L`この鐘の乱数がまだありません`,
-  SeedMismatch: () => L`報告の乱数が公式ビーコンのものと違います`,
+  NoWasm: () => L`ルールを読み込めません`,
+  RulesetMismatch: () => L`読み込んだルールがシーズンのものと違います`,
+  NoBellRecord: () => L`このターンの記録をまだ読めません`,
+  NoAnchor: () => L`このターンの公開乱数の記録がありません`,
+  SeedNotReady: () => L`このターンの乱数がまだありません`,
+  SeedMismatch: () => L`報告の乱数が公開乱数のものと違います`,
   NoInputs: () => L`衝突の入力がありません`,
   NotResolved: () => L`衝突はまだ決着していません`,
-  WrongKey: () => L`入力が別の州か鐘のものです`,
-  NoProvinceBefore: () => L`決着前の州の記録が報告にありません（ヘラルドの対応待ち）`,
-  WrongProvinceBefore: () => L`決着前の州の記録がこの鐘のものではありません`,
-  Unsettled: () => L`前の鐘の変更が未精算の記録です`,
+  WrongKey: () => L`入力が別の州かターンのものです`,
+  NoProvinceBefore: () => L`決着前の州の記録が報告にありません（記録の配信待ち）`,
+  WrongProvinceBefore: () => L`決着前の州の記録がこのターンのものではありません`,
+  Unsettled: () => L`前のターンの変更がまだ反映されていない記録です`,
   Refused: () => L`ルールが入力を受け付けませんでした`,
   BadInput: () => L`ルールが入力を読めませんでした`,
   BadUnit: () => L`記録に知らない兵種があります`,
   BadRecord: () => L`記録を読めませんでした`,
   CodecMismatch: () => L`結果の読み取りが一致しません`,
   DigestMismatch: () => L`結果の要約がチェーンの記録と違います`,
-  FateMismatch: () => L`到着軍勢の結末がチェーンの記録と違います`,
+  FateMismatch: () => L`到着した軍勢の結果がチェーンの記録と違います`,
   NoDigest: () => L`比べるチェーンの記録がありません`,
   Prerequisite: () => L`前の確認が済んでいません`,
 };
@@ -528,7 +535,7 @@ function rowHtml(r, ownerOf = null) {
 export function renderRows(rows, caption, ownerOf = null) {
   if (!rows.length) return html`<p class="muted">${L`戦った軍勢はいません`}</p>`;
   return html`<table class="stores"><caption class="visually-hidden">${caption}</caption>
-    <thead><tr><th scope="col">${L`軍勢`}</th><th scope="col">${L`兵（前 → 後）`}</th><th scope="col">${L`構え`}</th><th scope="col">${L`結末`}</th></tr></thead>
+    <thead><tr><th scope="col">${L`軍勢`}</th><th scope="col">${L`兵（前 → 後）`}</th><th scope="col">${L`構え`}</th><th scope="col">${L`結果`}</th></tr></thead>
     <tbody>${rows.map(r => rowHtml(r, ownerOf))}</tbody></table>`;
 }
 
@@ -603,7 +610,8 @@ function renderSteps(v) {
 export function render(FS, mine = () => false, { whatIf = true, ownerOf = null } = {}) {
   const r = FS.report;
   if (!r) return '';
-  const title = L`衝突の報告：州 ${r.p},${r.q} · 第${fmtNum(r.bell)}鐘`;
+  // the place by a name, the turn once (the chip beside the title): no coordinates and no second number in the title
+  const title = L`衝突の報告：${provinceName(FS, r.p, r.q)}`;
   const close = html`<button type="button" class="btn small quiet report-x" data-act="report-close">${L`閉じる`}</button>`;
   const head = html`<header class="doc-head"><span class="doc-titles"><h3 id="report-title">${title}</h3></span>${chip(html`${icon('bell')}${L`ターン ${fmtNum(r.bell)}`}`)}${close}</header>`;
   if (r.loading) return html`<section aria-labelledby="report-title" class="report doc">${head}<div class="wait-row">${ring(null)}<p class="muted">${L`読み込み中…`}</p></div></section>`;
@@ -620,7 +628,7 @@ export function render(FS, mine = () => false, { whatIf = true, ownerOf = null }
     <div class="row"><dt>${L`結果の要約`}</dt><dd><code>${String(rep.outcomeDigest ?? '—').slice(0, 16)}</code></dd></div>
     <div class="row"><dt>${L`交戦`}</dt><dd>${fmtNum(v?.outcome?.engagements ?? rep.decoded?.engagements ?? 0)}</dd></div></dl>`;
   const verdict = v ? html`<p class="notice ${v.result === 'match' ? 'ok' : v.result === 'mismatch' ? 'error' : 'unchecked'}" role="status" data-verify-result="${v.result}">${resultText(v)}</p>` : '';
-  const steps = v ? html`${renderSteps(v)}${v.builder === 'page' ? html`<p class="muted">${L`入力はこのページが契約の手順どおりに組み立てました。`}</p>` : ''}` : '';
+  const steps = v ? html`${renderSteps(v)}${v.builder === 'page' ? html`<p class="muted">${L`入力は、このページが決められた手順どおりに組み立てました。`}</p>` : ''}` : '';
   const tiles = tileDetail(rows);
   return html`<section aria-labelledby="report-title" class="report doc">${head}
     <h4 class="visually-hidden">${L`兵の前と後`}</h4>
@@ -628,10 +636,10 @@ export function render(FS, mine = () => false, { whatIf = true, ownerOf = null }
     <div class="doc-cols">
       <div class="doc-col">${renderHeadline(summaryOf(rows), r)}</div>
       <div class="doc-col">
-        ${v?.outcome ? '' : html`<p class="muted">${L`確かめる前は、チェーンに書かれた到着軍勢の結末だけを表示しています。`}</p>`}
+        ${v?.outcome ? '' : html`<p class="muted">${L`確かめる前は、チェーンに記録された到着の結果だけを表示しています。`}</p>`}
         ${fold('rep-rows', L`軍勢ごとの内訳`, renderRows(rows, title, ownerOf))}
         ${tiles.length ? fold('rep-tiles', L`マスごとの戦い`, renderTiles(tiles, FS, r)) : ''}
-        <details class="report-proof fold" data-fold="rep-proof"><summary><span class="fold-sum">${L`検証の詳細（乱数・要約・手順）`}</span>${icon('chevron', 'fold-mark')}</summary><div class="fold-body">${provenance}${steps}</div></details>
+        <details class="report-proof fold" data-fold="rep-proof"><summary><span class="fold-sum">${L`検証の詳細`}</span>${icon('chevron', 'fold-mark')}</summary><div class="fold-body">${provenance}${steps}</div></details>
       </div>
     </div>
     <footer class="doc-foot"><div class="actions"><button type="button" class="btn${v ? '' : ' primary'}" data-act="report-verify" ${raw(r.verifying ? 'disabled' : '')}>${icon('check')}${r.verifying ? L`確かめています…` : L`このブラウザで確かめる`}</button>
@@ -641,11 +649,26 @@ export function render(FS, mine = () => false, { whatIf = true, ownerOf = null }
   </section>`;
 }
 
-const RESULT_TEXT = {
-  won: () => L`勝利：相手は退いた`, held: () => L`持ちこたえた`, fell: () => L`壊滅した`, turned: () => L`退いた`, none: () => L`結末はまだ確かめていません`,
-};
-/** The outcome in a word or two, for the stamp. */
-const STAMP_TEXT = { won: () => L`勝利`, held: () => L`持ちこたえた`, fell: () => L`壊滅`, turned: () => L`撤退`, none: () => L`確認待ち`, watch: () => L`決着` };
+/**
+ * The viewer's outcome in a word and a line that agree with the numbers under them (UX design 11.13; the words are
+ * fi18n.mjs VERDICTS, the ones the battle on the map shows): `{key, tone, text}` from `summaryOf`'s summary — `key` the
+ * word (VERDICTS), `tone` the stamp's colour class (won | held | fell | turned | none | watch).
+ *   壊滅 when nothing of the viewer's remains; 撤退 when none of it stayed; 持ちこたえた when both sides hold the field;
+ *   勝利 when the other side does not: it was destroyed, it was a camp now cleared, or it left;
+ *   撃退 when the viewer was there first and the attackers left with troops; and, when the rows name no other side
+ *   (before the clash is verified only the arrivals are known), no claim about one: the viewer's hosts stayed.
+ */
+export function verdictOf(sum) {
+  if (!sum?.mine) return { key: 'watch', tone: 'watch', text: '' };
+  if (sum.result === 'none') return { key: 'none', tone: 'none', text: L`結果はまだ確かめていません` };
+  if (sum.result === 'fell') return { key: 'fell', tone: 'fell', text: L`壊滅：あなたの兵は残らなかった` };
+  if (sum.result === 'turned') return { key: 'turned', tone: 'turned', text: L`撤退：戦場には残らなかった` };
+  if (sum.result === 'held') return { key: 'held', tone: 'held', text: L`持ちこたえた：相手も戦場に残っている` };
+  if (sum.foe === 'camp') return { key: 'won', tone: 'won', text: L`勝利：野営地を制圧した` };
+  if (sum.foe === 'destroyed') return { key: 'won', tone: 'won', text: L`勝利：相手は壊滅した` };
+  if (sum.foe === 'left') return sum.role === 'defend' ? { key: 'repelled', tone: 'won', text: L`撃退：攻め手は退いた` } : { key: 'won', tone: 'won', text: L`勝利：相手は退いた` };
+  return sum.role === 'defend' ? { key: 'held', tone: 'held', text: L`戦場に残った` } : { key: 'arrived', tone: 'held', text: L`行き先に着き、戦場に残った` };
+}
 
 /** The leader's word on a result (UI plan F1): the viewer's faction, or the side that held the field. */
 const LEADER_LINE = {
@@ -663,7 +686,7 @@ function leaderLine(f, key) {
 }
 
 /** The outcome stamp: a word pressed on the paper (its tone is a class; the word says it too). */
-const stamp = key => html`<p class="stamp stamp-${key}"><span class="stamp-in">${STAMP_TEXT[key]()}</span></p>`;
+export const stamp = (key, tone = key) => html`<p class="stamp stamp-${tone}"><span class="stamp-in">${VERDICTS[key]}</span></p>`;
 
 /** The headline: the stamp, the viewer's result and losses, whether the march got there, the leader's line; replay and map buttons. */
 function renderHeadline(sum, r) {
@@ -673,8 +696,10 @@ function renderHeadline(sum, r) {
     return html`<div class="report-head report-head-watch">${stamp('watch')}<p class="report-result"><strong>${sum.leader !== null ? html`${swatch(sum.leader)}${L`${factionName(sum.leader)}が戦場に残った`}` : L`${fmtNum(sum.factions)}つの国がぶつかった`}</strong></p>
       <p class="muted">${L`全体の損害 ${fmtNum(sum.lost)}`}</p>${sum.leader !== null ? leaderLine(sum.leader, 'watch') : ''}${buttons}</div>`;
   }
-  return html`<div class="report-head report-${sum.result}">${stamp(sum.result)}<p class="report-result"><strong>${RESULT_TEXT[sum.result]()}</strong></p>
-    <p>${L`あなたの損害 ${fmtNum(sum.lost)} / ${fmtNum(sum.before)}`}${sum.reached === null ? '' : sum.reached ? html` · ${L`行き先に着いた`}` : html` · ${L`行き先に残れなかった`}`}</p>
+  const vd = verdictOf(sum);
+  // (whether the march got there is said beside the losses, unless the headline already says it)
+  return html`<div class="report-head report-${sum.result}">${stamp(vd.key, vd.tone)}<p class="report-result"><strong>${vd.text}</strong></p>
+    <p>${L`あなたの損害 ${fmtNum(sum.lost)} / ${fmtNum(sum.before)}`}${sum.reached === null || vd.key === 'arrived' ? '' : sum.reached ? html` · ${L`行き先に着いた`}` : html` · ${L`行き先に残れなかった`}`}</p>
     ${sum.fates.length ? html`<p class="muted">${[...new Set(sum.fates)].map(f => FATE_TEXT[f] ?? f).join(' · ')}</p>` : ''}${leaderLine(sum.faction, sum.result)}${buttons}</div>`;
 }
 
@@ -692,9 +717,9 @@ function renderTiles(list, FS = null, r = null) {
 /** How many report links stand in sight before the fold. */
 export const LINKS_SHOWN = 3;
 /** The report links of resolved clashes: `[{p, q, bell}]` → a short list of rows (the rest behind a fold). */
-export function renderLinks(list, title, { id = 'reports-title', key = 'reports' } = {}) {
+export function renderLinks(list, title, { id = 'reports-title', key = 'reports', FS = null } = {}) {
   if (!list.length) return '';
-  const rowOf = x => html`<li><button type="button" class="doc-row" data-act="report-open" data-p="${x.p}" data-q="${x.q}" data-bell="${x.bell}">${icon('scroll')}<span class="doc-row-t">${L`州 ${x.p},${x.q} · 第${fmtNum(x.bell)}鐘`}${x.mine ? html` <span class="muted">${L`（あなた）`}</span>` : ''}</span>${icon('chevron', 'doc-row-go')}</button></li>`;
+  const rowOf = x => html`<li><button type="button" class="doc-row" data-act="report-open" data-p="${x.p}" data-q="${x.q}" data-bell="${x.bell}">${icon('scroll')}<span class="doc-row-t">${L`${provinceName(FS, x.p, x.q)} · ターン ${fmtNum(x.bell)}`}${x.mine ? html` <span class="muted">${L`（あなた）`}</span>` : ''}</span>${icon('chevron', 'doc-row-go')}</button></li>`;
   const first = list.slice(0, LINKS_SHOWN), rest = list.slice(LINKS_SHOWN);
   return html`<section class="vcard" aria-labelledby="${id}">${cardHead({ id, ic: 'scroll', title })}
     <ul class="doc-rows">${first.map(rowOf)}</ul>

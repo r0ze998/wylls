@@ -91,7 +91,9 @@ test('scene: a departure shows its origin and arrival bell only, while on the ro
   assert.deepEqual(S.departuresAt(chronicle, overviews, 39), [], 'not yet departed');
 });
 
-test('highlights: departures name their lord and the arrival bell; settlements and clashes', () => {
+// Rewritten with hud-4 (UX design 11.13): the arrival is a TURN ("arrives on turn 43", it said "at bell 43"); a new
+// village is said by its place name and a clash by its province in words, where it said "province 3,0".
+test('highlights: departures name their lord and the arrival turn; new villages and clashes by a name', () => {
   setLang('en');
   const host = hostId({ p: 3, q: 0, site: 0, gen: 1, seq: 1 });
   const roster = { ownerOf: (p, q, s) => (p === 3 && q === 0 && s === 0 ? { tag: 9n, bell: 0 } : null) };
@@ -102,9 +104,15 @@ test('highlights: departures name their lord and the arrival bell; settlements a
     { record: { name: 'CLASH', bell: 43, p: 3, q: 0 } },
   ], overviews, roster);
   assert.deepEqual(items.map(x => x.kind), ['clash', 'depart', 'settle']);
-  assert.equal(items[1].text, `${who} of Cinder sets out (arrives at bell 43)`);
-  assert.equal(items[2].text, `${who} of Cinder settles in province 3,0`);
+  assert.equal(items[1].text, `${who} of Cinder sets out (arrives on turn 43)`);
+  assert.equal(items[2].text, `${who} of Cinder founds a village at ${I.placeName(3, 0, 0).en}`);
+  assert.equal(items[0].text, 'A clash in Province 3,0 (turn 43)', 'without a namer the province keeps its coordinates');
+  const named = U.highlights([{ record: { name: 'CLASH', bell: 43, p: 3, q: 0 } }, { record: { name: 'EXPLORE', bell: 43, host_id: host, p: 3, q: 0, tiles: [], n: 0 } }], overviews, roster, { where: () => 'the province of X' });
+  assert.deepEqual(named.map(x => x.text), [`${who} of Cinder explores the province of X`, 'A clash in the province of X (turn 43)'], 'a page that can name the province does');
   setLang('ja');
+  const ja = U.highlights([{ record: { name: 'DEPART', bell: 40, host_id: host, arrive_bell: 43 } }], overviews, roster);
+  assert.match(ja[0].text, /が出陣（ターン 43 に到着）$/);
+  assert.doesNotMatch(ja[0].text, /鐘/);
 });
 
 test('leaders: six portraits, one per faction, with names in both languages', () => {
@@ -159,10 +167,24 @@ test('activities: walls, recruits, garrison, muster, rest, guard, battle, depart
   assert.deepEqual(acts.get(13).map(a => a.kind), ['battle', 'rest']);
   assert.deepEqual(acts.get(20).map(a => a.kind), ['depart']);
   assert.deepEqual(acts.get(40).map(a => a.kind), ['camp']);
-  assert.equal(ACT.activityText(acts.get(20)[0]), '出陣中（第44鐘に到着、行き先は秘密）');
-  assert.equal(ACT.activityText(acts.get(9)[1]), '城壁を建設中（第45鐘に完成）');
+  // (hud-4, UX design 11.13) a march on the road names whose it is and its arrival TURN. Another player's says the
+  // destination is sealed (never "secret") and names none; the viewer's own names the host and says only they see it.
+  const road = { ...acts.get(20)[0], n: 900_000 };
+  assert.equal(ACT.activityText(road), 'シンダーの軍勢 900 — ターン 44 に到着（行き先は封印中）', 'without a namer: the nation');
+  assert.equal(ACT.activityText(road, () => ({ mine: false, owner: 'トキリク' })), 'トキリクの軍勢 900 — ターン 44 に到着（行き先は封印中）', 'its owner by name');
+  assert.equal(ACT.activityText(road, id => (id === '7' ? { mine: true, unit: 'Spearman', troops: 400 } : null)), 'あなたの槍兵 400 — ターン 44 に到着（行き先はあなたにだけ見えます）', 'the viewer\'s own');
+  assert.equal(ACT.activityText(road, () => ({ mine: true, unit: null, troops: null })), 'あなたの軍勢 900 — ターン 44 に到着（行き先はあなたにだけ見えます）');
+  assert.equal(ACT.activityText(acts.get(20)[0]), 'シンダーの軍勢 — ターン 44 に到着（行き先は封印中）', 'a departure without a size says no number');
+  for (const who of [null, () => ({ mine: false, owner: 'X' }), () => ({ mine: true, unit: 'Scout', troops: 100 })]) assert.doesNotMatch(ACT.activityText(road, who), /秘密|鐘|州|へ/, 'no secrecy wording, no bell, no destination');
+  assert.equal(ACT.activityText(acts.get(9)[1]), '城壁を建設中（ターン 45 に完成）');
+  assert.equal(ACT.activityText(acts.get(9)[0]), '編成中（ターン 42 から使えます）');
+  assert.equal(ACT.activityText(acts.get(9)[2]), '守備隊を増員中（ターン 43 から +100）');
+  assert.equal(ACT.tileSummary(acts.get(20), () => ({ mine: true, unit: 'Spearman', troops: 400 })), 'シンダー：あなたの槍兵 400 — ターン 44 に到着（行き先はあなたにだけ見えます）', 'the tip line passes the namer on');
   setLang('en');
-  assert.match(ACT.activityText(acts.get(13)[1]), /^Resting \(ready at bell \d+\)$/, 'ready once it has the stamina to march again');
+  assert.match(ACT.activityText(acts.get(13)[1]), /^Resting \(ready on turn \d+\)$/, 'ready once it has the stamina to march again');
+  assert.equal(ACT.activityText(road, () => ({ mine: true, unit: 'Spearman', troops: 400 })), 'Your 400 Spearmen — arriving on turn 44 (only you can see where they are going)');
+  assert.equal(ACT.activityText(road, () => ({ mine: false, owner: 'Tokirik' })), "Tokirik's host of 900 — arriving on turn 44 (destination sealed)");
+  assert.equal(ACT.activityText({ kind: 'guard', n: 600 }), 'Stationed here (600 troops)', 'it read "Village the tile (600 troops)"');
   setLang('ja');
 });
 

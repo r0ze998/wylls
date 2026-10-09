@@ -56,7 +56,12 @@ test('attention: incoming first, then settlements, the unsent draft, full stores
   assert.deepEqual([items[1].p, items[1].q, items[1].tab], [1, 1, 'marches']);
   assert.equal(items[3].tab, 'holding');
   setLang('ja');
-  assert.equal(hud.attentionText(items), '来襲 第44鐘 · ほか 3', 'the first item named, then how many more');
+  // (hud-4, UX design 11.13: every number is a turn's; a place is said by its name; 精算 is "collect the result")
+  assert.equal(hud.attentionText(items), '来襲 ターン 44 · ほか 3', 'the first item named, then how many more');
+  assert.equal(items[0].text, 'ターン 44 に、ラマールの町へ敵が来るかもしれません', 'the village by its name, the turn by its number');
+  assert.deepEqual([items[1].short, items[1].text], ['進軍の結果', 'アステル方面・第2輪の州への進軍の結果を受け取れます']);
+  assert.deepEqual([items[2].short, items[2].text], ['書きかけの命令', '書きかけの進軍の命令が、まだ送られていません']);
+  for (const x of items) assert.doesNotMatch(`${x.short} ${x.text}`, /第\d+鐘|州 -?\d|精算|編成中の進軍/, x.kind);
   assert.equal(hud.attentionText([]), null);
   FS.compose.sending = true;
   assert.ok(!hud.attentionItems(FS).some(x => x.kind === 'draft'), 'a march being sent is not a draft');
@@ -72,7 +77,10 @@ test('active holding: the chosen index, else the first', () => {
 
 // Rewritten with the redesign (UX design section 6): the left rail became the village plate with at most two
 // to-do lines above it; the action tiles are the dock (screens/shell.mjs, web-frontier-shell.test.mjs).
-test('the village plate and the to-do lines: one press home, the warning mark, at most two lines, the turn heading', () => {
+// Rewritten again in wave 2 (UX design 11.11: ONE "next thing" signal): the to-do lines wait behind a count —
+// a tab on the plate that opens the list (one plaque, a medallion per kind) — and the one prompt is `nextThing`:
+// the guide's step while the guide runs (an attack that may come goes first), then the most pressing item.
+test('the village plate, the to-do lines behind their count, and the one next thing', () => {
   setLang('ja');
   const FS = { mode: 'play', tab: 'holding', citizen: { faction: 0 }, holdings: [holding()], chain: { now: () => 0 }, land: { stage: 'provisional' },
     incoming: [{ bell: 44, holding: { p: 2, q: 0 }, hosts: 1, troops: 100 }], marches: [{ facts: { settleReady: true }, dest: { p: 1, q: 1 } }] };
@@ -81,10 +89,34 @@ test('the village plate and the to-do lines: one press home, the warning mark, a
   assert.match(out, /<button type="button" class="plate-main" data-act="home" aria-label="[^"]+へ移動"/, 'the plate is one press home');
   assert.match(out, /来襲の恐れ/);
   assert.match(out, /class="plate-tag">仮</, 'a village that is not final yet carries the tag');
-  assert.match(out, /icons\.svg#bell"\/><\/svg><span>このターンにやること<\/span><span class="todo-n">3<\/span>/, 'the heading reads "this turn" with the bell and counts what is left out');
-  assert.equal((out.match(/data-act="attn-go"/g) ?? []).length, hud.TODO_LINES, 'at most two lines');
-  assert.match(out, /data-act="attn-go" data-i="0"><svg class="ic todo-ic"[^>]*><use href="art\/ui\/icons\.svg#alert"\/>/, 'a mark per kind, from the sprite');
-  assert.doesNotMatch(out, /区画|data-act="tab"/, 'no site number and no action tiles on the plate');
+  // at rest: the tab alone — "this turn" with the bell and the count; no line stands on the map
+  assert.match(out, /<button type="button" class="todo-tab" data-act="todo-toggle" aria-expanded="false" aria-controls="todo-list"><svg[^>]*><use href="art\/ui\/icons\.svg#bell"\/><\/svg><span>このターンにやること<\/span><span class="todo-n">3<\/span>/, 'the heading reads "this turn" with the bell and counts the items');
+  assert.equal((out.match(/data-act="attn-go"/g) ?? []).length, 0, 'the lines wait behind the count');
+  // opened: one list of at most TODO_LINES rows, a medallion with the kind's mark on each
+  const open = [hud.renderRail(FS, { todoOpen: true })].flat(Infinity).map(String).join('');
+  assert.match(open, /class="todo todo-open"[\s\S]*aria-expanded="true"/);
+  assert.equal((open.match(/data-act="attn-go"/g) ?? []).length, 3);
+  assert.ok(hud.TODO_LINES >= 3 && hud.TODO_LINES <= 6);
+  assert.match(open, /data-act="attn-go" data-i="0"><span class="todo-medal"><svg class="ic todo-ic"[^>]*><use href="art\/ui\/icons\.svg#alert"\/>/, 'a mark per kind, from the sprite');
+  assert.doesNotMatch(out + open, /区画|data-act="tab"/, 'no site number and no action tiles on the plate');
+  // the one next thing: an attack that may come first; else the guide's step while the guide runs; else the first item
+  const guide = { n: 4, total: 7, title: '最初の斥候', text: '斥候を訓練して…', go: { act: 'ob-go', data: {}, label: '村と軍勢を見る' } };
+  const urgent = hud.nextThing(FS, { guide });
+  assert.deepEqual([urgent.kind, urgent.act, urgent.item, urgent.more], ['todo', 'attn', 'incoming', 2]);
+  const calm = { ...FS, incoming: [] };
+  const step = hud.nextThing(calm, { guide });
+  assert.deepEqual([step.kind, step.kicker, step.title, step.label, step.act], ['guide', 'ガイド 4/7', '最初の斥候', '村と軍勢を見る', 'ob-go']);
+  assert.equal(hud.nextThing(calm, { guide: { ...guide, go: null } }).act, 'guide-open', 'a step with nothing to press opens its steps');
+  const after = hud.nextThing(calm, {});
+  assert.deepEqual([after.kind, after.act, after.more], ['todo', 'attn', hud.attentionItems(calm).length - 1]);
+  assert.equal(hud.nextThing({ mode: 'play', holdings: [], chain: { now: () => 0 } }, {}), null, 'nothing needs the player');
+  // on a phone the same stands as a line under the plate: its one press, and for the guide a second button to the steps
+  const row = String(hud.renderNextRow(step));
+  assert.match(row, /^<div class="next-row next-guide">\s*<button type="button" class="next-row-go" data-act="ob-go"/);
+  assert.match(row, /<span class="next-kicker">ガイド 4\/7<\/span><strong>最初の斥候<\/strong>/);
+  assert.match(row, /class="next-row-steps" data-act="guide-open"/);
+  assert.doesNotMatch(String(hud.renderNextRow(after)), /guide-open/);
+  assert.equal(hud.renderNextRow(null), '');
   // several villages: a pip each, the active one marked
   const two = [hud.renderPlate({ ...FS, holdings: [holding(), holding(3, 1)], activeHolding: 1, incoming: [] })].flat(Infinity).map(String).join('');
   assert.match(two, /data-act="holding-go" data-i="1" aria-current="true"/);
@@ -94,7 +126,8 @@ test('the village plate and the to-do lines: one press home, the warning mark, a
   assert.match(none, /まだ国に加わっていません/);
   assert.match(none, /data-act="join-open">国を選ぶ</);
   const wait = [hud.renderPlate({ mode: 'play', citizen: { faction: 2 }, holdings: [], land: { stage: 'ticket' } })].flat(Infinity).map(String).join('');
-  assert.match(wait, /入植希望を自動で出しました/);
+  assert.match(wait, /村の申し込みは済んでいます/);
+  assert.doesNotMatch(wait, /入植希望/, 'the request is called by its plain name (UX design 11.13)');
   assert.match(wait, /data-act="join-open">様子を見る</);
   assert.equal(hud.renderTodo({ mode: 'play', holdings: [], chain: { now: () => 0 } }), '', 'nothing to do: no heading');
   // the strip's tokens: a drawn icon each, the full number and a short one for the phone strip
@@ -105,7 +138,8 @@ test('the village plate and the to-do lines: one press home, the warning mark, a
   assert.doesNotMatch(String(hud.crestSvg(0)), /style=/);
   setLang('en');
   const en = [hud.renderRail(FS)].flat(Infinity).map(String).join('').replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<[^>]*>/g, ' ');
-  assert.match(en, /This turn/);
+  // (hud-4: the heading says what the list is, "To do this turn"; "This turn" alone named the turn's results card too)
+  assert.match(en, /To do this turn/);
   assert.match(en, /Provisional/);
   assert.doesNotMatch(en.replace(/Lamar|ラマール/g, ''), /[぀-ヿ㐀-鿿]/, en);
   setLang('ja');

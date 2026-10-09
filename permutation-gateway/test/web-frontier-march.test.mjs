@@ -33,6 +33,8 @@ import { decodeOverview } from '../../permutation-server/web/frontier/herald.mjs
 import { TEST_BEACON } from '../../permutation-server/web/frontier/abi.mjs';
 import * as composer from '../../permutation-server/web/frontier/screens/march.mjs';
 import * as order from '../../permutation-server/web/frontier/hud/marchcard.mjs';
+import { sealLine, TERMS } from '../../permutation-server/web/frontier/hud/glossary.mjs';
+import { renderSurveyHelp } from '../../permutation-server/web/frontier/map/legend.mjs';
 import * as trackerScreen from '../../permutation-server/web/frontier/screens/tracker.mjs';
 import * as hostScreen from '../../permutation-server/web/frontier/screens/host.mjs';
 import * as incomingScreen from '../../permutation-server/web/frontier/screens/incoming.mjs';
@@ -249,10 +251,17 @@ test('the WASM planner, the earliest bell and `reachable` feed the composer and 
   assert.deepEqual(w, [{ holding: { p: d.p, q: d.q, site: 2 }, bell: 16, hosts: 1, troops: 5_000 }]);
   assert.equal(march.incomingWarnings({ kernel: null, departures: [dep], holdings, faction: 0 }), null);
   setLang('ja');
-  assert.match(String(incomingScreen.render({ incoming: w })), /最大 1 の軍勢（5,000 兵）/);
-  assert.match(String(incomingScreen.render({ incoming: null })), /ルールのモジュールが必要/);
+  // (hud-4, UX design 11.13: the turn by its number, the village by its name — the province in words when the page
+  // does not hold the village — and the destination "sealed", never "unknown" or "secret"; no "rules module")
+  const warned = String(incomingScreen.render({ incoming: w }));
+  assert.match(warned, /ターン 16 に、[^<]+へ最大 1 の軍勢（5,000 兵）が来るかもしれません。行き先は封印中です。/);
+  assert.match(String(incomingScreen.render({ incoming: w, holdings: [{ p: d.p, q: d.q, site: 2, tier: 1 }] })), /ターン 16 に、[^<]+の町へ最大 1 の軍勢/, 'the village by its name');
+  assert.doesNotMatch(warned, /第\d+鐘|州 -?\d|秘密|わかりません/);
+  assert.match(String(incomingScreen.render({ incoming: null })), /ルールを読み込めていないため、来襲の恐れを調べられません。/);
+  assert.match(String(incomingScreen.render({ incoming: [] })), /届きそうな他国の軍勢は出ていません/);
   setLang('en');
-  assert.match(String(incomingScreen.render({ incoming: w })), /up to 1 hosts \(5,000 troops\) may arrive.*destinations unknown/);
+  assert.match(String(incomingScreen.render({ incoming: w })), /On turn 16, up to 1 host \(5,000 troops\) may arrive at [^<]+\. Where they are going is sealed\./);
+  assert.match(String(incomingScreen.render({ incoming: [{ ...w[0], hosts: 3 }] })), /up to 3 hosts/);
   setLang('ja');
 });
 
@@ -282,18 +291,45 @@ test('the order offers the three tip presets only, "never" first among the retre
   assert.match(out, /data-act="mc-bell" data-d="-1" aria-label="1ターン早く" disabled/);
   assert.match(out, /ターン 43 に到着/);
   assert.match(out, /data-act="march-send" >|data-act="march-send"\s*>/, 'ready to send');
+  // (wave 2, UX design 11.12) the order's body scrolls by itself and its foot is always whole: one line that sums the
+  // order up (where to, the arrival turn, the stance), a press on which shows the whole order, then the seal
+  assert.match(out, /^<section class="order" aria-labelledby="mc-title"><div class="order-body" data-scroll="order">/);
+  const foot = out.slice(out.indexOf('<footer class="order-foot">'));
+  assert.match(foot, /^<footer class="order-foot"><button type="button" class="order-sum" data-act="order-open" aria-label="命令のまとめ：[^"]+へ、ターン 43 に到着、構えは待機の構え">/);
+  assert.match(foot, /<strong class="os-dest">[^<]+<\/strong><\/span><span class="os-part"><svg[^>]*><use[^>]*#bell"\/><\/svg>ターン 43<\/span><span class="os-part"><svg[^>]*><use[^>]*#shield"\/><\/svg>待機の構え<\/span>/);
+  assert.ok(foot.indexOf('class="order-sum"') < foot.indexOf('data-act="march-send"'), 'the summary stands above the seal');
+  assert.doesNotMatch(out.slice(0, out.indexOf('<footer')), /data-act="march-send"|data-act="compose-close"/, 'the seal is in the foot, not in what scrolls');
+  // (hud-4, UX design 11.13) the seal in ONE sentence, the same in the order card, the legend and the help
+  // (hud/glossary.mjs sealLine). It speaks of who can open the seal, not of "only you see it until the turn ends":
+  // the rule locks the seal to the end of the arrival turn, and the sender's own device may reveal from that turn's start.
+  assert.equal(sealLine(), '行き先と構えは封印され、到着のターンが終わるまで、ほかの人には開けられません。');
+  assert.ok(out.includes(`<span class="mc-sealed">`) && out.includes(`<span>${sealLine()}</span></span>`), 'the order says the seal\'s one sentence');
+  assert.ok(TERMS.seal.text().startsWith(sealLine()), 'the help says the same sentence first');
+  assert.ok(String(renderSurveyHelp()).includes(`<li><strong>封印した進軍</strong> ${sealLine()}</li>`), 'the legend says the same sentence');
+  assert.doesNotMatch(out + TERMS.seal.text() + String(renderSurveyHelp()), /あなたにしか見えません|秘密|ターンが始まるまで/, 'no other boundary and no secrecy wording anywhere');
+  // the order's numbers can be reconciled by a new player: the place by its name and how far it is (no coordinates,
+  // no minutes there), then the arrival turn, and ONE line that says why a short way still waits for its turn
+  assert.match(out, /<strong class="mc-dest-name">[^<]+<\/strong>\s*<span class="mc-route">\d+ マス先<\/span>/, 'where to and how far: no coordinates, no minutes');
+  assert.match(out, /<p class="muted mc-when">進軍は、ターンの始まりにそろって到着します。いちばん早くてターン 43 です（道のりは約 \d+ 分）。<\/p>/, 'the travel time is said once, with the earliest turn');
+  assert.equal((out.match(/約 \d+ 分/g) ?? []).length, 1, 'the minutes of the way are said once');
+  assert.match(out, /<h3 id="mc-title">進軍：槍兵 500<\/h3><span class="c-sub">[^<（]+から<\/span>/, 'the host by its unit and troops, from a place by its name');
+  assert.doesNotMatch(out.replace(/<details class="fold" data-fold="o-more"[\s\S]*?<\/details>/, ''), /州 -?\d|乱数|鐘|顔ぶれ|中継/, 'no coordinates, no seed, no bell and no relay outside the order\'s details');
   // no tile number and no lamports on the play screen: the place by its name, the costs under "More → details"
   assert.doesNotMatch(out.replace(/<label>[^<]*<input name="tile"/, ''), /マス \d|ランポート|キーパー|frontier\.wasm/);
   const blocked = String(order.render({ ...FS, compose: { ...FS.compose, tip: '0' } }));
   assert.match(blocked, /data-act="march-send" disabled/);
   assert.match(blocked, /チップが最低額に足りません/);
-  assert.match(String(order.render({ ...FS, compose: { ...FS.compose, route: null, routeError: 'NoWasm' } })), /frontier\.wasm/, 'a module that failed to load is named in its error');
+  // (hud-4: the file's name is an internal word; the error says the rules file is missing)
+  const noRules = String(order.render({ ...FS, compose: { ...FS.compose, route: null, routeError: 'NoWasm' } }));
+  assert.match(noRules, /このサーバーにはルールのファイルがまだありません/, 'a rules file that failed to load is said in its error');
+  assert.doesNotMatch(noRules, /frontier\.wasm|モジュール/);
   // before a destination: the hint, the nearby places by name, the coordinates behind a fold
   const empty = String(order.render({ ...FS, compose: { ...FS.compose, dest: null, route: null, quick: [{ kind: 'camp', p: 2, q: 0, tile: 32 }] } }));
   assert.match(empty, /地図で行き先のマスを選んでください/);
   assert.match(empty, /data-act="dest-quick" data-p="2" data-q="0" data-tile="32"/);
   assert.match(empty, /<details class="fold" data-fold="o-coords"/);
   assert.doesNotMatch(empty, /data-act="march-send"/);
+  assert.match(empty, /<footer class="order-foot"><button type="button" class="order-sum order-sum-empty" data-act="order-open">[\s\S]*行き先はまだ決まっていません[\s\S]*data-act="compose-close"/, 'the foot says nothing is chosen yet and offers the way out');
   // the Marches screen leads back to an order in progress
   assert.match(String(composer.render(FS)), /data-act="sel-open"/);
   assert.doesNotMatch(String(composer.render({ ...FS, compose: null })), /data-act="sel-open"/);
@@ -301,6 +337,10 @@ test('the order offers the three tip presets only, "never" first among the retre
   const en = String(order.render(FS)).replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<[^>]*>/g, ' ');
   assert.doesNotMatch(en, /[぀-ヿ㐀-鿿]/, en);
   assert.match(en, /Arrives on turn 43/);
+  assert.match(en, /March: 500 Spearmen/, 'a unit with its count as English says it');
+  assert.match(en, /The destination and the stance are sealed: nobody else can open the seal until the arrival turn ends\./);
+  assert.match(en, /Marches arrive together as a turn begins\. The earliest for this one is turn 43 \(the way itself takes about \d+ min\)\./);
+  assert.match(en, /\d+ tiles? away/);
   setLang('ja');
 });
 
@@ -430,11 +470,39 @@ test('the tracker: steps from chain facts; the host stays locked until its trans
   const selfE = { ...e, attempts: [{ t: 1, route: 'self', result: 'accepted' }], state: 'revealing' };
   assert.equal(march.tracker({ entry: selfE, transit: live, nowBell: 43 }).route, 'self');
   setLang('ja');
-  const card = String(trackerScreen.renderMarch({ entry: e, transit: live, facts: { nowBell: 41, pipeline: 'open' } }));
-  assert.match(card, /進軍の精算が済むまで出発・解散・探索できません/);
-  assert.match(card, /あなたにだけ見えます/);
+  // (hud-4, UX design 11.13) the card: three things a player follows — set out, arrived, the result — instead of the
+  // rules' six steps (those wait behind a fold); the arrival by its TURN; no beacon, no "settle", no coordinates
+  const m0 = { entry: e, transit: live, facts: { nowBell: 41, pipeline: 'open' } };
+  assert.deepEqual(trackerScreen.phasesOf(march.tracker({ entry: e, transit: live, nowBell: 41, pipeline: 'open' })), [{ id: 'depart', state: 'done' }, { id: 'arrive', state: 'now' }, { id: 'result', state: 'next' }]);
+  assert.deepEqual(trackerScreen.phasesOf(march.tracker({ entry: e, transit: live, nowBell: 44, pipeline: 'revealing', slotPresent: true })).map(x => x.state), ['done', 'done', 'now'], 'arrived: the result is awaited');
+  assert.deepEqual(trackerScreen.phasesOf(march.tracker({ entry: e, transit: null, nowBell: 50, pipeline: 'resolved', settled: { outcome: 'Stays' } })).map(x => x.state), ['done', 'done', 'done']);
+  const card = String(trackerScreen.renderMarch(m0));
+  assert.match(card, /ターン 43 に到着/);
+  const names = [...card.matchAll(/<span class="track-name">([^<]+)<\/span>/g)].map(x => x[1]);
+  assert.deepEqual(names, ['出発', '到着', '結果'], 'three phases in sight');
+  assert.match(card, /<ol class="track track-phases" aria-label="進軍の流れ"><li class="done">[\s\S]*?<li class="now">[\s\S]*?<li class="next">/);
+  assert.match(card, /<p class="march-now"><strong>到着のターンを待っています<\/strong>/);
+  assert.match(card, /<details class="fold" data-fold="m-steps-\d+"\s*><summary><span class="fold-sum">くわしい段階<\/span>/, 'the six steps on demand');
+  assert.equal((card.match(/<ol class="list track-steps">[\s\S]*?<\/ol>/)?.[0].match(/<li /g) ?? []).length, 6);
+  assert.match(card, /進軍の結果を受け取るまで、この軍勢は出発・解散・探索ができません（ふつうは自動で受け取ります）。/);
+  assert.match(card, /（行き先と構えはあなたにだけ見えます）/, 'what this browser sealed is shown to it alone, and says so while the seal is closed');
+  assert.match(String(trackerScreen.renderMarch({ entry: e, transit: live, facts: { nowBell: 44, pipeline: 'revealing', slotPresent: true } })), /（封は開けられました）/, 'once the seal is open the card no longer says "only you"');
+  assert.doesNotMatch(card.replace(/<svg[\s\S]*?<\/svg>/g, ''), /ビーコン|精算|第\d+鐘|鐘|州 -?\d|キーパー|秘密/);
+  // a march this browser did not seal: no destination is known here, and the line says how the seal gets opened
+  const other = String(trackerScreen.renderMarch({ entry: null, transit: live, facts: { nowBell: 41, pipeline: 'open' } }));
+  assert.match(other, /この端末には封の控えがありません。封は、到着のターンが終わったあと自動で開けられます。/);
+  assert.doesNotMatch(other, /march-secret/);
+  // the device that sealed it opens it when the arrival turn begins
+  assert.match(String(trackerScreen.renderMarch({ entry: selfE, transit: live, facts: { nowBell: 43, pipeline: 'open' } })), /到着のターンが始まると、この端末が封を開けます（ウォレットの操作は要りません）。/);
+  assert.match(String(trackerScreen.renderMarch({ entry: e, transit: live, facts: { nowBell: 44, pipeline: 'resolved', settleReady: true }, dest: { p: 2, q: 0 } })), /data-act="settle-transit"[^>]*>結果を受け取る</);
+  assert.equal(trackerScreen.privateLine(e), `${trackerScreen.privateLine(e).split(' · ')[0]} · 待機の構え`, 'the private line: the place by its name, then the stance (no coordinates)');
+  assert.doesNotMatch(trackerScreen.privateLine(e), /州|（/);
   setLang('en');
-  assert.match(String(trackerScreen.renderMarch({ entry: e, transit: live, facts: { nowBell: 41, pipeline: 'open' } })), /cannot depart, dissolve or explore until its march is settled/);
+  const cardEn = String(trackerScreen.renderMarch(m0)).replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<[^>]*>/g, ' ');
+  assert.match(cardEn, /Until the result of its march is collected, this host cannot march, dissolve or explore/);
+  assert.match(cardEn, /Departure\s+\(done\)\s+Arrival\s+\(now\)\s+Result/);
+  assert.match(cardEn, /Waiting for the arrival turn/);
+  assert.doesNotMatch(cardEn, /beacon|settle|\bbell\b|Anchored|[぀-ヿ㐀-鿿]/i);
   setLang('ja');
   // The host panel says the same and disables its actions.
   const w = world({ transit: [{ STATE: 1, HOST_ID: hostId({ p: 2, q: 0, site: 3, gen: 1, seq: 7 }), ARRIVE_BELL: 43 }] });
@@ -445,7 +513,8 @@ test('the tracker: steps from chain facts; the host stays locked until its trans
   assert.deepEqual(land.actionBlocks('Depart', { holding: w.holding, province: w.province, nowBell: 41, host: rows[0] }), ['HostInTransit']);
   const html = String(hostScreen.render(FS));
   assert.match(html, /data-act="compose" data-host="\d+" disabled/);
-  assert.match(html, /この軍勢は進軍の精算が済むまで/);
+  assert.match(html, /進軍の結果を受け取るまで、この軍勢は出発・解散・探索ができません/);
+  assert.doesNotMatch(html, /精算/);
 });
 
 // ------------------------------------------------------------------ holdings, land and preferences

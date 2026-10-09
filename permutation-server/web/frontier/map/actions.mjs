@@ -576,7 +576,7 @@ export function paintRefusal(g, hex, { zoom = 1, age = 0, still = false } = {}) 
 /** The words of the map's own answers (canvas text and the page's live line). */
 export const NOTE_TEXT = Object.freeze({
   unreachable: () => L`ここへは届きません`,
-  tooFar: n => L`遠すぎます（${fmtNum(n)}歩まで）`,
+  tooFar: n => L`遠すぎます（${fmtNum(n)} マスまで）`,
   unopened: () => L`まだひらいていない土地です`,
   wait: () => L`ルールを読み込んでいます`,
 });

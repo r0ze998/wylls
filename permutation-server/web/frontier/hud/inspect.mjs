@@ -9,24 +9,25 @@
 import { icon } from './icons.mjs';
 import { html, raw } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
-import { TIERS, UNITS, factionName } from '../fi18n.mjs';
+import { factionName, unitCount } from '../fi18n.mjs';
 import { UNIT_ORDER } from '../fland.mjs';
 import { miniCardUrl } from '../people/minis.mjs';
 import { ringOf } from '../fgeo.mjs';
 import { troopsOf } from '../fmarch.mjs';
 import { swatch } from '../screens/shell.mjs';
 import { personChip, hostOwner, holdingName } from '../people/ui.mjs';
-import { identityOf } from '../people/identity.mjs';
+import { identityOf, displayName } from '../people/identity.mjs';
+import { hostParts } from '../faddr.mjs';
 import { activityText } from '../people/activity.mjs';
 import { hostRows } from '../screens/host.mjs';
 import { hasPin } from './pins.mjs';
 import { termButton } from './glossary.mjs';
 import { placeName, placeWhere } from '../map/names.mjs';
-import { TERRAIN_TEXT, tileName, villagePic } from './place.mjs';
+import { TERRAIN_TEXT, villagePic, provinceName, provinceCoords } from './place.mjs';
 import { cardHead, chip, fold, label } from '../screens/parts.mjs';
 
 /** Site states as the overview carries them (herald SITE_STATE) and the mirror (3 = released: a Free City). */
-const SITE_TEXT = { free: () => L`空き区画`, holding: () => L`村`, camp: () => L`蛮族の野営地`, reserved: () => L`予約済みの区画`, freeCity: () => L`自由都市` };
+const SITE_TEXT = { free: () => L`村を置ける場所`, holding: () => L`村`, camp: () => L`蛮族の野営地`, reserved: () => L`予約済みの場所`, freeCity: () => L`自由都市` };
 
 const overviewRec = (FS, p, q) => {
   for (const o of FS.overviews?.values?.() ?? []) {
@@ -91,9 +92,27 @@ export function placeAt(FS, place, terrainOf = null) {
   return { name: placeName(m), where: placeWhere(m) };
 }
 
-/** The viewer's hosts standing on a tile and able to march (state 1, not on the road). */
+/** The viewer's hosts standing on a tile and able to march (state 1, not on the road): `[{id, troops, unit}]` (`unit` the kernel's name). */
 export function ownHostsOn(FS, p, q, idx) {
-  try { return hostRows(FS).filter(r => r.p === p && r.q === q && r.tile === idx && r.state === 1 && !r.inTransit && !r.pending).map(r => ({ id: String(r.id), troops: r.troops })); } catch { return []; }
+  try { return hostRows(FS).filter(r => r.p === p && r.q === q && r.tile === idx && r.state === 1 && !r.inTransit && !r.pending).map(r => ({ id: String(r.id), troops: r.troops, unit: UNIT_ORDER[r.unit] ?? null })); } catch { return []; }
+}
+
+/**
+ * Who a host is, for a line that names one (people/activity.mjs: a march on the road): `id → {mine, unit, troops,
+ * owner}` — the viewer's own by its unit and troops (from the province the page holds), anyone else's by its
+ * owner's name (the roster); null for an id that names no host.
+ */
+export function hostInfoOf(FS) {
+  return id => {
+    const hp = hostParts(id);
+    if (!hp) return null;
+    if ((FS.holdings ?? []).some(o => o.p === hp.p && o.q === hp.q && o.site === hp.site && o.gen === hp.gen)) {
+      const e = (FS.provinces?.get?.(`${hp.p},${hp.q}`)?.province?.entries ?? []).find(x => String(x.id) === String(id));
+      return { mine: true, unit: e ? UNIT_ORDER[e.unit] ?? null : null, troops: e ? troopsOf(e.troops) : null, owner: null };
+    }
+    const o = hostOwner(FS.roster, id);
+    return { mine: false, unit: null, troops: null, owner: o ? displayName(o) : null };
+  };
 }
 
 /** The actions the selection offers: `[{act, data, text, primary?}]` (existing play actions only). */
@@ -110,10 +129,10 @@ export function inspectActions(FS, m) {
   if (t?.site?.mine) out.push({ act: 'holding-pick', data: { i: t.site.holdingIndex }, text: L`この村を開く`, primary: true });
   if (FS.compose && t && !FS.compose.sending) out.push({ act: 'dest-from-map', data: {}, text: L`ここを進軍の行き先にする`, primary: true });
   // the viewer's own ready hosts on this tile can be sent from here (the march card then opens on the map)
-  if (!FS.compose && t) for (const h of ownHostsOn(FS, m.p, m.q, t.idx)) out.push({ act: 'compose', data: { host: h.id, stay: 'map' }, text: L`この軍勢（${fmtNum(h.troops)}）で進軍する`, primary: true });
+  if (!FS.compose && t) for (const h of ownHostsOn(FS, m.p, m.q, t.idx)) out.push({ act: 'compose', data: { host: h.id, stay: 'map' }, text: L`${unitCount(h.unit, h.troops)} を進軍させる`, primary: true });
   // no site picking from the map (owner decision V2: the first village is placed automatically)
   if (m.reportBell) out.push({ act: 'battle-play', data: { p: m.p, q: m.q, bell: m.reportBell }, text: L`戦いを再生` });
-  if (m.reportBell) out.push({ act: 'report-open', data: { p: m.p, q: m.q, bell: m.reportBell }, text: L`第${fmtNum(m.reportBell)}鐘の衝突の報告` });
+  if (m.reportBell) out.push({ act: 'report-open', data: { p: m.p, q: m.q, bell: m.reportBell }, text: L`ターン ${fmtNum(m.reportBell)} の衝突の報告` });
   out.push(pin);
   return out;
 }
@@ -128,9 +147,9 @@ export function renderBrief(FS, terrainOf) {
   const m = inspectModel(FS, terrainOf);
   if (!m) return '';
   const t = m.tile, site = t?.site;
-  // names before coordinates (map/names.mjs, which follows the survey through the model): the place, then its province
-  const name = placeName(m), where = L`州 ${m.p},${m.q}`;
-  const what = html`${site?.state === 'holding' ? swatch(site.faction) : ''}<span>${name}</span>${name === where ? '' : html` <span class="muted place-where">${where}</span>`}`;
+  // the place by its name (map/names.mjs, which follows the survey through the model); its coordinates are under the inspector's details
+  const name = placeName(m);
+  const what = html`${site?.state === 'holding' ? swatch(site.faction) : ''}<span>${name}</span>`;
   return html`<div class="sel-brief" role="status">${icon('pin')}<span class="sel-what">${L`選択中`}: ${what}${t?.hosts?.length ? html` · ${L`軍勢 ${fmtNum(t.hosts.length)}`}` : ''}</span>
     <button type="button" class="btn small" data-act="sel-open">${L`詳しく見る`}</button><button type="button" class="btn small quiet" data-act="sel-clear" aria-label="${L`選択を外す`}">${icon('close')}</button></div>`;
 }
@@ -142,39 +161,43 @@ export function renderBrief(FS, terrainOf) {
  */
 export function render(FS, terrainOf, activities = null) {
   const m = inspectModel(FS, terrainOf);
-  if (!m) return html`<section class="inspect" aria-labelledby="inspect-title">${cardHead({ id: 'inspect-title', ic: 'eye', title: L`選択` })}<p class="muted">${L`地図のマスを選ぶと、ここに中身が出ます。`}</p></section>`;
+  if (!m) return html`<section class="inspect" aria-labelledby="inspect-title">${cardHead({ id: 'inspect-title', ic: 'eye', title: L`選択` })}<p class="muted">${L`地図のマスを選ぶと、そこにあるものがここに出ます。`}</p></section>`;
   const t = m.tile, site = t?.site;
   // a name before coordinates (UX design 5.3): the village, the camp or the land, then where it is
   const terrain = t?.terrain ? (TERRAIN_TEXT[t.terrain]?.() ?? t.terrain) : null;
   const held = site?.state === 'holding';
   const name = held ? holdingName({ p: m.p, q: m.q, site: site.index }, site.tier ?? 0) : t?.camp ? SITE_TEXT.camp() : site && site.state !== 'free' ? SITE_TEXT[site.state]() : terrain;
-  const where = [L`州 ${m.p},${m.q}`, name && terrain && name !== terrain ? terrain : null, site && site.state === 'free' ? SITE_TEXT.free() : null].filter(Boolean).join(' · ');
+  // under the name: what the land is, then where it is in words (the province by a village of the viewer's or by the
+  // nation on whose side it lies; a village is itself the place: nothing more is said); the coordinates wait under
+  // "details" (UX design 11.13)
+  const where = [name && terrain && name !== terrain ? terrain : null, site && site.state === 'free' ? SITE_TEXT.free() : null, t && !held ? provinceName(FS, m.p, m.q) : null].filter(Boolean).join(' · ');
   const mark = held ? 'home' : t?.camp ? 'tent' : t?.hosts?.length ? 'sword' : t ? 'mountain' : 'chart';
   const side = site?.mine ? chip(L`あなたの村`, 'you') : held ? chip(html`${swatch(site.faction)}${factionName(site.faction)}`) : t?.camp ? chip(L`${fmtNum(t.camp.troops)} 兵`, 'bad') : '';
   const chips = [];
   if (held && site.garrison !== null) chips.push(chip(L`守備隊 ${fmtNum(site.garrison)}`, '', 'shield'));
   if (site?.shield) chips.push(html`${chip(L`保護中（攻撃されません）`, 'info', 'shield')}`);
-  if (m.clash) chips.push(chip(L`この鐘に衝突あり`, 'bad', 'swords'));
+  if (m.clash) chips.push(chip(L`このターンに衝突あり`, 'bad', 'swords'));
   for (const r of m.relation) chips.push(html`<span class="chip ${r.friendly ? 'chip-ok' : 'chip-bad'}">${swatch(r.faction)}${factionName(r.faction)} ${r.friendly ? L`友好` : L`敵対`}</span>`);
   const acts = inspectActions(FS, m);
   const main = acts.filter(a => a.act !== 'pin-toggle'), pin = acts.find(a => a.act === 'pin-toggle');
   const btn = (a, cls = '') => html`<button type="button" class="btn small${a.primary ? ' primary' : ''}${cls}" data-act="${a.act}" ${dataAttrs(a.data)}>${a.text}</button>`;
-  const hosts = t?.hosts?.length ? html`${label(L`このマスの軍勢`)}<ul class="list insp-hosts">${t.hosts.map(h => html`<li class="host-row">${h.unit ? html`<img class="unit-card small f${h.faction}" src="${miniCardUrl(h.faction, h.unit.toLowerCase())}" alt="" width="32" height="40" loading="lazy" decoding="async">` : ''}<span class="host-what"><strong>${h.unit ? UNITS[h.unit] : ''} ${fmtNum(h.troops)}</strong>${h.pending ? html` <span class="muted">${L`（次の鐘から）`}</span>` : ''}<span class="host-of">${h.owner ? personChip(h.owner, h.faction, { size: 20 }) : html`${swatch(h.faction)}${factionName(h.faction)}`}</span></span></li>`)}</ul>` : '';
+  const hosts = t?.hosts?.length ? html`${label(L`このマスの軍勢`)}<ul class="list insp-hosts">${t.hosts.map(h => html`<li class="host-row">${h.unit ? html`<img class="unit-card small f${h.faction}" src="${miniCardUrl(h.faction, h.unit.toLowerCase())}" alt="" width="32" height="40" loading="lazy" decoding="async">` : ''}<span class="host-what"><strong>${unitCount(h.unit, h.troops)}</strong>${h.pending ? html` <span class="muted">${L`（次の鐘から）`}</span>` : ''}<span class="host-of">${h.owner ? personChip(h.owner, h.faction, { size: 20 }) : html`${swatch(h.faction)}${factionName(h.faction)}`}</span></span></li>`)}</ul>` : '';
   const now = t ? (activities?.get(`${m.p},${m.q},${t.idx}`) ?? []).filter((a, i, all) => all.findIndex(b => b.kind === a.kind) === i) : [];
-  const doing = now.length ? html`${label(L`いまの様子`)}<ul class="list doing">${now.map(a => html`<li class="doing-${a.kind}">${activityText(a)}</li>`)}</ul>` : '';
+  const who = hostInfoOf(FS);
+  const doing = now.length ? html`${label(L`いまの様子`)}<ul class="list doing">${now.map(a => html`<li class="doing-${a.kind}">${activityText(a, who)}</li>`)}</ul>` : '';
   const facts = [];
-  // (the label is "position": in English "Ring" beside "Ring 2" read as a doubled word)
-  facts.push(html`<div class="row"><dt>${L`位置`}</dt><dd>${m.opened ? L`第${m.ring}輪` : L`第${m.ring}輪（まだひらいていません）`}${termButton('ring')}</dd></div>`);
+  // (the label is "position": in English "Ring" beside "Ring 2" read as a doubled word); the coordinates stand here and nowhere above
+  facts.push(html`<div class="row"><dt>${L`位置`}</dt><dd>${provinceCoords(m.p, m.q)} · ${m.opened ? L`第${m.ring}輪` : L`第${m.ring}輪（まだひらいていません）`}${termButton('ring')}</dd></div>`);
   if (terrain) facts.push(html`<div class="row"><dt>${L`地形`}</dt><dd>${terrain}</dd></div>`);
   if (!t && m.owners.length) facts.push(html`<div class="row"><dt>${L`村を持つ国`}</dt><dd>${m.owners.map(f => html`<span class="nowrap">${swatch(f)}${factionName(f)}</span> `)}</dd></div>`);
   return html`<section class="inspect" aria-labelledby="inspect-title">
-    ${cardHead({ id: 'inspect-title', ic: mark, pic: held ? villagePic(site.faction, site.tier ?? 0) : null, title: name ?? L`州 ${m.p},${m.q}`, sub: name ? where : (m.opened ? L`第${m.ring}輪` : L`第${m.ring}輪（まだひらいていません）`), side })}
+    ${cardHead({ id: 'inspect-title', ic: mark, pic: held ? villagePic(site.faction, site.tier ?? 0) : null, title: name ?? provinceName(FS, m.p, m.q), sub: name ? where : (m.opened ? L`第${m.ring}輪` : L`第${m.ring}輪（まだひらいていません）`), side })}
     ${site?.owner ? html`<p class="inspect-owner">${personChip(site.owner, site.faction, { size: 36, full: true, note: L`この村の領主` })}</p>` : ''}
     ${chips.length ? html`<p class="fact-chips">${chips}</p>` : ''}
     ${m.opened && m.level < 3 ? html`<p class="insp-survey">${chip(m.level === 2 ? L`測量済み` : L`未測量`, '', 'chart')}<span class="muted">${m.level === 2 ? L`前に見た範囲です。土地と村を、色を落として描きます。` : L`まだ見ていない範囲です。地形だけを図にしています。`}</span></p>` : ''}
     ${main.length ? html`<div class="actions insp-acts">${main.map((a, i) => btn({ ...a, primary: a.primary && i === main.findIndex(x => x.primary) }))}</div>` : ''}
     ${hosts}${doing}
-    ${!m.loaded && m.opened ? html`<p class="muted">${L`州の詳しい中身を読み込んでいます…`}</p>` : ''}
+    ${!m.loaded && m.opened ? html`<p class="muted">${L`この州のようすを読み込んでいます…`}</p>` : ''}
     ${fold('i-more', L`くわしく`, html`<dl class="facts">${facts}</dl>${pin ? html`<div class="actions">${html`<button type="button" class="btn small" data-act="${pin.act}" ${dataAttrs(pin.data)}>${icon('pin')}${pin.text}</button>`}</div>` : ''}`)}
   </section>`;
 }

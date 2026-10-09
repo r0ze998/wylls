@@ -8,7 +8,7 @@ import { L } from '../../lang.mjs';
 import { tileHex } from '../fgeo.mjs';
 import { project } from '../../map.mjs';
 import { provincePixel } from '../map/layers.mjs';
-import { tilePlace } from './place.mjs';
+import { tilePlace, provinceName, provinceCoords } from './place.mjs';
 import { upright } from '../map/tilt.mjs';
 
 export const PIN_MAX = 20;
@@ -52,8 +52,11 @@ export function paintPins(ctx, pins, zoom) {
   ctx.restore();
 }
 
-/** A pin's name: the place by what stands there (`FS` gives the provinces and the terrain), else its province. */
-export const pinName = (x, FS = null) => (x.tile === null ? L`州 ${x.p},${x.q}` : tilePlace(FS, x.p, x.q, x.tile));
+/**
+ * A pin's name: the place by what stands there (`FS` gives the provinces and the terrain), else its province in
+ * words; the coordinates follow in brackets (a pin is a bookmark: two of the same name must be told apart).
+ */
+export const pinName = (x, FS = null) => (x.tile === null ? L`${provinceName(FS, x.p, x.q)}（${provinceCoords(x.p, x.q)}）` : tilePlace(FS, x.p, x.q, x.tile));
 
 /** The list (More): each pin goes there or comes off. */
 export function renderPins(pins, FS = null) {

@@ -39,8 +39,8 @@ export const inTime = secs => (secs >= 0 ? L`あと ${countdown(secs)}` : L`${co
 
 /** The faction chip's text, or null before joining. */
 export const factionChip = citizen => (citizen ? factionName(citizen.faction) : null);
-/** The quota chip: sponsored transactions left today (§8.3), or null. */
-export const quotaChip = q => (q && Number.isFinite(Number(q.left)) ? L`中継 残り ${fmtNum(Number(q.left))} 回` : null);
+/** The quota chip: sponsored transactions left (§8.3; the relay pays their fees), or null. Said as what the player can still do. */
+export const quotaChip = q => (q && Number.isFinite(Number(q.left)) ? L`送れる操作 残り ${fmtNum(Number(q.left))} 回` : null);
 
 /** The dock's icons (hud/icons.mjs). */
 export const TAB_ICON = Object.freeze({ map: 'chart', holding: 'home', hosts: 'sword', marches: 'banner', more: 'scroll' });

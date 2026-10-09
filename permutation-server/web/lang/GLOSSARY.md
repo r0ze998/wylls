@@ -296,9 +296,9 @@ unit on the map is 軍勢, a host), so the merged dictionary stays consistent.
 | Japanese | English | Notes |
 |---|---|---|
 | Wylls | Wylls | the game's name |
-| 鐘 / 第N鐘 / 鐘 N | bell / Bell N | the thing in the world that tolls every ten minutes, and the word of the mechanics copy (arrival bell, "resting until Bell 44"); never "tick". The line that ties it to the turn: 「鐘が鳴るたびにターンが進みます」 / "Each time the bell tolls, the turn advances" |
-| ターン / ターン N | turn / Turn N | the HUD's count of bells (UX design section 6, owner brief of 2026-10-09): only the turn dial (`Turn 1,034 · 6:12 left`), the toll banner (「鐘が鳴りました — ターン 43」 / "The bell tolls — Turn 43"), the to-do heading (「このターンにやること」 / "This turn") and the stamps of notifications read "turn", always with the bell icon beside them. Turn N is Bell N Also the counters of the drawer's documents (hud-2): the order's arrival stepper and a march's chip (「ターン 44 に到着」 / "Arrives on turn 44"), the chronicle's and a report's turn stamp, the spectator's turn stepper, the wait's countdown (「次のターンまで」 / "Until the next turn"). Mechanics sentences keep 鐘 / bell. |
-| 州 | province | |
+| 鐘 | bell | the thing in the world that tolls every ten minutes. It is said only for the unnumbered event (「鐘が鳴りました」 / "The bell has tolled", 「次の鐘から」 / "from the next bell") and in the help's one line that ties it to the turn: 「鐘が鳴るたびにターンが進みます」 / "Each time the bell tolls, the turn advances". Never numbered (no 第N鐘, no Bell N), never "tick" |
+| ターン / ターン N | turn / Turn N | the ten-minute step and its number: EVERY numbered reference on the play, practice and spectator pages (UX design 11.13, owner brief of 2026-10-09): the dial (`Turn 1,034 · 6:12 left`), the toll banner (「鐘が鳴りました — ターン 43」 / "The bell has tolled — Turn 43"), lists, the inspector, the order card, the marches, the chronicle, a report's stamp, the spectator's stepper, notifications, the canvas's labels. In a sentence "on turn 43"; as a label "Turn 43". The period is a turn too: 到着のターン / "the arrival turn", このターン / "this turn", ターンの始まり / "when the turn begins" |
+| 州 | province | a province has no name of its own: a person reads it in words, 「ラマールの町のある州」 / "Ramar's Town province" (the viewer's village in it) or 「シンダー方面・第2輪の州」 / "a ring-2 province on Cinder's side" (`hud/place.mjs` provinceName); 「州 2,0」 / "Province 2,0" only under details |
 | 輪 / 第d輪 | ring / Ring d | ring 0 is the Concord |
 | 扇区（本拠の扇区） | wedge (home wedge) | |
 | 辺境区 | March | the 7-province district; capital M |
@@ -307,43 +307,43 @@ unit on the map is 軍勢, a host), so the merged dictionary stays consistent.
 | 国（六つの国） | nation (the six nations) | owner decision W11: formerly 勢力 / 陣営 / faction in the Frontier's player-facing text; code identifiers keep `faction` |
 | 軍勢 | host | |
 | 守備隊 | garrison | |
-| 封（時限式の封） | seal (timelock seal) | |
-| 開封（公開） | reveal | |
-| キーパー | keeper | |
+| 封（時限式の封） | seal (timelock seal) | 封印中 / "sealed" for what is in a seal (never 秘密 / "secret"). The seal's one sentence, the same in the order card, the legend and the help (`hud/glossary.mjs` sealLine): 「行き先と構えは封印され、到着のターンが終わるまで、ほかの人には開けられません。」 / "The destination and the stance are sealed: nobody else can open the seal until the arrival turn ends." |
+| 開封（公開） / 封を開ける | reveal / open the seal | on the play screen 「封が開けられました」 / "The seal has been opened"; "reveal" stays in the details |
+| キーパー | keeper | under More → details only; on the play screen 自動の係 / "automatic services", or nothing (「自動で開けられます」) |
 | チップ | tip | |
-| 撤退比 | retreat ratio | "never" = 0 |
+| 撤退の倍率（旧: 撤退比） | retreat ratio | "never" = 0 |
 | 構え：待機の構え（待機）・突撃・側撃・迎撃・混乱 | stance: Hold, Assault, Flank, Brace, Disarray | the Frontier writes Hold as 待機の構え: v9's bare 待機 is "Idle" |
 | 探索 / 斥候 | Explore / Scout | |
 | 蛮族の野営地 | barbarian camp | |
 | 保護 | Shield | |
 | 夜番の時間 | vigil hours | |
-| 入植希望 | site ticket | |
+| 村の申し込み（旧: 入植希望） | village request | formerly "site ticket" (UX design 11.13) |
 | 休眠 | dormant | |
-| 敗走 | routed | the 50% loss of an unrevealed march |
-| 本拠へ押し戻された | bounced home | no room, or lost the field with nowhere to fall back; troops lost in the fight stay lost, so no "(no loss)" |
-| 到着枠に入れず押し戻された | bounced without an arrival slot (no loss) | the four largest of a faction take the slots (`BouncedUnranked`) |
-| ビーコン / ビーコン待ち | beacon / awaiting beacon | the drand round anchored on chain |
-| シード / シード待ち | seed / awaiting seed | the bell's random seed |
-| 決着 / 決着処理中 | resolved / resolving | |
+| 敗走 | routed | the 50% loss of a march whose seal was not opened |
+| 村へ押し戻された（旧: 本拠へ押し戻された） | bounced home | no room, or lost the field with nowhere to fall back; troops lost in the fight stay lost, so no "(no loss)" |
+| 村へ押し戻された（同じ国の到着が多すぎたため。損失なし） | bounced home (too many arrivals from your nation; no loss) | the four largest of a nation take the arrival slots (`BouncedUnranked`); 到着枠 / "arrival slot" is not said on the play screen |
+| ビーコン | beacon | the drand round anchored on chain: under More → details and in a report's proof only. On the play screen: 封を開ける鍵 / "the key that opens the seals" (it is that), 公開の乱数 / "public randomness" |
+| 乱数（シード） | seed / randomness | a turn's random seed: details and proofs only. On the play screen: くじ / "the draw" (the village's site), 戦いの運 / "the luck of the battle" |
+| 決着 / 決着中 | resolved / resolving | |
 | 炎 | Flame | doctrine C's display name (I-34) |
 | 練習モード | practice mode | |
 | 観戦 | spectate | as v9 |
 | 中立 | Neutral | faction 6: camps, Free Cities |
-| 区画 | site | one of a province's 12 holding sites |
+| 区画 | site | one of a province's 12 holding sites; on the play screen 村を置ける場所 / "room for a village", 候補地 / "candidate site", never 区画 N |
 | マス | tile | one of a province's 61 hexes |
 | 預け金 | escrow | the refundable Holding-rent escrow of a site ticket |
-| 中継 | relay | pays the fee of sponsored transactions; "relay" in the quota chip |
+| 中継サーバー（中継） | relay | pays the fee of sponsored transactions. On the play screen ゲーム側が立て替えます / "the game covers…"; the counter reads 送れる操作 残り N 回 / "N actions left to send" and shows in the strip only when it runs low |
 | ゲーム内の鍵 | in-game key | the session key; never "session" in the UI |
 | 仮の拠点 / 確定 | provisional holding / final | cohort finality (I-47) |
 | 控えの兵 | reserve | trained troops not yet in a host |
 | 解散 | Dissolve | |
-| 到着の鐘 | arrival bell | |
+| 到着のターン（旧: 到着の鐘） | arrival turn | |
 | 到着枠 | arrival slot | |
 | 衝突 / 衝突の報告 | clash / clash report | |
-| 結末 | fate | a fighter's result in a clash report |
+| 結果（旧: 結末） | result | a fighter's result in a clash report. One word per outcome, the same in the report, the battle on the map, the marches and the chronicle (`fi18n.mjs` FATES): 戦場に残った / Held the field, 隣へ退いた / Withdrew, 村へ押し戻された / Bounced home, 撤退した / Retreated, 壊滅した / Destroyed, 敗走した / Routed. A side's verdict (`fi18n.mjs` VERDICTS): 勝利 / Victory, 撃退 / Repelled (a defender saw the attackers off), 持ちこたえた / Held (both sides remain), 壊滅 / Destroyed (nothing remains), 撤退 / Retreat, 敗北 / Defeat, 共倒れ / Both sides fell, 野営地を制圧 / Camp cleared |
 | このブラウザで確かめる | Verify in this browser | |
 | もしも | what if | practice on a verified report |
-| 精算 / 精算する | settled / settle | SettleTransit, SettleExplore |
+| 結果を受け取る（旧: 精算する） | collect the result | SettleTransit, SettleExplore; 精算 / "settle" is not said on the play screen |
 | 年代記 | chronicle | |
 | ガイド | guide | the onboarding card |
 | 地図の操作 | map controls | the zoom and "my holding" buttons |

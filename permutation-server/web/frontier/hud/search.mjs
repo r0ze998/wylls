@@ -6,7 +6,7 @@ import { html } from '../../util.mjs';
 import { L, lang } from '../../lang.mjs';
 import { factionName } from '../fi18n.mjs';
 import { provincePixel } from '../map/layers.mjs';
-import { identityOf, displayName } from '../people/identity.mjs';
+import { identityOf, displayName, placeName } from '../people/identity.mjs';
 import { majority } from './minimap.mjs';
 
 export const SEARCH_MAX = 8;
@@ -48,7 +48,7 @@ export function searchMap(query, { recs = new Map(), roster = null, sitesOf = ()
     const names = [displayName(id, { full: true, language: 'en' }), displayName(id, { full: true, language: 'ja' })].map(norm);
     if (!names.some(n => n.includes(q)) || !seenSite(e.p, e.q, e.site)) continue;
     const tile = sitesOf(e.p, e.q)?.[e.site];
-    out.push({ kind: 'lord', text: L`${displayName(id, { full: true })}（州 ${e.p},${e.q}）`, p: e.p, q: e.q, tile: Number.isInteger(tile) ? tile : undefined });
+    out.push({ kind: 'lord', text: L`${displayName(id, { full: true })}（${placeName(e.p, e.q, e.site)[lang() === 'en' ? 'en' : 'ja']}）`, p: e.p, q: e.q, tile: Number.isInteger(tile) ? tile : undefined });
   }
   return out.slice(0, SEARCH_MAX);
 }

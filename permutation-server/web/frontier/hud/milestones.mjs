@@ -2,7 +2,7 @@
 // Rise and Fall's timeline): the first holding, its confirmation, the first
 // march, the first battle held, a holding's tier rising, a ring opening.
 // When one is reached the viewer's leader says a line in a small banner (not
-// a modal, gone on its own); every milestone keeps its bell, and More shows
+// a modal, gone on its own); every milestone keeps its turn, and More shows
 // them as the season's timeline. All from state the page already has.
 import { html, raw } from '../../util.mjs';
 import { icon } from './icons.mjs';
@@ -10,6 +10,7 @@ import { L, fmtNum, lang } from '../../lang.mjs';
 import { factionName } from '../fi18n.mjs';
 import { LEADERS, leaderSvg } from '../people/leaders.mjs';
 import { holdingName } from '../people/ui.mjs';
+import { provinceName } from './place.mjs';
 
 export const MILESTONE_KEY = 'ps-fmile:';
 export const BANNER_MS = 12_000;
@@ -21,7 +22,7 @@ const TEXT = {
   'first-holding': { title: x => L`最初の村：${nameOf(x)}`, line: () => L`旗は立った。ここが我らの始まりの地だ。` },
   confirmed: { title: x => L`村が確定：${nameOf(x)}`, line: () => L`もう誰にも奪わせはしない。この地を守り抜け。` },
   'first-march': { title: () => L`最初の出陣`, line: () => L`封は閉じた。行き先を知るのは我らだけだ。` },
-  'first-win': { title: x => L`最初の勝利：州 ${x.p},${x.q}`, line: () => L`見事だ。辺境は勇む者の手に渡る。` },
+  'first-win': { title: x => L`最初の勝利：${provinceName(null, x.p, x.q)}`, line: () => L`見事だ。辺境は勇む者の手に渡る。` },
   'tier-up': { title: x => L`${nameOf(x)}になった`, line: () => L`民が増え、壁が伸びる。次の鐘も怠るな。` },
   ring: { title: x => L`第${x.ring}輪がひらいた`, line: () => L`霧が晴れ、新しい地が見えた。誰より先に向かえ。` },
 };
@@ -83,7 +84,7 @@ export function renderTimeline(record) {
   const list = Object.entries(record?.seen ?? {}).map(([id, x]) => ({ id, ...x })).sort((a, b) => a.bell - b.bell);
   if (!list.length) return '';
   return html`<section aria-labelledby="timeline-title"><h3 id="timeline-title">${L`シーズンの年表`}</h3>
-    <ol class="timeline">${list.map(x => html`<li class="tl-${x.kind}"><span class="tl-bell">${L`第${fmtNum(x.bell)}鐘`}</span> <span>${TEXT[x.kind]?.title(x) ?? x.id}</span>
+    <ol class="timeline">${list.map(x => html`<li class="tl-${x.kind}"><span class="tl-bell">${L`ターン ${fmtNum(x.bell)}`}</span> <span>${TEXT[x.kind]?.title(x) ?? x.id}</span>
       ${Number.isInteger(x.p) ? html` <button type="button" class="btn small" data-act="goto" data-p="${x.p}" data-q="${x.q}">${L`地図で見る`}</button>` : ''}</li>`)}</ol></section>`;
 }
 

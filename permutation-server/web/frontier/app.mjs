@@ -28,7 +28,7 @@ import { NOTE_TEXT, createActions } from './map/actions.mjs';
 import { createLandingBook, landedKey } from './map/landing.mjs';
 import { placeName, villageLine } from './map/names.mjs';
 import { lastWalletName } from '../wallet.mjs';
-import { SEASON_STATUS_TEXT, clientText, factionName, TIERS, BUILDINGS } from './fi18n.mjs';
+import { SEASON_STATUS_TEXT, clientText, factionName, TIERS, BUILDINGS, FATES } from './fi18n.mjs';
 import { L, fmtNum, mountLangToggle, onLangChange, lang } from '../lang.mjs';
 import { toHex } from '../sdk/bytes.mjs';
 import { html, setHtml } from '../util.mjs';
@@ -37,7 +37,8 @@ import { renderTabs, factionChip, quotaChip, mountSheet, PHONE_MAX, row, lamport
 import { cardHead, fold, label } from './screens/parts.mjs';
 import { drawerOf, closeDrawer, drawerTitle, holdsLand, LIFTS, DRAWER_ICON, WIDE, STAGE } from './hud/drawer.mjs';
 import { icon, iconizeMapTools } from './hud/icons.mjs';
-import { hudInsets } from './hud/insets.mjs';
+import { hudInsets, noGoRects } from './hud/insets.mjs';
+import { mountTextures } from './hud/textures.mjs';
 import { createTerrain } from './map/terrain.mjs';
 import { provincePixel } from './map/layers.mjs';
 import { startFx, motion as fxMotion, on as fxOn } from './fx/index.mjs';
@@ -181,7 +182,7 @@ function renderChip() {
   const banner = $('stale-banner');
   if (banner) {
     banner.hidden = !FS.stale.stale;
-    if (FS.stale.stale) banner.textContent = L`表示が ${Math.round(FS.stale.behind)} 秒遅れています。最新の状態が必要な操作の前に再読み込みしてください`;
+    if (FS.stale.stale) banner.textContent = L`表示が ${Math.round(FS.stale.behind)} 秒遅れています。最新の状態が必要な操作の前に再読み込みしてください。`;
   }
 }
 
@@ -225,13 +226,15 @@ function settingsMarkup(FS) {
     <div class="choice-row" role="group" aria-label="${L`音`}"><span class="choice-k">${L`音`}</span><span class="seg">${['on', 'off'].map(v => html`<button type="button" class="seg-btn" data-act="fx-sound" data-v="${v}" aria-pressed="${(fxAudio().muted ? 'off' : 'on') === v ? 'true' : 'false'}">${v === 'on' ? L`オン` : L`オフ`}</button>`)}</span></div>
     ${onboardingCard.renderRestore(FS)}
     <div class="actions"><button type="button" class="btn" data-act="practice-open">${icon('swords')}${L`練習モードを開く`}</button><button type="button" class="btn" data-act="intro-open">${L`タイトルを見る`}</button></div>
-    <p class="link-row"><a href="practice.html">${L`練習`}</a> · <a href="spectate.html">${L`観戦`}</a></p></section>`;
+    <p class="link-row"><a href="practice.html">${L`練習ページ`}</a> · <a href="spectate.html">${L`観戦ページ`}</a></p></section>`;
 }
 
 /**
  * "More → details": what a player does not need on the play screen but may want to check — the
- * season's state and its beacon, how the bell's work gets done (the keepers), the rules module,
- * what a march costs (the relay fronts it), and the key kept on this device.
+ * season's state and its beacon, the turn sheet (each turn's pipeline, the sponsored actions left),
+ * how a turn's work gets done (the keepers), the rules module, what a march costs (the relay fronts
+ * it), and the key kept on this device. The internal words (beacon, keeper, lamports, frontier.wasm)
+ * live here and nowhere on the play screen (UX design 11.13).
  */
 export function detailsMarkup(FS) {
   const s = FS.season;
@@ -243,11 +246,12 @@ export function detailsMarkup(FS) {
       ${row(L`シーズン`, status)}
       ${FS.beacon?.kind ? row(L`乱数のビーコン`, FS.beacon.kind === 'test' ? L`テスト用ビーコン` : L`公開ビーコン（drand）`) : ''}
       ${row(L`ルールのモジュール`, FS.kernelError ? L`frontier.wasm を読み込めません（${FS.kernelError}）` : L`frontier.wasm（見込みの計算と報告の確かめに使います）`)}
-      ${FS.land ? row(L`入植希望の預け金（いま要る額）`, lamports(FS.land.escrowNeeded ?? 0n)) : ''}
+      ${FS.land ? row(L`村の申し込みの預け金（いま要る額）`, lamports(FS.land.escrowNeeded ?? 0n)) : ''}
     </dl>
-    <p class="muted">${L`鐘ごとの開封・決着・精算は、キーパーと呼ばれる自動の係が代わりに行います。チップはその報酬です。`}</p>
-    <p class="muted">${L`いまの段階（M1）に賞金はありません。費用はテスト用の SOL で、中継が立て替えます（価値はありません）。`}</p>
-    ${costs.length ? html`${label(L`進軍の費用（単位：ランポート）`)}<ul class="cost-list">${costs.map(c => html`<li><strong>${c.text}</strong><span>${L`チップ`} ${fmtNum(Number(c.tip))} · ${L`進軍の手数料（決着させた人へ）`} ${fmtNum(Number(c.marchFee))} · ${L`封の保証金（精算で戻る）`} ${fmtNum(Number(c.sealBond))} · ${L`合計`} ${fmtNum(Number(c.total))}</span></li>`)}</ul>` : ''}
+    ${bellScreen.render(FS, { bare: true })}
+    <p class="muted">${L`封を開ける、衝突を決着させる、結果を届ける。こうした手続きは、ターンごとに自動の係（キーパー）が代わりに行います。チップはその報酬です。`}</p>
+    <p class="muted">${L`いまの段階に賞金はありません。費用はテスト用の SOL で、ゲーム側（中継サーバー）が立て替えます（価値はありません）。`}</p>
+    ${costs.length ? html`${label(L`進軍の費用（単位：ランポート）`)}<ul class="cost-list">${costs.map(c => html`<li><strong>${c.text}</strong><span>${L`チップ`} ${fmtNum(Number(c.tip))} · ${L`進軍の手数料（決着させた人へ）`} ${fmtNum(Number(c.marchFee))} · ${L`封の保証金（結果を受け取ると戻る）`} ${fmtNum(Number(c.sealBond))} · ${L`合計`} ${fmtNum(Number(c.total))}</span></li>`)}</ul>` : ''}
     <div class="actions"><button type="button" class="btn" data-act="forget">${L`この端末からこのシーズンの鍵を消す`}</button></div>`)}</section>`;
 }
 
@@ -259,12 +263,14 @@ function moreFolds(FS) {
 }
 
 /**
- * What stands in the phone sheet while the drawer is closed (its peek, about a quarter of the
- * screen): the objective of the guide, the village plate and the to-do lines. On desktop these
- * float over the map (`#objective`, `aside#rail`) and the closed drawer is empty.
+ * What stands in the phone sheet while the drawer is closed: the village plate and the one "next
+ * thing" under it (the peek shows these two); the to-do lines below, for a raised sheet. On desktop
+ * the plate floats over the map (`aside#rail`), the next thing is the top strip's button and the
+ * closed drawer is empty.
  */
 export function restMarkup(FS) {
-  return [hud.renderPlate(FS), onboardingCard.renderObjective(FS), hud.renderTodo(FS, { max: 8 })];
+  // (without a village the plate carries its own one button: no second prompt beside it)
+  return [hud.renderPlate(FS), holdsLand(FS) ? hud.renderNextRow(nextNow()) : '', hud.renderTodo(FS, { max: 8, open: true })];
 }
 
 /**
@@ -297,9 +303,9 @@ export function panelMarkup(FS, d = drawerOf(FS)) {
   else if (d.kind === 'marches') {
     // a warning of arrivals stands first; with none, its quiet line closes the screen
     const warned = (FS.incoming ?? []).length > 0;
-    parts.push(warned ? incomingScreen.render(FS) : '', marchScreen.render(FS), trackerScreen.render(FS), reportScreen.renderLinks(myReports(FS), L`あなたの衝突の報告`), warned ? '' : incomingScreen.render(FS));
+    parts.push(warned ? incomingScreen.render(FS) : '', marchScreen.render(FS), trackerScreen.render(FS), reportScreen.renderLinks(myReports(FS), L`あなたの衝突の報告`, { FS }), warned ? '' : incomingScreen.render(FS));
   }
-  else parts.push(feed.renderCentre(FS.feed ?? [], FS.feedFilter ?? 'all'), chronicleScreen.render(FS), reportScreen.renderLinks(reportScreen.clashesFrom(FS.chronicle ?? []), L`最近の衝突`), bellScreen.render(FS),
+  else parts.push(feed.renderCentre(FS.feed ?? [], FS.feedFilter ?? 'all'), chronicleScreen.render(FS), reportScreen.renderLinks(reportScreen.clashesFrom(FS.chronicle ?? []), L`最近の衝突`, { FS }),
     settingsMarkup(FS), renderSurveyHelp(), moreFolds(FS), detailsMarkup(FS));
   return parts;
 }
@@ -339,6 +345,8 @@ export function keepState(el, render, scroller = el) {
   const focusKey = inside && active.matches?.('input, select, textarea') ? keyOf(active) : null;
   const focusAct = inside && !focusKey && scroller && active.matches?.('button, summary, a') ? { key: actOf(active), nth: nthOf(active), tag: active.tagName } : null;
   const top = scroller?.scrollTop ?? 0;
+  // a part that scrolls by itself (the order's body above its seal: `data-scroll`) keeps its place too
+  const inner = scroller ? new Map([...el.querySelectorAll('[data-scroll]')].map(x => [x.dataset.scroll, x.scrollTop])) : new Map();
   render();
   if (typed.size || picked.size || focusKey) for (const x of el.querySelectorAll('input, select, textarea')) {
     const k = keyOf(x);
@@ -350,6 +358,7 @@ export function keepState(el, render, scroller = el) {
   for (const d of folds.size ? el.querySelectorAll('details[data-fold]') : []) { const was = folds.get(d.dataset.fold); if (was !== undefined && d.open !== was) d.open = was; }
   if (focusAct && !el.contains(globalThis.document?.activeElement)) [...el.querySelectorAll(focusAct.tag)].filter(y => actOf(y) === focusAct.key)[Math.max(0, focusAct.nth)]?.focus?.({ preventScroll: true });
   if (scroller && scroller.scrollTop !== top) scroller.scrollTop = top;
+  for (const x of inner.size ? el.querySelectorAll('[data-scroll]') : []) { const y = inner.get(x.dataset.scroll); if (y && x.scrollTop !== y) x.scrollTop = y; }
 }
 
 // ------------------------------------------------------------------ the drawer (hud/drawer.mjs)
@@ -380,7 +389,7 @@ function applyDrawer(d) {
   if (kind === drawerKind) return false;
   drawerKind = kind;
   // what the drawer covers changes while it slides: the map frames its subject again (a camera nobody moved follows)
-  for (const ms of [0, 130, 260, 420]) setTimeout(() => mapRef?.tick(), ms);
+  for (const ms of [0, 130, 260, 420]) setTimeout(() => { mapRef?.tick(); if (ms >= 260) publishNoGo(); }, ms);
   if (sheetRef && phone()) {
     if (!d) sheetRef.set('peek');
     else if (LIFTS.has(d.kind) && sheetRef.state() === 'peek') sheetRef.set('half');
@@ -480,11 +489,12 @@ export function peopleSource() {
     lordOf: (p, q, site) => { const o = rosterRef?.ownerOf(p, q, site); return o ? identityOf(o.tag) : null; },
     bell,
     own: FS.holdings ?? [],
-    columnLabel: d => L`出陣 · 第${fmtNum(d.arriveBell)}鐘に到着`,
+    columnLabel: d => L`出陣 · ターン ${fmtNum(d.arriveBell)} に到着`,
     demo: ART_PREVIEW && ART_Q.get('acts') === '1',
     battles: FS.battles ?? [],
     lossText: n => L`−${fmtNum(n)} 兵`,
-    fateText: f => ({ Stays: L`持ちこたえた`, Withdrew: L`隣へ退いた`, Bounced: L`押し戻された`, Retreated: L`撤退した`, Destroyed: L`壊滅` })[f] ?? null,
+    // (the fates in the report's own words: fi18n.mjs FATES, one vocabulary for an outcome)
+    fateText: f => FATES[f] ?? null,
   } };
   peopleCache.value.battles = (FS.battles ?? []).filter(b => battleLive(b, performance.now() / 1000));
   autoBattles();
@@ -579,8 +589,15 @@ function showMilestone() {
   mileNow = m;
   setHtml(el, milestones.renderBanner(m, FS.citizen?.faction));
   el.hidden = false;
-  mileTimer = setTimeout(closeMilestone, milestones.BANNER_MS);
+  // a phone: the line stands just above the sheet (never over the map's buttons) and leaves after about four seconds or at the first touch
+  const small = phone();
+  if (small) { const top = $('panel')?.getBoundingClientRect?.().top; if (Number.isFinite(top)) el.style.setProperty('--foot', `${Math.max(0, Math.round((globalThis.innerHeight ?? 0) - top + 8))}px`); }
+  mileAt = Date.now();
+  mileTimer = setTimeout(closeMilestone, small ? MILE_PHONE_MS : milestones.BANNER_MS);
 }
+/** How long the leader's line stands on a phone (ms), and when the one on screen appeared. */
+const MILE_PHONE_MS = 4200;
+let mileAt = 0;
 /**
  * The landing of the viewer's village (map/fmap.mjs tellLanding) ends with the leader's first line (UX brief
  * §5.1): the "first village" banner, once the standard stands. Only for a village the page holds.
@@ -866,6 +883,14 @@ function guideNow() {
   if (t - guideCache.at > 1000) guideCache = { at: t, value: guide.guideTarget(FS) };
   return guideCache.value;
 }
+/**
+ * The one "next thing" (UX design 11.11; hud/hud.mjs nextThing): while the guide runs, its step; afterwards the
+ * most pressing to-do item. A viewer without a village has the plate's own button instead (the first minute).
+ */
+function nextNow() {
+  if (FS.mode !== 'play') return null;
+  return hud.nextThing(FS, { guide: holdsLand(FS) ? onboardingCard.objectiveModel(FS) : null, items: pillItems() });
+}
 /** The guide card's "show me": the target in view, and for the first march the card with host and destination filled in. */
 async function guideGo() {
   const g = guide.guideTarget(FS);
@@ -924,16 +949,15 @@ function checkMoments() {
   for (const m of fresh) fxEmit('moment', { ...m, own: (FS.holdings ?? []).some(h => h.p === m.p && h.q === m.q && (h.site === m.site || h.tile === m.tile)) || (m.faction !== undefined && m.faction === FS.citizen?.faction && ['muster', 'depart'].includes(m.kind) && (FS.holdings ?? []).some(h => h.p === m.p && h.q === m.q)) });
 }
 
-/** The waiting view's countdown to the next turn (screens/join.mjs marks the two nodes): its text and its ring, every second. */
+/** The waiting view's one clock (screens/join.mjs waitClock marks the nodes): its text and its ring, every second. */
 function tickTurn() {
   const doc = globalThis.document;
-  const el = doc?.querySelector?.('[data-turn-left]');
+  const el = doc?.querySelector?.('[data-wait-clock]');
   if (!el) return;
-  const t = joinScreen.turnLeft(FS);
-  if (!t) return;
-  const text = countdown(t.left);
-  if (el.textContent !== text) el.textContent = text;
-  doc.querySelector('[data-turn-ring] .ring-fg')?.setAttribute('stroke-dasharray', `${(t.share * 100).toFixed(1)} 100`);
+  const c = joinScreen.waitClock(FS);
+  if (!c) return;
+  if (el.textContent !== c.text) el.textContent = c.text;
+  doc.querySelector('[data-wait-ring] .ring-fg')?.setAttribute('stroke-dasharray', `${(c.share * 100).toFixed(1)} 100`);
 }
 
 function renderHudTick(now) {
@@ -957,12 +981,14 @@ function renderHudTick(now) {
   if (strip) {
     const tokens = FS.mode === 'play' ? hud.resourceModel(hud.activeHolding(FS), now ?? 0) : [];
     strip.hidden = !tokens.length;
-    // the room left of the dial: two tokens on a phone (the two most pressing), more as the strip widens
+    // the room left of the dial: more tokens as the strip widens
     const w = globalThis.innerWidth ?? 1440;
-    setHtmlIfChanged(strip, hud.renderStrip(tokens, FS.resOpen ?? null, w < 900 ? 2 : w < 1040 ? 3 : w < 1280 ? 4 : w < 1600 ? 5 : 8));
+    // (a phone's strip holds them all and scrolls sideways: UX design 11.11)
+    setHtmlIfChanged(strip, hud.renderStrip(tokens, FS.resOpen ?? null, w <= PHONE_MAX ? 8 : w < 900 ? 2 : w < 1040 ? 3 : w < 1280 ? 4 : w < 1600 ? 5 : 8));
     resChanges(strip, tokens);
   }
   renderSound();
+  publishNoGo();
   renderResPop(now ?? 0);
   checkMilestones();
   checkOwnProfile();
@@ -971,16 +997,18 @@ function renderHudTick(now) {
   renderFeed();
   const attn = $('attn-pill');
   if (attn) {
-    const items = FS.mode === 'play' ? pillItems() : [];
-    const text = hud.attentionText(items);
-    attn.hidden = !text;
-    // phones show only the count (the header keeps one row: no layout shift when it appears); the full text is its name
-    const key = text ? `${items[0].kind}|${text}` : '';
-    if (text && attn.dataset.key !== key) {
-      attn.dataset.key = key;
-      attn.setAttribute('aria-label', L`次にやること：${text}`);
-      attn.title = items[0].text ?? text;
-      setHtml(attn, html`${icon(hud.TODO_ICON[items[0].kind] ?? 'flag', 'next-ic')}<span class="attn-long" aria-hidden="true">${text}</span><span class="attn-short" aria-hidden="true">${fmtNum(items.length)}</span>${icon('next', 'next-go')}`);
+    // the one prompt: the guide's step while the guide runs, then the most pressing thing (a press does it: its action is the button's own)
+    const nx = nextNow();
+    attn.hidden = !nx;
+    const steps = $('next-steps');
+    if (steps) { steps.hidden = nx?.kind !== 'guide'; const t = L`ガイドの手順を見る`; if (steps.getAttribute('aria-label') !== t) { steps.setAttribute('aria-label', t); steps.title = t; } }
+    const key = nx ? `${nx.kind}|${nx.act}|${JSON.stringify(nx.data)}|${nx.text}` : '';
+    if (nx && attn.dataset.key !== key) {
+      for (const k of Object.keys(attn.dataset)) delete attn.dataset[k];
+      Object.assign(attn.dataset, Object.fromEntries(Object.entries(nx.data).map(([k, v]) => [k, String(v)])), { key, act: nx.act, next: nx.kind });
+      attn.setAttribute('aria-label', L`次にやること：${nx.text}`);
+      attn.title = nx.hint || nx.text;
+      setHtml(attn, html`${icon(nx.icon, 'next-ic')}${nx.kicker ? html`<span class="next-kicker" aria-hidden="true">${nx.kicker}</span>` : ''}<span class="attn-long" aria-hidden="true"><strong>${nx.title}</strong>${nx.label ? html`<span class="next-do">${nx.label}</span>` : nx.more > 0 ? html`<span class="next-more">${L`ほか ${fmtNum(nx.more)}`}</span>` : ''}</span>${icon('next', 'next-go')}`);
     }
   }
 }
@@ -1207,55 +1235,41 @@ function syncStack(el, items) {
 }
 
 /**
- * The guide's one objective, anchored on the map (UX brief §7.4): while its target tile is in the free part of
- * the picture at the tile view, the chip stands over that tile (the ivory ring on the ground marks the tile; the
- * canvas's own label makes way); otherwise it stands with the plate. Desktop: on a phone it is in the sheet.
- */
-let obAt = null;
-function placeObjective(v, size, lod) {
-  let at = null;
-  // (a landing has the land to itself: the village's name rises where the chip would stand)
-  const g = FS.mode === 'play' && !phone() && lod === 'tile' && !FS.compose && !titleUp() && !mapRef?.landing ? guideNow() : null;
-  const d = g ? drawerOf(FS) : null;
-  if (g && Number.isInteger(g.tile) && (!d || d.kind === 'inspect')) {
-    const h = tileHex(g.p, g.q, g.tile), c = h ? project(h.q, h.r) : null;
-    if (c) {
-      // (where the tile is seen: the board is tilted, map.project)
-      const { x, y } = mapRef?.project ? mapRef.project(c.x, c.y, { box: true }) : { x: (c.x - v.x) * v.zoom + size.width / 2, y: (c.y - v.y) * v.zoom + size.height / 2 }, ins = hudInsets();
-      // above what stands on the tile, and above the village's nameplate when the tile carries one (map.pileTop: UX brief 11.6)
-      const pile = mapRef?.pileTop?.(g.p, g.q, g.tile) ?? null;
-      const top = pile === null ? y - Math.max(62 * v.zoom, 24) - 44 : pile - 16;
-      if (x > ins.left + 200 && x < size.width - ins.right - 200 && top > ins.top + 96 && y < size.height - ins.bottom - 24) at = { x: Math.round(x), y: Math.round(top) };
-    }
-  }
-  const doc = globalThis.document;
-  let el = $('ob-map');
-  if (!el && at && doc?.createElement) { el = doc.createElement('div'); el.id = 'ob-map'; el.className = 'ob-map'; el.hidden = true; $('frontier')?.append(el); }
-  const was = !!obAt;
-  if (at && el && (obAt?.x !== at.x || obAt?.y !== at.y)) { el.style.setProperty('--x', `${at.x}px`); el.style.setProperty('--y', `${at.y}px`); }
-  obAt = at && el ? at : null;
-  if (was !== !!obAt) { renderRail(); mapRef?.tick(); }
-}
-
-/**
- * The bottom-left corner (the to-do lines and the village plate) and the guide's objective.
- * On phones both stand in the sheet's peek instead (restMarkup): one copy in the page, never two.
+ * The bottom-left corner: the to-do tab (its list on demand) and the village plate. On phones both stand
+ * in the sheet instead (restMarkup): one copy in the page, never two. The guide's objective is not here:
+ * it has one place, the "next thing" button of the top strip (renderHudTick; UX design 11.11), and on the
+ * map only the ivory ring on the ground marks its tile (the canvas's label makes way: `guideChip`).
  */
 function renderRail() {
   const small = phone();
   const el = $('rail');
-  // the guide's one objective stands with the plate (UX design 7.4), over the to-do lines; not while the
-  // first-minute stages (the nation choice, the wait) or the list of steps have the screen
-  const d = drawerOf(FS);
-  const show = FS.mode === 'play' && !small && !['join', 'nation', 'wait', 'guide'].includes(d?.kind);
-  const chip = show ? onboardingCard.renderObjective(FS) : '';
-  const onMap = !!obAt && !small && String(chip) !== '';
-  if (el) { setHtmlIfChanged(el, small ? '' : [onMap ? '' : chip, hud.renderRail(FS)]); el.hidden = small || !el.firstElementChild; }
-  const om = $('ob-map');
-  if (om) { setHtmlIfChanged(om, onMap ? chip : ''); om.hidden = !onMap; }
+  if (el) { setHtmlIfChanged(el, small ? '' : hud.renderRail(FS, { todoOpen: !!FS.todoOpen })); el.hidden = small || !el.firstElementChild; }
   const ob = $('objective');
   if (ob && !ob.hidden) ob.hidden = true;
+  publishNoGo();
 }
+
+/**
+ * What the HUD covers, told to the map (UX design 11.6: labels and anchored things keep out of the dial, the
+ * plaques, the plate, the dock, the minimap, the button columns and the open drawer): after the layout changes
+ * the client rectangles go to `globalThis.__wyllsMap?.setNoGo?.(rects)`; `globalThis.__wyllsHud.noGo()` reads
+ * the same list at any time (hud/insets.mjs noGoRects).
+ */
+let noGoKey = '', noGoMap = null, noGoQueued = false;
+function publishNoGo() {
+  if (noGoQueued || !globalThis.requestAnimationFrame) return;
+  noGoQueued = true;
+  requestAnimationFrame(() => {
+    noGoQueued = false;
+    const rects = noGoRects();
+    const key = rects.map(r => `${r.id}:${r.x},${r.y},${r.width},${r.height}`).join('|');
+    const m = globalThis.__wyllsMap ?? null;
+    if (key === noGoKey && m === noGoMap) return;
+    noGoKey = key; noGoMap = m;
+    try { m?.setNoGo?.(rects); } catch (e) { console.error('frontier no-go:', e); }
+  });
+}
+if (globalThis.document) globalThis.__wyllsHud = { noGo: () => noGoRects() };
 
 /**
  * The hover tip (Civ's unit tooltip): who holds the tile and what is
@@ -1276,7 +1290,7 @@ function showTip(hit, at) {
   // the lord out on their land (people/life.mjs): what they are doing
   const lf = owner && FS.life ? lifeAt(FS.life.get(`${hit.p},${hit.q},${t.site}`), FS.nowBell ?? 0, FS.chain?.now() ?? 0) : null;
   if (lf?.lord) lines.push(html`<span class="tip-lord">${lordLine(displayName(identityOf(owner.tag)), lf.doing, L)}</span>`);
-  for (const a of (acts ?? []).filter((a, i, all) => all.findIndex(b => b.kind === a.kind) === i)) lines.push(html`<span class="tip-${a.kind}">${activityText(a)}</span>`);
+  for (const a of (acts ?? []).filter((a, i, all) => all.findIndex(b => b.kind === a.kind) === i)) lines.push(html`<span class="tip-${a.kind}">${activityText(a, inspect.hostInfoOf(FS))}</span>`);
   setHtml(tip, lines.map(l => html`<span class="tip-line">${l}</span>`));
   tip.hidden = false;
   // beside the pointer, inside the part of the map nothing covers (never under the drawer or the sheet)
@@ -1347,7 +1361,17 @@ function renderLenses() {
   const el = $('lenses');
   if (!el) return;
   const cur = FS.view.lens ?? 'realm';
-  setHtmlIfChanged(el, minimap.LENSES.map((l, i) => html`<button type="button" class="lens" data-act="lens" data-lens="${l}" aria-pressed="${l === cur ? 'true' : 'false'}" aria-label="${minimap.LENS_TEXT[l]()}" title="${minimap.LENS_TEXT[l]()} (${i + 1})">${icon(minimap.LENS_ICON[l])}<span class="lens-text" aria-hidden="true">${minimap.LENS_TEXT[l]()}</span></button>`));
+  const open = el.dataset?.open === 'true';
+  // a phone has one layers button that opens the four choices by name (UX design 11.11); wider screens show the four chips
+  setHtmlIfChanged(el, html`<button type="button" class="hud-btn lens-toggle" data-act="lens-menu" aria-expanded="${open ? 'true' : 'false'}" aria-controls="lens-list" aria-label="${L`地図の表示：${minimap.LENS_TEXT[cur]()}`}" title="${L`地図の表示`}">${icon('layers')}</button>
+    <div class="lens-list" id="lens-list">${minimap.LENSES.map((l, i) => html`<button type="button" class="lens" data-act="lens" data-lens="${l}" aria-pressed="${l === cur ? 'true' : 'false'}" aria-label="${minimap.LENS_TEXT[l]()}" title="${minimap.LENS_TEXT[l]()} (${i + 1})">${icon(minimap.LENS_ICON[l])}<span class="lens-text" aria-hidden="true">${minimap.LENS_TEXT[l]()}</span></button>`)}</div>`);
+}
+/** Open or close the phone's list of lenses (a DOM state of the HUD: nothing in the store follows it). */
+function setLensMenu(open) {
+  const el = $('lenses');
+  if (!el?.dataset || (el.dataset.open === 'true') === open) return;
+  el.dataset.open = open ? 'true' : 'false';
+  renderLenses();
 }
 // ------------------------------------------------------------------ map search (hud/search.mjs)
 let searchHits = [];
@@ -1376,6 +1400,7 @@ function setSearch(open, { focus = true } = {}) {
 function setLens(l) {
   if (!minimap.LENSES.includes(l)) return;
   FS.view.lens = l;
+  const el = $('lenses'); if (el?.dataset) el.dataset.open = 'false';
   renderLenses(); renderMinimap(); mapRef?.invalidate();
 }
 
@@ -1392,25 +1417,53 @@ function introLive() {
 function renderIntro() {
   const el = $('intro');
   if (!el || el.hidden) return;
-  setHtmlIfChanged(el, title.render({ mode: FS.mode, live: introLive() }));
+  // the button says where it leads once the viewer's stage is known (intro/title.mjs ctaText)
+  const stage = FS.mode === 'play' && FS.playReady ? FS.land?.stage ?? 'none' : null;
+  setHtmlIfChanged(el, title.render({ mode: FS.mode, live: introLive(), stage }));
+}
+/**
+ * The title is a scene of its own (UX design 11.9): while it stands the page is marked `data-title="up"`, the
+ * game behind it is neither shown nor reachable (the map and the dock are inert; the nation choice does not
+ * open: hud/drawer.mjs reads `FS.titleUp`), and only the sound and language buttons stay with it.
+ */
+function markTitle(up) {
+  FS.titleUp = up;
+  const doc = globalThis.document, body = doc?.body;
+  if (!body?.dataset) return;
+  if (up) body.dataset.title = 'up'; else delete body.dataset.title;
+  for (const el of [$('frontier'), $('tabs')]) if (el) el.inert = up;
 }
 export function openIntro() {
   const el = $('intro');
   if (!el) return;
   el.hidden = false;
+  markTitle(true);
+  // the scene's own art (intro/title.mjs sceneSvg), handed to the stylesheet as an image
+  if (!el.style.getPropertyValue('--intro-art')) el.style.setProperty('--intro-art', title.sceneUrl());
   lastHtml.delete('intro');
   renderIntro();
   el.querySelector('.intro-go')?.focus({ preventScroll: true });
-  // behind the card the camera drifts in from the mist toward this viewer's opening view (the map reads titleUp())
+  // behind the scene the map waits at its opening view's start (the map reads titleUp()); the drawer follows FS.titleUp
   mapRef?.invalidate();
+  invalidate('panel', 'tabs', 'rail');
 }
 export function closeIntro() {
   const el = $('intro');
   if (!el || el.hidden) return;
   el.hidden = true;
+  markTitle(false);
   title.markSeen(globalThis.localStorage);
+  // the scene lifts like a curtain (visual only: the game is already there and usable under it)
+  const doc = globalThis.document;
+  if (!calm() && doc?.createElement && doc.body) {
+    const veil = doc.createElement('div');
+    veil.className = 'intro-out'; veil.setAttribute('aria-hidden', 'true');
+    doc.body.append(veil);
+    setTimeout(() => veil.remove(), 620);
+  }
   $('frontier-map')?.focus({ preventScroll: true });
-  mapRef?.invalidate();   // the drift ends now: the map flies the rest of the way
+  mapRef?.invalidate();   // the wait ends now: the map flies to this viewer's opening view
+  invalidate('panel', 'tabs', 'rail');
 }
 let tollBell = null, urgentBell = null;
 /**
@@ -1534,6 +1587,29 @@ export const HUD_ACTIONS = {
   'search-toggle': () => setSearch(!!$('map-search')?.hidden),
   'search-go': d => { const x = searchHits[num(d.i)]; if (!x) return; goToItem({ ...x, tab: FS.mode === 'play' ? 'map' : undefined }); setSearch(false, { focus: false }); },
   lens: d => setLens(d.lens),
+  'lens-menu': () => setLensMenu($('lenses')?.dataset.open !== 'true'),
+  // the to-do lines wait behind their count: the tab opens and closes the list (on a phone the list is the raised sheet's)
+  'todo-toggle': () => {
+    if (phone()) { sheetRef?.set(sheetRef.state() === 'peek' ? 'half' : 'peek'); return; }
+    FS.todoOpen = !FS.todoOpen; invalidate('rail');
+  },
+  // a candidate place of the wait view (screens/join.mjs): the map is asked to go there (`wylls:fly-to` with the site;
+  // the map's own listener may take it — preventDefault — else the camera flies to the tile itself)
+  'site-go': d => {
+    const p = num(d.p), q = num(d.q), site = num(d.site), i = num(d.i);
+    if (![p, q, site].every(Number.isInteger)) return;
+    const tile = terrainRef?.(p, q)?.sites?.[site];
+    const detail = { p, q, site, index: Number.isInteger(i) ? i : null, tile: Number.isInteger(tile) ? tile : null };
+    let taken = false;
+    try { taken = !globalThis.dispatchEvent?.(new CustomEvent('wylls:fly-to', { detail, cancelable: true })); } catch { /* no events here (tests) */ }
+    if (!taken && mapRef) mapRef.flyTo(Number.isInteger(tile) ? { p, q, tile, zoom: 1.0 } : { p, q, zoom: 0.6 });
+    if (phone() && sheetRef?.state() !== 'peek') sheetRef.set('peek');
+  },
+  // the order's summary line (hud/marchcard.mjs): on a phone it raises the sheet to the whole order; elsewhere the order's top comes into view
+  'order-open': () => {
+    if (phone() && sheetRef) { sheetRef.set(sheetRef.state() === 'peek' ? 'half' : 'peek'); return; }
+    $('panel-body')?.querySelector?.('.order-body')?.scrollTo?.({ top: 0, behavior: calm() ? 'auto' : 'smooth' });
+  },
   goto: d => { leaveReport(); closeResPop(); goToItem({ p: num(d.p), q: num(d.q), tab: 'map' }); },
   'intro-close': () => closeIntro(),
   'intro-open': () => openIntro(),
@@ -1592,7 +1668,7 @@ export const HUD_ACTIONS = {
     FS.attnIdx = ((FS.attnIdx ?? -1) + 1) % items.length;
     goToItem(items[FS.attnIdx]);
   },
-  'attn-go': d => goToItem(hud.attentionItems(FS)[num(d.i)]),
+  'attn-go': d => { FS.todoOpen = false; goToItem(hud.attentionItems(FS)[num(d.i)]); },
   'holding-pick': d => {
     const i = num(d.i), h = FS.holdings?.[i];
     if (!h) return;
@@ -1601,14 +1677,20 @@ export const HUD_ACTIONS = {
   },
 };
 
+/** The relay's sends left at which its count shows in the top strip. */
+export const QUOTA_LOW = 5;
 function renderChips() {
   const f = $('faction-chip');
   const fc = factionChip(FS.citizen);
   // the nation's crest and name (the leader's portrait stands on the village plate); on phones the crest alone
   if (f) { f.hidden = !fc; setHtmlIfChanged(f, fc ? html`${hud.crestSvg(FS.citizen.faction, { size: 26 })}<span class="chip-text">${fc}</span>` : ''); }
+  // the relay's count belongs to More → details (screens/bell.mjs); it stands in the strip only when it runs low
   const q = $('quota-chip');
   const qc = quotaChip(FS.quota);
-  if (q) { q.hidden = !qc; q.textContent = qc ?? ''; }
+  if (q) { q.hidden = !qc || !(Number(FS.quota?.left) <= QUOTA_LOW); q.textContent = qc ?? ''; }
+  // the viewer's stage, for the stylesheet (what has no use before joining is not shown)
+  const body = globalThis.document?.body, stage = FS.mode === 'play' ? FS.land?.stage ?? 'none' : '';
+  if (body?.dataset && body.dataset.stage !== stage) body.dataset.stage = stage;
 }
 
 // ------------------------------------------------------------------ wave 4: report, practice, onboarding (W4-E)
@@ -1752,6 +1834,8 @@ function nationFocus(faction) {
   const f = Number.isInteger(faction) && faction >= 0 && faction < 6 ? faction : null;
   if (f === nationShown) return;
   nationShown = f;
+  // the confirm line says the looked-at nation's leader and creed (screens/join.mjs renders all six; the stylesheet shows one)
+  const panel = $('panel'); if (panel?.dataset) panel.dataset.look = f === null ? '' : String(f);
   try { globalThis.dispatchEvent?.(new CustomEvent('wylls:nation-focus', { detail: { faction: f } })); } catch { /* no events here (tests) */ }
 }
 function mountNationFocus(doc) {
@@ -1783,7 +1867,13 @@ function mountNationLook() {
 
 /** Route the screens' clicks, forms and bound inputs: the wave-4 screens here, the play screens to the controller (game page only). */
 function delegate(doc) {
+  // a press elsewhere puts small things away: the phone's list of lenses; on a phone the leader's line (its first touch)
+  doc.addEventListener('pointerdown', e => {
+    if ($('lenses')?.dataset.open === 'true' && !e.target?.closest?.('#lenses')) setLensMenu(false);
+    if (phone() && mileTimer && Date.now() - mileAt > 350 && !e.target?.closest?.('#mile-banner')) closeMilestone();
+  }, true);
   doc.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && $('lenses')?.dataset.open === 'true') { e.preventDefault(); setLensMenu(false); $('lenses')?.querySelector('.lens-toggle')?.focus({ preventScroll: true }); return; }
     const intro = $('intro');
     if (intro && !intro.hidden && (e.key === 'Escape' || e.key === 'Enter')) { e.preventDefault(); closeIntro(); return; }
     if (e.key === 'Escape' && FS.resOpen) { e.preventDefault(); closeResPop(); return; }
@@ -1908,6 +1998,8 @@ export async function boot() {
   FS.mode = cfg.mode;
   setRelay(cfg.relay);
   FS.chain = new ChainClock();
+  // the materials drawn by code (paper grain, the sheet's uneven edge, cloth, brushed metal): hud/textures.mjs
+  mountTextures();
   mountLangToggle($('lang-box'));
   // The phone bottom sheet (W5-E; mounted here since W6-D, R3); the drawer state drives its height (applyDrawer).
   sheetRef = mountSheet();
@@ -1967,7 +2059,7 @@ export async function boot() {
           lens: FS.view.lens ?? 'realm',
           // incoming risk around the viewer's holdings (hud/hud.mjs attention, controller incoming warnings)
           threats: (FS.incoming ?? []).map(w => ({ p: w.holding.p, q: w.holding.q, tile: w.holding.tile, bell: w.bell })),
-          threatLabel: w => L`来襲 第${fmtNum(w.bell)}鐘`,
+          threatLabel: w => L`来襲 ターン ${fmtNum(w.bell)}`,
           // the bell now (an overview older than the last bell no longer says "a clash this bell")
           bell: FS.nowBell ?? null,
           // what the selected host can do, lit on the map (map/actions.mjs); the route under the pointer; the map's own answer to a tap
@@ -1983,8 +2075,8 @@ export async function boot() {
           // the guide's target of the current step (hud/guide.mjs; "all" only)
           guide: guideNow(),
           guideLabel: guide.guideLabel,
-          // the objective's chip stands at the target (placeObjective): the canvas's own label makes way for it
-          guideChip: !!obAt,
+          // the guide is named in one place, the top strip's button: the canvas's own label makes way (the ivory ring on the ground stays)
+          guideChip: true,
           // holdings' tiers for the far view from the roster (no province loads for a spectator's world map)
           tierOf: (p, q, site) => rosterRef?.tierOf(p, q, site) ?? null,
           // the march being composed: its route, drawn for this browser only (the destination is sealed)
@@ -2016,8 +2108,8 @@ export async function boot() {
       onHover: (hit, at) => { showTip(hit, at); hoverPlan(hit); },
       // the camera centres in the part of the map the HUD leaves free (hud/insets.mjs): the strip, the open drawer, the dock, the phone's sheet
       insets: () => hudInsets(),
-      // what follows the picture on screen: the objective's chip at its target, the minimap's frame while the camera travels
-      onDraw: (v, size, lod) => { placeObjective(v, size, lod); if (map?.cam?.moving) renderMinimap(); },
+      // what follows the picture on screen: the minimap's frame while the camera travels
+      onDraw: () => { if (map?.cam?.moving) renderMinimap(); },
       // Sprite art at tile LOD, opt-in with ?art=1 (docs/frontier/art/tiles/LOD.md).
       art: ART_ON,
     });

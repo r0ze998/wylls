@@ -24,10 +24,15 @@ const gone = (page, text) => page.waitForFunction(t => !document.body.textConten
 
 export const SCENES = [
   {
-    id: 'intro', title: 'title card (first visit)', page: 'index.html', stage: 'holding', intro: true,
+    // (wave 2, UX design 11.9) the title is an opaque scene of its own: while it stands nothing of the game shows
+    // (frontier.screen.mjs checks that for a scene marked `intro`), and its button says where it leads
+    id: 'intro', title: 'title scene (first visit)', page: 'index.html', stage: 'holding', intro: true,
     async go(page) {
       await page.locator('#intro:not([hidden]) .intro-go').waitFor();
-      await page.waitForTimeout(4600);   // the card's entrance has played
+      // the viewer has a village: the button leads back to it (it read "enter the Frontier" until the page knew)
+      await page.waitForFunction(() => /村へ戻る|Back to your village/.test(document.querySelector('.intro-go')?.textContent ?? ''));
+      if ((await page.evaluate(() => document.body.dataset.title)) !== 'up') throw new Error('the page is not marked while the title stands');
+      await page.waitForTimeout(4600);   // the scene's entrance has played
     },
   },
   {
@@ -61,7 +66,8 @@ export const SCENES = [
     // UX brief §4: a player with a village opens on that village, close up, never on the whole world
     id: 'map-open', title: 'map, the opening view: the viewer\'s village at tile LOD', page: 'index.html', stage: 'holding',
     async go(page) {
-      await page.locator('#ob-title').waitFor();
+      // (wave 2: the guide's step is named by the one "next thing" control, not by a chip on the map)
+      await page.locator('#attn-pill[data-next="guide"]').waitFor({ state: 'attached' });
       await page.locator('#frontier-map[data-lod="tile"][data-terrain="ready"]').waitFor();
       const at = await page.evaluate(() => document.getElementById('frontier-map').dataset.lod);
       if (at !== 'tile') throw new Error(`the opening view is at ${at} LOD`);
@@ -81,7 +87,9 @@ export const SCENES = [
     id: 'map-tile', title: 'map, tile LOD with the survey', page: 'index.html', stage: 'holding',
     async go(page) {
       await click(page, '[data-map="home"]');
-      for (let i = 0; i < 16 && !(await page.locator('#frontier-map[data-lod="tile"]').count()); i++) await page.locator('[data-map="in"]').click();
+      // (wave 2: a touch screen has no plus and minus buttons; the key zooms on every size)
+      await page.locator('#frontier-map').focus();
+      for (let i = 0; i < 16 && !(await page.locator('#frontier-map[data-lod="tile"]').count()); i++) await page.keyboard.press('+');
       await page.locator('#frontier-map[data-lod="tile"][data-terrain="ready"]').waitFor();
     },
   },
@@ -91,12 +99,25 @@ export const SCENES = [
     id: 'ticket', title: 'the wait for the village: candidate sites on the chart', page: 'index.html', stage: 'ticket',
     async go(page) {
       // (integration: the wait is the HUD track's waiting view in the drawer, with its countdown to the next turn)
+      // (wave 2, UX design 11.10: one clock — how long until the village is decided; the candidate rows are buttons to their sites)
       await page.locator('.wait-card #join-sites').waitFor();
-      await page.locator('[data-turn-left]').waitFor();
+      const clocks = await page.locator('[data-wait-clock]').count();
+      if (clocks !== 1) throw new Error(`${clocks} clocks in the wait view (one expected)`);
+      if (!/\d/.test(await page.locator('[data-wait-clock]').textContent())) throw new Error('the wait has no figure');
       // (rewritten with §11.10: it waited for the tile view of the first candidate's province. All three sites are
       // framed now; a phone's picture shows them from further out, at the province level, where the far bitmaps
       // carry their painted discs)
       await page.locator('#frontier-map:is([data-lod="tile"][data-terrain="ready"], [data-lod="province"])').waitFor();
+      await page.evaluate(() => { window.__fly = []; addEventListener('wylls:fly-to', e => window.__fly.push(e.detail)); });
+      if ((await page.locator('.site-row[data-act="site-go"]').count()) !== 3) throw new Error('three candidate rows expected');
+      await sheetFull(page);
+      await page.locator('.site-row[data-act="site-go"]').nth(1).click();
+      const fly = await page.evaluate(() => window.__fly);
+      if (fly.length !== 1 || fly[0].index !== 1 || !Number.isInteger(fly[0].site)) throw new Error(`a candidate row did not ask the map to go to its site: ${JSON.stringify(fly)}`);
+      // (the row took a phone's sheet back to its peek: the wait view is shown open again for the picture)
+      await page.locator('#panel[data-drawer="open"] .wait-card').waitFor();
+      const h = page.locator('[data-sheet-handle]');
+      if (await h.isVisible().catch(() => false)) { for (let i = 0; i < 3 && (await page.locator('#panel').getAttribute('data-sheet')) === 'peek'; i++) await h.click(); }
     },
   },
   {
@@ -104,7 +125,7 @@ export const SCENES = [
     async go(page) {
       // (integration: with a village the drawer starts closed; the provisional card stands with the guide's steps, on demand)
       await page.locator('#frontier-map[data-lod="tile"][data-terrain="ready"]').waitFor();
-      await page.locator('[data-act="guide-open"]').first().click();
+      await page.locator('[data-act="guide-open"]:visible').first().click();
       await page.locator('#join-prov').waitFor();
     },
   },
@@ -185,11 +206,15 @@ export const SCENES = [
     },
   },
   {
-    id: 'bell', title: 'bell sheet', page: 'index.html', stage: 'holding',
+    // (hud-4, UX design 11.13: the turn sheet — each turn's pipeline, the sponsored actions left — is no longer a card
+    // of "More"; it stands under "More → details", so the scene opens that fold first)
+    id: 'bell', title: 'turn sheet (More, details)', page: 'index.html', stage: 'holding',
     async go(page) {
       await tab(page, 'more');
-      await page.locator('#bell-title').waitFor();
       await sheetFull(page);
+      await click(page, 'details[data-fold="more-details"] > summary');
+      await page.locator('details[data-fold="more-details"][open] #bell-title').waitFor();
+      await page.locator('details[data-fold="more-details"][open] [data-quota-line]').waitFor();
     },
   },
   {
@@ -215,8 +240,11 @@ export const SCENES = [
     // (it was the seven-chip card under the join flow of a viewer without a village)
     id: 'onboarding', title: 'the guide\'s steps, on demand', page: 'index.html', stage: 'holding',
     async go(page) {
-      await page.locator('.ob-chip #ob-title').waitFor();
-      await click(page, '.ob-chip [data-act="guide-open"]');
+      // (wave 2, UX design 11.11: the guide is named in one place — the "next thing" control of the top strip, or the line
+      // under the plate on a phone — and its steps open from the small button beside it; there is no chip on the map)
+      await page.locator('#attn-pill[data-next="guide"]').waitFor({ state: 'attached' });
+      if (await page.locator('.ob-chip, #ob-map').count()) throw new Error('a second guide surface is on the page');
+      await click(page, '[data-act="guide-open"]:visible');
       await page.locator('#panel-body .checklist').waitFor();
       await page.locator('#panel-body [aria-current="step"]').waitFor();
       await sheetFull(page);

@@ -18,6 +18,7 @@ import { highlights, renderHighlights, provinceFactions } from '../people/ui.mjs
 import { factionName } from '../fi18n.mjs';
 import { swatch } from './shell.mjs';
 import { cardHead, stepper } from './parts.mjs';
+import { provinceName } from '../hud/place.mjs';
 
 /** Recent clash links shown (newest first). */
 export const SPECTATE_REPORTS = 12;
@@ -88,15 +89,15 @@ export function render(FS, { ownerOf = null, standings = '' } = {}) {
   const f = Number.isInteger(w.faction) ? w.faction : null, b = Number.isInteger(w.bell) ? w.bell : null;
   const clashes = reportScreen.clashesFrom(FS.chronicle ?? [], 200)
     .filter(c => (b === null || c.bell === b) && (f === null || provinceFactions(FS.overviews, c.p, c.q).includes(f))).slice(0, SPECTATE_REPORTS);
-  const items = highlights(FS.chronicle, FS.overviews, FS.roster, { limit: 12, faction: f, bell: b });
+  const items = highlights(FS.chronicle, FS.overviews, FS.roster, { limit: 12, faction: f, bell: b, where: (p, q) => provinceName(FS, p, q) });
   const scope = [f !== null ? factionName(f) : null, b !== null ? L`ターン ${fmtNum(b)}` : null].filter(Boolean).join(' · ');
   return [
-    html`<p class="muted how-line">${icon('eye')}${L`ウォレットなしで地図と鐘の進み具合を見られます。`}</p>`,
+    html`<p class="muted how-line">${icon('eye')}${L`ウォレットなしで、地図とターンの進み具合を見られます。`}</p>`,
     html`<section class="vcard" aria-labelledby="watch-hl-title">${cardHead({ id: 'watch-hl-title', ic: 'flag', title: scope ? L`見どころ（${scope}）` : L`見どころ` })}${renderHighlights(items, { go: true })}</section>`,
     renderWatch(FS),
     standings ? html`<details class="watch-mini"><summary>${L`国の順位`}</summary>${standings}</details>` : '',
     FS.chain && FS.clock ? bellScreen.render(FS) : '',
-    reportScreen.renderLinks(clashes, L`最近の衝突`) || html`<p class="muted">${L`まだ衝突はありません`}</p>`,
+    reportScreen.renderLinks(clashes, L`最近の衝突`, { FS }) || html`<p class="muted">${L`まだ衝突はありません`}</p>`,
     chronicleScreen.render(FS),
     FS.record ? html`<p class="as-of">${L`スロット ${fmtNum(FS.record.latestSlot ?? 0)} 時点`}</p>` : '',
   ];

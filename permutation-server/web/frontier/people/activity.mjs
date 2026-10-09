@@ -2,9 +2,10 @@
 // Civilization, you can tell what a character is doing"). Read only from
 // public state — the Province (site mirror, entries, camp), the overview
 // flags, the chronicle (DEPART, EXPLORE) — plus, for the viewer's own
-// holdings, their Holding accounts (build queue). A hidden fact stays
-// hidden: a sealed march has no destination here, a resident's stance is
-// shown only once a clash revealed it.
+// holdings, their Holding accounts (build queue). What is sealed stays
+// sealed: a march on the road has no destination here (the viewer's own
+// says only that they alone can see it), a resident's stance is shown only
+// once a clash revealed it.
 //
 //   tileActivities(entry, ctx) → Map(tile idx → [activity])
 //   activity = {kind, faction, until?, n?, item?, host?}
@@ -25,7 +26,7 @@
 //   dormant    the holding is dormant (its lord has been away)
 //   camp       a barbarian camp
 import { L, fmtNum } from '../../lang.mjs';
-import { BUILDINGS, factionName } from '../fi18n.mjs';
+import { BUILDINGS, factionName, unitCount } from '../fi18n.mjs';
 import { BUILD_ITEMS } from '../fland.mjs';
 import { RULES, staminaAt, DEPART_STAMINA, troopsOf } from '../fmarch.mjs';
 
@@ -106,21 +107,43 @@ export function activitiesFor(entries, ctx) {
   return all;
 }
 
-/** The badge's short label ("城壁 第1,040鐘まで"). */
-export function activityText(a) {
+/**
+ * A host on the road, in one line (UX design 11.13). The viewer's own names its owner and its troops and says who can
+ * see where it goes: 「あなたの槍兵 400 — ターン 43 に到着（行き先はあなたにだけ見えます）」. Anyone else's names its
+ * owner (else its nation) and says the destination is sealed: no destination is ever part of this line.
+ * `info`: `{mine, unit, owner}` of the host (hud/inspect.mjs hostInfoOf), or null when nothing is known of it.
+ */
+function departText(a, info) {
+  const turn = Number.isInteger(a.until) ? fmtNum(a.until) : '—';
+  const n = troopsOf(a.n ?? 0);
+  if (info?.mine) {
+    const mine = info.troops ?? n;
+    return info.unit ? L`あなたの${unitCount(info.unit, mine)} — ターン ${turn} に到着（行き先はあなたにだけ見えます）` : L`あなたの軍勢 ${fmtNum(mine)} — ターン ${turn} に到着（行き先はあなたにだけ見えます）`;
+  }
+  const who = info?.owner ?? (a.faction < 6 ? factionName(a.faction) : null);
+  // (its size is the departure's public mass; a record without one says no number rather than "0")
+  if (n <= 0) return who ? L`${who}の軍勢 — ターン ${turn} に到着（行き先は封印中）` : L`軍勢 — ターン ${turn} に到着（行き先は封印中）`;
+  return who ? L`${who}の軍勢 ${fmtNum(n)} — ターン ${turn} に到着（行き先は封印中）` : L`軍勢 ${fmtNum(n)} — ターン ${turn} に到着（行き先は封印中）`;
+}
+
+/**
+ * What is happening on a tile, one line per activity ("城壁を建設中（ターン 1,040 に完成）"). `hostInfo(id)` names
+ * the host of a line that has one (a march on the road): see `departText`.
+ */
+export function activityText(a, hostInfo = null) {
   const until = Number.isInteger(a.until) ? fmtNum(a.until) : null;
   switch (a.kind) {
-    case 'battle': return L`この鐘で衝突がありました`;
-    case 'depart': return L`出陣中（第${until}鐘に到着、行き先は秘密）`;
-    case 'muster': return L`編成中（第${until}鐘から加わる）`;
-    case 'walls': return L`城壁を建設中（第${until}鐘に完成）`;
+    case 'battle': return L`このターンに衝突がありました`;
+    case 'depart': return departText(a, a.host !== undefined && a.host !== null ? hostInfo?.(String(a.host)) ?? null : null);
+    case 'muster': return L`編成中（ターン ${until} から使えます）`;
+    case 'walls': return L`城壁を建設中（ターン ${until} に完成）`;
     case 'build': return L`${BUILDINGS[BUILD_ITEMS[a.item]?.resource] ?? L`建物`}を建設中`;
-    case 'recruit': return L`守備隊を増員中（第${until}鐘から ${fmtNum(a.n ?? 0)} 兵）`;
+    case 'recruit': return L`守備隊を増員中（ターン ${until} から +${fmtNum(a.n ?? 0)}）`;
     case 'explore': return L`探索中`;
-    case 'rest': return L`休息中（第${until}鐘に回復）`;
+    case 'rest': return L`休息中（ターン ${until} に回復）`;
     case 'guard': return L`駐留中（${fmtNum(a.n ?? 0)} 兵）`;
     case 'garrison': return L`守備隊 ${fmtNum(a.n ?? 0)} 兵`;
-    case 'shield': return L`保護中（第${until}鐘まで攻撃されない）`;
+    case 'shield': return L`保護中（ターン ${until} まで攻撃されません）`;
     case 'dormant': return L`休眠中（領主が留守）`;
     case 'camp': return L`蛮族の野営地（${fmtNum(a.n ?? 0)} 兵）`;
     default: return '';
@@ -128,10 +151,10 @@ export function activityText(a) {
 }
 
 /** One line for a tooltip: "<faction>: <activities>". */
-export function tileSummary(list) {
+export function tileSummary(list, hostInfo = null) {
   if (!list?.length) return '';
   const f = list.find(a => a.faction < 6)?.faction;
-  const body = list.filter((a, i, all) => all.findIndex(b => b.kind === a.kind) === i).map(activityText).join(' · ');
+  const body = list.filter((a, i, all) => all.findIndex(b => b.kind === a.kind) === i).map(a => activityText(a, hostInfo)).join(' · ');
   return f === undefined ? body : L`${factionName(f)}：${body}`;
 }
 

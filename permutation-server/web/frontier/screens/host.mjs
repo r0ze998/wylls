@@ -3,18 +3,19 @@
 // portrait, unit and troops, a state chip (ready, resting, forming, on the
 // march), the stamina as a bar (cap 120, +1 per bell) — with the common
 // action first: "march" (the order is then written on the map), "explore"
-// for scouts, "dissolve" as the quiet one. A host whose march is not
-// settled is locked (HostInTransit) and says so in words.
+// for scouts, "dissolve" as the quiet one. A host whose march's result is
+// not collected yet is locked (HostInTransit) and says so in words.
 import { activeHolding } from '../fstate.mjs';
 import { html, raw } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
-import { UNITS, errorText } from '../fi18n.mjs';
+import { unitCount, errorText } from '../fi18n.mjs';
 import { hostsIn, UNIT_ORDER, SCOUT, actionBlocks } from '../fland.mjs';
 import { RULES, DEPART_STAMINA } from '../fmarch.mjs';
 import { miniCardUrl, MINI_KINDS } from '../people/minis.mjs';
 import { holdingName } from '../people/ui.mjs';
 import { icon } from '../hud/icons.mjs';
-import { cardHead, chip, bar } from './parts.mjs';
+import { provinceName } from '../hud/place.mjs';
+import { cardHead, stamp, bar } from './parts.mjs';
 
 /** Every host of the viewer's first holding in the provinces the page holds (home and destinations). */
 export function hostRows(FS) {
@@ -27,20 +28,20 @@ export function hostRows(FS) {
   return out;
 }
 
-const PENDING_TEXT = { 0: () => '', 1: () => L`出発の支払い待ち`, 2: () => L`分割待ち`, 3: () => L`合流待ち`, 4: () => L`合流される`, 5: () => L`解散待ち（決着のあと控えに戻る）`, 6: () => L`不正な封で失われる` };
+const PENDING_TEXT = { 0: () => '', 1: () => L`出発の手続き中`, 2: () => L`分割待ち`, 3: () => L`合流待ち`, 4: () => L`合流される`, 5: () => L`解散待ち（決着のあと控えに戻る）`, 6: () => L`封が正しくなかったため失われます` };
 
 /** The locked host's line (I-44). */
-export const lockedText = () => L`この軍勢は進軍の精算が済むまで出発・解散・探索できません（精算はふつう自動で済みます）`;
+export const lockedText = () => L`進軍の結果を受け取るまで、この軍勢は出発・解散・探索ができません（ふつうは自動で受け取ります）。`;
 
 /**
  * A host's state in one word for its chip: `{id, text, tone}` — on the
- * march, forming (in the roster from the next bell), resting until a bell,
+ * march, forming (usable from the next bell), resting until a turn,
  * short of the stamina a march needs, or ready.
  */
 export function hostState(r, nowBell) {
   if (r.inTransit || r.state === 3) return { id: 'march', text: L`進軍中`, tone: 'info' };
   if (r.state === 2) return { id: 'forming', text: L`編成中（次の鐘から）`, tone: 'warn' };
-  if (nowBell < r.readyBell) return { id: 'rest', text: L`第${fmtNum(r.readyBell)}鐘まで休息`, tone: 'warn' };
+  if (nowBell < r.readyBell) return { id: 'rest', text: L`ターン ${fmtNum(r.readyBell)} まで休息`, tone: 'warn' };
   if (r.stamina < DEPART_STAMINA) return { id: 'tired', text: L`体力が足りません`, tone: 'warn' };
   return { id: 'ready', text: L`出陣できる`, tone: 'ok' };
 }
@@ -60,13 +61,13 @@ export function render(FS) {
     const blocks = actionBlocks('Depart', ctx(r));
     const st = hostState(r, bell);
     const home = h && r.p === h.p && r.q === h.q && r.tile === h.tile;
-    const name = `${UNITS[UNIT_ORDER[r.unit]]} ${fmtNum(r.troops)}`;
+    const name = unitCount(UNIT_ORDER[r.unit], r.troops);
     return html`<li class="vcard host-card${r.inTransit ? ' locked' : ''}" data-unit="${r.unit}">
       <img class="unit-card f${f}" src="${miniCardUrl(f, MINI_KINDS[r.unit])}" alt="" width="60" height="75" loading="lazy" decoding="async">
       <div class="host-main">
-        <div class="host-top"><strong class="host-name">${name}</strong>${chip(st.text, st.tone)}</div>
+        <div class="host-top"><strong class="host-name">${name}</strong>${stamp(st.text, st.tone)}</div>
         <div class="host-stamina"><span class="host-k">${L`体力`}</span>${bar(r.stamina, RULES.STAMINA_CAP, r.stamina < DEPART_STAMINA ? 'bar-warn' : '')}<span class="host-v">${r.stamina}/${RULES.STAMINA_CAP}</span></div>
-        <p class="host-where">${r.inTransit || r.state === 3 ? L`進軍に出ています` : home ? L`${holdingName(h)}にいます` : L`州 ${r.p},${r.q} にいます`}${r.pending ? html` · ${PENDING_TEXT[r.pending]?.() ?? ''}` : ''}</p>
+        <p class="host-where">${r.inTransit || r.state === 3 ? L`進軍に出ています` : home ? L`${holdingName(h)}にいます` : L`${provinceName(FS, r.p, r.q)}にいます`}${r.pending ? html` · ${PENDING_TEXT[r.pending]?.() ?? ''}` : ''}</p>
       </div>
       <div class="actions host-acts">
         <button type="button" class="btn primary small" data-act="compose" data-host="${String(r.id)}" ${raw(blocks.length || r.stamina < DEPART_STAMINA ? 'disabled' : '')} data-stay="map">${icon('banner')}${L`進軍させる`}</button>

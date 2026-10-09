@@ -32,6 +32,10 @@ const text = x => flat(x).replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<[^>]*>/g
 const JP = /[぀-ヿ㐀-鿿]/;
 /** The machinery's words that leave the play screen (UX design section 6). */
 const INTERNAL = /テスト用ビーコン|キーパー|frontier\.wasm|ランポート|区画 ?\d|マス ?\d|M1|keeper|lamports|test beacon/i;
+// the words UX design 11.13 takes off the play screen (they may stand under "More → details" and in a report's proof):
+// a numbered bell (every number is a turn's), secrecy wording, the beacon, settlement, the seed, the site ticket
+const BANNED_JA = /第[\d,]+鐘|秘密|ビーコン|精算|乱数|入植希望|キーパー|ランポート|区画|M1/;
+const BANNED_EN = /\bbell \d|\bsecret|beacon|\bsettle[ds]?\b|settlement|\bseed\b|site ticket|keeper|lamport/i;
 
 function world({ reserve = [400, 0, 0, 0, 0, 0, 100, 0], entries = null } = {}) {
   const id = seq => hostId({ p: 2, q: 0, site: 3, gen: 1, seq });
@@ -64,15 +68,26 @@ test('the parts: a card head, a fold that keeps its key, bars and rings as SVG g
   assert.deepEqual(Object.keys(RETREAT_PIC), ['never', 'x2', 'x1.5', 'x1', 'x0.5']);
 });
 
-test('the village drawer: five short cards, the common action first, the rest behind folds', () => {
+test('the village drawer: five short parts, the stores as a ruled ledger, the common action first, the rest behind folds', () => {
   setLang('ja');
   const { FS } = world();
   const cards = holdingScreen.render(FS);
   assert.equal(cards.length, 5, 'village, stores, building, troops, the rest');
   const out = flat(cards);
-  assert.match(out, /<h3 id="holding-title">[^<]+の町<\/h3><span class="c-sub">町 · 州 2,0<\/span>/, 'the name first, then its tier and where');
+  // (hud-4, UX design 11.13: names before coordinates. Under the name stand the tier and the nation; the province's
+  // coordinates are a row of the village's details, and nowhere else on the card)
+  assert.match(out, /<h3 id="holding-title">[^<]+の町<\/h3><span class="c-sub">町 · [^<0-9]+<\/span>/, 'the name first, then its tier and its nation');
+  const [upper, facts] = out.split('data-fold="v-facts"');
+  assert.doesNotMatch(text(upper), /州 -?\d/, 'no coordinates above the details');
+  assert.match(facts, /<dt>場所<\/dt><dd>州 2,0<\/dd>/, 'the coordinates are a row of the details');
+  assert.doesNotMatch(text(out), BANNED_JA);
   assert.match(out, /<header class="c-head"><span class="c-pic"><img src="[^"]+town_o_ember\.webp"/, 'the village as the map paints it');
-  assert.equal((out.match(/<li class="store/g) ?? []).length, 8, 'eight stores as tokens');
+  // (wave 2, UX design 11.12: the stores were eight tokens in boxes; they are lines of a ruled ledger now)
+  assert.equal((out.match(/<tr class="ledger-row/g) ?? []).length, 8, 'eight stores as lines of the ledger');
+  assert.match(out, /<table class="ledger"><caption class="visually-hidden">資源<\/caption>\s*<thead><tr><th scope="col">品目<\/th><th scope="col">在庫<\/th><th scope="col">上限<\/th><th scope="col">毎時<\/th>/);
+  assert.match(out, /<th scope="row"><svg class="ic ledger-ic"[^>]*><use href="art\/ui\/icons\.svg#grain"\/><\/svg><span class="ledger-name">食料<\/span><\/th>\s*<td class="ledger-val">[\d,]+<\/td>/);
+  assert.match(out, /<span class="stamp-word stamp-(ok|warn)"><span class="stamp-ink">[^<]+<\/span><\/span>/, 'the village\'s state is a stamped word');
+  assert.doesNotMatch(out, /class="store[ "]|stores-grid/);
   assert.match(out, /data-act="harvest"/);
   // building: the queue's size, three buildings in sight (what can go up now first), the rest behind one fold
   const build = String(cards[2]);
@@ -99,13 +114,14 @@ test('the village drawer: five short cards, the common action first, the rest be
   setLang('ja');
 });
 
-test('the hosts drawer: one card per host with a state chip and a stamina bar; the order is written on the map', () => {
+test('the hosts drawer: one entry per host with its state stamped and a stamina bar; the order is written on the map', () => {
   setLang('ja');
   const { FS } = world();
   FS.tab = 'hosts';
   const out = String(hostScreen.render(FS));
   assert.equal((out.match(/<li class="vcard host-card/g) ?? []).length, 2);
-  assert.match(out, /<strong class="host-name">槍兵 600<\/strong><span class="chip chip-ok">出陣できる<\/span>/);
+  // (wave 2: the state is a stamped word, not a pill)
+  assert.match(out, /<strong class="host-name">槍兵 600<\/strong><span class="stamp-word stamp-ok"><span class="stamp-ink">出陣できる<\/span><\/span>/);
   assert.match(out, /<span class="host-v">112\/120<\/span>/);
   assert.match(out, /data-act="compose" data-host="\d+"\s+data-stay="map">/, 'a march is composed on the map');
   assert.equal((out.match(/data-act="explore-open"/g) ?? []).length, 1, 'only the scouts explore');
@@ -144,7 +160,9 @@ test('places by name: what stands on a tile, then its terrain; pins and the chro
   assert.equal(place.tileName(null, 9, 9, 5), '土地', 'nothing known: the land');
   assert.equal(place.tilePlace(FS, 2, 0, 33), '蛮族の野営地（州 2,0）');
   assert.equal(pins.pinName({ p: 2, q: 0, tile: 33 }, FS), '蛮族の野営地（州 2,0）');
-  assert.equal(pins.pinName({ p: 2, q: 0, tile: null }, FS), '州 2,0');
+  // (hud-4, UX design 11.13: a pinned province is said in words first; its coordinates follow in brackets, since a pin is a bookmark)
+  assert.match(pins.pinName({ p: 2, q: 0, tile: null }, FS), /の町のある州（州 2,0）$/);
+  assert.equal(pins.pinName({ p: 1, q: 1, tile: null }, FS), 'アステル方面・第2輪の州（州 1,1）');
   // the village as the map paints it, for its card and the inspector: a file of the art for every nation and tier (no 404)
   for (let f = 0; f < 6; f++) for (let tier = 0; tier < 4; tier++) for (const walls of [false, true]) {
     const url = place.villagePic(f, tier, { walls });
@@ -182,21 +200,40 @@ test('"More": cards and folds; the machinery\'s words live under its details and
   FS.beacon = { kind: 'test' };
   FS.clock = { genesisTs: 0, endBell: 10_000 };
   FS.bellItems = [];
-  for (const tab of ['holding', 'hosts', 'marches']) assert.doesNotMatch(text(panelMarkup({ ...FS, tab })), INTERNAL, tab);
+  for (const tab of ['holding', 'hosts', 'marches']) {
+    assert.doesNotMatch(text(panelMarkup({ ...FS, tab })), INTERNAL, tab);
+    assert.doesNotMatch(text(panelMarkup({ ...FS, tab })), BANNED_JA, tab);
+  }
   const more = flat(panelMarkup({ ...FS, tab: 'more' }));
   for (const id of ['feed-title', 'chronicle-title', 'bell-title', 'more-title']) assert.match(more, new RegExp(`id="${id}"`), id);
   for (const k of ['more-pins', 'more-glossary', 'more-details']) assert.match(more, new RegExp(`data-fold="${k}"`), k);
   const [play, details] = more.split('data-fold="more-details"');
   assert.doesNotMatch(text(play), INTERNAL, 'nothing of the machinery before the details');
+  assert.doesNotMatch(text(play), BANNED_JA, 'none of the banned words before the details');
+  // (hud-4, UX design 11.13: the turn sheet — each turn's pipeline and the sponsored actions left — was a card of its
+  // own on "More"; it stands under the details now, and its numbers are turns)
+  assert.doesNotMatch(play, /id="bell-title"/, 'the turn sheet is not a card of the play screen');
+  assert.match(details, /id="bell-title"/, 'the turn sheet stands under More → details');
   const d = text(details);
-  for (const w of ['テスト用ビーコン', 'キーパー', 'frontier.wasm', 'ランポート', 'M1']) assert.ok(d.includes(w), `"${w}" stands under More → details`);
+  for (const w of ['テスト用ビーコン', 'キーパー', 'frontier.wasm', 'ランポート']) assert.ok(d.includes(w), `"${w}" stands under More → details`);
+  assert.doesNotMatch(more, /M1/, 'the milestone\'s code name is nowhere');
+  assert.doesNotMatch(d, /第[\d,]+鐘|入植希望|精算/, 'the details count turns too, and say 村の申し込み and 結果を受け取る');
   assert.match(String(detailsMarkup(FS)), /data-act="forget"/);
-  assert.match(String(bellScreen.render(FS)), /data-quota-line|id="bell-title"/);
+  const sheet = String(bellScreen.render({ ...FS, chain: { now: () => 42 * 600 + 5, offset: () => 0 }, quota: { left: 38 }, bellItems: [{ bell: 42, region: 13, why: 'current' }, { bell: 43, region: 13, why: 'arrival' }] }));
+  assert.match(sheet, /id="bell-title">ターンの進み具合<\/h3>/);
+  assert.match(sheet, /いまはターン 42/);
+  assert.match(sheet, /<strong>ターン 42<\/strong><span class="bell-why">いまのターン · 地域 13<\/span>/);
+  assert.match(sheet, /<strong>ターン 43<\/strong><span class="bell-why">あなたの到着/);
+  assert.match(sheet, /data-quota-line>.*送れる操作 残り 38 回/s, 'the sponsored actions left, as what the player can still send');
+  assert.doesNotMatch(text(sheet), /第[\d,]+鐘|中継 残り|シード|ビーコン待ち/);
   setLang('en');
   const en = text(detailsMarkup(FS));
   assert.doesNotMatch(en, JP, en);
   assert.match(en, /Test beacon/);
   assert.match(en, /keepers/);
+  const playEn = text(flat(panelMarkup({ ...FS, tab: 'more' })).split('data-fold="more-details"')[0]);
+  assert.doesNotMatch(playEn, BANNED_EN, 'the English play screen keeps the same words out');
+  for (const tab of ['holding', 'hosts', 'marches']) assert.doesNotMatch(text(panelMarkup({ ...FS, tab })), BANNED_EN, tab);
   setLang('ja');
 });
 

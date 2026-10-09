@@ -6,7 +6,7 @@
 // "Flame" (I-34). Every program error code of abi.mjs has a text
 // (web-frontier-errors.test.mjs, W3-F, checks it; web-lang checks the
 // English).
-import { L, lazyTable } from '../lang.mjs';
+import { L, lazyTable, fmtNum } from '../lang.mjs';
 import { CIV_COLORS, CIV_NAMES } from '../i18n.mjs';
 import { ERRORS } from './abi.mjs';
 
@@ -27,16 +27,40 @@ export const UNITS = lazyTable({
   Crossbowman: () => L`弩兵`, Knight: () => L`騎士`, Scout: () => L`斥候`, Settler: () => L`開拓者`,
 });
 
+/**
+ * A unit with its count, as a person says it: 「槍兵 600」 / "600 Spearmen" (the English needs the plural, so each
+ * unit has its own line). `unit` is the kernel's name (UNIT_ORDER); `n` whole troops.
+ */
+const UNIT_COUNT = {
+  Spearman: n => L`槍兵 ${n}`, Archer: n => L`弓兵 ${n}`, Horseman: n => L`騎兵 ${n}`, Pikeman: n => L`長槍兵 ${n}`,
+  Crossbowman: n => L`弩兵 ${n}`, Knight: n => L`騎士 ${n}`, Scout: n => L`斥候 ${n}`, Settler: n => L`開拓者 ${n}`,
+};
+export const unitCount = (unit, n) => UNIT_COUNT[unit]?.(fmtNum(n)) ?? L`${fmtNum(n)} 兵`;
+
 /** Stances (plaintext order 0–3). Disarray is a posture state (M3), named for reports. */
 export const STANCES = lazyTable({
   // 待機の構え, not v9's bare 待機 ("Idle"): the stance reads "Hold" (W3-F D9, W5-E copy review).
   Hold: () => L`待機の構え`, Assault: () => L`突撃`, Flank: () => L`側撃`, Brace: () => L`迎撃`, Disarray: () => L`混乱`,
 });
 
-/** Clash fates. */
+/**
+ * What became of a host in a clash: ONE word per outcome of the rules, the same in the report, in the battle on the
+ * map (app.mjs and people/replay.mjs hand it to the effect; fx/battle.mjs keeps the same strings as its default),
+ * in the marches list and in the chronicle (UX design 11.13). The order card's forecast says the same words in the
+ * future tense (hud/marchcard.mjs FATE_SHORT).
+ */
 export const FATES = lazyTable({
-  Stays: () => L`戦場に残った`, Withdrew: () => L`隣の味方の地へ退いた`, Bounced: () => L`本拠へ押し戻された`,
-  Retreated: () => L`撤退比で引き返した（損失なし）`, Destroyed: () => L`壊滅した`, Routed: () => L`敗走した`,
+  Stays: () => L`戦場に残った`, Withdrew: () => L`隣へ退いた`, Bounced: () => L`村へ押し戻された`,
+  Retreated: () => L`撤退した`, Destroyed: () => L`壊滅した`, Routed: () => L`敗走した`,
+});
+/**
+ * The outcome of a clash for one side, in a word (the report's stamp; the title of the battle on the map uses the
+ * same words: fx/battle.mjs verdictTitle): 壊滅 when nothing remains, 撃退 when a defender saw the attackers off,
+ * 撤退 when the viewer's hosts did not stay, 持ちこたえた when both sides remain.
+ */
+export const VERDICTS = lazyTable({
+  won: () => L`勝利`, repelled: () => L`撃退`, held: () => L`持ちこたえた`, fell: () => L`壊滅`, turned: () => L`撤退`,
+  lost: () => L`敗北`, ruin: () => L`共倒れ`, cleared: () => L`野営地を制圧`, arrived: () => L`着いた`, none: () => L`確認待ち`, watch: () => L`決着`,
 });
 
 /** Tiers of a holding. */
@@ -47,12 +71,12 @@ export const DOCTRINE_C = () => L`炎`;
 
 /** The bell pipeline states (clock.mjs PIPELINE) and what they mean to a player. */
 export const PIPELINE_TEXT = lazyTable({
-  open: () => L`受付中：この鐘の到着は封印され、守り手の顔ぶれは鐘の始まりで固定されています`,
-  awaitingBeacon: () => L`ビーコン待ち：鐘のビーコンが記録されると封を開けられます`,
-  revealing: () => L`開封中：封が順に開けられています`,
-  awaitingSeed: () => L`シード待ち：この鐘の乱数が公開されるのを待っています`,
-  resolving: () => L`決着処理中：衝突を解決しています`,
-  resolved: () => L`決着：報告を見られます`,
+  open: () => L`受付中：このターンの到着は封印中です。守り手は、ターンの始まりにそこにいた軍勢で決まっています。`,
+  awaitingBeacon: () => L`開封待ち：ターンが終わり、封を開ける鍵が出るのを待っています。`,
+  revealing: () => L`開封中：封が順に開けられています。`,
+  awaitingSeed: () => L`決着待ち：戦いを決めるくじが出るのを待っています。`,
+  resolving: () => L`決着中：衝突を順に決着させています。`,
+  resolved: () => L`決着：報告を見られます。`,
 });
 
 /** Season status names (effective status, fcodec.effectiveStatus). */
@@ -64,50 +88,50 @@ export const SEASON_STATUS_TEXT = lazyTable({
 // ------------------------------------------------------------------ program errors (§5.4)
 const ERROR_TEXT = {
   BadData: () => L`命令のデータが正しくありません`,
-  BadAccount: () => L`口座が正しくありません`,
-  BadAddress: () => L`口座のアドレスが正しい形ではありません`,
+  BadAccount: () => L`記録の宛先が正しくありません`,
+  BadAddress: () => L`記録の宛先が正しい形ではありません`,
   Auth: () => L`必要な署名がありません`,
   WrongStatus: () => L`シーズンがこの操作をできる状態ではありません`,
   RulesetMismatch: () => L`ルールのハッシュが一致しません`,
-  WrongRound: () => L`ビーコンのラウンドが違います`,
-  NoAnchor: () => L`この鐘のビーコンがまだ記録されていません`,
+  WrongRound: () => L`封を開ける鍵の回が違います`,
+  NoAnchor: () => L`このターンの封を開ける鍵がまだ出ていません`,
   Crypto: () => L`署名の検証に失敗しました`,
   Capacity: () => L`今は空いている土地がありません`,
-  SiteTaken: () => L`その区画はすでに使われています`,
+  SiteTaken: () => L`その場所はすでに使われています`,
   WindowClosed: () => L`開封の受付は終わりました`,
   TooEarly: () => L`まだ早すぎます`,
   Reserved14: () => L`（使われていないコード）`,
   Kernel: () => L`ルールがこの操作を認めません`,
-  Archived: () => L`この鐘はすでに記録庫に移されました`,
-  Bucket: () => L`操作の上限に達しました。少し待ってください`,
+  Archived: () => L`このターンの記録はすでに保管庫に移されました`,
+  Bucket: () => L`操作の上限に達しました。少し待ってください。`,
   NotTopLevel: () => L`直接の取引でしか実行できません`,
   Overflow: () => L`数値が大きすぎます`,
   NotOwner: () => L`あなたのものではありません`,
   Insufficient: () => L`資源か残高が足りません`,
   QueueFull: () => L`建設の列がいっぱいです`,
-  NoTicket: () => L`入植希望がありません`,
+  NoTicket: () => L`村の申し込みがありません`,
   NotFinal: () => L`村がまだ確定していません`,
-  TooManyAccounts: () => L`口座が多すぎます`,
-  NotResident: () => L`この州はまだ前の鐘の決着が済んでいません`,
+  TooManyAccounts: () => L`一度に扱う記録が多すぎます`,
+  NotResident: () => L`この州はまだ前のターンの決着が済んでいません`,
   ProvinceFull: () => L`この州の枠がいっぱいです`,
   HostBusy: () => L`この軍勢は別の命令を待っています`,
   Cooldown: () => L`軍勢が休息中か、体力が足りません`,
   TransitState: () => L`進軍の状態が合いません`,
-  ArrivalBell: () => L`到着の鐘が道のりに合いません`,
+  ArrivalBell: () => L`そのターンには着けません（道のりに合いません）`,
   Path: () => L`道が正しくありません`,
   CommitMismatch: () => L`封の中身が約束と一致しません`,
-  QuotaRefused: () => L`この鐘の到着枠に入れませんでした`,
-  SlotMoved: () => L`到着枠が動きました。もう一度試します`,
-  NeedArrivalDay: () => L`到着記録の口座が必要です`,
+  QuotaRefused: () => L`このターンは同じ国の到着が多く、枠に入れませんでした`,
+  SlotMoved: () => L`到着の順位が変わりました。もう一度試します。`,
+  NeedArrivalDay: () => L`到着の記録がまだ用意されていません`,
   Shielded: () => L`その村は保護中です`,
-  DepartureUnsettled: () => L`出発の精算がまだです`,
+  DepartureUnsettled: () => L`出発の手続きがまだ済んでいません`,
   NotGathered: () => L`到着がまだ集められていません`,
-  OutOfOrder: () => L`鐘の順番が違います`,
-  NotQuiet: () => L`この鐘は静かではありません`,
+  OutOfOrder: () => L`ターンの順番が違います`,
+  NotQuiet: () => L`このターンには到着があります`,
   InputsOpen: () => L`衝突の記録はまだ閉じられません`,
   NotEligible: () => L`払い戻しの対象ではないか、すでに受け取りました`,
   FoldStale: () => L`集計が古くなっています`,
-  TicketState: () => L`入植希望の状態が合いません`,
+  TicketState: () => L`村の申し込みの状態が合いません`,
   NotDormant: () => L`まだ休眠していないか、進軍中です`,
   Explored: () => L`そこはすでに探索されています`,
   SessionExpired: () => L`ゲーム内の鍵の期限が切れました`,
@@ -115,14 +139,14 @@ const ERROR_TEXT = {
   Aborted: () => L`シーズンは中止されました`,
   TipTooLow: () => L`チップが最低額に足りません`,
   AlreadyDone: () => L`すでに済んでいます`,
-  LatchClosed: () => L`この鐘の到着はもう締め切られました`,
-  SeedNotReady: () => L`この鐘の乱数がまだ公開されていません`,
+  LatchClosed: () => L`このターンの到着はもう締め切られました`,
+  SeedNotReady: () => L`このターンの戦いを決めるくじがまだ出ていません`,
   BadPlaintext: () => L`封の中身が正しい命令ではありません`,
   Announce: () => L`シーズンの予告が正しくありません`,
-  ReservedSite: () => L`その区画は予約されています（第0・第1輪）`,
-  HostInTransit: () => L`この軍勢は進軍の精算が済むまで動かせません`,
+  ReservedSite: () => L`その場所は予約されています（第0・第1輪）`,
+  HostInTransit: () => L`この軍勢は、進軍の結果を受け取るまで動かせません`,
   JoinGate: () => L`参加には招待が必要です`,
-  CohortFull: () => L`この州の入植希望の枠がいっぱいです。次の鐘に試してください`,
+  CohortFull: () => L`この州は、このターンの村の申し込みがいっぱいです。次のターンに試してください。`,
   TipNotPreset: () => L`チップは3つの選択肢から選んでください`,
   NotImplemented: () => L`まだ実装されていません`,
 };
@@ -143,32 +167,32 @@ const CLIENT_TEXT = {
   NotFound: () => L`まだ記録がありません`,
   WrongSeason: () => L`別のシーズンの記録です`,
   WrongKey: () => L`頼んだものと違う記録が届きました`,
-  NotQuicknet: () => L`このシーズンのビーコンは quicknet ではありません`,
-  TestBeaconOffLocalnet: () => L`テスト用のビーコンはローカルネットでしか使えません`,
-  PkHashMismatch: () => L`ビーコンの公開鍵がシーズンの記録と一致しません`,
-  SealAuditFailed: () => L`封の自己点検に失敗しました。何も送っていません`,
+  NotQuicknet: () => L`このシーズンの公開乱数は quicknet ではありません`,
+  TestBeaconOffLocalnet: () => L`テスト用の乱数はローカルネットでしか使えません`,
+  PkHashMismatch: () => L`公開乱数の鍵がシーズンの記録と一致しません`,
+  SealAuditFailed: () => L`封の自己点検に失敗しました。何も送っていません。`,
   WasmHashMismatch: () => L`ルールのプログラムが公開されたものと一致しません`,
-  PinMismatch: () => L`シーズンの口座がプログラムから導いたものと一致しません`,
-  RelayMessageChanged: () => L`中継が署名前の取引を書き換えました`,
+  PinMismatch: () => L`シーズンの記録の宛先が、プログラムから導いたものと一致しません`,
+  RelayMessageChanged: () => L`中継サーバーが署名前の取引を書き換えました`,
   // ---- the relay's refusals (permutation-gateway src/frontier, §8.3; W3-F)
-  RelayRejected: () => L`中継がこの取引の形を受け付けませんでした`,
+  RelayRejected: () => L`中継サーバーがこの取引の形を受け付けませんでした`,
   UseRevealRoute: () => L`開封は取引ではなく開封の材料として送ります`,
-  QuotaExceeded: () => L`今日の中継の枠を使い切りました。次のゲーム日まで待ってください`,
+  QuotaExceeded: () => L`今日送れる操作の回数を使い切りました。シーズンの日付が変わると、また送れます。`,
   InviteRequired: () => L`このシーズンに参加するには招待が必要です`,
-  OperatorLowFunds: () => L`中継の支払い用の資金が足りません。しばらくしてから試してください`,
+  OperatorLowFunds: () => L`手数料を立て替える資金が足りません。しばらくしてから試してください。`,
   BadSignature: () => L`署名を確認できませんでした`,
   Duplicate: () => L`同じ取引はすでに送られています`,
   AlreadyProcessed: () => L`同じ取引はすでに送られています`,
-  BlockhashExpired: () => L`取引の期限が切れました。もう一度送ってください`,
-  RateLimited: () => L`送信が速すぎます。少し待ってください`,
+  BlockhashExpired: () => L`取引の期限が切れました。もう一度送ってください。`,
+  RateLimited: () => L`送信が速すぎます。少し待ってください。`,
   ProgramError: () => L`別のプログラムがこの取引を拒みました`,
   SimulationFailed: () => L`試しの実行でこの取引は失敗しました`,
-  SimulationIncomplete: () => L`中継が試しの実行の結果を読めませんでした`,
+  SimulationIncomplete: () => L`中継サーバーが試しの実行の結果を読めませんでした`,
   InvalidTransaction: () => L`取引の形が正しくありません`,
-  KeeperUnavailable: () => L`キーパーにつながっていません。キーパーは鐘のビーコンの後で開封します`,
-  GateUnavailable: () => L`中継が招待の鍵を持っていません`,
+  KeeperUnavailable: () => L`封を開ける係につながっていません。封は、到着のターンが終わったあとに開けられます。`,
+  GateUnavailable: () => L`中継サーバーが招待の鍵を持っていません`,
   InvitesUnavailable: () => L`招待を扱えません`,
-  WorldUnavailable: () => L`シーズンの口座を読めません`,
+  WorldUnavailable: () => L`シーズンの記録を読めません`,
   InsufficientFunds: () => L`残高が足りません`,
   BodyTooLarge: () => L`送る内容が大きすぎます`,
   InvalidJson: () => L`送る内容が読めませんでした`,
@@ -176,11 +200,11 @@ const CLIENT_TEXT = {
   OperatorOnly: () => L`運営者だけの操作です`,
   TokenError: () => L`運営者の鍵が正しくありません`,
   TimeoutError: () => L`時間内に答えがありませんでした`,
-  Unavailable: () => L`いまは使えません。しばらくしてから試してください`,
+  Unavailable: () => L`いまは使えません。しばらくしてから試してください。`,
   // ---- this page's own steps (W3-F)
-  NoRelay: () => L`中継の場所がわかりません`,
+  NoRelay: () => L`中継サーバーの場所がわかりません`,
   NoPin: () => L`シーズンがまだ決まっていません`,
-  BadRelayAnswer: () => L`中継の答えを読めませんでした`,
+  BadRelayAnswer: () => L`中継サーバーの答えを読めませんでした`,
   MessageRefused: () => L`署名する前の点検で取引を止めました`,
   BuildFailed: () => L`取引を組み立てられませんでした`,
   TooLarge: () => L`取引が大きすぎます`,
@@ -189,43 +213,43 @@ const CLIENT_TEXT = {
   WalletRejected: () => L`ウォレットで取り消されました`,
   WalletError: () => L`ウォレットのエラーです`,
   NoWallet: () => L`ウォレットが接続されていません`,
-  NoSession: () => L`ゲーム内の鍵がありません。鍵を作ってください`,
-  SessionMismatch: () => L`このゲーム内の鍵は市民に登録されたものと違います`,
+  NoSession: () => L`ゲーム内の鍵がありません。鍵を作ってください。`,
+  SessionMismatch: () => L`このゲーム内の鍵は、登録されているものと違います`,
   Expired: () => L`取引は期限までに記録されませんでした`,
-  Unconfirmed: () => L`取引がまだ確認できません。あとで状態を確かめます`,
+  Unconfirmed: () => L`取引がまだ確認できません。あとで状態を確かめます。`,
   TransactionFailed: () => L`取引は記録されましたが失敗しました`,
   NotSaved: () => L`この端末に進軍の記録を保存できないため、送りませんでした`,
   BadName: () => L`名前は1〜24文字の文字・数字・空白・「-」「_」「.」で付けてください`,
   BadRoster: () => L`名簿のファイルが読めませんでした`,
   AlreadySent: () => L`この進軍はすでに送られています`,
-  NoKernel: () => L`ルールのモジュールがまだ読み込まれていません`,
-  NoWasm: () => L`このサーバーにはルールのモジュール（frontier.wasm）がまだありません`,
+  NoKernel: () => L`ルールがまだ読み込まれていません`,
+  NoWasm: () => L`このサーバーにはルールのファイルがまだありません`,
   PlannerRefused: () => L`道を探せませんでした`,
   NoPath: () => L`そこまでの道が見つかりません`,
   NoDestination: () => L`行き先を選んでください`,
   BadTile: () => L`そのマスはありません`,
   Stance: () => L`構えを選んでください`,
-  Retreat: () => L`撤退比が正しくありません（0.0001〜6 倍）`,
+  Retreat: () => L`撤退の倍率が正しくありません（0.0001〜6 倍）`,
   NotScout: () => L`探索できるのは斥候だけです`,
   NoClock: () => L`シーズンの時計がまだありません`,
-  WrongRound: () => L`封のラウンドが到着の鐘と合いません`,
-  WorkerFailed: () => L`封の処理が止まりました。もう一度試してください`,
+  WrongRound: () => L`封の回が到着のターンと合いません`,
+  WorkerFailed: () => L`封の処理が止まりました。もう一度試してください。`,
   SealFailed: () => L`封を作れませんでした`,
   BadPoint: () => L`封の点が正しくありません`,
   FoCheck: () => L`封の検査に失敗しました`,
-  BeaconClockMismatch: () => L`ビーコンの時計がシーズンの記録と一致しません`,
-  ChainHashMismatch: () => L`ビーコンのチェーンがシーズンの記録と一致しません`,
-  NoExport: () => L`ルールのモジュールにその関数がありません`,
-  MissingExport: () => L`ルールのモジュールが古いか壊れています`,
-  WasmAbiMismatch: () => L`ルールのモジュールの版が違います`,
+  BeaconClockMismatch: () => L`公開乱数の時計がシーズンの記録と一致しません`,
+  ChainHashMismatch: () => L`公開乱数の系列がシーズンの記録と一致しません`,
+  NoExport: () => L`ルールのファイルにその機能がありません`,
+  MissingExport: () => L`ルールのファイルが古いか壊れています`,
+  WasmAbiMismatch: () => L`ルールのファイルの版が違います`,
   BadEnvelope: () => L`州の記録の形が正しくありません`,
   BadOverview: () => L`全体図の記録の形が正しくありません`,
   BadRecord: () => L`記録を読めませんでした`,
   BadBody: () => L`答えを読めませんでした`,
-  WrongMagic: () => L`口座の種類が違います`,
-  WrongSize: () => L`口座の大きさが違います`,
-  WrongKind: () => L`口座の種類が違います`,
-  BadLayout: () => L`口座の形の表が壊れています`,
+  WrongMagic: () => L`記録の種類が違います`,
+  WrongSize: () => L`記録の大きさが違います`,
+  WrongKind: () => L`記録の種類が違います`,
+  BadLayout: () => L`記録の形の表が壊れています`,
   BadBackup: () => L`鍵のバックアップを読めませんでした`,
   WalletBadSignature: () => L`ウォレットの署名を確認できませんでした`,
   WalletUnsupported: () => L`このウォレットは使えません`,
@@ -271,7 +295,7 @@ export const HOLDING_STATES = lazyTable({
 });
 /** TRANSIT_SETTLED outcomes (flog.TRANSIT_OUTCOMES). */
 export const TRANSIT_OUTCOME_TEXT = lazyTable({
-  Stays: () => L`戦場に残った`, Withdrew: () => L`隣の味方の地へ退いた`, Bounced: () => L`本拠へ押し戻された`, Retreated: () => L`撤退比で引き返した（損失なし）`,
-  Destroyed: () => L`壊滅した`, BouncedUnranked: () => L`到着枠に入れず押し戻された（損失なし）`, Routed: () => L`敗走した（兵・体力・チップの半分を失った）`,
-  BadSeal: () => L`封が不正だったため失われた`,
+  Stays: () => L`戦場に残った`, Withdrew: () => L`隣へ退いた`, Bounced: () => L`村へ押し戻された`, Retreated: () => L`撤退した`,
+  Destroyed: () => L`壊滅した`, BouncedUnranked: () => L`村へ押し戻された（同じ国の到着が多すぎたため。損失なし）`, Routed: () => L`敗走した（兵・体力・チップの半分を失った）`,
+  BadSeal: () => L`封が正しくなかったため失われた`,
 });
