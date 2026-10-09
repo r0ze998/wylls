@@ -24,8 +24,8 @@ import { RADIUS } from '../../map.mjs';
 import { TOWER } from './belltower.mjs';
 import { candidatesBox } from './waitview.mjs';
 
-/** The hero zoom: a hex about 90 to 100 CSS px wide; a little less on a dense screen, where the largest sprites are already stretched (never below the zoom at which every village carries its name tag). */
-export const heroZoom = (dpr = 1) => (dpr >= 1.5 ? 1.2 : 1.3);
+/** The hero zoom: the viewer's own town is some 180 CSS px wide on a desktop (a hex about 115 px); a little less on a phone, whose picture is narrow (never below the zoom at which every village carries its name tag). */
+export const heroZoom = (dpr = 1) => (dpr >= 1.5 ? 1.3 : 1.5);
 /** The opening never waits longer than this for the viewer's record (ms); then the world view. */
 export const OPEN_WAIT_MS = 4000;
 /** How much higher than its target the opening starts (zoom factor). Behind the title the camera waits there (the title is opaque: fmap.mjs open). */

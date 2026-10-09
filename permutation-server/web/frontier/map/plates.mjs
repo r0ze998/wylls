@@ -27,30 +27,41 @@ import { YOU } from './chart.mjs';
 import { upright } from './tilt.mjs';
 import { paintGlyph } from './glyphs.mjs';
 import { OPEN_PASS } from './labelpass.mjs';
+import { VILLAGE } from './village.mjs';
+import { rowScale } from './tilt.mjs';
 
 /**
- * The viewer's own village (world px on its tile; RADIUS is a hex's corner radius):
- *   scale     how much larger than another village it is drawn. Chosen from pictures at 1.8 and 2.0 at the hero zoom
- *             (1440 px at one device pixel per px, 390 px at two): at 1.8 it is the thing the eye goes to; at 2.0
- *             its houses reach under its hosts' heads and its sprite, made for one tile, is stretched 1.3 times
- *             on a desktop and goes soft on a phone. 1.9 keeps the size and most of the edge.
- *   at        where its sprite's middle stands from the tile's centre: a little up, so the ground in front stays clear
+ * The viewer's own village (world px on its tile; RADIUS is a hex's corner radius). Villages are drawn by code
+ * (map/village.mjs), so none is ever stretched:
+ *   scale     how much larger than another village it is drawn. At the hero zoom a town is then some 180 px wide on
+ *             a desktop: wider than its own tile, its palisade reaching a quarter of the way into the tiles on
+ *             either side, and no taller than the tile (the houses in front stay clear).
+ *   at        where the middle of its ground stands from the tile's centre: a little up, so the ground in front stays clear
  *   hosts     where the groups of hosts stand (units of RADIUS and of the tokens' row: people/units.mjs): in front of
- *             the houses, on the tile's lower edge
+ *             the gate, on the tile's lower edge
  *   scaffold  where a building going up stands, and its ring
- *   standard  where the viewer's standard stands (map/ownland.mjs STANDARD_AT is this): beside the houses, to the right
- *   top       the sprite's top above the tile's centre (the plate's leader starts there)
+ *   standard  where the viewer's standard stands (map/ownland.mjs STANDARD_AT is this): beside the ring, to the right
+ *   top       the top of a town's tallest roof above the tile's centre (`villageTop` gives it for every tier)
  */
 export const HERO = Object.freeze({
-  scale: 1.9,
-  at: Object.freeze({ x: -RADIUS * 0.06, y: -RADIUS * 0.2 }),
+  scale: 1.65,
+  at: Object.freeze({ x: 0, y: -RADIUS * 0.12 }),
   hosts: Object.freeze([[[0.46, 0.64]], [[0.5, 0.62], [-0.46, 0.64]], [[0.5, 0.62], [-0.46, 0.64], [0.02, 0.74]]]),
-  scaffold: Object.freeze({ x: -RADIUS * 0.82, y: RADIUS * 0.3 }),
-  standard: Object.freeze({ x: RADIUS * 1.04, y: -RADIUS * 0.26 }),
-  top: RADIUS * 1.19,
+  scaffold: Object.freeze({ x: -RADIUS * 0.6, y: RADIUS * 0.34 }),
+  standard: Object.freeze({ x: RADIUS * 1.36, y: -RADIUS * 0.3 }),
+  top: RADIUS * (VILLAGE.top[1] * 1.65 + 0.12),
 });
-/** A village of any other size: its sprite's top above the tile's centre. */
-export const VILLAGE_TOP = RADIUS * 0.56;
+/** Any other village: how large it is drawn (it keeps inside its own tile), where its ground's middle stands, and a town's top above the tile's centre. */
+export const VILLAGE_SCALE = 1.04;
+export const VILLAGE_AT = Object.freeze({ x: 0, y: -RADIUS * 0.04 });
+export const VILLAGE_TOP = RADIUS * (VILLAGE.top[1] * VILLAGE_SCALE + 0.04);
+/** How a village tile `u` (`{hero, tier}`) is drawn: its scale and where the middle of its ground stands from the tile's centre (world px). */
+export const villagePlace = u => (u?.hero ? { scale: HERO.scale, x: HERO.at.x, y: HERO.at.y } : { scale: VILLAGE_SCALE, x: VILLAGE_AT.x, y: VILLAGE_AT.y });
+/** The top of village tile `u`'s tallest roof above the tile's centre (world px): a plate's leader starts there. */
+export function villageTop(u) {
+  const pl = villagePlace(u), t = Math.max(0, Math.min(3, u?.tier ?? 1));
+  return RADIUS * VILLAGE.top[t] * pl.scale - pl.y;
+}
 /** Plates: other villages are named from this many screen px of hex radius (cities and strongholds from the lower one); badges from PLATE_BADGES_R; at most PLATE_MAX a frame. */
 export const PLATE_MIN_R = 26;
 /** A plate of another's village that would be moved down by more than this (screen px) is left out. */
@@ -187,8 +198,9 @@ export function paintPlate(g, ax, ay, m, S, { k = 1, faction = 0, own = false, m
  * (screen px) and `lean`: how far the plate stands to the side of its anchor (the viewer's own village has its
  * standard on the right: the plate keeps left of the pole).
  */
-export function plateAnchor(u, S, k) {
-  const ax = u.x + (u.hero ? HERO.at.x : 0), ay = u.y - (u.hero ? HERO.top : VILLAGE_TOP);
+export function plateAnchor(u, S, k, row = 1) {
+  // (`row`: how large the village's row is drawn on a tilted board: what stands there is that much taller on screen)
+  const ax = u.x + (u.hero ? HERO.at.x : 0), ay = u.y - villageTop(u) * row;
   const pole = u.hero ? u.x + HERO.standard.x - 8 * k : Infinity;
   return { ax, ay, leader: u.hero ? 14 : 10, lean: Math.min(0, pole - (ax + S.w / 2)) };
 }
@@ -210,13 +222,13 @@ export function paintBuildRing(g, x, y, k, share) {
 /** Where a building going up stands beside village tile `u` (world px), and where its ring floats. */
 export function scaffoldAt(u) {
   const x = u.hero ? u.x + HERO.scaffold.x : u.x - RADIUS * 0.44, y = u.hero ? u.y + HERO.scaffold.y : u.y + RADIUS * 0.22;
-  return { x, y, ring: { x, y: y - RADIUS * 0.62 } };
+  return { x, y, ring: { x, y: y - RADIUS * 0.62 }, rise: RADIUS * 0.62 };
 }
 
 /** How far above a village tile's centre the top of its plate stands, with nothing nudged (screen px at `zoom`): the page's own chip stands above that. */
 export function plateRise(u, zoom, { rows = 2 } = {}) {
   const hero = !!u?.hero;
-  return (hero ? HERO.top : VILLAGE_TOP) * zoom + (hero ? 14 : 10) + (hero ? 26 : 24) + (rows > 1 ? 19 : 0);
+  return villageTop(u) * zoom * (u?.row ?? 1) + (hero ? 14 : 10) + (hero ? 26 : 24) + (rows > 1 ? 19 : 0);
 }
 
 /**
@@ -248,12 +260,12 @@ export function paintPlates(g, { tiles = [], pills = [], constructions = [], hos
   g.save();
   // (a plate that must step aside for the HUD never steps onto the viewer's own village: its sprite is taken first)
   for (const u of list) if (u.hero && !pass.hiddenAt(key(u))) {
-    const w = RADIUS * 1.5, top = HERO.top * 0.86;
+    const w = RADIUS * 1.9, top = villageTop(u) * 0.86 * rowScale(g, u.x, u.y);
     pass.block(u.x, u.y, { x: u.x + HERO.at.x - w / 2, y: u.y - top, w, h: top + RADIUS * 0.3 });
   }
   // (nor onto any other village's houses: a plate the dial pushes aside goes beside its village, not down onto it)
   for (const u of list) if (!u.hero && !pass.hiddenAt(key(u))) {
-    const w = RADIUS * 0.9, top = VILLAGE_TOP * 0.8;
+    const w = RADIUS * 0.9, top = villageTop(u) * 0.8 * rowScale(g, u.x, u.y);
     pass.block(u.x, u.y, { x: u.x - w / 2, y: u.y - top, w, h: top + RADIUS * 0.2 });
   }
   for (const u of list) {
@@ -262,7 +274,7 @@ export function paintPlates(g, { tiles = [], pills = [], constructions = [], hos
     const sight = u.lv === undefined || u.lv >= 3;
     const m = plateModel({ p: u.p, pq: u.pq, site: u.site, tier: u.tier, provisional: !!u.provisional, shield: u.shield, garrison: sight ? u.garrison ?? null : null, hosts: sight ? onVillage.get(key(u)) ?? 0 : 0 }, { badges: u.hero || r >= PLATE_BADGES_R });
     const S = plateSize(g, m, k, { own: !!u.hero, small: !u.hero && r < PLATE_BADGES_R });
-    const { ax, ay, leader, lean } = plateAnchor(u, S, k);
+    const { ax, ay, leader, lean } = plateAnchor(u, S, k, rowScale(g, u.x, u.y));
     const at = pass.place(u.x, u.y, { x: ax + lean - S.w / 2, y: ay - leader * k - S.h, w: S.w, h: S.h }, { keep: false, reach: u.hero ? 150 : undefined });
     if (!at) continue;
     // (another village's plate that the HUD pushes down would land on its own houses: a village half under the dial
@@ -275,7 +287,7 @@ export function paintPlates(g, { tiles = [], pills = [], constructions = [], hos
   if (r >= PLATE_MIN_R) for (const c of constructions) {
     const u = tiles.find(x => x.p === c.p && x.pq === c.q && x.site === c.site && x.state === 1);
     if (!u || pass.hiddenAt(key(u)) || (u.lv !== undefined && u.lv < 3)) continue;
-    const at = scaffoldAt(u).ring, rr = 13 * k;
+    const sc = scaffoldAt(u), at = { x: sc.x, y: sc.y - sc.rise * rowScale(g, u.x, u.y) }, rr = 13 * k;
     const move = pass.place(u.x, u.y, { x: at.x - rr, y: at.y - rr, w: rr * 2, h: rr * 2 }, { free: true });
     if (move) upright(g, u.x, u.y, () => paintBuildRing(g, at.x + move.dx, at.y + move.dy, k, c.share));
   }
@@ -284,11 +296,11 @@ export function paintPlates(g, { tiles = [], pills = [], constructions = [], hos
     if (Number.isInteger(tok.tile) && pass.hiddenAt(`${tok.p},${tok.q},${tok.tile}`)) continue;
     if (tok.onVillage) {
       // (a host that has set out from its village: the faded figure and a seal over it, no number)
-      if (tok.status === 'sealed') upright(g, tok.x, tok.y, () => statusMark(g, tok.x - s * 0.36, tok.y - s * 0.78, 7.5 * k, 'sealed', t));
+      if (tok.status === 'sealed') upright(g, tok.x, tok.y, () => statusMark(g, tok.x - s * 0.36, tok.y - s * 0.78 * rowScale(g, tok.x, tok.y), 7.5 * k, 'sealed', t));
       continue;
     }
     const { w, h } = pillSize(g, k, tok);
-    const cy = tok.y - s * 1.08;
+    const cy = tok.y - s * 1.08 * rowScale(g, tok.x, tok.y);
     const at = pass.place(tok.x, tok.y, { x: tok.x - w / 2, y: cy - h, w, h }, { keep: !!tok.own, reach: 60 });
     if (!at) continue;
     upright(g, tok.x, tok.y, () => unitPill(g, tok.x + at.dx, cy + at.dy, k, { faction: tok.faction, troops: tok.troops, n: tok.n ?? 1, own: !!tok.own, status: tok.status ?? null, text: tok.text ?? null, t, dashed: !!tok.dashed }));

@@ -38,11 +38,12 @@ import { paintMoments } from '../people/moments.mjs';
 import { paintOver as fxOver } from '../fx/engine.mjs';
 import { BOUNDARY_HALO, BOUNDARY_INK, FOG, UNOPENED_FILL, paintSigil, provincePixel, PROVINCE_CIRCUMRADIUS } from './layers.mjs';
 import { applySurvey, fxNow, mutedSprite, paintChart, paintReveal } from './chart.mjs';
-import { upright } from './tilt.mjs';
+import { standing, upright } from './tilt.mjs';
 import { FOG_OF_LEVEL, L2, L3, hexKey } from './survey.mjs';
 import { reducedMotion } from './camera.mjs';
 import { landShape } from './ownland.mjs';
-import { HERO, paintPlates, scaffoldAt } from './plates.mjs';
+import { HERO, paintPlates, scaffoldAt, villagePlace } from './plates.mjs';
+import { villageSprite } from './village.mjs';
 import { OPEN_PASS } from './labelpass.mjs';
 import { paintBellTower, towerSprite } from './belltower.mjs';
 
@@ -864,7 +865,7 @@ export class SpriteArt {
   paint(ctx, entries, { zoom, dpr = 1, artZoom = zoom, terrainAt = () => null, fogAt = () => null, selected = null, viewerFaction = null, demoRoads = false,
     ringsOpen = null, replayRing = null, replayEvery = 6000, engineStage = 0,
     relics = [], waystones = [], demoSpecials = false, rivers = [], demoRivers = false, alliedPairs = [], people = null, far = false,
-    part = null, between = null, stamp = undefined, survey = null, sea = false }) {
+    part = null, between = null, stamp = undefined, survey = null, sea = false, up = null }) {
     // the sprite set of the nearer of the picture and where the camera is going (no change of set at the end of a flight)
     const s = artSize(RADIUS * Math.max(zoom, artZoom) * dpr);
     // the ring-open moment starts when the open ring count grows (or, in the preview, on a timer)
@@ -891,7 +892,9 @@ export class SpriteArt {
     let g = ctx;
     const draw = (img, t) => g.drawImage(img, t.x - s.ax * k, t.y - s.ay * k + TOP_LIFT, s.w * k, s.h * k);
     // what stands on surveyed land out of sight is muted (the far bitmap is muted whole, afterwards: farBitmap)
-    const stand = (img, t) => draw(t.lv === L2 && !far ? mutedSprite(img) : img, t);
+    // what stands on a tile stands upright on the tilted board (map/tilt.mjs standing): about the tile's middle, through `up`
+    const raise = (x, y, fn) => (up && !far ? standing(g, up(x, y), x, y, fn) : fn());
+    const stand = (img, t) => raise(t.x, t.y, () => draw(t.lv === L2 && !far ? mutedSprite(img) : img, t));
     const nearCentre = (t) => { const pc = provinceCentre(t.p, t.pq); return Math.max(Math.abs(t.q - pc.q), Math.abs(t.r - pc.r), Math.abs(t.q + t.r - pc.q - pc.r)) <= 1; };
     const siteGround = (t) => t.site !== undefined && SITE_LAND.has(t.name);
     // the still ground of one tile: its sprite, the Concord's paving, shores and beaches, roads
@@ -1050,12 +1053,15 @@ export class SpriteArt {
         const es = ART_SIZES[Math.min(ART_SIZES.length - 1, ART_SIZES.indexOf(s) + 1)], kk = RADIUS / es.r, m = 2.4;
         const stage = Math.max(0, Math.min(5, engineStage | 0));
         const en = this.image('specials', es.key, `engine_${stage}`);
-        if (en) g.drawImage(en, t.x - es.ax * kk * m, t.y - es.ay * kk * m + TOP_LIFT * m, es.w * kk * m, es.h * kk * m);
+        // (stage 0 is a ring of markers lying on the ground; a raised Engine stands)
+        if (en) (stage > 0 ? raise : (x, y, fn) => fn())(t.x, t.y, () => g.drawImage(en, t.x - es.ax * kk * m, t.y - es.ay * kk * m + TOP_LIFT * m, es.w * kk * m, es.h * kk * m));
         // the bell's tower stands inside the ring of markers until the Engine itself is raised (map/belltower.mjs): the chart's one landmark
         if (stage === 0) {
           const tw = towerSprite(RADIUS * zoom * dpr);
-          if (tw) { const was = g.imageSmoothingEnabled; g.imageSmoothingEnabled = true; g.drawImage(tw.cv, t.x - tw.ox * RADIUS, t.y - tw.oy * RADIUS, tw.w * RADIUS, tw.h * RADIUS); g.imageSmoothingEnabled = was; }
-          else paintBellTower(g, t.x, t.y, RADIUS);
+          raise(t.x, t.y, () => {
+            if (tw) { const was = g.imageSmoothingEnabled; g.imageSmoothingEnabled = true; g.drawImage(tw.cv, t.x - tw.ox * RADIUS, t.y - tw.oy * RADIUS, tw.w * RADIUS, tw.h * RADIUS); g.imageSmoothingEnabled = was; }
+            else paintBellTower(g, t.x, t.y, RADIUS);
+          });
         }
         return;
       }
@@ -1067,7 +1073,7 @@ export class SpriteArt {
       if (t.centre && t.ring === 1) {
         const es = ART_SIZES[Math.min(ART_SIZES.length - 1, ART_SIZES.indexOf(s) + 1)], kk = RADIUS / es.r, m = 1.8;
         const st0 = this.image('specials', es.key, `seat_${ART_FACTIONS[wedgeOf(t.p, t.pq)] ?? 'ember'}`), st = st0 && t.lv === L2 && !far ? mutedSprite(st0) : st0;
-        if (st) g.drawImage(st, t.x - es.ax * kk * m, t.y - es.ay * kk * m + TOP_LIFT * m, es.w * kk * m, es.h * kk * m);
+        if (st) raise(t.x, t.y, () => g.drawImage(st, t.x - es.ax * kk * m, t.y - es.ay * kk * m + TOP_LIFT * m, es.w * kk * m, es.h * kk * m));
         return;
       }
       if (t.ring === 1 && nearCentre(t)) return;
@@ -1082,31 +1088,35 @@ export class SpriteArt {
       const pr = paved ? (t.site === undefined && decor ? this.image('specials', s.key, `concord_plaza_${1 + (t.v % 2)}`) : null)
         : t.river ? this.image('rivers_props', s.key, `${t.name}_${String(t.river).padStart(2, '0')}`)
         : this.image(siteGround(t) ? 'sites_props' : 'props', s.key, `${t.name}_${t.v}`);
-      if (pr) stand(pr, t);
+      // (the Concord's paving and what floats on water lie in the plane)
+      if (pr) { if (paved || t.name === 'water') draw(t.lv === L2 && !far ? mutedSprite(pr) : pr, t); else stand(pr, t); }
       if (opening !== null && t.ring === opening && openFrame < 8) { const c = this.image('fog', s.key, `cloud_1_open_${openFrame}`); if (c) draw(c, t); }
       if (t.camp) { const c = this.image('specials', s.key, 'barbarian_1'); if (c) stand(c, t); }
       if (t.site === undefined) return;
       let img = null;
       if (t.state === 1 && t.owner < 6) {
+        // a village is drawn by code at the size the screen asks for (map/village.mjs): never a stretched sprite.
+        // (the far bitmaps keep the baked art: there a village is a few px; the viewer's own are drawn last, `heroes`)
+        if (!far) { if (!t.hero || g !== ctx) villageOf(t); return shieldOf(t); }
         const tier = ART_TIERS[t.tier] ?? 'hamlet';
         img = this.image('holdings', s.key, `${tier}_${tier === 'stronghold' || t.walls ? 'w' : 'o'}_${ART_FACTIONS[t.owner]}`);
       } else if (t.state === 2) img = this.image('specials', s.key, 'barbarian_1');
       else if (t.state === 5) img = this.image('specials', s.key, 'freecity_town');
       else if (SITE_LAND.has(t.name)) img = this.image('holdings', s.key, 'site');
-      if (img && t.hero && !far) {
-        // the viewer's own village, larger than life about its tile's centre (the largest sprites: it must stay sharp)
-        const es = ART_SIZES[ART_SIZES.length - 1], kk = (RADIUS / es.r) * HERO.scale;
-        const tier = ART_TIERS[t.tier] ?? 'hamlet';
-        const big = es === s ? img : this.image('holdings', es.key, `${tier}_${tier === 'stronghold' || t.walls ? 'w' : 'o'}_${ART_FACTIONS[t.owner]}`) ?? img;
-        const was = g.imageSmoothingQuality; g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
-        // (the sprite's anchor is the tile's ground point; its top face lies TOP_LIFT lower: scaled about the top face's centre)
-        g.drawImage(big, t.x + HERO.at.x - es.ax * kk, t.y + HERO.at.y - (es.ay * kk - TOP_LIFT * HERO.scale), es.w * kk, es.h * kk);
-        g.imageSmoothingQuality = was ?? 'low';
-      } else if (img) stand(img, t);
-      if (t.shield) { const d = this.image('holdings', s.key, 'shield'); if (d) stand(d, t); }
+      if (img) stand(img, t);
+      shieldOf(t);
+    };
+    const shieldOf = (t) => { if (t.shield) { const d = this.image('holdings', s.key, 'shield'); if (d) stand(d, t); } };
+    // a village: its picture for this size on screen (the tilt draws the near rows larger: the picture is made for that)
+    const villageOf = (t) => {
+      const pl = villagePlace(t), U = RADIUS * pl.scale, cx = t.x + pl.x, cy = t.y + pl.y;
+      const v = villageSprite(U * Math.max(zoom, artZoom) * dpr, { tier: t.tier ?? 0, faction: t.owner, walls: !!t.walls, variant: ((t.q * 7 + t.r * 13) & 1) });
+      if (!v) return;
+      const pic = t.lv === L2 ? mutedSprite(v.cv) : v.cv;
+      raise(cx, cy, () => { const was = g.imageSmoothingEnabled; g.imageSmoothingEnabled = true; g.drawImage(pic, cx - v.ox * U, cy - v.oy * U, v.w * U, v.h * U); g.imageSmoothingEnabled = was; });
     };
     // pass 2: props, holdings, cloud sea
-    if (has('props')) for (const t of tiles) propsOf(t);
+    if (has('props')) { for (const t of tiles) propsOf(t); for (const t of tiles) if (t.hero && !t.cloud && t.state === 1 && t.owner < 6 && t.lv >= L2 && !far) villageOf(t); }
     // the far view's bitmap stops here: land, props, holdings, territory (map/sprites.mjs farBitmap)
     if (far || part === 'props') return tiles.length;
     fxOver(ctx, { zoom, tiles });   // idle life over the props, under the hosts: cloud shadows, chimney smoke (fx/idle.mjs)
@@ -1198,15 +1208,16 @@ export class SpriteArt {
         const h = tileHex(tok.p, tok.q, tok.tile);
         // in front: the two tiles below (lower left, lower right); the Engine and a Seat reach further up
         const front = h ? [byHex.get(keyOf(h.q - 1, h.r + 1)), byHex.get(keyOf(h.q, h.r + 1)), byHex.get(keyOf(h.q - 1, h.r + 2))].filter((u, i) => tall(u) && (i < 2 || u.centre)) : [];
-        if (!front.length || !sg) { paintToken(ctx, tok, { s: size, k: 1 / zoom, t, label: false }); pills.push({ tok, s: size }); continue; }
+        if (!front.length || !sg) { paintToken(ctx, tok, { s: size, k: 1 / zoom, t, label: false, up }); pills.push({ tok, s: size }); continue; }
         // the scratch holds the miniature's whole cell (its cast shadow too) and the lunge of a fight
-        const cw = size * MINI_CELL_U, pad = size * 0.2;
+        // (a figure that stands upright on the tilted board is drawn taller and leaning in the plane: room for that)
+        const cw = size * MINI_CELL_U, pad = size * 0.2 + (up ? cw * 0.34 : 0);
         const x0 = Math.floor((tok.x - cw * MINI_ANCHOR[0] - pad) * m.a + m.e), y0 = Math.floor((tok.y - cw * MINI_ANCHOR[1] - pad) * m.d + m.f);
         const w = Math.ceil((cw + pad * 2) * m.a) + 2, hgt = Math.ceil((cw + pad * 2) * m.d) + 2;
         if (sc.width < w || sc.height < hgt) { sc.width = Math.max(sc.width, w); sc.height = Math.max(sc.height, hgt); }
         sg.setTransform(1, 0, 0, 1, 0, 0); sg.globalCompositeOperation = 'source-over'; sg.clearRect(0, 0, sc.width, sc.height);
         sg.setTransform(m.a, 0, 0, m.d, m.e - x0, m.f - y0);
-        paintToken(sg, tok, { s: size, k: 1 / zoom, t, label: false });
+        paintToken(sg, tok, { s: size, k: 1 / zoom, t, label: false, up });
         sg.globalCompositeOperation = 'destination-out';
         g = sg; for (const u of front) propsOf(u); g = ctx;
         ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(sc, 0, 0, w, hgt, x0, y0, w, hgt); ctx.restore();
@@ -1235,7 +1246,7 @@ export class SpriteArt {
     // (other people's scouts, works and moments are live things: in sight only; the viewer's own always)
     const explores = !limited ? people?.explores ?? [] : (people?.explores ?? []).filter(x => (x.host && ownHosts.has(String(x.host))) || (x.tiles ?? []).some(idx => lvAt(x.p, x.q, idx) === L3));
     // (a building's ring is a label: drawn upright with the plates, on the scaffold that stands here)
-    const moving = people ? paintPeople(ctx, { tiles, zoom, explores, marches: people.marches ?? [], constructions: people.constructions ?? [], pills, ring: false, scaffoldAt }) : 0;
+    const moving = people ? paintPeople(ctx, { tiles, zoom, explores, marches: people.marches ?? [], constructions: people.constructions ?? [], pills, ring: false, scaffoldAt, up }) : 0;
     // one-shot moments: harvest yields, a building done, a host setting out, an arrival out of the mist
     const moments = !limited ? people?.moments ?? [] : (people?.moments ?? []).filter(m => (Number.isInteger(m.tile) ? lvAt(m.p, m.q, m.tile) : siteLv(m.p, m.q, m.site)) === L3);
     if (moments.length && RADIUS * zoom >= HOST_FIGURE_MIN_R * 0.8 && paintMoments(ctx, moments, { tiles, k: 1 / zoom, now: (globalThis.performance?.now?.() ?? Date.now()) / 1000 })) this.tokensMoving = true;

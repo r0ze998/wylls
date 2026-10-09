@@ -96,8 +96,9 @@ test('the ground canvas covers the trapezoid at every angle up to its own, and i
     for (const deg of [0, 4, 9, 13, 17, tilt.TILT.deg]) for (const p of tilt.tiltGeo(size, deg).quad()) {
       assert.ok(p.x >= box.left && p.x <= box.left + box.width && p.y >= box.top && p.y <= box.top + box.height, `${size.width}x${size.height} at ${deg}°: (${p.x.toFixed(1)}, ${p.y.toFixed(1)}) is on the canvas`);
     }
-    // not wastefully: under a third more pixels than the box at the brief's sizes
-    if (size === desk || size === phone) assert.ok((box.width * box.height) / (size.width * size.height) < 1.32, `${size.width}: ${(box.width * box.height / (size.width * size.height)).toFixed(3)} of the box`);
+    // not wastefully: under a half more pixels than the box at the brief's sizes (the board is seen from nearer since the
+    // second review, 900 px in place of 1600: its far rows are a sixth narrower and the canvas reaches that much further)
+    if (size === desk || size === phone) assert.ok((box.width * box.height) / (size.width * size.height) < 1.5, `${size.width}: ${(box.width * box.height / (size.width * size.height)).toFixed(3)} of the box`);
     // a world point's place on the ground canvas, by the canvas's own flat view, is its stage point less the canvas's corner
     const view = { x: 812.5, y: -340.25, zoom: 1.3 }, gv = tilt.groundView(view, box), w = { x: 600, y: -700 };
     const stage = fmap.worldToScreen(view, size, w.x, w.y), onCanvas = fmap.worldToScreen(gv, { width: box.width, height: box.height }, w.x, w.y);

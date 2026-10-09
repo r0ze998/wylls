@@ -25,7 +25,7 @@ import { SKIN, HAIR } from './identity.mjs';
 import { lifeAt } from './life.mjs';
 import { paintToken, routePoints, alongPath, paintRoad, scaffold, progressBadge } from './units.mjs';
 import { paintBadge } from './activity.mjs';
-import { upright } from '../map/tilt.mjs';
+import { standing, upright } from '../map/tilt.mjs';
 
 /** Screen px per hex radius from which figures are drawn, and from which every resident is. */
 export const PEOPLE_MIN_R = 22;
@@ -316,7 +316,7 @@ function banner(ctx, x, y, s, faction, t) {
  *   constructions  a scaffold beside the holding, a progress ring and the time left
  * Returns how many movers were drawn (the map keeps animating while any are).
  */
-export function paintPeople(ctx, { tiles = [], zoom = 1, t = (globalThis.performance?.now?.() ?? Date.now()) / 1000, explores = [], marches = [], constructions = [], fogOf = () => 'clear', pills = [], ring = true, scaffoldAt = null } = {}) {
+export function paintPeople(ctx, { tiles = [], zoom = 1, t = (globalThis.performance?.now?.() ?? Date.now()) / 1000, explores = [], marches = [], constructions = [], fogOf = () => 'clear', pills = [], ring = true, scaffoldAt = null, up = null } = {}) {
   const r = RADIUS * zoom;
   if (r < PEOPLE_MIN_R) return 0;
   const k = 1 / zoom, size = RADIUS * 0.66 * zoomBoost(r);
@@ -329,7 +329,7 @@ export function paintPeople(ctx, { tiles = [], zoom = 1, t = (globalThis.perform
     if (!u || !seen(u.fog ?? fogOf(u.p, u.pq))) continue;
     // (`scaffoldAt(u)`: the map says where the scaffold stands on this village; `ring` false: it draws the ring itself, upright, with its labels)
     const { x, y } = scaffoldAt?.(u) ?? { x: u.x - RADIUS * 0.44, y: u.y + RADIUS * 0.22 };
-    scaffold(ctx, x, y, size * 0.9, t);
+    standing(ctx, up?.(x, y) ?? null, x, y, () => scaffold(ctx, x, y, size * 0.9, t));
     if (ring && r >= PEOPLE_FULL_R) progressBadge(ctx, x - size * 0.1, y - size * 0.7, k, c.share ?? 0, c.label ?? '', { side: 'left' });
     n++;
   }
@@ -340,7 +340,7 @@ export function paintPeople(ctx, { tiles = [], zoom = 1, t = (globalThis.perform
     const at = alongPath(pts.length ? pts : [from, to], m.k);
     if (!at) continue;
     paintRoad(ctx, at.samples ?? [from, to], from, m.faction, k, t);
-    paintToken(ctx, { x: at.x, y: at.y + RADIUS * 0.14, faction: m.faction, kind: m.kind ?? 'spearman', troops: m.troops ?? null, own: true, status: 'march', walking: true, face: (at.dx ?? 1) >= 0 ? 1 : -1, text: m.text ?? null }, { s: size, k, t, label: false });
+    paintToken(ctx, { x: at.x, y: at.y + RADIUS * 0.14, faction: m.faction, kind: m.kind ?? 'spearman', troops: m.troops ?? null, own: true, status: 'march', walking: true, face: (at.dx ?? 1) >= 0 ? 1 : -1, text: m.text ?? null }, { s: size, k, t, label: false, up });
     pills.push({ tok: { x: at.x, y: at.y + RADIUS * 0.14, faction: m.faction, troops: m.troops ?? null, own: true, status: 'march', text: m.text ?? null }, s: size });
     n++;
   }
@@ -354,7 +354,7 @@ export function paintPeople(ctx, { tiles = [], zoom = 1, t = (globalThis.perform
     const legs = route.length - 1, period = 7 * legs;
     const k2 = ((t / period) + hash(ex.p, ex.q)) % 1, pos = k2 * legs, leg = Math.min(legs - 1, Math.floor(pos)), f = pos - leg;
     const a = route[leg], b = route[leg + 1];
-    paintToken(ctx, { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f + RADIUS * 0.14, faction: ex.faction ?? 0, kind: 'scout', troops: null, text: '', status: 'explore', walking: true, face: b.x - a.x >= 0 ? 1 : -1 }, { s: size * 0.9, k, t, label: false });
+    paintToken(ctx, { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f + RADIUS * 0.14, faction: ex.faction ?? 0, kind: 'scout', troops: null, text: '', status: 'explore', walking: true, face: b.x - a.x >= 0 ? 1 : -1 }, { s: size * 0.9, k, t, label: false, up });
     n++;
   }
   return n;

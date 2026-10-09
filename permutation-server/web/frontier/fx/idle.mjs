@@ -17,6 +17,8 @@
 // of anything.
 import { RADIUS, FLATTEN } from '../../map.mjs';
 import { hash01, noise1 } from './rand.mjs';
+import { VILLAGE } from '../map/village.mjs';
+import { villagePlace } from '../map/plates.mjs';
 
 const R = RADIUS, TAU = Math.PI * 2;
 /** Idle life is drawn from this many screen px of hex radius (about zoom 0.8). */
@@ -97,8 +99,10 @@ export function paintClouds(ctx, st) {
  * chimneys among its roofs (hex radii from the tile's centre), each a thinner plume than a village's one, so the
  * houses are seen through it.
  */
-export const HERO_CHIMNEYS = Object.freeze([[-0.52, -0.5], [0.34, -0.66], [0.02, 0.02]]);
-const PLUME = Object.freeze({ village: { puffs: 7, r0: 0.15, r1: 0.34, rise: 1.25, drift: 0.55, o: 0.92 }, hero: { puffs: 5, r0: 0.06, r1: 0.17, rise: 0.95, drift: 0.42, o: 0.6 } });
+export const HERO_CHIMNEYS = VILLAGE.chimneys[1];
+/** How high a chimney's mouth stands above its house's ground (units of the village's own radius). */
+const CHIMNEY_UP = 0.3;
+const PLUME = Object.freeze({ village: { puffs: 7, r0: 0.15, r1: 0.34, rise: 1.25, drift: 0.55, o: 0.92 }, other: { puffs: 5, r0: 0.05, r1: 0.15, rise: 0.8, drift: 0.38, o: 0.62 }, hero: { puffs: 5, r0: 0.06, r1: 0.17, rise: 0.95, drift: 0.42, o: 0.55 } });
 
 function plume(ctx, st, x0, y0, seed, P) {
   for (let i = 0; i < P.puffs; i++) {
@@ -123,9 +127,11 @@ export function paintSmoke(ctx, st) {
     if (tile.site === undefined || tile.state !== 1 || !(tile.owner < 6) || !visible(tile) || !inView(st, tile.x, tile.y, R * 2)) continue;
     n++;
     const seed = (tile.q * 73 + tile.r * 151) | 0;
-    if (tile.hero) { HERO_CHIMNEYS.forEach(([cx, cy], i) => plume(ctx, st, tile.x + cx * R, tile.y + cy * R, seed + i * 977, PLUME.hero)); continue; }
-    // from the roofs at the middle of the village (the sprite's centre is the tile's)
-    plume(ctx, st, tile.x + (hash01(seed, 1) - 0.5) * R * 0.24 + R * 0.06, tile.y - R * 0.08, seed, PLUME.village);
+    // from the chimneys the village is drawn with (map/village.mjs): the viewer's own, larger village from each of them, any other from its hall's
+    const pl = villagePlace(tile), spots = VILLAGE.chimneys[Math.max(0, Math.min(3, tile.tier ?? 0))], flip = ((tile.q * 7 + tile.r * 13) & 1) ? -1 : 1;
+    const at = ([cx, cy]) => [tile.x + pl.x + flip * cx * R * pl.scale, tile.y + pl.y + (cy * FLATTEN * 0.8 - CHIMNEY_UP) * R * pl.scale];
+    if (tile.hero) { spots.forEach((c, i) => plume(ctx, st, ...at(c), seed + i * 977, PLUME.hero)); continue; }
+    plume(ctx, st, ...at(spots[0]), seed, PLUME.other);
   }
   return n;
 }

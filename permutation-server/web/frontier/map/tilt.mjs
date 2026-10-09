@@ -43,7 +43,7 @@
  * edge, which is what makes it a board seen from a seat, and the painted props (drawn for a steeper view) are not
  * yet squashed: they lose 6% of their height. Past 22 they would be.
  */
-export const TILT = Object.freeze({ deg: 20, max: 22, perspective: 1600, margin: 10 });
+export const TILT = Object.freeze({ deg: 20, max: 22, perspective: 900, margin: 10 });
 /** The zoom from which the board is fully tilted (below the far view's zoom it lies flat). */
 export const TILT_NEAR = 0.62;
 
@@ -51,6 +51,14 @@ const RAD = Math.PI / 180;
 const clamp01 = x => Math.max(0, Math.min(1, x));
 
 /** `?tilt=<deg>` of an address: the angle (0 to TILT.max), or null when it says nothing. */
+/** `?persp=<px>` of an address: the viewing distance for trials (600 to 4000), or null when it says nothing. */
+export function perspFromQuery(search = '') {
+  const m = /[?&]persp=(\d+(?:\.\d+)?)(?:&|$)/.exec(String(search ?? ''));
+  if (!m) return null;
+  const v = Number(m[1]);
+  return Number.isFinite(v) ? Math.max(600, Math.min(4000, v)) : null;
+}
+
 export function tiltFromQuery(search = '') {
   const m = /[?&]tilt=(-?\d+(?:\.\d+)?)(?:&|$)/.exec(String(search ?? ''));
   if (!m) return null;
@@ -82,14 +90,18 @@ const FLAT = Object.freeze({ deg: 0, flat: true });
 export function tiltGeo(size, deg = 0, perspective = TILT.perspective) {
   const w = size?.width ?? 0, h = size?.height ?? 0, cx = w / 2, cy = h / 2;
   if (!(deg > 0) || !(w > 0) || !(h > 0)) {
-    return { ...FLAT, width: w, height: h, toBox: (x, y) => ({ x, y }), toStage: (x, y) => ({ x, y }), scaleAt: () => 1,
+    return { ...FLAT, width: w, height: h, toBox: (x, y) => ({ x, y }), toStage: (x, y) => ({ x, y }), scaleAt: () => 1, standAt: () => null,
       quad: () => [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }] };
   }
   const s = Math.sin(deg * RAD), c = Math.cos(deg * RAD), P = perspective;
   const scaleAt = sy => P / (P - (sy - cy) * s);
   const toBox = (sx, sy) => { const k = scaleAt(sy); return { x: cx + (sx - cx) * k, y: cy + (sy - cy) * c * k }; };
   const toStage = (bx, by) => { const v = by - cy, dy = (v * P) / (P * c + v * s), k = P / (P - dy * s); return { x: cx + (bx - cx) / k, y: cy + dy }; };
-  return { deg, flat: false, width: w, height: h, toBox, toStage, scaleAt, quad: () => [toStage(0, 0), toStage(w, 0), toStage(w, h), toStage(0, h)] };
+  // what stands on the board at stage point (sx, sy): drawn in the plane, sheared by `sh` per px of height and
+  // `vs` times as tall about its foot, the tilt shows it upright and as large as its row (the inverse of the
+  // tilt's own slope there, times the row's scale)
+  const standAt = (sx, sy) => ({ sh: -((sx - cx) * s) / (P * c), vs: 1 / (c * scaleAt(sy)), k: scaleAt(sy) });
+  return { deg, flat: false, width: w, height: h, toBox, toStage, scaleAt, standAt, quad: () => [toStage(0, 0), toStage(w, 0), toStage(w, h), toStage(0, h)] };
 }
 
 /**
@@ -134,13 +146,27 @@ export function nearQuad(q, x, y, m = 0) {
 }
 
 /**
+ * Draw something that stands on the board with its foot at (x, y) of the context's own units: `m` is what the tilt
+ * asks of it there (`standAt`: `{sh, vs}`), or null on a flat board. The picture is drawn in the plane, sheared and
+ * stretched about its foot so that the tilted stage shows it upright, as tall as it was painted and as large as its row.
+ */
+export function standing(g, m, x, y, draw) {
+  if (!m || !g?.transform) return draw();
+  g.save();
+  g.transform(1, 0, m.sh, m.vs, -m.sh * y, y * (1 - m.vs));
+  try { return draw(); } finally { g.restore(); }
+}
+
+/**
  * Draw something that must stand upright around world point (x, y): on the
  * untransformed label canvas `draw()` runs with that point where the tilted
  * ground shows it and with the map's zoom as its only scale (so a painter
  * written in world px needs no other change); on any other context it simply
  * runs. Returns what `draw` returns.
  */
-const armed = new WeakMap();
+const armed = new WeakMap(), rows = new WeakMap();
+/** How large the row of world point (x, y) is drawn on an armed label canvas (1 on any other context): what stands there is that much taller on screen. */
+export const rowScale = (ctx, x, y) => (ctx && typeof ctx === 'object' ? rows.get(ctx)?.(x, y) : null) ?? 1;
 export function upright(ctx, x, y, draw) {
   const at = ctx && typeof ctx === 'object' ? armed.get(ctx) : null;
   return at ? at(x, y, draw) : draw();
@@ -151,8 +177,9 @@ export function upright(ctx, x, y, draw) {
  * box px of a world point, `zoom` the map's zoom, `ratio` device px per CSS
  * px. `disarmUpright` makes it a plain context again.
  */
-export function armUpright(ctx, { place, zoom, ratio = 1 }) {
+export function armUpright(ctx, { place, zoom, ratio = 1, scaleAt = null }) {
   if (!ctx?.save || !ctx.setTransform) return;
+  if (scaleAt) rows.set(ctx, scaleAt); else rows.delete(ctx);
   armed.set(ctx, (x, y, draw) => {
     const p = place(x, y), k = ratio * zoom;
     ctx.save();
@@ -160,6 +187,6 @@ export function armUpright(ctx, { place, zoom, ratio = 1 }) {
     try { return draw(); } finally { ctx.restore(); }
   });
 }
-export const disarmUpright = ctx => { if (ctx && typeof ctx === 'object') armed.delete(ctx); };
+export const disarmUpright = ctx => { if (ctx && typeof ctx === 'object') { armed.delete(ctx); rows.delete(ctx); } };
 /** Whether `ctx` is armed as the label canvas (its painters draw upright around their anchors). */
 export const isUpright = ctx => !!ctx && typeof ctx === 'object' && armed.has(ctx);

@@ -72,7 +72,7 @@ main { position: fixed; inset: 0; overflow: hidden; }
    the input and carries what must stay upright and crisp (names, pills, tags). Every value comes from the map through
    custom properties. */
 .map-clip { position: absolute; inset: 0; overflow: hidden; background: #0e1b19; }
-.map-stage { position: absolute; inset: 0; transform-origin: 50% 50%; transform: perspective(1600px) rotateX(var(--map-tilt, 0deg)); }
+.map-stage { position: absolute; inset: 0; transform-origin: 50% 50%; transform: perspective(var(--map-persp, 1600px)) rotateX(var(--map-tilt, 0deg)); }
 .map-stage[data-flat] { transform: none; }
 .map-ground { position: absolute; left: var(--map-gl, 0px); top: var(--map-gt, 0px); width: var(--map-gw, 100%); height: var(--map-gh, 100%); display: block; }
 .map-dress, .map-dress::before, .map-dress::after { position: absolute; inset: 0; pointer-events: none; }

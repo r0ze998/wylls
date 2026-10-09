@@ -55,7 +55,7 @@ import { WORKED_RADIUS } from './survey.mjs';
 import { emit as fxEmit } from '../fx/bus.mjs';
 import { createLabelPass, rectOf, tileKeyOf } from './labelpass.mjs';
 import { paintCandidateLabels, paintHomeTag, paintWaitStandard, standardBox, waitLine } from './waitview.mjs';
-import { TILT, armUpright, disarmUpright, groundBox, groundView, nearQuad, tiltAt, tiltFromQuery, tiltGeo, upright } from './tilt.mjs';
+import { TILT, armUpright, disarmUpright, groundBox, groundView, nearQuad, perspFromQuery, standing, tiltAt, tiltFromQuery, tiltGeo, upright } from './tilt.mjs';
 
 /** Fog levels drawn as tiles at tile LOD (a distant province stays a muted cell). */
 export const TILE_FOGS = Object.freeze(['sight', 'known', 'clear']);
@@ -78,7 +78,7 @@ export const LOD_EDGES = Object.freeze({ provinceIn: 0.14, provinceOut: 0.12, ti
 export const ZOOM_MIN = 0.02;
 export const ZOOM_MAX = 2.2;
 /** Home's zoom on a dpr-1 screen (opening.mjs heroZoom): tile detail, the holding and the hosts beside it in view. */
-export const HOME_ZOOM = 1.3;
+export const HOME_ZOOM = 1.5;
 /**
  * The far view is never nearer than this (map/camera.mjs FAR_CAP). It is always the world's level of detail: on a
  * small world, where the far view is nearer than the fixed edges above, the edges follow it (`lodEdges`).
@@ -99,7 +99,7 @@ export const STILL_MAX_PIXELS = 11_000_000;
 /** The picture of the table and the sheet kept under the world has at most this many pixels. */
 export const BACKDROP_PIXELS = 6_000_000;
 /** On a screen of one device pixel per CSS pixel the tilted ground is painted this much finer (the near half of the board is drawn larger than life). */
-export const GROUND_FINER = 1.08;
+export const GROUND_FINER = 1.4;
 /**
  * The page's own things over the map that no label may stand under, until the page says them (`map.setNoGo`): the
  * dial and the strip's two sides, the search button and the objective, the to-do lines and the village plate, the
@@ -411,7 +411,10 @@ export class FrontierMap {
     this.dress = this.stage ? page.getElementById('map-dress') : null;
     /** The tilt at the near view (degrees): the constant chosen from screenshots, `?tilt=` for trials, 0 for the flat map. */
     this.tiltMax = this.stage ? Math.max(0, Math.min(TILT.max, tilt ?? tiltFromQuery(globalThis.location?.search) ?? TILT.deg)) : 0;
+    /** The viewing distance (CSS px): the constant chosen from screenshots, `?persp=` for trials. */
+    this.persp = perspFromQuery(globalThis.location?.search) ?? TILT.perspective;
     if (this.stage?.dataset) { if (this.tiltMax > 0) delete this.stage.dataset.flat; else this.stage.dataset.flat = ''; }
+    this.stage?.style?.setProperty?.('--map-persp', `${this.persp}px`);
     /** What the page's HUD covers of the canvas (`() => {top, right, bottom, left}`, hud/insets.mjs); without it, what `#panel` covers. */
     this.insetsOf = insets;
     /** Called after every picture with the view on screen and the canvas size (things of the page that follow the map: the objective's place). */
@@ -483,7 +486,7 @@ export class FrontierMap {
   /** The board's angle at `zoom` (degrees): flat at the far view, `tiltMax` at the diorama. */
   tiltDeg(zoom, size = this.size()) { return this.tiltMax > 0 ? tiltAt(zoom, { far: this.flatZoom(size) * 1.05, deg: this.tiltMax }) : 0; }
   /** The tilt's geometry at `zoom` (default: the picture on screen): stage px to box px and back. */
-  geo(zoom = this.cam.drawn.zoom, size = this.size()) { return tiltGeo(size, this.tiltDeg(zoom, size)); }
+  geo(zoom = this.cam.drawn.zoom, size = this.size()) { return tiltGeo(size, this.tiltDeg(zoom, size), this.persp); }
   /** The canvas's box in the viewport (read once a frame at most). */
   rect() {
     if (this.rectAt !== this.frameNo || !this.rectNow) { const r = this.canvas.getBoundingClientRect?.(); this.rectNow = r ? { left: r.left, top: r.top } : { left: 0, top: 0 }; this.rectAt = this.frameNo; }
@@ -517,10 +520,10 @@ export class FrontierMap {
    * effects' top pass) is laid exactly over it and draws through `groundView()` with `groundSize()`.
    */
   groundLayout(size = this.size()) {
-    const key = `${size.width}x${size.height}|${this.tiltMax}`;
+    const key = `${size.width}x${size.height}|${this.tiltMax}|${this.persp}`;
     if (this.groundKey !== key) {
       this.groundKey = key;
-      const g = this.groundNow = this.stage ? groundBox(size, this.tiltMax) : { left: 0, top: 0, width: size.width, height: size.height, dx: 0, dy: 0 };
+      const g = this.groundNow = this.stage ? groundBox(size, this.tiltMax, { perspective: this.persp }) : { left: 0, top: 0, width: size.width, height: size.height, dx: 0, dy: 0 };
       const st = this.stage ? this.ground.style : null;
       if (st?.setProperty) { st.setProperty('--map-gl', `${g.left}px`); st.setProperty('--map-gt', `${g.top}px`); st.setProperty('--map-gw', `${g.width}px`); st.setProperty('--map-gh', `${g.height}px`); }
     }
@@ -1106,6 +1109,8 @@ export class FrontierMap {
     this.rehover(v, size);
     // the board's angle on screen follows the zoom on screen; `gv` is the ground canvas's own flat view of the same picture
     const T = this.geo(v.zoom, size), gv = groundView(v, G);
+    // what stands on the board stands upright: at world point (x, y) the tilt asks this of a picture drawn in the plane (map/tilt.mjs standing)
+    const up = T.flat ? null : (x, y) => T.standAt((x - v.x) * v.zoom + width / 2, (y - v.y) * v.zoom + height / 2);
     const quadOf = (view, t) => (t.flat ? null : t.quad().map(p => ({ x: view.x + (p.x - width / 2) / view.zoom, y: view.y + (p.y - height / 2) / view.zoom })));
     // (the edges between the levels follow the far view of this canvas: a new size, or a ring opening, may move them)
     const E = this.edges(size), now0 = lodFor(logical.zoom, this.lod, E);
@@ -1122,7 +1127,7 @@ export class FrontierMap {
       const g = cv?.getContext?.('2d');
       if (g) {
         // (the world only: labels are always drawn fresh on top, a still of them would ghost as the zoom goes on)
-        this.paintScene(ctx, src, gv, was, gsize, gr, { now, table, quad: quadOf(v, T) });
+        this.paintScene(ctx, src, gv, was, gsize, gr, { now, table, quad: quadOf(v, T), up });
         g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'copy'; g.drawImage(gcv, 0, 0); g.globalCompositeOperation = 'source-over';
         this.fadeCv = cv;
         this.fade = { view: { ...gv }, since: now, t0: null };
@@ -1140,7 +1145,7 @@ export class FrontierMap {
     }
     // away from the tile view its still layers are let go (two bitmaps the size of the canvas)
     if (lod !== 'tile' && this.layers) this.layers = null;
-    const out = this.paintScene(ctx, src, gv, lod, gsize, gr, { now, rest, table, artZoom: Math.max(v.zoom, logical.zoom), quad: quadOf(v, T) });
+    const out = this.paintScene(ctx, src, gv, lod, gsize, gr, { now, rest, table, artZoom: Math.max(v.zoom, logical.zoom), quad: quadOf(v, T), up });
     this.painted = true;
     if (this.fade) {
       // the old picture stays whole until the new level has its art (a moment at most), then fades; it is a still
@@ -1184,7 +1189,7 @@ export class FrontierMap {
     const words = this.wordsShown ?? 1;
     if (shown > 0.4 && words > 0.02) {
       // each label stands upright around its own place on the board (map/tilt.mjs)
-      if (staged) armUpright(octx, { place: (x, y) => T.toBox((x - v.x) * v.zoom + width / 2, (y - v.y) * v.zoom + height / 2), zoom: v.zoom, ratio: dpr });
+      if (staged) armUpright(octx, { place: (x, y) => T.toBox((x - v.x) * v.zoom + width / 2, (y - v.y) * v.zoom + height / 2), zoom: v.zoom, ratio: dpr, scaleAt: T.flat ? null : (x, y) => T.scaleAt((y - v.y) * v.zoom + height / 2) });
       octx.save(); octx.globalAlpha = shown * words;
       out.over(octx, staged ? [dpr * v.zoom, 0, 0, dpr * v.zoom, dpr * (width / 2 - v.x * v.zoom), dpr * (height / 2 - v.y * v.zoom)] : null);
       octx.restore();
@@ -1282,7 +1287,7 @@ export class FrontierMap {
    * (default: this canvas), and how much art of this picture is still on
    * its way.
    */
-  paintScene(ctx, src, view, lod, size, dpr, { now = clock(), rest = false, artZoom = view.zoom, table = () => {}, quad = null } = {}) {
+  paintScene(ctx, src, view, lod, size, dpr, { now = clock(), rest = false, artZoom = view.zoom, table = () => {}, quad = null, up = null } = {}) {
     const { width, height } = size, z = view.zoom;
     const world = [dpr * z, 0, 0, dpr * z, dpr * (width / 2 - view.x * z), dpr * (height / 2 - view.y * z)];
     // what lies under the art: the table, and the provinces drawn as plain cells (no terrain yet, or no art);
@@ -1361,7 +1366,7 @@ export class FrontierMap {
     }
     // what is the viewer's own and what the selection can do (UX brief §5): one bundle for this frame's passes
     const F = this.youFrame(src, survey, lod, z, terrainOf);
-    F.seen = seen;
+    F.seen = seen; F.up = up;
     // a resting tile view: the still layers (the table is in the ground layer), then the animated ones
     // (`between`: on the ground, under what stands on it: the viewer's land and the lit tiles, then the effects engine's ground pass)
     // the cloud sea: its still part (the bank and the puffs) and the light and shade that drift over it
@@ -1372,7 +1377,7 @@ export class FrontierMap {
       else if (r.seen && part !== 'still' && !reducedMotion()) this.invalidateSoon(Math.max(110, Math.min(420, 1300 / (Math.hypot(DRIFT_SPEED.x, DRIFT_SPEED.y) * z))));
       return r;
     };
-    const tileOpts = artTiles.length ? { zoom: z, dpr, artZoom, stamp: this.stamp, sea: true, seaPass: sea, between: c => { this.groundPass(c, F, 'all'); this.between?.(c, { zoom: z, now }); }, ground: (c, phase) => this.groundPass(c, F, phase), terrainAt: terrainLookup(terrainOf), fogAt, selected: null, viewerFaction: src.viewerFaction ?? null, demoRoads: !!src.demoRoads, ringsOpen: src.ringsOpen ?? null, replayRing: src.artReplayRing ?? null, engineStage: src.engineStage ?? 0, relics: src.relics ?? [], waystones: src.waystones ?? [], demoSpecials: !!src.demoSpecials, rivers: src.rivers ?? [], demoRivers: !!src.demoRivers, alliedPairs: src.alliedPairs ?? [], survey,
+    const tileOpts = artTiles.length ? { zoom: z, dpr, artZoom, stamp: this.stamp, sea: true, up, seaPass: sea, between: c => { this.groundPass(c, F, 'all'); this.between?.(c, { zoom: z, now }); }, ground: (c, phase) => this.groundPass(c, F, phase), terrainAt: terrainLookup(terrainOf), fogAt, selected: null, viewerFaction: src.viewerFaction ?? null, demoRoads: !!src.demoRoads, ringsOpen: src.ringsOpen ?? null, replayRing: src.artReplayRing ?? null, engineStage: src.engineStage ?? 0, relics: src.relics ?? [], waystones: src.waystones ?? [], demoSpecials: !!src.demoSpecials, rivers: src.rivers ?? [], demoRivers: !!src.demoRivers, alliedPairs: src.alliedPairs ?? [], survey,
       // people (people/crowds.mjs): the source's departures, explores and holder names; tags nearest the view centre first
       people: src.people ? { ...src.people(), centre: { x: view.x, y: view.y } } : null } : null;
     const missed = this.art?.misses ?? 0;
@@ -1441,7 +1446,7 @@ export class FrontierMap {
     if (guide && lod !== 'tile') paintGuide(ctx, guide, z, '', 'ring');
     if (src.threats?.length) paintThreats(ctx, src.threats, z, null, 'mark');
     if (limited && survey.candidates?.length) paintCandidates(ctx, survey.candidates, z, { still: calm, part: 'mark' });
-    if (homeAt) { paintWaitStandard(ctx, homeAt, { zoom: z, faction: survey.faction, now: F.fx, still: calm }); if (!calm) this.invalidateSoon(90); }
+    if (homeAt) { standing(ctx, up?.(homeAt.x, homeAt.y) ?? null, homeAt.x, homeAt.y, () => paintWaitStandard(ctx, homeAt, { zoom: z, faction: survey.faction, now: F.fx, still: calm })); if (!calm) this.invalidateSoon(90); }
     // what is read rather than looked at stands upright over the board and its depth dressing: names, labels,
     // warnings' words, pins, the guide's words (`o`: the label canvas; `w`: its flat world transform)
     const over = (o = ctx, w = null) => {
@@ -1667,7 +1672,8 @@ export class FrontierMap {
         const c = project(h.q, h.r), land = lands.find(x => x.key === villageKey(v));
         const flood = land ? this.floodOf(land, fx) : null;
         if (flood && !flood.standard.shown) continue;
-        paintStandard(ctx, c.x + STANDARD_AT.x * (u / STANDARD_UNIT), c.y + STANDARD_AT.y * (u / STANDARD_UNIT), { u, zoom: z, faction: F.faction, now: fx, still, lift: flood?.standard.lift ?? 0, alpha: flood?.standard.alpha ?? 1, dust: flood?.dust ?? null });
+        const sx = c.x + STANDARD_AT.x * (u / STANDARD_UNIT), sy = c.y + STANDARD_AT.y * (u / STANDARD_UNIT);
+        standing(ctx, F.up?.(sx, sy) ?? null, sx, sy, () => paintStandard(ctx, sx, sy, { u, zoom: z, faction: F.faction, now: fx, still, lift: flood?.standard.lift ?? 0, alpha: flood?.standard.alpha ?? 1, dust: flood?.dust ?? null }));
         F.live = true;
       }
     }

@@ -346,7 +346,7 @@ test('the map opens once the viewer is known, upgrades when a village lands, and
   m.open(src, size, { dpr: 1, now: 5000 });
   assert.equal(m.opened.kind, 'home');
   assert.equal(m.lod, 'tile');
-  assert.deepEqual([m.view.x, m.view.y, m.view.zoom], [tilePoint(2, 0, 7).x, tilePoint(2, 0, 7).y, 1.3]);
+  assert.deepEqual([m.view.x, m.view.y, m.view.zoom], [tilePoint(2, 0, 7).x, tilePoint(2, 0, 7).y, opening.heroZoom(1)]);
   assert.deepEqual(m.cam.drawn, wedge, 'the picture starts from the wedge');
   assert.equal(m.cam.moving, true);
   assert.equal(m.cam.userMoved, false, 'the opening is not a person\'s move');
@@ -375,16 +375,16 @@ test('the title: the camera waits at the opening\'s start behind it, and the ope
   const m = new fmap.FrontierMap(canvas(), { source: () => src });
   m.open(src, size, { dpr: 1, now: 0 });
   assert.equal(m.opened.kind, 'home', 'a player\'s title ends on the player\'s village');
-  assert.equal(m.view.zoom, 1.3, 'the logical view is already the opening view');
+  assert.equal(m.view.zoom, opening.heroZoom(1), 'the logical view is already the opening view');
   assert.equal(m.cam.tween, null, 'nothing travels behind the title');
-  assert.ok(near(m.cam.drawn.zoom, 1.3 * opening.OPEN_FROM), 'the picture waits a little above');
+  assert.ok(near(m.cam.drawn.zoom, opening.heroZoom(1) * opening.OPEN_FROM), 'the picture waits a little above');
   const waiting = { ...m.cam.drawn };
   m.cam.step(0); m.cam.step(4000);
   assert.deepEqual(m.cam.drawn, waiting, 'however long the title stands');
   // the window changes size behind the title: still waiting, above the same place
   m.open(src, { width: 1200, height: 800 }, { dpr: 1, now: 4100 });
   assert.equal(m.cam.tween, null);
-  assert.ok(near(m.cam.drawn.zoom, 1.3 * opening.OPEN_FROM));
+  assert.ok(near(m.cam.drawn.zoom, opening.heroZoom(1) * opening.OPEN_FROM));
   m.open(src, size, { dpr: 1, now: 4200 });
   const held = { ...m.cam.drawn };
   src = { ...lordSrc };   // 辺境へ入る
@@ -392,7 +392,7 @@ test('the title: the camera waits at the opening\'s start behind it, and the ope
   assert.deepEqual(m.cam.drawn, held, 'from where the camera waited');
   assert.equal(m.cam.tween.ms, cam.MOVE_MS.open, 'the opening, whole');
   assert.equal(m.reveal, 5000, 'the land comes out of the bare table as the title lifts');
-  assert.equal(m.view.zoom, 1.3);
+  assert.equal(m.view.zoom, opening.heroZoom(1));
   assert.equal(m.cam.userMoved, false);
   m.destroy();
 });

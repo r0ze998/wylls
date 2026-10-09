@@ -337,7 +337,7 @@ export function paintProvisionalTag(g, land, { zoom = 1 } = {}) {
 
 // ------------------------------------------------------------------ the standard
 /** Where the standard stands on its village's tile (world px from the tile's centre): beside the houses, to the right (the village is drawn larger than its tile: map/plates.mjs HERO). */
-export const STANDARD_AT = Object.freeze({ x: RADIUS * 1.04, y: -RADIUS * 0.26 });   // (= map/plates.mjs HERO.standard: a test holds the two together)
+export const STANDARD_AT = Object.freeze({ x: RADIUS * 1.36, y: -RADIUS * 0.3 });   // (= map/plates.mjs HERO.standard: a test holds the two together)
 /** The standard's height unit (world px) at `zoom`: a part of the board close up, never smaller than a small flag on screen. */
 export const STANDARD_UNIT = RADIUS * 1.15;
 export const standardUnit = zoom => Math.max(STANDARD_UNIT, 24 / zoom);
