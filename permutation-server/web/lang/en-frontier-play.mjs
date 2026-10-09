@@ -487,7 +487,7 @@ export default {
   'ターン {0}：村を失いました。': 'Turn {0}: you lost your village.',
   '上限': 'Cap',
   '候補地は自分の国の土地から自動で選びました。場所を得られなければ、自動でもう一度申し込みます。': 'The candidate sites were chosen for you on your nation\'s land. If none of them becomes yours, a new request is sent automatically.',
-  '六つの国が、鐘のまわりの辺境を分け合っています。国で決まるのは、村を置く方角と教義です。賞金はありません。': 'Six nations share the frontier around the bell. Your nation decides which side your village stands on, and your doctrine. There is no prize money.',
+  '六つの国が、鐘のまわりの辺境を分け合っています。国で決まるのは、村を置く方角と教義です。': 'Six nations share the frontier around the bell. Your nation decides which side your village stands on, and your doctrine.',
   '受け付けられませんでした': 'The request was not accepted',
   '同じターンの申し込みがすべて決まってから': 'Once every request from the same turn is decided',
   '同じターンの申し込みがすべて決まると確定します（遅くとも {0}）。それまでは、より順位の高い申し込みに押し出されることがあります。': 'It becomes final once every request from the same turn is decided ({0} at the latest). Until then a higher-ranked request can displace it.',
