@@ -87,7 +87,8 @@ test('every program error code of the ABI has its own Japanese and English text'
   assert.match(fi18n.errorText(60), /next turn/i);
   assert.doesNotMatch(fi18n.errorText(60), /bell|ticket/i);
   assert.match(fi18n.errorText(61), /three/i);
-  assert.match(fi18n.errorText(24), /final/i);
+  // (rewritten with wave 3: a village is provisional, then confirmed: one English word on every screen, UX design 12.6)
+  assert.match(fi18n.errorText(24), /confirmed/i);
 });
 
 test('every code the relay can answer has a text (read from its sources)', () => {

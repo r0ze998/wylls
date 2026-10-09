@@ -37,7 +37,7 @@ import { html, setHtml } from '../util.mjs';
 import { ACTIONS, FORMS, bind, startPlay, wantProvince } from './controller.mjs';
 import { renderTabs, factionChip, quotaChip, mountSheet, PHONE_MAX, row, lamports } from './screens/shell.mjs';
 import { cardHead, fold, label } from './screens/parts.mjs';
-import { drawerOf, closeDrawer, drawerTitle, holdsLand, LIFTS, DRAWER_ICON, WIDE, STAGE, settleRows } from './hud/drawer.mjs';
+import { drawerOf, closeDrawer, drawerTitle, holdsLand, viewerState, LIFTS, DRAWER_ICON, WIDE, STAGE, settleRows } from './hud/drawer.mjs';
 import { icon, iconizeMapTools } from './hud/icons.mjs';
 import { hudInsets, noGoRects } from './hud/insets.mjs';
 import { mountTextures } from './hud/textures.mjs';
@@ -437,6 +437,8 @@ function renderDrawer(markupOf) {
 }
 
 function renderPlay() {
+  // (the stage mark of the page follows the same answer as the plate, in the same render: never a village's plate over a waiting dock)
+  renderChips();
   const d = renderDrawer(dd => panelMarkup(FS, dd));
   const tabs = $('tabs');
   // what the map itself opens (a selection, an order, the guide, the join flow) leaves "Map" current; a report or a run, none
@@ -868,7 +870,9 @@ function waitNow() {
   if (resultAt !== null) { tollAt = bellStart(FS.clock.genesisTs, Math.floor((resultAt - FS.clock.genesisTs) / 600)); const from = bellStart(FS.clock.genesisTs, t.bell); share = Math.max(0, Math.min(1, (now - from) / Math.max(1, tollAt - from))); }
   // one countdown on the screen (UX design 11.10): while the wait view stands open with its own clock, the map leaves its line out
   const said = drawerOf(FS)?.kind === 'wait' && !(phone() && sheetRef?.state() === 'peek');
-  return { now, nextTurnAt: bellStart(FS.clock.genesisTs, bell + 1), resultAt, tollAt, share, first: t ? t.next ?? 0 : null, said, state: st === 'ticket' ? 'ticket' : FS.autoTicket?.state ?? null };
+  // the leader's line likewise: a phone's wait view says it in the sheet (screens/join.mjs waitHead), so the map leaves its own out
+  const wordsSaid = phone() && drawerOf(FS)?.kind === 'wait' && sheetRef?.state() !== 'peek';
+  return { now, nextTurnAt: bellStart(FS.clock.genesisTs, bell + 1), resultAt, tollAt, share, first: t ? t.next ?? 0 : null, said, wordsSaid, state: st === 'ticket' ? 'ticket' : FS.autoTicket?.state ?? null };
 }
 /** The village that lands now, the first time this device sees it (map/landing.mjs). */
 const landingBook = createLandingBook();
@@ -1334,6 +1338,8 @@ function renderRail() {
  * the client rectangles go to `globalThis.__wyllsMap?.setNoGo?.(rects)`; `globalThis.__wyllsHud.noGo()` reads
  * the same list at any time (hud/insets.mjs noGoRects).
  */
+/** How far inside the map's top edge no label of the map stands (px). */
+export const EDGE_TOP = 4;
 let noGoKey = '', noGoMap = null, noGoQueued = false;
 function publishNoGo() {
   if (noGoQueued || !globalThis.requestAnimationFrame) return;
@@ -1341,6 +1347,10 @@ function publishNoGo() {
   requestAnimationFrame(() => {
     noGoQueued = false;
     const rects = noGoRects();
+    // the map's own top edge is a piece too, for the map alone: a nameplate that would stand half above it slides down
+    // or is left out, like one under the dial (the second check: the spectator's 'Emar Town' plate was cut by the edge)
+    const cr = $('frontier-map')?.getBoundingClientRect?.();
+    if (cr && cr.width > 0) rects.push({ id: 'edge-top', x: Math.round(cr.left), y: Math.round(cr.top) - 60, width: Math.round(cr.width), height: 60 + EDGE_TOP });
     const key = rects.map(r => `${r.id}:${r.x},${r.y},${r.width},${r.height}`).join('|');
     const m = globalThis.__wyllsMap ?? null;
     if (key === noGoKey && m === noGoMap) return;
@@ -1504,7 +1514,7 @@ function renderIntro() {
   const el = $('intro');
   if (!el || el.hidden) return;
   // the button says where it leads once the viewer's stage is known (intro/title.mjs ctaText)
-  const stage = FS.mode === 'play' && FS.playReady ? FS.land?.stage ?? 'none' : null;
+  const stage = FS.mode === 'play' && FS.playReady && viewerState(FS) === 'known' ? FS.land?.stage ?? 'none' : null;
   setHtmlIfChanged(el, title.render({ mode: FS.mode, live: introLive(), stage }));
   // the scene's picture (intro/scene.mjs) is painted into the markup's canvas while the title stands (a new canvas when the words changed)
   const cv = el.querySelector('.intro-scene');
@@ -1739,6 +1749,8 @@ export const HUD_ACTIONS = {
   'sel-clear': () => { FS.selected = null; invalidate('map', 'panel'); },
   dial: () => { FS.dialOpen = !FS.dialOpen; closeTermPop(); renderDialPop(); if (FS.dialOpen) $('dial-pop')?.querySelector('button')?.focus?.({ preventScroll: true }); },
   'dial-close': () => closeDialPop({ focus: true }),
+  // the plate's one key while the viewer's record cannot be read (hud/hud.mjs renderPlate): the page again, from the start
+  reload: () => globalThis.location?.reload?.(),
   term: d => { FS.term = FS.term === d.term || !glossary.TERMS[d.term] ? null : d.term; renderTermPop(); $('term-pop')?.querySelector('button')?.focus?.(); },
   'term-close': () => closeTermPop(),
   // the legend of the map (map/legend.mjs), from the "?" beside the lenses: the More sheet opens on it
@@ -1782,7 +1794,8 @@ function renderChips() {
   const qc = quotaChip(FS.quota);
   if (q) { q.hidden = !qc || !(Number(FS.quota?.left) <= QUOTA_LOW); q.textContent = qc ?? ''; }
   // the viewer's stage, for the stylesheet (what has no use before joining is not shown)
-  const body = globalThis.document?.body, stage = FS.mode === 'play' ? FS.land?.stage ?? 'none' : '';
+  // (`loading` until the viewer's record has answered: nothing that depends on the answer is offered, UX design 12.3)
+  const body = globalThis.document?.body, stage = FS.mode === 'play' ? (viewerState(FS) === 'known' ? FS.land?.stage ?? 'none' : 'loading') : '';
   if (body?.dataset && body.dataset.stage !== stage) body.dataset.stage = stage;
 }
 
@@ -2098,6 +2111,8 @@ export async function boot() {
   mountLangToggle($('lang-box'));
   // The phone bottom sheet (W5-E; mounted here since W6-D, R3); the drawer state drives its height (applyDrawer).
   sheetRef = mountSheet();
+  // a sheet that changes its height shows another part of an order: the row its foot would cut is settled again (hud/drawer.mjs settleRows), now and once the sheet has moved
+  { const sheetEl = $('panel'); if (sheetEl && globalThis.MutationObserver) new MutationObserver(() => { settleSoon(); setTimeout(settleSoon, 280); mapRef?.invalidate?.(); }).observe(sheetEl, { attributes: true, attributeFilter: ['data-sheet'] }); }
   // the plate, the to-do lines and the objective stand in the sheet on phones and over the map on desktop
   globalThis.matchMedia?.(`(max-width: ${PHONE_MAX}px)`)?.addEventListener?.('change', () => { drawerKind = undefined; invalidate('panel', 'tabs', 'rail'); });
   const herald = createHerald({ base: cfg.herald });
@@ -2248,7 +2263,7 @@ export async function boot() {
       map.setView({ x: c.x, y: c.y, zoom: Number.isFinite(az) && az > 0 ? Math.min(az, 2.5) : 0.8 });
     }
   }
-  invalidate('chip', 'status', 'panel');
+  invalidate('chip', 'status', 'panel', 'chips');
   if (title.shouldOpen({ storage: globalThis.localStorage, search: globalThis.location?.search ?? '' })) openIntro();
   if (await loadSeason(herald)) {
     await loadOverviews(herald);
@@ -2257,7 +2272,7 @@ export async function boot() {
     if (FS.mode === 'spectate') startSpectate(herald);
     if (FS.mode === 'play') {
       // the first answer about the viewer decides whether the join flow opens by itself (hud/drawer.mjs) and where the map opens (map/opening.mjs)
-      startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).then(() => { FS.playReady = true; invalidate('panel', 'tabs', 'rail'); }).finally(() => { viewerKnown = true; map?.invalidate(); });
+      startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).then(() => { FS.playReady = true; FS.viewerMissed = !!FS.wallet && !FS.land; invalidate('panel', 'tabs', 'rail', 'chips'); }).finally(() => { viewerKnown = true; map?.invalidate(); });
       // the drawer starts closed: the tab of the last visit is not reopened over the map
       FS.tab = 'map';
     }

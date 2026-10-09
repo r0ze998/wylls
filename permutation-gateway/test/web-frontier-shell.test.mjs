@@ -199,7 +199,9 @@ test('the pages: landmarks, the HUD\'s hooks, an accessible map, a module script
     // the hooks the page, the tests and the other tracks hold on to (UX design section 2)
     for (const id of ['bell-pill', 'bell-fill', 'attn-pill', 'quota-chip', 'faction-chip', 'res-strip', 'sound-btn', 'search-btn', 'map-search', 'objective', 'rail', 'minimap', 'lenses', 'panel', 'panel-title', 'panel-body', 'feed', 'bell-toll', 'map-tip', 'intro']) assert.match(html, new RegExp(`id="${id}"`), `${page}: #${id}`);
     assert.match(html, /<nav class="tabs"/, `${page}: nav.tabs`);
-    assert.match(html, /<body data-mode="(play|practice|spectate)" data-drawer="closed">/, `${page}: the drawer starts closed`);
+    // (rewritten with wave 3, UX design 12.3: the play page starts as `loading`, so that nothing which depends on the viewer's record shows before it has answered)
+    assert.match(html, /<body data-mode="(play|practice|spectate)" data-drawer="closed"( data-stage="loading")?>/, `${page}: the drawer starts closed`);
+    assert.equal(/<body[^>]*data-stage="loading"/.test(html), page === 'index.html', `${page}: only the play page waits for the viewer's record`);
     assert.match(html, /data-act="drawer-close"/, `${page}: the drawer's close button`);
     assert.doesNotMatch(html, /\sstyle="/, `${page}: inline style (the CSP allows none)`);
     assert.match(html, /<script type="module" src="app\.mjs"><\/script>/);

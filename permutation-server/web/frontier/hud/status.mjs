@@ -75,7 +75,7 @@ export function renderStatus(st) {
   if (st.state === 'refused') {
     return html`<div class="toast tx tx-refused" role="alert">
       <span class="toast-icon">${icon('alert')}</span>
-      <span class="toast-text"><span class="toast-kind">${L`できませんでした`}</span>${st.what ? html`<strong class="tx-what">${st.what}</strong> ` : ''}${st.text}</span>
+      <span class="toast-text"><span class="toast-kind">${L`できませんでした`}</span>${st.what ? html`<strong class="tx-what">${st.what}</strong> ` : ''}<span class="tx-why">${st.text}</span></span>
       <button type="button" class="toast-x" data-act="notice-close" aria-label="${L`閉じる`}">${icon('close')}</button>
       ${st.retry ? html`<span class="toast-acts"><button type="button" class="btn small primary" data-act="notice-retry">${icon('return')}${L`もう一度`}</button></span>` : ''}
     </div>`;

@@ -1649,3 +1649,186 @@ body[data-title="up"] .dial-pop { display: none; }
 .highlights li { padding: 5px 2px; border-radius: 0; background: none; border-bottom: 1px solid var(--ink-soft); }
 .highlights li:first-child { border-top: 1px solid var(--ink-soft); }
 .hl-go { border-radius: 4px; }
+
+/* ================================================================== wave 3 (hud-5): the finish (UX design section 12, items 3, 5 and 6) */
+/* ---- no false state at load: until the viewer's record has answered (body[data-stage="loading"], app.mjs renderChips)
+   the HUD is the crest, the dial and one quiet line; what depends on the answer (the dock's tabs, the lenses, the way
+   home, the search) waits, and nothing says "not joined" ---- */
+body[data-stage="loading"] :is(.hud-tl, .minimap, .map-tools) { visibility: hidden; }
+body[data-stage="loading"] .tabs > * { visibility: hidden; }
+@media (min-width: 760px) { body[data-stage="loading"] .tabs { visibility: hidden; } }
+.plate-load { gap: 10px; min-height: 44px; padding: 10px 16px 10px 14px; }
+.plate-load .plate-sub { font-size: var(--t2); letter-spacing: .02em; color: var(--hud-ink); }
+.plate-spin { flex: none; width: 18px; height: 18px; border: 2px solid rgba(201,162,74,.3); border-top-color: var(--brass-hi); border-radius: 50%; animation: plate-spin 1.1s linear infinite; }
+@keyframes plate-spin { to { transform: rotate(360deg); } }
+.plate-miss .plate-go .ic { width: 15px; height: 15px; }
+@media (max-width: 759px) {
+  #panel-body > .plate.plate-load { min-height: 56px; padding: 6px 8px; }
+}
+
+/* ---- the phone's order at rest: the sheet is as tall as the order's foot needs (the summary line and the seal; after a
+   refusal also the line that says the order was not sent), never a fixed height that pushes the seal under the tab bar ---- */
+@media (max-width: 759px) {
+  .panel[data-sheet="peek"]:has(#panel-body > .order) { max-height: min(calc(var(--vvh) * .5), 380px); }
+  .order-unsent { padding: 6px 8px; }
+}
+/* ---- the wait for the village: the leader's line in the card on phones (the map has no room for it there; on desktop the
+   map writes it under the nation's standard) ---- */
+.wait-says { display: none; }
+@media (max-width: 759px) {
+  .wait-says { position: relative; display: block; margin: -4px 0 var(--s3); padding: 6px 12px 8px; border-radius: 4px; background: rgba(64,48,18,.07); box-shadow: inset 0 0 0 1px var(--ink-soft); font: 600 var(--t2)/1.6 var(--display); color: var(--ink); }
+  .wait-says::before { content: ""; position: absolute; left: 17px; top: -7px; border: solid transparent; border-width: 0 7px 7px; border-bottom-color: rgba(64,48,18,.16); }
+  /* who says it: at the end of the last line when there is room, else on a line of its own, at the right either way */
+  .wait-says-who { float: right; margin-left: 12px; font: 600 var(--t1)/1.87 var(--ui); color: var(--ink-2); white-space: nowrap; }
+  .wait-says::after { content: ""; display: block; clear: both; }
+  .wait-face .leader { width: 48px; height: 48px; }
+  /* the wait is a view of its own: its first sight is a little taller than a half sheet, so that the practice battle is in it */
+  .panel[data-kind="wait"][data-sheet="half"] { max-height: min(60%, calc(var(--vvh) * .56)); }
+}
+.wait-card h3 { text-wrap: balance; }
+.wo-lead + .wo-note::before { content: " "; }
+@media (max-width: 759px) {
+  /* a phone's wait view in its first sight (the half sheet): the state, the leader's line, the one clock or the one retry, and the practice battle; the list of candidate places follows (the map above shows them) */
+  .wait-card { display: flex; flex-direction: column; }
+  .wait-card > * { order: 2; }
+  .wait-card > :is(.wait-top, .wait-says, .turn-wait, .wait-state) { order: 0; }
+  .wait-card > .wait-offer { order: 1; margin: 0 0 var(--s3); padding: 0; border: 0; display: grid; gap: 4px; }
+  .wait-offer .wo-lead { display: none; }
+  .wait-offer p { order: 2; margin: 0; font-size: var(--t1); color: var(--ink-2); text-align: center; }
+  .wait-offer .btn { width: 100%; justify-content: center; }
+  .wait-top { margin-bottom: var(--s3); }
+  .wait-state p:last-child { margin-bottom: var(--s3); }
+}
+/* ---- a phone's sheets, each height looked at (UX design 12.6): nothing is pushed under the tab bar, and nothing the
+   sheet cuts looks broken ---- */
+@media (max-width: 759px) {
+  /* a full sheet ends under the dial: the handle and the title were half behind it */
+  .panel[data-sheet="full"] { max-height: min(calc(100% - var(--dial) - 18px), calc(var(--vvh) - var(--dial) - 26px)); }
+  /* a selection at rest: what it is and what can be done with it, whole; the rest (who holds it, the hosts, what is happening) is for the raised sheet */
+  .panel[data-sheet="peek"][data-kind="inspect"] { max-height: min(calc(var(--vvh) * .5), 340px); }
+  .panel[data-sheet="peek"][data-kind="inspect"] .inspect > :not(.c-head, .insp-acts) { display: none; }
+  .panel[data-sheet="peek"][data-kind="inspect"] .insp-acts { margin-bottom: 4px; }
+  /* any other open sheet pulled down to its peek is a window on a longer page: its last lines fade into the paper instead of ending under a hard bar */
+  .panel[data-sheet="peek"][data-drawer="open"]:not([data-kind="inspect"], [data-kind="march"], [data-kind="nation"])::after { content: ""; position: sticky; bottom: 0; z-index: 2; flex: none; display: block; height: 32px; margin: -32px 5px 0; background: linear-gradient(180deg, rgba(243,234,211,0), var(--paper-sheet) 80%); pointer-events: none; }
+  .panel[data-sheet="peek"][data-kind="nation"]::after { content: ""; position: sticky; bottom: 0; z-index: 2; flex: none; display: block; height: 32px; margin: -32px 0 0; background: linear-gradient(180deg, rgba(13,28,25,0), #0d1c19 80%); pointer-events: none; }
+}
+/* the order's body rests on a whole row (hud/drawer.mjs settleRows); where that leaves a tall band of bare paper above the
+   foot, a small drawn mark says the order goes on below */
+.order-body[data-gap="more"] + .order-foot { position: relative; }
+.order-body[data-gap="more"] + .order-foot::before { content: ""; position: absolute; left: 50%; bottom: calc(100% + 14px); width: 8px; height: 8px; margin-left: -4px; border: solid var(--ink-rule); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.order-body[data-gap="more"] + .order-foot::after { content: ""; position: absolute; left: calc(50% - 44px); bottom: calc(100% + 17px); width: 88px; height: 1px; background: linear-gradient(90deg, transparent, var(--ink-rule) 30%, transparent 30%, transparent 70%, var(--ink-rule) 70%, transparent); }
+@media (max-width: 759px) {
+  /* the sheet's title may come as near the handle as the handle allows ("March order" was cut to "March or…") */
+  #panel-title { max-width: calc(50% - 36px); }
+}
+/* ---- the spectator's sheet: the season's state is a small word in the bar beside the title, not a line squeezed between the
+   bar and the paper (it peeked out above the sheet) ---- */
+.panel[data-kind="spectate"] #season-status { position: absolute; z-index: 3; top: 13px; right: 52px; display: block; margin: 0; padding: 1px 8px; border: 1px solid rgba(201,162,74,.5); border-radius: 10px; background: rgba(0,0,0,.22); font: 600 var(--t1)/1.5 var(--ui); letter-spacing: .04em; color: var(--hud-ink); pointer-events: none; }
+@media (max-width: 759px) { .panel[data-kind="spectate"] #season-status { display: none; } }
+/* ---- focus on every material: brass on bell metal (the phone's resting sheet, the nation choice and the wait's clock are
+   metal inside the panel), ink-teal on paper; a ring is never cut by the sheet's edge ---- */
+.panel[data-drawer="closed"] #panel-body :focus-visible, .panel[data-kind="nation"] #panel-body :focus-visible, .turn-wait :focus-visible, .res-pop :focus-visible, .dial-pop :focus-visible, .mile-banner :focus-visible { outline-color: var(--brass-hi); }
+.home-pointer:focus-visible { outline: 3px solid #10221f; outline-offset: 1px; box-shadow: 0 0 0 6px rgba(255,250,240,.9); }
+@media (max-width: 759px) {
+  #panel-body > .plate .plate-main:focus-visible, .next-row-go:focus-visible, .next-row-steps:focus-visible, .tab:focus-visible { outline-offset: -3px; }
+}
+/* ---- the last craft pass (UX design 12, hud-5): hover, pressed and focus on every material ---- */
+/* a primary key under the pointer keeps its own metal (the paper keys' hover wash had replaced it: pale key, ivory words) */
+/* (only the plain teal key: the seal, the brass keys of the first minute and the keys on metal keep their own; `:where` keeps this as light as the rule it mends) */
+.btn.primary:where(:not([disabled], .seal-btn, .nc-btn, .intro-go)):hover { background: linear-gradient(180deg, #3b8b7d, #23645a 55%, #184d45); border-color: #0a2622; filter: none; }
+.btn.primary:where(:not([disabled], .seal-btn, .nc-btn, .intro-go)):active { background: linear-gradient(180deg, #2b6f63, #18483f 55%, #113832); }
+/* a primary key that cannot be pressed is paper with ink words (ivory words on pale paper could not be read) */
+.btn.primary[disabled]:not(.seal-btn, .nc-btn, .intro-go) { color: var(--ink-2); text-shadow: none; }
+/* rings that would be cut by a plaque's edge or cross the dock's rim stand inside their control */
+.res:focus-visible, .brand:focus-visible, .strip-side .hud-btn:focus-visible, .lang-box :focus-visible, .tab:focus-visible, .todo-btn:focus-visible, .res-row:focus-visible { outline-offset: -3px; }
+/* a control that floats over the map carries a dark halo round its brass ring: the ring reads on parchment and cloud as it does on grass */
+.map-btn:focus-visible, .lens:focus-visible, .lens-toggle:focus-visible, .hud-tl .hud-btn:focus-visible, .todo-tab:focus-visible, .plate-main:focus-visible, .plate-pip:focus-visible, button.dial:focus-visible { box-shadow: 0 0 0 7px rgba(8,18,16,.8); }
+/* the brand is a way home too: it answers the pointer and the press like its neighbours */
+.brand { border-radius: 8px; transition: filter var(--out), transform var(--out); }
+.brand:hover { filter: brightness(1.18) drop-shadow(0 0 5px rgba(240,212,138,.45)); }
+.brand:active { transform: translateY(1px) scale(.97); }
+/* the settings' rows: every switch ends on the paper's right edge, also the one that needs a line of its own */
+.choice-row .seg { margin-left: auto; }
+/* beside an open drawer on a narrow desktop the world-chart key keeps its glyph and puts its word away (it lay half under the dock) */
+@media (min-width: 760px) and (max-width: 1279px) {
+  body[data-drawer="open"][data-doc=""] .map-btn[data-worded] { width: 36px; padding: 0; justify-content: center; border-radius: 50%; }
+  body[data-drawer="open"][data-doc=""] .map-btn[data-worded] .map-btn-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+}
+@media (max-width: 759px) {
+  /* the language key takes no more than its word needs: at 390 px the English strip then shows two stores, as the Japanese does */
+  .lang-box [data-lang-toggle] { padding: 0 4px !important; letter-spacing: .02em; }
+  .res-strip { padding-left: 0; }
+  .res { padding: 0 2px; }
+  /* the next thing's name is never cut to "First …": it may take two lines, and what a press does stands beside it in the room that is left */
+  .next-row-go { grid-template-columns: auto minmax(min-content, 1fr) minmax(0, auto) auto; }
+  .next-row-t strong { white-space: normal; overflow: visible; text-wrap: balance; }
+  .next-row-do { max-width: 8.5em; font-size: var(--t1); line-height: 1.3; }
+}
+/* ---- the popovers that hang from the HUD (a store's breakdown, a term's meaning) are bell metal like the dial's card: they
+   were white web cards with boxed rows, the one white surface left on the screen ---- */
+.res-pop { padding: 12px 14px 10px; border: 0; border-radius: 10px; background: var(--tex-metal, none), var(--plate-bg); color: var(--hud-ink); box-shadow: var(--plate-edge), 0 0 0 1px var(--brass-lo), var(--shadow); font: var(--t2)/1.55 var(--ui); }
+.res-pop-head { padding-bottom: 8px; border-bottom: 1px solid rgba(201,162,74,.35); }
+.res-pop-head strong { color: #fffaf0; letter-spacing: .04em; }
+.res-pop-head span { color: var(--hud-ink-2); }
+.res-pop p { margin: 8px 0 0; }
+.res-pop .muted { color: var(--hud-ink-2); }
+.res-rows { gap: 0; margin: 2px 0 4px; }
+.res-row { grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; min-height: 40px; padding: 6px 4px; border: 0; border-bottom: 1px solid rgba(240,212,138,.14); border-radius: 4px; background: none; color: var(--hud-ink); }
+.res-rows li:last-child .res-row { border-bottom: 0; }
+.res-row:hover { background: rgba(240,212,138,.1); color: var(--ivory); }
+.res-row .res-ic { align-self: center; color: var(--brass-hi); }
+.res-row-name { color: var(--ivory); }
+.res-rows .res-full .res-row { border-color: rgba(240,212,138,.14); }
+.res-rows .res-full .res-row .muted:last-child { color: #ffb4a4; font-weight: 650; }
+.res-pop .btn { border: 1px solid rgba(201,162,74,.7); background: linear-gradient(180deg, #24463e, #152b26); color: var(--ivory); box-shadow: inset 0 1px 0 rgba(240,212,138,.22), 0 2px 0 #06100e, 0 3px 6px rgba(0,0,0,.35); text-shadow: 0 1px 0 rgba(0,0,0,.4); }
+.res-pop .btn:hover { border-color: var(--brass-hi); background: linear-gradient(180deg, #2c5449, #1a352f); }
+.res-pop .btn:active { transform: translateY(2px); background: #132824; box-shadow: inset 0 2px 4px rgba(0,0,0,.6), 0 0 0 #06100e; }
+.res-pop .pop-x { border-color: transparent; background: none; box-shadow: none; color: var(--hud-ink); }
+.res-pop .pop-x:hover { border-color: var(--brass-hi); background: rgba(240,212,138,.1); color: var(--brass-hi); }
+/* while the wait's own view stands open, the plate's key to it has nothing to open */
+body[data-kind="wait"] .plate .plate-go[data-act="join-open"] { display: none; }
+/* one size for the round keys over the map (the search key's 36 px; they were 34, 36 and 38), on the 4 px grid: the column of
+   map keys (4 x 36 + 3 x 8) is as tall as the minimap and starts where it does */
+@media (min-width: 760px) {
+  .map-btn { width: 36px; height: 36px; }
+  .map-btn[data-worded] { height: 36px; border-radius: 18px; }
+  .map-tools { gap: 8px; }
+  .lens { min-width: 36px; height: 36px; }
+  .lens-list { gap: 6px; }
+}
+@media (max-width: 759px) {
+  /* the map's keys at the right start level with the search key at the left (they hung 22 px lower) */
+  .map-tools { top: calc(var(--strip) + 8px); gap: 6px; }
+}
+@media (max-width: 759px) {
+  /* a phone's notices stand under the two rows of map keys and take the screen's width (between the key columns a refusal was
+     a tall narrow column: its retry key ended under the sheet, and the world-chart key lay over its corner) */
+  .feed { top: calc(var(--strip) + 8px + 2 * var(--target) + 14px); left: var(--edge); right: var(--edge); }
+  /* a refusal: what it is, the retry and the close key on one row; then what was not done and why, each on the full width */
+  .tx-refused { grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 4px 8px; padding: 8px 8px 10px 10px; }
+  .tx-refused .toast-text { display: contents; }
+  .tx-refused .toast-icon { grid-column: 1; grid-row: 1; align-self: center; }
+  .tx-refused .toast-kind { grid-column: 2; grid-row: 1; align-self: center; }
+  .tx-refused .toast-acts { grid-column: 3; grid-row: 1; align-self: center; }
+  .tx-refused .toast-x { grid-column: 4; grid-row: 1; margin: 0 -4px 0 0; }
+  .tx-refused .tx-what, .tx-refused .tx-why { grid-column: 1 / -1; }
+  .tx-refused .tx-why { font-size: var(--t1); line-height: 1.5; color: var(--hud-ink-2); }
+}
+@media (max-width: 759px) {
+  /* the nation choice pulled down to its peek: the line that says what to do, whole (its heading's words were half under the bar) */
+  .panel[data-sheet="peek"][data-kind="nation"] .nations-head { display: none; }
+}
+/* ---- the map's search: its results are a bell-metal list like every other piece over the map (they were a white card), and
+   the field's clear mark is drawn in the HUD's ink (the browser's own was blue) ---- */
+.search-results { padding: 4px; border: 1px solid var(--brass-lo); background: var(--tex-metal, none), var(--plate-bg); box-shadow: var(--shadow), var(--plate-edge); }
+.search-hit { min-height: 36px; border-radius: 7px; color: var(--hud-ink); }
+.search-hit:hover, .search-hit:focus-visible { background: rgba(240,212,138,.12); color: var(--ivory); }
+.search-none { color: var(--hud-ink-2); }
+.map-search input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; margin: 0 0 0 6px; cursor: pointer; opacity: .9;
+  background: linear-gradient(45deg, transparent 45%, var(--hud-ink) 45% 55%, transparent 55%), linear-gradient(-45deg, transparent 45%, var(--hud-ink) 45% 55%, transparent 55%); }
+@media (max-width: 759px) {
+  /* a phone's search field opens on the second row, beside the layers key: on the first it lay under the dial and over the world-chart key; the map's keys at the right wait while it is open */
+  .map-search { top: calc(var(--target) + 6px); }
+  body:has(#search-btn[aria-expanded="true"]) .map-tools { visibility: hidden; }
+  .search-hit { min-height: var(--target); }
+}

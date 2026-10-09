@@ -19,10 +19,27 @@ import { L } from '../../lang.mjs';
 export const holdsLand = FS => ['provisional', 'final'].includes(FS.land?.stage);
 
 /**
- * The join flow is open by itself until a village exists (after the first refresh; never for a spectator),
- * and never while the title scene stands (`FS.titleUp`: nothing of the game opens behind it).
+ * What the page knows about who is looking (UX design 12.3: no false state at load). `known`: the viewer's
+ * record has answered (a village, a request, a nation, or truly nothing), or there is nobody to ask about (no
+ * wallet on this device); `pending`: the page is still asking; `unreachable`: it asked and got no answer (the
+ * season's record did not come, or the first look at the viewer's record failed: `FS.viewerMissed`, set once by
+ * app.mjs when play starts). Until it is `known` the HUD says that it is reading the record and offers nothing
+ * that depends on the answer: never "not joined" with a join button for a player who has a village.
  */
-export const joinOpen = FS => !!FS.playReady && !holdsLand(FS) && !FS.joinShut && !FS.titleUp;
+export function viewerState(FS) {
+  if ((FS.mode ?? 'play') !== 'play') return 'known';
+  if (FS.land || FS.citizen || (FS.holdings ?? []).length) return 'known';
+  if (!FS.playReady) return FS.error && !FS.record ? 'unreachable' : 'pending';
+  return FS.viewerMissed ? 'unreachable' : 'known';
+}
+export const viewerKnown = FS => viewerState(FS) === 'known';
+
+/**
+ * The join flow is open by itself until a village exists (after the first refresh, and only once the viewer's
+ * record has answered; never for a spectator), and never while the title scene stands (`FS.titleUp`: nothing
+ * of the game opens behind it).
+ */
+export const joinOpen = FS => !!FS.playReady && viewerKnown(FS) && !holdsLand(FS) && !FS.joinShut && !FS.titleUp;
 
 /** What the drawer shows: `{kind}` or null when it is closed. */
 export function drawerOf(FS) {
@@ -91,29 +108,43 @@ export const STAGE = Object.freeze(new Set(['nation']));
 export const LIFTS = Object.freeze(new Set(['practice', 'report', 'holding', 'hosts', 'marches', 'more', 'guide', 'join', 'nation', 'wait', 'spectate']));
 
 /** A part of the drawer that scrolls by itself above a foot that stays (the order's body above its seal: `data-scroll`) never rests with a row cut by the foot. */
-export const ROW_GAP_MAX = 140;
+export const ROW_GAP_MAX = 160;
+/** A gap of this many px or more carries the "goes on below" mark. */
+export const GAP_MARK_MIN = 36;
 /**
  * At rest (not scrolled) such a part ends on a whole row: the room a half-seen row would take is left as bare paper
  * (`--row-gap` on the part, its bottom margin: frontier.css `.order-body`). The second review: a strength bar lay half
  * under the order's summary line. Scrolling shows the rest as before. `rowsOf(part)` gives the rows to look at.
  */
-export function settleRows(doc = globalThis.document, rowsOf = part => part.querySelectorAll(':scope > *, :scope .versus > div, :scope .mc-odds > *, :scope .mc-def > li')) {
+export function settleRows(doc = globalThis.document, rowsOf = part => part.querySelectorAll(':scope > *, :scope .versus > div, :scope .mc-odds > *, :scope .mc-def > li, :scope .mc-dest > *')) {
   let n = 0;
   for (const part of doc?.querySelectorAll?.('[data-scroll]') ?? []) {
     part.style?.setProperty?.('--row-gap', '0px');
+    // (a gap tall enough to read as a hole carries a small mark that the page goes on below: frontier.css `[data-gap="more"]`)
+    if (part.dataset && part.dataset.gap) part.dataset.gap = '';
     if (!(part.clientHeight > 0) || part.scrollTop > 0 || part.scrollHeight <= part.clientHeight + 1) continue;
-    const gap = rowGap(part.clientHeight, [...rowsOf(part)].map(el => { const r = el.getBoundingClientRect(), t = part.getBoundingClientRect().top; return { top: r.top - t, bottom: r.bottom - t, leaf: !el.querySelector?.(':scope > *:not(span):not(strong):not(svg):not(input):not(small)') || el.matches?.('.versus > div, .picks, p, li, header, .stepper, .mc-dest') }; }));
-    if (gap > 0) { part.style.setProperty('--row-gap', `${gap}px`); n++; }
+    const gap = rowGap(part.clientHeight, [...rowsOf(part)].map(el => { const r = el.getBoundingClientRect(), t = part.getBoundingClientRect().top; return { top: r.top - t, bottom: r.bottom - t, leaf: !el.querySelector?.(':scope > *:not(span):not(strong):not(svg):not(input):not(small)') || el.matches?.('.versus > div, .picks, p, li, header, .stepper, .c-label, .mc-dest > *'), head: !!el.matches?.('.c-label') }; }));
+    if (gap > 0) { part.style.setProperty('--row-gap', `${gap}px`); if (part.dataset && gap >= GAP_MARK_MIN) part.dataset.gap = 'more'; n++; }
   }
   return n;
 }
-/** The gap for a part `height` px tall whose rows are `[{top, bottom, leaf}]` (px from its top): from the last whole row to its foot when a leaf row is cut there, else 0. */
+/**
+ * The gap for a part `height` px tall whose rows are `[{top, bottom, leaf, head?}]` (px from its top): from the last
+ * whole row to its foot when a leaf row is cut there, else 0. A heading (`head`: a label of what follows) is never
+ * left as the last whole row above rows that are not whole: it goes below the fold with them.
+ */
 export function rowGap(height, rows) {
   let last = 0, cut = false;
+  const whole = [];
   for (const r of rows) {
     if (!(r.bottom > r.top)) continue;
-    if (r.bottom <= height + 0.5) { if (r.leaf) last = Math.max(last, r.bottom); }
+    if (r.bottom <= height + 0.5) { if (r.leaf) { last = Math.max(last, r.bottom); whole.push(r); } }
     else if (r.top < height - 0.5 && r.leaf) cut = true;
+  }
+  const end = whole.find(r => r.bottom === last);
+  if (end?.head && rows.some(r => r.bottom > r.top && r.top >= end.bottom - 0.5)) {
+    cut = true;
+    last = whole.filter(r => !r.head && r.bottom <= end.top + 0.5).reduce((a, r) => Math.max(a, r.bottom), 0);
   }
   const gap = Math.ceil(height - last);
   return cut && last > 0 && gap > 0 && gap <= ROW_GAP_MAX ? gap : 0;
