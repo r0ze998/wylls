@@ -449,7 +449,8 @@ export class FrontierMap {
       // a landing that began while the village was out of the picture: the camera goes there (never from inside a draw)
       if (this.landingFly) { const f = this.landingFly; this.landingFly = null; this.flyTo({ ...f, zoom: Math.max(this.cam.view.zoom, heroZoom(this.dpr())) }, 900, { auto: !this.cam.userMoved }); }
       // the reach of a host that was just selected is not all in the picture: the camera eases out to it
-      if (this.reachFly) { const to = this.reachFly; this.reachFly = null; this.setView(to, { auto: true, ms: MOVE_MS.reach, kind: 'fly', ease: EASE.inOutCubic }); }
+      // (asked for inside the last picture: a person who moved the camera since then keeps it)
+      if (this.reachFly) { const f = this.reachFly; this.reachFly = null; if (f.moves === (this.moves ?? 0)) this.setView(f.to, { auto: true, ms: MOVE_MS.reach, kind: 'fly', ease: EASE.inOutCubic }); }
       if (this.cam.step(now)) this.dirty = true;
       if (this.dirty) this.draw(now);
       this.raf = globalThis.requestAnimationFrame?.(this.frame);
@@ -1480,7 +1481,7 @@ export class FrontierMap {
     // (the far rows of a tilted board are drawn smaller and the near rows larger: a little room for both)
     const fit = REACH_FIT * Math.min((f.width - 2 * pad) / (box.x1 - box.x0), (f.height - 2 * pad) / (box.y1 - box.y0));
     const zoom = Math.min(v.zoom, Math.max(this.edges(size).tileIn * REACH_ZOOM_FLOOR, fit));
-    this.reachFly = this.aim({ x: (box.x0 + box.x1) / 2, y: (box.y0 + box.y1) / 2 }, zoom, size, inset);
+    this.reachFly = { to: this.aim({ x: (box.x0 + box.x1) / 2, y: (box.y0 + box.y1) / 2 }, zoom, size, inset), moves };
     // (the reach has the camera now: the opening view does not take it back while this host stays selected)
     this.reachFit.held = true;
   }

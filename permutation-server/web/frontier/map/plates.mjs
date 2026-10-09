@@ -30,9 +30,10 @@ import { OPEN_PASS } from './labelpass.mjs';
 
 /**
  * The viewer's own village (world px on its tile; RADIUS is a hex's corner radius):
- *   scale     how much larger than another village it is drawn. Chosen from pictures at 1.5, 1.7, 1.8 and 2.0 at the
- *             hero zoom: at 1.5 it is still one of the tiles; from 1.7 it is the thing the eye goes to; at 2.0 it
- *             covers its neighbours' woods and its sprite, drawn for a tile, goes soft.
+ *   scale     how much larger than another village it is drawn. Chosen from pictures at 1.8 and 2.0 at the hero zoom
+ *             (1440 px at one device pixel per px, 390 px at two): at 1.8 it is the thing the eye goes to; at 2.0
+ *             its houses reach under its hosts' heads and its sprite, made for one tile, is stretched 1.3 times
+ *             on a desktop and goes soft on a phone. 1.9 keeps the size and most of the edge.
  *   at        where its sprite's middle stands from the tile's centre: a little up, so the ground in front stays clear
  *   hosts     where the groups of hosts stand (units of RADIUS and of the tokens' row: people/units.mjs): in front of
  *             the houses, on the tile's lower edge
@@ -41,12 +42,12 @@ import { OPEN_PASS } from './labelpass.mjs';
  *   top       the sprite's top above the tile's centre (the plate's leader starts there)
  */
 export const HERO = Object.freeze({
-  scale: 1.8,
+  scale: 1.9,
   at: Object.freeze({ x: -RADIUS * 0.06, y: -RADIUS * 0.2 }),
   hosts: Object.freeze([[[0.46, 0.64]], [[0.5, 0.62], [-0.46, 0.64]], [[0.5, 0.62], [-0.46, 0.64], [0.02, 0.74]]]),
   scaffold: Object.freeze({ x: -RADIUS * 0.82, y: RADIUS * 0.3 }),
   standard: Object.freeze({ x: RADIUS * 1.04, y: -RADIUS * 0.26 }),
-  top: RADIUS * 1.14,
+  top: RADIUS * 1.19,
 });
 /** A village of any other size: its sprite's top above the tile's centre. */
 export const VILLAGE_TOP = RADIUS * 0.56;
