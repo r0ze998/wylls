@@ -100,7 +100,9 @@ export function createSpritePlayer({ doc = globalThis.document, now = clockNow, 
   const fetchPicture = load ?? ((url, done) => {
     if (typeof win.Image !== 'function') { done(null); return; }
     const img = new win.Image();
-    img.onload = () => done(img); img.onerror = () => done(null);
+    // (decoded before it is called ready: the first frame of a sheet is not held up by the decoding of the whole row)
+    img.onload = () => { const ready = () => done(img); if (typeof img.decode === 'function') img.decode().then(ready, ready); else ready(); };
+    img.onerror = () => done(null);
     img.src = url;
   });
   const picture = url => {

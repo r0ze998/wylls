@@ -17,7 +17,7 @@ import * as P from '../../permutation-server/web/frontier/palette.mjs';
 import { FACTION_FILL, FACTION_DARK, FACTION_LIGHT, FACTION_ON, FACTION_MARK, avatarSvg } from '../../permutation-server/web/frontier/people/avatar.mjs';
 import { FACTION_COLORS } from '../../permutation-server/web/frontier/fi18n.mjs';
 import { leaderCard } from '../../permutation-server/web/frontier/people/ui.mjs';
-import { crestSvg, leaderCrest, renderStandingsList } from '../../permutation-server/web/frontier/hud/hud.mjs';
+import { crestSvg, leaderCrest, renderStandingsList, renderPlate } from '../../permutation-server/web/frontier/hud/hud.mjs';
 import { renderBanner } from '../../permutation-server/web/frontier/hud/milestones.mjs';
 import { emblemSvg } from '../../permutation-server/web/frontier/intro/title.mjs';
 
@@ -153,6 +153,13 @@ test('the leaders are on every screen that names them: faction cards, the crest 
     const banner = flat(renderBanner({ id: 'first-holding', kind: 'first-holding', p: 2, q: 0, site: 1, tier: 0 }, l.faction));
     assert.match(banner, new RegExp(`<span class="mile-fig"><canvas class="lfig" width="288" height="360" data-leader="${KEYS[l.faction]}" data-motion="idle"`), 'the leader stands by the line and breathes');
     assert.ok(banner.includes(l.name.ja));
+  }
+  // the village plate: the leader's icon stands in only while the viewer has no face of their own (a citizen whose
+  // tag cannot be worked out yet: no village, and the season's addresses not read); a person's own face otherwise
+  for (let f = 0; f < 6; f++) {
+    const plate = flat(renderPlate({ mode: 'play', playReady: true, citizen: { faction: f }, holdings: [], land: { stage: 'ticket' } }));
+    assert.match(plate, new RegExp(`<span class="plate-face"><svg [^>]*width="48" height="48" class="leader leader-hex" data-leader="${KEYS[f]}"`), `${KEYS[f]}: the plate's stand-in face is the leader's icon`);
+    assert.doesNotMatch(plate, /class="avatar/);
   }
   const list = flat(renderStandingsList({ overviews: new Map() }));
   assert.deepEqual([...list.matchAll(/class="leader leader-hex" data-leader="(\w+)"/g)].map(m => m[1]), KEYS);

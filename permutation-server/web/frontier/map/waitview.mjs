@@ -190,9 +190,12 @@ export function paintHomeTag(g, at, { zoom = 1, faction = 0, line = null, pass =
   // the leader's line, under the caption: in the serif, on three lines at most, and who says it
   const sayW = 238 * k;
   g.font = `600 ${13 * k}px ${SERIF}`;
-  let lines = say?.text ? wrapText(g, `\u300c${say.text}\u300d`, sayW, 13 * k).slice(0, 3) : [];
+  let lines = say?.text ? wrapText(g, L`「${say.text}」`, sayW, 13 * k).slice(0, 3) : [];
   const sig = 20 * k, extra = line?.at === 'home' ? 30 * k : 0, top = at.y + 12 * k;
-  const sizeOf = n => ({ w: Math.max(sig + 8 * k + nw, cw, n ? sayW : 0) + 28 * k, h: 58 * k + (n ? (n * 19 + 34) * k : 0) });
+  // (beside the line stands who says it: the leader's hexagon icon, 36 px on the board, which is 30 px or more on the screen
+  // at the tilt's far rows; below that the face is a blot of colour. Its place is kept whether or not the picture has come)
+  const faceW = 36 * k, faceGap = 9 * k;
+  const sizeOf = n => ({ w: Math.max(sig + 8 * k + nw, cw, n ? sayW + faceW + faceGap : 0) + 28 * k, h: 58 * k + (n ? (Math.max(2, n) * 19 + 24) * k : 0) });
   // where it may stand: under the standard, else beside its pole (left, then right of its cloth); with the leader's
   // line while there is room for that, else the name and the caption alone
   // (`keep` false: with candidate sites to read, the tag is left out where it has no room at all)
@@ -229,15 +232,16 @@ export function paintHomeTag(g, at, { zoom = 1, faction = 0, line = null, pass =
     g.fillStyle = INK_2; g.fillText(caption, x, y + 46 * k);
     if (lines.length) {
       g.strokeStyle = 'rgba(201,162,74,.3)'; g.lineWidth = 1 * k; g.beginPath(); g.moveTo(x - w / 2 + 14 * k, y + 58 * k); g.lineTo(x + w / 2 - 14 * k, y + 58 * k); g.stroke();
+      // the words stand to the right of the face, centred in what is left of the tag
+      const rows = Math.max(2, lines.length), tx = x + (faceW + faceGap) / 2, pad = (rows - lines.length) * 19 / 2;
       g.font = `600 ${13 * k}px ${SERIF}`; g.textAlign = 'center'; g.fillStyle = IVORY;
-      lines.forEach((t, i) => g.fillText(t, x, y + (72 + i * 19) * k));
+      lines.forEach((t, i) => g.fillText(t, tx, y + (72 + pad + i * 19) * k));
       g.font = `600 ${12 * k}px ${SANS}`; g.textAlign = 'right'; g.fillStyle = BRASS_HI;
-      const who = `\u2014 ${say.who}`, wy = y + (72 + lines.length * 19 + 6) * k;
+      const who = `\u2014 ${say.who}`, wy = y + (72 + rows * 19 + 1) * k;
       g.fillText(who, x + w / 2 - 14 * k, wy);
-      // who says it: the leader's hexagon icon before the name, 30 px (below that the face is a blot of colour);
-      // nothing until the picture has loaded
-      const face = leaderHexImage(faction), fs = 30 * k;
-      if (face && g.drawImage) { g.imageSmoothingQuality = 'high'; g.drawImage(face, x + w / 2 - 14 * k - (g.measureText?.(who)?.width ?? who.length * 12 * k) - fs - 6 * k, wy - fs / 2 - 1 * k, fs, fs); }
+      // who says it: the leader's hexagon icon at the line's left (nothing until the picture has loaded)
+      const face = leaderHexImage(faction);
+      if (face && g.drawImage) { g.imageSmoothingQuality = 'high'; g.drawImage(face, x - w / 2 + 12 * k, y + (62 + (rows * 19 + 16) / 2) * k - faceW / 2, faceW, faceW); }
     }
     if (extra) chip(g, x, y + h + 6 * k, line.text, k, { glyph: line.glyph });
   });
