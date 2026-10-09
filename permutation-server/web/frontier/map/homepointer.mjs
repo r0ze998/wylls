@@ -68,19 +68,27 @@ export function tabBox(place, { w = POINTER_MIN, h = POINTER_SIZE } = {}) {
 /**
  * Slide a tab along its edge until its box is clear of every box in `avoid`
  * (`[{x, y, w, h}]`, CSS px on the canvas: the HUD's things), the shortest
- * way. Gives the box where it was when it is clear already, or when no place
- * on the edge is clear.
+ * way. Where no place on the edge is clear (a phone's top edge: the dial in
+ * the middle, a column of buttons at either side) the tab steps in from the
+ * edge, as little as it takes, and slides there. Gives the box where it was
+ * when it is clear already, or when nothing nearer than POINTER_INSET is.
  */
+export const POINTER_INSET = 96;
 export function slideClear(place, box, avoid = [], { gap = POINTER_GAP, step = 6 } = {}) {
   const hits = b => avoid.some(a => b.x + b.w + gap > a.x && b.x - gap < a.x + a.w && b.y + b.h + gap > a.y && b.y - gap < a.y + a.h);
   if (!avoid.length || !hits(box)) return box;
-  const along = place.edge === 'left' || place.edge === 'right' ? 'y' : 'x';
+  const along = place.edge === 'left' || place.edge === 'right' ? 'y' : 'x', across = along === 'y' ? 'x' : 'y';
   const lo = along === 'y' ? place.box.y0 : place.box.x0, hi = (along === 'y' ? place.box.y1 - box.h : place.box.x1 - box.w);
-  for (let d = step; d <= hi - lo; d += step) for (const s of [d, -d]) {
-    const v = box[along] + s;
-    if (v < lo || v > hi) continue;
-    const b = { ...box, [along]: v };
-    if (!hits(b)) return b;
+  const inward = place.edge === 'left' || place.edge === 'top' ? 1 : -1;
+  for (let n = 0; n <= POINTER_INSET; n += step) {
+    const from = { ...box, [across]: box[across] + inward * n };
+    if (n && !hits(from)) return from;
+    for (let d = step; d <= hi - lo; d += step) for (const s of [d, -d]) {
+      const v = box[along] + s;
+      if (v < lo || v > hi) continue;
+      const b = { ...from, [along]: v };
+      if (!hits(b)) return b;
+    }
   }
   return box;
 }

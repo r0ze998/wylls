@@ -976,8 +976,10 @@ export class FrontierMap {
   }
 
   /**
-   * The picture moved under a resting mouse (keys, a flight, a zoom that the pan's limit pulled aside): the tile
-   * under it is another one now, so the lit hexagon and the page's hover tip follow the picture, not the past.
+   * The picture moved under a resting mouse (keys, a flight, the drawer opening and the map framing its subject
+   * again): once another tile lies under it, the lit hexagon and the page's hover tip are put away, and they come
+   * back with the mouse's next move. Nothing is said about a tile the pointer has left, and nothing is said about
+   * the tile that slid under it either: the person did not point at that one.
    */
   rehover(v, size) {
     const m = this.mouse;
@@ -985,11 +987,11 @@ export class FrontierMap {
     const view = `${v.x}|${v.y}|${v.zoom}`;
     if (m.view === view) return;
     m.view = view;
-    const p = this.geo(v.zoom, size).toStage(m.bx, m.by), hit = pick(v, size, p.x, p.y), id = hoverId(hit);
-    if (id === m.id) return;
-    m.id = id;
-    this.setHover(hit);
-    try { this.onHover(hit, { x: m.bx, y: m.by }); } catch { /* the page's own follower */ }
+    const p = this.geo(v.zoom, size).toStage(m.bx, m.by);
+    if (hoverId(pick(v, size, p.x, p.y)) === m.id) return;
+    this.mouse = null;
+    this.setHover(null);
+    try { this.onHover(null); } catch { /* the page's own follower */ }
   }
 
   /** The tile under the pointer (a pick, or null): the map lights it (UX brief §5.2). */

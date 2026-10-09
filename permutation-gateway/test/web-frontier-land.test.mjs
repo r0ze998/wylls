@@ -411,7 +411,9 @@ test('the pointer home: none while the village is in the picture; else a tab flu
 });
 
 // Rewritten with UX brief §11.8 (the round pointer moved inward along its line; a tab stays on its edge).
-test('the pointer keeps out of the HUD\'s columns: it slides along its edge, the shortest way, and never leaves the edge', () => {
+// (integration of wave 2: "never leaves the edge" became "leaves it only where no place along it is clear": on a
+// phone's top edge the dial and the two button columns leave no room, and the tab was drawn under the dial.)
+test('the pointer keeps out of the HUD\'s columns: it slides along its edge, the shortest way, and steps in from the edge only where no place along it is clear', () => {
   const place = { edge: 'right', x: 800, y: 80, angle: 0, tiles: 9, box: { x0: 0, y0: 48, x1: 800, y1: 600 } };
   const box = PTR.tabBox(place, { w: 90, h: 44 });
   assert.equal(PTR.slideClear(place, box, []), box);
@@ -425,8 +427,18 @@ test('the pointer keeps out of the HUD\'s columns: it slides along its edge, the
   const tb = PTR.tabBox(top, { w: 90, h: 44 }), side = PTR.slideClear(top, tb, [{ x: 350, y: 0, w: 100, h: 100 }]);
   assert.equal(side.y, 48);
   assert.ok(side.x + 90 <= 350 - PTR.POINTER_GAP + 6 || side.x >= 450 + PTR.POINTER_GAP);
-  // nowhere on the edge is free: it stays where it was
+  // nowhere on the edge is free, nor anywhere near it: it stays where it was
   assert.equal(PTR.slideClear(place, box, [{ x: 700, y: 0, w: 100, h: 600 }]), box);
+  // a phone's top edge (390 wide): the dial in the middle, the search button and the map's buttons at the sides.
+  // No place along the edge holds a 150 px tab: it steps in under the dial, as little as it takes
+  const ptop = { edge: 'top', x: 195, y: 52, angle: -1.5, tiles: 6, box: { x0: 0, y0: 52, x1: 390, y1: 639 } };
+  const pb = PTR.tabBox(ptop, { w: 150, h: 44 });
+  const hud = [{ x: 205, y: 3, w: 72, h: 72 }, { x: 8, y: 60, w: 44, h: 44 }, { x: 338, y: 82, w: 44, h: 94 }];
+  const under = PTR.slideClear(ptop, pb, hud);
+  const clear = (b, a) => !(b.x + b.w + PTR.POINTER_GAP > a.x && b.x - PTR.POINTER_GAP < a.x + a.w && b.y + b.h + PTR.POINTER_GAP > a.y && b.y - PTR.POINTER_GAP < a.y + a.h);
+  assert.ok(hud.every(a => clear(under, a)), JSON.stringify(under));
+  assert.ok(under.y > 52 && under.y - 52 <= PTR.POINTER_INSET, 'off the edge, not far');
+  assert.ok(under.x >= 0 && under.x + 150 <= 390);
 });
 
 test('the far view\'s names never cover each other; a fixed name stays where it is', () => {

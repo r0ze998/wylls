@@ -20,7 +20,7 @@
 // `res:gain {p, q, site}` (when harvest tokens land in the resource strip).
 import { L, fmtNum, onLangChange } from '../../lang.mjs';
 import { project } from '../../map.mjs';
-import { tileHex, hexDistance } from '../fgeo.mjs';
+import { tileHex, hexDistance, locate } from '../fgeo.mjs';
 import { keyHex } from '../map/survey.mjs';
 import { factionName } from '../fi18n.mjs';
 import { FACTION_FILL, FACTION_DARK, FACTION_LIGHT } from '../people/avatar.mjs';
@@ -343,7 +343,10 @@ export function playReveal(fx, { tiles = [], seed = 'reveal', caption = true } =
     const cq = list.reduce((a, t) => a + t.q, 0) / list.length, cr = list.reduce((a, t) => a + t.r, 0) / list.length;
     const mid = list.reduce((a, b) => (Math.hypot(b.q - cq, b.r - cr) < Math.hypot(a.q - cq, a.r - cr) ? b : a));
     const last = list.reduce((a, t) => Math.max(a, t.at), 0);
-    fx.play('tag', { q: mid.q, r: mid.r, text: L`新しく ${fmtNum(list.length)} マスを測量しました`, icon: 'chart', tone: 'ivory', lift: 1.2, delay: Math.max(0.3, last * 0.5), dur: 2.4, seed });
+    const delay = Math.max(0.3, last * 0.5);
+    fx.play('tag', { q: mid.q, r: mid.r, text: L`新しく ${fmtNum(list.length)} マスを測量しました`, icon: 'chart', tone: 'ivory', lift: 1.2, delay, dur: 2.4, seed });
+    // (the caption's own tile: what the map says there makes way for as long as the caption stands)
+    try { const at = locate(mid.q, mid.r); if (at) fx.hush({ p: at.p, q: at.q, tile: at.idx }, 2.4, delay); } catch { /* a tile outside the opened world */ }
   }
 }
 
