@@ -37,7 +37,7 @@ import { FACTION_COLORS } from '../fi18n.mjs';
 import { createTerrain } from './terrain.mjs';
 import { SpriteArt, artSize, farRes, terrainLookup } from './sprites.mjs';
 import { paintSheet, paintTable, sheetOf, tableShows } from './table.mjs';
-import { CloudSea, DRIFT_SPEED, seaField } from './cloudsea.mjs';
+import { CloudSea, DRIFT_SPEED, seaField, seaRes } from './cloudsea.mjs';
 import { project, RADIUS, FLATTEN } from '../../map.mjs';
 import { Camera, EASE, FAR_CAP, MOVE_MS, clampCentre, fitView, freeBox, reducedMotion } from './camera.mjs';
 import { OPEN_FROM, OPEN_WAIT_MS, heroZoom, lookPoint, openingPlan, placePoint } from './opening.mjs';
@@ -124,6 +124,10 @@ export const REACH_PAD = 14;
 export const REACH_ZOOM_FLOOR = 1.14;
 /** What the pale line of a reach is, is said beside it for this long after a host is selected (ms). */
 export const REACH_WORDS_MS = 7000;
+/** The landing waits until the camera has stood still this long (ms), and never longer than LANDING_WAIT in all. */
+export const LANDING_REST = 500, LANDING_WAIT = 6000;
+/** The landing's own frame: this much closer than the hero zoom (up to the closest zoom there is), held LANDING_HOLD ms after the standard stands, then eased back. */
+export const LANDING_ZOOM = 1.45, LANDING_HOLD = 1000;
 /** A place the page asks the map to fly to (`wylls:fly-to`) is seen at this zoom at least: its tiles, and what stands on them. */
 export const FLY_TO_ZOOM = 1.0;
 /** The still layers of a resting view are repainted at least this often (ms): a change nobody announced heals. */
@@ -477,7 +481,9 @@ export class FrontierMap {
       this.frameNo = (this.frameNo ?? 0) + 1;
       const now = ts ?? clock();
       // a landing that began while the village was out of the picture: the camera goes there (never from inside a draw)
-      if (this.landingFly) { const f = this.landingFly; this.landingFly = null; this.flyTo({ ...f, zoom: Math.max(this.cam.view.zoom, heroZoom(this.dpr())) }, 900, { auto: !this.cam.userMoved }); }
+      // (closer than the everyday frame, LANDING_ZOOM: the village is the whole subject of the moment; the camera eases back after it)
+      if (this.landingFly) { const f = this.landingFly; this.landingFly = null; this.flyTo({ ...f, zoom: Math.max(this.cam.view.zoom, heroZoom(this.dpr()) * LANDING_ZOOM) }, null, { auto: !this.cam.userMoved }); if (this.landing?.arriving) this.landing.moves = this.moves ?? 0; }
+      this.landingBeat(); this.landingEase();
       // the reach of a host that was just selected is not all in the picture: the camera eases out to it
       // (asked for inside the last picture: a person who moved the camera since then keeps it)
       if (this.reachFly) { const f = this.reachFly; this.reachFly = null; if (f.moves === (this.moves ?? 0)) this.setView(f.to, { auto: true, ms: MOVE_MS.reach, kind: 'fly', ease: EASE.inOutCubic }); }
@@ -793,6 +799,41 @@ export class FrontierMap {
     if (fly) this.flyTo({ p: at.p, q: at.q, tile: at.tile, zoom: Math.max(this.cam.view.zoom, heroZoom(this.dpr())) }, 900, { auto: !this.cam.userMoved });
     this.tick();
     return true;
+  }
+
+  /**
+   * The landing waits for the picture (the second review: the colour was flooding while the camera was still on its
+   * way, and the moment was over before anyone was looking). A landing the page reports is first `arriving`: the
+   * camera flies to the village, the land is not yet in its colour; once the camera has stood still for
+   * LANDING_REST ms (and the ground is drawn) the timeline starts and the effects are told. It never waits longer
+   * than LANDING_WAIT ms.
+   */
+  landingBeat() {
+    const l = this.landing;
+    if (!l?.arriving) return;
+    const fx = fxNow();
+    l.since ??= fx;
+    const ready = !this.cam.moving && !this.landingFly && !!this.painted;
+    if (!ready) l.rest = null; else l.rest ??= fx;
+    if ((l.rest !== null && fx - l.rest >= LANDING_REST) || fx - l.since >= LANDING_WAIT) {
+      l.arriving = false; l.t0 = fx;
+      if (l.at) this.tellLanding(l.at);
+      // a second after the standard stands the camera eases back to the everyday frame (unless a person took the camera)
+      const maxD = 2, T = LANDING;
+      if (l.at && l.moves === (this.moves ?? 0)) this.landingBack = { at: l.at, when: fx + T.floodAt + maxD * T.ring + T.borderGap + T.standardGap + T.drop + LANDING_HOLD, moves: l.moves };
+    }
+    this.dirty = true;
+  }
+
+  /** The camera's way back from a landing's close frame to the hero zoom, once (never against a person's own move). */
+  landingEase() {
+    const b = this.landingBack;
+    if (!b || fxNow() < b.when) return;
+    this.landingBack = null;
+    const hero = heroZoom(this.dpr());
+    if (b.moves !== (this.moves ?? 0) || !(this.cam.view.zoom > hero * 1.02)) return;
+    const size = this.size(), to = this.aim(placePoint(b.at), hero, size);
+    this.setView(to, { auto: true, ms: 1100, kind: 'fly', ease: EASE.inOutCubic });
   }
 
   /**
@@ -1401,7 +1442,9 @@ export class FrontierMap {
     // (`between`: on the ground, under what stands on it: the viewer's land and the lit tiles, then the effects engine's ground pass)
     // the cloud sea: its still part (the bank and the puffs) and the light and shade that drift over it
     const sea = (g, part) => {
-      const r = this.sea.paint(g, { box: seen, res: paperRes, ringsOpen, sheet, now: fxNow(), still: reducedMotion(), part });
+      // (as fine as the screen; in a flight as fine as the coarser of where the camera is and where it goes, so the
+      // far view's own pieces carry a flight in, and a flight out makes its few coarse pieces at once)
+      const r = this.sea.paint(g, { box: seen, res: seaRes((this.cam.moving ? Math.min(z, this.cam.view.zoom) : z) * dpr), ringsOpen, sheet, now: fxNow(), still: reducedMotion(), part });
       if (r.pending) { pending += r.pending; this.dirty = true; }
       // (the drift moves a few px a second: a frame when it has moved about one)
       else if (r.seen && part !== 'still' && !reducedMotion()) this.invalidateSoon(Math.max(110, Math.min(420, 1300 / (Math.hypot(DRIFT_SPEED.x, DRIFT_SPEED.y) * z))));
@@ -1544,11 +1587,14 @@ export class FrontierMap {
     if (A?.mode === 'select') this.frameReach(A); else this.reachFit = null;
     // a village the page says has just landed (and this map has not played yet) starts its landing with this frame
     const want = src.landing;
+    this.soonKey = !still && !want ? src.landingSoon ?? null : null;
     if (want?.id && want.id !== this.landed) {
       this.landed = want.id;
-      if (!still) { this.landing = { key: want.key, t0: fx }; if (this.cam.userMoved && want.at) this.landingFly = want.at; }
       const [lp, lq, lt] = String(want.key).split(',').map(Number);
-      if ([lp, lq, lt].every(Number.isInteger)) this.tellLanding({ p: lp, q: lq, tile: lt }, src);
+      const lat = [lp, lq, lt].every(Number.isInteger) ? { p: lp, q: lq, tile: lt } : null;
+      // (with motion the camera goes there first and the land waits for it: landingBeat; without, the land is simply there)
+      if (!still && lat) { this.landing = { key: want.key, t0: null, arriving: true, at: lat }; this.landingFly = want.at ?? lat; }
+      else if (lat) this.tellLanding(lat, src);
     }
     // the guide's target (on the world chart the beacon already marks the viewer's village: no ring is laid over it)
     const g0 = src.guide && !src.route ? src.guide : null;
@@ -1621,8 +1667,11 @@ export class FrontierMap {
   /** The landing's state for a land while it plays (map/ownland.mjs landingAt), else null. */
   floodOf(land, fx) {
     const l = this.landing;
+    // (a landing the page is about to report: the land is not in its colour yet either)
+    if (!l && this.soonKey && this.soonKey === land.key) return landingAt(-1, land.shape.maxD);
     if (!l || l.key !== land.key) return null;
-    const f = landingAt(fx - l.t0, land.shape.maxD);
+    // (the camera is still on its way: the land is not in its colour yet)
+    const f = landingAt(l.arriving ? -1 : fx - l.t0, land.shape.maxD);
     // (`keepLanding`: the demo switch rewinds the clock, the landing stays to be played again)
     if (f.done) { if (!this.keepLanding) this.landing = null; return null; }
     return f;

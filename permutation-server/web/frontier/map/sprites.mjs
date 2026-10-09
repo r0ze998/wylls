@@ -1018,8 +1018,17 @@ export class SpriteArt {
         const bare = demoRoads || demoRivers || rivers.length > 0;   // preview roads and rivers change with the holdings: no bitmap
         if (!bare) for (const e of entries.slice().sort((a, b) => provincePixel(a.p, a.q).y - provincePixel(b.p, b.q).y)) {
           if (e.fog === 'unopened' || !e.terrain) continue;
-          const pk = `${e.p},${e.q}`, v = bake(e, byProv.get(pk) ?? []);
-          if (!v) continue;
+          const pk = `${e.p},${e.q}`, list = byProv.get(pk) ?? [];
+          let v = bake(e, list);
+          if (!v) {
+            // its bitmap waits its turn (a flight crosses many provinces at once): the newest one this province had,
+            // of any sprite set or state, stands in, so the land never shows half made (tile by tile, the chart
+            // without its soft edge: the dark seam of the second review's landing frames); it is asked for again
+            // with the next frame
+            this.misses++;
+            v = list.length ? this.groundStale(e) : null;
+            if (!v) continue;
+          }
           ctx.imageSmoothingEnabled = true;
           ctx.drawImage(v.cv, v.x, v.y, v.w, v.h);
           baked.add(pk);

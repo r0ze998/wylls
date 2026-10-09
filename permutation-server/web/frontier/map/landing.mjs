@@ -37,6 +37,22 @@ export function unpackLanded(text) {
 export function createLandingBook({ storage = quietStorage } = {}) {
   let at = null, seen = new Set(), last = null;
   return {
+    /**
+     * The landing that `next` would start for these holdings, without noting anything: `"P,Q,tile"` or null. For
+     * the moments before the page knows its viewer for sure (a reload while the village is provisional): the map
+     * keeps that land out of its colour until the landing is really reported, so the colour never shows, goes and
+     * comes back.
+     */
+    peek(key, holdings) {
+      if (!key) return null;
+      const known = key === at ? seen : new Set(unpackLanded(storage.get(key)));
+      let out = null;
+      for (const h of holdings ?? []) {
+        if (!h || !int(h.p) || !int(h.q) || !int(h.tile) || h.state !== 1 || known.has(villageId(h))) continue;
+        out = `${h.p},${h.q},${h.tile}`;
+      }
+      return out;
+    },
     next(key, holdings) {
       if (!key) return null;
       if (key !== at) { at = key; seen = new Set(unpackLanded(storage.get(key))); last = null; }

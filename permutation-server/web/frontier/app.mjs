@@ -871,6 +871,12 @@ function landingNow() {
   const sc = scope();
   return sc ? landingBook.next(landedKey(sc, FS.wallet.address), FS.holdings ?? []) : null;
 }
+/** The village whose landing is about to be reported (the page does not know its viewer for sure yet): its key, or null (map/landing.mjs peek). */
+function landingSoon() {
+  if (FS.mode !== 'play' || viewerKnown || calm() || !FS.wallet?.address) return null;
+  const sc = scope();
+  return sc ? landingBook.peek(landedKey(sc, FS.wallet.address), FS.holdings ?? []) : null;
+}
 
 /** The map's name tags use the viewer's verified profile on their own holdings. */
 function ownNamer(base) {
@@ -2119,7 +2125,7 @@ export async function boot() {
           hoverRoute,
           note: FS.mapNote ?? null,
           // a village this device sees land for the first time (map/landing.mjs)
-          landing: landingNow(),
+          landing: landingNow(), landingSoon: landingSoon(),
           // the wait for the village on the map (map/waitview.mjs): when the next turn begins and, with a request out, when its result is due
           wait: waitNow(),
           // the viewer's pins (hud/pins.mjs)

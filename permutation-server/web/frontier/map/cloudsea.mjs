@@ -37,6 +37,14 @@ const SKIRT = 2;
 /** The pieces kept (pixels in all); the pieces newly painted in one frame. */
 export const SEA_PIXELS = 6_500_000;
 export const SEA_BAKES = 3;
+/**
+ * The finenesses the sea is made at (device px per world px), and the one for a picture: the first that is at least
+ * as fine as the screen, never finer than 1 (cloud is soft). The pieces are world squares of PIECE / fineness, so a
+ * picture needs about the same number of them at every zoom; made at the art's fineness instead, a wide tile view
+ * needed more pieces than the sea keeps and never finished them (straight edges where a square was missing).
+ */
+export const SEA_STEPS = Object.freeze([0.125, 0.18, 0.25, 0.36, 0.5, 0.71, 1]);
+export const seaRes = px => SEA_STEPS.find(s => s >= px * 0.999) ?? 1;
 /** The drift: one texture across DRIFT_SPAN world px (its features are a fifth of that), moving at DRIFT_SPEED world px a second. */
 export const DRIFT_SPAN = 2300;
 export const DRIFT_SPEED = Object.freeze({ x: 11, y: 4 });
@@ -347,6 +355,7 @@ export class CloudSea {
     if (!canPaint()) return null;
     const v = this.bake(ringsOpen, res, ix, iy, sheet);
     if (v?.whole) {
+      v.rings = ringsOpen;
       this.pieces.set(key, v);
       this.pixels += v.px;
       while (this.pixels > SEA_PIXELS && this.pieces.size > 1) { const [k, o] = this.pieces.entries().next().value; this.pieces.delete(k); this.pixels -= o.px; }
@@ -379,7 +388,13 @@ export class CloudSea {
     ctx.imageSmoothingEnabled = true;
     for (let iy = Math.floor(b.y0 / size); iy <= Math.floor(b.y1 / size); iy++) for (let ix = Math.floor(b.x0 / size); ix <= Math.floor(b.x1 / size); ix++) {
       const p = this.piece(ringsOpen, r, ix, iy, sheet, canPaint);
-      if (!p) { out.pending++; continue; }
+      if (!p) {
+        out.pending++;
+        // (a piece that waits its turn: the part of any kept piece of another fineness that lies there stands in,
+        // so a flight never shows the sea ending in a straight line; the second review's landing frames)
+        if (part !== 'drift' && this.standIn(ctx, ringsOpen, ix * size, iy * size, size)) out.seen = true;
+        continue;
+      }
       if (p.empty) continue;
       out.seen = true;
       if (!p.whole) out.pending++;
@@ -394,6 +409,46 @@ export class CloudSea {
     }
     ctx.restore();
     return out;
+  }
+
+  /** Paint what kept pieces of other finenesses hold of the square (x, y, size) of the world; returns whether any did. */
+  standIn(ctx, ringsOpen, x, y, size) {
+    // by fineness: what each holds of the square
+    const bySize = new Map();
+    for (const [key, q] of this.pieces) {
+      if (q.rings !== ringsOpen || !q.cv) continue;
+      const x0 = Math.max(x, q.x), y0 = Math.max(y, q.y), x1 = Math.min(x + size, q.x + q.size), y1 = Math.min(y + size, q.y + q.size);
+      if (!(x1 - x0 > 0.5) || !(y1 - y0 > 0.5)) continue;
+      const e = bySize.get(q.size) ?? { area: 0, list: [] };
+      e.area += (x1 - x0) * (y1 - y0); e.list.push([q, x0, y0, x1, y1, key]);
+      bySize.set(q.size, e);
+    }
+    if (!bySize.size) return false;
+    // the fineness that holds most of the square first; what it leaves bare is filled from the next (never two over
+    // the same ground: the soft edge would be laid on twice), so a square is whole whenever the kept pieces cover it
+    const order = [...bySize.values()].sort((a, b) => b.area - a.area);
+    const done = [];
+    let any = false;
+    ctx.save();
+    for (const e of order) {
+      if (done.length) {
+        ctx.beginPath(); ctx.rect(x, y, size, size);
+        for (const [x0, y0, x1, y1] of done) ctx.rect(x0, y0, x1 - x0, y1 - y0);
+        ctx.clip('evenodd');
+      }
+      for (const [q, x0, y0, x1, y1, key] of e.list) {
+        // (a piece that stands in is in use: it is not the next to be dropped)
+        this.pieces.delete(key); this.pieces.set(key, q);
+        done.push([x0, y0, x1, y1]);
+        if (q.empty) continue;
+        const k = PIECE / q.size;
+        ctx.drawImage(q.cv, APRON + (x0 - q.x) * k, APRON + (y0 - q.y) * k, (x1 - x0) * k, (y1 - y0) * k, x0, y0, x1 - x0, y1 - y0);
+        any = true;
+      }
+      if (e.area >= size * size - 1) break;
+    }
+    ctx.restore();
+    return any;
   }
 
   /** The drift over one piece: the moving texture, cut to the piece's own bank. */

@@ -380,3 +380,60 @@ test('the order card says nothing of defenders it does not have in sight', () =>
   assert.match(src, /未測量の土地です。守り手は、ここからはわかりません。/);
   assert.doesNotMatch(src, /at\.local\} ごろ|道のりは約/);
 });
+
+// ------------------------------------------------------------------ the landing waits for the picture; a flight shows no half-made sea
+test('the landing book can say which landing is about to be reported without noting it', async () => {
+  const { createLandingBook } = await import('../../permutation-server/web/frontier/map/landing.mjs');
+  const kept = new Map();
+  const storage = { get: k => kept.get(k) ?? null, set: (k, v) => { kept.set(k, v); return true; } };
+  const book = createLandingBook({ storage });
+  const fresh = [{ p: 2, q: 0, tile: 7, site: 1, gen: 0, state: 1 }], old = [{ p: 2, q: 0, tile: 7, site: 1, gen: 0, state: 2 }];
+  assert.equal(book.peek('k', fresh), '2,0,7');
+  assert.equal(kept.size, 0, 'nothing is noted by a look');
+  assert.equal(book.peek('k', old), null, 'a village that is already final is old news');
+  assert.equal(book.peek(null, fresh), null);
+  assert.equal(book.next('k', fresh)?.key, '2,0,7');
+  assert.equal(book.peek('k', fresh), null, 'once reported it is not about to be');
+});
+
+test('the landing\'s timeline before its start: no colour, no border, no standard (the land waits for the camera)', async () => {
+  const { landingAt, LANDING } = await import('../../permutation-server/web/frontier/map/ownland.mjs');
+  const f = landingAt(-1, 2);
+  assert.equal(f.ring(0).fill, 0); assert.equal(f.ring(2).flash, 0);
+  assert.equal(f.border, 0); assert.equal(f.standard.shown, false); assert.equal(f.dust, null); assert.equal(f.done, false);
+  const fm = await import('../../permutation-server/web/frontier/map/fmap.mjs');
+  assert.ok(fm.LANDING_REST >= 400 && fm.LANDING_REST <= 800, 'half a second of stillness');
+  assert.ok(fm.LANDING_WAIT > fm.LANDING_REST * 4, 'and never a wait without end');
+  assert.ok(fm.LANDING_ZOOM > 1.2 && fm.LANDING_HOLD >= 800, 'closer than the everyday frame, held, then eased back');
+  assert.ok(LANDING.ring === 90, 'the flood itself is the brief\'s: about 90 ms a ring');
+});
+
+test('the sea is made as fine as the screen, so a picture needs about as many pieces at every zoom; a kept piece stands in for one that waits', async () => {
+  const sea = await import('../../permutation-server/web/frontier/map/cloudsea.mjs');
+  assert.equal(sea.seaRes(1.5), 1, 'never finer than 1');
+  assert.equal(sea.seaRes(0.57), 0.71);
+  assert.equal(sea.seaRes(0.2), 0.25);
+  assert.equal(sea.seaRes(0.01), sea.SEA_STEPS[0]);
+  for (const z of [0.2, 0.4, 0.57, 0.9, 1.5]) {
+    const res = sea.seaRes(z), side = sea.PIECE / res, n = Math.ceil(1440 / z / side + 1) * Math.ceil(900 / z / side + 1);
+    assert.ok(n * (sea.PIECE + 64) ** 2 < sea.SEA_PIXELS * 1.6, `zoom ${z}: ${n} pieces`);
+  }
+  // a stand-in: two finenesses hold parts of a square; the larger part is drawn whole, the other only where the first left it bare
+  const s = new sea.CloudSea({});
+  const cv = {};
+  s.pieces.set('a', { rings: 3, cv, x: 0, y: 0, size: 1024 });               // holds all of the square
+  s.pieces.set('b', { rings: 3, cv, x: 256, y: 0, size: 256 });              // a finer one inside it
+  s.pieces.set('c', { rings: 4, cv, x: 0, y: 0, size: 512 });                // another world's
+  const calls = [];
+  const ctx = { save() {}, restore() {}, beginPath() {}, rect() {}, clip(r) { calls.push(['clip', r]); }, drawImage(...a) { calls.push(['draw', a[5], a[6], a[7], a[8]]); } };
+  assert.equal(s.standIn(ctx, 3, 0, 0, 512), true);
+  assert.deepEqual(calls, [['draw', 0, 0, 512, 512]], 'the piece that holds the whole square, once, and nothing over it');
+  assert.equal([...s.pieces.keys()].at(-1), 'a', 'a piece that stands in is not the next to be dropped');
+  calls.length = 0;
+  assert.equal(s.standIn(ctx, 3, 2048, 0, 512), false, 'nothing kept lies there');
+  s.pieces.delete('a'); calls.length = 0;
+  s.pieces.set('d', { rings: 3, cv, x: 0, y: 0, size: 300 });
+  assert.equal(s.standIn(ctx, 3, 0, 0, 512), true);
+  assert.equal(calls.filter(c => c[0] === 'draw').length, 2);
+  assert.deepEqual(calls.find(c => c[0] === 'clip'), ['clip', 'evenodd'], 'the second fineness only where the first left the square bare');
+});

@@ -192,7 +192,8 @@ export function playLanding(fx, a) {
   fx.sound('seal', { delay: t, seed });
   fx.sound('drum', { delay: t + 0.03, seed, level: 0.55 });
   // the village's name, in the viewer's gold (it is theirs): the one word of the moment, shown in every motion level
-  if (a.name) fx.play('label', { ...at, text: a.name, color: TONE.you, size: 26, lift: 2.1, dur: 2.6, serif: true, delay: fx.motionLevel() === 'full' ? t + 0.3 : 0, seed });
+  // (on a bell-metal tag, like every word of the map: bare translucent letters over the village read as a glitch)
+  if (a.name) fx.play('tag', { ...at, text: a.name, icon: 'home', tone: 'gold', lift: 3.05, dur: 3.0, delay: fx.motionLevel() === 'full' ? t + 0.3 : 0, seed });
   fx.play('pip', { ...at, color: TONE.you, delay: t, seed });
   // the village's own labels make way until its name has been read
   fx.hush(at, t + 3.0);
