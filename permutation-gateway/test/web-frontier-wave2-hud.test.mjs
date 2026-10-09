@@ -40,7 +40,10 @@ test('the title: an opaque scene of its own (the bell\'s tower and the six stand
   assert.match(out, /<h2 class="intro-title" id="intro-title" data-name>Wylls<\/h2>/);
   assert.equal((out.match(/<li class="intro-leader intro-leader-\d">/g) ?? []).length, 6, 'the six leaders');
   assert.equal((out.match(/<p class="intro-lore">/g) ?? []).length, 1, 'one sentence of what the game is');
-  assert.match(out, /<p class="intro-tagline"><span class="intro-orn" aria-hidden="true"><\/span><span class="intro-tag"><span class="nowrap">六つの国。<\/span><wbr><span class="nowrap">十分ごとの鐘。<\/span><wbr><span class="nowrap">封じられた進軍。<\/span><wbr><\/span><span class="intro-orn intro-orn-r" aria-hidden="true"><\/span><\/p>/, 'the line breaks between its sentences only, its ornaments are pinned to it');
+  // the owner's decision of 2026-10-10: the game's line is the pitch's line, in both languages (a brand line, not translated)
+  assert.match(out, /<p class="intro-tagline" lang="en"><span class="intro-orn" aria-hidden="true"><\/span><span class="intro-tag"><span class="nowrap">Play the agent economy<\/span><\/span><span class="intro-orn intro-orn-r" aria-hidden="true"><\/span><\/p>/, 'one line, kept whole, its ornaments on its own row');
+  assert.equal(title.TAGLINE, 'Play the agent economy');
+  assert.doesNotMatch(text(out), /六つの国。十分ごとの鐘|Six nations\. A bell every ten minutes/, 'the earlier line is gone');
   assert.match(out, /<button type="button" class="btn primary intro-go" data-act="intro-close">国を選ぶ<svg/);
   assert.equal((out.match(/<button/g) ?? []).length, 1, 'one button');
   assert.doesNotMatch(out, /banner-pick|data-act="pick-faction"|data-tab=|data-map=|class="lens/, 'nothing of the nation choice, the dock or the map buttons');

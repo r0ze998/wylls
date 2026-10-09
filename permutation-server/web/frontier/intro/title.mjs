@@ -83,6 +83,12 @@ export function ctaText(mode = 'play', stage = null) {
 export const sentences = text => String(text).match(/[^\u3002.!?]+[\u3002.!?]?\s*/g) ?? [String(text)];
 
 /**
+ * The game's line, the same words as the pitch (the owner's decision of 2026-10-10: one tagline everywhere).
+ * A brand line like the name: not translated.
+ */
+export const TAGLINE = 'Play the agent economy';
+
+/**
  * The title scene's markup. `mode` 'play' | 'spectate' | 'practice'; `stage` as `ctaText`. The picture is a canvas
  * the page paints (intro/scene.mjs: the bell's tower on the chart at dusk, the six standards round it); over its
  * dark foot stand the wordmark, one line, one sentence of what the game is, the six characters standing in a row,
@@ -95,7 +101,7 @@ export function render({ mode = 'play', live = '', stage = null } = {}) {
   return html`<canvas class="intro-scene" aria-hidden="true"></canvas><div class="intro-veil" aria-hidden="true"></div>
     <div class="intro-card">
       <h2 class="intro-title" id="intro-title" data-name>Wylls</h2>
-      <p class="intro-tagline"><span class="intro-orn" aria-hidden="true"></span><span class="intro-tag">${sentences(L`六つの国。十分ごとの鐘。封じられた進軍。`).map(x => html`<span class="nowrap">${x.trimEnd()}</span>${/\s$/.test(x) ? ' ' : raw('<wbr>')}`)}</span><span class="intro-orn intro-orn-r" aria-hidden="true"></span></p>
+      <p class="intro-tagline" lang="en"><span class="intro-orn" aria-hidden="true"></span><span class="intro-tag"><span class="nowrap">${TAGLINE}</span></span><span class="intro-orn intro-orn-r" aria-hidden="true"></span></p>
       <p class="intro-lore">${L`十分ごとに鐘が鳴り、封をして送り出した進軍がいっせいに着いて、同じ州の軍勢とぶつかる。`}</p>
       <ol class="intro-leaders">${leaders}</ol>
       ${live ? html`<p class="intro-live"><span class="intro-dot" aria-hidden="true"></span>${live}</p>` : ''}

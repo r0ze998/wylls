@@ -213,7 +213,6 @@ export default {
   '観戦をはじめる': 'Start watching',
   '練習をはじめる': 'Start practising',
   '辺境へ入る': 'Enter the Frontier',
-  '六つの国。十分ごとの鐘。封じられた進軍。': 'Six nations. A bell every ten minutes. Every march sealed.',
   'タイトルを見る': 'Show the title screen',
   '大協約': 'The Concord',
 
