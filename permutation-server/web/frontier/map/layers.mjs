@@ -85,7 +85,7 @@ export function provinceFill(rec) {
 export const SIGILS = Object.freeze(['circle', 'triangle', 'square', 'diamond', 'cross', 'hexagon', 'ring']);
 
 /** A faction's sigil of radius r (world px) at (x, y): its shape filled with its colour, outlined in ink. */
-export function paintSigil(ctx, { x, y, r, faction, scale = 1 }) {
+export function paintSigil(ctx, { x, y, r, faction, scale = 1, mark = null }) {
   const shape = SIGILS[faction] ?? 'ring';
   const pts = n => Array.from({ length: n }, (_, k) => { const a = -Math.PI / 2 + (k * 2 * Math.PI) / n; return [x + Math.cos(a) * r, y + Math.sin(a) * r]; });
   ctx.beginPath();
@@ -99,6 +99,8 @@ export function paintSigil(ctx, { x, y, r, faction, scale = 1 }) {
     corners.forEach(([px, py], k) => (k ? ctx.lineTo(px, py) : ctx.moveTo(px, py)));
     ctx.closePath();
   }
+  // (`mark`: the shape alone in one colour, to stand on a disc of the nation's colour)
+  if (mark) { if (shape === 'ring') { ctx.strokeStyle = mark; ctx.lineWidth = r * 0.36; ctx.stroke(); } else { ctx.fillStyle = mark; ctx.fill(); } return; }
   ctx.fillStyle = shape === 'ring' ? 'rgba(0,0,0,0)' : FACTION_COLORS[faction] ?? NEUTRAL_FILL;
   ctx.fill();
   ctx.strokeStyle = '#1b2e28'; ctx.lineWidth = (shape === 'ring' ? 2.5 : 1.5) / scale; ctx.stroke();

@@ -32,7 +32,8 @@ import { paintPins } from '../hud/pins.mjs';
 import { inverseHex } from '../../map.mjs';
 import { L, onLangChange } from '../../lang.mjs';
 import { locate, ringOf, ringProvinces, hexDistance, tileHex } from '../fgeo.mjs';
-import { fogLevel, paintProvince, paintTiles, paintVeil, provincePixel, PROVINCE_CIRCUMRADIUS } from './layers.mjs';
+import { fogLevel, paintProvince, paintSigil, paintTiles, paintVeil, provincePixel, PROVINCE_CIRCUMRADIUS } from './layers.mjs';
+import { FACTION_COLORS } from '../fi18n.mjs';
 import { createTerrain } from './terrain.mjs';
 import { SpriteArt, artSize, farRes, terrainLookup } from './sprites.mjs';
 import { paintSheet, paintTable, sheetOf, tableShows } from './table.mjs';
@@ -248,7 +249,8 @@ export function paintRealmLabels(ctx, recs, zoom, nameOf = null, { seen = null, 
   const add = (text, x, y, size, fill, priority, more = {}) => {
     ctx.font = fontOf(size);
     const w = ((ctx.measureText?.(text)?.width ?? text.length * size * k) / k) + 8;
-    items.push({ text, x, y, size, fill, priority, w, h: size * 1.3, dir: { x: x - c0.x, y: y - c0.y }, ...more });
+    // (a nation's name carries its sigil before it: room for that)
+    items.push({ text, x, y, size, fill, priority, w: w + (Number.isInteger(more.faction) ? size * 1.15 : 0), tw: w - 8, h: size * 1.3, dir: { x: x - c0.x, y: y - c0.y }, ...more });
   };
   // the viewer's own names first, then the Concord, then the nations (the larger realm first)
   for (const e of extra) {
@@ -259,8 +261,8 @@ export function paintRealmLabels(ctx, recs, zoom, nameOf = null, { seen = null, 
     add(nameOf ? nameOf('concord') : 'Concord', c0.x, c0.y, 15, '#efe6cf', 8, { fixed: true });
     acc.forEach((a, f) => {
       const name = nameOf ? nameOf(f) : String(f);
-      if (a.w < min) { if (home && home.faction === f) add(name, home.x, home.y, 22, '#fff6e2', 7); return; }
-      add(name, a.x / a.w, a.y / a.w, 22, '#fff6e2', 1 + Math.min(5, a.w / 100));
+      if (a.w < min) { if (home && home.faction === f) add(name, home.x, home.y, 22, '#fff6e2', 7, { faction: f }); return; }
+      add(name, a.x / a.w, a.y / a.w, 22, '#fff6e2', 1 + Math.min(5, a.w / 100), { faction: f });
     });
   }
   for (const it of layoutLabels(items, { zoom })) {
@@ -276,8 +278,16 @@ export function paintRealmLabels(ctx, recs, zoom, nameOf = null, { seen = null, 
         ctx.fillStyle = '#fff3cf'; ctx.fillText(it.text, it.x, it.y + 0.5 * k);
         return;
       }
-      ctx.lineJoin = 'round'; ctx.lineWidth = 5 * k; ctx.strokeStyle = 'rgba(14,22,20,.78)'; ctx.strokeText(it.text, it.x, it.y);
-      ctx.fillStyle = it.fill; ctx.fillText(it.text, it.x, it.y);
+      // a nation's name: its sigil on its colour stands before it (a nation is never told by colour or by name alone)
+      const sr = Number.isInteger(it.faction) ? it.size * 0.46 * k : 0, tx = it.x + (sr ? sr + 2 * k : 0);
+      if (sr) {
+        const sx = tx - (it.tw * k) / 2 - sr - 5 * k;
+        ctx.beginPath(); ctx.arc(sx, it.y, sr, 0, Math.PI * 2); ctx.fillStyle = FACTION_COLORS[it.faction] ?? '#8a8f86'; ctx.fill();
+        ctx.strokeStyle = 'rgba(14,22,20,.85)'; ctx.lineWidth = 1.6 * k; ctx.stroke();
+        paintSigil(ctx, { x: sx, y: it.y, r: sr * 0.56, faction: it.faction, mark: '#fff6e2' });
+      }
+      ctx.lineJoin = 'round'; ctx.lineWidth = 5 * k; ctx.strokeStyle = 'rgba(14,22,20,.78)'; ctx.strokeText(it.text, tx, it.y);
+      ctx.fillStyle = it.fill; ctx.fillText(it.text, tx, it.y);
     });
   }
   ctx.restore();
@@ -310,8 +320,8 @@ export function paintThreats(ctx, threats, zoom, label = null, part = null) {
     }
     if (label && part !== 'mark') upright(ctx, c.x, c.y, () => {
       const text = label(w);
-      ctx.font = `700 ${11 * k}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      const tw = ctx.measureText(text).width + 12 * k, th = 16 * k, y = c.y + r * 0.78 + 4 * k;
+      ctx.font = `700 ${12 * k}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const tw = ctx.measureText(text).width + 12 * k, th = 18 * k, y = c.y + r * 0.78 + 4 * k;
       ctx.fillStyle = 'rgba(120,20,12,.92)'; ctx.beginPath(); ctx.roundRect?.(c.x - tw / 2, y, tw, th, 8 * k); ctx.fill();
       ctx.fillStyle = '#fff2ee'; ctx.fillText(text, c.x, y + th / 2 + 0.5 * k);
     });

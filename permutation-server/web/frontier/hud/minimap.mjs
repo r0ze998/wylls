@@ -15,7 +15,8 @@ import { L } from '../../lang.mjs';
 import { provincePixel, PROVINCE_CIRCUMRADIUS } from '../map/layers.mjs';
 import { project, RADIUS } from '../../map.mjs';
 import { ringProvinces, tileHex, TILE_OFFSETS } from '../fgeo.mjs';
-import { keyHex } from '../map/survey.mjs';
+import { hexKey, keyHex } from '../map/survey.mjs';
+import { landTiles } from '../map/ownland.mjs';
 import { FACTION_FILL, FACTION_DARK } from '../people/avatar.mjs';
 
 export const LENSES = Object.freeze(['realm', 'war', 'land', 'settle']);
@@ -28,7 +29,7 @@ const LAND = '#6f8f55', CLOUD = '#e8ecef';
 /** The tile index of a province's centre. */
 const CENTRE_TILE = TILE_OFFSETS.findIndex(o => o.q === 0 && o.r === 0);
 /** The survey's materials at this size (map/survey.mjs): the chart, surveyed land out of sight, land in sight, the viewer's gold. */
-export const MINI_SURVEY = Object.freeze({ chart: '#d8caa5', line: 'rgba(96,80,48,.45)', surveyed: '#7d8a70', sight: '#8fb866', you: '#f3d58a' });
+export const MINI_SURVEY = Object.freeze({ chart: '#d8caa5', line: 'rgba(96,80,48,.45)', surveyed: '#7d8a70', sight: '#8fb866', you: '#f3d58a', engine: '#f4efe0', engineInk: '#17302b' });
 
 /** The faction that holds most of a province's sites in an overview record, or null. */
 export function majority(rec) {
@@ -92,8 +93,18 @@ export function paintMinimap(ctx, { recs, rings, own = [], view = null, size = n
       ctx.fillStyle = level === 3 ? MINI_SURVEY.sight : MINI_SURVEY.surveyed;
       for (const [k, lv] of survey.tiles) { if (lv !== level) continue; const t = keyHex(k), at = project(t.q, t.r), c = fr.toPx(at.x, at.y); ctx.fillRect(c.x - w / 2, c.y - h / 2, w, h); }
     }
-    // the Engine: the one landmark everyone has
-    ctx.fillStyle = '#c9a24a'; ctx.strokeStyle = '#3a2a08'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(px / 2, px / 2, 2.6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    // the viewer's own land, in the nation's colour (the land a village works: map/ownland.mjs landTiles), under a hair of gold
+    const nation = Number.isInteger(survey.faction) ? FACTION_FILL[survey.faction] : null;
+    if (nation) for (const v of survey.villages ?? []) {
+      const hx = Number.isInteger(v.tile) ? tileHex(v.p, v.q, v.tile) : null;
+      if (!hx) continue;
+      ctx.fillStyle = nation;
+      for (const t of landTiles({ q: hx.q, r: hx.r, tier: v.tier ?? 0 })) { if ((survey.tiles.get(hexKey(t.q, t.r)) ?? 0) < 2) continue; const at = project(t.q, t.r), c = fr.toPx(at.x, at.y); ctx.fillRect(c.x - w / 2 - 0.3, c.y - h / 2 - 0.3, w + 0.6, h + 0.6); }
+    }
+    // the Engine: the one landmark everyone has. A small bell tower in ivory and slate, never gold (gold is the viewer's own mark)
+    const ex = px / 2, ey = px / 2;
+    ctx.fillStyle = MINI_SURVEY.engine; ctx.strokeStyle = MINI_SURVEY.engineInk; ctx.lineWidth = 1; ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.moveTo(ex, ey - 6.5); ctx.lineTo(ex + 2.6, ey - 2.2); ctx.lineTo(ex + 1.9, ey - 2.2); ctx.lineTo(ex + 1.9, ey + 2.6); ctx.lineTo(ex - 1.9, ey + 2.6); ctx.lineTo(ex - 1.9, ey - 2.2); ctx.lineTo(ex - 2.6, ey - 2.2); ctx.closePath(); ctx.fill(); ctx.stroke();
   } else for (const o of own) {
     const c = (pp => fr.toPx(pp.x, pp.y))(provincePixel(o.p, o.q));
     ctx.strokeStyle = '#fffaf0'; ctx.lineWidth = 2; hex(c.x, c.y, r * 1.05); ctx.stroke();

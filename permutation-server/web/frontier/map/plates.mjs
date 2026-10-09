@@ -19,7 +19,8 @@
 // and a tile whose pile is put away for an effect shows none.
 import { RADIUS } from '../../map.mjs';
 import { L, fmtNum, lang } from '../../lang.mjs';
-import { FACTION_COLORS, TIERS } from '../fi18n.mjs';
+import { FACTION_COLORS, TIERS, factionName } from '../fi18n.mjs';
+import { wedgeOf } from '../fgeo.mjs';
 import { placeName } from '../people/identity.mjs';
 import { pillSize, statusMark, unitPill } from '../people/units.mjs';
 import { SIGILS } from './layers.mjs';
@@ -109,8 +110,9 @@ export function plateModel(v, { badges = true } = {}) {
  * (a little larger); `small`: from afar.
  */
 export function plateSize(g, m, k, { own = false, small = false } = {}) {
+  // (`small`: a plate from afar is tighter, but its type never goes under 12 px: the name a little smaller, the chip and the numbers as they are)
   const u = k * (small ? 0.9 : 1);
-  const nameSize = (own ? 15 : 14) * u, chipSize = 12 * u, numSize = 12 * u;
+  const nameSize = (own ? 15 : 14) * u, chipSize = 12 * k, numSize = 12 * k;
   g.font = `600 ${nameSize}px ${SERIF}`;
   const nameW = g.measureText?.(m.name)?.width ?? m.name.length * nameSize;
   g.font = `600 ${chipSize}px ${SANS}`;
@@ -282,6 +284,17 @@ export function paintPlates(g, { tiles = [], pills = [], constructions = [], hos
     if (!u.hero && at.dy > PLATE_DROP * k) continue;
     upright(g, u.x, u.y, () => paintPlate(g, ax, ay, m, S, { k, faction: u.owner, own: !!u.hero, muted: !sight, leader, dx: lean + at.dx, dy: at.dy }));
     n++;
+  }
+  // a nation's Seat (the camp at the middle of its first province): the nation's sigil and name over it. Its markers
+  // are in the nation's colour, and a nation is never told by colour alone
+  if (r >= PLATE_ALL_R) for (const u of tiles) {
+    if (!u.centre || u.ring !== 1 || u.cloud || (u.lv !== undefined && u.lv < 2) || pass.hiddenAt(key(u))) continue;
+    const f = wedgeOf(u.p, u.pq);
+    if (!(f >= 0 && f < 6)) continue;
+    const m = { name: factionName(f), chips: [], badges: [] }, S = plateSize(g, m, k, { small: true });
+    const ax = u.x, ay = u.y - RADIUS * 1.2 * rowScale(g, u.x, u.y);
+    const at = pass.place(u.x, u.y, { x: ax - S.w / 2, y: ay - 8 * k - S.h, w: S.w, h: S.h }, { keep: false });
+    if (at && at.dy <= PLATE_DROP * k) upright(g, u.x, u.y, () => paintPlate(g, ax, ay, m, S, { k, faction: f, leader: 8, dx: at.dx, dy: at.dy, muted: u.lv !== undefined && u.lv < 3 }));
   }
   // a building going up: its ring on the scaffold
   if (r >= PLATE_MIN_R) for (const c of constructions) {

@@ -383,7 +383,7 @@ export function progressBadge(ctx, x, y, k, share, text, { side = 'right' } = {}
   ctx.beginPath(); ctx.moveTo(x - 4 * k, y + 4 * k); ctx.lineTo(x + 3 * k, y - 3 * k); ctx.stroke();
   ctx.fillStyle = '#fffaf0'; ctx.save(); ctx.translate(x + 3 * k, y - 3 * k); ctx.rotate(Math.PI / 4); ctx.fillRect(-4 * k, -2 * k, 8 * k, 4 * k); ctx.restore();
   if (text) {
-    ctx.font = `700 ${11.5 * k}px system-ui, -apple-system, sans-serif`; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    ctx.font = `700 ${12 * k}px system-ui, -apple-system, sans-serif`; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
     const w = ctx.measureText(text).width + 12 * k, h = 18 * k, x0 = side === 'left' ? x - r - 4 * k - w : x + r + 4 * k;
     ctx.fillStyle = 'rgba(16,14,10,.82)'; ctx.beginPath(); ctx.roundRect?.(x0, y - h / 2, w, h, 8 * k); ctx.fill();
     ctx.fillStyle = '#fffaf0'; ctx.fillText(text, x0 + 6 * k, y + 0.5 * k);
