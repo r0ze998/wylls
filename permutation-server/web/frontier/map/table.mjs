@@ -29,6 +29,8 @@ export const HEX_W = SQRT3 * RADIUS;
  * paper, `margin` the bare paper between it and the sheet's edge.
  */
 export const SHEET = Object.freeze({ sea: 3.3, fade: 1.3, margin: 1.15, grow: 0.15 });
+/** The table is not painted under the sheet: only outside the sheet's rectangle and this far inside its edge (world px: past the deepest nick of the deckle). */
+export const TABLE_UNDER = 60;
 /** The table's colours: the lit wood, and the ink of its shadow. */
 export const WOOD = Object.freeze({ base: [58, 42, 30], dark: [30, 21, 15], shade: '8,6,5' });
 
@@ -93,9 +95,10 @@ export function tableShows(quad, sheet) {
 /**
  * The table over the whole canvas. `view` and `size` are the canvas's own
  * flat view and box (CSS px), `ratio` its device px per CSS px, `sheet` the
- * sheet lying on it (sheetOf). Leaves the transform at device px.
+ * sheet lying on it (sheetOf): the sheet is to be laid over it next, so the
+ * part it covers is left unpainted unless `bare`. Leaves the transform at device px.
  */
-export function paintTable(g, { view, size, ratio = 1, sheet = null }) {
+export function paintTable(g, { view, size, ratio = 1, sheet = null, bare = false }) {
   if (!g?.fillRect) return;
   const W = size.width * ratio, H = size.height * ratio, z = view.zoom * ratio;
   g.setTransform(1, 0, 0, 1, 0, 0);
@@ -108,6 +111,14 @@ export function paintTable(g, { view, size, ratio = 1, sheet = null }) {
     const board = (sheet ? sheet.y * 2 : 2400) / 5.6, k = (board / BOARD) * z;
     pat?.setTransform?.(new DOMMatrix([k, 0, 0, k, ox, oy + board * z * 0.31]));
   }
+  // (the sheet covers the table: only what lies outside the sheet's own rectangle, a little inside its deckled edge,
+  // is painted. Close on the land's rim that is a strip of the canvas, and a pattern over all of it cost a travelling
+  // picture some forty milliseconds)
+  const m = sheet ? TABLE_UNDER * z : 0, sx0 = sheet ? ox - sheet.x * z + m : 0, sy0 = sheet ? oy - sheet.y * z + m : 0, sx1 = sheet ? ox + sheet.x * z - m : 0, sy1 = sheet ? oy + sheet.y * z - m : 0;
+  // (`bare`: the table with no sheet laid on it afterwards, what an opening fades out of: all of it)
+  const cut = !bare && sheet && g.clip && sx1 > sx0 && sy1 > sy0 && sx0 < W && sx1 > 0 && sy0 < H && sy1 > 0;
+  if (cut && sx0 <= 0 && sy0 <= 0 && sx1 >= W && sy1 >= H) return;
+  if (cut) { g.save(); g.beginPath(); g.rect(0, 0, W, H); g.rect(sx0, sy0, sx1 - sx0, sy1 - sy0); g.clip('evenodd'); }
   g.fillStyle = pat ?? `rgb(${WOOD.base.join(',')})`;
   g.fillRect(0, 0, W, H);
   // the lamp: a pool of light around the sheet, the wood falling into shadow away from it
@@ -117,6 +128,7 @@ export function paintTable(g, { view, size, ratio = 1, sheet = null }) {
     lamp.addColorStop(0, `rgba(${WOOD.shade},0)`); lamp.addColorStop(0.45, `rgba(${WOOD.shade},0.32)`); lamp.addColorStop(1, `rgba(${WOOD.shade},0.74)`);
     g.fillStyle = lamp; g.fillRect(0, 0, W, H);
   }
+  if (cut) g.restore();
 }
 
 // ------------------------------------------------------------------ the sheet

@@ -102,6 +102,12 @@ export const STILL_MAX_PIXELS = 11_000_000;
 export const BACKDROP_PIXELS = 6_000_000;
 /** While the camera travels, the kept sheet under the land serves until the zoom has grown this much past the fineness it was made at. */
 export const BACKDROP_STRETCH = 1.4;
+/** After the camera has come to rest the sheet under the world is laid properly this much later (ms): not in the frame the camera arrives in. */
+export const BACKDROP_IDLE_MS = 450;
+/** The whole sheet as one picture, for a travelling camera (FrontierMap.quickSheet): at most this many pixels. */
+export const SHEET_PIXELS = 4_000_000;
+/** A kept sheet this much coarser than the budget would allow for the picture at hand still serves it (it was made for the apron's larger box). */
+export const BACKDROP_SHARE = 0.76;
 /** On a screen of one device pixel per CSS pixel the tilted ground is painted this much finer (the near half of the board is drawn larger than life). */
 export const GROUND_FINER = 1.4;
 /**
@@ -123,6 +129,14 @@ export const WAIT_VIEW = Object.freeze({ wide: 0.62, high: 0.7, drop: 0.02 });
 export const WAIT_HAZE = Object.freeze([[0, 0.9], [0.115, 0.9], [0.147, 0.7], [0.198, 0.46], [0.282, 0.26], [0.422, 0.1], [0.55, 0.03], [0.64, 0]]);
 /** The opening shows its first picture whole: it waits at most this long (ms) for the last of it to be made. */
 export const OPEN_HOLD_MS = 1600;
+/**
+ * The apron of a travelling picture (FrontierMap.groundApron): how far it reaches past the canvas (device px), the
+ * most pixels it may have, how far ahead of the camera's way it is laid (of the margin), between which zooms (of the
+ * one it was made at) it serves stretched, at which zoom (of the picture's own) it is made while the camera flies
+ * out (a wider one, so a flight out makes it once or twice and not at every step), and how soon one that was not
+ * whole is made again (ms).
+ */
+export const APRON = Object.freeze({ margin: 256, pixels: 12_000_000, lead: 0.7, out: 0.8, in: 1.6, away: 0.7, retry: 250 });
 /** The seat's frame: the viewer's village is seen this share of the uncovered height below its middle (a tilted board only). */
 export const SEAT_DROP = 0.08;
 /** The haze of the far rows stops this far inside the sheet's edge (world px): the deckle's nicks reach about that far in. */
@@ -1230,7 +1244,7 @@ export class FrontierMap {
     const OW = Math.round(width * dpr), OH = Math.round(height * dpr);
     if (staged && (this.canvas.width !== OW || this.canvas.height !== OH)) { this.canvas.width = OW; this.canvas.height = OH; }
     // the table the world's sheet lies on (map/table.mjs): stained boards and a pool of lamp light, laid on the world
-    const table = (g, view = groundView(this.cam.drawn, G)) => paintTable(g, { view, size: gsize, ratio: gr, sheet: sheetOf(this.rings ?? 1) });
+    const table = (g, view = groundView(this.cam.drawn, G)) => paintTable(g, { view, size: gsize, ratio: gr, sheet: sheetOf(this.rings ?? 1), bare: true });
     const inset = this.inset();
     // the depth dressing: on the page, over the stage (custom properties of #map-dress); on a map without a stage, in the canvas
     const dressing = (zoom, deg = 0, shown = 1, haze = 1, sheet = 'none', dusk = 0) => {
@@ -1281,7 +1295,7 @@ export class FrontierMap {
       const g = cv?.getContext?.('2d');
       if (g) {
         // (the world only: labels are always drawn fresh on top, a still of them would ghost as the zoom goes on)
-        this.paintScene(ctx, src, gv, was, gsize, gr, { now, table, quad: quadOf(v, T), up });
+        this.paintScene(ctx, src, gv, was, gsize, gr, { now, table, quad: quadOf(v, T), up, still: true });
         g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'copy'; g.drawImage(gcv, 0, 0); g.globalCompositeOperation = 'source-over';
         this.fadeCv = cv;
         this.fade = { view: { ...gv }, since: now, t0: null };
@@ -1299,6 +1313,7 @@ export class FrontierMap {
     }
     // away from the tile view its still layers are let go (two bitmaps the size of the canvas)
     if (lod !== 'tile' && this.layers) this.layers = null;
+    if (lod !== 'tile' && this.apron) this.apron = null;
     const out = this.paintScene(ctx, src, gv, lod, gsize, gr, { now, rest, table, artZoom: Math.max(v.zoom, logical.zoom), quad: quadOf(v, T), up });
     this.painted = true;
     if (this.fade) {
@@ -1443,7 +1458,7 @@ export class FrontierMap {
    * step. Deep inside the land nothing of either can show: one flat fill of paper stands in until the land's
    * own bitmaps are there. `seen` and `corners`: the part of the world on the canvas.
    */
-  backdrop(g, { view, size, ratio, sheet, paperRes, seen, corners, ringsOpen }) {
+  backdrop(g, { view, size, ratio, sheet, paperRes, seen, corners, ringsOpen, quick = false, direct = false }) {
     const W = g.canvas?.width ?? Math.round(size.width * ratio), H = g.canvas?.height ?? Math.round(size.height * ratio);
     g.setTransform(1, 0, 0, 1, 0, 0);
     // (inland: every sample of the picture has land five tiles deep around it; the land is close to convex)
@@ -1456,7 +1471,10 @@ export class FrontierMap {
     let b = this.under;
     // while the camera travels a picture made a little finer than the screen serves a range of zooms; at rest it is
     // made for the screen's own pixels (a plain copy, and sharp)
-    const moving = this.cam.moving || !!this.drag?.moved;
+    // (a pan, a drag, a glide: the zoom is not travelling. The picture is then made for this zoom's own pixels and
+    // copied, not stretched: a copy costs a third of a smoothed stretch of the whole canvas)
+    const zooming = this.cam.moving && Math.abs(Math.log(this.cam.drawn.zoom / this.cam.view.zoom)) > 1e-4;
+    const moving = zooming;
     const cap = wide => Math.sqrt(BACKDROP_PIXELS / (wide * wide * w * h));
     const fits = b && b.rings === ringsOpen && b.paper === paperRes && seen.x0 >= b.x0 && seen.y0 >= b.y0 && seen.x1 <= b.x1 && seen.y1 <= b.y1
       // (a picture already as fine as its budget allows serves any closer zoom, travelling or at rest: with the finer
@@ -1466,8 +1484,16 @@ export class FrontierMap {
       // in motion; made again at every 2% it was painted on most frames of a flight in)
       // (counted from the zoom it was made at: where the pixel budget holds its fineness below the screen's, it was
       // still made again on every frame of a flight in, as the budget's own limit rose with the narrowing view)
-      && ((moving ? px <= Math.max(b.res, b.px ?? 0) * BACKDROP_STRETCH && px >= b.res * 0.6 : Math.abs(px - b.res) < 1e-9) || (px > b.res && b.res >= cap(1.68) * 0.999));
-    if (!fits) {
+      // (and one made for the apron's larger box, a little coarser for the same budget, serves the canvas's own
+      // picture too: BACKDROP_SHARE; else the two would make it again in turn)
+      && ((moving ? px <= Math.max(b.res, b.px ?? 0) * BACKDROP_STRETCH && px >= b.res * 0.6 : Math.abs(px - b.res) < 1e-9) || (px > b.res && b.res >= cap(1.68) * BACKDROP_SHARE));
+    // (`quick`: the picture is travelling. Laying the paper for this picture costs a tenth of a second and more, and
+    // a flight did it three or four times. While the camera travels the picture is made from the whole sheet kept as
+    // one soft picture (quickSheet), which costs a copy; the paper is laid properly once the camera rests)
+    const serves = fits && (quick || !b.quick);
+    // (`direct`: the caller keeps the picture itself, the apron: nothing is kept here for it, the soft sheet goes straight onto it)
+    if (!serves && quick && direct && this.quickSheet(g, { view, size, ratio, sheet, corners, ringsOpen })) return;
+    if (!serves) {
       // a third more on every side (never more than BACKDROP_PIXELS in all)
       const x0 = seen.x0 - w * 0.34, y0 = seen.y0 - h * 0.34, bw = w * 1.68, bh = h * 1.68;
       const res = Math.min(moving ? px * 1.12 : px, cap(1.68));
@@ -1481,16 +1507,101 @@ export class FrontierMap {
         return;
       }
       const box = { x0, y0, x1: x0 + bw, y1: y0 + bh };
-      paintTable(bg, { view: { x: x0 + bw / 2, y: y0 + bh / 2, zoom: res }, size: { width: bw * res, height: bh * res }, ratio: 1, sheet });
-      bg.setTransform(res, 0, 0, res, -x0 * res, -y0 * res);
-      paintSheet(bg, sheet, { box, res: paperRes, zoom: view.zoom });
-      b = this.under = { cv, ...box, res, px, rings: ringsOpen, paper: paperRes };
+      const bview = { x: x0 + bw / 2, y: y0 + bh / 2, zoom: res }, bsize = { width: bw * res, height: bh * res };
+      const soft = quick && this.quickSheet(bg, { view: bview, size: bsize, ratio: 1, sheet, corners: [{ x: box.x0, y: box.y0 }, { x: box.x1, y: box.y0 }, { x: box.x1, y: box.y1 }, { x: box.x0, y: box.y1 }], ringsOpen });
+      if (!soft) {
+        paintTable(bg, { view: bview, size: bsize, ratio: 1, sheet });
+        bg.setTransform(res, 0, 0, res, -x0 * res, -y0 * res);
+        paintSheet(bg, sheet, { box, res: paperRes, zoom: view.zoom });
+      }
+      b = this.under = { cv, ...box, res, px, rings: ringsOpen, paper: paperRes, quick: !!soft };
     }
     const k = b.res;
     // (pixel for pixel when the picture was made for this zoom: a copy)
     if (Math.abs(px - k) < 1e-9) { g.drawImage(b.cv, Math.round((seen.x0 - b.x0) * k), Math.round((seen.y0 - b.y0) * k), W, H, 0, 0, W, H); return; }
     g.imageSmoothingEnabled = true;
     g.drawImage(b.cv, (seen.x0 - b.x0) * k, (seen.y0 - b.y0) * k, w * k, h * k, 0, 0, W, H);
+  }
+
+  /**
+   * The whole sheet as one kept picture (its shadow, its paper, its edge, its neatline and rose; nothing round it),
+   * laid over the table: what stands in for the sheet under the world while the camera travels. Made once for a
+   * world's size, at most SHEET_PIXELS; soft close up, which a travelling picture forgives. Returns false where no
+   * spare canvas can be had (the caller paints the sheet itself).
+   */
+  quickSheet(g, { view, size, ratio, sheet, corners, ringsOpen }) {
+    let q = this.sheetPic;
+    if (!q || q.rings !== ringsOpen) {
+      // (room for the cast shadow: it reaches some 80 px of a small sheet's own measure past the edge)
+      const pad = 90 * Math.max(1, sheet.x / 1100), bw = 2 * (sheet.x + pad), bh = 2 * (sheet.y + pad);
+      const res = Math.min(1, Math.sqrt(SHEET_PIXELS / (bw * bh)));
+      const cv = spareCanvas(this.canvas.ownerDocument, Math.ceil(bw * res), Math.ceil(bh * res)), sg = cv?.getContext?.('2d');
+      if (!sg) return false;
+      sg.setTransform(res, 0, 0, res, (sheet.x + pad) * res, (sheet.y + pad) * res);
+      paintSheet(sg, sheet, { box: { x0: -sheet.x - pad, y0: -sheet.y - pad, x1: sheet.x + pad, y1: sheet.y + pad }, res, zoom: res });
+      q = this.sheetPic = { cv, rings: ringsOpen, x: -sheet.x - pad, y: -sheet.y - pad, w: bw, h: bh };
+    }
+    if (tableShows(corners, sheet)) paintTable(g, { view, size, ratio, sheet });
+    const z = view.zoom;
+    g.setTransform(ratio * z, 0, 0, ratio * z, ratio * (size.width / 2 - view.x * z), ratio * (size.height / 2 - view.y * z));
+    g.imageSmoothingEnabled = true;
+    g.drawImage(q.cv, q.x, q.y, q.w, q.h);
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    return true;
+  }
+
+  /**
+   * The apron (UX brief §12.7: what does not change while the camera travels is not painted again): the still ground
+   * of the tile view, the table, the sheet, the land's ground and the cloud sea lying on it, kept in one picture that
+   * reaches APRON.margin device px past the canvas on every side. A travelling frame copies its part of it (pixel
+   * for pixel while only the place changes; stretched a little while the zoom travels, between APRON.out and
+   * APRON.in of the zoom it was made at) and paints only what stands and what lives. It is made again when the
+   * picture leaves it (then a little ahead of the way the camera goes), when the zoom has travelled too far from
+   * it, when the data changed (`stamp`), and, while a part of it was still being made, every APRON.retry ms.
+   * `paint(g, {view, size, box})` paints the picture and returns `{whole}`. Returns `{whole}` when the frame was
+   * served, or null (no spare canvas, or a canvas too large to keep one for): the caller paints the frame whole.
+   */
+  groundApron(ctx, { view, size, dpr, seen, ringsOpen, now, paint, away = false }) {
+    const W = ctx.canvas?.width ?? Math.round(size.width * dpr), H = ctx.canvas?.height ?? Math.round(size.height * dpr);
+    const px = dpr * view.zoom;
+    // (the margin gives way on a very large canvas; below a quarter of it an apron is not worth its pixels)
+    let M = APRON.margin;
+    while (M >= APRON.margin / 4 && (W + 2 * M) * (H + 2 * M) > APRON.pixels) M = Math.floor(M / 2);
+    if (M < APRON.margin / 4 || !(px > 0)) { this.apron = null; return null; }
+    let a = this.apron;
+    const scale = a ? px / a.px : 1;
+    const inside = a && seen.x0 >= a.box.x0 && seen.y0 >= a.box.y0 && seen.x1 <= a.box.x1 && seen.y1 <= a.box.y1;
+    const fits = inside && a.stamp === this.stamp && a.rings === ringsOpen && a.W === W && a.H === H && a.dpr === dpr
+      && (Math.abs(scale - 1) < 1e-9 || (scale > APRON.out && scale < APRON.in))
+      // (one that was not whole is made again after a while: never sooner than three times what making it took, or a
+      // slow canvas would make it on every frame)
+      && (a.whole || now - a.at < Math.max(APRON.retry, a.cost * 3));
+    if (!fits) {
+      const cw = W + 2 * M, ch = H + 2 * M;
+      // (a canvas of the page's own where there is a page: copying from one is twice as fast as from a canvas off the page)
+      const doc = this.canvas.ownerDocument, own = doc?.createElement ? Object.assign(doc.createElement('canvas'), { width: cw, height: ch }) : null;
+      const cv = a?.cv?.width === cw && a.cv.height === ch ? a.cv : own?.getContext ? own : spareCanvas(doc, cw, ch), g = cv?.getContext?.('2d', { alpha: false });
+      if (!g) { this.apron = null; return null; }
+      // a little ahead of the way the camera goes: a straight pan meets the apron's edge half as often
+      // (`away`: the camera is flying out. The picture is made for a wider view than this one, about the same middle)
+      const az = away ? view.zoom * APRON.away : view.zoom, apx = dpr * az;
+      const was = this.apronSeen, m = M / apx, lead = APRON.lead * m, pan = !away && was && was.zoom === view.zoom;
+      const dx = pan ? Math.sign(Math.round((view.x - was.x) * px)) * lead : 0, dy = pan ? Math.sign(Math.round((view.y - was.y) * px)) * lead : 0;
+      const cx = (seen.x0 + seen.x1) / 2 + dx, cy = (seen.y0 + seen.y1) / 2 + dy, hw = cw / apx / 2, hh = ch / apx / 2;
+      const box = { x0: cx - hw, y0: cy - hh, x1: cx + hw, y1: cy + hh };
+      const av = { x: cx, y: cy, zoom: az }, as = { width: cw / dpr, height: ch / dpr };
+      const t0 = clock();
+      const r = paint(g, { view: av, size: as, box });
+      a = this.apron = { cv, box, px: apx, stamp: this.stamp, rings: ringsOpen, W, H, dpr, whole: !!r?.whole, at: now, cost: clock() - t0 };
+    }
+    this.apronSeen = { x: view.x, y: view.y, zoom: view.zoom };
+    const k = a.px, sx = (seen.x0 - a.box.x0) * k, sy = (seen.y0 - a.box.y0) * k;
+    // (both canvases are opaque: a plain draw is a copy, and the faster one)
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (Math.abs(px - k) < 1e-9) ctx.drawImage(a.cv, Math.round(sx), Math.round(sy), W, H, 0, 0, W, H);
+    else { ctx.imageSmoothingEnabled = true; ctx.drawImage(a.cv, sx, sy, (W * k) / px, (H * k) / px, 0, 0, W, H); }
+    ctx.restore();
+    return { whole: a.whole };
   }
 
   /**
@@ -1526,7 +1637,8 @@ export class FrontierMap {
    * (default: this canvas), and how much art of this picture is still on
    * its way.
    */
-  paintScene(ctx, src, view, lod, size, dpr, { now = clock(), rest = false, artZoom = view.zoom, table = () => {}, quad = null, up = null } = {}) {
+  paintScene(ctx, src, view, lod, size, dpr, { now = clock(), rest = false, artZoom = view.zoom, table = () => {}, quad = null, up = null, still = false } = {}) {
+    // (`still`: one picture for a dissolve, of a level that is being left: nothing is kept for it)
     const { width, height } = size, z = view.zoom;
     const world = [dpr * z, 0, 0, dpr * z, dpr * (width / 2 - view.x * z), dpr * (height / 2 - view.y * z)];
     // what lies under the art: the table, and the provinces drawn as plain cells (no terrain yet, or no art);
@@ -1540,8 +1652,14 @@ export class FrontierMap {
     const paperRes = lod === 'tile' ? artSize(RADIUS * Math.max(z, artZoom) * dpr).r / RADIUS : farRes((this.cam.moving ? Math.min(z, this.cam.view.zoom) : z) * dpr);
     const seen = { x0: view.x - width / 2 / z, y0: view.y - height / 2 / z, x1: view.x + width / 2 / z, y1: view.y + height / 2 / z };
     const corners = [{ x: seen.x0, y: seen.y0 }, { x: seen.x1, y: seen.y0 }, { x: seen.x1, y: seen.y1 }, { x: seen.x0, y: seen.y1 }];
+    // (travelling, and for a moment after: the paper is laid properly once the camera has rested BACKDROP_IDLE_MS,
+    // not in the frame it arrives in)
+    if (this.cam.moving || this.drag?.moved || this.openHold) this.movedAt = now;
+    const travelling = now - (this.movedAt ?? -Infinity) < BACKDROP_IDLE_MS;
+    if (!travelling && this.under?.quick && this.layers?.key) { this.layers.key = null; this.dirty = true; }
+    else if (travelling && this.under?.quick) this.invalidateSoon(BACKDROP_IDLE_MS);
     const under = g => {
-      this.backdrop(g, { view, size, ratio: dpr, sheet, paperRes, seen, corners, ringsOpen });
+      this.backdrop(g, { view, size, ratio: dpr, sheet, paperRes, seen, corners, ringsOpen, quick: travelling });
       g.setTransform(...world);
       for (const f of plain) f(g);
     };
@@ -1565,6 +1683,14 @@ export class FrontierMap {
     const fogAt = (q, r) => { const at = locate(q, r); return ringOf(at.p, at.q) < ringsOpen ? 'clear' : 'unopened'; };
     let wanted = 0, drawn = 0, kind = 'far', labels = null, pending = 0, rough = 0;
     const artTiles = [], artCells = [];
+    // Art, tile view: every level is drawn as tiles (the chart, muted land, land in sight; unopened as cloud sea)
+    // (unopened: its tiles are in the model so the land knows where it ends; the cloud itself is the sea's)
+    const artEntry = (pr, fog, selected, rec, seen, sight) => {
+      if (fog === 'unopened') return { tiles: { ...pr, fog, selected }, wanted: 0, drawn: 0 };
+      const t = terrainOf?.(pr.p, pr.q);
+      if (t) return { tiles: { ...pr, ...t, rec, fog, selected, prov: seen ? src.provinceOf?.(pr.p, pr.q) ?? null : null, clash: sight ? src.clashOf?.(pr.p, pr.q) ?? null : null, pending: sight ? src.pendingOf?.(pr.p, pr.q) ?? null : null }, wanted: 1, drawn: 1 };
+      return { plain: g => paintProvince(g, { ...pr, rec, fog, selected, scale: z }), wanted: 1, drawn: 0 };
+    };
     for (const pr of visibleProvinces(view, size, maxRing, quad)) {
       const key = `${pr.p},${pr.q}`;
       const fog = fogOf(pr.p, pr.q);
@@ -1576,13 +1702,10 @@ export class FrontierMap {
       const sv = survey.province(pr.p, pr.q), seen = sv.max >= L2, sight = sv.max === L3;
       const rec = seen ? recs.get(key) : null;
       if (lod === 'tile' && this.art) {
-        // Art: every level is drawn as tiles (the chart, muted land, land in sight; unopened as cloud sea)
-        // (unopened: its tiles are in the model so the land knows where it ends; the cloud itself is the sea's)
-        if (fog === 'unopened') { artTiles.push({ ...pr, fog, selected }); continue; }
-        const t = terrainOf?.(pr.p, pr.q);
-        wanted++;
-        if (t) { artTiles.push({ ...pr, ...t, rec, fog, selected, prov: seen ? src.provinceOf?.(pr.p, pr.q) ?? null : null, clash: sight ? src.clashOf?.(pr.p, pr.q) ?? null : null, pending: sight ? src.pendingOf?.(pr.p, pr.q) ?? null : null }); drawn++; continue; }
-        plain.push(g => paintProvince(g, { ...pr, rec, fog, selected, scale: z }));
+        const e = artEntry(pr, fog, selected, rec, seen, sight);
+        if (e.tiles) artTiles.push(e.tiles);
+        if (e.plain) plain.push(e.plain);
+        wanted += e.wanted; drawn += e.drawn;
         continue;
       }
       if (lod === 'tile' && TILE_FOGS.includes(fog)) {
@@ -1609,23 +1732,53 @@ export class FrontierMap {
     // a resting tile view: the still layers (the table is in the ground layer), then the animated ones
     // (`between`: on the ground, under what stands on it: the viewer's land and the lit tiles, then the effects engine's ground pass)
     // the cloud sea: its still part (the bank and the puffs) and the light and shade that drift over it
+    // (the sea's fineness: as fine as the screen; through a flight as fine as the coarser of where the flight began and
+    // where it ends, the same for every frame of it: the far view's own pieces carry a flight in, a flight out makes
+    // its few coarse pieces at once, and no frame on the way asks for a fineness of its own)
+    const seaZoom = this.cam.moving ? Math.min(this.cam.tween?.from?.zoom ?? z, this.cam.view.zoom) : z;
     const sea = (g, part) => {
-      // (as fine as the screen; in a flight as fine as the coarser of where the camera is and where it goes, so the
-      // far view's own pieces carry a flight in, and a flight out makes its few coarse pieces at once)
       // (cloud is soft: it is made for the screen's own pixels, not for the finer ground canvas of a screen of one device px per px)
-      const r = this.sea.paint(g, { box: seen, res: seaRes((this.cam.moving ? Math.min(z, this.cam.view.zoom) : z) * Math.min(dpr, this.dpr())), ringsOpen, sheet, now: fxNow(), still: reducedMotion(), part, bakes: this.openHold ? SEA_BAKES * 3 : SEA_BAKES });
+      const r = this.sea.paint(g, { box: seen, res: seaRes(seaZoom * Math.min(dpr, this.dpr())), ringsOpen, sheet, now: fxNow(), still: reducedMotion(), part, bakes: this.openHold ? SEA_BAKES * 3 : SEA_BAKES });
       if (r.pending) { pending += r.pending; this.dirty = true; }
       if (r.rough) rough += r.rough;
       // (the drift moves a few px a second: a frame when it has moved about one)
       else if (r.seen && part !== 'still' && !reducedMotion()) this.invalidateSoon(Math.max(110, Math.min(420, 1300 / (Math.hypot(DRIFT_SPEED.x, DRIFT_SPEED.y) * z))));
       return r;
     };
-    const tileOpts = artTiles.length ? { zoom: z, dpr, artZoom, passing: this.cam.moving, rush: !!this.openHold, stamp: this.stamp, sea: true, up, seaPass: sea, between: c => { this.groundPass(c, F, 'all'); this.between?.(c, { zoom: z, now }); }, ground: (c, phase) => this.groundPass(c, F, phase), terrainAt: terrainLookup(terrainOf), fogAt, selected: null, viewerFaction: src.viewerFaction ?? null, demoRoads: !!src.demoRoads, ringsOpen: src.ringsOpen ?? null, replayRing: src.artReplayRing ?? null, engineStage: src.engineStage ?? 0, relics: src.relics ?? [], waystones: src.waystones ?? [], demoSpecials: !!src.demoSpecials, rivers: src.rivers ?? [], demoRivers: !!src.demoRivers, alliedPairs: src.alliedPairs ?? [], survey,
+    // (the cloud sea lies on the sheet: it is laid right after the ground, under the ground marks and under what stands
+    // on the land, in every kind of frame; so a picture of the ground with its sea can be kept and moved: the apron)
+    const marks = c => { c.setTransform(...world); this.groundPass(c, F, 'all'); this.between?.(c, { zoom: z, now }); };
+    const tileOpts = artTiles.length ? { zoom: z, dpr, artZoom, passing: this.cam.moving, rush: !!this.openHold, stamp: this.stamp, sea: true, up, seaPass: sea, between: c => { c.setTransform(...world); sea(c, null); marks(c); }, ground: (c, phase) => this.groundPass(c, F, phase), terrainAt: terrainLookup(terrainOf), fogAt, selected: null, viewerFaction: src.viewerFaction ?? null, demoRoads: !!src.demoRoads, ringsOpen: src.ringsOpen ?? null, replayRing: src.artReplayRing ?? null, engineStage: src.engineStage ?? 0, relics: src.relics ?? [], waystones: src.waystones ?? [], demoSpecials: !!src.demoSpecials, rivers: src.rivers ?? [], demoRivers: !!src.demoRivers, alliedPairs: src.alliedPairs ?? [], survey,
       // people (people/crowds.mjs): the source's departures, explores and holder names; tags nearest the view centre first
       people: src.people ? { ...src.people(), centre: { x: view.x, y: view.y } } : null } : null;
     const missed = this.art?.misses ?? 0;
     const layered = tileOpts && rest ? this.paintLayered(ctx, artTiles, tileOpts, world, now, under) : null;
-    if (!layered) under(ctx);
+    // a picture that travels (a pan, a drag, a glide, a flight inside the tile view): the still ground under it, the
+    // table, the sheet, the land's ground and the cloud sea, comes from the apron, a picture of it kept a little
+    // larger than the canvas and moved with the camera; only what stands and what lives is painted afresh
+    const apron = tileOpts && !layered && !still && !this.openHold ? this.groundApron(ctx, { view, size, dpr, seen, ringsOpen, now, away: this.cam.moving && this.cam.view.zoom < z * 0.98, paint: (g, a) => {
+      const az = a.view.zoom, aw = [dpr * az, 0, 0, dpr * az, dpr * (a.size.width / 2 - a.view.x * az), dpr * (a.size.height / 2 - a.view.y * az)];
+      const tiles = [], cells = [];
+      for (const pr of visibleProvinces(a.view, a.size, maxRing, null)) {
+        const sv = survey.province(pr.p, pr.q), e = artEntry(pr, fogOf(pr.p, pr.q), false, sv.max >= L2 ? recs.get(`${pr.p},${pr.q}`) : null, sv.max >= L2, sv.max === L3);
+        if (e.tiles) tiles.push(e.tiles);
+        if (e.plain) cells.push(e.plain);
+      }
+      this.backdrop(g, { view: a.view, size: a.size, ratio: dpr, sheet, paperRes, seen: a.box, corners: [{ x: a.box.x0, y: a.box.y0 }, { x: a.box.x1, y: a.box.y0 }, { x: a.box.x1, y: a.box.y1 }, { x: a.box.x0, y: a.box.y1 }], ringsOpen, quick: true, direct: true });
+      g.setTransform(...aw);
+      for (const f of cells) f(g);
+      const had = this.art.misses;
+      this.art.paint(g, tiles, { ...tileOpts, zoom: az, part: 'ground', between: null });
+      g.setTransform(...aw);
+      // (while the zoom travels the sea's drifting light is left out of the kept picture, which lasts a second: the
+      // light is half the sea's cost)
+      const zooming = this.cam.moving && Math.abs(Math.log(this.cam.drawn.zoom / this.cam.view.zoom)) > 1e-4;
+      const r = this.sea.paint(g, { box: a.box, res: seaRes(seaZoom * Math.min(dpr, this.dpr())), ringsOpen, sheet, now: fxNow(), still: reducedMotion(), part: zooming ? 'still' : null });
+      rough += r.rough ?? 0;
+      return { whole: this.art.misses === had && !r.pending && cells.length === 0 };
+    } }) : null;
+    if (apron && !apron.whole) { pending++; this.dirty = true; }
+    if (!layered && !apron) under(ctx);
     ctx.setTransform(...world);
     // (tiles without the art, ?art=0: the ground marks go straight over the plain tiles)
     if (!tileOpts && lod === 'tile') this.groundPass(ctx, F, 'all');
@@ -1665,11 +1818,12 @@ export class FrontierMap {
     }
     if (tileOpts) {
       kind = layered === 'live' ? 'live' : 'full';
-      // (a frame painted whole: the land and what stands on it, the cloud sea, then what lives)
+      if (apron) kind = 'pan';
+      // (a frame painted whole: the land with the cloud sea and the ground marks on it, what stands, then what lives;
+      // from the apron: the marks, what stands, what lives)
       if (!layered) {
-        this.art.paint(ctx, artTiles, { ...tileOpts, part: 'ground' });
+        if (apron) marks(ctx); else this.art.paint(ctx, artTiles, { ...tileOpts, part: 'ground' });
         this.art.paint(ctx, artTiles, { ...tileOpts, part: 'props' });
-        ctx.setTransform(...world); sea(ctx, null);
         this.art.paint(ctx, artTiles, { ...tileOpts, part: 'live' });
       }
       labels = (o, pass) => this.art.labels(o, { ...tileOpts, pass });
@@ -2033,25 +2187,27 @@ export class FrontierMap {
       under(L.ground.g);
       L.ground.g.setTransform(...world);
       this.art.paint(L.ground.g, tiles, { ...opts, part: 'ground', between: null });
+      // the cloud sea's still part lies on the ground and is kept with it; while a piece of it waits its turn the layer is not final
+      L.ground.g.setTransform(...world);
+      const sea = opts.seaPass?.(L.ground.g, 'still');
+      L.ground.g.setTransform(...world);
       opts.ground?.(L.ground.g, 'still');   // the ground marks that do not move are kept with the ground
       const g = L.props.g;
       g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, W, H); g.setTransform(...world);
       this.art.paint(g, tiles, { ...opts, part: 'props' });
-      // the cloud sea's still part is kept with the props; while a piece of it waits its turn the layer is not final
-      g.setTransform(...world);
-      const sea = opts.seaPass?.(g, 'still');
       L.key = sea?.pending ? null : key; L.at = now;
     }
     ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'copy'; ctx.drawImage(L.ground.cv, 0, 0); ctx.globalCompositeOperation = 'source-over';
     ctx.restore();
     ctx.setTransform(...world);
-    // over the land, under what stands on it: what moves of the ground marks, then the effects engine's ground pass
+    // over the land, under what stands on it: the sea's drifting light, what moves of the ground marks, then the effects engine's ground pass
+    opts.seaPass?.(ctx, 'drift');
+    ctx.setTransform(...world);
     if (opts.ground) { opts.ground(ctx, 'live'); this.between?.(ctx, { zoom: opts.zoom, now }); }
     else opts.between?.(ctx);
     ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(L.props.cv, 0, 0); ctx.restore();
     ctx.setTransform(...world);
-    opts.seaPass?.(ctx, 'drift');
     this.art.paint(ctx, tiles, { ...opts, part: 'live' });
     return fresh ? 'fresh' : 'live';
   }

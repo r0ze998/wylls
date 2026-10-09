@@ -263,6 +263,8 @@ export const CODE_RELIEF = Object.freeze({ mountain: true, forest: true });
 export const RELIEF_SCALE = Object.freeze({ mountain: 1.06, tree: 1 });
 const RELIEF_GROUND = Object.freeze({ mountain: 'hills', forest: 'grassland' });
 const RELIEF_OFF = /[?&]relief=0(?:&|$)/.test(globalThis.location?.search ?? '');
+/** Terrain whose props lie low (tufts, flowers, stones, what floats): at the tile view they are part of the still ground. */
+const LOW_PROPS = new Set(['grassland', 'plains', 'hills', 'water']);
 /** Terrain whose props stand tall enough to cover a host on the tile behind. */
 const TALL = new Set(['mountain', 'forest']);
 const spare = (w, h) => (typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : typeof document !== 'undefined' ? Object.assign(document.createElement('canvas'), { width: w, height: h }) : null);
@@ -937,12 +939,18 @@ export class SpriteArt {
     // (a site in a wood keeps its clearing: its ground is a site's on grass, and the wood stands round it)
     const coded = (t) => !RELIEF_OFF && CODE_RELIEF[t.name] === true && !t.river && !t.road && (!siteGround(t) || t.name === 'forest');
     const woodAt = (t) => (t.wood ??= woodOf(t.q, t.r, t.v, { ring: siteGround(t) }));
+    // what lies low on a tile (tufts and flowers on grass, plains and hills, what floats on water) is part of its still
+    // ground at the tile view: it is in the province's ground bitmap, not drawn tile by tile on every moving frame
+    // (some 600 sprites a frame, most of a moving frame's props). Not where a tile carries something of its own
+    const lowProp = (t) => !far && !t.cloud && t.lv >= L2 && LOW_PROPS.has(t.name) && !t.river && !siteGround(t) && !t.relic && !t.waystone
+      && !(t.ring === 0 && t.name !== 'water') && !(t.ring <= 1 && (t.centre || nearCentre(t)));
     // the still ground of one tile: its sprite, the Concord's paving, shores and beaches, roads
     const groundOf = (t) => {
       const img = t.river ? this.image('rivers', s.key, `${t.name}_${String(t.river).padStart(2, '0')}`)
         : this.image(siteGround(t) ? 'sites' : 'terrain', s.key, `${coded(t) ? RELIEF_GROUND[t.name] : t.name}_${t.v}`);
       if (!img) { polygon(g, hexPoints(t.x, t.y, 0), FLAT[t.name][0], null); return; }
       draw(img, t);
+      if (lowProp(t)) { const low = this.image('props', s.key, `${t.name}_${t.v}`); if (low) draw(low, t); }
       // (a wood's floor lies on the ground: the shade under the crowns, each tree's own shadow)
       if (t.name === 'forest' && coded(t)) paintWoodFloor(g, t.x, t.y, RADIUS, woodAt(t), { ring: siteGround(t) });
       if (t.ring === 0 && t.name !== 'water' && t.name !== 'mountain') { const pv = this.image('specials', s.key, 'concord_paving'); if (pv) draw(pv, t); }
@@ -993,7 +1001,8 @@ export class SpriteArt {
         // the camera rests; one that has none gets its own, one a frame. Making two of the large bitmaps on every
         // frame of a flight cost more than the rest of the frame)
         // (`rush`: the opening holds its first picture until it is whole, and nobody is watching these frames: more a frame)
-        let bakes = rush ? GROUND_BAKES * 2 : passing ? 1 : GROUND_BAKES, charts = 8;
+        // (a camera on its way has two sheets of chart a frame: a far picture stands in for the rest until it rests)
+        let bakes = rush ? GROUND_BAKES * 2 : passing ? 1 : GROUND_BAKES, charts = passing && !rush ? 2 : 8;
         const pass = this.groundPass = (this.groundPass ?? 0) + 1;
         const bake = (e, list) => {
           const sv = svOf(e), chartOnly = sv?.kind === 'chart';
@@ -1003,6 +1012,10 @@ export class SpriteArt {
           // (a sheet of chart is cheap: it does not wait for its turn as painted ground does)
           if (bakes <= 0 && !(chartOnly && charts > 0)) return null;
           if (passing && !rush && !chartOnly && this.groundStale(e)) return null;
+          // (a sheet of chart that has any picture, of the tile view or the far view, keeps it while the camera travels:
+          // chart is chart, and making the sheets of every province a flight passes over pushed the land's own ground
+          // out of the cache, so the way back had none)
+          if (passing && !rush && chartOnly && (this.groundStale(e) || this.farStale(e))) return null;
           const c = provincePixel(e.p, e.q), res = s.r / RADIUS, B = GROUND_BOX;
           const cv = spare(Math.ceil((B.left + B.right) * res), Math.ceil((B.top + B.bottom) * res)), gg = cv?.getContext?.('2d');
           if (!gg) return null;
@@ -1073,7 +1086,9 @@ export class SpriteArt {
             // (asked for again only while the cache has room for it: a picture larger than the cache can hold is
             // not made again every frame)
             if (this.groundPixels < GROUND_PIXELS_MAX - 1_500_000) this.misses++;
-            v = list.length ? this.groundStale(e) : null;
+            // (flying in from afar a province has no ground of the tile view yet: its far picture, which was on screen a
+            // moment ago, stands in until its turn comes; drawing it tile by tile cost a flight's frame a tenth of a second)
+            v = list.length ? this.groundStale(e) ?? (passing ? this.farStale(e) : null) : null;
             if (!v) continue;
           }
           ctx.imageSmoothingEnabled = true;
@@ -1146,7 +1161,7 @@ export class SpriteArt {
       const decor = ((t.q * 5 + t.r * 11) % 3 + 3) % 3 === 0;
       const pr = paved ? (t.site === undefined && decor ? this.image('specials', s.key, `concord_plaza_${1 + (t.v % 2)}`) : null)
         : t.river ? this.image('rivers_props', s.key, `${t.name}_${String(t.river).padStart(2, '0')}`)
-        : coded(t) ? null : this.image(siteGround(t) ? 'sites_props' : 'props', s.key, `${t.name}_${t.v}`);
+        : coded(t) || lowProp(t) ? null : this.image(siteGround(t) ? 'sites_props' : 'props', s.key, `${t.name}_${t.v}`);
       if (!paved && coded(t)) reliefOf(t);
       // (the Concord's paving and what floats on water lie in the plane)
       if (pr) {

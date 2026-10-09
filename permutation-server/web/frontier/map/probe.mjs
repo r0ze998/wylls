@@ -2,7 +2,8 @@
 // wide, 12 ms at 1440 px). It times every draw of the map canvas and says
 // which kind of frame it was:
 //
-//   full   the whole scene was painted (the camera moved or the data changed)
+//   full   the whole scene was painted (the data changed, or a travelling picture had no apron to draw from)
+//   pan    a travelling picture: the still ground came from the apron, what stands and what lives was painted
 //   live   only the animated layers were painted over the cached still layers
 //   far    the province and world views (cached bitmaps)
 //
@@ -24,7 +25,7 @@ export const PROBE = {
     return this.level;
   },
   begin() { this._t = now(); },
-  /** The draw is over: `kind` 'full' | 'live' | 'far' | 'wait'. `ctx` lets level 2 wait for the pixels. */
+  /** The draw is over: `kind` 'full' | 'pan' | 'live' | 'far' | 'wait'. `ctx` lets level 2 wait for the pixels. */
   end(kind, ctx = null) {
     const js = now() - this._t;
     if (this.mode() >= 2 && ctx?.getImageData) { try { ctx.getImageData(0, 0, 1, 1); } catch { /* a tainted or lost canvas: the script time only */ } }
@@ -51,7 +52,7 @@ export const PROBE = {
     const t = now(), recent = this.samples.filter(s => t - s.at < 1000);
     if (!recent.length) return;
     const of = kind => { const l = recent.filter(s => s.kind === kind); return l.length ? `${kind} ${(l.reduce((x, s) => x + s.ms, 0) / l.length).toFixed(1)} ms x${l.length}` : null; };
-    const text = ['full', 'live', 'far'].map(of).filter(Boolean).join('   ');
+    const text = ['full', 'pan', 'live', 'far'].map(of).filter(Boolean).join('   ');
     ctx.save();
     ctx.font = '600 12px ui-monospace, Menlo, monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     const w = ctx.measureText(text).width + 16;
