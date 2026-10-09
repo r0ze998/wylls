@@ -24,8 +24,9 @@ import { DEPART_STAMINA } from '../fmarch.mjs';
 import { bellChip, countdown, BELL_SECS } from '../clock.mjs';
 import { ownTag, ownIdentity, holdingName } from '../people/ui.mjs';
 import { leaderSvg } from '../people/leaders.mjs';
+import { playerFace } from '../people/faces.mjs';
 import { displayName } from '../people/identity.mjs';
-import { avatarSvg, sigilPath, FACTION_FILL, FACTION_DARK, FACTION_ON } from '../people/avatar.mjs';
+import { sigilPath, FACTION_FILL, FACTION_DARK, FACTION_ON } from '../people/avatar.mjs';
 import { icon, RESOURCE_ICON } from './icons.mjs';
 import { tileWhat, provinceName } from './place.mjs';
 import { viewerState } from './drawer.mjs';
@@ -362,7 +363,8 @@ export function renderPlate(FS) {
       <span class="plate-acts"><button type="button" class="btn primary plate-go" data-act="join-open">${L`国を選ぶ`}</button></span></div>`;
   }
   const me = ownTag(FS) !== null ? ownIdentity(FS) : null;
-  const face = me ? raw(avatarSvg(me, faction, { size: 48, uid: 'plate' })) : raw(leaderSvg(faction, { size: 48 }));
+  // the viewer's face: their nation's character, in the gold ring that says "yours" (people/faces.mjs)
+  const face = raw(playerFace(faction, { size: 48, own: true }));
   const myName = me ? html`<span data-name>${displayName(me, { full: true })}</span>` : null;
   const who = myName ? html`${myName} · ${factionName(faction)}` : factionName(faction);
   const hs = FS.holdings ?? [];

@@ -157,11 +157,11 @@ test('the six characters are on every screen that shows a nation: nation cards, 
     assert.match(banner, new RegExp(`<span class="mile-fig"><canvas class="lfig" width="288" height="360" data-leader="${KEYS[l.faction]}" data-motion="idle"`), 'the leader stands by the line and breathes');
     assert.ok(banner.includes(`— ${factionName(l.faction)}</span>`), 'the words are the nation\'s'); assert.doesNotMatch(banner, /data-name/);
   }
-  // the village plate: the leader's icon stands in only while the viewer has no face of their own (a citizen whose
-  // tag cannot be worked out yet: no village, and the season's addresses not read); a person's own face otherwise
+  // the village plate: the viewer's face is their nation's character in the gold ring that says "yours" (the six are
+  // the players: UX design 13.1), with or without a village
   for (let f = 0; f < 6; f++) {
     const plate = flat(renderPlate({ mode: 'play', playReady: true, citizen: { faction: f }, holdings: [], land: { stage: 'ticket' } }));
-    assert.match(plate, new RegExp(`<span class="plate-face"><svg [^>]*width="48" height="48" class="leader leader-hex" data-leader="${KEYS[f]}"`), `${KEYS[f]}: the plate's stand-in face is the leader's icon`);
+    assert.match(plate, new RegExp(`<span class="plate-face"><svg [^>]*width="48" height="48" class="leader leader-hex leader-own" data-leader="${KEYS[f]}" data-own="1"`), `${KEYS[f]}: the plate's face is the nation's character, marked as the viewer's own`);
     assert.doesNotMatch(plate, /class="avatar/);
   }
   const list = flat(renderStandingsList({ overviews: new Map() }));

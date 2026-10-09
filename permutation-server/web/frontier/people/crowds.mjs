@@ -20,7 +20,8 @@
 import { RADIUS, FLATTEN } from '../../map.mjs';
 import { tileHex } from '../fgeo.mjs';
 import { project } from '../../map.mjs';
-import { FACTION_FILL, FACTION_DARK, shade, avatarImage } from './avatar.mjs';
+import { FACTION_FILL, FACTION_DARK, shade } from './avatar.mjs';
+import { paintPlayerFace } from './faces.mjs';
 import { SKIN, HAIR } from './identity.mjs';
 import { lifeAt } from './life.mjs';
 import { paintToken, routePoints, alongPath, paintRoad, scaffold, progressBadge } from './units.mjs';
@@ -393,9 +394,8 @@ export function paintNameTags(ctx, { tiles = [], zoom = 1, nameOf = () => null, 
     ctx.fillStyle = '#fffaf0'; ctx.strokeStyle = FACTION_DARK[who.faction] ?? '#55554e'; ctx.lineWidth = 1.5 * k;
     ctx.beginPath(); ctx.roundRect?.(x, y, w, h, 10 * k); ctx.fill(); ctx.stroke();
     ctx.globalAlpha = 1;
-    const img = avatarImage(who.identity, who.faction, onImage);
-    if (img) ctx.drawImage(img, x + 2 * k, y + 2 * k, h - 4 * k, h - 4 * k);
-    else { ctx.fillStyle = FACTION_FILL[who.faction] ?? '#8a8a80'; ctx.beginPath(); ctx.arc(x + h / 2, y + h / 2, h / 2 - 3 * k, 0, Math.PI * 2); ctx.fill(); }
+    // (the holder's face: the character of the holder's nation, people/faces.mjs)
+    if (!paintPlayerFace(ctx, who.faction, x + 2 * k, y + 2 * k, h - 4 * k)) { ctx.fillStyle = FACTION_FILL[who.faction] ?? '#8a8a80'; ctx.beginPath(); ctx.arc(x + h / 2, y + h / 2, h / 2 - 3 * k, 0, Math.PI * 2); ctx.fill(); }
     ctx.fillStyle = '#1b2e28'; ctx.textAlign = 'left';
     ctx.fillText(label, x + h + 4 * k, y + h / 2 + 0.5 * k);
     // protected: a small shield at the banner's end

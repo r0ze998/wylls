@@ -44,7 +44,8 @@ import { swatch } from './shell.mjs';
 import { personChip } from '../people/ui.mjs';
 import { cardHead, fold, chip, lossBar, label, ring } from './parts.mjs';
 import { tileName, provinceName } from '../hud/place.mjs';
-import { leaderSvg, leaderFigure } from '../people/leaders.mjs';
+import { leaderFigure } from '../people/leaders.mjs';
+import { playerFace } from '../people/faces.mjs';
 
 // ------------------------------------------------------------------ the resolve_clash codec (borsh)
 /** Postures in borsh order: Stance(Hold|Assault|Flank|Brace), then Disarray. */
@@ -527,7 +528,7 @@ function rowHtml(r, ownerOf = null) {
   const stance = r.kind === 'arrival' || r.kind === 'resident' ? postureName(r.posture) : r.walls ? L`城壁あり` : '';
   const fate = r.fate ? FATE_TEXT[r.fate] ?? r.fate : r.kind === 'garrison' || r.kind === 'camp' ? L`守った` : '—';
   const who = ownerOf && r.kind !== 'camp' ? ownerOf(r.id) : null;
-  return html`<tr class="${r.mine ? 'mine' : ''}"><th scope="row">${who ? raw(personChip(who, r.faction, { size: 24 })) : ''}${swatch(r.faction)}${factionName(r.faction)} · ${KIND_TEXT[r.kind]()}${r.unit !== undefined ? html` · ${unitName(r.unit)}` : ''}${r.mine ? html` <span class="mine-mark">${L`（あなた）`}</span>` : ''}</th>
+  return html`<tr class="${r.mine ? 'mine' : ''}"><th scope="row">${who ? raw(personChip(who, r.faction, { size: 30, own: !!r.mine })) : ''}${swatch(r.faction)}${factionName(r.faction)} · ${KIND_TEXT[r.kind]()}${r.unit !== undefined ? html` · ${unitName(r.unit)}` : ''}${r.mine ? html` <span class="mine-mark">${L`（あなた）`}</span>` : ''}</th>
     <td>${fmtNum(r.before)} → ${r.after === null ? '—' : fmtNum(r.after)}</td><td>${stance}</td><td>${fate}</td></tr>`;
 }
 
@@ -570,15 +571,16 @@ export function renderSides(rows) {
 }
 
 /**
- * The two main sides face to face (the viewer's first, then the largest): a portrait of each
- * nation's leader (a camp has its tent), the troops before and after, the loss, a bar. Further
+ * The two main sides face to face (the viewer's first, then the largest): each side's face, the
+ * character of its nation (the viewer's own in the gold ring; a camp has its tent), the troops
+ * before and after, the loss, a bar. Further
  * sides follow as bars under it.
  */
 export function renderVersus(rows) {
   const sides = sidesOf(rows);
   if (!sides.length) return html`<p class="muted">${L`戦った軍勢はいません`}</p>`;
   const max = Math.max(1, ...sides.map(s => s.before));
-  const face = s => (s.camp || !(s.faction >= 0 && s.faction < 6) ? html`<span class="vs-face vs-camp">${icon('tent')}</span>` : html`<span class="vs-face">${raw(leaderSvg(s.faction, { size: 56 }))}</span>`);
+  const face = s => (s.camp || !(s.faction >= 0 && s.faction < 6) ? html`<span class="vs-face vs-camp">${icon('tent')}</span>` : html`<span class="vs-face">${raw(playerFace(s.faction, { size: 56, own: !!s.mine }))}</span>`);
   const block = (s, cls) => html`<div class="vs-side ${cls}${s.mine ? ' mine' : ''}">${face(s)}
     <div class="vs-text"><span class="vs-who">${s.camp ? KIND_TEXT.camp() : html`${swatch(s.faction)}${factionName(s.faction)}`}${s.mine ? html`<span class="mine-mark">${L`（あなた）`}</span>` : ''}</span>
       <span class="vs-n"><span class="side-ba">${fmtNum(s.before)} → ${s.after === null ? '—' : fmtNum(s.after)}</span>${s.lost ? html`<strong class="side-lost">−${fmtNum(s.lost)}</strong>` : ''}</span></div>

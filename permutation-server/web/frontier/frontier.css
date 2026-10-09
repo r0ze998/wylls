@@ -737,7 +737,7 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
 .person > .person-name + .person-note { margin-left: -4px; }
 .inspect-owner { margin: var(--s2) 0; }
 .inspect-owner .person { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; }
-.inspect-owner .avatar { grid-row: 1 / 3; }
+.inspect-owner .avatar, .inspect-owner .leader { grid-row: 1 / 3; }
 .inspect-owner .person-note { grid-column: 2; margin: 0; }
 .inspect .person-note { margin-left: 4px; }
 .leader-card { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; }

@@ -28,7 +28,7 @@
 import { L } from '../../lang.mjs';
 import { sigilPath, shade } from './avatar.mjs';
 import { NATION_FILL, NATION_DEEP, NATION_ON } from '../palette.mjs';
-import { leaderHex, leaderKey, leaderPortraitUrl, artImage } from './leader-art.mjs';
+import { leaderHex, leaderKey, leaderPortraitUrl, artImage, YOURS } from './leader-art.mjs';
 
 export { leaderHex, leaderKey, leaderHexUrl, leaderPortraitUrl, leaderStillUrl, leaderStageUrl, leaderHexImage, onLeaderArtLoad, STAGE_CELL, STAGE_CLIPS } from './leader-art.mjs';
 export { leaderFigure, startLeaderSprites } from './leader-sprite.mjs';
@@ -55,9 +55,9 @@ export const HEX_UP_TO = 64;
  * charcoal edge and a fine gold bevel, the sigil badge at the corner. Until the picture has loaded the ground and
  * the sigil stand alone (no flat stand-in face).
  */
-function portraitCard(f, { size, a11y }) {
+function portraitCard(f, { size, a11y, own = false }) {
   const fill = NATION_FILL[f], deep = NATION_DEEP[f], id = `L${f}`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 300" width="${size}" height="${Math.round(size * 1.25)}" class="leader leader-card-art" data-leader="${leaderKey(f)}" ${a11y}>
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 300" width="${size}" height="${Math.round(size * 1.25)}" class="leader leader-card-art${own ? ' leader-own' : ''}" data-leader="${leaderKey(f)}"${own ? ' data-own="1"' : ''} ${a11y}>
     <defs><linearGradient id="${id}g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${shade(deep, 0.1)}"/><stop offset="1" stop-color="${shade(deep, -0.42)}"/></linearGradient>
     <radialGradient id="${id}l" cx=".5" cy=".36" r=".62"><stop offset="0" stop-color="${fill}" stop-opacity=".62"/><stop offset=".6" stop-color="${fill}" stop-opacity=".16"/><stop offset="1" stop-color="${fill}" stop-opacity="0"/></radialGradient>
     <clipPath id="${id}c"><rect x="8" y="8" width="224" height="284" rx="12"/></clipPath></defs>
@@ -66,6 +66,7 @@ function portraitCard(f, { size, a11y }) {
     <path d="M0 300 L120 150 L240 300 Z M0 0 L70 0 L0 110 Z M240 0 L170 0 L240 110 Z" fill="#fff" opacity=".035"/>
     ${artImage(leaderPortraitUrl(f), 'x="-30" y="4" width="300" height="300" preserveAspectRatio="xMidYMid slice"')}</g>
     <rect x="6" y="6" width="228" height="288" rx="14" fill="none" stroke="${fill}" stroke-width="7"/><rect x="10.2" y="10.2" width="219.6" height="279.6" rx="10.5" fill="none" stroke="#f0d48a" stroke-width="1.5" opacity=".9"/>
+    ${own ? `<rect x="4" y="4" width="232" height="292" rx="16" fill="none" stroke="${YOURS.key}" stroke-width="8"/><rect x="4" y="4" width="232" height="292" rx="16" fill="none" stroke="${YOURS.gold}" stroke-width="5"/><rect x="4" y="4" width="232" height="292" rx="16" fill="none" stroke="${YOURS.core}" stroke-width="1.4"/>` : ''}
     <g transform="translate(206 34)"><circle r="20" fill="${fill}" stroke="#14110a" stroke-width="3.5"/><circle r="17.6" fill="none" stroke="#f0d48a" stroke-width="1.6"/><path d="${sigilPath(f, 10.5)}" fill="${NATION_ON[f]}"/></g>
   </svg>`;
 }
@@ -73,11 +74,12 @@ function portraitCard(f, { size, a11y }) {
 /**
  * A nation's character as inline SVG markup, `size` px wide: the hexagon icon (square) up to `HEX_UP_TO` px, the
  * portrait card (height 1.25 ×) above it; `shape: 'hex' | 'card'` asks for one of them at any size. Decorative
- * (beside the nation's or the player's name) unless `title` names it. An invalid faction reads as Aster.
+ * (beside the nation's or the player's name) unless `title` names it. `own: true` marks the viewer's own (the gold
+ * ring). An invalid faction reads as Aster.
  */
-export function leaderSvg(faction, { size = 160, title = null, shape = 'auto', sigil = false } = {}) {
+export function leaderSvg(faction, { size = 160, title = null, shape = 'auto', sigil = false, own = false } = {}) {
   const f = Number.isInteger(faction) && faction >= 0 && faction < 6 ? faction : 0;
-  if (shape === 'hex' || (shape !== 'card' && size <= HEX_UP_TO)) return leaderHex(f, { size, title, sigil });
+  if (shape === 'hex' || (shape !== 'card' && size <= HEX_UP_TO)) return leaderHex(f, { size, title, sigil, own });
   const a11y = title ? `role="img" aria-label="${String(title).replace(/[<>&"]/g, '')}"` : 'aria-hidden="true" focusable="false"';
-  return portraitCard(f, { size, a11y });
+  return portraitCard(f, { size, a11y, own });
 }

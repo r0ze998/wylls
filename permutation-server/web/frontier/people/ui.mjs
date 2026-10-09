@@ -8,16 +8,24 @@ import { factionName, DOCTRINE_NAMES, TIERS } from '../fi18n.mjs';
 import { hostParts } from '../faddr.mjs';
 import { decode as fromBase58 } from '../../sdk/base58.mjs';
 import { identityOf, displayName, tagOf, placeName, withProfile } from './identity.mjs';
-import { avatarSvg } from './avatar.mjs';
+import { playerFace } from './faces.mjs';
 import { leaderSvg, DOCTRINE_PITCH } from './leaders.mjs';
 import { ownerFaction } from './scene.mjs';
 
-let uid = 0;
-/** A portrait and a name: `<span class="person">`. */
-export function personChip(identity, faction, { size = 28, full = false, note = '' } = {}) {
+/**
+ * A player's face and name: `<span class="person">`. The face is the player's nation's character (people/faces.mjs:
+ * the six are the players), the name the player's own; `own` marks the viewer's own face (the gold ring).
+ */
+export function personChip(identity, faction, { size = 30, full = false, note = '', own = false } = {}) {
   if (!identity) return '';
   const name = displayName(identity, { full });
-  return html`<span class="person">${raw(avatarSvg(identity, faction, { size, uid: `p${uid++ % 100000}` }))}<span class="person-name" data-name>${name}</span>${note ? html` <span class="person-note">${note}</span>` : ''}</span>`;
+  return html`<span class="person${own ? ' person-own' : ''}">${raw(playerFace(faction, { size, own }))}<span class="person-name" data-name>${name}</span>${note ? html` <span class="person-note">${note}</span>` : ''}</span>`;
+}
+
+/** Whether `identity` is the viewer's own (the same citizen tag). */
+export function isOwnIdentity(FS, identity) {
+  if (!identity) return false;
+  try { const tag = ownTag(FS); return tag !== null && identityOf(tag).tag === identity.tag; } catch { return false; }
 }
 
 /** A holding's name: its place and tier, 「サフォードの町」 / "Saford's Town" (UI plan E5). */
@@ -51,7 +59,7 @@ export function renderNameForm(FS) {
   if (!id || !FS.wallet) return '';
   const derived = identityOf(tagOf(BigInt(`0x${id.tag}`)));
   return html`<section aria-labelledby="name-title"><h3 id="name-title">${L`あなたの名前`}</h3>
-    <p>${personChip(id, FS.citizen?.faction ?? 0, { size: 40, full: true })}</p>
+    <p>${personChip(id, FS.citizen?.faction ?? 0, { size: 44, full: true, own: true })}</p>
     <form class="inline" data-form="profile-name"><label>${L`新しい名前（24文字まで）`}<input name="name" maxlength="24" autocomplete="nickname" value="${id.profile ? id.given.ja : ''}"></label>
       <button type="submit" class="btn primary" ${raw(FS.nameBusy ? 'disabled' : '')}>${FS.nameBusy ? L`署名を待っています…` : L`ウォレットで署名して使う`}</button></form>
     ${id.profile ? html`<p><button type="button" class="btn small" data-act="profile-clear">${L`元の名前（${displayName(derived, { full: true })}）に戻す`}</button></p>` : ''}
@@ -126,7 +134,8 @@ export function provinceFactions(overviews, p, q) {
 /** The highlights list markup; with `go`, each item is a button to its place (a clash replays there). */
 export function renderHighlights(items, { go = false } = {}) {
   if (!items.length) return html`<p class="muted">${L`まだ見どころはありません`}</p>`;
-  const face = x => (x.identity ? raw(avatarSvg(x.identity, x.faction, { size: 24, uid: `h${uid++ % 100000}` })) : html`<span class="hl-dot" aria-hidden="true"></span>`);
+  // (who did it: that player's nation's character; a clash of several nations has a dot)
+  const face = x => (x.identity && playerFace(x.faction) ? raw(playerFace(x.faction, { size: 30 })) : html`<span class="hl-dot" aria-hidden="true"></span>`);
   return html`<ol class="highlights">${items.map(x => html`<li class="hl-${x.kind}">${go && Number.isInteger(x.p)
     ? html`<button type="button" class="hl-go" data-act="${x.clash ? 'battle-play' : 'goto'}" data-p="${x.p}" data-q="${x.q}" data-bell="${x.bell}">${face(x)}<span>${x.text}</span></button>`
     : html`${face(x)}<span>${x.text}</span>`}</li>`)}</ol>`;

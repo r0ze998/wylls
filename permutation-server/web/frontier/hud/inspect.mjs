@@ -15,7 +15,7 @@ import { miniCardUrl } from '../people/minis.mjs';
 import { ringOf } from '../fgeo.mjs';
 import { troopsOf } from '../fmarch.mjs';
 import { swatch } from '../screens/shell.mjs';
-import { personChip, hostOwner, holdingName } from '../people/ui.mjs';
+import { personChip, hostOwner, holdingName, isOwnIdentity } from '../people/ui.mjs';
 import { leaderHex } from '../people/leaders.mjs';
 import { identityOf, displayName } from '../people/identity.mjs';
 import { hostParts } from '../faddr.mjs';
@@ -194,7 +194,7 @@ export function render(FS, terrainOf, activities = null) {
   const acts = inspectActions(FS, m);
   const main = acts.filter(a => a.act !== 'pin-toggle'), pin = acts.find(a => a.act === 'pin-toggle');
   const btn = (a, cls = '') => html`<button type="button" class="btn small${a.primary ? ' primary' : ''}${cls}" data-act="${a.act}" ${dataAttrs(a.data)}>${a.text}</button>`;
-  const hosts = t?.hosts?.length ? html`${label(L`このマスの軍勢`)}<ul class="list insp-hosts">${t.hosts.map(h => html`<li class="host-row">${h.unit ? html`<img class="unit-card small f${h.faction}" src="${miniCardUrl(h.faction, h.unit.toLowerCase())}" alt="" width="32" height="40" loading="lazy" decoding="async">` : ''}<span class="host-what"><strong>${unitCount(h.unit, h.troops)}</strong>${h.pending ? html` <span class="muted">${L`（次の鐘から）`}</span>` : ''}<span class="host-of">${h.owner ? personChip(h.owner, h.faction, { size: 20 }) : html`${swatch(h.faction)}${factionName(h.faction)}`}</span></span></li>`)}</ul>` : '';
+  const hosts = t?.hosts?.length ? html`${label(L`このマスの軍勢`)}<ul class="list insp-hosts">${t.hosts.map(h => html`<li class="host-row">${h.unit ? html`<img class="unit-card small f${h.faction}" src="${miniCardUrl(h.faction, h.unit.toLowerCase())}" alt="" width="32" height="40" loading="lazy" decoding="async">` : ''}<span class="host-what"><strong>${unitCount(h.unit, h.troops)}</strong>${h.pending ? html` <span class="muted">${L`（次の鐘から）`}</span>` : ''}<span class="host-of">${h.owner ? personChip(h.owner, h.faction, { size: 30, own: isOwnIdentity(FS, h.owner) }) : html`${swatch(h.faction)}${factionName(h.faction)}`}</span></span></li>`)}</ul>` : '';
   const now = t ? (activities?.get(`${m.p},${m.q},${t.idx}`) ?? []).filter((a, i, all) => all.findIndex(b => b.kind === a.kind) === i) : [];
   const who = hostInfoOf(FS);
   const doing = now.length ? html`${label(L`いまの様子`)}<ul class="list doing">${now.map(a => html`<li class="doing-${a.kind}">${activityText(a, who)}</li>`)}</ul>` : '';
@@ -206,7 +206,7 @@ export function render(FS, terrainOf, activities = null) {
   if (!t && m.owners.length) facts.push(html`<div class="row"><dt>${L`村を持つ国`}</dt><dd>${m.owners.map(f => html`<span class="nowrap">${swatch(f)}${factionName(f)}</span> `)}</dd></div>`);
   return html`<section class="inspect" aria-labelledby="inspect-title">
     ${cardHead({ id: 'inspect-title', ic: mark, pic: held ? villageDrawn(site.faction, site.tier ?? 0) : null, title: name ?? provinceName(FS, m.p, m.q), sub: name ? where : (m.opened ? L`第${m.ring}輪` : L`第${m.ring}輪（まだひらいていません）`), side })}
-    ${site?.owner ? html`<p class="inspect-owner">${personChip(site.owner, site.faction, { size: 36, full: true, note: L`この村の領主` })}</p>` : ''}
+    ${site?.owner ? html`<p class="inspect-owner">${personChip(site.owner, site.faction, { size: 44, full: true, own: !!site.mine, note: L`この村の領主` })}</p>` : ''}
     ${chips.length ? html`<p class="fact-chips">${chips}</p>` : ''}
     ${m.opened && m.level < 3 ? html`<p class="insp-survey">${chip(m.level === 2 ? L`測量済み` : L`未測量`, '', 'chart')}<span class="muted">${m.level === 2 ? L`前に見た範囲です。土地と村を、色を落として描きます。` : L`まだ見ていない範囲です。地形だけを図にしています。`}</span></p>` : ''}
     ${main.length ? html`<div class="actions insp-acts">${main.map((a, i) => btn({ ...a, primary: a.primary && i === main.findIndex(x => x.primary) }))}</div>` : ''}
