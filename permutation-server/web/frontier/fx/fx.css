@@ -13,7 +13,7 @@
   pointer-events: none;
 }
 /* The world shake: both canvases move together (and swell a hair so no edge shows); nothing else on the page reads these. */
-#frontier-map, .fx-top { translate: var(--fx-sx, 0px) var(--fx-sy, 0px); scale: var(--fx-ss, 1); }
+#frontier-map, #map-ground, .fx-top { translate: var(--fx-sx, 0px) var(--fx-sy, 0px); scale: var(--fx-ss, 1); }
 
 /* The HUD layer: the whole viewport, above the top strip, below the page's own banners and pop-overs. */
 .fx-hud { position: fixed; inset: 0; z-index: 62; overflow: hidden; pointer-events: none; contain: strict; }

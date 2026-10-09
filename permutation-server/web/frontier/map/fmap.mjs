@@ -19,34 +19,43 @@
 // changes at once; the picture travels toward it (fly, eased zoom, the glide
 // after a drag) and jumps under reduced motion. The opening view depends on
 // who is looking (map/opening.mjs) and never overrides a camera a person
-// moved. M and the "world chart" button go to the far view and back. Depth
-// without a tilt: a horizon haze and a vignette in screen space
-// (map/dressing.mjs); a change of level of detail dissolves instead of
+// moved. M and the "world chart" button go to the far view and back. The
+// board is tilted (map/tilt.mjs, UX brief §11.1): the ground is painted on
+// `#map-ground` inside the one tilted element `#map-stage`, larger than the
+// map's box so the trapezoid in view is always covered; this canvas lies flat
+// above it, takes every input (mapped back onto the board in numbers) and
+// carries what must stay upright. `project` / `unproject` say where a point
+// of the world is seen. A change of level of detail dissolves instead of
 // popping. At rest only the animated layers repaint on the timer: the still
 // ground and props wait in two bitmaps (map/sprites.mjs paints the parts).
 import { paintPins } from '../hud/pins.mjs';
 import { inverseHex } from '../../map.mjs';
 import { L, onLangChange } from '../../lang.mjs';
-import { DIRECTIONS, PROVINCE_TILES, locate, ringOf, ringProvinces, hexDistance, tileHex } from '../fgeo.mjs';
+import { locate, ringOf, ringProvinces, hexDistance, tileHex } from '../fgeo.mjs';
 import { fogLevel, paintProvince, paintTiles, paintVeil, provincePixel, PROVINCE_CIRCUMRADIUS } from './layers.mjs';
 import { createTerrain } from './terrain.mjs';
-import { SpriteArt, terrainLookup } from './sprites.mjs';
+import { SpriteArt, artSize, farRes, terrainLookup } from './sprites.mjs';
+import { paintSheet, paintTable, sheetOf, tableShows } from './table.mjs';
+import { CloudSea, DRIFT_SPEED, seaField } from './cloudsea.mjs';
 import { project, RADIUS, FLATTEN } from '../../map.mjs';
-import { Camera, EASE, MOVE_MS, centreOn, clampCentre, fitView, focusOf, reducedMotion } from './camera.mjs';
+import { Camera, EASE, FAR_CAP, MOVE_MS, clampCentre, fitView, freeBox, reducedMotion } from './camera.mjs';
 import { OPEN_FROM, OPEN_WAIT_MS, TITLE_FROM, TITLE_MS, heroZoom, openingPlan, placePoint } from './opening.mjs';
 import { nearness, paintDressing } from './dressing.mjs';
 import { PROBE } from './probe.mjs';
 import { L2, L3, openSurvey } from './survey.mjs';
-import { fxNow, paintCandidates, paintWedge } from './chart.mjs';
+import { CHART, fxNow, paintCandidates, paintWedge } from './chart.mjs';
 import { wedgeBox } from './opening.mjs';
 import { STANDARD_AT, STANDARD_UNIT, landShape, landTiles, landingAt, paintBeacon, paintOwnBreath, paintOwnLand, paintOwnOutline, paintProvisionalTag, paintStandard, standardUnit, villageKey } from './ownland.mjs';
-import { NOTE_MS, actorText, arrivalText, blockText, paintActionGround, paintActionPulse, paintActionTop, rolledOut, paintHoverGround, paintHoverTop, paintRefusal, paintRibbon, paintSelectionGround, paintSelectionTop, paintTag } from './actions.mjs';
+import { NOTE_MS, actionPalette, actorText, arrivalText, blockText, paintActionGround, paintActionPulse, paintActionTop, paintReachDim, reachBox, rolledOut, paintHoverGround, paintHoverTop, paintRefusal, paintRibbon, paintSelectionGround, paintSelectionTop, paintTag } from './actions.mjs';
 import { edgePointer, mountHomePointer } from './homepointer.mjs';
 import { layoutLabels } from './labels.mjs';
-import { ACTION_COLOURS } from './actions.mjs';
+import { plateRise } from './plates.mjs';
 import { LANDING } from './ownland.mjs';
 import { WORKED_RADIUS } from './survey.mjs';
 import { emit as fxEmit } from '../fx/bus.mjs';
+import { createLabelPass, rectOf, tileKeyOf } from './labelpass.mjs';
+import { paintCandidateLabels, paintHomeTag, paintWaitStandard, standardBox, waitLine } from './waitview.mjs';
+import { TILT, armUpright, disarmUpright, groundBox, groundView, nearQuad, tiltAt, tiltFromQuery, tiltGeo, upright } from './tilt.mjs';
 
 /** Fog levels drawn as tiles at tile LOD (a distant province stays a muted cell). */
 export const TILE_FOGS = Object.freeze(['sight', 'known', 'clear']);
@@ -70,8 +79,11 @@ export const ZOOM_MIN = 0.02;
 export const ZOOM_MAX = 2.2;
 /** Home's zoom on a dpr-1 screen (opening.mjs heroZoom): tile detail, the holding and the hosts beside it in view. */
 export const HOME_ZOOM = 1.3;
-/** The far view never leaves the world level of detail. */
-export const FAR_ZOOM_CAP = LOD_EDGES.provinceOut * 0.95;
+/**
+ * The far view is never nearer than this (map/camera.mjs FAR_CAP). It is always the world's level of detail: on a
+ * small world, where the far view is nearer than the fixed edges above, the edges follow it (`lodEdges`).
+ */
+export const FAR_ZOOM_CAP = FAR_CAP;
 /** A change of level of detail dissolves over this long (ms), after waiting at most LOD_HOLD_MS for the new level's art. */
 export const LOD_FADE_MS = 280;
 export const LOD_HOLD_MS = 700;
@@ -79,19 +91,49 @@ export const LOD_HOLD_MS = 700;
 export const REVEAL_MS = 520;
 /** The dissolve's still is gone once the zoom has travelled this far from it (natural log of the zoom ratio). */
 export const LOD_FADE_DRIFT = 0.32;
-/** The table under the world (the vignette of dressing.mjs darkens it toward the edges). */
-export const TABLE = '#2a4742';
 /**
  * Bitmaps the size of the canvas (the two still layers, the dressing) are kept only up to this many
  * pixels each (about 36 MB): a larger canvas is painted whole every frame, as before.
  */
-export const STILL_MAX_PIXELS = 9_000_000;
+export const STILL_MAX_PIXELS = 11_000_000;
+/** The picture of the table and the sheet kept under the world has at most this many pixels. */
+export const BACKDROP_PIXELS = 6_000_000;
+/** On a screen of one device pixel per CSS pixel the tilted ground is painted this much finer (the near half of the board is drawn larger than life). */
+export const GROUND_FINER = 1.08;
+/**
+ * The page's own things over the map that no label may stand under, until the page says them (`map.setNoGo`): the
+ * dial and the strip's two sides, the search button and the objective, the to-do lines and the village plate, the
+ * minimap with its lens chips, the map's buttons, the dock, the drawer, the objective's chip, a milestone's banner. (The pointer home
+ * is the map's own: it keeps clear of these, and the labels keep clear of it.)
+ */
+export const NOGO_SELECTORS = '#bell-pill, #bell-pill .dial-top, #topbar .strip-side, #hud-tl > *, #rail > *, #minimap, .map-tools, #tabs, #panel, #ob-map, .feed > *, #mile-banner';
+export const NOGO_EVERY_MS = 300;
+/**
+ * The camera eases out to a lit reach: the reach's box takes at most this share of the uncovered picture, keeps
+ * this many px clear of its edges, and the zoom never goes below this factor of the tile view's own edge (a
+ * phone's picture is too narrow for a whole reach: there it eases out as far as the tiles stay tiles).
+ */
+export const REACH_FIT = 0.9;
+export const REACH_PAD = 14;
+export const REACH_ZOOM_FLOOR = 1.14;
+/** A place the page asks the map to fly to (`wylls:fly-to`) is seen at this zoom at least: its tiles, and what stands on them. */
+export const FLY_TO_ZOOM = 1.0;
 /** The still layers of a resting view are repainted at least this often (ms): a change nobody announced heals. */
 export const LAYER_MAX_AGE_MS = 2000;
 
-/** The level of detail at `zoom`, given the current one (no flicker at an edge). */
-export function lodFor(zoom, current = 'world') {
-  const e = LOD_EDGES;
+/**
+ * The edges for a map whose far view is at zoom `far`: the far view (the opened world fitted to the picture, UX
+ * brief §11.2) and a little nearer are the world's level of detail whatever the size of the world; the province
+ * level begins past it and still ends where the tiles begin.
+ */
+export function lodEdges(far = 0) {
+  const out = Math.min(LOD_EDGES.tileOut * 0.86, far * 1.08);
+  if (!(out > LOD_EDGES.provinceOut)) return LOD_EDGES;
+  return { ...LOD_EDGES, provinceOut: out, provinceIn: out * 1.1 };
+}
+
+/** The level of detail at `zoom`, given the current one (no flicker at an edge). `e`: the edges (lodEdges). */
+export function lodFor(zoom, current = 'world', e = LOD_EDGES) {
   if (current === 'world') return zoom >= e.tileIn ? 'tile' : zoom >= e.provinceIn ? 'province' : 'world';
   if (current === 'province') return zoom >= e.tileIn ? 'tile' : zoom < e.provinceOut ? 'world' : 'province';
   return zoom < e.provinceOut ? 'world' : zoom < e.tileOut ? 'province' : 'tile';
@@ -101,15 +143,19 @@ export function lodFor(zoom, current = 'world') {
 export const worldToScreen = (view, size, x, y) => ({ x: (x - view.x) * view.zoom + size.width / 2, y: (y - view.y) * view.zoom + size.height / 2 });
 export const screenToWorld = (view, size, sx, sy) => ({ x: (sx - size.width / 2) / view.zoom + view.x, y: (sy - size.height / 2) / view.zoom + view.y });
 
-/** The provinces of rings 0..maxRing whose cell intersects the viewport, nearest the centre first. */
-export function visibleProvinces(view, size, maxRing) {
+/**
+ * The provinces of rings 0..maxRing whose cell intersects the viewport, nearest the centre first.
+ * `quad` (four world points in order): the part of the ground seen through a tilted board, a
+ * trapezoid inside the canvas; provinces in the canvas's unseen corners are left out.
+ */
+export function visibleProvinces(view, size, maxRing, quad = null) {
   const a = screenToWorld(view, size, 0, 0), b = screenToWorld(view, size, size.width, size.height);
   const m = PROVINCE_CIRCUMRADIUS;
   const out = [];
   for (let d = 0; d <= maxRing; d++) {
     for (const pr of ringProvinces(d)) {
       const c = provincePixel(pr.p, pr.q);
-      if (c.x >= a.x - m && c.x <= b.x + m && c.y >= a.y - m && c.y <= b.y + m) out.push({ ...pr, dist: Math.hypot(c.x - view.x, c.y - view.y) });
+      if (c.x >= a.x - m && c.x <= b.x + m && c.y >= a.y - m && c.y <= b.y + m && nearQuad(quad, c.x, c.y, m)) out.push({ ...pr, dist: Math.hypot(c.x - view.x, c.y - view.y) });
     }
   }
   return out.sort((x, y) => x.dist - y.dist).map(({ p, q }) => ({ p, q }));
@@ -213,8 +259,10 @@ export function paintRealmLabels(ctx, recs, zoom, nameOf = null, { seen = null, 
   for (const it of layoutLabels(items, { zoom })) {
     if (!it.text) continue;
     ctx.font = fontOf(it.size);
-    ctx.lineJoin = 'round'; ctx.lineWidth = 5 * k; ctx.strokeStyle = 'rgba(14,22,20,.78)'; ctx.strokeText(it.text, it.x, it.y);
-    ctx.fillStyle = it.fill; ctx.fillText(it.text, it.x, it.y);
+    upright(ctx, it.x, it.y, () => {
+      ctx.lineJoin = 'round'; ctx.lineWidth = 5 * k; ctx.strokeStyle = 'rgba(14,22,20,.78)'; ctx.strokeText(it.text, it.x, it.y);
+      ctx.fillStyle = it.fill; ctx.fillText(it.text, it.x, it.y);
+    });
   }
   ctx.restore();
 }
@@ -225,7 +273,8 @@ export function paintRealmLabels(ctx, recs, zoom, nameOf = null, { seen = null, 
  * arrive. `threats = [{p, q, tile, bell}]` (destinations are sealed: a
  * warning, never a certainty).
  */
-export function paintThreats(ctx, threats, zoom, label = null) {
+export function paintThreats(ctx, threats, zoom, label = null, part = null) {
+  // `part` 'mark': the halo and the ring, on the ground; 'label': the words, upright; null: both
   const t = fxNow() / 1000;
   const k = 1 / zoom, pulse = 0.5 + 0.5 * Math.sin(t * 3);
   const seen = new Set();
@@ -236,18 +285,20 @@ export function paintThreats(ctx, threats, zoom, label = null) {
     seen.add(key);
     const h = tileHex(w.p, w.q, w.tile), c = project(h.q, h.r);
     const r = Math.max(RADIUS * 1.3, 18 * k) * (1 + pulse * 0.12);
-    const g = ctx.createRadialGradient(c.x, c.y, r * 0.4, c.x, c.y, r);
-    g.addColorStop(0, 'rgba(200,40,30,0)'); g.addColorStop(0.75, `rgba(200,40,30,${0.18 + pulse * 0.14})`); g.addColorStop(1, 'rgba(200,40,30,0)');
-    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = `rgba(230,70,50,${0.6 + pulse * 0.4})`; ctx.lineWidth = 2.4 * k; ctx.setLineDash([6 * k, 4 * k]);
-    ctx.beginPath(); ctx.arc(c.x, c.y, r * 0.78, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
-    if (label) {
+    if (part !== 'label') {
+      const g = ctx.createRadialGradient(c.x, c.y, r * 0.4, c.x, c.y, r);
+      g.addColorStop(0, 'rgba(200,40,30,0)'); g.addColorStop(0.75, `rgba(200,40,30,${0.18 + pulse * 0.14})`); g.addColorStop(1, 'rgba(200,40,30,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = `rgba(230,70,50,${0.6 + pulse * 0.4})`; ctx.lineWidth = 2.4 * k; ctx.setLineDash([6 * k, 4 * k]);
+      ctx.beginPath(); ctx.arc(c.x, c.y, r * 0.78, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+    }
+    if (label && part !== 'mark') upright(ctx, c.x, c.y, () => {
       const text = label(w);
       ctx.font = `700 ${11 * k}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       const tw = ctx.measureText(text).width + 12 * k, th = 16 * k, y = c.y + r * 0.78 + 4 * k;
       ctx.fillStyle = 'rgba(120,20,12,.92)'; ctx.beginPath(); ctx.roundRect?.(c.x - tw / 2, y, tw, th, 8 * k); ctx.fill();
       ctx.fillStyle = '#fff2ee'; ctx.fillText(text, c.x, y + th / 2 + 0.5 * k);
-    }
+    });
   }
   ctx.restore();
 }
@@ -259,25 +310,38 @@ export function paintThreats(ctx, threats, zoom, label = null) {
  * `part` 'ring' draws the ring alone (under the map's labels, which it used
  * to cut through), 'label' the pointer and the words, null both.
  */
-export function paintGuide(ctx, g, zoom, label = '', part = null) {
+export function paintGuide(ctx, g, zoom, label = '', part = null, { rise = null, pass = null } = {}) {
+  // `rise` (screen px): how far above the tile's centre the pointer's tip stands (over a village's nameplate:
+  // map/plates.mjs plateRise); `pass`: the frame's label pass (the words slide out from under the HUD)
   if (!g || !Number.isInteger(g.tile)) return;
   const t = fxNow() / 1000;
   const k = 1 / zoom, pulse = reducedMotion() ? 0.5 : 0.5 + 0.5 * Math.sin(t * 2.4);
   const h = tileHex(g.p, g.q, g.tile), c = project(h.q, h.r);
   const r = Math.max(RADIUS * 1.15, 20 * k) * (1 + pulse * 0.15);
-  const y = c.y - r - (6 + pulse * 4) * k;
+  const y = rise === null ? c.y - r - (6 + pulse * 4) * k : c.y - (rise + 3 + pulse * 4) * k;
   ctx.save();
   if (part !== 'label') {
-    ctx.strokeStyle = 'rgba(16,24,22,.55)'; ctx.lineWidth = 6 * k; ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, Math.PI * 2); ctx.stroke();
-    ctx.strokeStyle = `rgba(244,239,224,${0.72 + pulse * 0.28})`; ctx.lineWidth = 3 * k; ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, Math.PI * 2); ctx.stroke();
+    // a mark laid on the ground around the tile: dashed, quiet (the words and their pointer are what is read)
+    ctx.setLineDash([7 * k, 6 * k]); ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(16,24,22,.4)'; ctx.lineWidth = 4.4 * k; ctx.beginPath(); ctx.ellipse?.(c.x, c.y, r, r * FLATTEN, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = `rgba(244,239,224,${0.6 + pulse * 0.3})`; ctx.lineWidth = 2.2 * k; ctx.beginPath(); ctx.ellipse?.(c.x, c.y, r, r * FLATTEN, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
   }
-  // a pointer above the ring
-  if (part !== 'ring') { ctx.fillStyle = '#f4efe0'; ctx.beginPath(); ctx.moveTo(c.x, y); ctx.lineTo(c.x - 7 * k, y - 11 * k); ctx.lineTo(c.x + 7 * k, y - 11 * k); ctx.closePath(); ctx.fill(); }
-  if (label && part !== 'ring') {
-    ctx.font = `700 ${11 * k}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    const tw = ctx.measureText(label).width + 12 * k, th = 17 * k, ly = y - 13 * k - th;
-    ctx.fillStyle = 'rgba(16,24,22,.94)'; ctx.beginPath(); ctx.roundRect?.(c.x - tw / 2, ly, tw, th, 8 * k); ctx.fill();
-    ctx.fillStyle = '#f4efe0'; ctx.fillText(label, c.x, ly + th / 2 + 0.5 * k);
+  // a pointer above the tile (it and the words stand upright over it)
+  if (part !== 'ring') {
+    ctx.font = `700 ${12 * k}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const tw = label ? ctx.measureText(label).width + 14 * k : 14 * k, th = label ? 20 * k : 0;
+    const move = pass?.place(c.x, c.y, { x: c.x - tw / 2, y: y - 11 * k - 2 * k - th, w: tw, h: th + 13 * k }, { keep: true, reach: 130 }) ?? { dx: 0, dy: 0 };
+    upright(ctx, c.x, c.y, () => {
+      const px = c.x + move.dx, py = y + move.dy;
+      ctx.fillStyle = 'rgba(16,24,22,.6)'; ctx.beginPath(); ctx.moveTo(px, py + 1.5 * k); ctx.lineTo(px - 8.5 * k, py - 11.5 * k); ctx.lineTo(px + 8.5 * k, py - 11.5 * k); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#f4efe0'; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px - 7 * k, py - 11 * k); ctx.lineTo(px + 7 * k, py - 11 * k); ctx.closePath(); ctx.fill();
+      if (!label) return;
+      const ly = py - 13 * k - th;
+      ctx.fillStyle = 'rgba(16,24,22,.94)'; ctx.beginPath(); ctx.roundRect?.(px - tw / 2, ly, tw, th, 9 * k); ctx.fill();
+      ctx.strokeStyle = 'rgba(244,239,224,.5)'; ctx.lineWidth = 1 * k; ctx.stroke();
+      ctx.fillStyle = '#f4efe0'; ctx.fillText(label, px, ly + th / 2 + 0.5 * k);
+    });
   }
   ctx.restore();
 }
@@ -292,52 +356,11 @@ export function paintRoute(ctx, route, zoom, { now = fxNow(), still = false } = 
   paintRibbon(ctx, route.hexes ?? [], { zoom, own: true, now, still });
 }
 
-/** Rings of cloud sea drawn around the open rings: the first is the ring that opens next; the second gives the sea room to thin out in. */
-export const CLOUD_RINGS = 2;
-const rims = new Map();
 /**
- * The radii (world px from the Concord, on the unflattened ground) between
- * which the cloud sea around the open rings thins into the table: `from`
- * beyond the furthest open land (the land itself is never dimmed), `to`
- * just inside the nearest point of the outermost cloud ring's own stepped
- * edge (so that edge is never left showing), `out` beyond its furthest corner.
+ * Rings of unopened provinces kept in the picture's model around the open rings: the land's last tiles know that
+ * cloud, not land, lies beyond them. (The cloud itself is one body over the sheet: map/cloudsea.mjs.)
  */
-export function worldRim(ringsOpen) {
-  const d = Math.max(1, ringsOpen ?? 1), outer = d + CLOUD_RINGS - 1;
-  if (rims.has(d)) return rims.get(d);
-  const far = (q, r) => { const c = project(q, r); return Math.hypot(c.x, c.y / FLATTEN); };
-  let land = 0, nearest = Infinity, furthest = 0;
-  for (const pr of d > 1 ? ringProvinces(d - 1) : [{ p: 0, q: 0 }]) for (let i = 0; i < PROVINCE_TILES; i++) { const h = tileHex(pr.p, pr.q, i); land = Math.max(land, far(h.q, h.r)); }
-  for (const pr of ringProvinces(outer)) for (let i = 0; i < PROVINCE_TILES; i++) {
-    const h = tileHex(pr.p, pr.q, i), r = far(h.q, h.r);
-    if (r > furthest) furthest = r;
-    if (r < nearest && DIRECTIONS.some(([dq, dr]) => { const at = locate(h.q + dq, h.r + dr); return ringOf(at.p, at.q) > outer; })) nearest = r;
-  }
-  const to = nearest - RADIUS * 0.4, from = Math.max(land + RADIUS * 0.6, to - PROVINCE_CIRCUMRADIUS * 1.5);
-  const v = { from, to, out: furthest + RADIUS * 2.5 };
-  if (rims.size > 8) rims.clear();
-  rims.set(d, v);
-  return v;
-}
-
-/** Paint that edge where the view reaches it (the context is in world px). */
-export function paintWorldRim(ctx, ringsOpen, view, size) {
-  if (!ctx?.createRadialGradient || !ctx.save) return;
-  const R = worldRim(ringsOpen);
-  const hw = size.width / 2 / view.zoom, hh = size.height / 2 / view.zoom;
-  // the furthest corner of the view from the Concord, on the unflattened ground
-  const far = Math.hypot(Math.abs(view.x) + hw, (Math.abs(view.y) + hh) / FLATTEN);
-  if (far <= R.from) return;
-  ctx.save();
-  ctx.scale(1, FLATTEN);
-  const g = ctx.createRadialGradient(0, 0, R.from, 0, 0, R.to);
-  g.addColorStop(0, 'rgba(42,71,66,0)'); g.addColorStop(0.55, 'rgba(42,71,66,.62)'); g.addColorStop(1, TABLE);
-  ctx.fillStyle = g;
-  // only the ring where the cloud thins and the corners beyond it (the table further out is the table already)
-  ctx.beginPath(); ctx.arc(0, 0, R.out, 0, Math.PI * 2); ctx.arc(0, 0, R.from, 0, Math.PI * 2, true);
-  ctx.fill();
-  ctx.restore();
-}
+export const CLOUD_RINGS = 1;
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const clock = () => globalThis.performance?.now?.() ?? Date.now();
@@ -372,8 +395,19 @@ export class FrontierMap {
    * {terrain, sites, names} | null, open: opening.mjs openHint};
    * `onSelect(hit)`; `onView(view, lod)` (the logical view).
    */
-  constructor(canvas, { source, onSelect = () => {}, onView = () => {}, onHover = () => {}, onDraw = null, insets = null, art = false }) {
+  constructor(canvas, { source, onSelect = () => {}, onView = () => {}, onHover = () => {}, onDraw = null, insets = null, art = false, tilt = undefined }) {
     this.canvas = canvas;
+    // The tilted stage (map/tilt.mjs, UX brief §11.1): the ground is painted on `#map-ground` inside `#map-stage`,
+    // which carries the tilt; this canvas lies flat above it, takes every input and carries what must stay
+    // upright (names, pills, tags). A page without the stage (and every test) is the flat map on this one canvas.
+    const page = canvas?.ownerDocument ?? null;
+    const stage = page?.getElementById?.('map-stage') ?? null, ground = stage ? page.getElementById('map-ground') : null;
+    this.stage = stage && ground?.getContext ? stage : null;
+    this.ground = this.stage ? ground : canvas;
+    this.dress = this.stage ? page.getElementById('map-dress') : null;
+    /** The tilt at the near view (degrees): the constant chosen from screenshots, `?tilt=` for trials, 0 for the flat map. */
+    this.tiltMax = this.stage ? Math.max(0, Math.min(TILT.max, tilt ?? tiltFromQuery(globalThis.location?.search) ?? TILT.deg)) : 0;
+    if (this.stage?.dataset) { if (this.tiltMax > 0) delete this.stage.dataset.flat; else this.stage.dataset.flat = ''; }
     /** What the page's HUD covers of the canvas (`() => {top, right, bottom, left}`, hud/insets.mjs); without it, what `#panel` covers. */
     this.insetsOf = insets;
     /** Called after every picture with the view on screen and the canvas size (things of the page that follow the map: the objective's place). */
@@ -383,7 +417,7 @@ export class FrontierMap {
     this.onHover = onHover;
     this.onView = onView;
     this.cam = new Camera({ view: { x: 0, y: 0, zoom: 0.06 }, limit: (v, o) => this.limitView(v, o) });
-    this.lod = lodFor(this.cam.view.zoom);
+    this.lod = lodFor(this.cam.view.zoom, 'world', this.edges());
     /** The level of detail on screen (it follows the drawn view; `lod` follows the logical one). */
     this.drawnLod = this.lod;
     this.dirty = true;
@@ -396,6 +430,8 @@ export class FrontierMap {
     this.unredraw = onLangChange(() => this.invalidate());
     // Opt-in sprite art at tile LOD (map/sprites.mjs); the vector tiles stay the default.
     this.art = art ? new SpriteArt({ onLoad: () => this.invalidate(), onTick: () => this.tick() }) : null;
+    // the cloud sea beyond the opened rings (map/cloudsea.mjs): one body of cloud over the sheet; its puffs are the art's cloud sprites
+    this.sea = new CloudSea({ image: this.art ? (set, size, name) => this.art.image(set, size, name) : null });
     this.mark();
     this.bind();
     this.mountTools();
@@ -404,11 +440,17 @@ export class FrontierMap {
     this.landing = null;
     this.pointer = mountHomePointer(canvas, { onPress: () => this.home() });
     this.watchSize();
+    // a row of a list flies to its place (the wait drawer's candidate sites): `wylls:fly-to` with `{p, q, tile}` (or `site`)
+    this.onFlyTo = e => { try { this.flyToPlace(e?.detail); } catch { /* a malformed event */ } };
+    globalThis.addEventListener?.('wylls:fly-to', this.onFlyTo);
     this.frame = ts => {
       this.frameNo = (this.frameNo ?? 0) + 1;
       const now = ts ?? clock();
       // a landing that began while the village was out of the picture: the camera goes there (never from inside a draw)
       if (this.landingFly) { const f = this.landingFly; this.landingFly = null; this.flyTo({ ...f, zoom: Math.max(this.cam.view.zoom, heroZoom(this.dpr())) }, 900, { auto: !this.cam.userMoved }); }
+      // the reach of a host that was just selected is not all in the picture: the camera eases out to it
+      // (asked for inside the last picture: a person who moved the camera since then keeps it)
+      if (this.reachFly) { const f = this.reachFly; this.reachFly = null; if (f.moves === (this.moves ?? 0)) this.setView(f.to, { auto: true, ms: MOVE_MS.reach, kind: 'fly', ease: EASE.inOutCubic }); }
       if (this.cam.step(now)) this.dirty = true;
       if (this.dirty) this.draw(now);
       this.raf = globalThis.requestAnimationFrame?.(this.frame);
@@ -420,13 +462,159 @@ export class FrontierMap {
   get view() { return this.cam.view; }
   /** The view on screen right now (it travels toward `view`): for things that should follow the picture, like a minimap frame. */
   get shown() { return this.cam.drawn; }
+  /** The map's box on the page (CSS px): what the views, the insets and every flat formula are measured in. */
   size() { return { width: this.canvas.clientWidth, height: this.canvas.clientHeight }; }
   dpr() { return Math.min(globalThis.devicePixelRatio || 1, 2); }
+
+  // ------------------------------------------------------------------ the tilt (map/tilt.mjs)
+  /** The far view's zoom on a canvas of `size` with nothing covering it: there the board lies flat. */
+  flatZoom(size = this.size()) {
+    const key = `${this.ringsNow()}|${size.width}x${size.height}`;
+    if (this.flatKey !== key) { this.flatKey = key; this.flatAt = size.width > 0 && size.height > 0 ? fitView(this.ringsNow(), size, { cap: FAR_ZOOM_CAP, floor: ZOOM_MIN }).zoom : 0; }
+    return this.flatAt;
+  }
+  /** The edges between the levels of detail on this canvas (lodEdges). */
+  edges(size = this.size()) { return lodEdges(this.flatZoom(size)); }
+  /** The board's angle at `zoom` (degrees): flat at the far view, `tiltMax` at the diorama. */
+  tiltDeg(zoom, size = this.size()) { return this.tiltMax > 0 ? tiltAt(zoom, { far: this.flatZoom(size) * 1.05, deg: this.tiltMax }) : 0; }
+  /** The tilt's geometry at `zoom` (default: the picture on screen): stage px to box px and back. */
+  geo(zoom = this.cam.drawn.zoom, size = this.size()) { return tiltGeo(size, this.tiltDeg(zoom, size)); }
+  /** The canvas's box in the viewport (read once a frame at most). */
+  rect() {
+    if (this.rectAt !== this.frameNo || !this.rectNow) { const r = this.canvas.getBoundingClientRect?.(); this.rectNow = r ? { left: r.left, top: r.top } : { left: 0, top: 0 }; this.rectAt = this.frameNo; }
+    return this.rectNow;
+  }
+  /**
+   * Where world point (x, y) is seen: client px (`box`: px from the map's own top left corner, for an
+   * element laid out with it). The picture on screen, or with `logical` where the camera is going.
+   */
+  project(x, y, { logical = false, box = false } = {}) {
+    const v = logical ? this.cam.view : this.cam.drawn, s = this.size();
+    const p = this.geo(v.zoom, s).toBox((x - v.x) * v.zoom + s.width / 2, (y - v.y) * v.zoom + s.height / 2);
+    if (box) return p;
+    const r = this.rect();
+    return { x: p.x + r.left, y: p.y + r.top };
+  }
+  /** The world point seen at client px (cx, cy) (`box`: px from the map's own corner). The inverse of `project`. */
+  unproject(cx, cy, { logical = false, box = false } = {}) {
+    const v = logical ? this.cam.view : this.cam.drawn, s = this.size(), r = box ? { left: 0, top: 0 } : this.rect();
+    const p = this.geo(v.zoom, s).toStage(cx - r.left, cy - r.top);
+    return { x: v.x + (p.x - s.width / 2) / v.zoom, y: v.y + (p.y - s.height / 2) / v.zoom };
+  }
+  /** The part of the world in the picture: four world points (top left, top right, bottom right, bottom left); a trapezoid under a tilt. */
+  viewQuad({ logical = false } = {}) {
+    const v = logical ? this.cam.view : this.cam.drawn, s = this.size();
+    return this.geo(v.zoom, s).quad().map(p => ({ x: v.x + (p.x - s.width / 2) / v.zoom, y: v.y + (p.y - s.height / 2) / v.zoom }));
+  }
+  /**
+   * The ground canvas in the stage: `{left, top, width, height, dx, dy}` (CSS px; map/tilt.mjs groundBox). It
+   * reaches past the map's box so the tilted board always fills the picture. Any other world-space canvas (the
+   * effects' top pass) is laid exactly over it and draws through `groundView()` with `groundSize()`.
+   */
+  groundLayout(size = this.size()) {
+    const key = `${size.width}x${size.height}|${this.tiltMax}`;
+    if (this.groundKey !== key) {
+      this.groundKey = key;
+      const g = this.groundNow = this.stage ? groundBox(size, this.tiltMax) : { left: 0, top: 0, width: size.width, height: size.height, dx: 0, dy: 0 };
+      const st = this.stage ? this.ground.style : null;
+      if (st?.setProperty) { st.setProperty('--map-gl', `${g.left}px`); st.setProperty('--map-gt', `${g.top}px`); st.setProperty('--map-gw', `${g.width}px`); st.setProperty('--map-gh', `${g.height}px`); }
+    }
+    return this.groundNow;
+  }
+  /** The flat view of the ground canvas on screen: a canvas laid over `#map-ground` shows world (x, y) at ((x − v.x) · v.zoom + width / 2, …) of its own box. */
+  groundView() { return groundView(this.cam.drawn, this.groundLayout()); }
+  groundSize() { const g = this.groundLayout(); return { width: g.width, height: g.height }; }
+  /** The view that shows world point `pt` at `zoom` in the middle of the part of the picture nothing covers (as it is seen, tilt and all). */
+  aim(pt, zoom, size = this.size(), inset = this.inset()) {
+    const f = freeBox(size, inset), s = this.geo(zoom, size).toStage(size.width / 2 + f.x, size.height / 2 + f.y);
+    return { x: pt.x - (s.x - size.width / 2) / zoom, y: pt.y - (s.y - size.height / 2) / zoom, zoom };
+  }
+  /** Write the board's angle and the depth dressing onto the page (custom properties: the page's CSP allows no inline style). */
+  dressPage(deg, { near = 0, shown = 1, inset = null } = {}) {
+    const set = (el, k, v) => { el.cache ??= {}; if (el.cache[k] !== v) { el.cache[k] = v; el.node.style.setProperty(k, v); } };
+    if (this.stage) set(this.stageVars ??= { node: this.stage }, '--map-tilt', `${deg.toFixed(2)}deg`);
+    // (the angle on screen, for whoever must know it without asking the map: the browser tests aim their presses with it)
+    const d0 = this.canvas.dataset, mark = deg.toFixed(2);
+    if (d0 && d0.tilt !== mark) d0.tilt = mark;
+    if (!this.dress) return;
+    const d = this.dressVars ??= { node: this.dress };
+    // the haze is the far edge of a tilted board: none on a flat one
+    set(d, '--map-haze', (this.tiltMax > 0 ? Math.min(1, deg / this.tiltMax) * shown : 0).toFixed(3));
+    set(d, '--map-near', (near * shown).toFixed(3));
+    set(d, '--map-top', `${Math.round(inset?.top ?? 0)}px`);
+  }
   /** What the page's sheets cover of the canvas (read once a frame at most). */
   inset() {
     if (this.insetAt !== this.frameNo || !this.insetNow) { let v = null; try { v = this.insetsOf?.() ?? null; } catch { v = null; } this.insetNow = v ?? coveredInsets(this.canvas); this.insetAt = this.frameNo; }
     return this.insetNow;
   }
+  // ------------------------------------------------------------------ where labels may stand (map/labelpass.mjs, UX brief §11.6)
+  /**
+   * The HUD's rectangles over the map, which no label of the map may stand under: `[{x, y, width, height}]` (or
+   * `{left, top, right, bottom}`) in client px, as getBoundingClientRect gives them (the dial, the village plate,
+   * the dock, the minimap, the button columns). `null`: the map measures the page's known elements itself
+   * (NOGO_SELECTORS), a few times a second.
+   */
+  setNoGo(rects) { this.nogoFed = Array.isArray(rects) ? rects.map(rectOf).filter(Boolean) : null; this.tick(); }
+  /**
+   * Put a tile's label pile away (`on` true) while an effect plays there, and bring it back (`on` false).
+   * `tile`: "P,Q,tile" or `{p, q, tile}`. Counted: two effects on one tile each hide and show once.
+   */
+  hideLabelsAt(tile, on = true) {
+    const key = tileKeyOf(tile);
+    if (!key) return;
+    const H = this.hiddenLabels ??= new Map(), n = (H.get(key) ?? 0) + (on ? 1 : -1);
+    if (n > 0) H.set(key, n); else H.delete(key);
+    this.tick();
+  }
+  /**
+   * A set piece plays (a battle, the toll's results) or is over: while one plays, the pointer home and the frames
+   * of the wait view stand aside. Counted like hideLabelsAt.
+   */
+  setPiece(on = true) { this.pieces = Math.max(0, (this.pieces ?? 0) + (on ? 1 : -1)); this.tick(); }
+  get piece() { return (this.pieces ?? 0) > 0; }
+  /**
+   * How far above tile (p, q, tile) the top of its label pile stands (px from the map's own top; null when the
+   * tile carries none): the page's own things that point at a tile (the objective's chip) stand above that.
+   */
+  pileTop(p, q, tile) {
+    const u = this.villageAt(p, q, tile);
+    return u ? this.project(u.x, u.y, { box: true }).y - plateRise(u, this.cam.drawn.zoom) : null;
+  }
+  /** The village the tile view draws on tile (p, q, tile), or null (the tile model's own tile: map/sprites.mjs). */
+  villageAt(p, q, tile) {
+    if (this.drawnLod !== 'tile' || !Number.isInteger(tile)) return null;
+    const u = this.art?.modelNow?.byId?.get(`${p},${q},${tile}`);
+    return u && u.state === 1 && u.owner < 6 && u.site !== undefined ? u : null;
+  }
+  /** How far above the centre of place `at` `{p, q, tile}` its label pile reaches at zoom `z` (screen px), or null when it carries none. */
+  pileRise(at, z) { const u = at ? this.villageAt(at.p, at.q, at.tile) : null; return u ? plateRise(u, z) : null; }
+  /** The no-go rectangles in px from the map's own corner (read from the page at most a few times a second). */
+  nogoBoxes() {
+    const c = this.canvas, doc = c?.ownerDocument;
+    if (!doc?.querySelectorAll || !c.getBoundingClientRect) return [];
+    const now = clock();
+    if (this.nogoNow && now - this.nogoAt < NOGO_EVERY_MS && this.nogoSrc === this.nogoFed) return this.nogoNow;
+    const r = c.getBoundingClientRect(), out = [];
+    const add = b => { if (!b || b.x + b.w <= r.left || b.x >= r.right || b.y + b.h <= r.top || b.y >= r.bottom) return; out.push({ x: b.x - r.left, y: b.y - r.top, w: b.w, h: b.h }); };
+    if (this.nogoFed) for (const b of this.nogoFed) add(b);
+    else for (const el of doc.querySelectorAll(NOGO_SELECTORS)) {
+      if (el.hidden || el.closest?.('[hidden]')) continue;
+      const b = rectOf(el.getBoundingClientRect?.());
+      // (something that covers most of the map is not a thing to step around: a sheet, a wide document)
+      if (b && b.w * b.h < r.width * r.height * 0.5) add(b);
+    }
+    this.nogoNow = out; this.nogoAt = now; this.nogoSrc = this.nogoFed;
+    return out;
+  }
+  /** The label pass of a frame at zoom `z` (`screen`: the labels stand upright on the flat canvas over the tilted board). */
+  labelPass(z, screen = true) {
+    const size = this.size(), hidden = this.hiddenLabels;
+    const tab = screen ? this.pointer?.box?.() ?? null : null;
+    return createLabelPass({ nogo: screen ? (tab ? [...this.nogoBoxes(), tab] : this.nogoBoxes()) : [], zoom: z, hidden: hidden?.size ? hidden : null, bounds: screen ? { w: size.width, h: size.height } : null,
+      screen: screen ? (x, y) => this.project(x, y, { box: true }) : null });
+  }
+
   /** Something the still picture is made of changed: repaint everything. */
   invalidate() { this.stamp++; this.dirty = true; }
   /** An animation frame is due: the animated layers repaint (the still ones are kept while the view rests). */
@@ -440,14 +628,14 @@ export class FrontierMap {
    * moving the camera (the opening view stops framing); `auto` does not.
    */
   setView(v, { auto = false, ...move } = {}) {
-    if (!auto) this.cam.userMoved = true;
+    if (!auto) { this.cam.userMoved = true; this.moves = (this.moves ?? 0) + 1; }
     this.cam.set(v, move);
     this.sync();
   }
 
   /** After the logical view changed: the LOD, the canvas marks, the buttons, the page. */
   sync() {
-    this.lod = lodFor(this.cam.view.zoom, this.lod);
+    this.lod = lodFor(this.cam.view.zoom, this.lod, this.edges());
     this.dirty = true;
     this.mark();
     this.syncTools();
@@ -476,7 +664,7 @@ export class FrontierMap {
     const size = this.size();
     const zoom = this.clampZoom(v.zoom, size);
     const out = zoom === v.zoom ? v : { ...v, zoom };
-    return clamp && size.width > 0 && size.height > 0 ? clampCentre(out, { ringsOpen: this.ringsNow(), size, soft }) : out;
+    return clamp && size.width > 0 && size.height > 0 ? clampCentre(out, { ringsOpen: this.ringsNow(), size, soft, inset: this.inset() }) : out;
   }
 
   /** Centre on a province (and zoom to its LOD); with `ms` the picture flies there. */
@@ -491,8 +679,21 @@ export class FrontierMap {
     const size = this.size(), v = this.cam.view;
     const zoom = this.clampZoom(target.zoom ?? v.zoom, size);
     const pt = Number.isInteger(target.p) && Number.isInteger(target.q) ? placePoint(target) : { x: target.x ?? v.x, y: target.y ?? v.y };
-    const to = exact || !(size.width > 0) ? { x: pt.x, y: pt.y, zoom } : centreOn(pt, zoom, size, this.inset());
+    const to = exact || !(size.width > 0) ? { x: pt.x, y: pt.y, zoom } : this.aim(pt, zoom, size);
     this.setView(to, { auto, ms: ms ?? flightMs(this.cam.drawn, to, size), kind: 'fly' });
+  }
+
+  /**
+   * Fly to a place the page names (`wylls:fly-to`): `{p, q, tile}`, or `{p, q, site}` (the site's tile, once its
+   * province's terrain is known), or `{p, q}` (the province). Near enough to see its tiles; a closer view is kept.
+   * Returns whether there was a place to go to.
+   */
+  flyToPlace(d) {
+    if (!d || !Number.isInteger(d.p) || !Number.isInteger(d.q)) return false;
+    const terrainOf = this.source?.()?.terrainOf ?? this.terrainOf;
+    const tile = Number.isInteger(d.tile) ? d.tile : Number.isInteger(d.site) ? terrainOf?.(d.p, d.q)?.sites?.[d.site] : null;
+    this.flyTo({ p: d.p, q: d.q, tile: Number.isInteger(tile) ? tile : undefined, zoom: Math.max(this.cam.view.zoom, Number.isFinite(d.zoom) ? d.zoom : FLY_TO_ZOOM) });
+    return true;
   }
 
   /**
@@ -507,11 +708,13 @@ export class FrontierMap {
     const own = (src.own ?? []).filter(o => Number.isInteger(o.p) && Number.isInteger(o.q));
     if (!own.length) {
       const plan = openingPlan({ ...(src.open ?? {}), ready: true }, src, size, { inset, dpr: this.dpr() });
-      this.setView(plan.view, { ms: flightMs(this.cam.drawn, plan.view, size), kind: 'fly' });
+      const to = this.aim(plan.at, plan.view.zoom, size, inset);
+      this.setView(to, { ms: flightMs(this.cam.drawn, to, size), kind: 'fly' });
       return;
     }
     const at = own.map(placePoint);
-    const f = focusOf(this.cam.view, size, inset);
+    // (the world point in the middle of the part of the picture nothing covers, where the camera is going)
+    const f = (c => this.unproject(size.width / 2 + c.x, size.height / 2 + c.y, { logical: true, box: true }))(freeBox(size, inset));
     const here = at.findIndex(c => Math.hypot(c.x - f.x, c.y - f.y) < RADIUS * 0.5);
     const c = at[here >= 0 ? (here + 1) % at.length : Math.min(at.length - 1, Math.max(0, src.open?.active ?? 0))];
     this.flyTo({ x: c.x, y: c.y, zoom: Math.max(this.cam.view.zoom, heroZoom(this.dpr())) });
@@ -586,15 +789,21 @@ export class FrontierMap {
 
   /** Zoom by `factor` about the middle of the uncovered canvas (the buttons, + and −): eased. */
   zoomBy(factor, ms = MOVE_MS.zoom) {
-    const s = this.size(), f = focusOf({ x: 0, y: 0, zoom: 1 }, s, this.inset());
+    const s = this.size(), f = freeBox(s, this.inset());
     this.zoomAt(factor, s.width / 2 + f.x, s.height / 2 + f.y, { ms });
   }
 
-  /** Zoom by `factor` keeping the world point under screen point (sx, sy); the picture eases there when `move.ms`. */
-  zoomAt(factor, sx, sy, move = {}) {
+  /**
+   * Zoom by `factor` keeping the world point seen at (bx, by) (px from the map's own corner) where it is; the
+   * picture eases there when `move.ms`. The board's angle changes with the zoom, so the point is found on the
+   * board as it is and put back on the board as it will be.
+   */
+  zoomAt(factor, bx, by, move = {}) {
     const s = this.size(), v = this.cam.view;
     const z = this.clampZoom(v.zoom * factor, s);
-    this.setView(zoomAround(v, s, z / v.zoom, sx, sy), { clamp: true, ...move, anchor: { x: sx - s.width / 2, y: sy - s.height / 2 } });
+    const a = this.geo(v.zoom, s).toStage(bx, by), b = this.geo(z, s).toStage(bx, by);
+    const wx = v.x + (a.x - s.width / 2) / v.zoom, wy = v.y + (a.y - s.height / 2) / v.zoom;
+    this.setView({ x: wx - (b.x - s.width / 2) / z, y: wy - (b.y - s.height / 2) / z, zoom: z }, { clamp: true, ...move, anchor: { x: b.x - s.width / 2, y: b.y - s.height / 2 } });
   }
 
   /** The map buttons after the canvas (a DOM page only). */
@@ -656,7 +865,14 @@ export class FrontierMap {
   bind() {
     const c = this.canvas;
     if (!c.addEventListener) return;
-    const at = e => ({ x: e.offsetX, y: e.offsetY });
+    // Where an event is: `bx`, `by` px from the map's own corner (never offsetX: under a transform it lies), and
+    // `x`, `y` the stage point seen there (the flat picture every formula of the map speaks; map/tilt.mjs).
+    const at = e => {
+      const real = Number.isFinite(e.clientX) && typeof c.getBoundingClientRect === 'function';
+      const r = real ? this.rect() : null, bx = real ? e.clientX - r.left : e.offsetX, by = real ? e.clientY - r.top : e.offsetY;
+      const p = this.geo().toStage(bx, by);
+      return { x: p.x, y: p.y, bx, by };
+    };
     c.addEventListener('pointerdown', e => {
       c.setPointerCapture?.(e.pointerId);
       // a finger on the map stops a move where the picture is
@@ -668,7 +884,7 @@ export class FrontierMap {
     c.addEventListener('pointermove', e => {
       const prev = this.pointers.get(e.pointerId), p = at(e);
       // a mouse over the map with no button down: what is under it (the page's hover tip), in the picture on screen
-      if (!prev) { if (e.pointerType === 'mouse') { const hit = pick(this.cam.drawn, this.size(), p.x, p.y); this.setHover(hit); this.onHover(hit, p); } return; }
+      if (!prev) { if (e.pointerType === 'mouse') { const hit = pick(this.cam.drawn, this.size(), p.x, p.y); this.setHover(hit); this.onHover(hit, { x: p.bx, y: p.by }); } return; }
       this.setHover(null);
       this.onHover(null);
       if (this.pointers.size === 2) {
@@ -677,7 +893,7 @@ export class FrontierMap {
         this.pointers.set(e.pointerId, p);
         const [a2, b2] = [...this.pointers.values()];
         const after = Math.hypot(a2.x - b2.x, a2.y - b2.y);
-        if (before > 0) this.zoomAt(after / before, (a2.x + b2.x) / 2, (a2.y + b2.y) / 2);
+        if (before > 0) this.zoomAt(after / before, (a2.bx + b2.bx) / 2, (a2.by + b2.by) / 2);
         if (this.drag) { this.drag.moved = true; this.drag.track = []; }
         return;
       }
@@ -712,7 +928,8 @@ export class FrontierMap {
       e.preventDefault();
       // the wheel takes over a flight where the picture is; its own easing is only retargeted
       if (this.cam.tween && this.cam.tween.tag !== 'wheel' && this.cam.halt()) this.sync();
-      this.zoomAt(Math.exp(-e.deltaY * 0.0015), e.offsetX, e.offsetY, { ms: MOVE_MS.wheel, tag: 'wheel' });
+      const p = at(e);
+      this.zoomAt(Math.exp(-e.deltaY * 0.0015), p.bx, p.by, { ms: MOVE_MS.wheel, tag: 'wheel' });
     }, { passive: false });
     c.addEventListener('keydown', e => {
       const v = this.cam.view, step = 80 / v.zoom;
@@ -744,6 +961,8 @@ export class FrontierMap {
    */
   open(src, size, { dpr = this.dpr(), now = clock() } = {}) {
     if (this.cam.userMoved) return true;
+    // a lit reach is framed (frameReach): the opening view waits until that host is let go, then frames its subject again
+    if (this.reachFit?.held && this.opened) { this.openKey = null; return true; }
     const inset = this.inset();
     let plan = openingPlan(src?.open, src, size, { inset, dpr });
     if (!plan) {
@@ -760,12 +979,14 @@ export class FrontierMap {
     const prev = this.opened ?? null, was = { ...this.cam.drawn };
     this.openKey = key;
     this.opened = { kind: plan.kind, rank: plan.rank, width: size.width, height: size.height, title, subject };
-    this.setView(plan.view, { auto: true });
-    const f = focusOf({ x: 0, y: 0, zoom: 1 }, size, inset);
+    // (the plan's view is the flat one: the subject goes where it is seen in the middle of the uncovered part)
+    const to = this.aim(plan.at, plan.view.zoom, size, inset);
+    this.setView(to, { auto: true });
+    const f = (b => ({ x: b.x, y: b.y }))(freeBox(size, inset));
     if (!prev) {
       // the first picture: the title card drifts in from the mist; a player's land is reached from a little above
       const k = title ? TITLE_FROM : plan.kind === 'fit' ? 1 : OPEN_FROM;
-      if (k < 1) this.cam.from(centreOn(plan.at, Math.max(ZOOM_MIN, plan.view.zoom * k), size, inset), { ms: title ? TITLE_MS : MOVE_MS.open, ease: EASE.outCubic, anchor: f });
+      if (k < 1) this.cam.from(this.aim(plan.at, Math.max(ZOOM_MIN, to.zoom * k), size, inset), { ms: title ? TITLE_MS : MOVE_MS.open, ease: EASE.outCubic, anchor: f });
       this.reveal = now;
     } else if (prev.width !== size.width || prev.height !== size.height) {
       // a new canvas size: framed again, at once
@@ -782,34 +1003,57 @@ export class FrontierMap {
 
   draw(now = clock()) {
     this.dirty = false;
-    // the canvas is painted edge to edge every frame: no alpha to blend with the page
-    const ctx = this.canvas.getContext?.('2d', { alpha: false });
-    if (!ctx) return;
+    const staged = !!this.stage, gcv = this.ground;
+    // the ground is painted edge to edge every frame: no alpha to blend with the page
+    const ctx = gcv.getContext?.('2d', { alpha: false });
+    // what must stay upright and crisp (names, pills, tags) is drawn on this canvas, flat above the tilted stage
+    // (map/tilt.mjs upright); without a stage it is the ground's own canvas
+    const octx = staged ? this.canvas.getContext?.('2d') : ctx;
+    if (!ctx || !octx) return;
     PROBE.begin();
     const dpr = this.dpr();
     const { width, height } = this.size();
-    const W = Math.round(width * dpr), H = Math.round(height * dpr);
-    if (this.canvas.width !== W || this.canvas.height !== H) { this.canvas.width = W; this.canvas.height = H; this.sceneKey = null; this.fade = null; }
     if (!(width > 0) || !(height > 0)) return;
     const size = { width, height };
-    // the table the world lies on: one colour (a gradient over the whole canvas every frame costs far more than
-    // the scene on a slow canvas); its fall into shadow toward the edges is the vignette of the depth dressing,
-    // which is painted once into a bitmap and copied
-    const table = g => { g.setTransform(dpr, 0, 0, dpr, 0, 0); g.fillStyle = TABLE; g.fillRect(0, 0, width, height); };
+    // the ground canvas reaches past the map's box (the tilted board must fill the picture): it has a flat view of its own
+    const G = this.groundLayout(size), gsize = { width: G.width, height: G.height };
+    // (the tilt draws the near half of the board a little larger than it was painted: on a screen of one device
+    // pixel per CSS pixel the ground is painted that much finer, so nothing is stretched)
+    const gr = dpr * (this.tiltMax > 0 && dpr < 1.5 ? GROUND_FINER : 1);
+    const W = Math.round(G.width * gr), H = Math.round(G.height * gr);
+    if (gcv.width !== W || gcv.height !== H) { gcv.width = W; gcv.height = H; this.sceneKey = null; this.fade = null; }
+    const OW = Math.round(width * dpr), OH = Math.round(height * dpr);
+    if (staged && (this.canvas.width !== OW || this.canvas.height !== OH)) { this.canvas.width = OW; this.canvas.height = OH; }
+    // the table the world's sheet lies on (map/table.mjs): stained boards and a pool of lamp light, laid on the world
+    const table = (g, view = groundView(this.cam.drawn, G)) => paintTable(g, { view, size: gsize, ratio: gr, sheet: sheetOf(this.rings ?? 1) });
     const inset = this.inset();
-    const dressing = zoom => { const step = Math.round(nearness(zoom) * 16); this.stamped(ctx, 'dressCv', `${W}x${H}|${step}|${inset.top},${inset.right},${inset.bottom},${inset.left}`, W, H, dpr, g => paintDressing(g, size, { near: step / 16, inset })); };
+    // the depth dressing: on the page, over the stage (custom properties of #map-dress); on a map without a stage, in the canvas
+    const dressing = (zoom, deg = 0, shown = 1) => {
+      if (staged) { this.dressPage(deg, { near: nearness(zoom), shown, inset }); return; }
+      const step = Math.round(nearness(zoom) * 16);
+      this.stamped(ctx, 'dressCv', `${W}x${H}|${step}|${inset.top},${inset.right},${inset.bottom},${inset.left}`, W, H, dpr, g => paintDressing(g, size, { near: step / 16, inset }));
+    };
+    const wipe = () => { if (staged) { octx.setTransform(1, 0, 0, 1, 0, 0); octx.clearRect(0, 0, OW, OH); } };
     const src = this.source();
     this.rings = src.ringsOpen ?? 1;
     if (!this.open(src, size, { dpr, now })) {
-      // who is looking is not known yet: the bare table, never the whole world first
-      table(ctx);
+      // who is looking is not known yet: the bare table, never the whole world first (painted once: it does not change)
+      if (this.bare !== `${W}x${H}`) { table(ctx); this.bare = `${W}x${H}`; }
+      wipe();
       dressing(0);
       this.updatePointer(null);
       PROBE.end('wait', ctx);
       return;
     }
+    this.bare = null;
     const v = this.cam.drawn, logical = this.cam.view;
-    const was = this.drawnLod, lod = lodFor(v.zoom, was);
+    // the board's angle on screen follows the zoom on screen; `gv` is the ground canvas's own flat view of the same picture
+    const T = this.geo(v.zoom, size), gv = groundView(v, G);
+    const quadOf = (view, t) => (t.flat ? null : t.quad().map(p => ({ x: view.x + (p.x - width / 2) / view.zoom, y: view.y + (p.y - height / 2) / view.zoom })));
+    // (the edges between the levels follow the far view of this canvas: a new size, or a ring opening, may move them)
+    const E = this.edges(size), now0 = lodFor(logical.zoom, this.lod, E);
+    if (now0 !== this.lod) { this.lod = now0; this.mark(); this.syncTools(); this.onView(logical, this.lod); }
+    const was = this.drawnLod, lod = lodFor(v.zoom, was, E);
     this.drawnLod = lod;
     const motion = !reducedMotion();
     // a change of level of detail dissolves: the last picture of the old level fades over the new one
@@ -821,10 +1065,10 @@ export class FrontierMap {
       const g = cv?.getContext?.('2d');
       if (g) {
         // (the world only: labels are always drawn fresh on top, a still of them would ghost as the zoom goes on)
-        this.paintScene(ctx, src, v, was, size, dpr, { now, table });
-        g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'copy'; g.drawImage(this.canvas, 0, 0); g.globalCompositeOperation = 'source-over';
+        this.paintScene(ctx, src, gv, was, gsize, gr, { now, table, quad: quadOf(v, T) });
+        g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'copy'; g.drawImage(gcv, 0, 0); g.globalCompositeOperation = 'source-over';
         this.fadeCv = cv;
-        this.fade = { view: { ...v }, since: now, t0: null };
+        this.fade = { view: { ...gv }, since: now, t0: null };
       }
     }
     // at rest (the same picture as the last frame) the still layers are kept and only the animated ones repaint
@@ -835,11 +1079,11 @@ export class FrontierMap {
     if (this.cam.moving && this.lod === 'tile' && this.warmKey !== `${logical.x}|${logical.y}|${logical.zoom}`) {
       this.warmKey = `${logical.x}|${logical.y}|${logical.zoom}`;
       const terrainOf = src.terrainOf ?? this.terrainOf;
-      for (const pr of visibleProvinces(logical, size, Math.max(0, this.rings - 1) + 1)) { terrainOf?.(pr.p, pr.q); if (this.art && ringOf(pr.p, pr.q) < this.rings && (src.survey?.province(pr.p, pr.q).max ?? L3) >= L2) src.provinceOf?.(pr.p, pr.q); }
+      for (const pr of visibleProvinces(groundView(logical, G), gsize, Math.max(0, this.rings - 1) + 1, quadOf(logical, this.geo(logical.zoom, size)))) { terrainOf?.(pr.p, pr.q); if (this.art && ringOf(pr.p, pr.q) < this.rings && (src.survey?.province(pr.p, pr.q).max ?? L3) >= L2) src.provinceOf?.(pr.p, pr.q); }
     }
     // away from the tile view its still layers are let go (two bitmaps the size of the canvas)
     if (lod !== 'tile' && this.layers) this.layers = null;
-    const out = this.paintScene(ctx, src, v, lod, size, dpr, { now, rest, table, artZoom: Math.max(v.zoom, logical.zoom) });
+    const out = this.paintScene(ctx, src, gv, lod, gsize, gr, { now, rest, table, artZoom: Math.max(v.zoom, logical.zoom), quad: quadOf(v, T) });
     this.painted = true;
     if (this.fade) {
       // the old picture stays whole until the new level has its art (a moment at most), then fades; it is a still
@@ -850,10 +1094,10 @@ export class FrontierMap {
       const k = Math.max(drift, this.fade.t0 === null ? 0 : (now - this.fade.t0) / LOD_FADE_MS);
       if (!(k < 1)) { this.fade = null; if (this.fadeCv) { this.fadeCv.width = 0; this.fadeCv.height = 0; this.fadeCv = null; } }
       else {
-        const f = this.fade.view, s = v.zoom / f.zoom;
+        const f = this.fade.view, s = gv.zoom / f.zoom;
         ctx.save();
         ctx.globalAlpha = 1 - EASE.inOutCubic(Math.max(0, k));
-        ctx.setTransform(s, 0, 0, s, dpr * ((width / 2) * (1 - s) + (f.x - v.x) * v.zoom), dpr * ((height / 2) * (1 - s) + (f.y - v.y) * v.zoom));
+        ctx.setTransform(s, 0, 0, s, gr * ((G.width / 2) * (1 - s) + (f.x - gv.x) * gv.zoom), gr * ((G.height / 2) * (1 - s) + (f.y - gv.y) * gv.zoom));
         ctx.drawImage(this.fadeCv, 0, 0);
         ctx.restore();
         this.dirty = true;
@@ -870,14 +1114,73 @@ export class FrontierMap {
         this.dirty = true;
       }
     }
-    dressing(v.zoom);
-    if (shown > 0.4) { ctx.save(); ctx.globalAlpha = shown; out.over(); ctx.restore(); }
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    dressing(v.zoom, T.deg, shown);
+    wipe();
+    if (shown > 0.4) {
+      // each label stands upright around its own place on the board (map/tilt.mjs)
+      if (staged) armUpright(octx, { place: (x, y) => T.toBox((x - v.x) * v.zoom + width / 2, (y - v.y) * v.zoom + height / 2), zoom: v.zoom, ratio: dpr });
+      octx.save(); octx.globalAlpha = shown;
+      out.over(octx, staged ? [dpr * v.zoom, 0, 0, dpr * v.zoom, dpr * (width / 2 - v.x * v.zoom), dpr * (height / 2 - v.y * v.zoom)] : null);
+      octx.restore();
+      disarmUpright(octx);
+    }
+    ctx.setTransform(gr, 0, 0, gr, 0, 0);
+    octx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.updatePointer(src, v, size, inset);
     this.mark(lod === this.lod && out.wanted > 0 && out.drawn === out.wanted ? 'ready' : 'pending');
     PROBE.end(out.kind, ctx);
-    PROBE.paint(ctx, size);
+    PROBE.paint(octx, size);
     try { this.onDraw?.(v, size, lod); } catch { /* the page's own follower */ }
+  }
+
+  /**
+   * What lies under the world: the table and the sheet (map/table.mjs). Both are still and lie on the world, so
+   * they are painted once into a picture of the part of the world around the view (a third wider on every side)
+   * and copied from it frame by frame; the picture is made again when the view leaves it or the zoom has moved a
+   * step. Deep inside the land nothing of either can show: one flat fill of paper stands in until the land's
+   * own bitmaps are there. `seen` and `corners`: the part of the world on the canvas.
+   */
+  backdrop(g, { view, size, ratio, sheet, paperRes, seen, corners, ringsOpen }) {
+    const W = g.canvas?.width ?? Math.round(size.width * ratio), H = g.canvas?.height ?? Math.round(size.height * ratio);
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    // (inland: every sample of the picture has land five tiles deep around it; the land is close to convex)
+    const field = seaField(ringsOpen);
+    let inland = true;
+    for (let j = 0; j < 4 && inland; j++) for (let i = 0; i < 5 && inland; i++) inland = field.inland(seen.x0 + ((seen.x1 - seen.x0) * i) / 4, seen.y0 + ((seen.y1 - seen.y0) * j) / 3);
+    if (inland) { g.fillStyle = CHART.paper; g.fillRect(0, 0, W, H); return; }
+    const px = ratio * view.zoom, w = seen.x1 - seen.x0, h = seen.y1 - seen.y0;
+    const doc = this.canvas.ownerDocument;
+    let b = this.under;
+    // while the camera travels a picture made a little finer than the screen serves a range of zooms; at rest it is
+    // made for the screen's own pixels (a plain copy, and sharp)
+    const moving = this.cam.moving || !!this.drag?.moved;
+    const cap = wide => Math.sqrt(BACKDROP_PIXELS / (wide * wide * w * h));
+    const fits = b && b.rings === ringsOpen && b.paper === paperRes && seen.x0 >= b.x0 && seen.y0 >= b.y0 && seen.x1 <= b.x1 && seen.y1 <= b.y1
+      && (moving ? px <= b.res * 1.02 && px >= b.res * 0.7 : Math.abs(px - b.res) < 1e-9 || (px > b.res && b.res >= cap(1.68) * 0.999));
+    if (!fits) {
+      // a third more on every side (never more than BACKDROP_PIXELS in all)
+      const x0 = seen.x0 - w * 0.34, y0 = seen.y0 - h * 0.34, bw = w * 1.68, bh = h * 1.68;
+      const res = Math.min(moving ? px * 1.12 : px, cap(1.68));
+      const cw = Math.max(1, Math.ceil(bw * res)), ch = Math.max(1, Math.ceil(bh * res));
+      const cv = b?.cv && b.cv.width === cw && b.cv.height === ch ? b.cv : spareCanvas(doc, cw, ch), bg = cv?.getContext?.('2d', { alpha: false });
+      if (!bg) {
+        // no spare canvas: straight onto the picture
+        if (tableShows(corners, sheet)) paintTable(g, { view, size, ratio, sheet });
+        g.setTransform(ratio * view.zoom, 0, 0, ratio * view.zoom, ratio * (size.width / 2 - view.x * view.zoom), ratio * (size.height / 2 - view.y * view.zoom));
+        paintSheet(g, sheet, { box: seen, res: paperRes, zoom: view.zoom });
+        return;
+      }
+      const box = { x0, y0, x1: x0 + bw, y1: y0 + bh };
+      paintTable(bg, { view: { x: x0 + bw / 2, y: y0 + bh / 2, zoom: res }, size: { width: bw * res, height: bh * res }, ratio: 1, sheet });
+      bg.setTransform(res, 0, 0, res, -x0 * res, -y0 * res);
+      paintSheet(bg, sheet, { box, res: paperRes, zoom: view.zoom });
+      b = this.under = { cv, ...box, res, rings: ringsOpen, paper: paperRes };
+    }
+    const k = b.res;
+    // (pixel for pixel when the picture was made for this zoom: a copy)
+    if (Math.abs(px - k) < 1e-9) { g.drawImage(b.cv, Math.round((seen.x0 - b.x0) * k), Math.round((seen.y0 - b.y0) * k), W, H, 0, 0, W, H); return; }
+    g.imageSmoothingEnabled = true;
+    g.drawImage(b.cv, (seen.x0 - b.x0) * k, (seen.y0 - b.y0) * k, w * k, h * k, 0, 0, W, H);
   }
 
   /**
@@ -903,20 +1206,35 @@ export class FrontierMap {
   }
 
   /**
-   * One picture of the world at `view` and `lod` into `ctx`. Returns
-   * `{wanted, drawn, kind, over, pending}`: the tile LOD's terrain state, what
-   * kind of frame it was ('full' | 'live' | 'far'), `over()`, which paints
-   * what belongs above the depth dressing (labels, warnings, pins, the
-   * guide), and how much art of this picture is still on its way.
+   * One picture of the world at `view` and `lod` into `ctx` (the ground
+   * canvas: `view` and `size` are its own flat view and box; `quad` the part
+   * of the world a tilted board shows of it). Returns `{wanted, drawn, kind,
+   * over, pending}`: the tile LOD's terrain state, what kind of frame it was
+   * ('full' | 'live' | 'far'), `over(o, world)`, which paints what is read
+   * rather than looked at (labels, warnings' words, pins, the guide's words)
+   * into `o`, the label canvas, whose own flat transform is `world`
+   * (default: this canvas), and how much art of this picture is still on
+   * its way.
    */
-  paintScene(ctx, src, view, lod, size, dpr, { now = clock(), rest = false, artZoom = view.zoom, table = () => {} } = {}) {
+  paintScene(ctx, src, view, lod, size, dpr, { now = clock(), rest = false, artZoom = view.zoom, table = () => {}, quad = null } = {}) {
     const { width, height } = size, z = view.zoom;
     const world = [dpr * z, 0, 0, dpr * z, dpr * (width / 2 - view.x * z), dpr * (height / 2 - view.y * z)];
     // what lies under the art: the table, and the provinces drawn as plain cells (no terrain yet, or no art);
     // painted onto the canvas, or once into the ground layer of a resting tile view
     const plain = [];
-    const under = g => { table(g); g.setTransform(...world); for (const f of plain) f(g); };
     const ringsOpen = src.ringsOpen ?? 1, own = src.own ?? [];
+    // the sheet the world is drawn on (map/table.mjs), and the table where the picture reaches past it. The paper's
+    // grain is made for the same resolution as the provinces' own sheets (the tile view's sprite set, the far
+    // bitmaps' step), so the paper is one
+    const sheet = sheetOf(ringsOpen);
+    const paperRes = lod === 'tile' ? artSize(RADIUS * Math.max(z, artZoom) * dpr).r / RADIUS : farRes((this.cam.moving ? Math.min(z, this.cam.view.zoom) : z) * dpr);
+    const seen = { x0: view.x - width / 2 / z, y0: view.y - height / 2 / z, x1: view.x + width / 2 / z, y1: view.y + height / 2 / z };
+    const corners = [{ x: seen.x0, y: seen.y0 }, { x: seen.x1, y: seen.y0 }, { x: seen.x1, y: seen.y1 }, { x: seen.x0, y: seen.y1 }];
+    const under = g => {
+      this.backdrop(g, { view, size, ratio: dpr, sheet, paperRes, seen, corners, ringsOpen });
+      g.setTransform(...world);
+      for (const f of plain) f(g);
+    };
     const maxRing = Math.max(0, ringsOpen - 1) + CLOUD_RINGS;
     const recs = new Map();
     // (an overview's clash flag speaks of the overview's own bell: an overview older than the last bell says nothing
@@ -937,7 +1255,7 @@ export class FrontierMap {
     const fogAt = (q, r) => { const at = locate(q, r); return ringOf(at.p, at.q) < ringsOpen ? 'clear' : 'unopened'; };
     let wanted = 0, drawn = 0, kind = 'far', labels = null, pending = 0;
     const artTiles = [], artCells = [];
-    for (const pr of visibleProvinces(view, size, maxRing)) {
+    for (const pr of visibleProvinces(view, size, maxRing, quad)) {
       const key = `${pr.p},${pr.q}`;
       const fog = fogOf(pr.p, pr.q);
       // (a selected tile has its own ring: only a province chosen as a whole is framed)
@@ -949,6 +1267,7 @@ export class FrontierMap {
       const rec = seen ? recs.get(key) : null;
       if (lod === 'tile' && this.art) {
         // Art: every level is drawn as tiles (the chart, muted land, land in sight; unopened as cloud sea)
+        // (unopened: its tiles are in the model so the land knows where it ends; the cloud itself is the sea's)
         if (fog === 'unopened') { artTiles.push({ ...pr, fog, selected }); continue; }
         const t = terrainOf?.(pr.p, pr.q);
         wanted++;
@@ -965,8 +1284,9 @@ export class FrontierMap {
           continue;
         }
       }
-      // Art, far: the land itself, painted once per province (sprites.mjs farBitmap); clouds beyond the rim
-      if (this.art && fog === 'unopened') { artCells.push({ ...pr, fog, selected }); continue; }
+      // beyond the opened rings there is no land to draw: the cloud sea lies over the sheet there (map/cloudsea.mjs)
+      if (fog === 'unopened') continue;
+      // Art, far: the land itself, painted once per province (sprites.mjs farBitmap)
       if (this.art) {
         const t = terrainOf?.(pr.p, pr.q);
         if (t) { artCells.push({ ...pr, ...t, rec, fog, selected, prov: seen ? src.provinceOf?.(pr.p, pr.q, { far: true }) ?? null : null, tiers: seen && src.tierOf ? Array.from({ length: 12 }, (_, j) => src.tierOf(pr.p, pr.q, j)) : null }); continue; }
@@ -975,9 +1295,18 @@ export class FrontierMap {
     }
     // what is the viewer's own and what the selection can do (UX brief §5): one bundle for this frame's passes
     const F = this.youFrame(src, survey, lod, z, terrainOf);
+    F.seen = seen;
     // a resting tile view: the still layers (the table is in the ground layer), then the animated ones
     // (`between`: on the ground, under what stands on it: the viewer's land and the lit tiles, then the effects engine's ground pass)
-    const tileOpts = artTiles.length ? { zoom: z, dpr, artZoom, stamp: this.stamp, between: c => { this.groundPass(c, F, 'all'); this.between?.(c, { zoom: z, now }); }, ground: (c, phase) => this.groundPass(c, F, phase), terrainAt: terrainLookup(terrainOf), fogAt, selected: null, viewerFaction: src.viewerFaction ?? null, demoRoads: !!src.demoRoads, ringsOpen: src.ringsOpen ?? null, replayRing: src.artReplayRing ?? null, engineStage: src.engineStage ?? 0, relics: src.relics ?? [], waystones: src.waystones ?? [], demoSpecials: !!src.demoSpecials, rivers: src.rivers ?? [], demoRivers: !!src.demoRivers, alliedPairs: src.alliedPairs ?? [], survey,
+    // the cloud sea: its still part (the bank and the puffs) and the light and shade that drift over it
+    const sea = (g, part) => {
+      const r = this.sea.paint(g, { box: seen, res: paperRes, ringsOpen, sheet, now: fxNow(), still: reducedMotion(), part });
+      if (r.pending) { pending += r.pending; this.dirty = true; }
+      // (the drift moves a few px a second: a frame when it has moved about one)
+      else if (r.seen && part !== 'still' && !reducedMotion()) this.invalidateSoon(Math.max(110, Math.min(420, 1300 / (Math.hypot(DRIFT_SPEED.x, DRIFT_SPEED.y) * z))));
+      return r;
+    };
+    const tileOpts = artTiles.length ? { zoom: z, dpr, artZoom, stamp: this.stamp, sea: true, seaPass: sea, between: c => { this.groundPass(c, F, 'all'); this.between?.(c, { zoom: z, now }); }, ground: (c, phase) => this.groundPass(c, F, phase), terrainAt: terrainLookup(terrainOf), fogAt, selected: null, viewerFaction: src.viewerFaction ?? null, demoRoads: !!src.demoRoads, ringsOpen: src.ringsOpen ?? null, replayRing: src.artReplayRing ?? null, engineStage: src.engineStage ?? 0, relics: src.relics ?? [], waystones: src.waystones ?? [], demoSpecials: !!src.demoSpecials, rivers: src.rivers ?? [], demoRivers: !!src.demoRivers, alliedPairs: src.alliedPairs ?? [], survey,
       // people (people/crowds.mjs): the source's departures, explores and holder names; tags nearest the view centre first
       people: src.people ? { ...src.people(), centre: { x: view.x, y: view.y } } : null } : null;
     const missed = this.art?.misses ?? 0;
@@ -993,33 +1322,45 @@ export class FrontierMap {
         passing: this.cam.moving, resZoom: this.cam.moving ? Math.min(z, this.cam.view.zoom) : z });
       pending += this.art.farPending ?? 0;
     }
+    // away from the tile view: the sea over the far picture (at the tile view it lies between the props and the people)
+    if (lod !== 'tile' || !tileOpts) { ctx.setTransform(...world); sea(ctx, null); }
     // the marks of the viewer's stage, on the land: the home wedge while there is no village yet; the rim of the village's own land
     const waiting = limited && Number.isInteger(survey.faction) && ['joined', 'ticket', 'refugee'].includes(survey.stage);
     if (waiting) paintWedge(ctx, survey.faction, ringsOpen, z);
+    // the wait for the village (map/waitview.mjs): the nation's standard stands in its home wedge; what the countdown says
+    const homeAt = waiting ? this.wedgeHome(survey.faction, ringsOpen) : null;
+    const waitSay = waiting ? waitLine(src.wait ?? null) : null;
     // the nation choice (UX brief §7.2): the home wedge of the nation that is looked at is lit on the chart
     const looked = !waiting && limited && Number.isInteger(src.focusNation) ? src.focusNation : null;
     if (looked !== null) paintWedge(ctx, looked, ringsOpen, z, { lit: true });
     // from afar: the viewer's land in its colour, and on the world chart its village as a gold beacon with its name
     const names = lod === 'world' ? this.farPass(ctx, F) : (lod === 'province' && this.farPass(ctx, F), []);
+    // the names a map has (drawn with the other words, upright: `over`)
+    let realm = null;
     if (lod === 'world' && (artCells.length || names.length)) {
       const nations = artCells.length > 0 && (src.lens ?? 'realm') !== 'land';
       const box = waiting ? wedgeBox(survey.faction, ringsOpen) : looked !== null ? wedgeBox(looked, ringsOpen) : null;
-      paintRealmLabels(ctx, recs, z, src.realmName ?? null, { extra: names, nations, ...(limited ? { min: 3, home: box ? { faction: waiting ? survey.faction : looked, x: box.x, y: box.y } : null,
+      // (while the viewer waits for a village the standard's own tag names the nation in its wedge: no second name there)
+      realm = o => paintRealmLabels(o, recs, z, src.realmName ?? null, { extra: names, nations, ...(limited ? { min: 3, home: box && !waiting ? { faction: looked, x: box.x, y: box.y } : null,
         seen: (r, j) => { if (survey.province(r.p, r.q).max < L2) return false; const t = terrainOf?.(r.p, r.q), idx = t?.sites?.[j]; return Number.isInteger(idx) && survey.levelOf(r.p, r.q, idx) >= L2; } } : {}) });
     }
     // (nearer than the world chart the wedge that is looked at, or waited in, still carries its nation's name)
-    else if (lod === 'province' && (looked !== null || waiting)) {
-      const f = waiting ? survey.faction : looked, box = wedgeBox(f, ringsOpen);
-      if (box) paintRealmLabels(ctx, recs, z, src.realmName ?? null, { nations: false, extra: [{ text: src.realmName?.(f) ?? String(f), x: box.x, y: box.y, below: -14, size: 22, fill: '#fff6e2' }] });
+    else if (lod === 'province' && looked !== null) {
+      const f = looked, box = wedgeBox(f, ringsOpen);
+      if (box) realm = o => paintRealmLabels(o, recs, z, src.realmName ?? null, { nations: false, extra: [{ text: src.realmName?.(f) ?? String(f), x: box.x, y: box.y, below: -14, size: 22, fill: '#fff6e2' }] });
     }
     if (tileOpts) {
       kind = layered === 'live' ? 'live' : 'full';
-      if (!layered) this.art.paint(ctx, artTiles, { ...tileOpts, part: 'world' });
-      labels = () => this.art.labels(ctx, tileOpts);
+      // (a frame painted whole: the land and what stands on it, the cloud sea, then what lives)
+      if (!layered) {
+        this.art.paint(ctx, artTiles, { ...tileOpts, part: 'ground' });
+        this.art.paint(ctx, artTiles, { ...tileOpts, part: 'props' });
+        ctx.setTransform(...world); sea(ctx, null);
+        this.art.paint(ctx, artTiles, { ...tileOpts, part: 'live' });
+      }
+      labels = (o, pass) => this.art.labels(o, { ...tileOpts, pass });
       pending += this.art.misses - missed;   // sprites still on their way
     }
-    // the edge of the world: the cloud sea thins into the table's shadow (no stepped, unpainted corner beyond it)
-    paintWorldRim(ctx, ringsOpen, view, size);
     // over what stands on the land: thin outlines of the ground marks, the route, the standards
     this.topPass(ctx, F);
     // the ground marks move: a landing and a roll-out every frame, breathing a few times a second
@@ -1027,21 +1368,35 @@ export class FrontierMap {
     else if (F.live && !F.still) this.invalidateSoon(90);
     // what was kept in the still ground no longer fits (a roll-out or a landing ended, other tiles are lit): paint it again
     if (F.rebake && this.layers) { this.layers.key = null; this.dirty = true; }
-    // what is read rather than looked at goes over the depth dressing: labels, warnings, pins, the guide
-    const over = () => {
-      ctx.setTransform(...world);
-      const guide = F.guide;
-      // (the guide's ring lies under the labels it used to cut through: at the tile view on the ground itself, with
-      // the other ground marks; further out here, before the labels)
-      if (guide && lod !== 'tile') paintGuide(ctx, guide, z, '', 'ring');
-      labels?.();
-      if (src.threats?.length) { paintThreats(ctx, src.threats, z, src.threatLabel ?? null); this.invalidateSoon(); }
-      if (limited && survey.candidates?.length) { const still = reducedMotion(); paintCandidates(ctx, survey.candidates, z, { still }); if (!still) this.invalidateSoon(120); }
-      if (src.pins?.length) paintPins(ctx, src.pins, z);
+    // what lies on the land stays on the board: the guide's ring (at the tile view it is with the other ground
+    // marks), a warning's halo, the rings of the candidate sites
+    const guide = F.guide, calm = reducedMotion();
+    if (guide && lod !== 'tile') paintGuide(ctx, guide, z, '', 'ring');
+    if (src.threats?.length) paintThreats(ctx, src.threats, z, null, 'mark');
+    if (limited && survey.candidates?.length) paintCandidates(ctx, survey.candidates, z, { still: calm, part: 'mark' });
+    if (homeAt) { paintWaitStandard(ctx, homeAt, { zoom: z, faction: survey.faction, now: F.fx, still: calm }); if (!calm) this.invalidateSoon(90); }
+    // what is read rather than looked at stands upright over the board and its depth dressing: names, labels,
+    // warnings' words, pins, the guide's words (`o`: the label canvas; `w`: its flat world transform)
+    const over = (o = ctx, w = null) => {
+      o.setTransform(...(w ?? world));
+      // where this frame's words may stand (map/labelpass.mjs): clear of the HUD, of each other, and not on a tile whose pile is put away
+      const pass = F.pass = this.labelPass(z, !!w);
+      realm?.(o);
+      labels?.(o, pass);
+      if (src.threats?.length) { paintThreats(o, src.threats, z, src.threatLabel ?? null, 'label'); this.invalidateSoon(); }
+      // the wait's words, the candidates' first: they keep clear of the standard's cloth, and the standard's own tag
+      // gives way to them (with sites to look at, the nation's name may be left out where there is no room for it)
+      const sites = limited && survey.candidates?.length ? survey.candidates : null;
+      if (homeAt) pass.block(homeAt.x, homeAt.y, standardBox(homeAt, z));
+      if (sites) { paintCandidateLabels(o, sites, { zoom: z, line: waitSay, pass }); if (!calm) this.invalidateSoon(120); }
+      if (homeAt) paintHomeTag(o, homeAt, { zoom: z, faction: survey.faction, line: waitSay, pass, keep: !sites });
+      // (a countdown is read to the second: the words are drawn again a few times a second)
+      if (waitSay) this.invalidateSoon(400);
+      if (src.pins?.length) paintPins(o, src.pins, z);
       // (the page's objective chip may stand at the target itself: then the ring alone marks the tile)
-      if (guide && !src.guideChip) paintGuide(ctx, guide, z, src.guideLabel?.(guide) ?? '', 'label');
+      if (guide && !src.guideChip) paintGuide(o, guide, z, src.guideLabel?.(guide) ?? '', 'label', { rise: this.pileRise(guide, z), pass });
       if (guide) this.invalidateSoon();
-      this.overPass(ctx, F);
+      this.overPass(o, F);
     };
     return { wanted, drawn, kind, over, pending };
   }
@@ -1072,8 +1427,11 @@ export class FrontierMap {
     // runs over them as they roll out and a tick sounds (fx/stage.mjs); the lasting light is the map's own
     if (A?.mode === 'select' && A.t0 !== this.litT0) {
       this.litT0 = A.t0;
-      if (fx - A.t0 < 250) fxEmit('tiles:lit', { origin: A.hex, tiles: A.tiles.map(t => ({ q: t.hq, r: t.hr, kind: t.kind })), colours: Object.fromEntries(Object.entries(ACTION_COLOURS).map(([k, c]) => [k, c.rim])) });
+      // (reach is one shape now: the engine's glow is given the targets only, never a frame for every tile of the reach; `reach` says how many tiles it is)
+      if (fx - A.t0 < 250) fxEmit('tiles:lit', { origin: A.hex, reach: A.tiles.length, tiles: A.tiles.filter(t => t.kind !== 'move').map(t => ({ q: t.hq, r: t.hr, kind: t.kind })), colours: Object.fromEntries(Object.entries(actionPalette(limited ? survey.faction : null)).map(([k, c]) => [k, c.rim])) });
     } else if (!A) this.litT0 = null;
+    // the camera eases out until the reach's edge is in the picture (UX brief §11.7)
+    if (A?.mode === 'select') this.frameReach(A); else this.reachFit = null;
     // a village the page says has just landed (and this map has not played yet) starts its landing with this frame
     const want = src.landing;
     if (want?.id && want.id !== this.landed) {
@@ -1085,8 +1443,48 @@ export class FrontierMap {
     // the guide's target (on the world chart the beacon already marks the viewer's village: no ring is laid over it)
     const g0 = src.guide && !src.route ? src.guide : null;
     const guide = g0 && !(lod === 'world' && villages.some(v => v.p === g0.p && v.q === g0.q && v.tile === g0.tile)) ? g0 : null;
-    return { src, survey, lod, z, fx, still, limited, guide, villages, faction: limited ? survey.faction : null, A, selHex, selOwn, hover, hoverLit,
+    return { src, survey, lod, z, fx, still, limited, guide, villages, faction: limited ? survey.faction : null, palette: actionPalette(limited ? survey.faction : null), A, selHex, selOwn, hover, hoverLit,
       lands: () => this.ownLands(survey, villages, lod, terrainOf) };
+  }
+
+  /** Where the nation's standard stands in its home wedge while the viewer has no village: the middle of a tile near the wedge's own middle (world px), or null. */
+  wedgeHome(faction, ringsOpen) {
+    const key = `${faction}|${ringsOpen}`;
+    if (this.homeKey !== key) {
+      this.homeKey = key;
+      const box = wedgeBox(faction, ringsOpen);
+      if (!box) this.homeNow = null;
+      else { const [q, r] = inverseHex(box.x, box.y).split(',').map(Number); this.homeNow = project(q, r); }
+    }
+    return this.homeNow;
+  }
+
+  /**
+   * A host was selected and its reach is lit: when the reach's edge is not in the part of the picture nothing
+   * covers, the camera eases out (never in) until it is, and no further than the tile view goes. Once per
+   * selection, and again when the reach grows (a province arrived) as long as no person has moved the camera
+   * since the selection; never after that. The move itself is made by the next frame, never inside a draw.
+   */
+  frameReach(A) {
+    const R = this.reachFit, moves = this.moves ?? 0, size = this.size(), inset = this.inset();
+    // (what the sheets cover, in steps: the inspector's drawer opens a moment after the selection, and the reach is framed again in what is left)
+    const cover = [inset.top, inset.right, inset.bottom, inset.left].map(n => Math.round((n ?? 0) / 8)).join(',');
+    const fresh = !R || R.t0 !== A.t0 || R.id !== A.actor?.id;
+    if (!fresh && ((R.n === A.tiles.length && R.cover === cover) || R.moves !== moves)) return;
+    this.reachFit = { t0: A.t0, id: A.actor?.id, n: A.tiles.length, cover, moves: fresh ? moves : R.moves, held: fresh ? false : R.held };
+    const box = reachBox(A);
+    if (!box || !(size.width > 0) || !(size.height > 0)) return;
+    const f = freeBox(size, inset), v = this.cam.view, pad = REACH_PAD;
+    // in the picture already (as it is seen, tilt and all)?
+    const cx = size.width / 2 + f.x, cy = size.height / 2 + f.y;
+    const inside = [[box.x0, box.y0], [box.x1, box.y0], [box.x1, box.y1], [box.x0, box.y1]].every(([x, y]) => { const p = this.project(x, y, { logical: true, box: true }); return Math.abs(p.x - cx) <= f.width / 2 - pad && Math.abs(p.y - cy) <= f.height / 2 - pad; });
+    if (inside) return;
+    // (the far rows of a tilted board are drawn smaller and the near rows larger: a little room for both)
+    const fit = REACH_FIT * Math.min((f.width - 2 * pad) / (box.x1 - box.x0), (f.height - 2 * pad) / (box.y1 - box.y0));
+    const zoom = Math.min(v.zoom, Math.max(this.edges(size).tileIn * REACH_ZOOM_FLOOR, fit));
+    this.reachFly = { to: this.aim({ x: (box.x0 + box.x1) / 2, y: (box.y0 + box.y1) / 2 }, zoom, size, inset), moves };
+    // (the reach has the camera now: the opening view does not take it back while this host stays selected)
+    this.reachFit.held = true;
   }
 
   /**
@@ -1143,14 +1541,16 @@ export class FrontierMap {
     const A = F.A, dim = A?.dest ? 0.5 : 1;
     if (A) {
       const out = still || rolledOut(A, fx);
-      if (phase === 'still') { if (out) { paintActionGround(ctx, A, { zoom: z, dim, base: true }); kept.lit = A; } }
-      else if (phase === 'live' && kept.lit === A) { if (!still) paintActionPulse(ctx, A, { zoom: z, now: fx, dim }); }
-      else { F.rolling = paintActionGround(ctx, A, { zoom: z, now: fx, still, dim }) || F.rolling; if (phase === 'live' && (out || kept.lit)) F.rebake = true; }
+      const palette = F.palette;
+      if (phase === 'still') { if (out) { paintActionGround(ctx, A, { zoom: z, dim, base: true, palette }); kept.lit = A; } }
+      else if (phase === 'live' && kept.lit === A) { if (!still) paintActionPulse(ctx, A, { zoom: z, now: fx, dim, palette }); }
+      else { F.rolling = paintActionGround(ctx, A, { zoom: z, now: fx, still, dim, palette }) || F.rolling; if (phase === 'live' && (out || kept.lit)) F.rebake = true; }
       F.live = true;
     } else if (phase === 'live' && kept.lit) F.rebake = true;
     if (phase === 'still') return;
-    if (F.guide) { paintGuide(ctx, F.guide, z, '', 'ring'); F.live = true; }
-    if (F.hover) paintHoverGround(ctx, F.hover, { zoom: z, kind: F.hoverLit?.kind ?? null });
+    // (the page's own chip may stand at the target and point at it: then no ring is laid around the tile)
+    if (F.guide && !F.src.guideChip && this.pileRise(F.guide, z) === null) { paintGuide(ctx, F.guide, z, '', 'ring'); F.live = true; }
+    if (F.hover) paintHoverGround(ctx, F.hover, { zoom: z, kind: F.hoverLit?.kind ?? null, palette: F.palette });
     if (F.selHex) { paintSelectionGround(ctx, F.selHex, { zoom: z, own: F.selOwn, now: fx, still }); F.live = true; }
   }
 
@@ -1175,13 +1575,16 @@ export class FrontierMap {
   topPass(ctx, F) {
     const { z, fx, still, src } = F;
     if (F.lod === 'tile') {
-      for (const land of F.lands()) { const flood = this.floodOf(land, fx); paintOwnOutline(ctx, land, { zoom: z, shown: flood ? flood.border : 1 }); }
-      if (F.A) paintActionTop(ctx, F.A, { zoom: z, now: fx, still, dim: F.A.dest ? 0.5 : 1 });
+      // a reach is lit by contrast: everything outside it is a little darker (the land, what stands on it, who walks there)
+      if (F.A && F.seen) paintReachDim(ctx, F.A, { box: F.seen, now: fx, still, dim: F.A.dest ? 0.5 : 1 });
+      // (the gold line of the viewer's land stays in sight through the reach and its dim: drawn again, and stronger then)
+      for (const land of F.lands()) { const flood = this.floodOf(land, fx); paintOwnOutline(ctx, land, { zoom: z, shown: flood ? flood.border : 1, strong: !!F.A }); }
+      if (F.A) paintActionTop(ctx, F.A, { zoom: z, now: fx, still, dim: F.A.dest ? 0.5 : 1, palette: F.palette });
     }
     // the march being composed (this browser only), and the route to the lit tile under the pointer
     if (src.route?.hexes?.length > 1) { paintRoute(ctx, src.route, z, { now: fx, still }); F.live = true; }
     const hr = this.hoverRoute(F);
-    if (hr) { paintRibbon(ctx, hr.hexes, { zoom: z, kind: hr.kind, now: fx, still }); F.live = true; }
+    if (hr) { paintRibbon(ctx, hr.hexes, { zoom: z, kind: hr.kind, now: fx, still, palette: F.palette }); F.live = true; }
     if (F.lod === 'tile') {
       if (F.hover) paintHoverTop(ctx, F.hover, { zoom: z });
       if (F.selHex) paintSelectionTop(ctx, F.selHex, { zoom: z, own: F.selOwn });
@@ -1226,36 +1629,38 @@ export class FrontierMap {
 
   /** Over the depth dressing: the words of the ground marks (the provisional tag, the acting host, the arrival, a refusal). */
   overPass(ctx, F) {
-    const { z, src } = F;
-    if (F.lod !== 'world') for (const land of F.lands()) paintProvisionalTag(ctx, land, { zoom: z });
+    const { z, src } = F, pass = F.pass ?? null;
+    // (at the tile view a provisional village's plate carries 仮: map/plates.mjs)
+    if (F.lod === 'province') for (const land of F.lands()) paintProvisionalTag(ctx, land, { zoom: z });
     if (F.lod !== 'tile') return;
     const A = F.A;
+    const hid = hex => { const at = hex ? locate(hex.q, hex.r) : null; return !!at && !!pass?.hiddenAt(`${at.p},${at.q},${at.idx}`); };
     // the host that acts, under the selected tile (tap the tile again for the next one)
-    if (A && A.mode === 'select' && A.hex) {
+    if (A && A.mode === 'select' && A.hex && !hid(A.hex)) {
       const c = project(A.hex.q, A.hex.r), y = c.y + RADIUS * FLATTEN * 1.04;
-      const box = paintTag(ctx, c.x, y, `${actorText(A.actor)}${A.actors.length > 1 ? ` \u00b7 ${A.index + 1}/${A.actors.length}` : ''}`, { zoom: z, tone: 'you', place: 'below', gap: 3 });
+      const box = paintTag(ctx, c.x, y, `${actorText(A.actor)}${A.actors.length > 1 ? ` \u00b7 ${A.index + 1}/${A.actors.length}` : ''}`, { zoom: z, tone: 'you', place: 'below', gap: 3, anchor: c, pass });
       const why = blockText(A.actor);
-      if (why && box) paintTag(ctx, c.x, box.y + box.h, why, { zoom: z, tone: 'warn', place: 'below', gap: 3, size: 11.5 });
+      if (why && box) paintTag(ctx, c.x, box.y + box.h, why, { zoom: z, tone: 'warn', place: 'below', gap: 3, size: 12, anchor: c, pass });
     }
     // when the march would arrive: on the composed route, or on the route under the pointer
     const hr = this.hoverRoute(F);
-    const tagAt = (hex, bell, tone) => { const d = project(hex.q, hex.r); paintTag(ctx, d.x, d.y - RADIUS * FLATTEN * 0.82, arrivalText(bell), { zoom: z, tone, place: 'above', gap: 4 }); };
+    const tagAt = (hex, bell, tone) => { const d = project(hex.q, hex.r); paintTag(ctx, d.x, d.y - RADIUS * FLATTEN * 0.82, arrivalText(bell), { zoom: z, tone, place: 'above', gap: 4, anchor: d, pass }); };
     if (hr && Number.isInteger(hr.arriveBell)) tagAt(hr.hexes[hr.hexes.length - 1], hr.arriveBell, 'plain');
     else if (src.route?.dest && Number.isInteger(src.route.arriveBell)) tagAt(src.route.dest, src.route.arriveBell, 'you');
     const note = this.noteOf(F);
     if (note?.hex) {
       const d = project(note.hex.q, note.hex.r), fade = Math.max(0, Math.min(1, (NOTE_MS - note.age) / 400));
       const shake = F.still ? 0 : Math.sin(note.age / 28) * 5 * Math.exp(-note.age / 150);
-      paintTag(ctx, d.x, d.y - RADIUS * FLATTEN * 0.82, note.text, { zoom: z, tone: 'refuse', place: 'above', gap: 4, shake, alpha: fade });
+      paintTag(ctx, d.x, d.y - RADIUS * FLATTEN * 0.82, note.text, { zoom: z, tone: 'refuse', place: 'above', gap: 4, shake, alpha: fade, anchor: d, pass });
     }
   }
 
-  /** The edge pointer home (map/homepointer.mjs): shown while the viewer's active village is out of the picture. */
+  /** The pointer home (map/homepointer.mjs): a gold tab on the map's edge while the viewer's active village is out of the picture; put away while a set piece plays. */
   updatePointer(src, view, size, inset) {
     if (!this.pointer) return;
     const own = src ? (src.own ?? []).filter(o => Number.isInteger(o.p) && Number.isInteger(o.q)) : [];
-    const at = own.length && !src.open?.title ? own[Math.min(own.length - 1, Math.max(0, src.open?.active ?? 0))] : null;
-    this.pointer.update(at ? edgePointer(view, size, placePoint(at), { inset }) : null);
+    const at = own.length && !src.open?.title && !this.piece ? own[Math.min(own.length - 1, Math.max(0, src.open?.active ?? 0))] : null;
+    this.pointer.update(at ? edgePointer(view, size, placePoint(at), { inset, geo: this.geo(view.zoom, size) }) : null, { name: at?.name ?? '', avoid: at ? this.nogoBoxes() : [] });
   }
 
   /**
@@ -1270,7 +1675,7 @@ export class FrontierMap {
    * frame whole).
    */
   paintLayered(ctx, tiles, opts, world, now, under) {
-    const W = this.canvas.width, H = this.canvas.height;
+    const W = this.ground.width, H = this.ground.height;
     if (W * H > STILL_MAX_PIXELS) { this.layers = null; return null; }
     const L = this.layers ??= { key: null, at: 0 };
     for (const n of ['ground', 'props']) {
@@ -1290,7 +1695,10 @@ export class FrontierMap {
       const g = L.props.g;
       g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, W, H); g.setTransform(...world);
       this.art.paint(g, tiles, { ...opts, part: 'props' });
-      L.key = key; L.at = now;
+      // the cloud sea's still part is kept with the props; while a piece of it waits its turn the layer is not final
+      g.setTransform(...world);
+      const sea = opts.seaPass?.(g, 'still');
+      L.key = sea?.pending ? null : key; L.at = now;
     }
     ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'copy'; ctx.drawImage(L.ground.cv, 0, 0); ctx.globalCompositeOperation = 'source-over';
@@ -1300,6 +1708,8 @@ export class FrontierMap {
     if (opts.ground) { opts.ground(ctx, 'live'); this.between?.(ctx, { zoom: opts.zoom, now }); }
     else opts.between?.(ctx);
     ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(L.props.cv, 0, 0); ctx.restore();
+    ctx.setTransform(...world);
+    opts.seaPass?.(ctx, 'drift');
     this.art.paint(ctx, tiles, { ...opts, part: 'live' });
     return fresh ? 'fresh' : 'live';
   }
@@ -1309,6 +1719,7 @@ export class FrontierMap {
     if (this.soon) clearTimeout(this.soon);
     this.resizer?.disconnect?.();
     if (this.onResize) this.canvas?.ownerDocument?.defaultView?.removeEventListener?.('resize', this.onResize);
+    if (this.onFlyTo) globalThis.removeEventListener?.('wylls:fly-to', this.onFlyTo);
     this.unlang?.(); this.unredraw?.(); this.tools?.remove(); this.pointer?.remove();
   }
 }

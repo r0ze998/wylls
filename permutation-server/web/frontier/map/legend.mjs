@@ -15,11 +15,11 @@ export const SURVEY_LEGEND = Object.freeze([
 ]);
 
 /**
- * The lit tiles of a selected host (map/actions.mjs): `[{id, name(), text()}]`. Each kind also carries a small
- * mark on the map, so the colour is never the only sign.
+ * What a selected host can do (map/actions.mjs): `[{id, name(), text()}]`. The reach is one outline; each kind of
+ * target also carries its own mark on the map, so the colour is never the only sign.
  */
 export const ACTION_LEGEND = Object.freeze([
-  { id: 'move', name: () => L`進める`, text: () => L`軍勢が近くで進めるマスです。光っていないマスも、タップすれば届くかどうかを確かめます。` },
+  { id: 'move', name: () => L`進める`, text: () => L`淡い線で囲んだ内側が、軍勢が近くで進める範囲です。外側のマスも、タップすれば届くかどうかを確かめます。` },
   { id: 'attack', name: () => L`攻める`, text: () => L`蛮族の野営地、敵対する国の村や軍勢がいるマスです。` },
   { id: 'home', name: () => L`自分の村`, text: () => L`あなたの村へ戻るマスです。` },
   { id: 'explore', name: () => L`探索`, text: () => L`斥候が探索できる隣のマスです。` },

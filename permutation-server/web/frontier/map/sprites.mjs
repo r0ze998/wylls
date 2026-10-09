@@ -27,20 +27,24 @@ import { COLORS, FLATTEN, RADIUS, hexPoints, polygon, project, shade } from '../
 import { PROVINCE_TILES, locate, provinceCentre, ringOf, ringProvinces, tileHex, wedgeOf } from '../fgeo.mjs';
 import { FACTION_COLORS } from '../fi18n.mjs';
 import { majorityOwner } from '../herald.mjs';
-import { paintPeople, paintNameTags, paintBadges, PEOPLE_FRAME_MS, zoomBoost } from '../people/crowds.mjs';
+import { paintPeople, PEOPLE_FRAME_MS, zoomBoost } from '../people/crowds.mjs';
 import { activitiesFor } from '../people/activity.mjs';
 import { lifeAt } from '../people/life.mjs';
 import { paintBattle, battleTiles } from '../people/battle.mjs';
-import { provinceTokens, paintToken, placePills } from '../people/units.mjs';
+import { provinceTokens, paintToken } from '../people/units.mjs';
 import { onMiniLoad, MINI_ANCHOR, MINI_CELL_U } from '../people/minis.mjs';
 import { paintMoments } from '../people/moments.mjs';
 // (the effects engine's ground pass comes through the map's `between` hook: fx/index.mjs startFx)
 import { paintOver as fxOver } from '../fx/engine.mjs';
 import { BOUNDARY_HALO, BOUNDARY_INK, FOG, UNOPENED_FILL, paintSigil, provincePixel, PROVINCE_CIRCUMRADIUS } from './layers.mjs';
 import { applySurvey, fxNow, mutedSprite, paintChart, paintReveal } from './chart.mjs';
+import { upright } from './tilt.mjs';
 import { FOG_OF_LEVEL, L2, L3, hexKey } from './survey.mjs';
 import { reducedMotion } from './camera.mjs';
 import { landShape } from './ownland.mjs';
+import { HERO, paintPlates, scaffoldAt } from './plates.mjs';
+import { OPEN_PASS } from './labelpass.mjs';
+import { paintBellTower, towerSprite } from './belltower.mjs';
 
 const BASE = new URL('../art/', import.meta.url);
 /** The far bitmaps' resolutions (device px per world px) and their cache budget in pixels. */
@@ -359,11 +363,11 @@ export class SpriteArt {
       this.farPixels += v.px;
       while (this.farPixels > FAR_PIXELS && this.farCache.size > 1) { const [ok, ov] = this.farCache.entries().next().value; this.farCache.delete(ok); this.farPixels -= ov.px; }
     };
-    const sheet = () => {
+    const sheet = (ink = true) => {
       const cv = canvas(), g = cv.getContext('2d');
       world(g);
       const names = (q, r) => { const n = terrainAt(q, r); return n === 'cloud' ? null : n; };
-      paintChart(g, Array.from({ length: PROVINCE_TILES }, (_, i) => { const h = tileHex(e.p, e.q, i), at = project(h.q, h.r); return { q: h.q, r: h.r, x: at.x, y: at.y, name: TERRAIN_KEY[e.names?.[e.terrain?.[i]]] ?? 'plains' }; }), { res, nameAt: names, own: true });
+      paintChart(g, Array.from({ length: PROVINCE_TILES }, (_, i) => { const h = tileHex(e.p, e.q, i), at = project(h.q, h.r); return { q: h.q, r: h.r, x: at.x, y: at.y, name: TERRAIN_KEY[e.names?.[e.terrain?.[i]]] ?? 'plains' }; }), { res, nameAt: names, own: true, ink });
       return { cv, g };
     };
     if (sv?.kind === 'chart') {
@@ -405,7 +409,7 @@ export class SpriteArt {
       // the survey over a copy of the painted province
       const cv = canvas(), g = cv.getContext('2d');
       g.drawImage(rawBitmap.cv, 0, 0);
-      applySurvey(g, { box, res, survey, sig: sv.sig, chart: sheet().cv });
+      applySurvey(g, { box, res, survey, sig: sv.sig, chart: sheet().cv, plain: sheet(false).cv });
       v = { cv, ...box, px: size * size };
       if (rawBitmap.whole !== false) keep(k, v);
     }
@@ -492,8 +496,12 @@ export class SpriteArt {
     ctx.lineCap = 'round';
     if (chart) { ctx.strokeStyle = 'rgba(96,80,48,0.5)'; ctx.lineWidth = 1.5 / zoom; ctx.stroke(chart); }
     if (over) {
-      ctx.strokeStyle = BOUNDARY_HALO; ctx.lineWidth = (ink + 2) / zoom; ctx.stroke(over);
-      ctx.strokeStyle = BOUNDARY_INK; ctx.lineWidth = ink / zoom; ctx.stroke(over);
+      // over painted land a border is quiet ink with a breath of pale beside it (it read as a white crack across
+      // the diorama); the selected province keeps the whole two-tone line
+      const was = ctx.globalAlpha;
+      ctx.globalAlpha = was * (selected ? 1 : 0.26); ctx.strokeStyle = BOUNDARY_HALO; ctx.lineWidth = (ink + (selected ? 2 : 1.5)) / zoom; ctx.stroke(over);
+      ctx.globalAlpha = was * (selected ? 1 : 0.6); ctx.strokeStyle = BOUNDARY_INK; ctx.lineWidth = ink / zoom; ctx.stroke(over);
+      ctx.globalAlpha = was;
     }
     ctx.lineCap = 'butt';
   }
@@ -703,6 +711,8 @@ export class SpriteArt {
           state: j === undefined ? undefined : m ? (m.state === 3 ? 5 : m.state === 4 ? 0 : m.state) : e.rec?.sites?.[j],
           owner: j === undefined ? undefined : m ? m.faction : e.rec?.owners?.[j],
           tier: m && m.state === 1 ? m.tier : (j !== undefined ? e.tiers?.[j] ?? 0 : 0), walls: !!(m && m.wallsCommitted > 0),
+          // (the garrison is told where the village is in the viewer's sight: whole troops, as the inspector says it)
+          garrison: lv === L3 && m && m.state === 1 && m.garrison !== undefined ? Math.floor(Number(m.garrison) / 1000) : null,
           camp: !!(lv === L3 && e.prov?.camp?.state === 1 && e.prov.camp.tile === i && j === undefined),
           shield: !!(lv === L3 && m && m.shieldUntilBell > 0 && m.shieldUntilBell !== 0xffffffff && m.shieldUntilBell >= (e.prov?.resolvedNext ?? 0)) };
         t.road = lv >= L2 && SITE_LAND.has(name) && roadBit(e.prov?.roadMask, i);
@@ -806,6 +816,8 @@ export class SpriteArt {
     const mine = new Map();
     if (survey && !survey.showAll) for (const v of survey.villages ?? []) { const t = byId.get(`${v.p},${v.q},${v.tile}`); if (t && t.state === 1) mine.set(t, { key: `${v.p},${v.q},${v.tile}`, village: v, tiles: [], provisional: v.state === 1 }); }
     if (mine.size) for (const o of owner.values()) mine.get(o.s)?.tiles.push({ q: o.q, r: o.r, d: o.d });
+    // the viewer's own villages are the heroes of the picture (map/plates.mjs HERO): drawn larger, their hosts in front of them
+    for (const [t, x] of mine) { t.hero = true; t.provisional = x.provisional; }
     const lands = [...mine.values()].map(x => ({ ...x, shape: landShape(x.tiles) }));
     const viewer = survey && !survey.showAll && Number.isInteger(survey.faction) ? survey.faction : null;
     const war = new Set();
@@ -847,11 +859,12 @@ export class SpriteArt {
    * 'world' (those three in order); null paints the world and then its labels (labels()).
    * `between(ctx)` is called after the ground and before the props (ground-level effects).
    * `stamp` (the map's change counter) lets the tile model be kept between animation frames.
+   * `sea`: the caller paints the cloud sea itself (map/cloudsea.mjs): cloud tiles carry no sprite here.
    */
   paint(ctx, entries, { zoom, dpr = 1, artZoom = zoom, terrainAt = () => null, fogAt = () => null, selected = null, viewerFaction = null, demoRoads = false,
     ringsOpen = null, replayRing = null, replayEvery = 6000, engineStage = 0,
     relics = [], waystones = [], demoSpecials = false, rivers = [], demoRivers = false, alliedPairs = [], people = null, far = false,
-    part = null, between = null, stamp = undefined, survey = null }) {
+    part = null, between = null, stamp = undefined, survey = null, sea = false }) {
     // the sprite set of the nearer of the picture and where the camera is going (no change of set at the end of a flight)
     const s = artSize(RADIUS * Math.max(zoom, artZoom) * dpr);
     // the ring-open moment starts when the open ring count grows (or, in the preview, on a timer)
@@ -980,7 +993,10 @@ export class SpriteArt {
             if (sg) {
               sg.setTransform(res, 0, 0, res, (B.left - c.x) * res, (B.top - c.y) * res);
               paintChart(sg, list, { res, nameAt: chartName, own: true });
-              applySurvey(gg, { box, res, survey, sig: sv.sig, chart: sheet });
+              // (the same sheet without its ink: the chart is quiet next to painted land)
+              const bare = spare(cv.width, cv.height), bg = bare?.getContext?.('2d');
+              if (bg) { bg.setTransform(res, 0, 0, res, (B.left - c.x) * res, (B.top - c.y) * res); paintChart(bg, list, { res, nameAt: chartName, own: true, ink: false }); }
+              applySurvey(gg, { box, res, survey, sig: sv.sig, chart: sheet, plain: bg ? bare : null });
             }
           }
           const whole = this.misses === 0;
@@ -1016,6 +1032,8 @@ export class SpriteArt {
     // what stands on one tile: cloud sea, the Engine, a Seat, relics, the terrain's props, a camp, a holding
     const propsOf = (t) => {
       if (t.cloud) {
+        // (`sea`: the map paints the cloud sea as one body over the tiles: map/cloudsea.mjs; no stamp per hex)
+        if (sea) return;
         const c = this.image('fog', s.key, `cloud_${t.v}`);
         if (c) draw(c, t);
         EDGE_DIRS.forEach(([dq, dr], e) => {
@@ -1030,8 +1048,15 @@ export class SpriteArt {
       // the Engine stands over the Concord's centre and its six neighbours
       if (t.centre && t.ring === 0) {
         const es = ART_SIZES[Math.min(ART_SIZES.length - 1, ART_SIZES.indexOf(s) + 1)], kk = RADIUS / es.r, m = 2.4;
-        const en = this.image('specials', es.key, `engine_${Math.max(0, Math.min(5, engineStage | 0))}`);
+        const stage = Math.max(0, Math.min(5, engineStage | 0));
+        const en = this.image('specials', es.key, `engine_${stage}`);
         if (en) g.drawImage(en, t.x - es.ax * kk * m, t.y - es.ay * kk * m + TOP_LIFT * m, es.w * kk * m, es.h * kk * m);
+        // the bell's tower stands inside the ring of markers until the Engine itself is raised (map/belltower.mjs): the chart's one landmark
+        if (stage === 0) {
+          const tw = towerSprite(RADIUS * zoom * dpr);
+          if (tw) { const was = g.imageSmoothingEnabled; g.imageSmoothingEnabled = true; g.drawImage(tw.cv, t.x - tw.ox * RADIUS, t.y - tw.oy * RADIUS, tw.w * RADIUS, tw.h * RADIUS); g.imageSmoothingEnabled = was; }
+          else paintBellTower(g, t.x, t.y, RADIUS);
+        }
         return;
       }
       // the chart carries nothing that stands: the Engine above is its one landmark (everyone hears the bell)
@@ -1068,7 +1093,16 @@ export class SpriteArt {
       } else if (t.state === 2) img = this.image('specials', s.key, 'barbarian_1');
       else if (t.state === 5) img = this.image('specials', s.key, 'freecity_town');
       else if (SITE_LAND.has(t.name)) img = this.image('holdings', s.key, 'site');
-      if (img) stand(img, t);
+      if (img && t.hero && !far) {
+        // the viewer's own village, larger than life about its tile's centre (the largest sprites: it must stay sharp)
+        const es = ART_SIZES[ART_SIZES.length - 1], kk = (RADIUS / es.r) * HERO.scale;
+        const tier = ART_TIERS[t.tier] ?? 'hamlet';
+        const big = es === s ? img : this.image('holdings', es.key, `${tier}_${tier === 'stronghold' || t.walls ? 'w' : 'o'}_${ART_FACTIONS[t.owner]}`) ?? img;
+        const was = g.imageSmoothingQuality; g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+        // (the sprite's anchor is the tile's ground point; its top face lies TOP_LIFT lower: scaled about the top face's centre)
+        g.drawImage(big, t.x + HERO.at.x - es.ax * kk, t.y + HERO.at.y - (es.ay * kk - TOP_LIFT * HERO.scale), es.w * kk, es.h * kk);
+        g.imageSmoothingQuality = was ?? 'low';
+      } else if (img) stand(img, t);
       if (t.shield) { const d = this.image('holdings', s.key, 'shield'); if (d) stand(d, t); }
     };
     // pass 2: props, holdings, cloud sea
@@ -1129,7 +1163,7 @@ export class SpriteArt {
       for (const [idx, list] of byTile) {
         if (fightingAt.has(`${e.p},${e.q},${idx}`)) continue;
         const hx = tileHex(e.p, e.q, idx), c = project(hx.q, hx.r);
-        for (const h of list) hosts.push({ x: c.x, y: c.y, h, cx: c.x, cy: c.y });
+        for (const h of list) hosts.push({ x: c.x, y: c.y, h, cx: c.x, cy: c.y, key: `${e.p},${e.q},${idx}` });
       }
       // the tokens (tile detail): one soldier per faction per tile (people/units.mjs, after the Eternum benchmark)
       const holdingTiles = new Set((byProv.get(`${e.p},${e.q}`) ?? []).filter(u => u.state === 1 && u.site !== undefined).map(u => u.idx));
@@ -1144,7 +1178,9 @@ export class SpriteArt {
         all.push({ id: a.hostId, faction: a.faction, unit: a.unit, tile: a.tile, state: 1, troops: Math.floor(Number(a.troops) / 1000), stamina: Number(a.stamina ?? 120), arriving: true });
       }
       const skip = new Set([...fightingAt].filter(k => k.startsWith(`${e.p},${e.q},`)).map(k => Number(k.split(',')[2])));
-      for (const tok of provinceTokens({ p: e.p, q: e.q, hosts: all, holdingTiles, viewerFaction, exploring: people?.exploringHosts ?? new Set(), marching: people?.marchingHosts ?? new Set(), restBelow: people?.restBelow ?? 0, skipTiles: skip })) {
+      // (on the viewer's own village the hosts stand in front of the houses, not on them: map/plates.mjs HERO)
+      const heroTiles = new Set((byProv.get(`${e.p},${e.q}`) ?? []).filter(u => u.hero).map(u => u.idx));
+      for (const tok of provinceTokens({ p: e.p, q: e.q, hosts: all, holdingTiles, heroTiles, heroSpots: HERO.hosts, viewerFaction, exploring: people?.exploringHosts ?? new Set(), marching: people?.marchingHosts ?? new Set(), restBelow: people?.restBelow ?? 0, skipTiles: skip })) {
         // the gold ring is the viewer's own hosts, never a whole nation's (gold means "yours": UX brief §5.3)
         if (limited) tok.own = (tok.hosts ?? []).some(id => ownHosts.has(String(id)));
         tokens.push(tok);
@@ -1198,7 +1234,8 @@ export class SpriteArt {
     this.tiles = tiles;
     // (other people's scouts, works and moments are live things: in sight only; the viewer's own always)
     const explores = !limited ? people?.explores ?? [] : (people?.explores ?? []).filter(x => (x.host && ownHosts.has(String(x.host))) || (x.tiles ?? []).some(idx => lvAt(x.p, x.q, idx) === L3));
-    const moving = people ? paintPeople(ctx, { tiles, zoom, explores, marches: people.marches ?? [], constructions: people.constructions ?? [], pills }) : 0;
+    // (a building's ring is a label: drawn upright with the plates, on the scaffold that stands here)
+    const moving = people ? paintPeople(ctx, { tiles, zoom, explores, marches: people.marches ?? [], constructions: people.constructions ?? [], pills, ring: false, scaffoldAt }) : 0;
     // one-shot moments: harvest yields, a building done, a host setting out, an arrival out of the mist
     const moments = !limited ? people?.moments ?? [] : (people?.moments ?? []).filter(m => (Number.isInteger(m.tile) ? lvAt(m.p, m.q, m.tile) : siteLv(m.p, m.q, m.site)) === L3);
     if (moments.length && RADIUS * zoom >= HOST_FIGURE_MIN_R * 0.8 && paintMoments(ctx, moments, { tiles, k: 1 / zoom, now: (globalThis.performance?.now?.() ?? Date.now()) / 1000 })) this.tokensMoving = true;
@@ -1222,7 +1259,7 @@ export class SpriteArt {
     // the next animation frame while figures move: only the animated layers repaint (onTick)
     if ((moving || fighting || this.tokensMoving) && !this.peopleTimer) this.peopleTimer = setTimeout(() => { this.peopleTimer = null; this.onTick(); }, fighting ? 33 : PEOPLE_FRAME_MS);
     // what the labels need of this frame (labels()); a whole painting draws them now
-    this.liveNow = { hosts, pills, tiles };
+    this.liveNow = { hosts, pills, tiles, constructions: people?.constructions ?? [] };
     if (part === null) this.labels(ctx, { zoom, people });
     return tiles.length;
   }
@@ -1250,6 +1287,8 @@ export class SpriteArt {
       const k = 1 / zoom, w = 44 * k, h = 15 * k;
       const x = g.cx - w / 2 + i * (w + 3 * k), y = figures ? g.cy - RADIUS * 0.95 - h : g.cy + 4 * k;
       const fill = FACTION_COLORS[g.f] ?? '#8a8f86';
+      // (a flag stands upright over its hex whatever the board's tilt: map/tilt.mjs)
+      upright(ctx, g.cx, g.cy, () => {
       ctx.beginPath(); ctx.roundRect?.(x - 1.5 * k, y - 1.5 * k, w + 3 * k, h + 7 * k, 6 * k); ctx.fillStyle = '#1a1d22'; ctx.fill();
       ctx.beginPath(); ctx.roundRect?.(x, y, w, h, 5 * k); ctx.fillStyle = fill; ctx.fill();
       if (g.arriving) { ctx.setLineDash([3 * k, 2 * k]); ctx.strokeStyle = '#fffaf0'; ctx.lineWidth = 1.2 * k; ctx.stroke(); ctx.setLineDash([]); }
@@ -1261,26 +1300,32 @@ export class SpriteArt {
       const st = Math.max(0, Math.min(1, g.stamina / 120));
       ctx.fillStyle = 'rgba(255,255,255,.18)'; ctx.fillRect(x, y + h + 1.5 * k, w, 3 * k);
       ctx.fillStyle = g.stamina < 40 ? '#e0533d' : g.stamina < 74 ? '#e0a83d' : '#5fbf6a'; ctx.fillRect(x, y + h + 1.5 * k, w * st, 3 * k);
+      });
     }
     ctx.restore();
   }
 
   /**
    * The labels of the last tile view painted (paint's 'live' part): the hosts' flags when the figures are too
-   * small, the holders' name tags, the units' pills. Text: it goes over the depth dressing, so the haze never
-   * takes its contrast (the map calls this after dressing.mjs; a whole `paint` calls it itself).
+   * small, one nameplate per village (its name, tier, garrison and hosts: map/plates.mjs), a ring on a building
+   * going up, the pills of the hosts in the field. Text: it goes over the depth dressing, so the haze never takes
+   * its contrast (the map calls this after the dressing; a whole `paint` calls it itself). `pass`: the frame's
+   * label pass (map/labelpass.mjs): the labels keep clear of the HUD and of each other.
    */
-  labels(ctx, { zoom, people = null }) {
+  labels(ctx, { zoom, people = null, pass = OPEN_PASS }) {
     if (!this.liveNow) return;
-    const { hosts, pills, tiles } = this.liveNow;
-    this.flags(ctx, hosts, zoom);
-    // name tags (the holder's face and name)
-    const tagBoxes = [];
-    if (people?.nameOf) paintNameTags(ctx, { tiles, zoom, nameOf: people.nameOf, centre: people.centre ?? null, onImage: this.onLoad, boxes: tagBoxes,
-      tierName: people.tierName ?? null,
-      present: people.life ? (p, q, site) => lifeAt(people.life.get(`${p},${q},${site}`), people.bell ?? 0, people.now ?? 0).lord : null });
-    // the units' labels last: on top, nudged up off the name tags and each other
-    if (pills.length && RADIUS * zoom >= HOST_FIGURE_MIN_R) placePills(ctx, pills, 1 / zoom, (globalThis.performance?.now?.() ?? Date.now()) / 1000, tagBoxes);
+    const { hosts, pills, tiles, constructions } = this.liveNow;
+    // the hosts that stand on a village of their own nation are told by that village's plate (one badge), not by a flag or a pill of their own
+    const owner = new Map(), garrisoned = new Map();
+    for (const u of tiles) if (u.state === 1 && u.owner < 6 && u.site !== undefined && !u.cloud) owner.set(`${u.p},${u.pq},${u.idx}`, u.owner);
+    const afield = [];
+    for (const o of hosts) {
+      if (o.key && owner.get(o.key) === o.h.faction && !o.h.arriving && o.h.stance !== 'disarray') garrisoned.set(o.key, (garrisoned.get(o.key) ?? 0) + (o.h.troops ?? 0));
+      else afield.push(o);
+    }
+    this.flags(ctx, afield, zoom);
+    const figures = RADIUS * zoom >= HOST_FIGURE_MIN_R;
+    paintPlates(ctx, { tiles, pills: figures ? pills : [], constructions, hostsOn: garrisoned, zoom, centre: people?.centre ?? null, pass, t: (globalThis.performance?.now?.() ?? Date.now()) / 1000 });
   }
 }
 

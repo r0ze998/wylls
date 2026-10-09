@@ -52,7 +52,7 @@ export function frameOf(rings, px = MINIMAP_PX) {
  * `dpr`): `{recs: Map "P,Q" → overview record, rings, own: [{p, q}], view,
  * size}` (`view` and `size` the main map's, for the frame).
  */
-export function paintMinimap(ctx, { recs, rings, own = [], view = null, size = null, px = MINIMAP_PX, dpr = 1, lens = 'realm', pins = [], survey = null, now = 0 }) {
+export function paintMinimap(ctx, { recs, rings, own = [], view = null, size = null, quad = null, px = MINIMAP_PX, dpr = 1, lens = 'realm', pins = [], survey = null, now = 0 }) {
   // with a survey (the play page): the open world is chart, the surveyed tiles are painted on it, and the
   // viewer is a gold pip that breathes; without one (the spectator) every province shows its realm, as before
   const limited = !!survey && !survey.showAll;
@@ -103,8 +103,14 @@ export function paintMinimap(ctx, { recs, rings, own = [], view = null, size = n
     const c = (pp => fr.toPx(pp.x, pp.y))(provincePixel(pn.p, pn.q));
     ctx.fillStyle = '#f3d58a'; ctx.strokeStyle = '#3a2a08'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(c.x, c.y, 3.2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
   }
-  // the part of the world the map shows
-  if (view && size) {
+  // the part of the world the map shows: under a tilted board a trapezoid (`quad`: its four corners in world px, map.viewQuad())
+  if (quad?.length === 4) {
+    const lim = v => Math.max(1, Math.min(px - 1, v));
+    ctx.strokeStyle = '#f3d58a'; ctx.lineWidth = 1.6; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    quad.forEach((w, i) => { const c = fr.toPx(w.x, w.y); i ? ctx.lineTo(lim(c.x), lim(c.y)) : ctx.moveTo(lim(c.x), lim(c.y)); });
+    ctx.closePath(); ctx.stroke();
+  } else if (view && size) {
     const a = fr.toPx(view.x - size.width / 2 / view.zoom, view.y - size.height / 2 / view.zoom);
     const b = fr.toPx(view.x + size.width / 2 / view.zoom, view.y + size.height / 2 / view.zoom);
     ctx.strokeStyle = '#f3d58a'; ctx.lineWidth = 1.6;

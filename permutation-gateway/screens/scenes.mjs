@@ -86,14 +86,17 @@ export const SCENES = [
     },
   },
   {
-    // UX brief §3: the wait for the village. The map opens on the first candidate's province: chart, with the
-    // candidate sites as small discs of painted land
+    // UX brief §3 and §11.10: the wait for the village. The map frames every candidate site in the part of the
+    // picture nothing covers: chart, with the sites as small discs of painted land, numbered and named
     id: 'ticket', title: 'the wait for the village: candidate sites on the chart', page: 'index.html', stage: 'ticket',
     async go(page) {
       // (integration: the wait is the HUD track's waiting view in the drawer, with its countdown to the next turn)
       await page.locator('.wait-card #join-sites').waitFor();
       await page.locator('[data-turn-left]').waitFor();
-      await page.locator('#frontier-map[data-lod="tile"][data-terrain="ready"]').waitFor();
+      // (rewritten with §11.10: it waited for the tile view of the first candidate's province. All three sites are
+      // framed now; a phone's picture shows them from further out, at the province level, where the far bitmaps
+      // carry their painted discs)
+      await page.locator('#frontier-map:is([data-lod="tile"][data-terrain="ready"], [data-lod="province"])').waitFor();
     },
   },
   {
@@ -143,7 +146,9 @@ export const SCENES = [
     async go(page) {
       await page.locator('#frontier-map[data-lod="tile"]').waitFor();
       await page.locator('#frontier-map').focus();
-      for (let i = 0; i < 14; i++) await page.keyboard.press('ArrowRight');
+      // (west: the village stands near the land's eastern edge, and the pan stops where the cloud sea would take a
+      // third of the picture, UX brief §11.3; it was fourteen steps east, into the cloud)
+      for (let i = 0; i < 14; i++) await page.keyboard.press('ArrowLeft');
       await page.locator('[data-map="home-pointer"]').waitFor({ state: 'visible' });
       const name = await page.locator('[data-map="home-pointer"]').getAttribute('aria-label');
       if (!/\d/.test(name ?? '')) throw new Error(`the pointer does not say how far: ${name}`);

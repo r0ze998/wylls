@@ -37,7 +37,12 @@ export function startFx({ map = null, canvas = null, effects = null, search = gl
   // an animation frame is `map.tick()` (the still layers of a resting view are kept); the ground pass is the
   // map's `between` hook, called after the ground and the viewer's own ground marks and before what stands on the land
   const tileArt = () => (map?.drawnLod ?? map?.lod) === 'tile' && !!map?.art;
-  fx.mount({ map, canvas, stage, ...(map ? { camera: () => map.shown ?? map.view, invalidate: () => (map.tick ? map.tick() : map.invalidate?.()), groundInPainter: tileArt } : {}) });
+  // Under the tabletop tilt (map/tilt.mjs) the top canvas lies in `#map-stage`, exactly over the map's ground canvas,
+  // and shares its transform: it draws through the ground canvas's own flat view and size (larger than the map's box).
+  // HUD effects are placed in the map's box (`stage`) through `map.project`.
+  const tilted = !!map?.stage && map.ground && map.ground !== canvas;
+  fx.mount({ map, canvas: tilted ? map.ground : canvas, stage: stage ?? (tilted ? canvas : null), ...(map ? { camera: () => (tilted ? map.groundView() : map.shown ?? map.view), invalidate: () => (map.tick ? map.tick() : map.invalidate?.()), groundInPainter: tileArt } : {}),
+    ...(tilted ? { size: () => map.groundSize(), toViewport: (x, y) => map.project(x, y) } : {}) });
   if (map) map.between = (ctx, { zoom }) => paintGround(ctx, { zoom, tiles: map.art?.tiles ?? null });
   audio().install(doc);
   const q = new URLSearchParams(search);

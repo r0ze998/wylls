@@ -2,9 +2,11 @@
 // opens. It depends on who is looking:
 //
 //   a village (provisional or final)   the active village's tile at the hero zoom
-//   a ticket with candidate sites      the first candidate's province
+//   a ticket with candidate sites      every candidate site, in the part nothing covers
 //   joined, no land yet                the nation's home wedge
-//   not joined, watching, practising   the whole opened world, as before
+//   not joined (the nation choice)     close on the bell at the Concord; a nation that is looked at:
+//                                      its home wedge with the bell at its point
+//   watching, practising               the whole opened world, as before
 //
 // The page says who is looking with `openHint(FS)` in the map's source; the
 // map asks `openingPlan` every frame until a person moves the camera. A plan
@@ -17,7 +19,10 @@ import { project } from '../../map.mjs';
 import { ringProvinces, tileHex, wedgeOf } from '../fgeo.mjs';
 import { homeWedge } from '../fland.mjs';
 import { provincePixel, PROVINCE_CIRCUMRADIUS, FLATTEN } from './layers.mjs';
-import { centreOn, fitView, freeBox, landRadius } from './camera.mjs';
+import { FAR_CAP, centreOn, fitView, freeBox } from './camera.mjs';
+import { RADIUS } from '../../map.mjs';
+import { TOWER } from './belltower.mjs';
+import { candidatesBox } from './waitview.mjs';
 
 /** The hero zoom: a hex about 90 to 100 CSS px wide; a little less on a dense screen, where the largest sprites are already stretched (never below the zoom at which every village carries its name tag). */
 export const heroZoom = (dpr = 1) => (dpr >= 1.5 ? 1.2 : 1.3);
@@ -27,10 +32,15 @@ export const OPEN_WAIT_MS = 4000;
 export const OPEN_FROM = 0.5;
 export const TITLE_FROM = 0.35;
 export const TITLE_MS = 7000;
-/** The far view stays in the world level of detail. */
-const FAR_CAP = 0.114;
-/** The nation choice's backdrop may come nearer than the far view (the chart is drawn at every zoom). */
+/** A nation's home wedge with the bell at its point may come nearer than the far view (the chart is drawn at every zoom). */
 const FRAME_CAP = 0.3;
+/**
+ * The view of the bell before joining: its tower takes `share` of the height nothing covers, between the zooms `min`
+ * (the tiles stay tiles and the board keeps its tilt) and `max`; the picture's middle is `middle` of the way up it.
+ */
+export const ENGINE_VIEW = Object.freeze({ share: 0.78, min: 0.62, max: 1.3, middle: 0.44, aside: 0.13 });
+/** Candidate sites are never framed from further out than this (the far bitmaps still show their painted discs). */
+export const CANDIDATES_MIN = 0.3;
 const RANK = { fit: 0, frame: 0, wedge: 1, candidates: 2, home: 3 };
 
 /**
@@ -82,26 +92,42 @@ export function openingPlan(hint, src, size, { inset = null, dpr = 1 } = {}) {
   const plan = (kind, at, zoom) => ({ kind, at, rank: RANK[kind], view: centreOn(at, zoom, size, inset) });
   const own = (src?.own ?? []).filter(o => Number.isInteger(o.p) && Number.isInteger(o.q));
   if (own.length) return plan('home', placePoint(own[Math.min(own.length - 1, Math.max(0, h.active ?? 0))]), hero);
-  const first = (h.candidates ?? []).find(s => Number.isInteger(s?.p) && Number.isInteger(s?.q));
-  if (first) {
-    // one province fills the uncovered part: its tiles are drawn, so the candidate sites can be seen
-    const zoom = Math.max(0.55, Math.min(hero, (0.85 * Math.min(free.width, free.height / FLATTEN)) / (2 * PROVINCE_CIRCUMRADIUS)));
-    return plan('candidates', provincePixel(first.p, first.q), zoom);
+  // candidate sites (UX brief §11.10): all of them in the uncovered part, as near as that allows (their tiles are
+  // drawn from the tile view on; a request whose sites lie far apart is seen from further out). The survey knows
+  // their tiles once the terrain is there; until then their provinces stand in
+  const sites = (src?.survey?.candidates?.length ? src.survey.candidates : h.candidates ?? []).filter(s => Number.isInteger(s?.p) && Number.isInteger(s?.q));
+  const cb = candidatesBox(sites);
+  if (cb) {
+    const zoom = Math.max(CANDIDATES_MIN, Math.min(hero, 0.9 * Math.min(free.width / (cb.x1 - cb.x0), free.height / (cb.y1 - cb.y0))));
+    return plan('candidates', { x: (cb.x0 + cb.x1) / 2, y: (cb.y0 + cb.y1) / 2 }, zoom);
   }
   if (Number.isInteger(h.faction) && ['joined', 'ticket', 'refugee'].includes(h.stage)) {
     const box = wedgeBox(h.faction, rings);
     if (box) return plan('wedge', { x: box.x, y: box.y }, Math.max(0.16, Math.min(0.8, 0.92 * Math.min(free.width / box.width, free.height / box.height))));
   }
-  if (h.frame) {
-    // the nation choice: the chart is the stage's backdrop. A nation that is looked at: its home wedge fills the part
-    // above the banners. None: the upper half of the chart stands there, the Concord at its foot (the rest lies
-    // behind the banners), larger than the far view so that it reads as a map and not as a mark
-    const box = Number.isInteger(h.frame.nation) ? wedgeBox(h.frame.nation, rings) : null;
-    if (box) return plan('frame', { x: box.x, y: box.y }, Math.max(0.05, Math.min(FRAME_CAP, 0.9 * Math.min(free.width / box.width, free.height / box.height))));
-    // (on a phone the banners stand in the sheet and the part above them is tall: the whole chart fits there)
-    if (free.height > free.width) return plan('frame', { x: 0, y: 0 }, fitView(rings, size, { inset, cap: FAR_CAP, floor: 0.02 }).zoom);
-    const R = landRadius(rings), zoom = Math.max(0.03, Math.min(FRAME_CAP, (0.78 * free.width) / (2 * R), (0.92 * free.height) / (R * FLATTEN)));
-    return plan('frame', { x: 0, y: -R * FLATTEN * 0.5 }, zoom);
+  // (a player who has not joined: with the nation choice standing along the foot of the map, `frame`, or with it put away)
+  const frame = h.frame ?? (h.mode === 'play' && h.stage === 'none' ? {} : null);
+  if (frame) {
+    // before joining (UX brief §11.9): the camera is close on the bell at the Concord, the chart's one landmark, not
+    // on the world. Its tower takes most of the height nothing covers; the chart runs out of the picture around it.
+    // (the nation choice may leave less than the 40% of the height that `freeBox` never goes below: the bell is
+    // framed in what is really free, `room`, and `lift` is how far that part's middle lies above the box's)
+    const room = Math.max(120, Math.min(free.height, size.height - (inset?.top ?? 0) - (inset?.bottom ?? 0)));
+    const lift = free.height > room ? (inset?.top ?? 0) + room / 2 - (size.height / 2 + free.y) : 0;
+    const tall = TOWER.height * RADIUS, mid = { x: 0, y: -tall * ENGINE_VIEW.middle };
+    const near = Math.max(ENGINE_VIEW.min, Math.min(ENGINE_VIEW.max, (ENGINE_VIEW.share * room) / tall, (0.9 * free.width) / (TOWER.plinth * 2 * RADIUS)));
+    // a nation that is looked at: its home wedge (the only land that lights) comes into the picture with the bell at
+    // its point, as far out as that takes (the chart is drawn at every zoom)
+    const box = Number.isInteger(frame.nation) ? wedgeBox(frame.nation, rings) : null;
+    if (box) {
+      const x0 = Math.min(box.x - box.width / 2, -TOWER.plinth * RADIUS), x1 = Math.max(box.x + box.width / 2, TOWER.plinth * RADIUS);
+      const y0 = Math.min(box.y - box.height / 2, -tall), y1 = Math.max(box.y + box.height / 2, RADIUS);
+      const zoom = Math.max(0.05, Math.min(FRAME_CAP, near, 0.92 * Math.min(free.width / (x1 - x0), room / (y1 - y0))));
+      return plan('frame', { x: (x0 + x1) / 2, y: (y0 + y1) / 2 - lift / zoom }, zoom);
+    }
+    // (in a wide picture the tower stands a little left of the middle: the turn's dial hangs in the middle of the top edge)
+    const aside = free.width > room * 2.2 ? (ENGINE_VIEW.aside * free.width) / near : 0;
+    return plan('frame', { x: mid.x + aside, y: mid.y - lift / near }, near);
   }
   return { kind: 'fit', at: { x: 0, y: 0 }, rank: RANK.fit, view: fitView(rings, size, { inset, cap: FAR_CAP, floor: 0.02 }) };
 }

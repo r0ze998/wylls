@@ -11,12 +11,13 @@
 // once a frame and redraws while it returns true. Pointer input stops a move
 // where it is (`halt`); keys and buttons act on the logical view, so presses
 // add up whatever the picture is doing.
-import { FLATTEN } from '../../map.mjs';
+import { FLATTEN, RADIUS, project } from '../../map.mjs';
+import { PROVINCE_TILES, ringProvinces, tileHex } from '../fgeo.mjs';
 import { provincePixel, PROVINCE_CIRCUMRADIUS } from './layers.mjs';
 import { motion } from '../fx/motion.mjs';
 
 /** Milliseconds of the standard moves. */
-export const MOVE_MS = Object.freeze({ open: 1400, fly: 720, far: 900, zoom: 170, pan: 150, wheel: 140, settle: 260 });
+export const MOVE_MS = Object.freeze({ open: 1400, fly: 720, far: 900, zoom: 170, pan: 150, wheel: 140, settle: 260, reach: 520 });
 /** The glide after a drag: speed decays with this time constant (ms); slower than FLING_MIN px/ms does not glide. */
 export const FLING_TAU = 300;
 export const FLING_MIN = 0.12;
@@ -73,21 +74,36 @@ export function worldRadius(ringsOpen) {
   return Math.hypot(edge.x, edge.y) + PROVINCE_CIRCUMRADIUS;
 }
 
+/** Of a picture's width or height, how much the cloud sea beyond the opened land may take: a pan stops there. */
+export const SEA_SHARE = 1 / 3;
+
 /**
- * Keep a view's centre over the opened world plus a margin. The world is
- * close to an ellipse (the ground plane is squashed by FLATTEN); the nearer
- * the camera, the closer its centre may go to the rim. `soft` (0..1) lets a
- * drag pull past the edge with that much give; the release settles back.
+ * Keep a view's centre where the picture is mostly land: the cloud sea beyond
+ * the opened rings never takes more than about a third of it (UX brief
+ * §11.3). The land is close to an ellipse (the ground plane is squashed by
+ * FLATTEN); zoomed out to where the whole world shows, the centre stays near
+ * the middle. `soft` (0..1) lets a drag pull past the limit with that much
+ * give; the release settles back.
  */
-export function clampCentre(view, { ringsOpen = 1, size, soft = 0 } = {}) {
-  const R = worldRadius(ringsOpen), m = PROVINCE_CIRCUMRADIUS * 0.5;
-  const squash = (1 + FLATTEN) / 2;
-  const halfW = (size?.width ?? 0) / 2 / view.zoom, halfH = (size?.height ?? 0) / 2 / view.zoom;
-  const ax = Math.max(R * 0.12, R + m - halfW * 0.85), ay = Math.max(R * squash * 0.12, R * squash + m - halfH * 0.85);
-  const u = view.x / ax, v = view.y / ay, len = Math.hypot(u, v);
+export function clampCentre(view, { ringsOpen = 1, size, soft = 0, inset = null } = {}) {
+  // `inset`: what the page's sheets cover. The picture is then the part nothing covers: its middle is what is
+  // kept over the land, and its size what the sea's share is counted in (a phone's sheet over the lower half
+  // must not leave the upper half looking at the table)
+  const b = landBox(ringsOpen);
+  const f = size && inset ? freeBox(size, inset) : { x: 0, y: 0, width: size?.width ?? 0, height: size?.height ?? 0 };
+  const halfW = f.width / 2 / view.zoom, halfH = f.height / 2 / view.zoom;
+  // (the picture reaches `half` past its centre: with SEA_SHARE of its whole width beyond the land's edge, the centre
+  // stands half · (1 − 2 · SEA_SHARE) inside that edge. A picture as wide as the land itself keeps the land whole)
+  const reach = (land, half) => {
+    const t = Math.max(0, Math.min(1, (half / land - 0.45) / 0.55)), k = 1 - 2 * SEA_SHARE * (1 - t * t * (3 - 2 * t));
+    return Math.max(land * 0.12, land - half * k);
+  };
+  const ax = reach(b.x, halfW), ay = reach(b.y, halfH);
+  const cx = view.x + f.x / view.zoom, cy = view.y + f.y / view.zoom;
+  const u = cx / ax, v = cy / ay, len = Math.hypot(u, v);
   if (len <= 1) return view;
   const over = len - 1, keep = soft > 0 ? 1 + (1 - 1 / (over * 2.2 + 1)) * 0.5 * soft : 1;
-  return { ...view, x: (u / len) * keep * ax, y: (v / len) * keep * ay };
+  return { ...view, x: (u / len) * keep * ax - f.x / view.zoom, y: (v / len) * keep * ay - f.y / view.zoom };
 }
 
 /** The radius (world px) of the opened land alone: the open rings without the cloud around them. */
@@ -96,16 +112,35 @@ export function landRadius(ringsOpen) {
   return Math.hypot(edge.x, edge.y) + PROVINCE_CIRCUMRADIUS;
 }
 
+const boxes = new Map();
+/** The opened land's own box about the Concord: `{x, y}` half its width and half its height (world px, to the tiles' edges). */
+export function landBox(ringsOpen) {
+  const d = Math.max(1, ringsOpen ?? 1);
+  if (boxes.has(d)) return boxes.get(d);
+  let x = 0, y = 0;
+  const provinces = [{ p: 0, q: 0 }];
+  for (let r = 1; r < d; r++) provinces.push(...ringProvinces(r));
+  for (const pr of provinces) for (let i = 0; i < PROVINCE_TILES; i++) { const h = tileHex(pr.p, pr.q, i), c = project(h.q, h.r); x = Math.max(x, Math.abs(c.x)); y = Math.max(y, Math.abs(c.y)); }
+  const v = Object.freeze({ x: x + RADIUS * Math.sqrt(3) / 2, y: y + RADIUS * FLATTEN });
+  if (boxes.size > 12) boxes.clear();
+  boxes.set(d, v);
+  return v;
+}
+
+/** The far view shows the opened land in this share of the free part of the picture (UX brief §11.2), and never nearer than FAR_CAP (it stays a chart: the level of detail of the world, map/fmap.mjs lodEdges). */
+export const FAR_FILL = 0.7;
+export const FAR_CAP = 0.345;
+
 /**
- * The far view ("the world chart"): the opened land fills the smaller side
- * of the part of the canvas nothing covers (the cloud around it may run off
- * the edges). `inset` = {top, right, bottom, left} CSS px covered by the
- * page's sheets. Never nearer than `cap`.
+ * The far view ("the world chart"): the opened land takes `fill` of the part
+ * of the canvas nothing covers, by its tighter side, so the sheet it is drawn
+ * on lies on the table with room around it. `inset` = {top, right, bottom,
+ * left} CSS px covered by the page's sheets. Never nearer than `cap`.
  */
-export function fitView(ringsOpen, size, { inset = null, cap = Infinity, floor = 0 } = {}) {
-  const radius = landRadius(ringsOpen);
+export function fitView(ringsOpen, size, { inset = null, cap = FAR_CAP, floor = 0, fill = FAR_FILL } = {}) {
+  const b = landBox(ringsOpen);
   const free = freeBox(size, inset);
-  const zoom = Math.max(floor, Math.min(cap, (0.9 * Math.min(free.width, free.height)) / (2 * radius)));
+  const zoom = Math.max(floor, Math.min(cap, fill * Math.min(free.width / (2 * b.x), free.height / (2 * b.y))));
   return centreOn({ x: 0, y: 0 }, zoom, size, inset);
 }
 

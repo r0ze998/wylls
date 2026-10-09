@@ -64,7 +64,24 @@ section { min-width: 0; }
 
 /* ================================================================== the world */
 main { position: fixed; inset: 0; overflow: hidden; }
-#frontier-map { position: absolute; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; background: #10221f; }
+/* The tabletop tilt (map/tilt.mjs, UX-DESIGN 4 and 11.1). #map-stage carries the one transform; the ground canvas
+   (and every other world-space canvas: the effects' top pass) lies in it, reaching past the box so the tilted board
+   fills the picture. #map-dress is the depth dressing, in screen space. #frontier-map lies flat above both: it takes
+   the input and carries what must stay upright and crisp (names, pills, tags). Every value comes from the map through
+   custom properties. */
+.map-clip { position: absolute; inset: 0; overflow: hidden; background: #0e1b19; }
+.map-stage { position: absolute; inset: 0; transform-origin: 50% 50%; transform: perspective(1600px) rotateX(var(--map-tilt, 0deg)); }
+.map-stage[data-flat] { transform: none; }
+.map-ground { position: absolute; left: var(--map-gl, 0px); top: var(--map-gt, 0px); width: var(--map-gw, 100%); height: var(--map-gh, 100%); display: block; }
+.map-dress, .map-dress::before, .map-dress::after { position: absolute; inset: 0; pointer-events: none; }
+.map-dress::before, .map-dress::after { content: ""; }
+/* the far edge of the board pales into a warm haze (at most .30, and only under a tilt) */
+.map-dress::before { top: var(--map-top, 0px); bottom: auto; height: 26%; opacity: var(--map-haze, 0);
+  background: linear-gradient(to bottom, rgba(240,228,200,.30), rgba(240,228,200,.13) 42%, rgba(240,228,200,0)); }
+/* the table falls into shadow toward the corners and the near edge */
+.map-dress::after { opacity: calc(.55 + .45 * var(--map-near, 0));
+  background: radial-gradient(ellipse 78% 74% at 50% 52%, rgba(6,14,13,0) 58%, rgba(6,14,13,.26)), linear-gradient(to top, rgba(6,14,13,.2), rgba(6,14,13,0) 13%); }
+#frontier-map { position: absolute; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; background: transparent; }
 #frontier-map:focus-visible { outline: 3px solid var(--brass-hi); outline-offset: -3px; }
 /* The screen edge while composing a march close to the turn's end (above the canvas, under the HUD). */
 main::after { content: ""; position: absolute; inset: 0; z-index: 6; pointer-events: none; }
@@ -1235,14 +1252,19 @@ button.rose-d3:active { transform: translate(-66px, 0) scale(.94); } button.rose
 .survey-cloud { background: linear-gradient(160deg, #ffffff, #dfe6ea); }
 .survey-line { margin: 8px 0; }
 
-/* ---- where am I (UX brief 5.3): the edge pointer home (map/homepointer.mjs); names before coordinates (map/names.mjs) */
-.home-pointer { position: absolute; left: 0; top: 0; z-index: 3; display: grid; place-items: center; width: 44px; height: 44px; margin: -22px 0 0 -22px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #f3d58a; cursor: pointer; transform: translate(var(--x, 0), var(--y, 0)); }
+/* ---- where am I (UX brief 5.3, 11.8): the pointer home, a gold tab flush with the map's edge (map/homepointer.mjs); names before coordinates (map/names.mjs) */
+.home-pointer { position: absolute; left: 0; top: 0; z-index: 19; display: inline-flex; align-items: center; gap: 6px; box-sizing: border-box; height: 44px; min-width: 56px; margin: 0; padding: 0 14px 0 8px; border: 1px solid var(--brass-lo); background: linear-gradient(180deg, #fbe9b4, var(--you) 42%, #dcb862); color: #1b2a18; font: 700 14px/1 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; transform: translate(var(--x, 0), var(--y, 0)); box-shadow: 0 3px 10px rgba(0,0,0,.42), inset 0 1px 0 rgba(255,255,255,.6); }
 .home-pointer[hidden] { display: none; }
-.home-pointer .hp-arrow { position: absolute; left: -10px; top: -10px; transform: rotate(var(--a, 0deg)); filter: drop-shadow(0 2px 4px rgba(0,0,0,.45)); pointer-events: none; }
-.home-pointer .hp-ring { fill: rgba(16,34,31,.94); stroke: #f3d58a; stroke-width: 2.25; }
-.home-pointer .hp-head { fill: #f3d58a; stroke: #10221f; stroke-width: 1; stroke-linejoin: round; }
-.home-pointer .hp-dist { position: relative; font: 700 14px/1 system-ui, sans-serif; font-variant-numeric: tabular-nums; color: #f3d58a; }
-.home-pointer:hover .hp-ring { fill: #1d3a34; }
+.home-pointer[data-edge="left"] { border-left: 0; border-radius: 0 22px 22px 0; }
+.home-pointer[data-edge="right"] { flex-direction: row-reverse; padding: 0 8px 0 14px; border-right: 0; border-radius: 22px 0 0 22px; }
+.home-pointer[data-edge="top"] { border-top: 0; border-radius: 0 0 16px 16px; padding: 0 14px 0 10px; }
+.home-pointer[data-edge="bottom"] { border-bottom: 0; border-radius: 16px 16px 0 0; padding: 0 14px 0 10px; }
+.home-pointer svg { flex: none; pointer-events: none; }
+.home-pointer .hp-chev { width: 16px; height: 16px; transform: rotate(var(--a, 0deg)); }
+.home-pointer .hp-text { max-width: 12em; overflow: hidden; text-overflow: ellipsis; font-family: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", Georgia, serif; font-size: 14px; }
+.home-pointer[data-says="distance"] .hp-text { font-family: inherit; }
+.home-pointer:hover { background: linear-gradient(180deg, #fff2c8, #f8dd98 42%, #e6c36c); }
+.home-pointer:active { box-shadow: 0 1px 4px rgba(0,0,0,.4), inset 0 2px 4px rgba(0,0,0,.2); }
 .home-pointer:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .place-where { font-size: 12px; font-weight: 400; white-space: nowrap; }
 .tip-place { font-weight: 700; }
@@ -1275,5 +1297,3 @@ button.rose-d3:active { transform: translate(-66px, 0) scale(.94); } button.rose
 .turn-acts .btn + .btn { margin-left: 0; }
 /* a store that waits for the harvest's tokens to land (app.mjs resGain) */
 .res-wait .res-val { opacity: .75; }
-/* the pointer home stands over the map's edge shade, under the HUD's own pieces */
-.home-pointer { z-index: 19; }

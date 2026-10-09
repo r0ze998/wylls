@@ -10,6 +10,7 @@ import { FACTION_FILL, FACTION_DARK, shade } from './avatar.mjs';
 import { RADIUS, FLATTEN, project } from '../../map.mjs';
 import { tileHex, DIRECTIONS } from '../fgeo.mjs';
 import { paintMini } from './minis.mjs';
+import { upright } from '../map/tilt.mjs';
 
 export const UNIT_KINDS = Object.freeze(['spearman', 'archer', 'horseman', 'pikeman', 'crossbowman', 'knight', 'scout', 'settler']);
 const INK = '#1b1712', STEEL = '#aeb4b9', STEEL_D = '#6c7378', WOOD = '#7a5634', LEATHER = '#6b4a2e', HORSE = '#7b5636', HORSE_D = '#4e3522', SKIN = '#e2b58e';
@@ -229,7 +230,8 @@ export function placePills(ctx, items, k, t, boxes = []) {
     let cy = tok.y - s * 1.08;
     for (let i = 0; i < 6; i++) { const b = { x: tok.x - w / 2, y: cy - h, w, h }; if (!hit(b)) break; cy -= h + 3 * k; }
     taken.push({ x: tok.x - w / 2, y: cy - h, w, h });
-    unitPill(ctx, tok.x, cy, k, { faction: tok.faction, troops: tok.troops, n: tok.n ?? 1, own: !!tok.own, status: tok.status ?? null, text: tok.text ?? null, t, dashed: !!tok.dashed });
+    // (a pill stands upright over its figure whatever the board's tilt: map/tilt.mjs)
+    upright(ctx, tok.x, tok.y, () => unitPill(ctx, tok.x, cy, k, { faction: tok.faction, troops: tok.troops, n: tok.n ?? 1, own: !!tok.own, status: tok.status ?? null, text: tok.text ?? null, t, dashed: !!tok.dashed }));
   }
   return taken;
 }
@@ -257,10 +259,10 @@ const SPOTS_HOLDING = [[[0.44, 0.4]], [[0.44, 0.4], [-0.1, 0.62]], [[0.44, 0.4],
 /**
  * The tokens of one province: `[{x, y, faction, kind, troops, n, status, face, alpha, own, dashed, hosts}]`.
  * `hosts` = `[{id, faction, unit, troops (whole), stamina, state, arriving?, broken?}]` (already filtered by fog);
- * `holdingTiles` = Set of tile indices with a holding; `exploring` / `marching` = Sets of host ids;
+ * `holdingTiles` = Set of tile indices with a holding (`heroTiles`, `heroSpots`: the viewer's own); `exploring` / `marching` = Sets of host ids;
  * `restBelow` the stamina a march needs.
  */
-export function provinceTokens({ p, q, hosts, holdingTiles = new Set(), viewerFaction = null, exploring = new Set(), marching = new Set(), restBelow = 0, skipTiles = new Set() }) {
+export function provinceTokens({ p, q, hosts, holdingTiles = new Set(), viewerFaction = null, exploring = new Set(), marching = new Set(), restBelow = 0, skipTiles = new Set(), heroTiles = null, heroSpots = null }) {
   const byTile = new Map();
   for (const h of hosts) {
     if (marching.has(String(h.id))) continue;   // the viewer's own column walks its road (movers)
@@ -275,7 +277,8 @@ export function provinceTokens({ p, q, hosts, holdingTiles = new Set(), viewerFa
   for (const [tile, groups] of byTile) {
     const list = [...groups.values()].sort((a, b) => (a.out - b.out) || (a.faction === viewerFaction ? -1 : b.faction === viewerFaction ? 1 : a.faction - b.faction));
     const c = centre(p, q, tile);
-    const spots = (holdingTiles.has(tile) ? SPOTS_HOLDING : SPOTS)[Math.min(list.length, 3) - 1];
+    // (`heroTiles`: the viewer's own villages, drawn larger: their hosts stand at `heroSpots`, in front of the houses)
+    const spots = (heroSpots && heroTiles?.has(tile) ? heroSpots : holdingTiles.has(tile) ? SPOTS_HOLDING : SPOTS)[Math.min(list.length, 3) - 1];
     const contested = new Set(list.filter(g => !g.out).map(g => g.faction)).size > 1;
     list.slice(0, 3).forEach((g, i) => {
       const main = [...g.hosts].sort((a, b) => b.troops - a.troops)[0];

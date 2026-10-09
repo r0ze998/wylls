@@ -118,7 +118,7 @@ import * as glossary from './hud/glossary.mjs';
 import * as milestones from './hud/milestones.mjs';
 import * as guide from './hud/guide.mjs';
 import { forecast, forecastKey } from './hud/forecast.mjs';
-import { BUILD_ITEMS } from './fland.mjs';
+import { BUILD_ITEMS, ticketTimes } from './fland.mjs';
 import { UNIT_KINDS } from './people/units.mjs';
 import { momentSnapshot, detectMoments, liveMoments } from './people/moments.mjs';
 import * as pins from './hud/pins.mjs';
@@ -794,6 +794,21 @@ function ownNow() {
   if (ownCache.holdings !== hs || ownCache.lang !== lang()) ownCache = { holdings: hs, lang: lang(), value: hs.map(h => ({ p: h.p, q: h.q, tile: h.tile, tier: h.tier ?? 0, state: h.state ?? null, name: holdingName(h) })) };
   return ownCache.value;
 }
+/**
+ * The times of the wait for the village, for the map's countdown (map/waitview.mjs): `{now, nextTurnAt, resultAt,
+ * first}` in chain seconds; `resultAt` when the open request's result is due (fland.mjs ticketTimes), `first` the
+ * candidate tried first. Null outside the wait.
+ */
+function waitNow() {
+  const st = FS.land?.stage;
+  if (FS.mode !== 'play' || !FS.clock || !['joined', 'ticket', 'refugee'].includes(st)) return null;
+  const now = FS.chain?.now?.() ?? null;
+  if (!Number.isFinite(now)) return null;
+  const bell = FS.nowBell ?? Math.max(0, Math.floor((now - FS.clock.genesisTs) / 600)), t = st === 'ticket' ? FS.land.ticket ?? null : null;
+  let resultAt = null;
+  try { resultAt = t ? ticketTimes(FS.clock, t.bell).resultAbout : null; } catch { resultAt = null; }
+  return { now, nextTurnAt: bellStart(FS.clock.genesisTs, bell + 1), resultAt, first: t ? t.next ?? 0 : null };
+}
 /** The village that lands now, the first time this device sees it (map/landing.mjs). */
 const landingBook = createLandingBook();
 function landingNow() {
@@ -1205,9 +1220,11 @@ function placeObjective(v, size, lod) {
   if (g && Number.isInteger(g.tile) && (!d || d.kind === 'inspect')) {
     const h = tileHex(g.p, g.q, g.tile), c = h ? project(h.q, h.r) : null;
     if (c) {
-      const x = (c.x - v.x) * v.zoom + size.width / 2, y = (c.y - v.y) * v.zoom + size.height / 2, ins = hudInsets();
-      // above the ring (map/fmap.mjs paintGuide: a little over a hex's radius) and what stands on the tile
-      const top = y - Math.max(62 * v.zoom, 24) - 44;
+      // (where the tile is seen: the board is tilted, map.project)
+      const { x, y } = mapRef?.project ? mapRef.project(c.x, c.y, { box: true }) : { x: (c.x - v.x) * v.zoom + size.width / 2, y: (c.y - v.y) * v.zoom + size.height / 2 }, ins = hudInsets();
+      // above what stands on the tile, and above the village's nameplate when the tile carries one (map.pileTop: UX brief 11.6)
+      const pile = mapRef?.pileTop?.(g.p, g.q, g.tile) ?? null;
+      const top = pile === null ? y - Math.max(62 * v.zoom, 24) - 44 : pile - 16;
       if (x > ins.left + 200 && x < size.width - ins.right - 200 && top > ins.top + 96 && y < size.height - ins.bottom - 24) at = { x: Math.round(x), y: Math.round(top) };
     }
   }
@@ -1321,7 +1338,7 @@ function renderMinimap() {
     for (const ov of FS.overviews.values()) for (const r of ov.provinces) recs.set(`${r.p},${r.q}`, r);
     const sv = FS.survey ?? null, pulse = !!sv?.home && !sv.showAll && !reducedMotion();
     minimap.paintMinimap(cv.getContext('2d'), { recs, rings: Math.max(1, (FS.record?.rings?.length ?? 1)), own: (FS.holdings ?? []).map(h => ({ p: h.p, q: h.q })),
-      view: mapRef.shown ?? mapRef.view, size: mapRef.size(), px, dpr, lens: FS.view.lens ?? 'realm', pins: FS.pins ?? [], survey: sv, now: fxNow() });
+      view: mapRef.shown ?? mapRef.view, size: mapRef.size(), quad: mapRef.viewQuad?.() ?? null, px, dpr, lens: FS.view.lens ?? 'realm', pins: FS.pins ?? [], survey: sv, now: fxNow() });
     // the viewer's pip breathes: a few small repaints a second while it shows
     if (pulse && !miniPulse) miniPulse = setTimeout(() => { miniPulse = null; renderMinimap(); }, 110);
   });
@@ -1959,6 +1976,8 @@ export async function boot() {
           note: FS.mapNote ?? null,
           // a village this device sees land for the first time (map/landing.mjs)
           landing: landingNow(),
+          // the wait for the village on the map (map/waitview.mjs): when the next turn begins and, with a request out, when its result is due
+          wait: waitNow(),
           // the viewer's pins (hud/pins.mjs)
           pins: FS.pins ?? [],
           // the guide's target of the current step (hud/guide.mjs; "all" only)

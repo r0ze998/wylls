@@ -23,7 +23,7 @@ import { factionName } from '../../permutation-server/web/frontier/fi18n.mjs';
 import { FACTION_FILL } from '../../permutation-server/web/frontier/people/avatar.mjs';
 import * as I from '../../permutation-server/web/frontier/people/identity.mjs';
 import { setLang } from '../../permutation-server/web/lang.mjs';
-import { RADIUS, project } from '../../permutation-server/web/map.mjs';
+import { FLATTEN, RADIUS, project } from '../../permutation-server/web/map.mjs';
 
 const HOME = { p: 2, q: 0, tile: 7 };
 const home = tileHex(HOME.p, HOME.q, HOME.tile);
@@ -219,9 +219,15 @@ test('who is looking: the anchors read out of the page state for each stage', ()
   assert.deepEqual(surveyInput({ mode: 'spectate', record: { rings: [{}, {}] } }), { mode: 'spectate', ringsOpen: 2 });
 });
 
-test('the edge between paint and chart: a distance field of the surveyed tiles, solid on them, gone a little way out', () => {
+// Rewritten with UX brief §11.4. The edge of the paint was a soft blur made from the distance to the tiles' centres
+// (solid to one hex radius, gone at 1.36, with ink pooled along it: the "scorch" of the first review, and slivers
+// of the neighbouring tiles' paint beyond the hexes). It is now a wet edge measured from the outline of the surveyed
+// tiles: the pigment thins over the last third of a hex, ends at a thin line that wavers at two scales and stays on
+// the land's side of the outline, and the chart's ink is at half near it.
+test('the wet edge between paint and chart: the pigment thins toward a line just inside the surveyed tiles; the chart\'s ink is quiet near it', () => {
   const sv = survey({ villages: [village(0)] });
   const c = project(home.q, home.r), box = { x: c.x - 300, y: c.y - 300, w: 600, h: 600 }, mres = 0.25;
+  // the land in sight against the muted land: still a field of the distance to the tiles' centres
   const { f, w, h } = chart.surveyField(sv, box, mres, S.L2);
   assert.equal(f.length, w * h);
   const at = (x, y) => f[Math.floor((y - box.y) * mres) * w + Math.floor((x - box.x) * mres)];
@@ -232,7 +238,56 @@ test('the edge between paint and chart: a distance field of the surveyed tiles, 
   assert.equal(chart.coverage(Infinity, 10, 10), 0);
   let last = 1;
   for (let d = 0.6; d <= 1.8; d += 0.05) { const v = chart.coverage(d, 123, 45); assert.ok(v <= last + 1e-9 && v >= 0 && v <= 1, `falls with distance at ${d}`); last = v; }
-  assert.ok(chart.EDGE.paint.inner - chart.EDGE.paint.rough > 0.8, 'a surveyed hex keeps (nearly) all its own paint: its inscribed circle is solid');
+  // a point's distance outside a tile: none on it, the gap to its side or its corner beyond
+  assert.equal(chart.hexGap(c.x, c.y, c.x, c.y), 0);
+  assert.equal(chart.hexGap(c.x + RADIUS * 0.8, c.y, c.x, c.y), 0, 'inside the flat side');
+  assert.ok(Math.abs(chart.hexGap(c.x + RADIUS * (Math.sqrt(3) / 2 + 0.5), c.y, c.x, c.y) - 0.5) < 1e-9, 'half a radius past the flat side');
+  assert.ok(Math.abs(chart.hexGap(c.x, c.y + RADIUS * FLATTEN * 1.5, c.x, c.y) - 0.5) < 1e-9, 'half a radius past the corner below (the ground is squashed)');
+  // the signed field: negative on the surveyed land, positive on the chart, zero along the tiles' own outline
+  const wide = { x: c.x - 520, y: c.y - 520, w: 1040, h: 1040 };
+  const e = chart.surveyEdge(sv, wide, mres, S.L2);
+  const eAt = (x, y) => e.f[Math.floor((y - wide.y) * mres) * e.w + Math.floor((x - wide.x) * mres)];
+  assert.ok(eAt(c.x, c.y) < -2, 'deep in the surveyed land');
+  // along a row to the east of the village the land ends after tile `n` (a hamlet sees 4 tiles)
+  const east = k => project(home.q + k, home.r);
+  let n = 0;
+  while (sv.levelAt(home.q + n + 1, home.r) >= S.L2) n++;
+  assert.equal(n, 4, 'the fixture: the edge lies between the fourth and the fifth tile');
+  assert.ok(eAt(east(n).x, east(n).y) < -0.7 && eAt(east(n).x, east(n).y) > -1, 'the last surveyed tile\'s middle is its apothem inside the edge');
+  assert.ok(eAt(east(n + 1).x, east(n + 1).y) > 0.7 && eAt(east(n + 1).x, east(n + 1).y) < 1, 'the first chart tile\'s middle as far outside it');
+  const side = (east(n).x + east(n + 1).x) / 2;
+  assert.ok(Math.abs(eAt(side - 3, east(n).y)) < 0.12 && Math.abs(eAt(side + 3, east(n).y)) < 0.12, 'about zero on the side they share');
+  // the waver keeps the line within a hair of the outline, on the land's side of it
+  let lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < 4000; i++) { const v = chart.wetWaver(i * 3.7, i * 1.9); lo = Math.min(lo, v); hi = Math.max(hi, v); }
+  assert.ok(lo > -0.06 && hi < 0.21, `the line lies between ${(-hi).toFixed(3)} and ${(-lo).toFixed(3)} of a hex radius from the tiles' outline: on the land's side, never a sliver beyond`);
+  assert.ok(hi - lo > 0.12, 'and it does waver');
+  // the pigment: whole inside, thinner over the last third of a hex, none past the line
+  assert.equal(chart.wetPaint(-1), 1);
+  assert.equal(chart.wetPaint(-chart.WET.fade), 1);
+  assert.ok(Math.abs(chart.WET.fade - Math.sqrt(3) / 3) < 0.02, 'a third of a hex (its width is √3 radii)');
+  assert.ok(chart.wetPaint(-0.3) < 1 && chart.wetPaint(-0.3) > chart.wetPaint(-0.05));
+  assert.ok(chart.wetPaint(-chart.WET.gap - 1e-6) >= chart.WET.thin - 1e-3 && chart.WET.thin >= 0.5, 'still pigment at the line');
+  assert.ok(chart.WET.gap > 0 && chart.WET.gap < 0.05, 'it stops a hair short of the line');
+  assert.equal(chart.wetPaint(0), 0);
+  assert.equal(chart.wetPaint(0.4), 0);
+  // the chart's ink: none in the halo, half near the paint, whole further out; the halo is just beyond the line
+  assert.equal(chart.wetInk(-0.2), 0);
+  assert.equal(chart.wetInk(chart.WET.halo * 0.9), 0, 'bare paper in the halo');
+  assert.ok(Math.abs(chart.wetInk(0.62) - 0.5) < 1e-9 && Math.abs(chart.wetInk(1) - 0.5) < 0.08, 'about half near painted land');
+  assert.equal(chart.wetInk(chart.WET.quiet), 1);
+  assert.ok(chart.wetHalo(chart.WET.halo * 0.75) > 0.95 && chart.wetHalo(0) === 0 && chart.wetHalo(0.5) === 0 && chart.wetHalo(-0.1) === 0);
+  // the line itself: segments along the edge, every one within a hair of the surveyed tiles' outline
+  const wet = chart.wetEdge(sv, wide, 0.5, S.L2);
+  assert.ok(wet.line.length >= 4 * 200, `${wet.line.length / 4} segments`);
+  const fine = chart.surveyEdge(sv, wide, 0.5, S.L2);
+  for (let i = 0; i < wet.line.length; i += 4) {
+    const x = (wet.line[i] + wet.line[i + 2]) / 2, y = (wet.line[i + 1] + wet.line[i + 3]) / 2;
+    const d = fine.f[Math.floor((y - wide.y) * 0.5) * fine.w + Math.floor((x - wide.x) * 0.5)];
+    assert.ok(d > -0.3 && d < 0.1, `a piece of the line at ${d.toFixed(3)} of a radius from the outline`);
+    assert.ok(Math.hypot(wet.line[i + 2] - wet.line[i], wet.line[i + 3] - wet.line[i + 1]) < 3.5, 'short pieces: no stair of pixels');
+  }
+  assert.deepEqual(Object.keys(chart.EDGE), ['sight'], 'the old paint edge is gone');
   assert.deepEqual([chart.MUTED.saturation, chart.MUTED.brightness], [0.35, 0.7]);
   // no canvas here: the painters return quietly
   assert.equal(chart.parchment(), null);

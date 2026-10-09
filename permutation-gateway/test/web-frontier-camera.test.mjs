@@ -16,6 +16,7 @@ import { PROBE } from '../../permutation-server/web/frontier/map/probe.mjs';
 import { FAR_RES, farRes, farSoftness } from '../../permutation-server/web/frontier/map/sprites.mjs';
 import { tileHex, wedgeOf } from '../../permutation-server/web/frontier/fgeo.mjs';
 import { project, RADIUS } from '../../permutation-server/web/map.mjs';
+import { TOWER, paintBellTower, towerSprite } from '../../permutation-server/web/frontier/map/belltower.mjs';
 
 const size = { width: 1000, height: 800 };
 const phone = { width: 390, height: 734 };
@@ -139,26 +140,40 @@ test('the glide after a drag: the logical view is where it will end; too slow a 
   assert.ok(n < frames, `${n} frames for a short glide`);
 });
 
-test('the pan is kept over the opened world plus a margin: softly during a drag, firmly after it', () => {
-  const R = cam.worldRadius(3);
-  assert.ok(near(R, Math.hypot(layers.provincePixel(3, 0).x, layers.provincePixel(3, 0).y) + layers.PROVINCE_CIRCUMRADIUS));
+// Rewritten with UX brief §11.3 (the pan was kept over the opened world plus its first ring of cloud and a margin, so
+// most of a picture could be cloud): the centre now stops where the cloud sea would take a third of the picture.
+test('the pan stops where the cloud sea would take more than a third of the picture: softly during a drag, firmly after it', () => {
+  const b = cam.landBox(3), R = cam.landRadius(3);
+  assert.ok(b.x > b.y && b.x < R && b.x > R * 0.9 && b.y > R * 0.7, `the land's own box: ${b.x} by ${b.y} (a radius of ${R}, squashed)`);
+  assert.equal(cam.landBox(3), b, 'kept');
   const inside = { x: 800, y: -300, zoom: 1.3 };
   assert.equal(cam.clampCentre(inside, { ringsOpen: 3, size }), inside, 'inside: untouched');
   const out = { x: 40_000, y: 0, zoom: 1.3 };
   const hard = cam.clampCentre(out, { ringsOpen: 3, size });
-  assert.ok(hard.x < R + layers.PROVINCE_CIRCUMRADIUS && hard.x > R * 0.8, `the centre stops near the rim (${hard.x} of ${R})`);
+  const halfW = size.width / 2 / 1.3, halfH = size.height / 2 / 1.3;
+  assert.ok(near((hard.x + halfW - b.x) / (2 * halfW), cam.SEA_SHARE), `of the picture's width, ${((hard.x + halfW - b.x) / (2 * halfW)).toFixed(3)} lies beyond the land's edge`);
+  assert.ok(near(cam.SEA_SHARE, 1 / 3));
+  const down = cam.clampCentre({ x: 0, y: 40_000, zoom: 1.3 }, { ringsOpen: 3, size });
+  assert.ok(near((down.y + halfH - b.y) / (2 * halfH), cam.SEA_SHARE), 'and of its height');
   assert.equal(hard.zoom, 1.3);
   const soft = cam.clampCentre(out, { ringsOpen: 3, size, soft: 1 });
   assert.ok(soft.x > hard.x && soft.x < hard.x * 1.6, 'a drag gives, within reason');
   const a = cam.clampCentre({ x: hard.x + 30, y: 0, zoom: 1.3 }, { ringsOpen: 3, size, soft: 1 });
-  const b = cam.clampCentre({ x: hard.x + 300, y: 0, zoom: 1.3 }, { ringsOpen: 3, size, soft: 1 });
-  assert.ok(b.x > a.x && b.x - a.x < 270, 'the further the pull, the stiffer');
+  const c = cam.clampCentre({ x: hard.x + 300, y: 0, zoom: 1.3 }, { ringsOpen: 3, size, soft: 1 });
+  assert.ok(c.x > a.x && c.x - a.x < 270, 'the further the pull, the stiffer');
   // zoomed out to the far view the world stays near the middle
   const far = cam.fitView(3, size);
   const wide = cam.clampCentre({ x: 40_000, y: 0, zoom: far.zoom }, { ringsOpen: 3, size });
-  assert.ok(wide.x < R * 0.4, `at the far view the centre may leave the middle by ${Math.round(wide.x)} of ${Math.round(R)} only`);
+  assert.ok(wide.x < b.x * 0.4, `at the far view the centre may leave the middle by ${Math.round(wide.x)} of ${Math.round(b.x)} only`);
   // more open rings, more room
   assert.ok(cam.clampCentre(out, { ringsOpen: 6, size }).x > hard.x);
+  // under a sheet the picture is the part nothing covers: its middle is kept over the land, not the canvas's
+  const sheet = { bottom: 440 }, f = cam.freeBox(phone, sheet);
+  const north = cam.clampCentre({ x: 0, y: -40_000, zoom: 1.2 }, { ringsOpen: 3, size: phone, inset: sheet });
+  const mid = north.y + f.y / 1.2, half = f.height / 2 / 1.2;
+  assert.ok(near((-mid + half - b.y) / (2 * half), cam.SEA_SHARE), 'a third of the uncovered part is sea, whatever the sheet covers');
+  const rest = cam.fitView(3, phone, { inset: sheet });
+  assert.equal(cam.clampCentre(rest, { ringsOpen: 3, size: phone, inset: sheet }), rest, 'the far view above a sheet is inside the limit: a zoom from it does not jump');
 });
 
 test('the uncovered part of the canvas: the far view fits it, a place is centred in it', () => {
@@ -174,13 +189,23 @@ test('the uncovered part of the canvas: the far view fits it, a place is centred
   assert.ok(near(f.x, pt.x) && near(f.y, pt.y), 'focusOf is the inverse');
   // a full sheet never pushes the map off the screen: at least 40% of the height counts as free
   assert.equal(cam.freeBox(phone, { bottom: 720 }).height, 734 * 0.4);
-  // the far view: the opened world in the smaller side of the free part, lifted above the sheet
-  const far = cam.fitView(3, phone, { inset: sheet, cap: 0.114 });
-  assert.ok(near(far.zoom, (0.9 * 367) / (2 * cam.landRadius(3))), 'the open land fills the free part; its cloud may run off the edge');
+  // the far view (rewritten with UX brief §11.2: it was 0.9 of the smaller side by the land's radius, capped at
+  // 0.114 so it stayed small on a small world): the opened land takes 0.7 of the free part by its tighter side
+  // (the sheet it is drawn on lies on the table with room around it), lifted above the phone's sheet
+  const far = cam.fitView(3, phone, { inset: sheet });
+  const land = cam.landBox(3);
+  assert.equal(cam.FAR_FILL, 0.7);
+  assert.ok(near(far.zoom, 0.7 * Math.min(390 / (2 * land.x), 367 / (2 * land.y))), `zoom ${far.zoom}`);
+  assert.ok(2 * land.x * far.zoom <= 0.7 * 390 + 1e-9 && 2 * land.y * far.zoom <= 0.7 * 367 + 1e-9, 'the land fits in 70% of both sides');
+  const desk = cam.fitView(3, { width: 1440, height: 900 }, { inset: { top: 48 } });
+  assert.ok(near(2 * land.y * desk.zoom, 0.7 * 852), 'on a wide screen: 70% of the free height');
+  assert.ok(desk.zoom > 0.2, 'three rings are no longer a small mark on a wide screen');
   assert.ok(cam.landRadius(3) < cam.worldRadius(3) && near(cam.landRadius(1), layers.PROVINCE_CIRCUMRADIUS));
   const centre = fmap.worldToScreen(far, phone, 0, 0);
   assert.ok(near(centre.y, 367 / 2), 'the Concord in the middle of the free part');
   assert.equal(cam.fitView(1, { width: 2000, height: 2000 }, { cap: 0.114 }).zoom, 0.114, 'never nearer than the cap');
+  assert.equal(cam.fitView(1, { width: 2000, height: 2000 }).zoom, cam.FAR_CAP, 'a very small world: the far view stays a chart');
+  assert.equal(fmap.FAR_ZOOM_CAP, cam.FAR_CAP);
   // a drawer over the map's right side on a wide screen
   const d = cam.freeBox(size, { right: 360 });
   assert.deepEqual([d.width, d.x], [640, -180]);
@@ -202,14 +227,44 @@ test('what the page\'s panel covers: a bottom sheet from below, a drawer from th
   assert.deepEqual(fmap.coveredInsets(wide), { top: 0, right: 360, bottom: 0, left: 0 }, 'a drawer over the right side');
 });
 
-test('the opening view depends on who is looking: village, candidate sites, home wedge, or the world', () => {
+// Rewritten with UX brief §11.9 (it pinned "not joined: the whole opened world"): a player who has not joined opens
+// close on the bell at the Concord, the chart's one landmark; only a watcher and practice still open on the world.
+test('the opening view depends on who is looking: village, candidate sites, home wedge, the bell before joining, or the world', () => {
   const src = { ringsOpen: 3, own: [] };
-  // not joined, a watcher, practice: the open rings, as before
-  for (const hint of [undefined, opening.openHint({ mode: 'spectate' }), opening.openHint({ mode: 'practice' }), opening.openHint({ mode: 'play', land: { stage: 'none' } })]) {
+  // a watcher, practice, a page that says nothing: the open rings, as before
+  for (const hint of [undefined, opening.openHint({ mode: 'spectate' }), opening.openHint({ mode: 'practice' })]) {
     const p = opening.openingPlan(hint, src, size);
     assert.equal(p.kind, 'fit');
     assert.deepEqual([p.view.x, p.view.y], [0, 0]);
-    assert.ok(p.view.zoom < fmap.LOD_EDGES.provinceOut, 'world LOD');
+    // (it was "below the fixed province edge": the far view of a small world is nearer now, and the edges follow it)
+    assert.equal(p.view.zoom, cam.fitView(3, size).zoom, 'the far view');
+    assert.equal(fmap.lodFor(p.view.zoom, 'tile', fmap.lodEdges(p.view.zoom)), 'world', 'world LOD');
+  }
+  // not joined: close on the bell's tower, never the world. The tiles are tiles, the tower is whole in the picture
+  // and takes most of its height; with the nation choice along the foot of the map (a low, wide free part) it stands
+  // left of the middle, clear of the dial
+  const none = opening.openHint({ mode: 'play', land: { stage: 'none' } });
+  for (const [hint, sz, inset] of [[none, size, null], [{ ...none, frame: {} }, { width: 1440, height: 900 }, { top: 48, bottom: 600 }], [{ ...none, frame: {} }, phone, { top: 48, bottom: 420 }]]) {
+    const p = opening.openingPlan(hint, src, sz, { inset });
+    assert.equal(p.kind, 'frame');
+    assert.ok(p.view.zoom >= opening.ENGINE_VIEW.min && p.view.zoom <= opening.ENGINE_VIEW.max, `close: zoom ${p.view.zoom.toFixed(2)}`);
+    assert.equal(fmap.lodFor(p.view.zoom, 'world', fmap.lodEdges(cam.fitView(3, sz).zoom)), 'tile', 'the tile view, not the far view');
+    const foot = fmap.worldToScreen(p.view, sz, 0, RADIUS), tip = fmap.worldToScreen(p.view, sz, 0, -TOWER.height * RADIUS);
+    const top = inset?.top ?? 0, bottom = sz.height - (inset?.bottom ?? 0);
+    assert.ok(tip.y >= top - 1 && foot.y <= bottom + 1, `the tower is whole in the free part (${Math.round(tip.y)}..${Math.round(foot.y)} of ${top}..${bottom})`);
+    assert.ok(foot.y - tip.y >= (bottom - top) * 0.55 || p.view.zoom === opening.ENGINE_VIEW.max, 'and takes most of its height (or the camera is as near as it goes)');
+    if (sz.width === 1440) assert.ok(tip.x < sz.width / 2 - 100, 'left of the dial');
+    else assert.ok(Math.abs(tip.x - sz.width / 2) < 2, 'in the middle');
+  }
+  // a nation that is looked at: its home wedge and the bell at its point, both in the picture
+  for (let f = 0; f < 6; f++) {
+    const sz = { width: 1440, height: 900 }, inset = { top: 48, bottom: 600 };
+    const p = opening.openingPlan({ ...none, frame: { nation: f } }, src, sz, { inset });
+    const b = opening.wedgeBox(f, 3);
+    for (const [x, y] of [[b.x - b.width / 2, b.y - b.height / 2], [b.x + b.width / 2, b.y + b.height / 2], [0, -TOWER.height * RADIUS], [0, 0]]) {
+      const at = fmap.worldToScreen(p.view, sz, x, y);
+      assert.ok(at.x >= -1 && at.x <= sz.width + 1 && at.y >= inset.top - 1 && at.y <= sz.height - inset.bottom + 1, `nation ${f}: wedge and bell in the free part`);
+    }
   }
   // the play page before the viewer's record answered: no plan yet (the map waits; never the world first)
   assert.equal(opening.openHint({ mode: 'play' }).ready, false);
@@ -223,12 +278,20 @@ test('the opening view depends on who is looking: village, candidate sites, home
   const tl = fmap.worldToScreen(w.view, size, box.x - box.width / 2, box.y - box.height / 2), br = fmap.worldToScreen(w.view, size, box.x + box.width / 2, box.y + box.height / 2);
   assert.ok(tl.x >= 0 && tl.y >= 0 && br.x <= size.width && br.y <= size.height, 'the whole wedge fits');
   assert.equal(wedgeOf(...Object.values(fmap.pick(w.view, size, size.width / 2, size.height / 2)).slice(2, 4)), 2, 'and its middle is in wedge 2');
-  // a ticket: the first candidate's province, at tile detail
+  // a ticket (rewritten with UX brief §11.10: it pinned the first candidate's province alone): every candidate site
+  // is in the part of the picture nothing covers, as near as that allows; with their tiles known (the survey's
+  // candidates) it is the tiles that are framed
   const ticket = opening.openHint({ mode: 'play', land: { stage: 'ticket', ticket: { sites: [{ p: 2, q: 0, site: 3 }, { p: 1, q: 1, site: 0 }] } }, citizen: { faction: 0 } });
   const cnd = opening.openingPlan(ticket, src, size);
   assert.equal(cnd.kind, 'candidates');
-  assert.deepEqual([cnd.view.x, cnd.view.y], [layers.provincePixel(2, 0).x, layers.provincePixel(2, 0).y]);
-  assert.ok(cnd.view.zoom >= fmap.LOD_EDGES.tileIn && cnd.view.zoom <= opening.heroZoom(1), 'its tiles are drawn');
+  for (const [p, q] of [[2, 0], [1, 1]]) { const c = layers.provincePixel(p, q), at = fmap.worldToScreen(cnd.view, size, c.x, c.y); assert.ok(at.x > 40 && at.x < size.width - 40 && at.y > 40 && at.y < size.height - 40, `candidate province ${p},${q} is in the picture`); }
+  assert.ok(cnd.view.zoom >= opening.CANDIDATES_MIN && cnd.view.zoom <= opening.heroZoom(1));
+  const known = [{ p: 2, q: 0, site: 3, tile: 7 }, { p: 1, q: 1, site: 0, tile: 30 }, { p: 1, q: 1, site: 1, tile: 50 }];
+  const drawer = { top: 48, right: 400, bottom: 72 };
+  const all = opening.openingPlan(ticket, { ...src, survey: { candidates: known } }, { width: 1440, height: 900 }, { inset: drawer });
+  for (const k of known) { const c = tilePoint(k.p, k.q, k.tile), at = fmap.worldToScreen(all.view, { width: 1440, height: 900 }, c.x, c.y); assert.ok(at.x > 30 && at.x < 1440 - 400 - 30 && at.y > 48 + 30 && at.y < 900 - 72 - 20, `site ${k.site} is in the free part (${Math.round(at.x)}, ${Math.round(at.y)})`); }
+  assert.ok(all.view.zoom >= fmap.LOD_EDGES.tileIn, 'three sites of one wedge: still the tile view');
+  assert.equal(opening.openingPlan(ticket, { ...src, survey: { candidates: known.slice(0, 1) } }, size).view.zoom, opening.heroZoom(1), 'one site: as near as a village');
   // a village: its tile at the hero zoom; the active village when there are several
   const own = [{ p: 2, q: 0, tile: 7 }, { p: 1, q: 1, tile: 30 }];
   const lord = opening.openHint({ mode: 'play', land: { stage: 'final' }, citizen: { faction: 0 }, activeHolding: 1 });
@@ -238,11 +301,26 @@ test('the opening view depends on who is looking: village, candidate sites, home
   assert.deepEqual([h.view.x, h.view.y], [tilePoint(1, 1, 30).x, tilePoint(1, 1, 30).y], 'the active village');
   assert.ok(opening.heroZoom(2) <= opening.heroZoom(1) && opening.heroZoom(2) * RADIUS >= 52, 'the dense-screen hero zoom keeps every village\'s name tag');
   assert.ok(h.rank > cnd.rank && cnd.rank > w.rank && w.rank > opening.openingPlan(undefined, src, size).rank, 'village > candidates > wedge > world');
+  assert.equal(opening.openingPlan(none, src, size).rank, opening.openingPlan(undefined, src, size).rank, 'the bell before joining ranks with the world: anything the viewer becomes takes the camera');
   // on a phone: in the part of the map above the sheet
   const sheet = { bottom: 367 };
   const m = opening.openingPlan(lord, { ...src, own: own.slice(0, 1) }, phone, { inset: sheet });
   const s = fmap.worldToScreen(m.view, phone, tilePoint(2, 0, 7).x, tilePoint(2, 0, 7).y);
   assert.ok(near(s.x, 195) && near(s.y, 367 / 2));
+});
+
+test('the bell\'s tower: a landmark drawn by code, taller than a village and wider than a tile, painted into any context', () => {
+  assert.ok(TOWER.height >= 4 && TOWER.plinth >= 1, 'it stands over its neighbours');
+  const calls = [];
+  const grad = { addColorStop() {} };
+  const g = new Proxy({}, { get: (_, k) => (k === 'createRadialGradient' || k === 'createLinearGradient' ? () => grad : typeof k === 'string' ? (...a) => { calls.push([k, ...a]); } : undefined), set: () => true });
+  paintBellTower(g, 0, 0, RADIUS);
+  const ys = calls.filter(c => c[0] === 'lineTo' || c[0] === 'moveTo').map(c => c[2]);
+  assert.ok(Math.min(...ys) <= -TOWER.height * RADIUS * 0.95 && Math.min(...ys) >= -TOWER.box.top * RADIUS, 'as tall as it says, inside its box');
+  assert.ok(Math.max(...ys) <= TOWER.box.bottom * RADIUS);
+  assert.doesNotThrow(() => paintBellTower(null, 0, 0, RADIUS));
+  // no spare canvas here: no bitmap, and the caller paints it straight
+  assert.equal(towerSprite(57), null);
 });
 
 const canvas = (w = 1000, h = 800) => ({ clientWidth: w, clientHeight: h });
@@ -303,6 +381,29 @@ test('the title card: the opening drifts in slowly behind it and flies the rest 
   assert.deepEqual(m.cam.drawn, mid, 'from where the drift was');
   assert.ok(m.cam.tween.ms <= 1000, 'quickly now');
   assert.equal(m.view.zoom, 1.3);
+  m.destroy();
+});
+
+test('the levels of detail follow the far view: it is the world\'s level whatever the size of the world', () => {
+  assert.equal(fmap.lodEdges(0), fmap.LOD_EDGES);
+  assert.equal(fmap.lodEdges(0.09), fmap.LOD_EDGES, 'a large world: the fixed edges');
+  const e = fmap.lodEdges(0.26);
+  assert.ok(e.provinceOut > 0.26 && e.provinceIn > e.provinceOut && e.provinceIn < e.tileOut, JSON.stringify(e));
+  assert.deepEqual([e.tileIn, e.tileOut], [fmap.LOD_EDGES.tileIn, fmap.LOD_EDGES.tileOut], 'the tiles begin where they did');
+  assert.equal(fmap.lodFor(0.26, 'tile', e), 'world');
+  assert.equal(fmap.lodFor(0.26 * 1.25, 'world', e), 'province', 'one step in');
+  assert.equal(fmap.lodFor(0.6, 'world', e), 'tile');
+  // the nearest far view there is still leaves a province level before the tiles
+  const tight = fmap.lodEdges(cam.FAR_CAP);
+  assert.ok(tight.provinceOut > cam.FAR_CAP && tight.provinceIn < tight.tileOut + 0.01 && tight.provinceIn < tight.tileIn);
+  // on a map: three open rings on a wide canvas
+  const m = new fmap.FrontierMap(canvas(1440, 900), { source: () => ({ overviews: new Map(), ringsOpen: 3 }) });
+  const far = m.farView().zoom;
+  assert.ok(far > fmap.LOD_EDGES.provinceIn, 'nearer than the fixed edge');
+  m.setView({ x: 0, y: 0, zoom: far });
+  assert.equal(m.lod, 'world');
+  m.setView({ zoom: far * 1.25 });
+  assert.equal(m.lod, 'province');
   m.destroy();
 });
 
@@ -376,7 +477,10 @@ test('the zoom range is useful: never much past the far view, never past the spr
   m.destroy();
 });
 
-test('depth without a tilt: the dressing is strong at the diorama and gone at the far view', () => {
+// Rewritten with the tilt (UX brief §11.1): the haze was a pale film of up to 0.78 over the top 44% of the picture;
+// it is now a warm haze of at most 0.30 on the far edge only. (On the three pages the board is really tilted and
+// the dressing is the page's #map-dress; this painter is what a map without the stage draws.)
+test('the depth dressing of a map without the stage: a warm haze of at most 0.30 at the far edge close up, none at the far view', () => {
   assert.equal(nearness(0.05), 0);
   assert.equal(nearness(cam.LOD_NEAR.from), 0);
   assert.equal(nearness(cam.LOD_NEAR.to), 1);
@@ -388,7 +492,10 @@ test('depth without a tilt: the dressing is strong at the diorama and gone at th
   paintDressing(ctx, size, { zoom: 1.3 });
   assert.equal(fills.length, 3, 'haze, vignette, the near edge');
   const alpha = c => Number(/,([\d.]+)\)$/.exec(c)[1]);
-  assert.ok(alpha(fills[0].stops[0][1]) > 0.3 && alpha(fills[0].stops.at(-1)[1]) === 0, 'the haze is strongest at the top edge and fades out');
+  const top = alpha(fills[0].stops[0][1]);
+  assert.ok(top > 0.1 && top <= 0.3 && alpha(fills[0].stops.at(-1)[1]) === 0, `the haze is strongest at the top edge (${top}, never more than 0.30) and fades out`);
+  assert.match(fills[0].stops[0][1], /^rgba\(240,228,200,/, 'warm, not a white film');
+  assert.ok(alpha(fills[1].stops.at(-1)[1]) <= 0.3, 'the vignette never muddies the corners');
   assert.equal(alpha(fills[1].stops[0][1]), 0, 'the middle of the picture is untouched');
   fills.length = 0;
   paintDressing(ctx, size, { zoom: 0.08 });

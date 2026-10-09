@@ -18,7 +18,10 @@ import * as BOOK from '../../permutation-server/web/frontier/map/landing.mjs';
 import { placeName, placeWhere } from '../../permutation-server/web/frontier/map/names.mjs';
 import * as S from '../../permutation-server/web/frontier/map/survey.mjs';
 import { SpriteArt, buildRealms, OTHER_WASH } from '../../permutation-server/web/frontier/map/sprites.mjs';
-import { CLOUD_RINGS, FrontierMap, paintRealmLabels, worldRim } from '../../permutation-server/web/frontier/map/fmap.mjs';
+import { CLOUD_RINGS, FrontierMap, paintRealmLabels } from '../../permutation-server/web/frontier/map/fmap.mjs';
+import { HEX_W, SHEET, paintSheet, paintTable, sheetOf, tableShows, woodTexture } from '../../permutation-server/web/frontier/map/table.mjs';
+import { CloudSea, PUFF, driftTexture, puffsOf, seaField } from '../../permutation-server/web/frontier/map/cloudsea.mjs';
+import { landBox } from '../../permutation-server/web/frontier/map/camera.mjs';
 import * as inspect from '../../permutation-server/web/frontier/hud/inspect.mjs';
 import * as ACTIVITY from '../../permutation-server/web/frontier/people/activity.mjs';
 import { DIRECTIONS, hexDistance, locate, ringOf, ringProvinces, tileHex, PROVINCE_TILES } from '../../permutation-server/web/frontier/fgeo.mjs';
@@ -26,6 +29,8 @@ import { hostId } from '../../permutation-server/web/frontier/faddr.mjs';
 import { DEPART_STAMINA } from '../../permutation-server/web/frontier/fmarch.mjs';
 import { setLang } from '../../permutation-server/web/lang.mjs';
 import { RADIUS, project } from '../../permutation-server/web/map.mjs';
+import { GLYPHS } from '../../permutation-server/web/frontier/map/glyphs.mjs';
+import { FACTION_COLORS } from '../../permutation-server/web/frontier/fi18n.mjs';
 
 const HOME = { p: 2, q: 0, tile: 7 };
 const home = tileHex(HOME.p, HOME.q, HOME.tile);
@@ -80,9 +85,29 @@ test('the landing: the colour floods ring by ring about 90 ms apart, then the bo
   for (let k = 0; k <= 1; k += 0.05) assert.ok(LAND.dropCurve(k) >= 0 && LAND.dropCurve(k) <= 1);
 });
 
-test('the fill of the viewer\'s land is the brief\'s 0.38 at the rim, lighter in the middle; another nation is drawn quieter', () => {
-  assert.equal(LAND.OWN_FILL.rim, 0.38);
-  assert.ok(LAND.OWN_FILL.middle < LAND.OWN_FILL.rim && LAND.OWN_FILL.middle > 0.1);
+test('the viewer\'s land is a band, not a flood: 0.38 at the border falling to 0.08 two thirds of a hex inward, laid on as a cast; another nation is drawn quieter', () => {
+  const F = LAND.OWN_FILL;
+  assert.deepEqual([F.rim, F.middle], [0.38, 0.08], 'the brief\'s numbers (section 11.5)');
+  assert.ok(Math.abs(F.depth - (2 / 3) * Math.sqrt(3) * RADIUS) < 1e-9, 'two thirds of a hex');
+  assert.ok(['overlay', 'soft-light', 'multiply'].includes(F.blend), 'a blend that keeps the ground\'s own colour, never a plain flood');
+  // the strokes: widest first, each inside the one before, never past the depth; over the fill they add up to the
+  // rim at the border and fall toward the middle
+  const steps = LAND.bandSteps();
+  assert.equal(steps.length, F.steps);
+  assert.ok(Math.abs(steps[0].width - 2 * F.depth) < 1e-9 && steps.every((s, i) => i === 0 || s.width < steps[i - 1].width));
+  assert.ok(steps.every(s => s.alpha > 0 && s.alpha < 0.2), 'no step is a visible line');
+  const total = n => 1 - (1 - F.middle) * steps.slice(0, n).reduce((a, s) => a * (1 - s.alpha), 1);
+  assert.ok(total(steps.length) > 0.34 && total(steps.length) <= F.rim + 1e-9, `at the border: ${total(steps.length).toFixed(3)}`);
+  assert.ok(total(1) < 0.12 && total(1) > F.middle, 'the innermost step is almost the middle');
+  for (let n = 2; n <= steps.length; n++) assert.ok(total(n) > total(n - 1), 'stronger toward the border');
+  // painted under what stands on the land: the fill and the band use the blend, the border plain strokes
+  const g = recorder();
+  if (typeof Path2D !== 'undefined') {
+    LAND.paintOwnLand(g, { shape: LAND.landShape(LAND.landTiles({ ...home, tier: 1 })), provisional: false }, { zoom: 1.3, faction: 0, still: true });
+    const modes = g.calls.filter(c => c[0] === '=' && c[1] === 'globalCompositeOperation').map(c => c[2]);
+    assert.ok(modes.includes(F.blend) && modes[modes.length - 1] === 'source-over', 'the cast, then plain painting again');
+    assert.ok(!modes.includes('color'), 'the ground is never repainted in the nation\'s hue');
+  }
   assert.ok(OTHER_WASH < 1);
 });
 
@@ -248,11 +273,29 @@ test('the page\'s actions: lit on selection with no button first; the same tile 
   assert.ok(D.tiles.every(x => x.kind === 'move'), 'nothing surveyed: every lit tile is a plain move');
 });
 
-test('the roll-out: 30 ms a ring; the colours of the brief; a fill of at least 0.35 inside the rim', () => {
+// Rewritten with UX brief §11.7 (it pinned "a fill of at least 0.35 inside the rim" of every lit tile, the whitewash
+// the first review named): reach is one shape. No fill per tile for a move; an inward light of at most 0.15; the
+// rest of the map 15 to 20% darker; only targets keep a hexagon of their own, with a glyph; and a red nation's
+// attack is not the hue of its own land.
+test('reach is one shape: 30 ms a ring; a 2.5-px rim, an inward light of at most 0.15, the rest 15 to 20% darker; targets alone keep a hexagon and a glyph', () => {
   assert.equal(ACT.ROLL_RING_MS, 30);
   assert.deepEqual([ACT.rollAt(0, 1), ACT.rollAt(29, 1) === 0, ACT.rollAt(30 + ACT.ROLL_FADE_MS, 1), ACT.rollAt(1e6, 6)], [0, true, 1, 1]);
   assert.ok(ACT.rollAt(100, 1) > ACT.rollAt(100, 2));
-  for (const k of ['move', 'attack', 'home', 'explore']) assert.ok(ACT.ACTION_COLOURS[k].alpha >= 0.35, `${k}: lit strongly enough`);
+  assert.equal(ACT.rollMs(6), 6 * 30 + ACT.ROLL_FADE_MS);
+  const R = ACT.REACH;
+  assert.equal(R.rim, 2.5);
+  assert.ok(R.inner <= 0.15 && R.inner > 0.05, 'the inward light: at most 0.15');
+  assert.ok(R.dim >= 0.15 && R.dim <= 0.2, 'everything outside the set dims by 15 to 20%');
+  // the strokes of the inward light add up to no more than `inner` at the contour and fall away inward
+  const steps = ACT.innerSteps();
+  const total = n => 1 - steps.slice(0, n).reduce((a, x) => a * (1 - x.alpha), 1);
+  assert.ok(total(steps.length) <= R.inner + 1e-9 && total(steps.length) > R.inner * 0.8);
+  for (let n = 2; n <= steps.length; n++) assert.ok(total(n) > total(n - 1) && steps[n - 1].width < steps[n - 2].width);
+  // a move has no fill of its own; the three kinds of target have one, and each has its glyph
+  assert.equal(ACT.ACTION_COLOURS.move.veil, undefined, 'no frame or fill per tile for a move');
+  assert.deepEqual([...ACT.TARGET_KINDS].sort(), ['attack', 'explore', 'home']);
+  for (const k of ACT.TARGET_KINDS) { assert.ok(ACT.ACTION_COLOURS[k].veil >= 0.3, `${k}: its own hexagon reads`); assert.ok(GLYPHS[ACT.KIND_GLYPH[k]], `${k}: a glyph of the HUD's sprite`); }
+  assert.deepEqual([ACT.KIND_GLYPH.attack, ACT.KIND_GLYPH.home, ACT.KIND_GLYPH.explore], ['swords', 'home', 'eye']);
   assert.deepEqual(ACT.ACTION_COLOURS.move.fill, [216, 243, 234], 'pale teal-white (--reach)');
   assert.deepEqual(ACT.ACTION_COLOURS.attack.fill, [226, 85, 61], 'ember (--ember)');
   assert.deepEqual(ACT.ACTION_COLOURS.home.fill, [243, 213, 138], 'gold (--you)');
@@ -265,6 +308,34 @@ test('the roll-out: 30 ms a ring; the colours of the brief; a fill of at least 0
   assert.equal(ACT.arrivalText(44), 'Arrives: turn 44');
   assert.equal(ACT.NOTE_TEXT.tooFar(32), 'Too far (at most 32 steps)');
   setLang('ja');
+});
+
+test('attack is never the hue of the viewer\'s own land: a red, rose or amber nation attacks in violet, the others in ember', () => {
+  const hue = ([r, g, b]) => { const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn; const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return (h * 60 + 360) % 360; };
+  const rgb = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16));
+  const gap = (a, b) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b));
+  for (let f = 0; f < 6; f++) {
+    const P = ACT.actionPalette(f), own = hue(rgb(FACTION_COLORS[f]));
+    assert.ok(gap(hue(P.attack.fill), own) >= ACT.ATTACK_HUE_GAP, `nation ${f}: attack is ${Math.round(gap(hue(P.attack.fill), own))} degrees from its own colour`);
+    if (P.attack === ACT.ATTACK_ALT) assert.ok(gap(hue(P.attack.fill), hue(P.home.fill)) > 60, 'the other colour is far from gold too (gold is the viewer\'s own)');
+    assert.equal(P.move, ACT.ACTION_COLOURS.move); assert.equal(P.home, ACT.ACTION_COLOURS.home);
+  }
+  assert.equal(ACT.actionPalette(0).attack, ACT.ATTACK_ALT, 'Aster (red)');
+  assert.equal(ACT.actionPalette(1).attack, ACT.ACTION_COLOURS.attack, 'Borealis (teal) keeps ember');
+  assert.equal(ACT.actionPalette(null), ACT.ACTION_COLOURS, 'no nation (the spectator): the brief\'s colours');
+});
+
+test('the reach set as one box and one outline: the host\'s own tile is part of it; a lit tile knows whether it is chart', () => {
+  const A = ACT.createActions({ passableOf: () => (1n << 61n) - 1n })({ ...page([entryOf(1)]), selected: { p: 2, q: 0, idx: 7 } });
+  assert.ok(A.tiles.length > 20);
+  assert.ok(A.tiles.every(t => Number.isInteger(t.lv)), 'every lit tile carries the survey\'s level');
+  const box = ACT.reachBox(A), c = project(home.q, home.r);
+  assert.ok(box.x0 < c.x && box.x1 > c.x && box.y0 < c.y && box.y1 > c.y, 'around the host');
+  for (const t of A.tiles) { const at = project(t.hq, t.hr); assert.ok(at.x - RADIUS >= box.x0 - 1e-6 && at.x + RADIUS <= box.x1 + 1e-6 && at.y >= box.y0 && at.y <= box.y1); }
+  assert.equal(ACT.reachBox(null), null);
+  // the outline of the set with the host's tile is one closed loop when nothing inside it is impassable
+  const shape = LAND.landShape([...A.tiles.map(t => ({ q: t.hq, r: t.hr, d: t.d })), { q: home.q, r: home.r, d: 0 }]);
+  assert.equal(shape.loops.length, 1, 'one contour, no frame per tile');
 });
 
 /** A context that records what is called on it (the painters only need these). */
@@ -295,44 +366,64 @@ test('the painters draw into any context and write their words through the langu
 });
 
 // ------------------------------------------------------------------ where am I
-test('the pointer home: none while the village is in the picture; else on the line to it, at the edge, with the distance in tiles', () => {
+// Rewritten with UX brief §11.8 (it pinned a round 44-px button standing 40 px inside the edge with a bare number): the
+// pointer is a gold tab flush with the edge of the free part of the picture, where the line to the village leaves it;
+// it says the village's name when it appears and then the distance with its unit.
+test('the pointer home: none while the village is in the picture; else a tab flush with the edge where the line to it leaves, with the distance in tiles', () => {
   const size = { width: 800, height: 600 }, at = project(home.q, home.r);
   assert.equal(PTR.edgePointer({ x: at.x, y: at.y, zoom: 1.3 }, size, at), null, 'home in the middle');
   assert.equal(PTR.edgePointer({ x: at.x + 250, y: at.y, zoom: 1.3 }, size, at), null, 'home still on screen');
-  // home far to the right (east): the pointer sits at the right edge and points right
+  // home far to the right (east): the right edge, pointing right
   const east = PTR.edgePointer({ x: at.x - 2000, y: at.y, zoom: 1 }, size, at);
-  assert.deepEqual([Math.round(east.x), Math.round(east.y), Math.round(east.angle * 100)], [800 - PTR.POINTER_MARGIN, 300, 0]);
-  assert.ok(PTR.POINTER_MARGIN >= 32, 'the arrow\'s head stays inside the map');
+  assert.deepEqual([east.edge, Math.round(east.x), Math.round(east.y), Math.round(east.angle * 100)], ['right', 800, 300, 0], 'flush with the edge');
   const mid = { q: Math.round((at.x - 2000) / (Math.sqrt(3) * RADIUS) - home.r / 2), r: home.r };
   assert.ok(Math.abs(east.tiles - dist(mid, home)) <= 1, `about ${dist(mid, home)} tiles away`);
   assert.ok(east.tiles > 20);
-  // up and to the left: on the line, inside the margin
+  assert.deepEqual(PTR.tabBox(east, { w: 96, h: 44 }), { x: 800 - 96, y: 300 - 22, w: 96, h: 44 });
+  // up and to the left by the same amount of screen: the wider side decides (the top edge of an 800 x 600 picture), and the tab keeps off the corner
   const nw = PTR.edgePointer({ x: at.x + 3000, y: at.y + 3000, zoom: 1 }, size, at);
-  assert.ok(nw.x >= PTR.POINTER_MARGIN - 1e-6 && nw.y >= PTR.POINTER_MARGIN - 1e-6 && nw.x < 400 && nw.y < 300);
-  assert.ok(Math.abs((nw.y - 300) / (nw.x - 400) - 1) < 1e-6, 'on the line from the middle toward home');
+  assert.equal(nw.edge, 'top');
+  assert.ok(nw.y === 0 && nw.x >= PTR.POINTER_MARGIN - 1e-6 && nw.x < 400);
   assert.ok(nw.angle < -Math.PI / 2);
-  // a sheet over the lower part of a phone: the pointer keeps to the part nothing covers
+  assert.deepEqual(PTR.tabBox(nw, { w: 96, h: 44 }).y, 0);
+  assert.ok(PTR.tabBox({ ...nw, x: 10 }, { w: 96, h: 44 }).x === 0, 'never out of the picture along its edge');
+  // a sheet over the lower part of a phone and a strip above: the edges are those of the part nothing covers
   const phone = { width: 390, height: 734 };
-  const below = PTR.edgePointer({ x: at.x, y: at.y - 3000, zoom: 1 }, phone, at, { inset: { bottom: 367 } });
-  assert.ok(below.y <= 734 - 367 - PTR.POINTER_MARGIN + 1e-6, 'above the sheet');
+  const below = PTR.edgePointer({ x: at.x, y: at.y - 3000, zoom: 1 }, phone, at, { inset: { top: 48, bottom: 367 } });
+  assert.deepEqual([below.edge, below.y], ['bottom', 734 - 367], 'on the sheet\'s upper edge');
+  assert.equal(PTR.tabBox(below, { w: 96, h: 44 }).y, 734 - 367 - 44);
+  const above = PTR.edgePointer({ x: at.x, y: at.y + 3000, zoom: 1 }, phone, at, { inset: { top: 48, bottom: 367 } });
+  assert.deepEqual([above.edge, above.y], ['top', 48], 'under the strip');
   assert.equal(PTR.POINTER_SIZE, 44, 'a 44-px target');
+  assert.ok(PTR.POINTER_MIN >= 56, 'about 56 px at least');
   setLang('ja');
   assert.equal(PTR.pointerLabel(12), '自分の村へ移動（12 マス先）');
+  assert.equal(PTR.distanceText(5), '5 マス', 'the distance with its unit');
   setLang('en');
   assert.equal(PTR.pointerLabel(12), 'Go to my village (12 tiles away)');
+  assert.equal(PTR.distanceText(5), '5 tiles');
   setLang('ja');
   assert.equal(PTR.mountHomePointer({ clientWidth: 1, clientHeight: 1 }), null, 'no document: no button, nothing thrown');
   assert.equal(PTR.edgePointer({ x: 0, y: 0, zoom: 1 }, size, null), null);
 });
 
-test('the pointer keeps clear of the map\'s own controls: it moves inward along its line', () => {
-  const place = { x: 760, y: 60, angle: -0.5, tiles: 9, from: { x: 400, y: 300 } };
-  assert.equal(PTR.clearOf(place, []), place);
-  assert.equal(PTR.clearOf(place, [{ x: 0, y: 0, w: 100, h: 100 }]), place, 'nothing in its way');
-  const moved = PTR.clearOf(place, [{ x: 740, y: 0, w: 60, h: 200 }]);
-  assert.ok(moved.x < 740 - 22 - 6 + 8 && moved.x > 500, 'left of the controls');
-  assert.ok(Math.abs((moved.y - 300) / (moved.x - 400) - (60 - 300) / (760 - 400)) < 1e-6, 'still on its line');
-  assert.deepEqual([moved.angle, moved.tiles], [-0.5, 9]);
+// Rewritten with UX brief §11.8 (the round pointer moved inward along its line; a tab stays on its edge).
+test('the pointer keeps out of the HUD\'s columns: it slides along its edge, the shortest way, and never leaves the edge', () => {
+  const place = { edge: 'right', x: 800, y: 80, angle: 0, tiles: 9, box: { x0: 0, y0: 48, x1: 800, y1: 600 } };
+  const box = PTR.tabBox(place, { w: 90, h: 44 });
+  assert.equal(PTR.slideClear(place, box, []), box);
+  assert.equal(PTR.slideClear(place, box, [{ x: 0, y: 0, w: 100, h: 100 }]), box, 'nothing in its way');
+  // a column of buttons down the right side from y 40 to 300: the tab goes below it
+  const moved = PTR.slideClear(place, box, [{ x: 744, y: 40, w: 48, h: 260 }]);
+  assert.equal(moved.x, box.x, 'still flush with its edge');
+  assert.ok(moved.y >= 300 + PTR.POINTER_GAP && moved.y < 300 + PTR.POINTER_GAP + 8, `just below the column (${moved.y})`);
+  // a thing in the middle of the top edge (the dial): the tab steps aside
+  const top = { edge: 'top', x: 400, y: 48, angle: -1.5, tiles: 4, box: place.box };
+  const tb = PTR.tabBox(top, { w: 90, h: 44 }), side = PTR.slideClear(top, tb, [{ x: 350, y: 0, w: 100, h: 100 }]);
+  assert.equal(side.y, 48);
+  assert.ok(side.x + 90 <= 350 - PTR.POINTER_GAP + 6 || side.x >= 450 + PTR.POINTER_GAP);
+  // nowhere on the edge is free: it stays where it was
+  assert.equal(PTR.slideClear(place, box, [{ x: 700, y: 0, w: 100, h: 600 }]), box);
 });
 
 test('the far view\'s names never cover each other; a fixed name stays where it is', () => {
@@ -364,23 +455,65 @@ test('the world chart names through the layout and writes the names it is given'
   assert.deepEqual(quiet.calls.filter(c => c[0] === 'fillText').map(c => c[1]), ['My Town'], 'the land lens: the viewer\'s village still has its name');
 });
 
-test('the edge of the world: the cloud thins into the table before its own outer edge', () => {
-  const r3 = worldRim(3), r5 = worldRim(5);
-  assert.ok(r3.from < r3.to && r3.to < r3.out);
-  assert.ok(r5.from > r3.to, 'further out with more rings open');
-  const far = (q, r) => { const c = project(q, r); return Math.hypot(c.x, c.y / 0.76); };
-  // the outer edge of the cloud sea (two rings of it are drawn): the tiles of its outer ring that touch what lies beyond
-  assert.equal(CLOUD_RINGS, 2);
-  let nearest = Infinity, furthest = 0, land = 0;
-  for (const pr of ringProvinces(4)) for (let i = 0; i < PROVINCE_TILES; i++) {
-    const h = tileHex(pr.p, pr.q, i);
-    furthest = Math.max(furthest, far(h.q, h.r));
-    if (DIRECTIONS.some(([dq, dr]) => { const at = locate(h.q + dq, h.r + dr); return ringOf(at.p, at.q) === 5; })) nearest = Math.min(nearest, far(h.q, h.r));
+// Rewritten with UX brief §11.2 and §11.3. The world used to end in two rings of stamped cloud that a gradient
+// dissolved into the table's colour (worldRim). It now ends as a sheet: the cloud sea is a bank between the land's
+// edge and the sheet's bare margin, and the sheet has an edge of its own.
+test('the edge of the world: a cloud bank between the land and the sheet\'s bare margin; the sheet ends as a sheet', () => {
+  assert.equal(CLOUD_RINGS, 1, 'one ring of unopened provinces is in the model, so the land knows where it ends');
+  const sheet = sheetOf(3), land = landBox(3);
+  assert.equal(sheetOf(3), sheet, 'the same sheet every time');
+  const room = (SHEET.sea + SHEET.fade + SHEET.margin) * HEX_W;
+  assert.ok(sheet.x >= land.x + room - 1e-6 && sheet.y > land.y + room * 0.7, 'room beyond the land for the bank, its thinning and a bare margin');
+  assert.ok(sheet.x > sheet.y, 'wider than tall, as the squashed ground is');
+  assert.ok(sheetOf(6).x > sheet.x + 1000, 'a larger world lies on a larger sheet');
+  // the outline: a rectangle whose edge is deckled (never ruler-straight, never far from the rectangle)
+  let off = 0;
+  for (const [x, y] of sheet.points) {
+    const d = Math.max(Math.abs(x) - sheet.x, Math.abs(y) - sheet.y);
+    assert.ok(d < 20 && d > -60, `an outline point ${d.toFixed(1)} px from the rectangle`);
+    off = Math.max(off, Math.abs(d));
   }
-  for (const pr of ringProvinces(2)) for (let i = 0; i < PROVINCE_TILES; i++) { const h = tileHex(pr.p, pr.q, i); land = Math.max(land, far(h.q, h.r)); }
-  assert.ok(r3.to < nearest, 'the cloud is gone before the nearest point of its stepped outer edge');
-  assert.ok(r3.out >= furthest + RADIUS, 'and the table is painted out to its furthest corner');
-  assert.ok(r3.from > land, 'the open land itself is never dimmed');
+  assert.ok(off > 6 && sheet.points.length > 300, 'deckled');
+  assert.ok(Math.abs(sheet.rose.x) < sheet.x && Math.abs(sheet.rose.y) < sheet.y, 'the compass rose stands on the sheet');
+  // the table shows only where the picture reaches past the sheet
+  const inside = [{ x: -500, y: -300 }, { x: 500, y: -300 }, { x: 500, y: 300 }, { x: -500, y: 300 }];
+  assert.equal(tableShows(inside, sheet), false);
+  assert.equal(tableShows([...inside.slice(0, 3), { x: -sheet.x - 100, y: 300 }], sheet), true);
+  // the sea's field: steps from the land, and how much cloud lies at a point
+  const sea = seaField(3);
+  assert.equal(sea.steps(0, 0), 0, 'the Concord is land');
+  const rim = (() => { let q = 0; while (sea.steps(q + 1, 0) === 0) q++; return q; })();
+  assert.deepEqual([sea.steps(rim, 0), sea.steps(rim + 1, 0), sea.steps(rim + 2, 0), sea.steps(rim + 3, 0)], [0, 1, 2, 3], 'one step a tile, outward from the last tile of land');
+  const at = n => project(rim + n, 0);
+  assert.equal(sea.cover(0, 0, sheet), 0, 'no cloud over the land');
+  assert.equal(sea.cover(at(-2).x, at(-2).y, sheet), 0, 'two tiles inside its edge: none');
+  assert.ok(sea.cover(at(0).x, at(0).y, sheet) < 0.5, 'on the last tile of land at most a thin mist');
+  assert.ok(sea.depth(at(0).x + HEX_W / 2, at(0).y) > 0.35 && sea.depth(at(0).x + HEX_W / 2, at(0).y) < 0.65, 'about half a step on the land\'s own edge');
+  let thick = 0;
+  for (let i = 0; i < 40; i++) { const a = (i / 40) * Math.PI * 2, R = land.x + HEX_W * 2.6; if (sea.cover(Math.cos(a) * R, Math.sin(a) * R * 0.76, sheet) > 0.85) thick++; }
+  assert.ok(thick >= 14, `${thick} of 40 points two to three tiles out are deep in the bank (the land is a hexagon: some of that circle is nearer, some further)`);
+  // it never reaches the sheet's edge: the margin is bare paper
+  for (let i = 0; i < 60; i++) {
+    const t = (i / 59) * 2 - 1;
+    assert.equal(sea.cover(sheet.x - HEX_W * 0.4, t * sheet.y, sheet), 0);
+    assert.equal(sea.cover(t * sheet.x, sheet.y - HEX_W * 0.4 * 0.76, sheet), 0);
+  }
+  // the puffs: seeded by the tile (the same every time), turned, flipped, sized and moved; never on the lattice
+  const a1 = puffsOf(40, -3, 2), a2 = puffsOf(40, -3, 2);
+  assert.deepEqual(a1, a2);
+  const many = [];
+  for (let q = 0; q < 30; q++) for (let r = 0; r < 30; r++) many.push(...puffsOf(q, r, 2));
+  assert.ok(many.length > 600 && many.length < 1700, `${many.length} puffs on 900 tiles: not one a tile`);
+  assert.ok(many.every(p => Math.abs(p.turn) <= PUFF.turn + 1e-9 && [1, 2, 3].includes(p.variant) && p.size > 0.4 && p.size < 2));
+  assert.ok(many.some(p => p.flip) && many.some(p => !p.flip) && new Set(many.map(p => p.variant)).size === 3);
+  assert.ok(many.filter(p => Math.hypot(p.dx, p.dy) > 0.1).length > many.length * 0.8, 'moved off their tiles\' middles');
+  assert.ok(Math.max(...many.map(p => p.size)) / Math.min(...many.map(p => p.size)) > 2.2, 'small and large');
+  // without a canvas the painters return quietly
+  assert.equal(woodTexture(), null);
+  assert.equal(driftTexture(), null);
+  paintTable(null, { view: { x: 0, y: 0, zoom: 1 }, size: { width: 10, height: 10 } });
+  paintSheet(null, sheet);
+  assert.deepEqual(new CloudSea().paint(null, { box: { x0: 0, y0: 0, x1: 10, y1: 10 } }), { pending: 0, seen: false });
 });
 
 test('the landing book: a provisional village lands once on a device; one that is already final is old news', () => {

@@ -1,74 +1,110 @@
-// Where am I (UX brief §5.3): when the viewer's village is off the screen, a
-// gold pointer sits at the edge of the map on the line to it and says how
-// many tiles away it is; pressing it flies home. A real button (focusable,
-// 44 px, named for a screen reader), on phones too, where there is no
-// minimap. The geometry is pure (`edgePointer`); the button is placed with
-// custom properties (the page's CSP allows no inline style).
+// Where am I (UX brief §5.3, §11.8): when the viewer's village is off the
+// screen, a gold tab sits flush with the edge of the map, where the line to
+// the village leaves the picture. It carries the home glyph, the village's
+// name when it appears, then how far the village is, with the unit (「5 マス」).
+// Pressing it flies home. A real button (focusable, 44 px high, named for a
+// screen reader), on phones too. It keeps out of the HUD's columns by sliding
+// along its edge, and it is put away while a set piece plays.
+//
+// The geometry is pure (`edgePointer`, `tabBox`, `slideClear`); the button is
+// placed with custom properties (the page's CSP allows no inline style).
 import { inverseHex } from '../../map.mjs';
 import { L, fmtNum, onLangChange } from '../../lang.mjs';
 import { hexDistance } from '../fgeo.mjs';
 import { freeBox } from './camera.mjs';
+import { GLYPHS } from './glyphs.mjs';
 
-/** The button's size (CSS px) and how far its centre keeps from the edge of the part of the map nothing covers. */
+/** The tab: its height (the press target), its least length, how long it says the village's name when it appears (ms), and the room it keeps from the HUD's things (px). */
 export const POINTER_SIZE = 44;
+export const POINTER_MIN = 56;
+export const POINTER_NAME_MS = 3600;
+export const POINTER_GAP = 8;
+/** How far from a corner of the picture the tab's middle keeps (px): a tab is never cut by the corner. */
 export const POINTER_MARGIN = 40;
 
 /**
- * Where the pointer goes for a home at world point `home` `{x, y}`:
- * null while home is in the part of the canvas nothing covers, else
- * `{x, y (CSS px on the canvas), angle (radians, 0 = pointing right),
- * tiles}`: on the line from the middle of that part to home, where the line
- * meets its edge (less a margin), with the distance in tiles from the tile
- * in the middle. `view` {x, y, zoom}; `size` {width, height}; `inset` what
- * the page's sheets cover.
+ * Where the pointer goes for a home at world point `home` `{x, y}`: null
+ * while home is in the part of the canvas nothing covers, else `{x, y (CSS
+ * px on the canvas: where the line from the middle of that part to home
+ * leaves it), edge ('left' | 'right' | 'top' | 'bottom'), angle (radians, 0 =
+ * pointing right), tiles, from, box: {x0, y0, x1, y1} (that part)}`, with the
+ * distance in tiles from the tile in the middle. `view` {x, y, zoom}; `size`
+ * {width, height}; `inset` what the page's sheets cover.
  */
-export function edgePointer(view, size, home, { inset = null, margin = POINTER_MARGIN } = {}) {
+export function edgePointer(view, size, home, { inset = null, margin = POINTER_MARGIN, geo = null } = {}) {
+  // `geo` (map/tilt.mjs tiltGeo): the board's tilt; home is where it is seen, and the middle tile the one seen in the middle
   if (!home || !(size?.width > 0) || !(size?.height > 0) || !(view?.zoom > 0)) return null;
   const f = freeBox(size, inset);
   const cx = size.width / 2 + f.x, cy = size.height / 2 + f.y;
-  const hx = (home.x - view.x) * view.zoom + size.width / 2, hy = (home.y - view.y) * view.zoom + size.height / 2;
+  const flat = { x: (home.x - view.x) * view.zoom + size.width / 2, y: (home.y - view.y) * view.zoom + size.height / 2 };
+  const { x: hx, y: hy } = geo ? geo.toBox(flat.x, flat.y) : flat;
   const halfW = f.width / 2, halfH = f.height / 2;
   // on screen (with a little room to spare): no pointer
   if (Math.abs(hx - cx) <= halfW - 6 && Math.abs(hy - cy) <= halfH - 6) return null;
   const dx = hx - cx, dy = hy - cy;
-  const rx = Math.max(8, halfW - margin), ry = Math.max(8, halfH - margin);
-  const s = Math.min(Math.abs(dx) > 1e-6 ? rx / Math.abs(dx) : Infinity, Math.abs(dy) > 1e-6 ? ry / Math.abs(dy) : Infinity);
+  const sx = Math.abs(dx) > 1e-6 ? halfW / Math.abs(dx) : Infinity, sy = Math.abs(dy) > 1e-6 ? halfH / Math.abs(dy) : Infinity;
+  const s = Math.min(sx, sy);
+  const edge = sx <= sy ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'bottom' : 'top');
+  // (along its edge the tab's middle keeps `margin` from the corners)
+  const mx = Math.min(margin, halfW), my = Math.min(margin, halfH);
+  const x = edge === 'left' || edge === 'right' ? cx + dx * s : Math.max(cx - halfW + mx, Math.min(cx + halfW - mx, cx + dx * s));
+  const y = edge === 'top' || edge === 'bottom' ? cy + dy * s : Math.max(cy - halfH + my, Math.min(cy + halfH - my, cy + dy * s));
   // the tile in the middle of the picture, and home's
-  const mid = { x: view.x + f.x / view.zoom, y: view.y + f.y / view.zoom };
+  const ms = geo ? geo.toStage(cx, cy) : { x: cx, y: cy };
+  const mid = { x: view.x + (ms.x - size.width / 2) / view.zoom, y: view.y + (ms.y - size.height / 2) / view.zoom };
   const [mq, mr] = inverseHex(mid.x, mid.y).split(',').map(Number), [hq, hr] = inverseHex(home.x, home.y).split(',').map(Number);
-  return { x: cx + dx * s, y: cy + dy * s, angle: Math.atan2(dy, dx), tiles: hexDistance(mq, mr, hq, hr), from: { x: cx, y: cy } };
+  return { x, y, edge, angle: Math.atan2(dy, dx), tiles: hexDistance(mq, mr, hq, hr), from: { x: cx, y: cy }, box: { x0: cx - halfW, y0: cy - halfH, x1: cx + halfW, y1: cy + halfH } };
+}
+
+/** The tab's box for a place on an edge: `{x, y, w, h}` (CSS px on the canvas), flush with that edge and inside the picture along it. */
+export function tabBox(place, { w = POINTER_MIN, h = POINTER_SIZE } = {}) {
+  const b = place.box, cl = (v, lo, hi) => Math.max(lo, Math.min(Math.max(lo, hi), v));
+  if (place.edge === 'left') return { x: b.x0, y: cl(place.y - h / 2, b.y0, b.y1 - h), w, h };
+  if (place.edge === 'right') return { x: b.x1 - w, y: cl(place.y - h / 2, b.y0, b.y1 - h), w, h };
+  if (place.edge === 'top') return { x: cl(place.x - w / 2, b.x0, b.x1 - w), y: b.y0, w, h };
+  return { x: cl(place.x - w / 2, b.x0, b.x1 - w), y: b.y1 - h, w, h };
 }
 
 /**
- * Move a pointer place inward along its line (toward `place.from`) until its
- * box is clear of every box in `avoid` (`[{x, y, w, h}]`, CSS px on the
- * canvas: the map's own controls). Gives the place back unchanged when it is
- * clear already or nothing nearer is clear.
+ * Slide a tab along its edge until its box is clear of every box in `avoid`
+ * (`[{x, y, w, h}]`, CSS px on the canvas: the HUD's things), the shortest
+ * way. Gives the box where it was when it is clear already, or when no place
+ * on the edge is clear.
  */
-export function clearOf(place, avoid = [], { size = POINTER_SIZE, gap = 6, step = 8, reach = 260 } = {}) {
-  if (!place || !avoid.length || !place.from) return place;
-  const hits = (x, y) => avoid.some(b => x + size / 2 + gap > b.x && x - size / 2 - gap < b.x + b.w && y + size / 2 + gap > b.y && y - size / 2 - gap < b.y + b.h);
-  if (!hits(place.x, place.y)) return place;
-  const dx = place.from.x - place.x, dy = place.from.y - place.y, len = Math.hypot(dx, dy);
-  if (!(len > 1)) return place;
-  for (let d = step; d <= Math.min(reach, len - size); d += step) {
-    const x = place.x + (dx / len) * d, y = place.y + (dy / len) * d;
-    if (!hits(x, y)) return { ...place, x, y };
+export function slideClear(place, box, avoid = [], { gap = POINTER_GAP, step = 6 } = {}) {
+  const hits = b => avoid.some(a => b.x + b.w + gap > a.x && b.x - gap < a.x + a.w && b.y + b.h + gap > a.y && b.y - gap < a.y + a.h);
+  if (!avoid.length || !hits(box)) return box;
+  const along = place.edge === 'left' || place.edge === 'right' ? 'y' : 'x';
+  const lo = along === 'y' ? place.box.y0 : place.box.x0, hi = (along === 'y' ? place.box.y1 - box.h : place.box.x1 - box.w);
+  for (let d = step; d <= hi - lo; d += step) for (const s of [d, -d]) {
+    const v = box[along] + s;
+    if (v < lo || v > hi) continue;
+    const b = { ...box, [along]: v };
+    if (!hits(b)) return b;
   }
-  return place;
+  return box;
 }
 
-/** The pointer's name for a screen reader, and its hover title. */
+/** The pointer's name for a screen reader, and its hover title; and what the tab itself says once the name has been read. */
 export const pointerLabel = tiles => L`自分の村へ移動（${fmtNum(tiles)} マス先）`;
+export const distanceText = tiles => L`${fmtNum(tiles)} マス`;
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
+const svgOf = (doc, cls, children) => {
+  const svg = doc.createElementNS(SVG_NS, 'svg');
+  for (const [k, v] of Object.entries({ viewBox: '0 0 24 24', width: '20', height: '20', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.9', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true', focusable: 'false', class: cls })) svg.setAttribute(k, v);
+  for (const [d, tone] of children) { const p = doc.createElementNS(SVG_NS, 'path'); p.setAttribute('d', d); if (tone) { p.setAttribute('fill', 'currentColor'); p.setAttribute('fill-opacity', String(tone)); } svg.append(p); }
+  return svg;
+};
 
 /**
- * Mount the button after `canvas` (a DOM page only): `{update(place),
- * remove()}`, or null without a document. `update(null)` hides it;
- * `update({x, y, angle, tiles})` shows it there. `onPress()` flies home.
+ * Mount the button after `canvas` (a DOM page only): `{update(place, {name, avoid}),
+ * remove()}`, or null without a document. `update(null)` puts it away;
+ * `update(place)` (edgePointer's) shows it on its edge. `name`: the village's
+ * name, said when the tab appears; `avoid`: the HUD's boxes over the map.
+ * `onPress()` flies home.
  */
-export function mountHomePointer(canvas, { onPress = () => {} } = {}) {
+export function mountHomePointer(canvas, { onPress = () => {}, clock = () => globalThis.performance?.now?.() ?? Date.now() } = {}) {
   const doc = canvas?.ownerDocument;
   if (!doc?.createElement || !canvas.parentElement) return null;
   const b = doc.createElement('button');
@@ -77,59 +113,59 @@ export function mountHomePointer(canvas, { onPress = () => {} } = {}) {
   b.dataset.map = 'home-pointer';
   b.hidden = true;
   if (doc.createElementNS) {
-    const svg = doc.createElementNS(SVG_NS, 'svg');
-    for (const [k, v] of Object.entries({ viewBox: '-32 -32 64 64', width: '64', height: '64', 'aria-hidden': 'true', focusable: 'false', class: 'hp-arrow' })) svg.setAttribute(k, v);
-    // a disc with a head pointing right (the stylesheet turns it toward home); it is drawn a little larger than the 44-px target
-    const ring = doc.createElementNS(SVG_NS, 'circle');
-    for (const [k, v] of Object.entries({ cx: '0', cy: '0', r: '18', class: 'hp-ring' })) ring.setAttribute(k, v);
-    const head = doc.createElementNS(SVG_NS, 'path');
-    head.setAttribute('d', 'M16.5-11.5 30.5 0 16.5 11.5c3.4-7.4 3.4-15.6 0-23z');
-    head.setAttribute('class', 'hp-head');
-    svg.append(ring, head);
-    b.append(svg);
+    // a small head that turns toward home, and the home glyph (the HUD sprite's own picture: map/glyphs.mjs)
+    b.append(svgOf(doc, 'hp-chev', [['M9 5.5l7 6.5-7 6.5', 0]]), svgOf(doc, 'hp-home', GLYPHS.home.paths));
   }
-  const num = doc.createElement('span');
-  num.className = 'hp-dist';
-  b.append(num);
+  const text = doc.createElement('span');
+  text.className = 'hp-text';
+  b.append(text);
   b.addEventListener('click', () => onPress());
-  let shown = null;
-  const label = () => { if (shown) { const t = pointerLabel(shown.tiles); b.setAttribute('aria-label', t); b.title = t; } };
-  const off = onLangChange(label);
-  (canvas.parentElement.querySelector?.('.map-tools') ?? canvas).after(b);
-  // the map's own controls laid over the canvas (its siblings): the pointer keeps clear of them. Read at most twice a second.
-  let boxes = [], boxesAt = -1e9;
-  const controls = () => {
-    const t = globalThis.performance?.now?.() ?? Date.now();
-    if (t - boxesAt < 500) return boxes;
-    boxesAt = t; boxes = [];
-    const c = canvas.getBoundingClientRect?.();
-    if (!c || !(c.width > 0)) return boxes;
-    for (const el of canvas.parentElement.children) {
-      if (el === canvas || el === b || el.hidden || el.id === 'panel' || el.id === 'map-tip' || el.id === 'map-summary') continue;
-      const r = el.getBoundingClientRect?.();
-      if (!r || !(r.width > 0) || !(r.height > 0) || r.width * r.height > c.width * c.height * 0.45) continue;
-      if (r.right <= c.left || r.left >= c.right || r.bottom <= c.top || r.top >= c.bottom) continue;
-      boxes.push({ x: r.left - c.left, y: r.top - c.top, w: r.width, h: r.height });
-    }
-    return boxes;
+  let shown = null, since = 0, timer = null, name = '';
+  const say = () => {
+    if (!shown) return;
+    const named = !!name && clock() - since < POINTER_NAME_MS;
+    const t = named ? name : distanceText(shown.tiles);
+    if (text.textContent !== t) { text.textContent = t; shown.w = null; }
+    b.dataset.says = named ? 'name' : 'distance';
+    const label = pointerLabel(shown.tiles);
+    b.setAttribute('aria-label', label); b.title = label;
   };
+  const off = onLangChange(say);
+  (canvas.parentElement.querySelector?.('.map-tools') ?? canvas).after(b);
   return {
     el: b,
-    update(at) {
-      if (!at) { if (!b.hidden) { b.hidden = true; shown = null; } return; }
-      const place = clearOf(at, controls());
-      // (the canvas's own place inside the element the button is laid out in)
-      const x = Math.round(place.x + (canvas.offsetLeft ?? 0)), y = Math.round(place.y + (canvas.offsetTop ?? 0)), deg = Math.round(place.angle * 180 / Math.PI);
-      const key = `${x},${y},${deg},${place.tiles}`;
-      if (shown?.key === key && !b.hidden) return;
-      b.style.setProperty('--x', `${x}px`);
-      b.style.setProperty('--y', `${y}px`);
-      b.style.setProperty('--a', `${deg}deg`);
-      const tilesChanged = shown?.tiles !== place.tiles;
-      shown = { key, tiles: place.tiles };
-      if (tilesChanged) { num.textContent = fmtNum(place.tiles); label(); }
-      if (b.hidden) b.hidden = false;
+    /** Its box on the canvas while it shows (CSS px), else null: the map's labels keep clear of it. */
+    box: () => (shown?.box && !b.hidden ? shown.box : null),
+    update(at, { name: n = '', avoid = [] } = {}) {
+      if (!at) { if (!b.hidden) { b.hidden = true; shown = null; if (timer) { clearTimeout(timer); timer = null; } } return; }
+      const fresh = !shown;
+      if (fresh) {
+        // it appears: the village's name first, then the distance (a timer turns the page: nothing else redraws the map)
+        shown = { tiles: at.tiles, w: null }; since = clock(); name = n;
+        b.hidden = false;
+        if (timer) clearTimeout(timer);
+        timer = globalThis.setTimeout?.(() => { timer = null; say(); place(); }, POINTER_NAME_MS + 30) ?? null;
+      }
+      if (fresh || shown.tiles !== at.tiles || name !== n) { shown.tiles = at.tiles; name = n; say(); }
+      shown.at = at; shown.avoid = avoid;
+      place();
     },
-    remove() { off?.(); b.remove(); },
+    remove() { off?.(); if (timer) clearTimeout(timer); b.remove(); },
   };
+  function place() {
+    if (!shown?.at) return;
+    const at = shown.at;
+    if (b.dataset.edge !== at.edge) { b.dataset.edge = at.edge; shown.w = null; }
+    // (its length follows its words: read once per change of words or edge)
+    shown.w ??= Math.max(POINTER_MIN, b.offsetWidth || POINTER_MIN);
+    const box = shown.box = slideClear(at, tabBox(at, { w: shown.w, h: POINTER_SIZE }), shown.avoid ?? []);
+    // (the canvas's own place inside the element the button is laid out in)
+    const x = Math.round(box.x + (canvas.offsetLeft ?? 0)), y = Math.round(box.y + (canvas.offsetTop ?? 0)), deg = Math.round(at.angle * 180 / Math.PI);
+    const key = `${x},${y},${deg}`;
+    if (shown.key === key) return;
+    shown.key = key;
+    b.style.setProperty('--x', `${x}px`);
+    b.style.setProperty('--y', `${y}px`);
+    b.style.setProperty('--a', `${deg}deg`);
+  }
 }
