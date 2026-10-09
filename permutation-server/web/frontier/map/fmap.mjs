@@ -36,11 +36,11 @@ import { fogLevel, paintProvince, paintSigil, paintTiles, paintVeil, provincePix
 import { FACTION_COLORS } from '../fi18n.mjs';
 import { NATION_ON } from '../palette.mjs';
 import { createTerrain } from './terrain.mjs';
-import { SpriteArt, artSize, farRes, terrainLookup } from './sprites.mjs';
+import { INERT_CTX, SpriteArt, artSize, farRes, terrainLookup } from './sprites.mjs';
 import { paintSheet, paintTable, sheetOf, tableShows } from './table.mjs';
 import { CloudSea, DRIFT_SPEED, SEA_BAKES, seaField, seaRes } from './cloudsea.mjs';
 import { project, RADIUS, FLATTEN } from '../../map.mjs';
-import { Camera, EASE, FAR_CAP, MOVE_MS, clampCentre, fitView, freeBox, reducedMotion } from './camera.mjs';
+import { Camera, EASE, FAR_CAP, MOVE_MS, between, clampCentre, fitView, freeBox, reducedMotion } from './camera.mjs';
 import { OPEN_FROM, OPEN_WAIT_MS, heroZoom, lookPoint, openingPlan, placePoint } from './opening.mjs';
 import { nearness, paintDressing } from './dressing.mjs';
 import { PROBE } from './probe.mjs';
@@ -126,10 +126,20 @@ export const DIAL_AIR = 8;
  * width and height, and its middle is seen this share of the uncovered height below the middle.
  */
 export const WAIT_VIEW = Object.freeze({ wide: 0.62, high: 0.7, drop: 0.02 });
-/** The far haze of the waiting picture: `[share of the picture's height from its top, strength]`, the style sheet's own stops (.map-dress::before). */
-export const WAIT_HAZE = Object.freeze([[0, 0.9], [0.115, 0.9], [0.147, 0.7], [0.198, 0.46], [0.282, 0.26], [0.422, 0.1], [0.55, 0.03], [0.64, 0]]);
-/** The opening shows its first picture whole: it waits at most this long (ms) for the last of it to be made. */
+/** The opening's land comes out of the bare sheet at the latest this long (ms) after the map knew where to go, whatever of it is still being made. */
 export const OPEN_HOLD_MS = 1600;
+/**
+ * The opening's dive (UX brief §13.4): the camera sets off from the waiting picture's own view the moment the map
+ * knows where to go, and flies `ms` (eased out steeply: it is close above its subject after a third of that). The
+ * picture it flies to is made meanwhile, out of sight: a frame gives `ground` ms to new ground bitmaps and `sea` ms
+ * to new pieces of the cloud sea (one of each at least). The land comes out of the sheet over `land` ms once that
+ * picture is made and the camera has come within `near` of its zoom (from further up the picture is several times
+ * as wide: more ground than the map keeps, and none of it prepared). Once `rest` ms have gone the land is shown
+ * with the province the camera flies to alone, and the chart around it and the sea join as they are made. The
+ * ground of a dive is made at `lo` of its fineness, and its sea as fine as a picture at `sea0` of its zoom needs (a
+ * picture in motion, and cloud is soft; the resting picture makes its own, and these stand in until it has).
+ */
+export const DIVE = Object.freeze({ ms: 1050, land: 380, ground: 64, sea: 30, near: 0.72, rest: 900, lo: 0.5, sea0: 0.6 });
 /**
  * The apron of a travelling picture (FrontierMap.groundApron): how far it reaches past the canvas (device px), the
  * most pixels it may have, how far ahead of the camera's way it is laid (of the margin), between which zooms (of the
@@ -480,14 +490,11 @@ export class FrontierMap {
     // the dark of the room above the board's horizon (UX brief §12.1): one more piece of the depth dressing, made here
     // so the three pages need no line for it
     if (this.dress?.querySelector && !this.dress.querySelector('.map-dusk') && page.createElement) { const d = page.createElement('i'); d.className = 'map-dusk'; this.dress.append(d); }
-    // the waiting picture (UX brief §12.3) has a stage of its own over the ground, at the seat's angle: the land comes
-    // out of it as one dissolve, whatever angle the opening's own view has. Made here, under the dressing
-    this.waitStage = null;
-    if (this.dress?.before && page.createElement) {
-      const st = page.createElement('div'), cv = page.createElement('canvas');
-      st.className = 'map-stage map-wait'; cv.className = 'map-ground';
-      if (cv.getContext && st.append) { st.append(cv); this.dress.before(st); this.waitStage = { node: st, canvas: cv, on: false }; }
-    }
+    // (the waiting picture, UX brief §12.3, is painted on the ground canvas itself, the stage at the seat's angle: the
+    // opening is one picture from the first frame on. The third wave gave it a stage of its own and dissolved the land
+    // out of it; for a fifth of a second two pictures of two views lay over one another: UX brief §13.4)
+    /** The opening's dive while it plays (`open`), else null. */
+    this.dive = null;
     /** The tilt at the near view (degrees): the constant chosen from screenshots, `?tilt=` for trials, 0 for the flat map. */
     this.tiltMax = this.stage ? Math.max(0, Math.min(TILT.max, tilt ?? tiltFromQuery(globalThis.location?.search) ?? TILT.deg)) : 0;
     /** The viewing distance (CSS px): the constant chosen from screenshots, `?persp=` for trials. */
@@ -540,8 +547,7 @@ export class FrontierMap {
       // the reach of a host that was just selected is not all in the picture: the camera eases out to it
       // (asked for inside the last picture: a person who moved the camera since then keeps it)
       if (this.reachFly) { const f = this.reachFly; this.reachFly = null; if (f.moves === (this.moves ?? 0)) this.setView(f.to, { auto: true, ms: MOVE_MS.reach, kind: 'fly', ease: EASE.inOutCubic }); }
-      // (an opening that waits for its first whole picture has not set off yet)
-      if (!this.openHold && this.cam.step(now)) this.dirty = true;
+      if (this.cam.step(now)) this.dirty = true;
       if (this.dirty) this.draw(now);
       this.raf = globalThis.requestAnimationFrame?.(this.frame);
     };
@@ -550,6 +556,8 @@ export class FrontierMap {
 
   /** The logical view {x, y, zoom}: where the camera is going (picking by keyboard, the LOD and tests read this). */
   get view() { return this.cam.view; }
+  /** The opening's dive while its land is not on screen yet (the first picture is still being made), else null. */
+  get openHold() { return this.dive && this.dive.landAt === null ? this.dive : null; }
   /** The view on screen right now (it travels toward `view`): for things that should follow the picture, like a minimap frame. */
   get shown() { return this.cam.drawn; }
   /** The map's box on the page (CSS px): what the views, the insets and every flat formula are measured in. */
@@ -566,7 +574,15 @@ export class FrontierMap {
   /** The edges between the levels of detail on this canvas (lodEdges). */
   edges(size = this.size()) { return lodEdges(this.flatZoom(size)); }
   /** The board's angle at `zoom` (degrees): flat at the far view, `tiltMax` at the diorama. */
-  tiltDeg(zoom, size = this.size()) { return this.tiltMax > 0 ? tiltAt(zoom, { far: this.flatZoom(size) * 1.05, deg: this.tiltMax }) : 0; }
+  tiltDeg(zoom, size = this.size()) {
+    if (!(this.tiltMax > 0)) return 0;
+    const at = z => tiltAt(z, { far: this.flatZoom(size) * 1.05, deg: this.tiltMax }), own = at(zoom);
+    // (the opening's dive begins at the seat's own angle, the waiting picture's, whatever the zoom, and goes over
+    // evenly to the angle of the view it ends on; never flatter than the zoom's own. Only the picture on screen: where
+    // the camera is going is worked out with the angle it will have there)
+    const d = this.dive;
+    return d?.seat && zoom === this.cam.drawn.zoom ? Math.max(own, this.tiltMax + (at(this.cam.view.zoom) - this.tiltMax) * d.p) : own;
+  }
   /** The tilt's geometry at `zoom` (default: the picture on screen): stage px to box px and back. */
   geo(zoom = this.cam.drawn.zoom, size = this.size()) { return tiltGeo(size, this.tiltDeg(zoom, size), this.persp); }
   /** The canvas's box in the viewport (read once a frame at most). */
@@ -1202,10 +1218,13 @@ export class FrontierMap {
     if (key === this.openKey) return true;
     const prev = this.opened ?? null, was = { ...this.cam.drawn };
     this.openKey = key;
-    this.opened = { kind: plan.kind, rank: plan.rank, width: size.width, height: size.height, title, subject };
+    this.opened = { kind: plan.kind, rank: plan.rank, width: size.width, height: size.height, title, subject, at: plan.at };
     // (the plan's view is the flat one: the subject goes where it is seen in the middle of the uncovered part)
     const drop = plan.kind === 'home' ? this.seatDrop() : 0;
     const to = this.aim(plan.at, plan.view.zoom, size, inset, drop);
+    // the dive is under way and its end moved (the page's sheets settled, the viewer became more, the window changed
+    // size): the same flight ends there, with no new start
+    if (this.dive && !this.dive.calm && this.cam.moving && prev && !title && !prev.title) { this.cam.retarget(to); this.sync(); return true; }
     this.setView(to, { auto: true });
     const f = (b => ({ x: b.x, y: b.y }))(freeBox(size, inset));
     // where an opening starts: a player's land is reached from a little above
@@ -1215,12 +1234,20 @@ export class FrontierMap {
       // whatever changes there (the viewer becomes known, the window changes size). Nothing travels unseen
       if (start) this.hold(start);
       this.reveal = undefined;
-    } else if (!prev || prev.title) {
-      // the first picture, or the title was put away: the opening plays now, and the land comes out of the bare table
-      if (start) this.cam.from(prev ? was : start, { ms: MOVE_MS.open, ease: EASE.outCubic, anchor: f });
+    } else if (prev?.title) {
+      // the title was put away: the opening plays now, from where the camera waited behind it, and the land comes out of the bare table
+      if (start) this.cam.from(was, { ms: MOVE_MS.open, ease: EASE.outCubic, anchor: f });
       this.reveal = now;
-      // (the first picture is shown whole or not at all: the camera and the dissolve wait for it, `openHold`)
-      this.openHold = this.cam.reduced() ? null : { since: now };
+    } else if (!prev) {
+      // the first picture (UX brief §13.4): the dive. The camera sets off at once from the waiting picture's own view,
+      // the whole sheet seen from the seat, and flies down to its subject over the bare sheet; the land comes out of
+      // the paper as soon as it is there (`draw`). One picture all the way: nothing is laid over anything
+      // (from the waiting picture as it was last shown: the page's sheets may have moved since, with the answer that
+      // said who is looking, and the picture must not jump to where they would put it now)
+      const from = this.waitAt ?? this.waitView(size, inset), calm = this.cam.reduced();
+      this.cam.from(from, { ms: DIVE.ms, ease: EASE.outQuart, kind: 'fly', real: true });
+      this.dive = { t0: now, from, calm, seat: !calm && this.tiltMax > 0, p: calm ? 1 : 0, landAt: null };
+      this.reveal = now;
     } else if (prev.width !== size.width || prev.height !== size.height) {
       // a new canvas size: framed again, at once
     } else if (prev.subject === subject) {
@@ -1272,22 +1299,32 @@ export class FrontierMap {
     if (!this.open(src, size, { dpr, now })) {
       // who is looking is not known yet: the table and the bare sheet, seen from the seat. Never the world first, and
       // nothing that says who the viewer is or is not (UX brief §12.3). Painted once: it does not change
+      // (on the ground canvas itself, the stage at the seat's angle, under the page's own haze: the opening's dive
+      // begins as this very picture)
       const wv = this.waitView(size, inset), key = `${W}x${H}|${this.rings}|${wv.x.toFixed(1)},${wv.y.toFixed(1)},${wv.zoom.toFixed(4)}`;
       const WT = tiltGeo(size, this.tiltMax, this.persp);
-      const wctx = this.waitLayer(W, H, G);
-      if (this.bare !== key) { this.paintWait(wctx ?? ctx, wv, G, gsize, gr, WT); this.bare = key; if (wctx) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#0e1b19'; ctx.fillRect(0, 0, W, H); } }
+      if (this.bare !== key) { this.paintWait(ctx, wv, G, gsize, gr); this.bare = key; }
+      /** The waiting picture's view while it shows: the opening's dive begins exactly there. */
+      this.waitAt = wv;
       wipe();
-      // (on its own layer the picture carries its own far haze; the dark of the room above it is the page's, as ever.
-      // Without that layer, a map with no page under it, it lies on the ground canvas under the page's haze)
       if (!staged) dressing(0);
-      else if (wctx) { this.showWait(1); this.dressPage(0, { near: nearness(1), shown: 1, inset, haze: 0, dusk: 1 }); }
-      else this.dressPage(WT.deg, { near: nearness(1), shown: 1, inset, haze: 1, sheet: this.sheetClip(wv, size, WT, G) });
+      else this.dressPage(WT.deg, { near: nearness(wv.zoom), shown: 1, inset, haze: 1, sheet: this.sheetClip(wv, size, WT, G) });
       this.updatePointer(null);
+      // (what the first picture will need whoever is looking: the rules module for the land's shape; asked for now)
+      // (and, while a viewer's record is on its way, the sprites any land of the tile view is made of)
+      try { (src.terrainOf ?? this.terrainOf)?.(0, 0); if (this.art && src.open?.ready === false) this.art.warm(artSize(RADIUS * heroZoom(dpr) * gr).key); } catch { /* no terrain on this page */ }
       PROBE.end('wait', ctx);
       return;
     }
     this.bare = null;
-    const v = this.cam.drawn, logical = this.cam.view;
+    const logical = this.cam.view;
+    // the dive: how far it has come (by the zoom it has travelled; by the clock where the zoom hardly changes)
+    const dive = this.dive;
+    if (dive?.seat) {
+      const z0 = dive.from.zoom, span = Math.log(logical.zoom / z0);
+      dive.p = !this.cam.moving ? 1 : Math.abs(span) > 0.08 ? Math.max(0, Math.min(1, Math.log(this.cam.drawn.zoom / z0) / span)) : this.cam.progress();
+    }
+    const v = this.cam.drawn;
     this.rehover(v, size);
     // the board's angle on screen follows the zoom on screen; `gv` is the ground canvas's own flat view of the same picture
     const T = this.geo(v.zoom, size), gv = groundView(v, G);
@@ -1328,7 +1365,46 @@ export class FrontierMap {
     // away from the tile view its still layers are let go (two bitmaps the size of the canvas)
     if (lod !== 'tile' && this.layers) this.layers = null;
     if (lod !== 'tile' && this.apron) this.apron = null;
-    const out = this.paintScene(ctx, src, gv, lod, gsize, gr, { now, rest, table, artZoom: Math.max(v.zoom, logical.zoom), quad: quadOf(v, T), up });
+    if (dive && dive.landAt === null) {
+      // The dive over the bare sheet (UX brief §13.4). The picture on screen is the sheet on its table, as the camera
+      // sees it on its way down; the picture the camera flies to is made meanwhile, into a context that shows
+      // nothing: its sprites are asked for, its ground, its relief and its pieces of the sea are made and kept, a
+      // few milliseconds of it a frame. The land comes out of the paper once the province the camera flies to has its
+      // ground and its sprites (the rest joins as it is made: a sheet of chart, a soft body of cloud), or after
+      // OPEN_HOLD_MS whatever is missing. Under reduced motion nothing travels: the waiting picture stays until the
+      // land is there, then the picture changes once.
+      // (the picture that is made is the one the camera ends on, as wide as the apron of a travelling picture is
+      // painted: what the last part of the flight shows)
+      const tl = lodFor(logical.zoom, this.lod, E);
+      // (the sprites that picture is made of are asked for at once, before the rules module has said what land lies
+      // there: the set of the tile view, or the far bitmaps' own)
+      this.art?.warm(artSize(RADIUS * (tl === 'tile' ? logical.zoom * gr : farRes(logical.zoom * gr))).key);
+      // (under reduced motion: the resting picture itself, the part of the board the tilt shows)
+      const pm = tl === 'tile' && !dive.calm ? APRON.margin / gr : 0, wide = tl === 'tile' && !dive.calm ? 1 / DIVE.near : 1, psize = { width: gsize.width * wide + 2 * pm, height: gsize.height * wide + 2 * pm };
+      // (the first frame of it makes nothing: it asks for what the picture is made of, and is over at once, so the
+      // requests leave now and not after a long frame)
+      INERT_CTX.frame();
+      const pre = this.paintScene(INERT_CTX, src, groundView(logical, G), tl, psize, gr, { now, artZoom: logical.zoom, prep: dive.asked ? true : 'ask', quad: dive.calm ? quadOf(logical, this.geo(logical.zoom, size)) : null });
+      dive.asked = true;
+      const waited = now - dive.t0, near = dive.calm || (lod === tl && v.zoom >= logical.zoom * DIVE.near);
+      const made = pre.pending === 0 || (waited > DIVE.rest && tl === 'tile' && this.homeMade());
+      // (a moment earlier than now: the frame that shows the land first shows a little of it, not none)
+      if ((made && near) || waited > OPEN_HOLD_MS) dive.landAt = now - DIVE.land * 0.12;
+      if (dive.landAt === null) {
+        const bv = dive.calm ? dive.from : v, BT = dive.calm ? tiltGeo(size, this.tiltMax, this.persp) : T;
+        this.paintBare(ctx, groundView(bv, G), gsize, gr);
+        wipe();
+        if (!staged) dressing(0);
+        else this.dressPage(BT.deg, { near: nearness(bv.zoom), shown: 1, inset, haze: 1, sheet: this.sheetClip(bv, size, BT, G) });
+        this.updatePointer(null);
+        this.mark('pending');
+        this.dirty = true;
+        PROBE.end('wait', ctx);
+        try { this.onDraw?.(v, size, lod); } catch { /* the page's own follower */ }
+        return;
+      }
+    }
+    const out = this.paintScene(ctx, src, gv, lod, gsize, gr, { now, rest, table, artZoom: Math.max(v.zoom, logical.zoom), quad: quadOf(v, T), up, rush: !!dive });
     this.painted = true;
     if (this.fade) {
       // the old picture stays whole until the new level has its art (a moment at most), then fades; it is a still
@@ -1348,30 +1424,39 @@ export class FrontierMap {
         this.dirty = true;
       }
     }
-    // the opening comes out of the picture it waited on: the land first, its labels with it. It is shown whole or not
-    // at all: while a part of the first picture is still being made (a square of the cloud sea, a province's ground,
-    // a sprite on its way) the waiting picture stays, and the camera has not set off (OPEN_HOLD_MS at most)
+    // the opening: the land comes out of the picture that was on screen, its labels with it
     let shown = 1;
-    const waitOn = !!this.waitStage?.on;
-    if (this.openHold) {
-      if (out.pending === 0 || now - this.openHold.since > OPEN_HOLD_MS || !motion) { this.openHold = null; if (this.reveal !== undefined && this.reveal !== null) this.reveal = now; }
-      else { shown = 0; if (!waitOn) table(ctx); this.dirty = true; }
-    }
-    if (!this.openHold && this.reveal !== undefined && this.reveal !== null) {
+    if (dive) {
+      // out of the bare sheet, where the camera is: the sheet is laid over the finished picture, less of it with every frame
+      // (the frame that shows the land first is the longest of the opening: the apron of the travelling picture is made
+      // in it. The dissolve's clock is set again by the frame after it, so that frame's length is not taken out of the
+      // dissolve: the land comes in over `land` ms of frames a person sees)
+      if (dive.seen === 1 && motion && !dive.calm) dive.landAt = now - DIVE.land * 0.2;
+      dive.seen = (dive.seen ?? 0) + 1;
+      const k = motion && !dive.calm ? (now - dive.landAt) / DIVE.land : 1;
+      if (k < 1) {
+        shown = 1 - Math.pow(1 - Math.max(0, k), 2);
+        ctx.save(); ctx.globalAlpha = 1 - shown; this.paintBare(ctx, gv, gsize, gr); ctx.restore();
+        this.dirty = true;
+      } else {
+        this.reveal = null;
+        // (the dive itself, the seat's angle easing into the zoom's own, lasts until the camera has come down)
+        if (!this.cam.moving) this.dive = null;
+      }
+    } else if (this.reveal !== undefined && this.reveal !== null) {
+      // (the title was put away: out of the bare table)
       const k = motion ? (now - this.reveal) / REVEAL_MS : 1;
       if (!(k < 1)) this.reveal = null;
       else {
         shown = 1 - Math.pow(1 - Math.max(0, k), 2);
-        // (out of the waiting picture, which lies on its own layer over the ground; where there is none, out of the bare table)
-        if (!waitOn) { ctx.save(); ctx.globalAlpha = 1 - shown; table(ctx); ctx.restore(); }
+        ctx.save(); ctx.globalAlpha = 1 - shown; table(ctx); ctx.restore();
         this.dirty = true;
       }
     }
+    /** How much of the land is on screen, 0..1 (for whoever measures the opening). */
+    this.landShown = shown;
     // (for whoever measures the opening: frames a person saw in which a square of the sea was only its stand-in body)
     if (out.rough && shown > 0.02) this.roughShown = (this.roughShown ?? 0) + 1;
-    // (the waiting picture goes as the land comes, and is let go once the land is there; behind the title nothing waits)
-    const fromWait = waitOn && (!!this.openHold || (this.reveal !== undefined && this.reveal !== null));
-    if (waitOn) this.showWait(fromWait ? 1 - shown : 0);
     // a set piece has the stage: the words fade out, and back in after it (at once when nothing may move)
     const want = this.piece ? 0 : 1, had = this.wordsShown ?? 1;
     if (had !== want) {
@@ -1385,8 +1470,10 @@ export class FrontierMap {
     // (the dark of the room above the horizon stays through the dissolve out of the waiting picture: only the picture changes)
     // (close on the bell before joining, the tower is the picture's subject and stands up into the far rows' band: the
     // haze is thinner there, BELL_HAZE, or its spire pales with the horizon)
-    const thin = this.opened?.kind === 'frame' && !this.cam.userMoved ? BELL_HAZE : 1;
-    dressing(v.zoom, T.deg, shown, words * thin, staged ? this.sheetClip(v, size, T, G) : 'none', (fromWait ? 1 - shown : 0) + (1 - thin) * (fromWait ? shown : 1));
+    // (through a dive the haze and the dark are there from the waiting picture on: only the land comes; the bell's
+    // thinner haze comes as the camera comes down)
+    const thin0 = this.opened?.kind === 'frame' && !this.cam.userMoved ? BELL_HAZE : 1, thin = dive?.seat ? 1 + (thin0 - 1) * dive.p : thin0;
+    dressing(v.zoom, T.deg, dive ? 1 : shown, words * thin, staged ? this.sheetClip(v, size, T, G) : 'none', 1 - thin);
     wipe();
     if (shown > 0.4 && words > 0.02) {
       // each label stands upright around its own place on the board (map/tilt.mjs)
@@ -1419,53 +1506,39 @@ export class FrontierMap {
   }
   /**
    * The waiting picture: the table, and on it the sheet with nothing drawn on it yet (its paper, its neatline, its
-   * rose). `T` (the tilt's geometry, on the picture's own layer): the sheet's far rows pale into the same haze as
-   * the board's (WAIT_HAZE: the style sheet's own stops), painted into the picture so it dissolves with it.
+   * rose), at the map's flat view `view`. The stage shows it at the seat's angle, under the page's own haze.
    */
-  paintWait(g, view, G, gsize, ratio, T = null) {
-    const gv = groundView(view, G), sheet = sheetOf(this.rings ?? 1), z = gv.zoom;
-    paintTable(g, { view: gv, size: gsize, ratio, sheet });
-    const world = [ratio * z, 0, 0, ratio * z, ratio * (gsize.width / 2 - gv.x * z), ratio * (gsize.height / 2 - gv.y * z)];
-    g.setTransform(...world);
-    paintSheet(g, sheet, { box: { x0: gv.x - gsize.width / 2 / z, y0: gv.y - gsize.height / 2 / z, x1: gv.x + gsize.width / 2 / z, y1: gv.y + gsize.height / 2 / z }, res: farRes(z * ratio), zoom: z });
-    if (T && !T.flat && sheet.path && g.createLinearGradient && g.clip) {
-      // a stop `k` of the way down the picture's box lies on the canvas where the tilt shows that row
-      const size = this.size(), rowOf = k => (T.toStage(size.width / 2, k * size.height).y - G.top) * ratio;
-      const y0 = rowOf(0), y1 = rowOf(WAIT_HAZE[WAIT_HAZE.length - 1][0]);
-      g.save(); g.clip(sheet.path); g.setTransform(1, 0, 0, 1, 0, 0);
-      const gr = g.createLinearGradient(0, y0, 0, y1);
-      for (const [k, a] of WAIT_HAZE) gr.addColorStop(Math.max(0, Math.min(1, (rowOf(k) - y0) / (y1 - y0))), `rgba(244,230,198,${a})`);
-      g.fillStyle = gr; g.fillRect(0, 0, g.canvas?.width ?? gsize.width * ratio, y1);
-      g.restore();
+  paintWait(g, view, G, gsize, ratio) { this.paintBare(g, groundView(view, G), gsize, ratio); }
+  /**
+   * The bare sheet on its table at `gv`, the ground canvas's own flat view: the waiting picture, and every picture of
+   * the opening's dive until the land is there. The sheet is the one kept picture of it (`quickSheet`: a copy), so the
+   * waiting picture and the dive's first frame are the same pixels.
+   */
+  paintBare(g, gv, gsize, ratio) {
+    const sheet = sheetOf(this.rings ?? 1), z = gv.zoom, hw = gsize.width / 2 / z, hh = gsize.height / 2 / z;
+    const box = { x0: gv.x - hw, y0: gv.y - hh, x1: gv.x + hw, y1: gv.y + hh };
+    const corners = [{ x: box.x0, y: box.y0 }, { x: box.x1, y: box.y0 }, { x: box.x1, y: box.y1 }, { x: box.x0, y: box.y1 }];
+    if (!this.quickSheet(g, { view: gv, size: gsize, ratio, sheet, corners, ringsOpen: this.rings ?? 1 })) {
+      // (no spare canvas to keep the sheet in: painted straight)
+      paintTable(g, { view: gv, size: gsize, ratio, sheet });
+      g.setTransform(ratio * z, 0, 0, ratio * z, ratio * (gsize.width / 2 - gv.x * z), ratio * (gsize.height / 2 - gv.y * z));
+      paintSheet(g, sheet, { box, res: farRes(z * ratio), zoom: z });
     }
     g.setTransform(ratio, 0, 0, ratio, 0, 0);
   }
-  /**
-   * The waiting picture's own canvas, laid out as the ground canvas is and at the seat's angle: its context, or null
-   * where the page has no such layer (the picture is then painted on the ground canvas).
-   */
-  waitLayer(W, H, G) {
-    const L = this.waitStage, cv = L?.canvas;
-    if (!cv) return null;
-    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; this.bare = null; }
-    const key = `${G.left},${G.top},${G.width},${G.height}|${this.tiltMax}|${this.persp}`;
-    if (L.key !== key) {
-      L.key = key;
-      const cs = cv.style, ss = L.node.style;
-      cs?.setProperty?.('--map-gl', `${G.left}px`); cs?.setProperty?.('--map-gt', `${G.top}px`); cs?.setProperty?.('--map-gw', `${G.width}px`); cs?.setProperty?.('--map-gh', `${G.height}px`);
-      ss?.setProperty?.('--map-tilt', `${this.tiltMax.toFixed(2)}deg`); ss?.setProperty?.('--map-persp', `${this.persp}px`);
-      if (L.node.dataset) { if (this.tiltMax > 0) delete L.node.dataset.flat; else L.node.dataset.flat = ''; }
-    }
-    return cv.getContext('2d', { alpha: false }) ?? null;
+  /** Whether the province the opening flies to has its ground of the tile view, and no sprite is still on its way. */
+  homeMade() {
+    const at = this.opened?.at;
+    if (!this.art || !at) return false;
+    const [q, r] = inverseHex(at.x, at.y).split(',').map(Number), l = locate(q, r);
+    return this.art.loading === 0 && !!this.art.groundStale(l);
   }
-  /** How much of the waiting picture shows (0..1) over the ground; at 0 it is put away and its pixels are let go. */
-  showWait(a) {
-    const L = this.waitStage;
-    if (!L) return;
-    const v = Math.max(0, Math.min(1, a)).toFixed(3);
-    if (L.shown !== v) { L.shown = v; L.node.style?.setProperty?.('--map-wait', v); }
-    const on = a > 0;
-    if (on !== L.on) { L.on = on; if (!on) { L.canvas.width = 0; L.canvas.height = 0; this.bare = null; } }
+  /** The province the opening flies to, as "P,Q" (its ground is made first), or null. */
+  diveKey() {
+    const at = this.opened?.at;
+    if (!at) return null;
+    const [q, r] = inverseHex(at.x, at.y).split(',').map(Number), l = locate(q, r);
+    return `${l.p},${l.q}`;
   }
 
   /**
@@ -1654,8 +1727,11 @@ export class FrontierMap {
    * (default: this canvas), and how much art of this picture is still on
    * its way.
    */
-  paintScene(ctx, src, view, lod, size, dpr, { now = clock(), rest = false, artZoom = view.zoom, table = () => {}, quad = null, up = null, still = false } = {}) {
+  paintScene(ctx, src, view, lod, size, dpr, { now = clock(), rest = false, artZoom = view.zoom, table = () => {}, quad = null, up = null, still = false, prep = false, rush = prep } = {}) {
     // (`still`: one picture for a dissolve, of a level that is being left: nothing is kept for it)
+    // (`prep`: the opening's first picture is made before it is shown: `ctx` paints nothing, and what is kept is
+    // the art's own, the ground bitmaps, the relief, the pieces of the sea; no picture of the canvas is kept or
+    // copied. `rush`: the opening is on screen: more of what is new is made a frame)
     const { width, height } = size, z = view.zoom;
     const world = [dpr * z, 0, 0, dpr * z, dpr * (width / 2 - view.x * z), dpr * (height / 2 - view.y * z)];
     // what lies under the art: the table, and the provinces drawn as plain cells (no terrain yet, or no art);
@@ -1671,11 +1747,12 @@ export class FrontierMap {
     const corners = [{ x: seen.x0, y: seen.y0 }, { x: seen.x1, y: seen.y0 }, { x: seen.x1, y: seen.y1 }, { x: seen.x0, y: seen.y1 }];
     // (travelling, and for a moment after: the paper is laid properly once the camera has rested BACKDROP_IDLE_MS,
     // not in the frame it arrives in)
-    if (this.cam.moving || this.drag?.moved || this.openHold) this.movedAt = now;
+    if (this.cam.moving || this.drag?.moved) this.movedAt = now;
     const travelling = now - (this.movedAt ?? -Infinity) < BACKDROP_IDLE_MS;
     if (!travelling && this.under?.quick && this.layers?.key) { this.layers.key = null; this.dirty = true; }
     else if (travelling && this.under?.quick) this.invalidateSoon(BACKDROP_IDLE_MS);
     const under = g => {
+      if (prep) return;
       this.backdrop(g, { view, size, ratio: dpr, sheet, paperRes, seen, corners, ringsOpen, quick: travelling });
       g.setTransform(...world);
       for (const f of plain) f(g);
@@ -1705,7 +1782,9 @@ export class FrontierMap {
     const artEntry = (pr, fog, selected, rec, seen, sight) => {
       if (fog === 'unopened') return { tiles: { ...pr, fog, selected }, wanted: 0, drawn: 0 };
       const t = terrainOf?.(pr.p, pr.q);
-      if (t) return { tiles: { ...pr, ...t, rec, fog, selected, prov: seen ? src.provinceOf?.(pr.p, pr.q) ?? null : null, clash: sight ? src.clashOf?.(pr.p, pr.q) ?? null : null, pending: sight ? src.pendingOf?.(pr.p, pr.q) ?? null : null }, wanted: 1, drawn: 1 };
+      const prov = seen ? src.provinceOf?.(pr.p, pr.q) ?? null : null;
+      // (`wait`: the province's record is on its way: the opening does not make its ground twice)
+      if (t) return { tiles: { ...pr, ...t, rec, fog, selected, prov, wait: seen && !prov && !!src.provinceOf, clash: sight ? src.clashOf?.(pr.p, pr.q) ?? null : null, pending: sight ? src.pendingOf?.(pr.p, pr.q) ?? null : null }, wanted: 1, drawn: 1 };
       return { plain: g => paintProvince(g, { ...pr, rec, fog, selected, scale: z }), wanted: 1, drawn: 0 };
     };
     for (const pr of visibleProvinces(view, size, maxRing, quad)) {
@@ -1752,10 +1831,15 @@ export class FrontierMap {
     // (the sea's fineness: as fine as the screen; through a flight as fine as the coarser of where the flight began and
     // where it ends, the same for every frame of it: the far view's own pieces carry a flight in, a flight out makes
     // its few coarse pieces at once, and no frame on the way asks for a fineness of its own)
-    const seaZoom = this.cam.moving ? Math.min(this.cam.tween?.from?.zoom ?? z, this.cam.view.zoom) : z;
+    // (the opening's dive begins far above its subject, and the sea it ends over is the one made for it: the fineness
+    // of where the camera is going)
+    // (`diving`: a picture of the dive, on screen or being made for it. Under reduced motion there is no dive: the
+    // picture that is made is the resting one, as fine as it will be shown)
+    const diving = !!this.dive && !this.dive.calm && (!!prep || this.cam.moving);
+    const seaZoom = diving ? this.cam.view.zoom * DIVE.sea0 : this.cam.moving ? Math.min(this.cam.tween?.from?.zoom ?? z, this.cam.view.zoom) : z;
     const sea = (g, part) => {
       // (cloud is soft: it is made for the screen's own pixels, not for the finer ground canvas of a screen of one device px per px)
-      const r = this.sea.paint(g, { box: seen, res: seaRes(seaZoom * Math.min(dpr, this.dpr())), ringsOpen, sheet, now: fxNow(), still: reducedMotion(), part, bakes: this.openHold ? SEA_BAKES * 3 : SEA_BAKES });
+      const r = this.sea.paint(g, { box: seen, res: seaRes(seaZoom * Math.min(dpr, this.dpr())), ringsOpen, sheet, now: fxNow(), still: reducedMotion(), part, bakes: rush ? SEA_BAKES * 3 : SEA_BAKES, budget: prep === 'ask' ? -1 : prep ? DIVE.sea : null });
       if (r.pending) { pending += r.pending; this.dirty = true; }
       if (r.rough) rough += r.rough;
       // (the drift moves a few px a second: a frame when it has moved about one)
@@ -1765,15 +1849,15 @@ export class FrontierMap {
     // (the cloud sea lies on the sheet: it is laid right after the ground, under the ground marks and under what stands
     // on the land, in every kind of frame; so a picture of the ground with its sea can be kept and moved: the apron)
     const marks = c => { c.setTransform(...world); this.groundPass(c, F, 'all'); this.between?.(c, { zoom: z, now }); };
-    const tileOpts = artTiles.length ? { zoom: z, dpr, artZoom, passing: this.cam.moving, rush: !!this.openHold, stamp: this.stamp, sea: true, up, seaPass: sea, between: c => { c.setTransform(...world); sea(c, null); marks(c); }, ground: (c, phase) => this.groundPass(c, F, phase), terrainAt: terrainLookup(terrainOf), fogAt, selected: null, viewerFaction: src.viewerFaction ?? null, demoRoads: !!src.demoRoads, ringsOpen: src.ringsOpen ?? null, replayRing: src.artReplayRing ?? null, engineStage: src.engineStage ?? 0, relics: src.relics ?? [], waystones: src.waystones ?? [], demoSpecials: !!src.demoSpecials, rivers: src.rivers ?? [], demoRivers: !!src.demoRivers, alliedPairs: src.alliedPairs ?? [], survey,
+    const tileOpts = artTiles.length ? { zoom: z, dpr, artZoom, passing: this.cam.moving, rush, budget: prep === 'ask' ? -1 : prep ? DIVE.ground : null, first: rush ? this.diveKey() : null, lo: diving ? DIVE.lo : null, stamp: this.stamp, sea: true, up, seaPass: sea, between: c => { c.setTransform(...world); sea(c, null); marks(c); }, ground: (c, phase) => this.groundPass(c, F, phase), terrainAt: terrainLookup(terrainOf), fogAt, selected: null, viewerFaction: src.viewerFaction ?? null, demoRoads: !!src.demoRoads, ringsOpen: src.ringsOpen ?? null, replayRing: src.artReplayRing ?? null, engineStage: src.engineStage ?? 0, relics: src.relics ?? [], waystones: src.waystones ?? [], demoSpecials: !!src.demoSpecials, rivers: src.rivers ?? [], demoRivers: !!src.demoRivers, alliedPairs: src.alliedPairs ?? [], survey,
       // people (people/crowds.mjs): the source's departures, explores and holder names; tags nearest the view centre first
       people: src.people ? { ...src.people(), centre: { x: view.x, y: view.y } } : null } : null;
     const missed = this.art?.misses ?? 0;
-    const layered = tileOpts && rest ? this.paintLayered(ctx, artTiles, tileOpts, world, now, under) : null;
+    const layered = tileOpts && rest && !prep ? this.paintLayered(ctx, artTiles, tileOpts, world, now, under) : null;
     // a picture that travels (a pan, a drag, a glide, a flight inside the tile view): the still ground under it, the
     // table, the sheet, the land's ground and the cloud sea, comes from the apron, a picture of it kept a little
     // larger than the canvas and moved with the camera; only what stands and what lives is painted afresh
-    const apron = tileOpts && !layered && !still && !this.openHold ? this.groundApron(ctx, { view, size, dpr, seen, ringsOpen, now, away: this.cam.moving && this.cam.view.zoom < z * 0.98, paint: (g, a) => {
+    const apron = tileOpts && !layered && !still && !prep ? this.groundApron(ctx, { view, size, dpr, seen, ringsOpen, now, away: this.cam.moving && this.cam.view.zoom < z * 0.98, paint: (g, a) => {
       const az = a.view.zoom, aw = [dpr * az, 0, 0, dpr * az, dpr * (a.size.width / 2 - a.view.x * az), dpr * (a.size.height / 2 - a.view.y * az)];
       const tiles = [], cells = [];
       for (const pr of visibleProvinces(a.view, a.size, maxRing, null)) {
@@ -1803,7 +1887,8 @@ export class FrontierMap {
       // while the picture travels, far bitmaps are not painted for zooms it only passes through (the ones at hand
       // are stretched); arriving, they are painted for where it rests
       this.art.paintFar(ctx, artCells, { zoom: z, dpr, terrainAt: terrainLookup(terrainOf), fogAt, alliedPairs: src.alliedPairs ?? [], lod, lens: src.lens ?? 'realm', survey,
-        passing: this.cam.moving, resZoom: this.cam.moving ? Math.min(z, this.cam.view.zoom) : z });
+        // (`prep`: the opening makes the far picture it flies to, out of sight: for where it ends, and more of it a frame)
+        passing: this.cam.moving && !prep, resZoom: this.cam.moving && !prep ? Math.min(z, this.cam.view.zoom) : z, ...(prep ? { budget: prep === 'ask' ? 0 : DIVE.ground } : {}) });
       pending += this.art.farPending ?? 0;
     }
     // away from the tile view: the sea over the far picture (at the tile view it lies between the props and the people)

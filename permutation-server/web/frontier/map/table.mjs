@@ -51,31 +51,44 @@ function noise2(x, y, seed = 0, wx = 0, wy = 0) {
 /** The texture: BOARDS boards of BOARD px, WOOD_W px along the grain; it repeats both ways without a seam. */
 const BOARD = 256, BOARDS = 4, WOOD_W = 1024;
 let wood;
+/**
+ * The grain runs along the boards: across them it changes from pixel to pixel, along them over tens of pixels. So the
+ * texture is worked out at every row and at every WOOD_STEP-th column and drawn out along the grain (a quarter of the
+ * arithmetic: it is made while the page loads, in the frame that shows the waiting sheet, and the page's first
+ * requests wait behind it).
+ */
+const WOOD_STEP = 4;
 /** The boards, made once (null where there is no canvas). */
 export function woodTexture() {
   if (wood !== undefined) return wood;
   const W = WOOD_W, H = BOARD * BOARDS, cv = spare(W, H), g = cv?.getContext?.('2d');
-  if (!g?.createImageData) { wood = null; return null; }
-  const img = g.createImageData(W, H), d = img.data;
+  const w = W / WOOD_STEP, small = spare(w, H), sg = small?.getContext?.('2d');
+  if (!g?.drawImage || !sg?.createImageData) { wood = null; return null; }
+  const img = sg.createImageData(w, H), d = img.data;
   const [R, G, B] = WOOD.base;
   for (let y = 0, i = 0; y < H; y++) {
     const board = Math.floor(y / BOARD), v = y - board * BOARD;
     // each board its own tone, and its own place along the tree
     const tone = 1 + (hash(board, 3) - 0.5) * 0.2, shift = hash(board, 4) * 97, warm = (hash(board, 5) - 0.5) * 6;
-    for (let x = 0; x < W; x++, i += 4) {
+    // a board is a little darker toward its edges, and its seam is a dark line with a lit lip under it
+    const edge = Math.min(v, BOARD - 1 - v);
+    const seam = edge < 1.2 ? -0.5 : edge < 2.4 ? (v < BOARD / 2 ? 0.1 : -0.22) : edge < 14 ? -0.07 * (1 - edge / 14) : 0;
+    for (let xs = 0; xs < w; xs++, i += 4) {
+      const x = xs * WOOD_STEP;
       // the grain: long streaks along the board, bent by a slow wave; finer hairs across them
       const bend = noise2(x / 256, (v + board * 311) / 64, 21, 4, 0) * 9;
       const streak = noise2(x / 512 + shift, (v + bend) / 5.5, 22 + board, 2, 0) * 0.6 + noise2(x / 128 + shift, (v + bend) / 2.1, 23 + board, 8, 0) * 0.4;
       const ring = Math.sin((v + bend * 2.4 + noise2(x / 340, v / 30, 24 + board, 3, 0) * 14) * 0.21) * 0.5;
       const hair = (hash(x, y, 7) - 0.5) * 0.16;
-      // a board is a little darker toward its edges, and its seam is a dark line with a lit lip under it
-      const edge = Math.min(v, BOARD - 1 - v);
-      const seam = edge < 1.2 ? -0.5 : edge < 2.4 ? (v < BOARD / 2 ? 0.1 : -0.22) : edge < 14 ? -0.07 * (1 - edge / 14) : 0;
       const k = tone * (1 + streak * 0.16 + ring * 0.07 + hair * 0.5 + seam);
       d[i] = (R + warm) * k; d[i + 1] = G * k; d[i + 2] = (B - warm * 0.6) * k; d[i + 3] = 255;
     }
   }
-  g.putImageData(img, 0, 0);
+  sg.putImageData(img, 0, 0);
+  // (drawn out along the grain; the texture repeats, so the last column runs on into the first)
+  g.imageSmoothingEnabled = true;
+  g.drawImage(small, 0, 0, w, H, 0, 0, W, H);
+  g.drawImage(small, 0, 0, 1, H, W - WOOD_STEP / 2, 0, WOOD_STEP / 2, H);
   // where two lengths of a board meet: one butt joint a board
   for (let b = 0; b < BOARDS; b++) {
     const x = Math.round(hash(b, 9) * (W - 40)) + 20, y = b * BOARD;

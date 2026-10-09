@@ -36,6 +36,7 @@ const clamp01 = x => Math.max(0, Math.min(1, x));
 export const EASE = Object.freeze({
   linear: k => k,
   outCubic: k => 1 - Math.pow(1 - k, 3),
+  outQuart: k => 1 - Math.pow(1 - k, 4),
   outQuint: k => 1 - Math.pow(1 - k, 5),
   inOutCubic: k => (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2),
   /** A glide that starts at the release speed and dies away (6 time constants long). */
@@ -187,14 +188,16 @@ export class Camera {
    * the drawn one arrives after `ms` (0, or reduced motion: at once).
    * `kind` and `anchor` as in between(); `soft` keeps a drag's give.
    */
-  set(view, { ms = 0, ease = EASE.outCubic, kind = 'anchor', anchor = null, clamp = false, soft = 0, tag = null } = {}) {
+  set(view, { ms = 0, ease = EASE.outCubic, kind = 'anchor', anchor = null, clamp = false, soft = 0, tag = null, real = false } = {}) {
+    // (`real`: the move keeps the clock's own time whatever a frame took: the opening's dive, whose first frames
+    // make the land and are long; any other move is slowed by a slow frame instead of skipping ahead)
     let next = { ...this.view, ...view };
     if (this.limit) next = this.limit(next, { clamp, soft });
     this.view = next;
     if (!(ms > 0) || this.reduced()) { this.drawn = { ...next }; this.tween = null; return next; }
     const d = this.drawn;
     if (Math.abs(d.x - next.x) * next.zoom < 0.25 && Math.abs(d.y - next.y) * next.zoom < 0.25 && Math.abs(Math.log(d.zoom / next.zoom)) < 1e-4) { this.drawn = { ...next }; this.tween = null; return next; }
-    this.tween = { from: { ...d }, ms, ease, kind, anchor, tag, elapsed: 0, last: null };
+    this.tween = { from: { ...d }, ms, ease, kind, anchor, tag, real, elapsed: 0, last: null };
     return next;
   }
 
@@ -204,6 +207,22 @@ export class Camera {
     this.drawn = { ...this.drawn, ...view };
     this.set(this.view, opts);
   }
+
+  /**
+   * The flight that is under way ends somewhere else: the logical view changes, and the picture keeps travelling (the
+   * same start, the time already flown) toward the new end. With no flight under way it is `set`. (The opening's
+   * dive: the page's sheets settle while it flies, and the subject must end in what they leave free.)
+   */
+  retarget(view) {
+    if (!this.tween || this.reduced()) return this.set(view);
+    let next = { ...this.view, ...view };
+    if (this.limit) next = this.limit(next, {});
+    this.view = next;
+    return next;
+  }
+
+  /** How far the flight under way has come, 0..1 (eased), or 1 with none. */
+  progress() { const tw = this.tween; return tw ? tw.ease(clamp01(tw.elapsed / tw.ms)) : 1; }
 
   /** Stop where the picture is (a finger on the map): the logical view becomes the drawn one. Returns whether it was moving. */
   halt() {
@@ -235,7 +254,7 @@ export class Camera {
     let dt = tw.last === null ? 0 : now - tw.last;
     if (tw.last !== null && !(dt > 0)) dt = 1000 / 60;   // a frozen clock still animates, a frame at a time
     tw.last = now;
-    tw.elapsed += Math.min(MAX_STEP_MS, dt);
+    tw.elapsed += tw.real ? dt : Math.min(MAX_STEP_MS, dt);
     const k = clamp01(tw.elapsed / tw.ms);
     const d = this.drawn = between(tw.from, this.view, tw.ease(k), tw.kind, tw.anchor), v = this.view;
     // arrived, or so close that nothing on screen would change (the long tail of a glide)

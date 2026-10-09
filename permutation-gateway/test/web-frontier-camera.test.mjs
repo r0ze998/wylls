@@ -565,7 +565,11 @@ function countingContext() {
   return { ctx, calls };
 }
 
-test('a frame without a DOM: the bare table while the viewer is unknown, then the opening; the backing store follows a height-only resize', () => {
+// (rewritten in wave 4, UX brief §13.4: it pinned an opening that began a little above its target and drew the land in
+// its first frame. The opening is a dive now: it begins at the waiting picture's own view, over the bare sheet, and the
+// land comes when its picture is made and the camera is near; with no canvas to make the sea's pieces in, as here, at
+// the latest after OPEN_HOLD_MS.)
+test('a frame without a DOM: the bare sheet while the viewer is unknown, then the opening\'s dive; the backing store follows a height-only resize', () => {
   const { ctx, calls } = countingContext();
   const cv = { clientWidth: 390, clientHeight: 734, width: 0, height: 0, dataset: {}, getContext: () => ctx };
   let src = { overviews: new Map(), ringsOpen: 3, own: [], open: opening.openHint({ mode: 'play' }) };
@@ -576,15 +580,22 @@ test('a frame without a DOM: the bare table while the viewer is unknown, then th
   assert.equal(calls.moveTo ?? 0, 0, 'no province was drawn: only the table');
   assert.ok(calls.fillRect >= 1);
   assert.equal(m.dirty, true, 'the map keeps asking until the viewer is known');
-  // the viewer's record arrives: the village, tile LOD, the picture in flight
+  const waiting = { ...m.waitAt };
+  // the viewer's record arrives: the village. The logical view is there at once; the picture sets off from the waiting sheet
   src = { ...lordSrc };
   m.draw(100);
   assert.equal(cv.dataset.lod, 'tile');
   assert.equal(cv.dataset.terrain, 'pending', 'no terrain here: provinces as plain cells');
-  assert.ok(calls.moveTo > 0, 'the land is drawn now');
-  assert.equal(m.drawnLod, 'tile', 'the opening starts a little above its target, inside the tile view (no change of level on the way down)');
+  assert.ok(m.dive && m.openHold, 'the dive is on, its land not yet');
+  assert.deepEqual(m.cam.drawn, waiting, 'the dive begins as the waiting picture, whole sheet and all');
+  assert.equal(m.drawnLod, 'world');
+  assert.equal(calls.moveTo ?? 0, 0, 'still only the sheet on its table');
+  assert.equal(m.cam.tween.real, true, 'the dive keeps the clock\'s own time: its first frames make the land and are long');
   for (let t = 116; m.cam.moving && t < 4000; t += 16) { m.cam.step(t); m.draw(t); }
   assert.deepEqual(m.cam.drawn, m.view, 'arrived');
+  m.draw(100 + fmap.OPEN_HOLD_MS + 20);
+  assert.equal(m.openHold, null);
+  assert.ok(calls.moveTo > 0, 'the land is drawn, whatever was still being made');
   // the regression this replaces: a height-only change kept the old canvas.height (the width was the only thing compared)
   cv.clientHeight = 500;
   m.draw(5000);

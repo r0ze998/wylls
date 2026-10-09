@@ -512,13 +512,14 @@ function mute(g, w, h) {
  * `sig` is the province's survey signature (survey.province(p, q).sig): it
  * says whether the province has any chart or any muted land at all.
  */
-export function applySurvey(g, { box, res, survey, sig = '', chart = null, plain = null }) {
+export function applySurvey(g, { box, res, survey, sig = '', chart = null, plain = null, coarse = false }) {
   const cv = g?.canvas;
   if (!cv || !g.getTransform || survey?.showAll) return;
   const W = cv.width, H = cv.height;
   const has1 = sig.includes('1'), has2 = sig.includes('2');
   if (!has1 && !has2) return;
-  const mres = Math.min(0.5, res);
+  // (`coarse`: a bitmap for a picture in motion, the opening's dive: the edge is worked out on half as fine a grid)
+  const mres = Math.min(0.5, res) * (coarse ? 0.5 : 1);
   const sc = scratchOf(W, H), sg = sc?.getContext?.('2d');
   if (!sg) return;
   const clear = () => { sg.setTransform(1, 0, 0, 1, 0, 0); sg.globalCompositeOperation = 'source-over'; sg.globalAlpha = 1; sg.clearRect(0, 0, sc.width, sc.height); };
