@@ -123,8 +123,10 @@ export function paintPlate(g, ax, ay, m, S, { k = 1, faction = 0, own = false, m
   g.globalAlpha = muted ? 0.8 : 1;
   g.lineJoin = 'round'; g.lineCap = 'round';
   // the leader: a brass hair from the plate to the village, with a small lozenge where it lands
-  g.strokeStyle = 'rgba(10,20,18,.6)'; g.lineWidth = 2.6 * k; g.beginPath(); g.moveTo(ax + dx, y1); g.lineTo(ax, ay); g.stroke();
-  g.strokeStyle = rim; g.lineWidth = 1 * k; g.beginPath(); g.moveTo(ax + dx, y1); g.lineTo(ax, ay); g.stroke();
+  // (it leaves the plate straight above its anchor wherever the plate reaches that far; a plate nudged well aside is reached by a slanted hair)
+  const half = (S.h2 ? Math.min(S.w1, S.w2) : S.w1) / 2 - 9 * u, lx = Math.max(ax + dx - half, Math.min(ax + dx + half, ax));
+  g.strokeStyle = 'rgba(10,20,18,.6)'; g.lineWidth = 2.6 * k; g.beginPath(); g.moveTo(lx, y1); g.lineTo(ax, ay); g.stroke();
+  g.strokeStyle = rim; g.lineWidth = 1 * k; g.beginPath(); g.moveTo(lx, y1); g.lineTo(ax, ay); g.stroke();
   const d = 2.8 * k;
   g.fillStyle = rim; g.strokeStyle = 'rgba(10,20,18,.8)'; g.lineWidth = 0.8 * k;
   g.beginPath(); g.moveTo(ax, ay - d); g.lineTo(ax + d, ay); g.lineTo(ax, ay + d); g.lineTo(ax - d, ay); g.closePath(); g.fill(); g.stroke();
