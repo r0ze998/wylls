@@ -16,6 +16,7 @@ import { PROBE } from '../../permutation-server/web/frontier/map/probe.mjs';
 import { FAR_RES, farRes, farSoftness } from '../../permutation-server/web/frontier/map/sprites.mjs';
 import { tileHex, wedgeOf } from '../../permutation-server/web/frontier/fgeo.mjs';
 import { project, RADIUS } from '../../permutation-server/web/map.mjs';
+import { TOWER, paintBellTower, towerSprite } from '../../permutation-server/web/frontier/map/belltower.mjs';
 
 const size = { width: 1000, height: 800 };
 const phone = { width: 390, height: 734 };
@@ -226,16 +227,44 @@ test('what the page\'s panel covers: a bottom sheet from below, a drawer from th
   assert.deepEqual(fmap.coveredInsets(wide), { top: 0, right: 360, bottom: 0, left: 0 }, 'a drawer over the right side');
 });
 
-test('the opening view depends on who is looking: village, candidate sites, home wedge, or the world', () => {
+// Rewritten with UX brief §11.9 (it pinned "not joined: the whole opened world"): a player who has not joined opens
+// close on the bell at the Concord, the chart's one landmark; only a watcher and practice still open on the world.
+test('the opening view depends on who is looking: village, candidate sites, home wedge, the bell before joining, or the world', () => {
   const src = { ringsOpen: 3, own: [] };
-  // not joined, a watcher, practice: the open rings, as before
-  for (const hint of [undefined, opening.openHint({ mode: 'spectate' }), opening.openHint({ mode: 'practice' }), opening.openHint({ mode: 'play', land: { stage: 'none' } })]) {
+  // a watcher, practice, a page that says nothing: the open rings, as before
+  for (const hint of [undefined, opening.openHint({ mode: 'spectate' }), opening.openHint({ mode: 'practice' })]) {
     const p = opening.openingPlan(hint, src, size);
     assert.equal(p.kind, 'fit');
     assert.deepEqual([p.view.x, p.view.y], [0, 0]);
     // (it was "below the fixed province edge": the far view of a small world is nearer now, and the edges follow it)
     assert.equal(p.view.zoom, cam.fitView(3, size).zoom, 'the far view');
     assert.equal(fmap.lodFor(p.view.zoom, 'tile', fmap.lodEdges(p.view.zoom)), 'world', 'world LOD');
+  }
+  // not joined: close on the bell's tower, never the world. The tiles are tiles, the tower is whole in the picture
+  // and takes most of its height; with the nation choice along the foot of the map (a low, wide free part) it stands
+  // left of the middle, clear of the dial
+  const none = opening.openHint({ mode: 'play', land: { stage: 'none' } });
+  for (const [hint, sz, inset] of [[none, size, null], [{ ...none, frame: {} }, { width: 1440, height: 900 }, { top: 48, bottom: 600 }], [{ ...none, frame: {} }, phone, { top: 48, bottom: 420 }]]) {
+    const p = opening.openingPlan(hint, src, sz, { inset });
+    assert.equal(p.kind, 'frame');
+    assert.ok(p.view.zoom >= opening.ENGINE_VIEW.min && p.view.zoom <= opening.ENGINE_VIEW.max, `close: zoom ${p.view.zoom.toFixed(2)}`);
+    assert.equal(fmap.lodFor(p.view.zoom, 'world', fmap.lodEdges(cam.fitView(3, sz).zoom)), 'tile', 'the tile view, not the far view');
+    const foot = fmap.worldToScreen(p.view, sz, 0, RADIUS), tip = fmap.worldToScreen(p.view, sz, 0, -TOWER.height * RADIUS);
+    const top = inset?.top ?? 0, bottom = sz.height - (inset?.bottom ?? 0);
+    assert.ok(tip.y >= top - 1 && foot.y <= bottom + 1, `the tower is whole in the free part (${Math.round(tip.y)}..${Math.round(foot.y)} of ${top}..${bottom})`);
+    assert.ok(foot.y - tip.y >= (bottom - top) * 0.55 || p.view.zoom === opening.ENGINE_VIEW.max, 'and takes most of its height (or the camera is as near as it goes)');
+    if (sz.width === 1440) assert.ok(tip.x < sz.width / 2 - 100, 'left of the dial');
+    else assert.ok(Math.abs(tip.x - sz.width / 2) < 2, 'in the middle');
+  }
+  // a nation that is looked at: its home wedge and the bell at its point, both in the picture
+  for (let f = 0; f < 6; f++) {
+    const sz = { width: 1440, height: 900 }, inset = { top: 48, bottom: 600 };
+    const p = opening.openingPlan({ ...none, frame: { nation: f } }, src, sz, { inset });
+    const b = opening.wedgeBox(f, 3);
+    for (const [x, y] of [[b.x - b.width / 2, b.y - b.height / 2], [b.x + b.width / 2, b.y + b.height / 2], [0, -TOWER.height * RADIUS], [0, 0]]) {
+      const at = fmap.worldToScreen(p.view, sz, x, y);
+      assert.ok(at.x >= -1 && at.x <= sz.width + 1 && at.y >= inset.top - 1 && at.y <= sz.height - inset.bottom + 1, `nation ${f}: wedge and bell in the free part`);
+    }
   }
   // the play page before the viewer's record answered: no plan yet (the map waits; never the world first)
   assert.equal(opening.openHint({ mode: 'play' }).ready, false);
@@ -264,11 +293,26 @@ test('the opening view depends on who is looking: village, candidate sites, home
   assert.deepEqual([h.view.x, h.view.y], [tilePoint(1, 1, 30).x, tilePoint(1, 1, 30).y], 'the active village');
   assert.ok(opening.heroZoom(2) <= opening.heroZoom(1) && opening.heroZoom(2) * RADIUS >= 52, 'the dense-screen hero zoom keeps every village\'s name tag');
   assert.ok(h.rank > cnd.rank && cnd.rank > w.rank && w.rank > opening.openingPlan(undefined, src, size).rank, 'village > candidates > wedge > world');
+  assert.equal(opening.openingPlan(none, src, size).rank, opening.openingPlan(undefined, src, size).rank, 'the bell before joining ranks with the world: anything the viewer becomes takes the camera');
   // on a phone: in the part of the map above the sheet
   const sheet = { bottom: 367 };
   const m = opening.openingPlan(lord, { ...src, own: own.slice(0, 1) }, phone, { inset: sheet });
   const s = fmap.worldToScreen(m.view, phone, tilePoint(2, 0, 7).x, tilePoint(2, 0, 7).y);
   assert.ok(near(s.x, 195) && near(s.y, 367 / 2));
+});
+
+test('the bell\'s tower: a landmark drawn by code, taller than a village and wider than a tile, painted into any context', () => {
+  assert.ok(TOWER.height >= 4 && TOWER.plinth >= 1, 'it stands over its neighbours');
+  const calls = [];
+  const grad = { addColorStop() {} };
+  const g = new Proxy({}, { get: (_, k) => (k === 'createRadialGradient' || k === 'createLinearGradient' ? () => grad : typeof k === 'string' ? (...a) => { calls.push([k, ...a]); } : undefined), set: () => true });
+  paintBellTower(g, 0, 0, RADIUS);
+  const ys = calls.filter(c => c[0] === 'lineTo' || c[0] === 'moveTo').map(c => c[2]);
+  assert.ok(Math.min(...ys) <= -TOWER.height * RADIUS * 0.95 && Math.min(...ys) >= -TOWER.box.top * RADIUS, 'as tall as it says, inside its box');
+  assert.ok(Math.max(...ys) <= TOWER.box.bottom * RADIUS);
+  assert.doesNotThrow(() => paintBellTower(null, 0, 0, RADIUS));
+  // no spare canvas here: no bitmap, and the caller paints it straight
+  assert.equal(towerSprite(57), null);
 });
 
 const canvas = (w = 1000, h = 800) => ({ clientWidth: w, clientHeight: h });

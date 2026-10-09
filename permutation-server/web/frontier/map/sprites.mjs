@@ -44,6 +44,7 @@ import { reducedMotion } from './camera.mjs';
 import { landShape } from './ownland.mjs';
 import { HERO, paintPlates, scaffoldAt } from './plates.mjs';
 import { OPEN_PASS } from './labelpass.mjs';
+import { paintBellTower, towerSprite } from './belltower.mjs';
 
 const BASE = new URL('../art/', import.meta.url);
 /** The far bitmaps' resolutions (device px per world px) and their cache budget in pixels. */
@@ -1047,8 +1048,15 @@ export class SpriteArt {
       // the Engine stands over the Concord's centre and its six neighbours
       if (t.centre && t.ring === 0) {
         const es = ART_SIZES[Math.min(ART_SIZES.length - 1, ART_SIZES.indexOf(s) + 1)], kk = RADIUS / es.r, m = 2.4;
-        const en = this.image('specials', es.key, `engine_${Math.max(0, Math.min(5, engineStage | 0))}`);
+        const stage = Math.max(0, Math.min(5, engineStage | 0));
+        const en = this.image('specials', es.key, `engine_${stage}`);
         if (en) g.drawImage(en, t.x - es.ax * kk * m, t.y - es.ay * kk * m + TOP_LIFT * m, es.w * kk * m, es.h * kk * m);
+        // the bell's tower stands inside the ring of markers until the Engine itself is raised (map/belltower.mjs): the chart's one landmark
+        if (stage === 0) {
+          const tw = towerSprite(RADIUS * zoom * dpr);
+          if (tw) { const was = g.imageSmoothingEnabled; g.imageSmoothingEnabled = true; g.drawImage(tw.cv, t.x - tw.ox * RADIUS, t.y - tw.oy * RADIUS, tw.w * RADIUS, tw.h * RADIUS); g.imageSmoothingEnabled = was; }
+          else paintBellTower(g, t.x, t.y, RADIUS);
+        }
         return;
       }
       // the chart carries nothing that stands: the Engine above is its one landmark (everyone hears the bell)
