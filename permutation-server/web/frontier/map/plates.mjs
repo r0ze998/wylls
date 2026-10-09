@@ -242,6 +242,11 @@ export function paintPlates(g, { tiles = [], pills = [], constructions = [], hos
   else list.sort((a, b) => (b.hero ? 1 : 0) - (a.hero ? 1 : 0));
   let n = 0;
   g.save();
+  // (a plate that must step aside for the HUD never steps onto the viewer's own village: its sprite is taken first)
+  for (const u of list) if (u.hero && !pass.hiddenAt(key(u))) {
+    const w = RADIUS * 1.5, top = HERO.top * 0.86;
+    pass.block(u.x, u.y, { x: u.x + HERO.at.x - w / 2, y: u.y - top, w, h: top + RADIUS * 0.3 });
+  }
   for (const u of list) {
     if (n >= PLATE_MAX) break;
     if (pass.hiddenAt(key(u))) continue;
@@ -249,7 +254,7 @@ export function paintPlates(g, { tiles = [], pills = [], constructions = [], hos
     const m = plateModel({ p: u.p, pq: u.pq, site: u.site, tier: u.tier, provisional: !!u.provisional, shield: u.shield, garrison: sight ? u.garrison ?? null : null, hosts: sight ? onVillage.get(key(u)) ?? 0 : 0 }, { badges: u.hero || r >= PLATE_BADGES_R });
     const S = plateSize(g, m, k, { own: !!u.hero, small: !u.hero && r < PLATE_BADGES_R });
     const { ax, ay, leader, lean } = plateAnchor(u, S, k);
-    const at = pass.place(u.x, u.y, { x: ax + lean - S.w / 2, y: ay - leader * k - S.h, w: S.w, h: S.h }, { keep: false });
+    const at = pass.place(u.x, u.y, { x: ax + lean - S.w / 2, y: ay - leader * k - S.h, w: S.w, h: S.h }, { keep: false, reach: u.hero ? 150 : undefined });
     if (!at) continue;
     upright(g, u.x, u.y, () => paintPlate(g, ax, ay, m, S, { k, faction: u.owner, own: !!u.hero, muted: !sight, leader, dx: lean + at.dx, dy: at.dy }));
     n++;

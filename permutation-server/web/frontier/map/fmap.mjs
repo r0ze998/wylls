@@ -103,10 +103,10 @@ export const GROUND_FINER = 1.08;
 /**
  * The page's own things over the map that no label may stand under, until the page says them (`map.setNoGo`): the
  * dial and the strip's two sides, the search button and the objective, the to-do lines and the village plate, the
- * minimap with its lens chips, the map's buttons, the dock, the drawer, the objective's chip. (The pointer home
+ * minimap with its lens chips, the map's buttons, the dock, the drawer, the objective's chip, a milestone's banner. (The pointer home
  * is the map's own: it keeps clear of these, and the labels keep clear of it.)
  */
-export const NOGO_SELECTORS = '#bell-pill, #bell-pill .dial-top, #topbar .strip-side, #hud-tl > *, #rail > *, #minimap, .map-tools, #tabs, #panel, #ob-map, .feed > *';
+export const NOGO_SELECTORS = '#bell-pill, #bell-pill .dial-top, #topbar .strip-side, #hud-tl > *, #rail > *, #minimap, .map-tools, #tabs, #panel, #ob-map, .feed > *, #mile-banner';
 export const NOGO_EVERY_MS = 300;
 /**
  * The camera eases out to a lit reach: the reach's box takes at most this share of the uncovered picture, keeps
@@ -331,7 +331,7 @@ export function paintGuide(ctx, g, zoom, label = '', part = null, { rise = null,
   if (part !== 'ring') {
     ctx.font = `700 ${12 * k}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     const tw = label ? ctx.measureText(label).width + 14 * k : 14 * k, th = label ? 20 * k : 0;
-    const move = pass?.place(c.x, c.y, { x: c.x - tw / 2, y: y - 11 * k - 2 * k - th, w: tw, h: th + 13 * k }, { keep: true, free: true }) ?? { dx: 0, dy: 0 };
+    const move = pass?.place(c.x, c.y, { x: c.x - tw / 2, y: y - 11 * k - 2 * k - th, w: tw, h: th + 13 * k }, { keep: true, reach: 130 }) ?? { dx: 0, dy: 0 };
     upright(ctx, c.x, c.y, () => {
       const px = c.x + move.dx, py = y + move.dy;
       ctx.fillStyle = 'rgba(16,24,22,.6)'; ctx.beginPath(); ctx.moveTo(px, py + 1.5 * k); ctx.lineTo(px - 8.5 * k, py - 11.5 * k); ctx.lineTo(px + 8.5 * k, py - 11.5 * k); ctx.closePath(); ctx.fill();
