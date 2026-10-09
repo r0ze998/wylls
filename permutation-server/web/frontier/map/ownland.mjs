@@ -26,6 +26,7 @@ import { SIGILS } from './layers.mjs';
 import { WORKED_RADIUS } from './survey.mjs';
 import { YOU, fxNow } from './chart.mjs';
 import { upright } from './tilt.mjs';
+import { NATION_INK, NATION_ON } from '../palette.mjs';
 
 /**
  * The fill of the viewer's own land (UX brief §11.5): a band, not a flood. The nation's colour at `rim` along the
@@ -65,7 +66,7 @@ const BAND = bandSteps();
 /** The breathing of the gold line: one breath in this many seconds. */
 export const BREATH_SECS = 3.6;
 /** Dark inks of the six nations (under the colour, on the pennon's hem). */
-const NATION_INK = Object.freeze(['#6a221e', '#154a44', '#6b4c10', '#3d2d62', '#1c3b66', '#5c2440']);
+// (the nations' inks and the colour of a mark on each nation's fill: palette.mjs)
 const INK = 'rgba(14,22,20,';
 const IVORY = '#fff6e2';
 
@@ -428,7 +429,7 @@ export function paintStandard(g, x, y, { u = RADIUS, zoom = 1, faction = 0, now 
   const sx = x + len * 0.3, sy = (top + bot) / 2 - u * 0.005 + wave(0.3), sr = u * 0.135;
   sigilPath(g, SIGILS[faction] ?? 'ring', sx, sy, sr);
   if ((SIGILS[faction] ?? 'ring') === 'ring') { g.strokeStyle = IVORY; g.lineWidth = lw * 2.2; g.stroke(); }
-  else { g.fillStyle = IVORY; g.fill(); g.strokeStyle = dark; g.lineWidth = lw * 0.9; g.stroke(); }
+  else { g.fillStyle = NATION_ON[faction] ?? IVORY; g.fill(); g.strokeStyle = dark; g.lineWidth = lw * 0.9; g.stroke(); }
   // the finial: a gold lozenge with its glint
   const fy = y - H - u * 0.07, fr = u * 0.1;
   g.beginPath(); g.moveTo(x, fy - fr * 1.25); g.lineTo(x + fr * 0.8, fy); g.lineTo(x, fy + fr * 1.05); g.lineTo(x - fr * 0.8, fy); g.closePath();

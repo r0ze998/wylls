@@ -65,7 +65,10 @@ export function hostOwner(roster, hostId) {
   return o ? identityOf(o.tag) : null;
 }
 
-/** A faction's leader card: portrait, leader name and title, doctrine and its one-line pitch. */
+/**
+ * A faction's leader card: portrait, leader name and title, doctrine and its one-line pitch. (No screen of the
+ * redesign calls it since the nation banners; the other line of work's join screen does, so the export stays.)
+ */
 export function leaderCard(f, { size = 96 } = {}) {
   const l = LEADERS[f];
   const name = lang() === 'en' ? l.name.en : l.name.ja;

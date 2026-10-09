@@ -1787,8 +1787,8 @@ export const QUOTA_LOW = 5;
 function renderChips() {
   const f = $('faction-chip');
   const fc = factionChip(FS.citizen);
-  // the nation's crest and name (the leader's portrait stands on the village plate); on phones the crest alone
-  if (f) { f.hidden = !fc; setHtmlIfChanged(f, fc ? html`${hud.crestSvg(FS.citizen.faction, { size: 26 })}<span class="chip-text">${fc}</span>` : ''); }
+  // the nation's leader (the hexagon icon with the sigil at its foot) and name; on phones the icon alone
+  if (f) { f.hidden = !fc; setHtmlIfChanged(f, fc ? html`${hud.leaderCrest(FS.citizen.faction, { size: 34 })}<span class="chip-text">${fc}</span>` : ''); }
   // the relay's count belongs to More → details (screens/bell.mjs); it stands in the strip only when it runs low
   const q = $('quota-chip');
   const qc = quotaChip(FS.quota);

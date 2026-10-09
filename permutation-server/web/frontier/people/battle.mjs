@@ -36,7 +36,7 @@
 import { RADIUS, FLATTEN, project } from '../../map.mjs';
 import { tileHex } from '../fgeo.mjs';
 import { troopsOf } from '../fmarch.mjs';
-import { FACTION_FILL, FACTION_DARK, FACTION_LIGHT, sigilPath } from './avatar.mjs';
+import { FACTION_FILL, FACTION_DARK, FACTION_LIGHT, FACTION_MARK, sigilPath } from './avatar.mjs';
 import { baseDisc, unitFigure, UNIT_KINDS } from './units.mjs';
 import { paintMini, miniSheet, miniCell, MINI_CELL_U, MINI_ANCHOR, MINI_SIZES } from './minis.mjs';
 import { clamp01, lerp, span, inQuad, inCubic, outQuad, outCubic, outExpo, outBack, inOutQuad } from '../fx/ease.mjs';
@@ -697,7 +697,7 @@ function sigilOn(ctx, x, y, r, faction, alpha) {
   ctx.globalAlpha = alpha;
   ctx.fillStyle = IVORY; ctx.strokeStyle = col.dark; ctx.lineWidth = r * 0.16;
   ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = col.fill;
+  ctx.fillStyle = FACTION_MARK[faction] ?? col.fill;   // (on ivory: three of the fills are too light to carry a mark)
   let drawn = false;
   try {
     if (typeof globalThis.Path2D === 'function') { ctx.translate(x, y); ctx.fill(new globalThis.Path2D(sigilPath(faction < 6 ? faction : -1, r * 0.55))); drawn = true; }

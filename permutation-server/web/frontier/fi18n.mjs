@@ -1,16 +1,18 @@
 // The Frontier's enum tables and program errors in Japanese and English
 // (contract §9.6; web design §9). Japanese inline (L`…`), English in
 // lang/en-frontier.mjs; the tables follow the language at read time
-// (lazyTable), so a switch re-renders without a reload. Faction names and
-// colours are v9's (i18n.mjs CIV_NAMES, CIV_COLORS). Doctrine C shows as
+// (lazyTable), so a switch re-renders without a reload. Faction names are
+// v9's (i18n.mjs CIV_NAMES); the colours are the Frontier's own (palette.mjs). Doctrine C shows as
 // "Flame" (I-34). Every program error code of abi.mjs has a text
 // (web-frontier-errors.test.mjs, W3-F, checks it; web-lang checks the
 // English).
 import { L, lazyTable, fmtNum } from '../lang.mjs';
-import { CIV_COLORS, CIV_NAMES } from '../i18n.mjs';
+import { CIV_NAMES } from '../i18n.mjs';
+import { NATION_FILL } from './palette.mjs';
 import { ERRORS } from './abi.mjs';
 
-export { CIV_COLORS as FACTION_COLORS };
+/** The nations' colours: the Frontier's own table (palette.mjs: the colours of the six leaders' clothes), in v9's faction order. */
+export { NATION_FILL as FACTION_COLORS };
 /** Faction display name by id 0–5 (6 = neutral: camps, Free Cities). */
 export const factionName = f => (f === 6 ? L`中立` : CIV_NAMES[['Aster', 'Borealis', 'Cinder', 'Dunmar', 'Ember', 'Fjordal'][f]] ?? `#${f}`);
 

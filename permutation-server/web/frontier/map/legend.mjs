@@ -5,8 +5,10 @@
 // stance (in the one sentence the order card and the help also say:
 // hud/glossary.mjs sealLine, UX design 11.13) and what an exploration finds.
 // Markup only; the swatches are classes of frontier.css (no inline style).
-import { html } from '../../util.mjs';
-import { L, fmtNum } from '../../lang.mjs';
+import { html, raw } from '../../util.mjs';
+import { L, fmtNum, lang } from '../../lang.mjs';
+import { factionName } from '../fi18n.mjs';
+import { LEADERS, leaderHex } from '../people/leaders.mjs';
 import { sealLine } from '../hud/glossary.mjs';
 import { icon } from '../hud/icons.mjs';
 import { reachSteps } from '../hud/reach.mjs';
@@ -53,6 +55,16 @@ export const UNSEEN = Object.freeze([
   { id: 'explore', name: () => L`探索の結果`, text: () => L`そのターンの結果が出るまで、誰にもわかりません。` },
 ]);
 
+/**
+ * The six nations' key: each nation's leader (the hexagon icon), its sigil in its colour, its name and who leads it.
+ * A nation is told by colour and by mark together; the colours are the ones the leaders wear (palette.mjs).
+ */
+export function renderNationKey() {
+  return html`<h4>${L`六つの国とその色`}</h4>
+    <ul class="nation-legend">${LEADERS.map(l => html`<li>${raw(leaderHex(l.faction, { size: 32 }))}<span class="survey-what"><strong><span class="swatch f${l.faction}" aria-hidden="true"></span>${factionName(l.faction)}</strong> <span class="nation-leader"><span data-name>${lang() === 'en' ? l.name.en : l.name.ja}</span> · ${l.title()}</span></span></li>`)}</ul>
+    <p class="nation-note">${L`国は、色と印（丸・三角・四角・ひし形・十字・六角）の両方で見分けられます。色は、国を率いる人の服の色です。`}</p>`;
+}
+
 /** The section for the play page's panel: the legend, the line, the way to the whole public world. */
 export function renderSurveyHelp() {
   return html`<section class="survey-help" id="survey-help" aria-labelledby="survey-help-title"><h3 id="survey-help-title">${L`地図の見かた`}</h3>
@@ -65,5 +77,6 @@ export function renderSurveyHelp() {
     <ul class="key-legend">${MARK_LEGEND.map(x => html`<li><span class="survey-key mark-${x.id}" aria-hidden="true">${icon(x.glyph)}</span><span class="survey-what"><strong>${x.name()}</strong> ${x.text()}</span></li>`)}</ul>
     <h4>${L`地図の線`}</h4>
     <ul class="key-legend">${LINE_LEGEND.map(x => html`<li><span class="survey-key line-${x.id}" aria-hidden="true"></span><span class="survey-what"><strong>${x.name()}</strong> ${x.text()}</span></li>`)}</ul>
+    ${renderNationKey()}
     <p><a class="survey-all" href="spectate.html">${L`観戦ページで世界全体を見る`}</a></p></section>`;
 }

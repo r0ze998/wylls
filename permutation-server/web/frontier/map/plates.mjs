@@ -26,6 +26,7 @@ import { pillSize, statusMark, unitPill } from '../people/units.mjs';
 import { SIGILS } from './layers.mjs';
 import { YOU } from './chart.mjs';
 import { upright } from './tilt.mjs';
+import { NATION_INK, NATION_ON } from '../palette.mjs';
 import { paintGlyph } from './glyphs.mjs';
 import { OPEN_PASS } from './labelpass.mjs';
 import { VILLAGE } from './village.mjs';
@@ -75,7 +76,7 @@ const SERIF = '"Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", Georgia, se
 const SANS = 'system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif';
 /** The plate's material: bell metal with a brass hairline (the HUD's own, UX brief §6). */
 const METAL = 'rgba(15,32,29,.94)', METAL_2 = 'rgba(22,44,39,.94)', BRASS = '#c9a24a', BRASS_HI = '#f0d48a', IVORY = '#f4efe0', INK_2 = '#a9b8b1';
-const NATION_INK = Object.freeze(['#6a221e', '#154a44', '#6b4c10', '#3d2d62', '#1c3b66', '#5c2440']);
+// (the nations' inks and the colour of a mark on each nation's fill: palette.mjs)
 
 /** A village's own name, without its tier (「ラマール」; the tier is the chip beside it). */
 export const villageName = t => placeName(t.p, t.pq ?? t.q, t.site)[lang() === 'en' ? 'en' : 'ja'];
@@ -164,7 +165,7 @@ export function paintPlate(g, ax, ay, m, S, { k = 1, faction = 0, own = false, m
   g.beginPath(); g.arc(sx, cy, S.sig / 2, 0, Math.PI * 2); g.fillStyle = col; g.fill(); g.strokeStyle = ink; g.lineWidth = 1 * k; g.stroke();
   const shape = SIGILS[faction] ?? 'ring';
   sigil(g, shape, sx, cy, S.sig * 0.3);
-  if (shape === 'ring') { g.strokeStyle = '#fff6e2'; g.lineWidth = 1.6 * k; g.stroke(); } else { g.fillStyle = '#fff6e2'; g.fill(); }
+  if (shape === 'ring') { g.strokeStyle = '#fff6e2'; g.lineWidth = 1.6 * k; g.stroke(); } else { g.fillStyle = NATION_ON[faction] ?? '#fff6e2'; g.fill(); }
   // the name, in the serif
   let x = sx + S.sig / 2 + 6 * u;
   g.font = `600 ${S.nameSize}px ${SERIF}`; g.textAlign = 'left'; g.textBaseline = 'middle';

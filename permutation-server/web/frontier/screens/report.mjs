@@ -44,7 +44,7 @@ import { swatch } from './shell.mjs';
 import { personChip } from '../people/ui.mjs';
 import { cardHead, fold, chip, lossBar, label, ring } from './parts.mjs';
 import { tileName, provinceName } from '../hud/place.mjs';
-import { LEADERS, leaderSvg } from '../people/leaders.mjs';
+import { LEADERS, leaderSvg, leaderFigure } from '../people/leaders.mjs';
 
 // ------------------------------------------------------------------ the resolve_clash codec (borsh)
 /** Postures in borsh order: Stance(Hold|Assault|Flank|Brace), then Disarray. */
@@ -682,7 +682,7 @@ const LEADER_LINE = {
 function leaderLine(f, key) {
   if (!Number.isInteger(f) || f < 0 || f > 5) return '';
   const l = LEADERS[f];
-  return html`<p class="report-leader">${raw(leaderSvg(f, { size: 52 }))}<span><q>${LEADER_LINE[key]()}</q> <span class="muted">— <span data-name>${lang() === 'en' ? l.name.en : l.name.ja}</span></span></span></p>`;
+  return html`<p class="report-leader"><span class="report-fig">${raw(leaderFigure(f))}</span><span><q>${LEADER_LINE[key]()}</q> <span class="muted">— <span data-name>${lang() === 'en' ? l.name.en : l.name.ja}</span></span></span></p>`;
 }
 
 /** The outcome stamp: a word pressed on the paper (its tone is a class; the word says it too). */

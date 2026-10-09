@@ -34,6 +34,7 @@ import { L, onLangChange } from '../../lang.mjs';
 import { locate, ringOf, ringProvinces, hexDistance, tileHex } from '../fgeo.mjs';
 import { fogLevel, paintProvince, paintSigil, paintTiles, paintVeil, provincePixel, PROVINCE_CIRCUMRADIUS } from './layers.mjs';
 import { FACTION_COLORS } from '../fi18n.mjs';
+import { NATION_ON } from '../palette.mjs';
 import { createTerrain } from './terrain.mjs';
 import { SpriteArt, artSize, farRes, terrainLookup } from './sprites.mjs';
 import { paintSheet, paintTable, sheetOf, tableShows } from './table.mjs';
@@ -329,7 +330,7 @@ export function paintRealmLabels(ctx, recs, zoom, nameOf = null, { seen = null, 
         const sx = tx - (it.tw * k) / 2 - sr - 5 * k;
         ctx.beginPath(); ctx.arc(sx, it.y, sr, 0, Math.PI * 2); ctx.fillStyle = FACTION_COLORS[it.faction] ?? '#8a8f86'; ctx.fill();
         ctx.strokeStyle = 'rgba(14,22,20,.85)'; ctx.lineWidth = 1.6 * k; ctx.stroke();
-        paintSigil(ctx, { x: sx, y: it.y, r: sr * 0.56, faction: it.faction, mark: '#fff6e2' });
+        paintSigil(ctx, { x: sx, y: it.y, r: sr * 0.56, faction: it.faction, mark: NATION_ON[it.faction] ?? '#fff6e2' });
       }
       ctx.lineJoin = 'round'; ctx.lineWidth = 5 * k; ctx.strokeStyle = 'rgba(14,22,20,.78)'; ctx.strokeText(it.text, tx, it.y);
       ctx.fillStyle = it.fill; ctx.fillText(it.text, tx, it.y);

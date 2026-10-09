@@ -26,15 +26,19 @@ import { placeName } from '../people/identity.mjs';
 import { provincePixel, SIGILS } from './layers.mjs';
 import { fxNow } from './chart.mjs';
 import { upright } from './tilt.mjs';
+import { NATION_INK, NATION_ON } from '../palette.mjs';
 import { paintGlyph } from './glyphs.mjs';
 import { paintStandard } from './ownland.mjs';
 import { OPEN_PASS } from './labelpass.mjs';
-import { LEADERS } from '../people/leaders.mjs';
+import { LEADERS, leaderHexImage, onLeaderArtLoad } from '../people/leaders.mjs';
+
+// (the leader's icon beside the line under the standard: when the picture arrives, the map draws once more)
+onLeaderArtLoad(() => { try { globalThis.__wyllsMap?.invalidate?.(); } catch { /* no map on this page */ } });
 
 const SERIF = '"Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", Georgia, serif';
 const SANS = 'system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif';
 const METAL = 'rgba(15,32,29,.94)', BRASS = '#c9a24a', BRASS_HI = '#f0d48a', IVORY = '#f4efe0', INK_2 = '#a9b8b1';
-const NATION_INK = Object.freeze(['#6a221e', '#154a44', '#6b4c10', '#3d2d62', '#1c3b66', '#5c2440']);
+// (the nations' inks and the colour of a mark on each nation's fill: palette.mjs)
 
 /** The standard of the wait view: its height unit is at least this many world px, and never smaller than this many px on screen (it is the hero of an empty land). */
 export const WAIT_STANDARD = Object.freeze({ unit: RADIUS * 2.2, screen: 44 });
@@ -186,9 +190,12 @@ export function paintHomeTag(g, at, { zoom = 1, faction = 0, line = null, pass =
   // the leader's line, under the caption: in the serif, on three lines at most, and who says it
   const sayW = 238 * k;
   g.font = `600 ${13 * k}px ${SERIF}`;
-  let lines = say?.text ? wrapText(g, `\u300c${say.text}\u300d`, sayW, 13 * k).slice(0, 3) : [];
+  let lines = say?.text ? wrapText(g, L`「${say.text}」`, sayW, 13 * k).slice(0, 3) : [];
   const sig = 20 * k, extra = line?.at === 'home' ? 30 * k : 0, top = at.y + 12 * k;
-  const sizeOf = n => ({ w: Math.max(sig + 8 * k + nw, cw, n ? sayW : 0) + 28 * k, h: 58 * k + (n ? (n * 19 + 24) * k : 0) });
+  // (beside the line stands who says it: the leader's hexagon icon, 36 px on the board, which is 30 px or more on the screen
+  // at the tilt's far rows; below that the face is a blot of colour. Its place is kept whether or not the picture has come)
+  const faceW = 36 * k, faceGap = 9 * k;
+  const sizeOf = n => ({ w: Math.max(sig + 8 * k + nw, cw, n ? sayW + faceW + faceGap : 0) + 28 * k, h: 58 * k + (n ? (Math.max(2, n) * 19 + 24) * k : 0) });
   // where it may stand: under the standard, else beside its pole (left, then right of its cloth); with the leader's
   // line while there is room for that, else the name and the caption alone
   // (`keep` false: with candidate sites to read, the tag is left out where it has no room at all)
@@ -216,7 +223,7 @@ export function paintHomeTag(g, at, { zoom = 1, faction = 0, line = null, pass =
     g.beginPath(); g.arc(x0 + sig / 2, row, sig / 2, 0, Math.PI * 2); g.fillStyle = FACTION_COLORS[faction] ?? '#8a8f86'; g.fill(); g.strokeStyle = NATION_INK[faction] ?? '#3a3a34'; g.lineWidth = 1 * k; g.stroke();
     const shape = SIGILS[faction] ?? 'ring';
     sigil(g, shape, x0 + sig / 2, row, sig * 0.3);
-    if (shape === 'ring') { g.strokeStyle = '#fff6e2'; g.lineWidth = 1.8 * k; g.stroke(); } else { g.fillStyle = '#fff6e2'; g.fill(); }
+    if (shape === 'ring') { g.strokeStyle = '#fff6e2'; g.lineWidth = 1.8 * k; g.stroke(); } else { g.fillStyle = NATION_ON[faction] ?? '#fff6e2'; g.fill(); }
     g.font = `700 ${19 * k}px ${SERIF}`; g.textAlign = 'left'; g.textBaseline = 'middle';
     g.fillStyle = '#fff3cf'; g.fillText(name, x0 + sig + 8 * k, row + 0.5 * k);
     // a hair of brass, then the caption
@@ -225,10 +232,16 @@ export function paintHomeTag(g, at, { zoom = 1, faction = 0, line = null, pass =
     g.fillStyle = INK_2; g.fillText(caption, x, y + 46 * k);
     if (lines.length) {
       g.strokeStyle = 'rgba(201,162,74,.3)'; g.lineWidth = 1 * k; g.beginPath(); g.moveTo(x - w / 2 + 14 * k, y + 58 * k); g.lineTo(x + w / 2 - 14 * k, y + 58 * k); g.stroke();
+      // the words stand to the right of the face, centred in what is left of the tag
+      const rows = Math.max(2, lines.length), tx = x + (faceW + faceGap) / 2, pad = (rows - lines.length) * 19 / 2;
       g.font = `600 ${13 * k}px ${SERIF}`; g.textAlign = 'center'; g.fillStyle = IVORY;
-      lines.forEach((t, i) => g.fillText(t, x, y + (72 + i * 19) * k));
+      lines.forEach((t, i) => g.fillText(t, tx, y + (72 + pad + i * 19) * k));
       g.font = `600 ${12 * k}px ${SANS}`; g.textAlign = 'right'; g.fillStyle = BRASS_HI;
-      g.fillText(`\u2014 ${say.who}`, x + w / 2 - 14 * k, y + (72 + lines.length * 19 + 1) * k);
+      const who = `\u2014 ${say.who}`, wy = y + (72 + rows * 19 + 1) * k;
+      g.fillText(who, x + w / 2 - 14 * k, wy);
+      // who says it: the leader's hexagon icon at the line's left (nothing until the picture has loaded)
+      const face = leaderHexImage(faction);
+      if (face && g.drawImage) { g.imageSmoothingQuality = 'high'; g.drawImage(face, x - w / 2 + 12 * k, y + (62 + (rows * 19 + 16) / 2) * k - faceW / 2, faceW, faceW); }
     }
     if (extra) chip(g, x, y + h + 6 * k, line.text, k, { glyph: line.glyph });
   });
