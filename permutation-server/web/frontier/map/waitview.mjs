@@ -26,6 +26,7 @@ import { placeName } from '../people/identity.mjs';
 import { provincePixel, SIGILS } from './layers.mjs';
 import { fxNow } from './chart.mjs';
 import { upright } from './tilt.mjs';
+import { NATION_INK, NATION_ON } from '../palette.mjs';
 import { paintGlyph } from './glyphs.mjs';
 import { paintStandard } from './ownland.mjs';
 import { OPEN_PASS } from './labelpass.mjs';
@@ -34,7 +35,7 @@ import { LEADERS } from '../people/leaders.mjs';
 const SERIF = '"Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", Georgia, serif';
 const SANS = 'system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif';
 const METAL = 'rgba(15,32,29,.94)', BRASS = '#c9a24a', BRASS_HI = '#f0d48a', IVORY = '#f4efe0', INK_2 = '#a9b8b1';
-const NATION_INK = Object.freeze(['#6a221e', '#154a44', '#6b4c10', '#3d2d62', '#1c3b66', '#5c2440']);
+// (the nations' inks and the colour of a mark on each nation's fill: palette.mjs)
 
 /** The standard of the wait view: its height unit is at least this many world px, and never smaller than this many px on screen (it is the hero of an empty land). */
 export const WAIT_STANDARD = Object.freeze({ unit: RADIUS * 2.2, screen: 44 });
@@ -216,7 +217,7 @@ export function paintHomeTag(g, at, { zoom = 1, faction = 0, line = null, pass =
     g.beginPath(); g.arc(x0 + sig / 2, row, sig / 2, 0, Math.PI * 2); g.fillStyle = FACTION_COLORS[faction] ?? '#8a8f86'; g.fill(); g.strokeStyle = NATION_INK[faction] ?? '#3a3a34'; g.lineWidth = 1 * k; g.stroke();
     const shape = SIGILS[faction] ?? 'ring';
     sigil(g, shape, x0 + sig / 2, row, sig * 0.3);
-    if (shape === 'ring') { g.strokeStyle = '#fff6e2'; g.lineWidth = 1.8 * k; g.stroke(); } else { g.fillStyle = '#fff6e2'; g.fill(); }
+    if (shape === 'ring') { g.strokeStyle = '#fff6e2'; g.lineWidth = 1.8 * k; g.stroke(); } else { g.fillStyle = NATION_ON[faction] ?? '#fff6e2'; g.fill(); }
     g.font = `700 ${19 * k}px ${SERIF}`; g.textAlign = 'left'; g.textBaseline = 'middle';
     g.fillStyle = '#fff3cf'; g.fillText(name, x0 + sig + 8 * k, row + 0.5 * k);
     // a hair of brass, then the caption

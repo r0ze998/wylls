@@ -20,8 +20,11 @@ const text = x => flat(x).replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<[^>]*>/g
 const JP = /[぀-ヿ㐀-鿿]/;
 const NAMES = /data-name>[^<]*</g;
 
-// (wave 2, UX design 11.9: the banners are cloth — a rim, the cloth, the portrait, a dyed field for the words — and the
-// confirm line carries every nation's leader and creed in full, of which the stylesheet shows the looked-at one)
+// (wave 2, UX design 11.9: the banners are cloth — a rim, the cloth, a dyed field for the words — and the confirm line
+// carries every nation's leader and creed in full, of which the stylesheet shows the looked-at one.
+// The leaders' track, wave 3: the flat portrait in a frame is gone; the nation's leader stands lit before the cloth
+// (a still that the sprite player moves while the banner is looked at; the chosen one's flourish plays once), a
+// phone's compact banner carries the leader's hexagon icon, and the confirm line carries the leader standing too.)
 test('the nation choice: six standing banners of cloth with the leader and the doctrine, one choice, one confirm that says the creed in full, no site picker', () => {
   setLang('ja');
   const base = { mode: 'play', land: { stage: 'none' }, citizen: null, overviews: new Map(), season: { joinGate: new Uint8Array(32) }, wallet: { address: 'W' }, joinDraft: {}, playReady: true, tab: 'map' };
@@ -29,8 +32,14 @@ test('the nation choice: six standing banners of cloth with the leader and the d
   assert.match(out, /^<section class="nations" aria-labelledby="join-faction">/);
   const banners = [...out.matchAll(/<button type="button" class="banner-pick bn(\d)" data-act="pick-faction" data-f="(\d)" data-nation="(\d)" aria-pressed="(true|false)">/g)];
   assert.deepEqual(banners.map(m => [m[1], m[2], m[3], m[4]]), [0, 1, 2, 3, 4, 5].map(f => [String(f), String(f), String(f), 'false']), 'six banners, each names its nation for the map');
-  assert.equal((out.match(/<svg[^>]*class="leader"/g) ?? []).length, 6, 'the leader\'s portrait on each');
-  assert.equal((out.match(/<span class="bn-rim"><span class="bn-cloth"><span class="bn-face">/g) ?? []).length, 6, 'a rim, the cloth, the portrait');
+  const KEYS = ['aster', 'borealis', 'cinder', 'dunmar', 'ember', 'fjordal'];
+  assert.equal((out.match(/<span class="bn-rim"><span class="bn-cloth"><span class="bn-face"><\/span>/g) ?? []).length, 6, 'a rim, the cloth, the lit field the leader stands before');
+  const figs = [...out.matchAll(/<span class="bn-figure"><svg[^>]*class="lfig" data-leader="([a-z]+)" data-motion="(\w+)" data-when="look" aria-hidden="true"[^>]*><ellipse class="lfig-shadow"[^>]*\/><image class="lfig-still" href="[^"]*\/art\/leaders3d\/stage-v1\/([a-z]+)\.webp" width="288" height="360"\/><\/svg><\/span>/g)];
+  assert.deepEqual(figs.map(m => [m[1], m[2], m[3]]), KEYS.map(k => [k, 'idle', k]), 'each nation\'s leader standing before its cloth: a still, breathing only while the banner is looked at');
+  assert.deepEqual([...out.matchAll(/<span class="bn-hex"><svg[^>]*class="leader leader-hex" data-leader="([a-z]+)"/g)].map(m => m[1]), KEYS, 'and the leader\'s icon for a phone\'s compact banner');
+  assert.deepEqual([...out.matchAll(/<span class="nc-fig"><svg[^>]*class="lfig" data-leader="([a-z]+)" data-motion="idle" aria-hidden/g)].map(m => m[1]), KEYS, 'the confirm line carries each leader standing');
+  assert.doesNotMatch(out, /data-once=|data-motion="attack"/, 'no flourish before a choice');
+  assert.doesNotMatch(out, /<ellipse cx="80"|class="leader"[ >]/, 'the flat vector portrait is gone');
   assert.equal((out.match(/<span class="bn-field"><strong class="bn-name">[^<]+<\/strong><span class="bn-leader"><span data-name>[^<]+<\/span><\/span><span class="bn-creed">教義：/g) ?? []).length, 6, 'name, leader and doctrine on the dyed field');
   // the confirm line: every nation's leader and creed, whole (no line is cut: the stylesheet shows the looked-at one); nothing is the default before a choice but the hint
   const says = [...out.matchAll(/<div class="nc-item( nc-def)?" data-n="(\d)" (aria-live="polite"|aria-hidden="true")>[\s\S]*?<span class="nc-pitch">([^<]+)<\/span>/g)];
@@ -52,6 +61,9 @@ test('the nation choice: six standing banners of cloth with the leader and the d
   assert.match(picked, /class="nc-pitch">[^<]+</);
   assert.match(picked, /<div class="nc-item nc-def" data-n="2" aria-live="polite">/, 'the chosen nation is the confirm line\'s default');
   assert.equal((picked.match(/class="bn-mark"/g) ?? []).length, 1, 'the chosen banner carries its mark (not colour alone)');
+  // the chosen leader's flourish: once, under one name on the banner and in the confirm line (the sprite player plays a name once)
+  assert.deepEqual([...picked.matchAll(/data-leader="(\w+)" data-motion="attack" data-once="([\w-]+)"/g)].map(m => [m[1], m[2]]), [['cinder', 'pick-2'], ['cinder', 'pick-2']]);
+  assert.equal((picked.match(/data-motion="idle"/g) ?? []).length, 10, 'the other five stand as they did');
   assert.match(picked, /村を置ける場所 約 \d+/);
   assert.doesNotMatch(text(picked), /扇区|区画/, 'plain words on the play screen');
   // without a wallet the banners still stand; the confirm offers to connect one

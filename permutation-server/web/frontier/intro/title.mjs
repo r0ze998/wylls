@@ -4,7 +4,7 @@
 // the demo). It is an opaque scene of its own, not a card over the game: a
 // picture drawn by code (intro/scene.mjs: the bell's tower large on the chart
 // at dusk, the six nations' standards round it, the bell's ring spreading),
-// and over its foot the title, one line, one sentence, the six leaders; the
+// and over its foot the title, one line, one sentence, the six leaders standing; the
 // live line says the season is real ("Season 7 · turn 1,034 · 1,055
 // villages"). Nothing of the game behind it shows or can be reached until
 // its one button is pressed (app.mjs: the page is marked `data-title="up"`,
@@ -19,8 +19,8 @@
 import { html, raw } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { factionName } from '../fi18n.mjs';
-import { FACTION_FILL, FACTION_DARK, sigilPath } from '../people/avatar.mjs';
-import { leaderSvg, LEADERS } from '../people/leaders.mjs';
+import { FACTION_FILL, FACTION_DARK, FACTION_MARK, sigilPath } from '../people/avatar.mjs';
+import { leaderFigure, LEADERS } from '../people/leaders.mjs';
 import { icon } from '../hud/icons.mjs';
 
 export const INTRO_KEY = 'ps-fintro:v1';
@@ -44,7 +44,7 @@ export function emblemSvg({ size = 96, title = null } = {}) {
   const a11y = title ? `role="img" aria-label="${String(title).replace(/[<>&"]/g, '')}"` : 'aria-hidden="true" focusable="false"';
   const ring = Array.from({ length: 6 }, (_, f) => {
     const a = -Math.PI / 2 + (f * Math.PI) / 3, x = 50 + Math.cos(a) * 34, y = 50 + Math.sin(a) * 34;
-    return `<g transform="translate(${x.toFixed(2)} ${y.toFixed(2)})"><circle r="9.5" fill="#fffaf0" stroke="${FACTION_DARK[f]}" stroke-width="1.8"/><path d="${sigilPath(f, 5.4)}" fill="${FACTION_FILL[f]}"/></g>`;
+    return `<g transform="translate(${x.toFixed(2)} ${y.toFixed(2)})"><circle r="9.5" fill="#fffaf0" stroke="${FACTION_DARK[f]}" stroke-width="1.8"/><path d="${sigilPath(f, 5.4)}" fill="${FACTION_MARK[f]}"/></g>`;
   }).join('');
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="${size}" height="${size}" class="emblem" ${a11y}>
     <circle cx="50" cy="50" r="46" fill="none" stroke="#d9b44a" stroke-width="1.4" opacity=".85"/>
@@ -85,12 +85,13 @@ export const sentences = text => String(text).match(/[^\u3002.!?]+[\u3002.!?]?\s
 /**
  * The title scene's markup. `mode` 'play' | 'spectate' | 'practice'; `stage` as `ctaText`. The picture is a canvas
  * the page paints (intro/scene.mjs: the bell's tower on the chart at dusk, the six standards round it); over its
- * dark foot stand the wordmark, one line, one sentence of what the game is, the six leaders as small medallions,
+ * dark foot stand the wordmark, one line, one sentence of what the game is, the six leaders standing in a row,
  * the live line and the one button. (The second review: the first five seconds showed an emblem and a paragraph,
  * no picture of the game; in English the tagline broke with one orphan word and its ornaments drifted apart.)
  */
 export function render({ mode = 'play', live = '', stage = null } = {}) {
-  const leaders = LEADERS.map((l, i) => html`<li class="intro-leader intro-leader-${i}"><span class="intro-face">${raw(leaderSvg(l.faction, { size: 80 }))}</span><span class="intro-nation">${factionName(l.faction)}</span></li>`);
+  // the six stand in a row and breathe (a still each in reduced motion): the nation's name and its sigil under each
+  const leaders = LEADERS.map((l, i) => html`<li class="intro-leader intro-leader-${i}"><span class="intro-fig">${raw(leaderFigure(l.faction, { size: 190 }))}</span><span class="intro-nation"><svg class="intro-sigil" viewBox="-8 -8 16 16" width="12" height="12" aria-hidden="true" focusable="false"><path d="${sigilPath(l.faction, 6)}" fill="${FACTION_FILL[l.faction]}" stroke="#0a1412" stroke-width="1.2"/></svg>${factionName(l.faction)}</span></li>`);
   return html`<canvas class="intro-scene" aria-hidden="true"></canvas><div class="intro-veil" aria-hidden="true"></div>
     <div class="intro-card">
       <h2 class="intro-title" id="intro-title" data-name>Wylls</h2>

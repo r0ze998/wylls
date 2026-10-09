@@ -26,6 +26,7 @@
 import { COLORS, FLATTEN, RADIUS, hexPoints, polygon, project, shade } from '../../map.mjs';
 import { PROVINCE_TILES, locate, provinceCentre, ringOf, ringProvinces, tileHex, wedgeOf } from '../fgeo.mjs';
 import { FACTION_COLORS } from '../fi18n.mjs';
+import { NATION_DARK } from '../palette.mjs';
 import { majorityOwner } from '../herald.mjs';
 import { paintPeople, PEOPLE_FRAME_MS, zoomBoost } from '../people/crowds.mjs';
 import { activitiesFor } from '../people/activity.mjs';
@@ -68,7 +69,7 @@ export const GRID_WORLD = 0.9;
 /** Milliseconds a frame may spend painting new far bitmaps (the rest wait for the next frame). */
 export const FAR_BUDGET_MS = 8;
 /** Dark inks of the six factions (borders), after the portraits' palette. */
-const FACTION_DARK_INK = Object.freeze(['#7d2c27', '#1b5a53', '#7d5a14', '#4b3874', '#24497b', '#6f2d4c']);
+const FACTION_DARK_INK = NATION_DARK;   // (palette.mjs: the nations' trims)
 
 /** The war lens: per province, the hosts of each faction present (the overview's counts) as banners with a number. */
 export function paintWarLens(ctx, entries, zoom) {

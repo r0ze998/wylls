@@ -6,13 +6,20 @@
 // panel). `avatarSvg` returns markup for the page; `avatarImage` a cached
 // HTMLImageElement for canvases (map, replay; `img-src data:` is allowed).
 import { SKIN, HAIR, EYES } from './identity.mjs';
+import { NATION_FILL, NATION_DARK, NATION_LIGHT, NATION_ON, NATION_MARK } from '../palette.mjs';
 
-/** Faction colours (fi18n CIV_COLORS order) and their dark trims. */
-export const FACTION_FILL = Object.freeze(['#c1504a', '#2f8f84', '#c28f2c', '#7a5fb0', '#3f78c2', '#b5527f']);
-export const FACTION_DARK = Object.freeze(['#7d2c27', '#1b5a53', '#7d5a14', '#4b3874', '#24497b', '#6f2d4c']);
-export const FACTION_LIGHT = Object.freeze(['#f1d6d2', '#d3ebe7', '#f2e4c5', '#e2daf0', '#d6e2f3', '#f0d6e2']);
-const NEUTRAL = { fill: '#8a8a80', dark: '#55554e', light: '#e6e4dc' };
-const col = f => (Number.isInteger(f) && f >= 0 && f < 6 ? { fill: FACTION_FILL[f], dark: FACTION_DARK[f], light: FACTION_LIGHT[f] } : NEUTRAL);
+/**
+ * Faction colours and their trims: the nations' table (palette.mjs: the colours of the six leaders' clothes).
+ * `FACTION_ON` is a mark drawn on the fill, `FACTION_MARK` the nation's colour as a mark on ivory or parchment
+ * (three of the six fills are light colours, so neither can be the fill or ivory for every nation).
+ */
+export const FACTION_FILL = NATION_FILL;
+export const FACTION_DARK = NATION_DARK;
+export const FACTION_LIGHT = NATION_LIGHT;
+export const FACTION_ON = NATION_ON;
+export const FACTION_MARK = NATION_MARK;
+const NEUTRAL = { fill: '#8a8a80', dark: '#55554e', light: '#e6e4dc', mark: '#8a8a80' };
+const col = f => (Number.isInteger(f) && f >= 0 && f < 6 ? { fill: FACTION_FILL[f], dark: FACTION_DARK[f], light: FACTION_LIGHT[f], mark: FACTION_MARK[f] } : NEUTRAL);
 
 /** The sigil of a faction as an SVG path centred on (0, 0), radius 1 (map/layers.mjs SIGILS: circle, triangle, square, diamond, cross, hexagon). */
 export function sigilPath(f, r = 1) {
@@ -128,7 +135,7 @@ export function avatarSvg(identity, faction, { size = 48, title = null, uid = id
     // frame and sigil badge
     `<rect x="2" y="2" width="60" height="60" rx="14" fill="none" stroke="${c.dark}" stroke-width="2.5"/>`,
     // the badge only where it reads (a 20-px name tag keeps the frame colour)
-    badge ? `<g transform="translate(52.5 52.5)"><circle r="8" fill="#fffdf6" stroke="${c.dark}" stroke-width="1.6"/><path d="${sigilPath(faction, 4.4)}" fill="${c.fill}"/></g>` : '',
+    badge ? `<g transform="translate(52.5 52.5)"><circle r="8" fill="#fffdf6" stroke="${c.dark}" stroke-width="1.6"/><path d="${sigilPath(faction, 4.4)}" fill="${c.mark}"/></g>` : '',
   ];
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="${size}" height="${size}" class="avatar" ${a11y}>${parts.join('')}</svg>`;
 }

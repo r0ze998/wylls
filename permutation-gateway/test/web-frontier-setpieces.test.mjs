@@ -200,8 +200,9 @@ test('battle titles: the viewer\'s own words, a nation\'s name for a spectator, 
     assert.equal(t('camp', 0).title, lang === 'ja' ? '野営地を制圧' : 'Camp cleared');
     assert.equal(t('others', null).title, lang === 'ja' ? 'ダンマールの勝利' : 'Dunmar wins');
     assert.equal(t('win', 0).tone, 'win'); assert.equal(t('win', 2).tone, 'loss'); assert.equal(t('others', 0).tone, 'brass');
-    assert.equal(t('win', 0).color, '#c1504a', 'in the colour of the nation that holds the tile');
-    assert.equal(t('win', 2).color, '#c1504a', 'also for the side that lost');
+    // (the nations' colours are the leaders' clothes now: palette.mjs; Aster's red)
+    assert.equal(t('win', 0).color, '#cc303b', 'in the colour of the nation that holds the tile');
+    assert.equal(t('win', 2).color, '#cc303b', 'also for the side that lost');
     for (const name of ['win', 'camp', 'held', 'others']) for (const f of [null, 0, 2, 4]) {
       const v = t(name, f);
       if (lang === 'en') assert.doesNotMatch(`${v.title} ${v.sub}`, /[぀-ヿ一-鿿]/, `${name}/${f}`);

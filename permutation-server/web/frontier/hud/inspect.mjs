@@ -16,6 +16,7 @@ import { ringOf } from '../fgeo.mjs';
 import { troopsOf } from '../fmarch.mjs';
 import { swatch } from '../screens/shell.mjs';
 import { personChip, hostOwner, holdingName } from '../people/ui.mjs';
+import { leaderHex } from '../people/leaders.mjs';
 import { identityOf, displayName } from '../people/identity.mjs';
 import { hostParts } from '../faddr.mjs';
 import { activityText } from '../people/activity.mjs';
@@ -179,7 +180,7 @@ export function render(FS, terrainOf, activities = null) {
   // "details" (UX design 11.13)
   const where = [name && terrain && name !== terrain ? terrain : null, site && site.state === 'free' ? SITE_TEXT.free() : null, t && !held ? provinceName(FS, m.p, m.q) : null].filter(Boolean).join(' · ');
   const mark = held ? 'home' : t?.camp ? 'tent' : t?.hosts?.length ? 'sword' : t ? 'mountain' : 'chart';
-  const side = site?.mine ? chip(L`あなたの村`, 'you') : held ? chip(html`${swatch(site.faction)}${factionName(site.faction)}`) : t?.camp ? chip(L`${fmtNum(t.camp.troops)} 兵`, 'bad') : '';
+  const side = site?.mine ? chip(L`あなたの村`, 'you') : held ? chip(html`${raw(leaderHex(site.faction, { size: 22 }))}${swatch(site.faction)}${factionName(site.faction)}`) : t?.camp ? chip(L`${fmtNum(t.camp.troops)} 兵`, 'bad') : '';
   const chips = [];
   if (held && site.garrison !== null) chips.push(chip(L`守備隊 ${fmtNum(site.garrison)}`, '', 'shield'));
   if (site?.shield) chips.push(html`${chip(L`保護中（攻撃されません）`, 'info', 'shield')}`);

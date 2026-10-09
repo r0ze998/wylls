@@ -12,7 +12,7 @@ import { L, Lh, fmtNum, lang } from '../../lang.mjs';
 import { factionName, DOCTRINE_NAMES, HOLDING_STATES, failureText } from '../fi18n.mjs';
 import { freeByWedge, ticketTimes, homeWedge } from '../fland.mjs';
 import { timeHtml } from './shell.mjs';
-import { LEADERS, leaderSvg, DOCTRINE_PITCH } from '../people/leaders.mjs';
+import { LEADERS, leaderFigure, leaderHex, DOCTRINE_PITCH } from '../people/leaders.mjs';
 import { placeName } from '../people/identity.mjs';
 import { holdingName } from '../people/ui.mjs';
 import { crestSvg } from '../hud/hud.mjs';
@@ -47,8 +47,9 @@ export function factionCards(FS) {
 
 /**
  * The nation choice (UX design 7.2 and 11.9; owner decision V2: joining is choosing one of the six nations,
- * nothing else): six standing banners of cloth — the nation's crest on the rail, the leader's portrait, the
- * nation's name, its leader and its doctrine on the dyed field under it — and one confirm line. One choice, one
+ * nothing else): six standing banners of cloth — the nation's crest on the rail, its leader standing lit before the
+ * cloth (breathing while the banner is looked at; the chosen one's flourish plays once: people/leader-sprite.mjs),
+ * the nation's name, its leader and its doctrine on the dyed field under it — and one confirm line. One choice, one
  * confirm, no site picker. A banner carries `data-nation`: app.mjs sends `wylls:nation-focus` on hover, focus
  * and choice (the map lights that nation's home wedge) and marks the panel with `data-look`, so the confirm
  * line says the leader and the creed of the banner that is looked at (all six are in the markup; the stylesheet
@@ -61,12 +62,14 @@ export function renderNations(FS) {
   // The season's join gate (I-51), or a relay that answered InviteRequired.
   const gated = FS.inviteRequired || !!FS.season?.joinGate?.some?.(x => x !== 0);
   const banners = cards.map(c => html`<li><button type="button" class="banner-pick bn${c.faction}" data-act="pick-faction" data-f="${c.faction}" data-nation="${c.faction}" aria-pressed="${c.chosen ? 'true' : 'false'}">
-    <span class="bn-rim"><span class="bn-cloth"><span class="bn-face">${raw(leaderSvg(c.faction, { size: 104 }))}</span>
+    <span class="bn-rim"><span class="bn-cloth"><span class="bn-face"></span>
       <span class="bn-field"><strong class="bn-name">${c.name}</strong><span class="bn-leader"><span data-name>${leaderName(c.faction)}</span></span><span class="bn-creed">${L`教義：${c.doctrine}`}</span></span></span></span>
+    <span class="bn-figure">${raw(leaderFigure(c.faction, { size: 150, motion: c.chosen ? 'attack' : 'idle', once: c.chosen ? `pick-${c.faction}` : null, when: 'look' }))}</span>
+    <span class="bn-hex">${raw(leaderHex(c.faction, { size: 44 }))}</span>
     <span class="bn-crest">${crestSvg(c.faction, { size: 30 })}</span>${c.chosen ? html`<span class="bn-mark" aria-hidden="true">${icon('check')}</span>` : ''}
   </button></li>`);
   // who leads each nation and what it is good at, in a line: the looked-at banner's, else the chosen one's
-  const says = cards.map(c => html`<div class="nc-item${c.chosen ? ' nc-def' : ''}" data-n="${c.faction}" ${raw(c.chosen ? 'aria-live="polite"' : 'aria-hidden="true"')}>${crestSvg(c.faction, { size: 34 })}<div class="nc-text"><strong class="nc-name">${c.name} <span class="nc-title">— <span data-name>${leaderName(c.faction)}</span> · ${LEADERS[c.faction].title()}</span></strong>
+  const says = cards.map(c => html`<div class="nc-item${c.chosen ? ' nc-def' : ''}" data-n="${c.faction}" ${raw(c.chosen ? 'aria-live="polite"' : 'aria-hidden="true"')}><span class="nc-fig">${raw(leaderFigure(c.faction, { size: 84, motion: c.chosen ? 'attack' : 'idle', once: c.chosen ? `pick-${c.faction}` : null }))}</span>${crestSvg(c.faction, { size: 34 })}<div class="nc-text"><strong class="nc-name">${c.name} <span class="nc-title">— <span data-name>${leaderName(c.faction)}</span> · ${LEADERS[c.faction].title()}</span></strong>
       <span class="nc-pitch">${DOCTRINE_PITCH[c.faction]()}</span></div></div>`);
   const confirm = html`<div class="nation-confirm${pick ? '' : ' nc-empty'}">
     <div class="nc-what">${says}${pick ? '' : html`<div class="nc-item nc-def"><span class="nc-hint">${icon('banner')}</span><div class="nc-text"><strong class="nc-name">${L`旗を一つ選んでください`}</strong><span class="nc-pitch">${L`選ぶのは国だけです。最初の村の場所は自動で決まります。`}</span></div></div>`}</div>
@@ -140,7 +143,7 @@ export const waitNote = c => (c?.kind !== 'result' ? '' : c.tolled ? L`鐘が鳴
 /** The waiting view's head: who the viewer joined, and the state in one line (the card's title). */
 function waitHead(FS, title) {
   const f = FS.citizen?.faction;
-  return html`<div class="wait-top">${Number.isInteger(f) ? html`<span class="wait-face">${raw(leaderSvg(f, { size: 64 }))}</span>` : ''}
+  return html`<div class="wait-top">${Number.isInteger(f) ? html`<span class="wait-face">${raw(leaderFigure(f, { size: 84 }))}</span>` : ''}
     <div class="wait-who">${Number.isInteger(f) ? html`<span class="wait-nation">${crestSvg(f, { size: 20 })}${L`${factionName(f)}に加わりました`}</span>` : ''}<h3 id="join-sites">${title}</h3></div></div>`;
 }
 /** The one clock, large: what it counts to, the figure, and (for a result) the turn whose bell decides it. */

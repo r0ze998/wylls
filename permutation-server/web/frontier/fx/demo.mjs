@@ -34,6 +34,8 @@ import { playToll, playResult, playBusy, playSent, playLanded, playRefused, play
 import { hexKey } from '../map/survey.mjs';
 import { hexDisc } from './effects.mjs';
 import { renderStatus } from '../hud/status.mjs';
+import { playLeaderDemo, LEADER_DEMO } from '../people/leader-demo.mjs';
+import { stood } from './draw.mjs';
 
 // ---- sample data for the set pieces: labelled as a demo on screen, never mixed with the page's records
 const T = n => n;   // whole troops, as people/battle.mjs scenes carry them
@@ -143,6 +145,9 @@ export const SAMPLES = Object.freeze({
   village: moment('village', { from: 2, to: 0 }),
   'village-lost': moment('village', { from: 0, to: null }),
   depart: moment('depart', { faction: 3, own: false }),
+  // the six leaders on six tiles by the demo tile, for the owner to judge the figures on the real board: they walk a tile, strike,
+  // take a hit (people/leader-demo.mjs; the game has no leader on the map: this is the demo's alone)
+  leaders: { secs: LEADER_DEMO.secs, run: (c, fx) => playLeaderDemo(fx, c, { stand: stood }) },
 });
 
 const ints = s => String(s ?? '').split(',').map(Number);

@@ -126,8 +126,8 @@ function staged({ motion = 'full', page = fakePage(), map: extra = {} } = {}) {
 }
 const hudNodes = (s, cls) => (s.fx.hud?.children ?? []).filter(k => k.classes.has(cls));
 const px = v => parseFloat(v);
-/** The figures a context was asked to draw: without sheets (node) a figure stands on a base disc in its nation's colour (people/units.mjs baseDisc). */
-const figuresOf = (ctx, fill = '#c1504a') => ctx.discs.filter(d => d.fill === fill && Math.abs(d.ry / d.rx - 0.16 / 0.46) < 0.01);
+/** The figures a context was asked to draw: without sheets (node) a figure stands on a base disc in its nation's colour (people/units.mjs baseDisc; Aster's red of palette.mjs). */
+const figuresOf = (ctx, fill = '#cc303b') => ctx.discs.filter(d => d.fill === fill && Math.abs(d.ry / d.rx - 0.16 / 0.46) < 0.01);
 const scene = (name, at = { q: 16, r: -7 }) => { const d = DEMO_SCENES[name](at); return { p: 2, q: 0, bell: 43, tiles: [{ idx: 7, hex: at, attackers: d.attackers, defenders: d.defenders }] }; };
 
 // ================================================================== the HUD-free rectangle

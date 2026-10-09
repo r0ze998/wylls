@@ -25,7 +25,7 @@ import { bellChip, countdown, BELL_SECS } from '../clock.mjs';
 import { ownTag, ownIdentity, holdingName } from '../people/ui.mjs';
 import { leaderSvg } from '../people/leaders.mjs';
 import { displayName } from '../people/identity.mjs';
-import { avatarSvg, sigilPath, FACTION_FILL, FACTION_DARK } from '../people/avatar.mjs';
+import { avatarSvg, sigilPath, FACTION_FILL, FACTION_DARK, FACTION_ON } from '../people/avatar.mjs';
 import { icon, RESOURCE_ICON } from './icons.mjs';
 import { tileWhat, provinceName } from './place.mjs';
 
@@ -257,8 +257,14 @@ export function renderStandingsList(FS) {
 export function crestSvg(faction, { size = 26 } = {}) {
   const f = Number.isInteger(faction) && faction >= 0 && faction < 6 ? faction : null;
   const fill = f === null ? '#8a8a80' : FACTION_FILL[f], dark = f === null ? '#55554e' : FACTION_DARK[f];
-  return raw(`<svg class="crest" viewBox="0 0 24 28" width="${Math.round(size * 24 / 28)}" height="${size}" aria-hidden="true" focusable="false"><path d="M12 1.2l9.6 2.9v9.9c0 5.8-3.9 9.8-9.6 12.6C6.3 23.8 2.4 19.8 2.4 14V4.1Z" fill="${fill}" stroke="#f0d48a" stroke-width="1.3" stroke-linejoin="round"/><path d="M12 3.4l7.5 2.3v8.3c0 4.6-3 7.9-7.5 10.3Z" fill="${dark}" opacity=".28"/><g transform="translate(12 12.6)"><path d="${sigilPath(f ?? 6, 5)}" fill="#fffaf0" stroke="${dark}" stroke-width=".7"/></g></svg>`);
+  return raw(`<svg class="crest" viewBox="0 0 24 28" width="${Math.round(size * 24 / 28)}" height="${size}" aria-hidden="true" focusable="false"><path d="M12 1.2l9.6 2.9v9.9c0 5.8-3.9 9.8-9.6 12.6C6.3 23.8 2.4 19.8 2.4 14V4.1Z" fill="${fill}" stroke="#f0d48a" stroke-width="1.3" stroke-linejoin="round"/><path d="M12 3.4l7.5 2.3v8.3c0 4.6-3 7.9-7.5 10.3Z" fill="${dark}" opacity=".28"/><g transform="translate(12 12.6)"><path d="${sigilPath(f ?? 6, 5)}" fill="${f === null ? '#fffaf0' : FACTION_ON[f]}" stroke="${dark}" stroke-width=".7"/></g></svg>`);
 }
+
+/**
+ * The top plaque's nation mark: the leader's hexagon icon with the nation's sigil on its colour at the foot (the
+ * sigil carries the identity where the name is put away: a phone's strip).
+ */
+export const leaderCrest = (faction, { size = 34 } = {}) => raw(leaderSvg(faction, { size, shape: 'hex', sigil: true }));
 
 /** How many to-do lines the opened list shows at most (the count beside the heading says how many there are). */
 export const TODO_LINES = 5;
