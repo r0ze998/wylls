@@ -112,7 +112,8 @@ for (const vp of viewports) {
         page.on('requestfailed', r => problems.push(`${scene.id} ${vp.id}: request failed: ${r.url()} ${r.failure()?.errorText ?? ''}`));
         page.on('response', r => { if (r.status() >= 400) problems.push(`${scene.id} ${vp.id}: HTTP ${r.status()} ${r.url()}`); });
         await page.goto(`${srv.url}/frontier/${scene.page}`);
-        await page.waitForFunction(() => /\d/.test(document.getElementById('bell-chip')?.textContent ?? ''));
+        // (ready: the dial counts and the viewer's record has answered; the play page is `data-stage="loading"` until then)
+        await page.waitForFunction(() => /\d/.test(document.getElementById('bell-chip')?.textContent ?? '') && document.body.dataset.stage !== 'loading');
         await scene.go(page);
         await shot(page, { scene, vp, lang: 'ja', problems });
         // The toggle: English in place, no reload (the marker survives), the chip re-rendered.

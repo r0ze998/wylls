@@ -29,7 +29,10 @@ async function open(t, { width = 390, height = 844, stage = 'holding', page: fil
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   await page.clock.setFixedTime(new Date(LATEST_UNIX * 1000 + 500));
   await page.goto(`${srv.url}/frontier/${file}${query}`);
-  await page.waitForFunction(() => /\d/.test(document.getElementById('bell-chip')?.textContent ?? ''));
+  // (the page is ready when the dial counts AND the viewer's record has answered: since wave 3 the dial counts while
+  // the play page still says `data-stage="loading"`, and the layout settles a moment later; a press aimed at a box
+  // measured in between missed, e.g. the sheet's handle)
+  await page.waitForFunction(() => /\d/.test(document.getElementById('bell-chip')?.textContent ?? '') && document.body.dataset.stage !== 'loading');
   t.after(() => assert.deepEqual(errors, [], 'no page or console error'));
   return page;
 }
@@ -726,7 +729,7 @@ async function openLive(t, { width = 1440, height = 900, delay = 4, landMs = 900
   page.on('response', r => { if (r.status() >= 400) errors.push(`HTTP ${r.status()} ${r.url()}`); });
   page.on('request', r => { if (r.method() === 'POST') posts.push(new URL(r.url()).pathname); });
   await page.goto(`${srv.url}/frontier/index.html`);
-  await page.waitForFunction(() => /\d/.test(document.getElementById('bell-chip')?.textContent ?? ''));
+  await page.waitForFunction(() => /\d/.test(document.getElementById('bell-chip')?.textContent ?? '') && document.body.dataset.stage !== 'loading');
   // every event of the effects bus, in order, with what the assertions below read of it
   await page.evaluate(async () => {
     const { on } = await import('/frontier/fx/bus.mjs');
