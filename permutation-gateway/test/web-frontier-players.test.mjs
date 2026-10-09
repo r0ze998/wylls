@@ -423,3 +423,21 @@ test('a fight on a village\'s tile is staged before the village, never over its 
   const sc = B.battleScene({ p: 2, q: 0, bell: 41, inputs: { arrivals: [{ present: 1, tile: 7, hostId: 9n, faction: 2, unit: 0, stance: 1, troops: 900000n, troopsAfter: 0n, fate: 5 }] }, before, after: null, ownTiles: new Set([7]) });
   assert.deepEqual(sc.tiles[0].village, { tier: 1, own: true });
 });
+
+// ------------------------------------------------------------------ the host art has one painter (the owner will hand over army art later)
+test('one function draws a host\'s figure on the board, in the set pieces and in the battle: people/minis.mjs paintMini', () => {
+  const src = f => readFileSync(new URL(f, WEB), 'utf8');
+  // the three callers
+  assert.match(src('people/units.mjs'), /if \(!paintMini\(ctx, x, y, s, kind, \{ faction, face, step, walking, alpha, lunge: tok\.lunge \?\? 0, own, pulse \}\)\)/, 'the board\'s token');
+  assert.match(src('fx/pieces.mjs'), /const figureFlat = \(ctx, x, y, s, kind, o\) => \{ if \(!paintMini\(ctx, x, y, s, kind, \{ shade: FILE_SHADE, \.\.\.o \}\)\)/, 'a column, a muster');
+  assert.match(src('people/battle.mjs'), /if \(!paintMini\(ctx, 0, 0, f\.s, f\.kind, o\)\)/, 'a battle\'s figure');
+  // nobody else reads the unit sheets: the sheet's layout is the painter's own
+  const files = [];
+  const walk = dir => { for (const e of readdirSync(new URL(dir, WEB), { withFileTypes: true })) { if (e.isDirectory()) { if (!['council', 'art', 'wasm'].includes(e.name)) walk(`${dir}${e.name}/`); } else if (e.name.endsWith('.mjs')) files.push(`${dir}${e.name}`); } };
+  walk('');
+  const readers = files.filter(f => /\bminiSheet\(|\bminiCell\(|art\/units\/@/.test(src(f)));
+  assert.deepEqual(readers, ['people/minis.mjs'], 'the sheets and their cells are read in one file');
+  // and the notes say how new art is plugged in
+  const readme = readFileSync(new URL('people/README.md', WEB), 'utf8');
+  assert.match(readme, /## Host art/); assert.match(readme, /paintMini/); assert.match(readme, /MINI_ANCHOR/);
+});

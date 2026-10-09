@@ -312,9 +312,12 @@ test('battle: the hit is light added for two frames with a star at the contact, 
   assert.equal(B.hitTint(B.HIT_TINT_SECS[1]), 0);
   assert.ok(B.HIT_TINT_SECS[0] <= 2 / 60 + 0.001 && B.HIT_TINT_SECS[1] <= B.HIT_STOP + 1e-9, 'two frames, gone before the hit-stop ends');
   assert.equal(B.hitTint(-0.01), 0);
-  const src = readFileSync(`${WEB}people/battle.mjs`, 'utf8');
-  assert.doesNotMatch(src, /whiteCell|fillStyle = '#ffffff'; g\.fillRect/, 'no white copy of a figure is made');
-  assert.match(src, /globalCompositeOperation = 'lighter';\s*ctx\.globalAlpha = f\.alpha \* f\.flash \* HIT_TINT;/, 'the tint is added, at HIT_TINT');
+  // (the host's figure and the light of a blow on it are drawn by the one painter of the host art, people/minis.mjs
+  // paintMini: the battle hands it `flash` at HIT_TINT)
+  const src = readFileSync(`${WEB}people/battle.mjs`, 'utf8'), minisSrc = readFileSync(`${WEB}people/minis.mjs`, 'utf8');
+  assert.doesNotMatch(src + minisSrc, /whiteCell|fillStyle = '#ffffff'; g\.fillRect/, 'no white copy of a figure is made');
+  assert.match(src, /flash: f\.flash > 0\.02 \? f\.flash \* HIT_TINT : 0/, 'the tint is asked for at HIT_TINT');
+  assert.match(minisSrc, /globalCompositeOperation = 'lighter';\s*ctx\.globalAlpha = a0 \* alpha \* flash;/, 'and it is added as light');
   // the numbers
   assert.equal(B.LOSS_PX, 28); assert.ok(B.LOSS_PX_FINAL >= 28);
   assert.deepEqual(B.LOSS_POP, { from: 1.3, secs: 0.12 });

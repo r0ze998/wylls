@@ -49,7 +49,7 @@ import { tileHex } from '../fgeo.mjs';
 import { troopsOf } from '../fmarch.mjs';
 import { FACTION_FILL, FACTION_DARK, FACTION_LIGHT, FACTION_MARK, sigilPath } from './avatar.mjs';
 import { baseDisc, unitFigure, UNIT_KINDS } from './units.mjs';
-import { paintMini, miniSheet, miniCell, MINI_CELL_U, MINI_ANCHOR, MINI_SIZES } from './minis.mjs';
+import { paintMini, preloadMinis } from './minis.mjs';
 import { clamp01, lerp, span, inQuad, inCubic, outQuad, outCubic, outExpo, outBack, inOutQuad } from '../fx/ease.mjs';
 import { standing } from '../map/tilt.mjs';
 import { sideOutcome } from './outcome.mjs';
@@ -539,72 +539,13 @@ export const HIT_TINT = 0.6;
 export const HIT_TINT_SECS = Object.freeze([0.034, 0.07]);
 /** The tint of a blow at `since` seconds after its contact frame (0..1 of HIT_TINT). */
 export const hitTint = since => (since < 0 ? 0 : since < HIT_TINT_SECS[0] ? 1 : 1 - span(since, HIT_TINT_SECS[0], HIT_TINT_SECS[1]));
-/**
- * A miniature's frame as light to add to it (the hit tint): its own picture with warm light mixed in, the base
- * it stands on and its shadow left out. Drawn additively at HIT_TINT it lifts the figure's colours and keeps
- * its drawing and its nation's colour: never a white silhouette. Null where there is no canvas or the sheet has not loaded.
- */
-const tints = new Map();
-function tintCell(faction, kind, face, walking, step) {
-  const img = faction >= 0 && faction < 6 ? miniSheet(faction, MINI_SIZES[0].key) : null;
-  if (!img) return null;
-  const { row, col } = miniCell(kind, { face, walking, step });
-  const key = `${faction}|${row}|${col}`;
-  if (tints.has(key)) return tints.get(key);
-  let cv = null;
-  try {
-    const cell = Math.round(img.width / 6);
-    cv = typeof globalThis.OffscreenCanvas === 'function' ? new globalThis.OffscreenCanvas(cell, cell) : globalThis.document?.createElement?.('canvas') ?? null;
-    if (cv) {
-      cv.width = cell; cv.height = cell;
-      const g = cv.getContext('2d');
-      g.drawImage(img, col * cell, row * cell, cell, cell, 0, 0, cell, cell);
-      // its own colours with warm light mixed in: added to the figure it brightens every colour toward that light
-      g.globalCompositeOperation = 'source-atop'; g.fillStyle = 'rgba(255,238,206,0.16)'; g.fillRect(0, 0, cell, cell);
-      // the figure only: the base it stands on and its shadow stay as they are
-      const m = g.createLinearGradient(0, cell * (MINI_ANCHOR[1] - 0.2), 0, cell * (MINI_ANCHOR[1] - 0.06));
-      m.addColorStop(0, 'rgba(0,0,0,1)'); m.addColorStop(1, 'rgba(0,0,0,0)');
-      g.globalCompositeOperation = 'destination-in'; g.fillStyle = m; g.fillRect(0, 0, cell, cell);
-    }
-  } catch { cv = null; }
-  tints.set(key, cv);
-  return cv;
-}
-
-/** The nation whose miniatures stand in for the neutral camp's fighters, drawn drained of colour and washed in leather. */
-const CAMP_SHEET = 5;
-const camps = new Map();
-/** A camp fighter's frame: a miniature greyed and washed brown (the camp has no sheet of its own); null until the sheet has loaded or where there is no canvas. */
-function campCell(kind, face, walking, step) {
-  const img = miniSheet(CAMP_SHEET, MINI_SIZES[0].key);
-  if (!img) return null;
-  const { row, col } = miniCell(kind, { face, walking, step });
-  const key = `${row}|${col}`;
-  if (camps.has(key)) return camps.get(key);
-  let cv = null;
-  try {
-    const cell = Math.round(img.width / 6);
-    cv = typeof globalThis.OffscreenCanvas === 'function' ? new globalThis.OffscreenCanvas(cell, cell) : globalThis.document?.createElement?.('canvas') ?? null;
-    if (cv) {
-      cv.width = cell; cv.height = cell;
-      const g = cv.getContext('2d');
-      if ('filter' in g) g.filter = 'grayscale(0.85) brightness(1.02) contrast(1.05)';
-      g.drawImage(img, col * cell, row * cell, cell, cell, 0, 0, cell, cell);
-      if ('filter' in g) g.filter = 'none';
-      g.globalCompositeOperation = 'source-atop'; g.fillStyle = 'rgba(112,78,44,0.3)'; g.fillRect(0, 0, cell, cell);
-    }
-  } catch { cv = null; }
-  camps.set(key, cv);
-  return cv;
-}
-
 /** Start loading the sheets a scene will need (so its first frames already have their figures). */
 export function preloadBattle(scene) {
   for (const tile of scene?.tiles ?? []) for (const x of [...(tile.attackers ?? []), ...(tile.defenders ?? [])]) {
-    const f = x.faction >= 0 && x.faction < 6 ? x.faction : CAMP_SHEET;
-    for (const size of MINI_SIZES) miniSheet(f, size.key);
+    const nation = x.faction >= 0 && x.faction < 6;
+    preloadMinis(nation ? x.faction : null);
     // the side's player (a nation's side): the three sheets its character plays in a scene
-    if (x.faction >= 0 && x.faction < 6 && x.kind !== 'camp') for (const m of ['idle', 'attack', 'hit']) leaderMotionSheet(MOTION_LEADERS[x.faction].key, m);
+    if (nation && x.kind !== 'camp') for (const m of ['idle', 'attack', 'hit']) leaderMotionSheet(MOTION_LEADERS[x.faction].key, m);
   }
 }
 
@@ -623,24 +564,14 @@ function paintFigureFlat(ctx, f) {
   ctx.translate(f.x, f.y - f.hop);
   if (f.rot) ctx.rotate(f.rot);
   if (f.sx !== 1 || f.sy !== 1) ctx.scale(f.sx, f.sy);
-  const o = { faction: f.faction, face: f.face, step: f.step, walking: f.walking, alpha: f.alpha, shade: FIGURE_SHADE };
-  const w = f.s * MINI_CELL_U, nation = f.faction >= 0 && f.faction < 6;
-  let drawn = false, tint = null;
-  if (nation) { drawn = paintMini(ctx, 0, 0, f.s, f.kind, o); if (drawn && f.flash > 0.02) tint = tintCell(f.faction, f.kind, f.face, f.walking, f.step); }
-  else {
-    const cell = campCell(f.kind, f.face, f.walking, f.step);
-    if (cell && ctx.drawImage) { ctx.globalAlpha = f.alpha; ctx.drawImage(cell, -w * MINI_ANCHOR[0], -w * MINI_ANCHOR[1], w, w); drawn = true; if (f.flash > 0.02) tint = tintCell(CAMP_SHEET, f.kind, f.face, f.walking, f.step); }
-  }
+  // a host's figure: the one painter of the host art (people/minis.mjs paintMini: a nation's miniature, or the
+  // camp's; the blow's light on it for a frame or two)
+  const nation = f.faction >= 0 && f.faction < 6;
+  const o = { faction: f.faction, face: f.face, step: f.step, walking: f.walking, alpha: f.alpha, shade: FIGURE_SHADE, camp: !nation, flash: f.flash > 0.02 ? f.flash * HIT_TINT : 0 };
   // until its sheet has loaded a figure is only the shadow it will stand on (a page with no sheets at all draws the plain canvas figure)
-  if (!drawn) {
+  if (!paintMini(ctx, 0, 0, f.s, f.kind, o)) {
     if (typeof globalThis.Image === 'undefined') { baseDisc(ctx, 0, 0, f.s, f.faction, { alpha: f.alpha }); unitFigure(ctx, 0, -f.s * 0.02, f.s, f.kind, o); }
     else { ctx.fillStyle = `rgba(12,22,20,${(0.28 * f.alpha).toFixed(3)})`; ctx.beginPath(); ctx.ellipse?.(0, 0, f.s * 0.3, f.s * 0.12, 0, 0, Math.PI * 2); ctx.fill(); }
-  }
-  // the blow: light added to the figure for a frame or two (it keeps its colours and its drawing)
-  if (f.flash > 0.02 && tint && ctx.drawImage) {
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.globalAlpha = f.alpha * f.flash * HIT_TINT;
-    ctx.drawImage(tint, -w * MINI_ANCHOR[0], -w * MINI_ANCHOR[1], w, w);
   }
   ctx.restore();
 }
