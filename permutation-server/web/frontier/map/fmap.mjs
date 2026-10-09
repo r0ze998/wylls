@@ -39,7 +39,7 @@ import { paintSheet, paintTable, sheetOf, tableShows } from './table.mjs';
 import { CloudSea, DRIFT_SPEED, seaField } from './cloudsea.mjs';
 import { project, RADIUS, FLATTEN } from '../../map.mjs';
 import { Camera, EASE, FAR_CAP, MOVE_MS, clampCentre, fitView, freeBox, reducedMotion } from './camera.mjs';
-import { OPEN_FROM, OPEN_WAIT_MS, TITLE_FROM, TITLE_MS, heroZoom, openingPlan, placePoint } from './opening.mjs';
+import { OPEN_FROM, OPEN_WAIT_MS, heroZoom, openingPlan, placePoint } from './opening.mjs';
 import { nearness, paintDressing } from './dressing.mjs';
 import { PROBE } from './probe.mjs';
 import { L2, L3, openSurvey } from './survey.mjs';
@@ -108,6 +108,8 @@ export const GROUND_FINER = 1.08;
  */
 export const NOGO_SELECTORS = '#bell-pill, #bell-pill .dial-top, #topbar .strip-side, #hud-tl > *, #rail > *, #minimap, .map-tools, #tabs, #panel, #ob-map, .feed > *, #mile-banner';
 export const NOGO_EVERY_MS = 300;
+/** The map's words fade out for a set piece, and back in after it, over this long (ms). */
+export const PIECE_LABELS_MS = 200;
 /**
  * The camera eases out to a lit reach: the reach's box takes at most this share of the uncovered picture, keeps
  * this many px clear of its edges, and the zoom never goes below this factor of the tile view's own edge (a
@@ -441,7 +443,8 @@ export class FrontierMap {
     this.pointer = mountHomePointer(canvas, { onPress: () => this.home() });
     this.watchSize();
     // a row of a list flies to its place (the wait drawer's candidate sites): `wylls:fly-to` with `{p, q, tile}` (or `site`)
-    this.onFlyTo = e => { try { this.flyToPlace(e?.detail); } catch { /* a malformed event */ } };
+    // (taken: the page's own fallback flight stands down, app.mjs 'site-go')
+    this.onFlyTo = e => { try { if (this.flyToPlace(e?.detail)) e.preventDefault?.(); } catch { /* a malformed event */ } };
     globalThis.addEventListener?.('wylls:fly-to', this.onFlyTo);
     this.frame = ts => {
       this.frameNo = (this.frameNo ?? 0) + 1;
@@ -529,6 +532,14 @@ export class FrontierMap {
     const f = freeBox(size, inset), s = this.geo(zoom, size).toStage(size.width / 2 + f.x, size.height / 2 + f.y);
     return { x: pt.x - (s.x - size.width / 2) / zoom, y: pt.y - (s.y - size.height / 2) / zoom, zoom };
   }
+  /**
+   * The view that shows world point `pt` at client px (cx, cy) at `zoom`, as it is seen (tilt and all): what a set
+   * piece asks for when its scene must stand in the part of the screen the HUD leaves free (fx/battle.mjs).
+   */
+  viewShowing(pt, cx, cy, zoom, size = this.size()) {
+    const r = this.canvas.getBoundingClientRect?.() ?? { left: 0, top: 0 }, s = this.geo(zoom, size).toStage(cx - r.left, cy - r.top);
+    return { x: pt.x - (s.x - size.width / 2) / zoom, y: pt.y - (s.y - size.height / 2) / zoom, zoom };
+  }
   /** Write the board's angle and the depth dressing onto the page (custom properties: the page's CSP allows no inline style). */
   dressPage(deg, { near = 0, shown = 1, inset = null } = {}) {
     const set = (el, k, v) => { el.cache ??= {}; if (el.cache[k] !== v) { el.cache[k] = v; el.node.style.setProperty(k, v); } };
@@ -568,8 +579,9 @@ export class FrontierMap {
     this.tick();
   }
   /**
-   * A set piece plays (a battle, the toll's results) or is over: while one plays, the pointer home and the frames
-   * of the wait view stand aside. Counted like hideLabelsAt.
+   * A set piece has the stage (a battle the camera was sent to) or is over: while one plays the map's words are
+   * put away (names, plates, tags, pins: they lie above the effects' canvas and its dim would not reach them) and
+   * the pointer home stands aside. Counted like hideLabelsAt. The words go and come back over PIECE_LABELS_MS.
    */
   setPiece(on = true) { this.pieces = Math.max(0, (this.pieces ?? 0) + (on ? 1 : -1)); this.tick(); }
   get piece() { return (this.pieces ?? 0) > 0; }
@@ -631,6 +643,14 @@ export class FrontierMap {
     if (!auto) { this.cam.userMoved = true; this.moves = (this.moves ?? 0) + 1; }
     this.cam.set(v, move);
     this.sync();
+  }
+
+  /** The picture waits at `view` while the logical view is already where it will go (the opening behind the title): no move until one is asked for. */
+  hold(view) {
+    if (this.cam.reduced()) return;
+    this.cam.tween = null;
+    this.cam.drawn = { ...this.cam.drawn, ...view };
+    this.dirty = true;
   }
 
   /** After the logical view changed: the LOD, the canvas marks, the buttons, the page. */
@@ -983,20 +1003,26 @@ export class FrontierMap {
     const to = this.aim(plan.at, plan.view.zoom, size, inset);
     this.setView(to, { auto: true });
     const f = (b => ({ x: b.x, y: b.y }))(freeBox(size, inset));
-    if (!prev) {
-      // the first picture: the title card drifts in from the mist; a player's land is reached from a little above
-      const k = title ? TITLE_FROM : plan.kind === 'fit' ? 1 : OPEN_FROM;
-      if (k < 1) this.cam.from(this.aim(plan.at, Math.max(ZOOM_MIN, to.zoom * k), size, inset), { ms: title ? TITLE_MS : MOVE_MS.open, ease: EASE.outCubic, anchor: f });
+    // where an opening starts: a player's land is reached from a little above
+    const start = plan.kind === 'fit' ? null : this.aim(plan.at, Math.max(ZOOM_MIN, to.zoom * OPEN_FROM), size, inset);
+    if (title) {
+      // the title is an opaque scene of its own (UX brief §11.9): behind it the camera waits at the opening's start,
+      // whatever changes there (the viewer becomes known, the window changes size). Nothing travels unseen
+      if (start) this.hold(start);
+      this.reveal = undefined;
+    } else if (!prev || prev.title) {
+      // the first picture, or the title was put away: the opening plays now, and the land comes out of the bare table
+      if (start) this.cam.from(prev ? was : start, { ms: MOVE_MS.open, ease: EASE.outCubic, anchor: f });
       this.reveal = now;
     } else if (prev.width !== size.width || prev.height !== size.height) {
       // a new canvas size: framed again, at once
-    } else if (prev.subject === subject && prev.title === title) {
+    } else if (prev.subject === subject) {
       // only the sheets moved (a phone's sheet opened or closed): the subject slides back into the uncovered part
       this.cam.from(was, { ms: MOVE_MS.settle, ease: EASE.outCubic });
-    } else if (plan.kind !== 'fit' || prev.title) {
-      // the viewer became more, or the title closed mid-drift: fly the rest of the way
+    } else if (plan.kind !== 'fit') {
+      // the viewer became more: fly the rest of the way
       // (the nation choice turns from one nation's wedge to the next: a short glide, not an opening)
-      this.cam.from(was, { ms: plan.kind === 'frame' && prev.kind === 'frame' ? MOVE_MS.fly : prev.title && !title && prev.kind === plan.kind ? MOVE_MS.far : MOVE_MS.open, ease: plan.kind === 'frame' ? EASE.inOutCubic : EASE.outCubic, kind: plan.kind === 'frame' ? 'anchor' : 'fly' });
+      this.cam.from(was, { ms: plan.kind === 'frame' && prev.kind === 'frame' ? MOVE_MS.fly : MOVE_MS.open, ease: plan.kind === 'frame' ? EASE.inOutCubic : EASE.outCubic, kind: plan.kind === 'frame' ? 'anchor' : 'fly' });
     }
     return true;
   }
@@ -1116,10 +1142,19 @@ export class FrontierMap {
     }
     dressing(v.zoom, T.deg, shown);
     wipe();
-    if (shown > 0.4) {
+    // a set piece has the stage: the words fade out, and back in after it (at once when nothing may move)
+    const want = this.piece ? 0 : 1, had = this.wordsShown ?? 1;
+    if (had !== want) {
+      const dt = this.wordsAt === undefined || !(now - this.wordsAt > 0) ? 1000 / 60 : Math.min(50, now - this.wordsAt);
+      this.wordsShown = motion ? Math.max(0, Math.min(1, had + (want > had ? 1 : -1) * dt / PIECE_LABELS_MS)) : want;
+      if (this.wordsShown !== want) this.dirty = true;
+    }
+    this.wordsAt = now;
+    const words = this.wordsShown ?? 1;
+    if (shown > 0.4 && words > 0.02) {
       // each label stands upright around its own place on the board (map/tilt.mjs)
       if (staged) armUpright(octx, { place: (x, y) => T.toBox((x - v.x) * v.zoom + width / 2, (y - v.y) * v.zoom + height / 2), zoom: v.zoom, ratio: dpr });
-      octx.save(); octx.globalAlpha = shown;
+      octx.save(); octx.globalAlpha = shown * words;
       out.over(octx, staged ? [dpr * v.zoom, 0, 0, dpr * v.zoom, dpr * (width / 2 - v.x * v.zoom), dpr * (height / 2 - v.y * v.zoom)] : null);
       octx.restore();
       disarmUpright(octx);

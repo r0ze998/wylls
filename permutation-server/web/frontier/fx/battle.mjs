@@ -247,15 +247,21 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
   // a battle the camera is sent to fills the stage the HUD leaves free; one that plays where the viewer already looks keeps to its tile
   const frame = focus ? battleFrame(fx) : null;
   const layout = frame?.layout ?? null;
-  const fit = battleFit(fx.size().width);
+  // (how wide the map is on screen: under a tilt the effects' canvas is wider than the picture)
+  const fit = battleFit(fx.map?.size?.().width ?? fx.size().width);
   const stage = battleStage(main, z, fit, layout);
   play.staged = true;
   preloadBattle(scene);
   // the camera: the tile's centre where the whole block (title, numbers, figures, bars) sits in the middle of the stage
   if (frame && fx.map?.flyTo && level !== 'off') {
-    // (a flat view's arithmetic; under a tilted map the title and the numbers are still kept in place by `anchor`)
-    const sz = fx.size(), o = fx.anchor(0, 0), v = fx.view(), r = { left: o.x - (sz.width / 2 - v.x * v.zoom), top: o.y - (sz.height / 2 - v.y * v.zoom) };
-    try { fx.map.flyTo({ x: stage.cx - (frame.x - r.left - sz.width / 2) / z, y: stage.cy - (frame.y - r.top - sz.height / 2) / z, zoom: z }, level === 'full' ? 500 : 1, { exact: true }); } catch { /* a map that cannot fly */ }
+    // (a tilted board says itself which view shows a point at a place on screen: map.viewShowing; a flat one is plain arithmetic)
+    let to = null;
+    try { to = fx.map.viewShowing?.({ x: stage.cx, y: stage.cy }, frame.x, frame.y, z) ?? null; } catch { to = null; }
+    if (!to) {
+      const sz = fx.size(), o = fx.anchor(0, 0), v = fx.view(), r = { left: o.x - (sz.width / 2 - v.x * v.zoom), top: o.y - (sz.height / 2 - v.y * v.zoom) };
+      to = { x: stage.cx - (frame.x - r.left - sz.width / 2) / z, y: stage.cy - (frame.y - r.top - sz.height / 2) / z, zoom: z };
+    }
+    try { fx.map.flyTo(to, level === 'full' ? 500 : 1, { exact: true }); } catch { /* a map that cannot fly */ }
   }
   // the title stands over the scene: above the loss numbers, inside the free stage (the banner keeps it there)
   const titleY = (s, h) => {
@@ -288,7 +294,7 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
       if (fights.length) paintDim(ctx, s, stage.cx, stage.cy, stage.s * (layout ? 3.3 : 2.4), (focus ? BATTLE_DIM.focus : BATTLE_DIM.passing) * o);
       ctx.globalAlpha = o;
       if (s.zoom * RADIUS < BATTLE_FAR_R) { for (const T of plan.tiles) if (T.fight) paintFar(ctx, s, T, PHASE.fates + 1, title?.color ?? null); }
-      else paintBattle(ctx, play, { zoom: s.zoom, at: PHASE.fates + 1.5, top: true, fit: battleFit(s.size.width), layout, place: placer(s), ...texts });
+      else paintBattle(ctx, play, { zoom: s.zoom, at: PHASE.fates + 1.5, top: true, fit: battleFit(s.stage?.width ?? s.size.width), layout, place: placer(s), ...texts });
     } }));
     keep(fx.piece('battle', { dur: hold, tiles, stage: !!frame }));
     if (title) keep(fx.play('banner', { title: title.title, sub: title.sub, color: title.color, tone: title.tone, vy: titleY, room: frame ? 'stage' : null, dur: Math.min(hold, 2.8), seed: `${id}|title`, mode: level }));
@@ -307,7 +313,7 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
     const ts = t0 + s.t * speed;
     let punch = 0;
     for (const h of BATTLE_HITS) { const u = ts - h; if (u >= 0 && u < 0.3) punch = Math.max(punch, 1 - u / 0.3); }
-    const st = battleStage(main, s.zoom, battleFit(s.size.width), layout);
+    const st = battleStage(main, s.zoom, battleFit(s.stage?.width ?? s.size.width), layout);
     paintDim(ctx, s, st.cx, st.cy - st.s * 0.2, st.s * (layout ? 3.3 : 2.7), Math.min(0.85, dim * a * (1 + 0.12 * punch)));
   } }));
   keep(fx.piece('battle', { dur, tiles, stage: !!frame }));
@@ -315,7 +321,7 @@ export function stageBattle(fx, play, { focus = false, zoom = null, viewerFactio
   keep(fx.add({ name: 'battle', layer: 'top', dur, seed: id, draw(ctx, s) {
     const ts = t0 + s.t * speed;
     if (s.zoom * RADIUS < BATTLE_FAR_R) { for (const T of plan.tiles) if (T.fight) paintFar(ctx, s, T, ts, title?.color ?? null); return; }
-    paintBattle(ctx, play, { zoom: s.zoom, at: ts, top: true, fit: battleFit(s.size.width), layout, place: placer(s), ...texts });
+    paintBattle(ctx, play, { zoom: s.zoom, at: ts, top: true, fit: battleFit(s.stage?.width ?? s.size.width), layout, place: placer(s), ...texts });
   } }));
   // 3. every contact: sparks in both colours, dust at both lines, the shake, the sound
   for (const T of fights) {

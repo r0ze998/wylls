@@ -16,22 +16,35 @@
 //   span     the free stretch of a horizontal band y0..y1 around the middle
 //            line (what a title across the map may fill at that height)
 //
-// The HUD may say it itself: `globalThis.__wyllsHud.freeRect()` (client px,
-// `{left, top, right, bottom}` or `{left, top, width, height}`); then that one
-// rectangle is all three. Otherwise it is measured from the elements the HUD
-// is known to have. Pure given its inputs (`freeFrom`), so it is tested
-// without a page.
+// The HUD says it itself where it can: `globalThis.__wyllsHud.noGo()` is the
+// list of its pieces on screen (hud/insets.mjs noGoRects: the same list the
+// map's labels keep out of), each with an id; HUD_IDS says which of them stand
+// always and which step back for a set piece. A page may instead give one
+// rectangle, `__wyllsHud.freeRect()` (client px, `{left, top, right, bottom}`
+// or `{left, top, width, height}`); then that rectangle is all three. Without
+// either it is measured from the elements the HUD is known to have
+// (HUD_PIECES). Pure given its inputs (`freeFrom`), so it is tested without a
+// page.
 
 /**
  * The pieces of the HUD that stand over the map, by selector (frontier.css; hud/hud.mjs), in three kinds:
- * `fixed` always there (the strip, the dial, the dock, a sheet or drawer, the notices); `ghost` the corner
- * pieces that step back while a set piece has the stage (fx.css `body[data-fx-piece]`); `soft` chips that
- * stand on the map itself (a caption keeps off them, a title does not care).
+ * `fixed` always there (the strip, the dial, the dock, a sheet or drawer, the notices, a milestone's banner);
+ * `ghost` the corner pieces that step back while a set piece has the stage (fx.css `body[data-fx-piece]`);
+ * `soft` things that stand on the map itself (a caption keeps off them, a title does not care).
  */
 export const HUD_PIECES = Object.freeze({
-  fixed: ['#topbar', '#bell-pill', '.dial-top', 'nav.tabs', '#feed', '#panel'],
-  ghost: ['#hud-tl', '#rail', '#minimap', '#lenses', '.map-tools', '#attn-pill'],
-  soft: ['#ob-map', '.home-pointer'],
+  fixed: ['#topbar', '#bell-pill', '.dial-top', 'nav.tabs', '#feed', '#panel', '#mile-banner'],
+  ghost: ['#hud-tl', '#rail', '#minimap', '#lenses', '.map-tools'],
+  soft: ['.home-pointer'],
+});
+/**
+ * The same kinds for the HUD's own list (`__wyllsHud.noGo()`, ids of hud/insets.mjs NO_GO): what is not named
+ * here is `fixed`. The two plaques of the top strip count as one band across the map (`strip`): words never
+ * go between them, though the map shows there.
+ */
+export const HUD_IDS = Object.freeze({
+  ghost: ['search', 'search-field', 'todo', 'todo-list', 'plate', 'lenses', 'minimap', 'map-tools'],
+  strip: ['plaque-left', 'plaque-right'],
 });
 
 /** Any rectangle shape as `{left, top, right, bottom, width, height}` (null when it is not one). */
@@ -43,6 +56,8 @@ export function normRect(r) {
   return { left, top, right, bottom, width: right - left, height: bottom - top };
 }
 
+/** A column of the HUD stands at most this far from the map's side (the HUD's own inset from the edge). */
+const SIDE_GAP = 16;
 const rect = (left, top, right, bottom) => ({ left, top, right, bottom, width: right - left, height: bottom - top });
 const overlaps = (a, b) => a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5;
 
@@ -53,7 +68,7 @@ function carve(st, boxes, band) {
   const midY = (st.top + st.bottom) / 2, midX = (st.left + st.right) / 2;
   for (const b of boxes) {
     if (b.width >= st.width * band) { if ((b.top + b.bottom) / 2 < midY) top = Math.max(top, b.bottom); else bottom = Math.min(bottom, b.top); }
-    else if (b.height >= st.height * 0.5 && b.width < st.width * 0.4 && (b.left <= st.left + 2 || b.right >= st.right - 2)) { if ((b.left + b.right) / 2 < midX) left = Math.max(left, b.right); else right = Math.min(right, b.left); }
+    else if (b.height >= st.height * 0.5 && b.width < st.width * 0.4 && (b.left <= st.left + SIDE_GAP || b.right >= st.right - SIDE_GAP)) { if ((b.left + b.right) / 2 < midX) left = Math.max(left, b.right); else right = Math.min(right, b.left); }
     else pieces.push(b);
   }
   if (right - left < 40) { left = st.left; right = st.right; }
@@ -183,8 +198,33 @@ export function hudBoxes(doc = globalThis.document) {
 }
 
 /**
- * What the HUD leaves free of `stage` (an element or a rectangle) on a page:
- * the HUD's own answer when it gives one, else measured.
+ * The HUD's boxes from its own list (`__wyllsHud.noGo()`), or null when the page gives none: each piece with its
+ * kind, the strip's plaques as one band across `st`, and the map's own soft things measured beside them.
+ */
+export function hudOwnBoxes(doc = globalThis.document, st = null) {
+  let list = null;
+  try { list = globalThis.__wyllsHud?.noGo?.(); } catch { list = null; }
+  if (!Array.isArray(list) || !list.length) return null;
+  const out = [];
+  let strip = null;
+  for (const b of list) {
+    const r = normRect(b);
+    if (!r) continue;
+    if (HUD_IDS.strip.includes(b.id)) { strip = Math.max(strip ?? -Infinity, r.bottom); continue; }
+    out.push({ ...r, kind: HUD_IDS.ghost.includes(b.id) ? 'ghost' : 'fixed' });
+  }
+  if (strip !== null && st && strip > st.top + 1) out.push({ left: st.left, top: st.top, right: st.right, bottom: strip, width: st.width, height: strip - st.top, kind: 'fixed' });
+  if (doc?.querySelectorAll) for (const sel of HUD_PIECES.soft) {
+    let els = [];
+    try { els = [...doc.querySelectorAll(sel)]; } catch { els = []; }
+    for (const el of els) { if (!visible(el, doc.defaultView)) continue; const r = normRect(el.getBoundingClientRect?.()); if (r && r.width > 2 && r.height > 2) out.push({ ...r, kind: 'soft' }); }
+  }
+  return out;
+}
+
+/**
+ * What the HUD leaves free of `stage` (an element or a rectangle) on a page: from the one rectangle the page
+ * gives (`freeRect`), else from the HUD's own list of its pieces (`noGo`), else measured by selector.
  */
 export function freeOf(doc = globalThis.document, stage = null) {
   const st = normRect(stage?.getBoundingClientRect ? stage.getBoundingClientRect() : stage) ?? normRect({ left: 0, top: 0, width: doc?.defaultView?.innerWidth ?? 0, height: doc?.defaultView?.innerHeight ?? 0 });
@@ -192,5 +232,6 @@ export function freeOf(doc = globalThis.document, stage = null) {
   try { own = normRect(globalThis.__wyllsHud?.freeRect?.()); } catch { own = null; }
   if (own && own.width >= 40 && own.height >= 40) return { bounds: own, centre: own, stage: own, boxes: [], hud: true, place: (x, y, w, h, pad = 6) => placeBox(x, y, w, h, own, [], pad), span: () => ({ left: own.left, right: own.right, width: own.width }) };
   if (!st) { const z = rect(0, 0, 0, 0); return { bounds: z, centre: z, stage: z, boxes: [], place: (x, y) => ({ x, y, moved: false }), span: () => ({ left: 0, right: 0, width: 0 }) }; }
-  return freeFrom(st, hudBoxes(doc));
+  const listed = hudOwnBoxes(doc, st);
+  return listed ? { ...freeFrom(st, listed), hud: 'list' } : freeFrom(st, hudBoxes(doc));
 }

@@ -28,10 +28,8 @@ import { candidatesBox } from './waitview.mjs';
 export const heroZoom = (dpr = 1) => (dpr >= 1.5 ? 1.2 : 1.3);
 /** The opening never waits longer than this for the viewer's record (ms); then the world view. */
 export const OPEN_WAIT_MS = 4000;
-/** How much higher than its target the opening starts (zoom factor), and the title card's longer drift. */
+/** How much higher than its target the opening starts (zoom factor). Behind the title the camera waits there (the title is opaque: fmap.mjs open). */
 export const OPEN_FROM = 0.5;
-export const TITLE_FROM = 0.35;
-export const TITLE_MS = 7000;
 /** A nation's home wedge with the bell at its point may come nearer than the far view (the chart is drawn at every zoom). */
 const FRAME_CAP = 0.3;
 /**

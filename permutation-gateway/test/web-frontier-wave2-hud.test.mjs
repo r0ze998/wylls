@@ -112,7 +112,13 @@ test('what the map keeps out of: the HUD\'s pieces as client rectangles', () => 
   const phone = { ...page, defaultView: { getComputedStyle: () => ({ display: 'flex', visibility: 'visible', position: 'absolute' }) } };
   assert.equal(noGoRects(phone).at(-1).id, 'drawer');
   assert.deepEqual(noGoRects(undefined), []);
-  assert.deepEqual(NO_GO.map(x => x[0]), ['plaque-left', 'dial', 'plaque-right', 'search', 'search-field', 'todo', 'todo-list', 'plate', 'dock', 'lenses', 'minimap', 'map-tools', 'notices', 'drawer']);
+  // (integration of wave 2: a milestone's banner is listed, and each notice of the stack is a piece of its own instead of the column they stand in)
+  assert.deepEqual(NO_GO.map(x => x[0]), ['plaque-left', 'dial', 'plaque-right', 'search', 'search-field', 'todo', 'todo-list', 'plate', 'dock', 'lenses', 'minimap', 'map-tools', 'notices', 'banner', 'drawer']);
+  const toasts = [rect(1080, 64, 348, 60), rect(1080, 132, 348, 44)];
+  const withNotices = { ...page, querySelectorAll: sel => (sel === '#feed > *' ? toasts.map(r => ({ getBoundingClientRect: () => r, hidden: false, dataset: {} })) : []) };
+  assert.deepEqual(noGoRects(withNotices).filter(r => r.id === 'notices'), [{ id: 'notices', x: 1080, y: 64, width: 348, height: 60 }, { id: 'notices', x: 1080, y: 132, width: 348, height: 44 }]);
+  els['#mile-banner'] = { r: rect(420, 60, 600, 72) };
+  assert.deepEqual(noGoRects(page).find(r => r.id === 'banner'), { id: 'banner', x: 420, y: 60, width: 600, height: 72 });
 });
 
 test('the guide\'s objective as data: the step, its sentence and its one action; the phone\'s rest shows the plate and the one next thing', () => {

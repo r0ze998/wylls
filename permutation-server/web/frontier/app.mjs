@@ -594,6 +594,7 @@ function showMilestone() {
   if (small) { const top = $('panel')?.getBoundingClientRect?.().top; if (Number.isFinite(top)) el.style.setProperty('--foot', `${Math.max(0, Math.round((globalThis.innerHeight ?? 0) - top + 8))}px`); }
   mileAt = Date.now();
   mileTimer = setTimeout(closeMilestone, small ? MILE_PHONE_MS : milestones.BANNER_MS);
+  publishNoGo();
 }
 /** How long the leader's line stands on a phone (ms), and when the one on screen appeared. */
 const MILE_PHONE_MS = 4200;
@@ -617,6 +618,7 @@ function closeMilestone() {
   clearTimeout(mileTimer); mileTimer = null;
   const el = $('mile-banner');
   if (el) el.hidden = true;
+  publishNoGo();
   if ((FS.mileQueue ?? []).length) setTimeout(showMilestone, 600);
 }
 
@@ -1165,6 +1167,7 @@ function renderFeed() {
     ...(strip ? [{ id: `turn:${strip.turn}`, markup: feed.renderTurnStrip(strip, { now: turnRowNow(strip) }) }] : []),
     ...feed.liveToasts((FS.feed ?? []).filter(x => !inStrip.has(x.id)), { dismissed: FS.feedDismissed ?? new Set() }).map(x => ({ id: `n:${x.id}`, markup: feed.renderToast(x) }))];
   syncStack(el, items);
+  publishNoGo();
 }
 /**
  * "What happened this turn" (UX design 8.3): after the toll the effects layer plays this turn's own results on
@@ -2114,6 +2117,10 @@ export async function boot() {
       art: ART_ON,
     });
     mapRef = map;
+    // the HUD's rectangles reach the map through this name (publishNoGo: `__wyllsMap.setNoGo`); the effects' set
+    // pieces call the same map (`setPiece`, `hideLabelsAt`: fx/engine.mjs is mounted on it)
+    globalThis.__wyllsMap = map;
+    publishNoGo();
     // a press on the dimmed map behind a document (the report, a practice battle) puts the document away, and is not a selection
     canvas.addEventListener?.('pointerdown', e => {
       if (FS.mode !== 'play' || globalThis.document?.body?.dataset.doc !== 'wide') return;

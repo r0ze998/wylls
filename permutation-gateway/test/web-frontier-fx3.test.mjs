@@ -19,7 +19,7 @@ import { installEffects, bannerGone, POP_SECS, POP_FROM } from '../../permutatio
 import { installStage, playSealed, playReveal, TOLL_BANNER_AT, TOLL_BANNER_SECS, TOLL_CLEAR } from '../../permutation-server/web/frontier/fx/stage.mjs';
 import { COLUMN_SECS, COLUMN_REACH, FORMING_SECS } from '../../permutation-server/web/frontier/fx/pieces.mjs';
 import { smoothPath, ribbonEdges, ribbon, RIBBON_PX, RIBBON_DASH } from '../../permutation-server/web/frontier/fx/draw.mjs';
-import { freeFrom, freeOf, placeBox, spanOf, normRect, HUD_PIECES } from '../../permutation-server/web/frontier/fx/safe.mjs';
+import { freeFrom, freeOf, placeBox, spanOf, normRect, hudOwnBoxes, HUD_PIECES, HUD_IDS } from '../../permutation-server/web/frontier/fx/safe.mjs';
 import { stageBattle, battleFrame, dustColors, BATTLE_ZOOM } from '../../permutation-server/web/frontier/fx/battle.mjs';
 import { SAMPLES, DEMO_SCENES } from '../../permutation-server/web/frontier/fx/demo.mjs';
 import * as B from '../../permutation-server/web/frontier/people/battle.mjs';
@@ -102,7 +102,8 @@ function fakePage({ width = 1440, height = 900, hud = {} } = {}) {
 }
 
 const DESKTOP = { '#topbar': [0, 0, 1440, 48], '#bell-pill': [678, 3, 762, 87], '.dial-top': [708, 75, 732, 99], '#hud-tl': [12, 60, 316, 96], '#rail': [12, 702, 300, 888], '#minimap': [1260, 720, 1428, 888], '#lenses': [1243, 670, 1428, 704], '.map-tools': [1206, 718, 1244, 888], 'nav.tabs': [531, 826, 909, 888] };
-const PHONE = { '#topbar': [0, 0, 390, 48], '#bell-pill': [217, 6, 283, 72], '.dial-top': [240, 65, 260, 85], '#attn-pill': [338, 76, 382, 120], '.map-tools': [338, 126, 382, 320], '#hud-tl': [8, 56, 330, 100], '#minimap': [8, 106, 52, 300], '#panel': [0, 575, 390, 786], 'nav.tabs': [0, 785, 390, 844] };
+// (integration of wave 2: the next-thing button is part of the strip's right plaque now, not a piece of its own on a phone)
+const PHONE = { '#topbar': [0, 0, 390, 48], '#bell-pill': [217, 6, 283, 72], '.dial-top': [240, 65, 260, 85], '.map-tools': [338, 126, 382, 320], '#hud-tl': [8, 56, 330, 100], '#minimap': [8, 106, 52, 300], '#panel': [0, 575, 390, 786], 'nav.tabs': [0, 785, 390, 844] };
 
 /** An engine with the vocabulary and the set pieces on a fake page, frames stepped by hand; `map` may carry project / setPiece / hideLabelsAt / flyTo. */
 function staged({ motion = 'full', page = fakePage(), map: extra = {} } = {}) {
@@ -185,6 +186,34 @@ test('safe: the HUD\'s own freeRect() is taken when it gives one; the page is me
   } finally { if (was === undefined) delete globalThis.__wyllsHud; else globalThis.__wyllsHud = was; }
 });
 
+test('safe: the HUD\'s own list of its pieces (noGo) is read before the page is measured: the plaques are one band, the corner pieces step back for a set piece', () => {
+  const page = fakePage({ hud: {} });
+  const was = globalThis.__wyllsHud;
+  try {
+    // what hud/insets.mjs noGoRects gives at 1440 x 900 with a village (ids of NO_GO)
+    const list = [['plaque-left', 8, 8, 561, 44], ['dial', 678, 3, 84, 84], ['plaque-right', 942, 8, 490, 44], ['search', 12, 64, 36, 36], ['todo', 26, 783, 210, 28], ['plate', 12, 810, 288, 78],
+      ['dock', 529, 826, 382, 62], ['lenses', 1243, 670, 185, 34], ['minimap', 1260, 720, 168, 168], ['map-tools', 1206, 718, 38, 170]].map(([id, x, y, width, height]) => ({ id, x, y, width, height }));
+    globalThis.__wyllsHud = { noGo: () => list };
+    const st = { left: 0, top: 0, right: 1440, bottom: 900, width: 1440, height: 900 };
+    const boxes = hudOwnBoxes(page.doc, st);
+    assert.deepEqual(boxes.find(b => b.width === 1440), { left: 0, top: 0, right: 1440, bottom: 52, width: 1440, height: 52, kind: 'fixed' }, 'the two plaques as one band');
+    assert.deepEqual(boxes.filter(b => b.kind === 'ghost').length, HUD_IDS.ghost.filter(id => list.some(r => r.id === id)).length);
+    const f = freeOf(page.doc, st);
+    assert.equal(f.hud, 'list');
+    assert.equal(f.bounds.top, 52, 'under the strip');
+    assert.deepEqual([f.centre.left, f.centre.top, f.centre.right, f.centre.bottom], [48, 87, 1206, 783], 'under the dial, over the to-do tab and the plate, between the search button and the map buttons');
+    assert.deepEqual([f.stage.left, f.stage.top, f.stage.right, f.stage.bottom], [0, 87, 1440, 826], 'a set piece: the corner pieces have stepped back');
+    assert.ok(f.place(720, 20, 100, 26).y - 13 >= 52, 'a caption never stands between the plaques');
+    // an open drawer stands 12 px from the side: it is a column, and everything keeps left of it
+    globalThis.__wyllsHud = { noGo: () => [...list, { id: 'drawer', x: 1044, y: 64, width: 384, height: 824 }] };
+    assert.equal(freeOf(page.doc, st).bounds.right, 1044);
+    // nothing listed: the page is measured
+    globalThis.__wyllsHud = { noGo: () => [] };
+    assert.equal(hudOwnBoxes(page.doc, st), null);
+    assert.equal(freeOf(page.doc, st).hud, undefined);
+  } finally { if (was === undefined) delete globalThis.__wyllsHud; else globalThis.__wyllsHud = was; }
+});
+
 // ================================================================== the engine and a tilted stage
 test('engine: one way from the map to the screen (anchor uses map.project when the map has it); the top canvas goes into the stage element it is given', () => {
   // a flat map: the view's own formula over the canvas's box
@@ -251,7 +280,8 @@ test('engine: while a set piece plays the map is told (setPiece, hideLabelsAt) a
   } finally { s.done(); }
   // the stylesheet: the HUD's corner pieces step back while a set piece has the stage, and nothing there is an animation
   const css = readFileSync(`${WEB}fx/fx.css`, 'utf8');
-  assert.match(css, /body\[data-fx-piece\] :is\(#hud-tl, #rail, #minimap, #lenses, \.map-tools, #attn-pill, #ob-map, \.home-pointer\) \{ opacity: 0; \}/);
+  // (integration of wave 2: the lens chips are inside #minimap, the next-thing button is part of a plaque that stays, the guide's chip is gone)
+  assert.match(css, /body\[data-fx-piece\] :is\(#hud-tl, #rail, #minimap, \.map-tools, \.home-pointer\) \{ opacity: 0; \}/);
   assert.match(css, /body\[data-fx-piece\] :is\([^)]*\):focus-within \{ opacity: 1; \}/, 'a piece that holds the keyboard focus stays in sight');
   assert.doesNotMatch(css, /@keyframes|animation:(?!\s*none)|transition:/);
 });

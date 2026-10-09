@@ -367,20 +367,33 @@ test('the map opens once the viewer is known, upgrades when a village lands, and
   lost.destroy();
 });
 
-test('the title card: the opening drifts in slowly behind it and flies the rest when it closes', () => {
+// (rewritten at the integration of wave 2, UX brief §11.9: it pinned a seven-second drift behind a see-through title
+// card. The title is an opaque scene now, so the camera waits at the opening's start and the opening plays when the
+// title is put away.)
+test('the title: the camera waits at the opening\'s start behind it, and the opening plays when it is put away', () => {
   let src = { ...lordSrc, open: { ...lordSrc.open, title: true } };
   const m = new fmap.FrontierMap(canvas(), { source: () => src });
   m.open(src, size, { dpr: 1, now: 0 });
-  assert.equal(m.opened.kind, 'home', 'a player\'s title card ends on the player\'s village');
-  assert.equal(m.cam.tween.ms, opening.TITLE_MS);
-  assert.ok(near(m.cam.drawn.zoom, 1.3 * opening.TITLE_FROM), 'from far above');
-  m.cam.step(0); m.cam.step(40); m.cam.step(80);
-  const mid = { ...m.cam.drawn };
-  src = { ...lordSrc };   // the card closed
-  m.open(src, size, { dpr: 1, now: 100 });
-  assert.deepEqual(m.cam.drawn, mid, 'from where the drift was');
-  assert.ok(m.cam.tween.ms <= 1000, 'quickly now');
+  assert.equal(m.opened.kind, 'home', 'a player\'s title ends on the player\'s village');
+  assert.equal(m.view.zoom, 1.3, 'the logical view is already the opening view');
+  assert.equal(m.cam.tween, null, 'nothing travels behind the title');
+  assert.ok(near(m.cam.drawn.zoom, 1.3 * opening.OPEN_FROM), 'the picture waits a little above');
+  const waiting = { ...m.cam.drawn };
+  m.cam.step(0); m.cam.step(4000);
+  assert.deepEqual(m.cam.drawn, waiting, 'however long the title stands');
+  // the window changes size behind the title: still waiting, above the same place
+  m.open(src, { width: 1200, height: 800 }, { dpr: 1, now: 4100 });
+  assert.equal(m.cam.tween, null);
+  assert.ok(near(m.cam.drawn.zoom, 1.3 * opening.OPEN_FROM));
+  m.open(src, size, { dpr: 1, now: 4200 });
+  const held = { ...m.cam.drawn };
+  src = { ...lordSrc };   // 辺境へ入る
+  m.open(src, size, { dpr: 1, now: 5000 });
+  assert.deepEqual(m.cam.drawn, held, 'from where the camera waited');
+  assert.equal(m.cam.tween.ms, cam.MOVE_MS.open, 'the opening, whole');
+  assert.equal(m.reveal, 5000, 'the land comes out of the bare table as the title lifts');
   assert.equal(m.view.zoom, 1.3);
+  assert.equal(m.cam.userMoved, false);
   m.destroy();
 });
 

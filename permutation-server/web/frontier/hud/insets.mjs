@@ -54,26 +54,30 @@ export function freeCentre(doc = globalThis.document) {
 /**
  * The HUD's pieces as client rectangles (UX design 11.6, 11.11): `[{id, x, y, width, height}]` of what is shown
  * now — the two plaques and the dial, the search, the to-do tab and its list, the plate, the dock, the minimap with its
- * lens chips, the map's button column, the stack of notices, and the open drawer (the phone's sheet too). The
- * map keeps its labels and anchored marks out of them (`__wyllsMap.setNoGo`, called by app.mjs after layout).
- * A wide document or the nation choice covers the map on purpose and is listed as one rectangle.
+ * lens chips, the map's button column, each notice of the stack, a milestone's banner, and the open drawer (the
+ * phone's sheet too). The map keeps its labels and anchored marks out of them (`__wyllsMap.setNoGo`, called by
+ * app.mjs after layout); the effects keep their words out of them (fx/safe.mjs reads the same list through
+ * `__wyllsHud.noGo()`). A wide document or the nation choice covers the map on purpose and is listed as one rectangle.
  */
 export const NO_GO = Object.freeze([
   ['plaque-left', '#topbar .strip-l'], ['dial', '#bell-pill'], ['plaque-right', '#topbar .strip-r'],
   ['search', '#search-btn'], ['search-field', '#map-search'], ['todo', '#rail .todo-tab'], ['todo-list', '#rail .todo-list'], ['plate', '#rail .plate'], ['dock', 'nav.tabs'],
-  ['lenses', '#lenses'], ['minimap', '#minimap-canvas'], ['map-tools', '.map-tools'], ['notices', '#feed'], ['drawer', '#panel'],
+  ['lenses', '#lenses'], ['minimap', '#minimap-canvas'], ['map-tools', '.map-tools'], ['notices', '#feed > *'], ['banner', '#mile-banner'], ['drawer', '#panel'],
 ]);
 export function noGoRects(doc = globalThis.document) {
   if (!doc?.querySelector) return [];
   const view = doc.defaultView;
   const out = [];
   for (const [id, sel] of NO_GO) {
-    const el = doc.querySelector(sel);
-    if (!el || !shown(el, view)) continue;
-    if (id === 'drawer' && el.dataset?.drawer !== 'open' && view?.getComputedStyle?.(el).position !== 'absolute') continue;
-    const r = rectOf(el);
-    if (!r || !(r.width > 0) || !(r.height > 0)) continue;
-    out.push({ id, x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) });
+    // (the notices are a stack: each one is a piece, the column they stand in is not)
+    const els = id === 'notices' ? [...(doc.querySelectorAll?.(sel) ?? [])] : [doc.querySelector(sel)];
+    for (const el of els) {
+      if (!el || !shown(el, view)) continue;
+      if (id === 'drawer' && el.dataset?.drawer !== 'open' && view?.getComputedStyle?.(el).position !== 'absolute') continue;
+      const r = rectOf(el);
+      if (!r || !(r.width > 0) || !(r.height > 0)) continue;
+      out.push({ id, x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) });
+    }
   }
   return out;
 }

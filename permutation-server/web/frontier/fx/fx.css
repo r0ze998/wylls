@@ -177,8 +177,8 @@
 /* ---- a set piece has the stage (engine.mjs `piece`: <body data-fx-piece="battle">): the HUD's corner pieces step
    back so the scene fills the map, and come back when it ends. They keep their place and their presses (only
    their look changes: state is never an animation). The strip, the dial, the dock and a sheet stay. */
-body[data-fx-piece] :is(#hud-tl, #rail, #minimap, #lenses, .map-tools, #attn-pill, #ob-map, .home-pointer) { opacity: 0; }
-body[data-fx-piece] :is(#hud-tl, #rail, #minimap, #lenses, .map-tools, #attn-pill, #ob-map, .home-pointer):focus-within { opacity: 1; }
+body[data-fx-piece] :is(#hud-tl, #rail, #minimap, .map-tools, .home-pointer) { opacity: 0; }
+body[data-fx-piece] :is(#hud-tl, #rail, #minimap, .map-tools, .home-pointer):focus-within { opacity: 1; }
 
 /* ---- this turn's results (hud/feed.mjs renderTurnStrip, shown after the toll's banner has gone): opaque bell metal,
    so the map's labels never read through the card */
