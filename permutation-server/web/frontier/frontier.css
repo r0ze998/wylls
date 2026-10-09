@@ -1833,3 +1833,7 @@ body[data-kind="wait"] .plate .plate-go[data-act="join-open"] { display: none; }
   body:has(#search-btn[aria-expanded="true"]) .map-tools { visibility: hidden; }
   .search-hit { min-height: var(--target); }
 }
+/* (integration, wave 3) the provisional village's note is a sentence with a time in it: as an inline-flex row of the
+   chips' list its words, its <time> and its ending were three flex items, and on a phone the ending stood in a column
+   of its own beside the sentence */
+.fact-chips li.fact-note { display: block; flex-basis: 100%; }
