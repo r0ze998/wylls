@@ -152,18 +152,23 @@ const STATE_RANK = { full: 0, near: 1, ok: 2 };
 export function renderStrip(tokens, open = null, max = tokens.length) {
   const all = tokens.length > max;
   const shown = all ? [...tokens].sort((a, b) => STATE_RANK[a.state] - STATE_RANK[b.state] || tokens.indexOf(a) - tokens.indexOf(b)).slice(0, max) : tokens;
-  return shown.map(r => html`<button type="button" class="res res-${r.state}" data-act="res-open" data-r="${all ? '*' : r.resource}" data-res="${r.resource}" aria-expanded="${open === (all ? '*' : r.resource) ? 'true' : 'false'}" aria-haspopup="dialog" title="${resourceTitle(r)}" aria-label="${all ? L`${resourceTitle(r)} · ほか ${fmtNum(tokens.length - max)} 種` : resourceTitle(r)}">
+  // (some are left out: the last one shown carries how many more there are, and every one opens them all; a strip
+  // never ends in half a token)
+  const more = all ? tokens.length - shown.length : 0;
+  return shown.map((r, i) => html`<button type="button" class="res res-${r.state}" data-act="res-open" data-r="${all ? '*' : r.resource}" data-res="${r.resource}" aria-expanded="${open === (all ? '*' : r.resource) ? 'true' : 'false'}" aria-haspopup="dialog" title="${resourceTitle(r)}" aria-label="${all ? L`${resourceTitle(r)} · ほか ${fmtNum(tokens.length - max)} 種` : resourceTitle(r)}">
     ${icon(RESOURCE_ICON[r.resource] ?? 'crate', `res-ic res-c-${r.resource}`)}
     <span class="res-val">${fmtNum(r.value)}</span><span class="res-short" aria-hidden="true">${shortNum(r.value)}</span>
     ${r.perHour > 0 ? html`<span class="res-rate">${L`+${fmtNum(r.perHour)}/時`}</span>` : ''}
     ${r.state === 'full' ? html`<span class="res-flag">${L`満杯`}</span>` : r.state === 'near' ? html`<span class="res-flag">${span(r.fullIn)}</span>` : ''}
+    ${more > 0 && i === shown.length - 1 ? html`<span class="res-more-n" aria-hidden="true">+${fmtNum(more)}</span>` : ''}
   </button>`);
 }
 
-/** A number in a few characters for the phone strip: 980, 1.2k / 1.2万. */
+/** A number in a few characters for the phone strip: 980, 1,220, 12K / 1.2万. */
 export function shortNum(n) {
   const v = Number(n ?? 0);
-  if (Math.abs(v) < 1000) return String(Math.round(v));
+  // (one way of writing a number in a strip: whole up to 9,999, in a few characters above; "1.2K" beside "815" read as two units)
+  if (Math.abs(v) < 10000) return fmtNum(Math.round(v));
   try { return new Intl.NumberFormat(lang() === 'en' ? 'en' : 'ja', { notation: 'compact', maximumFractionDigits: 1 }).format(v); } catch { return fmtNum(v); }
 }
 

@@ -71,7 +71,7 @@ export const MAP_TOOLS = Object.freeze([
   { id: 'out', glyph: '\u2212', icon: 'M5.5 12h13', label: () => L`地図を縮小` },
   { id: 'home', glyph: '\u2302', icon: 'M4 11.5 12 4.5l8 7M6.5 9.8v9.7h11V9.8M10 19.5v-5h4v5', label: () => L`自分の村へ移動` },
   // the far view and back (M): a folded chart
-  { id: 'chart', glyph: '\u25CE', icon: 'M3.5 6.5 9 4.5l6 2 5.5-2v13L15 19.5l-6-2-5.5 2zM9 4.5v13M15 6.5v13', label: () => L`全体図を見る`, labelOn: () => L`もとの場所へ戻る` },
+  { id: 'chart', glyph: '\u25CE', icon: 'M3.5 6.5 9 4.5l6 2 5.5-2v13L15 19.5l-6-2-5.5 2zM9 4.5v13M15 6.5v13', label: () => L`全体図を見る`, labelOn: () => L`もとの場所へ戻る`, text: () => L`全体図`, textOn: () => L`戻る` },
 ]);
 
 /** Zoom thresholds (screen px per world px) with hysteresis between levels. */
@@ -915,6 +915,8 @@ export class FrontierMap {
       b.className = 'map-btn';
       b.dataset.map = t.id;
       b.append(toolIcon(doc, t));
+      // (the world chart says what it is in a word: the folded-sheet glyph alone was not read; the second review)
+      if (t.text) { const w = doc.createElement('span'); w.className = 'map-btn-text'; b.append(w); b.dataset.worded = ''; }
       b.addEventListener('click', () => act[t.id]?.());
       box.append(b);
       return [b, t];
@@ -926,6 +928,8 @@ export class FrontierMap {
         const x = on ? t.labelOn() : t.label();
         b.setAttribute('aria-label', x); b.title = x;
         if (t.id === 'chart') b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        const w = t.text ? b.querySelector?.('.map-btn-text') : null;
+        if (w) { const say = on ? t.textOn() : t.text(); if (w.textContent !== say) w.textContent = say; }
       }
     };
     label();

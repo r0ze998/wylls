@@ -43,6 +43,8 @@ export function iconizeMapTools(root = globalThis.document) {
     if (!name || b.querySelector('svg.ic')) continue;
     const tpl = root.createElement ? root.createElement('template') : b.ownerDocument.createElement('template');
     tpl.innerHTML = String(icon(name));
-    b.replaceChildren(tpl.content);
+    // (a key that says its name in a word keeps that word beside the icon: map/fmap.mjs `.map-btn-text`)
+    const word = b.querySelector('.map-btn-text');
+    b.replaceChildren(tpl.content, ...(word ? [word] : []));
   }
 }

@@ -492,4 +492,5 @@ export default {
   '濃い線が州の境です。同じターンに同じ州へ着いた軍勢がぶつかります。': 'The dark line is where a province ends. Hosts that reach the same province on the same turn clash.',
   '進軍は送られていません（{0} は{1}にいます）。': 'The march was not sent ({0} are still at {1}).',
   '送られていません': 'Not sent',
+  '全体図': 'World',
 };

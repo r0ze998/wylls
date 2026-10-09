@@ -1030,8 +1030,9 @@ function renderHudTick(now) {
     strip.hidden = !tokens.length;
     // the room left of the dial: more tokens as the strip widens
     const w = globalThis.innerWidth ?? 1440;
-    // (a phone's strip holds them all and scrolls sideways: UX design 11.11)
-    setHtmlIfChanged(strip, hud.renderStrip(tokens, FS.resOpen ?? null, w <= PHONE_MAX ? 8 : w < 900 ? 2 : w < 1040 ? 3 : w < 1280 ? 4 : w < 1600 ? 5 : 8));
+    // (a phone's strip: the two most pressing and a chip for the rest, which opens them all; the second review:
+    // a strip that scrolled sideways ended in half an icon at the plaque's point)
+    setHtmlIfChanged(strip, hud.renderStrip(tokens, FS.resOpen ?? null, w < 380 ? 1 : w <= PHONE_MAX ? 2 : w < 900 ? 2 : w < 1040 ? 3 : w < 1280 ? 4 : w < 1600 ? 5 : 8));
     resChanges(strip, tokens);
   }
   renderSound();

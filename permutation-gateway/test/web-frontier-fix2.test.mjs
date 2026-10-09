@@ -437,3 +437,26 @@ test('the sea is made as fine as the screen, so a picture needs about as many pi
   assert.equal(calls.filter(c => c[0] === 'draw').length, 2);
   assert.deepEqual(calls.find(c => c[0] === 'clip'), ['clip', 'evenodd'], 'the second fineness only where the first left the square bare');
 });
+
+// ------------------------------------------------------------------ the phone's strip; the map's keys
+test('a strip that cannot show every resource says how many more there are on its last token, and writes numbers one way', async () => {
+  const hud = await import('../../permutation-server/web/frontier/hud/hud.mjs');
+  const tokens = [0, 1, 2, 3, 4].map(i => ({ resource: i, value: 1220 - i * 100, cap: 5000, perHour: 0, state: 'ok', fullIn: null, name: `r${i}` }));
+  const two = hud.renderStrip(tokens, null, 2).map(String);
+  assert.equal(two.length, 2, 'two tokens, no third piece that could be cut at the plaque\'s point');
+  assert.doesNotMatch(two[0], /res-more-n/);
+  assert.match(two[1], /class="res-more-n" aria-hidden="true">\+3</);
+  assert.ok(two.every(x => /data-r="\*"/.test(x)), 'each opens every resource');
+  const allOf = hud.renderStrip(tokens, null, 8).map(String);
+  assert.equal(allOf.length, 5); assert.ok(allOf.every(x => !/res-more-n/.test(x)));
+  // one way of writing a number: whole up to 9,999 in both languages, short above
+  assert.equal(hud.shortNum(815), '815');
+  assert.equal(hud.shortNum(1220), '1,220');
+  assert.equal(hud.shortNum(9999), '9,999');
+  assert.notEqual(hud.shortNum(12000), '12,000');
+  const css = (await import('node:fs')).readFileSync(new URL('../../permutation-server/web/frontier/frontier.css', import.meta.url), 'utf8');
+  assert.match(css, /body:has\(\.plate-main\[data-act="home"\]\) \.map-btn\[data-map="home"\] \{ display: none; \}/, 'on a phone the plate has the way home: the map carries no second one');
+  const fm = await import('../../permutation-server/web/frontier/map/fmap.mjs');
+  const chart = fm.MAP_TOOLS.find(t => t.id === 'chart');
+  assert.ok(typeof chart.text === 'function' && chart.text().length > 0 && chart.textOn().length > 0, 'the world chart key says what it is in a word');
+});
