@@ -529,7 +529,7 @@ export default {
   '村の申し込みができませんでした。次のターンに自動でやり直します（「様子を見る」からすぐやり直せます）。': 'Your village request did not go through. It will be retried automatically next turn (or right away from “See how it\'s going”).',
   '村の申し込みは済んでいます。次のターンの鐘のあと（約11〜21分後）に村が決まります。待つあいだに練習で戦ってみましょう。': 'Your village request is in. Your village is decided after the next turn\'s bell (in about 11 to 21 minutes). Try a practice battle while you wait.',
   '空いた場所が見つかりません。ターンごとに自動で探し直します。': 'No free site was found. The search runs again automatically every turn.',
-  '空いた場所に、村の申し込みを自動で出しています。': 'Sending your village request for a free site automatically.',
+  '空いた場所に、村の申し込みを自動で出しています。': 'Automatically sending your village request for a free site.',
   // ---- hud-4 (the words, UX design 11.13): turn N for every number; names before coordinates; the seal in one sentence; one outcome vocabulary
   // ---- places in words (hud/place.mjs): a province by the viewer's village in it, else by the nation on whose side it lies
   '{0}のある州': '{0} province',
