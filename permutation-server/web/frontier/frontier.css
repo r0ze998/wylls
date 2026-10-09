@@ -1675,7 +1675,7 @@ body[data-stage="loading"] .tabs > * { visibility: hidden; }
   .wait-says::after { content: ""; display: block; clear: both; }
   .wait-face .leader { width: 48px; height: 48px; }
   /* the wait is a view of its own: its first sight is a little taller than a half sheet, so that the practice battle is in it */
-  .panel[data-kind="wait"][data-sheet="half"] { max-height: min(58%, calc(var(--vvh) * .54)); }
+  .panel[data-kind="wait"][data-sheet="half"] { max-height: min(60%, calc(var(--vvh) * .56)); }
 }
 .wait-card h3 { text-wrap: balance; }
 .wo-lead + .wo-note::before { content: " "; }
