@@ -116,14 +116,14 @@ export const GAP_MARK_MIN = 36;
  * (`--row-gap` on the part, its bottom margin: frontier.css `.order-body`). The second review: a strength bar lay half
  * under the order's summary line. Scrolling shows the rest as before. `rowsOf(part)` gives the rows to look at.
  */
-export function settleRows(doc = globalThis.document, rowsOf = part => part.querySelectorAll(':scope > *, :scope .versus > div, :scope .mc-odds > *, :scope .mc-def > li')) {
+export function settleRows(doc = globalThis.document, rowsOf = part => part.querySelectorAll(':scope > *, :scope .versus > div, :scope .mc-odds > *, :scope .mc-def > li, :scope .mc-dest > *')) {
   let n = 0;
   for (const part of doc?.querySelectorAll?.('[data-scroll]') ?? []) {
     part.style?.setProperty?.('--row-gap', '0px');
     // (a gap tall enough to read as a hole carries a small mark that the page goes on below: frontier.css `[data-gap="more"]`)
     if (part.dataset && part.dataset.gap) part.dataset.gap = '';
     if (!(part.clientHeight > 0) || part.scrollTop > 0 || part.scrollHeight <= part.clientHeight + 1) continue;
-    const gap = rowGap(part.clientHeight, [...rowsOf(part)].map(el => { const r = el.getBoundingClientRect(), t = part.getBoundingClientRect().top; return { top: r.top - t, bottom: r.bottom - t, leaf: !el.querySelector?.(':scope > *:not(span):not(strong):not(svg):not(input):not(small)') || el.matches?.('.versus > div, .picks, p, li, header, .stepper, .mc-dest, .c-label'), head: !!el.matches?.('.c-label') }; }));
+    const gap = rowGap(part.clientHeight, [...rowsOf(part)].map(el => { const r = el.getBoundingClientRect(), t = part.getBoundingClientRect().top; return { top: r.top - t, bottom: r.bottom - t, leaf: !el.querySelector?.(':scope > *:not(span):not(strong):not(svg):not(input):not(small)') || el.matches?.('.versus > div, .picks, p, li, header, .stepper, .c-label, .mc-dest > *'), head: !!el.matches?.('.c-label') }; }));
     if (gap > 0) { part.style.setProperty('--row-gap', `${gap}px`); if (part.dataset && gap >= GAP_MARK_MIN) part.dataset.gap = 'more'; n++; }
   }
   return n;

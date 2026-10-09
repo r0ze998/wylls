@@ -204,8 +204,25 @@ test('the craft pass: keys keep their material under the pointer, rings stand on
   assert.match(pop, /^\n\.res-pop \{[^}]*background: var\(--tex-metal, none\), var\(--plate-bg\); color: var\(--hud-ink\);/);
   assert.match(css, /\n\.res-row \{[^}]*border: 0;[^}]*background: none; color: var\(--hud-ink\); \}/);
   // beside an open drawer on a narrow desktop the world-chart key is its glyph alone
-  assert.match(css, /@media \(min-width: 760px\) and \(max-width: 1279px\) \{\s*body\[data-drawer="open"\]\[data-doc=""\] \.map-btn\[data-worded\] \{ width: 38px;/);
+  assert.match(css, /@media \(min-width: 760px\) and \(max-width: 1279px\) \{\s*body\[data-drawer="open"\]\[data-doc=""\] \.map-btn\[data-worded\] \{ width: 36px;/);
   // the spectator's status is a word in the bar, and the map is given its own top edge
   assert.match(css, /\.panel\[data-kind="spectate"\] #season-status \{ position: absolute;/);
   assert.match(readFileSync(new URL('app.mjs', WEB), 'utf8'), /rects\.push\(\{ id: 'edge-top',/);
+});
+
+test('a phone\'s refusal notice: the retry on the first row, the words on the full width; the order rests on the destination\'s lines', async () => {
+  const status = await import('../../permutation-server/web/frontier/hud/status.mjs');
+  setLang('ja');
+  const FS = { notice: { ok: false, code: 'Unavailable' }, lastAct: { name: 'march-send' }, compose: { host: { unit: 0, troops: 600, tile: 7 }, origin: { p: 2, q: 0 } }, provinces: new Map() };
+  const out = flat(status.renderStatus(status.statusOf(FS, { canRetry: true })));
+  // what was not done and why are two marked parts (a phone lays each on the full width)
+  assert.match(out, /<strong class="tx-what">進軍は送られていません[^<]*<\/strong> <span class="tx-why">サーバーが応じませんでした。[^<]*<\/span><\/span>/);
+  assert.match(out, /data-act="notice-retry"/);
+  const css = readFileSync(new URL('frontier.css', WEB), 'utf8');
+  assert.match(css, /\.tx-refused \.toast-text \{ display: contents; \}/);
+  assert.match(css, /\.tx-refused \.toast-acts \{ grid-column: 3; grid-row: 1;/);
+  assert.match(css, /\.feed \{ top: calc\(var\(--strip\) \+ 8px \+ 2 \* var\(--target\) \+ 14px\); left: var\(--edge\); right: var\(--edge\); \}/);
+  // the destination block's lines are rows of their own for the order's resting place
+  const drawer = readFileSync(new URL('hud/drawer.mjs', WEB), 'utf8');
+  assert.match(drawer, /:scope \.mc-dest > \*'\)/);
 });

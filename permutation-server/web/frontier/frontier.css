@@ -1743,7 +1743,7 @@ body[data-stage="loading"] .tabs > * { visibility: hidden; }
 .choice-row .seg { margin-left: auto; }
 /* beside an open drawer on a narrow desktop the world-chart key keeps its glyph and puts its word away (it lay half under the dock) */
 @media (min-width: 760px) and (max-width: 1279px) {
-  body[data-drawer="open"][data-doc=""] .map-btn[data-worded] { width: 38px; padding: 0; justify-content: center; border-radius: 50%; }
+  body[data-drawer="open"][data-doc=""] .map-btn[data-worded] { width: 36px; padding: 0; justify-content: center; border-radius: 50%; }
   body[data-drawer="open"][data-doc=""] .map-btn[data-worded] .map-btn-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 }
 @media (max-width: 759px) {
@@ -1779,3 +1779,30 @@ body[data-stage="loading"] .tabs > * { visibility: hidden; }
 .res-pop .pop-x:hover { border-color: var(--brass-hi); background: rgba(240,212,138,.1); color: var(--brass-hi); }
 /* while the wait's own view stands open, the plate's key to it has nothing to open */
 body[data-kind="wait"] .plate .plate-go[data-act="join-open"] { display: none; }
+/* one size for the round keys over the map (the search key's 36 px; they were 34, 36 and 38), on the 4 px grid: the column of
+   map keys (4 x 36 + 3 x 8) is as tall as the minimap and starts where it does */
+@media (min-width: 760px) {
+  .map-btn { width: 36px; height: 36px; }
+  .map-btn[data-worded] { height: 36px; border-radius: 18px; }
+  .map-tools { gap: 8px; }
+  .lens { min-width: 36px; height: 36px; }
+  .lens-list { gap: 6px; }
+}
+@media (max-width: 759px) {
+  /* the map's keys at the right start level with the search key at the left (they hung 22 px lower) */
+  .map-tools { top: calc(var(--strip) + 8px); gap: 6px; }
+}
+@media (max-width: 759px) {
+  /* a phone's notices stand under the two rows of map keys and take the screen's width (between the key columns a refusal was
+     a tall narrow column: its retry key ended under the sheet, and the world-chart key lay over its corner) */
+  .feed { top: calc(var(--strip) + 8px + 2 * var(--target) + 14px); left: var(--edge); right: var(--edge); }
+  /* a refusal: what it is, the retry and the close key on one row; then what was not done and why, each on the full width */
+  .tx-refused { grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 4px 8px; padding: 8px 8px 10px 10px; }
+  .tx-refused .toast-text { display: contents; }
+  .tx-refused .toast-icon { grid-column: 1; grid-row: 1; align-self: center; }
+  .tx-refused .toast-kind { grid-column: 2; grid-row: 1; align-self: center; }
+  .tx-refused .toast-acts { grid-column: 3; grid-row: 1; align-self: center; }
+  .tx-refused .toast-x { grid-column: 4; grid-row: 1; margin: 0 -4px 0 0; }
+  .tx-refused .tx-what, .tx-refused .tx-why { grid-column: 1 / -1; }
+  .tx-refused .tx-why { font-size: var(--t1); line-height: 1.5; color: var(--hud-ink-2); }
+}
