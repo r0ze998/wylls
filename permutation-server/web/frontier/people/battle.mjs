@@ -897,7 +897,8 @@ function paintTile(ctx, T, e) {
     if (!side.character || !side.groups.length) continue;
     const act = characterAct(T.wins, side.sgn, tau, t);
     let x = cx + side.sgn * (REST + CHARACTER_STAND.back) * s, alpha = span(t, t0c + 0.2, t0c + 0.6) * (1 - span(t, PHASE.end - 0.5, PHASE.end - 0.1));
-    if (edge > 0) x = Math.max(cx - edge + s * 0.34, Math.min(cx + edge - s * 0.34, x));
+    // (a narrow stage: the whole figure stays in the picture, the near rows of a tilted board being drawn a little wider)
+    if (edge > 0) x = Math.max(cx - edge + s * 0.56, Math.min(cx + edge - s * 0.56, x));
     // (it comes with its line out of the mist, and goes with it: a side that left the field walks off, one that fell is gone when the field is left)
     if (side.sgn < 0 && !residents) alpha *= span(t, 0.15, 0.95);
     const fk = span(t, PHASE.fates + 0.14, PHASE.fates + 1.4);
