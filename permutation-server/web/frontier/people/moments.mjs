@@ -58,8 +58,10 @@ export function detectMoments(prev, next, now) {
   for (const [id, h] of next.hosts) {
     const was = prev.hosts.get(id);
     if (was && was.state !== 3 && h.state === 3) out.push({ kind: 'depart', p: h.p, q: h.q, tile: h.tile, faction: h.faction, id, t0: now });
-    // a host nobody had seen, standing in a province the page already knew: it was mustered
-    else if (!was && h.state === 1 && prev.seen?.has(`${h.p},${h.q}`)) out.push({ kind: 'muster', p: h.p, q: h.q, tile: h.tile, faction: h.faction, unit: h.unit, troops: h.troops, id, t0: now });
+    // a host nobody had seen, standing in a province the page already knew: it was mustered. (On chain a mustered
+    // host is muster-pending, state 2, until the next bell, and only then of the roster, state 1: the moment is its
+    // first sight in either. It asked for state 1 alone, so a real muster never played: found with the live fixture.)
+    else if (!was && (h.state === 1 || h.state === 2) && prev.seen?.has(`${h.p},${h.q}`)) out.push({ kind: 'muster', p: h.p, q: h.q, tile: h.tile, faction: h.faction, unit: h.unit, troops: h.troops, id, t0: now });
   }
   const had = prev.arrivals;
   for (const [k, faction] of next.arrivals) if (!had.has(k)) { const [p, q, tile] = k.split(',').map(Number); if (prev.seen && !prev.seen.has(`${p},${q}`)) continue; out.push({ kind: 'arrive', p, q, tile, faction, t0: now }); }
