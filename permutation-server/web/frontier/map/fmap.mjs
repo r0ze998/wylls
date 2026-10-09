@@ -57,7 +57,7 @@ import { LANDING } from './ownland.mjs';
 import { WORKED_RADIUS } from './survey.mjs';
 import { emit as fxEmit } from '../fx/bus.mjs';
 import { createLabelPass, rectOf, tileKeyOf } from './labelpass.mjs';
-import { leaderWords, paintCandidateLabels, paintHomeTag, paintSurveyLines, paintWaitStandard, standardBox, waitLine } from './waitview.mjs';
+import { leaderWords, paintCandidateLabels, paintHomeTag, paintSiteMarks, paintSurveyLines, paintWaitStandard, standardBox, waitLine, waitSpotAt, wedgeSites } from './waitview.mjs';
 import { TILT, armUpright, disarmUpright, groundBox, groundView, nearQuad, perspFromQuery, standing, tiltAt, tiltFromQuery, tiltGeo, tiltNear, upright } from './tilt.mjs';
 
 /** Fog levels drawn as tiles at tile LOD (a distant province stays a muted cell). */
@@ -1919,6 +1919,9 @@ export class FrontierMap {
     const homeAt = waiting ? this.wedgeHome(survey.faction, ringsOpen) : null;
     // (the page's wait view says the same time while it stands open: then the map does not say it a second time)
     const waitSay = waiting && !src.wait?.said ? waitLine(src.wait ?? null) : null;
+    // (with no request out, or one refused: the surveyors' marks, a station mark on every free site of the wedge,
+    // where a village may be placed; with a request out its own candidate sites are what is looked at)
+    const waitSites = homeAt && !survey.candidates?.length ? wedgeSites(survey.faction, ringsOpen, recs, terrainOf) : null;
     // the nation choice (UX brief §7.2): the home wedge of the nation that is looked at is lit on the chart
     const looked = !waiting && limited && Number.isInteger(src.focusNation) ? src.focusNation : null;
     // from afar: the viewer's land in its colour, and on the world chart its village as a gold beacon with its name
@@ -1954,7 +1957,10 @@ export class FrontierMap {
     // the wedge of the viewer's stage (waited in, or looked at in the nation choice): over the land of every kind of
     // frame (a frame painted whole lays its ground after the far marks: the wedge was lost under it at the tile view)
     ctx.setTransform(...world);
-    if (waiting) paintWedge(ctx, survey.faction, ringsOpen, z);
+    // (waited in: lit softly from the standard, not an outline on bare chart: UX brief §13.6)
+    // (with candidate sites out, their painted land is what is looked at: the wedge keeps its quiet outline there)
+    if (waiting) { const wb = homeAt && !survey.candidates?.length ? wedgeBox(survey.faction, ringsOpen) : null; paintWedge(ctx, survey.faction, ringsOpen, z, { wait: wb ? { x: homeAt.x, y: homeAt.y, r: Math.max(wb.width, wb.height / FLATTEN) * 0.5 } : null }); }
+    if (waitSites?.length && lod !== 'world') paintSiteMarks(ctx, homeAt, waitSites, { zoom: z });
     if (looked !== null) paintWedge(ctx, looked, ringsOpen, z, { lit: true });
     // over what stands on the land: thin outlines of the ground marks, the route, the standards
     this.topPass(ctx, F);
@@ -1986,9 +1992,10 @@ export class FrontierMap {
       // the wait's words, the candidates' first: they keep clear of the standard's cloth, and the standard's own tag
       // gives way to them (with sites to look at, the nation's name may be left out where there is no room for it)
       const sites = limited && survey.candidates?.length ? survey.candidates : null;
-      if (homeAt) pass.block(homeAt.x, homeAt.y, standardBox(homeAt, z));
+      // (and of the spot beside it that is kept for the player's character: `waitSpot`)
+      if (homeAt) { pass.block(homeAt.x, homeAt.y, standardBox(homeAt, z)); pass.block(homeAt.x, homeAt.y, waitSpotAt(homeAt, z).box); }
       if (sites) { paintCandidateLabels(o, sites, { zoom: z, line: waitSay, pass }); if (!calm) this.invalidateSoon(120); }
-      if (homeAt) paintHomeTag(o, homeAt, { zoom: z, faction: survey.faction, line: waitSay, pass, keep: !sites, say: src.wait?.wordsSaid ? null : leaderWords(survey.faction, src.wait?.state ?? null) });
+      if (homeAt) paintHomeTag(o, homeAt, { zoom: z, faction: survey.faction, line: waitSay, pass, keep: !sites, marks: !!waitSites?.length && lod !== 'world', say: src.wait?.wordsSaid ? null : leaderWords(survey.faction, src.wait?.state ?? null) });
       // (a countdown is read to the second: the words are drawn again a few times a second)
       if (waitSay) this.invalidateSoon(400);
       if (src.pins?.length) paintPins(o, src.pins, z);
@@ -2047,6 +2054,28 @@ export class FrontierMap {
     const guide = g0 && !(lod === 'world' && villages.some(v => v.p === g0.p && v.q === g0.q && v.tile === g0.tile)) ? g0 : null;
     return { src, survey, lod, z, fx, still, limited, guide, villages, faction: limited ? survey.faction : null, palette: actionPalette(limited ? survey.faction : null), A, selHex, selOwn, hover, hoverLit,
       lands: () => this.ownLands(survey, villages, lod, terrainOf) };
+  }
+
+  /**
+   * The spot the wait view keeps clear for the player's character (UX brief §13.2, §13.6): beside the nation's
+   * standard, to the left of its pole, while the viewer has joined and has no village yet (a request out, refused,
+   * or none). For whoever paints the character there, through the map's own hooks (the upright pass, `project`):
+   *   world   {x, y}  where its feet stand (world px)
+   *   tile    {p, q, idx}  the tile under them
+   *   client  {x, y}  the same point on the page, as the picture on screen shows it (`map.project`)
+   *   height  how tall the room kept is on screen (CSS px): four fifths of the standard's pole
+   *   scale   how large that row of the tilted board is drawn (1 on the picture's middle row)
+   *   faction the viewer's nation
+   * or null when nobody waits (not joined, a village already, another page).
+   */
+  waitSpot() {
+    const src = this.source?.() ?? {}, sv = src.survey ?? null;
+    if (!sv || sv.showAll || !Number.isInteger(sv.faction) || !['joined', 'ticket', 'refugee'].includes(sv.stage)) return null;
+    const at = this.wedgeHome(sv.faction, Math.max(1, src.ringsOpen ?? 1));
+    if (!at) return null;
+    const z = this.cam.drawn.zoom, s = waitSpotAt(at, z), k = this.standAt(s.x, s.y)?.k ?? 1;
+    const [q, r] = inverseHex(s.x, s.y).split(',').map(Number), l = locate(q, r);
+    return { faction: sv.faction, world: { x: s.x, y: s.y }, tile: { p: l.p, q: l.q, idx: l.idx }, client: this.project(s.x, s.y), height: s.box.h * z * k, scale: k };
   }
 
   /** Where the nation's standard stands in its home wedge while the viewer has no village: the middle of a tile near the wedge's own middle (world px), or null. */

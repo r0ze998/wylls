@@ -438,3 +438,114 @@ test('the viewer\'s own mark is told by how it is built: bright gold with an ivo
     assert.ok([...p.calls.filter(c => c[0] === '=fillStyle' || c[0] === '=strokeStyle').map(c => c[1])].includes(YOURS.key));
   }
 });
+
+// ------------------------------------------------------------------ the wait view's map side (UX brief §13.6)
+import * as WAIT from '../../permutation-server/web/frontier/map/waitview.mjs';
+import * as opening from '../../permutation-server/web/frontier/map/opening.mjs';
+import { WEDGE_WAIT } from '../../permutation-server/web/frontier/map/chart.mjs';
+import { wedgeOf, tileHex, ringProvinces } from '../../permutation-server/web/frontier/fgeo.mjs';
+import { LEADERS } from '../../permutation-server/web/frontier/people/leaders.mjs';
+import { setLang } from '../../permutation-server/web/lang.mjs';
+import { RADIUS, project } from '../../permutation-server/web/map.mjs';
+
+/** A context that writes down what is written on it (text measured at 7 px a letter). */
+function writer() {
+  const calls = [];
+  return new Proxy({}, { get: (_, k) => (k === 'calls' ? calls : k === 'measureText' ? t => ({ width: String(t).length * 7 }) : k === 'canvas' ? null : typeof k === 'string' ? (...a) => { calls.push([k, ...a]); } : undefined), set: () => true });
+}
+const said = g => g.calls.filter(c => c[0] === 'fillText').map(c => c[1]);
+
+test('the surveyors\' marks stand on the free sites of the home wedge, from the first ring a village may be placed in, and nowhere else', () => {
+  const faction = 0, rings = 3;
+  const provs = ringProvinces(2).filter(pr => wedgeOf(pr.p, pr.q) === faction);
+  assert.ok(provs.length >= 1);
+  const P = provs[0];
+  // an overview record: sites 0..11; 0 and 3 are free, 1 is a holding, 4 reserved; a free site that has an owner is not free
+  const sites = [0, 1, 3, 4, 0, 0, 2, 0, 0, 0, 0, 0], owners = [7, 0, 7, 7, 7, 2, 7, 7, 7, 7, 7, 7];
+  const recs = new Map([[`${P.p},${P.q}`, { p: P.p, q: P.q, sites, owners }], ['1,0', { p: 1, q: 0, sites: Array(12).fill(0), owners: Array(12).fill(7) }]]);
+  const terrainOf = (p, q) => ({ sites: [5, 9, 14, 20, 27, 33, 38, 41, 46, 50, 55, 59] });
+  const out = WAIT.wedgeSites(faction, rings, recs, terrainOf);
+  assert.deepEqual(out.map(s => s.site), [0, 2, 4, 7, 8, 9, 10, 11], 'free and unowned, of the one province that has a record');
+  assert.ok(out.every(s => s.p === P.p && s.q === P.q), 'ring 1 is never offered: no mark there, whatever its record says');
+  for (const s of out) { const h = tileHex(s.p, s.q, s.tile), c = project(h.q, h.r); assert.deepEqual([s.x, s.y], [c.x, c.y]); }
+  // until the rules module has said where the sites are, nothing is marked (never a guess)
+  assert.deepEqual(WAIT.wedgeSites(faction, rings, recs, () => null), []);
+  assert.deepEqual(WAIT.wedgeSites(faction, rings, new Map(), terrainOf), []);
+  assert.deepEqual(WAIT.wedgeSites(faction, 2, recs, terrainOf), [], 'with two rings open there is none yet');
+  // painted as small station marks, one a site, with a few fine sight lines from the standard; none from far away
+  const g = writer();
+  assert.equal(WAIT.paintSiteMarks(g, { x: out[0].x - 400, y: out[0].y }, out, { zoom: 0.7 }), out.length);
+  assert.ok(g.calls.filter(c => c[0] === 'setLineDash' && c[1].length === 2).length >= 3, 'sight lines');
+  assert.equal(WAIT.paintSiteMarks(writer(), null, out, { zoom: 0.1 }), 0);
+  assert.equal(WAIT.paintSiteMarks(writer(), null, [], { zoom: 1 }), 0);
+});
+
+test('the tag under the standard says what the marks are; the nation\'s words carry no person\'s name', () => {
+  setLang('ja');
+  const at = { x: 100, y: 200 };
+  const g = writer();
+  WAIT.paintHomeTag(g, at, { zoom: 1, faction: 0, marks: true, say: WAIT.leaderWords(0, null) });
+  const t = said(g);
+  assert.deepEqual(t.slice(0, 3), ['アステル', 'あなたの国の土地', '村を置ける場所']);
+  assert.ok(t.slice(3).join('').startsWith('「まずは村の申し込みだ'));
+  // (the owner's decision of 2026-10-09: no leader names; every text of the tag, and whoever is named as speaking, is checked)
+  for (let f = 0; f < 6; f++) {
+    const w = WAIT.leaderWords(f, 'ticket');
+    const names = [LEADERS[f]?.name?.ja, LEADERS[f]?.name?.en].filter(Boolean);
+    assert.ok(typeof w.who === 'string' && w.who.length > 0, '(`who` is the page\'s, until its card names no speaker: the map prints none)');
+    const h = writer();
+    WAIT.paintHomeTag(h, at, { zoom: 1, faction: f, say: w });
+    assert.ok(!said(h).some(x => names.some(n => String(x).includes(n))), `nation ${f}: no leader's name on the tag`);
+    assert.ok(!said(h).some(x => /^—/.test(String(x))), 'and no line that names a speaker');
+  }
+  assert.equal(WAIT.leaderWords(9), null);
+  setLang('en');
+  const e = writer();
+  WAIT.paintHomeTag(e, at, { zoom: 1, faction: 0, marks: true });
+  assert.deepEqual(said(e), ['Aster', 'Your nation\'s land', 'Room for a village']);
+  setLang('ja');
+});
+
+test('a clear spot beside the standard is kept for the player\'s character, and the map says where it is', () => {
+  const at = { x: 500, y: -100 };
+  for (const zoom of [0.25, 0.73, 1.15]) {
+    const s = WAIT.waitSpotAt(at, zoom), flag = WAIT.standardBox(at, zoom), u = WAIT.waitUnit(zoom);
+    assert.ok(s.x < at.x && s.box.x + s.box.w <= flag.x + 1e-9, 'to the left of the pole: the cloth flies to the right');
+    assert.ok(s.y >= at.y && s.y - at.y < 0.1 * u, 'its feet on the ground beside the standard\'s foot');
+    assert.ok(s.box.h * zoom >= 44, `room for a figure of at least 44 px on screen at zoom ${zoom}: ${(s.box.h * zoom).toFixed(0)}`);
+    assert.ok(s.box.h < 1.5 * u, 'under the height of the pole');
+    assert.ok(s.box.y + s.box.h <= at.y + 12 / zoom, 'and above the tag, which hangs under the standard\'s foot');
+  }
+  // the map's own answer: null when nobody waits, else the feet in world and page px, the tile, the room on screen
+  const waiting = { overviews: new Map(), ringsOpen: 3, own: [], open: { mode: 'play', ready: true, stage: 'joined', faction: 2 }, survey: { showAll: false, faction: 2, stage: 'joined', province: () => ({ max: 1, sig: '' }), levelAt: () => 1, levelOf: () => 1, candidates: [], villages: [], rev: 0 } };
+  const { m } = flatMap();
+  assert.equal(m.waitSpot(), null, 'a viewer with a village: nobody waits');
+  m.source = () => waiting;
+  m.cam.set({ ...m.view, zoom: 0.7 }, { ms: 0 });
+  const spot = m.waitSpot();
+  assert.equal(spot.faction, 2);
+  assert.equal(wedgeOf(spot.tile.p, spot.tile.q), 2, 'in the nation\'s home wedge');
+  const home = m.wedgeHome(2, 3);
+  assert.ok(spot.world.x < home.x && Math.abs(spot.world.y - home.y) < RADIUS);
+  const p = m.project(spot.world.x, spot.world.y);
+  assert.deepEqual([spot.client.x, spot.client.y], [p.x, p.y]);
+  assert.ok(spot.height >= 44 && spot.scale === 1, 'on a flat board the row is drawn at its own size');
+  m.source = () => ({ ...waiting, survey: { ...waiting.survey, stage: 'final' } });
+  assert.equal(m.waitSpot(), null);
+  m.destroy();
+});
+
+test('the wait is seen with room about the wedge, the camera a little to its outer side; the wedge is lit, not outlined', () => {
+  const src = { ringsOpen: 3, own: [] };
+  for (let f = 0; f < 6; f++) {
+    const hint = opening.openHint({ mode: 'play', land: { stage: 'joined' }, citizen: { faction: f } });
+    const w = opening.openingPlan(hint, src, desk), box = opening.wedgeBox(f, 3);
+    assert.equal(w.kind, 'wedge');
+    const tl = fmap.worldToScreen(w.view, desk, box.x - box.width / 2, box.y - box.height / 2), br = fmap.worldToScreen(w.view, desk, box.x + box.width / 2, box.y + box.height / 2);
+    assert.ok(tl.x >= 0 && tl.y >= 0 && br.x <= desk.width && br.y <= desk.height, `nation ${f}: the whole wedge is in the picture`);
+    // the picture's middle lies beyond the wedge's own middle, away from the Concord
+    assert.ok(Math.hypot(w.at.x, w.at.y) > Math.hypot(box.x, box.y), `nation ${f}: the camera looks to the outer side`);
+  }
+  assert.ok(opening.WEDGE_VIEW.fill > 0.7 && opening.WEDGE_VIEW.fill < 0.92 && opening.WEDGE_VIEW.out > 0 && opening.WEDGE_VIEW.out <= 0.08);
+  assert.ok(WEDGE_WAIT.fill < WEDGE_WAIT.glow && WEDGE_WAIT.glow <= 0.5, 'a wash over all of it, and a stronger light about the standard: softly');
+});

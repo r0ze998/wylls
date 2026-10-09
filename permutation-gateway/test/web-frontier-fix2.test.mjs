@@ -315,8 +315,11 @@ test('the wait is a view: the leader\'s line by the standard, the surveyors\' li
   WAIT.paintHomeTag(g, { x: 100, y: 200 }, { zoom: 1, faction: 0, say: WAIT.leaderWords(0, 'ticket') });
   const said = g.calls.filter(c => c[0] === 'fillText').map(c => c[1]);
   assert.deepEqual(said.slice(0, 2), ['アステル', 'あなたの国の土地']);
-  assert.ok(said.slice(2, -1).join('').includes('村の場所はもうすぐ決まる。'), 'the line, wrapped');
-  assert.equal(said[said.length - 1], '— オリアーヌ・ヴェル');
+  assert.ok(said.slice(2).join('').includes('村の場所はもうすぐ決まる。'), 'the line, wrapped');
+  // (rewritten in wave 4: it pinned the leader's name under the line. The owner's decision of 2026-10-09: no leader
+  // has a name; the words are the nation's, and the tag, which is headed by the nation's name, names no speaker)
+  assert.ok(!said.some(t => /オリアーヌ|^\u2014/.test(t)), said.join(' / '));
+  assert.ok(said[said.length - 1].endsWith('」'), 'the tag ends with the words themselves');
   // wrapped lines never begin with a closing mark
   const lines = WAIT.wrapText({ measureText: t => ({ width: t.length * 13 }) }, '「村の場所はもうすぐ決まる。待つあいだに、戦い方を確かめておけ。」', 238, 13);
   assert.ok(lines.length >= 2 && lines.every(l => !/^[、。」]/.test(l)), lines.join(' / '));

@@ -692,16 +692,33 @@ export function wedgePaths(faction, ringsOpen) {
   return v;
 }
 
+/** The home wedge while its viewer waits for a village: the wash over all of it, the light about the standard, the lamp's pool at its foot (strengths). */
+export const WEDGE_WAIT = Object.freeze({ fill: 0.07, glow: 0.4, lamp: 0.55 });
 /** The viewer's home wedge, outlined in the nation's colour on the chart (a viewer who has joined and has no village yet). */
-export function paintWedge(g, faction, ringsOpen, zoom, { lit = false } = {}) {
+export function paintWedge(g, faction, ringsOpen, zoom, { lit = false, wait = null } = {}) {
   const w = wedgePaths(faction, ringsOpen);
   if (!w || !g?.save) return;
+  // `wait` {x, y, r}: the viewer waits for a village here (UX brief §13.6): the wedge is not an outline on bare chart
+  // but land that is lit, softly, in the nation's colour, most about the standard that stands at (x, y) and fading
+  // to its rim (r: how far the light reaches, world px), with a pool of lamp light on the paper at the standard's foot
   // (the colour as it is laid on parchment: palette.mjs NATION_LAND. Ember's white cloth would be nothing on paper;
   // its wedge is a veil of blue slate, a little stronger, and its line keeps a white core: a white nation's border)
   const k = 1 / zoom, col = NATION_LAND[faction] ?? YOU, pale = nationPale(faction);
   g.save();
   // `lit`: the nation that is looked at in the nation choice, its wedge washed in its colour on the chart
-  g.globalAlpha = (lit ? 0.26 : 0.07) * (pale ? 1.4 : 1); g.fillStyle = col; g.fill(w.fill);
+  g.globalAlpha = (lit ? 0.26 : wait ? WEDGE_WAIT.fill : 0.07) * (pale ? 1.4 : 1); g.fillStyle = col; g.fill(w.fill);
+  if (wait && g.createRadialGradient && g.clip) {
+    g.save(); g.clip(w.fill);
+    const R = wait.r, sq = FLATTEN, lamp = (r0, r1, stops) => { const gr = g.createRadialGradient(wait.x, wait.y / sq, r0, wait.x, wait.y / sq, r1); for (const [k, c] of stops) gr.addColorStop(k, c); return gr; };
+    // (round on the ground: an ellipse on the squashed board)
+    g.scale(1, sq);
+    const [cr, cg, cb] = [1, 3, 5].map(i => parseInt(col.slice(i, i + 2), 16));
+    g.globalAlpha = pale ? 1.3 * WEDGE_WAIT.glow : WEDGE_WAIT.glow; g.fillStyle = lamp(R * 0.08, R, [[0, `rgba(${cr},${cg},${cb},1)`], [0.5, `rgba(${cr},${cg},${cb},.5)`], [1, `rgba(${cr},${cg},${cb},0)`]]);
+    g.fillRect(wait.x - R, wait.y / sq - R, 2 * R, 2 * R);
+    g.globalAlpha = WEDGE_WAIT.lamp; g.fillStyle = lamp(0, R * 0.42, [[0, 'rgba(255,248,226,1)'], [1, 'rgba(255,248,226,0)']]);
+    g.fillRect(wait.x - R, wait.y / sq - R, 2 * R, 2 * R);
+    g.restore();
+  }
   g.lineCap = 'round'; g.lineJoin = 'round';
   g.globalAlpha = 0.22; g.strokeStyle = col; g.lineWidth = 13 * k; g.stroke(w.edge);
   g.globalAlpha = 0.85; g.strokeStyle = 'rgba(22,30,26,.9)'; g.lineWidth = 5.4 * k; g.stroke(w.edge);
