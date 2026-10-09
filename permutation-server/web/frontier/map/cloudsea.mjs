@@ -93,7 +93,10 @@ export function seaField(ringsOpen) {
   if (fields.has(d)) return fields.get(d);
   const memo = new Map();
   const key = (q, r) => (q + 2048) * 4096 + (r + 2048);
-  const open = (q, r) => { const at = locate(q, r); return ringOf(at.p, at.q) < d; };
+  // (kept per tile: a tile far out at sea asks about every tile within eight steps, and so do its neighbours; finding a
+  // tile's province is the costly part, and a far view's pieces asked half a million times)
+  const opened = new Map();
+  const open = (q, r) => { const k = key(q, r); let v = opened.get(k); if (v === undefined) { const at = locate(q, r); v = ringOf(at.p, at.q) < d; opened.set(k, v); } return v; };
   const steps = (q, r) => {
     const k = key(q, r);
     let v = memo.get(k);
@@ -387,15 +390,18 @@ export class CloudSea {
    * motion (the drift lies where it is). Returns `{pending, seen}`: pieces
    * that wait their turn, and whether any cloud is in the picture.
    */
-  paint(ctx, { box, res = 1, ringsOpen = 1, sheet = null, now = 0, still = false, part = null, bakes = SEA_BAKES } = {}) {
+  paint(ctx, { box, res = 1, ringsOpen = 1, sheet = null, now = 0, still = false, part = null, bakes = SEA_BAKES, budget = null } = {}) {
+    // `budget` (ms): after the first new piece of this call no other is begun once this long has passed (the opening
+    // makes its pieces while its dive is on screen)
     const out = { pending: 0, seen: false, rough: 0 };
     if (!ctx?.drawImage || !box) return out;
     const r = Math.min(1, res), size = PIECE / r;
     // (beyond the sheet there is no sea)
     const b = sheet ? { x0: Math.max(box.x0, -sheet.x), y0: Math.max(box.y0, -sheet.y), x1: Math.min(box.x1, sheet.x), y1: Math.min(box.y1, sheet.y) } : box;
     if (!(b.x1 > b.x0) || !(b.y1 > b.y0)) return out;
-    let left = bakes;
-    const canPaint = () => left-- > 0;
+    let left = budget !== null && budget < 0 ? 0 : bakes;
+    const clock = () => globalThis.performance?.now?.() ?? Date.now(), t0 = budget === null ? 0 : clock();
+    const canPaint = () => left-- > 0 && (budget === null || left === bakes - 1 || clock() - t0 < budget);
     // (which picture this is: a frame paints the still part, the drift, or both, each a pass of its own)
     this.pass = (this.pass ?? 0) + 1;
     const m = ctx.getTransform?.() ?? null;

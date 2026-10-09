@@ -51,6 +51,14 @@
 export const TILT = Object.freeze({ deg: 26, max: 26, perspective: 900, margin: 10 });
 /** The zoom from which the board is fully tilted (below the far view's zoom it lies flat). */
 export const TILT_NEAR = 0.62;
+/**
+ * On a narrow picture the far view is far further out (a phone's is a third of a desktop's), and a view between the
+ * two, the wait for a village with its wedge or its candidate sites in the picture, lay nearly flat there (5 to 8
+ * degrees) where a desktop shows it from the seat. The board is fully tilted from `TILT_SPAN` times the zoom at
+ * which it lies flat, and never later than TILT_NEAR: on a desktop that is TILT_NEAR itself, as before.
+ */
+export const TILT_SPAN = 2.13;
+export const tiltNear = far => (far > 0 ? Math.min(TILT_NEAR, far * TILT_SPAN) : TILT_NEAR);
 
 const RAD = Math.PI / 180;
 const clamp01 = x => Math.max(0, Math.min(1, x));

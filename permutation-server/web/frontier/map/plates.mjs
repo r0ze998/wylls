@@ -24,7 +24,7 @@ import { wedgeOf } from '../fgeo.mjs';
 import { placeName } from '../people/identity.mjs';
 import { pillSize, statusMark, unitPill } from '../people/units.mjs';
 import { SIGILS } from './layers.mjs';
-import { YOU } from './chart.mjs';
+import { YOU, YOURS } from './chart.mjs';
 import { upright } from './tilt.mjs';
 import { NATION_INK, NATION_ON } from '../palette.mjs';
 import { paintGlyph } from './glyphs.mjs';
@@ -134,7 +134,7 @@ export function paintPlate(g, ax, ay, m, S, { k = 1, faction = 0, own = false, m
   if (!g?.save) return;
   const u = S.u, x0 = ax + dx - S.w / 2, y1 = ay + dy - leader * k, y0 = y1 - S.h;
   const col = FACTION_COLORS[faction] ?? '#8a8f86', ink = NATION_INK[faction] ?? '#3a3a34';
-  const rim = own ? YOU : BRASS;
+  const rim = own ? YOURS.gold : BRASS;
   g.save();
   g.globalAlpha = muted ? 0.8 : 1;
   g.lineJoin = 'round'; g.lineCap = 'round';
@@ -146,6 +146,8 @@ export function paintPlate(g, ax, ay, m, S, { k = 1, faction = 0, own = false, m
   const d = 2.8 * k;
   g.fillStyle = rim; g.strokeStyle = 'rgba(10,20,18,.8)'; g.lineWidth = 0.8 * k;
   g.beginPath(); g.moveTo(ax, ay - d); g.lineTo(ax + d, ay); g.lineTo(ax, ay + d); g.lineTo(ax - d, ay); g.closePath(); g.fill(); g.stroke();
+  // (the viewer's own: the lozenge has an ivory heart, as every mark of theirs has: map/chart.mjs YOURS)
+  if (own) { const e = d * 0.42; g.fillStyle = YOURS.core; g.beginPath(); g.moveTo(ax, ay - e); g.lineTo(ax + e, ay); g.lineTo(ax, ay + e); g.lineTo(ax - e, ay); g.closePath(); g.fill(); }
   // the badges' row hangs under the name's row, a little narrower: one piece of metal
   const r1 = { x: ax + dx - S.w1 / 2, y: y0, w: S.w1, h: S.h1 }, r2 = S.h2 ? { x: ax + dx - S.w2 / 2, y: y0 + S.h1 - 1 * u, w: S.w2, h: S.h2 } : null;
   const rr = (r, rad) => { g.beginPath(); g.roundRect?.(r.x, r.y, r.w, r.h, rad); };
@@ -157,7 +159,9 @@ export function paintPlate(g, ax, ay, m, S, { k = 1, faction = 0, own = false, m
   if (r2) { rr({ ...r2, y: r2.y + 2 * k }, [0, 0, 8 * u, 8 * u]); g.fill(); }
   if (r2) { rr(r2, [0, 0, 8 * u, 8 * u]); g.fillStyle = METAL_2; g.fill(); g.strokeStyle = rim; g.globalAlpha *= 0.75; g.lineWidth = 1 * k; g.stroke(); g.globalAlpha = muted ? 0.8 : 1; }
   rr(r1, 7 * u); g.fillStyle = METAL; g.fill();
-  g.strokeStyle = rim; g.lineWidth = (own ? 1.5 : 1) * k; g.stroke();
+  g.strokeStyle = rim; g.lineWidth = (own ? 1.6 : 1) * k; g.stroke();
+  // (the viewer's own plate is ruled twice: an ivory hair inside its gold rim. Another village's has the one brass rule)
+  if (own) { rr({ x: r1.x + 2.6 * k, y: r1.y + 2.6 * k, w: r1.w - 5.2 * k, h: r1.h - 5.2 * k }, Math.max(1, 7 * u - 2.6 * k)); g.strokeStyle = YOURS.core; g.globalAlpha *= 0.72; g.lineWidth = 0.8 * k; g.stroke(); g.globalAlpha = muted ? 0.8 : 1; }
   // an inner highlight along the top edge
   g.strokeStyle = 'rgba(255,248,224,.16)'; g.lineWidth = 1 * k; g.beginPath(); g.moveTo(r1.x + 7 * u, r1.y + 1.5 * k); g.lineTo(r1.x + r1.w - 7 * u, r1.y + 1.5 * k); g.stroke();
   // the nation's sigil on its colour (a nation is never told by colour alone)

@@ -24,9 +24,9 @@ import { L } from '../../lang.mjs';
 import { FACTION_COLORS } from '../fi18n.mjs';
 import { SIGILS } from './layers.mjs';
 import { WORKED_RADIUS } from './survey.mjs';
-import { YOU, fxNow } from './chart.mjs';
+import { YOU, YOURS, fxNow, strokeYours } from './chart.mjs';
 import { upright } from './tilt.mjs';
-import { NATION_INK, NATION_ON } from '../palette.mjs';
+import { NATION_INK, NATION_ON, nationPale } from '../palette.mjs';
 
 /**
  * The fill of the viewer's own land (UX brief §11.5): a band, not a flood. The nation's colour at `rim` along the
@@ -47,7 +47,18 @@ export const OWN_BODY = 2;
  * zoom's own scale). It was ink, the nation's colour and a hair of gold on one line: three tones in four pixels read
  * as a doubled outline, and beside the nation's own rim as outlines nested in outlines (the second check).
  */
-export const OWN_FAR = Object.freeze({ fill: 0.25, ink: 3.8, gold: 2 });
+export const OWN_FAR = Object.freeze({ fill: 0.25, gold: 3 });
+/**
+ * The rim of the viewer's land at the tile view, in screen px before the zoom's own scale: the glow, the dark
+ * underlay, the nation's colour, and in it the viewer's rail (map/chart.mjs YOURS), `gold` wide.
+ */
+export const OWN_RIM = Object.freeze({ glow: 13, ink: 9.2, colour: 8, gold: 3 });
+/**
+ * A nation whose cloth is white (Ember): a cast of white hardly shows on grass, and its band on painted land was
+ * faint (the last check). Its band is laid as paint, not as a cast, this strong at the border (it falls inward as
+ * every band does), and the colour itself along the border counts `body` times.
+ */
+export const OWN_PALE = Object.freeze({ rim: 0.5, body: 1.5 });
 /**
  * The band as strokes along the outline, clipped to the land: `[{width (world px), alpha}]`, widest first. Laid
  * over a fill of `middle`, the strokes that cover a point `d` px inside the border add up to
@@ -199,7 +210,7 @@ const lineScale = zoom => (0.72 + 0.28 * Math.min(1.8, Math.max(0.3, zoom))) * M
 export function paintOwnLand(g, land, { zoom = 1, faction = 0, now = fxNow(), still = false, flood = null, far = false, base = false } = {}) {
   const P = pathsOf(land?.shape);
   if (!P || !g?.save) return;
-  const col = FACTION_COLORS[faction] ?? YOU, ink = NATION_INK[faction] ?? '#3a3a34';
+  const col = FACTION_COLORS[faction] ?? YOU, pale = nationPale(faction);
   const k = lineScale(zoom);
   // (`base`: the picture without its breath, for a layer that is kept; paintOwnBreath lays the breath over it)
   const breath = base ? 0 : still ? 0.6 : breathAt(now);
@@ -207,7 +218,8 @@ export function paintOwnLand(g, land, { zoom = 1, faction = 0, now = fxNow(), st
   g.save();
   g.lineJoin = 'round'; g.lineCap = 'round';
   // ---- the fill: a cast of the nation's colour, strongest along the border (the ground keeps its own colour)
-  const blend = OWN_FILL.blend;
+  // (a white nation's band is paint, not a cast: OWN_PALE)
+  const blend = pale ? 'source-over' : OWN_FILL.blend;
   if (flood) {
     land.shape.rings.forEach((_, d) => {
       const s = flood.ring(d);
@@ -225,9 +237,9 @@ export function paintOwnLand(g, land, { zoom = 1, faction = 0, now = fxNow(), st
     if (!flood) { g.globalAlpha = OWN_FAR.fill; g.fillStyle = col; g.fill(P.fill); }
   } else if (kept) {
     g.imageSmoothingEnabled = true;
-    g.globalCompositeOperation = blend; g.globalAlpha = 1; g.drawImage(kept.cast, kept.x, kept.y, kept.w, kept.h);
-    g.globalCompositeOperation = 'source-over';
-    if (RADIUS * zoom > 9) g.drawImage(kept.body, kept.x, kept.y, kept.w, kept.h);
+    g.globalCompositeOperation = blend; g.globalAlpha = pale ? OWN_PALE.rim / (1 - Math.pow(1 - OWN_FILL.rim, OWN_FILL.passes)) : 1; g.drawImage(kept.cast, kept.x, kept.y, kept.w, kept.h);
+    g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
+    if (RADIUS * zoom > 9) { g.drawImage(kept.body, kept.x, kept.y, kept.w, kept.h); if (pale) { g.globalAlpha = OWN_PALE.body - 1; g.drawImage(kept.body, kept.x, kept.y, kept.w, kept.h); g.globalAlpha = 1; } }
   } else {
     if (!flood) {
       g.globalCompositeOperation = blend; g.globalAlpha = OWN_FILL.middle; g.fillStyle = col; g.fill(P.fill);
@@ -240,25 +252,17 @@ export function paintOwnLand(g, land, { zoom = 1, faction = 0, now = fxNow(), st
       g.restore();
     }
   }
-  // ---- the border: a glow of gold, dark ink, the nation's colour, the gold line
+  // ---- the border: a glow of gold, dark ink, the nation's colour, the viewer's rail
   if (shown > 0 && far) {
-    // one rim from afar: a gold line (the viewer's own mark) on its dark underlay; dashed while the village is provisional
-    const dash = land.provisional ? [7 * k, 5 * k] : [];
-    g.setLineDash(dash);
-    g.globalAlpha = 0.72 * shown; g.strokeStyle = `${INK}1)`; g.lineWidth = OWN_FAR.ink * k; g.stroke(P.edge);
-    g.globalAlpha = (0.86 + 0.14 * breath) * shown; g.strokeStyle = YOU; g.lineWidth = OWN_FAR.gold * k; g.stroke(P.edge);
-    g.setLineDash([]);
+    // one rim from afar: the viewer's rail alone (gold with an ivory core between dark keylines); dashed while the village is provisional
+    strokeYours(g, P.edge, OWN_FAR.gold * k, { alpha: shown, core: 0.8 + 0.2 * breath, dash: land.provisional ? [7 * k, 5 * k] : null });
   } else if (shown > 0) {
-    const dash = land.provisional ? [9 * k, 7 * k] : [];
     g.setLineDash([]);
-    g.globalAlpha = (0.12 + 0.2 * breath) * shown; g.strokeStyle = YOU; g.lineWidth = 12 * k; g.stroke(P.edge);
-    g.globalAlpha = 0.86 * shown; g.strokeStyle = `${INK}1)`; g.lineWidth = 7.4 * k; g.stroke(P.edge);
-    g.globalAlpha = shown; g.strokeStyle = far ? col : ink; g.lineWidth = 5.4 * k; g.stroke(P.edge);
-    g.strokeStyle = col; g.lineWidth = 4.4 * k; g.stroke(P.edge);
-    // (a provisional village: the gold line is dashed)
-    g.setLineDash(dash);
-    g.globalAlpha = (0.78 + 0.22 * breath) * shown; g.strokeStyle = YOU; g.lineWidth = 2 * k; g.stroke(P.edge);
-    g.setLineDash([]);
+    g.globalAlpha = (0.12 + 0.2 * breath) * shown; g.strokeStyle = YOURS.gold; g.lineWidth = OWN_RIM.glow * k; g.stroke(P.edge);
+    g.globalAlpha = 0.86 * shown; g.strokeStyle = `${INK}1)`; g.lineWidth = OWN_RIM.ink * k; g.stroke(P.edge);
+    g.globalAlpha = shown; g.strokeStyle = col; g.lineWidth = OWN_RIM.colour * k; g.stroke(P.edge);
+    // the viewer's rail in the nation's colour: dark keylines, bright gold, an ivory core (dashed while the village is provisional)
+    strokeYours(g, P.edge, OWN_RIM.gold * k, { alpha: shown, core: 0.78 + 0.22 * breath, dash: land.provisional ? [9 * k, 7 * k] : null });
   }
   g.restore();
 }
@@ -313,10 +317,11 @@ export function paintOwnBreath(g, land, { zoom = 1, now = fxNow() } = {}) {
   const k = lineScale(zoom), breath = breathAt(now);
   g.save();
   g.lineJoin = 'round'; g.lineCap = 'round';
-  g.strokeStyle = YOU;
-  g.globalAlpha = 0.2 * breath; g.lineWidth = 12 * k; g.stroke(P.edge);
+  g.strokeStyle = YOURS.gold;
+  g.globalAlpha = 0.2 * breath; g.lineWidth = OWN_RIM.glow * k; g.stroke(P.edge);
+  // (the rail's core brightens with the breath)
   g.setLineDash(land.provisional ? [9 * k, 7 * k] : []);
-  g.globalAlpha = 0.5 * breath; g.lineWidth = 2 * k; g.stroke(P.edge);
+  g.strokeStyle = '#ffffff'; g.globalAlpha = 0.6 * breath; g.lineWidth = OWN_RIM.gold * YOURS.rail.core * k; g.stroke(P.edge);
   g.setLineDash([]);
   g.restore();
 }
@@ -330,10 +335,10 @@ export function paintOwnOutline(g, land, { zoom = 1, shown = 1, strong = false }
   g.lineJoin = 'round'; g.lineCap = 'round';
   g.setLineDash(land.provisional ? [10 * k, 7 * k] : []);
   // (`strong`: while a reach is lit over the land and the rest of the map is dimmed, the gold line is drawn whole)
-  if (strong) { g.globalAlpha = 0.6 * shown; g.strokeStyle = `${INK}1)`; g.lineWidth = 4.4 * k; g.stroke(P.edge); }
   // (else a breath of it: what stands on the border is taller since the third wave, a mountain, a wood of single trees,
   // and a line at .42 across them read as a wire)
-  g.globalAlpha = (strong ? 0.95 : 0.24) * shown; g.strokeStyle = YOU; g.lineWidth = (strong ? 2 : 1.2) * k; g.stroke(P.edge);
+  if (strong) strokeYours(g, P.edge, 2.4 * k, { alpha: 0.95 * shown, dash: land.provisional ? [10 * k, 7 * k] : null });
+  else { g.globalAlpha = 0.24 * shown; g.strokeStyle = YOURS.gold; g.lineWidth = 1.2 * k; g.stroke(P.edge); }
   g.setLineDash([]);
   g.restore();
 }
@@ -348,8 +353,8 @@ export function paintProvisionalTag(g, land, { zoom = 1 } = {}) {
   const tw = (g.measureText?.(text)?.width ?? 12 * k) + 14 * k, th = 18 * k, ty = c.y + (land.shape.maxD * 1.5 + 1) * RADIUS * FLATTEN;
   upright(g, c.x, ty, () => {
     g.fillStyle = `${INK}.92)`; g.beginPath(); g.roundRect?.(c.x - tw / 2, ty - th / 2, tw, th, 9 * k); g.fill();
-    g.strokeStyle = YOU; g.lineWidth = 1.2 * k; g.stroke();
-    g.fillStyle = YOU; g.fillText(text, c.x, ty + 0.5 * k);
+    g.strokeStyle = YOURS.gold; g.lineWidth = 1.2 * k; g.stroke();
+    g.fillStyle = YOURS.gold; g.fillText(text, c.x, ty + 0.5 * k);
   });
   g.restore();
 }
@@ -399,7 +404,7 @@ export function paintStandard(g, x, y, { u = RADIUS, zoom = 1, faction = 0, now 
       g.globalAlpha = 0.62 * Math.pow(1 - dust, 0.7) * alpha; g.fillStyle = i % 2 ? '#f4ead0' : '#dccca4';
       g.beginPath(); g.ellipse?.(x + dx, y + dy, u * (0.12 + 0.2 * e), u * (0.08 + 0.12 * e), 0, 0, Math.PI * 2); g.fill();
     }
-    g.globalAlpha = 0.8 * (1 - dust) * alpha; g.strokeStyle = YOU; g.lineWidth = lw * 1.6;
+    g.globalAlpha = 0.8 * (1 - dust) * alpha; g.strokeStyle = YOURS.gold; g.lineWidth = lw * 1.6;
     g.beginPath(); g.ellipse?.(x, y, u * (0.2 + 0.9 * e), u * (0.2 + 0.9 * e) * FLATTEN, 0, 0, Math.PI * 2); g.stroke();
   }
   // its shadow and the foot's ring on the ground
@@ -430,11 +435,11 @@ export function paintStandard(g, x, y, { u = RADIUS, zoom = 1, faction = 0, now 
   sigilPath(g, SIGILS[faction] ?? 'ring', sx, sy, sr);
   if ((SIGILS[faction] ?? 'ring') === 'ring') { g.strokeStyle = IVORY; g.lineWidth = lw * 2.2; g.stroke(); }
   else { g.fillStyle = NATION_ON[faction] ?? IVORY; g.fill(); g.strokeStyle = dark; g.lineWidth = lw * 0.9; g.stroke(); }
-  // the finial: a gold lozenge with its glint
-  const fy = y - H - u * 0.07, fr = u * 0.1;
-  g.beginPath(); g.moveTo(x, fy - fr * 1.25); g.lineTo(x + fr * 0.8, fy); g.lineTo(x, fy + fr * 1.05); g.lineTo(x - fr * 0.8, fy); g.closePath();
-  g.fillStyle = YOU; g.fill(); g.strokeStyle = '#161d1a'; g.lineWidth = lw; g.stroke();
-  g.fillStyle = '#fffbe9'; g.beginPath(); g.arc(x - fr * 0.2, fy - fr * 0.3, fr * 0.2, 0, Math.PI * 2); g.fill();
+  // the finial: the viewer's mark as a jewel: a gold lozenge in a dark keyline, an ivory lozenge at its heart
+  const fy = y - H - u * 0.08, fr = u * 0.125;
+  const loz = s => { g.beginPath(); g.moveTo(x, fy - fr * 1.25 * s); g.lineTo(x + fr * 0.82 * s, fy); g.lineTo(x, fy + fr * 1.08 * s); g.lineTo(x - fr * 0.82 * s, fy); g.closePath(); };
+  loz(1); g.fillStyle = YOURS.gold; g.fill(); g.strokeStyle = YOURS.key; g.lineWidth = lw * 1.3; g.stroke();
+  loz(0.42); g.fillStyle = YOURS.core; g.fill();
   g.restore();
 }
 
@@ -447,15 +452,17 @@ export function paintStandard(g, x, y, { u = RADIUS, zoom = 1, faction = 0, now 
 export function paintBeacon(g, x, y, { zoom = 1, now = fxNow(), still = false, active = true } = {}) {
   if (!g?.save) return;
   const k = 1 / zoom, breath = still ? 0.5 : 0.5 + 0.5 * Math.sin((now / 1000) * (2 * Math.PI / (BREATH_SECS * 0.6)));
-  const r = (active ? 5 : 4) * k;
+  const r = (active ? 5.6 : 4.4) * k;
   g.save();
   // the light it gives: two rings, the outer one opening and fading
-  g.strokeStyle = YOU; g.lineWidth = 1.4 * k;
-  g.globalAlpha = 0.55 * (1 - breath); g.beginPath(); g.arc(x, y, r + (5 + 9 * breath) * k, 0, Math.PI * 2); g.stroke();
-  g.globalAlpha = 0.24; g.fillStyle = YOU; g.beginPath(); g.arc(x, y, r + 5 * k, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = YOURS.gold; g.lineWidth = 1.4 * k;
+  g.globalAlpha = 0.6 * (1 - breath); g.beginPath(); g.arc(x, y, r + (5 + 9 * breath) * k, 0, Math.PI * 2); g.stroke();
+  g.globalAlpha = 0.24; g.fillStyle = YOURS.gold; g.beginPath(); g.arc(x, y, r + 5 * k, 0, Math.PI * 2); g.fill();
   g.globalAlpha = 1;
-  g.fillStyle = '#131b18'; g.beginPath(); g.arc(x, y, r + 2.1 * k, 0, Math.PI * 2); g.fill();
-  g.fillStyle = YOU; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
-  g.fillStyle = '#fffbe9'; g.beginPath(); g.arc(x - r * 0.3, y - r * 0.32, r * 0.3, 0, Math.PI * 2); g.fill();
+  // the pip itself, built as every mark of the viewer's is (map/chart.mjs YOURS): a dark keyline, gold, an ivory core.
+  // (A village on the chart is a dot of its nation's colour in a pale rim: light outside, colour inside. This is the other way round)
+  g.fillStyle = YOURS.key; g.beginPath(); g.arc(x, y, r + 2.2 * k, 0, Math.PI * 2); g.fill();
+  g.fillStyle = YOURS.gold; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+  g.fillStyle = YOURS.core; g.beginPath(); g.arc(x, y, r * 0.42, 0, Math.PI * 2); g.fill();
   g.restore();
 }

@@ -17,7 +17,7 @@ import { provincePixel, PROVINCE_CIRCUMRADIUS } from './layers.mjs';
 import { motion } from '../fx/motion.mjs';
 
 /** Milliseconds of the standard moves. */
-export const MOVE_MS = Object.freeze({ open: 1400, fly: 720, far: 900, zoom: 170, pan: 150, wheel: 140, settle: 260, reach: 520 });
+export const MOVE_MS = Object.freeze({ open: 1400, fly: 720, far: 900, zoom: 170, pan: 150, wheel: 140, settle: 260, reach: 520, pull: 460 });
 /** The glide after a drag: speed decays with this time constant (ms); slower than FLING_MIN px/ms does not glide. */
 export const FLING_TAU = 300;
 export const FLING_MIN = 0.12;
@@ -76,6 +76,15 @@ export function worldRadius(ringsOpen) {
 
 /** Of a picture's width or height, how much the cloud sea beyond the opened land may take: a pan stops there. */
 export const SEA_SHARE = 1 / 3;
+/**
+ * The sea keeps that share while the picture is narrower than `from` of the land, and has none once the picture is
+ * `to` of the land (the far view: the land whole, in the middle). It was 0.45 to 1: at the seat's zoom the share
+ * already shrank, and four wheel notches out from a village near the world's edge pulled the picture hundreds of
+ * pixels inland from under the pointer (the last check: 114 to 448 px).
+ */
+export const SEA_HOLD = Object.freeze({ from: 0.9, to: 1.5 });
+/** A zoom may come to rest this far past the pan's limit (of the limit's own radius): the third is a guide, not a wall. */
+export const ZOOM_GIVE = 0.15;
 
 /**
  * Keep a view's centre where the picture is mostly land: the cloud sea beyond
@@ -85,7 +94,21 @@ export const SEA_SHARE = 1 / 3;
  * the middle. `soft` (0..1) lets a drag pull past the limit with that much
  * give; the release settles back.
  */
-export function clampCentre(view, { ringsOpen = 1, size, soft = 0, inset = null } = {}) {
+export function clampCentre(view, { ringsOpen = 1, size, soft = 0, inset = null, give = 0 } = {}) {
+  // `give` (of the limit's radius): how far past the limit the centre may rest (a zoom about the pointer: ZOOM_GIVE)
+  const r = centreReach(view, { ringsOpen, size, inset });
+  const lim = 1 + Math.max(0, give);
+  if (r.len <= lim) return view;
+  const over = r.len / lim - 1, keep = lim * (soft > 0 ? 1 + (1 - 1 / (over * 2.2 + 1)) * 0.5 * soft : 1);
+  return { ...view, x: (r.u / r.len) * keep * r.ax - r.fx, y: (r.v / r.len) * keep * r.ay - r.fy };
+}
+
+/**
+ * Where a view's centre stands against the pan's limit: `len` 1 on the limit, less inside it, more past it (and the
+ * numbers `clampCentre` works with: the limit's half axes `ax`, `ay`, the centre in units of them `u`, `v`, and how
+ * far the uncovered part's middle lies from the canvas's, in world px, `fx`, `fy`).
+ */
+export function centreReach(view, { ringsOpen = 1, size, inset = null } = {}) {
   // `inset`: what the page's sheets cover. The picture is then the part nothing covers: its middle is what is
   // kept over the land, and its size what the sea's share is counted in (a phone's sheet over the lower half
   // must not leave the upper half looking at the table)
@@ -93,17 +116,15 @@ export function clampCentre(view, { ringsOpen = 1, size, soft = 0, inset = null 
   const f = size && inset ? freeBox(size, inset) : { x: 0, y: 0, width: size?.width ?? 0, height: size?.height ?? 0 };
   const halfW = f.width / 2 / view.zoom, halfH = f.height / 2 / view.zoom;
   // (the picture reaches `half` past its centre: with SEA_SHARE of its whole width beyond the land's edge, the centre
-  // stands half · (1 − 2 · SEA_SHARE) inside that edge. A picture as wide as the land itself keeps the land whole)
+  // stands half · (1 − 2 · SEA_SHARE) inside that edge. A picture half again as wide as the land keeps the land whole: SEA_HOLD)
   const reach = (land, half) => {
-    const t = Math.max(0, Math.min(1, (half / land - 0.45) / 0.55)), k = 1 - 2 * SEA_SHARE * (1 - t * t * (3 - 2 * t));
+    const t = Math.max(0, Math.min(1, (half / land - SEA_HOLD.from) / (SEA_HOLD.to - SEA_HOLD.from))), k = 1 - 2 * SEA_SHARE * (1 - t * t * (3 - 2 * t));
     return Math.max(land * 0.12, land - half * k);
   };
   const ax = reach(b.x, halfW), ay = reach(b.y, halfH);
   const cx = view.x + f.x / view.zoom, cy = view.y + f.y / view.zoom;
-  const u = cx / ax, v = cy / ay, len = Math.hypot(u, v);
-  if (len <= 1) return view;
-  const over = len - 1, keep = soft > 0 ? 1 + (1 - 1 / (over * 2.2 + 1)) * 0.5 * soft : 1;
-  return { ...view, x: (u / len) * keep * ax - f.x / view.zoom, y: (v / len) * keep * ay - f.y / view.zoom };
+  const u = cx / ax, v = cy / ay;
+  return { len: Math.hypot(u, v), u, v, ax, ay, fx: f.x / view.zoom, fy: f.y / view.zoom };
 }
 
 /** The radius (world px) of the opened land alone: the open rings without the cloud around them. */
@@ -187,14 +208,16 @@ export class Camera {
    * the drawn one arrives after `ms` (0, or reduced motion: at once).
    * `kind` and `anchor` as in between(); `soft` keeps a drag's give.
    */
-  set(view, { ms = 0, ease = EASE.outCubic, kind = 'anchor', anchor = null, clamp = false, soft = 0, tag = null } = {}) {
+  set(view, { ms = 0, ease = EASE.outCubic, kind = 'anchor', anchor = null, clamp = false, soft = 0, give = 0, tag = null, real = false } = {}) {
+    // (`real`: the move keeps the clock's own time whatever a frame took: the opening's dive, whose first frames
+    // make the land and are long; any other move is slowed by a slow frame instead of skipping ahead)
     let next = { ...this.view, ...view };
-    if (this.limit) next = this.limit(next, { clamp, soft });
+    if (this.limit) next = this.limit(next, { clamp, soft, give });
     this.view = next;
     if (!(ms > 0) || this.reduced()) { this.drawn = { ...next }; this.tween = null; return next; }
     const d = this.drawn;
     if (Math.abs(d.x - next.x) * next.zoom < 0.25 && Math.abs(d.y - next.y) * next.zoom < 0.25 && Math.abs(Math.log(d.zoom / next.zoom)) < 1e-4) { this.drawn = { ...next }; this.tween = null; return next; }
-    this.tween = { from: { ...d }, ms, ease, kind, anchor, tag, elapsed: 0, last: null };
+    this.tween = { from: { ...d }, ms, ease, kind, anchor, tag, real, elapsed: 0, last: null };
     return next;
   }
 
@@ -204,6 +227,22 @@ export class Camera {
     this.drawn = { ...this.drawn, ...view };
     this.set(this.view, opts);
   }
+
+  /**
+   * The flight that is under way ends somewhere else: the logical view changes, and the picture keeps travelling (the
+   * same start, the time already flown) toward the new end. With no flight under way it is `set`. (The opening's
+   * dive: the page's sheets settle while it flies, and the subject must end in what they leave free.)
+   */
+  retarget(view) {
+    if (!this.tween || this.reduced()) return this.set(view);
+    let next = { ...this.view, ...view };
+    if (this.limit) next = this.limit(next, {});
+    this.view = next;
+    return next;
+  }
+
+  /** How far the flight under way has come, 0..1 (eased), or 1 with none. */
+  progress() { const tw = this.tween; return tw ? tw.ease(clamp01(tw.elapsed / tw.ms)) : 1; }
 
   /** Stop where the picture is (a finger on the map): the logical view becomes the drawn one. Returns whether it was moving. */
   halt() {
@@ -235,7 +274,7 @@ export class Camera {
     let dt = tw.last === null ? 0 : now - tw.last;
     if (tw.last !== null && !(dt > 0)) dt = 1000 / 60;   // a frozen clock still animates, a frame at a time
     tw.last = now;
-    tw.elapsed += Math.min(MAX_STEP_MS, dt);
+    tw.elapsed += tw.real ? dt : Math.min(MAX_STEP_MS, dt);
     const k = clamp01(tw.elapsed / tw.ms);
     const d = this.drawn = between(tw.from, this.view, tw.ease(k), tw.kind, tw.anchor), v = this.view;
     // arrived, or so close that nothing on screen would change (the long tail of a glide)

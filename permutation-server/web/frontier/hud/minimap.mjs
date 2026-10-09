@@ -133,6 +133,8 @@ export function paintMinimap(ctx, { recs, rings, own = [], view = null, size = n
     const at = project(home.q, home.r), c = fr.toPx(at.x, at.y), u = ((now / 1000) % 1.8) / 1.8;
     ctx.strokeStyle = `rgba(243,213,138,${0.85 * (1 - u)})`; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(c.x, c.y, 3.5 + u * 8, 0, Math.PI * 2); ctx.stroke();
     ctx.fillStyle = MINI_SURVEY.you; ctx.strokeStyle = '#2a1e06'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(c.x, c.y, 3.4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    // (an ivory core, as every mark of the viewer's on the board has: a gold pip on a yellow nation's land is told by how it is built; map/chart.mjs YOURS)
+    ctx.fillStyle = '#fffcf0'; ctx.beginPath(); ctx.arc(c.x, c.y, 1.35, 0, Math.PI * 2); ctx.fill();
   }
   ctx.strokeStyle = 'rgba(217,180,74,.7)'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(px / 2, px / 2, px / 2 - 1, 0, Math.PI * 2); ctx.stroke();
 }

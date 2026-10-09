@@ -254,8 +254,8 @@ export const REALM_FAR = Object.freeze({ fill: 0.22, fillNear: 0.18, colour: 3.6
 /** The relief of the tile view: how much wider and taller than its sprite a mountain or a wood is drawn, about a foot `foot` hex radii below its tile's centre, and how dark its cast shadow is. */
 export const RISE = Object.freeze({ mountain: Object.freeze({ w: 1.22, h: 1.42, foot: 0.3, shadow: 0.2 }), forest: Object.freeze({ w: 1.06, h: 1.2, foot: 0.34, shadow: 0 }) });
 /**
- * The relief drawn by code (map/relief.mjs, UX brief §12.2): which terrain is (hills keep their baked ground: its
- * soft mounds won the side-by-side picture), how large a mountain and a tree are drawn (units of the hex radius per
+ * The relief drawn by code (map/relief.mjs, UX brief §12.2, §13.5): which terrain is (hills keep their baked ground: its
+ * soft mounds won the side-by-side picture, in the third wave and again in the fourth), how large a mountain and a tree are drawn (units of the hex radius per
  * unit of their own), and the plain ground laid under each (the baked
  * ground of a mountain or a wood has the mountain or the trees painted into it). `?relief=0` shows the baked art
  * (for side-by-side pictures).
@@ -269,6 +269,33 @@ const LOW_PROPS = new Set(['grassland', 'plains', 'hills', 'water']);
 /** Terrain whose props stand tall enough to cover a host on the tile behind. */
 const TALL = new Set(['mountain', 'forest']);
 const spare = (w, h) => (typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : typeof document !== 'undefined' ? Object.assign(document.createElement('canvas'), { width: w, height: h }) : null);
+/**
+ * A context that takes every call and shows nothing. The opening prepares its first picture into it (map/fmap.mjs):
+ * the sprites are asked for, the bitmaps of the ground, of the relief and of the sea are made and kept, and nothing
+ * is shown before it is there. Whatever is set on it is dropped; what it is asked for is a function that does nothing.
+ * One call does something: `drawImage` draws its source onto a canvas of one pixel. A canvas off the page keeps what
+ * was drawn on it as a list of strokes until it is first used, and a sprite is decoded when it is first drawn; drawn
+ * here, both are made now, in a frame nobody is waiting for, and not in the frame that first shows the land.
+ */
+export const INERT_CTX = (() => {
+  const grad = { addColorStop() {} }, flat = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+  let dot;
+  // (a source is drawn once a frame, however often the picture uses it: a sprite that has loaded once and for all; a
+  // canvas once in every frame, as it may have been painted again since. `INERT_CTX.frame()` begins a frame)
+  const seen = new WeakMap();
+  let stamp = 1;
+  const realise = (img) => {
+    if (!img || typeof img !== 'object') return;
+    const still = 'naturalWidth' in img, at = seen.get(img);
+    if (at === stamp || (still && at)) return;
+    seen.set(img, stamp);
+    if (dot === undefined) { const cv = spare(1, 1); dot = cv?.getContext?.('2d') ?? null; }
+    // (one pixel of the source onto the one pixel: nothing is scaled, and the source must still be whole to give it)
+    try { dot?.drawImage(img, 0, 0, 1, 1, 0, 0, 1, 1); } catch { /* a source that cannot be drawn yet */ }
+  };
+  const t = { canvas: null, drawImage: realise, frame: () => { stamp++; }, createLinearGradient: () => grad, createRadialGradient: () => grad, createConicGradient: () => grad, createPattern: () => null, measureText: () => ({ width: 0 }), getTransform: () => ({ ...flat }), getImageData: () => null, createImageData: () => null, getLineDash: () => [] };
+  return new Proxy(t, { get: (o, k) => (k in o ? o[k] : (o[k] = () => {})), set: () => true });
+})();
 /** Holding tiers by the account's TIER byte (0..3). */
 export const ART_TIERS = Object.freeze(['hamlet', 'town', 'city', 'stronghold']);
 /** Host sprites (1x: 32 x 34, anchor 16,22 on the ground plane) and the six slots around a hex centre (hosts.py). */
@@ -338,11 +365,35 @@ export class SpriteArt {
     this.outlines = new Map();
     this.thumbs = new Map();
     this.misses = 0;
+    /** Sprites asked for and not here yet. */
+    this.loading = 0;
     this.farCache = new Map();   // "P,Q@res|state" → {cv, x, y, w, h, px}
     this.farLast = new Map();    // "P,Q" → the last bitmap painted for it (shown while a newer one waits)
     this.farPixels = 0;
     this.groundCache = new Map();   // "P,Q@set|state" → {cv, x, y, w, h, px}
     this.groundPixels = 0;
+  }
+
+  /**
+   * Ask for the sprites any land of the tile view is made of (the ground of every kind of tile, what lies low on it,
+   * the shores, a free site) in the set `size`, ahead of the first picture: asked for while the page still reads the
+   * viewer's record, they are here by the time the map knows where to open. Some 0.6 MB at the largest set.
+   */
+  warm(size) {
+    if ((this.warmed ??= new Set()).has(size) || typeof Image === 'undefined') return;
+    this.warmed.add(size);
+    const had = this.misses;
+    for (const n of ['grassland', 'plains', 'hills', 'water']) for (let v = 1; v <= 3; v++) {
+      this.image('terrain', size, `${n}_${v}`); this.image('props', size, `${n}_${v}`);
+      if (n !== 'water') { this.image('sites', size, `${n}_${v}`); this.image('sites_props', size, `${n}_${v}`); }
+    }
+    for (let e = 0; e < 6; e++) { this.image('overlays', size, `shore_${e}`); this.image('overlays', size, `beach_${e}`); }
+    this.image('holdings', size, 'site');
+    // (and the nations' territory: its wash and its plain border, the six of them)
+    for (const f of ART_FACTIONS) { this.image('factions', size, `wash_${f}`); for (let e = 0; e < 6; e++) this.image('factions', size, `border_${f}_${e}_own`); }
+    this.misses = had;
+    // (decoded as they arrive, off the page's own thread: the first picture does not stop to decode sixty sprites)
+    for (const rec of this.images.values()) if (!rec.ok && typeof rec.img.decode === 'function') rec.img.decode().catch(() => {});
   }
 
   /** Drop the ground bitmaps used longest ago until the cache is inside its budget; those of the pass `pass` (the picture being painted) and of the one before it stay while there is room at all. */
@@ -472,7 +523,10 @@ export class SpriteArt {
       const img = new Image();
       const rec = { img, ok: false };
       this.images.set(key, rec);
-      img.onload = () => { rec.ok = true; this.onLoad(); };
+      this.loading++;
+      // (`loading` is what the opening counts; a sprite that fails is not waited for)
+      img.onload = () => { rec.ok = true; this.loading--; this.onLoad(); };
+      img.onerror = () => { if (!rec.ok && !rec.failed) { rec.failed = true; this.loading--; } };
       img.src = new URL(`${key}.webp`, this.base).href;
     }
     for (const o of ART_SIZES) { const other = o.key === size ? null : this.images.get(`${set}/${o.key}/${name}`); if (other?.ok) return other.img; }
@@ -579,13 +633,13 @@ export class SpriteArt {
   }
 
   /** Province/world LOD: a far bitmap per province (the land itself), then the labels a map has. */
-  paintFar(ctx, entries, { zoom, dpr = 1, terrainAt, fogAt, alliedPairs = [], recs = new Map(), lod = 'world', lens = 'realm', passing = false, resZoom = zoom, survey = null }) {
+  paintFar(ctx, entries, { zoom, dpr = 1, terrainAt, fogAt, alliedPairs = [], recs = new Map(), lod = 'world', lens = 'realm', passing = false, resZoom = zoom, survey = null, budget = FAR_BUDGET_MS }) {
     const limited = !!survey && !survey.showAll;
     const svOf = e => (limited && e.fog !== 'unopened' ? survey.province(e.p, e.q) : null);
     // `passing`: the camera is on its way through this zoom: a province that has any bitmap keeps it for now,
     // and what must be painted is painted for `resZoom` (the further of here and where the camera is going)
     const res = farRes(resZoom * dpr);
-    const t0 = now(), budget = FAR_BUDGET_MS;
+    const t0 = now();
     let deferred = 0;
     let stale = false;
     const canPaint = () => !(passing && stale) && now() - t0 < budget;
@@ -905,7 +959,11 @@ export class SpriteArt {
   paint(ctx, entries, { zoom, dpr = 1, artZoom = zoom, passing = false, terrainAt = () => null, fogAt = () => null, selected = null, viewerFaction = null, demoRoads = false,
     ringsOpen = null, replayRing = null, replayEvery = 6000, engineStage = 0,
     relics = [], waystones = [], demoSpecials = false, rivers = [], demoRivers = false, alliedPairs = [], people = null, far = false,
-    part = null, between = null, stamp = undefined, survey = null, sea = false, up = null, rush = false }) {
+    part = null, between = null, stamp = undefined, survey = null, sea = false, up = null, rush = false, budget = null, first = null, lo = null }) {
+    // `budget` (ms): after the first new ground bitmap of this call no other is begun once this long has passed;
+    // `first` ("P,Q"): that province's ground is made before any other (the opening: the land the camera flies to);
+    // `lo` (0..1): new ground bitmaps are made at that share of the set's fineness (the opening's dive: a picture in
+    // motion, made in a quarter of the time; the resting picture makes its own, and these stand in until it has)
     // the sprite set of the nearer of the picture and where the camera is going (no change of set at the end of a flight)
     const s = artSize(RADIUS * Math.max(zoom, artZoom) * dpr);
     // the ring-open moment starts when the open ring count grows (or, in the preview, on a timer)
@@ -1004,24 +1062,48 @@ export class SpriteArt {
         // frame of a flight cost more than the rest of the frame)
         // (`rush`: the opening holds its first picture until it is whole, and nobody is watching these frames: more a frame)
         // (a camera on its way has two sheets of chart a frame: a far picture stands in for the rest until it rests)
-        let bakes = rush ? GROUND_BAKES * 2 : passing ? 1 : GROUND_BAKES, charts = passing && !rush ? 2 : 8;
+        // (a budget below zero: nothing new is made in this call; its sprites are asked for)
+        const none = budget !== null && budget < 0;
+        let bakes = none ? 0 : rush ? GROUND_BAKES * 2 : passing ? 1 : GROUND_BAKES, charts = none ? 0 : passing && !rush ? 2 : 8;
         const pass = this.groundPass = (this.groundPass ?? 0) + 1;
+        let made = 0;
+        const late = () => budget !== null && made > 0 && now() - t0 > budget;
+        /** Provinces of this picture whose ground bitmap waits its turn (another one stands in): the picture is not final. */
+        this.waiting = 0;
         const bake = (e, list) => {
           const sv = svOf(e), chartOnly = sv?.kind === 'chart';
-          const key = `${e.p},${e.q}@${s.key}|${e.prov?.roadMask ?? ''}|${ringsOpen ?? ''}|${washSig.get(`${e.p},${e.q}`) ?? ''}|${sv?.sig ?? ''}`;
+          const key = `${e.p},${e.q}@${s.key}${lo ? `~${lo}` : ''}|${e.prov?.roadMask ?? ''}|${ringsOpen ?? ''}|${washSig.get(`${e.p},${e.q}`) ?? ''}|${sv?.sig ?? ''}`;
           const hit = this.groundCache.get(key);
           if (hit) { hit.pass = pass; this.groundCache.delete(key); this.groundCache.set(key, hit); return hit; }
-          // (a sheet of chart is cheap: it does not wait for its turn as painted ground does)
-          if (bakes <= 0 && !(chartOnly && charts > 0)) return null;
-          if (passing && !rush && !chartOnly && this.groundStale(e)) return null;
+          // (`rush`: the opening prepares its first picture. A bitmap made while a sprite of it is still on its way is
+          // thrown away and made again with every frame, the survey's soft edge and all: a fifth of a second each
+          // time. So the province's sprites are asked for first, into a context that paints nothing, and its bitmap
+          // waits until they are all here)
+          if (rush && !chartOnly) {
+            const had = this.misses;
+            this.misses = 0; g = INERT_CTX;
+            for (const t of list) if (painted(t)) groundOf(t);
+            for (const t of list) washOf(t);
+            g = ctx;
+            const missing = this.misses;
+            this.misses = had;
+            if (missing) return null;
+          }
           // (a sheet of chart that has any picture, of the tile view or the far view, keeps it while the camera travels:
           // chart is chart, and making the sheets of every province a flight passes over pushed the land's own ground
           // out of the cache, so the way back had none)
           if (passing && !rush && chartOnly && (this.groundStale(e) || this.farStale(e))) return null;
-          const c = provincePixel(e.p, e.q), res = s.r / RADIUS, B = GROUND_BOX;
+          // (a sheet of chart is cheap: it does not wait for its turn as painted ground does)
+          if (bakes <= 0 && !(chartOnly && charts > 0)) return null;
+          if (late()) return null;
+          // (the opening: a province whose record is still on its way is not made twice, once without it)
+          if (rush && e.wait) return null;
+          if (passing && !rush && !chartOnly && this.groundStale(e)) return null;
+          const c = provincePixel(e.p, e.q), res = (s.r / RADIUS) * (lo || 1), B = GROUND_BOX;
           const cv = spare(Math.ceil((B.left + B.right) * res), Math.ceil((B.top + B.bottom) * res)), gg = cv?.getContext?.('2d');
           if (!gg) return null;
           if (chartOnly) charts--; else bakes--;
+          made++;
           gg.setTransform(res, 0, 0, res, (B.left - c.x) * res, (B.top - c.y) * res);
           const box = { x: c.x - B.left, y: c.y - B.top, w: B.left + B.right, h: B.top + B.bottom };
           if (chartOnly) {
@@ -1062,7 +1144,7 @@ export class SpriteArt {
               // (the same sheet without its ink: the chart is quiet next to painted land)
               const bare = spare(cv.width, cv.height), bg = bare?.getContext?.('2d');
               if (bg) { bg.setTransform(res, 0, 0, res, (B.left - c.x) * res, (B.top - c.y) * res); paintChart(bg, list, { res, nameAt: chartName, own: true, ink: false }); }
-              applySurvey(gg, { box, res, survey, sig: sv.sig, chart: sheet, plain: bg ? bare : null });
+              applySurvey(gg, { box, res, survey, sig: sv.sig, chart: sheet, plain: bg ? bare : null, coarse: !!lo });
             }
           }
           const whole = this.misses === 0;
@@ -1076,6 +1158,7 @@ export class SpriteArt {
           return v;
         };
         const bare = demoRoads || demoRivers || rivers.length > 0;   // preview roads and rivers change with the holdings: no bitmap
+        if (!bare && first) { const fe = entries.find(e => `${e.p},${e.q}` === first && e.terrain && e.fog !== 'unopened'); if (fe) bake(fe, byProv.get(first) ?? []); }
         if (!bare) for (const e of entries.slice().sort((a, b) => provincePixel(a.p, a.q).y - provincePixel(b.p, b.q).y)) {
           if (e.fog === 'unopened' || !e.terrain) continue;
           const pk = `${e.p},${e.q}`, list = byProv.get(pk) ?? [];
@@ -1087,7 +1170,7 @@ export class SpriteArt {
             // with the next frame
             // (asked for again only while the cache has room for it: a picture larger than the cache can hold is
             // not made again every frame)
-            if (this.groundPixels < GROUND_PIXELS_MAX - 1_500_000) this.misses++;
+            if (this.groundPixels < GROUND_PIXELS_MAX - 1_500_000) { this.misses++; this.waiting++; }
             // (flying in from afar a province has no ground of the tile view yet: its far picture, which was on screen a
             // moment ago, stands in until its turn comes; drawing it tile by tile cost a flight's frame a tenth of a second)
             v = list.length ? this.groundStale(e) ?? (passing ? this.farStale(e) : null) : null;

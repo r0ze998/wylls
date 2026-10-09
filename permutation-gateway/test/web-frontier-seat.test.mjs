@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import * as tilt from '../../permutation-server/web/frontier/map/tilt.mjs';
 import * as fmap from '../../permutation-server/web/frontier/map/fmap.mjs';
 import * as relief from '../../permutation-server/web/frontier/map/relief.mjs';
-import { CODE_RELIEF, RELIEF_SCALE } from '../../permutation-server/web/frontier/map/sprites.mjs';
+import { CODE_RELIEF, INERT_CTX, RELIEF_SCALE } from '../../permutation-server/web/frontier/map/sprites.mjs';
 import * as opening from '../../permutation-server/web/frontier/map/opening.mjs';
 const { heroZoom } = opening;
 import { sheetOf } from '../../permutation-server/web/frontier/map/table.mjs';
@@ -224,29 +224,27 @@ function livePage(size) {
   return { canvas, stage, ground, dress, order, listeners };
 }
 
-test('until the viewer is known the map shows the bare sheet on its table, on a layer of its own; no input reaches it', () => {
+// (rewritten in wave 4, UX brief §13.4: it pinned a stage of its own for the waiting picture, out of which the land
+// was dissolved; for a fifth of a second two pictures of two views lay over one another. The waiting picture is on the
+// ground canvas itself now, the stage at the seat's angle, and the opening is one picture from the first frame on.)
+test('until the viewer is known the map shows the bare sheet on its table, on the ground canvas itself at the seat\'s angle; no input reaches it', () => {
   const page = livePage(desk);
   let src = { overviews: new Map(), ringsOpen: 3, own: [], open: { mode: 'play', ready: false, stage: 'none' } };
   const m = new fmap.FrontierMap(page.canvas, { source: () => src });
-  const wait = page.order[0];
-  assert.equal(wait?.className, 'map-stage map-wait', 'the map makes the waiting picture\'s stage, under the dressing');
-  assert.equal(wait.kids[0].className, 'map-ground');
+  assert.equal(page.order.length, 0, 'no second stage is made: one picture, one layer');
   m.draw(0);
   assert.equal(m.opened, undefined, 'nothing is framed: nobody knows who is looking');
-  // the picture: painted on its own canvas (the ground canvas is only blanked), shown whole, at the seat's angle
-  const wc = wait.kids[0];
-  assert.ok(wc.width > desk.width && wc.height > desk.height, 'laid out as the ground canvas is');
-  assert.deepEqual([wc.width, wc.height], [page.ground.width, page.ground.height]);
-  assert.ok(wc.ctx.calls.fillRect >= 2, 'the table (its wood, its lamp)');
-  assert.equal(wait.style.vars['--map-wait'], '1.000');
-  assert.equal(wait.style.vars['--map-tilt'], '26.00deg');
-  assert.equal(wc.style.vars['--map-gw'], page.ground.style.vars['--map-gw']);
+  // the picture: the table and the sheet, painted on the ground canvas, shown at the seat's angle under the page's own haze
+  assert.ok(page.ground.width > desk.width && page.ground.height > desk.height);
+  assert.ok(page.ground.ctx.calls.fillRect >= 2, 'the table (its wood, its lamp)');
+  assert.equal(page.stage.style.vars['--map-tilt'], '26.00deg');
+  assert.equal(page.dress.style.vars['--map-haze'], '1.000', 'the far rows of the sheet pale as the board\'s do');
   assert.equal(page.dress.style.vars['--map-dusk'], '1.000', 'the dark of the room above the horizon is there');
-  assert.equal(page.dress.style.vars['--map-haze'], '0.000', 'the board\'s own haze is not: the picture carries its own');
+  assert.match(page.dress.style.vars['--map-sheet'], /^polygon\(/, 'and the haze keeps to the sheet: the table beyond its far edge stays the table');
   // painted once: a second frame of the same wait paints nothing more
-  const n = wc.ctx.calls.fillRect;
+  const n = page.ground.ctx.calls.fillRect;
   m.draw(16);
-  assert.equal(wc.ctx.calls.fillRect, n);
+  assert.equal(page.ground.ctx.calls.fillRect, n);
   // the sheet is framed whole in the part nothing covers, whatever the world's size
   for (const rings of [1, 3, 6]) {
     m.rings = rings;
@@ -265,38 +263,55 @@ test('until the viewer is known the map shows the bare sheet on its table, on a 
   m.destroy();
 });
 
-test('the opening shows its first picture whole: the waiting picture stays, and the camera has not set off, while a part is still being made', () => {
+// (rewritten in wave 4, UX brief §13.4: it pinned an opening that held the waiting picture, the camera standing still,
+// until the whole first picture was made, and then dissolved one picture into another: two and a half seconds of bare
+// sheet for a player with a village, and two layers at once for a fifth of a second.)
+test('the opening is a dive: the camera sets off at once over the bare sheet, the picture it flies to is made out of sight, and the land comes out of the paper once it is made and the camera is near', () => {
   const page = livePage(desk);
   let src = { overviews: new Map(), ringsOpen: 3, own: [], open: { mode: 'play', ready: false, stage: 'none' } };
   const m = new fmap.FrontierMap(page.canvas, { source: () => src });
-  const wait = page.order[0];
   m.draw(0);
-  // the record answers: a village. Three squares of the first picture are still on their way
+  const waiting = { ...m.waitAt };
+  // the record answers: a village. Three pieces of the picture it flies to are still to be made
   src = { overviews: new Map(), ringsOpen: 3, own: [{ ...HOME }], open: { mode: 'play', ready: true, stage: 'final', active: 0 } };
-  let pending = 3;
+  let pending = 3, shown = 0, made = 0;
   const scene = m.paintScene.bind(m);
-  m.paintScene = (...a) => ({ ...scene(...a), pending });
+  m.paintScene = (ctx, ...a) => { if (ctx === INERT_CTX) made++; else shown++; return { ...scene(ctx, ...a), pending }; };
   m.draw(100);
-  assert.ok(m.opened && m.openHold, 'the opening holds');
-  assert.equal(wait.style.vars['--map-wait'], '1.000', 'the waiting picture covers the picture that is being made');
-  assert.equal(m.cam.moving, true, 'the flight is ready');
-  const start = { ...m.cam.drawn };
+  assert.ok(m.opened && m.dive && m.openHold, 'the dive is on, its land not yet');
+  assert.deepEqual(m.cam.drawn, waiting, 'it begins as the very picture that was waiting: nothing is laid over anything');
+  assert.equal(m.cam.moving, true);
+  assert.equal(page.stage.style.vars['--map-tilt'], '26.00deg', 'at the seat\'s angle, far above the zoom that angle belongs to');
+  assert.deepEqual([made, shown], [1, 0], 'the picture it flies to is being made, into a context that shows nothing');
   m.frame(116); m.frame(132);
-  assert.deepEqual(m.cam.drawn, start, 'and has not begun');
-  assert.equal(wait.style.vars['--map-wait'], '1.000');
-  // the last of it is made: the land comes out of the waiting picture, and the camera sets off
+  assert.notDeepEqual(m.cam.drawn, waiting, 'and the camera has set off at once');
+  assert.equal(shown, 0, 'only the bare sheet is on screen');
+  assert.equal(page.dress.style.vars['--map-dusk'], '1.000', 'the dark above the horizon does not blink');
+  // the picture is made while the camera is still far above: the land waits until the camera is near
+  // (from further up the picture is several times as wide: more ground than the map keeps, none of it prepared)
   pending = 0;
   m.frame(148);
-  assert.equal(m.openHold, null);
-  assert.equal(m.reveal, 148, 'the dissolve starts now, not when the record answered');
-  m.frame(164); m.frame(300);
-  const a = Number(wait.style.vars['--map-wait']);
-  assert.ok(a > 0 && a < 1, `half way: ${a}`);
-  assert.notDeepEqual(m.cam.drawn, start, 'the camera is on its way');
-  assert.equal(page.dress.style.vars['--map-dusk'], '1.000', 'the dark above the horizon does not blink');
-  m.frame(148 + fmap.REVEAL_MS + 20);
-  assert.equal(wait.style.vars['--map-wait'], '0.000');
-  assert.deepEqual([wait.kids[0].width, wait.kids[0].height], [0, 0], 'its pixels are let go');
+  assert.ok(m.openHold && m.cam.drawn.zoom < m.view.zoom * fmap.DIVE.near);
+  let t = 148;
+  while (m.openHold && t < 2000) { t += 16; m.frame(t); }
+  assert.ok(m.cam.drawn.zoom >= m.view.zoom * fmap.DIVE.near, `near enough: ${m.cam.drawn.zoom.toFixed(3)}`);
+  assert.ok(t - 100 < fmap.DIVE.ms * 0.5, `in the first half of the flight (${t - 100} ms)`);
+  assert.equal(m.cam.moving, true, 'the camera is still coming down as the land comes');
+  assert.equal(shown, 1);
+  assert.ok(m.landShown > 0 && m.landShown < 0.5, `the frame that shows the land first shows a little of it: ${m.landShown}`);
+  const first = m.landShown;
+  // (that frame is the longest of the opening: its length is not taken out of the dissolve. Here it took 300 ms)
+  m.frame(t + 300);
+  assert.ok(m.landShown > first && m.landShown < 0.5, `the dissolve goes on from the frame after it: ${m.landShown}`);
+  m.frame(t + 300 + fmap.DIVE.land * 0.4);
+  assert.ok(m.landShown > 0.5 && m.landShown < 1, `half way: ${m.landShown}`);
+  m.frame(t + 300 + fmap.DIVE.land);
+  assert.equal(m.landShown, 1);
+  assert.equal(m.reveal, null);
+  for (let u = t + 300 + fmap.DIVE.land + 16; u < 100 + fmap.DIVE.ms + 200; u += 16) m.frame(u);
+  assert.equal(m.dive, null, 'the dive is over when the camera has come down');
+  assert.equal(page.stage.style.vars['--map-tilt'], '26.00deg');
+  assert.equal(page.order.length, 0, 'no second stage at any time');
   m.destroy();
   // a picture that never becomes whole is shown after OPEN_HOLD_MS all the same
   const p2 = livePage(desk);
@@ -305,9 +320,9 @@ test('the opening shows its first picture whole: the waiting picture stays, and 
   m2.paintScene = (...a) => ({ ...scene2(...a), pending: 1 });
   m2.draw(0);
   assert.ok(m2.openHold);
-  m2.draw(fmap.OPEN_HOLD_MS - 10);
-  assert.ok(m2.openHold);
-  m2.draw(fmap.OPEN_HOLD_MS + 10);
+  for (let u = 16; u < fmap.OPEN_HOLD_MS - 10; u += 16) m2.frame(u);
+  assert.ok(m2.openHold, 'the camera has long arrived over bare paper, and waits');
+  m2.frame(fmap.OPEN_HOLD_MS + 10);
   assert.equal(m2.openHold, null);
   assert.ok(fmap.OPEN_HOLD_MS <= 2000);
   m2.destroy();
@@ -511,7 +526,11 @@ test('close on the bell before joining the far haze is thinner: the tower stands
   const page = livePage(desk);
   const src = { overviews: new Map(), ringsOpen: 3, own: [], open: { mode: 'play', ready: true, stage: 'none', frame: {} } };
   const m = new fmap.FrontierMap(page.canvas, { source: () => src });
-  m.draw(0); m.draw(fmap.REVEAL_MS + fmap.OPEN_HOLD_MS + 100); m.draw(fmap.REVEAL_MS * 2 + fmap.OPEN_HOLD_MS + 200);
+  // (the opening's dive begins under the waiting picture's full haze; the bell's thinner haze comes as the camera comes down)
+  m.draw(0);
+  assert.equal(page.dress.style.vars['--map-haze'], '1.000');
+  for (let t = 16; t < fmap.OPEN_HOLD_MS + fmap.DIVE.ms + 400; t += 16) m.frame(t);
+  assert.equal(m.dive, null);
   assert.equal(m.opened.kind, 'frame');
   assert.equal(page.dress.style.vars['--map-haze'], fmap.BELL_HAZE.toFixed(3));
   assert.equal(page.dress.style.vars['--map-dusk'], '1.000');

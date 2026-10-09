@@ -9,6 +9,13 @@
 //                     the drawer's list names them (「1 エルウェル」), all of
 //                     them in the free part of the picture; a row of that
 //                     list flies to its site (`wylls:fly-to`)
+//   the wedge itself  lit softly in the nation's colour from the standard
+//                     (map/chart.mjs paintWedge `wait`), and on it the
+//                     surveyors' marks: a small station mark on every free
+//                     site, where a village may be placed (UX brief §13.6)
+//   the player        a clear spot beside the standard, to the left of its
+//                     pole (the cloth flies to the right), where the page
+//                     stands the player's character: `waitSpot`
 //   the countdown     on the first candidate still open, where the village
 //                     will be placed unless another request comes first: how
 //                     long until the result is due; with no request yet, the
@@ -20,7 +27,8 @@
 // file. Pure layout first; the painters are context-tolerant.
 import { FLATTEN, RADIUS, project } from '../../map.mjs';
 import { L, fmtNum, lang } from '../../lang.mjs';
-import { tileHex } from '../fgeo.mjs';
+import { ringOf, ringProvinces, tileHex, wedgeOf } from '../fgeo.mjs';
+import { FIRST_TICKET_RING, homeWedge } from '../fland.mjs';
 import { FACTION_COLORS, factionName } from '../fi18n.mjs';
 import { placeName } from '../people/identity.mjs';
 import { provincePixel, SIGILS } from './layers.mjs';
@@ -87,14 +95,17 @@ export function waitLine(wait) {
 }
 
 /**
- * What the nation's leader says under the standard while the viewer waits (UX brief §11.10): one line that says what
- * the wait is for, in the leader's voice. `state`: 'ticket' with a request in, else the request is still on its way.
- * (Leaders are presentation; the line claims nothing that has not happened.) `{text, who}` or null without a nation.
+ * The nation's words under the standard while the viewer waits (UX brief §11.10, §13): one line that says what the
+ * wait is for. `state`: 'ticket' with a request in, else the request is still on its way. (Presentation; the line
+ * claims nothing that has not happened.) `{text, who}` or null without a nation.
  */
 export function leaderWords(faction, state = null) {
-  const l = LEADERS[faction];
-  if (!l) return null;
-  return { who: lang() === 'en' ? l.name.en : l.name.ja, text: state === 'ticket' ? L`村の場所はもうすぐ決まる。待つあいだに、戦い方を確かめておけ。` : L`まずは村の申し込みだ。通りしだい、候補地を知らせよう。` };
+  // (the owner's decision of 2026-10-09: no leader has a name; the words are the nation's own, and the map's tag
+  // prints no speaker. `who` is kept for the page's card until that track takes the names off it: the name the
+  // people module still carries, and the nation's own once it carries none)
+  if (!Number.isInteger(faction) || faction < 0 || faction > 5) return null;
+  const n = LEADERS?.[faction]?.name ?? null;
+  return { who: (lang() === 'en' ? n?.en : n?.ja) ?? factionName(faction), text: state === 'ticket' ? L`村の場所はもうすぐ決まる。待つあいだに、戦い方を確かめておけ。` : L`まずは村の申し込みだ。通りしだい、候補地を知らせよう。` };
 }
 
 /**
@@ -179,30 +190,32 @@ export function paintWaitStandard(g, at, { zoom = 1, faction = 0, now = fxNow(),
  * The tag under the standard: the nation's sigil and name in the serif, 「あなたの国の土地」 under it, and (with no
  * request yet) the time to the next turn. `at`: the standard's foot (world px). Returns the boxes drawn.
  */
-export function paintHomeTag(g, at, { zoom = 1, faction = 0, line = null, pass = OPEN_PASS, keep = true, say = null } = {}) {
+export function paintHomeTag(g, at, { zoom = 1, faction = 0, line = null, pass = OPEN_PASS, keep = true, say = null, marks = false } = {}) {
+  // `marks`: the wedge carries the surveyors' marks: the tag says what the mark is (its picture and four words)
   if (!at || !g?.save) return null;
-  const k = 1 / zoom, name = factionName(faction), caption = L`あなたの国の土地`;
+  const k = 1 / zoom, name = factionName(faction), caption = L`あなたの国の土地`, key = marks ? L`村を置ける場所` : '';
   g.save();
   g.font = `700 ${19 * k}px ${SERIF}`;
   const nw = g.measureText?.(name)?.width ?? name.length * 19 * k;
   g.font = `600 ${12.5 * k}px ${SANS}`;
   const cw = g.measureText?.(caption)?.width ?? caption.length * 12.5 * k;
-  // the leader's line, under the caption: in the serif, on three lines at most, and who says it
+  const kw = key ? (g.measureText?.(key)?.width ?? key.length * 12.5 * k) + 20 * k : 0, keyH = key ? 20 * k : 0;
+  // the nation's words, under the caption: in the serif, on three lines at most (no speaker is named: they are the nation's)
   const sayW = 238 * k;
   g.font = `600 ${13 * k}px ${SERIF}`;
   let lines = say?.text ? wrapText(g, L`「${say.text}」`, sayW, 13 * k).slice(0, 3) : [];
   const sig = 20 * k, extra = line?.at === 'home' ? 30 * k : 0, top = at.y + 12 * k;
-  // (beside the line stands who says it: the leader's hexagon icon, 36 px on the board, which is 30 px or more on the screen
+  // (beside the words stands the nation's character: its hexagon icon, 36 px on the board, which is 30 px or more on the screen
   // at the tilt's far rows; below that the face is a blot of colour. Its place is kept whether or not the picture has come)
   const faceW = 36 * k, faceGap = 9 * k;
-  const sizeOf = n => ({ w: Math.max(sig + 8 * k + nw, cw, n ? sayW + faceW + faceGap : 0) + 28 * k, h: 58 * k + (n ? (Math.max(2, n) * 19 + 24) * k : 0) });
-  // where it may stand: under the standard, else beside its pole (left, then right of its cloth); with the leader's
-  // line while there is room for that, else the name and the caption alone
+  const sizeOf = n => ({ w: Math.max(sig + 8 * k + nw, cw, kw, n ? sayW + faceW + faceGap : 0) + 28 * k, h: 58 * k + keyH + (n ? (Math.max(2, n) * 19 + 8) * k : 0) });
+  // where it may stand: under the standard, else beside its pole (left, then right of its cloth); with the nation's
+  // words while there is room for that, else the name and the caption alone
   // (`keep` false: with candidate sites to read, the tag is left out where it has no room at all)
   let move = null, w = 0, h = 0;
   for (const n of lines.length ? [lines.length, 0] : [0]) {
     ({ w, h } = sizeOf(n));
-    const u = waitUnit(zoom), spots = [[0, 0], [-(w / 2 + u * 0.16), -(h + 12 * k + u * 0.2)], [w / 2 + u * 1.1, -(h + 12 * k + u * 0.2)]];
+    const u = waitUnit(zoom), spots = [[0, 0], [w / 2 + u * 1.1, -(h + 12 * k + u * 0.2)], [-(w / 2 + u * 0.9), -(h + 12 * k + u * 0.2)]];
     for (const [ox, oy] of spots) {
       const m = pass.place(at.x, at.y, { x: at.x - w / 2 + ox, y: top + oy, w, h: h + extra }, { keep: false, reach: 40 });
       if (m) { move = { dx: m.dx + ox, dy: m.dy + oy }; break; }
@@ -230,23 +243,101 @@ export function paintHomeTag(g, at, { zoom = 1, faction = 0, line = null, pass =
     g.strokeStyle = 'rgba(201,162,74,.5)'; g.lineWidth = 1 * k; g.beginPath(); g.moveTo(x - w / 2 + 14 * k, y + 35 * k); g.lineTo(x + w / 2 - 14 * k, y + 35 * k); g.stroke();
     g.font = `600 ${12.5 * k}px ${SANS}`; g.textAlign = 'center';
     g.fillStyle = INK_2; g.fillText(caption, x, y + 46 * k);
+    // what the marks on the wedge are: the mark itself, then the words
+    if (key) {
+      const ky = y + 46 * k + 19 * k, kx = x - kw / 2;
+      siteMark(g, kx + 7 * k, ky, k, { onMetal: true });
+      g.textAlign = 'left'; g.fillStyle = IVORY; g.fillText(key, kx + 20 * k, ky + 0.5 * k);
+    }
     if (lines.length) {
-      g.strokeStyle = 'rgba(201,162,74,.3)'; g.lineWidth = 1 * k; g.beginPath(); g.moveTo(x - w / 2 + 14 * k, y + 58 * k); g.lineTo(x + w / 2 - 14 * k, y + 58 * k); g.stroke();
+      const ly = y + 58 * k + keyH;
+      g.strokeStyle = 'rgba(201,162,74,.3)'; g.lineWidth = 1 * k; g.beginPath(); g.moveTo(x - w / 2 + 14 * k, ly); g.lineTo(x + w / 2 - 14 * k, ly); g.stroke();
       // the words stand to the right of the face, centred in what is left of the tag
       const rows = Math.max(2, lines.length), tx = x + (faceW + faceGap) / 2, pad = (rows - lines.length) * 19 / 2;
       g.font = `600 ${13 * k}px ${SERIF}`; g.textAlign = 'center'; g.fillStyle = IVORY;
-      lines.forEach((t, i) => g.fillText(t, tx, y + (72 + pad + i * 19) * k));
-      g.font = `600 ${12 * k}px ${SANS}`; g.textAlign = 'right'; g.fillStyle = BRASS_HI;
-      const who = `\u2014 ${say.who}`, wy = y + (72 + rows * 19 + 1) * k;
-      g.fillText(who, x + w / 2 - 14 * k, wy);
-      // who says it: the leader's hexagon icon at the line's left (nothing until the picture has loaded)
+      lines.forEach((t, i) => g.fillText(t, tx, ly + (10 + pad + i * 19) * k));
+      // whose words: the nation's character, its hexagon icon at the line's left (nothing until the picture has loaded)
       const face = leaderHexImage(faction);
-      if (face && g.drawImage) { g.imageSmoothingQuality = 'high'; g.drawImage(face, x - w / 2 + 12 * k, y + (62 + (rows * 19 + 16) / 2) * k - faceW / 2, faceW, faceW); }
+      if (face && g.drawImage) { g.imageSmoothingQuality = 'high'; g.drawImage(face, x - w / 2 + 12 * k, ly + (rows * 19) / 2 * k - faceW / 2, faceW, faceW); }
     }
     if (extra) chip(g, x, y + h + 6 * k, line.text, k, { glyph: line.glyph });
   });
   g.restore();
   return { x: at.x - w / 2, y: top, w, h: h + extra };
+}
+
+// ------------------------------------------------------------------ the surveyors' marks, the player's spot
+/**
+ * Where a village may be placed in `faction`'s home wedge: its free sites in the open rings from FIRST_TICKET_RING on
+ * (the same reading as the page's count of free land: a site the overview says is free and unowned), each with its
+ * tile and its place: `[{p, q, site, tile, x, y}]`. `recs`: Map "p,q" → overview record; `terrainOf(p, q)` →
+ * `{sites}` or null while the rules module loads (those provinces are left out until it has).
+ */
+export function wedgeSites(faction, ringsOpen, recs, terrainOf) {
+  const w = homeWedge(faction), out = [];
+  for (let d = FIRST_TICKET_RING; d < Math.max(1, ringsOpen ?? 1); d++) for (const pr of ringProvinces(d)) {
+    if (wedgeOf(pr.p, pr.q) !== w || ringOf(pr.p, pr.q) < FIRST_TICKET_RING) continue;
+    const rec = recs?.get?.(`${pr.p},${pr.q}`), sites = terrainOf?.(pr.p, pr.q)?.sites;
+    if (!rec || !sites) continue;
+    sites.forEach((tile, j) => {
+      if (!((rec.sites?.[j] === 0 || rec.sites?.[j] === 3) && rec.owners?.[j] === 7)) return;
+      const h = tileHex(pr.p, pr.q, tile);
+      if (h) { const c = project(h.q, h.r); out.push({ p: pr.p, q: pr.q, site: j, tile, x: c.x, y: c.y }); }
+    });
+  }
+  return out;
+}
+
+/** A surveyor's station mark at (x, y): a small triangle with a dot at its heart, in sepia ink on a pale ground (on the tag's bell metal: in ivory). `k`: world px per screen px. */
+export function siteMark(g, x, y, k, { onMetal = false, alpha = 1 } = {}) {
+  const r = (onMetal ? 6.2 : 7.4) * k;
+  g.save();
+  g.globalAlpha *= alpha; g.lineJoin = 'round';
+  const tri = (s) => { g.beginPath(); g.moveTo(x, y - r * s); g.lineTo(x + r * 0.9 * s, y + r * 0.62 * s); g.lineTo(x - r * 0.9 * s, y + r * 0.62 * s); g.closePath(); };
+  if (!onMetal) { tri(1.5); g.fillStyle = 'rgba(250,244,226,.82)'; g.fill(); }
+  tri(1); g.strokeStyle = onMetal ? BRASS_HI : 'rgba(86,62,30,.92)'; g.lineWidth = 1.5 * k; g.stroke();
+  g.fillStyle = onMetal ? IVORY : 'rgba(86,62,30,.95)'; g.beginPath(); g.arc(x, y + r * 0.08, 1.4 * k, 0, Math.PI * 2); g.fill();
+  g.restore();
+}
+
+/**
+ * The surveyors' marks of the wait (on the board, as chart ink): a station mark on every free site of the wedge, and
+ * a fine sight line from the standard to the `lines` nearest of them, as a surveyor's sheet has before the land is
+ * measured. Nothing here is a village or a promise of one: the tag says what the mark is. Below `RADIUS · zoom` 7 the
+ * marks would be specks: none. Returns how many were drawn.
+ */
+export function paintSiteMarks(g, from, sites, { zoom = 1, lines = 5 } = {}) {
+  if (!sites?.length || !g?.save || RADIUS * zoom < 7) return 0;
+  const k = 1 / zoom;
+  g.save();
+  if (from) {
+    const near = sites.map(s => ({ s, d: Math.hypot(s.x - from.x, (s.y - from.y) / FLATTEN) })).filter(e => e.d > RADIUS * 2.4).sort((a, b) => a.d - b.d).slice(0, lines);
+    g.lineCap = 'round';
+    for (const { s, d } of near) {
+      // (the length is counted on the round ground; the line itself runs on the squashed board, from clear of the
+      // standard's foot to just short of the mark)
+      const t0 = (RADIUS * 1.5) / d, t1 = (d - RADIUS * 0.6) / d;
+      g.setLineDash?.([2.5 * k, 5 * k]); g.strokeStyle = 'rgba(86,62,30,.5)'; g.lineWidth = 1.1 * k;
+      g.beginPath(); g.moveTo(from.x + (s.x - from.x) * t0, from.y + (s.y - from.y) * t0); g.lineTo(from.x + (s.x - from.x) * t1, from.y + (s.y - from.y) * t1); g.stroke();
+    }
+    g.setLineDash?.([]);
+  }
+  for (const s of sites) siteMark(g, s.x, s.y, k);
+  g.restore();
+  return sites.length;
+}
+
+/**
+ * The spot beside the standard that the wait view keeps clear for the player's character (UX brief §13.2, §13.6): to
+ * the left of the pole (the cloth flies to the right), feet on the ground a little in front of the standard's foot.
+ * `x`, `y`: where the feet stand, as shares of the standard's height unit from its foot; `tall`, `wide`: the room
+ * kept, in the same unit (the pole is 1.5 units tall: a figure of `tall` reaches four fifths of the way up it).
+ */
+export const WAIT_SPOT = Object.freeze({ x: -0.5, y: 0.05, tall: 1.2, wide: 0.72 });
+/** The spot for a standard whose foot is at `at` (world px) at `zoom`: `{x, y}` the feet, `u` the unit, `box` the room kept (world px). */
+export function waitSpotAt(at, zoom) {
+  const u = waitUnit(zoom), x = at.x + WAIT_SPOT.x * u, y = at.y + WAIT_SPOT.y * u;
+  return { x, y, u, box: { x: x - (WAIT_SPOT.wide / 2) * u, y: y - WAIT_SPOT.tall * u, w: WAIT_SPOT.wide * u, h: WAIT_SPOT.tall * u } };
 }
 
 /**

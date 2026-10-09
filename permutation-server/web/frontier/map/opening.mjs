@@ -65,6 +65,8 @@ export function lookPoint(faction, ringsOpen) {
  * height; a phone's wait sheet leaves a third, and the sites are now fitted into what is really left (`room` below).
  */
 export const CANDIDATES_MIN = 0.21;
+/** The wait in the home wedge: the wedge takes `fill` of the free part of the picture (it was 0.92), and the camera looks `out` of that part's width beyond the wedge's middle, away from the Concord. */
+export const WEDGE_VIEW = Object.freeze({ fill: 0.84, out: 0.05 });
 const RANK = { fit: 0, frame: 0, wedge: 1, candidates: 2, home: 3 };
 
 /**
@@ -130,7 +132,14 @@ export function openingPlan(hint, src, size, { inset = null, dpr = 1 } = {}) {
   }
   if (Number.isInteger(h.faction) && ['joined', 'ticket', 'refugee'].includes(h.stage)) {
     const box = wedgeBox(h.faction, rings);
-    if (box) return plan('wedge', { x: box.x, y: box.y }, Math.max(0.16, Math.min(0.8, 0.92 * Math.min(free.width / box.width, free.height / box.height))));
+    if (box) {
+      // (UX brief §13.6: the wedge with room about it, WEDGE_VIEW.fill of the free part, and the camera a little to
+      // its outer side, so the cloud sea beyond it, the sheet's edge and, where the picture is wide enough, the
+      // table are in the view: the wait is seen from the seat, not as a map filled to its edges)
+      const zoom = Math.max(0.16, Math.min(0.8, WEDGE_VIEW.fill * Math.min(free.width / box.width, free.height / box.height)));
+      const far = Math.hypot(box.x, box.y) || 1, out = (WEDGE_VIEW.out * Math.min(free.width, free.height * 1.6)) / zoom;
+      return plan('wedge', { x: box.x + (box.x / far) * out, y: box.y + (box.y / far) * out * FLATTEN }, zoom);
+    }
   }
   // (a player who has not joined: with the nation choice standing along the foot of the map, `frame`, or with it put away)
   const frame = h.frame ?? (h.mode === 'play' && h.stage === 'none' ? {} : null);
