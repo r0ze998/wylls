@@ -59,8 +59,12 @@ export function lookPoint(faction, ringsOpen) {
   const c = provincePixel(first.p, first.q);
   return { x: c.x * LOOK.reach, y: c.y * LOOK.reach };
 }
-/** Candidate sites are never framed from further out than this (the far bitmaps still show their painted discs). */
-export const CANDIDATES_MIN = 0.3;
+/**
+ * Candidate sites are never framed from further out than this (the far bitmaps still show their painted discs, and a
+ * site's plate is drawn down to a hex radius of 9 px). It was 0.3, measured against at least 40% of the picture's
+ * height; a phone's wait sheet leaves a third, and the sites are now fitted into what is really left (`room` below).
+ */
+export const CANDIDATES_MIN = 0.21;
 const RANK = { fit: 0, frame: 0, wedge: 1, candidates: 2, home: 3 };
 
 /**
@@ -118,7 +122,10 @@ export function openingPlan(hint, src, size, { inset = null, dpr = 1 } = {}) {
   const sites = (src?.survey?.candidates?.length ? src.survey.candidates : h.candidates ?? []).filter(s => Number.isInteger(s?.p) && Number.isInteger(s?.q));
   const cb = candidatesBox(sites);
   if (cb) {
-    const zoom = Math.max(CANDIDATES_MIN, Math.min(hero, 0.9 * Math.min(free.width / (cb.x1 - cb.x0), free.height / (cb.y1 - cb.y0))));
+    // (in the height that is really free: `freeBox` never goes below 40% of the picture, and under a phone's wait
+    // sheet, which leaves a third, the first site's plate stood under the dial)
+    const room = Math.max(120, Math.min(free.height, size.height - (inset?.top ?? 0) - (inset?.bottom ?? 0)));
+    const zoom = Math.max(CANDIDATES_MIN, Math.min(hero, 0.9 * Math.min(free.width / (cb.x1 - cb.x0), room / (cb.y1 - cb.y0))));
     return plan('candidates', { x: (cb.x0 + cb.x1) / 2, y: (cb.y0 + cb.y1) / 2 }, zoom);
   }
   if (Number.isInteger(h.faction) && ['joined', 'ticket', 'refugee'].includes(h.stage)) {

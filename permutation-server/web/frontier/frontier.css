@@ -82,7 +82,8 @@ main { position: fixed; inset: 0; overflow: hidden; }
    room, with the lamp's glow along the band. The haze lies on the sheet only (the map clips it to the sheet's own
    outline as it is seen: where the sheet's far edge is in the picture, the table beyond it stays the table). Both go
    with the tilt: none on a flat board, none at the far view */
-.map-dress::before { top: 0; bottom: auto; height: 64%; opacity: var(--map-haze, 0); clip-path: var(--map-sheet, none);
+/* (--map-haze-h: with a tall sheet over the foot of a phone the band is shorter, map/fmap.mjs HAZE_FREE; its stops go with it) */
+.map-dress::before { top: 0; bottom: auto; height: 64%; max-height: var(--map-haze-h, none); opacity: var(--map-haze, 0); clip-path: var(--map-sheet, none);
   background: linear-gradient(to bottom, rgba(247,233,200,.9), rgba(247,233,200,.9) 18%, rgba(244,230,198,.7) 23%, rgba(241,227,196,.46) 31%, rgba(240,226,196,.26) 44%, rgba(240,226,196,.1) 66%, rgba(240,226,196,.03) 86%, rgba(240,226,196,0)); }
 .map-dusk { position: absolute; left: 0; right: 0; top: 0; height: 15%; pointer-events: none; opacity: var(--map-dusk, 0);
   background: linear-gradient(to bottom, rgba(13,9,7,.95), rgba(34,23,16,.93) 46%, rgba(120,84,48,.72) 72%, rgba(206,166,104,.3) 90%, rgba(226,190,130,0)); }

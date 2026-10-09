@@ -301,6 +301,13 @@ test('the opening view depends on who is looking: village, candidate sites, home
   for (const k of known) { const c = tilePoint(k.p, k.q, k.tile), at = fmap.worldToScreen(all.view, { width: 1440, height: 900 }, c.x, c.y); assert.ok(at.x > 30 && at.x < 1440 - 400 - 30 && at.y > 48 + 30 && at.y < 900 - 72 - 20, `site ${k.site} is in the free part (${Math.round(at.x)}, ${Math.round(at.y)})`); }
   assert.ok(all.view.zoom >= fmap.LOD_EDGES.tileIn, 'three sites of one wedge: still the tile view');
   assert.equal(opening.openingPlan(ticket, { ...src, survey: { candidates: known.slice(0, 1) } }, size).view.zoom, opening.heroZoom(1), 'one site: as near as a village');
+  // under a phone's wait sheet, which leaves a third of the picture, the sites are fitted into what is really left
+  // (not into the 40% that `freeBox` never goes below): seen from further out than with the sheet at its peek
+  const ph = { width: 390, height: 786 }, far3 = [{ p: 2, q: 0, site: 5, tile: 19 }, { p: 1, q: 1, site: 4, tile: 42 }, { p: 1, q: 1, site: 6, tile: 5 }];
+  const zoomWith = bottom => opening.openingPlan(ticket, { ...src, survey: { candidates: far3 } }, ph, { inset: { top: 52, bottom }, dpr: 2 }).view;
+  const peek = zoomWith(147), tall = zoomWith(472);
+  assert.ok(tall.zoom < peek.zoom && tall.zoom >= opening.CANDIDATES_MIN && tall.zoom < 0.3, `the tall sheet: zoom ${tall.zoom.toFixed(3)}`);
+  for (const k of far3) { const c = tilePoint(k.p, k.q, k.tile), at = fmap.worldToScreen(tall, ph, c.x, c.y); assert.ok(at.y > 52 + 30 && at.y < 786 - 472 - 12, `site ${k.site} stands between the strip and the sheet (${Math.round(at.y)})`); }
   // a village: its tile at the hero zoom; the active village when there are several
   const own = [{ p: 2, q: 0, tile: 7 }, { p: 1, q: 1, tile: 30 }];
   const lord = opening.openHint({ mode: 'play', land: { stage: 'final' }, citizen: { faction: 0 }, activeHolding: 1 });

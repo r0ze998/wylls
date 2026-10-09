@@ -135,6 +135,27 @@ test('the depth dressing: a haze clipped to the sheet, the dark of the room abov
   for (const x of haze.matchAll(/rgba\((\d+),(\d+),(\d+),/g)) assert.ok(Number(x[1]) > Number(x[3]) + 20);
 });
 
+test('a tall sheet over the foot of a phone: the haze\'s band keeps to the far rows of what is left, so the village framed there is not in it', () => {
+  const { m, dress } = mapOn(phone);
+  const band = inset => { m.dressPage(26, { near: 1, shown: 1, haze: 1, inset }); return dress.style.vars['--map-haze-h']; };
+  // the style sheet's own share of the picture, and the property that shortens it
+  const haze = /\.map-dress::before \{([^}]+)\}/.exec(css)?.[1] ?? '';
+  assert.equal(Number(/height: (\d+)%/.exec(haze)[1]) / 100, fmap.HAZE_SHARE);
+  assert.match(haze, /max-height: var\(--map-haze-h, none\)/);
+  // nothing over the foot, a desktop's dock, a phone's sheet at its peek: the band as the seat's frame was tuned
+  for (const bottom of [0, 74, 147]) assert.equal(band({ top: 52, right: 0, bottom, left: 0 }), 'none', `bottom ${bottom}`);
+  assert.equal(band(null), 'none');
+  // a sheet at half height: the band shrinks with what is left of the picture
+  const half = band({ top: 52, right: 0, bottom: 422, left: 0 });
+  const left = 1 - 422 / phone.height;
+  assert.equal(half, `${Math.round(phone.height * fmap.HAZE_SHARE * left / fmap.HAZE_FREE)}px`);
+  assert.ok(parseInt(half, 10) < phone.height * fmap.HAZE_SHARE * 0.8);
+  // a full sheet: never under half of itself (the horizon stays a horizon)
+  assert.equal(band({ top: 52, right: 0, bottom: 800, left: 0 }), `${Math.round(phone.height * fmap.HAZE_SHARE * fmap.HAZE_BAND_MIN)}px`);
+  // and back when the sheet goes down
+  assert.equal(band({ top: 52, right: 0, bottom: 147, left: 0 }), 'none');
+});
+
 // ------------------------------------------------------------------ the relief
 test('mountains and woods are drawn by code; hills keep their baked ground', () => {
   assert.equal(CODE_RELIEF.mountain, true);

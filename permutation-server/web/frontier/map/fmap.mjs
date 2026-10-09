@@ -143,6 +143,14 @@ export const SEAT_DROP = 0.08;
 export const BELL_HAZE = 0.4;
 /** The haze of the far rows stops this far inside the sheet's edge (world px): the deckle's nicks reach about that far in. */
 export const HAZE_INSET = 22;
+/**
+ * The haze's band and a sheet over the foot of the picture (a phone's drawer at half height or more): the band is
+ * `HAZE_SHARE` of the picture's height (the style sheet's own number, .map-dress::before) while at least `HAZE_FREE`
+ * of the height is left above the sheet; with less left it shrinks in step, never under `HAZE_BAND_MIN` of itself.
+ * The camera frames its subject in the part the sheet leaves, so a band that kept its full height lay over the
+ * viewer's own village there.
+ */
+export const HAZE_SHARE = 0.64, HAZE_FREE = 0.7, HAZE_BAND_MIN = 0.5;
 /** What a pick names, as one word (the tile, or the province from afar). */
 const hoverId = hit => (hit ? `${hit.p},${hit.q},${hit.idx ?? ''}` : '');
 /** The map's words fade out for a set piece, and back in after it, over this long (ms). */
@@ -650,6 +658,9 @@ export class FrontierMap {
     set(d, '--map-near', (near * shown).toFixed(3));
     set(d, '--map-top', `${Math.round(inset?.top ?? 0)}px`);
     set(d, '--map-sheet', sheet);
+    // (the band keeps to the far rows of what a tall sheet leaves of the picture: HAZE_FREE)
+    const tall = this.size().height, left = tall > 0 ? 1 - Math.max(0, inset?.bottom ?? 0) / tall : 1;
+    set(d, '--map-haze-h', left >= HAZE_FREE ? 'none' : `${Math.round(tall * HAZE_SHARE * Math.max(HAZE_BAND_MIN, left / HAZE_FREE))}px`);
   }
   /**
    * The sheet's outline as the picture shows it, for the haze (which lies on the sheet, never on the table beyond
