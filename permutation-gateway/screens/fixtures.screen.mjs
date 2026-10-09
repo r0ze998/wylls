@@ -131,7 +131,7 @@ import * as fplay from '../../permutation-server/web/frontier/fplay.mjs';
 import * as book from '../../permutation-server/web/frontier/marchbook.mjs';
 import { keyFromSeed } from '../../permutation-server/web/session.mjs';
 import { hostsIn, storesAt, actionBlocks, BUILD_ITEMS } from '../../permutation-server/web/frontier/fland.mjs';
-import { unpack, sealRoot, ctHash, commit as commitOf } from '../../permutation-server/web/frontier/seal.mjs';
+import { pack, unpack, sealRoot, ctHash, commit as commitOf } from '../../permutation-server/web/frontier/seal.mjs';
 import { bellAt } from '../../permutation-server/web/frontier/clock.mjs';
 import { tileHex, hexDistance, DIRECTIONS } from '../../permutation-server/web/frontier/fgeo.mjs';
 import { battleScene } from '../../permutation-server/web/frontier/people/battle.mjs';
@@ -139,7 +139,7 @@ import { momentSnapshot, detectMoments } from '../../permutation-server/web/fron
 import { updateLife } from '../../permutation-server/web/frontier/people/life.mjs';
 import { RESOURCE_ORDER } from '../../permutation-server/web/frontier/fi18n.mjs';
 import { decode as decodeAccount } from '../../permutation-server/web/frontier/fcodec.mjs';
-import { fromBase64 } from '../../permutation-server/web/sdk/bytes.mjs';
+import { fromBase64, toBase64 } from '../../permutation-server/web/sdk/bytes.mjs';
 
 /** A herald client on a live server, pinned as the page pins it; `clock.t` is the wall clock the live world reads (ms). */
 async function liveHerald(opts = {}) {
@@ -389,6 +389,18 @@ test('the live relay: Harvest, Build, Muster, Explore and Depart are answered as
     const departed = (await logged())[0];
     assert.deepEqual([departed.name, departed.host_id, departed.arrive_bell, departed.dep_mass, toHex(departed.seal_root), departed.seal.length], ['DEPART', free.id, arrive, 600_000, toHex(tr.sealRoot), 165]);
     assert.equal(updateLife(new Map(), [departed]).get(`${W.HOME.p},${W.HOME.q},${W.HOME.site}`).depart, world.turn());
+
+    // ---- the reveal of that march (the browser posts material, never a transaction): the keeper's answer, and from
+    // then on the ArrivalSlot in the destination's envelope of the arrival bell, with its REVEAL record
+    const plainOf = tile => pack({ version: 1, hostId: free.id, arriveBell: arrive, destP: W.HOME.p, destQ: W.HOME.q, destTile: tile, stance: 2, retreatBps: 0, pathLen: 0, path: new Uint8Array(12) });
+    const material = { holding: srv.viewer.holding, transit_slot: 0, plain_b64: toBase64(plainOf(W.CAMP_TILE)), salt_b64: toBase64(new Uint8Array(32)), ct_hash_b64: toBase64(ctHash(seal)) };
+    const rv = await io.reveal(material);
+    assert.deepEqual([rv.ok, rv.httpStatus, rv.accepted, typeof rv.track], [true, 202, true, 'string']);
+    const at = await h.province(W.HOME.p, W.HOME.q, arrive);
+    assert.ok(at.ok, `${at.code} ${at.error ?? ''}`);
+    assert.deepEqual(at.slots.map(x => [x.account.hostId, x.account.tile, x.account.stance, x.account.bell, x.account.i]), [[free.id, W.CAMP_TILE, 2, arrive, 0]]);
+    assert.deepEqual((await logged()).map(r => [r.name, r.host_id, r.tile, r.arrive]), [['REVEAL', free.id, W.CAMP_TILE, arrive]]);
+    assert.equal((await io.reveal({ ...material, transit_slot: 3 })).code, 'TransitState', 'a reveal that names no march of the viewer\'s is refused');
 
     // ---- one Depart a turn: the Scout's is refused, nothing is sent, nothing changes
     const refused = await depart(scout.id, 2);

@@ -987,7 +987,7 @@ function updateForecast() {
 let momentPrev = null;
 function checkMoments() {
   if (!FS.provinces) return;
-  const next = momentSnapshot({ life: FS.life ?? new Map(), constructions: constructionsNow(), provinces: FS.provinces });
+  const next = momentSnapshot({ life: FS.life ?? new Map(), constructions: constructionsNow(), provinces: FS.provinces, bell: FS.nowBell ?? null, logged: FS.chronicle !== undefined && FS.isMine !== undefined });
   const t = performance.now() / 1000;
   const fresh = detectMoments(momentPrev, next, t);
   momentPrev = next;

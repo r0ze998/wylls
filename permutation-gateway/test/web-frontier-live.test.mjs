@@ -17,6 +17,7 @@ import * as io from '../../permutation-server/web/frontier/fchainio.mjs';
 import { ChainClock, seasonClock, bellAt } from '../../permutation-server/web/frontier/clock.mjs';
 import { snapshot, diffFeed } from '../../permutation-server/web/frontier/hud/feed.mjs';
 import { momentSnapshot, detectMoments } from '../../permutation-server/web/frontier/people/moments.mjs';
+import { updateLife } from '../../permutation-server/web/frontier/people/life.mjs';
 import { queueItem, QUEUE_KIND, BUILD_ITEMS } from '../../permutation-server/web/frontier/fland.mjs';
 import { resultKind } from '../../permutation-server/web/frontier/fx/stage.mjs';
 import { toHex } from '../../permutation-server/web/sdk/bytes.mjs';
@@ -213,4 +214,24 @@ test('a map that a sheet covers has no place for a caption: the free rectangle s
   assert.equal(full.covered, true, 'four pixels of map between the strip and the sheet are no map');
   const effects = readFileSync(new URL('../../permutation-server/web/frontier/fx/effects.mjs', import.meta.url), 'utf8');
   assert.match(effects, /const covered = !!s\.free\.covered \|\|/, 'the tag of a covered tile is not shown');
+});
+
+test('a harvest is a moment: the first one read of a village after the log was read, and a second one in the same turn; never the log read at load', () => {
+  const k = '2,0,3';
+  const snap = (life, o = {}) => momentSnapshot({ life: new Map(life), provinces: new Map(), bell: 43, logged: true, ...o });
+  const none = { last: 40, harvest: -1, harvests: 0 }, one = { last: 43, harvest: 43, harvests: 1 }, two = { last: 43, harvest: 43, harvests: 2 };
+  const kinds = (a, b) => detectMoments(a, b, 1).map(m => [m.kind, m.p, m.q, m.site]);
+  // (it asked for an earlier harvest in the log: a village's first never played)
+  assert.deepEqual(kinds(snap([[k, none]]), snap([[k, one]])), [['harvest', 2, 0, 3]], 'the first harvest of a village the page knew');
+  assert.deepEqual(kinds(snap([]), snap([[k, one]])), [['harvest', 2, 0, 3]], 'and of one it had no record of');
+  // (and for a later bell: two in one turn were one)
+  assert.deepEqual(kinds(snap([[k, one]]), snap([[k, two]])), [['harvest', 2, 0, 3]], 'a second harvest in the same turn');
+  assert.deepEqual(kinds(snap([[k, one]]), snap([[k, one]])), [], 'nothing new, nothing played');
+  // the load: the first snapshot was taken before the log was read, so what the log then shows is not news
+  assert.deepEqual(kinds(snap([], { logged: false }), snap([[k, one]])), []);
+  // the log being read up: a harvest of long ago is not news either
+  assert.deepEqual(kinds(snap([]), snap([[k, { last: 30, harvest: 30, harvests: 1 }]])), []);
+  // the page's fold counts them
+  const life = updateLife(new Map(), [{ name: 'HARVEST', bell: 43, p: 2, q: 0, site: 3 }, { name: 'HARVEST', bell: 43, p: 2, q: 0, site: 3 }]);
+  assert.deepEqual([life.get(k).harvest, life.get(k).harvests], [43, 2]);
 });

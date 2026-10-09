@@ -744,6 +744,10 @@ for (const vp of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
     assert.match(await page.locator('#bell-chip').textContent(), /ターン\s*42/);
     assert.equal(await page.locator('#bell-toll').isHidden(), true, 'no banner before the toll');
     const food0 = await strip(page, 'Food');
+    // (a key press is the gesture that lets the page sound; every sound the effects ask for is noted with whether it sounded)
+    await page.locator('#frontier-map').focus();
+    await page.keyboard.press('Shift');
+    await page.evaluate(() => { const a = window.__fxAudio, play = a.play.bind(a); window.__snd = []; a.play = (name, o) => { const ok = play(name, o); window.__snd.push([name, ok]); return ok; }; });
     // ---- the toll: the page's own clock turns; the banner element carries the words, the dial says the new turn
     const toll = page.locator('#bell-toll.fx-banner-host');
     await toll.waitFor({ state: 'visible', timeout: 20_000 });
@@ -792,6 +796,11 @@ for (const vp of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
     assert.equal(all.filter(e => e.type === 'battle').length, 1, 'the clash played once (not again in passing)');
     assert.equal(all.filter(e => e.type === 'moment' && e.kind === 'built').length, 1);
     assert.equal(all.filter(e => e.type === 'turn:results').length, 1);
+    // ---- and it was heard: the bell at the toll, the unsealing, the battle's four blows, the building
+    const snd = await page.evaluate(() => window.__snd);
+    assert.deepEqual(snd.filter(x => x[0] === 'bell'), [['bell', true]], 'the bell sounded once');
+    assert.equal(snd.filter(x => x[0] === 'clash' && x[1]).length, 4, 'four blows');
+    assert.ok(snd.some(x => x[0] === 'shimmer' && x[1]) && snd.some(x => x[0] === 'confirm' && x[1]), `the unsealing and the building: ${JSON.stringify(snd)}`);
     if (phone) { await page.waitForFunction(() => !document.body.dataset.fxPiece, null, { timeout: 15_000 }); assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('feed')).opacity), '1', 'the card is back when the scene is over'); }
   });
 }
