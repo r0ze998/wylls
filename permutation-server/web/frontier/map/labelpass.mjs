@@ -67,10 +67,10 @@ export function createLabelPass({ nogo = [], screen = null, zoom = 1, hidden = n
     place(ax, ay, box, { keep = false, solid = true, free = false, reach = LABEL_PASS.reach } = {}) {
       const s = toScreen(ax, ay, box);
       // a label whose own place is in the picture is not cut by the picture's side: it slides in (its leader leans)
-      let inX = 0;
+      let inX = 0, whole = false;
       if (bounds && s.w + 2 * EDGE <= bounds.w) {
         const a = screen ? screen(ax, ay) : { x: ax * zoom, y: ay * zoom };
-        if (a.x >= 0 && a.x <= bounds.w && a.y >= 0 && a.y <= bounds.h) inX = s.x < EDGE ? EDGE - s.x : s.x + s.w > bounds.w - EDGE ? bounds.w - EDGE - s.x - s.w : 0;
+        if (a.x >= 0 && a.x <= bounds.w && a.y >= 0 && a.y <= bounds.h) { whole = true; inX = s.x < EDGE ? EDGE - s.x : s.x + s.w > bounds.w - EDGE ? bounds.w - EDGE - s.x - s.w : 0; }
       }
       s.x += inX;
       const done = (dx, dy) => { if (solid) taken.push({ x: s.x + dx, y: s.y + dy, w: s.w, h: s.h }); return { dx: (dx + inX) / zoom, dy: dy / zoom }; };
@@ -78,7 +78,7 @@ export function createLabelPass({ nogo = [], screen = null, zoom = 1, hidden = n
       if (!first) return done(0, 0);
       // one move out from under what covers it; when that lands on something else, one more from there
       let best = null;
-      const tryAt = (dx, dy) => { if (Math.hypot(dx, dy) > reach) return null; const b = { x: s.x + dx, y: s.y + dy, w: s.w, h: s.h }; if (!inside(b)) return null; return blocker(b, free) ? b : (best = !best || Math.hypot(dx, dy) < Math.hypot(best[0], best[1]) ? [dx, dy] : best, null); };
+      const tryAt = (dx, dy) => { if (Math.hypot(dx, dy) > reach) return null; const b = { x: s.x + dx, y: s.y + dy, w: s.w, h: s.h }; if (!inside(b)) return null; /* (a label that slid in from the side is not nudged back out through it) */ if (whole && (b.x < EDGE - 0.5 || b.x + b.w > bounds.w - EDGE + 0.5)) return null; return blocker(b, free) ? b : (best = !best || Math.hypot(dx, dy) < Math.hypot(best[0], best[1]) ? [dx, dy] : best, null); };
       for (const [dx, dy] of ways(s, first)) {
         const b = tryAt(dx, dy);
         if (!b) continue;

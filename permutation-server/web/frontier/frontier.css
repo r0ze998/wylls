@@ -1628,6 +1628,8 @@ body[data-title="up"] .dial-pop { display: none; }
   /* the plate in the sheet has the way home: the map does not carry a second one */
   body:has(.plate-main[data-act="home"]) .map-btn[data-map="home"] { display: none; }
   .map-btn[data-worded] { border-radius: 9px; padding: 0 10px 0 8px; }
+  /* the plate of a viewer without a village carries its line and its two keys: the resting sheet is tall enough for both whatever the line's length (the keys were cut by the dock) */
+  .panel[data-sheet="peek"]:has(.plate-acts) { max-height: max(var(--peek), 214px); }
 }
 .survey-key.mark-sealed, .survey-key.mark-build { display: grid; place-items: center; border-radius: 50%; }
 .survey-key.mark-sealed { background: #7a2a1f; border: 1.5px solid #fffaf0; color: #fffaf0; }

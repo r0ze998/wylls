@@ -229,6 +229,8 @@ export const REACH = Object.freeze({ rim: 2.5, glow: 8, under: 1.5, inner: 0.15,
 const CHART_INK = [18, 58, 56];
 /** The kinds that are targets: each keeps a hexagon of its own, set in from the tile's edge, and a glyph (colour is never the only sign). */
 export const TARGET_KINDS = Object.freeze(['home', 'attack', 'explore']);
+/** How far a badge on a tile next to the host steps away from it (tiles). */
+export const BADGE_OUT = 0.3;
 /** The glyph of a kind (map/glyphs.mjs, the HUD sprite's own pictures). */
 export const KIND_GLYPH = Object.freeze({ attack: 'swords', home: 'home', explore: 'eye', chosen: 'check' });
 
@@ -470,12 +472,17 @@ export function paintActionTop(g, A, { zoom = 1, now = fxNow(), still = false, d
   g.globalAlpha = 0.55 * dim; g.strokeStyle = rgba(palette.move.rim, 1); g.lineWidth = 1.1 * k; g.stroke(S.edge);
   g.restore();
   const chosen = new Set(A.chosen ?? []);
+  const o0 = A.hex && Number.isFinite(A.hex.q) ? project(A.hex.q, A.hex.r) : null;
   for (const t of A.tiles) {
     if (!TARGET_KINDS.includes(t.kind)) continue;
     const show = rollAt(age, t.d);
     if (show <= 0) continue;
     const c = project(t.hq, t.hr);
-    paintKindBadge(g, c.x, c.y + RADIUS * FLATTEN * 0.5, t.kind === 'explore' && chosen.has(t.tile) ? 'chosen' : t.kind, { zoom, alpha: show * dim, colour: palette[t.kind], filled: t.kind === 'explore' && chosen.has(t.tile) });
+    // (a target next to where the host stands: its badge steps outward, clear of the village that stands there, which
+    // is drawn wider than its tile; the second review: eye discs on the roofs)
+    let bx = c.x, by = c.y + RADIUS * FLATTEN * 0.5;
+    if (t.d === 1 && o0) { const dx = c.x - o0.x, dy = c.y - o0.y, len = Math.hypot(dx, dy) || 1; bx += (dx / len) * RADIUS * BADGE_OUT; by += (dy / len) * RADIUS * BADGE_OUT * (dy < 0 ? 1.6 : 1); }
+    paintKindBadge(g, bx, by, t.kind === 'explore' && chosen.has(t.tile) ? 'chosen' : t.kind, { zoom, alpha: show * dim, colour: palette[t.kind], filled: t.kind === 'explore' && chosen.has(t.tile) });
   }
   g.restore();
 }
