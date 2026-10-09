@@ -1318,6 +1318,8 @@ function renderRail() {
  * the client rectangles go to `globalThis.__wyllsMap?.setNoGo?.(rects)`; `globalThis.__wyllsHud.noGo()` reads
  * the same list at any time (hud/insets.mjs noGoRects).
  */
+/** How far inside the map's top edge no label of the map stands (px). */
+export const EDGE_TOP = 4;
 let noGoKey = '', noGoMap = null, noGoQueued = false;
 function publishNoGo() {
   if (noGoQueued || !globalThis.requestAnimationFrame) return;
@@ -1325,6 +1327,10 @@ function publishNoGo() {
   requestAnimationFrame(() => {
     noGoQueued = false;
     const rects = noGoRects();
+    // the map's own top edge is a piece too, for the map alone: a nameplate that would stand half above it slides down
+    // or is left out, like one under the dial (the second check: the spectator's 'Emar Town' plate was cut by the edge)
+    const cr = $('frontier-map')?.getBoundingClientRect?.();
+    if (cr && cr.width > 0) rects.push({ id: 'edge-top', x: Math.round(cr.left), y: Math.round(cr.top) - 60, width: Math.round(cr.width), height: 60 + EDGE_TOP });
     const key = rects.map(r => `${r.id}:${r.x},${r.y},${r.width},${r.height}`).join('|');
     const m = globalThis.__wyllsMap ?? null;
     if (key === noGoKey && m === noGoMap) return;

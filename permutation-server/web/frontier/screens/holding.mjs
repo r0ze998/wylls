@@ -21,7 +21,7 @@ import { holdingName } from '../people/ui.mjs';
 import { miniCardUrl, MINI_KINDS } from '../people/minis.mjs';
 import { span, NEAR_FULL_SECS } from '../hud/hud.mjs';
 import { termButton } from '../hud/glossary.mjs';
-import { inTime, row, dueHtml } from './shell.mjs';
+import { row, dueHtml } from './shell.mjs';
 import { countdown } from '../clock.mjs';
 import { cardHead, label, fold, chip, stamp } from './parts.mjs';
 import { villageDrawn, provinceCoords } from '../hud/place.mjs';
@@ -218,7 +218,7 @@ export function render(FS) {
       ${row(L`段階`, html`${TIERS[h.tier] ?? h.tier} · ${HOLDING_STATES[f.state]}${termButton('tier')}`)}
       ${f.state === 'provisional' ? row(L`確定`, f.finalTs ? Lh`早くて${dueHtml(f.finalTs, FS.chain?.now?.() ?? null)}` : L`同じターンの申し込みがすべて決まってから`) : ''}
       ${f.shieldLeft > 0 ? row(L`保護`, L`残り ${countdown(f.shieldLeft)}`) : ''}
-      ${row(L`休眠まで`, html`${f.dormantIn > 0 ? inTime(f.dormantIn) : L`休眠中`}${termButton('dormant')}`)}
+      ${row(L`休眠まで`, html`${f.dormantIn > 0 ? L`あと ${span(f.dormantIn)}` : L`休眠中`}${termButton('dormant')}`)}
     </dl>`)}</section>`;
 
   return [head, stores, build, troops, others];

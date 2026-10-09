@@ -147,3 +147,44 @@ test('words: a chip explains itself, a due time says what it is', async () => {
     assert.match(text(inspect.render({ ...FS, selected: { p: 2, q: 0, idx: 9 } }, terrainOf)), /Hostile to your nation/);
   } finally { setLang('ja'); }
 });
+
+test('English: a place inside a sentence takes its article; one spelling; a village is provisional, then confirmed', async () => {
+  const { inText, atPlace } = await import('../../permutation-server/web/lang/helpers.mjs');
+  assert.equal(inText('Town of Ramar'), 'the town of Ramar');
+  assert.equal(inText('Stronghold of Elwell'), 'the stronghold of Elwell');
+  assert.equal(inText('Barbarian camp'), 'the barbarian camp');
+  assert.equal(inText('Hills'), 'the hills');
+  assert.equal(inText('Mountain'), 'the mountains');
+  assert.equal(inText('Free City'), 'the Free City');
+  assert.equal(inText('The Concord'), 'the Concord');
+  assert.equal(inText("Town of Ramar's province"), "the town of Ramar's province");
+  assert.equal(inText('Aster side, ring 2'), 'the Aster side (ring 2)');
+  assert.equal(inText('600 Spearmen'), '600 Spearmen', 'anything else is left as it is');
+  assert.equal(atPlace('Town of Ramar'), 'at the town of Ramar');
+  assert.equal(atPlace("Town of Ramar's province"), "in the town of Ramar's province");
+  assert.equal(atPlace('Aster side, ring 2'), 'on the Aster side (ring 2)');
+  assert.equal(atPlace('Province 3,0'), 'in Province 3,0');
+  assert.equal(atPlace('Forest'), 'in the forest');
+  const { holdingName } = await import('../../permutation-server/web/frontier/people/ui.mjs');
+  const { L } = await import('../../permutation-server/web/lang.mjs');
+  setLang('en');
+  try {
+    const town = holdingName({ p: 2, q: 0, site: 3 }, 1);
+    assert.match(town, /^Town of /, 'a label keeps its capitals and takes no article');
+    const lower = town.replace(/^Town/, 'the town');
+    assert.equal(L`${town}にいます`, `At ${lower}`, 'the second check: "In Town of Ramar"');
+    assert.equal(L`${town}から`, `From ${lower}`);
+    assert.equal(L`${town}へ移動`, `Go to ${lower}`);
+    assert.equal(L`進軍は送られていません（${'600 Spearmen'} は${town}にいます）。`, `The march was not sent (600 Spearmen are still at ${lower}).`, 'the second check: "at Town of Ramar"');
+    assert.equal(L`${town}に来襲の恐れがあります`, `${lower.replace(/^the/, 'The')} may come under attack`);
+    assert.equal(L`${town}が確定しました`, `${lower.replace(/^the/, 'The')} is now confirmed`);
+    assert.equal(L`${'Ramar'}の村が${'Town'}になりました`, 'The village of Ramar is now a town');
+  } finally { setLang('ja'); }
+  // one spelling in the two dictionaries of the Frontier client: British
+  const dict = ['en-frontier.mjs', 'en-frontier-play.mjs'].map(f => readFileSync(new URL(`../lang/${f}`, WEB), 'utf8').split('\n').filter(l => !l.trim().startsWith('//')).join('\n')).join('\n');
+  const american = dict.match(/\b(colors?|colored|centers?|centered|neighbou?ring (?!\w)|neighbor\w*|defenses?|favor\w*|honor\w*|armor\w*|gray|traveled|traveling|practicing|practiced)\b/gi) ?? [];
+  assert.deepEqual(american.filter(w => !/^neighbouring/i.test(w)), [], 'American spellings in the Frontier dictionaries');
+  assert.doesNotMatch(dict, /can practice\b|to practice\b|Start practic/, 'the verb is "practise"');
+  assert.match(dict, /nation\\'s colour/);
+  assert.doesNotMatch(dict, /\b(is|not|now|became|until it is) final\b/, 'a village is "confirmed", as its stamp says');
+});

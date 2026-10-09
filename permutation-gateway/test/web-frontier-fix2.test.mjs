@@ -236,10 +236,10 @@ test('the turn dial is a button on all three pages; its card says the turn, the 
     holdings: [{ p: 2, q: 0, site: 0, transit: [{ state: 1, arriveBell: 43, hostId: 7n }, { state: 1, arriveBell: 45, hostId: 8n }, { state: 0, arriveBell: 43, hostId: 9n }] }] };
   const items = dialcard.nextBellItems(FS, { hostInfo: id => (id === 7n ? { mine: true, unit: 'Spearman', troops: 400, dest: '森' } : null), decides: { turn: 43, after: 1 } });
   assert.deepEqual(items.map(x => x.icon), ['alert', 'seal', 'home'], 'only what the next bell brings: one warning, one arrival, the village');
-  assert.match(items[1].text, /^あなたの槍兵 400が森に着きます$/);
+  assert.match(items[1].text, /^あなたの槍兵 400 が森に着きます$/);
   assert.equal(items[2].text, '村の場所が決まります（鐘のあと約 1 分）');
   assert.deepEqual(dialcard.nextBellItems({ ...FS, mode: 'spectate' }), [], 'a watcher has nothing of their own');
-  assert.equal(dialcard.nextBellItems(FS, { hostInfo: () => ({ mine: true, unit: 'Spearman', troops: 400, dest: null }) })[1].text, 'あなたの槍兵 400が行き先に着きます', 'no destination is named that this device does not hold');
+  assert.equal(dialcard.nextBellItems(FS, { hostInfo: () => ({ mine: true, unit: 'Spearman', troops: 400, dest: null }) })[1].text, 'あなたの槍兵 400 が行き先に着きます', 'no destination is named that this device does not hold');
   const card = String(dialcard.renderDialCard(chip, items));
   assert.match(card, /<strong>ターン 42<\/strong><span class="dial-pop-left">次の鐘まで <span class="num" data-dial-left>9:22<\/span><\/span>/);
   assert.match(card, /鐘が鳴るたびにターンが進みます。/, 'the one sentence that ties the bell to the turn');
@@ -339,7 +339,8 @@ test('a refusal says what was not done and where the host still is; the server\'
   assert.equal(status.unsentText({ lastAct: { name: 'harvest' } }), '収穫はまだされていません。');
   assert.equal(status.unsentText({ lastAct: { name: 'something-else' } }), null, 'an action the table does not know says only the reason');
   setLang('en');
-  assert.match(status.statusOf(FS).what, /^The march was not sent \(600 Spearmen are still at .+\)\.$/);
+  // (rewritten with wave 3: the place takes its article and its preposition in a sentence: "at the town of Ramar", "on the land")
+  assert.match(status.statusOf(FS).what, /^The march was not sent \(600 Spearmen are still (at|in|on) the .+\)\.$/);
   assert.equal(status.statusOf(FS).text, 'The server did not answer. Wait a moment, then try again.');
   setLang('ja');
 });

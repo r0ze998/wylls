@@ -76,7 +76,7 @@ export function renderNations(FS) {
       ${FS.wallet ? html`<button type="button" class="btn primary nc-btn" data-act="join" ${raw(pick ? '' : 'disabled')}>${icon('banner')}${pick ? L`${pick.name}で始める` : L`国を選んで始める`}</button>`
         : html`<div class="nc-wallet"><span class="nc-wallet-k">${L`始めるには、先にウォレットをつなぎます。`}</span>${walletButtons(FS)}</div>`}
     </div>
-    <p class="nc-note">${FS.wallet ? L`ウォレットが2回、確認を求めます。ゲーム内の鍵を作るための署名と、参加のための署名です。` : L`ウォレットを使うのは、参加の署名のときだけです。そのあとの操作はこの端末のゲーム内の鍵が署名し、手数料はゲーム側が立て替えます（テスト用の SOL で、価値はありません）。`}${pick ? html` ${L`村を置ける場所 約 ${fmtNum(pick.free)}`}` : ''}</p>
+    <p class="nc-note">${FS.wallet ? L`ウォレットが2回、確認を求めます。ゲーム内の鍵を作るための署名と、参加のための署名です。` : L`ウォレットを使うのは、参加の署名のときだけです。そのあとの操作はこの端末のゲーム内の鍵が署名し、手数料はゲーム側が立て替えます（テスト用の SOL で、価値はありません）。`}${pick ? html` ${L`この国の土地には、村を置ける場所があと約 ${fmtNum(pick.free)} あります。`}` : ''}</p>
   </div>`;
   return html`<section class="nations" aria-labelledby="join-faction">
     <header class="nations-head"><h3 id="join-faction">${L`国を選ぶ`}</h3><p>${L`六つの国が、鐘のまわりの辺境を分け合っています。国で決まるのは、村を置く方角と教義です。賞金はありません。`}</p></header>

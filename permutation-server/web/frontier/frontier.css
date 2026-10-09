@@ -1713,3 +1713,7 @@ body[data-stage="loading"] .tabs > * { visibility: hidden; }
   /* the sheet's title may come as near the handle as the handle allows ("March order" was cut to "March or…") */
   #panel-title { max-width: calc(50% - 36px); }
 }
+/* ---- the spectator's sheet: the season's state is a small word in the bar beside the title, not a line squeezed between the
+   bar and the paper (it peeked out above the sheet) ---- */
+.panel[data-kind="spectate"] #season-status { position: absolute; z-index: 3; top: 13px; right: 52px; display: block; margin: 0; padding: 1px 8px; border: 1px solid rgba(201,162,74,.5); border-radius: 10px; background: rgba(0,0,0,.22); font: 600 var(--t1)/1.5 var(--ui); letter-spacing: .04em; color: var(--hud-ink); pointer-events: none; }
+@media (max-width: 759px) { .panel[data-kind="spectate"] #season-status { display: none; } }

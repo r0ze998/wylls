@@ -28,7 +28,11 @@ retype their names in a dictionary.
   use `plural(n, '{0} member', '{0} members')` in the dictionary.
 - **Spelling and apostrophes**: American spelling (`Defense`, `color`,
   `in favor`); straight apostrophes (`don't`, `faction's`), curly
-  double quotes only for 「X」.
+  double quotes only for 「X」. **Exception, the Frontier client**
+  (`en-frontier.mjs`, `en-frontier-play.mjs`; UX design 12.6, the owner's
+  brief of 2026-10-09): British spelling throughout (`colour`, `centre`,
+  `defence`, `neighbouring`, `favoured`; the verb is `practise`, the noun
+  `practice`), one spelling in every string of those two files.
 - **Punctuation**: 「X」 → “X” (or no quotes for a name); （…） → (…);
   ： → `: `; 、 → `, `; 。 → `. `; list separator ・ → `, ` (or ` · ` in
   compact lines); 〜 → `–`; ＋ → `+`; full-width spaces → a normal space.
@@ -334,7 +338,7 @@ unit on the map is 軍勢, a host), so the merged dictionary stays consistent.
 | 預け金 | escrow | the refundable Holding-rent escrow of a site ticket |
 | 中継サーバー（中継） | relay | pays the fee of sponsored transactions. On the play screen ゲーム側が立て替えます / "the game covers…"; the counter reads 送れる操作 残り N 回 / "N actions left to send" and shows in the strip only when it runs low |
 | ゲーム内の鍵 | in-game key | the session key; never "session" in the UI |
-| 仮の拠点 / 確定 | provisional holding / final | cohort finality (I-47) |
+| 仮の拠点 / 確定 | provisional holding / confirmed | cohort finality (I-47; the records call it final). On the Frontier client a village is `provisional`, then `confirmed` (stamp `Confirmed`, "is now confirmed"): one word on every screen (UX design 12.6) |
 | 控えの兵 | reserve | trained troops not yet in a host |
 | 解散 | Dissolve | |
 | 到着のターン（旧: 到着の鐘） | arrival turn | |

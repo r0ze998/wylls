@@ -52,7 +52,7 @@ test('the nation choice: six standing banners of cloth with the leader and the d
   assert.match(picked, /class="nc-pitch">[^<]+</);
   assert.match(picked, /<div class="nc-item nc-def" data-n="2" aria-live="polite">/, 'the chosen nation is the confirm line\'s default');
   assert.equal((picked.match(/class="bn-mark"/g) ?? []).length, 1, 'the chosen banner carries its mark (not colour alone)');
-  assert.match(picked, /村を置ける場所 約 \d+/);
+  assert.match(picked, /この国の土地には、村を置ける場所があと約 \d+ あります。/);
   assert.doesNotMatch(text(picked), /扇区|区画/, 'plain words on the play screen');
   // without a wallet the banners still stand; the confirm offers to connect one
   const noWallet = String(joinScreen.render({ ...base, wallet: null, walletList: [{ name: 'Dev wallet' }], joinDraft: { faction: 2 } }));
