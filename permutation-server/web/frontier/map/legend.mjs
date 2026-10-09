@@ -62,8 +62,8 @@ export function renderSurveyHelp() {
     <h4>${L`軍勢を選ぶと光るマス`}</h4>
     <ul class="lit-legend">${ACTION_LEGEND.map(x => html`<li><span class="survey-key lit-${x.id}" aria-hidden="true">${x.glyph ? icon(x.glyph) : ''}</span><span class="survey-what"><strong>${x.name()}</strong> ${x.text()}</span></li>`)}</ul>
     <h4>${L`村のまわりの印`}</h4>
-    <ul class="lit-legend">${MARK_LEGEND.map(x => html`<li><span class="survey-key mark-${x.id}" aria-hidden="true">${icon(x.glyph)}</span><span class="survey-what"><strong>${x.name()}</strong> ${x.text()}</span></li>`)}</ul>
+    <ul class="key-legend">${MARK_LEGEND.map(x => html`<li><span class="survey-key mark-${x.id}" aria-hidden="true">${icon(x.glyph)}</span><span class="survey-what"><strong>${x.name()}</strong> ${x.text()}</span></li>`)}</ul>
     <h4>${L`地図の線`}</h4>
-    <ul class="lit-legend">${LINE_LEGEND.map(x => html`<li><span class="survey-key line-${x.id}" aria-hidden="true"></span><span class="survey-what"><strong>${x.name()}</strong> ${x.text()}</span></li>`)}</ul>
+    <ul class="key-legend">${LINE_LEGEND.map(x => html`<li><span class="survey-key line-${x.id}" aria-hidden="true"></span><span class="survey-what"><strong>${x.name()}</strong> ${x.text()}</span></li>`)}</ul>
     <p><a class="survey-all" href="spectate.html">${L`観戦ページで世界全体を見る`}</a></p></section>`;
 }

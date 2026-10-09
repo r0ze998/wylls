@@ -86,7 +86,8 @@ export const SCENES = [
   {
     id: 'map-tile', title: 'map, tile LOD with the survey', page: 'index.html', stage: 'holding',
     async go(page) {
-      await click(page, '[data-map="home"]');
+      // (fix pass 2: on a phone the plate in the sheet has the way home and the map carries no second key)
+      await click(page, (page.viewportSize()?.width ?? 1440) < 760 ? '.plate-main[data-act="home"]' : '[data-map="home"]');
       // (wave 2: a touch screen has no plus and minus buttons; the key zooms on every size)
       await page.locator('#frontier-map').focus();
       for (let i = 0; i < 16 && !(await page.locator('#frontier-map[data-lod="tile"]').count()); i++) await page.keyboard.press('+');
@@ -139,6 +140,8 @@ export const SCENES = [
       if (n) throw new Error(`a show-everything switch on the play page: ${n}`);
       if ((await page.locator('.survey-legend li').count()) !== 4) throw new Error('the legend has four levels');
       if ((await page.locator('.lit-legend li').count()) !== 4) throw new Error('the lit tiles have four kinds');
+      // (fix pass 2: the map's two lines and the marks round a village are in the legend too)
+      if ((await page.locator('.key-legend li').count()) !== 4) throw new Error('the legend names the map\'s two lines and the two marks round a village');
       await sheetFull(page);
       await page.locator('.survey-help').scrollIntoViewIfNeeded();
     },

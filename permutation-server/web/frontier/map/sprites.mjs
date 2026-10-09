@@ -53,6 +53,12 @@ export const FAR_RES = Object.freeze([0.1, 0.2, 0.36, 0.56, 0.8, 1]);
 export const FAR_PIXELS = 24_000_000;
 /** The ground bitmaps of the tile view: their cache budget in pixels, and how many may be painted in one frame. */
 export const GROUND_PIXELS = 12_000_000;
+/**
+ * A bitmap the picture on screen uses is never dropped for another one of the same picture: the cache may grow past
+ * its budget up to this many pixels to hold one whole picture (a desktop at the finer ground asks for the large art;
+ * with the budget alone the provinces of one screen pushed each other out, and the land was made again every frame).
+ */
+export const GROUND_PIXELS_MAX = 26_000_000;
 export const GROUND_BAKES = 2;
 /** How strong another nation's territory is drawn for a viewer who has a nation (its wash, its borders): quieter than the viewer's own nation's. */
 export const OTHER_WASH = 0.6;
@@ -318,6 +324,15 @@ export class SpriteArt {
     this.groundPixels = 0;
   }
 
+  /** Drop the ground bitmaps used longest ago until the cache is inside its budget; those of the pass `pass` (the picture being painted) and of the one before it stay while there is room at all. */
+  trimGround(pass) {
+    while (this.groundPixels > GROUND_PIXELS && this.groundCache.size > 1) {
+      const [ok, ov] = this.groundCache.entries().next().value;
+      // (used in this pass or the one before it: a province further down this pass's own list has not been reached yet)
+      if (ov.pass >= pass - 1 && this.groundPixels <= GROUND_PIXELS_MAX) break;
+      this.groundCache.delete(ok); this.groundPixels -= ov.px;
+    }
+  }
   /** The newest bitmap this province had, at any resolution or state (a stand-in while a new one waits its turn). */
   farStale(e) { return this.farLast.get(`${e.p},${e.q}`) ?? null; }
   /** A ground bitmap of the tile view for this province, of any sprite set and state (the newest), or null. */
@@ -951,11 +966,12 @@ export class SpriteArt {
         // tile view: a province's still ground comes from its bitmap when there is one (north first: a tile's
         // skirt is covered by the tiles in front of it); a few new bitmaps a frame, the rest drawn tile by tile
         let bakes = GROUND_BAKES, charts = 8;
+        const pass = this.groundPass = (this.groundPass ?? 0) + 1;
         const bake = (e, list) => {
           const sv = svOf(e), chartOnly = sv?.kind === 'chart';
           const key = `${e.p},${e.q}@${s.key}|${e.prov?.roadMask ?? ''}|${ringsOpen ?? ''}|${washSig.get(`${e.p},${e.q}`) ?? ''}|${sv?.sig ?? ''}`;
           const hit = this.groundCache.get(key);
-          if (hit) { this.groundCache.delete(key); this.groundCache.set(key, hit); return hit; }
+          if (hit) { hit.pass = pass; this.groundCache.delete(key); this.groundCache.set(key, hit); return hit; }
           // (a sheet of chart is cheap: it does not wait for its turn as painted ground does)
           if (bakes <= 0 && !(chartOnly && charts > 0)) return null;
           const c = provincePixel(e.p, e.q), res = s.r / RADIUS, B = GROUND_BOX;
@@ -967,10 +983,10 @@ export class SpriteArt {
           if (chartOnly) {
             // nothing of this province is surveyed: its ground is the chart
             paintChart(gg, list, { res, nameAt: chartName, own: true });
-            const v = { cv, x: box.x, y: box.y, w: box.w, h: box.h, px: cv.width * cv.height };
+            const v = { cv, x: box.x, y: box.y, w: box.w, h: box.h, px: cv.width * cv.height, pass };
             this.groundCache.set(key, v);
             this.groundPixels += v.px;
-            while (this.groundPixels > GROUND_PIXELS && this.groundCache.size > 1) { const [ok, ov] = this.groundCache.entries().next().value; this.groundCache.delete(ok); this.groundPixels -= ov.px; }
+            this.trimGround(pass);
             return v;
           }
           const had = this.misses;
@@ -1007,11 +1023,11 @@ export class SpriteArt {
           }
           const whole = this.misses === 0;
           this.misses += had;
-          const v = { cv, x: c.x - B.left, y: c.y - B.top, w: B.left + B.right, h: B.top + B.bottom, px: cv.width * cv.height };
+          const v = { cv, x: c.x - B.left, y: c.y - B.top, w: B.left + B.right, h: B.top + B.bottom, px: cv.width * cv.height, pass };
           if (whole) {
             this.groundCache.set(key, v);
             this.groundPixels += v.px;
-            while (this.groundPixels > GROUND_PIXELS && this.groundCache.size > 1) { const [ok, ov] = this.groundCache.entries().next().value; this.groundCache.delete(ok); this.groundPixels -= ov.px; }
+            this.trimGround(pass);
           }
           return v;
         };
@@ -1025,7 +1041,9 @@ export class SpriteArt {
             // of any sprite set or state, stands in, so the land never shows half made (tile by tile, the chart
             // without its soft edge: the dark seam of the second review's landing frames); it is asked for again
             // with the next frame
-            this.misses++;
+            // (asked for again only while the cache has room for it: a picture larger than the cache can hold is
+            // not made again every frame)
+            if (this.groundPixels < GROUND_PIXELS_MAX - 1_500_000) this.misses++;
             v = list.length ? this.groundStale(e) : null;
             if (!v) continue;
           }

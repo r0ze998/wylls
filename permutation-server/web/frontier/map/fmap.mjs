@@ -1302,7 +1302,10 @@ export class FrontierMap {
     const moving = this.cam.moving || !!this.drag?.moved;
     const cap = wide => Math.sqrt(BACKDROP_PIXELS / (wide * wide * w * h));
     const fits = b && b.rings === ringsOpen && b.paper === paperRes && seen.x0 >= b.x0 && seen.y0 >= b.y0 && seen.x1 <= b.x1 && seen.y1 <= b.y1
-      && (moving ? px <= b.res * 1.02 && px >= b.res * 0.7 : Math.abs(px - b.res) < 1e-9 || (px > b.res && b.res >= cap(1.68) * 0.999));
+      // (a picture already as fine as its budget allows serves any closer zoom, travelling or at rest: with the finer
+      // ground of the fix pass the travelling rule alone never held near the hero zoom, and the sheet was painted
+      // again on every frame of a flight, some 110 ms of each)
+      && ((moving ? px <= b.res * 1.02 && px >= b.res * 0.7 : Math.abs(px - b.res) < 1e-9) || (px > b.res && b.res >= cap(1.68) * 0.999));
     if (!fits) {
       // a third more on every side (never more than BACKDROP_PIXELS in all)
       const x0 = seen.x0 - w * 0.34, y0 = seen.y0 - h * 0.34, bw = w * 1.68, bh = h * 1.68;
