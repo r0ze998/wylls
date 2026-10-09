@@ -730,7 +730,11 @@ function hoverPlan(hit) {
   const t = A ? A.byHex.get(`${hit.tileQ},${hit.tileR}`) : null;
   const dest = FS.compose?.dest;
   // (not for a tile to explore: no march goes there; not for the destination already chosen: its own route is drawn)
-  const want = t && t.kind !== 'explore' && !(dest && dest.p === t.p && dest.q === t.q && dest.tile === t.tile) ? t : null;
+  // (a tile beyond the pale line can be a destination too, as far as the planner finds a way: the lit reach is the
+  // near reach, not the limit. So the pointer is answered there as well: a route, or nothing)
+  const beyond = A && !t && A.mode === 'select' && A.actor?.march?.ok && !(hit.p === A.origin.p && hit.q === A.origin.q && hit.idx === A.origin.tile)
+    && !(FS.survey && !FS.survey.showAll && FS.survey.levelOf(hit.p, hit.q, hit.idx) === 0) ? { p: hit.p, q: hit.q, tile: hit.idx, hq: hit.tileQ, hr: hit.tileR, kind: 'move' } : null;
+  const want = t && t.kind !== 'explore' && !(dest && dest.p === t.p && dest.q === t.q && dest.tile === t.tile) ? t : beyond;
   const key = want ? `${A.actor.id}|${want.hq},${want.hr}` : null;
   if ((hoverRoute?.key ?? null) === key) return;
   const r = want ? routeTo(A, { p: want.p, q: want.q, tile: want.tile }) : null;

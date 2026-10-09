@@ -438,4 +438,5 @@ export default {
   '封印した進軍': 'A sealed march',
   'そのターンの結果が出るまで、誰にもわかりません。': 'Nobody knows it until that turn\'s results are out.',
   '遠すぎます（{0} マスまで）': 'Too far (at most {0} tiles)',
+  '近く {0} マス · その先も選べます': 'Within {0} tiles · you can pick farther ones too',
 };

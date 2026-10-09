@@ -162,3 +162,52 @@ test('the relief of the board: a mountain is drawn larger than its sprite and ca
   assert.ok(RISE.mountain.h > 1.3 && RISE.mountain.w > 1.1 && RISE.mountain.shadow > 0);
   assert.ok(RISE.forest.h > 1.1 && RISE.forest.h < RISE.mountain.h);
 });
+
+// ------------------------------------------------------------------ reach is one contour; one ribbon for one route
+import * as ACT from '../../permutation-server/web/frontier/map/actions.mjs';
+import { FACTION_COLORS } from '../../permutation-server/web/frontier/fi18n.mjs';
+import { setLang } from '../../permutation-server/web/lang.mjs';
+
+test('the reach\'s contour is its outer outline alone: a tile it encloses gets no frame, it is found and hatched', () => {
+  // a ring of six tiles round a tile that is not in the set (a peak inside the reach)
+  const ring = [[1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1], [1, -1]].map(([q, r], i) => ({ q, r, d: i === 0 ? 0 : 1 }));
+  const shape = LAND.landShape(ring);
+  assert.equal(shape.loops.length, 2, 'the outline has a loop for the hole');
+  const outer = ACT.outerLoops(shape.loops);
+  assert.equal(outer.length, 1, 'the contour keeps the outside only');
+  assert.ok(outer[0].length > shape.loops.find(l => l !== outer[0]).length);
+  assert.deepEqual(ACT.enclosed(ring).map(t => `${t.q},${t.r}`), ['0,0'], 'the tile in the middle is enclosed');
+  // a set with no hole encloses nothing; two separate sets keep both outlines
+  const blob = [{ q: 0, r: 0, d: 0 }, ...[[1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1], [1, -1]].map(([q, r]) => ({ q, r, d: 1 }))];
+  assert.deepEqual(ACT.enclosed(blob), []);
+  assert.equal(ACT.outerLoops(LAND.landShape([{ q: 0, r: 0, d: 0 }, { q: 9, r: 0, d: 1 }]).loops).length, 2);
+  assert.deepEqual(ACT.outerLoops([]), []);
+  assert.ok(ACT.REACH.rim === 2.5 && ACT.REACH.glow === 8, 'a 2.5 px pale rim with an 8 px glow');
+});
+
+test('one ribbon for one route: the nation\'s colour under the pointer, in the order card and once sealed; half there while it is a proposal', () => {
+  const hexes = [{ q: 0, r: 0 }, { q: 1, r: 0 }, { q: 2, r: 0 }, { q: 3, r: 0 }];
+  const fills = opts => { const g = recorder2(); ACT.paintRibbon(g, hexes, { zoom: 1.3, still: true, ...opts }); return g.calls.filter(c => c[0] === '=' && c[1] === 'fillStyle').map(c => String(c[2])); };
+  const rgbOf = hex => { const n = parseInt(hex.slice(1), 16); return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`; };
+  for (const f of [0, 1, 4]) {
+    const proposal = fills({ faction: f, proposal: true }), sealed = fills({ faction: f, proposal: false });
+    const cloth = list => list.find(s => s.includes(rgbOf(FACTION_COLORS[f])));
+    assert.ok(cloth(proposal) && cloth(sealed), `nation ${f}: the cloth is its colour both times`);
+    const alpha = s => Number(/,([\d.]+)\)$/.exec(s)?.[1] ?? 1);
+    assert.ok(alpha(cloth(proposal)) < alpha(cloth(sealed)), 'a proposal is half there, a sealed route solid');
+    assert.ok(proposal.includes(FACTION_COLORS[f]), 'and the arrowhead is the same colour');
+  }
+  assert.doesNotThrow(() => ACT.paintRibbon(null, hexes));
+  setLang('ja');
+  assert.equal(ACT.reachText(6), '近く 6 マス · その先も選べます');
+  setLang('en');
+  assert.equal(ACT.reachText(6), 'Within 6 tiles · you can pick farther ones too');
+  setLang('ja');
+});
+
+/** A recorder that also records what is set on it. */
+function recorder2() {
+  const calls = [];
+  const grad = { addColorStop() {} };
+  return new Proxy({}, { get: (_, k) => (k === 'calls' ? calls : k === 'canvas' ? null : k === 'createLinearGradient' || k === 'createRadialGradient' ? () => grad : typeof k === 'string' ? (...a) => { calls.push([k, ...a]); } : undefined), set: (_, k, v) => { calls.push(['=', k, v]); return true; } });
+}

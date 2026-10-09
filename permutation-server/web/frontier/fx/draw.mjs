@@ -151,7 +151,7 @@ const polyline = (ctx, list) => { list.forEach((p, i) => (i ? ctx.lineTo(p.x, p.
  * quieter resting look, `march` (seconds) walks the dashes toward the far end while an order waits, `glint`
  * (0..1) a light running along it.
  */
-export function ribbon(ctx, path, { k = 1, px = 1, color = TONE.you, level = 1, sealed = false, glint = -1, march = 0 } = {}) {
+export function ribbon(ctx, path, { k = 1, px = 1, color = TONE.you, level = 1, sealed = false, glint = -1, march = 0, proposal = false } = {}) {
   if (level <= 0.01 || k <= 0.001 || path.pts.length < 2) return;
   const w = (sealed ? RIBBON_PX.sealed : RIBBON_PX.live) * px;
   const { left, right, mid } = ribbonEdges(path, w, { k1: k });
@@ -163,7 +163,8 @@ export function ribbon(ctx, path, { k = 1, px = 1, color = TONE.you, level = 1, 
   ctx.save(); ctx.translate?.(0, 2.2 * px); body(); ctx.fillStyle = rgba('#0c1614', (sealed ? 0.3 : 0.4) * level); ctx.fill(); ctx.restore();
   // the cloth, with an ink line round it so it reads on land of its own colour
   body();
-  ctx.fillStyle = rgba(color, (sealed ? 0.92 : 1) * level); ctx.fill();
+  // (`proposal`: a route that is only looked at or being ordered: the cloth is half there, its stitches carry it)
+  ctx.fillStyle = rgba(color, (proposal ? 0.58 : sealed ? 0.92 : 1) * level); ctx.fill();
   ctx.strokeStyle = rgba('#1a0f0c', 0.7 * level); ctx.lineWidth = 1.1 * px; ctx.stroke();
   // hems: pale above (the light), dark below
   ctx.beginPath(); polyline(ctx, left); ctx.strokeStyle = rgba(hexMix(color, '#000000', 0.42), 0.85 * level); ctx.lineWidth = 1.4 * px; ctx.stroke();

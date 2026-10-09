@@ -314,19 +314,20 @@ test('reach is one shape: 30 ms a ring; a 2.5-px rim, an inward light of at most
   setLang('ja');
 });
 
-test('attack is never the hue of the viewer\'s own land: a red, rose or amber nation attacks in violet, the others in ember', () => {
-  const hue = ([r, g, b]) => { const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn; const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return (h * 60 + 360) % 360; };
-  const rgb = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16));
-  const gap = (a, b) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b));
+// Rewritten with the second review (fix pass): the first build gave a red, rose or amber nation violet for attack, so
+// that an attack tile would not read as more of its own land. The legend teaches ember, the brief says ember, and
+// violet is close to another nation's colour: attack is ember for every nation, and the target's own hexagon, its
+// ember rim and its crossed swords tell it from the land.
+test('attack is ember for every nation, as the legend says it; a target is never told by colour alone', () => {
   for (let f = 0; f < 6; f++) {
-    const P = ACT.actionPalette(f), own = hue(rgb(FACTION_COLORS[f]));
-    assert.ok(gap(hue(P.attack.fill), own) >= ACT.ATTACK_HUE_GAP, `nation ${f}: attack is ${Math.round(gap(hue(P.attack.fill), own))} degrees from its own colour`);
-    if (P.attack === ACT.ATTACK_ALT) assert.ok(gap(hue(P.attack.fill), hue(P.home.fill)) > 60, 'the other colour is far from gold too (gold is the viewer\'s own)');
-    assert.equal(P.move, ACT.ACTION_COLOURS.move); assert.equal(P.home, ACT.ACTION_COLOURS.home);
+    const P = ACT.actionPalette(f);
+    assert.equal(P, ACT.ACTION_COLOURS, `nation ${f}: the brief's colours`);
+    assert.deepEqual(P.attack.fill, [226, 85, 61]);
   }
-  assert.equal(ACT.actionPalette(0).attack, ACT.ATTACK_ALT, 'Aster (red)');
-  assert.equal(ACT.actionPalette(1).attack, ACT.ACTION_COLOURS.attack, 'Borealis (teal) keeps ember');
-  assert.equal(ACT.actionPalette(null), ACT.ACTION_COLOURS, 'no nation (the spectator): the brief\'s colours');
+  assert.equal(ACT.actionPalette(null), ACT.ACTION_COLOURS, 'no nation (the spectator): the same');
+  assert.equal(ACT.ATTACK_ALT, undefined, 'no second attack colour');
+  assert.ok(ACT.ACTION_COLOURS.attack.veil >= 0.35, 'filled at least 0.35');
+  assert.deepEqual(ACT.KIND_GLYPH, { attack: 'swords', home: 'home', explore: 'eye', chosen: 'check' });
 });
 
 test('the reach set as one box and one outline: the host\'s own tile is part of it; a lit tile knows whether it is chart', () => {
@@ -360,7 +361,7 @@ test('the painters draw into any context and write their words through the langu
   ACT.paintActionTop(g, A, { zoom: 1.3 });
   ACT.paintHoverGround(g, home, { zoom: 1.3, kind: 'attack' });
   ACT.paintSelectionGround(g, home, { zoom: 1.3, own: true });
-  ACT.paintRibbon(g, [home, { q: home.q + 1, r: home.r }, { q: home.q + 2, r: home.r }], { zoom: 1.3, kind: 'attack' });
+  ACT.paintRibbon(g, [home, { q: home.q + 1, r: home.r }, { q: home.q + 2, r: home.r }], { zoom: 1.3, faction: 0 });
   ACT.paintRefusal(g, home, { zoom: 1.3, age: 100 });
   LAND.paintStandard(g, 0, 0, { u: RADIUS, zoom: 1.3, faction: 2, lift: 0.4, dust: 0.3 });
   LAND.paintBeacon(g, 0, 0, { zoom: 0.1 });

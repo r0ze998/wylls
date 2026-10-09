@@ -8,8 +8,8 @@
 // their own, each with its glyph:
 //
 //   attack          ember red and crossed swords where a camp, a village of a
-//                   hostile nation or a hostile host stands (violet for a
-//                   viewer whose own nation is red: never the land's own hue)
+//                   hostile nation or a hostile host stands (ember for every
+//                   nation, as the legend says it; the swords say it too)
 //   home            gold and a house: the way back to one of the viewer's villages
 //   explore         sky blue and an eye: the tiles a Scout can explore from where it stands
 //
@@ -41,6 +41,7 @@ import { YOU, fxNow } from './chart.mjs';
 import { upright } from './tilt.mjs';
 import { landShape } from './ownland.mjs';
 import { paintGlyph } from './glyphs.mjs';
+import { ribbon as clothRibbon, smoothPath } from '../fx/draw.mjs';
 
 /** The kinds of lit tile, in the order a tile takes them (the first that applies). */
 export const ACTION_KINDS = Object.freeze(['explore', 'home', 'attack', 'move']);
@@ -51,7 +52,7 @@ export const ACTION_KINDS = Object.freeze(['explore', 'home', 'attack', 'move'])
  */
 export const ACTION_COLOURS = Object.freeze({
   move: Object.freeze({ fill: [216, 243, 234], rim: [206, 246, 235] }),
-  attack: Object.freeze({ fill: [226, 85, 61], rim: [255, 150, 120], veil: 0.36 }),
+  attack: Object.freeze({ fill: [226, 85, 61], rim: [255, 122, 92], veil: 0.35 }),
   home: Object.freeze({ fill: [243, 213, 138], rim: [255, 236, 178], veil: 0.32 }),
   explore: Object.freeze({ fill: [127, 196, 232], rim: [186, 228, 252], veil: 0.32 }),
 });
@@ -220,31 +221,24 @@ const lineScale = zoom => (0.72 + 0.28 * Math.min(1.8, Math.max(0.3, zoom))) / z
  * that is gone `depth` world px inside it, everything outside the set dimmed by `dim`. No frame per tile. `rim`
  * and `glow` are screen px; `target` is how far a target's own hexagon is set in from its tile's edge (world px).
  */
-export const REACH = Object.freeze({ rim: 2.5, glow: 11, inner: 0.15, depth: RADIUS * Math.sqrt(3) * 1.25, steps: 5, dim: 0.18, target: 5.5 });
-/** On the chart a pale line is lost on the parchment: the contour there is dark ink (teal-black), and the tiles take a breath of it. */
+export const REACH = Object.freeze({ rim: 2.5, glow: 8, under: 1.5, inner: 0.15, depth: RADIUS * Math.sqrt(3) * 1.25, steps: 5, dim: 0.18, target: 5.5, hatch: 7 });
+/**
+ * On the chart a pale line needs something under it to be seen on the parchment: a soft shade of deep teal beside
+ * it (never a dark line of its own, which read as a river next to the water tiles), and the tiles take a breath of it.
+ */
 const CHART_INK = [18, 58, 56];
 /** The kinds that are targets: each keeps a hexagon of its own, set in from the tile's edge, and a glyph (colour is never the only sign). */
 export const TARGET_KINDS = Object.freeze(['home', 'attack', 'explore']);
 /** The glyph of a kind (map/glyphs.mjs, the HUD sprite's own pictures). */
 export const KIND_GLYPH = Object.freeze({ attack: 'swords', home: 'home', explore: 'eye', chosen: 'check' });
 
-const hueOf = ([r, g, b]) => { const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn; if (!d) return null; const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return (h * 60 + 360) % 360; };
-const hexRgb = c => { const m = /^#?([0-9a-f]{6})$/i.exec(String(c ?? '')); return m ? [0, 2, 4].map(i => parseInt(m[1].slice(i, i + 2), 16)) : null; };
-const hueGap = (a, b) => (a === null || b === null ? 180 : Math.min(Math.abs(a - b), 360 - Math.abs(a - b)));
-/** A nation whose colour is within this many degrees of ember red takes another colour for attack. */
-export const ATTACK_HUE_GAP = 45;
-/** Attack for a nation that is itself red (Aster), rose (Fjordal) or amber (Cinder): violet, far from the land's own cast and from gold. */
-export const ATTACK_ALT = Object.freeze({ fill: [168, 78, 226], rim: [224, 178, 255], veil: 0.38 });
 /**
- * The colours of the lit tiles for a viewer of nation `faction`: the brief's, except that attack is never the hue
- * of the viewer's own land (a red nation's attack tiles would read as more of its land: UX brief §11.7).
+ * The colours of the lit tiles for a viewer of nation `faction`: the brief's, for every nation. (The first build gave
+ * a red, rose or amber nation violet for attack, so that an attack tile would not read as more of its own land; the
+ * second review found the legend's ember swatch beside violet tiles, and violet close to another nation's colour. An
+ * attack tile is told from the land by its own hexagon, its ember rim and its crossed swords.)
  */
-export function actionPalette(faction = null) {
-  const own = hexRgb(FACTION_COLORS[faction]);
-  if (!own || hueGap(hueOf(own), hueOf(ACTION_COLOURS.attack.fill)) >= ATTACK_HUE_GAP) return ACTION_COLOURS;
-  return paletteAlt;
-}
-const paletteAlt = Object.freeze({ ...ACTION_COLOURS, attack: ATTACK_ALT });
+export function actionPalette(faction = null) { void faction; return ACTION_COLOURS; }
 
 /** The band of light inside the contour as strokes clipped to the set, widest first: `[{width, alpha}]` (the same sum as the land's band). */
 export function innerSteps({ inner, depth, steps } = REACH) {
@@ -271,26 +265,67 @@ function shapeOf(A) {
   const shape = landShape(tiles);
   const fill = new Path2D(), edge = new Path2D(), targets = new Map();
   const inSet = new Set(tiles.map(t => `${t.q},${t.r}`));
-  let chart = null, chartEdge = null;
+  let chart = null, chartEdge = null, holes = null;
   for (const t of tiles) { const c = project(t.q, t.r); hexInto(fill, c.x, c.y, 0); }
-  for (const loop of shape.loops) { loop.forEach(([x, y], i) => (i ? edge.lineTo(x, y) : edge.moveTo(x, y))); edge.closePath(); }
+  // the contour is the set's OUTER outline only: a tile inside the reach that the host cannot enter (a peak, a lake)
+  // gets no frame of its own (it read as a target), only a light hatch
+  const outer = outerLoops(shape.loops);
+  for (const loop of outer) { loop.forEach(([x, y], i) => (i ? edge.lineTo(x, y) : edge.moveTo(x, y))); edge.closePath(); }
+  const holeTiles = enclosed(tiles, inSet);
+  for (const h of holeTiles) { const c = project(h.q, h.r); hexInto(holes ??= new Path2D(), c.x, c.y, 0); }
+  const onOuter = new Set(outer.flatMap(loop => loop.map(([x, y]) => `${Math.round(x * 8)},${Math.round(y * 8)}`)));
   for (const t of A.tiles) {
     const c = project(t.hq, t.hr);
     if (TARGET_KINDS.includes(t.kind)) { if (!targets.has(t.kind)) targets.set(t.kind, new Path2D()); hexInto(targets.get(t.kind), c.x, c.y, REACH.target); }
     if ((t.lv ?? 3) >= 2) continue;
-    // a chart tile of the set, and the part of the contour that runs along it
+    // a chart tile of the set, and the part of the outer contour that runs along it
     hexInto(chart ??= new Path2D(), c.x, c.y, 0);
     const pts = hexPoints(c.x, c.y, 0);
     EDGE_OF.forEach(([dq, dr], k) => {
       if (inSet.has(`${t.hq + dq},${t.hr + dr}`)) return;
       const a = pts[(k + 5) % 6], b = pts[k];
+      if (!onOuter.has(`${Math.round(a[0] * 8)},${Math.round(a[1] * 8)}`) || !onOuter.has(`${Math.round(b[0] * 8)},${Math.round(b[1] * 8)}`)) return;
       (chartEdge ??= new Path2D()).moveTo(a[0], a[1]); chartEdge.lineTo(b[0], b[1]);
     });
   }
-  const v = { shape, fill, edge, chart, chartEdge, targets, maxD: shape.maxD, centre: A.hex ? project(A.hex.q, A.hex.r) : shape.centre };
+  const top = outer.flat().reduce((m, p) => (p[1] < m[1] ? p : m), [0, Infinity]);
+  const v = { shape, fill, edge, chart, chartEdge, holes, holeCount: holeTiles.length, targets, maxD: shape.maxD, centre: A.hex ? project(A.hex.q, A.hex.r) : shape.centre, top: Number.isFinite(top[1]) ? { x: top[0], y: top[1] } : null };
   shapes.set(A, v);
   return v;
 }
+/** The loops of an outline that are its outside (every loop that lies inside another is a hole): by area, the largest; a set in two parts keeps both. */
+export function outerLoops(loops) {
+  if (!loops?.length) return [];
+  const area = loop => { let a = 0; for (let i = 0; i < loop.length; i++) { const p = loop[i], q = loop[(i + 1) % loop.length]; a += p[0] * q[1] - q[0] * p[1]; } return a / 2; };
+  const inside = (pt, loop) => { let c = false; for (let i = 0, j = loop.length - 1; i < loop.length; j = i++) { const a = loop[i], b = loop[j]; if ((a[1] > pt[1]) !== (b[1] > pt[1]) && pt[0] < ((b[0] - a[0]) * (pt[1] - a[1])) / (b[1] - a[1]) + a[0]) c = !c; } return c; };
+  const sized = loops.map(loop => ({ loop, a: Math.abs(area(loop)) })).sort((x, y) => y.a - x.a);
+  return sized.filter((x, i) => !sized.slice(0, i).some(big => inside(x.loop[0], big.loop))).map(x => x.loop);
+}
+/** The tiles the set encloses without holding them: every tile next to the set from which no way leads out past the set's own reach. */
+export function enclosed(tiles, inSet = new Set(tiles.map(t => `${t.q},${t.r}`))) {
+  if (!tiles.length) return [];
+  const home = tiles.find(t => t.d === 0) ?? tiles[0];
+  const far = Math.max(...tiles.map(t => hexSteps(t, home))) + 1;
+  const DIRS = [[1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1], [1, -1]];
+  const state = new Map();   // "q,r" → true (a way out), false (enclosed)
+  const out = [];
+  for (const t of tiles) for (const [dq, dr] of DIRS) {
+    const start = { q: t.q + dq, r: t.r + dr }, sk = `${start.q},${start.r}`;
+    if (inSet.has(sk) || state.has(sk)) continue;
+    // flood the tiles outside the set from here: reaching the rim of the search means a way out
+    const seen = new Set([sk]), queue = [start];
+    let open = false;
+    for (let i = 0; i < queue.length && !open; i++) {
+      const c = queue[i];
+      if (hexSteps(c, home) >= far || state.get(`${c.q},${c.r}`) === true) { open = true; break; }
+      for (const [eq, er] of DIRS) { const n = { q: c.q + eq, r: c.r + er }, nk = `${n.q},${n.r}`; if (!inSet.has(nk) && !seen.has(nk)) { seen.add(nk); queue.push(n); } }
+    }
+    for (const k of seen) state.set(k, open);
+    if (!open) for (const c of queue) out.push(c);
+  }
+  return out;
+}
+const hexSteps = (a, b) => Math.max(Math.abs(a.q - b.q), Math.abs(a.r - b.r), Math.abs(a.q + a.r - b.q - b.r));
 /** The neighbour across the edge between corners k−1 and k of hexPoints (as map/ownland.mjs). */
 const EDGE_OF = [[1, -1], [1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1]];
 
@@ -338,7 +373,9 @@ export function paintActionGround(g, A, { zoom = 1, now = fxNow(), still = false
   g.strokeStyle = rgba(M.fill, 1);
   for (const { width, alpha } of INNER) { g.globalAlpha = alpha * a; g.lineWidth = width; g.stroke(S.edge); }
   g.restore();
-  if (S.chart) { g.globalAlpha = 0.11 * a; g.fillStyle = rgba(CHART_INK, 1); g.fill(S.chart); }
+  if (S.chart) { g.globalAlpha = 0.09 * a; g.fillStyle = rgba(CHART_INK, 1); g.fill(S.chart); }
+  // a tile inside the reach that the host cannot enter: a light hatch, no frame
+  if (S.holes) paintHatch(g, S.holes, S.shape, k, 0.2 * a);
   // the targets: a hexagon of their own
   for (const kind of TARGET_KINDS) {
     const path = S.targets.get(kind), C = palette[kind];
@@ -347,19 +384,36 @@ export function paintActionGround(g, A, { zoom = 1, now = fxNow(), still = false
     g.globalAlpha = 0.5 * a; g.strokeStyle = 'rgba(12,20,18,1)'; g.lineWidth = 4.2 * k; g.stroke(path);
     g.globalAlpha = 0.95 * a; g.strokeStyle = rgba(C.rim, 1); g.lineWidth = 2 * k; g.stroke(path);
   }
-  // the contour: its glow reaching outward, ink under it, the pale rim
-  g.strokeStyle = rgba(M.rim, 1);
-  g.globalAlpha = (0.1 + 0.06 * breath) * a; g.lineWidth = REACH.glow * 1.7 * k; g.stroke(S.edge);
-  g.globalAlpha = (0.2 + 0.1 * breath) * a; g.lineWidth = REACH.glow * 0.8 * k; g.stroke(S.edge);
-  g.globalAlpha = 0.5 * a; g.strokeStyle = 'rgba(10,26,24,1)'; g.lineWidth = (REACH.rim + 2.4) * k; g.stroke(S.edge);
-  g.globalAlpha = (0.9 + 0.1 * breath) * a; g.strokeStyle = rgba(M.rim, 1); g.lineWidth = REACH.rim * k; g.stroke(S.edge);
+  // the contour (the outer outline alone): a soft shade beside it where it runs over the chart, its glow reaching
+  // outward, a thin line of ink under it, the pale rim
   if (S.chartEdge) {
-    // along the chart: dark ink, with the pale line as a hair inside it
-    g.globalAlpha = 0.92 * a; g.strokeStyle = rgba(CHART_INK, 1); g.lineWidth = (REACH.rim + 1.6) * k; g.stroke(S.chartEdge);
-    g.globalAlpha = 0.85 * a; g.strokeStyle = rgba(M.rim, 1); g.lineWidth = 1 * k; g.stroke(S.chartEdge);
+    g.strokeStyle = rgba(CHART_INK, 1);
+    g.globalAlpha = 0.1 * a; g.lineWidth = REACH.glow * 1.9 * k; g.stroke(S.chartEdge);
+    g.globalAlpha = 0.16 * a; g.lineWidth = REACH.glow * 0.9 * k; g.stroke(S.chartEdge);
   }
+  g.strokeStyle = rgba(M.rim, 1);
+  g.globalAlpha = (0.1 + 0.06 * breath) * a; g.lineWidth = REACH.glow * 2.2 * k; g.stroke(S.edge);
+  g.globalAlpha = (0.22 + 0.1 * breath) * a; g.lineWidth = REACH.glow * k; g.stroke(S.edge);
+  g.globalAlpha = 0.55 * a; g.strokeStyle = 'rgba(10,34,30,1)'; g.lineWidth = (REACH.rim + REACH.under) * k; g.stroke(S.edge);
+  g.globalAlpha = (0.92 + 0.08 * breath) * a; g.strokeStyle = rgba(M.rim, 1); g.lineWidth = REACH.rim * k; g.stroke(S.edge);
   g.restore();
   return !rolled;
+}
+
+/** A light hatch over `path` (tiles the host cannot enter inside its reach): thin strokes of ink, clipped to the tiles. */
+function paintHatch(g, path, shape, k, alpha) {
+  if (!(alpha > 0) || !g.clip) return;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const t of shape.tiles) { const c = project(t.q, t.r); x0 = Math.min(x0, c.x); x1 = Math.max(x1, c.x); y0 = Math.min(y0, c.y); y1 = Math.max(y1, c.y); }
+  x0 -= RADIUS * 2; x1 += RADIUS * 2; y0 -= RADIUS * 2; y1 += RADIUS * 2;
+  g.save();
+  g.clip(path);
+  g.globalAlpha = alpha; g.strokeStyle = 'rgba(12,20,18,1)'; g.lineWidth = 1 * k;
+  g.beginPath();
+  const step = REACH.hatch * k * 1.6, h = y1 - y0;
+  for (let x = x0 - h; x < x1; x += step) { g.moveTo(x, y1); g.lineTo(x + h, y0); }
+  g.stroke();
+  g.restore();
 }
 
 /** Whether the roll-out of `A` is over at `now`. */
@@ -414,7 +468,6 @@ export function paintActionTop(g, A, { zoom = 1, now = fxNow(), still = false, d
   g.save();
   if (age < rollMs(S.maxD)) rollClip(g, S, age);
   g.globalAlpha = 0.55 * dim; g.strokeStyle = rgba(palette.move.rim, 1); g.lineWidth = 1.1 * k; g.stroke(S.edge);
-  if (S.chartEdge) { g.globalAlpha = 0.7 * dim; g.strokeStyle = rgba(CHART_INK, 1); g.lineWidth = 1.4 * k; g.stroke(S.chartEdge); }
   g.restore();
   const chosen = new Set(A.chosen ?? []);
   for (const t of A.tiles) {
@@ -493,34 +546,29 @@ export function paintSelectionTop(g, hex, { zoom = 1, own = false } = {}) {
 }
 
 /**
- * A route as a ribbon over the land: `hexes` `[{q, r}]` from the host to the
- * tile. Ink under it, the colour of what it leads to, light running along it
- * the way the host would go, an arrowhead at the end.
+ * A route as a ribbon over the land: `hexes` `[{q, r}]` from the host to the tile. One ribbon for one route, from
+ * the pointer's first look to the seal (the second review found it lilac under the pointer, cream in the order
+ * card and red once sealed): the effects' own flat band of cloth (fx/draw.mjs ribbon) in the nation's colour with
+ * a pale hem. While it is a proposal (`proposal`: under the pointer, in the order card) the cloth is half there
+ * and its stitches walk toward the far end; once sealed it lies solid and still. An arrowhead at the end.
  */
-export function paintRibbon(g, hexes, { zoom = 1, kind = 'move', own = false, now = fxNow(), still = false, palette = ACTION_COLOURS } = {}) {
+export function paintRibbon(g, hexes, { zoom = 1, faction = null, proposal = true, now = fxNow(), still = false } = {}) {
   if (!g?.save || !(hexes?.length > 1)) return;
   const pts = hexes.map(h => project(h.q, h.r));
-  const k = lineScale(zoom), col = own ? [243, 213, 138] : palette[kind]?.rim ?? palette.move.rim;
+  const px = lineScale(zoom), colour = FACTION_COLORS[faction] ?? YOU;
   const n = pts.length, a = pts[n - 2], b = pts[n - 1];
-  const ang = Math.atan2(b.y - a.y, b.x - a.x), head = 11 * k;
-  // the line stops short of the last tile's centre: the arrowhead and the tile's own mark have the room
-  const end = { x: b.x - Math.cos(ang) * head * 0.9, y: b.y - Math.sin(ang) * head * 0.9 };
-  const trace = () => {
-    g.beginPath(); g.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < n - 1; i++) { const m = { x: (pts[i].x + pts[i + 1].x) / 2, y: (pts[i].y + pts[i + 1].y) / 2 }; g.quadraticCurveTo(pts[i].x, pts[i].y, i === n - 2 ? end.x : m.x, i === n - 2 ? end.y : m.y); }
-    if (n === 2) g.lineTo(end.x, end.y);
-  };
+  const ang = Math.atan2(b.y - a.y, b.x - a.x), head = 12 * px;
+  // the cloth stops short of the last tile's centre: the arrowhead and the tile's own mark have the room
+  const end = { x: b.x - Math.cos(ang) * head * 1.1, y: b.y - Math.sin(ang) * head * 1.1 };
+  const path = smoothPath([...pts.slice(0, -1), end]);
   g.save();
-  g.lineCap = 'round'; g.lineJoin = 'round';
-  trace(); g.globalAlpha = 0.62; g.strokeStyle = 'rgba(12,20,18,1)'; g.lineWidth = 9.5 * k; g.stroke();
-  trace(); g.globalAlpha = 1; g.strokeStyle = rgba(col, 1); g.lineWidth = 5 * k; g.stroke();
-  g.setLineDash([5 * k, 11 * k]); g.lineDashOffset = still ? 0 : -(now / 34) * k;
-  trace(); g.globalAlpha = 0.9; g.strokeStyle = '#ffffff'; g.lineWidth = 1.8 * k; g.stroke();
-  g.setLineDash([]);
-  // the arrowhead
-  g.translate(b.x - Math.cos(ang) * head * 0.2, b.y - Math.sin(ang) * head * 0.2); g.rotate(ang);
-  g.beginPath(); g.moveTo(head * 0.55, 0); g.lineTo(-head * 0.75, -head * 0.72); g.lineTo(-head * 0.4, 0); g.lineTo(-head * 0.75, head * 0.72); g.closePath();
-  g.globalAlpha = 1; g.fillStyle = rgba(col, 1); g.fill(); g.strokeStyle = 'rgba(12,20,18,.85)'; g.lineWidth = 1.4 * k; g.stroke();
+  clothRibbon(g, path, { px, color: colour, level: proposal ? 0.9 : 1, sealed: !proposal, proposal, march: proposal && !still ? now / 1000 : 0 });
+  // the arrowhead: the cloth's colour, an ink line round it, a pale edge on its upper side
+  g.translate(b.x - Math.cos(ang) * head * 0.25, b.y - Math.sin(ang) * head * 0.25); g.rotate(ang);
+  g.beginPath(); g.moveTo(head * 0.6, 0); g.lineTo(-head * 0.8, -head * 0.74); g.lineTo(-head * 0.42, 0); g.lineTo(-head * 0.8, head * 0.74); g.closePath();
+  g.lineJoin = 'round';
+  g.globalAlpha = 1; g.fillStyle = colour; g.fill(); g.strokeStyle = 'rgba(26,15,12,.85)'; g.lineWidth = 1.3 * px; g.stroke();
+  g.beginPath(); g.moveTo(head * 0.6, 0); g.lineTo(-head * 0.8, -head * 0.74); g.strokeStyle = 'rgba(255,246,220,.75)'; g.lineWidth = 1.1 * px; g.stroke();
   g.restore();
 }
 
@@ -528,6 +576,7 @@ export function paintRibbon(g, hexes, { zoom = 1, kind = 'move', own = false, no
 const TAG_TONES = Object.freeze({
   plain: ['rgba(14,22,20,.93)', '#f4efe0', 'rgba(244,239,224,.5)'],
   you: ['rgba(14,22,20,.93)', YOU, YOU],
+  reach: ['rgba(14,30,27,.9)', '#d8f3ea', 'rgba(206,246,235,.6)'],
   refuse: ['rgba(60,16,10,.95)', '#ffe9e2', '#ff8a6a'],
   warn: ['rgba(46,34,8,.95)', '#ffe7ae', '#e0a83d'],
 });
@@ -580,5 +629,9 @@ export const NOTE_TEXT = Object.freeze({
   unopened: () => L`まだひらいていない土地です`,
   wait: () => L`ルールを読み込んでいます`,
 });
+/** What the pale line is, said once on the map beside it (the lit reach is the near reach, `n` tiles; a march may go further). */
+export const reachText = n => L`近く ${fmtNum(n)} マス · その先も選べます`;
+/** Where the reach's own words stand: the top of its contour (world px), or null. */
+export const reachTop = A => (typeof Path2D === 'undefined' ? null : shapeOf(A)?.top ?? null);
 /** The route's arrival, as the ribbon's tag says it. */
 export const arrivalText = bell => L`到着：ターン ${fmtNum(bell)}`;

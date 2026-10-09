@@ -46,7 +46,8 @@ import { L2, L3, openSurvey } from './survey.mjs';
 import { CHART, fxNow, paintCandidates, paintWedge } from './chart.mjs';
 import { wedgeBox } from './opening.mjs';
 import { STANDARD_AT, STANDARD_UNIT, landShape, landTiles, landingAt, paintBeacon, paintOwnBreath, paintOwnLand, paintOwnOutline, paintProvisionalTag, paintStandard, standardUnit, villageKey } from './ownland.mjs';
-import { NOTE_MS, actionPalette, actorText, arrivalText, blockText, paintActionGround, paintActionPulse, paintActionTop, paintReachDim, reachBox, rolledOut, paintHoverGround, paintHoverTop, paintRefusal, paintRibbon, paintSelectionGround, paintSelectionTop, paintTag } from './actions.mjs';
+import { reachSteps } from '../hud/reach.mjs';
+import { NOTE_MS, reachText, reachTop, actionPalette, actorText, arrivalText, blockText, paintActionGround, paintActionPulse, paintActionTop, paintReachDim, reachBox, rolledOut, paintHoverGround, paintHoverTop, paintRefusal, paintRibbon, paintSelectionGround, paintSelectionTop, paintTag } from './actions.mjs';
 import { edgePointer, mountHomePointer } from './homepointer.mjs';
 import { layoutLabels } from './labels.mjs';
 import { plateRise } from './plates.mjs';
@@ -120,6 +121,8 @@ export const PIECE_LABELS_MS = 200;
 export const REACH_FIT = 0.9;
 export const REACH_PAD = 14;
 export const REACH_ZOOM_FLOOR = 1.14;
+/** What the pale line of a reach is, is said beside it for this long after a host is selected (ms). */
+export const REACH_WORDS_MS = 7000;
 /** A place the page asks the map to fly to (`wylls:fly-to`) is seen at this zoom at least: its tiles, and what stands on them. */
 export const FLY_TO_ZOOM = 1.0;
 /** The still layers of a resting view are repainted at least this often (ms): a change nobody announced heals. */
@@ -364,9 +367,9 @@ export function paintGuide(ctx, g, zoom, label = '', part = null, { rise = null,
  * sealed for everyone else): a ribbon along the planned hexes to the
  * destination tile. `route = {hexes: [{q, r}], dest: {q, r} | null, arriveBell}`.
  */
-export function paintRoute(ctx, route, zoom, { now = fxNow(), still = false } = {}) {
-  // a ribbon in the viewer's gold (map/actions.mjs): the march is the viewer's own, and only this browser draws it
-  paintRibbon(ctx, route.hexes ?? [], { zoom, own: true, now, still });
+export function paintRoute(ctx, route, zoom, { now = fxNow(), still = false, faction = null } = {}) {
+  // the same ribbon as under the pointer and after the seal, in the nation's colour (map/actions.mjs): only this browser draws it
+  paintRibbon(ctx, route.hexes ?? [], { zoom, faction, proposal: true, now, still });
 }
 
 /**
@@ -1640,8 +1643,9 @@ export class FrontierMap {
   hoverRoute(F) {
     const r = F.src.hoverRoute, d = F.src.route?.dest ?? null;
     // (not over the destination already chosen: its own route is drawn there)
-    if (!r || !F.hover || !F.hoverLit || r.q !== F.hover.q || r.r !== F.hover.r || !(r.hexes?.length > 1) || (d && d.q === r.q && d.r === r.r)) return null;
-    return { ...r, kind: F.hoverLit.kind };
+    // (a tile beyond the lit reach may have a route too: the page asked the planner, and the ribbon answers the pointer there as well)
+    if (!r || !F.hover || r.q !== F.hover.q || r.r !== F.hover.r || !(r.hexes?.length > 1) || (d && d.q === r.q && d.r === r.r)) return null;
+    return { ...r, kind: F.hoverLit?.kind ?? 'move' };
   }
 
   /** The map's own answer to a tap (a refusal), while it shows: `{hex, text, age}` or null. */
@@ -1664,9 +1668,9 @@ export class FrontierMap {
       if (F.A) paintActionTop(ctx, F.A, { zoom: z, now: fx, still, dim: F.A.dest ? 0.5 : 1, palette: F.palette });
     }
     // the march being composed (this browser only), and the route to the lit tile under the pointer
-    if (src.route?.hexes?.length > 1) { paintRoute(ctx, src.route, z, { now: fx, still }); F.live = true; }
+    if (src.route?.hexes?.length > 1) { paintRoute(ctx, src.route, z, { now: fx, still, faction: F.faction }); F.live = true; }
     const hr = this.hoverRoute(F);
-    if (hr) { paintRibbon(ctx, hr.hexes, { zoom: z, kind: hr.kind, now: fx, still, palette: F.palette }); F.live = true; }
+    if (hr) { paintRibbon(ctx, hr.hexes, { zoom: z, faction: F.faction, proposal: true, now: fx, still }); F.live = true; }
     if (F.lod === 'tile') {
       if (F.hover) paintHoverTop(ctx, F.hover, { zoom: z });
       if (F.selHex) paintSelectionTop(ctx, F.selHex, { zoom: z, own: F.selOwn });
@@ -1726,6 +1730,10 @@ export class FrontierMap {
       const box = paintTag(ctx, c.x, y, `${actorText(A.actor)}${A.actors.length > 1 ? ` \u00b7 ${A.index + 1}/${A.actors.length}` : ''}`, { zoom: z, tone: 'you', place: 'below', gap: 3, anchor: c, pass });
       const why = blockText(A.actor);
       if (why && box) paintTag(ctx, c.x, box.y + box.h, why, { zoom: z, tone: 'warn', place: 'below', gap: 3, size: 12, anchor: c, pass });
+      // what the pale line is, said beside it for the first seconds of a selection: the near reach, and that a march may go further
+      const age = F.fx - A.t0, near = reachSteps(A.actor.stamina), top = A.actor.march?.ok && reachSteps(A.actor.stamina, 99) > near ? reachTop(A) : null;
+      if (top && (F.still || age < REACH_WORDS_MS)) paintTag(ctx, top.x, top.y, reachText(near), { zoom: z, tone: 'reach', place: 'above', gap: 7, size: 12, alpha: F.still ? 1 : Math.max(0, Math.min(1, (REACH_WORDS_MS - age) / 500)), anchor: top, pass });
+      if (top && !F.still && age < REACH_WORDS_MS) this.invalidateSoon(Math.max(40, Math.min(500, REACH_WORDS_MS - age)));
     }
     // when the march would arrive: on the composed route, or on the route under the pointer
     const hr = this.hoverRoute(F);
