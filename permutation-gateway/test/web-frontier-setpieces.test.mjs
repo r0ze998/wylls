@@ -17,14 +17,15 @@ import { createClock } from '../../permutation-server/web/frontier/fx/clock.mjs'
 import { createBus } from '../../permutation-server/web/frontier/fx/bus.mjs';
 import { createEngine } from '../../permutation-server/web/frontier/fx/engine.mjs';
 import { installEffects } from '../../permutation-server/web/frontier/fx/effects.mjs';
-import { installStage, playMoment, resultKind, orderResults, RESULT_ORDER, TOLL_BANNER_SECS, TOLL_BANNER_AT, TOLL_CLEAR, MOMENTS_AT_ONCE } from '../../permutation-server/web/frontier/fx/stage.mjs';
+import { installStage, playMoment, resultKind, orderResults, RESULT_ORDER, RESULT_GAP, RESULT_SECS, SCENE_REST, TOLL_BANNER_SECS, TOLL_BANNER_AT, TOLL_CLEAR, MOMENTS_AT_ONCE } from '../../permutation-server/web/frontier/fx/stage.mjs';
 import { PIECES, SEAL_PX } from '../../permutation-server/web/frontier/fx/pieces.mjs';
 import { stageBattle, verdictTitle, BATTLE_FAR_R } from '../../permutation-server/web/frontier/fx/battle.mjs';
 import { paintWater, paintClouds, paintSmoke, installIdle, IDLE_MIN_R } from '../../permutation-server/web/frontier/fx/idle.mjs';
 import { SAMPLES, DEMO_SCENES } from '../../permutation-server/web/frontier/fx/demo.mjs';
 import * as B from '../../permutation-server/web/frontier/people/battle.mjs';
 import * as M from '../../permutation-server/web/frontier/people/moments.mjs';
-import { RADIUS } from '../../permutation-server/web/map.mjs';
+import { RADIUS, project } from '../../permutation-server/web/map.mjs';
+import { tileHex } from '../../permutation-server/web/frontier/fgeo.mjs';
 import { setLang } from '../../permutation-server/web/lang.mjs';
 
 const WEB = fileURLToPath(new URL('../../permutation-server/web/frontier/', import.meta.url));
@@ -365,7 +366,11 @@ test('the turn\'s own results: arrivals, then battles, then warnings, played aft
     s.bus.emit('feed', { turn: 43, fresh });
     assert.equal(got.length, 1);
     assert.deepEqual(got[0].items.map(x => x.kind), ['arrival', 'battle', 'incoming']);
-    assert.deepEqual(got[0].items[0], { id: 'rv:77', kind: 'arrival', p: 3, q: 0, tile: 12, text: 'a', battle: null });
+    // (rewritten in wave 3: each result also says when its mark starts on the effects clock, how long it plays, and
+    // whether the page is to start a battle then; it was `{id, kind, p, q, tile, text, battle}` alone)
+    const t0 = s.clock.now();
+    assert.deepEqual(got[0].items[0], { id: 'rv:77', kind: 'arrival', p: 3, q: 0, tile: 12, text: 'a', battle: null, at: t0 + TOLL_CLEAR, secs: RESULT_SECS, plays: false, focus: false });
+    assert.deepEqual(got[0].items.map(x => +(x.at - t0 - TOLL_CLEAR).toFixed(3)), [0, RESULT_GAP, 2 * RESULT_GAP], 'one after another, a gap apart');
     assert.equal(got[0].turn, 43);
     // (wave 2: not before the banner has faded under a tenth of its opacity; it was 0.9 s before its end)
     assert.ok(Math.abs(got[0].startsIn - TOLL_CLEAR) < 1e-6 && TOLL_CLEAR >= TOLL_BANNER_AT + TOLL_BANNER_SECS - 0.05, 'they start when the toll\'s banner has gone');
@@ -384,6 +389,81 @@ test('the turn\'s own results: arrivals, then battles, then warnings, played aft
     assert.equal(s.fx.playing().length, before + 1);
     assert.ok(s.sounds.some(x => x[0] === 'tick'));
   } finally { s.done(); }
+});
+
+// Wave 3 (UX design 12.4): seen on the live fixture, a battle of the viewer's played at once at the poll, under the
+// toll's banner, beside its own crossed-swords mark, and a building's caption came down on its loss numbers.
+test('a battle the page plays by itself is its own result: it has its place after the banner, no mark beside it, later results and moments on its tile wait', () => {
+  const tile = { p: 2, q: 0, tile: 7 };
+  const world = (() => { const h = tileHex(2, 0, 7); return project(h.q, h.r); })();
+  const s = staged('full');
+  try {
+    const got = [];
+    s.bus.on('turn:results', p => got.push(p));
+    s.map.view = { x: world.x, y: world.y, zoom: 1.3 };   // the viewer is looking at the village
+    s.bus.emit('bell', { turn: 43 });
+    const t0 = s.clock.now();
+    const fresh = [
+      { id: 'in:44,2,0', kind: 'incoming', ...tile, text: 'w' },
+      { id: 'cl:2,0,41', kind: 'battle', ...tile, battle: { p: 2, q: 0, bell: 41 }, scene: 7, focus: false, text: 'b' },
+      { id: 'rv:77', kind: 'march', p: 2, q: 0, tile: 32, faction: 0, text: 'a' },
+    ];
+    s.bus.emit('feed', { turn: 43, fresh });
+    const [a, b, w] = got[0].items;
+    assert.deepEqual([a.kind, b.kind, w.kind], ['arrival', 'battle', 'incoming']);
+    assert.deepEqual([b.plays, b.secs, b.focus], [true, 7, false]);
+    assert.ok(Math.abs(b.at - (t0 + TOLL_CLEAR + RESULT_GAP)) < 1e-6, 'after the banner and the arrival');
+    assert.ok(Math.abs(w.at - (b.at + 7 + SCENE_REST)) < 1e-6, 'the warning on the same tile waits for the field to clear');
+    assert.ok(!s.fx.playing().includes('swords'), 'no crossed swords beside a scene that plays');
+    assert.ok(s.fx.playing().includes('unseal') && s.fx.playing().includes('alarm'));
+    // the page is told to start the scene when its turn comes, on the effects clock (not before)
+    const cues = [];
+    s.bus.on('turn:scene', x => cues.push([x.id, s.clock.now()]));
+    s.run((TOLL_CLEAR + RESULT_GAP - 0.2) * 1000);
+    assert.deepEqual(cues, []);
+    s.run(400);
+    assert.ok(cues.length === 1 && cues[0][0] === 'cl:2,0,41' && Math.abs(cues[0][1] - b.at) < 0.11, JSON.stringify(cues));
+    // a building finishes on that tile while the battle has it: its light and caption come when the battle is over
+    s.run(800);
+    s.bus.emit('moment', { kind: 'built', ...tile, site: 3, label: '農場', own: true });
+    // (the shaft of light is the built moment's alone: its start is the moment's)
+    const wait = s.fx.pending().find(e => e.name === 'pillar')?.in ?? null;
+    assert.ok(wait !== null && s.clock.now() + wait >= b.at + 7, `the moment is due in ${wait} s, the battle ends in ${b.at + 7 - s.clock.now()} s`);
+    // a second poll while the scene still plays: its results come after it
+    s.bus.emit('feed', { turn: 43, fresh: [{ id: 'rv:78', kind: 'march', p: 2, q: 0, tile: 30 }] });
+    assert.ok(got[1].fresh[0].at >= w.at + RESULT_GAP - 1e-6, 'after what the first poll is still playing');
+  } finally { s.done(); }
+  // out of sight, a battle is only marked (crossed swords, "see" on the card), unless the page sends the camera (`focus`)
+  for (const [focus, plays] of [[false, false], [true, true]]) {
+    const s2 = staged('full');
+    try {
+      const got = [];
+      s2.bus.on('turn:results', p => got.push(p));
+      s2.bus.emit('feed', { turn: 43, fresh: [{ id: 'cl:2,0,41', kind: 'battle', ...tile, battle: { p: 2, q: 0, bell: 41 }, scene: 7, focus }] });
+      assert.deepEqual([got[0].items[0].plays, s2.fx.playing().includes('swords')], [plays, !plays], `focus ${focus}`);
+    } finally { s2.done(); }
+  }
+  // a page that plays no battles by itself (the setting is off: no `scene`) gets the mark, as before
+  const s3 = staged('full');
+  try {
+    s3.map.view = { x: world.x, y: world.y, zoom: 1.3 };
+    s3.bus.emit('feed', { turn: 43, fresh: [{ id: 'cl:2,0,41', kind: 'battle', ...tile, battle: { p: 2, q: 0, bell: 41 } }] });
+    assert.ok(s3.fx.playing().includes('swords'));
+  } finally { s3.done(); }
+  // a staged battle holds its tiles too (the camera sent there from the card's "see"): a moment there waits
+  const s4 = staged('full');
+  try {
+    const sc = scene('win');
+    s4.map.view = { x: world.x, y: world.y, zoom: 1.3 };
+    s4.bus.emit('battle', { play: B.startBattle(sc, s4.clock.now(), 1), focus: false });
+    const t0 = s4.clock.now();
+    s4.bus.emit('moment', { kind: 'built', ...tile, site: 3, label: '農場', own: true });
+    const due = s4.fx.pending().find(e => e.name === 'pillar')?.in ?? null;
+    assert.ok(due !== null && due >= B.PHASE.end - 0.2, `due ${due} s after the battle began`);
+    s4.bus.emit('moment', { kind: 'built', p: 2, q: 0, tile: 30, site: 4, label: '農場', own: true });
+    const pillars = s4.fx.pending().filter(e => e.name === 'pillar').map(e => e.in).sort((a, b) => a - b);
+    assert.ok(pillars.length === 2 && pillars[0] < 1, 'a moment on another tile plays at once');
+  } finally { s4.done(); }
 });
 
 // ================================================================== own actions; seal and depart

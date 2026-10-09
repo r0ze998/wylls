@@ -343,7 +343,7 @@ export const TAG_SECS = 2.2;
  * above the centre where its leader starts, default 0.3), dur (default 2.2)}`: a caption of the map. A small
  * bell-metal tag in the serif stands above its tile on a thin brass leader; when the HUD or the edge of the
  * map is in the way the tag moves aside and the leader still points at the tile. A caption whose tile is not
- * on the map on screen is not shown.
+ * on the map on screen, or lies under a sheet, a drawer or the strip, is not shown.
  */
 function tag(a, env) {
   const { x, y } = pointOf(a);
@@ -381,7 +381,11 @@ function tag(a, env) {
       // the leader runs from the tile to the nearest point of the tag's edge
       const ex = Math.min(at.x + box.w / 2 - 6, Math.max(at.x - box.w / 2 + 6, A.x)), ey = Math.min(at.y + box.h / 2, Math.max(at.y - box.h / 2, A.y));
       const len = Math.hypot(ex - A.x, ey - A.y), ang = Math.atan2(ey - A.y, ex - A.x);
-      const st = s.stage, off = A.x < st.left - 24 || A.x > st.left + st.width + 24 || A.y < st.top - 24 || A.y > st.top + st.height + 24;
+      const st = s.stage, fb = s.free.bounds, GRACE = 10;
+      // (nor when a sheet, a drawer or the strip lies over its tile: on a phone with the order card open the refusal's
+      // tag stood on the sheet's title, its leader pointing into the sheet; the card says it there)
+      const covered = !!s.free.covered || (!!fb && fb.width > 0 && (A.x < fb.left - GRACE || A.x > fb.right + GRACE || A.y < fb.top - GRACE || A.y > fb.bottom + GRACE));
+      const off = covered || A.x < st.left - 24 || A.x > st.left + st.width + 24 || A.y < st.top - 24 || A.y > st.top + st.height + 24;
       // (not on the map on screen: the tag takes no place on the page at all, so its leader never reaches past the screen's edge)
       if (el.hidden !== off) el.hidden = off;
       if (off) { setVars(el, { '--fx-o': '0.000' }); return; }

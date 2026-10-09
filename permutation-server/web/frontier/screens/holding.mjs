@@ -16,12 +16,12 @@ import { html, raw } from '../../util.mjs';
 import { icon, RESOURCE_ICON } from '../hud/icons.mjs';
 import { L, Lh, fmtNum } from '../../lang.mjs';
 import { RESOURCES, RESOURCE_ORDER, UNITS, TIERS, BUILDINGS, HOLDING_STATES, errorText, factionName } from '../fi18n.mjs';
-import { storesAt, holdingFacts, BUILD_ITEMS, UNIT_ORDER, SETTLER, actionBlocks, baseProduction, ticketTimes } from '../fland.mjs';
+import { storesAt, holdingFacts, BUILD_ITEMS, UNIT_ORDER, SETTLER, actionBlocks, baseProduction, ticketTimes, queueItem } from '../fland.mjs';
 import { holdingName } from '../people/ui.mjs';
 import { miniCardUrl, MINI_KINDS } from '../people/minis.mjs';
 import { span, NEAR_FULL_SECS } from '../hud/hud.mjs';
 import { termButton } from '../hud/glossary.mjs';
-import { inTime, row, timeHtml } from './shell.mjs';
+import { row, dueHtml } from './shell.mjs';
 import { countdown } from '../clock.mjs';
 import { cardHead, label, fold, chip, stamp } from './parts.mjs';
 import { villageDrawn, provinceCoords } from '../hud/place.mjs';
@@ -51,7 +51,8 @@ const costText = cost => cost.map((c, i) => (c ? `${RESOURCES[RESOURCE_ORDER[i]]
 export function provisionalNote(FS, h) {
   let by = null;
   try { by = FS?.clock && Number.isInteger(h?.ticketBell) ? ticketTimes(FS.clock, h.ticketBell).cohortEndsBy : null; } catch { by = null; }
-  return by ? Lh`同じターンの申し込みがすべて決まると確定します（遅くとも ${timeHtml(by)}）。` : L`同じターンの申し込みがすべて決まると確定します（遅くとも申し込みから約 4 時間）。`;
+  // (the time says what it is: how long from now, then the clock; `dueHtml`)
+  return by ? Lh`同じターンの申し込みがすべて決まると確定します。遅くとも${dueHtml(by, FS.chain?.now?.() ?? null)}です。` : L`同じターンの申し込みがすべて決まると確定します（遅くとも申し込みから約 4 時間）。`;
 }
 
 export function blockedLine(blocks) {
@@ -76,7 +77,7 @@ export function buildCards(h, stores) {
   return BUILD_ITEMS.map(b => {
     const r = RESOURCE_ORDER.indexOf(b.resource);
     const above = r >= 0 && h.production?.[r] !== undefined ? Number(BigInt(h.production[r]) - (base[r] ?? 0n)) / 1000 : 0;
-    const queued = (h.queue ?? []).filter(x => Number(x.doneAt) > 0 && x.kind === b.item).length;
+    const queued = (h.queue ?? []).filter(x => Number(x.doneAt) > 0 && queueItem(x) === b.item).length;
     const copies = (b.perHour > 0 ? Math.max(0, Math.round(above / b.perHour)) : 0) + queued;
     const short = (b.cost ?? []).map((c, i) => ({ resource: RESOURCE_ORDER[i], need: c - (have[RESOURCE_ORDER[i]] ?? 0) })).filter(x => x.need > 0);
     return { item: b.item, resource: b.resource, perHour: b.perHour, cost: b.cost, copies, secs: buildSecs(copies), short };
@@ -177,7 +178,7 @@ export function render(FS) {
 
   const build = html`<section class="vcard" id="hp-build" aria-labelledby="hp-build-h">
     ${cardHead({ id: 'hp-build-h', ic: 'hammer', title: L`建設`, side: html`<span class="c-count${queueFull ? ' c-count-warn' : ''}">${L`建設中 ${fmtNum(building.length)}/4`}</span>` })}
-    ${f.queue.length ? html`<ul class="queue">${f.queue.map(q => html`<li>${icon(q.doneIn > 0 ? 'hourglass' : 'check')}<strong>${BUILDINGS[BUILD_ITEMS[q.kind]?.resource] ?? `#${q.kind}`}</strong><span class="queue-t">${q.doneIn > 0 ? L`あと ${span(q.doneIn)}` : L`完成`}</span></li>`)}</ul>` : html`<p class="muted">${L`建設の列は空です`}</p>`}
+    ${f.queue.length ? html`<ul class="queue">${f.queue.map(q => html`<li>${icon(q.doneIn > 0 ? 'hourglass' : 'check')}<strong>${BUILDINGS[BUILD_ITEMS[queueItem(q)]?.resource] ?? `#${q.kind}`}</strong><span class="queue-t">${q.doneIn > 0 ? L`あと ${span(q.doneIn)}` : L`完成`}</span></li>`)}</ul>` : html`<p class="muted">${L`建設の列は空です`}</p>`}
     <ul class="build-list">${shown.map(c => buildRow(c, blockedOf(c)))}</ul>
     ${rest.length ? fold('v-build', L`ほかの建物（${fmtNum(rest.length)}）`, html`<ul class="build-list">${rest.map(c => buildRow(c, blockedOf(c)))}</ul>`) : ''}
     ${queueFull ? html`<p class="blocked">${L`建設の列がいっぱいです（4つまで）`}</p>` : ''}
@@ -215,9 +216,9 @@ export function render(FS) {
     ${fold('v-facts', html`${icon('scroll')}${L`村の詳細`}`, html`<dl class="facts">
       ${row(L`場所`, provinceCoords(h.p, h.q))}
       ${row(L`段階`, html`${TIERS[h.tier] ?? h.tier} · ${HOLDING_STATES[f.state]}${termButton('tier')}`)}
-      ${f.state === 'provisional' ? row(L`確定`, f.finalTs ? Lh`早くても ${timeHtml(f.finalTs)} 以降に確定します。` : L`同じターンの申し込みがすべて決まってから`) : ''}
+      ${f.state === 'provisional' ? row(L`確定`, f.finalTs ? Lh`早くて${dueHtml(f.finalTs, FS.chain?.now?.() ?? null)}` : L`同じターンの申し込みがすべて決まってから`) : ''}
       ${f.shieldLeft > 0 ? row(L`保護`, L`残り ${countdown(f.shieldLeft)}`) : ''}
-      ${row(L`休眠まで`, html`${f.dormantIn > 0 ? inTime(f.dormantIn) : L`休眠中`}${termButton('dormant')}`)}
+      ${row(L`休眠まで`, html`${f.dormantIn > 0 ? L`あと ${span(f.dormantIn)}` : L`休眠中`}${termButton('dormant')}`)}
     </dl>`)}</section>`;
 
   return [head, stores, build, troops, others];

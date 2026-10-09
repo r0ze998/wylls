@@ -211,7 +211,9 @@ function sealed(a, env) {
 }
 
 const figure = (ctx, x, y, s, kind, o) => stood(ctx, x, y, () => figureFlat(ctx, x, y, s, kind, o));
-const figureFlat = (ctx, x, y, s, kind, o) => { if (!paintMini(ctx, x, y, s, kind, o)) { baseDisc(ctx, x, y, s, o.faction, { alpha: o.alpha }); unitFigure(ctx, x, y - s * 0.02, s, kind, o); } };
+/** How much of a miniature's baked cast shadow the figures of a file or a muster keep (people/minis.mjs `shade`): they stand close, the full shadows ran into one dark band. */
+export const FILE_SHADE = 0.45;
+const figureFlat = (ctx, x, y, s, kind, o) => { if (!paintMini(ctx, x, y, s, kind, { shade: FILE_SHADE, ...o })) { baseDisc(ctx, x, y, s, o.faction, { alpha: o.alpha }); unitFigure(ctx, x, y - s * 0.02, s, kind, o); } };
 
 /** How long the departing column is on the map (s), and how far along its route it walks (tiles). */
 export const COLUMN_SECS = 2.8;

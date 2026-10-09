@@ -11,7 +11,7 @@ import { html, raw } from '../../util.mjs';
 import { L, Lh, fmtNum, lang } from '../../lang.mjs';
 import { factionName, DOCTRINE_NAMES, HOLDING_STATES, failureText } from '../fi18n.mjs';
 import { freeByWedge, ticketTimes, homeWedge } from '../fland.mjs';
-import { timeHtml } from './shell.mjs';
+import { dueHtml } from './shell.mjs';
 import { LEADERS, leaderFigure, leaderHex, leaderSvg, DOCTRINE_PITCH } from '../people/leaders.mjs';
 import { placeName } from '../people/identity.mjs';
 import { holdingName } from '../people/ui.mjs';
@@ -21,6 +21,7 @@ import { provinceName } from '../hud/place.mjs';
 import { countdown } from '../clock.mjs';
 import { cardHead, stamp, fold, ring } from './parts.mjs';
 import { bellStart, BELL_SECS } from '../clock.mjs';
+import { leaderWords } from '../map/waitview.mjs';
 
 const FACTIONS = [0, 1, 2, 3, 4, 5];
 /** A candidate place by the name a village there would carry, never by its number or its coordinates (the row flies there). */
@@ -79,10 +80,10 @@ export function renderNations(FS) {
       ${FS.wallet ? html`<button type="button" class="btn primary nc-btn" data-act="join" ${raw(pick ? '' : 'disabled')}>${icon('banner')}${pick ? L`${pick.name}で始める` : L`国を選んで始める`}</button>`
         : html`<div class="nc-wallet"><span class="nc-wallet-k">${L`始めるには、先にウォレットをつなぎます。`}</span>${walletButtons(FS)}</div>`}
     </div>
-    <p class="nc-note">${FS.wallet ? L`ウォレットが2回、確認を求めます。ゲーム内の鍵を作るための署名と、参加のための署名です。` : L`ウォレットを使うのは、参加の署名のときだけです。そのあとの操作はこの端末のゲーム内の鍵が署名し、手数料はゲーム側が立て替えます（テスト用の SOL で、価値はありません）。`}${pick ? html` ${L`村を置ける場所 約 ${fmtNum(pick.free)}`}` : ''}</p>
+    <p class="nc-note">${FS.wallet ? L`ウォレットが2回、確認を求めます。ゲーム内の鍵を作るための署名と、参加のための署名です。` : L`ウォレットを使うのは、参加の署名のときだけです。そのあとの操作はこの端末のゲーム内の鍵が署名し、手数料はゲーム側が立て替えます（テスト用の SOL で、価値はありません）。`}${pick ? html` ${L`この国の土地には、村を置ける場所があと約 ${fmtNum(pick.free)} あります。`}` : ''}</p>
   </div>`;
   return html`<section class="nations" aria-labelledby="join-faction">
-    <header class="nations-head"><h3 id="join-faction">${L`国を選ぶ`}</h3><p>${L`六つの国が、鐘のまわりの辺境を分け合っています。国で決まるのは、村を置く方角と教義です。賞金はありません。`}</p></header>
+    <header class="nations-head"><h3 id="join-faction">${L`国を選ぶ`}</h3><p>${L`六つの国が、鐘のまわりの辺境を分け合っています。国で決まるのは、村を置く方角と教義です。`}</p></header>
     <ul class="banners">${banners}</ul>
     ${confirm}
   </section>`;
@@ -142,10 +143,15 @@ export function waitClock(FS) {
 export const waitNote = c => (c?.kind !== 'result' ? '' : c.tolled ? L`鐘が鳴りました。約 ${fmtNum(c.after)} 分で決まります。` : L`ターン ${fmtNum(c.turn)} の鐘です。鐘のあと約 ${fmtNum(c.after)} 分で決まります。`);
 
 /** The waiting view's head: who the viewer joined, and the state in one line (the card's title). */
-function waitHead(FS, title) {
+function waitHead(FS, title, state = null) {
   const f = FS.citizen?.faction;
+  // the leader's line (map/waitview.mjs leaderWords: the words the map writes under the nation's standard). A phone's
+  // map has no room for them beside the candidate sites, so the card says them there (the stylesheet shows this line
+  // on phones only; app.mjs tells the map with `wait.wordsSaid`, and the map then leaves its own out)
+  const say = Number.isInteger(f) ? leaderWords(f, state) : null;
   return html`<div class="wait-top">${Number.isInteger(f) ? html`<span class="wait-face">${raw(leaderFigure(f))}</span>` : ''}
-    <div class="wait-who">${Number.isInteger(f) ? html`<span class="wait-nation">${crestSvg(f, { size: 20 })}${L`${factionName(f)}に加わりました`}</span>` : ''}<h3 id="join-sites">${title}</h3></div></div>`;
+    <div class="wait-who">${Number.isInteger(f) ? html`<span class="wait-nation">${crestSvg(f, { size: 20 })}${L`${factionName(f)}に加わりました`}</span>` : ''}<h3 id="join-sites">${title}</h3></div></div>
+    ${say ? html`<p class="wait-says"><span class="wait-says-t">${L`「${say.text}」`}</span><span class="wait-says-who">— <span data-name>${say.who}</span></span></p>` : ''}`;
 }
 /** The one clock, large: what it counts to, the figure, and (for a result) the turn whose bell decides it. */
 function waitClockBox(c, label) {
@@ -153,7 +159,8 @@ function waitClockBox(c, label) {
   return html`<div class="turn-wait"><span class="turn-ring" data-wait-ring>${ring(c.share)}${icon('bell', 'turn-ring-ic')}</span>
     <div class="turn-wait-t"><span class="turn-wait-k">${label}</span><strong class="turn-wait-v" data-wait-clock>${c.text}</strong>${c.kind === 'result' ? html`<span class="turn-wait-n" data-wait-note>${waitNote(c)}</span>` : ''}</div></div>`;
 }
-const practiceOffer = () => html`<div class="wait-offer"><p>${L`待つあいだに、練習で戦ってみましょう。何も送らず、何も失いません。`}</p>
+// (two sentences, marked apart: a phone's sheet keeps the button and the second one, so the offer stands in the first sight of the view)
+const practiceOffer = () => html`<div class="wait-offer"><p><span class="wo-lead">${L`待つあいだに、練習で戦ってみましょう。`}</span><span class="wo-note">${L`何も送らず、何も失いません。`}</span></p>
   <button type="button" class="btn" data-act="practice-open">${icon('swords')}${L`待つあいだに練習で戦ってみる`}</button></div>`;
 const howFold = body => fold('wait-how', L`村の場所の決まり方`, body);
 const HOW_PLACE = () => html`<p class="muted">${L`場所は選びません。同じターンの申し込みは、そのターンのくじでまとめて公平に決まり、村は次のターンの鐘のあと（約11〜21分後）に決まります。`}</p>
@@ -173,7 +180,7 @@ function renderPlacing(FS) {
     const why = a.state === 'nofree' ? L`近くに空いた場所がありません` : L`受け付けられませんでした`;
     const more = a.state === 'nofree' ? L`新しい輪がひらけば、そこも探します。` : failureText({ code: a.code });
     return html`<section class="vcard wait-card wait-stuck" aria-labelledby="join-sites">
-      ${waitHead(FS, L`まだ村の申し込みができていません`)}
+      ${waitHead(FS, L`村の申し込みが通っていません`, a.state)}
       <div class="wait-state"><p class="wait-warn" role="alert"><span class="warn-chip">${icon('alert')}${why}</span><span class="wait-why">${more}</span></p>
         <div class="actions wait-acts"><button type="button" class="btn primary" data-act="auto-ticket">${icon('return')}${L`いますぐやり直す`}</button></div>
         <p class="wait-auto">${icon('hourglass')}<span>${c ? Lh`次のターンに自動でやり直します（あと ${html`<span class="wait-left" data-wait-clock>${c.text}</span>`}）` : L`次のターンに自動でやり直します`}</span></p></div>
@@ -188,7 +195,7 @@ function renderPlacing(FS) {
     room: () => L`空いた場所はありますが、このターンの申し込みの枠がいっぱいです。次のターンに自動で出します。`,
   }[a?.state] ?? (() => L`まもなく村の申し込みを自動で出します。`);
   return html`<section class="vcard wait-card" aria-labelledby="join-sites">
-    ${waitHead(FS, again ? L`新しい村の場所を探しています` : L`村の申し込みを出しています`)}
+    ${waitHead(FS, again ? L`新しい村の場所を探しています` : L`村の申し込みを出しています`, a?.state ?? null)}
     <div class="wait-state"><p role="status">${line()}</p>
       ${a?.state === 'waiting' && FS.landRec?.autoTryFailed ? html`<div class="actions wait-acts"><button type="button" class="btn" data-act="auto-ticket">${icon('return')}${L`いますぐやり直す`}</button></div>` : ''}</div>
     ${waitClockBox(c, L`次のターンまで`)}
@@ -206,7 +213,7 @@ function renderTicket(FS) {
   const t = FS.land.ticket;
   const c = waitClock(FS);
   return html`<section class="vcard wait-card" aria-labelledby="join-sites">
-    ${waitHead(FS, L`村の場所が決まるのを待っています`)}
+    ${waitHead(FS, L`村が決まるのを待っています`, 'ticket')}
     ${waitClockBox(c, L`村が決まる鐘まで`)}
     <div class="wait-state"><p role="status">${L`村の申し込みは済んでいます。候補地のどれかに、あなたの最初の村ができます。`}</p></div>
     <p class="c-label"><span>${L`村の候補地`}</span></p>
@@ -222,7 +229,7 @@ function renderProvisional(FS) {
   const times = FS.clock && h ? ticketTimes(FS.clock, h.ticketBell) : null;
   return html`<section class="vcard" aria-labelledby="join-prov">${cardHead({ id: 'join-prov', ic: 'home', title: h ? holdingName(h) : HOLDING_STATES.provisional, side: stamp(HOLDING_STATES.provisional, 'warn') })}
     ${h ? html`<p>${L`${provinceName(FS, h.p, h.q, { own: false })}に、あなたの村ができました。`}</p>` : ''}
-    ${times ? html`<p>${Lh`同じターンの申し込みがすべて決まると確定します（遅くとも ${timeHtml(times.cohortEndsBy)}）。それまでは、より順位の高い申し込みに押し出されることがあります。`}</p>` : ''}
+    ${times ? html`<p>${Lh`同じターンの申し込みがすべて決まると確定します。遅くとも${dueHtml(times.cohortEndsBy, FS.chain?.now?.() ?? null)}です。`} ${L`それまでは、より順位の高い申し込みに押し出されることがあります。`}</p>` : ''}
     <p class="muted">${L`仮の村でも収穫・建設・訓練はできます（押し出されると失われます）。軍勢の編成・出発・探索は確定してからです。`}</p></section>`;
 }
 

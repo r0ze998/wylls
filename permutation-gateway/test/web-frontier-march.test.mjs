@@ -260,7 +260,7 @@ test('the WASM planner, the earliest bell and `reachable` feed the composer and 
   assert.match(String(incomingScreen.render({ incoming: null })), /ルールを読み込めていないため、来襲の恐れを調べられません。/);
   assert.match(String(incomingScreen.render({ incoming: [] })), /届きそうな他国の軍勢は出ていません/);
   setLang('en');
-  assert.match(String(incomingScreen.render({ incoming: w })), /On turn 16, up to 1 host \(5,000 troops\) may arrive at [^<]+\. Where they are going is sealed\./);
+  assert.match(String(incomingScreen.render({ incoming: w })), /On turn 16, up to 1 host \(5,000 troops\) may arrive (at|in|on) the [^<]+\. Where they are going is sealed\./);   // (wave 3: a place inside a sentence takes its article and its preposition)
   assert.match(String(incomingScreen.render({ incoming: [{ ...w[0], hosts: 3 }] })), /up to 3 hosts/);
   setLang('ja');
 });

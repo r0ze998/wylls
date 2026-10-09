@@ -185,7 +185,12 @@ export function render(FS, terrainOf, activities = null) {
   if (held && site.garrison !== null) chips.push(chip(L`守備隊 ${fmtNum(site.garrison)}`, '', 'shield'));
   if (site?.shield) chips.push(html`${chip(L`保護中（攻撃されません）`, 'info', 'shield')}`);
   if (m.clash) chips.push(chip(L`このターンに衝突あり`, 'bad', 'swords'));
-  for (const r of m.relation) chips.push(html`<span class="chip ${r.friendly ? 'chip-ok' : 'chip-bad'}">${swatch(r.faction)}${factionName(r.faction)} ${r.friendly ? L`友好` : L`敵対`}</span>`);
+  // every chip explains itself (UX design 12.6; the second check: the viewer's own village carried 「シンダー 敵対」 with
+  // nothing to say whose stance toward whom). On another nation's village the chip says how that nation stands toward
+  // the viewer's; how the other nations of the province stand is a fact of the province and waits under "details".
+  const stance = r => (r.friendly ? L`あなたの国と友好` : L`あなたの国と敵対`);
+  const theirs = held && !site.mine ? m.relation.find(r => r.faction === site.faction) ?? null : null;
+  if (theirs) chips.push(chip(stance(theirs), theirs.friendly ? 'ok' : 'bad', theirs.friendly ? 'check' : 'swords'));
   const acts = inspectActions(FS, m);
   const main = acts.filter(a => a.act !== 'pin-toggle'), pin = acts.find(a => a.act === 'pin-toggle');
   const btn = (a, cls = '') => html`<button type="button" class="btn small${a.primary ? ' primary' : ''}${cls}" data-act="${a.act}" ${dataAttrs(a.data)}>${a.text}</button>`;
@@ -197,6 +202,7 @@ export function render(FS, terrainOf, activities = null) {
   // (the label is "position": in English "Ring" beside "Ring 2" read as a doubled word); the coordinates stand here and nowhere above
   facts.push(html`<div class="row"><dt>${L`位置`}</dt><dd>${provinceCoords(m.p, m.q)} · ${m.opened ? L`第${m.ring}輪` : L`第${m.ring}輪（まだひらいていません）`}${termButton('ring')}</dd></div>`);
   if (terrain) facts.push(html`<div class="row"><dt>${L`地形`}</dt><dd>${terrain}</dd></div>`);
+  if (m.relation.length) facts.push(html`<div class="row"><dt>${L`この州に村を持つほかの国`}</dt><dd>${m.relation.map(r => html`<span class="nowrap">${swatch(r.faction)}${r.friendly ? L`${factionName(r.faction)}（あなたの国と友好）` : L`${factionName(r.faction)}（あなたの国と敵対）`}</span> `)}</dd></div>`);
   if (!t && m.owners.length) facts.push(html`<div class="row"><dt>${L`村を持つ国`}</dt><dd>${m.owners.map(f => html`<span class="nowrap">${swatch(f)}${factionName(f)}</span> `)}</dd></div>`);
   return html`<section class="inspect" aria-labelledby="inspect-title">
     ${cardHead({ id: 'inspect-title', ic: mark, pic: held ? villageDrawn(site.faction, site.tier ?? 0) : null, title: name ?? provinceName(FS, m.p, m.q), sub: name ? where : (m.opened ? L`第${m.ring}輪` : L`第${m.ring}輪（まだひらいていません）`), side })}

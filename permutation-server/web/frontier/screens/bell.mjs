@@ -8,7 +8,7 @@
 // chain's. The line of sponsored actions left too: the strip shows it only
 // when it runs low, and this sheet is where it is read at any time.
 import { html } from '../../util.mjs';
-import { L, fmtNum } from '../../lang.mjs';
+import { L, Lh, fmtNum } from '../../lang.mjs';
 import { PIPELINE_TEXT } from '../fi18n.mjs';
 import { pipeline, countdown } from '../clock.mjs';
 import { timeHtml, quotaChip } from './shell.mjs';
@@ -44,7 +44,7 @@ export function render(FS, { bare = false } = {}) {
   const body = html`${quotaChip(FS.quota) ? html`<p class="quota-line" data-quota-line>${icon('seal')}${quotaChip(FS.quota)}</p>` : ''}
     ${Math.abs(offset) > 2 ? html`<p class="muted">${L`この端末の時計はチェーンより ${Math.round(offset)} 秒ずれています`}</p>` : ''}
     <ul class="bells">${rows.map(r => html`<li><div class="bell-row"><strong>${L`ターン ${fmtNum(r.bell)}`}</strong><span class="bell-why">${WHY[r.why] ? WHY[r.why]() : ''}${Number.isInteger(r.region) ? html` · ${L`地域 ${r.region}`}` : ''}</span>${chip(STATE_SHORT[r.state]?.() ?? r.state, STATE_TONE[r.state] ?? '')}</div>
-      <p class="bell-what">${sentence(PIPELINE_TEXT[r.state])}${r.until !== null && r.until !== undefined ? html` <span class="bell-until">${countdown(r.until - now)} · ${timeHtml(r.until)}</span>` : ''}</p>
+      <p class="bell-what">${sentence(PIPELINE_TEXT[r.state])}${r.until !== null && r.until !== undefined ? html` <span class="bell-until">${Lh`次の段階まで ${countdown(r.until - now)}（${timeHtml(r.until)} ごろ）`}</span>` : ''}</p>
       ${r.archived ? html`<p class="muted">${L`保管庫から読んでいます`}</p>` : ''}</li>`)}</ul>
     ${fold('bell-how', L`ターンのしくみ`, html`<p>${L`進軍は、到着のターンが始まる前に封をして送ります。守り手は、ターンの始まりにそこにいた軍勢で決まります。ターンが終わると封を開ける鍵（公開の乱数）が出て、誰でも封を開けられるようになります。封を開ける受付は決まった時間で終わり、そのあとに出る公開の乱数で衝突が決まります。`}</p>`)}`;
   const head = { id: 'bell-title', ic: 'bell', title: L`ターンの進み具合`, sub: started ? L`いまはターン ${fmtNum(current)}` : '', side: termButton('bell') };

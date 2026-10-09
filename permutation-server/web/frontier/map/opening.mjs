@@ -24,10 +24,19 @@ import { RADIUS } from '../../map.mjs';
 import { TOWER } from './belltower.mjs';
 import { candidatesBox } from './waitview.mjs';
 
-/** The hero zoom: the viewer's own town is some 180 CSS px wide on a desktop (a hex about 115 px); a little less on a phone, whose picture is narrow (never below the zoom at which every village carries its name tag). */
-export const heroZoom = (dpr = 1) => (dpr >= 1.5 ? 1.3 : 1.5);
-/** The opening never waits longer than this for the viewer's record (ms); then the world view. */
-export const OPEN_WAIT_MS = 4000;
+/**
+ * The hero zoom (UX brief §12.1): the camera stands a little further back than it did, a hex some 85 CSS px wide at
+ * the middle of the picture (it was 115), so the far rows and the horizon they end in are in the everyday frame; a
+ * little less on a phone, whose picture is narrow (never below the zoom at which every village carries its plate and
+ * badges: map/plates.mjs PLATE_BADGES_R).
+ */
+export const heroZoom = (dpr = 1) => (dpr >= 1.5 ? 1.1 : 1.15);
+/**
+ * The opening never waits longer than this for the viewer's record (ms); then the world view. A safety net only: the
+ * page says the viewer is known as soon as the record has answered or failed, and until then the map shows the bare
+ * sheet on its table (UX brief §12.3). It was 4 s: on a slow connection the whole world came up first.
+ */
+export const OPEN_WAIT_MS = 15000;
 /** How much higher than its target the opening starts (zoom factor). Behind the title the camera waits there (the title is opaque: fmap.mjs open). */
 export const OPEN_FROM = 0.5;
 /**
@@ -50,8 +59,12 @@ export function lookPoint(faction, ringsOpen) {
   const c = provincePixel(first.p, first.q);
   return { x: c.x * LOOK.reach, y: c.y * LOOK.reach };
 }
-/** Candidate sites are never framed from further out than this (the far bitmaps still show their painted discs). */
-export const CANDIDATES_MIN = 0.3;
+/**
+ * Candidate sites are never framed from further out than this (the far bitmaps still show their painted discs, and a
+ * site's plate is drawn down to a hex radius of 9 px). It was 0.3, measured against at least 40% of the picture's
+ * height; a phone's wait sheet leaves a third, and the sites are now fitted into what is really left (`room` below).
+ */
+export const CANDIDATES_MIN = 0.21;
 const RANK = { fit: 0, frame: 0, wedge: 1, candidates: 2, home: 3 };
 
 /**
@@ -109,7 +122,10 @@ export function openingPlan(hint, src, size, { inset = null, dpr = 1 } = {}) {
   const sites = (src?.survey?.candidates?.length ? src.survey.candidates : h.candidates ?? []).filter(s => Number.isInteger(s?.p) && Number.isInteger(s?.q));
   const cb = candidatesBox(sites);
   if (cb) {
-    const zoom = Math.max(CANDIDATES_MIN, Math.min(hero, 0.9 * Math.min(free.width / (cb.x1 - cb.x0), free.height / (cb.y1 - cb.y0))));
+    // (in the height that is really free: `freeBox` never goes below 40% of the picture, and under a phone's wait
+    // sheet, which leaves a third, the first site's plate stood under the dial)
+    const room = Math.max(120, Math.min(free.height, size.height - (inset?.top ?? 0) - (inset?.bottom ?? 0)));
+    const zoom = Math.max(CANDIDATES_MIN, Math.min(hero, 0.9 * Math.min(free.width / (cb.x1 - cb.x0), room / (cb.y1 - cb.y0))));
     return plan('candidates', { x: (cb.x0 + cb.x1) / 2, y: (cb.y0 + cb.y1) / 2 }, zoom);
   }
   if (Number.isInteger(h.faction) && ['joined', 'ticket', 'refugee'].includes(h.stage)) {

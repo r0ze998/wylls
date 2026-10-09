@@ -28,6 +28,7 @@ import { displayName } from '../people/identity.mjs';
 import { avatarSvg, sigilPath, FACTION_FILL, FACTION_DARK, FACTION_ON } from '../people/avatar.mjs';
 import { icon, RESOURCE_ICON } from './icons.mjs';
 import { tileWhat, provinceName } from './place.mjs';
+import { viewerState } from './drawer.mjs';
 
 /** Seconds before the bell at which the pill turns amber, then red. */
 export const URGENCY = Object.freeze({ warn: 120, crit: 30 });
@@ -348,6 +349,14 @@ export function renderPlate(FS) {
   if (FS.mode !== 'play') return '';
   const faction = FS.citizen?.faction;
   const joined = Number.isInteger(faction);
+  // until the viewer's record has answered, the plate says only that it is being read (UX design 12.3): no state
+  // of the game, no button that depends on the answer
+  const known = viewerState(FS);
+  if (known === 'pending') return html`<div class="plate plate-load" role="status"><span class="plate-spin" aria-hidden="true"></span><span class="plate-sub">${L`記録を読み込んでいます…`}</span></div>`;
+  if (known === 'unreachable') {
+    return html`<div class="plate plate-open plate-miss" role="status"><span class="plate-text"><strong class="plate-name">${L`記録をまだ読み込めていません`}</strong><span class="plate-sub">${L`通信の状態を確かめてください。読み込み直すと、もう一度試します。`}</span></span>
+      <span class="plate-acts"><button type="button" class="btn plate-go" data-act="reload">${icon('return')}${L`読み込み直す`}</button></span></div>`;
+  }
   if (!joined) {
     return html`<div class="plate plate-open"><span class="plate-text"><strong class="plate-name">${L`まだ国に加わっていません`}</strong><span class="plate-sub">${L`選ぶのは国だけです。村の場所は自動で決まります。`}</span></span>
       <span class="plate-acts"><button type="button" class="btn primary plate-go" data-act="join-open">${L`国を選ぶ`}</button></span></div>`;

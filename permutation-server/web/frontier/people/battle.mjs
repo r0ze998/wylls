@@ -377,7 +377,7 @@ export function battleVerdict(scene) {
 }
 
 // ------------------------------------------------------------------ drawing
-const INK = '#0c1614', IVORY = '#f4efe0', BRASS = '#c9a24a', BRASS_HI = '#f0d48a';
+const INK = '#0c1614', IVORY = '#f4efe0', BRASS = '#c9a24a', BRASS_HI = '#f0d48a', EMBER = '#e2553d';
 const SANS = 'system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif';
 const rgba = (hex, a) => { const n = parseInt(String(hex).slice(1), 16) || 0; return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${clamp01(a).toFixed(3)})`; };
 
@@ -389,6 +389,41 @@ const rgba = (hex, a) => { const n = parseInt(String(hex).slice(1), 16) || 0; re
 let UP = null;
 const upright = (ctx, x, y, draw) => standing(ctx, UP ? UP(x, y) : null, x, y, draw);
 
+/** The serif of names, titles and captions (UX-DESIGN §6; the same stack as fx/effects.mjs SERIF). */
+const SERIF = '"Hiragino Mincho ProN", "Yu Mincho", "YuMincho", "Noto Serif JP", "Noto Serif CJK JP", Georgia, "Times New Roman", serif';
+/** The size of an outcome caption's letters on screen (px), and its plate's height. */
+export const FATE_PX = 13;
+export const FATE_PLATE_PX = 23;
+/**
+ * A caption on a small bell-metal tag, upright, its middle at (x, y): the outcome under a side's losses
+ * (戦場に残った, 壊滅した …). Bell metal, a brass hairline, the accent down its left edge, ivory letters in the
+ * serif: the same tag as every caption of the map (fx/effects.mjs `tag`), drawn here because the scene is one
+ * painting. `k` is one screen pixel in the context's units. Returns the plate's half width in those units.
+ */
+function plateText(ctx, text, x, y, k, { accent = BRASS, alpha = 1 } = {}) {
+  if (alpha <= 0.01 || !text) return 0;
+  let hw = 0;
+  upright(ctx, x, y, () => {
+    ctx.save();
+    ctx.translate(x, y); ctx.scale(k, k);
+    ctx.globalAlpha = alpha;
+    ctx.font = `600 ${FATE_PX}px ${SERIF}`;
+    const w = (ctx.measureText?.(text)?.width ?? String(text).length * FATE_PX) / 2 + 10, h = FATE_PLATE_PX / 2;
+    hw = w * k;
+    ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(-w, -h, w * 2, h * 2, 3); else ctx.rect?.(-w, -h, w * 2, h * 2);
+    const g = ctx.createLinearGradient?.(0, -h, 0, h);
+    if (g?.addColorStop) { g.addColorStop(0, '#1d3a33'); g.addColorStop(0.72, '#10221f'); ctx.fillStyle = g; } else ctx.fillStyle = '#10221f';
+    ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = 6; ctx.shadowOffsetY = 2;
+    ctx.fill();
+    ctx.shadowColor = 'rgba(0,0,0,0)'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+    ctx.strokeStyle = rgba(BRASS, 0.92); ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = accent; ctx.fillRect?.(-w + 1, -h + 2, 2.5, h * 2 - 4);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = IVORY; ctx.fillText?.(text, 1.5, 0.5);
+    ctx.restore();
+  });
+  return hw;
+}
 function inkText(ctx, text, x, y, px, color, opts = {}) { if (opts.alpha !== undefined && opts.alpha <= 0.01) return; upright(ctx, x, y, () => inkTextFlat(ctx, text, x, y, px, color, opts)); }
 function inkTextFlat(ctx, text, x, y, px, color, { align = 'center', weight = 800, alpha = 1, scale = 1 } = {}) {
   if (alpha <= 0.01 || !text) return;
@@ -401,6 +436,8 @@ function inkTextFlat(ctx, text, x, y, px, color, { align = 'center', weight = 80
   ctx.restore();
 }
 
+/** How much of a miniature's baked cast shadow a battle keeps (people/minis.mjs `shade`): the lines stand close, and the full shadows piled into one dark mass under them. */
+export const FIGURE_SHADE = 0.42;
 /** How much light a blow adds to a struck figure, and for how long (s): two frames at full, gone before the hit-stop ends (UX-DESIGN §11.14). */
 export const HIT_TINT = 0.6;
 export const HIT_TINT_SECS = Object.freeze([0.034, 0.07]);
@@ -480,7 +517,7 @@ function paintFigureFlat(ctx, f) {
   ctx.translate(f.x, f.y - f.hop);
   if (f.rot) ctx.rotate(f.rot);
   if (f.sx !== 1 || f.sy !== 1) ctx.scale(f.sx, f.sy);
-  const o = { faction: f.faction, face: f.face, step: f.step, walking: f.walking, alpha: f.alpha };
+  const o = { faction: f.faction, face: f.face, step: f.step, walking: f.walking, alpha: f.alpha, shade: FIGURE_SHADE };
   const w = f.s * MINI_CELL_U, nation = f.faction >= 0 && f.faction < 6;
   let drawn = false, tint = null;
   if (nation) { drawn = paintMini(ctx, 0, 0, f.s, f.kind, o); if (drawn && f.flash > 0.02) tint = tintCell(f.faction, f.kind, f.face, f.walking, f.step); }
@@ -585,19 +622,25 @@ function paintArrow(ctx, a, b, u, s, k, alpha) {
   ctx.restore();
 }
 
-/** The mark of a contact: a small star where the lines meet, a tight core of light in the two sides' colours, a low shock on the ground. */
-function paintContact(ctx, st, u, power, colA, colB, k) {
+/**
+ * The mark of a contact: a small star where the lines meet, a tight core of light in the two sides' colours, a
+ * low shock on the ground. `colA`, `colB`: the light of the side that lands this blow and of the other (the
+ * core); `ringL`, `ringR`: the nation's own colour of the side standing on the left and on the right (the shock).
+ */
+function paintContact(ctx, st, u, power, colA, colB, k, ringL = colA, ringR = colB) {
   const { contact: c, feet, s } = st;
   if (u < 0 || u >= 0.4) return;
   ctx.save();
-  // the shock running out along the ground
+  // the shock running out along the ground: each half in the colour of the nation that stands on it, at full
+  // strength (it was the two pale tints through ivory at 0.62, and read as one ivory ring)
   const kr = u / 0.4, rr = lerp(s * 0.3, s * 1.5 * Math.sqrt(power), outExpo(kr));
-  // (in the two sides' colours, the attacker's on its side and the defender's on the other: never a grey ring)
-  const ring = ctx.createLinearGradient?.(feet.x - rr, 0, feet.x + rr, 0), ra = 0.62 * (1 - kr) * (1 - kr);
-  if (ring?.addColorStop) { ring.addColorStop(0, rgba(colA, ra)); ring.addColorStop(0.5, `rgba(255,244,214,${ra.toFixed(3)})`); ring.addColorStop(1, rgba(colB, ra)); ctx.strokeStyle = ring; }
-  else ctx.strokeStyle = `rgba(239,230,204,${ra.toFixed(3)})`;
-  ctx.lineWidth = lerp(5, 1.4, outCubic(kr)) * k;
-  ctx.beginPath(); ctx.ellipse?.(feet.x, feet.y, rr, rr * FLATTEN * 0.62, 0, 0, Math.PI * 2); ctx.stroke();
+  const ring = ctx.createLinearGradient?.(feet.x - rr, 0, feet.x + rr, 0), ra = 0.92 * (1 - kr) * (1 - kr * 0.6);
+  const stroke = w => { ctx.lineWidth = w; ctx.beginPath(); ctx.ellipse?.(feet.x, feet.y, rr, rr * FLATTEN * 0.62, 0, 0, Math.PI * 2); ctx.stroke(); };
+  // (a dark seat under it, so the colours hold on pale ground and on dark)
+  ctx.strokeStyle = rgba(INK, 0.3 * (1 - kr)); stroke(lerp(10, 4, outCubic(kr)) * k);
+  if (ring?.addColorStop) { ring.addColorStop(0, rgba(ringL, ra)); ring.addColorStop(0.44, rgba(ringL, ra)); ring.addColorStop(0.56, rgba(ringR, ra)); ring.addColorStop(1, rgba(ringR, ra)); ctx.strokeStyle = ring; }
+  else ctx.strokeStyle = rgba(ringL, ra);
+  stroke(lerp(7.5, 2.6, outCubic(kr)) * k);
   ctx.globalCompositeOperation = 'lighter';
   const kb = span(u, 0, 0.16);
   if (kb < 1) {
@@ -757,11 +800,12 @@ function paintLosses(ctx, side, st, t, k, e) {
   const out = last ? 1 - inQuad(span(t, PHASE.end - 0.6, PHASE.end - 0.1)) : 1;
   const pop = lerp(LOSS_POP.from, 1, outCubic(span(u, 0, LOSS_POP.secs))), rise = 8 * k * outCubic(span(u, 0, 0.4));
   let x = st.cx + side.sgn * Math.max((st.rest + 0.2) * st.s, half + 8 * k), y = st.cy - st.s * NEED.above;
-  if (e.place && text) { const at = e.place(x, y, half + 4 * k, size * 0.6 + (last ? 16 * k : 0)); x = at.x; y = at.y; }
+  if (e.place && text) { const at = e.place(x, y, half + 4 * k, size * 0.6 + (last ? (FATE_PLATE_PX + 6) * k : 0)); x = at.x; y = at.y; }
   if (text) inkText(ctx, text, x, y - rise, size, IVORY, { alpha: out, scale: pop });
   if (last && fateText) {
+    // the outcome, on a tag of its own under the number: ember down its edge when nothing is left, else the side's colour
     const ft = side.fate ? fateText(side.fate) : null;
-    if (ft) inkText(ctx, ft, x, y + size * 0.5 + 12 * k - rise, 16 * k, side.after === 0 ? '#ffb09a' : BRASS_HI, { weight: 700, alpha: span(t, PHASE.fates + 0.45, PHASE.fates + 0.8) * out });
+    if (ft) plateText(ctx, ft, x, y + size * 0.5 + (FATE_PLATE_PX / 2 + 5) * k - rise, k, { accent: side.after === 0 ? EMBER : sideColors(side.faction).fill, alpha: span(t, PHASE.fates + 0.45, PHASE.fates + 0.8) * out });
   }
 }
 
@@ -811,8 +855,9 @@ function paintTile(ctx, T, e) {
     }
   }
   if (T.fight) {
-    const colA = sideColors(T.sides[0].faction).light, colB = sideColors(T.sides[1].faction).light;
-    for (let j = 0; j < BATTLE_HITS.length; j++) paintContact(ctx, st, t - BATTLE_HITS[j], HIT_POWER[j], j % 2 ? colB : colA, j % 2 ? colA : colB, k);
+    const cA = sideColors(T.sides[0].faction), cB = sideColors(T.sides[1].faction);
+    // (the attackers stand on the left, the defenders on the right: the shock's halves keep to their sides; the core's light alternates with the blow)
+    for (let j = 0; j < BATTLE_HITS.length; j++) paintContact(ctx, st, t - BATTLE_HITS[j], HIT_POWER[j], j % 2 ? cB.light : cA.light, j % 2 ? cA.light : cB.light, k, cA.fill, cB.fill);
   }
   // the holder's standard
   const holder = T.sides.flatMap(sd => sd.groups.map(g => ({ g, sd }))).find(x => x.g.fate === 'Stays' && x.g.faction < NEUTRAL && x.g.after !== 0 && (!T.fight || x.sd.fate === 'Stays'));
@@ -824,7 +869,7 @@ function paintTile(ctx, T, e) {
   } else if (e.fateText && t >= PHASE.fates + 0.45) {
     const side = T.sides.find(sd => sd.groups.length);
     const ft = side?.fate ? e.fateText(side.fate) : null;
-    if (ft) inkText(ctx, ft, cx + side.sgn * REST * s, cy - s * 1.7, 16 * k, IVORY, { weight: 700, alpha: span(t, PHASE.fates + 0.45, PHASE.fates + 0.8) * (1 - span(t, PHASE.end - 0.6, PHASE.end - 0.1)) });
+    if (ft) plateText(ctx, ft, cx + side.sgn * REST * s, cy - s * 1.7, k, { accent: sideColors(side.faction).fill, alpha: span(t, PHASE.fates + 0.45, PHASE.fates + 0.8) * (1 - span(t, PHASE.end - 0.6, PHASE.end - 0.1)) });
   }
 }
 

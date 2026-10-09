@@ -256,7 +256,10 @@ async function refreshMarches(holding) {
   const b = nowBell();
   for (const e of entries.filter(x => x.state !== 'settled' && x.state !== 'failed')) {
     const p = unpack(book.materialBytes(e).plain);
-    const dest = { p: p.destP, q: p.destQ };
+    // (the tile too: the feed names it, the survey keeps it, the column walks to it and the turn's results play on it.
+    // It was left out, so with a march sealed on this device the people layer threw on every frame and the arrival's
+    // mark fell on the province's middle tile: found with the live fixture)
+    const dest = { p: p.destP, q: p.destQ, tile: p.destTile };
     const region = regionOf(dest.p, dest.q);
     const { slot, env } = b >= e.arriveBell ? await slotOf(dest, e.arriveBell, e.host) : { slot: null, env: null };
     if (slot) revealed.push(e.host);
@@ -551,7 +554,10 @@ async function sendTheMarch() {
   c.sending = true; c.step = null;
   invalidate('panel');
   // the effects layer draws the route on while the order is sealed and sent (own view only), then stamps it (fx/stage.mjs)
-  const fxa = { id: `Depart#${++fxSeq}`, name: 'Depart', faction: FS.citizen?.faction ?? null, unit: c.host?.unit ?? 0, tile: { p: c.origin.p, q: c.origin.q, tile: c.host.tile }, dest: c.dest ? { p: c.dest.p, q: c.dest.q, tile: c.dest.tile } : null, route: c.route ?? null };
+  // (the route with its origin, as the march book keeps it: the planner's answer alone has no starting tile, so the
+  // ribbon was a straight line from the village to the destination instead of the road the host takes)
+  const fxa = { id: `Depart#${++fxSeq}`, name: 'Depart', faction: FS.citizen?.faction ?? null, unit: c.host?.unit ?? 0, tile: { p: c.origin.p, q: c.origin.q, tile: c.host.tile }, dest: c.dest ? { p: c.dest.p, q: c.dest.q, tile: c.dest.tile } : null,
+    route: Array.isArray(c.route?.dirs) ? { p: c.origin.p, q: c.origin.q, tile: c.host.tile, dirs: [...c.route.dirs] } : null };
   fxEmit('action:busy', fxa);
   FS.inFlight = (FS.inFlight ?? 0) + 1;
   try {

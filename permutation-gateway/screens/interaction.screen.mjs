@@ -11,7 +11,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright-core';
 import { startServer } from './server.mjs';
-import { storageFor, LATEST_UNIX, HOME, CAMP_TILE } from './world.mjs';
+import { storageFor, LATEST_UNIX, HOME, CAMP_TILE, HOSTS } from './world.mjs';
 
 let browser, srv;
 before(async () => { srv = await startServer(); browser = await chromium.launch(); });
@@ -276,11 +276,18 @@ test('the map by keyboard: it opens on the viewer\'s village; M is the world cha
   // the picture arrives where the logical view already is (a flight takes 1.2 s at most)
   await page.waitForTimeout(1500);
   await page.locator('#frontier-map[data-terrain="ready"]').waitFor();
-  // a tap in the middle of the uncovered part selects the village's own tile
-  const box = await page.locator('#frontier-map').boundingBox();
-  await page.mouse.click(box.x + box.width / 2, box.y + (box.height - v.covered) / 2);
+  // the seat's frame (UX design 12.1): the village is seen in the part of the map the sheet leaves free, in the middle
+  // across and a little below the middle down (the far rows and their horizon are above it); a tap there selects its tile
+  const seat = await page.evaluate(async ([p, q, tile]) => {
+    const { tileHex } = await import('/frontier/fgeo.mjs'); const { project } = await import('/map.mjs'); const { freeBox } = await import('/frontier/map/camera.mjs'); const { SEAT_DROP } = await import('/frontier/map/fmap.mjs');
+    const m = window.__wyllsMap, h = tileHex(p, q, tile), w = project(h.q, h.r), s = m.size(), f = freeBox(s, m.inset());
+    return { seen: m.project(w.x, w.y, { box: true }), want: { x: s.width / 2 + f.x, y: s.height / 2 + f.y + SEAT_DROP * f.height }, free: f, size: s, client: m.project(w.x, w.y) };
+  }, [HOME.p, HOME.q, HOME.tile]);
+  assert.ok(Math.hypot(seat.seen.x - seat.want.x, seat.seen.y - seat.want.y) < 1, `the village is seen at ${seat.seen.x.toFixed(1)}, ${seat.seen.y.toFixed(1)}; the seat's place is ${seat.want.x.toFixed(1)}, ${seat.want.y.toFixed(1)}`);
+  assert.ok(seat.seen.y > seat.size.height / 2 + seat.free.y && seat.seen.y < seat.size.height - v.covered - 40, 'below the middle of the free part and well above the sheet');
+  await page.mouse.click(seat.client.x, seat.client.y);
   const sel = await page.evaluate(async () => { const { FS } = await import('/frontier/fstate.mjs'); return FS.selected; });
-  assert.deepEqual([sel?.p, sel?.q, sel?.idx], [HOME.p, HOME.q, HOME.tile], 'the village sits in the middle of the map above the sheet');
+  assert.deepEqual([sel?.p, sel?.q, sel?.idx], [HOME.p, HOME.q, HOME.tile], 'the village sits in the free part of the map above the sheet');
   // (wave 2, UX design 11.11: a touch screen has no plus and minus buttons — two fingers zoom there; the keys still do,
   // and the buttons are checked on a desktop below)
   assert.equal(await page.locator('[data-map="in"]').isVisible(), false);
@@ -621,10 +628,11 @@ test('the tilted board: the ground canvas is where the numbers say; a tap, a hov
   await page.waitForTimeout(200);
   await page.waitForFunction(() => !window.__map.cam.moving, null, { timeout: 8000 });
   const home = await mapCall(page, `
-    const { tileHex } = await import('/frontier/fgeo.mjs'); const { project } = await import('/map.mjs'); const { freeBox } = await import('/frontier/map/camera.mjs');
+    const { tileHex } = await import('/frontier/fgeo.mjs'); const { project } = await import('/map.mjs'); const { freeBox } = await import('/frontier/map/camera.mjs'); const { SEAT_DROP } = await import('/frontier/map/fmap.mjs');
     const h = tileHex(arg.p, arg.q, arg.tile), w = project(h.q, h.r), s = m.size(), f = freeBox(s, m.inset());
-    return { seen: m.project(w.x, w.y, { box: true }), want: { x: s.width / 2 + f.x, y: s.height / 2 + f.y } };`, HOME);
-  assert.ok(Math.hypot(home.seen.x - home.want.x, home.seen.y - home.want.y) < 1, 'H: the village in the middle of what the HUD leaves free');
+    return { seen: m.project(w.x, w.y, { box: true }), want: { x: s.width / 2 + f.x, y: s.height / 2 + f.y + SEAT_DROP * f.height } };`, HOME);
+  // (the seat's frame, UX design 12.1: a little below the middle of what the HUD leaves free)
+  assert.ok(Math.hypot(home.seen.x - home.want.x, home.seen.y - home.want.y) < 1, 'H: the village at the seat\'s place in what the HUD leaves free');
   // Enter picks the tile in the middle of the canvas (the board turns about that point: it is the view's own)
   await page.keyboard.press('Escape');
   await page.keyboard.press('Enter');
@@ -696,4 +704,196 @@ test('a pinch on a phone zooms about the point between the fingers, on the tilte
   const after = await mapCall(page, 'return { at: m.project(arg.x, arg.y, { logical: true }), zoom: m.view.zoom };', before.w);
   assert.ok(after.zoom > before.zoom * 1.5 && after.zoom < before.zoom * 2.4, `the fingers went from 80 to 160 px apart: zoom ${before.zoom} to ${after.zoom.toFixed(3)}`);
   assert.ok(Math.hypot(after.at.x - mid.x, after.at.y - mid.y) < 6, `the land between the fingers stayed between them (off by ${Math.hypot(after.at.x - mid.x, after.at.y - mid.y).toFixed(2)} px)`);
+});
+
+// ------------------------------------------------------------------ the real pipeline on the live fixture (UX design 12.4)
+// `srv.live(true)` (liveworld.mjs): the fixture's clock runs, a turn passes a few seconds after the page asked for
+// the season, and the relay takes the viewer's orders. No demo switch: the page's own triggers play (the toll, the
+// turn's results in order, the battle, the building, the accepted and the refused answer), in real time.
+async function openLive(t, { width = 1440, height = 900, delay = 4, landMs = 900 } = {}) {
+  srv.stage('holding');
+  const world = srv.live(true, { delay, landMs });
+  t.after(() => srv.live(false));
+  const phone = width < 760;
+  const context = await browser.newContext({ viewport: { width, height }, isMobile: phone, hasTouch: phone, locale: 'ja-JP', timezoneId: 'UTC' });
+  t.after(() => context.close());
+  // (with the march book of this device: the page knows where the viewer's sealed march goes)
+  await context.addInitScript(s => { for (const [k, v] of Object.entries(s)) localStorage.setItem(k, v); }, storageFor(srv.viewer, { stage: 'holding', lang: 'ja', live: true }));
+  const page = await context.newPage();
+  const errors = [], posts = [];
+  page.on('pageerror', e => errors.push(e.message));
+  page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+  page.on('response', r => { if (r.status() >= 400) errors.push(`HTTP ${r.status()} ${r.url()}`); });
+  page.on('request', r => { if (r.method() === 'POST') posts.push(new URL(r.url()).pathname); });
+  await page.goto(`${srv.url}/frontier/index.html`);
+  await page.waitForFunction(() => /\d/.test(document.getElementById('bell-chip')?.textContent ?? ''));
+  // every event of the effects bus, in order, with what the assertions below read of it
+  await page.evaluate(async () => {
+    const { on } = await import('/frontier/fx/bus.mjs');
+    window.__ev = [];
+    on('*', (p, type) => window.__ev.push({ type, at: performance.now(), name: p?.name ?? null, kind: p?.kind ?? null, turn: p?.turn ?? null, focus: p?.focus ?? null,
+      tile: p?.tile && typeof p.tile === 'object' ? p.tile.tile : p?.tile ?? null, fresh: Array.isArray(p?.fresh) ? p.fresh.map(x => [String(x.id).split(':')[0], x.tile ?? null, !!x.plays]) : null, points: Array.isArray(p?.points) ? p.points.length : null }));
+  });
+  t.after(() => assert.deepEqual(errors, [], 'no page error, console error or failed request'));
+  const events = (type = null) => page.evaluate(ty => window.__ev.filter(e => !ty || e.type === ty), type);
+  const until = async (type, pred = () => true, ms = 30_000) => { const t0 = Date.now(); for (;;) { const e = (await events(type)).find(pred); if (e) return e; if (Date.now() - t0 > ms) throw new Error(`no ${type} event within ${ms} ms`); await page.waitForTimeout(40); } };
+  /** Press one of the drawer's own controls: brought into the middle of the scrolling panel first (it re-renders every second). */
+  const press = async sel => { const l = page.locator(sel).first(); await l.waitFor({ state: 'attached' }); for (let i = 0; ; i++) { try { await l.evaluate(el => el.scrollIntoView({ block: 'center' })); await l.click({ timeout: 2000 }); return; } catch (e) { if (i >= 5) throw e; await page.waitForTimeout(150); } } };
+  /** Wait until a function of the page's store answers true (an async function: the store is a module of the page). */
+  const store = async (fn, ms = 20_000) => { const t0 = Date.now(); for (;;) { if (await page.evaluate(`(async () => { const { FS } = await import('/frontier/fstate.mjs'); return !!(${fn})(FS); })()`)) return; if (Date.now() - t0 > ms) throw new Error(`the page's store never showed: ${fn}`); await page.waitForTimeout(80); } };
+  return { page, world, posts, events, until, press, store };
+}
+const strip = (page, res) => page.locator(`#res-strip [data-res="${res}"] .res-val`).first().textContent().then(s => Number(String(s).replace(/[^\d]/g, '')));
+
+for (const vp of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+  test(`the real turn @ ${vp.width}: the toll's banner, then this turn's results in order (the arrival on its tile, the battle once), the stores, the building`, { timeout: 90_000 }, async t => {
+    const { page, world, events, until } = await openLive(t, vp);
+    const phone = vp.width < 760;
+    assert.match(await page.locator('#bell-chip').textContent(), /ターン\s*42/);
+    assert.equal(await page.locator('#bell-toll').isHidden(), true, 'no banner before the toll');
+    const food0 = await strip(page, 'Food');
+    // (a key press is the gesture that lets the page sound; every sound the effects ask for is noted with whether it sounded)
+    await page.locator('#frontier-map').focus();
+    await page.keyboard.press('Shift');
+    await page.evaluate(() => { const a = window.__fxAudio, play = a.play.bind(a); window.__snd = []; a.play = (name, o) => { const ok = play(name, o); window.__snd.push([name, ok]); return ok; }; });
+    // ---- the toll: the page's own clock turns; the banner element carries the words, the dial says the new turn
+    const toll = page.locator('#bell-toll.fx-banner-host');
+    await toll.waitFor({ state: 'visible', timeout: 20_000 });
+    assert.match((await toll.textContent()).replace(/\s+/g, ''), /鐘が鳴りました—ターン43/);
+    assert.match(await page.locator('#bell-chip').textContent(), /ターン\s*43/);
+    assert.equal(await page.locator('#bell-pill.toll').count(), 1, 'the dial swings');
+    assert.equal(world.turn(), 43, 'the fixture turned with the page');
+    const box = await toll.boundingBox();
+    assert.ok(box.x >= 0 && box.x + box.width <= vp.width + 0.5 && box.y > 40, `the banner is on the map (${Math.round(box.x)}, ${Math.round(box.y)}, ${Math.round(box.width)} wide)`);
+    // ---- this turn's results: one card, after the banner has gone, never single notices beside it
+    const card = page.locator('#feed .turn-strip');
+    await card.waitFor({ state: 'attached', timeout: 20_000 });
+    const banner = await page.evaluate(() => { const el = document.getElementById('bell-toll'); return el.hidden ? 0 : Number(el.style.getPropertyValue('--fx-o') || 0); });
+    assert.ok(banner < 0.2, `the card waits for the banner (its opacity is ${banner})`);
+    assert.equal(await card.locator('.turn-row').count(), 2);
+    assert.match(await card.locator('.turn-row').nth(0).textContent(), /野営地への進軍の封が開けられました/);
+    assert.match(await card.locator('.turn-row').nth(1).textContent(), /戦いがありました（ターン 41）/);
+    assert.equal(await page.locator('#feed .toast-march, #feed .toast-battle').count(), 0, 'the results are not also single notices');
+    const feed = (await events('feed'))[0];
+    assert.deepEqual(feed.fresh, [['rv', CAMP_TILE, false], ['cl', HOME.tile, false]], 'the arrival is on the camp\'s tile, the clash on the village\'s');
+    const res = (await events('turn:results'))[0];
+    assert.deepEqual(res.fresh.map(x => [x[0], x[2]]), [['rv', false], ['cl', true]], 'the battle is its own result');
+    // ---- the battle: started once, when its turn came (after the arrival), by the results and not by the poll
+    const battle = await until('battle');
+    const scene = await until('turn:scene');
+    assert.ok(battle.at >= scene.at && scene.at - feed.at >= 600, `the scene's cue came ${Math.round(scene.at - feed.at)} ms after the results`);
+    assert.equal(battle.focus, false, 'no camera move unless asked for');
+    if (phone) {
+      // on a phone the scene has the stage: the card steps back for it (it stood over the fight)
+      await page.waitForFunction(() => document.body.dataset.fxPiece === 'battle');
+      assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('feed')).opacity), '0');
+    }
+    // ---- the stores have risen (the strip shows it; by more than a minute's production)
+    await page.waitForFunction(was => Number((document.querySelector('#res-strip [data-res="Food"] .res-val')?.textContent ?? '').replace(/[^\d]/g, '')) >= was + 170, food0, { timeout: 10_000 });
+    // ---- the building is done twelve seconds into the turn, by the page's clock: its moment and its notice, named by what it is
+    const built = await until('moment', e => e.kind === 'built', 30_000);
+    assert.equal(built.tile, HOME.tile);
+    assert.ok(built.at - (await events('bell'))[0].at > 11_000, 'not before its time');
+    // (a phone shows one notice at a time, the turn's card first: the building's is there behind it)
+    await page.locator('#feed .toast-build').waitFor({ state: phone ? 'attached' : 'visible' });
+    assert.match(await page.locator('#feed .toast-build').textContent(), /伐採場が完成しました/);
+    // ---- nothing fired twice
+    await page.waitForTimeout(1200);
+    const all = await events();
+    assert.equal(all.filter(e => e.type === 'bell').length, 1);
+    assert.equal(all.filter(e => e.type === 'battle').length, 1, 'the clash played once (not again in passing)');
+    assert.equal(all.filter(e => e.type === 'moment' && e.kind === 'built').length, 1);
+    assert.equal(all.filter(e => e.type === 'turn:results').length, 1);
+    // ---- and it was heard: the bell at the toll, the unsealing, the battle's four blows, the building
+    const snd = await page.evaluate(() => window.__snd);
+    assert.deepEqual(snd.filter(x => x[0] === 'bell'), [['bell', true]], 'the bell sounded once');
+    assert.equal(snd.filter(x => x[0] === 'clash' && x[1]).length, 4, 'four blows');
+    assert.ok(snd.some(x => x[0] === 'shimmer' && x[1]) && snd.some(x => x[0] === 'confirm' && x[1]), `the unsealing and the building: ${JSON.stringify(snd)}`);
+    if (phone) { await page.waitForFunction(() => !document.body.dataset.fxPiece, null, { timeout: 15_000 }); assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('feed')).opacity), '1', 'the card is back when the scene is over'); }
+  });
+}
+
+test('an accepted order: the pending chip and the ring on the tile, then the landed state; the herald shows it (a build, a muster with its moment)', { timeout: 90_000 }, async t => {
+  // (a long turn: nothing but the orders happens)
+  const { page, world, posts, events, until, press } = await openLive(t, { delay: 600, landMs: 1100 });
+  await page.locator('#frontier-map[data-lod="tile"][data-terrain="ready"]').waitFor();
+  await page.locator('#tabs [data-tab="holding"]').click();
+  await page.locator('#holding-title').waitFor();
+  const wood0 = await strip(page, 'Wood');
+  // ---- Build: a farm (item 0)
+  await press('[data-act="build"][data-item="0"]:not([disabled])');
+  const chip = page.locator('#feed .tx-busy');
+  await chip.waitFor();
+  assert.match(await chip.textContent(), /送信中/);
+  await page.waitForFunction(() => window.__ev.some(e => e.type === 'action:sent'));
+  // the ring and its caption stand on the village's tile while the transaction is followed (HUD nodes of the effects layer)
+  assert.ok(await page.locator('#fx-hud .fx-tag').count() >= 1, 'the caption over the tile');
+  await page.locator('#feed .tx-done').waitFor({ timeout: 15_000 });
+  assert.match(await page.locator('#feed .tx-done').textContent(), /チェーンに記録されました/);
+  assert.deepEqual((await events()).filter(e => e.type.startsWith('action:')).map(e => [e.type, e.name, e.tile]), [['action:busy', 'Build', HOME.tile], ['action:sent', 'Build', HOME.tile], ['action:landed', 'Build', HOME.tile]]);
+  assert.equal(posts.filter(p => p === '/gw/f/relay').length, 1);
+  assert.deepEqual(world.orders.map(o => [o.name, o.ok]), [['Build', true]]);
+  // the herald's next answer: two buildings under way, each by its own name, and the farm's wood paid
+  await page.waitForFunction(() => document.querySelectorAll('#panel-body .queue li').length === 2, null, { timeout: 15_000 });
+  assert.deepEqual((await page.locator('#panel-body .queue li strong').allTextContents()).sort(), ['伐採場', '農場'].sort());
+  // (the strip counts down to it)
+  await page.waitForFunction(want => Number((document.querySelector('#res-strip [data-res="Wood"] .res-val')?.textContent ?? '').replace(/[^\d]/g, '')) === want, wood0 - 80, { timeout: 10_000 });
+  // ---- Muster: 200 spearmen; the host stands muster-pending and its moment plays (it never did for a real muster)
+  await page.locator('#f-troops').fill('200');
+  await press('#hp-muster button[type="submit"]:not([disabled])');
+  await until('action:landed', e => e.name === 'Muster');
+  const muster = await until('moment', e => e.kind === 'muster', 15_000);
+  assert.equal(muster.tile, HOME.tile);
+  await page.locator('#tabs [data-tab="hosts"]').click();
+  await page.locator('#panel-body .host-card').nth(3).waitFor();
+  assert.equal(await page.locator('#panel-body .host-card').count(), 4, 'the mustered host is listed');
+  assert.deepEqual(world.orders.map(o => [o.name, o.ok]), [['Build', true], ['Muster', true]]);
+});
+
+test('seal and depart is accepted and shown; the next march of the turn is refused: a toast at the map with "try again", and the retry sends once more', { timeout: 120_000 }, async t => {
+  const { page, world, posts, events, until, press, store } = await openLive(t, { delay: 600, landMs: 900 });
+  await page.locator('#frontier-map[data-lod="tile"][data-terrain="ready"]').waitFor();
+  const compose = async host => {
+    await page.locator('#tabs [data-tab="hosts"]').click();
+    await press(`[data-act="compose"][data-host="${host}"]:not([disabled])`);
+    await page.locator('#mc-title').waitFor();
+    await press('[data-act="dest-quick"]');
+    await page.locator('[data-act="march-send"]:not([disabled])').first().waitFor({ timeout: 20_000 });
+  };
+  // ---- the free host marches on the camp: sealed in this browser, sent, landed
+  await compose(HOSTS.free);
+  await press('[data-act="march-send"]:not([disabled])');
+  const sealed = await until('march:sealed', () => true, 60_000);
+  assert.equal(sealed.tile, HOME.tile);
+  assert.ok(sealed.points >= 3, `the ribbon follows the road (${sealed.points} points), not a straight line`);
+  await page.locator('#feed .tx-done').waitFor();
+  assert.match(await page.locator('#feed .tx-done').textContent(), /出発しました/);
+  assert.deepEqual(world.orders.map(o => [o.name, o.ok]), [['Depart', true]]);
+  // the herald shows the host in transit, and this device holds the sealed order
+  await store(FS => (FS.holdings?.[0]?.transit ?? []).filter(x => x.state === 1).length === 2 && (FS.book ?? []).some(e => e.state === 'landed' && e.departBell === 42));
+  assert.equal((await events('action:refused')).length, 0);
+  // ---- the Scout's march in the same turn: refused by the relay; nothing is on chain
+  await compose(HOSTS.scout);
+  const before = posts.filter(p => p === '/gw/f/relay').length;
+  await press('[data-act="march-send"]:not([disabled])');
+  const toast = page.locator('#feed .tx-refused[role="alert"]');
+  await toast.waitFor({ timeout: 30_000 });
+  assert.match(await toast.textContent(), /進軍は送られていません（斥候 100 は.*にいます）/);
+  assert.match(await toast.textContent(), /操作の上限に達しました/);
+  assert.equal((await events('action:refused')).length, 1);
+  assert.equal(posts.filter(p => p === '/gw/f/relay').length, before + 1);
+  assert.deepEqual(world.orders.map(o => [o.name, o.ok, o.code ?? null]), [['Depart', true, null], ['Depart', false, 'Bucket']]);
+  // the toast stands over the map, beside the drawer; the order card still offers the seal
+  await page.evaluate(() => Promise.all(['feed', 'panel'].flatMap(id => { const el = document.getElementById(id); return [el, ...el.querySelectorAll('*')].flatMap(x => x.getAnimations()); }).map(a => a.finished.catch(() => {}))));
+  const box = await toast.boundingBox(), drawerBox = await page.locator('#panel').boundingBox();
+  assert.ok(box.x + box.width <= drawerBox.x + 1, 'beside the drawer');
+  assert.equal(await page.locator('[data-act="march-send"]:not([disabled])').count() >= 1, true);
+  // ---- "try again" sends the same order once more (and is refused again: still this turn)
+  await toast.locator('[data-act="notice-retry"]').click();
+  await page.waitForFunction(() => window.__ev.filter(e => e.type === 'action:refused').length === 2, null, { timeout: 30_000 });
+  assert.equal(posts.filter(p => p === '/gw/f/relay').length, before + 2);
+  await page.locator('#feed .tx-refused[role="alert"] [data-act="notice-retry"]').waitFor();
+  // nothing more is on its way, and this device keeps the refused order as failed
+  await store(FS => (FS.book ?? []).some(e => e.state === 'failed'));
+  await store(FS => (FS.holdings?.[0]?.transit ?? []).filter(x => x.state === 1).length === 2);
 });

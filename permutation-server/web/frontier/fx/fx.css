@@ -179,6 +179,13 @@
    their look changes: state is never an animation). The strip, the dial, the dock and a sheet stay. */
 body[data-fx-piece] :is(#hud-tl, #rail, #minimap, .map-tools, .home-pointer) { opacity: 0; }
 body[data-fx-piece] :is(#hud-tl, #rail, #minimap, .map-tools, .home-pointer):focus-within { opacity: 1; }
+/* on a phone the notices (the turn's card among them) stand over the middle of the map, where the scene plays: they
+   step back with the corner pieces and come back when it ends (seen on the live fixture: the card covered the fight) */
+@media (max-width: 759px) {
+  body[data-fx-piece] #feed { opacity: 0; }
+  /* (a key's focus brings them back; a finger's press does not: "see" on the card is what starts the scene) */
+  body[data-fx-piece] #feed:has(:focus-visible) { opacity: 1; }
+}
 
 /* ---- this turn's results (hud/feed.mjs renderTurnStrip, shown after the toll's banner has gone): opaque bell metal,
    so the map's labels never read through the card */

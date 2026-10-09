@@ -34,6 +34,18 @@ export function clockTime(t) {
   return { local: d.toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' }), utc: d.toISOString().slice(11, 16) };
 }
 export const timeHtml = t => { const c = clockTime(t); return html`<time datetime="${new Date(Number(t) * 1000).toISOString()}" title="${c.utc} UTC">${c.local}</time>`; };
+/**
+ * A chain time said with what it is (UX design 12.6: no bare timer without a label; the second check: the
+ * provisional village's card said "(03:30 at the latest)"): how long from `now`, then the viewer's clock time —
+ * 「あと約 3時間58分（03:30 ごろ）」. A time already past, or asked without a "now", is the clock time with its word.
+ */
+export function dueHtml(t, now = null) {
+  const left = Number.isFinite(now) ? Number(t) - now : NaN;
+  if (!(left > 0)) return Lh`${timeHtml(t)} ごろ`;
+  const mins = Math.max(1, Math.round(left / 60));
+  const about = mins < 60 ? L`約 ${fmtNum(mins)} 分` : L`約 ${Math.floor(mins / 60)}時間${mins % 60}分`;
+  return Lh`あと${about}（${timeHtml(t)} ごろ）`;
+}
 /** "in 6:12" / "6:12 ago". */
 export const inTime = secs => (secs >= 0 ? L`あと ${countdown(secs)}` : L`${countdown(-secs)} 前`);
 

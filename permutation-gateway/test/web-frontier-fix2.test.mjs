@@ -26,9 +26,10 @@ test('the board is seen from near enough that its rows visibly shrink: the far r
     const g = tilt.tiltGeo(size, tilt.TILT.deg);
     const far = g.scaleAt(0), nearRow = g.scaleAt(size.height);
     assert.ok(far / nearRow < 0.75, `${size.width}: far ${far.toFixed(3)} against near ${nearRow.toFixed(3)}`);
-    assert.ok(far / nearRow > 0.6, 'and not a fisheye');
+    assert.ok(far / nearRow > 0.55, 'and not a fisheye');
   }
-  assert.ok(tilt.TILT.deg <= tilt.TILT.max && tilt.TILT.max <= 22, 'the angle stays what the baked ground allows');
+  // (the third wave: what stands on the board is drawn upright, so the angle may go to the 26 degrees of brief §12.1; past it the baked ground's own relief is squashed)
+  assert.ok(tilt.TILT.deg <= tilt.TILT.max && tilt.TILT.max <= 26, 'the angle stays what the baked ground allows');
   assert.equal(tilt.perspFromQuery('?persp=1200'), 1200);
   assert.equal(tilt.perspFromQuery('?persp=5'), 600, 'clamped');
   assert.equal(tilt.perspFromQuery('?tilt=3'), null);
@@ -93,13 +94,16 @@ test('a village is drawn by code: four tiers with four silhouettes, the nation\'
   assert.deepEqual(PLATES.villagePlace({ hero: true }), { scale: PLATES.HERO.scale, x: PLATES.HERO.at.x, y: PLATES.HERO.at.y });
 });
 
-test('the hero of the screen: at the hero zoom the viewer\'s own town is at least 180 px wide on a desktop', () => {
+test('the hero of the screen: the camera stands a little further back (a hex some 80 to 90 px wide), and the viewer\'s own town is still the largest thing on the board', () => {
+  // (brief §12.1 moved the camera back from a hex of 115 px: the town is some 130 px across its palisade where it was 170)
+  for (const dpr of [1, 2]) { const hex = Math.sqrt(3) * RADIUS * heroZoom(dpr); assert.ok(hex >= 80 && hex <= 90, `dpr ${dpr}: a hex is ${hex.toFixed(1)} px wide at the middle`); }
   const ring = village.VILLAGE.ring[1] * PLATES.HERO.scale * RADIUS * heroZoom(1);
   // (the palisade's ring from side to side; the roads and the fields reach further)
-  assert.ok(ring * 2 >= 165, `the ring is ${Math.round(ring * 2)} px wide`);
+  assert.ok(ring * 2 >= 125, `the ring is ${Math.round(ring * 2)} px wide`);
   const withRoads = ring * 2 * 1.2;
-  assert.ok(withRoads >= 180, `with its roads ${Math.round(withRoads)} px`);
-  assert.ok(heroZoom(2) <= heroZoom(1) && heroZoom(2) * RADIUS >= 52);
+  assert.ok(withRoads >= 150, `with its roads ${Math.round(withRoads)} px`);
+  assert.ok(ring * 2 > Math.sqrt(3) * RADIUS * heroZoom(1) * 1.4, 'wider than a hex and a half');
+  assert.ok(heroZoom(2) <= heroZoom(1) && heroZoom(2) * RADIUS >= PLATES.PLATE_BADGES_R, 'every village keeps its plate and badges');
 });
 
 // ------------------------------------------------------------------ the land's colour, the far view, the cloud sea
@@ -118,20 +122,21 @@ test('the viewer\'s land is a glow that hugs its border, not two more kinds of t
   assert.ok(rim > 0.34 && rim <= F.rim + 1e-9, `at the border ${rim.toFixed(3)}`);
   assert.ok(third - F.middle < (rim - F.middle) * 0.5, `a third of the way in ${third.toFixed(3)}: less than half of the band is left`);
   assert.ok(deep < F.middle + 0.02, 'at its depth only the faint fill');
-  // from afar: a quarter of the colour, one rim (ink, the colour, a hair of gold), each inside the one before
+  // from afar: a quarter of the colour, one rim (a gold line on its dark underlay)
   const A = LAND.OWN_FAR;
   assert.equal(A.fill, 0.25);
-  assert.ok(A.ink > A.colour && A.colour > A.gold && A.ink <= 4.5);
+  assert.ok(A.ink > A.gold && A.gold >= 1.5 && A.ink <= 4.5 && A.colour === undefined);
   assert.ok(REALM_FAR.fill <= 0.25 && REALM_FAR.colour > REALM_FAR.ink, 'a nation\'s land from afar: a quiet wash and one rim');
 });
 
-test('the far view\'s rim of the viewer\'s land is three strokes on one line, and no band is laid from afar', () => {
+test('the far view\'s rim of the viewer\'s land is one gold line on its underlay, and no band is laid from afar', () => {
   if (typeof Path2D === 'undefined') return;
   const g = recorder();
   const land = { shape: LAND.landShape(LAND.landTiles({ q: 12, r: -4, tier: 1 })), provisional: false };
   LAND.paintOwnLand(g, land, { zoom: 0.2, faction: 0, still: true, far: true });
+  // (the third wave: it was three strokes, ink, the nation's colour and a hair of gold, which read as a doubled outline)
   const strokes = g.calls.filter(c => c[0] === 'stroke').length;
-  assert.equal(strokes, 3);
+  assert.equal(strokes, 2);
   assert.ok(!g.calls.some(c => c[0] === 'drawImage'), 'no band bitmap from afar');
 });
 
@@ -236,10 +241,10 @@ test('the turn dial is a button on all three pages; its card says the turn, the 
     holdings: [{ p: 2, q: 0, site: 0, transit: [{ state: 1, arriveBell: 43, hostId: 7n }, { state: 1, arriveBell: 45, hostId: 8n }, { state: 0, arriveBell: 43, hostId: 9n }] }] };
   const items = dialcard.nextBellItems(FS, { hostInfo: id => (id === 7n ? { mine: true, unit: 'Spearman', troops: 400, dest: '森' } : null), decides: { turn: 43, after: 1 } });
   assert.deepEqual(items.map(x => x.icon), ['alert', 'seal', 'home'], 'only what the next bell brings: one warning, one arrival, the village');
-  assert.match(items[1].text, /^あなたの槍兵 400が森に着きます$/);
+  assert.match(items[1].text, /^あなたの槍兵 400 が森に着きます$/);
   assert.equal(items[2].text, '村の場所が決まります（鐘のあと約 1 分）');
   assert.deepEqual(dialcard.nextBellItems({ ...FS, mode: 'spectate' }), [], 'a watcher has nothing of their own');
-  assert.equal(dialcard.nextBellItems(FS, { hostInfo: () => ({ mine: true, unit: 'Spearman', troops: 400, dest: null }) })[1].text, 'あなたの槍兵 400が行き先に着きます', 'no destination is named that this device does not hold');
+  assert.equal(dialcard.nextBellItems(FS, { hostInfo: () => ({ mine: true, unit: 'Spearman', troops: 400, dest: null }) })[1].text, 'あなたの槍兵 400 が行き先に着きます', 'no destination is named that this device does not hold');
   const card = String(dialcard.renderDialCard(chip, items));
   assert.match(card, /<strong>ターン 42<\/strong><span class="dial-pop-left">次の鐘まで <span class="num" data-dial-left>9:22<\/span><\/span>/);
   assert.match(card, /鐘が鳴るたびにターンが進みます。/, 'the one sentence that ties the bell to the turn');
@@ -339,7 +344,8 @@ test('a refusal says what was not done and where the host still is; the server\'
   assert.equal(status.unsentText({ lastAct: { name: 'harvest' } }), '収穫はまだされていません。');
   assert.equal(status.unsentText({ lastAct: { name: 'something-else' } }), null, 'an action the table does not know says only the reason');
   setLang('en');
-  assert.match(status.statusOf(FS).what, /^The march was not sent \(600 Spearmen are still at .+\)\.$/);
+  // (rewritten with wave 3: the place takes its article and its preposition in a sentence: "at the town of Ramar", "on the land")
+  assert.match(status.statusOf(FS).what, /^The march was not sent \(600 Spearmen are still (at|in|on) the .+\)\.$/);
   assert.equal(status.statusOf(FS).text, 'The server did not answer. Wait a moment, then try again.');
   setLang('ja');
 });
@@ -350,7 +356,10 @@ test('words the second review asked for: a village\'s English name, the shield, 
   assert.equal(holdingName({ p: 2, q: 0, site: 3 }, 0), `Hamlet of ${placeName(2, 0, 3).en}`);
   const en = JSON.stringify([String(provisionalNote(null, null)), String(provisionalNote({ clock: { genesisTs: 0, window: () => 60, margin: 6 } }, { ticketBell: 40 }))]);
   assert.match(en, /about 4 hours after the request at the latest/);
-  assert.match(en, /It is confirmed once every request from the same turn is decided \(<time datetime=/);
+  // (rewritten with wave 3, UX design 12.6: no bare clock time. The time says what it is: how long from now, then the clock)
+  assert.match(en, /It is confirmed once every request from the same turn is decided: around <time datetime=[^>]*>[^<]*<\/time> at the latest\./, 'without a "now": the clock time with its word');
+  const due = String(provisionalNote({ clock: { genesisTs: 0, window: () => 60, margin: 6 }, chain: { now: () => 40 * 600 } }, { ticketBell: 40 }));
+  assert.match(due, /decided: in about \d+ h \d+ min \(around <time datetime=[^>]*>[^<]*<\/time>\) at the latest\./, due);
   setLang('ja');
   assert.equal(holdingName({ p: 2, q: 0, site: 3 }, 1), `${placeName(2, 0, 3).ja}の町`, 'the Japanese name is as it was');
   assert.match(String(provisionalNote(null, null)), /遅くとも申し込みから約 4 時間/);

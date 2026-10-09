@@ -36,7 +36,16 @@ const APRON = 2;
 const SKIRT = 2;
 /** The pieces kept (pixels in all); the pieces newly painted in one frame. */
 export const SEA_PIXELS = 6_500_000;
+/**
+ * A piece the picture on screen uses is never dropped for another piece of the same picture: the pieces kept may grow
+ * past SEA_PIXELS up to this many pixels to hold one whole picture. (The tilted ground canvas reaches well past the
+ * map's box: at some zooms one picture needs up to 35 pieces, more than the budget held, and the sea made the same
+ * squares again on every frame without ever finishing: squares of it stayed bare, or a stand-in.)
+ */
+export const SEA_PIXELS_MAX = 12_000_000;
 export const SEA_BAKES = 3;
+/** The coarse grid of a piece's stand-in body (cells a side). */
+export const ROUGH = 16;
 /**
  * The finenesses the sea is made at (device px per world px), and the one for a picture: the first that is at least
  * as fine as the screen, never finer than 1 (cloud is soft). The pieces are world squares of PIECE / fineness, so a
@@ -233,6 +242,7 @@ export class CloudSea {
   constructor({ image = null } = {}) {
     this.image = image;
     this.pieces = new Map();
+    this.roughs = new Map();
     this.pixels = 0;
     this.puffs = new Map();
     this.scratch = null;
@@ -349,16 +359,21 @@ export class CloudSea {
 
   /** The piece (kept, or painted now when `canPaint()`), or null while it waits its turn. */
   piece(ringsOpen, res, ix, iy, sheet, canPaint) {
-    const key = `${ringsOpen}|${res}|${ix},${iy}`;
+    const key = `${ringsOpen}|${res}|${ix},${iy}`, pass = this.pass ?? 0;
     const hit = this.pieces.get(key);
-    if (hit) { this.pieces.delete(key); this.pieces.set(key, hit); return hit; }
+    if (hit) { hit.pass = pass; this.pieces.delete(key); this.pieces.set(key, hit); return hit; }
     if (!canPaint()) return null;
     const v = this.bake(ringsOpen, res, ix, iy, sheet);
     if (v?.whole) {
-      v.rings = ringsOpen;
+      v.rings = ringsOpen; v.pass = pass;
       this.pieces.set(key, v);
       this.pixels += v.px;
-      while (this.pixels > SEA_PIXELS && this.pieces.size > 1) { const [k, o] = this.pieces.entries().next().value; this.pieces.delete(k); this.pixels -= o.px; }
+      while (this.pixels > SEA_PIXELS && this.pieces.size > 1) {
+        const [k, o] = this.pieces.entries().next().value;
+        // (the one used longest ago is of this picture or the one before it: so are all the others. They stay while there is room at all)
+        if ((o.pass ?? 0) >= pass - 2 && this.pixels <= SEA_PIXELS_MAX) break;
+        this.pieces.delete(k); this.pixels -= o.px;
+      }
     }
     return v;
   }
@@ -373,7 +388,7 @@ export class CloudSea {
    * that wait their turn, and whether any cloud is in the picture.
    */
   paint(ctx, { box, res = 1, ringsOpen = 1, sheet = null, now = 0, still = false, part = null, bakes = SEA_BAKES } = {}) {
-    const out = { pending: 0, seen: false };
+    const out = { pending: 0, seen: false, rough: 0 };
     if (!ctx?.drawImage || !box) return out;
     const r = Math.min(1, res), size = PIECE / r;
     // (beyond the sheet there is no sea)
@@ -381,6 +396,8 @@ export class CloudSea {
     if (!(b.x1 > b.x0) || !(b.y1 > b.y0)) return out;
     let left = bakes;
     const canPaint = () => left-- > 0;
+    // (which picture this is: a frame paints the still part, the drift, or both, each a pass of its own)
+    this.pass = (this.pass ?? 0) + 1;
     const m = ctx.getTransform?.() ?? null;
     const tex = part !== 'still' ? driftTexture() : null;
     const t = still ? 0 : now / 1000;
@@ -392,7 +409,14 @@ export class CloudSea {
         out.pending++;
         // (a piece that waits its turn: the part of any kept piece of another fineness that lies there stands in,
         // so a flight never shows the sea ending in a straight line; the second review's landing frames)
-        if (part !== 'drift' && this.standIn(ctx, ringsOpen, ix * size, iy * size, size)) out.seen = true;
+        // (and where no kept piece covers the square, the bank's own soft body, worked out on a coarse grid in a
+        // fraction of a millisecond: the sea has its shape from the first frame, its heaps a frame or two later.
+        // The third wave's bursts: on a first load nothing was kept yet, and the sea ended in the squares' edges)
+        if (part !== 'drift') {
+          const x = ix * size, y = iy * size;
+          if (!this.covered(ringsOpen, x, y, size) && this.rough(ctx, ringsOpen, x, y, size, sheet)) { out.seen = true; out.rough++; }
+          if (this.standIn(ctx, ringsOpen, x, y, size)) out.seen = true;
+        }
         continue;
       }
       if (p.empty) continue;
@@ -409,6 +433,52 @@ export class CloudSea {
     }
     ctx.restore();
     return out;
+  }
+
+  /** Whether the kept pieces of one other fineness hold all of the square (x, y, size) of the world. */
+  covered(ringsOpen, x, y, size) {
+    const area = new Map();
+    for (const q of this.pieces.values()) {
+      if (q.rings !== ringsOpen) continue;
+      const w = Math.min(x + size, q.x + q.size) - Math.max(x, q.x), h = Math.min(y + size, q.y + q.size) - Math.max(y, q.y);
+      if (w > 0.5 && h > 0.5) area.set(q.size, (area.get(q.size) ?? 0) + w * h);
+    }
+    for (const a of area.values()) if (a >= size * size - 1) return true;
+    return false;
+  }
+
+  /**
+   * The bank's soft body over the square (x, y, size) of the world, from a coarse grid of the field (ROUGH cells a
+   * side): what stands in for a piece that is not made yet where nothing kept covers it. Returns whether any cloud
+   * lies there. A few hundred samples; the little pictures are kept.
+   */
+  rough(ctx, ringsOpen, x, y, size, sheet) {
+    const key = `${ringsOpen}|${size}|${x},${y}`, n = ROUGH + 3, cell = size / ROUGH;
+    let v = this.roughs.get(key);
+    if (v === undefined) {
+      const cv = spare(n, n), g = cv?.getContext?.('2d');
+      if (!g?.createImageData) return false;
+      const F = seaField(ringsOpen), img = g.createImageData(n, n), d = img.data, [BR, BG, BB] = CLOUD.body;
+      let any = false;
+      for (let j = 0, i = 0; j < n; j++) for (let k = 0; k < n; k++, i += 4) {
+        const a = F.cover(x + (k - 1) * cell, y + (j - 1) * cell, sheet);
+        if (!(a > 0.004)) continue;
+        any = true;
+        d[i] = BR; d[i + 1] = BG; d[i + 2] = BB; d[i + 3] = Math.min(1, a * 1.04) * 250;
+      }
+      if (any) g.putImageData(img, 0, 0);
+      v = any ? cv : null;
+      this.roughs.set(key, v);
+      if (this.roughs.size > 400) this.roughs.delete(this.roughs.keys().next().value);
+    }
+    if (!v) return false;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(x, y, size, size); ctx.clip();
+    ctx.imageSmoothingEnabled = true;
+    // (a grid point is the middle of its sample: the picture of the grid reaches a cell and a half past the square)
+    ctx.drawImage(v, x - cell * 1.5, y - cell * 1.5, n * cell, n * cell);
+    ctx.restore();
+    return true;
   }
 
   /** Paint what kept pieces of other finenesses hold of the square (x, y, size) of the world; returns whether any did. */

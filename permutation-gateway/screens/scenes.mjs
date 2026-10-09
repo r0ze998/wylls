@@ -19,6 +19,14 @@ async function sheetFull(page) {
   if (!(await h.isVisible().catch(() => false))) return;
   for (let i = 0; i < 3 && (await page.locator('#panel').getAttribute('data-sheet')) !== 'full'; i++) await h.click();
 }
+/** Press a control of the drawer, which scrolls and re-renders every second: brought to the middle of its panel first, a few tries. */
+async function press(page, sel) {
+  const l = page.locator(sel).first();
+  await l.waitFor({ state: 'attached' });
+  for (let i = 0; ; i++) {
+    try { await l.evaluate(el => el.scrollIntoView({ block: 'center' })); await l.click({ timeout: 2000 }); return; } catch (e) { if (i >= 5) throw e; await page.waitForTimeout(150); }
+  }
+}
 /** Wait until the page's text no longer contains `text` (a pending state). */
 const gone = (page, text) => page.waitForFunction(t => !document.body.textContent.includes(t), text);
 
@@ -152,15 +160,18 @@ export const SCENES = [
     id: 'lit', title: 'the village selected on the map: its host\'s tiles are lit', page: 'index.html', stage: 'holding',
     async go(page) {
       await page.locator('#frontier-map[data-lod="tile"][data-terrain="ready"]').waitFor();
+      // (the opening view is the seat's frame, UX design 12.1: the village stands a little below the middle of the free
+      // part, so the press is aimed where the map says the village is seen, once the camera rests)
+      await page.waitForFunction(() => { const m = window.__wyllsMap; return !!m && !m.cam.moving && !m.openHold; }, null, { timeout: 15000 });
       const at = await page.evaluate(async () => {
-        const { coveredInsets } = await import('/frontier/map/fmap.mjs');
-        const cv = document.getElementById('frontier-map'), b = cv.getBoundingClientRect(), i = coveredInsets(cv);
-        return { x: b.left + i.left + (b.width - i.left - i.right) / 2, y: b.top + i.top + (b.height - i.top - i.bottom) / 2 };
+        const { FS } = await import('/frontier/fstate.mjs'); const { tileHex } = await import('/frontier/fgeo.mjs'); const { project } = await import('/map.mjs');
+        const h0 = (FS.holdings ?? [])[Number.isInteger(FS.activeHolding) ? FS.activeHolding : 0], h = tileHex(h0.p, h0.q, h0.tile), w = project(h.q, h.r);
+        return window.__wyllsMap.project(w.x, w.y);
       });
       await page.mouse.click(at.x, at.y);
       await page.mouse.move(2, 2);   // (a mouse resting on the map keeps its hover tip up; a finger leaves none)
       const ok = await page.evaluate(async () => { const { FS } = await import('/frontier/fstate.mjs'); return Number.isInteger(FS.selected?.idx) && (FS.holdings ?? []).some(h => h.p === FS.selected.p && h.q === FS.selected.q && h.tile === FS.selected.idx); });
-      if (!ok) throw new Error('the tap in the middle of the opening view did not select the viewer\'s village');
+      if (!ok) throw new Error('the tap on the village in the opening view did not select the viewer\'s village');
       await page.locator('#inspect-title').waitFor();
     },
   },
@@ -259,6 +270,44 @@ export const SCENES = [
       await page.locator('#bell-title').waitFor();
       await page.locator('[data-act="report-open"]').first().waitFor();
       await sheetFull(page);
+    },
+  },
+  // ---- the live fixture (UX design 12.4; `live`: the fixture's relay takes the viewer's orders, liveworld.mjs).
+  // The states an order leaves on the page, checked like every other scene (layout, targets, axe, both languages).
+  {
+    // an accepted order: the status chip says it landed, and the herald's next answer shows the building under way
+    id: 'live-landed', title: 'live fixture: an accepted order has landed', page: 'index.html', stage: 'holding', live: true,
+    async go(page) {
+      await tab(page, 'holding');
+      await page.locator('#holding-title').waitFor();
+      await sheetFull(page);
+      await press(page, '[data-act="build"][data-item="0"]:not([disabled])');
+      await page.locator('#feed .tx-done').waitFor({ state: 'attached', timeout: 20_000 });
+      await page.waitForFunction(() => document.querySelectorAll('#panel-body .queue li').length === 2, null, { timeout: 20_000 });
+    },
+  },
+  {
+    // a refused order: the first march of the turn is taken, the second is refused; the refusal stands at the map with its retry
+    id: 'live-refused', title: 'live fixture: a refused order, with its retry', page: 'index.html', stage: 'holding', live: true,
+    async go(page) {
+      const march = async host => {
+        await tab(page, 'hosts');
+        await sheetFull(page);
+        await press(page, `[data-act="compose"][data-host="${host}"]:not([disabled])`);
+        await page.locator('#mc-title').waitFor();
+        await press(page, '[data-act="dest-quick"]');
+        await page.locator('[data-act="march-send"]:not([disabled])').first().waitFor({ timeout: 20_000 });
+        await press(page, '[data-act="march-send"]:not([disabled])');
+      };
+      await march(HOSTS.free);
+      // (until the herald shows the host on its way: the next order is written against what the page knows)
+      await page.locator('#tracker-title').waitFor({ timeout: 30_000 });
+      for (let i = 0; i < 200; i++) {
+        if (await page.evaluate(async () => { const { FS } = await import('/frontier/fstate.mjs'); return (FS.holdings?.[0]?.transit ?? []).filter(x => x.state === 1).length === 2; })) break;
+        await page.waitForTimeout(100);
+      }
+      await march(HOSTS.scout);
+      await page.locator('#feed .tx-refused[role="alert"] [data-act="notice-retry"]').waitFor({ state: 'attached', timeout: 30_000 });
     },
   },
 ];

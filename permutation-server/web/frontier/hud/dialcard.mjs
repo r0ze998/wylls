@@ -29,7 +29,8 @@ export function nextBellItems(FS, { hostInfo = null, decides = null } = {}) {
   for (const h of FS.holdings ?? []) for (const t of h.transit ?? []) {
     if (!(t.state >= 1 && t.state <= 3) || t.arriveBell !== next) continue;
     const info = hostInfo?.(t.hostId) ?? null;
-    const who = info?.unit ? unitCount(info.unit, info.troops ?? 0) : L`軍勢`;
+    // (a count is set off from the particle that follows, as everywhere else: 「槍兵 400 が」)
+    const who = (w => (/\d$/.test(w) ? `${w} ` : w))(info?.unit ? unitCount(info.unit, info.troops ?? 0) : L`軍勢`);
     out.push({ icon: 'seal', text: info?.dest ? L`あなたの${who}が${info.dest}に着きます` : L`あなたの${who}が行き先に着きます` });
   }
   if (decides && decides.turn === next) out.push({ icon: 'home', text: L`村の場所が決まります（鐘のあと約 ${fmtNum(decides.after)} 分）` });

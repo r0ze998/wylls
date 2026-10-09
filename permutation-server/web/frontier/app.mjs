@@ -37,7 +37,7 @@ import { html, setHtml } from '../util.mjs';
 import { ACTIONS, FORMS, bind, startPlay, wantProvince } from './controller.mjs';
 import { renderTabs, factionChip, quotaChip, mountSheet, PHONE_MAX, row, lamports } from './screens/shell.mjs';
 import { cardHead, fold, label } from './screens/parts.mjs';
-import { drawerOf, closeDrawer, drawerTitle, holdsLand, LIFTS, DRAWER_ICON, WIDE, STAGE, settleRows } from './hud/drawer.mjs';
+import { drawerOf, closeDrawer, drawerTitle, holdsLand, viewerState, LIFTS, DRAWER_ICON, WIDE, STAGE, settleRows } from './hud/drawer.mjs';
 import { icon, iconizeMapTools } from './hud/icons.mjs';
 import { hudInsets, noGoRects } from './hud/insets.mjs';
 import { mountTextures } from './hud/textures.mjs';
@@ -61,14 +61,18 @@ function artClashOf(p, q) {
   const env = FS.provinces.get(`${p},${q}`);
   if (!env || !heraldRef) return null;
   const key = `${p},${q}`;
-  if (artClash.has(key)) return artClash.get(key);
-  artClash.set(key, null);
   const rb = env.province?.resolveSummary?.bell;
+  // (kept per province and resolved bell: once loaded, the report of an earlier clash stayed for good, so the marks of
+  // a clash that resolved while the page was open never showed; seen on the live fixture's turn)
+  const have = artClash.get(key);
+  if (have && have.bell === (rb ?? 0)) return have.inputs;
+  const rec = { bell: rb ?? 0, inputs: null };
+  artClash.set(key, rec);
   const bells = rb ? [rb] : ART_PREVIEW ? [env.bell - 1, env.bell - 2, env.bell - 3].filter(b => b > 0) : [];
   (async () => {
     for (const b of bells) {
       const r = await heraldRef.clash(p, q, b).catch(() => null);
-      if (r?.ok && r.inputs) { artClash.set(key, r.inputs); mapRef?.invalidate(); return; }
+      if (r?.ok && r.inputs) { if (artClash.get(key) === rec) { rec.inputs = r.inputs; mapRef?.invalidate(); } return; }
     }
   })();
   return null;
@@ -122,7 +126,7 @@ import * as glossary from './hud/glossary.mjs';
 import * as milestones from './hud/milestones.mjs';
 import * as guide from './hud/guide.mjs';
 import { forecast, forecastKey } from './hud/forecast.mjs';
-import { BUILD_ITEMS, ticketTimes } from './fland.mjs';
+import { BUILD_ITEMS, ticketTimes, queueItem } from './fland.mjs';
 import { UNIT_KINDS } from './people/units.mjs';
 import { momentSnapshot, detectMoments, liveMoments } from './people/moments.mjs';
 import * as pins from './hud/pins.mjs';
@@ -433,6 +437,8 @@ function renderDrawer(markupOf) {
 }
 
 function renderPlay() {
+  // (the stage mark of the page follows the same answer as the plate, in the same render: never a village's plate over a waiting dock)
+  renderChips();
   const d = renderDrawer(dd => panelMarkup(FS, dd));
   const tabs = $('tabs');
   // what the map itself opens (a selection, an order, the guide, the join flow) leaves "Map" current; a report or a run, none
@@ -665,7 +671,7 @@ function ownColumns() {
   if (!FS.clock) return out;
   for (const m of FS.marches ?? []) {
     const e = m.entry, d = m.dest;
-    if (!e || !d || !Number.isInteger(e.departBell) || !Number.isInteger(e.arriveBell)) continue;
+    if (!e || !d || !Number.isInteger(d.tile) || !Number.isInteger(e.departBell) || !Number.isInteger(e.arriveBell)) continue;
     if (['revealed', 'settled', 'failed'].includes(e.state)) continue;
     const hp = hostParts(e.host);
     const h = hp && (FS.holdings ?? []).find(x => x.p === hp.p && x.q === hp.q && x.site === hp.site);
@@ -697,7 +703,7 @@ function constructionsNow() {
   };
   for (const h of FS.holdings ?? []) for (const q of h.queue ?? []) {
     const done = Number(q.doneAt ?? 0);
-    if (done > now) add(h.p, h.q, h.site, q.kind, done, done - buildSecsOf(q));
+    if (done > now) add(h.p, h.q, h.site, queueItem(q), done, done - buildSecsOf(q));
   }
   if (FS.clock) for (const [k, rec] of FS.life ?? []) {
     if (!rec.build || !(rec.build.doneAt > now)) continue;
@@ -864,7 +870,9 @@ function waitNow() {
   if (resultAt !== null) { tollAt = bellStart(FS.clock.genesisTs, Math.floor((resultAt - FS.clock.genesisTs) / 600)); const from = bellStart(FS.clock.genesisTs, t.bell); share = Math.max(0, Math.min(1, (now - from) / Math.max(1, tollAt - from))); }
   // one countdown on the screen (UX design 11.10): while the wait view stands open with its own clock, the map leaves its line out
   const said = drawerOf(FS)?.kind === 'wait' && !(phone() && sheetRef?.state() === 'peek');
-  return { now, nextTurnAt: bellStart(FS.clock.genesisTs, bell + 1), resultAt, tollAt, share, first: t ? t.next ?? 0 : null, said, state: st === 'ticket' ? 'ticket' : FS.autoTicket?.state ?? null };
+  // the leader's line likewise: a phone's wait view says it in the sheet (screens/join.mjs waitHead), so the map leaves its own out
+  const wordsSaid = phone() && drawerOf(FS)?.kind === 'wait' && sheetRef?.state() !== 'peek';
+  return { now, nextTurnAt: bellStart(FS.clock.genesisTs, bell + 1), resultAt, tollAt, share, first: t ? t.next ?? 0 : null, said, wordsSaid, state: st === 'ticket' ? 'ticket' : FS.autoTicket?.state ?? null };
 }
 /** The village that lands now, the first time this device sees it (map/landing.mjs). */
 const landingBook = createLandingBook();
@@ -987,7 +995,7 @@ function updateForecast() {
 let momentPrev = null;
 function checkMoments() {
   if (!FS.provinces) return;
-  const next = momentSnapshot({ life: FS.life ?? new Map(), constructions: constructionsNow(), provinces: FS.provinces });
+  const next = momentSnapshot({ life: FS.life ?? new Map(), constructions: constructionsNow(), provinces: FS.provinces, bell: FS.nowBell ?? null, logged: FS.chronicle !== undefined && FS.isMine !== undefined });
   const t = performance.now() / 1000;
   const fresh = detectMoments(momentPrev, next, t);
   momentPrev = next;
@@ -1175,13 +1183,15 @@ function tickFeed() {
     if (sum) items = [sum, ...items];
   }
   if (snap.bell !== null) feedBell = snap.bell;
-  // this turn's own results for the effects layer (fx/stage.mjs plays them in order and emits `turn:results`)
-  if (fresh.length) fxEmit('feed', { turn: snap.bell, fresh: fresh.map(x => ({ ...x, tile: feedTile(x), faction: FS.citizen?.faction ?? null })) });
+  // this turn's own results for the effects layer (fx/stage.mjs plays them in order and emits `turn:results`).
+  // A battle of the viewer's is one of them: `scene` says the page plays battles by itself (the scene's seconds at
+  // the chosen speed) and `focus` that the camera goes there (Civ VII's "pan to combat", opt-in); the effects layer
+  // gives the scene its place in the order and the page starts it then (mountTurnStrip). It played at once, under
+  // the toll's banner and beside its own mark, the first time a real turn was seen.
+  const speed = BATTLE_SPEEDS[FS.ui?.battleFx ?? 'normal'] || 0;
+  if (fresh.length) fxEmit('feed', { turn: snap.bell, fresh: fresh.map(x => ({ ...x, tile: feedTile(x), faction: FS.citizen?.faction ?? null, ...(x.battle && speed > 0 ? { scene: PHASE.end / speed, focus: !!FS.ui?.autoPan } : {}) })) });
   if (!items.length) return;
   FS.feed = feed.pushFeed(FS.feed ?? [], items);
-  // Civ VII's "pan to combat", opt-in: the newest battle of the viewer's plays where it happened
-  const b = fresh.find(x => x.battle);
-  if (b && FS.ui?.autoPan) playBattle(b.battle.p, b.battle.q, b.battle.bell, { focus: true });
   invalidate('panel');
 }
 
@@ -1217,8 +1227,11 @@ function renderFeed() {
   const el = $('feed');
   if (!el) return;
   const st = statusNow();
-  // this turn's own results stand together in one card (fx/stage.mjs `turn:results`); they are not said twice as single notices
-  const strip = turnStripNow(), inStrip = new Set((strip?.items ?? []).map(x => x.id));
+  // this turn's own results stand together in one card (fx/stage.mjs `turn:results`); they are not said twice as single
+  // notices, not even in the moment before the card comes (it waits for the toll's banner: the single notices stood
+  // under the banner for a second and were then replaced by the card)
+  // (nor after the card was put away: its rows came back as single notices)
+  const strip = turnStripNow(), inStrip = new Set((turnStrip && fxNow() - turnStrip.at <= TURN_STRIP_MS ? turnStrip.items : []).map(x => x.id));
   const items = [...(st ? [{ id: 'tx', markup: status.renderStatus(st) }] : []),
     ...(strip ? [{ id: `turn:${strip.turn}`, markup: feed.renderTurnStrip(strip, { now: turnRowNow(strip) }) }] : []),
     ...feed.liveToasts((FS.feed ?? []).filter(x => !inStrip.has(x.id)), { dismissed: FS.feedDismissed ?? new Set() }).map(x => ({ id: `n:${x.id}`, markup: feed.renderToast(x) }))];
@@ -1232,14 +1245,22 @@ function renderFeed() {
  */
 let turnStrip = null;
 const TURN_STRIP_MS = 60_000;
-function turnStripNow() {
+/** The turn's card while it holds its results: also before it shows (the toll's banner has the top of the map first). */
+function turnStripHeld() {
   const s = turnStrip;
-  if (!s || s.dismissed || fxNow() - s.at > TURN_STRIP_MS) return null;
-  // (the toll's banner has the top of the map first: the card comes as the first result plays)
-  return fxNow() - s.at < s.startsIn * 1000 - 40 ? null : s;
+  return !s || s.dismissed || fxNow() - s.at > TURN_STRIP_MS ? null : s;
 }
-/** The row whose mark is playing on the map now (each plays for about a second and a half), or -1. */
+function turnStripNow() {
+  const s = turnStripHeld();
+  // (the card comes as the first result plays)
+  return !s || fxNow() - s.at < s.startsIn * 1000 - 40 ? null : s;
+}
+/**
+ * The row whose mark (or battle) is playing on the map now, or -1: each result says when it starts and how long it
+ * plays (`at`, `secs` on the effects clock); a list without times plays one row every `gap` for a second and a half.
+ */
 function turnRowNow(s) {
+  if (s.items.some(x => Number.isFinite(x.at))) { const now = fxNow() / 1000; return s.items.findIndex(x => Number.isFinite(x.at) && now >= x.at - 0.02 && now < x.at + (x.secs ?? 1.5)); }
   const t = (fxNow() - s.at) / 1000 - s.startsIn;
   if (t < 0) return -1;
   const i = Math.floor(t / s.gap);
@@ -1251,10 +1272,13 @@ function mountTurnStrip() {
     turnStrip = { turn: p.turn, items: p.items, demo: !!p.demo, at: fxNow(), startsIn: Math.max(0, p.startsIn ?? 0), gap: Math.max(0.2, p.gap ?? 0.7), dismissed: false };
     renderFeed();
     // the lit row follows the map's marks (a few re-renders, then the card rests)
-    const s = turnStrip;
-    for (let i = 0; i <= p.items.length; i++) setTimeout(() => { if (turnStrip === s) renderFeed(); }, Math.round((s.startsIn + i * s.gap) * 1000) + 30);
-    setTimeout(() => { if (turnStrip === s) renderFeed(); }, Math.round((s.startsIn + (p.items.length - 1) * s.gap + 1.5) * 1000) + 60);
+    const s = turnStrip, now = fxNow() / 1000;
+    const later = (secs, ms) => setTimeout(() => { if (turnStrip === s) renderFeed(); }, Math.max(0, Math.round(secs * 1000)) + ms);
+    if (p.items.some(x => Number.isFinite(x.at))) for (const x of p.items) { if (!Number.isFinite(x.at)) continue; later(x.at - now, 30); later(x.at + (x.secs ?? 1.5) - now, 60); }
+    else { for (let i = 0; i <= p.items.length; i++) later(s.startsIn + i * s.gap, 30); later(s.startsIn + (p.items.length - 1) * s.gap + 1.5, 60); }
   });
+  // a battle that is its own result starts when its turn in the order comes (fx/stage.mjs says when, on the effects clock)
+  fxOn('turn:scene', x => { if (FS.mode === 'play' && x?.battle) playBattle(x.battle.p, x.battle.q, x.battle.bell, { auto: true, focus: !!x.focus }); });
   // the next toll clears the card of the turn before
   fxOn('bell', () => { if (turnStrip && !turnStrip.demo) { turnStrip = null; renderFeed(); } });
 }
@@ -1314,6 +1338,8 @@ function renderRail() {
  * the client rectangles go to `globalThis.__wyllsMap?.setNoGo?.(rects)`; `globalThis.__wyllsHud.noGo()` reads
  * the same list at any time (hud/insets.mjs noGoRects).
  */
+/** How far inside the map's top edge no label of the map stands (px). */
+export const EDGE_TOP = 4;
 let noGoKey = '', noGoMap = null, noGoQueued = false;
 function publishNoGo() {
   if (noGoQueued || !globalThis.requestAnimationFrame) return;
@@ -1321,6 +1347,10 @@ function publishNoGo() {
   requestAnimationFrame(() => {
     noGoQueued = false;
     const rects = noGoRects();
+    // the map's own top edge is a piece too, for the map alone: a nameplate that would stand half above it slides down
+    // or is left out, like one under the dial (the second check: the spectator's 'Emar Town' plate was cut by the edge)
+    const cr = $('frontier-map')?.getBoundingClientRect?.();
+    if (cr && cr.width > 0) rects.push({ id: 'edge-top', x: Math.round(cr.left), y: Math.round(cr.top) - 60, width: Math.round(cr.width), height: 60 + EDGE_TOP });
     const key = rects.map(r => `${r.id}:${r.x},${r.y},${r.width},${r.height}`).join('|');
     const m = globalThis.__wyllsMap ?? null;
     if (key === noGoKey && m === noGoMap) return;
@@ -1392,9 +1422,15 @@ function autoBattles() {
     const prev = battleSeen.get(key);
     battleSeen.set(key, b);
     if (prev === undefined || prev >= b) continue;  // the first sight of a province is not news
+    // a clash the notifications announce (the viewer's own province, or where a march of theirs arrived) is one of
+    // the turn's own results: it plays once, in its place after the toll (tickFeed, mountTurnStrip), not here as well
+    if (FS.mode === 'play' && feedAnnounces(env.province.p, env.province.q, b)) continue;
     playBattle(env.province.p, env.province.q, b, { auto: true });
   }
 }
+/** Whether hud/feed.mjs makes a notification of the clash of (p, q) at `bell`: a province of the viewer's, or the destination of a march of theirs arriving then. */
+const feedAnnounces = (p, q, bell) => !!FS.citizen && ((FS.holdings ?? []).some(h => h.p === p && h.q === q)
+  || (FS.marches ?? []).some(m => m.dest && m.dest.p === p && m.dest.q === q && (m.entry?.arriveBell ?? m.transit?.arriveBell) === bell));
 
 // ------------------------------------------------------------------ the minimap and the lenses (hud/minimap.mjs)
 let miniQueued = false, miniPulse = null;
@@ -1478,7 +1514,7 @@ function renderIntro() {
   const el = $('intro');
   if (!el || el.hidden) return;
   // the button says where it leads once the viewer's stage is known (intro/title.mjs ctaText)
-  const stage = FS.mode === 'play' && FS.playReady ? FS.land?.stage ?? 'none' : null;
+  const stage = FS.mode === 'play' && FS.playReady && viewerState(FS) === 'known' ? FS.land?.stage ?? 'none' : null;
   setHtmlIfChanged(el, title.render({ mode: FS.mode, live: introLive(), stage }));
   // the scene's picture (intro/scene.mjs) is painted into the markup's canvas while the title stands (a new canvas when the words changed)
   const cv = el.querySelector('.intro-scene');
@@ -1713,6 +1749,8 @@ export const HUD_ACTIONS = {
   'sel-clear': () => { FS.selected = null; invalidate('map', 'panel'); },
   dial: () => { FS.dialOpen = !FS.dialOpen; closeTermPop(); renderDialPop(); if (FS.dialOpen) $('dial-pop')?.querySelector('button')?.focus?.({ preventScroll: true }); },
   'dial-close': () => closeDialPop({ focus: true }),
+  // the plate's one key while the viewer's record cannot be read (hud/hud.mjs renderPlate): the page again, from the start
+  reload: () => globalThis.location?.reload?.(),
   term: d => { FS.term = FS.term === d.term || !glossary.TERMS[d.term] ? null : d.term; renderTermPop(); $('term-pop')?.querySelector('button')?.focus?.(); },
   'term-close': () => closeTermPop(),
   // the legend of the map (map/legend.mjs), from the "?" beside the lenses: the More sheet opens on it
@@ -1756,7 +1794,8 @@ function renderChips() {
   const qc = quotaChip(FS.quota);
   if (q) { q.hidden = !qc || !(Number(FS.quota?.left) <= QUOTA_LOW); q.textContent = qc ?? ''; }
   // the viewer's stage, for the stylesheet (what has no use before joining is not shown)
-  const body = globalThis.document?.body, stage = FS.mode === 'play' ? FS.land?.stage ?? 'none' : '';
+  // (`loading` until the viewer's record has answered: nothing that depends on the answer is offered, UX design 12.3)
+  const body = globalThis.document?.body, stage = FS.mode === 'play' ? (viewerState(FS) === 'known' ? FS.land?.stage ?? 'none' : 'loading') : '';
   if (body?.dataset && body.dataset.stage !== stage) body.dataset.stage = stage;
 }
 
@@ -2072,6 +2111,8 @@ export async function boot() {
   mountLangToggle($('lang-box'));
   // The phone bottom sheet (W5-E; mounted here since W6-D, R3); the drawer state drives its height (applyDrawer).
   sheetRef = mountSheet();
+  // a sheet that changes its height shows another part of an order: the row its foot would cut is settled again (hud/drawer.mjs settleRows), now and once the sheet has moved
+  { const sheetEl = $('panel'); if (sheetEl && globalThis.MutationObserver) new MutationObserver(() => { settleSoon(); setTimeout(settleSoon, 280); mapRef?.invalidate?.(); }).observe(sheetEl, { attributes: true, attributeFilter: ['data-sheet'] }); }
   // the plate, the to-do lines and the objective stand in the sheet on phones and over the map on desktop
   globalThis.matchMedia?.(`(max-width: ${PHONE_MAX}px)`)?.addEventListener?.('change', () => { drawerKind = undefined; invalidate('panel', 'tabs', 'rail'); });
   const herald = createHerald({ base: cfg.herald });
@@ -2222,7 +2263,7 @@ export async function boot() {
       map.setView({ x: c.x, y: c.y, zoom: Number.isFinite(az) && az > 0 ? Math.min(az, 2.5) : 0.8 });
     }
   }
-  invalidate('chip', 'status', 'panel');
+  invalidate('chip', 'status', 'panel', 'chips');
   if (title.shouldOpen({ storage: globalThis.localStorage, search: globalThis.location?.search ?? '' })) openIntro();
   if (await loadSeason(herald)) {
     await loadOverviews(herald);
@@ -2231,7 +2272,7 @@ export async function boot() {
     if (FS.mode === 'spectate') startSpectate(herald);
     if (FS.mode === 'play') {
       // the first answer about the viewer decides whether the join flow opens by itself (hud/drawer.mjs) and where the map opens (map/opening.mjs)
-      startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).then(() => { FS.playReady = true; invalidate('panel', 'tabs', 'rail'); }).finally(() => { viewerKnown = true; map?.invalidate(); });
+      startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).then(() => { FS.playReady = true; FS.viewerMissed = !!FS.wallet && !FS.land; invalidate('panel', 'tabs', 'rail', 'chips'); }).finally(() => { viewerKnown = true; map?.invalidate(); });
       // the drawer starts closed: the tab of the last visit is not reopened over the map
       FS.tab = 'map';
     }

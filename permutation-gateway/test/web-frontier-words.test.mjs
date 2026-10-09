@@ -182,7 +182,7 @@ test('the chronicle and the notifications: a turn for every number, a name for e
   for (const x of [...out, ...feed.diffFeed(snap([h]), snap([]))]) assert.doesNotMatch(x.text, /第\d+鐘|州 -?\d|精算|入植希望|開封されました/, x.text);
   setLang('en');
   assert.equal(chronicle.lineOf({ name: 'DEPART', host_id: host, origin_p: 2, origin_q: 0, arrive_bell: 43 }, FS), `A host from ${placeName(2, 0, 3).en} set out (arrives on turn 43)`);
-  assert.equal(chronicle.lineOf({ name: 'CLASH', p: 1, q: 1, bell: 39 }, null), 'The clash in Aster side, ring 2 was resolved');
+  assert.equal(chronicle.lineOf({ name: 'CLASH', p: 1, q: 1, bell: 39 }, null), 'The clash on the Aster side (ring 2) was resolved');   // (rewritten with wave 3: a place inside a sentence reads as English)
   assert.equal(chronicle.lineOf({ name: 'TRANSIT_SETTLED', outcome: 4 }, null), 'A march ended: Destroyed');
   setLang('ja');
 });
