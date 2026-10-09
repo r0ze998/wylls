@@ -221,6 +221,13 @@ export const COLUMN_REACH = 2.6;
 /** How far apart the figures of the column walk, in figures. */
 export const COLUMN_GAP = 0.78;
 /**
+ * The least a figure of the column measures on screen (px, its height unit): the size it has at the hero frame. A
+ * march is sealed with the camera eased out to the reach's edge (map/fmap.mjs frameReach: zoom 0.5 to 0.8), and a
+ * column at the map's own scale there was three specks beside the village (UX design 13.6): it keeps this size,
+ * and walks far enough for its last figure to come out of the village.
+ */
+export const COLUMN_MIN_PX = 56;
+/**
  * `{points, kind, faction, reach (tiles, default 2.6), n (default 4)}`: the column sets off. A file of figures
  * at the size the map's hosts have steps onto the ribbon one behind another, walks along it for a good two
  * tiles in the open, and fades into the march. Reduced motion: the file stands on the first stretch of the
@@ -231,7 +238,8 @@ function walker(a, env) {
   if (path.pts.length < 2) return null;
   const full = env.mode === 'full';
   const n = Math.max(1, Math.min(6, a.n ?? 4));
-  const reach = Math.min(0.9, ((a.reach ?? COLUMN_REACH) * R * 1.75) / Math.max(1, path.total));
+  const reachOf = size => Math.min(0.9, Math.max((a.reach ?? COLUMN_REACH) * R * 1.75, size * COLUMN_GAP * (n + 1.6)) / Math.max(1, path.total));
+  const reach = reachOf(0);
   const dur = full ? COLUMN_SECS : 1.6;
   const o0 = path.pts[0];
   if (full) {
@@ -242,9 +250,9 @@ function walker(a, env) {
   }
   return { layer: 'top', dur, draw(ctx, s) {
     if (isFar(s)) return;
-    const t = s.t, size = battleScale(s.zoom) * 0.92;
+    const t = s.t, size = Math.max(battleScale(s.zoom) * 0.92, COLUMN_MIN_PX / Math.max(0.05, s.zoom));
     // one behind another along the path, most of a figure apart (closer, their ground shadows ran into one dark smear)
-    const gap = (size * COLUMN_GAP) / Math.max(1, path.total);
+    const gap = (size * COLUMN_GAP) / Math.max(1, path.total), reach = reachOf(size);
     const lead = full ? reach * (0.12 + 0.88 * (span(t, 0.1, dur - 0.5) ** 0.85)) : reach * 0.42;
     const out = full ? 1 - inQuad(span(t, dur - 0.55, dur)) : envelope(t, dur, REDUCED_FADE, REDUCED_FADE);
     const list = [];

@@ -131,9 +131,10 @@ test('the truth rule: the six are the players: a character stands by its player\
   walk(WEB);
   const importers = name => files.filter(f => new RegExp(`from '[^']*${name}'|import\\('[^']*${name}'\\)`).test(readFileSync(new URL(f, WEB), 'utf8')));
   assert.deepEqual(importers('leader-demo\\.mjs'), ['fx/demo.mjs'], 'the demo of the six is the demo switch\'s alone');
-  // (UX design 13.2, DECISIONS ZP2: the map painter is used by that demo and by the one module that stands a player's
-  // character beside that player's village; the walk clip is the landing's and the demo's)
-  assert.deepEqual(importers('leader-motion\\.mjs').sort(), ['people/leader-demo.mjs', 'people/onboard.mjs'], 'the map painter: the demo, and the characters by their villages');
+  // (UX design 13.2, DECISIONS ZP2: the map painter is used by that demo, by the one module that stands a player's
+  // character beside that player's village, and by the battle scene, where each nation's side has its player behind
+  // its line; the walk clip is the landing's and the demo's)
+  assert.deepEqual(importers('leader-motion\\.mjs').sort(), ['people/battle.mjs', 'people/leader-demo.mjs', 'people/onboard.mjs'], 'the map painter: the demo, the characters by their villages, and the two sides\' players in a battle scene');
   // and fx/demo.mjs itself is loaded only when the address carries ?fx=
   assert.deepEqual(importers('/demo\\.mjs').sort(), ['fx/index.mjs']);
   assert.match(readFileSync(new URL('fx/index.mjs', WEB), 'utf8'), /if \(q\.has\('fx'\)\) import\('\.\/demo\.mjs'\)/);
@@ -142,7 +143,7 @@ test('the truth rule: the six are the players: a character stands by its player\
   assert.match(demo, /tag\.className = 'fx-demo-tag'/, 'the corner tag stands while any sample plays');
   // the map sprites are named by the painter's users only: no screen and no map module asks for them
   const users = files.filter(f => /motionSpriteUrl|leaderMotionSheet|paintLeaderMotion/.test(readFileSync(new URL(f, WEB), 'utf8')));
-  assert.deepEqual(users.sort(), ['leader-motion-data.mjs', 'people/leader-demo.mjs', 'people/leader-motion.mjs', 'people/onboard.mjs']);
+  assert.deepEqual(users.sort(), ['leader-motion-data.mjs', 'people/battle.mjs', 'people/leader-demo.mjs', 'people/leader-motion.mjs', 'people/onboard.mjs']);
   // a character is no unit of the game: the module that stands it on the board knows no march, no route and no destination
   const onboard = readFileSync(new URL('people/onboard.mjs', WEB), 'utf8');
   assert.doesNotMatch(onboard, /fmarch|marchbook|routePoints|alongPath|\bdest\b|arriveBell/);

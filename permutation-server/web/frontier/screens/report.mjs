@@ -46,6 +46,7 @@ import { cardHead, fold, chip, lossBar, label, ring } from './parts.mjs';
 import { tileName, provinceName } from '../hud/place.mjs';
 import { leaderFigure } from '../people/leaders.mjs';
 import { playerFace } from '../people/faces.mjs';
+import { sideOutcome, verdictKey } from '../people/outcome.mjs';
 
 // ------------------------------------------------------------------ the resolve_clash codec (borsh)
 /** Postures in borsh order: Stance(Hold|Assault|Flank|Brace), then Disarray. */
@@ -433,13 +434,13 @@ export function summaryOf(rows) {
   const lost = own.reduce((a, r) => a + lossOf(r), 0), before = own.reduce((a, r) => a + r.before, 0);
   const arrivals = own.filter(r => r.kind === 'arrival');
   const reached = arrivals.length ? arrivals.some(r => r.fate === 'Stays') : null;
-  const fell = own.every(r => r.fate === 'Destroyed' || r.after === 0);
-  const turned = own.every(r => ['Withdrew', 'Bounced', 'Retreated', 'Routed'].includes(r.fate));
   const foes = rows.filter(r => !r.mine && r.faction !== own[0].faction);
-  const foesLeft = foes.filter(r => r.after !== null && r.after > 0 && (r.fate === null || r.fate === 'Stays')).length;
-  const result = !known ? 'none' : fell ? 'fell' : turned ? 'turned' : foesLeft === 0 ? 'won' : 'held';
-  const foe = !foes.length ? 'none' : foesLeft > 0 ? 'stays' : foes.some(r => r.after !== null && r.after > 0) ? 'left' : foes.every(r => r.kind === 'camp') ? 'camp' : 'destroyed';
-  return { mine: true, known, lost, before, result, reached, fates: own.map(r => r.fate).filter(Boolean), faction: own[0].faction, role: arrivals.length ? 'attack' : 'defend', foe };
+  // what became of each side: the one function the battle on the map asks too (people/outcome.mjs), so the stamp
+  // here, the title across the map and the tags under the losses say one thing of one result
+  const ownOut = sideOutcome(own), foeOut = foes.length ? sideOutcome(foes) : undefined;
+  const result = !known || ownOut === null ? 'none' : ownOut === 'Destroyed' ? 'fell' : ownOut !== 'Stays' ? 'turned' : foeOut === 'Stays' ? 'held' : 'won';
+  const foe = !foes.length ? 'none' : foeOut === null ? 'unknown' : foeOut === 'Stays' ? 'stays' : foeOut !== 'Destroyed' ? 'left' : foes.every(r => r.kind === 'camp') ? 'camp' : 'destroyed';
+  return { mine: true, known, lost, before, result, reached, fates: own.map(r => r.fate).filter(Boolean), faction: own[0].faction, role: arrivals.length ? 'attack' : 'defend', foe, own: ownOut, other: foeOut };
 }
 
 /**
@@ -662,14 +663,15 @@ export function render(FS, mine = () => false, { whatIf = true, ownerOf = null }
  */
 export function verdictOf(sum) {
   if (!sum?.mine) return { key: 'watch', tone: 'watch', text: '' };
-  if (sum.result === 'none') return { key: 'none', tone: 'none', text: L`結果はまだ確かめていません` };
-  if (sum.result === 'fell') return { key: 'fell', tone: 'fell', text: L`壊滅：あなたの兵は残らなかった` };
-  if (sum.result === 'turned') return { key: 'turned', tone: 'turned', text: L`撤退：戦場には残らなかった` };
-  if (sum.result === 'held') return { key: 'held', tone: 'held', text: L`持ちこたえた：相手も戦場に残っている` };
-  if (sum.foe === 'camp') return { key: 'won', tone: 'won', text: L`勝利：野営地を制圧した` };
-  if (sum.foe === 'destroyed') return { key: 'won', tone: 'won', text: L`勝利：相手は壊滅した` };
-  if (sum.foe === 'left') return sum.role === 'defend' ? { key: 'repelled', tone: 'won', text: L`撃退：攻め手は退いた` } : { key: 'won', tone: 'won', text: L`勝利：相手は退いた` };
-  return sum.role === 'defend' ? { key: 'held', tone: 'held', text: L`戦場に残った` } : { key: 'arrived', tone: 'held', text: L`行き先に着き、戦場に残った` };
+  // the word: people/outcome.mjs verdictKey, the one the battle's title on the map asks
+  const key = sum.result === 'none' ? 'none' : verdictKey({ own: sum.own, foe: sum.other, role: sum.role });
+  if (key === 'none') return { key, tone: 'none', text: L`結果はまだ確かめていません` };
+  if (key === 'fell') return { key, tone: 'fell', text: L`壊滅：あなたの兵は残らなかった` };
+  if (key === 'turned') return { key, tone: 'turned', text: L`撤退：戦場には残らなかった` };
+  if (key === 'repelled') return { key, tone: 'won', text: L`撃退：攻め手は退いた` };
+  if (key === 'won') return { key, tone: 'won', text: sum.foe === 'camp' ? L`勝利：野営地を制圧した` : sum.foe === 'destroyed' ? L`勝利：相手は壊滅した` : L`勝利：相手は退いた` };
+  if (key === 'arrived') return { key, tone: 'held', text: L`行き先に着き、戦場に残った` };
+  return { key: 'held', tone: 'held', text: sum.foe === 'none' ? L`戦場に残った` : L`持ちこたえた：相手も戦場に残っている` };
 }
 
 /** The nation's words on a result (UI plan F1; no named speaker: DECISIONS ZP3): the viewer's nation, or the side that held the field. */

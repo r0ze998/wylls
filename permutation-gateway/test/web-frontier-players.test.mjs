@@ -262,3 +262,164 @@ test('a province\'s tokens carry the characters after its hosts (people/units.mj
     assert.deepEqual(provinceTokens({ p: 2, q: 0, hosts, holdingTiles: new Set([7]), heroTiles: new Set([7]), heroSpots: HERO.hosts, skipTiles: new Set([7]) }), []);
   } finally { O.setBoardCharacters([]); }
 });
+
+// ------------------------------------------------------------------ the players in a battle scene; one outcome word per result
+import * as B from '../../permutation-server/web/frontier/people/battle.mjs';
+import { sideOutcome, verdictKey } from '../../permutation-server/web/frontier/people/outcome.mjs';
+import { verdictTitle } from '../../permutation-server/web/frontier/fx/battle.mjs';
+import * as rep from '../../permutation-server/web/frontier/screens/report.mjs';
+import { VERDICTS, FATES } from '../../permutation-server/web/frontier/fi18n.mjs';
+import { FACTION_FILL } from '../../permutation-server/web/frontier/people/avatar.mjs';
+
+const M = (o = {}) => ({ id: 'x', faction: 0, unit: 0, stance: 0, before: 100, after: 100, fate: 'Stays', kind: 'arrival', ...o });
+const clash = (attackers, defenders, extra = {}) => ({ p: 2, q: 0, bell: 41, tiles: [{ idx: 7, attackers, defenders, ...extra }] });
+/** The fixture's turn: Cinder arrives 900 strong at the viewer's village and nothing of it is left; the garrison loses 80. */
+const liveClash = () => clash([M({ id: 'a', faction: 2, stance: 1, before: 900, after: 0, fate: 'Destroyed' })], [M({ id: 'g0', faction: 0, stance: 3, before: 1080, after: 1000, kind: 'garrison' })]);
+
+test('what became of a side is asked of one function: destroyed only when nothing is left, withdrawn when a part left with troops', () => {
+  assert.equal(sideOutcome([M({ after: 0, fate: 'Destroyed' })]), 'Destroyed');
+  assert.equal(sideOutcome([M({ after: 0, fate: 'Destroyed' }), M({ before: 300, after: 300, fate: 'Retreated' })]), 'Retreated', 'a part turned back: the side withdrew');
+  assert.equal(sideOutcome([M({ after: 0, fate: 'Destroyed' }), M({ after: 60 })]), 'Stays', 'a part holds the field: the side stays');
+  assert.equal(sideOutcome([M({ kind: 'garrison', fate: null, after: 80 })]), 'Stays', 'a garrison has no fate of its own: it stays unless nothing of it is left');
+  assert.equal(sideOutcome([M({ kind: 'camp', fate: null, after: 0 })]), 'Destroyed');
+  assert.equal(sideOutcome([M({ fate: null, after: null })]), null, 'not known yet');
+  assert.equal(sideOutcome([]), null);
+  assert.equal(sideOutcome([M({ after: 40, fate: 'Bounced' }), M({ before: 500, after: 420, fate: 'Withdrew' })]), 'Withdrew', 'the fate of the largest part that left');
+  // the viewer's word
+  assert.equal(verdictKey({ own: 'Stays', foe: 'Destroyed', role: 'defend' }), 'won');
+  assert.equal(verdictKey({ own: 'Stays', foe: 'Retreated', role: 'defend' }), 'repelled');
+  assert.equal(verdictKey({ own: 'Stays', foe: 'Bounced', role: 'attack' }), 'won');
+  assert.equal(verdictKey({ own: 'Stays', foe: 'Stays' }), 'held');
+  assert.equal(verdictKey({ own: 'Destroyed', foe: 'Stays' }), 'fell');
+  assert.equal(verdictKey({ own: 'Retreated', foe: 'Stays' }), 'turned');
+  assert.equal(verdictKey({ own: 'Stays', role: 'attack' }), 'arrived'); assert.equal(verdictKey({ own: 'Stays', role: 'defend' }), 'held');
+  assert.equal(verdictKey({ own: null }), 'none'); assert.equal(verdictKey({ own: 'Stays', foe: null }), 'none');
+});
+
+test('one outcome word per result: the title across the map, the tag under each side\'s losses and the report\'s stamp never disagree', () => {
+  setLang('ja');
+  const tagsOf = scene => B.battlePlan(scene).tiles[0].sides.map(s => s.fate);
+  const rowsOf = (scene, viewer) => [...scene.tiles[0].attackers, ...scene.tiles[0].defenders].map(x => ({ ...x, mine: x.faction === viewer }));
+  // the last check's case: 0 attackers left. The title said 撃退 over a tag that said 壊滅した.
+  const live = liveClash();
+  assert.deepEqual(tagsOf(live), ['Destroyed', 'Stays']);
+  assert.equal(verdictTitle(live, 0).title, '勝利', 'the defender\'s word when nothing of the attackers is left');
+  assert.equal(verdictTitle(live, 2).title, '壊滅', 'the attackers\' own word');
+  assert.equal(VERDICTS[rep.verdictOf(rep.summaryOf(rowsOf(live, 0))).key], '勝利'); assert.equal(VERDICTS[rep.verdictOf(rep.summaryOf(rowsOf(live, 2))).key], '壊滅');
+  // every pairing of fates: 撃退 stands only over attackers who left with troops; 壊滅 only on a side with nothing left
+  const fatesA = [['Destroyed', 0], ['Retreated', 60], ['Bounced', 40], ['Stays', 70]], fatesD = [['Destroyed', 0], ['Withdrew', 50], ['Stays', 80]];
+  for (const [fa, aa] of fatesA) for (const [fd, ad] of fatesD) for (const mixed of [false, true]) {
+    const A = [M({ id: 'a', faction: 2, after: aa, fate: fa }), ...(mixed ? [M({ id: 'a2', faction: 2, before: 400, after: 0, fate: 'Destroyed' })] : [])];
+    const scene = clash(A, [M({ id: 'd', faction: 0, after: ad, fate: fd, kind: 'resident' })]);
+    const [tagA, tagD] = tagsOf(scene);
+    for (const viewer of [0, 2]) {
+      const title = verdictTitle(scene, viewer), stamp = VERDICTS[rep.verdictOf(rep.summaryOf(rowsOf(scene, viewer))).key];
+      const own = viewer === 2 ? tagA : tagD, foe = viewer === 2 ? tagD : tagA, where = `${fa}${mixed ? '+Destroyed' : ''} against ${fd}, viewer ${viewer}`;
+      if (title) assert.equal(title.title, stamp, `the title is the report's stamp: ${where}`);
+      if (title?.title === '撃退') assert.ok(viewer === 0 && foe !== 'Destroyed' && foe !== 'Stays', `撃退 only when the attackers left with troops: ${where}`);
+      if (title?.title === '壊滅') assert.equal(own, 'Destroyed', `壊滅 only when nothing of the viewer's is left: ${where}`);
+      if (title?.title === '勝利') assert.ok(own === 'Stays' && foe !== 'Stays', where);
+      if (own === 'Destroyed' && title) assert.equal(title.title, '壊滅', where);
+      if (foe === 'Destroyed' && own === 'Stays') assert.equal(title?.title, '勝利', where);
+    }
+  }
+  // the tag's words are the report's table
+  assert.equal(FATES.Destroyed, '壊滅した'); assert.equal(FATES.Stays, '戦場に残った');
+});
+
+test('who has the better of each contact follows the record\'s losses; the last blow is the holder\'s', () => {
+  const sides = scene => B.battlePlan(scene).tiles[0];
+  assert.deepEqual(sides(liveClash()).wins, [1, 1, 1, 1], 'the attackers lost everything: the defenders have every exchange');
+  const even = sides(clash([M({ faction: 2, before: 100, after: 50 })], [M({ id: 'd', before: 100, after: 50, kind: 'resident' })]));
+  assert.deepEqual(even.wins, [-1, 1, -1, 1], 'both hold with the same share lost: turn and turn about');
+  const close = sides(clash([M({ faction: 2, before: 100, after: 50, fate: 'Retreated' })], [M({ id: 'd', before: 100, after: 70, kind: 'resident' })]));
+  assert.equal(close.wins[3], 1, 'the defenders hold: the last blow is theirs');
+  assert.equal(close.wins.filter(w => w === 1).length, 3); assert.equal(close.wins.filter(w => w === -1).length, 1, 'the attackers took three tenths of the defenders: one exchange is theirs');
+  const taken = sides(clash([M({ faction: 2, before: 400, after: 380 })], [M({ id: 'd', before: 100, after: 0, fate: 'Destroyed', kind: 'resident' })]));
+  assert.deepEqual(taken.wins, [-1, -1, -1, -1]);
+  assert.deepEqual(sides(clash([M({ faction: 2, before: 100, after: null, fate: null })], [M({ id: 'd', kind: 'resident' })])).wins, [0, 0, 0, 0], 'losses not known: nobody strikes');
+  assert.deepEqual(sides(clash([M({ faction: 2 })], [])).wins, [], 'nobody stood against the arrivals');
+});
+
+test('a side\'s character: the attack on an exchange its side wins, the hit on one it loses, idle between; a camp has none', () => {
+  const T = B.battlePlan(liveClash()).tiles[0], [A, D] = T.sides;
+  assert.deepEqual([A.character, D.character], ['cinder', 'aster'], 'each nation\'s side has its player\'s character');
+  const camp = B.battlePlan(clash([M({ faction: 0, before: 600, after: 510 })], [M({ id: 'camp', faction: 6, before: 420, after: 0, fate: 'Destroyed', kind: 'camp' })])).tiles[0];
+  assert.deepEqual(camp.sides.map(s => s.character), ['aster', null], 'a camp has no player');
+  const h = B.BATTLE_HITS, C = B.CHARACTER_CLIP;
+  // before the melee: idle, on the scene's own time (a two-second loop)
+  assert.deepEqual(B.characterAct(T.wins, 1, 1.0, 1.0), { motion: 'idle', share: 0.5, looping: true });
+  // the defenders win the first exchange: their character strikes, timed so the blow meets the contact; the attackers' takes it from the contact on
+  const strike = B.characterAct(T.wins, 1, h[0], h[0]);
+  assert.equal(strike.motion, 'attack'); assert.equal(strike.looping, false); assert.ok(Math.abs(strike.share - C.attack.lead / C.attack.secs) < 1e-9);
+  assert.equal(B.characterAct(T.wins, 1, h[0] - C.attack.lead - 0.01).motion, 'idle');
+  assert.equal(B.characterAct(T.wins, -1, h[0] - 0.01).motion, 'idle', 'the blow has not landed yet');
+  assert.deepEqual(B.characterAct(T.wins, -1, h[0]), { motion: 'hit', share: 0, looping: false });
+  assert.equal(B.characterAct(T.wins, -1, h[0] + C.hit.secs + 0.01).motion, 'idle', 'idle between');
+  for (const j of [1, 2, 3]) { assert.equal(B.characterAct(T.wins, 1, h[j]).motion, 'attack'); assert.equal(B.characterAct(T.wins, -1, h[j] + 0.1).motion, 'hit'); }
+  assert.equal(B.characterAct(T.wins, 1, B.PHASE.fates + 1).motion, 'idle'); assert.equal(B.characterAct(T.wins, -1, B.PHASE.fates + 1).motion, 'idle');
+  assert.equal(B.characterAct([0, 0, 0, 0], 1, h[1]).motion, 'idle', 'losses not known: it only stands');
+  // the scene keeps its phase contract and its length
+  assert.deepEqual(B.PHASE, { emerge: 0, deploy: 1.2, melee: 2.2, fates: 4.0, losses: 5.6, end: 7.0 });
+  assert.ok(h.every((x, j) => j === 0 || x - h[j - 1] >= C.attack.lead + 0.2), 'a strike is over before the next one begins');
+});
+
+test('the scene paints both characters behind their lines, facing the enemy; the sheets are asked for when the scene is staged', () => {
+  const play = B.startBattle(liveClash(), 0, 1);
+  const before = requests.length;
+  B.preloadBattle(play.scene);
+  const asked = requests.slice(before).map(r => r.src.split('/').pop());
+  for (const f of ['cinder_attack.webp', 'cinder_hit.webp', 'aster_attack.webp', 'aster_hit.webp']) assert.ok(asked.includes(f) || requests.some(r => r.src.endsWith(f)), f);
+  loadAll();
+  const log = [], state = { globalAlpha: 1, stack: [] };
+  const ctx = new Proxy({}, { get(_, k) { if (k === 'globalAlpha') return state.globalAlpha; if (k === 'save') return () => state.stack.push(state.globalAlpha); if (k === 'restore') return () => { state.globalAlpha = state.stack.pop(); };
+    if (k === 'createLinearGradient' || k === 'createRadialGradient') return () => ({ addColorStop() {} }); if (k === 'measureText') return t => ({ width: String(t).length * 10 }); return (...a) => { log.push([k, ...a]); }; },
+    set(_, k, v) { if (k === 'globalAlpha') state.globalAlpha = v; else log.push(['set', k, v]); return true; } });
+  const paint = at => { log.length = 0; B.paintBattle(ctx, play, { zoom: 2.1, at, top: true, fateText: f => f, lossText: n => `−${n}` }); return log.filter(c => c[0] === 'drawImage' && /motion-v1\/sprite\//.test(c[1]?.src ?? '')); };
+  const stage = B.battleStage(B.battlePlan(play.scene).tiles[0], 2.1);
+  // between the phases: both stand
+  let figs = paint(1.6);
+  assert.deepEqual(figs.map(c => c[1].src.split('/').pop()).sort(), ['aster_idle.webp', 'cinder_idle.webp']);
+  // where: behind each formation (further from the middle than the lines stand), the attackers' on the left
+  const at = file => { const i = log.findIndex(c => c[0] === 'drawImage' && c[1]?.src?.endsWith(file)); for (let j = i; j >= 0; j--) if (log[j][0] === 'translate') return log[j]; return null; };
+  const cinder = at('cinder_idle.webp'), aster = at('aster_idle.webp');
+  assert.ok(cinder[1] < stage.cx - stage.rest * stage.s && aster[1] > stage.cx + stage.rest * stage.s, 'behind their lines');
+  assert.ok(cinder[2] < stage.cy && aster[2] < stage.cy, 'a little upstage');
+  // facing the enemy: the defenders' character, on the right, is turned to the left
+  const flips = log.filter(c => c[0] === 'scale' && c[1] === -1 && c[2] === 1);
+  assert.equal(flips.length >= 1, true);
+  // a contact the defenders win: Aster strikes, Cinder takes the blow
+  figs = paint(B.BATTLE_HITS[1] + 0.05);
+  assert.deepEqual(figs.map(c => c[1].src.split('/').pop()).sort(), ['aster_attack.webp', 'cinder_hit.webp']);
+  // the star of that contact: Aster's long points and Cinder's short ones, a dark keyline, an ivory heart (it was plain ivory)
+  const fills = log.filter(c => c[0] === 'set' && c[1] === 'fillStyle').map(c => String(c[2]));
+  const rgb = hex => { const n = parseInt(hex.slice(1), 16); return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},`; };
+  assert.ok(fills.some(f => f.startsWith(rgb(FACTION_FILL[0]))) && fills.some(f => f.startsWith(rgb(FACTION_FILL[2]))), 'the star carries the two nations\' colours');
+  // reduced motion's frame (the field as the fates left it): both stand
+  figs = paint(B.PHASE.fates + 1.5);
+  assert.deepEqual(figs.map(c => c[1].src.split('/').pop()).sort(), ['aster_idle.webp', 'cinder_idle.webp']);
+});
+
+test('a fight on a village\'s tile is staged before the village, never over its houses', () => {
+  const none = B.battleStage(B.battlePlan(liveClash()).tiles[0], 1.15);
+  const own = clash(liveClash().tiles[0].attackers, liveClash().tiles[0].defenders, { village: { tier: 1, own: true } });
+  const other = clash(liveClash().tiles[0].attackers, liveClash().tiles[0].defenders, { village: { tier: 1, own: false } });
+  for (const [scene, scale, cy] of [[own, HERO.scale, HERO.at.y], [other, VILLAGE_SCALE, -RADIUS * 0.04]]) {
+    const T = B.battlePlan(scene).tiles[0], st = B.battleStage(T, 1.15);
+    const foot = cy + RADIUS * VILLAGE.ring[1] * scale * FLATTEN * 0.8;
+    assert.deepEqual(T.village, scene.tiles[0].village);
+    // the top of the numbers over the scene (its highest point) is below the village's foot
+    assert.ok(st.cy - RADIUS * 0.12 - st.s * (B.BATTLE_ABOVE + 0.2) >= T.c.y + foot, `the scene's numbers stand under the palisade's foot (${(st.cy - T.c.y).toFixed(0)} below the tile's middle)`);
+    assert.equal(st.cx, none.cx, 'straight before the village');
+    assert.ok(st.s < none.s, 'in passing it is a little smaller, so the whole of it fits between the village and the foot of the picture');
+    // a battle the camera is sent to keeps its stage's size, and stands before the village too
+    const layout = B.battleLayout({ width: 1000, height: 700 }, { title: 128 });
+    const focus = B.battleStage(T, 2.1, 1, layout);
+    assert.ok(Math.abs(focus.s - layout.px / 2.1) < 1e-9); assert.ok(focus.cy > T.c.y + foot);
+  }
+  assert.equal(B.villageDrop(null, 50), 0);
+  // the page marks the tiles from the Province's own sites, and which of them are the viewer's
+  const before = { sites: [3, 7], siteMirror: [{ state: 0 }, { state: 1, faction: 0, tier: 1, garrison: 1080000n }], entries: [] };
+  const sc = B.battleScene({ p: 2, q: 0, bell: 41, inputs: { arrivals: [{ present: 1, tile: 7, hostId: 9n, faction: 2, unit: 0, stance: 1, troops: 900000n, troopsAfter: 0n, fate: 5 }] }, before, after: null, ownTiles: new Set([7]) });
+  assert.deepEqual(sc.tiles[0].village, { tier: 1, own: true });
+});

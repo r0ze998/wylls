@@ -1433,7 +1433,9 @@ export async function playBattle(p, q, bell, { focus = false, auto = false } = {
   let before = null;
   try { before = r.report?.province_before_b64 ? decodeAccount('Province', fromBase64(r.report.province_before_b64)) : null; } catch { before = null; }
   const after = FS.provinces.get(`${p},${q}`)?.province ?? null;
-  const scene = battleScene({ p, q, bell, inputs: r.inputs, before, after: after && after.resolvedNext > bell ? after : null });
+  // (the viewer's own villages in the province: the map draws them larger, and a fight there is staged before them)
+  const ownTiles = new Set((FS.holdings ?? []).filter(h => h.p === p && h.q === q && Number.isInteger(h.tile)).map(h => h.tile));
+  const scene = battleScene({ p, q, bell, inputs: r.inputs, before, after: after && after.resolvedNext > bell ? after : null, ownTiles });
   if (!scene) return false;
   // the camera flies in, to the part of the map no sheet covers (map/fmap.mjs flyTo)
   if (focus && mapRef) mapRef.flyTo({ p, q, tile: scene.tiles[0].idx, zoom: 2.1 }, 500);

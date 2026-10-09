@@ -25,7 +25,8 @@
 // and the two loss numbers only.
 import { L, fmtNum } from '../../lang.mjs';
 import { RADIUS, FLATTEN } from '../../map.mjs';
-import { factionName } from '../fi18n.mjs';
+import { factionName, FATES, VERDICTS } from '../fi18n.mjs';
+import { sideOutcome, verdictKey } from '../people/outcome.mjs';
 import { PHASE, BATTLE_HITS, HIT_POWER, BATTLE_ABOVE, battlePlan, battleStage, battleFit, battleLayout, battleVerdict, paintBattle, preloadBattle, sideColors, crossedSwords } from '../people/battle.mjs';
 import { span, lerp, inQuad, outCubic, outExpo, outBack, envelope } from './ease.mjs';
 import { REDUCED_FADE } from './motion.mjs';
@@ -72,8 +73,8 @@ export const BATTLE_DIM = Object.freeze({ focus: 0.66, passing: 0.42 });
 const defaultTexts = () => ({
   lossText: n => L`−${fmtNum(n)} 兵`,
   numText: n => fmtNum(n),
-  // (the same words as fi18n.mjs FATES: one vocabulary for an outcome, UX design 11.13; the page passes that table)
-  fateText: f => ({ Stays: L`戦場に残った`, Withdrew: L`隣へ退いた`, Bounced: L`村へ押し戻された`, Retreated: L`撤退した`, Destroyed: L`壊滅した` })[f] ?? null,
+  // (fi18n.mjs FATES itself: one vocabulary for an outcome, UX design 11.13)
+  fateText: f => FATES[f] ?? null,
   nameText: side => sideName(side),
 });
 
@@ -87,6 +88,14 @@ const sideName = side => {
  * null when there is nothing to announce (nobody stood against the arrivals,
  * both sides remain, or the outcome is not known yet). The words follow the
  * fates of the record; `viewerFaction` only chooses whose words they are.
+ *
+ * One outcome word per result (UX design 13.6): the viewer's word is
+ * people/outcome.mjs `verdictKey` of what became of the two sides
+ * (`sideOutcome`), the very function the tag under each side's losses
+ * (people/battle.mjs: the side's `fate`) and the report's stamp ask. So 撃退
+ * stands only over attackers who left with troops (their tag says they
+ * withdrew), and attackers of whom nothing is left are 壊滅 on their tag
+ * under a title that says 勝利.
  */
 export function verdictTitle(scene, viewerFaction = null) {
   const v = battleVerdict(scene);
@@ -99,17 +108,18 @@ export function verdictTitle(scene, viewerFaction = null) {
   const mine = inA && !inD ? 'attackers' : inD && !inA ? 'defenders' : null;
   const sub = L`${sideName(A)} 対 ${sideName(D)}`;
   const color = v.winner !== null ? sideColors(v.winner).fill : TONE.brass;
-  if (v.kind === 'ruin') return { title: L`共倒れ`, sub, color: TONE.brass, tone: 'loss', won: false, verdict: v };
-  if (mine && mine === v.side) return { title: v.kind === 'cleared' ? L`野営地を制圧` : v.kind === 'held' ? L`撃退` : L`勝利`, sub, color, tone: 'win', won: true, verdict: v };
   if (mine) {
-    const own = (mine === 'attackers' ? A : D).groups.filter(g => g.faction === viewerFaction);
-    // destroyed, when most of what the viewer brought was destroyed (a part that turned back unhurt does not soften the word)
-    const all = own.reduce((n, g) => n + g.before, 0), gone = own.filter(g => g.fate === 'Destroyed' || g.after === 0).reduce((n, g) => n + g.before, 0);
-    const fell = all > 0 && gone * 2 >= all;
-    return { title: fell ? L`壊滅` : mine === 'attackers' ? L`撤退` : L`敗北`, sub, color, tone: 'loss', won: false, verdict: v };
+    const tile = scene.tiles.find(x => x.idx === T.idx) ?? scene.tiles[0];
+    const side = mine === 'attackers' ? tile.attackers ?? [] : tile.defenders ?? [], other = mine === 'attackers' ? tile.defenders ?? [] : tile.attackers ?? [];
+    const key = verdictKey({ own: sideOutcome(side.filter(x => x.faction === viewerFaction)), foe: sideOutcome(other), role: mine === 'attackers' ? 'attack' : 'defend' });
+    // (both hold, or not known: nothing to announce)
+    if (!['won', 'repelled', 'fell', 'turned'].includes(key)) return null;
+    const won = key === 'won' || key === 'repelled';
+    return { title: VERDICTS[key], key, sub, color, tone: won ? 'win' : 'loss', won, verdict: v };
   }
+  if (v.kind === 'ruin') return { title: VERDICTS.ruin, key: 'ruin', sub, color: TONE.brass, tone: 'loss', won: false, verdict: v };
   const name = v.winner !== null ? factionName(v.winner) : '';
-  return { title: v.kind === 'cleared' ? L`野営地を制圧` : v.kind === 'held' ? L`${name}が守り切った` : L`${name}の勝利`, sub, color, tone: 'brass', won: null, verdict: v };
+  return { title: v.kind === 'cleared' ? VERDICTS.cleared : v.kind === 'held' ? L`${name}が守り切った` : L`${name}の勝利`, key: v.kind, sub, color, tone: 'brass', won: null, verdict: v };
 }
 
 /** The spotlight: everything darkens but a soft disc around (x, y). */
