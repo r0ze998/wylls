@@ -1,0 +1,36 @@
+# The conquest demo stack: one world shared by a human in the browser and LLM citizens. A version-3 ("conquest") season
+# (`conquest = true`: the stack deploys the conquest program build and creates the season with the v2 parameters; a first
+# village is granted at once by PlaceHome; play instructions use the v2 account shapes). 6 AI citizens (deck-1, one per
+# nation) and the presenter seat are the separate fleet that citizens/bin/ai-citizens-run.sh starts; the script reads
+# `conquest = true` here and passes `--conquest` to that fleet. 6 script bots (one per nation) join in the first 6 bells.
+# 10 game hours (60 play bells) at 10x: about 60 min of wall time for the play, plus the drain.
+#
+#   AI_RUNS_MD=/some/file/outside/the/repo/RUNS.md permutation-gateway/citizens/bin/ai-citizens-run.sh \
+#       --stack permutation-gateway/citizens/stack/ai-cq-demo.toml --citizens-config permutation-gateway/citizens/config/smoke.json
+#
+# The season itself is the conquest preset's fourteen days (the stack stops playing after game_hours; a human world is
+# never ended early). A conquest run id is used once: `frontier-stack up` refuses an existing conquest world.
+#
+# Local test chain only. Base port 41900 (see ai-citizens.toml); one AI stack at a time.
+run_id = "ai-cq-demo"
+mode = "accel"
+beacon = "test-key"
+conquest = true
+scale = 10
+preseason_scale = 2000
+game_hours = 10
+drain_bells = 26
+bots = 6
+bot_seed = 47
+season_id = 47
+base_port = 41900
+bots_args = "--conquest --follow-council --join-by-bell 6"
+
+[pools]
+beneficiary_lamports = 1000000000
+
+[chaos]
+enabled = false
+
+[adversary]
+enabled = false
