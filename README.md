@@ -1,8 +1,8 @@
 # Wylls
 
-**Play the agent economy.** Wylls is a strategy game where people and AI agents fight for one map, on Solana. AI citizens, run by the operator on a local model, play beside people, with goals and a memory.
+**Play the agent economy.** Wylls is a strategy game on Solana where people and AI agents fight for one map and a USDC prize pool. Our central experiment asks what happens when humans and autonomous AI agents run a nation together.
 
-> **Status 2026-10-10:** this repository holds two versions of Wylls. **The first version** ran a full season on Solana devnet: MagicBlock ephemeral rollup, joining over x402, test USDC, 14 members (12 operator-run AI members and 2 people), 180 turns, prizes paid in test USDC; a read-only verifier replayed the season and passed 14 of 14 checks ([record](docs/earlier-prototype/devnet-season-1790355636798-verification.txt); code on branch `codex/magicblock-playable`). **The rebuild** (this branch) ran a full season on a local test chain with 1,000 script bots (1,034 turns; the verifier replayed 144,300 transactions and caught all 30 deliberate tampers). The rebuild does not use x402, MagicBlock or USDC yet: they are being carried over from the first version. AI citizens and conquest are in progress on branches that are not merged here yet. Nobody outside the project has played either version.
+> **Status 2026-10-10:** this repository holds two versions of Wylls. **The first version** ran a full season on Solana devnet: MagicBlock ephemeral rollup, joining over x402, test USDC, 14 members (12 operator-run rule-based AI members and 2 people), 180 turns, prizes paid in test USDC; a read-only verifier replayed the season and passed 14 of 14 checks ([record](docs/earlier-prototype/devnet-season-1790355636798-verification.txt); code on branch `codex/magicblock-playable`). **The rebuild** (this branch) ran a full season on a local test chain with 1,000 script bots (1,034 turns; the verifier replayed 144,300 transactions and caught all 30 deliberate tampers). The rebuild does not use x402, MagicBlock or USDC yet: they are being carried over from the first version. AI citizens and conquest are in progress on branches that are not merged here yet. All participants in these runs were from the project or agents run by the project; nobody outside the project has played either version.
 
 ![Wylls: the world map with six nations and the nation standings](docs/img/wylls-world.png)
 
@@ -11,6 +11,12 @@
 ## 1. What Wylls is
 
 Wylls is a Civilization-style world on Solana in which six nations (国) share one map. You choose a nation, get a village (村), and play in real time: grow the village, train troops, send armies (軍) on marches whose destination stays sealed, and read a battle report that anyone can replay. The Solana program, not an operator, resolves every fight, and a season (one round of the world) is a log of transactions that a verifier replays and checks (the verifier is ours, not an independent audit). That is the reason for a chain. What exists today is the first playable part, M1, played by script bots: test players that follow fixed rules and are neither AI nor people (the test records call them rule bots). AI citizens, players with goals and a memory, are meant to play beside people; they are in progress ([section 3](#3-the-ai-citizens)). The complete game (conquest, a score per nation, a shared civilisation, money) is designed, not built ([section 4](#status)).
+
+**Who it is for.** Wylls is for strategy fans who want economic stakes to give their decisions weight and make cooperation matter, and for agent builders who want their agents to play in a world shared with people. The intended experience is to choose one of six nations, grow a town and march an army to take land. Humans and agents help shape the same nation's strategy.
+
+**Agents and entry.** In the first version, agents could join and pay through one SDK call. That call completes an x402 HTTP handshake: one request receives the payment requirements with HTTP 402, and a second submits the signed payment. Agents and people use the same entry route ([first-version guide](docs/earlier-prototype/README-V5-game.md)); this integration is being carried over to the rebuild.
+
+**Business model and next milestone.** Wylls has no token of its own. The business model is to keep 20% of each USDC entry fee and put the remaining 80% into the season's prize pool. The first version tested this split and prize payments with test USDC on devnet; those tests are not revenue or real-money prizes. Our next milestone is a public season on devnet for strategy fans and agent builders.
 
 ## 2. How it plays
 
@@ -44,13 +50,13 @@ The pre-registered thresholds and the table of results are in [the AI contract, 
 
 | Area | Tag | In one line |
 |---|---|---|
-| First version (6 nations, 180 turns, officers and votes) | **Ran on devnet** | One full season on Solana devnet with a MagicBlock ephemeral rollup, x402 joining and test USDC: 14 members (12 operator-run AI members, 2 people), prizes paid in test USDC, 14 of 14 verifier checks. Code on branch `codex/magicblock-playable`; documents in [docs/earlier-prototype](docs/earlier-prototype/INDEX.md) |
+| First version (6 nations, 180 turns, officers and votes) | **Ran on devnet** | One full season on Solana devnet with a MagicBlock ephemeral rollup, x402 joining and test USDC: 14 members (12 operator-run rule-based AI members, 2 people), prizes paid in test USDC, 14 of 14 verifier checks. All participants were project-run. Code on branch `codex/magicblock-playable`; documents in [docs/earlier-prototype](docs/earlier-prototype/INDEX.md) |
 | Basic game M1 (the rebuild) | **Running** | Joining, building, training, scouting, sealed marches, clashes and reports, with a replay verifier and a web client (Japanese and English). One 7-game-day season ran on a local test chain with 1,000 script bots |
 | AI citizens | **In progress** | Code on a local branch, not merged; one small 6-AI run done (section 3) |
 | Conquest (keeps, sieges, occupation) | **In progress** | Program and simulator tests pass on a branch that is not merged here yet |
 | Instant land, 14-day season, one score per nation | **Design only** | The program is unchanged. Only 7-game-day seasons have run; the score formula is open |
 | Society (governance, diplomacy, trade, shared Engine, tech, eras) | **Design only** | Outline only; tech, eras and the Engine are not designed |
-| Money (entry fee, prize pool, protocol fee) | **Ran in the first version** (test USDC on devnet); rebuild: **In progress** | Players pay an entry fee in USDC; 80% goes to the prize pool and 20% is the protocol fee (`ops_share_bps` 2,000 in the first version's rules). No real money has moved: every payment so far was test USDC on devnet |
+| Money (entry fee, prize pool, protocol fee) | **Ran in the first version** (test USDC on devnet); rebuild: **In progress** | The business model is a USDC entry fee: 80% to the prize pool, 20% to operations (`ops_share_bps` 2,000 in the first version's rules), with no Wylls token. No real money has moved: every payment so far was test USDC on devnet |
 
 Tags: **Running** means code exists and was actually run (a run on another branch is named as such); **In progress** means being built or run for this hackathon; **Design only** means written down, not built (including work that exists only on an unmerged branch); **Planned** means intended, no date. Each part of the complete game with its state is in the [design document](docs/GAME-DESIGN.ja.md) (Japanese).
 
@@ -78,12 +84,12 @@ $S down --run-id try
 
 Open `/frontier/frontier/`, not `/`: the bare address still lands on an older page. The browser joins with a built-in local test wallet. The scripted browser run, the exit-season recipe and the test commands are in [docs/RUNNING.md](docs/RUNNING.md). **The AI citizens cannot be tried yet:** their code is not in this repository before the merge of 2026-10-12.
 
-**Videos:** game and M1 season [VIDEO LINK pending]; AI citizens (an AI's own march, then the council and the Strike Order) [VIDEO LINK pending], to be recorded on 2026-10-11.
+**Videos:** the [v28 deck and completed script](PITCH.md) are ready; the pitch video has not been recorded. Gameplay recordings exist, but the final demo content has not been selected. Submission video links are pending ([submission draft](SUBMISSION.md)).
 
 ## 6. Limits and what is not claimed
 
 - **Devnet: the first version only.** The first version ran on devnet with test USDC. The rebuild has run on a local test chain only. Nothing has run on mainnet.
-- **Nobody outside the project has played.** The first version's devnet season had 12 operator-run AI members and 2 people from the project. All 1,000 participants of the rebuild's M1 season were script bots written by the team. There is no registration, demand or traction figure. No season longer than 7 game days has run.
+- **Nobody outside the project has played.** The first version's devnet season had 12 operator-run rule-based AI members and 2 people from the project. That season was not a full-season LLM experiment. All 1,000 participants of the rebuild's M1 season were script bots written by the team. There is no registration, demand or traction figure. No season longer than 7 game days has run.
 - **Seal secrecy was not tested.** The M1 season replayed archived drand values, so the signatures were already known; the results show that marches settle, not that destinations stay secret. The verifier is ours, not an independent audit.
 - **AI citizens are in progress, not finished.** Only a small 6-AI run exists. The AI's reasons and speech are written by the model and not verified; most of an AI's actions are the autopilot's; the council is off-chain; the drand key of the test runs is the operator's test key.
 - **Not in the rebuild's code on this branch yet:** conquest (in progress on an unmerged branch), x402 joining, MagicBlock, USDC entry fees and prizes (all three ran in the first version), instant land, the 14-day season, a score or winner, governance, diplomacy, markets, a shared civilisation. Legal review for money and for the disclosure of AI citizens has not been done.
