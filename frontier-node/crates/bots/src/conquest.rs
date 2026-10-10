@@ -296,7 +296,12 @@ impl Conquest {
         let mut coords: BTreeSet<(i16, i16)> = BTreeSet::new();
         for d in 0..season.rings_opened().max(3) {
             if let Some(o) = sh.overview(d).await {
-                coords.extend(o.provinces.iter().filter(|r| r.opened).map(|r| (r.p, r.q)));
+                // Every overview record is an opened Province (the herald
+                // builds it from the account); the record's `opened` flag
+                // says "opened this bell" (herald `overview.rs`), so a
+                // filter on it left the planner without a world after the
+                // opening bell on a real herald.
+                coords.extend(o.provinces.iter().map(|r| (r.p, r.q)));
             }
         }
         if coords.is_empty() {

@@ -140,7 +140,9 @@ STACK_RUN_ID=$(tomlval run_id)
 DAYS=$(tomlval days)
 CONQUEST=$(tomlval conquest)
 FLEET_CQ=()
-[ "$CONQUEST" != true ] || FLEET_CQ=(--conquest)
+# --conquest-personas 0: the conquest layer's adversarial test personas (sieges the program must refuse) are not dealt to the
+# AI fleet; the presenter seat is a plain citizen.
+[ "$CONQUEST" != true ] || FLEET_CQ=(--conquest --conquest-personas 0)
 [ -n "$DAYS" ] || DAYS=1
 DAYS=${DAYS%%.*}
 STACK_NAME=$(basename "$STACK" .toml)

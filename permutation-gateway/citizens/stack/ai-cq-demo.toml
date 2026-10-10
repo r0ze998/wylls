@@ -2,7 +2,8 @@
 # (`conquest = true`: the stack deploys the conquest program build and creates the season with the v2 parameters; a first
 # village is granted at once by PlaceHome; play instructions use the v2 account shapes). 6 AI citizens (deck-1, one per
 # nation) and the presenter seat are the separate fleet that citizens/bin/ai-citizens-run.sh starts; the script reads
-# `conquest = true` here and passes `--conquest` to that fleet. 6 script bots (one per nation) join in the first 6 bells.
+# `conquest = true` here and passes `--conquest` to that fleet. 6 script bots (one per nation) join in the first 6 bells;
+# `--conquest-personas 0` keeps the conquest layer's adversarial test personas out of a world a human plays in.
 # 10 game hours (60 play bells) at 10x: about 60 min of wall time for the play, plus the drain.
 #
 #   AI_RUNS_MD=/some/file/outside/the/repo/RUNS.md permutation-gateway/citizens/bin/ai-citizens-run.sh \
@@ -24,7 +25,7 @@ bots = 6
 bot_seed = 47
 season_id = 47
 base_port = 41900
-bots_args = "--conquest --follow-council --join-by-bell 6"
+bots_args = "--conquest --conquest-personas 0 --follow-council --join-by-bell 6"
 
 [pools]
 beneficiary_lamports = 1000000000

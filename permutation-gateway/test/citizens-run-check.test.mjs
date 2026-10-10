@@ -85,7 +85,7 @@ test('the three stack configs: the pinned values, the test chain, every port in 
 
 test('the conquest demo stack config: conquest = true, 6 script bots with --conquest, the same ports and parser rules', () => {
   const t = parseStackToml(read(path.join(STACKS, 'ai-cq-demo.toml')));
-  const exp = { run_id: 'ai-cq-demo', mode: 'accel', beacon: 'test-key', conquest: true, scale: 10, preseason_scale: 2000, game_hours: 10, bots: 6, bot_seed: 47, season_id: 47, base_port: 41900, bots_args: '--conquest --follow-council --join-by-bell 6' };
+  const exp = { run_id: 'ai-cq-demo', mode: 'accel', beacon: 'test-key', conquest: true, scale: 10, preseason_scale: 2000, game_hours: 10, bots: 6, bot_seed: 47, season_id: 47, base_port: 41900, bots_args: '--conquest --conquest-personas 0 --follow-council --join-by-bell 6' };
   for (const [k, v] of Object.entries(exp)) assert.equal(t[k], v, k);
   assert.deepEqual(G.portProblems(G.stackPorts(t)), []);
   assert.equal(t['chaos.enabled'], false);
@@ -102,7 +102,7 @@ test('--dry-run of a conquest stack config: the AI fleet gets --conquest; AI_RUN
   assert.match(r.out, /conquest world: the stack config says conquest = true/);
   assert.match(r.out, /6 AI citizens \+ the presenter seat \(deck-1\), bot seed 47, season 47/);
   const fleet = r.out.split('\n').find(l => l.startsWith('PLAN start fleet:'));
-  assert.match(fleet, /--export-seat-key \S+\/keys\/seat\.txt --conquest$/);
+  assert.match(fleet, /--export-seat-key \S+\/keys\/seat\.txt --conquest --conquest-personas 0$/);
   assert.match(r.out, /PLAN run runs-add: .*--file \S*\/elsewhere\/RUNS\.md/);
   assert.match(r.out, /PLAN runs entry in \S*\/elsewhere\/RUNS\.md \(AI_RUNS_MD is set: no git commit\)/);
   assert.doesNotMatch(r.out, /PLAN commit RUNS\.md/);
