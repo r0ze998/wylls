@@ -42,6 +42,83 @@ pub struct Prize {
     pub params_hash: [u8; 32],
 }
 
+/// Invites the operator mints for its own members of a gated season (the
+/// stack's script bots; the AI fleet of citizens/bin/ai-citizens-run.sh):
+/// they join through `POST /f/join` without paying, have no Entry and can
+/// never claim. Files of one token per line, mode 0600; never logged.
+pub const BOT_INVITES: &str = "bots/invites.txt";
+pub const FLEET_INVITES: &str = "relay/fleet-invites.txt";
+/// Invites written for the AI fleet (its citizens, the seat, retries).
+pub const FLEET_INVITE_COUNT: usize = 64;
+
+fn sha256(parts: &[&[u8]]) -> [u8; 32] {
+    let mut h = Sha256::new();
+    for p in parts {
+        h.update(p);
+    }
+    h.finalize().into()
+}
+
+fn hmac_sha256(key: &[u8; 32], parts: &[&[u8]]) -> [u8; 32] {
+    let (mut ipad, mut opad) = ([0x36u8; 64], [0x5cu8; 64]);
+    for (i, k) in key.iter().enumerate() {
+        ipad[i] ^= k;
+        opad[i] ^= k;
+    }
+    let mut inner: Vec<&[u8]> = vec![&ipad];
+    inner.extend_from_slice(parts);
+    let d = sha256(&inner);
+    sha256(&[&opad, &d])
+}
+
+fn base64url(b: &[u8]) -> String {
+    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut out = String::new();
+    for c in b.chunks(3) {
+        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        for (i, shift) in [18, 12, 6, 0].into_iter().enumerate() {
+            if i <= c.len() {
+                out.push(A[(n >> shift) as usize & 63] as char);
+            }
+        }
+    }
+    out
+}
+
+/// The relay's invite of `nonce` (permutation-gateway `invites.mjs`):
+/// `base64url(nonce ‖ HMAC-SHA256(secret, "PSF-INVITE-v1" ‖ le64(season) ‖ nonce)[..16])`.
+pub fn invite(secret: &[u8; 32], season_id: u64, nonce: &[u8; 12]) -> String {
+    let mac = hmac_sha256(secret, &[b"PSF-INVITE-v1", &season_id.to_le_bytes(), nonce]);
+    base64url(&[&nonce[..], &mac[..16]].concat())
+}
+
+/// Writes `n` fresh invites to `path` (replacing it), nonces drawn from
+/// `seed` and `label`.
+pub fn write_invites(
+    path: &Path,
+    secret: &[u8; 32],
+    seed: &[u8; 32],
+    season_id: u64,
+    label: &str,
+    n: usize,
+) -> Result<(), String> {
+    let text: String = (0..n as u64)
+        .map(|i| {
+            let d = sha256(&[b"invite-nonce", seed, label.as_bytes(), &i.to_le_bytes()]);
+            let nonce: [u8; 12] = d[..12].try_into().expect("12 bytes");
+            invite(secret, season_id, &nonce) + "\n"
+        })
+        .collect();
+    run::write_atomic(path, text.as_bytes())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+    }
+    Ok(())
+}
+
 /// A web3.js keypair file (the JSON array of the 64 secret-key bytes).
 fn write_keypair_json(p: &Path, k: &Keypair) -> Result<(), String> {
     let bytes: Vec<u8> = k.to_bytes().to_vec();
@@ -75,6 +152,11 @@ impl Prize {
         let (gate_file, faucet_file) = (rd.path("relay/gate-key.json"), rd.path("relay/faucet-key.json"));
         write_keypair_json(&gate_file, &gate)?;
         write_keypair_json(&faucet_file, &faucet)?;
+        // The operator's own members join by invite (never by paying).
+        let secret = run::secret(&rd.path("relay/invite.secret"))?;
+        let nonces = run::secret(&rd.path("keys/invite-nonces.seed"))?;
+        write_invites(&rd.path(BOT_INVITES), &secret, &nonces, cfg.season_id, "bots", (4 * cfg.bots).max(8))?;
+        write_invites(&rd.path(FLEET_INVITES), &secret, &nonces, cfg.season_id, "fleet", FLEET_INVITE_COUNT)?;
         let params = std::fs::read(repo.join(PARAMS_FILE)).map_err(|e| format!("{PARAMS_FILE}: {e}"))?;
         let (pool, _) = Address::find_program_address(
             &[b"pool", game.as_ref(), &cfg.season_id.to_le_bytes()],
@@ -202,5 +284,21 @@ impl Prize {
             "params_hash": hex::encode(self.params_hash),
             "join_gate": self.gate.pubkey().to_string(), "faucet": self.faucet.pubkey().to_string(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The relay's own token for the same secret, season and nonce
+    /// (permutation-gateway `InviteBook`, computed there).
+    #[test]
+    fn invites_are_the_relays() {
+        let nonce: [u8; 12] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+        assert_eq!(invite(&[3u8; 32], 5, &nonce), "AAECAwQFBgcICQoLX-9a9HR-6czBGNgC5ro7tQ");
+        assert_ne!(invite(&[3u8; 32], 6, &nonce), invite(&[3u8; 32], 5, &nonce));
+        assert_eq!(base64url(b"ab"), "YWI");
+        assert_eq!(base64url(b"abc"), "YWJj");
     }
 }

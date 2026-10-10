@@ -39,6 +39,9 @@
 # the live llama-server (/props and its command line) with the commitments before anything starts. A smoke run may leave both
 # unset; its commitments then say "unmeasured".
 #
+# Prize worlds: a stack config with `prize_so` (stack/ai-cq-prize.toml; build the program first: scripts/build-prize.sh) gates
+# the season: people pay the entry fee over x402, the stack's script bots and this script's AI fleet join by operator invites
+# the stack mints (never by paying; never prize-eligible).
 # Conquest worlds: a stack config with `conquest = true` (a version-3 season: first homes by PlaceHome, v2 instruction shapes;
 # stack/ai-cq-demo.toml) makes this script pass `--conquest` to the AI fleet. The stack's own script bots get it from the
 # config's `bots_args`. AI_RUNS_MD=FILE writes the run entries to FILE instead of the repository's RUNS.md and makes no commit.
@@ -143,6 +146,10 @@ FLEET_CQ=()
 # --conquest-personas 0: the conquest layer's adversarial test personas (sieges the program must refuse) are not dealt to the
 # AI fleet; the presenter seat is a plain citizen.
 [ "$CONQUEST" != true ] || FLEET_CQ=(--conquest --conquest-personas 0)
+# A stack config with `prize_so` (stack/ai-cq-prize.toml): a gated season with a test-asset prize pool. People join by
+# paying over x402; the AI fleet joins without paying, by the invites the stack mints for it in its run directory
+# (relay/fleet-invites.txt, mode 0600, never printed). AI citizens have no Entry in the pool and are never prize-eligible.
+PRIZE_SO=$(tomlval prize_so)
 [ -n "$DAYS" ] || DAYS=1
 DAYS=${DAYS%%.*}
 STACK_NAME=$(basename "$STACK" .toml)
@@ -394,9 +401,15 @@ if [ "$DRY" = 0 ]; then
 else
   HOURS=HOURS_LEFT
 fi
+FLEET_INV=()
+if [ -n "$PRIZE_SO" ]; then
+  FLEET_INV=(--invites "$STACK_RUNS/$RUN_ID/relay/fleet-invites.txt")
+  [ "$DRY" = 1 ] || [ -s "${FLEET_INV[1]}" ] || fail "the stack wrote no invites for the AI fleet (${FLEET_INV[1]})"
+  echo "prize pool: the season is gated; the AI fleet joins by operator invite (no entry fee, not prize-eligible)"
+fi
 bg fleet "$FBIN/frontier-bots" --herald "$HERALD" --relay "$RELAY" --rpc "$RPC" --seed "$BOT_SEED" --first-index 1000 --bots $((N + 1)) --days "$DAYS" --game-hours "$HOURS" --scale "$SCALE" \
   --personas off --journal "$AI_DIR/fleet" --report "$AI_DIR/fleet/report.json" --control "127.0.0.1:$((BASE + 71))" \
-  --ai-slots "$AI_DIR/ai-slots.json" --brain "http://127.0.0.1:$MIND_PORT" --brain-token-file "$STATE/mind.token" --follow-council --export-seat-key "$KEYS/seat.txt" ${FLEET_CQ[@]+"${FLEET_CQ[@]}"}
+  --ai-slots "$AI_DIR/ai-slots.json" --brain "http://127.0.0.1:$MIND_PORT" --brain-token-file "$STATE/mind.token" --follow-council --export-seat-key "$KEYS/seat.txt" ${FLEET_CQ[@]+"${FLEET_CQ[@]}"} ${FLEET_INV[@]+"${FLEET_INV[@]}"}
 
 # The seat script casts the seat's ballot. A/B: the only difference between the arms (--arm). Any other run that names a seat script
 # (--seat-script, which also marks the seat "scripted" in the roster and the page): the council script, a scripted ballot (origin 2) in

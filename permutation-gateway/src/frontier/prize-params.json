@@ -20,8 +20,8 @@
       "enabled": false,
       "pointsPerProvincePerDay": 2,
       "rule": "one credit per repelled contest to the members whose hosts stood on the keep",
-      "notDerivable": "the chain's record of a repelled contest (CONQUEST event KEEP_BROKEN) names the contending nation and the progress only; the host ids standing on the keep tile at that bell are in no log record",
-      "missingRecord": "a list of defending host ids (or holdings) in the CONQUEST record of the bell a contest breaks"
+      "notDerivable": "the chain's record of a repelled contest (CONQUEST event KEEP_BROKEN) names the contending nation and the progress only; the host ids standing on the keep tile at that turn are in no log record",
+      "missingRecord": "a list of defending host ids (or holdings) in the CONQUEST record of the turn a contest breaks"
     },
     "resourceSupply": {
       "enabled": false,
@@ -41,7 +41,7 @@
   },
   "provisional": true,
   "provisionalRules": [
-    "tie for first place: more territory bells wins; still tied: the tied nations share the prize equally",
+    "tie for first place: more territory time wins (the chain's TERRITORY_BELLS counters); still tied: the tied nations share the prize equally",
     "contribution weights (points) below",
     "all contributions zero: every paid member of the winning nation gets one point (equal split)",
     "no eligible member in the winning nation: every payer takes its part of the prize back (refund)",

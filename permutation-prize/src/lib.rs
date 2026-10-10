@@ -263,7 +263,7 @@ pub mod provisional {
 
     /// What is provisional in this program, by name (the tooling prints it).
     pub const RULES: [&str; 4] = [
-        "tie for first place: more territory bells wins; still tied: the tied nations share the prize equally",
+        "tie for first place: more territory time wins (the chain's TERRITORY_BELLS counters); still tied: the tied nations share the prize equally",
         "shares inside the winning nation: by points of the operator-posted, publicly recomputable ledger (SetShares)",
         "all contributions zero: the ledger gives every paid member of the winning nation one point (equal split)",
         "no eligible member in the winning nation: every payer takes its part of the prize back (refund)",

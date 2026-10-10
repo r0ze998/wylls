@@ -636,12 +636,6 @@ impl StackConfig {
             if !self.conquest {
                 return Err("--prize-so: the prize pool tallies keeps (needs --conquest)".into());
             }
-            if self.bots > 0 {
-                return Err(
-                    "--prize-so: the join gate is the relay's; the bot fleet cannot join (use --bots 0)"
-                        .into(),
-                );
-            }
             if self.entry_fee == 0 || self.prize_ops_bps > 10_000 || self.prize_keeps == 0 {
                 return Err("--entry-fee > 0, --prize-ops-bps ≤ 10000, --prize-keeps > 0".into());
             }
@@ -1007,12 +1001,15 @@ mod tests {
         let mut c = StackConfig::default();
         assert!(c.prize_so.is_none() && c.to_json()["prize"].is_null());
         let f = split_flags(
-            &["--prize-so", "permutation-prize/target/deploy/permutation_prize.so", "--conquest", "--bots", "0"]
+            &["--prize-so", "permutation-prize/target/deploy/permutation_prize.so", "--conquest", "--bots", "6"]
                 .map(String::from),
         )
         .unwrap();
         apply_flags(&mut c, &f).unwrap();
         assert_eq!((c.entry_fee, c.prize_ops_bps, c.prize_keeps), (25_000_000, 2_000, 54));
+        // Script bots share the world: they join by operator invite, never by paying.
+        assert_eq!(c.bots, 6);
+        assert_eq!(c.check(), Ok(()));
         assert_eq!(c.to_json()["prize"]["entry_fee"], 25_000_000);
         let f = split_flags(&["--entry-fee", "10000000"].map(String::from)).unwrap();
         apply_flags(&mut c, &f).unwrap();

@@ -739,4 +739,6 @@ export default {
   '参加には参加費（テストUSDC）の支払いが必要です': 'Joining needs the entry fee (test USDC)',
   'この賞金は受け取り済みです': 'This prize was already claimed',
   'これは暫定の配点による試算です。この配点はチェーンに登録されており、受け取りは {0} 件・合計 {1} テストUSDC です。配点と同点・該当者なしの扱いは未決定（暫定）です。': 'This is an estimate by the provisional weights. These weights are posted on chain; {0} claims were paid, {1} test USDC in total. The weights and the handling of ties and of no eligible member are undecided (provisional).',
+  'AI市民・ボット（賞金の対象外）': 'AI citizen or bot (not prize-eligible)',
+  'AI市民やボットが取った州も、その国の州の数に入ります（勝者はチェーン上の土地の持ち主で決まります）。AI市民とボットは賞金を受け取りません。': 'Provinces taken by AI citizens and bots count for their nation too (the winner is decided by who holds the land on chain). AI citizens and bots receive no prize.',
 };

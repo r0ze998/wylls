@@ -39,16 +39,28 @@ export const KINDS = Object.freeze({
     rule: 'the owner of the donor host that became the garrison at the keep\'s last capture, when the capturing nation still holds the keep at the end',
     antiInflation: 'end state: one line per province (the last capture); earlier captures of the same keep earn nothing',
     source: 'CONQUEST log record (kind 82) of the capture transaction: event KEEP_TAKEN and donor_host_id; Holding.owner_citizen; Citizen.wallet',
-    partial: 'other hosts that stood on the keep through the contest are not derivable: the CONQUEST record names the donor host only (missing record: the host ids on the keep tile at the capture bell)' },
+    partial: 'other hosts that stood on the keep through the contest are not derivable: the CONQUEST record names the donor host only (missing record: the host ids on the keep tile at the capture turn)' },
   reinforcement: { derivable: true, unit: 'troops',
     rule: 'troops of a member\'s hosts standing on the keep tile of a keep its nation holds when the season has ended; the supplier (the host\'s owner) gets the credit',
     antiInflation: 'net end state: each host is read once from the final Province account; splitting a host or moving troops in and out cannot raise the total; a keep\'s own garrison (keep.troops) is not counted, it is the capture\'s',
-    source: 'the Province account after the last bell (entries on the keep tile); the host\'s last TRANSIT_SETTLED "Stays" transaction; Holding.owner_citizen; Citizen.wallet' },
+    source: 'the Province account after the last turn (entries on the keep tile); the host\'s last TRANSIT_SETTLED "Stays" transaction; Holding.owner_citizen; Citizen.wallet' },
   defence: { derivable: false,
-    reason: 'the chain\'s record of a repelled contest (CONQUEST event KEEP_BROKEN) names the contending nation and its progress only; which hosts stood on the keep at that bell is in no log record',
-    missingRecord: 'the defending host ids (or holdings) in the CONQUEST record of the bell a contest breaks' },
+    reason: 'the chain\'s record of a repelled contest (CONQUEST event KEEP_BROKEN) names the contending nation and its progress only; which hosts stood on the keep at that turn is in no log record',
+    missingRecord: 'the defending host ids (or holdings) in the CONQUEST record of the turn a contest breaks' },
   resourceSupply: { derivable: false, reason: 'no resource transfer instruction exists in the game', missingRecord: 'a transfer instruction and its log record' },
 });
+
+/**
+ * Who a player of a line is to the prize pool (the owner's decision: the
+ * operator's AI citizens and script bots are not prize-eligible). A wallet
+ * with an Entry paid the fee; one without joined by an operator invite.
+ */
+export const PLAYER_KINDS = Object.freeze({
+  paid: { prizeEligible: true, label: 'paid member (entry fee paid over x402)' },
+  operatorInvited: { prizeEligible: false, label: 'AI citizen or script bot (joined by operator invite, no entry fee): not prize-eligible' },
+});
+/** What every ledger says about them. */
+export const AREA_NOTE = 'Provinces taken by AI citizens and script bots count for their NATION\'s area: the winner is decided by on-chain land ownership, whoever took the land. They receive no share: the prize is split among the winning nation\'s paid members only.';
 
 /** The PS2 records in a transaction's log messages (`Program data: UFMy <body>`), decoded; unknown kinds dropped. */
 export function recordsOf(logs = []) {
@@ -195,7 +207,7 @@ export class Deriver {
       else {
         if (c.to !== line.nation) problems.push(`the record's capturing nation is ${c.to}`);
         if (String(c.donor) !== line.host) problems.push(`the record's donor host is ${c.donor}`);
-        if (c.bell !== line.bell) problems.push(`the record's bell is ${c.bell}`);
+        if (c.bell !== line.bell) problems.push(`the record's turn is ${c.bell}`);
         if (Number(keep.SINCE_BELL) > c.bell + 1) problems.push('the keep changed holder after the cited capture');
       }
     } else if (line.kind === 'reinforcement') {
@@ -227,7 +239,8 @@ export function scoreLines(lines, { params, winners, paid, members }) {
     let points = 0;
     if (l.kind === 'capture' && c.capture.enabled) points = c.capture.points;
     if (l.kind === 'reinforcement' && c.reinforcement.enabled) points = Math.floor(l.quantity * c.reinforcement.pointsPer100Troops / 100);
-    return { ...l, eligible, points: eligible ? points : 0, pointsIfEligible: points };
+    const player = !l.wallet ? null : paid.has(l.wallet) ? 'paid' : 'operatorInvited';
+    return { ...l, player, playerLabel: player ? PLAYER_KINDS[player].label : null, eligible, points: eligible ? points : 0, pointsIfEligible: points };
   });
   // The per-province cap of reinforcement, per wallet.
   const used = new Map();

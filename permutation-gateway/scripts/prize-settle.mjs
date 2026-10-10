@@ -29,7 +29,7 @@ import { claimAmount, decodeEntry, decodePool, entryAddress, finalizeIx, leafHas
 import { compileMessage, wireTransaction } from '../client/src/solana-tx.mjs';
 import { signTalk } from '../client/src/talk-node.mjs';
 import { createHerald } from '../../permutation-server/web/frontier/herald.mjs';
-import { Deriver, KINDS, scoreLines } from '../src/frontier/achievements.mjs';
+import { AREA_NOTE, Deriver, KINDS, PLAYER_KINDS, scoreLines } from '../src/frontier/achievements.mjs';
 
 const args = process.argv.slice(2);
 const flag = name => args.includes(`--${name}`);
@@ -134,7 +134,7 @@ function printArea(c) {
   console.log(`  nation   ${[...Array(NATIONS).keys()].map(f => String(f).padStart(4)).join('')}`);
   console.log(`  chain    ${c.areaFromProvinceAccounts.map(a => String(a).padStart(4)).join('')}`);
   console.log(`  pool     ${c.pool.area.map(a => String(a).padStart(4)).join('')}   (${c.pool.counted}/${c.pool.expectedKeeps} counted, ${c.pool.state})`);
-  if (c.herald?.area) console.log(`  herald   ${c.herald.area.map(a => String(a).padStart(4)).join('')}   (control file, bell ${c.herald.bell})`);
+  if (c.herald?.area) console.log(`  herald   ${c.herald.area.map(a => String(a).padStart(4)).join('')}   (control file, turn ${c.herald.bell})`);
   console.log(`  pool = chain: ${c.poolMatchesChain}; herald = chain: ${c.herald?.matchesChain ?? 'n/a'}; winner(s): ${c.pool.winners === null ? 'not final' : c.pool.winners.join(', ')}`);
 }
 
@@ -232,6 +232,8 @@ const ledger = {
   season: info.seasonId, programId: info.programId, prize, endBell: Number(season.END_BELL),
   result: { area: pool.area, territoryBells: pool.bells.map(String), winners: pool.winners, state: ['open', 'final', 'shares'][pool.state] },
   kinds: KINDS, weights: params.contribution,
+  playerKinds: PLAYER_KINDS, notes: [AREA_NOTE],
+  players: members.map(m => ({ wallet: m.wallet, nation: m.nation, kind: m.paid ? 'paid' : 'operatorInvited', prizeEligible: !!m.paid && pool.winners.includes(m.nation) })),
   lines: scored.lines,
   shares: { mode: scored.mode, totalPoints: totals.map(String), root: toHex(tree.root),
     members: leaves.map(l => ({ wallet: l.wallet, nation: l.nation, points: l.points, proof: tree.proof(l.leaf).map(toHex) })) },
@@ -246,10 +248,11 @@ transcript.ledger = { file: 'ledger.json', sha256: ledgerHash.toString('hex'), l
 
 console.log('\nAchievements (recomputed from the chain; every line cites its transactions):');
 for (const [k, v] of Object.entries(KINDS)) console.log(`  ${k.padEnd(14)} ${v.derivable ? 'derivable' : `not derivable: ${v.reason} (missing: ${v.missingRecord})`}`);
-console.log('\n  kind           province   nation  quantity         bell  points  player (wallet)                               signature');
+console.log('\n  kind           province   nation  quantity         turn  points  player (wallet)                               signature');
 for (const l of scored.lines) {
-  console.log(`  ${l.kind.padEnd(14)} ${`(${l.province.p},${l.province.q})`.padEnd(10)} ${String(l.nation).padEnd(7)} ${`${l.quantity} ${l.unit}`.padEnd(16)} ${String(l.bell).padEnd(5)} ${String(l.points).padEnd(7)} ${(l.wallet ?? '-').padEnd(45)} ${(l.signatures[0] ?? '-').slice(0, 20)}…${l.eligible ? '' : '  (no points: not a paid member of a winning nation)'}`);
+  console.log(`  ${l.kind.padEnd(14)} ${`(${l.province.p},${l.province.q})`.padEnd(10)} ${String(l.nation).padEnd(7)} ${`${l.quantity} ${l.unit}`.padEnd(16)} ${String(l.bell).padEnd(5)} ${String(l.points).padEnd(7)} ${(l.wallet ?? '-').padEnd(45)} ${(l.signatures[0] ?? '-').slice(0, 20)}…${l.eligible ? '' : l.player === 'operatorInvited' ? '  (AI citizen or script bot: not prize-eligible)' : '  (no points: not a member of a winning nation)'}`);
 }
+console.log(`\n  ${AREA_NOTE}`);
 console.log(`\n${ledger.estimate.label}`);
 console.log(`  prize pool ${units(pool.prize)} test USDC (operator ${units(pool.ops)}); mode ${scored.mode}`);
 for (const s of ledger.estimate.split) console.log(`  ${s.wallet}  nation ${s.nation}  ${s.points} points  ≈ ${units(s.amount)} test USDC`);

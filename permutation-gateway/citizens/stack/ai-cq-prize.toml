@@ -1,0 +1,36 @@
+# The conquest demo stack with a test-asset prize pool: ai-cq-demo.toml plus `prize_so` and `entry_fee`.
+# One world shared by people who pay the entry fee over x402 (25 test USDC: 80% prize pool, 20% operator), the operator's
+# 6 LLM AI citizens and presenter seat (the fleet of citizens/bin/ai-citizens-run.sh) and 6 script bots. The season's join
+# gate is a key the relay holds: a person's Join needs the paid entry; the AI fleet and the script bots join by invites the
+# stack mints in its run directory (no fee, no Entry in the pool, never prize-eligible). Land they take still counts for
+# their nation's area, which decides the winner.
+#
+#   scripts/build-prize.sh    # once: permutation-prize/target/deploy/permutation_prize.so
+#   AI_RUNS_MD=/some/file/outside/the/repo/RUNS.md permutation-gateway/citizens/bin/ai-citizens-run.sh \
+#       --stack permutation-gateway/citizens/stack/ai-cq-prize.toml --citizens-config permutation-gateway/citizens/config/smoke.json
+#
+# Local test chain and test tokens only. Base port 41900; one AI stack at a time. A conquest run id is used once.
+run_id = "ai-cq-prize"
+mode = "accel"
+beacon = "test-key"
+conquest = true
+prize_so = "permutation-prize/target/deploy/permutation_prize.so"
+entry_fee = 25000000
+scale = 10
+preseason_scale = 2000
+game_hours = 10
+drain_bells = 26
+bots = 6
+bot_seed = 47
+season_id = 47
+base_port = 41900
+bots_args = "--conquest --conquest-personas 0 --follow-council --join-by-bell 6"
+
+[pools]
+beneficiary_lamports = 1000000000
+
+[chaos]
+enabled = false
+
+[adversary]
+enabled = false

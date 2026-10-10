@@ -80,12 +80,14 @@ export function prizeModel(pool) {
 export function ledgerModel(ledger, { wallet = null, decimals = 6 } = {}) {
   if (!ledger) return null;
   const lines = (ledger.lines ?? []).map(l => ({ kind: l.kind, wallet: l.wallet, nation: l.nation, p: l.province.p, q: l.province.q, quantity: l.quantity, unit: l.unit, bell: l.bell,
-    points: l.points ?? 0, eligible: !!l.eligible, signature: l.signatures?.[0] ?? null, mine: !!wallet && l.wallet === wallet }));
+    points: l.points ?? 0, eligible: !!l.eligible, invited: l.player === 'operatorInvited', signature: l.signatures?.[0] ?? null, mine: !!wallet && l.wallet === wallet }));
   return {
     provisional: ledger.provisional !== false, provisionalRules: ledger.provisionalRules ?? [],
     attackers: lines.filter(l => l.kind === 'capture'), supporters: lines.filter(l => l.kind === 'reinforcement'),
     notDerivable: Object.entries(ledger.kinds ?? {}).filter(([, k]) => !k.derivable).map(([kind, k]) => ({ kind, reason: k.reason, missingRecord: k.missingRecord })),
     estimate: (ledger.estimate?.split ?? []).map(s => ({ wallet: s.wallet, nation: s.nation, points: s.points, amount: tokenUnits(s.amount, decimals), mine: !!wallet && s.wallet === wallet })),
     mode: ledger.shares?.mode ?? null,
+    // Whether any line is an AI citizen's or a script bot's (the page then says what that means for the winner).
+    hasInvited: lines.some(l => l.invited),
   };
 }

@@ -751,6 +751,16 @@ impl Stack {
                 }
             }
         }
+        // A gated (prize) season: the operator's script bots join by invite.
+        if self.prize.is_some() {
+            args.push(s("--invites"));
+            args.push(
+                self.run
+                    .path(crate::prize::BOT_INVITES)
+                    .display()
+                    .to_string(),
+            );
+        }
         // Pass-through flags (`bots_args`).
         args.extend(self.cfg.bots_args.iter().cloned());
         Spec {

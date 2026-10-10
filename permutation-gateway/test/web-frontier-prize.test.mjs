@@ -84,6 +84,13 @@ test('the 賞金 panel: the pool while open; after the end the chain\'s area and
   assert.match(text, /攻略した人/);
   assert.match(text, /増援した人/);
   assert.match(text, /兵 400/);
+  assert.match(text, /第240ターン/);
+  assert.doesNotMatch(text, /鐘/);
+  // An AI citizen's or a script bot's line is labelled, and the page says its land still counts for the nation.
+  const withBot = { ...done, prizeLedger: { ...ledger(), lines: [...ledger().lines, { kind: 'capture', wallet: 'BotWallet11111111', nation: 1, province: { p: 3, q: 1 }, quantity: 1, unit: 'province', bell: 300, points: 0, eligible: false, player: 'operatorInvited', signatures: ['4botSig'] }] } };
+  assert.match(plain(panel(withBot)), /AI市民・ボット（賞金の対象外）/);
+  assert.match(plain(panel(withBot)), /その国の州の数に入ります/);
+  assert.doesNotMatch(text, /AI市民/);
   assert.match(text, /（あなた）/);
   assert.match(String(panel(done)), /title="5capSig1111111111"/);
   assert.match(text, /これは試算です。送金は行われていません。/);

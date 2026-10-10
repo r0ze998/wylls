@@ -11,7 +11,7 @@ import { Keypair, PublicKey } from '@solana/web3.js';
 import { concat, toBase64, u32le, u64le } from '../client/src/bytes.mjs';
 import { FrontierAddresses, hostId } from '../client/src/frontier/addresses.mjs';
 import { encodeAccount } from '../client/src/frontier/codec.mjs';
-import { conquestEvents, Deriver, KEEP_SITE, KEEP_TAKEN, KINDS, recordsOf, scoreLines } from '../src/frontier/achievements.mjs';
+import { AREA_NOTE, conquestEvents, Deriver, KEEP_SITE, KEEP_TAKEN, KINDS, PLAYER_KINDS, recordsOf, scoreLines } from '../src/frontier/achievements.mjs';
 
 const PROGRAM = Keypair.generate().publicKey.toBase58();
 const SEASON_ID = 5n;
@@ -108,6 +108,15 @@ test('PROVISIONAL scoring: points only for paid members of a winning nation; spl
   const r = scoreLines([line('capture', 'A', 0, 1), line('reinforcement', 'S', 0, 394), line('capture', 'X', 5, 1), line('capture', 'AI', 0, 1, { province: { p: 3, q: 1 } })], { params, winners: [0], paid, members });
   assert.deepEqual([...r.points], [['A', { nation: 0, points: 10 }], ['S', { nation: 0, points: 3 }]]);
   assert.deepEqual(r.lines.map(l => [l.wallet, l.eligible, l.points]), [['A', true, 10], ['S', true, 3], ['X', false, 0], ['AI', false, 0]]);
+  // The AI citizen's capture stays in the ledger (it is its nation's land), labelled, with no points and no share.
+  assert.deepEqual(r.lines.map(l => l.player), ['paid', 'paid', 'paid', 'operatorInvited']);
+  assert.match(r.lines[3].playerLabel, /AI citizen or script bot.*not prize-eligible/);
+  assert.equal(r.points.has('AI'), false);
+  assert.equal(PLAYER_KINDS.operatorInvited.prizeEligible, false);
+  assert.match(AREA_NOTE, /count for their NATION's area/);
+  // Only AI citizens contributed in the winning nation: they still get nothing; the paid members share equally.
+  const onlyAi = scoreLines([line('capture', 'AI', 0, 1), line('reinforcement', 'AI', 0, 900)], { params, winners: [0], paid, members });
+  assert.deepEqual([onlyAi.mode, [...onlyAi.points.keys()]], ['equal', ['A', 'S']]);
   assert.equal(r.mode, 'shares');
   // 5,000 troops in one host or in fifty hosts of 100: the same capped points for the province.
   const one = scoreLines([line('reinforcement', 'S', 0, 5000)], { params, winners: [0], paid, members });

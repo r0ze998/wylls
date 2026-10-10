@@ -87,7 +87,7 @@ async function action(name, player, fields, extra = {}) {
 async function advanceTo(targetBell) {
   const current = await h.season(); const target = Number(current.season.genesisTs) + targetBell * 600 + 1;
   await rpc('frontier_setScale', [1000]);
-  try { await eventually(`clock bell ${targetBell}`, async () => (await rpc('frontier_status')).unixTimestamp >= target, 240000); }
+  try { await eventually(`clock turn ${targetBell}`, async () => (await rpc('frontier_status')).unixTimestamp >= target, 240000); }
   finally { await rpc('frontier_setScale', [10]); }
   check('test-clock-advanced', { targetBell });
 }
@@ -266,7 +266,7 @@ async function run() {
   // 3. The end of the season.
   await advanceTo(s.season.endBell + 2);
   await eventually('the game\'s Season is Ended on chain', async () => { const a = await rpc('getAccountInfo', [A.season, { encoding: 'base64' }]); return Buffer.from(a.value.data[0], 'base64')[64] === 4; }, 360000);
-  await eventually('every keep province is resolved to the end bell', async () => {
+  await eventually('every keep province is resolved to the last turn', async () => {
     for (const d of [2, 3, 4]) for (const at of ringProvinces(d)) { const p = await h.province(at.p, at.q); if (!p.ok || p.province.resolvedNext < s.season.endBell) { await nudge(at.p, at.q, p.province?.resolvedNext ?? 0).catch(() => {}); return null; } }
     return true;
   }, 360000);

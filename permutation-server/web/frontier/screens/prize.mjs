@@ -38,8 +38,8 @@ export function renderJoinTerms(FS) {
 const kindLabel = { capture: () => L`攻略`, reinforcement: () => L`増援`, defence: () => L`防衛`, resourceSupply: () => L`資源の補給` };
 
 function lineRows(lines) {
-  return lines.map(l => html`<tr ${l.mine ? html`class="mine"` : ''}><td>${swatch(l.nation)}${factionName(l.nation)}</td><td>${short(l.wallet)}${l.mine ? html` <strong>${L`（あなた）`}</strong>` : ''}</td>
-    <td>${L`州 ${l.p},${l.q}`}</td><td>${l.unit === 'troops' ? L`兵 ${fmtNum(l.quantity)}` : L`砦 ${fmtNum(l.quantity)}`}</td><td>${L`第${fmtNum(l.bell)}鐘`}</td><td><code title="${l.signature ?? ''}">${short(l.signature)}</code></td></tr>`);
+  return lines.map(l => html`<tr ${l.mine ? html`class="mine"` : ''}><td>${swatch(l.nation)}${factionName(l.nation)}</td><td>${short(l.wallet)}${l.mine ? html` <strong>${L`（あなた）`}</strong>` : ''}${l.invited ? html` <span class="muted">${L`AI市民・ボット（賞金の対象外）`}</span>` : ''}</td>
+    <td>${L`州 ${l.p},${l.q}`}</td><td>${l.unit === 'troops' ? L`兵 ${fmtNum(l.quantity)}` : L`砦 ${fmtNum(l.quantity)}`}</td><td>${L`第${fmtNum(l.bell)}ターン`}</td><td><code title="${l.signature ?? ''}">${short(l.signature)}</code></td></tr>`);
 }
 
 /** The 賞金 panel. Empty without a pool. */
@@ -64,6 +64,7 @@ export function render(FS) {
     ${g.attackers.length ? html`<table class="prize-lines"><tbody>${lineRows(g.attackers)}</tbody></table>` : html`<p class="muted">${L`記録はありません。`}</p>`}
     <h4>${L`増援した人`}</h4>
     ${g.supporters.length ? html`<table class="prize-lines"><tbody>${lineRows(g.supporters)}</tbody></table>` : html`<p class="muted">${L`記録はありません。`}</p>`}
+    ${g.hasInvited ? html`<p class="muted">${L`AI市民やボットが取った州も、その国の州の数に入ります（勝者はチェーン上の土地の持ち主で決まります）。AI市民とボットは賞金を受け取りません。`}</p>` : ''}
     ${g.notDerivable.map(k => html`<p class="muted">${L`${(kindLabel[k.kind] ?? (() => k.kind))()}：いまのチェーンの記録からは求められません。`}</p>`)}
     <h4>${L`分配の試算`}</h4>
     ${m.posted ? html`<p class="callout">${L`これは暫定の配点による試算です。この配点はチェーンに登録されており、受け取りは ${fmtNum(m.posted.claims)} 件・合計 ${m.posted.claimed} テストUSDC です。配点と同点・該当者なしの扱いは未決定（暫定）です。`}</p>`
