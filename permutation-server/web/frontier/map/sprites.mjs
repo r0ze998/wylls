@@ -115,10 +115,11 @@ export function paintSettlement(ctx, x, y, s, f, tier = 0) {
  */
 export function paintControlWash(ctx, entries, outlineOf, lod = 'world') {
   ctx.save();
-  ctx.globalAlpha = lod === 'world' ? 0.22 : 0.16;
+  ctx.globalAlpha = lod === 'world' ? 0.34 : 0.2;
   for (const e of entries) {
+    // who holds a keep is public, so an unexplored province is tinted too
     const f = e.rec?.control;
-    if (e.fog === 'unopened' || !Number.isInteger(f) || f < 0 || f > 5) continue;
+    if (!Number.isInteger(f) || f < 0 || f > 5) continue;
     const o = outlineOf(e.p, e.q);
     if (!o?.fill) continue;
     ctx.fillStyle = FACTION_COLORS[f]; ctx.fill(o.fill);

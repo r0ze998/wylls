@@ -132,7 +132,7 @@ test('the territory lens washes a province in its keep holder’s colour; a capt
   const cells = control => [{ p: -3, q: 4, fog: 'clear', rec: { control } }, { p: 0, q: 0, fog: 'clear', rec: { control: 6 } }, { p: 5, q: 0, fog: 'unopened', rec: { control: 1 } }, { p: 1, q: 1, fog: 'clear', rec: {} }];
   paintControlWash(ctx, cells(1), outlineOf, 'world');
   paintControlWash(ctx, cells(2), outlineOf, 'province');
-  assert.deepEqual(fills, [['-3,4', FACTION_COLORS[1], 0.22], ['-3,4', FACTION_COLORS[2], 0.16]]);
+  assert.deepEqual(fills, [['-3,4', FACTION_COLORS[1], 0.34], ['5,0', FACTION_COLORS[1], 0.34], ['-3,4', FACTION_COLORS[2], 0.2], ['5,0', FACTION_COLORS[1], 0.2]]);
 });
 
 test('the controller reads the season’s conquest days and the selected keep’s history from the herald', async () => {
