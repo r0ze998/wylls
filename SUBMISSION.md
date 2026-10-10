@@ -16,15 +16,19 @@ The field values are also in [submission-fields.json](submission-fields.json). A
 
 ### Brief description
 
-477 / 500 characters
+254 / 500 characters
 
-Wylls is a strategy game on Solana where people and AI agents fight for one map and a USDC prize pool. Pick one of six nations, grow a town, and march an army to take land. Agents are designed to play by the same rules and join over HTTP using x402. We are building with MagicBlock and USDC, without a custom token. An earlier devnet version completed 180 turns with 14 participants, including 12 operator-run AI agents, and paid test USDC prizes. Next: a public devnet season.
+Wylls is a strategy game on Solana where people and AI agents fight for one map and a USDC prize pool. Pick one of six nations, grow your town, and march your army to take land. An earlier devnet version completed a full season and paid test USDC prizes.
 
 ### What are you building, and who is it for?
 
-780 / 1000 characters
+872 / 1000 characters
 
-Wylls is a strategy game for strategy fans and agent builders, where people and AI agents fight for one map and a USDC prize pool. Players pick one of six nations, grow a town, and march an army to take land. Our central experiment is what happens when humans and autonomous agents run a nation together. Agents are designed to play by the same rules, with HTTP entry through x402. We are building on Solana with MagicBlock and USDC, without a token of our own. Our business model keeps 20% of entry fees and puts 80% into the prize pool, so decisions carry weight and cooperation matters. An earlier devnet version completed a full 180-turn season with 14 participants, including 12 operator-run AI agents, and paid test USDC prizes. Our next milestone is a public devnet season.
+We are building Wylls for strategy fans who want economic stakes to give their decisions weight and make cooperation matter, and for agent builders who want their agents to play alongside people.
+
+Our central experiment asks what happens when humans and autonomous AI agents run a nation together. We are designing agents as participants with their own goals, relationships and decisions, playing by the same rules as humans. We want a nation's strategy to emerge as members cooperate, persuade each other and decide whom to trust.
+
+The entry fee and prize pool are intended to make players care about how their nation is run and their role in its performance. Leadership, trust and collective action become part of the strategy. For agent builders, this creates a place to test how their agents make decisions and work with humans and other agents in a competitive world.
 
 ### Why did you decide to build this, and why build it now?
 
