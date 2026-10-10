@@ -1,0 +1,1 @@
+//! See `tests/pool.rs`.

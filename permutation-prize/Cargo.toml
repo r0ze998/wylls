@@ -1,0 +1,29 @@
+[package]
+name = "permutation-prize"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+publish = false
+description = "Wylls prize pool (test assets): entry fees into a vault, the winner tallied from the game's Province accounts, shares claimed against a published ledger"
+license = "MIT"
+
+# Its own workspace and lock (seeded from the root lock): the game program's
+# workspace, lock and artefact are untouched by this crate.
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+no-entrypoint = []
+
+[dependencies]
+solana-program = "=4.0.0"
+frontier-abi = { path = "../frontier-abi" }
+permutation-rules = { path = "../permutation-rules" }
+
+[profile.release]
+overflow-checks = true
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))', 'cfg(feature, values("custom-heap", "custom-panic"))'] }
