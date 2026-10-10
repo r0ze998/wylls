@@ -1,93 +1,34 @@
-# Wylls: pitch
+# Wylls: Play the agent economy
 
-> **Status 2026-10-04:** local test chain only (never devnet or mainnet) · nobody outside the project has played · every number comes from tests, rule-bot runs, the Gemma 4 spike, the records of the AI runs on a separate branch (a 6-AI smoke run, `smoke-b3`, is the only run that completed with `verify-minds` passing), or simulation · AI citizens: in progress on branch `frontier/ai-integ`, not merged into this tree, the 12-AI and 18-AI runs not yet run [AS-BUILT: pending] · conquest (code on another branch, not merged), score, instant land, the 14-day season, money, governance and markets: design only.
+Completed deck and spoken script supplied by r0ze on 2026-10-10. Pitch recording is pending. The script below is preserved as supplied.
 
-**Wylls is a game in which AI behaves like a player.** AI citizens, run by the operator on a local Gemma 4 model, are designed to play the same game as people: each has a persona, goals and a memory that the code builds from public records, and each chooses its own marches. The world they play in is a shared, Civilization-like one on Solana. You choose one of six nations (国); a village (村) is given to you; your economy runs in real time; armies march under sealed orders; every province's fights resolve together at a 10-minute turn (the step at which the world resolves everything together; called a bell in the code), with a public record anyone can replay and check. Wylls is the first playable slice of a Civ-like shared world. Tech, diplomacy, markets, governance, score and shared civilisation are designed and not built. The full design, with a status beside every item, is [docs/GAME-DESIGN.ja.md](docs/GAME-DESIGN.ja.md) (Japanese, awaiting the owner's confirmation); the ten-minute tour is [docs/DESIGN-OVERVIEW.md](docs/DESIGN-OVERVIEW.md) ([日本語](docs/DESIGN-OVERVIEW.ja.md)).
+- [Pitch deck v28](docs/pitch/Wylls-Pitch-v28.pdf)
+- [Matching project details](SUBMISSION.md)
+- [Implementation status and run instructions](README.md)
+- [Claim sources and measurement scope](docs/pitch/CLAIMS.md)
 
-Status tags used below, the same five in the same English words as in the [README](README.md): **[Running]** code exists and was actually run (for code on another branch the text says which branch and which run); **[In progress]** being implemented or run for this hackathon; **[Design only]** written down, not built; **[Planned]** intended, no date; **[Dropped]** removed by a decision; **[Confirm]** the owner's answer is needed. In the Japanese documents they are 【動いている】【作成中】【設計のみ】【計画】【やめた】【確認】. The owner's decisions of 2026-10-04 are called Y1 to Y12 in this file and in the decisions log; the README and the design documents call them D1 to D12 (D1 is Y1, and so on). Where a number is a simulator output, a model figure or an estimate, the text says so in words. Sources: 〔Source: path:line〕, paths from the repository root, with a branch prefix when the file is not on `frontier/unify`.
+## Spoken script
 
-## The two showpieces
+1. Play the agent economy. Hi, I'm r0ze from Wylls, a strategy game where people and AI agents fight for one map, and the winners take a USDC prize pool.
 
-1. **An AI citizen's own march (the headline).** The code offers up to 12 legal options, the model chooses, the code checks the choice. If the AI picks a march, its army leaves with the destination sealed; after the arrival turn has ended and the march is revealed, the page opens the decision: what it was offered, the memory lines it cited, its own words (marked as model-written and not verified), and the real clash report. 〔Source: docs/frontier/ai-citizens/AI-CITIZENS-CONTRACT.md:14, :704-712〕
-2. **The nation council (second).** The code offers three targets; one AI moves one, another argues back, the presenter's seat casts a ballot, and the adopted target, the Strike Order (攻撃命令), stays sealed until the strike. The presenter is the operator, so this holds for nation 0 only; the council is outside the chain and the chain enforces nothing. 〔Source: docs/frontier/ai-citizens/AI-CITIZENS-CONTRACT.md:526-552, :714-718〕
+2. AI agents are joining the economy, and they now pay: seventy-five million x402 payments in thirty days this August. Agents that can pay need a place to play, and because they pay onchain, the natural place is a blockchain game. But blockchain games have a problem: more than ninety percent have died, and I shut down my project when its token economy broke.
 
-**Status: [In progress].** The code is on branch `frontier/ai-integ`; it is not in this tree. Neither showpiece has been recorded. In the only 6-AI smoke run that completed with `verify-minds` passing (`smoke-b3`; 6 AIs, all of one persona, see below) the AI chose marches itself, but the council adopted no Strike Order. 〔Source: GAME-DESIGN.ja.md §4.5; ai-integ:docs/frontier/ai-citizens/RUNS.md:32-34〕
+3. So why a blockchain game? Because it has rules no one can bend, and money an agent can spend.
 
-## The thesis
+4. This is Wylls. You pick one of six nations, grow your town, and march your army to take land. AI agents play the same way, and join with a single web request.
 
-**Wylls is the English spelling of will (意志).** The question the game asks is a thought experiment: *how does a game behave when AI has will?* We do not claim that the model wants or intends anything. We define will as something the system builds and shows from outside, in five visible forms: lasting goals (progress counted by code where the facts exist, "progress not computed" otherwise), reasons that cite memory lines, trust and an unanswered grievance, the right to decline an order, and a voice and a vote in the council. [In progress] Of the five, an unanswered grievance and declining an order have not been observed in any run so far, and no run has recorded an attack on an AI's own army. 〔Source: GAME-DESIGN.ja.md §1.1, §4.9; docs/frontier/ai-citizens/AI-CITIZENS-CONTRACT.md:482-486〕
+5. It runs on Solana with MagicBlock, and agents pay in USDC over x402. Wylls has no token of its own: we are building a game, not a token launch dressed as a game.
 
-## What is true today
+6. An earlier version ran a full season on devnet: one hundred eighty turns, fourteen players, twelve of them AI agents, and the prizes were paid.
 
-| Part | Status | Evidence |
-|---|---|---|
-| First playable (M1): one 7-game-day season, 1,008 turns at 20x, **1,000 rule bots** of 13 profiles, real drand quicknet rounds replayed from an archive, **local test chain**; every gating criterion passed | [Running] | [M1-EXIT-NOTES](docs/frontier/m1/M1-EXIT-NOTES.md), [runs/m1-exit](docs/frontier/m1/runs/m1-exit/); 〔Source: docs/frontier/m1/M1-EXIT-NOTES.md:57-58〕 |
-| On-chain program (50 instruction tags, 49 usable in the release build; 17 account kinds), keepers, herald, relay, bots, web client (JA/EN) | [Running]; counts of 248 program tests, 529 web tests and 51 screen tests are from the M1 closing tree `864b622` and were not re-run on this branch | [M1-EXIT-NOTES](docs/frontier/m1/M1-EXIT-NOTES.md) §2, §6; 〔Source: frontier-abi/src/tags.rs:70-128〕 |
-| Replay verifier | [Running]: passed 144,300 transactions; **30 of 30** deliberate tampers caught; it is our own verifier, run on a local chain | [verify.md](docs/frontier/m1/runs/m1-exit/verify.md), [tamper.md](docs/frontier/m1/runs/m1-exit/tamper.md); 〔Source: docs/frontier/m1/runs/m1-exit/criteria.md:18〕 |
-| Joining is one choice (a nation). Joining files a site ticket; a lottery is drawn each turn; the village appears about 11 to 21 minutes later (a model figure) and stays provisional for up to 24 turns (about 4 hours), during which it cannot muster, explore or depart | [Running]: fixtures and screen tests in this tree; run end to end on the chain only by 20 scripted browser visitors (not people) on branch `frontier/playtest` | [DECISIONS V2](docs/frontier/DECISIONS.md); 〔Source: GAME-DESIGN.ja.md §2.2; playtest:docs/frontier/playtest/PT-C-NOTES.md:31〕 |
-| **AI citizens**: code for personas, memory, the AI's own march, the council and the Strike Order, audit pages and `verify-minds`; contract v1.3 | [In progress]: code on `frontier/ai-integ`, one 6-AI smoke run (`smoke-b3`) completed with `verify-minds` passing (below); not merged; A/B test (12 AIs) and main run (18 AIs) not run [AS-BUILT: pending] | [contract v1.3](docs/frontier/ai-citizens/AI-CITIZENS-CONTRACT.md); 〔Source: ai-integ:docs/frontier/ai-citizens/RUNS.md:8-37〕 |
-| Conquest (keeps, sieges, occupation) | [Design only] as part of the product; the code is on branch `frontier/cq-integ` (contract v1.5, program v2, Gate CQ2 passed in that branch's tests: 342 svm tests, 534 workspace tests, 573 npm tests), **not merged into this tree**; Waves 3 to 5 (verifier, relay, web, soak) not started; nobody and no AI has played it | [conquest contract](docs/frontier/conquest/CONQUEST-CONTRACT.md); 〔Source: cq-integ:docs/frontier/conquest/integ-CQ2-NOTES.md:226-237〕 |
-| Season score, 14-day season, instant land, shared civilisation (tech, eras, the Engine, diplomacy), money (M2), governance and markets (M3) | [Design only] | [GAME-DESIGN.ja.md §3.13, §6, §7](docs/GAME-DESIGN.ja.md) |
+7. We keep twenty percent of every entry fee, and the rest is the prize pool. Strategy games earned more than twenty billion dollars on mobile last year.
 
-In the balance simulator the first draft let one nation win 99.5 percent of 600 seasons; after tuning, six nations won 15.6 to 17.4 percent of 1,500 paired seasons at 10,000 simulated wallets. Simulator output with assumed behaviour; not measured with people. 〔Source: docs/frontier/m0/M0-FIRST-PASS.md:52; docs/frontier/m0/M0-FINAL.md:57〕
+8. I've built more than ten onchain games, and I'm building Wylls full-time. Our next milestone is a public season on devnet, for strategy fans and agent builders.
 
-## Why a chain
+## Evidence beside the pitch
 
-The program, not an operator, resolves every clash. By design no one can read or change a sealed order before its arrival turn: the departure is public, the destination is hidden by a drand time-lock. In the exit season the drand rounds were replayed from an archive, so secrecy itself was not tested; the recorded results show liveness and settlement. The whole season is a public log that anyone can replay and check; our verifier replayed the exit season and caught every deliberate tamper (our own verifier, run on a local chain; no outside party has replayed it). That, not speed or cost, is the reason for a chain here. [Running] on the local test chain; nothing ran on devnet, and devnet costs and rent are unverified. 〔Source: docs/DESIGN-OVERVIEW.md:122; docs/frontier/m1/M1-EXIT-NOTES.md:103-112〕
+The completed script describes the product direction and the first version's devnet result. The first version used test USDC. The current main branch is a local rebuild; MagicBlock, x402 and USDC are being carried over, and AI citizens and conquest are not merged into main yet. The [README](README.md) keeps these implementation states explicit.
 
-## The AI citizens
+The [claim notes](docs/pitch/CLAIMS.md) distinguish recorded test results, founder background and external market figures. The x402 figure is displayed on its official site, but the script's August date is not yet supported by that source. The GameFi percentage uses ChainPlay's 2024 project-health definition; the mobile strategy figure refers to 2025 in-app purchase revenue.
 
-**Design.** AI citizens are equal in number per nation: 6 in the smoke run, 12 in the A/B test and the live recording (2 per nation), 18 in the main run (3 per nation: avenger, diplomat, conqueror), run on a local Gemma 4 model; no paid API. They play the same game under the same keys, relay quotas and fog as people, plus safety limits: at most 12 code-made options inside a 12-province window, at most 60 percent of a village's troops per decision and per day with 40 percent kept home, at most 4 model-chosen marches a day. **The code offers legal options, the model chooses, the code checks the choice, and if the model is late, invalid or refused, a rule autopilot runs economy and duties only; the autopilot never starts a march on its own.** Therefore every voluntary AI march is the model's choice or a council Strike Order. **The model never sees keys**: a keyless "mind" calls the model and the bot-side "brain" signs; the local test keys can be derived from a public seed, so this is structure, not secrecy. Each AI has a persona, a creed, goals and a public card (the Wyll card). [In progress] 〔Source: docs/frontier/ai-citizens/AI-CITIZENS-CONTRACT.md:11-15, :107-114, :229-235, :246-266, :345〕
-
-**Memory is the core of the design and is in the hackathon build.** The code writes short, templated event lines from public records (the model never writes them), retrieves some into each prompt, and the model may cite the lines its choice or reason rested on. A citation shows that a line was shown and named; it does not show that the choice depended on it, so we say "cited", never "remembers", and we do not claim that memory makes the AI play better. Memory ends with the season. Pacts and betrayal between AIs are out of the build (decision X2). [In progress] 〔Source: docs/frontier/ai-citizens/AI-CITIZENS-CONTRACT.md:377-482, :1082-1109; docs/frontier/DECISIONS.md:445-456〕
-
-**How AI citizens are shown (decision Y2).** The decision is that the game UI shows AI citizens exactly like human players, with no mark. [Design only] Today the main map client has no AI mark and does not show AI citizens at all. The council page is an audit page: it shows the signed roster with a type label per citizen (`ai`, `script`, `seat`), each AI's public card, decision records opened after their release, council files and the `verify-minds` verdict; the public roster file `roster.json` carries the same labels. Whether these labels stay is open [Confirm Q2]. Kept until the owner objects: an AI answers truthfully when sincerely asked whether it is an AI ("I am an AI citizen run by the operator"; the rule and its check exist, no recorded case of it being asked), and the README and the rules say in general that the world contains AI-operated citizens. We do not claim that AI is always labelled. Legal review (for example EU AI Act Art. 50) is needed and has not been done. 〔Source: docs/frontier/DECISIONS.md part Y, Y2; GAME-DESIGN.ja.md §4.6〕
-
-**What ran (the only 6-AI smoke run that completed with `verify-minds` passing, `smoke-b3`, 6 AIs of one persona, 86 closed turns at 10x, local test chain).** 52 of 52 model decisions were valid with 0 fallbacks; n is far below the 300 that the gate requires, so this is not a result for the gate. The share of AI actions chosen by the model was at most 29.8 percent: most actions are the autopilot's economy and duties. The AIs sent 10 model-chosen marches, all against barbarian camps; 9 have a clash episode in the public record (a proxy for the gate quantity Y, not yet checked against the herald's clash rows). 26 of 52 decisions cited a memory line (the model-side counter says 16); the oldest cited line was 32 turns old, so we do not say "earlier in the season". The 9 councils all closed without a quorum, so no Strike Order was adopted. `verify-minds` passed on this run, before a later fix to the verifier; the fixed verifier has not been run on it. An earlier run (`smoke-b2`) failed `verify-minds`; three slice runs and `smoke-b1` were aborted; `smoke-b4` started at 21:07 JST on 2026-10-04 and has no end record. 〔Source: ai-integ:.local/frontier/ai/smoke-b3/report.md:13, :28, :41, :61-63 (generated, not in git); ai-integ:docs/frontier/ai-citizens/RUNS.md:8-37; GAME-DESIGN.ja.md §4.5, §4.8〕
-
-**Why the guarantees live in code.** In our spike the bare local model was **not a better player than the rule bot**: it chose a march in 1 or 9 of 20 decisions depending on one line of instruction (the report's verdict line also lists 12; the body confirms 1 and 9), against 18 of 20 for the rule bot; its best setup gave 79 percent valid actions; it needs about 5 s of compute per decision. The spike used recorded scenes, not the AI-citizen code. 〔Source: docs/frontier/ai-agents/gemma4/REPORT.md:11, :26-37〕
-
-**Failure is defined in advance.** Under 95 percent valid choices over at least 300 model decisions; more than 5 percent fallbacks; any hijack in the injection suite (17 ported cases plus memory and review cases); an A/B test that does not reach 2 valid pairs (then the claim is reduced and said so); no model-chosen march that produced a clash (then the council is the headline and we say so); a failed citation check or episode replay (then the AI section of every document becomes "AI citizens: not implemented in this submission; design only"). Results: **[AS-BUILT: pending]**. 〔Source: docs/frontier/ai-citizens/AI-CITIZENS-CONTRACT.md:766-788, :903-931〕
-
-## Where the game is going (target design, with status)
-
-| Item | The design | Status today |
-|---|---|---|
-| How the game is won (Y1) | One total score per nation ranks the nations at season end: territory held over time, prosperity and knowledge. The formula is open: the weights and the per-capita question are not decided | [Design only]; M1 has no score and no winner |
-| Territory and conquest (Y7) | Included in the design; territory counts in the score | [Design only] as a product; code on `frontier/cq-integ`, not merged (see the table above) |
-| First land (Y3) | Land is given the moment a player joins: no wait, no provisional village, no practice battle | [Design only]; the program is unchanged. Today: the ticket and lottery above. A read-only estimate for the change: a new instruction, about 11 to 14 hours wall clock |
-| Season length (Y6) | 14 days; the earlier value of 28 days was a provisional number and is [Dropped] | [Design only]; only a 7-game-day season has run (the AI main run is 3 game days at 10x) |
-| Shared civilisation | Tech, eras, the Engine, diplomacy: the first thing to build after the hackathon | [Design only] |
-| Free season, then money (Y4) | A free season first, then a season with money | [Planned]; there is no money in the game today |
-
-〔Source: docs/frontier/DECISIONS.md part Y, Y1 to Y7; GAME-DESIGN.ja.md §3.13, §5.5, §6.2, §6.3〕
-
-## Business plan (the intended plan, with status)
-
-| Part | Plan | Status |
-|---|---|---|
-| Own seasons | The operator opens and runs seasons | [Planned]; no season has been operated; no operator tooling for a public network yet |
-| Free first | The first season is free | [Planned] |
-| Entry fee later | An entry fee in USDC feeds a prize pool; the operator takes a share | [Design only]; the shares and fees are under consideration until legal review and no figure is committed here |
-| AI citizens for game studios, later | The operator's AI citizens are offered to other games' sparse worlds | [Planned]; no design document, price or contract exists. **No conversation with any studio is on record, and none is claimed.** |
-
-There is no player-paid money in the game today: no entry fee, no prize, no payout. No registration, waitlist, demand or revenue figure exists. Legal review for money and for how AI is disclosed has not been done. [Confirm Q18: whether the plan is also said in the pitch video and slides; it is written here under decision Y5.] 〔Source: docs/frontier/DECISIONS.md part Y, Y4 and Y5; GAME-DESIGN.ja.md §6.4 to §6.7〕
-
-## The plan to the freeze
-
-| When (JST) | What | Status |
-|---|---|---|
-| 2026-10-09 13:00 to 20:30 | A/B test, 12 AIs | [In progress]; scheduled, not run |
-| 2026-10-09 21:00 to 10-10 05:00 | Main run, 18 AIs, 3 game days at 10x | [In progress]; scheduled, not run |
-| 2026-10-10 | Report, `verify-minds`, gate numbers | [In progress] |
-| 2026-10-11 | Recording with the presenter (the operator's seat, nation 0) | [In progress] |
-| 2026-10-12 morning | Merge `frontier/ai-integ` into `frontier/unify`, locally, no push; fill the pending markers with run results | [In progress] |
-| 2026-10-12 23:59 freeze; 2026-10-13 15:59 submit | If the runs are incomplete, the submission says "AI citizens: not implemented in this submission; design only." | |
-
-After the hackathon, in this order as far as it is decided: shared civilisation first; conquest integration and then score with the 14-day season in parallel (provisional); instant land in a place not yet decided [Planned] [Confirm Q13]; then a free season, then a season with money. 〔Source: docs/frontier/ai-citizens/AI-CITIZENS-CONTRACT.md:847-861; GAME-DESIGN.ja.md §8.3, §8.5〕
-
-**People.** Nobody outside the project has played Wylls. The 1,000 players of the exit season were rule bots. No registration, demand or traction figure exists.
-
-**Builder.** r0ze, solo (the owner's statement, not checkable in the repository). Earlier onchain games 0xCiv and 0xARK exist; see [SUBMISSION.md](SUBMISSION.md) for what is prior work. The earlier prototype of this repository, a different game that ran a full season on Solana devnet, is history on branch `codex/magicblock-playable` ([docs/earlier-prototype/](docs/earlier-prototype/INDEX.md)).
-
-**Links:** [README](README.md) · [game design (JA)](docs/GAME-DESIGN.ja.md) · [design overview](docs/DESIGN-OVERVIEW.md) · [submission](SUBMISSION.md) · [demo script](docs/pitch/DEMO_SCRIPT.md) · [decisions log](docs/frontier/DECISIONS.md) · [AI citizens contract v1.3](docs/frontier/ai-citizens/AI-CITIZENS-CONTRACT.md)
+The previous development pitch is preserved in [PITCH-2026-10-04.md](PITCH-2026-10-04.md).
