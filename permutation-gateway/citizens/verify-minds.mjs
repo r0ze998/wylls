@@ -16,8 +16,16 @@
 //                         every anchor memo the registrar sent on chain (`tail_truncated`, `head_truncated`); a `redacted` leaf needs a
 //                         tombstone in PUB/redactions.json; the label of an opening's destination is a claim, compared with the public
 //                         log: "unrevealed" with a public REVEAL, "not_sent" with a sent march in the record's tx (or a Depart on chain)
-//                         and "planned" against a REVEAL fail; a herald feed that cannot be read makes M3 `null`, not a silent skip
-//   M7  coverage          every session-signed chain transaction of each AI in exactly one record's tx; every listed signature on chain
+//                         and "planned" against a REVEAL fail; a herald feed that cannot be read makes M3 `null`, not a silent skip.
+//                         The seal: turns the chain went through after the registrar's sealed last turn are outside the run and are not a
+//                         truncation, but only when the seal is authenticated from public data (`sealedLastTurn`, `sealAccounts`): the signed
+//                         anchors index ends at the last published turn, that turn's anchor memo is on chain, and no decision record and no
+//                         unlisted AI transaction lies after it. Otherwise `tail_truncated` stays, with what is missing (`seal_not_accepted`)
+//   M7  coverage          every session-signed chain transaction of each AI in exactly one record's tx; every listed signature on chain.
+//                         Setup transactions are counted and listed, not ignored (`setup: {join, place_home}`, `setup_transactions`): the
+//                         first PlaceHome of an AI (the fleet places the first village right after Join, no mind call), signed by its
+//                         session key, before its first decision transaction. A second PlaceHome, one outside that window, or any
+//                         unlisted transaction after the sealed last turn is a failure
 //   M8  speech            every social record of an AI wallet = its decision's signed-ready output, origin 1, no (decision, item) twice;
 //                         records skipped as redacted (tombstone required) are counted and printed; 0 records checked is `null`
 //   M9  bit replay        20 stored request bodies re-sent to llama (--llm); n/20 equal; a redacted stub must carry the record's
@@ -38,7 +46,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import bs58 from 'bs58';
 import {
-  LABELS, MEMO_PROGRAM_ID, PINNED_LLAMA_FLAGS, Rpc, anchorMemoText, canonicalJson, commitMemoText, fileBytes, localnetGenesisHash, makeSlots, parseStackToml,
+  LABELS, MEMO_PROGRAM_ID, PINNED_LLAMA_FLAGS, Rpc, anchorMemoText, canonicalJson, commitMemoText, fileBytes, lastChainClosedBell, localnetGenesisHash, makeSlots, parseStackToml,
   rulesFromConfig, treeSha256Dir, verifyBytes, verifySigned, walletOf,
 } from './registrar.mjs';
 import { createHerald } from '../../permutation-server/web/frontier/herald.mjs';
@@ -126,6 +134,79 @@ export function isOnboardingBeforeFirstRecord(tx, programId, blockTime, firstBel
   return Number.isFinite(start) && Number(blockTime) < start;
 }
 const signersOf = tx => { const m = tx?.transaction?.message; return m ? m.accountKeys.slice(0, m.header.numRequiredSignatures) : []; };
+/** Join 0x30 (wallet-signed) and PlaceHome 0x38 (session-signed, conquest program): the two steps the fleet takes for a citizen before any mind call. */
+export const JOIN_TAG = 0x30;
+export const PLACE_HOME_TAG = 0x38;
+
+/** sig -> Map(record id -> ai) over the minds files and the late files (a tx update in a late file repeats the list of the same record: one record). */
+export function listedSignatures(pub, decisions) {
+  const listed = new Map();
+  const add = (sig, id, ai) => { const m = listed.get(sig) ?? listed.set(sig, new Map()).get(sig); m.set(id, ai); };
+  for (const [, f] of pub.minds()) for (const r of f?.records ?? []) for (const t of r.tx ?? []) if (t.sig) add(t.sig, r.id, r.ai);
+  const aiOfId = new Map(decisions.map(d => [d.record.id, d.record.ai]));
+  for (const [, f] of pub.late()) for (const e of f?.entries ?? []) for (const t of (e.tx ?? e.record?.tx ?? [])) if (t.sig) add(t.sig, e.id ?? e.record?.id, aiOfId.get(e.id ?? e.record?.id));
+  return listed;
+}
+
+/**
+ * The registrar's seal of the publication, from public data only: PUB/anchors/index.json, signed by the registrar key of the commitments
+ * (M1 checks that key's commit memo on chain), for this season and these commitments, naming the last turn of the run.
+ * Returns `{authenticated, last_turn, missing: [text]}`; `missing` says what a reader would need and does not have.
+ */
+export function sealedLastTurn(ctx) {
+  const cm = ctx.commitments, idx = ctx.pub.anchorsIndex();
+  const missing = [];
+  if (!idx) missing.push('PUB/anchors/index.json is missing: there is no signed record of the last turn of the run');
+  else {
+    if (!cm?.registrar || !verifySigned(idx, cm.registrar)) missing.push('the anchors index is not signed by the registrar key of the commitments');
+    if (Number(idx.season) !== Number(cm?.season_id)) missing.push('the anchors index names another season than the commitments');
+    const bytes = ctx.pub.commitmentsBytes();
+    if (!bytes || idx.commitments_sha256 !== sha256hex(bytes)) missing.push('the anchors index does not carry the hash of the published commitments');
+    if (!Number.isInteger(idx.last_bell)) missing.push('the anchors index names no last turn');
+  }
+  return { authenticated: missing.length === 0, last_turn: Number.isInteger(idx?.last_bell) ? idx.last_bell : null, missing };
+}
+
+/** The first second after turn `turn` on the chain's clock, or null when the season cannot be read. */
+const endOfTurn = (season, turn) => { const t = Number(season?.genesisTs) + (turn + 1) * Number(season?.bellSecs ?? 600); return Number.isFinite(t) ? t : null; };
+
+/**
+ * Does the seal account for the turns after `hi` (the last turn that has files)? The publication is complete up to the sealed last turn
+ * when (1) the seal is authenticated and ends at `hi`, (2) turn `hi` itself is anchored by a memo on chain, (3) no decision record is
+ * later than `hi`, (4) no AI's session key signed a transaction after turn `hi` that no published record lists.
+ * Returns `{problems: [text], evidence}`; an empty `problems` means the later turns are outside the run.
+ */
+export async function sealAccounts(ctx, hi, anchors) {
+  const seal = sealedLastTurn(ctx);
+  const problems = [...seal.missing];
+  if (seal.last_turn !== null && seal.last_turn !== hi) problems.push(`the signed anchors index ends at turn ${seal.last_turn}, the published files at turn ${hi}`);
+  const a = anchors.get(hi);
+  if (!a || a.anchor_gap || !a.signature) problems.push(`turn ${hi}, the last published turn, has no anchor memo on chain: the seal is not tied to the chain`);
+  const decisions = ctx.decisions ?? (ctx.decisions = collectDecisions(ctx.pub));
+  const laterRecords = decisions.filter(d => Number(d.record.bell) > hi).length;
+  if (laterRecords) problems.push(`${laterRecords} decision record(s) are later than turn ${hi}`);
+  const season = await ctx.season();
+  const end = endOfTurn(season, hi);
+  const listed = listedSignatures(ctx.pub, decisions);
+  let after = 0, afterListed = 0;
+  const unlisted = [];
+  if (end === null) problems.push('the season clock could not be read: transactions after the sealed turn cannot be told from earlier ones');
+  else for (const ai of ctx.roster?.ai ?? []) {
+    let h = null;
+    try { h = await ctx.sessionHistory(ai); } catch { h = null; }
+    if (!h) { problems.push(`the transaction history of AI ${ai.tag} could not be read: nothing shows that it sent no transaction after turn ${hi}`); continue; }
+    for (const row of h.rows) {
+      const tx = await ctx.tx(row.signature);
+      if (!tx) { problems.push(`a transaction of AI ${ai.tag} could not be read from the chain (${row.signature})`); continue; }
+      if (!signersOf(tx).includes(h.session) || !(Number(row.blockTime ?? tx.blockTime) >= end)) continue;
+      after++;
+      if (listed.has(row.signature)) afterListed++; else unlisted.push({ ai: ai.tag, signature: row.signature, slot: row.slot });
+    }
+  }
+  if (unlisted.length) problems.push(`${unlisted.length} transaction(s) signed by an AI's session key after turn ${hi} are listed by no decision record`);
+  const closable = Number(season?.latestUnix) > 0 && Number(season?.bellSecs) > 0 ? lastChainClosedBell(season) : null;
+  return { problems, evidence: { signed_index_last_turn: seal.last_turn, anchor_memo_of_sealed_turn: a?.signature ?? null, decision_records_after: laterRecords, ai_transactions_after: after, ai_transactions_after_listed: afterListed, ai_transactions_after_unlisted: unlisted, chain_time_closable_through_turn: closable } };
+}
 
 // FB5 (fix plan F1): M1's "model sha256 = MODEL" was circular after the first run. The registrar (at commit time) and this check both read
 // the same unauthenticated cache `$TMPDIR/wylls-ai-model-sha.json`, keyed by path|size|mtime, so a cache hit compared a value with itself
@@ -180,6 +261,30 @@ export async function createContext(o) {
       const s = ctx._season;
       if (!s?.programId) throw new Error('season not read yet');
       return ident.tagKey(faddr.citizenTag(faddr.seasonAddresses(s.programId, s.season).of('Citizen', { wallet })));
+    },
+    _sessionCache: new Map(),
+    /** the whole chain history of an AI's current session key, newest first (1000 per page): `{session, rows}`, or null when the key cannot be read */
+    async sessionHistory(ai) {
+      if (!ctx._sessionCache.has(ai.wallet)) {
+        const me = await ctx.me(ai.wallet);
+        const key = me?.citizen?.session;
+        let val = null;
+        if (me?.ok && key && !key.every(x => x === 0)) {
+          const session = bs58.encode(Buffer.from(key));
+          const rows = [];
+          let before = null;
+          for (let page = 0; page < 200; page++) {
+            const got = await rpc.call('getSignaturesForAddress', [session, { limit: 1000, ...(before ? { before } : {}) }]);
+            if (!got?.length) break;
+            rows.push(...got);
+            if (got.length < 1000) break;
+            before = got[got.length - 1].signature;
+          }
+          val = { session, rows };
+        }
+        ctx._sessionCache.set(ai.wallet, val);
+      }
+      return ctx._sessionCache.get(ai.wallet);
     },
     decisions: null,
     _drained: null,
@@ -500,7 +605,24 @@ export async function checkM3(ctx) {
     // the newest log row sits in bell `headBell`; the bell before it has ended, so it must be closed (a closer at start(b+1) + 20 s)
     const lastClosed = ctx.o.through ?? feedForTail.headBell() - 1;
     c.set('herald_last_closed_bell', lastClosed);
-    if (hi < lastClosed) c.fail('tail_truncated', { last_file_bell: hi, herald_last_closed_bell: lastClosed, source: ctx.o.through != null ? '--through' : 'herald log', detail: 'the herald logged a later bell: the files of the last closed bell(s) are missing (not published, or removed)' });
+    if (hi < lastClosed) {
+      const base = { last_file_bell: hi, herald_last_closed_bell: lastClosed, source: ctx.o.through != null ? '--through' : 'herald log' };
+      const missingText = 'the herald logged a later turn: the files of the last closed turn(s) are missing (not published, or removed)';
+      if (ctx.o.through != null) c.fail('tail_truncated', { ...base, detail: missingText });
+      else {
+        // The seal. A season on the chain can outlast the run: the chain goes through more turns after the registrar sealed the publication.
+        // Those turns are outside the run only when the seal can be authenticated from public data and nothing of an AI lies after it.
+        const seal = await sealAccounts(ctx, hi, anchors);
+        if (seal.problems.length) c.fail('tail_truncated', { ...base, detail: `${missingText}, and the registrar's seal does not account for them`, seal_not_accepted: seal.problems, seal: seal.evidence });
+        else {
+          c.set('sealed_last_turn', hi);
+          c.set('turns_after_seal', { first: hi + 1, last: lastClosed, count: lastClosed - hi });
+          c.set('seal', seal.evidence);
+          const ct = seal.evidence.chain_time_closable_through_turn;
+          c.note(`the publication is complete up to the sealed last turn ${hi}: the registrar's signed anchors index ends there, the anchor memo of turn ${hi} is on chain, no decision record is later, and no AI session key signed an unlisted transaction after it (${seal.evidence.ai_transactions_after} after it in all). The chain went through ${lastClosed - hi} more turn(s) (turn ${hi + 1}${lastClosed > hi + 1 ? ` to ${lastClosed}` : ''}) that have no files: they are outside the run and are not counted as a truncation.${ct !== null ? ` By the chain's own time the service could close turns through turn ${ct} (a turn is closed 20 game seconds after the next one starts).` : ''} What this cannot show: speech in those turns that touched no chain transaction, since only the service holds it.`);
+        }
+      }
+    }
   }
   const idx = pub.anchorsIndex();
   if (!idx) c.unverified('anchors_index', 'PUB/anchors/index.json is missing: the registrar\'s signed list of anchored bells could not be compared with the files');
@@ -669,47 +791,81 @@ export async function checkM7(ctx) {
   if (!ais.length) { c.skip('no AI citizens on the roster'); return c.result(); }
   const decisions = ctx.decisions ?? (ctx.decisions = collectDecisions(ctx.pub));
   // sig -> ids of the records that list it (a tx update in a late file repeats the list of the same record: one record)
-  const listed = new Map();
-  const add = (sig, id, ai) => { const m = listed.get(sig) ?? listed.set(sig, new Map()).get(sig); m.set(id, ai); };
-  for (const [b, f] of ctx.pub.minds()) for (const r of f?.records ?? []) for (const t of r.tx ?? []) if (t.sig) add(t.sig, r.id, r.ai);
-  const aiOfId = new Map(decisions.map(d => [d.record.id, d.record.ai]));
-  for (const [b, f] of ctx.pub.late()) for (const e of f?.entries ?? []) for (const t of (e.tx ?? e.record?.tx ?? [])) if (t.sig) add(t.sig, e.id ?? e.record?.id, aiOfId.get(e.id ?? e.record?.id));
+  const listed = listedSignatures(ctx.pub, decisions);
   c.set('listed_signatures', listed.size);
   let notRequired = 0, onChain = 0;
   const onboarding = [];
   const season = await ctx.season();
+  const program = ctx.roster?.program_id;
   const firstBellOf = new Map();
   for (const d of decisions) { const b = firstBellOf.get(d.record.ai); if (b === undefined || d.record.bell < b) firstBellOf.set(d.record.ai, d.record.bell); }
+  // the seal (see M3): a session-signed transaction after the sealed last turn that no record lists is outside every exemption
+  const seal = sealedLastTurn(ctx);
+  const sealEnd = seal.authenticated ? endOfTurn(season, seal.last_turn) : null;
+  const afterSeal = { listed: 0, unlisted: 0 };
+  // setup transactions: counted and listed, never dropped silently
+  const setup = { join: 0, place_home: 0 };
+  const setupTx = [];
+  const turnOf = t => { const g = Number(season?.genesisTs), w = Number(season?.bellSecs ?? 600); return Number.isFinite(g) && Number.isFinite(Number(t)) ? Math.floor((Number(t) - g) / w) : null; };
   const sessions = new Map();
   for (const a of ais) {
     c.count();
-    const me = await ctx.me(a.wallet);
-    const key = me?.citizen?.session;
-    if (!me?.ok || !key || key.every(x => x === 0)) { c.fail('session_key_unreadable', { ai: a.tag, wallet: a.wallet }); continue; }
-    const session = bs58.encode(Buffer.from(key));
+    const h = await ctx.sessionHistory(a);
+    if (!h) { c.fail('session_key_unreadable', { ai: a.tag, wallet: a.wallet }); continue; }
+    const { session, rows: sigs } = h;
     sessions.set(a.tag, session);
-    // the session key's whole history, newest first, 1000 per page
-    const sigs = [];
-    let before = null;
-    for (let page = 0; page < 200; page++) {
-      const rows = await ctx.rpc.call('getSignaturesForAddress', [session, { limit: 1000, ...(before ? { before } : {}) }]);
-      if (!rows?.length) break;
-      sigs.push(...rows);
-      if (rows.length < 1000) break;
-      before = rows[rows.length - 1].signature;
-    }
+    const seen = [];
     for (const row of sigs) {
       const tx = await ctx.tx(row.signature);
       if (!tx) { c.fail('chain_tx_unreadable', { ai: a.tag, signature: row.signature }); continue; }
-      if (!signersOf(tx).includes(session)) { notRequired++; continue; } // a join (wallet-signed) or a settle (relay-signed): not required (7.3)
+      seen.push({ row, tx, time: Number(row.blockTime ?? tx.blockTime), signed: signersOf(tx).includes(session), tag: gameTagOf(tx, program) });
+    }
+    // the first home (conquest program): the PlaceHome transactions of this session key, oldest first, and the AI's first decision transaction
+    const placeHomes = seen.filter(x => x.signed && x.tag === PLACE_HOME_TAG).sort((x, y) => x.row.slot - y.row.slot);
+    const listedSlots = seen.filter(x => x.signed && listed.has(x.row.signature)).map(x => x.row.slot);
+    const firstDecisionSlot = listedSlots.length ? Math.min(...listedSlots) : null;
+    const firstBell = firstBellOf.get(a.tag);
+    /** null when `x` is the AI's setup PlaceHome, else why it is not */
+    const notSetupHome = x => {
+      if (placeHomes[0] !== x) return 'a second PlaceHome of this AI: only its first one places the first home';
+      if (firstDecisionSlot !== null) return x.row.slot < firstDecisionSlot ? null : 'a PlaceHome that is not before the AI\'s first decision transaction: outside the setup window';
+      if (firstBell === undefined) return null; // the AI made no decision at all
+      const limit = endOfTurn(season, firstBell);
+      return limit !== null && x.time < limit ? null : 'a PlaceHome after the turn of the AI\'s first decision record: outside the setup window';
+    };
+    for (const x of seen) {
+      const { row, tx } = x;
+      if (!x.signed) { // a join (wallet-signed) or a settle (relay-signed): not required (7.3)
+        notRequired++;
+        if (x.tag === JOIN_TAG) { setup.join++; setupTx.push({ ai: a.tag, kind: 'join', signature: row.signature, slot: row.slot, turn: turnOf(x.time) }); }
+        continue;
+      }
       onChain++;
       c.count();
       const owners = listed.get(row.signature);
-      if (!owners && !ctx.o.strictOnboarding && isOnboardingBeforeFirstRecord(tx, ctx.roster?.program_id, row.blockTime ?? tx.blockTime, firstBellOf.get(a.tag), season)) { onboarding.push(row.signature); continue; }
+      const late = sealEnd !== null && x.time >= sealEnd;
+      if (late) afterSeal[owners ? 'listed' : 'unlisted']++;
+      if (!owners && late) { c.fail('orphan_chain_tx', { ai: a.tag, signature: row.signature, slot: row.slot, after_sealed_turn: true, sealed_last_turn: seal.last_turn, detail: `a transaction signed by the AI's session key after the sealed last turn (turn ${seal.last_turn}) that no decision record lists` }); continue; }
+      if (!owners && !ctx.o.strictOnboarding && isOnboardingBeforeFirstRecord(tx, program, x.time, firstBell, season)) { onboarding.push(row.signature); continue; }
+      if (!owners && x.tag === PLACE_HOME_TAG) {
+        const why = ctx.o.strictOnboarding ? '--strict-onboarding: setup transactions count as orphans' : notSetupHome(x);
+        if (why === null) { setup.place_home++; setupTx.push({ ai: a.tag, kind: 'place_home', signature: row.signature, slot: row.slot, turn: turnOf(x.time) }); continue; }
+        c.fail('orphan_chain_tx', { ai: a.tag, signature: row.signature, slot: row.slot, instruction: 'PlaceHome', reason: why, detail: 'a transaction signed by the AI\'s session key that no decision record lists' });
+        continue;
+      }
       if (!owners) c.fail('orphan_chain_tx', { ai: a.tag, signature: row.signature, slot: row.slot, detail: 'a transaction signed by the AI\'s session key that no decision record lists' });
       else if (owners.size > 1) c.fail('tx_in_many_records', { ai: a.tag, signature: row.signature, records: [...owners.keys()] });
       else if ([...owners.values()][0] !== a.tag) c.fail('tx_in_other_ais_record', { ai: a.tag, signature: row.signature, record_ai: [...owners.values()][0] });
     }
+    // the Join of the wallet, when the chain keeps it under the wallet and not under the session key: listed with the setup (it is not required)
+    try {
+      const known = new Set(seen.map(x => x.row.signature));
+      for (const row of await ctx.rpc.call('getSignaturesForAddress', [a.wallet, { limit: 1000 }]) ?? []) {
+        if (known.has(row.signature)) continue;
+        const tx = await ctx.tx(row.signature);
+        if (tx && gameTagOf(tx, program) === JOIN_TAG && signersOf(tx).includes(a.wallet)) { setup.join++; setupTx.push({ ai: a.tag, kind: 'join', signature: row.signature, slot: row.slot, turn: turnOf(row.blockTime ?? tx.blockTime) }); }
+      }
+    } catch { /* the wallet's history is not needed for coverage: a Join is not session-signed */ }
     // every signature a record of this AI lists exists on chain
     const mine = [...listed].filter(([, ids]) => [...ids.values()].includes(a.tag)).map(([sig]) => sig);
     for (let i = 0; i < mine.length; i += 200) {
@@ -724,6 +880,10 @@ export async function checkM7(ctx) {
   c.set('onboarding_exempt', onboarding.length);
   if (onboarding.length) c.note(`${onboarding.length} session-signed onboarding transaction(s) (Join, SetSession, SetVigil or FileTicket) before the AI's first decision record are not required: the steps before a home holding make no mind call and leave no record (R5). Contract 7.3 names joins and settles only: this reading is the verifier's (AC8-NOTES.md); --strict-onboarding counts them as orphans.`);
   c.set('not_required_join_or_settle', notRequired);
+  c.set('setup', setup);
+  c.set('setup_transactions', setupTx.sort((x, y) => x.slot - y.slot));
+  if (setup.place_home) c.note(`${setup.place_home} first-home transaction(s) (PlaceHome) are setup transactions, listed under setup_transactions: the fleet places an AI's first village right after its Join, no mind call makes it and no decision record lists it. One is allowed per AI: its first PlaceHome, signed by its session key, before its first decision transaction. A second one, or one outside that window, is a failure; --strict-onboarding counts them all as orphans.`);
+  if (seal.authenticated) c.set('after_sealed_turn', { sealed_last_turn: seal.last_turn, listed: afterSeal.listed, unlisted: afterSeal.unlisted });
   c.note('the seat\'s transactions are excluded (it has no record); joins and settles are not session-signed and are not required');
   return c.result();
 }
