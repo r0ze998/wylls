@@ -115,14 +115,17 @@ export function paintSettlement(ctx, x, y, s, f, tier = 0) {
  */
 export function paintControlWash(ctx, entries, outlineOf, lod = 'world') {
   ctx.save();
-  ctx.globalAlpha = lod === 'world' ? 0.34 : 0.2;
+  const wash = lod === 'world' ? 0.46 : 0.24;
+  ctx.lineJoin = 'round';
   for (const e of entries) {
     // who holds a keep is public, so an unexplored province is tinted too
     const f = e.rec?.control;
     if (!Number.isInteger(f) || f < 0 || f > 5) continue;
     const o = outlineOf(e.p, e.q);
     if (!o?.fill) continue;
-    ctx.fillStyle = FACTION_COLORS[f]; ctx.fill(o.fill);
+    ctx.globalAlpha = wash; ctx.fillStyle = FACTION_COLORS[f]; ctx.fill(o.fill);
+    // the holder's colour on the province's edge, so a province that changed hands reads at a glance
+    ctx.globalAlpha = 0.85; ctx.strokeStyle = FACTION_COLORS[f]; ctx.lineWidth = lod === 'world' ? 3 : 2; ctx.stroke(o.fill);
   }
   ctx.restore();
 }

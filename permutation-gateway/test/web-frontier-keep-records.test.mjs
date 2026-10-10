@@ -127,12 +127,15 @@ test('a clash on the keep tile says what it was for; the verification section is
 
 test('the territory lens washes a province in its keep holder’s colour; a capture changes the colour', () => {
   const fills = [];
-  const ctx = { save() {}, restore() {}, fill(path) { fills.push([path, this.fillStyle, this.globalAlpha]); } };
+  const edges = [];
+  const ctx = { save() {}, restore() {}, fill(path) { fills.push([path, this.fillStyle, this.globalAlpha]); }, stroke(path) { edges.push([path, this.strokeStyle]); } };
   const outlineOf = (p, q) => ({ fill: `${p},${q}` });
   const cells = control => [{ p: -3, q: 4, fog: 'clear', rec: { control } }, { p: 0, q: 0, fog: 'clear', rec: { control: 6 } }, { p: 5, q: 0, fog: 'unopened', rec: { control: 1 } }, { p: 1, q: 1, fog: 'clear', rec: {} }];
   paintControlWash(ctx, cells(1), outlineOf, 'world');
   paintControlWash(ctx, cells(2), outlineOf, 'province');
-  assert.deepEqual(fills, [['-3,4', FACTION_COLORS[1], 0.34], ['5,0', FACTION_COLORS[1], 0.34], ['-3,4', FACTION_COLORS[2], 0.2], ['5,0', FACTION_COLORS[1], 0.2]]);
+  assert.deepEqual(fills, [['-3,4', FACTION_COLORS[1], 0.46], ['5,0', FACTION_COLORS[1], 0.46], ['-3,4', FACTION_COLORS[2], 0.24], ['5,0', FACTION_COLORS[1], 0.24]]);
+  // the edge takes the holder's colour too
+  assert.deepEqual(edges, [['-3,4', FACTION_COLORS[1]], ['5,0', FACTION_COLORS[1]], ['-3,4', FACTION_COLORS[2]], ['5,0', FACTION_COLORS[1]]]);
 });
 
 test('the controller reads the season’s conquest days and the selected keep’s history from the herald', async () => {
