@@ -281,7 +281,7 @@ test('card labels: an unknown `by` is not "model"; an autopilot reason prints "n
   const node = renderCard(ctxOf('en'), c, index.aiByTag(T.ai0), {});
   const reasons = byClass(node, 'reason');
   assert.equal(reasons.length, 3);
-  const byBell = n => reasons.find(r => textOf(r).includes(`bell ${n}`));
+  const byBell = n => reasons.find(r => textOf(r).includes(`turn ${n}`));
   const model = textOf(byBell(402)), unknown = textOf(byBell(403)), auto = textOf(byBell(404));
   assert.match(model, /by: model/);
   assert.match(model, /AI's words \(model-written, not verified\)/);

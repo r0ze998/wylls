@@ -124,6 +124,13 @@ test('vocabulary (§0.4): Strike Order, never "Call" or "shade"; no claim that t
   assert.match(DICT.en['banner.localnet'], /LOCAL TEST CHAIN/);
 });
 
+test('the word for the game\'s time step is "turn" / ターン in every string a person reads, never "bell" / 鐘 (placeholder names aside)', () => {
+  for (const l of LANGS) for (const [k, v] of Object.entries(DICT[l])) assert.doesNotMatch(v.replace(/\{\w+\}/g, ''), /\bbells?\b|鐘/i, `${l}/${k}: ${v}`);
+  assert.doesNotMatch(fs.readFileSync(pageFile, 'utf8').replace(/<!--[\s\S]*?-->/g, '').replace(/<[^>]*>/g, ' '), /\bbells?\b|鐘/i, 'the fallback text of council.html');
+  assert.equal(DICT.en['page.bell_n'], 'turn {n}');
+  assert.equal(DICT.ja['page.bell_n'], 'ターン{n}');
+});
+
 test('the card label is the contract\'s text in both languages', () => {
   assert.equal(DICT.en['card.label'], 'AI citizen — run by the operator with Gemma 4 (local). Same rules and quotas as people.');
   assert.equal(DICT.ja['card.label'], 'AI市民（運営がローカルのGemma 4で動かしています）。人と同じルールと回数制限で遊びます。');
@@ -139,13 +146,13 @@ test('nation names equal citizens/memory/names.json (and the fallback reads like
 });
 
 test('t(): placeholders are text (markup in a value stays text), unknown keys come back as themselves, language switch and detection', () => {
-  assert.equal(tl('en', 'page.bell', { n: '<b>7</b>' }), 'bell <b>7</b>');
+  assert.equal(tl('en', 'page.bell', { n: '<b>7</b>' }), 'turn <b>7</b>');
   assert.equal(tl('en', 'no.such.key'), 'no.such.key');
   assert.equal(tl('ja', 'no.such.key'), 'no.such.key');
-  assert.equal(tl('en', 'page.bell', {}), 'bell {n}', 'an unsupplied placeholder is left as it is');
+  assert.equal(tl('en', 'page.bell', {}), 'turn {n}', 'an unsupplied placeholder is left as it is');
   assert.equal(getLang(), 'en');
   setLang('ja');
-  assert.equal(t('page.bell', { n: 3 }), '鐘3');
+  assert.equal(t('page.bell', { n: 3 }), 'ターン3');
   assert.equal(setLang('xx'), 'ja', 'an unknown language is ignored');
   setLang('en');
   assert.equal(detectLang({ stored: 'ja', language: 'en-US' }), 'ja');

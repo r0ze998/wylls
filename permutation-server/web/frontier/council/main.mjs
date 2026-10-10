@@ -1,13 +1,14 @@
 // The council page (contract §1.3 C9, §11.5 AC7): wiring only. Every panel's logic lives in its own module and is
 // tested under node; this file loads the files, keeps the state, renders the panels and signs what the viewer sends.
 //
-// Reads (same origin as serve.mjs): /h/ai/* (the AI's published files), /h/season (the herald), /f/ai/* (the social
+// Reads (same origin as serve.mjs): /h/ai/* (the AI's published files), /h/season and /h/events (the herald; the event
+// log only for the rows a followed decision names, trace.mjs), /f/ai/* (the social
 // service). Writes: POST /f/ai/talk and /f/ai/ballot, and the signed GET /f/ai/council/call. Everything it shows is
 // built with text nodes (dom.mjs); the only network targets are these paths on this origin (CSP: connect-src 'self').
 //
 // Three web modules are loaded lazily by absolute path, because they are the design session's files and are only
 // read, never copied: /frontier/frontier/people/identity.mjs (derived names), /frontier/frontier/faddr.mjs (the
-// citizen tag of a script bot's wallet, so a script bot's tag shows its badge) and /frontier/session.mjs (the
+// citizen tag of a script bot's wallet, so a script bot's tag shows its badge; the parts of a host id, trace.mjs) and /frontier/session.mjs (the
 // Ed25519 signer of a key). The herald serves them under /frontier/ and serve.mjs forwards that prefix; if one cannot
 // be loaded the page keeps working without it (names fall back to short tags, script bots lose their badge in
 // tag-only lines, signing says why it cannot).
@@ -18,6 +19,7 @@ import { createApi } from './api.mjs';
 import { bannerModel, renderBanner, currentBell } from './banner.mjs';
 import { normalizeCard, renderRoster, renderCard } from './cards.mjs';
 import { normalizeMinds, normalizeOpenFile, normalizeEpisodes, normalizeLate, applyLate, planLateProbes, decisionList, renderDecisions, planOpenProbes } from './decisions.mjs';
+import { makeLog, ingestLog, traceOf, eventTraces, traceNeeds, renderTracePanel } from './trace.mjs';
 import { normalizeEvents, normalizeChronicle, openedBellsFromChronicle, renderEvents, renderChronicle } from './events.mjs';
 import { normalizeTalk, mergeTalk, normalizeRedactions, applyRedactions, talkSignature, renderFeed, nextSeq, buildTalk, sendRecord, outcomeText } from './feed.mjs';
 import { normalizeCouncil, renderCouncil, castBallot } from './ballot.mjs';
@@ -36,6 +38,7 @@ const S = {
   cards: new Map(), episodes: new Map(), episodesAt: new Map(),
   minds: new Map(), mindsMiss: new Map(), opened: new Map(), openHave: new Set(), openMiss: new Map(), openIndex: null,
   late: new Map(), lateAt: new Map(), // minds/late/<b>.json (FB4): normalized, and the page's bell at the last ask
+  traceId: null, traceScroll: false, log: makeLog(), heraldMiss: new Map(), hostParts: null, mindsAll: false, // the followed decision (trace.mjs); what was read of the herald's log; seq → the page's bell when it was not served; faddr.mjs hostParts (false: not loadable)
   events: [], chronicle: [], talk: [], talkNext: 0, redactions: new Set(),
   councils: new Map(), callRes: new Map(), mine: new Map(), draft: { option: 1, text: '' },
   selectedAi: null, selectedNation: null, showAutopilot: false, decFilter: '', channel: 'all',
@@ -111,7 +114,15 @@ panel('roster', () => [getLang(), S.rosterVer, S.selectedAi, [...S.cards.values(
 panel('card', () => [getLang(), S.selectedAi, S.cards.get(S.selectedAi), S.episodes.get(S.selectedAi) ? S.episodes.get(S.selectedAi).size : 0, !!S.resolve, S.scriptTagsDone],
   () => renderCard(ctx(), S.cards.get(S.selectedAi) ?? null, S.index.aiByTag(S.selectedAi), { episodesById: S.episodes.get(S.selectedAi) ?? null }));
 panel('decisions', () => [getLang(), S.decFilter, S.showAutopilot, [...S.minds.keys()].length, [...S.late.entries()].map(([b, l]) => [b, l.adds.length, [...l.tx.values()].map(x => x.length)]), [...S.opened.keys()], [...S.episodes.entries()].map(([k, v]) => [k, v.size]), !!S.resolve, S.scriptTagsDone, S.rosterVer],
-  () => renderDecisions(ctx(), decisionList({ minds: allMinds(), opened: S.opened, episodesByTag: S.episodes, tag: S.decFilter || null, showAutopilot: S.showAutopilot })));
+  () => renderDecisions(ctx(), decisionList({ minds: allMinds(), opened: S.opened, episodesByTag: S.episodes, tag: S.decFilter || null, showAutopilot: S.showAutopilot }), { onTrace: openTrace }));
+/** What trace.mjs reads: the records, the opened records, the episode lists, the herald rows, the public events and the roster. */
+const traceEnv = () => ({ minds: allMinds(), opened: S.opened, episodesByTag: S.episodes, log: S.log, hostParts: S.hostParts, events: S.events, index: S.index, bellNow: S.bell });
+panel('trace', () => [getLang(), S.traceId, S.bell, [...S.minds.keys()].length, [...S.late.entries()].map(([b, l]) => [b, l.adds.length, [...l.tx.values()].map(x => x.length)]), [...S.opened.keys()], [...S.episodes.entries()].map(([k, v]) => [k, v.size]), S.mindsAll, S.log.rows.size, S.log.scanned, S.hostParts === null ? 0 : S.hostParts ? 1 : 2, S.events, !!S.resolve, S.scriptTagsDone, S.rosterVer],
+  () => {
+    const env = traceEnv();
+    const all = eventTraces(env);
+    return renderTracePanel(ctx(), { started: all.filter(tr => tr.startedByPerson).slice(0, 12), pending: !S.mindsAll || all.some(tr => tr.pending), trace: S.traceId ? traceOf(env, S.traceId) : null, traceId: S.traceId, onOpen: openTrace, onClose: () => openTrace(null) });
+  });
 panel('events', () => [getLang(), S.events, S.rosterVer, !!S.resolve, S.scriptTagsDone], () => renderEvents(ctx(), S.events));
 panel('chronicle', () => [getLang(), S.chronicle, S.rosterVer, !!S.resolve], () => renderChronicle(ctx(), S.chronicle));
 panel('feed', () => [getLang(), talkSignature(S.talk), S.channel, S.rosterVer, !!S.resolve], () => renderFeed(ctx(), S.talk, { channel: S.channel }));
@@ -135,7 +146,15 @@ function setHash() {
   const p = [];
   if (S.selectedAi) p.push(`ai=${S.selectedAi}`);
   if (S.selectedNation !== null) p.push(`nation=${S.selectedNation}`);
+  if (S.traceId) p.push(`trace=${S.traceId}`);
   try { history.replaceState(null, '', `${location.pathname}${location.search}#${p.join('&')}`); } catch { /* not allowed here */ }
+}
+/** Open the trace of one decision (or close it with null); the link `#trace=<record id>` opens the same view. */
+function openTrace(id) {
+  S.traceId = id;
+  setHash();
+  schedule();
+  if (id) { $('trace-body').scrollIntoView({ block: 'start' }); loadTraceData().then(schedule); }
 }
 function selectAi(tag) {
   S.selectedAi = tag;
@@ -241,7 +260,7 @@ async function loadEventsAndChronicle() {
   if (c.ok) S.chronicle = normalizeChronicle(c.json);
 }
 async function loadMinds() {
-  if (S.bell === null) return;
+  if (S.bell === null) return 0;
   const lo = Math.max(0, S.bell - 60);
   const want = [];
   for (let b = S.bell; b >= lo; b--) {
@@ -255,6 +274,8 @@ async function loadMinds() {
     const r = await api.get(`/h/ai/minds/${b}.json`);
     if (r.ok) S.minds.set(b, normalizeMinds(r.json)); else S.mindsMiss.set(b, S.bell);
   }));
+  S.mindsAll = want.length < 16; // nothing older is left to ask for in this turn
+  return want.length;
 }
 /** FB4: `minds/late/<b>.json` for the last closed bells (records and transactions that arrived after a bell's file closed). */
 async function loadLate() {
@@ -283,6 +304,56 @@ async function loadOpened() {
   for (const tag of [...need].slice(0, 3)) loadEpisodes(tag);
 }
 
+/**
+ * What the trace still needs, read until nothing is missing for the followed decision (a few rounds per poll):
+ *   - the decision records of the whole window, not 16 turns per poll (the link may name a decision of an older turn, and
+ *     the list at the top is of every model decision in the window);
+ *   - the episode lists of the AIs it follows (the followed AI's list is read again every 15 s, so a later line of its march shows);
+ *   - the herald's rows by number (`/h/events?after=<seq - 1>`: the event and its transaction signature, at once);
+ *   - the herald's log from its start up to the last event whose actor is unresolved (who holds the village that issued
+ *     the army; at most 8 pages per poll, each page is 500 rows and is read once).
+ */
+async function loadTraceData() {
+  let pages = 0;
+  for (let round = 0; round < 12; round++) {
+    // the decision records of the whole window (60 turns): the followed record itself, the AI's earlier wakes, the list at the top
+    let did = S.mindsAll ? 0 : await loadMinds();
+    const env = traceEnv();
+    const open = S.traceId ? traceOf(env, S.traceId) : null;
+    const needs = traceNeeds(env, [open, ...eventTraces(env)]);
+    for (const tag of [...new Set([open?.tag, ...needs.tags])].filter(Boolean).slice(0, 6)) {
+      const before = S.episodesAt.get(tag);
+      await loadEpisodes(tag);
+      if (S.episodesAt.get(tag) !== before && needs.tags.includes(tag)) did++;
+    }
+    const mine = new Set(open?.wantSeqs ?? []);
+    let asked = 0;
+    for (const seq of [...mine, ...needs.seqs.filter(x => !mine.has(x))]) {
+      if (S.log.rows.has(seq) || (S.heraldMiss.has(seq) && S.heraldMiss.get(seq) >= (S.bell ?? 0))) continue;
+      if (!mine.has(seq) && asked >= 2) break;
+      asked++;
+      const r = await api.get(`/h/events?after=${seq - 1}`);
+      if (r.ok) did += ingestLog(S.log, r.json, seq - 1) ? 1 : 0;
+      if (!S.log.rows.has(seq)) S.heraldMiss.set(seq, S.bell ?? 0);
+    }
+    while (S.log.scanned < needs.scanTo && pages < 8) {
+      pages++;
+      const after = S.log.scanned;
+      const r = await api.get(`/h/events?after=${after}`);
+      if (r.ok) ingestLog(S.log, r.json, after);
+      if (S.log.scanned === after) break; // not served, or nothing after it
+      did++;
+    }
+    if (did) schedule(); else break;
+  }
+  if (S.traceScroll && S.traceId && traceOf(traceEnv(), S.traceId)) { S.traceScroll = false; requestAnimationFrame(() => requestAnimationFrame(() => $('trace-body').scrollIntoView({ block: 'start' }))); }
+}
+/** faddr.mjs `hostParts` (a design-session file, read lazily by URL): the province, site and generation a host id carries. */
+async function loadHostParts() {
+  try { S.hostParts = (await import('/frontier/frontier/faddr.mjs')).hostParts ?? false; } catch (e) { S.hostParts = false; console.warn('host ids not readable', e?.message ?? e); }
+  schedule();
+}
+
 // ------------------------------------------------------------------ polling
 let fastTimer = null;
 async function fastPoll() {
@@ -293,6 +364,7 @@ async function fastPoll() {
     const f = S.selectedNation ?? 0;
     await Promise.all([loadTalk(), loadCouncil(f), loadEventsAndChronicle(), loadMinds(), loadLate()]);
     await loadOpened();
+    await loadTraceData();
     applyBellChip();
     schedule();
   } catch (e) { console.error('poll', e); }
@@ -421,9 +493,16 @@ setLang(loadLang());
   if (m) S.selectedAi = m[1];
   const n = /nation=(\d)/.exec(location.hash);
   if (n) S.selectedNation = Number(n[1]);
+  const tr = /trace=([0-9a-f]{6,64})/.exec(location.hash);
+  if (tr) { S.traceId = tr[1]; S.traceScroll = true; }
 }
+addEventListener('hashchange', () => {
+  const tr = /trace=([0-9a-f]{6,64})/.exec(location.hash);
+  if (tr && tr[1] !== S.traceId) { S.traceId = tr[1]; S.traceScroll = true; schedule(); fastPoll(); }
+});
 applyStatic();
 schedule();
 loadIdentity();
+loadHostParts();
 fastPoll();
 slowPoll();

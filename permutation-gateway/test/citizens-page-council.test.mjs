@@ -56,7 +56,7 @@ test('motions are listed with the author\'s roster badge and the speech as text;
   const node = renderCouncil(ctxOf('en'), view(normalizeCouncil(councilState())));
   const text = textOf(node);
   assert.match(text, /Ballot window: one ballot each, hidden until the order opens/);
-  assert.match(text, /period 2 · closes at bell 54 \(4 bells left\)/);
+  assert.match(text, /period 2 · closes at turn 54 \(4 turns left\)/);
   assert.match(text, /Vanasha Soridge AI/);
   assert.match(text, /moved option 1/);
   assert.match(text, /The camp is close; let us take it\./);
@@ -90,7 +90,7 @@ test('closed and adopted: the tally split by who cast the ballots and the senten
   const c = normalizeCouncil(councilState({ state: 'closed', adopted: true, strike_bell: 60, follow_from: 54, tally_split: { ai: 1, human: 1, scripted: 0 }, ballots_cast: 2, call_commit: 'cd'.repeat(32) }));
   const text = textOf(renderCouncil(ctxOf('en'), view(c)));
   assert.match(text, /Ballots by who cast them: AI 1 · human \(the presenter\) 1 · scripted seat 0/);
-  assert.match(text, /Strike Order adopted with 1 AI ballot\(s\) \+ the presenter’s ballot — strike at bell 60 \(target sealed\)\./);
+  assert.match(text, /Strike Order adopted with 1 AI ballot\(s\) \+ the presenter’s ballot — strike at turn 60 \(target sealed\)\./);
   assert.doesNotMatch(text, /Target: option/, 'the target is not shown before the order opens');
   assert.doesNotMatch(text, /The Strike Order opened/);
   const scripted = textOf(renderCouncil(ctxOf('en'), view(normalizeCouncil(councilState({ state: 'closed', adopted: true, strike_bell: 60, tally_split: { ai: 1, human: 0, scripted: 1 } })))));
@@ -122,7 +122,7 @@ test('opened: the target, the tally per option and the strike result (present, b
   assert.doesNotMatch(text, /eeee/, 'the nonce is never printed');
   assert.equal(byClass(node, 'adopted').length, 1, 'the adopted option is marked');
   const waiting = textOf(renderCouncil(ctxOf('en'), view(normalizeCouncil(councilState({ state: 'closed', adopted: true, strike_bell: 60, open: { ...open, ballots: [] }, result: null })))));
-  assert.match(waiting, /strike result is published after the strike bell/);
+  assert.match(waiting, /strike result is published after the strike turn/);
 });
 
 // ------------------------------------------------------------------ pivotal

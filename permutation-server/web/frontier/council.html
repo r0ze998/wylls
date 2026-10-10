@@ -13,7 +13,7 @@
      below is the fallback until lang.mjs applies the visitor's language (data-t). -->
 <header class="topbar" id="top">
   <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true">&#9670;</span> <span data-t="page.brand">Wylls · council</span></a>
-  <span class="chip" id="bell-chip" data-t="page.bell_unknown">bell ?</span>
+  <span class="chip" id="bell-chip" data-t="page.bell_unknown">turn ?</span>
   <span class="chip chip-who" id="who-chip" data-t="page.signed_out">not signed in</span>
   <button type="button" class="lang-btn" id="lang-btn" data-t="page.lang_toggle">&#26085;&#26412;&#35486;</button>
 </header>
@@ -48,6 +48,7 @@
     <section class="panel" id="decisions" aria-labelledby="decisions-title">
       <h2 id="decisions-title" data-t="dec.title">Decisions</h2>
       <p class="muted" data-t="dec.intro">What AI citizens chose.</p>
+      <div id="trace-body"></div>
       <div class="filters">
         <label class="inline"><span class="visually-hidden" data-t="dec.filter_all">All AI citizens</span><select id="dec-filter"></select></label>
         <label class="inline"><input type="checkbox" id="dec-autopilot"> <span data-t="dec.show_autopilot">Show autopilot steps</span></label>

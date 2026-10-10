@@ -34,7 +34,7 @@ export function normalizeMinds(file) {
     if (!tag) continue;
     out.push({
       id: r.id, tag, index: num(r.index), bell: num(r.bell) ?? 0, kind: str(r.kind), mode: r.mode === 'model' ? 'model' : 'autopilot', reason: str(r.reason),
-      sealed: !!r.sealed, releaseBell: num(r.release_bell), commit: str(r.commit),
+      sealed: !!r.sealed, releaseBell: num(r.release_bell), commit: str(r.commit), wake: normalizeWake(r.wake),
       choice: normalizeChoice(r.choice), retrieved: arr(r.retrieved).filter(x => typeof x === 'string'),
       pub: normalizePublic(r.public), tx: arr(r.tx).map(normalizeTx),
     });
@@ -42,7 +42,10 @@ export function normalizeMinds(file) {
   return out;
 }
 
-/** One transaction entry `{intent, sig, status}` (the signature is kept only to tell two reports of one transaction apart; it is never printed). */
+/** The wake codes of a record (`W-THREAT`, `W-QUEUE`, …): code identifiers only, anything else is dropped. */
+const normalizeWake = w => arr(w).filter(x => typeof x === 'string' && /^W-[A-Z-]{1,20}$/.test(x)).slice(0, 12);
+
+/** One transaction entry `{intent, sig, status}` (the signature tells two reports of one transaction apart; only the trace prints it, see trace.mjs). */
 const normalizeTx = x => ({ intent: str(x?.intent), status: str(x?.status), sig: str(x?.sig).slice(0, 100) });
 const txKey = x => (x.sig ? `sig:${x.sig}` : `${x.intent}|${x.status}`);
 
@@ -98,7 +101,18 @@ export function planLateProbes({ bellNow = 0, checkedAt = new Map(), window = 8 
 
 function normalizeChoice(c) {
   if (!c || typeof c !== 'object') return null;
-  return { ids: arr(c.ids).filter(x => typeof x === 'string'), goalId: str(c.goal_id), mem: Array.isArray(c.mem) ? c.mem.filter(x => typeof x === 'string') : null };
+  return { ids: arr(c.ids).filter(x => typeof x === 'string'), goalId: str(c.goal_id), mem: Array.isArray(c.mem) ? c.mem.filter(x => typeof x === 'string') : null, params: normalizeParams(c.params) };
+}
+/** `choice.params` `{c3: {stance: 'assault', retreat: 0}}` → `[{id, pairs: [[key, value]]}]` (plain values only, clipped). */
+function normalizeParams(p) {
+  if (!p || typeof p !== 'object' || Array.isArray(p)) return [];
+  const out = [];
+  for (const [id, v] of Object.entries(p).slice(0, 8)) {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) continue;
+    const pairs = Object.entries(v).slice(0, 8).filter(([, x]) => ['string', 'number', 'boolean'].includes(typeof x)).map(([k, x]) => [clip(k, 24), clip(String(x), 40)]);
+    if (pairs.length) out.push({ id: clip(id, 12), pairs });
+  }
+  return out;
 }
 function normalizePublic(p) {
   if (!p || typeof p !== 'object') return { say: [], why: null, whyWithheld: null };
@@ -126,12 +140,12 @@ export function normalizeOpenFile(file) {
   for (const r of list) {
     if (!r || typeof r !== 'object' || typeof r.id !== 'string') continue;
     const dests = arr(r.destinations).map(d => ({
-      p: num(d?.p), q: num(d?.q), tile: num(d?.tile), planned: num(d?.planned_arrive_bell), arrive: num(d?.arrive_bell), unrevealed: d?.destination === 'unrevealed' || d === 'unrevealed' || d?.state === 'unrevealed',
+      p: num(d?.p), q: num(d?.q), tile: num(d?.tile), planned: num(d?.planned_arrive_bell), arrive: num(d?.arrive_bell), hostId: str(d?.host_id), depart: num(d?.depart_bell), unrevealed: d?.destination === 'unrevealed' || d === 'unrevealed' || d?.state === 'unrevealed',
       // release.mjs: a march the brain never sent opens as `state: 'not_sent'` (and `destination: 'not_sent'`): no destination exists
       notSent: d?.state === 'not_sent' || d?.destination === 'not_sent' || d === 'not_sent',
     }));
     out.push({
-      id: r.id, tag: tagKey(r.ai), bell: num(r.bell), mode: r.mode === 'model' ? 'model' : r.mode === 'autopilot' ? 'autopilot' : null, releaseBell: num(r.release_bell),
+      id: r.id, tag: tagKey(r.ai), bell: num(r.bell), mode: r.mode === 'model' ? 'model' : r.mode === 'autopilot' ? 'autopilot' : null, releaseBell: num(r.release_bell), wake: normalizeWake(r.wake),
       choice: normalizeChoice(r.choice), retrieved: arr(r.retrieved).filter(x => typeof x === 'string'), pub: normalizePublic(r.public),
       candidates: arr(r.candidates).map(normalizeCandidate).filter(Boolean),
       remembered: arr(r.remembered).filter(m => m && typeof m.id === 'string').map(m => ({ id: m.id, bell: num(m.bell), age: num(m.age_bells), text: bi(m.text) })),
@@ -141,12 +155,22 @@ export function normalizeOpenFile(file) {
   return out;
 }
 
-/** `memory/<tag>/episodes.json` → Map(id → {id, bell, kind, text{en,ja}, entities}); a redacted episode has no text. */
+/**
+ * `memory/<tag>/episodes.json` → Map(id → {id, bell, created, kind, text{en,ja}, entities, seqs, hosts, facts}); a redacted
+ * episode has no text. `seqs` are the public event numbers of the episode's `src` (`event:<seq>`), `hosts` its `host:<id>`
+ * entries, `facts` the few numbers the trace prints when the event itself has not been read ({nation, mass, p, q, arrive}).
+ */
 export function normalizeEpisodes(file) {
   const m = new Map();
   for (const e of arr(file?.episodes)) {
     if (!e || typeof e.id !== 'string' || e.redacted) continue;
-    m.set(e.id, { id: e.id, bell: num(e.bell), kind: str(e.kind), text: bi(e.text), entities: arr(e.entities).filter(x => typeof x === 'string') });
+    const src = arr(e.src).filter(x => typeof x === 'string');
+    const f = e.facts && typeof e.facts === 'object' ? e.facts : {};
+    m.set(e.id, {
+      id: e.id, bell: num(e.bell), created: num(e.created_bell) ?? num(e.bell), kind: str(e.kind), text: bi(e.text), entities: arr(e.entities).filter(x => typeof x === 'string'),
+      seqs: src.map(x => /^event:(\d{1,15})$/.exec(x)).filter(Boolean).map(x => Number(x[1])), hosts: src.map(x => /^host:(\d{1,24})$/.exec(x)).filter(Boolean).map(x => x[1]),
+      facts: { nation: num(f.nation), mass: num(f.mass), p: num(f.p), q: num(f.q), arrive: num(f.arrive_bell) },
+    });
   }
   return m;
 }
@@ -157,10 +181,10 @@ export function normalizeEpisodes(file) {
  * known), `opened` the opened record (null while sealed or for a plain record), `episodes` the AI's episode Map.
  */
 export function buildDecision({ rec = null, opened = null, episodes = null }) {
-  const base = rec ?? { id: opened.id, tag: opened.tag, index: null, bell: opened.bell ?? 0, kind: 'session', mode: opened.mode ?? 'model', reason: 'ok', sealed: true, releaseBell: opened.releaseBell, commit: '', choice: null, retrieved: [], pub: { say: [], why: null, whyWithheld: null }, tx: [] };
+  const base = rec ?? { id: opened.id, tag: opened.tag, index: null, bell: opened.bell ?? 0, kind: 'session', mode: opened.mode ?? 'model', reason: 'ok', sealed: true, releaseBell: opened.releaseBell, commit: '', wake: opened.wake ?? [], choice: null, retrieved: [], pub: { say: [], why: null, whyWithheld: null }, tx: [] };
   const state = opened ? 'released' : base.sealed ? 'sealed' : 'plain';
   const src = opened ?? base;
-  const choice = src.choice ?? base.choice ?? { ids: [], goalId: '', mem: null };
+  const choice = src.choice ?? base.choice ?? { ids: [], goalId: '', mem: null, params: [] };
   const pub = src.pub ?? base.pub;
   const candidates = opened?.candidates ?? [];
   const chosen = choice.ids.map(id => candidates.find(c => c.id === id) ?? { id, kind: '', label: '', facts: [], troops: null, refs: [], entities: [] });
@@ -184,13 +208,19 @@ export function buildDecision({ rec = null, opened = null, episodes = null }) {
   const marched = opened ? (opened.destinations.length > 0 ? opened.destinations.some(d => !d.notSent) : sentMarch && !notSent) : sentMarch;
   return {
     id: base.id, tag: base.tag, index: base.index, bell: base.bell, kind: base.kind, by: base.mode === 'model' ? 'model' : 'autopilot', reason: base.reason,
-    state, releaseBell: opened?.releaseBell ?? base.releaseBell, commit: base.commit,
+    state, releaseBell: opened?.releaseBell ?? base.releaseBell, commit: base.commit, wake: base.wake ?? [],
+    traceable: isTraceable({ by: base.mode === 'model' ? 'model' : 'autopilot', wake: base.wake ?? [], state }), params: choice.params ?? [],
     actions: [...new Set(base.tx.filter(x => x.status !== 'refused').map(x => x.intent).filter(Boolean))],
     goalId: choice.goalId, chosen, candidates, chosenIds: choice.ids,
     why: pub.why, whyWithheld: pub.whyWithheld, say: pub.say, remembered,
     destinations: opened?.destinations.filter(d => !d.unrevealed && !d.notSent && d.p !== null) ?? [], unrevealed: !!opened?.unrevealed, notSent, marched,
   };
 }
+
+/** The wake codes that name a public event of another actor (a departure near home, a clash): the decisions the trace follows from an event. */
+export const EVENT_WAKES = Object.freeze(['W-THREAT', 'W-CLASH']);
+/** A decision gets the "Follow this decision" button when the model made it after a threat or clash wake, or when it has been opened. */
+export const isTraceable = ({ by, wake, state }) => state === 'released' || (by === 'model' && wake.some(w => EVENT_WAKES.includes(w)));
 
 /** All decisions to show: every model decision and every sealed or opened one (autopilot steps only when asked). Newest first. */
 export function decisionList({ minds = [], opened = new Map(), episodesByTag = new Map(), tag = null, showAutopilot = false, limit = 40 } = {}) {
@@ -266,15 +296,17 @@ export function candidateLabel(t, c) {
   return c.label || kindText(t, c.kind) || c.id;
 }
 
-function candidateList(ctx, d) {
+export function candidateList(ctx, d) {
   const { h, t } = ctx;
   const ul = h('ul', { class: 'cands' });
   for (const c of d.candidates) {
     const chosen = d.chosenIds.includes(c.id);
     const li = h('li', { class: `cand${chosen ? ' chosen' : ''}` },
       h('div', { class: 'cand-head' }, h('span', { class: 'cand-id' }, c.id), ' ', h('span', { class: 'cand-label' }, candidateLabel(t, c)), chosen ? h('span', { class: 'chip chip-model' }, t('dec.candidate_chosen')) : null));
-    li.appendChild(h('div', { class: 'facts' }, c.facts.length ? c.facts.map(([k, v]) => h('span', { class: 'fact' }, k ? `${k}: ${v}` : v)) : h('span', { class: 'fact muted' }, t('dec.facts_none'))));
     if (c.refs.length) li.appendChild(h('div', { class: 'muted small' }, t('dec.refs', { refs: c.refs.join(', ') })));
+    // the facts the code gave the model (raw names and values): all of them, behind "details"
+    li.appendChild(h('details', { class: 'cand-facts' }, h('summary', { class: 'muted small' }, t('dec.facts_details')),
+      h('div', { class: 'facts' }, c.facts.length ? c.facts.map(([k, v]) => h('span', { class: 'fact' }, k ? `${k}: ${v}` : v)) : h('span', { class: 'fact muted' }, t('dec.facts_none')))));
     ul.appendChild(li);
   }
   return ul;
@@ -297,7 +329,7 @@ export function rememberedBlock(ctx, remembered) {
   return box;
 }
 
-export function renderDecision(ctx, d) {
+export function renderDecision(ctx, d, { onTrace = null } = {}) {
   const { h, t } = ctx;
   const stateKey = d.state === 'sealed' ? 'dec.state_sealed' : d.state === 'released' ? 'dec.state_released' : 'dec.state_plain';
   const kindKey = `dec.kind.${d.kind}`;
@@ -306,7 +338,8 @@ export function renderDecision(ctx, d) {
     h('span', { class: 'dec-who' }, actorEl(ctx, { tag: d.tag })),
     h('span', { class: `chip ${d.by === 'model' ? 'chip-model' : 'chip-auto'}` }, t(d.by === 'model' ? 'dec.by_model' : 'dec.by_autopilot')),
     h('span', { class: `chip chip-state-${d.state}` }, t(stateKey)),
-    h('span', { class: 'bellmark' }, `${t('page.bell_n', { n: int(d.bell) })} · ${kindTxt}`));
+    h('span', { class: 'bellmark' }, `${t('page.bell_n', { n: int(d.bell) })} · ${kindTxt}`),
+    onTrace && d.traceable ? h('button', { type: 'button', class: 'btn btn-quiet btn-trace', on: { click: () => onTrace(d.id) } }, t('trace.open')) : null);
   const art = h('article', { class: `decision decision-${d.state}`, 'data-id': d.id.slice(0, 16) }, head);
 
   if (d.state === 'sealed') {
@@ -349,10 +382,10 @@ export function renderDecision(ctx, d) {
   return art;
 }
 
-export function renderDecisions(ctx, list) {
+export function renderDecisions(ctx, list, { onTrace = null } = {}) {
   const { h, t } = ctx;
   const box = h('div', { class: 'decisions' });
   if (!list.length) { box.appendChild(h('p', { class: 'empty' }, t('dec.none'))); return box; }
-  for (const d of list) box.appendChild(renderDecision(ctx, d));
+  for (const d of list) box.appendChild(renderDecision(ctx, d, { onTrace }));
   return box;
 }

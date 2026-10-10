@@ -234,7 +234,7 @@ test('call panel: members only; shows the option, kind, place, strike bell, invi
   const ctx = { h, t, lang: 'en', index, resolve: null };
   const call = normalizeCall({ period: 2, option: 1, kind: 'camp', p: -2, q: 3, tile: 5, strike_bell: 60, follow_from: 54, invited: ['11', '22'], nonce: 'ee'.repeat(32), call_commit: 'cd'.repeat(32) });
   const text = textOf(renderCallPanel(ctx, { me: { wallet: W.seat }, faction: 0, period: 2, state: 'closed', call, error: null, onRead() {} }));
-  assert.match(text, /Strike Order for nation Aster: option 1, camp at \(-2,3\), strike at bell 60\./);
+  assert.match(text, /Strike Order for nation Aster: option 1, camp at \(-2,3\), strike at turn 60\./);
   assert.match(text, /invited armies: 2/);
   assert.match(text, /commitment cdcdcdcdcdcd/);
   assert.doesNotMatch(text, /eeee/);

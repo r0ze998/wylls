@@ -30,8 +30,8 @@ test('Remembered lines print the code text of the cited episode, not the model\'
   assert.match(remText, /Remembered \(cited by the model\):/);
   assert.match(remText, /At bell 205 nation Ember cleared the camp at \(-2,3\) first\./, 'the code text of the cited episode');
   assert.doesNotMatch(remText, /destroyed your scout/, 'the model\'s imitation never enters the Remembered block');
-  assert.match(remText, /bell 205/);
-  assert.match(remText, /197 bells earlier/, 'age in bells = decision bell 402 minus episode bell 205');
+  assert.match(remText, /turn 205/);
+  assert.match(remText, /197 turns earlier/, 'age in bells = decision bell 402 minus episode bell 205');
   // the model's words are shown separately and labelled
   const words = textOf(node);
   assert.match(words, /AI's words \(model-written, not verified\)/); // the contract's ASCII apostrophe (FB4, E2)
@@ -103,7 +103,7 @@ test('a released decision shows by:model, the candidates, the choice, the destin
   assert.match(textOf(cands[2]), /chosen/);
   assert.match(text, /Chose: march 600 troops at the camp/);
   assert.match(text, /Destination: \(-2,3\) tile 5/);
-  assert.match(text, /arrives at bell 410 \(planned 409\)/);
+  assert.match(text, /arrives at turn 410 \(planned 409\)/);
   assert.match(text, /goal G1/);
 });
 
@@ -118,7 +118,7 @@ test('a sealed decision shows only what is public: commitment, release bell, the
   const node = renderDecisions(ctxOf('en'), decisionList({ minds: minds([sealedRecord()]), opened: new Map() }));
   const text = textOf(node);
   assert.match(text, /sealed/);
-  assert.match(text, /release at bell 410/);
+  assert.match(text, /release at turn 410/);
   assert.match(text, /Commitment b91b270ca5d7/);
   assert.match(text, /Sent: march, muster/);
   assert.equal(byClass(node, 'cand').length, 0);

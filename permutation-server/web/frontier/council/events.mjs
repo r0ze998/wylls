@@ -55,7 +55,7 @@ export function normalizeEvents(file) {
       from: pq(r.from ?? r.origin) ?? (num(r.origin_p) !== null ? { p: num(r.origin_p), q: num(r.origin_q) } : null),
       arrive: num(r.arrive_bell ?? r.arrive), to: pq(r.destination ?? r.to),
       at: pq(r.at) ?? (num(r.p) !== null && num(r.q) !== null ? { p: num(r.p), q: num(r.q) } : null),
-      engagements: num(r.engagements), lost,
+      engagements: num(r.engagements), lost, hostId: str(r.host_id), // the host of a departure: the trace joins a herald DEPART row to its actor by it
     });
   }
   out.sort((a, b) => b.bell - a.bell);
