@@ -70,6 +70,13 @@ pub fn conquest_params(
         p.base.release_after_secs = p.cq.release_after_secs;
         p.base.dormant_after_secs = p.cq.dormant_after_secs;
         p.cq.outpost_close_bells = p.cq.outpost_close_bells.min(end.saturating_sub(1) as u16);
+        // A timer longer than the season is refused by the program's validation. Within a
+        // season that short nothing can outlast it either way, so the cap changes no outcome.
+        let cap = end.min(u16::MAX as u32) as u16;
+        p.cq.keep_consolidate_bells = p.cq.keep_consolidate_bells.min(cap);
+        p.cq.occupation_tenure_bells = p.cq.occupation_tenure_bells.min(cap);
+        p.cq.respite_bells = p.cq.respite_bells.min(cap);
+        p.cq.immunity_bells = p.cq.immunity_bells.min(cap);
     }
     p
 }
