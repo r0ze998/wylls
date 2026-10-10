@@ -30,7 +30,7 @@ import { decode } from '../../permutation-server/web/frontier/fcodec.mjs';
 import { hostId } from '../../permutation-server/web/frontier/faddr.mjs';
 import { seasonClock } from '../../permutation-server/web/frontier/clock.mjs';
 import { decodeOverview } from '../../permutation-server/web/frontier/herald.mjs';
-import { TEST_BEACON } from '../../permutation-server/web/frontier/abi.mjs';
+import { TEST_BEACON, ERRORS as ABI_ERRORS } from '../../permutation-server/web/frontier/abi.mjs';
 import * as composer from '../../permutation-server/web/frontier/screens/march.mjs';
 import * as trackerScreen from '../../permutation-server/web/frontier/screens/tracker.mjs';
 import * as hostScreen from '../../permutation-server/web/frontier/screens/host.mjs';
@@ -364,6 +364,137 @@ test('sendMarch: an earliest bell gone stale by send time refuses ArrivalBell be
   });
   assert.equal(ok.ok, true, ok.code);
   assert.equal(march.DEPART_MARGIN_SECS, 90);
+});
+
+// ------------------------------------------------------------------ a send across a turn rollover
+test('the rollover refusals of a Depart are ArrivalBell and NotResident by the program\'s names and numbers; nothing else is sent again', () => {
+  const T = march.transientMarchFailure;
+  assert.deepEqual(march.TRANSIENT_DEPART, { ArrivalBell: 31, NotResident: 26 });
+  // the numbers are the ABI's, and Depart answers exactly these for a stale arrival and a province a turn behind
+  for (const [name, code] of Object.entries(march.TRANSIENT_DEPART)) assert.ok(ABI_ERRORS.some(e => e[0] === code && e[1] === name), name);
+  const depart = read('permutation-frontier/src/proc/host.rs');
+  assert.match(depart, /if x\.arrive_bell < lo \|\| x\.arrive_bell > hi \|\| x\.arrive_bell >= pl\.pc\.season\.end_bell \{\s*return Err\(FrontierError::ArrivalBell\.into\(\)\);/);
+  assert.match(depart, /if !ap::resident_ok\(rn, b\) \{\s*return Err\(FrontierError::NotResident\.into\(\)\);/);
+  assert.equal(T({ ok: false, step: 'check', code: 'ArrivalBell', earliest: 44 }), 'ArrivalBell');
+  assert.equal(T({ ok: false, step: 'check', code: 'NotResident' }), 'NotResident');
+  assert.equal(T({ ok: false, step: 'sent', code: 'ArrivalBell', programCode: 31, httpStatus: 400 }), 'ArrivalBell', 'the relay\'s simulation names the program error');
+  assert.equal(T({ ok: false, step: 'onChain', code: 'NotResident', programCode: 26 }), 'NotResident');
+  assert.equal(T({ ok: false, step: 'onChain', code: 'TransactionFailed', programCode: 31 }), 'ArrivalBell', 'by number when the name is missing');
+  assert.equal(T({ ok: false, step: 'onChain', code: 'TransactionFailed' }), null);
+  for (const code of ['HostInTransit', 'HostBusy', 'Cooldown', 'TransitState', 'Path', 'NotFinal', 'TipNotPreset', 'TipTooLow', 'NoPath', 'network', 'Unconfirmed', 'Expired', 'QuotaExceeded', 'SealAuditFailed', 'NotSaved', 'AlreadySent', 'BlockhashExpired', 'SimulationFailed'])
+    assert.equal(T({ ok: false, code }), null, code);
+  assert.equal(T({ ok: false, code: 'HostInTransit', programCode: 31 }), null, 'another name is never read as a rollover');
+  assert.equal(T({ ok: true, code: 'ArrivalBell' }), null);
+  assert.equal(T(null), null);
+  assert.deepEqual([march.MARCH_ATTEMPTS, march.RETRY_WINDOW_MS], [3, 20_000]);
+});
+
+/** sendMarchRetrying's deps over a scripted relay and chain: `answers[i]` is attempt i's submit answer (or `{track}`). */
+function retryRig(answers, { fresh = () => ({ nowBell: 42, resolvedNext: 41 }), earliest = () => null, submitMs = 0 } = {}) {
+  const rig = { storage: memoryStorage(), sent: [], waits: [], retries: [], nudges: 0, refreshes: 0, t: 0 };
+  rig.deps = {
+    seal: req => seal.sealMarch(req, { inline: true }), clock: CLOCK, publicKey: TEST_BEACON.publicKey, storage: rig.storage, bookKey: 'k', session: {}, accounts: { a: 1 },
+    submit: async req => { rig.t += submitMs; rig.sent.push(req); const a = answers[Math.min(rig.sent.length, answers.length) - 1]; return a.track ? { ok: true, signature: `S${rig.sent.length}` } : a; },
+    track: async sig => { const a = answers[Math.min(Number(sig.slice(1)), answers.length) - 1]; return a.track ?? { ok: true, state: 'landed', slot: 1 }; },
+    earliestAtSend: () => earliest(rig), refresh: async () => fresh(rig.refreshes++), nudge: async () => { rig.nudges++; return { ok: true }; },
+    wait: async ms => { rig.waits.push(ms); rig.t += ms; }, nowMs: () => rig.t, onRetry: x => rig.retries.push(x),
+  };
+  return rig;
+}
+const sealedOrder = req => { const e = { ...req.fields }; return [e.host_id, e.tip, e.transit_slot]; };
+const plainOf = (rig, arriveBell) => seal.unpack(book.materialBytes(book.loadBook(rig.storage, 'k').find(e => e.arriveBell === arriveBell)).plain);
+
+test('a turn that rolls over under a sealed march: sent again once with the arrival moved, the order itself untouched', async () => {
+  const w = world();
+  const landed = { ok: true, signature: 'S2' };
+  const rig = retryRig([{ ok: false, code: 'ArrivalBell', programCode: 31, error: 'the transaction would fail: ArrivalBell (31)' }, landed]);
+  const m = { ...good(w, { stance: 2, retreat: { choice: 'x1.5' } }), holdingAddress: 'h' };
+  const r = await march.sendMarchRetrying(m, rig.deps);
+  assert.equal(r.ok, true, `${r.code} ${r.error ?? ''}`);
+  assert.deepEqual([r.attempts, r.arriveFrom, r.arriveBell], [2, 43, 44], 'the answer says the arrival moved from 43 to 44');
+  assert.equal(rig.sent.length, 2);
+  assert.deepEqual(rig.sent.map(x => x.fields.arrive_bell), [43, 44], 'turn 42 + min_lead 2');
+  assert.deepEqual(rig.waits, [march.RETRY_WAIT_MS]);
+  assert.deepEqual(rig.retries, [{ attempt: 2, kind: 'ArrivalBell', arriveBell: 44, from: 43, earliest: null }], 'one status line for the player');
+  assert.equal(rig.nudges, 0, 'the province was not behind: the keeper is not asked');
+  // the same host, tip and transit record, and a new seal bound to the new arrival turn
+  assert.deepEqual(sealedOrder(rig.sent[1]), sealedOrder(rig.sent[0]));
+  assert.notDeepEqual(rig.sent[1].fields.commit, rig.sent[0].fields.commit);
+  const a = plainOf(rig, 43), b = plainOf(rig, 44);
+  for (const k of ['hostId', 'destP', 'destQ', 'destTile', 'stance', 'retreatBps', 'pathLen']) assert.equal(b[k], a[k], k);
+  assert.deepEqual([b.destP, b.destQ, b.destTile, b.stance, b.retreatBps, b.arriveBell], [2, 0, 33, 2, 15_000, 44]);
+  assert.deepEqual(Array.from(b.path), Array.from(a.path));
+  assert.deepEqual(book.loadBook(rig.storage, 'k').map(e => [e.arriveBell, e.state]).sort(), [[43, 'failed'], [44, 'landed']]);
+  assert.deepEqual([m.arriveBell, m.stance, m.dest], [43, 2, { p: 2, q: 0, tile: 33 }], 'the caller\'s march is not written to');
+});
+
+test('the retry recomputes the earliest arrival, and keeps a later arrival turn the player chose', async () => {
+  const w = world();
+  // the route is longer than the minimum lead: the page's own check refuses the stale arrival before sealing
+  let rig = retryRig([{ ok: true, signature: 'S1' }], { earliest: x => (x.waits.length ? 47 : 46) });
+  let r = await march.sendMarchRetrying({ ...good(w, { earliest: 45, arriveBell: 45 }), holdingAddress: 'h' }, rig.deps);
+  assert.deepEqual([r.ok, r.attempts, r.arriveFrom, r.arriveBell], [true, 2, 45, 47]);
+  assert.deepEqual(rig.sent.map(x => x.fields.arrive_bell), [47], 'the first try never left the page');
+  assert.equal(rig.retries[0].earliest, 47);
+  // a deliberately later turn is still inside the new window: kept
+  rig = retryRig([{ ok: false, code: 'ArrivalBell', programCode: 31 }, { ok: true, signature: 'S2' }]);
+  r = await march.sendMarchRetrying({ ...good(w, { arriveBell: 50 }), holdingAddress: 'h' }, rig.deps);
+  assert.deepEqual([r.ok, r.attempts, r.arriveFrom, r.arriveBell], [true, 2, 50, 50]);
+  assert.deepEqual(rig.sent.map(x => x.fields.arrive_bell), [50, 50]);
+});
+
+test('a province a turn behind: the keeper is asked once and the send waits for it inside the window', async () => {
+  const w = world();
+  // the page's check: resolved through 38 at turn 41; the second read shows it caught up
+  let rig = retryRig([{ ok: true, signature: 'S1' }], { fresh: i => (i === 0 ? { nowBell: 41, resolvedNext: 38 } : { nowBell: 41, resolvedNext: 40 }) });
+  let r = await march.sendMarchRetrying({ ...good(w, { resolvedNext: 38 }), holdingAddress: 'h' }, rig.deps);
+  assert.deepEqual([r.ok, r.attempts, r.arriveFrom, r.arriveBell], [true, 2, 43, 43], 'the turn did not change: the arrival stays');
+  assert.deepEqual([rig.nudges, rig.refreshes, rig.sent.length], [1, 2, 1]);
+  assert.deepEqual(rig.waits, [march.RETRY_WAIT_MS, march.RETRY_WAIT_MS], 'waiting for the province is not an attempt');
+  assert.equal(rig.retries[0].kind, 'NotResident');
+  // the chain's own answer, with the turn rolled over as well
+  rig = retryRig([{ track: { ok: false, state: 'failed', code: 'NotResident', programCode: 26 } }, { ok: true, signature: 'S2' }]);
+  r = await march.sendMarchRetrying({ ...good(w), holdingAddress: 'h' }, rig.deps);
+  assert.deepEqual([r.ok, r.attempts, r.arriveFrom, r.arriveBell, rig.nudges], [true, 2, 43, 44, 1]);
+  // a province that never catches up: the window ends the wait
+  rig = retryRig([{ ok: true, signature: 'S1' }], { fresh: () => ({ nowBell: 41, resolvedNext: 38 }) });
+  r = await march.sendMarchRetrying({ ...good(w, { resolvedNext: 38 }), holdingAddress: 'h' }, rig.deps);
+  assert.deepEqual([r.ok, r.step, r.code, rig.sent.length], [false, 'check', 'NotResident', 0]);
+  assert.ok(r.attempts <= march.MARCH_ATTEMPTS && rig.t <= march.RETRY_WINDOW_MS + march.RETRY_WAIT_MS, `${r.attempts} attempts in ${rig.t} ms`);
+});
+
+test('the retry gives up after 3 attempts or 20 seconds, and never repeats another refusal or a lost answer', async () => {
+  const w = world();
+  const stale = { ok: false, code: 'ArrivalBell', programCode: 31 };
+  let turn = 41;
+  let rig = retryRig([stale], { fresh: () => ({ nowBell: ++turn, resolvedNext: turn - 1 }) });
+  let r = await march.sendMarchRetrying({ ...good(w), holdingAddress: 'h' }, rig.deps);
+  assert.deepEqual([r.ok, r.step, r.code, r.attempts], [false, 'sent', 'ArrivalBell', 3]);
+  assert.equal(rig.sent.length, 3);
+  assert.deepEqual(rig.waits, [march.RETRY_WAIT_MS, march.RETRY_WAIT_MS]);
+  assert.deepEqual([r.arriveFrom, r.arriveBell], [43, 45], 'the answer carries the last arrival tried');
+  // slow sends: no new attempt once 20 s have passed since the first refusal
+  rig = retryRig([stale], { submitMs: 20_000 });
+  r = await march.sendMarchRetrying({ ...good(w), holdingAddress: 'h' }, rig.deps);
+  assert.deepEqual([r.ok, r.attempts, rig.sent.length], [false, 2, 2]);
+  // any other refusal is the answer at once
+  for (const refusal of [{ ok: false, code: 'HostInTransit', programCode: 58 }, { ok: false, code: 'TipNotPreset' }, { ok: false, code: 'network' }, { ok: false, code: 'QuotaExceeded', httpStatus: 429 },
+    { track: { ok: false, state: 'unknown', code: 'Unconfirmed' } }, { track: { ok: false, state: 'expired', code: 'Expired' } }, { track: { ok: false, state: 'failed', code: 'Cooldown', programCode: 29 } }]) {
+    rig = retryRig([refusal, { ok: true, signature: 'S2' }]);
+    r = await march.sendMarchRetrying({ ...good(w), holdingAddress: 'h' }, rig.deps);
+    assert.deepEqual([r.ok, r.attempts, rig.sent.length, rig.waits.length, rig.retries.length, rig.nudges, rig.refreshes], [false, 1, 1, 0, 0, 0, 0], JSON.stringify(refusal));
+    assert.equal(r.code, refusal.code ?? refusal.track.code);
+  }
+  // a refusal of the page's own check that no rollover explains (no arrival chosen; the host is busy)
+  rig = retryRig([{ ok: true, signature: 'S1' }]);
+  r = await march.sendMarchRetrying({ ...good(w, { arriveBell: 200 }), holdingAddress: 'h' }, rig.deps);
+  assert.deepEqual([r.ok, r.code, r.attempts, rig.sent.length, rig.waits.length], [false, 'ArrivalBell', 1, 0, 0], 'an arrival past the window is not moved');
+  r = await march.sendMarchRetrying({ ...good(world({ pendOp: 5 })), holdingAddress: 'h' }, rig.deps);
+  assert.deepEqual([r.ok, r.code, r.attempts, rig.waits.length], [false, 'HostBusy', 1, 0]);
+  // and a plain success is one send
+  rig = retryRig([{ ok: true, signature: 'S1' }]);
+  r = await march.sendMarchRetrying({ ...good(w), holdingAddress: 'h' }, rig.deps);
+  assert.deepEqual([r.ok, r.attempts, r.arriveFrom, r.arriveBell, rig.sent.length, rig.waits.length], [true, 1, 43, 43, 1, 0]);
 });
 
 test('the Depart transaction the page builds is at most 800 bytes (§9.4) and within its budget ceiling', () => {

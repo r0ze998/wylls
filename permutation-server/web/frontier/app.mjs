@@ -24,7 +24,7 @@ import { SEASON_STATUS_TEXT, clientText, factionName, TIERS, BUILDINGS } from '.
 import { L, fmtNum, mountLangToggle, onLangChange, lang } from '../lang.mjs';
 import { toHex } from '../sdk/bytes.mjs';
 import { html, raw, setHtml } from '../util.mjs';
-import { ACTIONS, FORMS, bind, startPlay, wantProvince, wantKeepHistory } from './controller.mjs';
+import { ACTIONS, FORMS, bind, startPlay, wantProvince, wantKeepHistory, wantKeepReach } from './controller.mjs';
 import { renderTabs, renderNotice, factionChip, quotaChip, mountSheet } from './screens/shell.mjs';
 import { createTerrain } from './map/terrain.mjs';
 import { provincePixel } from './map/layers.mjs';
@@ -179,6 +179,8 @@ export function panelMarkup(FS) {
     const s = FS.selected, pv = s && FS.provinces.get(`${s.p},${s.q}`)?.province;
     const site = pv && Number.isInteger(s.idx) ? pv.sites.indexOf(s.idx) : -1;
     FS.conquest.outpost = site >= 0 ? outpostOffer(FS, {p:s.p,q:s.q,site}) : null;
+    // the keeps the viewer's marches can reach: only while the list or a keep panel is on screen
+    if (FS.mode === 'play' && (tab === 'nation' || s)) wantKeepReach();
   }
   const parts = [renderNotice(FS.notice)];
   if (FS.practice) return [...parts, practiceScreen.render(FS.practice, { kernelError: FS.practiceError ?? null, closable: true })];

@@ -290,6 +290,16 @@ export function failureText(r) {
   return L`不明なエラー（${code ?? status ?? '?'}）`;
 }
 
+/** The route line with singular and plural forms (wave-5 review: "1 provinces"): the composer's and the reach list's. */
+export function routeLine(route) {
+  const n = route.hexes;
+  const p = route.provinces.length;
+  const m = Math.ceil(route.secs / 60);
+  if (n === 1 && p === 1) return L`1 マス · 1 州 · 約 ${m} 分`;
+  if (p === 1) return L`${n} マス · 1 州 · 約 ${m} 分`;
+  return L`${n} マス · ${p} 州 · 約 ${m} 分`;
+}
+
 // ------------------------------------------------------------------ play tables (W3-F)
 /** Doctrines A–F by faction id (kernel `doctrine::of_faction`); C shows as "Flame" (I-34). */
 export const DOCTRINE_NAMES = lazyTable({

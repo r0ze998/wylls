@@ -15,8 +15,8 @@ import { STANCES as STANCE_TEXT, UNITS, clientText, failureText, factionName } f
 import { STANCES } from '../seal.mjs';
 import { RETREAT_CHOICES, arrivalWindow, checkMarch, troopsOf } from '../fmarch.mjs';
 import { UNIT_ORDER } from '../fland.mjs';
-import { keepFor } from '../screens/conquest.mjs';
-import { composerMarch, routeLine, marchTiming } from '../screens/march.mjs';
+import { keepFor, reachLink } from '../screens/conquest.mjs';
+import { composerMarch, routeLine, marchTiming, NO_ROUTE } from '../screens/march.mjs';
 import { span } from './hud.mjs';
 import { swatch } from '../screens/shell.mjs';
 import { DIRECTIONS, tileHex } from '../fgeo.mjs';
@@ -105,7 +105,7 @@ export function render(FS) {
     ${c.dest ? html`
       <p class="mc-dest"><strong>${L`行き先 州 ${c.dest.p},${c.dest.q} · マス ${c.dest.tile + 1}`}</strong>
         <span class="mc-sealed">${L`封の中（あなたにしか見えません）`}${termButton('seal')}</span></p>
-      <p class="mc-route">${c.route ? routeLine(c.route) : c.routeError ? clientText(c.routeError) : L`道のりを探しています…`}</p>
+      <p class="mc-route">${c.route ? routeLine(c.route) : c.routeError ? clientText(c.routeError) : L`道のりを探しています…`}${!c.route && NO_ROUTE.includes(c.routeError) ? html` ${reachLink(FS)}` : ''}</p>
       ${w ? html`<div class="mc-bell" role="group" aria-label="${L`到着のターン`}">
         <button type="button" class="btn small" data-act="mc-bell" data-d="-1" aria-label="${L`1つ早いターン`}" ${raw(w.value <= w.min ? 'disabled' : '')}>−</button>
         <span class="mc-bell-v"><strong>${L`第${fmtNum(w.value)}ターンに到着`}</strong></span>

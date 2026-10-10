@@ -79,13 +79,17 @@ test('keep progress is conditional and protected/unknown keeps never offer an at
   assert.doesNotMatch(String(renderKeep(noArmy, keep())), /data-act="cq-march"/);
 });
 
-test('rankings use exact province-time, preserve ties, reject old Dominion and do not announce a premature winner', () => {
+test('rankings go by provinces held, share a rank on equal provinces, reject old Dominion and do not announce a premature winner', () => {
+  // equal provinces: one shared rank; the time held only orders the rows inside it
   const rows = scoreRows(table());
-  assert.deepEqual(rows.map(r => [r.faction, r.rank]), [[1, 1], [2, 1], [0, 3], [4, 4], [5, 5], [3, 6]]);
+  assert.deepEqual(rows.map(r => [r.faction, r.rank]), [[1, 1], [2, 1], [0, 1], [4, 1], [5, 1], [3, 1]]);
+  // more provinces wins whatever the time held
+  const byArea = table(); byArea.rows[3].provinces = 3; byArea.rows[0].provinces = 1;
+  assert.deepEqual(scoreRows(byArea).map(r => [r.faction, r.rank]), [[3, 1], [1, 2], [2, 2], [4, 2], [5, 2], [0, 6]]);
   assert.equal(scoreRows({ ...table(), metric: 'dominion' }), null);
   assert.equal(scoreRows({ ...table(), rows: table().rows.slice(0, 5) }), null);
   const huge = scoreRows(table(['9007199254740993', '9007199254740992', '1', '2', '3', '4']));
-  assert.deepEqual(huge.slice(0, 2).map(r => r.rank), [1, 2]);
+  assert.deepEqual(huge.slice(0, 2).map(r => [r.faction, r.rank]), [[0, 1], [1, 1]]);
   const ongoing = String(renderStandings(fs({ conquest: { standings: table(), final: table() } })));
   assert.doesNotMatch(ongoing, /同点首位|の勝利/);
   const finishing = String(renderStandings(fs({ nowBell: 2016, conquest: { standings: table() } })));

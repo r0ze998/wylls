@@ -8,13 +8,17 @@ import { activeHolding } from '../fstate.mjs';
 import { holdingByRef } from '../fland.mjs';
 import { html, raw } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
-import { STANCES as STANCE_TEXT, UNITS, clientText, failureText } from '../fi18n.mjs';
+import { STANCES as STANCE_TEXT, UNITS, clientText, failureText, routeLine } from '../fi18n.mjs';
 import { STANCES } from '../seal.mjs';
 import { RETREAT_CHOICES, tipOptions, marchCosts, arrivalWindow, checkMarch, SEND_STEPS, DEPART_STAMINA } from '../fmarch.mjs';
 import { UNIT_ORDER, ticketTimes } from '../fland.mjs';
 import { bellStart } from '../clock.mjs';
 import { span } from '../hud/hud.mjs';
 import { lamports } from './shell.mjs';
+import { reachLink } from './conquest.mjs';
+
+/** The planner's answers that mean "no legal route" (fmarch.planRoute): the composer then offers the reach list. */
+export const NO_ROUTE = Object.freeze(['NoPath', 'Path']);
 
 const RETREAT_TEXT = {
   never: () => L`撤退しない`,
@@ -30,15 +34,7 @@ const STANCE_NOTE = { Hold: () => L`相性の効果なし`, Assault: () => L`側
 
 /** The composer's choices as the markup offers them (the tests read these). */
 
-/** The route line with singular and plural forms (wave-5 review: "1 provinces"). */
-export function routeLine(route) {
-  const n = route.hexes;
-  const p = route.provinces.length;
-  const m = Math.ceil(route.secs / 60);
-  if (n === 1 && p === 1) return L`1 マス · 1 州 · 約 ${m} 分`;
-  if (p === 1) return L`${n} マス · 1 州 · 約 ${m} 分`;
-  return L`${n} マス · ${p} 州 · 約 ${m} 分`;
-}
+export { routeLine };
 
 export function composerChoices(FS) {
   const season = FS.season;
@@ -96,7 +92,7 @@ export function render(FS) {
       <p class="muted">${L`地図でマスをタップしても行き先になります。`}</p>
     </fieldset>
     <fieldset><legend>${L`2. 道のりと到着`}</legend>
-      ${c.route ? html`<p>${routeLine(c.route)}</p>` : html`<p class="muted">${c.routeError ? clientText(c.routeError) : L`行き先を決めると道のりを探します`}</p>`}
+      ${c.route ? html`<p>${routeLine(c.route)}</p>` : html`<p class="muted">${c.routeError ? clientText(c.routeError) : L`行き先を決めると道のりを探します`}${NO_ROUTE.includes(c.routeError) ? html` ${reachLink(FS)}` : ''}</p>`}
       <label>${L`到着のターン`}<select data-bind="arriveBell">${bells.map(b => html`<option value="${b}" ${raw(b === m.arriveBell ? 'selected' : '')}>${L`第${fmtNum(b)}ターン`}</option>`)}</select></label>
       ${timing ? html`<p>${L`到着まで ${span(timing.arrivalIn)} · 結果の目安まで ${span(timing.resultIn)}（ゲーム内）`}</p>` : ''}
       <p class="muted">${L`出発から早くても2ターンあと、遅くとも72ターンあと。出発には体力 ${DEPART_STAMINA} を使います。`}</p>

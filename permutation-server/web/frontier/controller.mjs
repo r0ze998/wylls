@@ -14,7 +14,7 @@ import * as io from './fchainio.mjs';
 import * as fsession from './fsession.mjs';
 import * as book from './marchbook.mjs';
 import { submit, track, accountsFor, campMaskOf, campWinner } from './fplay.mjs';
-import { sendMarch, planRoute, earliestBell, arrivalWindow, tipOptions, incomingWarnings, DEPART_MARGIN_SECS, RETREAT_CHOICES } from './fmarch.mjs';
+import { sendMarchRetrying, planRoute, earliestBell, arrivalWindow, tipOptions, incomingWarnings, DEPART_MARGIN_SECS, RETREAT_CHOICES } from './fmarch.mjs';
 import { landState, hostsIn, TICKET_SEEN_BELLS, FIRST_TICKET_RING } from './fland.mjs';
 import { planTicket } from './fjoin.mjs';
 import { toggleTile } from './screens/explore.mjs';
@@ -29,7 +29,9 @@ import { uiKey, uiStorage, loadUi, saveUi, landKey, loadLand, saveLand, LAND_DEF
 import * as wallet from '../wallet.mjs';
 import { decode as fromBase58, encode as toBase58 } from '../sdk/base58.mjs';
 import { fromBase64 } from '../sdk/bytes.mjs';
-import { L } from '../lang.mjs';
+import { L, fmtNum } from '../lang.mjs';
+import { reachOrigins } from './screens/conquest.mjs';
+import { cachedReach, reachKey } from './fkeepreach.mjs';
 import * as fprize from './fprize.mjs';
 import { instantHomeEnabled, HOME_GRANTED, planHomes, homeSites, sameHome, homeKey, loadHome, saveHome, grantId } from './home.mjs';
 
@@ -512,6 +514,33 @@ export function wantKeepHistory(p, q, onLoad = () => {}) {
   return true;
 }
 
+/**
+ * The keeps of other nations the viewer's marches can reach (fkeepreach.mjs), for the
+ * nation tab's list and the keep panel's note: asked by the panel while either is on
+ * screen, answered once per origins, turn and control snapshot from the keeps the page
+ * already holds (no request). True when the list was computed by this call.
+ */
+let reachWaiting = false;
+export function wantKeepReach() {
+  const cq = FS.conquest;
+  if (!cq?.control || !conquestEnabled(FS.season) || !Number.isInteger(FS.citizen?.faction)) return false;
+  const { home, origins } = reachOrigins(FS);
+  if (!origins.length) return false;
+  const args = { keeps: cq.keeps, origins, home, faction: FS.citizen.faction, nowBell: FS.nowBell ?? 0, controlBell: cq.control.bell,
+    seeds: (FS.record?.rings ?? []).map(r => ({ ring: r.d, seed: r.seed })) };
+  const key = reachKey(args);
+  if (cq.reach?.key === key) return false;
+  if (!FS.kernel) {
+    if (reachWaiting) return false;
+    reachWaiting = true;
+    kernelOrNull().then(k => { if (!k && FS.conquest === cq) cq.reach = { key, ok: false, code: FS.kernelError ?? 'NoKernel' }; })
+      .finally(() => { reachWaiting = false; invalidate('panel'); });
+    return false;
+  }
+  cq.reach = cachedReach(cq.reach, { ...args, kernel: FS.kernel });
+  return true;
+}
+
 /** Refresh conquest together; retain known state on transport failures. */
 export async function refreshConquest() {
   if (!conquestEnabled(FS.season) || !herald?.control) return;
@@ -834,14 +863,26 @@ async function sendTheMarch() {
   invalidate('panel');
   FS.inFlight = (FS.inFlight ?? 0) + 1;
   try {
-    const r = await sendMarch(m, {
+    const origin = () => FS.provinces.get(`${c.origin.p},${c.origin.q}`)?.province ?? null;
+    // A turn that rolls over between composing and sending: the march is sent again with the arrival moved (fmarch.sendMarchRetrying).
+    const r = await sendMarchRetrying(m, {
       seal: req => sealMarch(req), clock: FS.clock, publicKey: FS.beacon?.publicKey,
       storage: book.browserStorage, bookKey: bookKey(), session: FS.session,
       accounts: accountsFor('Depart', ctx({ holding: { p: h.p, q: h.q, site: h.site }, province: c.origin })),
       submit, track, onStep: s => { c.step = s; invalidate('panel'); },
       earliestAtSend: () => (FS.kernel && c.route ? earliestBell(FS.kernel, { genesisTs: FS.clock.genesisTs, departTs: now() + DEPART_MARGIN_SECS, secs: c.route.secs }) : null),
+      refresh: async () => { await loadEnvelope(c.origin.p, c.origin.q).catch(() => null); FS.nowBell = nowBell(); return { nowBell: nowBell(), now: now(), resolvedNext: origin()?.resolvedNext ?? null, province: origin() }; },
+      nudge: () => io.nudge(c.origin.p, c.origin.q, origin()?.resolvedNext ?? nowBell()),
+      onRetry: x => {
+        c.step = null; c.arriveBell = x.arriveBell; if (x.earliest !== null) c.earliest = x.earliest;
+        busy(x.arriveBell !== x.from ? () => L`ターンが変わりました。到着を第${fmtNum(x.arriveBell)}ターンに直して送り直しています…` : () => L`州が追いつくのを待っています…`);
+      },
     });
-    if (r.ok) { done(() => L`出発しました`); FS.compose = null; FS.tab = 'marches'; } else {
+    if (r.ok) {
+      const from = r.arriveFrom, to = r.arriveBell;
+      done(from !== to ? () => L`出発しました。ターンが変わったため、到着は第${fmtNum(from)}ターンから第${fmtNum(to)}ターンになりました。` : () => L`出発しました`);
+      FS.compose = null; FS.tab = 'marches';
+    } else {
       // A stale earliest bell: show the new window (the player chooses again).
       if (r.code === 'ArrivalBell' && r.earliest !== null && r.earliest !== undefined) { c.earliest = r.earliest; c.arriveBell = Math.max(c.arriveBell, arrivalWindow(FS.season, nowBell(), r.earliest).min); }
       failed(r);

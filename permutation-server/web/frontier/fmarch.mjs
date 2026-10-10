@@ -239,6 +239,75 @@ export async function sendMarch(m, deps) {
   return { ok: true, step: 'onChain', signature: r.signature, slot: t.slot, entry };
 }
 
+// ------------------------------------------------------------------ a send across a turn rollover
+/**
+ * The two refusals of a Depart that a turn rollover between composing and
+ * sending causes, by the program's error names (frontier-abi error.rs; proc
+ * host.rs `depart`), with their numbers for an answer that carries only
+ * `programCode`:
+ *   ArrivalBell (31)  `arrive_bell` is outside [b + 2, b + 72] of the bell b the Depart lands in
+ *                     (checkMarch says the same once the page's turn or earliest arrival moved)
+ *   NotResident (26)  the origin province is not resolved through b − 2 yet (`resident_ok`)
+ * Anything else is not transient: a lost answer (`network`, `Unconfirmed`) may still land and is never sent again.
+ */
+export const TRANSIENT_DEPART = Object.freeze({ ArrivalBell: 31, NotResident: 26 });
+/** 'ArrivalBell' | 'NotResident' when a failed sendMarch answer is one of the rollover refusals, else null. */
+export function transientMarchFailure(r) {
+  if (!r || r.ok) return null;
+  if (Object.hasOwn(TRANSIENT_DEPART, r.code ?? '')) return r.code;
+  if (r.code === 'TransactionFailed' || r.code === 'SimulationFailed' || r.code === undefined || r.code === null)
+    return Object.keys(TRANSIENT_DEPART).find(k => TRANSIENT_DEPART[k] === r.programCode) ?? null;
+  return null;
+}
+
+/** A march is sent at most this many times, no new attempt later than RETRY_WINDOW_MS after the first refusal, RETRY_WAIT_MS apart. */
+export const MARCH_ATTEMPTS = 3, RETRY_WINDOW_MS = 20_000, RETRY_WAIT_MS = 3_000;
+
+/**
+ * sendMarch, sent again when the turn rolled over under it (transientMarchFailure): the
+ * earliest arrival is computed again, the arrival turn moves to the new window's first turn
+ * unless the chosen one is still inside it (a later turn the player picked is kept), and the
+ * march is sealed again (a seal is bound to its arrival turn). The route does not depend on
+ * the turn, so it is not planned again. Destination, host, stance, retreat rule and tip are
+ * never touched. Extra `deps`:
+ *   refresh() → `{nowBell, now, resolvedNext, province}` read again (the origin province's envelope)
+ *   nudge()   ask the keeper to catch the origin province up (NotResident only)
+ *   wait(ms), nowMs() (tests), onRetry({attempt, kind, arriveBell, from, earliest})
+ * → sendMarch's answer plus `{attempts, arriveBell, arriveFrom}`. Never rejects.
+ */
+export async function sendMarchRetrying(m, deps) {
+  const wait = deps.wait ?? (ms => new Promise(res => setTimeout(res, ms)));
+  const clock = deps.nowMs ?? (() => Date.now());
+  const arriveFrom = m.arriveBell;
+  let deadline = null;
+  for (let attempt = 1; ; attempt++) {
+    const r = await sendMarch(m, deps);
+    const out = { ...r, attempts: attempt, arriveBell: m.arriveBell, arriveFrom };
+    const kind = transientMarchFailure(r);
+    if (r.ok || !kind) return out;
+    deadline ??= clock() + RETRY_WINDOW_MS;
+    if (attempt >= MARCH_ATTEMPTS || clock() >= deadline) return out;
+    // an arrival turn that is not behind the window (none chosen, or past its end) is not a rollover: nothing to move
+    if (kind === 'ArrivalBell' && (!Number.isInteger(m.arriveBell) || m.arriveBell > arrivalWindow(m.season, m.nowBell).max)) return out;
+    if (kind === 'NotResident') { try { await deps.nudge?.(); } catch { /* the keeper catches up on its own too */ } }
+    // the facts again; a lagging province is waited for inside the window, not spent as attempts
+    for (;;) {
+      await wait(RETRY_WAIT_MS);
+      let fresh = null;
+      try { fresh = await deps.refresh?.(); } catch { fresh = null; }
+      if (fresh) m = { ...m, nowBell: fresh.nowBell ?? m.nowBell, now: fresh.now ?? m.now, resolvedNext: fresh.resolvedNext ?? m.resolvedNext, province: fresh.province ?? m.province };
+      const lags = m.resolvedNext === null || m.resolvedNext === undefined || m.resolvedNext + 1 < m.nowBell;
+      if (!lags || clock() + RETRY_WAIT_MS >= deadline) break;
+    }
+    let earliest = null;
+    try { earliest = (await deps.earliestAtSend?.()) ?? null; } catch { earliest = null; }
+    earliest = Math.max(earliest ?? 0, r.earliest ?? 0, m.earliest ?? 0) || null;
+    const arriveBell = Math.max(m.arriveBell, arrivalWindow(m.season, m.nowBell, earliest).min);
+    m = { ...m, earliest, arriveBell };
+    try { deps.onRetry?.({ attempt: attempt + 1, kind, arriveBell, from: arriveFrom, earliest }); } catch { /* the UI's problem */ }
+  }
+}
+
 // ------------------------------------------------------------------ the tracker
 export const TRACKER_STEPS = Object.freeze(['departed', 'arrivalBell', 'anchored', 'revealed', 'resolved', 'settled']);
 
