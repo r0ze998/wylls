@@ -68,6 +68,7 @@ const ART_ENGINE = ART_PREVIEW ? Math.max(0, Math.min(5, Number(ART_Q.get('engin
 // ?art=1&fog=1 previews the fog as if the viewer held province (2,0) (presentation only).
 const ART_FOG = ART_PREVIEW && new URLSearchParams(globalThis.location?.search ?? '').get('fog') === '1';
 import * as joinScreen from './screens/join.mjs';
+import * as prizeScreen from './screens/prize.mjs';
 import * as holdingScreen from './screens/holding.mjs';
 import * as hostScreen from './screens/host.mjs';
 import * as exploreScreen from './screens/explore.mjs';
@@ -200,7 +201,7 @@ export function panelMarkup(FS) {
   if (tab === 'map') {
     parts.push(joinScreen.render(FS));
   } else if (tab === 'holding') parts.push(holdingScreen.render(FS));
-  else if (tab === 'nation') parts.push(conquestScreen.render(FS));
+  else if (tab === 'nation') parts.push(conquestScreen.render(FS), prizeScreen.render(FS));
   else if (tab === 'hosts') parts.push(hostScreen.render(FS), exploreScreen.render(FS));
   else if (tab === 'marches') parts.push(marchScreen.render(FS), trackerScreen.render(FS), reportScreen.renderLinks(myReports(FS), L`あなたの衝突の報告`), incomingScreen.render(FS));
   else parts.push(feed.renderCentre(FS.feed ?? [], FS.feedFilter ?? 'all'), bellScreen.render(FS), reportScreen.renderLinks(reportScreen.clashesFrom(FS.chronicle ?? []), L`最近の衝突`), chronicleScreen.render(FS), html`<section aria-labelledby="more-title"><h3 id="more-title">${L`設定`}</h3>
