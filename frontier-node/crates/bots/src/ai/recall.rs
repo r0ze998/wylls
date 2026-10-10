@@ -364,7 +364,7 @@ pub fn offer(inp: &Inputs, side: &Side) -> Vec<Offer> {
                 id: String::new(),
                 kind: format!("recall:{}", row.handle),
                 label: format!(
-                    "Recall {} ({} troops) to the village; earliest arrival at bell {}",
+                    "Recall {} ({} troops) to the village; earliest arrival at turn {}",
                     row.handle, troops, arrive
                 ),
                 facts: Value::Object(facts),

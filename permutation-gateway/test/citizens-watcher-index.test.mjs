@@ -89,7 +89,7 @@ test('chronicle sources: a council that closes with no winner gives no_call with
   // one no_call line per (bell, nation, period): the five emits share them, so a single line (dedupe) — the reason of the first
   const noCall = lines.filter(l => l.kind === 'no_call');
   assert.equal(noCall.length, 1);
-  assert.match(noCall[0].text.en, /^At bell 54 the council of Nation1 adopted no Strike Order \(fewer than two ballots for one option\)\.$/);
+  assert.match(noCall[0].text.en, /^At turn 54 the council of Nation1 adopted no Strike Order \(fewer than two ballots for one option\)\.$/);
   assert.match(noCall[0].text.ja, /^ターン54で、国1の評議会は攻撃命令を採用しなかった（同じ案への票が2票に満たなかった）。$|^ターン54で、国1の評議会は攻撃命令を採用しなかった\(同じ案への票が2票に満たなかった\)。$/);
   const declined = lines.find(l => l.kind === 'call_declined');
   assert.deepEqual([declined.by, declined.actors, declined.ai, declined.bell], ['model', [TAG], [true], 55]);
@@ -110,7 +110,7 @@ test('chronicle sources: a motion names the mover, the option number and kind (p
   x.social.emit({ type: 'motion', faction: 1, period: 2, id: 'm1', wallet: WALLET, tag: TAG, option: 2, text: 'SENTINEL secret words' });
   await x.w.tick(50);
   const m = x.chron().find(l => l.kind === 'motion');
-  assert.equal(m.text.en, 'At bell 49 Nameaaaa moved option 2 (camp) in the council of Nation1.');
+  assert.equal(m.text.en, 'At turn 49 Nameaaaa moved option 2 (camp) in the council of Nation1.');
   assert.equal(JSON.stringify(x.chron()).includes('SENTINEL'), false);
 });
 
@@ -125,7 +125,7 @@ test('chronicle sources: ai_joined from the public JOIN row once the roster know
   const j = x.chron().filter(l => l.kind === 'ai_joined');
   assert.equal(j.length, 1);
   assert.deepEqual([j[0].bell, j[0].actors, j[0].ai], [7, [TAG], [true]]);
-  assert.equal(j[0].text.en, 'At bell 7 Nameaaaa (AI citizen) joined Nation1.');
+  assert.equal(j[0].text.en, 'At turn 7 Nameaaaa (AI citizen) joined Nation1.');
   assert.match(j[0].text.ja, /AI市民/);
   await x.w.tick(10);
   assert.equal(x.chron().filter(l => l.kind === 'ai_joined').length, 1);
@@ -149,7 +149,7 @@ test('chronicle sources: ai_march_opened after a release of a model march (desti
   const lines = x.chron();
   const opened = lines.filter(l => l.kind === 'ai_march_opened');
   assert.equal(opened.length, 1, 'the model march only');
-  assert.equal(opened[0].text.en, 'At bell 405 Nameaaaa marched at (2,0) (arrived at bell 404); its reason is published.');
+  assert.equal(opened[0].text.en, 'At turn 405 Nameaaaa marched at (2,0) (arrived at turn 404); its reason is published.');
   assert.deepEqual([opened[0].by, opened[0].actors], ['model', [TAG]]);
   assert.ok(existsSync(join(x.dir, 'pub/open/405.json')));
   assert.equal(JSON.parse(readFileSync(join(x.dir, 'pub/open/405.json'), 'utf8')).records.length, 2, 'both records are opened together');

@@ -551,7 +551,7 @@ pub(crate) fn march_candidate(
             id: String::new(),
             kind: "march".into(),
             label: format!(
-                "March {} ({} troops) to {what}, {hexes} hexes away; earliest arrival at bell {}",
+                "March {} ({} troops) to {what}, {hexes} hexes away; earliest arrival at turn {}",
                 row.handle, troops, plan.plain.arrive_bell
             ),
             facts,

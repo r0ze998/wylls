@@ -26,17 +26,17 @@ const tmp = () => mkdtempSync(path.join(os.tmpdir(), 'probe-target-'));
 // ---- SYNTHETIC prompt: 2 THREATS lines, 1 clash line, 5 Remembered lines, 3 candidates with refs
 const ep = (id, kind, bell, entities, src, facts, en) => ({ v: 1, id, bell, created_bell: bell, kind, entities, text: { en }, importance: 5, src, facts });
 const EPS = [
-  ep('aaaaaaaaaaaaaaa1', 'threat', 10, ['nation:2', 'pq:-3,1'], ['event:784'], { p: -3, q: 1, nation: 2, mass: 100, arrive_bell: 13 }, 'At bell 10 nation Cinder sent an army of 100 troops from (-3,1); it arrives at bell 13; its destination is not known.'),
-  ep('aaaaaaaaaaaaaaa2', 'camp_taken_by', 28, ['nation:2', 'pq:-3,1'], ['event:2556', 'event:2557'], { p: -3, q: 1, nation: 2 }, 'At bell 28 nation Cinder cleared the camp at (-3,1) first.'),
-  ep('aaaaaaaaaaaaaaa3', 'build_done', 32, ['pq:-3,0'], ['event:1568'], { p: -3, q: 0, site: 8, item: 0 }, 'At bell 32 your farm was finished.'),
-  ep('aaaaaaaaaaaaaaa4', 'threat', 34, ['nation:5', 'pq:0,2'], ['event:2872'], { p: 0, q: 2, nation: 5, mass: 300, arrive_bell: 37 }, 'At bell 34 nation Fjordal sent an army of 300 troops from (0,2); it arrives at bell 37; its destination is not known.'),
-  ep('aaaaaaaaaaaaaaa5', 'clash_own_win', 36, ['pq:-2,-1'], ['event:3209', 'host:1'], { p: -2, q: -1, lost_own: 50, lost_enemy: 399, camp: true, nation: null }, 'At bell 36 your army at (-2,-1) beat the camp: you lost 50, they lost 399.'),
+  ep('aaaaaaaaaaaaaaa1', 'threat', 10, ['nation:2', 'pq:-3,1'], ['event:784'], { p: -3, q: 1, nation: 2, mass: 100, arrive_bell: 13 }, 'At turn 10 nation Cinder sent an army of 100 troops from (-3,1); it arrives at turn 13; its destination is not known.'),
+  ep('aaaaaaaaaaaaaaa2', 'camp_taken_by', 28, ['nation:2', 'pq:-3,1'], ['event:2556', 'event:2557'], { p: -3, q: 1, nation: 2 }, 'At turn 28 nation Cinder cleared the camp at (-3,1) first.'),
+  ep('aaaaaaaaaaaaaaa3', 'build_done', 32, ['pq:-3,0'], ['event:1568'], { p: -3, q: 0, site: 8, item: 0 }, 'At turn 32 your farm was finished.'),
+  ep('aaaaaaaaaaaaaaa4', 'threat', 34, ['nation:5', 'pq:0,2'], ['event:2872'], { p: 0, q: 2, nation: 5, mass: 300, arrive_bell: 37 }, 'At turn 34 nation Fjordal sent an army of 300 troops from (0,2); it arrives at turn 37; its destination is not known.'),
+  ep('aaaaaaaaaaaaaaa5', 'clash_own_win', 36, ['pq:-2,-1'], ['event:3209', 'host:1'], { p: -2, q: -1, lost_own: 50, lost_enemy: 399, camp: true, nation: null }, 'At turn 36 your army at (-2,-1) beat the camp: you lost 50, they lost 399.'),
   // not retrieved (created at the decision's bell): the wake's own threat
-  ep('aaaaaaaaaaaaaaa6', 'threat', 41, ['nation:2', 'pq:-3,1'], ['event:3320'], { p: -3, q: 1, nation: 2, mass: 150, arrive_bell: 44 }, 'At bell 41 nation Cinder sent an army of 150 troops from (-3,1); it arrives at bell 44; its destination is not known.'),
+  ep('aaaaaaaaaaaaaaa6', 'threat', 41, ['nation:2', 'pq:-3,1'], ['event:3320'], { p: -3, q: 1, nation: 2, mass: 150, arrive_bell: 44 }, 'At turn 41 nation Cinder sent an army of 150 troops from (-3,1); it arrives at turn 44; its destination is not known.'),
 ];
 const RETRIEVED = EPS.slice(0, 5).map((e) => e.id);
-function synthetic({ threats = ['  nation 2 sent an army of 150 troops from (-3,1); it arrives at bell 44; its destination is not known.', '  nation 5 sent an army of 300 troops from (0,2); it arrives at bell 37; its destination is not known.'], clashes = ['  bell 36 at (-2,-1): you lost 50, they lost 399 (won)'] } = {}) {
-  const rem = EPS.slice(0, 5).map((e, i) => `M${i + 1} [bell ${e.bell}] <memory kind="episode" id="M${i + 1}">${e.text.en}</memory>`);
+function synthetic({ threats = ['  nation 2 sent an army of 150 troops from (-3,1); it arrives at turn 44; its destination is not known.', '  nation 5 sent an army of 300 troops from (0,2); it arrives at turn 37; its destination is not known.'], clashes = ['  turn 36 at (-2,-1): you lost 50, they lost 399 (won)'] } = {}) {
+  const rem = EPS.slice(0, 5).map((e, i) => `M${i + 1} [turn ${e.bell}] <memory kind="episode" id="M${i + 1}">${e.text.en}</memory>`);
   const user = [
     'NOW: bell 41 (day 0, bell 41/144). Season ends at bell 1008.',
     'YOU: nation 3 (D Verdant).',
@@ -132,7 +132,7 @@ test('matchSituation (synthetic): a THREATS line is removed only when its number
   // another event (nation 5) fits only an untargeted episode: it stays and is no leak
   assert.ok(!a.remove.some((x) => /nation 5/.test(x.line)));
   const b = matchSituation(p, EPS, parseTarget('event:2872'));
-  assert.deepEqual(b.remove.map((x) => x.line), ['  nation 5 sent an army of 300 troops from (0,2); it arrives at bell 37; its destination is not known.']);
+  assert.deepEqual(b.remove.map((x) => x.line), ['  nation 5 sent an army of 300 troops from (0,2); it arrives at turn 37; its destination is not known.']);
   // the clash line and the clash episode
   const c = matchSituation(p, EPS, parseTarget('kind:clash_own_win'));
   assert.deepEqual(c.remove.map((x) => x.section), ['YOUR RECENT CLASHES']);
@@ -141,7 +141,7 @@ test('matchSituation (synthetic): a THREATS line is removed only when its number
 
 test('matchSituation (synthetic): no exact correspondence -> the line is left and named in leak', () => {
   // the THREATS line says 160 troops: no episode has these numbers, and it names the targeted nation
-  const off = parseBody(synthetic({ threats: ['  nation 2 sent an army of 160 troops from (-3,1); it arrives at bell 44; its destination is not known.'] }));
+  const off = parseBody(synthetic({ threats: ['  nation 2 sent an army of 160 troops from (-3,1); it arrives at turn 44; its destination is not known.'] }));
   const a = matchSituation(off, EPS, parseTarget('entity:nation:2'));
   assert.deepEqual(a.remove, []);
   assert.equal(a.leak.length, 1);
@@ -154,7 +154,7 @@ test('matchSituation (synthetic): no exact correspondence -> the line is left an
   assert.deepEqual(b.remove, []);
   assert.match(b.leak[0].why, /a targeted and an untargeted episode/);
   // a clash line whose losses differ from the targeted clash episode at the same place
-  const cl = parseBody(synthetic({ clashes: ['  bell 36 at (-2,-1): you lost 51, they lost 399 (won)'] }));
+  const cl = parseBody(synthetic({ clashes: ['  turn 36 at (-2,-1): you lost 51, they lost 399 (won)'] }));
   assert.equal(matchSituation(cl, EPS, parseTarget('entity:pq:-2,-1')).leak.length, 1);
 });
 

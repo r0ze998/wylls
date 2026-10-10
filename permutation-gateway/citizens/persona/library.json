@@ -18,7 +18,7 @@
         { "id": "G1", "key": "two_armies", "memory": false, "text": { "en": "Keep at least two combat armies.", "ja": "戦闘軍を常に2つ以上保つ。" } },
         { "id": "G2", "key": "march_daily", "memory": false, "text": { "en": "March at least once a day.", "ja": "1日に1回以上、軍を出す。" } },
         { "id": "G3", "key": "clear_three_camps", "memory": false, "text": { "en": "Clear three camps.", "ja": "野営地を3つ倒す。" } },
-        { "id": "G4", "key": "answer_camp_taken", "memory": true, "text": { "en": "Answer each camp another nation cleared first: clear a camp within 24 bells.", "ja": "他国に先に倒された野営地ごとに、24鐘以内に自分も野営地を1つ倒す。" } }
+        { "id": "G4", "key": "answer_camp_taken", "memory": true, "text": { "en": "Answer each camp another nation cleared first: clear a camp within 24 turns.", "ja": "他国に先に倒された野営地ごとに、24ターン以内に自分も野営地を1つ倒す。" } }
       ]
     },
     {
@@ -36,7 +36,7 @@
       "goals": [
         { "id": "G1", "key": "walls_600", "memory": false, "text": { "en": "Raise walls to 600.", "ja": "壁を600まで高める。" } },
         { "id": "G2", "key": "home_floor_half", "memory": false, "text": { "en": "Never fall below half of the day's starting home troops.", "ja": "日の初めの自宅の兵の半分を割らない。" } },
-        { "id": "G3", "key": "army_home_every_bell", "memory": false, "text": { "en": "Keep an army at home every bell.", "ja": "毎鐘、自宅に軍を置く。" } },
+        { "id": "G3", "key": "army_home_every_bell", "memory": false, "text": { "en": "Keep an army at home every turn.", "ja": "毎ターン、自宅に軍を置く。" } },
         { "id": "G4", "key": "meet_threats", "memory": true, "text": { "en": "Meet every threat: have a combat army at home when a remembered threat arrives.", "ja": "記憶にある脅威が到着するとき、自宅に戦闘軍を置く。" } }
       ]
     },
@@ -72,7 +72,7 @@
         { "en": "The ledger of wrongs stays open until it is settled.", "ja": "受けた仕打ちの帳簿は、清算されるまで閉じない。" }
       ],
       "goals": [
-        { "id": "G1", "key": "answer_grievances", "memory": true, "text": { "en": "Answer every grievance with a march that reaches the wrongdoer within 12 bells.", "ja": "すべての恨みに、12鐘以内に相手へ届く進軍で応える。" } },
+        { "id": "G1", "key": "answer_grievances", "memory": true, "text": { "en": "Answer every grievance with a march that reaches the wrongdoer within 12 turns.", "ja": "すべての恨みに、12ターン以内に相手へ届く進軍で応える。" } },
         { "id": "G2", "key": "home_half", "memory": false, "text": { "en": "Keep at least half of your troops at home.", "ja": "兵の半分以上を自宅に保つ。" } },
         { "id": "G3", "key": "move_grievance_option", "memory": true, "text": { "en": "Move a council option aimed at a nation you hold a grievance against.", "ja": "恨みのある国を狙う案を、評議会で提案する。" } },
         { "id": "G4", "key": "two_armies", "memory": false, "text": { "en": "Keep at least two combat armies.", "ja": "戦闘軍を常に2つ以上保つ。" } }
@@ -94,7 +94,7 @@
         { "id": "G1", "key": "tier_up_three_builds", "memory": false, "text": { "en": "Tier up and build three buildings by game day 2.", "ja": "ゲーム2日目までに村を一段階上げ、建物を3つ建てる。" } },
         { "id": "G2", "key": "explore_daily", "memory": false, "text": { "en": "Explore every day.", "ja": "毎日、探索する。" } },
         { "id": "G3", "key": "reach_town", "memory": false, "text": { "en": "Reach Town.", "ja": "町になる。" } },
-        { "id": "G4", "key": "recover_from_loss", "memory": true, "text": { "en": "Recover from a loss: after an attack or a lost march, bring home troops back to their earlier level within 24 bells.", "ja": "損害から立ち直る。攻撃や敗れた進軍のあと、24鐘以内に自宅の兵を以前の水準に戻す。" } }
+        { "id": "G4", "key": "recover_from_loss", "memory": true, "text": { "en": "Recover from a loss: after an attack or a lost march, bring home troops back to their earlier level within 24 turns.", "ja": "損害から立ち直る。攻撃や敗れた進軍のあと、24ターン以内に自宅の兵を以前の水準に戻す。" } }
       ]
     },
     {
@@ -111,7 +111,7 @@
       ],
       "goals": [
         { "id": "G1", "key": "clear_two_camps_daily", "memory": false, "text": { "en": "Clear two camps a day.", "ja": "1日に野営地を2つ倒す。" } },
-        { "id": "G2", "key": "strike_the_mover", "memory": true, "text": { "en": "Strike the nation that has just moved: march at its open-field army within 12 bells of a remembered threat or a camp it cleared first.", "ja": "動いたばかりの国を突く。記憶にある脅威や先に倒された野営地から12鐘以内に、その国の野戦軍へ進軍する。" } },
+        { "id": "G2", "key": "strike_the_mover", "memory": true, "text": { "en": "Strike the nation that has just moved: march at its open-field army within 12 turns of a remembered threat or a camp it cleared first.", "ja": "動いたばかりの国を突く。記憶にある脅威や先に倒された野営地から12ターン以内に、その国の野戦軍へ進軍する。" } },
         { "id": "G3", "key": "raid_weak_stacks", "memory": false, "text": { "en": "Strike weak armies in the open (ratio word favourable).", "ja": "野外の弱い軍を突く（比率の言葉が「有利」のとき）。" } },
         { "id": "G4", "key": "build_three", "memory": false, "text": { "en": "Grow the village: three builds a day.", "ja": "村を育てる。1日に3回建てる。" } }
       ]

@@ -18,7 +18,7 @@ import { sanitize } from './sanitize.mjs';
 // occurrence that shares one; a text number with none only has to occur. Words not listed here are no unit.
 const UNIT_WORDS = [
   ['troops', /^(troops?|soldiers?|men|spearmen|spearman|archers?|horsemen|horseman|pikemen|pikeman|crossbowmen|crossbowman|knights?|scouts?|units?)$/i],
-  ['bell', /^bells?$/i],
+  ['bell', /^(bells?|turns?)$/i], // the step's word is "turn"; "bell" was its word in runs before that (the class keeps the code name)
   ['hex', /^(hex|hexes|tiles?)$/i],
   ['province', /^provinces?$/i],
   ['minute', /^(min|mins|minutes?)$/i],
@@ -39,10 +39,10 @@ const UNIT_WORDS = [
   ['wall', /^walls?$/i],
 ];
 const CJK_AFTER = [
-  [/^兵/, 'troops'], [/^鐘/, 'bell'], [/^時間/, 'hour'], [/^分/, 'minute'], [/^日/, 'day'],
+  [/^兵/, 'troops'], [/^\s?ターン|^鐘/, 'bell'], [/^時間/, 'hour'], [/^分/, 'minute'], [/^日/, 'day'],
   [/^(ヘクス|マス|タイル)/, 'hex'], [/^(州|地方)/, 'province'], [/^(%|パーセント)/, 'percent'], [/^(軍|部隊)/, 'host'],
 ];
-const CJK_BEFORE = [[/兵$/, 'troops'], [/鐘$/, 'bell'], [/(第|日目)$/, null]];
+const CJK_BEFORE = [[/兵$/, 'troops'], [/ターン\s?$|鐘$/, 'bell'], [/(第|日目)$/, null]];
 const classOfWord = (w) => {
   for (const [cls, re] of UNIT_WORDS) if (re.test(w)) return cls;
   return null;
@@ -78,7 +78,7 @@ export function kanjiToInt(run) {
 
 // FB5 / AC9 F5: a run of kanji numerals is not always a number. 二人 (two people), 一日 (all day), 三つ, 一度, 万が一 (in case),
 // 十分 (enough), 八百屋, 千葉 and 百科 are ordinary Japanese and were withheld as number_ungrounded. A run now counts as a number when
-//   (a) a GAME unit word is next to it (兵 鐘 時間 分 ヘクス マス タイル 州 地方 % パーセント 軍 部隊, and 日 for 二 and up), whatever its value, or
+//   (a) a GAME unit word is next to it (兵 ターン 鐘 時間 分 ヘクス マス タイル 州 地方 % パーセント 軍 部隊, and 日 for 二 and up), whatever its value, or
 //   (b) its value is 10 or more and it does not head a compound word (the next character is not a kanji, or is a counter such as 人 or 年),
 //       with 万が一, 万一 and 十分 excluded as the idioms they are.
 // A single digit that has only a generic counter (つ 人 回 度 個) is no number any more: it cannot identify a troop count or a distance.
@@ -141,6 +141,9 @@ export function numbersIn(raw) {
       for (let j = Math.max(0, i - 3); j <= Math.min(toks.length - 1, i + 3); j++) {
         if (j === i || toks[j].isNum || toks[j].seg !== toks[i].seg) continue;
         const c = classOfWord(toks[j].w);
+        // "turn" is also an ordinary English word ("turn back", "in turn") and part of a chat token (<|turn>): it is the step's unit
+        // only right next to the number ("turn 30", "30 turns"), which is how every code-made line writes it.
+        if (c === 'bell' && /^turns?$/i.test(toks[j].w) && Math.abs(j - i) !== 1) continue;
         if (c && owns(i, j)) {
           units.add(c);
           if (Math.abs(j - i) === 1) near.add(c);
@@ -148,7 +151,7 @@ export function numbersIn(raw) {
       }
     }
     const tail = text.slice(n.end, n.end + 4);
-    const head = text.slice(Math.max(0, n.start - 3), n.start);
+    const head = text.slice(Math.max(0, n.start - 4), n.start); // 4: "ターン 54" (the rules are end-anchored)
     for (const [re, cls] of CJK_AFTER) if (re.test(tail)) { units.add(cls); near.add(cls); }
     for (const [re, cls] of CJK_BEFORE) if (cls && re.test(head)) { units.add(cls); near.add(cls); }
     n.units = units; // every unit class within 3 tokens (what a source occurrence offers)
@@ -191,7 +194,7 @@ export function stripToFacts(promptText) {
   return String(promptText ?? '')
     .replace(/<untrusted\b[^>]*>[\s\S]*?<\/untrusted>/g, ' ')
     .replace(/<memory\b[^>]*>[\s\S]*?<\/memory>/g, ' ')
-    .replace(/^M\d{1,2} \[bell \d+\].*$/gm, ' ')
+    .replace(/^M\d{1,2} \[(?:turn|bell) \d+\].*$/gm, ' ')
     .replace(/^PEOPLE\b.*$/gm, ' ');
 }
 
@@ -276,13 +279,13 @@ export const IMPERATIVE_JA = Object.freeze(['必ず', '絶対', '無視', '運�
 const IMPERATIVE_RE_EN = new RegExp(String.raw`\b(?:${IMPERATIVE_EN.join('|')})\b`, 'i');
 const IMPERATIVE_RE_JA = new RegExp(IMPERATIVE_JA.join('|'));
 const NON_LATIN_LETTER = /[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}\P{L}]/u;
-const HANDLE_IMITATION = /\bM\d{1,2}\b|\[\s*bell\s*\d+\s*\]|\b[CHGNc]\d{1,2}\b/;
+const HANDLE_IMITATION = /\bM\d{1,2}\b|\[\s*(?:turn|bell)\s*\d+\s*\]|\b[CHGNc]\d{1,2}\b/;
 const COORD_PAIR = /\(\s*[-−–]?\d{1,3}\s*,\s*[-−–]?\d{1,3}\s*\)/g;
 const normPair = (s) => s.replace(/[−–]/g, '-').replace(/\s+/g, '');
 
 /**
  * checkSummary(text, win, base) -> {ok, text, reason, word?}. The summary is English (Latin script only), contains no handle
- * or `[bell N]` imitation, no imperative aimed at the AI, no coordinate pair, bell or number that is not in the window's episodes
+ * or `[turn N]` imitation, no imperative aimed at the AI, no coordinate pair, turn or number that is not in the window's episodes
  * (the 12 episodes the reflection prompt showed; `win.previous`, the previous validated summary, is added only when
  * `win.allowPrevious`), and passes the V5 checks of `base` except the language rule; the memory-claim rule (2) does not apply.
  *   win = {episodes: [text...], previous?: string, allowPrevious?: boolean, sealed?, inFlight?, untrusted?}

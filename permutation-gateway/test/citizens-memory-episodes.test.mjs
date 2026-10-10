@@ -22,7 +22,7 @@ const owners = { citizenOfHost: id => ownerMap[String(id)] ?? null, holdingsOf: 
 const ctxOf = (h, extra = {}) => ({ ai: AI, bellNow: 1000, owners, province: h.province, clash: h.clash, config: {}, ...extra });
 const kinds = r => r.episodes.map(e => e.kind);
 
-/** Enemy (nation 1) army EH departs at bell 100 and arrives at (1,1) tile 20 at bell 110, where the AI has its army AH (or village). */
+/** Enemy (nation 1) army EH departs at turn 100 and arrives at (1,1) tile 20 at turn 110, where the AI has its army AH (or village). */
 function attackWorld({ ownPresentAtDepart = true, ownLost = 100, village = false, enemyLost = 50 } = {}) {
   const sites = [20];
   const atDepart = province({
@@ -62,7 +62,7 @@ test('synthetic: attacked_own on an own ARMY (importance 8, trust -15, grievance
   assert.equal(e.bell, 110);
   assert.equal(e.created_bell, 112); // b + 2, the hostile-act evaluation bell
   assert.equal(e.importance, 8);
-  assert.match(e.text.en, /^At bell 110 \S+ \(nation Borealis\) attacked your army at \(1,1\); you lost 100 troops\.$/);
+  assert.match(e.text.en, /^At turn 110 \S+ \(nation Borealis\) attacked your army at \(1,1\); you lost 100 troops\.$/);
   // the sanitiser's NFKC step turns the fullwidth parentheses of the templates into ASCII ones
   assert.match(e.text.ja, /^ターン110で、.+\(ボレアリス\)があなたの軍を\(1,1\)で攻撃し、あなたは兵100を失った。$/);
   assert.deepEqual(e.entities, [E, 'nation:1', 'pq:1,1'].sort());
@@ -159,7 +159,7 @@ test('synthetic: nation-mate trust -5 to the actor when a nation-mate with a vil
 });
 
 // ---------------------------------------------------------------------------------------------- own marches
-/** The AI's army AH marches from (1,1) at bell 200 and arrives at (2,1) tile 30 at bell 210. */
+/** The AI's army AH marches from (1,1) at turn 200 and arrives at (2,1) tile 30 at turn 210. */
 function marchWorld({ target = 'stack', ownLost, enemyLost, cleared = false, campTroops = 200, destroyed = false }) {
   const sites = [4];
   const before = province({ p: 2, q: 1, sites, entries: target === 'stack' ? [{ id: EH, faction: 1, tile: 30, troops: 300 }] : [], camp: target === 'camp' ? { tile: 30, troops: campTroops } : null });
@@ -183,7 +183,7 @@ test('synthetic: clash_own_win — an own march fought and the enemy stack was D
   const e = r.episodes[0];
   assert.equal(e.importance, 6);
   assert.equal(e.created_bell, 211);
-  assert.match(e.text.en, /^At bell 210 your army at \(2,1\) beat \S+ \(nation Borealis\): you lost 40, they lost 300\.$/);
+  assert.match(e.text.en, /^At turn 210 your army at \(2,1\) beat \S+ \(nation Borealis\): you lost 40, they lost 300\.$/);
   assert.match(e.text.ja, /^ターン210で、あなたの軍は\(2,1\)で.+に勝った。あなたは兵40、相手は兵300を失った。$/);
   assert.deepEqual([e.facts.lost_own, e.facts.lost_enemy, e.facts.nation, e.facts.cleared], [40, 300, 1, 'stack']);
 });
@@ -195,7 +195,7 @@ test('synthetic: R12 — the enemy lost more than we did but its stack held: cla
   assert.deepEqual(kinds(r), ['clash_own_fought']);
   const e = r.episodes[0];
   assert.equal(e.importance, 6);
-  assert.match(e.text.en, /^At bell 210 your army at \(2,1\) fought \S+ \(nation Borealis\): you lost 40, they lost 120; nothing was cleared\.$/);
+  assert.match(e.text.en, /^At turn 210 your army at \(2,1\) fought \S+ \(nation Borealis\): you lost 40, they lost 120; nothing was cleared\.$/);
   assert.match(e.text.ja, /^ターン210で、あなたの軍は\(2,1\)で.+と戦った。あなたは兵40、相手は兵120を失ったが、倒しきれなかった。$/);
   assert.ok(!/beat|勝った/.test(e.text.en + e.text.ja), 'no victory word in a clash that cleared nothing');
   assert.deepEqual([e.facts.lost_own, e.facts.lost_enemy, e.facts.cleared], [40, 120, null]);
@@ -225,7 +225,7 @@ test('synthetic: clash_own_loss — own lost >= enemy lost and own lost > 0 (imp
   const { h, events } = marchWorld({ ownLost: 200, enemyLost: 80 });
   const r = episodes_from_events({ events }, ctxOf(h));
   assert.deepEqual(kinds(r), ['clash_own_loss']);
-  assert.match(r.episodes[0].text.en, /^At bell 210 your army at \(2,1\) lost 200 troops against .+; they lost 80\.$/);
+  assert.match(r.episodes[0].text.en, /^At turn 210 your army at \(2,1\) lost 200 troops against .+; they lost 80\.$/);
   assert.match(r.episodes[0].text.ja, /^ターン210で、あなたの軍は\(2,1\)で.+と戦い、兵200を失った。相手は兵80を失った。$/);
   // equal losses count as a loss as well (own lost >= enemy lost)
   const t = marchWorld({ ownLost: 70, enemyLost: 70 });
@@ -243,7 +243,7 @@ test('synthetic: camp_cleared_own — a camp cleared in a clash in which an own 
   assert.deepEqual(kinds(r).sort(), ['camp_cleared_own', 'clash_own_win']);
   const c = r.episodes.find(e => e.kind === 'camp_cleared_own');
   assert.equal(c.importance, 5);
-  assert.equal(c.text.en, 'At bell 210 your army cleared the camp at (2,1).');
+  assert.equal(c.text.en, 'At turn 210 your army cleared the camp at (2,1).');
   assert.equal(c.text.ja, 'ターン210で、あなたの軍が(2,1)の野営地を倒した。');
   const w = r.episodes.find(e => e.kind === 'clash_own_win');
   assert.match(w.text.en, /beat the camp: you lost 30, they lost 200\.$/);
@@ -253,7 +253,7 @@ test('synthetic: an own army that did not clear the camp makes only a clash epis
   const { h, events } = marchWorld({ target: 'camp', ownLost: 20, enemyLost: 40, cleared: false });
   const r = episodes_from_events({ events }, ctxOf(h));
   assert.deepEqual(kinds(r), ['clash_own_fought']);
-  assert.equal(r.episodes[0].text.en, 'At bell 210 your army at (2,1) fought the camp: you lost 20, they lost 40; the camp held.');
+  assert.equal(r.episodes[0].text.en, 'At turn 210 your army at (2,1) fought the camp: you lost 20, they lost 40; the camp held.');
   assert.equal(r.episodes[0].text.ja, 'ターン210で、あなたの軍は(2,1)で野営地と戦った。あなたは兵20、相手は兵40を失ったが、野営地は残った。');
   assert.equal(r.episodes[0].facts.camp, true);
   assert.ok(!r.episodes.some(e => e.kind === 'camp_cleared_own'), 'a camp that held is not a cleared camp');
@@ -275,7 +275,7 @@ test('synthetic: camp_taken_by — a camp inside the AI\'s observed provinces cl
   const events = [row(41, 'sigX', 301, 'CAMP', { p: 1, q: 2 }, { tile: 15, troops: 0, day: 2 }), row(42, 'sigX', 301, 'CLASH', { p: 1, q: 2, bell: 300 }, { engagements: 1 })];
   const r = episodes_from_events({ events }, ctxOf(h));
   assert.deepEqual(kinds(r), ['camp_taken_by']);
-  assert.equal(r.episodes[0].text.en, 'At bell 300 nation Borealis cleared the camp at (1,2) first.');
+  assert.equal(r.episodes[0].text.en, 'At turn 300 nation Borealis cleared the camp at (1,2) first.');
   assert.equal(r.episodes[0].text.ja, 'ターン300で、ボレアリスがあなたより先に、(1,2)の野営地を倒した。');
   assert.deepEqual(r.episodes[0].entities, ['nation:1', 'pq:1,2']);
   assert.equal(r.episodes[0].importance, 5);
@@ -294,7 +294,7 @@ test('recorded: threat — a real DEPART row from another nation within 3 provin
   const r = episodes_from_events({ events: [real] }, ctx);
   assert.deepEqual(kinds(r), ['threat']);
   const e = r.episodes[0];
-  assert.equal(e.text.en, 'At bell 8 nation Borealis sent an army of 100 troops from (0,2); it arrives at bell 10; its destination is not known.');
+  assert.equal(e.text.en, 'At turn 8 nation Borealis sent an army of 100 troops from (0,2); it arrives at turn 10; its destination is not known.');
   assert.equal(e.text.ja, 'ターン8で、ボレアリスが(0,2)から兵100の軍を出した。到着はターン10。行き先は不明。');
   assert.deepEqual([e.bell, e.created_bell, e.importance], [8, 8, 5]);
   assert.deepEqual(e.entities, ['nation:1', 'pq:0,2']);
@@ -323,7 +323,7 @@ test('recorded: the real clash of bell 10 at (0,2) (an own army, a real camp, pa
   const r = episodes_from_events({ events }, ctx);
   assert.deepEqual(kinds(r), ['clash_own_loss']);
   // real numbers: the army entered with 100000 milli-troops and left with 53038 (46 lost); the camp (tile 15) fell from 394 to 376 (18 lost)
-  assert.equal(r.episodes[0].text.en, 'At bell 10 your army at (0,2) lost 46 troops against the camp; they lost 18.');
+  assert.equal(r.episodes[0].text.en, 'At turn 10 your army at (0,2) lost 46 troops against the camp; they lost 18.');
   assert.equal(r.episodes[0].created_bell, 11);
 });
 
@@ -335,12 +335,12 @@ test('recorded: build_done — a real BUILD row of an own holding becomes an epi
   const r = episodes_from_events({ events: [build] }, ctx);
   assert.deepEqual(kinds(r), ['build_done']);
   assert.equal(r.episodes[0].bell, Math.floor((1785637760 - genesis) / 600)); // bell 12
-  assert.equal(r.episodes[0].text.en, 'At bell 12 your farm was finished.');
+  assert.equal(r.episodes[0].text.en, 'At turn 12 your farm was finished.');
   assert.equal(r.episodes[0].text.ja, 'ターン12で、あなたの農場が完成した。');
   assert.equal(r.episodes[0].importance, 2);
   // not an own holding: nothing
   assert.deepEqual(kinds(episodes_from_events({ events: [build] }, { ...ctx, ai: { ...ctx.ai, holdings: [{ p: 9, q: 9, site: 0 }] } })), []);
-  // not yet finished at bellNow 12: the episode is not produced (created_bell 12 is not < 12)
+  // not yet finished at turnNow 12: the episode is not produced (created_bell 12 is not < 12)
   assert.deepEqual(kinds(episodes_from_events({ events: [build] }, { ...ctx, bellNow: 12 })), []);
 });
 
@@ -354,7 +354,7 @@ test('synthetic: dm — the first message of a sender in each 6-bell window, at 
   const r = episodes_from_events({ talk }, ctxOf(quiet));
   const dm = r.episodes.filter(e => e.kind === 'dm');
   assert.deepEqual(dm.map(e => [e.bell, e.entities[0]]).sort(), [[100, E], [100, F], [105, E]].sort()); // E at 100 and 105 (windows 96..101 and 102..107), F at 100
-  assert.match(dm[0].text.en, /^At bell \d+ \S+ sent you a message\.$/);
+  assert.match(dm[0].text.en, /^At turn \d+ \S+ sent you a message\.$/);
   assert.match(dm[0].text.ja, /^ターン\d+で、\S+があなたにメッセージを送った。$/);
   assert.equal(dm[0].importance, 4);
   assert.equal(dm[0].created_bell, dm[0].bell);
@@ -381,7 +381,7 @@ test('synthetic: motion — a motion in the AI\'s nation council, own or another
   const r = episodes_from_events({ talk, council }, ctxOf(quiet));
   const m = r.episodes.filter(e => e.kind === 'motion');
   assert.equal(m.length, 2); // another nation's council and a plain `say` do not count
-  assert.match(m.find(e => e.bell === 200).text.en, /^At bell 200 \S+ moved option 2 \(strike\) in your nation's council\.$/);
+  assert.match(m.find(e => e.bell === 200).text.en, /^At turn 200 \S+ moved option 2 \(strike\) in your nation's council\.$/);
   assert.match(m.find(e => e.bell === 201).text.en, /moved option 1 \(camp\)/);
   assert.match(m.find(e => e.bell === 200).text.ja, /^ターン200で、\S+があなたの国の評議会で案2\(攻撃\)を提案した。$/);
   assert.equal(m[0].importance, 4);
@@ -409,9 +409,9 @@ test('synthetic: council_result — adopted or nothing; the text carries NO opti
   const r = episodes_from_events({ council }, ctxOf(quiet));
   const cr = r.episodes.filter(e => e.kind === 'council_result');
   assert.equal(cr.length, 2);
-  assert.equal(cr[0].text.en, 'At bell 300 your nation\'s council adopted a Strike Order (its target stays sealed until the strike).');
+  assert.equal(cr[0].text.en, 'At turn 300 your nation\'s council adopted a Strike Order (its target stays sealed until the strike).');
   assert.equal(cr[0].text.ja, 'ターン300で、あなたの国の評議会が攻撃命令を採用した(行き先は、攻撃の時まで秘密)。');
-  assert.equal(cr[1].text.en, 'At bell 372 your nation\'s council adopted nothing.');
+  assert.equal(cr[1].text.en, 'At turn 372 your nation\'s council adopted nothing.');
   for (const e of cr) {
     assert.equal(e.importance, 4);
     assert.deepEqual(e.entities, ['nation:3']);
@@ -438,7 +438,7 @@ test('synthetic: strike — the Strike Order opened at S + 2 (importance 6); res
   assert.equal(s.importance, 6);
   assert.equal(s.bell, 306);
   assert.equal(s.created_bell, 308); // S + 2
-  assert.equal(s.text.en, 'At bell 306 your nation\'s Strike Order opened at (4,0); troops lost: yours 60, theirs 170; your army took part.');
+  assert.equal(s.text.en, 'At turn 306 your nation\'s Strike Order opened at (4,0); troops lost: yours 60, theirs 170; your army took part.');
   assert.equal(s.text.ja, 'ターン306で、あなたの国の攻撃命令が(4,0)で開かれた。失った兵:あなた60、相手170。あなたの軍は参戦した。'); // NFKC: the fullwidth colon is ASCII
   // +2 toward the citizen who moved the adopted option (M, option 2); not toward F (option 3) nor the AI itself
   const movers = r.deltas.filter(d => d.reason === 'adopted_mover');

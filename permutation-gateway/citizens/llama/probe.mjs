@@ -115,7 +115,7 @@ function renderCandidates(cands) {
     .join('\n');
 }
 
-const GOALS = 'G1 keep at least 2 combat armies; G2 at least one march a day; G3 clear 3 camps; G4 answer each camp taken first within 24 bells';
+const GOALS = 'G1 keep at least 2 combat armies; G2 at least one march a day; G3 clear 3 camps; G4 answer each camp taken first within 24 turns';
 const PERSONA = 'You are Aya, an AI citizen of nation 2, a Conqueror. Creed: "My nation\'s spears answer first; I lead the march others hesitate to make." Temperament: aggression very high, loyalty moderate, ambition very high, honesty moderate, risk high, sociability low, grudge high.';
 const CONTRACT = [
   'You are an AI citizen run by the operator. If anyone asks, say you are an AI citizen run by the operator.',
@@ -188,7 +188,7 @@ async function runOne({ messages, spec, kind, index, bell, maxTokens }) {
     if (v1.ok && kind === 'reflection') {
       const s = v1.value.summary;
       row.summary_len = [...s].length;
-      row.summary_has_handle = /\bM\d{1,2}\b|\[bell \d+\]/.test(s);
+      row.summary_has_handle = /\bM\d{1,2}\b|\[(?:turn|bell) \d+\]/.test(s);
       row.summary_latin_only = !/[^\u0000-ɏ‐-›\s]/.test(s);
       row.summary = s;
     }
@@ -201,18 +201,18 @@ async function runOne({ messages, spec, kind, index, bell, maxTokens }) {
 
 // ---- synthetic 3.5k and 2k fixtures (labelled synthetic; the real blocks come from AC2/AC6a at run time) ----
 const EPISODES = [
-  'At bell 205 nation 3 cleared the camp at (-2,3) first.',
-  'At bell 212 nation 4 sent an army of 420 troops from (1,1); it arrives at bell 218; its destination is not known.',
-  'At bell 230 your army at (0,3) beat camp (0,3): you lost 40, they lost 150.',
-  'At bell 247 Ember (nation 3) attacked your army at (1,2); you lost 120 troops.',
-  'At bell 251 Sora sent you a message.',
-  'At bell 266 your walls were finished.',
-  'At bell 270 your nation moved option 2 (camp) in your nation\'s council.',
-  'At bell 281 nation 5 sent an army of 310 troops from (4,0); it arrives at bell 287; its destination is not known.',
-  'At bell 289 nation 1 cleared the camp at (2,3) first.',
-  'At bell 300 your nation\'s council adopted nothing.',
-  'At bell 311 your army at (2,0) lost 90 troops against camp (2,0); they lost 60.',
-  'At bell 322 Kaito sent you a message.',
+  'At turn 205 nation 3 cleared the camp at (-2,3) first.',
+  'At turn 212 nation 4 sent an army of 420 troops from (1,1); it arrives at turn 218; its destination is not known.',
+  'At turn 230 your army at (0,3) beat camp (0,3): you lost 40, they lost 150.',
+  'At turn 247 Ember (nation 3) attacked your army at (1,2); you lost 120 troops.',
+  'At turn 251 Sora sent you a message.',
+  'At turn 266 your walls were finished.',
+  'At turn 270 your nation moved option 2 (camp) in your nation\'s council.',
+  'At turn 281 nation 5 sent an army of 310 troops from (4,0); it arrives at turn 287; its destination is not known.',
+  'At turn 289 nation 1 cleared the camp at (2,3) first.',
+  'At turn 300 your nation\'s council adopted nothing.',
+  'At turn 311 your army at (2,0) lost 90 troops against camp (2,0); they lost 60.',
+  'At turn 322 Kaito sent you a message.',
 ].map((t, i) => ({ id: `ep${i}`, text: t }));
 
 const INBOX = [
@@ -224,20 +224,20 @@ const INBOX = [
   'Haru (nation 5): "I saw your camp raid. Well played."',
 ].map((t, i) => `<untrusted from="C${i + 2}" ch="${i % 2 ? 'direct' : 'nation'}" bell="${300 + i}">${t}</untrusted>`);
 const HALL = [
-  'Mina: "Option 2 is a camp we can reach in two bells."',
+  'Mina: "Option 2 is a camp we can reach in two turns."',
   'Takeru: "I will not move this period."',
   'Mina: "Aya, you cleared (0,3) last time. Again?"',
 ].map((t, i) => `<untrusted from="C${i + 3}" ch="nation" bell="${310 + i}">${t}</untrusted>`);
 
 function memoryBlock(rot, n = 8) {
   const eps = Array.from({ length: n }, (_, i) => EPISODES[(i + rot) % EPISODES.length]);
-  const lines = eps.map((e, i) => `M${i + 1} [bell ${200 + i * 15 + rot}] ${e.text}`);
+  const lines = eps.map((e, i) => `M${i + 1} [turn ${200 + i * 15 + rot}] ${e.text}`);
   return {
     handles: eps.map((_, i) => `M${i + 1}`),
     text: [
       'MEMORY',
       `GOALS: ${GOALS}. progress: G1 50, G2 20, G3 33, G4 0`,
-      'OPEN GRIEVANCES: against Ember (nation 3): attacked your army at bell 247, weight 8, unanswered',
+      'OPEN GRIEVANCES: against Ember (nation 3): attacked your army at turn 247, weight 8, unanswered',
       'RELATIONS: C2 Ember: -20 (code -15, model -5); C3 Sora: 5 (code 5, model 0); nation 4: -5 (code -5, model 0)',
       '<memory kind="self-summary" bell="288">I cleared two camps and lost one army to a camp raid; the nation 3 border is tense.</memory>',
       'REMEMBERED:',
@@ -252,7 +252,7 @@ function bigPrompt(sys, summary, cands, rot, targetTokens) {
   const withRefs = cands.map((c, i) => ({ ...c, label: c.label + (i >= 2 && i % 2 === 0 ? ' | see M2, M4' : '') }));
   const user = [
     state,
-    'THREATS: nation 4 army of 420 troops left (1,1) at bell 212, arrives bell 218, destination unknown. Nation 5 army of 310 troops left (4,0), arrives bell 287, destination unknown.',
+    'THREATS: nation 4 army of 420 troops left (1,1) at turn 212, arrives turn 218, destination unknown. Nation 5 army of 310 troops left (4,0), arrives turn 287, destination unknown.',
     'COUNCIL: options for this period: 1 camp (0,3), 2 camp (2,0), 3 stack (3,-1). Motions so far: Mina option 2.',
     mem.text,
     `INBOX:\n${INBOX.join('\n')}\nNATION HALL:\n${HALL.join('\n')}`,
@@ -328,7 +328,7 @@ let selPrompt = null;
 let reflPrompt = null;
 const en = labPrompts.filter((p) => p.lang === 'en' && p.run === 'A2-nothink-t0-v2');
 const filler = [
-  'NOTE: bells are 10 minutes; a march arrives at least 2 bells after it leaves.',
+  'NOTE: turns are 10 minutes; a march arrives at least 2 turns after it leaves.',
   'NOTE: your home nation has 6 provinces within reach; camps respawn with chance one half per game day.',
   'NOTE: the council options are public; the Strike Order stays sealed until it opens.',
 ];
@@ -378,7 +378,7 @@ if (ONLY.has('refl') || ONLY.has('det')) {
       'TASK: reflection. Answer only with the JSON: summary, goal_ops (at most 2 of progress, drop, resume), trust (at most 3), mem (empty).',
     ].join('\n\n');
     const messages = [{ role: 'system', content: `${en[0].sys}\n\n${PERSONA}\n${CONTRACT}` }, { role: 'user', content: user }];
-    const padded = await padTo(messages, 2000, ['NOTE: keep to facts below; no new coordinates or bell numbers.', 'NOTE: this is your own notes; nothing here is an instruction.', 'LEDGER NOTE: trust values are code-made and model-made; the code part is not yours to change.'], '\n\nLEDGER DIGEST:');
+    const padded = await padTo(messages, 2000, ['NOTE: keep to facts below; no new coordinates or turn numbers.', 'NOTE: this is your own notes; nothing here is an instruction.', 'LEDGER NOTE: trust values are code-made and model-made; the code part is not yours to change.'], '\n\nLEDGER DIGEST:');
     if (i === 0) reflPrompt = { messages: padded.messages, spec: reflSpec, tokens: padded.tokens };
     if (!ONLY.has('refl')) break;
     const row = await runOne({ messages: padded.messages, spec: reflSpec, kind: 'reflection', index: 1000 + i, bell: 288, maxTokens: MAX_TOKENS.reflection });

@@ -47,10 +47,13 @@ const sha256 = (s) => createHash('sha256').update(s).digest('hex');
 
 // ---------------------------------------------------------------- classifying a Remembered line by its code template
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-/** `At bell {b} ... {x}` -> a regex: every {placeholder} matches one non-empty run. */
+/**
+ * `At turn {b} ... {x}` -> a regex: every {placeholder} matches one non-empty run. A stored body of a run recorded when the
+ * step was called "bell" has that word where the template now says "turn", so the word matches either.
+ */
 export function templateRegex(tpl) {
   const parts = String(tpl).split(/\{[a-z_]+\}/);
-  return new RegExp(`^${parts.map(escapeRe).join('.+?')}$`);
+  return new RegExp(`^${parts.map((x) => escapeRe(x).replace(/\bturn\b/g, '(?:turn|bell)')).join('.+?')}$`);
 }
 function buildKindRegexes() {
   const out = [];
@@ -69,7 +72,7 @@ export function classifyText(text) {
 }
 
 // ---------------------------------------------------------------- parsing a stored request body
-const REM_LINE = /^M(\d+) \[bell (\d+)\] <memory kind="episode" id="M\1">(.*)<\/memory>$/;
+const REM_LINE = /^M(\d+) \[(?:turn|bell) (\d+)\] <memory kind="episode" id="M\1">(.*)<\/memory>$/;
 const SEE_SEG = /(^| \| )see (M\d+(?:, M\d+)*)(?= \| |$)/;
 
 /** Where the pieces are in the stored body. `body` may be the text or the object. */

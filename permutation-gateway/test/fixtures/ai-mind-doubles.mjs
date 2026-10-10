@@ -78,7 +78,7 @@ export class EpisodesDouble {
   add(e) { this.byId.set(e.id, e); }
 }
 export function makeEpisode(i, over = {}) {
-  return { v: 1, id: `ep${String(i).padStart(14, '0')}`, bell: 10 * i, created_bell: 10 * i + 1, kind: 'camp_taken_by', entities: ['pq:1,1', 'nation:3'], text: { en: `At bell ${10 * i} nation 3 cleared the camp at (1,1) first.`, ja: `ターン${10 * i}で、国3が(1,1)の野営地を先に倒した。` }, importance: 5, src: [], ...over };
+  return { v: 1, id: `ep${String(i).padStart(14, '0')}`, bell: 10 * i, created_bell: 10 * i + 1, kind: 'camp_taken_by', entities: ['pq:1,1', 'nation:3'], text: { en: `At turn ${10 * i} nation 3 cleared the camp at (1,1) first.`, ja: `ターン${10 * i}で、国3が(1,1)の野営地を先に倒した。` }, importance: 5, src: [], ...over };
 }
 export function makeStores({ episodes = [], goals = [] } = {}) {
   const ledgers = new Map();
@@ -111,7 +111,7 @@ export function renderMemoryDouble(ownState, focus, budget = {}) {
   const lines = ['MEMORY', 'Remembered:'];
   hit.forEach((e, i) => {
     handles[`M${i + 1}`] = e.id;
-    lines.push(`M${i + 1} [bell ${e.bell}] <memory kind="episode" id="M${i + 1}">${e.text.en}</memory>`);
+    lines.push(`M${i + 1} [turn ${e.bell}] <memory kind="episode" id="M${i + 1}">${e.text.en}</memory>`);
   });
   if (!hit.length) lines.push('(nothing remembered yet)');
   return { block: lines.join('\n'), handles, ids: hit.map((e) => e.id), tokens: Math.ceil(lines.join('\n').length / 3) };

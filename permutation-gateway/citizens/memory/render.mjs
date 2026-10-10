@@ -74,7 +74,7 @@ export function renderMemory(ownState, focus, budget = {}) {
     if (goalLines.length) lines.push('Goals:', ...goalLines.map(l => `- ${l}`));
     if (nGriev > 0 && openG.length) {
       lines.push('Open grievances:');
-      for (const g of openG.slice(0, nGriev)) lines.push(`- against ${safeText(whoLabel(g.against))} since bell ${g.bell} (weight ${g.weight})`);
+      for (const g of openG.slice(0, nGriev)) lines.push(`- against ${safeText(whoLabel(g.against))} since turn ${g.bell} (weight ${g.weight})`);
     }
     if (nRel > 0 && relationsAll.length) {
       lines.push('Relations:');
@@ -91,7 +91,7 @@ export function renderMemory(ownState, focus, budget = {}) {
     use.forEach((id, i) => {
       const e = byId.get(id), h = `M${i + 1}`;
       handles[h] = id;
-      lines.push(`${h} [bell ${e.bell}] <memory kind="episode" id="${h}">${safeText(e.text.en, { kind: 'trusted' })}</memory>`);
+      lines.push(`${h} [turn ${e.bell}] <memory kind="episode" id="${h}">${safeText(e.text.en, { kind: 'trusted' })}</memory>`);
     });
     return { block: lines.join('\n'), handles };
   };

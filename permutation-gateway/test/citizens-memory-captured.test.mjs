@@ -56,7 +56,7 @@ test('recorded: the defender\'s village is attacked at bell 387 — attacked_own
   const e = r.episodes.find(x => x.kind === 'attacked_own');
   assert.ok(e, JSON.stringify(r.unknown.slice(0, 3)));
   assert.deepEqual([e.bell, e.created_bell, e.importance], [387, 389, 8]);
-  assert.equal(e.text.en, `At bell 387 ${nameOf(ATTACKER).en} (nation Borealis) attacked your village at (1,4); you lost 130 troops.`);
+  assert.equal(e.text.en, `At turn 387 ${nameOf(ATTACKER).en} (nation Borealis) attacked your village at (1,4); you lost 130 troops.`);
   assert.equal(e.text.ja, `ターン387で、${nameOf(ATTACKER).ja}(ボレアリス)があなたの村を(1,4)で攻撃し、あなたは兵130を失った。`);
   assert.deepEqual(e.entities, [ATTACKER, 'nation:1', 'pq:1,4'].sort());
   const trust = r.deltas.find(d => d.reason === 'hostile_act');
@@ -69,12 +69,12 @@ test('recorded: the defender\'s village is attacked at bell 387 — attacked_own
 test('recorded: the defender also remembers threats (a real DEPART of a Borealis army within 3 provinces) and the camp Borealis cleared first', () => {
   const r = viaRaw(DEFENDER);
   const t = r.episodes.find(e => e.kind === 'threat' && e.bell === 383);
-  assert.equal(t.text.en, 'At bell 383 nation Borealis sent an army of 500 troops from (0,4); it arrives at bell 387; its destination is not known.');
+  assert.equal(t.text.en, 'At turn 383 nation Borealis sent an army of 500 troops from (0,4); it arrives at turn 387; its destination is not known.');
   assert.equal(t.facts.arrive_bell, 387);
   assert.ok(!/\(1,4\)/.test(t.text.en), 'the destination is not in the episode');
   const c = r.episodes.find(e => e.kind === 'camp_taken_by');
-  assert.deepEqual([c.bell, c.created_bell, c.text.en], [304, 306, 'At bell 304 nation Borealis cleared the camp at (1,4) first.']);
-  // the attack at bell 388 on a nation-mate's village in the same province costs the actor -5 with the defender (a nation-mate rule delta)
+  assert.deepEqual([c.bell, c.created_bell, c.text.en], [304, 306, 'At turn 304 nation Borealis cleared the camp at (1,4) first.']);
+  // the attack at turn 388 on a nation-mate's village in the same province costs the actor -5 with the defender (a nation-mate rule delta)
   assert.ok(r.deltas.some(d => d.reason === 'nation_mate' && d.who === ATTACKER && d.amount === -5));
 });
 
@@ -82,10 +82,10 @@ test('recorded: the attacker\'s own marches at (1,4): "fought" at bell 387 and a
   const r = viaRaw(ATTACKER);
   assert.ok(!r.episodes.some(e => e.kind === 'clash_own_win' && e.bell === 387), 'the old code called this a win (lost_enemy 130 > lost_own 103)');
   const fought = r.episodes.find(e => e.kind === 'clash_own_fought' && e.bell === 387);
-  assert.match(fought.text.en, /^At bell 387 your army at \(1,4\) fought \S+ \(nation Aster\): you lost 103, they lost 130; nothing was cleared\.$/);
+  assert.match(fought.text.en, /^At turn 387 your army at \(1,4\) fought \S+ \(nation Aster\): you lost 103, they lost 130; nothing was cleared\.$/);
   assert.equal(fought.facts.cleared, null);
   const loss = r.episodes.find(e => e.kind === 'clash_own_loss' && e.bell === 388);
-  assert.match(loss.text.en, /^At bell 388 your army at \(1,4\) lost 69 troops against \S+ \(nation Aster\); they lost 60\.$/);
+  assert.match(loss.text.en, /^At turn 388 your army at \(1,4\) lost 69 troops against \S+ \(nation Aster\); they lost 60\.$/);
   assert.deepEqual([fought.created_bell, loss.created_bell], [389, 390], 'created at the log bell of the CLASH row');
   assert.deepEqual(r.deltas, [], 'an attacker gets no trust or grievance delta from its own attack');
 });
@@ -93,8 +93,8 @@ test('recorded: the attacker\'s own marches at (1,4): "fought" at bell 387 and a
 test('recorded: a lone army clears the camp at (1,-3) at bell 43: camp_cleared_own and clash_own_win against the camp', () => {
   const r = viaRaw(CAMP_SINGLE);
   assert.deepEqual(nonThreat(r).map(e => e.kind).sort(), ['camp_cleared_own', 'clash_own_win']);
-  assert.equal(r.episodes.find(e => e.kind === 'camp_cleared_own').text.en, 'At bell 43 your army cleared the camp at (1,-3).');
-  assert.match(r.episodes.find(e => e.kind === 'clash_own_win').text.en, /^At bell 43 your army at \(1,-3\) beat the camp: you lost 35, they lost 314\.$/);
+  assert.equal(r.episodes.find(e => e.kind === 'camp_cleared_own').text.en, 'At turn 43 your army cleared the camp at (1,-3).');
+  assert.match(r.episodes.find(e => e.kind === 'clash_own_win').text.en, /^At turn 43 your army at \(1,-3\) beat the camp: you lost 35, they lost 314\.$/);
 });
 
 test('recorded: two armies of different nations arrive on the camp tile at bell 304 — each wins against the camp, and the meeting is a collision, never a hostile act', () => {

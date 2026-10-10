@@ -34,7 +34,7 @@ test('call_adopted names no target: no coordinates, no option, no tile; only the
     assert.ok(nums.slice(1, -2).every(n => n === '1'), `only ballot counts in between (the JA wording says 1票 for each kind): ${t}`);
   }
   assert.equal(fillLine('call_adopted', { b: 54, nation: 'Ember', with: 'with 1 AI ballot and the presenter\'s ballot', S: 60, O: 62 }, 'en'),
-    'At bell 54 the council of Ember adopted a Strike Order with 1 AI ballot and the presenter\'s ballot. Its target stays sealed until the armies arrive at bell 60; the Strike Order is opened at bell 62.');
+    'At turn 54 the council of Ember adopted a Strike Order with 1 AI ballot and the presenter\'s ballot. Its target stays sealed until the armies arrive at turn 60; the Strike Order is opened at turn 62.');
   // FB5: the line used to say the target "stays sealed until bell S", but the Strike Order is OPENED (council file, call_commit) at S + 2
   assert.doesNotMatch(fillLine('call_adopted', { b: 54, nation: 'Ember', with: 'with 1 AI ballot', S: 60, O: 62 }, 'en'), /sealed until bell 60/);
   assert.throws(() => fillLine('call_adopted', { b: 54, nation: 'Ember', with: 'x', S: 60 }, 'en'), /no value for \{O\}/);
@@ -79,7 +79,7 @@ test('add: both languages, badges from the roster, day number, dedupe by (kind, 
     vals: l => ({ b: 150, name: nameOfDouble('aaaaaaaaaaaaaaa1')[l], k: 2, kind: TEMPLATES[l].words.option_kind.camp, nation: nationNameDouble(1)[l] }),
   });
   assert.deepEqual([line.kind, line.bell, line.day, line.actors, line.ai, line.refs], ['motion', 150, 1, ['aaaaaaaaaaaaaaa1'], [true], ['council:1:3']]);
-  assert.equal(line.text.en, 'At bell 150 Nameaaaa moved option 2 (camp) in the council of Nation1.');
+  assert.equal(line.text.en, 'At turn 150 Nameaaaa moved option 2 (camp) in the council of Nation1.');
   // the sanitiser's NFKC turns the full-width brackets into ASCII ones, as in every episode text
   assert.equal(line.text.ja, 'ターン150で、名aaaaが国1の評議会で案2(野営地)を提案した。');
   assert.equal('by' in line, false);

@@ -40,7 +40,7 @@ test('a session: the model picks the camp march; the answer, the sealed record a
     // the record: sealed (a march), commitment, release one bell past the arrival bell
     const pub = h.records.get(a.decision_id);
     assert.equal(pub.sealed, true);
-    assert.equal(pub.release_bell, 44, 'earliest arrival bell 43, destination public when it ends');
+    assert.equal(pub.release_bell, 44, 'earliest arrival turn 43, destination public when it ends');
     assert.equal(pub.kind, 'session');
     assert.equal(pub.mode, 'model');
     assert.ok(!('choice' in pub));
@@ -64,7 +64,7 @@ test('a session: the model picks the camp march; the answer, the sealed record a
   }
 });
 
-test('/v1/decide is idempotent per (index, bell): a repeat returns the cached answer, no model call, no new record', async () => {
+test('/v1/decide is idempotent per (index, turn): a repeat returns the cached answer, no model call, no new record', async () => {
   const h = await makeMindHarness({ respond: (b) => sessionAnswer(b) });
   try {
     const a = await h.mind.decide(req());
@@ -148,7 +148,7 @@ test('below the gate: no pulse, no events -> autopilot below_gate; the day budge
   }
 });
 
-test('a reaction (W-DM) answers social only: choose [], the answer carries the autopilot id and a TALK with seq (bell << 4) | k', async () => {
+test('a reaction (W-DM) answers social only: choose [], the answer carries the autopilot id and a TALK with seq (turn << 4) | k', async () => {
   const social = makeSocial({ inbox: [{ id: 'm1', bell: 39, wallet: WALLETS[1], tag: TAGS[1], name: 'Sora', channel: 'direct', text: 'Hello there', inner: 'ab'.repeat(32) }] });
   const h = await makeMindHarness({
     social,
@@ -256,7 +256,7 @@ test('mem: cited handles map to episode ids, unknown ones are dropped and counte
     assert.deepEqual(pub.full.choice.mem, ids);
     assert.equal(h.metrics.get('decisions_citing_memory'), 1);
     assert.equal(pub.priv.remembered.length, 2);
-    assert.equal(pub.priv.remembered[0].text.en.startsWith('At bell'), true);
+    assert.equal(pub.priv.remembered[0].text.en.startsWith('At turn'), true);
     // the schema enum is this prompt's handles: M1..Mk and nothing else
     const schema = h.llama.bodies[0].response_format.json_schema.schema;
     assert.deepEqual(schema.properties.mem.items.enum, pub.full.retrieved.map((_, i) => `M${i + 1}`));
@@ -419,7 +419,7 @@ test('llm errors: http 500 -> llm_error; deadline -> timeout; a late finish -> l
   }
 });
 
-test('feed_lag: a model session is refused while the feed is behind the end of bell b - 1', async () => {
+test('feed_lag: a model session is refused while the feed is behind the end of turn b - 1', async () => {
   let cursor = 30;
   const h = await makeMindHarness({ respond: (b) => sessionAnswer(b), feed: { cursorBell: () => cursor } });
   try {
@@ -458,7 +458,7 @@ test('feed_wait (integ-A): a feed that catches up within the bounded wait lets t
   }
 });
 
-test('hold reserves the hosts of its facts; the standing order comes back in the answer and expires by bell', async () => {
+test('hold reserves the hosts of its facts; the standing order comes back in the answer and expires by turn', async () => {
   const h = await makeMindHarness({ respond: (b) => sessionAnswer(b, { kinds: [], why: 'Keep them home.' }) });
   try {
     h.llama.close;
@@ -530,7 +530,7 @@ test('request_hash of a model record is the sha256 of the exact stored llama bod
   }
 });
 
-test('W-REFLECT: the first step at or after bell mod 72 == 0 emits one reflect_due event (own job, no budget used); off when reflection is false', async () => {
+test('W-REFLECT: the first step at or after turn mod 72 == 0 emits one reflect_due event (own job, no budget used); off when reflection is false', async () => {
   const h = await makeMindHarness({ respond: (b) => sessionAnswer(b) });
   const events = [];
   h.mind.subscribe((e) => events.push(e));
@@ -563,7 +563,7 @@ test('THREATS: threat wake facts reach the prompt and the memory focus; a big th
     const a = await h.mind.decide(req({ wake_hints: [] }));
     assert.equal(a.mode, 'model');
     const u = h.llama.bodies[0].messages[1].content;
-    assert.match(u, /nation 4 sent an army of 420 troops from \(1,1\); it arrives at bell 50; its destination is not known\./);
+    assert.match(u, /nation 4 sent an army of 420 troops from \(1,1\); it arrives at turn 50; its destination is not known\./);
     const rec = h.records.recordsOf(40)[0];
     assert.deepEqual(rec.wake.sort(), ['W-PULSE', 'W-THREAT']);
     assert.equal(rec.gate_score, 6, 'pulse 3 + threat 2 + 1 for a big mass');
@@ -607,14 +607,14 @@ test('per-AI stats for the Wyll card: decisions, valid, actions by model or auto
   }
 });
 
-test('without a feed that reports REVEALs, a sealed entry is dropped 7 bells after its arrival bell', async () => {
+test('without a feed that reports REVEALs, a sealed entry is dropped 7 turns after its arrival turn', async () => {
   const h = await makeMindHarness({ respond: (b) => sessionAnswer(b, { kinds: ['march'] }) });
   try {
     const a = await h.mind.decide(req());
     h.mind.outcome({ decision_id: a.decision_id, actions: [{ intent: 'depart', status: 'sent', sig: 's' }] });
     assert.equal(h.sealed.list(TAGS[0]).length, 1);
     await h.mind.decide(req({ bell: 50, wake_hints: [] }));
-    assert.equal(h.sealed.list(TAGS[0]).length, 1, 'arrival bell 43: still held at bell 50');
+    assert.equal(h.sealed.list(TAGS[0]).length, 1, 'arrival turn 43: still held at turn 50');
     await h.mind.decide(req({ bell: 51, wake_hints: [] }));
     assert.equal(h.sealed.list(TAGS[0]).length, 0);
   } finally {

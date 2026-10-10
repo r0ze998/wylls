@@ -104,8 +104,8 @@ export function selectHandles(mapped, selectors) {
 
 // ---------------------------------------------------------------- the same event stated elsewhere in the prompt
 // the two code templates of citizens/mind/prompt.mjs (threatLines, stateLines) that restate an event of the public log
-const THREAT_LINE = /^  nation (-?\d+) sent an army of (\d+) troops from \((-?\d+),(-?\d+)\); it arrives at bell (\d+); its destination is not known\.$/;
-const CLASH_LINE = /^  bell (\d+) at \((-?\d+),(-?\d+)\): you lost (\d+), they lost (\d+) \(.*\)$/;
+const THREAT_LINE = /^  nation (-?\d+) sent an army of (\d+) troops from \((-?\d+),(-?\d+)\); it arrives at (?:turn|bell) (\d+); its destination is not known\.$/;
+const CLASH_LINE = /^  (?:turn|bell) (\d+) at \((-?\d+),(-?\d+)\): you lost (\d+), they lost (\d+) \(.*\)$/;
 const THREATS_HEAD = 'THREATS:';
 const THREATS_NONE = 'THREATS: none seen.';
 const CLASHES_HEAD = 'YOUR RECENT CLASHES:';

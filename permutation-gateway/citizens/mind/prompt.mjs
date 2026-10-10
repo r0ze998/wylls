@@ -36,7 +36,9 @@ export function loadTemplates(dir) {
 
 const fill = (tpl, vars) => tpl.replace(/\{\{(\w+)\}\}/g, (_, k) => (vars[k] != null ? String(vars[k]) : ''));
 const fmt = (v) => (Array.isArray(v) ? v.join(', ') : typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v));
-const words = (k) => k.replace(/_/g, ' ');
+// A fact key as the model reads it: `earliest_bell` -> "earliest turn". The key keeps its code name (bell); the prompt's word for
+// the ten-minute step is "turn" everywhere, so a prompt never has both.
+const words = (k) => k.replace(/_/g, ' ').replace(/\bbell(s?)\b/g, 'turn$1');
 
 /** Rough fallback when /tokenize is unreachable (tests, offline): conservative for English and kana. */
 export const estimateTokens = (text) => Math.ceil(String(text).length / 3);
@@ -71,12 +73,12 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
     const out = [];
     const me = sit.me ?? {};
     // `secs_left` on the wire is game seconds to the season end (AC3a fixture), not seconds left in the bell: not shown
-    out.push(`NOW: bell ${sit.bell} (day ${sit.day}, bell ${sit.bell_in_day}/144). Season ends at bell ${sit.end_bell}.`);
+    out.push(`NOW: turn ${sit.bell} (day ${sit.day}, turn ${sit.bell_in_day}/144). Season ends at turn ${sit.end_bell}.`);
     out.push(`YOU: nation ${me.faction}${me.doctrine ? ` (${me.doctrine})` : ''}.`);
     const h = me.home;
     if (h) {
       const bits = [`HOME: (${h.p},${h.q}) site ${h.site ?? '?'}, tier ${h.tier ?? '?'}, ${h.final ? 'final' : 'provisional'}`];
-      if (h.shield_until_bell != null) bits.push(`your village shield lasts until bell ${h.shield_until_bell}`);
+      if (h.shield_until_bell != null) bits.push(`your village shield lasts until turn ${h.shield_until_bell}`);
       if (h.walls != null) bits.push(`walls ${h.walls}`);
       out.push(bits.join(', ') + '.');
     }
@@ -99,9 +101,9 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
     if (!(me.hosts ?? []).length) out.push('  none');
     for (const x of me.hosts ?? []) {
       let s = `  ${x.handle} ${x.unit ?? ''} ${x.troops} troops at (${x.at?.p},${x.at?.q}), stamina ${x.stamina}, `;
-      if (x.in_transit) s += `in transit${x.arrive_bell != null ? `, arrives bell ${x.arrive_bell}` : ''}`;
+      if (x.in_transit) s += `in transit${x.arrive_bell != null ? `, arrives turn ${x.arrive_bell}` : ''}`;
       else s += x.ready ? 'ready' : `not ready${x.why_not ? ` (${x.why_not})` : ''}`;
-      if (x.idle_bells != null && x.ready) s += `, idle ${x.idle_bells} bells`;
+      if (x.idle_bells != null && x.ready) s += `, idle ${x.idle_bells} turns`;
       out.push(s);
     }
     out.push(`EXPLORATION: ${me.explore ?? 'idle'}. MUSTER ROOM: ${me.muster_room ?? 0} more host(s).`);
@@ -118,7 +120,7 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
     }
     if ((sit.my_clashes ?? []).length) {
       out.push('YOUR RECENT CLASHES:');
-      for (const c of sit.my_clashes) out.push(`  bell ${c.bell} at (${c.p},${c.q}): you lost ${c.own_lost}, they lost ${c.enemy_lost} (${c.result})`);
+      for (const c of sit.my_clashes) out.push(`  turn ${c.bell} at (${c.p},${c.q}): you lost ${c.own_lost}, they lost ${c.enemy_lost} (${c.result})`);
     }
     return out;
   }
@@ -127,7 +129,7 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
   function threatLines(threats) {
     const out = [];
     for (const t of (threats ?? []).slice(0, 5)) {
-      out.push(`  nation ${t.nation} sent an army of ${t.mass} troops from (${t.origin?.p},${t.origin?.q}); it arrives at bell ${t.arrive_bell}; its destination is not known.`);
+      out.push(`  nation ${t.nation} sent an army of ${t.mass} troops from (${t.origin?.p},${t.origin?.q}); it arrives at turn ${t.arrive_bell}; its destination is not known.`);
     }
     return out.length ? ['THREATS:', ...out] : ['THREATS: none seen.'];
   }
@@ -140,8 +142,8 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
       const who = people.people.find((p) => p.wallet === m.wallet)?.handle ?? 'someone';
       out.push(`  ${who} moved option ${m.option}`);
     }
-    if (council.closes_bell != null) out.push(`  this window closes at bell ${council.closes_bell}.`);
-    if (member?.call) out.push(`  A Strike Order of your nation is live (period ${member.call.period ?? council.period}, strike bell ${member.call.strike_bell}); the candidate flagged Strike Order lists its target.`);
+    if (council.closes_bell != null) out.push(`  this window closes at turn ${council.closes_bell}.`);
+    if (member?.call) out.push(`  A Strike Order of your nation is live (period ${member.call.period ?? council.period}, strike turn ${member.call.strike_bell}); the candidate flagged Strike Order lists its target.`);
     if (council.adopted && !member?.call) out.push('  A Strike Order was adopted; its target is known only to nation members.');
     return out;
   }
@@ -361,7 +363,7 @@ export function createPromptRenderer({ templatesDir, countTokens = null, speech,
       previous_summary: prev,
       ledger_digest: String(ledgerDigest).split('\n').map((l) => sanitize(l, { limit: 200 })).join('\n'),
       goals: goals.map((g) => sanitize(`${g.id}: ${g.text ?? ''} progress ${g.progress === null ? 'not computed' : g.progress}${g.status && g.status !== 'active' ? ` (${g.status})` : ''}`, { limit: 240 })).join('\n'),
-      episodes: episodes.map((e) => wrapMemory(`[bell ${e.bell}] ${e.text}`, { kind: 'episode' })).join('\n') || 'none',
+      episodes: episodes.map((e) => wrapMemory(`[turn ${e.bell}] ${e.text}`, { kind: 'episode' })).join('\n') || 'none',
     });
     return { messages: [{ role: 'system', content: system }, { role: 'user', content: user }] };
   }

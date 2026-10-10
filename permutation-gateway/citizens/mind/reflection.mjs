@@ -107,7 +107,7 @@ export function createReflection({
     for (const n of rel.nations) lines.push(`N${n.f}: trust ${sgn(n.total)} (code ${sgn(n.code)}, model ${sgn(n.model)})`);
     const open = (doc.grievances ?? []).filter((g) => !g.answered);
     lines.push(`Open grievances: ${open.length}.`);
-    for (const g of open.slice(0, 3)) lines.push(`  against ${String(g.against).startsWith('nation:') ? `nation ${String(g.against).slice(7)}` : nm(g.against)} since bell ${g.bell}`);
+    for (const g of open.slice(0, 3)) lines.push(`  against ${String(g.against).startsWith('nation:') ? `nation ${String(g.against).slice(7)}` : nm(g.against)} since turn ${g.bell}`);
     return lines.join('\n');
   }
 

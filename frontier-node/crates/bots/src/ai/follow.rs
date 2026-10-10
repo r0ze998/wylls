@@ -575,7 +575,7 @@ pub fn offer(inp: &Inputs, side: &Side) -> Vec<Offer> {
             .params
             .insert("timing".to_string(), vec![json!("call")]);
         o.cand.label = format!(
-            "Follow the Strike Order with {} ({} troops) to {}, {} hexes away; arrival at the strike bell {}",
+            "Follow the Strike Order with {} ({} troops) to {}, {} hexes away; arrival at the strike turn {}",
             row.handle,
             row.troops(),
             ctx.info.what(),
