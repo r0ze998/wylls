@@ -107,6 +107,25 @@ export function paintSettlement(ctx, x, y, s, f, tier = 0) {
   ctx.restore();
 }
 
+/**
+ * The territory lens's province wash: each opened province under the colour
+ * of the nation that holds its keep (the shared `control`), so a keep
+ * changing hands recolours its province on the world map. Light, under the
+ * realms' own wash and borders. `outlineOf(p, q)` → `{fill}` (SpriteArt.outline).
+ */
+export function paintControlWash(ctx, entries, outlineOf, lod = 'world') {
+  ctx.save();
+  ctx.globalAlpha = lod === 'world' ? 0.22 : 0.16;
+  for (const e of entries) {
+    const f = e.rec?.control;
+    if (e.fog === 'unopened' || !Number.isInteger(f) || f < 0 || f > 5) continue;
+    const o = outlineOf(e.p, e.q);
+    if (!o?.fill) continue;
+    ctx.fillStyle = FACTION_COLORS[f]; ctx.fill(o.fill);
+  }
+  ctx.restore();
+}
+
 /** The realms of a set of far entries: per faction a fill path and a border path, and the holdings' marks. */
 export function buildRealms(entries, { grow = 0 } = {}) {
   if (typeof Path2D === 'undefined') return null;
@@ -422,6 +441,7 @@ export class SpriteArt {
       ctx.strokeStyle = 'rgba(24,30,26,0.22)'; ctx.lineWidth = 1.4 / zoom; ctx.stroke(o.path);
       if (e.selected) { ctx.strokeStyle = '#f3d58a'; ctx.lineWidth = 3 / zoom; ctx.stroke(o.path); }
     }
+    if (lens === 'realm') paintControlWash(ctx, entries, (p, q) => this.outline(p, q), lod);
     if (lens !== 'land') this.paintRealms(ctx, entries, { zoom, lod, lens });
     if (lens === 'war') paintWarLens(ctx, entries, zoom);
     if (lens === 'settle') paintSettleLens(ctx, entries, zoom);

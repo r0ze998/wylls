@@ -538,8 +538,38 @@ function renderSteps(v) {
 }
 
 /**
+ * The keep a clash was fought over, or null: `r.keep` is the province's
+ * /h/keep record (app.mjs openReport), and the clash counts when a side
+ * stood on the keep's tile. `{holder, contender, progress, required, taken}`:
+ * the contest as it stands now (`live`: the controller's keep, when it has
+ * one) and the capture the clash's contest ended in, if it did.
+ */
+export function keepStake(r, rows, live = null) {
+  const k = r?.keep;
+  if (!k || !Number.isInteger(k.tile) || !Number.isInteger(k.holder) || !rows.some(x => x.tile === k.tile)) return null;
+  const contests = Array.isArray(k.contests) ? k.contests : [];
+  const fought = contests.find(c => c.from - 1 <= r.bell && r.bell <= (c.to ?? Infinity));
+  const taken = fought?.outcome === 'taken' ? (k.captures ?? []).find(c => c.bell === fought.to) ?? null : null;
+  const running = contests.find(c => c.outcome === 'running') ?? null;
+  const contender = Number.isInteger(live?.contender) && live.contender >= 0 && live.contender < 6 ? live.contender : live ? null : running?.contender ?? null;
+  const required = Number(live?.requiredBells);
+  return { holder: Number.isInteger(live?.holder) ? live.holder : k.holder, contender, progress: contender === null ? null : Number(live?.progress ?? running?.progress ?? 0),
+    required: Number.isFinite(required) && required > 0 ? required : null, taken };
+}
+
+/** One line on what the clash was for, with the way to the keep panel (the province's inspector). */
+function renderStake(r, stake) {
+  if (!stake) return '';
+  const holder = factionName(stake.holder);
+  return html`<p class="report-keep">⚑ ${stake.contender !== null && stake.required !== null
+    ? L`この戦いは州 ${r.p},${r.q} の砦をめぐるものです：いまの保持者 ${holder}、奪取まで ${fmtNum(stake.progress)}/${fmtNum(stake.required)} 鐘`
+    : L`この戦いは州 ${r.p},${r.q} の砦をめぐるものです：いまの保持者 ${holder}`}${stake.taken ? html` · ${L`第${fmtNum(stake.taken.bell)}鐘に ${factionName(stake.taken.to)} が ${factionName(stake.taken.from)} から奪った`}` : ''}
+    <button type="button" class="btn small" data-act="goto" data-p="${r.p}" data-q="${r.q}">${L`砦を見る`}</button></p>`;
+}
+
+/**
  * The report panel: `FS.report = {p, q, bell, loading?, error?, clash?,
- * verify?, verifying?}`; `mine(id)` marks the viewer's own; `whatIf` offers
+ * keep?, verify?, verifying?}`; `mine(id)` marks the viewer's own; `whatIf` offers
  * the practice "what if" (not on the spectator page: it has no own hosts).
  */
 export function render(FS, mine = () => false, { whatIf = true, ownerOf = null } = {}) {
@@ -564,6 +594,7 @@ export function render(FS, mine = () => false, { whatIf = true, ownerOf = null }
   const steps = v ? html`${renderSteps(v)}${v.builder === 'page' ? html`<p class="muted">${L`入力はこのページが契約の手順どおりに組み立てました。`}</p>` : ''}` : '';
   return html`<section aria-labelledby="report-title" class="report">${head}
     ${renderHeadline(summaryOf(rows), r)}
+    ${renderStake(r, keepStake(r, rows, FS.conquest?.keeps?.get?.(`${r.p},${r.q}`) ?? null))}
     ${v?.outcome ? '' : html`<p class="muted">${L`確かめる前は、チェーンに書かれた到着軍勢の結末だけを表示しています。`}</p>`}
     ${renderRows(rows, title, ownerOf)}
     ${renderTiles(tileDetail(rows))}

@@ -6,7 +6,7 @@
 // self-reveal (I-24, §9.1), and turns every `data-act` of the screens into
 // one action: build → check → sign → relay → track (fplay.mjs), the march
 // through fmarch.sendMarch. Nothing here decides a rule; the program does.
-import { conquestEnabled, territoryStandings, keepFromProvince, applyControl, outpostOffer } from './fconquest.mjs';
+import { conquestEnabled, territoryStandings, keepFromProvince, applyControl, outpostOffer, mergeKeepEvents } from './fconquest.mjs';
 import { holdingByRef } from './fland.mjs';
 import { FS, invalidate, activeHolding } from './fstate.mjs';
 import { updateLife } from './people/life.mjs';
@@ -23,7 +23,7 @@ import { bellAt, bellStart, pipeline, archivePartOf } from './clock.mjs';
 import { regionOf, ringOf } from './fgeo.mjs';
 import { hostParts, hostId } from './faddr.mjs';
 import { decodePage } from './flog.mjs';
-import { nextPoll } from './herald.mjs';
+import { nextPoll, BELLS_PER_DAY } from './herald.mjs';
 import { kernel as loadKernel, UNITS } from './wasm.mjs';
 import { uiKey, uiStorage, loadUi, saveUi, landKey, loadLand, saveLand, LAND_DEFAULTS } from './fui.mjs';
 import * as wallet from '../wallet.mjs';
@@ -422,6 +422,39 @@ export async function refresh() {
   else autoTicket().catch(e => console.error('frontier auto ticket:', e));
 }
 
+/** The conquest day files the records read back from today (a 14-day season in full). */
+export const KEEP_EVENT_DAYS = 14;
+
+/** Keep contests and captures of the season (/h/conquest/{day}.json): older days once, today's and yesterday's every refresh. */
+async function refreshKeepEvents(cq, request) {
+  if (!herald?.conquestDay) return;
+  const bell = Math.max(0, Math.min(nowBell(), Number(FS.season.endBell ?? Infinity) - 1));
+  const today = Math.floor(bell / BELLS_PER_DAY);
+  const read = cq.eventDays ??= new Set();
+  for (let d = Math.max(0, today - KEEP_EVENT_DAYS + 1); d <= today; d++) {
+    if (read.has(d)) continue;
+    const r = await herald.conquestDay(d).catch(() => null);
+    if (request !== conquestRefresh) return;
+    if (!r?.ok) continue;
+    cq.events = mergeKeepEvents(cq.events, r.day.events);
+    if (d < today - 1) read.add(d);
+  }
+  cq.events ??= [];
+}
+
+const keepWanted = new Set();
+/** A keep's holders, contests and captures (/h/keep), read for the selected province and again once the bell has turned. */
+export function wantKeepHistory(p, q, onLoad = () => {}) {
+  const cq = FS.conquest, key = `${p},${q}`, bell = nowBell();
+  if (!cq || !herald?.keep || !Number.isInteger(p) || !Number.isInteger(q) || keepWanted.has(key) || (cq.history?.get(key)?.asOf ?? -1) >= bell) return false;
+  keepWanted.add(key);
+  herald.keep(p, q).then(r => {
+    if (FS.conquest !== cq || (!r.ok && r.code !== 'NotFound')) return;
+    (cq.history ??= new Map()).set(key, r.ok ? { ...r.keep, asOf: bell } : { asOf: bell });
+  }).catch(() => null).finally(() => { keepWanted.delete(key); onLoad(); });
+  return true;
+}
+
 /** Refresh conquest together; retain known state on transport failures. */
 export async function refreshConquest() {
   if (!conquestEnabled(FS.season) || !herald?.control) return;
@@ -455,6 +488,9 @@ export async function refreshConquest() {
   // those different clocks would otherwise hide protection and disable it forever.
   const selected=FS.selected;
   if (selected) await loadEnvelope(selected.p,selected.q).catch(()=>null);
+  if (request!==conquestRefresh) return;
+  if (selected) wantKeepHistory(selected.p, selected.q, () => invalidate('panel'));
+  await refreshKeepEvents(cq, request);
   if (request!==conquestRefresh) return;
   const s = FS.selected, pv = s && FS.provinces.get(`${s.p},${s.q}`)?.province;
   const site = pv && Number.isInteger(s.idx) ? pv.sites.indexOf(s.idx) : -1;

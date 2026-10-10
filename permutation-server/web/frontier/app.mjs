@@ -24,7 +24,7 @@ import { SEASON_STATUS_TEXT, clientText, factionName, TIERS, BUILDINGS } from '.
 import { L, fmtNum, mountLangToggle, onLangChange, lang } from '../lang.mjs';
 import { toHex } from '../sdk/bytes.mjs';
 import { html, raw, setHtml } from '../util.mjs';
-import { ACTIONS, FORMS, bind, startPlay, wantProvince } from './controller.mjs';
+import { ACTIONS, FORMS, bind, startPlay, wantProvince, wantKeepHistory } from './controller.mjs';
 import { renderTabs, renderNotice, factionChip, quotaChip, mountSheet } from './screens/shell.mjs';
 import { createTerrain } from './map/terrain.mjs';
 import { provincePixel } from './map/layers.mjs';
@@ -865,6 +865,7 @@ function goToItem(x) {
     FS.selected = { kind: 'province', p: x.p, q: x.q };
   }
   if (FS.mode === 'play' && x.tab) FS.tab = x.tab;
+  wantKeepHistory(x.p, x.q, () => invalidate('panel'));
   invalidate('map', 'panel', 'tabs', 'rail');
 }
 
@@ -989,6 +990,12 @@ export async function openReport(p, q, bell) {
   FS.report = r.ok ? { p, q, bell, clash: r } : { p, q, bell, error: r.code ?? 'Error' };
   if (r.ok && FS.mode === 'play') setFlag(FLAG.report);
   invalidate('panel');
+  // the keep of the province (screens/report.mjs keepStake): what a clash on its tile was for
+  const open = FS.report;
+  if (r.ok && conquestEnabled(FS.season) && heraldRef.keep) {
+    const k = await heraldRef.keep(p, q).catch(() => null);
+    if (k?.ok && FS.report === open) { open.keep = k.keep; invalidate('panel'); }
+  }
 }
 
 async function verifyReport() {
@@ -1258,7 +1265,7 @@ export async function boot() {
           if (i < 0) { choice.candidates = [...choice.candidates.slice(0, 2), candidate]; i = choice.candidates.length - 1; }
           ACTIONS['home-pick']({ i });
         };
-        if (FS.mode !== 'practice') { wantProvince(hit.p, hit.q, () => { chooseHome(); map?.invalidate(); invalidate('panel'); }); chooseHome(); }
+        if (FS.mode !== 'practice') { wantProvince(hit.p, hit.q, () => { chooseHome(); map?.invalidate(); invalidate('panel'); }); wantKeepHistory(hit.p, hit.q, () => invalidate('panel')); chooseHome(); }
         // composing a march: a tap on another tile makes it the destination (Civ: select the unit, click where)
         const c = FS.compose;
         if (FS.mode === 'play' && c && !c.sending && Number.isInteger(hit.idx) && !(hit.p === c.origin.p && hit.q === c.origin.q && hit.idx === c.host.tile)) ACTIONS['dest-from-map']()?.catch?.(() => {});

@@ -21,6 +21,28 @@ export function territoryStandings(data) {
   return { metric: 'province-bells', bell: data.bell, rows };
 }
 
+/** The keep events the records list: a contest's start, its end without a capture, a capture. */
+export const KEEP_EVENT_KINDS = Object.freeze(['keep_contest', 'keep_broken', 'keep_taken']);
+
+/** Add a conquest day's keep events to the known ones: no duplicates, oldest first (bell, then seq). */
+export function mergeKeepEvents(known, events) {
+  const out = new Map((known ?? []).map(e => [`${e.seq}:${e.kind}`, e]));
+  for (const e of events ?? []) {
+    if (!KEEP_EVENT_KINDS.includes(e.kind) || !Number.isInteger(e.p) || !Number.isInteger(e.q)) continue;
+    out.set(`${e.seq}:${e.kind}`, { seq: String(e.seq), kind: e.kind, bell: e.bell, p: e.p, q: e.q, from: e.from, to: e.to, troops: Number.isFinite(e.detail?.troops) ? e.detail.troops : null });
+  }
+  return [...out.values()].sort((a, b) => a.bell - b.bell || (BigInt(a.seq) < BigInt(b.seq) ? -1 : BigInt(a.seq) > BigInt(b.seq) ? 1 : 0));
+}
+
+/** The viewer's side of a keep event: 'gain' | 'loss' | 'attack' | 'defend' | null. */
+export function keepEventSide(e, faction) {
+  if (!Number.isInteger(faction) || faction < 0 || faction > 5) return null;
+  // keep_contest: from the holder, to the contender; keep_broken: from the contender, to the holder; keep_taken: from the old holder, to the new
+  const [holder, other] = e.kind === 'keep_broken' ? [e.to, e.from] : [e.from, e.to];
+  if (e.kind === 'keep_taken') return other === faction ? 'gain' : holder === faction ? 'loss' : null;
+  return other === faction ? 'attack' : holder === faction ? 'defend' : null;
+}
+
 export function keepFromProvince(p) {
   const k = p?.keep;
   if (Number(p?.layoutVersion) !== 2 || !k || k.tile === 255 || k.tile >= 61 || k.holder > 5) return null;

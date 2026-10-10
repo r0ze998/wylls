@@ -82,6 +82,7 @@ pub async fn run(
     authority: &Keypair,
     beacon: Beacon,
     conquest: bool,
+    keep_bells: Option<u16>,
     end_bell: Option<u32>,
     preseason_scale: f64,
     scale: f64,
@@ -90,7 +91,10 @@ pub async fn run(
     let land = Duration::from_secs(60);
     let payout = permutation_rules::frontier::payout::PayoutParams::REV3.to_borsh();
     let (sp, ph) = if conquest {
-        let p = conquest_params(beacon, end_bell);
+        let mut p = conquest_params(beacon, end_bell);
+        if let Some(k) = keep_bells {
+            p.cq.keep_bells = k;
+        }
         p.validate()
             .map_err(|e| format!("conquest season params: {e}"))?;
         let sp = p.to_bytes();

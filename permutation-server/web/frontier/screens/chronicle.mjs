@@ -2,11 +2,14 @@
 // herald's event pages carry it — ring and province openings, settled
 // sites, departures (origin and arrival bell only), reveals, clashes,
 // settlements, explorations — decoded by this page from the raw PS2
-// bodies (flog.mjs); the viewer's own lines are marked.
+// bodies (flog.mjs); the viewer's own lines are marked. A conquest season
+// adds the keeps: a contest begun and a keep taken, from the herald's
+// conquest day files (herald.mjs parseConquestDay), the viewer's nation's marked.
 import { html } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
-import { TRANSIT_OUTCOME_TEXT } from '../fi18n.mjs';
+import { TRANSIT_OUTCOME_TEXT, factionName } from '../fi18n.mjs';
 import { TRANSIT_OUTCOMES, SETTLE_OUTCOMES } from '../flog.mjs';
+import { keepEventSide } from '../fconquest.mjs';
 
 /** A record's line, or null for a kind the chronicle does not list. */
 export function lineOf(r) {
@@ -28,19 +31,37 @@ export function lineOf(r) {
   }
 }
 
-/** Chronicle rows, newest first: `[{seq, bell, text, mine}]`; `mine(record)` marks the viewer's own. */
-export function chronicleRows(records, mine = () => false, limit = 60) {
+/** A keep event's line (a contest's start: holder → contender; a capture: old holder → new), or null. */
+export function keepLineOf(e) {
+  if (e.kind === 'keep_contest') return L`州 ${e.p},${e.q} の砦の争奪が始まった（${factionName(e.from)} → ${factionName(e.to)}）`;
+  if (e.kind === 'keep_taken') return L`州 ${e.p},${e.q} の砦が奪われた（${factionName(e.from)} → ${factionName(e.to)}）`;
+  return null;
+}
+
+/**
+ * Chronicle rows, newest first: `[{seq, bell, text, mine}]`; `mine(record)`
+ * marks the viewer's own. `keeps` (conquest events, oldest first) are set
+ * among the records by bell and stay listed beyond `limit` (a season has few).
+ */
+export function chronicleRows(records, mine = () => false, limit = 60, keeps = [], faction = null) {
   const out = [];
   for (let i = records.length - 1; i >= 0 && out.length < limit; i--) {
     const { seq, record } = records[i];
     const text = lineOf(record);
     if (text) out.push({ seq, bell: record.bell, text, mine: !!mine(record) });
   }
+  for (const e of keeps) {
+    const text = keepLineOf(e);
+    if (!text) continue;
+    // before the first older row: the newest of a bell's lines, as the capture ends that bell
+    const at = out.findIndex(r => Number(r.bell) <= e.bell);
+    out.splice(at < 0 ? out.length : at, 0, { seq: e.seq, bell: e.bell, text, mine: !!keepEventSide(e, faction), keep: e.kind });
+  }
   return out;
 }
 
 export function render(FS) {
-  const rows = chronicleRows(FS.chronicle ?? [], FS.isMine ?? (() => false));
+  const rows = chronicleRows(FS.chronicle ?? [], FS.isMine ?? (() => false), 60, FS.conquest?.events ?? [], FS.citizen?.faction ?? null);
   if (!rows.length) return html`<p class="muted">${L`まだ記録はありません`}</p>`;
   return html`<section aria-labelledby="chronicle-title"><h3 id="chronicle-title">${L`年代記`}</h3>
     <ol class="list chronicle">${rows.map(r => html`<li class="${r.mine ? 'mine' : ''}"><span class="muted">${L`第${fmtNum(r.bell)}鐘`}</span> ${r.text}</li>`)}</ol></section>`;

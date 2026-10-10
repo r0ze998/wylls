@@ -4,6 +4,7 @@
 // Keep: {p,q,tile,holder,troops (whole units),heartland,consolidatedUntil,contender,
 // progress,requiredBells,asOfBell}. Rows: {faction,provinces,provinceBells}.
 // Outpost: {eligible,pending,reason?,cost? (whole resources)}; the selected free site.
+// FS.conquest.history: Map<PQ, /h/keep record> (holders, contests, captures) of provinces the viewer selected.
 import { html, raw } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { factionName, UNITS, RESOURCES, RESOURCE_ORDER } from '../fi18n.mjs';
@@ -55,6 +56,28 @@ export function keepModel(FS, keep) {
   return { ...keep, mine, heartland, protectionKnown, protectedFor, contender, required, progress, remaining, hosts, canContest: protectionKnown && !heartland && !protectedFor };
 }
 
+/**
+ * A keep's ownership record from /h/keep: `{rows: [{bell, kind: 'held' |
+ * 'taken', holder, from?, troops?}], last}`, oldest first; `last` is the
+ * latest capture. Null without a readable record.
+ */
+export function keepHistory(h) {
+  const nation = f => Number.isInteger(f) && f >= 0 && f <= 5, bell = b => Number.isInteger(b) && b >= 0;
+  if (!h || !Array.isArray(h.holders) || !Array.isArray(h.captures)) return null;
+  const taken = h.captures.filter(c => bell(c.bell) && nation(c.from) && nation(c.to)).map(c => ({ bell: c.bell, kind: 'taken', holder: c.to, from: c.from, troops: Number.isFinite(c.troops) ? c.troops : null }));
+  const rows = [...h.holders.filter(x => nation(x.holder) && bell(x.since)).map(x => ({ bell: x.since, kind: 'held', holder: x.holder })), ...taken]
+    .sort((a, b) => a.bell - b.bell || (a.kind === 'taken' ? -1 : 1));
+  return rows.length ? { rows, last: taken.at(-1) ?? null } : null;
+}
+
+function renderHistory(hist) {
+  if (!hist) return '';
+  return html`<div class="conquest-history"><h5>${L`砦の履歴`}</h5>
+    <ol class="list">${hist.rows.map(r => html`<li>${r.kind === 'taken'
+      ? html`${L`第${fmtNum(r.bell)}ターン：${factionName(r.holder)}が${factionName(r.from)}から奪取`}${r.troops !== null ? html` <span class="muted">${L`守備兵 ${fmtNum(r.troops)}`}</span>` : ''}`
+      : L`第${fmtNum(r.bell)}ターンから：${factionName(r.holder)}が保持`}</li>`)}</ol></div>`;
+}
+
 export function renderKeep(FS, keep) {
   if (!conquestEnabled(FS)) return '';
   if (keep?.tile === 255) return html`<p class="muted">${L`この州には砦がありません。`}</p>`;
@@ -62,8 +85,10 @@ export function renderKeep(FS, keep) {
   if (!m) return html`<section class="conquest-keep hpanel"><h4>${L`この州の砦`}</h4><p class="muted">${L`砦の情報を確認しています。`}</p></section>`;
   const owner = m.holder < 6 ? factionName(m.holder) : L`中立`;
   const ended = (FS.nowBell ?? 0) >= Number(FS.season?.endBell ?? Infinity);
+  const hist = keepHistory(FS.conquest?.history?.get?.(`${m.p},${m.q}`));
   return html`<section class="conquest-keep hpanel" aria-label="${L`この州の砦`}"><h4>⚑ ${L`この州の砦`} <span class="muted">${L`マス ${fmtNum(m.tile + 1)}`}</span></h4>
     <dl class="facts"><div class="row"><dt>${L`支配国`}</dt><dd>${owner}${m.mine ? html` · ${L`あなたの国`}` : ''}</dd></div>
+      ${hist?.last ? html`<div class="row"><dt>${L`前の支配国`}</dt><dd>${factionName(hist.last.from)} · ${L`第${fmtNum(hist.last.bell)}ターンに交代`}</dd></div>` : ''}
       <div class="row"><dt>${L`砦の守備兵`}</dt><dd>${Number.isFinite(m.troops) ? fmtNum(m.troops) : L`確認中`}</dd></div>
       ${Number.isInteger(m.asOfBell) ? html`<div class="row"><dt>${L`最終確認`}</dt><dd>${L`第${fmtNum(m.asOfBell)}ターン`}</dd></div>` : ''}</dl>
     ${m.heartland ? html`<p class="muted">${L`本国の中核地です。この砦は奪取されません。`}</p>` : m.protectedFor > 0 ? html`<p class="muted">${L`占領後の保護中です。あと${span(m.protectedFor * bellSeconds(FS))}（ゲーム内）で再び争奪できます。`}</p>` : html`<p>${L`砦を保持する国がこの州を支配し、保持した時間が国の得点になります。`}</p>`}
@@ -71,6 +96,7 @@ export function renderKeep(FS, keep) {
     ${m.contender !== null ? html`<div class="conquest-progress"><p>${L`${factionName(m.contender)}が争奪中`} · ${Number.isFinite(m.required) ? L`${fmtNum(m.progress)} / ${fmtNum(m.required)}ターン` : L`進捗を確認中`}</p>
       ${Number.isFinite(m.required) && m.required > 0 ? html`<progress max="${m.required}" value="${Math.min(m.progress, m.required)}" aria-label="${L`砦の争奪状況`}"></progress>` : ''}
       ${m.remaining !== null ? html`<p class="muted">${m.remaining > 0 ? L`占拠を保てた場合、あと${span(m.remaining * bellSeconds(FS))}（ゲーム内）。敵の抵抗で進捗は変わります。` : L`争奪の処理結果を待っています。`}</p>` : ''}</div>` : ''}
+    ${renderHistory(hist)}
     ${FS.mode === 'play' && !ended && (m.mine || m.canContest) ? html`<div class="conquest-orders"><p>${m.mine ? L`守りに送る軍勢を選ぶ` : L`この砦へ送る軍勢を選ぶ`}</p>
       ${m.hosts.length ? html`<div class="actions">${m.hosts.map(h => html`<button type="button" class="btn" data-act="cq-march" data-host="${String(h.id)}" data-p="${m.p}" data-q="${m.q}" data-tile="${m.tile}" ${raw(busy(FS) ? 'disabled' : '')}>${UNITS[UNIT_ORDER[h.unit]]} ${fmtNum(h.troops)} · ${L`進軍を準備`}</button>`)}</div>` : html`<p class="muted">${L`出発できる戦闘部隊がいません。兵を訓練し、軍勢を編成してください。`}</p><button type="button" class="btn" data-act="tab" data-tab="holding">${L`村で兵を準備する`}</button>`}
     </div>` : ''}

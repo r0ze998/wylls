@@ -131,6 +131,10 @@ pub struct StackConfig {
     pub beacon: Beacon,
     /// Human conquest world: the version-3, fourteen-day territory season.
     pub conquest: bool,
+    /// Demo worlds only: the bells a keep must be held before it falls
+    /// (the conquest preset's 72 when unset). Sent in the season
+    /// parameters, so the program, herald and client all read it.
+    pub keep_bells: Option<u16>,
     /// Game seconds per real second after the pre-season (20× exit, 100×
     /// nightly, 2× latency run).
     pub scale: f64,
@@ -252,6 +256,7 @@ impl Default for StackConfig {
             mode: Mode::Accel,
             beacon: Beacon::TestKey,
             conquest: false,
+            keep_bells: None,
             scale: 100.0,
             preseason_scale: 2_000.0,
             drain_scale: None,
@@ -375,6 +380,9 @@ impl StackConfig {
         }
         if let Some(v) = b!("conquest") {
             c.conquest = v;
+        }
+        if let Some(v) = i!("keep_bells") {
+            c.keep_bells = Some(v as u16);
         }
         if let Some(v) = f!("scale") {
             c.scale = pos(v, "scale")?;
@@ -712,6 +720,7 @@ impl StackConfig {
             "mode": match self.mode { Mode::Accel => "accel", Mode::Realtime => "realtime" },
             "beacon": self.beacon.name(),
             "conquest": self.conquest,
+            "keep_bells": self.keep_bells,
             "scale": self.scale,
             "preseason_scale": self.preseason_scale,
             "drain_scale": self.drain_scale(),
@@ -827,6 +836,7 @@ pub fn apply_flags(c: &mut StackConfig, flags: &[(String, Option<String>)]) -> R
             "personas" => c.personas = need(k, v)?,
             "bots-args" => c.bots_args = need(k, v)?.split_whitespace().map(String::from).collect(),
             "season" => c.season_id = count(k, v)?,
+            "keep-bells" => c.keep_bells = Some(count(k, v)? as u16),
             "base-port" => {
                 let p = num(k, v)?;
                 if !(0.0..=65_535.0).contains(&p) {

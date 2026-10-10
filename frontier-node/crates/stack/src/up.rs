@@ -1042,6 +1042,7 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
         &st.keys.authority,
         st.cfg.beacon,
         st.cfg.conquest,
+        st.cfg.keep_bells,
         st.cfg.season_end_bell(),
         st.cfg.preseason_scale,
         st.cfg.scale,

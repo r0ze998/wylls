@@ -290,6 +290,10 @@ export function createHerald({ base = '', fetch: f = (...a) => globalThis.fetch(
       const r = await get(f, `${root}/h/keep/${p},${q}.json`);
       return r.ok ? { ok: true, keep: r.json } : r;
     },
+    async conquestDay(day) {
+      const r = await get(f, `${root}/h/conquest/${day}.json`);
+      return r.ok ? guard(() => ({ day: parseConquestDay(r.json) })) : r;
+    },
     /** Pin the season (and, for the `me` key checks, its recomputed addresses: faddr.seasonAddresses). */
     pin(id, addresses = null) { pinned = String(id); addrs = addresses; },
     /** GET /h/season: the record, with the Season account decoded and checked. */

@@ -3,7 +3,8 @@
 // the last poll with what it knows now and turns each change into one
 // notification — a march revealed, resolved or settled, a battle in a
 // province of the viewer's, an attack that may come, a building finished,
-// a holding made final. When the bell turns, the changes of the bell that
+// a holding made final, a keep taken (and, for the viewer's nation, a
+// contest for a keep begun or beaten off). When the bell turns, the changes of the bell that
 // ended are folded into one summary ("bell 1,034: 2 marches resolved…").
 //
 // Notifications sit at the map's top right (newest first, at most
@@ -12,13 +13,17 @@
 // Nothing here blocks the game: no modal, no sound.
 import { html, raw } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
-import { BUILDINGS, TIERS } from '../fi18n.mjs';
+import { BUILDINGS, TIERS, factionName } from '../fi18n.mjs';
 import { BUILD_ITEMS, queueBuildingItem } from '../fland.mjs';
+import { keepEventSide } from '../fconquest.mjs';
 
 export const FEED_MAX = 60;
 export const TOAST_MAX = 3;
 /** A notification stays a toast for this long (ms) unless dismissed; it stays in the list after. */
 export const TOAST_MS = 45_000;
+
+/** A keep event is news for this many bells after its own (a bell resolves after it ends; older ones are the record's). */
+export const KEEP_NEWS_BELLS = 6;
 
 const marchKey = m => String(m.entry?.host ?? m.transit?.hostId ?? '');
 
@@ -45,13 +50,28 @@ export function snapshot(FS, now = FS.chain?.now?.() ?? 0) {
     const r = x.record ?? x;
     if (r.name === 'CLASH' && own.has(`${Number(r.p)},${Number(r.q)}`)) clashes.add(`${Number(r.p)},${Number(r.q)},${Number(r.bell)}`);
   }
-  return { bell: FS.nowBell ?? null, now, marches, builds, pendingBuilds, holdings, clashes, incoming: new Set((FS.incoming ?? []).map(w => `${w.bell},${w.holding.p},${w.holding.q}`)) };
+  // keep events (controller refreshKeepEvents): null until the season's days are read, so the past is not news
+  const keeps = Array.isArray(FS.conquest?.events) ? new Map(FS.conquest.events.map(e => [`${e.kind}:${e.seq}`, { ...e, side: keepEventSide(e, FS.citizen?.faction) }])) : null;
+  return { bell: FS.nowBell ?? null, now, marches, builds, pendingBuilds, holdings, clashes, keeps, incoming: new Set((FS.incoming ?? []).map(w => `${w.bell},${w.holding.p},${w.holding.q}`)) };
+}
+
+const SIDE_TEXT = { gain: () => L`あなたの国が得た`, loss: () => L`あなたの国が失った`, attack: () => L`あなたの国が攻めている`, defend: () => L`あなたの国が守っている` };
+
+/** A keep event's notification, or null: a capture is news to everyone, a contest's start and its end only to the two nations. */
+function keepItem(k, e, bell) {
+  const at = { id: `kp:${k}`, kind: 'keep', bell, p: e.p, q: e.q, side: e.side };
+  if (e.kind === 'keep_taken') return { ...at, text: L`州 ${e.p},${e.q} の砦を ${factionName(e.to)} が ${factionName(e.from)} から奪った（第${fmtNum(e.bell)}鐘）` };
+  if (!e.side) return null;
+  if (e.kind === 'keep_contest') return { ...at, text: L`州 ${e.p},${e.q} の砦を ${factionName(e.to)} が攻めはじめた（第${fmtNum(e.bell)}鐘）` };
+  return { ...at, text: L`州 ${e.p},${e.q} の砦は ${factionName(e.to)} が守りきった（第${fmtNum(e.bell)}鐘）` };
 }
 
 /**
  * The notifications between two snapshots: `[{id, kind, bell, text, p, q,
  * battle?: {p, q, bell}}]`, kinds 'battle' | 'march' | 'incoming' |
- * 'build' | 'holding'. A first snapshot (prev null) is not news.
+ * 'build' | 'holding' | 'keep' (with `side`: the viewer's nation's part,
+ * 'gain' | 'loss' | 'attack' | 'defend' | null). A first snapshot (prev
+ * null) is not news.
  */
 export function diffFeed(prev, next) {
   if (!prev) return [];
@@ -70,6 +90,11 @@ export function diffFeed(prev, next) {
     const [p, q, b] = c.split(',').map(Number);
     if (out.some(x => x.battle && x.battle.p === p && x.battle.q === q && x.battle.bell === b)) continue;
     out.push({ id: `cl:${c}`, kind: 'battle', bell, p, q, battle: { p, q, bell: b }, text: L`あなたの村の州 ${p},${q} で戦いがありました（第${fmtNum(b)}鐘）` });
+  }
+  if (prev.keeps && next.keeps) for (const [k, e] of next.keeps) {
+    if (prev.keeps.has(k) || (Number.isInteger(bell) && e.bell < bell - KEEP_NEWS_BELLS)) continue;
+    const item = keepItem(k, e, bell);
+    if (item) out.push(item);
   }
   for (const w of next.incoming) {
     if (prev.incoming.has(w)) continue;
@@ -112,7 +137,7 @@ export function bellSummary(feed, bell) {
   const n = k => of.filter(x => x.kind === k).length;
   const parts = [
     n('battle') && L`戦い ${fmtNum(n('battle'))}`, n('march') && L`進軍の知らせ ${fmtNum(n('march'))}`, n('incoming') && L`来襲の恐れ ${fmtNum(n('incoming'))}`,
-    n('build') && L`完成 ${fmtNum(n('build'))}`, n('holding') && L`村 ${fmtNum(n('holding'))}`,
+    n('build') && L`完成 ${fmtNum(n('build'))}`, n('holding') && L`村 ${fmtNum(n('holding'))}`, n('keep') && L`砦 ${fmtNum(n('keep'))}`,
   ].filter(Boolean);
   return { id: `sum:${bell}`, kind: 'summary', bell: bell + 1, text: L`第${fmtNum(bell)}鐘のまとめ：${parts.join(' · ')}`, items: of.map(x => x.id) };
 }
@@ -124,8 +149,10 @@ export function pushFeed(feed, items, at = Date.now()) {
   return [...fresh.reverse(), ...feed].slice(0, FEED_MAX);
 }
 
-const KIND_ICON = { battle: '⚔', march: '➚', incoming: '!', build: '⚒', holding: '⌂', summary: '≡' };
-const KIND_TEXT = { battle: () => L`戦闘`, march: () => L`進軍`, incoming: () => L`来襲`, build: () => L`建設`, holding: () => L`村`, summary: () => L`まとめ` };
+const KIND_ICON = { battle: '⚔', march: '➚', incoming: '!', build: '⚒', holding: '⌂', keep: '⚑', summary: '≡' };
+const KIND_TEXT = { battle: () => L`戦闘`, march: () => L`進軍`, incoming: () => L`来襲`, build: () => L`建設`, holding: () => L`村`, keep: () => L`砦`, summary: () => L`まとめ` };
+/** The viewer's nation's part in a keep notification, as a tag after the text. */
+const sideTag = x => (SIDE_TEXT[x.side] ? html` <span class="tag feed-side-${x.side}">${SIDE_TEXT[x.side]()}</span>` : '');
 
 function itemActions(x) {
   const acts = [];
@@ -142,21 +169,21 @@ export function renderToasts(feed, { dismissed = new Set(), now = Date.now() } =
   const live = feed.filter(x => !dismissed.has(x.id) && now - (x.at ?? 0) < TOAST_MS).slice(0, TOAST_MAX);
   return live.map(x => html`<div class="toast toast-${x.kind}" role="status">
     <span class="toast-icon" aria-hidden="true">${KIND_ICON[x.kind] ?? '•'}</span>
-    <span class="toast-text"><span class="toast-kind">${KIND_TEXT[x.kind]?.() ?? ''}</span>${x.text}</span>
+    <span class="toast-text"><span class="toast-kind">${KIND_TEXT[x.kind]?.() ?? ''}</span>${x.text}${sideTag(x)}</span>
     <span class="toast-acts">${itemActions(x)}<button type="button" class="btn small toast-x" data-act="feed-dismiss" data-id="${x.id}" aria-label="${L`閉じる`}">×</button></span>
   </div>`);
 }
 
 export const FEED_FILTERS = Object.freeze(['all', 'battle', 'march', 'holding']);
 const FILTER_TEXT = { all: () => L`すべて`, battle: () => L`戦闘`, march: () => L`進軍と来襲`, holding: () => L`村と建設` };
-const inFilter = (x, f) => f === 'all' || (f === 'battle' && x.kind === 'battle') || (f === 'march' && (x.kind === 'march' || x.kind === 'incoming')) || (f === 'holding' && (x.kind === 'holding' || x.kind === 'build'));
+const inFilter = (x, f) => f === 'all' || (f === 'battle' && (x.kind === 'battle' || x.kind === 'keep')) || (f === 'march' && (x.kind === 'march' || x.kind === 'incoming')) || (f === 'holding' && (x.kind === 'holding' || x.kind === 'build'));
 
 /** The notification list (the More tab). */
 export function renderCentre(feed, filter = 'all') {
   const list = feed.filter(x => inFilter(x, filter));
   return html`<section aria-labelledby="feed-title"><h3 id="feed-title">${L`お知らせ`}</h3>
     <div class="feed-filters" role="group" aria-label="${L`絞り込み`}">${FEED_FILTERS.map(f => html`<button type="button" class="btn small" data-act="feed-filter" data-f="${f}" aria-pressed="${f === filter ? 'true' : 'false'}">${FILTER_TEXT[f]()}</button>`)}</div>
-    ${list.length ? html`<ol class="list feed-list">${list.map(x => html`<li class="feed-${x.kind}"><span class="toast-icon" aria-hidden="true">${KIND_ICON[x.kind] ?? ''}</span><span>${x.text}${Number.isInteger(x.bell) ? html` <span class="muted">${L`第${fmtNum(x.bell)}鐘`}</span>` : ''}</span><span class="toast-acts">${itemActions(x)}</span></li>`)}</ol>`
+    ${list.length ? html`<ol class="list feed-list">${list.map(x => html`<li class="feed-${x.kind}"><span class="toast-icon" aria-hidden="true">${KIND_ICON[x.kind] ?? ''}</span><span>${x.text}${sideTag(x)}${Number.isInteger(x.bell) ? html` <span class="muted">${L`第${fmtNum(x.bell)}鐘`}</span>` : ''}</span><span class="toast-acts">${itemActions(x)}</span></li>`)}</ol>`
       : html`<p class="muted">${L`まだお知らせはありません`}</p>`}</section>`;
 }
 
