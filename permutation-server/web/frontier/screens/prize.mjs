@@ -17,6 +17,8 @@ const short = s => (s ? `${String(s).slice(0, 6)}…${String(s).slice(-4)}` : '�
 export function renderJoinTerms(FS) {
   const m = prizeModel(FS.prize);
   if (!m) return '';
+  // Once the count has started the pool takes no entry: show the result instead of the price.
+  if (m.final || m.counting) return render(FS);
   const w = m.wallet;
   return html`<section class="prize-terms" aria-labelledby="prize-terms-title">
     <h4 id="prize-terms-title">${L`参加費と賞金プール（テストUSDC）`}</h4>
