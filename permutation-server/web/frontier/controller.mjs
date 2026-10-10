@@ -473,7 +473,14 @@ export async function refreshConquest() {
         p:c.p,q:c.q,tile:ov.keepTile,holder:c.control,troops:ov.keepTroops,
         heartland:c.heartland,consolidatedUntil:null,contender:c.contender,progress:c.progress,requiredBells:c.required,asOfBell:cq.control.bell });
     }
-    for (const e of FS.provinces.values()) { const k = keepFromProvince(e.province); if (k && k.asOfBell >= (cq.keeps.get(`${k.p},${k.q}`)?.asOfBell ?? 0)) cq.keeps.set(`${k.p},${k.q}`, k); }
+    for (const e of FS.provinces.values()) {
+      const k = keepFromProvince(e.province); if (!k) continue;
+      const c = cq.keeps.get(`${k.p},${k.q}`);
+      if (k.asOfBell >= (c?.asOfBell ?? 0)) cq.keeps.set(`${k.p},${k.q}`, k);
+      // a quiet province resolves late: its record is older than the control snapshot, but while the
+      // holder is the same its consolidation bell still stands, so the panel can say if the keep is open
+      else if (c.consolidatedUntil === null && k.holder === c.holder) c.consolidatedUntil = k.consolidatedUntil;
+    }
     cq.status = 'ready'; cq.error = null;
   } else if (control?.code === 'NotFound' && nowBell() <= 1 + Math.ceil(Number(FS.season.revealWindow ?? 600) / Number(FS.season.bellSecs ?? 600)) && !cq.control) {
     // A fresh world has no completed control snapshot until its first bell settles.
@@ -488,6 +495,8 @@ export async function refreshConquest() {
   // those different clocks would otherwise hide protection and disable it forever.
   const selected=FS.selected;
   if (selected) await loadEnvelope(selected.p,selected.q).catch(()=>null);
+  // what was read so far is shown even when a newer refresh has started: a superseded one must not leave the panel waiting
+  invalidate('map','panel','rail');
   if (request!==conquestRefresh) return;
   if (selected) wantKeepHistory(selected.p, selected.q, () => invalidate('panel'));
   await refreshKeepEvents(cq, request);
