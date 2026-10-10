@@ -7,7 +7,22 @@
 //! (owner = the game program, address re-derived, every bell before
 //! `end_bell` resolved), counts each keep once for its holder and
 //! [`finalize`] names the nation(s) with the largest area once every
-//! expected keep is counted.
+//! keep is counted: the pool's `expected_keeps` must equal both the count
+//! and the game's own figure (its Frontier account's opened provinces less
+//! the seven keepless provinces of rings 0–1).
+//!
+//! **The freeze.** The game resolves no bell at or after `end_bell`
+//! (permutation-frontier `proc/clash.rs`: "Bells at or after `end_bell` are
+//! never gathered, resolved or skipped"), and a keep changes holder only in
+//! a bell's resolution. Tally therefore takes a Province only when the
+//! Season is Ended and the Province's `resolved_next ≥ end_bell` (every
+//! bell that could move its keep is done), and refuses a keep whose
+//! `since_bell ≥ end_bell`. A counted Province is never read again (bitmap),
+//! and Finalize closes the tally for good.
+//!
+//! **Decided** (owner): the winner is the nation holding the most provinces
+//! at the end; 80% of each fee is prize, 20% the operator's. **Provisional**
+//! (undecided, [`provisional`]): the tie rule and the fallbacks.
 //!
 //! Shares inside the winning nation: the operator posts one merkle root
 //! over `(wallet, nation, points)` plus the sha256 of the published
@@ -21,7 +36,7 @@
 //! | 0 | InitPool(fee u64, ops_bps u16, expected_keeps u16, params_hash 32) | `[operator s,w] [pool w] [vault w] [mint] [season] [game program] [token] [system]` |
 //! | 1 | Pay | `[wallet s] [payer s,w] [pool w] [entry w] [wallet token w] [vault w] [mint] [token] [system]` |
 //! | 2 | Tally | `[pool w] [season] [province]…` |
-//! | 3 | Finalize | `[pool w]` |
+//! | 3 | Finalize | `[pool w] [frontier]` |
 //! | 4 | SetShares(mode u8, total_points [u64;6], root 32, ledger_hash 32) | `[operator s] [pool w]` |
 //! | 5 | Claim(nation u8, points u64, n u8, proof 32×n) | `[wallet s] [pool w] [entry w] [citizen] [vault w] [wallet token w] [mint] [token]` |
 //! | 6 | WithdrawOps | `[operator s] [pool w] [vault w] [operator token w] [mint] [token]` |
@@ -41,6 +56,7 @@ use solana_program::{
 use frontier_abi::addr::{province_index, AddrCtx};
 use frontier_abi::v2::layout::player::citizen as C;
 use frontier_abi::v2::layout::province::{keep as K, province as P};
+use frontier_abi::layout::world::frontier as F;
 use frontier_abi::v2::layout::world::season as S;
 use permutation_rules::hash::sha256;
 
@@ -156,6 +172,7 @@ pub enum PrizeError {
     AlreadyClaimed = 0x10D,
     NothingToPay = 0x10E,
     Overflow = 0x10F,
+    WrongExpectedCount = 0x110,
 }
 
 impl From<PrizeError> for ProgramError {
@@ -223,18 +240,57 @@ pub fn node(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
     sha256(&[&[1u8], lo, hi])
 }
 
-/// The winners of `area` (ties: more `bells`; still tied: all of them) as a
-/// bit mask; 0 when no nation holds a keep.
-pub fn winners(area: &[u16; FACTIONS], bells: &[u64; FACTIONS]) -> u8 {
+/// Provinces of rings 0–1: opened like every other, but without a keep.
+pub const KEEPLESS_PROVINCES: u32 = 7;
+
+/// DECIDED (owner): the nations holding the most provinces, as a bit mask
+/// (more than one bit: a tie for first place); 0 when no nation holds a keep.
+pub fn largest_area(area: &[u16; FACTIONS]) -> u8 {
     let top = *area.iter().max().unwrap_or(&0);
     if top == 0 {
         return 0;
     }
-    let tied = |f: usize| area[f] == top;
-    let best = (0..FACTIONS).filter(|&f| tied(f)).map(|f| bells[f]).max();
     (0..FACTIONS)
-        .filter(|&f| tied(f) && Some(bells[f]) == best)
+        .filter(|&f| area[f] == top)
         .fold(0u8, |m, f| m | (1 << f))
+}
+
+/// PROVISIONAL rules: undecided by the owner, kept apart from the decided
+/// ones so that they can be replaced. Every output of the tooling lists
+/// them (`provisional: true`).
+pub mod provisional {
+    use super::FACTIONS;
+
+    /// What is provisional in this program, by name (the tooling prints it).
+    pub const RULES: [&str; 4] = [
+        "tie for first place: more territory bells wins; still tied: the tied nations share the prize equally",
+        "shares inside the winning nation: by points of the operator-posted, publicly recomputable ledger (SetShares)",
+        "all contributions zero: the ledger gives every paid member of the winning nation one point (equal split)",
+        "no eligible member in the winning nation: every payer takes its part of the prize back (refund)",
+    ];
+
+    /// Tie for first place among `tied` (a mask of the nations with the
+    /// largest area): the ones with the most territory bells; still tied:
+    /// all of them.
+    pub fn break_tie(tied: u8, bells: &[u64; FACTIONS]) -> u8 {
+        let best = (0..FACTIONS)
+            .filter(|&f| tied & (1 << f) != 0)
+            .map(|f| bells[f])
+            .max();
+        (0..FACTIONS)
+            .filter(|&f| tied & (1 << f) != 0 && Some(bells[f]) == best)
+            .fold(0u8, |m, f| m | (1 << f))
+    }
+}
+
+/// The winners: [`largest_area`], a tie resolved by [`provisional::break_tie`].
+pub fn winners(area: &[u16; FACTIONS], bells: &[u64; FACTIONS]) -> u8 {
+    let top = largest_area(area);
+    if top.count_ones() > 1 {
+        provisional::break_tie(top, bells)
+    } else {
+        top
+    }
 }
 
 /// A claim's amount in shares mode: the prize split evenly between the
@@ -538,7 +594,9 @@ fn tally(program: &Pubkey, a: &[AccountInfo]) -> R<()> {
         }
         // Bells at or after end_bell are never resolved: a province whose
         // every earlier bell is resolved cannot change its keep any more.
-        if u32_at(&d, P::RESOLVED_NEXT)? < end_bell {
+        if u32_at(&d, P::RESOLVED_NEXT)? < end_bell
+            || u32_at(&d, P::KEEP + K::SINCE_BELL)? >= end_bell
+        {
             return Err(E::ProvinceNotFinal.into());
         }
         let i = province_index(p, q).filter(|i| *i < MAX_PROVINCES).ok_or(E::BadAccount)? as usize;
@@ -566,7 +624,7 @@ fn tally(program: &Pubkey, a: &[AccountInfo]) -> R<()> {
 }
 
 fn finalize(program: &Pubkey, a: &[AccountInfo]) -> R<()> {
-    let [pool_ai] = a else {
+    let [pool_ai, frontier] = a else {
         return Err(ProgramError::NotEnoughAccountKeys);
     };
     pool_of(program, pool_ai)?;
@@ -574,7 +632,23 @@ fn finalize(program: &Pubkey, a: &[AccountInfo]) -> R<()> {
     if pd[pool::STATE] != pool::STATE_OPEN {
         return Err(E::WrongState.into());
     }
-    if u16_at(&pd, pool::COUNTED)? != u16_at(&pd, pool::EXPECTED_KEEPS)? {
+    // The game's own count of keeps: its opened provinces less rings 0–1.
+    let game = key_at(&pd, pool::GAME_PROGRAM)?;
+    let ctx = AddrCtx {
+        season: rd(&pd, pool::SEASON)?,
+        program: game.to_bytes(),
+    };
+    game_account(frontier, &game, &F::MAGIC, F::SIZE, u64_at(&pd, pool::SEASON_ID)?)?;
+    if ctx.frontier() != frontier.key.to_bytes() {
+        return Err(E::BadAccount.into());
+    }
+    let keeps = u32_at(&frontier.try_borrow_data()?, F::PROVINCES_OPENED)?
+        .saturating_sub(KEEPLESS_PROVINCES);
+    let expected = u16_at(&pd, pool::EXPECTED_KEEPS)?;
+    if expected as u32 != keeps {
+        return Err(E::WrongExpectedCount.into());
+    }
+    if u16_at(&pd, pool::COUNTED)? != expected {
         return Err(E::TallyIncomplete.into());
     }
     let mut area = [0u16; FACTIONS];
@@ -806,6 +880,10 @@ mod tests {
         assert_eq!(winners(&[10, 10, 9, 9, 8, 8], &[5, 7, 99, 0, 0, 0]), 0b000010);
         // tie on both: both
         assert_eq!(winners(&[10, 10, 9, 9, 8, 8], &[7, 7, 99, 0, 0, 0]), 0b000011);
+        // the decided rule alone never looks at territory bells
+        assert_eq!(largest_area(&[10, 10, 9, 9, 8, 8]), 0b000011);
+        assert_eq!(largest_area(&[9, 11, 9, 9, 8, 8]), 0b000010);
+        assert_eq!(provisional::break_tie(0b000011, &[5, 7, 99, 0, 0, 0]), 0b000010);
     }
 
     #[test]

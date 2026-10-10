@@ -135,6 +135,19 @@ pub struct StackConfig {
     /// (the conquest preset's 72 when unset). Sent in the season
     /// parameters, so the program, herald and client all read it.
     pub keep_bells: Option<u16>,
+    /// Test-asset prize pool: the permutation-prize build to deploy next to
+    /// the game (scripts/build-prize.sh). With it the season's join gate is
+    /// a key the relay holds, a test mint and the season's pool are created,
+    /// and a Join needs the relay's co-signature (x402: paid entry).
+    pub prize_so: Option<PathBuf>,
+    /// The season's entry fee in base units of the test mint (6 decimals).
+    /// A season parameter; the default is the owner's 25 test USDC.
+    pub entry_fee: u64,
+    /// The operator's part of each fee in basis points (owner: 20%).
+    pub prize_ops_bps: u16,
+    /// Keeps the prize tally must count before it can be finalised (the
+    /// conquest world's rings 2..4: 54).
+    pub prize_keeps: u16,
     /// Game seconds per real second after the pre-season (20× exit, 100×
     /// nightly, 2× latency run).
     pub scale: f64,
@@ -257,6 +270,10 @@ impl Default for StackConfig {
             beacon: Beacon::TestKey,
             conquest: false,
             keep_bells: None,
+            prize_so: None,
+            entry_fee: 25_000_000,
+            prize_ops_bps: 2_000,
+            prize_keeps: 54,
             scale: 100.0,
             preseason_scale: 2_000.0,
             drain_scale: None,
@@ -383,6 +400,18 @@ impl StackConfig {
         }
         if let Some(v) = i!("keep_bells") {
             c.keep_bells = Some(v as u16);
+        }
+        if let Some(v) = s!("prize_so") {
+            c.prize_so = Some(v.into());
+        }
+        if let Some(v) = i!("entry_fee") {
+            c.entry_fee = v as u64;
+        }
+        if let Some(v) = i!("prize_ops_bps") {
+            c.prize_ops_bps = v as u16;
+        }
+        if let Some(v) = i!("prize_keeps") {
+            c.prize_keeps = v as u16;
         }
         if let Some(v) = f!("scale") {
             c.scale = pos(v, "scale")?;
@@ -603,6 +632,20 @@ impl StackConfig {
         if !(self.scale > 0.0 && self.scale <= 100_000.0) {
             return Err("scale in (0, 100000]".into());
         }
+        if self.prize_so.is_some() {
+            if !self.conquest {
+                return Err("--prize-so: the prize pool tallies keeps (needs --conquest)".into());
+            }
+            if self.bots > 0 {
+                return Err(
+                    "--prize-so: the join gate is the relay's; the bot fleet cannot join (use --bots 0)"
+                        .into(),
+                );
+            }
+            if self.entry_fee == 0 || self.prize_ops_bps > 10_000 || self.prize_keeps == 0 {
+                return Err("--entry-fee > 0, --prize-ops-bps ≤ 10000, --prize-keeps > 0".into());
+            }
+        }
         if !(self.preseason_scale > 0.0 && self.preseason_scale <= 100_000.0) {
             return Err("preseason_scale in (0, 100000]".into());
         }
@@ -713,6 +756,15 @@ impl StackConfig {
         }
     }
 
+    /// The prize settings of the run (`null` without `--prize-so`).
+    fn prize_json(&self) -> Value {
+        match &self.prize_so {
+            Some(p) => json!({"so": p.display().to_string(), "entry_fee": self.entry_fee,
+                "ops_bps": self.prize_ops_bps, "keeps": self.prize_keeps}),
+            None => Value::Null,
+        }
+    }
+
     pub fn to_json(&self) -> Value {
         json!({
             "source": self.source.as_ref().map(|p| p.display().to_string()),
@@ -721,6 +773,7 @@ impl StackConfig {
             "beacon": self.beacon.name(),
             "conquest": self.conquest,
             "keep_bells": self.keep_bells,
+            "prize": self.prize_json(),
             "scale": self.scale,
             "preseason_scale": self.preseason_scale,
             "drain_scale": self.drain_scale(),
@@ -837,6 +890,10 @@ pub fn apply_flags(c: &mut StackConfig, flags: &[(String, Option<String>)]) -> R
             "bots-args" => c.bots_args = need(k, v)?.split_whitespace().map(String::from).collect(),
             "season" => c.season_id = count(k, v)?,
             "keep-bells" => c.keep_bells = Some(count(k, v)? as u16),
+            "prize-so" => c.prize_so = Some(need(k, v)?.into()),
+            "entry-fee" => c.entry_fee = count(k, v)?,
+            "prize-ops-bps" => c.prize_ops_bps = count(k, v)? as u16,
+            "prize-keeps" => c.prize_keeps = count(k, v)? as u16,
             "base-port" => {
                 let p = num(k, v)?;
                 if !(0.0..=65_535.0).contains(&p) {

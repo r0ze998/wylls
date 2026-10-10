@@ -4,6 +4,7 @@
 //! stand-in game program id.
 
 use frontier_abi::addr::{ring_of, AddrCtx};
+use frontier_abi::layout::world::frontier as F;
 use frontier_abi::v2::layout::player::citizen as C;
 use frontier_abi::v2::layout::province::{keep as K, province as P};
 use frontier_abi::v2::layout::world::season as S;
@@ -21,8 +22,8 @@ const TOKEN: Address = Address::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf
 const SYSTEM: Address = Address::new_from_array([0; 32]);
 const SEASON_ID: u64 = 7;
 const END_BELL: u32 = 432;
-/// TEST VALUE: 10 units of a 6-decimal test token (the fee is a season parameter).
-const FEE: u64 = 10_000_000;
+/// 25 units of a 6-decimal test token (the owner's fee; a pool parameter).
+const FEE: u64 = 25_000_000;
 const SOL: u64 = 1_000_000_000;
 
 struct World {
@@ -132,6 +133,16 @@ fn set_season(w: &mut World, status: u8) {
     game_account(w, k, d);
 }
 
+/// The game's Frontier account: `opened` provinces (61 = rings 0..4).
+fn set_frontier(w: &mut World, opened: u32) {
+    let mut d = vec![0u8; F::SIZE];
+    put(&mut d, 0, &F::MAGIC);
+    put(&mut d, F::SEASON_ID, &SEASON_ID.to_le_bytes());
+    put(&mut d, F::PROVINCES_OPENED, &opened.to_le_bytes());
+    let k = w.ctx.frontier();
+    game_account(w, k, d);
+}
+
 fn province_data(p: i16, q: i16, holder: u8, resolved_next: u32, bells: [u64; 6]) -> Vec<u8> {
     let mut d = vec![0u8; P::SIZE];
     put(&mut d, 0, &P::MAGIC);
@@ -226,6 +237,7 @@ fn world() -> World {
         vault,
     };
     set_season(&mut w, S::STATUS_RUNNING);
+    set_frontier(&mut w, 61);
     w
 }
 
@@ -252,7 +264,11 @@ fn init_ix(w: &World, operator: &Address, fee: u64, ops_bps: u16, keeps: u16) ->
 }
 
 fn init(w: &mut World) {
-    let ix = init_ix(w, &w.operator.pubkey(), FEE, 2_000, 54);
+    init_with(w, 54)
+}
+
+fn init_with(w: &mut World, keeps: u16) {
+    let ix = init_ix(w, &w.operator.pubkey(), FEE, 2_000, keeps);
     let op = w.operator.insecure_clone();
     send(&mut w.svm, &[ix], &[&op]).unwrap();
 }
@@ -305,9 +321,14 @@ fn tally(w: &mut World, provinces: &[Address]) -> Result<(), String> {
 }
 
 fn finalize(w: &mut World) -> Result<(), String> {
+    let frontier = Address::new_from_array(w.ctx.frontier());
+    finalize_with(w, frontier)
+}
+
+fn finalize_with(w: &mut World, frontier: Address) -> Result<(), String> {
     let ix = Instruction {
         program_id: w.prize,
-        accounts: vec![AccountMeta::new(w.pool, false)],
+        accounts: vec![AccountMeta::new(w.pool, false), AccountMeta::new_readonly(frontier, false)],
         data: vec![tag::FINALIZE],
     };
     let op = w.operator.insecure_clone();
@@ -637,4 +658,143 @@ fn refund_when_the_winner_has_no_eligible_member() {
     assert_eq!(balance(&w.svm, &ta), FEE * 80 / 100);
     assert_eq!(balance(&w.svm, &tb), FEE * 80 / 100);
     assert_eq!(balance(&w.svm, &w.vault), 2 * FEE * 20 / 100);
+}
+
+fn area(w: &World) -> Vec<u16> {
+    let d = pool_data(w);
+    (0..6).map(|f| u16_at(&d, pool::AREA + 2 * f)).collect()
+}
+
+/// (a) The end state is frozen: a Province is counted only when the Season
+/// is Ended and every bell before `end_bell` is resolved; once counted it
+/// is never read again, so a later change of its keep cannot move the
+/// result; after Finalize nothing is counted at all.
+#[test]
+fn an_ownership_change_after_the_end_cannot_change_the_result() {
+    let mut w = world();
+    init(&mut w);
+    let mut holders: Vec<u8> = (0..54).map(|i| (i / 9) as u8).collect();
+    holders[0] = 3; // nation 3 holds 10
+    let provinces = set_provinces(&mut w, &holders, [0; 6]);
+    // Running: nothing is counted, whatever the provinces say.
+    fails(tally(&mut w, &provinces[..18]), E::SeasonNotEnded);
+    set_season(&mut w, S::STATUS_ENDED);
+    // A keep that still has a bell to resolve, or a holder dated at or
+    // after the end bell, is not final.
+    let (p, q) = keeps()[1];
+    let a1 = w.ctx.province(p as i32, q as i32);
+    game_account(&mut w, a1, province_data(p, q, 0, END_BELL - 1, [0; 6]));
+    fails(tally(&mut w, &provinces[1..2]), E::ProvinceNotFinal);
+    let mut late = province_data(p, q, 5, END_BELL, [0; 6]);
+    put(&mut late, P::KEEP + K::SINCE_BELL, &END_BELL.to_le_bytes());
+    game_account(&mut w, a1, late);
+    fails(tally(&mut w, &provinces[1..2]), E::ProvinceNotFinal);
+    game_account(&mut w, a1, province_data(p, q, 0, END_BELL, [0; 6]));
+    for c in provinces.chunks(18) {
+        tally(&mut w, c).unwrap();
+    }
+    assert_eq!(area(&w), [8, 9, 9, 10, 9, 9]);
+    // After the count, every keep "changes hands" to nation 5: the tally
+    // does not move (each province was counted once, at its end state).
+    for (i, (p, q)) in keeps().iter().enumerate() {
+        let a = w.ctx.province(*p as i32, *q as i32);
+        game_account(&mut w, a, province_data(*p, *q, 5, END_BELL + 9, [7; 6]));
+        let _ = i;
+    }
+    for c in provinces.chunks(18) {
+        tally(&mut w, c).unwrap();
+    }
+    assert_eq!(area(&w), [8, 9, 9, 10, 9, 9]);
+    assert_eq!(u16_at(&pool_data(&w), pool::COUNTED), 54);
+    finalize(&mut w).unwrap();
+    assert_eq!(pool_data(&w)[pool::WINNERS], 1 << 3);
+    // Final: no tally, no second Finalize.
+    fails(tally(&mut w, &provinces[..18]), E::WrongState);
+    fails(finalize(&mut w), E::WrongState);
+    assert_eq!(pool_data(&w)[pool::WINNERS], 1 << 3);
+    assert_eq!(area(&w), [8, 9, 9, 10, 9, 9]);
+}
+
+/// (b) a missing province: no Finalize; (c) a duplicate is counted once;
+/// (d) another season's, another program's or a keepless Province is
+/// refused; (e) a wrong expected count is refused.
+#[test]
+fn tally_and_finalize_guards() {
+    let mut w = world();
+    init(&mut w);
+    let holders: Vec<u8> = (0..54).map(|i| if i == 0 { 2 } else { (i / 9) as u8 }).collect();
+    let provinces = set_provinces(&mut w, &holders, [0; 6]);
+    set_season(&mut w, S::STATUS_ENDED);
+
+    // (d) another season's Province (right address, the game's, season 8).
+    let (p, q) = keeps()[5];
+    let a5 = w.ctx.province(p as i32, q as i32);
+    let mut other_season = province_data(p, q, 4, END_BELL, [0; 6]);
+    put(&mut other_season, P::SEASON_ID, &8u64.to_le_bytes());
+    game_account(&mut w, a5, other_season);
+    fails(tally(&mut w, &provinces[5..6]), E::BadAccount);
+    // (d) another program's account with a Province's bytes at that address.
+    let lamports = w.svm.minimum_balance_for_rent_exemption(P::SIZE);
+    let other_program = Keypair::new().pubkey();
+    w.svm
+        .set_account(provinces[5], Account { lamports, data: province_data(p, q, 4, END_BELL, [0; 6]), owner: other_program, executable: false, rent_epoch: 0 })
+        .unwrap();
+    fails(tally(&mut w, &provinces[5..6]), E::BadAccount);
+    // (d) the game's Province of the same coordinates under another address.
+    let stray = Keypair::new().pubkey();
+    w.svm
+        .set_account(stray, Account { lamports, data: province_data(p, q, 4, END_BELL, [0; 6]), owner: w.game, executable: false, rent_epoch: 0 })
+        .unwrap();
+    fails(tally(&mut w, &[stray]), E::BadAccount);
+    game_account(&mut w, a5, province_data(p, q, holders[5], END_BELL, [0; 6]));
+    // (d) a keepless Province (ring 1).
+    let a_core = w.ctx.province(1, 0);
+    let mut core = province_data(1, 0, 0, END_BELL, [0; 6]);
+    core[P::KEEP + K::TILE] = K::NO_TILE;
+    game_account(&mut w, a_core, core);
+    fails(tally(&mut w, &[Address::new_from_array(a_core)]), E::NoKeep);
+    // The Season itself must be the pool's.
+    let ix = Instruction {
+        program_id: w.prize,
+        accounts: vec![AccountMeta::new(w.pool, false), AccountMeta::new_readonly(provinces[0], false), AccountMeta::new_readonly(provinces[1], false)],
+        data: vec![tag::TALLY],
+    };
+    let op = w.operator.insecure_clone();
+    fails(send(&mut w.svm, &[ix], &[&op]), E::BadAccount);
+
+    // (c) the same province three times in one transaction and again later: once.
+    tally(&mut w, &[provinces[0], provinces[0], provinces[0]]).unwrap();
+    tally(&mut w, &provinces[..1]).unwrap();
+    assert_eq!(u16_at(&pool_data(&w), pool::COUNTED), 1);
+    assert_eq!(area(&w), [0, 0, 1, 0, 0, 0]);
+
+    // (b) 53 of 54: Finalize refuses, with every chunk order.
+    tally(&mut w, &provinces[..30]).unwrap();
+    tally(&mut w, &provinces[31..]).unwrap();
+    assert_eq!(u16_at(&pool_data(&w), pool::COUNTED), 53);
+    fails(finalize(&mut w), E::TallyIncomplete);
+    // A Frontier account that is not the game's at its address is refused.
+    let fake = Keypair::new().pubkey();
+    let real = w.svm.get_account(&Address::new_from_array(w.ctx.frontier())).unwrap();
+    let mut short = real.clone();
+    put(&mut short.data, F::PROVINCES_OPENED, &60u32.to_le_bytes());
+    w.svm.set_account(fake, short).unwrap();
+    fails(finalize_with(&mut w, fake), E::BadAccount);
+    tally(&mut w, &provinces[30..31]).unwrap();
+    finalize(&mut w).unwrap();
+    assert_eq!(area(&w), [8, 9, 10, 9, 9, 9]);
+    assert_eq!(pool_data(&w)[pool::WINNERS], 1 << 2);
+
+    // (e) a pool opened with the wrong count can never be finalised: 53
+    // counted of an expected 53 is not the game's 54, and 54 is not 53.
+    let mut w = world();
+    init_with(&mut w, 53);
+    let provinces = set_provinces(&mut w, &holders, [0; 6]);
+    set_season(&mut w, S::STATUS_ENDED);
+    tally(&mut w, &provinces[..30]).unwrap();
+    tally(&mut w, &provinces[31..]).unwrap();
+    fails(finalize(&mut w), E::WrongExpectedCount);
+    tally(&mut w, &provinces[30..31]).unwrap();
+    fails(finalize(&mut w), E::WrongExpectedCount);
+    assert_eq!(pool_data(&w)[pool::STATE], pool::STATE_OPEN);
 }
