@@ -81,7 +81,7 @@ test('add: both languages, badges from the roster, day number, dedupe by (kind, 
   assert.deepEqual([line.kind, line.bell, line.day, line.actors, line.ai, line.refs], ['motion', 150, 1, ['aaaaaaaaaaaaaaa1'], [true], ['council:1:3']]);
   assert.equal(line.text.en, 'At bell 150 Nameaaaa moved option 2 (camp) in the council of Nation1.');
   // the sanitiser's NFKC turns the full-width brackets into ASCII ones, as in every episode text
-  assert.equal(line.text.ja, '鐘150で、名aaaaが国1の評議会で案2(野営地)を提案した。');
+  assert.equal(line.text.ja, 'ターン150で、名aaaaが国1の評議会で案2(野営地)を提案した。');
   assert.equal('by' in line, false);
   assert.match(line.id, /^[0-9a-f]{16}$/);
   assert.equal(c.add({ kind: 'motion', bell: 150, actors: ['aaaaaaaaaaaaaaa1'], refs: ['council:1:3'], vals: () => ({}) }), null, 'the same fact is one line');

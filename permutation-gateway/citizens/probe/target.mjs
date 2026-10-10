@@ -92,7 +92,7 @@ export function mapHandles(parsed, record, episodes) {
   return parsed.remembered.map((r, i) => {
     if (r.handle !== `M${i + 1}`) throw new Error(`probe: Remembered line ${i + 1} carries the handle ${r.handle}, not M${i + 1}`);
     const e = byId.get(retrieved[i]) ?? null;
-    if (e && Number(e.bell) !== r.bell) throw new Error(`probe: ${r.handle} is printed with bell ${r.bell}, episode ${e.id} has bell ${e.bell}: the mapping does not hold`);
+    if (e && Number(e.bell) !== r.bell) throw new Error(`probe: ${r.handle} is printed with turn ${r.bell}, episode ${e.id} has turn ${e.bell}: the mapping does not hold`);
     return { handle: r.handle, id: retrieved[i], bell: r.bell, text: r.text, line_index: r.line_index, episode: e, text_equal: e ? (e.text?.en ?? null) === r.text : null };
   });
 }
@@ -249,7 +249,7 @@ export async function planTarget({ id, text, record, episodes, target, count = a
     request_sha256: sha256(text),
     request_matches_record: record?.request_hash ? record.request_hash === sha256(text) : null,
     target: targetText(selectors),
-    handle_mapping: { rule: 'Mn is retrieved[n - 1] of the record', checked: 'the number of lines, the handle order and the bell of every Remembered line', text_equal: mapped.every((m) => m.text_equal !== false), unmapped: mapped.filter((m) => !m.episode).map((m) => m.handle) },
+    handle_mapping: { rule: 'Mn is retrieved[n - 1] of the record', checked: 'the number of lines, the handle order and the turn of every Remembered line', text_equal: mapped.every((m) => m.text_equal !== false), unmapped: mapped.filter((m) => !m.episode).map((m) => m.handle) },
     targeted_episodes: mapped.filter((m) => hit.has(m.handle)).map((m) => ({ handle: m.handle, id: m.id, kind: m.episode?.kind ?? null, bell: m.bell, text: m.text, src: m.episode?.src ?? null, entities: m.episode?.entities ?? null, cited_by_the_stored_decision: cited.includes(m.handle) })),
     removed: {
       remembered_lines: without.removed_remembered,
@@ -325,7 +325,7 @@ const cell = (s) => String(s ?? '').replace(/\|/g, '/').replace(/\s+/g, ' ').tri
 export function renderMarkdown(c) {
   const L = [];
   L.push(`# Memory comparison: decision ${c.record.slice(0, 12)}`, '');
-  L.push(`Scene: AI ${c.ai}, bell ${c.bell}, one stored model decision (record ${c.record}).`);
+  L.push(`Scene: AI ${c.ai}, turn ${c.bell}, one stored model decision (record ${c.record}).`);
   L.push(`Settings (equal in every variant): model ${c.settings.model}, temperature ${c.settings.temperature}, top_k ${c.settings.top_k}, top_p ${c.settings.top_p ?? 'not sent'}, seed ${c.settings.seed}, max_tokens ${c.settings.max_tokens}, response_format ${c.settings.response_format}, cache_prompt ${c.settings.cache_prompt}.`, '');
   L.push(`Removed in "without" (target ${c.target}, ${c.removed.tokens} tokens, ${c.token_counter}):`);
   for (const l of c.removed.remembered_lines) L.push(`- ${l}`);
@@ -342,8 +342,8 @@ export function renderMarkdown(c) {
   L.push('', c.wording ? `Result: ${c.wording}.` : `Result: ${c.dry_run ? 'not asked (dry run).' : c.wording_unavailable}`);
   if (c.wording_note) L.push(c.wording_note + '.');
   const r = c.result;
-  const dest = (r.opened?.destinations ?? []).map((d) => `${d.state} (${d.p},${d.q}), arrival bell ${d.arrive_bell}`).join('; ');
-  L.push('', `Executed (the stored decision only): chose ${r.choice ? r.choice.choose.join(', ') : 'unknown'}; tx ${r.tx.length ? r.tx.map((t) => `${t.intent} ${t.status}`).join(', ') : 'none recorded'}${r.opened ? `; opened at bell ${r.opened.opened_bell}: ${dest || 'no destination'}` : ''}.`);
+  const dest = (r.opened?.destinations ?? []).map((d) => `${d.state} (${d.p},${d.q}), arrival turn ${d.arrive_bell}`).join('; ');
+  L.push('', `Executed (the stored decision only): chose ${r.choice ? r.choice.choose.join(', ') : 'unknown'}; tx ${r.tx.length ? r.tx.map((t) => `${t.intent} ${t.status}`).join(', ') : 'none recorded'}${r.opened ? `; opened at turn ${r.opened.opened_bell}: ${dest || 'no destination'}` : ''}.`);
   L.push('The without-memory branch was not executed in a game.', '', 'Caveats:');
   for (const x of c.caveats) L.push(`- ${x}`);
   return L.join('\n') + '\n';

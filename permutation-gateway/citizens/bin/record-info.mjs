@@ -26,13 +26,13 @@ export function infoLines({ runId, serve, keys, stopFile, hold = 0, scale = 10, 
   L.push('  (the file holds the seat\'s session key only, no wallet secret; the seat process writes it about a minute after the start; the page keeps the key in memory only: a reload needs it pasted again)');
   if (!urlsOnly) {
     const bellMin = (Number(config.time?.bell_secs ?? 600) / Number(scale || config.time?.scale || 10)) / 60;
-    const fmt = (b) => `bell ${b} (+${Math.round(b * bellMin * 10) / 10} min)`;
-    L.push(`council timeline (1 bell = ${Math.round(bellMin * 100) / 100} real minute(s) at ${scale}x; bell 0 = genesis, about 2 minutes after this script started; "+N min" counts from genesis):`);
+    const fmt = (b) => `turn ${b} (+${Math.round(b * bellMin * 10) / 10} min)`;
+    L.push(`council timeline (1 turn = ${Math.round(bellMin * 100) / 100} real minute(s) at ${scale}x; turn 0 = genesis, about 2 minutes after this script started; "+N min" counts from genesis):`);
     for (let k = 1; k <= periods; k++) {
       const c = councilSchedule(config.council, k);
-      L.push(`  period ${k}: C0 ${fmt(c.c0)}; motions bells ${c.motions_from}-${c.motions_to}; BALLOT WINDOW bells ${c.ballots_from}-${c.ballots_to} (${fmt(c.ballots_from)} to ${fmt(c.close)}); strike ${fmt(c.strike)}; the order opens ${fmt(c.opens)}`);
+      L.push(`  period ${k}: C0 ${fmt(c.c0)}; motions turns ${c.motions_from}-${c.motions_to}; BALLOT WINDOW turns ${c.ballots_from}-${c.ballots_to} (${fmt(c.ballots_from)} to ${fmt(c.close)}); strike ${fmt(c.strike)}; the order opens ${fmt(c.opens)}`);
     }
-    L.push('  The seat\'s village is expected to become final at about bell 35 (pilot ai-pilot-A1): period 1 (bell 24) is then not votable for nation 0, the first votable council is period 2.');
+    L.push('  The seat\'s village is expected to become final at about turn 35 (pilot ai-pilot-A1): period 1 (turn 24) is then not votable for nation 0, the first votable council is period 2.');
     L.push('  A [seat] line below says when each council opens, when the ballot window opens and how it closed.');
     L.push('NOT to do: do not start the scripted seat (--seat-script or the A/B seat): it would cast an origin-2 ballot and mark the seat "scripted". This run\'s seat casts no ballot; only your ballot on the page counts as the live human ballot.');
     L.push('NOT to do: do not close this terminal or press Ctrl-C before you have finished recording: that stops the stack.');

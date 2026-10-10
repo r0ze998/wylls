@@ -15,7 +15,7 @@ import { lockedText } from './host.mjs';
 
 const STEP_TEXT = {
   departed: () => L`出発`,
-  arrivalBell: () => L`到着の鐘`,
+  arrivalBell: () => L`到着のターン`,
   anchored: () => L`ビーコンが記録された（誰でも封を開けられる）`,
   revealed: () => L`開封された`,
   resolved: () => L`決着`,
@@ -46,9 +46,9 @@ export function renderMarch(m) {
   const secret = privateLine(m.entry);
   const host = String(m.entry?.host ?? m.transit?.hostId ?? '');
   return html`<li class="march">
-    <p><strong>${L`第${fmtNum(t.arriveBell ?? 0)}鐘に到着`}</strong>${secret ? html` · <span class="secret">${secret}</span> <span class="muted">${L`（あなたにだけ見えます）`}</span>` : ''}</p>
+    <p><strong>${L`第${fmtNum(t.arriveBell ?? 0)}ターンに到着`}</strong>${secret ? html` · <span class="secret">${secret}</span> <span class="muted">${L`（あなたにだけ見えます）`}</span>` : ''}</p>
     <ol class="steps">${t.steps.map(s => html`<li class="${s.state}">${STEP_TEXT[s.id]()}</li>`)}</ol>
-    <p class="muted">${t.route === 'self' ? L`到着の鐘の始まりにこの端末が開封を送ります（署名なし）。` : HINT_TEXT[t.hint]?.() ?? ''}</p>
+    <p class="muted">${t.route === 'self' ? L`到着のターンの始まりにこの端末が開封を送ります（署名なし）。` : HINT_TEXT[t.hint]?.() ?? ''}</p>
     ${t.closedUnrevealed ? html`<p class="warn">${L`開封の受付が開封なしで閉じました。精算で敗走（兵・体力・チップの半分）になるか、到着枠に入れず損失なしで戻ります。`}</p>` : ''}
     ${t.outcome ? html`<p>${TRANSIT_OUTCOME_TEXT[t.outcome] ?? t.outcome}</p>` : ''}
     ${t.locked ? html`<p class="locked-note" role="note">${lockedText()}</p>` : ''}

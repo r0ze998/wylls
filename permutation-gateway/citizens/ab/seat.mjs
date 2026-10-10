@@ -70,7 +70,7 @@ export const SEAT_BALLOT_LABEL = Object.freeze({
 });
 export const SEAT_NEVER_LIVE = 'A Strike Order adopted with this ballot is the product of a scripted seat vote plus AI votes. It is not "humans and AI decided together"; only the recorded session, where the owner votes, can say that.';
 /** The pinned choice rule of the council script (contract 9.3 pins none for a run without an AI motion; recorded in integ-B-NOTES.md). */
-export const SEAT_RULE_TEXT = 'in every council period of nation 0 that has options: ballot for the option most chosen by the nation-0 AI ballots already cast (ties: the lowest option number; none only when every AI cast none); with no AI ballot by the last ballot bell (C0 + 5): the option with the highest ratio word (favourable, even, unfavourable), ties the lowest option number';
+export const SEAT_RULE_TEXT = 'in every council period of nation 0 that has options: ballot for the option most chosen by the nation-0 AI ballots already cast (ties: the lowest option number; none only when every AI cast none); with no AI ballot by the last ballot turn (C0 + 5): the option with the highest ratio word (favourable, even, unfavourable), ties the lowest option number';
 
 /** The live seat (recording run, `--live 1`): the presenter casts the ballot on the council page (origin 0); this process casts none. */
 export const SEAT_LIVE_LABEL = Object.freeze({
@@ -178,15 +178,15 @@ export function createSeatFinaliser({ readSeat, sendWalls, quotaLeft = null, log
       if (!snap) { to('herald_unreachable'); return st; }
       const h = snap.holding;
       if (!h) { to('no_village_yet'); return st; }
-      if (h.state === 2) { st.final = true; st.final_bell = bell; st.status = 'final'; say(`: its village is final (seen at bell ${bell})`); return st; }
-      if (!snap.due) { to('waiting_final_due', `waiting: the program flips it only when its time has come and its ticket cohort has closed; provisional at bell ${bell}`); return st; }
+      if (h.state === 2) { st.final = true; st.final_bell = bell; st.status = 'final'; say(`: its village is final (seen at turn ${bell})`); return st; }
+      if (!snap.due) { to('waiting_final_due', `waiting: the program flips it only when its time has come and its ticket cohort has closed; provisional at turn ${bell}`); return st; }
       if (snap.stone != null && snap.stone < stoneNeeded) { to('waiting_stone', `waiting for ${stoneNeeded} stone, has ${snap.stone}`); return st; }
       if (st.attempts >= maxAttempts || st.tries >= maxTries) { to('gave_up', `gave up after ${st.attempts} landed and ${st.tries} sent attempts; still provisional`); return st; }
       if (st.last_attempt_bell != null && bell - st.last_attempt_bell < spacingBells) return st;
       let q = null;
       try { q = quotaLeft ? await quotaLeft() : null; } catch { q = null; }
       if (q != null && q < minQuota) { to('waiting_quota', `waiting: only ${q} sponsored transactions left today, the seat keeps ${minQuota} back`); return st; }
-      say(`: a Build of walls touches its holding at bell ${bell} (no vote, no troops)`);
+      say(`: a Build of walls touches its holding at turn ${bell} (no vote, no troops)`);
       st.tries++;
       st.last_attempt_bell = bell;
       let r;
@@ -353,7 +353,7 @@ async function finaliseTick(finaliser, bell, log, save) {
 /** Why the loop must stop now, or null. Bound to game time (stop file or signal, the end bell), never to a poll count unless a test asks. */
 async function stopReason({ i, bell, maxPolls, endBell, shouldStop }) {
   if (shouldStop && (await shouldStop())) return 'stopped: stop file or signal';
-  if (endBell != null && bell != null && bell >= endBell) return `run ended: bell ${bell} reached the end bell ${endBell}`;
+  if (endBell != null && bell != null && bell >= endBell) return `run ended: turn ${bell} reached the end turn ${endBell}`;
   if (maxPolls != null && i >= maxPolls) return `gave up after ${maxPolls} polls`;
   return null;
 }
@@ -410,13 +410,13 @@ export async function runSeat({ arm, rep, aiDir, social, key, config = {}, getJs
           log.ineligible_periods.push({ period: state.period, c0, bell, option, code });
           log.skipped_periods.push({ period: state.period, reason: 'the seat was not eligible (its village was not final at C0): no ballot was possible, the period is not testable' });
           log.period = null; log.option_x = null; log.ai_mover = null; log.c0 = null;
-          console.log(`seat: ${SEAT_BALLOT_LABEL.en}: period ${state.period} refused NotEligible at bell ${bell}; waiting for the next period with an AI motion`);
+          console.log(`seat: ${SEAT_BALLOT_LABEL.en}: period ${state.period} refused NotEligible at turn ${bell}; waiting for the next period with an AI motion`);
           save();
         } else if ((r.status === 0 || r.status >= 500) && ++log.ballot_retries < 20) {
           save(); // not final: the next poll tries again while the ballot window lasts
         } else {
           log.ballot = { option, bell, status: r.status, ok: r.status === 200, inner: body.inner, origin: ORIGIN_SCRIPTED, scripted: true, code };
-          console.log(`seat: ${SEAT_BALLOT_LABEL.en}: period ${state.period}, bell ${bell}, status ${r.status}`);
+          console.log(`seat: ${SEAT_BALLOT_LABEL.en}: period ${state.period}, turn ${bell}, status ${r.status}`);
           save();
         }
       }
@@ -503,7 +503,7 @@ export async function runSeatScript({ aiDir, social, key, config = {}, getJson, 
           if (!retry || n >= maxAttempts) {
             done.add(P);
             log.periods.push({ period: P, c0, closes_bell: c0 + 6, option: pick.option, rule: pick.rule, ai_ballots: pick.ai_ballots, bell, status: r.status, ok: r.status === 200, code, attempts: n, inner: body.inner, origin: ORIGIN_SCRIPTED, scripted: true });
-            console.log(`seat: ${SEAT_BALLOT_LABEL.en}: period ${P}, option ${pick.option} by rule ${pick.rule}, bell ${bell}, status ${r.status}${code ? ` ${code}` : ''}`);
+            console.log(`seat: ${SEAT_BALLOT_LABEL.en}: period ${P}, option ${pick.option} by rule ${pick.rule}, turn ${bell}, status ${r.status}${code ? ` ${code}` : ''}`);
             save();
           }
         }
@@ -588,7 +588,7 @@ export function scheduleLines({ bell, nowMs, config = {}, periods = 3, clock = d
   for (let k = 1; lines.length < periods && k < 200; k++) {
     const c = councilSchedule(config.council, k);
     if (c.close < bell) continue;
-    lines.push(`period ${k}: motions from about ${at(c.motions_from)} (bell ${c.motions_from}); BALLOT WINDOW about ${at(c.ballots_from)} to ${at(c.close)} (bells ${c.ballots_from} to ${c.ballots_to}); strike about ${at(c.strike)} (bell ${c.strike}); the order opens about ${at(c.opens)} (bell ${c.opens})`);
+    lines.push(`period ${k}: motions from about ${at(c.motions_from)} (turn ${c.motions_from}); BALLOT WINDOW about ${at(c.ballots_from)} to ${at(c.close)} (turns ${c.ballots_from} to ${c.ballots_to}); strike about ${at(c.strike)} (turn ${c.strike}); the order opens about ${at(c.opens)} (turn ${c.opens})`);
   }
   return lines;
 }
@@ -647,12 +647,12 @@ export async function runSeatLive({ aiDir, social, key, config = {}, getJson, be
       let line = null;
       if (st.state === 'motions') {
         const wall = (b) => clock(now() + (b - bell) * bellMsOf(config)).slice(0, 5);
-        line = `council of nation ${NATION}, period ${k}: OPEN at bell ${bell}. Motions until the end of bell ${c0 + 2}; BALLOT WINDOW bells ${c0 + 3} to ${c0 + 5} (about ${wall(c0 + 3)} to ${wall(c0 + 6)}; closes at bell ${c0 + 6}); ${(st.options ?? []).length} option(s)`;
+        line = `council of nation ${NATION}, period ${k}: OPEN at turn ${bell}. Motions until the end of turn ${c0 + 2}; BALLOT WINDOW turns ${c0 + 3} to ${c0 + 5} (about ${wall(c0 + 3)} to ${wall(c0 + 6)}; closes at turn ${c0 + 6}); ${(st.options ?? []).length} option(s)`;
         line += finWarning;
-      } else if (st.state === 'ballots') line = `council of nation ${NATION}, period ${k}: BALLOT WINDOW OPEN at bell ${bell}: the presenter votes on the council page now (last bell to vote: ${c0 + 5}); ballots cast so far: ${st.ballots_cast ?? 0}${finWarning}`;
+      } else if (st.state === 'ballots') line = `council of nation ${NATION}, period ${k}: BALLOT WINDOW OPEN at turn ${bell}: the presenter votes on the council page now (last turn to vote: ${c0 + 5}); ballots cast so far: ${st.ballots_cast ?? 0}${finWarning}`;
       else if (st.state === 'closed') {
         line = st.adopted
-          ? `council of nation ${NATION}, period ${k}: CLOSED, Strike Order ADOPTED; strike at bell ${strike}, it opens at bell ${strike + 2}; read the sealed order on the page (members only)`
+          ? `council of nation ${NATION}, period ${k}: CLOSED, Strike Order ADOPTED; strike at turn ${strike}, it opens at turn ${strike + 2}; read the sealed order on the page (members only)`
           : `council of nation ${NATION}, period ${k}: CLOSED, no Strike Order (${st.reason ?? 'no reason given'})`;
       }
       if (line) { out(`seat (live): ${line}`); log.councils.push({ period: k, state: st.state, bell, c0, adopted: st.state === 'closed' ? Boolean(st.adopted) : null, reason: st.reason ?? null, ballots_cast: st.ballots_cast ?? null }); save(); }

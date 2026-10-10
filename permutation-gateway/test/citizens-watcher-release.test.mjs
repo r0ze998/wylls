@@ -27,7 +27,7 @@ const sealed = (over = {}) => ({
 });
 const priv = (host, planned, over = {}) => ({
   candidates: [{ id: 'c3', kind: 'march', facts: { host_id: host, target: { p: 2, q: 0, tile: 9 }, earliest_bell: planned } }, { id: 'c1', kind: 'autopilot' }],
-  remembered: [{ id: 'e1', bell: 380, text: { en: 'At bell 380 ...', ja: '鐘380で ...' } }],
+  remembered: [{ id: 'e1', bell: 380, text: { en: 'At bell 380 ...', ja: 'ターン380で ...' } }],
   intended: [{ host_id: host, arrive_bell: planned, pq: [2, 0], tile: 9, via: 'model', target_kind: 'camp' }], ...over,
 });
 const depart = (host, departBell, arriveBell) => ({ kind: 'DEPART', bell: departBell, seq: `d${host}`, host_id: host, depart_bell: departBell, arrive_bell: arriveBell, dep_mass: 300_000, origin_p: 0, origin_q: 0, origin_tile: 4 });
@@ -87,7 +87,7 @@ test('a normal march: nothing before its arrival bell has ended; at release_bell
   assert.deepEqual(o.choice.mem, ['e1']);
   assert.deepEqual(o.retrieved, ['e1', 'e2']);
   assert.equal(o.public.why, 'The stack is weak and the road is short.');
-  assert.deepEqual(o.remembered, [{ id: 'e1', bell: 380, text: { en: 'At bell 380 ...', ja: '鐘380で ...' } }]);
+  assert.deepEqual(o.remembered, [{ id: 'e1', bell: 380, text: { en: 'At bell 380 ...', ja: 'ターン380で ...' } }]);
   assert.equal(o.candidates.length, 2, 'the brain\'s candidate list with its facts');
   assert.equal(o.release_bell, 405, 'the committed release bell is untouched');
   assert.deepEqual(JSON.parse(readFileSync(join(w.dir, 'pub/open/index.json'), 'utf8')), { v: 1, bells: [405], latest: 405 });

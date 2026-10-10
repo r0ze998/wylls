@@ -183,7 +183,7 @@ test('with two AIs in nation 0 the seat waits for both and follows the majority'
 });
 
 test('a seat started in preseason still votes in period 2 after more than 400 poll intervals (the budget is game time, not a poll count)', async () => {
-  // 10 polls per bell from bell 4: period 2 opens at bell 48 (440 polls), the AI ballots at 51, the seat votes right after
+  // 10 polls per bell from turn 4: period 2 opens at turn 48 (440 polls), the AI ballots at 51, the seat votes right after
   const w = world({ startBell: 4, pollsPerBell: 10, plan: { open: OPEN2, ai: { [C0 + 3]: [{ who: 'ai0', option: 1, period: 2 }] } } });
   await w.start();
   const log = await w.script({ shouldStop: stopAfterBell(w, C0 + 7) });
@@ -294,7 +294,7 @@ test('the loop ends with the run (stop signal, end bell) and waits without throw
   assert.ok(n > 700, 'more than 700 polls without giving up');
   w.clock.set(10);
   const l2 = await w.script({ endBell: 60, shouldStop: () => false, sleep: async () => { w.clock.advance(1); } });
-  assert.match(l2.notes.at(-1), /run ended: bell 60 reached the end bell 60/);
+  assert.match(l2.notes.at(-1), /run ended: turn 60 reached the end turn 60/);
   const l3 = await w.script({ maxPolls: 5, sleep: async () => {}, shouldStop: () => false });
   assert.match(l3.notes.at(-1), /gave up after 5 polls/);
   w.dir.dispose();

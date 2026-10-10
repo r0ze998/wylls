@@ -29,8 +29,8 @@ export const roster = (over = {}) => ({
 });
 
 export const episodeText = {
-  attacked: { en: 'At bell 388 Elrin Somere (nation Borealis) attacked your army at (-2,3); you lost 120 troops.', ja: '鐘388で、エルリン・ソメア（国ボレアリス）があなたの軍を(-2,3)で攻撃し、あなたは兵120を失った。' },
-  camp: { en: 'At bell 205 nation Ember cleared the camp at (-2,3) first.', ja: '鐘205で、国エンバーが野営地(-2,3)を先に制圧した。' },
+  attacked: { en: 'At bell 388 Elrin Somere (nation Borealis) attacked your army at (-2,3); you lost 120 troops.', ja: 'ターン388で、エルリン・ソメア（国ボレアリス）があなたの軍を(-2,3)で攻撃し、あなたは兵120を失った。' },
+  camp: { en: 'At bell 205 nation Ember cleared the camp at (-2,3) first.', ja: 'ターン205で、国エンバーが野営地(-2,3)を先に制圧した。' },
 };
 
 export const card = (tag = T.ai0, over = {}) => ({
@@ -39,7 +39,7 @@ export const card = (tag = T.ai0, over = {}) => ({
   tag, wallet: W.ai0, faction: 0, index: 1000, name: { en: 'Toa Festead', ja: 'トア・フェステッド' },
   persona: { id: 'avenger', ambition: 'Avenger', creed: { en: 'Every wrong done to my people is answered.', ja: '同胞が受けた仕打ちには、必ず報いる。' }, temperament: { aggression: 66, loyalty: 70, ambition: 50, honesty: 60, risk: 61, sociability: 44, grudge: 90 } },
   goals: [
-    { id: 'G1', text: { en: 'Answer every grievance with a march that reaches the wrongdoer within 12 bells', ja: '遺恨には12鐘以内の進軍で応える' }, progress: 50, status: 'active', memory: true },
+    { id: 'G1', text: { en: 'Answer every grievance with a march that reaches the wrongdoer within 12 bells', ja: '遺恨には12ターン以内の進軍で応える' }, progress: 50, status: 'active', memory: true },
     { id: 'G2', text: { en: 'Keep at least half of the home troops', ja: '本拠の兵の半数以上を保つ' }, progress: 100, status: 'active', memory: false },
     { id: 'G3', text: { en: 'Move a council option whose target nation has an open grievance against it', ja: '遺恨のある国を狙う選択肢を評議会で動議する' }, progress: null, status: 'active', memory: true },
     { id: 'G4', text: { en: 'Keep two combat armies', ja: '戦闘軍を2つ保つ' }, progress: 0, status: 'active', memory: false },

@@ -60,10 +60,10 @@ const SIDE_TEXT = { gain: () => L`あなたの国が得た`, loss: () => L`あ�
 /** A keep event's notification, or null: a capture is news to everyone, a contest's start and its end only to the two nations. */
 function keepItem(k, e, bell) {
   const at = { id: `kp:${k}`, kind: 'keep', bell, p: e.p, q: e.q, side: e.side };
-  if (e.kind === 'keep_taken') return { ...at, text: L`州 ${e.p},${e.q} の砦を ${factionName(e.to)} が ${factionName(e.from)} から奪った（第${fmtNum(e.bell)}鐘）` };
+  if (e.kind === 'keep_taken') return { ...at, text: L`州 ${e.p},${e.q} の砦を ${factionName(e.to)} が ${factionName(e.from)} から奪った（第${fmtNum(e.bell)}ターン）` };
   if (!e.side) return null;
-  if (e.kind === 'keep_contest') return { ...at, text: L`州 ${e.p},${e.q} の砦を ${factionName(e.to)} が攻めはじめた（第${fmtNum(e.bell)}鐘）` };
-  return { ...at, text: L`州 ${e.p},${e.q} の砦は ${factionName(e.to)} が守りきった（第${fmtNum(e.bell)}鐘）` };
+  if (e.kind === 'keep_contest') return { ...at, text: L`州 ${e.p},${e.q} の砦を ${factionName(e.to)} が攻めはじめた（第${fmtNum(e.bell)}ターン）` };
+  return { ...at, text: L`州 ${e.p},${e.q} の砦は ${factionName(e.to)} が守りきった（第${fmtNum(e.bell)}ターン）` };
 }
 
 /**
@@ -82,14 +82,14 @@ export function diffFeed(prev, next) {
     const d = m.dest;
     if (!was) continue;
     if (!was.revealed && m.revealed && d) out.push({ id: `rv:${k}`, kind: 'march', bell, p: d.p, q: d.q, text: L`州 ${d.p},${d.q} への進軍が開封されました` });
-    if (was.pipeline !== 'resolved' && m.pipeline === 'resolved' && d) out.push({ id: `rs:${k}`, kind: 'battle', bell, p: d.p, q: d.q, battle: { p: d.p, q: d.q, bell: m.bell }, text: L`州 ${d.p},${d.q} の衝突が決着しました（第${fmtNum(m.bell)}鐘）` });
+    if (was.pipeline !== 'resolved' && m.pipeline === 'resolved' && d) out.push({ id: `rs:${k}`, kind: 'battle', bell, p: d.p, q: d.q, battle: { p: d.p, q: d.q, bell: m.bell }, text: L`州 ${d.p},${d.q} の衝突が決着しました（第${fmtNum(m.bell)}ターン）` });
     if (!was.settle && m.settle && d) out.push({ id: `st:${k}`, kind: 'march', bell, p: d.p, q: d.q, text: L`州 ${d.p},${d.q} の進軍を精算できます` });
   }
   for (const c of next.clashes) {
     if (prev.clashes.has(c)) continue;
     const [p, q, b] = c.split(',').map(Number);
     if (out.some(x => x.battle && x.battle.p === p && x.battle.q === q && x.battle.bell === b)) continue;
-    out.push({ id: `cl:${c}`, kind: 'battle', bell, p, q, battle: { p, q, bell: b }, text: L`あなたの村の州 ${p},${q} で戦いがありました（第${fmtNum(b)}鐘）` });
+    out.push({ id: `cl:${c}`, kind: 'battle', bell, p, q, battle: { p, q, bell: b }, text: L`あなたの村の州 ${p},${q} で戦いがありました（第${fmtNum(b)}ターン）` });
   }
   if (prev.keeps && next.keeps) for (const [k, e] of next.keeps) {
     if (prev.keeps.has(k) || (Number.isInteger(bell) && e.bell < bell - KEEP_NEWS_BELLS)) continue;
@@ -99,7 +99,7 @@ export function diffFeed(prev, next) {
   for (const w of next.incoming) {
     if (prev.incoming.has(w)) continue;
     const [b, p, q] = w.split(',').map(Number);
-    out.push({ id: `in:${w}`, kind: 'incoming', bell, p, q, text: L`第${fmtNum(b)}鐘に州 ${p},${q} の村へ敵が来るかもしれません` });
+    out.push({ id: `in:${w}`, kind: 'incoming', bell, p, q, text: L`第${fmtNum(b)}ターンに州 ${p},${q} の村へ敵が来るかもしれません` });
   }
   // A transaction can consume the completed queue before the next poll.
   const completed = new Set([...next.builds, ...[...(prev.pendingBuilds ?? [])].filter(b => {
@@ -139,7 +139,7 @@ export function bellSummary(feed, bell) {
     n('battle') && L`戦い ${fmtNum(n('battle'))}`, n('march') && L`進軍の知らせ ${fmtNum(n('march'))}`, n('incoming') && L`来襲の恐れ ${fmtNum(n('incoming'))}`,
     n('build') && L`完成 ${fmtNum(n('build'))}`, n('holding') && L`村 ${fmtNum(n('holding'))}`, n('keep') && L`砦 ${fmtNum(n('keep'))}`,
   ].filter(Boolean);
-  return { id: `sum:${bell}`, kind: 'summary', bell: bell + 1, text: L`第${fmtNum(bell)}鐘のまとめ：${parts.join(' · ')}`, items: of.map(x => x.id) };
+  return { id: `sum:${bell}`, kind: 'summary', bell: bell + 1, text: L`第${fmtNum(bell)}ターンのまとめ：${parts.join(' · ')}`, items: of.map(x => x.id) };
 }
 
 /** Add notifications to a feed (newest first, no duplicates, at most FEED_MAX), stamping when they arrived. */
@@ -183,7 +183,7 @@ export function renderCentre(feed, filter = 'all') {
   const list = feed.filter(x => inFilter(x, filter));
   return html`<section aria-labelledby="feed-title"><h3 id="feed-title">${L`お知らせ`}</h3>
     <div class="feed-filters" role="group" aria-label="${L`絞り込み`}">${FEED_FILTERS.map(f => html`<button type="button" class="btn small" data-act="feed-filter" data-f="${f}" aria-pressed="${f === filter ? 'true' : 'false'}">${FILTER_TEXT[f]()}</button>`)}</div>
-    ${list.length ? html`<ol class="list feed-list">${list.map(x => html`<li class="feed-${x.kind}"><span class="toast-icon" aria-hidden="true">${KIND_ICON[x.kind] ?? ''}</span><span>${x.text}${sideTag(x)}${Number.isInteger(x.bell) ? html` <span class="muted">${L`第${fmtNum(x.bell)}鐘`}</span>` : ''}</span><span class="toast-acts">${itemActions(x)}</span></li>`)}</ol>`
+    ${list.length ? html`<ol class="list feed-list">${list.map(x => html`<li class="feed-${x.kind}"><span class="toast-icon" aria-hidden="true">${KIND_ICON[x.kind] ?? ''}</span><span>${x.text}${sideTag(x)}${Number.isInteger(x.bell) ? html` <span class="muted">${L`第${fmtNum(x.bell)}ターン`}</span>` : ''}</span><span class="toast-acts">${itemActions(x)}</span></li>`)}</ol>`
       : html`<p class="muted">${L`まだお知らせはありません`}</p>`}</section>`;
 }
 

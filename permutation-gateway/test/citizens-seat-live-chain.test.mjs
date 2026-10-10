@@ -137,7 +137,7 @@ test('the live seat process: finalises its village through the real relay, write
   assert.doesNotMatch(out, /scripted seat: finalising|scripted seat ballot/);
   assert.match(out, /the presenter key for the council page is \S+presenter-key\.json/);
   assert.match(out, /seat: live seat: the presenter casts the ballot on the council page \(origin 0\); this process casts no ballot/);
-  assert.match(out, new RegExp(`council of nation 0, period 1: OPEN at bell ${BELL_NOW}\\. Motions until the end of bell ${BELL_NOW + 2}; BALLOT WINDOW bells ${BELL_NOW + 3} to ${BELL_NOW + 5}`));
+  assert.match(out, new RegExp(`council of nation 0, period 1: OPEN at turn ${BELL_NOW}\\. Motions until the end of turn ${BELL_NOW + 2}; BALLOT WINDOW turns ${BELL_NOW + 3} to ${BELL_NOW + 5}`));
   assert.match(out, /"casts_ballots":false/);
   assert.equal(out.includes('session_keypair'), false, 'the key is never printed');
   assert.equal(out.includes('WALLET-SECRET'), false);

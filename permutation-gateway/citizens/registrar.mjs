@@ -959,7 +959,7 @@ export async function main(argv, { log = m => console.error(m), out = m => conso
       // was already in flight. Only then are the closed bells counted, so no bell is written after the index (smoke-r2, bell 109).
       const stateDir = path.join(aiDir, 'state');
       const wcb = await waitForChainBells({ aiDir, herald: a.herald, timeoutMs: Number(a['wait-last-secs'] ?? 0) * 1000 });
-      if (wcb.missing) log(`publish: the chain closed bell ${wcb.expected} but the closer had not closed it after ${wcb.waited_ms} ms; the season is sealed without it`);
+      if (wcb.missing) log(`publish: the chain closed turn ${wcb.expected} but the closer had not closed it after ${wcb.waited_ms} ms; the season is sealed without it`);
       sealSeason(stateDir);
       const idle = await waitForCloserIdle(stateDir, { timeoutMs: Math.max(5000, Number(a['wait-last-secs'] ?? 0) * 1000) });
       if (idle.held) log(`publish: the closer still held a close after ${idle.waited_ms} ms`);
@@ -967,15 +967,15 @@ export async function main(argv, { log = m => console.error(m), out = m => conso
       // both files, then one more anchor pass (nothing is sent to a paused chain), then the index; every closed bell without an anchor
       // becomes a named anchor_gap in publishSeasonEnd, so the index and the closed bells agree
       const wl = await waitForClosedBellFiles({ aiDir, timeoutMs: Number(a['wait-last-secs'] ?? 0) * 1000 });
-      if (wl.incomplete.length) log(`publish: bells ${wl.incomplete.join(', ')} still have only one of talk and minds after ${wl.waited_ms} ms`);
+      if (wl.incomplete.length) log(`publish: turns ${wl.incomplete.join(', ')} still have only one of talk and minds after ${wl.waited_ms} ms`);
       const paused = await chainPaused(rpc);
       await anchorPass({ aiDir, kp, rpc, season: commitments.season_id, log, sendBlocked: paused ? PAUSED_REASON : null, ...memoOptions(a) });
       // R9: the `run` process may be sending the last bells at this very moment (its claim is live): wait for its anchors, then index
       const w = await waitForClaimedAnchors({ aiDir });
-      if (w.pending.length) log(`publish: bells ${w.pending.join(', ')} are still claimed by a live registrar run after ${w.waited_ms} ms; they are not in the index`);
+      if (w.pending.length) log(`publish: turns ${w.pending.join(', ')} are still claimed by a live registrar run after ${w.waited_ms} ms; they are not in the index`);
       const index = publishSeasonEnd({ aiDir, kp, season: commitments.season_id, commitmentsSha: sha256hex(bytes), skip: w.pending, defaultReason: paused ? PAUSED_REASON : undefined });
       const closed = closedBells(path.join(aiDir, 'pub')).length;
-      out(`anchors: ${index.anchored.length} anchored, ${index.gaps.length} gap(s) of ${closed} closed bells; season-end trigger written`);
+      out(`anchors: ${index.anchored.length} anchored, ${index.gaps.length} gap(s) of ${closed} closed turns; season-end trigger written`);
       return 0;
     }
     case 'runs-add': {

@@ -90,7 +90,7 @@ test('chronicle sources: a council that closes with no winner gives no_call with
   const noCall = lines.filter(l => l.kind === 'no_call');
   assert.equal(noCall.length, 1);
   assert.match(noCall[0].text.en, /^At bell 54 the council of Nation1 adopted no Strike Order \(fewer than two ballots for one option\)\.$/);
-  assert.match(noCall[0].text.ja, /^鐘54で、国1の評議会は攻撃命令を採用しなかった（同じ案への票が2票に満たなかった）。$|^鐘54で、国1の評議会は攻撃命令を採用しなかった\(同じ案への票が2票に満たなかった\)。$/);
+  assert.match(noCall[0].text.ja, /^ターン54で、国1の評議会は攻撃命令を採用しなかった（同じ案への票が2票に満たなかった）。$|^ターン54で、国1の評議会は攻撃命令を採用しなかった\(同じ案への票が2票に満たなかった\)。$/);
   const declined = lines.find(l => l.kind === 'call_declined');
   assert.deepEqual([declined.by, declined.actors, declined.ai, declined.bell], ['model', [TAG], [true], 55]);
   assert.equal(lines.some(l => /reflect/.test(l.kind)), false);

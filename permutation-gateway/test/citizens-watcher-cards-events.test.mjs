@@ -19,7 +19,7 @@ import { fakeFeed, fakeOwners, fakeRoster, nameOfDouble, nationNameDouble, tmpDi
 const TAG = 'aaaaaaaaaaaaaaa1';
 const TAG_B = 'aaaaaaaaaaaaaaa2';
 const entry = (over = {}) => ({ index: 1003, tag: TAG, wallet: 'W-A', faction: 1, persona: 'avenger', creed_variant: 2, temperament: { aggression: 67, loyalty: 72, ambition: 49, honesty: 58, risk: 61, sociability: 44, grudge: 90 }, name: { en: 'Ember Ash', ja: 'エンバー・アッシュ' }, ...over });
-const EP = { v: 1, id: 'e1e1e1e1e1e1e1e1', bell: 388, created_bell: 390, kind: 'camp_taken_by', entities: ['nation:3', 'pq:2,0'], text: { en: 'At bell 388 nation Dunmar cleared the camp at (2,0) first.', ja: '鐘388で、ダンマールがあなたより先に、(2,0)の野営地を倒した。' }, importance: 5, src: ['event:1'] };
+const EP = { v: 1, id: 'e1e1e1e1e1e1e1e1', bell: 388, created_bell: 390, kind: 'camp_taken_by', entities: ['nation:3', 'pq:2,0'], text: { en: 'At bell 388 nation Dunmar cleared the camp at (2,0) first.', ja: 'ターン388で、ダンマールがあなたより先に、(2,0)の野営地を倒した。' }, importance: 5, src: ['event:1'] };
 const modelRec = (over = {}) => ({
   v: 2, ai: TAG, index: 1003, bell: 400, kind: 'session', mode: 'model', reason: 'ok', wake: ['W-PULSE'], gate_score: 3, obs_digest: 'ab', situation_hash: 'sh', candidates_hash: 'ch', memory_hash: 'mh',
   inbox_root: 'ir', prompt_hash: 'ph', request_hash: 'rh', output_hash: 'oh', attempts: 1, seed: 5, sealed: false, release_bell: null,

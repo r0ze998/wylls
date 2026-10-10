@@ -56,7 +56,7 @@ test('selectTarget: an open-field army of another nation that cannot leave befor
   assert.match(why['4'], /own nation/);
   assert.match(why['5'], /under 150 troops/);
   assert.match(why['6'], /farther than/);
-  assert.match(why['7'], /could depart from bell 100/);
+  assert.match(why['7'], /could depart from turn 100/);
   assert.match(why['8'], /not an AI citizen/);
   // deterministic: the same input twice gives the same plan; the lowest host id breaks a tie
   assert.deepEqual(selectTarget({ armies, seat: seat(), bell: 100 }), r);

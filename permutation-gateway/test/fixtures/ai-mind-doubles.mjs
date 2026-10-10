@@ -78,7 +78,7 @@ export class EpisodesDouble {
   add(e) { this.byId.set(e.id, e); }
 }
 export function makeEpisode(i, over = {}) {
-  return { v: 1, id: `ep${String(i).padStart(14, '0')}`, bell: 10 * i, created_bell: 10 * i + 1, kind: 'camp_taken_by', entities: ['pq:1,1', 'nation:3'], text: { en: `At bell ${10 * i} nation 3 cleared the camp at (1,1) first.`, ja: `鐘${10 * i}で、国3が(1,1)の野営地を先に倒した。` }, importance: 5, src: [], ...over };
+  return { v: 1, id: `ep${String(i).padStart(14, '0')}`, bell: 10 * i, created_bell: 10 * i + 1, kind: 'camp_taken_by', entities: ['pq:1,1', 'nation:3'], text: { en: `At bell ${10 * i} nation 3 cleared the camp at (1,1) first.`, ja: `ターン${10 * i}で、国3が(1,1)の野営地を先に倒した。` }, importance: 5, src: [], ...over };
 }
 export function makeStores({ episodes = [], goals = [] } = {}) {
   const ledgers = new Map();

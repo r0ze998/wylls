@@ -67,7 +67,7 @@ test('episode lines: a roster badge follows every citizen name the line contains
   // a name nobody listed gets no badge; a nation name is not a citizen
   assert.deepEqual(badgedSegments('Ember cleared the camp.', ['nation:4'], idx, 'en').map(s => s.badge ?? s.text), ['Ember cleared the camp.']);
   // the same in Japanese
-  const ja = badgedSegments('鐘388で、エルリン・ソメア（国ボレアリス）があなたの軍を攻撃した。', [T.ai1], idx, 'ja');
+  const ja = badgedSegments('ターン388で、エルリン・ソメア（国ボレアリス）があなたの軍を攻撃した。', [T.ai1], idx, 'ja');
   assert.ok(ja.some(s => s.badge === 'ai'));
 });
 

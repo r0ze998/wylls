@@ -73,7 +73,7 @@ test('Remembered: nothing cited prints "nothing cited"; the Japanese heading and
   const ja = renderDecisions(ctxOf('ja'), decisionList({ minds: minds([sealedRecord()]), opened: openedMap([openedRecord()]) }));
   const jaText = textOf(byClass(ja, 'remembered-block')[0]);
   assert.match(jaText, /引用した記憶（モデルが名指し）/);
-  assert.match(jaText, /鐘205で、国エンバーが野営地\(-2,3\)を先に制圧した。/);
+  assert.match(jaText, /ターン205で、国エンバーが野営地\(-2,3\)を先に制圧した。/);
   assert.match(textOf(ja), /AIの言葉（モデルが書いたもので、検証されていません）/);
 });
 

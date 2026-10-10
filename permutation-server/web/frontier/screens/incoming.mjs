@@ -9,7 +9,7 @@ import { html } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 
 /** One warning line. */
-export const warningText = w => L`第${fmtNum(w.bell)}鐘に、州 ${w.holding.p},${w.holding.q} の村へ最大 ${w.hosts} の軍勢（${fmtNum(w.troops)} 兵）が来るかもしれません。行き先はわかりません。`;
+export const warningText = w => L`第${fmtNum(w.bell)}ターンに、州 ${w.holding.p},${w.holding.q} の村へ最大 ${w.hosts} の軍勢（${fmtNum(w.troops)} 兵）が来るかもしれません。行き先はわかりません。`;
 
 export function render(FS) {
   const w = FS.incoming;

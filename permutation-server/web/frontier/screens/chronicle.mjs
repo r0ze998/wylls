@@ -21,9 +21,9 @@ export function lineOf(r) {
       taken: () => null, expired: () => L`入植希望が期限切れになった` }[SETTLE_OUTCOMES[r.outcome]]?.() ?? null;
     case 'HOME_PLACED':
     case 'HOLDING_FINAL': return L`州 ${r.p},${r.q} の区画 ${r.site + 1} の村が確定した`;
-    case 'DEPART': return L`州 ${r.origin_p},${r.origin_q} から軍勢が出発した（第${fmtNum(r.arrive_bell)}鐘に到着）`;
-    case 'REVEAL': return L`州 ${r.p},${r.q} の第${fmtNum(r.arrive)}鐘の到着が開封された`;
-    case 'CLASH': return L`州 ${r.p},${r.q} で第${fmtNum(r.bell)}鐘の衝突が決着した`;
+    case 'DEPART': return L`州 ${r.origin_p},${r.origin_q} から軍勢が出発した（第${fmtNum(r.arrive_bell)}ターンに到着）`;
+    case 'REVEAL': return L`州 ${r.p},${r.q} の第${fmtNum(r.arrive)}ターンの到着が開封された`;
+    case 'CLASH': return L`州 ${r.p},${r.q} で第${fmtNum(r.bell)}ターンの衝突が決着した`;
     case 'TRANSIT_SETTLED': return L`進軍が精算された：${TRANSIT_OUTCOME_TEXT[TRANSIT_OUTCOMES[r.outcome]] ?? r.outcome}`;
     case 'EXPLORE_RESULT': return L`探索の結果：功績 ${r.works}`;
     case 'CAMP': return L`州 ${r.p},${r.q} に蛮族の野営地が現れた`;
@@ -64,5 +64,5 @@ export function render(FS) {
   const rows = chronicleRows(FS.chronicle ?? [], FS.isMine ?? (() => false), 60, FS.conquest?.events ?? [], FS.citizen?.faction ?? null);
   if (!rows.length) return html`<p class="muted">${L`まだ記録はありません`}</p>`;
   return html`<section aria-labelledby="chronicle-title"><h3 id="chronicle-title">${L`年代記`}</h3>
-    <ol class="list chronicle">${rows.map(r => html`<li class="${r.mine ? 'mine' : ''}"><span class="muted">${L`第${fmtNum(r.bell)}鐘`}</span> ${r.text}</li>`)}</ol></section>`;
+    <ol class="list chronicle">${rows.map(r => html`<li class="${r.mine ? 'mine' : ''}"><span class="muted">${L`第${fmtNum(r.bell)}ターン`}</span> ${r.text}</li>`)}</ol></section>`;
 }

@@ -296,7 +296,7 @@ unit on the map is 軍勢, a host), so the merged dictionary stays consistent.
 | Japanese | English | Notes |
 |---|---|---|
 | Wylls | Wylls | the game's name |
-| 鐘 / 第N鐘 / 鐘 N | bell / Bell N | never "tick" or "turn"; the chip reads `Bell 1,034 · 6:12 left` |
+| ターン / 第Nターン / ターン N | turn / Turn N | the 10-minute step; never "tick", "bell" or 鐘; the chip reads `Turn 1,034 · 6:12 left` |
 | 州 | province | |
 | 輪 / 第d輪 | ring / Ring d | ring 0 is the Concord |
 | 扇区（本拠の扇区） | wedge (home wedge) | |
@@ -322,7 +322,7 @@ unit on the map is 軍勢, a host), so the merged dictionary stays consistent.
 | 本拠へ押し戻された | bounced home | no room, or lost the field with nowhere to fall back; troops lost in the fight stay lost, so no "(no loss)" |
 | 到着枠に入れず押し戻された | bounced without an arrival slot (no loss) | the four largest of a faction take the slots (`BouncedUnranked`) |
 | ビーコン / ビーコン待ち | beacon / awaiting beacon | the drand round anchored on chain |
-| シード / シード待ち | seed / awaiting seed | the bell's random seed |
+| シード / シード待ち | seed / awaiting seed | the turn's random seed |
 | 決着 / 決着処理中 | resolved / resolving | |
 | 炎 | Flame | doctrine C's display name (I-34) |
 | 練習モード | practice mode | |
@@ -336,7 +336,7 @@ unit on the map is 軍勢, a host), so the merged dictionary stays consistent.
 | 仮の拠点 / 確定 | provisional holding / final | cohort finality (I-47) |
 | 控えの兵 | reserve | trained troops not yet in a host |
 | 解散 | Dissolve | |
-| 到着の鐘 | arrival bell | |
+| 到着のターン | arrival turn | |
 | 到着枠 | arrival slot | |
 | 衝突 / 衝突の報告 | clash / clash report | |
 | 結末 | fate | a fighter's result in a clash report |

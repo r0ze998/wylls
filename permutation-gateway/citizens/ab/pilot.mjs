@@ -36,8 +36,8 @@ export const staminaAt = (e, bell) => Math.min(STAMINA_CAP, Number(e.stamina ?? 
 export function hostStatus(e, bell) {
   if (!e) return { ready: false, why: 'away', text: 'not in the province files near the target (in transit or elsewhere)' };
   if (e.state !== 1) return { ready: false, why: 'not_roster', text: `not on the roster (state ${e.state})` };
-  if (Number(e.from_bell) > bell) return { ready: false, why: 'not_mustered', text: `not mustered yet (from bell ${e.from_bell})` };
-  if (Number(e.ready_bell) > bell) return { ready: false, why: 'not_ready', text: `not ready yet (ready bell ${e.ready_bell})` };
+  if (Number(e.from_bell) > bell) return { ready: false, why: 'not_mustered', text: `not mustered yet (from turn ${e.from_bell})` };
+  if (Number(e.ready_bell) > bell) return { ready: false, why: 'not_ready', text: `not ready yet (ready turn ${e.ready_bell})` };
   const st = staminaAt(e, bell);
   if (st < DEPART_STAMINA) return { ready: false, why: 'resting', text: `resting (stamina ${st} of ${DEPART_STAMINA} needed)`, stamina: st };
   return { ready: true, why: 'ready', text: 'ready', stamina: st };
@@ -147,12 +147,12 @@ export function renderPilot(r) {
   const mr = r.motion_rate;
   L.push(`Nation 0 council files: ${mr.periods_total}; with options: ${mr.periods_with_options}; with an AI motion: ${mr.periods_with_ai_motion}; adopted: ${mr.periods_adopted}; opened: ${mr.periods_opened}. Seat ballots: ${JSON.stringify(r.seat?.ballots ?? [])}; periods the seat could not vote in (NotEligible): ${JSON.stringify(r.seat?.ineligible_periods ?? [])}.`, '');
   for (const p of r.periods) {
-    L.push(`## Period ${p.period} (C0 ${p.c0}, strike bell ${p.strike_bell}): ${p.option == null ? 'adopted, not opened yet' : `option ${p.option} at (${p.target.p},${p.target.q})`}`, '');
+    L.push(`## Period ${p.period} (C0 ${p.c0}, strike turn ${p.strike_bell}): ${p.option == null ? 'adopted, not opened yet' : `option ${p.option} at (${p.target.p},${p.target.q})`}`, '');
     L.push(`- options: ${JSON.stringify(p.options)}; options_hash ${v(p.options_hash)}; AI motions ${JSON.stringify(p.ai_motions)}; ballots by origin ${JSON.stringify(p.tally_split)}; pivot condition (>= 1 AI ballot for the winning option): ${v(p.pivot_condition)}`);
-    L.push(`- invited hosts: ${p.invited.invited}; ready at C0 + 6: **${p.invited.ready_at_c0_plus_6}**; ready at some bell of the window: ${p.invited.ready_in_window}; invited hosts that departed in the window for the strike bell: **${p.invited_hosts_departing}**; nation 0 departures arriving at S (any host): ${p.nation0_departs_arriving_at_s.length}; nation 0 hosts revealed at the target at S: ${p.nation0_revealed_at_target_at_s.length}`);
+    L.push(`- invited hosts: ${p.invited.invited}; ready at C0 + 6: **${p.invited.ready_at_c0_plus_6}**; ready at some turn of the window: ${p.invited.ready_in_window}; invited hosts that departed in the window for the strike turn: **${p.invited_hosts_departing}**; nation 0 departures arriving at S (any host): ${p.nation0_departs_arriving_at_s.length}; nation 0 hosts revealed at the target at S: ${p.nation0_revealed_at_target_at_s.length}`);
     for (const h of p.invited.rows) L.push(`  - host ${h.host_id} (${h.kind}): ${Object.entries(h.by_bell).map(([b, s]) => `b${b} ${s.why}`).join(', ')}`);
     L.push(`- council file result: ${JSON.stringify(p.result)}`);
-    if (p.ai_follow_window.length) { L.push('- nation-0 AI records in the follow window (operator side):'); for (const a of p.ai_follow_window) L.push(`  - bell ${a.bell} AI ${a.ai.slice(0, 8)} ${a.kind}/${a.mode}: Strike Order candidate offered ${a.strike_order_candidates.length ? a.strike_order_candidates.join(',') : 'no'}${a.request_stored ? '' : ' (request body not stored)'}; chosen ${a.chose_strike_order}; ids ${a.choice_ids.join(',')}`); }
+    if (p.ai_follow_window.length) { L.push('- nation-0 AI records in the follow window (operator side):'); for (const a of p.ai_follow_window) L.push(`  - turn ${a.bell} AI ${a.ai.slice(0, 8)} ${a.kind}/${a.mode}: Strike Order candidate offered ${a.strike_order_candidates.length ? a.strike_order_candidates.join(',') : 'no'}${a.request_stored ? '' : ' (request body not stored)'}; chosen ${a.chose_strike_order}; ids ${a.choice_ids.join(',')}`); }
     L.push('');
   }
   L.push(`T (contract 9.3) from the first opened Strike Order: ${v(r.T)} (ready invited hosts at C0 + 6: ${v(r.ready_for_T)}).`, '');
@@ -204,7 +204,7 @@ export async function buildPilotReport({ aiDir, herald, rep = 1, stackDir = null
     T: firstOpened ? computeT(firstOpened.ready_invited_at_c0_plus_6) : null,
     counters_ai_fleet: followCounters(readJson(path.join(aiDir, 'fleet/ai-brain.json'))),
     counters_script_bots: stackDir ? followCounters(readJson(path.join(stackDir, 'bots/ai-brain.json'))) : null,
-    limits: ['readiness comes from the province files (roster state, mustered, ready bell, stamina); a pending order and a host in transit are not in that view, so "ready" can over-count by those; a host that is not in the files near the target counts as away',
+    limits: ['readiness comes from the province files (roster state, mustered, ready turn, stamina); a pending order and a host in transit are not in that view, so "ready" can over-count by those; a host that is not in the files near the target counts as away',
       'host owners come from the public owners index; "script" means a citizen of nation 0 that is neither an AI nor the seat',
       'the AI follow-window rows are operator-side (the mind\'s private records and stored request bodies) and are not part of the public audit',
       'one pilot run: it sets T and says what happened, it is not a rate'],

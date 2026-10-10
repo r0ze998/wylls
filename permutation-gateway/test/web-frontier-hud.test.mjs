@@ -56,7 +56,7 @@ test('attention: incoming first, then settlements, the unsent draft, full stores
   assert.deepEqual([items[1].p, items[1].q, items[1].tab], [1, 1, 'marches']);
   assert.equal(items[3].tab, 'holding');
   setLang('ja');
-  assert.equal(hud.attentionText(items), '来襲 第44鐘 · ほか 3', 'the first item named, then how many more');
+  assert.equal(hud.attentionText(items), '来襲 第44ターン · ほか 3', 'the first item named, then how many more');
   assert.equal(hud.attentionText([]), null);
   FS.compose.sending = true;
   assert.ok(!hud.attentionItems(FS).some(x => x.kind === 'draft'), 'a march being sent is not a draft');
@@ -151,7 +151,7 @@ test('feed: changes between two polls become notifications; a turned bell folds 
   feed = FEED.pushFeed(feed, items, 2000);
   assert.equal(feed.length, items.length, 'no duplicates');
   const sum = FEED.bellSummary(feed.map(x => ({ ...x, bell: 41 })), 41);
-  assert.match(sum.text, /^第41鐘のまとめ：戦い 2 · 進軍の知らせ 2 · 来襲の恐れ 1 · 完成 1 · 村 1$/);
+  assert.match(sum.text, /^第41ターンのまとめ：戦い 2 · 進軍の知らせ 2 · 来襲の恐れ 1 · 完成 1 · 村 1$/);
   assert.equal(FEED.bellSummary([], 41), null);
   const toasts = [FEED.renderToasts(feed, { now: 1500 })].flat(Infinity).map(String).join('');
   assert.equal((toasts.match(/class="toast /g) ?? []).length, FEED.TOAST_MAX);

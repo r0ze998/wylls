@@ -89,7 +89,7 @@ export const signedResourceRate = n => `${n >= 0 ? '+' : '−'}${fmtNum(Math.abs
 export function attentionItems(FS) {
   const out = [];
   for (const w of FS.incoming ?? []) {
-    out.push({ kind: 'incoming', p: w.holding.p, q: w.holding.q, tab: 'marches', bell: w.bell, short: L`来襲 第${fmtNum(w.bell)}鐘`, text: L`第${fmtNum(w.bell)}鐘に州 ${w.holding.p},${w.holding.q} へ敵が来るかもしれません` });
+    out.push({ kind: 'incoming', p: w.holding.p, q: w.holding.q, tab: 'marches', bell: w.bell, short: L`来襲 第${fmtNum(w.bell)}ターン`, text: L`第${fmtNum(w.bell)}ターンに州 ${w.holding.p},${w.holding.q} へ敵が来るかもしれません` });
   }
   for (const m of FS.marches ?? []) {
     if (m.facts?.settleReady && m.dest) out.push({ kind: 'settle', p: m.dest.p, q: m.dest.q, tab: 'marches', short: L`精算できる進軍`, text: L`州 ${m.dest.p},${m.dest.q} の進軍を精算できます` });
@@ -127,7 +127,7 @@ export const DORMANT_WARN_SECS = 6 * 3600;
 
 /**
  * The pill's text (Civ's end-turn button names the next blocker): the first
- * item's short label, then how many more — "来襲 第1,040鐘 · ほか 2";
+ * item's short label, then how many more — "来襲 第1,040ターン · ほか 2";
  * null when nothing needs the player.
  */
 export function attentionText(items) {
@@ -255,7 +255,7 @@ function renderStandings(FS) {
   return html`<h2 class="rail-h">${L`国の順位`}</h2>
     <ol class="rail-standings">${rows.map((r, i) => html`<li><span class="rank">${i + 1}</span>${raw(leaderSvg(r.faction, { size: 34 }))}<strong>${factionName(r.faction)}</strong>
       <span class="muted">${L`村 ${fmtNum(r.holdings)} · ${fmtNum(r.provinces)} 州`}</span></li>`)}</ol>
-    <p class="muted">${L`村の数は最新の概観（鐘ごと）から数えています。`}</p>
+    <p class="muted">${L`村の数は最新の概観（ターンごと）から数えています。`}</p>
     <h2 class="rail-h">${L`見どころ`}</h2>${renderHighlights(highlights(FS.chronicle, FS.overviews, FS.roster))}`;
 }
 
@@ -278,16 +278,16 @@ export function renderRail(FS) {
         ${warned.has(`${h.p},${h.q}`) ? html`<span class="rail-warn">${L`来襲の恐れ`}</span>` : ''}
         ${(() => { const c = holdingCountdowns(FS, h); return c.length ? html`<span class="rail-clock">${c.join(' · ')}</span>` : ''; })()}
       </button></li>`)}</ul>`
-    : html`<p class="muted">${FS.mode !== 'play' ? L`村はありません` : (FS.land?.stage ?? 'none') === 'none' ? L`村はまだありません。地図の「参加」から始めます。` : FS.land.stage === 'ticket' ? L`村はまだありません。入植希望を自動で出しました（次の鐘ごろに決まります）。` : L`村はまだありません。入植希望を自動で出しています。`}</p>`;
+    : html`<p class="muted">${FS.mode !== 'play' ? L`村はありません` : (FS.land?.stage ?? 'none') === 'none' ? L`村はまだありません。地図の「参加」から始めます。` : FS.land.stage === 'ticket' ? L`村はまだありません。入植希望を自動で出しました（次のターンごろに決まります）。` : L`村はまだありません。入植希望を自動で出しています。`}</p>`;
   const tiles = FS.mode === 'play' && hs.length
     ? html`<div class="rail-tiles">${TILES.map(t => html`<button type="button" class="rail-tile" data-act="tab" data-tab="${t.tab}" ${raw((FS.tab ?? 'map') === t.tab ? 'aria-pressed="true"' : 'aria-pressed="false"')}><span class="rail-glyph" aria-hidden="true">${t.glyph}</span><span>${t.text()}</span></button>`)}</div>`
     : '';
   const todo = items.length
     ? html`<ol class="rail-todo">${items.map((x, i) => html`<li class="todo-${x.kind}"><button type="button" class="rail-todo-btn" data-act="attn-go" data-i="${i}"><span class="todo-glyph" aria-hidden="true">${TODO_GLYPH[x.kind] ?? '•'}</span>${x.text}</button></li>`)}</ol>`
-    : html`<p class="muted">${L`次の鐘までにやることはありません`}</p>`;
+    : html`<p class="muted">${L`次のターンまでにやることはありません`}</p>`;
   return html`${head}
     ${conquestEnabled(FS) ? html`<button type="button" class="btn nation-link" data-act="tab" data-tab="nation">⚑ ${L`国と領土`}</button>` : ''}
     <h2 class="rail-h">${L`村`}</h2>${list}
     ${tiles}
-    <h2 class="rail-h">${L`次の鐘までに`}</h2>${todo}`;
+    <h2 class="rail-h">${L`次のターンまでに`}</h2>${todo}`;
 }

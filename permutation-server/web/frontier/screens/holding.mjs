@@ -128,13 +128,13 @@ export function render(FS) {
     return html`<li class="build-card ${c.short.length ? 'short' : ''}${c.intro ? ' intro-build' : ''}"><button type="button" class="btn" data-act="build" data-item="${c.item}" ${raw(blocked ? 'disabled' : '')}>${BUILDINGS[c.resource]}</button>
       <span class="bc-yield">${c.perHour ? html`<span class="res-dot res-c-${c.resource}" aria-hidden="true"></span> ${L`${RESOURCES[c.resource]} +${c.perHour}/時`}` : L`守りを固める`}</span>
       <span class="bc-time">⏱ ${L`工事 ${span(c.secs)}`}${c.intro ? html` <span class="intro-build-badge">${L`初めての建設`}</span>` : c.copies ? html` <span class="muted">${L`（${fmtNum(c.copies + 1)}つ目）`}</span>` : ''}${c.wait > 0 ? html` <span class="muted">${L`完成まで ${span(c.wait + c.secs)}`}</span>` : ''}</span>
-      <span class="bc-cost">${c.cost ? costText(c.cost) : L`石材で守りを固める（鐘の始まりの守り手に数えられるのは完成した次の鐘から）`}</span>
+      <span class="bc-cost">${c.cost ? costText(c.cost) : L`石材で守りを固める（ターンの始まりの守り手に数えられるのは完成した次のターンから）`}</span>
       ${c.short.length ? html`<span class="bc-short">${L`足りない：${c.short.map(x => `${RESOURCES[x.resource]} ${fmtNum(x.need)}`).join(' · ')}`}</span>` : ''}</li>`;
   };
   return html`<section aria-labelledby="holding-title" class="holding"><h3 id="holding-title">${holdingName(h)} <span class="muted">${L`村 州 ${h.p},${h.q} 区画 ${h.site + 1}`}</span></h3>
     <dl class="facts">
       ${row(L`段階`, html`${TIERS[h.tier] ?? h.tier} · ${state}${termButton('tier')}`)}
-      ${f.state === 'provisional' ? row(L`確定`, L`同じ鐘の入植希望がすべて決まってから`) : ''}
+      ${f.state === 'provisional' ? row(L`確定`, L`同じターンの入植希望がすべて決まってから`) : ''}
       ${f.shieldLeft > 0 ? row(L`保護`, html`${inTime(f.shieldLeft)}${termButton('shield')}`) : ''}
       ${row(L`休眠まで`, html`${f.dormantIn > 0 ? inTime(f.dormantIn) : L`休眠中`}${termButton('dormant')}`)}
     </dl>
@@ -185,7 +185,7 @@ export function render(FS) {
     <p class="muted">${L`編成は世界の処理に反映されてから行動できます。目安はゲーム内で約11〜21分です。`}</p>
     ${blockedLine(m.blocks.Muster)}
     <h4>${L`進軍の記録（4つ）`}</h4>
-    ${f.transits.length ? html`<ul class="list">${f.transits.map(t => html`<li>${L`枠 ${t.slot + 1}：第${fmtNum(t.arriveBell)}鐘に到着`}</li>`)}</ul>` : html`<p class="muted">${L`進軍中の軍勢はいません`}</p>`}</section>
+    ${f.transits.length ? html`<ul class="list">${f.transits.map(t => html`<li>${L`枠 ${t.slot + 1}：第${fmtNum(t.arriveBell)}ターンに到着`}</li>`)}</ul>` : html`<p class="muted">${L`進軍中の軍勢はいません`}</p>`}</section>
 
     <section class="hpanel" id="hp-garrison" aria-labelledby="hp-garrison-h"><h4 id="hp-garrison-h">⛨ ${L`守備隊`}${termButton('garrison')}</h4>
     <form class="inline" data-form="garrison"><label>${L`増員（控えの兵から）`}<input name="delta" type="number" min="1" step="1" value="100" inputmode="numeric"></label>${steps('delta', { max: f.reserve.filter(r => r.unit !== SETTLER).reduce((a, r) => a + r.troops, 0) || null })}

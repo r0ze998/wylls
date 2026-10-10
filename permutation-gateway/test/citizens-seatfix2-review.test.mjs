@@ -1,9 +1,9 @@
 // Seatfix2 review (smoke-r4 live evidence): the findings that were real, each with a test that fails on the code before this change.
 //
-//  1. A council call the mind decided after the brain had stopped (the drain) was never delivered: AI 1001's ballot of period 4 (bell 99) was
+//  1. A council call the mind decided after the brain had stopped (the drain) was never delivered: AI 1001's ballot of period 4 (turn 99) was
 //     decided, counted as a valid decision, and never posted. The delivery of every council call is now written to state/watcher/council-calls.json
 //     (call_ledger.mjs) and the report shows decided / attached / expired / dropped / pending / posted.
-//  2. The report did not say that the AI brains and the script bots stop at the end of play (bells 84 to 108 of smoke-r4 were the drain), so a
+//  2. The report did not say that the AI brains and the script bots stop at the end of play (turns 84 to 108 of smoke-r4 were the drain), so a
 //     council with C0 in the drain was read as evidence about the AI. The report now has a play/drain section and a phase per council row.
 //  3. The Wyll card's "decisions (valid)" counted reflections (9 of 18 were refused, so the card said valid < decisions while the report said all
 //     valid): reflections have their own counters and their own card line.
@@ -49,7 +49,7 @@ test('a council call is written to the delivery ledger as pending, attached when
   const outbox = createOutbox({ records: recordsDouble(), ledger });
   outbox.push(item('ballot', 2, 51));
   assert.equal(readLedger(file)[0].status, 'pending', 'on disk the moment it is decided');
-  // the brain steps at bell 52: the item rides on its answer
+  // the brain steps at turn 52: the item rides on its answer
   const ans = outbox.decorate({ ai: { tag: TAG }, bell: 52 }, { decision_id: 'step-1', social: {} });
   assert.ok(ans.social.ballot, 'handed to the brain');
   assert.equal(readLedger(file).find((r) => r.period === 2).status, 'attached');
@@ -57,7 +57,7 @@ test('a council call is written to the delivery ledger as pending, attached when
   outbox.push(item('ballot', 3, 75));
   outbox.decorate({ ai: { tag: TAG }, bell: 90 }, { decision_id: 'step-2', social: {} });
   assert.equal(readLedger(file).find((r) => r.period === 3).status, 'expired');
-  // the smoke-r4 case: decided at bell 99, in the drain, no brain step after it
+  // the smoke-r4 case: decided at turn 99, in the drain, no brain step after it
   outbox.push(item('ballot', 4, 99));
   const rows = readLedger(file);
   assert.deepEqual(rows.find((r) => r.period === 4), { key: `ballot:${TAG}:4`, tag: TAG, kind: 'ballot', period: 4, decision_id: 'd-ballot-4', decided_bell: 99, status: 'pending', status_bell: 99, why: null });
@@ -156,7 +156,7 @@ test('the report tells the play phase from the drain (from the stack log) and co
   assert.equal(p.drain_closed_bells, 99 - 84 + 1, 'last closed bell 99, first drain bell 84');
   assert.equal(p.records_in_drain, 2);
   assert.deepEqual(p.records_in_drain_by_kind, { 'motion:model': 1, 'ballot:model': 1 });
-  assert.match(p.note, /play: bells 0 to 83 \(84 bells\); drain: bells 84 to 99/);
+  assert.match(p.note, /play: turns 0 to 83 \(84 turns\); drain: turns 84 to 99/);
   assert.match(p.note, /brains and the script bots stop at the end of play/);
 });
 

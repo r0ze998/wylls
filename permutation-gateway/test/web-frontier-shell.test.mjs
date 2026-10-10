@@ -47,12 +47,12 @@ test('the render scheduler: one pass per task, in order, a failing renderer isol
 });
 
 test('the bell chip text in both languages', () => {
-  assert.equal(chipText({ bell: 1034, secondsLeft: 372, beforeGenesis: false, ended: false }), '鐘 1,034 · 残り 6:12');
-  assert.equal(chipText(null), '鐘 —');
+  assert.equal(chipText({ bell: 1034, secondsLeft: 372, beforeGenesis: false, ended: false }), 'ターン 1,034 · 残り 6:12');
+  assert.equal(chipText(null), 'ターン —');
   assert.equal(chipText({ bell: null, secondsLeft: 65, beforeGenesis: true }), '開始まで 1:05');
   setLang('en');
-  assert.equal(chipText({ bell: 1034, secondsLeft: 372, beforeGenesis: false, ended: false }), 'Bell 1,034 · 6:12 left');
-  assert.equal(chipText({ bell: 1008, secondsLeft: 1, ended: true }), 'Bell 1,008 · ended');
+  assert.equal(chipText({ bell: 1034, secondsLeft: 372, beforeGenesis: false, ended: false }), 'Turn 1,034 · 6:12 left');
+  assert.equal(chipText({ bell: 1008, secondsLeft: 1, ended: true }), 'Turn 1,008 · ended');
 });
 
 test('tables and every program error code have Japanese and English text', () => {

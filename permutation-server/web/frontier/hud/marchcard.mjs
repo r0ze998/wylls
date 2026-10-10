@@ -84,7 +84,7 @@ export function renderForecast(fc) {
   const fates = Object.entries(fc.fates).sort((a, b) => b[1] - a[1]);
   return html`<div class="mc-fc"><p><strong>${fc.troops.min === fc.troops.max ? L`残る兵 ${fmtNum(fc.troops.min)}` : L`残る兵 ${fmtNum(fc.troops.min)}〜${fmtNum(fc.troops.max)}`}</strong> <span class="muted">${L`（出発時 ${fmtNum(fc.troops.start)}）`}</span></p>
     <ul class="mc-fates">${fates.map(([k, n]) => html`<li class="mc-fate-${k}"><meter min="0" max="${fc.runs}" value="${n}" aria-hidden="true"></meter>${FATE_SHORT[k]?.() ?? k} <span class="muted">${L`${fmtNum(n)}/${fmtNum(fc.runs)}回`}</span></li>`)}</ul>
-    <p class="muted">${L`ルール（frontier.wasm）で${fmtNum(fc.runs)}通りの乱数を試した幅です。ほかの到着軍勢は封の中なので数えていません。`}${fc.certain ? '' : html` ${L`この鐘は野営地の見直しがあるため、守り手が変わるかもしれません。`}`}</p></div>`;
+    <p class="muted">${L`ルール（frontier.wasm）で${fmtNum(fc.runs)}通りの乱数を試した幅です。ほかの到着軍勢は封の中なので数えていません。`}${fc.certain ? '' : html` ${L`このターンは野営地の見直しがあるため、守り手が変わるかもしれません。`}`}</p></div>`;
 }
 
 /** The card (inside the inspector while a march is composed). */
@@ -106,10 +106,10 @@ export function render(FS) {
       <p class="mc-dest"><strong>${L`行き先 州 ${c.dest.p},${c.dest.q} · マス ${c.dest.tile + 1}`}</strong>
         <span class="mc-sealed">${L`封の中（あなたにしか見えません）`}${termButton('seal')}</span></p>
       <p class="mc-route">${c.route ? routeLine(c.route) : c.routeError ? clientText(c.routeError) : L`道のりを探しています…`}</p>
-      ${w ? html`<div class="mc-bell" role="group" aria-label="${L`到着の鐘`}">
-        <button type="button" class="btn small" data-act="mc-bell" data-d="-1" aria-label="${L`1つ早い鐘`}" ${raw(w.value <= w.min ? 'disabled' : '')}>−</button>
-        <span class="mc-bell-v"><strong>${L`第${fmtNum(w.value)}鐘に到着`}</strong></span>
-        <button type="button" class="btn small" data-act="mc-bell" data-d="1" aria-label="${L`1つ遅い鐘`}" ${raw(w.value >= w.max ? 'disabled' : '')}>+</button></div>` : ''}
+      ${w ? html`<div class="mc-bell" role="group" aria-label="${L`到着のターン`}">
+        <button type="button" class="btn small" data-act="mc-bell" data-d="-1" aria-label="${L`1つ早いターン`}" ${raw(w.value <= w.min ? 'disabled' : '')}>−</button>
+        <span class="mc-bell-v"><strong>${L`第${fmtNum(w.value)}ターンに到着`}</strong></span>
+        <button type="button" class="btn small" data-act="mc-bell" data-d="1" aria-label="${L`1つ遅いターン`}" ${raw(w.value >= w.max ? 'disabled' : '')}>+</button></div>` : ''}
       ${timing ? html`<p class="muted">${L`到着まで ${span(timing.arrivalIn)} · 結果の目安まで ${span(timing.resultIn)}（ゲーム内）`}</p>` : ''}
       <p class="mc-label">${L`構え`}${termButton('stance')}</p>
       <div class="mc-stances" role="radiogroup" aria-label="${L`構え`}">${STANCES.map((s, i) => html`<button type="button" class="mc-stance" role="radio" aria-checked="${i === m.stance ? 'true' : 'false'}" data-act="mc-stance" data-v="${i}">
@@ -117,7 +117,7 @@ export function render(FS) {
       <p class="mc-label">${L`撤退の比率`}${termButton('retreat')}</p>
       <div class="mc-retreat" role="radiogroup" aria-label="${L`撤退`}">${RETREAT_CHOICES.filter(r => r.id !== 'custom').map(r => html`<button type="button" class="btn small" role="radio" aria-checked="${r.id === m.retreat.choice ? 'true' : 'false'}" data-act="mc-retreat" data-v="${r.id}">${RETREAT_SHORT[r.id]()}</button>`)}</div>
       ${def ? html`<div class="mc-odds mc-odds-${odds.id}">
-        <p><strong>${odds.text}</strong> <span class="muted">${L`目安（兵数の比べ。実際は鐘の始まりの顔ぶれと乱数で決まります）`}</span></p>
+        <p><strong>${odds.text}</strong> <span class="muted">${L`目安（兵数の比べ。実際はターンの始まりの顔ぶれと乱数で決まります）`}</span></p>
         <p>${L`あなた ${fmtNum(c.host.troops)}（${STANCE_TEXT[stance]}）対 守り ${fmtNum(def.total)}`}</p>
         ${def.residents.length || def.garrison || def.camp || def.keep ? html`<ul class="list mc-def">${def.residents.map(r => html`<li>${swatch(r.faction)}${factionName(r.faction)} ${fmtNum(r.troops)}</li>`)}${def.garrison ? html`<li>${L`守備隊 ${fmtNum(def.garrison)}`}</li>` : ''}${def.camp ? html`<li>${L`蛮族 ${fmtNum(def.camp)}`}</li>` : ''}${def.keep ? html`<li>${L`砦の守備兵`}: ${fmtNum(def.keep)}</li>` : ''}</ul>` : ''}
         ${renderForecast(c.forecast)}

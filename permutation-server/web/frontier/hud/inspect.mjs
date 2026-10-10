@@ -92,7 +92,7 @@ export function inspectActions(FS, m) {
   if (!FS.compose && t) for (const h of ownHostsOn(FS, m.p, m.q, t.idx)) out.push({ act: 'compose', data: { host: h.id, stay: 'map' }, text: L`この軍勢（${fmtNum(h.troops)}）で進軍する`, primary: true });
   // no site picking from the map (owner decision V2: the first village is placed automatically)
   if (m.reportBell) out.push({ act: 'battle-play', data: { p: m.p, q: m.q, bell: m.reportBell }, text: L`戦いを再生` });
-  if (m.reportBell) out.push({ act: 'report-open', data: { p: m.p, q: m.q, bell: m.reportBell }, text: L`第${fmtNum(m.reportBell)}鐘の衝突の報告` });
+  if (m.reportBell) out.push({ act: 'report-open', data: { p: m.p, q: m.q, bell: m.reportBell }, text: L`第${fmtNum(m.reportBell)}ターンの衝突の報告` });
   out.push(pin);
   return out;
 }
@@ -122,7 +122,7 @@ export function render(FS, terrainOf, activities = null) {
   if (t?.terrain) facts.push(html`<div class="row"><dt>${L`地形`}</dt><dd>${TERRAIN_TEXT[t.terrain]?.() ?? t.terrain}</dd></div>`);
   if (!t && m.owners.length) facts.push(html`<div class="row"><dt>${L`村を持つ国`}</dt><dd>${m.owners.map(f => html`<span class="nowrap">${swatch(f)}${factionName(f)}</span> `)}</dd></div>`);
   if (m.relation.length) facts.push(html`<div class="row"><dt>${L`あなたとの関係`}</dt><dd>${m.relation.map(r => html`<span class="nowrap rel-${r.friendly ? 'ally' : 'war'}">${swatch(r.faction)}${factionName(r.faction)} ${r.friendly ? L`友好` : L`敵対`}</span> `)}</dd></div>`);
-  if (m.clash) facts.push(html`<div class="row"><dt>${L`この鐘`}</dt><dd>${L`衝突あり`}</dd></div>`);
+  if (m.clash) facts.push(html`<div class="row"><dt>${L`このターン`}</dt><dd>${L`衝突あり`}</dd></div>`);
   const site = t?.site;
   const siteBlock = site ? html`<h4>${site.state === 'holding' ? html`${swatch(site.faction)}${L`${holdingName({ p: m.p, q: m.q, site: site.index }, site.tier ?? 0)}（${factionName(site.faction)}）`}` : SITE_TEXT[site.state]()}${site.mine ? html` <span class="tag">${L`あなたの村`}</span>` : ''}</h4>
     ${site.owner ? html`<p class="inspect-owner">${personChip(site.owner, site.faction, { size: 40, full: true, note: L`この村の領主` })}</p>` : ''}

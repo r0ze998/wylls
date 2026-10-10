@@ -82,7 +82,7 @@ test('every program error code of the ABI has its own Japanese and English text'
   setLang('en');
   assert.match(fi18n.errorText(51), /tip/i);
   assert.match(fi18n.errorText(58), /settled/i);
-  assert.match(fi18n.errorText(60), /next bell/i);
+  assert.match(fi18n.errorText(60), /next turn/i);
   assert.match(fi18n.errorText(61), /three/i);
   assert.match(fi18n.errorText(24), /final/i);
 });

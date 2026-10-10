@@ -105,7 +105,7 @@ test('highlights: departures name their lord and the arrival bell; settlements a
     { record: { name: 'CLASH', bell: 43, p: 3, q: 0 } },
   ], overviews, roster);
   assert.deepEqual(items.map(x => x.kind), ['clash', 'depart', 'settle']);
-  assert.equal(items[1].text, `${who} of Cinder sets out (arrives at bell 43)`);
+  assert.equal(items[1].text, `${who} of Cinder sets out (arrives at turn 43)`);
   assert.equal(items[2].text, `${who} of Cinder settles in province 3,0`);
   setLang('ja');
 });
@@ -162,10 +162,10 @@ test('activities: walls, recruits, garrison, muster, rest, guard, battle, depart
   assert.deepEqual(acts.get(13).map(a => a.kind), ['battle', 'rest']);
   assert.deepEqual(acts.get(20).map(a => a.kind), ['depart']);
   assert.deepEqual(acts.get(40).map(a => a.kind), ['camp']);
-  assert.equal(ACT.activityText(acts.get(20)[0]), '出陣中（第44鐘に到着、行き先は秘密）');
-  assert.equal(ACT.activityText(acts.get(9)[1]), '城壁を建設中（第45鐘に完成）');
+  assert.equal(ACT.activityText(acts.get(20)[0]), '出陣中（第44ターンに到着、行き先は秘密）');
+  assert.equal(ACT.activityText(acts.get(9)[1]), '城壁を建設中（第45ターンに完成）');
   setLang('en');
-  assert.match(ACT.activityText(acts.get(13)[1]), /^Resting \(ready at bell \d+\)$/, 'ready once it has the stamina to march again');
+  assert.match(ACT.activityText(acts.get(13)[1]), /^Resting \(ready at turn \d+\)$/, 'ready once it has the stamina to march again');
   setLang('ja');
 });
 

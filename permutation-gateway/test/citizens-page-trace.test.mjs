@@ -46,13 +46,13 @@ const opened = (over = {}) => ({
     { id: 'c1', kind: 'autopilot', label: 'Routine: economy and duties only, no march', facts: { routine: 'economy and duties only, no march' }, entities: [], refs: [] },
     { id: 'c3', kind: 'march', label: 'March H1 (100 troops) to a barbarian camp, 2 hexes away; earliest arrival at bell 15', facts: { enemy_troops: 101, target_kind: 'camp', troops: 100 }, entities: ['pq:-1,2'], refs: ['M1'], troops: 100 },
   ],
-  remembered: [{ id: '61367590dbdaa439', bell: 3, text: { en: 'At bell 3 your sawmill was finished.', ja: '鐘3で、あなたの製材所が完成した。' } }],
+  remembered: [{ id: '61367590dbdaa439', bell: 3, text: { en: 'At bell 3 your sawmill was finished.', ja: 'ターン3で、あなたの製材所が完成した。' } }],
   destinations: [{ host_id: HOST_AI, planned_arrive_bell: 15, via: 'model', state: 'revealed', p: -1, q: 2, tile: 29, arrive_bell: 15, depart_bell: 12 }],
   ...over,
 });
-const THREAT = { v: 1, id: '8d26a605fdc1acdd', bell: 11, created_bell: 11, kind: 'threat', entities: ['nation:0', 'pq:2,0'], text: { en: 'At bell 11 nation Aster sent an army of 500 troops from (2,0); it arrives at bell 14; its destination is not known.', ja: '鐘11で、アステルが(2,0)から兵500の軍を出した。到着は鐘14。行き先は不明。' }, importance: 5, src: ['event:1572'], facts: { p: 2, q: 0, nation: 0, mass: 500, arrive_bell: 14 } };
-const SAWMILL = { v: 1, id: '61367590dbdaa439', bell: 3, created_bell: 3, kind: 'build_done', entities: ['pq:-1,2'], text: { en: 'At bell 3 your sawmill was finished.', ja: '鐘3で、あなたの製材所が完成した。' }, importance: 2, src: ['event:507'], facts: { p: -1, q: 2 } };
-const WIN = { v: 1, id: '9337f9463da25114', bell: 15, created_bell: 17, kind: 'clash_own_win', entities: ['pq:-1,2'], text: { en: 'At bell 15 your army at (-1,2) beat the camp: you lost 12, they lost 101.', ja: '鐘15で、あなたの軍は(-1,2)で野営地に勝った。あなたは兵12、相手は兵101を失った。' }, importance: 6, src: ['event:2394', 'event:2395', `host:${HOST_AI}`], facts: { p: -1, q: 2, lost_own: 12, lost_enemy: 101, camp: true } };
+const THREAT = { v: 1, id: '8d26a605fdc1acdd', bell: 11, created_bell: 11, kind: 'threat', entities: ['nation:0', 'pq:2,0'], text: { en: 'At bell 11 nation Aster sent an army of 500 troops from (2,0); it arrives at bell 14; its destination is not known.', ja: 'ターン11で、アステルが(2,0)から兵500の軍を出した。到着はターン14。行き先は不明。' }, importance: 5, src: ['event:1572'], facts: { p: 2, q: 0, nation: 0, mass: 500, arrive_bell: 14 } };
+const SAWMILL = { v: 1, id: '61367590dbdaa439', bell: 3, created_bell: 3, kind: 'build_done', entities: ['pq:-1,2'], text: { en: 'At bell 3 your sawmill was finished.', ja: 'ターン3で、あなたの製材所が完成した。' }, importance: 2, src: ['event:507'], facts: { p: -1, q: 2 } };
+const WIN = { v: 1, id: '9337f9463da25114', bell: 15, created_bell: 17, kind: 'clash_own_win', entities: ['pq:-1,2'], text: { en: 'At bell 15 your army at (-1,2) beat the camp: you lost 12, they lost 101.', ja: 'ターン15で、あなたの軍は(-1,2)で野営地に勝った。あなたは兵12、相手は兵101を失った。' }, importance: 6, src: ['event:2394', 'event:2395', `host:${HOST_AI}`], facts: { p: -1, q: 2, lost_own: 12, lost_enemy: 101, camp: true } };
 const episodes = (list = [SAWMILL, THREAT]) => normalizeEpisodes({ v: 1, tag: AI, episodes: list });
 
 const heraldRow = (seq, bell, name, key, payload, sig) => ({ bell, decoded: { bell, key, kind: 0, links: [], name, payload }, kind: 0, seq: String(seq), sig, slot: 1, tx: 1 });

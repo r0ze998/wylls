@@ -122,12 +122,12 @@ import { instantHomeEnabled, homeSites, sameHome } from './home.mjs';
 const $ = id => globalThis.document?.getElementById(id);
 const setText = (id, text) => { const el = $(id); if (el && el.textContent !== text) el.textContent = text; };
 
-/** The chip's text: "鐘 1,034 · 残り 6:12" / "Bell 1,034 · 6:12 left". */
+/** The chip's text: "ターン 1,034 · 残り 6:12" / "Turn 1,034 · 6:12 left". */
 export function chipText(chip) {
-  if (!chip || (chip.bell === null && !chip.beforeGenesis)) return L`鐘 —`;
+  if (!chip || (chip.bell === null && !chip.beforeGenesis)) return L`ターン —`;
   if (chip.beforeGenesis) return L`開始まで ${countdown(chip.secondsLeft)}`;
-  if (chip.ended) return L`鐘 ${fmtNum(chip.bell)} · 終了`;
-  return L`鐘 ${fmtNum(chip.bell)} · 残り ${countdown(chip.secondsLeft)}`;
+  if (chip.ended) return L`ターン ${fmtNum(chip.bell)} · 終了`;
+  return L`ターン ${fmtNum(chip.bell)} · 残り ${countdown(chip.secondsLeft)}`;
 }
 
 function renderChip() {
@@ -191,7 +191,7 @@ export function panelMarkup(FS) {
   // Phones and tablets (no left rail below 1100 px): the rail's holdings and to-do list, folded (closed while composing).
   if (tab === 'map' && (FS.holdings ?? []).length) {
     const n = hud.attentionItems(FS).length;
-    parts.push(html`<details class="rail-mini" ${raw(n && !FS.compose ? 'open' : '')}><summary>${n ? L`村と次の鐘までにやること（${fmtNum(n)}）` : L`村と次の鐘までにやること`}</summary>${hud.renderRail(FS)}</details>`);
+    parts.push(html`<details class="rail-mini" ${raw(n && !FS.compose ? 'open' : '')}><summary>${n ? L`村と次のターンまでにやること（${fmtNum(n)}）` : L`村と次のターンまでにやること`}</summary>${hud.renderRail(FS)}</details>`);
   }
   // The selection first on the map tab (the player just chose it), then the guide.
   if (tab === 'map' && FS.selected) parts.push(inspect.render(FS, terrainRef, mapRef?.art?.activities ?? null));
@@ -309,7 +309,7 @@ export function peopleSource() {
     lordOf: (p, q, site) => { const o = rosterRef?.ownerOf(p, q, site); return o ? identityOf(o.tag) : null; },
     bell,
     own: FS.holdings ?? [],
-    columnLabel: d => L`出陣 · 第${fmtNum(d.arriveBell)}鐘に到着`,
+    columnLabel: d => L`出陣 · 第${fmtNum(d.arriveBell)}ターンに到着`,
     demo: ART_PREVIEW && ART_Q.get('acts') === '1',
     battles: FS.battles ?? [],
     lossText: n => L`−${fmtNum(n)} 兵`,
@@ -1237,7 +1237,7 @@ export async function boot() {
           lens: FS.view.lens ?? 'realm',
           // incoming risk around the viewer's holdings (hud/hud.mjs attention, controller incoming warnings)
           threats: (FS.incoming ?? []).map(w => ({ p: w.holding.p, q: w.holding.q, tile: w.holding.tile, bell: w.bell })),
-          threatLabel: w => L`来襲 第${fmtNum(w.bell)}鐘`,
+          threatLabel: w => L`来襲 第${fmtNum(w.bell)}ターン`,
           // the move preview while a march has a host and no destination yet (hud/reach.mjs)
           reach: reachNow(),
           // the viewer's pins (hud/pins.mjs)

@@ -204,7 +204,7 @@ export function decisionsSection(run, metrics) {
     invariant_valid_plus_fallbacks_equals_model_decisions: valid.length + fallbackAll.length === n,
     fallbacks: { total: fallbackAll.length, rate_pct: pct(fallbackAll.length, n), by_reason: fallbackAll.reduce((m, r) => { const k = r.mode === 'model' ? 'v6_all_refused' : r.reason; m[k] = (m[k] ?? 0) + 1; return m; }, {}), g2_max_pct: 5 },
     dropped_for_time: { n: noTime.length, share_of_gate_open_pct: pct(noTime.length, gateOpen.length), g2_max_pct: 3 },
-    feed_lag: { n: feedLag.length, by_kind: feedLag.reduce((m, r) => { m[r.kind] = (m[r.kind] ?? 0) + 1; return m; }, {}), share_of_gate_open_pct: pct(feedLag.length, gateOpen.length), note: feedLag.length ? 'all kinds (session, ballot, motion): the gate opened a job and the mind refused it because the feed had not yet vouched for bell - 1; the model was not called, so these are not model decisions (not in n, not valid, not fallbacks); a session step ran the autopilot' : null },
+    feed_lag: { n: feedLag.length, by_kind: feedLag.reduce((m, r) => { m[r.kind] = (m[r.kind] ?? 0) + 1; return m; }, {}), share_of_gate_open_pct: pct(feedLag.length, gateOpen.length), note: feedLag.length ? 'all kinds (session, ballot, motion): the gate opened a job and the mind refused it because the feed had not yet vouched for turn - 1; the model was not called, so these are not model decisions (not in n, not valid, not fallbacks); a session step ran the autopilot' : null },
     reflections: { n: reflections.length, ok: reflections.filter((r) => r.mode === 'model').length, refused_or_failed: reflections.filter((r) => r.mode !== 'model').length, by_reason: reflections.reduce((m, r) => { m[r.reason] = (m[r.reason] ?? 0) + 1; return m; }, {}), note: 'listed on their own; not in the valid-choice rate' },
     latency_ms_by_kind: lat,
     g3: { latency_samples: latN, slack_negative: slackNeg, share_with_slack_ge_0_pct: latN ? pct(latN - slackNeg, latN) : null, note: 'from the mind\'s own latency windows (llama call time and slack to the deadline); "0 decisions executed after bell_start(b+1)" needs the chain and is not read here' },
@@ -309,7 +309,7 @@ export function marchesSection(run) {
     opened: opened.length,
     y_basis: 'episode_proxy',
     y_strict: yStrict,
-    y_strict_definition: 'model marches (not a recall, not a Strike-Order follow) whose decision record was opened (section 7.2) and whose army has a public clash_own_* episode of that AI (host id from the opened record, bell not before the march): an EPISODE PROXY for the clash report row (engaged: true), which this report does not read; counted as found, never rounded up',
+    y_strict_definition: 'model marches (not a recall, not a Strike-Order follow) whose decision record was opened (section 7.2) and whose army has a public clash_own_* episode of that AI (host id from the opened record, turn not before the march): an EPISODE PROXY for the clash report row (engaged: true), which this report does not read; counted as found, never rounded up',
     y_proxy_note: 'Y is an episode proxy. The herald clash rows (engaged: true, contract 10.1) were not read. A clash_own_* episode is created only when an own army fought (contract 5.2) and carries losses, so a clash without a recorded loss can be missed; a later clash of a host id reused by a later march can be credited to an earlier march of the same host.',
     g12_met: yStrict >= 1,
     y_proxy_clash_any_opening: yAny,
@@ -324,7 +324,7 @@ export function marchesSection(run) {
       fought: marches.filter((m) => m.clashes.some((c) => c.kind === 'clash_own_fought')).length,
       loss: marches.filter((m) => m.clashes.some((c) => c.kind === 'clash_own_loss')).length,
       camps_cleared: marches.filter((m) => m.clashes.some((c) => (run.episodesByTag.get(m.tag) ?? []).some((e) => e.kind === 'camp_cleared_own' && e.bell === c.bell && e.facts?.p === c.p && e.facts?.q === c.q))).length,
-      note: 'win = the camp or the enemy stack was cleared (R12); win_pre_r12_unverified = episodes from before R12, labelled a win when the enemy lost more; fought = a clash that cleared nothing; camps_cleared = model marches whose clash also has a camp_cleared_own episode for the same place and bell',
+      note: 'win = the camp or the enemy stack was cleared (R12); win_pre_r12_unverified = episodes from before R12, labelled a win when the enemy lost more; fought = a clash that cleared nothing; camps_cleared = model marches whose clash also has a camp_cleared_own episode for the same place and turn',
     },
     marches_without_known_host: noHosts,
     marches,
@@ -495,7 +495,7 @@ export function phaseSection(run) {
     const drain = run.records.filter((r) => r.bell >= out.play_end_bell);
     out.records_in_drain = drain.length;
     out.records_in_drain_by_kind = drain.reduce((m, r) => { const k = `${r.kind}:${r.mode}`; m[k] = (m[k] ?? 0) + 1; return m; }, {});
-    out.note = `play: bells 0 to ${out.play_end_bell - 1} (${out.play_bells} bells); drain: bells ${out.play_end_bell} to ${last ?? out.drain_end_bell} (${out.drain_closed_bells} closed bells). The AI brains and the script bots stop at the end of play: the drain holds no AI action sent by a brain and no bot action. Anything decided in the drain (by the mind, on the watcher's council calls) was never carried to the chain or the social service by a brain.`;
+    out.note = `play: turns 0 to ${out.play_end_bell - 1} (${out.play_bells} turns); drain: turns ${out.play_end_bell} to ${last ?? out.drain_end_bell} (${out.drain_closed_bells} closed turns). The AI brains and the script bots stop at the end of play: the drain holds no AI action sent by a brain and no bot action. Anything decided in the drain (by the mind, on the watcher's council calls) was never carried to the chain or the social service by a brain.`;
   }
   run._phase = out;
   return out;
@@ -643,7 +643,7 @@ export function anchorsSection({ pub }) {
   const idx = readJson(path.join(pub, 'anchors/index.json'));
   const last = idx?.last_bell ?? null;
   const after = last === null ? [] : closed.filter((b) => b > last);
-  const note = `${closed.length} closed bells; ${anchored} anchored, ${gaps} anchor_gap${withoutFile.length ? `; ${withoutFile.length} closed with no anchor file (${withoutFile.join(', ')})` : ''}${after.length ? `; closed after the season-end index (last_bell ${last}): ${after.join(', ')}` : ''}. Whether each memo is on the chain with the right text is verify-minds M3, not read here.`;
+  const note = `${closed.length} closed turns; ${anchored} anchored, ${gaps} anchor_gap${withoutFile.length ? `; ${withoutFile.length} closed with no anchor file (${withoutFile.join(', ')})` : ''}${after.length ? `; closed after the season-end index (last_bell ${last}): ${after.join(', ')}` : ''}. Whether each memo is on the chain with the right text is verify-minds M3, not read here.`;
   return { closed_bells: closed.length, anchored, gaps, closed_without_anchor_file: withoutFile, index_last_bell: last, index_present: idx !== null, closed_after_index: after, every_closed_bell_has_an_anchor_or_gap: withoutFile.length === 0, note };
 }
 
@@ -680,7 +680,7 @@ export function buildReport({ aiDir, runsFile = null, metricsFile = null, metric
       'MC and playtest load at run time (the Mac load is recorded by hand next to each latency)',
       'the herald load during the run (request counts and response times at the herald): no file of a run records them; the report counts only the brain\'s own extra GETs (the first observation of a step and the script bots\' GETs are not in them), so the herald-load line of contract R6 is only partly met',
       'the herald clash report rows (engaged: true) that contract 10.1 reads for Y: Y here is an episode proxy (public clash_own_* episodes), see marches.y_proxy_note',
-      'quota left at every model decision and quota-starved bells per AI (the brain counts quota_starved_bells in total only)',
+      'quota left at every model decision and quota-starved turns per AI (the brain counts quota_starved_bells in total only)',
       'hostile acts, collisions, grievances opened and answered, strike results (they need the council and the herald; not read here)',
     ],
     does_not_show: [
@@ -709,10 +709,10 @@ export function renderMarkdown(r) {
   const L = [];
   const row = (...c) => `| ${c.join(' | ')} |`;
   const v = (x) => (x == null ? 'n/a' : x);
-  L.push(`# AI citizens run report: ${r.run_id}`, '', `Local test chain only (no public network). Generated by ${r.generated_by}. Sources: public files${r.sources.private_records ? ' + the mind\'s private records (operator side; labelled below)' : ' only'}; metrics snapshot at bell ${v(r.sources.metrics_snapshot?.bell)}; ${r.sources.minds_files} closed bells (${v(r.sources.first_bell)} to ${v(r.sources.last_bell)}).`, '');
+  L.push(`# AI citizens run report: ${r.run_id}`, '', `Local test chain only (no public network). Generated by ${r.generated_by}. Sources: public files${r.sources.private_records ? ' + the mind\'s private records (operator side; labelled below)' : ' only'}; metrics snapshot at turn ${v(r.sources.metrics_snapshot?.bell)}; ${r.sources.minds_files} closed turns (${v(r.sources.first_bell)} to ${v(r.sources.last_bell)}).`, '');
   const c = r.commitments;
   if (c.available) L.push(`Run \`${c.run_id}\`, season ${c.season_id}, deck ${v(c.deck)}, ${r.roster.ai} AI citizens (${Object.entries(r.roster.by_persona).map(([k, n]) => `${n} ${k}`).join(', ')}). Model sha256: ${c.model_sha256}. llama tree: ${c.llama_tree_sha256}. Commit memo: ${v(c.commit_memo)}. Code commit: ${v(c.code_git_commit)}.`, '');
-  L.push('## Anchors (closed bells against anchored bells)', '', r.anchors.note, '');
+  L.push('## Anchors (closed turns against anchored turns)', '', r.anchors.note, '');
   L.push('## Play phase and drain', '', r.phases.note, '');
   if (r.phases.available && r.phases.records_in_drain) L.push(`Decision records made in the drain: ${r.phases.records_in_drain} ${JSON.stringify(r.phases.records_in_drain_by_kind)}. They are in the totals below; none was sent by a brain.`, '');
   const d = r.decisions;
@@ -756,7 +756,7 @@ export function renderMarkdown(r) {
   L.push(`Y is an episode proxy: the herald clash rows (engaged: true) were not read. ${m.y_proxy_note}`, '');
   if (m.model_marches_unclassified) L.push(`${m.model_marches_unclassified} sent departs in model records are unclassified: ${m.model_marches_unclassified_note}.`, '');
   L.push(`Separate, labelled number (not Y): ${m.y_proxy_clash_any_opening} of ${m.model_marches_sent} model marches have a public clash_own_* episode for their army whether or not the record was opened, matched by host id through the private record (${m.clash_results.win_cleared} won by clearing the camp or the stack, ${m.clash_results.camps_cleared} cleared a camp, ${m.clash_results.fought} fought without clearing, ${m.clash_results.loss} lost, ${m.clash_results.win_pre_r12_unverified} labelled a win before R12 (the enemy lost more; nothing verified as cleared)); ${m.y_proxy_clash_unopened_only} of them in a record that was not opened; ${m.y_proxy_clash_any_opening_note}`, '');
-  L.push(row('bell', 'AI', 'persona', 'opened', 'clash episode (bell, kind, own lost, enemy lost)'), row('---', '---', '---', '---', '---'));
+  L.push(row('turn', 'AI', 'persona', 'opened', 'clash episode (turn, kind, own lost, enemy lost)'), row('---', '---', '---', '---', '---'));
   for (const x of m.marches) L.push(row(x.bell, x.index, x.persona, x.opened ? 'yes' : 'no', x.clashes.map((c) => `${c.bell} ${c.kind} ${v(c.lost_own)}/${v(c.lost_enemy)}${c.camp ? ' (camp)' : ''}`).join('; ') || 'none found'));
   L.push('');
   const me = r.memory;
@@ -764,7 +764,7 @@ export function renderMarkdown(r) {
   L.push(`${me.episodes_total} episodes at the end: ${JSON.stringify(me.episodes_by_kind)}.`);
   L.push(`Decisions citing memory (>= 1 id in choice.mem): ${me.decisions_citing_memory.from_records} of ${me.decisions_citing_memory.of_model_decisions_with_known_choice} model decisions whose choice is known (${v(me.decisions_citing_memory.share_pct)} %; the mind's counter says ${v(me.decisions_citing_memory.from_mind_counter)}). Cited episode kinds: ${JSON.stringify(me.cited_episode_kinds)}.`);
   L.push(`Among decisions whose retrieved set held an attacked_own, camp_taken_by or threat episode: ${me.citation_among_key_kind_decisions.n_citing_at_least_one} of ${me.citation_among_key_kind_decisions.n_with_key_episode_retrieved} cited at least one (${v(me.citation_among_key_kind_decisions.share_pct)} %). ${me.citation_among_key_kind_decisions.note}.`);
-  L.push(`Age in bells of every cited episode: max ${v(me.cited_episode_ages_bells.max)}, ${me.cited_episode_ages_bells.older_than_72} older than 72 bells (so "earlier in the season" ${me.cited_episode_ages_bells.earlier_in_the_season_may_be_said ? 'may' : 'may not'} be said); all ${JSON.stringify(me.cited_episode_ages_bells.all)}.`);
+  L.push(`Age in turns of every cited episode: max ${v(me.cited_episode_ages_bells.max)}, ${me.cited_episode_ages_bells.older_than_72} older than 72 turns (so "earlier in the season" ${me.cited_episode_ages_bells.earlier_in_the_season_may_be_said ? 'may' : 'may not'} be said); all ${JSON.stringify(me.cited_episode_ages_bells.all)}.`);
   L.push(`Retrieved-set composition (episodes shown, by kind): ${JSON.stringify(me.retrieved_composition)}. mem_dropped ${me.mem_dropped}; feed_lag ${me.feed_lag}; why withheld ${JSON.stringify(me.why_withheld_by_rule)}; say withheld ${me.say_withheld}; reflections ${JSON.stringify(me.reflections)}.`);
   if (me.unknown_choice_note && me.decisions_with_unknown_choice) L.push(`${me.decisions_with_unknown_choice} model decisions have no readable choice (${me.unknown_choice_note}).`);
   L.push('');
@@ -775,11 +775,11 @@ export function renderMarkdown(r) {
     if (!co.available) L.push(co.note, '');
     else {
       L.push(`By verdict: ${Object.entries(co.by_reason).map(([k, n]) => `${k} ${n}`).join(', ')}. A \`waiting\` row means the period passed with no verdict (the open window ended first); \`no_verdict\` means nothing was recorded for that nation and period.`, '');
-      L.push(row('period', 'nation', 'phase', 'verdict', 'why', 'bell', 'detail'), row('---', '---', '---', '---', '---', '---', '---'));
+      L.push(row('period', 'nation', 'phase', 'verdict', 'why', 'turn', 'detail'), row('---', '---', '---', '---', '---', '---', '---'));
       for (const x of co.rows) L.push(row(x.period, x.nation, v(x.phase), x.kind, v(x.reason), v(x.bell), x.detail ? JSON.stringify(x.detail).replace(/\|/g, '/') : ''));
       L.push('');
     }
-    if (co.seat_finalise) L.push(`${co.seat_finalise.live ? 'Live seat (run harness; the presenter votes on the page), finalising its village' : 'Scripted seat, finalising its village'}: status ${v(co.seat_finalise.status)}, final ${v(co.seat_finalise.final)}, attempts ${v(co.seat_finalise.attempts)}, final seen at bell ${v(co.seat_finalise.first_final_bell)}${co.seat_finalise.note ? ` (${co.seat_finalise.note})` : ''}.`, '');
+    if (co.seat_finalise) L.push(`${co.seat_finalise.live ? 'Live seat (run harness; the presenter votes on the page), finalising its village' : 'Scripted seat, finalising its village'}: status ${v(co.seat_finalise.status)}, final ${v(co.seat_finalise.final)}, attempts ${v(co.seat_finalise.attempts)}, final seen at turn ${v(co.seat_finalise.first_final_bell)}${co.seat_finalise.note ? ` (${co.seat_finalise.note})` : ''}.`, '');
   }
   const cc = r.social.council_calls;
   if (cc?.available) {

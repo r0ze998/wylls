@@ -1,4 +1,4 @@
-// integ-B, "season-end race fix" (frontier/ai-eosfix). smoke-r2 (14 game hours) ended with verify-minds M3 FAIL: an `anchor_gap` at bell 109,
+// integ-B, "season-end race fix" (frontier/ai-eosfix). smoke-r2 (14 game hours) ended with verify-minds M3 FAIL: an `anchor_gap` at turn 109,
 // "the chain was paused". The closer wrote talk/109.json and minds/109.json in the same second the registrar's `publish` wrote the signed
 // index (last_bell 108) and STATE/season-end.json: a bell closed after the index, on the chain the stack had already paused.
 //
@@ -7,7 +7,7 @@
 //       paused chain never reached (here: bell 109 closes at F + 17 game-s when the chain ended at F = start(110) + 3). `closeNow` is capped at
 //       the newest chain time a poll returned, once the brain is silent.
 //   (2) THE SEAL ENDS THE CLOSER (mind/seal.mjs): `publish` waits for the bells the chain closed, writes STATE/season-sealing.json, waits for a
-//       close that is already in flight, and only then counts the closed bells; a sealed closer closes nothing.
+//       close that is already in flight, and only then counts the closed turns; a sealed closer closes nothing.
 // Every test below that names "old code" fails on frontier/ai-integ d6f2bc3 (checked: the recorded failing run is in integ-B-NOTES.md section 11).
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -146,7 +146,7 @@ test('the order inside one tick: a close that is IN FLIGHT when the season is se
   assert.deepEqual(await tick, [109]);
   const r = await waiting;
   assert.equal(r.held, false);
-  assert.deepEqual(wrote, ['talk/109', 'minds/109'], 'both files were written before the registrar went on to count the closed bells');
+  assert.deepEqual(wrote, ['talk/109', 'minds/109'], 'both files were written before the registrar went on to count the closed turns');
   assert.equal(fs.existsSync(claimPath(state)), false);
   assert.deepEqual(await closer.tick(1e9), [], 'the next bell is refused');
   assert.equal(closer.sealed(), true);
@@ -300,7 +300,7 @@ test('publish waits for a close that is in flight (claim held), then includes it
     assert.match(readJ(path.join(aiDir, 'pub', 'anchors', '109.json')).reason, /paused/);
     await sleep(500);
     assert.deepEqual(R.closedBells(path.join(aiDir, 'pub')), [106, 107, 108, 109], 'nothing appears after the index');
-    assert.match(lines.at(-1), /3 anchored, 1 gap\(s\) of 4 closed bells/);
+    assert.match(lines.at(-1), /3 anchored, 1 gap\(s\) of 4 closed turns/);
   } finally { await s.close(); }
 });
 
@@ -325,7 +325,7 @@ test('publish waits (bounded) until the closer has closed the last bell the chai
   try {
     const { code, lines } = await publishCli(aiDir2, s2, ['--wait-last-secs', '1']);
     assert.equal(code, 0);
-    assert.ok(lines.some((l) => /the chain closed bell 108 but the closer had not closed it/.test(l)), lines.join('\n'));
+    assert.ok(lines.some((l) => /the chain closed turn 108 but the closer had not closed it/.test(l)), lines.join('\n'));
     assert.equal(readJ(path.join(aiDir2, 'pub', 'anchors', 'index.json')).last_bell, 107);
     assert.equal(fs.existsSync(sealPath(path.join(aiDir2, 'state'))), true);
   } finally { await s2.close(); }
@@ -350,6 +350,6 @@ test('the run script clears a seal and a closer claim left in a reused AI_DIR (t
   const sh = fs.readFileSync(new URL('../citizens/bin/ai-citizens-run.sh', import.meta.url), 'utf8');
   assert.match(sh, /rm -f "\$STATE\/season-sealing\.json" "\$STATE\/closer-claim\.json"/);
   assert.ok(sh.indexOf('season-sealing.json') < sh.indexOf('bg citizens'), 'the files are removed before the service starts');
-  assert.match(sh, /seals the season so the closer closes no later bell/);
+  assert.match(sh, /seals the season so the closer closes no later turn/);
   void Keypair;
 });

@@ -511,7 +511,7 @@ test('the practice panel in both languages: seven scenarios, controls per scenar
   const built = rep.buildClashArgs({ province: decode('Province', w.before), inputs: decode('ClashInputs', w.inputs), bell: BELL, seed: hex(SEED) });
   const wi = { ...pr.practiceState(), whatif: { p: P, q: Q, bell: BELL, args: built.args, outcome: w.res.outcome, mine: () => false, mineCount: 0, result: null } };
   const wm = text(pr.render(wi));
-  assert.match(wm, /What if: Province 2,0 · Bell 40/);
+  assert.match(wm, /What if: Province 2,0 · Turn 40/);
   assert.match(wm, /None of your hosts arrived/);
 });
 

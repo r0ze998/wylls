@@ -21,7 +21,7 @@ const TEXT = {
   confirmed: { title: x => L`村が確定：${nameOf(x)}`, line: () => L`もう誰にも奪わせはしない。この地を守り抜け。` },
   'first-march': { title: () => L`最初の出陣`, line: () => L`封は閉じた。行き先を知るのは我らだけだ。` },
   'first-win': { title: x => L`最初の勝利：州 ${x.p},${x.q}`, line: () => L`見事だ。辺境は勇む者の手に渡る。` },
-  'tier-up': { title: x => L`${nameOf(x)}になった`, line: () => L`民が増え、壁が伸びる。次の鐘も怠るな。` },
+  'tier-up': { title: x => L`${nameOf(x)}になった`, line: () => L`民が増え、壁が伸びる。次のターンも怠るな。` },
   ring: { title: x => L`第${x.ring}輪がひらいた`, line: () => L`霧が晴れ、新しい地が見えた。誰より先に向かえ。` },
 };
 
@@ -82,7 +82,7 @@ export function renderTimeline(record) {
   const list = Object.entries(record?.seen ?? {}).map(([id, x]) => ({ id, ...x })).sort((a, b) => a.bell - b.bell);
   if (!list.length) return '';
   return html`<section aria-labelledby="timeline-title"><h3 id="timeline-title">${L`シーズンの年表`}</h3>
-    <ol class="timeline">${list.map(x => html`<li class="tl-${x.kind}"><span class="tl-bell">${L`第${fmtNum(x.bell)}鐘`}</span> <span>${TEXT[x.kind]?.title(x) ?? x.id}</span>
+    <ol class="timeline">${list.map(x => html`<li class="tl-${x.kind}"><span class="tl-bell">${L`第${fmtNum(x.bell)}ターン`}</span> <span>${TEXT[x.kind]?.title(x) ?? x.id}</span>
       ${Number.isInteger(x.p) ? html` <button type="button" class="btn small" data-act="goto" data-p="${x.p}" data-q="${x.q}">${L`地図で見る`}</button>` : ''}</li>`)}</ol></section>`;
 }
 

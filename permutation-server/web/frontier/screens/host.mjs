@@ -44,7 +44,7 @@ export function render(FS) {
       <strong>${UNITS[UNIT_ORDER[r.unit]]} ${fmtNum(r.troops)}</strong>
       <span>${L`州 ${r.p},${r.q} · ${STATE_TEXT[r.state]?.() ?? ''}`}</span>
       ${r.state === 2 ? html`<p class="muted">${formWait > 0 ? L`編成の反映の目安まで ${countdown(formWait)}（ゲーム内）` : L`世界の処理で編成が反映されるのを待っています。`}</p>` : ''}
-      <span>${L`体力 ${r.stamina}/${RULES.STAMINA_CAP}`}${cool ? L`（第${fmtNum(r.readyBell)}鐘まで休息）` : ''}</span>
+      <span>${L`体力 ${r.stamina}/${RULES.STAMINA_CAP}`}${cool ? L`（第${fmtNum(r.readyBell)}ターンまで休息）` : ''}</span>
       ${r.pending ? html`<span class="muted">${PENDING_TEXT[r.pending]?.() ?? ''}</span>` : ''}
       ${r.inTransit ? html`<p class="locked-note" role="note">${lockedText()}</p>` : ''}
       <div class="actions">

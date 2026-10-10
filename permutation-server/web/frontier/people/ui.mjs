@@ -96,7 +96,7 @@ export function highlights(chronicle, overviews, roster, { limit = 8, faction = 
       if (faction === null) continue;
       const who = id ? displayName(id) : L`名もない領主`;
       push({ bell, kind: r.name === 'DEPART' ? 'depart' : 'explore', faction, identity: id, p: h.p, q: h.q,
-        text: r.name === 'DEPART' ? L`${factionName(faction)}の${who}が出陣（第${fmtNum(Number(r.arrive_bell))}鐘に到着）` : L`${factionName(faction)}の${who}が州 ${Number(r.p)},${Number(r.q)} を探索` });
+        text: r.name === 'DEPART' ? L`${factionName(faction)}の${who}が出陣（第${fmtNum(Number(r.arrive_bell))}ターンに到着）` : L`${factionName(faction)}の${who}が州 ${Number(r.p)},${Number(r.q)} を探索` });
     } else if (r.name === 'HOME_PLACED' || (r.name === 'SETTLE' && (Number(r.outcome) === 0 || Number(r.outcome) === 1))) {
       const p = Number(r.p), q = Number(r.q), site = Number(r.site);
       // PlaceHome requires the citizen's home wedge. Its event remains about
@@ -107,7 +107,7 @@ export function highlights(chronicle, overviews, roster, { limit = 8, faction = 
       push({ bell, kind: 'settle', faction, identity: id, p, q, text: L`${factionName(faction)}の${displayName(id)}が州 ${p},${q} に入植` });
     } else if (r.name === 'CLASH') {
       const p = Number(r.p), q = Number(r.q);
-      push({ bell, kind: 'clash', faction: null, factions: provinceFactions(overviews, p, q), identity: null, p, q, clash: true, text: L`州 ${p},${q} で衝突（第${fmtNum(bell)}鐘）` });
+      push({ bell, kind: 'clash', faction: null, factions: provinceFactions(overviews, p, q), identity: null, p, q, clash: true, text: L`州 ${p},${q} で衝突（第${fmtNum(bell)}ターン）` });
     }
   }
   return out;

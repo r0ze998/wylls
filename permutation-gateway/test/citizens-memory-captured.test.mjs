@@ -57,7 +57,7 @@ test('recorded: the defender\'s village is attacked at bell 387 — attacked_own
   assert.ok(e, JSON.stringify(r.unknown.slice(0, 3)));
   assert.deepEqual([e.bell, e.created_bell, e.importance], [387, 389, 8]);
   assert.equal(e.text.en, `At bell 387 ${nameOf(ATTACKER).en} (nation Borealis) attacked your village at (1,4); you lost 130 troops.`);
-  assert.equal(e.text.ja, `鐘387で、${nameOf(ATTACKER).ja}(ボレアリス)があなたの村を(1,4)で攻撃し、あなたは兵130を失った。`);
+  assert.equal(e.text.ja, `ターン387で、${nameOf(ATTACKER).ja}(ボレアリス)があなたの村を(1,4)で攻撃し、あなたは兵130を失った。`);
   assert.deepEqual(e.entities, [ATTACKER, 'nation:1', 'pq:1,4'].sort());
   const trust = r.deltas.find(d => d.reason === 'hostile_act');
   assert.deepEqual([trust.who, trust.amount], [ATTACKER, -15]);

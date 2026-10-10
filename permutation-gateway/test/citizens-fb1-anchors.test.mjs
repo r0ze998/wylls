@@ -6,7 +6,7 @@
 //       polled (bounded) while it is the bell's only memo, a retry that throws before the signature callback keeps it, a later pass
 //       with an advanced blockhash sends nothing; a signature that FAILED on the chain is the one case that frees the bell.
 //   A2  the end of the run: a bell that is half closed (talk file, no minds file yet) is waited for (bounded) and anchored; every
-//       closed bell without an anchor gets an anchor_gap at publish; nothing is sent to a paused chain; the report counts closed bells
+//       closed bell without an anchor gets an anchor_gap at publish; nothing is sent to a paused chain; the report counts closed turns
 //       against anchored bells, gaps and bells closed after the season-end index.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -100,7 +100,7 @@ test('A1: a dead process\'s unlanded signature is carried into the taker\'s clai
   const claim = readJ(R.anchorClaimFile(aiDir, 50));
   assert.deepEqual([claim.pid, claim.signature], [process.pid, 'SIGX'], 'the claim is ours now and still carries SIGX');
   writeBell(aiDir, 51); writeBell(aiDir, 52);
-  assert.deepEqual((await pass()).gaps, [], 'not yet 3 later bells');
+  assert.deepEqual((await pass()).gaps, [], 'not yet 3 later turns');
   assert.equal(chain.sent.length, 0);
   writeBell(aiDir, 53);
   const r = await pass();
@@ -219,7 +219,7 @@ test('A2: `publish` waits (bounded) for a bell that is half closed, anchors it i
     const idx = readJ(path.join(aiDir, 'pub', 'anchors', 'index.json'));
     assert.deepEqual([idx.anchored, idx.gaps, idx.last_bell], [[30, 31], [], 31], 'bell 31 is anchored, not skipped (old code: index ended at 30)');
     assert.equal(chain.sent.length, 2);
-    assert.match(lines.at(-1), /2 anchored, 0 gap\(s\) of 2 closed bells/);
+    assert.match(lines.at(-1), /2 anchored, 0 gap\(s\) of 2 closed turns/);
   } finally { await s.close(); }
 });
 
@@ -238,7 +238,7 @@ test('A2: `publish` on a paused chain sends no memo and writes an anchor_gap for
     const idx = readJ(path.join(aiDir, 'pub', 'anchors', 'index.json'));
     assert.deepEqual([idx.anchored, idx.gaps, idx.last_bell], [[20], [21], 21]);
     assert.match(readJ(path.join(aiDir, 'pub', 'anchors', '21.json')).reason, /paused/);
-    assert.match(lines.at(-1), /1 anchored, 1 gap\(s\) of 2 closed bells/);
+    assert.match(lines.at(-1), /1 anchored, 1 gap\(s\) of 2 closed turns/);
   } finally { await s.close(); }
 });
 
@@ -251,7 +251,7 @@ test('A2: the run script passes the bounded wait to publish and names closed aga
   assert.match(sh, /ANCHOR_NOTE/, 'the closed/anchored/gap line goes into the END detail of RUNS.md');
 });
 
-// ------------------------------------------------------------------ the report counts closed bells against anchored bells
+// ------------------------------------------------------------------ the report counts closed turns against anchored bells
 test('A2 report: closed bells against anchored bells, gaps, bells without any anchor file and bells closed after the season-end index', () => {
   assert.equal(typeof REP.anchorsSection, 'function', 'report.mjs exports anchorsSection');
   const aiDir = newDir('rep');
@@ -267,7 +267,7 @@ test('A2 report: closed bells against anchored bells, gaps, bells without any an
   assert.deepEqual(s.closed_after_index, [3, 4]);
   assert.equal(s.index_last_bell, 2);
   assert.equal(s.every_closed_bell_has_an_anchor_or_gap, false);
-  assert.match(s.note, /5 closed bells/);
+  assert.match(s.note, /5 closed turns/);
   // no anchors directory at all (a run that never anchored): counts, never a throw
   const bare = newDir('rep2');
   const s0 = REP.anchorsSection({ pub: path.join(bare, 'pub') });
@@ -276,5 +276,5 @@ test('A2 report: closed bells against anchored bells, gaps, bells without any an
   // the markdown prints it
   const md = REP.renderMarkdown(REP.buildReport({ aiDir, privateOk: false }));
   assert.match(md, /Anchors/);
-  assert.match(md, /5 closed bells/);
+  assert.match(md, /5 closed turns/);
 });

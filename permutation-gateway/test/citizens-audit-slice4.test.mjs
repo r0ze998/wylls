@@ -396,7 +396,7 @@ test('M11 with a talk record: a DM to a sampled AI is a dm episode in the replay
   const { episodes_from_events } = await import('../citizens/memory/episodes.mjs');
   const { nameOf } = await import('../citizens/persona/names.mjs');
   const senderTag = (await import('../../permutation-server/web/frontier/people/identity.mjs')).tagKey((await import('../../permutation-server/web/frontier/faddr.mjs')).citizenTag((await import('../../permutation-server/web/frontier/faddr.mjs')).seasonAddresses(rj(path.join(SLICE4, 'herald.json')).gets['/h/season'].json.programId, 41).of('Citizen', { wallet: bs58.encode(sender) })));
-  const made = episodes_from_events({ events: [], talk: [{ id: 1, bell: 80, wallet: bs58.encode(sender), tag: senderTag, channel: 3, target: target.wallet, kind: 0, ref: 0, origin: 0, inner }], council: [] }, { ai: { tag: target.tag, wallet: target.wallet, faction: target.faction, home: { p: 0, q: 0 }, holdings: [] }, bellNow: 100, owners: {}, config: { genesis_ts: 0, redactions: [] } });
+  const made = episodes_from_events({ events: [], talk: [{ id: 1, bell: 80, wallet: bs58.encode(sender), tag: senderTag, channel: 3, target: target.wallet, kind: 0, ref: 0, origin: 0, inner }], council: [] }, { ai: { tag: target.tag, wallet: target.wallet, faction: target.faction, home: { p: 0, q: 0 }, holdings: [] }, bellNow: 100, owners: {}, config: { genesis_ts: 0, redactions: [], time_word: 'bell_v1' } }); // slice-4's lists were written when the step was called bell
   assert.equal(made.episodes.length, 1);
   assert.equal(made.episodes[0].id, dmId, 'the producer gives the id the replay named');
   assert.ok(nameOf(senderTag).en && made.episodes[0].text.en.includes(nameOf(senderTag).en));

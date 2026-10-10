@@ -22,7 +22,7 @@ export function sheetRows(clock, now, items) {
   return items.map(it => ({ bell: it.bell, region: it.region, why: it.why, ...pipeline(clock, it.bell, { now, ...(it.facts ?? {}) }) }));
 }
 
-const WHY = { current: () => L`いまの鐘`, arrival: () => L`あなたの到着`, ticket: () => L`入植希望`, explore: () => L`探索`, clash: () => L`衝突` };
+const WHY = { current: () => L`いまのターン`, arrival: () => L`あなたの到着`, ticket: () => L`入植希望`, explore: () => L`探索`, clash: () => L`衝突` };
 
 export function render(FS) {
   if (!FS.clock || !FS.chain) return html`<p class="muted">${L`読み込み中…`}</p>`;
@@ -31,14 +31,14 @@ export function render(FS) {
   // The local clock's offset means something only on a real cluster (a localnet Clock runs scaled).
   const offset = FS.pin?.cluster === 'localnet' ? 0 : FS.chain.offset?.() ?? 0;
   const current = FS.clock ? Math.max(0, Math.floor((now - FS.clock.genesisTs) / 600)) : null;
-  return html`<section aria-labelledby="bell-title"><h3 id="bell-title">${L`鐘の進み具合`}${termButton('bell')}</h3>
-    ${current !== null && now >= FS.clock.genesisTs ? html`<p>${L`いまは第${fmtNum(current)}鐘`}</p>` : ''}
+  return html`<section aria-labelledby="bell-title"><h3 id="bell-title">${L`ターンの進み具合`}${termButton('bell')}</h3>
+    ${current !== null && now >= FS.clock.genesisTs ? html`<p>${L`いまは第${fmtNum(current)}ターン`}</p>` : ''}
     ${Math.abs(offset) > 2 ? html`<p class="muted">${L`この端末の時計はチェーンより ${Math.round(offset)} 秒ずれています`}</p>` : ''}
     ${quotaChip(FS.quota) ? html`<p class="quota-line" data-quota-line>${quotaChip(FS.quota)}</p>` : ''}
-    <ul class="list bells">${rows.map(r => html`<li><strong>${L`第${fmtNum(r.bell)}鐘`}</strong>${WHY[r.why] ? html` · ${WHY[r.why]()}` : ''}${Number.isInteger(r.region) ? html` · ${L`地域 ${r.region}`}` : ''}
+    <ul class="list bells">${rows.map(r => html`<li><strong>${L`第${fmtNum(r.bell)}ターン`}</strong>${WHY[r.why] ? html` · ${WHY[r.why]()}` : ''}${Number.isInteger(r.region) ? html` · ${L`地域 ${r.region}`}` : ''}
       <p>${PIPELINE_TEXT[r.state]}</p>
       ${r.until !== null && r.until !== undefined ? html`<p class="muted">${countdown(r.until - now)} · ${timeHtml(r.until)}</p>` : ''}
       ${r.archived ? html`<p class="muted">${L`記録庫から読んでいます`}</p>` : ''}</li>`)}</ul>
-    <details><summary>${L`鐘のしくみ`}</summary><p>${L`到着は鐘の始まりまでに封をされ、守り手の顔ぶれは鐘の始まりで固まります。鐘の終わりの後の最初のビーコンが記録されると、誰でも封を開けられます。開封の受付は記録から決まった時間で閉じ、その後のビーコンの乱数で衝突が決まります。`}</p></details>
+    <details><summary>${L`ターンのしくみ`}</summary><p>${L`到着はターンの始まりまでに封をされ、守り手の顔ぶれはターンの始まりで固まります。ターンの終わりの後の最初のビーコンが記録されると、誰でも封を開けられます。開封の受付は記録から決まった時間で閉じ、その後のビーコンの乱数で衝突が決まります。`}</p></details>
   </section>`;
 }

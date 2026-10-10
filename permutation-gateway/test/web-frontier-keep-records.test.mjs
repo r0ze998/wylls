@@ -49,10 +49,10 @@ test('a capture is a notification with “go there”, marked as the viewer’s 
   assert.deepEqual(FEED.diffFeed(at(0, 229), at(0, 229, [contest, taken])), [], 'events first read with the page are the record’s, not news');
   // another nation's viewer: the capture only
   const watch = FEED.diffFeed(at(0, 229, [contest]), at(0, 229, [contest, taken]));
-  assert.deepEqual(watch.map(x => [x.kind, x.p, x.q, x.side, x.text]), [['keep', -3, 4, null, `州 -3,4 の砦を ${N2} が ${N1} から奪った（第228鐘）`]]);
+  assert.deepEqual(watch.map(x => [x.kind, x.p, x.q, x.side, x.text]), [['keep', -3, 4, null, `州 -3,4 の砦を ${N2} が ${N1} から奪った（第228ターン）`]]);
   // the two nations: the contest's start and the result
   const won = FEED.diffFeed(at(2, 158, []), at(2, 158, [contest]));
-  assert.deepEqual(won.map(x => [x.side, x.text]), [['attack', `州 -3,4 の砦を ${N2} が攻めはじめた（第157鐘）`]]);
+  assert.deepEqual(won.map(x => [x.side, x.text]), [['attack', `州 -3,4 の砦を ${N2} が攻めはじめた（第157ターン）`]]);
   assert.deepEqual(FEED.diffFeed(at(0, 158, []), at(0, 158, [contest])), [], 'a contest between other nations is not a notice');
   const lost = FEED.diffFeed(at(1, 229, [contest]), at(1, 229, [contest, taken]));
   assert.equal(lost[0].side, 'loss');
@@ -61,11 +61,11 @@ test('a capture is a notification with “go there”, marked as the viewer’s 
   const toasts = String(FEED.renderToasts(feed, { now: 1000 }));
   assert.match(toasts, /toast-keep/); assert.match(toasts, /data-act="feed-go"/);
   assert.match(toasts, /あなたの国が失った/); assert.match(toasts, /あなたの国が攻めている/);
-  assert.match(String(FEED.renderCentre(feed, 'battle')), /から奪った（第228鐘）/);
+  assert.match(String(FEED.renderCentre(feed, 'battle')), /から奪った（第228ターン）/);
   assert.doesNotMatch(String(FEED.renderCentre(feed, 'holding')), /砦/);
   assert.match(FEED.bellSummary(feed, 229).text, /砦 1/);
   setLang('en');
-  assert.equal(FEED.diffFeed(at(0, 229, [contest]), at(0, 229, [contest, taken]))[0].text, 'Cinder took the keep of province -3,4 from Borealis (bell 228)');
+  assert.equal(FEED.diffFeed(at(0, 229, [contest]), at(0, 229, [contest, taken]))[0].text, 'Cinder took the keep of province -3,4 from Borealis (turn 228)');
 });
 
 test('the chronicle lists a contest’s start and the capture by bell, the viewer’s nation’s marked', () => {
@@ -79,7 +79,7 @@ test('the chronicle lists a contest’s start and the capture by bell, the viewe
   assert.equal(chronicleRows(records, () => false, 1, events(), null).filter(r => r.keep).length, 2, 'keeps stay listed beyond the record limit');
   assert.equal(chronicleRows(records).length, 4, 'without conquest events the chronicle is as before');
   const out = String(renderChronicle({ chronicle: [], conquest: { events: events() }, citizen: { faction: 1 } }));
-  assert.match(out, /<li class="mine"><span class="muted">第228鐘<\/span> 州 -3,4 の砦が奪われた/);
+  assert.match(out, /<li class="mine"><span class="muted">第228ターン<\/span> 州 -3,4 の砦が奪われた/);
 });
 
 test('the keep panel shows the previous holder and the history with turn numbers', () => {
@@ -114,10 +114,10 @@ test('a clash on the keep tile says what it was for; the verification section is
   const report = keep => ({ p: -3, q: 4, bell: 200, keep, clash: { report: {}, inputs: { arrivals: [{ present: 1, hostId: 1n, faction: 2, unit: 0, troops: 1000, stamina: 100, stance: 1, retreat: 0, fate: 1, troopsAfter: 900, tile: 26 }] } } });
   const fs = (keep, keeps = new Map()) => ({ report: report(keep), conquest: { keeps } });
   const done = String(renderReport(fs(KEEP)));
-  assert.match(done, new RegExp(`この戦いは州 -3,4 の砦をめぐるものです：いまの保持者 ${N2} · 第228鐘に ${N2} が ${N1} から奪った`));
+  assert.match(done, new RegExp(`この戦いは州 -3,4 の砦をめぐるものです：いまの保持者 ${N2} · 第228ターンに ${N2} が ${N1} から奪った`));
   assert.match(done, /data-act="goto" data-p="-3" data-q="4">砦を見る/);
   const running = String(renderReport(fs({ ...KEEP, holder: 1 }, new Map([['-3,4', live]]))));
-  assert.match(running, new RegExp(`いまの保持者 ${N1}、奪取まで 44/72 鐘`));
+  assert.match(running, new RegExp(`いまの保持者 ${N1}、奪取まで 44/72 ターン`));
   const plain = String(renderReport(fs(undefined)));
   assert.doesNotMatch(plain, /砦/);
   const strip = s => s.replace(/<p class="report-keep">[\s\S]*?<\/p>\s*/, '');

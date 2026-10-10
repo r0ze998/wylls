@@ -23,7 +23,8 @@
 //   province(p,q,bell) -> /h/province envelope | decoded account | watcher/feed.mjs shapeProvince output | null,
 //   clash(p,q,bell)    -> /h/clash file | watcher/feed.mjs shapeClash output | null,
 //   clashDetail?(p,q,bell) -> feed.mjs clashDetail (exact troops before per fighter); preferred over clash() when present,
-//   config: {genesis_ts, redactions?: Set|[inner...], openGrievances?: [{id, against, nation?, bell}], clash_win_rule?: 'legacy_v1' (audit only: replay a pre-R12 list)},
+//   config: {genesis_ts, redactions?: Set|[inner...], openGrievances?: [{id, against, nation?, bell}], clash_win_rule?: 'legacy_v1' (audit only: replay a pre-R12 list),
+//            time_word?: 'bell_v1' | 'turn' (audit only: replay a list written when the step was called bell / 鐘)},
 //   names?: {nameOf, nationName}      // default: persona/names.mjs
 // }
 //
@@ -41,7 +42,12 @@ import { nameOf as defaultNameOf, nationName as defaultNationName, tagHex } from
 import { NEUTRAL, normClash, normProvince, provDist, siteOfHostId, siteOfTile, toTroops } from './herald-view.mjs';
 import { safeText } from './safe.mjs';
 
-const TPL = { en: readJson(new URL('./templates.en.json', import.meta.url)), ja: readJson(new URL('./templates.ja.json', import.meta.url)) };
+const TPL_NOW = { en: readJson(new URL('./templates.en.json', import.meta.url)), ja: readJson(new URL('./templates.ja.json', import.meta.url)) };
+// The ten-minute step is "turn" / ターン in an episode's text. Lists published before that wording said "bell" / 鐘, and a replay
+// must give their exact text: `config.time_word: 'bell_v1'` (audit only; the live pump never sets it) fills the same templates with
+// the old word. A pre-R12 list (`clash_win_rule: 'legacy_v1'`) was always written with the old word, so that rule implies it.
+const oldWord = t => ({ ...t, kinds: JSON.parse(JSON.stringify(t.kinds).replace(/ターン/g, '鐘').replace(/\bturn\b/g, 'bell')) });
+const TPL_BELL_V1 = { en: oldWord(TPL_NOW.en), ja: oldWord(TPL_NOW.ja) };
 const LANGS = ['en', 'ja'];
 const WAIT = HOSTILE_WAIT + HOSTILE_EVAL_LAG;
 const PRE_GENESIS = 0xffffffff;
@@ -96,6 +102,7 @@ export function episodes_from_events(batch = {}, ctx = {}) {
   const nameOf = names.nameOf ?? defaultNameOf;
   const nationName = names.nationName ?? defaultNationName;
   const cfg = ctx.config ?? {};
+  const TPL = (cfg.time_word ?? (cfg.clash_win_rule === 'legacy_v1' ? 'bell_v1' : 'turn')) === 'bell_v1' ? TPL_BELL_V1 : TPL_NOW;
   const redactions = new Set(cfg.redactions ?? []);
   const owners = ctx.owners ?? {};
   const holdings = ai.holdings ?? [];

@@ -91,7 +91,7 @@ export function selectTarget({ armies, seat, bell, minTroops = 150, minSeatTroop
     if (!best) { rejected.push({ host_id: a.host_id, reason: `farther than ${MAX_PROVINCES - 1} provinces from every ready seat host` }); continue; }
     // the march arrives at least 2 bells after it leaves; it must arrive BEFORE the target could depart
     const arriveBy = leaves - 1;
-    if (arriveBy < bell + 3) { rejected.push({ host_id: a.host_id, reason: `could depart from bell ${leaves}: no arrival before it (earliest arrival ${bell + 3})` }); continue; }
+    if (arriveBy < bell + 3) { rejected.push({ host_id: a.host_id, reason: `could depart from turn ${leaves}: no arrival before it (earliest arrival ${bell + 3})` }); continue; }
     options.push({ a, seat: best.h, d: best.d, leaves, arriveBy });
   }
   options.sort((x, y) => x.d - y.d || x.a.troops - y.a.troops || (x.a.host_id < y.a.host_id ? -1 : 1));
@@ -109,7 +109,7 @@ export function selectTarget({ armies, seat, bell, minTroops = 150, minSeatTroop
       stance: 'assault',
       retreat_bps: 0,
       conditions_for_an_episode: [
-        'the target army is still on its tile at the seat host\'s departure bell (the stamina rule keeps it there)',
+        'the target army is still on its tile at the seat host\'s departure turn (the stamina rule keeps it there)',
         'the clash lists the seat host with engaged: true',
         'the target loses troops (the kernel decides; a bounced or retreating fight can cost it nothing)',
       ],
@@ -145,7 +145,7 @@ export function validateScript(s) {
     const m = s.moves[0];
     if (m.type !== 'hostile_march') bad('the move must be a hostile_march (a normal player march)');
     if (!m.seat_host?.host_id || !m.target?.host_id) bad('seat_host and target need host ids');
-    if (!Number.isInteger(m.window?.not_before_bell) || !Number.isInteger(m.window?.arrive_by_bell) || m.window.arrive_by_bell < m.window.not_before_bell + 2) bad('window: a march arrives at least 2 bells after it leaves');
+    if (!Number.isInteger(m.window?.not_before_bell) || !Number.isInteger(m.window?.arrive_by_bell) || m.window.arrive_by_bell < m.window.not_before_bell + 2) bad('window: a march arrives at least 2 turns after it leaves');
     if (m.target && m.seat_host && m.target.p === m.seat_host.p && m.target.q === m.seat_host.q && m.target.tile === m.seat_host.tile) bad('the target is on the seat host\'s own tile');
   }
   for (const k of Object.keys(s)) if (/key|secret|seed(?!ed_by)|salt/i.test(k) && k !== 'seeded_by') bad(`field ${k}: no key material in a script`);
@@ -181,7 +181,7 @@ export async function executeScript({ aiDir, script, send, getBell, now = () => 
   const move = script.moves[0];
   const bell = await getBell();
   if (bell == null || bell < move.window.not_before_bell) return { ok: false, code: 'TooEarly', bell };
-  if (bell > move.window.arrive_by_bell - 2) return { ok: false, code: 'TooLate', bell, note: 'a march arrives at least 2 bells after it leaves, and the target may be able to leave by then' };
+  if (bell > move.window.arrive_by_bell - 2) return { ok: false, code: 'TooLate', bell, note: 'a march arrives at least 2 turns after it leaves, and the target may be able to leave by then' };
   const r = await send({ ...move, bell });
   script.executed = { at_bell: bell, unix_ms: now(), ok: Boolean(r?.ok), signature: r?.signature ?? null, error: r?.ok ? null : (r?.error ?? r?.code ?? 'failed') };
   fs.writeFileSync(path.join(aiDir, 'seat-script.json'), scriptText(script));

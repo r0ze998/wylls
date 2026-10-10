@@ -474,8 +474,8 @@ export function tileDetail(rows) {
 const KIND_TEXT = { resident: () => L`駐留`, arrival: () => L`到着`, garrison: () => L`守備隊`, camp: () => L`蛮族の野営地` };
 const STEP_TEXT = {
   kernel: () => L`ルール（frontier.wasm）がシーズンと同じ`,
-  seed: () => L`乱数がこの鐘の公式ビーコンのもの`,
-  inputs: () => L`衝突の入力がこの州とこの鐘のもの`,
+  seed: () => L`乱数がこのターンの公式ビーコンのもの`,
+  inputs: () => L`衝突の入力がこの州とこのターンのもの`,
   recompute: () => L`このブラウザで衝突を計算し直した`,
   digest: () => L`結果の要約がチェーンの記録と一致`,
   fates: () => L`到着軍勢の結末がチェーンの記録と一致`,
@@ -483,16 +483,16 @@ const STEP_TEXT = {
 const CODE_TEXT = {
   NoWasm: () => L`ルールのモジュール（frontier.wasm）を読み込めません`,
   RulesetMismatch: () => L`モジュールのルールがシーズンと違います`,
-  NoBellRecord: () => L`この鐘の記録をまだ読めません`,
-  NoAnchor: () => L`この鐘のビーコンの記録がありません`,
-  SeedNotReady: () => L`この鐘の乱数がまだありません`,
+  NoBellRecord: () => L`このターンの記録をまだ読めません`,
+  NoAnchor: () => L`このターンのビーコンの記録がありません`,
+  SeedNotReady: () => L`このターンの乱数がまだありません`,
   SeedMismatch: () => L`報告の乱数が公式ビーコンのものと違います`,
   NoInputs: () => L`衝突の入力がありません`,
   NotResolved: () => L`衝突はまだ決着していません`,
-  WrongKey: () => L`入力が別の州か鐘のものです`,
+  WrongKey: () => L`入力が別の州かターンのものです`,
   NoProvinceBefore: () => L`決着前の州の記録が報告にありません（ヘラルドの対応待ち）`,
-  WrongProvinceBefore: () => L`決着前の州の記録がこの鐘のものではありません`,
-  Unsettled: () => L`前の鐘の変更が未精算の記録です`,
+  WrongProvinceBefore: () => L`決着前の州の記録がこのターンのものではありません`,
+  Unsettled: () => L`前のターンの変更が未精算の記録です`,
   Refused: () => L`ルールが入力を受け付けませんでした`,
   BadInput: () => L`ルールが入力を読めませんでした`,
   BadUnit: () => L`記録に知らない兵種があります`,
@@ -562,8 +562,8 @@ function renderStake(r, stake) {
   if (!stake) return '';
   const holder = factionName(stake.holder);
   return html`<p class="report-keep">⚑ ${stake.contender !== null && stake.required !== null
-    ? L`この戦いは州 ${r.p},${r.q} の砦をめぐるものです：いまの保持者 ${holder}、奪取まで ${fmtNum(stake.progress)}/${fmtNum(stake.required)} 鐘`
-    : L`この戦いは州 ${r.p},${r.q} の砦をめぐるものです：いまの保持者 ${holder}`}${stake.taken ? html` · ${L`第${fmtNum(stake.taken.bell)}鐘に ${factionName(stake.taken.to)} が ${factionName(stake.taken.from)} から奪った`}` : ''}
+    ? L`この戦いは州 ${r.p},${r.q} の砦をめぐるものです：いまの保持者 ${holder}、奪取まで ${fmtNum(stake.progress)}/${fmtNum(stake.required)} ターン`
+    : L`この戦いは州 ${r.p},${r.q} の砦をめぐるものです：いまの保持者 ${holder}`}${stake.taken ? html` · ${L`第${fmtNum(stake.taken.bell)}ターンに ${factionName(stake.taken.to)} が ${factionName(stake.taken.from)} から奪った`}` : ''}
     <button type="button" class="btn small" data-act="goto" data-p="${r.p}" data-q="${r.q}">${L`砦を見る`}</button></p>`;
 }
 
@@ -575,7 +575,7 @@ function renderStake(r, stake) {
 export function render(FS, mine = () => false, { whatIf = true, ownerOf = null } = {}) {
   const r = FS.report;
   if (!r) return '';
-  const title = L`衝突の報告：州 ${r.p},${r.q} · 第${fmtNum(r.bell)}鐘`;
+  const title = L`衝突の報告：州 ${r.p},${r.q} · 第${fmtNum(r.bell)}ターン`;
   const head = html`<h3 id="report-title">${title}</h3><button type="button" class="btn small" data-act="report-close">${L`閉じる`}</button>`;
   if (r.loading) return html`<section aria-labelledby="report-title">${head}<p class="muted">${L`読み込み中…`}</p></section>`;
   if (r.error) return html`<section aria-labelledby="report-title">${head}<p class="notice error" role="alert">${L`報告を読めませんでした（${r.error}）`}</p></section>`;
@@ -614,7 +614,7 @@ const RESULT_GLYPH = { won: '★', held: '◆', fell: '✕', turned: '↩', none
 /** The leader's word on a result (UI plan F1): the viewer's faction, or the side that held the field. */
 const LEADER_LINE = {
   won: () => L`見事だ。この地の名は、今日のおまえたちのものだ。`,
-  held: () => L`よく踏みとどまった。次の鐘で押し返せ。`,
+  held: () => L`よく踏みとどまった。次のターンで押し返せ。`,
   turned: () => L`退くのも兵法のうちだ。兵は残った。`,
   fell: () => L`痛い負けだ。だが辺境は広い、立て直せ。`,
   none: () => L`結末はまだ分からぬ。確かめてから語ろう。`,
@@ -653,7 +653,7 @@ function renderTiles(list) {
 /** The report links of resolved clashes: `[{p, q, bell}]` → buttons. */
 export function renderLinks(list, title) {
   if (!list.length) return '';
-  return html`<section aria-labelledby="reports-title"><h3 id="reports-title">${title}</h3><ul class="list">${list.map(x => html`<li><button type="button" class="btn" data-act="report-open" data-p="${x.p}" data-q="${x.q}" data-bell="${x.bell}">${L`州 ${x.p},${x.q} · 第${fmtNum(x.bell)}鐘`}${x.mine ? html` <span class="muted">${L`（あなた）`}</span>` : ''}</button></li>`)}</ul></section>`;
+  return html`<section aria-labelledby="reports-title"><h3 id="reports-title">${title}</h3><ul class="list">${list.map(x => html`<li><button type="button" class="btn" data-act="report-open" data-p="${x.p}" data-q="${x.q}" data-bell="${x.bell}">${L`州 ${x.p},${x.q} · 第${fmtNum(x.bell)}ターン`}${x.mine ? html` <span class="muted">${L`（あなた）`}</span>` : ''}</button></li>`)}</ul></section>`;
 }
 
 /** Resolved clashes from the chronicle (CLASH records), newest first, distinct, at most `limit`. */

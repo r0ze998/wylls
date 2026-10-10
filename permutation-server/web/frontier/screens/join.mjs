@@ -41,7 +41,7 @@ function renderFactions(FS) {
   const gated = !FS.prize && (FS.inviteRequired || !!FS.season?.joinGate?.some?.(x => x !== 0));
   const ready = Number.isInteger(FS.joinDraft?.faction);
   return html`<section aria-labelledby="join-faction"><h3 id="join-faction">${L`国を選ぶ`}</h3>
-    <p>${L`選ぶのは六つの国のどれか一つだけです。最初の村の入植希望は、本拠の扇区の空いた区画にこのページが自動で出し、村は次の鐘（約11〜21分後）に決まります。`}</p>
+    <p>${L`選ぶのは六つの国のどれか一つだけです。最初の村の入植希望は、本拠の扇区の空いた区画にこのページが自動で出し、村は次のターン（約11〜21分後）に決まります。`}</p>
     ${FS.prize ? html`<p class="muted">${L`国は本拠の扇区と教義を決めます。季節の終わりに最も多くの州を持つ国が、賞金プール（テストUSDC）を得ます。`}</p>${renderJoinTerms(FS)}`
       : html`<p class="muted">${L`M1 では賞金はありません。国は本拠の扇区と教義を決めます。`}</p>`}
     <ul class="cards">${cards}</ul>
@@ -60,9 +60,9 @@ function renderSessionFix(FS) {
 function endLine(FS) {
   const e = FS.landRec?.landEnd;
   if (!e) return '';
-  const t = { displaced: () => L`第${fmtNum(e.bell)}鐘：仮の村は、同じ鐘のより高い順位の入植希望に押し出されました。`,
-    lost: () => L`第${fmtNum(e.bell)}鐘：村を失いました。`,
-    ended: () => L`第${fmtNum(e.bell)}鐘：前の入植希望は区画を得られずに終わりました。` }[e.why];
+  const t = { displaced: () => L`第${fmtNum(e.bell)}ターン：仮の村は、同じターンのより高い順位の入植希望に押し出されました。`,
+    lost: () => L`第${fmtNum(e.bell)}ターン：村を失いました。`,
+    ended: () => L`第${fmtNum(e.bell)}ターン：前の入植希望は区画を得られずに終わりました。` }[e.why];
   // once the new ticket has left, the line says so in the past (re-check 7)
   return t ? html`<p class="callout">${t()} ${e.refiled ? L`新しい入植希望を自動で出しました。` : L`空いた区画に、入植希望を自動でもう一度出します。`}</p>` : '';
 }
@@ -75,15 +75,15 @@ function renderPlacing(FS) {
   const line = {
     searching: () => html`<p role="status">${L`本拠の扇区で空いた区画を探して、入植希望を出しています…`}</p>`,
     sent: () => html`<p role="status">${L`入植希望を出しました。チェーンの記録に現れるのを待っています。`}</p>`,
-    waiting: () => html`<p role="status">${L`この鐘の入植希望はもう試しました。次の鐘に自動でもう一度出します。`}</p>${FS.landRec?.autoTryFailed ? retry : ''}`,
-    room: () => html`<p role="status">${L`空いた区画はありますが、この鐘の入植希望の枠がいっぱいです。次の鐘に自動で出します。`}</p>`,
-    nofree: () => html`<p class="warn" role="status">${L`本拠の扇区にも隣の扇区にも空いた区画が見つかりません。鐘ごとに自動で探し直し、新しい輪がひらけばそこを探します。`}</p>${retry}`,
-    failed: () => html`<p class="notice error" role="alert">${L`入植希望を出せませんでした：${failureText({ code: a.code })}`} ${L`次の鐘に自動でもう一度出します。`}</p>${retry}`,
+    waiting: () => html`<p role="status">${L`このターンの入植希望はもう試しました。次のターンに自動でもう一度出します。`}</p>${FS.landRec?.autoTryFailed ? retry : ''}`,
+    room: () => html`<p role="status">${L`空いた区画はありますが、このターンの入植希望の枠がいっぱいです。次のターンに自動で出します。`}</p>`,
+    nofree: () => html`<p class="warn" role="status">${L`本拠の扇区にも隣の扇区にも空いた区画が見つかりません。ターンごとに自動で探し直し、新しい輪がひらけばそこを探します。`}</p>${retry}`,
+    failed: () => html`<p class="notice error" role="alert">${L`入植希望を出せませんでした：${failureText({ code: a.code })}`} ${L`次のターンに自動でもう一度出します。`}</p>${retry}`,
   }[a?.state] ?? (() => html`<p role="status">${L`まもなく入植希望を自動で出します。`}</p>`);
   return html`<section aria-labelledby="join-sites"><h3 id="join-sites">${again ? L`新しい村の場所を探しています` : L`最初の村を置いています`}</h3>
     ${line()}
     ${endLine(FS)}
-    <p class="muted">${L`場所は選びません。同じ鐘の入植希望はその鐘の乱数でまとめて公平に決まり、村は次の鐘（約11〜21分後）に決まります。`}</p>
+    <p class="muted">${L`場所は選びません。同じターンの入植希望はそのターンの乱数でまとめて公平に決まり、村は次のターン（約11〜21分後）に決まります。`}</p>
     <p class="muted">${Lh`預け金：<strong>${lamports(FS.land?.escrowNeeded ?? 0n)}</strong>（村の口座の賃料。村ができればそこへ移り、できなければ払った人に戻ります）`}</p>
     <p><button type="button" class="btn" data-act="practice-open">${L`待つあいだに練習で戦ってみる`}</button></p></section>`;
 }
@@ -91,9 +91,9 @@ function renderPlacing(FS) {
 function renderTicket(FS) {
   const t = FS.land.ticket;
   const times = FS.clock ? ticketTimes(FS.clock, t.bell) : null;
-  return html`<section aria-labelledby="join-ticket"><h3 id="join-ticket">${L`入植希望（第${fmtNum(t.bell)}鐘）`}</h3>
+  return html`<section aria-labelledby="join-ticket"><h3 id="join-ticket">${L`入植希望（第${fmtNum(t.bell)}ターン）`}</h3>
     <ol class="chosen">${t.sites.map((s, i) => html`<li ${raw(i < t.next ? 'class="done"' : '')}>${siteText(s)}${i < t.next ? html` <span class="muted">${L`（ふさがっていた）`}</span>` : ''}</li>`)}</ol>
-    ${times ? html`<p>${Lh`結果は ${timeHtml(times.resultAbout)} ごろ（出してから約11〜21分）に、この鐘の乱数で決まります。`}</p>` : ''}
+    ${times ? html`<p>${Lh`結果は ${timeHtml(times.resultAbout)} ごろ（出してから約11〜21分）に、このターンの乱数で決まります。`}</p>` : ''}
     ${endLine(FS)}
     <p class="muted">${FS.landRec?.ticketSource === 'overflow' ? L`本拠の扇区に空きがなかったため、区画は隣の扇区のいちばん外の輪から自動で選びました。区画を得られなければ、自動でもう一度出します。` : L`区画は本拠の扇区から自動で選びました。区画を得られなければ、自動でもう一度出します。`}</p>
     <p><button type="button" class="btn" data-act="practice-open">${L`待つあいだに練習で戦ってみる`}</button></p></section>`;
@@ -104,7 +104,7 @@ function renderProvisional(FS) {
   const times = FS.clock && h ? ticketTimes(FS.clock, h.ticketBell) : null;
   return html`<section aria-labelledby="join-prov"><h3 id="join-prov">${HOLDING_STATES.provisional}</h3>
     ${h ? html`<p>${L`州 ${h.p},${h.q} の区画 ${h.site + 1} を得ました。`}</p>` : ''}
-    ${times ? html`<p>${Lh`同じ鐘の入植希望がすべて決まると確定します（遅くとも ${timeHtml(times.cohortEndsBy)}）。それまでは、より高い順位の希望に押し出されることがあります。`}</p>` : ''}
+    ${times ? html`<p>${Lh`同じターンの入植希望がすべて決まると確定します（遅くとも ${timeHtml(times.cohortEndsBy)}）。それまでは、より高い順位の希望に押し出されることがあります。`}</p>` : ''}
     <p class="muted">${L`仮の村でも収穫・建設・訓練はできます（押し出されると失われます）。軍勢の編成・出発・探索は確定してからです。`}</p></section>`;
 }
 

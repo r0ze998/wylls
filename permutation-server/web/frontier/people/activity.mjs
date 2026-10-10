@@ -99,21 +99,21 @@ export function activitiesFor(entries, ctx) {
   return all;
 }
 
-/** The badge's short label ("城壁 第1,040鐘まで"). */
+/** The badge's short label ("城壁 第1,040ターンまで"). */
 export function activityText(a) {
   const until = Number.isInteger(a.until) ? fmtNum(a.until) : null;
   switch (a.kind) {
     case 'battle': return L`戦闘中`;
-    case 'depart': return L`出陣中（第${until}鐘に到着、行き先は秘密）`;
-    case 'muster': return L`編成中（第${until}鐘から加わる）`;
-    case 'walls': return L`城壁を建設中（第${until}鐘に完成）`;
+    case 'depart': return L`出陣中（第${until}ターンに到着、行き先は秘密）`;
+    case 'muster': return L`編成中（第${until}ターンから加わる）`;
+    case 'walls': return L`城壁を建設中（第${until}ターンに完成）`;
     case 'build': return L`${BUILDINGS[BUILD_ITEMS[a.item]?.resource] ?? L`建物`}を建設中`;
-    case 'recruit': return L`守備隊を増員中（第${until}鐘から ${fmtNum(a.n ?? 0)} 兵）`;
+    case 'recruit': return L`守備隊を増員中（第${until}ターンから ${fmtNum(a.n ?? 0)} 兵）`;
     case 'explore': return L`探索中`;
-    case 'rest': return L`休息中（第${until}鐘に回復）`;
+    case 'rest': return L`休息中（第${until}ターンに回復）`;
     case 'guard': return L`駐留中（${fmtNum(a.n ?? 0)} 兵）`;
     case 'garrison': return L`守備隊 ${fmtNum(a.n ?? 0)} 兵`;
-    case 'shield': return L`保護中（第${until}鐘まで攻撃されない）`;
+    case 'shield': return L`保護中（第${until}ターンまで攻撃されない）`;
     case 'dormant': return L`休眠中（領主が留守）`;
     case 'camp': return L`蛮族の野営地（${fmtNum(a.n ?? 0)} 兵）`;
     default: return '';

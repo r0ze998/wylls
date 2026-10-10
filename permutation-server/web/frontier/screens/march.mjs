@@ -87,7 +87,7 @@ export function render(FS) {
   const timing = marchTiming(FS, m.arriveBell);
   return html`<section aria-labelledby="march-title"><h3 id="march-title">${L`進軍：${unit} ${fmtNum(m.host.troops)}`}</h3>
     <fieldset><legend>${L`1. 行き先`}</legend>
-      <p class="sealed"><span class="lock" aria-hidden="true"></span>${L`行き先は封の中にあり、ほかの人には到着の鐘しか見えません（到着の鐘が始まるまで）。`}</p>
+      <p class="sealed"><span class="lock" aria-hidden="true"></span>${L`行き先は封の中にあり、ほかの人には到着のターンしか見えません（到着のターンが始まるまで）。`}</p>
       ${c.dest ? html`<p><strong>${L`州 ${c.dest.p},${c.dest.q} のマス ${c.dest.tile + 1}`}</strong></p>` : ''}
       <button type="button" class="btn" data-act="dest-from-map" ${raw(FS.selected?.idx !== undefined ? '' : 'disabled')}>${L`地図で選んだマスにする`}</button>
       ${(c.quick ?? []).length ? html`<ul class="list">${c.quick.map(q => html`<li><button type="button" class="btn" data-act="dest-quick" data-p="${q.p}" data-q="${q.q}" data-tile="${q.tile}">${q.kind === 'camp' ? L`蛮族の野営地 州 ${q.p},${q.q}` : L`州 ${q.p},${q.q} のマス ${q.tile + 1}`}</button></li>`)}</ul>` : ''}
@@ -97,16 +97,16 @@ export function render(FS) {
     </fieldset>
     <fieldset><legend>${L`2. 道のりと到着`}</legend>
       ${c.route ? html`<p>${routeLine(c.route)}</p>` : html`<p class="muted">${c.routeError ? clientText(c.routeError) : L`行き先を決めると道のりを探します`}</p>`}
-      <label>${L`到着の鐘`}<select data-bind="arriveBell">${bells.map(b => html`<option value="${b}" ${raw(b === m.arriveBell ? 'selected' : '')}>${L`第${fmtNum(b)}鐘`}</option>`)}</select></label>
+      <label>${L`到着のターン`}<select data-bind="arriveBell">${bells.map(b => html`<option value="${b}" ${raw(b === m.arriveBell ? 'selected' : '')}>${L`第${fmtNum(b)}ターン`}</option>`)}</select></label>
       ${timing ? html`<p>${L`到着まで ${span(timing.arrivalIn)} · 結果の目安まで ${span(timing.resultIn)}（ゲーム内）`}</p>` : ''}
-      <p class="muted">${L`出発から早くても2鐘あと、遅くとも72鐘あと。出発には体力 ${DEPART_STAMINA} を使います。`}</p>
+      <p class="muted">${L`出発から早くても2ターンあと、遅くとも72ターンあと。出発には体力 ${DEPART_STAMINA} を使います。`}</p>
     </fieldset>
     <fieldset><legend>${L`3. 命令`}</legend>
       <div role="radiogroup" aria-label="${L`構え`}">${ch.stances.map(s => html`<label class="choice"><input type="radio" name="stance" data-bind="stance" value="${s.value}" ${raw(s.value === m.stance ? 'checked' : '')}>${s.text} <span class="muted">${STANCE_NOTE[s.id]()}</span></label>`)}</div>
       <p class="muted">${L`突撃は側撃に、側撃は迎撃に、迎撃は突撃に強く、強い側は与える損害が 20% 増えます。M1 の守り手はいつも待機です。`}</p>
       <label>${L`撤退比`}<select data-bind="retreat">${ch.retreat.map(r => html`<option value="${r.id}" ${raw(r.id === m.retreat.choice ? 'selected' : '')}>${r.text}</option>`)}</select></label>
       ${m.retreat.choice === 'custom' ? html`<label>${L`倍率（守り手 ÷ 自軍、0.0001〜6）`}<input data-bind="ratio" type="number" step="0.05" min="0.0001" max="6" value="${m.retreat.ratio ?? ''}"></label>` : ''}
-      <p class="muted">${L`到着の鐘が始まった時点で固まった守り手と比べます。`}</p>
+      <p class="muted">${L`到着のターンが始まった時点で固まった守り手と比べます。`}</p>
     </fieldset>
     <fieldset><legend>${L`4. チップと費用`}</legend>
       <div role="radiogroup" aria-label="${L`チップ`}">${ch.tips.map(t => html`<label class="choice"><input type="radio" name="tip" data-bind="tip" value="${String(t.lamports)}" ${raw(String(t.lamports) === String(m.tip) ? 'checked' : '')}>${t.text} · ${lamports(t.lamports)} <span class="muted">${L`優先度 ${(Number(t.priorityMilli) / 1000).toFixed(3)}`}</span></label>`)}</div>

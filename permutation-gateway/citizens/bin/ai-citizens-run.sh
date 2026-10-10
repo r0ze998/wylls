@@ -438,7 +438,7 @@ if [ "$SEAT_LIVE" = 1 ]; then
 fi
 
 if [ "$DRY" = 1 ]; then
-  echo "PLAN wait for the fleet to exit, then for the stack phase complete; then registrar publish (waits up to AI_WAIT_LAST_SECS for the last bell the chain closed, seals the season so the closer closes no later bell, waits for the last closed bell's talk and minds files, one more anchor pass, anchor_gap for any closed bell without an anchor, then the index), the END line of RUNS.md, stop every child in reverse order, release the lock"
+  echo "PLAN wait for the fleet to exit, then for the stack phase complete; then registrar publish (waits up to AI_WAIT_LAST_SECS for the last turn the chain closed, seals the season so the closer closes no later turn, waits for the last closed turn's talk and minds files, one more anchor pass, anchor_gap for any closed turn without an anchor, then the index), the END line of RUNS.md, stop every child in reverse order, release the lock"
   [ "$HOLD" = 0 ] || echo "PLAN hold: after the run is complete keep the stack and the citizens service up for at most $HOLD s (stop file $STATE/hold.stop, or Ctrl-C), then stop every child"
   echo "dry run: nothing was started or written"
   exit 0

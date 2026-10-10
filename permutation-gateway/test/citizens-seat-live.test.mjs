@@ -208,7 +208,7 @@ test('LIVE SEAT: the seat is finalised before C0 and eligible; it casts NO ballo
   const node = renderCouncil({ h, t: en, lang: 'en', index, resolve: null }, { council: closed, bell: C0 + 6, faction: 0, me: { wallet: page.signer.wallet, faction: 0 }, mine: { option: 1, origin: 0 }, note: '', slots: {}, draft: { option: 1, text: '' }, onDraft() {}, onNation() {}, onVote() {}, onMotion() {} });
   const text = textOf(node);
   assert.match(text, /Ballots by who cast them: AI 1 · human \(the presenter\) 1 · scripted seat 0/);
-  assert.match(text, /Strike Order adopted with 1 AI ballot\(s\) \+ the presenter’s ballot — strike at bell 60 \(target sealed\)/);
+  assert.match(text, /Strike Order adopted with 1 AI ballot\(s\) \+ the presenter’s ballot — strike at turn 60 \(target sealed\)/);
   assert.equal(adoptionParts(en, closed.tallySplit), '1 AI ballot(s) + the presenter’s ballot');
   assert.deepEqual(pivotal({ council: closed, wallet: page.signer.wallet, humanSeatHere: true, mine: { option: 1, origin: 0 } }), { state: 'yes', why: 'human' }, 'the page says the ballot was pivotal');
   assert.match(text, /Was your ballot pivotal\?.*Yes/);
@@ -295,19 +295,19 @@ test('the live seat prints where the council stands: open, BALLOT WINDOW, closed
   assert.ok(w.lines.every((l) => /^\[12:00:00\] /.test(l) || /live seat \(run harness\)/.test(l)), 'every seat line has a time stamp (the finaliser\'s own lines carry the label)');
   const t = w.lines.join('\n');
   assert.match(t, /live seat: the presenter casts the ballot on the council page \(origin 0\); this process casts no ballot/);
-  assert.match(t, /seat \(live\): period 1: motions from about \d\d:\d\d \(bell 24\); BALLOT WINDOW about \d\d:\d\d to \d\d:\d\d \(bells 27 to 29\)/);
-  assert.match(t, /seat \(live\): period 2: motions from about \d\d:\d\d \(bell 48\); BALLOT WINDOW about \d\d:\d\d to \d\d:\d\d \(bells 51 to 53\); strike about \d\d:\d\d \(bell 60\); the order opens about \d\d:\d\d \(bell 62\)/);
-  assert.match(t, /council of nation 0, period 2: OPEN at bell 4[89]\. Motions until the end of bell 50; BALLOT WINDOW bells 51 to 53 \(about \d\d:\d\d to \d\d:\d\d; closes at bell 54\); \d option\(s\)/);
-  assert.match(t, /council of nation 0, period 2: BALLOT WINDOW OPEN at bell 51: the presenter votes on the council page now \(last bell to vote: 53\)/);
+  assert.match(t, /seat \(live\): period 1: motions from about \d\d:\d\d \(turn 24\); BALLOT WINDOW about \d\d:\d\d to \d\d:\d\d \(turns 27 to 29\)/);
+  assert.match(t, /seat \(live\): period 2: motions from about \d\d:\d\d \(turn 48\); BALLOT WINDOW about \d\d:\d\d to \d\d:\d\d \(turns 51 to 53\); strike about \d\d:\d\d \(turn 60\); the order opens about \d\d:\d\d \(turn 62\)/);
+  assert.match(t, /council of nation 0, period 2: OPEN at turn 4[89]\. Motions until the end of turn 50; BALLOT WINDOW turns 51 to 53 \(about \d\d:\d\d to \d\d:\d\d; closes at turn 54\); \d option\(s\)/);
+  assert.match(t, /council of nation 0, period 2: BALLOT WINDOW OPEN at turn 51: the presenter votes on the council page now \(last turn to vote: 53\)/);
   assert.match(t, /council of nation 0, period 2: CLOSED, no Strike Order \(quorum\)/);
   assert.doesNotMatch(t, /WARNING/, 'the village was final in time: no warning');
-  assert.match(t, /live seat \(run harness\): finalising its village : a Build of walls touches its holding at bell 30 \(no vote, no troops\)/);
+  assert.match(t, /live seat \(run harness\): finalising its village : a Build of walls touches its holding at turn 30 \(no vote, no troops\)/);
   assert.doesNotMatch(t, /scripted seat: finalising/);
   // the warning: a seat whose finaliser could not finalise by the opening
   const w2 = world();
   const stuck = w2.finaliser({ readSeat: async () => ({ holding: { state: 1 }, due: false, stone: 320 }) });
   await w2.live({ finaliser: stuck, shouldStop: () => w2.clock.bell() >= C0 + 2 });
-  assert.match(w2.lines.join('\n'), /council of nation 0, period 2: OPEN at bell 4\d\..*WARNING: the seat's village is not final \(waiting_final_due\); the presenter would be refused NotEligible in this period/);
+  assert.match(w2.lines.join('\n'), /council of nation 0, period 2: OPEN at turn 4\d\..*WARNING: the seat's village is not final \(waiting_final_due\); the presenter would be refused NotEligible in this period/);
   w.dir.dispose(); w2.dir.dispose();
 });
 
@@ -315,8 +315,8 @@ test('the live seat warns when it has NO finaliser (it could not start, or --fin
   const w = world();
   await w.live({ finaliser: null, shouldStop: () => w.clock.bell() >= C0 + 4 });
   const t = w.lines.join('\n');
-  assert.match(t, /council of nation 0, period 2: OPEN at bell 4[89]\..*WARNING: the seat's village is not being finalised \(the finaliser is not running\); the presenter would be refused NotEligible in this period/);
-  assert.match(t, /council of nation 0, period 2: BALLOT WINDOW OPEN at bell 51: .*ballots cast so far: \d+\. WARNING: the seat's village is not being finalised/);
+  assert.match(t, /council of nation 0, period 2: OPEN at turn 4[89]\..*WARNING: the seat's village is not being finalised \(the finaliser is not running\); the presenter would be refused NotEligible in this period/);
+  assert.match(t, /council of nation 0, period 2: BALLOT WINDOW OPEN at turn 51: .*ballots cast so far: \d+\. WARNING: the seat's village is not being finalised/);
   w.dir.dispose();
 });
 
@@ -341,7 +341,7 @@ test('the live loop ends on the stop file, an end bell or a signal flag and wait
   assert.match(log.notes.at(-1), /stop file or signal/);
   const w2 = world();
   const log2 = await w2.live({ finaliser: null, endBell: 30, shouldStop: () => false });
-  assert.match(log2.notes.at(-1), /reached the end bell 30/);
+  assert.match(log2.notes.at(-1), /reached the end turn 30/);
   w.dir.dispose(); w2.dir.dispose();
 });
 
@@ -372,7 +372,7 @@ test('councilSchedule and scheduleLines: C0 = k * period + offset, motions [C0, 
   assert.equal(seat.bellMsOf({ time: { bell_secs: 600, scale: 10 } }), 60_000);
   const L = seat.scheduleLines({ bell: 40, nowMs: Date.UTC(2026, 9, 5, 3, 0, 0), config: { council: { period: 24, offset: 0, strike_lead: 6 }, time: { bell_secs: 600, scale: 10 } }, periods: 2, clock: (ms) => new Date(ms).toISOString().slice(11, 19) });
   assert.equal(L.length, 2);
-  assert.match(L[0], /^period 2: motions from about 03:08 \(bell 48\); BALLOT WINDOW about 03:11 to 03:14 \(bells 51 to 53\); strike about 03:20 \(bell 60\); the order opens about 03:22 \(bell 62\)$/);
+  assert.match(L[0], /^period 2: motions from about 03:08 \(turn 48\); BALLOT WINDOW about 03:11 to 03:14 \(turns 51 to 53\); strike about 03:20 \(turn 60\); the order opens about 03:22 \(turn 62\)$/);
   assert.match(L[1], /^period 3: motions from about 03:32 /);
 });
 
@@ -389,7 +389,7 @@ test('the run report reads the live seat\'s log and says "Live seat" (not "Scrip
   assert.equal(sec.seat_finalise.final, true);
   assert.equal(sec.seat_finalise.live, true);
   const md = renderMarkdown(buildReport({ aiDir: dir }));
-  assert.match(md, /Live seat \(run harness; the presenter votes on the page\), finalising its village: status final, final true, attempts 1, final seen at bell 35/);
+  assert.match(md, /Live seat \(run harness; the presenter votes on the page\), finalising its village: status final, final true, attempts 1, final seen at turn 35/);
   assert.doesNotMatch(md, /Scripted seat, finalising/);
 });
 
@@ -402,8 +402,8 @@ test('record-info: the page and map addresses, the presenter key and how to copy
   assert.match(t, /map\s+http:\/\/127\.0\.0\.1:41902\/frontier\/frontier\/spectate\.html\?art=1/);
   assert.match(t, /presenter key\s+\/x\/keys\/presenter-key\.json/);
   assert.match(t, /pbcopy < \/x\/keys\/presenter-key\.json/);
-  assert.match(t, /1 bell = 1 real minute\(s\) at 10x/);
-  assert.match(t, /period 2: C0 bell 48 \(\+48 min\); motions bells 48-50; BALLOT WINDOW bells 51-53 \(bell 51 \(\+51 min\) to bell 54 \(\+54 min\)\); strike bell 60 \(\+60 min\); the order opens bell 62 \(\+62 min\)/);
+  assert.match(t, /1 turn = 1 real minute\(s\) at 10x/);
+  assert.match(t, /period 2: C0 turn 48 \(\+48 min\); motions turns 48-50; BALLOT WINDOW turns 51-53 \(turn 51 \(\+51 min\) to turn 54 \(\+54 min\)\); strike turn 60 \(\+60 min\); the order opens turn 62 \(\+62 min\)/);
   assert.match(t, /do not start the scripted seat/);
   assert.match(t, /touch \/x\/state\/hold\.stop/);
   assert.match(t, /at most 7200 s/);

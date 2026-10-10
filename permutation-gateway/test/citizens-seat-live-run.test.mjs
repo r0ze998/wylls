@@ -198,8 +198,8 @@ test('record-info (process): prints the info block from the real ab.json (period
   assert.match(full.stdout, /=== RECORDING RUN \(live seat\), run ai-record-1 ===/);
   assert.match(full.stdout, /council page {3}http:\/\/127\.0\.0\.1:41902\/council\.html\?recorded=2026-10-11/);
   assert.match(full.stdout, /pbcopy < \/k\/keys\/presenter-key\.json/);
-  assert.match(full.stdout, /period 1: C0 bell 24 \(\+24 min\)/);
-  assert.match(full.stdout, /period 2: C0 bell 48 \(\+48 min\); motions bells 48-50; BALLOT WINDOW bells 51-53 .*strike bell 60 \(\+60 min\); the order opens bell 62 \(\+62 min\)/);
+  assert.match(full.stdout, /period 1: C0 turn 24 \(\+24 min\)/);
+  assert.match(full.stdout, /period 2: C0 turn 48 \(\+48 min\); motions turns 48-50; BALLOT WINDOW turns 51-53 .*strike turn 60 \(\+60 min\); the order opens turn 62 \(\+62 min\)/);
   assert.match(full.stdout, /do not start the scripted seat/);
   assert.match(full.stdout, /touch \/k\/state\/hold\.stop/);
   assert.doesNotMatch(full.stdout, /session_keypair|wallet_keypair/);
