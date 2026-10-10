@@ -535,3 +535,154 @@ async fn cq_a_persona_declares_and_the_report_judges_its_refusal() {
     assert_eq!(row["results"]["declare_siege:Heartland"], 1);
     assert_eq!(row["bots"], 1);
 }
+
+// ------------------------------------------------------------ PlaceHome
+
+/// A newcomer of `faction` (agent `VICTIM + 1`): a Citizen that joined and
+/// has no holding, no ticket and no home grant (`flags` as given).
+fn newcomer_files(
+    f: &CqFixture,
+    seed: u64,
+    faction: u8,
+    flags: u8,
+) -> (BTreeMap<String, Vec<u8>>, AgentSpec) {
+    let mut files = herald_files(f, seed, f.roles.home);
+    let index = cqfixture::VICTIM + 1;
+    let key = wallet(seed, index);
+    let addrs =
+        fclient::addr::Addresses::new(frontier_agents::fixture::program(), cqfixture::SEASON_ID);
+    let mut c = f.epoch.wallets[0].citizen.clone().unwrap();
+    c[C2::WALLET..C2::WALLET + 32].copy_from_slice(key.as_ref());
+    c[C2::FACTION] = faction;
+    c[C2::FLAGS] = flags;
+    c[C2::HOLDINGS_N] = 0;
+    c[C2::JOIN_SHARD] = 5;
+    c[C2::SLOTS] = 0;
+    c[C2::HOLDING..C2::HOLDING + 18].fill(0);
+    c[C2::TICKET_BELL..C2::TICKET_BELL + 4].copy_from_slice(&C2::NO_TICKET.to_le_bytes());
+    let me = json!({
+        "v": 1, "wallet": key.to_string(),
+        "citizen": {"address": addrs.citizen(&key).to_string(), "bytes_b64": b64_encode(&c)},
+        "holdings": [], "slots": [],
+        "quota": {"left": 38, "resetsAt": GENESIS_TS + 86_400},
+    });
+    files.insert(format!("h/me/{key}.json"), serde_json::to_vec(&me).unwrap());
+    let spec = AgentSpec {
+        index,
+        arch: Arch::Bot,
+        faction,
+        join_day: 0,
+        join_bell: 0,
+        persona: None,
+    };
+    (files, spec)
+}
+
+/// The sites PlaceHome may name for `faction` in the fixture, by the
+/// program's rule (ring 2..=heartland_max_ring, below the rings opened, the
+/// own wedge, no live cohort, a FREE or RELEASED_FREE site).
+fn legal_homes(f: &CqFixture, faction: u8) -> Vec<(i16, i16, u8)> {
+    let hmr = frontier_abi::v2::presets::FRONTIER_7.heartland_max_ring as u16;
+    f.epoch
+        .provinces
+        .values()
+        .flat_map(|b| {
+            let pv = fclient::decode::Province::decode(b).unwrap();
+            frontier_bots::home::home_sites(
+                &pv,
+                faction,
+                BELL,
+                cqfixture::RINGS as u16 + 1,
+                Some(hmr),
+            )
+        })
+        .map(|s| (s.p, s.q, s.site))
+        .collect()
+}
+
+async fn step_newcomer(faction: u8, flags: u8, conquest: bool) -> Vec<(u8, usize, Vec<u8>)> {
+    let f = fixture();
+    let (files, spec) = newcomer_files(&f, SEED, faction, flags);
+    let sh = Shared::new(
+        MapHerald {
+            files,
+            asked: Mutex::new(vec![]),
+        },
+        MockRelay::new(),
+        None::<NoDirect>,
+        Config::new(SEED),
+        ClockSource::fixed(cqfixture::ts(BELL) + 200),
+    );
+    let r = vec![spec];
+    let sh = if conquest {
+        sh.with_conquest(Conquest::new(SEED, &r, CqConfig { personas_per: 0 }))
+    } else {
+        sh
+    };
+    let mut fleet = Fleet::new(sh, &r);
+    fleet.step_all(false, 1).await;
+    let seen = fleet.shared.relay.seen.lock().unwrap();
+    seen.sends.clone()
+}
+
+/// `--conquest`: a joined citizen with no holding sends PlaceHome (0x38,
+/// the v2 table's nine accounts) at a site the program's rule allows in
+/// its own wedge, and no FileTicket.
+#[tokio::test]
+async fn cq_a_newcomer_places_its_home_instead_of_filing_a_ticket() {
+    let f = fixture();
+    let faction = (0..6u8)
+        .find(|&x| !legal_homes(&f, x).is_empty())
+        .expect("a nation with a free heartland site in the fixture");
+    let legal = legal_homes(&f, faction);
+    let sends = step_newcomer(faction, C2::FLAG_JOINED, true).await;
+    let tags: Vec<u8> = sends.iter().map(|s| s.0).collect();
+    assert_eq!(
+        tags,
+        vec![fclient::abi::tag::PLACE_HOME],
+        "one PlaceHome, no FileTicket (0x33)"
+    );
+    let (_, n_accounts, data) = &sends[0];
+    let groups = accounts_of(V2::PlaceHome);
+    let want: usize = groups.iter().map(|g| g.specs.len() * g.min as usize).sum();
+    assert_eq!((*n_accounts, want), (9, 9));
+    assert_eq!(data.len(), 6);
+    let site = (
+        i16::from_le_bytes([data[1], data[2]]),
+        i16::from_le_bytes([data[3], data[4]]),
+        data[5],
+    );
+    assert!(legal.contains(&site), "{site:?} not in {legal:?}");
+    let pc = permutation_rules::frontier::geometry::ProvinceCoord::new(site.0 as i32, site.1 as i32);
+    assert_eq!(pc.wedge(), Some(faction));
+    assert!(pc.ring() >= 2);
+    // The innermost legal ring first (the browser's `planHomes` order).
+    let ring_of = |s: &(i16, i16, u8)| {
+        permutation_rules::frontier::geometry::ProvinceCoord::new(s.0 as i32, s.1 as i32).ring()
+    };
+    assert_eq!(pc.ring(), legal.iter().map(ring_of).min().unwrap());
+}
+
+/// A citizen whose home was granted once (`HOME_GRANTED` is never cleared)
+/// sends nothing: the program would refuse `AlreadyDone`.
+#[tokio::test]
+async fn cq_a_citizen_with_a_granted_home_does_not_place_again() {
+    let f = fixture();
+    let faction = (0..6u8)
+        .find(|&x| !legal_homes(&f, x).is_empty())
+        .unwrap();
+    let sends = step_newcomer(faction, C2::FLAG_JOINED | C2::FLAG_HOME_GRANTED, true).await;
+    assert!(sends.is_empty(), "{sends:?}");
+}
+
+/// Without `--conquest` the same citizen files the M1 ticket (0x33).
+#[tokio::test]
+async fn m1_newcomer_still_files_a_ticket() {
+    let f = fixture();
+    let faction = (0..6u8)
+        .find(|&x| !legal_homes(&f, x).is_empty())
+        .unwrap();
+    let sends = step_newcomer(faction, C2::FLAG_JOINED, false).await;
+    let tags: Vec<u8> = sends.iter().map(|s| s.0).collect();
+    assert_eq!(tags, vec![fclient::abi::tag::FILE_TICKET]);
+}

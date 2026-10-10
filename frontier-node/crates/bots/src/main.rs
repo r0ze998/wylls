@@ -63,6 +63,10 @@ struct Args {
     // AI hook end
     conquest: bool,
     conquest_personas: Option<u32>,
+    /// `--join-by-bell N`: every roster bot joins before bell N (its dealt
+    /// join bell modulo N), for a short world where a join spread over a
+    /// whole game day would leave most bots outside the play window.
+    join_by_bell: Option<u32>,
     bot_share: Option<f64>,
 }
 
@@ -91,7 +95,7 @@ fn mix_of(a: &Args) -> Mix {
 const CONQUEST_BOT_SHARE: f64 = 0.99;
 
 fn usage(e: &str) -> ! {
-    eprintln!("frontier-bots: {e}\nusage: frontier-bots --herald URL --relay URL [--rpc URL] [--seed N] [--bots N] [--first-index N] [--days N] [--personas default|off|N] [--journal DIR] [--report FILE] [--invites FILE] [--game-hours H] [--scale S] [--control 127.0.0.1:PORT] [--day0-share F] [--eager-personas] [--conquest] [--conquest-personas N] [--bot-share F]");
+    eprintln!("frontier-bots: {e}\nusage: frontier-bots --herald URL --relay URL [--rpc URL] [--seed N] [--bots N] [--first-index N] [--days N] [--personas default|off|N] [--journal DIR] [--report FILE] [--invites FILE] [--game-hours H] [--scale S] [--control 127.0.0.1:PORT] [--day0-share F] [--eager-personas] [--conquest] [--conquest-personas N] [--bot-share F] [--join-by-bell N]");
     std::process::exit(2);
 }
 
@@ -122,6 +126,7 @@ fn parse_from(args: impl Iterator<Item = String>) -> Args {
         // AI hook end
         conquest: false,
         conquest_personas: None,
+        join_by_bell: None,
         bot_share: None,
     };
     let mut it = args;
@@ -184,6 +189,14 @@ fn parse_from(args: impl Iterator<Item = String>) -> Args {
             "--export-seat-key" => a.ai.export_seat_key = Some(v().into()),
             // AI hook end
             "--conquest" => a.conquest = true,
+            "--join-by-bell" => {
+                a.join_by_bell = Some(
+                    v().parse()
+                        .ok()
+                        .filter(|n: &u32| *n > 0)
+                        .unwrap_or_else(|| usage("--join-by-bell: a number of bells, at least 1")),
+                )
+            }
             "--conquest-personas" => {
                 a.conquest_personas = Some(
                     v().parse()
@@ -341,6 +354,12 @@ async fn go<D: frontier_bots::ports::DirectPort + 'static>(a: Args, direct: Opti
         r = roster(a.bots, a.seed, &mix.clone().with_join_close(close));
         for s in &mut r {
             s.index += a.first_index;
+        }
+    }
+    if let Some(n) = a.join_by_bell {
+        for s in &mut r {
+            s.join_bell %= n;
+            s.join_day = s.join_bell / 144;
         }
     }
     let end =
