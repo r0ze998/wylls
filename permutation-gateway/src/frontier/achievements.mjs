@@ -26,8 +26,12 @@ export const KEEP_TAKEN = 9;
 export const KEEP_SITE = 0xfe;
 /** Province entry state of a host standing in the roster. */
 export const ENTRY_ROSTER = 1;
-/** TRANSIT_SETTLED outcome "Stays". */
-export const OUTCOME_STAYS = 0;
+/** A Province entry's troops are thousandths of a troop. */
+export const MILLI = 1000;
+/** The occupied entries of a decoded Province (its 56 slots are not packed). */
+export const entriesOf = province => province.ENTRIES.filter(e => BigInt(e.ID) !== 0n);
+/** TRANSIT_SETTLED outcome "Stays" (frontier-abi log.rs `transit_outcome::STAYS`). */
+export const OUTCOME_STAYS = 1;
 
 /** What each kind rests on, and what is missing where a kind cannot be derived. */
 export const KINDS = Object.freeze({
@@ -145,13 +149,14 @@ export class Deriver {
     const [p, q] = [Number(province.P), Number(province.Q)];
     const keep = province.KEEP[0];
     const out = [];
-    for (const e of province.ENTRIES.slice(0, Number(province.N_ENTRIES))) {
-      if (Number(e.STATE) !== ENTRY_ROSTER || Number(e.TILE) !== Number(keep.TILE) || Number(e.FACTION) !== Number(keep.HOLDER) || Number(e.TROOPS) === 0 || Number(e.PEND_OP) !== 0) continue;
+    for (const e of entriesOf(province)) {
+      const troops = Math.floor(Number(e.TROOPS) / MILLI);
+      if (Number(e.STATE) !== ENTRY_ROSTER || Number(e.TILE) !== Number(keep.TILE) || Number(e.FACTION) !== Number(keep.HOLDER) || troops === 0 || Number(e.PEND_OP) !== 0) continue;
       const owner = await this.ownerOfHost(e.ID);
       if (!owner) continue; // not a member's host (the nation's own guard)
       const arrival = await this.arrivalOf(e.ID);
-      out.push({ kind: 'reinforcement', wallet: owner.wallet, citizen: owner.citizen, nation: Number(keep.HOLDER), province: { p, q }, quantity: Number(e.TROOPS), unit: 'troops',
-        bell: arrival?.bell ?? Number(e.FROM_BELL), host: String(e.ID), detail: { keepHolder: Number(keep.HOLDER), supplierNation: owner.nation, account: provinceAddress },
+      out.push({ kind: 'reinforcement', wallet: owner.wallet, citizen: owner.citizen, nation: Number(keep.HOLDER), province: { p, q }, quantity: troops, unit: 'troops',
+        bell: arrival?.bell ?? Number(e.FROM_BELL), host: String(e.ID), detail: { keepHolder: Number(keep.HOLDER), supplierNation: owner.nation, milliTroops: Number(e.TROOPS), account: provinceAddress },
         signatures: arrival ? [arrival.signature] : [] });
     }
     return out;
@@ -194,9 +199,9 @@ export class Deriver {
         if (Number(keep.SINCE_BELL) > c.bell + 1) problems.push('the keep changed holder after the cited capture');
       }
     } else if (line.kind === 'reinforcement') {
-      const e = province.ENTRIES.slice(0, Number(province.N_ENTRIES)).find(x => String(x.ID) === line.host);
+      const e = entriesOf(province).find(x => String(x.ID) === line.host);
       if (!e || Number(e.STATE) !== ENTRY_ROSTER || Number(e.TILE) !== Number(keep.TILE)) problems.push('the host does not stand on the keep tile in the Province account');
-      else if (Number(e.TROOPS) !== line.quantity) problems.push(`the host has ${e.TROOPS} troops, not ${line.quantity}`);
+      else if (Math.floor(Number(e.TROOPS) / MILLI) !== line.quantity) problems.push(`the host has ${Math.floor(Number(e.TROOPS) / MILLI)} troops, not ${line.quantity}`);
       if (owner && Number(keep.HOLDER) !== line.nation) problems.push('the keep is not the nation\'s');
       for (const sig of line.signatures) {
         const tx = await this.transaction(sig);

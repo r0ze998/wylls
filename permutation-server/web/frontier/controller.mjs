@@ -89,14 +89,6 @@ export async function refreshPrize({ force = false, at = Date.now() } = {}) {
   invalidate('panel');
 }
 
-const PRIZE_FAILURES = {
-  InsufficientFunds: () => L`テストUSDCが足りません。「テストUSDCを受け取る」を押してからもう一度お試しください。`,
-  AlreadyPaid: () => L`このウォレットは参加費を支払い済みです。`,
-  EntriesClosed: () => L`この季節の参加費の受付は終わりました。`,
-  X402TooExpensive: () => L`参加費が表示と違うため、支払いを止めました。`,
-  X402Mismatch: () => L`支払い先がこの季節のものと一致しないため、支払いを止めました。`,
-};
-
 /** The paid Join of a season with a pool: test tokens from the faucet if the wallet is short, then Pay and Join in one signed transaction (x402). */
 async function paidJoin(s, { onSent, onLost } = {}) {
   const w = wallet.connected();
@@ -114,7 +106,7 @@ async function paidJoin(s, { onSent, onLost } = {}) {
     }
     const funded = FS.prize.wallet?.balance ?? before;
     const r = await prizeIo.payAndJoin({ wallet: w, faction: FS.joinDraft.faction, session: s, sessionExpiry: BigInt(Math.floor(now()) + SESSION_DAYS - 600), maxFee: fee });
-    if (!r.ok) return failed({ ...r, text: PRIZE_FAILURES[r.code] ?? null });
+    if (!r.ok) return failed(r);
     onSent?.(r);
     const t = await tx.track(r.signature);
     if (!t.ok && (t.state === 'failed' || t.state === 'expired')) onLost?.(t);

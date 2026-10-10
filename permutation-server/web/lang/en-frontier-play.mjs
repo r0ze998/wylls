@@ -729,4 +729,13 @@ export default {
   'テストUSDCを受け取っています…': 'Getting test USDC…',
   'テストUSDCは受け取り済みです': 'Test USDC was already received',
   'テストUSDCを受け取りました': 'Test USDC received',
+  'この季節に賞金プールはありません': 'This season has no prize pool',
+  '賞金プールをまだ読めません': 'The prize pool cannot be read yet',
+  '支払いの取引がチェーンで失敗しました': 'The payment transaction failed on chain',
+  '取引は送られましたが、結果がまだ確認できません': 'The transaction was sent, but its result is not confirmed yet',
+  'テストUSDCの配布はローカルのテスト用チェーンだけです': 'Test USDC is handed out on the local test chain only',
+  'テストUSDCを送っているところです': 'Test USDC is on its way',
+  '支払いの取引がこの季節の参加費の形と一致しません': 'The payment transaction is not this season\'s entry payment',
+  '参加には参加費（テストUSDC）の支払いが必要です': 'Joining needs the entry fee (test USDC)',
+  'この賞金は受け取り済みです': 'This prize was already claimed',
 };

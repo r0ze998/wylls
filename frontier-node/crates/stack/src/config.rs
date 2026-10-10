@@ -1000,6 +1000,27 @@ pub fn split_flags(args: &[String]) -> Result<Vec<(String, Option<String>)>, Str
 mod tests {
     use super::*;
 
+    /// The prize pool is an option of a conquest world without bots: its
+    /// fee defaults to the owner's 25 test USDC and stays a parameter.
+    #[test]
+    fn prize_flags() {
+        let mut c = StackConfig::default();
+        assert!(c.prize_so.is_none() && c.to_json()["prize"].is_null());
+        let f = split_flags(
+            &["--prize-so", "permutation-prize/target/deploy/permutation_prize.so", "--conquest", "--bots", "0"]
+                .map(String::from),
+        )
+        .unwrap();
+        apply_flags(&mut c, &f).unwrap();
+        assert_eq!((c.entry_fee, c.prize_ops_bps, c.prize_keeps), (25_000_000, 2_000, 54));
+        assert_eq!(c.to_json()["prize"]["entry_fee"], 25_000_000);
+        let f = split_flags(&["--entry-fee", "10000000"].map(String::from)).unwrap();
+        apply_flags(&mut c, &f).unwrap();
+        assert_eq!(c.entry_fee, 10_000_000);
+        let t = StackConfig::from_toml("conquest = true\nbots = 0\nprize_so = \"x.so\"\nentry_fee = 7\n").unwrap();
+        assert_eq!((t.prize_so.is_some(), t.entry_fee), (true, 7));
+    }
+
     #[test]
     fn defaults_are_the_gate_w5_smoke() {
         let c = StackConfig::default();
