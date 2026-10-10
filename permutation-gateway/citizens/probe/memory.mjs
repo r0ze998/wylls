@@ -23,9 +23,13 @@
 //   node citizens/probe/memory.mjs --requests DIR [--records STATE/records.jsonl] [--ids a,b] [--max-calls 20]
 //        [--llm http://127.0.0.1:41901] [--tokenize] [--dry] [--out FILE]
 //   node citizens/probe/memory.mjs --requests DIR --decision <record id> [--only M4] [--records ...] --llm URL   (b2)
+//   node citizens/probe/memory.mjs --requests DIR --records STATE/records.jsonl --episodes PUB/memory --decision <record id>
+//        --target entity:nation:2 --llm URL --out-dir NEW_DIR [--open PUB/open] [--tokenize] [--dry]   (target.mjs: with / without
+//        the Remembered lines of one source, control, with again; every request body and raw response kept)
 //
 // `--dry` builds every variant, checks them, counts the calls a live run would need and calls nothing.
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -487,7 +491,93 @@ function args(argv) {
   }
   return o;
 }
-if (isMain()) {
+/**
+ * The targeted comparison of one decision (target.mjs): --decision ID --target SELECTOR --episodes PUB/memory --out-dir DIR
+ * [--open PUB/open]. The output directory must be new; attempt.json is written before the first model call; each of the four
+ * variants is asked once and its request body and raw response are kept.
+ */
+async function targetMain(a) {
+  const T = await import('./target.mjs');
+  const fail = (m) => { console.error(m); process.exit(2); };
+  for (const k of ['decision', 'records', 'episodes', 'out-dir']) if (!a[k]) fail(`probe: --${k} is required with --target`);
+  const selectors = T.parseTarget(a.target);
+  const found = loadRequests(a.requests, [a.decision]);
+  if (found.length !== 1) fail(`probe: ${found.length} stored requests match decision ${a.decision} (exactly one is needed)`);
+  const rq = found[0];
+  const record = loadRecords(a.records).get(rq.id);
+  if (!record) fail(`probe: no record for decision ${rq.id}`);
+  const dry = Boolean(a.dry) || !a.llm;
+  let count = approxCount;
+  let tokenCounter = 'approximate (1 token per 3 characters)';
+  let alias = null;
+  if (a.llm) {
+    assertLlamaUrl(a.llm);
+    const llm = createLlm({ url: a.llm });
+    if (!dry) alias = (await llm.props())?.model_alias ?? null;
+    if (a.tokenize) {
+      count = async (t) => (await llm.countTokens(t)) ?? approxCount(t);
+      tokenCounter = 'llama-server /tokenize';
+    }
+  }
+  const plan = await T.planTarget({ id: rq.id, text: rq.text, record, episodes: T.loadEpisodes(a.episodes, record.ai), target: selectors, count, tokenCounter, tx: T.loadTx(a.records, rq.id), opened: T.loadOpened(a.open, rq.id), alias });
+  const dir = T.createOutDir(a['out-dir']);
+  const git = (...argv) => { try { return execFileSync('git', argv, { cwd: HERE, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return null; } };
+  const sources = ['memory.mjs', 'target.mjs'];
+  T.writeJson(path.join(dir, 'attempt.json'), {
+    v: 1, kind: 'memory-probe-attempt', utc: new Date().toISOString(), argv: process.argv.slice(1), cwd: process.cwd(), dry_run: dry,
+    record: rq.id, target: T.targetText(selectors), order: plan.comparison.order,
+    tool_git_commit: git('rev-parse', 'HEAD'), tool_source_differs_from_commit: (git('status', '--porcelain', '--', ...sources) ?? '') !== '',
+    probe_source_sha256: Object.fromEntries(sources.map((f) => [f, sha256(fs.readFileSync(path.join(HERE, f), 'utf8'))])),
+    earlier_attempts_beside_this_one: T.siblingAttempts(dir, rq.id),
+    rule: 'each variant is asked once; this directory is never overwritten; the outcome is reported as it is',
+  });
+  for (const v of plan.variants) T.writeText(path.join(dir, `${v.name}.request.json`), v.text);
+  let comparison = plan.comparison;
+  if (!dry) {
+    const answers = {};
+    for (const v of plan.variants) {
+      const r = await completeRaw(a.llm, v.text, 180000);
+      T.writeText(path.join(dir, `${v.name}.response.json`), r.raw ?? JSON.stringify({ error: r.error, detail: r.detail ?? null }) + '\n');
+      answers[v.name] = { ...r, raw_sha256: r.raw != null ? sha256(r.raw) : null };
+    }
+    comparison = T.finishTarget(plan, answers);
+  }
+  T.writeJson(path.join(dir, 'comparison.json'), comparison);
+  T.writeText(path.join(dir, 'comparison.md'), T.renderMarkdown(comparison));
+  console.log(JSON.stringify({ out_dir: dir, dry_run: comparison.dry_run, order: comparison.order, removed: comparison.removed.remembered_lines.length + comparison.removed.situation_lines.length, leak: comparison.leak.length, changed_vs_with: comparison.changed_vs_with, wording: comparison.wording }, null, 2));
+}
+/** POST the body text as it is (no re-serialising) and keep the raw response text. Loopback only: the caller checked the URL. */
+async function completeRaw(url, text, deadlineMs) {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), deadlineMs);
+  const t0 = Date.now();
+  const out = { raw: null, content: null, finish_reason: null, usage: null, error: null };
+  try {
+    const r = await fetch(String(url).replace(/\/+$/, '') + '/v1/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: text, signal: ac.signal });
+    out.status = r.status;
+    out.raw = await r.text();
+    if (!r.ok) out.error = 'http';
+    else {
+      const j = JSON.parse(out.raw);
+      const ch = j.choices?.[0];
+      if (!ch) out.error = 'parse';
+      out.content = ch?.message?.content ?? '';
+      out.finish_reason = ch?.finish_reason ?? null;
+      out.usage = j.usage ?? null;
+    }
+  } catch (e) {
+    out.error = out.error ?? (ac.signal.aborted ? 'timeout' : out.raw != null ? 'parse' : 'net');
+    out.detail = String(e?.message ?? e).slice(0, 120);
+  } finally {
+    clearTimeout(timer);
+    out.latency_ms = Date.now() - t0;
+  }
+  return out;
+}
+// the targeted mode is not awaited at the top level: target.mjs imports this module, which must finish evaluating first
+if (isMain() && args(process.argv.slice(2)).target) {
+  targetMain(args(process.argv.slice(2))).then(() => process.exit(0), (e) => { console.error(String(e?.message ?? e)); process.exit(1); });
+} else if (isMain()) {
   const a = args(process.argv.slice(2));
   if (!a.requests) { console.error('probe: --requests DIR is required'); process.exit(2); }
   const ids = a.ids ? a.ids.split(',').filter(Boolean) : null;
