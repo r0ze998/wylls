@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "status": "PROVISIONAL: every value here is undecided by the owner and may change; the pool's params_hash is the sha256 of this file",
+  "testAssetsOnly": true,
+  "winner": {
+    "by": "area",
+    "area": "number of provinces whose keep the nation holds when the season has ended (Province.keep.holder on chain)",
+    "tieBreak": ["territoryBells", "equalSplitBetweenTiedNations"]
+  },
+  "eligibility": {
+    "paidEntry": true,
+    "operatorAiCitizens": false
+  },
+  "contribution": {
+    "capture": {
+      "enabled": true,
+      "points": 10,
+      "rule": "for each province the winning nation holds at the end whose keep was captured during the season: the owner of the host that garrisoned it at its LAST capture"
+    },
+    "support": {
+      "enabled": false,
+      "pointsPer100Troops": 1,
+      "maxPerProvince": 10,
+      "disabledBecause": "the game has no reinforcement of a keep garrison: keep troops come from the one donor host of the capture and never regrow, so there is nothing to attribute beyond the capture itself"
+    },
+    "defence": {
+      "enabled": false,
+      "pointsPerProvincePerDay": 2,
+      "disabledBecause": "the chain's record of a repelled contest (CONQUEST event KEEP_BROKEN) names nations only, and the herald's contest list carries no transaction signature; no line could cite the transaction it derives from"
+    }
+  },
+  "fallbacks": {
+    "allZeroContributions": "equalSplitAmongTheWinningNationsPaidMembers",
+    "noEligibleMemberInWinningNation": "proRataRefundOfThePrizeToAllPayers"
+  }
+}

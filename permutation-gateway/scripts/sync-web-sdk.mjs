@@ -53,7 +53,7 @@ const V1_GENERATED = {
 export const FRONTIER_GENERATED = Object.freeze({ ...V1_GENERATED, ...Object.fromEntries(Object.entries(V1_GENERATED).map(([name, row]) => [name.replace('abi-', 'abi-v2-'), { ...row, from: `v2/${row.from}` }])) });
 
 /** The hand-written Frontier SDK modules (client/src/frontier), in dependency order. */
-export const FRONTIER_MODULES = Object.freeze(['profile.mjs', 'budgets.mjs', 'fees.mjs', 'codec.mjs', 'addresses.mjs', 'seal.mjs', 'shapes.mjs', 'herald.mjs']);
+export const FRONTIER_MODULES = Object.freeze(['profile.mjs', 'budgets.mjs', 'fees.mjs', 'codec.mjs', 'addresses.mjs', 'seal.mjs', 'shapes.mjs', 'herald.mjs', 'prize.mjs']);
 /** Everything web/sdk/frontier holds. */
 export const WEB_SDK_FRONTIER = Object.freeze([...Object.keys(FRONTIER_GENERATED), ...FRONTIER_MODULES]);
 

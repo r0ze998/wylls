@@ -906,6 +906,10 @@ mod tests {
         let a = leaf(&p, &[1; 32], 2, 10);
         let b = leaf(&p, &[2; 32], 2, 3);
         assert_eq!(node(&a, &b), node(&b, &a));
+        // The vectors the JS SDK pins (permutation-gateway/test/frontier-prize.test.mjs).
+        let hex = |h: [u8; 32]| h.iter().map(|x| format!("{x:02x}")).collect::<String>();
+        assert_eq!(hex(a), "ae1f8f256f5c65762ac65c7a2bf12f69d6e7e4fdc870d74fd0da943da34c6e64");
+        assert_eq!(hex(node(&a, &b)), "fc71c2545a8a38c0bc74f5b24ab1d559fdfb6d0385fb5a594b4c9d78bc83c0e3");
         assert_ne!(a, leaf(&p, &[1; 32], 3, 10));
         assert_ne!(a, leaf(&p, &[1; 32], 2, 11));
     }

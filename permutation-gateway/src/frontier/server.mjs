@@ -13,6 +13,8 @@
 //        [--keeper http://127.0.0.1:41050 --keeper-token-file F]   the keeper link (/f/reveal, /f/nudge)
 //        [--pool-size 150 --master-seed-file F] the relay pool (pool_id "relay"; < 150 only with --dev)
 //        [--gate-key-file F]                    the join-gate keypair (playtest preset; invites)
+//        [--prize-program ID --prize-mint M]    the season's test-asset prize pool (x402 entry: routes/prize.mjs)
+//        [--faucet-key-file F --faucet-amount N] the test mint's authority: POST /f/faucet (localnet only)
 //        [--invite-secret-file F --state-file F --min-pool-sol 1 --dev]
 //   Every flag also as FRONTIER_* (config.mjs); the operator token from
 //   FRONTIER_OPERATOR_TOKEN or .local/frontier/operator-token.
@@ -43,9 +45,11 @@ export async function startFrontierRelay(cfg, { connection = new Connection(cfg.
   store.state ??= {};
   const pool = new PayerPool({ masterSeed: secretFile(cfg.masterSeedFile), n: cfg.poolSize, poolId: RELAY_POOL_ID, dev: cfg.dev, minLamports: cfg.minPayerLamports });
   const gateKey = cfg.gateKeyFile ? loadOrCreateKeypairSync(cfg.gateKeyFile) : null;
+  const faucetKey = cfg.prizeProgram && cfg.faucetKeyFile ? loadOrCreateKeypairSync(cfg.faucetKeyFile) : null;
+  cfg.prizeLedgerFile ??= cfg.prizeProgram ? path.join(path.dirname(cfg.stateFile), 'prize-ledger.json') : null;
   const invites = new InviteBook({ secret: secretFile(cfg.inviteSecretFile), seasonId: cfg.seasonId, store });
   const keeper = cfg.keeperUrl ? new KeeperLink({ url: cfg.keeperUrl, tokenFile: cfg.keeperTokenFile }) : null;
-  const apps = createFrontierApps({ cfg, connection, pool, keeper, invites, gateKey, store, log });
+  const apps = createFrontierApps({ cfg, connection, pool, keeper, invites, gateKey, faucetKey, store, log });
   const operator = http.createServer(apps.operator);
   const pub = cfg.publicPort ? http.createServer(apps.public) : null;
   const ports = { operator: await listen(operator, cfg.port, '127.0.0.1') };

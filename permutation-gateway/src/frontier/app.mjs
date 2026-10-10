@@ -19,6 +19,7 @@
 import { isIP } from 'node:net';
 import { toJson } from '../../client/src/bytes.mjs';
 import { FrontierAddresses } from '../../client/src/frontier/addresses.mjs';
+import { prizeAddresses } from '../../client/src/frontier/prize.mjs';
 import { addressBucket, FundsGuard, RateLimiter, ReplayCache } from '../guards.mjs';
 import { errorResponse, RouteError } from '../routes/errors.mjs';
 import { BlockhashBook } from '../send.mjs';
@@ -26,19 +27,21 @@ import { ChainView } from './chain.mjs';
 import { QuotaBook } from './quota.mjs';
 import { keeperRoutes } from './routes/keeper.mjs';
 import { operatorRoutes } from './routes/operator.mjs';
+import { prizeRoutes } from './routes/prize.mjs';
 import { relayRoutes } from './routes/relay.mjs';
 import { seasonRoutes } from './routes/season.mjs';
 
-export const FRONTIER_ROUTES = Object.freeze({ ...seasonRoutes, ...relayRoutes, ...keeperRoutes, ...operatorRoutes });
+export const FRONTIER_ROUTES = Object.freeze({ ...seasonRoutes, ...relayRoutes, ...keeperRoutes, ...operatorRoutes, ...prizeRoutes });
 
 /** What the public listener serves ('GET /f/tx/' is a prefix: /f/tx/{signature}). */
 export const FRONTIER_PUBLIC_ROUTES = Object.freeze([
   'GET /f/season', 'GET /f/relay', 'GET /f/quota', 'GET /f/tx/',
   'POST /f/relay', 'POST /f/join', 'POST /f/reveal', 'POST /f/nudge',
+  'GET /f/prize', 'GET /f/prize/ledger', 'POST /f/faucet', 'POST /f/x402/join', 'POST /f/prize/claim',
 ]);
 
 /** Routes that make the relay pool pay: paused (503 OperatorLowFunds) while the pool is below its minimum. */
-export const FRONTIER_FUNDED_ROUTES = Object.freeze(['POST /f/relay', 'POST /f/join']);
+export const FRONTIER_FUNDED_ROUTES = Object.freeze(['POST /f/relay', 'POST /f/join', 'POST /f/x402/join', 'POST /f/faucet', 'POST /f/prize/claim']);
 
 /** Per client address on the public listener (burst, then a steady rate; §8.3). */
 export const FRONTIER_IP_LIMITS = Object.freeze({
@@ -50,6 +53,11 @@ export const FRONTIER_IP_LIMITS = Object.freeze({
   'GET /f/season': { burst: 20, perSecond: 2 },
   'GET /f/quota': { burst: 20, perSecond: 2 },
   'GET /f/tx/': { burst: 40, perSecond: 4 },
+  'GET /f/prize': { burst: 20, perSecond: 2 },
+  'GET /f/prize/ledger': { burst: 10, perSecond: 1 },
+  'POST /f/faucet': { burst: 5, perSecond: 0.1 },
+  'POST /f/x402/join': { burst: 10, perSecond: 0.2 },
+  'POST /f/prize/claim': { burst: 5, perSecond: 0.2 },
 });
 
 export const FRONTIER_MAX_BODY_BYTES = 64 << 10;
@@ -102,13 +110,16 @@ function readJson(req, limit) {
  * @param {object} [o.keeper]    KeeperLink
  * @param {object} [o.invites]   InviteBook (gated seasons)
  * @param {object} [o.gateKey]   the join-gate Keypair (gated seasons)
+ * @param {object} [o.faucetKey] the test mint's authority (prize pool, localnet)
  * @param {object} [o.store]     `{state, save()}` for quotas and used invites
  */
-export function createFrontierContext({ cfg, connection, pool, keeper = null, invites = null, gateKey = null, store = { state: {}, save() {} }, now = Date.now,
+export function createFrontierContext({ cfg, connection, pool, keeper = null, invites = null, gateKey = null, faucetKey = null, store = { state: {}, save() {} }, now = Date.now,
   log = console.log, limiter, funds, blockhashes }) {
   const addresses = new FrontierAddresses({ programId: cfg.programId, seasonId: BigInt(cfg.seasonId) });
   return {
-    cfg, connection, pool, keeper, invites, gateKey, log, now, addresses,
+    cfg, connection, pool, keeper, invites, gateKey, faucetKey, store, log, now, addresses,
+    /** The season's prize pool `{program, pool, vault, mint}`, or null (no pool configured). */
+    prize: cfg.prizeProgram ? prizeAddresses({ prizeProgram: cfg.prizeProgram, gameProgram: addresses.programId, seasonId: BigInt(cfg.seasonId), mint: cfg.prizeMint }) : null,
     programId: addresses.programId,
     chain: new ChainView({ connection, addresses, now }),
     quota: new QuotaBook({ store }),
@@ -164,7 +175,7 @@ export function createFrontierHandler(ctx, { surface = 'operator', routes = FRON
       if (r.log) ctx.log(`${req.method} ${url.pathname}: ${e.message}`);
       out = r;
     }
-    const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...(pub ? { 'X-Content-Type-Options': 'nosniff' } : {}) };
+    const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...(pub ? { 'X-Content-Type-Options': 'nosniff' } : {}), ...(out.headers ?? {}) };
     res.writeHead(out.status ?? 200, headers);
     res.end(toJson(out.body));
   };

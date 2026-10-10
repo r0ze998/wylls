@@ -86,9 +86,10 @@ async function quotaFrame(ctx) {
  * The common sponsoring path of POST /f/relay and POST /f/join, from the
  * classified `shape` on: returns the answer body. `extraSigners`: relay
  * keys that sign besides the fee payer (the join gate); `onSent`: after the
- * send (consumes an invite).
+ * send (consumes an invite); `extraAllowance`: lamports the fee payer may
+ * move beyond the kind's own (a paid Join: the prize Entry's rent).
  */
-async function sponsor(ctx, req, { tx, wire, shape, requester = null, requesterCitizenAddr = null, extraSigners = [], limitKind = 'relay', lastValidBlockHeight, onSent }) {
+export async function sponsor(ctx, req, { tx, wire, shape, requester = null, requesterCitizenAddr = null, extraSigners = [], limitKind = 'relay', lastValidBlockHeight, onSent, extraAllowance = 0n }) {
   const { pool, connection, chain, quota, relayed, limiter, blockhashes } = ctx;
   checkRelayShape(shape, { pool, addresses: ctx.addresses });
   // Signature first: a forged transaction naming someone's key costs that key nothing.
@@ -109,7 +110,7 @@ async function sponsor(ctx, req, { tx, wire, shape, requester = null, requesterC
     if (signerKey) limiter.check(`f-${limitKind}:${signerKey}`, FRONTIER_SIGNER_LIMITS[limitKind], 'relays for this key');
     frame = await quotaFrame(ctx);
     const citizen = ['FileTicket','FileOutpost'].includes(shape.name) ? await chain.citizen(shape.accounts.citizen) : null;
-    allowance = allowanceFor(shape, { season: frame.season, citizen });
+    allowance = allowanceFor(shape, { season: frame.season, citizen }) + BigInt(extraAllowance);
     key = quotaKeyOf(shape, { requesterCitizen: settleCitizen, ip: req.ip });
     quota.check(key, { day: frame.day, lamports: allowance, lamportsCap: frame.lamportsCap, genesisTs: frame.genesisTs });
   } catch (e) {
