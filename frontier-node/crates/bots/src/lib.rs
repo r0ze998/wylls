@@ -28,6 +28,7 @@ pub mod conquest;
 pub mod control;
 pub mod cqtx;
 pub mod fleet;
+pub mod home;
 pub mod journal;
 pub mod ports;
 pub mod report;

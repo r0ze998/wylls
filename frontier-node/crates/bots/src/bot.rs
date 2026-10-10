@@ -928,6 +928,11 @@ impl Bot {
                 1
             }
             Intent::FileTicket { sites } => {
+                // `--conquest`: a version-3 season grants the first home at
+                // once (PlaceHome 0x38); the M1 ticket is not filed.
+                if sh.conquest.is_some() {
+                    return self.place_home(sh, obs).await;
+                }
                 let r = self
                     .sponsored(sh, "file_ticket", None, |p| ix::file_ticket(&a, p, &sites))
                     .await;
@@ -1154,6 +1159,43 @@ impl Bot {
                 sent
             }
         }
+    }
+
+    /// `--conquest`: PlaceHome (0x38) at the site [`crate::home::plan_home`]
+    /// picks (the browser's `homeSites` rule). Nothing is sent when the
+    /// citizen is not entitled (a home was granted once; the program's
+    /// `AlreadyDone` / `TicketState`) or no legal site is in view. A
+    /// refused site (another citizen took it this bell) is retried at the
+    /// next bell with another hash order.
+    async fn place_home<H: HeraldPort, R: RelayPort, D: DirectPort>(
+        &mut self,
+        sh: &Shared<H, R, D>,
+        obs: &Observation,
+    ) -> usize {
+        let Some((_, cz)) = &obs.me.citizen else {
+            return 0;
+        };
+        if !crate::home::entitled(cz) {
+            return 0;
+        }
+        let bell = obs.bell();
+        let (faction, shard) = (cz.faction, cz.join_shard);
+        let seed = format!("{}:{bell}", self.wallet.pubkey());
+        let Some(site) = crate::home::plan_home(obs, faction, &seed) else {
+            return 0;
+        };
+        let a = Self::addresses(obs);
+        let r = self
+            .sponsored(sh, "place_home", None, |p| {
+                ix::place_home(&a, p, site, faction, shard)
+            })
+            .await;
+        if r.ok() {
+            // The herald shows the Holding a moment later: no second try
+            // in this bell or the next.
+            self.mem.ticket_sent_bell = Some(bell + 1);
+        }
+        1
     }
 
     async fn depart<H: HeraldPort, R: RelayPort, D: DirectPort>(
