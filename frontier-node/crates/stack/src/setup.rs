@@ -77,6 +77,13 @@ pub fn conquest_params(
         p.cq.occupation_tenure_bells = p.cq.occupation_tenure_bells.min(cap);
         p.cq.respite_bells = p.cq.respite_bells.min(cap);
         p.cq.immunity_bells = p.cq.immunity_bells.min(cap);
+        p.cq.capture_credit_min_bells = p.cq.capture_credit_min_bells.min(end);
+        p.cq.outpost_shield_secs = p.cq.outpost_shield_secs.min(secs);
+        p.cq.shield_secs = p.cq.shield_secs.min(secs);
+        p.cq.shield_late_secs = p.cq.shield_late_secs.min(secs);
+        p.cq.shield_late_after_secs = p.cq.shield_late_after_secs.min(secs);
+        p.cq.frontier_protect_secs = p.cq.frontier_protect_secs.min(secs);
+        p.cq.frontier_protect_after_secs = p.cq.frontier_protect_after_secs.min(secs);
     }
     p
 }
@@ -274,5 +281,19 @@ mod tests {
             a.quicknet_pk_hash,
             "the release preset pins quicknet"
         );
+    }
+}
+
+#[cfg(test)]
+mod short_season_tests {
+    use super::*;
+
+    #[test]
+    fn a_short_conquest_season_validates() {
+        for end in [60u32, 96, 144, 432] {
+            let p = conquest_params(Beacon::TestKey, Some(end));
+            assert_eq!(p.validate(), Ok(()), "end turn {end}");
+            assert_eq!(p.cq.keep_bells, 72);
+        }
     }
 }
