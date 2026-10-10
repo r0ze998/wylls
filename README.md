@@ -2,117 +2,217 @@
 
 # Wylls
 
-**A game in which AI behaves like a player.** Wylls is the first playable part of a Civilization-style shared world on Solana. AI citizens, run by the operator on a local model, are designed to play beside people, with goals and a memory.
+**Play the agent economy.** Wylls is a strategy game on Solana where people and AI citizens fight for one map and a prize pool. Six nations share the map. You pick a nation, grow a village, march an army under a sealed order and take a province by holding its keep. AI citizens, driven by a language model that runs on the operator's own machine, play in the same world under the same rules. It is made for strategy fans and for agent builders. Wylls has no token of its own.
 
-> **Status 2026-10-06, this development branch:** local test-chain integration includes nation and first-land choice, an immediate final village, construction, training, marches, province keeps and national territory-time scoring. Normal seasons last 14 days with simultaneous 10-minute turns; the separate preview runs at 10×. No devnet/mainnet deployment. Player automation that issues new orders with the tab closed, shared technology, diplomacy and markets remain unimplemented.
+> **This build:** runs on a local test chain with test tokens only ("test USDC", no value). Nothing here is on devnet or mainnet, no real funds move, and nobody outside the project has played.
+> **Earlier version:** a separate game build with its own devnet record. It is history and is not evidence for this build ([Earlier version](#earlier-version)).
 
-![Wylls map: six nations around the Concord, the neutral centre](docs/img/wylls-map.png)
+![The Wylls map: six nations around the neutral centre](docs/img/wylls-map.png)
 
-*The web client's map after the recorded test season of the first playable part (M1; local test chain, 1,000 script bots). It shows the map only, no armies or clashes. "Dev Wallet (localnet)" is a local test wallet, not a real one.*
+*The web client's map (a screenshot from an earlier local test season played by script bots).*
 
-## 1. What Wylls is
+## What you can do in this build
 
-Wylls is a Civilization-style world on Solana in which six nations (国) share one map. You choose a nation, get a village (村), and play in real time: grow the village, train troops, send armies (軍) on marches whose destination stays sealed, and read a battle report that anyone can replay. The Solana program, not an operator, resolves every fight, and a season (one round of the world) is a log of transactions that a verifier replays and checks (the verifier is ours, not an independent audit). That is the reason for a chain. The M1 foundation was validated through full seasons with script bots: test players that follow fixed rules and are neither AI nor people (the test records call them rule bots). This development branch extends it into a local human-playable version, from a first village to contests over provinces. AI citizens, players with goals and a memory, are meant to play beside people; they are in progress ([section 3](#3-the-ai-citizens)). This branch integrates conquest and national scoring. Shared technology, diplomacy, markets and money remain design work ([section 4](#status)).
+Every item below was run on the local test chain on 2026-10-10 and 2026-10-11. Run outputs are written under `.local/` on the machine that ran them and are not committed, so each item names the command that reproduces it.
 
-## 2. How it plays
+**A. Take land.** Join, receive a village at once, build, train, form an army and send a sealed march to the keep of an enemy province. The army meets whatever guards the keep. If your nation holds the keep alone for 72 turns, the keep changes holder. The change is a transaction on the chain, and the client shows it in five places: the territory tint of the map, the nation's province count, the keep panel's history, the chronicle and the feed.
+*Evidence:* run `ai-cq-season-3` (item E): two keeps passed to nation 0 (Aster) at turns 84 and 85, each after 72 turns of holding, and Aster went from 9 provinces to 11. First seen in run `cq-demo-1`: the keep of province (4,-1), nation 5 to nation 0 at turn 84 (signature `1LDUBihs…` in the herald's keep record).
 
-The game runs in real time, but the results of fights, marches and scouting are not decided at once. Every 10 minutes the world resolves them all together (144 times a day). Each of these steps is a **turn** (the code and the contract call it a "bell"). Sending an army a minute earlier gives no advantage, because both orders are resolved in the same turn. Economy and building run continuously, with no turn to wait for.
+**B. People and AI citizens in one world.** Run `ai-cq-demo-1` put 6 AI citizens, 6 script bots and a person from the project into one conquest world. It produced 353 decision records. In 52 of them the model was asked, and all 52 answers were valid. The root of every turn's records was anchored on the chain (85 of 85 turns).
+*Evidence:* the run's report and `verify-minds` result ([Verify it yourself](#verify-it-yourself)). The re-check passes all seven checks; the note on the first verdict is in the run record below.
 
-1. **Choose a nation and land.** Pick an available heartland site and receive a final first village immediately. The first-home selection is permanent.
-2. **Build an economy.** The first production building finishes in 60 game seconds, once per citizen; later construction uses normal durations. Compare stores, production, capacity and completion times.
-3. **Train and muster.** Choose a unit and affordable quantity, then form an army. Newly mustered armies need recovery time. Scouts explore; combat units contest keeps.
-4. **March from the army's current position.** Review the route, arrival turn and stance. The destination is sealed until arrival; departing orders cannot be recalled. Arrival and result settlement are separate stages.
-5. **Control provinces.** Defeat opposition at frontier keeps and hold them through the required turns. Keep ownership determines province control; heartland is protected.
-6. **Win through territory held over time.** The nation screen shows control and standings. One province held for one hour earns one province-hour. There are no capture bonuses, holding weights, economy/science points or per-player adjustments. Equal scores share a rank.
-7. **Expand with outposts.** Upgrade the first village to a Town, then request an eligible empty frontier site where your nation does not already hold a majority of holding strength. Later holdings use a contested application. The current filing cost is spent on submission and is not refunded after displacement or expiry.
+**C. Follow a paying player's action into an AI decision.** In run `ai-cq-season-3`, at turn 7 a paying player's wallet (nation Aster; the script-driven wallet `6oWvAmAJ…`) sent 500 troops from province (2,0). Code turned that public event (event 1021) into a memory line of an AI citizen of nation Ember. At turn 8 that AI citizen was woken, the model chose to muster its reserve into an army, and it cited the line. The Muster transaction was sent. The same prompt was then asked again without the line and without the same fact in the situation section: when the Remembered lines from event 1021 were removed from this 1 logged prompt, the chosen candidate did not change (rerun: same; control: same). Only the model's stated reason differed, and that reason is model-written and not verified. A second decision that cited the same line (turn 13, another AI citizen, routine play, no march) did not change either. In this season 2 model decisions cited a line about a paying player's march. In run `ai-cq-demo-1` none did: there the line was shown, not cited, and removing it changed nothing either.
+*Evidence:* the council page's "Follow this decision" view (`council.html#trace=2ba4d645b8`), and the comparison files written by `permutation-gateway/citizens/probe/memory.mjs` (`.local/frontier/probe/ai-cq-season-3-*/comparison.md`).
 
-Resources, queued construction, departed marches and world settlement continue while the tab is closed. Issuing new orders automatically is a separate feature, currently designed rather than running for players; see the [current design update](docs/GAME-DESIGN.ja.md#2026-10-06-開発ブランチの更新).
+**D. Pay to join, and a prize pool.** A person pays the entry fee over x402; the payment and the Join are one atomic transaction. A Join without payment is refused twice: by the relay and by the game program itself (a join gate on the season). The client shows the pool and has a faucet for test USDC. After the season ends, a separate prize program counts the 54 provinces on the chain and names the nation that holds the most.
+*Evidence:* `permutation-prize/svm-tests` (ownership changed after the end, missing, duplicate and foreign provinces, a wrong expected count), and the end-to-end scripts `prize-e2e.mjs` and `prize-mixed-check.mjs` in `permutation-gateway/scripts/`.
 
-## 3. The AI citizens
+**E. One combined season.** Run `ai-cq-season-3` (2026-10-11, code commit `7daf4221`) put everything above into one world: the conquest program, the prize pool, 6 AI citizens, 6 script bots and 3 paid entries from people's wallets, over 96 turns. One wallet (`4yWQ2bBE…`, nation 0 Aster, village (1,1)) was played by hand in the browser. The other two (`6oWvAmAJ…` and `5ywv9JVH…`, both nation 0) were driven by the helper script `permutation-gateway/scripts/demo-supporter.mjs` through the same browser modules, relay and x402 route. All three belong to the project.
 
-**Historical experiment results in this section are dated 2026-10-04.** AI code is integrated in this branch; prolonged AI operation in the new conquest season has not been verified.
+| Run `ai-cq-season-3` (local test chain, test USDC) | Result |
+|---|---|
+| Entries and pool | 3 entries: 75 test USDC collected, 60 to the prize pool, 15 to the operator. AI citizens and script bots joined by operator invite, paid nothing and are not eligible |
+| Provinces per nation at the end | Aster 11, Borealis 8, Cinder 9, Dunmar 9, Ember 9, Fjordal 8 (nations 0 to 5); 54 of 54 counted |
+| Winner (most provinces, tallied on chain) | Nation 0, Aster, with 11. The pool's result, the recount from the province accounts over RPC and the herald's control file agree. Finalize signature `2cGtWR9TVD1WrAsoZkQ9ydFkXtXNwPLDkwWsuS5XHgAjcHSjrnkXWg3QjucoiFPjDFk5nFnvEsdtf79zCNbRqNmb` |
+| Keeps that changed holder | (4,-1): nation 5 (Fjordal) to nation 0 (Aster) at turn 84, contest from turn 13, signature `23nX9sYugxWxWW169HAtp91V4MafinKwrcfpuzunAdb4qpozXqk9snLXtG5tEsz8a6jFZDZ44zsJkDEeXLrWRZaP`. (0,4): nation 1 (Borealis) to nation 0 at turn 85, contest from turn 14, signature `4GLCK5hPVTGajsak9jPHqfpbhMkGS2cftydpnkkocZcEVfKVxauXgehRZrmCqSzdCbQV74aeNMWAhs4ZsFLsf888` |
+| Achievements ledger | 3 lines, all paid members, 3 of 3 re-derived by `--verify`: capture of (0,4) by `4yWQ2bBE…`; capture of (4,-1) by `5ywv9JVH…`; reinforcement of (4,-1) by `6oWvAmAJ…`, 483 troops on the held keep. Estimate with the provisional weights: 25 / 25 / 10 test USDC of the 60. No shares were posted and no claim was made |
+| Decision records / model decisions / valid | 577 / 56 / 54 valid (96.4%). The 2 others fell back to the autopilot (1 invalid choice, 1 timeout) |
+| Turns anchored | 121 of 121 closed turns |
+| `verify-minds` | PASS on all seven checks as first published (20 of 20 re-asked prompts gave the same answer) |
 
-AI citizens are players that the operator runs on a local model (Gemma 4, through llama.cpp; no paid API). Their code was developed on a separate local branch. So far one small run with 6 AIs has completed. Its 52 model decisions were all valid and passed the check of AI decisions (`verify-minds`), but with the checker as it was before a later fix; the fixed checker has not yet been run on these records. The contract requires 300 decisions for a result, so this is a smoke test. The 12-AI and 18-AI runs have not been done. The runs also contain script bots (30 in the 6-AI run) that play alongside the AIs.
+## How a turn works
 
-- **The code offers, the model chooses, the code checks.** The code builds a short list of legal candidates, the model picks one, and the code validates the pick before the program accepts it. If the model is late, invalid or refused, an autopilot (自動運転) plays: it keeps the economy and routine duties and never starts a march of its own. So a voluntary AI march is chosen by the model or ordered by the nation's council (the Strike Order, below), and most of an AI's actions are the autopilot's. The reason for this design is an early spike: left to itself, the bare model rarely chose to march ([report](docs/frontier/ai-agents/gemma4/REPORT.md)).
-- **Memory is cited from public records.** The code writes short event lines from public records (an attack on the AI's army, a camp another nation cleared first); the model never writes them. The page prints the lines the model cited beside its own reason, which is marked not verified. A citation shows that a line was shown and named, not that it caused the choice.
-- **The headline: an AI citizen's own march.** The AI picks a march itself and its army leaves with the destination sealed. After the march is revealed, the decision opens: the options it was offered, its reason, the destination and the real clash report. How many model-chosen marches become a real clash is unknown until the planned 18-AI main run (not yet done); if none does, this claim is dropped and the council becomes the headline.
-- **The nation council.** Once per council period the code proposes up to three target provinces for a nation, and AI citizens speak and vote. The adopted target, the **Strike Order** (攻撃命令), stays sealed from outsiders until the strike. The council (評議会) is off-chain; the chain enforces nothing of it. Nation 0 also has one human seat, held by the operator (the presenter in the recorded demo); the other five nations are decided by AI votes alone. In the 6-AI run no council reached a quorum, so no Strike Order has been adopted yet.
-- **Same rules as people, plus safety limits.** AI citizens use the same keys, rate limits and fog of war (players see only part of the map) as people, plus limits such as at most 4 model-chosen marches a day. The model never sees keys; the local test keys derive from a public seed, so this is structure, not secrecy.
-- **Display and disclosure (decided).** AI citizens are shown in the game like ordinary players, without a mark; the main map client has no AI citizens yet. An AI says it is an AI when sincerely asked (a rule and a check exist on the branch; no recorded case in play). The operator discloses in general, as in this README, that the world contains AI citizens. The council page and the roster file of the test runs still carry a type label (AI, script bot, or the operator's seat); whether they stay is not decided. Legal review of the disclosure (for example EU AI Act Art. 50) has not been done.
+The game runs in real time, but fights, marches and scouting are not settled the moment you click. Every 10 minutes the world resolves them all together. That step is a **turn** (the program's records name it with the field `bell`; this document says turn). Two orders sent a minute apart resolve in the same turn, so sending first gives no advantage. Building and production run continuously.
 
-The pre-registered thresholds and the table of results are in [the AI contract, section 10.2](docs/frontier/ai-citizens/AI-CITIZENS-CONTRACT.md#102-gates) and in the design document ([GAME-DESIGN.ja.md](docs/GAME-DESIGN.ja.md), chapters 4 and 8). Results from the new conquest season will be added after validation.
+A march is sealed: its origin, size and arrival turn are public, and its destination opens only when it arrives. A march cannot be recalled, and it can cross at most 4 provinces, so not every keep is reachable from every village. The client lists the keeps your army can reach.
 
-<a id="status"></a>
+## People and AI citizens
 
-## 4. Status at a glance
+**How an AI citizen decides.** The code builds a short list of legal candidates. The model (Gemma 4, 26B, run locally through llama.cpp; no paid API) picks from that list. The code validates the pick, and only then is a transaction sent. When the model is not called, or its answer is invalid, a rule **autopilot** plays instead: it keeps the economy and routine duties going.
 
-| Area | Tag | In one line |
-|---|---|---|
-| Basic game M1 | **Running** | Joining, building, training, scouting, sealed marches, clashes and reports, with a replay verifier and a web client (Japanese and English). One 7-game-day season ran on a local test chain with 1,000 script bots |
-| AI citizens | **In progress** | Existing code integrated; historical AI evidence below is separate from new conquest-season validation |
-| Conquest | **Running locally** | Program, services and relay integrated; keep contests, control and outpost filing connected to the web client. A dedicated village-siege screen is pending |
-| Instant land, 14-day seasons, national score | **Running locally** | Immediate final first home; 14-day preset; finalized province-time counters and final standings |
-| Player automation | **Designed** | Priorities, resource floors, training targets, pause and logs; background order execution is pending |
-| Society (governance, diplomacy, trade, shared Engine, tech, eras) | **Design only** | Outline only; tech, eras and the Engine are not designed |
-| Money and business plan | **Planned** (money design: **Design only**) | A free season first, later a money season, an entry fee and AI citizens for game studios. No money that players pay or earn exists |
+**Model and autopilot are kept apart.** Every decision record says `by: model` or `by: autopilot`. In run `ai-cq-demo-1`, 292 of the 353 records were the autopilot's and 61 the model's (the 52 model decisions plus 9 reflections). The model chose 15 marches.
 
-Tags: **Running** means code exists and was actually run (a run on another branch is named as such); **In progress** means being built or run for this hackathon; **Design only** means written down, not built (including work that exists only on an unmerged branch); **Planned** means intended, no date. Each part of the complete game with its state is in the [design document](docs/GAME-DESIGN.ja.md) (Japanese).
+**Script bots are not AI.** They are rule-based test players with no model behind them.
 
-**Headline evidence for M1** (local test chain, script bots; [exit report](docs/frontier/m1/M1-EXIT-NOTES.md), [run record](docs/frontier/m1/runs/m1-exit/)): one season of 7 game days (1,008 play turns plus 26 closing turns, 8 h 39 min at 20x speed) ran from start to finish with 1,000 script bots, and every gating season criterion passed (one in-process test condition failed on the first commit and was fixed in a later one; see the exit report). The replay verifier passed 144,300 transactions and caught all 30 deliberate tampers.
+**Memory.** Memory lines are written by code from public records; the model never writes them. A citation shows that a line was shown to the model and named by it. It does not show that the line caused the choice. The with-and-without comparison is reported as it came out, including "no difference" (item C).
 
-## 5. Try it
+**The trace page.** The council page (`council.html`) has a "Follow this decision" view with four steps: what the person did, with the transaction signature; the memory lines the AI citizen was shown, each marked cited or not cited; what was chosen, and by whom; and the result. The page prints its own note that the steps follow the order of the records and do not say why a choice was made.
 
-For the current local first-home-to-conquest build, see [preview startup, resume and validation](docs/frontier/conquest/PLAYABLE-2026-10-06.md). It uses a separate 10× world. Use `resume` for a saved world; repeating `up` with the same name refuses to erase it. The practice battle and historical M1 run below are separate options.
+**Run record for `ai-cq-demo-1`.** The first published `verify-minds` verdict of this run was FAIL on two checks (the first-home transaction of the conquest version, and one turn the chain went through after the registrar's seal). The verifier was then taught both cases, and the re-check passes all seven checks.
 
-Everything is local; nothing needs a wallet, devnet or a paid service. Look first at the screenshot above and the [M1 run record](docs/frontier/m1/runs/m1-exit/). **Quick path, the practice battle** (a practice clash that runs in the browser with the game's own rules code; no chain, no build; Python 3). From the repository root:
+## Paying to join and the prize
+
+**Decided rules.**
+
+- The entry fee is 25 test USDC, paid over x402. 80% goes to the prize pool and 20% to the operator: 20 and 5 per payer.
+- The winning nation is the one holding the most provinces when the season ends. The count is made on the chain, from the game's own province accounts, by a separate prize program that anyone can run. The operator cannot write a ranking.
+- AI citizens and script bots join by operator invite. They pay nothing and are never prize-eligible. Land they take still counts for their nation's province count.
+
+**Design, recorded but not settled.** Individual shares inside the winning nation are to follow contribution. This build records two kinds of achievement, each with the transaction signatures it rests on:
+
+- **Capture:** the owner of the army that became the garrison at a keep's last capture.
+- **Troop reinforcement:** troops standing on a keep the nation holds when the season ends.
+
+Two more kinds cannot be derived from today's records. Defence needs the ids of the defending armies in the contest record. Resource supply needs a resource-transfer instruction, which the game does not have.
+
+**Provisional.** The weights, the tie-break for first place and the fallbacks are provisional, and the tool output marks them so.
+
+**Estimate, not transfer.** Any payout shown is an estimate. The contribution settlement and the prize transfer exist as a tested path (`PRIZE_E2E_CLAIM=1` in `prize-e2e.mjs`), but they are not part of the demo and are not claimed as finished.
+
+## Verify it yourself
+
+All three verifiers are ours; none is an independent audit. The commands assume a stack on base port 41900 ([Run it](#run-it)).
+
+**1. A clash, in your browser.** Open a clash report in the client and press "Verify in this browser". The page re-runs the game's rules code (built to WebAssembly) and compares the result with the chain's record.
+
+**2. Province tally and an independent recount.** After the season has ended:
 
 ```sh
-cd permutation-server/web && python3 -m http.server 8000 --bind 127.0.0.1
-# open http://127.0.0.1:8000/frontier/practice.html   (Japanese or English follows your browser)
+cd permutation-gateway
+# tally every province and finalise (anyone may send these), then write the achievements ledger and the estimate
+node scripts/prize-settle.mjs --rpc http://127.0.0.1:41910 --relay http://127.0.0.1:41933 --herald http://127.0.0.1:41940 --out ../.local/prize/season
+# (after an AI season the stack leaves the local chain paused: resume it first, see docs/RUNNING.md section 5)
+# recount provinces per nation from the province accounts and compare with the pool's result; sends nothing
+node scripts/prize-settle.mjs --rpc http://127.0.0.1:41910 --relay http://127.0.0.1:41933 --herald http://127.0.0.1:41940 --check
+# re-derive every ledger line from the transactions and accounts it cites
+node scripts/prize-settle.mjs --rpc http://127.0.0.1:41910 --relay http://127.0.0.1:41933 --herald http://127.0.0.1:41940 --verify ../.local/prize/season/ledger.json
 ```
 
-**The earlier M1 stack** (use the preview recipe above for the conquest version). You install the toolchains yourself (Rust, the Solana build tools, Node 20 or later; the list is in [docs/RUNNING.md](docs/RUNNING.md)). `up` stays in the foreground (a one-game-day season takes about 72 minutes; at 20x a turn lasts 30 seconds), so use two terminals:
+**3. AI decisions (`verify-minds`).** It checks the published files of an AI run against the chain: commitments, roster, per-turn roots and anchors, coverage of every AI transaction by a decision record, speech, a re-send of stored requests to the model, and a replay of memory lines.
 
 ```sh
+node permutation-gateway/citizens/verify-minds.mjs --herald http://127.0.0.1:41940 --rpc http://127.0.0.1:41910 \
+  --ai-dir .local/frontier/ai/<run id> --repo . --stack .local/frontier/ai/<run id>/stack.toml \
+  --citizens-config permutation-gateway/citizens/config/smoke.json --llm http://127.0.0.1:41901
+```
+
+## Run it
+
+Everything is local. Full detail and the test commands are in [docs/RUNNING.md](docs/RUNNING.md).
+
+**Prerequisites** (you install them): Rust through `rustup` with the two pinned toolchains (1.89.0 and 1.95.0, named in the `rust-toolchain.toml` files); `cargo-build-sbf` 3.1.9 for the two programs; Node 20 or later. AI runs also need llama.cpp and the Gemma 4 GGUF file.
+
+**Build.**
+
+```sh
+rustup toolchain install 1.89.0 1.95.0 --profile minimal
+scripts/build-frontier.sh --features test-beacon     # the game program (test randomness beacon; not deployable)
+scripts/build-prize.sh                               # the prize pool program
+npm ci --prefix permutation-gateway
 (cd frontier-node && cargo build --locked --release --workspace)
-scripts/build-frontier.sh --features test-beacon
-S=frontier-node/target/release/frontier-stack
-$S up --mode accel --beacon test-key --scale 20 --days 1 --bots 20 --run-id try --base-port 41000
-# second terminal, after about a minute: open http://127.0.0.1:41040/frontier/frontier/
-$S down --run-id try
 ```
 
-Open `/frontier/frontier/`, not `/`: the bare address still lands on an older page. The browser joins with a built-in local test wallet. The scripted browser run, the exit-season recipe and the test commands are in [docs/RUNNING.md](docs/RUNNING.md). AI citizen code is integrated, but no AI fleet is running in this human preview.
+**A world for people, with the prize pool.** The command stays in the foreground.
 
-**Videos:** game and M1 season [VIDEO LINK pending]; AI citizens (an AI's own march, then the council and the Strike Order) [VIDEO LINK pending], to be recorded on 2026-10-11.
+```sh
+S=frontier-node/target/release/frontier-stack
+$S up --conquest --mode accel --beacon test-key --preseason-scale 2000 --scale 10 \
+  --game-hours 16 --season-end-at-play-end --bots 0 --personas off \
+  --prize-so permutation-prize/target/deploy/permutation_prize.so --entry-fee 25000000 \
+  --run-id try-cq --base-port 41900 --season 90
+# open http://127.0.0.1:41940/frontier/frontier/        (stop: $S down --run-id try-cq)
+```
 
-## 6. Limits and what is not claimed
+The browser joins with a built-in local test wallet. A private (incognito) window on the same address gets a separate one, which is how a second person joins on one machine.
 
-- **Local test chain only.** Nothing of the new game has run on devnet or mainnet; devnet costs are unverified and hosting is open.
-- **Nobody outside the project has played.** All 1,000 participants of the M1 season were script bots written by the team. There is no registration, demand or traction figure. No season longer than 7 game days has run.
-- **Seal secrecy was not tested.** The M1 season replayed archived drand values, so the signatures were already known; the results show that marches settle, not that destinations stay secret. The verifier is ours, not an independent audit.
-- **AI citizens are in progress, not finished.** Only a small 6-AI run exists. The AI's reasons and speech are written by the model and not verified; most of an AI's actions are the autopilot's; the council is off-chain; the drand key of the test runs is the operator's test key.
-- **Not built:** background player-order execution, a dedicated village-siege screen, governance, diplomacy, markets, shared technology, money and prizes. Legal review for money and for the disclosure of AI citizens has not been done.
-- **The CI is partly red.** In the GitHub runs of 2026-10-01 and 10-02, 2 of 8 jobs failed, so the program build and its LiteSVM tests never ran there; the fixes were checked on a Mac only.
-- **Not claimed about the AI:** that it is stronger than the script bots, indistinguishable from people or exactly replayable; that it wants or intends anything; that its memory shows why it chose; that the council is enforced by the chain.
-- **Not claimed about the project:** that any person outside the project played it, any demand, that a game studio was approached, that money or prizes work, or that the Civilization-style game is finished.
+**The combined AI season** (about 1 h 40 min at 10x; one AI stack at a time; the guards refuse to start with uncommitted changes in the guarded paths):
 
-## 7. Repository map and where to read more
+```sh
+export AI_MODEL=/path/to/gemma-4-26B-A4B-it-Q4_0.gguf
+export AI_LLAMA_DIR=/path/to/llama.cpp
+export AI_RUNS_MD=$PWD/.local/frontier/ai-RUNS.md
+permutation-gateway/citizens/llama/start-pinned.sh /tmp/gemma-41901.log &     # llama-server on 127.0.0.1:41901
+permutation-gateway/citizens/bin/ai-citizens-run.sh \
+  --stack permutation-gateway/citizens/stack/ai-cq-season.toml \
+  --citizens-config permutation-gateway/citizens/config/smoke.json \
+  --deck deck-1 --run-id my-season --hold 7200
+# the game:         http://127.0.0.1:41940/frontier/frontier/
+# the council page: http://127.0.0.1:41902/council.html
+```
+
+## Architecture
+
+```text
+ People (browser, test wallet)            AI citizens (operator's machine)
+        |                                   +------------------------------------+
+        |                                   | stake-check execution service      |
+        |                                   | decides whether an agent may run   |
+        |                                   | [NEXT - NOT BUILT]                 |
+        |                                   +------------------------------------+
+        |                                   | AI inference: prompt, memory,      |
+        |                                   | model call, validation   [BUILT]   |
+        |                                   +------------------------------------+
+        |                                   | action sending: transactions       |
+        |                                   | through the relay        [BUILT]   |
+        |                                   +------------------------------------+
+        v                                                  v
+ +--------------------------------------------------------------------------+
+ | relay: one door for people, AI citizens and bots; x402 paid Join [BUILT] |
+ +--------------------------------------------------------------------------+
+        v                                                  v
+ +-------------------------------------+   +---------------------------------+
+ | game program (local test chain)     |   | prize program                   |
+ | turns, clashes, keeps, provinces    |<--| reads province accounts,        |
+ | [BUILT]                             |   | tallies, names winner  [BUILT]  |
+ +-------------------------------------+   +---------------------------------+
+        ^                                                  ^
+ keepers (settle turns) · herald (read-only data) · verifiers        [BUILT]
+```
+
+The stake-check box is the next design step: a service that decides whether an agent may act, by checking a stake. It is not built, and no currency is chosen for it. In this build the operator starts the AI citizens directly.
+
+## Earlier version
+
+An earlier version of the game lives on branch `codex/magicblock-playable`, with its documents in [docs/earlier-prototype](docs/earlier-prototype/INDEX.md). It ran one 180-turn season on Solana devnet with a MagicBlock ephemeral rollup, joining over x402 and test USDC. It had 14 member accounts: 12 were rule-based agents run by the operator (not language-model agents) and 2 were people from the project. Prizes were paid in test USDC, and a read-only verifier passed 14 of 14 checks ([record](docs/earlier-prototype/devnet-season-1790355636798-verification.txt)).
+
+That record belongs to that version only. Its devnet, MagicBlock and x402 integration is not in this build; x402 here is re-implemented on the local chain with a test token.
+
+## Not in this build yet
+
+- **Devnet or mainnet.** This build has run on a local test chain only.
+- **Outside players.** Every participant was from the project or run by it.
+- **Stake-gated agents.** The stake check for AI agents is a design ("next" in the diagram).
+- **Contribution settlement as a finished feature.** Shares are estimates; defence and resource supply are not recorded.
+- **Real time and full length.** The clock runs 10x to 20x in tests, and the demo video skips the 72-turn wait (marked "time skipped"). The combined season is 96 turns, not the 14-day preset, with timers capped at the season length.
+- **Live randomness.** Only a test-key randomness beacon was used, not live drand. Whether a sealed destination stays secret was not tested.
+- **Paying from the council page's address.** The x402 payment works through the game address on port 41940. The council page's proxy on 41902 does not forward the payment header yet, so join from 41940.
+- **Independent audit.** The verifiers are ours.
+
+## Repository map
+
+Folder names are historical (`permutation-*`, `frontier-*`); the rename to Wylls did not touch them.
 
 | Path | What it is |
 |---|---|
-| `permutation-frontier/` | The Solana program, with the LiteSVM tests (`svm-tests/`) |
-| `permutation-rules/src/frontier/` | The rules code shared by the program, simulator and browser |
-| `frontier-abi/`, `frontier-wasm/` | The program's ABI; the rules built to WebAssembly for the browser |
-| `frontier-sim/` | The balance simulator |
-| `frontier-node/` | Off-chain services: keeper (settles marches and clashes), herald (read-only data server), verifier, script bots, local chain, stack runner |
-| `permutation-gateway/` | The relay (pays fees within quotas; one door for people and bots), the JS SDK and screen tests |
-| `permutation-server/web/frontier/` | The web client (map, village, march composer, report, practice page) |
-| `scripts/`, `docs/` | Build and run scripts; all documents |
+| `permutation-frontier/` | The game program, with its tests (`svm-tests/`) |
+| `permutation-prize/` | The prize pool program (test assets), with its tests |
+| `permutation-rules/src/frontier/` | Rules code shared by the program, the simulator and the browser |
+| `frontier-abi/`, `frontier-wasm/` | The program's ABI; the rules built to WebAssembly |
+| `frontier-node/` | Off-chain services: keepers, herald, verifier, script bots, local chain, stack runner |
+| `permutation-gateway/` | The relay (x402, faucet, pool view), the JS SDK, `scripts/` (prize tools) and `citizens/` (AI citizens, `verify-minds`) |
+| `permutation-server/web/frontier/` | The web client and the council page |
+| `scripts/`, `docs/` | Build scripts; documents ([run it](docs/RUNNING.md), [demo script](docs/pitch/DEMO_SCRIPT.md), [earlier version](docs/earlier-prototype/INDEX.md)) |
 
-Names are historical: the rename to Wylls did not touch folder, crate or package names, so `permutation-*` and `frontier-*` remain. The repository also holds the files of an earlier, different prototype (Permutation State), which is not evidence for Wylls ([index](docs/earlier-prototype/INDEX.md)).
+## License
 
-**Where to start:** [Design overview, 10 minutes](docs/DESIGN-OVERVIEW.md) ([日本語](docs/DESIGN-OVERVIEW.ja.md)), then the [design document (Japanese)](docs/GAME-DESIGN.ja.md), the [AI citizens contract v1.3](docs/frontier/ai-citizens/AI-CITIZENS-CONTRACT.md) and the [M1 exit report](docs/frontier/m1/M1-EXIT-NOTES.md). **Also:** [Run it](docs/RUNNING.md) · [Decisions](docs/frontier/DECISIONS.md) · [Documentation index](docs/frontier/README.md). **Project records:** [Pitch](PITCH.md) · [Submission record](SUBMISSION.md) · [Demo script](docs/pitch/DEMO_SCRIPT.md)
-
-**License.** The repository root has an MIT `LICENSE` file, which covers the repository as a whole; the Rust crates and the npm package (`permutation-gateway/client`) declare `license = "MIT"` in their manifests, and bundled third-party libraries keep their own licenses.
+MIT. See [LICENSE](LICENSE). Bundled third-party libraries keep their own licenses.
