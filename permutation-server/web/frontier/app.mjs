@@ -866,6 +866,8 @@ function goToItem(x) {
     FS.selected = { kind: 'province', p: x.p, q: x.q };
   }
   if (FS.mode === 'play' && x.tab) FS.tab = x.tab;
+  // going there reads the province at once, as a tap on the map does: its keep panel must not wait for the next poll
+  if (FS.mode !== 'practice') wantProvince(x.p, x.q, () => invalidate('map', 'panel'));
   wantKeepHistory(x.p, x.q, () => invalidate('panel'));
   invalidate('map', 'panel', 'tabs', 'rail');
 }

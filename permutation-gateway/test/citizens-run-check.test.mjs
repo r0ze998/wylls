@@ -83,6 +83,41 @@ test('the three stack configs: the pinned values, the test chain, every port in 
   for (const name of Object.keys(want)) for (const k of Object.keys(parseStackToml(read(path.join(STACKS, `${name}.toml`))))) assert.ok(known.has(k), `${name}: ${k}`);
 });
 
+test('the conquest demo stack config: conquest = true, 6 script bots with --conquest, the same ports and parser rules', () => {
+  const t = parseStackToml(read(path.join(STACKS, 'ai-cq-demo.toml')));
+  const exp = { run_id: 'ai-cq-demo', mode: 'accel', beacon: 'test-key', conquest: true, scale: 10, preseason_scale: 2000, game_hours: 10, bots: 6, bot_seed: 47, season_id: 47, base_port: 41900, bots_args: '--conquest --conquest-personas 0 --follow-council --join-by-bell 6' };
+  for (const [k, v] of Object.entries(exp)) assert.equal(t[k], v, k);
+  assert.deepEqual(G.portProblems(G.stackPorts(t)), []);
+  assert.equal(t['chaos.enabled'], false);
+  assert.equal(t['adversary.enabled'], false);
+  // no other stack config of the recorded runs says conquest
+  for (const name of ['ai-citizens', 'ai-ab', 'ai-smoke']) assert.equal(parseStackToml(read(path.join(STACKS, `${name}.toml`))).conquest, undefined, name);
+});
+
+test('--dry-run of a conquest stack config: the AI fleet gets --conquest; AI_RUNS_MD redirects the runs entry and drops the git commit; a non-conquest config is unchanged', () => {
+  const cq = path.join(STACKS, 'ai-cq-demo.toml');
+  const repo = makeRepo();
+  const r = run(['--stack', cq, '--citizens-config', CONFIG, '--no-busy-check', '--dry-run'], { repo, env: { AI_RUNS_MD: path.join(repo.root, 'elsewhere', 'RUNS.md') } });
+  assert.equal(r.code, 0, r.text);
+  assert.match(r.out, /conquest world: the stack config says conquest = true/);
+  assert.match(r.out, /6 AI citizens \+ the presenter seat \(deck-1\), bot seed 47, season 47/);
+  const fleet = r.out.split('\n').find(l => l.startsWith('PLAN start fleet:'));
+  assert.match(fleet, /--export-seat-key \S+\/keys\/seat\.txt --conquest --conquest-personas 0$/);
+  assert.match(r.out, /PLAN run runs-add: .*--file \S*\/elsewhere\/RUNS\.md/);
+  assert.match(r.out, /PLAN runs entry in \S*\/elsewhere\/RUNS\.md \(AI_RUNS_MD is set: no git commit\)/);
+  assert.doesNotMatch(r.out, /PLAN commit RUNS\.md/);
+  // the same conquest config without AI_RUNS_MD keeps the repository's RUNS.md and its commit
+  const r2 = run(['--stack', cq, '--citizens-config', CONFIG, '--no-busy-check', '--dry-run'], { repo: makeRepo() });
+  assert.equal(r2.code, 0, r2.text);
+  assert.match(r2.out, /PLAN commit RUNS\.md/);
+  assert.match(r2.out, /PLAN run runs-add: .*--file \S*\/docs\/frontier\/ai-citizens\/RUNS\.md/);
+  // a non-conquest config: no --conquest anywhere
+  const r3 = run(['--stack', smoke, '--citizens-config', CONFIG, '--no-busy-check', '--dry-run'], { repo: makeRepo() });
+  assert.equal(r3.code, 0, r3.text);
+  assert.doesNotMatch(r3.out, /--conquest|conquest world/);
+  assert.match(r3.out, /PLAN commit RUNS\.md/);
+});
+
 // ------------------------------------------------------------------ the guards as a module
 test('port rule: 41901-41999 only; 41900 itself, 41000-41899 and the reserved ports are refused; a duplicate and a busy port are named', () => {
   assert.deepEqual(G.portProblems({ a: 41902, b: 41999, c: 41901 }), []);

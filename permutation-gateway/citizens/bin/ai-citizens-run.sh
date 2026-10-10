@@ -39,6 +39,10 @@
 # the live llama-server (/props and its command line) with the commitments before anything starts. A smoke run may leave both
 # unset; its commitments then say "unmeasured".
 #
+# Conquest worlds: a stack config with `conquest = true` (a version-3 season: first homes by PlaceHome, v2 instruction shapes;
+# stack/ai-cq-demo.toml) makes this script pass `--conquest` to the AI fleet. The stack's own script bots get it from the
+# config's `bots_args`. AI_RUNS_MD=FILE writes the run entries to FILE instead of the repository's RUNS.md and makes no commit.
+#
 # Environment: AI_REPO (repository root), AI_UNIT (name in the lock), AI_STACK_LOCK, FRONTIER_BIN
 # (directory of frontier-stack, frontier-bots, ...; default frontier-node/target/release), AI_NODE (node binary),
 # AI_STACK_RUNS (the stack's runs directory; default frontier-node/.local/frontier), AI_MODEL (the gguf), AI_LLAMA_DIR (the
@@ -54,6 +58,10 @@ GUARDS="$HERE/run-guards.mjs"
 REGISTRAR="$REPO/permutation-gateway/citizens/registrar.mjs"
 RUNS_REL=docs/frontier/ai-citizens/RUNS.md
 RUNS_MD="$REPO/$RUNS_REL"
+# AI_RUNS_MD: write the run entries to this file instead of the repository's RUNS.md, and make no git commit (a demo or a
+# conquest world that is not one of the recorded runs). Unset: the repository's RUNS.md, committed locally, as before.
+RUNS_COMMIT=1
+if [ -n "${AI_RUNS_MD:-}" ]; then RUNS_MD=$AI_RUNS_MD; RUNS_COMMIT=0; fi
 LOCK=${AI_STACK_LOCK:-$("$NODE" "$GUARDS" lock-path --repo "$REPO")}
 STACK_RUNS=${AI_STACK_RUNS:-$REPO/frontier-node/.local/frontier}
 FBIN=${FRONTIER_BIN:-$REPO/frontier-node/target/release}
@@ -130,6 +138,11 @@ SEASON_ID=$(tomlval season_id)
 SCALE=$(tomlval scale)
 STACK_RUN_ID=$(tomlval run_id)
 DAYS=$(tomlval days)
+CONQUEST=$(tomlval conquest)
+FLEET_CQ=()
+# --conquest-personas 0: the conquest layer's adversarial test personas (sieges the program must refuse) are not dealt to the
+# AI fleet; the presenter seat is a plain citizen.
+[ "$CONQUEST" != true ] || FLEET_CQ=(--conquest --conquest-personas 0)
 [ -n "$DAYS" ] || DAYS=1
 DAYS=${DAYS%%.*}
 STACK_NAME=$(basename "$STACK" .toml)
@@ -137,7 +150,7 @@ if [ -z "$DECK" ]; then
   case "$STACK_NAME" in
     ai-citizens) DECK=deck-3 ;;
     ai-ab) DECK=deck-2 ;;
-    ai-smoke) DECK=deck-1 ;;
+    ai-smoke|ai-cq-demo) DECK=deck-1 ;;
     *) die "no default deck for $STACK_NAME: pass --deck deck-1|deck-2|deck-3" ;;
   esac
 fi
@@ -279,6 +292,7 @@ hold_run() {
 }
 
 # ------------------------------------------------------------------ the plan (dry run) or the run
+[ "$CONQUEST" != true ] || echo "conquest world: the stack config says conquest = true; the AI fleet runs with --conquest (PlaceHome first homes, v2 instruction shapes)"
 echo "run $RUN_ID: stack $STACK_NAME base $BASE (herald $P_HERALD, rpc $P_RPC), $N AI citizens + the presenter seat ($DECK), bot seed $BOT_SEED, season $SEASON_ID${AB:+, arm $AB rep $REP}"
 if [ "$DRY" = 0 ]; then
   [ ! -e "$AI_DIR" ] || die "$AI_DIR exists: a run id is used once (pass --run-id, for example $RUN_ID-2)"
@@ -331,9 +345,15 @@ RUNS_ARGS=(runs-add --run-id "$RUN_ID" --commitments "$PUB/commitments.json" --f
 fg runs-add "$NODE" "$REGISTRAR" "${RUNS_ARGS[@]}" || fail "the RUNS.md entry could not be written"
 if [ "$DRY" = 0 ]; then
   RUNS_ADDED=1
-  git -C "$REPO" add "$RUNS_REL" && git -C "$REPO" commit -q -m "Wylls AI run: $RUN_ID" -- "$RUNS_REL" || fail "the RUNS.md entry could not be committed"
-else
+  if [ "$RUNS_COMMIT" = 1 ]; then
+    git -C "$REPO" add "$RUNS_REL" && git -C "$REPO" commit -q -m "Wylls AI run: $RUN_ID" -- "$RUNS_REL" || fail "the RUNS.md entry could not be committed"
+  else
+    echo "runs entry written to $RUNS_MD (AI_RUNS_MD is set: no git commit)"
+  fi
+elif [ "$RUNS_COMMIT" = 1 ]; then
   echo "PLAN commit RUNS.md: git commit -m \"Wylls AI run: $RUN_ID\""
+else
+  echo "PLAN runs entry in $RUNS_MD (AI_RUNS_MD is set: no git commit)"
 fi
 bg registrar-commit "$NODE" "$REGISTRAR" commit --ai-dir "$AI_DIR" --key "$KEYS/registrar.json" --stack "$CTOML" --citizens-config "$CCONFIG" --slots "$AI_DIR/ai-slots.json" --deck "$DECK" --reuse --wait-rpc "$RPC" --herald "$HERALD"
 
@@ -376,7 +396,7 @@ else
 fi
 bg fleet "$FBIN/frontier-bots" --herald "$HERALD" --relay "$RELAY" --rpc "$RPC" --seed "$BOT_SEED" --first-index 1000 --bots $((N + 1)) --days "$DAYS" --game-hours "$HOURS" --scale "$SCALE" \
   --personas off --journal "$AI_DIR/fleet" --report "$AI_DIR/fleet/report.json" --control "127.0.0.1:$((BASE + 71))" \
-  --ai-slots "$AI_DIR/ai-slots.json" --brain "http://127.0.0.1:$MIND_PORT" --brain-token-file "$STATE/mind.token" --follow-council --export-seat-key "$KEYS/seat.txt"
+  --ai-slots "$AI_DIR/ai-slots.json" --brain "http://127.0.0.1:$MIND_PORT" --brain-token-file "$STATE/mind.token" --follow-council --export-seat-key "$KEYS/seat.txt" ${FLEET_CQ[@]+"${FLEET_CQ[@]}"}
 
 # The seat script casts the seat's ballot. A/B: the only difference between the arms (--arm). Any other run that names a seat script
 # (--seat-script, which also marks the seat "scripted" in the roster and the page): the council script, a scripted ballot (origin 2) in
