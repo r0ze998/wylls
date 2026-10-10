@@ -2,7 +2,7 @@
 
 Updated 2026-10-10 to match the completed [v28 deck](docs/pitch/Wylls-Pitch-v28.pdf) and [spoken script](PITCH.md). This is a preparation draft; the project has not been finally submitted.
 
-The field text below is prepared in this repository. Saving these updated values to the submission portal has not been verified.
+An account read on 2026-10-10 still showed the earlier Brief description and empty detail fields. The revised values below are prepared here and have not been saved to the submission portal.
 
 **Project:** Wylls · **Category:** Gaming · **Chain:** Solana · **Audience:** strategy fans and agent builders
 
@@ -22,43 +22,43 @@ Wylls is a strategy game on Solana where people and AI agents fight for one map 
 
 ### What are you building, and who is it for?
 
-872 / 1000 characters
+753 / 1000 characters
 
-We are building Wylls for strategy fans who want economic stakes to give their decisions weight and make cooperation matter, and for agent builders who want their agents to play alongside people.
+Wylls is a strategy game for strategy fans and agent builders. Our central experiment asks what happens when humans and autonomous AI agents run a nation together.
 
-Our central experiment asks what happens when humans and autonomous AI agents run a nation together. We are designing agents as participants with their own goals, relationships and decisions, playing by the same rules as humans. We want a nation's strategy to emerge as members cooperate, persuade each other and decide whom to trust.
+We are designing agents as players with their own goals, relationships and decisions, using the same game rules as people. A nation's strategy should emerge from members cooperating, persuading each other and deciding whom to trust.
 
-The entry fee and prize pool are intended to make players care about how their nation is run and their role in its performance. Leadership, trust and collective action become part of the strategy. For agent builders, this creates a place to test how their agents make decisions and work with humans and other agents in a competitive world.
+For strategy players, the USDC entry fee and prize pool are intended to give decisions economic weight and make cooperation serious. Resource allocation, leadership and collective action shape the nation's performance. For agent builders, Wylls is a shared world in which to test how their agents plan, compete and cooperate with humans and other agents.
 
 ### Why did you decide to build this, and why build it now?
 
-696 / 1000 characters
+591 / 1000 characters
 
-AI agents are becoming participants in the economy, and x402 lets them pay in stablecoins over HTTP. We believe agents that can pay need a place to play, alongside people. A blockchain game can give both the same program-enforced rules and a shared payment system. I previously shut down a project after its token economy broke. That experience shaped Wylls: use USDC for entry fees and prizes, build around strategy and competition, and have no token of our own. I have built more than ten onchain games and am building Wylls full-time. Solana, MagicBlock and x402 give us the building blocks; the next step is a public devnet season to test the experience with strategy fans and agent builders.
+I shut down an earlier project when its token economy broke. That experience shaped Wylls: build a game around strategy, USDC entry fees and prizes, with no token of our own. Agents can now pay in stablecoins over HTTP through x402, which makes it possible for them to enter the same economy as human players. I want to give those agents a place to play, and test what happens when economic stakes meet human-AI cooperation. A blockchain can enforce common game rules and make season outcomes and payments verifiable. I have built more than ten onchain games and am building Wylls full-time.
 
 ### What technologies are you using or integrating with to build your product?
 
-470 characters; no counter displayed in the editor
+458 characters; no counter displayed in the editor
 
-Solana programs and SPL tokens; MagicBlock Ephemeral Rollups; USDC payments over x402; deterministic Rust game rules, a replay verifier, and a JavaScript/WebAssembly web client and agent SDK. The payment and rollup integrations ran in the earlier devnet version and are being carried over to the current local rebuild. AI-citizen development uses Gemma 4 through llama.cpp, with model choices checked against legal game actions. AI coding assistants support development.
+Rust Solana programs and SPL tokens; MagicBlock Ephemeral Rollups; USDC payments over x402; a Rust replay verifier; a JavaScript web client with WebAssembly rule verification; and a JavaScript agent SDK. MagicBlock, x402 and test-USDC payments ran in the earlier devnet version and are being carried over to the local rebuild. AI-citizen development uses Gemma 4 through llama.cpp, with model choices checked against legal actions. Codex assists development.
 
 ### How does your product use these chains?
 
-341 / 500 characters
+336 / 500 characters
 
-Solana programs enforce game rules and record season outcomes. In the earlier devnet version, a MagicBlock Ephemeral Rollup resolved 180 turns; entry fees were paid through x402 in test USDC, and prizes settled on Solana. The current rebuild runs on a local test chain while these integrations are carried over. No other chain is integrated.
+Solana programs enforce game actions and record season outcomes for replay. The earlier devnet version used a MagicBlock Ephemeral Rollup to resolve 180 turns, accepted test-USDC entry payments through x402, and settled prizes on Solana. The rebuild currently runs on a local Solana test chain while these integrations are carried over.
 
 ### Please share any important context about your repo
 
-492 / 500 characters
+430 / 500 characters
 
-The repo contains an earlier devnet version and a local rebuild. The earlier version (branch codex/magicblock-playable) tested MagicBlock, x402, test USDC and 180-turn seasons. Main holds the rebuild and historical run records; x402/MagicBlock/USDC carry-over and AI/conquest work are not yet fully integrated. See README.md for status, PITCH.md for the completed script, and SUBMISSION.md for matching field text. Only test USDC was used; these are technical tests, not public user traction.
+Main contains the local rebuild and historical devnet records. The earlier playable code is on codex/magicblock-playable; it tested MagicBlock, x402, test USDC and 180-turn seasons. Those integrations are being carried over; AI citizens and conquest are in progress on separate branches. Start with README.md for implementation status and docs/RUNNING.md for setup. These are project-run technical tests, not public user traction.
 
 ### Is there anything else judges should know?
 
-404 / 500 characters
+414 / 500 characters
 
-All prize payments so far were test USDC on devnet. The earlier season's AI members were operator-run rule-based agents; LLM-based AI citizens are separate work in the rebuild. The first-version verifier passed 14 of 14 checks, and the rebuild's local verifier replayed 144,300 transactions and caught 30 deliberate tampers. These are technical test results. A public devnet season is our next milestone.
+Our business model keeps 20% of each entry fee and puts 80% into the prize pool, with no Wylls token. An earlier devnet season completed 180 turns with 14 participant accounts, including 12 operator-run rule-based AI agents, and paid test USDC prizes. All participants were project members or project-run agents. LLM-based AI citizens are separate work in the rebuild. Our next milestone is a public devnet season.
 
 ## Shared facts across the materials
 
@@ -79,13 +79,14 @@ The deck says two people participated in the earlier season. This is founder-pro
 
 - Pitch video: not recorded yet. The completed script and v28 deck are ready for recording; the portal accepts YouTube, Loom or Vimeo, up to two minutes.
 - Demo video: recorded candidates exist, but the founder has not chosen the final content. The portal requires a live-product demonstration, up to three minutes, on YouTube, Loom or Vimeo.
-- Founder submission profile: the portal currently reports 0 of 1 complete; its remaining answers must be supplied by the founder.
+- Member submission profile: the portal previously reported 0 of 1 complete; the exact missing fields have not been inspected yet.
 - Final submission: review the completed materials and the portal's final confirmation after the videos and founder profile are ready.
 
 The project website is a landing-page link; a public playable rebuild is the next milestone, so a separate live-product URL is not supplied here.
 
 ## Supporting records
 
+- [Colosseum's official judging criteria](https://colosseum.com/hackathon#h-faq-12), checked alongside the account draft through Copilot on 2026-10-10
 - [First-version devnet verification](docs/earlier-prototype/devnet-season-1790355636798-verification.txt)
 - [First-version setup and payout record](docs/earlier-prototype/README-V5-game.md)
 - [Rebuild M1 verification](docs/frontier/m1/runs/m1-exit/verify.md)
