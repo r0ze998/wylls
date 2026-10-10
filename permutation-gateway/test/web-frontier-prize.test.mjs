@@ -90,6 +90,10 @@ test('the 賞金 panel: the pool while open; after the end the chain\'s area and
   assert.match(text, /試算 28\.571428 テストUSDC/);
   assert.match(text, /防衛：いまのチェーンの記録からは求められません。/);
   assert.match(plain(panel({ ...done, prizeLedger: null })), /功績の記録はまだ公開されていません/);
+  // Shares posted and claims paid (the deferred step): the panel no longer says that nothing was transferred.
+  const paid = plain(panel({ ...done, prize: pool({ state: 'shares', counted: 54, area: [8, 10, 9, 9, 9, 9], winners: [1], shares: { mode: 'shares', claims: 2, claimed: '39999999' } }) }));
+  assert.match(paid, /受け取りは 2 件・合計 39\.999999 テストUSDC/);
+  assert.doesNotMatch(paid, /送金は行われていません/);
   const g = ledgerModel(ledger(), { wallet: WALLET });
   assert.deepEqual([g.attackers.length, g.supporters.length, g.attackers[0].mine, g.notDerivable.map(k => k.kind), g.estimate[0].amount], [1, 1, true, ['defence'], '28.571428']);
   setLang('en');

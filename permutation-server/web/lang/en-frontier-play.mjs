@@ -738,4 +738,5 @@ export default {
   '支払いの取引がこの季節の参加費の形と一致しません': 'The payment transaction is not this season\'s entry payment',
   '参加には参加費（テストUSDC）の支払いが必要です': 'Joining needs the entry fee (test USDC)',
   'この賞金は受け取り済みです': 'This prize was already claimed',
+  'これは暫定の配点による試算です。この配点はチェーンに登録されており、受け取りは {0} 件・合計 {1} テストUSDC です。配点と同点・該当者なしの扱いは未決定（暫定）です。': 'This is an estimate by the provisional weights. These weights are posted on chain; {0} claims were paid, {1} test USDC in total. The weights and the handling of ties and of no eligible member are undecided (provisional).',
 };

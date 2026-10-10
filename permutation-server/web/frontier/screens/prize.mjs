@@ -66,7 +66,8 @@ export function render(FS) {
     ${g.supporters.length ? html`<table class="prize-lines"><tbody>${lineRows(g.supporters)}</tbody></table>` : html`<p class="muted">${L`記録はありません。`}</p>`}
     ${g.notDerivable.map(k => html`<p class="muted">${L`${(kindLabel[k.kind] ?? (() => k.kind))()}：いまのチェーンの記録からは求められません。`}</p>`)}
     <h4>${L`分配の試算`}</h4>
-    <p class="callout">${L`これは試算です。送金は行われていません。配点と同点・該当者なしの扱いは未決定（暫定）です。`}</p>
+    ${m.posted ? html`<p class="callout">${L`これは暫定の配点による試算です。この配点はチェーンに登録されており、受け取りは ${fmtNum(m.posted.claims)} 件・合計 ${m.posted.claimed} テストUSDC です。配点と同点・該当者なしの扱いは未決定（暫定）です。`}</p>`
+      : html`<p class="callout">${L`これは試算です。送金は行われていません。配点と同点・該当者なしの扱いは未決定（暫定）です。`}</p>`}
     ${g.estimate.length ? html`<table class="prize-estimate"><tbody>${g.estimate.map(s => html`<tr ${s.mine ? html`class="mine"` : ''}><td>${swatch(s.nation)}${factionName(s.nation)}</td><td>${short(s.wallet)}${s.mine ? html` <strong>${L`（あなた）`}</strong>` : ''}</td>
       <td>${L`${fmtNum(s.points)} 点`}</td><td>${L`試算 ${s.amount} テストUSDC`}</td></tr>`)}</tbody></table>` : html`<p class="muted">${L`試算できる人がいません。`}</p>`}`
     : (m.final ? html`<p class="muted">${L`功績の記録はまだ公開されていません。`}</p>` : '');
