@@ -22,6 +22,7 @@ pub mod chaos;
 pub mod config;
 pub mod load;
 pub mod ports;
+pub mod prize;
 pub mod procs;
 pub mod report;
 pub mod resume;

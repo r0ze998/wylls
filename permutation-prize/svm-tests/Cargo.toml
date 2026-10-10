@@ -1,0 +1,32 @@
+[package]
+name = "permutation-prize-svm-tests"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.95"
+publish = false
+license = "MIT"
+description = "Program-level tests of the Wylls prize pool: the SBPF v2 build of permutation-prize run in LiteSVM with LiteSVM's own SPL Token program"
+
+# Its own workspace, lock and toolchain, as permutation-frontier/svm-tests
+# (LiteSVM 0.16 needs 1.95.0); the versions are that suite's. The program is
+# tested as a binary (`PRIZE_SO`, default the build-prize.sh artefact); the
+# crate is linked for its layouts and pure helpers only.
+[workspace]
+
+[dependencies]
+litesvm = "=0.16.0"
+solana-account = "=4.3.2"
+solana-address = { version = "=2.6.1", features = ["curve25519", "sha2", "decode"] }
+solana-instruction = "=3.4.1"
+solana-keypair = "=3.1.2"
+solana-message = "=4.4.1"
+solana-signer = "=3.0.1"
+solana-transaction = { version = "=4.1.6", features = ["serde", "wincode", "verify"] }
+frontier-abi = { path = "../../frontier-abi" }
+permutation-prize = { path = "..", features = ["no-entrypoint"] }
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.test.package."*"]
+opt-level = 3

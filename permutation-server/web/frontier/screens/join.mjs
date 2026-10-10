@@ -13,6 +13,8 @@ import { freeByWedge, ticketTimes, homeWedge } from '../fland.mjs';
 import { lamports, swatch, timeHtml } from './shell.mjs';
 import { leaderCard, ownIdentity, personChip, holdingName } from '../people/ui.mjs';
 import { identityOf } from '../people/identity.mjs';
+import { renderJoinTerms } from './prize.mjs';
+import { tokenUnits } from '../fprize.mjs';
 
 const FACTIONS = [0, 1, 2, 3, 4, 5];
 const siteText = s => L`州 ${s.p},${s.q} の区画 ${s.site + 1}`;
@@ -35,11 +37,13 @@ function renderFactions(FS) {
   const cards = factionCards(FS).map(c => html`<li><button type="button" class="card" data-act="pick-faction" data-f="${c.faction}" aria-pressed="${c.chosen ? 'true' : 'false'}">
     ${leaderCard(c.faction, { size: 88 })}<span class="muted">${L`本拠の扇区の空き区画 約 ${fmtNum(c.free)}`}</span></button></li>`);
   // The season's join gate (I-51), or a relay that answered InviteRequired.
-  const gated = FS.inviteRequired || !!FS.season?.joinGate?.some?.(x => x !== 0);
+  // A season with a prize pool is joined by paying its fee (x402), not with an invite.
+  const gated = !FS.prize && (FS.inviteRequired || !!FS.season?.joinGate?.some?.(x => x !== 0));
   const ready = Number.isInteger(FS.joinDraft?.faction);
   return html`<section aria-labelledby="join-faction"><h3 id="join-faction">${L`国を選ぶ`}</h3>
     <p>${L`選ぶのは六つの国のどれか一つだけです。最初の村の入植希望は、本拠の扇区の空いた区画にこのページが自動で出し、村は次の鐘（約11〜21分後）に決まります。`}</p>
-    <p class="muted">${L`M1 では賞金はありません。国は本拠の扇区と教義を決めます。`}</p>
+    ${FS.prize ? html`<p class="muted">${L`国は本拠の扇区と教義を決めます。季節の終わりに最も多くの州を持つ国が、賞金プール（テストUSDC）を得ます。`}</p>${renderJoinTerms(FS)}`
+      : html`<p class="muted">${L`M1 では賞金はありません。国は本拠の扇区と教義を決めます。`}</p>`}
     <ul class="cards">${cards}</ul>
     ${gated ? html`<label class="field">${L`招待コード`}<input name="invite" autocomplete="off" data-bind="invite" value="${FS.joinDraft?.invite ?? ''}"></label>` : ''}
     <button type="button" class="btn primary" data-act="join" ${raw(ready ? '' : 'disabled')}>${L`ゲーム内の鍵を作って参加する`}</button>
@@ -137,6 +141,7 @@ function renderGrant(FS) {
     <p>${L`村の旗が立ちました。最初の建物を選び、この土地での暮らしを始めましょう。`}</p>
     <div class="home-allegiance">${swatch(h.faction)}${factionName(h.faction)}<span>${L`所属国`}</span></div>
     ${stores.length ? html`<dl class="home-supplies">${kit.map(([i, label]) => html`<div><dt>${label}</dt><dd>${fmtNum(Number(stores[i]?.value ?? 0) / 1000)}</dd></div>`)}</dl>` : ''}
+    ${FS.prizePayment ? html`<p class="prize-receipt">${L`参加費 ${tokenUnits(FS.prizePayment.fee)} テストUSDC を支払いました（支払い前 ${tokenUnits(FS.prizePayment.before)} → 支払い後 ${tokenUnits(FS.prizePayment.after ?? 0)}）。`}</p>` : ''}
     <button type="button" class="btn primary home-primary" data-act="home-begin">${L`最初の建設を選ぶ`}</button>
   </section>`;
 }
@@ -155,7 +160,7 @@ function renderChoices(FS) {
   const busy = !!choice.busy || !!choice.pending;
   const loading = choice.loading || (FS.wallet && FS.meStatus === 'loading');
   const err = choice.error ?? (FS.meStatus === 'error' ? FS.meError ?? { code: 'Unavailable' } : null);
-  const gated = FS.inviteRequired || !!FS.season?.joinGate?.some?.(x => x !== 0);
+  const gated = !FS.prize && (FS.inviteRequired || !!FS.season?.joinGate?.some?.(x => x !== 0));
   const valid = selected && (!FS.citizen || selected.faction === FS.citizen.faction);
   return html`<section class="home-start" aria-labelledby="home-choice-title" aria-busy="${busy || loading ? 'true' : 'false'}">
     ${renderHomeIdentity(FS)}
@@ -176,6 +181,7 @@ function renderChoices(FS) {
     ${!loading && !candidates.length ? html`<p class="home-status">${L`いま選べる土地が見つかりません。候補を探し直してください。`}</p>` : ''}
     ${valid ? html`<div class="home-nation"><p class="home-eyebrow">${L`この土地で暮らす国`}</p>${leaderCard(selected.faction, { size: 64 })}<button type="button" class="btn small" data-act="home-preview" ${raw(busy ? 'disabled' : '')}>${L`地図で場所を見る`}</button></div>` : ''}
     ${gated && !FS.citizen ? html`<label class="field">${L`招待コード`}<input name="invite" autocomplete="off" data-bind="invite" value="${FS.joinDraft?.invite ?? ''}" ${raw(busy ? 'disabled' : '')}></label>` : ''}
+    ${!FS.citizen ? renderJoinTerms(FS) : ''}
     <div class="home-confirm"><button type="button" class="btn primary home-primary" data-act="home-confirm" ${raw(!valid || busy || loading || FS.meStatus === 'error' ? 'disabled' : '')}>${busy ? L`村を準備しています…` : L`この土地に村を築く`}</button>
       ${busy ? html`<p class="home-status" role="status">${(HOME_PENDING[choice.pending] ?? HOME_PENDING.confirming)()}</p>` : html`<p class="muted">${L`確定すると、選んだ土地があなたの村になります。`}</p>`}</div>
     <button type="button" class="btn small home-refresh" data-act="home-refresh" ${raw(busy || loading ? 'disabled' : '')}>${L`候補を探し直す`}</button>

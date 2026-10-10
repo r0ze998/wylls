@@ -30,6 +30,7 @@ import * as wallet from '../wallet.mjs';
 import { decode as fromBase58, encode as toBase58 } from '../sdk/base58.mjs';
 import { fromBase64 } from '../sdk/bytes.mjs';
 import { L } from '../lang.mjs';
+import * as fprize from './fprize.mjs';
 import { instantHomeEnabled, HOME_GRANTED, planHomes, homeSites, sameHome, homeKey, loadHome, saveHome, grantId } from './home.mjs';
 
 const SESSION_DAYS = 30 * 86_400;
@@ -64,6 +65,61 @@ function ctx(extra = {}) {
 /** The send and the follow-up (fplay.mjs); tests put stand-ins here to play a relay and a chain. */
 let tx = { submit, track };
 export function useTransport(t) { tx = t ? { submit: t.submit ?? submit, track: t.track ?? track } : { submit, track }; }
+/** The prize pool's reads and the paid Join (fprize.mjs); tests put stand-ins here. */
+let prizeIo = fprize;
+export function usePrize(p) { prizeIo = p ? { ...fprize, ...p } : fprize; }
+
+/** How often the pool is read again (ms), and when it last was. */
+export const PRIZE_REFRESH_MS = 15_000;
+let prizeReadAt = 0;
+/**
+ * The season's prize pool (テストUSDC; null when the season has none) and,
+ * once the result is final, the published achievements ledger.
+ */
+export async function refreshPrize({ force = false, at = Date.now() } = {}) {
+  if (!io.relay() || (!force && at - prizeReadAt < PRIZE_REFRESH_MS)) return;
+  prizeReadAt = at;
+  const r = await prizeIo.loadPrize(FS.wallet?.address ?? null);
+  if (!r.ok) return;
+  FS.prize = r.pool;
+  if (r.pool && r.pool.state !== 'open') {
+    const g = await prizeIo.loadLedger();
+    if (g.ok) FS.prizeLedger = g.ledger;
+  }
+  invalidate('panel');
+}
+
+/** The paid Join of a season with a pool: test tokens from the faucet if the wallet is short, then Pay and Join in one signed transaction (x402). */
+async function paidJoin(s, { onSent, onLost } = {}) {
+  const w = wallet.connected();
+  if (!w) return failed({ code: 'NoWallet' });
+  busy(() => L`参加費（テストUSDC）を支払って参加しています…`);
+  FS.inFlight = (FS.inFlight ?? 0) + 1;
+  try {
+    await refreshPrize({ force: true });
+    const fee = BigInt(FS.prize.fee);
+    const before = FS.prize.wallet?.balance ?? '0';
+    if (BigInt(before) < fee) {
+      const f = await prizeIo.faucet(w.address);
+      if (!f.ok) return failed(f);
+      await refreshPrize({ force: true });
+    }
+    const funded = FS.prize.wallet?.balance ?? before;
+    const r = await prizeIo.payAndJoin({ wallet: w, faction: FS.joinDraft.faction, session: s, sessionExpiry: BigInt(Math.floor(now()) + SESSION_DAYS - 600), maxFee: fee });
+    if (!r.ok) return failed(r);
+    onSent?.(r);
+    const t = await tx.track(r.signature);
+    if (!t.ok && (t.state === 'failed' || t.state === 'expired')) onLost?.(t);
+    if (!t.ok) return failed(t);
+    await refreshPrize({ force: true });
+    // What the wallet held before and after (the page shows both).
+    FS.prizePayment = { signature: r.signature, before: funded, after: FS.prize.wallet?.balance ?? null, fee: String(fee) };
+    done(() => L`参加費を支払い、参加がチェーンに記録されました`);
+    return r;
+  } finally {
+    FS.inFlight = Math.max(0, (FS.inFlight ?? 1) - 1);
+  }
+}
 
 /** One sponsored action, tracked to its landing; the notice says how it went. */
 async function act(name, { v = {}, fields = {}, signer, requester = null, label, after, onSent, onLost } = {}) {
@@ -361,6 +417,7 @@ export async function refresh() {
   FS.nowBell = nowBell();
   // A gated season shows the invite field before any refusal (I-51).
   FS.inviteRequired = FS.inviteRequired || inviteRequired(FS.season);
+  await refreshPrize().catch(() => null);
   if (FS.wallet) {
     const me = await herald.me(FS.wallet.address).catch(e => ({ ok: false, code: e?.code ?? 'Unavailable' }));
     if (me.ok) {
@@ -911,6 +968,15 @@ export const ACTIONS = {
     saveHomePatch({ selected: null }); return refreshHomes({ force: true });
   },
   'home-confirm': () => confirmHome(),
+  'prize-refresh': () => refreshPrize({ force: true }),
+  'prize-faucet': async () => {
+    if (!FS.wallet) return failed({ code: 'NoWallet' });
+    busy(() => L`テストUSDCを受け取っています…`);
+    const r = await prizeIo.faucet(FS.wallet.address);
+    if (!r.ok) return failed(r);
+    await refreshPrize({ force: true });
+    return done(() => (r.already ? L`テストUSDCは受け取り済みです` : L`テストUSDCを受け取りました`));
+  },
   'home-begin': () => {
     const h = FS.homeGrant;
     if (!h) return;
@@ -939,6 +1005,10 @@ export const ACTIONS = {
     try { s = await fsession.derive({ wallet: wallet.connected(), cluster: pin.cluster, programId: pin.programId, seasonId: pin.seasonId }); } catch (e) { return failed({ code: e.code ?? 'SignFailed' }); }
     fsession.remember(s);
     FS.session = s;
+    const lifecycle = { onSent: r => { if (FS.homeChoice?.busy) saveHomePatch({ pending: { kind: 'Join', signature: r.signature } }); },
+      onLost: () => { if (FS.homeChoice?.busy) saveHomePatch({ pending: null }); } };
+    // A season with a prize pool: the entry fee and the Join in one transaction (x402).
+    if (FS.prize) return paidJoin(s, lifecycle);
     const gate = FS.season.joinGate.some(x => x !== 0) ? toBase58(FS.season.joinGate) : null;
     return act('Join', { v: { faction: FS.joinDraft.faction, joinGate: gate, invite: FS.joinDraft.invite },
       fields: { faction: FS.joinDraft.faction, session: s.publicKeyBytes, session_expiry: BigInt(Math.floor(now()) + SESSION_DAYS - 600) },

@@ -388,6 +388,8 @@ pub struct Stack {
     pub so: PathBuf,
     pub so_sha256: String,
     pub so_len: usize,
+    /// The test-asset prize pool (`--prize-so`).
+    pub prize: Option<crate::prize::Prize>,
 }
 
 fn log_line(msg: &str) {
@@ -511,6 +513,7 @@ impl Stack {
         } else {
             bin
         };
+        let prize = crate::prize::Prize::load_or_create(&repo, &rd, &cfg, &program).map_err(bad)?;
         Ok(Stack {
             repo,
             run: rd,
@@ -525,6 +528,7 @@ impl Stack {
             so,
             so_sha256,
             so_len: bytes.len(),
+            prize,
             cfg,
         })
     }
@@ -567,6 +571,11 @@ impl Stack {
             log: r.log("localnet"),
             finishes: false,
         });
+        if let (Some(pz), Some(spec)) = (&self.prize, out.last_mut()) {
+            spec.args.push(s("--program"));
+            spec.args
+                .push(pz.deploy_arg(&self.keys.authority.pubkey()));
+        }
         let mut dargs = vec![
             s("serve"),
             s("--port"),
@@ -661,6 +670,9 @@ impl Stack {
             log: r.log("relay"),
             finishes: false,
         });
+        if let (Some(pz), Some(spec)) = (&self.prize, out.last_mut()) {
+            spec.args.extend(pz.relay_args());
+        }
         let mut hargs = vec![
             s("--data"),
             r.path("herald").display().to_string(),
@@ -738,6 +750,16 @@ impl Stack {
                     }
                 }
             }
+        }
+        // A gated (prize) season: the operator's script bots join by invite.
+        if self.prize.is_some() {
+            args.push(s("--invites"));
+            args.push(
+                self.run
+                    .path(crate::prize::BOT_INVITES)
+                    .display()
+                    .to_string(),
+            );
         }
         // Pass-through flags (`bots_args`).
         args.extend(self.cfg.bots_args.iter().cloned());
@@ -1043,6 +1065,7 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
         st.cfg.beacon,
         st.cfg.conquest,
         st.cfg.keep_bells,
+        st.prize.as_ref().map(|p| p.gate.pubkey().to_bytes()),
         st.cfg.season_end_bell(),
         st.cfg.preseason_scale,
         st.cfg.scale,
@@ -1050,6 +1073,19 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
     )
     .await?;
     st.state["season"] = season.clone();
+    if let Some(p) = &st.prize {
+        let v = p
+            .setup(&st.chain, &st.addrs, &st.keys.authority, &st.cfg)
+            .await?;
+        st.run.event(None, "prize", v.clone());
+        log_line(&format!(
+            "prize pool {} (test mint {}, entry fee {} base units)",
+            p.pool,
+            p.mint.pubkey(),
+            st.cfg.entry_fee
+        ));
+        st.state["prize"] = v;
+    }
     let genesis_ts = season["genesis_ts"].as_i64().ok_or("genesis_ts")?;
     let end_bell = season["end_bell"].as_u64().unwrap_or(1_008) as i64;
     let bell_secs = season["bell_secs"].as_i64().unwrap_or(600);

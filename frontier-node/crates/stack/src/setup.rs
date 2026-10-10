@@ -83,6 +83,7 @@ pub async fn run(
     beacon: Beacon,
     conquest: bool,
     keep_bells: Option<u16>,
+    join_gate: Option<[u8; 32]>,
     end_bell: Option<u32>,
     preseason_scale: f64,
     scale: f64,
@@ -94,6 +95,9 @@ pub async fn run(
         let mut p = conquest_params(beacon, end_bell);
         if let Some(k) = keep_bells {
             p.cq.keep_bells = k;
+        }
+        if let Some(g) = join_gate {
+            p.base.join_gate = g;
         }
         p.validate()
             .map_err(|e| format!("conquest season params: {e}"))?;

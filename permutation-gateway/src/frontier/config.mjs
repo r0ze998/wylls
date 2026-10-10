@@ -34,6 +34,15 @@ export const FRONTIER_DEFAULTS = Object.freeze({
   masterSeedFile: path.join(FRONTIER_DIR, 'relay-master.seed'),
   /** The join-gate key (playtest preset: its public key is `Season.join_gate`). */
   gateKeyFile: null,
+  /** The test-asset prize pool (permutation-prize): its program id and test mint; null when the season has none. */
+  prizeProgram: null,
+  prizeMint: null,
+  /** The test mint's authority (the local faucet); only with a prize pool, only on localnet. */
+  faucetKeyFile: null,
+  /** Test tokens one POST /f/faucet gives a wallet (base units), once per wallet. TEST VALUE. */
+  faucetAmount: 100_000_000,
+  /** The published contribution ledger (scripts/prize-settle.mjs writes it; GET /f/prize/ledger serves it). */
+  prizeLedgerFile: null,
   inviteSecretFile: path.join(FRONTIER_DIR, 'invite.secret'),
   stateFile: path.join(FRONTIER_DIR, 'relay-state.json'),
   /** Public co-signing pauses (503 OperatorLowFunds) below this pool total. */
@@ -94,6 +103,11 @@ export function loadFrontierConfig(argv = [], env = {}) {
     poolSize: int(pick('pool-size', 'FRONTIER_RELAY_POOL', d.poolSize), '--pool-size'),
     masterSeedFile: pick('master-seed-file', 'FRONTIER_RELAY_SEED_FILE', d.masterSeedFile),
     gateKeyFile: pick('gate-key-file', 'FRONTIER_GATE_KEY_FILE', d.gateKeyFile),
+    prizeProgram: pick('prize-program', 'FRONTIER_PRIZE_PROGRAM', d.prizeProgram),
+    prizeMint: pick('prize-mint', 'FRONTIER_PRIZE_MINT', d.prizeMint),
+    faucetKeyFile: pick('faucet-key-file', 'FRONTIER_FAUCET_KEY_FILE', d.faucetKeyFile),
+    faucetAmount: int(pick('faucet-amount', 'FRONTIER_FAUCET_AMOUNT', d.faucetAmount), '--faucet-amount'),
+    prizeLedgerFile: pick('prize-ledger-file', 'FRONTIER_PRIZE_LEDGER_FILE', d.prizeLedgerFile),
     inviteSecretFile: pick('invite-secret-file', 'FRONTIER_INVITE_SECRET_FILE', d.inviteSecretFile),
     stateFile: pick('state-file', 'FRONTIER_RELAY_STATE', d.stateFile),
     minPoolSol: Number(pick('min-pool-sol', 'FRONTIER_MIN_POOL_SOL', d.minPoolSol)),
@@ -121,6 +135,8 @@ export function checkFrontierConfig(cfg) {
   if (cfg.poolSize < 1) out.push('--pool-size must be at least 1');
   if (!cfg.programId) out.push('--program is required');
   if (cfg.seasonId === null || cfg.seasonId === undefined || !/^\d{1,20}$/.test(String(cfg.seasonId))) out.push('--season (the season id) is required');
+  if (!!cfg.prizeProgram !== !!cfg.prizeMint) out.push('--prize-program and --prize-mint go together');
+  if (cfg.faucetKeyFile && cfg.cluster !== 'localnet') out.push('--faucet-key-file: the test-token faucet exists on localnet only');
   if (!(cfg.minPoolSol >= 0)) out.push('--min-pool-sol must be ≥ 0');
   return out;
 }

@@ -592,3 +592,14 @@ body[data-urgency="crit"] main { box-shadow: inset 0 0 0 4px #c8412f; }
 .conquest-keep form, .conquest-keep select { max-width: 100%; }
 .conquest-history h5 { margin: 10px 0 4px; font-size: 13px; }
 .conquest-history ol { margin: 0; font-variant-numeric: tabular-nums; }
+
+/* The prize pool (テストUSDC; screens/prize.mjs). */
+.prize-terms, .prize-panel { display: grid; gap: 8px; }
+.prize-figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin: 0; }
+.prize-figures div { border: 1px solid var(--line, #8884); border-radius: 6px; padding: 6px 8px; }
+.prize-figures dt { font-size: 0.8em; opacity: 0.8; }
+.prize-figures dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.prize-area, .prize-lines, .prize-estimate { width: 100%; border-collapse: collapse; font-size: 0.9em; }
+.prize-area td, .prize-lines td, .prize-estimate td { padding: 3px 6px; border-bottom: 1px solid var(--line, #8883); }
+.prize-area tr.winner td, .prize-lines tr.mine td, .prize-estimate tr.mine td { font-weight: 600; }
+.prize-lines-wrap { overflow-x: auto; }

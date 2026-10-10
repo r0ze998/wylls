@@ -509,3 +509,19 @@ test('G10 grep: no paid-API name, no public-network word and no outside URL unde
   walk(root);
   assert.deepEqual(hits, []);
 });
+
+test('the prize stack config is the conquest demo plus a prize pool; --dry-run gives the AI fleet the operator invites and the demo none', () => {
+  const demo = parseStackToml(read(path.join(STACKS, 'ai-cq-demo.toml')));
+  const prize = parseStackToml(read(path.join(STACKS, 'ai-cq-prize.toml')));
+  assert.deepEqual([prize.prize_so, prize.entry_fee, prize.run_id], ['permutation-prize/target/deploy/permutation_prize.so', 25_000_000, 'ai-cq-prize']);
+  for (const [k, v] of Object.entries(demo)) if (k !== 'run_id') assert.equal(prize[k], v, k);
+  assert.equal(demo.prize_so, undefined);
+  assert.deepEqual(G.portProblems(G.stackPorts(prize)), []);
+  const r = run(['--stack', path.join(STACKS, 'ai-cq-prize.toml'), '--citizens-config', CONFIG, '--no-busy-check', '--dry-run'], { repo: makeRepo() });
+  assert.equal(r.code, 0, r.text);
+  assert.match(r.out, /prize pool: the season is gated; the AI fleet joins by operator invite \(no entry fee, not prize-eligible\)/);
+  const fleet = r.out.split('\n').find(l => l.startsWith('PLAN start fleet:'));
+  assert.match(fleet, /--conquest --conquest-personas 0 --invites \S+\/ai-cq-prize\/relay\/fleet-invites\.txt$/);
+  const r2 = run(['--stack', path.join(STACKS, 'ai-cq-demo.toml'), '--citizens-config', CONFIG, '--no-busy-check', '--dry-run'], { repo: makeRepo() });
+  assert.doesNotMatch(r2.out, /--invites|prize pool/);
+});

@@ -117,8 +117,14 @@ impl ClockSource {
 pub struct Config {
     pub seed: u64,
     pub budgets: Budgets,
-    /// Invite tokens for a gated season, one per bot index (if any).
+    /// Invite tokens for a gated season (`--invites FILE`, minted by the
+    /// operator): a pool, handed out in order. A bot keeps the one it drew
+    /// until a Join of its was sent (the relay then marks it used), so a
+    /// refused attempt costs no invite and a retry after a lost Join draws
+    /// a fresh one. Never logged.
     pub invites: Vec<String>,
+    /// Which invite each bot index holds, and the next one to hand out.
+    pub invite_book: std::sync::Mutex<(BTreeMap<u32, usize>, usize)>,
     /// Wall time a cached season or overview file stays fresh.
     pub cache_ttl: Duration,
     /// Game seconds per slot when the clock cannot tell (0.4 × scale).
@@ -135,10 +141,34 @@ impl Config {
             seed,
             budgets: txb::budgets(),
             invites: vec![],
+            invite_book: std::sync::Mutex::new((BTreeMap::new(), 0)),
             cache_ttl: Duration::from_millis(1_500),
             slot_game_secs: 8.0,
             eager_personas: false,
         }
+    }
+    /// The invite bot `index` sends with its Join: the one it holds, else
+    /// the next of the pool (`None` when the pool is empty or used up).
+    pub fn invite_for(&self, index: u32) -> Option<String> {
+        let mut b = self.invite_book.lock().expect("invites");
+        let (held, next) = &mut *b;
+        let i = match held.get(&index) {
+            Some(i) => *i,
+            None => {
+                let i = *next;
+                if i >= self.invites.len() {
+                    return None;
+                }
+                *next += 1;
+                held.insert(index, i);
+                i
+            }
+        };
+        self.invites.get(i).cloned()
+    }
+    /// The relay sent bot `index`'s Join: its invite is spent.
+    pub fn invite_spent(&self, index: u32) {
+        self.invite_book.lock().expect("invites").0.remove(&index);
     }
     pub fn reveal_loaded_limit(&self) -> u32 {
         self.budgets.get(tag::REVEAL).loaded_limit
@@ -728,7 +758,7 @@ impl Bot {
         let mut body =
             json!({"tx": txb::wire_b64(&t), "lastValidBlockHeight": info.last_valid_block_height});
         let path = if is_join {
-            if let Some(inv) = sh.cfg.invites.get(self.spec.index as usize) {
+            if let Some(inv) = sh.cfg.invite_for(self.spec.index) {
                 body["invite"] = json!(inv);
             }
             "/f/join"
@@ -744,6 +774,9 @@ impl Bot {
         };
         if a.ok() {
             self.spent += 1;
+            if is_join {
+                sh.cfg.invite_spent(self.spec.index);
+            }
         }
         let o = outcome(self, action, "relay", &a, tag);
         sh.record(o);
