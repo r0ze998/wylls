@@ -243,6 +243,28 @@ export function decisionList({ minds = [], opened = new Map(), episodesByTag = n
 }
 
 /**
+ * How far back the decision files are read: the last `window` turns while the season runs; back to turn 0 once the
+ * season-end bundle exists (`full`) or while a linked record has not been found yet (`deep`).
+ */
+export const mindsFloorOf = ({ bellNow = 0, full = false, deep = false, window = 60 } = {}) => (full || deep ? 0 : Math.max(0, bellNow - window));
+
+/**
+ * Which `minds/<bell>.json` files to fetch next: from the current turn backwards to `floor`, at most `max` per step. A file
+ * that is absent is asked again only in a later turn, and not at all once its turn is more than 3 turns old.
+ * `have` is a Set (or Map) of turns already read, `missedAt` a Map(turn → the page's turn when it answered 404).
+ */
+export function planMindProbes({ bellNow = 0, have = new Set(), missedAt = new Map(), floor = 0, max = 16 } = {}) {
+  const want = [];
+  for (let b = bellNow; b >= floor && want.length < max; b--) {
+    if (have.has(b)) continue;
+    const miss = missedAt.get(b);
+    if (miss !== undefined && (bellNow > b + 3 || bellNow <= miss)) continue; // not published yet in this turn, or never
+    want.push(b);
+  }
+  return want;
+}
+
+/**
  * Which `open/<bell>.json` files to fetch next. A sealed decision with release bell R is opened at the bell the release
  * job ran: R or later, at most R + 8 (6 bells of waiting, then the +2 verify-minds allows). A file that is present is
  * immutable (fetch once); a file that is absent is retried until its bell is more than 3 bells old, then given up.

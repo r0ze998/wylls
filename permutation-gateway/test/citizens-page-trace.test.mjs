@@ -10,9 +10,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeH } from '../../permutation-server/web/frontier/council/dom.mjs';
 import { makeRosterIndex } from '../../permutation-server/web/frontier/council/badges.mjs';
-import { normalizeMinds, normalizeOpenFile, normalizeEpisodes, decisionList, renderDecisions } from '../../permutation-server/web/frontier/council/decisions.mjs';
+import { normalizeMinds, normalizeOpenFile, normalizeEpisodes, decisionList, renderDecisions, planMindProbes, mindsFloorOf } from '../../permutation-server/web/frontier/council/decisions.mjs';
 import { normalizeEvents } from '../../permutation-server/web/frontier/council/events.mjs';
-import { normalizeHerald, makeLog, ingestLog, hostOwner, buildTrace, traceOf, eventTraces, startedByPeople, traceNeeds, findRecord, actorType, renderTrace, renderTracePanel } from '../../permutation-server/web/frontier/council/trace.mjs';
+import { normalizeFullIndex, resolveFullId, normalizeHerald, makeLog, ingestLog, hostOwner, buildTrace, traceOf, eventTraces, startedByPeople, traceNeeds, findRecord, actorType, renderTrace, renderTracePanel } from '../../permutation-server/web/frontier/council/trace.mjs';
 import { hostParts } from '../../permutation-server/web/frontier/faddr.mjs';
 import { tl } from '../../permutation-server/web/frontier/council/lang.mjs';
 import { makeFakeDocument, textOf, byClass, byTag, hasActiveContent } from './fixtures/ai-page-dom.mjs';
@@ -440,4 +440,101 @@ test('candidates: id, label, the chosen mark and the "see Mn" line are shown; ev
   const list = renderDecisions(ctxOf('en'), decisionList({ minds: [rec0()], opened: new Map([[ID, op0()]]) }));
   assert.equal(byClass(list, 'cand-facts').length, 2);
   assert.equal(byClass(list, 'facts').every(f => f.parentNode.tagName === 'DETAILS'), true);
+});
+
+// ------------------------------------------------------------------ a finished season: the season-end bundle, old records
+const ID2 = '2ba4d645b8db3065d5a8c0a11fbeb68a8d82b2ae6c578b7bfa7bd67d1ad43d36';
+const OTHER = '2ba4d6ffff'.padEnd(64, '0');
+const fullIndex = (ids = [ID2, ID]) => ({ v: 1, season: 48, last_bell: 120, files: [...ids.map(id => ({ path: `full/decisions/${id}.json`, sha256: 'x', bytes: 1 })), { path: `full/requests/${ID}.json` }, { path: 'full/social.json' }, { path: '../evil' }, null] });
+// an early, unsealed model decision as minds/8.json carries it (no candidates), and its file of the bundle (candidates, no choice)
+const early = (over = {}) => normalizeMinds({ records: [{ v: 2, sealed: false, release_bell: null, commit: null, tx: [{ intent: 'muster', sig: SIG_TX, status: 'sent', code: null }], ai: AI, index: 1001, bell: 12, kind: 'session', mode: 'model', reason: 'ok', wake: ['W-THREAT', 'W-QUEUE'],
+  choice: { ids: ['c5'], params: { c5: { share: 50 } }, council: null, goal_id: 'G1', mem: ['8d26a605fdc1acdd'] }, retrieved: ['61367590dbdaa439', '8d26a605fdc1acdd'], public: { say: [], why: 'I must muster my reserve into a host.', why_withheld: null }, id: ID2, ...over }] })[0];
+const fullDecision = () => normalizeOpenFile({ ai: AI, bell: 12, id: ID2, index: 1001, kind: 'session', mode: 'model', sealed: false,
+  candidates: [{ id: 'c1', kind: 'autopilot', label: 'Routine: economy and duties only, no march', facts: {}, refs: [] }, { id: 'c5', kind: 'muster', label: 'Muster 200 spearman into a new army', facts: { troops: 200 }, refs: ['M2'] }],
+  remembered: [{ id: '8d26a605fdc1acdd', bell: 11, text: THREAT.text }] })[0];
+
+test('a link to an old decision: the bundle\'s index resolves a full id or a prefix to one decision; an ambiguous or unknown prefix resolves to nothing', () => {
+  const full = normalizeFullIndex(fullIndex());
+  assert.deepEqual(full, { lastBell: 120, ids: [ID2, ID] }, 'only full/decisions/<64 hex>.json paths are ids');
+  assert.equal(resolveFullId(full, '2ba4d645b8'), ID2);
+  assert.equal(resolveFullId(full, ID2), ID2);
+  assert.equal(resolveFullId(full, ID2.toUpperCase()), ID2);
+  assert.equal(resolveFullId(full, '2ba4'), null, 'too short');
+  assert.equal(resolveFullId(full, 'ffffffffff'), null);
+  assert.equal(resolveFullId(normalizeFullIndex(fullIndex([ID2, OTHER])), '2ba4d6'), null, 'two decisions start so: not guessed');
+  assert.equal(resolveFullId(null, '2ba4d645b8'), null, 'no bundle yet');
+  assert.equal(normalizeFullIndex({ error: 'NotFound' }), null);
+  // the decision's file names its turn (the page then reads minds/<turn>.json)
+  assert.deepEqual([fullDecision().id, fullDecision().bell, fullDecision().tag], [ID2, 12, AI]);
+});
+
+test('without a bundle: the decision files are read backwards from the current turn, 16 per step, past the 60-turn window, until the record is found or turn 0 was read; the panel says what was searched', () => {
+  assert.equal(mindsFloorOf({ bellNow: 122 }), 62, 'a running season: the last 60 turns');
+  assert.equal(mindsFloorOf({ bellNow: 122, deep: true }), 0, 'a linked record not found yet: back to turn 0');
+  assert.equal(mindsFloorOf({ bellNow: 122, full: true }), 0, 'a finished season: the whole season');
+  const files = new Map([[8, [early({ bell: 8 })]]]); // the only turn that has the record
+  const have = new Map(), missed = new Map();
+  let steps = 0, low = null, found = null;
+  while (!found) {
+    const want = planMindProbes({ bellNow: 122, have, missedAt: missed, floor: mindsFloorOf({ bellNow: 122, deep: true }) });
+    if (!want.length) break;
+    steps++;
+    assert.ok(want.length <= 16, 'bounded per step');
+    for (const b of want) { if (b > 121) missed.set(b, 122); else have.set(b, files.get(b) ?? []); }
+    low = Math.min(low ?? Infinity, ...want);
+    found = findRecord({ minds: [...have.values()].flat() }, '2ba4d645b8')?.rec ?? null;
+    if (!found) assert.match(textOf(renderTracePanel(ctxOf('ja'), { traceId: '2ba4d645b8', search: { from: low, to: 122, done: false } })), new RegExp(`読み込み中… 記録2ba4d645b8：ターン${low}〜122の判断ファイルを検索済み。`));
+  }
+  assert.deepEqual([found.id, found.bell, steps, low], [ID2, 8, 8, 0]);
+  // within the window only, the same record would never be read
+  assert.equal(Math.min(...planMindProbes({ bellNow: 122, floor: mindsFloorOf({ bellNow: 122 }), max: 999 })), 62);
+  // a record that is in no file: every turn down to 0 was read, and only then "not found in this run"
+  const have2 = new Set(Array.from({ length: 123 }, (_, i) => i));
+  assert.deepEqual(planMindProbes({ bellNow: 122, have: have2, floor: 0 }), []);
+  assert.match(textOf(renderTracePanel(ctxOf('en'), { traceId: 'abcdef123456', search: { from: 0, to: 122, done: true } })), /Record abcdef123456 was not found in this run \(searched back to turn 0\)\./);
+  assert.match(textOf(renderTracePanel(ctxOf('en'), { traceId: 'abcdef123456', search: { from: 59, to: 122, done: false } })), /Loading… record abcdef123456: the decision files of turns 59 to 122 have been searched\./);
+  assert.doesNotMatch(textOf(renderTracePanel(ctxOf('en'), { traceId: 'abcdef123456', search: { from: 59, to: 122, done: false } })), /not found/);
+});
+
+test('from the event of step 1 AND cited: one mark says both, the verdict says shown and cited, and the caveat stays (a finished season: candidates from the bundle)', () => {
+  const rec = early();
+  const tr = buildTrace({ rec, opened: null, full: fullDecision(), minds: [rec], episodes: episodes(), herald: heraldOf(DEPART_ROW), events: eventsOf(departEvent(T.human)), index, bellNow: 122 });
+  assert.deepEqual(tr.memory.lines.map(l => [l.n, l.cited, l.fromStep1]), [[1, false, false], [2, true, true]]);
+  assert.deepEqual(tr.memory.verdicts, [{ seq: 1572, status: 'cited' }]);
+  assert.equal(tr.fromBundle, true);
+  assert.deepEqual([tr.decision.candidates.map(c => c.id), tr.decision.chosen.map(c => c.label)], [['c1', 'c5'], ['Muster 200 spearman into a new army']]);
+  const en = renderTrace(ctxOf('en'), tr), ja = renderTrace(ctxOf('ja'), tr);
+  assert.deepEqual(byClass(ja, 'trace-both').map(textOf), ['手順1のイベント1572から · 示され、モデルが引用']);
+  assert.deepEqual(byClass(en, 'trace-both').map(textOf), ['from event 1572 of step 1 · shown and cited by the model']);
+  const m2 = byClass(ja, 'trace-line')[1];
+  assert.equal(byClass(m2, 'chip').length, 1, 'one mark on that line, not two');
+  assert.match(textOf(ja), /イベント1572の行はモデルに示され、モデルが引用しました。/);
+  assert.match(textOf(ja), /引用は、その行がモデルに示されモデルが名指ししたことを示すだけで、判断がそれに基づいたことを示すものではありません。/);
+  assert.match(textOf(en), /The line from event 1572 was shown to the model and cited by it\./);
+  assert.match(textOf(en), /not that the choice rested on it/);
+  assert.doesNotMatch(textOf(en).replace('I must muster my reserve into a host.', ''), NO_CAUSE);
+  // step 3: the bundle's candidates, said to be from the season-end publication; step 4: the muster transaction, no march
+  assert.match(textOf(byClass(en, 'trace-step-3')[0]), /The candidates come from the season-end publication/);
+  assert.match(textOf(byClass(ja, 'trace-step-3')[0]), /候補はシーズン終了時の公開物（シーズン終了後に公開）によるものです。/);
+  assert.match(textOf(byClass(en, 'trace-step-3')[0]), /c5 Muster 200 spearman into a new armychosen.*Chose: c5 Muster 200 spearman into a new army · goal G1Parameters: c5: share 50/);
+  assert.match(textOf(byClass(en, 'trace-step-4')[0]), /muster sent .*This decision sent no march\./);
+  // without the bundle the same record says the list is not published, and claims no source
+  const bare = renderTrace(ctxOf('en'), buildTrace({ rec, opened: null, minds: [rec], episodes: episodes(), herald: heraldOf(DEPART_ROW), events: eventsOf(departEvent(T.human)), index }));
+  assert.match(textOf(bare), /The candidate list is not published for this record\./);
+  assert.doesNotMatch(textOf(bare), /season-end publication/);
+  // an opened march keeps its own candidates (the bundle is not laid over them)
+  assert.equal(buildTrace({ rec: rec0(), opened: op0(), full: fullDecision(), minds: [rec0()], episodes: episodes(), index }).fromBundle, false);
+});
+
+test('the list at the top covers every model decision with a threat or clash wake among the records given: a whole finished season, not a window', () => {
+  const a = early({ bell: 12 });
+  const b = early({ id: 'ab'.repeat(32), bell: 95, wake: ['W-THREAT'] });
+  const lateThreat = { ...THREAT, id: 'cccccccccccccccc', bell: 94, created_bell: 94, src: ['event:9000'] };
+  const lateRow = heraldRow(9000, 94, 'DEPART', { host_id: HOST_P }, { arrive_bell: 96, dep_mass: 300000, depart_bell: 94, origin_p: 2, origin_q: 0 }, SIG_EV);
+  const log = makeLog();
+  ingestLog(log, page(home(171, T.human), DEPART_ROW, lateRow), 0);
+  const env = { minds: [a, b], opened: new Map(), episodesByTag: new Map([[AI, episodes([SAWMILL, THREAT, lateThreat])]]), log, hostParts, events: [], index, bellNow: 122 };
+  assert.deepEqual(startedByPeople(env).map(x => [x.id.slice(0, 4), x.bell, x.triggers.map(g => g.seq)]), [['abab', 95, [9000]], ['2ba4', 12, [1572]]]);
+  const text = textOf(renderTracePanel(ctxOf('ja'), { started: startedByPeople(env) }));
+  assert.match(text, /ターン95.*ターン94のアステル（人（プレイヤー））の行動のあと.*ターン12.*ターン11のアステル（人（プレイヤー））の行動のあと/);
 });

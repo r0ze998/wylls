@@ -27,6 +27,11 @@
 //   - "no result yet" until a clash row or an own episode exists for the march; the view never says that no clash happened
 //     (the files it reads carry real clashes only, so their absence proves nothing).
 //
+// After a season ends the citizens service publishes a season-end bundle (`/h/ai/full/index.json`, `full/decisions/<id>.json`):
+// the candidates of EVERY model decision, not only of opened marches. The trace uses them for step 3 and says where they come
+// from. The record itself (wake, choice, the lines shown, transactions) is always the one of `minds/<turn>.json`; the bundle's
+// index names the decision ids, so a link to an old decision finds its turn through `full/decisions/<id>.json`.
+//
 // Pure builders (`buildTrace`, `startedByPeople`, `normalizeHerald`, …) and the render function; no network here.
 import { actorEl, int, lineEl, placeText, tplNodes } from './parts.mjs';
 import { tagKey } from './badges.mjs';
@@ -141,6 +146,22 @@ export function hostOwner(log, hostParts, hostId, seq) {
   return { state: log.scanned >= seq ? 'unknown' : 'loading', tag: null };
 }
 
+// ------------------------------------------------------------------ the season-end bundle
+/** `full/index.json` → `{lastBell, ids}` (the ids of the decisions that have a `full/decisions/<id>.json`), or null. */
+export function normalizeFullIndex(file) {
+  if (!file || typeof file !== 'object' || !Array.isArray(file.files)) return null;
+  const ids = [];
+  for (const f of file.files) { const m = /^full\/decisions\/([0-9a-f]{64})\.json$/.exec(str(f?.path)); if (m) ids.push(m[1]); }
+  return { lastBell: num(file.last_bell), ids };
+}
+/** The one decision id of the bundle that starts with `prefix` (null when none does, or more than one). */
+export function resolveFullId(full, prefix) {
+  const p = str(prefix).toLowerCase();
+  if (!full || !/^[0-9a-f]{6,64}$/.test(p)) return null;
+  const hit = full.ids.filter(id => id.startsWith(p));
+  return hit.length === 1 ? hit[0] : null;
+}
+
 // ------------------------------------------------------------------ who acted
 /** True when every script bot of the roster can be recognised by tag (the page derived a tag for each listed wallet). */
 export const scriptListKnown = index => index.scriptCount === 0 || index.scriptTagCount >= index.scriptCount;
@@ -241,15 +262,21 @@ function eventItem(seq, eps, { herald, events, index, log, hostParts }) {
 // ------------------------------------------------------------------ the trace of one decision
 /**
  * `rec` the decision record (normalizeMinds; may be null when only the opened record is known), `opened` its opened
- * record or null, `minds` every decision record (to find the AI's previous decision with the same wake), `episodes` the
+ * record or null, `full` the decision's file of the season-end bundle (normalizeOpenFile shape) or null, `minds` every decision record (to find the AI's previous decision with the same wake), `episodes` the
  * AI's episode Map (null while it has not loaded), `herald` Map(seq → normalizeHerald row), `events` normalizeEvents
  * rows, `index` the roster index, `bellNow` the current bell, `sigSeq` (optional) `sigSeqIndex(herald)` when many traces are built,
  * `log` the page's copy of the herald's log (`makeLog`; `herald` is its `rows`), `hostParts` faddr.mjs `hostParts` (null while loading, false if it failed).
  */
-export function buildTrace({ rec = null, opened = null, minds = [], episodes = null, herald = null, events = [], index, bellNow = null, sigSeq = null, log = null, hostParts = null }) {
+export function buildTrace({ rec = null, opened = null, full = null, minds = [], episodes = null, herald = null, events = [], index, bellNow = null, sigSeq = null, log = null, hostParts = null }) {
   log ??= { ...makeLog(), rows: herald ?? new Map() };
   herald ??= log.rows;
   const d = buildDecision({ rec, opened, episodes });
+  // a finished season: the candidates of a decision that was never a sealed march come from the season-end bundle
+  const fromBundle = !!full && d.state !== 'sealed' && !d.candidates.length && full.candidates.length > 0;
+  if (fromBundle) {
+    d.candidates = full.candidates;
+    d.chosen = d.chosenIds.map(id => full.candidates.find(c => c.id === id) ?? { id, kind: '', label: '', facts: [], troops: null, refs: [], entities: [] });
+  }
   const eventWakes = d.wake.filter(w => EVENT_WAKES.includes(w));
 
   // step 1
@@ -271,7 +298,7 @@ export function buildTrace({ rec = null, opened = null, minds = [], episodes = n
     const cited = d.remembered.map(m => m.id);
     const ids = [...shown, ...cited.filter(id => !shown.includes(id))];
     ids.forEach((id, i) => {
-      const fromRecord = opened?.remembered.find(m => m.id === id) ?? null;
+      const fromRecord = opened?.remembered.find(m => m.id === id) ?? full?.remembered.find(m => m.id === id) ?? null;
       const ep = episodes?.get?.(id) ?? null;
       const text = fromRecord?.text ?? ep?.text ?? null;
       const missing = !text || (!text.en && !text.ja);
@@ -311,14 +338,14 @@ export function buildTrace({ rec = null, opened = null, minds = [], episodes = n
   return {
     id: d.id, tag: d.tag, index: d.index, bell: d.bell, kind: d.kind, by: d.by, reason: d.reason, state: d.state, releaseBell: d.releaseBell, wake: d.wake, eventWakes,
     episodesLoaded: !!episodes, window, triggers, startedByPerson: triggers.some(g => g.actors.some(isPerson)),
-    memory, decision: d,
+    memory, decision: d, fromBundle,
     result: { tx, marches, sealed: d.state === 'sealed', marched: d.marched, unrevealed: d.unrevealed, notSent: d.notSent },
     wantSeqs: [...want].sort((a, b) => a - b), scanTo,
     pending: !episodes ? eventWakes.length > 0 : triggers.some(g => (g.seq !== null && !g.loaded) || g.actorState === 'loading'),
   };
 }
 
-const envOf = (env, rec, opened, sigSeq = null) => ({ rec, opened, minds: env.minds, episodes: env.episodesByTag.get(rec?.tag ?? opened?.tag) ?? null, herald: env.herald ?? env.log?.rows ?? null, events: env.events, index: env.index, bellNow: env.bellNow, sigSeq, log: env.log ?? null, hostParts: env.hostParts ?? null });
+const envOf = (env, rec, opened, sigSeq = null) => ({ rec, opened, full: env.fullById?.get(rec?.id ?? opened?.id) ?? null, minds: env.minds, episodes: env.episodesByTag.get(rec?.tag ?? opened?.tag) ?? null, herald: env.herald ?? env.log?.rows ?? null, events: env.events, index: env.index, bellNow: env.bellNow, sigSeq, log: env.log ?? null, hostParts: env.hostParts ?? null });
 
 /** The record whose id starts with `idPrefix` (a deep link may carry the first digits only): `{rec, opened}` or null. */
 export function findRecord({ minds = [], opened = new Map() }, idPrefix) {
@@ -433,8 +460,12 @@ function step2(ctx, tr) {
       h('span', { class: 'cand-id' }, l.n !== null ? `M${l.n}` : '—'), ' ',
       l.missing ? h('span', { class: 'missing' }, t(l.loading ? 'dec.remembered_loading' : 'dec.remembered_missing', { id: l.id.slice(0, 8) })) : lineEl(ctx, l.text, l.entities, { cls: 'line' }), ' ',
       h('span', { class: 'bellmark' }, [l.kind, l.bell !== null ? t('page.bell_n', { n: int(l.bell) }) : ''].filter(Boolean).join(' · ')));
-    if (l.fromStep1) li.appendChild(h('span', { class: 'chip chip-motion' }, l.events.some(s => s !== null) ? t('trace.mem.from_event', { seq: l.events.filter(s => s !== null).map(int).join(', ') }) : t('trace.mem.from_step1')));
+    const from = l.fromStep1 ? (l.events.some(s => s !== null) ? t('trace.mem.from_event', { seq: l.events.filter(s => s !== null).map(int).join(', ') }) : t('trace.mem.from_step1')) : null;
+    // from the event of step 1 AND cited: one mark that says both
+    if (from && l.cited && l.n !== null) li.appendChild(h('span', { class: 'chip chip-model trace-both' }, `${from} · ${t('trace.mem.cited')}`));
+    else if (from) li.appendChild(h('span', { class: 'chip chip-motion' }, from));
     if (l.n === null) li.appendChild(h('span', { class: 'chip chip-state-sealed' }, t('trace.mem.unlisted')));
+    else if (l.cited && from) { /* said in the mark above */ }
     else if (l.cited) li.appendChild(h('span', { class: 'chip chip-model' }, t('trace.mem.cited')));
     else li.appendChild(h('span', { class: 'chip chip-auto' }, t('trace.mem.not_cited')));
     ul.appendChild(li);
@@ -454,6 +485,7 @@ function step3(ctx, tr) {
   if (d.kind === 'reflection') return stepEl(ctx, 3, 'trace.s3', h('p', null, by), h('p', { class: 'reflection-body muted' }, t('dec.reflection_body')));
   const kids = [h('p', null, by, d.by !== 'model' ? h('span', { class: 'muted' }, ` ${t('trace.auto_note')}`) : null)];
   kids.push(d.candidates.length ? h('details', { class: 'cand-box', open: true }, h('summary', null, t('dec.candidates')), candidateList(ctx, d)) : h('p', { class: 'muted small' }, t('trace.no_candidates')));
+  if (tr.fromBundle) kids.push(h('p', { class: 'muted small trace-bundle' }, t('trace.from_bundle')));
   const chose = d.chosen.length ? d.chosen.map(c => (c.label || c.kind ? `${c.id} ${candidateLabel(t, c)}` : c.id)).join(' + ') : t('dec.chose_none');
   kids.push(h('p', { class: 'chose' }, h('strong', null, `${t('dec.chose')}: `), chose, d.goalId ? h('span', { class: 'muted' }, ` · ${t('dec.goal', { id: d.goalId })}`) : null));
   if (d.params.length) kids.push(h('p', { class: 'trace-params' }, h('strong', null, `${t('trace.params')}: `), d.params.map(p => `${p.id}: ${p.pairs.map(([k, v]) => `${k} ${v}`).join(' · ')}`).join('; ')));
@@ -518,8 +550,11 @@ export function renderTrace(ctx, tr, { onClose = null } = {}) {
     step1(ctx, tr), step2(ctx, tr), step3(ctx, tr), step4(ctx, tr));
 }
 
-/** The short list at the top of the decisions section, and the open trace under it. */
-export function renderTracePanel(ctx, { started = [], pending = false, trace = null, traceId = null, onOpen = null, onClose = null } = {}) {
+/**
+ * The short list at the top of the decisions section, and the open trace under it. `search` (`{from, to, done}`) says
+ * which turns' decision files have been read while the linked record is still not found.
+ */
+export function renderTracePanel(ctx, { started = [], pending = false, trace = null, traceId = null, search = null, onOpen = null, onClose = null } = {}) {
   const { h, t, lang } = ctx;
   const box = h('div', { class: 'trace-panel' });
   const list = h('div', { class: 'trace-started' }, h('h3', null, t('trace.started.title')), h('p', { class: 'muted small' }, t('trace.started.note')));
@@ -537,6 +572,10 @@ export function renderTracePanel(ctx, { started = [], pending = false, trace = n
   if (started.length && pending) list.appendChild(h('p', { class: 'muted small' }, t('trace.started.loading')));
   box.appendChild(list);
   if (trace) box.appendChild(renderTrace(ctx, trace, { onClose }));
-  else if (traceId) box.appendChild(h('p', { class: 'empty trace-loading' }, t('trace.loading', { id: String(traceId).slice(0, 16) })));
+  else if (traceId) {
+    // never an empty panel: what is being searched, and "not found" only once turn 0 was reached
+    const id = String(traceId).slice(0, 16);
+    box.appendChild(h('p', { class: 'empty trace-loading' }, !search ? t('trace.loading', { id }) : search.done ? t('trace.not_found', { id }) : t('trace.searching', { id, a: int(search.from), b: int(search.to) })));
+  }
   return box;
 }
