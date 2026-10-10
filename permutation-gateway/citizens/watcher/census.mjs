@@ -15,9 +15,11 @@ export function createCensus({ feed, roster }) {
 
   function ingest(events) {
     for (const ev of events ?? []) {
-      if (ev.kind !== 'SETTLE') continue;
+      // conquest: a first home is a HOME_PLACED row, an outpost an OUTPOST_SETTLED row, a capture names its captor
+      if (!['SETTLE', 'HOME_PLACED', 'OUTPOST_SETTLED', 'CAPTURE_SETTLED'].includes(ev.kind)) continue;
       if (ev.citizen) tags.add(ev.citizen);
       if (ev.displaced) tags.add(ev.displaced);
+      if (ev.captor) tags.add(ev.captor);
     }
   }
   const rosterTags = () => [...roster.ai.map(a => a.tag), ...(roster.seat?.tag ? [roster.seat.tag] : [])];

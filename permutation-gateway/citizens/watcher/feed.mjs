@@ -49,7 +49,9 @@ export const FATE_NAMES = Object.freeze(['None', 'Stays', 'Withdrew', 'Bounced',
 
 /** Kinds kept by default (the rest are counted and skipped): the ones episodes, owners and wakes read. */
 export const KEPT_KINDS = Object.freeze(['JOIN', 'SETTLE', 'RELEASE', 'HOLDING_FINAL', 'BUILD', 'TRAIN', 'MUSTER', 'DISSOLVE', 'STRANDED',
-  'DEPART', 'REVEAL', 'DEPARTURE_SETTLED', 'TRANSIT_SETTLED', 'CLASH', 'CAMP']);
+  'DEPART', 'REVEAL', 'DEPARTURE_SETTLED', 'TRANSIT_SETTLED', 'CLASH', 'CAMP',
+  // conquest (program version 3): who holds a village is in these, not in SETTLE (owners.mjs)
+  'HOME_PLACED', 'OUTPOST_SETTLED', 'CAPTURE_SETTLED']);
 
 const keyOf = d => `${d.name}:${Object.values(d.key ?? {}).join(',')}`;
 
@@ -82,6 +84,11 @@ export function normalizeRow(row, { kinds = KEPT_KINDS } = {}) {
     case 'JOIN': Object.assign(out, { citizen15: k.citizen_tag15, wallet: p.wallet, faction: p.faction, shard: p.shard }); break;
     case 'SETTLE':
       Object.assign(out, { p: k.p, q: k.q, site: k.site, outcome: p.outcome, citizen: tagFromDecimal(p.citizen_tag), displaced: p.displaced_tag === '0' ? null : tagFromDecimal(p.displaced_tag), gen: p.gen, final_ts: p.final_ts, ticket_bell: p.ticket_bell });
+      break;
+    case 'HOME_PLACED': Object.assign(out, { p: k.p, q: k.q, site: k.site, citizen: tagFromDecimal(p.citizen_tag), gen: p.gen, final_ts: p.final_ts }); break;
+    case 'OUTPOST_SETTLED': Object.assign(out, { p: k.p, q: k.q, site: k.site, citizen: tagFromDecimal(p.citizen_tag), gen: p.gen, order: p.order }); break;
+    case 'CAPTURE_SETTLED':
+      Object.assign(out, { p: k.p, q: k.q, site: k.site, outcome: p.outcome, captor: p.captor_tag === '0' ? null : tagFromDecimal(p.captor_tag), victim: p.victim_tag === '0' ? null : tagFromDecimal(p.victim_tag), gen: p.new_gen });
       break;
     case 'RELEASE': Object.assign(out, { p: k.p, q: k.q, site: k.site, citizen: tagFromDecimal(p.citizen_tag) }); break;
     case 'HOLDING_FINAL': Object.assign(out, { p: k.p, q: k.q, site: k.site, final_ts: p.final_ts }); break;

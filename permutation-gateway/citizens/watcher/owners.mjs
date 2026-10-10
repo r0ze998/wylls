@@ -1,7 +1,7 @@
 // AC6a: who owns what, from public records only (AI-CITIZENS-CONTRACT §0.2, §1.3 C5, §3.2, §11.6).
 //
 //   const owners = createOwners({ seasonAddress, programId });
-//   owners.ingest(event)                 // a normalised feed event: JOIN, SETTLE, RELEASE, HOLDING_FINAL
+//   owners.ingest(event)                 // a normalised feed event: JOIN, SETTLE, RELEASE, HOLDING_FINAL; conquest: HOME_PLACED, OUTPOST_SETTLED, CAPTURE_SETTLED
 //   owners.citizenOfHost(hostId)         // → tag (16 hex digits) | null   (host-id layout + SETTLE history)
 //   owners.factionOfTag(tag) / factionOfHost(hostId)
 //   owners.holdingsOf(tag)               // → [{p, q, site, gen, founded_bell, final, tier}]
@@ -67,7 +67,7 @@ export function createOwners({ seasonAddress, programId } = {}) {
   const sites = new Map();
   /** tag → Set of site keys currently held */
   const held = new Map();
-  const stats = { joins: 0, settles: 0, releases: 0, finals: 0, unknown_holder: 0, roster_filled: 0 };
+  const stats = { joins: 0, settles: 0, releases: 0, finals: 0, homes: 0, outposts: 0, captures: 0, unknown_holder: 0, roster_filled: 0 };
 
   function hold(tag, key, on) {
     let s = held.get(tag);
@@ -95,6 +95,34 @@ export function createOwners({ seasonAddress, programId } = {}) {
         list.push({ gen: ev.gen, tag: ev.citizen, bell: ev.bell, final: false, tier: null, open: true });
         sites.set(key, list);
         hold(ev.citizen, key, true);
+        break;
+      }
+      // Conquest (program version 3): PlaceHome grants the first village at once, already final (HOME_PLACED, frontier-abi
+      // log.rs kind 17: key (p, q, site), payload citizen_tag, gen, final_ts, funder). An outpost (OUTPOST_SETTLED, kind 88)
+      // names its holder and generation the same way. Both are what SETTLE fresh is on an M1 season.
+      case 'HOME_PLACED':
+      case 'OUTPOST_SETTLED': {
+        if (ev.kind === 'HOME_PLACED') stats.homes++; else stats.outposts++;
+        const key = siteKey(ev.p, ev.q, ev.site);
+        const list = sites.get(key) ?? [];
+        for (const h of list) if (h.open) { h.open = false; hold(h.tag, key, false); }
+        list.push({ gen: ev.gen, tag: ev.citizen, bell: ev.bell, final: ev.kind === 'HOME_PLACED', tier: null, open: true });
+        sites.set(key, list);
+        hold(ev.citizen, key, true);
+        break;
+      }
+      // A capture (CAPTURE_SETTLED, kind 83) moves the village to the captor under a new generation; a host mustered under
+      // the old generation still names the old holder. With no captor tag (the village became a Free City) it only ends.
+      case 'CAPTURE_SETTLED': {
+        stats.captures++;
+        const key = siteKey(ev.p, ev.q, ev.site);
+        const list = sites.get(key) ?? [];
+        for (const h of list) if (h.open) { h.open = false; hold(h.tag, key, false); }
+        if (ev.captor) {
+          list.push({ gen: ev.gen, tag: ev.captor, bell: ev.bell, final: true, tier: null, open: true });
+          hold(ev.captor, key, true);
+        }
+        sites.set(key, list);
         break;
       }
       case 'RELEASE': {
