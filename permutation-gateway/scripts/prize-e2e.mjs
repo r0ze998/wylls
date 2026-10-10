@@ -71,7 +71,13 @@ const h = createHerald({ base });
 let pin, kernel, originalScale, A;
 
 async function action(name, player, fields, extra = {}) {
-  const sent = await submit({ name, accounts: accountsFor(name, { ...player.context, ...extra }), fields, signer: { session: player.session } });
+  // (right after a fast-forward the relay and the herald are catching up: a request may time out before anything is sent)
+  let sent;
+  for (let i = 0; i < 6; i++) {
+    sent = await submit({ name, accounts: accountsFor(name, { ...player.context, ...extra }), fields, signer: { session: player.session } });
+    if (sent.ok || !['network', 'Unavailable', 'HTTP502', 'HTTP504'].includes(sent.code)) break;
+    await sleep(5000);
+  }
   assert.equal(sent.ok, true, `${name} submit ${json(sent)}`);
   const landed = await track(sent.signature, { tries: 80, every: 500 });
   assert.equal(landed.ok, true, `${name} track ${json(landed)}`);
@@ -113,46 +119,48 @@ async function run() {
   assert.ok(terms.prize, 'the stack runs without --prize-so');
   report.season = s.record.season; report.programId = s.record.programId; report.endBell = s.season.endBell; report.prize = terms.prize; report.joinGate = terms.joinGate;
   const pool0 = await poolNow();
+  const grew = p => ['collected', 'prize', 'ops'].map(k => String(BigInt(p[k]) - BigInt(pool0[k])));
   check('pool-opened', { fee: pool0.fee, opsBps: pool0.opsBps, prize: pool0.prize, ops: pool0.ops, entries: pool0.entries, paramsHash: pool0.paramsHash });
   kernel = await loadKernel({ url: `${base}/frontier/frontier/wasm/frontier-v2.wasm`, ruleset: toHex(s.season.rulesetHash) });
   const seeds = s.record.rings.map(r => ({ ring: r.d, seed: r.seed }));
 
   // Homes and a target: the nearest enemy keep of the outer ring, two homes of one nation with a route to it.
-  const provinces = [];
-  for (const at of ringProvinces(3)) { const r = await h.province(at.p, at.q); if (r.ok) provinces.push(r.province); }
-  const targets = [];
-  for (const at of ringProvinces(4)) { const r = await h.province(at.p, at.q); if (r.ok && r.province.keep?.tile < 61) targets.push(r.province); }
-  const choices = [];
-  for (const province of provinces) for (const home of homeSites(province, { ringsOpen: s.record.rings.length })) {
-    for (const target of targets) {
-      if (target.keep.holder === home.faction) continue;
-      const dest = { p: target.p, q: target.q, tile: target.keep.tile };
-      const p = planRoute(kernel, { from: home, to: dest, unit: 0, seeds });
-      if (p.ok) choices.push({ home, dest, route: p.route, defender: target.keep.holder });
-    }
-  }
-  choices.sort((a, b) => a.route.secs - b.route.secs);
   const sameHome = (a, b) => a.p === b.p && a.q === b.q && a.site === b.site;
   const sameDest = (a, b) => a.p === b.p && a.q === b.q;
-  let first, support;
-  for (const c of choices) {
-    support = choices.find(x => x.home.faction === c.home.faction && !sameHome(x.home, c.home) && sameDest(x.dest, c.dest));
-    if (support) { first = c; break; }
-  }
-  assert.ok(first && support, 'two homes of one nation reach the same enemy keep');
-  const other = choices.find(x => x.home.faction !== first.home.faction && !sameHome(x.home, first.home));
-  assert.ok(other, 'a second nation can join');
+  // (a stack that has just started is still publishing its provinces: look again until the three homes exist)
+  const { first, support, other } = await eventually('two homes of one nation reach the same enemy keep, and a home of another nation', async () => {
+    const provinces = [];
+    for (const at of ringProvinces(3)) { const r = await h.province(at.p, at.q); if (r.ok) provinces.push(r.province); }
+    const targets = [];
+    for (const at of ringProvinces(4)) { const r = await h.province(at.p, at.q); if (r.ok && r.province.keep?.tile < 61) targets.push(r.province); }
+    const choices = [];
+    for (const province of provinces) for (const home of homeSites(province, { ringsOpen: s.record.rings.length })) {
+      for (const target of targets) {
+        if (target.keep.holder === home.faction) continue;
+        const dest = { p: target.p, q: target.q, tile: target.keep.tile };
+        const p = planRoute(kernel, { from: home, to: dest, unit: 0, seeds });
+        if (p.ok) choices.push({ home, dest, route: p.route, defender: target.keep.holder });
+      }
+    }
+    choices.sort((a, b) => a.route.secs - b.route.secs);
+    for (const c of choices) {
+      const support = choices.find(x => x.home.faction === c.home.faction && !sameHome(x.home, c.home) && sameDest(x.dest, c.dest));
+      const other = choices.find(x => x.home.faction !== c.home.faction);
+      if (support && other) return { first: c, support, other };
+    }
+    return null;
+  }, 180000);
 
   // 1. Faucet, then the paid Join over x402.
   const players = [];
   for (const [role, choice] of [['attacker', first], ['other-nation', other], ['supporter', support]]) {
     const key = await keyFromSeed(randomBytes(32)), session = await keyFromSeed(randomBytes(32));
     const wallet = await connect(devWallet(key), { chain: 'solana:localnet' });
-    const player = { role, wallet, session, home: choice.home, context: { addresses: pin.addresses, wallet: wallet.address, actor: session.publicKey, faction: choice.home.faction, holding: choice.home, province: choice.home } };
+    const player = { role, key, wallet, session, home: choice.home, context: { addresses: pin.addresses, wallet: wallet.address, actor: session.publicKey, faction: choice.home.faction, holding: choice.home, province: choice.home } };
     const faucet = await api('/f/faucet', { wallet: wallet.address });
     assert.equal(faucet.status, 200, json(faucet));
     const before = (await poolNow(wallet.address)).wallet;
-    const joined = await joinViaX402(gw, { wallet: wallet.address, signTransaction: w => wallet.signTransaction(w), faction: choice.home.faction, session: session.publicKeyBytes,
+    const joined = await joinViaX402(gw, { wallet: wallet.address, sign: m => key.sign(m), faction: choice.home.faction, session: session.publicKeyBytes,
       sessionExpiry: BigInt(s.record.latestUnix) + 7n * 86400n, maxFee: 25_000_000n });
     const after = await poolNow(wallet.address);
     assert.equal(BigInt(before.balance) - BigInt(after.wallet.balance), 25_000_000n, 'the wallet paid exactly the fee');
@@ -161,15 +169,15 @@ async function run() {
       requirements: { scheme: joined.requirements.scheme, network: joined.requirements.network, maxAmountRequired: joined.requirements.maxAmountRequired, payTo: joined.requirements.payTo, asset: joined.requirements.asset },
       testUsdcBefore: before.balance, testUsdcAfter: after.wallet.balance, pool: { entries: after.entries, collected: after.collected, prize: after.prize, ops: after.ops } });
     if (players.length === 1) {
-      // Two payers: 2 × 25 = 50 collected, 40 prize, 10 operator.
-      assert.deepEqual([after.collected, after.prize, after.ops], ['50000000', '40000000', '10000000']);
-      check('pool-after-two-payers', { collected: after.collected, prize: after.prize, ops: after.ops });
+      // Two payers: 2 × 25 = 50 collected, 40 prize, 10 operator (on top of what the pool held before this run).
+      assert.deepEqual(grew(after), ['50000000', '40000000', '10000000']);
+      check('pool-after-two-payers', { collected: after.collected, prize: after.prize, ops: after.ops, addedByThisRun: grew(after) });
     }
     players.push(player);
   }
   const pool3 = await poolNow();
-  assert.deepEqual([pool3.entries, pool3.collected, pool3.prize, pool3.ops], [3, '75000000', '60000000', '15000000']);
-  check('pool-after-three-payers', { collected: pool3.collected, prize: pool3.prize, ops: pool3.ops });
+  assert.deepEqual([pool3.entries - pool0.entries, ...grew(pool3)], [3, '75000000', '60000000', '15000000']);
+  check('pool-after-three-payers', { entries: pool3.entries, collected: pool3.collected, prize: pool3.prize, ops: pool3.ops, addedByThisRun: grew(pool3) });
 
   // An unpaid wallet: the relay answers 402, and the game refuses the Join on chain without the gate's signature.
   {
@@ -203,7 +211,7 @@ async function run() {
     const citizen = await rpc('getAccountInfo', [A.citizen(wallet), { encoding: 'base64' }]);
     assert.equal(citizen.value, null, 'the unpaid wallet has no Citizen');
     const poolSame = await poolNow();
-    assert.equal(poolSame.entries, 3);
+    assert.equal(poolSame.entries, pool3.entries);
     check('unpaid-join-refused', { wallet, relayX402: { status: refused.status, code: refused.body.code }, relayFreeJoin: free.body.code, onChain: direct });
   }
 
@@ -294,7 +302,8 @@ async function run() {
       const before = (await poolNow(wallet)).wallet.balance;
       const { feePayer, blockhash } = (await api('/f/relay')).body;
       const ix = claimIx({ prize: terms.prize, wallet, citizen: A.citizen(wallet), nation: m?.nation ?? player.home.faction, points: BigInt(m?.points ?? 0), proof: (m?.proof ?? []).map(x => Buffer.from(x, 'hex')) });
-      const wire = await player.wallet.signTransaction(wireTransaction(compileMessage({ feePayer, recentBlockhash: blockhash, instructions: [ix] })));
+      const message = compileMessage({ feePayer, recentBlockhash: blockhash, instructions: [ix] });
+      const wire = wireTransaction(message, { [wallet]: await player.key.sign(message) });
       const r = await api('/f/prize/claim', { tx: toBase64(wire) });
       const after = (await poolNow(wallet)).wallet.balance;
       claims.push({ role: player.role, wallet, nation: player.home.faction, points: m?.points ?? 0, status: r.status, code: r.body.code ?? null, signature: r.body.signature ?? null, testUsdcBefore: before, testUsdcAfter: after, received: String(BigInt(after) - BigInt(before)) });
