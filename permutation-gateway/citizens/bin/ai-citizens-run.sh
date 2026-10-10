@@ -157,7 +157,7 @@ if [ -z "$DECK" ]; then
   case "$STACK_NAME" in
     ai-citizens) DECK=deck-3 ;;
     ai-ab) DECK=deck-2 ;;
-    ai-smoke|ai-cq-demo) DECK=deck-1 ;;
+    ai-smoke|ai-cq-demo|ai-cq-prize) DECK=deck-1 ;;
     *) die "no default deck for $STACK_NAME: pass --deck deck-1|deck-2|deck-3" ;;
   esac
 fi
