@@ -29,6 +29,11 @@ use super::terrain::ProvinceTerrain;
 
 /// Kernel version of this module (part of the ruleset hash).
 pub const CAMP_VERSION: u16 = 1;
+/// The conquest rules' version (MC §3.13, §7): [`place_v2`] never puts a
+/// camp on the province's keep tile (the keep is a garrison there, and two
+/// garrisons cannot share a tile). Bound into `ruleset_hash_input_v2`
+/// only; [`CAMP_VERSION`] keeps the M1 value.
+pub const CAMP_VERSION_V2: u16 = 2;
 
 /// Troops of a camp: `CAMP_TROOPS_MIN + rand(0..=CAMP_TROOPS_SPREAD)`.
 pub const CAMP_TROOPS_MIN: u32 = 100;
@@ -81,6 +86,33 @@ pub fn place(
     has_holding: bool,
     initial: bool,
 ) -> Option<Camp> {
+    place_inner(ring_seed, p, terrain, day, has_holding, initial, None)
+}
+
+/// [`place`] for the conquest rules (`CAMP_VERSION_V2`): the same draws
+/// over the candidate list without `keep_tile`, so a camp never stands on
+/// the keep. With `keep_tile = None` (rings 0–1) it equals [`place`].
+pub fn place_v2(
+    ring_seed: &[u8; 32],
+    p: ProvinceCoord,
+    terrain: &ProvinceTerrain,
+    day: u32,
+    has_holding: bool,
+    initial: bool,
+    keep_tile: Option<u8>,
+) -> Option<Camp> {
+    place_inner(ring_seed, p, terrain, day, has_holding, initial, keep_tile)
+}
+
+fn place_inner(
+    ring_seed: &[u8; 32],
+    p: ProvinceCoord,
+    terrain: &ProvinceTerrain,
+    day: u32,
+    has_holding: bool,
+    initial: bool,
+    exclude: Option<u8>,
+) -> Option<Camp> {
     if initial {
         if p.ring() < CAMP_FIRST_RING {
             return None;
@@ -96,7 +128,7 @@ pub fn place(
     let mut cands = [0u8; PROVINCE_TILES];
     let mut n = 0usize;
     for t in 1..PROVINCE_TILES as u8 {
-        if camp_tile_ok(terrain, t) {
+        if camp_tile_ok(terrain, t) && exclude != Some(t) {
             cands[n] = t;
             n += 1;
         }

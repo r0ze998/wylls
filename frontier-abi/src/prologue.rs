@@ -73,6 +73,9 @@ pub enum Acc {
     Incinerator,
     /// Test-only (ResolveClash): any account.
     Any,
+    /// A program account of an ABI v2 kind (MC contract §5.2; never used
+    /// by an M1 table): the v2 Province (4,736 B) or a MarchState.
+    KindV2(crate::v2::layout::AccountKind),
 }
 
 /// Writability of a position.
@@ -408,6 +411,20 @@ pub fn accounts_of(ix: Ix) -> &'static [Group] {
                     one!(&[s!("frontier", Kind(K::Frontier), false, R)]),
                     rep!(&[PROVINCE_W], 1, 3),
                     one!(&[SYSTEM]),
+                ]
+            }
+        }
+        Ix::PlaceHome => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("frontier", Kind(K::Frontier), false, R),
+                        PROVINCE_W,
+                        HOLDING_W,
+                        s!("joinshard", Kind(K::JoinShard), false, W),
+                        SYSTEM,
+                    ]),
                 ]
             }
         }
@@ -789,7 +806,10 @@ pub fn check_flags(specs: &[Spec], accounts: &[AccountView<'_>]) -> Result<(), F
         }
         match sp.wr {
             Wr::W if !a.is_writable => return Err(FrontierError::BadAccount),
-            Wr::R if a.is_writable && matches!(sp.acc, Acc::Kind(_) | Acc::Either(..)) => {
+            Wr::R
+                if a.is_writable
+                    && matches!(sp.acc, Acc::Kind(_) | Acc::Either(..) | Acc::KindV2(_)) =>
+            {
                 // A program account listed read-only must not be writable
                 // (keeps the lock set of §8.8 honest).
                 return Err(FrontierError::BadAccount);

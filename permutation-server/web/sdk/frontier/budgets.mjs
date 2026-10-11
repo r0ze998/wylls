@@ -12,6 +12,8 @@
 // nothing here hard-codes one.
 import { BUDGETS } from './abi-budgets.mjs';
 import { TAGS } from './abi-tags.mjs';
+import { BUDGETS as BUDGETS_V2 } from './abi-v2-budgets.mjs';
+import { TAGS as TAGS_V2 } from './abi-v2-tags.mjs';
 import { concat, u32le, u64le } from '../bytes.mjs';
 import { COMPUTE_BUDGET_PROGRAM } from '../solana-tx.mjs';
 
@@ -27,15 +29,17 @@ export const PACKET_BYTES = BUDGETS.constants.tx_max;
 
 const byTag = new Map(BUDGETS.instructions.map(b => [b.tag, b]));
 const byName = new Map(BUDGETS.instructions.map(b => [b.name, b]));
-const tagInfo = new Map(TAGS.instructions.map(t => [t.tag, t]));
+const tagInfo = new Map([...TAGS.instructions, ...TAGS_V2.instructions].map(t => [t.tag, t]));
+const byTagV2 = new Map(BUDGETS_V2.instructions.map(b => [b.tag, b]));
+const byNameV2 = new Map(BUDGETS_V2.instructions.map(b => [b.name, b]));
 
 /**
  * The budget row of an instruction (by tag or by its ABI name, e.g.
  * 'Depart'): `{name, tag, class, cuBudget, cuLimit, loadedLimit, txCeiling,
  * heap, writeLocks, accounts: [min, max]}`, or null for an unknown one.
  */
-export function budgetOf(which) {
-  const b = typeof which === 'number' ? byTag.get(which) : byName.get(which);
+export function budgetOf(which, profile = 1) {
+  const b = typeof which === 'number' ? (profile === 2 ? byTagV2 : byTag).get(which) : (profile === 2 ? byNameV2 : byName).get(which);
   if (!b) return null;
   return {
     name: b.name, tag: b.tag, class: b.class, cuBudget: b.cu_budget, cuLimit: b.cu_limit, loadedLimit: b.loaded_limit,
@@ -45,7 +49,7 @@ export function budgetOf(which) {
 }
 
 /** Every instruction's budget row, in tag order. */
-export const allBudgets = () => [...byTag.keys()].sort((a, b) => a - b).map(budgetOf);
+export const allBudgets = () => [...byTag.keys()].sort((a, b) => a - b).map(tag => budgetOf(tag));
 
 const cbIx = data => ({ programId: COMPUTE_BUDGET_PROGRAM, keys: [], data });
 export const setComputeUnitLimit = units => cbIx(concat([CB.SET_COMPUTE_UNIT_LIMIT], u32le(units)));
@@ -58,8 +62,8 @@ export const requestHeapFrame = bytes => cbIx(concat([CB.REQUEST_HEAP_FRAME], u3
  * L(kind) from the budgets table, `cuPrice` µlamports per CU (0 on every
  * sponsored player shape), and a heap frame only when asked.
  */
-export function budgetPrefix(which, { cuPrice = 0n, cuLimit, loadedLimit, heap } = {}) {
-  const b = budgetOf(which);
+export function budgetPrefix(which, { cuPrice = 0n, cuLimit, loadedLimit, heap, profile = 1 } = {}) {
+  const b = budgetOf(which, profile);
   if (!b) throw new Error(`no budget for instruction ${which}`);
   const ixs = [setComputeUnitLimit(cuLimit ?? b.cuLimit), setComputeUnitPrice(BigInt(cuPrice)), setLoadedAccountsDataSizeLimit(loadedLimit ?? b.loadedLimit)];
   if (heap) ixs.push(requestHeapFrame(heap));

@@ -1,0 +1,30 @@
+{
+ "_note": "recorded 2026-10-04 from the real pinned llama-server started by citizens/llama/start-pinned.sh on 41901 (chat_template and sampling params removed); the ps line is the process command line",
+ "props": {
+  "default_generation_settings": {
+   "n_ctx": 16384
+  },
+  "total_slots": 1,
+  "model_alias": "gemma-4-26b-a4b-it",
+  "model_ftype": "Q4_0",
+  "model_path": "/OUTPUTS/.claude/data/models/gemma-4-26B-A4B-it-Q4_0.gguf",
+  "modalities": {
+   "vision": false,
+   "video": false,
+   "audio": false
+  },
+  "media_marker": "<__media_UM0QeYybnnu76pkubmyRb1HG05PUwHmG__>",
+  "endpoint_slots": true,
+  "endpoint_props": false,
+  "endpoint_metrics": true,
+  "ui": false,
+  "ui_settings": {},
+  "bos_token": "<bos>",
+  "eos_token": "<eos>",
+  "build_info": "b11146-7fe450e19",
+  "is_sleeping": false,
+  "cors_proxy_enabled": false
+ },
+ "ps_args": "/opt/homebrew/bin/llama-server -m /OUTPUTS/.claude/data/models/gemma-4-26B-A4B-it-Q4_0.gguf --alias gemma-4-26b-a4b-it --host 127.0.0.1 --port 41901 --jinja --reasoning off -np 1 -c 16384 -ngl 999 -fa on --no-webui --metrics",
+ "binary_realpath": "/opt/homebrew/Cellar/llama.cpp/0.5.0/bin/llama-server"
+}

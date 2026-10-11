@@ -1,22 +1,27 @@
 // The first impression (design session: "no impact, no world when the game
-// opens"): a title card over the living map the first time a device opens
-// the Frontier (and on demand: More → "show the title", ?intro=1 for the
-// demo). The camera drifts in from the mist toward the Concord while the
-// emblem, the title, the six leaders and three lines of the world appear;
-// the live line says the season is real ("Season 7 · bell 1,034 · 1,055
-// holdings"). One button enters (the game page) or starts watching (the
-// spectator page); Escape, Enter or the button close it. Nothing behind it
-// waits for it: the page loads underneath.
+// opens"; UX design 7.1 and 11.9): a title scene the first time a device
+// opens the Frontier (and on demand: More → "show the title", ?intro=1 for
+// the demo). It is an opaque scene of its own, not a card over the game: a
+// picture drawn by code (intro/scene.mjs: the bell's tower large on the chart
+// at dusk, the six nations' standards round it, the bell's ring spreading),
+// and over its foot the title, one line, one sentence, the six leaders standing; the
+// live line says the season is real ("Season 7 · turn 1,034 · 1,055
+// villages"). Nothing of the game behind it shows or can be reached until
+// its one button is pressed (app.mjs: the page is marked `data-title="up"`,
+// the nation choice does not open, the dock and the map are inert). The
+// button says where it leads for this viewer: choose a nation, back to the
+// village, or into the Frontier (the spectator and practice pages: start
+// watching, start practising). Escape, Enter or the button close it. The
+// page loads underneath, so the game is there the moment it closes.
 //
-// Also here: the bell toll — when a bell turns, its number rings across the
-// top of the map for a moment (no sound, no block), so the game's clock is
-// felt, not only read.
+// Also here: the bell toll's words — when a bell turns, its turn's number
+// rings across the top of the map for a moment.
 import { html, raw } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { factionName } from '../fi18n.mjs';
-import { FACTION_FILL, FACTION_DARK, sigilPath } from '../people/avatar.mjs';
-import { leaderSvg, LEADERS } from '../people/leaders.mjs';
-import { lang } from '../../lang.mjs';
+import { FACTION_FILL, FACTION_DARK, FACTION_MARK, sigilPath } from '../people/avatar.mjs';
+import { leaderFigure, CHARACTERS } from '../people/leaders.mjs';
+import { icon } from '../hud/icons.mjs';
 
 export const INTRO_KEY = 'ps-fintro:v1';
 /** The leaders appear one by one (ms apart) after the title. */
@@ -39,7 +44,7 @@ export function emblemSvg({ size = 96, title = null } = {}) {
   const a11y = title ? `role="img" aria-label="${String(title).replace(/[<>&"]/g, '')}"` : 'aria-hidden="true" focusable="false"';
   const ring = Array.from({ length: 6 }, (_, f) => {
     const a = -Math.PI / 2 + (f * Math.PI) / 3, x = 50 + Math.cos(a) * 34, y = 50 + Math.sin(a) * 34;
-    return `<g transform="translate(${x.toFixed(2)} ${y.toFixed(2)})"><circle r="9.5" fill="#fffaf0" stroke="${FACTION_DARK[f]}" stroke-width="1.8"/><path d="${sigilPath(f, 5.4)}" fill="${FACTION_FILL[f]}"/></g>`;
+    return `<g transform="translate(${x.toFixed(2)} ${y.toFixed(2)})"><circle r="9.5" fill="#fffaf0" stroke="${FACTION_DARK[f]}" stroke-width="1.8"/><path d="${sigilPath(f, 5.4)}" fill="${FACTION_MARK[f]}"/></g>`;
   }).join('');
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="${size}" height="${size}" class="emblem" ${a11y}>
     <circle cx="50" cy="50" r="46" fill="none" stroke="#d9b44a" stroke-width="1.4" opacity=".85"/>
@@ -50,42 +55,59 @@ export function emblemSvg({ size = 96, title = null } = {}) {
   </svg>`;
 }
 
-/** The live line: season, bell, holdings and lords (from what the page already has). */
+/** The live line: season, turn, villages and nations (from what the page already has). */
 export function liveLine({ seasonId = null, bell = null, holdings = 0, factions = 6 } = {}) {
   const parts = [];
   if (seasonId !== null && seasonId !== undefined) parts.push(L`第${fmtNum(Number(seasonId))}季`);
-  if (Number.isInteger(bell)) parts.push(L`第${fmtNum(bell)}鐘`);
+  if (Number.isInteger(bell)) parts.push(L`ターン ${fmtNum(bell)}`);
   if (holdings > 0) parts.push(L`${fmtNum(holdings)} の村`);
   parts.push(L`${fmtNum(factions)} つの国`);
   return parts.join(' · ');
 }
 
-/** The title card's markup. `mode` 'play' | 'spectate' | 'practice'. */
-export function render({ mode = 'play', live = '' } = {}) {
-  const cta = mode === 'spectate' ? L`観戦をはじめる` : mode === 'practice' ? L`練習をはじめる` : L`辺境へ入る`;
-  const leaders = LEADERS.map((l, i) => html`<li class="intro-leader intro-leader-${i}">${raw(leaderSvg(l.faction, { size: 64 }))}<span>${factionName(l.faction)}</span></li>`);
-  return html`<div class="intro-veil" aria-hidden="true"></div>
+/**
+ * The button's words: where it leads for this viewer. `stage` is the
+ * viewer's stage on the game page once it is known ('none' | 'joined' |
+ * 'ticket' | 'refugee' | 'provisional' | 'final'), null before.
+ */
+export function ctaText(mode = 'play', stage = null) {
+  if (mode === 'spectate') return L`観戦をはじめる`;
+  if (mode === 'practice') return L`練習をはじめる`;
+  if (stage === 'none') return L`国を選ぶ`;
+  if (stage === 'provisional' || stage === 'final') return L`村へ戻る`;
+  if (stage) return L`辺境へ戻る`;
+  return L`辺境へ入る`;
+}
+
+/** A line cut into its sentences (each keeps its stop and the space after it): a narrow screen breaks the line between them, never inside one. */
+export const sentences = text => String(text).match(/[^\u3002.!?]+[\u3002.!?]?\s*/g) ?? [String(text)];
+
+/**
+ * The game's line, the same words as the pitch (the owner's decision of 2026-10-10: one tagline everywhere).
+ * A brand line like the name: not translated.
+ */
+export const TAGLINE = 'Play the agent economy';
+
+/**
+ * The title scene's markup. `mode` 'play' | 'spectate' | 'practice'; `stage` as `ctaText`. The picture is a canvas
+ * the page paints (intro/scene.mjs: the bell's tower on the chart at dusk, the six standards round it); over its
+ * dark foot stand the wordmark, one line, one sentence of what the game is, the six characters standing in a row,
+ * the live line and the one button. (The second review: the first five seconds showed an emblem and a paragraph,
+ * no picture of the game; in English the tagline broke with one orphan word and its ornaments drifted apart.)
+ */
+export function render({ mode = 'play', live = '', stage = null } = {}) {
+  // the six stand in a row and breathe (a still each in reduced motion): the nation's name and its sigil under each
+  const leaders = CHARACTERS.map((l, i) => html`<li class="intro-leader intro-leader-${i}"><span class="intro-fig">${raw(leaderFigure(l.faction))}</span><span class="intro-nation"><svg class="intro-sigil" viewBox="-8 -8 16 16" width="12" height="12" aria-hidden="true" focusable="false"><path d="${sigilPath(l.faction, 6)}" fill="${FACTION_FILL[l.faction]}" stroke="#0a1412" stroke-width="1.2"/></svg>${factionName(l.faction)}</span></li>`);
+  return html`<canvas class="intro-scene" aria-hidden="true"></canvas><div class="intro-veil" aria-hidden="true"></div>
     <div class="intro-card">
-      <div class="intro-emblem">${raw(emblemSvg({ size: 108 }))}</div>
       <h2 class="intro-title" id="intro-title" data-name>Wylls</h2>
-      <p class="intro-tagline">${L`六つの国。十分ごとの鐘。封じられた進軍。`}</p>
+      <p class="intro-tagline" lang="en"><span class="intro-orn" aria-hidden="true"></span><span class="intro-tag"><span class="nowrap">${TAGLINE}</span></span><span class="intro-orn intro-orn-r" aria-hidden="true"></span></p>
+      <p class="intro-lore">${L`十分ごとにターンが変わり、封をして送り出した進軍がいっせいに着いて、同じ州の軍勢とぶつかる。`}</p>
       <ol class="intro-leaders">${leaders}</ol>
-      <div class="intro-lore">
-        <p>${L`大協約の地を中心に、六つの国が霧の辺境へ広がっていく。`}</p>
-        <p>${L`十分ごとに鐘が鳴る。そのあいだに出された進軍はすべて封をされ、行き先は誰にもわからない。`}</p>
-        <p>${L`鐘が鳴ると、同じ州に着いた軍勢がいっせいにぶつかる。人が増えれば、霧の向こうに新しい輪がひらく。`}</p>
-      </div>
       ${live ? html`<p class="intro-live"><span class="intro-dot" aria-hidden="true"></span>${live}</p>` : ''}
-      <button type="button" class="btn primary intro-go" data-act="intro-close">${cta}</button>
+      <button type="button" class="btn primary intro-go" data-act="intro-close">${ctaText(mode, stage)}${icon('next')}</button>
     </div>`;
 }
 
-/** The camera's drift during the title: from far over the Concord to the fitted view (`k` 0..1, eased). */
-export function dolly(target, k) {
-  const e = 1 - Math.pow(1 - Math.max(0, Math.min(1, k)), 3);
-  const from = { x: 0, y: 0, zoom: Math.max(0.02, target.zoom * 0.35) };
-  return { x: from.x + (target.x - from.x) * e, y: from.y + (target.y - from.y) * e, zoom: from.zoom * Math.pow(target.zoom / from.zoom, e) };
-}
-
-/** The bell toll's text. */
-export const tollText = bell => L`第${fmtNum(bell)}鐘`;
+/** The bell toll's banner: the bell tolled, the turn that begins (the page puts the bell icon beside it). */
+export const tollText = bell => L`新しいターン — ターン ${fmtNum(bell)}`;

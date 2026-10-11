@@ -17,6 +17,80 @@ import { createHerald } from '../../permutation-server/web/frontier/herald.mjs';
 import { FS } from '../../permutation-server/web/frontier/fstate.mjs';
 import * as joinScreen from '../../permutation-server/web/frontier/screens/join.mjs';
 import { setLang } from '../../permutation-server/web/lang.mjs';
+import { composerMarch } from '../../permutation-server/web/frontier/screens/march.mjs';
+import { render as renderExplore } from '../../permutation-server/web/frontier/screens/explore.mjs';
+
+test('a slower latest response cannot roll a province back, including its holding generation', () => {
+  const current={seq:'9007199254740993',slot:'80',bell:20,province:{gen:2}};
+  assert.equal(C.latestEnvelope(current,{seq:'9007199254740992',slot:'81',bell:20,province:{gen:1}}),current);
+  const withoutSeq={...current,seq:''};
+  assert.equal(C.latestEnvelope(withoutSeq,{seq:'',slot:'79',bell:21}),withoutSeq);
+  const next={seq:'9007199254740994',slot:'81',bell:20,province:{gen:3}};
+  assert.equal(C.latestEnvelope(current,next),next);
+});
+
+test('the arrival stepper moves from the turn currently displayed after a draft has waited', () => {
+  const saved = { ...FS };
+  try {
+    Object.assign(FS, { season: { minLead: 2, maxLead: 72 }, clock: { genesisTs: 0 }, chain: { now: () => 61 * 600 + 100 },
+      nowBell: 56, compose: { arriveBell: 58, earliest: 58 } });
+    C.ACTIONS['mc-bell']({ d: '1' });
+    assert.equal(FS.compose.arriveBell, 64, 'one later than the currently displayed earliest turn 63');
+    C.ACTIONS['mc-bell']({ d: '-1' }); assert.equal(FS.compose.arriveBell, 63);
+    FS.compose.sending = true;
+    C.ACTIONS['mc-bell']({ d: '1' }); assert.equal(FS.compose.arriveBell, 63, 'sending locks the order');
+  } finally { Object.assign(FS, saved); }
+});
+
+test('a composed march stays with its original holding across city selection, and rejects a replacement generation', () => {
+  const a={p:2,q:0,site:0,gen:1},b={p:3,q:0,site:0,gen:1};
+  const s={holdings:[a,b],activeHolding:1,compose:{holding:{...a},origin:{p:4,q:0}},provinces:new Map()};
+  assert.equal(composerMarch(s).holding,a);
+  assert.equal(composerMarch({...s,holdings:[{...a,gen:2},b]}).holding,null);
+});
+
+test('an exploration draft is hidden in a different village and cannot use a replaced holding generation', () => {
+  const saved={...FS}, h={p:2,q:0,site:0,gen:1};
+  try {
+    Object.assign(FS,{inFlight:0,citizen:{},holdings:[{...h,gen:2}],activeHolding:0,explore:{holding:h,host:{id:1n},tiles:[1]}});
+    assert.doesNotMatch(String(renderExplore(FS)),/data-act="explore-send"/);
+    C.ACTIONS['explore-send']();
+    assert.equal(FS.notice.code,'NotOwner');
+  } finally {Object.assign(FS,saved);}
+});
+
+test('a selected quiet keep retains its actual protection after a newer world control snapshot', async () => {
+  const saved={...FS};
+  const province={layoutVersion:2,p:4,q:0,resolvedNext:10,sites:[],keep:{tile:30,holder:1,troops:300,flags:0,consolidatedUntilBell:25,contender:255,progress:0,required:72}};
+  const control={bell:20,provinces:[{p:4,q:0,control:1,contender:255,progress:0,required:72,heartland:false}]};
+  let reads=0;
+  try {
+    Object.assign(FS,{season:{layoutVersion:2,programVersion:3,endBell:2016},clock:{genesisTs:0},chain:{now:()=>12000},nowBell:20,overviewsBell:20,selected:{p:4,q:0},conquest:null,provinces:new Map(),overviews:new Map([[4,{provinces:[{p:4,q:0,keepTile:30,keepTroops:300}]}]])});
+    C.useHerald({control:async()=>({ok:true,control}),standings:async()=>({ok:false}),province:async()=>{reads++;return {ok:true,seq:'8',bell:9,province};}});
+    await C.refreshConquest();
+    assert.equal(reads,1);
+    assert.equal(FS.conquest.keeps.get('4,0').consolidatedUntil,25);
+    assert.equal(FS.conquest.keeps.get('4,0').troops,300);
+  } finally {C.useHerald(null);Object.assign(FS,saved);}
+});
+
+test('outpost filing refreshes owned slots and stops if its nonrefundable cost increased since the displayed quote', async () => {
+  const saved={...FS}, target={p:4,q:0,site:0}, reads=[];
+  const store={value:2000000n,rate:0n,cap:6000000n,t0:0n,frac:0n};
+  const home={p:2,q:0,site:0,gen:0,order:1,state:2,tier:1,stores:Array.from({length:8},()=>({...store})),queue:[]};
+  const second={...home,p:3,order:2};
+  const citizen={faction:0,flags:4,slots:0,ticketEscrow:0n,ticketBell:0xffffffff,holding:[{p:2,q:0,site:0,gen:0},{p:3,q:0,site:0,gen:0},{gen:255}]};
+  try {
+    Object.assign(FS,{season:{layoutVersion:2,programVersion:3,endBell:2016},wallet:{address:'W'},clock:{genesisTs:0},chain:{now:()=>6000},nowBell:10,holdings:[home],citizen:{...citizen,holding:[citizen.holding[0],{gen:255},{gen:255}]},inFlight:0,homeActionBusy:false,record:{openSites:100,occupiedSites:70},provinces:new Map(),conquest:{outpost:{eligible:true,target,cost:[800,800,400,0,0,200,0,0]}}});
+    C.useHerald({me:async()=>({ok:true,citizen,holdings:[home,second]}),province:async(p,q)=>{reads.push(`${p},${q}`);return {ok:true,seq:'1',province:{p,q,siteCount:1,siteMirror:[{state:0}],conquest:[{kind:0}]}};}});
+    await C.ACTIONS['cq-outpost']({p:'4',q:'0',site:'0'});
+    assert.deepEqual(reads,['4,0','2,0','3,0']);
+    assert.deepEqual(FS.conquest.outpost.cost,[1200,1200,600,0,0,300,0,0]);
+    assert.equal(FS.notice.code,'OutpostRule');
+    assert.match(FS.notice.text,/費用が更新/);
+    assert.equal(FS.homeActionBusy,false);
+  } finally {C.useHerald(null);Object.assign(FS,saved);}
+});
 
 test('the chronicle starts near the head, the warnings judge at cavalry pace, the poll keeps a hidden cadence', () => {
   assert.equal(C.chronicleStart('10000'), 10_000 - C.CHRONICLE_WINDOW);
@@ -96,8 +170,10 @@ test('herald client: a null holding in /h/me is skipped; /h/events reports a ful
 
 test('the garrison form offers increases only (the M1 program refuses delta ≤ 0)', () => {
   const src = readFileSync(new URL('../../permutation-server/web/frontier/screens/holding.mjs', import.meta.url), 'utf8');
-  assert.match(src, /name="delta" type="number" min="1"/);
-  assert.doesNotMatch(src, /増減/);
+  const form = src.match(/<form[^>]*data-form="garrison"[\s\S]*?<\/form>/)?.[0];
+  assert.ok(form, 'garrison form exists');
+  assert.match(form, /name="delta" type="number" min="1"/);
+  assert.doesNotMatch(form, /増減/);
 });
 
 test('refresh: remote host provinces, the invite flag, the explore seed and the chronicle from near the head', async () => {

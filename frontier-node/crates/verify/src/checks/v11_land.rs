@@ -282,6 +282,7 @@ pub fn run(cx: &mut Ctx) {
                 tickets.insert(f.ctx.citizen_by_tag15(&tag15), t);
             }
             Kind::SETTLE => settle(cx, n, r, &mut tickets, &mut tally),
+            Kind::HOME_PLACED => placed_home(cx, r),
             _ => {}
         }
         // Compare the Province post-states of this transaction once its
@@ -514,5 +515,133 @@ fn cohorts_match(cx: &mut Ctx, tx: usize, tally: &BTreeMap<(i32, i32, u32), (u32
             Some(tx),
             format!("cohort {bell}: (filed, settled) {got:?}, the records give {want:?}"),
         );
+    }
+}
+
+/// Independently validate the deterministic grant; it is not a ticket win
+/// and must never be accepted by the random-score verifier as one.
+fn placed_home(cx: &mut Ctx, r: &crate::world::Rec) {
+    use fclient::decode::{Citizen, Frontier, Holding, JoinShard, Province, Season};
+    use frontier_abi::layout::player::{citizen as C, holding as H};
+    use frontier_abi::layout::province::{cohort as CO, site as SM};
+    use frontier_abi::tags::Ix;
+    let w = cx.w;
+    let f = cx.f;
+    let tx = &w.txs[r.tx];
+    let (p, q, site) = r.pqs();
+    let what = format!("home ({p}, {q}, {site})");
+    let check = || -> Result<bool, String> {
+        let ix = tx
+            .ix(Ix::PlaceHome.tag())
+            .ok_or("no PlaceHome instruction")?;
+        let arg = aix::PlaceHome::decode(&ix.data).map_err(|_| "invalid PlaceHome data")?;
+        let ck = ix.key(3).ok_or("no citizen account")?;
+        let pk = f.ctx.province(p, q);
+        let hk = f.ctx.holding(p, q, site);
+        let decode_err = |_| "invalid account bytes".to_owned();
+        let cb = Citizen::decode(w.state_before(&ck, r.tx).ok_or("no citizen pre-state")?)
+            .map_err(decode_err)?;
+        let ca = Citizen::decode(tx.post_data(&ck).ok_or("no citizen post-state")?)
+            .map_err(decode_err)?;
+        let pb = Province::decode(w.state_before(&pk, r.tx).ok_or("no province pre-state")?)
+            .map_err(decode_err)?;
+        let pa = Province::decode(tx.post_data(&pk).ok_or("no province post-state")?)
+            .map_err(decode_err)?;
+        let h = Holding::decode(tx.post_data(&hk).ok_or("no holding post-state")?)
+            .map_err(decode_err)?;
+        let frontier = Frontier::decode(
+            w.state_before(&f.ctx.frontier(), r.tx)
+                .ok_or("no frontier pre-state")?,
+        )
+        .map_err(decode_err)?;
+        let season = Season::decode(
+            w.state_before(&f.ctx.season, r.tx)
+                .ok_or("no season pre-state")?,
+        )
+        .map_err(decode_err)?;
+        let sk = f.ctx.join_shard(cb.faction, cb.join_shard);
+        let sb = JoinShard::decode(w.state_before(&sk, r.tx).ok_or("no shard pre-state")?)
+            .map_err(decode_err)?;
+        let sa = JoinShard::decode(tx.post_data(&sk).ok_or("no shard post-state")?)
+            .map_err(decode_err)?;
+        let coord = ProvinceCoord::new(p, q);
+        if site as usize >= pb.site_count as usize || site as usize >= 12 {
+            return Ok(false);
+        }
+        let b = &pb.site_mirror[site as usize];
+        let a = &pa.site_mirror[site as usize];
+        let gen = b.gen.checked_add(1).ok_or("generation overflow")?;
+        let held = ca.holding[0];
+        let now_bell = frontier_abi::prologue::bell_at(f.genesis_ts, tx.time).unwrap_or(0);
+        let shield_bell = ((h.shield_until.saturating_sub(f.genesis_ts).max(0) + 599) / 600) as u32;
+        Ok(ix.accounts.len() == 9
+            && (arg.p as i32, arg.q as i32, arg.site) == (p, q, site)
+            && ix.key(2) == Some(f.ctx.season)
+            && ix.key(4) == Some(f.ctx.frontier())
+            && ix.key(5) == Some(pk)
+            && ix.key(6) == Some(hk)
+            && ix.key(7) == Some(sk)
+            && season.program_version >= 2
+            && coord.ring() >= 2
+            && coord.ring() < frontier.rings_opened as u32
+            && coord.wedge() == Some(cb.faction)
+            && cb.flags
+                & (C::FLAG_HOME_GRANTED
+                    | C::FLAG_FIRST_HOLDING_FINAL
+                    | C::FLAG_PROVISIONAL
+                    | C::FLAG_REFUGEE)
+                == 0
+            && cb.holdings_n == 0
+            && cb.ticket_bell == C::NO_TICKET
+            && matches!(b.state, SM::STATE_FREE | SM::STATE_RELEASED_FREE)
+            && pb
+                .cohorts
+                .iter()
+                .all(|c| CO::is_free(c.bell, c.filed, c.settled, now_bell))
+            && ca.flags == cb.flags | C::FLAG_HOME_GRANTED | C::FLAG_FIRST_HOLDING_FINAL
+            && ca.holdings_n == 1
+            && (held.p as i32, held.q as i32, held.site, held.gen) == (p, q, site, gen)
+            && ca.ticket_bell == C::NO_TICKET
+            && ca.ticket_escrow == cb.ticket_escrow
+            && h.owner_citizen.to_bytes() == ck
+            && h.state == H::STATE_FINAL
+            && h.flags == H::FLAG_INTRO_BUILD_AVAILABLE
+            && h.gen == gen
+            && h.tile == pb.sites[site as usize]
+            && h.faction == cb.faction
+            && h.ticket_score == 0
+            && h.ticket_bell == C::NO_TICKET
+            && h.final_ts == tx.time
+            && h.founded_ts == tx.time
+            && Some(h.rent_payer.to_bytes()) == ix.key(1)
+            && a.state == SM::STATE_HOLDING
+            && a.faction == cb.faction
+            && a.gen == gen
+            && a.order == 1
+            && a.tier == 0
+            && a.garrison == 0
+            && a.shield_until_bell == shield_bell
+            && pa.n_sites_used == pb.n_sites_used + 1
+            && pa.roster_epoch == pb.roster_epoch.wrapping_add(1)
+            && pa.cohorts == pb.cohorts
+            && sa.holdings == sb.holdings + 1
+            && sa.holdings_by_wedge[cb.faction as usize]
+                == sb.holdings_by_wedge[cb.faction as usize] + 1
+            && r.pu64("citizen_tag") == cb.citizen_tag
+            && r.pu8("gen") == gen
+            && r.pi64("final_ts") == tx.time
+            && Some(r.p32("funder")) == ix.key(1))
+    };
+    match check() {
+        Ok(true) => {}
+        Ok(false) => cx.fail(
+            V,
+            HOME_PLACEMENT_MISMATCH,
+            what,
+            r.bell,
+            Some(r.tx),
+            "first-home entitlement, selected site, ownership or mirror mismatch",
+        ),
+        Err(e) => cx.missing(V, what, r.bell, Some(r.tx), e),
     }
 }

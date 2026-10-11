@@ -53,6 +53,9 @@ export function layout(phone) {
   const out = el => { const r = el.getBoundingClientRect(); return r.width > 0 && (r.right > window.innerWidth + 1 || r.left < -1); };
   const scroller = el => { for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) { const s = getComputedStyle(a); if (/(auto|scroll)/.test(s.overflowX) && a.scrollWidth > a.clientWidth + 1 && a.getBoundingClientRect().right <= window.innerWidth + 1) return true; } return false; };
   for (const el of document.body.querySelectorAll('*')) {
+    // (the tilted board, UX brief §11.1: the stage and the ground canvas inside the map's clipping wrapper are
+    // meant to reach past the picture, so the board fills it at every angle; nothing of the page is cut off there)
+    if (el.closest('.map-clip')) continue;
     if (!visible(el) || !out(el) || (el.parentElement && el.parentElement !== document.body && out(el.parentElement)) || scroller(el)) continue;
     const r = el.getBoundingClientRect();
     clipped.push({ tag: el.tagName.toLowerCase(), id: el.id || null, cls: String(el.className || '').slice(0, 40), text: (el.textContent || '').trim().slice(0, 40), left: Math.round(r.left), right: Math.round(r.right) });

@@ -148,8 +148,10 @@ fn restart_from_snapshot_and_ledger_is_identical() {
             "only the newest two are kept"
         );
         let v = view(&c, &sigs);
-        // A crash: the chain is dropped without any shutdown step.
-        std::mem::forget(c);
+        // No shutdown/snapshot step; dropping releases the OS writer lock,
+        // as process exit does after a real crash. Leaking it would keep
+        // a live writer in this same test process.
+        drop(c);
         v
     };
     let ok = before.feed.iter().filter(|f| f.3.is_none()).count();
@@ -336,4 +338,18 @@ fn measure_ledger_and_restart() {
         s.bytes
     );
     let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn ledger_rejects_a_second_writer_before_replay_and_unlocks_after_stop() {
+    let d = dir("exclusive-writer");
+    let first = Chain::open(cfg(&d)).unwrap();
+    assert!(Chain::open(cfg(&d))
+        .err()
+        .unwrap()
+        .contains("already has a writer"));
+    drop(first);
+    let recovered = Chain::open(cfg(&d)).unwrap();
+    drop(recovered);
+    std::fs::remove_dir_all(d).unwrap();
 }

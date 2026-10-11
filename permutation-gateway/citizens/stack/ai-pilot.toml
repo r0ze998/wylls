@@ -1,0 +1,35 @@
+# The A/B PILOT (AI-CITIZENS contract 11.5 I-B, 9.3 "Pilot and threshold T"): the ai-ab.toml stack (12 AI citizens = deck-2, 120 script bots
+# following the nation council, the A/B config ab.json) for ONE GAME DAY (24 game hours = 144 bells at 10x, about 2.4 h of play plus the drain)
+# instead of the A/B's 16 hours, so that nation 0 has up to five council periods (C0 24, 48, 72, 96, 120; S = C0 + 12 is inside play for all
+# five). Everything else equals ai-ab.toml. Run it as arm A of rep 1 under its own run id:
+#   ai-citizens-run.sh --stack citizens/stack/ai-pilot.toml --citizens-config citizens/config/ab.json --deck deck-2 --ab A --rep 1 \
+#       --run-id ai-pilot-A1 --seat-script citizens/ab/seat.mjs
+# (the run script derives bot_seed 33 and season 33 from rep 1; this file's values are overwritten in the run's copy).
+#
+# The A/B runs (AI-CITIZENS contract v1.2 section 9.3; unit AC5): 12 AI citizens (deck-2), 120 script bots following
+# the nation council, 16 game hours at 10x (about 1.6 h of wall time per arm). Rep 1 uses bot_seed 33; the run script
+# writes the copy for rep 2 (bot_seed 34) and rep 3 (bot_seed 35), where bot_seed and season_id are the same number
+# and run_id names arm and rep. The two arms of a rep share every value here: only the seat's ballot differs.
+#
+# Local test chain only. Base port 41900 (see ai-citizens.toml); one AI stack at a time.
+run_id = "ai-ab"
+mode = "accel"
+beacon = "test-key"
+scale = 10
+preseason_scale = 2000
+game_hours = 24
+drain_bells = 26
+bots = 120
+bot_seed = 33
+season_id = 33
+base_port = 41900
+bots_args = "--follow-council"
+
+[pools]
+beneficiary_lamports = 1000000000
+
+[chaos]
+enabled = false
+
+[adversary]
+enabled = false

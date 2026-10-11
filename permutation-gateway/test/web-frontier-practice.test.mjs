@@ -511,7 +511,9 @@ test('the practice panel in both languages: seven scenarios, controls per scenar
   const built = rep.buildClashArgs({ province: decode('Province', w.before), inputs: decode('ClashInputs', w.inputs), bell: BELL, seed: hex(SEED) });
   const wi = { ...pr.practiceState(), whatif: { p: P, q: Q, bell: BELL, args: built.args, outcome: w.res.outcome, mine: () => false, mineCount: 0, result: null } };
   const wm = text(pr.render(wi));
-  assert.match(wm, /What if: Province 2,0 · Bell 40/);
+  // (hud-4, UX design 11.13: the clash by its TURN; no coordinates and no bell number in a title)
+  assert.match(wm, /What if: the clash of turn 40/);
+  assert.doesNotMatch(wm, /Bell \d|Province \d|seed|bot/i);
   assert.match(wm, /None of your hosts arrived/);
 });
 

@@ -161,6 +161,8 @@ ix_data! {
     CloseHolding {}
     /// 0x37.
     CloseCitizen {}
+    /// 0x38: first, immediately final home in the citizen's own wedge.
+    PlaceHome { p: i16, q: i16, site: u8 }
     /// 0x40.
     Harvest {}
     /// 0x41.
@@ -432,6 +434,7 @@ pub const fn fixed_len(ix: Ix) -> Option<usize> {
         Ix::ReleaseDormant => ReleaseDormant::LEN,
         Ix::CloseHolding => CloseHolding::LEN,
         Ix::CloseCitizen => CloseCitizen::LEN,
+        Ix::PlaceHome => PlaceHome::LEN,
         Ix::Harvest => Harvest::LEN,
         Ix::Build => Build::LEN,
         Ix::Train => Train::LEN,
@@ -486,6 +489,7 @@ pub const fn wire_of(ix: Ix) -> Option<&'static [(&'static str, usize)]> {
         Ix::ReleaseDormant => ReleaseDormant::WIRE,
         Ix::CloseHolding => CloseHolding::WIRE,
         Ix::CloseCitizen => CloseCitizen::WIRE,
+        Ix::PlaceHome => PlaceHome::WIRE,
         Ix::Harvest => Harvest::WIRE,
         Ix::Build => Build::WIRE,
         Ix::Train => Train::WIRE,

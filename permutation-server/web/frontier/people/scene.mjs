@@ -36,6 +36,24 @@ export function departuresAt(chronicle, overviews, bell) {
   return out;
 }
 
+/**
+ * Hosts that are away at `bell` by the public record: `[{host, p, q, tile (where it left from), arriveBell}]`, from
+ * the DEPART records, from the departure turn until the turn its arrival is resolved in (two after the arrival
+ * turn: the anchor, the window and the seed margin, M1-CONTRACT 5.1). From then the rosters say where it stands.
+ * Origin and arrival turn only: the destination is sealed and is not read here.
+ */
+export function awayAt(chronicle, bell) {
+  const out = [];
+  for (const x of chronicle ?? []) {
+    const r = x.record ?? x;
+    if (r.name !== 'DEPART') continue;
+    const arrive = Number(r.arrive_bell), depart = Number(r.depart_bell);
+    if (!(depart <= bell && bell <= arrive + 2)) continue;
+    out.push({ host: String(r.host_id), p: Number(r.origin_p), q: Number(r.origin_q), tile: Number(r.origin_tile), arriveBell: arrive });
+  }
+  return out;
+}
+
 /** Explores of the bell before `bell` and of `bell`: `[{p, q, tiles, faction}]`. */
 export function exploresAt(chronicle, overviews, bell) {
   const out = [];

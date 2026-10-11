@@ -68,6 +68,18 @@ impl ClashBuilder for Provisional {
         bell: u32,
         seed: &[u8; 32],
     ) -> Result<ClashOutcome, String> {
+        // MC (CQ2-E, R-22): a Province v2 is built by the shared v2 model
+        // (`frontier_abi::clash_model::build_v2`: keep and Free City
+        // garrisons), exactly as ResolveFromInputs builds it.
+        if crate::control::is_v2_province(province_before) {
+            if inputs.is_empty() {
+                return Err("inputs: empty".into());
+            }
+            let b = frontier_abi::clash_model::build_v2(province_before, Some(inputs), bell)
+                .map_err(|e| format!("build_v2: {e}"))?;
+            return clash::resolve_clash(&clash::frontier_ruleset(), &b.input(seed))
+                .map_err(|e| format!("{e:?}"));
+        }
         let b = self.build(province_before, inputs, bell, seed)?;
         clash::resolve_clash(&clash::frontier_ruleset(), &b.input()).map_err(|e| format!("{e:?}"))
     }

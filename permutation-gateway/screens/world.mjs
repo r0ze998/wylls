@@ -6,20 +6,35 @@
 //
 // The viewer is the page's own dev wallet with a fixed key (the page reads
 // `ps-dev-wallet` from its storage; the test writes it before load) and a
-// fixed in-game key, so /h/me can name them. Three viewer stages:
-//   none     no Citizen yet (join and faction)
-//   joined   a Citizen with its in-game key, no land (the site picker)
-//   holding  a Citizen with a final Holding at province (2,0), three hosts
-//            (one marching, one free, one Scout) and a resolved clash at
-//            bell 39 in its province (report, tracker, bell sheet)
+// fixed in-game key, so /h/me can name them. Five viewer stages:
+//   none         no Citizen yet (join and faction)
+//   joined       a Citizen with its in-game key, no land (the site picker)
+//   ticket       a Citizen with an open ticket for three candidate sites of its
+//                home wedge (the wait for the village)
+//   provisional  a Citizen with a provisional Holding at province (2,0): a
+//                hamlet, no hosts yet (they come with a final village)
+//   holding      a Citizen with a final Holding at province (2,0), three hosts
+//                (one marching, one free, one Scout) and a resolved clash at
+//                bell 39 in its province (report, tracker, bell sheet)
+//
+// The live mode (UX design 12.4, 14.5) is a world of its own that keeps going
+// under the rules (liveworld.mjs): it takes from here the viewer, the home
+// province's places, the encoder and the page's storage (the march book of
+// the march that is under way when it starts), and answers the herald's
+// files itself. Every answer below is the still fixture's, byte for byte
+// what it was before the live mode existed.
 import { readFileSync } from 'node:fs';
 import { keyFromSeed } from '../../permutation-server/web/session.mjs';
 import { ACCOUNTS } from '../../permutation-server/web/frontier/abi.mjs';
+import { decode as decodeAccount } from '../../permutation-server/web/frontier/fcodec.mjs';
+import { minTipLamports } from '../../permutation-server/web/sdk/frontier/fees.mjs';
 import { toHex } from '../../permutation-server/web/sdk/bytes.mjs';
 import { decode as fromBase58 } from '../../permutation-server/web/sdk/base58.mjs';
 import { KINDS } from '../../permutation-server/web/frontier/flog.mjs';
 import { ringProvinces, regionOf, wedgeOf } from '../../permutation-server/web/frontier/fgeo.mjs';
 import { seasonAddresses, hostId } from '../../permutation-server/web/frontier/faddr.mjs';
+import { pack, encodePath, commit as sealCommit, ctHash as sealCtHash, sealRoot as sealRootOf, sealRound } from '../../permutation-server/web/frontier/seal.mjs';
+import { entryOf, bookKey } from '../../permutation-server/web/frontier/marchbook.mjs';
 import { encodeAccount, fixtures, PROGRAM, SEASON_ID, GENESIS_TS, BELL, LATEST_UNIX, LATEST_SLOT } from '../test/fixtures/frontier/make-fixtures.mjs';
 
 export { PROGRAM, SEASON_ID, GENESIS_TS, BELL, LATEST_UNIX, LATEST_SLOT };
@@ -34,6 +49,11 @@ export const HOME_SITES = Object.freeze([22, 39, 3, 7, 10, 19, 24, 26, 43, 56, 0
 export const CAMP_TILE = 32;
 export const HOME = Object.freeze({ p: 2, q: 0, site: 3, gen: 0, tile: HOME_SITES[3] });
 export const REPORT_BELL = BELL - 1;
+/** The viewer stages the fixture answers for. */
+export const STAGES = Object.freeze(['none', 'joined', 'ticket', 'provisional', 'holding']);
+/** The ticket of stage `ticket`: its bell and its three candidate sites (free sites of the home wedge's ring 2). */
+export const TICKET_BELL = BELL + 1;
+export const TICKET_SITES = Object.freeze([{ p: 2, q: 0, site: 5 }, { p: 1, q: 1, site: 4 }, { p: 1, q: 1, site: 6 }]);
 const NO_BELL = 0xffffffff;
 const b64 = b => Buffer.from(b).toString('base64');
 
@@ -51,53 +71,80 @@ export async function viewer() {
   return { wallet, session, citizen: A.of('Citizen', { wallet }), holding: A.of('Holding', HOME), A };
 }
 
-/** localStorage the page finds at load for a viewer stage and language. */
-export function storageFor(v, { stage, lang, intro = false }) {
+/**
+ * Whether `storageFor` writes the live mode's march book when it is not told (`live` omitted): the fixture server
+ * sets it with `live(on)`, so a caller that only knows `srv.live(true)` and `storageFor(…)` (the preview's boot
+ * page) gets the storage the live world needs.
+ */
+let liveStorage = false;
+export const setLiveStorage = on => { liveStorage = !!on; };
+
+/** localStorage the page finds at load for a viewer stage and language (`live`: also this device's record of the viewer's sealed march, see `liveBook`). */
+export function storageFor(v, { stage, lang, intro = false, live = liveStorage }) {
   const out = { 'ps-lang': lang, 'ps-dev-wallet': toHex(DEV_SEED), 'ps-wallet': DEV_WALLET_NAME };
   // a returning player: the title card was seen (the "intro" scene opens it as a first visit does)
   if (!intro) out['ps-fintro:v1'] = '1';
   if (stage !== 'none') out[`ps-fsession:localnet:${PROGRAM}:${SEASON_ID}:${v.wallet}`] = toHex(SESSION_SEED);
+  if (live && stage === 'holding') out[bookKey({ cluster: 'localnet', programId: PROGRAM, seasonId: SEASON_ID }, v.wallet)] = JSON.stringify(liveBook(v));
   return out;
 }
 
 // ------------------------------------------------------------------ accounts
-function citizenBytes(v, stage) {
-  const land = stage === 'holding';
-  return encodeAccount('Citizen', {
+/** The viewer's Citizen for a stage, as plain fields (the live world writes its own flags, works and bucket over them). */
+export function citizenValues(v, stage) {
+  const land = stage === 'holding' || stage === 'provisional', ticket = stage === 'ticket';
+  return {
     wallet: fromBase58(v.wallet), session: fromBase58(v.session), sessionExpiry: GENESIS_TS + 30 * 86_400, faction: 0,
-    flags: land ? 1 | 4 : 1, holdingsN: land ? 1 : 0, exploresFloorLeft: 3, joinBell: 2, vigilStartMin: 0,
-    holding: land ? [{ p: HOME.p, q: HOME.q, site: HOME.site, gen: HOME.gen }] : [], ticketBell: NO_BELL, citizenTag: 0x5eed_0001n,
-  });
+    flags: stage === 'holding' ? 1 | 4 : stage === 'provisional' ? 1 | 8 : 1, holdingsN: land ? 1 : 0, exploresFloorLeft: 3, joinBell: 2, vigilStartMin: 0,
+    holding: land ? [{ p: HOME.p, q: HOME.q, site: HOME.site, gen: HOME.gen }] : [], ticketBell: ticket ? TICKET_BELL : NO_BELL, citizenTag: 0x5eed_0001n,
+    ...(ticket ? { ticketSites: TICKET_SITES.map(x => ({ ...x })), ticketNext: 0, ticketEscrow: 10_000_000n } : {}),
+  };
 }
+const citizenBytes = (v, stage) => encodeAccount('Citizen', citizenValues(v, stage));
+/** The layout table's encoder (make-fixtures.mjs): an account's bytes from plain fields. */
+export const encode = encodeAccount;
 
 const accrual = (value, rate, cap) => ({ value: value * 1000, rate: rate * 1000, cap: cap * 1000, t0: LATEST_UNIX - 1800, frac: 0 });
-function holdingBytes(v) {
+function holdingBytes(v, stage = 'holding') {
+  // a provisional village: a hamlet founded a moment ago; it harvests and builds, and has no hosts yet
+  if (stage === 'provisional') return encodeAccount('Holding', {
+    p: HOME.p, q: HOME.q, site: HOME.site, gen: HOME.gen, tile: HOME.tile, state: 1, ownerCitizen: fromBase58(v.citizen), faction: 0, order: 1, tier: 0,
+    ticketBell: BELL - 1, foundedTs: LATEST_UNIX - 900, foundedDay: 0, hostSeq: 0, lastOwnerAction: LATEST_UNIX - 300, shieldUntil: LATEST_UNIX + 7_200,
+    stores: [accrual(300, 40, 6_000), accrual(200, 30, 6_000), accrual(150, 25, 6_000), accrual(60, 10, 4_000), accrual(0, 5, 2_000), accrual(0, 0, 2_000), accrual(0, 0, 1_000), accrual(0, 0, 1_000)],
+    queue: [], reserve: [0, 0, 0, 0, 0, 0, 0, 0], transit: [null, null, null, null], finalTs: LATEST_UNIX + 9_000,
+  });
   return encodeAccount('Holding', {
     p: HOME.p, q: HOME.q, site: HOME.site, gen: HOME.gen, tile: HOME.tile, state: 2, ownerCitizen: fromBase58(v.citizen), faction: 0, order: 1, tier: 1,
     ticketBell: 3, foundedTs: GENESIS_TS + 1_300, foundedDay: 0, hostSeq: 10, lastOwnerAction: LATEST_UNIX - 3_600, shieldUntil: LATEST_UNIX + 7_200,
-    stores: [accrual(1_200, 40, 6_000), accrual(800, 30, 6_000), accrual(650, 25, 6_000), accrual(300, 10, 4_000), accrual(120, 5, 2_000), accrual(90, 0, 2_000), accrual(40, 0, 1_000), accrual(20, 0, 1_000)],
+    stores: HOLDING_STORES.map(s => accrual(...s)),
     queue: [{ doneAt: LATEST_UNIX + 1_500, kind: 1, arg: 0, delta: 0 }],
-    reserve: [300, 0, 0, 0, 0, 0, 100, 0],
-    transit: [null, { state: 1, unit: 0, faction: 0, originTile: HOME.tile, originP: HOME.p, originQ: HOME.q, hostId: HOSTS.marching, departBell: BELL - 1, arriveBell: BELL + 3,
-      departTs: LATEST_UNIX - 900, depMass: 400, marchStamina: 74, sealRoot: 'a5'.repeat(32), tip: 14_472, flags: 3 }, null, null],
+    reserve: [...HOLDING_RESERVE],
+    transit: [null, marchingTransit(), null, null],
     finalTs: GENESIS_TS + 20_000,
   });
 }
+/** The final village's stores (whole units: value, per hour, cap), its reserve by unit, and its host on the road. */
+const HOLDING_STORES = Object.freeze([[1_200, 40, 6_000], [800, 30, 6_000], [650, 25, 6_000], [300, 10, 4_000], [120, 5, 2_000], [90, 0, 2_000], [40, 0, 1_000], [20, 0, 1_000]].map(Object.freeze));
+export const HOLDING_RESERVE = Object.freeze([300, 0, 0, 0, 0, 0, 100, 0]);
+const marchingTransit = (sealRoot = 'a5'.repeat(32)) => ({ state: 1, unit: 0, faction: 0, originTile: HOME.tile, originP: HOME.p, originQ: HOME.q, hostId: HOSTS.marching, departBell: BELL - 1, arriveBell: BELL + 3,
+  departTs: LATEST_UNIX - 900, depMass: 400, marchStamina: 74, sealRoot, tip: MIN_TIP, flags: 3 });
 
 const FREE_MIRROR = () => Array.from({ length: 12 }, () => ({ state: 0, faction: 6, pend0Bell: NO_BELL, pend1Bell: NO_BELL, wallItem0Bell: NO_BELL, wallItem1Bell: NO_BELL }));
 /** A province account: the home province carries the viewer's holding, hosts and the camp; every other one is open land. */
-function provinceBytes(p, q) {
+const HOME_ENTRIES = () => [
+  { id: HOSTS.marching, faction: 0, unit: 0, tile: HOME.tile, state: 3, troops: 400_000, staminaValue: 46, staminaBell: BELL - 1, dealtBps: 10_000, fromBell: 20 },
+  { id: HOSTS.free, faction: 0, unit: 0, tile: HOME.tile, state: 1, troops: 600_000, staminaValue: 110, staminaBell: BELL, dealtBps: 10_000, fromBell: 30 },
+  { id: HOSTS.scout, faction: 0, unit: 6, tile: HOME.tile, state: 1, troops: 100_000, staminaValue: 120, staminaBell: BELL, dealtBps: 10_000, fromBell: 30 },
+];
+function provinceBytes(p, q, stage = 'holding') {
   const home = p === HOME.p && q === HOME.q;
   const mirror = FREE_MIRROR();
   const entries = [];
+  const hamlet = stage === 'provisional';
   if (home) {
-    mirror[HOME.site] = { state: 1, faction: 0, order: 1, tier: 1, gen: HOME.gen, garrison: 300_000, pend0Bell: NO_BELL, pend1Bell: NO_BELL, wallItem0Bell: NO_BELL, wallItem1Bell: NO_BELL };
+    mirror[HOME.site] = { state: 1, faction: 0, order: 1, tier: hamlet ? 0 : 1, gen: HOME.gen, garrison: hamlet ? 0 : 300_000, pend0Bell: NO_BELL, pend1Bell: NO_BELL, wallItem0Bell: NO_BELL, wallItem1Bell: NO_BELL };
     mirror[7] = { state: 1, faction: 2, order: 1, tier: 1, gen: 0, garrison: 120_000, pend0Bell: NO_BELL, pend1Bell: NO_BELL, wallItem0Bell: NO_BELL, wallItem1Bell: NO_BELL };
-    entries.push(
-      { id: HOSTS.marching, faction: 0, unit: 0, tile: HOME.tile, state: 3, troops: 400_000, staminaValue: 46, staminaBell: BELL - 1, dealtBps: 10_000, fromBell: 20 },
-      { id: HOSTS.free, faction: 0, unit: 0, tile: HOME.tile, state: 1, troops: 600_000, staminaValue: 110, staminaBell: BELL, dealtBps: 10_000, fromBell: 30 },
-      { id: HOSTS.scout, faction: 0, unit: 6, tile: HOME.tile, state: 1, troops: 100_000, staminaValue: 120, staminaBell: BELL, dealtBps: 10_000, fromBell: 30 },
-    );
+    if (!hamlet) entries.push(...HOME_ENTRIES());
   } else if ((p * 7 + q * 3) % 4 === 0) {
     mirror[0] = { state: 1, faction: ((p + 6) % 6 + 6) % 6, order: 1, tier: 1, gen: 0, garrison: 90_000, pend0Bell: NO_BELL, pend1Bell: NO_BELL, wallItem0Bell: NO_BELL, wallItem1Bell: NO_BELL };
   }
@@ -156,9 +203,42 @@ export function clashReport() {
     outcomeDigest: '3c'.repeat(32), inputDigest: '00'.repeat(32), decoded: { engagements: 3 } };
 }
 
+// ------------------------------------------------------------------ the live world's sealed march (UX design 12.4, 14.5)
+/**
+ * The viewer's march that reached the camp the turn before the live world starts (the fixture's marching host,
+ * transit record 1): this device sealed it, so the page holds its record (the march book), knows where it went and
+ * has revealed it when its arrival turn began: the camp of the home province, four tiles along the way
+ * frontier.wasm's planner gives a Spearman (`MARCH_DIRS`). The plaintext, the commitment and the seal root are the
+ * page's own arithmetic (seal.mjs); the 165 seal bytes are filler (no time-lock is made here: nothing opens them,
+ * and the page checks them only against the root).
+ */
+export const MARCH_DIRS = Object.freeze([5, 0, 0, 0]);
+export const MARCH_DEPART = BELL - 2, MARCH_ARRIVE = BELL + 1;
+export function liveMarch() {
+  const path = encodePath(MARCH_DIRS);
+  const plain = pack({ version: 1, hostId: HOSTS.marching, arriveBell: MARCH_ARRIVE, destP: HOME.p, destQ: HOME.q, destTile: CAMP_TILE, stance: 1, retreatBps: 0, pathLen: path.pathLen, path: path.path });
+  const salt = new Uint8Array(32).fill(0x5a), seal = Uint8Array.from({ length: 165 }, (_, i) => (i === 0 ? 0x83 : (i * 7 + 3) & 0xff));
+  const commit = sealCommit(plain, salt), ct = sealCtHash(seal);
+  return { plain, salt, seal, commit, ctHash: ct, sealRoot: sealRootOf(commit, ct) };
+}
+/** The page's march book for the live world: one entry, written as the page writes it (marchbook.mjs `entryOf`), landed and revealed. */
+export function liveBook(v) {
+  const m = liveMarch();
+  const round = sealRound({ genesisTs: GENESIS_TS, drand: { genesis: SEASON.drand.genesis, period: SEASON.drand.period } }, MARCH_ARRIVE);
+  const e = entryOf({ host: HOSTS.marching, transitSlot: 1, departBell: MARCH_DEPART, arriveBell: MARCH_ARRIVE, holding: v.holding, ...m, round, tip: MIN_TIP,
+    route: { dirs: [...MARCH_DIRS] }, origin: { p: HOME.p, q: HOME.q, tile: HOME.tile } }, () => 0);
+  return [{ ...e, state: 'revealed', attempts: [{ t: GENESIS_TS + 600 * MARCH_ARRIVE + 5, route: 'self', result: 'accepted' }] }];
+}
+
 // ------------------------------------------------------------------ PS2 events (§6), encoded field for field from flog.mjs's table
+/** Records the page's own table does not read (frontier-abi log.rs `SPECS`): the live world logs them as the program does. */
+const MORE_KINDS = Object.freeze({
+  11: { name: 'SESSION', key: [['citizen_tag15', 15]], payload: [['session', 32], ['expiry', 8]] },
+  24: { name: 'DISSOLVE', key: [['host_id', 8]], payload: [['pending_bell', 4], ['delta', 8]] },
+  25: { name: 'GARRISON', key: [['p', 4], ['q', 4], ['site', 1]], payload: [['pending_bell', 4], ['delta', 8]] },
+});
 function ps2(kind, bell, fields) {
-  const spec = KINDS[kind];
+  const spec = KINDS[kind] ?? MORE_KINDS[kind];
   const parts = [Uint8Array.of(1, kind, bell & 0xff, (bell >> 8) & 0xff, (bell >> 16) & 0xff, (bell >>> 24) & 0xff)];
   for (const [name, len] of [...spec.key, ...spec.payload]) {
     const v = fields[name] ?? 0;
@@ -170,6 +250,8 @@ function ps2(kind, bell, fields) {
   parts.push(Uint8Array.of(0));
   return Buffer.concat(parts);
 }
+/** One PS2 record body for the live world's log (liveworld.mjs): `ps2(kind, bell, fields)`. */
+export const record = ps2;
 export function events() {
   const list = [
     ps2(4, 3, { d: 2, t_open: GENESIS_TS + 1_800 }),
@@ -203,19 +285,22 @@ function seasonBytes() {
   return b.toString('base64');
 }
 const SEASON_B64 = seasonBytes();
+const TIP_PARAMS = decodeAccount('Season', Buffer.from(SEASON_B64, 'base64'));
+/** The sample march uses the season's actual reveal budget and priority quote. */
+export const MIN_TIP = minTipLamports(TIP_PARAMS.minRevealPriorityMilli, TIP_PARAMS.revealCuLimit, TIP_PARAMS.revealLoadedLimit);
 export const seasonRecord = () => ({ ...SEASON, headSeq: '812', bytes_b64: SEASON_B64 });
 
 /** `/h/me/{wallet}` for a stage (a wallet that has not joined: a record with no Citizen). */
 export function meRecord(v, stage) {
   if (stage === 'none') return { v: 1, wallet: v.wallet, citizen: null, holdings: [], slots: [] };
   const rec = { v: 1, wallet: v.wallet, citizen: { address: v.citizen, bytes_b64: b64(citizenBytes(v, stage)) }, holdings: [], slots: [], quota: { left: 38, resetsAt: GENESIS_TS + 86_400 } };
-  if (stage === 'holding') rec.holdings = [{ address: v.holding, bytes_b64: b64(holdingBytes(v)) }];
+  if (stage === 'holding' || stage === 'provisional') rec.holdings = [{ address: v.holding, bytes_b64: b64(holdingBytes(v, stage)) }];
   return rec;
 }
 
-/** `/h/province/{P},{Q}/{bell}` (the latest file is bell 40's). */
-export function provinceEnvelope(p, q, bell = BELL) {
-  return { v: 1, key: `pv:${p},${q}`, bell, slot: LATEST_SLOT - 50, seq: '9', head: '7e'.repeat(32), bytes: b64(provinceBytes(p, q)), slots: [], day: null, inputs: null };
+/** `/h/province/{P},{Q}/{bell}` (the latest file is bell 40's); `stage` matters for the home province only (a provisional village is a hamlet without hosts). */
+export function provinceEnvelope(p, q, bell = BELL, stage = 'holding') {
+  return { v: 1, key: `pv:${p},${q}`, bell, slot: LATEST_SLOT - 50, seq: '9', head: '7e'.repeat(32), bytes: b64(provinceBytes(p, q, stage)), slots: [], day: null, inputs: null };
 }
 
 export const overview = d => Buffer.from(overviewBytes(d));

@@ -723,12 +723,13 @@ fn continuity(cx: &mut Ctx) {
             let bell = frontier_abi::prologue::bell_at(f.genesis_ts, tx.time).unwrap_or(0);
             let founding = tx.recs.iter().any(|&n| {
                 let r = &w.recs[n];
-                r.kind == Kind::SETTLE
+                (r.kind == Kind::HOME_PLACED
+                    || (r.kind == Kind::SETTLE
+                        && matches!(
+                            r.pu8("outcome"),
+                            settle_outcome::FRESH | settle_outcome::DISPLACE
+                        )))
                     && r.pqs() == pqs
-                    && matches!(
-                        r.pu8("outcome"),
-                        settle_outcome::FRESH | settle_outcome::DISPLACE
-                    )
             });
             let (what, want) = if founding {
                 (

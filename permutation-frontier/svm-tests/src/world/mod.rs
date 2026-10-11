@@ -19,9 +19,11 @@
 //! layout and says so in the test that uses it.
 //!
 //! Area builders: [`land`] (W3-A), [`holding`] (W3-B), [`clash`] (W4-A),
-//! [`transit`] (W4-B): stubs, handed over (§11).
+//! [`transit`] (W4-B): stubs, handed over (§11); MC: [`conquest`] (CQ2-C,
+//! a stub from CQ2-A's first commit).
 
 pub mod clash;
+pub mod conquest;
 pub mod holding;
 pub mod land;
 pub mod transit;
@@ -61,10 +63,23 @@ pub struct World {
     pub bond: u64,
 }
 
-/// The M1 7-day preset with the build's beacon key hash.
+/// The MC 7-day preset's M1 part (`MC_LOCAL_7D.base`: `program_version`
+/// 2, Frontier-7 dormancy, the v2 fund) with the build's beacon key hash.
+/// [`World::with_params`] adds Frontier-7's conquest block (MC CQ2-A: the
+/// program is the v2 program and refuses M1 seasons).
 pub fn params_for(c: &Chain) -> SeasonParams {
-    let mut p = presets::M1_LOCAL_7D;
+    let mut p = frontier_abi::v2::presets::MC_LOCAL_7D.base;
     p.quicknet_pk_hash = Beacons::for_build(c.build).pk_hash();
+    p
+}
+
+/// A v2 preset with the build's beacon key hash.
+pub fn params_v2_for(
+    c: &Chain,
+    p: frontier_abi::v2::presets::SeasonParamsV2,
+) -> frontier_abi::v2::presets::SeasonParamsV2 {
+    let mut p = p;
+    p.base.quicknet_pk_hash = Beacons::for_build(c.build).pk_hash();
     p
 }
 
@@ -76,6 +91,17 @@ impl World {
     }
 
     pub fn with_params(c: &mut Chain, id: u64, p: SeasonParams) -> World {
+        World::with_v2_params(c, id, six::Params::new(p))
+    }
+
+    /// A world for season `id` with full v2 parameters (a v2 preset such as
+    /// `MC_TEST`, through [`params_v2_for`]).
+    pub fn with_v2(c: &mut Chain, id: u64, p: frontier_abi::v2::presets::SeasonParamsV2) -> World {
+        World::with_v2_params(c, id, six::Params::v2(p))
+    }
+
+    fn with_v2_params(c: &mut Chain, id: u64, params: six::Params) -> World {
+        let p = params.season;
         let authority = c.upgrade_authority.insecure_clone();
         c.airdrop(&authority.pubkey(), 1_000_000_000_000);
         let keeper = crate::keypair(format!("keeper-{id}").as_bytes());
@@ -86,7 +112,7 @@ impl World {
             id,
             authority,
             keeper,
-            params: six::Params::new(p),
+            params,
             beacons: Beacons::for_build(c.build),
             t_create_min,
             bond: presets::MIN_CREATION_BOND,

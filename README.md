@@ -1,8 +1,8 @@
 # Wylls
 
-**Play the agent economy.** Wylls is a strategy game where people and AI agents fight for one map, on Solana. AI citizens, run by the operator on a local model, play beside people, with goals and a memory.
+**Play the agent economy.** Wylls is a strategy game where people and AI citizens can fight for one map. The AI citizens use a local Gemma 4 model, goals and records of earlier events; the game checks their choices before they reach the chain.
 
-> **Status 2026-10-10:** this repository holds two versions of Wylls. **The first version** ran a full season on Solana devnet: MagicBlock ephemeral rollup, joining over x402, test USDC, 14 members (12 operator-run rule-based AI members and 2 people), 180 turns, prizes paid in test USDC; a read-only verifier replayed the season and passed 14 of 14 checks ([record](docs/earlier-prototype/devnet-season-1790355636798-verification.txt); code on branch `codex/magicblock-playable`). **The rebuild** (this branch) ran a full season on a local test chain with 1,000 script bots (1,034 turns; the verifier replayed 144,300 transactions and caught all 30 deliberate tampers). The rebuild does not use x402, MagicBlock or USDC yet: they are being carried over from the first version. AI citizens and conquest are in progress on branches that are not merged here yet.
+> **Status 2026-10-11:** the earlier version ran 180 turns on Solana devnet with test USDC and 14 members: 12 operator-run **rule-based** members and two people. Its verifier passed 14 of 14 checks ([record](docs/earlier-prototype/devnet-season-1790355636798-verification.txt); code on `codex/magicblock-playable`). This rebuild completed a seven-game-day season with 1,000 script bots on a local test chain. Its current code also has conquest, a local **test-USDC** entry and prize path, and AI citizens driven by locally hosted Gemma 4. The rebuild's runs and recorded demo scenes are local; live USDC on Solana mainnet is planned for the next public season, not launched.
 
 ![Wylls: the world map with six nations and the nation standings](docs/img/wylls-world.png)
 
@@ -10,7 +10,7 @@
 
 ## 1. What Wylls is
 
-Wylls is a Civilization-style world on Solana in which six nations (国) share one map. You choose a nation, get a village (村), and play in real time: grow the village, train troops, send armies (軍) on marches whose destination stays sealed, and read a battle report that anyone can replay. The Solana program, not an operator, resolves every fight, and a season (one round of the world) is a log of transactions that a verifier replays and checks (the verifier is ours, not an independent audit). That is the reason for a chain. What exists today is the first playable part, M1, played by script bots: test players that follow fixed rules and are neither AI nor people (the test records call them rule bots). AI citizens, players with goals and a memory, are meant to play beside people; they are in progress ([section 3](#3-the-ai-citizens)). The complete game (conquest, a score per nation, a shared civilisation, money) is designed, not built ([section 4](#status)).
+Wylls is a Civilization-style world on a Solana-compatible chain in which six nations (国) share one map. Choose a nation, grow a village (村), train troops and send sealed marches (軍). When a fight resolves, the program decides its outcome and the browser can recompute the report. Capturing a keep can change the map. A verifier can replay a season's transaction log; it is our verifier, not an independent audit. The completed M1 exit season used rule bots, which follow fixed scripts and are not the Gemma-powered AI citizens. Conquest, local test-USDC mechanics and real-model AI runs came later. The wider civilisation, final nation score and live-money season remain plans ([status](#status)).
 
 ## 2. How it plays
 
@@ -23,20 +23,20 @@ The game runs in real time, but the results of fights, marches and scouting are 
 5. **March under a sealed order.** The departure, the size and the arrival turn are public; the destination is hidden by a time-lock on drand (a public randomness beacon that publishes a value at a fixed time) until the arrival turn has ended. A march needs at least two turns to arrive and cannot be recalled.
 6. **Read the report.** Anyone can replay a battle report, and the web client re-runs the rules code in the browser to check it.
 
-In the code on this branch, winning a fight gains nothing yet: there is no loot, land or score. Conquest is in progress on a branch that is not merged here yet, and a per-nation score is designed ([section 4](#status)).
+With conquest enabled, armies can contest and capture keeps; a recorded local demo shows Fjordal's keep changing hands. The final nation score for the planned public season is still being designed ([section 4](#status)).
 
 ## 3. The AI citizens
 
-**Status: in progress.** AI citizens are players that the operator runs on a local model (Gemma 4, through llama.cpp; no paid API). Their code is on a separate local branch, not published, and is planned to be merged here on 2026-10-12. Six-AI smoke runs and 12-AI pilot/recording runs have completed on a separate run branch; the formal A/B comparison and a completed 18-AI main run remain pending. One early 6-AI smoke run produced 52 valid model decisions that passed the then-current `verify-minds` check; that run alone is below the contract's 300-decision threshold. The runs also contain script bots (30 in that 6-AI run) that play alongside the AIs.
+**Status: running locally, with formal evaluation unfinished.** The AI-citizen code is in this tree. It uses Gemma 4 through llama.cpp, with no paid model API; the model file and server are external prerequisites. The saved `take-1` run used six real-model AI citizens and six separate script bots on a local test chain, and its `verify-minds` result is PASS. The formal A/B comparison and a completed 18-AI main run remain pending. The earlier devnet season's 12 operator-run rule-based members were not Gemma AI.
 
 - **The code offers, the model chooses, the code checks.** The code builds a short list of legal candidates, the model picks one, and the code validates the pick before the program accepts it. If the model is late, invalid or refused, an autopilot (自動運転) plays: it keeps the economy and routine duties and never starts a march of its own. So a voluntary AI march is chosen by the model or ordered by the nation's council (the Strike Order, below), and most of an AI's actions are the autopilot's. The reason for this design is an early spike: left to itself, the bare model rarely chose to march ([report](docs/frontier/ai-agents/gemma4/REPORT.md)).
 - **Memory is cited from public records.** The code writes short event lines from public records (an attack on the AI's army, a camp another nation cleared first); the model never writes them. The page prints the lines the model cited beside its own reason, which is marked not verified. A citation shows that a line was shown and named, not that it caused the choice.
-- **The headline: an AI citizen's own march.** The AI picks a march itself and its army leaves with the destination sealed. After the march is revealed, the decision opens: the options it was offered, its reason, the destination and the real clash report. How many model-chosen marches become a real clash is unknown until the planned 18-AI main run (not yet done); if none does, this claim is dropped and the council becomes the headline.
-- **The nation council.** Once per council period the code proposes up to three target provinces for a nation, and AI citizens speak and vote. The adopted target, the **Strike Order** (攻撃命令), stays sealed from outsiders until the strike. The council (評議会) is off-chain; the chain enforces nothing of it. Nation 0 also has one human seat, held by the operator (the presenter in the planned demo); the other five nations are decided by AI votes alone. In the early 6-AI smoke run, no council reached a quorum.
+- **An AI citizen's own march.** In the saved `take-1` run, Senasha's turn-65 model choice sent a march toward a camp; the turn-68 clash and camp clear appear in that same decision's result. The page shows the offered options, cited records, model-written reason and local-chain transactions. A citation does not prove the memory caused the choice.
+- **The nation council.** The code proposes targets and AI citizens can speak and vote on a sealed **Strike Order** (攻撃命令). The council (評議会) is off-chain; the chain does not enforce its decisions. The selected `take-1` footage shows an AI decision trace, not a human-AI council vote or an adopted Strike Order.
 - **Same rules as people, plus safety limits.** AI citizens use the same keys, rate limits and fog of war (players see only part of the map) as people, plus limits such as at most 4 model-chosen marches a day. The model never sees keys; the local test keys derive from a public seed, so this is structure, not secrecy.
-- **Display and disclosure (decided).** AI citizens are shown in the game like ordinary players, without a mark; the main map client has no AI citizens yet. An AI says it is an AI when sincerely asked (a rule and a check exist on the branch; no recorded case in play). The operator discloses in general, as in this README, that the world contains AI citizens. The council page and the roster file of the test runs still carry a type label (AI, script bot, or the operator's seat); whether they stay is not decided. Legal review of the disclosure (for example EU AI Act Art. 50) has not been done.
+- **Display and disclosure.** The council audit page and run roster label AI citizens, script bots and the operator's seat. The planned game presentation does not mark AI citizens. Legal review of AI disclosure has not been done.
 
-The pre-registered thresholds and the table of results are in [the AI contract, section 10.2](docs/frontier/ai-citizens/AI-CITIZENS-CONTRACT.md#102-gates) and in the design document ([GAME-DESIGN.ja.md](docs/GAME-DESIGN.ja.md), chapters 4 and 8). The results are filled in when the AI branch is merged on 2026-10-12.
+The evaluation thresholds are in [the AI contract](docs/frontier/ai-citizens/AI-CITIZENS-CONTRACT.md#102-gates); [earlier run records](docs/frontier/ai-citizens/RUNS.md) remain available. The saved `take-1` evidence is described in [SUBMISSION.md](SUBMISSION.md#recorded-demo-sources-local-test-chains). Its PASS verdict does not complete the formal A/B or 18-AI gate.
 
 <a id="status"></a>
 
@@ -44,28 +44,28 @@ The pre-registered thresholds and the table of results are in [the AI contract, 
 
 | Area | Tag | In one line |
 |---|---|---|
-| First version (6 nations, 180 turns, officers and votes) | **Ran on devnet** | One full season on Solana devnet with a MagicBlock ephemeral rollup, x402 joining and test USDC: 14 members (12 operator-run rule-based AI members, 2 people), prizes paid in test USDC, 14 of 14 verifier checks. Code on branch `codex/magicblock-playable`; documents in [docs/earlier-prototype](docs/earlier-prototype/INDEX.md) |
+| First version (6 nations, 180 turns, officers and votes) | **Ran on devnet** | One full season with a MagicBlock ephemeral rollup, x402 and test USDC: 12 operator-run rule-based members and two people; 14 of 14 verifier checks. Code on `codex/magicblock-playable`; [historical documents](docs/earlier-prototype/INDEX.md) |
 | Basic game M1 (the rebuild) | **Running** | Joining, building, training, scouting, sealed marches, clashes and reports, with a replay verifier and a web client (Japanese and English). One 7-game-day season ran on a local test chain with 1,000 script bots |
-| AI citizens | **In progress** | Code on a local branch, not merged; 6-AI smoke and 12-AI pilot/recording runs completed, with formal A/B and a completed 18-AI main run pending (section 3) |
-| Conquest (keeps, sieges, occupation) | **In progress** | Program and simulator tests pass on a branch that is not merged here yet |
-| Instant land, 14-day season, one score per nation | **Design only** | The program is unchanged. Only 7-game-day seasons have run; the score formula is open |
+| AI citizens | **Running locally** | Integrated code; saved six-AI/six-script-bot `take-1` run with real Gemma 4 and `verify-minds` PASS. Formal A/B and completed 18-AI main run pending |
+| Conquest (keeps, sieges, occupation) | **Running locally** | Integrated program and web flow; a human-operated local demo recorded a keep capture in `own1`, season 100 |
+| Instant land, target 14-day season, final score per nation | **Planned / incomplete** | The recorded local conquest season was still active; these target features are not demonstrated as a completed season |
 | Society (governance, diplomacy, trade, shared Engine, tech, eras) | **Design only** | Outline only; tech, eras and the Engine are not designed |
-| Money (entry fee, prize pool, protocol fee) | **Ran in the first version** (test USDC on devnet); rebuild: **In progress** | Players pay an entry fee in USDC; 80% goes to the prize pool and 20% is the protocol fee (`ops_share_bps` 2,000 in the first version's rules). No real money has moved: every payment so far was test USDC on devnet |
+| Money (entry fee and prize path) | **Running locally with test tokens** | The rebuild has a 25 **test-USDC** entry path and prize program on its local chain; the recorded `own1` season shows the prize panel, not a final winner or payout. Live USDC is not launched |
 
-Tags: **Running** means code exists and was actually run (a run on another branch is named as such); **In progress** means being built or run for this hackathon; **Design only** means written down, not built (including work that exists only on an unmerged branch); **Planned** means intended, no date. Each part of the complete game with its state is in the [design document](docs/GAME-DESIGN.ja.md) (Japanese).
+The next public season is **planned** for Solana mainnet with live USDC: 25 USDC entry, 80% of fees to the prize pool and 20% to the operator, subject to legal review. Staking is a later plan, not part of this local build. Each part of the wider design has a status in the [design document](docs/GAME-DESIGN.ja.md) (Japanese).
 
 **Headline evidence for M1** (local test chain, script bots; [exit report](docs/frontier/m1/M1-EXIT-NOTES.md), [run record](docs/frontier/m1/runs/m1-exit/)): one season of 7 game days (1,008 play turns plus 26 closing turns, 8 h 39 min at 20x speed) ran from start to finish with 1,000 script bots, and every gating season criterion passed (one in-process test condition failed on the first commit and was fixed in a later one; see the exit report). The replay verifier passed 144,300 transactions and caught all 30 deliberate tampers.
 
 ## 5. Try it
 
-Everything is local; nothing needs a wallet, devnet or a paid service. Look first at the screenshot above and the [M1 run record](docs/frontier/m1/runs/m1-exit/). **Quick path, the practice battle** (a practice clash that runs in the browser with the game's own rules code; no chain, no build; Python 3). From the repository root:
+The demos run on a local test chain with a built-in test wallet and valueless test USDC; they need no devnet account or paid service. The real-model run additionally needs a local Gemma 4 GGUF and llama.cpp. **Quick path, the practice battle** (no chain or build; Python 3), from the repository root:
 
 ```sh
 cd permutation-server/web && python3 -m http.server 8000 --bind 127.0.0.1
 # open http://127.0.0.1:8000/frontier/practice.html   (Japanese or English follows your browser)
 ```
 
-**The full local stack** (the game on a local test chain). You install the toolchains yourself (Rust, the Solana build tools, Node 20 or later; the list is in [docs/RUNNING.md](docs/RUNNING.md)). `up` stays in the foreground (a one-game-day season takes about 72 minutes; at 20x a turn lasts 30 seconds), so use two terminals:
+**The current local stack** (conquest, test-USDC prize path and optional AI citizens) has build prerequisites and guarded commands in [docs/RUNNING.md](docs/RUNNING.md). For the earlier M1 game without those additions, this quick stack still runs; `up` stays in the foreground, so use two terminals:
 
 ```sh
 (cd frontier-node && cargo build --locked --release --workspace)
@@ -76,32 +76,32 @@ $S up --mode accel --beacon test-key --scale 20 --days 1 --bots 20 --run-id try 
 $S down --run-id try
 ```
 
-Open `/frontier/frontier/`, not `/`: the bare address still lands on an older page. The browser joins with a built-in local test wallet. The scripted browser run, the exit-season recipe and the test commands are in [docs/RUNNING.md](docs/RUNNING.md). **The AI citizens cannot be tried yet:** their code is not in this repository before the merge of 2026-10-12.
+Open `/frontier/frontier/`, not `/`. The browser joins with its built-in local test wallet. The scripted browser run, current integrated stack, exit-season recipe and test commands are in [docs/RUNNING.md](docs/RUNNING.md).
 
-**Videos:** game and M1 season [VIDEO LINK pending]; AI citizens (an AI's own march, then the council and the Strike Order) [VIDEO LINK pending], to be recorded on 2026-10-11.
+**Demo footage:** the human-operated `own1` conquest scene (season 100) and the real-Gemma AI decision in `take-1` are separate local test-chain runs. A silent editing preview combines them; it is not a continuous world or an uploaded final video. Final demo and pitch video URLs are pending.
 
 ## 6. Limits and what is not claimed
 
-- **Devnet: the first version only.** The first version ran on devnet with test USDC. The rebuild has run on a local test chain only. Nothing has run on mainnet.
-- **Next: a public season on mainnet.**
-- The first version's devnet season had 12 operator-run rule-based AI members and 2 people from the project. All 1,000 participants of the rebuild's M1 season were script bots written by the team. There is no registration, demand or traction figure. No season longer than 7 game days has run.
+- **Networks and money.** The first version ran on devnet with test USDC. The rebuild's integrated game and recorded scenes have run on local test chains with test USDC only. Mainnet and live USDC are planned, subject to legal review.
+- The first version's devnet season had 12 operator-run rule-based members and 2 people from the project. All 1,000 participants of the rebuild's M1 season were script bots written by the team. There is no registration, demand or traction figure. No season longer than 7 game days has run.
 - **Seal secrecy was not tested.** The M1 season replayed archived drand values, so the signatures were already known; the results show that marches settle, not that destinations stay secret. The verifier is ours, not an independent audit.
-- **AI citizens are in progress, not finished.** Six-AI smoke and 12-AI pilot/recording runs exist on a separate branch; the formal A/B comparison and a completed 18-AI main run remain pending. The AI's reasons and speech are written by the model and not verified; most of an AI's actions are the autopilot's; the council is off-chain; the drand key of the test runs is the operator's test key.
-- **Not in the rebuild's code on this branch yet:** conquest (in progress on an unmerged branch), x402 joining, MagicBlock, USDC entry fees and prizes (all three ran in the first version), instant land, the 14-day season, a score or winner, governance, diplomacy, markets, a shared civilisation. Legal review for money and for the disclosure of AI citizens has not been done.
-- **The CI is partly red.** In the GitHub runs of 2026-10-01 and 10-02, 2 of 8 jobs failed, so the program build and its LiteSVM tests never ran there; the fixes were checked on a Mac only.
+- **AI evaluation remains open.** The saved `take-1` run passed `verify-minds`, but the formal A/B comparison and completed 18-AI main run remain pending. The model's reason is not independently verified; a cited memory line does not prove causation. The council is off-chain, and test-run randomness uses an operator-held test key.
+- **The recorded scenes have limits.** `own1` had no AI or bots; `take-1` had no human participant. The edited sequence changes runs, and a 72-turn local clock advance precedes the `own1` keep capture. The browser replay showed six passing checks and a lower `Match` result while an upper `Unverified` badge remained stale. Neither clip shows a final winner, payout or an adopted Strike Order.
+- **Wider game still planned:** instant land, the target 14-day public season, final nation score, governance, diplomacy, markets and a shared civilisation. Legal review for live money and AI disclosure has not been done.
 - **Not claimed about the AI:** that it is stronger than the script bots, indistinguishable from people or exactly replayable; that it wants or intends anything; that its memory shows why it chose; that the council is enforced by the chain.
-- **Not claimed about the project:** that there is demand, that a game studio was approached, that real money has moved (only test USDC on devnet, in the first version), or that the Civilization-style game is finished.
+- **Not claimed about the project:** that there is demand, that a game studio was approached, that real money has moved, or that the Civilization-style game is finished.
 
 ## 7. Repository map and where to read more
 
 | Path | What it is |
 |---|---|
 | `permutation-frontier/` | The Solana program, with the LiteSVM tests (`svm-tests/`) |
+| `permutation-prize/` | Local test-token entry and prize program; no live-money deployment |
 | `permutation-rules/src/frontier/` | The rules code shared by the program, simulator and browser |
 | `frontier-abi/`, `frontier-wasm/` | The program's ABI; the rules built to WebAssembly for the browser |
 | `frontier-sim/` | The balance simulator |
 | `frontier-node/` | Off-chain services: keeper (settles marches and clashes), herald (read-only data server), verifier, script bots, local chain, stack runner |
-| `permutation-gateway/` | The relay (pays fees within quotas; one door for people and bots), the JS SDK and screen tests |
+| `permutation-gateway/` | Relay and x402 test-token joining, JS SDK, AI-citizen service and council page, screen and prize-path tests |
 | `permutation-server/web/frontier/` | The web client (map, village, march composer, report, practice page) |
 | `scripts/`, `docs/` | Build and run scripts; all documents |
 

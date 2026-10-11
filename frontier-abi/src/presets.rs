@@ -354,7 +354,7 @@ pub const M1_LOCAL_7D: SeasonParams = SeasonParams {
     r_max: 16,
     office_terms_per_wallet: 1,
     postures_enabled: 0,
-    program_version: 1,
+    program_version: 2,
     bell_secs: 600,
     join_close_bell: 756,
     end_bell: 1_008,
@@ -377,7 +377,7 @@ pub const M1_LOCAL_7D: SeasonParams = SeasonParams {
     reveal_cu_limit: 26_500,
     // W5-A: `L(Reveal)` at the release `.so`'s programdata length
     // (`budgets::PLACEHOLDER_SO_LEN`, I-45).
-    reveal_loaded_limit: 1_146_880,
+    reveal_loaded_limit: 1_179_648,
     bucket_rate_per_h: 30,
     bucket_burst: 60,
     defence_cap_milli: 2_000,

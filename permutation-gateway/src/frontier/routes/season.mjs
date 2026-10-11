@@ -26,6 +26,8 @@ export const seasonRoutes = {
         quotas: { txsPerDay: dailyTxs(0), txsPerDayAfter: dailyTxs(QUOTA.earlyDays), afterDay: QUOTA.earlyDays, burst: QUOTA.burst, departsPerDay: QUOTA.departsPerDay,
           lamportsPerDay: lamportsPerDay(s).toString() },
         heraldUrl: ctx.cfg.heraldUrl, joinGate: gated ? base58(s.JOIN_GATE) : null, inviteRequired: gated,
+        // The test-asset prize pool, when the season has one (GET /f/prize reads it from the chain).
+        prize: ctx.prize ? { ...ctx.prize, x402: '/f/x402/join', faucet: !!ctx.faucetKey, testAssetsOnly: true } : null,
         tipMin: tipMin.toString(), tipPresets: tipPresets(tipMin).map(String), marchFee: s.MARCH_FEE.toString(), sealBond: s.SEAL_BOND.toString(),
       },
     };

@@ -1,0 +1,54 @@
+{
+  "ai_bots": 6,
+  "counters": {
+    "answers_autopilot": 373,
+    "answers_model": 14,
+    "answers_reused": 5,
+    "model_marches_sent": 7,
+    "quota_floor_skips": 110,
+    "quota_starved_bells": 89,
+    "reobserved": 14,
+    "steps": 423
+  },
+  "follow_council": true,
+  "mind": true,
+  "timeline": {
+    "1000": {
+      "first_final_bell": 5,
+      "first_model_march_bell": 52,
+      "first_ready_bell": 19,
+      "second_ready_bell": 30
+    },
+    "1001": {
+      "first_final_bell": 6,
+      "first_model_march_bell": 40,
+      "first_ready_bell": 19,
+      "second_ready_bell": 42
+    },
+    "1002": {
+      "first_final_bell": 7,
+      "first_model_march_bell": null,
+      "first_ready_bell": 36,
+      "second_ready_bell": null
+    },
+    "1003": {
+      "first_final_bell": 8,
+      "first_model_march_bell": 40,
+      "first_ready_bell": 19,
+      "second_ready_bell": 31
+    },
+    "1004": {
+      "first_final_bell": 9,
+      "first_model_march_bell": 40,
+      "first_ready_bell": 19,
+      "second_ready_bell": 38
+    },
+    "1005": {
+      "first_final_bell": 10,
+      "first_model_march_bell": null,
+      "first_ready_bell": 31,
+      "second_ready_bell": 55
+    }
+  },
+  "v": 1
+}

@@ -345,11 +345,17 @@ pub fn replay(before: &[u8], a: &Action, now: i64, genesis_ts: i64) -> Result<Re
                 let n = if walls { 1 } else { copy_number(&h, item)? };
                 catalog::building(item, n, doctrine).ok_or(format!("build item {item}"))?
             };
+            let intro = item < catalog::ITEM_WALLS
+                && u8_at(before, H::FLAGS)? & H::FLAG_INTRO_BUILD_AVAILABLE != 0;
+            let secs = if intro { H::INTRO_BUILD_SECS } else { secs };
             h.pay(now, &cost).map_err(|e| format!("pay: {e:?}"))?;
             let done_at = h
                 .enqueue(now, secs as i64, effect)
                 .map_err(|e| format!("enqueue: {e:?}"))?;
             write(&mut d, &h, now)?;
+            if intro {
+                d[H::FLAGS] &= !H::FLAG_INTRO_BUILD_AVAILABLE;
+            }
             let mut payload = vec![item];
             payload.extend_from_slice(&cost_digest(&cost));
             payload.extend_from_slice(&done_at.to_le_bytes());
@@ -489,5 +495,41 @@ pub fn founded(post: &[u8], now: i64, day: u32) -> Result<Vec<u8>, String> {
         d.get_mut(a..b).ok_or("holding: short")?.fill(0);
     }
     write(&mut d, &h, now)?;
+    if post[H::FLAGS] & H::FLAG_INTRO_BUILD_AVAILABLE != 0 {
+        d[H::FLAGS] |= H::FLAG_INTRO_BUILD_AVAILABLE;
+    }
     Ok(d)
+}
+
+#[cfg(test)]
+mod intro_tests {
+    use super::*;
+    #[test]
+    fn intro_build_replay_consumes_exactly_one_persisted_entitlement() {
+        let now = 1_800_000_000;
+        let mut initial = vec![0u8; H::SIZE];
+        initial[H::FLAGS] = H::FLAG_INTRO_BUILD_AVAILABLE;
+        let initial = founded(&initial, now, 0).unwrap();
+        let first = replay(&initial, &Action::Build { item: 0 }, now, now).unwrap();
+        assert_eq!(
+            i64_at(&first.holding, H::queue(0) + QI::DONE_AT).unwrap(),
+            now + 60
+        );
+        assert_eq!(first.holding[H::FLAGS] & H::FLAG_INTRO_BUILD_AVAILABLE, 0);
+        let next = replay(&first.holding, &Action::Build { item: 1 }, now, now).unwrap();
+        assert_eq!(
+            i64_at(&next.holding, H::queue(1) + QI::DONE_AT).unwrap(),
+            now + 60 + 5400
+        );
+        let legacy = {
+            let mut x = initial;
+            x[H::FLAGS] = 0;
+            x
+        };
+        let normal = replay(&legacy, &Action::Build { item: 0 }, now, now).unwrap();
+        assert_eq!(
+            i64_at(&normal.holding, H::queue(0) + QI::DONE_AT).unwrap(),
+            now + 5400
+        );
+    }
 }

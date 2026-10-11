@@ -1,0 +1,67 @@
+/* The banner rule's PROTOTYPE on the board (PROTOTYPE-SPEC.md section 1): the map's own label chip. It is linked by
+   script (map/protochip.mjs) only while the prototype is on; the integrator may link it from the pages instead.
+   The chip says the record's own words: 「試作ルール：旗（設計のみ・プログラム未実装）」. */
+.proto-chip {
+  margin: 0; align-self: flex-start; width: max-content; max-width: calc(100vw - 24px); min-height: 28px; padding: 4px 10px 4px 8px;
+  display: inline-flex; align-items: center; gap: 7px;
+  border-radius: 8px; border: 1px dashed #f0d48a; background: rgba(46, 34, 8, .96); color: #ffe7ae;
+  font: 700 12.5px/1.3 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; letter-spacing: .02em;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .35);
+}
+.proto-chip::before {
+  content: ""; flex: none; width: 9px; height: 13px; border-left: 2px solid #f0d48a;
+  background: linear-gradient(#f0d48a, #f0d48a) left top / 9px 7px no-repeat;
+}
+.proto-chip-map { pointer-events: none; }
+/* ---- THE KEPT PLACE (2026-10-11). The chip says that the banner rule is a design, and the sample world's tag that
+   this is no chain: both are true of the whole screen, so nothing may stand on them and nothing may slide under them.
+   Four things keep the place, each where the thing that entered it is made:
+     the board's labels    map/labelpass.mjs: a no-go rectangle marked `hard` (map/fmap.mjs KEPT_SELECTORS)
+     the effects' words    fx/safe.mjs KEPT_PIECES; a caption's dot is not drawn in the place (fx/effects.mjs)
+     the page's layers     the chip is the top layer of the page: above the effects' layer (62), a milestone's banner
+                           (65), the stores' pop-over (70) and the dial's card (71); frontier.css, fx/fx.css
+     the page's cards      the stores' pop-over opens under the tag's row (it opened over the tag and the chip)
+   These rules follow proto-hand.css in the page, and apply only while the prototype is on: with it off the page is
+   the page it was. */
+.hud-proto-chip, .proto-chip-map { z-index: 75; }
+body[data-proto="banners"] .res-pop { top: calc(var(--strip) + 56px); }
+/* (the pointer home with no place off the viewer's own land, map/homepointer.mjs: put away, its width still measured) */
+.home-pointer.hp-away { visibility: hidden; pointer-events: none; }
+/* the legend's entries for the prototype (map/legend.mjs) */
+.proto-legend-line { margin: 6px 0 0; padding: 6px 8px; border: 1px dashed #c9a24a; border-radius: 8px; font-size: .92em; }
+.survey-key.proto-yours { background: #cc303b; box-shadow: inset 0 0 0 2px #ffd24d, inset 0 0 0 3px #171006; }
+.survey-key.proto-banner { background: linear-gradient(90deg, #161d1a 0 3px, transparent 3px), linear-gradient(#cc303b, #cc303b) 3px 2px / 11px 9px no-repeat; }
+.survey-key.proto-commons { background: repeating-linear-gradient(120deg, rgba(204, 48, 59, .55) 0 2px, transparent 2px 6px); }
+.survey-key.proto-rise { background: none; border: 2px dotted #ffd24d; }
+.survey-key.proto-threat { background: none; border: 3px solid #ff6a4a; border-radius: 50%; border-right-color: rgba(255, 250, 240, .25); }
+.survey-key.proto-frayed { background: repeating-linear-gradient(60deg, rgba(204, 48, 59, .75) 0 2px, transparent 2px 4px); border: 1px dashed #cc303b; }
+@media (max-width: 759px) {
+  /* a phone: the tag stood under the dial's rim (its last words were cut by the bell) and the chip lay on the foot of
+     the 全体図 button. The tag says its two facts in two lines, left of the dial; the chip stands 4 px lower, clear
+     of the row of buttons above it and of the score under it. */
+  /* (the merge of 2026-10-11: two passes had each laid the phone's tag out, and the wider of the two won, so the tag
+     slid 16 px under the dial's rim again. Its layout is ONE rule now, in proto-hand.css — two lines when it must, its
+     mark kept, also for English with the prototype off —, with the width that ends it before the dial's left edge at
+     any phone width. Here only what belongs to the kept place: the tag's row is as tall as two lines, so the chip
+     under it stands in the same place whatever the tag says.) */
+  body[data-proto="banners"] .sample-tag { min-height: 36px; }
+  /* (between the lens button at the left and the map's buttons at the right, which stand two deep when the village is
+     out of the picture: the chip lay on the second one. Its words are whole: in that narrower place they wrap to a
+     second line, as the English label does, and are never cut with an ellipsis.) */
+  body[data-proto="banners"] .hud-proto-chip { top: calc(var(--strip) + 54px); left: calc(var(--edge) + var(--target) + 6px); right: calc(var(--edge) + 88px); translate: none; max-width: none; padding: 2px 6px; font-size: 10px; letter-spacing: 0; line-height: 1.35; text-align: center; white-space: normal; overflow: visible; text-overflow: clip; text-wrap: balance; }
+  body[data-proto="banners"] .res-pop { top: calc(var(--strip) + 80px); }
+  /* (English: the label is two lines there, so the score and the notices under it stand one line lower) */
+  html:lang(en) body[data-proto="banners"] .proto-score { top: calc(var(--strip) + 92px); }
+  html:lang(en) body[data-proto="banners"] .feed { top: calc(var(--strip) + 148px); }
+  html:lang(en) body[data-proto="banners"]:has(.proto-score[data-strip="1"]) .feed { top: calc(var(--strip) + 142px); }
+  html:lang(en) body[data-proto="banners"] .res-pop { top: calc(var(--strip) + 94px); }
+  /* (the merge of 2026-10-11: and the hand's cards stop one line lower too. The phone pass keeps every card of the
+     hand under the guide's line (proto-hand.css, 134 px under the strip), measured in Japanese; with the English
+     label on two lines the guide's line stands 14 px lower, and the training card lay 2 px over its foot.) */
+  html:lang(en) body[data-proto="banners"] .hand-pop[data-mode="card"] { max-height: calc(var(--vvh) - var(--strip) - 150px - var(--tabs) - var(--hand-h, 130px)); }
+}
+@media (max-width: 760px) {
+  .proto-chip { font-size: 11.5px; padding: 3px 8px 3px 7px; min-height: 24px; }
+  /* (on a phone the lenses' button stands under the search button: the map's chip stands beside it, never on it) */
+  .proto-chip-map { margin: 8px 0 0 52px; max-width: calc(100vw - 76px); }
+}

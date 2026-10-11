@@ -345,6 +345,19 @@ impl Engine {
                     .is_some_and(|&(units, meter)| meter || units >= v.cu_limit as u64))
     }
 
+    /// The instructions a pending write's first version would carry with
+    /// fee payer `payer`, and its class and tag (tests and the operator's
+    /// dry run; CQ2-D).
+    pub fn preview(&self, key: &str, payer: Address) -> Option<(Class, u8, Vec<Instruction>)> {
+        let p = self.pending.get(key)?;
+        let ctx = BuildCtx {
+            payer,
+            version: 0,
+            slots_waiting: 0,
+        };
+        Some((p.spec.class, p.spec.tag, (p.spec.build)(&ctx)))
+    }
+
     pub fn pending_len(&self) -> usize {
         self.pending.len()
     }

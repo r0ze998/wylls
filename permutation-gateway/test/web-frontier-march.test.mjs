@@ -30,8 +30,12 @@ import { decode } from '../../permutation-server/web/frontier/fcodec.mjs';
 import { hostId } from '../../permutation-server/web/frontier/faddr.mjs';
 import { seasonClock } from '../../permutation-server/web/frontier/clock.mjs';
 import { decodeOverview } from '../../permutation-server/web/frontier/herald.mjs';
-import { TEST_BEACON } from '../../permutation-server/web/frontier/abi.mjs';
+import { TEST_BEACON, ERRORS as ABI_ERRORS } from '../../permutation-server/web/frontier/abi.mjs';
 import * as composer from '../../permutation-server/web/frontier/screens/march.mjs';
+import { kernel as rulesKernel } from '../screens/kernel.mjs';
+import * as order from '../../permutation-server/web/frontier/hud/marchcard.mjs';
+import { sealLine, TERMS } from '../../permutation-server/web/frontier/hud/glossary.mjs';
+import { renderSurveyHelp } from '../../permutation-server/web/frontier/map/legend.mjs';
 import * as trackerScreen from '../../permutation-server/web/frontier/screens/tracker.mjs';
 import * as hostScreen from '../../permutation-server/web/frontier/screens/host.mjs';
 import * as incomingScreen from '../../permutation-server/web/frontier/screens/incoming.mjs';
@@ -128,15 +132,15 @@ test('the retreat list: "never" (0) first, the ratios in bps, a custom ratio wit
 
 test('the tip: exactly the three sponsored presets from the Season, never zero (I-08, I-51)', () => {
   const tipMin = minTipLamports(SEASON.minRevealPriorityMilli, SEASON.revealCuLimit, SEASON.revealLoadedLimit);
-  assert.equal(tipMin, 14_668n, '§10.1 at p 0.433, 26.5k CU, L(Reveal) 1,146,880 (v1.8, W5-A)');
+  assert.equal(tipMin, 14_671n, '§10.1 at p 0.433, 26.5k CU, L(Reveal) 1,179,648 (current first-home program budget)');
   assert.equal(march.seasonTipMin(SEASON), tipMin);
   const o = march.tipOptions(SEASON);
   assert.deepEqual(o.map(x => x.id), ['standard', 'decisive', 'maximum']);
   assert.deepEqual(o.map(x => x.lamports), tipPresets(tipMin));
-  assert.deepEqual(o.map(x => x.lamports), [14_668n, 22_002n, 29_336n]);
+  assert.deepEqual(o.map(x => x.lamports), [14_671n, 22_007n, 29_342n]);
   assert.ok(o.every(x => x.lamports > 0n && x.priorityMilli >= 433n));
   const costs = march.marchCosts(SEASON, o[1].lamports);
-  assert.deepEqual(costs, { tip: 22_002n, marchFee: 10_000n, sealBond: 20_000n, total: 52_002n });
+  assert.deepEqual(costs, { tip: 22_007n, marchFee: 10_000n, sealBond: 20_000n, total: 52_007n });
 });
 
 /** A final holding with one host (Spearman, 500 troops) in province (2, 0), a free transit slot. */
@@ -152,7 +156,7 @@ function world({ state = 2, stamina = 120, ready = 0, pendOp = 0, transit = [], 
 }
 const route = { dirs: [1, 0, 0], pathLen: 3, path: seal.encodePath([1, 0, 0]).path, secs: 360, hexes: 3, provinces: [{ p: 2, q: 0 }] };
 const good = (w, patch = {}) => ({ season: SEASON, nowBell: 41, resolvedNext: 40, holding: w.holding, host: w.host, dest: { p: 2, q: 0, tile: 33 }, route,
-  earliest: null, arriveBell: 43, stance: 1, retreat: { choice: 'never' }, tip: 14_668n, ...patch });
+  earliest: null, arriveBell: 43, stance: 1, retreat: { choice: 'never' }, tip: 14_671n, ...patch });
 
 test('the arrival window: depart + min_lead … depart + max_lead from the Season, raised to the planner\'s earliest bell', () => {
   assert.deepEqual(march.arrivalWindow(SEASON, 41), { min: 43, max: 113 });
@@ -247,35 +251,141 @@ test('the WASM planner, the earliest bell and `reachable` feed the composer and 
   const w = march.incomingWarnings({ kernel: k, departures: [dep, { ...dep, faction: 0 }, { ...dep, arrive_bell: 3 }], holdings, faction: 0, genesisTs: ra.genesis_ts, nowBell: 11 });
   assert.deepEqual(w, [{ holding: { p: d.p, q: d.q, site: 2 }, bell: 16, hosts: 1, troops: 5_000 }]);
   assert.equal(march.incomingWarnings({ kernel: null, departures: [dep], holdings, faction: 0 }), null);
+  // (integration of wave 5: a village under its founding shield cannot be marched on, the Reveal is refused `Shielded`
+  // while the site's shield bell is later than the arrival bell: no warning for a turn the shield covers; "no bell" is no shield)
+  const shieldWarns = shieldUntilBell => march.incomingWarnings({ kernel: k, departures: [dep], holdings: [{ ...holdings[0], shieldUntilBell }], faction: 0, genesisTs: ra.genesis_ts, nowBell: 11 }).length;
+  assert.deepEqual([shieldWarns(17), shieldWarns(16), shieldWarns(0), shieldWarns(0xffffffff)], [0, 1, 1, 1]);
   setLang('ja');
-  assert.match(String(incomingScreen.render({ incoming: w })), /最大 1 の軍勢（5,000 兵）/);
-  assert.match(String(incomingScreen.render({ incoming: null })), /ルールのモジュールが必要/);
+  // (hud-4, UX design 11.13: the turn by its number, the village by its name — the province in words when the page
+  // does not hold the village — and the destination "sealed", never "unknown" or "secret"; no "rules module")
+  const warned = String(incomingScreen.render({ incoming: w }));
+  assert.match(warned, /ターン 16 に、[^<]+へ最大 1 の軍勢（5,000 兵）が来るかもしれません。行き先は封印中です。/);
+  assert.match(String(incomingScreen.render({ incoming: w, holdings: [{ p: d.p, q: d.q, site: 2, tier: 1 }] })), /ターン 16 に、[^<]+の町へ最大 1 の軍勢/, 'the village by its name');
+  assert.doesNotMatch(warned, /第\d+鐘|州 -?\d|秘密|わかりません/);
+  assert.match(String(incomingScreen.render({ incoming: null })), /ルールを読み込めていないため、来襲の恐れを調べられません。/);
+  assert.match(String(incomingScreen.render({ incoming: [] })), /届きそうな他国の軍勢は出ていません/);
   setLang('en');
-  assert.match(String(incomingScreen.render({ incoming: w })), /up to 1 hosts \(5,000 troops\) may arrive.*destinations unknown/);
+  assert.match(String(incomingScreen.render({ incoming: w })), /On turn 16, up to 1 host \(5,000 troops\) may arrive (at|in|on) the [^<]+\. Where they are going is sealed\./);   // (wave 3: a place inside a sentence takes its article and its preposition)
+  assert.match(String(incomingScreen.render({ incoming: [{ ...w[0], hosts: 3 }] })), /up to 3 hosts/);
   setLang('ja');
 });
 
-test('the composer offers the three presets only, "never" first, and names what blocks sending', () => {
+// Rewritten with the redesign (UX design sections 1 and 6): the composer was a four-step form on the Marches screen
+// (screens/march.mjs render); the order is now one document written on the map (hud/marchcard.mjs render), with the
+// stance and the retreat sizes as pictures, the arrival turn as a stepper, and the tip presets behind its fold.
+test('the order offers the three tip presets only, "never" first among the retreat choices, and names what blocks sending', () => {
   const w = world();
-  const FS = { season: SEASON, nowBell: 41, holdings: [w.holding], provinces: new Map([['2,0', { province: w.province }]]),
-    compose: { host: { ...w.host, troops: 500, unit: 0 }, dest: { p: 2, q: 0, tile: 33 }, route, arriveBell: 43, stance: 0, retreat: 'never', tip: '14668' } };
+  const FS = { season: SEASON, nowBell: 41, holdings: [w.holding], provinces: new Map([['2,0', { province: w.province }]]), citizen: { faction: 0 },
+    compose: { host: { ...w.host, troops: 500, unit: 0 }, origin: { p: 2, q: 0 }, dest: { p: 2, q: 0, tile: 33 }, route, arriveBell: 43, stance: 0, retreat: 'never', tip: '14671' } };
   const ch = composer.composerChoices(FS);
-  assert.deepEqual(ch.tips.map(t => String(t.lamports)), ['14668', '22002', '29336']);
+  assert.deepEqual(ch.tips.map(t => String(t.lamports)), ['14671', '22007', '29342']);
   assert.equal(ch.retreat[0].id, 'never');
-  const out = String(composer.render(FS));
+  setLang('ja');
+  const out = String(order.render(FS));
+  assert.match(out, /<section class="order" aria-labelledby="mc-title">/);
   const tips = [...out.matchAll(/name="tip" data-bind="tip" value="(\d+)"/g)].map(m => m[1]);
-  assert.deepEqual(tips, ['14668', '22002', '29336'], 'exactly the presets; no zero, no custom tip');
+  assert.deepEqual(tips, ['14671', '22007', '29342'], 'exactly the presets; no zero, no custom tip');
   assert.doesNotMatch(out, /value="0" [^>]*data-bind="tip"|data-bind="tip" value="0"/);
-  assert.match(out, /<option value="never" selected>/);
+  // the retreat sizes: five pictures, "never" first and chosen
+  const retreat = [...out.matchAll(/class="pick" role="radio" aria-checked="(true|false)" aria-label="[^"]*" title="[^"]*" data-act="mc-retreat" data-v="([^"]+)"/g)].map(m => [m[2], m[1]]);
+  assert.deepEqual(retreat, [['never', 'true'], ['x2', 'false'], ['x1.5', 'false'], ['x1', 'false'], ['x0.5', 'false']]);
+  // the stances: four pictures, each an SVG drawing without a style attribute
+  assert.equal((out.match(/data-act="mc-stance" data-v="\d"><svg class="pic"/g) ?? []).length, 4);
+  assert.doesNotMatch(out, /\sstyle=/);
+  // the arrival turn is a stepper over the window (43 … 113): the earliest cannot go earlier
+  assert.match(out, /data-act="mc-bell" data-d="-1" aria-label="1ターン早く" disabled/);
+  assert.match(out, /ターン 43 に到着/);
   assert.match(out, /data-act="march-send" >|data-act="march-send"\s*>/, 'ready to send');
-  const blocked = String(composer.render({ ...FS, compose: { ...FS.compose, tip: '0' } }));
+  // (wave 2, UX design 11.12) the order's body scrolls by itself and its foot is always whole: one line that sums the
+  // order up (where to, the arrival turn, the stance), a press on which shows the whole order, then the seal
+  assert.match(out, /^<section class="order" aria-labelledby="mc-title"><div class="order-body" data-scroll="order">/);
+  const foot = out.slice(out.indexOf('<footer class="order-foot">'));
+  assert.match(foot, /^<footer class="order-foot"><button type="button" class="order-sum" data-act="order-open" aria-label="命令のまとめ：[^"]+へ、ターン 43 に到着、構えは待機の構え">/);
+  assert.match(foot, /<strong class="os-dest">[^<]+<\/strong><\/span><span class="os-part"><svg[^>]*><use[^>]*#bell"\/><\/svg>ターン 43<\/span><span class="os-part"><svg[^>]*><use[^>]*#shield"\/><\/svg>待機の構え<\/span>/);
+  assert.ok(foot.indexOf('class="order-sum"') < foot.indexOf('data-act="march-send"'), 'the summary stands above the seal');
+  assert.doesNotMatch(out.slice(0, out.indexOf('<footer')), /data-act="march-send"|data-act="compose-close"/, 'the seal is in the foot, not in what scrolls');
+  // (hud-4, UX design 11.13) the seal in ONE sentence, the same in the order card, the legend and the help
+  // (hud/glossary.mjs sealLine). It speaks of who can open the seal, not of "only you see it until the turn ends":
+  // the rule locks the seal to the end of the arrival turn, and the sender's own device may reveal from that turn's start.
+  assert.equal(sealLine(), '行き先と構えは封印され、到着のターンが終わるまで、ほかの人には開けられません。');
+  assert.ok(out.includes(`<span class="mc-sealed">`) && out.includes(`<span>${sealLine()}</span></span>`), 'the order says the seal\'s one sentence');
+  assert.ok(TERMS.seal.text().startsWith(sealLine()), 'the help says the same sentence first');
+  assert.ok(String(renderSurveyHelp()).includes(`<li><strong>封印した進軍</strong> ${sealLine()}</li>`), 'the legend says the same sentence');
+  assert.doesNotMatch(out + TERMS.seal.text() + String(renderSurveyHelp()), /あなたにしか見えません|秘密|ターンが始まるまで/, 'no other boundary and no secrecy wording anywhere');
+  // the order's numbers can be reconciled by a new player: the place by its name and how far it is (no coordinates,
+  // no minutes there), then the arrival turn, and ONE line that says why a short way still waits for its turn
+  assert.match(out, /<strong class="mc-dest-name">[^<]+<\/strong>\s*<span class="mc-route">\d+ マス先<\/span>/, 'where to and how far: no coordinates, no minutes');
+  // (rewritten with the fix pass on the second review: the card had three notions of time beside the dial, the
+  // arrival turn, a bare clock time and the road's minutes; it keeps the turn and how far off it is)
+  assert.match(out, /<p class="muted mc-when">進軍は、ターンの始まりにそろって到着します。いちばん早くてターン 43 です。<\/p>/, 'the earliest turn, in one sentence');
+  assert.doesNotMatch(out, /道のりは約|ごろ<\/span>/, 'no road minutes and no bare clock time on the card');
+  assert.ok((out.match(/約 \d+ 分/g) ?? []).length <= 1, 'at most one count of minutes on the card: how far off the arrival is');
+  assert.match(out, /<h3 id="mc-title">進軍：槍兵 500<\/h3><span class="c-sub">[^<（]+から<\/span>/, 'the host by its unit and troops, from a place by its name');
+  assert.doesNotMatch(out.replace(/<details class="fold" data-fold="o-more"[\s\S]*?<\/details>/, ''), /州 -?\d|乱数|鐘|顔ぶれ|中継/, 'no coordinates, no seed, no bell and no relay outside the order\'s details');
+  // no tile number and no lamports on the play screen: the place by its name, the costs under "More → details"
+  assert.doesNotMatch(out.replace(/<label>[^<]*<input name="tile"/, ''), /マス \d|ランポート|キーパー|frontier\.wasm/);
+  const blocked = String(order.render({ ...FS, compose: { ...FS.compose, tip: '0' } }));
   assert.match(blocked, /data-act="march-send" disabled/);
   assert.match(blocked, /チップが最低額に足りません/);
-  assert.match(String(composer.render({ ...FS, compose: { ...FS.compose, route: null, routeError: 'NoWasm' } })), /frontier\.wasm/);
+  // (hud-4: the file's name is an internal word; the error says the rules file is missing)
+  const noRules = String(order.render({ ...FS, compose: { ...FS.compose, route: null, routeError: 'NoWasm' } }));
+  assert.match(noRules, /このサーバーにはルールのファイルがまだありません/, 'a rules file that failed to load is said in its error');
+  assert.doesNotMatch(noRules, /frontier\.wasm|モジュール/);
+  // before a destination: the hint, the nearby places by name, the coordinates behind a fold
+  const empty = String(order.render({ ...FS, compose: { ...FS.compose, dest: null, route: null, quick: [{ kind: 'camp', p: 2, q: 0, tile: 32 }] } }));
+  assert.match(empty, /地図で行き先のマスを選んでください/);
+  assert.match(empty, /data-act="dest-quick" data-p="2" data-q="0" data-tile="32"/);
+  assert.match(empty, /<details class="fold" data-fold="o-coords"/);
+  assert.doesNotMatch(empty, /data-act="march-send"/);
+  assert.match(empty, /<footer class="order-foot"><button type="button" class="order-sum order-sum-empty" data-act="order-open">[\s\S]*行き先はまだ決まっていません[\s\S]*data-act="compose-close"/, 'the foot says nothing is chosen yet and offers the way out');
+  // the Marches screen leads back to an order in progress
+  assert.match(String(composer.render(FS)), /data-act="sel-open"/);
+  assert.doesNotMatch(String(composer.render({ ...FS, compose: null })), /data-act="sel-open"/);
+  setLang('en');
+  const en = String(order.render(FS)).replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<[^>]*>/g, ' ');
+  assert.doesNotMatch(en, /[぀-ヿ㐀-鿿]/, en);
+  assert.match(en, /Arrives on turn 43/);
+  assert.match(en, /March: 500 Spearmen/, 'a unit with its count as English says it');
+  assert.match(en, /The destination and the stance are sealed: nobody else can open the seal until the arrival turn ends\./);
+  assert.match(en, /Marches arrive together as a turn begins\. The earliest for this one is turn 43\./);
+  assert.match(en, /\d+ tiles? away/);
+  setLang('ja');
 });
 
 // ------------------------------------------------------------------ the send flow
 function memoryStorage() { const m = new Map(); return { m, get: k => m.get(k) ?? null, set: (k, v) => { m.set(k, v); return true; } }; }
+
+test('an open march follows the current reachable turn in its card, checks, result estimate and sealed order', async () => {
+  const w = world(); w.province.resolvedNext = 60;
+  let now = CLOCK.genesisTs + 61 * 600 + 100;
+  const FS = { season: SEASON, nowBell: 56, clock: CLOCK, chain: { now: () => now }, kernel: rulesKernel(),
+    holdings: [w.holding], provinces: new Map([['2,0', { province: w.province }]]), citizen: { faction: 0 },
+    compose: { host: { ...w.host, troops: 500 }, origin: { p: 2, q: 0 }, dest: { p: 2, q: 0, tile: 33 },
+      route, earliest: 58, arriveBell: 58, stance: 0, retreat: 'never', tip: '14671' } };
+  const m = composer.composerMarch(FS);
+  assert.deepEqual([m.nowBell, m.arriveBell, order.bellWindow(FS).value], [61, 63, 63]);
+  assert.deepEqual(march.checkMarch(m), [], 'waiting leaves a valid order without touching its stepper');
+  const html = String(order.render(FS));
+  assert.match(html, /ターン 63 に到着/);
+  assert.doesNotMatch(html, /そのターンには着けません|結果の目安まで 0:00/);
+  assert.match(html, /data-act="march-send"\s*>/, 'the displayed order can depart');
+  assert.ok(composer.marchTiming(FS, m.arriveBell).resultIn > 0);
+  let submitted;
+  const sent = await march.sendMarch({ ...m, holdingAddress: 'H' }, {
+    seal: req => { assert.equal(req.arriveBell, 63); assert.equal(seal.unpack(req.plain).arriveBell, 63); return seal.sealMarch(req, { inline: true }); },
+    clock: CLOCK, publicKey: TEST_BEACON.publicKey, storage: memoryStorage(), bookKey: 'waiting-order', session: {}, accounts: {},
+    submit: async req => { submitted = req; return { ok: true, signature: 'waiting' }; }, track: async () => ({ ok: true, state: 'landed' }),
+  });
+  assert.equal(sent.ok, true, sent.code); assert.equal(submitted.fields.arrive_bell, 63);
+
+  FS.compose.route = { ...route, secs: 2000 };
+  assert.equal(composer.composerArrival(FS).value, 65, 'long routes recompute the rules kernel travel minimum too');
+  FS.compose.arriveBell = 68;
+  assert.equal(composer.composerArrival(FS).value, 68, 'a later turn the player chose remains selected while valid');
+  FS.compose.sendingArrival = composer.composerArrival(FS); FS.compose.sending = true;
+  now += 6000;
+  assert.equal(composer.composerMarch(FS).arriveBell, 68, 'a sealed or sending order never drifts to another turn');
+});
 
 test('sendMarch: seal (T(arrive), self-audited) → marchbook saved before signing → Depart → on chain', async () => {
   const w = world();
@@ -306,7 +416,7 @@ test('sendMarch: seal (T(arrive), self-audited) → marchbook saved before signi
   const f = submitted.fields;
   assert.equal(f.transit_slot, 0);
   assert.equal(f.arrive_bell, 43);
-  assert.equal(f.tip, 14_668n);
+  assert.equal(f.tip, 14_671n);
   assert.equal(f.host_id, w.id);
   assert.equal(f.seal.length, 165);
   const e = book.loadBook(storage, key)[0];
@@ -366,12 +476,143 @@ test('sendMarch: an earliest bell gone stale by send time refuses ArrivalBell be
   assert.equal(march.DEPART_MARGIN_SECS, 90);
 });
 
+// ------------------------------------------------------------------ a send across a turn rollover
+test('the rollover refusals of a Depart are ArrivalBell and NotResident by the program\'s names and numbers; nothing else is sent again', () => {
+  const T = march.transientMarchFailure;
+  assert.deepEqual(march.TRANSIENT_DEPART, { ArrivalBell: 31, NotResident: 26 });
+  // the numbers are the ABI's, and Depart answers exactly these for a stale arrival and a province a turn behind
+  for (const [name, code] of Object.entries(march.TRANSIENT_DEPART)) assert.ok(ABI_ERRORS.some(e => e[0] === code && e[1] === name), name);
+  const depart = read('permutation-frontier/src/proc/host.rs');
+  assert.match(depart, /if x\.arrive_bell < lo \|\| x\.arrive_bell > hi \|\| x\.arrive_bell >= pl\.pc\.season\.end_bell \{\s*return Err\(FrontierError::ArrivalBell\.into\(\)\);/);
+  assert.match(depart, /if !ap::resident_ok\(rn, b\) \{\s*return Err\(FrontierError::NotResident\.into\(\)\);/);
+  assert.equal(T({ ok: false, step: 'check', code: 'ArrivalBell', earliest: 44 }), 'ArrivalBell');
+  assert.equal(T({ ok: false, step: 'check', code: 'NotResident' }), 'NotResident');
+  assert.equal(T({ ok: false, step: 'sent', code: 'ArrivalBell', programCode: 31, httpStatus: 400 }), 'ArrivalBell', 'the relay\'s simulation names the program error');
+  assert.equal(T({ ok: false, step: 'onChain', code: 'NotResident', programCode: 26 }), 'NotResident');
+  assert.equal(T({ ok: false, step: 'onChain', code: 'TransactionFailed', programCode: 31 }), 'ArrivalBell', 'by number when the name is missing');
+  assert.equal(T({ ok: false, step: 'onChain', code: 'TransactionFailed' }), null);
+  for (const code of ['HostInTransit', 'HostBusy', 'Cooldown', 'TransitState', 'Path', 'NotFinal', 'TipNotPreset', 'TipTooLow', 'NoPath', 'network', 'Unconfirmed', 'Expired', 'QuotaExceeded', 'SealAuditFailed', 'NotSaved', 'AlreadySent', 'BlockhashExpired', 'SimulationFailed'])
+    assert.equal(T({ ok: false, code }), null, code);
+  assert.equal(T({ ok: false, code: 'HostInTransit', programCode: 31 }), null, 'another name is never read as a rollover');
+  assert.equal(T({ ok: true, code: 'ArrivalBell' }), null);
+  assert.equal(T(null), null);
+  assert.deepEqual([march.MARCH_ATTEMPTS, march.RETRY_WINDOW_MS], [3, 20_000]);
+});
+
+/** sendMarchRetrying's deps over a scripted relay and chain: `answers[i]` is attempt i's submit answer (or `{track}`). */
+function retryRig(answers, { fresh = () => ({ nowBell: 42, resolvedNext: 41 }), earliest = () => null, submitMs = 0 } = {}) {
+  const rig = { storage: memoryStorage(), sent: [], waits: [], retries: [], nudges: 0, refreshes: 0, t: 0 };
+  rig.deps = {
+    seal: req => seal.sealMarch(req, { inline: true }), clock: CLOCK, publicKey: TEST_BEACON.publicKey, storage: rig.storage, bookKey: 'k', session: {}, accounts: { a: 1 },
+    submit: async req => { rig.t += submitMs; rig.sent.push(req); const a = answers[Math.min(rig.sent.length, answers.length) - 1]; return a.track ? { ok: true, signature: `S${rig.sent.length}` } : a; },
+    track: async sig => { const a = answers[Math.min(Number(sig.slice(1)), answers.length) - 1]; return a.track ?? { ok: true, state: 'landed', slot: 1 }; },
+    earliestAtSend: () => earliest(rig), refresh: async () => fresh(rig.refreshes++), nudge: async () => { rig.nudges++; return { ok: true }; },
+    wait: async ms => { rig.waits.push(ms); rig.t += ms; }, nowMs: () => rig.t, onRetry: x => rig.retries.push(x),
+  };
+  return rig;
+}
+const sealedOrder = req => { const e = { ...req.fields }; return [e.host_id, e.tip, e.transit_slot]; };
+const plainOf = (rig, arriveBell) => seal.unpack(book.materialBytes(book.loadBook(rig.storage, 'k').find(e => e.arriveBell === arriveBell)).plain);
+
+test('a turn that rolls over under a sealed march: sent again once with the arrival moved, the order itself untouched', async () => {
+  const w = world();
+  const landed = { ok: true, signature: 'S2' };
+  const rig = retryRig([{ ok: false, code: 'ArrivalBell', programCode: 31, error: 'the transaction would fail: ArrivalBell (31)' }, landed]);
+  const m = { ...good(w, { stance: 2, retreat: { choice: 'x1.5' } }), holdingAddress: 'h' };
+  const r = await march.sendMarchRetrying(m, rig.deps);
+  assert.equal(r.ok, true, `${r.code} ${r.error ?? ''}`);
+  assert.deepEqual([r.attempts, r.arriveFrom, r.arriveBell], [2, 43, 44], 'the answer says the arrival moved from 43 to 44');
+  assert.equal(rig.sent.length, 2);
+  assert.deepEqual(rig.sent.map(x => x.fields.arrive_bell), [43, 44], 'turn 42 + min_lead 2');
+  assert.deepEqual(rig.waits, [march.RETRY_WAIT_MS]);
+  assert.deepEqual(rig.retries, [{ attempt: 2, kind: 'ArrivalBell', arriveBell: 44, from: 43, earliest: null }], 'one status line for the player');
+  assert.equal(rig.nudges, 0, 'the province was not behind: the keeper is not asked');
+  // the same host, tip and transit record, and a new seal bound to the new arrival turn
+  assert.deepEqual(sealedOrder(rig.sent[1]), sealedOrder(rig.sent[0]));
+  assert.notDeepEqual(rig.sent[1].fields.commit, rig.sent[0].fields.commit);
+  const a = plainOf(rig, 43), b = plainOf(rig, 44);
+  for (const k of ['hostId', 'destP', 'destQ', 'destTile', 'stance', 'retreatBps', 'pathLen']) assert.equal(b[k], a[k], k);
+  assert.deepEqual([b.destP, b.destQ, b.destTile, b.stance, b.retreatBps, b.arriveBell], [2, 0, 33, 2, 15_000, 44]);
+  assert.deepEqual(Array.from(b.path), Array.from(a.path));
+  assert.deepEqual(book.loadBook(rig.storage, 'k').map(e => [e.arriveBell, e.state]).sort(), [[43, 'failed'], [44, 'landed']]);
+  assert.deepEqual([m.arriveBell, m.stance, m.dest], [43, 2, { p: 2, q: 0, tile: 33 }], 'the caller\'s march is not written to');
+});
+
+test('the retry recomputes the earliest arrival, and keeps a later arrival turn the player chose', async () => {
+  const w = world();
+  // the route is longer than the minimum lead: the page's own check refuses the stale arrival before sealing
+  let rig = retryRig([{ ok: true, signature: 'S1' }], { earliest: x => (x.waits.length ? 47 : 46) });
+  let r = await march.sendMarchRetrying({ ...good(w, { earliest: 45, arriveBell: 45 }), holdingAddress: 'h' }, rig.deps);
+  assert.deepEqual([r.ok, r.attempts, r.arriveFrom, r.arriveBell], [true, 2, 45, 47]);
+  assert.deepEqual(rig.sent.map(x => x.fields.arrive_bell), [47], 'the first try never left the page');
+  assert.equal(rig.retries[0].earliest, 47);
+  // a deliberately later turn is still inside the new window: kept
+  rig = retryRig([{ ok: false, code: 'ArrivalBell', programCode: 31 }, { ok: true, signature: 'S2' }]);
+  r = await march.sendMarchRetrying({ ...good(w, { arriveBell: 50 }), holdingAddress: 'h' }, rig.deps);
+  assert.deepEqual([r.ok, r.attempts, r.arriveFrom, r.arriveBell], [true, 2, 50, 50]);
+  assert.deepEqual(rig.sent.map(x => x.fields.arrive_bell), [50, 50]);
+});
+
+test('a province a turn behind: the keeper is asked once and the send waits for it inside the window', async () => {
+  const w = world();
+  // the page's check: resolved through 38 at turn 41; the second read shows it caught up
+  let rig = retryRig([{ ok: true, signature: 'S1' }], { fresh: i => (i === 0 ? { nowBell: 41, resolvedNext: 38 } : { nowBell: 41, resolvedNext: 40 }) });
+  let r = await march.sendMarchRetrying({ ...good(w, { resolvedNext: 38 }), holdingAddress: 'h' }, rig.deps);
+  assert.deepEqual([r.ok, r.attempts, r.arriveFrom, r.arriveBell], [true, 2, 43, 43], 'the turn did not change: the arrival stays');
+  assert.deepEqual([rig.nudges, rig.refreshes, rig.sent.length], [1, 2, 1]);
+  assert.deepEqual(rig.waits, [march.RETRY_WAIT_MS, march.RETRY_WAIT_MS], 'waiting for the province is not an attempt');
+  assert.equal(rig.retries[0].kind, 'NotResident');
+  // the chain's own answer, with the turn rolled over as well
+  rig = retryRig([{ track: { ok: false, state: 'failed', code: 'NotResident', programCode: 26 } }, { ok: true, signature: 'S2' }]);
+  r = await march.sendMarchRetrying({ ...good(w), holdingAddress: 'h' }, rig.deps);
+  assert.deepEqual([r.ok, r.attempts, r.arriveFrom, r.arriveBell, rig.nudges], [true, 2, 43, 44, 1]);
+  // a province that never catches up: the window ends the wait
+  rig = retryRig([{ ok: true, signature: 'S1' }], { fresh: () => ({ nowBell: 41, resolvedNext: 38 }) });
+  r = await march.sendMarchRetrying({ ...good(w, { resolvedNext: 38 }), holdingAddress: 'h' }, rig.deps);
+  assert.deepEqual([r.ok, r.step, r.code, rig.sent.length], [false, 'check', 'NotResident', 0]);
+  assert.ok(r.attempts <= march.MARCH_ATTEMPTS && rig.t <= march.RETRY_WINDOW_MS + march.RETRY_WAIT_MS, `${r.attempts} attempts in ${rig.t} ms`);
+});
+
+test('the retry gives up after 3 attempts or 20 seconds, and never repeats another refusal or a lost answer', async () => {
+  const w = world();
+  const stale = { ok: false, code: 'ArrivalBell', programCode: 31 };
+  let turn = 41;
+  let rig = retryRig([stale], { fresh: () => ({ nowBell: ++turn, resolvedNext: turn - 1 }) });
+  let r = await march.sendMarchRetrying({ ...good(w), holdingAddress: 'h' }, rig.deps);
+  assert.deepEqual([r.ok, r.step, r.code, r.attempts], [false, 'sent', 'ArrivalBell', 3]);
+  assert.equal(rig.sent.length, 3);
+  assert.deepEqual(rig.waits, [march.RETRY_WAIT_MS, march.RETRY_WAIT_MS]);
+  assert.deepEqual([r.arriveFrom, r.arriveBell], [43, 45], 'the answer carries the last arrival tried');
+  // slow sends: no new attempt once 20 s have passed since the first refusal
+  rig = retryRig([stale], { submitMs: 20_000 });
+  r = await march.sendMarchRetrying({ ...good(w), holdingAddress: 'h' }, rig.deps);
+  assert.deepEqual([r.ok, r.attempts, rig.sent.length], [false, 2, 2]);
+  // any other refusal is the answer at once
+  for (const refusal of [{ ok: false, code: 'HostInTransit', programCode: 58 }, { ok: false, code: 'TipNotPreset' }, { ok: false, code: 'network' }, { ok: false, code: 'QuotaExceeded', httpStatus: 429 },
+    { track: { ok: false, state: 'unknown', code: 'Unconfirmed' } }, { track: { ok: false, state: 'expired', code: 'Expired' } }, { track: { ok: false, state: 'failed', code: 'Cooldown', programCode: 29 } }]) {
+    rig = retryRig([refusal, { ok: true, signature: 'S2' }]);
+    r = await march.sendMarchRetrying({ ...good(w), holdingAddress: 'h' }, rig.deps);
+    assert.deepEqual([r.ok, r.attempts, rig.sent.length, rig.waits.length, rig.retries.length, rig.nudges, rig.refreshes], [false, 1, 1, 0, 0, 0, 0], JSON.stringify(refusal));
+    assert.equal(r.code, refusal.code ?? refusal.track.code);
+  }
+  // a refusal of the page's own check that no rollover explains (no arrival chosen; the host is busy)
+  rig = retryRig([{ ok: true, signature: 'S1' }]);
+  r = await march.sendMarchRetrying({ ...good(w, { arriveBell: 200 }), holdingAddress: 'h' }, rig.deps);
+  assert.deepEqual([r.ok, r.code, r.attempts, rig.sent.length, rig.waits.length], [false, 'ArrivalBell', 1, 0, 0], 'an arrival past the window is not moved');
+  r = await march.sendMarchRetrying({ ...good(world({ pendOp: 5 })), holdingAddress: 'h' }, rig.deps);
+  assert.deepEqual([r.ok, r.code, r.attempts, rig.waits.length], [false, 'HostBusy', 1, 0]);
+  // and a plain success is one send
+  rig = retryRig([{ ok: true, signature: 'S1' }]);
+  r = await march.sendMarchRetrying({ ...good(w), holdingAddress: 'h' }, rig.deps);
+  assert.deepEqual([r.ok, r.attempts, r.arriveFrom, r.arriveBell, rig.sent.length, rig.waits.length], [true, 1, 43, 43, 1, 0]);
+});
+
 test('the Depart transaction the page builds is at most 800 bytes (§9.4) and within its budget ceiling', () => {
   io.setPin({ programId: ADDR.program, cluster: 'localnet', seasonId: 1 });
   const A = io.pinned().addresses;
   const session = b58(new Uint8Array(32).fill(7)), feePayer = b58(new Uint8Array(32).fill(9)), blockhash = b58(new Uint8Array(32).fill(3));
   const accounts = accountsFor('Depart', { addresses: A, wallet: ADDR.citizen.wallet, actor: session, holding: { p: 2, q: 0, site: 3 }, province: { p: 2, q: 0 } });
-  const fields = { host_id: 2n ** 63n, commit: new Uint8Array(32), seal: new Uint8Array(165), arrive_bell: 4_000_000, tip: 29_336n, transit_slot: 3 };
+  const fields = { host_id: 2n ** 63n, commit: new Uint8Array(32), seal: new Uint8Array(165), arrive_bell: 4_000_000, tip: 29_342n, transit_slot: 3 };
   const { message, budget, signers } = buildShape({ programId: A.programId, name: 'Depart', accounts, fields, feePayer, blockhash });
   assert.deepEqual(signers, [session]);
   const wire = wireTransaction(message, [new Uint8Array(64), new Uint8Array(64)]);
@@ -400,11 +641,39 @@ test('the tracker: steps from chain facts; the host stays locked until its trans
   const selfE = { ...e, attempts: [{ t: 1, route: 'self', result: 'accepted' }], state: 'revealing' };
   assert.equal(march.tracker({ entry: selfE, transit: live, nowBell: 43 }).route, 'self');
   setLang('ja');
-  const card = String(trackerScreen.renderMarch({ entry: e, transit: live, facts: { nowBell: 41, pipeline: 'open' } }));
-  assert.match(card, /進軍の精算が済むまで出発・解散・探索できません/);
-  assert.match(card, /あなたにだけ見えます/);
+  // (hud-4, UX design 11.13) the card: three things a player follows — set out, arrived, the result — instead of the
+  // rules' six steps (those wait behind a fold); the arrival by its TURN; no beacon, no "settle", no coordinates
+  const m0 = { entry: e, transit: live, facts: { nowBell: 41, pipeline: 'open' } };
+  assert.deepEqual(trackerScreen.phasesOf(march.tracker({ entry: e, transit: live, nowBell: 41, pipeline: 'open' })), [{ id: 'depart', state: 'done' }, { id: 'arrive', state: 'now' }, { id: 'result', state: 'next' }]);
+  assert.deepEqual(trackerScreen.phasesOf(march.tracker({ entry: e, transit: live, nowBell: 44, pipeline: 'revealing', slotPresent: true })).map(x => x.state), ['done', 'done', 'now'], 'arrived: the result is awaited');
+  assert.deepEqual(trackerScreen.phasesOf(march.tracker({ entry: e, transit: null, nowBell: 50, pipeline: 'resolved', settled: { outcome: 'Stays' } })).map(x => x.state), ['done', 'done', 'done']);
+  const card = String(trackerScreen.renderMarch(m0));
+  assert.match(card, /ターン 43 に到着/);
+  const names = [...card.matchAll(/<span class="track-name">([^<]+)<\/span>/g)].map(x => x[1]);
+  assert.deepEqual(names, ['出発', '到着', '結果'], 'three phases in sight');
+  assert.match(card, /<ol class="track track-phases" aria-label="進軍の流れ"><li class="done">[\s\S]*?<li class="now">[\s\S]*?<li class="next">/);
+  assert.match(card, /<p class="march-now"><strong>到着のターンを待っています<\/strong>/);
+  assert.match(card, /<details class="fold" data-fold="m-steps-\d+"\s*><summary><span class="fold-sum">くわしい段階<\/span>/, 'the six steps on demand');
+  assert.equal((card.match(/<ol class="list track-steps">[\s\S]*?<\/ol>/)?.[0].match(/<li /g) ?? []).length, 6);
+  assert.match(card, /進軍の結果を受け取るまで、この軍勢は出発・解散・探索ができません（ふつうは自動で受け取ります）。/);
+  assert.match(card, /（行き先と構えはあなたにだけ見えます）/, 'what this browser sealed is shown to it alone, and says so while the seal is closed');
+  assert.match(String(trackerScreen.renderMarch({ entry: e, transit: live, facts: { nowBell: 44, pipeline: 'revealing', slotPresent: true } })), /（封は開けられました）/, 'once the seal is open the card no longer says "only you"');
+  assert.doesNotMatch(card.replace(/<svg[\s\S]*?<\/svg>/g, ''), /ビーコン|精算|第\d+鐘|鐘|州 -?\d|キーパー|秘密/);
+  // a march this browser did not seal: no destination is known here, and the line says how the seal gets opened
+  const other = String(trackerScreen.renderMarch({ entry: null, transit: live, facts: { nowBell: 41, pipeline: 'open' } }));
+  assert.match(other, /この端末には封の控えがありません。封は、到着のターンが終わったあと自動で開けられます。/);
+  assert.doesNotMatch(other, /march-secret/);
+  // the device that sealed it opens it when the arrival turn begins
+  assert.match(String(trackerScreen.renderMarch({ entry: selfE, transit: live, facts: { nowBell: 43, pipeline: 'open' } })), /到着のターンが始まると、この端末が封を開けます（ウォレットの操作は要りません）。/);
+  assert.match(String(trackerScreen.renderMarch({ entry: e, transit: live, facts: { nowBell: 44, pipeline: 'resolved', settleReady: true }, dest: { p: 2, q: 0 } })), /data-act="settle-transit"[^>]*>結果を受け取る</);
+  assert.equal(trackerScreen.privateLine(e), `${trackerScreen.privateLine(e).split(' · ')[0]} · 待機の構え`, 'the private line: the place by its name, then the stance (no coordinates)');
+  assert.doesNotMatch(trackerScreen.privateLine(e), /州|（/);
   setLang('en');
-  assert.match(String(trackerScreen.renderMarch({ entry: e, transit: live, facts: { nowBell: 41, pipeline: 'open' } })), /cannot depart, dissolve or explore until its march is settled/);
+  const cardEn = String(trackerScreen.renderMarch(m0)).replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<[^>]*>/g, ' ');
+  assert.match(cardEn, /Until this march is resolved, the host cannot march, dissolve or explore/);
+  assert.match(cardEn, /Departure\s+\(done\)\s+Arrival\s+\(now\)\s+Result/);
+  assert.match(cardEn, /Waiting for the arrival turn/);
+  assert.doesNotMatch(cardEn, /beacon|settle|\bbell\b|Anchored|[぀-ヿ㐀-鿿]/i);
   setLang('ja');
   // The host panel says the same and disables its actions.
   const w = world({ transit: [{ STATE: 1, HOST_ID: hostId({ p: 2, q: 0, site: 3, gen: 1, seq: 7 }), ARRIVE_BELL: 43 }] });
@@ -415,7 +684,8 @@ test('the tracker: steps from chain facts; the host stays locked until its trans
   assert.deepEqual(land.actionBlocks('Depart', { holding: w.holding, province: w.province, nowBell: 41, host: rows[0] }), ['HostInTransit']);
   const html = String(hostScreen.render(FS));
   assert.match(html, /data-act="compose" data-host="\d+" disabled/);
-  assert.match(html, /この軍勢は進軍の精算が済むまで/);
+  assert.match(html, /進軍の結果を受け取るまで、この軍勢は出発・解散・探索ができません/);
+  assert.doesNotMatch(html, /精算/);
 });
 
 // ------------------------------------------------------------------ holdings, land and preferences
@@ -516,9 +786,12 @@ test('ps-fui: season-scoped preferences, defaults for anything damaged, the last
   assert.equal(key, 'ps-fui:localnet:P:1');
   assert.deepEqual(fui.loadUi(s, key), { ...fui.DEFAULTS, dismissed: [] });
   fui.saveUi(s, key, { fog: false, tab: 'marches', lastTicket: [{ p: 3, q: 0, site: 2 }] });
-  assert.deepEqual(fui.loadUi(s, key), { v: 1, fog: false, lod: 'world', tab: 'marches', dismissed: [], lastTicket: [{ p: 3, q: 0, site: 2 }], ticketSeen: true, lastTicketBell: null, autoPan: false, battleFx: 'normal', guide: 'all' });
-  s.set(key, JSON.stringify({ v: 1, fog: 'no', tab: 'evil', lod: 'x', lastTicket: [{ p: 1, q: 0, site: 99 }], dismissed: [1, 'a'], ticketSeen: 'x', lastTicketBell: -3 }));
-  assert.deepEqual(fui.loadUi(s, key), { v: 1, fog: true, lod: 'world', tab: 'map', dismissed: ['a'], lastTicket: null, ticketSeen: true, lastTicketBell: null, autoPan: false, battleFx: 'normal', guide: 'all' });
+  assert.deepEqual(fui.loadUi(s, key), { v: 1, fog: false, lod: 'world', tab: 'marches', dismissed: [], lastTicket: [{ p: 3, q: 0, site: 2 }], ticketSeen: true, lastTicketBell: null, autoPan: false, battleFx: 'normal', guide: 'all', effects: 'full' });
+  // the effects level (fx/motion.mjs): a chosen level is kept, anything else reads as 'full'
+  assert.equal(fui.saveUi(s, key, { effects: 'reduced' }).effects, 'reduced');
+  assert.equal(fui.saveUi(s, key, { effects: 'off' }).effects, 'off');
+  s.set(key, JSON.stringify({ v: 1, fog: 'no', tab: 'evil', lod: 'x', lastTicket: [{ p: 1, q: 0, site: 99 }], dismissed: [1, 'a'], ticketSeen: 'x', lastTicketBell: -3, effects: 'loud' }));
+  assert.deepEqual(fui.loadUi(s, key), { v: 1, fog: true, lod: 'world', tab: 'map', dismissed: ['a'], lastTicket: null, ticketSeen: true, lastTicketBell: null, autoPan: false, battleFx: 'normal', guide: 'all', effects: 'full' });
   // W6-D: a ticket filed but not yet shown by the herald is not "ended"; the
   // filing bell is kept with it (integ-W6 review).
   fui.saveUi(s, key, { lastTicket: [{ p: 3, q: 0, site: 2 }], ticketSeen: false, lastTicketBell: 40 });

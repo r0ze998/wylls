@@ -12,6 +12,9 @@ use solana_instruction::{AccountMeta, Instruction};
 use crate::abi::tag;
 use crate::addr::{self, Addresses};
 
+/// ABI v2 builders (MC contract §5.5, §5.6; CQ2-D).
+pub mod v2;
+
 /// Hash-to-curve hints of one beacon round: two maps × {branch u8,
 /// inv_tv1, y, inv_den (48 B BE each)} = 290 B (SP-V2 `Hint::encode`).
 pub const HINTS_LEN: usize = 290;
@@ -594,6 +597,26 @@ pub fn file_ticket(a: &Addresses, p: &Player, sites: &[Site]) -> Instruction {
         d = d.i16(s.p).i16(s.q).u8(s.site);
     }
     build(a, m, d)
+}
+
+/// 0x38: grant an immediately final first home; shard is the citizen's stored Join shard.
+pub fn place_home(a: &Addresses, p: &Player, site: Site, faction: u8, shard: u8) -> Instruction {
+    let mut m = p.metas(a);
+    m.extend([
+        r(a.frontier()),
+        w(a.province(site.p as i32, site.q as i32)),
+        w(a.holding(site.p as i32, site.q as i32, site.site)),
+        w(a.join_shard(faction, shard)),
+        r(addr::system_program()),
+    ]);
+    build(
+        a,
+        m,
+        Data::new(tag::PLACE_HOME)
+            .i16(site.p)
+            .i16(site.q)
+            .u8(site.site),
+    )
 }
 
 /// Where a seed comes from: a SeedCache of THE anchor, or the archive
@@ -1645,6 +1668,17 @@ mod tests {
             release_dormant(&a, k, h, &w2, 1, k),
             close_holding(&a, k, h, k),
             close_citizen(&a, k, &w2, k, Some(k)),
+            place_home(
+                &a,
+                &pl,
+                Site {
+                    p: h.p,
+                    q: h.q,
+                    site: h.site,
+                },
+                0,
+                0,
+            ),
             harvest(&a, &pl, h),
             build_item(&a, &pl, h, 7, true),
             train(&a, &pl, h, 1, 500),

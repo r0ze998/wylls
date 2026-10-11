@@ -131,6 +131,9 @@ pub fn router(app: Shared) -> Router {
         .route("/h/me/{wallet}", get(me))
         .route("/h/events", get(events))
         .route("/h/ws", get(ws_route))
+        // MC hook: the conquest read paths (CONQUEST-CONTRACT §4.5, §8.4)
+        .merge(crate::cqroutes::mount())
+        // MC hook end
         .route("/", get(|| async { redirect("/frontier/") }))
         .route("/frontier", get(|| async { redirect("/frontier/") }))
         .route("/frontier/", get(web))
@@ -677,6 +680,16 @@ pub fn client_ip(peer: IpAddr, h: &HeaderMap) -> IpAddr {
     }
 }
 
+/// Largest x402 payment header the proxy forwards (a packet-sized
+/// transaction, base64 inside base64 JSON).
+const GW_MAX_PAYMENT: usize = 8_192;
+
+fn base64_text(v: &str) -> bool {
+    !v.is_empty()
+        && v.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"+/=-_".contains(&b))
+}
+
 fn plain(v: &str) -> bool {
     v.bytes().all(|b| b == b'\t' || (0x20..0x7f).contains(&b))
 }
@@ -722,6 +735,12 @@ async fn gw(
             head.push_str(&format!("Content-Type: {ct}\r\n"));
         }
     }
+    // x402 (the relay's paid Join): the payment header, base64 only.
+    if let Some(pay) = h.get("x-payment").and_then(|v| v.to_str().ok()) {
+        if base64_text(pay) && pay.len() <= GW_MAX_PAYMENT {
+            head.push_str(&format!("X-PAYMENT: {pay}\r\n"));
+        }
+    }
     head.push_str(&format!(
         "X-Forwarded-For: {}\r\n\r\n",
         client_ip(peer.ip(), &h)
@@ -758,6 +777,11 @@ async fn gw(
     if let Some(ct) = r.header("content-type") {
         if plain(ct) {
             b = b.header(header::CONTENT_TYPE, ct);
+        }
+    }
+    if let Some(pr) = r.header("x-payment-response") {
+        if base64_text(pr) && pr.len() <= GW_MAX_PAYMENT {
+            b = b.header("X-PAYMENT-RESPONSE", pr);
         }
     }
     b.body(Body::from(r.body))

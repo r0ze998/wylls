@@ -267,3 +267,38 @@ jobs:
       - name: WASM build matches the committed module
         if: hashFiles('scripts/build-wasm.sh') != ''
         run: scripts/build-wasm.sh --check
+
+  prize-program:
+    name: Prize pool program (host + SBF v2 + LiteSVM)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Rust toolchains
+        run: rustup toolchain install 1.89.0 1.95.0 --profile minimal --component rustfmt,clippy
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cache/solana
+            permutation-prize/target
+            permutation-prize/svm-tests/target
+          key: prize-program-${{ hashFiles('permutation-prize/Cargo.lock', 'permutation-prize/svm-tests/Cargo.lock', 'rust-toolchain.toml', 'permutation-prize/svm-tests/rust-toolchain.toml') }}
+      - name: Prize pool format, lints and host tests
+        working-directory: permutation-prize
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
+      - name: Install Agave 3.1.9 (cargo-build-sbf, platform-tools v1.52)
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v3.1.9/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - name: Prize pool SBF v2 build
+        run: scripts/build-prize.sh
+      - name: Prize pool LiteSVM format, lints and tests
+        working-directory: permutation-prize/svm-tests
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked --release

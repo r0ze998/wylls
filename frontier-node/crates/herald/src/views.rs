@@ -117,13 +117,24 @@ pub fn me_json(f: &Fold, wallet: &Address, quota: Value) -> Value {
     let mut keys = vec![];
     let mut transits = vec![];
     if let Some(ci) = &citizen {
-        for s in ci.holding.iter().take(ci.holdings_n.min(3) as usize) {
+        let cq = ci.h.layout_version >= 2;
+        for (slot, s) in ci.holding.iter().enumerate().filter(|(slot, s)| {
+            if cq {
+                s.gen != 255
+            } else {
+                *slot < ci.holdings_n.min(3) as usize
+            }
+        }) {
+            let _ = slot;
             let ha = f.ctx.holding(s.p as i32, s.q as i32, s.site);
-            holdings.push(acct(f, &ha));
             if let Some(hk) = host_id(s.p as i32, s.q as i32, s.site, s.gen, 0) {
                 keys.push(holding_key_of_host(hk));
             }
             if let Some(h) = f.account(&ha).and_then(|c| Holding::decode(&c.data).ok()) {
+                if cq && (h.gen != s.gen || h.owner_citizen.to_bytes() != ca) {
+                    continue;
+                }
+                holdings.push(acct(f, &ha));
                 for (i, t) in h.transit.iter().enumerate().filter(|(_, t)| t.state != 0) {
                     transits.push(json!({
                         "holding": [s.p, s.q, s.site], "transitSlot": i, "state": t.state,
@@ -181,7 +192,7 @@ pub fn me_json(f: &Fold, wallet: &Address, quota: Value) -> Value {
             seals.push(json!({"host": h.to_string(), "outcome": s.outcome, "code": s.code, "bell": s.bell}));
         }
     }
-    json!({
+    let mut v = json!({
         "v": 1,
         "wallet": wallet.to_string(),
         "citizen": acct(f, &ca),
@@ -192,5 +203,16 @@ pub fn me_json(f: &Fold, wallet: &Address, quota: Value) -> Value {
         "seals": seals,
         "quota": quota,
         "latestSlot": f.st.last_slot,
-    })
+    });
+    // MC (CQ2-E, §8.4): `alerts[]`, `sieges[]` and the caller's players
+    // row; an M1 season's answer is unchanged.
+    if let (Some((alerts, sieges, player)), Some(o)) = (
+        crate::conquest::me_additions(f, &wallet.to_bytes()),
+        v.as_object_mut(),
+    ) {
+        o.insert("alerts".into(), alerts);
+        o.insert("sieges".into(), sieges);
+        o.insert("player".into(), player);
+    }
+    v
 }

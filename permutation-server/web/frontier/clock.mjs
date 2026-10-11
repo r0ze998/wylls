@@ -63,6 +63,8 @@ export class ChainClock {
     this.last = null;
     this.prev = null;
     this.rate = 1;
+    /** The rate the stack itself declares (`declare`), or null: then it is estimated from two samples. */
+    this.declared = null;
     this.floor = -Infinity;
     /** min over samples of (wall − chain) seconds: the freshest sample's offset. */
     this.minOffset = Infinity;
@@ -73,14 +75,27 @@ export class ChainClock {
   /** Mark the clock accelerated (localnet) or not; a real cluster resets the rate to 1. */
   setAccelerated(on) {
     this.accelerated = !!on;
-    if (!this.accelerated) this.rate = 1;
+    if (!this.accelerated) { this.rate = 1; this.declared = null; }
+  }
+
+  /**
+   * The rate a localnet stack declares for its own Clock: chain seconds per wall second (the sample world's season
+   * record carries it as `sample.rate`: UX design 14.5; 0 while that world stands still). Taken ONLY by an
+   * accelerated clock, which then no longer waits for a second sample to learn it; a real cluster's rate stays 1
+   * whatever a record says. Anything but a finite rate of 0 or more gives the estimate back.
+   */
+  declare(rate) {
+    if (!this.accelerated || typeof rate !== 'number' || !Number.isFinite(rate) || rate < 0) { this.declared = null; return false; }
+    this.declared = Math.min(5000, rate);
+    this.rate = this.declared;
+    return true;
   }
 
   /** A herald sample: the Clock sysvar's unix time at a slot. */
   observe(unix, slot) {
     const s = { unix: Number(unix), slot: Number(slot), at: this.wall() };
     if (this.last && s.slot < this.last.slot) return; // an older answer arriving late
-    if (this.accelerated && this.last && s.at - this.last.at >= 2000 && s.unix > this.last.unix) {
+    if (this.accelerated && this.declared === null && this.last && s.at - this.last.at >= 2000 && s.unix > this.last.unix) {
       const r = (s.unix - this.last.unix) / ((s.at - this.last.at) / 1000);
       this.rate = Math.min(5000, Math.max(1, r));
     }
@@ -110,6 +125,8 @@ export class ChainClock {
    */
   behind() {
     if (!this.last) return null;
+    // (a world that declares it stands still is not behind: nothing is passing there)
+    if (this.accelerated && this.declared === 0) return 0;
     if (this.accelerated) return Math.max(0, (this.wall() - this.advancedAt) / 1000);
     return Math.max(0, this.wall() / 1000 - this.minOffset - this.last.unix);
   }
@@ -119,6 +136,18 @@ export class ChainClock {
     if (!this.last || this.rate !== 1) return 0;
     return this.wall() / 1000 - this.now();
   }
+}
+
+/**
+ * The longest a poll may wait, in wall seconds, on a clock that runs fast: a quarter of a turn (600 chain seconds),
+ * never under 2 s. Infinity on a real cluster and on a localnet at the real pace: the usual 10 / 30 s stand.
+ * (The polls were set for ten-minute turns; a local stack or the sample world turns in seconds.)
+ */
+export function pollCap(chain) {
+  const r = chain?.accelerated ? Number(chain.rate) : 1;
+  // (a declared rate of 0: a sample world that stands still and is stepped from outside; it is read every 2 s)
+  if (chain?.accelerated && chain.declared === 0) return 2;
+  return r > 1 ? Math.max(2, 150 / r) : Infinity;
 }
 
 // ------------------------------------------------------------------ the bell chip

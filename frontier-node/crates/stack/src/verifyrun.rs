@@ -84,7 +84,11 @@ pub async fn read_input(st: &Value) -> Result<Input, String> {
             program,
             season_id,
             quicknet_pk: pk,
-            ruleset_hash: frontier_abi::presets::RULESET_HASH,
+            ruleset_hash: if st["config"]["conquest"].as_bool() == Some(true) {
+                frontier_abi::v2::presets::RULESET_HASH_V2
+            } else {
+                frontier_abi::presets::RULESET_HASH
+            },
             program_hash: so,
         },
         txs,

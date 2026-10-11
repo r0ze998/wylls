@@ -23,6 +23,14 @@
 /// Version of this kernel, bound into `RULESET_HASH` (`super::KERNEL_VERSIONS`):
 /// bump it whenever an honest outcome changes. v1: as at M0 (CL-04 adds refusals only).
 pub const GEOMETRY_VERSION: u16 = 1;
+/// The conquest rules' version of this kernel (MC contract §3.13, §7):
+/// the heartland is a season parameter ([`is_heartland_in`]). Bound into
+/// `ruleset_hash_input_v2` only; [`GEOMETRY_VERSION`] keeps the M1 value
+/// (staged ABI, MC §5.1).
+pub const GEOMETRY_VERSION_V2: u16 = 2;
+/// Default outermost heartland ring (`heartland_max_ring`, MC §3.12): the
+/// M1 heartland, rings 2–3.
+pub const HEARTLAND_MAX_RING_DEFAULT: u8 = 3;
 
 use crate::hash::sha256;
 use crate::hex::{Hex, DIRECTIONS};
@@ -412,6 +420,15 @@ pub fn seat_of(faction: u8) -> ProvinceCoord {
 /// there without War (or March hostility).
 pub fn is_heartland(p: ProvinceCoord, faction: u8) -> bool {
     matches!(p.ring(), 2 | 3) && p.wedge() == Some(faction)
+}
+
+/// Heartland with the season's `heartland_max_ring` (MC §3.1, K-18):
+/// rings `2..=heartland_max_ring` of `faction`'s own wedge. No holding
+/// siege and no keep contest there until M3. `is_heartland(p, f) ==
+/// is_heartland_in(p, f, 3)` for every province and faction.
+pub fn is_heartland_in(p: ProvinceCoord, faction: u8, heartland_max_ring: u8) -> bool {
+    let r = p.ring();
+    r >= 2 && r <= heartland_max_ring as u32 && p.wedge() == Some(faction)
 }
 
 /// Region of a province for beacon anchors and seed caches:

@@ -2,7 +2,13 @@
 //!
 //! Client → server: `{"op":"sub","provinces":[[P,Q]…≤64],"rings":[…],
 //! "wallet":"<b58>"?, "bells":true}` (each `sub` replaces the previous
-//! one). Server → client: `{"seq","s","kind":"acct|bell|event","key","slot",
+//! one). MC (CONQUEST-CONTRACT §8.4, CQ2-E) adds `"control":true`,
+//! `"sieges":true` and `"standings":true`: messages `kind:"control"` (key
+//! `/h/control/{b}.bin`; `bytes_b64` the changed province records
+//! `[index u16 · record 8 B]…`, ≤ 64, CF-6; empty = a resync hint naming
+//! the file), `kind:"siege"` (`bytes_b64` the JSON delta of
+//! `cqfmt::SiegeDelta`) and `kind:"standings"` (`latest.json`'s bytes);
+//! `kind:"alert"` (JSON) goes to the wallet's own subscription. Server → client: `{"seq","s","kind":"acct|bell|event","key","slot",
 //! "head","bytes_b64","t"}` numbered **per connection** from 1 in the order
 //! sent; `t` is the ingest stamp (unix ms before the pull) and `s` the
 //! send stamp (unix ms when the socket's batch was handed to it;
@@ -202,6 +208,10 @@ pub struct Sub {
     pub rings: Vec<u16>,
     pub wallet: Option<[u8; 32]>,
     pub bells: bool,
+    /// MC (CQ2-E): the control layer, siege deltas, standings.
+    pub control: bool,
+    pub sieges: bool,
+    pub standings: bool,
 }
 
 impl Sub {
@@ -235,7 +245,28 @@ impl Sub {
             s.wallet = Some(a.to_bytes());
         }
         s.bells = v.get("bells").and_then(|x| x.as_bool()).unwrap_or(false);
+        let flag = |k: &str| v.get(k).and_then(|x| x.as_bool()).unwrap_or(false);
+        s.control = flag("control");
+        s.sieges = flag("sieges");
+        s.standings = flag("standings");
         Ok(s)
+    }
+
+    /// Whether this socket gets `d` (by kind for the MC messages, by scope
+    /// for the rest).
+    pub fn wants_diff(&self, d: &Diff) -> bool {
+        match d.kind {
+            "control" => self.control,
+            "siege" => self.sieges,
+            "standings" => self.standings,
+            _ => self.wants(&d.scope),
+        }
+    }
+
+    /// Whether any MC subscription is on (the ack names them only then, so
+    /// an M1 client's ack stays byte-identical).
+    pub fn mc(&self) -> bool {
+        self.control || self.sieges || self.standings
     }
 
     pub fn wants(&self, scope: &Scope) -> bool {
@@ -425,7 +456,7 @@ pub async fn serve<S>(
                     let mut n = 0;
                     let mut over = false;
                     while let Some(d) = next.take() {
-                        if sub.wants(&d.scope) {
+                        if sub.wants_diff(&d) {
                             seq += 1;
                             out.extend_from_slice(&encode_frame(OP_TEXT, message_sent(seq, Some(s_ms), &d).as_bytes(), None));
                         }
@@ -469,8 +500,14 @@ pub async fn serve<S>(
             },
             c = ctl.recv() => match c {
                 Some(Ctl::Sub(s)) => {
-                    let ack = json!({"op": "subscribed", "provinces": s.provinces.len(), "rings": s.rings.len(),
-                        "wallet": s.wallet.is_some(), "bells": s.bells}).to_string();
+                    let ack = if s.mc() {
+                        json!({"op": "subscribed", "provinces": s.provinces.len(), "rings": s.rings.len(),
+                            "wallet": s.wallet.is_some(), "bells": s.bells, "control": s.control,
+                            "sieges": s.sieges, "standings": s.standings}).to_string()
+                    } else {
+                        json!({"op": "subscribed", "provinces": s.provinces.len(), "rings": s.rings.len(),
+                            "wallet": s.wallet.is_some(), "bells": s.bells}).to_string()
+                    };
                     sub = s;
                     if let Err(e) = write_within(&mut wr, &encode_frame(OP_TEXT, ack.as_bytes(), None), limit).await {
                         break fail(e, &stats);
@@ -740,6 +777,24 @@ mod tests {
         assert!(s.wants(&Scope::Ring(2)) && !s.wants(&Scope::Ring(3)));
         assert!(s.wants(&Scope::Wallet([7; 32])) && !s.wants(&Scope::Wallet([8; 32])));
         assert!(s.wants(&Scope::Bells) && !s.wants(&Scope::None));
+        // MC kinds route by subscription, not by scope (CQ2-E)
+        let d = |kind: &'static str| Diff {
+            kind,
+            key: String::new(),
+            slot: 0,
+            head: None,
+            bytes: vec![],
+            scope: Scope::None,
+            t_ms: 0,
+            wire: Default::default(),
+        };
+        assert!(!s.wants_diff(&d("control")) && !s.mc());
+        let c = Sub::parse(&json!({"op": "sub", "control": true, "standings": true})).unwrap();
+        assert!(c.wants_diff(&d("control")) && c.wants_diff(&d("standings")));
+        assert!(!c.wants_diff(&d("siege")) && !c.wants_diff(&d("bell")) && c.mc());
+        let mut a = d("alert");
+        a.scope = Scope::Wallet([7; 32]);
+        assert!(s.wants_diff(&a) && !c.wants_diff(&a));
         let many: Vec<Value> = (0..65).map(|i| json!([i, 0])).collect();
         assert_eq!(
             Sub::parse(&json!({"op": "sub", "provinces": many})),

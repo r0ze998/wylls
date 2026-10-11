@@ -14,23 +14,34 @@
 // the own wedge has no open site left, the program accepts sites in the
 // adjacent wedges' outermost open ring; integ-W3 deferred item K11).
 import { activeHolding } from './fstate.mjs';
-import { SCOUT, CITIZEN, freeByWedge, homeWedge, ticketTimes, baseProduction } from './fland.mjs';
+import { SCOUT, CITIZEN, freeByWedge, homeWedge, ticketTimes, baseProduction, hostOfHolding } from './fland.mjs';
+import { territoryEnabled } from './territory.mjs';
 import { ringOf, wedgeOf, provinceIndex } from './fgeo.mjs';
 
 /** The steps, in order (design §7.11 table: 1–8). */
 export const STEPS = Object.freeze(['welcome', 'join', 'build', 'scout', 'practice', 'march', 'report', 'done']);
+/** Instant-home seasons teach the real game; a practice battle is never a prerequisite. */
+export const HOME_STEPS = Object.freeze(['join', 'build', 'scout', 'march', 'report', 'done']);
+export const ARRIVAL_STEPS = Object.freeze(['join', 'build', 'train', 'muster', 'march', 'claim', 'done']);
 /** Local flags (in ps-fui `dismissed`). */
 export const FLAG = Object.freeze({
   dismissed: 'onboarding',
   welcome: 'ob:welcome',
   practice: 'ob:practice',
   report: 'ob:report',
+  exploreResult: 'ob:explore-result',
   skip: id => `ob:skip:${id}`,
 });
 /** Minutes the waits take (O-M1-13, web design §6.3): [earliest, latest]. */
 export const WAIT_MINUTES = Object.freeze({ ticket: [11, 21], explore: [11, 21], report: [31, 41] });
 
 const NO_TICKET = 0xffffffff;
+// A preview's capture history is optional external data, unlike decoded host
+// accounts. A missing or malformed ID cannot count as this player's capture.
+const capturedBy = (change, holding, faction) => {
+  if (change?.to !== faction || !['arrival', 'battle'].includes(change?.reason) || change.hostId == null) return false;
+  try { return hostOfHolding(change.hostId, holding); } catch { return false; }
+};
 
 /**
  * Chain facts for the state machine from the page's store (`FS` shape of
@@ -39,8 +50,12 @@ const NO_TICKET = 0xffffffff;
 export function factsOf(FS) {
   const holding = activeHolding(FS) ?? null;
   const home = holding ? FS.provinces?.get?.(`${holding.p},${holding.q}`)?.province ?? null : null;
-  const scoutHost = !!home && (home.entries ?? []).some(e => e.state >= 1 && e.state <= 3 && e.unit === SCOUT && e.faction === FS.citizen?.faction);
-  return { citizen: FS.citizen ?? null, stage: FS.land?.stage ?? (FS.citizen ? 'joined' : 'none'), holding, scoutHost, marches: FS.marches ?? [] };
+  const scoutHost = !!home && !!holding && (home.entries ?? []).some(e => e.state >= 1 && e.state <= 3 && e.unit === SCOUT && hostOfHolding(e.id, holding));
+  const ownCombatHost = !!holding && [...(FS.provinces?.values?.() ?? [])].some(env => (env.province?.entries ?? []).some(e => e.state >= 1 && e.state <= 3 && e.unit < SCOUT && hostOfHolding(e.id, holding)));
+  const trainedCombat = ownCombatHost || !!holding && (holding.reserve ?? []).slice(0, SCOUT).some(n => Number(n) >= 100);
+  const claimed = territoryEnabled(FS) && (FS.holdings ?? []).some(h => [...(FS.provinces?.values?.() ?? [])].some(env =>
+    [...(env.sampleTerritory?.history ?? []), ...(env.sampleTerritory?.changes ?? [])].some(change => capturedBy(change, h, FS.citizen?.faction))));
+  return { arrivalControl: territoryEnabled(FS), trainedCombat, ownCombatHost, claimed, citizen: FS.citizen ?? null, stage: FS.land?.stage ?? (FS.citizen ? 'joined' : 'none'), holding, scoutHost, marches: FS.marches ?? [], programVersion: Number(FS.season?.programVersion ?? 1), now: FS.chain?.now?.() ?? 0 };
 }
 
 /**
@@ -48,9 +63,10 @@ export function factsOf(FS) {
  * it produces more than its tier's base (a founded Hamlet already produces
  * the base: W6-D found the step ticked before any build).
  */
-export function hasBuilt(h) {
+export function hasBuilt(h, now = 0) {
   if (!h) return false;
-  if ((h.queue ?? []).some(x => Number(x.doneAt) > 0)) return true;
+  // Lazy settlement may still leave the completed effect in the decoded queue.
+  if ((h.queue ?? []).some(x => x && x.kind === 1 && Number(x.doneAt) > 0 && Number(x.doneAt) <= now)) return true;
   const base = baseProduction(Number(h.tier ?? 0));
   return (h.production ?? []).some((x, r) => BigInt(x) > (base[r] ?? 0n));
 }
@@ -71,19 +87,24 @@ export function onboardingState(facts, flags = [], clock = null) {
   const f = new Set(flags);
   const c = facts.citizen, h = facts.holding;
   const stage = facts.stage ?? 'none';
+  const instant = facts.programVersion >= 2 || facts.arrivalControl;
+  const stepIds = facts.arrivalControl ? ARRIVAL_STEPS : instant ? HOME_STEPS : STEPS;
   const resolved = (facts.marches ?? []).some(m => m.facts?.pipeline === 'resolved');
   const done = {
     welcome: f.has(FLAG.welcome) || !!c,
     join: stage === 'provisional' || stage === 'final',
-    build: hasBuilt(h),
-    scout: hasExplored(c, h),
+    build: hasBuilt(h, facts.now ?? 0) || (!instant && !!h?.queue?.some(x => Number(x?.doneAt) > 0)),
+    scout: instant ? Number(c?.explores ?? 0) > 0 && !h?.explore?.state && f.has(FLAG.exploreResult) : hasExplored(c, h),
     practice: f.has(FLAG.practice),
+    train: !!facts.trainedCombat || hasMarched(c, h),
+    muster: !!facts.ownCombatHost || hasMarched(c, h),
+    claim: !!facts.claimed,
     march: hasMarched(c, h),
     report: f.has(FLAG.report),
   };
   const steps = [];
   let current = null;
-  for (const id of STEPS.slice(0, -1)) {
+  for (const id of stepIds.slice(0, -1)) {
     const status = done[id] ? 'done' : f.has(FLAG.skip(id)) ? 'skipped' : current === null ? 'current' : 'todo';
     if (status === 'current') current = id;
     steps.push({ id, status, wait: waitOf(id, { stage, citizen: c, holding: h, marches: facts.marches ?? [], resolved, clock }) });

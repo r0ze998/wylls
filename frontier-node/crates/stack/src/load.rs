@@ -600,7 +600,7 @@ pub async fn load(rd: &RunDir, viewers: usize, game_hours: f64) -> i32 {
     let mut stv = st.clone();
     let pids = stv["viewers_pids"].as_array().cloned().unwrap_or_default();
     let mut pids = pids;
-    pids.push(json!(child.id()));
+    pids.push(json!({"pid":child.id(),"start_stamp":crate::procs::start_stamp(child.id()),"command":crate::procs::command_of(child.id())}));
     stv["viewers_pids"] = json!(pids);
     let _ = rd.save_state(&stv);
     let t0 = Instant::now();

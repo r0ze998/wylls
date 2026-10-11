@@ -11,6 +11,7 @@ import { activeHolding } from '../fstate.mjs';
 import { onboardingState, factsOf } from '../onboarding.mjs';
 import { hostRows } from '../screens/host.mjs';
 import { SCOUT, SETTLER } from '../fland.mjs';
+import { territoryEnabled } from '../territory.mjs';
 import { ringOf } from '../fgeo.mjs';
 
 export const GUIDE_LEVELS = Object.freeze(['all', 'warn', 'off']);
@@ -35,6 +36,12 @@ export function guideTarget(FS) {
   const step = st.current, h = activeHolding(FS);
   // joining is choosing a nation (owner decision V2): the guide never points at land to choose
   if (!h) return null;
+  if (territoryEnabled(FS)) {
+    const building = (h.queue ?? []).some(q => q && q.kind === 1 && Number(q.doneAt) > (FS.chain?.now?.() ?? 0));
+    const kind = step === 'build' && building ? 'train' : step;
+    if (kind === 'train' || kind === 'muster') return { step, kind, p: h.p, q: h.q, tile: h.tile };
+    if (step === 'march' || step === 'claim') return null;
+  }
   if (step === 'build') return { step, kind: 'build', p: h.p, q: h.q, tile: h.tile };
   if (step === 'scout') return { step, kind: 'scout', p: h.p, q: h.q, tile: h.tile };
   if (step === 'march') {
@@ -53,8 +60,8 @@ export function guideTarget(FS) {
 
 /** The guide card's button for a target. */
 export function goText(t) {
-  return { march: t.host ? L`この野営地へ進軍を準備する` : L`野営地を地図で見る`, build: L`建設のパネルへ`, scout: L`村と軍勢を見る` }[t.kind] ?? '';
+  return { train: L`訓練する兵を選ぶ`, muster: L`軍勢を編成する`, march: t.host ? L`この野営地へ進軍を準備する` : L`野営地を地図で見る`, build: L`建設をひらく`, scout: L`村と軍勢を見る` }[t.kind] ?? '';
 }
 
 /** The map's label at the target. */
-export const guideLabel = t => ({ march: L`ガイド：蛮族の野営地`, build: L`ガイド：あなたの村`, scout: L`ガイド：ここから探索` }[t.kind] ?? L`ガイド`);
+export const guideLabel = t => ({ train: L`ガイド：ここで兵を訓練`, muster: L`ガイド：ここで軍勢を編成`, march: L`ガイド：蛮族の野営地`, build: L`ガイド：あなたの村`, scout: L`ガイド：ここから探索` }[t.kind] ?? L`ガイド`);

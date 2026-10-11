@@ -1,0 +1,29 @@
+# One whole season for the demo: the conquest world with the prize pool (ai-cq-prize.toml), 16 game hours (96 turns at 10x,
+# about 1 h 40 min of wall time) and the season ended at the end of play, so that the provinces can be tallied on chain.
+# People join over x402 with test tokens; the operator's AI citizens and script bots join by invite and are not prize-eligible.
+# Local test chain only.
+run_id = "ai-cq-season"
+mode = "accel"
+beacon = "test-key"
+conquest = true
+prize_so = "permutation-prize/target/deploy/permutation_prize.so"
+entry_fee = 25000000
+scale = 10
+preseason_scale = 2000
+game_hours = 16
+season_end_at_play_end = true
+drain_bells = 26
+bots = 6
+bot_seed = 48
+season_id = 48
+base_port = 41900
+bots_args = "--conquest --conquest-personas 0 --follow-council --join-by-bell 6"
+
+[pools]
+beneficiary_lamports = 1000000000
+
+[chaos]
+enabled = false
+
+[adversary]
+enabled = false

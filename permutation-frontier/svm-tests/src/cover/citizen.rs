@@ -2,7 +2,7 @@
 //! tickets, dormancy, season-end closes), W3-A. Codes the wave-3 tests do
 //! not reach yet are `Pending` for W5-A (G13 completion).
 
-use super::{Cover, Err, Lands, Loaded, E};
+use super::{Cover, Cq, CqErr, Err, Lands, Loaded, E};
 
 /// Ignored tests of this area waiting for a fix: (test, unit).
 pub const PENDING: &[(&str, &str)] = &[];
@@ -116,6 +116,14 @@ pub const FILE_TICKET: &[Cover] = &[
         "citizen::citizen_g13_file_ticket_forgery_shape_loaded",
         &[Err(E::BadAddress), Err(E::TooManyAccounts), Loaded],
     ),
+    Cover::Test(
+        "citizen::g13_cq_file_ticket_v2_refusals",
+        &[
+            CqErr(Cq::SiegeBusy),
+            Err(E::TransitState),
+            Lands("FileTicket"),
+        ],
+    ),
 ];
 
 pub const SETTLE_TICKET: &[Cover] = &[
@@ -169,6 +177,26 @@ pub const SETTLE_TICKET: &[Cover] = &[
         "citizen::citizen_g13_settle_ticket_archive_path_and_loaded",
         &[Lands("via the archive"), Loaded],
     ),
+    Cover::Test(
+        "citizen::cq_outpost_files_and_settles_into_slots_2_and_3",
+        &[Lands("SettleTicket (outpost)")],
+    ),
+    Cover::Test(
+        "citizen::g02_cq_prefund_outpost_holding",
+        &[Lands("SettleTicket (outpost) pre-funded")],
+    ),
+    Cover::Test(
+        "citizen::cq_outpost_displacement_frees_the_slot",
+        &[Lands("SettleTicket hi (displace)")],
+    ),
+    Cover::Test(
+        "citizen::cq_first_holding_shield_turns_late_after_the_season_timer",
+        &[Lands("SettleTicket")],
+    ),
+    Cover::Test(
+        "citizen::g13_cq_settle_ticket_refuses_a_site_with_a_record",
+        &[CqErr(Cq::SiegeBusy), Lands("SettleTicket")],
+    ),
 ];
 
 pub const RELEASE_DORMANT: &[Cover] = &[
@@ -186,6 +214,14 @@ pub const RELEASE_DORMANT: &[Cover] = &[
         &[Err(E::BadAccount), Lands("ReleaseDormant")],
     ),
     Cover::Test("citizen::g01_land_other_instructions", &[Loaded]),
+    Cover::Test(
+        "citizen::g13_cq_release_dormant_s3_and_record_reset",
+        &[
+            CqErr(Cq::SiegeBusy),
+            CqErr(Cq::StakeUnsettled),
+            Lands("ReleaseDormant"),
+        ],
+    ),
 ];
 
 pub const CLOSE_HOLDING: &[Cover] = &[
@@ -229,4 +265,82 @@ pub const CLOSE_CITIZEN: &[Cover] = &[
         &[Err(E::BadAccount), Lands("CloseCitizen")],
     ),
     Cover::Test("citizen::g01_land_other_instructions", &[Loaded]),
+];
+
+/// Version-2 first-home instruction; the dedicated suite uses the real VM.
+pub const PLACE_HOME: &[Cover] = &[
+    Cover::Test(
+        "first_home::first_home_is_final_sponsored_and_chained_immediately",
+        &[Lands("PlaceHome"), Err(E::AlreadyDone)],
+    ),
+    Cover::Test(
+        "first_home::first_home_rejects_occupied_foreign_closed_and_reserved_sites",
+        &[Err(E::TicketState), Err(E::BadData), Err(E::ReservedSite)],
+    ),
+    Cover::Test(
+        "first_home::first_home_authentication_addresses_and_old_season_checked",
+        &[
+            Err(E::Auth),
+            Err(E::BadAddress),
+            Err(E::BadAccount),
+            Err(E::RulesetMismatch),
+        ],
+    ),
+    Cover::Test(
+        "first_home::first_home_allows_live_session_and_rejects_expiry",
+        &[Lands("session PlaceHome"), Err(E::SessionExpired)],
+    ),
+];
+
+/// 0xA3 FileOutpost (MC §3.8, §5.5): CQ2-A.
+pub const FILE_OUTPOST: &[Cover] = &[
+    Cover::Test(
+        "citizen::cq_outpost_files_and_settles_into_slots_2_and_3",
+        &[
+            Lands("FileOutpost"),
+            Err(E::TicketState),
+            CqErr(Cq::HoldingsFull),
+        ],
+    ),
+    Cover::Test(
+        "citizen::g13_cq_file_outpost_refusals",
+        &[
+            CqErr(Cq::OutpostRule),
+            CqErr(Cq::SiegeBusy),
+            CqErr(Cq::HoldingsFull),
+            Err(E::Capacity),
+            Err(E::NotFinal),
+            Err(E::BadData),
+            Err(E::BadAddress),
+            Err(E::NotOwner),
+            Err(E::Insufficient),
+            Err(E::ReservedSite),
+            Err(E::TooManyAccounts),
+            Err(E::TicketState),
+            Lands("FileOutpost"),
+        ],
+    ),
+    Cover::Test(
+        "citizen::g13_cq_file_outpost_capture_lock_on_the_anchor",
+        &[
+            CqErr(Cq::CapturePending),
+            Lands("FileOutpost (outpost anchor)"),
+        ],
+    ),
+    Cover::Test(
+        "citizen::g13_cq_file_outpost_town_prerequisite_reads_the_touched_tier",
+        &[CqErr(Cq::OutpostRule), Lands("FileOutpost")],
+    ),
+    Cover::Test(
+        "citizen::g13_cq_file_outpost_cohort_table_full_refuses_a_ninth_bell",
+        &[Err(E::CohortFull)],
+    ),
+    Cover::Test(
+        "citizen::g03_cq_file_outpost_refuses_forged_accounts",
+        &[Err(E::BadAddress), Err(E::BadAccount), Lands("FileOutpost")],
+    ),
+    Cover::Test(
+        "citizen::g01_cq_file_outpost_three_provinces_full_cohorts",
+        &[Loaded, Lands("FileOutpost at the 28k limit")],
+    ),
 ];

@@ -1,7 +1,8 @@
 //! Builders for Join, SetSession, SetVigil, FileTicket, SettleTicket,
 //! ReleaseDormant, CloseHolding and CloseCitizen (§5.9, W3-A). The raw
 //! builders are `fclient::ix`'s; this file adds the account positions the
-//! forgery tests substitute.
+//! forgery tests substitute. **MC (CQ2-A):** [`file_outpost`] (0xA3, MC
+//! §5.5), which fclient does not build yet (CQ2-D).
 
 pub use fclient::ix::{
     close_citizen, close_holding, file_ticket, join, release_dormant, seed_pair, set_session,
@@ -54,4 +55,33 @@ pub mod release_at {
     pub const JOINSHARD: usize = 5;
     pub const RENT_PAYER: usize = 6;
     pub const DPOOL: usize = 7;
+}
+
+/// 0xA3 FileOutpost (MC §5.5): FileTicket's list `[actor s] [payer s,w]
+/// [season r] [citizen w] [frontier r] [province × m w] [system]` plus
+/// `[anchor_holding w]`; data `n, sites, anchor_site_key` with the anchor
+/// in host-id form (`host_id(P, Q, site, gen, 0)`).
+pub fn file_outpost(
+    a: &fclient::addr::Addresses,
+    p: &Player,
+    sites: &[Site],
+    anchor: HoldingRef,
+    anchor_gen: u8,
+) -> solana_instruction::Instruction {
+    fclient::ix::v2::file_outpost(a, p, sites, anchor, anchor_key(anchor, anchor_gen))
+}
+
+/// A holding's key in host-id form (`index<<44 | site<<40 | gen<<32`).
+pub fn anchor_key(h: HoldingRef, gen: u8) -> u64 {
+    frontier_abi::addr::host_id(h.p as i32, h.q as i32, h.site, gen, 0).expect("a valid holding")
+}
+
+/// Positions of FileOutpost's accounts after the provinces (m of them):
+/// `PROVINCE0 + m` is the System program, `PROVINCE0 + m + 1` the anchor.
+pub mod outpost_at {
+    pub const FRONTIER: usize = 4;
+    pub const PROVINCE0: usize = 5;
+    pub const fn anchor(m: usize) -> usize {
+        PROVINCE0 + m + 1
+    }
 }

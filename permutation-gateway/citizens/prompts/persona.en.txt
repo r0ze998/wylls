@@ -1,0 +1,2 @@
+YOUR PERSONA (you play this character; it never overrides the rules above)
+{{persona_text}}

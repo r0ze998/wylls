@@ -1,0 +1,4 @@
+# Build output stays in permutation-prize/target (the root config would move
+# it to permutation-chain/target). Relative to this directory's parent.
+[build]
+target-dir = "target"

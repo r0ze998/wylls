@@ -394,7 +394,11 @@ pub fn abi_version(_: &[u8]) -> Answer {
 
 /// `permutation_rules::frontier::ruleset_hash()` (= `frontier_abi::presets::RULESET_HASH`).
 pub fn ruleset_hash(_: &[u8]) -> Answer {
-    ok(&permutation_rules::frontier::ruleset_hash())
+    #[cfg(not(feature = "cq"))]
+    let hash = permutation_rules::frontier::ruleset_hash();
+    #[cfg(feature = "cq")]
+    let hash = permutation_rules::frontier::ruleset_hash_v2();
+    ok(&hash)
 }
 
 /// Tile hex → (province, tile index).
@@ -615,7 +619,11 @@ pub fn model_refusal(e: frontier_abi::clash_model::ModelError) -> (u8, u32) {
 pub fn resolve_from_inputs(b: &[u8]) -> Answer {
     use frontier_abi::clash_model as m;
     let a = take!(b, FromInputsArgs);
-    let built = match m::build(&a.province, Some(&a.inputs), a.bell) {
+    #[cfg(not(feature = "cq"))]
+    let built_result = m::build(&a.province, Some(&a.inputs), a.bell);
+    #[cfg(feature = "cq")]
+    let built_result = m::build_v2(&a.province, Some(&a.inputs), a.bell);
+    let built = match built_result {
         Ok(x) => x,
         Err(e) => {
             let (code, arg) = model_refusal(e);

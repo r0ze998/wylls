@@ -13,6 +13,8 @@
 //! | [`seal`] | honest, garbage and bad-plaintext seals on a shared pool |
 //! | [`journal`] | the marchbook (JSON lines, fsync, restore) |
 //! | [`txb`] | the relay's sponsored shapes and direct transactions |
+//! | [`conquest`] | MC §8.6 `--conquest`: the fleet's planner epoch, orders, the horn, outposts, retire, the conquest personas |
+//! | [`cqtx`] | the v2 instructions a bot signs (DeclareSiege, FileOutpost, RetireHost) (adapters over `fclient::ix::v2`) |
 //! | [`bot`] | one bot: observe → decide → act; the shared environment |
 //! | [`fleet`] | 1,000 bots per process: schedules, `step_all`, `run` |
 //! | [`report`] | outcomes and persona verdicts for the stack report |
@@ -22,10 +24,16 @@
 //! ports.
 
 pub mod bot;
+pub mod conquest;
 pub mod control;
+pub mod cqtx;
 pub mod fleet;
+pub mod home;
 pub mod journal;
 pub mod ports;
 pub mod report;
 pub mod seal;
 pub mod txb;
+// AI hook
+pub mod ai;
+// AI hook end

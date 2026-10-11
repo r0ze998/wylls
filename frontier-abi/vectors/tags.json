@@ -1782,6 +1782,97 @@
       ]
     },
     {
+      "name": "PlaceHome",
+      "tag": 56,
+      "class": "P",
+      "top_level_only": false,
+      "relay_player_shape": true,
+      "relay_settle_shape": false,
+      "data_len": [6, 6],
+      "data": [
+        {
+          "name": "p",
+          "len": 2
+        },
+        {
+          "name": "q",
+          "len": 2
+        },
+        {
+          "name": "site",
+          "len": 1
+        }
+      ],
+      "account_groups": [
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "actor",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "r"
+            },
+            {
+              "name": "payer",
+              "kind": "wallet",
+              "signer": true,
+              "writable": "w"
+            },
+            {
+              "name": "season",
+              "kind": "Season",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "citizen",
+              "kind": "Citizen",
+              "signer": false,
+              "writable": "w"
+            }
+          ]
+        },
+        {
+          "min": 1,
+          "max": 1,
+          "accounts": [
+            {
+              "name": "frontier",
+              "kind": "Frontier",
+              "signer": false,
+              "writable": "r"
+            },
+            {
+              "name": "province",
+              "kind": "Province",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "holding",
+              "kind": "Holding",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "joinshard",
+              "kind": "JoinShard",
+              "signer": false,
+              "writable": "w"
+            },
+            {
+              "name": "system",
+              "kind": "system",
+              "signer": false,
+              "writable": "r"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "Harvest",
       "tag": 64,
       "class": "P",

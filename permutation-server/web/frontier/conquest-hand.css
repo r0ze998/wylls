@@ -1,0 +1,297 @@
+/* The hand, the panels and the standings of a CONQUEST season (program version 3: keeps, provinces, the prize pool)
+   in the redesign's look: bell-metal plates with a brass rim, a nation by its crest on a band of its colour, figures
+   in tabular numerals. Everything here is behind `conquestEnabled` in the markup's own modules (hud/keephand.mjs,
+   hud/provstrip.mjs, screens/conquest.mjs, screens/prize.mjs, screens/report.mjs): the basic game and the sample
+   world draw none of these classes. Loaded after frontier.css. */
+
+/* ---- a nation's colour (palette.mjs NATION_FILL / NATION_DARK; the crest's sigil carries the identity) */
+.kh-n0 { --kn: #cc303b; --kn-d: #81242c; --kn-l: #f5d2d5; } .kh-n1 { --kn: #31bedb; --kn-d: #237489; --kn-l: #d3f0f5; }
+.kh-n2 { --kn: #eac21b; --kn-d: #8c721c; --kn-l: #f8efc4; } .kh-n3 { --kn: #a34cd8; --kn-d: #69338c; --kn-l: #eddbf7; }
+.kh-n4 { --kn: #edeee7; --kn-d: #5f6a68; --kn-l: #f9faf4; } .kh-n5 { --kn: #f19232; --kn-d: #9c581f; --kn-l: #fbe2c5; }
+.kh-n6 { --kn: #8a8a80; --kn-d: #55554e; --kn-l: #ecebe4; }
+.kh-crest { flex: none; display: block; filter: drop-shadow(0 1px 1px rgba(0,0,0,.45)); }
+.kh-nation { display: inline-flex; align-items: center; gap: 6px; padding: 1px 8px 1px 3px; border-radius: 12px; background: color-mix(in srgb, var(--kn) 22%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--kn) 60%, transparent); font-weight: 650; }
+.kh-you { margin-left: 2px; padding: 0 6px; border-radius: 8px; background: var(--you); color: #14251f; font-size: 11px; font-weight: 700; }
+
+/* ---- a signature printed short, with its copy key */
+.kh-sig { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; font-size: var(--t1); }
+.kh-sig-k { opacity: .8; }
+.kh-sig code { padding: 1px 6px; border-radius: 4px; background: rgba(0,0,0,.2); font: 600 12px/1.5 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .02em; white-space: nowrap; }
+.kh-copy { min-height: 24px; padding: 1px 8px; border: 1px solid rgba(201,162,74,.75); border-radius: 6px; background: linear-gradient(180deg, #24463e, #152b26); color: var(--ivory); font: 650 11px/1.4 var(--ui); cursor: pointer; }
+.kh-copy:hover { border-color: var(--brass-hi); }
+.kh-copy:focus-visible { outline: 2px solid var(--brass-hi); outline-offset: 2px; }
+
+/* ---- the waits: a host on its way to being ready (the keep panel, the reach list) */
+.kh-waits { margin: 6px 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.kh-wait { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 4px 8px; align-items: start; padding: 8px 10px; border-radius: 8px; background: rgba(243,197,103,.16); box-shadow: inset 0 0 0 1px rgba(243,197,103,.6); font-size: var(--t2); line-height: 1.45; }
+.kh-wait .ic { width: 16px; height: 16px; margin-top: 2px; color: var(--amber); }
+.kh-wait .btn { grid-column: 2; justify-self: start; }
+/* the viewer's own host on the keep's tile (the keep panel): said in the gold of what is one's own */
+.kp-here { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; align-items: start; margin: 6px 0; padding: 8px 10px; border-radius: 8px; background: rgba(255,210,77,.14); box-shadow: inset 0 0 0 1px rgba(255,210,77,.55); font-weight: 600; }
+.kp-here .ic { width: 16px; height: 16px; margin-top: 2px; color: #ffd24d; }
+
+/* ---- the host's card 砦へ進軍: the keeps this host can reach */
+.hand-btn.hand-keeps .hand-ic { color: var(--brass-hi); }
+.hand-pop[data-pop="keeps"][data-mode="card"] { width: min(760px, calc(100vw - 2 * var(--edge))); }
+.kh-rows { margin: 2px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; max-height: min(46vh, 372px); overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgba(240,212,138,.5) transparent; }
+.kh-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 92px 132px 132px 22px; align-items: center; gap: 10px; width: 100%; min-height: 56px; padding: 6px 10px 6px 16px; border: 1px solid rgba(201,162,74,.45); border-radius: 10px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--kn) 26%, #14251f) 0, #16302a 46%, #122723 100%); color: var(--ivory); font: inherit; text-align: left; cursor: pointer; box-shadow: inset 0 1px 0 rgba(240,212,138,.16), 0 2px 0 #06100e; transition: border-color var(--press), translate var(--press), box-shadow var(--press); }
+.kh-row-band { position: absolute; left: 0; top: 0; bottom: 0; width: 6px; border-radius: 10px 0 0 10px; background: var(--kn); box-shadow: inset -1px 0 0 rgba(0,0,0,.35); }
+.kh-row:hover, .kh-row:focus-visible { border-color: var(--brass-hi); box-shadow: inset 0 0 0 1px var(--brass-hi), 0 0 18px color-mix(in srgb, var(--kn) 55%, transparent), 0 2px 0 #06100e; translate: 0 -1px; outline: none; }
+.kh-row.off { opacity: .8; cursor: not-allowed; }
+.kh-row-where { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.kh-row-names { display: grid; min-width: 0; }
+.kh-row-name { font: 700 15px/1.25 var(--display); letter-spacing: .02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kh-row-holder { color: var(--hud-ink-2); font-size: var(--t1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kh-coords { opacity: .8; }
+.kh-fig { display: grid; grid-template-columns: 16px minmax(0, 1fr); column-gap: 6px; align-items: center; min-width: 0; }
+.kh-fig .ic { grid-row: span 2; width: 16px; height: 16px; color: var(--brass-hi); }
+.kh-fig-v { font-weight: 700; font-size: 15px; line-height: 1.2; white-space: nowrap; }
+.kh-fig-k { color: var(--hud-ink-2); font-size: 11px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kh-fig-hold .kh-fig-v { color: var(--you); }
+.kh-row-go .ic { width: 18px; height: 18px; color: var(--brass-hi); }
+.kh-wait-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding-bottom: 6px; }
+.kh-wait-line .ic { width: 16px; height: 16px; flex: none; }
+.kh-rule { padding-top: 8px; }
+[data-calm="1"] .kh-row { transition: none; }
+@media (max-width: 759px) { .kh-row { grid-template-columns: minmax(0, 1fr) auto auto; } .kh-fig-hold, .kh-row-go { display: none; } }
+
+/* ---- the keep's panel (the province's inspector; the nation tab) */
+#panel-body .kp, .kp { margin: 12px 0 0; padding: 0 0 10px; border: 0; border-radius: 10px; overflow: hidden; background: var(--plate-bg); color: var(--hud-ink); box-shadow: 0 0 0 1px var(--brass-lo), 0 0 0 2px rgba(0,0,0,.35), 0 6px 16px rgba(0,0,0,.28), var(--plate-edge); }
+.kp > * { margin-left: 12px; margin-right: 12px; }
+.kp .muted { color: var(--hud-ink-2); }
+.kp-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; margin: 0; padding: 10px 12px; background: linear-gradient(100deg, color-mix(in srgb, var(--kn) 62%, #10221f) 0, color-mix(in srgb, var(--kn-d) 55%, #10221f) 58%, #14302a 100%); border-bottom: 1px solid var(--brass-lo); }
+.kp-titles { display: grid; min-width: 0; }
+.kp .kp-kicker { display: flex; align-items: center; gap: 5px; margin: 0; font: 650 11px/1.3 var(--ui); letter-spacing: .08em; text-transform: uppercase; color: #fff3cf; text-shadow: 0 1px 2px rgba(0,0,0,.6); }
+.kp-kicker .ic { width: 13px; height: 13px; } .kp-kicker .muted { color: rgba(255,243,207,.75); text-transform: none; letter-spacing: 0; font-weight: 500; }
+.kp-holder { font: 700 19px/1.2 var(--display); letter-spacing: .02em; color: #fffaf0; text-shadow: 0 1px 3px rgba(0,0,0,.7); }
+.kp-def { display: grid; justify-items: end; padding: 4px 10px; border-radius: 8px; background: rgba(0,0,0,.34); box-shadow: inset 0 0 0 1px rgba(240,212,138,.4); }
+.kp-def strong { font-size: 22px; line-height: 1.1; color: #fffaf0; } .kp-def span { font-size: 11px; color: var(--hud-ink-2); white-space: nowrap; }
+.kp .kp-facts { margin-top: 10px; gap: 4px; font-size: var(--t2); } .kp .kp-facts dt { color: var(--hud-ink-2); }
+.kp-state { display: block; margin-top: 10px; margin-bottom: 0; font-size: var(--t2); line-height: 1.5; }
+.kp-state strong { color: var(--you); }
+.kp-state-safe { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; padding: 8px 10px; border-radius: 8px; background: rgba(127,196,232,.14); box-shadow: inset 0 0 0 1px rgba(127,196,232,.5); }
+.kp-state-safe .ic { width: 16px; height: 16px; margin-top: 2px; color: var(--sky); }
+.kp-contest { margin-top: 10px; padding: 10px; border-radius: 8px; background: linear-gradient(90deg, color-mix(in srgb, var(--kn) 30%, #10221f), #10221f); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--kn) 70%, #000); }
+.kp-contest p { margin: 0; }
+.kp-contest-head { display: flex; align-items: center; gap: 8px; }
+.kp-contest-head strong { flex: 1 1 auto; min-width: 0; font-weight: 700; }
+.kp-count { flex: none; font: 700 18px/1.2 var(--ui); color: var(--you); white-space: nowrap; }
+.kp-contest progress { display: block; width: 100%; height: 10px; margin: 8px 0 6px; appearance: none; border: 0; border-radius: 5px; overflow: hidden; background: rgba(0,0,0,.45); }
+.kp-contest progress::-webkit-progress-bar { background: rgba(0,0,0,.45); }
+.kp-contest progress::-webkit-progress-value { background: linear-gradient(90deg, var(--kn), var(--you)); }
+.kp-contest progress::-moz-progress-bar { background: var(--kn); }
+.kp-orders { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(201,162,74,.35); }
+.kp-orders p { margin: 0 0 6px; }
+.kp-orders-k { font: 650 11px/1.3 var(--ui); letter-spacing: .08em; text-transform: uppercase; color: var(--brass-hi); }
+.kp .btn { border: 1px solid rgba(201,162,74,.7); background: linear-gradient(180deg, #24463e, #152b26); color: var(--ivory); box-shadow: inset 0 1px 0 rgba(240,212,138,.22), 0 2px 0 #06100e; }
+.kp .btn:hover { border-color: var(--brass-hi); filter: none; }
+.kp .btn.primary { border-color: #f3e3b3; background: linear-gradient(180deg, #f7ecc9, #dcc689); color: #14251f; font-weight: 700; }
+.kp .btn.primary .ic { width: 16px; height: 16px; }
+.kp .blocked { color: var(--amber); }
+.kp-history { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(201,162,74,.35); }
+.kp .kp-history h5 { margin: 0 0 6px; font: 650 11px/1.3 var(--ui); letter-spacing: .08em; text-transform: uppercase; color: var(--brass-hi); }
+.kp-hist { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: var(--t2); }
+.kp-h { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 5px 8px; border-radius: 6px; background: rgba(0,0,0,.2); box-shadow: inset 3px 0 0 var(--kn); }
+.kp-h-t { flex: 1 1 180px; min-width: 0; }
+.kp-h-taken { background: color-mix(in srgb, var(--kn) 20%, rgba(0,0,0,.25)); box-shadow: inset 3px 0 0 var(--kn), inset 0 0 0 1px rgba(240,212,138,.45); font-weight: 600; }
+.kp-caption { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 6px; margin: 8px 0 0; padding: 6px 8px; border-radius: 6px; background: rgba(0,0,0,.24); color: var(--hud-ink); font-size: var(--t1); line-height: 1.45; }
+.kp-caption .ic { width: 14px; height: 14px; margin-top: 2px; color: var(--brass-hi); }
+
+/* ---- the reach list and the standings table of the nation tab */
+.kr-rows { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.kr-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; background: color-mix(in srgb, var(--kn) 12%, rgba(255,253,246,.7)); box-shadow: inset 3px 0 0 var(--kn), inset 0 0 0 1px rgba(125,100,40,.35); }
+.cs-nation { display: inline-flex; align-items: center; gap: 6px; }
+.conquest-standings { border-top: 0; padding-top: 0; }
+.conquest-scores { border-collapse: separate; border-spacing: 0 3px; }
+.conquest-scores thead th { font: 650 11px/1.3 var(--ui); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); text-align: right; }
+.conquest-scores thead th:nth-child(2) { text-align: left; }
+.conquest-scores tbody td { text-align: right; background: rgba(255,253,246,.72); }
+.conquest-scores tbody th[scope="row"] { background: rgba(255,253,246,.72); }
+.conquest-scores tbody td:first-child { width: 34px; border-radius: 6px 0 0 6px; text-align: center; font-weight: 700; }
+.conquest-scores tbody td:last-child { border-radius: 0 6px 6px 0; }
+.conquest-scores tbody td:nth-child(3) { font-size: 16px; font-weight: 750; }
+.conquest-scores .is-mine td, .conquest-scores .is-mine th[scope="row"] { background: rgba(243,213,138,.55); box-shadow: inset 0 1px 0 rgba(125,100,40,.5), inset 0 -1px 0 rgba(125,100,40,.5); }
+.conquest-scores .tag { display: inline-block; margin-left: 4px; background: var(--you); color: #14251f; }
+
+/* ---- "Provinces held": the six nations from the chain's records, under the top strip */
+.prov-strip { position: absolute; left: 52px; top: 0; width: max-content; pointer-events: auto; }
+.prov-strip[hidden] { display: none; }
+.search-row:has(#map-search:not([hidden])) ~ .prov-strip { display: none; }
+.ps { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 3px 8px 3px 12px; border: 1px solid var(--brass-lo); border-radius: 20px; background: var(--tex-metal, none), var(--plate-bg); color: var(--hud-ink); font: var(--t1)/1.3 var(--ui); cursor: pointer; box-shadow: var(--shadow), var(--plate-edge); }
+.ps:hover { border-color: var(--brass-hi); }
+.ps:focus-visible { outline: 2px solid var(--brass-hi); outline-offset: 2px; }
+.ps-k { display: flex; align-items: center; gap: 5px; font: 650 11px/1.2 var(--ui); letter-spacing: .08em; text-transform: uppercase; color: var(--brass-hi); white-space: nowrap; }
+.ps-k .ic { width: 14px; height: 14px; }
+.ps-rows { display: flex; align-items: center; gap: 4px; }
+.ps-n { position: relative; display: flex; align-items: center; gap: 4px; padding: 2px 8px 2px 4px; border-radius: 14px; background: color-mix(in srgb, var(--kn) 20%, rgba(0,0,0,.3)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--kn) 55%, transparent); }
+.ps-name { display: none; font-weight: 650; white-space: nowrap; color: #fffaf0; text-shadow: 0 1px 2px rgba(0,0,0,.7); }
+.ps-v { min-width: 1.2em; text-align: right; font: 750 15px/1.2 var(--ui); color: #fffaf0; }
+.ps-lead .ps-v { color: var(--you); }
+.ps-mine { background: color-mix(in srgb, var(--kn) 36%, rgba(0,0,0,.3)); box-shadow: inset 0 0 0 1.5px var(--you), 0 0 10px rgba(243,213,138,.4); }
+.ps-mine .ps-name { display: inline; }
+.ps-you { padding: 0 5px; border-radius: 7px; background: var(--you); color: #14251f; font: 700 10px/1.5 var(--ui); white-space: nowrap; }
+.ps-go .ic { width: 14px; height: 14px; color: var(--brass-hi); }
+.ps-n[data-delta]::after { content: attr(data-delta); position: absolute; right: 2px; top: -6px; padding: 0 5px; border-radius: 8px; background: var(--you); color: #14251f; font: 800 12px/1.5 var(--ui); opacity: 0; pointer-events: none; }
+.ps-up::after { animation: ps-delta 2.6s ease-out 1 both; } .ps-down::after { background: var(--ember); color: #fff; animation: ps-delta 2.6s ease-out 1 both; }
+.ps-up .ps-v { animation: ps-beat .9s cubic-bezier(.2,.8,.2,1) 2; } .ps-down .ps-v { animation: ps-beat .9s cubic-bezier(.2,.8,.2,1) 1; }
+.ps-up { animation: ps-glow 2.6s ease-out 1; }
+@keyframes ps-delta { 0% { opacity: 0; translate: 0 8px; } 12%, 70% { opacity: 1; translate: 0 -8px; } 100% { opacity: 0; translate: 0 -18px; } }
+@keyframes ps-beat { 0% { scale: 1; } 30% { scale: 1.7; color: var(--you); } 100% { scale: 1; } }
+@keyframes ps-glow { 0%, 100% { filter: none; } 20% { filter: drop-shadow(0 0 10px var(--kn)) brightness(1.35); } }
+@media (min-width: 1600px) { .ps-name { display: inline; } .ps { gap: 10px; } }
+@media (prefers-reduced-motion: reduce) { .ps-up, .ps-up .ps-v, .ps-down .ps-v { animation: none; } .ps-up::after, .ps-down::after { animation: none; opacity: 1; translate: 0 -8px; } }
+
+/* ---- the season's end, once the records say it */
+.season-end { position: absolute; left: 50%; top: calc(var(--strip) + var(--dial) - 8px); z-index: 34; translate: -50% 0; width: min(620px, calc(100% - 2 * var(--edge))); pointer-events: none; }
+.season-end[hidden] { display: none; }
+.se-card { position: relative; pointer-events: auto; padding: 16px 20px 16px; border: 1px solid var(--brass); border-radius: 14px; background: var(--tex-metal, none), var(--plate-bg); color: var(--hud-ink); text-align: center; box-shadow: 0 0 0 2px rgba(0,0,0,.4), 0 12px 40px rgba(0,0,0,.55), inset 0 1px 0 rgba(240,212,138,.4); animation: se-in .5s cubic-bezier(.2,.8,.2,1) 1 both; }
+.se-mine { box-shadow: 0 0 0 2px rgba(0,0,0,.4), 0 0 36px rgba(243,213,138,.55), 0 12px 40px rgba(0,0,0,.55), inset 0 1px 0 rgba(240,212,138,.4); }
+.se-x { position: absolute; right: 8px; top: 8px; display: grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: 8px; background: none; color: var(--hud-ink-2); cursor: pointer; }
+.se-x:hover { color: var(--ivory); background: rgba(255,255,255,.08); } .se-x .ic { width: 16px; height: 16px; }
+.se-kicker { display: flex; justify-content: center; align-items: center; gap: 6px; margin: 0; font: 650 12px/1.3 var(--ui); letter-spacing: .14em; text-transform: uppercase; color: var(--brass-hi); }
+.se-kicker .ic { width: 14px; height: 14px; }
+.se-line { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 10px; margin: 8px 0 12px; font: 700 26px/1.25 var(--display); letter-spacing: .02em; color: #fffaf0; text-shadow: 0 2px 6px rgba(0,0,0,.6); }
+.se-area { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }
+.se-area li { display: grid; justify-items: center; gap: 2px; padding: 6px 2px; border-radius: 8px; background: color-mix(in srgb, var(--kn) 22%, rgba(0,0,0,.3)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--kn) 55%, transparent); }
+.se-area .se-name { font-size: 11px; color: var(--hud-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.se-area strong { font-size: 20px; line-height: 1.1; color: #fffaf0; }
+.se-area .se-win { background: color-mix(in srgb, var(--kn) 42%, rgba(0,0,0,.3)); box-shadow: inset 0 0 0 2px var(--you), 0 0 14px rgba(243,213,138,.45); }
+.se-area .se-win strong { color: var(--you); }
+.se-note { margin: 10px 0 0; font-size: var(--t1); line-height: 1.5; color: var(--hud-ink-2); } .se-note strong { color: var(--you); }
+.se-acts { display: flex; justify-content: center; margin-top: 12px; }
+.se-acts .btn.primary { border-color: #f3e3b3; background: linear-gradient(180deg, #f7ecc9, #dcc689); color: #14251f; font-weight: 700; }
+@keyframes se-in { from { opacity: 0; translate: 0 -14px; scale: .96; } to { opacity: 1; translate: 0 0; scale: 1; } }
+@media (prefers-reduced-motion: reduce) { .se-card { animation: none; } }
+
+/* ---- the prize panel of the nation tab (test USDC on the local test chain) */
+#panel-body .pz, .pz { display: grid; gap: 10px; margin-top: 14px; padding: 0 0 12px; border-radius: 10px; overflow: hidden; background: var(--plate-bg); color: var(--hud-ink); box-shadow: 0 0 0 1px var(--brass-lo), 0 0 0 2px rgba(0,0,0,.35), 0 6px 16px rgba(0,0,0,.28), var(--plate-edge); }
+.pz > * { margin: 0 12px; }
+.pz .muted { color: var(--hud-ink-2); }
+.pz-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 10px; margin: 0; padding: 10px 12px; background: linear-gradient(100deg, #2c5449, #14302a); border-bottom: 1px solid var(--brass-lo); }
+.pz .pz-head h3 { margin: 0; font: 700 17px/1.25 var(--display); letter-spacing: .03em; color: #fffaf0; }
+.pz-chain { grid-column: 1 / -1; margin: 0; font-size: 11px; letter-spacing: .04em; color: var(--hud-ink-2); }
+.pz-pool { display: grid; justify-items: end; }
+.pz-pool strong { font: 750 24px/1.1 var(--ui); color: var(--you); font-variant-numeric: tabular-nums; } .pz-pool span { font-size: 11px; color: var(--hud-ink-2); white-space: nowrap; }
+.pz .prize-figures { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.pz .prize-figures div { padding: 5px 8px; border: 0; border-radius: 6px; background: rgba(0,0,0,.24); box-shadow: inset 0 0 0 1px rgba(201,162,74,.35); }
+.pz .prize-figures dt { opacity: 1; font-size: 11px; color: var(--hud-ink-2); } .pz .prize-figures dd { color: #fffaf0; }
+.pz h4 { margin: 4px 12px 0; font: 650 11px/1.3 var(--ui); letter-spacing: .08em; text-transform: uppercase; color: var(--brass-hi); }
+.pz-area { margin: 0 12px; padding: 0; list-style: none; display: grid; gap: 4px; }
+.pz-area li { display: grid; grid-template-columns: auto 74px minmax(0, 1fr) 28px auto; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 6px; background: rgba(0,0,0,.2); font-size: var(--t2); }
+.pz-bar { display: block; height: 8px; border-radius: 4px; background: rgba(0,0,0,.4); overflow: hidden; }
+.pz-bar i { display: block; height: 100%; border-radius: 4px; background: var(--kn); }
+.pz-bar .w0 { width: 0; } .pz-bar .w1 { width: 10%; } .pz-bar .w2 { width: 20%; } .pz-bar .w3 { width: 30%; } .pz-bar .w4 { width: 40%; } .pz-bar .w5 { width: 50%; }
+.pz-bar .w6 { width: 60%; } .pz-bar .w7 { width: 70%; } .pz-bar .w8 { width: 80%; } .pz-bar .w9 { width: 90%; } .pz-bar .w10 { width: 100%; }
+.pz-area strong { text-align: right; font-size: 16px; font-variant-numeric: tabular-nums; color: #fffaf0; }
+.pz-area .pz-win { background: color-mix(in srgb, var(--kn) 28%, rgba(0,0,0,.25)); box-shadow: inset 0 0 0 1.5px var(--you); } .pz-area .pz-win strong { color: var(--you); }
+.pz-tag { padding: 0 6px; border-radius: 8px; background: var(--you); color: #14251f; font: 700 11px/1.6 var(--ui); white-space: nowrap; }
+.pz-result { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; padding: 10px; border-radius: 8px; background: linear-gradient(90deg, color-mix(in srgb, var(--kn) 34%, #10221f), #10221f); box-shadow: inset 0 0 0 1px var(--you); }
+.pz-result strong { display: block; font: 700 17px/1.3 var(--display); color: #fffaf0; } .pz-result span { font-size: var(--t1); color: var(--hud-ink-2); }
+.pz-lines { margin: 0 12px; padding: 0; list-style: none; display: grid; gap: 4px; }
+.pz-line { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 6px 8px; border-radius: 6px; background: rgba(0,0,0,.2); box-shadow: inset 3px 0 0 var(--kn); font-size: var(--t2); }
+.pz-line.mine { box-shadow: inset 3px 0 0 var(--kn), inset 0 0 0 1px var(--you); }
+.pz-line-top { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.pz-line-top strong { font-weight: 650; } .pz-line code { font: 600 12px/1.5 ui-monospace, "SF Mono", Menlo, monospace; }
+.pz-est { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 10px; border-radius: 8px; background: rgba(243,197,103,.16); box-shadow: inset 0 0 0 1px rgba(243,197,103,.6); font-size: var(--t1); line-height: 1.45; }
+.pz-est strong { font: 700 13px/1.3 var(--ui); letter-spacing: .04em; color: var(--amber); }
+.pz-split { margin: 0 12px; padding: 0; list-style: none; display: grid; gap: 4px; }
+.pz-split li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; background: rgba(0,0,0,.2); font-size: var(--t2); }
+.pz-split li.mine { box-shadow: inset 0 0 0 1px var(--you); }
+.pz-split .pz-amt { font-weight: 700; color: var(--you); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pz .btn { border: 1px solid rgba(201,162,74,.7); background: linear-gradient(180deg, #24463e, #152b26); color: var(--ivory); }
+.pz .btn:hover { border-color: var(--brass-hi); filter: none; }
+
+/* ---- the join plate's figures: the labels are said whole */
+.nation-confirm .prize-figures dt { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.25; }
+
+/* ---- the battle report: what is recomputed here, and the record's own reference */
+.rep-recheck { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; margin: 0 0 var(--s2); padding: 8px 10px; border-radius: 6px; background: rgba(46,107,76,.12); box-shadow: inset 0 0 0 1px rgba(46,107,76,.5); font-size: var(--t2); line-height: 1.45; }
+.rep-recheck .ic { width: 16px; height: 16px; margin-top: 2px; color: var(--good); }
+.rep-recheck strong { font-weight: 700; }
+.rep-ref { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 6px 0 0; font-size: var(--t1); }
+.rep-ref .kh-sig code { background: rgba(60,48,20,.12); }
+.rep-ref .kh-copy { background: linear-gradient(180deg, #fffdf6, #efe6d0); color: var(--ink); border-color: var(--line); }
+.report .notice[data-verify-result="match"] { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; font-size: var(--t3); font-weight: 650; }
+.rep-match { padding: 2px 12px; border-radius: 6px; background: var(--good); color: #fff; font: 800 18px/1.5 var(--ui); letter-spacing: .06em; text-transform: uppercase; }
+@media (min-width: 1600px) { .report-proof .facts, .report-proof .verify-steps { font-size: 15px; line-height: 1.6; } .report-proof code { font-size: 14px; } }
+
+/* ---- the demo sheet (`?fx=hand-…`: a sample from real records, under the demo tag; hud/handdemo.mjs) */
+.hand-demo { position: fixed; z-index: 60; right: var(--edge); top: calc(var(--strip) + var(--edge)); width: var(--drawer-w); max-height: calc(100dvh - var(--strip) - 2 * var(--edge)); overflow: auto; padding: 12px; border-radius: 8px; background: var(--sheet); color: var(--ink); box-shadow: var(--paper-edge), var(--shadow); font: var(--t2)/1.5 var(--ui); }
+.hand-demo-root [data-tag]::before { content: attr(data-tag); position: absolute; left: 8px; top: -11px; z-index: 2; padding: 1px 10px; border-radius: 9px; background: #5d1c12; color: #fff; font: 700 11px/1.6 var(--ui); letter-spacing: .05em; white-space: nowrap; pointer-events: none; }
+.hand-demo-root .season-end [data-tag]::before, .hand-demo-root .season-end::before { top: -14px; }
+.hand-demo { overflow: visible; } .hand-demo > :first-child { max-height: calc(100dvh - var(--strip) - 4 * var(--edge)); overflow: auto; }
+.hand-demo-pop { position: fixed; z-index: 60; left: 50%; bottom: 96px; translate: -50% 0; width: min(760px, calc(100vw - 2 * var(--edge))); padding: 10px 12px 12px; border: 1px solid var(--brass-lo); border-radius: 12px; background: var(--plate-bg); color: var(--hud-ink); font: var(--t2)/1.45 var(--ui); box-shadow: var(--shadow), var(--plate-edge); }
+.hand-demo-strip { position: fixed; z-index: 60; left: 64px; top: calc(var(--strip) + var(--edge) + 52px); }
+
+/* ---- the order card, the destination is a keep: its record in one line */
+.mc-keep { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; margin: 4px 0; padding: 6px 8px; border-radius: 6px; background: color-mix(in srgb, var(--kn) 14%, rgba(255,253,246,.6)); box-shadow: inset 3px 0 0 var(--kn), inset 0 0 0 1px rgba(125,100,40,.35); font-size: var(--t2); font-weight: 600; line-height: 1.4; }
+
+/* ---- the waits on parchment (the nation tab's reach list): ink, not brass */
+.conquest-reach .kh-wait { background: rgba(246,226,170,.5); box-shadow: inset 0 0 0 1px rgba(122,82,6,.5); }
+.conquest-reach .kh-wait .ic { color: var(--hold); }
+
+/* ---- the keep's panel inside the drawer: its own gutters whatever the drawer's paragraph rules say */
+#panel-body .kp > p, #panel-body .kp > dl, #panel-body .kp > div, .hand-demo .kp > p, .hand-demo .kp > dl, .hand-demo .kp > div { margin-left: 12px; margin-right: 12px; }
+#panel-body .kp > .kp-state, .hand-demo .kp > .kp-state { margin-top: 10px; margin-bottom: 0; }
+.kp .kp-kicker { white-space: nowrap; }
+.kp-holder { overflow-wrap: anywhere; }
+
+/* ---- the prize panel's result and estimate: the plate's own boxes, not the drawer's parchment callout */
+.pz .pz-result .callout { margin: 0; padding: 0; border: 0; background: none; font-size: inherit; }
+.pz .callout.pz-est { margin: 0 12px; border: 0; }
+.pz-area li { padding-right: 10px; }
+.pz-split li { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; }
+.pz-split li code { white-space: nowrap; font: 600 12px/1.5 ui-monospace, "SF Mono", Menlo, monospace; }
+.pz-split .pz-amt { margin-left: auto; }
+#panel-body .pz, .pz { grid-template-columns: minmax(0, 1fr); }
+.pz-area li { grid-template-columns: auto 74px minmax(0, 1fr) 28px 58px; }
+
+/* ================================================================== the film's frame: a laptop's width (1280 × 720)
+   (see the same heading at the end of frontier.css: only between 1100 and 1399 px wide, layout only) */
+@media (min-width: 1100px) and (max-width: 1399px) {
+  /* "Provinces held" ends before the turn dial (it ran under it: the viewer's own nation, the last of the six when it
+     is Fjordal, stood behind the dial with its figure cut off). All six figures stay, the viewer's nation keeps its
+     name and its 「あなた」 mark; what gives way is the heading's flag, the chevron and some air. */
+  .prov-strip { left: 44px; }
+  .ps { gap: 6px; padding: 3px 6px 3px 10px; }
+  .ps-k { letter-spacing: .04em; } .ps-k .ic, .ps-go { display: none; }
+  .ps-rows { gap: 3px; }
+  .ps-n { gap: 3px; padding: 2px 6px 2px 3px; }
+}
+/* the first-village card: the paid entry fee is one framed line, not two loose ones (the fee, before and after) */
+.home-grant > p.prize-receipt { margin: 0 0 14px; padding: 7px 10px; border-radius: 8px; background: rgba(46,107,76,.1); box-shadow: inset 0 0 0 1px rgba(46,107,76,.45); line-height: 1.5; font-weight: 600; text-wrap: balance; }
+
+/* ---- the spectator's page (spectate.html links this sheet since the pre-take pass: its "Provinces held" strip stood
+   there as a bare grey button): the standings in the corner plate are on bell metal, not on parchment, so the table
+   takes the plate's ink (the parchment's pale rows under the plate's pale figures could not be read), keeps inside the
+   plate, and leaves out the heading the plate already has */
+.plate-watch .conquest-standings { margin: 0; padding: 0; border: 0; min-width: 0; }
+.plate-watch .conquest-standings h3 { display: none; }
+.plate-watch .conquest-standings p { margin: 0 0 6px; font-size: var(--t1); line-height: 1.45; color: var(--hud-ink-2); }
+.plate-watch .conquest-standings .conquest-season-clock { color: var(--hud-ink); font-size: var(--t2); }
+.plate-watch .conquest-scores { table-layout: fixed; border-spacing: 0 2px; margin: 0 0 4px; }
+.plate-watch .conquest-scores th, .plate-watch .conquest-scores td { padding: 3px 4px; border-bottom: 0; }
+.plate-watch .conquest-scores thead th { color: var(--hud-ink-2); font-size: 11px; letter-spacing: 0; text-transform: none; white-space: normal; word-break: normal; overflow-wrap: normal; vertical-align: bottom; line-height: 1.2; }
+.plate-watch .conquest-scores thead th:first-child { width: 38px; } .plate-watch .conquest-scores thead th:nth-child(3) { width: 64px; } .plate-watch .conquest-scores thead th:nth-child(4) { width: 72px; }
+.plate-watch .conquest-scores tbody td, .plate-watch .conquest-scores tbody th[scope="row"] { background: rgba(255,255,255,.06); color: var(--hud-ink); }
+.plate-watch .conquest-scores tbody td:first-child { color: var(--brass-hi); }
+.plate-watch .conquest-scores tbody td:nth-child(3) { color: #fffaf0; }
+.plate-watch .conquest-scores tbody th[scope="row"] { overflow: hidden; }
+.plate-watch .conquest-standings .btn { border: 1px solid rgba(201,162,74,.7); background: linear-gradient(180deg, #24463e, #152b26); color: var(--ivory); }
+/* (a short window: the rule's two sentences and the note under the plate give way, the table stays; the plate stood
+   taller than a 720 px page and ran up under the top strip) */
+@media (min-width: 760px) and (max-height: 800px) { .plate-watch .conquest-standings > p:first-of-type, .plate-watch .plate-note { display: none; } }
+/* the join plate: the key 「テストUSDCを受け取る」 and its remark are one row, the remark wrapping beside the key (its
+   second line fell under the key: "…it is topped up / automatically before joining.") */
+.nation-confirm .prize-terms > p:has(> [data-act="prize-faucet"]) { display: flex; align-items: center; gap: 10px; }
+.nation-confirm .prize-terms > p:has(> [data-act="prize-faucet"]) > .btn { flex: none; }
+/* the prize panel's three lists keep inside the plate: the older table rule (frontier.css `.prize-area, .prize-lines,
+   .prize-estimate { width: 100% }`) made each as wide as the plate itself beside its 12 px gutters, so the right-hand
+   12 px of every row lay outside and was cut off — 「勝者」 against the rim, the signature's copy key, the estimate */
+.pz .prize-area, .pz .prize-lines, .pz .prize-estimate { width: auto; min-width: 0; font-size: inherit; }
+.pz-area li { grid-template-columns: auto 74px minmax(0, 1fr) 28px minmax(52px, auto); }
+/* the record's signature in the report's proof: the size of the facts above it (it stood a size smaller than they) */
+.report-proof .rep-ref { margin: 8px 0; font-size: var(--t2); } .report-proof .rep-ref .kh-sig { font-size: inherit; } .report-proof .rep-ref .kh-sig code { font-size: 13px; }
+/* the keep's history: a row's figure keeps to one line with its word ("293 / defenders" broke in two in the drawer) */
+.kp-h-t > .muted { white-space: nowrap; }

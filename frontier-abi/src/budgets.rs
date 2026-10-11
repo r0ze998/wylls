@@ -53,7 +53,7 @@ pub const BUILTIN_DATA_LEN: u32 = 64;
 /// that length rounded up to 16 KiB (≈ 15 KB of growth headroom). The svm
 /// guard `g01_loaded_limit_table_covers_the_release_so` fails when the
 /// release `.so` outgrows it.
-pub const PLACEHOLDER_SO_LEN: u32 = 884_736;
+pub const PLACEHOLDER_SO_LEN: u32 = 901_120;
 pub const PLACEHOLDER_PROGRAMDATA_LEN: u32 = max_len_for(PLACEHOLDER_SO_LEN);
 
 /// `--max-len = round_up(1.25 × so_len, 4,096)` (I-45).
@@ -190,6 +190,7 @@ budgets! {
     ReleaseDormant: 25_000, 0, 480, 11_864;
     CloseHolding: 15_000, 0, 330, 6_750;
     CloseCitizen: 10_000, 0, 300, 6_191;
+    PlaceHome: 40_000, 0, 700, 0;
     Harvest: 17_500, 0, 320, 16_409;
     Build: 22_000, 0, 360, 19_145;
     Train: 17_500, 0, 330, 16_641;
@@ -306,6 +307,7 @@ fn worst_positions(ix: Ix) -> impl Iterator<Item = crate::prologue::Spec> {
 fn position_data(acc: Acc, ix_sysvar: u32) -> u32 {
     match acc {
         Acc::Kind(k) => k.size() as u32,
+        Acc::KindV2(k) => k.size() as u32,
         Acc::Either(a, b) => {
             let (x, y) = (a.size() as u32, b.size() as u32);
             if x > y {
@@ -536,7 +538,7 @@ mod tests {
         // round_up(1.25 × 1,048,576 = 1,310,720, 4,096) (integ-W4)
         assert_eq!(max_len_for(1_048_576), 1_310_720);
         // W5-A: the release `.so` [measured] fits under the table's length
-        assert_eq!(PLACEHOLDER_PROGRAMDATA_LEN, 1_105_920);
+        assert_eq!(PLACEHOLDER_PROGRAMDATA_LEN, 1_126_400);
         assert!(max_len_for(869_536) <= PLACEHOLDER_PROGRAMDATA_LEN);
         assert_eq!(max_len_for(4_096), 8_192);
     }

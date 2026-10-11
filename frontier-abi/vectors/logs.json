@@ -864,6 +864,83 @@
       }
     },
     {
+      "kind": 17,
+      "name": "HOME_PLACED",
+      "key": [
+        {
+          "name": "p",
+          "len": 4
+        },
+        {
+          "name": "q",
+          "len": 4
+        },
+        {
+          "name": "site",
+          "len": 1
+        }
+      ],
+      "payload": [
+        {
+          "name": "citizen_tag",
+          "len": 8
+        },
+        {
+          "name": "gen",
+          "len": 1
+        },
+        {
+          "name": "final_ts",
+          "len": 8
+        },
+        {
+          "name": "funder",
+          "len": 32
+        }
+      ],
+      "body_without_tail_len": 64,
+      "vector": {
+        "bell": 1017,
+        "body_without_tail": "0111f903000002000000ffffffff035a7998b7d6f514335a5a7998b7d6f514335a7998b7d6f51433527190afceed0c2b4a6988a7c6e504234261809fbeddfc1b",
+        "body": "0111f903000002000000ffffffff035a7998b7d6f514335a5a7998b7d6f514335a7998b7d6f51433527190afceed0c2b4a6988a7c6e504234261809fbeddfc1b040306000000000000005635bd10047a08e4f63776ad6ec14cba29da9351d33847ee777a69ea9b50f99104070000000000000025a97d39a064eb5e3ea7f5a13bb1753e86b1812769e33318980d841b1096e06b05080000000000000032e4c3ac5fdad3262c94c68e9de167281f97e98ce65f132c52893aebd3c783a0060900000000000000776fdd01e6911317adfb46721df5eeeeb3a7cbafe754b3dc244b080b286c766b",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 3,
+            "who": "JoinShardOf(Tag8(3680837098020567386))",
+            "prev_seq": 5,
+            "prev_head": "feef5b65a258d428abc163680dd15842b214560da714113913cff473b0726b17",
+            "seq": 6,
+            "head": "5635bd10047a08e4f63776ad6ec14cba29da9351d33847ee777a69ea9b50f991"
+          },
+          {
+            "entity": 4,
+            "who": "Citizen(Tag8(3680837098020567386))",
+            "prev_seq": 6,
+            "prev_head": "b96a0211eaa594c6e8b165e64bb65eb4b82141fecc14db48df61761aeac08491",
+            "seq": 7,
+            "head": "25a97d39a064eb5e3ea7f5a13bb1753e86b1812769e33318980d841b1096e06b"
+          },
+          {
+            "entity": 5,
+            "who": "Holding { p: 2, q: -1, site: 3 }",
+            "prev_seq": 7,
+            "prev_head": "80da1a17ed1c4c504985fdb02ec90ab72677ef8ed3f7656cfdbb10b6b6b32ca5",
+            "seq": 8,
+            "head": "32e4c3ac5fdad3262c94c68e9de167281f97e98ce65f132c52893aebd3c783a0"
+          },
+          {
+            "entity": 6,
+            "who": "Province { p: 2, q: -1 }",
+            "prev_seq": 8,
+            "prev_head": "e2c7b9a684c474aed23f111f76d0d647e1b4f6c745d406255d44cff9ac8f926c",
+            "seq": 9,
+            "head": "776fdd01e6911317adfb46721df5eeeeb3a7cbafe754b3dc244b080b286c766b"
+          }
+        ]
+      }
+    },
+    {
       "kind": 20,
       "name": "HARVEST",
       "key": [

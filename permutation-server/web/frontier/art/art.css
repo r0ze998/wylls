@@ -1,0 +1,29 @@
+/* The handover pack's illustrated icons (hud/icons.mjs artIcon; art/README.md). Linked by script the first time one
+   is drawn, so a page that shows none of them never fetches this file. The pictures are painted objects with their own
+   light: they are shown a little larger than the line glyphs they replace, never tinted, and lifted off the paper or
+   the bell metal by a thin shadow. */
+img.ic-art { object-fit: contain; filter: drop-shadow(0 1px 1px rgba(8, 14, 12, .45)); }
+/* the resource strip and its popover */
+.res-ic.ic-art { width: 24px; height: 24px; margin-block: -3px; }
+/* the round coin of a ledger row, a build row or a card of the fan: the picture stands by itself, without the ring */
+.res-coin:has(> .ic-art), .fan-coin:has(> .ic-art) { box-shadow: none; background: none; border-radius: 0; overflow: visible; }
+.res-coin > .ic-art { width: 28px; height: 28px; }
+.fan-coin > .ic-art { width: 34px; height: 34px; }
+.ledger-ic.ic-art { width: 24px; height: 24px; }
+/* a cost: the picture, then its number */
+.cost-i > .ic-art { width: 20px; height: 20px; margin-block: -3px; }
+/* on a key: the size of the glyph it replaces, a little larger */
+.btn > .ic-art { width: 22px; height: 22px; margin-block: -3px; }
+.toast-icon .ic-art { width: 22px; height: 22px; }
+
+/* The handover figures' cards (people/minis.mjs miniCardUrl: art/units/mobs-v1/cards/): the card's ground and rim in
+   the nations' present colours (palette.mjs: the cloth's tint, the cloth, its trim). frontier.css keeps the earlier
+   cards' grounds, which were mixed for the first palette. */
+img.unit-card[src*="/mobs-v1/"].f0 { --uc: #f5d2d5; --ucd: #cc303b; border-color: #81242c; }
+img.unit-card[src*="/mobs-v1/"].f1 { --uc: #d3f0f5; --ucd: #31bedb; border-color: #237489; }
+img.unit-card[src*="/mobs-v1/"].f2 { --uc: #f8efc4; --ucd: #d9b21a; border-color: #8c721c; }
+img.unit-card[src*="/mobs-v1/"].f3 { --uc: #eddbf7; --ucd: #a34cd8; border-color: #69338c; }
+img.unit-card[src*="/mobs-v1/"].f4 { --uc: #f9faf4; --ucd: #a9b6b8; border-color: #5f6a68; }
+img.unit-card[src*="/mobs-v1/"].f5 { --uc: #fbe2c5; --ucd: #f19232; border-color: #9c581f; }
+/* (a cost inside a drawer: frontier.css sizes the glyph there with three classes) */
+.panel .cost-i > .ic-art { width: 18px; height: 18px; margin-block: -2px; }
