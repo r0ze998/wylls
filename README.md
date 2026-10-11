@@ -83,6 +83,7 @@ Open `/frontier/frontier/`, not `/`: the bare address still lands on an older pa
 ## 6. Limits and what is not claimed
 
 - **Devnet: the first version only.** The first version ran on devnet with test USDC. The rebuild has run on a local test chain only. Nothing has run on mainnet.
+- **Next: a public season on mainnet.**
 - The first version's devnet season had 12 operator-run AI members and 2 people from the project. All 1,000 participants of the rebuild's M1 season were script bots written by the team. There is no registration, demand or traction figure. No season longer than 7 game days has run.
 - **Seal secrecy was not tested.** The M1 season replayed archived drand values, so the signatures were already known; the results show that marches settle, not that destinations stay secret. The verifier is ours, not an independent audit.
 - **AI citizens are in progress, not finished.** Only a small 6-AI run exists. The AI's reasons and speech are written by the model and not verified; most of an AI's actions are the autopilot's; the council is off-chain; the drand key of the test runs is the operator's test key.
