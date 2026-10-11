@@ -44,8 +44,8 @@ export const campWinner = (mask, faction, i, fate) => fate === 1 && mask !== 0 &
 /** The shapes this page sends and who signs them. */
 export const SIGNED_BY = Object.freeze({
   Join: 'wallet', SetSession: 'wallet',
-  SetVigil: 'session', FileTicket: 'session', Harvest: 'session', Build: 'session', Train: 'session', Muster: 'session',
-  Dissolve: 'session', Garrison: 'session', Explore: 'session', Depart: 'session',
+  SetVigil: 'session', FileTicket: 'session', PlaceHome: 'session', Harvest: 'session', Build: 'session', Train: 'session', Muster: 'session',
+  DeclareSiege: 'session', FileOutpost: 'session', RetireHost: 'session', Dissolve: 'session', Garrison: 'session', Explore: 'session', Depart: 'session',
   SettleExplore: 'none', SettleTransit: 'none',
 });
 /** Build item of the walls (catalog `ITEM_WALLS`; the only Build that names the Province). */
@@ -71,6 +71,7 @@ export function ticketProvinces(sites) {
 export function accountsFor(name, v) {
   if (!SIGNED_BY[name]) throw new Error(`fplay: ${name} is not a shape this page sends`);
   const A = v.addresses;
+  const cq = (v.profile ?? io.pinned()?.profile) === 2;
   const citizen = A.of('Citizen', { wallet: v.wallet });
   const base = { actor: v.actor, season: A.season, citizen };
   const holding = () => A.of('Holding', v.holding);
@@ -85,12 +86,24 @@ export function accountsFor(name, v) {
       return base;
     case 'FileTicket':
       return { ...base, frontier: A.of('Frontier'), province: ticketProvinces(v.sites).map(p => A.of('Province', p)) };
+    case 'FileOutpost':
+      return { ...base, frontier: A.of('Frontier'), province: ticketProvinces(v.sites).map(p => A.of('Province', p)),
+        anchor_holding: A.of('Holding', v.anchor), anchor_province: A.of('Province', v.anchor), slot2_holding: A.of('Holding', v.slot2 ?? v.anchor), slot2_province: A.of('Province', v.slot2 ?? v.anchor) };
+    case 'DeclareSiege':
+      return { ...base, src_holding: holding(), province: province(), target_holding: A.of('Holding', v.target),
+        owner_citizen: v.ownerCitizen, nearby_province: A.of('Province', v.nearby ?? v.holding), holding_province: A.of('Province', v.holding) };
+    case 'RetireHost':
+      return { actor: v.actor, season: A.season, victim_citizen: citizen, province: province(),
+        captured_holding: A.of('Holding', v.captured), home_holding: A.of('Holding', v.home) };
+    case 'PlaceHome':
+      return { ...base, frontier: A.of('Frontier'), province: province(), holding: holding(),
+        joinshard: A.of('JoinShard', { faction: v.faction, shard: joinShardOf(v.wallet) }) };
     case 'Harvest': case 'Train':
-      return { ...base, holding: holding() };
+      return { ...base, holding: holding(), ...(cq ? { province: province() } : {}) };
     case 'Build':
-      return { ...base, holding: holding(), ...(v.item === ITEM_WALLS ? { province: province() } : {}) };
+      return { ...base, holding: holding(), ...(cq || v.item === ITEM_WALLS ? { province: province() } : {}) };
     case 'Muster': case 'Dissolve': case 'Garrison': case 'Explore': case 'Depart':
-      return { ...base, holding: holding(), province: province() };
+      return { ...base, holding: holding(), province: province(), ...(cq && ['Dissolve','Explore','Depart'].includes(name) ? { holding_province: A.of('Province', v.holding) } : {}) };
     case 'SettleExplore':
       return { season: A.season, holding: holding(), citizen, seedcache_or_archive: v.settle.seed, anchor_or_archive: v.settle.anchor };
     case 'SettleTransit': {
@@ -99,7 +112,7 @@ export function accountsFor(name, v) {
       return { season: A.season, holding: holding(), dest_province: A.of('Province', s.dest), inputs: A.of('ClashInputs', { ...s.dest, bell: s.arriveBell }),
         slot: A.of('ArrivalSlot', { ...s.dest, bell: s.arriveBell, faction: s.faction, i: s.slotIndex ?? 0 }), home_province: A.of('Province', v.holding),
         anchor_or_archive: s.anchor, slot_beneficiary: s.slotBeneficiary, resolver: s.resolver, holding_rent_payer: s.rentPayer, settle_beneficiary: s.beneficiary,
-        ...(s.campCitizen ? { citizen: s.campCitizen } : {}) };
+        ...(s.campCitizen ? { citizen: s.campCitizen } : {}), ...(cq ? { holding_province: A.of('Province', v.holding), ...(s.prevHome ? { prev_home_holding: A.of('Holding', s.prevHome) } : {}) } : {}) };
     }
     default:
       throw new Error(`fplay: ${name} is not a shape this page sends`);
@@ -111,12 +124,12 @@ export function accountsFor(name, v) {
  * signers}` for `feePayer` and `blockhash`. `signers` are the instruction's
  * own signing keys besides the fee payer.
  */
-export function buildShape({ programId, name, accounts, fields, feePayer, blockhash }) {
-  const expected = frontierIx(programId, name, { ...accounts, payer: feePayer }, fields);
-  const message = compileMessage({ feePayer, recentBlockhash: blockhash, instructions: [...budgetPrefix(name), expected] });
+export function buildShape({ programId, name, accounts, fields, feePayer, blockhash, profile = 1 }) {
+  const expected = frontierIx(programId, name, { ...accounts, payer: feePayer }, fields, profile);
+  const message = compileMessage({ feePayer, recentBlockhash: blockhash, instructions: [...budgetPrefix(name, { profile }), expected] });
   const signers = [];
   for (const k of expected.keys) if (k.isSigner && k.pubkey !== feePayer && !signers.includes(k.pubkey)) signers.push(k.pubkey);
-  return { message, expected, budget: budgetOf(name), signers };
+  return { message, expected, budget: budgetOf(name, profile), signers };
 }
 
 /**
@@ -137,7 +150,7 @@ export async function submit(req) {
     // A settle names the fee payer inside its accounts and data (its beneficiary): functions of it.
     const accounts = typeof req.accounts === 'function' ? req.accounts(feePayer) : req.accounts;
     const fields = typeof req.fields === 'function' ? req.fields(feePayer) : (req.fields ?? {});
-    built = buildShape({ programId: pin.programId, name: req.name, accounts, fields, feePayer, blockhash });
+    built = buildShape({ programId: pin.programId, name: req.name, accounts, fields, feePayer, blockhash, profile: pin.profile });
   } catch (e) {
     return fail('BuildFailed', String(e.message ?? e));
   }

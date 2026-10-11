@@ -10,6 +10,7 @@
 // field for field against `frontier-abi/vectors/logs.json` by
 // web-frontier-march.test.mjs (a changed kind fails that test, never the
 // page silently).
+import { LOGS as CQ_LOGS } from '../sdk/frontier/abi-v2-logs.mjs';
 import { fromBase64 } from '../sdk/bytes.mjs';
 
 export const PS2_VERSION = 1;
@@ -22,6 +23,7 @@ export const KINDS = Object.freeze({
   13: { name: 'TICKET', key: [f('citizen_tag15', 15)], payload: [f('ticket_bell', 4), f('n', 1), f('sites', 15), f('escrow', 8), f('funder', 32)] },
   14: { name: 'SETTLE', key: [f('p', 4), f('q', 4), f('site', 1)], payload: [f('outcome', 1), f('citizen_tag', 8), f('score', 8), f('displaced_tag', 8), f('gen', 1), f('final_ts', 8), f('ticket_bell', 4)] },
   16: { name: 'HOLDING_FINAL', key: [f('p', 4), f('q', 4), f('site', 1)], payload: [f('final_ts', 8)] },
+  17: { name: 'HOME_PLACED', key: [f('p', 4), f('q', 4), f('site', 1)], payload: [f('citizen_tag', 8), f('gen', 1), f('final_ts', 8), f('funder', 32)] },
   20: { name: 'HARVEST', key: [f('p', 4), f('q', 4), f('site', 1)], payload: [f('stores_digest', 32)] },
   21: { name: 'BUILD', key: [f('p', 4), f('q', 4), f('site', 1)], payload: [f('item', 1), f('cost_digest', 32), f('done_at', 8)] },
   22: { name: 'TRAIN', key: [f('p', 4), f('q', 4), f('site', 1)], payload: [f('unit', 1), f('n', 4), f('done_at', 8)] },
@@ -36,6 +38,7 @@ export const KINDS = Object.freeze({
   43: { name: 'CAMP', key: [f('p', 4), f('q', 4)], payload: [f('tile', 1), f('troops', 4), f('day', 4)] },
 });
 /** Fields read as signed integers (coordinates, deltas). */
+const CQ_KINDS = Object.fromEntries(CQ_LOGS.kinds.map(x => [x.kind, { name: x.name, key: x.key.map(y => [y.name,y.len]), payload: x.payload.map(y => [y.name,y.len]) }]));
 const SIGNED = new Set(['p', 'q', 'origin_p', 'origin_q', 'delta']);
 /** Fields read as byte strings although they are 1–8 bytes long. */
 const BYTES = new Set(['tiles', 'works_per_tile']);
@@ -61,7 +64,7 @@ export function decodeRecord(body) {
   const b = typeof body === 'string' ? fromBase64(body) : Uint8Array.from(body);
   if (b.length < 6) throw new Error('PS2: short head');
   if (b[0] !== PS2_VERSION) throw new Error(`PS2: version ${b[0]}`);
-  const spec = KINDS[b[1]];
+  const spec = KINDS[b[1]] ?? CQ_KINDS[b[1]];
   if (!spec) return null;
   // `logBell`: the bell in the record's head (when it was written); `bell` is it too,
   // unless the kind's key has its own `bell` (CLASH: the clash's bell).

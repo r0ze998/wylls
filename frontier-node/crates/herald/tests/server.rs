@@ -275,6 +275,8 @@ async fn h_routes_caching_and_headers() {
     // Clash report.
     let c = get(a, "/h/clash/2,0/0").await;
     assert_eq!(c.json()["heraldCheck"], "match");
+    // The resolving transaction's signature, at the top level.
+    assert!(c.json()["sig"].as_str().is_some_and(|s| !s.is_empty()));
     // Bell-region: final (immutable) once archived, short-lived before.
     let b0 = get(a, "/h/bell/0/region/3").await;
     assert_eq!(b0.h("cache-control"), Some(server::IMMUTABLE));
@@ -417,6 +419,26 @@ async fn frontier_static_and_gw_proxy() {
     assert!(seen[1].starts_with("POST /f/relay HTTP/1.1\r\n"));
     assert!(seen[1].contains("Content-Type: application/json\r\n"));
     assert!(seen[1].ends_with(r#"{"tx":"AAAA"}"#));
+    // x402: the payment header goes on when it is base64 text, and only then.
+    for (pay, forwarded) in [("eyJ4NDAyVmVyc2lvbiI6MX0=", true), ("not base64 {}", false)] {
+        let x = req(
+            a,
+            "POST",
+            "/gw/f/x402/join",
+            &[("Content-Type", "application/json"), ("X-PAYMENT", pay)],
+            br#"{"wallet":"w"}"#,
+        )
+        .await;
+        assert_eq!(x.status, 201);
+        let last = st.relay_seen.lock().unwrap().last().cloned().unwrap();
+        assert!(last.starts_with("POST /f/x402/join HTTP/1.1\r\n"), "{last}");
+        assert_eq!(
+            last.contains(&format!("X-PAYMENT: {pay}\r\n")),
+            forwarded,
+            "{last}"
+        );
+        assert_eq!(last.to_ascii_lowercase().contains("x-payment"), forwarded);
+    }
     assert_eq!(req(a, "PUT", "/gw/f/relay", &[], &[]).await.status, 405);
     assert_eq!(get(a, "/gw/f/../x").await.status, 400);
     let big = vec![b'x'; server::GW_MAX_BODY + 1];

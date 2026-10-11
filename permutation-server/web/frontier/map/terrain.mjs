@@ -6,6 +6,8 @@
 // answer is cached (LRU, 256 provinces, §11). A missing module or seed
 // gives null, and the map stays at province detail for that province.
 import { kernel as loadKernel, TERRAIN } from '../wasm.mjs';
+import { conquestEnabled } from '../fconquest.mjs';
+import { toHex } from '../../sdk/bytes.mjs';
 import { FS } from '../fstate.mjs';
 import { ringOf } from '../fgeo.mjs';
 
@@ -16,11 +18,12 @@ const hexBytes = h => Uint8Array.from(h.match(/../g), x => parseInt(x, 16));
 export const seasonSeed = ring => FS.record?.rings?.find?.(r => r.d === ring)?.seed ?? null;
 
 /**
- * `terrainOf(p, q)` → `{terrain: [61 indices], sites: [tile index], names}`
+ * `terrainOf(p, q)` → `{terrain: [61 indices], sites: [tile index], names, passable}`
+ * (`passable`: the generator's mask of the tiles a host can stand on, a BigInt)
  * or null while the module loads (then `onReady()` runs once) or when it
  * cannot answer. `load` returns the kernel; `seedOf(ring)` the ring seed.
  */
-export function createTerrain({ load = loadKernel, seedOf = seasonSeed, onReady = () => {}, limit = TERRAIN_CACHE } = {}) {
+export function createTerrain({ load = () => FS.kernel ?? loadKernel(FS.season ? {ruleset:toHex(FS.season.rulesetHash),url:new URL(conquestEnabled(FS.season) ? '../wasm/frontier-v2.wasm' : '../wasm/frontier.wasm',import.meta.url)} : undefined), seedOf = seasonSeed, onReady = () => {}, limit = TERRAIN_CACHE } = {}) {
   const cache = new Map();
   let k = null, failed = false, loading = false;
   const ensure = () => {
@@ -36,7 +39,7 @@ export function createTerrain({ load = loadKernel, seedOf = seasonSeed, onReady 
     if (!/^[0-9a-f]{64}$/i.test(seed ?? '')) return null;
     const r = k.call('generate_province', { ring_seed: hexBytes(seed), p, q });
     const t = r.ok ? r.value.terrain : null;
-    const v = t ? { terrain: t.terrain, sites: t.sites.slice(0, t.siteCount), names: TERRAIN } : null;
+    const v = t ? { terrain: t.terrain, sites: t.sites.slice(0, t.siteCount), names: TERRAIN, passable: r.value.passableMask ?? null } : null;
     cache.set(key, v);
     if (cache.size > limit) cache.delete(cache.keys().next().value);
     return v;

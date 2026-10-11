@@ -635,7 +635,7 @@ test('completeness (c): every entry of en-frontier*.mjs is a key some page file 
     return file.endsWith('.html') ? scanHtml(src) : scanJs(src);
   })) for (const k of keys) used.add(k.key);
   const stale = [];
-  for (const group of ['frontier', 'frontier-play']) for (const key of Object.keys(EN_GROUPS[group])) if (!used.has(key)) stale.push(`lang/en-${group}.mjs ${JSON.stringify(key)}`);
+  for (const group of ['frontier', 'frontier-play', 'frontier-hand']) for (const key of Object.keys(EN_GROUPS[group])) if (!used.has(key)) stale.push(`lang/en-${group}.mjs ${JSON.stringify(key)}`);
   assert.equal(stale.length, 0, `entries no page file uses (${stale.length}):\n  ${stale.join('\n  ')}`);
 });
 
@@ -667,4 +667,24 @@ test('the glossary\'s Frontier terms are the English the dictionaries give them'
   }
   assert.ok(checked >= 20, `${checked} glossary terms are dictionary keys`);
   assert.deepEqual(wrong, [], 'dictionary English differs from the glossary');
+});
+
+// The game's ten-minute step is ターン / "turn" in everything a person reads; 鐘 / "bell" stay only in code names
+// (state fields, element ids, css classes, herald paths), which no dictionary key or value is.
+test('the word for the time step is ターン / "turn": no 鐘 and no "bell" in any dictionary key or English text, nor in the Frontier pages\' sources', () => {
+  const bad = [];
+  for (const [key, en] of Object.entries(EN)) {
+    if (/鐘/.test(key)) bad.push(`key ${JSON.stringify(key)}`);
+    if (/\bbells?\b|鐘/i.test(typeof en === 'function' ? String(en) : String(en))) bad.push(`English of ${JSON.stringify(key)}: ${String(en)}`);
+  }
+  const walk = dir => readdirSync(dir).flatMap(f => { const p = join(dir, f); return statSync(p).isDirectory() ? (f === 'wasm' || f === 'art' ? [] : walk(p)) : /\.(mjs|html|json|css)$/.test(f) ? [p] : []; });
+  for (const p of [...walk(join(WEB, 'frontier')), ...walk(join(WEB, 'lang'))]) {
+    readFileSync(p, 'utf8').split('\n').forEach((l, i) => { if (l.includes('鐘')) bad.push(`${relative(WEB, p)}:${i + 1}`); });
+  }
+  assert.deepEqual(bad, []);
+  setLang('en');
+  assert.equal(L`ターン ${'1,034'} · 残り ${'6:12'}`, 'Turn 1,034 · 6:12 left');
+  assert.equal(L`次のターンまで`, 'Next turn in');
+  assert.equal(L`新しいターン — ターン ${'43'}`, 'A new turn — Turn 43');
+  assert.equal(t('ターン'), 'Turn');
 });

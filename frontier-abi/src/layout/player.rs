@@ -40,6 +40,8 @@ pub mod citizen {
     pub const FLAG_FIRST_HOLDING_FINAL: u8 = 4;
     pub const FLAG_PROVISIONAL: u8 = 8;
     pub const FLAG_REFUGEE: u8 = 16;
+    /// Lifetime entitlement consumed by PlaceHome; survives loss/release.
+    pub const FLAG_HOME_GRANTED: u8 = 32;
     /// `ticket_bell` with no open ticket.
     pub const NO_TICKET: u32 = u32::MAX;
     /// Floor explorations granted at Join.
@@ -117,6 +119,9 @@ pub mod holding {
     pub const STATE_FINAL: u8 = 2;
     pub const STATE_RELEASED: u8 = 3;
     pub const FLAG_DORMANT_CACHE: u8 = 1;
+    /// One 60-second production build, granted only by PlaceHome.
+    pub const FLAG_INTRO_BUILD_AVAILABLE: u8 = 2;
+    pub const INTRO_BUILD_SECS: u32 = 60;
     pub const STORES_N: usize = 8;
     pub const QUEUE_N: usize = 4;
     pub const RESERVE_N: usize = 8;

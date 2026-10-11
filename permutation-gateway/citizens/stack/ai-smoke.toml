@@ -1,0 +1,26 @@
+# The smoke and slice-gate stack (AI-CITIZENS contract v1.2 sections 8.4 and 11.4; unit AC5): 6 AI citizens (deck-1,
+# one Conqueror per nation) and the presenter seat, 30 script bots following the nation council, 12 game hours at 10x
+# (about 72 min of wall time). The length is set from AC3a step 0 (d); 8 to 16 game hours are allowed.
+#
+# Local test chain only. Base port 41900 (see ai-citizens.toml); one AI stack at a time.
+run_id = "ai-smoke"
+mode = "accel"
+beacon = "test-key"
+scale = 10
+preseason_scale = 2000
+game_hours = 12
+drain_bells = 26
+bots = 30
+bot_seed = 41
+season_id = 41
+base_port = 41900
+bots_args = "--follow-council"
+
+[pools]
+beneficiary_lamports = 1000000000
+
+[chaos]
+enabled = false
+
+[adversary]
+enabled = false

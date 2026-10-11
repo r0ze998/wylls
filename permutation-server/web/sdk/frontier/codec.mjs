@@ -14,6 +14,9 @@
 import { ERRORS } from './abi-errors.mjs';
 import { LAYOUTS } from './abi-layouts.mjs';
 import { TAGS } from './abi-tags.mjs';
+import { LAYOUTS as LAYOUTS_V2 } from './abi-v2-layouts.mjs';
+import { TAGS as TAGS_V2 } from './abi-v2-tags.mjs';
+import { ERRORS as ERRORS_V2 } from './abi-v2-errors.mjs';
 import { concat, utf8 } from '../bytes.mjs';
 
 export { ERRORS, LAYOUTS, TAGS };
@@ -24,17 +27,21 @@ export const SHORT_HEADER = 16;
 
 const accounts = new Map(LAYOUTS.accounts.map(a => [a.kind, a]));
 const records = new Map(LAYOUTS.records.map(r => [r.name, r]));
-const magicKind = new Map(LAYOUTS.accounts.map(a => [a.magic, a.kind]));
+const accountsV2 = new Map(LAYOUTS_V2.accounts.map(a => [a.kind, a]));
+const recordsV2 = new Map([...LAYOUTS.records,...LAYOUTS_V2.records].map(r => [r.name, r]));
+const ixByTagV2 = new Map(TAGS_V2.instructions.map(i => [i.tag, i]));
+const ixByNameV2 = new Map(TAGS_V2.instructions.map(i => [i.name, i]));
+const magicKind = new Map([...LAYOUTS.accounts,...LAYOUTS_V2.accounts].map(a => [a.magic, a.kind]));
 const ixByTag = new Map(TAGS.instructions.map(i => [i.tag, i]));
 const ixByName = new Map(TAGS.instructions.map(i => [i.name, i]));
-const errByCode = new Map(ERRORS.errors.map(e => [e.code, e]));
-const errByName = new Map(ERRORS.errors.map(e => [e.name, e]));
+const errByCode = new Map([...ERRORS.errors, ...ERRORS_V2.errors].map(e => [e.code, e]));
+const errByName = new Map([...ERRORS.errors, ...ERRORS_V2.errors].map(e => [e.name, e]));
 
 /** The ABI's account kinds (`Season`, `Citizen`…). */
 export const ACCOUNT_KINDS = Object.freeze(LAYOUTS.accounts.map(a => a.kind));
 
 /** An account kind's layout row (`{kind, code, magic, size, rent, chained, seed_tag, raw_key_len, fields}`), or null. */
-export const layoutOf = kind => accounts.get(kind) ?? null;
+export const layoutOf = (kind, profile = 1) => (profile === 2 ? accountsV2 : accounts).get(kind) ?? null;
 
 // ------------------------------------------------------------------ scalars
 
@@ -57,7 +64,7 @@ function writeInt(out, o, n, v, signed, what) {
 }
 
 /** `{kind: 'scalar'|'bytes'|'array'|'record'|'rsv', …}` of an ABI type string. */
-function typeOf(ty, len) {
+function typeOf(ty, len, profile = 1) {
   if (ty === 'rsv') return { kind: 'rsv' };
   if (SCALAR[ty]) return { kind: 'scalar', n: SCALAR[ty][0], signed: SCALAR[ty][1] };
   let m = /^\[u8;(\d+)\]$/.exec(ty);
@@ -66,34 +73,34 @@ function typeOf(ty, len) {
   if (m) return { kind: 'array', of: typeOf(m[1]), count: Number(m[2]) };
   m = /^rec:(\w+) x(\d+)$/.exec(ty);
   if (m) {
-    const r = records.get(m[1]);
+    const r = (profile === 2 ? recordsV2 : records).get(m[1]);
     if (!r || r.size * Number(m[2]) !== len) throw new Error(`layout: bad record type ${ty}`);
     return { kind: 'record', rec: r, count: Number(m[2]) };
   }
   throw new Error(`layout: unknown type ${ty}`);
 }
 
-function readField(b, o, f) {
-  const t = typeOf(f.ty, f.len);
+function readField(b, o, f, profile = 1) {
+  const t = typeOf(f.ty, f.len, profile);
   switch (t.kind) {
     case 'scalar': return readInt(b, o + f.off, t.n, t.signed);
     case 'bytes': return b.slice(o + f.off, o + f.off + t.n);
     case 'array': return Array.from({ length: t.count }, (_, i) => readInt(b, o + f.off + i * t.of.n, t.of.n, t.of.signed));
-    case 'record': return Array.from({ length: t.count }, (_, i) => readFields(b, o + f.off + i * t.rec.size, t.rec.fields));
+    case 'record': return Array.from({ length: t.count }, (_, i) => readFields(b, o + f.off + i * t.rec.size, t.rec.fields, profile));
     default: return undefined;
   }
 }
 
-function readFields(b, o, fields) {
+function readFields(b, o, fields, profile = 1) {
   const out = {};
-  for (const f of fields) if (f.ty !== 'rsv') out[f.name] = readField(b, o, f);
+  for (const f of fields) if (f.ty !== 'rsv') out[f.name] = readField(b, o, f, profile);
   return out;
 }
 
-function writeFields(out, o, fields, values, what) {
+function writeFields(out, o, fields, values, what, profile = 1) {
   for (const f of fields) {
     if (f.ty === 'rsv' || values[f.name] === undefined) continue;
-    const t = typeOf(f.ty, f.len);
+    const t = typeOf(f.ty, f.len, profile);
     const v = values[f.name];
     const at = o + f.off;
     if (t.kind === 'scalar') writeInt(out, at, t.n, v, t.signed, `${what}.${f.name}`);
@@ -102,7 +109,7 @@ function writeFields(out, o, fields, values, what) {
       if (x.length !== t.n) throw new RangeError(`${what}.${f.name}: ${x.length} bytes, not ${t.n}`);
       out.set(x, at);
     } else if (t.kind === 'array') v.forEach((x, i) => writeInt(out, at + i * t.of.n, t.of.n, x, t.of.signed, `${what}.${f.name}[${i}]`));
-    else if (t.kind === 'record') v.forEach((x, i) => writeFields(out, at + i * t.rec.size, t.rec.fields, x, `${what}.${f.name}[${i}]`));
+    else if (t.kind === 'record') v.forEach((x, i) => writeFields(out, at + i * t.rec.size, t.rec.fields, x, `${what}.${f.name}[${i}]`, profile));
   }
 }
 
@@ -121,13 +128,17 @@ export function accountKind(bytes) {
  * and the data is at least the layout's size (with `seasonId`, also unless
  * the header's season id is it).
  */
-export function decodeAccount(kind, bytes, { seasonId } = {}) {
-  const l = layoutOf(kind);
+export function decodeAccount(kind, bytes, { seasonId, profile } = {}) {
+  if (profile === undefined) {
+    const base = layoutOf(kind, 1) ?? layoutOf(kind, 2);
+    profile = base?.chained && bytes.length >= 18 && bytes[16] === 2 && bytes[17] === 0 ? 2 : 1;
+  }
+  const l = layoutOf(kind, profile);
   if (!l) throw new Error(`unknown account kind ${kind}`);
   const b = Uint8Array.from(bytes);
   if (b.length < l.size) throw new Error(`${kind}: ${b.length} bytes, the layout has ${l.size}`);
   if (magicOf(b) !== l.magic) throw new Error(`${kind}: magic ${JSON.stringify(magicOf(b))}, not ${l.magic}`);
-  const out = readFields(b, 0, l.fields);
+  const out = readFields(b, 0, l.fields, profile);
   if (seasonId !== undefined && out.SEASON_ID !== BigInt(seasonId)) throw new Error(`${kind}: season ${out.SEASON_ID}, not ${seasonId}`);
   return out;
 }
@@ -137,19 +148,19 @@ export function decodeAccount(kind, bytes, { seasonId } = {}) {
  * fields zero, the magic set): the inverse of decodeAccount, for fixtures
  * and tests. The program writes these bytes, never a client.
  */
-export function encodeAccount(kind, values = {}) {
-  const l = layoutOf(kind);
+export function encodeAccount(kind, values = {}, { profile = 1 } = {}) {
+  const l = layoutOf(kind, profile);
   if (!l) throw new Error(`unknown account kind ${kind}`);
   const out = new Uint8Array(l.size);
-  writeFields(out, 0, l.fields, { ...values, HDR_MAGIC: utf8(l.magic) }, kind);
+  writeFields(out, 0, l.fields, { ...values, HDR_MAGIC: utf8(l.magic) }, kind, profile);
   return out;
 }
 
 /** A record (`Transit`, `Entry`…) decoded from `bytes` at `offset`. */
-export function decodeRecord(name, bytes, offset = 0) {
-  const r = records.get(name);
+export function decodeRecord(name, bytes, offset = 0, profile = 1) {
+  const r = (profile === 2 ? recordsV2 : records).get(name);
   if (!r) throw new Error(`unknown record ${name}`);
-  return readFields(Uint8Array.from(bytes), offset, r.fields);
+  return readFields(Uint8Array.from(bytes), offset, r.fields, profile);
 }
 
 /** `SeasonParams` (§5.7) bytes decoded. */
@@ -160,10 +171,10 @@ export const decodeSeasonParams = bytes => readFields(Uint8Array.from(bytes), 0,
 /** Byte-array fields of instruction data (every other field is an integer). */
 const BYTE_FIELDS = new Set(['session', 'commit', 'seal', 'plain', 'salt', 'ct_hash', 'beneficiary', 'hints', 'sig48', 'params_hash', 'tiles']);
 /** Signed integer fields (two's complement). */
-const SIGNED_FIELDS = new Set(['p', 'q', 'delta', 'session_expiry', 'expiry', 't_create_min']);
+const SIGNED_FIELDS = new Set(['p', 'q', 'm', 'n', 'delta', 'session_expiry', 'expiry', 't_create_min']);
 
 /** An instruction's ABI row (`{name, tag, class, top_level_only, relay_*_shape, data_len, data, account_groups}`) by tag or name, or null. */
-export const ixOf = which => (typeof which === 'number' ? ixByTag.get(which) : ixByName.get(which)) ?? null;
+export const ixOf = (which, profile = 1) => (typeof which === 'number' ? (profile === 2 ? ixByTagV2 : ixByTag).get(which) : (profile === 2 ? ixByNameV2 : ixByName).get(which)) ?? null;
 
 const SITE_BYTES = 5;
 
@@ -171,13 +182,14 @@ const SITE_BYTES = 5;
  * Instruction data (tag first) for `name` with `fields` (the ABI's data
  * field names). FileTicket takes `sites: [{p, q, site}]` (1–3).
  */
-export function encodeIxData(name, fields = {}) {
-  const ix = ixOf(name);
+export function encodeIxData(name, fields = {}, profile = 1) {
+  const ix = ixOf(name, profile);
   if (!ix) throw new Error(`unknown instruction ${name}`);
-  if (ix.name === 'FileTicket') {
+  if (ix.name === 'FileTicket' || ix.name === 'FileOutpost') {
     const sites = fields.sites ?? [];
     if (sites.length < 1 || sites.length > 3) throw new RangeError('FileTicket: 1–3 sites');
-    const out = new Uint8Array(2 + SITE_BYTES * sites.length);
+    const extra = ix.name === 'FileOutpost' ? 8 : 0;
+    const out = new Uint8Array(2 + SITE_BYTES * sites.length + extra);
     out[0] = ix.tag;
     out[1] = sites.length;
     sites.forEach((s, i) => {
@@ -185,6 +197,7 @@ export function encodeIxData(name, fields = {}) {
       writeInt(out, 4 + SITE_BYTES * i, 2, s.q, true, 'site.q');
       writeInt(out, 6 + SITE_BYTES * i, 1, s.site, false, 'site.site');
     });
+    if (extra) writeInt(out, out.length - 8, 8, fields.anchor_site_key, false, 'anchor_site_key');
     return out;
   }
   if (!ix.data) throw new Error(`${name}: variable-length data is not encoded here`);
@@ -194,7 +207,7 @@ export function encodeIxData(name, fields = {}) {
   for (const f of ix.data) {
     const v = fields[f.name];
     if (v === undefined) throw new Error(`${name}: missing ${f.name}`);
-    if (BYTE_FIELDS.has(f.name)) {
+    if ((BYTE_FIELDS.has(f.name) || f.len > 8)) {
       const x = Uint8Array.from(v);
       if (x.length !== f.len) throw new RangeError(`${name}.${f.name}: ${x.length} bytes, not ${f.len}`);
       out.set(x, o);
@@ -208,23 +221,25 @@ export function encodeIxData(name, fields = {}) {
  * Instruction data read back: `{tag, name, …fields}`. Throws on an unknown
  * tag or a length outside the ABI's range.
  */
-export function decodeIxData(data) {
+export function decodeIxData(data, profile = 1) {
   const d = Uint8Array.from(data);
-  const ix = ixOf(d[0]);
+  const ix = ixOf(d[0], profile);
   if (!ix) throw new Error(`unknown instruction tag ${d[0]}`);
   const [min, max] = ix.data_len;
   if (d.length < min || d.length > max) throw new Error(`${ix.name}: data is ${d.length} bytes, not ${min === max ? min : `${min}–${max}`}`);
   const out = { tag: ix.tag, name: ix.name };
-  if (ix.name === 'FileTicket') {
+  if (ix.name === 'FileTicket' || ix.name === 'FileOutpost') {
     const n = d[1];
-    if (n < 1 || n > 3 || d.length !== 2 + SITE_BYTES * n) throw new Error('FileTicket: malformed site list');
+    const extra = ix.name === 'FileOutpost' ? 8 : 0;
+    if (n < 1 || n > 3 || d.length !== 2 + SITE_BYTES * n + extra) throw new Error('FileTicket: malformed site list');
     out.sites = Array.from({ length: n }, (_, i) => ({ p: readInt(d, 2 + SITE_BYTES * i, 2, true), q: readInt(d, 4 + SITE_BYTES * i, 2, true), site: d[6 + SITE_BYTES * i] }));
+    if (extra) out.anchor_site_key = readInt(d, d.length - 8, 8, false);
     return out;
   }
   if (!ix.data) { out.rest = d.slice(1); return out; }
   let o = 1;
   for (const f of ix.data) {
-    out[f.name] = BYTE_FIELDS.has(f.name) ? d.slice(o, o + f.len) : readInt(d, o, f.len, SIGNED_FIELDS.has(f.name));
+    out[f.name] = (BYTE_FIELDS.has(f.name) || f.len > 8) ? d.slice(o, o + f.len) : readInt(d, o, f.len, SIGNED_FIELDS.has(f.name));
     o += f.len;
   }
   return out;
@@ -235,8 +250,8 @@ export function decodeIxData(data) {
  * kind, signer, writable ('r'|'w')}]` in order, choosing how many of each
  * variable group fit, or null when no split of `n` fits the groups.
  */
-export function accountSpec(name, n) {
-  const ix = ixOf(name);
+export function accountSpec(name, n, profile = 1) {
+  const ix = ixOf(name, profile);
   if (!ix) return null;
   const groups = ix.account_groups;
   const fixedMin = groups.reduce((s, g) => s + g.min * g.accounts.length, 0);

@@ -1,0 +1,33 @@
+# The AI citizens' main run (AI-CITIZENS contract v1.2 section 8.4; unit AC5): Mode A localnet (frontier-localnet)
+# with the test-key drand, the M1 script bots (180, labelled "script bot: not AI, not human" in the roster)
+# following the nation council, 3 game days at 10x (about 7.2 h of wall time). 18 AI citizens (deck-3) and the
+# presenter seat are a separate fleet that citizens/bin/ai-citizens-run.sh starts after the stack is running.
+#
+#   permutation-gateway/citizens/bin/ai-citizens-run.sh --stack permutation-gateway/citizens/stack/ai-citizens.toml \
+#       --citizens-config permutation-gateway/citizens/config/main.json
+#   (the script starts `frontier-stack up --config <this file>` itself; it never uses base ports 41000-41899)
+#
+# Local test chain only. Ports: base 41900 with the stack's unchanged offsets (41910/41911 localnet, 41920 drand,
+# 41930/41933 relay, 41940 herald, 41950/41951 keepers, 41970 bots, 41975 viewers (off)). 41900 itself is never bound.
+# The stack's TOML subset has strings, integers, floats and booleans only: bots_args is a string split on whitespace.
+run_id = "ai-main"
+mode = "accel"
+beacon = "test-key"
+scale = 10
+preseason_scale = 2000
+days = 3
+drain_bells = 26
+bots = 180
+bot_seed = 31
+season_id = 31
+base_port = 41900
+bots_args = "--follow-council"
+
+[pools]
+beneficiary_lamports = 1000000000
+
+[chaos]
+enabled = false
+
+[adversary]
+enabled = false

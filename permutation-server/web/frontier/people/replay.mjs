@@ -14,7 +14,7 @@
 // Nothing is invented: a bell without records shows no walkers; a battle
 // plays only where the bell's ClashInputs exist.
 import { L, fmtNum } from '../../lang.mjs';
-import { TIERS } from '../fi18n.mjs';
+import { TIERS, FATES } from '../fi18n.mjs';
 import { namer } from './scene.mjs';
 import { battleScene, startBattle, battleLive, BATTLE_SPEEDS } from './battle.mjs';
 
@@ -51,7 +51,7 @@ export function createReplayPeople({ roster = null, speed = BATTLE_SPEEDS.fast, 
         lordOf: null,
         battles: plays,
         lossText: n => L`−${fmtNum(n)} 兵`,
-        fateText: f => ({ Stays: L`持ちこたえた`, Withdrew: L`隣へ退いた`, Bounced: L`押し戻された`, Retreated: L`撤退した`, Destroyed: L`壊滅` })[f] ?? null,
+        fateText: f => FATES[f] ?? null,
       };
     },
     playing: () => plays.length,

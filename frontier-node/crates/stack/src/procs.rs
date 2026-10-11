@@ -34,6 +34,8 @@ pub struct Proc {
     pub spec: Spec,
     pub child: Option<Child>,
     pub pid: Option<u32>,
+    /// OS process birth stamp, retained in state to reject recycled PIDs.
+    pub start_stamp: Option<String>,
     pub started: Option<Instant>,
     pub starts: u32,
     /// Killed on purpose (chaos): restart at this instant.
@@ -49,6 +51,7 @@ impl Proc {
             spec,
             child: None,
             pid: None,
+            start_stamp: None,
             started: None,
             starts: 0,
             restart_at: None,
@@ -62,6 +65,7 @@ impl Proc {
         let pid = child.id();
         self.child = Some(child);
         self.pid = Some(pid);
+        self.start_stamp = start_stamp(pid);
         self.started = Some(Instant::now());
         self.starts += 1;
         self.restart_at = None;
@@ -76,6 +80,7 @@ impl Proc {
             Ok(Some(st)) => {
                 self.child = None;
                 self.pid = None;
+                self.start_stamp = None;
                 let d = match st.code() {
                     Some(c) => format!("exit {c}"),
                     None => format!("signal ({st})"),
@@ -104,6 +109,7 @@ impl Proc {
             let _ = c.wait();
         }
         self.pid = None;
+        self.start_stamp = None;
         self.last_exit = Some("kill -9 (chaos)".into());
         Ok(())
     }
@@ -130,6 +136,7 @@ impl Proc {
         }
         self.child = None;
         self.pid = None;
+        self.start_stamp = None;
         self.restart_at = None;
     }
 }
@@ -207,11 +214,101 @@ pub fn stop_pid(pid: u32, grace: Duration) -> bool {
 /// still belongs to the component before signalling it.
 pub fn command_of(pid: u32) -> Option<String> {
     let o = Command::new("ps")
-        .args(["-o", "command=", "-p", &pid.to_string()])
+        .args(["-ww", "-o", "command=", "-p", &pid.to_string()])
         .output()
         .ok()?;
     let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
     (!s.is_empty()).then_some(s)
+}
+
+/// Stable across queries and independent of the current executable build.
+/// The command and birth stamp must both match before a saved PID is used.
+pub fn start_stamp(pid: u32) -> Option<String> {
+    if pid <= 1 {
+        return None;
+    }
+    let o = Command::new("ps")
+        .env("LC_ALL", "C")
+        .args(["-o", "lstart=", "-p", &pid.to_string()])
+        .output()
+        .ok()?;
+    let s = String::from_utf8_lossy(&o.stdout)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    (o.status.success() && !s.is_empty()).then_some(s)
+}
+
+fn matches_identity(pid: u32, stamp: Option<&str>, command: Option<&str>) -> bool {
+    let (Some(stamp), Some(command)) = (stamp, command) else {
+        return false;
+    };
+    !stamp.is_empty()
+        && !command.is_empty()
+        && start_stamp(pid).as_deref() == Some(stamp)
+        && command_of(pid).as_deref() == Some(command)
+}
+
+/// Exact saved executable and argument list, plus process birth stamp.
+/// A historical bare PID or a missing stamp never authorizes a signal.
+pub fn matches_saved(pid: u32, saved: &Value) -> bool {
+    if saved["pid"].as_u64() != Some(u64::from(pid)) {
+        return false;
+    }
+    let command = if let Some(program) = saved["spec"]["program"].as_str() {
+        let Some(args) = saved["spec"]["args"].as_array() else {
+            return false;
+        };
+        let Some(args) = args.iter().map(Value::as_str).collect::<Option<Vec<_>>>() else {
+            return false;
+        };
+        std::iter::once(program)
+            .chain(args)
+            .collect::<Vec<_>>()
+            .join(" ")
+    } else if let Some(command) = saved["command"].as_str() {
+        // Standalone viewer jobs retain their observed full command.
+        command.to_owned()
+    } else {
+        return false;
+    };
+    matches_identity(pid, saved["start_stamp"].as_str(), Some(&command))
+}
+
+pub fn matches_supervisor(pid: u32, state: &Value) -> bool {
+    state["supervisor_pid"].as_u64() == Some(u64::from(pid))
+        && matches_identity(
+            pid,
+            state["supervisor_start_stamp"].as_str(),
+            state["supervisor_command"].as_str(),
+        )
+}
+
+/// Revalidate before both signals, including after the grace period when
+/// the original process may already have exited and its PID been reused.
+fn stop_matching(pid: u32, grace: Duration, matches: impl Fn() -> bool) -> bool {
+    if !matches() || signal(pid, "INT").is_err() {
+        return false;
+    }
+    let t0 = Instant::now();
+    while matches() {
+        if t0.elapsed() >= grace {
+            if matches() {
+                let _ = signal(pid, "KILL");
+            }
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    true
+}
+
+pub fn stop_saved(pid: u32, saved: &Value, grace: Duration) -> bool {
+    stop_matching(pid, grace, || matches_saved(pid, saved))
+}
+
+pub fn stop_supervisor(pid: u32, state: &Value, grace: Duration) -> bool {
+    stop_matching(pid, grace, || matches_supervisor(pid, state))
 }
 
 /// Whether a recorded component pid is still that component.
@@ -226,6 +323,55 @@ pub fn is_component(pid: u32, program: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saved_process_identity_refuses_recycled_and_foreign_pids() {
+        let d = std::env::temp_dir().join(format!("psf-identity-{}", crate::run::wall_ms()));
+        let mut p = Proc::new(Spec {
+            name: "identity".into(),
+            program: "/bin/sleep".into(),
+            args: vec!["30".into()],
+            env: vec![],
+            cwd: std::env::temp_dir(),
+            log: d.join("test.log"),
+            finishes: false,
+        });
+        let pid = p.start().unwrap();
+        let saved = json!({"pid":pid,"start_stamp":p.start_stamp,"spec":p.spec.to_json()});
+        assert!(matches_saved(pid, &saved));
+        let mut stale = saved.clone();
+        stale["start_stamp"] = json!("another process birth");
+        assert!(!stop_saved(pid, &stale, Duration::ZERO));
+        let mut foreign = saved.clone();
+        foreign["spec"]["args"] = json!(["31"]);
+        assert!(!stop_saved(pid, &foreign, Duration::ZERO));
+        let mut old = saved.clone();
+        old.as_object_mut().unwrap().remove("start_stamp");
+        assert!(!stop_saved(pid, &old, Duration::ZERO));
+        assert!(!matches_saved(pid, &json!(pid)));
+        assert!(
+            matches_saved(pid, &saved),
+            "negative checks must leave the child alive"
+        );
+        assert!(stop_saved(pid, &saved, Duration::from_secs(1)));
+        p.child.take().unwrap().wait().unwrap();
+        assert!(!matches_saved(pid, &saved));
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn supervisor_identity_requires_both_birth_and_full_command() {
+        let pid = std::process::id();
+        let saved = json!({"supervisor_pid":pid,"supervisor_start_stamp":start_stamp(pid),
+            "supervisor_command":command_of(pid)});
+        assert!(matches_supervisor(pid, &saved));
+        let mut changed = saved.clone();
+        changed["supervisor_command"] = json!("frontier-stack resume --run-id another-world");
+        assert!(!matches_supervisor(pid, &changed));
+        changed = saved;
+        changed["supervisor_start_stamp"] = Value::Null;
+        assert!(!matches_supervisor(pid, &changed));
+    }
 
     #[test]
     fn spawn_log_kill_and_finish() {

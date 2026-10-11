@@ -16,6 +16,7 @@
 //! | [`land`] | ticket scores and order, cohorts, expiry, the ring crowding rule, dormancy (W3-C) |
 //! | [`play`] | seal opening, reveal order and slot index, path provinces, gather parts, settlement rank (W4-C) |
 //! | [`clash_model`] | the program's ClashInput builder over account bytes (herald, verifier; integ-W4 review) |
+//! | [`conquest`] | MC (ABI v2): typed conquest log records, the contested-province test, the March fold's readiness (CQ2-D) |
 //! | [`clock`] | rule times and the `GameClock` |
 //! | [`payers`] | reveal and delay pools, uniform draws, funders, payer care |
 //! | [`vectors`] | `permutation-gateway/test/frontier-vectors.json` |
@@ -25,6 +26,7 @@ pub mod beacon;
 pub mod budgets;
 pub mod clash_model;
 pub mod clock;
+pub mod conquest;
 pub mod decode;
 pub mod fees;
 pub mod http;

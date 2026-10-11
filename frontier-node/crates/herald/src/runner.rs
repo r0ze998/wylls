@@ -92,6 +92,10 @@ pub struct Ingest {
     ckpt: Option<tokio::task::JoinHandle<Result<(), String>>>,
 }
 
+/// A checkpoint's content: the fold state, the conquest section (MC) and
+/// the files it covers.
+type Snap = (crate::fold::State, Option<Vec<u8>>, Vec<PathBuf>);
+
 /// Unix milliseconds now (the ingest stamp of the WS diffs).
 pub fn unix_ms() -> u64 {
     std::time::SystemTime::now()
@@ -128,14 +132,28 @@ impl Ingest {
             exact_post: cfg.exact_post,
         };
         let out = Out::new(cfg.files_dir());
-        let st = checkpoint::load(
+        let st = checkpoint::load_full(
             &cfg.checkpoint_path(),
             &cfg.program.to_bytes(),
             cfg.season_id,
         )
-        .filter(|s| s.folded_through <= findex.archive.last_seq());
+        .filter(|s| s.0.folded_through <= findex.archive.last_seq());
         let mut fold = match st {
-            Some(st) => Fold::with_state(fcfg, out, st),
+            Some((st, cq)) => {
+                let mut f = Fold::with_state(fcfg, out.clone(), st);
+                // MC (CQ2-E): the conquest state; a damaged section refolds
+                // from the start (the files' rewrites are no-ops).
+                match cq.map(|c| {
+                    serde_json::from_slice(&c)
+                        .ok()
+                        .and_then(|v| crate::conquest::Cq::from_json(&v))
+                }) {
+                    Some(Some(c)) => f.cq = c,
+                    Some(None) => f = Fold::new(f.cfg.clone(), out),
+                    None => {}
+                }
+                f
+            }
             None => Fold::new(fcfg, out),
         };
         let from = fold.st.folded_through;
@@ -164,23 +182,29 @@ impl Ingest {
     /// The state to save and the files it covers (taken together, under
     /// the lock), after the archive's pending group commit: the checkpoint
     /// never covers a record the archive could still lose.
-    fn snapshot(&mut self) -> Result<(crate::fold::State, Vec<PathBuf>), String> {
+    fn snapshot(&mut self) -> Result<Snap, String> {
         self.findex.commit().map_err(|e| e.to_string())?;
         let f = self.fold.read().map_err(|_| "fold lock poisoned")?;
-        Ok((f.st.clone(), f.out.take_dirty()))
+        // MC (CQ2-E): the conquest state rides along (none for M1).
+        let cq =
+            f.cq.on
+                .then(|| serde_json::to_vec(&f.cq.to_json()).unwrap_or_default());
+        Ok((f.st.clone(), cq, f.out.take_dirty()))
     }
 
-    fn save(cfg: &IngestCfg, st: &crate::fold::State, dirty: &[PathBuf]) -> Result<(), String> {
+    fn save(cfg: &IngestCfg, snap: &Snap) -> Result<(), String> {
+        let (st, cq, dirty) = snap;
         if !cfg.checkpoint_pause.is_zero() {
             std::thread::sleep(cfg.checkpoint_pause);
         }
         // Files first: the checkpoint may only cover durable files.
         crate::files::sync_paths(dirty).map_err(|e| e.to_string())?;
-        checkpoint::save(
+        checkpoint::save_full(
             &cfg.checkpoint_path(),
             &cfg.program.to_bytes(),
             cfg.season_id,
             st,
+            cq.as_deref(),
         )
         .map_err(|e| e.to_string())
     }
@@ -189,17 +213,17 @@ impl Ingest {
     /// fold's state (blocking; use [`Ingest::checkpoint_async`] on a
     /// runtime worker).
     pub fn checkpoint(&mut self) -> Result<(), String> {
-        let (st, dirty) = self.snapshot()?;
-        Self::save(&self.cfg, &st, &dirty)
+        let snap = self.snapshot()?;
+        Self::save(&self.cfg, &snap)
     }
 
     /// [`Ingest::checkpoint`] off the runtime's workers (the syncs take
     /// ≈ 10 ms per file on APFS), without holding the fold lock.
     pub async fn checkpoint_async(&mut self) -> Result<(), String> {
         self.checkpoint_settled().await;
-        let (st, dirty) = self.snapshot()?;
+        let snap = self.snapshot()?;
         let cfg = self.cfg.clone();
-        tokio::task::spawn_blocking(move || Self::save(&cfg, &st, &dirty))
+        tokio::task::spawn_blocking(move || Self::save(&cfg, &snap))
             .await
             .map_err(|e| e.to_string())?
     }
@@ -230,10 +254,10 @@ impl Ingest {
             // Finished: a failed save was already reported by the worker.
             drop(h);
         }
-        let (st, dirty) = self.snapshot()?;
+        let snap = self.snapshot()?;
         let cfg = self.cfg.clone();
         self.ckpt = Some(tokio::task::spawn_blocking(move || {
-            let r = Self::save(&cfg, &st, &dirty);
+            let r = Self::save(&cfg, &snap);
             if let Err(e) = &r {
                 eprintln!("herald: checkpoint: {e}");
             }

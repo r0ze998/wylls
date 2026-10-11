@@ -1,5 +1,5 @@
 // The Frontier screenshot smoke (contract §13.6 E7, web design §13.2):
-// 12 scenes (scenes.mjs) × JA and EN × 360×740, 390×844, 1440×900 in
+// The scenes of scenes.mjs × JA and EN × 360×740, 390×844, 1440×900 in
 // Playwright's Chromium, against the fixture server (server.mjs, 127.0.0.1
 // port 0). Each (scene, viewport) loads once in Japanese, is checked and
 // shot, then the language toggle switches it to English without a reload
@@ -60,8 +60,26 @@ async function shot(page, { scene, vp, lang, problems }) {
   if (lay.overflow.scrollWidth > lay.overflow.innerWidth) problems.push(`${where}: horizontal overflow ${lay.overflow.scrollWidth} > ${lay.overflow.innerWidth}`);
   if (Math.abs(lay.fill.bottom - lay.fill.innerHeight) > 2) problems.push(`${where}: the layout ends at ${lay.fill.bottom} px of ${lay.fill.innerHeight}`);
   for (const c of lay.clipped) problems.push(`${where}: cut off at the side (${c.left}..${c.right} of ${vp.width}): <${c.tag}${c.id ? `#${c.id}` : ''} class="${c.cls}"> "${c.text}"`);
-  for (const [k, ok] of Object.entries(lay.landmarks)) if (!ok) problems.push(`${where}: landmark ${k} not visible`);
-  if (!lay.bellChip.visible || !/\d/.test(lay.bellChip.text)) problems.push(`${where}: bell chip "${lay.bellChip.text}" (visible ${lay.bellChip.visible})`);
+  if (scene.intro) {
+    // (wave 2, UX design 11.9: the landmark and turn-dial checks below asked for the game's shell behind the title card;
+    // the title is an opaque scene now, and what is checked is that nothing of the game shows or can be reached behind it)
+    const behind = await page.evaluate(() => {
+      const shows = el => { const s = getComputedStyle(el), r = el.getBoundingClientRect(); return s.visibility !== 'hidden' && s.display !== 'none' && r.width > 0 && r.height > 0; };
+      const out = [];
+      for (const sel of ['nav.tabs', '#bell-pill', '.strip-l', '#panel', '.map-tools', '#minimap', '#rail', '#hud-tl', '#frontier-map', '.banner-pick', '#attn-pill']) for (const el of document.querySelectorAll(sel)) if (shows(el)) out.push(sel);
+      for (const id of ['frontier', 'tabs']) if (!document.getElementById(id)?.inert) out.push(`#${id} is not inert`);
+      const intro = document.getElementById('intro'), bg = getComputedStyle(intro).backgroundColor;
+      if (!/^rgb\(/.test(bg)) out.push(`the title's ground is ${bg}`);
+      if (document.body.dataset.drawer !== 'closed') out.push('a drawer is open');
+      return out;
+    });
+    for (const x of behind) problems.push(`${where}: behind the title: ${x}`);
+    if (!lay.landmarks.banner) problems.push(`${where}: the sound and language buttons are not with the title`);
+    if (!/\d/.test(lay.bellChip.text)) problems.push(`${where}: the turn dial has no figure (it is not shown, but it runs)`);
+  } else {
+    for (const [k, ok] of Object.entries(lay.landmarks)) if (!ok) problems.push(`${where}: landmark ${k} not visible`);
+    if (!lay.bellChip.visible || !/\d/.test(lay.bellChip.text)) problems.push(`${where}: bell chip "${lay.bellChip.text}" (visible ${lay.bellChip.visible})`);
+  }
   for (const s of lay.small) problems.push(`${where}: target ${s.w}×${s.h} < ${vp.phone ? 44 : 24}: <${s.tag}${s.id ? `#${s.id}` : ''}${s.act ? ` data-act=${s.act}` : ''}> "${s.text}"`);
   const violations = await axe(page);
   for (const v of violations) problems.push(`${where}: axe ${v.impact} ${v.id} (${v.help}): ${v.nodes.join(' | ')}`);
@@ -80,10 +98,13 @@ for (const vp of viewports) {
   for (const scene of scenes) {
     test(`${scene.title} @ ${vp.width}×${vp.height}: JA, then EN by the toggle`, { timeout: 120_000 }, async () => {
       srv.stage(scene.stage);
+      // (a `live` scene: the sample world's relay takes orders and its herald shows them, liveworld.mjs; a turn is
+      // left its ten minutes and begun early, and the page's clock stands still as in every scene)
+      srv.live(!!scene.live, { turn: 600, delay: 520 });
       const context = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: 1, isMobile: vp.phone, hasTouch: vp.phone, locale: 'ja-JP', timezoneId: 'UTC', reducedMotion: 'reduce' });
       const problems = [];
       try {
-        await context.addInitScript(initScript, { storage: storageFor(srv.viewer, { stage: scene.stage, lang: 'ja', intro: !!scene.intro }) });
+        await context.addInitScript(initScript, { storage: storageFor(srv.viewer, { stage: scene.stage, lang: 'ja', intro: !!scene.intro, live: !!scene.live }) });
         const page = await context.newPage();
         await page.clock.setFixedTime(new Date(LATEST_UNIX * 1000 + 500));
         page.on('console', m => { if (m.type() === 'error') problems.push(`${scene.id} ${vp.id}: console error: ${m.text()}`); });
@@ -91,14 +112,16 @@ for (const vp of viewports) {
         page.on('requestfailed', r => problems.push(`${scene.id} ${vp.id}: request failed: ${r.url()} ${r.failure()?.errorText ?? ''}`));
         page.on('response', r => { if (r.status() >= 400) problems.push(`${scene.id} ${vp.id}: HTTP ${r.status()} ${r.url()}`); });
         await page.goto(`${srv.url}/frontier/${scene.page}`);
-        await page.waitForFunction(() => /\d/.test(document.getElementById('bell-chip')?.textContent ?? ''));
-        await scene.go(page);
+        // (ready: the dial counts and the viewer's record has answered; the play page is `data-stage="loading"` until then)
+        await page.waitForFunction(() => /\d/.test(document.getElementById('bell-chip')?.textContent ?? '') && document.body.dataset.stage !== 'loading');
+        await scene.go(page, srv);
         await shot(page, { scene, vp, lang: 'ja', problems });
         // The toggle: English in place, no reload (the marker survives), the chip re-rendered.
         await page.evaluate(() => { globalThis.__screensMarker = 'kept'; });
         await page.locator('#lang-box [data-lang-toggle]').click();
         await page.waitForFunction(() => document.documentElement.lang === 'en');
-        await page.waitForFunction(() => /^(Bell|Starts)/.test(document.getElementById('bell-chip')?.textContent ?? ''));
+        // the turn dial reads "Turn 42 · 9:23 left" (UX design section 6; it read "Bell 42 …")
+        await page.waitForFunction(() => /^(Turn|Starts)/.test(document.getElementById('bell-chip')?.textContent ?? ''));
         assert.equal(await page.evaluate(() => globalThis.__screensMarker), 'kept', 'the language switch reloaded the page');
         await shot(page, { scene, vp, lang: 'en', problems });
       } finally {

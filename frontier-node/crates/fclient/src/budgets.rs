@@ -38,6 +38,12 @@ impl Default for Budgets {
 /// one the keeper, the bots and the JS SDK read.
 pub const CANONICAL_JSON: &str = include_str!("../../../../frontier-abi/vectors/budgets.json");
 
+/// The ABI v2 table (`frontier-abi/vectors/v2/budgets.json`, MC contract
+/// §5.4): every v2 kind's CU limit and `L(kind)` at the MC `.so`
+/// (placeholders until CQ4-A regenerates it from the release build).
+pub const CANONICAL_JSON_V2: &str =
+    include_str!("../../../../frontier-abi/vectors/v2/budgets.json");
+
 impl Budgets {
     /// The canonical table ([`CANONICAL_JSON`]). integ-W4: the shape vectors
     /// used [`Budgets::placeholder`] (`L` = 1 MiB), which stopped matching
@@ -45,6 +51,24 @@ impl Budgets {
     pub fn canonical() -> Budgets {
         Budgets::from_json(&serde_json::from_str(CANONICAL_JSON).expect("budgets.json parses"))
             .expect("budgets.json is a budgets table")
+    }
+
+    /// The ABI v2 table ([`CANONICAL_JSON_V2`]): an MC season's budgets,
+    /// `L(kind)` for the new kinds included.
+    pub fn canonical_v2() -> Budgets {
+        Budgets::from_json(
+            &serde_json::from_str(CANONICAL_JSON_V2).expect("v2 budgets.json parses"),
+        )
+        .expect("v2 budgets.json is a budgets table")
+    }
+
+    /// The canonical table of a season's `program_version` (R-22).
+    pub fn canonical_for(program_version: u16) -> Budgets {
+        if program_version >= abi::PROGRAM_VERSION_V2 {
+            Budgets::canonical_v2()
+        } else {
+            Budgets::canonical()
+        }
     }
 
     /// §5.5 CU budgets and `L` = 1 MiB for every kind (wave 1).
@@ -152,6 +176,39 @@ mod tests {
         assert!(Budgets::from_json(&bad).is_err());
         assert_eq!(Budgets::retry_cu(26_000), 52_000);
         assert_eq!(Budgets::retry_cu(900_000), 1_400_000);
+    }
+
+    /// MC §5.4: the v2 file loads, carries `L(kind)` for every v2 kind,
+    /// and each new kind's limit is frontier-abi's v2 row.
+    #[test]
+    fn cq_v2_budgets_cover_every_v2_kind() {
+        let b = Budgets::canonical_for(abi::PROGRAM_VERSION_V2);
+        assert_eq!(b, Budgets::canonical_v2());
+        for row in abi::INSTRUCTIONS_V2 {
+            let x = b.get(row.tag);
+            assert!(x.loaded_limit >= crate::fees::PAGE, "{}", row.name);
+            assert_eq!(x.loaded_limit % crate::fees::PAGE, 0, "{}", row.name);
+            let ix = frontier_abi::v2::Ix::from_tag(row.tag).unwrap();
+            assert_eq!(
+                x.cu_limit,
+                frontier_abi::v2::budgets::budget(ix)
+                    .cu_limit
+                    .min(abi::CU_MAX),
+                "{}",
+                row.name
+            );
+            assert_eq!(
+                x.loaded_limit,
+                frontier_abi::v2::budgets::loaded_limit(ix),
+                "{}",
+                row.name
+            );
+        }
+        // An M1 season keeps M1's table.
+        assert_eq!(
+            Budgets::canonical_for(abi::PROGRAM_VERSION_V1),
+            Budgets::canonical()
+        );
     }
 
     /// §10.2: the canonical budgets file loads (W2-F consumes it).

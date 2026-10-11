@@ -46,6 +46,7 @@ pub const TRANSIT_OUTCOME_MISMATCH: &str = "TransitOutcomeMismatch";
 pub const ORIGIN_VALUE_MISMATCH: &str = "OriginValueMismatch";
 // V11 land
 pub const TICKET_SCORE_MISMATCH: &str = "TicketScoreMismatch";
+pub const HOME_PLACEMENT_MISMATCH: &str = "HomePlacementMismatch";
 pub const DISPLACEMENT_RULE: &str = "DisplacementRule";
 pub const COHORT_MISMATCH: &str = "CohortMismatch";
 pub const TERRAIN_MISMATCH: &str = "TerrainMismatch";
@@ -93,6 +94,7 @@ pub const FAIL_CODES: &[&str] = &[
     ORIGIN_VALUE_MISMATCH,
     TICKET_SCORE_MISMATCH,
     DISPLACEMENT_RULE,
+    HOME_PLACEMENT_MISMATCH,
     COHORT_MISMATCH,
     TERRAIN_MISMATCH,
     CAMP_MISMATCH,

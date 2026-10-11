@@ -148,5 +148,5 @@ pub fn settle_return(
     province: (i16, i16),
     h: HoldingRef,
 ) -> Instruction {
-    settle_departure(a, payer, province, h, RETURN_SLOT)
+    fclient::ix::v2::settle_departure(a, payer, province, h, RETURN_SLOT)
 }

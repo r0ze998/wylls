@@ -14,12 +14,14 @@ import * as fi18n from '../../permutation-server/web/frontier/fi18n.mjs';
 import { ERRORS } from '../../permutation-server/web/frontier/abi.mjs';
 import { FRONTIER_ERROR_STATUS } from '../src/frontier/chain.mjs';
 import { setLang } from '../../permutation-server/web/lang.mjs';
+import { REFUSALS as PROTO_REFUSALS, OWN_CODES as PROTO_OWN_CODES, refusalText as protoRefusalText } from '../../permutation-server/web/frontier/proto/hand-model.mjs';
 
 afterEach(() => setLang('ja'));
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
 const JP = /[぀-ヿ一-鿿]/;
 const ABI = JSON.parse(readFileSync(join(REPO, 'frontier-abi/vectors/errors.json'), 'utf8'));
-const abiErrors = (ABI.errors ?? ABI).map(e => ({ code: e.code, name: e.name }));
+const CQ_ABI = JSON.parse(readFileSync(join(REPO, 'frontier-abi/vectors/v2/errors.json'), 'utf8'));
+const abiErrors = [...new Map([...(ABI.errors ?? ABI), ...CQ_ABI.errors].map(e => [e.code, e])).values()].map(e => ({ code: e.code, name: e.name }));
 
 const walk = dir => readdirSync(dir).flatMap(n => { const p = join(dir, n); return statSync(p).isDirectory() ? walk(p) : [p]; });
 const src = p => readFileSync(p, 'utf8');
@@ -61,7 +63,7 @@ const hasText = code => {
 
 test('every program error code of the ABI has its own Japanese and English text', () => {
   assert.ok(abiErrors.length >= 60);
-  assert.deepEqual(abiErrors.map(e => [e.code, e.name]), ERRORS.map(([c, n]) => [c, n]), 'abi.mjs carries frontier-abi\'s table');
+  assert.deepEqual((ABI.errors ?? ABI).map(e => [e.code, e.name]), ERRORS.map(([c, n]) => [c, n]), 'abi.mjs carries frontier-abi\'s table');
   const seen = new Map();
   for (const { code, name } of abiErrors) {
     setLang('ja');
@@ -80,10 +82,15 @@ test('every program error code of the ABI has its own Japanese and English text'
   // The codes the contract names for the UI (§5.4, I-08, I-44, I-47, I-51).
   setLang('en');
   assert.match(fi18n.errorText(51), /tip/i);
-  assert.match(fi18n.errorText(58), /settled/i);
-  assert.match(fi18n.errorText(60), /next bell/i);
+  // (hud-4, UX design 11.13: 精算 / "settled" and a numbered or counted bell are off the play screen. HostInTransit
+  // says the host waits for the result of its march to be collected; CohortFull says to try next turn)
+  assert.match(fi18n.errorText(58), /until its march is resolved/i);
+  assert.doesNotMatch(fi18n.errorText(58), /settle/i);
+  assert.match(fi18n.errorText(60), /next turn/i);
+  assert.doesNotMatch(fi18n.errorText(60), /bell|ticket/i);
   assert.match(fi18n.errorText(61), /three/i);
-  assert.match(fi18n.errorText(24), /final/i);
+  // (rewritten with wave 3: a village is provisional, then confirmed: one English word on every screen, UX design 12.6)
+  assert.match(fi18n.errorText(24), /confirmed/i);
 });
 
 test('every code the relay can answer has a text (read from its sources)', () => {
@@ -107,7 +114,13 @@ test('every code the page\'s own modules return has a text', () => {
   for (const must of ['MessageRefused', 'RelayMessageChanged', 'NotSaved', 'NoKernel', 'HostInTransit', 'TipNotPreset', 'NoDestination', 'SealAuditFailed']) assert.ok(codes.has(must), `scan found ${must}`);
   // Seal-worker audit steps and the planner's reasons are internal detail (the page shows their code's text).
   const internal = new Set(['V', 'W', 'body', 'commitment', 'length', 'SealFailed']);
-  const missing = [...codes].filter(c => !internal.has(c) && !hasText(c).ok);
+  // The prototype rule "banners" (a design tried in the sample world: proto/orders.mjs, proto/hand-model.mjs) answers
+  // with codes of its own. They are no program errors and are not in the page's table: each is said by
+  // proto/hand-model.mjs refusalText, in both languages (test/web-frontier-proto-hand.test.mjs checks every one).
+  const proto = new Set([...PROTO_REFUSALS, ...PROTO_OWN_CODES]);
+  for (const c of proto) for (const lang of ['ja', 'en']) { setLang(lang); assert.ok(protoRefusalText(c).length > 0 && !/Unknown error|不明なエラー/.test(protoRefusalText(c)), `${c} (${lang}) has a sentence of its own`); }
+  setLang('ja');
+  const missing = [...codes].filter(c => !internal.has(c) && !proto.has(c) && !hasText(c).ok);
   assert.deepEqual(missing, [], 'page codes without a text');
 });
 
@@ -123,5 +136,9 @@ test('failureText: number, then name, then the page\'s codes, then the HTTP stat
   assert.equal(fi18n.failureText(null), 'Unknown error (?)');
   assert.ok(fi18n.CLIENT_CODES.includes('TipNotPreset') === false, 'TipNotPreset is an ABI code (61), not duplicated');
   setLang('ja');
-  assert.equal(fi18n.failureText({ code: 'QuotaExceeded' }), '今日の中継の枠を使い切りました。次のゲーム日まで待ってください');
+  // (hud-4: said as what the player can still do, not as "the relay's quota"; two sentences, each with its 。)
+  assert.equal(fi18n.failureText({ code: 'QuotaExceeded' }), '今日送れる操作の回数を使い切りました。シーズンの日付が変わると、また送れます。');
+  // no program or page text counts bells, names the beacon, a keeper or a site ticket, or says 精算
+  for (const name of fi18n.ERROR_NAMES) assert.doesNotMatch(fi18n.errorText(name), /鐘|ビーコン|キーパー|入植希望|精算|区画|口座/, name);
+  for (const code of fi18n.CLIENT_CODES) assert.doesNotMatch(fi18n.clientText(code), /鐘|ビーコン|キーパー|入植希望|精算|区画|口座|frontier\.wasm/, code);
 });

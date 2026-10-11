@@ -24,6 +24,26 @@ pub fn budgets() -> Budgets {
     Budgets::from_json(&v).expect("budgets table")
 }
 
+/// The v2 table (`--conquest`): the canonical rows, then every instruction
+/// of `Ix::ALL_V2` at the v2 row (placeholders until Gate CQ4 regenerates
+/// them from the MC release `.so`, `frontier_abi::v2::budgets`).
+pub fn budgets_v2() -> Budgets {
+    use frontier_abi::v2::budgets::{budget, loaded_limit};
+    use frontier_abi::v2::tags::Ix;
+    let mut b = budgets();
+    for ix in Ix::ALL {
+        let row = budget(*ix);
+        b.set(
+            ix.tag(),
+            fclient::budgets::Budget {
+                cu_limit: row.cu_limit.min(fclient::abi::CU_MAX),
+                loaded_limit: loaded_limit(*ix),
+            },
+        );
+    }
+    b
+}
+
 /// `GET /f/relay`: the drawn fee payer and a blockhash.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RelayInfo {

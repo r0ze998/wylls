@@ -154,14 +154,17 @@ function view(mine = ['Science'], { secondsLeft = 9, phase = 'commit' } = {}) {
 
 /** Let everything in flight finish (fake fetches, WebCrypto signatures). */
 async function settle() {
-  for (let i = 0; i < 400; i++) {
-    await new Promise(r => setImmediate(r));
+  // A fixed number of event-loop turns can expire before WebCrypto finishes
+  // on a busy CI runner. Date.now is the simulated game clock in this test.
+  const deadline = performance.now() + 5000;
+  while (performance.now() < deadline) {
+    await new Promise(r => realSetTimeout(r, 1));
     if (!S.committing && !S.autoCommit?.inFlight) {
       for (let j = 0; j < 20; j++) await new Promise(r => setImmediate(r));
       if (!S.committing && !S.autoCommit?.inFlight) return;
     }
   }
-  throw new Error('still committing');
+  throw new Error('still committing after 5 s');
 }
 
 /** An applied view at time `t` (ms), as the poll loop applies it. */

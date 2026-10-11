@@ -1,0 +1,124 @@
+// The legend of the survey and its one honest line (UX brief §3): what the
+// four materials of the play map mean, that nothing is being kept from the
+// viewer (every record is public; the spectator page shows all of it), and
+// the two things that cannot be seen yet: a sealed march's destination and
+// stance (in the one sentence the order card and the help also say:
+// hud/glossary.mjs sealLine, UX design 11.13) and what an exploration finds.
+// Markup only; the swatches are classes of frontier.css (no inline style).
+import { html, raw } from '../../util.mjs';
+import { L, fmtNum } from '../../lang.mjs';
+import { factionName, DOCTRINE_NAMES } from '../fi18n.mjs';
+import { CHARACTERS, leaderHex } from '../people/leaders.mjs';
+import { sealLine } from '../hud/glossary.mjs';
+import { icon } from '../hud/icons.mjs';
+import { reachSteps } from '../hud/reach.mjs';
+import { MAX_PATH_STEPS } from '../seal.mjs';
+import { DEPART_STAMINA, RULES } from '../fmarch.mjs';
+import { territoryEnabled } from '../territory.mjs';
+import { PROTO_LEGEND, protoLegendLine } from './protowords.mjs';
+import { protoLabelText } from './protochip.mjs';
+
+const STAMINA_CAP = RULES.STAMINA_CAP;
+
+/** How many tiles about a rested host the lit reach covers (hud/reach.mjs: the preview's cap). */
+const REACH_NEAR = reachSteps(Infinity);
+
+/** The four levels: `[{id, name(), text()}]`, nearest first. */
+export const SURVEY_LEGEND = Object.freeze([
+  { id: 'sight', name: () => L`視界`, text: () => L`あなたの村と軍勢から、いま見えている範囲です。村も軍勢も、そこで起きていることも描きます。` },
+  { id: 'surveyed', name: () => L`測量済み`, text: () => L`前に見た範囲です。土地と村を、色を落として描きます。` },
+  { id: 'chart', name: () => L`未測量`, text: () => L`まだ見ていない範囲です。地形だけを図にしています。` },
+  { id: 'cloud', name: () => L`雲海`, text: () => L`まだひらいていない輪です。土地そのものがまだありません。` },
+]);
+
+/**
+ * What a selected host can do (map/actions.mjs): `[{id, name(), text()}]`. The reach is one outline; each kind of
+ * target also carries its own mark on the map, so the colour is never the only sign.
+ */
+export const ACTION_LEGEND = Object.freeze([
+  { id: 'move', name: () => L`進める`, text: () => L`淡い線で囲んだ内側が、軍勢のまわり ${fmtNum(REACH_NEAR)} マスです。線の外のマスも、道がつながっていれば行き先にできます（${fmtNum(MAX_PATH_STEPS)} マスまで）。` },
+  { id: 'attack', glyph: 'swords', name: () => L`攻める`, text: () => L`蛮族の野営地、敵対する国の村や軍勢がいるマスです。` },
+  { id: 'home', glyph: 'home', name: () => L`自分の村`, text: () => L`あなたの村へ戻るマスです。` },
+  { id: 'explore', glyph: 'eye', name: () => L`探索`, text: () => L`斥候が探索できる隣のマスです。` },
+]);
+/** The lines of the map: `[{id, name(), text()}]`: the rim of the viewer's own land, and where one province ends. */
+export const LINE_LEGEND = Object.freeze([
+  { id: 'own', name: () => L`あなたの村のまわり`, text: () => L`国の色の帯と金の線で囲んだ内側が、あなたの村がはたらく土地です。仮の村は線が点線です。` },
+  { id: 'province', name: () => L`州の境`, text: () => L`濃い線が州の境です。同じターンに同じ州へ着いた軍勢がぶつかります。` },
+]);
+
+/** The marks on a village and its hosts: `[{id, glyph, name(), text()}]` (the second review: a red keyhole dot and a ring with a hammer stood unexplained). */
+export const MARK_LEGEND = Object.freeze([
+  { id: 'sealed', glyph: 'lock', name: () => L`薄い軍勢と封の印`, text: () => L`進軍に出た軍勢です。到着のターンまで村にはいません。` },
+  { id: 'build', glyph: 'hammer', name: () => L`槌の輪`, text: () => L`建設中です。輪が一周すると完成します。` },
+]);
+
+/**
+ * What a host away from home shows on the board (UX design 14.2 to 14.4; map/hostmarks.mjs): `[{id, glyph?, name(),
+ * text()}]`. The words are fixed: what a host watches and the tile it stands on are named as what they are, never as
+ * territory (under these rules nothing a player does changes who holds land).
+ */
+export const HOST_LEGEND = Object.freeze([
+  { id: 'watch', name: () => L`見張っている土地`, text: () => L`国の色の点線で囲んだ内側が、あなたの軍勢がいま見張っている範囲です。軍勢が動けば一緒に動き、去れば消えます。村のまわりの土地とはちがいます。` },
+  { id: 'held', glyph: 'banner', name: () => L`軍勢が押さえているマス`, text: () => L`村の外に立つ軍勢は、小さな旗を立てます。そのマスは、軍勢がいるあいだだけ押さえています。` },
+  { id: 'stamina', glyph: 'check', name: () => L`体力の輪`, text: () => L`軍勢の体力（上限 ${fmtNum(STAMINA_CAP)}）です。真鍮の目盛りが進軍に要る ${fmtNum(DEPART_STAMINA)} で、足りないあいだは、あと何ターンかを数字で示します。体力は 1 ターンに 1 戻ります。小さな真鍮の点は、このターンに命令できる軍勢です。` },
+  { id: 'forming', glyph: 'hourglass', name: () => L`薄い軍勢`, text: () => L`編成した軍勢は、次のターンから地図に立ちます。それまでは薄く描きます。` },
+  { id: 'flags', glyph: 'flag', name: () => L`測量の旗`, text: () => L`探索に出したマスです。結果が出ると、まわりが測量した土地になります。` },
+  { id: 'marker', glyph: 'seal', name: () => L`封をした進軍の印`, text: () => L`あなたの進軍のいまの位置です（時計で進みます）。あなたの軍勢を率いる姿が一緒なら、その顔を描きます。あなたにだけ見えます。` },
+]);
+
+/** The help line of the brief: the map draws what was surveyed, nothing is kept back, and only two things cannot be seen yet. */
+export const surveyLine = (FS = null) => FS?.sample?.world === 'sample' ? L`このサンプルでは、村と軍勢の視界と、前に測量した範囲を描いています。チェーンには接続していません。封印した進軍と探索の結果は、次のタイミングで分かります。` : L`地図には、あなたが見て測量した範囲を描いています。隠しているのではありません。チェーンの記録はすべて公開で、観戦ページでは全体を見られます。いま見られないものは、次の二つだけです。`;
+/** The two things: `[{id, name(), text()}]` — the sealed march in the seal's one sentence, and an exploration's result. */
+export const UNSEEN = Object.freeze([
+  { id: 'seal', name: () => L`封印した進軍`, text: () => sealLine() },
+  { id: 'explore', name: () => L`探索の結果`, text: () => L`そのターンの結果が出るまで、誰にもわかりません。` },
+]);
+
+/**
+ * The six nations' key: each nation's character (the hexagon icon), its sigil in its colour, its name and its doctrine
+ * (no name and no title of a person: the six are the players, DECISIONS ZP1, ZP3). A nation is told by colour and by
+ * mark together; the colours are the ones the characters wear (palette.mjs).
+ */
+export function renderNationKey() {
+  return html`<h4>${L`六つの国とその色`}</h4>
+    <ul class="nation-legend">${CHARACTERS.map(l => html`<li>${raw(leaderHex(l.faction, { size: 32 }))}<span class="survey-what"><strong><span class="swatch f${l.faction}" aria-hidden="true"></span>${factionName(l.faction)}</strong> <span class="nation-creed">${L`教義：${DOCTRINE_NAMES[l.faction]}`}</span></span></li>`)}</ul>
+    <p class="nation-note">${L`国は、色と印（丸・三角・四角・ひし形・十字・六角）の両方で見分けられます。色は、その国の人の服の色です。`}</p>`;
+}
+
+/**
+ * The banner rule's prototype in the legend (PROTOTYPE-SPEC.md section 1): shown only while the map draws it. The map
+ * says so here (`setProtoLegend(label)` with the record's own label `{ja, en}`, or null): with none the legend is what
+ * it was, to the letter.
+ */
+let protoLabel = null;
+export function setProtoLegend(label = null) { protoLabel = label && (label.ja || label.en) ? label : null; }
+/** The legend's section for the prototype: its label first, then what each mark is, then the one line of section 1. Empty while the prototype is off. */
+export function renderProtoLegend() {
+  if (!protoLabel) return '';
+  return html`<h4>${L`試作：${protoLabelText(protoLabel)}`}</h4>
+    <ul class="key-legend proto-legend">${PROTO_LEGEND.map(x => html`<li><span class="survey-key proto-${x.id}" aria-hidden="true"></span><span class="survey-what"><strong>${x.name()}</strong> ${x.text()}</span></li>`)}</ul>
+    <p class="proto-legend-line">${protoLegendLine()}</p>`;
+}
+
+/** The section for the play page's panel: the legend, the line, the way to the whole public world. */
+export function renderSurveyHelp(FS = null) {
+  const control = territoryEnabled(FS);
+  const hosts = control ? HOST_LEGEND.map(x => x.id === 'held' ? { ...x, text: () => L`小さな旗は、軍勢がいま立っている場所です。領地の所有は国の色で示します。軍勢が移動しても、獲得した領地は残ります。` } : x) : HOST_LEGEND;
+  const lines = control ? LINE_LEGEND.map(x => x.id === 'own' ? { ...x, name: () => L`領地の色と境界`, text: () => L`国の色を塗ったマスが、現在その国の領地です。無主地は軍勢の到着後に獲得し、敵の領地は戦いの結果で所有が変わります。いま視界にないマスの所有は表示しません。` } : x) : LINE_LEGEND;
+  return html`<section class="survey-help" id="survey-help" aria-labelledby="survey-help-title"><h3 id="survey-help-title">${L`地図の見かた`}</h3>
+    <ul class="survey-legend">${SURVEY_LEGEND.map(x => html`<li><span class="survey-key survey-${x.id}" aria-hidden="true"></span><span class="survey-what"><strong>${x.name()}</strong> ${x.text()}</span></li>`)}</ul>
+    <p class="survey-line">${surveyLine(FS)}</p>
+    <ul class="survey-unseen">${UNSEEN.map(x => html`<li><strong>${x.name()}</strong> ${x.text()}</li>`)}</ul>
+    <h4>${L`軍勢を選ぶと光るマス`}</h4>
+    <ul class="lit-legend">${ACTION_LEGEND.map(x => html`<li><span class="survey-key lit-${x.id}" aria-hidden="true">${x.glyph ? icon(x.glyph) : ''}</span><span class="survey-what"><strong>${x.name()}</strong> ${x.text()}</span></li>`)}</ul>
+    <h4>${L`村のまわりの印`}</h4>
+    <ul class="key-legend">${MARK_LEGEND.map(x => html`<li><span class="survey-key mark-${x.id}" aria-hidden="true">${icon(x.glyph)}</span><span class="survey-what"><strong>${x.name()}</strong> ${x.text()}</span></li>`)}</ul>
+    <h4>${L`村の外の軍勢`}</h4>
+    <ul class="host-legend">${hosts.map(x => html`<li><span class="survey-key host-${x.id}" aria-hidden="true">${x.glyph ? icon(x.glyph) : ''}</span><span class="survey-what"><strong>${x.name()}</strong> ${x.text()}</span></li>`)}</ul>
+    <h4>${L`地図の線`}</h4>
+    <ul class="key-legend">${lines.map(x => html`<li><span class="survey-key line-${x.id}" aria-hidden="true"></span><span class="survey-what"><strong>${x.name()}</strong> ${x.text()}</span></li>`)}</ul>
+    ${renderProtoLegend()}
+    ${renderNationKey()}
+    <p><a class="survey-all" href="spectate.html">${L`観戦ページで世界全体を見る`}</a></p></section>`;
+}

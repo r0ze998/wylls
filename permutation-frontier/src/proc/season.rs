@@ -15,6 +15,17 @@
 //! name another `program_version` than [`crate::PROGRAM_VERSION`] (integ-W2
 //! review), or carry invalid `PayoutParams` are `BadData`. A second
 //! SetWindowSchedule is `AlreadyDone` (one change per season, v1.3).
+//!
+//! **MC (conquest contract §5.2.5, §5.6; CQ2-A):** CreateSeason is v2:
+//! its data is `SeasonParams v2` (M1's 224 B with `program_version = 2`,
+//! then the 128-B conquest block) ‖ `PayoutParams`, the announced hash is
+//! `params_hash_v2`, the parameters pass `SeasonParamsV2::validate` (M1's
+//! ranges, version 2, the conquest ranges, the dormancy timers equal in
+//! both parts), the season's doctrine table passes the Knight bound
+//! (`doctrine::validate_table_v2`, §3.16), and the Season stores
+//! `RULESET_HASH_V2`, `RULES_VERSION` 11 and the conquest block at
+//! 896..1,024. A failing parameter is `BadData`, as in M1 (§5.3's
+//! `BadParams` is not an M1 code; CQ2-A notes D-1).
 
 use borsh::BorshDeserialize;
 use solana_program::{account_info::AccountInfo, pubkey::Pubkey};
@@ -22,9 +33,11 @@ use solana_program::{account_info::AccountInfo, pubkey::Pubkey};
 use frontier_abi::ix as aix;
 use frontier_abi::layout::AccountKind;
 use frontier_abi::log::{bond_outcome, EntityKind, Kind, NO_BELL};
-use frontier_abi::presets::{self, SeasonParams, SEASON_PARAMS_LEN};
+use frontier_abi::presets::{self, SeasonParams};
 use frontier_abi::prologue::ids::LOADER_V3;
 use frontier_abi::tags::Ix;
+use frontier_abi::v2::ix::CreateSeasonV2;
+use frontier_abi::v2::presets::{params_hash_v2, SEASON_CQ_OFFSET, SEASON_PARAMS_V2_LEN};
 use permutation_rules::frontier::beacon;
 use permutation_rules::frontier::payout::PayoutParams;
 use permutation_rules::hash::sha256;
@@ -172,7 +185,7 @@ fn write_params(
     w.set_u8(S::OFFICE_TERMS_PER_WALLET, p.office_terms_per_wallet)?;
     w.set_u8(S::POSTURES_ENABLED, p.postures_enabled)?;
     w.set_arr(S::RULESET_HASH, &crate::RULESET_HASH)?;
-    w.set_u16(S::RULES_VERSION, presets::RULES_VERSION)?;
+    w.set_u16(S::RULES_VERSION, crate::RULES_VERSION)?;
     w.set_u16(S::PROGRAM_VERSION, p.program_version)?;
     w.set_u32(S::BELL_SECS, p.bell_secs)?;
     w.set_i64(S::GENESIS_TS, genesis_ts)?;
@@ -230,11 +243,12 @@ pub const fn wedge_share(pfund_initial: u64) -> u64 {
     pfund_initial / PF::WEDGES as u64
 }
 
-/// 0x01 CreateSeason: `[authority s,w] [season w] [frontier w] [pfund × 6
-/// w] [dpool w] [system]`, data `SeasonParams ‖ PayoutParams (borsh)`.
+/// 0x01 CreateSeason v2: `[authority s,w] [season w] [frontier w] [pfund
+/// × 6 w] [dpool w] [system]`, data `SeasonParams v2 (352 B) ‖
+/// PayoutParams (borsh)` (MC §5.2.5, §5.6; module doc).
 pub fn create_season(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     check_accounts(Ix::CreateSeason, a, None)?;
-    let x = aix::CreateSeason::decode(d)?;
+    let x = CreateSeasonV2::decode(d)?;
     let [authority, season_ai, frontier_ai, pf0, pf1, pf2, pf3, pf4, pf5, dpool_ai, _system] = a
     else {
         return Err(FrontierError::TooManyAccounts.into());
@@ -257,17 +271,21 @@ pub fn create_season(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     if now.ts >= window_end {
         return Err(FrontierError::Announce.into());
     }
-    let raw: &[u8; SEASON_PARAMS_LEN] = d
-        .get(1..1 + SEASON_PARAMS_LEN)
+    let raw: &[u8; SEASON_PARAMS_V2_LEN] = d
+        .get(1..1 + SEASON_PARAMS_V2_LEN)
         .and_then(|s| s.try_into().ok())
         .ok_or(FrontierError::BadData)?;
-    if presets::params_hash(raw, x.payout) != params_hash {
+    if params_hash_v2(raw, x.payout) != params_hash {
         return Err(FrontierError::Announce.into());
     }
-    let prm = x.params;
-    if prm.validate().is_err()
+    let prm = x.params.base;
+    if x.params.validate().is_err()
         || prm.quicknet_pk_hash != crate::QUICKNET_PK_HASH
         || prm.program_version != crate::PROGRAM_VERSION
+        || permutation_rules::frontier::doctrine::validate_table_v2(
+            &permutation_rules::frontier::doctrine::DOCTRINES,
+        )
+        .is_err()
     {
         return Err(FrontierError::BadData.into());
     }
@@ -360,6 +378,8 @@ pub fn create_season(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         now.ts,
         &payout_hash,
     )?;
+    // MC §5.2.5: the conquest block at 896..1,024.
+    Rw(&mut sd).set_arr(SEASON_CQ_OFFSET, &x.params.cq.to_bytes())?;
     let key8 = core.id.to_le_bytes();
     let payload = Buf::<124>::new()
         .bytes(&params_hash)

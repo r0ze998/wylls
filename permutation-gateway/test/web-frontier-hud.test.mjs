@@ -56,7 +56,12 @@ test('attention: incoming first, then settlements, the unsent draft, full stores
   assert.deepEqual([items[1].p, items[1].q, items[1].tab], [1, 1, 'marches']);
   assert.equal(items[3].tab, 'holding');
   setLang('ja');
-  assert.equal(hud.attentionText(items), '来襲 第44鐘 · ほか 3', 'the first item named, then how many more');
+  // (hud-4, UX design 11.13: every number is a turn's; a place is said by its name; 精算 is "collect the result")
+  assert.equal(hud.attentionText(items), '来襲 ターン 44 · ほか 3', 'the first item named, then how many more');
+  assert.equal(items[0].text, 'ターン 44 に、ラマールの町へ敵が来るかもしれません', 'the village by its name, the turn by its number');
+  assert.deepEqual([items[1].short, items[1].text], ['進軍の結果', 'アステル方面・第2輪の州への進軍の結果を受け取れます']);
+  assert.deepEqual([items[2].short, items[2].text], ['書きかけの命令', '書きかけの進軍の命令が、まだ送られていません']);
+  for (const x of items) assert.doesNotMatch(`${x.short} ${x.text}`, /第\d+鐘|州 -?\d|精算|編成中の進軍/, x.kind);
   assert.equal(hud.attentionText([]), null);
   FS.compose.sending = true;
   assert.ok(!hud.attentionItems(FS).some(x => x.kind === 'draft'), 'a march being sent is not a draft');
@@ -70,15 +75,80 @@ test('active holding: the chosen index, else the first', () => {
   assert.equal(hud.activeHolding({ holdings: [] }), null);
 });
 
-test('rail markup: holdings with the warning mark, tiles, the to-do list', () => {
+// Rewritten with the redesign (UX design section 6): the left rail became the village plate with at most two
+// to-do lines above it; the action tiles are the dock (screens/shell.mjs, web-frontier-shell.test.mjs).
+// Rewritten again in wave 2 (UX design 11.11: ONE "next thing" signal): the to-do lines wait behind a count —
+// a tab on the plate that opens the list (one plaque, a medallion per kind) — and the one prompt is `nextThing`:
+// the guide's step while the guide runs (an attack that may come goes first), then the most pressing item.
+test('the village plate, the to-do lines behind their count, and the one next thing', () => {
   setLang('ja');
-  const FS = { mode: 'play', tab: 'holding', citizen: { faction: 0 }, holdings: [holding()], chain: { now: () => 0 },
-    incoming: [{ bell: 44, holding: { p: 2, q: 0 }, hosts: 1, troops: 100 }], marches: [] };
+  const FS = { mode: 'play', tab: 'holding', citizen: { faction: 0 }, holdings: [holding()], chain: { now: () => 0 }, land: { stage: 'provisional' },
+    incoming: [{ bell: 44, holding: { p: 2, q: 0 }, hosts: 1, troops: 100 }], marches: [{ facts: { settleReady: true }, dest: { p: 1, q: 1 } }] };
   const out = [hud.renderRail(FS)].flat(Infinity).map(String).join('');
-  assert.match(out, /data-act="holding-pick" data-i="0" aria-current="true"/);
+  assert.match(out, /class="plate plate-warned"/);
+  assert.match(out, /<button type="button" class="plate-main" data-act="home" aria-label="[^"]+へ移動"/, 'the plate is one press home');
   assert.match(out, /来襲の恐れ/);
-  assert.match(out, /data-act="tab" data-tab="holding" aria-pressed="true"/);
-  assert.match(out, /data-act="attn-go" data-i="0"/);
+  assert.match(out, /class="plate-tag">仮</, 'a village that is not final yet carries the tag');
+  // at rest: the tab alone — "this turn" with the bell and the count; no line stands on the map
+  assert.match(out, /<button type="button" class="todo-tab" data-act="todo-toggle" aria-expanded="false" aria-controls="todo-list"><svg[^>]*><use href="art\/ui\/icons\.svg#bell"\/><\/svg><span>このターンにやること<\/span><span class="todo-n">3<\/span>/, 'the heading reads "this turn" with the bell and counts the items');
+  assert.equal((out.match(/data-act="attn-go"/g) ?? []).length, 0, 'the lines wait behind the count');
+  // opened: one list of at most TODO_LINES rows, a medallion with the kind's mark on each
+  const open = [hud.renderRail(FS, { todoOpen: true })].flat(Infinity).map(String).join('');
+  assert.match(open, /class="todo todo-open"[\s\S]*aria-expanded="true"/);
+  assert.equal((open.match(/data-act="attn-go"/g) ?? []).length, 3);
+  assert.ok(hud.TODO_LINES >= 3 && hud.TODO_LINES <= 6);
+  assert.match(open, /data-act="attn-go" data-i="0"><span class="todo-medal"><svg class="ic todo-ic"[^>]*><use href="art\/ui\/icons\.svg#alert"\/>/, 'a mark per kind, from the sprite');
+  assert.doesNotMatch(out + open, /区画|data-act="tab"/, 'no site number and no action tiles on the plate');
+  // the one next thing: an attack that may come first; else the guide's step while the guide runs; else the first item
+  const guide = { n: 4, total: 7, title: '最初の斥候', text: '斥候を訓練して…', go: { act: 'ob-go', data: {}, label: '村と軍勢を見る' } };
+  const urgent = hud.nextThing(FS, { guide });
+  assert.deepEqual([urgent.kind, urgent.act, urgent.item, urgent.more], ['todo', 'attn', 'incoming', 2]);
+  const calm = { ...FS, incoming: [] };
+  const step = hud.nextThing(calm, { guide });
+  assert.deepEqual([step.kind, step.kicker, step.title, step.label, step.act], ['guide', 'ガイド 4/7', '最初の斥候', '村と軍勢を見る', 'ob-go']);
+  assert.equal(hud.nextThing(calm, { guide: { ...guide, go: null } }).act, 'guide-open', 'a step with nothing to press opens its steps');
+  const after = hud.nextThing(calm, {});
+  assert.deepEqual([after.kind, after.act, after.more], ['todo', 'attn', hud.attentionItems(calm).length - 1]);
+  assert.equal(hud.nextThing({ mode: 'play', holdings: [], chain: { now: () => 0 } }, {}), null, 'nothing needs the player');
+  // on a phone the same stands as a line under the plate: its one press, and for the guide a second button to the steps
+  const row = String(hud.renderNextRow(step));
+  assert.match(row, /^<div class="next-row next-guide">\s*<button type="button" class="next-row-go" data-act="ob-go"/);
+  assert.match(row, /<span class="next-kicker">ガイド 4\/7<\/span><strong>最初の斥候<\/strong>/);
+  assert.match(row, /class="next-row-steps" data-act="guide-open"/);
+  assert.doesNotMatch(String(hud.renderNextRow(after)), /guide-open/);
+  assert.equal(hud.renderNextRow(null), '');
+  // several villages: a pip each, the active one marked
+  const two = [hud.renderPlate({ ...FS, holdings: [holding(), holding(3, 1)], activeHolding: 1, incoming: [] })].flat(Infinity).map(String).join('');
+  assert.match(two, /data-act="holding-go" data-i="1" aria-current="true"/);
+  assert.match(two, /もう一度押すと次の村/);
+  // before a village: where the viewer stands, and the way into the join flow
+  // (rewritten with wave 3, UX design 12.3: the plate says "not joined" only once the viewer's record has answered so;
+  // until then it says that the record is being read and offers no key)
+  const none = String(hud.renderPlate({ mode: 'play', citizen: null, holdings: [], playReady: true }));
+  assert.match(none, /まだ国に加わっていません/);
+  const asking = String(hud.renderPlate({ mode: 'play', citizen: null, holdings: [] }));
+  assert.match(asking, /class="plate plate-load" role="status"/);
+  assert.match(asking, /記録を読み込んでいます…/);
+  assert.doesNotMatch(asking, /<button|国を選ぶ|加わっていません/, 'no state of the game and no key before the answer');
+  assert.match(none, /data-act="join-open">国を選ぶ</);
+  const wait = [hud.renderPlate({ mode: 'play', citizen: { faction: 2 }, holdings: [], land: { stage: 'ticket' } })].flat(Infinity).map(String).join('');
+  assert.match(wait, /村の申し込みは済んでいます/);
+  assert.doesNotMatch(wait, /入植希望/, 'the request is called by its plain name (UX design 11.13)');
+  assert.match(wait, /data-act="join-open">様子を見る</);
+  assert.equal(hud.renderTodo({ mode: 'play', holdings: [], chain: { now: () => 0 } }), '', 'nothing to do: no heading');
+  // the strip's tokens: a drawn icon each, the full number and a short one for the phone strip
+  const strip = [hud.renderStrip(hud.resourceModel(holding(), 0))].flat(Infinity).map(String).join('');
+  assert.match(strip, /data-act="res-open" data-r="Food" data-res="Food"[^>]*>\s*<svg class="ic res-ic res-c-Food"[^>]*><use href="art\/ui\/icons\.svg#grain"\/>/);
+  assert.match(strip, /<span class="res-val">100<\/span><span class="res-short" aria-hidden="true">100<\/span>/);
+  assert.match(String(hud.crestSvg(0)), /^<svg class="crest"/);
+  assert.doesNotMatch(String(hud.crestSvg(0)), /style=/);
+  setLang('en');
+  const en = [hud.renderRail(FS)].flat(Infinity).map(String).join('').replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<[^>]*>/g, ' ');
+  // (hud-4: the heading says what the list is, "To do this turn"; "This turn" alone named the turn's results card too)
+  assert.match(en, /To do this turn/);
+  assert.match(en, /Provisional/);
+  assert.doesNotMatch(en.replace(/Lamar|ラマール/g, ''), /[぀-ヿ㐀-鿿]/, en);
+  setLang('ja');
 });
 
 import * as inspect from '../../permutation-server/web/frontier/hud/inspect.mjs';
@@ -151,12 +221,56 @@ test('feed: changes between two polls become notifications; a turned bell folds 
   feed = FEED.pushFeed(feed, items, 2000);
   assert.equal(feed.length, items.length, 'no duplicates');
   const sum = FEED.bellSummary(feed.map(x => ({ ...x, bell: 41 })), 41);
-  assert.match(sum.text, /^第41鐘のまとめ：戦い 2 · 進軍の知らせ 2 · 来襲の恐れ 1 · 完成 1 · 村 1$/);
+  // the summary's stamp reads "turn" (UX design section 6, turn wording); it read 第41鐘のまとめ
+  assert.match(sum.text, /^ターン 41 のまとめ：戦い 2 · 進軍の知らせ 2 · 来襲の恐れ 1 · 完成 1 · 村 1$/);
   assert.equal(FEED.bellSummary([], 41), null);
   const toasts = [FEED.renderToasts(feed, { now: 1500 })].flat(Infinity).map(String).join('');
   assert.equal((toasts.match(/class="toast /g) ?? []).length, FEED.TOAST_MAX);
   assert.match(toasts, /data-act="feed-dismiss"/);
+  assert.match(toasts, /<span class="toast-stamp"><svg class="ic"[^>]*><use href="art\/ui\/icons\.svg#bell"\/><\/svg>ターン 41<\/span>/, 'a toast carries its turn, with the bell');
   assert.equal([FEED.renderToasts(feed, { now: 1000 + FEED.TOAST_MS + 1 })].flat(Infinity).join(''), '', 'toasts expire into the list');
+  // (integration of wave 5, found with the sample world: the program logs a CLASH for every resolved turn with
+  // arrivals. With `engagements` 0 nobody fought: it is told as an arrival and offers no battle; the viewer's own
+  // arrival there is one line, not two)
+  const quiet = { ...next, chronicle: [{ record: { name: 'CLASH', p: 2, q: 0, bell: 40, engagements: 0 } }, { record: { name: 'CLASH', p: 3, q: 0, bell: 41, engagements: 0 } }] };
+  const told = FEED.diffFeed(s0, FEED.snapshot(quiet));
+  assert.deepEqual(told.filter(x => x.kind === 'battle'), [], 'no battle is announced');
+  assert.equal(told.find(x => x.id.startsWith('rs:')).battle, undefined, 'the viewer\'s own arrival offers no battle');
+  assert.match(told.find(x => x.id.startsWith('rs:')).text, /に着きました。戦いはありませんでした（ターン 41 の到着）$/);
+  assert.match(told.find(x => x.id.startsWith('cl:')).text, /に軍勢が着きました。戦いはありませんでした（ターン 40）$/);
+  assert.equal(told.filter(x => x.id.startsWith('cl:')).length, 1, 'the clash of the viewer\'s own arrival is not told twice');
+  // a march's place keeps the name it had before its turn was resolved (a camp that this clash cleared is still "the camp")
+  const named = FEED.diffFeed({ ...s0, marches: new Map([...s0.marches].map(([k, m]) => [k, { ...m, destName: '野営地' }])) }, FEED.snapshot(next));
+  assert.match(named.find(x => x.id.startsWith('rs:')).text, /^野営地の衝突が決着しました/);
+  // (found in the play-through of wave 5) what a march has once been seen to be stays so: the herald's per-turn files
+  // come and go, and "its seal was opened" was told a second time two turns later, beside the clash
+  const open1 = FEED.snapshot({ ...base, nowBell: 41, marches: [{ entry: { host: '7', arriveBell: 41 }, dest: { p: 3, q: 0 }, facts: { pipeline: 'revealing', slotPresent: true } }] }, 0, s0);
+  assert.equal(FEED.diffFeed(s0, open1).filter(x => x.id.startsWith('rv:')).length, 1);
+  const gone = FEED.snapshot({ ...base, nowBell: 42, marches: [{ entry: { host: '7', arriveBell: 41 }, dest: { p: 3, q: 0 }, facts: { pipeline: 'resolving', slotPresent: false } }] }, 0, open1);
+  assert.equal(gone.marches.get('7').revealed, true, 'the seal stays open in what the feed compares');
+  const back = FEED.snapshot({ ...base, nowBell: 43, marches: [{ entry: { host: '7', arriveBell: 41 }, dest: { p: 3, q: 0 }, facts: { pipeline: 'resolved', slotPresent: true } }] }, 0, gone);
+  assert.deepEqual(FEED.diffFeed(gone, back).map(x => x.id.slice(0, 3)), ['rs:'], 'the seal is not told again');
+  // the place keeps the name it had while the arrival turn had not ended; a later march of the same host starts afresh
+  const kept = FEED.snapshot({ ...base, nowBell: 43, marches: base.marches }, 0, { ...s0, marches: new Map([['7', { ...s0.marches.get('7'), destName: '野営地' }]]) });
+  assert.equal(kept.marches.get('7').destName, '野営地');
+  const again = FEED.snapshot({ ...base, nowBell: 43, marches: [{ entry: { host: '7', arriveBell: 45 }, dest: { p: 3, q: 0 }, facts: { pipeline: 'open' } }] }, 0, { ...back, marches: new Map([['7', { ...back.marches.get('7'), destName: '野営地' }]]) });
+  assert.equal(again.marches.get('7').destName, null);
+  assert.equal(again.marches.get('7').revealed, false);
+  assert.equal(again.marches.get('7').pipeline, 'open');
+  // an arrival of others that nobody fought is kept in the list, not raised as a card over the map
+  const others = told.find(x => x.id.startsWith('cl:'));
+  assert.equal(others.quiet, true);
+  assert.deepEqual(FEED.liveToasts(FEED.pushFeed([], [others, { id: 'x', kind: 'build', text: 'x' }], 1000), { now: 1000 }).map(x => x.id), ['x']);
+  assert.equal(FEED.bellSummary([others], others.bell).quiet, true, 'a turn of quiet lines alone is summed up quietly');
+  // an exploration's result is told once, from the viewer's own EXPLORE_RESULT record (another's is not; an old one is the log being read up)
+  const mineOnly = { ...next, isMine: r => String(r.host_id) === '7' };
+  const res0 = FEED.snapshot({ ...mineOnly, chronicle: [] });
+  const res1 = FEED.snapshot({ ...mineOnly, chronicle: [{ record: { name: 'EXPLORE_RESULT', host_id: 7n, bell: 40, works: 8 } }, { record: { name: 'EXPLORE_RESULT', host_id: 9n, bell: 40, works: 4 } }, { record: { name: 'EXPLORE_RESULT', host_id: 7n, bell: 30, works: 4 } }, { record: { name: 'EXPLORE_RESULT', host_id: 7n, bell: 41, works: 0 } }] });
+  const results = FEED.diffFeed(res0, res1).filter(x => x.kind === 'explore');
+  assert.deepEqual(results.map(x => x.text), ['探索の結果が出ました：功績 +8', '探索の結果が出ました：今回は功績がありませんでした']);
+  assert.deepEqual(FEED.diffFeed(res1, res1).filter(x => x.kind === 'explore'), []);
+  assert.match(FEED.bellSummary(results, results[0].bell).text, /探索の結果 2/);
+  assert.equal(FEED.bellSummary([others, { id: 'x', kind: 'build', bell: others.bell, text: 'x' }], others.bell).quiet, undefined);
 });
 
 import * as MC from '../../permutation-server/web/frontier/hud/marchcard.mjs';

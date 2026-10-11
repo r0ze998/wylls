@@ -1,30 +1,58 @@
-// The march card (UI plan B1–B4; Civ's move-and-attack preview): a march
-// composed on the map without leaving it. Choose a host (the inspector's
-// "march with this host"), tap a tile — the destination is set at once —
-// and the card shows everything the decision needs in one place:
-//   the route and the arrival bell with the local time (a −/+ stepper over
-//   the window), the four stances as big buttons with the triangle, retreat
-//   presets, the defenders frozen at the destination as the bell starts
-//   (from the province the page holds), a rough odds word from the troop
-//   ratio (honestly labelled a guide), and "seal and depart".
-// The full form stays on the Marches tab (tip, costs, custom ratio, the
-// coordinate list for keyboard and screen-reader use).
+// The sealed order (UI plan B1–B4; UX design sections 1 and 6; Civ's
+// move-and-attack preview): a march is written on the map as one document.
+// Choose a host ("march" on its card or in the inspector), tap a tile — the
+// destination is set at once — and the order shows everything the decision
+// needs in one place:
+//   where to (the place by its name and how far it is), sealed: nobody else
+//   can open the seal until the arrival turn ends (`SEAL_LINE`, the one
+//   sentence the legend and the help also say);
+//   the arrival turn as a stepper over the window, with the local time, and
+//   one line that reconciles it with the length of the way (marches arrive
+//   together as a turn begins: a short way still waits for its turn);
+//   the four stances and the retreat sizes as pictures to choose from;
+//   the defenders frozen at the destination as the bell starts (from the
+//   province the page holds), a rough odds word from the troop ratio
+//   (honestly labelled a guide) and the rules' forecast behind a fold;
+//   "seal and depart" under a wax seal.
+// What few need waits behind one fold: the tip preset, a retreat ratio of
+// one's own, the destination by coordinates (keyboard and screen readers).
 import { html, raw } from '../../util.mjs';
+import { icon } from './icons.mjs';
 import { L, fmtNum } from '../../lang.mjs';
-import { STANCES as STANCE_TEXT, UNITS, clientText, failureText, factionName } from '../fi18n.mjs';
+import { STANCES as STANCE_TEXT, unitCount, clientText, failureText, factionName } from '../fi18n.mjs';
 import { STANCES } from '../seal.mjs';
-import { RETREAT_CHOICES, arrivalWindow, checkMarch, troopsOf } from '../fmarch.mjs';
+import { RETREAT_CHOICES, arrivalWindow, checkMarch, troopsOf, SEND_STEPS, DEPART_STAMINA, staminaAt } from '../fmarch.mjs';
 import { UNIT_ORDER } from '../fland.mjs';
 import { bellStart } from '../clock.mjs';
-import { composerMarch, routeLine } from '../screens/march.mjs';
-import { clockTime, swatch } from '../screens/shell.mjs';
+import { composerMarch, composerArrival, composerChoices, routeLine, marchTiming, NO_ROUTE } from '../screens/march.mjs';
+import { swatch } from '../screens/shell.mjs';
+import { keepFor, reachLink } from '../screens/conquest.mjs';
+import { territoryEnabled } from '../territory.mjs';
+import { span } from './hud.mjs';
+import { fold, label, stepper, bar } from '../screens/parts.mjs';
 import { DIRECTIONS, tileHex } from '../fgeo.mjs';
-import { termButton } from './glossary.mjs';
+import { termButton, sealLine } from './glossary.mjs';
+import { marchLine as protoMarchLine } from './proto.mjs';
+import { previewOf as protoPreviewOf, fights as protoFights, turnWallSecs as protoTurnSecs, aboutTime as protoAbout, ownArrivalAt as protoOwnArrivalAt } from '../proto/hand-model.mjs';
+import { tileName, provinceCoords } from './place.mjs';
+import { conquestOn, crest, holdTurns } from './keephand.mjs';
+import { STANCE_PIC, RETREAT_PIC, sealPic } from './pictos.mjs';
+import { miniCardUrl, MINI_KINDS } from '../people/minis.mjs';
 
-/** Stance glyphs (the triangle: Assault beats Flank, Flank beats Brace, Brace beats Assault). */
-const STANCE_GLYPH = { Hold: '■', Assault: '▲', Flank: '⇄', Brace: '❙' };
 const BEATS = { Assault: 'Flank', Flank: 'Brace', Brace: 'Assault' };
-const RETREAT_SHORT = { never: () => L`撤退しない`, x2: () => L`2倍で撤退`, 'x1.5': () => L`1.5倍で撤退`, x1: () => L`同数で撤退`, 'x0.5': () => L`半分で撤退` };
+const RETREAT_SHORT = { never: () => L`撤退しない`, x2: () => L`2倍で撤退`, 'x1.5': () => L`1.5倍で撤退`, x1: () => L`同数で撤退`, 'x0.5': () => L`半分で撤退`, custom: () => L`倍率を指定する` };
+/** The same in a word or two, under the picture (the group's name says "retreat"). */
+const RETREAT_TAG = { never: () => L`しない`, x2: () => L`2倍`, 'x1.5': () => L`1.5倍`, x1: () => L`同数`, 'x0.5': () => L`半分` };
+const RETREAT_LONG = {
+  never: () => L`守り手が何人いても戦います。`,
+  x2: () => L`守り手が自軍の2倍を超えていたら、戦わずに引き返します（損失なし）。`,
+  'x1.5': () => L`守り手が自軍の1.5倍を超えていたら、戦わずに引き返します（損失なし）。`,
+  x1: () => L`守り手が自軍を超えていたら、戦わずに引き返します（損失なし）。`,
+  'x0.5': () => L`守り手が自軍の半分を超えていたら、戦わずに引き返します（損失なし）。`,
+  custom: () => L`守り手が自軍のこの倍率を超えていたら、戦わずに引き返します（損失なし）。`,
+};
+const TIP_TEXT = { standard: () => L`標準`, decisive: () => L`確実`, maximum: () => L`最大` };
+const STEP_TEXT = { sealing: () => L`封をしています`, saved: () => L`この端末に保存`, sent: () => L`送信`, onChain: () => L`ゲームに記録` };
 
 /** The route as hexes (axial q, r) from the origin tile, following the planner's directions. */
 export function routeHexes(c) {
@@ -50,7 +78,9 @@ export function defendersAt(FS, dest) {
   const m = j >= 0 ? prov.siteMirror?.[j] : null;
   const garrison = m && m.state === 1 && m.faction !== FS.citizen?.faction ? troopsOf(m.garrison) : 0;
   const camp = prov.camp?.state === 1 && prov.camp.tile === dest.tile ? Number(prov.camp.troops) : 0;
-  return { residents, garrison, camp, total: residents.reduce((a, r) => a + r.troops, 0) + garrison + camp };
+  const k = territoryEnabled(FS) ? null : keepFor(FS, dest.p, dest.q);
+  const keep = k?.tile === dest.tile && k.holder !== FS.citizen?.faction ? Number(k.troops ?? 0) : 0;
+  return { residents, garrison, camp, keep, total: residents.reduce((a, r) => a + r.troops, 0) + garrison + camp + keep };
 }
 
 /** A guide word from the troop ratio (attacker ÷ defenders): no defenders → "unopposed". */
@@ -66,13 +96,12 @@ export function oddsWord(mine, theirs) {
 
 /** The arrival options the stepper walks: the window from the earliest bell. */
 export function bellWindow(FS) {
-  const c = FS.compose;
-  if (!c || !FS.season) return null;
-  const w = arrivalWindow(FS.season, FS.nowBell ?? 0, c.earliest);
-  return { ...w, value: Math.min(w.max, Math.max(w.min, c.arriveBell ?? w.min)) };
+  const a = composerArrival(FS);
+  return a ? { min: a.min, max: a.max, value: a.value } : null;
 }
 
-const FATE_SHORT = { Stays: () => L`戦場に残る`, Withdrew: () => L`隣へ退く`, Bounced: () => L`押し戻される`, Retreated: () => L`撤退する`, Destroyed: () => L`壊滅する` };
+/** The fates of fi18n.mjs FATES in the future tense (the same words: one vocabulary for an outcome). */
+const FATE_SHORT = { Stays: () => L`戦場に残る`, Withdrew: () => L`隣へ退く`, Bounced: () => L`村へ押し戻される`, Retreated: () => L`撤退する`, Destroyed: () => L`壊滅する` };
 /** The rules' forecast (hud/forecast.mjs): troops left worst–best, how often each fate came up. */
 export function renderForecast(fc) {
   if (!fc) return '';
@@ -80,49 +109,157 @@ export function renderForecast(fc) {
   if (!fc.ok) return '';
   const fates = Object.entries(fc.fates).sort((a, b) => b[1] - a[1]);
   return html`<div class="mc-fc"><p><strong>${fc.troops.min === fc.troops.max ? L`残る兵 ${fmtNum(fc.troops.min)}` : L`残る兵 ${fmtNum(fc.troops.min)}〜${fmtNum(fc.troops.max)}`}</strong> <span class="muted">${L`（出発時 ${fmtNum(fc.troops.start)}）`}</span></p>
-    <ul class="mc-fates">${fates.map(([k, n]) => html`<li class="mc-fate-${k}"><meter min="0" max="${fc.runs}" value="${n}" aria-hidden="true"></meter>${FATE_SHORT[k]?.() ?? k} <span class="muted">${L`${fmtNum(n)}/${fmtNum(fc.runs)}回`}</span></li>`)}</ul>
-    <p class="muted">${L`ルール（frontier.wasm）で${fmtNum(fc.runs)}通りの乱数を試した幅です。ほかの到着軍勢は封の中なので数えていません。`}${fc.certain ? '' : html` ${L`この鐘は野営地の見直しがあるため、守り手が変わるかもしれません。`}`}</p></div>`;
+    <ul class="mc-fates">${fates.map(([k, n]) => html`<li class="mc-fate-${k}">${bar(n, fc.runs)}<span>${FATE_SHORT[k]?.() ?? k}</span><span class="muted">${L`${fmtNum(n)}/${fmtNum(fc.runs)}回`}</span></li>`)}</ul>
+    <p class="muted">${L`ルールで${fmtNum(fc.runs)}回試した結果の幅です。ほかの軍勢の到着は封印中のため、数えていません。`}${fc.certain ? '' : html` ${L`このターンは野営地の見直しがあるため、守り手が変わるかもしれません。`}`}</p></div>`;
 }
 
-/** The card (inside the inspector while a march is composed). */
+/** The stances as pictures: `{act}` makes them buttons (the order), else radio buttons bound to `bind` (a form). */
+export function stancePicks(value, { act = 'mc-stance', bind = null } = {}) {
+  const cap = s => (BEATS[s] ? L`${STANCE_TEXT[BEATS[s]]}に強い` : L`相性なし`);
+  return html`<div class="picks picks-4" role="radiogroup" aria-label="${L`構え`}">${STANCES.map((s, i) => (bind
+    ? html`<label class="pick"><input type="radio" name="stance" data-bind="${bind}" value="${i}" ${raw(i === value ? 'checked' : '')}>${STANCE_PIC[s]?.() ?? ''}<span class="pick-name">${STANCE_TEXT[s]}</span><span class="pick-note">${cap(s)}</span></label>`
+    : html`<button type="button" class="pick" role="radio" aria-checked="${i === value ? 'true' : 'false'}" data-act="${act}" data-v="${i}">${STANCE_PIC[s]?.() ?? ''}<span class="pick-name">${STANCE_TEXT[s]}</span><span class="pick-note">${cap(s)}</span></button>`))}</div>`;
+}
+
+/** The retreat sizes as pictures (the five presets): buttons of the order, or radio buttons bound to `bind`. */
+export function retreatPicks(value, { act = 'mc-retreat', bind = null } = {}) {
+  const list = RETREAT_CHOICES.filter(r => r.id !== 'custom');
+  return html`<div class="picks picks-5" role="radiogroup" aria-label="${L`撤退`}">${list.map(r => (bind
+    ? html`<label class="pick" title="${RETREAT_SHORT[r.id]()}"><input type="radio" name="retreat" data-bind="${bind}" value="${r.id}" aria-label="${RETREAT_SHORT[r.id]()}" ${raw(r.id === value ? 'checked' : '')}>${RETREAT_PIC[r.id]?.() ?? ''}<span class="pick-name" aria-hidden="true">${RETREAT_TAG[r.id]()}</span></label>`
+    : html`<button type="button" class="pick" role="radio" aria-checked="${r.id === value ? 'true' : 'false'}" aria-label="${RETREAT_SHORT[r.id]()}" title="${RETREAT_SHORT[r.id]()}" data-act="${act}" data-v="${r.id}">${RETREAT_PIC[r.id]?.() ?? ''}<span class="pick-name" aria-hidden="true">${RETREAT_TAG[r.id]()}</span></button>`))}</div>`;
+}
+export const retreatLine = id => RETREAT_LONG[id]?.() ?? '';
+
+/** The destination by coordinates (the list alternative of the map: keyboard and screen readers). */
+function coordsForm(c) {
+  return html`<form class="inline" data-form="dest"><label>P<input name="p" type="number" inputmode="numeric" value="${c.dest?.p ?? ''}"></label><label>Q<input name="q" type="number" inputmode="numeric" value="${c.dest?.q ?? ''}"></label>
+    <label>${L`マス`}<input name="tile" type="number" min="0" max="60" inputmode="numeric" value="${c.dest?.tile ?? ''}"></label><button type="submit" class="btn">${L`決める`}</button></form>`;
+}
+
+/** The order (the drawer while a march is composed). */
 export function render(FS) {
   const c = FS.compose;
   if (!c?.host) return '';
-  const m = composerMarch(FS);
-  const unit = UNITS[UNIT_ORDER[c.host.unit]] ?? '';
-  const w = bellWindow(FS);
-  const at = w && FS.clock ? clockTime(bellStart(FS.clock.genesisTs, w.value)) : null;
-  const def = c.dest ? defendersAt(FS, c.dest) : null;
+  const w = composerArrival(FS);
+  const m = composerMarch(FS, w);
+  // how far off the arrival is, in minutes from now: the one other time on the card, and it counts as the dial does
+  // (the second review: the arrival turn, a bare clock time and the road's minutes stood beside a dial at 9:12)
+  const nowTs = FS.chain?.now?.() ?? null;
+  const away = w && FS.clock && Number.isFinite(nowTs) ? Math.max(1, Math.round((bellStart(FS.clock.genesisTs, w.value) - nowTs) / 60)) : null;
+  // (the banner prototype says its counts by the sample world's own, faster clock — 「（約16秒）」 — and this card said
+  // the same wait in the game's minutes beside them, 「約 19 分後」: two clocks on one screen. While the prototype is
+  // on, this line is said in the clock its lines use)
+  // (counted in whole turns from the turn that runs now, so the words change at a toll and not every second: a card
+  // whose words change every second is laid out again every second, under the finger that presses its seal)
+  const wallTurn = FS.proto ? protoTurnSecs(FS) : null;
+  const awayWall = w && Number.isInteger(FS.nowBell) && wallTurn !== null ? Math.max(1, w.value - FS.nowBell) * wallTurn : null;
+  const awayLine = !FS.proto ? (away !== null ? L`約 ${fmtNum(away)} 分後` : '') : awayWall !== null ? L`${protoAbout(awayWall)}後` : '';
+  // (the forecast follows the survey like every other surface: of a tile the viewer does not have in sight the card
+  // says no number of defenders. The second review: 「守り手なし · 守り 0」 for a tile the map draws as unsurveyed)
+  const sight = c.dest && FS.survey && !FS.survey.showAll ? FS.survey.levelOf(c.dest.p, c.dest.q, c.dest.tile) : 3;
+  // (a conquest keep's holder and defenders are the season's public record: on the keep's own tile they are said even
+  // of land the viewer does not see; the hosts that may stand there are not, and the card says so)
+  const destKeep = c.dest && !territoryEnabled(FS) ? (k => (k && k.tile === c.dest.tile ? k : null))(keepFor(FS, c.dest.p, c.dest.q)) : null;
+  const keepOnly = !!destKeep && sight < 3 && destKeep.holder !== FS.citizen?.faction;
+  const def = c.dest && sight >= 3 ? defendersAt(FS, c.dest) : keepOnly ? { residents: [], garrison: 0, camp: 0, keep: Number(destKeep.troops ?? 0), total: Number(destKeep.troops ?? 0) } : null;
   const odds = c.dest && def ? oddsWord(c.host.troops, def.total) : null;
   const problems = c.dest ? checkMarch(m).filter(p => p !== 'NoDestination') : [];
   const busy = !!c.sending;
+  const timing = marchTiming(FS, m.arriveBell);
   const stance = STANCES[m.stance] ?? 'Hold';
-  return html`<section class="marchcard" aria-labelledby="mc-title">
-    <h3 id="mc-title">${L`進軍：${unit} ${fmtNum(c.host.troops)}`}</h3>
-    ${c.dest ? html`
-      <p class="mc-dest"><strong>${L`行き先 州 ${c.dest.p},${c.dest.q} · マス ${c.dest.tile + 1}`}</strong>
-        <span class="mc-sealed">${L`封の中（あなたにしか見えません）`}${termButton('seal')}</span></p>
-      <p class="mc-route">${c.route ? routeLine(c.route) : c.routeError ? clientText(c.routeError) : L`道のりを探しています…`}</p>
-      ${w ? html`<div class="mc-bell" role="group" aria-label="${L`到着の鐘`}">
-        <button type="button" class="btn small" data-act="mc-bell" data-d="-1" aria-label="${L`1つ早い鐘`}" ${raw(w.value <= w.min ? 'disabled' : '')}>−</button>
-        <span class="mc-bell-v"><strong>${L`第${fmtNum(w.value)}鐘に到着`}</strong>${at ? html` <span class="muted">${L`${at.local} ごろ`}</span>` : ''}</span>
-        <button type="button" class="btn small" data-act="mc-bell" data-d="1" aria-label="${L`1つ遅い鐘`}" ${raw(w.value >= w.max ? 'disabled' : '')}>+</button></div>` : ''}
-      <p class="mc-label">${L`構え`}${termButton('stance')}</p>
-      <div class="mc-stances" role="radiogroup" aria-label="${L`構え`}">${STANCES.map((s, i) => html`<button type="button" class="mc-stance" role="radio" aria-checked="${i === m.stance ? 'true' : 'false'}" data-act="mc-stance" data-v="${i}">
-        <span class="mc-glyph" aria-hidden="true">${STANCE_GLYPH[s]}</span><span>${STANCE_TEXT[s]}</span>${BEATS[s] ? html`<span class="mc-beats">${L`${STANCE_TEXT[BEATS[s]]}に強い`}</span>` : html`<span class="mc-beats">${L`相性なし`}</span>`}</button>`)}</div>
-      <p class="mc-label">${L`撤退の比率`}${termButton('retreat')}</p>
-      <div class="mc-retreat" role="radiogroup" aria-label="${L`撤退`}">${RETREAT_CHOICES.filter(r => r.id !== 'custom').map(r => html`<button type="button" class="btn small" role="radio" aria-checked="${r.id === m.retreat.choice ? 'true' : 'false'}" data-act="mc-retreat" data-v="${r.id}">${RETREAT_SHORT[r.id]()}</button>`)}</div>
-      ${def ? html`<div class="mc-odds mc-odds-${odds.id}">
-        <p><strong>${odds.text}</strong> <span class="muted">${L`目安（兵数の比べ。実際は鐘の始まりの顔ぶれと乱数で決まります）`}</span></p>
-        <p>${L`あなた ${fmtNum(c.host.troops)}（${STANCE_TEXT[stance]}）対 守り ${fmtNum(def.total)}`}</p>
-        ${def.residents.length || def.garrison || def.camp ? html`<ul class="list mc-def">${def.residents.map(r => html`<li>${swatch(r.faction)}${factionName(r.faction)} ${fmtNum(r.troops)}</li>`)}${def.garrison ? html`<li>${L`守備隊 ${fmtNum(def.garrison)}`}</li>` : ''}${def.camp ? html`<li>${L`蛮族 ${fmtNum(def.camp)}`}</li>` : ''}</ul>` : ''}
-        ${renderForecast(c.forecast)}
-      </div>` : html`<p class="muted">${L`行き先の州の中身を読み込むと、守り手が出ます。`}</p>`}
-      ${problems.length ? html`<ul class="problems">${problems.map(p => html`<li>${failureText({ code: p })}</li>`)}</ul>` : ''}
-      <div class="actions"><button type="button" class="btn primary" data-act="march-send" ${raw(problems.length || busy || !c.route ? 'disabled' : '')}>${L`封をして出発する`}</button>
-        <button type="button" class="btn" data-act="tab" data-tab="marches">${L`詳しい設定`}</button>
-        <button type="button" class="btn" data-act="compose-close">${L`やめる`}</button></div>`
-    : html`<p class="mc-hint">${L`地図で行き先のマスをタップしてください。`}</p>
-      <div class="actions"><button type="button" class="btn" data-act="compose-close">${L`やめる`}</button></div>`}
+  const ch = composerChoices(FS);
+  const from = tileName(FS, c.origin.p, c.origin.q, c.host.tile);
+  const faction = FS.citizen?.faction;
+  const headBlock = html`<header class="order-head">${sealPic(46)}<span class="order-titles"><span class="order-kicker">${L`封をした命令`}</span>
+    <h3 id="mc-title">${L`進軍：${unitCount(UNIT_ORDER[c.host.unit], c.host.troops)}`}</h3><span class="c-sub">${L`${from}から`}</span></span>
+    ${Number.isInteger(faction) && MINI_KINDS[c.host.unit] ? html`<img class="unit-card order-unit f${faction}" src="${miniCardUrl(faction, MINI_KINDS[c.host.unit])}" alt="" width="40" height="50" decoding="async">` : ''}</header>`;
+  const quick = (c.quick ?? []).filter(q => !(q.p === c.origin.p && q.q === c.origin.q && q.tile === c.host.tile));
+  // a nearby destination by its name; only two of the same name are told apart by their provinces
+  const quickNames = quick.map(q => tileName(FS, q.p, q.q, q.tile));
+  const quickText = (q, i) => (quickNames.filter(n => n === quickNames[i]).length > 1 ? L`${quickNames[i]}（${provinceCoords(q.p, q.q)}）` : quickNames[i]);
+  const quickList = quick.length ? html`${label(L`近くの行き先`)}<ul class="quick-dest">${quick.map((q, i) => html`<li><button type="button" class="btn small" data-act="dest-quick" data-p="${q.p}" data-q="${q.q}" data-tile="${q.tile}">${icon(q.kind === 'camp' ? 'tent' : 'home')}${quickText(q, i)}</button></li>`)}</ul>` : '';
+  // the order's last lines stay in sight whatever the drawer's height (UX design 11.12): one line that sums the order
+  // up — where to, the arrival turn, the stance — then the seal; a press on the line shows the whole order
+  const foot = (sum, acts) => html`<footer class="order-foot">${sum}<div class="actions order-acts">${acts}</div></footer>`;
+  if (!c.dest) {
+    return html`<section class="order order-empty" aria-labelledby="mc-title"><div class="order-body" data-scroll="order">${headBlock}
+      <p class="mc-hint">${icon('pin')}${L`地図で行き先のマスを選んでください。`}</p>
+      <p class="muted">${L`光っているマスが、この軍勢の届く目安です。`}</p>
+      ${quickList}
+      ${fold('o-coords', L`座標で指定する`, coordsForm(c))}</div>
+      ${foot(html`<button type="button" class="order-sum order-sum-empty" data-act="order-open">${icon('pin', 'os-ic')}<span class="os-main">${L`行き先はまだ決まっていません`}</span>${icon('chevron', 'os-go')}</button>`,
+        html`<button type="button" class="btn" data-act="compose-close">${L`やめる`}</button>`)}
+    </section>`;
+  }
+  const custom = m.retreat.choice === 'custom';
+  // the prototype rule "banners" (only in a sample world that serves it): what arriving there would let this host do, said before the seal
+  const protoLine = FS.proto && w && c.route && protoFights(c.host) && !c.home ? protoMarchLine(FS, { arrive: w.value, dest: c.dest, forecast: c.forecast ?? null, crowd: protoOwnArrivalAt(FS, c.dest, w.value, c.host.id), shift: c.protoShift && c.protoShift.to === w.value ? c.protoShift : null, answer: protoPreviewOf(FS, { host: String(c.host.id), p: c.dest.p, q: c.dest.q, tile: c.dest.tile }) }) : '';
+  const sides = def ? Math.max(c.host.troops, def.total, 1) : 1;
+  const destName = destKeep ? (destKeep.holder === FS.citizen?.faction ? L`あなたの国の砦` : L`${factionName(destKeep.holder)}の砦`) : tileName(FS, c.dest.p, c.dest.q, c.dest.tile);
+  const stanceText = STANCE_TEXT[stance];
+  // a conquest season, the destination is a keep's tile: the keep by its province, its holder, the defenders its record
+  // carries and what holding the tile brings (hud/keephand.mjs); the forecast below counts those defenders
+  const keepLine = destKeep && conquestOn(FS) ? html`<span class="mc-keep kh-n${destKeep.holder <= 5 ? destKeep.holder : 6}">${crest(destKeep.holder, 22)}<span>${destKeep.holder === FS.citizen?.faction
+    ? L`${provinceCoords(c.dest.p, c.dest.q)}の砦 · あなたの国が保持 · 記録の守備兵 ${fmtNum(Number(destKeep.troops ?? 0))}`
+    : L`${provinceCoords(c.dest.p, c.dest.q)}の砦 · 記録の守備兵 ${fmtNum(Number(destKeep.troops ?? 0))} · マスを ${fmtNum(holdTurns(FS, destKeep))} ターン保てば州を奪取`}</span></span>` : '';
+  // what the march costs this host, said before the seal: a march takes the same stamina wherever it goes and a point
+  // returns a turn, so the host cannot march again, or come home, for a long while (it was said only afterwards, on
+  // the host's bar: found by the independent check of wave 5)
+  const nowB = FS.nowBell ?? 0, stam = c.host && Number.isFinite(c.host.staminaValue) ? staminaAt(c.host, nowB) : Number.isFinite(c.host?.stamina) ? c.host.stamina : null;
+  const restLine = stam !== null && stam >= DEPART_STAMINA
+    ? html`<p class="mc-rest muted">${icon('hourglass')}<span>${L`出発すると、この軍勢がつぎに進軍できる（村へ戻れる）のはターン ${fmtNum(nowB + Math.max(0, 2 * DEPART_STAMINA - stam))} からです`}</span></p>` : '';
+  // (the page moved the arrival turn on with the clock, controller.mjs `composeTick`: said where the turn is named,
+  // until the player chooses a turn of their own)
+  const movedLine = w && c.moved && c.route && c.moved.to === w.value
+    ? html`<p class="mc-moved" role="status">${icon('hourglass')}<span>${L`時間が進んだので、到着はターン ${fmtNum(c.moved.to)} になりました（さきほどまではターン ${fmtNum(c.moved.from)}）。`}</span></p>` : '';
+  // (the merge's play of 2026-10-11, on a phone: the page's own order cards open as the low sheet, which shows the
+  // card's foot only. There the turn in the summary changed from 51 to 52 with nothing said: the line above was in
+  // the folded part. The same sentence stands in the foot while the sheet is folded on a phone (frontier.css
+  // `.mc-moved-foot`); it is hidden from assistive technology there, which has the line above)
+  const movedFoot = movedLine ? html`<p class="mc-moved mc-moved-foot" aria-hidden="true">${icon('hourglass')}<span>${L`時間が進んだので、到着はターン ${fmtNum(c.moved.to)} になりました（さきほどまではターン ${fmtNum(c.moved.from)}）。`}</span></p>` : '';
+  const sum = html`<button type="button" class="order-sum" data-act="order-open" aria-label="${w ? L`命令のまとめ：${destName}へ、ターン ${fmtNum(w.value)} に到着、構えは${stanceText}` : L`命令のまとめ：${destName}へ、構えは${stanceText}`}">
+    <span class="os-main">${icon('pin', 'os-ic')}<strong class="os-dest">${destName}</strong></span>${w ? html`<span class="os-part">${icon('bell', 'os-ic')}${L`ターン ${fmtNum(w.value)}`}</span>` : ''}<span class="os-part">${icon('shield', 'os-ic')}${stanceText}</span>${icon('chevron', 'os-go')}</button>`;
+  return html`<section class="order" aria-labelledby="mc-title"><div class="order-body" data-scroll="order">${headBlock}
+    ${label(L`行き先`)}
+    <div class="mc-dest"><strong class="mc-dest-name">${destName}</strong>
+      <span class="mc-route">${c.route ? routeLine(c.route) : c.routeError ? clientText(c.routeError) : L`道のりを探しています…`}${!c.route && NO_ROUTE.includes(c.routeError) && !territoryEnabled(FS) ? html` ${reachLink(FS)}` : ''}</span>
+      ${keepLine}
+      <span class="mc-sealed">${icon('lock')}<span>${sealLine()}</span></span></div>
+    ${w ? html`${label(L`到着`)}${stepper({ cls: 'mc-bell', label: L`到着のターン`,
+      prev: { act: 'mc-bell', data: { d: -1 }, label: L`1ターン早く`, disabled: w.value <= w.min },
+      next: { act: 'mc-bell', data: { d: 1 }, label: L`1ターン遅く`, disabled: w.value >= w.max },
+      value: html`<strong class="mc-bell-v">${icon('bell')}${L`ターン ${fmtNum(w.value)} に到着`}</strong>${awayLine ? html`<span class="muted">${awayLine}</span>` : ''}` })}
+      ${movedLine}
+      <p class="muted mc-when">${c.route ? L`進軍は、ターンの始まりにそろって到着します。いちばん早くてターン ${fmtNum(w.min)} です。` : L`進軍は、ターンの始まりにそろって到着します。`}</p>${restLine}` : restLine}
+    ${timing ? html`<p class="muted mc-result-time">${L`結果の目安まで ${span(timing.resultIn)}（ゲーム内）`}</p>` : ''}
+    ${label(L`構え`, termButton('stance'))}
+    ${stancePicks(m.stance)}
+    ${label(L`撤退`, termButton('retreat'))}
+    ${retreatPicks(m.retreat.choice)}
+    <p class="pick-line">${custom ? L`倍率を指定しています：${m.retreat.ratio ?? '—'}` : retreatLine(m.retreat.choice)}</p>
+    ${label(L`見込み`)}
+    ${def ? html`<div class="mc-odds mc-odds-${odds.id}">
+      <p class="mc-odds-head"><strong>${odds.text}</strong><span class="muted">${L`兵数を比べた目安です`}</span></p>
+      <dl class="versus"><div><dt>${L`あなた`}</dt><dd>${bar(c.host.troops, sides, 'bar-own')}<span>${fmtNum(c.host.troops)}</span></dd></div>
+        <div><dt>${L`守り`}</dt><dd>${bar(def.total, sides, 'bar-foe')}<span>${fmtNum(def.total)}</span></dd></div></dl>
+      ${fold('o-odds', L`守り手と結果の幅`, html`
+        ${def.residents.length || def.garrison || def.camp || def.keep ? html`<ul class="list mc-def">${def.residents.map(r => html`<li>${swatch(r.faction)}${factionName(r.faction)} ${fmtNum(r.troops)}</li>`)}${def.garrison ? html`<li>${L`守備隊 ${fmtNum(def.garrison)}`}</li>` : ''}${def.camp ? html`<li>${L`蛮族 ${fmtNum(def.camp)}`}</li>` : ''}${def.keep ? html`<li>${L`砦の守備兵`} ${fmtNum(def.keep)}</li>` : ''}</ul>` : html`<p class="muted">${L`いまは守り手がいません。`}</p>`}
+        <p class="muted">${L`あなた ${fmtNum(c.host.troops)}（${STANCE_TEXT[stance]}）対 守り ${fmtNum(def.total)}。実際の結果は、到着のターンが始まるときにそこにいる守り手と、戦いの運で決まります。`}</p>
+        ${renderForecast(c.forecast)}`)}
+      ${keepOnly ? html`<p class="muted mc-unseen">${L`砦の守備兵は記録のとおりです。ほかの軍勢がいるかどうかは、ここからはわかりません。`}</p>` : ''}
+    </div>` : html`<p class="muted mc-unseen">${sight < 2 ? L`未測量の土地です。守り手は、ここからはわかりません。` : sight < 3 ? L`いまは見えていない土地です。守り手は、ここからはわかりません。` : L`行き先のようすを読み込むと、守り手が出ます。`}</p>`}
+    ${fold('o-more', L`詳しい設定`, html`
+      ${label(L`開封のチップ`, termButton('seal'))}
+      <div class="tip-picks" role="radiogroup" aria-label="${L`開封のチップ`}">${ch.tips.map(t => html`<label class="choice"><input type="radio" name="tip" data-bind="tip" value="${String(t.lamports)}" ${raw(String(t.lamports) === String(m.tip) ? 'checked' : '')}>${t.text ?? TIP_TEXT[t.id]?.()}</label>`)}</div>
+      <p class="muted">${L`封を開けてもらうための報酬で、多いほど優先されます。費用はゲーム側が立て替えます（テスト用で、価値はありません。内訳は「その他」の詳細にあります）。`}</p>
+      ${label(L`撤退の倍率を自分で決める`)}
+      <div class="actions"><button type="button" class="btn small" role="radio" aria-checked="${custom ? 'true' : 'false'}" data-act="mc-retreat" data-v="custom">${RETREAT_SHORT.custom()}</button>
+        ${custom ? html`<label class="count-field">${L`倍率（守り手 ÷ 自軍、0.0001〜6）`}<input data-bind="ratio" type="number" step="0.05" min="0.0001" max="6" value="${m.retreat.ratio ?? ''}"></label>` : ''}</div>
+      ${label(L`座標で指定する`)}${coordsForm(c)}`)}
+    ${problems.length ? html`<ul class="problems">${problems.map(p => html`<li>${failureText({ code: p })}</li>`)}</ul>` : ''}
+    ${problems.includes('NotResident') ? html`<button type="button" class="btn small" data-act="nudge" data-p="${c.origin.p}" data-q="${c.origin.q}">${L`この州の処理を進める`}</button>` : ''}
+    ${busy || c.step ? html`<ol class="send-track" aria-label="${L`送信の段階`}">${SEND_STEPS.map(s => html`<li class="${c.step === s ? 'now' : SEND_STEPS.indexOf(s) < SEND_STEPS.indexOf(c.step) ? 'done' : ''}">${STEP_TEXT[s]()}</li>`)}</ol>` : ''}</div>
+    ${foot(html`${FS.notice && FS.notice.ok === false && !FS.notice.busy && FS.lastAct?.name === 'march-send' ? html`<p class="order-unsent" role="status">${icon('alert')}<span>${L`まだ送られていません。もう一度、封をして出発してください。`}</span></p>` : ''}${movedFoot}${protoLine}${sum}`, html`<button type="button" class="btn primary seal-btn" data-act="march-send" ${raw(problems.length || busy || !c.route ? 'disabled' : '')}>${icon('seal')}${L`封をして出発する`}</button>
+      <button type="button" class="btn quiet" data-act="compose-close">${L`やめる`}</button>`)}
   </section>`;
 }

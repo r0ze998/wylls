@@ -42,16 +42,18 @@ const pick = (o, keys) => Object.fromEntries(keys.filter(k => k in o).map(k => [
  * (the export), keep (what of the vector file the browser needs)}. Only
  * data: the code that reads it is hand-written (codec, budgets, shapes…).
  */
-export const FRONTIER_GENERATED = Object.freeze({
+const V1_GENERATED = {
+  'abi-logs.mjs': { from: 'logs.json', name: 'LOGS', keep: v => pick(v, ['abi_version', 'kinds']) },
   'abi-tags.mjs': { from: 'tags.json', name: 'TAGS', keep: v => pick(v, ['abi_version', 'contract', 'instructions', 'reserved_tags', 'constants']) },
   'abi-errors.mjs': { from: 'errors.json', name: 'ERRORS', keep: v => pick(v, ['abi_version', 'contract', 'errors']) },
   'abi-budgets.mjs': { from: 'budgets.json', name: 'BUDGETS', keep: v => pick(v, ['abi_version', 'contract', 'constants', 'instructions']) },
   'abi-layouts.mjs': { from: 'layouts.json', name: 'LAYOUTS', keep: v => pick(v, ['abi_version', 'contract', 'accounts', 'records', 'season_params', 'rent_per_byte', 'season_tombstone_size', 'reserved_magic']) },
-  'abi-presets.mjs': { from: 'presets.json', name: 'PRESETS', keep: v => pick(v, ['abi_version', 'contract', 'quicknet', 'ruleset_hash', 'payout_params_rev3_borsh', 'presets']) },
-});
+  'abi-presets.mjs': { from: 'presets.json', name: 'PRESETS', keep: v => ({ ...pick(v, ['abi_version', 'contract', 'quicknet', 'payout_params_rev3_borsh', 'presets']), ruleset_hash: v.ruleset_hash ?? v.ruleset_hash_v2 }) },
+};
+export const FRONTIER_GENERATED = Object.freeze({ ...V1_GENERATED, ...Object.fromEntries(Object.entries(V1_GENERATED).map(([name, row]) => [name.replace('abi-', 'abi-v2-'), { ...row, from: `v2/${row.from}` }])) });
 
 /** The hand-written Frontier SDK modules (client/src/frontier), in dependency order. */
-export const FRONTIER_MODULES = Object.freeze(['budgets.mjs', 'fees.mjs', 'codec.mjs', 'addresses.mjs', 'seal.mjs', 'shapes.mjs', 'herald.mjs']);
+export const FRONTIER_MODULES = Object.freeze(['profile.mjs', 'budgets.mjs', 'fees.mjs', 'codec.mjs', 'addresses.mjs', 'seal.mjs', 'shapes.mjs', 'herald.mjs', 'prize.mjs']);
 /** Everything web/sdk/frontier holds. */
 export const WEB_SDK_FRONTIER = Object.freeze([...Object.keys(FRONTIER_GENERATED), ...FRONTIER_MODULES]);
 

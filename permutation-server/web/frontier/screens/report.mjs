@@ -29,7 +29,9 @@
 // against the recorded native call in frontier-wasm/vectors/wasm-vectors.json
 // by web-frontier-practice.test.mjs.
 import { html, raw } from '../../util.mjs';
-import { L, fmtNum, lang } from '../../lang.mjs';
+import { sigChip } from '../hud/keephand.mjs';
+import { icon } from '../hud/icons.mjs';
+import { L, fmtNum } from '../../lang.mjs';
 import { sha256 } from '../../sdk/sha256.mjs';
 import { toHex, fromBase64 } from '../../sdk/bytes.mjs';
 import { Writer, Reader, OK } from '../wasm.mjs';
@@ -37,11 +39,16 @@ import { decode as decodeAccount } from '../fcodec.mjs';
 import { hostId } from '../faddr.mjs';
 import { regionOf } from '../fgeo.mjs';
 import { seedRound, bellEnd, dayOf } from '../clock.mjs';
-import { factionName, UNITS as UNIT_TEXT, STANCES as STANCE_TEXT, FATES as FATE_TEXT } from '../fi18n.mjs';
+import { factionName, UNITS as UNIT_TEXT, STANCES as STANCE_TEXT, FATES as FATE_TEXT, VERDICTS } from '../fi18n.mjs';
 import { UNIT_ORDER } from '../fland.mjs';
 import { swatch } from './shell.mjs';
 import { personChip } from '../people/ui.mjs';
-import { LEADERS, leaderSvg } from '../people/leaders.mjs';
+import { cardHead, fold, chip, lossBar, label, ring } from './parts.mjs';
+import { tileName, provinceName } from '../hud/place.mjs';
+import { leaderFigure } from '../people/leaders.mjs';
+import { playerFace } from '../people/faces.mjs';
+import { sideOutcome, verdictKey } from '../people/outcome.mjs';
+import { keepDefenders } from '../people/battle.mjs';
 
 // ------------------------------------------------------------------ the resolve_clash codec (borsh)
 /** Postures in borsh order: Stance(Hold|Assault|Flank|Brace), then Disarray. */
@@ -392,12 +399,94 @@ export function outcomeRows(args, outcome, mine = () => false) {
   return rows.sort((a, b) => a.faction - b.faction || ['garrison', 'camp', 'resident', 'arrival'].indexOf(a.kind) - ['garrison', 'camp', 'resident', 'arrival'].indexOf(b.kind));
 }
 
+/** A keep's garrison id in a clash's outcome: `KEEP_GARRISON_ID_BASE − gen` (frontier-abi v2 kernel `keep`: u64::MAX − 65536). */
+const KEEP_GARRISON_ID_BASE = 0xFFFF_FFFF_FFFE_FFFFn;
+/** A camp's garrison id: u64::MAX − gen (frontier-abi clash_model `Camp::id`). */
+const CAMP_ID_BASE = 0xFFFF_FFFF_FFFF_FFFFn;
+/**
+ * The record's rows with what the kernel recomputed laid over what the page could not read (`after` null): used only
+ * when the recomputed outcome IS the chain's record (the digests match) and the page's own transcription of the
+ * inputs is not kept (it does not cover a conquest keep's defenders, so `args` is null and `outcomeRows` cannot be
+ * built). A keep's defenders are the outcome's garrison `KEEP_GARRISON_ID_BASE − gen`, a camp `u64::MAX − gen`, a
+ * village's garrison its own id; a host is the fighter of its id. Rows that already say what was left are unchanged.
+ * (Seen on the local test chain, 2026-10-11: after 「一致」 the report of a march on a keep still stamped 確認待ち and
+ * read 「結果はまだ確かめていません」, because the keep's defenders after the turn were in no record the page held.)
+ */
+export function rowsWithOutcome(rows, outcome, before = null) {
+  if (!outcome || !Array.isArray(rows)) return rows;
+  const fighters = new Map((outcome.fighters ?? []).map(f => [`${f.arrival ? 'a' : 'r'}${String(f.id)}`, f]));
+  const garrisons = new Map((outcome.garrisons ?? []).map(g => [String(g.id), g]));
+  const big = v => { try { return BigInt(v ?? 0); } catch { return 0n; } };
+  return rows.map(r => {
+    if (r.after !== null && r.after !== undefined) return r;
+    if (r.kind === 'arrival' || r.kind === 'resident') {
+      const f = fighters.get(`${r.kind === 'arrival' ? 'a' : 'r'}${r.id}`);
+      return f ? { ...r, after: Math.min(troopsOf(f.troops), r.before), fate: f.fate?.kind ?? r.fate, tile: Number.isInteger(f.fate?.tile) ? f.fate.tile : r.tile } : r;
+    }
+    const id = r.keep ? String(KEEP_GARRISON_ID_BASE - big(before?.keep?.gen)) : r.kind === 'camp' ? String(CAMP_ID_BASE - big(before?.camp?.gen)) : String(r.id);
+    const g = garrisons.get(id);
+    if (!g) return r;
+    const left = Math.min(troopsOf(g.troops), r.before);
+    return { ...r, after: left, fate: left === 0 && r.before > 0 ? 'Destroyed' : r.fate };
+  });
+}
+
 /** Rows before verification, from the ClashInputs bytes alone (the arrivals the program wrote). */
 export function inputRows(ci, mine = () => false) {
   return (ci?.arrivals ?? []).filter(a => a.present === 1).map(a => ({
     id: String(a.hostId), kind: 'arrival', faction: a.faction, unit: a.unit, before: troopsOf(a.troops), after: a.fate ? troopsOf(a.troopsAfter) : null,
     posture: a.stance, retreatBps: a.retreat || null, fate: FATE_KINDS[a.fate - 1] ?? null, tile: a.tile, mine: !!mine(a.hostId),
   })).sort((a, b) => a.faction - b.faction);
+}
+
+/**
+ * Rows before verification, from the public records the page already holds (the capture of 2026-10-10: the report
+ * of a clash at the viewer's own village showed only the attackers, "one nation clashed", while the replay of the
+ * same clash showed the viewer's losses): the arrivals as the program wrote them (ClashInputs), and on the tiles
+ * where they fought the hosts, the garrison and the camp that stood there in the Province before the bell
+ * (`before`: the report's `province_before_b64`), with what is left of each in the Province after it (`after`: given
+ * only when that bell's clash is the last one resolved, so nothing later is counted; null leaves "after" unknown).
+ * A host that is no longer in the Province's roster after the bell is counted as lost only when it is not there at
+ * all; one that has left on a march since is counted with the troops it left with.
+ */
+export function recordRows({ inputs, before = null, after = null, destroyed = null }, mine = () => false) {
+  const rows = inputRows(inputs, mine);
+  if (!before) return rows;
+  const tiles = new Set(rows.map(r => r.tile));
+  const arrived = new Set(rows.map(r => r.id));
+  // a conquest keep's own defenders (the Province's `keep`) fight whoever of another nation is on the keep's tile: a
+  // host that arrives there, and a host that already stood there before the turn. The turns after the arrival of a
+  // march on a keep are records with no arrival in them: the keep's tile is a tile of the clash all the same. (Seen on
+  // the local test chain, 2026-10-11: the report of the turn in which a host beat a keep's last defenders read
+  // 「戦った軍勢はいません」, no nation, no losses, and then 「一致」.)
+  const kd = keepDefenders(before, after, [...(inputs?.arrivals ?? []).filter(a => a.present === 1), ...(before.entries ?? []).filter(e => e.state === 1 && !arrived.has(String(e.id)))]);
+  if (kd) tiles.add(kd.tile);
+  const then = new Map((after?.entries ?? []).filter(e => e.state >= 1 && e.state <= 3).map(e => [String(e.id), e]));
+  const stood = (before.entries ?? []).filter(e => e.state === 1 && tiles.has(e.tile) && !arrived.has(String(e.id)));
+  // (a host that is gone from the roster was destroyed in the clash only as far as the Province's own count of the
+  // destroyed (`destroyed`: its resolve summary) covers it: one dissolved since is not said to have fallen)
+  const gone = stood.filter(e => !then.has(String(e.id))).length, fell = rows.filter(r => r.fate === 'Destroyed').length;
+  const lostKnown = !!after && (gone === 0 || (Number.isInteger(destroyed) && destroyed >= fell + gone));
+  for (const e of stood) {
+    const now = then.get(String(e.id));
+    const known = !!after && (!!now || lostKnown);
+    rows.push({ id: String(e.id), kind: 'resident', faction: e.faction, unit: e.unit ?? 0, before: troopsOf(e.troops), after: known ? (now ? Math.min(troopsOf(now.troops), troopsOf(e.troops)) : 0) : null,
+      posture: 0, retreatBps: null, fate: known ? (now ? 'Stays' : 'Destroyed') : null, tile: e.tile, mine: !!mine(e.id) });
+  }
+  const sites = Array.from(before.sites ?? []);
+  (before.siteMirror ?? []).forEach((m, j) => {
+    if (!m || m.state !== 1 || !tiles.has(sites[j]) || troopsOf(m.garrison) <= 0) return;
+    const id = hostId({ p: before.p, q: before.q, site: j, gen: m.gen, seq: 0 });
+    // (never more than stood there: a garrison raised since the clash is not a negative loss)
+    const left = after?.siteMirror?.[j] ? Math.min(troopsOf(after.siteMirror[j].garrison), troopsOf(m.garrison)) : null;
+    rows.push({ id: String(id), kind: 'garrison', faction: m.faction, before: troopsOf(m.garrison), after: left, posture: 3, tile: sites[j], fate: left === 0 ? 'Destroyed' : null, mine: !!mine(id) });
+  });
+  if (before.camp?.state === 1 && tiles.has(before.camp.tile)) {
+    const left = after ? (after.camp?.state === 1 ? Number(after.camp.troops) : 0) : null;
+    rows.push({ id: 'camp', kind: 'camp', faction: NEUTRAL, before: Number(before.camp.troops), after: left, posture: 0, tile: before.camp.tile, fate: left === 0 ? 'Destroyed' : null, mine: false });
+  }
+  if (kd) rows.push({ id: 'keep', kind: 'garrison', faction: kd.side.faction, before: kd.side.before, after: kd.side.after, posture: 3, tile: kd.tile, fate: kd.side.after === 0 ? 'Destroyed' : null, mine: false, keep: true });
+  return rows.sort((a, b) => a.faction - b.faction || ['garrison', 'camp', 'resident', 'arrival'].indexOf(a.kind) - ['garrison', 'camp', 'resident', 'arrival'].indexOf(b.kind));
 }
 
 // ------------------------------------------------------------------ the headline
@@ -407,9 +496,14 @@ const lossOf = r => (r.after === null ? 0 : Math.max(0, r.before - r.after));
 
 /**
  * The headline of a clash for the viewer (UI plan D1): `{mine, lost, before,
- * result: 'won'|'held'|'fell'|'turned'|'none', reached, fates}` from the
- * rows; `mine` false for a spectator (then `leader` is the faction with the
- * most troops left on the field, or null).
+ * result: 'won'|'held'|'fell'|'turned'|'none', reached, fates, role, foe}`
+ * from the rows; `mine` false for a spectator (then `leader` is the faction
+ * with the most troops left on the field, or null). `role` says whether the
+ * viewer arrived ('attack') or was there ('defend'); `foe` what became of
+ * the other side, so that the headline agrees with the numbers under it
+ * (UX design 11.13): 'none' (the rows name no other side), 'stays' (some of
+ * it holds the field), 'camp' (a barbarian camp with nothing left),
+ * 'destroyed' (nothing left of it), 'left' (it has troops but did not stay).
  */
 export function summaryOf(rows) {
   const own = rows.filter(r => r.mine);
@@ -424,12 +518,21 @@ export function summaryOf(rows) {
   const lost = own.reduce((a, r) => a + lossOf(r), 0), before = own.reduce((a, r) => a + r.before, 0);
   const arrivals = own.filter(r => r.kind === 'arrival');
   const reached = arrivals.length ? arrivals.some(r => r.fate === 'Stays') : null;
-  const fell = own.every(r => r.fate === 'Destroyed' || r.after === 0);
-  const turned = own.every(r => ['Withdrew', 'Bounced', 'Retreated', 'Routed'].includes(r.fate));
-  const foes = rows.filter(r => !r.mine && r.faction !== own[0].faction);
-  const foesLeft = foes.filter(r => r.after !== null && r.after > 0 && (r.fate === null || r.fate === 'Stays')).length;
-  const result = !known ? 'none' : fell ? 'fell' : turned ? 'turned' : foesLeft === 0 ? 'won' : 'held';
-  return { mine: true, known, lost, before, result, reached, fates: own.map(r => r.fate).filter(Boolean), faction: own[0].faction };
+  // (the other side is who the viewer's hosts met: the other nations' rows on the tiles the viewer's own rows are on. A
+  // host of a third nation that arrived on another tile of the province in the same turn fought nobody here — the play
+  // of 2026-10-11 read 「持ちこたえた：相手も戦場に残っている」 under a camp that was cleared, because a neighbour's host had
+  // arrived elsewhere in the province, while the battle on the map said 勝利. Rows that name no tile count as before.)
+  const met = new Set(own.map(r => r.tile).filter(Number.isInteger));
+  const foes = rows.filter(r => !r.mine && r.faction !== own[0].faction && (!met.size || !Number.isInteger(r.tile) || met.has(r.tile)));
+  // what became of each side: the one function the battle on the map asks too (people/outcome.mjs), so the stamp
+  // here, the title across the map and the tags under the losses say one thing of one result
+  const ownOut = sideOutcome(own), foeOut = foes.length ? sideOutcome(foes) : undefined;
+  const result = !known || ownOut === null ? 'none' : ownOut === 'Destroyed' ? 'fell' : ownOut !== 'Stays' ? 'turned' : foeOut === 'Stays' ? 'held' : 'won';
+  const foe = !foes.length ? 'none' : foeOut === null ? 'unknown' : foeOut === 'Stays' ? 'stays' : foeOut !== 'Destroyed' ? 'left' : foes.every(r => r.kind === 'camp') ? 'camp' : 'destroyed';
+  // (`lostKnown`: what was left of every one of the viewer's own rows is known. A host that stood where it fought, in a
+  // report opened after later turns, is not read from any record the page holds until the clash is verified: its losses
+  // are then not said as 0)
+  return { mine: true, known, lost, lostKnown: own.every(r => r.after !== null), before, result, reached, fates: own.map(r => r.fate).filter(Boolean), faction: own[0].faction, role: arrivals.length ? 'attack' : 'defend', foe, own: ownOut, other: foeOut };
 }
 
 /**
@@ -472,34 +575,35 @@ export function tileDetail(rows) {
 
 // ------------------------------------------------------------------ rendering
 const KIND_TEXT = { resident: () => L`駐留`, arrival: () => L`到着`, garrison: () => L`守備隊`, camp: () => L`蛮族の野営地` };
+// (the steps and their refusals stand under the report's "proof details": the words of the proof — 乱数, 要約 — may be said there)
 const STEP_TEXT = {
-  kernel: () => L`ルール（frontier.wasm）がシーズンと同じ`,
-  seed: () => L`乱数がこの鐘の公式ビーコンのもの`,
-  inputs: () => L`衝突の入力がこの州とこの鐘のもの`,
+  kernel: () => L`ルールがシーズンのものと同じ`,
+  seed: () => L`乱数がこのターンの公開乱数のもの`,
+  inputs: () => L`衝突の入力がこの州とこのターンのもの`,
   recompute: () => L`このブラウザで衝突を計算し直した`,
   digest: () => L`結果の要約がチェーンの記録と一致`,
-  fates: () => L`到着軍勢の結末がチェーンの記録と一致`,
+  fates: () => L`到着した軍勢の結果がチェーンの記録と一致`,
 };
 const CODE_TEXT = {
-  NoWasm: () => L`ルールのモジュール（frontier.wasm）を読み込めません`,
-  RulesetMismatch: () => L`モジュールのルールがシーズンと違います`,
-  NoBellRecord: () => L`この鐘の記録をまだ読めません`,
-  NoAnchor: () => L`この鐘のビーコンの記録がありません`,
-  SeedNotReady: () => L`この鐘の乱数がまだありません`,
-  SeedMismatch: () => L`報告の乱数が公式ビーコンのものと違います`,
+  NoWasm: () => L`ルールを読み込めません`,
+  RulesetMismatch: () => L`読み込んだルールがシーズンのものと違います`,
+  NoBellRecord: () => L`このターンの記録をまだ読めません`,
+  NoAnchor: () => L`このターンの公開乱数の記録がありません`,
+  SeedNotReady: () => L`このターンの乱数がまだありません`,
+  SeedMismatch: () => L`報告の乱数が公開乱数のものと違います`,
   NoInputs: () => L`衝突の入力がありません`,
   NotResolved: () => L`衝突はまだ決着していません`,
-  WrongKey: () => L`入力が別の州か鐘のものです`,
-  NoProvinceBefore: () => L`決着前の州の記録が報告にありません（ヘラルドの対応待ち）`,
-  WrongProvinceBefore: () => L`決着前の州の記録がこの鐘のものではありません`,
-  Unsettled: () => L`前の鐘の変更が未精算の記録です`,
+  WrongKey: () => L`入力が別の州かターンのものです`,
+  NoProvinceBefore: () => L`決着前の州の記録が報告にありません（記録の配信待ち）`,
+  WrongProvinceBefore: () => L`決着前の州の記録がこのターンのものではありません`,
+  Unsettled: () => L`前のターンの変更がまだ反映されていない記録です`,
   Refused: () => L`ルールが入力を受け付けませんでした`,
   BadInput: () => L`ルールが入力を読めませんでした`,
   BadUnit: () => L`記録に知らない兵種があります`,
   BadRecord: () => L`記録を読めませんでした`,
   CodecMismatch: () => L`結果の読み取りが一致しません`,
   DigestMismatch: () => L`結果の要約がチェーンの記録と違います`,
-  FateMismatch: () => L`到着軍勢の結末がチェーンの記録と違います`,
+  FateMismatch: () => L`到着した軍勢の結果がチェーンの記録と違います`,
   NoDigest: () => L`比べるチェーンの記録がありません`,
   Prerequisite: () => L`前の確認が済んでいません`,
 };
@@ -517,7 +621,7 @@ function rowHtml(r, ownerOf = null) {
   const stance = r.kind === 'arrival' || r.kind === 'resident' ? postureName(r.posture) : r.walls ? L`城壁あり` : '';
   const fate = r.fate ? FATE_TEXT[r.fate] ?? r.fate : r.kind === 'garrison' || r.kind === 'camp' ? L`守った` : '—';
   const who = ownerOf && r.kind !== 'camp' ? ownerOf(r.id) : null;
-  return html`<tr class="${r.mine ? 'mine' : ''}"><th scope="row">${who ? raw(personChip(who, r.faction, { size: 24 })) : ''}${swatch(r.faction)}${factionName(r.faction)} · ${KIND_TEXT[r.kind]()}${r.unit !== undefined ? html` · ${unitName(r.unit)}` : ''}${r.mine ? html` <span class="mine-mark">${L`（あなた）`}</span>` : ''}</th>
+  return html`<tr class="${r.mine ? 'mine' : ''}"><th scope="row">${who ? raw(personChip(who, r.faction, { size: 30, own: !!r.mine })) : ''}${swatch(r.faction)}${factionName(r.faction)} · ${KIND_TEXT[r.kind]()}${r.unit !== undefined ? html` · ${unitName(r.unit)}` : ''}${r.mine ? html` <span class="mine-mark">${L`（あなた）`}</span>` : ''}</th>
     <td>${fmtNum(r.before)} → ${r.after === null ? '—' : fmtNum(r.after)}</td><td>${stance}</td><td>${fate}</td></tr>`;
 }
 
@@ -525,8 +629,61 @@ function rowHtml(r, ownerOf = null) {
 export function renderRows(rows, caption, ownerOf = null) {
   if (!rows.length) return html`<p class="muted">${L`戦った軍勢はいません`}</p>`;
   return html`<table class="stores"><caption class="visually-hidden">${caption}</caption>
-    <thead><tr><th scope="col">${L`軍勢`}</th><th scope="col">${L`兵（前 → 後）`}</th><th scope="col">${L`構え`}</th><th scope="col">${L`結末`}</th></tr></thead>
+    <thead><tr><th scope="col">${L`軍勢`}</th><th scope="col">${L`兵（前 → 後）`}</th><th scope="col">${L`構え`}</th><th scope="col">${L`結果`}</th></tr></thead>
     <tbody>${rows.map(r => rowHtml(r, ownerOf))}</tbody></table>`;
+}
+
+/**
+ * The sides of a clash for the troop bars: `[{faction, camp, mine, before,
+ * after, lost}]` — one per nation (the barbarians' camp is its own side),
+ * the viewer's first, then by troops before the clash. `after` is null while
+ * a row's troops after are not known.
+ */
+export function sidesOf(rows) {
+  const by = new Map();
+  for (const r of rows) {
+    const key = r.kind === 'camp' ? 'camp' : `f${r.faction}`;
+    const s = by.get(key) ?? { faction: r.faction, camp: r.kind === 'camp', mine: false, before: 0, after: 0, known: true };
+    s.before += r.before; s.mine ||= r.mine;
+    if (r.after === null) s.known = false; else s.after += r.after;
+    by.set(key, s);
+  }
+  return [...by.values()].map(s => ({ faction: s.faction, camp: s.camp, mine: s.mine, before: s.before, after: s.known ? s.after : null, lost: s.known ? Math.max(0, s.before - s.after) : null }))
+    .sort((a, b) => Number(b.mine) - Number(a.mine) || b.before - a.before);
+}
+
+/** The troop bars: each side before and after, the loss between them. */
+export function renderSides(rows) {
+  const sides = sidesOf(rows);
+  if (!sides.length) return html`<p class="muted">${L`戦った軍勢はいません`}</p>`;
+  const max = Math.max(1, ...sides.map(s => s.before));
+  return html`<ul class="sides">${sides.map(s => html`<li class="side${s.mine ? ' mine' : ''}">
+    <span class="side-who">${s.camp ? html`${swatch(NEUTRAL)}${KIND_TEXT.camp()}` : html`${swatch(s.faction)}${factionName(s.faction)}`}${s.mine ? html` <span class="mine-mark">${L`（あなた）`}</span>` : ''}</span>
+    ${lossBar(s.before, s.after, max, s.mine ? 'bar-own' : 'bar-foe')}
+    <span class="side-n"><span class="side-ba">${fmtNum(s.before)} → ${s.after === null ? '—' : fmtNum(s.after)}</span>${s.lost ? html`<strong class="side-lost">−${fmtNum(s.lost)}</strong>` : ''}</span></li>`)}</ul>`;
+}
+
+/**
+ * The two main sides face to face (the viewer's first, then the largest): each side's face, the
+ * character of its nation (the viewer's own in the gold ring; a camp has its tent), the troops
+ * before and after, the loss, a bar. Further
+ * sides follow as bars under it.
+ */
+export function renderVersus(rows) {
+  const sides = sidesOf(rows);
+  if (!sides.length) return html`<p class="muted">${L`戦った軍勢はいません`}</p>`;
+  const max = Math.max(1, ...sides.map(s => s.before));
+  const face = s => (s.camp || !(s.faction >= 0 && s.faction < 6) ? html`<span class="vs-face vs-camp">${icon('tent')}</span>` : html`<span class="vs-face">${raw(playerFace(s.faction, { size: 56, own: !!s.mine }))}</span>`);
+  const block = (s, cls) => html`<div class="vs-side ${cls}${s.mine ? ' mine' : ''}">${face(s)}
+    <div class="vs-text"><span class="vs-who">${s.camp ? KIND_TEXT.camp() : html`${swatch(s.faction)}${factionName(s.faction)}`}${s.mine ? html`<span class="mine-mark">${L`（あなた）`}</span>` : ''}</span>
+      <span class="vs-n"><span class="side-ba">${fmtNum(s.before)} → ${s.after === null ? '—' : fmtNum(s.after)}</span>${s.lost ? html`<strong class="side-lost">−${fmtNum(s.lost)}</strong>` : ''}</span></div>
+    ${lossBar(s.before, s.after, max, s.mine ? 'bar-own' : 'bar-foe')}</div>`;
+  const [a, b, ...rest] = sides;
+  return html`<div class="versus-band${b ? '' : ' vs-one'}">${block(a, 'vs-a')}${b ? html`<span class="vs-mark" aria-hidden="true">${icon('swords')}</span>${block(b, 'vs-b')}` : ''}</div>
+    ${rest.length ? html`<ul class="sides sides-rest">${rest.map(s => html`<li class="side${s.mine ? ' mine' : ''}">
+      <span class="side-who">${s.camp ? html`${swatch(NEUTRAL)}${KIND_TEXT.camp()}` : html`${swatch(s.faction)}${factionName(s.faction)}`}</span>
+      ${lossBar(s.before, s.after, max, 'bar-foe')}
+      <span class="side-n"><span class="side-ba">${fmtNum(s.before)} → ${s.after === null ? '—' : fmtNum(s.after)}</span>${s.lost ? html`<strong class="side-lost">−${fmtNum(s.lost)}</strong>` : ''}</span></li>`)}</ul>` : ''}`;
 }
 
 function renderSteps(v) {
@@ -538,91 +695,176 @@ function renderSteps(v) {
 }
 
 /**
- * The report panel: `FS.report = {p, q, bell, loading?, error?, clash?,
- * verify?, verifying?}`; `mine(id)` marks the viewer's own; `whatIf` offers
+ * The keep a clash was fought over, or null: `r.keep` is the province's
+ * /h/keep record (app.mjs openReport), and the clash counts when a side
+ * stood on the keep's tile. `{holder, contender, progress, required, taken}`:
+ * the contest as it stands now (`live`: the controller's keep, when it has
+ * one) and the capture the clash's contest ended in, if it did.
+ */
+export function keepStake(r, rows, live = null) {
+  const k = r?.keep;
+  if (!k || !Number.isInteger(k.tile) || !Number.isInteger(k.holder) || !rows.some(x => x.tile === k.tile)) return null;
+  const contests = Array.isArray(k.contests) ? k.contests : [];
+  const fought = contests.find(c => c.from - 1 <= r.bell && r.bell <= (c.to ?? Infinity));
+  const taken = fought?.outcome === 'taken' ? (k.captures ?? []).find(c => c.bell === fought.to) ?? null : null;
+  const running = contests.find(c => c.outcome === 'running') ?? null;
+  const contender = Number.isInteger(live?.contender) && live.contender >= 0 && live.contender < 6 ? live.contender : live ? null : running?.contender ?? null;
+  const required = Number(live?.requiredBells);
+  return { holder: Number.isInteger(live?.holder) ? live.holder : k.holder, contender, progress: contender === null ? null : Number(live?.progress ?? running?.progress ?? 0),
+    required: Number.isFinite(required) && required > 0 ? required : null, taken };
+}
+
+/** One line on what the clash was for, with the way to the keep panel (the province's inspector). */
+function renderStake(r, stake) {
+  if (!stake) return '';
+  const holder = factionName(stake.holder);
+  return html`<p class="report-keep">${icon('flag')}${stake.contender !== null && stake.required !== null
+    ? L`この戦いは州 ${r.p},${r.q} の砦をめぐるものです：いまの保持者 ${holder}、奪取まで ${fmtNum(stake.progress)}/${fmtNum(stake.required)} ターン`
+    : L`この戦いは州 ${r.p},${r.q} の砦をめぐるものです：いまの保持者 ${holder}`}${stake.taken ? html` · ${L`第${fmtNum(stake.taken.bell)}ターンに ${factionName(stake.taken.to)} が ${factionName(stake.taken.from)} から奪った`}` : ''}
+    <button type="button" class="btn small" data-act="goto" data-p="${r.p}" data-q="${r.q}">${L`砦を見る`}</button></p>`;
+}
+
+/**
+ * The report as a document (UX design 8.3: a wide parchment card over the
+ * map): the outcome as a stamp, the troop bars before and after, the
+ * leader's line, "replay" and "see on the map"; the rows, the tiles and the
+ * proof on demand. `FS.report = {p, q, bell, loading?, error?, clash?,
+ * keep?, verify?, verifying?}`; `mine(id)` marks the viewer's own; `whatIf` offers
  * the practice "what if" (not on the spectator page: it has no own hosts).
  */
 export function render(FS, mine = () => false, { whatIf = true, ownerOf = null } = {}) {
   const r = FS.report;
   if (!r) return '';
-  const title = L`衝突の報告：州 ${r.p},${r.q} · 第${fmtNum(r.bell)}鐘`;
-  const head = html`<h3 id="report-title">${title}</h3><button type="button" class="btn small" data-act="report-close">${L`閉じる`}</button>`;
-  if (r.loading) return html`<section aria-labelledby="report-title">${head}<p class="muted">${L`読み込み中…`}</p></section>`;
-  if (r.error) return html`<section aria-labelledby="report-title">${head}<p class="notice error" role="alert">${L`報告を読めませんでした（${r.error}）`}</p></section>`;
+  // the place by a name, the turn once (the chip beside the title): no coordinates and no second number in the title
+  const title = L`衝突の報告：${provinceName(FS, r.p, r.q)}`;
+  const close = html`<button type="button" class="btn small quiet report-x" data-act="report-close">${L`閉じる`}</button>`;
+  const head = html`<header class="doc-head"><span class="doc-titles"><h3 id="report-title">${title}</h3></span>${chip(html`${icon('bell')}${L`ターン ${fmtNum(r.bell)}`}`)}${close}</header>`;
+  if (r.loading) return html`<section aria-labelledby="report-title" class="report doc">${head}<div class="wait-row">${ring(null)}<p class="muted">${L`読み込み中…`}</p></div></section>`;
+  if (r.error) return html`<section aria-labelledby="report-title" class="report doc">${head}<p class="notice error" role="alert">${L`報告を読めませんでした（${r.error}）`}</p></section>`;
   const rep = r.clash?.report ?? {};
   const v = r.verify;
-  const rows = v?.outcome && v.args ? outcomeRows(v.args, v.outcome, mine) : inputRows(r.clash?.inputs, mine);
+  // (before verification: the records the page holds, the viewer's own side among them: recordRows)
+  // (verified, but the page's own transcription of the inputs is not kept — a keep's defenders —: the record's rows, with
+  // what the kernel recomputed and the chain's record confirmed laid over what the page could not read: rowsWithOutcome)
+  const recRows = () => recordRows({ inputs: r.clash?.inputs, before: r.before ?? null, after: r.after ?? null, destroyed: r.destroyed ?? null }, mine);
+  const rows = v?.outcome && v.args ? outcomeRows(v.args, v.outcome, mine) : v?.outcome && v.result === 'match' ? rowsWithOutcome(recRows(), v.outcome, r.before ?? null) : recRows();
   const seed = v?.seed;
+  // a conquest season (the film's scene 5): what is recomputed here is said in words, and the record's own reference —
+  // its slot, and its transaction signature when the herald's clash view carries one — is printed, never made up.
+  // (The herald serves `sig` at the top level of /h/clash/{p},{q}/{turn}: the signature of the transaction that logged
+  // the CLASH record, in the form of the keep file's `captures[].sig` (codex/submission-ux 4c2aba5d, 2026-10-11).
+  // herald.mjs `clash()` hands that JSON over whole as `clash.report`, so it is `rep.sig` here; `signature` is read
+  // too. A herald built before that change sends neither, and the line is left out.)
+  const cq = Number(FS.season?.programVersion ?? 0) >= 3 && !FS.sample;
+  const recSig = typeof rep.sig === 'string' ? rep.sig : typeof rep.signature === 'string' ? rep.signature : null;
   const provenance = html`<dl class="facts">
     <div class="row"><dt>${L`乱数のラウンド`}</dt><dd>${seed ? fmtNum(seed.s) : '—'}</dd></div>
     <div class="row"><dt>${L`ビーコン`}</dt><dd>${rep.anchor?.key ?? '—'}</dd></div>
     <div class="row"><dt>${L`乱数の記録`}</dt><dd>${rep.cache?.key ?? rep.archive?.key ?? '—'}</dd></div>
     <div class="row"><dt>${L`入力の要約`}</dt><dd><code>${String(rep.inputDigest ?? '—').slice(0, 16)}</code></dd></div>
     <div class="row"><dt>${L`結果の要約`}</dt><dd><code>${String(rep.outcomeDigest ?? '—').slice(0, 16)}</code></dd></div>
-    <div class="row"><dt>${L`交戦`}</dt><dd>${fmtNum(v?.outcome?.engagements ?? rep.decoded?.engagements ?? 0)}</dd></div></dl>`;
-  const verdict = v ? html`<p class="notice ${v.result === 'match' ? 'ok' : v.result === 'mismatch' ? 'error' : ''}" role="status" data-verify-result="${v.result}">${resultText(v)}</p>` : '';
-  const steps = v ? html`${renderSteps(v)}${v.builder === 'page' ? html`<p class="muted">${L`入力はこのページが契約の手順どおりに組み立てました。`}</p>` : ''}` : '';
-  return html`<section aria-labelledby="report-title" class="report">${head}
-    ${renderHeadline(summaryOf(rows), r)}
-    ${v?.outcome ? '' : html`<p class="muted">${L`確かめる前は、チェーンに書かれた到着軍勢の結末だけを表示しています。`}</p>`}
-    ${renderRows(rows, title, ownerOf)}
-    ${renderTiles(tileDetail(rows))}
-    <p><button type="button" class="btn primary" data-act="report-verify" ${raw(r.verifying ? 'disabled' : '')}>${r.verifying ? L`確かめています…` : L`このブラウザで確かめる`}</button>
-      ${whatIf ? html`<button type="button" class="btn" data-act="report-whatif" ${raw(v?.args ? '' : 'disabled')}>${L`練習で試す（もしも）`}</button>` : ''}</p>
-    ${verdict}
-    ${whatIf && !v?.args ? html`<p class="muted">${L`「練習で試す」は、このブラウザで確かめた後に使えます。`}</p>` : ''}
-    <details class="report-proof"><summary>${L`検証の詳細（乱数・要約・手順）`}</summary>${provenance}${steps}</details>
+    <div class="row"><dt>${L`交戦`}</dt><dd>${fmtNum(v?.outcome?.engagements ?? rep.decoded?.engagements ?? 0)}</dd></div>
+    ${cq && Number.isFinite(Number(rep.slot)) && rep.slot !== null && rep.slot !== undefined ? html`<div class="row"><dt>${L`記録のスロット`}</dt><dd>${fmtNum(Number(rep.slot))}</dd></div>` : ''}</dl>
+    ${cq && recSig ? html`<p class="rep-ref">${sigChip(recSig, { label: L`戦いの記録の署名` })}</p>` : ''}`;
+  const verdict = v ? html`<p class="notice ${v.result === 'match' ? 'ok' : v.result === 'mismatch' ? 'error' : 'unchecked'}" role="status" data-verify-result="${v.result}">${cq && v.result === 'match' ? html`<span class="rep-match">${L`一致`}</span>` : ''}<span>${resultText(v)}</span></p>` : '';
+  const steps = v ? html`${renderSteps(v)}${v.builder === 'page' ? html`<p class="muted">${L`入力は、このページが決められた手順どおりに組み立てました。`}</p>` : ''}` : '';
+  const tiles = tileDetail(rows);
+  return html`<section aria-labelledby="report-title" class="report doc">${head}
+    <h4 class="visually-hidden">${L`兵の前と後`}</h4>
+    ${renderVersus(rows)}
+    ${renderStake(r, keepStake(r, rows, FS.conquest?.keeps?.get?.(`${r.p},${r.q}`) ?? null))}
+    <div class="doc-cols">
+      <div class="doc-col">${renderHeadline(summaryOf(rows), r)}</div>
+      <div class="doc-col">
+        ${FS.sample ? html`<p class="muted report-sample">${L`見本の世界の報告です。数はこの見本の世界が計算したもので、チェーンの記録ではありません。`}</p>` : ''}
+        ${v?.outcome ? '' : r.before ? html`<p class="muted">${L`確かめる前は、記録にある数を表示しています（到着の結果と、ターンの前後の州の記録）。`}</p>` : FS.sample ? '' : html`<p class="muted">${L`確かめる前は、チェーンに記録された到着の結果だけを表示しています。`}</p>`}
+        ${fold('rep-rows', L`軍勢ごとの内訳`, renderRows(rows, title, ownerOf))}
+        ${tiles.length ? fold('rep-tiles', L`マスごとの戦い`, renderTiles(tiles, FS, r)) : ''}
+        <details class="report-proof fold" data-fold="rep-proof"><summary><span class="fold-sum">${L`検証の詳細`}</span>${icon('chevron', 'fold-mark')}</summary><div class="fold-body">${provenance}${steps}</div></details>
+      </div>
+    </div>
+    <footer class="doc-foot">${cq ? html`<p class="rep-recheck">${icon('check')}<span><strong>${L`戦い：公開された記録から、このブラウザで計算し直します`}</strong>${Number.isFinite(Number(rep.slot)) && rep.slot !== null && rep.slot !== undefined ? html` <span class="muted">${L`（記録のスロット ${fmtNum(Number(rep.slot))}）`}</span>` : ''}</span></p>` : ''}<div class="actions"><button type="button" class="btn" data-act="report-verify" ${raw(r.verifying ? 'disabled' : '')}>${icon('check')}${r.verifying ? L`確かめています…` : L`このブラウザで確かめる`}</button>
+      ${whatIf ? html`<button type="button" class="btn" data-act="report-whatif" ${raw(v?.args ? '' : 'disabled')}>${icon('swords')}${L`練習で試す（もしも）`}</button>` : ''}</div>
+      ${verdict}
+      ${whatIf && !v?.args ? html`<p class="muted">${v?.result === 'match' ? (rows.some(x => x.keep) ? L`「練習で試す」は、この戦いでは使えません（砦の守備兵がいる戦いは、まだ練習に写せません）。` : L`「練習で試す」は、この戦いでは使えません。`) : L`「練習で試す」は、このブラウザで確かめた後に使えます。`}</p>` : ''}</footer>
   </section>`;
 }
 
-const RESULT_TEXT = {
-  won: () => L`勝利：相手は退いた`, held: () => L`持ちこたえた`, fell: () => L`壊滅した`, turned: () => L`退いた`, none: () => L`結末はまだ確かめていません`,
-};
-const RESULT_GLYPH = { won: '★', held: '◆', fell: '✕', turned: '↩', none: '…' };
+/**
+ * The viewer's outcome in a word and a line that agree with the numbers under them (UX design 11.13; the words are
+ * fi18n.mjs VERDICTS, the ones the battle on the map shows): `{key, tone, text}` from `summaryOf`'s summary — `key` the
+ * word (VERDICTS), `tone` the stamp's colour class (won | held | fell | turned | none | watch).
+ *   壊滅 when nothing of the viewer's remains; 撤退 when none of it stayed; 持ちこたえた when both sides hold the field;
+ *   勝利 when the other side does not: it was destroyed, it was a camp now cleared, or it left;
+ *   撃退 when the viewer was there first and the attackers left with troops; and, when the rows name no other side
+ *   (before the clash is verified only the arrivals are known), no claim about one: the viewer's hosts stayed.
+ */
+export function verdictOf(sum) {
+  if (!sum?.mine) return { key: 'watch', tone: 'watch', text: '' };
+  // the word: people/outcome.mjs verdictKey, the one the battle's title on the map asks
+  const key = sum.result === 'none' ? 'none' : verdictKey({ own: sum.own, foe: sum.other, role: sum.role });
+  if (key === 'none') return { key, tone: 'none', text: L`結果はまだ確かめていません` };
+  if (key === 'fell') return { key, tone: 'fell', text: L`壊滅：あなたの兵は残らなかった` };
+  if (key === 'turned') return { key, tone: 'turned', text: L`撤退：戦場には残らなかった` };
+  if (key === 'repelled') return { key, tone: 'won', text: L`撃退：攻め手は退いた` };
+  if (key === 'won') return { key, tone: 'won', text: sum.foe === 'camp' ? L`勝利：野営地を制圧した` : sum.foe === 'destroyed' ? L`勝利：相手は壊滅した` : L`勝利：相手は退いた` };
+  if (key === 'arrived') return { key, tone: 'held', text: L`行き先に着き、戦場に残った` };
+  return { key: 'held', tone: 'held', text: sum.foe === 'none' ? L`戦場に残った` : L`持ちこたえた：相手も戦場に残っている` };
+}
 
-/** The leader's word on a result (UI plan F1): the viewer's faction, or the side that held the field. */
-const LEADER_LINE = {
-  won: () => L`見事だ。この地の名は、今日のおまえたちのものだ。`,
-  held: () => L`よく踏みとどまった。次の鐘で押し返せ。`,
+/** The nation's words on a result (UI plan F1; no named speaker: DECISIONS ZP3): the viewer's nation, or the side that held the field. */
+const NATION_LINE = {
+  won: () => L`見事な勝利だ。この地の名は、今日の我らのものだ。`,
+  held: () => L`よく踏みとどまった。次のターンで押し返そう。`,
   turned: () => L`退くのも兵法のうちだ。兵は残った。`,
-  fell: () => L`痛い負けだ。だが辺境は広い、立て直せ。`,
+  fell: () => L`痛い負けだ。だが辺境は広い。立て直そう。`,
   none: () => L`結末はまだ分からぬ。確かめてから語ろう。`,
   watch: () => L`この地はわれらのものだ。`,
 };
 function leaderLine(f, key) {
   if (!Number.isInteger(f) || f < 0 || f > 5) return '';
-  const l = LEADERS[f];
-  return html`<p class="report-leader">${raw(leaderSvg(f, { size: 40 }))}<span><q>${LEADER_LINE[key]()}</q> <span class="muted">— <span data-name>${lang() === 'en' ? l.name.en : l.name.ja}</span></span></span></p>`;
+  return html`<p class="report-leader"><span class="report-fig">${raw(leaderFigure(f))}</span><span><q>${NATION_LINE[key]()}</q> <span class="muted">— ${factionName(f)}</span></span></p>`;
 }
 
-/** The headline: the viewer's result, losses and whether the march got there; replay and map buttons. */
+/** The outcome stamp: a word pressed on the paper (its tone is a class; the word says it too). */
+export const stamp = (key, tone = key) => html`<p class="stamp stamp-${tone}"><span class="stamp-in">${VERDICTS[key]}</span></p>`;
+
+/** The headline: the stamp, the viewer's result and losses, whether the march got there, the leader's line; replay and map buttons. */
 function renderHeadline(sum, r) {
-  const buttons = html`<div class="actions"><button type="button" class="btn primary" data-act="battle-play" data-p="${r.p}" data-q="${r.q}" data-bell="${r.bell}">▶ ${L`戦いを再生`}</button>
+  const buttons = html`<div class="actions"><button type="button" class="btn primary" data-act="battle-play" data-p="${r.p}" data-q="${r.q}" data-bell="${r.bell}">${icon('play')}${L`戦いを再生`}</button>
     <button type="button" class="btn" data-act="goto" data-p="${r.p}" data-q="${r.q}">${L`地図で見る`}</button></div>`;
   if (!sum.mine) {
-    return html`<div class="report-head report-head-watch"><p class="report-result"><strong>${sum.leader !== null ? html`${swatch(sum.leader)}${L`${factionName(sum.leader)}が戦場に残った`}` : L`${fmtNum(sum.factions)}つの国がぶつかった`}</strong></p>
+    return html`<div class="report-head report-head-watch">${stamp('watch')}<p class="report-result"><strong>${sum.leader !== null ? html`${swatch(sum.leader)}${L`${factionName(sum.leader)}が戦場に残った`}` : L`${fmtNum(sum.factions)}つの国がぶつかった`}</strong></p>
       <p class="muted">${L`全体の損害 ${fmtNum(sum.lost)}`}</p>${sum.leader !== null ? leaderLine(sum.leader, 'watch') : ''}${buttons}</div>`;
   }
-  return html`<div class="report-head report-${sum.result}"><p class="report-result"><span class="report-glyph" aria-hidden="true">${RESULT_GLYPH[sum.result]}</span><strong>${RESULT_TEXT[sum.result]()}</strong></p>
-    <p>${L`あなたの損害 ${fmtNum(sum.lost)} / ${fmtNum(sum.before)}`}${sum.reached === null ? '' : sum.reached ? html` · ${L`行き先に着いた`}` : html` · ${L`行き先に残れなかった`}`}</p>
+  const vd = verdictOf(sum);
+  // (whether the march got there is said beside the losses, unless the headline already says it)
+  return html`<div class="report-head report-${sum.result}">${stamp(vd.key, vd.tone)}<p class="report-result"><strong>${vd.text}</strong></p>
+    <p>${L`あなたの損害 ${sum.lostKnown === false ? '—' : fmtNum(sum.lost)} / ${fmtNum(sum.before)}`}${sum.reached === null || vd.key === 'arrived' ? '' : sum.reached ? html` · ${L`行き先に着いた`}` : html` · ${L`行き先に残れなかった`}`}</p>
     ${sum.fates.length ? html`<p class="muted">${[...new Set(sum.fates)].map(f => FATE_TEXT[f] ?? f).join(' · ')}</p>` : ''}${leaderLine(sum.faction, sum.result)}${buttons}</div>`;
 }
 
 /** Per-tile detail: who fought where, losses taken and dealt, the stance edge, the defenders' retaliation. */
-function renderTiles(list) {
+function renderTiles(list, FS = null, r = null) {
   if (!list.length) return '';
-  return html`<section class="report-tiles" aria-labelledby="report-tiles-title"><h4 id="report-tiles-title">${L`マスごとの戦い`}</h4><ul class="list">${list.map(t => html`<li>
-    <strong>${L`マス ${t.tile + 1}`}</strong>${t.walls ? html` <span class="muted">${L`城壁あり`}</span>` : ''}
+  return html`<section class="report-tiles" aria-labelledby="report-tiles-title"><h4 id="report-tiles-title" class="visually-hidden">${L`マスごとの戦い`}</h4><ul class="list">${list.map(t => html`<li>
+    <strong>${r ? tileName(FS, r.p, r.q, t.tile) : L`土地`}</strong>${t.walls ? html` <span class="muted">${L`城壁あり`}</span>` : ''}
     <ul class="report-sides">${t.sides.map(s => html`<li class="${s.mine ? 'mine' : ''}">${swatch(s.faction)}${factionName(s.faction)}${s.stance !== null ? html` · ${postureName(s.stance)}` : ''} — ${L`受けた損害 ${fmtNum(s.lost)} · 与えた損害 ${fmtNum(s.dealt)}`}</li>`)}</ul>
-    ${t.edges.map(e => html`<p class="report-edge">▲ ${L`${factionName(e.winner)}の${postureName(e.stance)}が${postureName(e.against)}に有利`}</p>`)}
+    ${t.edges.map(e => html`<p class="report-edge">${icon('sword')}${L`${factionName(e.winner)}の${postureName(e.stance)}が${postureName(e.against)}に有利`}</p>`)}
     ${t.retaliation ? html`<p class="muted">${L`守り手の反撃で攻め手が ${fmtNum(t.retaliation)} を失った`}</p>` : ''}</li>`)}</ul>
     <p class="muted">${L`与えた損害は、そのマスで相手側が失った兵の合計です（誰が誰を討ったかは記録にありません）。`}</p></section>`;
 }
 
-/** The report links of resolved clashes: `[{p, q, bell}]` → buttons. */
-export function renderLinks(list, title) {
+/** How many report links stand in sight before the fold. */
+export const LINKS_SHOWN = 3;
+/** The report links of resolved clashes: `[{p, q, bell}]` → a short list of rows (the rest behind a fold). */
+export function renderLinks(list, title, { id = 'reports-title', key = 'reports', FS = null } = {}) {
   if (!list.length) return '';
-  return html`<section aria-labelledby="reports-title"><h3 id="reports-title">${title}</h3><ul class="list">${list.map(x => html`<li><button type="button" class="btn" data-act="report-open" data-p="${x.p}" data-q="${x.q}" data-bell="${x.bell}">${L`州 ${x.p},${x.q} · 第${fmtNum(x.bell)}鐘`}${x.mine ? html` <span class="muted">${L`（あなた）`}</span>` : ''}</button></li>`)}</ul></section>`;
+  const rowOf = x => html`<li><button type="button" class="doc-row" data-act="report-open" data-p="${x.p}" data-q="${x.q}" data-bell="${x.bell}">${icon('scroll')}<span class="doc-row-t">${L`${provinceName(FS, x.p, x.q)} · ターン ${fmtNum(x.bell)}`}${x.mine ? html` <span class="muted">${L`（あなた）`}</span>` : ''}</span>${icon('chevron', 'doc-row-go')}</button></li>`;
+  const first = list.slice(0, LINKS_SHOWN), rest = list.slice(LINKS_SHOWN);
+  return html`<section class="vcard" aria-labelledby="${id}">${cardHead({ id, ic: 'scroll', title })}
+    <ul class="doc-rows">${first.map(rowOf)}</ul>
+    ${rest.length ? fold(key, L`もっと見る（${fmtNum(rest.length)}）`, html`<ul class="doc-rows">${rest.map(rowOf)}</ul>`) : ''}</section>`;
 }
 
 /** Resolved clashes from the chronicle (CLASH records), newest first, distinct, at most `limit`. */
@@ -630,7 +872,8 @@ export function clashesFrom(chronicle, limit = 12) {
   const out = [];
   for (let i = (chronicle ?? []).length - 1; i >= 0 && out.length < limit; i--) {
     const r = chronicle[i].record;
-    if (r.name !== 'CLASH') continue;
+    // (a CLASH record with no engagement is a turn nobody fought in: not a clash to report)
+    if (r.name !== 'CLASH' || Number(r.engagements ?? 1) === 0) continue;
     if (!out.some(x => x.p === r.p && x.q === r.q && x.bell === r.bell)) out.push({ p: r.p, q: r.q, bell: r.bell });
   }
   return out;

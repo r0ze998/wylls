@@ -25,7 +25,8 @@ const WEB = 'permutation-server/web/frontier/';
 /** Every `<input type="number">` of the Frontier page sources with its literal attributes. */
 function numberInputs() {
   const out = [];
-  const files = ['index.html', 'practice.html', 'spectate.html', ...readdirSync(`${ROOT}${WEB}screens`).map(f => `screens/${f}`)];
+  // the order's fields (coordinates, a retreat ratio of one's own) moved with the order to hud/marchcard.mjs: hud/ is scanned too
+  const files = ['index.html', 'practice.html', 'spectate.html', ...readdirSync(`${ROOT}${WEB}screens`).map(f => `screens/${f}`), ...readdirSync(`${ROOT}${WEB}hud`).map(f => `hud/${f}`)];
   for (const f of files) {
     const src = read(`${WEB}${f}`);
     for (const m of src.matchAll(/<input\b[^>]*type="number"[^>]*>/g)) {
@@ -98,7 +99,7 @@ test('catch-up (W6-D): the page asks the keeper once per bell while the home pro
   assert.equal(C.retryAfterCatchUp('Muster', 'NotFinal'), false);
 });
 
-test('no site picker anywhere (owner decision V2): joining is choosing a nation', () => {
+test('the old lottery picker stays retired; v2 land choices have their own confirmed-home actions', () => {
   for (const f of ['screens/onboarding.mjs', 'screens/join.mjs', 'hud/inspect.mjs']) assert.doesNotMatch(read(`${WEB}${f}`), /data-act="(pick-province|toggle-site|file-ticket)"|act: '(pick-province|toggle-site)'/, f);
   assert.equal(typeof card.renderOverflow, 'undefined');
 });

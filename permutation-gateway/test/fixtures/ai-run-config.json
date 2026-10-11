@@ -1,0 +1,11 @@
+{
+  "channel_lang": "en",
+  "council": { "period": 48, "offset": 12, "strike_lead": 6, "human_present": true },
+  "budgets": { "sessions": 8, "reactions": 6, "reflection": 2, "reactions_per_bell_global": 4 },
+  "caps": { "march_share": 0.6, "day_share": 0.6, "home_floor": 0.4, "marches_per_day": 4 },
+  "gate": { "weights": { "attacked_own": 3, "threat": 2, "dm": 1 }, "pulse": 24, "threshold": 3, "social_cap": 2 },
+  "memory": { "reflect_every": 72, "reflection": true, "retrieve": { "top": 8, "newest": 3, "half_life_bells": 72, "focus_bonus": 0.5 }, "block_tokens": 750 },
+  "llm": { "url": "http://127.0.0.1:41901", "alias": "gemma-4-26b-a4b-it", "max_tokens": 400 },
+  "serve": { "port": 41902 },
+  "ports": { "llama": 41901, "serve": 41902, "mind": 41980, "social": 41981, "registrar": 41982 }
+}

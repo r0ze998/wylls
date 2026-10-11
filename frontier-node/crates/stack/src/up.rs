@@ -388,6 +388,8 @@ pub struct Stack {
     pub so: PathBuf,
     pub so_sha256: String,
     pub so_len: usize,
+    /// The test-asset prize pool (`--prize-so`).
+    pub prize: Option<crate::prize::Prize>,
 }
 
 fn log_line(msg: &str) {
@@ -463,7 +465,7 @@ impl Stack {
         }
         // A previous run with the same id: refuse while any of its
         // components is alive, else start from a clean directory.
-        if rd.exists() {
+        if rd.root.exists() {
             if let Ok(st) = rd.load_state() {
                 let alive: Vec<String> = live_components(&st);
                 if !alive.is_empty() {
@@ -474,6 +476,12 @@ impl Stack {
                         cfg.run_id
                     )));
                 }
+            }
+            if cfg.conquest || rd.has_persistent_world() {
+                return Err(Refusal::Bad(format!(
+                    "CQ world {} already exists: use frontier-stack resume --run-id {} to preserve it, or choose a new run id",
+                    cfg.run_id, cfg.run_id
+                )));
             }
             std::fs::remove_dir_all(&rd.root)
                 .map_err(|e| Refusal::Bad(format!("{}: {e}", rd.root.display())))?;
@@ -492,6 +500,20 @@ impl Stack {
                 )));
             }
         }
+        // A running world must keep its original program across later builds.
+        let so = if cfg.conquest {
+            let pinned = rd.path("program.so");
+            run::write_atomic(&pinned, &bytes).map_err(bad)?;
+            pinned
+        } else {
+            so
+        };
+        let bin = if cfg.conquest {
+            run::pin_native_binaries(&rd, &bin).map_err(bad)?
+        } else {
+            bin
+        };
+        let prize = crate::prize::Prize::load_or_create(&repo, &rd, &cfg, &program).map_err(bad)?;
         Ok(Stack {
             repo,
             run: rd,
@@ -506,6 +528,7 @@ impl Stack {
             so,
             so_sha256,
             so_len: bytes.len(),
+            prize,
             cfg,
         })
     }
@@ -548,6 +571,10 @@ impl Stack {
             log: r.log("localnet"),
             finishes: false,
         });
+        if let (Some(pz), Some(spec)) = (&self.prize, out.last_mut()) {
+            spec.args.push(s("--program"));
+            spec.args.push(pz.deploy_arg(&self.keys.authority.pubkey()));
+        }
         let mut dargs = vec![
             s("serve"),
             s("--port"),
@@ -642,6 +669,9 @@ impl Stack {
             log: r.log("relay"),
             finishes: false,
         });
+        if let (Some(pz), Some(spec)) = (&self.prize, out.last_mut()) {
+            spec.args.extend(pz.relay_args());
+        }
         let mut hargs = vec![
             s("--data"),
             r.path("herald").display().to_string(),
@@ -720,6 +750,16 @@ impl Stack {
                 }
             }
         }
+        // A gated (prize) season: the operator's script bots join by invite.
+        if self.prize.is_some() {
+            args.push(s("--invites"));
+            args.push(
+                self.run
+                    .path(crate::prize::BOT_INVITES)
+                    .display()
+                    .to_string(),
+            );
+        }
         // Pass-through flags (`bots_args`).
         args.extend(self.cfg.bots_args.iter().cloned());
         Spec {
@@ -740,7 +780,7 @@ impl Stack {
             .map(|(k, p)| {
                 (
                     k.clone(),
-                    json!({"pid": p.pid, "starts": p.starts, "done": p.done, "last_exit": p.last_exit,
+                    json!({"pid": p.pid, "start_stamp": p.start_stamp, "starts": p.starts, "done": p.done, "last_exit": p.last_exit,
                            "spec": p.spec.to_json()}),
                 )
             })
@@ -862,10 +902,18 @@ pub fn beneficiary_airdrops(cfg: &StackConfig, a: &Address, b: &Address) -> Vec<
 /// Components of a saved state whose pid is still that component.
 pub fn live_components(st: &Value) -> Vec<String> {
     let mut out = vec![];
+    if let Some(pid) = st["supervisor_pid"]
+        .as_u64()
+        .and_then(|v| u32::try_from(v).ok())
+    {
+        if pid != std::process::id() && crate::procs::matches_supervisor(pid, st) {
+            out.push("supervisor".into());
+        }
+    }
     if let Some(m) = st["components"].as_object() {
         for (k, c) in m {
-            if let (Some(pid), Some(prog)) = (c["pid"].as_u64(), c["spec"]["program"].as_str()) {
-                if crate::procs::is_component(pid as u32, Path::new(prog)) {
+            if let Some(pid) = c["pid"].as_u64().and_then(|v| u32::try_from(v).ok()) {
+                if crate::procs::matches_saved(pid, c) {
                     out.push(k.clone());
                 }
             }
@@ -883,6 +931,22 @@ pub fn which(cmd: &str) -> Option<PathBuf> {
 
 /// `up`: returns the process exit code.
 pub async fn up(cfg: StackConfig) -> i32 {
+    let lock = || -> Result<run::RunLock, String> {
+        let repo = run::repo_root()?;
+        let runs = cfg
+            .runs_dir
+            .as_ref()
+            .map(|p| run::resolve(&repo, p))
+            .unwrap_or_else(|| RunDir::default_runs(&repo));
+        RunDir::new(&runs, &cfg.run_id).lock()
+    };
+    let _lock = match lock() {
+        Ok(l) => l,
+        Err(e) => {
+            log_line(&e);
+            return 2;
+        }
+    };
     let mut st = match Stack::prepare(cfg) {
         Ok(s) => s,
         Err(Refusal::PendingOwner(m)) => {
@@ -912,6 +976,8 @@ pub async fn up(cfg: StackConfig) -> i32 {
         "beacon": st.cfg.beacon.name(),
         "g0": st.cfg.g0,
         "supervisor_pid": std::process::id(),
+        "supervisor_start_stamp": crate::procs::start_stamp(std::process::id()),
+        "supervisor_command": crate::procs::command_of(std::process::id()),
         "wall_start_ms": run::wall_ms(),
         "keepers": {
             "a": {"beneficiary": st.keys.keeper_a_beneficiary.pubkey().to_string(), "api": st.ports.keeper_a},
@@ -996,6 +1062,9 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
         &st.addrs,
         &st.keys.authority,
         st.cfg.beacon,
+        st.cfg.conquest,
+        st.cfg.keep_bells,
+        st.prize.as_ref().map(|p| p.gate.pubkey().to_bytes()),
         st.cfg.season_end_bell(),
         st.cfg.preseason_scale,
         st.cfg.scale,
@@ -1003,6 +1072,19 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
     )
     .await?;
     st.state["season"] = season.clone();
+    if let Some(p) = &st.prize {
+        let v = p
+            .setup(&st.chain, &st.addrs, &st.keys.authority, &st.cfg)
+            .await?;
+        st.run.event(None, "prize", v.clone());
+        log_line(&format!(
+            "prize pool {} (test mint {}, entry fee {} base units)",
+            p.pool,
+            p.mint.pubkey(),
+            st.cfg.entry_fee
+        ));
+        st.state["prize"] = v;
+    }
     let genesis_ts = season["genesis_ts"].as_i64().ok_or("genesis_ts")?;
     let end_bell = season["end_bell"].as_u64().unwrap_or(1_008) as i64;
     let bell_secs = season["bell_secs"].as_i64().unwrap_or(600);
@@ -1655,7 +1737,7 @@ async fn supervise(
 
 /// EndSeason, retried (every 5 s, at most 12 attempts of 30 s) until it
 /// lands or the program answers `AlreadyDone` (the season already Ended).
-async fn end_season_until_done(
+pub(crate) async fn end_season_until_done(
     url: &str,
     program: Address,
     addrs: &fclient::addr::Addresses,
@@ -1840,11 +1922,13 @@ pub fn down(rd: &RunDir) -> i32 {
         eprintln!("frontier-stack: no run at {}", rd.root.display());
         return 2;
     };
-    if let Some(sp) = stv["supervisor_pid"].as_u64() {
-        let sp = sp as u32;
-        if sp != std::process::id() && crate::procs::is_component(sp, Path::new("frontier-stack")) {
+    if let Some(sp) = stv["supervisor_pid"]
+        .as_u64()
+        .and_then(|v| u32::try_from(v).ok())
+    {
+        if sp != std::process::id() && crate::procs::matches_supervisor(sp, &stv) {
             eprintln!("frontier-stack: stopping the supervisor (pid {sp})");
-            crate::procs::stop_pid(sp, Duration::from_secs(60));
+            crate::procs::stop_supervisor(sp, &stv, Duration::from_secs(60));
         }
     }
     // Re-read: the supervisor may have stopped everything itself.
@@ -1862,26 +1946,31 @@ pub fn down(rd: &RunDir) -> i32 {
     let mut stopped = vec![];
     for n in order {
         let c = &stv["components"][n];
-        if let (Some(pid), Some(prog)) = (c["pid"].as_u64(), c["spec"]["program"].as_str()) {
-            let pid = pid as u32;
-            if crate::procs::is_component(pid, Path::new(prog))
-                && crate::procs::stop_pid(pid, Duration::from_secs(15))
-            {
+        if let Some(pid) = c["pid"].as_u64().and_then(|v| u32::try_from(v).ok()) {
+            if crate::procs::stop_saved(pid, c, Duration::from_secs(15)) {
                 stopped.push(n);
             }
         }
     }
-    // The in-run or `load` viewer generators.
+    // Historical bare viewer PIDs carry no process identity; never signal
+    // them. New records contain the same birth stamp and command proof.
     if let Some(v) = stv["viewers_pids"].as_array() {
-        for p in v.iter().filter_map(|x| x.as_u64()) {
-            if crate::procs::is_component(p as u32, Path::new("frontier-viewers")) {
-                crate::procs::stop_pid(p as u32, Duration::from_secs(5));
+        for saved in v {
+            if let Some(pid) = saved["pid"].as_u64().and_then(|v| u32::try_from(v).ok()) {
+                crate::procs::stop_saved(pid, saved, Duration::from_secs(5));
             }
         }
     }
     if let Some(m) = stv["components"].as_object_mut() {
         for c in m.values_mut() {
-            c["pid"] = Value::Null;
+            let still_alive = c["pid"]
+                .as_u64()
+                .and_then(|v| u32::try_from(v).ok())
+                .is_some_and(|pid| crate::procs::matches_saved(pid, c));
+            if !still_alive {
+                c["pid"] = Value::Null;
+                c["start_stamp"] = Value::Null;
+            }
         }
     }
     let prev = stv["phase"].as_str().unwrap_or("").to_string();

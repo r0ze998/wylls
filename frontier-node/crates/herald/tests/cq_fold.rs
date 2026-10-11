@@ -1,0 +1,745 @@
+//! `cq_*`: the herald's conquest fold (MC contract §8.4; unit CQ2-E) over
+//! the synthetic conquest mini-season (`herald_fold::cqfixture`):
+//! completeness (every bell's control and sieges file, every overview's
+//! v2 sibling, every day, every standings hour, `final.json`), the files'
+//! formats (each written file decodes with `cqfmt`'s validating readers),
+//! the events the contract lists, the CONQUEST digest check
+//! (`conquest_mismatch` on a tampered digest), determinism (one pass,
+//! batches through findex, restarts from a checkpoint), and an M1 season
+//! untouched by the MC hooks.
+
+mod common;
+
+use std::sync::Arc;
+
+use common::{tmp, tree, VecSource};
+use fclient::log::{body_of_line, log_line};
+use frontier_abi::v2::log::{self as v2log, AnyKind, CqKind};
+use herald_fold::clash::Provisional;
+use herald_fold::cqfixture::{self, END_BELL, SEASON_ID};
+use herald_fold::cqfmt::{
+    CallFile, ConquestDay, ControlFile, EventKind, FinalFile, KeepHistory, Overview2File,
+    PlayersFile, SiegeHistory, SiegesFile, StandingsLatest, StandingsSeries,
+};
+use herald_fold::files::Out;
+use herald_fold::fold::{Fold, FoldCfg};
+use herald_fold::runner::{Ingest, IngestCfg};
+use tokio::sync::broadcast;
+
+fn cfg() -> FoldCfg {
+    FoldCfg {
+        program: cqfixture::program(),
+        season_id: SEASON_ID,
+        builder: Arc::new(Provisional),
+        exact_post: true,
+    }
+}
+
+#[test]
+fn cq_me_keeps_slot_three_when_slot_two_is_empty() {
+    use frontier_abi::v2::layout::{
+        player::{citizen as C, holding as H},
+        AccountKind,
+    };
+    use herald_fold::fold::Capture;
+    let d = tmp("cqslotgap");
+    let mut f = Fold::new(cfg(), Out::new(&d));
+    let wallet = cqfixture::wallet(0);
+    let ca = f.ctx.citizen(&wallet.to_bytes());
+    let header = |kind: AccountKind, size| {
+        let mut data = vec![0u8; size];
+        data[..8].copy_from_slice(&kind.magic());
+        data[8..16].copy_from_slice(&SEASON_ID.to_le_bytes());
+        data[16..18].copy_from_slice(&2u16.to_le_bytes());
+        data
+    };
+    let mut citizen = header(AccountKind::Citizen, C::SIZE);
+    citizen[C::WALLET..C::WALLET + 32].copy_from_slice(&wallet.to_bytes());
+    citizen[C::HOLDINGS_N] = 2;
+    citizen[C::FLAGS] = C::FLAG_FIRST_HOLDING_FINAL;
+    citizen[C::FACTION] = 2;
+    citizen[C::HOLDING + 6 + 5] = 255;
+    for (slot, p, site) in [(0, 3i16, 1u8), (2, 4i16, 2u8)] {
+        let off = C::HOLDING + slot * 6;
+        citizen[off..off + 2].copy_from_slice(&p.to_le_bytes());
+        citizen[off + 4] = site;
+        let mut holding = header(AccountKind::Holding, H::SIZE);
+        holding[H::P..H::P + 2].copy_from_slice(&p.to_le_bytes());
+        holding[H::SITE] = site;
+        holding[H::STATE] = H::STATE_FINAL;
+        holding[H::OWNER_CITIZEN..H::OWNER_CITIZEN + 32].copy_from_slice(&ca);
+        f.st.accounts.insert(
+            f.ctx.holding(p as i32, 0, site),
+            Capture {
+                slot: 1,
+                tx: 1,
+                data: holding,
+            },
+        );
+    }
+    f.st.accounts.insert(
+        ca,
+        Capture {
+            slot: 1,
+            tx: 1,
+            data: citizen,
+        },
+    );
+    let me = herald_fold::views::me_json(&f, &wallet, serde_json::Value::Null);
+    let holdings = me["holdings"].as_array().unwrap();
+    assert_eq!(holdings.len(), 2);
+    assert_eq!(
+        holdings[1]["address"],
+        fclient::Address::new_from_array(f.ctx.holding(4, 0, 2)).to_string()
+    );
+    assert_eq!(
+        herald_fold::standings::members(&f).1,
+        [0, 0, 1, 0, 0, 0],
+        "established members come from first-home flags"
+    );
+    let _ = std::fs::remove_dir_all(d);
+}
+
+#[test]
+fn latest_territory_scores_do_not_borrow_future_batched_bells() {
+    let d = tmp("cqterritory");
+    let mut f = Fold::new(cfg(), Out::new(&d));
+    let mut checked = 0;
+    let mut last = None;
+    for tx in cqfixture::mini_season() {
+        f.apply(&tx);
+        let Some(snap) = f.cq.latest_territory else {
+            continue;
+        };
+        if last == Some(snap.bell) {
+            continue;
+        }
+        last = Some(snap.bell);
+        let mut expected = [0u64; 6];
+        for keep in f.cq.keeps.values() {
+            for (i, &(holder, since)) in keep.holders.iter().enumerate() {
+                let until = keep
+                    .holders
+                    .get(i + 1)
+                    .map_or(snap.bell + 1, |x| x.1)
+                    .min(snap.bell + 1);
+                if holder < 6 {
+                    expected[holder as usize] += until.saturating_sub(since) as u64;
+                }
+            }
+        }
+        assert_eq!(
+            snap.territory_bells, expected,
+            "staggered province batches at bell {}",
+            snap.bell
+        );
+        checked += 1;
+    }
+    assert!(checked > 10);
+    assert!(
+        f.cq.keeps.values().any(|k| !k.captures.is_empty()),
+        "capture boundary covered"
+    );
+    assert!(
+        f.cq.final_done,
+        "program-version-3 season produces final results"
+    );
+    let _ = std::fs::remove_dir_all(d);
+}
+
+fn fold_all(dir: &std::path::Path, txs: &[fclient::ports::TxRecord]) -> Fold {
+    let mut f = Fold::new(cfg(), Out::new(dir));
+    for t in txs {
+        f.apply(t);
+    }
+    f
+}
+
+fn read(dir: &std::path::Path, rel: &str) -> Vec<u8> {
+    std::fs::read(dir.join(rel)).unwrap_or_else(|e| panic!("{rel}: {e}"))
+}
+
+/// W2R2-C2: one MARCH_FOLD counts once per (March, hour). A second record
+/// for the same hour (a MarchState re-created after its close, which the
+/// program now refuses) must not add Dominion points to the standings.
+/// (A replayed record is already refused by the chain link; the per-hour
+/// guard in `fold_record` also covers a re-created MarchState whose fresh
+/// chain would link. This test does not discriminate the guard: it pins
+/// the standings' behaviour, not the mechanism.)
+#[test]
+fn cq_a_duplicate_march_fold_counts_once() {
+    let txs = cqfixture::mini_season();
+    let is_fold = |t: &fclient::ports::TxRecord| {
+        t.logs.iter().any(|l| {
+            body_of_line(l).ok().flatten().is_some_and(|b| {
+                matches!(
+                    v2log::decode(&b).map(|r| r.kind),
+                    Ok(AnyKind::Cq(CqKind::MARCH_FOLD))
+                )
+            })
+        })
+    };
+    let at = txs
+        .iter()
+        .position(is_fold)
+        .expect("a fold in the mini-season");
+    let d0 = tmp("cqdup0");
+    let f0 = fold_all(&d0, &txs);
+    let mut more = txs.clone();
+    let mut dup = txs[at].clone();
+    dup.seq = txs.last().unwrap().seq + 1;
+    dup.slot = txs.last().unwrap().slot + 1;
+    dup.signature = fclient::ports::Signature::from([0xEE; 64]);
+    more.push(dup);
+    let d1 = tmp("cqdup1");
+    let f1 = fold_all(&d1, &more);
+    assert_eq!(
+        f0.cq.fold_hours, f1.cq.fold_hours,
+        "a duplicate (March, hour) adds nothing"
+    );
+}
+
+#[test]
+fn cq_fold_writes_every_file_and_event() {
+    let txs = cqfixture::mini_season();
+    let d = tmp("cqall");
+    let f = fold_all(&d, &txs);
+    let a = f.cq.alarms;
+    eprintln!("alarms {a:?} m1 {:?}", f.st.alarms);
+    assert!(f.cq.on, "an MC season turns the conquest fold on");
+    assert_eq!(
+        a.conquest_mismatch, 0,
+        "the model's digests match the herald's bytes"
+    );
+    assert_eq!(a.conquest_missing, 0);
+    assert_eq!(a.replay_errors, 0);
+    assert_eq!(a.bad_records, 0);
+    assert_eq!(a.format_errors, 0);
+    assert_eq!(f.st.alarms.rewrites, 0, "no immutable file rewritten");
+    assert_eq!(f.st.alarms.bad_records, 0);
+    // completeness: a control and sieges file for every bell
+    assert_eq!(f.cq.ct_next, Some(END_BELL));
+    for b in 0..END_BELL {
+        let c = ControlFile::decode(&read(&d, &format!("h/control/{b}.bin")))
+            .unwrap_or_else(|e| panic!("control {b}: {e}"));
+        assert_eq!(c.bell, b);
+        assert_eq!(c.season, SEASON_ID);
+        SiegesFile::parse(&read(&d, &format!("h/sieges/{b}.json")))
+            .unwrap_or_else(|e| panic!("sieges {b}: {e}"));
+    }
+    // every overview has its v2 sibling with the v1 record as its prefix
+    let files = Out::new(&d).list().unwrap();
+    let ov1: Vec<&String> = files
+        .iter()
+        .filter(|p| p.starts_with("h/overview/") && p.ends_with(".bin"))
+        .collect();
+    assert!(!ov1.is_empty());
+    for p in &ov1 {
+        let v1 = read(&d, p);
+        let p2 = p.replace("h/overview/", "h/overview2/");
+        let v2 = Overview2File::decode(&read(&d, &p2)).unwrap_or_else(|e| panic!("{p2}: {e}"));
+        let n = (v1.len() - 32) / 24;
+        assert_eq!(v2.records.len(), n);
+        for (i, r) in v2.records.iter().enumerate() {
+            assert_eq!(
+                &r.v1[..],
+                &v1[32 + 24 * i..32 + 24 * (i + 1)],
+                "{p2} record {i}"
+            );
+        }
+    }
+    // days, calls, standings, final
+    let mut kinds = std::collections::BTreeSet::new();
+    for day in 0..END_BELL / 144 {
+        let cd = ConquestDay::parse(&read(&d, &format!("h/conquest/{day}.json"))).unwrap();
+        kinds.extend(cd.events.iter().map(|e| e.kind));
+        CallFile::parse(&read(&d, &format!("h/call/{day}.json"))).unwrap();
+    }
+    for k in [
+        EventKind::SiegeDeclared,
+        EventKind::SiegeFailed,
+        EventKind::Occupied,
+        EventKind::Liberated,
+        EventKind::CaptureDue,
+        EventKind::Captured,
+        EventKind::KeepContest,
+        EventKind::KeepBroken,
+        EventKind::KeepTaken,
+        EventKind::ProvinceControl,
+        EventKind::MarchBanner,
+        EventKind::MarchPointsLead,
+        EventKind::FreeCity,
+        EventKind::Outpost,
+        EventKind::Retired,
+    ] {
+        assert!(
+            kinds.contains(&k),
+            "event kind {} missing; got {kinds:?}",
+            k.as_str()
+        );
+    }
+    // the control layer shows contests, captures and breaks; the sieges
+    // files show a vigil pause
+    let (mut contest, mut taken, mut broken, mut vigil, mut banner) = (0, 0, 0, 0, 0);
+    for b in 0..END_BELL {
+        let c = ControlFile::decode(&read(&d, &format!("h/control/{b}.bin"))).unwrap();
+        contest += c.provinces.iter().filter(|p| p.contender != 7).count();
+        taken += c.provinces.iter().filter(|p| p.flags & 16 != 0).count();
+        broken += c.provinces.iter().filter(|p| p.flags & 32 != 0).count();
+        banner += c.marches.iter().filter(|m| m.flags & 1 != 0).count();
+        let sf = SiegesFile::parse(&read(&d, &format!("h/sieges/{b}.json"))).unwrap();
+        vigil += sf
+            .sieges
+            .iter()
+            .filter(|s| s.pause == Some(herald_fold::cqfmt::PauseReason::Vigil))
+            .count();
+    }
+    assert!(
+        contest > 0 && taken >= 3 && broken >= 1 && banner >= 1 && vigil > 0,
+        "contest {contest} taken {taken} broken {broken} banner {banner} vigil {vigil}"
+    );
+    let s = StandingsSeries::decode(&read(&d, "h/standings/series.bin")).unwrap();
+    assert_eq!(s.first_hour, 0);
+    assert_eq!(s.hours.len() as u32, END_BELL / 6, "an hour row per hour");
+    StandingsLatest::parse(&read(&d, "h/standings/latest.json")).unwrap();
+    PlayersFile::parse(&read(&d, "h/standings/players.json")).unwrap();
+    let fin = FinalFile::parse(&read(&d, "h/season/final.json")).unwrap();
+    eprintln!("final movement {:?}", fin.movement);
+    assert_eq!(fin.end_bell, END_BELL);
+    assert!(
+        fin.movement.lasting_changes >= 3,
+        "the keeps taken are lasting changes"
+    );
+    assert_eq!(fin.movement.first_holdings_transferred, 0, "D9");
+    let hc = fin.movement.holding_contest;
+    assert!(hc.sieges_declared >= 4 && hc.occupations >= 1 && hc.liberations >= 1);
+    assert!(hc.captures >= 2 && hc.outposts >= 1 && hc.sieges_failed >= 1);
+    // a liberation with Respite, and a siege broken by a defender
+    let (mut respite, mut by_defender) = (0, 0);
+    for day in 0..END_BELL / 144 {
+        let cd = ConquestDay::parse(&read(&d, &format!("h/conquest/{day}.json"))).unwrap();
+        for e in &cd.events {
+            match e.kind {
+                EventKind::Liberated if e.detail["respite"] == true => respite += 1,
+                EventKind::SiegeFailed if e.detail["brokenByDefender"] == true => by_defender += 1,
+                _ => {}
+            }
+        }
+    }
+    assert!(respite >= 1, "a LIBERATED with Respite");
+    assert!(by_defender >= 1, "a siege broken by a defender");
+    let pf = PlayersFile::parse(&read(&d, "h/standings/players.json")).unwrap();
+    assert!(
+        pf.players.iter().any(|p| p.liberations > 0),
+        "a liberation counted for its owner's faction hosts"
+    );
+    // siege and keep histories
+    let sieges: Vec<&String> = files
+        .iter()
+        .filter(|p| p.starts_with("h/siege/") && p.ends_with(".json"))
+        .collect();
+    assert!(sieges.len() >= 4);
+    let mut credited = vec![];
+    for p in sieges {
+        let h = SiegeHistory::parse(&read(&d, p)).unwrap_or_else(|e| panic!("{p}: {e}"));
+        assert!(h.end.is_some(), "{p} ended");
+        if let Some(c) = h.end.and_then(|e| e.credited) {
+            credited.push(c);
+        }
+    }
+    credited.sort();
+    assert_eq!(
+        credited,
+        vec![false, true],
+        "a credited capture and an uncredited recapture"
+    );
+    let keeps: Vec<&String> = files
+        .iter()
+        .filter(|p| p.starts_with("h/keep/") && p.ends_with(".json"))
+        .collect();
+    assert!(!keeps.is_empty());
+    let mut taken = 0;
+    for p in keeps {
+        let k = KeepHistory::parse(&read(&d, p)).unwrap_or_else(|e| panic!("{p}: {e}"));
+        taken += k.captures.len();
+    }
+    assert!(taken >= 3);
+}
+
+#[test]
+fn cq_fold_is_deterministic() {
+    let txs = cqfixture::mini_season();
+    let (d1, d2) = (tmp("cqdet1"), tmp("cqdet2"));
+    let f1 = fold_all(&d1, &txs);
+    fold_all(&d2, &txs);
+    assert_eq!(tree(&d1), tree(&d2), "one archive, one set of bytes");
+    // the conquest state survives its checkpoint form
+    let j = f1.cq.to_json();
+    let back = herald_fold::conquest::Cq::from_json(&j).expect("decodes");
+    assert_eq!(back.to_json(), j);
+    let _ = std::fs::remove_dir_all(&d1);
+    let _ = std::fs::remove_dir_all(&d2);
+}
+
+/// Batches through findex with a crash (no checkpoint) and restarts from
+/// checkpoints taken mid-season give the one-pass files; `/h/events`
+/// numbers MC records as the fold does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cq_fold_restarts_from_checkpoints() {
+    let txs = cqfixture::mini_season();
+    let reference = tmp("cqref");
+    fold_all(&reference.join("files"), &txs);
+    let data = tmp("cqingest");
+    let (diffs, _) = broadcast::channel(65_536);
+    let mut c = IngestCfg::new(&data, cqfixture::program(), SEASON_ID);
+    c.segment_bytes = 256 * 1024;
+    c.checkpoint_slots = u64::MAX / 2;
+    c.archive_commit = std::time::Duration::ZERO;
+    let n = txs.len();
+    {
+        let mut ing = Ingest::open(c.clone(), diffs.clone()).unwrap();
+        let mut src = VecSource::new(txs[..n / 3].to_vec(), 37);
+        ing.findex.resume(&mut src);
+        while ing.step(&mut src).await.unwrap() > 0 {}
+        ing.checkpoint().unwrap();
+    }
+    {
+        let mut ing = Ingest::open(c.clone(), diffs.clone()).unwrap();
+        assert!(
+            ing.fold.read().unwrap().cq.on,
+            "the conquest state is restored"
+        );
+        let mut src = VecSource::new(txs[..2 * n / 3].to_vec(), 41);
+        ing.findex.resume(&mut src);
+        while ing.step(&mut src).await.unwrap() > 0 {}
+        // crash: no checkpoint
+    }
+    {
+        let mut ing = Ingest::open(c.clone(), diffs.clone()).unwrap();
+        let mut src = VecSource::new(txs.clone(), 1_000);
+        ing.findex.resume(&mut src);
+        while ing.step(&mut src).await.unwrap() > 0 {}
+        let f = ing.fold.read().unwrap();
+        assert_eq!(f.st.folded_through, txs.len() as u64);
+        assert_eq!(
+            ing.findex.index.last_event().unwrap(),
+            f.st.events,
+            "/h/events numbering = the fold's"
+        );
+        assert!(f.cq.final_done);
+    }
+    assert_eq!(tree(&data.join("files")), tree(&reference.join("files")));
+    let _ = std::fs::remove_dir_all(&data);
+    let _ = std::fs::remove_dir_all(&reference);
+}
+
+/// The first CONQUEST record whose payload is rewritten by `edit`.
+fn tamper_conquest(txs: &mut [fclient::ports::TxRecord], edit: impl Fn(&mut [u8])) -> bool {
+    for t in txs.iter_mut() {
+        for l in t.logs.iter_mut() {
+            let Ok(Some(mut body)) = body_of_line(l) else {
+                continue;
+            };
+            let Ok(r) = v2log::decode(&body) else {
+                continue;
+            };
+            if r.kind != AnyKind::Cq(CqKind::CONQUEST) || r.payload[0] == 0 {
+                continue;
+            }
+            let len = r.payload.len();
+            let off = 2 + 4 + 12;
+            edit(&mut body[off..off + len]);
+            *l = log_line(&body);
+            return true;
+        }
+    }
+    false
+}
+
+#[test]
+fn cq_tampered_conquest_digest_raises_the_alarm() {
+    let mut txs = cqfixture::mini_season();
+    // the records digest sits after n (1) and 14 events (56)
+    assert!(tamper_conquest(&mut txs, |p| p[1 + 56] ^= 1));
+    let d = tmp("cqtamper");
+    let f = fold_all(&d, &txs);
+    assert_eq!(f.cq.alarms.conquest_mismatch, 1, "{:?}", f.cq.alarms);
+    let st = herald_fold::conquest::status_json(&f);
+    assert_eq!(st["alarms"]["conquestMismatch"], 1);
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn cq_tampered_keep_fields_raise_the_alarm() {
+    let mut txs = cqfixture::mini_season();
+    // keep_troops (after n, events, digest, holder, contender, progress)
+    assert!(tamper_conquest(&mut txs, |p| p[1 + 56 + 32 + 3] ^= 1));
+    let d = tmp("cqtamper2");
+    let f = fold_all(&d, &txs);
+    assert_eq!(f.cq.alarms.conquest_mismatch, 1, "{:?}", f.cq.alarms);
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A SkipQuiet run whose post-state's conquest block differs from the
+/// model's replay is an alarm (the replay is the herald's own check).
+#[test]
+fn cq_skip_replay_checks_the_post_state() {
+    use frontier_abi::v2::layout::province::province as P;
+    let mut txs = cqfixture::mini_season();
+    let mut hit = false;
+    let mut last: std::collections::BTreeMap<Vec<u8>, u32> = Default::default();
+    'outer: for t in txs.iter_mut() {
+        for (k, a) in t.post.iter_mut() {
+            let Some(a) = a.as_mut() else {
+                continue;
+            };
+            if a.data.len() != P::SIZE {
+                continue;
+            }
+            let rn = u32::from_le_bytes(
+                a.data[P::RESOLVED_NEXT..P::RESOLVED_NEXT + 4]
+                    .try_into()
+                    .unwrap(),
+            );
+            let prev = last.insert(k.to_bytes().to_vec(), rn);
+            if prev.is_some_and(|p| rn >= p + 2) {
+                // a snapshot weight of the run's last state
+                a.data[P::SNAP + 4] ^= 1;
+                hit = true;
+                break 'outer;
+            }
+        }
+    }
+    assert!(hit, "a multi-bell skip run exists");
+    let d = tmp("cqskip");
+    let f = fold_all(&d, &txs);
+    assert!(f.cq.alarms.conquest_mismatch >= 1, "{:?}", f.cq.alarms);
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// R-22: an M1 season never turns the conquest fold on: no MC file, an
+/// M1 checkpoint without the conquest section, `/h/me` without additions.
+#[test]
+fn cq_m1_season_is_untouched() {
+    let txs = herald_fold::fixture::mini_season(12);
+    let d = tmp("cqm1");
+    let cfg = FoldCfg {
+        program: herald_fold::fixture::program(),
+        season_id: herald_fold::fixture::SEASON_ID,
+        builder: Arc::new(Provisional),
+        exact_post: true,
+    };
+    let mut f = Fold::new(cfg, Out::new(&d));
+    for t in &txs {
+        f.apply(t);
+    }
+    assert!(!f.cq.on);
+    assert!(Out::new(&d).list().unwrap().iter().all(|p| {
+        ![
+            "h/control/",
+            "h/overview2/",
+            "h/sieges/",
+            "h/conquest/",
+            "h/standings/",
+            "h/call/",
+            "h/season/",
+            "h/keep/",
+            "h/siege/",
+        ]
+        .iter()
+        .any(|x| p.starts_with(x))
+    }));
+    let me =
+        herald_fold::views::me_json(&f, &herald_fold::fixture::wallet(), serde_json::Value::Null);
+    assert!(me.get("alerts").is_none() && me.get("sieges").is_none() && me.get("player").is_none());
+    let p = herald_fold::fixture::program().to_bytes();
+    assert_eq!(
+        herald_fold::checkpoint::encode_full(&p, herald_fold::fixture::SEASON_ID, &f.st, None),
+        herald_fold::checkpoint::encode(&p, herald_fold::fixture::SEASON_ID, &f.st)
+    );
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// `/h/me` of an MC wallet: its alerts (the horn on its holding, the
+/// occupation) and no live siege at the end.
+#[test]
+fn cq_me_alerts() {
+    let txs = cqfixture::mini_season();
+    let d = tmp("cqme");
+    let f = fold_all(&d, &txs);
+    // wallet 0 owns the first holding besieged and defended; wallet 1 the
+    // one occupied and liberated
+    let m0 = herald_fold::views::me_json(&f, &cqfixture::wallet(0), serde_json::Value::Null);
+    let kinds = |v: &serde_json::Value| -> Vec<String> {
+        v["alerts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|a| a["kind"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert!(kinds(&m0).contains(&"horn".to_string()), "{m0}");
+    let m1 = herald_fold::views::me_json(&f, &cqfixture::wallet(1), serde_json::Value::Null);
+    let k1 = kinds(&m1);
+    assert!(
+        k1.contains(&"horn".to_string())
+            && k1.contains(&"occupied".to_string())
+            && k1.contains(&"liberated".to_string()),
+        "{k1:?}"
+    );
+    assert_eq!(m1["sieges"].as_array().unwrap().len(), 0);
+    // the keep taker's own players row (wallet 2)
+    let m2 = herald_fold::views::me_json(&f, &cqfixture::wallet(2), serde_json::Value::Null);
+    assert!(
+        m2["player"]["keepsTaken"].as_u64().unwrap() >= 3,
+        "{}",
+        m2["player"]
+    );
+    assert!(m2["player"]["keepBells"].as_u64().unwrap() > 0);
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// Every CONQUEST body of a transaction list: `(tx seq, header bell, key
+/// bell, key P, key Q, events)`.
+type ConquestBody = (u64, u32, u32, i32, i32, Vec<(u8, u8)>);
+fn conquest_bodies(txs: &[fclient::ports::TxRecord]) -> Vec<ConquestBody> {
+    let mut v = vec![];
+    for t in txs {
+        for l in &t.logs {
+            let Ok(Some(body)) = body_of_line(l) else {
+                continue;
+            };
+            let Ok(r) = v2log::decode(&body) else {
+                continue;
+            };
+            if r.kind != AnyKind::Cq(CqKind::CONQUEST) {
+                continue;
+            }
+            let pl = v2log::ConquestPayload::from_bytes(r.payload).expect("payload");
+            let rd = |o: usize| u32::from_le_bytes(r.key[o..o + 4].try_into().unwrap());
+            let ev = pl.events[..pl.n as usize]
+                .iter()
+                .map(|e| (e.site, e.code & !v2log::event::DETAIL))
+                .collect();
+            v.push((t.seq, r.bell, rd(8), rd(0) as i32, rd(4) as i32, ev));
+        }
+    }
+    v
+}
+
+/// §6: a CONQUEST record's step bell is in its key; the header bell is the
+/// landing bell (the program's `bell_log`). The fixture stamps them apart
+/// (a resolve lands after its bell, a SkipQuiet run after its last), with
+/// several CONQUEST records of different step bells in one transaction;
+/// the fold dates events, tallies and the days by the step bell, and
+/// finds every record it expects (no `conquest_missing`).
+#[test]
+fn cq_conquest_step_bell_is_the_key_bell() {
+    let txs = cqfixture::mini_season();
+    let recs = conquest_bodies(&txs);
+    assert!(
+        recs.iter().all(|r| r.1 > r.2),
+        "the header (landing) bell is after every step bell"
+    );
+    let mut per_tx: std::collections::BTreeMap<u64, Vec<u32>> = Default::default();
+    for r in &recs {
+        per_tx.entry(r.0).or_default().push(r.2);
+    }
+    assert!(
+        per_tx.values().any(|bs| bs.len() >= 2),
+        "a SkipQuiet run with several CONQUEST records in one transaction"
+    );
+    let d = tmp("cqstep");
+    let f = fold_all(&d, &txs);
+    assert_eq!(f.cq.alarms.conquest_missing, 0, "{:?}", f.cq.alarms);
+    assert_eq!(f.cq.alarms.conquest_mismatch, 0, "{:?}", f.cq.alarms);
+    // every keep taken, broken and contested is dated by its step bell
+    for (code, kind) in [
+        (v2log::event::KEEP_TAKEN, EventKind::KeepTaken),
+        (v2log::event::KEEP_BROKEN, EventKind::KeepBroken),
+        (v2log::event::KEEP_CONTEST, EventKind::KeepContest),
+    ] {
+        let want: std::collections::BTreeSet<(i32, i32, u32)> = recs
+            .iter()
+            .filter(|r| r.5.contains(&(v2log::event::KEEP_SITE, code)))
+            .map(|r| (r.3, r.4, r.2))
+            .collect();
+        assert!(!want.is_empty(), "{} occurs", kind.as_str());
+        let mut got = std::collections::BTreeSet::new();
+        for day in 0..END_BELL / 144 {
+            let cd = ConquestDay::parse(&read(&d, &format!("h/conquest/{day}.json"))).unwrap();
+            for e in cd.events.iter().filter(|e| e.kind == kind) {
+                assert_eq!(
+                    e.bell / 144,
+                    day,
+                    "{} is in its step bell's day",
+                    kind.as_str()
+                );
+                got.insert((e.p.unwrap(), e.q.unwrap(), e.bell));
+            }
+        }
+        assert_eq!(got, want, "{}", kind.as_str());
+    }
+    // the occupations, captures due and liberations by step bell as well
+    for (code, kind) in [
+        (v2log::event::OCCUPIED, EventKind::Occupied),
+        (v2log::event::CAPTURE_DUE, EventKind::CaptureDue),
+        (v2log::event::LIBERATED, EventKind::Liberated),
+    ] {
+        let want: std::collections::BTreeSet<(i32, i32, u32)> = recs
+            .iter()
+            .filter(|r| {
+                r.5.iter()
+                    .any(|&(s, c)| s != v2log::event::KEEP_SITE && c == code)
+            })
+            .map(|r| (r.3, r.4, r.2))
+            .collect();
+        let mut got = std::collections::BTreeSet::new();
+        for day in 0..END_BELL / 144 {
+            let cd = ConquestDay::parse(&read(&d, &format!("h/conquest/{day}.json"))).unwrap();
+            for e in cd.events.iter().filter(|e| e.kind == kind) {
+                got.insert((e.p.unwrap(), e.q.unwrap(), e.bell));
+            }
+        }
+        assert_eq!(got, want, "{}", kind.as_str());
+    }
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A single resolved bell is replayed through the clash and the conquest
+/// step, and compared with the post-state's conquest block (§8.4): a
+/// post-state that differs after a ResolveFromInputs is `conquest_mismatch`.
+#[test]
+fn cq_resolve_replay_checks_the_post_state() {
+    use frontier_abi::v2::layout::province::province as P;
+    let mut txs = cqfixture::mini_season();
+    let mut hit = false;
+    let mut last: std::collections::BTreeMap<Vec<u8>, u32> = Default::default();
+    'outer: for t in txs.iter_mut() {
+        for (k, a) in t.post.iter_mut() {
+            let Some(a) = a.as_mut() else {
+                continue;
+            };
+            if a.data.len() != P::SIZE {
+                continue;
+            }
+            let rn = u32::from_le_bytes(
+                a.data[P::RESOLVED_NEXT..P::RESOLVED_NEXT + 4]
+                    .try_into()
+                    .unwrap(),
+            );
+            let prev = last.insert(k.to_bytes().to_vec(), rn);
+            // one bell resolved, a bell after the first siege record
+            if prev.is_some_and(|p| rn == p + 1 && p > 40) {
+                a.data[P::SNAP + 4] ^= 1;
+                hit = true;
+                break 'outer;
+            }
+        }
+    }
+    assert!(hit, "a single-bell resolve exists");
+    let d = tmp("cqresolve");
+    let f = fold_all(&d, &txs);
+    assert!(f.cq.alarms.conquest_mismatch >= 1, "{:?}", f.cq.alarms);
+    let _ = std::fs::remove_dir_all(&d);
+}

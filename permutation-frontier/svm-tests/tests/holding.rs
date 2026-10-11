@@ -224,16 +224,24 @@ fn holding_build_buildings_walls_and_tier_up() {
 fn holding_build_refusals() {
     let (mut c, w, e) = setup();
     let b = |item: u8, walls: bool| hx::build_item(&w.a, &e.player(), e.href(), item, walls);
-    // Unknown item; a province with a building or none with walls.
+    // Unknown item. MC §5.6: the Province is always listed (the capture
+    // lock); walls and the tier-up need it writable (`BadAccount`), a
+    // missing one is `TooManyAccounts`, a writable one with a building is
+    // accepted (`Wr::Either`).
     assert_code(
         send(&mut c.fork(), &e, b(ITEM_TIER_UP + 1, false)),
         E::BadData,
     );
-    assert_code(send(&mut c.fork(), &e, b(0, true)), E::TooManyAccounts);
-    assert_code(
-        send(&mut c.fork(), &e, b(catalog::ITEM_WALLS, false)),
-        E::TooManyAccounts,
-    );
+    let mut ro = b(catalog::ITEM_WALLS, true);
+    ro.accounts[at::PROVINCE].is_writable = false;
+    assert_code(send(&mut c.fork(), &e, ro), E::BadAccount);
+    let mut ro = b(ITEM_TIER_UP, true);
+    ro.accounts[at::PROVINCE].is_writable = false;
+    assert_code(send(&mut c.fork(), &e, ro), E::BadAccount);
+    let mut short = b(0, false);
+    short.accounts.pop();
+    assert_code(send(&mut c.fork(), &e, short), E::TooManyAccounts);
+    expect_lands(send(&mut c.fork(), &e, b(0, true)), "hx::build_item(");
     // Not enough resources for walls (300 stone at the doctrine's rate).
     let mut f = c.fork();
     w.edit_kholding(&mut f, &e, |h| h.stores[Resource::Stone as usize].value = 0);
@@ -641,4 +649,224 @@ fn g01_budget_w3b_holding() {
         &[settle],
         &any,
     );
+}
+
+// ------------------------------------------------------------ MC (CQ2-A)
+
+mod cq {
+    //! MC contract §3.16, §5.6, §5.8 on the crafted estate of `setup()`:
+    //! the capture lock (`CapturePending`), Train's `train_v2`, Build's
+    //! `tier_next`, SettleExplore of another generation. The capture
+    //! completion is crafted (the mirror's generation bumped past the
+    //! Holding's, as the conquest step leaves it: CQ2-B's).
+
+    use super::*;
+    use frontier_abi::v2::layout::player::holding as H2;
+    use frontier_abi::v2::layout::province::site as SM2;
+    use frontier_abi::v2::CqError as Cq;
+    use permutation_rules::units::UnitType;
+
+    /// Crafted capture completion: the mirror shows the next generation.
+    fn complete_capture(c: &mut Chain, e: &Estate) {
+        let o = P::site(e.site as usize);
+        c.edit(&e.province, |d| d[o + SM::GEN] = e.gen + 1);
+    }
+
+    /// G13 (MC §5.8): Harvest, Build, Train and Explore refuse
+    /// `CapturePending` between the completion and SettleCapture; a settled
+    /// capture (holding generation = mirror generation, `capture_flags` 1)
+    /// does not, while a re-completed one does; Explore checks it in the
+    /// holding's own Province only (notes D-6).
+    #[test]
+    fn g13_cq_capture_lock_refuses_the_resident_actions() {
+        let (mut c, w, e) = setup();
+        w.enrich(&mut c, &e, 100_000);
+        let (id, near) = scout(&mut c, &w, &e);
+        let harvest = hx::harvest(&w.a, &e.player(), e.href());
+        let build = hx::build_item(&w.a, &e.player(), e.href(), 0, false);
+        let walls = hx::build_item(&w.a, &e.player(), e.href(), catalog::ITEM_WALLS, true);
+        let train = hx::train(&w.a, &e.player(), e.href(), 0, 100);
+        let explore = hx::explore(&w.a, &e.player(), e.href(), (e.p, e.q), id, &near[..1]);
+        let mut f = c.fork();
+        complete_capture(&mut f, &e);
+        for (ix, what) in [
+            (&harvest, "hx::harvest("),
+            (&build, "hx::build_item("),
+            (&walls, "walls"),
+            (&train, "hx::train("),
+            (&explore, "hx::explore("),
+        ] {
+            let r = send(&mut f.fork(), &e, ix.clone());
+            assert_eq!(
+                r.as_ref().err().and_then(|x| x.code),
+                Some(Cq::CapturePending.code()),
+                "{what}"
+            );
+            assert_code(r, Cq::CapturePending);
+        }
+        // Ping-pong (review CQ2-A, notes D-14): a holding already captured
+        // (`capture_flags` 1) whose next capture has completed (mirror
+        // generation past the Holding's) stays locked; the flag lifts
+        // nothing.
+        for (ix, what) in [
+            (&harvest, "hx::harvest("),
+            (&train, "hx::train("),
+            (&walls, "walls"),
+        ] {
+            let mut g = f.fork();
+            g.edit(&e.holding, |d| {
+                d[H2::CAPTURE_FLAGS] = H2::CAPTURE_FLAG_CAPTURED
+            });
+            let r = send(&mut g, &e, ix.clone());
+            assert_eq!(
+                r.as_ref().err().and_then(|x| x.code),
+                Some(Cq::CapturePending.code()),
+                "re-captured: {what}"
+            );
+        }
+        // A settled capture (the captor's Holding at the mirror's
+        // generation, `capture_flags` 1): the lock is off. Crafted.
+        let mut g = c.fork();
+        g.edit(&e.holding, |d| {
+            d[H2::CAPTURE_FLAGS] = H2::CAPTURE_FLAG_CAPTURED
+        });
+        expect_lands(send(&mut g, &e, harvest.clone()), "hx::harvest(");
+        // Unlocked: every action lands on the base chain.
+        expect_lands(send(&mut c.fork(), &e, harvest), "hx::harvest(");
+        expect_lands(send(&mut c.fork(), &e, build), "hx::build_item(");
+        expect_lands(send(&mut c.fork(), &e, train), "hx::train(");
+        expect_lands(send(&mut c.fork(), &e, explore), "hx::explore(");
+    }
+
+    /// G3 (MC §5.6): Harvest and Train's Province is the holding's own
+    /// (recomputed): another Province, a copy of the own one, a v1 header.
+    #[test]
+    fn g03_cq_resident_actions_refuse_a_forged_province() {
+        let (mut c, w, e) = setup();
+        let other = w.craft_province(&mut c, 3, 0);
+        for ix in [
+            hx::harvest(&w.a, &e.player(), e.href()),
+            hx::train(&w.a, &e.player(), e.href(), 0, 100),
+            hx::build_item(&w.a, &e.player(), e.href(), 0, false),
+        ] {
+            assert_code(
+                send(
+                    &mut c.fork(),
+                    &e,
+                    with_account(ix.clone(), at::PROVINCE, other),
+                ),
+                E::BadAddress,
+            );
+            let mut f = c.fork();
+            f.edit(&e.province, |d| d[16] = 1); // layout_version 1
+            assert_code(send(&mut f, &e, ix), E::BadAccount);
+        }
+    }
+
+    /// K2 (MC §3.16): Train pays `catalog::train_v2`: the Horseman at the
+    /// Spearman's ore and gold; the Knight and the rest as M1.
+    #[test]
+    fn cq_train_pays_the_v2_table() {
+        let (mut c, w, e) = setup();
+        w.enrich(&mut c, &e, 1_000_000);
+        for (unit, n) in [
+            (UnitType::Horseman as u8, 500u32),
+            (UnitType::Knight as u8, 300),
+            (UnitType::Spearman as u8, 250),
+        ] {
+            let before = read_kholding(&c.data(&e.holding));
+            expect_lands(
+                send(&mut c, &e, hx::train(&w.a, &e.player(), e.href(), unit, n)),
+                "hx::train(",
+            );
+            let cost = frontier_abi::v2::kernel::catalog2::train_v2(unit, n).unwrap();
+            let mut want = touched(before, c.now);
+            want.pay(c.now, &cost).unwrap();
+            assert_eq!(read_kholding(&c.data(&e.holding)), want, "unit {unit}");
+        }
+        let horse = UnitType::Horseman as u8;
+        assert_eq!(
+            frontier_abi::v2::kernel::catalog2::train_v2(horse, 500),
+            catalog::train(UnitType::Spearman as u8, 500),
+            "a Horseman costs a Spearman's"
+        );
+        assert_ne!(
+            frontier_abi::v2::kernel::catalog2::train_v2(horse, 500),
+            catalog::train(horse, 500)
+        );
+    }
+
+    /// MC §5.2.1, §3.10: a tier-up Build writes the mirror's `tier_next` and
+    /// `tier_next_bell = bell_at(done_at) + 1`; the next tier-up folds the
+    /// finished one into `tier`.
+    #[test]
+    fn cq_build_tier_up_writes_tier_next() {
+        let (mut c, w, e) = setup();
+        w.enrich(&mut c, &e, 1_000_000);
+        let up = |c: &mut Chain| {
+            let ix = hx::build_item(&w.a, &e.player(), e.href(), ITEM_TIER_UP, false);
+            expect_lands(send(c, &e, ix), "hx::build_item(")
+        };
+        let watch = ChainWatch::new(&c, e.province, EntityKind::Province);
+        let l = up(&mut c);
+        watch.check(&c, &l.logs, 1);
+        let done = records::one(&l.logs, Kind::BUILD).u64("done_at") as i64;
+        let o = P::site(e.site as usize);
+        let pd = c.data(&e.province);
+        assert_eq!(pd[o + SM::TIER], 0, "Hamlet until the tier-up is done");
+        assert_eq!(pd[o + SM2::TIER_NEXT], 1);
+        let eff = ((done - w.genesis_ts()) / 600) as u32 + 1;
+        assert_eq!(u32_at(&pd, o + SM2::TIER_NEXT_BELL), eff);
+        // After it finishes, the next tier-up folds Town into `tier`.
+        c.set_time(done + 10);
+        let rn = w.bell(&c).saturating_sub(1);
+        w.set_resolved_next(&mut c, &e.province, rn);
+        up(&mut c);
+        let pd = c.data(&e.province);
+        assert_eq!(pd[o + SM::TIER], 1, "Town folded in");
+        assert_eq!(pd[o + SM2::TIER_NEXT], 2);
+    }
+
+    /// G1 (§13.1): Harvest, Build and Train at M1's fills plus the
+    /// Province read (§5.4: 19,000 / 23,500 / 19,000 CU), Explore and
+    /// SettleExplore: the wave-3 measurement on the v2 shapes and table.
+    #[test]
+    fn g01_cq_resident_actions_with_the_province_read() {
+        super::g01_budget_w3b_holding();
+    }
+
+    /// MC §5.6: SettleExplore of a record whose host names another
+    /// generation than the Holding's (the victim's explore after a capture)
+    /// credits nothing and clears the record.
+    #[test]
+    fn cq_settle_explore_of_another_generation_credits_nothing() {
+        let (mut c, w, e) = setup();
+        let (id, near) = scout(&mut c, &w, &e);
+        let ex = hx::explore(&w.a, &e.player(), e.href(), (e.p, e.q), id, &near);
+        expect_lands(send(&mut c, &e, ex), "hx::explore(");
+        // Crafted: the Holding moved to the next generation (a settled
+        // capture).
+        c.edit(&e.holding, |d| d[H::GEN] = e.gen + 1);
+        let region = region_of(ProvinceCoord::new(e.p as i32, e.q as i32));
+        expect_lands(w.post_anchor(&mut c, B0, region), "PostAnchor");
+        expect_lands(w.post_seed(&mut c, B0, region, 0), "PostSeed");
+        let any = c.funded(b"settler", 1);
+        let settle = hx::settle_explore(
+            &w.a,
+            any.pubkey(),
+            e.href(),
+            &e.wallet.pubkey(),
+            B0,
+            region,
+            SeedSource::Cache { nonce: 0 },
+        );
+        let cd0 = c.data(&e.citizen);
+        let l = expect_lands(c.send(&[settle], &[&any]), "hx::settle_explore(");
+        let cd = c.data(&e.citizen);
+        assert_eq!(u64_at(&cd, C::WORKS), u64_at(&cd0, C::WORKS));
+        assert_eq!(cd[C::EXPLORES_FLOOR_LEFT], cd0[C::EXPLORES_FLOOR_LEFT]);
+        assert_eq!(u32_at(&cd, C::EXPLORES), u32_at(&cd0, C::EXPLORES));
+        assert_eq!(records::one(&l.logs, Kind::EXPLORE_RESULT).u64("works"), 0);
+        assert_eq!(c.data(&e.holding)[H::EXPLORE + X::STATE], X::STATE_FREE);
+    }
 }

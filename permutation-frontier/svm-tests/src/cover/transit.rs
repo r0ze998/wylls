@@ -7,6 +7,28 @@ use super::{Cover, Err, Lands, Loaded, E};
 pub const PENDING: &[(&str, &str)] = &[];
 
 pub const SETTLE_TRANSIT: &[Cover] = &[
+    // MC §5.6 0x54 (CQ2-C): the previous generation of a captured Holding
+    // settles, its returning host credited to `prev_home` (mandatory).
+    Cover::Test(
+        "transit::p_cq_p9_the_transit_of_a_captured_holding_settles",
+        &[Lands("prev_settle("), Err(E::TransitState)],
+    ),
+    Cover::Test(
+        "transit::p_cq_p9_without_the_capture_flag_the_generation_trap_holds",
+        &[Err(E::BadAccount)],
+    ),
+    Cover::Test(
+        "transit::g13_cq_settle_transit_prev_home_is_mandatory",
+        &[Err(E::TooManyAccounts)],
+    ),
+    Cover::Test(
+        "transit::g03_cq_settle_transit_prev_home_forgeries",
+        &[Err(E::BadAddress)],
+    ),
+    Cover::Test(
+        "transit::g12_cq_settle_transit_prev_home_released_loses_the_troops",
+        &[Lands("prev_settle(")],
+    ),
     // v1.7 (integ-W4 review): the camp's Works, an absent destination, the
     // gather stamp.
     Cover::Test(

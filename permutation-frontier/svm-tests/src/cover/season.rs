@@ -76,6 +76,14 @@ pub const CREATE_SEASON: &[Cover] = &[
             Lands("CreateSeason"),
         ],
     ),
+    Cover::Test(
+        "map::cq_create_season_v2_writes_the_conquest_block",
+        &[Lands("CreateSeason v2")],
+    ),
+    Cover::Test(
+        "map::g13_cq_create_season_v2_refusals",
+        &[Err(E::BadData), Err(E::Announce), Lands("CreateSeason v2")],
+    ),
 ];
 
 pub const INIT_BEACON_LOGS: &[Cover] = &[

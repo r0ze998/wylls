@@ -42,16 +42,20 @@ export function provinceCorners(p, q, inset = 0) {
 /** Fog levels (presentation only: every account is public; §7.3). */
 export const FOG = Object.freeze({ unopened: 1, distant: 0.55, known: 0.18, sight: 0, clear: 0 });
 
+/** How many provinces away from one with a tile in sight a province still counts as in sight: none (sight is counted in tiles: map/survey.mjs). */
+export const SIGHT_PROVINCES = 0;
 /**
- * The fog of one province: `unopened` (its ring is not open), `sight`
- * (within 2 provinces of the viewer's holdings and hosts), `known`
- * (holdings, hosts, past arrivals, explored hexes), else `distant`; the
- * "show everything" switch clears it (`clear`).
+ * The fog of one province, for the painters that work province by province
+ * (the survey of map/survey.mjs decides tile by tile; these are its levels
+ * by name): `unopened` (its ring is not open: the cloud sea), `sight` (some
+ * of it is in the viewer's sight: `sightDistance` 0), `known` (some of it
+ * was surveyed before), else `distant` (the chart). A page that shows the
+ * whole public world (the spectator, practice) has it `clear` (`showAll`).
  */
 export function fogLevel({ ringOpen, showAll = false, known = false, sightDistance = Infinity }) {
   if (!ringOpen) return 'unopened';
   if (showAll) return 'clear';
-  if (sightDistance <= 2) return 'sight';
+  if (sightDistance <= SIGHT_PROVINCES) return 'sight';
   return known ? 'known' : 'distant';
 }
 
@@ -81,7 +85,7 @@ export function provinceFill(rec) {
 export const SIGILS = Object.freeze(['circle', 'triangle', 'square', 'diamond', 'cross', 'hexagon', 'ring']);
 
 /** A faction's sigil of radius r (world px) at (x, y): its shape filled with its colour, outlined in ink. */
-export function paintSigil(ctx, { x, y, r, faction, scale = 1 }) {
+export function paintSigil(ctx, { x, y, r, faction, scale = 1, mark = null }) {
   const shape = SIGILS[faction] ?? 'ring';
   const pts = n => Array.from({ length: n }, (_, k) => { const a = -Math.PI / 2 + (k * 2 * Math.PI) / n; return [x + Math.cos(a) * r, y + Math.sin(a) * r]; });
   ctx.beginPath();
@@ -95,6 +99,8 @@ export function paintSigil(ctx, { x, y, r, faction, scale = 1 }) {
     corners.forEach(([px, py], k) => (k ? ctx.lineTo(px, py) : ctx.moveTo(px, py)));
     ctx.closePath();
   }
+  // (`mark`: the shape alone in one colour, to stand on a disc of the nation's colour)
+  if (mark) { if (shape === 'ring') { ctx.strokeStyle = mark; ctx.lineWidth = r * 0.36; ctx.stroke(); } else { ctx.fillStyle = mark; ctx.fill(); } return; }
   ctx.fillStyle = shape === 'ring' ? 'rgba(0,0,0,0)' : FACTION_COLORS[faction] ?? NEUTRAL_FILL;
   ctx.fill();
   ctx.strokeStyle = '#1b2e28'; ctx.lineWidth = (shape === 'ring' ? 2.5 : 1.5) / scale; ctx.stroke();

@@ -1,7 +1,7 @@
 // The life of each holding, from what its lord did (design session: "tie the
 // walkers to real data, and let the players appear"). The chronicle is
 // public: HARVEST, BUILD (item, done at), TRAIN (unit, n, done at), MUSTER,
-// DEPART, EXPLORE and SETTLE name the holding (directly, or through the
+// DEPART, EXPLORE, SETTLE and HOME_PLACED name the holding (directly, or through the
 // host id). The page folds every record it reads into one small record per
 // holding, and the people layer (crowds.mjs) draws from it:
 //   the lord        appears at a holding whose lord acted in the last
@@ -30,20 +30,22 @@ const holdingOfRecord = r => {
 
 /**
  * Fold chronicle records (`{record}` or bare records) into a life map:
- * "P,Q,site" → `{last, harvest, build: {item, doneAt}|null, train: {unit, n, doneAt}|null, muster, depart, explore}`
+ * "P,Q,site" → `{last, harvest, harvests (how many were read), build: {item, doneAt}|null, train: {unit, n, doneAt}|null, muster, depart, explore}`
  * (bells; done-at in chain seconds). Returns the same map (mutated), at most LIFE_MAX holdings.
  */
 export function updateLife(life, records) {
   for (const x of records ?? []) {
     const r = x.record ?? x;
-    const kinds = { HARVEST: 'harvest', BUILD: 'build', TRAIN: 'train', MUSTER: 'muster', DEPART: 'depart', EXPLORE: 'explore', SETTLE: 'settle' };
+    const kinds = { HARVEST: 'harvest', BUILD: 'build', TRAIN: 'train', MUSTER: 'muster', DEPART: 'depart', EXPLORE: 'explore', SETTLE: 'settle', HOME_PLACED: 'settle' };
     const what = kinds[r.name];
     if (!what) continue;
     const k = holdingOfRecord(r);
     if (!k) continue;
     const bell = Number(r.bell);
-    const rec = life.get(k) ?? { last: -1, harvest: -1, build: null, train: null, muster: -1, depart: -1, explore: -1, settle: -1 };
+    const rec = life.get(k) ?? { last: -1, harvest: -1, harvests: 0, build: null, train: null, muster: -1, depart: -1, explore: -1, settle: -1 };
     rec.last = Math.max(rec.last, bell);
+    // (how many harvests were read: two in one bell are two, people/moments.mjs)
+    if (what === 'harvest') rec.harvests = (rec.harvests ?? 0) + 1;
     if (what === 'build') rec.build = { item: Number(r.item), doneAt: Number(r.done_at), bell };
     else if (what === 'train') rec.train = { unit: Number(r.unit), n: Number(r.n), doneAt: Number(r.done_at), bell };
     else rec[what] = Math.max(rec[what], bell);
@@ -85,6 +87,6 @@ export function lordLine(name, doing, L) {
     case 'muster': return L`領主 ${name} が軍勢を編成している`;
     case 'explore': return L`領主 ${name} が探索を指揮している`;
     case 'settle': return L`領主 ${name} がこの地に着いたばかり`;
-    default: return L`領主 ${name} が領地にいる`;
+    default: return L`領主 ${name} は村にいる`;
   }
 }

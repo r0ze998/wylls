@@ -150,6 +150,64 @@ pub struct Config {
     pub mandate_stakers_only: bool,
     /// Print progress to stderr.
     pub verbose: bool,
+    /// Conquest-milestone rule and behaviour levers of the balance lab
+    /// (`--cq`, `conquest` sweep): kept so `out/cand.md` reproduces.
+    pub cq: crate::conquest::CqRules,
+    /// MC (CONQUEST-CONTRACT v1.1 §8.7): the rule set (`--rules`).
+    pub rules: crate::mc::Rules,
+    /// `--rules mc,bannerdom[=N]` (OD-14): N control-bells per March-banner
+    /// hour (0 = off).
+    pub bannerdom: u64,
+    /// `--rules mc,keepdom`: each held captured keep credits its captor
+    /// 1,000 Dominion fact units an hour (the balance lab's `kdom`; a
+    /// documented negative control of the doctrine band).
+    pub keepdom: bool,
+    /// Attack policy per faction (`--policy lone|campaign|campaign:0,lone:1-5`).
+    pub policy: [crate::mc::Policy; 6],
+    /// Scripted-bot profile (`--bot-profile sim|cq|m1`).
+    pub bot_profile: crate::mc::BotProfile,
+    /// `--bot-profile m1`'s epoch-decision probability.
+    pub m1_act_p: f64,
+    /// `--forward` (OD-15, R-12): campaign targets may be chosen within 2
+    /// provinces of a held keep with a resident host of the faction, and
+    /// that host marches on from there.
+    pub forward: bool,
+    /// `--keep-stay` (integ-W1, review CQ1-B; deviation D-8): when a keep
+    /// is taken, the taking faction's other hosts on the keep tile stay
+    /// there as its defence (K-19 / §3.2 step 5 "other hosts stay")
+    /// instead of going home (the default, CQ1-B's choice).
+    pub keep_stay: bool,
+    /// Season parameters of the MC rules (§3.12); `--preset` or by days,
+    /// then `--mc key=value,…` overrides (exploration rows only).
+    pub mc: crate::mc::McParams,
+    /// `--mc key=value,…` applied after the preset.
+    pub mc_overrides: String,
+    /// Campaign plan: campaigns per faction kept for player holdings.
+    pub holding_slots: usize,
+    /// The campaign planner's occupation objective (W1-close, PO-1 (a),
+    /// CQH1(1); measured as E1 on `exp/cq-e1-planner`; planner only, no
+    /// rule): campaigns per faction kept for first holdings to occupy
+    /// (besiegeable homes outside the heartlands, unshielded, not
+    /// Frontier-protected), the weakest defence first. Default
+    /// `mc::OCC_SLOTS` (1); `--mc occ_slots=N` is an exploration override.
+    pub occ_slots: usize,
+    /// The hold rule (PO-1 (a)): an occupation strike's hosts carry the
+    /// retreat order `clamp(10,000 × group ÷ own, 6,667, RETREAT_MAX_BPS)`,
+    /// so they withdraw on arrival only when the frozen defence outweighs
+    /// the whole group. Default on; `--mc siege_hold=0` explores without.
+    pub siege_hold: bool,
+    /// Rally stay (PO-1 (a); a simulator defect fix): under MC a campaign
+    /// faction's `Rally` host that arrives stays on its target's hex while
+    /// the strike is pending or the target's MC siege is live. Before, the
+    /// clash read the M1 siege record, which MC never sets, and sent every
+    /// arriving rally host home. Campaign factions only, as E1 and the P1
+    /// doctrine-band measurement ran it: for lone factions the same fix
+    /// moves the overnight band to 5/6 (W1C-B-sim-NOTES §3.1). Default on;
+    /// `--mc rally_stay=0` explores without.
+    pub rally_stay: bool,
+    /// Threads of the parallel runners (`FRONTIER_SIM_THREADS`, default:
+    /// every core).
+    pub threads: Option<usize>,
 }
 
 impl Default for Config {
@@ -192,11 +250,73 @@ impl Default for Config {
             office_pay: OfficePay::Usdc,
             mandate_stakers_only: true,
             verbose: false,
+            cq: crate::conquest::CqRules::default(),
+            rules: crate::mc::Rules::M1,
+            bannerdom: 0,
+            keepdom: false,
+            policy: [crate::mc::Policy::Lone; 6],
+            bot_profile: crate::mc::BotProfile::Sim,
+            m1_act_p: crate::mc::M1_ACT_P,
+            forward: false,
+            keep_stay: false,
+            mc: crate::mc::McParams::FRONTIER_28,
+            mc_overrides: String::new(),
+            holding_slots: crate::sim::campaign::HOLDING_SLOTS,
+            occ_slots: crate::mc::OCC_SLOTS,
+            siege_hold: true,
+            rally_stay: true,
+            threads: None,
         }
     }
 }
 
 impl Config {
+    /// Select the MC rule set: the season parameters for the season length
+    /// (unless `--preset` set them) and the lone-behaviour levers the
+    /// balance lab measured with the keep model (`R`: launch floor,
+    /// control-aware targets, rallies of ≤ 3, keep interest 1.0). The
+    /// rules themselves are `crate::mc::Rules` paths in `sim.rs`.
+    pub fn set_rules(&mut self, rules: crate::mc::Rules, preset: Option<crate::mc::McParams>) {
+        self.rules = rules;
+        if rules == crate::mc::Rules::M1 {
+            return;
+        }
+        self.mc = preset.unwrap_or_else(|| crate::mc::McParams::for_days(self.days));
+        // `--mc`: the planner keys are the Config's, the rest the preset's.
+        let mut rest: Vec<&str> = Vec::new();
+        let o = self.mc_overrides.clone();
+        for kv in o.split(',').filter(|x| !x.is_empty()) {
+            let (k, v) = kv.split_once('=').expect("--mc key=value");
+            match k {
+                "occ_slots" => self.occ_slots = v.parse().expect("--mc occ_slots"),
+                "siege_hold" => self.siege_hold = v != "0",
+                "rally_stay" => self.rally_stay = v != "0",
+                _ => rest.push(kv),
+            }
+        }
+        self.mc.apply(&rest.join(","), &mut self.holding_slots);
+        if !o.is_empty() {
+            self.mc.preset = "custom";
+        }
+        let c = &mut self.cq;
+        c.launch_floor = true;
+        c.occ_control = true;
+        c.target_control = true;
+        c.rally = 3;
+        c.radius = 2;
+    }
+
+    /// Worker threads for the parallel runners.
+    pub fn threads(&self, jobs: usize) -> usize {
+        let env = std::env::var("FRONTIER_SIM_THREADS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok());
+        self.threads
+            .or(env)
+            .unwrap_or_else(|| std::thread::available_parallelism().map_or(4, |x| x.get()))
+            .clamp(1, jobs.max(1))
+    }
+
     /// The economy of revision 2 as the M0 simulator ran it (`cea89be`):
     /// full emission for every holding, Relic Sites paying 1 laurel a bell,
     /// 140 Works per USDC, stakes priced by days left, officer pay without

@@ -22,11 +22,14 @@ import { L, fmtNum } from '../../lang.mjs';
 import { sha256 } from '../../sdk/sha256.mjs';
 import { toHex } from '../../sdk/bytes.mjs';
 import { hostId } from '../faddr.mjs';
-import { RETREAT_CHOICES, retreatBps } from '../fmarch.mjs';
+import { retreatBps } from '../fmarch.mjs';
 import { STANCES as STANCE_TEXT, UNITS as UNIT_TEXT, factionName } from '../fi18n.mjs';
 import { STANCES } from '../seal.mjs';
 import { UNIT_ORDER } from '../fland.mjs';
-import { resolveArgs, outcomeRows, renderRows, codeText, campId, NEUTRAL, SITES, STORAGE } from './report.mjs';
+import { resolveArgs, outcomeRows, renderRows, renderSides, summaryOf, verdictOf, stamp, codeText, campId, NEUTRAL, SITES, STORAGE } from './report.mjs';
+import { icon } from '../hud/icons.mjs';
+import { stancePicks, retreatPicks, retreatLine } from '../hud/marchcard.mjs';
+import { fold, label, chip } from './parts.mjs';
 
 // ------------------------------------------------------------------ the practice province
 /** Practice coordinates (host ids need a real province; nothing here touches it). */
@@ -222,79 +225,104 @@ const SCENARIO_TEXT = {
   camp: () => L`蛮族の野営地を襲う`,
   defend: () => L`村を守る（守備隊と城壁）`,
   stance: () => L`構えの三すくみ`,
-  retreat: () => L`撤退比`,
-  fairshare: () => L`マスの公平な割り当て`,
-  quota: () => L`到着枠（同じ国の大きい4軍）`,
-  rout: () => L`開封されない到着は敗走する`,
+  retreat: () => L`撤退の倍率`,
+  fairshare: () => L`一つのマスに九つの軍勢`,
+  quota: () => L`同じ国から六つの軍勢`,
+  rout: () => L`封が開けられなかった到着`,
 };
 const SCENARIO_NOTE = {
-  camp: () => L`野営地の守り手は中立です。構えと撤退比を選んで襲います。`,
+  camp: () => L`野営地の守り手は中立です。構えと撤退の倍率を選んで襲います。`,
   defend: () => L`あなたの村に敵の2軍が到着します。守備隊は待機の構えで戦い、城壁とともに反撃します。守備隊の兵数を選べます。`,
   stance: () => L`同じ兵数の2軍が同じマスに到着します。突撃は側撃に、側撃は迎撃に、迎撃は突撃に強く、勝つ側は与える損害が2割増えます。`,
-  retreat: () => L`大軍が守るマスへ到着します。撤退比を超える守り手がいれば、戦わずに損失なしで引き返します。守り手は鐘の始まりの顔ぶれで数えます。`,
+  retreat: () => L`大軍が守るマスへ到着します。守り手が撤退の倍率を超えていれば、戦わずに損失なしで引き返します。守り手に数えられるのは、ターンの始まりにそこにいた軍勢です。`,
   fairshare: () => L`3つの国の9軍が1つのマスに来ます。1マスには6軍までで、どの国にも公平に枠が割り当てられます（同盟でも枠は合わせられません）。`,
-  quota: () => L`同じ国の6軍が同じ州と鐘に到着します。出発時の兵が多い4軍が到着枠に入り、残りは損失なしで押し戻されます。`,
-  rout: () => L`開封されなかった到着は衝突に加わらず、精算で敗走します（兵と体力とチップの半分を失います）。チップはキーパーに開封してもらうためのものです。`,
+  quota: () => L`同じ国の6軍が、同じターンに同じ州へ到着します。出発のときの兵が多い4軍だけが到着でき、残りは損失なしで村へ押し戻されます。`,
+  rout: () => L`封が開けられなかった到着は衝突に加わらず、敗走します（兵と体力とチップの半分を失います）。チップは封を開けてもらうための報酬です。`,
 };
-const RETREAT_TEXT = {
-  never: () => L`撤退しない`,
-  x2: () => L`守り手が自軍の2倍を超えたら撤退`,
-  'x1.5': () => L`守り手が自軍の1.5倍を超えたら撤退`,
-  x1: () => L`守り手が自軍を超えたら撤退`,
-  'x0.5': () => L`守り手が自軍の半分を超えたら撤退`,
-};
+/** A mark per scenario (hud/icons.mjs). */
+const SCENARIO_ICON = { camp: 'tent', defend: 'shield', stance: 'swords', retreat: 'return', fairshare: 'crate', quota: 'banner', rout: 'lock' };
+const kernelLine = e => (e ? html`<p class="notice error" role="alert">${L`ルールを読み込めないため練習できません（${e}）`}</p>` : '');
 
-/** The practice panel: `st` = the practice state; `whatif` shows the report's variant; `closable` on the game page. */
+/**
+ * The practice document: the scene and the orders at the left, the result
+ * beside them (a wide card over the map; on a phone the result stands
+ * first, above the orders). `st` = the practice state; `whatif` shows the
+ * report's variant; `closable` on the game page.
+ */
 export function render(st, { kernelError = null, closable = false } = {}) {
   if (!st) return '';
   if (st.whatif) return renderWhatIf(st, kernelError);
   const sc = SCENARIOS[st.scenario];
   const controls = new Set(sc.controls);
   const r = st.result;
-  return html`<section aria-labelledby="practice-title"><h3 id="practice-title">${L`練習モード`}</h3>
-    ${closable ? html`<button type="button" class="btn small" data-act="practice-close">${L`閉じる`}</button>` : ''}
-    <p class="muted">${L`練習はこのブラウザの中だけで動き、何も送らず、何も得ません。結果はこのブラウザの外には保存されません。`}</p>
-    <div role="group" aria-label="${L`練習の場面`}"><ul class="cards">${SCENARIO_IDS.map(s => html`<li><button type="button" class="card" data-act="practice-scenario" data-scenario="${s}" aria-pressed="${s === st.scenario ? 'true' : 'false'}">${SCENARIO_TEXT[s]()}</button></li>`)}</ul></div>
-    <p>${SCENARIO_NOTE[st.scenario]()}</p>
-    <form data-form="practice-run">
-      ${controls.has('stance') ? html`<label class="field">${L`あなたの構え`}<select name="stance" data-bind="pr-stance">${STANCES.map((s, i) => html`<option value="${i}" ${raw(i === st.stance ? 'selected' : '')}>${STANCE_TEXT[s]}</option>`)}</select></label>` : ''}
-      ${controls.has('retreat') ? html`<label class="field">${L`撤退比`}<select name="retreat" data-bind="pr-retreat">${RETREAT_CHOICES.filter(c => c.id !== 'custom').map(c => html`<option value="${c.id}" ${raw(c.id === st.retreat ? 'selected' : '')}>${RETREAT_TEXT[c.id]()}</option>`)}</select></label>` : ''}
-      ${controls.has('troops') ? html`<label class="field">${st.scenario === 'defend' ? L`守備隊の兵数` : L`あなたの兵数`}<input name="troops" type="number" inputmode="numeric" min="100" max="30000" step="1" value="${st.troops}" data-bind="pr-troops"></label>` : ''}
-      <p><button type="submit" class="btn primary">${L`衝突を試す`}</button> <button type="button" class="btn" data-act="practice-reroll" ${raw(r?.ok ? '' : 'disabled')}>${L`乱数を引き直す`}</button></p>
-    </form>
-    ${kernelError ? html`<p class="notice error" role="alert">${L`ルールのモジュール（frontier.wasm）を読み込めないため練習できません（${kernelError}）`}</p>` : ''}
-    ${r ? renderResult(st, r) : ''}
+  return html`<section aria-labelledby="practice-title" class="practice doc${r ? ' has-result' : ''}">
+    <header class="doc-head"><span class="doc-titles"><h3 id="practice-title">${L`練習モード`}</h3><span class="c-sub">${L`練習はこのブラウザの中だけで動き、何も送らず、何も得ません。結果はこのブラウザの外には保存されません。`}</span></span>
+      ${closable ? html`<button type="button" class="btn small quiet" data-act="practice-close">${L`閉じる`}</button>` : ''}</header>
+    <div class="doc-cols doc-cols-3">
+      <div class="doc-col pr-scenes">
+        ${label(L`練習の場面`)}
+        <div role="group" aria-label="${L`練習の場面`}"><ul class="scene-list">${SCENARIO_IDS.map(s => html`<li><button type="button" class="scene" data-act="practice-scenario" data-scenario="${s}" aria-pressed="${s === st.scenario ? 'true' : 'false'}">${icon(SCENARIO_ICON[s] ?? 'swords')}<span>${SCENARIO_TEXT[s]()}</span></button></li>`)}</ul></div>
+      </div>
+      <div class="doc-col pr-setup">
+        <p class="pr-note">${SCENARIO_NOTE[st.scenario]()}</p>
+        <form class="vform" data-form="practice-run">
+          ${controls.has('stance') ? html`${label(L`あなたの構え`)}${stancePicks(st.stance, { bind: 'pr-stance' })}` : ''}
+          ${controls.has('retreat') ? html`${label(L`撤退の倍率`)}${retreatPicks(st.retreat, { bind: 'pr-retreat' })}<p class="pick-line">${retreatLine(st.retreat)}</p>` : ''}
+          ${controls.has('troops') ? html`<label class="count-field">${st.scenario === 'defend' ? L`守備隊の兵数` : L`あなたの兵数`}<input name="troops" type="number" inputmode="numeric" min="100" max="30000" step="1" value="${st.troops}" data-bind="pr-troops"></label>` : ''}
+          <div class="actions"><button type="submit" class="btn primary">${icon('swords')}${L`衝突を試す`}</button><button type="button" class="btn" data-act="practice-reroll" ${raw(r?.ok ? '' : 'disabled')}>${L`運を変えてもう一度`}</button></div>
+        </form>
+        ${kernelLine(kernelError)}
+      </div>
+      <div class="doc-col pr-result">${r ? renderResult(st, r) : html`<div class="pr-empty"><span class="pr-empty-ic">${icon('swords')}</span><p>${L`場面と命令を決めて「衝突を試す」を押すと、ここに結果が出ます。`}</p></div>`}</div>
+    </div>
   </section>`;
+}
+
+/** A result as a picture: the stamp for the viewer's side (the report's own words: verdictOf), the troop bars; the rows on demand. */
+function outcomeBlock(rows, caption, key) {
+  const sum = summaryOf(rows);
+  const vd = verdictOf(sum);
+  return html`<div class="pr-outcome">${stamp(vd.key, vd.tone)}
+    ${sum.mine ? html`<p class="pr-loss">${vd.text ? html`<strong>${vd.text}</strong> · ` : ''}${L`あなたの損害 ${fmtNum(sum.lost)} / ${fmtNum(sum.before)}`}</p>` : ''}</div>
+    ${renderSides(rows)}
+    ${fold(key, L`軍勢ごとの内訳`, renderRows(rows, caption))}`;
 }
 
 function renderResult(st, r) {
   if (!r.ok) return html`<p class="notice error" role="alert">${L`ルールがこの場面を受け付けませんでした（${codeText(r.why)}）`}</p>`;
   const mine = x => r.args.arrivals.concat(r.args.residents).some(f => f.id === BigInt(x) && f.faction === st.you) || r.args.garrisons.some(g => g.id === BigInt(x) && g.faction === st.you);
   const bot = r.args.arrivals.filter(f => f.faction !== st.you && f.faction !== NEUTRAL).map(f => STANCE_TEXT[STANCES[f.posture]]);
-  return html`<div role="status" aria-live="polite"><h4>${L`練習の結果`}</h4>
-    ${renderRows(outcomeRows(r.args, r.outcome, mine), L`練習の結果`)}
-    ${bot.length ? html`<p class="muted">${L`相手のボットの構え：${bot.join(' / ')}`}</p>` : ''}
-    ${r.displaced.length ? html`<p>${L`到着枠に入れず押し戻された軍勢（損失なし）：${r.displaced.map(f => fmtNum(Math.floor(f.troops / MILLI))).join(' / ')}`}</p>` : ''}
-    ${r.routed.map(f => html`<p class="warn">${L`開封されなかった到着：兵 ${fmtNum(Math.floor(f.troops / MILLI))} → ${fmtNum(Math.floor(f.after / MILLI))}、体力 0、チップは戻りません`}</p>`)}
-    <p class="muted">${L`交戦 ${fmtNum(r.outcome.engagements)} · 練習用の乱数 ${r.seedHex.slice(0, 12)}…（本番の結果ではありません）`}</p></div>`;
+  return html`<div role="status" aria-live="polite"><h4 class="pr-h">${L`練習の結果`}</h4>
+    ${outcomeBlock(outcomeRows(r.args, r.outcome, mine), L`練習の結果`, 'pr-rows')}
+    ${bot.length ? html`<p class="muted">${L`相手の構え：${bot.join(' / ')}`}</p>` : ''}
+    ${r.displaced.length ? html`<p>${L`到着が多すぎて村へ押し戻された軍勢（損失なし）：${r.displaced.map(f => fmtNum(Math.floor(f.troops / MILLI))).join(' / ')}`}</p>` : ''}
+    ${r.routed.map(f => html`<p class="warn">${L`封が開けられなかった到着：兵 ${fmtNum(Math.floor(f.troops / MILLI))} → ${fmtNum(Math.floor(f.after / MILLI))}、体力 0、チップは戻りません`}</p>`)}
+    <p class="muted">${L`これは練習です。本番の結果ではありません。`}</p></div>`;
 }
 
 function renderWhatIf(st, kernelError) {
   const w = st.whatif;
-  const title = L`もしも：州 ${w.p},${w.q} · 第${fmtNum(w.bell)}鐘`;
-  return html`<section aria-labelledby="practice-title"><h3 id="practice-title">${title}</h3>
-    <p class="muted">${L`実際の衝突と同じ入力と乱数で、あなたの到着軍勢の構えと撤退比だけを変えて計算します。チェーンには何も送りません。`}</p>
-    <form data-form="practice-whatif">
-      <label class="field">${L`あなたの構え`}<select name="stance" data-bind="pr-stance">${STANCES.map((s, i) => html`<option value="${i}" ${raw(i === st.stance ? 'selected' : '')}>${STANCE_TEXT[s]}</option>`)}</select></label>
-      <label class="field">${L`撤退比`}<select name="retreat" data-bind="pr-retreat">${RETREAT_CHOICES.filter(c => c.id !== 'custom').map(c => html`<option value="${c.id}" ${raw(c.id === st.retreat ? 'selected' : '')}>${RETREAT_TEXT[c.id]()}</option>`)}</select></label>
-      <p><button type="submit" class="btn primary">${L`もしもを計算する`}</button> <button type="button" class="btn" data-act="practice-close">${L`報告に戻る`}</button></p>
-    </form>
-    ${kernelError ? html`<p class="notice error" role="alert">${L`ルールのモジュール（frontier.wasm）を読み込めないため練習できません（${kernelError}）`}</p>` : ''}
-    ${w.mineCount === 0 ? html`<p class="muted">${L`この衝突にあなたの到着軍勢はいません。`}</p>` : ''}
-    ${w.result?.ok ? html`<div role="status" aria-live="polite"><h4>${L`実際`}</h4>${renderRows(outcomeRows(w.args, w.outcome, w.mine), L`実際`)}
-      <h4>${L`もしも`}</h4>${renderRows(outcomeRows(w.result.alt.args, w.result.alt.outcome, w.mine), L`もしも`)}
-      <p>${w.result.changed.length ? L`結末か兵数が変わった軍勢：${w.result.changed.length}` : L`この変更では結果は変わりません`}</p></div>` : ''}
-    ${w.result && !w.result.ok ? html`<p class="notice error" role="alert">${L`ルールがこの場面を受け付けませんでした（${codeText(w.result.why)}）`}</p>` : ''}
+  const title = L`もしも：ターン ${fmtNum(w.bell)} の衝突`;
+  return html`<section aria-labelledby="practice-title" class="practice doc has-result">
+    <header class="doc-head"><span class="doc-titles"><h3 id="practice-title">${title}</h3><span class="c-sub">${L`実際の衝突と同じ条件で、あなたの軍勢の構えと撤退の倍率だけを変えて計算します。チェーンには何も送りません。`}</span></span>${chip(L`もしも`, 'info')}</header>
+    <div class="doc-cols">
+      <div class="doc-col pr-setup">
+        <form class="vform" data-form="practice-whatif">
+          ${label(L`あなたの構え`)}${stancePicks(st.stance, { bind: 'pr-stance' })}
+          ${label(L`撤退の倍率`)}${retreatPicks(st.retreat, { bind: 'pr-retreat' })}<p class="pick-line">${retreatLine(st.retreat)}</p>
+          <div class="actions"><button type="submit" class="btn primary">${L`もしもを計算する`}</button><button type="button" class="btn" data-act="practice-close">${L`報告に戻る`}</button></div>
+        </form>
+        ${kernelLine(kernelError)}
+        ${w.mineCount === 0 ? html`<p class="muted">${L`この衝突に、あなたの到着した軍勢はいません。`}</p>` : ''}
+      </div>
+      <div class="doc-col pr-result">
+        ${w.result?.ok ? html`<div role="status" aria-live="polite"><h4 class="pr-h">${L`実際`}</h4>${outcomeBlock(outcomeRows(w.args, w.outcome, w.mine), L`実際`, 'wi-rows-a')}
+          <h4 class="pr-h">${L`もしも`}</h4>${outcomeBlock(outcomeRows(w.result.alt.args, w.result.alt.outcome, w.mine), L`もしも`, 'wi-rows-b')}
+          <p class="pr-changed">${w.result.changed.length ? L`結果か兵数が変わった軍勢：${w.result.changed.length}` : L`この変更では結果は変わりません`}</p></div>`
+          : html`<div class="pr-empty"><span class="pr-empty-ic">${icon('swords')}</span><p>${L`構えと撤退の倍率を決めて「もしもを計算する」を押すと、実際の結果と並べて出ます。`}</p></div>`}
+        ${w.result && !w.result.ok ? html`<p class="notice error" role="alert">${L`ルールがこの場面を受け付けませんでした（${codeText(w.result.why)}）`}</p>` : ''}
+      </div>
+    </div>
   </section>`;
 }
 

@@ -14,13 +14,12 @@
 # (O-M1-12). Without it this script changes nothing, prints PENDING-OWNER
 # and exits 3; the gate checks for the target before calling it (§12).
 #
-# Cross-host bytes (CI fix, measured 2026-10-03). The same source and the same
+# Cross-host bytes (measured for this source in CI run 38157524022). The same source and the same
 # rustc 1.95.0 (59807616e) build to different bytes on different build hosts:
-# aarch64-apple-darwin (where the committed module is built) gives 205,623 B,
-# sha256 32006de4...; the GitHub runner (x86_64-unknown-linux-gnu) gives
-# 205,577 B, sha256 2d21f8c4... (CI runs 36923004057 and 36958805861, two
-# commits, identical Linux hash). Each host is deterministic (a clean
-# `git archive` checkout on the Mac gives the committed bytes again). The
+# aarch64-apple-darwin (where the committed module is built) gives 205,683 B,
+# sha256 05a2e1e2...; the GitHub runner (x86_64-unknown-linux-gnu) gives
+# 205,637 B, sha256 020cc258.... The Mac --check build reproduces the
+# committed bytes. The
 # cause is not established; it is not the checkout path (remapped) and not
 # floating point (the sources use none). So the committed module stays the one
 # built on the Mac, and web/frontier/wasm/frontier.wasm.hosts records the
@@ -40,11 +39,15 @@ TARGET=wasm32-unknown-unknown
 RAW_MAX=$((400 * 1024))
 GZ_MAX=$((150 * 1024))
 CHECK=0
-case "${1:-}" in
-  --check) CHECK=1 ;;
-  "") ;;
-  *) echo "usage: $0 [--check]" >&2; exit 2 ;;
-esac
+ARTIFACT=frontier.wasm
+FEATURE_ARGS=(--lib)
+for arg in "$@"; do
+  case "$arg" in
+    --check) CHECK=1 ;;
+    --cq) ARTIFACT=frontier-v2.wasm; FEATURE_ARGS=(--lib --features cq) ;;
+    *) echo "usage: $0 [--cq] [--check]" >&2; exit 2 ;;
+  esac
+done
 
 if ! rustup target list --installed --toolchain "$TOOLCHAIN" 2>/dev/null | grep -qx "$TARGET"; then
   echo "PENDING-OWNER: the $TARGET target is not installed for $TOOLCHAIN (O-M1-12); nothing built" >&2
@@ -77,8 +80,8 @@ trap cleanup EXIT
 ln -sfn "$ROOT" "$LINK"
 SEP=$'\x1f'
 export CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$LINK=/psf${SEP}--remap-path-prefix=$ROOT=/psf${SEP}--remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo${SEP}--remap-path-prefix=$HOME/.rustup=/rustup"
-(cd "$CRATE" && cargo "+$TOOLCHAIN" build --locked --release --target "$TARGET" --target-dir "$TARGET_DIR" --lib \
-  --manifest-path "$LINK/frontier-wasm/Cargo.toml")
+(cd "$CRATE" && cargo "+$TOOLCHAIN" build --locked --release --target "$TARGET" --target-dir "$TARGET_DIR" \
+  --manifest-path "$LINK/frontier-wasm/Cargo.toml" "${FEATURE_ARGS[@]}")
 BUILT="$TARGET_DIR/$TARGET/release/frontier_wasm.wasm"
 [ -f "$BUILT" ] || { echo "build-wasm: no $BUILT" >&2; exit 1; }
 
@@ -103,14 +106,14 @@ FAIL=0
 [ "$RAW" -le "$RAW_MAX" ] || { echo "build-wasm: $RAW B raw is over the 400 KB budget" >&2; FAIL=1; }
 [ "$GZ" -le "$GZ_MAX" ] || { echo "build-wasm: $GZ B gzip is over the 150 KB budget" >&2; FAIL=1; }
 
-HOSTS_FILE="$OUT_DIR/frontier.wasm.hosts"
+HOSTS_FILE="$OUT_DIR/$ARTIFACT.hosts"
 HOST="$(rustc "+$TOOLCHAIN" -vV | sed -n 's/^host: //p')"
 [ -n "$HOST" ] || { echo "build-wasm: cannot read the host triple of $TOOLCHAIN" >&2; exit 1; }
 HOST_LINE="$HOST $SHA $RAW"
 
 if [ "$CHECK" = 1 ]; then
-  WANT="$OUT_DIR/frontier.wasm"
-  COMMITTED_SHA=$(cut -d' ' -f1 < "$OUT_DIR/frontier.wasm.sha256")
+  WANT="$OUT_DIR/$ARTIFACT"
+  COMMITTED_SHA=$(cut -d' ' -f1 < "$OUT_DIR/$ARTIFACT.sha256")
   if [ ! -f "$WANT" ] || [ "$(shasum -a 256 "$WANT" | cut -d' ' -f1)" != "$COMMITTED_SHA" ]; then
     echo "build-wasm --check: frontier.wasm.sha256 is stale or frontier.wasm is missing" >&2
     exit 1
@@ -136,8 +139,8 @@ fi
 
 [ "$FAIL" = 0 ] || exit 1
 mkdir -p "$OUT_DIR"
-cp "$BUILT" "$OUT_DIR/frontier.wasm"
-echo "$SHA  frontier.wasm" > "$OUT_DIR/frontier.wasm.sha256"
+cp "$BUILT" "$OUT_DIR/$ARTIFACT"
+echo "$SHA  $ARTIFACT" > "$OUT_DIR/$ARTIFACT.sha256"
 # This host's record; the other hosts' lines belong to the previous module.
 if [ -f "$HOSTS_FILE" ] && grep -qE "^[^ #]+ $SHA " "$HOSTS_FILE"; then
   # Module unchanged: keep every record, refresh this host's.
@@ -147,4 +150,4 @@ else
   echo "build-wasm: the module changed; frontier.wasm.hosts now has only $HOST. Add the CI host's line from the next CI run (x86_64-unknown-linux-gnu)." >&2
 fi
 mv "$HOSTS_FILE.new" "$HOSTS_FILE"
-echo "wrote $OUT_DIR/frontier.wasm"
+echo "wrote $OUT_DIR/$ARTIFACT"

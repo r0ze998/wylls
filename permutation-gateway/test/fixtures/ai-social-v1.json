@@ -1,0 +1,368 @@
+{
+  "v": 1,
+  "producer": "permutation-gateway/citizens/social/vectors.mjs",
+  "note": "Deterministic local test keys (seeds derived from fixed strings); public by construction. Rust checks byte conformance only (contract 6.1).",
+  "season": "31",
+  "tags": {
+    "talk": "wylls/frontier/talk/v1",
+    "ballot": "wylls/frontier/ballot/v1",
+    "callread": "wylls/frontier/callread/v1",
+    "reserved": "wylls/frontier/pact/v1"
+  },
+  "keys": [
+    {
+      "name": "alice",
+      "seed_hex": "f01e581d8eb18b65a132a02dfcd342afeda3a460ff9640a2749a9cb7060e9a84",
+      "wallet_b58": "ALonKfJjSs4fwpsBn6znoNMPBjApPnAk4K79Av5Fytmi",
+      "wallet_hex": "8acc1d160aaa89a8d2686bdfebabe75f796e23029e31cdaaa9cf8dccfa4e0c2d"
+    },
+    {
+      "name": "bob",
+      "seed_hex": "2e7d6aa95893d623bed3f7f786fd385cf220b05f03977b1125ad8f473e05274c",
+      "wallet_b58": "9pMAJWd56Bh43hBRjqkrCpYoe1K4dGCYMyzk3oAkYNDJ",
+      "wallet_hex": "82fe96bed110f6a1316c889330f3e5c88e6a6e9d4f0e90b7221ca441dae24f65"
+    },
+    {
+      "name": "carol",
+      "seed_hex": "c77d8f827b7fcc44a9c4ad1512c26d13f89d3a8befd2003dd663c0ec3ffaa2db",
+      "wallet_b58": "J1pw1qR8H747XkYR5NDhp2oRyS8P51Tm2GGkTPtBUSCr",
+      "wallet_hex": "fcccdfb2cd0edec28457c15c7ef3499841d4e594753e7eac9783da960ec9ae6b"
+    }
+  ],
+  "candidates_hash_hex": "f9aec6b225e3086d695e9d48da2b50118baac0cebd09c296c065f1180a74034c",
+  "nonce_hex": "9569d9212f7f8ea8dacdf397d39c89f5",
+  "talk": [
+    {
+      "name": "say, world channel",
+      "signer": "alice",
+      "fields": {
+        "season": "31",
+        "bell": 402,
+        "wallet": "ALonKfJjSs4fwpsBn6znoNMPBjApPnAk4K79Av5Fytmi",
+        "seq": 6432,
+        "channel": 0,
+        "target": null,
+        "kind": 0,
+        "ref": "0",
+        "origin": 0,
+        "lang": "en",
+        "text": "Good morning, all nations."
+      },
+      "bytes_hex": "77796c6c732f66726f6e746965722f74616c6b2f76311f00000000000000920100008acc1d160aaa89a8d2686bdfebabe75f796e23029e31cdaaa9cf8dccfa4e0c2d201900000000000000000000000000656e1a00476f6f64206d6f726e696e672c20616c6c206e6174696f6e732e",
+      "sig_hex": "f997264c323d9940c71bccafb089858ee05a03abd45443f31cbe835aed8ef873aa408b78ef56a501d27a75a983b27e03ebf3a06070668f9686a46e6e026dbb0a",
+      "inner_hex": "a4afce75bfd0ceead1e23cf7cbcb5fa911d1f4b1275c3a81c6fd217dc7b88c45",
+      "leaf_hex": "4c1842a5c30e4629ca1efec8aea1904cd4bdd2450f6067d00e182a00ca4bda56"
+    },
+    {
+      "name": "say, nation channel, Japanese",
+      "signer": "bob",
+      "fields": {
+        "season": "31",
+        "bell": 402,
+        "wallet": "9pMAJWd56Bh43hBRjqkrCpYoe1K4dGCYMyzk3oAkYNDJ",
+        "seq": 6433,
+        "channel": 1,
+        "target": 2,
+        "kind": 0,
+        "ref": "0",
+        "origin": 0,
+        "lang": "ja",
+        "text": "こんにちは、皆さん。斜めの島で会いましょう。"
+      },
+      "bytes_hex": "77796c6c732f66726f6e746965722f74616c6b2f76311f000000000000009201000082fe96bed110f6a1316c889330f3e5c88e6a6e9d4f0e90b7221ca441dae24f65211900000102000000000000000000006a614200e38193e38293e381abe381a1e381afe38081e79a86e38195e38293e38082e6969ce38281e381aee5b3b6e381a7e4bc9ae38184e381bee38197e38287e38186e38082",
+      "sig_hex": "705e42e33636d23747a615f1ac576c8fc775fdd49e950945cfc3089fd3a04908f41441a428e50d013649b0bffc5866964c967e529104ca80d6439552fe0c8b0c",
+      "inner_hex": "66fe41190196ddae7edc2f818f3e64d36b50234d250a4a8b492398cedd6dc6c9",
+      "leaf_hex": "00b49712f86b8fda56ba68a343d994b846ce93cc7fba91bb0d15c0baaed12a28"
+    },
+    {
+      "name": "direct to a wallet, AI-written (origin 1), a reply",
+      "signer": "carol",
+      "fields": {
+        "season": "31",
+        "bell": 403,
+        "wallet": "J1pw1qR8H747XkYR5NDhp2oRyS8P51Tm2GGkTPtBUSCr",
+        "seq": 6450,
+        "channel": 3,
+        "target": "ALonKfJjSs4fwpsBn6znoNMPBjApPnAk4K79Av5Fytmi",
+        "kind": 0,
+        "ref": "77",
+        "origin": 1,
+        "lang": "en",
+        "text": "I remember the camp you cleared. Thank you."
+      },
+      "bytes_hex": "77796c6c732f66726f6e746965722f74616c6b2f76311f0000000000000093010000fcccdfb2cd0edec28457c15c7ef3499841d4e594753e7eac9783da960ec9ae6b32190000038acc1d160aaa89a8d2686bdfebabe75f796e23029e31cdaaa9cf8dccfa4e0c2d004d0000000000000001656e2b00492072656d656d626572207468652063616d7020796f7520636c65617265642e205468616e6b20796f752e",
+      "sig_hex": "cb7e42de02d2d23af838801a1c849256def769eedcd8f583323b4255faa2631440ec4cc8fbfc1d370d4e42b731ffa0a75e2d86524cfaf318d87b3abaa6797100",
+      "inner_hex": "27a5e2632fbe92b36032ed2493fa40809a54f25c3c5a99252f9d127c8db1f7a2",
+      "leaf_hex": "cda084904961a9de031ba21223b146bfd93ce5398ad9e18446a7298c134ae8b5"
+    },
+    {
+      "name": "motion for option 2 of period 5, nation 4",
+      "signer": "alice",
+      "fields": {
+        "season": "31",
+        "bell": 412,
+        "wallet": "ALonKfJjSs4fwpsBn6znoNMPBjApPnAk4K79Av5Fytmi",
+        "seq": 6592,
+        "channel": 1,
+        "target": 4,
+        "kind": 1,
+        "ref": "1282",
+        "origin": 1,
+        "lang": "en",
+        "text": "The riverside stack is weak; let us strike it together."
+      },
+      "bytes_hex": "77796c6c732f66726f6e746965722f74616c6b2f76311f000000000000009c0100008acc1d160aaa89a8d2686bdfebabe75f796e23029e31cdaaa9cf8dccfa4e0c2dc0190000010401020500000000000001656e37005468652072697665727369646520737461636b206973207765616b3b206c657420757320737472696b6520697420746f6765746865722e",
+      "sig_hex": "f1475bf9e9ffed4fcede79f43b2ecc6fadac2b63dd66489d79ac63641ab2be47ed29f8d4a6ecc1cfddc28166c391a96f4df3e3f15dde46d1ca48d6f563009300",
+      "inner_hex": "6b45053b274d70c4cd44623329af51f753a97924add1f116d3611c832f03783d",
+      "leaf_hex": "a94eef56e677b7b5326d0440b842485e2101395133919c830557f262b6b0ed81"
+    },
+    {
+      "name": "say, scripted seat (origin 2)",
+      "signer": "bob",
+      "fields": {
+        "season": "31",
+        "bell": 500,
+        "wallet": "9pMAJWd56Bh43hBRjqkrCpYoe1K4dGCYMyzk3oAkYNDJ",
+        "seq": 8003,
+        "channel": 0,
+        "target": null,
+        "kind": 0,
+        "ref": "0",
+        "origin": 2,
+        "lang": "en",
+        "text": "Seat script line 1."
+      },
+      "bytes_hex": "77796c6c732f66726f6e746965722f74616c6b2f76311f00000000000000f401000082fe96bed110f6a1316c889330f3e5c88e6a6e9d4f0e90b7221ca441dae24f65431f00000000000000000000000002656e13005365617420736372697074206c696e6520312e",
+      "sig_hex": "65cceb0d7f011d40b55f4520f583cea979987ab1ec098f96394bdf596fef24a8eb84262f93a0dbafc11e5f381129859f02f8cbb69ae91314c4a5208f812dcc0c",
+      "inner_hex": "3c3eaffcda077aaf794b21f1edbfce4ae53e576fa52d4e4feee0560b16e528ce",
+      "leaf_hex": "b7982d04f854169d4cc7b2f191608c5d45e88662589426eabf9d4ad4377aefb0"
+    },
+    {
+      "name": "280 four-byte code points (1,120 bytes)",
+      "signer": "carol",
+      "fields": {
+        "season": "31",
+        "bell": 9999,
+        "wallet": "J1pw1qR8H747XkYR5NDhp2oRyS8P51Tm2GGkTPtBUSCr",
+        "seq": 159999,
+        "channel": 0,
+        "target": null,
+        "kind": 0,
+        "ref": "0",
+        "origin": 0,
+        "lang": "en",
+        "text": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      "bytes_hex": "77796c6c732f66726f6e746965722f74616c6b2f76311f000000000000000f270000fcccdfb2cd0edec28457c15c7ef3499841d4e594753e7eac9783da960ec9ae6bff7002000000000000000000000000656e6004f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880f09f9880",
+      "sig_hex": "597727a3682cf8fdf1fe5aa3b1352ef26db79518f5a1dd53493caf054be27236317ee0c12bf2f6ea61d6f9cb641dd876108e8b001f012ff5093802e49f096404",
+      "inner_hex": "16b558e452cdfe74c8e74745cf27a4ab8a29b0873600ca96c0e6c7ffd84e82e9",
+      "leaf_hex": "31f9b99d7d0c22ea5be17fde955b6207489afab10684af0fa84b1b7e8c4c6732"
+    }
+  ],
+  "ballot": [
+    {
+      "name": "ballot for option 2",
+      "signer": "alice",
+      "fields": {
+        "season": "31",
+        "period": 5,
+        "wallet": "ALonKfJjSs4fwpsBn6znoNMPBjApPnAk4K79Av5Fytmi",
+        "faction": 4,
+        "option": 2,
+        "candidates_hash": "f9aec6b225e3086d695e9d48da2b50118baac0cebd09c296c065f1180a74034c",
+        "nonce": "9569d9212f7f8ea8dacdf397d39c89f5",
+        "origin": 0
+      },
+      "bytes_hex": "77796c6c732f66726f6e746965722f62616c6c6f742f76311f00000000000000050000008acc1d160aaa89a8d2686bdfebabe75f796e23029e31cdaaa9cf8dccfa4e0c2d0402f9aec6b225e3086d695e9d48da2b50118baac0cebd09c296c065f1180a74034c9569d9212f7f8ea8dacdf397d39c89f500",
+      "sig_hex": "6e1c58322187204f873301add50a1e93604e339b1ab6ae9edf701885500d33a88dd8015592bc677bb2f018860d52ebd05e6b11ca60ac2d801d2044a09fdf9904",
+      "inner_hex": "70da1607c37fa7d3627932fc493f7dd6634cfd5f6d8fe379d7bf5168307c1d53",
+      "leaf_hex": "ff3d99050caa77f4f71caf3bfc43cea790ff6807235759778e0265aae0a37b68"
+    },
+    {
+      "name": "ballot for none, AI-written",
+      "signer": "bob",
+      "fields": {
+        "season": "31",
+        "period": 5,
+        "wallet": "9pMAJWd56Bh43hBRjqkrCpYoe1K4dGCYMyzk3oAkYNDJ",
+        "faction": 4,
+        "option": 0,
+        "candidates_hash": "f9aec6b225e3086d695e9d48da2b50118baac0cebd09c296c065f1180a74034c",
+        "nonce": "9569d9212f7f8ea8dacdf397d39c89f5",
+        "origin": 1
+      },
+      "bytes_hex": "77796c6c732f66726f6e746965722f62616c6c6f742f76311f000000000000000500000082fe96bed110f6a1316c889330f3e5c88e6a6e9d4f0e90b7221ca441dae24f650400f9aec6b225e3086d695e9d48da2b50118baac0cebd09c296c065f1180a74034c9569d9212f7f8ea8dacdf397d39c89f501",
+      "sig_hex": "ce22f35082300f0d2cf35a1875efffd096ad119dfa9b75c92daa1812bbf07ac1179b07dea41d7f6344ce96f2105e32fe7c605deba3f0f98ae144863345cf0d09",
+      "inner_hex": "0440cd3a8e57de49e33bb2c089c4876b5c65014be85e6bf3fbd31f99e537fbfd",
+      "leaf_hex": "e91e82dd70f6d1f3966b9d24e54d426f37760374d25508576d5e424e47c39b00"
+    },
+    {
+      "name": "ballot, scripted seat",
+      "signer": "carol",
+      "fields": {
+        "season": "31",
+        "period": 120,
+        "wallet": "J1pw1qR8H747XkYR5NDhp2oRyS8P51Tm2GGkTPtBUSCr",
+        "faction": 0,
+        "option": 3,
+        "candidates_hash": "f9aec6b225e3086d695e9d48da2b50118baac0cebd09c296c065f1180a74034c",
+        "nonce": "9569d9212f7f8ea8dacdf397d39c89f5",
+        "origin": 2
+      },
+      "bytes_hex": "77796c6c732f66726f6e746965722f62616c6c6f742f76311f0000000000000078000000fcccdfb2cd0edec28457c15c7ef3499841d4e594753e7eac9783da960ec9ae6b0003f9aec6b225e3086d695e9d48da2b50118baac0cebd09c296c065f1180a74034c9569d9212f7f8ea8dacdf397d39c89f502",
+      "sig_hex": "b919d4f870593ff10e5bf7919cdb473b2b85ed5b951b09c7ae03e0c102328fdfd7fe2694674b14ddb785cdc27b9a432bc56054b510c5cb7927e5711bf3260f09",
+      "inner_hex": "9601c8aa31dfd23334e7a87395f0899928aa39fbc988a6f163d425c67e8ac974",
+      "leaf_hex": "c0368caa350046f46de7263173435f65bd05e529c70150d51cf22b7f797a118e"
+    }
+  ],
+  "callread": [
+    {
+      "name": "call read, nation 4 period 5",
+      "signer": "alice",
+      "fields": {
+        "season": "31",
+        "faction": 4,
+        "period": 5,
+        "wallet": "ALonKfJjSs4fwpsBn6znoNMPBjApPnAk4K79Av5Fytmi",
+        "unix": "1800000000"
+      },
+      "bytes_hex": "77796c6c732f66726f6e746965722f63616c6c726561642f76311f0000000000000004050000008acc1d160aaa89a8d2686bdfebabe75f796e23029e31cdaaa9cf8dccfa4e0c2d00d2496b00000000",
+      "sig_hex": "b82cfdd8bed964aef279c776b628bf66fffffe1565dc0efe38c02d880259fc917002c6772bd8d826e804c78b0c012a85923ff41c889824c3546385d436b57305"
+    },
+    {
+      "name": "call read, period 0 faction 255, unix 0",
+      "signer": "bob",
+      "fields": {
+        "season": "31",
+        "faction": 255,
+        "period": 0,
+        "wallet": "9pMAJWd56Bh43hBRjqkrCpYoe1K4dGCYMyzk3oAkYNDJ",
+        "unix": "0"
+      },
+      "bytes_hex": "77796c6c732f66726f6e746965722f63616c6c726561642f76311f00000000000000ff0000000082fe96bed110f6a1316c889330f3e5c88e6a6e9d4f0e90b7221ca441dae24f650000000000000000",
+      "sig_hex": "e18a033d7ee1c32bd9e84a61ba45151b634db25578fe6e101174b45a7cf85618208571e3820d1d5bb2c8b8c72dd879659527d7db8461975fd934a1556be32b0e"
+    }
+  ],
+  "refused": [
+    {
+      "name": "text of 281 code points",
+      "bytes_hex": "77796c6c732f66726f6e746965722f74616c6b2f76311f00000000000000010000008acc1d160aaa89a8d2686bdfebabe75f796e23029e31cdaaa9cf8dccfa4e0c2d100000000000000000000000000000656e19016161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161",
+      "code": "TextTooLong",
+      "signable": true
+    },
+    {
+      "name": "a talk record with a trailing byte",
+      "bytes_hex": "77796c6c732f66726f6e746965722f74616c6b2f76311f00000000000000010000008acc1d160aaa89a8d2686bdfebabe75f796e23029e31cdaaa9cf8dccfa4e0c2d100000000000000000000000000000656e18016161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616100",
+      "code": "BadBytes",
+      "signable": true
+    },
+    {
+      "name": "a truncated talk record",
+      "bytes_hex": "77796c6c732f66726f6e746965722f74616c6b2f76311f00000000000000010000008acc1d160aaa89a8d2686bdfebabe75f796e23029e31cdaaa9cf8dccfa4e0c2d100000000000000000000000000000656e18016161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161",
+      "code": "BadBytes",
+      "signable": true
+    },
+    {
+      "name": "a motion for option 0",
+      "bytes_hex": "77796c6c732f66726f6e746965722f74616c6b2f76311f00000000000000010000008acc1d160aaa89a8d2686bdfebabe75f796e23029e31cdaaa9cf8dccfa4e0c2d10000000010001000100000000000000656e010078",
+      "code": "BadBytes",
+      "signable": true
+    },
+    {
+      "name": "the reserved TAG (refused, never signed)",
+      "bytes_hex": "77796c6c732f66726f6e746965722f706163742f7631010203",
+      "code": "BadBytes",
+      "signable": false
+    },
+    {
+      "name": "unknown TAG",
+      "bytes_hex": "77796c6c732f66726f6e746965722f6f746865722f76310000",
+      "code": "BadBytes",
+      "signable": false
+    },
+    {
+      "name": "empty",
+      "bytes_hex": "",
+      "code": "BadBytes",
+      "signable": false
+    }
+  ],
+  "merkle": [
+    {
+      "n": 0,
+      "leaves_hex": [],
+      "root_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "n": 1,
+      "leaves_hex": [
+        "4c1842a5c30e4629ca1efec8aea1904cd4bdd2450f6067d00e182a00ca4bda56"
+      ],
+      "root_hex": "4c1842a5c30e4629ca1efec8aea1904cd4bdd2450f6067d00e182a00ca4bda56"
+    },
+    {
+      "n": 2,
+      "leaves_hex": [
+        "4c1842a5c30e4629ca1efec8aea1904cd4bdd2450f6067d00e182a00ca4bda56",
+        "00b49712f86b8fda56ba68a343d994b846ce93cc7fba91bb0d15c0baaed12a28"
+      ],
+      "root_hex": "89dd17d5b84d003c3dc69ff1cdbbca64a55b5c20cd64798aa62f6151611f36ce"
+    },
+    {
+      "n": 3,
+      "leaves_hex": [
+        "4c1842a5c30e4629ca1efec8aea1904cd4bdd2450f6067d00e182a00ca4bda56",
+        "00b49712f86b8fda56ba68a343d994b846ce93cc7fba91bb0d15c0baaed12a28",
+        "cda084904961a9de031ba21223b146bfd93ce5398ad9e18446a7298c134ae8b5"
+      ],
+      "root_hex": "f6d9cfcf6b67a69a746e49a2578b69864bb3b808accec789f952f8d3141c85a6"
+    },
+    {
+      "n": 4,
+      "leaves_hex": [
+        "4c1842a5c30e4629ca1efec8aea1904cd4bdd2450f6067d00e182a00ca4bda56",
+        "00b49712f86b8fda56ba68a343d994b846ce93cc7fba91bb0d15c0baaed12a28",
+        "cda084904961a9de031ba21223b146bfd93ce5398ad9e18446a7298c134ae8b5",
+        "a94eef56e677b7b5326d0440b842485e2101395133919c830557f262b6b0ed81"
+      ],
+      "root_hex": "8723fe7620710a01bdac16f0e9967e21203e28b997993a5dd26cbdaf95655418"
+    },
+    {
+      "n": 5,
+      "leaves_hex": [
+        "4c1842a5c30e4629ca1efec8aea1904cd4bdd2450f6067d00e182a00ca4bda56",
+        "00b49712f86b8fda56ba68a343d994b846ce93cc7fba91bb0d15c0baaed12a28",
+        "cda084904961a9de031ba21223b146bfd93ce5398ad9e18446a7298c134ae8b5",
+        "a94eef56e677b7b5326d0440b842485e2101395133919c830557f262b6b0ed81",
+        "b7982d04f854169d4cc7b2f191608c5d45e88662589426eabf9d4ad4377aefb0"
+      ],
+      "root_hex": "43ea55c2039d035280a66e3d90f20b59e3208542ecbb625784adf7994045a82f"
+    },
+    {
+      "n": 6,
+      "leaves_hex": [
+        "4c1842a5c30e4629ca1efec8aea1904cd4bdd2450f6067d00e182a00ca4bda56",
+        "00b49712f86b8fda56ba68a343d994b846ce93cc7fba91bb0d15c0baaed12a28",
+        "cda084904961a9de031ba21223b146bfd93ce5398ad9e18446a7298c134ae8b5",
+        "a94eef56e677b7b5326d0440b842485e2101395133919c830557f262b6b0ed81",
+        "b7982d04f854169d4cc7b2f191608c5d45e88662589426eabf9d4ad4377aefb0",
+        "31f9b99d7d0c22ea5be17fde955b6207489afab10684af0fa84b1b7e8c4c6732"
+      ],
+      "root_hex": "f53f26199c9d0060c4df0ad5097914952b8e6af64d5454e15d4d96b47ecab0eb"
+    }
+  ],
+  "sha256": [
+    {
+      "input_utf8": "",
+      "sha256_hex": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "input_utf8": "abc",
+      "sha256_hex": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    },
+    {
+      "input_utf8": "wylls",
+      "sha256_hex": "61be1dae42d8c03e123e2370d1590ea2580a813110dd29ecf44c657bf27369cf"
+    }
+  ]
+}

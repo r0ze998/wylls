@@ -3,7 +3,6 @@
 # "Cross-host bytes" note in that script; consumed only by --check.
 # aarch64-apple-darwin is the host that built the committed module (its hash
 # is the one in frontier.wasm.sha256). x86_64-unknown-linux-gnu is the GitHub
-# runner, taken from the log of CI run 36958805861 (commit 5ed36fa) and equal
-# in run 36923004057 (commit 2c0462f); the wasm sources are unchanged since.
-aarch64-apple-darwin 32006de4ad699e6653467eb8e68d35d6e631d18ee98a56e75ce0a60d904da537 205623
-x86_64-unknown-linux-gnu 2d21f8c4d48f9947386e590e568d2f30ab61386cd421db387727c53b4aa643d6 205577
+# runner, measured in CI run 38157524022 for the integrated source.
+aarch64-apple-darwin 05a2e1e275db8c7f287ae4abae7b340f9109a35ce7ab83e37e9c5f4416fbb6a4 205683
+x86_64-unknown-linux-gnu 020cc258a7f8e7b46ea3a2d612735d091e1b7687c1889a49f0ae9ffa064e6dd1 205637

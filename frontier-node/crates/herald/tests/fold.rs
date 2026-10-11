@@ -252,6 +252,23 @@ fn per_bell_files_overviews_and_bell_records() {
         let r = json_file(&d, p);
         assert_eq!(r["heraldCheck"], "match", "{p}: {r}");
         assert_eq!(r["builder"], "provisional-w3d");
+        // `sig` names the transaction that logged the CLASH record (the
+        // resolve), in base58: the one of the report's own slot.
+        let of_slot: Vec<_> = txs
+            .iter()
+            .filter(|t| Some(t.slot) == r["slot"].as_u64())
+            .collect();
+        assert_eq!(of_slot.len(), 1, "{p}");
+        assert!(of_slot[0].err.is_none(), "{p}");
+        assert_eq!(r["sig"], of_slot[0].signature.to_string(), "{p}");
+        let sig = r["sig"].as_str().unwrap();
+        assert!(
+            (32..=90).contains(&sig.len())
+                && sig
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() && !"0OIl".contains(c)),
+            "{p}: sig is not base58: {sig}"
+        );
         assert!(r["seed"].is_string() && r["anchor"]["round"].is_u64());
         assert!(!r["decoded"]["fighters"].as_array().unwrap().is_empty());
         // W4-E R2: the Province the resolve read, resolved up to the bell,

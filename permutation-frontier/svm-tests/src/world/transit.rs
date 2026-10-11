@@ -376,7 +376,7 @@ impl World {
 
     /// SettleTransit of `t` sent by `payer` with the accounts of `s`.
     pub fn settle_ix(&self, t: &Trip, payer: &Address, s: &Settle) -> Instruction {
-        fclient::ix::settle_transit(
+        crate::ix::transit::settle_transit(
             &self.a,
             *payer,
             &SettleTransitArgs {

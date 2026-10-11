@@ -10,6 +10,8 @@ import { FACTION_FILL, FACTION_DARK, shade } from './avatar.mjs';
 import { RADIUS, FLATTEN, project } from '../../map.mjs';
 import { tileHex, DIRECTIONS } from '../fgeo.mjs';
 import { paintMini } from './minis.mjs';
+import { standing, upright } from '../map/tilt.mjs';
+import { characterTokens, paintCharacter, HOST_SPOT } from './onboard.mjs';
 
 export const UNIT_KINDS = Object.freeze(['spearman', 'archer', 'horseman', 'pikeman', 'crossbowman', 'knight', 'scout', 'settler']);
 const INK = '#1b1712', STEEL = '#aeb4b9', STEEL_D = '#6c7378', WOOD = '#7a5634', LEATHER = '#6b4a2e', HORSE = '#7b5636', HORSE_D = '#4e3522', SKIN = '#e2b58e';
@@ -229,21 +231,52 @@ export function placePills(ctx, items, k, t, boxes = []) {
     let cy = tok.y - s * 1.08;
     for (let i = 0; i < 6; i++) { const b = { x: tok.x - w / 2, y: cy - h, w, h }; if (!hit(b)) break; cy -= h + 3 * k; }
     taken.push({ x: tok.x - w / 2, y: cy - h, w, h });
-    unitPill(ctx, tok.x, cy, k, { faction: tok.faction, troops: tok.troops, n: tok.n ?? 1, own: !!tok.own, status: tok.status ?? null, text: tok.text ?? null, t, dashed: !!tok.dashed });
+    // (a pill stands upright over its figure whatever the board's tilt: map/tilt.mjs)
+    upright(ctx, tok.x, tok.y, () => unitPill(ctx, tok.x, cy, k, { faction: tok.faction, troops: tok.troops, n: tok.n ?? 1, own: !!tok.own, status: tok.status ?? null, text: tok.text ?? null, t, dashed: !!tok.dashed }));
   }
   return taken;
 }
 
+/**
+ * The pennon of a host that stands on a tile away from a village (UX design 14.4: the tile it stands on is held by
+ * it): a short pole behind the figure's left shoulder with a small swallow-tailed pennon in the nation's colour.
+ * Nothing is filled on the ground: a held tile is not land. `s` the token's height; `t` seconds (it stirs).
+ */
+export function paintPennon(ctx, x, y, s, faction, { t = 0, alpha = 1, side = -1 } = {}) {
+  if (!ctx?.save) return;
+  const fill = FACTION_FILL[faction] ?? '#8a8a80', dark = FACTION_DARK[faction] ?? '#3a3a34';
+  // (`side`: −1 the pole behind the figure's left shoulder, the cloth flying left; 1 mirrored: a host with a character at its head, who stands to its left)
+  const px = x + side * s * 0.38, top = y - s * 1.52, wave = Math.sin(t * 3.4 + x * 0.013) * s * 0.03;
+  if (side > 0) { ctx.save(); ctx.translate(2 * px, 0); ctx.scale(-1, 1); paintPennon(ctx, px + s * 0.36, y, s, faction, { t, alpha, side: -1 }); ctx.restore(); return; }
+  ctx.save();
+  ctx.globalAlpha *= alpha; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.strokeStyle = INK; ctx.lineWidth = s * 0.06; ctx.beginPath(); ctx.moveTo(px, y - s * 0.02); ctx.lineTo(px, top); ctx.stroke();
+  ctx.strokeStyle = '#8a6a3c'; ctx.lineWidth = s * 0.035; ctx.stroke();
+  ctx.fillStyle = '#f3d58a'; ctx.beginPath(); ctx.arc(px, top, s * 0.035, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = fill; ctx.strokeStyle = dark; ctx.lineWidth = s * 0.03;
+  ctx.beginPath(); ctx.moveTo(px, top + s * 0.04); ctx.lineTo(px - s * 0.52, top + s * 0.08 + wave); ctx.lineTo(px - s * 0.39, top + s * 0.2 + wave * 0.6); ctx.lineTo(px - s * 0.52, top + s * 0.32 + wave); ctx.lineTo(px, top + s * 0.35); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.fillRect?.(px - s * 0.36, top + s * 0.085, s * 0.34, s * 0.04);
+  ctx.restore();
+}
+
 /** A whole token: disc, soldier, and (when `label`) the pill above it. `s` is its height (world px). */
-export function paintToken(ctx, tok, { s, k, t = 0, label = true }) {
+export function paintToken(ctx, tok, { s, k, t = 0, label = true, up = null }) {
+  // a player's character beside its village (people/onboard.mjs): a token like a host's for the map's depth
+  // order and its cut behind what stands in front, a figure of its own, no pill
+  if (tok.character) { paintCharacter(ctx, tok, { s, t, up }); return; }
   const { x, y, faction, kind, face = 1, alpha = 1, walking = false, own = false } = tok;
   const step = (t * (walking ? 1.6 : 0.5) + (tok.phase ?? 0)) % 1;
   const pulse = 0.5 + 0.5 * Math.sin(t * 2.4);
-  // the painted miniature (people/minis.mjs); the canvas figure until its sheet has loaded
-  if (!paintMini(ctx, x, y, s, kind, { faction, face, step, walking, alpha, lunge: tok.lunge ?? 0, own, pulse })) {
-    baseDisc(ctx, x, y, s, faction, { own, alpha, pulse });
-    unitFigure(ctx, x, y - s * 0.02, s, kind, { faction, face, step, walking, alpha, lunge: tok.lunge ?? 0 });
-  }
+  // (`up`: on a tilted board the figure stands upright about its feet: map/tilt.mjs standing)
+  standing(ctx, up?.(x, y) ?? null, x, y, () => {
+    // (a host away from any village carries its pennon: the tile it stands on is held by it; behind the figure)
+    if (tok.pennon) paintPennon(ctx, x, y, s, faction, { t, alpha, side: tok.led ? 1 : -1 });
+    // the painted miniature (people/minis.mjs); the canvas figure until its sheet has loaded
+    if (!paintMini(ctx, x, y, s, kind, { faction, face, step, walking, alpha, lunge: tok.lunge ?? 0, own, pulse })) {
+      baseDisc(ctx, x, y, s, faction, { own, alpha, pulse });
+      unitFigure(ctx, x, y - s * 0.02, s, kind, { faction, face, step, walking, alpha, lunge: tok.lunge ?? 0 });
+    }
+  });
   if (label) unitPill(ctx, x, y - s * 1.08, k, { faction, troops: tok.troops, n: tok.n ?? 1, own, status: tok.status ?? null, text: tok.text ?? null, t, dashed: !!tok.dashed });
 }
 
@@ -257,10 +290,14 @@ const SPOTS_HOLDING = [[[0.44, 0.4]], [[0.44, 0.4], [-0.1, 0.62]], [[0.44, 0.4],
 /**
  * The tokens of one province: `[{x, y, faction, kind, troops, n, status, face, alpha, own, dashed, hosts}]`.
  * `hosts` = `[{id, faction, unit, troops (whole), stamina, state, arriving?, broken?}]` (already filtered by fog);
- * `holdingTiles` = Set of tile indices with a holding; `exploring` / `marching` = Sets of host ids;
- * `restBelow` the stamina a march needs.
+ * `holdingTiles` = Set of tile indices with a holding (`heroTiles`, `heroSpots`: the viewer's own); `exploring` / `marching` = Sets of host ids;
+ * `restBelow` the stamina a march needs; `unit`, `open`, `ownHosts`: for the players' characters (people/onboard.mjs characterTokens).
  */
-export function provinceTokens({ p, q, hosts, holdingTiles = new Set(), viewerFaction = null, exploring = new Set(), marching = new Set(), restBelow = 0, skipTiles = new Set() }) {
+export function provinceTokens({ p, q, hosts, holdingTiles = new Set(), viewerFaction = null, exploring = new Set(), marching = new Set(), restBelow = 0, skipTiles = new Set(), heroTiles = null, heroSpots = null, unit = undefined, open = null, ownHosts = null, places = null }) {
+  // the tiles of this province on which a player's character stands at the head of the host it leads (people/onboard.mjs):
+  // that host's figure steps a little to the right, so both are seen
+  const led = new Map();
+  for (const pl of places?.values?.() ?? []) if ((pl.at === 'host' || pl.at === 'arrived') && pl.p === p && pl.q === q) led.set(pl.tile, String(pl.host));
   const byTile = new Map();
   for (const h of hosts) {
     if (marching.has(String(h.id))) continue;   // the viewer's own column walks its road (movers)
@@ -275,21 +312,29 @@ export function provinceTokens({ p, q, hosts, holdingTiles = new Set(), viewerFa
   for (const [tile, groups] of byTile) {
     const list = [...groups.values()].sort((a, b) => (a.out - b.out) || (a.faction === viewerFaction ? -1 : b.faction === viewerFaction ? 1 : a.faction - b.faction));
     const c = centre(p, q, tile);
-    const spots = (holdingTiles.has(tile) ? SPOTS_HOLDING : SPOTS)[Math.min(list.length, 3) - 1];
+    // (`heroTiles`: the viewer's own villages, drawn larger: their hosts stand at `heroSpots`, in front of the houses)
+    const leads = led.has(tile) && !holdingTiles.has(tile) ? list.findIndex(g => g.hosts.some(h => String(h.id) === led.get(tile))) : -1;
+    const spots = (heroSpots && heroTiles?.has(tile) ? heroSpots : holdingTiles.has(tile) ? SPOTS_HOLDING : SPOTS)[Math.min(list.length, 3) - 1];
     const contested = new Set(list.filter(g => !g.out).map(g => g.faction)).size > 1;
     list.slice(0, 3).forEach((g, i) => {
       const main = [...g.hosts].sort((a, b) => b.troops - a.troops)[0];
       const kind = UNIT_KINDS[main.unit] ?? 'spearman';
       const troops = g.hosts.reduce((a, h) => a + (h.troops ?? 0), 0);
       const st = g.hosts.every(h => h.state === 3) ? 'sealed' : g.hosts.some(h => h.arriving) ? 'arriving' : contested ? 'fight'
-        : g.hosts.some(h => exploring.has(String(h.id))) ? 'explore' : g.hosts.every(h => h.state === 2) ? 'muster'
+        : g.hosts.some(h => exploring.has(String(h.id))) ? 'explore' : g.hosts.every(h => h.state === 2 && !h.stood) ? 'muster'
         : g.hosts.some(h => h.state === 1 && (h.stamina ?? 120) < restBelow) ? 'rest' : null;
-      const [dx, dy] = spots[i];
+      // (`leads`: the host a character stands at the head of: its figure a step to the right of the tile's middle)
+      const [dx, dy] = i === leads && list.length === 1 ? [HOST_SPOT.host[0], HOST_SPOT.host[1] / (FLATTEN * 1.6)] : spots[i];
       const face = contested || list.length > 1 ? (dx <= 0 ? 1 : -1) : hash(p * 61 + tile, q, g.faction) < 0.5 ? 1 : -1;
       out.push({ x: c.x + dx * RADIUS, y: c.y + dy * RADIUS * FLATTEN * 1.6, faction: g.faction, kind, troops, n: g.hosts.length, status: st, face,
-        alpha: st === 'sealed' ? 0.55 : st === 'muster' ? 0.75 : 1, own: g.faction === viewerFaction, dashed: st === 'arriving', phase: hash(tile, i, g.faction), tile, p, q, hosts: g.hosts.map(h => String(h.id)) });
+        alpha: st === 'sealed' ? 0.55 : st === 'muster' ? 0.75 : 1, own: g.faction === viewerFaction, dashed: st === 'arriving', phase: hash(tile, i, g.faction), tile, p, q, hosts: g.hosts.map(h => String(h.id)), led: i === leads });
     });
   }
+  // the players' characters that stand by a village of this province (people/onboard.mjs): the viewer's own beside
+  // the viewer's active village, another player's beside a village that is selected; clear of the hosts above
+  // (`unit`: a host's token unit in hex radii at this zoom; `open(q, r)`: whether a hex is ground a character can stand on)
+  // (`ownHosts`: the viewer's own hosts' ids: a scene that shows the viewer's character with one of them has taken it)
+  out.push(...characterTokens({ p, q, tokens: out, villages: holdingTiles, heroTiles, skipTiles, unit, open, ownHosts, places }));
   return out;
 }
 
@@ -377,7 +422,7 @@ export function progressBadge(ctx, x, y, k, share, text, { side = 'right' } = {}
   ctx.beginPath(); ctx.moveTo(x - 4 * k, y + 4 * k); ctx.lineTo(x + 3 * k, y - 3 * k); ctx.stroke();
   ctx.fillStyle = '#fffaf0'; ctx.save(); ctx.translate(x + 3 * k, y - 3 * k); ctx.rotate(Math.PI / 4); ctx.fillRect(-4 * k, -2 * k, 8 * k, 4 * k); ctx.restore();
   if (text) {
-    ctx.font = `700 ${11.5 * k}px system-ui, -apple-system, sans-serif`; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    ctx.font = `700 ${12 * k}px system-ui, -apple-system, sans-serif`; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
     const w = ctx.measureText(text).width + 12 * k, h = 18 * k, x0 = side === 'left' ? x - r - 4 * k - w : x + r + 4 * k;
     ctx.fillStyle = 'rgba(16,14,10,.82)'; ctx.beginPath(); ctx.roundRect?.(x0, y - h / 2, w, h, 8 * k); ctx.fill();
     ctx.fillStyle = '#fffaf0'; ctx.fillText(text, x0 + 6 * k, y + 0.5 * k);

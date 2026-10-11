@@ -1092,3 +1092,50 @@ fn g01_reveal_worst() {
     // fill is Reveal's worst account set: 18 accounts, three path provinces).
     common::loaded_check(&c, Ix::Reveal, &[ix], &[&w.keeper]);
 }
+
+/// MC §5.6 (Reveal step 6): a genesis Free City (site state 5) is an
+/// allowed destination from a **shielded** holding, as a keep tile (no
+/// site) already is; another faction's holding there stays refused
+/// (`Shielded`). Crafted: the destination site's mirror and the host's
+/// holding shield.
+#[test]
+fn cq_reveal_targets_a_free_city_from_a_shielded_holding() {
+    use frontier_abi::v2::layout::province::site as SM2;
+    let mut s = scene();
+    s.anchor();
+    let base = s.ix(0, true);
+    let dest = s.w.a.province(s.m.dest.0, s.m.dest.1);
+    let k = {
+        let d = s.c.data(&dest);
+        (0..d[P::SITE_COUNT] as usize).find(|&k| d[P::SITES + k] == s.m.dest_tile)
+    };
+    let k = match k {
+        Some(k) => k,
+        None => {
+            s.c.edit(&dest, |d| d[P::SITES] = s.m.dest_tile);
+            0
+        }
+    };
+    // The host's holding is shielded beyond the arrival.
+    s.c.edit(&s.e.holding, |d| {
+        d[H::SHIELD_UNTIL..H::SHIELD_UNTIL + 8].copy_from_slice(&i64::MAX.to_le_bytes())
+    });
+    // Another faction's holding on the destination: refused.
+    let mut f = s.c.fork();
+    f.edit(&dest, |d| {
+        let o = P::site(k);
+        d[o + SM::STATE] = SM::STATE_HOLDING;
+        d[o + SM::FACTION] = 3;
+    });
+    assert_code(send_keeper(&mut f, &s.w, base.clone()), E::Shielded);
+    // A Free City there: allowed.
+    s.c.edit(&dest, |d| {
+        let o = P::site(k);
+        d[o + SM::STATE] = SM2::STATE_FREE_CITY;
+        d[o + SM::FACTION] = 6;
+    });
+    expect_lands(
+        s.send(base),
+        "Reveal to a Free City from a shielded holding",
+    );
+}

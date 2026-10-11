@@ -27,7 +27,7 @@ use fclient::log::bodies_from_logs;
 use fclient::ports::TxRecord;
 use frontier_abi::addr::AddrCtx;
 use frontier_abi::layout::AccountKind;
-use frontier_abi::log as plog;
+use frontier_abi::v2::log as v2log;
 
 /// Index schema: 2 adds the `event` numbering (W3-D).
 pub const SCHEMA: i64 = 2;
@@ -513,7 +513,10 @@ fn index_one(
     let bodies = bodies_from_logs(&r.logs, program).unwrap_or_default();
     let mut idx = 0usize;
     for body in bodies.iter() {
-        let Ok(rec) = plog::decode(body) else {
+        // MC (CQ2-E, R-22): the v2 decoder reads M1's kinds exactly as
+        // `log::decode` does and MC's 80–89 (entity kind 8 in tails), so
+        // an MC season's `/h/events` numbering matches the herald fold's.
+        let Ok(rec) = v2log::decode(body) else {
             continue;
         };
         let this = idx;
@@ -524,7 +527,7 @@ fn index_one(
             params![
                 r.seq as i64,
                 idx as i64,
-                rec.kind as u8 as i64,
+                rec.kind.code() as i64,
                 rec.bell as i64,
                 rec.key,
                 rec.payload,
@@ -535,7 +538,7 @@ fn index_one(
             "INSERT INTO event(seq, idx) VALUES(?1, ?2)",
             params![r.seq as i64, idx as i64],
         ))?;
-        let expected = plog::chains_of(rec.kind, rec.key, rec.payload);
+        let expected = v2log::chains_of(rec.kind, rec.key, rec.payload);
         for (n, link) in rec.links.iter().take(rec.n_links).flatten().enumerate() {
             let from_post = r.post.iter().find_map(|(k, a)| {
                 let a = a.as_ref()?;
@@ -552,7 +555,7 @@ fn index_one(
                         .filter(|l| l.entity == link.entity)
                         .count(),
                 )?;
-                c.who.address(ctx?).map(Address::new_from_array)
+                v2log::march_address(ctx?, &c.who).map(Address::new_from_array)
             };
             let addr = from_post.or_else(from_logs);
             sql(t.execute(
@@ -589,6 +592,7 @@ fn index_one(
 mod tests {
     use super::*;
     use fclient::ports::{Account, Signature};
+    use frontier_abi::log as plog;
     use frontier_abi::log::{advance, write_body, write_tail, EntityKind, Kind};
 
     fn body(kind: Kind, bell: u32, key: &[u8], payload: &[u8], links: &[plog::Link]) -> Vec<u8> {

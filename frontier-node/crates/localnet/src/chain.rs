@@ -72,6 +72,13 @@ use fclient::{addr, fees, tx};
 use crate::persist::{self, Record, Snapshot, TxEntry, Wal, WalHeader};
 
 /// Real duration of a slot.
+struct WriterLock(std::fs::File);
+impl Drop for WriterLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
 pub const SLOT_MS: u64 = 400;
 /// Block CU cap and per-writable-account cap (mainnet).
 pub const BLOCK_CU: u64 = 100_000_000;
@@ -318,6 +325,8 @@ pub struct Chain {
     holds: Vec<Hold>,
     next_hold: u64,
     wal: Option<Wal>,
+    // Acquired before reading or replaying the WAL; released on process exit.
+    writer_lock: Option<WriterLock>,
     next_snapshot_ms: i64,
     events: broadcast::Sender<Arc<Event>>,
 }
@@ -455,6 +464,7 @@ impl Chain {
             holds: vec![],
             next_hold: 1,
             wal: None,
+            writer_lock: None,
             events: tx,
         };
         c.write_clock();
@@ -473,6 +483,17 @@ impl Chain {
         let Some(dir) = cfg.data_dir.clone() else {
             return Ok(Chain::fresh(cfg, new_run_id()));
         };
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let writer_lock = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(dir.join("writer.lock"))
+            .map_err(|e| e.to_string())?;
+        writer_lock
+            .try_lock()
+            .map_err(|e| format!("ledger already has a writer: {e}"))?;
         let wal_path = dir.join(persist::WAL_FILE);
         if !wal_path.exists() {
             let run_id = new_run_id();
@@ -484,6 +505,7 @@ impl Chain {
             };
             let wal = Wal::create(&dir, header, cfg.fsync)?;
             let mut c = Chain::fresh(cfg, run_id);
+            c.writer_lock = Some(WriterLock(writer_lock));
             c.wal = Some(wal);
             return Ok(c);
         }
@@ -493,6 +515,7 @@ impl Chain {
         cfg.scale = h.scale;
         let fsync = cfg.fsync;
         let mut c = Chain::fresh(cfg, h.run_id);
+        c.writer_lock = Some(WriterLock(writer_lock));
         let snap = persist::snapshots_in(&dir).into_iter().find_map(|(_, p)| {
             Snapshot::read(&p)
                 .ok()

@@ -183,9 +183,7 @@ pub fn run(base: &Config, spec: &Spec) -> Balance {
         }
     }
     let n = cfgs.len();
-    let threads = std::thread::available_parallelism()
-        .map_or(4, |x| x.get())
-        .min(n.max(1));
+    let threads = base.threads(n);
     let next = AtomicUsize::new(0);
     let slots: Vec<Mutex<Option<Season>>> = (0..n).map(|_| Mutex::new(None)).collect();
     std::thread::scope(|sc| {
@@ -392,16 +390,24 @@ pub fn gate_check_with(b: &Balance, max_delta_pct: f64, max_win_gap: f64) -> Res
 }
 
 /// The CI gate's harness: the kernel table (or `set`) at the gate's size.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn gate_run(set: DoctrineSet) -> Balance {
     gate_run_with(set, "", GATE_SEEDS)
 }
 
 /// The gate's harness with doctrine overrides (`--dx` syntax) and a seed
 /// count: the negative controls.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn gate_run_with(set: DoctrineSet, tweaks: &str, seeds: u64) -> Balance {
+    gate_run_base(&gate_config(), set, tweaks, seeds)
+}
+
+/// The gate's harness on another base configuration (MC: `--rules mc`,
+/// the policy and the rule variants ride on `base`).
+pub fn gate_run_base(base: &Config, set: DoctrineSet, tweaks: &str, seeds: u64) -> Balance {
     let mut spec = Spec::new(GATE_AGENTS, seeds, set);
     spec.tweaks = tweaks.to_string();
-    run(&gate_config(), &spec)
+    run(base, &spec)
 }
 
 /// The economy the CI proxy gate runs on: the simulator's default, i.e.
@@ -410,6 +416,7 @@ pub fn gate_run_with(set: DoctrineSet, tweaks: &str, seeds: u64) -> Balance {
 /// (`office_term_limit: None`) because the 30-seed gate lost its Knight
 /// control under D23; the gate was re-calibrated instead (60 seeds, see
 /// `GATE_SEEDS`), so it tests the economy that ships.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn gate_config() -> Config {
     Config::default()
 }

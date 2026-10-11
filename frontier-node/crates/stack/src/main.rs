@@ -7,12 +7,14 @@
 //!                   [--base-port P] [--chaos] [--adversary] [--viewers N]
 //!                   [--viewer-window-hours H] [--archive DIR] [--g0 UNIX] [--so PATH]
 //!                   [--seed N] [--drain-scale S] [--expect-so-sha256 HEX] [--[no-]eager-bots] [--keep-running]
-//!                   [--season-end-at-play-end] [--chaos-force herald:H ...] [--viewer-think-ms MS] ...
+//!                   [--prize-so PATH [--entry-fee N] [--prize-ops-bps N] [--prize-keeps N]]  (test-asset prize pool; --conquest, --bots 0)
+//!                   [--conquest] [--season-end-at-play-end] [--chaos-force herald:H ...] [--viewer-think-ms MS] ...
 //! frontier-stack verify --run-id ID
 //! frontier-stack tamper --run-id ID [--strict]
 //! frontier-stack load   --run-id ID [--viewers 5000] [--game-hours 1]
 //! frontier-stack report --run-id ID
 //! frontier-stack down   --run-id ID
+//! frontier-stack resume --run-id ID (persistent human CQ world)
 //! ```
 //! Every subcommand but `check-ports` also takes `--runs-dir DIR` (default
 //! `frontier-node/.local/frontier`). Exit codes: 0 pass, 1 fail, 2 bad
@@ -165,6 +167,10 @@ fn main() {
         }
         "report" => rt.block_on(report::report(&run_dir(&flags))),
         "down" => up::down(&run_dir(&flags)),
+        "resume" => rt.block_on(frontier_stack::resume::resume(
+            &run_dir(&flags),
+            has(&flags, "start-paused"),
+        )),
         "-h" | "--help" | "help" => usage(),
         other => die(format!("unknown subcommand `{other}`")),
     };

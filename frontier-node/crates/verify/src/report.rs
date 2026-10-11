@@ -23,7 +23,7 @@ fn finding_json(f: &Finding) -> Value {
 pub fn json(r: &Report) -> Value {
     let c = &r.counts;
     let l = &r.liveness;
-    json!({
+    let mut out = json!({
         "verdict": r.verdict.name(),
         "season": r.season.to_string(),
         "program": r.program,
@@ -45,7 +45,11 @@ pub fn json(r: &Report) -> Value {
         "checks_run": r.checks_run,
         "provenance": r.provenance,
         "mutated_build": crate::mutated(),
-    })
+    });
+    if r.checks_run.iter().any(|c| c.starts_with("CQ")) {
+        out["liveness"] = Value::Null;
+    }
+    out
 }
 
 pub fn markdown(r: &Report) -> String {
@@ -72,8 +76,11 @@ pub fn markdown(r: &Report) -> String {
         "- Transactions {} ({} failed); seals {}, reveals {}, bad seals {}, clashes {}, skips {}, tickets {}, explores {}\n",
         c.tx, c.failed_tx, c.seals, c.reveals, c.bad_seals, c.clashes, c.skips, c.tickets, c.explores
     ));
-    let l = &r.liveness;
-    s.push_str(&format!(
+    if r.checks_run.iter().any(|c| c.starts_with("CQ")) {
+        s.push_str("- Liveness, seal cryptography and full combat/economy replay: not assessed by this CQ audit.\n\n");
+    } else {
+        let l = &r.liveness;
+        s.push_str(&format!(
         "- Liveness: {} valid seals unrevealed and routed ({} more unrevealed by rule: {}), {} reveals near the close, largest anchor delay {:.1} s, {} contested province-bells\n\n",
         l.valid_unrevealed.len(),
         l.unrevealed_by_rule.len(),
@@ -86,6 +93,7 @@ pub fn markdown(r: &Report) -> String {
         l.max_anchor_delay_s,
         l.contested_bells.len()
     ));
+    }
     if r.findings.is_empty() {
         s.push_str("No findings.\n");
         return s;

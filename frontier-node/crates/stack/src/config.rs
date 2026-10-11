@@ -129,6 +129,25 @@ pub struct StackConfig {
     pub run_id: String,
     pub mode: Mode,
     pub beacon: Beacon,
+    /// Human conquest world: the version-3, fourteen-day territory season.
+    pub conquest: bool,
+    /// Demo worlds only: the bells a keep must be held before it falls
+    /// (the conquest preset's 72 when unset). Sent in the season
+    /// parameters, so the program, herald and client all read it.
+    pub keep_bells: Option<u16>,
+    /// Test-asset prize pool: the permutation-prize build to deploy next to
+    /// the game (scripts/build-prize.sh). With it the season's join gate is
+    /// a key the relay holds, a test mint and the season's pool are created,
+    /// and a Join needs the relay's co-signature (x402: paid entry).
+    pub prize_so: Option<PathBuf>,
+    /// The season's entry fee in base units of the test mint (6 decimals).
+    /// A season parameter; the default is the owner's 25 test USDC.
+    pub entry_fee: u64,
+    /// The operator's part of each fee in basis points (owner: 20%).
+    pub prize_ops_bps: u16,
+    /// Keeps the prize tally must count before it can be finalised (the
+    /// conquest world's rings 2..4: 54).
+    pub prize_keeps: u16,
     /// Game seconds per real second after the pre-season (20× exit, 100×
     /// nightly, 2× latency run).
     pub scale: f64,
@@ -249,6 +268,12 @@ impl Default for StackConfig {
             run_id: "w5-smoke".into(),
             mode: Mode::Accel,
             beacon: Beacon::TestKey,
+            conquest: false,
+            keep_bells: None,
+            prize_so: None,
+            entry_fee: 25_000_000,
+            prize_ops_bps: 2_000,
+            prize_keeps: 54,
             scale: 100.0,
             preseason_scale: 2_000.0,
             drain_scale: None,
@@ -369,6 +394,24 @@ impl StackConfig {
         }
         if let Some(v) = s!("beacon") {
             c.beacon = parse_beacon(&v)?;
+        }
+        if let Some(v) = b!("conquest") {
+            c.conquest = v;
+        }
+        if let Some(v) = i!("keep_bells") {
+            c.keep_bells = Some(v as u16);
+        }
+        if let Some(v) = s!("prize_so") {
+            c.prize_so = Some(v.into());
+        }
+        if let Some(v) = i!("entry_fee") {
+            c.entry_fee = v as u64;
+        }
+        if let Some(v) = i!("prize_ops_bps") {
+            c.prize_ops_bps = v as u16;
+        }
+        if let Some(v) = i!("prize_keeps") {
+            c.prize_keeps = v as u16;
         }
         if let Some(v) = f!("scale") {
             c.scale = pos(v, "scale")?;
@@ -589,6 +632,14 @@ impl StackConfig {
         if !(self.scale > 0.0 && self.scale <= 100_000.0) {
             return Err("scale in (0, 100000]".into());
         }
+        if self.prize_so.is_some() {
+            if !self.conquest {
+                return Err("--prize-so: the prize pool tallies keeps (needs --conquest)".into());
+            }
+            if self.entry_fee == 0 || self.prize_ops_bps > 10_000 || self.prize_keeps == 0 {
+                return Err("--entry-fee > 0, --prize-ops-bps ≤ 10000, --prize-keeps > 0".into());
+            }
+        }
         if !(self.preseason_scale > 0.0 && self.preseason_scale <= 100_000.0) {
             return Err("preseason_scale in (0, 100000]".into());
         }
@@ -699,12 +750,24 @@ impl StackConfig {
         }
     }
 
+    /// The prize settings of the run (`null` without `--prize-so`).
+    fn prize_json(&self) -> Value {
+        match &self.prize_so {
+            Some(p) => json!({"so": p.display().to_string(), "entry_fee": self.entry_fee,
+                "ops_bps": self.prize_ops_bps, "keeps": self.prize_keeps}),
+            None => Value::Null,
+        }
+    }
+
     pub fn to_json(&self) -> Value {
         json!({
             "source": self.source.as_ref().map(|p| p.display().to_string()),
             "run_id": self.run_id,
             "mode": match self.mode { Mode::Accel => "accel", Mode::Realtime => "realtime" },
             "beacon": self.beacon.name(),
+            "conquest": self.conquest,
+            "keep_bells": self.keep_bells,
+            "prize": self.prize_json(),
             "scale": self.scale,
             "preseason_scale": self.preseason_scale,
             "drain_scale": self.drain_scale(),
@@ -820,6 +883,11 @@ pub fn apply_flags(c: &mut StackConfig, flags: &[(String, Option<String>)]) -> R
             "personas" => c.personas = need(k, v)?,
             "bots-args" => c.bots_args = need(k, v)?.split_whitespace().map(String::from).collect(),
             "season" => c.season_id = count(k, v)?,
+            "keep-bells" => c.keep_bells = Some(count(k, v)? as u16),
+            "prize-so" => c.prize_so = Some(need(k, v)?.into()),
+            "entry-fee" => c.entry_fee = count(k, v)?,
+            "prize-ops-bps" => c.prize_ops_bps = count(k, v)? as u16,
+            "prize-keeps" => c.prize_keeps = count(k, v)? as u16,
             "base-port" => {
                 let p = num(k, v)?;
                 if !(0.0..=65_535.0).contains(&p) {
@@ -857,6 +925,7 @@ pub fn apply_flags(c: &mut StackConfig, flags: &[(String, Option<String>)]) -> R
             }
             "viewer-start-hours" => c.viewer_start_hours = num(k, v)?.max(0.0),
             "keep-running" => c.pause_at_end = false,
+            "conquest" => c.conquest = true,
             "eager-bots" => c.eager_bots = Some(true),
             "no-eager-bots" => c.eager_bots = Some(false),
             "no-keeper-b" => c.keeper_b = false,
@@ -885,6 +954,8 @@ pub const SWITCHES: &[&str] = &[
     "adversary",
     "no-adversary",
     "keep-running",
+    "start-paused",
+    "conquest",
     "no-keeper-b",
     "eager-bots",
     "no-eager-bots",
@@ -922,6 +993,42 @@ pub fn split_flags(args: &[String]) -> Result<Vec<(String, Option<String>)>, Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The prize pool is an option of a conquest world without bots: its
+    /// fee defaults to the owner's 25 test USDC and stays a parameter.
+    #[test]
+    fn prize_flags() {
+        let mut c = StackConfig::default();
+        assert!(c.prize_so.is_none() && c.to_json()["prize"].is_null());
+        let f = split_flags(
+            &[
+                "--prize-so",
+                "permutation-prize/target/deploy/permutation_prize.so",
+                "--conquest",
+                "--bots",
+                "6",
+            ]
+            .map(String::from),
+        )
+        .unwrap();
+        apply_flags(&mut c, &f).unwrap();
+        assert_eq!(
+            (c.entry_fee, c.prize_ops_bps, c.prize_keeps),
+            (25_000_000, 2_000, 54)
+        );
+        // Script bots share the world: they join by operator invite, never by paying.
+        assert_eq!(c.bots, 6);
+        assert_eq!(c.check(), Ok(()));
+        assert_eq!(c.to_json()["prize"]["entry_fee"], 25_000_000);
+        let f = split_flags(&["--entry-fee", "10000000"].map(String::from)).unwrap();
+        apply_flags(&mut c, &f).unwrap();
+        assert_eq!(c.entry_fee, 10_000_000);
+        let t = StackConfig::from_toml(
+            "conquest = true\nbots = 0\nprize_so = \"x.so\"\nentry_fee = 7\n",
+        )
+        .unwrap();
+        assert_eq!((t.prize_so.is_some(), t.entry_fee), (true, 7));
+    }
 
     #[test]
     fn defaults_are_the_gate_w5_smoke() {

@@ -3,8 +3,13 @@
 //! `fclient::ix`'s; the positions below serve forgeries.
 
 pub use fclient::ix::{
-    depart, disband_stranded, dissolve, garrison, muster, settle_departure, DepartArgs,
+    disband_stranded, garrison, muster, DepartArgs,
 };
+
+pub use fclient::ix::v2::{depart, settle_departure};
+pub fn dissolve(a: &fclient::addr::Addresses, p: &fclient::ix::Player, h: fclient::ix::HoldingRef, host: u64) -> solana_instruction::Instruction {
+    fclient::ix::v2::dissolve(a, p, h, (h.p, h.q), host)
+}
 
 /// Positions of Depart's accounts (§5.11).
 pub mod depart_at {

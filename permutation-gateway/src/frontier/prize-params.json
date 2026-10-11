@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "status": "PROVISIONAL: every value here is undecided by the owner and may change; the pool's params_hash is the sha256 of this file",
+  "testAssetsOnly": true,
+  "contribution": {
+    "capture": {
+      "enabled": true,
+      "points": 10,
+      "rule": "for each province a nation holds at the end whose keep was captured during the season: the owner of the donor host that became the garrison at its LAST capture",
+      "antiInflation": "end state only: one line per province, the last capture; a keep lost again or retaken later earns nothing for the earlier capture"
+    },
+    "reinforcement": {
+      "enabled": true,
+      "pointsPer100Troops": 1,
+      "maxPerProvince": 10,
+      "rule": "troops of a member's hosts standing on the keep tile of a keep its nation holds when the season has ended (the supplier is the host's owner, whoever's nation holds the keep)",
+      "antiInflation": "net end state: every host is read once from the final Province account; splitting, or moving troops in and out, cannot raise the total; the capture's donor host goes home and is not counted twice"
+    },
+    "defence": {
+      "enabled": false,
+      "pointsPerProvincePerDay": 2,
+      "rule": "one credit per repelled contest to the members whose hosts stood on the keep",
+      "notDerivable": "the chain's record of a repelled contest (CONQUEST event KEEP_BROKEN) names the contending nation and the progress only; the host ids standing on the keep tile at that turn are in no log record",
+      "missingRecord": "a list of defending host ids (or holdings) in the CONQUEST record of the turn a contest breaks"
+    },
+    "resourceSupply": {
+      "enabled": false,
+      "notDerivable": "no resource transfer instruction exists in the game",
+      "missingRecord": "a transfer instruction and its log record"
+    }
+  },
+  "fallbacks": {
+    "allZeroContributions": "equalSplitAmongTheWinningNationsPaidMembers",
+    "noEligibleMemberInWinningNation": "proRataRefundOfThePrizeToAllPayers"
+  },
+  "decided": {
+    "entryFee": "a pool parameter; 25 test USDC (25,000,000 base units of the 6-decimal test mint) in this demo",
+    "split": "80% of every fee to the prize pool, 20% to the operator",
+    "winner": "the nation holding the most provinces (keeps) when the season has ended, counted on chain from the game's Province accounts",
+    "eligibility": "operator-run AI citizens are not prize-eligible; a claim needs a paid Entry"
+  },
+  "provisional": true,
+  "provisionalRules": [
+    "tie for first place: more territory time wins (the chain's TERRITORY_BELLS counters); still tied: the tied nations share the prize equally",
+    "contribution weights (points) below",
+    "all contributions zero: every paid member of the winning nation gets one point (equal split)",
+    "no eligible member in the winning nation: every payer takes its part of the prize back (refund)",
+    "shares are posted by the operator as a merkle root over a publicly recomputable ledger"
+  ]
+}

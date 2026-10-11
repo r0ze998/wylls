@@ -31,6 +31,7 @@ use frontier_agents::{keys, Persona};
 use permutation_rules::frontier::geometry::ProvinceCoord;
 use serde_json::{json, Value};
 
+use crate::conquest::{Conquest, CqMem};
 use crate::journal::Journal;
 use crate::ports::{Answer, DirectPort, HeraldPort, RelayPort};
 use crate::report::{Outcome, Report};
@@ -116,8 +117,14 @@ impl ClockSource {
 pub struct Config {
     pub seed: u64,
     pub budgets: Budgets,
-    /// Invite tokens for a gated season, one per bot index (if any).
+    /// Invite tokens for a gated season (`--invites FILE`, minted by the
+    /// operator): a pool, handed out in order. A bot keeps the one it drew
+    /// until a Join of its was sent (the relay then marks it used), so a
+    /// refused attempt costs no invite and a retry after a lost Join draws
+    /// a fresh one. Never logged.
     pub invites: Vec<String>,
+    /// Which invite each bot index holds, and the next one to hand out.
+    pub invite_book: std::sync::Mutex<(BTreeMap<u32, usize>, usize)>,
     /// Wall time a cached season or overview file stays fresh.
     pub cache_ttl: Duration,
     /// Game seconds per slot when the clock cannot tell (0.4 × scale).
@@ -134,10 +141,34 @@ impl Config {
             seed,
             budgets: txb::budgets(),
             invites: vec![],
+            invite_book: std::sync::Mutex::new((BTreeMap::new(), 0)),
             cache_ttl: Duration::from_millis(1_500),
             slot_game_secs: 8.0,
             eager_personas: false,
         }
+    }
+    /// The invite bot `index` sends with its Join: the one it holds, else
+    /// the next of the pool (`None` when the pool is empty or used up).
+    pub fn invite_for(&self, index: u32) -> Option<String> {
+        let mut b = self.invite_book.lock().expect("invites");
+        let (held, next) = &mut *b;
+        let i = match held.get(&index) {
+            Some(i) => *i,
+            None => {
+                let i = *next;
+                if i >= self.invites.len() {
+                    return None;
+                }
+                *next += 1;
+                held.insert(index, i);
+                i
+            }
+        };
+        self.invites.get(i).cloned()
+    }
+    /// The relay sent bot `index`'s Join: its invite is spent.
+    pub fn invite_spent(&self, index: u32) {
+        self.invite_book.lock().expect("invites").0.remove(&index);
     }
     pub fn reveal_loaded_limit(&self) -> u32 {
         self.budgets.get(tag::REVEAL).loaded_limit
@@ -160,7 +191,17 @@ pub struct Shared<H, R, D> {
     pub cfg: Config,
     pub clock: ClockSource,
     pub report: Mutex<Report>,
+    /// The conquest layer (`--conquest`, MC §8.6); `None` runs the M1
+    /// bots unchanged.
+    pub conquest: Option<Conquest>,
     cache: Mutex<Cache>,
+    // AI hook
+    /// The AI citizens' brain state (`ai/`), set by `ai::install`.
+    pub ai: Option<std::sync::Arc<crate::ai::AiHook>>,
+    /// Called with every recorded outcome (the brain keeps its own bot's
+    /// signatures for `POST /v1/outcome`, contract §7.2).
+    pub outcome_sink: Option<crate::ai::OutcomeSink>,
+    // AI hook end
 }
 
 impl<H: HeraldPort, R: RelayPort, D: DirectPort> Shared<H, R, D> {
@@ -174,8 +215,23 @@ impl<H: HeraldPort, R: RelayPort, D: DirectPort> Shared<H, R, D> {
             cfg,
             clock,
             report: Mutex::new(Report::default()),
+            conquest: None,
             cache: Mutex::new(Cache::default()),
+            // AI hook
+            ai: None,
+            outcome_sink: None,
+            // AI hook end
         }
+    }
+
+    /// Turns the conquest layer on (`--conquest`): the report gains its
+    /// `conquest` and `activity` sections, and every bot's budgets are the
+    /// v2 table's.
+    pub fn with_conquest(mut self, c: Conquest) -> Self {
+        c.seed_report(&mut self.report.lock().expect("report").cq);
+        self.cfg.budgets = crate::txb::budgets_v2();
+        self.conquest = Some(c);
+        self
     }
 
     pub fn with_journal(mut self, j: Journal) -> Self {
@@ -233,6 +289,11 @@ impl<H: HeraldPort, R: RelayPort, D: DirectPort> Shared<H, R, D> {
 
 impl<H, R, D> Shared<H, R, D> {
     pub fn record(&self, o: Outcome) {
+        // AI hook
+        if let Some(f) = &self.outcome_sink {
+            f(&o);
+        }
+        // AI hook end
         self.report.lock().expect("report").record(o);
     }
 
@@ -272,6 +333,12 @@ pub struct Bot {
     /// The refusal code of the last direct transaction (W6T-3: a Reveal's
     /// last refusal, for the report's unrevealed marches).
     last_direct_code: Option<String>,
+    // AI hook
+    /// The AI citizen's brain state (`on` only for slots `kind:"ai"`).
+    pub ai: crate::ai::BotAi,
+    // AI hook end
+    /// The conquest layer's memory (`--conquest`).
+    pub cq: CqMem,
 }
 
 /// Session retries after a nudge before the bot gives the session up.
@@ -313,8 +380,25 @@ impl Bot {
             nudged: false,
             nudge_retries: 0,
             last_direct_code: None,
+            // AI hook
+            ai: Default::default(),
+            // AI hook end
+            cq: CqMem::default(),
         }
     }
+
+    // AI hook
+    /// The relay quota this bot may still spend this step (the brain's
+    /// quota rules, `ai/brain.rs`).
+    pub fn ai_quota_left(&self, obs: &Observation) -> u32 {
+        self.quota_left(obs)
+    }
+
+    /// Forgets the sponsored sends counted so far (a step's start).
+    pub fn ai_spent_reset(&mut self) {
+        self.spent = 0;
+    }
+    // AI hook end
 
     /// Reads what one decision needs (the herald only).
     pub async fn observe<H: HeraldPort, R: RelayPort, D: DirectPort>(
@@ -470,8 +554,15 @@ impl Bot {
                 direct: sh.direct.is_some(),
                 session,
             };
-            policy::decide(&obs, &cx)
+            // Under `--conquest` a bot with no M1 persona marches only as
+            // its faction's plan assigns it (§8.7 item 7, profile `cq`).
+            policy::decide_with(&obs, &cx, sh.conquest.is_none())
         };
+        // AI hook
+        if self.ai.on && sh.ai.is_some() {
+            return crate::ai::brain::step_ai(self, sh, obs, intents, session).await;
+        }
+        // AI hook end
         // The herald's quota figure is fresh for this step; count what this
         // step spends on top of it.
         self.spent = 0;
@@ -492,6 +583,7 @@ impl Bot {
             }
             sent += self.act(sh, &obs, it).await;
         }
+        sent += self.cq_layer(sh, &obs).await;
         sh.report.lock().expect("report").steps += 1;
         sent
     }
@@ -612,7 +704,7 @@ impl Bot {
         self.spec.persona == Some(p)
     }
 
-    fn quota_left(&self, obs: &Observation) -> u32 {
+    pub(crate) fn quota_left(&self, obs: &Observation) -> u32 {
         obs.me.quota_left.unwrap_or(40).saturating_sub(self.spent)
     }
 
@@ -645,7 +737,7 @@ impl Bot {
     }
 
     /// A sponsored player instruction through `/f/relay` (or `/f/join`).
-    async fn sponsored<H, R: RelayPort, D>(
+    pub(crate) async fn sponsored<H, R: RelayPort, D>(
         &mut self,
         sh: &Shared<H, R, D>,
         action: &'static str,
@@ -666,7 +758,7 @@ impl Bot {
         let mut body =
             json!({"tx": txb::wire_b64(&t), "lastValidBlockHeight": info.last_valid_block_height});
         let path = if is_join {
-            if let Some(inv) = sh.cfg.invites.get(self.spec.index as usize) {
+            if let Some(inv) = sh.cfg.invite_for(self.spec.index) {
                 body["invite"] = json!(inv);
             }
             "/f/join"
@@ -682,6 +774,9 @@ impl Bot {
         };
         if a.ok() {
             self.spent += 1;
+            if is_join {
+                sh.cfg.invite_spent(self.spec.index);
+            }
         }
         let o = outcome(self, action, "relay", &a, tag);
         sh.record(o);
@@ -866,6 +961,11 @@ impl Bot {
                 1
             }
             Intent::FileTicket { sites } => {
+                // `--conquest`: a version-3 season grants the first home at
+                // once (PlaceHome 0x38); the M1 ticket is not filed.
+                if sh.conquest.is_some() {
+                    return self.place_home(sh, obs).await;
+                }
                 let r = self
                     .sponsored(sh, "file_ticket", None, |p| ix::file_ticket(&a, p, &sites))
                     .await;
@@ -875,18 +975,36 @@ impl Bot {
                 1
             }
             Intent::Harvest { h } => {
-                self.sponsored(sh, "harvest", None, |p| ix::harvest(&a, p, h))
-                    .await;
+                self.sponsored(sh, "harvest", None, |p| {
+                    if sh.conquest.is_some() {
+                        ix::v2::harvest(&a, p, h)
+                    } else {
+                        ix::harvest(&a, p, h)
+                    }
+                })
+                .await;
                 1
             }
             Intent::Build { h, item, walls } => {
-                self.sponsored(sh, "build", None, |p| ix::build_item(&a, p, h, item, walls))
-                    .await;
+                self.sponsored(sh, "build", None, |p| {
+                    if sh.conquest.is_some() {
+                        ix::v2::build_item(&a, p, h, item, walls || item == 7)
+                    } else {
+                        ix::build_item(&a, p, h, item, walls)
+                    }
+                })
+                .await;
                 1
             }
             Intent::Train { h, unit, n } => {
-                self.sponsored(sh, "train", None, |p| ix::train(&a, p, h, unit, n))
-                    .await;
+                self.sponsored(sh, "train", None, |p| {
+                    if sh.conquest.is_some() {
+                        ix::v2::train(&a, p, h, unit, n)
+                    } else {
+                        ix::train(&a, p, h, unit, n)
+                    }
+                })
+                .await;
                 1
             }
             Intent::Muster {
@@ -908,7 +1026,11 @@ impl Bot {
                 tiles,
             } => {
                 self.sponsored(sh, "explore", None, |p| {
-                    ix::explore(&a, p, h, at, host_id, &tiles)
+                    if sh.conquest.is_some() {
+                        ix::v2::explore(&a, p, h, at, host_id, &tiles)
+                    } else {
+                        ix::explore(&a, p, h, at, host_id, &tiles)
+                    }
                 })
                 .await;
                 1
@@ -937,7 +1059,11 @@ impl Bot {
                 let tag = forged.then_some("forged");
                 let r = self
                     .settle(sh, obs, "settle_transit", tag, |fp| {
-                        let mut i = ix::settle_transit(&a, fp, &args);
+                        let mut i = if sh.conquest.is_some() {
+                            ix::v2::settle_transit(&a, fp, &args, None)
+                        } else {
+                            ix::settle_transit(&a, fp, &args)
+                        };
                         if forged {
                             // A non-canonical slot key (account 5).
                             i.accounts[5].pubkey = Address::new_from_array([0xF0; 32]);
@@ -971,7 +1097,11 @@ impl Bot {
                 let at = (m.dest.0 as i16, m.dest.1 as i16);
                 let r = self
                     .sponsored(sh, "depart", Some("redepart"), |p| {
-                        ix::depart(&a, p, m.h, at, &args)
+                        if sh.conquest.is_some() {
+                            ix::v2::depart(&a, p, m.h, at, &args)
+                        } else {
+                            ix::depart(&a, p, m.h, at, &args)
+                        }
                     })
                     .await;
                 // integ-W6t review: a try before the destination resolved
@@ -1076,7 +1206,13 @@ impl Bot {
                 let mut sent = 0;
                 for _ in 0..n {
                     let r = self
-                        .sponsored(sh, "harvest", Some("spam"), |p| ix::harvest(&a, p, h))
+                        .sponsored(sh, "harvest", Some("spam"), |p| {
+                            if sh.conquest.is_some() {
+                                ix::v2::harvest(&a, p, h)
+                            } else {
+                                ix::harvest(&a, p, h)
+                            }
+                        })
                         .await;
                     sent += 1;
                     let stop = r.status == 429
@@ -1092,6 +1228,43 @@ impl Bot {
                 sent
             }
         }
+    }
+
+    /// `--conquest`: PlaceHome (0x38) at the site [`crate::home::plan_home`]
+    /// picks (the browser's `homeSites` rule). Nothing is sent when the
+    /// citizen is not entitled (a home was granted once; the program's
+    /// `AlreadyDone` / `TicketState`) or no legal site is in view. A
+    /// refused site (another citizen took it this bell) is retried at the
+    /// next bell with another hash order.
+    async fn place_home<H: HeraldPort, R: RelayPort, D: DirectPort>(
+        &mut self,
+        sh: &Shared<H, R, D>,
+        obs: &Observation,
+    ) -> usize {
+        let Some((_, cz)) = &obs.me.citizen else {
+            return 0;
+        };
+        if !crate::home::entitled(cz) {
+            return 0;
+        }
+        let bell = obs.bell();
+        let (faction, shard) = (cz.faction, cz.join_shard);
+        let seed = format!("{}:{bell}", self.wallet.pubkey());
+        let Some(site) = crate::home::plan_home(obs, faction, &seed) else {
+            return 0;
+        };
+        let a = Self::addresses(obs);
+        let r = self
+            .sponsored(sh, "place_home", None, |p| {
+                ix::place_home(&a, p, site, faction, shard)
+            })
+            .await;
+        if r.ok() {
+            // The herald shows the Holding a moment later: no second try
+            // in this bell or the next.
+            self.mem.ticket_sent_bell = Some(bell + 1);
+        }
+        1
     }
 
     async fn depart<H: HeraldPort, R: RelayPort, D: DirectPort>(
@@ -1157,12 +1330,21 @@ impl Bot {
         let ok = match plan.route {
             Route::Relay => self
                 .sponsored(sh, "depart", tag, |p| {
-                    ix::depart(&a, p, plan.h, plan.host_at, &args)
+                    if sh.conquest.is_some() {
+                        ix::v2::depart(&a, p, plan.h, plan.host_at, &args)
+                    } else {
+                        ix::depart(&a, p, plan.h, plan.host_at, &args)
+                    }
                 })
                 .await
                 .ok(),
             Route::Direct => {
-                let i = ix::depart(
+                let depart = if sh.conquest.is_some() {
+                    ix::v2::depart
+                } else {
+                    ix::depart
+                };
+                let i = depart(
                     &a,
                     &self.player(self.direct.pubkey()),
                     plan.h,
@@ -1175,6 +1357,12 @@ impl Bot {
             }
         };
         if ok {
+            {
+                let mut r = sh.report.lock().expect("report");
+                if r.cq.enabled {
+                    r.cq.day(obs.bell() / BELLS_PER_DAY).departs += 1;
+                }
+            }
             self.journal_state(sh, key, "sent");
             self.mem.marches.retain(|m| m.key != key);
             self.mem.marches.push(MarchMemo { sent: true, ..memo });
