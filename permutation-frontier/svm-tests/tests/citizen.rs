@@ -2370,7 +2370,7 @@ mod cq {
         let s1 = w.free_sites(&c, t.0, t.1)[0];
         let ix = fclient::ix::v2::file_outpost_with_second(&w.a, &e.player(),
             &[site(t, s1)], e.href(), cix::anchor_key(e.href(), e.gen), Some(o.href()));
-        expect_lands(send(&mut c.fork(), &e, ix.clone()), "FileOutpost final slot 2");
+        expect_lands(send(&mut c.fork(), &e, ix.clone()), "FileOutpost (outpost anchor)");
         let mut provisional = c.fork();
         provisional.edit(&o.holding, |d| d[H::STATE] = H::STATE_PROVISIONAL);
         assert_code(send(&mut provisional, &e, ix.clone()), Cq::OutpostRule);

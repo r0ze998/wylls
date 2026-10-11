@@ -108,7 +108,7 @@ pub fn train_cost(mc: bool, unit: u8, n: u32) -> Option<Cost> {
     }
 }
 
-/// Whether a Season account is an MC season (program version 2).
+/// Whether a Season account meets the MC program-version threshold.
 pub fn is_mc_season(program_version: u16) -> bool {
     program_version >= frontier_abi::v2::presets::PROGRAM_VERSION_V2
 }
@@ -587,6 +587,7 @@ mod tests {
         assert_eq!(train_cost(true, h, 100), catalog::train_v2(h, 100));
         assert_eq!(train_cost(false, h, 100), catalog::train(h, 100));
         assert_ne!(catalog::train_v2(h, 100), catalog::train(h, 100));
-        assert!(is_mc_season(2) && !is_mc_season(1));
+        assert!(is_mc_season(frontier_abi::v2::presets::PROGRAM_VERSION_V2));
+        assert!(!is_mc_season(2));
     }
 }
