@@ -774,14 +774,15 @@ mod cq {
     use frontier_abi::v2::layout::province::site as SM2;
     use frontier_abi::v2::layout::world::join_shard as JS2;
     use frontier_abi::v2::presets::{
-        ConquestParams, FRONTIER_7, MC_TEST, RULESET_HASH_V2, SEASON_CQ_OFFSET,
+        ConquestParams, FRONTIER_7, MC_TEST, PROGRAM_VERSION_V2, RULESET_HASH_V2,
+        SEASON_CQ_OFFSET,
     };
     use permutation_frontier_svm_tests::ix::season as six;
     use permutation_frontier_svm_tests::records::{cq_records, one_cq};
     use permutation_rules::frontier::terrain::free_city_site;
 
     /// CreateSeason v2 stores `RULESET_HASH_V2`, `RULES_VERSION` 11,
-    /// `program_version` 2 and the conquest block at 896..1,024 (§5.2.5,
+    /// `program_version` 3 and the conquest block at 896..1,024 (§5.2.5,
     /// §3.13).
     #[test]
     fn cq_create_season_v2_writes_the_conquest_block() {
@@ -792,7 +793,7 @@ mod cq {
         assert_eq!(&d[S::RULESET_HASH..S::RULESET_HASH + 32], &RULESET_HASH_V2);
         assert_ne!(RULESET_HASH_V2, presets::RULESET_HASH, "M1's is another");
         assert_eq!(rd_u16(&d, S::RULES_VERSION), 11);
-        assert_eq!(rd_u16(&d, S::PROGRAM_VERSION), 2);
+        assert_eq!(rd_u16(&d, S::PROGRAM_VERSION), PROGRAM_VERSION_V2);
         assert_eq!(
             ConquestParams::of_season(&d),
             Some(w.params.cq),
@@ -802,7 +803,7 @@ mod cq {
         assert_eq!(SEASON_CQ_OFFSET, 896);
         let r = one(&l.logs, Kind::SEASON_CREATED);
         assert_eq!(r.field("ruleset_hash", true), &RULESET_HASH_V2);
-        assert_eq!(r.u64("program_version"), 2);
+        assert_eq!(r.u64("program_version"), u64::from(PROGRAM_VERSION_V2));
     }
 
     /// G13 (§5.2.5): CreateSeason v2's refusals: M1-shaped data, M1's

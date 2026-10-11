@@ -15,7 +15,7 @@ import { mkdtempSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Keypair, PublicKey } from '@solana/web3.js';
+import { PublicKey } from '@solana/web3.js';
 import { keyFromSeed } from '../../permutation-server/web/session.mjs';
 import { encode as base58 } from '../client/src/base58.mjs';
 import { CLOCK_SYSVAR, FrontierAddresses } from '../client/src/frontier/addresses.mjs';
@@ -25,6 +25,7 @@ import { verifyTalk } from '../client/src/talk-node.mjs';
 import { createFrontierApps } from '../src/frontier/app.mjs';
 import { InviteBook } from '../src/frontier/invites.mjs';
 import { PayerPool } from '../src/frontier/payers.mjs';
+import { BlockhashBook } from '../src/send.mjs';
 import { PROGRAM, SEASON_ID, GENESIS_TS, LATEST_UNIX, BELL, encodeAccount, fixtures } from './fixtures/frontier/make-fixtures.mjs';
 import * as seat from '../citizens/ab/seat.mjs';
 
@@ -36,17 +37,22 @@ const HOLD = { p: 2, q: 0, site: 3, gen: 0 };
 const u8 = (n, v) => new Uint8Array(n).fill(v);
 const wallet = await keyFromSeed(u8(32, 31));
 const session = await keyFromSeed(u8(32, 32));
-const BLOCKHASH = Keypair.generate().publicKey.toBase58();
 
 // ---- the real relay over a scripted chain
 function fakeChain() {
   const c = {
-    accounts: new Map(), sent: [], statuses: new Map(), height: 100, landAll: true,
+    accounts: new Map(), sent: [], statuses: new Map(), height: 100, landAll: true, nextBlockhash: 1,
     set(key, v) { c.accounts.set(String(key), { lamports: v.lamports ?? 1_000_000_000, data: Buffer.from(v.data ?? []) }); },
     getAccountInfo: async key => c.accounts.get(new PublicKey(key).toBase58()) ?? null,
     getMultipleAccountsInfo: async keys => keys.map(k => c.accounts.get(new PublicKey(k).toBase58()) ?? null),
     getBalance: async key => c.accounts.get(new PublicKey(key).toBase58())?.lamports ?? 0,
-    getLatestBlockhash: async () => ({ blockhash: BLOCKHASH, lastValidBlockHeight: 150 }),
+    // Each relay submission needs a fresh hash. Reusing one makes otherwise
+    // identical Build transactions duplicate in the relay's signature guard.
+    getLatestBlockhash: async () => {
+      const hash = Buffer.alloc(32);
+      hash.writeUInt32LE(c.nextBlockhash++, 0);
+      return { blockhash: base58(hash), lastValidBlockHeight: 150 };
+    },
     getBlockHeight: async () => c.height,
     getSlot: async () => 77,
     simulateTransaction: async (vtx, cfg) => {
@@ -72,7 +78,10 @@ chain.set(A.citizen(wallet.publicKey), { data: encodeClient('Citizen', { SEASON_
 const store = { state: {}, save() {} };
 const cfg = { cluster: 'localnet', programId: PROGRAM, seasonId: String(SEASON_ID), heraldPeer: '127.0.0.1', heraldUrl: 'http://127.0.0.1:41040', minPoolSol: 1, operatorToken: 'op' };
 const keeper = { reveal: async () => ({ status: 202, body: { accepted: true } }), nudge: async () => ({ status: 200, body: { queued: true } }) };
-const apps = createFrontierApps({ cfg, connection: chain, pool, keeper, invites: new InviteBook({ secret: Buffer.alloc(32, 3), seasonId: BigInt(SEASON_ID), store }), gateKey: null, store, log: () => {} });
+// The fixture sends several Builds in under a second; disable the relay's
+// normal hash cache so its scripted chain can hand out a fresh one each time.
+const blockhashes = new BlockhashBook(chain, { ttlMs: 0 });
+const apps = createFrontierApps({ cfg, connection: chain, pool, keeper, invites: new InviteBook({ secret: Buffer.alloc(32, 3), seasonId: BigInt(SEASON_ID), store }), gateKey: null, store, log: () => {}, blockhashes });
 const relaySrv = http.createServer(apps.public);
 await new Promise(r => relaySrv.listen(0, '127.0.0.1', r));
 const RELAY = `http://127.0.0.1:${relaySrv.address().port}`;

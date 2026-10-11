@@ -64,7 +64,7 @@ pub struct World {
 }
 
 /// The MC 7-day preset's M1 part (`MC_LOCAL_7D.base`: `program_version`
-/// 2, Frontier-7 dormancy, the v2 fund) with the build's beacon key hash.
+/// 3, Frontier-7 dormancy, the v2 fund) with the build's beacon key hash.
 /// [`World::with_params`] adds Frontier-7's conquest block (MC CQ2-A: the
 /// program is the v2 program and refuses M1 seasons).
 pub fn params_for(c: &Chain) -> SeasonParams {

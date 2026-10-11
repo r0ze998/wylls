@@ -13,7 +13,7 @@ use solana_address::Address;
 use solana_instruction::Instruction;
 
 /// CreateSeason v2's data after the tag (MC contract §5.2.5): `SeasonParams
-/// (224 B, program_version 2) ‖ ConquestParams (128 B) ‖ PayoutParams
+/// (224 B, program_version 3) ‖ ConquestParams (128 B) ‖ PayoutParams
 /// (borsh)`.
 #[derive(Clone, Debug)]
 pub struct Params {
