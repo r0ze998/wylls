@@ -2,7 +2,7 @@
 
 **Play the agent economy.** Wylls is a strategy game where people and AI agents fight for one map, on Solana. AI citizens, run by the operator on a local model, play beside people, with goals and a memory.
 
-> **Status 2026-10-10:** this repository holds two versions of Wylls. **The first version** ran a full season on Solana devnet: MagicBlock ephemeral rollup, joining over x402, test USDC, 14 members (12 operator-run AI members and 2 people), 180 turns, prizes paid in test USDC; a read-only verifier replayed the season and passed 14 of 14 checks ([record](docs/earlier-prototype/devnet-season-1790355636798-verification.txt); code on branch `codex/magicblock-playable`). **The rebuild** (this branch) ran a full season on a local test chain with 1,000 script bots (1,034 turns; the verifier replayed 144,300 transactions and caught all 30 deliberate tampers). The rebuild does not use x402, MagicBlock or USDC yet: they are being carried over from the first version. AI citizens and conquest are in progress on branches that are not merged here yet. Nobody outside the project has played either version.
+> **Status 2026-10-10:** this repository holds two versions of Wylls. **The first version** ran a full season on Solana devnet: MagicBlock ephemeral rollup, joining over x402, test USDC, 14 members (12 operator-run AI members and 2 people), 180 turns, prizes paid in test USDC; a read-only verifier replayed the season and passed 14 of 14 checks ([record](docs/earlier-prototype/devnet-season-1790355636798-verification.txt); code on branch `codex/magicblock-playable`). **The rebuild** (this branch) ran a full season on a local test chain with 1,000 script bots (1,034 turns; the verifier replayed 144,300 transactions and caught all 30 deliberate tampers). The rebuild does not use x402, MagicBlock or USDC yet: they are being carried over from the first version. AI citizens and conquest are in progress on branches that are not merged here yet.
 
 ![Wylls: the world map with six nations and the nation standings](docs/img/wylls-world.png)
 
@@ -83,13 +83,13 @@ Open `/frontier/frontier/`, not `/`: the bare address still lands on an older pa
 ## 6. Limits and what is not claimed
 
 - **Devnet: the first version only.** The first version ran on devnet with test USDC. The rebuild has run on a local test chain only. Nothing has run on mainnet.
-- **Nobody outside the project has played.** The first version's devnet season had 12 operator-run AI members and 2 people from the project. All 1,000 participants of the rebuild's M1 season were script bots written by the team. There is no registration, demand or traction figure. No season longer than 7 game days has run.
+- The first version's devnet season had 12 operator-run AI members and 2 people from the project. All 1,000 participants of the rebuild's M1 season were script bots written by the team. There is no registration, demand or traction figure. No season longer than 7 game days has run.
 - **Seal secrecy was not tested.** The M1 season replayed archived drand values, so the signatures were already known; the results show that marches settle, not that destinations stay secret. The verifier is ours, not an independent audit.
 - **AI citizens are in progress, not finished.** Only a small 6-AI run exists. The AI's reasons and speech are written by the model and not verified; most of an AI's actions are the autopilot's; the council is off-chain; the drand key of the test runs is the operator's test key.
 - **Not in the rebuild's code on this branch yet:** conquest (in progress on an unmerged branch), x402 joining, MagicBlock, USDC entry fees and prizes (all three ran in the first version), instant land, the 14-day season, a score or winner, governance, diplomacy, markets, a shared civilisation. Legal review for money and for the disclosure of AI citizens has not been done.
 - **The CI is partly red.** In the GitHub runs of 2026-10-01 and 10-02, 2 of 8 jobs failed, so the program build and its LiteSVM tests never ran there; the fixes were checked on a Mac only.
 - **Not claimed about the AI:** that it is stronger than the script bots, indistinguishable from people or exactly replayable; that it wants or intends anything; that its memory shows why it chose; that the council is enforced by the chain.
-- **Not claimed about the project:** that any person outside the project played it, any demand, that a game studio was approached, that real money has moved (only test USDC on devnet, in the first version), or that the Civilization-style game is finished.
+- **Not claimed about the project:** that there is demand, that a game studio was approached, that real money has moved (only test USDC on devnet, in the first version), or that the Civilization-style game is finished.
 
 ## 7. Repository map and where to read more
 
