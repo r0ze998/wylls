@@ -653,7 +653,8 @@ async fn cq_a_newcomer_places_its_home_instead_of_filing_a_ticket() {
         data[5],
     );
     assert!(legal.contains(&site), "{site:?} not in {legal:?}");
-    let pc = permutation_rules::frontier::geometry::ProvinceCoord::new(site.0 as i32, site.1 as i32);
+    let pc =
+        permutation_rules::frontier::geometry::ProvinceCoord::new(site.0 as i32, site.1 as i32);
     assert_eq!(pc.wedge(), Some(faction));
     assert!(pc.ring() >= 2);
     // The innermost legal ring first (the browser's `planHomes` order).
@@ -668,9 +669,7 @@ async fn cq_a_newcomer_places_its_home_instead_of_filing_a_ticket() {
 #[tokio::test]
 async fn cq_a_citizen_with_a_granted_home_does_not_place_again() {
     let f = fixture();
-    let faction = (0..6u8)
-        .find(|&x| !legal_homes(&f, x).is_empty())
-        .unwrap();
+    let faction = (0..6u8).find(|&x| !legal_homes(&f, x).is_empty()).unwrap();
     let sends = step_newcomer(faction, C2::FLAG_JOINED | C2::FLAG_HOME_GRANTED, true).await;
     assert!(sends.is_empty(), "{sends:?}");
 }
@@ -679,9 +678,7 @@ async fn cq_a_citizen_with_a_granted_home_does_not_place_again() {
 #[tokio::test]
 async fn m1_newcomer_still_files_a_ticket() {
     let f = fixture();
-    let faction = (0..6u8)
-        .find(|&x| !legal_homes(&f, x).is_empty())
-        .unwrap();
+    let faction = (0..6u8).find(|&x| !legal_homes(&f, x).is_empty()).unwrap();
     let sends = step_newcomer(faction, C2::FLAG_JOINED, false).await;
     let tags: Vec<u8> = sends.iter().map(|s| s.0).collect();
     assert_eq!(tags, vec![fclient::abi::tag::FILE_TICKET]);

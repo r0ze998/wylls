@@ -1001,12 +1001,21 @@ mod tests {
         let mut c = StackConfig::default();
         assert!(c.prize_so.is_none() && c.to_json()["prize"].is_null());
         let f = split_flags(
-            &["--prize-so", "permutation-prize/target/deploy/permutation_prize.so", "--conquest", "--bots", "6"]
-                .map(String::from),
+            &[
+                "--prize-so",
+                "permutation-prize/target/deploy/permutation_prize.so",
+                "--conquest",
+                "--bots",
+                "6",
+            ]
+            .map(String::from),
         )
         .unwrap();
         apply_flags(&mut c, &f).unwrap();
-        assert_eq!((c.entry_fee, c.prize_ops_bps, c.prize_keeps), (25_000_000, 2_000, 54));
+        assert_eq!(
+            (c.entry_fee, c.prize_ops_bps, c.prize_keeps),
+            (25_000_000, 2_000, 54)
+        );
         // Script bots share the world: they join by operator invite, never by paying.
         assert_eq!(c.bots, 6);
         assert_eq!(c.check(), Ok(()));
@@ -1014,7 +1023,10 @@ mod tests {
         let f = split_flags(&["--entry-fee", "10000000"].map(String::from)).unwrap();
         apply_flags(&mut c, &f).unwrap();
         assert_eq!(c.entry_fee, 10_000_000);
-        let t = StackConfig::from_toml("conquest = true\nbots = 0\nprize_so = \"x.so\"\nentry_fee = 7\n").unwrap();
+        let t = StackConfig::from_toml(
+            "conquest = true\nbots = 0\nprize_so = \"x.so\"\nentry_fee = 7\n",
+        )
+        .unwrap();
         assert_eq!((t.prize_so.is_some(), t.entry_fee), (true, 7));
     }
 

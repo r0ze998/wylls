@@ -87,7 +87,8 @@ impl DeclareSiegeArgs {
 pub fn declare_siege(a: &Addresses, p: &Player, x: &DeclareSiegeArgs) -> Instruction {
     let (tp, tq) = (x.target.0 as i32, x.target.1 as i32);
     let target_holding = a.holding(tp, tq, x.site);
-    let nearby = x.nearby
+    let nearby = x
+        .nearby
         .map_or_else(|| a.absent(1), |(np, nq)| a.province(np as i32, nq as i32));
     let mut m = prologue(a, p);
     m.extend([

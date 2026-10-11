@@ -75,7 +75,9 @@ fn base64url(b: &[u8]) -> String {
     const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
     let mut out = String::new();
     for c in b.chunks(3) {
-        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        let n = (c[0] as u32) << 16
+            | (*c.get(1).unwrap_or(&0) as u32) << 8
+            | *c.get(2).unwrap_or(&0) as u32;
         for (i, shift) in [18, 12, 6, 0].into_iter().enumerate() {
             if i <= c.len() {
                 out.push(A[(n >> shift) as usize & 63] as char);
@@ -138,8 +140,12 @@ impl Prize {
             return Ok(None);
         };
         let so = run::resolve(repo, so);
-        let bytes = std::fs::read(&so)
-            .map_err(|e| format!("{}: {e} (build it with scripts/build-prize.sh)", so.display()))?;
+        let bytes = std::fs::read(&so).map_err(|e| {
+            format!(
+                "{}: {e} (build it with scripts/build-prize.sh)",
+                so.display()
+            )
+        })?;
         let pinned = rd.path("prize.so");
         run::write_atomic(&pinned, &bytes)?;
         let kp = |p: &str| run::secret(&rd.path(p)).map(Keypair::new_from_array);
@@ -149,15 +155,33 @@ impl Prize {
             kp("relay/faucet.seed")?,
             kp("keys/prize-mint.seed")?,
         );
-        let (gate_file, faucet_file) = (rd.path("relay/gate-key.json"), rd.path("relay/faucet-key.json"));
+        let (gate_file, faucet_file) = (
+            rd.path("relay/gate-key.json"),
+            rd.path("relay/faucet-key.json"),
+        );
         write_keypair_json(&gate_file, &gate)?;
         write_keypair_json(&faucet_file, &faucet)?;
         // The operator's own members join by invite (never by paying).
         let secret = run::secret(&rd.path("relay/invite.secret"))?;
         let nonces = run::secret(&rd.path("keys/invite-nonces.seed"))?;
-        write_invites(&rd.path(BOT_INVITES), &secret, &nonces, cfg.season_id, "bots", (4 * cfg.bots).max(8))?;
-        write_invites(&rd.path(FLEET_INVITES), &secret, &nonces, cfg.season_id, "fleet", FLEET_INVITE_COUNT)?;
-        let params = std::fs::read(repo.join(PARAMS_FILE)).map_err(|e| format!("{PARAMS_FILE}: {e}"))?;
+        write_invites(
+            &rd.path(BOT_INVITES),
+            &secret,
+            &nonces,
+            cfg.season_id,
+            "bots",
+            (4 * cfg.bots).max(8),
+        )?;
+        write_invites(
+            &rd.path(FLEET_INVITES),
+            &secret,
+            &nonces,
+            cfg.season_id,
+            "fleet",
+            FLEET_INVITE_COUNT,
+        )?;
+        let params =
+            std::fs::read(repo.join(PARAMS_FILE)).map_err(|e| format!("{PARAMS_FILE}: {e}"))?;
         let (pool, _) = Address::find_program_address(
             &[b"pool", game.as_ref(), &cfg.season_id.to_le_bytes()],
             &program,
@@ -296,7 +320,10 @@ mod tests {
     #[test]
     fn invites_are_the_relays() {
         let nonce: [u8; 12] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
-        assert_eq!(invite(&[3u8; 32], 5, &nonce), "AAECAwQFBgcICQoLX-9a9HR-6czBGNgC5ro7tQ");
+        assert_eq!(
+            invite(&[3u8; 32], 5, &nonce),
+            "AAECAwQFBgcICQoLX-9a9HR-6czBGNgC5ro7tQ"
+        );
         assert_ne!(invite(&[3u8; 32], 6, &nonce), invite(&[3u8; 32], 5, &nonce));
         assert_eq!(base64url(b"ab"), "YWI");
         assert_eq!(base64url(b"abc"), "YWJj");

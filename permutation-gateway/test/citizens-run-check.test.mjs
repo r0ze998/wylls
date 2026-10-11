@@ -30,7 +30,11 @@ function makeRepo() {
   const root = fs.mkdtempSync(path.join(tmp, 'repo-'));
   for (const p of ['permutation-gateway/citizens/a.txt', 'permutation-server/web/frontier/council/b.txt', 'frontier-node/crates/bots/c.txt', 'frontier-node/crates/agents/d.txt', 'frontier-node/crates/herald/e.txt', 'frontier-node/crates/stack/f.txt', 'docs/x.md']) write(path.join(root, p), 'x\n');
   const git = (...a) => execFileSync('git', ['-C', root, '-c', 'commit.gpgsign=false', ...a], { env: { ...process.env, ...GIT_ENV }, encoding: 'utf8' });
-  git('init', '-q', '-b', 'main'); git('add', '-A'); git('commit', '-q', '-m', 'base');
+  git('init', '-q', '-b', 'main');
+  // The run script commits in a child process without GIT_ENV. Keep its
+  // author identity in this throwaway repository, not the runner's config.
+  git('config', 'user.name', 't'); git('config', 'user.email', 't@example.invalid');
+  git('add', '-A'); git('commit', '-q', '-m', 'base');
   return { root, git };
 }
 // R9: a non-smoke run names the gguf and the llama.cpp tree it measures; these tests run no model, so the files are stand-ins

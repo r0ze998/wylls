@@ -1270,9 +1270,18 @@ mod tests {
                 hot,
                 "bell {b}: contested ⇔ gathered at once"
             );
-            if hot { assert!(e.keys("skip:").is_empty(), "bell {b}: contested turn is never skipped"); }
+            if hot {
+                assert!(
+                    e.keys("skip:").is_empty(),
+                    "bell {b}: contested turn is never skipped"
+                );
+            }
             if !hot {
-                assert_eq!(e.keys("skip:"), vec![format!("skip:{p},{q}:{b}:1")], "peaceful turn scores immediately");
+                assert_eq!(
+                    e.keys("skip:"),
+                    vec![format!("skip:{p},{q}:{b}:1")],
+                    "peaceful turn scores immediately"
+                );
                 idle_at = Some(b);
                 break;
             }
@@ -1308,7 +1317,7 @@ mod tests {
         let k = cm::read_keep(&pd).unwrap().unwrap();
         assert_eq!(k.holder, 4);
         assert!(!d.conquest.hot((p, q)), "taken: no contest");
-        assert_eq!(e.keys("skip:"), vec![format!("skip:{p},{q}:{}:1",tb+1)]);
+        assert_eq!(e.keys("skip:"), vec![format!("skip:{p},{q}:{}:1", tb + 1)]);
         assert!(e.keys("gather:").is_empty());
     }
 

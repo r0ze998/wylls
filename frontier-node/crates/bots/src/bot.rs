@@ -975,18 +975,36 @@ impl Bot {
                 1
             }
             Intent::Harvest { h } => {
-                self.sponsored(sh, "harvest", None, |p| if sh.conquest.is_some() { ix::v2::harvest(&a, p, h) } else { ix::harvest(&a, p, h) })
-                    .await;
+                self.sponsored(sh, "harvest", None, |p| {
+                    if sh.conquest.is_some() {
+                        ix::v2::harvest(&a, p, h)
+                    } else {
+                        ix::harvest(&a, p, h)
+                    }
+                })
+                .await;
                 1
             }
             Intent::Build { h, item, walls } => {
-                self.sponsored(sh, "build", None, |p| if sh.conquest.is_some() { ix::v2::build_item(&a, p, h, item, walls || item == 7) } else { ix::build_item(&a, p, h, item, walls) })
-                    .await;
+                self.sponsored(sh, "build", None, |p| {
+                    if sh.conquest.is_some() {
+                        ix::v2::build_item(&a, p, h, item, walls || item == 7)
+                    } else {
+                        ix::build_item(&a, p, h, item, walls)
+                    }
+                })
+                .await;
                 1
             }
             Intent::Train { h, unit, n } => {
-                self.sponsored(sh, "train", None, |p| if sh.conquest.is_some() { ix::v2::train(&a, p, h, unit, n) } else { ix::train(&a, p, h, unit, n) })
-                    .await;
+                self.sponsored(sh, "train", None, |p| {
+                    if sh.conquest.is_some() {
+                        ix::v2::train(&a, p, h, unit, n)
+                    } else {
+                        ix::train(&a, p, h, unit, n)
+                    }
+                })
+                .await;
                 1
             }
             Intent::Muster {
@@ -1008,7 +1026,11 @@ impl Bot {
                 tiles,
             } => {
                 self.sponsored(sh, "explore", None, |p| {
-                    if sh.conquest.is_some() { ix::v2::explore(&a, p, h, at, host_id, &tiles) } else { ix::explore(&a, p, h, at, host_id, &tiles) }
+                    if sh.conquest.is_some() {
+                        ix::v2::explore(&a, p, h, at, host_id, &tiles)
+                    } else {
+                        ix::explore(&a, p, h, at, host_id, &tiles)
+                    }
                 })
                 .await;
                 1
@@ -1037,7 +1059,11 @@ impl Bot {
                 let tag = forged.then_some("forged");
                 let r = self
                     .settle(sh, obs, "settle_transit", tag, |fp| {
-                        let mut i = if sh.conquest.is_some() { ix::v2::settle_transit(&a, fp, &args, None) } else { ix::settle_transit(&a, fp, &args) };
+                        let mut i = if sh.conquest.is_some() {
+                            ix::v2::settle_transit(&a, fp, &args, None)
+                        } else {
+                            ix::settle_transit(&a, fp, &args)
+                        };
                         if forged {
                             // A non-canonical slot key (account 5).
                             i.accounts[5].pubkey = Address::new_from_array([0xF0; 32]);
@@ -1071,7 +1097,11 @@ impl Bot {
                 let at = (m.dest.0 as i16, m.dest.1 as i16);
                 let r = self
                     .sponsored(sh, "depart", Some("redepart"), |p| {
-                        if sh.conquest.is_some() { ix::v2::depart(&a, p, m.h, at, &args) } else { ix::depart(&a, p, m.h, at, &args) }
+                        if sh.conquest.is_some() {
+                            ix::v2::depart(&a, p, m.h, at, &args)
+                        } else {
+                            ix::depart(&a, p, m.h, at, &args)
+                        }
                     })
                     .await;
                 // integ-W6t review: a try before the destination resolved
@@ -1176,7 +1206,13 @@ impl Bot {
                 let mut sent = 0;
                 for _ in 0..n {
                     let r = self
-                        .sponsored(sh, "harvest", Some("spam"), |p| if sh.conquest.is_some() { ix::v2::harvest(&a, p, h) } else { ix::harvest(&a, p, h) })
+                        .sponsored(sh, "harvest", Some("spam"), |p| {
+                            if sh.conquest.is_some() {
+                                ix::v2::harvest(&a, p, h)
+                            } else {
+                                ix::harvest(&a, p, h)
+                            }
+                        })
                         .await;
                     sent += 1;
                     let stop = r.status == 429
@@ -1294,12 +1330,20 @@ impl Bot {
         let ok = match plan.route {
             Route::Relay => self
                 .sponsored(sh, "depart", tag, |p| {
-                    if sh.conquest.is_some() { ix::v2::depart(&a, p, plan.h, plan.host_at, &args) } else { ix::depart(&a, p, plan.h, plan.host_at, &args) }
+                    if sh.conquest.is_some() {
+                        ix::v2::depart(&a, p, plan.h, plan.host_at, &args)
+                    } else {
+                        ix::depart(&a, p, plan.h, plan.host_at, &args)
+                    }
                 })
                 .await
                 .ok(),
             Route::Direct => {
-                let depart = if sh.conquest.is_some() { ix::v2::depart } else { ix::depart };
+                let depart = if sh.conquest.is_some() {
+                    ix::v2::depart
+                } else {
+                    ix::depart
+                };
                 let i = depart(
                     &a,
                     &self.player(self.direct.pubkey()),

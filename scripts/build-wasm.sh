@@ -14,13 +14,12 @@
 # (O-M1-12). Without it this script changes nothing, prints PENDING-OWNER
 # and exits 3; the gate checks for the target before calling it (§12).
 #
-# Cross-host bytes (CI fix, measured 2026-10-03). The same source and the same
+# Cross-host bytes (measured for this source in CI run 38157524022). The same source and the same
 # rustc 1.95.0 (59807616e) build to different bytes on different build hosts:
-# aarch64-apple-darwin (where the committed module is built) gives 205,623 B,
-# sha256 32006de4...; the GitHub runner (x86_64-unknown-linux-gnu) gives
-# 205,577 B, sha256 2d21f8c4... (CI runs 36923004057 and 36958805861, two
-# commits, identical Linux hash). Each host is deterministic (a clean
-# `git archive` checkout on the Mac gives the committed bytes again). The
+# aarch64-apple-darwin (where the committed module is built) gives 205,683 B,
+# sha256 05a2e1e2...; the GitHub runner (x86_64-unknown-linux-gnu) gives
+# 205,637 B, sha256 020cc258.... The Mac --check build reproduces the
+# committed bytes. The
 # cause is not established; it is not the checkout path (remapped) and not
 # floating point (the sources use none). So the committed module stays the one
 # built on the Mac, and web/frontier/wasm/frontier.wasm.hosts records the
@@ -41,11 +40,11 @@ RAW_MAX=$((400 * 1024))
 GZ_MAX=$((150 * 1024))
 CHECK=0
 ARTIFACT=frontier.wasm
-FEATURE_ARGS=()
+FEATURE_ARGS=(--lib)
 for arg in "$@"; do
   case "$arg" in
     --check) CHECK=1 ;;
-    --cq) ARTIFACT=frontier-v2.wasm; FEATURE_ARGS=(--features cq) ;;
+    --cq) ARTIFACT=frontier-v2.wasm; FEATURE_ARGS=(--lib --features cq) ;;
     *) echo "usage: $0 [--cq] [--check]" >&2; exit 2 ;;
   esac
 done
@@ -81,7 +80,7 @@ trap cleanup EXIT
 ln -sfn "$ROOT" "$LINK"
 SEP=$'\x1f'
 export CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$LINK=/psf${SEP}--remap-path-prefix=$ROOT=/psf${SEP}--remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo${SEP}--remap-path-prefix=$HOME/.rustup=/rustup"
-(cd "$CRATE" && cargo "+$TOOLCHAIN" build --locked --release --target "$TARGET" --target-dir "$TARGET_DIR" --lib \
+(cd "$CRATE" && cargo "+$TOOLCHAIN" build --locked --release --target "$TARGET" --target-dir "$TARGET_DIR" \
   --manifest-path "$LINK/frontier-wasm/Cargo.toml" "${FEATURE_ARGS[@]}")
 BUILT="$TARGET_DIR/$TARGET/release/frontier_wasm.wasm"
 [ -f "$BUILT" ] || { echo "build-wasm: no $BUILT" >&2; exit 1; }

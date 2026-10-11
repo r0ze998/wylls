@@ -486,6 +486,7 @@ impl Chain {
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let writer_lock = std::fs::OpenOptions::new()
             .create(true)
+            .truncate(false)
             .read(true)
             .write(true)
             .open(dir.join("writer.lock"))

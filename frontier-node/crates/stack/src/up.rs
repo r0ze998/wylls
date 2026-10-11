@@ -573,8 +573,7 @@ impl Stack {
         });
         if let (Some(pz), Some(spec)) = (&self.prize, out.last_mut()) {
             spec.args.push(s("--program"));
-            spec.args
-                .push(pz.deploy_arg(&self.keys.authority.pubkey()));
+            spec.args.push(pz.deploy_arg(&self.keys.authority.pubkey()));
         }
         let mut dargs = vec![
             s("serve"),

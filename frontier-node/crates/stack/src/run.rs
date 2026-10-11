@@ -89,6 +89,7 @@ impl RunDir {
             .to_string_lossy();
         let f = std::fs::OpenOptions::new()
             .create(true)
+            .truncate(false)
             .read(true)
             .write(true)
             .open(parent.join(format!(".{name}.lock")))

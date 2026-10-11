@@ -824,20 +824,26 @@ impl Bot {
         let second = obs.me.citizen.as_ref().and_then(|(_, c)| {
             (c.holdings_n >= 2).then(|| {
                 let h = c.holding[1];
-                HoldingRef { p: h.p, q: h.q, site: h.site }
+                HoldingRef {
+                    p: h.p,
+                    q: h.q,
+                    site: h.site,
+                }
             })
         });
         let mut built = true;
         let r = self
             .sponsored(sh, "file_outpost", None, |p| {
-                cqtx::file_outpost_with_second(&a, p, &sites, hr, gen, second).unwrap_or_else(|| {
-                    built = false;
-                    fclient::Instruction {
-                        program_id: a.program,
-                        accounts: vec![],
-                        data: vec![],
-                    }
-                })
+                cqtx::file_outpost_with_second(&a, p, &sites, hr, gen, second).unwrap_or_else(
+                    || {
+                        built = false;
+                        fclient::Instruction {
+                            program_id: a.program,
+                            accounts: vec![],
+                            data: vec![],
+                        }
+                    },
+                )
             })
             .await;
         if !built {
