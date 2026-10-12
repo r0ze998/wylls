@@ -78,7 +78,7 @@ $S down --run-id try
 
 Open `/frontier/frontier/`, not `/`. The browser joins with its built-in local test wallet. The scripted browser run, current integrated stack, exit-season recipe and test commands are in [docs/RUNNING.md](docs/RUNNING.md).
 
-**Demo footage:** the human-operated `own1` conquest scene (season 100) and the real-Gemma AI decision in `take-1` are separate local test-chain runs. A silent editing preview combines them; it is not a continuous world or an uploaded final video. Final demo and pitch video URLs are pending.
+**Demo footage:** the human-operated `own1` conquest scene (season 100) and the real-Gemma AI decision in `take-1` are separate local test-chain runs. A silent editing preview combines them; it is not a continuous world or an uploaded final video. The final demo URL is pending. **Final pitch video:** <https://youtu.be/WMAESO0xbek>.
 
 ## 6. Limits and what is not claimed
 
