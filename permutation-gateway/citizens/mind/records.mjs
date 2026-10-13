@@ -18,6 +18,12 @@
 //    Order, whichever is later. The release job (AC6) calls open(id); verify-minds allows +2.
 //  * `state` is private to the citizens service; `pub` is what serve.mjs publishes. Nothing from a
 //    sealed record's private part is ever written under pub before its release.
+//  * a SEALED record is never the source of a talk record (7.2: the say of a sealed decision is not posted
+//    and appears only in the opened record; 7.3 M8 fails a talk filed under a sealed decision). So
+//    attachSocial, provenance and consume refuse type 'talk' under a sealed record, whatever asks: the mind
+//    gives such a record no talk item, and a carrier (watcher/outbox.mjs) must not add one. `sealed` never
+//    flips, so this holds before and after the release. Ballots are not talk: a ballot is hidden by the
+//    council itself until the Strike Order opens (6.5 step 4) and may be filed under a sealed record.
 import { createHash, randomBytes as nodeRandomBytes } from 'node:crypto';
 import { mkdirSync, writeFileSync, renameSync, existsSync, readFileSync, appendFileSync } from 'node:fs';
 import { canonicalJson } from './guards.mjs';
@@ -106,7 +112,9 @@ export function createRecords({ aiDir, runId = 'run', season = 0, randomBytes = 
   const closed = new Map(); // bell -> {root, file, ids}
   const consumed = new Set();
   const lateEntries = new Map(); // bell -> [{id, tx} | {record}]
-  const counters = { added: 0, late_adds: 0, late_tx: 0, closed_bells: 0, sealed: 0 };
+  const counters = { added: 0, late_adds: 0, late_tx: 0, closed_bells: 0, sealed: 0, sealed_talk_refused: 0 };
+  /** 7.2 / M8: a sealed record carries no talk item (see the header). `e` is a record entry or undefined. */
+  const talkClosed = (e, type) => type === 'talk' && Boolean(e?.full?.sealed);
 
   const journal = (op) => {
     try {
@@ -234,11 +242,17 @@ export function createRecords({ aiDir, runId = 'run', season = 0, randomBytes = 
   /**
    * integ-B: register one more signed-ready social item (type 'talk' | 'ballot') under an existing record: the council output the watcher's
    * outbox piggybacks on the AI's next decide answer (AC6-NOTES deviation 2). Journaled and replayed, so that it survives a restart and the
-   * season-end bundle (full/decisions, M8) lists it. Returns false when the record is unknown.
+   * season-end bundle (full/decisions, M8) lists it. Returns false when the record is unknown, and false for a TALK item under a
+   * SEALED record: nothing is registered and nothing is journaled (run take-2: the outbox registered a council motion under a sealed
+   * march, the brain posted it under that id and verify-minds M8 failed `sealed_decision_posted`). The caller keeps the item.
    */
   function attachSocial(id, type, exp) {
     const e = byId.get(id);
     if (!e || (type !== 'talk' && type !== 'ballot')) return false;
+    if (talkClosed(e, type)) {
+      counters.sealed_talk_refused += 1;
+      return false;
+    }
     ((e.priv.social ??= {})[type] ??= []).push(exp);
     journal({ op: 'social', id, type, exp });
     return true;
@@ -275,8 +289,14 @@ export function createRecords({ aiDir, runId = 'run', season = 0, randomBytes = 
     return { root, file };
   }
 
+  /**
+   * What the social service asks before it accepts a record of an AI wallet (6.2 rule 4): the signed-ready output `item` of decision
+   * `id`, or null. Null for a talk under a sealed record even when its private part lists one (a carrier wrote it, or a journal written
+   * before this rule was replayed): the service then refuses the post as NotFromMind.
+   */
   function provenance(id, item, type = 'talk') {
     const e = byId.get(id);
+    if (talkClosed(e, type)) return null;
     const list = e?.priv?.social?.[type];
     const exp = Array.isArray(list) ? list.find((x) => x.item === item) : null;
     if (!e || !exp) return null;
@@ -285,6 +305,7 @@ export function createRecords({ aiDir, runId = 'run', season = 0, randomBytes = 
 
   function consume(id, item, type = 'talk') {
     const key = `${id}:${type}:${item}`;
+    if (talkClosed(byId.get(id), type)) return false;
     if (!byId.get(id)?.priv?.social?.[type]?.some((x) => x.item === item)) return false;
     if (consumed.has(key)) return false;
     consumed.add(key);
