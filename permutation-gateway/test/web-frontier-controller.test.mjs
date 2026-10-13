@@ -244,3 +244,34 @@ test('refresh maps /h/me found, missing and unavailable results to viewer state'
     Object.assign(FS, saved);
   }
 });
+
+test('an older /h/me answer cannot replace the current wallet viewer', async () => {
+  const saved = { ...FS };
+  const pending = new Map();
+  const citizen = { ticketEscrow: 0n, holding: [{ gen: 255 }], ticketBell: 0xFFFF_FFFF, flags: 0, faction: 0 };
+  try {
+    Object.assign(FS, {
+      clock: { genesisTs: 0 }, chain: { now: () => 6000 }, wallet: { address: 'W1' },
+      season: {}, record: {}, session: null, proto: null, provinces: new Map(), overviews: new Map(),
+      chronicle: [], landRec: null, citizen: null, holdings: [], meStatus: 'loading', meError: null,
+    });
+    C.useHerald({ me: address => new Promise(resolve => pending.set(address, resolve)), events: async () => ({ ok: false }) });
+    const first = C.refresh();
+    for (let i = 0; !pending.has('W1') && i < 10; i++) await Promise.resolve();
+    assert.ok(pending.has('W1'));
+    FS.wallet = { address: 'W2' };
+    const second = C.refresh();
+    for (let i = 0; !pending.has('W2') && i < 10; i++) await Promise.resolve();
+    assert.ok(pending.has('W2'));
+    pending.get('W2')({ ok: false, code: 'NotFound' });
+    await second;
+    pending.get('W1')({ ok: true, citizen, holdings: [], record: { hosts: [] } });
+    await first;
+    assert.equal(FS.wallet.address, 'W2');
+    assert.equal(FS.citizen, null);
+    assert.equal(FS.land.stage, 'none');
+  } finally {
+    C.useHerald(null);
+    Object.assign(FS, saved);
+  }
+});

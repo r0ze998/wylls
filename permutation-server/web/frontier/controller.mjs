@@ -362,7 +362,7 @@ export const inviteRequired = season => !!season?.joinGate?.some?.(x => x !== 0)
 
 // ------------------------------------------------------------------ refresh
 const Buffer2hex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
-let herald = null, refreshTimer = null, cursor = 0, conquestRefresh = 0, homesRefresh = 0;
+let herald = null, refreshTimer = null, cursor = 0, conquestRefresh = 0, homesRefresh = 0, viewerRefresh = 0;
 
 function refreshSoon(ms = 1500) {
   clearTimeout(refreshTimer);
@@ -674,7 +674,7 @@ async function refreshChronicle() {
 }
 
 /** The herald client this controller reads (startPlay sets it; tests pass a fake). */
-export function useHerald(h) { herald = h; cursor = 0; mySlots = []; conquestRefresh += 1; homesRefresh += 1; }
+export function useHerald(h) { herald = h; cursor = 0; mySlots = []; conquestRefresh += 1; homesRefresh += 1; viewerRefresh += 1; }
 
 /**
  * Load the latest envelope of a province the map draws at tile detail, the
@@ -737,14 +737,20 @@ export function applyMeResult(me) {
 /** Refresh the viewer's accounts, provinces, marches, chronicle and quota. */
 export async function refresh() {
   if (!herald || !FS.clock) return;
+  const request = ++viewerRefresh;
   FS.nowBell = nowBell();
   // A gated season shows the invite field before any refusal (I-51).
   FS.inviteRequired = FS.inviteRequired || inviteRequired(FS.season);
   await refreshPrize().catch(() => null);
+  if (request !== viewerRefresh) return;
   syncProto();
   if (FS.wallet) {
-    const me = await herald.me(FS.wallet.address).catch(e => ({ ok: false, code: e?.code ?? 'Unavailable' }));
+    const address = FS.wallet.address;
+    const me = await herald.me(address).catch(e => ({ ok: false, code: e?.code ?? 'Unavailable' }));
+    // A previous poll or wallet must not replace the viewer selected by a newer refresh.
+    if (request !== viewerRefresh || FS.wallet?.address !== address) return;
     if (FS.proto) await refreshProto(me.ok ? me.record : undefined);
+    if (request !== viewerRefresh || FS.wallet?.address !== address) return;
     if (applyMeResult(me) === 'error') return;
     const h = activeHolding(FS);
     // every holding's province (the rail can switch between them), the active one first
