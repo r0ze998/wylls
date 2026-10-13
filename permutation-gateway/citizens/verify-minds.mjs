@@ -933,7 +933,10 @@ export async function checkM8(ctx) {
       }
       // an unsealed decision's published `say` is the same text
       if (!dec.record.sealed && dec.record.kind !== 'motion' && Array.isArray(dec.record.public?.say) && dec.record.public.say[prov.item] !== undefined && dec.record.public.say[prov.item] !== v.text) c.fail('differs_from_published_say', { decision: prov.decision_id, item: prov.item });
-      if (dec.record.sealed) c.fail('sealed_decision_posted', { decision: prov.decision_id, detail: 'a sealed decision\'s say is withheld until the release: it must not have been posted' });
+      // 7.2: a sealed decision posts nothing to the talk channel. Its own say is withheld and appears only in the opened record, and no
+      // other talk may be filed under its id either: `v.kind` says what was (0 a say, 1 a council motion a carrier filed under it, as
+      // in run take-2). The rule is the same for both; only this sentence used to call every such record "the say".
+      if (dec.record.sealed) c.fail('sealed_decision_posted', { decision: prov.decision_id, item: prov.item, talk_kind: v.kind, filed_bell: bell, release_bell: dec.record.release_bell ?? null, detail: `a talk record filed under a sealed decision (${v.kind === 1 ? 'kind 1: a council motion carried by that decision\'s answer' : `kind ${v.kind}`}): a sealed decision posts nothing to the talk channel, its say appears only in the opened record at the release` });
     }
   };
   // FB3: a record with no bytes is skipped only when the operator's public tombstone list names its inner; every other record without bytes is a

@@ -11,8 +11,14 @@
 //
 // `status`: `pending` (decided, no decide answer of that AI has carried it yet: at the end of a run this means it was NEVER carried),
 // `attached` (handed to the brain with a decide answer: not proof that the brain posted it or that the social service accepted it),
-// `expired` (the item's own validity window passed before a decide answer could carry it), `dropped` (taken and lost: `why` says no_record or
-// no_provenance). Operator-side file: nothing here is a secret, nothing is published.
+// `expired` (the item's own validity window passed before a decide answer could carry it), `dropped` (taken and lost: `why` says no_record,
+// no_provenance or refused_by_records). Operator-side file: nothing here is a secret, nothing is published.
+//
+// A MOTION that met a SEALED decide answer is held back (a sealed decision posts nothing to the talk channel, watcher/outbox.mjs): its
+// row then also carries `held_sealed` (the number of sealed answers it was held back from) and `held_bell` (the turn of the last one), and
+// keeps them whatever becomes of it: `attached` with `held_sealed` means it was carried by a later answer; `expired` with why
+// `sealed_carrier` means it was held back by a sealed answer and no unsealed answer of that AI came while it was valid: it was never
+// posted. Rows without a hold have neither field.
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
@@ -39,22 +45,32 @@ export function createCallLedger({ file, nowMs = () => Date.now(), onError = () 
   const set = (it, status, bell, why = null) => {
     const k = keyOf(it);
     const prev = calls.get(k);
-    calls.set(k, { key: k, tag: it.tag, kind: it.kind, period: it.period, decision_id: it.decision_id ?? prev?.decision_id ?? null, decided_bell: prev?.decided_bell ?? it.bell ?? null, status, status_bell: bell ?? null, why });
+    const held = prev?.held_sealed ? { held_sealed: prev.held_sealed, held_bell: prev.held_bell } : {};
+    calls.set(k, { key: k, tag: it.tag, kind: it.kind, period: it.period, decision_id: it.decision_id ?? prev?.decision_id ?? null, decided_bell: prev?.decided_bell ?? it.bell ?? null, status, status_bell: bell ?? null, why, ...held });
     flush();
   };
   return {
     pushed: (it) => set(it, 'pending', it.bell),
     attached: (it, bell) => set(it, 'attached', bell),
-    expired: (it, bell) => set(it, 'expired', bell),
+    expired: (it, bell) => set(it, 'expired', bell, calls.get(keyOf(it))?.held_sealed ? 'sealed_carrier' : null),
     dropped: (it, bell, why) => set(it, 'dropped', bell, why),
+    /** the item met a sealed decide answer at `bell` and was held back: the status does not change, the hold is counted */
+    held(it, bell) {
+      const k = keyOf(it);
+      const prev = calls.get(k);
+      if (!prev) return;
+      calls.set(k, { ...prev, held_sealed: (prev.held_sealed ?? 0) + 1, held_bell: bell ?? null });
+      flush();
+    },
     all: () => [...calls.values()].map((r) => ({ ...r })),
-    /** { motion: {decided, pending, attached, expired, dropped}, ballot: {...} } */
+    /** { motion: {decided, pending, attached, expired, dropped, held_sealed?}, ballot: {...} }; `held_sealed` (rows held back by a sealed answer at least once) only when there is one */
     summary() {
       const out = {};
       for (const r of calls.values()) {
         const o = (out[r.kind] ??= { decided: 0, pending: 0, attached: 0, expired: 0, dropped: 0 });
         o.decided++;
         o[r.status] = (o[r.status] ?? 0) + 1;
+        if (r.held_sealed) o.held_sealed = (o.held_sealed ?? 0) + 1;
       }
       return out;
     },

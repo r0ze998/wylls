@@ -507,6 +507,9 @@ export function phaseSection(run) {
  * file (STATE/watcher/council-calls.json): attached (handed to the brain's next answer), expired, dropped, pending (never carried);
  * `posted_by_brain` = the brain's counter `social_posted:<route>`; `in_council_files` = the AI ballots of the public council files (tally_split.ai).
  * An item decided in the drain, or pending at the end, was never delivered.
+ * A motion that met a SEALED decide answer is held back (a sealed decision posts nothing to the talk channel, watcher/outbox.mjs): the
+ * ledger row then has `held_sealed`. `held_by_sealed_answer` counts those rows; `expired_after_sealed_answer` counts the ones that
+ * expired unposted because no unsealed answer came while they were valid. Both are 0 in a ledger written before that rule.
  */
 export function councilCallsSection(run) {
   const phase = phaseSection(run);
@@ -532,6 +535,8 @@ export function councilCallsSection(run) {
       o.dropped = l.filter((r) => r.status === 'dropped').length;
       o.pending_never_carried = l.filter((r) => r.status === 'pending').length;
       o.decided_in_drain = phase.available ? l.filter((r) => Number.isFinite(r.decided_bell) && r.decided_bell >= phase.play_end_bell).length : null;
+      o.held_by_sealed_answer = l.filter((r) => r.held_sealed > 0).length;
+      o.expired_after_sealed_answer = l.filter((r) => r.status === 'expired' && r.why === 'sealed_carrier').length;
     }
     return o;
   };
@@ -787,6 +792,7 @@ export function renderMarkdown(r) {
     L.push(row('kind', 'decided by the mind', 'attached', 'expired', 'dropped', 'pending at the end', 'decided in the drain', 'posted by the brain', 'AI ballots in council files'), row('---', '---', '---', '---', '---', '---', '---', '---', '---'));
     L.push(row('ballot', cc.ballot.decided_by_mind, v(cc.ballot.attached), v(cc.ballot.expired), v(cc.ballot.dropped), v(cc.ballot.pending_never_carried), v(cc.ballot.decided_in_drain), v(cc.ballot.posted_by_brain), v(cc.ballot.ai_ballots_in_council_files)));
     L.push(row('motion', cc.motion.decided_by_mind, v(cc.motion.attached), v(cc.motion.expired), v(cc.motion.dropped), v(cc.motion.pending_never_carried), v(cc.motion.decided_in_drain), 'n/a', 'n/a'), '');
+    if (cc.motion.held_by_sealed_answer) L.push(`${cc.motion.held_by_sealed_answer} motion(s) met a sealed answer (a decision that sends a march posts nothing to the talk channel before its release) and were held back for the AI's next unsealed answer; ${cc.motion.expired_after_sealed_answer} of them expired unposted because no unsealed answer came while the motion was valid.`, '');
   }
   if (r.runs_listed) {
     L.push('## Every run in RUNS.md', '', row('run', 'arm', 'rep', 'status', 'detail'), row('---', '---', '---', '---', '---'));
