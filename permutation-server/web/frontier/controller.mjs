@@ -698,6 +698,42 @@ export function wantProvince(p, q, onLoad = () => {}, { now = Date.now(), bell =
   return true;
 }
 
+/** Apply one /h/me read to the viewer. A missing Citizen is ready; a failed read is an error. */
+export function applyMeResult(me) {
+  if (me.ok) {
+    FS.meStatus = 'ready'; FS.meError = null;
+    const before = FS.land?.stage;
+    FS.citizen = me.citizen;
+    FS.holdings = me.holdings;
+    mySlots = me.slots ?? [];
+    FS.land = landState(me.citizen);
+    // why the last holding or ticket ended, kept with its bell for the next cards (review finding 7)
+    const after = FS.land.stage, gone = after === 'joined' || after === 'refugee';
+    const lr = readLand();
+    if (before && gone && ['provisional', 'final', 'ticket'].includes(before)) saveLandPatch({ landEnd: { why: before === 'provisional' ? 'displaced' : before === 'final' ? 'lost' : 'ended', bell: nowBell(), refiled: false } });
+    if ((after === 'provisional' || after === 'final') && lr.landEnd) saveLandPatch({ landEnd: null });
+    // the filed ticket counts as seen once the herald shows it (or what it led to); not merely because the stage is
+    // not 'joined' (a refugee is not a ticket) — review finding 5
+    const shown = ['ticket', 'provisional', 'final'].includes(after) || (Number.isInteger(FS.landRec?.lastTicketBell) && Number(me.citizen?.ticketBell) === FS.landRec.lastTicketBell);
+    if (FS.landRec?.ticketSeen === false && shown) saveLandPatch({ ticketSeen: true });
+    if (me.record?.quota) FS.quota = me.record.quota;
+    if (FS.session && FS.citizen) {
+      const m = fsession.matchesCitizen(FS.session, FS.citizen, now());
+      FS.sessionProblem = m.ok ? null : m.code;
+    }
+    return 'found';
+  }
+  if (me.code === 'NotFound') {
+    FS.meStatus = 'ready'; FS.meError = null;
+    FS.citizen = null; FS.holdings = []; FS.land = landState(null);
+    mySlots = [];
+    return 'missing';
+  }
+  FS.meStatus = 'error'; FS.meError = { code: me.code ?? 'Unavailable', text: L`自分の情報を読み込めませんでした。接続を確認して再試行してください。` };
+  invalidate('panel', 'chips');
+  return 'error';
+}
+
 /** Refresh the viewer's accounts, provinces, marches, chronicle and quota. */
 export async function refresh() {
   if (!herald || !FS.clock) return;
@@ -709,36 +745,7 @@ export async function refresh() {
   if (FS.wallet) {
     const me = await herald.me(FS.wallet.address).catch(e => ({ ok: false, code: e?.code ?? 'Unavailable' }));
     if (FS.proto) await refreshProto(me.ok ? me.record : undefined);
-    if (me.ok) {
-      FS.meStatus = 'ready'; FS.meError = null;
-      const before = FS.land?.stage;
-      FS.citizen = me.citizen;
-      FS.holdings = me.holdings;
-      mySlots = me.slots ?? [];
-      FS.land = landState(me.citizen);
-      // why the last holding or ticket ended, kept with its bell for the next cards (review finding 7)
-      const after = FS.land.stage, gone = after === 'joined' || after === 'refugee';
-      const lr = readLand();
-      if (before && gone && ['provisional', 'final', 'ticket'].includes(before)) saveLandPatch({ landEnd: { why: before === 'provisional' ? 'displaced' : before === 'final' ? 'lost' : 'ended', bell: nowBell(), refiled: false } });
-      if ((after === 'provisional' || after === 'final') && lr.landEnd) saveLandPatch({ landEnd: null });
-      // the filed ticket counts as seen once the herald shows it (or what it led to); not merely because the stage is
-      // not 'joined' (a refugee is not a ticket) — review finding 5
-      const shown = ['ticket', 'provisional', 'final'].includes(after) || (Number.isInteger(FS.landRec?.lastTicketBell) && Number(me.citizen?.ticketBell) === FS.landRec.lastTicketBell);
-      if (FS.landRec?.ticketSeen === false && shown) saveLandPatch({ ticketSeen: true });
-      if (me.record?.quota) FS.quota = me.record.quota;
-      if (FS.session && FS.citizen) {
-        const m = fsession.matchesCitizen(FS.session, FS.citizen, now());
-        FS.sessionProblem = m.ok ? null : m.code;
-      }
-    } else if (me.code === 'NotFound') {
-      FS.meStatus = 'ready'; FS.meError = null;
-      FS.citizen = null; FS.holdings = []; FS.land = landState(null);
-      mySlots = [];
-    } else {
-      FS.meStatus = 'error'; FS.meError = { code: me.code ?? 'Unavailable', text: L`自分の情報を読み込めませんでした。接続を確認して再試行してください。` };
-      invalidate('panel', 'chips');
-      return;
-    }
+    if (applyMeResult(me) === 'error') return;
     const h = activeHolding(FS);
     // every holding's province (the rail can switch between them), the active one first
     for (const o of [h, ...(FS.holdings ?? []).filter(x => x !== h)]) if (o) await loadEnvelope(o.p, o.q);

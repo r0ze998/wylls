@@ -208,3 +208,39 @@ test('refresh: remote host provinces, the invite flag, the explore seed and the 
     Object.assign(FS, saved);
   }
 });
+
+test('refresh maps /h/me found, missing and unavailable results to viewer state', async () => {
+  const saved = { ...FS };
+  const citizen = { ticketEscrow: 0n, holding: [{ gen: 255 }], ticketBell: 0xFFFF_FFFF, flags: 0, faction: 0 };
+  let response = { ok: true, citizen, holdings: [], slots: [42], record: { hosts: [], quota: { remaining: 3 } } };
+  try {
+    Object.assign(FS, {
+      clock: { genesisTs: 0 }, chain: { now: () => 6000 }, wallet: { address: 'W' },
+      season: {}, record: {}, session: null, proto: null, provinces: new Map(), overviews: new Map(),
+      chronicle: [], landRec: null, citizen: null, holdings: [], meStatus: 'loading', meError: null,
+    });
+    C.useHerald({ me: async () => response, events: async () => ({ ok: false }) });
+    await C.refresh();
+    assert.equal(FS.meStatus, 'ready');
+    assert.equal(FS.citizen, citizen);
+    assert.equal(FS.land.stage, 'joined');
+    assert.deepEqual(FS.quota, { remaining: 3 });
+
+    response = { ok: false, code: 'NotFound' };
+    await C.refresh();
+    assert.equal(FS.meStatus, 'ready');
+    assert.equal(FS.meError, null);
+    assert.equal(FS.citizen, null);
+    assert.deepEqual(FS.holdings, []);
+    assert.equal(FS.land.stage, 'none');
+
+    response = { ok: false, code: 'Unavailable' };
+    await C.refresh();
+    assert.equal(FS.meStatus, 'error');
+    assert.equal(FS.meError.code, 'Unavailable');
+    assert.equal(FS.citizen, null, 'a failed read keeps the last confirmed state');
+  } finally {
+    C.useHerald(null);
+    Object.assign(FS, saved);
+  }
+});
