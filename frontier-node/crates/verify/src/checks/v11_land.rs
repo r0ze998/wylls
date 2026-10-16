@@ -140,7 +140,21 @@ pub fn run(cx: &mut Ctx) {
             );
         }
         let day = if r.bell == NO_BELL { 0 } else { r.bell / 144 };
-        let cmp = camp::place(seed, c, &t, day, false, true);
+        // A conquest season never places a camp on the keep tile (MC §3.2,
+        // `camp::place_v2` with the symmetric keep tile of rings ≥ 2).
+        let cmp = if cx.f.cq.is_some() {
+            use frontier_abi::v2::kernel::keep as kkeep;
+            let keep_tile = match c.wedge() {
+                Some(wd) if c.ring() >= 2 => {
+                    kkeep::keep_tile(&t, &t.sites, t.site_count, wd)
+                        .filter(|&x| (x as usize) < PROVINCE_TILES)
+                }
+                _ => None,
+            };
+            camp::place_v2(seed, c, &t, day, false, true, keep_tile)
+        } else {
+            camp::place(seed, c, &t, day, false, true)
+        };
         let want = cmp.map_or((0xFF, 0), |x| (x.tile, x.troops));
         if (r.pu8("camp_tile"), r.pu32("camp_troops")) != want {
             cx.fail(

@@ -30,6 +30,9 @@ pub struct Ctx<'a> {
     pub counts: Counts,
     pub liveness: Liveness,
     pub sigs: SigCache,
+    /// A conquest-program season (program version 3, ABI v2; conquest
+    /// contract R-22): the checks read the v2 rules where they differ.
+    pub v3: bool,
 }
 
 impl Ctx<'_> {
@@ -140,6 +143,7 @@ pub fn run(input: &Input) -> Report {
         counts: Counts::default(),
         liveness: Liveness::default(),
         sigs: SigCache::default(),
+        v3: crate::conquest::applies(input),
     };
     let mut ran: Vec<&'static str> = vec![];
     macro_rules! check {
@@ -150,7 +154,24 @@ pub fn run(input: &Input) -> Report {
             }
         };
     }
-    check!("mutate-v1", "V1", v1_chains);
+    // A conquest season's chains, conquest records included, are walked by
+    // the conquest audit's CQ1 (`crate::verify` merges it); V1's walk sees
+    // only M1's kinds. In an M1 season a conquest record is undecodable.
+    if cx.v3 {
+        ran.push("V1:CQ1");
+    } else {
+        for r in &w.cq_recs {
+            cx.fail(
+                "V1",
+                crate::codes::UNDECODABLE,
+                "transaction",
+                r.bell,
+                Some(r.tx),
+                format!("record {} is a conquest record ({}) in an M1 season", r.pos, r.kind.name()),
+            );
+        }
+        check!("mutate-v1", "V1", v1_chains);
+    }
     check!("mutate-v2", "V2", v2_program);
     check!("mutate-v3", "V3", v3_random);
     check!("mutate-v4", "V4", v4_windows);
