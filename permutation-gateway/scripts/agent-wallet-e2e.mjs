@@ -130,7 +130,8 @@ const agentView = async id => (await api(`/f/agent?id=${id}`)).body;
 const tokenBalance = async wallet => BigInt((await api(`/f/prize?wallet=${wallet}`)).body.wallet.balance);
 
 async function run() {
-  s = await eventually('CQ season and outer frontier ready', async () => { const r = await h.season(); return r.ok && r.record.rings?.length >= 5 ? r : null; });
+  // The world is ready when its outer rings exist and play has begun (a Join before genesis is WrongStatus).
+  s = await eventually('CQ season in play with its outer frontier', async () => { const r = await h.season(); return r.ok && r.record.rings?.length >= 5 && Number(r.record.latestUnix) >= Number(r.record.genesisTs) ? r : null; }, 300_000);
   assert.equal(s.record.cluster, 'localnet');
   pin = setPin({ programId: s.record.programId, cluster: s.record.cluster, seasonId: s.record.season, seasonAddress: s.record.seasonAddress, rulesetHash: toHex(s.season.rulesetHash) });
   h.pin(s.record.season, pin.addresses); setRelay(gw);

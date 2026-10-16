@@ -15,7 +15,8 @@ import { shapeMessage } from '../client/src/frontier/shapes.mjs';
 import { wireTransaction } from '../client/src/solana-tx.mjs';
 import { signTalk, verifyTalk } from '../client/src/talk-node.mjs';
 import { ERR, NEVER_DELEGATED } from '../src/frontier/agent/contract.mjs';
-import { A, actionRequest, call, createAgent, delegate, deposit, fakeChain, ownerCommand, policy, relay, sound, VILLAGE } from './agent-wallet-fixtures.mjs';
+import { ata } from '../client/src/frontier/prize.mjs';
+import { A, actionRequest, call, createAgent, delegate, deposit, fakeChain, MINT, ownerCommand, policy, relay, sound, VILLAGE } from './agent-wallet-fixtures.mjs';
 
 // Loopback: the per-address limits do not apply (they are the relay tests' subject, not this file's).
 const IP = '127.0.0.1';
@@ -112,13 +113,17 @@ test('deposit: a confirmed, owner-signed transfer into the custody account is cr
   const pending = await post(r, '/f/agent/deposit', { agentId, signature: base58(Buffer.alloc(64, 5)) });
   assert.equal(pending.status, 409);
   assert.equal(pending.json.code, ERR.DEPOSIT_PENDING);
-  // Failed on chain, not signed by the owner, gain from another wallet, no gain.
+  // With a full validator's token balances the instructions and the balances must agree.
+  const withMeta = await deposit(r, o, agentId, 50_000n, { balances: true });
+  assert.equal(withMeta.res.amount, '50000');
+  // Failed on chain, not signed by the owner, another authority, another destination, another mint, no transfer, balances that disagree.
   const stranger = Keypair.generate().publicKey.toBase58();
-  for (const [what, over] of [['failed', { err: { InstructionError: [0, 'Custom'] } }], ['unsigned', { signers: [stranger] }], ['gain not from the owner', { gained: 300_000n }], ['nothing gained', { gained: 0n }]]) {
+  for (const [what, over] of [['failed', { err: { InstructionError: [0, 'Custom'] } }], ['unsigned', { signers: [stranger] }], ['another authority', { authority: stranger, signers: [o, stranger] }],
+    ['another destination', { dest: ata(stranger, MINT) }], ['another mint', { mint: Keypair.generate().publicKey.toBase58() }], ['no transfer', { transfer: false }], ['balances disagree', { balances: true, gained: 300_000n }]]) {
     const bad = await deposit(r, o, agentId, 100_000n, over).catch(e => ({ res: e }));
-    assert.equal(bad.res.code, ERR.DEPOSIT_INVALID, what);
+    assert.equal(bad.res.code, ERR.DEPOSIT_INVALID, `${what}: ${JSON.stringify(bad.res)}`);
   }
-  assert.equal(r.gateway.view(agentId).balance.available, '250000');
+  assert.equal(r.gateway.view(agentId).balance.available, '300000');
   assert.equal((await post(r, '/f/agent/deposit', { agentId: 'nope', signature: sig })).json.code, ERR.UNKNOWN_AGENT);
   sound(r);
 });

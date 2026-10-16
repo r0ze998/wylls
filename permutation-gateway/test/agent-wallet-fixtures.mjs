@@ -7,7 +7,7 @@ import { Keypair, PublicKey } from '@solana/web3.js';
 import { encode as base58 } from '../client/src/base58.mjs';
 import { CLOCK_SYSVAR, FrontierAddresses } from '../client/src/frontier/addresses.mjs';
 import { encodeAccount } from '../client/src/frontier/codec.mjs';
-import { ata } from '../client/src/frontier/prize.mjs';
+import { ata, TOKEN_PROGRAM } from '../client/src/frontier/prize.mjs';
 import { parseTransaction } from '../client/src/solana-tx.mjs';
 import { verifyTalk } from '../client/src/talk-node.mjs';
 import { createFrontierApps } from '../src/frontier/app.mjs';
@@ -127,19 +127,31 @@ export function delegate(r, owner, agentKey, over = {}) {
 }
 
 /**
- * A confirmed deposit transaction as getTransaction reports it: `owner`
- * signed, its token account lost `amount`, the custody account gained
- * `gained` (default the same). `signers`: who signed (default the owner).
+ * A confirmed deposit transaction as getTransaction reports it: `signers`
+ * (default the owner) signed; one top-level TransferChecked of `amount` of
+ * `mint` from the owner's token account to `dest` (default the custody
+ * account) by `authority` (default the owner). `balances` adds the token
+ * balance metadata a full validator reports (the custody account gaining
+ * `gained`, default `amount`); the local frontier-localnet reports none.
  */
-export function depositTx({ owner, custody, amount, gained = amount, signers = [owner], err = null, mint = MINT }) {
-  const ownerAta = ata(owner, mint);
-  const keys = [...signers, ownerAta, custody.account];
+export function depositTx({ owner, custody, amount, gained = amount, signers = [owner], err = null, mint = MINT, authority = owner, dest = custody.account, transfer = true, balances = false }) {
+  const ownerAta = ata(owner, MINT);
+  const keys = [...new Set([...signers, ownerAta, dest, custody.account, mint, authority, TOKEN_PROGRAM])];
   const idx = k => keys.indexOf(k);
-  const bal = (i, amt, o) => ({ accountIndex: i, mint, owner: o, uiTokenAmount: { amount: String(amt) } });
+  const data = new Uint8Array(10);
+  data[0] = 12;
+  new DataView(data.buffer).setBigUint64(1, BigInt(amount), true);
+  data[9] = 6;
+  const bal = (i, amt, o) => ({ accountIndex: i, mint: MINT, owner: o, uiTokenAmount: { amount: String(amt) } });
+  const meta = { err, preTokenBalances: [], postTokenBalances: [] };
+  if (balances) {
+    meta.preTokenBalances = [bal(idx(ownerAta), 1_000_000_000n, owner), bal(idx(custody.account), 0n, custody.authority)];
+    meta.postTokenBalances = [bal(idx(ownerAta), 1_000_000_000n - BigInt(amount), owner), bal(idx(custody.account), BigInt(gained), custody.authority)];
+  }
   return {
-    meta: { err, preTokenBalances: [bal(idx(ownerAta), 1_000_000_000n, owner), bal(idx(custody.account), 0n, custody.authority)],
-      postTokenBalances: [bal(idx(ownerAta), 1_000_000_000n - BigInt(amount), owner), bal(idx(custody.account), BigInt(gained), custody.authority)] },
-    transaction: { message: { staticAccountKeys: keys.map(k => new PublicKey(k)), header: { numRequiredSignatures: signers.length } } },
+    meta,
+    transaction: { message: { staticAccountKeys: keys.map(k => new PublicKey(k)), header: { numRequiredSignatures: signers.length },
+      compiledInstructions: transfer ? [{ programIdIndex: idx(TOKEN_PROGRAM), accountKeyIndexes: [idx(ownerAta), idx(mint), idx(dest), idx(authority)], data }] : [] } },
   };
 }
 
