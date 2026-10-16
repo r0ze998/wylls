@@ -962,6 +962,17 @@ impl Bot {
             );
             match st {
                 Step::Drop(why) => {
+                    // CQ3-A: an order is first stepped in the wake-up that
+                    // issued it, over an observation taken before it existed
+                    // (`Bot::observe` loads the provinces on the way to an
+                    // open order's target; without them `path::plan` finds
+                    // no path). A `no_path` at the order's issue bell waits
+                    // for the next observation; one at a later bell is final.
+                    if why == "no_path" && o.issued == obs.bell() {
+                        sh.report.lock().expect("report").cq.skip("order_no_path_retry");
+                        keep.push(o);
+                        continue;
+                    }
                     sh.report.lock().expect("report").cq.skip(match why {
                         "stale" => "order_stale",
                         "no_holding" => "order_no_holding",
