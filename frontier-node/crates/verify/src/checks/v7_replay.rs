@@ -684,8 +684,10 @@ type ContinuityFinding = (usize, (i32, i32, u8), u32, String);
 /// Holding continuity (wave-5 review of W5-D): every Holding write that is
 /// not a replayed owner action (Harvest, Build, Train: [`owner_actions`])
 /// must leave the lazy-accrual bytes ([`crate::holding::ACCRUAL_RANGES`])
-/// exactly as the rules allow — a founding SETTLE writes the founded
-/// Hamlet ([`crate::holding::founded`]); an owner touch (Explore, Muster,
+/// exactly as the rules allow — a founding SETTLE or PlaceHome writes the
+/// founded Hamlet ([`crate::holding::founded`]: an outpost without the
+/// starter kit, a conquest season's with the season's founding shield); an
+/// owner touch (Explore, Muster,
 /// Dissolve, Garrison, Depart) writes the touch at its Clock
 /// ([`crate::holding::touched`]); every other write (SettleExplore,
 /// SettleTransit, SettleDeparture, GatherClash, SweepPoolOwed, …) leaves
@@ -695,6 +697,7 @@ type ContinuityFinding = (usize, (i32, i32, u8), u32, String);
 fn continuity(cx: &mut Ctx) {
     use crate::holding as hr;
     use frontier_abi::tags::Ix;
+    use frontier_abi::v2::log::CqKind;
     let w = cx.w;
     let f = cx.f;
     if !w.has_post {
@@ -744,9 +747,30 @@ fn continuity(cx: &mut Ctx) {
                     && r.pqs() == pqs
             });
             let (what, want) = if founding {
+                // MC §3.8: a SETTLE founding an outpost logs OUTPOST_SETTLED
+                // beside it (order 2–3: no starter kit); MC §3.9: the shield
+                // is the season's for that order (`hr::founding_shield`).
+                let order = w
+                    .cq_recs
+                    .iter()
+                    .find(|r| {
+                        r.tx == t
+                            && r.kind == CqKind::OUTPOST_SETTLED
+                            && (
+                                le(r.field("p", false)) as u32 as i32,
+                                le(r.field("q", false)) as u32 as i32,
+                                r.field("site", false).first().copied().unwrap_or(0),
+                            ) == pqs
+                    })
+                    .and_then(|r| r.field("order", true).first().copied())
+                    .unwrap_or(1);
+                let shield = f
+                    .cq
+                    .as_ref()
+                    .and_then(|cq| hr::founding_shield(cq, order, tx.time, f.genesis_ts));
                 (
                     "the founding SETTLE",
-                    hr::founded(post, tx.time, frontier_abi::addr::day_of(bell)),
+                    hr::founded(post, tx.time, frontier_abi::addr::day_of(bell), order, shield),
                 )
             } else {
                 let Some(before) = w.state_before(k, t) else {
@@ -807,6 +831,8 @@ fn owner_actions(cx: &mut Ctx) {
     use frontier_abi::tags::Ix;
     let w = cx.w;
     let f = cx.f;
+    // A conquest season pays the v2 train cost (K2; `crate::holding`).
+    let conquest = cx.v3;
     let tags = [Ix::Harvest.tag(), Ix::Build.tag(), Ix::Train.tag()];
     for (t, tx) in w.txs.iter().enumerate() {
         if !tx.ok {
@@ -926,7 +952,7 @@ fn owner_actions(cx: &mut Ctx) {
                     }
                 },
             };
-            match hr::replay(&before, &action, tx.time, f.genesis_ts) {
+            match hr::replay(&before, &action, tx.time, f.genesis_ts, conquest) {
                 Ok(x) => {
                     if x.payload[..] != r.payload[..] {
                         bad.push((

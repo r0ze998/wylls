@@ -16,9 +16,11 @@ Before this branch, `verify_core::verify` ran **only** the conquest audit (`crat
 | V11: initial camp with `camp::place_v2` and the symmetric keep tile | `checks/v11_land.rs` |
 | V7 skip: `skip::replay_v2` in the program's v2 order (camp_check_v2 → is_quiet on build_v2 at every bell → report from masks → settle → `conquest_model::step` → finish); `quiet_digest_v2`. Not independent: it calls the program's shared `frontier_abi::{clash_model, conquest_model}` | `skip.rs`, `checks/v7_replay.rs` |
 | V7 holdings: a conquest Holding (header `layout_version` 2) keeps its stored `shield_until` | `holding.rs` |
-| Diagnostic: `cargo run --release --example suites -- INPUT.json.gz` runs the two suites apart | `examples/suites.rs` |
+| V7 holdings: a conquest season's Train is replayed with `catalog::train_v2` (K2: the Horseman at a Spearman's ore and gold); was `train` (the 9 × byte 272 = `stores[Ore].value`) | `holding.rs`, `checks/v7_replay.rs` |
+| V7 continuity: a founding (HOME_PLACED, SETTLE fresh/displace) in a conquest season writes `shield_until = now + shield_secs_for(order, now, genesis)` from the CreateSeason conquest block (`holding::{lifecycle, founding_shield}`, a transcription of the program's `layout::conquest::lifecycle`); an outpost founding (OUTPOST_SETTLED beside the SETTLE: order 2–3) has no starter kit. Was: the shield compared against 0 (byte 144) | `holding.rs`, `checks/v7_replay.rs` |
+| Diagnostic: `cargo run --release --example suites -- INPUT.json.gz [--detail]` runs the two suites apart; `--detail` prints every finding and the record counts by kind | `examples/suites.rs` |
 
-All existing verifier tests pass (83, including the 58 M1 tamper tests).
+All verifier tests pass (83 + 2 new in `holding.rs`, including the 58 M1 tamper tests).
 
 ## Live run used as input
 
@@ -33,13 +35,20 @@ frontier-node/target/release/frontier-stack down --run-id sc-cq2d --runs-dir fro
 
 Note: `target/release/frontier-stack` was built before these changes; rebuild it (`cargo build --release -p stack`) so its own `verify` uses the new verifier.
 
-Last result (968 txs, mid-season): V1–V13 FAIL only on **V7 HoldingReplayMismatch ×9, first at byte 272** (was 488 skip + 25 holding failures); conquest audit PASS.
+Results so far (same run, snapshots as it goes):
+
+| Snapshot | V1–V13 | Conquest audit | Notes |
+|---|---|---|---|
+| 968 txs, 10 bells (07:31) | FAIL: V7 HoldingReplayMismatch ×9 | PASS | before the two fixes above (3 Train, 6 founding shield) |
+| 968 txs, after the fixes | PASS (2 informational warns) | PASS | V2 ProgramMismatch (tx#9, not the program) and V9 PrefundedAddress (61 accounts) |
+| 8,772 txs, 80 bells (08:06) | PASS (same 2 warns) | PASS | 49 joins, 215 Build, 154 Train, 71 Harvest, 89 Muster, 67 Explore, 793 CONQUEST, 54 KEEP; **clashes 0, seals 0**: the v2 clash path is still unexercised |
+
+The rebuilt `frontier-stack verify` (with this verifier) reports the same: PASS, "conquest season: V2–V13 with the v2 rules, chains, final state, identity and territory time by the conquest audit (CQ1–CQ3)".
 
 ## Next
 
-1. V7 holdings, byte 272 of the Holding (`frontier-abi/src/layout/player.rs` holding map; likely the v2 train cost `catalog2::train_v2`, the intro build of PlaceHome, or the v2 production): compare `crates/verify/src/holding.rs` with `permutation-frontier/src/proc/holding.rs`.
-2. V7 clashes on the v2 path (`input_digest_v2 → build_v2 → kernel → report_from_outcome → apply_v2 → settle → step → finish`, program `proc/clash.rs` module note): needs a later snapshot with CLASH records.
-3. The rest of V1–V13 on a full season (V5 seals, V6 quotas, V8 lag, V13 payments with the prize program).
-4. V14–V22 and tampers T25–T48 (contract §8.5), starting with V16 `FirstHoldingTransferred`, V20 season end, V19/V21 standings vs the herald's `final.json`.
-5. Then a full 14-day season (`MC_LOCAL_14D`, about 17 h at 20x) verified end to end, with Tally/Finalize of the prize program.
-6. Update README / DESIGN-OVERVIEW wording on what the verifier covers for conquest seasons once 1–3 pass.
+1. V7 clashes on the v2 path (`input_digest_v2 → build_v2 → kernel → report_from_outcome → apply_v2 → settle → step → finish`, program `proc/clash.rs` module note): V7's CLASH branch still runs the M1 builder and `input_digest` v1 on a v2 Province, so the first CLASH of a conquest season will FAIL until it dispatches like the SKIP branch does. Needs a snapshot with CLASH records (none by bell 80).
+2. The rest of V1–V13 on a full season (V5 seals, V6 quotas, V8 lag, V13 payments with the prize program).
+3. V14–V22 and tampers T25–T48 (contract §8.5), starting with V16 `FirstHoldingTransferred`, V20 season end, V19/V21 standings vs the herald's `final.json`. Cheap first step: the OUTPOST_SETTLED payload's `shield_until` against `founding_shield`.
+4. Then a full 14-day season (`MC_LOCAL_14D`, about 17 h at 20x) verified end to end, with Tally/Finalize of the prize program.
+5. Update README / DESIGN-OVERVIEW wording on what the verifier covers for conquest seasons once 1–2 pass.

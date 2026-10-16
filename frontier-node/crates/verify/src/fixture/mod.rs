@@ -330,7 +330,7 @@ impl Gen {
         let day = frontier_abi::addr::day_of(
             beacon::bell_at(self.genesis_ts, now).unwrap_or(plog::NO_BELL),
         );
-        let t = crate::holding::founded(self.get(hk), now, day).expect("founding");
+        let t = crate::holding::founded(self.get(hk), now, day, 1, None).expect("founding");
         self.d(hk).copy_from_slice(&t);
     }
 

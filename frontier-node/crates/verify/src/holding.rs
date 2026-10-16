@@ -20,15 +20,19 @@
 //!   (copy number `1 + (production[r] − base(tier)[r]) / per_hour + queued
 //!   copies`), 6 walls (copy 1, a wall item in the site mirror), 7 the
 //!   tier-up (one at a time); `pay(now, cost)`, `enqueue(now, secs,
-//!   effect)`. **Train(unit, n)**: `pay(now, catalog::train(unit, n))`,
-//!   `reserve[unit] += n` (whole troops, I-56).
+//!   effect)`. **Train(unit, n)**: `pay(now, catalog::train(unit, n))` (a
+//!   conquest season: `catalog::train_v2`, K2: the Horseman at a Spearman's
+//!   ore and gold, every other unit as M1), `reserve[unit] += n` (whole
+//!   troops, I-56).
 
 use frontier_abi::layout::player::{accrual, holding as H, queue_item as QI};
 use frontier_abi::layout::province::{province as PV, site as SM};
 use permutation_rules::fixed::MILLI;
 use permutation_rules::frontier::catalog;
+use frontier_abi::v2::presets::ConquestParams;
 use permutation_rules::frontier::holding::{
-    Accrual, Effect, Holding as KHolding, QueueItem, Resource, Tier, QUEUE_SLOTS, RESOURCES,
+    Accrual, Effect, Holding as KHolding, LifecycleParams, QueueItem, Resource, Tier, QUEUE_SLOTS,
+    RESOURCES,
 };
 
 use crate::world::le;
@@ -318,8 +322,16 @@ pub struct Replayed {
     pub wall_item: Option<(u32, u32)>,
 }
 
-/// Replays one owner action at `now` over the Holding bytes `before`.
-pub fn replay(before: &[u8], a: &Action, now: i64, genesis_ts: i64) -> Result<Replayed, String> {
+/// Replays one owner action at `now` over the Holding bytes `before`;
+/// `conquest` selects the conquest rules where they differ (Train's
+/// `catalog::train_v2`, K2).
+pub fn replay(
+    before: &[u8],
+    a: &Action,
+    now: i64,
+    genesis_ts: i64,
+    conquest: bool,
+) -> Result<Replayed, String> {
     let mut h = read(before)?;
     touch(&mut h, now)?;
     let mut d = before.to_vec();
@@ -383,7 +395,12 @@ pub fn replay(before: &[u8], a: &Action, now: i64, genesis_ts: i64) -> Result<Re
             })
         }
         Action::Train { unit, n } => {
-            let cost = catalog::train(unit, n).ok_or(format!("train unit {unit} n {n}"))?;
+            let cost = if conquest {
+                catalog::train_v2(unit, n)
+            } else {
+                catalog::train(unit, n)
+            }
+            .ok_or(format!("train unit {unit} n {n}"))?;
             h.pay(now, &cost).map_err(|e| format!("pay: {e:?}"))?;
             write(&mut d, &h, now)?;
             let at = H::reserve(unit as usize);
@@ -483,20 +500,55 @@ pub fn touched(before: &[u8], now: i64) -> Result<Vec<u8>, String> {
     Ok(d)
 }
 
-/// The accrual SettleTicket writes into a founded Holding at `now` (day
-/// `day`): a Hamlet founded as first holding (`order` 1) with the Hamlet's
-/// base production, no food upkeep and the starter kit credited — an
-/// independent transcription of the program's `founded_holding`
-/// (`proc/citizen.rs`). The rest of `post` is kept.
-pub fn founded(post: &[u8], now: i64, day: u32) -> Result<Vec<u8>, String> {
-    let mut h = KHolding::found(now, day, 1);
+/// A conquest season's holding lifecycle timers (MC §3.9, §3.12) as the
+/// kernel's `LifecycleParams`: a transcription of the program's
+/// `layout::conquest::lifecycle` over CreateSeason's conquest block.
+pub fn lifecycle(cq: &ConquestParams) -> LifecycleParams {
+    LifecycleParams {
+        shield_secs: cq.shield_secs as i64,
+        shield_late_secs: cq.shield_late_secs as i64,
+        shield_late_after_secs: cq.shield_late_after_secs as i64,
+        dormant_after_secs: cq.dormant_after_secs as i64,
+        release_after_secs: cq.release_after_secs as i64,
+        outpost_shield_secs: cq.outpost_shield_secs as i64,
+    }
+}
+
+/// The shield a conquest season's founding writes (MC §3.9; the program's
+/// PlaceHome and SettleTicket): `now + shield_secs_for(order, now,
+/// genesis_ts)` — a first holding (`order` 1) gets `shield_secs`, or
+/// `shield_late_secs` when founded `shield_late_after_secs` or more after
+/// genesis; an outpost (2–3) `outpost_shield_secs`. `None` on overflow.
+pub fn founding_shield(cq: &ConquestParams, order: u8, now: i64, genesis_ts: i64) -> Option<i64> {
+    now.checked_add(lifecycle(cq).shield_secs_for(order, now, genesis_ts))
+}
+
+/// The accrual SettleTicket (or PlaceHome) writes into a founded Holding
+/// at `now` (day `day`): a Hamlet of `order` (1 the first holding, 2–3 an
+/// outpost) with the Hamlet's base production and no food upkeep; a first
+/// holding has the starter kit credited, an outpost has not (MC §3.8) — an
+/// independent transcription of the program's `founded_holding` and
+/// `founded_outpost` (`proc/citizen.rs`). `shield`: the conquest season's
+/// founding shield ([`founding_shield`]), written as is; `None` in an M1
+/// season, whose shield [`write`] rewrites from M1's constants. The rest of
+/// `post` is kept.
+pub fn founded(
+    post: &[u8],
+    now: i64,
+    day: u32,
+    order: u8,
+    shield: Option<i64>,
+) -> Result<Vec<u8>, String> {
+    let mut h = KHolding::found(now, day, order);
     h.production = catalog::base_production(Tier::Hamlet);
     h.set_upkeep(now, Resource::Food, 0)
         .map_err(|e| format!("set_upkeep: {e:?}"))?;
-    for (r, amount) in catalog::starter_kit().iter().enumerate() {
-        if *amount > 0 {
-            h.credit(now, Resource::ALL[r], *amount)
-                .map_err(|e| format!("credit: {e:?}"))?;
+    if order <= 1 {
+        for (r, amount) in catalog::starter_kit().iter().enumerate() {
+            if *amount > 0 {
+                h.credit(now, Resource::ALL[r], *amount)
+                    .map_err(|e| format!("credit: {e:?}"))?;
+            }
         }
     }
     let mut d = post.to_vec();
@@ -504,6 +556,9 @@ pub fn founded(post: &[u8], now: i64, day: u32) -> Result<Vec<u8>, String> {
         d.get_mut(a..b).ok_or("holding: short")?.fill(0);
     }
     write(&mut d, &h, now)?;
+    if let Some(s) = shield {
+        put(&mut d, H::SHIELD_UNTIL, &s.to_le_bytes())?;
+    }
     if post[H::FLAGS] & H::FLAG_INTRO_BUILD_AVAILABLE != 0 {
         d[H::FLAGS] |= H::FLAG_INTRO_BUILD_AVAILABLE;
     }
@@ -518,14 +573,14 @@ mod intro_tests {
         let now = 1_800_000_000;
         let mut initial = vec![0u8; H::SIZE];
         initial[H::FLAGS] = H::FLAG_INTRO_BUILD_AVAILABLE;
-        let initial = founded(&initial, now, 0).unwrap();
-        let first = replay(&initial, &Action::Build { item: 0 }, now, now).unwrap();
+        let initial = founded(&initial, now, 0, 1, None).unwrap();
+        let first = replay(&initial, &Action::Build { item: 0 }, now, now, false).unwrap();
         assert_eq!(
             i64_at(&first.holding, H::queue(0) + QI::DONE_AT).unwrap(),
             now + 60
         );
         assert_eq!(first.holding[H::FLAGS] & H::FLAG_INTRO_BUILD_AVAILABLE, 0);
-        let next = replay(&first.holding, &Action::Build { item: 1 }, now, now).unwrap();
+        let next = replay(&first.holding, &Action::Build { item: 1 }, now, now, false).unwrap();
         assert_eq!(
             i64_at(&next.holding, H::queue(1) + QI::DONE_AT).unwrap(),
             now + 60 + 5400
@@ -535,10 +590,59 @@ mod intro_tests {
             x[H::FLAGS] = 0;
             x
         };
-        let normal = replay(&legacy, &Action::Build { item: 0 }, now, now).unwrap();
+        let normal = replay(&legacy, &Action::Build { item: 0 }, now, now, false).unwrap();
         assert_eq!(
             i64_at(&normal.holding, H::queue(0) + QI::DONE_AT).unwrap(),
             now + 5400
         );
+    }
+
+    /// A conquest season's Train pays `catalog::train_v2`: the Horseman
+    /// (unit 2) at a Spearman's ore and gold, the Spearman as under M1.
+    #[test]
+    fn conquest_train_pays_the_v2_cost() {
+        let now = 1_800_000_000;
+        let initial = founded(&vec![0u8; H::SIZE], now, 0, 1, None).unwrap();
+        let horse = Action::Train { unit: 2, n: 100 };
+        let spear = Action::Train { unit: 0, n: 100 };
+        let m1 = replay(&initial, &horse, now, now, false).unwrap();
+        let mc = replay(&initial, &horse, now, now, true).unwrap();
+        let ore = |d: &[u8]| i64_at(d, H::store(Resource::Ore as usize) + accrual::VALUE).unwrap();
+        assert!(ore(&mc.holding) > ore(&m1.holding), "M1 charges the cavalry surcharge");
+        let spear_m1 = replay(&initial, &spear, now, now, false).unwrap();
+        let spear_mc = replay(&initial, &spear, now, now, true).unwrap();
+        assert_eq!(spear_m1.holding, spear_mc.holding, "the Spearman costs the same");
+        assert_eq!(
+            stores_digest(&mc.holding).unwrap(),
+            stores_digest(&spear_mc.holding).unwrap(),
+            "a conquest Horseman costs a Spearman's"
+        );
+        assert_eq!(u32_at(&mc.holding, H::reserve(2)).unwrap(), 100);
+    }
+
+    /// A conquest founding's shield is the season's for the order (MC
+    /// §3.9), written as given into a v2 Holding; an outpost (order 2–3)
+    /// has no starter kit (MC §3.8).
+    #[test]
+    fn conquest_founding_shield_follows_the_season_timers() {
+        use frontier_abi::layout::header as HDR;
+        use frontier_abi::v2::presets::FRONTIER_28;
+        let g = 1_800_000_000;
+        let cq = FRONTIER_28;
+        assert_eq!(founding_shield(&cq, 1, g + 10, g), Some(g + 10 + 172_800));
+        assert_eq!(founding_shield(&cq, 1, g + 604_800, g), Some(g + 604_800 + 259_200));
+        assert_eq!(founding_shield(&cq, 2, g + 10, g), Some(g + 10 + 7_200));
+        assert_eq!(founding_shield(&cq, 3, g + 604_800, g), Some(g + 604_800 + 7_200));
+        let mut post = vec![0u8; H::SIZE];
+        post[HDR::LAYOUT_VERSION..HDR::LAYOUT_VERSION + 2].copy_from_slice(&2u16.to_le_bytes());
+        let first = founded(&post, g + 10, 0, 1, Some(g + 172_810)).unwrap();
+        assert_eq!(i64_at(&first, H::SHIELD_UNTIL).unwrap(), g + 172_810);
+        assert_eq!(first[H::ORDER], 1);
+        let outpost = founded(&post, g + 10, 0, 2, Some(g + 7_210)).unwrap();
+        assert_eq!(i64_at(&outpost, H::SHIELD_UNTIL).unwrap(), g + 7_210);
+        assert_eq!(outpost[H::ORDER], 2);
+        let food = |d: &[u8]| i64_at(d, H::store(Resource::Food as usize) + accrual::VALUE).unwrap();
+        assert!(food(&first) > 0, "the first holding has the starter kit");
+        assert_eq!(food(&outpost), 0, "an outpost has none");
     }
 }
