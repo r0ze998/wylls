@@ -119,6 +119,16 @@ pub struct Facts {
 }
 
 impl Facts {
+    /// The conquest step's parameters of a conquest season (the Season's
+    /// genesis time and end, the CreateSeason conquest block); `None` for M1.
+    pub fn step_params(&self) -> Option<frontier_abi::conquest_model::StepParams> {
+        Some(frontier_abi::conquest_model::StepParams {
+            genesis_ts: self.genesis_ts,
+            end_bell: self.params?.end_bell,
+            cq: self.cq?,
+        })
+    }
+
     pub fn build(w: &World, cfg: &Config) -> Facts {
         let ctx = findex::addr_ctx(&cfg.program, cfg.season_id);
         let mut f = Facts {

@@ -37,6 +37,7 @@ use frontier_abi::layout::clash::clash_inputs as CI;
 use frontier_abi::layout::header as HD;
 use frontier_abi::layout::player::holding as H;
 use frontier_abi::layout::province::province as PV;
+use frontier_abi::v2::layout::province::province as P2;
 use frontier_abi::log::{self as plog, settle_outcome, transit_outcome, Kind};
 use permutation_rules::frontier::clash::{
     admit_arrival, FactionSlots, Fate, SlotDecision, SlotEntry,
@@ -429,7 +430,10 @@ fn clashes_and_skips(cx: &mut Ctx) {
                     );
                     continue;
                 };
-                if pv.len() != PV::SIZE {
+                // A conquest season's Province is the v2 layout (R-22).
+                let v2 = cx.f.step_params().filter(|_| cx.v3);
+                let size = if v2.is_some() { P2::SIZE } else { PV::SIZE };
+                if pv.len() != size {
                     cx.fail(
                         V,
                         CLASH_REPLAY_MISMATCH,
@@ -439,7 +443,7 @@ fn clashes_and_skips(cx: &mut Ctx) {
                         format!(
                             "the Province before the skip is {} B, the layout has {}",
                             pv.len(),
-                            PV::SIZE
+                            size
                         ),
                     );
                     continue;
@@ -457,15 +461,19 @@ fn clashes_and_skips(cx: &mut Ctx) {
                 }
                 // v1.6 §22: SKIP's quiet digest over the Province it left.
                 if let Some(after) = w.txs[r.tx].post_data(&f.ctx.province(p, q)) {
-                    if crate::clash_input::quiet_digest(after, b0, k as u8) != r.p32("quiet_digest")
-                    {
+                    let qd = match v2 {
+                        Some(_) => frontier_abi::clash_model::quiet_digest_v2(after, b0, k as u8)
+                            .unwrap_or([0; 32]),
+                        None => crate::clash_input::quiet_digest(after, b0, k as u8),
+                    };
+                    if qd != r.p32("quiet_digest") {
                         cx.fail(
                             V,
                             CLASH_REPLAY_MISMATCH,
                             what.clone(),
                             b0,
                             Some(r.tx),
-                            "the quiet digest is not sha256(PSF-QUIET-v1 ‖ b0 ‖ n ‖ Province state after)",
+                            "the quiet digest is not sha256(PSF-QUIET-v1|v2 ‖ b0 ‖ n ‖ Province state after)",
                         );
                     }
                 }
@@ -473,7 +481,11 @@ fn clashes_and_skips(cx: &mut Ctx) {
                 // review's "SKIP quiet at every bell"): the kernel's
                 // `is_quiet` at each bell after its camp check, the bell's
                 // settle, and the Province written = the replay's.
-                match crate::skip::replay(pv, b0, k) {
+                let replayed = match &v2 {
+                    Some(prm) => crate::skip::replay_v2(pv, b0, k, prm),
+                    None => crate::skip::replay(pv, b0, k),
+                };
+                match replayed {
                     Ok(pd) => {
                         if let Some(after) = w.txs[r.tx].post_data(&f.ctx.province(p, q)) {
                             let mask = |x: &[u8]| {

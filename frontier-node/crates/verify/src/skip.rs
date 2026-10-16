@@ -318,3 +318,71 @@ pub fn replay(before: &[u8], b0: u32, n: u32) -> Result<Vec<u8>, NotQuiet> {
     }
     Ok(pd)
 }
+
+/// [`replay`] for a conquest Province (4,736 B, ABI v2): the program's v2
+/// calling order (`permutation-frontier/src/proc/clash.rs` module note,
+/// "skip"): `camp_check_v2` (never on the keep tile) → the kernel's
+/// `is_quiet` over `build_v2` at **every** bell → the bell's report from the
+/// tile masks (taken before the settle, kept until the roster changes, as
+/// the program caches them) → `settle_bell` from the first bell something
+/// is due → `conquest_model::step` → `finish_bell`.
+///
+/// **Not independent:** every step here is the program's own shared code
+/// in `frontier_abi::{clash_model, conquest_model}` (the same functions the
+/// program calls); what the replay adds is the calling order, the quiet
+/// test at every bell and the comparison with what the chain wrote.
+pub fn replay_v2(
+    before: &[u8],
+    b0: u32,
+    n: u32,
+    prm: &frontier_abi::conquest_model::StepParams,
+) -> Result<Vec<u8>, NotQuiet> {
+    use frontier_abi::clash_model as m;
+    use frontier_abi::conquest_model as cq;
+    use permutation_rules::frontier::clash as kc;
+    let e = |b: u32| move |x: m::ModelError| (b, format!("{x:?}"));
+    let mut pd = before.to_vec();
+    let mut due = m::next_due(&pd).map_err(e(b0))?;
+    let mut masks: Option<([u8; permutation_rules::frontier::geometry::PROVINCE_TILES], u32)> =
+        None;
+    for b in b0..b0 + n {
+        let mut changed = false;
+        let t = m::terrain_of(&pd).map_err(e(b))?;
+        let keep_tile = cq::read_keep(&pd).map_err(e(b))?.map(|k| k.tile);
+        if let Some((c, spawned)) = m::camp_check_v2(&pd, &t, b, keep_tile).map_err(e(b))? {
+            c.write(&mut pd).map_err(e(b))?;
+            changed |= spawned;
+        }
+        let built = m::build_v2(&pd, None, b)
+            .map_err(|x| (b, format!("the province does not build: {x:?}")))?;
+        match kc::is_quiet(&kc::frontier_ruleset(), &built.input(&[0; 32])) {
+            Ok(true) => {}
+            Ok(false) => return Err((b, "the kernel's is_quiet is false".into())),
+            Err(x) => return Err((b, format!("the kernel cannot test quiet: {x:?}"))),
+        }
+        let mask = match masks {
+            Some((mk, horizon)) if b < horizon => mk,
+            _ => {
+                let (mk, horizon) = m::tile_masks_horizon(&pd, b).map_err(e(b))?;
+                masks = Some((mk, horizon));
+                mk
+            }
+        };
+        let rep = cq::report_from_masks(&pd, &mask).map_err(e(b))?;
+        if b >= due {
+            let settled = m::settle_bell(&mut pd, b).map_err(e(b))?;
+            if settled {
+                masks = None;
+            }
+            changed |= settled;
+            due = m::next_due(&pd).map_err(e(b))?;
+        }
+        let st = cq::step(&mut pd, b, &rep, prm).map_err(e(b))?;
+        if st.roster_changed {
+            masks = None;
+            changed = true;
+        }
+        m::finish_bell(&mut pd, b, changed).map_err(e(b))?;
+    }
+    Ok(pd)
+}

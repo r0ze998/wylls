@@ -11,7 +11,7 @@
 //!   0 free, 1 `Production {resource = arg, delta}`, 2 `Upkeep`, 3
 //!   `TierUp`, 4 `Walls {delta}`; stores, production, upkeep, walls,
 //!   `walls_committed_before`, `food_shortfall` one to one. Writing also
-//!   sets `shield_until` and the dormant-flag cache at `now`.
+//!   sets the dormant-flag cache at `now` (and M1's shield, see [`write`]).
 //! - **Touch** (every owner action): `settle` split at each finished
 //!   tier-up (the new tier's base production from its completion, food
 //!   upkeep re-applied at that instant), `touch_owner(now)`,
@@ -157,14 +157,23 @@ pub fn read(d: &[u8]) -> Result<KHolding, String> {
 }
 
 /// Writes the kernel holding into a copy of the account bytes (every other
-/// field kept), with `shield_until` and the dormant-flag cache at `now`.
+/// field kept), with the dormant-flag cache at `now`. An M1 Holding's
+/// `shield_until` is rewritten from M1's constants (the M1 program did); a
+/// conquest Holding's (header `layout_version` 2) is kept: the conquest
+/// program writes it once, at founding or capture, from the season's
+/// timers (`permutation-frontier/src/proc/holding.rs` `write_holding`,
+/// MC §3.9).
 pub fn write(d: &mut [u8], h: &KHolding, now: i64) -> Result<(), String> {
+    use frontier_abi::layout::header as HDR;
+    let v2 = d.get(HDR::LAYOUT_VERSION..HDR::LAYOUT_VERSION + 2) == Some(&2u16.to_le_bytes()[..]);
+    if !v2 {
+        put(d, H::SHIELD_UNTIL, &h.shield_until().to_le_bytes())?;
+    }
     put(d, H::TIER, &[tier_u8(h.tier)])?;
     put(d, H::ORDER, &[h.order])?;
     put(d, H::FOUNDED_TS, &h.founded_ts.to_le_bytes())?;
     put(d, H::FOUNDED_DAY, &h.founded_day.to_le_bytes())?;
     put(d, H::LAST_OWNER_ACTION, &h.last_owner_action.to_le_bytes())?;
-    put(d, H::SHIELD_UNTIL, &h.shield_until().to_le_bytes())?;
     for (i, s) in h.stores.iter().enumerate() {
         let o = H::store(i);
         put(d, o + accrual::VALUE, &s.value.to_le_bytes())?;
