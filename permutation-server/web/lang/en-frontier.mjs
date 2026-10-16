@@ -467,6 +467,7 @@ export default {
   'シーズンの記録の宛先が、プログラムから導いたものと一致しません': 'The season record\'s address does not match the one derived from the program.',
   '中継サーバーが署名前の取引を書き換えました': 'The relay changed the transaction before signing.',
   '中継サーバーがこの取引の形を受け付けませんでした': 'The relay does not accept a transaction of this shape.',
+  'この鍵は運営が動かす代理人のものです。代理人の操作は代理人の窓口から送ります。': 'This key belongs to an operator-run agent. Its actions go through the agent wallet.',
   '今日送れる操作の回数を使い切りました。シーズンの日付が変わると、また送れます。': 'You have used up the actions you can send today. You can send more when the season\'s day rolls over.',
   '手数料を立て替える資金が足りません。しばらくしてから試してください。': 'The funds that cover the fees have run short. Try again shortly.',
   '取引の期限が切れました。もう一度送ってください。': 'The transaction expired. Send it again.',

@@ -55,6 +55,7 @@ export class AgentLedger {
     const rec = {
       agentId, owner, payout: owner, agentKey, village: [...village], createdAt: this.now(),
       mode: 'manual', modeEpoch: 0,
+      capabilityHash: null, capabilityVersion: 0,
       policy: { ...policy, version: 1 },
       bal: { deposited: ZERO, available: ZERO, reserved: ZERO, pendingWithdraw: ZERO, withdrawn: ZERO,
         spent: { [CATEGORIES.INFERENCE]: ZERO, [CATEGORIES.NETWORK]: ZERO, [CATEGORIES.GAME]: ZERO } },
@@ -73,7 +74,8 @@ export class AgentLedger {
     return rec;
   }
 
-  agentsOf(owner) { return Object.values(this.db.agents).filter(a => a.owner === owner); }
+  agents() { return Object.values(this.db.agents); }
+  agentsOf(owner) { return this.agents().filter(a => a.owner === owner); }
   byKey(agentKey) { return Object.values(this.db.agents).find(a => a.agentKey === agentKey) ?? null; }
 
   note(rec, entry) {
@@ -164,12 +166,13 @@ export class AgentLedger {
     return { ...h };
   }
 
-  /** The hold's transaction is about to be sent: from here only its outcome settles or releases it. */
-  markSending(agentId, holdId, signature) {
+  /** The hold's transaction is about to be sent: from here only its outcome (`lastValidBlockHeight` bounds it) settles or releases it. */
+  markSending(agentId, holdId, signature, lastValidBlockHeight = null) {
     const h = this.get(agentId).holds[holdId];
     if (!h) throw new AgentError(ERR.BAD_REQUEST, 'no such hold');
     h.state = 'sending';
     h.signature = signature;
+    h.lastValidBlockHeight = lastValidBlockHeight;
     this.save();
   }
 
@@ -241,10 +244,11 @@ export class AgentLedger {
     return { ...w };
   }
 
-  withdrawSending(agentId, id, signature) {
+  withdrawSending(agentId, id, signature, lastValidBlockHeight = null) {
     const w = this.get(agentId).withdrawals[id];
     w.state = 'sending';
     w.signature = signature;
+    w.lastValidBlockHeight = lastValidBlockHeight;
     this.save();
   }
 
@@ -272,6 +276,24 @@ export class AgentLedger {
     this.note(rec, { type: 'withdraw-failed', amount: w.amount, reason });
     this.save();
     return true;
+  }
+
+  // ------------------------------------------------------------ records
+
+  /** A game action the gateway sent (or refused after a hold): history only. */
+  recordAction(agentId, entry) {
+    this.note(this.get(agentId), { type: 'action', ...entry });
+    this.save();
+  }
+
+  /** The sha256 (hex) of the agent's current capability token; the token itself is never stored. */
+  setCapability(agentId, hash) {
+    const rec = this.get(agentId);
+    rec.capabilityHash = hash;
+    rec.capabilityVersion += 1;
+    this.note(rec, { type: 'capability', version: rec.capabilityVersion });
+    this.save();
+    return rec.capabilityVersion;
   }
 
   // ------------------------------------------------------------ idempotency

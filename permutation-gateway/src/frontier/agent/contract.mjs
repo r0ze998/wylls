@@ -9,6 +9,7 @@
 //
 // Amounts are test-USDC base units (6 decimals) carried as decimal strings.
 // Local test tokens only; nothing here has value.
+import { RouteError } from '../../routes/errors.mjs';
 
 /** Where a request came from (recorded, never trusted for authority). */
 export const SOURCES = Object.freeze(['browser', 'ai', 'mcp']);
@@ -67,16 +68,15 @@ export const ERR = Object.freeze({
   DEPOSIT_PENDING: 'DepositPending',
   WITHDRAW_FAILED: 'WithdrawFailed',
   INFERENCE_FAILED: 'InferenceFailed',
+  AGENT_KEY_DIRECT: 'AgentKeyDirect',
+  TOO_MANY_AGENTS: 'TooManyAgents',
   DISABLED: 'AgentWalletDisabled',
 });
 
-/** A refusal with a stable code (the routes map `status`). */
-export class AgentError extends Error {
+/** A refusal with a stable code: a RouteError (the HTTP layer answers it as is) whose arguments are code-first. */
+export class AgentError extends RouteError {
   constructor(code, message, status = 400, extra = {}) {
-    super(message);
-    this.code = code;
-    this.status = status;
-    this.extra = extra;
+    super(status, message, code, extra);
   }
 }
 
