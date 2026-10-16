@@ -887,24 +887,36 @@ fn continuity(cx: &mut Ctx) {
                 // MC §3.8: a SETTLE founding an outpost logs OUTPOST_SETTLED
                 // beside it (order 2–3: no starter kit); MC §3.9: the shield
                 // is the season's for that order (`hr::founding_shield`).
-                let order = w
-                    .cq_recs
-                    .iter()
-                    .find(|r| {
-                        r.tx == t
-                            && r.kind == CqKind::OUTPOST_SETTLED
-                            && (
-                                le(r.field("p", false)) as u32 as i32,
-                                le(r.field("q", false)) as u32 as i32,
-                                r.field("site", false).first().copied().unwrap_or(0),
-                            ) == pqs
-                    })
+                let outpost = w.cq_recs.iter().find(|r| {
+                    r.tx == t
+                        && r.kind == CqKind::OUTPOST_SETTLED
+                        && (
+                            le(r.field("p", false)) as u32 as i32,
+                            le(r.field("q", false)) as u32 as i32,
+                            r.field("site", false).first().copied().unwrap_or(0),
+                        ) == pqs
+                });
+                let order = outpost
                     .and_then(|r| r.field("order", true).first().copied())
                     .unwrap_or(1);
                 let shield = f
                     .cq
                     .as_ref()
                     .and_then(|cq| hr::founding_shield(cq, order, tx.time, f.genesis_ts));
+                // The record's shield is the one written (MC §5.6).
+                if let (Some(r), Some(s)) = (outpost, shield) {
+                    let logged = le(r.field("shield_until", true)) as i64;
+                    if logged != s {
+                        bad.push((
+                            t,
+                            pqs,
+                            bell,
+                            format!(
+                                "OUTPOST_SETTLED logs shield_until {logged}, the season's timers give {s}"
+                            ),
+                        ));
+                    }
+                }
                 (
                     "the founding SETTLE",
                     hr::founded(post, tx.time, frontier_abi::addr::day_of(bell), order, shield),

@@ -57,6 +57,12 @@ pub const EXPLORE_ROLL_MISMATCH: &str = "ExploreRollMismatch";
 pub const PAYMENT_MISMATCH: &str = "PaymentMismatch";
 pub const DEFENCE_REFUND_MISMATCH: &str = "DefenceRefundMismatch";
 pub const CONSERVATION_GAP: &str = "ConservationGap";
+// V16 completion effects (conquest contract §8.5; partial: the owner rule)
+pub const FIRST_HOLDING_TRANSFERRED: &str = "FirstHoldingTransferred";
+// V20 season end (conquest contract §8.5; partial)
+pub const COMPLETION_AFTER_END: &str = "CompletionAfterEnd";
+pub const SIEGE_NOT_SETTLED: &str = "SiegeNotSettled";
+pub const OUTPOST_AFTER_CLOSE: &str = "OutpostAfterClose";
 /// Data a check needs is absent (UNVERIFIABLE, K2): e.g. no post-states
 /// for a clash replay from a public RPC without an archive.
 pub const MISSING_DATA: &str = "MissingData";
@@ -101,6 +107,10 @@ pub const FAIL_CODES: &[&str] = &[
     EXPLORE_ROLL_MISMATCH,
     PAYMENT_MISMATCH,
     DEFENCE_REFUND_MISMATCH,
+    FIRST_HOLDING_TRANSFERRED,
+    COMPLETION_AFTER_END,
+    SIEGE_NOT_SETTLED,
+    OUTPOST_AFTER_CLOSE,
 ];
 
 /// Warning codes (PASS with a warning).

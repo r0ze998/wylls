@@ -5,7 +5,9 @@
 pub mod v11_land;
 pub mod v12_explore;
 pub mod v13_payments;
+pub mod v16_owner;
 pub mod v1_chains;
+pub mod v20_end;
 pub mod v2_program;
 pub mod v3_random;
 pub mod v4_windows;
@@ -183,6 +185,14 @@ pub fn run(input: &Input) -> Report {
     check!("mutate-v11", "V11", v11_land);
     check!("mutate-v12", "V12", v12_explore);
     check!("mutate-v13", "V13", v13_payments);
+    // Conquest contract §8.5 V14–V22: the parts implemented so far (each
+    // module's note says which), on a conquest season only.
+    if cx.v3 {
+        v16_owner::run(&mut cx);
+        ran.push("V16:first-holding-owner");
+        v20_end::run(&mut cx);
+        ran.push("V20:season-end");
+    }
     ran.push("V10");
     counts(&mut cx);
     let verdict = if cx.findings.iter().any(|x| x.severity == Severity::Fail) {
