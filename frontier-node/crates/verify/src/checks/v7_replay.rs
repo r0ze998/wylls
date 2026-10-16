@@ -15,6 +15,12 @@
 //!   `clash::is_quiet` at **every** bell (`SkipNotQuiet` names the first
 //!   that is not), the bell's settle; the Province the skip wrote must be
 //!   the replay's (`ClashReplayMismatch`), and the quiet digest is over it.
+//! - **Conquest seasons (ABI v2, R-22):** a CLASH on a 4,736-B Province is
+//!   replayed by [`crate::clash_v2`] in the program's v2 calling order (the
+//!   shared `clash_model` / `conquest_model`, not an independent copy): the
+//!   two digests, the engagements and the fates must be the record's, and
+//!   the Province and ClashInputs written must be the replay's but for the
+//!   resolver's own fields; a SKIP by [`crate::skip::replay_v2`].
 //! - **Transits:** each TRANSIT_SETTLED outcome follows §5.11 D5 from the
 //!   logged seal code and the destination's gathered-and-resolved inputs:
 //!   a bad seal code → bad-seal; the host in the records → its fate (and a
@@ -299,6 +305,12 @@ fn clashes_and_skips(cx: &mut Ctx) {
                     cx.missing(V, what, b, Some(r.tx), "no seed of the bell");
                     continue;
                 };
+                // A conquest season's Province is the v2 layout (R-22): the
+                // program's v2 resolve path (`crate::clash_v2`).
+                if let Some(prm) = cx.f.step_params().filter(|_| cx.v3) {
+                    clash_v2(cx, r, what, (p, q), b, pv, ci, &seed, &prm);
+                    continue;
+                }
                 // v1.6 §22: the CLASH input digest (integ-W4 review: pinned,
                 // now judged).
                 if crate::clash_input::input_digest(pv, ci, b, &seed) != r.p32("input_digest") {
@@ -525,6 +537,131 @@ fn clashes_and_skips(cx: &mut Ctx) {
             }
             _ => {}
         }
+    }
+}
+
+/// One CLASH of a conquest season (module note): the v2 replay's digests,
+/// engagements and fates against the record's; the Province and the
+/// ClashInputs the transaction wrote against the replay's.
+#[allow(clippy::too_many_arguments)]
+fn clash_v2(
+    cx: &mut Ctx,
+    r: &crate::world::Rec,
+    what: String,
+    (p, q): (i32, i32),
+    b: u32,
+    pv: &[u8],
+    ci: &[u8],
+    seed: &[u8; 32],
+    prm: &frontier_abi::conquest_model::StepParams,
+) {
+    use crate::clash_v2 as cv;
+    let w = cx.w;
+    let f = cx.f;
+    let rp = match cv::replay(pv, ci, b, seed, prm) {
+        Ok(x) => x,
+        Err(e) => {
+            cx.fail(V, CLASH_REPLAY_MISMATCH, what, b, Some(r.tx), e);
+            return;
+        }
+    };
+    if rp.input != r.p32("input_digest") {
+        cx.fail(
+            V,
+            CLASH_REPLAY_MISMATCH,
+            what.clone(),
+            b,
+            Some(r.tx),
+            "the input digest is not sha256(PSF-CLASH-INPUT-v2 ‖ bell ‖ seed ‖ Province state ‖ conquest block ‖ arrival records)",
+        );
+    }
+    if rp.outcome != r.p32("outcome_digest")
+        || rp.engagements != r.pu32("engagements")
+        || rp.fates[..] != *r.p("fates")
+    {
+        cx.fail(
+            V,
+            CLASH_REPLAY_MISMATCH,
+            what.clone(),
+            b,
+            Some(r.tx),
+            format!(
+                "replayed digest {} ({} engagements) differs from the logged one",
+                hex::encode(&rp.outcome[..8]),
+                rp.engagements
+            ),
+        );
+    }
+    let tx = &w.txs[r.tx];
+    let pk = f.ctx.province(p, q);
+    match tx.post_data(&pk) {
+        Some(after) => {
+            let (ma, mp) = (cv::mask_province(after), cv::mask_province(&rp.province));
+            if ma != mp {
+                cx.fail(
+                    V,
+                    CLASH_REPLAY_MISMATCH,
+                    what.clone(),
+                    b,
+                    Some(r.tx),
+                    format!(
+                        "write-back: the Province written differs from the v2 replay (first at byte {})",
+                        cv::first_diff(&ma, &mp)
+                    ),
+                );
+            }
+            if after
+                .get(PV::RESOLVED_NEXT..PV::RESOLVED_NEXT + 4)
+                .map(|x| le(x) as u32)
+                != Some(b + 1)
+            {
+                cx.fail(
+                    V,
+                    CLASH_REPLAY_MISMATCH,
+                    what.clone(),
+                    b,
+                    Some(r.tx),
+                    "the Province is not resolved through the bell after its CLASH",
+                );
+            }
+        }
+        None if w.has_post => cx.missing(
+            V,
+            what.clone(),
+            b,
+            Some(r.tx),
+            "no post-state of the Province the resolve wrote",
+        ),
+        None => {}
+    }
+    match tx.post_data(&f.ctx.clash_inputs(p, q, b)) {
+        Some(after) => {
+            let (ma, mp) = (cv::mask_inputs(after), cv::mask_inputs(&rp.inputs));
+            if ma != mp {
+                cx.fail(
+                    V,
+                    CLASH_REPLAY_MISMATCH,
+                    what.clone(),
+                    b,
+                    Some(r.tx),
+                    format!(
+                        "write-back: the ClashInputs written differ from the v2 replay (first at byte {})",
+                        cv::first_diff(&ma, &mp)
+                    ),
+                );
+            }
+        }
+        None if w.has_post => cx.missing(
+            V,
+            what,
+            b,
+            Some(r.tx),
+            "no post-state of the ClashInputs the resolve wrote",
+        ),
+        None => {}
+    }
+    if rp.contested {
+        cx.liveness.contested_bells.push((p, q, b));
     }
 }
 
