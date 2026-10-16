@@ -10,7 +10,7 @@
 
 ## 1. What Wylls is
 
-Wylls is a Civilization-style world on a Solana-compatible chain in which six nations (国) share one map. Choose a nation, grow a village (村), train troops and send sealed marches (軍). When a fight resolves, the program decides its outcome and the browser can recompute the report. Capturing a keep can change the map. A verifier can replay a season's transaction log; it is our verifier, not an independent audit. The completed M1 exit season used rule bots, which follow fixed scripts and are not the Gemma-powered AI citizens. Conquest, local test-USDC mechanics and real-model AI runs came later. The wider civilisation, final nation score and live-money season remain plans ([status](#status)).
+Wylls is a Civilization-style world on a Solana-compatible chain in which six nations (国) share one map. Choose a nation, grow a village (村), train troops and send sealed marches (軍). When a fight resolves, the program decides its outcome and the browser can recompute the report. Capturing a keep can change the map. A verifier can replay a season's transaction log; it is our verifier, not an independent audit. The completed M1 exit season used rule bots, which follow fixed scripts and are not the Gemma-powered AI citizens. Conquest, local test-USDC mechanics and real-model AI runs came later. The season-winner rule (most keeps at the end) and a 14-day season preset are in the code but no season has been run to a final tally; the wider civilisation, a wider nation score and the live-money season remain plans ([status](#status)).
 
 ## 2. How it plays
 
@@ -23,7 +23,7 @@ The game runs in real time, but the results of fights, marches and scouting are 
 5. **March under a sealed order.** The departure, the size and the arrival turn are public; the destination is hidden by a time-lock on drand (a public randomness beacon that publishes a value at a fixed time) until the arrival turn has ended. A march needs at least two turns to arrive and cannot be recalled.
 6. **Read the report.** Anyone can replay a battle report, and the web client re-runs the rules code in the browser to check it.
 
-With conquest enabled, armies can contest and capture keeps; a recorded local demo shows Fjordal's keep changing hands. The final nation score for the planned public season is still being designed ([section 4](#status)).
+With conquest enabled, armies can contest and capture keeps; a recorded local demo shows Fjordal's keep changing hands. After a season ends, the prize program names the nation holding the most keeps as the winner (ties go to more territory time, then the prize is shared). No season has yet been run to that final tally and payout, and a wider nation score (prosperity, knowledge and so on) is still being designed ([section 4](#status)).
 
 ## 3. The AI citizens
 
@@ -48,7 +48,7 @@ The evaluation thresholds are in [the AI contract](docs/frontier/ai-citizens/AI-
 | Basic game M1 (the rebuild) | **Running** | Joining, building, training, scouting, sealed marches, clashes and reports, with a replay verifier and a web client (Japanese and English). One 7-game-day season ran on a local test chain with 1,000 script bots |
 | AI citizens | **Running locally** | Integrated code; saved six-AI/six-script-bot `take-1` run with real Gemma 4 and `verify-minds` PASS. Formal A/B and completed 18-AI main run pending |
 | Conquest (keeps, sieges, occupation) | **Running locally** | Integrated program and web flow; a human-operated local demo recorded a keep capture in `own1`, season 100 |
-| Target 14-day season, final score per nation | **Planned / incomplete** | The recorded local conquest season was still active; these target features are not demonstrated as a completed season |
+| 14-day season and season winner | **Implemented, not run to the end** | The 14-day preset (`MC_LOCAL_14D`, 2,016 turns) is the default world of `frontier-stack up --conquest`, but no 14-day season has run to its end (the longest completed season is M1's 7 game days). The prize program names the nation(s) holding the most keeps after the season ends; tie rule provisional. No season has reached the final tally and payout. A wider score per nation (prosperity, knowledge) is design only |
 | Society (governance, diplomacy, trade, shared Engine, tech, eras) | **Design only** | Outline only; tech, eras and the Engine are not designed |
 | Money (entry fee and prize path) | **Running locally with test tokens** | The rebuild has a 25 **test-USDC** entry path and prize program on its local chain; the recorded `own1` season shows the prize panel, not a final winner or payout. Live USDC is not launched |
 
@@ -87,7 +87,7 @@ Open `/frontier/frontier/`, not `/`. The browser joins with its built-in local t
 - **Seal secrecy was not tested.** The M1 season replayed archived drand values, so the signatures were already known; the results show that marches settle, not that destinations stay secret. The verifier is ours, not an independent audit.
 - **AI evaluation remains open.** The saved `take-1` run passed `verify-minds`, but the formal A/B comparison and completed 18-AI main run remain pending. The model's reason is not independently verified; a cited memory line does not prove causation. The council is off-chain, and test-run randomness uses an operator-held test key.
 - **The recorded scenes have limits.** `own1` had no AI or bots; `take-1` had no human participant. The edited sequence changes runs, and a 72-turn local clock advance precedes the `own1` keep capture. The browser replay showed six passing checks and a lower `Match` result while an upper `Unverified` badge remained stale. Neither clip shows a final winner, payout or an adopted Strike Order.
-- **Wider game still planned:** the target 14-day public season, final nation score, governance, diplomacy, markets and a shared civilisation. Legal review for live money and AI disclosure has not been done.
+- **Wider game still planned:** running a 14-day public season to its end, a nation score wider than keeps and territory time, governance, diplomacy, markets and a shared civilisation. Legal review for live money and AI disclosure has not been done.
 - **Changed after submission.** [PR #6](https://github.com/r0ze998/wylls/pull/6) was merged after submission. It stops a sealed AI decision from carrying council speech before its release (a fault found in the `take-2` run) and fixes two viewer reads in the web client. No recorded season has run on the fixed code.
 - **Not claimed about the AI:** that it is stronger than the script bots, indistinguishable from people or exactly replayable; that it wants or intends anything; that its memory shows why it chose; that the council is enforced by the chain.
 - **Not claimed about the project:** that there is demand, that a game studio was approached, that real money has moved, or that the Civilization-style game is finished.
