@@ -57,6 +57,10 @@ pub const EXPLORE_ROLL_MISMATCH: &str = "ExploreRollMismatch";
 pub const PAYMENT_MISMATCH: &str = "PaymentMismatch";
 pub const DEFENCE_REFUND_MISMATCH: &str = "DefenceRefundMismatch";
 pub const CONSERVATION_GAP: &str = "ConservationGap";
+// V15 / V18 / V19 at the record level (conquest contract §8.5; partial)
+pub const SIEGE_PROGRESS_MISMATCH: &str = "SiegeProgressMismatch";
+pub const KEEP_MISMATCH: &str = "KeepMismatch";
+pub const SNAPSHOT_MISMATCH: &str = "SnapshotMismatch";
 // V16 completion effects (conquest contract §8.5; partial: the owner rule)
 pub const FIRST_HOLDING_TRANSFERRED: &str = "FirstHoldingTransferred";
 // V20 season end (conquest contract §8.5; partial)
@@ -107,6 +111,9 @@ pub const FAIL_CODES: &[&str] = &[
     EXPLORE_ROLL_MISMATCH,
     PAYMENT_MISMATCH,
     DEFENCE_REFUND_MISMATCH,
+    SIEGE_PROGRESS_MISMATCH,
+    KEEP_MISMATCH,
+    SNAPSHOT_MISMATCH,
     FIRST_HOLDING_TRANSFERRED,
     COMPLETION_AFTER_END,
     SIEGE_NOT_SETTLED,

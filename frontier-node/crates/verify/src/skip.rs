@@ -336,12 +336,17 @@ pub fn replay_v2(
     b0: u32,
     n: u32,
     prm: &frontier_abi::conquest_model::StepParams,
-) -> Result<Vec<u8>, NotQuiet> {
+) -> Result<(Vec<u8>, Vec<crate::cqrec::Expected>), NotQuiet> {
     use frontier_abi::clash_model as m;
     use frontier_abi::conquest_model as cq;
     use permutation_rules::frontier::clash as kc;
     let e = |b: u32| move |x: m::ModelError| (b, format!("{x:?}"));
     let mut pd = before.to_vec();
+    let (p, q) = (
+        le(before.get(PV::P..PV::P + 2).ok_or((b0, "short Province".to_string()))?) as u16 as i16 as i32,
+        le(before.get(PV::Q..PV::Q + 2).ok_or((b0, "short Province".to_string()))?) as u16 as i16 as i32,
+    );
+    let mut records = vec![];
     let mut due = m::next_due(&pd).map_err(e(b0))?;
     let mut masks: Option<([u8; permutation_rules::frontier::geometry::PROVINCE_TILES], u32)> =
         None;
@@ -383,6 +388,9 @@ pub fn replay_v2(
             changed = true;
         }
         m::finish_bell(&mut pd, b, changed).map_err(e(b))?;
+        // The bell's conquest records, as the program logs them after the
+        // bell (V15's record check).
+        records.extend(crate::cqrec::of_step(&pd, p, q, b, &st).map_err(|x| (b, x))?);
     }
-    Ok(pd)
+    Ok((pd, records))
 }

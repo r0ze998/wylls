@@ -495,10 +495,16 @@ fn clashes_and_skips(cx: &mut Ctx) {
                 // settle, and the Province written = the replay's.
                 let replayed = match &v2 {
                     Some(prm) => crate::skip::replay_v2(pv, b0, k, prm),
-                    None => crate::skip::replay(pv, b0, k),
+                    None => crate::skip::replay(pv, b0, k).map(|pd| (pd, vec![])),
                 };
                 match replayed {
-                    Ok(pd) => {
+                    Ok((pd, cq_records)) => {
+                        // A conquest season: the bells' conquest records
+                        // for V15 (an M1 season leaves none).
+                        if v2.is_some() {
+                            cx.cq_replayed.insert(r.tx);
+                            cx.cq_expected.entry(r.tx).or_default().extend(cq_records);
+                        }
                         if let Some(after) = w.txs[r.tx].post_data(&f.ctx.province(p, q)) {
                             let mask = |x: &[u8]| {
                                 let mut v = x.to_vec();
@@ -565,6 +571,11 @@ fn clash_v2(
             return;
         }
     };
+    cx.cq_replayed.insert(r.tx);
+    cx.cq_expected
+        .entry(r.tx)
+        .or_default()
+        .extend(rp.cq.iter().cloned());
     if rp.input != r.p32("input_digest") {
         cx.fail(
             V,

@@ -43,6 +43,8 @@ pub struct Replayed {
     pub contested: bool,
     /// The bell's conquest step.
     pub step: cq::StepOut,
+    /// The conquest records the step leaves (V15's record check).
+    pub cq: Vec<crate::cqrec::Expected>,
 }
 
 fn put(d: &mut [u8], o: usize, b: &[u8]) -> Result<(), String> {
@@ -81,6 +83,11 @@ pub fn replay(
     let settled = m::settle_bell(&mut pd, b).map_err(e)?;
     let step = cq::step(&mut pd, b, &report, prm).map_err(e)?;
     m::finish_bell(&mut pd, b, applied.changed() || settled || step.roster_changed).map_err(e)?;
+    let (p, q) = (
+        crate::world::le(before.get(PV::P..PV::P + 2).ok_or("short Province")?) as u16 as i16 as i32,
+        crate::world::le(before.get(PV::Q..PV::Q + 2).ok_or("short Province")?) as u16 as i16 as i32,
+    );
+    let cq_records = crate::cqrec::of_step(&pd, p, q, b, &step)?;
     let outcome = m::outcome_digest(&out).map_err(e)?;
     put(&mut pd, PV::LAST_DIGEST, &outcome)?;
     // The fate table of the present arrivals, the resolved flag and the
@@ -125,6 +132,7 @@ pub fn replay(
         inputs: ci,
         contested,
         step,
+        cq: cq_records,
     })
 }
 

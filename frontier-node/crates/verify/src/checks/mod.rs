@@ -5,6 +5,7 @@
 pub mod v11_land;
 pub mod v12_explore;
 pub mod v13_payments;
+pub mod v15_records;
 pub mod v16_owner;
 pub mod v1_chains;
 pub mod v20_end;
@@ -35,6 +36,11 @@ pub struct Ctx<'a> {
     /// A conquest-program season (program version 3, ABI v2; conquest
     /// contract R-22): the checks read the v2 rules where they differ.
     pub v3: bool,
+    /// The conquest records V7's v2 replays leave, per transaction in
+    /// order (`crate::cqrec`), for V15's record check.
+    pub cq_expected: std::collections::BTreeMap<usize, Vec<crate::cqrec::Expected>>,
+    /// The transactions whose skip or clash V7 replayed on the v2 path.
+    pub cq_replayed: std::collections::BTreeSet<usize>,
 }
 
 impl Ctx<'_> {
@@ -146,6 +152,8 @@ pub fn run(input: &Input) -> Report {
         liveness: Liveness::default(),
         sigs: SigCache::default(),
         v3: crate::conquest::applies(input),
+        cq_expected: Default::default(),
+        cq_replayed: Default::default(),
     };
     let mut ran: Vec<&'static str> = vec![];
     macro_rules! check {
@@ -188,6 +196,8 @@ pub fn run(input: &Input) -> Report {
     // Conquest contract §8.5 V14–V22: the parts implemented so far (each
     // module's note says which), on a conquest season only.
     if cx.v3 {
+        v15_records::run(&mut cx);
+        ran.push("V15:conquest-records");
         v16_owner::run(&mut cx);
         ran.push("V16:first-holding-owner");
         v20_end::run(&mut cx);
