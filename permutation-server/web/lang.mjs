@@ -56,15 +56,16 @@ import frontier from './lang/en-frontier.mjs';
 import frontierPlay from './lang/en-frontier-play.mjs';
 import frontierHand from './lang/en-frontier-hand.mjs';
 import frontierProtoHand from './lang/en-frontier-proto-hand.mjs';
+import frontierAgent from './lang/en-frontier-agent.mjs';
 
 export { plural };
 export const LANGS = ['ja', 'en'];
 export const STORAGE_KEY = 'ps-lang';
 
 /** The English dictionaries by file (a test checks they agree with each other). */
-export const EN_GROUPS = { core, lobby, play, inspector, drawers, pages, frontier, 'frontier-play': frontierPlay, 'frontier-hand': frontierHand, 'frontier-proto-hand': frontierProtoHand };
+export const EN_GROUPS = { core, lobby, play, inspector, drawers, pages, frontier, 'frontier-play': frontierPlay, 'frontier-hand': frontierHand, 'frontier-proto-hand': frontierProtoHand, 'frontier-agent': frontierAgent };
 /** The merged English dictionary: Japanese key → English template (string or function). */
-export const EN = Object.assign(Object.create(null), core, lobby, play, inspector, drawers, pages, frontier, frontierPlay, frontierHand, frontierProtoHand);
+export const EN = Object.assign(Object.create(null), core, lobby, play, inspector, drawers, pages, frontier, frontierPlay, frontierHand, frontierProtoHand, frontierAgent);
 
 // ================================================================== the current language
 const store = {
