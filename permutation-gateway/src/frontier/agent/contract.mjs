@@ -59,6 +59,7 @@ export const ERR = Object.freeze({
   WRONG_VILLAGE: 'WrongVillage',
   BUDGET_EXCEEDED: 'BudgetExceeded',
   DAILY_LIMIT: 'DailyLimitReached',
+  CALL_LIMIT: 'CallLimitReached',
   INSUFFICIENT_BALANCE: 'InsufficientBalance',
   IDEMPOTENCY_CONFLICT: 'IdempotencyConflict',
   SESSION_NOT_DELEGATED: 'SessionNotDelegated',

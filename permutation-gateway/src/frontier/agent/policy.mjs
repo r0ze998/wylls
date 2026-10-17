@@ -3,7 +3,7 @@
 // the gateway on every request, never by the model's prompt.
 //
 //   { allowed: [action or group name, …],
-//     budget: { total, perDay } }     // test-USDC base units (strings)
+//     budget: { total, perDay, callsPerDay? } }   // test-USDC base units (strings); callsPerDay: model calls a day (integer), optional
 //
 // `total` caps all the agent's spending ever (settled + held); `perDay` caps
 // one UTC day's. Prices are the operator's (config), not the owner's.
@@ -24,7 +24,8 @@ export function normalisePolicy(p) {
   const b = p.budget ?? {};
   if (!isAmount(b.total)) bad('budget.total must be a base-unit amount string');
   if (!isAmount(b.perDay)) bad('budget.perDay must be a base-unit amount string');
-  return { allowed: [...allowed].sort(), budget: { total: b.total, perDay: b.perDay } };
+  if (b.callsPerDay !== undefined && b.callsPerDay !== null && (!Number.isInteger(b.callsPerDay) || b.callsPerDay < 0)) bad('budget.callsPerDay must be a non-negative integer');
+  return { allowed: [...allowed].sort(), budget: { total: b.total, perDay: b.perDay, ...(Number.isInteger(b.callsPerDay) ? { callsPerDay: b.callsPerDay } : {}) } };
 }
 
 /** Throws ActionNotAllowed unless `name` is allowed by `policy` (and delegable at all). */

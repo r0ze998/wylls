@@ -154,7 +154,9 @@ The owner's charge and the operator's cost are kept apart: the ledger bills the 
 
 Tests: `test/agent-wallet-billing.test.mjs`. A full withdrawal with an unresolved call leaves exactly that amount reserved until the operator decides (the page shows it as 運営の確認待ち / "waiting for the operator").
 
-**Proposals that change the owner's refund rules (not implemented; the owner decides):**
+**The recommended rule for the owner's decision (implemented behind `--agent-unresolved-release-ms`, OFF by default, not enabled):** an `unresolved` call is released back to `available` after a deadline; a result after that is never billed (`late-result`, the operator's record); the operator's record keeps the call as `released-call`. Deadline candidates from the measurements (model call ≈ 0.9 s, the call deadline 30 s, the hold TTL 10 min, a relay restart ≈ 1 min): **15 min** (a few times the TTL: every real result is in by then), **1 h** (recommended: covers a restart and a human look at the log, and an owner's money is never locked across a day), **24 h** (an operator's working day). Impact: owners get reserved money back without asking; the operator absorbs the cost of calls it cannot prove, bounded per agent per day by the call caps (§7.1). Abuse: an owner cannot cause an unresolved state (restarts and TTLs are the operator's); an operator who wanted to bill unknown calls would have to decide `charge` by hand with a note, which the settlement record shows (who, when, which call, why, on what evidence). With the rule on, the manual `settle` route stays for calls inside the deadline.
+
+**Other proposals that change the owner's refund rules (not implemented; the owner decides):**
 1. *Auto-refund after N hours* of `unresolved` (the operator absorbs the cost without a decision) — cheaper for owners, costs the operator; today the decision is manual.
 2. *A late result after the TTL is not billed* (today it is billed, because the outcome is then known) — simpler to explain to owners, costs the operator.
 3. *Bill on dispatch* (charge the moment the request leaves for the model, whatever happens after) — the strictest reading of decision 2, no unresolved state at all; the owner pays for calls the model may never have seen. Not recommended for a restart, which is why it is not the default.
@@ -171,6 +173,23 @@ Tests: `test/agent-wallet-billing.test.mjs`. A full withdrawal with an unresolve
 ## 7. The runner (`runner.mjs`)
 
 With `--agent-runner`, the relay process ticks every agent in auto mode every `--agent-tick-ms` (default 30 s); an agent whose last tick sent nothing (a "rest", a refusal, an unaffordable call) sits out 1, 2, 4 … up to 16 ticks before it is asked again, and a sent action resets that (§12 says why): the decider picks one action, `meterInference` wraps it, the choice goes through `submit` with source `ai` and the key `<agentId>:<modeEpoch>:<tick>`. The **autopilot** harvests when allowed and is free. The **model decider** (`--agent-llm`, a loopback llama-server as the AI citizens use, `citizens/mind/llm.mjs`) sees the public view and a candidate list (`Harvest, Train, Build, SetVigil`, no marches), must answer in the JSON schema, and a late, invalid or unaffordable answer falls back to the autopilot; the failed call is charged, the fallback is not. The runner never sees a secret and never starts a march.
+
+### 7.1 When the model is asked (the third round, 2026-10-17)
+
+The runner no longer asks the model on a timer. Each tick the `AgentObserver` reads what the owner's browser reads (the herald: `/h/season`, `/h/me/{owner}`, `/h/province/{p},{q}/latest`; public records, nothing private) and reduces it to digests over the fields that mean something happened — the village's Holding (state, tier, stores, production, queue, walls, reserve, transits, explore), the province (hosts present, camp, sites, tickets, survey, relations) and the Citizen (session, holding, tickets, works) — not the counters a quiet turn moves (`RESOLVED_NEXT`, the event sequence; run agent-e2e-5 showed that hashing whole accounts made every turn an "event"). `triggersOf` then names why the agent would be asked: `owner` (policy or mode changed), `event` (a digest changed), `turn` (the bell moved), `result` (the owner acted by hand). **No trigger, no call.** On top:
+
+| Control | Rule | Default (TEST VALUE, proposed, not a production figure) |
+|---|---|---|
+| Deduplication | a tick coalesces everything that happened since the last call into one decision; the same state again is no trigger | — |
+| One at a time | one model call per agent in flight (`inflight`); one scheduler tick at a time | — |
+| Minimum gap | no call within `minCallGapMs` of the last, except on an owner change | 60 s (`--agent-min-call-gap-ms`); 30 s in the measured runs |
+| Rest back-off | after a call that sent nothing, turn-only triggers are sat out 1, 2, 4 … 16 turns; an event or an owner change ends it | 16 turns |
+| Operator cap | `maxCallsPerDay` per agent in the scheduler | 200 (`--agent-max-calls-per-day`) |
+| Owner cap | `policy.budget.callsPerDay` (a count next to the money), enforced in the ledger: the model is not called past it, the autopilot plays free | none unless the owner sets it |
+
+Why these numbers: a turn is 600 s of chain time (60 s of wall time in the 10× test world, 10 min in the real one); the measured Gemma 4 26B call is ≈ 0.9 s (prompt 0.23 s, generation 0.65 s), so a gap of 60 s is "at most one call a turn in the test world" and far above the model's time; 200 a day is above the 144 turns of a day plus some events, so the cap bites only on a runaway. The owner decides the production figures (§13).
+
+Tests (`test/agent-wallet-triggers.test.mjs`): fifty ticks on an unchanged state make no call; after a rest, turns are sat out 1, 2, 4, 8 while an event and an owner change get through; a flood of 1,000 events over 100 ticks makes at most one call per gap and stops at the operator's cap, the owner's cap refuses the hold before the model is called; one call per agent at a time; an unreadable herald asks nothing; the digests ignore a quiet turn and see an arrival, a promotion, a session change.
 
 ## 8. What was verified
 
@@ -249,3 +268,25 @@ Run `agent-e2e-4` (season 94), the relay's runner on `http://127.0.0.1:41901` (t
 | Deposit 10 (9 sponsored + 1 direct) → withdrawn | 9,970,000; `deposited = spent + withdrawn` |
 
 **Finding:** in the page smoke on the same world the agent spent its whole daily limit (0.5 = 50 calls) in about seven minutes: after the first harvests the model answered "rest" at almost every 8-second tick, and a "rest" costs a call like any other. Cost was proportional to time, not to actions. The scheduler now backs off after a tick that sent nothing (§7); the shipped tick is 30 s. Still open for the owner: a per-day cap on model calls in the policy, and an event-driven runner that asks the model only when something changed (the AI citizens' design). The 0.01 per call stays a localnet test price, not a production one.
+
+### 12.1 Before and after the call controls (the third round, 2026-10-17)
+
+Same world shape (conquest, 10×, tick 8 s), same model server, same price. "Before" is the page smoke on run agent-e2e-4 (the timer-driven runner); "after" is run agent-e2e-7 on the field-level observer with a 30 s minimum gap, the E2E's seven-minute window (`AGENT_E2E_WINDOW_MS=420000`, transcript `.local/agent-wallet-e2e/run7-gemma-triggers/transcript.json`). Run agent-e2e-6, between the two, hashed whole accounts and still called once a turn (13 calls in ten minutes): that is why the digests read fields.
+
+| | Before (timer, 8 s) | After (triggers, 8 s tick, 30 s gap) |
+|---|---|---|
+| Model calls in ≈ 7 minutes (≈ 7 turns) | 50 — the daily limit of 0.5 | 5 (+1 first call before the window) |
+| Charged | 0.50 test USDC | 0.05 (0.06 with the first call) |
+| Actions sent | 2 Harvests (run 5) | 1 Harvest (the first call), then the model rested |
+| "rest" answers charged | ≈ 48 | 5, each on a trigger: 1 event (its own Harvest landing), 4 turns at the back-off's 1, 2, 4, 8 |
+| Ticks that asked nothing | — | 47 (no change 21, rest back-off 23, minimum gap 3) |
+| Checks | 17 of 17 | 18 of 18 |
+
+A rest still costs a call (the owner's rule stands); what changed is that the same state is never asked twice and a resting agent is asked less and less often until something happens. The price per call stays the localnet test price.
+
+## 13. Decisions wanted from the owner (third round)
+
+1. **Call controls** (§7.1): the minimum gap (proposed 60 s in the test world; one turn, 10 min, in the real one), the operator's cap (proposed 200 a day), whether `policy.budget.callsPerDay` is shown to owners, and the back-off ceiling (16 turns).
+2. **Unresolved calls** (§6.5): adopt the deadline rule or not; which deadline (15 min / **1 h recommended** / 24 h); whether a late result after the deadline is ever billed (proposed: never).
+3. **Integration** (INTEGRATION-REVIEW.md): retire `codex/territory-opening`; cut the uncommitted art/VFX track of its worktree into a branch; who owns that worktree.
+4. **The real browser**: the Chrome extension was not connected in this session (two attempts); the page is verified by its module tests and the fake-DOM smoke only. To verify in a real browser: install/enable "Claude in Chrome", sign in with the same account, restart Chrome; then the page at `http://127.0.0.1:41940/frontier/frontier/agent.html` on a running stack. The refusal, network-failure, reload and in-flight cases are still to be checked there.

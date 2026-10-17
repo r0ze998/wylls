@@ -59,6 +59,8 @@ const base = process.env.AGENT_E2E_URL ?? 'http://127.0.0.1:41940';
 const rpcUrl = process.env.AGENT_E2E_RPC ?? 'http://127.0.0.1:41910';
 const modelPort = Number(process.env.AGENT_E2E_MODEL_PORT ?? 41998);
 const realModel = process.env.AGENT_E2E_MODEL === 'real';
+// A measurement window (ms): after auto is on, leave the agent alone this long and report what the runner did (calls, cost, actions).
+const windowMs = Number(process.env.AGENT_E2E_WINDOW_MS ?? 0);
 const llmUrl = process.env.AGENT_E2E_LLM ?? 'http://127.0.0.1:41901';
 for (const u of [base, rpcUrl]) assert.ok(['127.0.0.1', 'localhost'].includes(new URL(u).hostname), 'local-only test');
 const outDir = path.resolve(process.env.AGENT_E2E_OUT ?? fileURLToPath(new URL(`../../.local/agent-wallet-e2e/${new Date().toISOString().replace(/[:.]/g, '-')}`, import.meta.url)));
@@ -258,10 +260,12 @@ async function run() {
   const badToken = await api('/f/agent/action', { capability: 'nope', request: request() });
   assert.equal(badToken.body.code, 'BadCapability');
   check('capability-actions', { sent: a1.body.signature, replayed: true, march: march.body.error.code, elsewhere: elsewhere.body.error.code, badToken: badToken.body.code });
-  const ran = await eventually('the runner acted twice and was charged', async () => {
+  // (an event-driven runner may rest after its first action: in window mode one sent action and one charged call are enough before the window)
+  const ran = await eventually(windowMs > 0 ? 'the runner acted once and was charged' : 'the runner acted twice and was charged', async () => {
     const v = await agentView(agentId);
     const ai = v.history.filter(x => x.type === 'action' && x.source === 'ai' && x.status === 'sent');
-    return ai.length >= 2 && BigInt(v.balance.spent.inference) >= 2n * price ? { v, ai } : null;
+    const need = windowMs > 0 ? 1n : 2n;
+    return BigInt(ai.length) >= need && BigInt(v.balance.spent.inference) >= need * price ? { v, ai } : null;
   }, realModel ? 600_000 : 120_000);
   if (realModel) {
     const decided = ran.v.history.filter(x => x.type === 'action' && x.source === 'ai');
@@ -273,11 +277,30 @@ async function run() {
     report.model.calls = calls.map(x => ({ amount: x.amount, ok: x.ok, tokens: x.tokens ?? null, late: x.late ?? false }));
     report.model.fallbacks = decided.filter(x => typeof x.reason !== 'string' || !x.reason.startsWith('model:')).length;
   }
+  if (windowMs > 0) {
+    const t0 = Date.now();
+    const v0 = await agentView(agentId);
+    const chainFrom = Number((await h.season()).record.latestUnix);
+    await sleep(windowMs);
+    const v1 = await agentView(agentId);
+    const count = (v, type, pred = () => true) => v.history.filter(x => x.type === type && pred(x)).length;
+    const calls = count(v1, 'spend', x => x.category === 'inference') - count(v0, 'spend', x => x.category === 'inference');
+    const sent = count(v1, 'action', x => x.source === 'ai' && x.status === 'sent') - count(v0, 'action', x => x.source === 'ai' && x.status === 'sent');
+    const refused = count(v1, 'action', x => x.source === 'ai' && x.status !== 'sent') - count(v0, 'action', x => x.source === 'ai' && x.status !== 'sent');
+    const bells = { from: chainFrom, elapsedMs: Date.now() - t0 };
+    const termsNow = (await api('/f/agent/terms')).body;
+    const s1 = await h.season();
+    report.window = { ms: windowMs, modelCalls: calls, costBaseUnits: String(BigInt(v1.balance.spent.inference) - BigInt(v0.balance.spent.inference)), actionsSent: sent, actionsRefused: refused,
+      spentBefore: v0.balance.spent, spentAfter: v1.balance.spent, callsToday: v1.day?.calls ?? null, runner: termsNow.runner, chainSecondsElapsed: Number(s1.record.latestUnix) - bells.from,
+      turnsElapsed: Math.floor((Number(s1.record.latestUnix) - bells.from) / 600) };
+    check('measurement-window', report.window);
+    ran.v = v1;
+  }
   const aiLanded = await track(ran.ai[0].signature, { tries: 80, every: 500 });
   assert.equal(aiLanded.ok, true, json(aiLanded));
   if (!realModel) assert.ok(model.calls >= 2, 'the model server was called');
   const spends = ran.v.history.filter(x => x.type === 'spend');
-  assert.ok(spends.length >= 2 && spends.every(x => x.category === 'inference' && x.amount === String(price)), 'every USDC spend is a model call at the fixed price');
+  assert.ok(spends.length >= (windowMs > 0 ? 1 : 2) && spends.every(x => x.category === 'inference' && x.amount === String(price)), 'every USDC spend is a model call at the fixed price');
   assert.equal(ran.v.balance.spent.game, '0', 'Harvest stays free: no game charge');
   assert.equal(ran.v.balance.spent.network, '0', 'network fees are the relay\'s: recorded in lamports, never charged');
   const fees = ran.v.history.filter(x => x.type === 'network');

@@ -69,7 +69,7 @@ export class AgentLedger {
       policy: { ...policy, version: 1 },
       bal: { deposited: ZERO, available: ZERO, reserved: ZERO, pendingWithdraw: ZERO, withdrawn: ZERO,
         spent: { [CATEGORIES.INFERENCE]: ZERO, [CATEGORIES.NETWORK]: ZERO, [CATEGORIES.GAME]: ZERO } },
-      day: { key: budgetDay(this.now()), spent: ZERO },
+      day: { key: budgetDay(this.now()), spent: ZERO, calls: 0 },
       holds: {}, withdrawals: {}, requests: {}, history: [],
     };
     this.db.agents[agentId] = rec;
@@ -137,7 +137,8 @@ export class AgentLedger {
 
   #rollDay(rec) {
     const key = budgetDay(this.now());
-    if (rec.day.key !== key) rec.day = { key, spent: ZERO };
+    if (rec.day.key !== key) rec.day = { key, spent: ZERO, calls: 0 };
+    rec.day.calls ??= 0;
   }
 
   #heldTotal(rec, filter = () => true) {
@@ -167,6 +168,12 @@ export class AgentLedger {
       const perDay = big(rec.policy.budget.perDay);
       const today = big(rec.day.spent) + this.#heldTotal(rec);
       if (today + a > perDay) throw new AgentError(ERR.DAILY_LIMIT, `daily limit ${perDay} would be exceeded`, 402, { perDay: str(perDay), today: str(today) });
+    }
+    if (category === CATEGORIES.INFERENCE) {
+      // A model call counts whether or not it is priced: the owner's callsPerDay is a count, next to the money.
+      const cap = rec.policy.budget.callsPerDay;
+      if (Number.isInteger(cap) && rec.day.calls >= cap) throw new AgentError(ERR.CALL_LIMIT, `the policy allows ${cap} model call(s) a day; today's are used`, 402, { callsPerDay: cap, today: rec.day.calls });
+      rec.day.calls += 1;
     }
     const h = { id: randomUUID(), category, amount: str(a), key, state: 'held', createdAt: this.now(), expiresAt: this.now() + ttlMs, policyVersion, modeEpoch };
     rec.holds[h.id] = h;
@@ -206,6 +213,35 @@ export class AgentLedger {
   /** The operator's own record (never the owner's bill): calls whose outcome was unknown, refunds the operator absorbed, results that came too late. */
   recordOperatorCost(entry) {
     const list = this.db.operatorCosts;
+    list.push({ at: this.now(), ...entry });
+    if (list.length > OPERATOR_COSTS_MAX) list.splice(0, list.length - OPERATOR_COSTS_MAX);
+    this.save();
+  }
+
+  /**
+   * The proposed rule, OFF unless the gateway is given `unresolvedReleaseMs`
+   * (DESIGN.md §6.5, awaiting the owner's decision): an `unresolved` hold
+   * older than that goes back to available; a result after that is never
+   * billed (the hold is gone: late-result), and the operator's record keeps
+   * the call. Returns how many were released.
+   */
+  releaseUnresolvedOlderThan(ms) {
+    let n = 0;
+    for (const rec of this.agents()) {
+      for (const h of Object.values(rec.holds)) {
+        if (h.state !== 'unresolved' || this.now() - (h.unresolvedAt ?? h.createdAt) < ms) continue;
+        this.#release(rec, h, 'auto-release');
+        this.recordOperatorCost({ agentId: rec.agentId, kind: 'released-call', holdId: h.id, key: h.key, amount: h.amount, reason: 'deadline' });
+        n++;
+      }
+    }
+    if (n) this.save();
+    return n;
+  }
+
+  /** The operator's decisions, in order (who, when, which call, what, why, on what evidence). */
+  recordSettlement(entry) {
+    const list = (this.db.settlements ??= []);
     list.push({ at: this.now(), ...entry });
     if (list.length > OPERATOR_COSTS_MAX) list.splice(0, list.length - OPERATOR_COSTS_MAX);
     this.save();

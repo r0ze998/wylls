@@ -213,3 +213,52 @@ test('sponsored deposit: the owner signs, a pool key pays, the relay co-signs an
   assert.equal(mine.json.agents[0].balance.available, '2500107');
   sound(r);
 });
+
+test('the proposed deadline rule is off by default; when given, an unresolved call is released after it, a later result is not billed, the operator\'s record keeps both; settlements are audited and never double', async () => {
+  let t = Date.now();
+  // Off (the default): an unresolved hold waits however long.
+  const off = relay({ prices: { inference: PRICE }, now: () => t });
+  const a = await ready(off);
+  off.gateway.meterInference(a.agentId, () => gated().gate, { key: 'k', model: 'm' }).catch(() => {});
+  await new Promise(res => setTimeout(res, 2));
+  const r1 = restart(off, { now: () => t });
+  assert.equal(r1.gateway.unresolvedReleaseMs, null);
+  t += 48 * 3_600_000;
+  assert.equal((await r1.gateway.reconcile()).autoReleased, 0);
+  assert.equal(r1.gateway.view(a.agentId).balance.unresolved, PRICE);
+  // On (the proposal, 1 hour): released past the deadline, recorded as the operator's cost; a result after that is not billed.
+  const h = Object.values(r1.gateway.ledger.get(a.agentId).holds)[0];
+  const on = relay({ chain: r1.chain, prices: { inference: PRICE }, agentState: JSON.parse(JSON.stringify(r1.agentStore.state)), keyring: r1.gateway.keyring, now: () => t, unresolvedReleaseMs: 3_600_000 });
+  assert.equal((await on.gateway.reconcile()).autoReleased, 1);
+  const v = on.gateway.view(a.agentId);
+  assert.deepEqual([v.balance.unresolved, v.balance.reserved, v.balance.available, v.balance.spent.inference], ['0', '0', '100000', '0']);
+  assert.deepEqual(costs(on).map(c => c.kind), ['unknown-call', 'released-call']);
+  assert.equal(on.gateway.ledger.settle(a.agentId, h.id), false, 'a result for it now: the hold is gone, nothing billed');
+  assert.equal(on.gateway.view(a.agentId).balance.spent.inference, '0');
+  // Not released before the deadline. (the clock is 48 h ahead of the wall clock here: no owner command, the gateway directly)
+  const ownerB = Keypair.generate();
+  const b = (() => { const made = on.gateway.createAgent({ owner: ownerB.publicKey.toBase58(), village: [-3, 7, 11], policy: policy(['economy']) }); return { agentId: made.agent.agentId, agentKey: made.agent.agentKey, o: ownerB.publicKey.toBase58() }; })();
+  await deposit(on, b.o, b.agentId, 100_000n);
+  delegate(on, b.o, b.agentKey);
+  on.gateway.setMode(b.agentId, b.o, 'auto');
+  on.gateway.meterInference(b.agentId, () => gated().gate, { key: 'k2', model: 'm' }).catch(() => {});
+  await new Promise(res => setTimeout(res, 2));
+  const on2 = relay({ chain: on.chain, prices: { inference: PRICE }, agentState: JSON.parse(JSON.stringify(on.agentStore.state)), keyring: on.gateway.keyring, now: () => t, unresolvedReleaseMs: 3_600_000 });
+  t += 30 * 60_000;
+  assert.equal((await on2.gateway.reconcile()).autoReleased, 0);
+  assert.equal(on2.gateway.view(b.agentId).balance.unresolved, PRICE);
+  // The audit of an operator's decision: who, when, which call, why, on what evidence; twice is refused; a late result after a charge is not billed again.
+  const hb = Object.values(on2.gateway.ledger.get(b.agentId).holds)[0];
+  const dec = await operator(on2, 'POST', '/f/agent/settle', { agentId: b.agentId, holdId: hb.id, outcome: 'charge', note: 'the model log shows the request and its answer', by: 'ops-1', evidence: 'llama-server.log line 4321' });
+  assert.equal(dec.status, 200, JSON.stringify(dec.json));
+  assert.equal(dec.json.by, 'ops-1');
+  const list = await operator(on2, 'GET', '/f/agent/unresolved');
+  const s = list.json.settlements.at(-1);
+  assert.deepEqual([s.agentId, s.holdId, s.outcome, s.by, s.note, s.evidence, s.unresolvedReason, typeof s.at], [b.agentId, hb.id, 'charge', 'ops-1', 'the model log shows the request and its answer', 'llama-server.log line 4321', 'restart', 'number']);
+  assert.ok(on2.gateway.view(b.agentId).history.some(x => x.type === 'spend' && x.decidedBy === 'ops-1' && x.evidence));
+  assert.equal((await operator(on2, 'POST', '/f/agent/settle', { agentId: b.agentId, holdId: hb.id, outcome: 'refund' })).status, 404, 'decided once');
+  assert.equal(on2.gateway.ledger.settle(b.agentId, hb.id), false, 'a late result: no second charge');
+  assert.equal(on2.gateway.view(b.agentId).balance.spent.inference, PRICE);
+  assert.equal(list.json.unresolvedReleaseMs, 3_600_000);
+  sound(on2);
+});

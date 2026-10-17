@@ -27,6 +27,13 @@
 - Gemma 実モデルでの E2E（§12）と、その結果見つけた「rest も課金される」問題への runner のバックオフ（§7）。
 - territory-opening との機能差分の計測（§8.2）。
 
+## 3回目（2026-10-17）に増えたもの
+- イベント駆動の呼出制御（DESIGN.md §7.1）：observer が herald の公開記録を意味のある項目だけで digest 化し、owner/event/turn/result のトリガーがある時だけ呼ぶ。最小間隔・同時呼出防止・回数上限（運営 `--agent-max-calls-per-day`、所有者 `policy.budget.callsPerDay`）・rest 後のターン単位バックオフ。既定値は提案値（本番仕様ではない）。
+- 計測（§12.1）：同条件で 7 分あたり 50 回 → 5 回。
+- 未確定請求（§6.5）：期限解放ルールを `--agent-unresolved-release-ms` の裏に実装、既定 off。推奨 1 時間。settle は by/evidence/日時を記録し `GET /f/agent/unresolved` に settlements を出す。
+- 統合前確認：`docs/agent-wallet/INTEGRATION-REVIEW.md`（7 ファイルの機能単位の判定、未コミット 143 件の棚卸しと取り込み候補）。
+- 実ブラウザ：Chrome 拡張が未接続のため未実施（§13）。
+
 ## 残っていること（DESIGN.md §9–§11）
 - ブラウザ UI（所有者コマンドの署名、入金取引の組み立て、SetSession の受け渡し、残高表示）。
 - MCP サーバー本体（`POST /f/agent/action` を呼ぶだけ。ツール定義・冪等キー・capability の保管）。

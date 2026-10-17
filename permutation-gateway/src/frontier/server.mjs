@@ -36,7 +36,7 @@ import { createStateStore, operatorToken } from '../config.mjs';
 import { Custody } from './agent/custody.mjs';
 import { attachAgentWallet } from './agent/gateway.mjs';
 import { AgentKeyring } from './agent/keyring.mjs';
-import { AgentScheduler, llmDecider, ruleDecider } from './agent/runner.mjs';
+import { AgentObserver, AgentScheduler, llmDecider, ruleDecider } from './agent/runner.mjs';
 import { createLlm } from '../../citizens/mind/llm.mjs';
 import { createFrontierApps } from './app.mjs';
 import { FRONTIER_DIR, loadFrontierConfig, secretFile } from './config.mjs';
@@ -89,16 +89,18 @@ export function startAgentWallet(cfg, ctx, { connection, pool, log = console.log
   // Localnet (the only cluster the config allows) reports no token balances; anywhere else they are required.
   const custody = new Custody({ connection, keypair: custodyKey, mint: cfg.prizeMint, pool, blockhashes: ctx.blockhashes, strictBalances: cfg.cluster !== 'localnet' });
   const game = cfg.agentGamePricesFile ? JSON.parse(readFileSync(cfg.agentGamePricesFile, 'utf8')) : {};
-  const gateway = attachAgentWallet(ctx, { store, keyring: new AgentKeyring({ dir: cfg.agentKeysDir }), custody, prices: { inference: String(cfg.agentInferencePrice), game }, log });
+  const gateway = attachAgentWallet(ctx, { store, keyring: new AgentKeyring({ dir: cfg.agentKeysDir }), custody, prices: { inference: String(cfg.agentInferencePrice), game }, unresolvedReleaseMs: cfg.agentUnresolvedReleaseMs ?? null, log });
   const reconcile = setInterval(() => gateway.reconcile().catch(e => log(`agent wallet: reconcile failed: ${e.message}`)), cfg.agentReconcileMs);
   reconcile.unref();
   gateway.reconcile().catch(e => log(`agent wallet: reconcile at start failed: ${e.message}`));
   let scheduler = null;
   if (cfg.agentRunner) {
     const decider = cfg.agentLlmUrl ? llmDecider({ llm: createLlm({ url: cfg.agentLlmUrl }) }) : ruleDecider();
-    scheduler = new AgentScheduler({ gateway, decider, tickMs: cfg.agentTickMs, log });
+    // The observer reads the herald (public records): without a herald URL every tick asks (the old behaviour).
+    const observer = cfg.heraldUrl ? new AgentObserver({ heraldUrl: cfg.heraldUrl }) : null;
+    scheduler = new AgentScheduler({ gateway, decider, tickMs: cfg.agentTickMs, observer, minCallGapMs: cfg.agentMinCallGapMs, maxCallsPerDay: cfg.agentMaxCallsPerDay, log });
     scheduler.start();
-    gateway.runner = { tickMs: cfg.agentTickMs, decider: decider.name, free: decider.free === true };
+    gateway.runner = { tickMs: cfg.agentTickMs, decider: decider.name, free: decider.free === true, eventDriven: !!observer, minCallGapMs: cfg.agentMinCallGapMs, maxCallsPerDay: cfg.agentMaxCallsPerDay, stats: scheduler.stats };
   }
   log(`agent wallet: custody ${custody.authority} (token account ${custody.account}, mint ${custody.mint}); ${gateway.ledger.agents().length} agent(s); `
     + `inference ${gateway.prices.inference}/call, ${Object.keys(game).length} priced game action(s); state ${store.file}`

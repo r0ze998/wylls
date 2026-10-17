@@ -115,7 +115,9 @@ export class AgentGateway {
    * @param {object} [o.prices]  {inference: base units per model call, game: {actionName: base units}}
    * @param {object} [o.waits]   {withdraw: {tries, every}} how long `withdraw` waits for the chain before leaving it to reconcile
    */
-  constructor({ ctx, ledger, keyring, custody = null, prices = {}, waits = {}, now = Date.now, log = () => {} }) {
+  constructor({ ctx, ledger, keyring, custody = null, prices = {}, waits = {}, unresolvedReleaseMs = null, now = Date.now, log = () => {} }) {
+    /** The proposed deadline rule (§6.5): null keeps unresolved holds until the operator decides. Not a default. */
+    this.unresolvedReleaseMs = Number.isFinite(unresolvedReleaseMs) && unresolvedReleaseMs > 0 ? unresolvedReleaseMs : null;
     this.ctx = ctx;
     this.ledger = ledger;
     this.keyring = keyring;
@@ -160,23 +162,27 @@ export class AgentGateway {
    * operator's cost record keeps the call). Only an unresolved hold can be
    * decided; a hold whose result arrived in the meantime is settled already.
    */
-  settleUnresolved(agentId, holdId, outcome, note = '') {
+  settleUnresolved(agentId, holdId, outcome, note = '', { by = 'operator', evidence = '' } = {}) {
     const rec = this.ledger.get(agentId);
     const h = rec.holds[holdId];
-    if (!h || h.state !== 'unresolved') throw new AgentError(ERR.BAD_REQUEST, 'no unresolved hold with this id', 404);
-    if (outcome === 'charge') this.ledger.settle(agentId, holdId, undefined, { decidedBy: 'operator', note: String(note).slice(0, 200) });
-    else if (outcome === 'refund') {
+    if (!h || h.state !== 'unresolved') throw new AgentError(ERR.BAD_REQUEST, 'no unresolved hold with this id (decided, settled by a late result, or released already)', 404);
+    if (outcome !== 'charge' && outcome !== 'refund') throw new AgentError(ERR.BAD_REQUEST, 'outcome must be charge or refund');
+    const who = String(by).slice(0, 64);
+    const audit = { holdId, key: h.key, amount: h.amount, model: h.model ?? null, unresolvedReason: h.unresolvedReason ?? null, unresolvedAt: h.unresolvedAt ?? null, outcome, note: String(note).slice(0, 200), evidence: String(evidence).slice(0, 500), by: who };
+    if (outcome === 'charge') this.ledger.settle(agentId, holdId, undefined, { decidedBy: who, note: audit.note, evidence: audit.evidence });
+    else {
       this.ledger.release(agentId, holdId, 'operator-refund');
-      this.ledger.recordOperatorCost({ agentId, kind: 'refunded-call', holdId, key: h.key, amount: h.amount, note: String(note).slice(0, 200) });
-    } else throw new AgentError(ERR.BAD_REQUEST, 'outcome must be charge or refund');
-    this.log(`agent wallet: operator ${outcome}d unresolved call ${holdId} of ${agentId}`);
-    return { holdId, outcome, balance: this.ledger.balance(agentId) };
+      this.ledger.recordOperatorCost({ agentId, kind: 'refunded-call', holdId, key: h.key, amount: h.amount, note: audit.note, by: who });
+    }
+    this.ledger.recordSettlement({ agentId, ...audit });
+    this.log(`agent wallet: ${who} ${outcome}d unresolved call ${holdId} of ${agentId} (${audit.note})`);
+    return { holdId, outcome, by: who, balance: this.ledger.balance(agentId) };
   }
 
   /** What waits for the operator: every unresolved hold, and the operator's cost record. */
   unresolved() {
     const holds = this.ledger.unresolvedHolds();
-    return { holds, total: holds.reduce((s, h) => s + big(h.amount), 0n).toString(), operatorCosts: [...this.ledger.db.operatorCosts] };
+    return { holds, total: holds.reduce((s, h) => s + big(h.amount), 0n).toString(), operatorCosts: [...this.ledger.db.operatorCosts], settlements: [...(this.ledger.db.settlements ?? [])], unresolvedReleaseMs: this.unresolvedReleaseMs };
   }
 
   // ------------------------------------------------------------ agents (owner commands)
@@ -510,7 +516,7 @@ export class AgentGateway {
    * withdrawals. Expired `held` holds come back too. Returns the counts.
    */
   async reconcile() {
-    const out = { settled: 0, released: 0, withdrawn: 0, withdrawalsFailed: 0, pending: 0, expired: this.ledger.expire() };
+    const out = { settled: 0, released: 0, withdrawn: 0, withdrawalsFailed: 0, pending: 0, expired: this.ledger.expire(), autoReleased: this.unresolvedReleaseMs ? this.ledger.releaseUnresolvedOlderThan(this.unresolvedReleaseMs) : 0 };
     const fate = (sig, lvbh) => (this.custody ? this.custody.status(sig, lvbh) : this.#statusOf(sig, lvbh));
     for (const rec of this.ledger.agents()) {
       for (const h of Object.values(rec.holds)) {
@@ -553,7 +559,7 @@ export class AgentGateway {
     return {
       agentId: rec.agentId, owner: rec.owner, payout: rec.payout, agentKey: rec.agentKey, citizen: this.ctx.addresses.citizen(rec.owner), village: [...rec.village],
       mode: rec.mode, modeEpoch: rec.modeEpoch, policy: { ...rec.policy, allowed: [...rec.policy.allowed], budget: { ...rec.policy.budget } },
-      capabilityVersion: rec.capabilityVersion, balance: this.ledger.balance(agentId), day: { ...rec.day }, holds, withdrawals,
+      capabilityVersion: rec.capabilityVersion, balance: this.ledger.balance(agentId), day: { ...rec.day, calls: rec.day.calls ?? 0 }, holds, withdrawals,
       history: rec.history.slice(-50), createdAt: rec.createdAt, testAssetsOnly: true,
     };
   }
@@ -595,9 +601,9 @@ export class AgentGateway {
  * Builds the agent wallet over a relay context and attaches it as
  * `ctx.agents` (the routes and the relay's agent-key refusal read it).
  */
-export function attachAgentWallet(ctx, { store, keyring, custody = null, prices, waits, log = ctx.log ?? (() => {}), now = ctx.now ?? Date.now }) {
+export function attachAgentWallet(ctx, { store, keyring, custody = null, prices, waits, unresolvedReleaseMs = null, log = ctx.log ?? (() => {}), now = ctx.now ?? Date.now }) {
   const ledger = new AgentLedger({ store, now });
-  const gateway = new AgentGateway({ ctx, ledger, keyring, custody, prices, waits, now, log });
+  const gateway = new AgentGateway({ ctx, ledger, keyring, custody, prices, waits, unresolvedReleaseMs, now, log });
   ctx.agents = gateway;
   return gateway;
 }

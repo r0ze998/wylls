@@ -101,7 +101,7 @@ export const MASTER = Buffer.alloc(32, 7);
  * pool, store, agentStore, gateway, custody, custodyKey}`. `prices`: the
  * gateway's; `withCustody: false` leaves deposits and withdrawals out.
  */
-export function relay({ chain = fakeChain(), season = {}, clock = GENESIS + 3_600, poolSize = 150, prices = {}, withCustody = true, keyringDir = null, keyring = null, now = Date.now, log = null, agentState = null } = {}) {
+export function relay({ chain = fakeChain(), season = {}, clock = GENESIS + 3_600, poolSize = 150, prices = {}, withCustody = true, keyringDir = null, keyring = null, now = Date.now, log = null, agentState = null, unresolvedReleaseMs = null } = {}) {
   const pool = new PayerPool({ masterSeed: MASTER, n: poolSize, dev: poolSize < 150 });
   for (const k of pool.publicKeys()) chain.set(k, { lamports: 2_000_000_000 });
   chain.set(A.season, { data: seasonAccount(season) });
@@ -115,7 +115,7 @@ export function relay({ chain = fakeChain(), season = {}, clock = GENESIS + 3_60
   const custodyKey = Keypair.generate();
   const custody = withCustody ? new Custody({ connection: chain, keypair: custodyKey, mint: MINT, pool, blockhashes: apps.ctx.blockhashes }) : null;
   if (custody) chain.set(custody.account, { data: tokenAccountData({ mint: MINT, owner: custody.authority, amount: 0n }) });
-  const gateway = attachAgentWallet(apps.ctx, { store: agentStore, keyring: keyring ?? new AgentKeyring({ dir: keyringDir }), custody, prices, waits: { withdraw: { tries: 3, every: 1 } }, log: m => { logs.push(m); log?.(m); }, now });
+  const gateway = attachAgentWallet(apps.ctx, { store: agentStore, keyring: keyring ?? new AgentKeyring({ dir: keyringDir }), custody, prices, waits: { withdraw: { tries: 3, every: 1 } }, unresolvedReleaseMs, log: m => { logs.push(m); log?.(m); }, now });
   return { ...apps, chain, pool, store, agentStore, gateway, custody, custodyKey, logs, invites };
 }
 

@@ -31,6 +31,10 @@ test('config: --agent-wallet and --agent-runner flags, their environment names a
   assert.throws(() => loadFrontierConfig([...base, '--agent-llm', 'http://10.0.0.2:8080']), /loopback only/);
   assert.ok(checkFrontierConfig({ ...on, agentTickMs: 10 }).some(e => /agent-tick-ms/.test(e)));
   assert.ok(checkFrontierConfig({ ...on, agentReconcileMs: 10 }).some(e => /agent-reconcile-ms/.test(e)));
+  // The proposed call controls carry test defaults; the unresolved deadline is off unless given.
+  assert.deepEqual([on.agentMinCallGapMs, on.agentMaxCallsPerDay, on.agentUnresolvedReleaseMs], [60_000, 200, null]);
+  const tuned = loadFrontierConfig([...base, '--agent-min-call-gap-ms', '30000', '--agent-max-calls-per-day', '50', '--agent-unresolved-release-ms', '3600000']);
+  assert.deepEqual([tuned.agentMinCallGapMs, tuned.agentMaxCallsPerDay, tuned.agentUnresolvedReleaseMs], [30_000, 50, 3_600_000]);
 });
 
 test('the relay process with --agent-wallet: its own state file, 0600 key files, the routes live; without the flag the routes are 404', async () => {

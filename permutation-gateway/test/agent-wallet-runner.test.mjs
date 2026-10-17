@@ -91,34 +91,4 @@ test('the scheduler ticks agents in auto mode only, one tick at a time; the sche
   sound(r);
 });
 
-test('the scheduler backs off after a tick that sent nothing: 1, 2, 4 … ticks without a model call, reset by a sent action', async () => {
-  const r = relay({ prices: { inference: '10000' } });
-  const a = await ready(r, { balance: 1_000_000n });
-  let answer = 'rest';
-  let calls = 0;
-  const llm = { alias: 'f', async complete() { calls++; return { ok: true, content: JSON.stringify({ action: answer, fields: {}, reason: '' }), usage: null }; } };
-  const s = new AgentScheduler({ gateway: r.gateway, decider: llmDecider({ llm }), tickMs: 1_000, log: () => {} });
-  // Rest, rest, rest…: calls happen on ticks 1, 3, 6, 11, 20 (skips 1, 2, 4, 8); 20 ticks cost 5 calls, not 20.
-  const called = [];
-  for (let t = 1; t <= 20; t++) { const before = calls; await s.tick(); if (calls > before) called.push(t); }
-  assert.deepEqual(called, [1, 3, 6, 11, 20]);
-  assert.equal(r.gateway.view(a.agentId).balance.spent.inference, '50000');
-  // An action that is sent resets the back-off: the next tick asks again.
-  answer = 'Harvest';
-  await s.tick(); // sat out (skip 16 was set after tick 20) — count the skip down to 0 first
-  for (let i = 0; i < 15; i++) await s.tick();
-  const before = calls;
-  await s.tick();
-  assert.equal(calls, before + 1, 'asked after the sit-out');
-  assert.equal(r.chain.sent.length, 1);
-  assert.equal(s.backoff.has(a.agentId), false, 'reset by the sent action');
-  await s.tick();
-  assert.equal(calls, before + 2, 'asked again right away after a sent action');
-  // A refused action also backs off (here: the owner took the session key back, so the gateway refuses).
-  delegate(r, a.o, Keypair.generate().publicKey.toBase58());
-  const sentBefore = r.chain.sent.length;
-  await s.tick();
-  assert.equal(r.chain.sent.length, sentBefore);
-  assert.deepEqual(s.backoff.get(a.agentId), { skip: 1, next: 2 });
-  sound(r);
-});
+// (the scheduler's triggers, back-off and caps: test/agent-wallet-triggers.test.mjs)

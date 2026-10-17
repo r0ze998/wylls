@@ -68,6 +68,11 @@ export const FRONTIER_DEFAULTS = Object.freeze({
   agentRunner: false,
   agentTickMs: 30_000,
   agentLlmUrl: null,
+  /** PROPOSED test values (DESIGN.md §7.1), not production ones: the least time between two model calls of one agent, and the operator's cap on calls a day. */
+  agentMinCallGapMs: 60_000,
+  agentMaxCallsPerDay: 200,
+  /** The proposed deadline rule for unresolved model calls (DESIGN.md §6.5): null keeps them for the operator's decision. Off until the owner approves it. */
+  agentUnresolvedReleaseMs: null,
 });
 
 /** Whether an M1 service may bind `port` (§10.3); the reason if not. */
@@ -145,6 +150,9 @@ export function loadFrontierConfig(argv = [], env = {}) {
     agentRunner: !!(flags.agentRunner ?? (env.FRONTIER_AGENT_RUNNER === '1' || d.agentRunner)),
     agentTickMs: int(pick('agent-tick-ms', 'FRONTIER_AGENT_TICK_MS', d.agentTickMs), '--agent-tick-ms'),
     agentLlmUrl: pick('agent-llm', 'FRONTIER_AGENT_LLM_URL', d.agentLlmUrl),
+    agentMinCallGapMs: int(pick('agent-min-call-gap-ms', 'FRONTIER_AGENT_MIN_CALL_GAP_MS', d.agentMinCallGapMs), '--agent-min-call-gap-ms'),
+    agentMaxCallsPerDay: int(pick('agent-max-calls-per-day', 'FRONTIER_AGENT_MAX_CALLS_PER_DAY', d.agentMaxCallsPerDay), '--agent-max-calls-per-day'),
+    agentUnresolvedReleaseMs: (v => (v === null || v === undefined || v === '' ? null : int(v, '--agent-unresolved-release-ms')))(pick('agent-unresolved-release-ms', 'FRONTIER_AGENT_UNRESOLVED_RELEASE_MS', d.agentUnresolvedReleaseMs)),
     operatorToken: env.FRONTIER_OPERATOR_TOKEN ?? null,
   };
   const bad = checkFrontierConfig(cfg);
