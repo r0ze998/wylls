@@ -8,6 +8,7 @@ pub mod v13_payments;
 pub mod v14_sieges;
 pub mod v15_records;
 pub mod v16_owner;
+pub mod v17_captures;
 pub mod v1_chains;
 pub mod v20_end;
 pub mod v22_outposts;
@@ -204,6 +205,8 @@ pub fn run(input: &Input) -> Report {
         ran.push("V15:conquest-records");
         v16_owner::run(&mut cx);
         ran.push("V16:first-holding-owner");
+        v17_captures::run(&mut cx);
+        ran.push("V17:capture-settlement");
         v20_end::run(&mut cx);
         ran.push("V20:season-end");
         v22_outposts::run(&mut cx);

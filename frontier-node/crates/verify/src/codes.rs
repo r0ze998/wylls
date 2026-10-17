@@ -66,6 +66,10 @@ pub const KEEP_MISMATCH: &str = "KeepMismatch";
 pub const SNAPSHOT_MISMATCH: &str = "SnapshotMismatch";
 // V22 land legality (conquest contract §8.5; partial: the outpost filing)
 pub const OUTPOST_ILLEGAL: &str = "OutpostIllegal";
+// V17 capture bookkeeping (conquest contract §8.5; partial)
+pub const CAPTURE_RULE: &str = "CaptureRule";
+pub const CAPTURE_BOOKKEEPING: &str = "CaptureBookkeeping";
+pub const CAPTURE_LOCK_BROKEN: &str = "CaptureLockBroken";
 // V16 completion effects (conquest contract §8.5; partial: the owner rule)
 pub const FIRST_HOLDING_TRANSFERRED: &str = "FirstHoldingTransferred";
 // V20 season end (conquest contract §8.5; partial)
@@ -122,6 +126,9 @@ pub const FAIL_CODES: &[&str] = &[
     KEEP_MISMATCH,
     SNAPSHOT_MISMATCH,
     FIRST_HOLDING_TRANSFERRED,
+    CAPTURE_RULE,
+    CAPTURE_BOOKKEEPING,
+    CAPTURE_LOCK_BROKEN,
     COMPLETION_AFTER_END,
     SIEGE_NOT_SETTLED,
     OUTPOST_AFTER_CLOSE,
