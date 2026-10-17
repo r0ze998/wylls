@@ -60,14 +60,16 @@ Results so far (same run, snapshots as it goes):
 
 | 11,211 txs, 102 bells (08:17) | PASS (same 2 warns) | PASS | 57 joins, 339 Build, 174 Train, 91 Muster, 1,037 CONQUEST; still no DEPART (see the fleet note above) |
 | 19,610 txs, 178 bells (08:55), after the fleet fix | FAIL: V11 CampMismatch ×4 (day-1 camps one tile off) → **PASS** after the `camp_check_v2` fix (same 2 warns) | PASS | **10 CLASH, 2 DEPART / REVEAL / TRANSIT_SETTLED / DEPARTURE_SETTLED, 12 GATHER, 6 CAMP**; one keep contest open ((-4, 1), 3 against 2, ETA bell 237). V7's v2 clash replay, V5, V6 and V8 pass on these |
+| 26,082 txs, 238 bells (09:25) | PASS (same 2 warns) | PASS | 70 CLASH, 72 GATHER; the keep contest at (-4, 1) at 70/72 |
+| 27,943 txs, 256 bells (09:34) | PASS (same 2 warns) | PASS | 72 CLASH; **the keep at (-4, 1) taken by nation 3 from 2 at bell 237** (KEEP 55: one `cause` TAKEN; CQ3's keep-holder and territory-time checks pass over it) |
 
 The rebuilt `frontier-stack verify` (with this verifier) reports the same: PASS, "conquest season: V2–V13 with the v2 rules, chains, final state, identity and territory time by the conquest audit (CQ1–CQ3)".
 
 **Tamper suite on the 19,610-tx snapshot** (`frontier-stack tamper --run-id sc-cq2d`, 19 s): before the two `tamper.rs` fixes, 24 of 30 classes detected, 5 "missed" with verdict FAIL but CQ1's code names (T1, T6, T12, T14, T1b), T17 panicked. After: **30 of 30 detected** (27 on the run, 3 — T15, T18, T22 — on the committed M1 fixture because the run cannot express them). These are the M1 classes T1–T24 and the extras over the v2 records; no class tampers a conquest record yet (T25–T48 not written).
 
-### After the season (planned)
+### After the season (done 10:04 JST)
 
-Play ends at bell 288 (about 09:54 JST), the stack sends EndSeason and drains 26 bells, then leaves the services up ("complete"). Then, from the repository root (docs/RUNNING.md, "The province tally"):
+Play ended at bell 288, the stack's EndSeason landed (1 attempt), the fleet exited 0, the drain ran to "complete" (game 1785818712; the chain paused, resumed with `scripts/demo-clock.sh 41700 resume`). Then, from the repository root (docs/RUNNING.md, "The province tally"):
 
 ```sh
 U=(--rpc http://127.0.0.1:41710 --relay http://127.0.0.1:41733 --herald http://127.0.0.1:41740)
@@ -76,10 +78,19 @@ node permutation-gateway/scripts/prize-settle.mjs "${U[@]}" --check
 frontier-node/target/release/frontier-stack verify --run-id sc-cq2d --runs-dir frontier-node/.local/frontier
 ```
 
+| Step | Result |
+|---|---|
+| `prize-settle.mjs` (Tally in chunks, Finalize) | both landed; provinces held per nation chain 9 / 9 / 8 / 10 / 9 / 9 (54 of 54 counted, final), pool = chain, herald (control file, turn 287) = chain; **winner: nation 3**. Achievements recomputed from the chain: one capture ((-4, 1), nation 3, turn 237) and one reinforcement (78 troops, turn 169), both by script bots (not prize-eligible). Prize pool **0 test USDC** (the fleet joined by invite, nobody paid): mode "refund", nothing transferred. Written to `.local/prize/sc-cq2d/{ledger,settle}.json` and the relay's `prize-ledger.json` |
+| `prize-settle.mjs --check` | `poolMatchesChain: true`, `winnerIsLargestArea: true`, herald `matchesChain: true` |
+| **Final verify** (32,687 txs, 5 failed; 315 bells; 9,779 accounts; read 0.9 s, verify 5.6 s) | **PASS**, V1–V13 (V1 as CQ1), V16, V20 and CQ1–CQ3; the same 2 informational warns. 72 CLASH, 2 DEPART / REVEAL / TRANSIT_SETTLED, 55 KEEP (one taken), 2,988 CONQUEST, 835 CLOSE, 416 ARCHIVE, 1 SEASON_STATUS (Ended: V20's siege rule ran with no open siege) |
+| Tamper suite on the final input (`frontier-stack tamper`) | **30 of 30 detected** (27 on the run, 3 on the M1 fixture), as on the 19,610-tx snapshot; `frontier-stack report` written to the run's `report.md` (M1's season criteria over this run; informational here) |
+
+What this season did **not** exercise: sieges (0 declared: the fleet's siege personas were staged, none fired), captures of holdings, outposts (16 `FileOutpost` refused `QuotaExceeded`), Free Cities changing hands, a paid entry (pool 0) and so a real payout, the 14-day preset (this was 48 game hours with `--season-end-at-play-end`). The v2 checks for those paths are either partial (V16, V20) or unwritten (V14, V15, V17–V19, V21, V22).
+
 ## Next
 
-1. The first CLASH records of sc-cq2d (marches began at bell ~157): V7's v2 clash replay, V5 seals, V6 quotas, V8 lag on them; fix what fails.
-2. The season's end: EndSeason, the drain, `prize-settle.mjs` (Tally, Finalize, the recount), then the full-season verify (V13 payments with the prize program, V20 with an Ended season).
-3. The rest of V14–V22 and the tampers T25–T48 (contract §8.5): V15 siege progress and V18 keep contests over the replayed bells, V19/V21 standings against the herald's `final.json`, V22 outpost legality. Tamper fixtures for the v2 paths (none exist: every v2 check above is exercised only by the live run).
-4. Then a full 14-day season (`MC_LOCAL_14D`, about 17 h at 20x) verified end to end.
-5. Update README / DESIGN-OVERVIEW wording on what the verifier covers for conquest seasons once 1–2 are done.
+1. (done) The first CLASH records: V7's v2 clash replay, V5, V6, V8 pass; V11's day camp fixed.
+2. (done) The season's end: EndSeason, the drain, `prize-settle.mjs`, the full-season verify.
+3. The rest of V14–V22 and the tampers T25–T48 (contract §8.5): V15 siege progress and V18 keep contests over the replayed bells, V19/V21 standings against the herald's `final.json`, V22 outpost legality, the rest of V16 and V20. Tamper fixtures for the v2 paths (none exist: every v2 check above is exercised only by the live run). A fleet that declares sieges and files outposts, so those paths get records at all.
+4. Then a full 14-day season (`MC_LOCAL_14D`, about 17 h at 20x) verified end to end, ideally with a paid entry so the payout path runs.
+5. (done) README / DESIGN-OVERVIEW wording: the 2026-10-17 status paragraphs name what the verifier covers on a conquest season and what this run showed.
