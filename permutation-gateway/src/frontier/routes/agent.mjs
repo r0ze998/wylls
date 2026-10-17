@@ -46,7 +46,15 @@ const str = (v, what, max = 128) => {
 export const agentRoutes = {
   'GET /f/agent/terms': async ctx => ({ body: agents(ctx).terms() }),
 
-  'GET /f/agent': async (ctx, req) => ({ body: agents(ctx).view(idOf(req)) }),
+  'GET /f/agent': async (ctx, req) => {
+    const g = agents(ctx);
+    const id = idOf(req);
+    const view = g.view(id);
+    // The chain's word on the delegation (a stop here does not revoke it; the owner's SetSession does).
+    let delegation = null;
+    try { delegation = await g.delegation(id); } catch { delegation = null; }
+    return { body: { ...view, delegation } };
+  },
 
   'GET /f/agent/session-terms': async (ctx, req) => ({ body: agents(ctx).sessionTerms(idOf(req)) }),
 

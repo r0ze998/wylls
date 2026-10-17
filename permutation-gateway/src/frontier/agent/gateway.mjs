@@ -128,11 +128,15 @@ export class AgentGateway {
 
   // ------------------------------------------------------------ startup
 
-  /** After a restart: every `held` hold is given back (its request died with the process); `sending` ones wait for `reconcile`. */
+  /**
+   * After a restart: every `held` or `running` hold is given back (its
+   * request or model call died with the process, so nothing can settle it);
+   * `sending` ones wait for `reconcile`.
+   */
   recover() {
     let n = 0;
     for (const rec of this.ledger.agents()) {
-      for (const h of Object.values(rec.holds)) if (h.state === 'held') { this.ledger.release(rec.agentId, h.id, 'restart'); n++; }
+      for (const h of Object.values(rec.holds)) if (h.state === 'held' || h.state === 'running') { this.ledger.release(rec.agentId, h.id, 'restart'); n++; }
     }
     if (n) this.log(`agent wallet: released ${n} hold(s) left by a previous process`);
     return n;
@@ -403,13 +407,17 @@ export class AgentGateway {
       return { ok: true, charged: '0', result };
     }
     const hold = this.ledger.hold(agentId, { category: CATEGORIES.INFERENCE, amount: this.prices.inference, key, ttlMs: INFERENCE_HOLD_TTL_MS, policyVersion: rec.policy.version, modeEpoch: rec.modeEpoch });
+    // Running: a stop while the model works does not give the hold back; the call is paid for when it returns.
+    this.ledger.markRunning(agentId, hold.id);
     let result;
     let error = null;
     try { result = await fn(); } catch (e) { error = e; }
     const tokens = result?.tokens ?? null;
-    this.ledger.settle(agentId, hold.id, undefined, { model, tokens, ok: !error });
-    if (error) return { ok: false, charged: hold.amount, error: { code: ERR.INFERENCE_FAILED, message: String(error?.message ?? error) }, tokens };
-    return { ok: true, charged: hold.amount, result, tokens };
+    const settled = this.ledger.settle(agentId, hold.id, undefined, { model, tokens, ok: !error });
+    if (!settled) this.log(`agent wallet: ${agentId} model call ${key} outlived its hold (expired or restarted): not charged`);
+    const charged = settled ? hold.amount : '0';
+    if (error) return { ok: false, charged, error: { code: ERR.INFERENCE_FAILED, message: String(error?.message ?? error) }, tokens };
+    return { ok: true, charged, result, tokens };
   }
 
   // ------------------------------------------------------------ reconcile
@@ -466,6 +474,20 @@ export class AgentGateway {
       capabilityVersion: rec.capabilityVersion, balance: this.ledger.balance(agentId), day: { ...rec.day }, holds, withdrawals,
       history: rec.history.slice(-50), createdAt: rec.createdAt, testAssetsOnly: true,
     };
+  }
+
+  /**
+   * The delegation as the chain has it now: whether the owner's Citizen names the agent's key as its
+   * unexpired session key. The server-side stop (manual) does not change this; only the owner's
+   * SetSession does, and the browser should show both.
+   */
+  async delegation(agentId) {
+    const rec = this.ledger.get(agentId);
+    const [clock, citizen] = await Promise.all([this.ctx.chain.clock(), this.ctx.chain.citizen(this.ctx.addresses.citizen(rec.owner))]);
+    if (!citizen) return { citizen: false, delegated: false, session: null, expiry: null, now: clock.unixTimestamp };
+    const session = base58(citizen.SESSION);
+    const expiry = Number(citizen.SESSION_EXPIRY);
+    return { citizen: true, delegated: session === rec.agentKey && expiry > clock.unixTimestamp, session, expiry, now: clock.unixTimestamp };
   }
 
   /** What an owner needs to delegate: the key to put in SetSession, and this relay's prices. */

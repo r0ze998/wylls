@@ -19,11 +19,14 @@
 // file; several processes on one file are not supported (DESIGN.md §9).
 //
 // A hold's lifecycle: held → (sending, with the transaction's signature
-// known before it is sent) → settled (spent ≤ held, the rest back to
-// available) or released (all back). An expired `held` hold is released by
-// `expire`; a `sending` hold never is — only its transaction's outcome
-// (`reconcile` in gateway.mjs) settles or releases it, so a timeout can
-// never refund money whose action landed.
+// known before it is sent; or running, a model call in progress) → settled
+// (spent ≤ held, the rest back to available) or released (all back). A stop
+// (manual) and `expire` release `held` holds only: a `running` call is
+// paid for when it returns (the owner's decision: a call made is a call
+// charged; `expire` gives it back only past its own long TTL), and a
+// `sending` hold is settled or released by its transaction's outcome alone
+// (`reconcile` in gateway.mjs), so a timeout can never refund money whose
+// action landed.
 import { randomUUID } from 'node:crypto';
 import { AgentError, CATEGORIES, ERR } from './contract.mjs';
 
@@ -166,6 +169,14 @@ export class AgentLedger {
     return { ...h };
   }
 
+  /** The hold's model call is running: a stop no longer releases it; its return settles it (`expire` past its TTL is the only other way out). */
+  markRunning(agentId, holdId) {
+    const h = this.get(agentId).holds[holdId];
+    if (!h) throw new AgentError(ERR.BAD_REQUEST, 'no such hold');
+    h.state = 'running';
+    this.save();
+  }
+
   /** The hold's transaction is about to be sent: from here only its outcome (`lastValidBlockHeight` bounds it) settles or releases it. */
   markSending(agentId, holdId, signature, lastValidBlockHeight = null) {
     const h = this.get(agentId).holds[holdId];
@@ -211,11 +222,11 @@ export class AgentLedger {
     return true;
   }
 
-  /** Releases `held` holds past their expiry (never `sending` ones); returns how many. */
+  /** Releases `held` and `running` holds past their expiry (never `sending` ones); returns how many. */
   expire() {
     let n = 0;
     for (const rec of Object.values(this.db.agents)) {
-      for (const h of Object.values(rec.holds)) if (h.state === 'held' && h.expiresAt <= this.now()) { this.#release(rec, h, 'expired'); n++; }
+      for (const h of Object.values(rec.holds)) if ((h.state === 'held' || h.state === 'running') && h.expiresAt <= this.now()) { this.#release(rec, h, 'expired'); n++; }
     }
     if (n) this.save();
     return n;

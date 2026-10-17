@@ -238,10 +238,16 @@ async function run() {
   const aiLanded = await track(ran.ai[0].signature, { tries: 80, every: 500 });
   assert.equal(aiLanded.ok, true, json(aiLanded));
   assert.ok(model.calls >= 2, 'the model server was called');
-  const spends = ran.v.history.filter(x => x.type === 'spend' && x.category === 'inference');
-  assert.ok(spends.every(x => x.amount === String(price)));
-  assert.equal(ran.v.balance.spent.game, '0', 'Harvest stays free');
-  check('runner-acted', { aiActions: ran.ai.length, inferenceSpent: ran.v.balance.spent.inference, modelCalls: model.calls, landed: ran.ai[0].signature, tokens: spends[0]?.tokens ?? null });
+  const spends = ran.v.history.filter(x => x.type === 'spend');
+  assert.ok(spends.length >= 2 && spends.every(x => x.category === 'inference' && x.amount === String(price)), 'every USDC spend is a model call at the fixed price');
+  assert.equal(ran.v.balance.spent.game, '0', 'Harvest stays free: no game charge');
+  assert.equal(ran.v.balance.spent.network, '0', 'network fees are the relay\'s: recorded in lamports, never charged');
+  const fees = ran.v.history.filter(x => x.type === 'network');
+  assert.ok(fees.length >= 1 && fees.every(x => x.paidBy === 'relay' && x.amount === '0' && BigInt(x.lamports) > 0n));
+  assert.equal(ran.v.delegation?.delegated, true, 'the chain names the agent key as the session key');
+  check('runner-acted', { aiActions: ran.ai.length, modelCalls: model.calls, landed: ran.ai[0].signature, tokens: spends[0]?.tokens ?? null,
+    breakdown: { inferencePrice: String(price), inferenceCalls: spends.length, spent: ran.v.balance.spent, networkLamportsRecorded: fees.map(f => f.lamports) },
+    history: ran.v.history.filter(x => ['spend', 'network', 'action'].includes(x.type)).slice(-12) });
 
   // 4. The agent's key around the gateway.
   const info = (await api('/f/relay')).body;
@@ -265,10 +271,13 @@ async function run() {
   assert.equal(after.history.filter(x => x.type === 'action' && x.source === 'ai').length, actionsAtStop, 'no new agent action after the stop');
   assert.equal(model.calls, callsAtStop, 'no model call after the stop');
   assert.equal(after.balance.reserved, '0', 'nothing left reserved');
-  check('stopped', { modeEpoch: after.modeEpoch, refused: stopped.body.error.code, spentInference: after.balance.spent.inference });
+  assert.equal(after.delegation?.delegated, true, 'a server-side stop does not revoke the on-chain delegation: the owner\'s SetSession does');
+  check('stopped', { modeEpoch: after.modeEpoch, refused: stopped.body.error.code, spentInference: after.balance.spent.inference, stillDelegatedOnChain: after.delegation.delegated });
   const back = await walletShape('SetSession', player, { session: session.publicKeyBytes, expiry: BigInt(s.record.latestUnix) + 7n * 86_400n });
   await action('Harvest', player, {});
-  check('owner-plays-again', { setSession: back });
+  const revoked = await agentView(agentId);
+  assert.equal(revoked.delegation?.delegated, false, 'after the owner\'s SetSession the chain no longer names the agent key');
+  check('owner-plays-again', { setSession: back, delegatedOnChain: revoked.delegation.delegated });
 
   // 6. The unused balance goes back to the owner's wallet.
   const walletBefore = await tokenBalance(wallet.address);

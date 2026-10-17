@@ -46,14 +46,21 @@ function compiledIxs(msg) {
 export class Custody {
   #keypair;
 
-  /** `keypair`: the custody authority (web3.js Keypair; never exposed); `pool`: the relay PayerPool (fees). */
-  constructor({ connection, keypair, mint, decimals = 6, pool, blockhashes }) {
+  /**
+   * `keypair`: the custody authority (web3.js Keypair; never exposed); `pool`: the relay PayerPool (fees);
+   * `commitment`: the deposit read's ('confirmed' here as the rest of the relay; a live cluster would use 'finalized');
+   * `strictBalances`: refuse a deposit whose node reports no token balances for the custody account (a full
+   * validator always does; the local frontier-localnet never does, so it is off there).
+   */
+  constructor({ connection, keypair, mint, decimals = 6, pool, blockhashes, commitment = 'confirmed', strictBalances = false }) {
     this.connection = connection;
     this.#keypair = keypair;
     this.mint = mint;
     this.decimals = decimals;
     this.pool = pool;
     this.blockhashes = blockhashes;
+    this.commitment = commitment;
+    this.strictBalances = strictBalances;
     this.authority = keypair.publicKey.toBase58();
     this.account = ata(this.authority, mint);
   }
@@ -66,14 +73,25 @@ export class Custody {
 
   /**
    * The amount `owner` deposited in transaction `signature` (BigInt > 0), or
-   * DepositPending (not confirmed yet) / DepositInvalid: the sum of the
-   * transaction's top-level TransferChecked instructions of the custody
-   * mint into the custody account signed by the owner.
+   * DepositPending (not confirmed yet, or no result metadata yet) /
+   * DepositInvalid. Credited only when all of these hold:
+   *   1. the node returns the transaction at `commitment` with its result metadata, and `meta.err` is null;
+   *   2. the owner is one of the transaction's required signers;
+   *   3. the custody token account is among the transaction's accounts;
+   *   4. the sum over the TOP-LEVEL instructions of the classic SPL Token program (no fee extensions) with
+   *      tag 12 TransferChecked, mint = the custody mint, destination = the custody account and
+   *      authority = the owner is positive — the amount is that sum (a TransferChecked that ran in a
+   *      transaction without error moved exactly its amount);
+   *   5. when the node reports token balances for the custody account, its gain equals that sum;
+   *      with `strictBalances`, a node that reports none is refused.
+   * Inner (CPI) instructions and address-lookup-table accounts are not read: such a transaction is
+   * not credited. One signature is credited once, ever (the ledger).
    */
   async verifyDeposit(signature, owner) {
-    const tx = await this.connection.getTransaction(signature, { commitment: 'confirmed', maxSupportedTransactionVersion: 0 });
+    const tx = await this.connection.getTransaction(signature, { commitment: this.commitment, maxSupportedTransactionVersion: 0 });
     if (!tx) throw new AgentError(ERR.DEPOSIT_PENDING, 'the deposit transaction is not confirmed yet; try again shortly', 409);
-    if (tx.meta?.err) throw new AgentError(ERR.DEPOSIT_INVALID, 'the deposit transaction failed on chain');
+    if (!tx.meta) throw new AgentError(ERR.DEPOSIT_PENDING, 'the deposit transaction has no result metadata yet; try again shortly', 409);
+    if (tx.meta.err !== null && tx.meta.err !== undefined) throw new AgentError(ERR.DEPOSIT_INVALID, 'the deposit transaction failed on chain');
     const msg = tx.transaction.message;
     const keys = (msg.staticAccountKeys ?? msg.accountKeys).map(keyOf);
     const nSigners = msg.header.numRequiredSignatures;
@@ -89,9 +107,11 @@ export class Custody {
     }
     if (sum <= 0n) throw new AgentError(ERR.DEPOSIT_INVALID, 'the transaction carries no TransferChecked of the test USDC from the owner into the custody account');
     // A node that reports token balances must agree with the instructions.
-    const pre = tx.meta?.preTokenBalances ?? [];
-    const post = tx.meta?.postTokenBalances ?? [];
-    if (post.some(b => b.accountIndex === custodyIndex)) {
+    const pre = tx.meta.preTokenBalances ?? [];
+    const post = tx.meta.postTokenBalances ?? [];
+    const reported = post.some(b => b.accountIndex === custodyIndex);
+    if (this.strictBalances && !reported) throw new AgentError(ERR.DEPOSIT_INVALID, 'the node reported no token balances for the custody account; this relay requires them');
+    if (reported) {
       const amountAt = (list, i) => BigInt(list.find(b => b.accountIndex === i && b.mint === this.mint)?.uiTokenAmount?.amount ?? 0);
       const gained = amountAt(post, custodyIndex) - amountAt(pre, custodyIndex);
       if (gained !== sum) throw new AgentError(ERR.DEPOSIT_INVALID, `the custody account gained ${gained}, not the ${sum} the transfer instructions say`);

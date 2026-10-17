@@ -86,7 +86,8 @@ export function startAgentWallet(cfg, ctx, { connection, pool, log = console.log
   store.load();
   store.state ??= {};
   const custodyKey = loadOrCreateKeypairSync(cfg.agentCustodyKeyFile);
-  const custody = new Custody({ connection, keypair: custodyKey, mint: cfg.prizeMint, pool, blockhashes: ctx.blockhashes });
+  // Localnet (the only cluster the config allows) reports no token balances; anywhere else they are required.
+  const custody = new Custody({ connection, keypair: custodyKey, mint: cfg.prizeMint, pool, blockhashes: ctx.blockhashes, strictBalances: cfg.cluster !== 'localnet' });
   const game = cfg.agentGamePricesFile ? JSON.parse(readFileSync(cfg.agentGamePricesFile, 'utf8')) : {};
   const gateway = attachAgentWallet(ctx, { store, keyring: new AgentKeyring({ dir: cfg.agentKeysDir }), custody, prices: { inference: String(cfg.agentInferencePrice), game }, log });
   const reconcile = setInterval(() => gateway.reconcile().catch(e => log(`agent wallet: reconcile failed: ${e.message}`)), cfg.agentReconcileMs);
