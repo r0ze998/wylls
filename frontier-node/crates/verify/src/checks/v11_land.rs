@@ -14,7 +14,9 @@
 //! - **Terrain:** PROVINCE_OPEN's digest = `sha256("PSF-TERRAIN-v1" ‖
 //!   terrain block)` of `terrain::generate_province(ring_seed, P)` in the
 //!   program's pinned encoding, with its ring, wedge, region and site count.
-//! - **Camps:** the initial camp = `camp::place(ring seed, …, initial)`;
+//! - **Camps:** the initial camp = `camp::place(ring seed, …, initial)`
+//!   (a conquest season: `place_v2`, never on the keep tile; its day
+//!   checks `camp_check_v2` likewise);
 //!   every CAMP spawn = the program's day check (`camp_seed` from the
 //!   Province's terrain block, v1.6 §22), a clear (`troops = 0`) a present
 //!   camp gone.
@@ -248,9 +250,22 @@ pub fn run(cx: &mut Ctx) {
             .map_err(|e| format!("{e:?}"))
             .and_then(|pv| {
                 let t = fclient::clash_model::terrain_of(&pv)?;
-                fclient::clash_model::camp_at(&pv, before, &t, r.pu32("day") * 144)
-            })
-            .map(|c| c.spawned.then_some((c.tile, c.troops)));
+                let b = r.pu32("day") * 144;
+                if f.cq.is_some() {
+                    // A conquest Province's day check never spawns on the
+                    // keep tile (`camp_check_v2`, MC §3.2), as the skip and
+                    // clash replays run it.
+                    let keep_tile = frontier_abi::conquest_model::read_keep(before)
+                        .map_err(|e| format!("{e:?}"))?
+                        .map(|k| k.tile);
+                    frontier_abi::clash_model::camp_check_v2(before, &t, b, keep_tile)
+                        .map_err(|e| format!("{e:?}"))
+                        .map(|x| x.and_then(|(c, spawned)| spawned.then_some((c.tile, c.troops))))
+                } else {
+                    fclient::clash_model::camp_at(&pv, before, &t, b)
+                        .map(|c| c.spawned.then_some((c.tile, c.troops)))
+                }
+            });
         let want = match want {
             Ok(x) => x,
             Err(e) => {
