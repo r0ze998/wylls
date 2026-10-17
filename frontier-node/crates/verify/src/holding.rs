@@ -335,6 +335,9 @@ pub enum Action {
     Harvest,
     Build { item: u8 },
     Train { unit: u8, n: u32 },
+    /// FileOutpost's anchor (MC §3.8): the touch and the settler cost of
+    /// the citizen's next holding, logged as a HARVEST of the anchor.
+    OutpostAnchor { holdings_n: u8 },
 }
 
 /// What a replayed action leaves: the Holding bytes, the record payload it
@@ -416,6 +419,17 @@ pub fn replay(
                 holding: d,
                 payload,
                 wall_item,
+            })
+        }
+        Action::OutpostAnchor { holdings_n } => {
+            let cost = settler_cost(holdings_n).ok_or("settler cost")?;
+            h.pay(now, &cost).map_err(|e| format!("pay: {e:?}"))?;
+            write(&mut d, &h, now)?;
+            let payload = stores_digest(&d)?.to_vec();
+            Ok(Replayed {
+                holding: d,
+                payload,
+                wall_item: None,
             })
         }
         Action::Train { unit, n } => {

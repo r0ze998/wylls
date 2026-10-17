@@ -853,7 +853,14 @@ fn continuity(cx: &mut Ctx) {
     if !w.has_post {
         return;
     }
-    let owner = [Ix::Harvest.tag(), Ix::Build.tag(), Ix::Train.tag()];
+    // FileOutpost's anchor write (the touch and the settler cost, logged
+    // as a HARVEST) is replayed by `owner_actions` on a conquest season.
+    let owner = [
+        Ix::Harvest.tag(),
+        Ix::Build.tag(),
+        Ix::Train.tag(),
+        frontier_abi::v2::tags::Ix::FileOutpost.tag(),
+    ];
     let touch = [
         Ix::Explore.tag(),
         Ix::Muster.tag(),
@@ -943,15 +950,6 @@ fn continuity(cx: &mut Ctx) {
                 }
                 if writes(&touch) {
                     ("an owner touch", hr::touched(before, tx.time))
-                } else if let Some(n) = outpost_anchor_holdings(w, tx, t, k) {
-                    // MC §3.8: FileOutpost touches its anchor and pays the
-                    // settler cost of the citizen's next holding from it.
-                    (
-                        "a FileOutpost's anchor (the touch and the settler cost)",
-                        hr::settler_cost(n)
-                            .ok_or("settler cost".to_string())
-                            .and_then(|c| hr::touched_paid(before, tx.time, &c)),
-                    )
                 } else if let Some(stake) = siege_source_stake(f, tx, k) {
                     // MC §3.4 step 10: DeclareSiege touches its source and
                     // pays the stake in gold from it.
@@ -1058,7 +1056,10 @@ fn owner_actions(cx: &mut Ctx) {
     let f = cx.f;
     // A conquest season pays the v2 train cost (K2; `crate::holding`).
     let conquest = cx.v3;
-    let tags = [Ix::Harvest.tag(), Ix::Build.tag(), Ix::Train.tag()];
+    // MC §3.8: FileOutpost's anchor write is an owner action of the anchor
+    // (the touch and the settler cost), logged as a HARVEST of it.
+    let outpost = frontier_abi::v2::tags::Ix::FileOutpost.tag();
+    let tags = [Ix::Harvest.tag(), Ix::Build.tag(), Ix::Train.tag(), outpost];
     for (t, tx) in w.txs.iter().enumerate() {
         if !tx.ok {
             continue;
@@ -1116,7 +1117,14 @@ fn owner_actions(cx: &mut Ctx) {
             let r = &w.recs[n];
             let (p, q, site) = r.pqs();
             let hk = f.ctx.holding(p, q, site);
-            if ix.key(4) != Some(hk) {
+            // The Holding an instruction acts on: its fifth account, or a
+            // FileOutpost's anchor (the fourth from its end).
+            let acted = if ix.tag() == Some(outpost) {
+                ix.key(ix.accounts.len().saturating_sub(4))
+            } else {
+                ix.key(4)
+            };
+            if acted != Some(hk) {
                 bad.push((
                     n,
                     "the record names another Holding than its instruction".into(),
@@ -1145,6 +1153,8 @@ fn owner_actions(cx: &mut Ctx) {
                         n: b.n,
                     })
                 }
+                Some(x) if x == outpost => outpost_anchor_holdings(w, tx, t, &hk)
+                    .map(|holdings_n| Action::OutpostAnchor { holdings_n }),
                 _ => None,
             };
             let Some(action) = action else {
@@ -1152,7 +1162,7 @@ fn owner_actions(cx: &mut Ctx) {
                 continue;
             };
             let want_kind = match action {
-                Action::Harvest => Kind::HARVEST,
+                Action::Harvest | Action::OutpostAnchor { .. } => Kind::HARVEST,
                 Action::Build { .. } => Kind::BUILD,
                 Action::Train { .. } => Kind::TRAIN,
             };

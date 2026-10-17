@@ -14,7 +14,7 @@
 //   node permutation-gateway/scripts/conquest-drive.mjs
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { Keypair } from '@solana/web3.js';
 import { createHerald } from '../../permutation-server/web/frontier/herald.mjs';
@@ -41,7 +41,10 @@ mkdirSync(outDir, { recursive: true });
 const gw = `${base}/gw`;
 const json = x => JSON.stringify(x, (_, v) => (typeof v === 'bigint' ? String(v) : v instanceof Uint8Array ? toHex(v) : v), 2);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const report = { testAssetsOnly: true, base, rpcUrl, startedAt: new Date().toISOString(), steps: [] };
+const resumeFile = path.join(outDir, 'drive.json');
+// CQ_DRIVE_RESUME=1: the wallet of the last run (its key seeds in drive.json) carries on from the Town and the outpost.
+const prior = process.env.CQ_DRIVE_RESUME === '1' && existsSync(resumeFile) ? JSON.parse(readFileSync(resumeFile, 'utf8')) : null;
+const report = prior ? { ...prior, resumedAt: new Date().toISOString() } : { testAssetsOnly: true, base, rpcUrl, startedAt: new Date().toISOString(), steps: [] };
 const save = () => writeFileSync(path.join(outDir, 'drive.json'), `${json(report)}\n`);
 const step = (name, details = {}) => { report.steps.push({ name, ...details }); console.log(`${new Date().toISOString().slice(11, 19)} ${name} ${json(details).slice(0, 400)}`); save(); };
 const api = async (p, body) => {
@@ -91,6 +94,67 @@ async function resident(at) {
 }
 const distance = (a, b) => { const dq = a.p - b.p, dr = a.q - b.q; return Math.max(Math.abs(dq), Math.abs(dr), Math.abs(dq + dr)); };
 
+const bellNow = async genesisTs => bellAt(genesisTs, Number((await h.season()).record.latestUnix));
+
+/// The Town tier-up (wood 1,000, stone 600, gold 300; 6 h), an outpost filed and settled, the season's end.
+async function townOutpostAndEnd({ wallet, genesisTs, endBell, home }) {
+  let tierUp = null;
+  const me = await h.me(wallet.address);
+  if (me.ok && me.holdings[0]?.tier >= 1) { tierUp = 'already'; step('town', { tier: me.holdings[0].tier, note: 'already a Town' }); }
+  for (let i = 0; i < 8 && !tierUp; i++) {
+    await must('Harvest', {});
+    const r = await action('Build', { item: 7 }, { item: 7 });
+    if (r.ok) tierUp = r; else { step('tier-up-wait', { code: r.code }); await advanceTo(await bellNow(genesisTs) + 60); }
+  }
+  assert.ok(tierUp, 'the tier-up could not be ordered');
+  if (tierUp !== 'already') {
+    await advanceTo(await bellNow(genesisTs) + 40);
+    await must('Harvest', {});
+    const town = await eventually('the village is a Town', async () => { const r = await h.me(wallet.address); return r.ok && r.holdings[0]?.tier >= 1 ? r : null; });
+    step('town', { tier: town.holdings[0].tier });
+  }
+  // An outpost site: a ring-4 province within 3 of home where the faction holds less than half, a free site.
+  let target = null;
+  for (const at of ringProvinces(4)) {
+    if (distance(home, at) > 3) continue;
+    const pv = await province(at.p, at.q); if (!pv) continue;
+    if (pv.siteMirror.some(m => m.state === 1 && m.faction === home.faction)) continue;
+    const free = freeSitesOf(pv);
+    if (free.length) { target = free[0]; break; }
+  }
+  assert.ok(target, 'no outpost site');
+  const holdings = (await h.me(wallet.address)).holdings;
+  const anchor = holdings.find(x => x.order === 1), slot2 = holdings.find(x => x.order === 2) ?? anchor;
+  // The settler cost grows with the holdings held (wood and food first): wait for the stores, 10 game hours at a time.
+  let filed = null;
+  for (let i = 0; i < 10 && !filed; i++) {
+    await must('Harvest', {});
+    const r = await action('FileOutpost', { sites: [target], anchor_site_key: hostId({ p: anchor.p, q: anchor.q, site: anchor.site, gen: anchor.gen, seq: 0 }) }, { sites: [target], anchor, slot2 });
+    if (r.ok) filed = r;
+    else if (r.code === 'Insufficient') { step('outpost-wait', { code: r.code, attempt: i + 1 }); await advanceTo(await bellNow(genesisTs) + 60); }
+    else assert.fail(`FileOutpost: ${json(r)}`);
+  }
+  assert.ok(filed, 'the outpost could not be filed');
+  const bF = await bellNow(genesisTs);
+  step('outpost-filed', { target, bell: bF });
+  await advanceTo(bF + 30);
+  const settled = await eventually('the outpost is founded', async () => {
+    const r = await h.me(wallet.address); if (!r.ok) return null;
+    const pv = await province(target.p, target.q); if (pv && pv.resolvedNext + 1 < bF + 30) { await nudge(target.p, target.q, pv.resolvedNext).catch(() => {}); }
+    return r.holdings.length > holdings.length ? r : null;
+  }, 300000);
+  step('outpost-settled', { holdings: settled.holdings.map(x => ({ p: x.p, q: x.q, site: x.site, order: x.order, state: x.state })) });
+
+  // The season's end.
+  await advanceTo(endBell + 2);
+  await eventually('the Season is Ended on chain', async () => { const a = await rpc('getAccountInfo', [pin.addresses.season, { encoding: 'base64' }]); return Buffer.from(a.value.data[0], 'base64')[64] === 4; }, 360000);
+  await eventually('every province resolved to the end', async () => {
+    for (const d of [2, 3, 4]) for (const at of ringProvinces(d)) { const pv = await province(at.p, at.q); if (!pv || pv.resolvedNext < endBell) { await nudge(at.p, at.q, pv?.resolvedNext ?? 0).catch(() => {}); return null; } }
+    return true;
+  }, 600000);
+  step('season-ended', { endBell });
+}
+
 async function run() {
   originalScale = (await rpc('frontier_status')).scale;
   // The outer frontier open and a few bells into play (a stack that has just come up refuses a Join `WrongStatus` in its first bells).
@@ -105,6 +169,18 @@ async function run() {
   const genesisTs = Number(s.season.genesisTs);
   const endBell = s.season.endBell;
   report.season = s.record.season; report.programId = s.record.programId; report.endBell = endBell;
+  if (prior?.wallet?.seed) {
+    const key = await keyFromSeed(Buffer.from(prior.wallet.seed, 'hex')), session = await keyFromSeed(Buffer.from(prior.wallet.sessionSeed, 'hex'));
+    const wallet = await connect(devWallet(key), { chain: 'solana:localnet' });
+    const home = prior.steps.find(x => x.name === 'target').home;
+    player = { key, wallet, session, home, context: { addresses: pin.addresses, wallet: wallet.address, actor: session.publicKey, faction: home.faction, holding: home, province: home } };
+    const me = await h.me(wallet.address); assert.ok(me.ok && me.holdings.length, 'the resumed wallet has no holding');
+    player.holding = me.holdings[0];
+    step('resumed', { wallet: wallet.address, holdings: me.holdings.length });
+    await townOutpostAndEnd({ wallet, genesisTs, endBell, home });
+    report.ok = true;
+    return;
+  }
 
   // A home (ring 3) with a route to a Free City (ring 4) two provinces away at most.
   const freeCities = [];
@@ -212,50 +288,7 @@ async function run() {
   }, 300000);
   step('captured', { holdings: captured.holdings.map(x => ({ p: x.p, q: x.q, site: x.site, order: x.order, state: x.state })) });
 
-  // The Town: the tier-up (wood 1,000, stone 600, gold 300; 6 h), then an outpost.
-  let tierUp = null;
-  for (let i = 0; i < 6 && !tierUp; i++) {
-    await must('Harvest', {});
-    const r = await action('Build', { item: 7 }, { item: 7 });
-    if (r.ok) tierUp = r; else { step('tier-up-wait', { code: r.code }); const b = bellAt(genesisTs, Number((await h.season()).record.latestUnix)); await advanceTo(b + 60); }
-  }
-  assert.ok(tierUp, 'the tier-up could not be ordered');
-  const bT = bellAt(genesisTs, Number((await h.season()).record.latestUnix));
-  await advanceTo(bT + 40);
-  await must('Harvest', {});
-  const town = await eventually('the village is a Town', async () => { const r = await h.me(wallet.address); return r.ok && r.holdings[0]?.tier >= 1 ? r : null; });
-  step('town', { tier: town.holdings[0].tier });
-  // An outpost site: a ring-4 province within 3 of home where the faction holds less than half, a free site.
-  let target = null;
-  for (const at of ringProvinces(4)) {
-    if (distance(home, at) > 3) continue;
-    const pv = await province(at.p, at.q); if (!pv) continue;
-    if (pv.siteMirror.some(m => m.state === 1 && m.faction === home.faction)) continue;
-    const free = freeSitesOf(pv);
-    if (free.length) { target = free[0]; break; }
-  }
-  assert.ok(target, 'no outpost site');
-  const anchor = town.holdings.find(x => x.order === 1), slot2 = town.holdings.find(x => x.order === 2) ?? anchor;
-  const filed = await action('FileOutpost', { sites: [target], anchor_site_key: hostId({ p: anchor.p, q: anchor.q, site: anchor.site, gen: anchor.gen, seq: 0 }) }, { sites: [target], anchor, slot2 });
-  assert.equal(filed.ok, true, `FileOutpost: ${json(filed)}`);
-  const bF = bellAt(genesisTs, Number((await h.season()).record.latestUnix));
-  step('outpost-filed', { target, bell: bF });
-  await advanceTo(bF + 30);
-  const settled = await eventually('the outpost is founded', async () => {
-    const r = await h.me(wallet.address); if (!r.ok) return null;
-    const pv = await province(target.p, target.q); if (pv && pv.resolvedNext + 1 < bF + 30) { await nudge(target.p, target.q, pv.resolvedNext).catch(() => {}); }
-    return r.holdings.length >= 3 ? r : null;
-  }, 300000);
-  step('outpost-settled', { holdings: settled.holdings.map(x => ({ p: x.p, q: x.q, site: x.site, order: x.order, state: x.state })) });
-
-  // The season's end.
-  await advanceTo(endBell + 2);
-  await eventually('the Season is Ended on chain', async () => { const a = await rpc('getAccountInfo', [pin.addresses.season, { encoding: 'base64' }]); return Buffer.from(a.value.data[0], 'base64')[64] === 4; }, 360000);
-  await eventually('every province resolved to the end', async () => {
-    for (const d of [2, 3, 4]) for (const at of ringProvinces(d)) { const pv = await province(at.p, at.q); if (!pv || pv.resolvedNext < endBell) { await nudge(at.p, at.q, pv?.resolvedNext ?? 0).catch(() => {}); return null; } }
-    return true;
-  }, 600000);
-  step('season-ended', { endBell });
+  await townOutpostAndEnd({ wallet, genesisTs, endBell, home });
   report.ok = true;
 }
 try { await run(); } catch (e) { report.ok = false; report.error = String(e?.stack ?? e); console.error(report.error); process.exitCode = 1; }
