@@ -190,3 +190,21 @@ test('what the model is told: the village state from the herald\'s records (stor
   answers.push({ action: 'Build', fields: { item: 0 }, reason: 'no state: the chain decides' });
   assert.deepEqual((await d.decide(view, null)).choice, { name: 'Build', fields: { item: 0 } });
 });
+
+test('the operator token itself is never written: not in a settlement, the operator record, the state file, the owner\'s history, the log lines; only its fingerprint', async () => {
+  const r = relay({ prices: { inference: PRICE } });
+  const a = await ready(r);
+  const L = r.gateway.ledger;
+  for (const [key, outcome] of [['k1', 'charge'], ['k2', 'refund']]) {
+    const h = L.hold(a.agentId, { category: 'inference', amount: PRICE, key });
+    L.markRunning(a.agentId, h.id); L.markUnresolved(a.agentId, h.id, 'restart');
+    assert.equal((await operator(r, 'POST', '/f/agent/settle', { agentId: a.agentId, holdId: h.id, outcome, note: 'n', by: 'label', evidence: 'e' })).status, 200);
+  }
+  r.agentStore.save();
+  const everything = [r.agentStore.json, JSON.stringify((await operator(r, 'GET', '/f/agent/unresolved')).json), JSON.stringify(r.gateway.view(a.agentId)), r.logs.join('\n')].join('\n');
+  assert.equal(everything.includes(OPERATOR), false, 'the token is nowhere');
+  assert.ok(everything.includes('operator-token'), 'the credential is named');
+  assert.equal(r.gateway.ledger.db.settlements.length, 2);
+  assert.ok(r.gateway.ledger.db.settlements.every(s => /^[0-9a-f]{8}$/.test(s.by.token) && s.claimedBy === 'label'));
+  sound(r);
+});

@@ -411,7 +411,16 @@ async function run() {
     const bells = { from: chainFrom, elapsedMs: Date.now() - t0 };
     const termsNow = (await api('/f/agent/terms')).body;
     const s1 = await h.season();
+    // The breakdown (DESIGN.md §12.2): calls the model answered with an action it sent, calls refused on chain, calls the code refused
+    // (a failed call: the autopilot then plays free), rests; and the autopilot's own free actions. Each model call is charged once.
+    const since = v1.history.slice(v0.history.length);
+    const isModel = x => typeof x.reason === 'string' && x.reason.startsWith('model:');
+    const byModelSent = since.filter(x => x.type === 'action' && x.source === 'ai' && x.status === 'sent' && isModel(x)).length;
+    const byModelRefused = since.filter(x => x.type === 'action' && x.source === 'ai' && x.status !== 'sent' && isModel(x)).length;
+    const autopilotSent = since.filter(x => x.type === 'action' && x.source === 'ai' && x.status === 'sent' && !isModel(x)).length;
+    const failedCalls = since.filter(x => x.type === 'spend' && x.category === 'inference' && x.ok === false).length;
     report.window = { ms: windowMs, modelCalls: calls, costBaseUnits: String(BigInt(v1.balance.spent.inference) - BigInt(v0.balance.spent.inference)), actionsSent: sent, actionsRefused: refused,
+      breakdown: { modelActionsSent: byModelSent, modelActionsRefusedOnChain: byModelRefused, callsRefusedByCode: failedCalls, rests: Math.max(0, calls - byModelSent - byModelRefused - failedCalls), autopilotActionsFree: autopilotSent },
       spentBefore: v0.balance.spent, spentAfter: v1.balance.spent, callsToday: v1.day?.calls ?? null, runner: termsNow.runner, chainSecondsElapsed: Number(s1.record.latestUnix) - bells.from,
       turnsElapsed: Math.floor((Number(s1.record.latestUnix) - bells.from) / 600) };
     check('measurement-window', report.window);

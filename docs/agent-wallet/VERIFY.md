@@ -53,6 +53,13 @@ AGENT_BENCH_LLM=http://127.0.0.1:41901 AGENT_BENCH_OUT=$PWD/.local/agent-wallet-
 
 As §2 but with the model server: `FRONTIER_AGENT_LLM_URL=http://127.0.0.1:41901 FRONTIER_AGENT_TICK_MS=8000 FRONTIER_AGENT_MIN_CALL_GAP_MS=30000`, then `AGENT_E2E_MODEL=real AGENT_E2E_LLM=http://127.0.0.1:41901 AGENT_E2E_WINDOW_MS=420000 node permutation-gateway/scripts/agent-wallet-e2e.mjs`. The transcript's `model` and `window` sections record the model (`/props`), every decision with the model's own reason, the charges, and the window's calls, cost, actions and skips.
 
-## 5. The page (the real browser)
+## 5. The page in a real browser (about 3 minutes; Google Chrome, no Playwright, no extension)
 
-Not verified in a real browser in any round so far (the Chrome extension was not connected). With a stack up: `http://127.0.0.1:<herald>/frontier/frontier/agent.html`. The fake-DOM flow is `node permutation-gateway/scripts/agent-page-smoke.mjs` (DESIGN.md §10).
+`scripts/agent-page-browser.mjs` drives Google Chrome (headless, the DevTools protocol over the `ws` package already in `node_modules`) through the page as a visitor gets it: real clicks, typed values, the page's own modules signing with its dev wallet, the herald's CSP on. It is not the fake-DOM smoke. Start a stack whose relay's model URL is the stand-in this script serves (the E2E's command with `FRONTIER_AGENT_LLM_URL=http://127.0.0.1:41698`, `FRONTIER_AGENT_TICK_MS=5000`), then:
+
+```sh
+AGENT_PAGE_URL=http://127.0.0.1:41640 AGENT_PAGE_RPC=http://127.0.0.1:41610 AGENT_PAGE_MODEL_PORT=41698 \
+AGENT_PAGE_OUT=$PWD/.local/agent-wallet-e2e/my-browser node permutation-gateway/scripts/agent-page-browser.mjs
+```
+
+18 steps with a screenshot and the page's text each (`report.json`, `NN-step.png`): connect, create, deposit, the policy form, the key handed over (confirmed on chain), auto, the runner's action on the page, a refused message signature and a refused transaction signature (the wallet rejects at the Wallet Standard boundary; nothing changes), offline and back, a reload, a stop while a model call is in flight and a withdrawal with that call running, the late result charged once, the key taken back, everything withdrawn. The console's errors and every failed resource are in `report.json` too. **Not covered:** a real wallet extension (Phantom, Backpack …) — its approval window cannot be driven here. The fake-DOM flow stays as `node permutation-gateway/scripts/agent-page-smoke.mjs` (DESIGN.md §10). The runs of 2026-10-17 are `.local/agent-wallet-e2e/browser-1` and `browser-2`.

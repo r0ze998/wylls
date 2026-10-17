@@ -278,17 +278,19 @@ export const ACTION_NOTES = Object.freeze({
 });
 
 /** What the model sees: the agent's public view, trimmed, and the village as the herald shows everyone. Never a key, a token or a secret. */
-export function promptOf(view, names, obs = null) {
+export function promptOf(view, names, obs = null, { catalog: cat = CATALOG, reverseStores = false } = {}) {
   const spent = Object.entries(view.balance.spent).map(([k, v]) => `${k} ${v}`).join(', ');
   const recent = view.history.slice(-8).filter(h => h.type === 'action' || h.type === 'spend').map(h => `${h.type}:${h.name ?? h.category}${h.status ? ':' + h.status : ''}`).join(' ');
   const catalog = {};
-  if (names.includes('Build')) catalog.build = CATALOG.build;
-  if (names.includes('Train')) catalog.train = CATALOG.train;
+  if (names.includes('Build')) catalog.build = cat.build;
+  if (names.includes('Train')) catalog.train = cat.train;
+  // (reverseStores: the bench's order check only — the stores object with its keys in reverse order; the relay never sets it)
+  const state = obs?.state && reverseStores ? { ...obs.state, stores: Object.fromEntries(Object.entries(obs.state.stores).reverse()) } : obs?.state;
   return [
     { role: 'system', content: 'You run one village in Wylls for its owner within a fixed budget. You are asked only when something changed. Choose exactly one action from the list, or "rest" when nothing is worth doing now. '
       + 'Spend the stores on what the village needs. Defence first: when state.threat says the village is outnumbered (hostile troops in the province, fewer at home) and a batch is affordable, train before anything else. Otherwise build when the stores cover a building and a queue slot is free; rest when nothing useful is affordable or everything needed is already under way. Fields are whole numbers; never spend more than the stores hold. Answer in JSON only.' },
     { role: 'user', content: JSON.stringify({ village: view.village, allowed: names, fields: Object.fromEntries(names.map(n => [n, CANDIDATES[n]])), actions: Object.fromEntries(names.map(n => [n, ACTION_NOTES[n]])),
-      ...(Object.keys(catalog).length ? { catalog } : {}), ...(obs?.state ? { state: obs.state } : {}),
+      ...(Object.keys(catalog).length ? { catalog } : {}), ...(state ? { state } : {}),
       balance: { available: view.balance.available, spent }, policy: view.policy.budget, recent, ...(obs ? { turn: obs.bell ?? null, why: obs.triggers ?? [] } : {}) }) },
   ];
 }
@@ -297,13 +299,13 @@ export function promptOf(view, names, obs = null) {
  * A model decider over citizens/mind/llm.mjs `createLlm(...)`. `alias`,
  * `maxTokens`, `deadlineMs` as the AI citizens use them. Charged per call.
  */
-export function llmDecider({ llm, alias = llm.alias, maxTokens = 160, deadlineMs = 30_000, seed = 7 }) {
+export function llmDecider({ llm, alias = llm.alias, maxTokens = 160, deadlineMs = 30_000, seed = 7, promptOptions = {} }) {
   return {
     name: `model:${alias}`, free: false,
     async decide(view, obs = null) {
       const names = Object.keys(CANDIDATES).filter(n => view.policy.allowed.includes(n));
       if (!names.length) return null;
-      const body = { model: alias, messages: promptOf(view, names, obs), temperature: 0, top_k: 1, seed, cache_prompt: false, max_tokens: maxTokens, stream: false,
+      const body = { model: alias, messages: promptOf(view, names, obs, promptOptions), temperature: 0, top_k: 1, seed, cache_prompt: false, max_tokens: maxTokens, stream: false,
         response_format: { type: 'json_schema', json_schema: { name: 'agent_decision', strict: true, schema: decisionSchema(names) } } };
       const r = await llm.complete(body, { deadlineMs });
       const tokens = r.usage ? { prompt: r.usage.prompt_tokens ?? null, completion: r.usage.completion_tokens ?? null } : null;
