@@ -1948,6 +1948,38 @@ pub fn cq_t46(run: &Input) -> Made {
 /// A class builder.
 pub type Builder = fn(&Input) -> Made;
 
+/// The conquest classes (contract §8.5 T25–T48; CQ3-A) a conquest season
+/// runs beside [`classes`]: record, post-state and instruction edits with
+/// no v2 re-chain (CQ1 reports the stale chain beside the named code),
+/// extras until a conquest fixture is committed.
+pub fn conquest_classes() -> Vec<Class> {
+    fn c(class: &'static str, tries: Vec<(&'static str, Builder)>) -> Class {
+        Class {
+            class,
+            required: false,
+            tries,
+        }
+    }
+    vec![
+        c("T28", vec![("+1 siege progress", cq_t28)]),
+        c("T30", vec![("first holding's owner rewritten", cq_t30)]),
+        c("T31", vec![("capture into an unreserved slot", cq_t31)]),
+        c("T36", vec![("MARCH_FOLD controller flipped", cq_t36)]),
+        c("T39", vec![("outpost filed in a heartland ring", cq_t39)]),
+        c("T46", vec![("declaration by a non-lead entry", cq_t46)]),
+    ]
+}
+
+/// The classes a run is judged by: M1's, and on a conquest season the
+/// conquest classes too.
+pub fn classes_for(run: &Input) -> Vec<Class> {
+    let mut v = classes();
+    if crate::conquest::applies(run) {
+        v.extend(conquest_classes());
+    }
+    v
+}
+
 /// One class of the suite: its builders, tried in order (the fixture's
 /// selection first, then the run fallbacks), and whether §8.5 requires it.
 pub struct Class {
@@ -2028,16 +2060,6 @@ pub fn classes() -> Vec<Class> {
             vec![("Holding forged at a non-owner write", h1b)],
         ),
         c("V9a", false, vec![("non-canonical address", v9a)]),
-        // Conquest classes (contract §8.5 T25–T48; CQ3-A): record,
-        // post-state and instruction edits with no v2 re-chain (CQ1 reports
-        // the stale chain beside the named code), extras until a conquest
-        // fixture is committed; not applicable on an M1 run.
-        c("T28", false, vec![("+1 siege progress", cq_t28)]),
-        c("T30", false, vec![("first holding's owner rewritten", cq_t30)]),
-        c("T31", false, vec![("capture into an unreserved slot", cq_t31)]),
-        c("T36", false, vec![("MARCH_FOLD controller flipped", cq_t36)]),
-        c("T39", false, vec![("outpost filed in a heartland ring", cq_t39)]),
-        c("T46", false, vec![("declaration by a non-lead entry", cq_t46)]),
     ]
 }
 
@@ -2329,7 +2351,7 @@ pub fn cq_equivalents(v1: &str) -> &'static [&'static str] {
 /// verifies its own tampered copy of the run).
 pub fn run_suite(run: &Input, jobs: usize) -> SuiteReport {
     let base = crate::verify(run);
-    let cs = classes();
+    let cs = classes_for(run);
     let next = std::sync::atomic::AtomicUsize::new(0);
     let out: std::sync::Mutex<Vec<(usize, Outcome)>> = Default::default();
     std::thread::scope(|sc| {
