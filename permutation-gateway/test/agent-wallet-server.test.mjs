@@ -32,7 +32,9 @@ test('config: --agent-wallet and --agent-runner flags, their environment names a
   assert.ok(checkFrontierConfig({ ...on, agentTickMs: 10 }).some(e => /agent-tick-ms/.test(e)));
   assert.ok(checkFrontierConfig({ ...on, agentReconcileMs: 10 }).some(e => /agent-reconcile-ms/.test(e)));
   // The proposed call controls carry test defaults; the unresolved deadline is off unless given.
-  assert.deepEqual([on.agentMinCallGapMs, on.agentMaxCallsPerDay, on.agentUnresolvedReleaseMs], [60_000, 200, null]);
+  assert.deepEqual([on.agentMinCallGapMs, on.agentOwnerCallGapMs, on.agentMaxCallsPerDay, on.agentUnresolvedReleaseMs], [60_000, 10_000, 200, null]);
+  assert.equal(loadFrontierConfig([...base, '--agent-owner-call-gap-ms', '2500']).agentOwnerCallGapMs, 2500);
+  assert.equal(loadFrontierConfig(base, { FRONTIER_AGENT_OWNER_CALL_GAP_MS: '4000' }).agentOwnerCallGapMs, 4000);
   const tuned = loadFrontierConfig([...base, '--agent-min-call-gap-ms', '30000', '--agent-max-calls-per-day', '50', '--agent-unresolved-release-ms', '3600000']);
   assert.deepEqual([tuned.agentMinCallGapMs, tuned.agentMaxCallsPerDay, tuned.agentUnresolvedReleaseMs], [30_000, 50, 3_600_000]);
 });

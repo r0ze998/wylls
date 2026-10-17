@@ -41,7 +41,7 @@ import { RouteError } from '../../routes/errors.mjs';
 import { feeOf } from '../shapes.mjs';
 import { sponsor } from '../routes/relay.mjs';
 import { AgentError, CATEGORIES, ERR, MODES, parseActionRequest, RESULT_STATUS, SOURCES, isAmount } from './contract.mjs';
-import { AgentLedger } from './ledger.mjs';
+import { AgentLedger , budgetDay } from './ledger.mjs';
 import { canonical, isPubkey } from './owner-auth.mjs';
 import { checkAllowed, normalisePolicy } from './policy.mjs';
 
@@ -162,21 +162,24 @@ export class AgentGateway {
    * operator's cost record keeps the call). Only an unresolved hold can be
    * decided; a hold whose result arrived in the meantime is settled already.
    */
-  settleUnresolved(agentId, holdId, outcome, note = '', { by = 'operator', evidence = '' } = {}) {
+  settleUnresolved(agentId, holdId, outcome, note = '', { by = 'operator', claimedBy = null, evidence = '' } = {}) {
     const rec = this.ledger.get(agentId);
     const h = rec.holds[holdId];
     if (!h || h.state !== 'unresolved') throw new AgentError(ERR.BAD_REQUEST, 'no unresolved hold with this id (decided, settled by a late result, or released already)', 404);
     if (outcome !== 'charge' && outcome !== 'refund') throw new AgentError(ERR.BAD_REQUEST, 'outcome must be charge or refund');
-    const who = String(by).slice(0, 64);
-    const audit = { holdId, key: h.key, amount: h.amount, model: h.model ?? null, unresolvedReason: h.unresolvedReason ?? null, unresolvedAt: h.unresolvedAt ?? null, outcome, note: String(note).slice(0, 200), evidence: String(evidence).slice(0, 500), by: who };
-    if (outcome === 'charge') this.ledger.settle(agentId, holdId, undefined, { decidedBy: who, note: audit.note, evidence: audit.evidence });
+    // `by` is what the credential identifies (the route passes operatorPrincipal: listener, token fingerprint, address);
+    // `claimedBy` is the caller's own label, recorded as a claim and never as the identity.
+    const who = typeof by === 'string' ? { via: String(by).slice(0, 64) } : { via: String(by?.via ?? 'operator').slice(0, 64), ...(by?.token ? { token: String(by.token).slice(0, 16) } : {}), ...(by?.ip ? { ip: String(by.ip).slice(0, 64) } : {}) };
+    const claim = claimedBy === null || claimedBy === undefined ? null : String(claimedBy).slice(0, 64);
+    const audit = { holdId, key: h.key, amount: h.amount, model: h.model ?? null, unresolvedReason: h.unresolvedReason ?? null, unresolvedAt: h.unresolvedAt ?? null, outcome, note: String(note).slice(0, 200), evidence: String(evidence).slice(0, 500), by: who, claimedBy: claim };
+    if (outcome === 'charge') this.ledger.settle(agentId, holdId, undefined, { decidedBy: who, claimedBy: claim, note: audit.note, evidence: audit.evidence });
     else {
       this.ledger.release(agentId, holdId, 'operator-refund');
-      this.ledger.recordOperatorCost({ agentId, kind: 'refunded-call', holdId, key: h.key, amount: h.amount, note: audit.note, by: who });
+      this.ledger.recordOperatorCost({ agentId, kind: 'refunded-call', holdId, key: h.key, amount: h.amount, note: audit.note, by: who, claimedBy: claim });
     }
     this.ledger.recordSettlement({ agentId, ...audit });
-    this.log(`agent wallet: ${who} ${outcome}d unresolved call ${holdId} of ${agentId} (${audit.note})`);
-    return { holdId, outcome, by: who, balance: this.ledger.balance(agentId) };
+    this.log(`agent wallet: ${who.via}${who.token ? ' ' + who.token : ''}${who.ip ? ' from ' + who.ip : ''}${claim ? ' (claims ' + claim + ')' : ''} ${outcome}d unresolved call ${holdId} of ${agentId} (${audit.note})`);
+    return { holdId, outcome, by: who, claimedBy: claim, balance: this.ledger.balance(agentId) };
   }
 
   /** What waits for the operator: every unresolved hold, and the operator's cost record. */
@@ -551,6 +554,16 @@ export class AgentGateway {
   /** Whether `pubkey` is one of this relay's agent keys (the relay refuses such a key on POST /f/relay). */
   isAgentKey(pubkey) { return this.keyring.isAgentKey(pubkey); }
 
+  /**
+   * Today's budget line as the ledger would roll it: the stored day is rolled only when a hold is made, so a
+   * reader (the scheduler's cap, the page) on a new UTC day must not see yesterday's count — it would never
+   * call again, and nothing would roll it (found by test/agent-wallet-caps.test.mjs).
+   */
+  #dayOf(rec) {
+    const key = budgetDay(this.ledger.now());
+    return rec.day.key === key ? { ...rec.day, calls: rec.day.calls ?? 0 } : { key, spent: '0', calls: 0 };
+  }
+
   /** The agent as every caller sees it: public keys, balances, policy, recent history. No token, no secret. */
   view(agentId) {
     const rec = this.ledger.get(agentId);
@@ -559,7 +572,7 @@ export class AgentGateway {
     return {
       agentId: rec.agentId, owner: rec.owner, payout: rec.payout, agentKey: rec.agentKey, citizen: this.ctx.addresses.citizen(rec.owner), village: [...rec.village],
       mode: rec.mode, modeEpoch: rec.modeEpoch, policy: { ...rec.policy, allowed: [...rec.policy.allowed], budget: { ...rec.policy.budget } },
-      capabilityVersion: rec.capabilityVersion, balance: this.ledger.balance(agentId), day: { ...rec.day, calls: rec.day.calls ?? 0 }, holds, withdrawals,
+      capabilityVersion: rec.capabilityVersion, balance: this.ledger.balance(agentId), day: this.#dayOf(rec), holds, withdrawals,
       history: rec.history.slice(-50), createdAt: rec.createdAt, testAssetsOnly: true,
     };
   }

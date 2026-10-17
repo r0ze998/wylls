@@ -35,3 +35,5 @@ Conclusion for the seven: every territory-only hunk is an earlier form of code t
 ## 3. Policy
 
 Unchanged from DESIGN.md §8.2: `main` is the trunk; `feature/agent-wallet` is main plus its own commits (fast-forward); `codex/territory-opening` is already in main in later form and can be retired once its owner agrees; the art/VFX track above is the one thing worth carrying, as its own branch. Decisions wanted: (1) retire territory-opening or keep it; (2) whether and when to cut the art/VFX track into a branch; (3) who owns the uncommitted worktree (I did not touch it).
+
+**The owner's decision (2026-10-17, fourth round):** `main` is the base. `feature/agent-wallet` is **not merged before the real-browser verification** (DESIGN.md §13). `codex/territory-opening` is **not deleted**; its uncommitted art/VFX track (§2) is kept as it is and brought in later as a separate track, after the agent wallet. Nothing in that worktree was changed, stashed or retired in this round either.

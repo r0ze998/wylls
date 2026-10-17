@@ -98,9 +98,9 @@ export function startAgentWallet(cfg, ctx, { connection, pool, log = console.log
     const decider = cfg.agentLlmUrl ? llmDecider({ llm: createLlm({ url: cfg.agentLlmUrl }) }) : ruleDecider();
     // The observer reads the herald (public records): without a herald URL every tick asks (the old behaviour).
     const observer = cfg.heraldUrl ? new AgentObserver({ heraldUrl: cfg.heraldUrl }) : null;
-    scheduler = new AgentScheduler({ gateway, decider, tickMs: cfg.agentTickMs, observer, minCallGapMs: cfg.agentMinCallGapMs, maxCallsPerDay: cfg.agentMaxCallsPerDay, log });
+    scheduler = new AgentScheduler({ gateway, decider, tickMs: cfg.agentTickMs, observer, minCallGapMs: cfg.agentMinCallGapMs, ownerCallGapMs: cfg.agentOwnerCallGapMs, maxCallsPerDay: cfg.agentMaxCallsPerDay, log });
     scheduler.start();
-    gateway.runner = { tickMs: cfg.agentTickMs, decider: decider.name, free: decider.free === true, eventDriven: !!observer, minCallGapMs: cfg.agentMinCallGapMs, maxCallsPerDay: cfg.agentMaxCallsPerDay, stats: scheduler.stats };
+    gateway.runner = { tickMs: cfg.agentTickMs, decider: decider.name, free: decider.free === true, eventDriven: !!observer, minCallGapMs: cfg.agentMinCallGapMs, ownerCallGapMs: cfg.agentOwnerCallGapMs, maxCallsPerDay: cfg.agentMaxCallsPerDay, stats: scheduler.stats };
   }
   log(`agent wallet: custody ${custody.authority} (token account ${custody.account}, mint ${custody.mint}); ${gateway.ledger.agents().length} agent(s); `
     + `inference ${gateway.prices.inference}/call, ${Object.keys(game).length} priced game action(s); state ${store.file}`

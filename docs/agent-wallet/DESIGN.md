@@ -156,6 +156,8 @@ Tests: `test/agent-wallet-billing.test.mjs`. A full withdrawal with an unresolve
 
 **The recommended rule for the owner's decision (implemented behind `--agent-unresolved-release-ms`, OFF by default, not enabled):** an `unresolved` call is released back to `available` after a deadline; a result after that is never billed (`late-result`, the operator's record); the operator's record keeps the call as `released-call`. Deadline candidates from the measurements (model call ≈ 0.9 s, the call deadline 30 s, the hold TTL 10 min, a relay restart ≈ 1 min): **15 min** (a few times the TTL: every real result is in by then), **1 h** (recommended: covers a restart and a human look at the log, and an owner's money is never locked across a day), **24 h** (an operator's working day). Impact: owners get reserved money back without asking; the operator absorbs the cost of calls it cannot prove, bounded per agent per day by the call caps (§7.1). Abuse: an owner cannot cause an unresolved state (restarts and TTLs are the operator's); an operator who wanted to bill unknown calls would have to decide `charge` by hand with a note, which the settlement record shows (who, when, which call, why, on what evidence). With the rule on, the manual `settle` route stays for calls inside the deadline.
 
+**Verified on localnet, the fourth round (2026-10-17, run agent-e2e-8, season 97, relay started with `FRONTIER_AGENT_UNRESOLVED_RELEASE_MS=3600000`; `scripts/agent-wallet-e2e.mjs` with `AGENT_E2E_SCENARIO=unresolved AGENT_E2E_WAIT_RELEASE_MS=4800000`, transcript `.local/agent-wallet-e2e/run8-unresolved-1h/transcript.json`, 16 checks):** the stand-in model held the first call open; the relay was killed (-9) while the hold was `running`; the stack's supervisor had it back in 2.6 s and `recover()` marked the hold `unresolved` (reason `restart`, `unknown-call` in the operator's record, nothing charged); the owner stopped the agent and withdrew everything: 9,990,000 came back and exactly the 10,000 of the unresolved call stayed reserved; 3,601 s after the kill the reconcile released it (`auto-release`, `released-call` in the operator's record), the money was available again, the day's call count stayed at 1; the owner then set `callsPerDay: 1` and switched to auto: no model call followed (the cap counts the released call), the autopilot's free Harvest landed; the last withdrawal returned the 10,000, `deposited = withdrawn = 10,000,000`, nothing spent. **The owner's decision (fourth round): the one-hour release is tried on localnet first and is not a production billing rule yet.** The settlement record now names the credential, not a label (§5.1: `by: {via: 'operator-token', token: <8-hex fingerprint>, ip}`, the body's `by` kept as `claimedBy`); the relay has one operator token, so this identifies the token and the address, not a person — named operator tokens would be the next step if several people settle.
+
 **Other proposals that change the owner's refund rules (not implemented; the owner decides):**
 1. *Auto-refund after N hours* of `unresolved` (the operator absorbs the cost without a decision) — cheaper for owners, costs the operator; today the decision is manual.
 2. *A late result after the TTL is not billed* (today it is billed, because the outcome is then known) — simpler to explain to owners, costs the operator.
@@ -183,18 +185,27 @@ The runner no longer asks the model on a timer. Each tick the `AgentObserver` re
 | Deduplication | a tick coalesces everything that happened since the last call into one decision; the same state again is no trigger | — |
 | One at a time | one model call per agent in flight (`inflight`); one scheduler tick at a time | — |
 | Minimum gap | no call within `minCallGapMs` of the last, except on an owner change | 60 s (`--agent-min-call-gap-ms`); 30 s in the measured runs |
+| Owner gap (fourth round) | an owner change gets through the minimum gap, but a burst of owner commands is one call per `ownerCallGapMs`; the change is never dropped (it stays a trigger for the next tick); the caps are checked before any trigger | 10 s (`--agent-owner-call-gap-ms`) |
 | Rest back-off | after a call that sent nothing, turn-only triggers are sat out 1, 2, 4 … 16 turns; an event or an owner change ends it | 16 turns |
 | Operator cap | `maxCallsPerDay` per agent in the scheduler | 200 (`--agent-max-calls-per-day`) |
 | Owner cap | `policy.budget.callsPerDay` (a count next to the money), enforced in the ledger: the model is not called past it, the autopilot plays free | none unless the owner sets it |
 
 Why these numbers: a turn is 600 s of chain time (60 s of wall time in the 10× test world, 10 min in the real one); the measured Gemma 4 26B call is ≈ 0.9 s (prompt 0.23 s, generation 0.65 s), so a gap of 60 s is "at most one call a turn in the test world" and far above the model's time; 200 a day is above the 144 turns of a day plus some events, so the cap bites only on a runaway. The owner decides the production figures (§13).
 
+Two things the fourth round found and fixed: (1) the scheduler's cap read the agent's stored day, which the ledger rolls only when a hold is made — on a new UTC day the cap would have read yesterday's count and never called again (nothing else rolls the day); `view()` now reports the day as the ledger would roll it (`test/agent-wallet-caps.test.mjs`); (2) the observer read the province's bytes at `province.bytes_b64`, but the herald's `/h/province/{p},{q}/latest` carries them as `bytes` next to `slots` — so in runs 6 and 7 no province change (an arrival, a camp) was ever an event; the observer now reads the real shape (and the old one), and the trigger test's fake herald uses the real shape.
+
 Tests (`test/agent-wallet-triggers.test.mjs`): fifty ticks on an unchanged state make no call; after a rest, turns are sat out 1, 2, 4, 8 while an event and an owner change get through; a flood of 1,000 events over 100 ticks makes at most one call per gap and stops at the operator's cap, the owner's cap refuses the hold before the model is called; one call per agent at a time; an unreadable herald asks nothing; the digests ignore a quiet turn and see an arrival, a promotion, a session change.
+
+### 7.2 What the model is told (the fourth round, 2026-10-17)
+
+Until this round the model saw only the agent's view (balance, policy, recent lines) and the candidate list: it had nothing to decide *with*, which is why it harvested once and rested (§12.1). The observer now also returns `state`, built by `villageState()` from the same decoded public records it digests: tier; stores projected to the chain's clock as the owner's page projects them (whole units; the cap); production and upkeep per hour; the queue (what, seconds left) and the free slots; walls; the reserve by unit; marches out; the garrison (the province's site mirror), the village's own hosts and the other factions' hosts and camp in the province; the vigil; and one derived line, `threat` (`{hostile_troops, troops_at_home, outnumbered}`), present only when something hostile is there. `promptOf` adds, for the allowed actions, what each does (`ACTION_NOTES`) and the catalog (`CATALOG`: the six buildings with their first-copy cost and rate; the six trainable units with the cost per started batch of 100; informational — the program decides). The decider refuses, before anything reaches the chain, a `Train` with `n < 1` and an answer the state's stores cannot pay for (`affordable()`); a refused answer is a failed call (charged, as decided) and the autopilot plays free, and the runner's log now says why. Nothing private reaches the model: no key, no token, no owner address (test). Prompt size grew from ≈ 180 to ≈ 930 prompt tokens per call (`run9`: 985–991), within the pinned server's 16k context; the latency stayed ≈ 1.2–1.9 s per call on the bench.
 
 ## 8. What was verified
 
 * `cd permutation-gateway && npm test` — the full suite, including the new `test/agent-wallet-*.test.mjs` (gateway, money, runner, server, ledger). See the completion report for the count.
 * `scripts/agent-wallet-e2e.mjs` on a disposable `frontier-stack` world (its header has the commands; runs `agent-e2e-2` (season 92) and, after the review fixes, `agent-e2e-3` (season 93), 2026-10-17: **17 checks passed** each; run 4 also checks the breakdown (two `spend` lines of 10,000, both `inference`; `game` and `network` 0; three `network` lines of 10,000 lamports paid by the relay) and the chain's delegation before and after the owner's SetSession — deposit 10,000,000, two model calls charged 20,000, withdrawn 9,980,000 to the owner's token account): faucet → x402 join → PlaceHome → manual Harvest → create (owner command) → forged and stranger commands refused → owner-signed deposit credited once → `SetSession` to the agent key → auto → an outside caller's Harvest sent and landed, a repeat replayed, a march and another village refused, a bad token refused → the relay's own runner acting twice with a stand-in model server on loopback, charged per call → the agent key on `POST /f/relay` refused → manual: requests refused, the runner silent, the owner's `SetSession` back and a manual Harvest → `withdraw all` landing in the owner's token account, `deposited = spent + withdrawn`. The transcript is written to `.local/agent-wallet-e2e/<run>/transcript.json`.
+
+* **Fourth round (2026-10-17).** `test/agent-wallet-caps.test.mjs` (the two questions, the owner burst, the state and the guards); run `agent-e2e-8` (the deadline rule end to end on localnet with a real kill -9, §6.5); runs of `scripts/agent-decision-bench.mjs` against Gemma (`bench-1` … `bench-4`, §12.2); run `agent-e2e-9` (the real model in the live world with the state, 18 checks, §12.2). `docs/agent-wallet/VERIFY.md` has the commands to repeat each of these without trusting this document.
 
 ## 8.1 Where the implementation should land
 
@@ -236,6 +247,9 @@ So, by content, main carries territory-opening's features in later form; the res
 * **The browser page is a first version** (§10): one standalone page, the dev wallet only, tested with a fake DOM against the live stack (`scripts/agent-page-smoke.mjs`), not yet in a real browser session.
 * **A full withdrawal while a hold is `sending`** leaves that hold's money to come back later; the owner withdraws it with a second command.
 * **The deposit transaction must be built by the client** (the E2E and later the browser); the relay does not build or sponsor it. A sponsored deposit (relay-paid fee, owner-signed, verified byte for byte as the x402 join is) would be the natural next step for the browser.
+
+* **The model's judgement is measured, not solved** (§12.2): with the state and the catalog Gemma 4 26B builds a Food building first whenever it can afford one, reads a threat from the derived line but not from the raw host list alone, and once answered an unaffordable training with a reason admitting it; the guards turn such answers into a free autopilot turn. A herald record a few seconds behind the chain can make an answer that was right on the record be refused on chain (run 9: one `Build` refused `QueueFull`; the model call is charged, the action costs nothing).
+* **The settlement's identity is the token, not a person** (§6.5): one operator token per relay. Named tokens, or a per-operator credential, would be needed before several people settle calls.
 
 ## 10. The owner's page (`web/frontier/agent.html`, `fagent.mjs`)
 
@@ -284,9 +298,43 @@ Same world shape (conquest, 10×, tick 8 s), same model server, same price. "Bef
 
 A rest still costs a call (the owner's rule stands); what changed is that the same state is never asked twice and a resting agent is asked less and less often until something happens. The price per call stays the localnet test price.
 
-## 13. Decisions wanted from the owner (third round)
+### 12.2 Judgement by situation, and the live world with the state (the fourth round, 2026-10-17)
 
-1. **Call controls** (§7.1): the minimum gap (proposed 60 s in the test world; one turn, 10 min, in the real one), the operator's cap (proposed 200 a day), whether `policy.budget.callsPerDay` is shown to owners, and the back-off ceiling (16 turns).
-2. **Unresolved calls** (§6.5): adopt the deadline rule or not; which deadline (15 min / **1 h recommended** / 24 h); whether a late result after the deadline is ever billed (proposed: never).
-3. **Integration** (INTEGRATION-REVIEW.md): retire `codex/territory-opening`; cut the uncommitted art/VFX track of its worktree into a branch; who owns that worktree.
-4. **The real browser**: the Chrome extension was not connected in this session (two attempts); the page is verified by its module tests and the fake-DOM smoke only. To verify in a real browser: install/enable "Claude in Chrome", sign in with the same account, restart Chrome; then the page at `http://127.0.0.1:41940/frontier/frontier/agent.html` on a running stack. The refusal, network-failure, reload and in-flight cases are still to be checked there.
+The owner's point after the third round: fewer calls is not "the same result for less" when the agent also did less. Two measurements answer it. **(a) The bench** (`scripts/agent-decision-bench.mjs`): eight prepared situations (two where a careful player builds, two where they train, three where they rest, one where they are defended already) put to the real model through the relay's own decider and prompt, temperature 0, seed 7; nothing on chain. The same situations were run as the prompt grew:
+
+| Bench | Prompt | Right | Wrong | Invalid (refused by the code) | The misses |
+|---|---|---|---|---|---|
+| bench-1 | state + catalog | 6 of 8 | 2 | 0 | both "train" situations: built Food with a hostile host and a camp in the province; rested with a host at the gate and a batch affordable |
+| bench-2 | + the derived `threat` line, "defence first" in the system prompt | 7 of 8 | 1 | 0 | "a threat but nothing affordable": answered `Train n=0` with a reason saying it cannot afford a batch |
+| bench-3 | + "n ≥ 1, best a multiple of 100" in the Train note; `n < 1` refused | 7 of 8 | 1 | 0 | the same situation: `Train n=100` on Food 20, the reason again admitting the stores are short |
+| bench-4 | + an unaffordable answer refused by the code (`affordable()`) | 7 of 7 judged | 0 | 1 | the same answer, now refused before the chain; the autopilot would play free |
+
+The bench's own live situation (the village of run 8 at turn 65, stores ≈ 300 of each, an empty queue): `Build item 0` (Food), "stores are healthy and queue is free". Reports: `.local/agent-wallet-e2e/bench-{1,2,3,4}/report.md` and `report.json` (every prompt, answer, reason, tokens, latency). What the bench does not show: a long horizon (one decision per situation), marches (never offered), the walls and the tier-up (not offered).
+
+**(b) The live world, same conditions as run 7** (conquest, 10×, tick 8 s, minimum gap 30 s, owner gap 10 s, Gemma on the pinned server, 0.01 per call, the E2E's seven-minute window; run `agent-e2e-9`, season 98, transcript `.local/agent-wallet-e2e/run9-gemma-state/transcript.json`, 18 checks; the relay of this run had the state and the catalog in the prompt but not yet the threat line and the two guards, which came after it started):
+
+| | Run 7 (triggers, no state) | Run 9 (triggers, with the state) |
+|---|---|---|
+| Model calls in the window (≈ 7 turns) | 5 (+1 first) | 11 (+1 first) |
+| Charged | 0.05 (0.06) | 0.11 (0.12) |
+| Actions sent in the window | 0 (1 Harvest at the first call) | 8: Build ×2, Train ×4 (Spearmen, "a camp with 126 troops is in the province"), Harvest ×2 by the autopilot after 2 failed model calls |
+| Refused on chain | 0 | 1 (a fourth Build: `QueueFull`) |
+| Rests charged | 5 | 2 |
+| Ticks that asked nothing | 47 (no change 21, back-off 23, gap 3) | 41 (minimum gap 28, no change 10, back-off 3) |
+| Withdrawn at the end | 9,940,000 | 9,880,000 (`deposited = spent + withdrawn`) |
+
+Read together: the calls doubled because the village had things to do (its own actions landing are events; a camp sat in the province), and the minimum gap did the bounding (28 of the 41 skips) — the ceiling at this gap is 14 calls a window, 11 happened. Cost followed activity, about 0.014 per action sent, instead of following time. The two failed calls were refused answers (the relay of run 9 did not yet log the message; it does now), each charged and followed by the free autopilot. Whether 0.12 for eight actions in seven minutes is acceptable is the owner's call on the prices and the gap (§13); the 0.01 stays a localnet test price.
+
+## 13. Decisions: taken (fourth round) and still wanted
+
+**Taken by the owner, 2026-10-17 (fourth round):**
+1. **Integration:** `main` is the base; no merge before the real-browser verification; `codex/territory-opening` is not deleted; its art/VFX track is taken in later as its own track (INTEGRATION-REVIEW.md §3).
+2. **Unresolved calls:** the one-hour release is tried on localnet first (done, §6.5) and is not yet a production billing rule. The flag stays off by default in the code; the localnet stacks are started with it.
+3. **Call controls:** event-driven stays; an owner change can no longer skip the gap without a bound (the owner gap, §7.1); the caps are checked before any trigger.
+4. **Next:** the real-browser flow, and whether the model acts by the situation (§12.2 is the first measurement).
+
+**Still wanted:**
+1. The production figures for the minimum gap, the owner gap, the operator's cap and the back-off ceiling (§7.1), now that §12.2 shows cost following activity at ≈ 0.014 per action with a 30 s gap.
+2. The deadline for production (15 min / 1 h / 24 h) once the localnet trial is judged enough, and whether named operator tokens are wanted before several people settle (§6.5, §9).
+3. The real browser: the Chrome extension was not connected in this session either (third attempt). To verify: install/enable "Claude in Chrome", sign in with the same account, restart Chrome; then, with a stack up, `http://127.0.0.1:<herald>/frontier/frontier/agent.html` — deposit, budget, auto, stop, revoke, withdraw; the signature refusal, a network failure, a reload, an operation while a call is in flight.
+4. What the model may be offered next (walls, the tier-up, SetVigil with a real schedule), and whether a Food-first bias is acceptable or the prompt should carry the village's goal.

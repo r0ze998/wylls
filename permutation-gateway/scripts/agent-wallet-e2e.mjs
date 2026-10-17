@@ -33,7 +33,8 @@
 //   runner recorded with the model's own reason, and the charges, under "model" — kept apart from a stand-in run.
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -62,6 +63,19 @@ const realModel = process.env.AGENT_E2E_MODEL === 'real';
 // A measurement window (ms): after auto is on, leave the agent alone this long and report what the runner did (calls, cost, actions).
 const windowMs = Number(process.env.AGENT_E2E_WINDOW_MS ?? 0);
 const llmUrl = process.env.AGENT_E2E_LLM ?? 'http://127.0.0.1:41901';
+// Scenario 'unresolved' (DESIGN.md §6.5, the deadline rule tried on localnet): the stand-in holds the first model call open,
+// the relay is killed (-9) while the call runs, the stack's supervisor restarts it, the hold comes back 'unresolved'
+// (reserved, not charged, not refunded); the owner stops the agent and withdraws: the unresolved amount stays. With
+// AGENT_E2E_WAIT_RELEASE_MS > 0 the run then waits for the relay's deadline (FRONTIER_AGENT_UNRESOLVED_RELEASE_MS) and
+// checks the release: the money is available again, the day's call count did not go back, the operator's record has the
+// call, a withdrawal empties the agent. Needs AGENT_E2E_RUN_DIR (the stack's run directory: the relay's pid is found by
+// its state file; the operator token is read from relay/operator.token) and AGENT_E2E_OPERATOR_URL (the relay's operator
+// listener, loopback).
+const scenario = process.env.AGENT_E2E_SCENARIO ?? null;
+const runDir = process.env.AGENT_E2E_RUN_DIR ?? null;
+const operatorUrl = process.env.AGENT_E2E_OPERATOR_URL ?? null;
+const waitReleaseMs = Number(process.env.AGENT_E2E_WAIT_RELEASE_MS ?? 0);
+if (scenario === 'unresolved') { assert.ok(runDir && operatorUrl, 'AGENT_E2E_RUN_DIR and AGENT_E2E_OPERATOR_URL are needed'); assert.ok(!realModel, 'the scenario uses the stand-in (a held call)'); }
 for (const u of [base, rpcUrl]) assert.ok(['127.0.0.1', 'localhost'].includes(new URL(u).hostname), 'local-only test');
 const outDir = path.resolve(process.env.AGENT_E2E_OUT ?? fileURLToPath(new URL(`../../.local/agent-wallet-e2e/${new Date().toISOString().replace(/[:.]/g, '-')}`, import.meta.url)));
 mkdirSync(outDir, { recursive: true });
@@ -84,7 +98,7 @@ const api = async (p, body, headers = {}) => { const r = await fetch(gw + p, bod
 const h = createHerald({ base });
 
 // A stand-in for llama-server on loopback: every decision is a Harvest. The relay's runner calls it; each call is charged.
-const model = { calls: 0 };
+const model = { calls: 0, stalled: null, onStall: null };
 const modelServer = http.createServer((req, res) => {
   if (req.method === 'GET' && req.url === '/health') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end('{"status":"ok"}'); }
   let body = '';
@@ -93,8 +107,11 @@ const modelServer = http.createServer((req, res) => {
     model.calls++;
     const b = JSON.parse(body || '{}');
     assert.equal(JSON.stringify(b).includes('capability'), false, 'the model never sees a token');
+    // Scenario 'unresolved': the first call is held open (never answered); the relay is killed while it waits. Later calls rest.
+    if (scenario === 'unresolved' && model.calls === 1) { model.stalled = { at: new Date().toISOString(), messages: b.messages?.length ?? null }; model.onStall?.(); req.socket.on('close', () => { model.stalledClosed = new Date().toISOString(); }); return; }
+    const answer = scenario === 'unresolved' ? { action: 'rest', fields: {}, reason: 'e2e scenario: rest' } : { action: 'Harvest', fields: {}, reason: 'e2e' };
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ action: 'Harvest', fields: {}, reason: 'e2e' }) }, finish_reason: 'stop' }], usage: { prompt_tokens: 40, completion_tokens: 6 } }));
+    res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(answer) }, finish_reason: 'stop' }], usage: { prompt_tokens: 40, completion_tokens: 6 } }));
   });
 });
 if (!realModel) await new Promise(r => modelServer.listen(modelPort, '127.0.0.1', r));
@@ -105,7 +122,7 @@ if (realModel) {
   modelInfo = { mode: 'real', url: llmUrl, alias: models?.data?.[0]?.id ?? null, modelPath: props?.model_path ?? props?.default_generation_settings?.model ?? null, props: props ? { n_ctx: props.default_generation_settings?.n_ctx ?? null, total_slots: props.total_slots ?? null, chat_template: props.chat_template ? 'present' : null } : null };
   assert.ok(modelInfo.alias, `no model at ${llmUrl}`);
   report.model = modelInfo;
-} else report.model = { mode: 'stand-in', port: modelPort, answers: 'Harvest, every call' };
+} else report.model = { mode: 'stand-in', port: modelPort, answers: scenario === 'unresolved' ? 'the first call is held open, later calls rest' : 'Harvest, every call' };
 
 let pin, A, s;
 async function action(name, player, fields, extra = {}) {
@@ -144,6 +161,109 @@ const command = (keypair, op, { agentId, params = {} }) => {
   return { command: c, signature: signCommand(c, keypair) };
 };
 const agentView = async id => (await api(`/f/agent?id=${id}`)).body;
+// The operator listener (loopback) with the stack's token: never printed, never in the transcript.
+const operatorToken = scenario === 'unresolved' ? readFileSync(path.join(runDir, 'relay', 'operator.token'), 'utf8').trim() : null;
+const operatorApi = async (method, p, body) => { const r = await fetch(operatorUrl + p, { method, headers: { 'content-type': 'application/json', authorization: `Bearer ${operatorToken}` }, body: body === undefined ? undefined : JSON.stringify(body) }); return { status: r.status, body: await r.json().catch(() => ({})) }; };
+/** The relay's pid under the stack: the node process whose command names this run's relay state file. */
+function relayPid() {
+  const out = execSync(`pgrep -f -- "${path.join(runDir, 'relay', 'relay-state.json')}" || true`, { encoding: 'utf8' }).trim().split('\n').filter(Boolean).map(Number);
+  const pids = out.filter(pid => { try { return execSync(`ps -p ${pid} -o command=`, { encoding: 'utf8' }).includes('server.mjs'); } catch { return false; } });
+  assert.equal(pids.length, 1, `relay pid: ${JSON.stringify(out)}`);
+  return pids[0];
+}
+
+/**
+ * Scenario 'unresolved' (see the header): a model call in flight, the relay killed and restarted, the hold unresolved;
+ * stop and withdraw around it; then (optionally) the deadline release.
+ */
+async function unresolvedScenario({ agentId, keypair, price, total, wallet }) {
+  const sc = (report.scenario = { name: 'unresolved', releaseMs: null, steps: [] });
+  const step = (name, details) => { sc.steps.push({ name, at: new Date().toISOString(), ...details }); check(`scenario-${name}`, details); };
+  // a. The runner asks the stand-in; the call is held open; the ledger shows a running hold.
+  await new Promise(res => { if (model.stalled) res(); else model.onStall = res; });
+  const running = await eventually('a running inference hold', async () => { const v = await agentView(agentId); const h = v.holds.find(x => x.category === 'inference' && x.state === 'running'); return h ? { v, h } : null; }, 30_000);
+  const pid = relayPid();
+  step('call-in-flight', { holdId: running.h.id, key: running.h.key, amount: running.h.amount, state: running.h.state, callsToday: running.v.day.calls, reserved: running.v.balance.reserved, modelCalls: model.calls, relayPid: pid });
+  // b. kill -9 the relay while the call runs; the supervisor restarts it (2 s); recover() marks the running hold unresolved.
+  process.kill(pid, 'SIGKILL');
+  const killedAt = Date.now();
+  const back = await eventually('the relay back after the kill', async () => { try { const t = await api('/f/agent/terms'); return t.status === 200 ? t.body : null; } catch { return null; } }, 120_000);
+  const pid2 = await eventually('a new relay pid', async () => { try { const p = relayPid(); return p !== pid ? p : null; } catch { return null; } }, 30_000);
+  const unresolved = await eventually('the hold unresolved', async () => { const v = await agentView(agentId); const h = v.holds.find(x => x.id === running.h.id); return h?.state === 'unresolved' ? { v, h } : null; }, 60_000);
+  const rec = await operatorApi('GET', '/f/agent/unresolved');
+  assert.equal(rec.status, 200, json(rec));
+  const mine = rec.body.holds.find(x => x.id === running.h.id);
+  assert.ok(mine, json(rec.body));
+  assert.equal(mine.unresolvedReason, 'restart');
+  const cost = rec.body.operatorCosts.find(x => x.holdId === running.h.id && x.kind === 'unknown-call');
+  assert.ok(cost, 'the operator record has the unknown call');
+  sc.releaseMs = rec.body.unresolvedReleaseMs ?? null;
+  assert.equal(unresolved.v.balance.unresolved, String(price));
+  assert.equal(unresolved.v.balance.reserved, String(price));
+  assert.equal(unresolved.v.balance.spent.inference, '0', 'nothing charged for a call whose outcome the relay never saw');
+  step('relay-restarted', { killedAt: new Date(killedAt).toISOString(), downMs: Date.now() - killedAt, oldPid: pid, newPid: pid2, stalledClosed: model.stalledClosed ?? null, runner: back.runner,
+    hold: { id: running.h.id, state: unresolved.h.state, reason: mine.unresolvedReason }, balance: unresolved.v.balance, callsToday: unresolved.v.day.calls, operatorRecord: cost, unresolvedReleaseMs: sc.releaseMs, modelCallsAfterRestart: model.calls - 1 });
+  // c. The owner stops the agent and withdraws everything: the unresolved amount stays reserved (not withdrawable, not charged).
+  const manual = await api('/f/agent/command', command(keypair, 'mode', { agentId, params: { mode: 'manual' } }));
+  assert.equal(manual.body.agent.mode, 'manual', json(manual));
+  const callsAtStop = (await agentView(agentId)).day.calls;
+  const walletBefore = await tokenBalance(wallet.address);
+  const w1 = await api('/f/agent/command', command(keypair, 'withdraw', { agentId, params: { all: true } }));
+  assert.equal(w1.status, 200, json(w1));
+  const done1 = await eventually('first withdrawal done', async () => { const v = await agentView(agentId); const x = v.withdrawals.find(y => y.id === w1.body.withdrawal.id); return x?.state === 'done' ? { v, x } : null; }, 60_000);
+  const b1 = done1.v.balance;
+  assert.equal(b1.available, '0');
+  assert.equal(b1.unresolved, String(price), 'the unresolved call stays reserved through a full withdrawal');
+  assert.equal(b1.reserved, String(price));
+  assert.equal(BigInt(done1.x.amount), total - price - BigInt(b1.spent.inference), 'everything but the unresolved call (and any charged rest) came back');
+  step('stopped-and-withdrew', { withdrawal: { id: done1.x.id, amount: done1.x.amount, signature: done1.x.signature }, balance: b1, walletDelta: String((await tokenBalance(wallet.address)) - walletBefore), callsToday: callsAtStop });
+  if (!(waitReleaseMs > 0)) { report.finishedAt = new Date().toISOString(); save(); console.log(`agent-wallet-e2e (scenario unresolved, no wait): ${report.checks.length} checks passed; transcript ${path.join(outDir, 'transcript.json')}`); return; }
+  // d. The deadline: the relay releases the unresolved hold after FRONTIER_AGENT_UNRESOLVED_RELEASE_MS (reconcile); nothing is charged.
+  assert.ok(sc.releaseMs > 0, 'the relay was started without FRONTIER_AGENT_UNRESOLVED_RELEASE_MS');
+  const t0 = Date.now();
+  const released = await eventually('the deadline release', async () => { const v = await agentView(agentId); if (v.balance.unresolved !== '0') return null; return v; }, waitReleaseMs);
+  const waited = Date.now() - t0;
+  const rel = released.history.find(x => x.type === 'release' && x.key === running.h.key);
+  assert.ok(rel && rel.reason === 'auto-release', json(released.history.slice(-5)));
+  assert.equal(released.balance.available, String(price), 'the money is available again');
+  assert.equal(released.balance.reserved, '0');
+  assert.equal(released.balance.spent.inference, b1.spent.inference, 'nothing charged by the release');
+  assert.equal(released.day.calls, callsAtStop, 'the day\'s call count does not go back when a hold is released');
+  const rec2 = await operatorApi('GET', '/f/agent/unresolved');
+  const relCost = rec2.body.operatorCosts.find(x => x.holdId === running.h.id && x.kind === 'released-call');
+  assert.ok(relCost, json(rec2.body.operatorCosts));
+  assert.equal(rec2.body.holds.find(x => x.id === running.h.id), undefined);
+  step('released-at-deadline', { waitedMs: waited, sinceUnresolvedMs: Date.now() - killedAt, releaseMs: sc.releaseMs, release: rel, balance: released.balance, callsToday: released.day.calls, operatorRecord: relCost, settlements: rec2.body.settlements.length });
+  // e. The owner's cap counts the released call: with callsPerDay = today's count, auto makes no model call (the autopilot plays, free).
+  const cap = released.day.calls;
+  const pol = await api('/f/agent/command', command(keypair, 'policy', { agentId, params: { policy: { allowed: ['economy'], budget: { total: '1000000', perDay: '500000', callsPerDay: cap } } } }));
+  assert.equal(pol.status, 200, json(pol));
+  const callsBefore = model.calls;
+  const auto2 = await api('/f/agent/command', command(keypair, 'mode', { agentId, params: { mode: 'auto' } }));
+  assert.equal(auto2.body.agent.mode, 'auto', json(auto2));
+  const acted = await eventually('the autopilot acted without a model call', async () => { const v = await agentView(agentId); const ai = v.history.filter(x => x.type === 'action' && x.source === 'ai' && x.status === 'sent'); return ai.length >= 1 ? { v, ai } : null; }, 60_000);
+  await sleep(2.5 * back.runner.tickMs);
+  assert.equal(model.calls, callsBefore, 'the stand-in was not asked: the cap counted the released call');
+  const v2 = await agentView(agentId);
+  assert.equal(v2.day.calls, cap);
+  assert.equal(v2.balance.spent.inference, released.balance.spent.inference, 'no charge');
+  const manual2 = await api('/f/agent/command', command(keypair, 'mode', { agentId, params: { mode: 'manual' } }));
+  assert.equal(manual2.body.agent.mode, 'manual');
+  step('cap-counts-released-call', { callsPerDay: cap, callsToday: v2.day.calls, modelCallsDuringAuto: model.calls - callsBefore, autopilotActions: acted.ai.map(x => ({ name: x.name, signature: x.signature ?? null })), spentInference: v2.balance.spent.inference });
+  // f. The rest comes back; the books balance.
+  const w2 = await api('/f/agent/command', command(keypair, 'withdraw', { agentId, params: { all: true } }));
+  assert.equal(w2.status, 200, json(w2));
+  const done2 = await eventually('second withdrawal done', async () => { const v = await agentView(agentId); const x = v.withdrawals.find(y => y.id === w2.body.withdrawal.id); return x?.state === 'done' ? { v, x } : null; }, 60_000);
+  const b2 = done2.v.balance;
+  assert.equal(b2.available, '0'); assert.equal(b2.reserved, '0'); assert.equal(b2.unresolved, '0');
+  assert.equal(BigInt(b2.deposited), BigInt(b2.spent.inference) + BigInt(b2.spent.game) + BigInt(b2.withdrawn) + BigInt(b2.reserved) + BigInt(b2.pendingWithdraw), 'deposited = spent + withdrawn');
+  assert.equal(BigInt(b2.withdrawn) + BigInt(b2.spent.inference), total);
+  step('withdrawn-all', { withdrawal: { id: done2.x.id, amount: done2.x.amount, signature: done2.x.signature }, balance: b2, walletDelta: String((await tokenBalance(wallet.address)) - walletBefore) });
+  report.finishedAt = new Date().toISOString();
+  save();
+  console.log(`agent-wallet-e2e (scenario unresolved): ${report.checks.length} checks passed; transcript ${path.join(outDir, 'transcript.json')}`);
+}
+
 const tokenBalance = async wallet => BigInt((await api(`/f/prize?wallet=${wallet}`)).body.wallet.balance);
 
 async function run() {
@@ -242,6 +362,7 @@ async function run() {
   assert.equal(auto.body.agent.mode, 'auto', json(auto));
   const epoch = auto.body.agent.modeEpoch;
   check('mode-auto', { modeEpoch: epoch });
+  if (scenario === 'unresolved') return unresolvedScenario({ agentId, keypair, price, total, wallet });
 
   // 3. Actions: an outside caller with the capability (the MCP shape), then the relay's own runner.
   const request = (over = {}) => ({ agentId, source: 'mcp', idempotencyKey: `e2e-${randomBytes(6).toString('hex')}`, policyVersion: 1, modeEpoch: epoch, action: { name: 'Harvest', holding: village, fields: {} }, ...over });

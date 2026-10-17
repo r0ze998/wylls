@@ -11,7 +11,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Keypair } from '@solana/web3.js';
 import { ERR } from '../src/frontier/agent/contract.mjs';
-import { AgentScheduler, llmDecider, triggersOf, promptOf } from '../src/frontier/agent/runner.mjs';
+import { AgentScheduler, DEFAULT_OWNER_CALL_GAP_MS, llmDecider, triggersOf, promptOf } from '../src/frontier/agent/runner.mjs';
 import { call, createAgent, delegate, deposit, ownerCommand, policy, relay, sound } from './agent-wallet-fixtures.mjs';
 
 const post = (r, path, body) => call(r.public, 'POST', path, { body, ip: '127.0.0.1' });
@@ -57,6 +57,9 @@ test('an unchanged state never asks the model; a new turn, a village event and a
   // (the test clock ran ahead of the wall clock: the owner command goes through the gateway, not the signed route)
   r.gateway.setPolicy(a.agentId, a.o, policy(['economy', 'vigil'], '100000000', '100000000'));
   t += 1_000;
+  // Inside the owner gap (a call 1 s ago): not yet, the trigger stays; past it: asked, through the minimum gap.
+  assert.deepEqual((await s.tick())[0], { agentId: a.agentId, skipped: 'owner-gap', triggers: ['owner'] });
+  t += DEFAULT_OWNER_CALL_GAP_MS;
   assert.deepEqual((await s.tick())[0].triggers, ['owner']);
   assert.equal(llm.calls, before + 1);
   assert.deepEqual(s.stats.skipped['no-change'], 50);
@@ -152,11 +155,11 @@ test('the observer\'s digests: a quiet turn (resolution counters, event sequence
   assert.equal(accountDigest('Citizen', cit({})), accountDigest('Citizen', cit({ LAST_ACTION_TS: 9n, BUCKET_T: 3n })));
   assert.notEqual(accountDigest('Citizen', cit({})), accountDigest('Citizen', cit({ SESSION: new Uint8Array(32).fill(3) })), 'the owner took the key back');
   // The observer over a fake herald: the village's holding is picked by p,q,site; a province whose only change is its resolution counter reads the same.
-  const pages = { '/h/season': { genesisTs: 1000, latestUnix: 1000 + 600 * 7 + 1 }, '/h/me/W': { citizen: { bytes_b64: Buffer.from(cit({})).toString('base64') }, holdings: [{ bytes_b64: Buffer.from(hold({ SITE: 9 })).toString('base64') }, { bytes_b64: Buffer.from(hold({})).toString('base64') }] }, '/h/province/1,2/latest': { province: { bytes_b64: Buffer.from(prov({})).toString('base64') }, slots: [{ key: 'as:1' }], seq: '5' } };
+  const pages = { '/h/season': { genesisTs: 1000, latestUnix: 1000 + 600 * 7 + 1 }, '/h/me/W': { citizen: { bytes_b64: Buffer.from(cit({})).toString('base64') }, holdings: [{ bytes_b64: Buffer.from(hold({ SITE: 9 })).toString('base64') }, { bytes_b64: Buffer.from(hold({})).toString('base64') }] }, '/h/province/1,2/latest': { bytes: Buffer.from(prov({})).toString('base64'), slots: [{ key: 'as:1' }], seq: '5' } };
   const o = new AgentObserver({ heraldUrl: 'http://h', fetch: async url => ({ ok: true, json: async () => pages[new URL(url).pathname] }) });
   const a = await o.observe({ owner: 'W', village: [1, 2, 3] });
   assert.deepEqual([a.ok, a.bell, a.holding === accountDigest('Holding', hold({}))], [true, 7, true]);
-  pages['/h/province/1,2/latest'] = { province: { bytes_b64: Buffer.from(prov({ RESOLVED_NEXT: 12 })).toString('base64') }, slots: [{ key: 'as:1' }], seq: '6' };
+  pages['/h/province/1,2/latest'] = { bytes: Buffer.from(prov({ RESOLVED_NEXT: 12 })).toString('base64'), slots: [{ key: 'as:1' }], seq: '6' };
   const b = await o.observe({ owner: 'W', village: [1, 2, 3] });
   assert.equal(b.province, a.province, 'a quiet turn: the same province digest');
   pages['/h/province/1,2/latest'].slots.push({ key: 'as:2' });

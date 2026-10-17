@@ -34,6 +34,17 @@
 - 統合前確認：`docs/agent-wallet/INTEGRATION-REVIEW.md`（7 ファイルの機能単位の判定、未コミット 143 件の棚卸しと取り込み候補）。
 - 実ブラウザ：Chrome 拡張が未接続のため未実施（§13）。
 
+## 4回目（2026-10-17）に増えたもの
+- 所有者の決定を記録（DESIGN.md §13）：統合先は main、実ブラウザ検証前はマージしない、territory-opening は消さず art/VFX は別トラック；1 時間解放は localnet で先に検証（本番規則ではない）；イベント駆動は継続、owner 変更にも連打対策、上限は常に適用。
+- 追加確認 2 点（`test/agent-wallet-caps.test.mjs`）：(1) settle の操作者は認証情報から記録する（`by = {via:'operator-token', token:<指紋8桁>, ip}`、本文の by は `claimedBy`）。トークンは 1 本なので「どのトークン・どのアドレスか」までで、人の特定には名前付きトークンが要る。(2) 予約解放（停止・TTL・期限・運営返金）で `day.calls` は戻らない。上限はすり抜けない。
+- 見つけて直したもの：view の日付が hold まで繰り越されず、UTC 日付が変わるとスケジューラの上限が前日の回数を読んで二度と呼ばなくなる（修正＋テスト）；observer が herald の province 形（`{bytes, slots}`）を読んでおらず、run6・7 では州の変化（到着・camp）が一度も event にならなかった（修正＋fixture を実形に）。
+- owner 連打対策：`--agent-owner-call-gap-ms`（提案値 10 秒）。owner 変更は最小間隔を飛ばせるが、この間隔に 1 回。変更は落とさない。上限はトリガーより先に判定。
+- 1 時間解放の localnet 検証（§6.5、run8、`AGENT_E2E_SCENARIO=unresolved`）：呼出中に relay を kill -9 → 2.6 秒で再起動 → unresolved → 停止・全額出金で 10,000 だけ予約が残る → 3,601 秒後に解放 → 回数は 1 のまま → `callsPerDay:1` で auto にしてもモデルは呼ばれず autopilot の無料 Harvest → 残りを出金し `deposited = withdrawn`。
+- モデルに村の状態を渡す（§7.2）：倉庫・生産・建設列・城壁・予備兵・守備・州の敵勢と camp・派生の threat 行、行動の説明と価格表。コードが `Train n<1` と倉庫で払えない答えを拒否。
+- 場面別の判断比較（§12.2、`scripts/agent-decision-bench.mjs`、bench-1〜4）：8 場面で 6/8 → 7/8 → 7/8 → 7/7（1 件はコードが拒否）。実世界 run9（run7 と同条件）：呼出 11 回・0.11・行動 8 件送信（Build 2、Train 4、autopilot Harvest 2）、QueueFull 1。費用は時間ではなく活動に比例（約 0.014/行動）。
+- `docs/agent-wallet/VERIFY.md`：独立に検証する手順。
+- 実ブラウザ：拡張未接続（3 回目）で未実施。
+
 ## 残っていること（DESIGN.md §9–§11）
 - ブラウザ UI（所有者コマンドの署名、入金取引の組み立て、SetSession の受け渡し、残高表示）。
 - MCP サーバー本体（`POST /f/agent/action` を呼ぶだけ。ツール定義・冪等キー・capability の保管）。

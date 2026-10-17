@@ -21,7 +21,8 @@
 //                                                → ActionResult (always 200: `ok`, `status`, `error.code` say what happened)
 //   POST /f/agent/reconcile                      operator only: settle sent holds and withdrawals by the chain's answer
 //   GET  /f/agent/unresolved                     operator only: model calls whose outcome was unknown, and the operator's cost record
-//   POST /f/agent/settle {agentId, holdId, outcome: charge|refund, note?, by?, evidence?}   operator only: decide one unresolved call (audited)
+//   POST /f/agent/settle {agentId, holdId, outcome: charge|refund, note?, by?, evidence?}   operator only: decide one unresolved call (audited:
+//        `by` in the record is the credential — the operator token's fingerprint and the caller's address; the body's `by` is kept as `claimedBy`)
 //
 // Nothing here is MCP-specific: an MCP server calls POST /f/agent/action
 // (or AgentGateway.submit in process) like any other caller. The owner's
@@ -32,7 +33,7 @@ import { AgentError, ERR, SOURCES } from '../agent/contract.mjs';
 import { OWNER_OPS, verifyCommand } from '../agent/owner-auth.mjs';
 import { parseWire } from '../../cosign.mjs';
 import { RouteError } from '../../routes/errors.mjs';
-import { requireFrontierOperator } from './operator.mjs';
+import { operatorPrincipal, requireFrontierOperator } from './operator.mjs';
 
 function agents(ctx) {
   if (!ctx.agents) throw new AgentError(ERR.DISABLED, 'the agent wallet is not enabled on this relay (--agent-wallet)', 404);
@@ -131,8 +132,8 @@ export const agentRoutes = {
   },
 
   'POST /f/agent/settle': async (ctx, req) => {
-    requireFrontierOperator(ctx, req);
+    const who = operatorPrincipal(ctx, req);
     const b = await req.json();
-    return { body: { ok: true, ...agents(ctx).settleUnresolved(str(b.agentId, 'agentId', 64), str(b.holdId, 'holdId', 64), b.outcome, b.note ?? '', { by: b.by ?? 'operator', evidence: b.evidence ?? '' }) } };
+    return { body: { ok: true, ...agents(ctx).settleUnresolved(str(b.agentId, 'agentId', 64), str(b.holdId, 'holdId', 64), b.outcome, b.note ?? '', { by: who, claimedBy: b.by ?? null, evidence: b.evidence ?? '' }) } };
   },
 };

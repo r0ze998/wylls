@@ -94,7 +94,7 @@ test('a restart during a model call: the hold becomes unresolved (reserved, not 
   const hb = Object.values(r6.gateway.ledger.get(b.agentId).holds)[0];
   const charge = await operator(r6, 'POST', '/f/agent/settle', { agentId: b.agentId, holdId: hb.id, outcome: 'charge', note: 'the model log shows the call' });
   assert.deepEqual([charge.json.balance.spent.inference, charge.json.balance.reserved], [PRICE, '0']);
-  assert.ok(r6.gateway.view(b.agentId).history.some(x => x.type === 'spend' && x.decidedBy === 'operator'));
+  assert.ok(r6.gateway.view(b.agentId).history.some(x => x.type === 'spend' && x.decidedBy?.via === 'operator-token' && x.claimedBy === null), 'the charge names the credential, not a label');
   sound(r6);
 });
 
@@ -251,11 +251,11 @@ test('the proposed deadline rule is off by default; when given, an unresolved ca
   const hb = Object.values(on2.gateway.ledger.get(b.agentId).holds)[0];
   const dec = await operator(on2, 'POST', '/f/agent/settle', { agentId: b.agentId, holdId: hb.id, outcome: 'charge', note: 'the model log shows the request and its answer', by: 'ops-1', evidence: 'llama-server.log line 4321' });
   assert.equal(dec.status, 200, JSON.stringify(dec.json));
-  assert.equal(dec.json.by, 'ops-1');
+  assert.deepEqual([dec.json.by.via, dec.json.by.token.length, dec.json.claimedBy], ['operator-token', 8, 'ops-1']);
   const list = await operator(on2, 'GET', '/f/agent/unresolved');
   const s = list.json.settlements.at(-1);
-  assert.deepEqual([s.agentId, s.holdId, s.outcome, s.by, s.note, s.evidence, s.unresolvedReason, typeof s.at], [b.agentId, hb.id, 'charge', 'ops-1', 'the model log shows the request and its answer', 'llama-server.log line 4321', 'restart', 'number']);
-  assert.ok(on2.gateway.view(b.agentId).history.some(x => x.type === 'spend' && x.decidedBy === 'ops-1' && x.evidence));
+  assert.deepEqual([s.agentId, s.holdId, s.outcome, s.by.via, s.claimedBy, s.note, s.evidence, s.unresolvedReason, typeof s.at], [b.agentId, hb.id, 'charge', 'operator-token', 'ops-1', 'the model log shows the request and its answer', 'llama-server.log line 4321', 'restart', 'number']);
+  assert.ok(on2.gateway.view(b.agentId).history.some(x => x.type === 'spend' && x.decidedBy?.via === 'operator-token' && x.claimedBy === 'ops-1' && x.evidence));
   assert.equal((await operator(on2, 'POST', '/f/agent/settle', { agentId: b.agentId, holdId: hb.id, outcome: 'refund' })).status, 404, 'decided once');
   assert.equal(on2.gateway.ledger.settle(b.agentId, hb.id), false, 'a late result: no second charge');
   assert.equal(on2.gateway.view(b.agentId).balance.spent.inference, PRICE);
