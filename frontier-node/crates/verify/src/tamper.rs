@@ -26,6 +26,7 @@ use frontier_abi::layout::clash::{arrival as AR, clash_inputs as CI};
 use frontier_abi::layout::header as HD;
 use frontier_abi::layout::player::holding as H;
 use frontier_abi::log::{self as plog, transit_outcome, Kind, Link};
+use frontier_abi::v2::log::CqKind;
 use frontier_abi::tags::Ix;
 
 use crate::checks::v1_chains::match_links;
@@ -1735,6 +1736,213 @@ pub fn h1(run: &Input) -> Made {
     })
 }
 
+// ------------------------------------------------------------ conquest classes (contract §8.5 T25–T48; CQ3-A)
+
+/// `(transaction, position)` of every conquest record of `kind`.
+pub fn find_cq(inp: &Input, kind: CqKind) -> Vec<(usize, usize)> {
+    let mut v = vec![];
+    for t in 0..inp.txs.len() {
+        if inp.txs[t].err.is_some() {
+            continue;
+        }
+        for (i, b) in bodies(inp, t).iter().enumerate() {
+            if b.get(1) == Some(&(kind as u8)) {
+                v.push((t, i));
+            }
+        }
+    }
+    v
+}
+
+/// Edits the payload of conquest record `(t, i)` (`f` gets the payload).
+pub fn edit_payload_cq(inp: &mut Input, t: usize, i: usize, f: impl FnOnce(&mut [u8])) {
+    let mut bs = bodies(inp, t);
+    let b = &mut bs[i];
+    let r = frontier_abi::v2::log::decode(b).expect("record decodes");
+    let off = plog::HEAD_LEN + r.key.len();
+    let n = r.payload.len();
+    f(&mut b[off..off + n]);
+    set_bodies(inp, t, &bs);
+}
+
+/// Edits the data of the first program instruction with tag byte `tag`.
+pub fn edit_ix_tag(inp: &mut Input, t: usize, tag: u8, f: impl FnOnce(&mut Vec<u8>)) {
+    let mut tx = fclient::tx::from_wire(&inp.txs[t].tx).expect("tx");
+    let program = inp.cfg.program;
+    let keys = tx.message.account_keys.clone();
+    let ci = tx
+        .message
+        .instructions
+        .iter_mut()
+        .find(|c| keys[c.program_id_index as usize] == program && c.data.first() == Some(&tag))
+        .expect("instruction");
+    f(&mut ci.data);
+    inp.txs[t].tx = fclient::tx::wire(&tx);
+}
+
+/// The account keys of the first program instruction with tag byte `tag`
+/// in transaction `t`, in instruction order.
+fn ix_keys(inp: &Input, t: usize, tag: u8) -> Option<Vec<Key>> {
+    let tx = fclient::tx::from_wire(&inp.txs[t].tx).ok()?;
+    let program = inp.cfg.program;
+    let keys = &tx.message.account_keys;
+    let ci = tx
+        .message
+        .instructions
+        .iter()
+        .find(|c| keys[c.program_id_index as usize] == program && c.data.first() == Some(&tag))?;
+    Some(ci.accounts.iter().filter_map(|&a| keys.get(a as usize).map(|k| k.to_bytes())).collect())
+}
+
+/// Edits account `k`'s post-state in transaction `t` alone.
+fn edit_account_at(inp: &mut Input, k: &Key, t: usize, f: impl FnOnce(&mut Vec<u8>)) -> bool {
+    if let Some((_, Some(a))) = inp.txs[t].post.iter_mut().find(|(x, _)| x.to_bytes() == *k) {
+        f(&mut a.data);
+        return true;
+    }
+    false
+}
+
+/// The last transaction before `t` whose post-states hold `k`.
+fn last_post_before(inp: &Input, k: &Key, t: usize) -> Option<usize> {
+    (0..t).rev().find(|&u| inp.txs[u].post.iter().any(|(x, a)| x.to_bytes() == *k && a.is_some()))
+}
+
+/// T28: +1 progress on a CONQUEST site event (V15 replays the step).
+pub fn cq_t28(run: &Input) -> Made {
+    let mut inp = run.clone();
+    let recs = find_cq(&inp, CqKind::CONQUEST);
+    let mut hit = None;
+    for &(t, i) in &recs {
+        let b = &bodies(&inp, t)[i];
+        let r = frontier_abi::v2::log::decode(b).expect("record decodes");
+        let n = r.payload.first().copied().unwrap_or(0) as usize;
+        if let Some(e) = (0..n.min(14)).find(|&e| r.payload[1 + 4 * e] != frontier_abi::v2::log::event::KEEP_SITE) {
+            hit = Some((t, i, e));
+            break;
+        }
+    }
+    let (t, i, e) = hit.need("a CONQUEST record with a site event (a siege)")?;
+    edit_payload_cq(&mut inp, t, i, |pl| pl[1 + 4 * e + 3] = pl[1 + 4 * e + 3].wrapping_add(1));
+    Ok(Case {
+        class: "T28",
+        what: "+1 progress on a siege's CONQUEST event",
+        feature: None,
+        codes: &[SIEGE_PROGRESS_MISMATCH],
+        input: inp,
+    })
+}
+
+/// T30: a first holding's owner rewritten (V16).
+pub fn cq_t30(run: &Input) -> Made {
+    let mut inp = run.clone();
+    let (w, f) = world(&inp);
+    let mut hit = None;
+    for &(t, i) in &find(&inp, Kind::HARVEST) {
+        let r = &w.recs[rec_at(&w, t, i)];
+        let (p, q, s) = r.pqs();
+        let hk = f.ctx.holding(p, q, s);
+        let is_first = w.txs[t]
+            .post_data(&hk)
+            .is_some_and(|d| d.len() == H::SIZE && d[H::ORDER] == 1)
+            && w.state_before(&hk, t).is_some();
+        if is_first {
+            hit = Some((t, hk));
+            break;
+        }
+    }
+    let (t, hk) = hit.need("a Harvest of a first holding with a state before")?;
+    for u in t..inp.txs.len() {
+        edit_account_at(&mut inp, &hk, u, |d| d[H::OWNER_CITIZEN] = d[H::OWNER_CITIZEN].wrapping_add(1));
+    }
+    if let Some(Some(a)) = inp.finals.get_mut(&hk) {
+        a.data[H::OWNER_CITIZEN] = a.data[H::OWNER_CITIZEN].wrapping_add(1);
+    }
+    Ok(Case {
+        class: "T30",
+        what: "a first holding's owner rewritten",
+        feature: None,
+        codes: &[FIRST_HOLDING_TRANSFERRED],
+        input: inp,
+    })
+}
+
+/// T31: a capture settled into a slot the captor had not reserved (V17).
+pub fn cq_t31(run: &Input) -> Made {
+    let mut inp = run.clone();
+    let (t, _) = *find_cq(&inp, CqKind::CAPTURE_SETTLED).first().need("a CAPTURE_SETTLED")?;
+    let keys = ix_keys(&inp, t, frontier_abi::v2::tags::Ix::SettleCapture.tag()).need("a SettleCapture instruction")?;
+    let captor = *keys.get(4).need("the captor Citizen account")?;
+    let u = last_post_before(&inp, &captor, t).need("the captor's state before the settlement")?;
+    use frontier_abi::v2::layout::player::citizen as C2;
+    edit_account_at(&mut inp, &captor, u, |d| d[C2::SLOTS] &= !(C2::SLOTS_RESERVED_2 | C2::SLOTS_RESERVED_3));
+    Ok(Case {
+        class: "T31",
+        what: "a capture into a slot that was not reserved at the horn",
+        feature: None,
+        codes: &[CAPTURE_RULE],
+        input: inp,
+    })
+}
+
+/// T36: a MARCH_FOLD's controller flipped (V19 replays the fold).
+pub fn cq_t36(run: &Input) -> Made {
+    let mut inp = run.clone();
+    let recs = find_cq(&inp, CqKind::MARCH_FOLD);
+    let (t, i) = *recs.get(recs.len() / 2).or(recs.last()).need("a MARCH_FOLD")?;
+    edit_payload_cq(&mut inp, t, i, |pl| pl[28] = if pl[28] == 0xFF { 0 } else { (pl[28] + 1) % 6 });
+    Ok(Case {
+        class: "T36",
+        what: "a MARCH_FOLD controller flipped",
+        feature: None,
+        codes: &[MARCH_FOLD_MISMATCH],
+        input: inp,
+    })
+}
+
+/// T39: an outpost filed in a heartland ring (V22): the filing's first
+/// site moved to the anchor's own province.
+pub fn cq_t39(run: &Input) -> Made {
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::FileOutpost.tag();
+    let t = (0..inp.txs.len())
+        .find(|&t| inp.txs[t].err.is_none() && ix_keys(&inp, t, tag).is_some())
+        .need("a FileOutpost")?;
+    edit_ix_tag(&mut inp, t, tag, |d| {
+        // tag, n, sites (p i16, q i16, site u8) × n, anchor_site_key u64
+        let n = d[1] as usize;
+        let o = 2 + 5 * n;
+        let key = u64::from_le_bytes(d[o..o + 8].try_into().expect("u64"));
+        if let Some(a) = frontier_abi::addr::split_host_id(key) {
+            d[2..4].copy_from_slice(&(a.province.p as i16).to_le_bytes());
+            d[4..6].copy_from_slice(&(a.province.q as i16).to_le_bytes());
+        }
+    });
+    Ok(Case {
+        class: "T39",
+        what: "an outpost filed in a heartland ring (the anchor's own province)",
+        feature: None,
+        codes: &[OUTPOST_ILLEGAL],
+        input: inp,
+    })
+}
+
+/// T46: a declaration by a host that is not the hex's lead (V14): the
+/// horn's `entry` moved to another entry.
+pub fn cq_t46(run: &Input) -> Made {
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::DeclareSiege.tag();
+    let (t, _) = *find_cq(&inp, CqKind::SIEGE_DECLARED).first().need("a SIEGE_DECLARED")?;
+    edit_ix_tag(&mut inp, t, tag, |d| d[2] = (d[2] + 1) % 48);
+    Ok(Case {
+        class: "T46",
+        what: "a declaration by an entry that is not the hex's lead host",
+        feature: None,
+        codes: &[SIEGE_ILLEGAL],
+        input: inp,
+    })
+}
+
 // ------------------------------------------------------------ the suite over one run (W5-D)
 
 /// A class builder.
@@ -1820,6 +2028,16 @@ pub fn classes() -> Vec<Class> {
             vec![("Holding forged at a non-owner write", h1b)],
         ),
         c("V9a", false, vec![("non-canonical address", v9a)]),
+        // Conquest classes (contract §8.5 T25–T48; CQ3-A): record,
+        // post-state and instruction edits with no v2 re-chain (CQ1 reports
+        // the stale chain beside the named code), extras until a conquest
+        // fixture is committed; not applicable on an M1 run.
+        c("T28", false, vec![("+1 siege progress", cq_t28)]),
+        c("T30", false, vec![("first holding's owner rewritten", cq_t30)]),
+        c("T31", false, vec![("capture into an unreserved slot", cq_t31)]),
+        c("T36", false, vec![("MARCH_FOLD controller flipped", cq_t36)]),
+        c("T39", false, vec![("outpost filed in a heartland ring", cq_t39)]),
+        c("T46", false, vec![("declaration by a non-lead entry", cq_t46)]),
     ]
 }
 
