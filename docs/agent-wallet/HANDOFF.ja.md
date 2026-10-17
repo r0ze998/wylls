@@ -24,7 +24,7 @@
 - ブラウザ UI（所有者コマンドの署名、入金取引の組み立て、SetSession の受け渡し、残高表示）。
 - MCP サーバー本体（`POST /f/agent/action` を呼ぶだけ。ツール定義・冪等キー・capability の保管）。
 - オンチェーン vault への移行、複数プロセス非対応、SOL→USDC 換算は設計のみ。
-- `codex/territory-opening` との重なり：`git merge-tree` で main×territory の衝突 189 ファイルに対し、本ブランチが新たに衝突させるファイルはなし（ファイル単位の確認。行単位の確認はしていない）。
+- `codex/territory-opening` との統合：DESIGN.md §8.1。territory-opening には prize pool（テスト USDC の mint・faucet・x402）が無く、agent wallet はそれを前提にするため cherry-pick は意味上の衝突で止まる。統合先は main（fast-forward）を推奨。main×territory の衝突 189 ファイルは本ブランチとは無関係に存在する。
 
 ## 注意
 - 元チェックアウトや他の worktree には触れない。main へのマージ・push・本番作業は確認してから。

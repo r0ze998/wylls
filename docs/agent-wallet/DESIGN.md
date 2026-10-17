@@ -93,13 +93,35 @@ Policy: `{allowed: [action names, sorted], budget: {total, perDay}, version}`; e
 
 **The agent's key** (`keyring.mjs`): made at creation, `dir/<agentId>.key` (hex seed, mode 0600) or memory-only in tests; the secret never leaves the module. The owner gives it the village with `SetSession` (wallet-only on chain, `permutation-frontier/src/proc/citizen.rs`) and takes it back the same way. The relay refuses an agent key that signs a transaction outside the gateway (`AgentKeyDirect`, 403): the key cannot be used to go around the budget even by whoever runs the relay's process by hand.
 
+### 5.1 Who holds which secret, and what each boundary can and cannot enforce
+
+| Secret | Held by | Can do | Cannot do |
+|---|---|---|---|
+| Owner's wallet key | the player (browser, or a web3 keypair in tests) | everything: create / policy / mode / withdraw / rotate, **SetSession** (the only on-chain revocation), manual play, deposits | — |
+| Agent key (seed file, 0600) | the operator's relay process | sign player shapes for the owner's Citizen while it is the session key | SetSession (wallet-only on chain), withdraw, change the policy |
+| Custody key (JSON, 0600) | the operator's relay process | move the custody token account's test USDC (withdrawals to the fixed payout) | — (an operator is trusted; §9) |
+| Capability token | whoever the owner gives it to (an MCP server, an AI) | ask for actions inside the policy through `POST /f/agent/action` | create, fund, re-scope, stop, drain, rotate; sign anything |
+| Operator token | the operator | `POST /f/agent/reconcile` | — |
+
+**Enforced on chain** (whatever the operator does): only the owner's wallet sets or revokes the session key; the session key acts for that Citizen only (its holdings; the program checks the actor); the session expiry. **Enforced by the operator's server only** (trusted; a party holding the agent *seed* could go around them by sending to the RPC directly, paying its own fee): the budget and the daily limit, the allowed-action list, the one-village rule (`WrongVillage`), the stop (`manual`), `modeEpoch` / `policyVersion`, the per-call inference price, `AgentKeyDirect` (which covers relay-sponsored sends, not a direct RPC send). The seed never leaves the relay's key directory, and the relay itself never signs an agent key outside `AgentGateway.submit`; the tests assert both, and `GET /f/agent` reports the chain's delegation (`delegation.delegated`) next to the server's mode so the owner can see that a stop is a server-side stop and that `SetSession` is what revokes on chain (the E2E does both).
+
+**Stops racing with sends** (tests in `agent-wallet-review.test.mjs`): a stop after the send rolls nothing back (the hold waits for the chain, then settles); a stop during a model call leaves the call's hold in place (`running`) so the call is paid for when it returns, and what it decided is refused; a stop and restart while a request is between its hold and its send is refused at `beforeSend` by the epoch, with or without `modeEpoch` in the request. *Found by the review:* before it, a stop released a running call's hold and the call went unpaid; fixed in commit a49d0f57.
+
 **Not exposed**: the capability (hash only), the custody key (a 0600 JSON keypair file; `Custody.toJSON()` is public keys), the agent seeds (0600 files; the keyring's `toJSON` is a count). The runner's prompt is built from the public view (`promptOf`), and the tests assert that no token or key reaches the model body, a view, the state file or the log.
 
 ## 6. Money
 
 ### 6.1 Deposit
 
-The owner sends test USDC to the custody token account in a transaction the owner signs (the E2E builds `[createAtaIdempotent(custody), TransferChecked(owner's ATA → custody, mint, amount, authority = owner)]` and pays its own fee). Then `POST /f/agent/deposit {agentId, signature}`. The relay reads the transaction from the chain and credits once per signature across all agents when: confirmed, no error, the owner among the signers, and the sum of its top-level SPL `TransferChecked` instructions of the custody mint into the custody account with the owner as authority is positive. When the node reports token balances (a full validator), the custody account's gain must equal that sum. *Why instructions, not balances:* the local `frontier-localnet` reports empty `pre/postTokenBalances` (seen in E2E run 1); an instruction that ran in a transaction without error moved its tokens.
+The owner sends test USDC to the custody token account in a transaction the owner signs (the E2E builds `[createAtaIdempotent(custody), TransferChecked(owner's ATA → custody, mint, amount, authority = owner)]` and pays its own fee). Then `POST /f/agent/deposit {agentId, signature}`. The relay reads the transaction from the chain (`getTransaction` at the relay's commitment, `confirmed`; a live cluster would use `finalized`) and credits **only when all of these hold** (`Custody.verifyDeposit`):
+
+1. the node returns the transaction **with its result metadata** and `meta.err` is null (no metadata yet → `DepositPending`, never credited);
+2. the owner is one of the transaction's required signers;
+3. the custody token account is among the transaction's accounts;
+4. the amount is the sum over the **top-level** instructions of the **classic SPL Token program** (`Tokenkeg…`, no fee extensions) with tag 12 `TransferChecked`, mint = the custody mint, destination = the custody account, authority = the owner; it must be positive. A `TransferChecked` that ran in a transaction without error moved exactly its amount: the existence of the instruction is not enough, its transaction's success (1) is what moves the tokens. Inner (CPI) instructions, other programs with the same bytes, another mint, another destination, another authority and a zero amount are refused (tests);
+5. when the node reports token balances for the custody account, its gain must equal that sum; with `strictBalances` (set automatically for any cluster but localnet) a node that reports none is refused, so the localnet accommodation cannot weaken a full validator.
+
+One signature is credited once, ever: the ledger keys `deposits` by signature across all agents, in the state file, so a repeat for the same or another agent, and a repeat after a restart, answer `already` (tests). *Why instructions, not balances:* the local `frontier-localnet` reports empty `pre/postTokenBalances` (seen in E2E run 1).
 
 ### 6.2 Withdrawal
 
@@ -111,7 +133,9 @@ The relay pool pays every fee and escrow of a sponsored shape as before; the age
 
 ### 6.4 Model calls
 
-`meterInference(agentId, fn, {key, free, model})`: refuses when the agent is stopped; for the autopilot (`free`) only runs; otherwise holds the fixed price (an unpayable call is never made), runs `fn`, then settles the whole price whether `fn` returned or threw, recording `{model, tokens, ok}`. A process crash mid-call leaves a `held` hold that the restart gives back (§7).
+`meterInference(agentId, fn, {key, free, model})`: refuses when the agent is stopped; for the autopilot (`free`) only runs; otherwise holds the fixed price (an unpayable call is never made), marks the hold `running` (a stop no longer releases it), runs `fn`, then settles the whole price whether `fn` returned or threw, recording `{model, tokens, ok}`, and reports what was really settled as `charged`. A process crash mid-call leaves a `running` hold that the restart gives back; a call that outlives the hold's own TTL (10 minutes; the model deadline is 30 s) is not charged and is logged.
+
+**What an action costs, with the shipped defaults** (`FRONTIER_DEFAULTS`, not a test override): a model-chosen action = one inference price (10,000 base units = 0.01 test USDC, the owner's decision 2) and nothing else; a rule-autopilot action = 0; the game category = 0 for every delegable action because the price table is empty (`--agent-game-prices-file` is an operator hook; nothing ships in it); the network category = 0 always, the relay pays the SOL fee and a `network` history line records the lamports. So the 0.02 of the E2E is exactly two model calls. **Decided:** the inference price. **Proposals, not decided (left out):** any game price, a SOL→USDC settlement (§6.3).
 
 ### 6.5 Concurrency, retries, timeouts
 
@@ -128,7 +152,19 @@ With `--agent-runner`, the relay process ticks every agent in auto mode every `-
 ## 8. What was verified
 
 * `cd permutation-gateway && npm test` — the full suite, including the new `test/agent-wallet-*.test.mjs` (gateway, money, runner, server, ledger). See the completion report for the count.
-* `scripts/agent-wallet-e2e.mjs` on a disposable `frontier-stack` world (its header has the commands; run `agent-e2e-2`, season 92, 2026-10-17: **17 checks passed** — deposit 10,000,000, two model calls charged 20,000, withdrawn 9,980,000 to the owner's token account): faucet → x402 join → PlaceHome → manual Harvest → create (owner command) → forged and stranger commands refused → owner-signed deposit credited once → `SetSession` to the agent key → auto → an outside caller's Harvest sent and landed, a repeat replayed, a march and another village refused, a bad token refused → the relay's own runner acting twice with a stand-in model server on loopback, charged per call → the agent key on `POST /f/relay` refused → manual: requests refused, the runner silent, the owner's `SetSession` back and a manual Harvest → `withdraw all` landing in the owner's token account, `deposited = spent + withdrawn`. The transcript is written to `.local/agent-wallet-e2e/<run>/transcript.json`.
+* `scripts/agent-wallet-e2e.mjs` on a disposable `frontier-stack` world (its header has the commands; runs `agent-e2e-2` (season 92) and, after the review fixes, `agent-e2e-3` (season 93), 2026-10-17: **17 checks passed** each; run 4 also checks the breakdown (two `spend` lines of 10,000, both `inference`; `game` and `network` 0; three `network` lines of 10,000 lamports paid by the relay) and the chain's delegation before and after the owner's SetSession — deposit 10,000,000, two model calls charged 20,000, withdrawn 9,980,000 to the owner's token account): faucet → x402 join → PlaceHome → manual Harvest → create (owner command) → forged and stranger commands refused → owner-signed deposit credited once → `SetSession` to the agent key → auto → an outside caller's Harvest sent and landed, a repeat replayed, a march and another village refused, a bad token refused → the relay's own runner acting twice with a stand-in model server on loopback, charged per call → the agent key on `POST /f/relay` refused → manual: requests refused, the runner silent, the owner's `SetSession` back and a manual Harvest → `withdraw all` landing in the owner's token account, `deposited = spent + withdrawn`. The transcript is written to `.local/agent-wallet-e2e/<run>/transcript.json`.
+
+## 8.1 Where the implementation should land
+
+Measured on 2026-10-17 with `git merge-tree --write-tree --name-only <A> <B>` (a trial three-way merge that touches no worktree; each `CONFLICT` line is one file whose merge needs a hand), `origin/main` = 2321d557 after `git fetch`:
+
+| Trial | Result |
+|---|---|
+| `origin/main` × `codex/territory-opening` | 189 conflicting files (135 add/add, 53 content, 1 modify/delete); merge-base ad1c919d (2026-10-04); 2,210 files changed on main since, 3,955 on territory, 1,916 on both |
+| `feature/agent-wallet` × `codex/territory-opening` | the same 189 files, not one more |
+| `origin/main` → `feature/agent-wallet` | a fast-forward: this branch is origin/main + 4 commits, main has nothing this branch lacks |
+
+A cherry-pick of this branch's commits onto `codex/territory-opening` in a disposable worktree stopped at the second commit with content conflicts in `app.mjs`, `routes/relay.mjs` and `server.mjs`, all of the same kind: territory-opening has **no prize pool** (no `routes/prize.mjs`, no `client/src/frontier/prize.mjs`, no `--prize-mint`/`--faucet-key-file`, `sponsor()` not exported and without `extraAllowance`), which main gained in 9ed6fe40. The agent wallet's custody mint *is* the prize pool's test USDC and its E2E joins over x402 and the faucet, so on territory-opening alone it has nothing to hold: the conflicts are semantic, not textual, and were not resolved. **Recommendation: integrate into `main`** (fast-forward; the full suite and the E2E ran on exactly that tree), and bring `codex/territory-opening` to main separately (its 189 conflicts with main exist with or without this branch). Which branch is the trunk is a decision for the owner.
 
 ## 9. Known limits and unresolved points
 
