@@ -9,6 +9,7 @@ pub mod v15_records;
 pub mod v16_owner;
 pub mod v1_chains;
 pub mod v20_end;
+pub mod v22_outposts;
 pub mod v2_program;
 pub mod v3_random;
 pub mod v4_windows;
@@ -202,6 +203,8 @@ pub fn run(input: &Input) -> Report {
         ran.push("V16:first-holding-owner");
         v20_end::run(&mut cx);
         ran.push("V20:season-end");
+        v22_outposts::run(&mut cx);
+        ran.push("V22:outpost-filing");
     }
     ran.push("V10");
     counts(&mut cx);

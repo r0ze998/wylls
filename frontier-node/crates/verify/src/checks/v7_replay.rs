@@ -941,6 +941,15 @@ fn continuity(cx: &mut Ctx) {
                 }
                 if writes(&touch) {
                     ("an owner touch", hr::touched(before, tx.time))
+                } else if let Some(n) = outpost_anchor_holdings(w, tx, t, k) {
+                    // MC §3.8: FileOutpost touches its anchor and pays the
+                    // settler cost of the citizen's next holding from it.
+                    (
+                        "a FileOutpost's anchor (the touch and the settler cost)",
+                        hr::settler_cost(n)
+                            .ok_or("settler cost".to_string())
+                            .and_then(|c| hr::touched_paid(before, tx.time, &c)),
+                    )
                 } else {
                     ("a write that is not an owner action", Ok(before.to_vec()))
                 }
@@ -972,6 +981,23 @@ fn continuity(cx: &mut Ctx) {
             detail,
         );
     }
+}
+
+/// `holdings_n` of the citizen whose FileOutpost in `tx` names Holding `k`
+/// as its anchor (the instruction's fourth account from the end), from the
+/// Citizen's state before the transaction; `None` when no FileOutpost of
+/// the transaction anchors on `k`.
+fn outpost_anchor_holdings(w: &crate::world::World, tx: &crate::world::Tx, t: usize, k: &[u8; 32]) -> Option<u8> {
+    use frontier_abi::layout::player::citizen as C;
+    let tag = frontier_abi::v2::tags::Ix::FileOutpost.tag();
+    tx.ixs
+        .iter()
+        .filter(|i| i.tag() == Some(tag) && i.accounts.len() >= 10)
+        .find(|i| i.key(i.accounts.len() - 4).as_ref() == Some(k))
+        .and_then(|i| i.key(3))
+        .and_then(|c| w.state_before(&c, t).map(|d| d.to_vec()))
+        .filter(|d| d.len() == C::SIZE)
+        .map(|d| d[C::HOLDINGS_N])
 }
 
 /// Every Harvest, Build and Train replayed from the Holding the last

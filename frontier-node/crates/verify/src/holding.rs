@@ -72,7 +72,7 @@ fn put(d: &mut [u8], o: usize, b: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-fn tier_of(v: u8) -> Result<Tier, String> {
+pub fn tier_of(v: u8) -> Result<Tier, String> {
     Ok(match v {
         0 => Tier::Hamlet,
         1 => Tier::Town,
@@ -257,6 +257,30 @@ pub fn settle_tiered(h: &mut KHolding, now: i64) -> Result<(), String> {
             .map_err(|e| format!("set_upkeep: {e:?}"))?;
     }
     h.settle(now).map_err(|e| format!("settle: {e:?}"))
+}
+
+/// The settler cost of a citizen's next outpost with `holdings_n` holdings
+/// (MC §3.8; the program's `settler_cost`): `catalog::SETTLER_COST` under
+/// the duplicate rule with `n = holdings_n`, in milli. `None` on overflow.
+pub fn settler_cost(holdings_n: u8) -> Option<[i64; RESOURCES]> {
+    let mut c = [0i64; RESOURCES];
+    for (r, base) in catalog::SETTLER_COST.iter().enumerate() {
+        let units = permutation_rules::frontier::holding::duplicate_cost(*base as u64, holdings_n as u32)?;
+        c[r] = i64::try_from(units).ok()?.checked_mul(MILLI)?;
+    }
+    Some(c)
+}
+
+/// The Holding an owner touch at `now` that pays `cost` leaves (no queue
+/// item): what FileOutpost writes into its anchor (the program's
+/// `load_touched`, `pay`, `write_holding`).
+pub fn touched_paid(before: &[u8], now: i64, cost: &[i64; RESOURCES]) -> Result<Vec<u8>, String> {
+    let mut h = read(before)?;
+    touch(&mut h, now)?;
+    h.pay(now, cost).map_err(|e| format!("pay: {e:?}"))?;
+    let mut d = before.to_vec();
+    write(&mut d, &h, now)?;
+    Ok(d)
 }
 
 /// The owner touch.
