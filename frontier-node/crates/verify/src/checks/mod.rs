@@ -5,6 +5,7 @@
 pub mod v11_land;
 pub mod v12_explore;
 pub mod v13_payments;
+pub mod v14_sieges;
 pub mod v15_records;
 pub mod v16_owner;
 pub mod v1_chains;
@@ -197,6 +198,8 @@ pub fn run(input: &Input) -> Report {
     // Conquest contract §8.5 V14–V22: the parts implemented so far (each
     // module's note says which), on a conquest season only.
     if cx.v3 {
+        v14_sieges::run(&mut cx);
+        ran.push("V14:siege-declaration");
         v15_records::run(&mut cx);
         ran.push("V15:conquest-records");
         v16_owner::run(&mut cx);

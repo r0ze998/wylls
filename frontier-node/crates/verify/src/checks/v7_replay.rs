@@ -45,9 +45,11 @@ use frontier_abi::layout::player::holding as H;
 use frontier_abi::layout::province::province as PV;
 use frontier_abi::v2::layout::province::province as P2;
 use frontier_abi::log::{self as plog, settle_outcome, transit_outcome, Kind};
+use permutation_rules::fixed::MILLI;
 use permutation_rules::frontier::clash::{
     admit_arrival, FactionSlots, Fate, SlotDecision, SlotEntry,
 };
+use permutation_rules::frontier::holding::{Resource, RESOURCES};
 use permutation_rules::frontier::geometry::ProvinceCoord;
 
 use super::v6_quotas::tag_of_host;
@@ -950,6 +952,19 @@ fn continuity(cx: &mut Ctx) {
                             .ok_or("settler cost".to_string())
                             .and_then(|c| hr::touched_paid(before, tx.time, &c)),
                     )
+                } else if let Some(stake) = siege_source_stake(f, tx, k) {
+                    // MC §3.4 step 10: DeclareSiege touches its source and
+                    // pays the stake in gold from it.
+                    (
+                        "a DeclareSiege's source (the touch and the stake)",
+                        hr::touched_paid(before, tx.time, &stake),
+                    )
+                } else if conquest_settlement_writes(tx, k) {
+                    // SettleSiege (the stake returned), SettleCapture (the
+                    // captured Holding and the stake) and RetireHost write
+                    // what the conquest rules say, not the lazy accrual's:
+                    // V17's to judge (not written), not this check's.
+                    continue;
                 } else {
                     ("a write that is not an owner action", Ok(before.to_vec()))
                 }
@@ -998,6 +1013,30 @@ fn outpost_anchor_holdings(w: &crate::world::World, tx: &crate::world::Tx, t: us
         .and_then(|c| w.state_before(&c, t).map(|d| d.to_vec()))
         .filter(|d| d.len() == C::SIZE)
         .map(|d| d[C::HOLDINGS_N])
+}
+
+/// The stake DeclareSiege in `tx` pays from Holding `k` (its fifth
+/// account), as a cost: `siege_stake_gold` in gold; `None` when no
+/// DeclareSiege of the transaction names `k` as its source.
+fn siege_source_stake(f: &Facts, tx: &crate::world::Tx, k: &[u8; 32]) -> Option<[i64; RESOURCES]> {
+    let tag = frontier_abi::v2::tags::Ix::DeclareSiege.tag();
+    let cq = f.cq.as_ref()?;
+    tx.ixs
+        .iter()
+        .filter(|i| i.tag() == Some(tag))
+        .find(|i| i.key(4).as_ref() == Some(k))?;
+    let mut c = [0i64; RESOURCES];
+    c[Resource::Gold as usize] = (cq.siege_stake_gold as i64).checked_mul(MILLI)?;
+    Some(c)
+}
+
+/// Whether a SettleSiege, SettleCapture or RetireHost of `tx` writes `k`.
+fn conquest_settlement_writes(tx: &crate::world::Tx, k: &[u8; 32]) -> bool {
+    use frontier_abi::v2::tags::Ix as V2;
+    let tags = [V2::SettleSiege.tag(), V2::SettleCapture.tag(), V2::RetireHost.tag()];
+    tx.ixs
+        .iter()
+        .any(|i| i.tag().is_some_and(|x| tags.contains(&x)) && i.writes(k))
 }
 
 /// Every Harvest, Build and Train replayed from the Holding the last

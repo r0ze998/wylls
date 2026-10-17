@@ -57,6 +57,9 @@ pub const EXPLORE_ROLL_MISMATCH: &str = "ExploreRollMismatch";
 pub const PAYMENT_MISMATCH: &str = "PaymentMismatch";
 pub const DEFENCE_REFUND_MISMATCH: &str = "DefenceRefundMismatch";
 pub const CONSERVATION_GAP: &str = "ConservationGap";
+// V14 siege legality (conquest contract §8.5)
+pub const SIEGE_ILLEGAL: &str = "SiegeIllegal";
+pub const SIEGE_AFTER_END_RULE: &str = "SiegeAfterEndRule";
 // V15 / V18 / V19 at the record level (conquest contract §8.5; partial)
 pub const SIEGE_PROGRESS_MISMATCH: &str = "SiegeProgressMismatch";
 pub const KEEP_MISMATCH: &str = "KeepMismatch";
@@ -113,6 +116,8 @@ pub const FAIL_CODES: &[&str] = &[
     EXPLORE_ROLL_MISMATCH,
     PAYMENT_MISMATCH,
     DEFENCE_REFUND_MISMATCH,
+    SIEGE_ILLEGAL,
+    SIEGE_AFTER_END_RULE,
     SIEGE_PROGRESS_MISMATCH,
     KEEP_MISMATCH,
     SNAPSHOT_MISMATCH,
