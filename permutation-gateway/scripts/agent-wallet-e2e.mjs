@@ -401,6 +401,7 @@ async function run() {
   if (windowMs > 0) {
     const t0 = Date.now();
     const v0 = await agentView(agentId);
+    const statsAtStart = (await api('/f/agent/terms')).body.runner?.stats ?? null;
     const chainFrom = Number((await h.season()).record.latestUnix);
     await sleep(windowMs);
     const v1 = await agentView(agentId);
@@ -413,14 +414,19 @@ async function run() {
     const s1 = await h.season();
     // The breakdown (DESIGN.md §12.2): calls the model answered with an action it sent, calls refused on chain, calls the code refused
     // (a failed call: the autopilot then plays free), rests; and the autopilot's own free actions. Each model call is charged once.
+    // A refusal on chain leaves no action line in the ledger's history (the independent review of 2026-10-17 found the count read as
+    // a rest), so the refusals and the rests come from the runner's own outcome counters (terms.runner.stats.outcomes, the window's
+    // delta; this agent is the only one in auto on the relay during the window), the rest from the history.
     const since = v1.history.slice(v0.history.length);
     const isModel = x => typeof x.reason === 'string' && x.reason.startsWith('model:');
     const byModelSent = since.filter(x => x.type === 'action' && x.source === 'ai' && x.status === 'sent' && isModel(x)).length;
-    const byModelRefused = since.filter(x => x.type === 'action' && x.source === 'ai' && x.status !== 'sent' && isModel(x)).length;
     const autopilotSent = since.filter(x => x.type === 'action' && x.source === 'ai' && x.status === 'sent' && !isModel(x)).length;
     const failedCalls = since.filter(x => x.type === 'spend' && x.category === 'inference' && x.ok === false).length;
+    const delta = k => (termsNow.runner?.stats?.outcomes?.[k] ?? 0) - (statsAtStart?.outcomes?.[k] ?? 0);
+    const byModelRefused = termsNow.runner?.stats?.outcomes ? delta('refused') : null;
+    const rests = termsNow.runner?.stats?.outcomes ? delta('rest') : Math.max(0, calls - byModelSent - failedCalls);
     report.window = { ms: windowMs, modelCalls: calls, costBaseUnits: String(BigInt(v1.balance.spent.inference) - BigInt(v0.balance.spent.inference)), actionsSent: sent, actionsRefused: refused,
-      breakdown: { modelActionsSent: byModelSent, modelActionsRefusedOnChain: byModelRefused, callsRefusedByCode: failedCalls, rests: Math.max(0, calls - byModelSent - byModelRefused - failedCalls), autopilotActionsFree: autopilotSent },
+      breakdown: { modelActionsSent: byModelSent, modelActionsRefusedOnChain: byModelRefused, callsRefusedByCode: failedCalls, rests, autopilotActionsFree: autopilotSent, source: 'history for sent/failed; runner outcomes for refused/rests' },
       spentBefore: v0.balance.spent, spentAfter: v1.balance.spent, callsToday: v1.day?.calls ?? null, runner: termsNow.runner, chainSecondsElapsed: Number(s1.record.latestUnix) - bells.from,
       turnsElapsed: Math.floor((Number(s1.record.latestUnix) - bells.from) / 600) };
     check('measurement-window', report.window);

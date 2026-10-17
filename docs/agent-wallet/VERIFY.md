@@ -6,7 +6,7 @@ Every claim in the reports can be checked from this worktree without trusting th
 
 ```sh
 cd permutation-gateway && npm test                      # the whole suite (the count is in the report)
-node --test test/agent-wallet-*.test.mjs                # the agent wallet alone: gateway, money, runner, server, review, billing, triggers, caps
+node --test test/agent-wallet-*.test.mjs                # the agent wallet alone: gateway, money, runner, server, review, billing, triggers, caps, regression
 ```
 
 What each file pins (DESIGN.md §8):
@@ -14,6 +14,7 @@ What each file pins (DESIGN.md §8):
 | File | Claims |
 |---|---|
 | `test/agent-wallet-caps.test.mjs` | a released hold never gives the day's call count back (stop, TTL, deadline, operator refund; the cap then refuses; the scheduler's cap reads the same count; the view shows the new day before any hold); a burst of owner commands is one call per owner gap and the caps hold; `settle` records the credential (token fingerprint, address) and keeps the body's `by` as `claimedBy`; what the model is told (state, catalog, no secret) and what the decider refuses (Train n=0, an unaffordable answer) |
+| `test/agent-wallet-regression.test.mjs` | the daily cap across a UTC midnight, a restart and a call that began the day before; the herald's recorded shapes (`test/fixtures/`): an arrival and a camp are events, a quiet turn is not, an unchanged world asks nothing |
 | `test/agent-wallet-triggers.test.mjs` | no call on an unchanged state; turn / event / owner triggers; the minimum gap, the owner gap, the operator's cap, the owner's `callsPerDay`; one call per agent at a time; the digests over fields; the herald's real province shape (`{bytes, slots}`) |
 | `test/agent-wallet-billing.test.mjs` | restart and TTL → `unresolved` (never guessed); late results; operator settlement audited and never double; the deadline rule behind its flag; sponsored deposits; no action from a stale decision |
 | `test/agent-wallet-gateway.test.mjs`, `-money`, `-runner`, `-server`, `-review` | the earlier rounds: auth, idempotency, holds, withdrawals, deposits by instruction, config flags, the review's findings |
@@ -61,5 +62,7 @@ As §2 but with the model server: `FRONTIER_AGENT_LLM_URL=http://127.0.0.1:41901
 AGENT_PAGE_URL=http://127.0.0.1:41640 AGENT_PAGE_RPC=http://127.0.0.1:41610 AGENT_PAGE_MODEL_PORT=41698 \
 AGENT_PAGE_OUT=$PWD/.local/agent-wallet-e2e/my-browser node permutation-gateway/scripts/agent-page-browser.mjs
 ```
+
+(`AGENT_PAGE_DEVTOOLS_PORT` picks Chrome's DevTools port, default 41697; set it to a free port in your own hundred when other stacks run beside yours. The window's `breakdown` in the E2E transcript takes refusals on chain and rests from the runner's outcome counters, since a refusal leaves no action line in the ledger; the independent review of 2026-10-17 found the earlier count read a refusal as a rest.)
 
 18 steps with a screenshot and the page's text each (`report.json`, `NN-step.png`): connect, create, deposit, the policy form, the key handed over (confirmed on chain), auto, the runner's action on the page, a refused message signature and a refused transaction signature (the wallet rejects at the Wallet Standard boundary; nothing changes), offline and back, a reload, a stop while a model call is in flight and a withdrawal with that call running, the late result charged once, the key taken back, everything withdrawn. The console's errors and every failed resource are in `report.json` too. **Not covered:** a real wallet extension (Phantom, Backpack …) — its approval window cannot be driven here. The fake-DOM flow stays as `node permutation-gateway/scripts/agent-page-smoke.mjs` (DESIGN.md §10). The runs of 2026-10-17 are `.local/agent-wallet-e2e/browser-1` and `browser-2`.

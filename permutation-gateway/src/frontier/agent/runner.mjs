@@ -402,8 +402,8 @@ export class AgentScheduler {
     this.last = new Map();
     /** agents with a model call in progress */
     this.inflight = new Set();
-    /** counts of why ticks did or did not call, for the report */
-    this.stats = { called: 0, skipped: {} };
+    /** counts of why ticks did or did not call, and what each call came to (sent / refused on chain / failed send / rest, and the autopilot's turns after a failed call), for the report */
+    this.stats = { called: 0, skipped: {}, outcomes: { sent: 0, refused: 0, failed: 0, rest: 0, fallback: 0 } };
   }
 
   #skip(agentId, why) { this.stats.skipped[why] = (this.stats.skipped[why] ?? 0) + 1; return { agentId, skipped: why }; }
@@ -464,6 +464,9 @@ export class AgentScheduler {
         try {
           const r = await runOnce(this.gateway, id, this.decider, { now: this.now, observation: { ...obs, triggers: d.triggers } });
           this.stats.called += 1;
+          const o = this.stats.outcomes;
+          if (r.decided) o[r.result?.status === 'sent' ? 'sent' : r.result?.status === 'refused' ? 'refused' : 'failed'] += 1; else if (!r.skipped) o.rest += 1;
+          if (typeof r.by === 'string' && r.by.includes('(after ')) o.fallback += 1;
           this.last.set(id, { calledAt: this.now(), bell: obs.bell, holding: obs.holding, province: obs.province, citizen: obs.citizen, policyVersion: view.policy.version, modeEpoch: view.modeEpoch, historyLength: this.gateway.view(id).history.length });
           out.push({ ...r, triggers: d.triggers });
           this.#after(id, r.result?.status === 'sent');
