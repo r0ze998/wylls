@@ -113,6 +113,7 @@ Resumed (`CQ_DRIVE_RESUME=1`, 13:58): FileOutpost refused `Insufficient` once mo
 | Snapshot | V1–V13 + V15/V16/V20/V22 | Conquest audit | Fleet |
 |---|---|---|---|
 | 26,935 txs, 244 bells (12:44) | PASS (2 warns) | PASS | 149 CLASH, 7 DEPART; keeps: 2 taken, 3 contested, 1 broken, 2 lost; **0 sieges declared, 0 outposts filed** (`expand` never fired; `own.file_outpost` 0/0) |
+| 59,690 txs, ~475 bells (14:46), with V14–V19 | PASS (2 warns) | PASS | still 149 CLASH and 8 departs: the fleet's keep orders go stale (`order_stale` 55, `owner_unknown` 67) after the early contests; no siege, no outpost |
 
 ## Next
 
