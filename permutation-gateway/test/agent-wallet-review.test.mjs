@@ -74,7 +74,7 @@ test('1. billing: with the shipped defaults a model-chosen action costs exactly 
     assert.equal(res.status, 'sent', `${name}: ${JSON.stringify(res)}`);
     assert.deepEqual(res.charges, [], name);
   }
-  assert.deepEqual(r.gateway.view(b.agentId).balance, { available: '50000', reserved: '0', pendingWithdraw: '0', withdrawn: '0', deposited: '50000', spent: { inference: '0', network: '0', game: '0' } });
+  assert.deepEqual(r.gateway.view(b.agentId).balance, { available: '50000', reserved: '0', unresolved: '0', pendingWithdraw: '0', withdrawn: '0', deposited: '50000', spent: { inference: '0', network: '0', game: '0' } });
   assert.equal(r.gateway.view(b.agentId).history.filter(h => h.type === 'spend').length, 0, 'no USDC spend line for a free action');
   // A price table entry (operator config, not shipped) is the only way a game action charges.
   const priced = relay({ prices: { game: { Harvest: '7' } } });

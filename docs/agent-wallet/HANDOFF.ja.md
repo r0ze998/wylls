@@ -20,7 +20,14 @@
 - ローカル E2E `scripts/agent-wallet-e2e.mjs`（ヘッダに起動手順）。2026-10-17 に `frontier-stack` の使い捨てワールド（run `agent-e2e-2`、season 92）で 17 チェック通過。
 - Web クライアントは `AgentKeyDirect` の文言だけ追加。所有者向け UI は未着手。
 
-## 残っていること（DESIGN.md §9–§10）
+## 2回目のレビュー後（2026-10-17）に増えたもの
+- 未確定の推論 hold（再起動・TTL）：返金も課金も推測しない `unresolved` 状態、運営の決定ルート `POST /f/agent/settle`、運営側の原価記録 `GET /f/agent/unresolved`（DESIGN.md §6.5）。
+- 立替入金 `POST /f/agent/deposit {tx}`（ブラウザの経路）、`GET /f/agent/by-owner`。
+- 所有者ページ `web/frontier/agent.html` + `fagent.mjs`（§10）。実ブラウザでの確認は未実施（拡張が未接続）。`scripts/agent-page-smoke.mjs` で stack 相手に通し確認済み。
+- Gemma 実モデルでの E2E（§12）と、その結果見つけた「rest も課金される」問題への runner のバックオフ（§7）。
+- territory-opening との機能差分の計測（§8.2）。
+
+## 残っていること（DESIGN.md §9–§11）
 - ブラウザ UI（所有者コマンドの署名、入金取引の組み立て、SetSession の受け渡し、残高表示）。
 - MCP サーバー本体（`POST /f/agent/action` を呼ぶだけ。ツール定義・冪等キー・capability の保管）。
 - オンチェーン vault への移行、複数プロセス非対応、SOL→USDC 換算は設計のみ。

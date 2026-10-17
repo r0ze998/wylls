@@ -97,10 +97,11 @@ export async function runOnce(gateway, agentId, decider, { fallback = ruleDecide
   let choice = null;
   let charged = '0';
   let by = decider.name;
+  let reason = null;
   try {
     const m = await gateway.meterInference(agentId, () => decider.decide(view), { key: `${key}:infer`, free: decider.free === true, model: decider.name });
     charged = m.charged;
-    if (m.ok) choice = m.result?.choice !== undefined ? m.result.choice : m.result;
+    if (m.ok) { choice = m.result?.choice !== undefined ? m.result.choice : m.result; reason = m.result?.reason ?? null; }
     else {
       // The model failed (and was charged): the autopilot plays, free.
       const f = await gateway.meterInference(agentId, () => fallback.decide(view), { free: true, model: fallback.name });
@@ -117,16 +118,44 @@ export async function runOnce(gateway, agentId, decider, { fallback = ruleDecide
     } else throw e;
   }
   if (!choice) return { agentId, decided: null, charged, by };
-  const result = await gateway.submit({ agentId, source: 'ai', idempotencyKey: key, policyVersion: view.policy.version, modeEpoch: view.modeEpoch, action: { name: choice.name, holding: view.village, fields: choice.fields ?? {} } }, { runner: true });
-  return { agentId, decided: choice.name, charged, by, result };
+  const result = await gateway.submit({ agentId, source: 'ai', idempotencyKey: key, policyVersion: view.policy.version, modeEpoch: view.modeEpoch, reason: reason ? `${by}: ${reason}`.slice(0, 200) : undefined, action: { name: choice.name, holding: view.village, fields: choice.fields ?? {} } }, { runner: true });
+  return { agentId, decided: choice.name, charged, by, reason, result };
 }
 
-/** Ticks every agent in auto mode every `tickMs`; one tick at a time. */
+/** After a tick that sent nothing (rest, refused, unaffordable), how many ticks the agent sits out: 1, 2, 4 … up to this. */
+export const BACKOFF_MAX_TICKS = 16;
+
+/**
+ * Ticks every agent in auto mode every `tickMs`; one tick at a time. A
+ * model call costs the same whether it ends in an action or in "rest", so
+ * an agent whose last tick sent nothing sits out a growing number of ticks
+ * (1, 2, 4 … BACKOFF_MAX_TICKS) before it is asked again; a sent action
+ * resets it. Seen with the real model on 2026-10-17: fifty "rest" answers
+ * in seven minutes spent a whole daily limit (DESIGN.md §12).
+ */
 export class AgentScheduler {
-  constructor({ gateway, decider = ruleDecider(), tickMs = 30_000, now = Date.now, log = () => {} }) {
-    Object.assign(this, { gateway, decider, tickMs, now, log });
+  constructor({ gateway, decider = ruleDecider(), tickMs = 30_000, now = Date.now, log = () => {}, backoffMax = BACKOFF_MAX_TICKS }) {
+    Object.assign(this, { gateway, decider, tickMs, now, log, backoffMax });
     this.timer = null;
     this.running = null;
+    /** agentId → {skip: ticks left to sit out, next: the next sit-out length} */
+    this.backoff = new Map();
+  }
+
+  /** Whether this tick skips the agent (and counts the skip down). */
+  #sitsOut(agentId) {
+    const b = this.backoff.get(agentId);
+    if (!b || b.skip <= 0) return false;
+    b.skip -= 1;
+    return true;
+  }
+
+  #after(agentId, sent) {
+    if (sent) { this.backoff.delete(agentId); return; }
+    const b = this.backoff.get(agentId) ?? { skip: 0, next: 1 };
+    b.skip = b.next;
+    b.next = Math.min(b.next * 2, this.backoffMax);
+    this.backoff.set(agentId, b);
   }
 
   async tick() {
@@ -135,10 +164,13 @@ export class AgentScheduler {
       const out = [];
       for (const rec of this.gateway.ledger.agents()) {
         if (rec.mode !== MODES.AUTO) continue;
+        if (this.#sitsOut(rec.agentId)) { out.push({ agentId: rec.agentId, skipped: 'backoff' }); continue; }
         try {
           const r = await runOnce(this.gateway, rec.agentId, this.decider, { now: this.now });
           out.push(r);
+          this.#after(rec.agentId, r.result?.status === 'sent');
           if (r.decided) this.log(`agent runner: ${rec.agentId} ${r.decided} by ${r.by} → ${r.result.status}${r.result.error ? ` (${r.result.error.code})` : ''}, charged ${r.charged}`);
+          else if (!r.skipped) this.log(`agent runner: ${rec.agentId} rests (by ${r.by ?? this.decider.name}), charged ${r.charged}; sits out ${this.backoff.get(rec.agentId)?.skip ?? 0} tick(s)`);
         } catch (e) {
           out.push({ agentId: rec.agentId, error: String(e?.message ?? e) });
           this.log(`agent runner: ${rec.agentId} tick failed: ${e.message}`);

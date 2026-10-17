@@ -12,10 +12,16 @@
 //          op withdraw           params {amount} | {all: true}                → {withdrawal, agent}
 //          op action             params {idempotencyKey?, policyVersion, modeEpoch?, action}  → ActionResult (source 'browser')
 //          op rotate-capability                                              → {agent, capability}
+//   GET  /f/agent/by-owner?owner=            the owner's agents, briefly
 //   POST /f/agent/deposit {agentId, signature}   credits a confirmed owner-signed deposit to the custody account
+//   POST /f/agent/deposit {agentId, tx, lastValidBlockHeight?}
+//                                            a sponsored deposit: the owner signed, a pool key (GET /f/relay) pays the fee;
+//                                            the relay co-signs, simulates, sends, waits and credits (the browser's path)
 //   POST /f/agent/action  {capability, request}  an ActionRequest with the agent's capability token (source 'ai' or 'mcp')
 //                                                → ActionResult (always 200: `ok`, `status`, `error.code` say what happened)
 //   POST /f/agent/reconcile                      operator only: settle sent holds and withdrawals by the chain's answer
+//   GET  /f/agent/unresolved                     operator only: model calls whose outcome was unknown, and the operator's cost record
+//   POST /f/agent/settle {agentId, holdId, outcome: charge|refund, note?}   operator only: decide one unresolved call
 //
 // Nothing here is MCP-specific: an MCP server calls POST /f/agent/action
 // (or AgentGateway.submit in process) like any other caller. The owner's
@@ -24,6 +30,7 @@
 // the policy, and the relay refuses an agent key that bypasses this.
 import { AgentError, ERR, SOURCES } from '../agent/contract.mjs';
 import { OWNER_OPS, verifyCommand } from '../agent/owner-auth.mjs';
+import { parseWire } from '../../cosign.mjs';
 import { RouteError } from '../../routes/errors.mjs';
 import { requireFrontierOperator } from './operator.mjs';
 
@@ -58,6 +65,12 @@ export const agentRoutes = {
 
   'GET /f/agent/session-terms': async (ctx, req) => ({ body: agents(ctx).sessionTerms(idOf(req)) }),
 
+  'GET /f/agent/by-owner': async (ctx, req) => {
+    const owner = req.url.searchParams.get('owner');
+    if (!owner || owner.length > 64) throw new RouteError(400, 'owner (a wallet address) is required', 'BadRequest');
+    return { body: { owner, agents: agents(ctx).byOwner(owner) } };
+  },
+
   'POST /f/agent/command': async (ctx, req) => {
     const g = agents(ctx);
     const b = await req.json();
@@ -89,6 +102,10 @@ export const agentRoutes = {
     const b = await req.json();
     const agentId = str(b.agentId, 'agentId', 64);
     ctx.limiter.check(`f-agent-deposit:${agentId}`, { burst: 10, perSecond: 0.5 }, 'deposit checks for this agent');
+    if (b.tx !== undefined) {
+      const { wire, tx } = parseWire(b.tx);
+      return { body: { ok: true, ...(await g.sponsorDeposit(agentId, { tx, wire, lastValidBlockHeight: b.lastValidBlockHeight })) } };
+    }
     return { body: { ok: true, ...(await g.deposit(agentId, str(b.signature, 'signature'))) } };
   },
 
@@ -106,5 +123,16 @@ export const agentRoutes = {
   'POST /f/agent/reconcile': async (ctx, req) => {
     requireFrontierOperator(ctx, req);
     return { body: { ok: true, ...(await agents(ctx).reconcile()) } };
+  },
+
+  'GET /f/agent/unresolved': async (ctx, req) => {
+    requireFrontierOperator(ctx, req);
+    return { body: agents(ctx).unresolved() };
+  },
+
+  'POST /f/agent/settle': async (ctx, req) => {
+    requireFrontierOperator(ctx, req);
+    const b = await req.json();
+    return { body: { ok: true, ...agents(ctx).settleUnresolved(str(b.agentId, 'agentId', 64), str(b.holdId, 'holdId', 64), b.outcome, b.note ?? '') } };
   },
 };

@@ -26,6 +26,11 @@
 //     AGENT_E2E_URL=http://127.0.0.1:41940 AGENT_E2E_RPC=http://127.0.0.1:41910 AGENT_E2E_MODEL_PORT=41998 \
 //     node permutation-gateway/scripts/agent-wallet-e2e.mjs
 //   The transcript goes to AGENT_E2E_OUT (default .local/agent-wallet-e2e/<time>/transcript.json). Keys are ephemeral.
+//
+//   Real model (no stand-in): start the pinned llama-server (citizens/llama/start-pinned.sh, port 41901), start the
+//   stack with FRONTIER_AGENT_LLM_URL=http://127.0.0.1:41901, then run with AGENT_E2E_MODEL=real
+//   AGENT_E2E_LLM=http://127.0.0.1:41901. The transcript then records the server's model (/props), every decision the
+//   runner recorded with the model's own reason, and the charges, under "model" — kept apart from a stand-in run.
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -53,6 +58,8 @@ import { signCommand } from '../src/frontier/agent/owner-auth.mjs';
 const base = process.env.AGENT_E2E_URL ?? 'http://127.0.0.1:41940';
 const rpcUrl = process.env.AGENT_E2E_RPC ?? 'http://127.0.0.1:41910';
 const modelPort = Number(process.env.AGENT_E2E_MODEL_PORT ?? 41998);
+const realModel = process.env.AGENT_E2E_MODEL === 'real';
+const llmUrl = process.env.AGENT_E2E_LLM ?? 'http://127.0.0.1:41901';
 for (const u of [base, rpcUrl]) assert.ok(['127.0.0.1', 'localhost'].includes(new URL(u).hostname), 'local-only test');
 const outDir = path.resolve(process.env.AGENT_E2E_OUT ?? fileURLToPath(new URL(`../../.local/agent-wallet-e2e/${new Date().toISOString().replace(/[:.]/g, '-')}`, import.meta.url)));
 mkdirSync(outDir, { recursive: true });
@@ -88,7 +95,15 @@ const modelServer = http.createServer((req, res) => {
     res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ action: 'Harvest', fields: {}, reason: 'e2e' }) }, finish_reason: 'stop' }], usage: { prompt_tokens: 40, completion_tokens: 6 } }));
   });
 });
-await new Promise(r => modelServer.listen(modelPort, '127.0.0.1', r));
+if (!realModel) await new Promise(r => modelServer.listen(modelPort, '127.0.0.1', r));
+let modelInfo = null;
+if (realModel) {
+  const props = await (await fetch(`${llmUrl}/props`)).json().catch(() => null);
+  const models = await (await fetch(`${llmUrl}/v1/models`)).json().catch(() => null);
+  modelInfo = { mode: 'real', url: llmUrl, alias: models?.data?.[0]?.id ?? null, modelPath: props?.model_path ?? props?.default_generation_settings?.model ?? null, props: props ? { n_ctx: props.default_generation_settings?.n_ctx ?? null, total_slots: props.total_slots ?? null, chat_template: props.chat_template ? 'present' : null } : null };
+  assert.ok(modelInfo.alias, `no model at ${llmUrl}`);
+  report.model = modelInfo;
+} else report.model = { mode: 'stand-in', port: modelPort, answers: 'Harvest, every call' };
 
 let pin, A, s;
 async function action(name, player, fields, extra = {}) {
@@ -192,20 +207,33 @@ async function run() {
   const stranger = command(Keypair.generate(), 'mode', { agentId, params: { mode: 'auto' } });
   assert.equal((await api('/f/agent/command', stranger)).body.code, 'NotOwner');
   check('owner-commands-guarded', { forged: 'BadOwnerSignature', stranger: 'NotOwner' });
-  const depositAmount = 10_000_000n;
+  // The browser's path: a sponsored deposit (the owner signs, a pool key pays, the relay co-signs, sends, waits and credits).
+  const depositAmount = 9_000_000n;
   const before = await tokenBalance(wallet.address);
-  const dep = await sendDirect([
-    createAtaIdempotentIx({ payer: wallet.address, owner: terms.body.custodyAuthority, mint: terms.body.mint }),
+  const relayInfo = (await api('/f/relay')).body;
+  const depMessage = compileMessage({ feePayer: relayInfo.feePayer, recentBlockhash: relayInfo.blockhash, instructions: [
+    createAtaIdempotentIx({ payer: relayInfo.feePayer, owner: terms.body.custodyAuthority, mint: terms.body.mint }),
     transferCheckedIx({ source: ata(wallet.address, terms.body.mint), mint: terms.body.mint, dest: terms.body.custodyAccount, authority: wallet.address, amount: depositAmount, decimals: 6 }),
+  ] });
+  const sponsored = await api('/f/agent/deposit', { agentId, tx: toBase64(wireTransaction(depMessage, { [wallet.address]: signTalk(depMessage, keypair) })), lastValidBlockHeight: relayInfo.lastValidBlockHeight });
+  assert.equal(sponsored.status, 200, json(sponsored));
+  assert.deepEqual([sponsored.body.credited, sponsored.body.sponsored, sponsored.body.amount], [true, true, String(depositAmount)]);
+  const sponsoredAgain = await api('/f/agent/deposit', { agentId, tx: toBase64(wireTransaction(depMessage, { [wallet.address]: signTalk(depMessage, keypair) })), lastValidBlockHeight: relayInfo.lastValidBlockHeight });
+  assert.equal(sponsoredAgain.body.code, 'Duplicate', json(sponsoredAgain));
+  // The other path: an owner-paid transfer sent straight to the chain, then its signature claimed.
+  const directAmount = 1_000_000n;
+  const dep = await sendDirect([
+    transferCheckedIx({ source: ata(wallet.address, terms.body.mint), mint: terms.body.mint, dest: terms.body.custodyAccount, authority: wallet.address, amount: directAmount, decimals: 6 }),
   ], [keypair]);
   assert.equal(dep.err, null, json(dep));
   const credited = await eventually('deposit credited', async () => { const r = await api('/f/agent/deposit', { agentId, signature: dep.signature }); return r.status === 200 ? r.body : (r.body.code === 'DepositPending' ? null : assert.fail(json(r))); }, 60_000);
   assert.equal(credited.credited, true);
-  assert.equal(credited.balance.available, String(depositAmount));
+  assert.equal(credited.balance.available, String(depositAmount + directAmount));
   const again = await api('/f/agent/deposit', { agentId, signature: dep.signature });
   assert.deepEqual([again.body.credited, again.body.already], [false, true]);
-  assert.equal(before - (await tokenBalance(wallet.address)), depositAmount, 'the owner\'s wallet paid exactly the deposit');
-  check('deposited', { signature: dep.signature, amount: String(depositAmount), balance: credited.balance, creditedTwice: false });
+  assert.equal(before - (await tokenBalance(wallet.address)), depositAmount + directAmount, 'the owner\'s wallet paid exactly the deposits');
+  const total = depositAmount + directAmount;
+  check('deposited', { sponsored: { signature: sponsored.body.signature, amount: String(depositAmount), feePayer: relayInfo.feePayer, replay: sponsoredAgain.body.code }, direct: { signature: dep.signature, amount: String(directAmount) }, balance: credited.balance, creditedTwice: false });
   const setSession = await walletShape('SetSession', player, { session: new PublicKey(agentKey).toBytes(), expiry: BigInt(s.record.latestUnix) + 7n * 86_400n });
   check('session-delegated', { setSession, agentKey });
   const auto = await api('/f/agent/command', command(keypair, 'mode', { agentId, params: { mode: 'auto' } }));
@@ -234,10 +262,20 @@ async function run() {
     const v = await agentView(agentId);
     const ai = v.history.filter(x => x.type === 'action' && x.source === 'ai' && x.status === 'sent');
     return ai.length >= 2 && BigInt(v.balance.spent.inference) >= 2n * price ? { v, ai } : null;
-  }, 120_000);
+  }, realModel ? 600_000 : 120_000);
+  if (realModel) {
+    const decided = ran.v.history.filter(x => x.type === 'action' && x.source === 'ai');
+    const byModel = decided.filter(x => typeof x.reason === 'string' && x.reason.startsWith(`model:${modelInfo.alias}`));
+    assert.ok(byModel.length >= 1, `no action carries the real model\'s reason: ${json(decided)}`);
+    const calls = ran.v.history.filter(x => x.type === 'spend' && x.category === 'inference');
+    assert.ok(calls.every(x => x.model === `model:${modelInfo.alias}`), json(calls));
+    report.model.decisions = decided.map(x => ({ name: x.name, status: x.status, reason: x.reason ?? null, signature: x.signature ?? null }));
+    report.model.calls = calls.map(x => ({ amount: x.amount, ok: x.ok, tokens: x.tokens ?? null, late: x.late ?? false }));
+    report.model.fallbacks = decided.filter(x => typeof x.reason !== 'string' || !x.reason.startsWith('model:')).length;
+  }
   const aiLanded = await track(ran.ai[0].signature, { tries: 80, every: 500 });
   assert.equal(aiLanded.ok, true, json(aiLanded));
-  assert.ok(model.calls >= 2, 'the model server was called');
+  if (!realModel) assert.ok(model.calls >= 2, 'the model server was called');
   const spends = ran.v.history.filter(x => x.type === 'spend');
   assert.ok(spends.length >= 2 && spends.every(x => x.category === 'inference' && x.amount === String(price)), 'every USDC spend is a model call at the fixed price');
   assert.equal(ran.v.balance.spent.game, '0', 'Harvest stays free: no game charge');
@@ -245,7 +283,7 @@ async function run() {
   const fees = ran.v.history.filter(x => x.type === 'network');
   assert.ok(fees.length >= 1 && fees.every(x => x.paidBy === 'relay' && x.amount === '0' && BigInt(x.lamports) > 0n));
   assert.equal(ran.v.delegation?.delegated, true, 'the chain names the agent key as the session key');
-  check('runner-acted', { aiActions: ran.ai.length, modelCalls: model.calls, landed: ran.ai[0].signature, tokens: spends[0]?.tokens ?? null,
+  check('runner-acted', { aiActions: ran.ai.length, modelCalls: realModel ? 'see report.model' : model.calls, landed: ran.ai[0].signature, tokens: spends[0]?.tokens ?? null, model: report.model,
     breakdown: { inferencePrice: String(price), inferenceCalls: spends.length, spent: ran.v.balance.spent, networkLamportsRecorded: fees.map(f => f.lamports) },
     history: ran.v.history.filter(x => ['spend', 'network', 'action'].includes(x.type)).slice(-12) });
 
@@ -265,11 +303,13 @@ async function run() {
   const stale = await api('/f/agent/action', { capability, request: request({ modeEpoch: epoch }) });
   assert.equal(stale.body.error?.code, 'AgentStopped');
   const callsAtStop = model.calls;
+  const spendsAtStop = (await agentView(agentId)).history.filter(x => x.type === 'spend').length;
   const actionsAtStop = (await agentView(agentId)).history.filter(x => x.type === 'action' && x.source === 'ai').length;
   await sleep(2.5 * terms.body.runner.tickMs);
   const after = await agentView(agentId);
   assert.equal(after.history.filter(x => x.type === 'action' && x.source === 'ai').length, actionsAtStop, 'no new agent action after the stop');
   assert.equal(model.calls, callsAtStop, 'no model call after the stop');
+  assert.equal(after.history.filter(x => x.type === 'spend').length, spendsAtStop, 'no new charge after the stop');
   assert.equal(after.balance.reserved, '0', 'nothing left reserved');
   assert.equal(after.delegation?.delegated, true, 'a server-side stop does not revoke the on-chain delegation: the owner\'s SetSession does');
   check('stopped', { modeEpoch: after.modeEpoch, refused: stopped.body.error.code, spentInference: after.balance.spent.inference, stillDelegatedOnChain: after.delegation.delegated });
@@ -289,7 +329,7 @@ async function run() {
   const b = done.v.balance;
   assert.equal(b.available, '0');
   assert.equal(BigInt(b.deposited), BigInt(b.spent.inference) + BigInt(b.spent.game) + BigInt(b.withdrawn) + BigInt(b.reserved) + BigInt(b.pendingWithdraw), 'deposited = spent + withdrawn');
-  assert.equal(BigInt(b.withdrawn) + BigInt(b.spent.inference), depositAmount);
+  assert.equal(BigInt(b.withdrawn) + BigInt(b.spent.inference) + BigInt(b.unresolved ?? 0) + BigInt(b.reserved), total);
   check('withdrawn', { signature: done.x.signature, amount: done.x.amount, balance: b, walletDelta: String(walletAfter - walletBefore) });
   report.finishedAt = new Date().toISOString();
   save();
@@ -299,5 +339,5 @@ async function run() {
 try {
   await run();
 } finally {
-  modelServer.close();
+  if (!realModel) modelServer.close();
 }

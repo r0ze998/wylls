@@ -90,6 +90,7 @@ const isStr = (v, max = 128) => typeof v === 'string' && v.length > 0 && v.lengt
  *   { agentId, source: 'browser'|'ai'|'mcp', idempotencyKey,
  *     policyVersion,                   // the policy the caller decided under: a newer one refuses (StalePolicy)
  *     modeEpoch?,                      // optional: the auto period the caller started in (StaleMode)
+ *     reason?,                          // optional, ≤ 200 chars: why the caller chose this (recorded in the history, never trusted)
  *     action: { name, holding: [p, q, site], fields: {…} } }
  *
  * Authority is never read from the request: it comes from the caller's
@@ -104,13 +105,14 @@ export function parseActionRequest(r) {
   if (!isStr(r.idempotencyKey, 128)) bad('idempotencyKey is required (≤ 128 chars)');
   if (!Number.isInteger(r.policyVersion) || r.policyVersion < 1) bad('policyVersion must be a positive integer');
   if (r.modeEpoch !== undefined && (!Number.isInteger(r.modeEpoch) || r.modeEpoch < 0)) bad('modeEpoch must be a non-negative integer');
+  if (r.reason !== undefined && (typeof r.reason !== 'string' || r.reason.length > 200)) bad('reason must be a string of at most 200 chars');
   const a = r.action;
   if (!a || typeof a !== 'object') bad('action is required');
   if (!isStr(a.name, 32)) bad('action.name is required');
   if (!Array.isArray(a.holding) || a.holding.length !== 3 || !a.holding.every(Number.isInteger)) bad('action.holding must be [p, q, site]');
   const fields = a.fields ?? {};
   if (typeof fields !== 'object' || Array.isArray(fields)) bad('action.fields must be an object');
-  return { agentId: r.agentId, source: r.source, idempotencyKey: r.idempotencyKey, policyVersion: r.policyVersion, modeEpoch: r.modeEpoch,
+  return { agentId: r.agentId, source: r.source, idempotencyKey: r.idempotencyKey, policyVersion: r.policyVersion, modeEpoch: r.modeEpoch, reason: r.reason,
     action: { name: a.name, holding: [...a.holding], fields } };
 }
 

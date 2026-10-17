@@ -23,10 +23,15 @@
 // (spent ≤ held, the rest back to available) or released (all back). A stop
 // (manual) and `expire` release `held` holds only: a `running` call is
 // paid for when it returns (the owner's decision: a call made is a call
-// charged; `expire` gives it back only past its own long TTL), and a
-// `sending` hold is settled or released by its transaction's outcome alone
-// (`reconcile` in gateway.mjs), so a timeout can never refund money whose
-// action landed.
+// charged). A `running` call whose outcome this process cannot know any
+// more — the process restarted, or the call outlived its TTL — becomes
+// `unresolved`: the money stays reserved, nothing is guessed, and either the
+// result arrives after all (settled: the outcome is then known) or the
+// operator decides (gateway.settleUnresolved: charge or refund). Every such
+// case is also written to `operatorCosts`, the operator's own record of
+// costs that were not billed (DESIGN.md §6.5). A `sending` hold is settled or
+// released by its transaction's outcome alone (`reconcile` in gateway.mjs),
+// so a timeout can never refund money whose action landed.
 import { randomUUID } from 'node:crypto';
 import { AgentError, CATEGORIES, ERR } from './contract.mjs';
 
@@ -35,6 +40,7 @@ const big = v => BigInt(v ?? 0);
 const str = v => v.toString();
 const HISTORY_MAX = 500;
 const REQUESTS_MAX = 2_000;
+const OPERATOR_COSTS_MAX = 2_000;
 
 /** The wall-clock budget day (UTC) of `ms`. */
 export const budgetDay = ms => new Date(ms).toISOString().slice(0, 10);
@@ -46,6 +52,7 @@ export class AgentLedger {
     this.now = now;
     this.store.state ??= {};
     this.store.state.agentWallet ??= { agents: {}, deposits: {}, ownerNonces: {} };
+    this.store.state.agentWallet.operatorCosts ??= [];
   }
 
   get db() { return this.store.state.agentWallet; }
@@ -177,6 +184,40 @@ export class AgentLedger {
     this.save();
   }
 
+  /**
+   * A `running` call whose outcome cannot be known here any more (`reason`:
+   * 'restart' or 'ttl'): the hold stays reserved as `unresolved` and the
+   * operator's cost record gets a line. Idempotent (a second restart adds
+   * nothing). Returns whether anything changed.
+   */
+  markUnresolved(agentId, holdId, reason, { model = null } = {}) {
+    const rec = this.get(agentId);
+    const h = rec.holds[holdId];
+    if (!h || h.state !== 'running') return false;
+    h.state = 'unresolved';
+    h.unresolvedAt = this.now();
+    h.unresolvedReason = reason;
+    this.note(rec, { type: 'unresolved', category: h.category, amount: h.amount, key: h.key, reason });
+    this.recordOperatorCost({ agentId, kind: 'unknown-call', holdId, key: h.key, amount: h.amount, model, reason });
+    this.save();
+    return true;
+  }
+
+  /** The operator's own record (never the owner's bill): calls whose outcome was unknown, refunds the operator absorbed, results that came too late. */
+  recordOperatorCost(entry) {
+    const list = this.db.operatorCosts;
+    list.push({ at: this.now(), ...entry });
+    if (list.length > OPERATOR_COSTS_MAX) list.splice(0, list.length - OPERATOR_COSTS_MAX);
+    this.save();
+  }
+
+  /** Every `unresolved` hold, across agents. */
+  unresolvedHolds() {
+    const out = [];
+    for (const rec of this.agents()) for (const h of Object.values(rec.holds)) if (h.state === 'unresolved') out.push({ agentId: rec.agentId, ...h });
+    return out;
+  }
+
   /** The hold's transaction is about to be sent: from here only its outcome (`lastValidBlockHeight` bounds it) settles or releases it. */
   markSending(agentId, holdId, signature, lastValidBlockHeight = null) {
     const h = this.get(agentId).holds[holdId];
@@ -222,11 +263,20 @@ export class AgentLedger {
     return true;
   }
 
-  /** Releases `held` and `running` holds past their expiry (never `sending` ones); returns how many. */
+  /**
+   * Past their expiry: `held` holds are given back (nothing happened);
+   * `running` ones become `unresolved` (the call may have run: nothing is
+   * guessed, nothing is refunded); `sending` and `unresolved` ones are not
+   * touched. Returns how many changed.
+   */
   expire() {
     let n = 0;
     for (const rec of Object.values(this.db.agents)) {
-      for (const h of Object.values(rec.holds)) if ((h.state === 'held' || h.state === 'running') && h.expiresAt <= this.now()) { this.#release(rec, h, 'expired'); n++; }
+      for (const h of Object.values(rec.holds)) {
+        if (h.expiresAt > this.now()) continue;
+        if (h.state === 'held') { this.#release(rec, h, 'expired'); n++; }
+        else if (h.state === 'running' && this.markUnresolved(rec.agentId, h.id, 'ttl')) n++;
+      }
     }
     if (n) this.save();
     return n;
@@ -321,10 +371,11 @@ export class AgentLedger {
 
   // ------------------------------------------------------------ views and checks
 
-  /** Balance as callers see it (strings). */
+  /** Balance as callers see it (strings); `unresolved` is the part of `reserved` that waits for a late result or the operator. */
   balance(agentId) {
-    const b = this.get(agentId).bal;
-    return { available: b.available, reserved: b.reserved, pendingWithdraw: b.pendingWithdraw, withdrawn: b.withdrawn, deposited: b.deposited, spent: { ...b.spent } };
+    const rec = this.get(agentId);
+    const b = rec.bal;
+    return { available: b.available, reserved: b.reserved, unresolved: str(this.#heldTotal(rec, h => h.state === 'unresolved')), pendingWithdraw: b.pendingWithdraw, withdrawn: b.withdrawn, deposited: b.deposited, spent: { ...b.spent } };
   }
 
   /** Every agent's books balance; returns the problems (empty when sound). */

@@ -137,7 +137,30 @@ The relay pool pays every fee and escrow of a sponsored shape as before; the age
 
 **What an action costs, with the shipped defaults** (`FRONTIER_DEFAULTS`, not a test override): a model-chosen action = one inference price (10,000 base units = 0.01 test USDC, the owner's decision 2) and nothing else; a rule-autopilot action = 0; the game category = 0 for every delegable action because the price table is empty (`--agent-game-prices-file` is an operator hook; nothing ships in it); the network category = 0 always, the relay pays the SOL fee and a `network` history line records the lamports. So the 0.02 of the E2E is exactly two model calls. **Decided:** the inference price. **Proposals, not decided (left out):** any game price, a SOL→USDC settlement (§6.3).
 
-### 6.5 Concurrency, retries, timeouts
+### 6.5 A model call whose outcome cannot be known (the review of 2026-10-17, second round)
+
+The owner's charge and the operator's cost are kept apart: the ledger bills the owner only for a call whose outcome this process saw; everything else goes to the operator's own record (`operatorCosts` in the state file, `GET /f/agent/unresolved` for the operator), never guessed into the owner's bill.
+
+| Case | What happens | Owner billed? | Operator record |
+|---|---|---|---|
+| The process restarts while a call runs | the `running` hold becomes **`unresolved`**: the money stays reserved (not available, not withdrawable), nothing is charged | not yet | `unknown-call` (reason `restart`) |
+| The call outlives its TTL (10 min; the model deadline is 30 s) | the same: `unresolved`, not refunded | not yet | `unknown-call` (reason `ttl`) |
+| A result arrives for an `unresolved` hold (the TTL case) | the outcome is known: charged once (`spend` with `late: true`) | yes | — |
+| The operator decides (`POST /f/agent/settle {holdId, outcome: charge or refund, note}`) | `charge` bills the owner (`spend` with `decidedBy: operator`); `refund` returns the money | as decided | `refunded-call` on a refund |
+| A result arrives after the operator refunded | the hold is gone: not billed, not billed twice | no | `late-result` |
+| A second delivery of the same result | the ledger settles a hold once; the second is a no-op | once | — |
+| Repeated restarts | an `unresolved` hold stays as it is; one record, not one per restart | — | once |
+| A stop while a call runs | the hold stays `running`; the call is paid for when it returns; what it decided is refused | yes | — |
+
+Tests: `test/agent-wallet-billing.test.mjs`. A full withdrawal with an unresolved call leaves exactly that amount reserved until the operator decides (the page shows it as 運営の確認待ち / "waiting for the operator").
+
+**Proposals that change the owner's refund rules (not implemented; the owner decides):**
+1. *Auto-refund after N hours* of `unresolved` (the operator absorbs the cost without a decision) — cheaper for owners, costs the operator; today the decision is manual.
+2. *A late result after the TTL is not billed* (today it is billed, because the outcome is then known) — simpler to explain to owners, costs the operator.
+3. *Bill on dispatch* (charge the moment the request leaves for the model, whatever happens after) — the strictest reading of decision 2, no unresolved state at all; the owner pays for calls the model may never have seen. Not recommended for a restart, which is why it is not the default.
+4. *A per-day cap on model calls in the policy* (separate from the USDC budget), after what §12 found.
+
+### 6.6 Concurrency, retries, timeouts
 
 * Checks and holds are synchronous in one process; 20 concurrent priced requests against a balance for 10 send exactly 10 (test). Several processes on one state file are **not** supported (§9).
 * A retry with the same `idempotencyKey` returns the recorded result (also for `failed`): no second send. A different request under a used key is refused. A concurrent repeat of an in-flight key gets the same promise.
@@ -147,7 +170,7 @@ The relay pool pays every fee and escrow of a sponsored shape as before; the age
 
 ## 7. The runner (`runner.mjs`)
 
-With `--agent-runner`, the relay process ticks every agent in auto mode every `--agent-tick-ms`: the decider picks one action, `meterInference` wraps it, the choice goes through `submit` with source `ai` and the key `<agentId>:<modeEpoch>:<tick>`. The **autopilot** harvests when allowed and is free. The **model decider** (`--agent-llm`, a loopback llama-server as the AI citizens use, `citizens/mind/llm.mjs`) sees the public view and a candidate list (`Harvest, Train, Build, SetVigil`, no marches), must answer in the JSON schema, and a late, invalid or unaffordable answer falls back to the autopilot; the failed call is charged, the fallback is not. The runner never sees a secret and never starts a march.
+With `--agent-runner`, the relay process ticks every agent in auto mode every `--agent-tick-ms` (default 30 s); an agent whose last tick sent nothing (a "rest", a refusal, an unaffordable call) sits out 1, 2, 4 … up to 16 ticks before it is asked again, and a sent action resets that (§12 says why): the decider picks one action, `meterInference` wraps it, the choice goes through `submit` with source `ai` and the key `<agentId>:<modeEpoch>:<tick>`. The **autopilot** harvests when allowed and is free. The **model decider** (`--agent-llm`, a loopback llama-server as the AI citizens use, `citizens/mind/llm.mjs`) sees the public view and a candidate list (`Harvest, Train, Build, SetVigil`, no marches), must answer in the JSON schema, and a late, invalid or unaffordable answer falls back to the autopilot; the failed call is charged, the fallback is not. The runner never sees a secret and never starts a march.
 
 ## 8. What was verified
 
@@ -166,17 +189,42 @@ Measured on 2026-10-17 with `git merge-tree --write-tree --name-only <A> <B>` (a
 
 A cherry-pick of this branch's commits onto `codex/territory-opening` in a disposable worktree stopped at the second commit with content conflicts in `app.mjs`, `routes/relay.mjs` and `server.mjs`, all of the same kind: territory-opening has **no prize pool** (no `routes/prize.mjs`, no `client/src/frontier/prize.mjs`, no `--prize-mint`/`--faucet-key-file`, `sponsor()` not exported and without `extraAllowance`), which main gained in 9ed6fe40. The agent wallet's custody mint *is* the prize pool's test USDC and its E2E joins over x402 and the faucet, so on territory-opening alone it has nothing to hold: the conflicts are semantic, not textual, and were not resolved. **Recommendation: integrate into `main`** (fast-forward; the full suite and the E2E ran on exactly that tree), and bring `codex/territory-opening` to main separately (its 189 conflicts with main exist with or without this branch). Which branch is the trunk is a decision for the owner.
 
+## 8.2 What `codex/territory-opening` has, and what main has (measured 2026-10-17)
+
+Both branches diverged from ad1c919d (2026-10-04). Since then: territory-opening has 499 commits of its own (the UX waves of 10-01 to 10-10: the hand and the board, the first-village flow, the sample world, the AI-citizen runs and their notes); main has 20, almost all in one squash, 9ed6fe40 "Integrate recorded Wylls build and submission docs" (2026-10-12, 2,192 files), followed by the prize pool / x402 / faucet / submission fixes.
+
+What the content says (`git diff --name-only codex/territory-opening origin/main` over code, excluding art, run records and fixtures: 190 files):
+
+| Measure | Result |
+|---|---|
+| Files where main's copy is newer (last commit date) | 190 of 190; none where territory-opening's is newer |
+| Files with **no line that only territory-opening has** (main is a superset) | 79 of 190 |
+| Largest territory-only residues (lines) | controller.mjs 65, map/fmap.mjs 58, app.mjs 44, lang/en-frontier-play.mjs 35, en-frontier.mjs 34, citizens/verify-minds.mjs 26, hud/feed.mjs 21 |
+| 23 distinctive identifiers of territory-only lines (feed toasts, march book, the away marker, watch painting, survey gain, the conquest screen, bots' v2 dispatch, verify-minds M7…) | every one is present in main's copy, with the same or a higher count |
+| Code files that exist only on territory-opening | none; only docs: `docs/frontier/ai-citizens/*-NOTES.md`, the AC/FB/integ run notes and screenshots, `RECORDING-GUIDE.ja.md`, `runtree-r2/` (evidence, not code) |
+| What main has that territory-opening lacks | the prize pool and x402 entry (`routes/prize.mjs`, `client/src/frontier/prize.mjs`, `--prize-mint`, the faucet, `sponsor()` exported with `extraAllowance`), `permutation-prize`, 214 web modules/assets added since (keeps, keephand, marcher, fprize, fkeepreach, proto…), the submission docs |
+
+So, by content, main carries territory-opening's features in later form; the residue is older phrasing and structure, not features main lacks. The reviewer's caveat stands: a 65-line residue in `controller.mjs` may still hold a fix that main re-did differently; the seven files above are where a human would look before deleting the branch. The branch's own worktree (`~/.codex/.chatgpt-projects/…/wylls-territory`) holds 143 uncommitted changes (UX design doc, tests) that are not in either branch; they were not touched.
+
+**Integration policy proposed:** take `main` as the trunk; merge `feature/agent-wallet` into it (fast-forward); treat `codex/territory-opening` as a source of a few possible fixes (the seven files) and of the AI-run notes to copy under `docs/frontier/ai-citizens/`, then retire it. The 189-file conflict is the cost of merging territory-opening *into* main wholesale, which brings nothing main does not already have. Nothing was merged or resolved in this round.
+
 ## 9. Known limits and unresolved points
 
 * **One relay process per state file.** The ledger's safety is the single-threaded event loop; a second process on the same `agent-wallet.json` would double-spend. A multi-process deployment needs a real database with row locks or the on-chain vault below.
 * **The custody is the operator's key.** It is a test setup; the operator could move the tokens. The migration keeps `Custody`'s interface (`verifyDeposit`, `withdraw`, `status`, `balance`) and replaces the implementation with an on-chain vault program: a per-agent escrow PDA the owner funds directly (deposit = the program's instruction, no relay verification needed), withdrawals signed by the owner (not the operator), and the relay's ledger becoming an index of on-chain state plus the off-chain holds. Spending from the vault for model calls would then be a program instruction the relay signs within an on-chain budget, so the operator's charge is auditable.
 * **The relay's quota** charges the citizen's bucket for the agent's actions, as for manual play; an agent in auto cannot be rate-limited apart from its owner.
 * **The game price table is empty**; a non-zero price would make an action's hold wait for the chain's answer, which the tests cover but no real world uses.
-* **No browser UI** for the owner commands yet (§10).
+* **The browser page is a first version** (§10): one standalone page, the dev wallet only, tested with a fake DOM against the live stack (`scripts/agent-page-smoke.mjs`), not yet in a real browser session.
 * **A full withdrawal while a hold is `sending`** leaves that hold's money to come back later; the owner withdraws it with a second command.
 * **The deposit transaction must be built by the client** (the E2E and later the browser); the relay does not build or sponsor it. A sponsored deposit (relay-paid fee, owner-signed, verified byte for byte as the x402 join is) would be the natural next step for the browser.
 
-## 10. Remaining work for the MCP connection
+## 10. The owner's page (`web/frontier/agent.html`, `fagent.mjs`)
+
+A standalone page next to the play page (`/frontier/frontier/agent.html`), under the herald's CSP (no inline script or style), Japanese source with English in `lang/en-frontier-agent.mjs`. It shows, in this order: the connection token (once, at creation or reissue); **the balance apart** — deposited, available now (the only withdrawable part), reserved in flight, waiting for the operator (unresolved calls), withdrawing, withdrawn, and spending by category (decisions, in-game, fees with the note that fees are the operator's SOL); **manual / auto** with the switch count, and the sentence that a stop is server-side and rolls nothing back; **the delegation on chain** with one of four sentences for the four states (auto+delegated, auto+not, manual+still delegated, manual+yours), and the two wallet-signed buttons — hand the key over, take it back — each followed by the chain's confirmation and a re-read; **deposit and withdraw** (the sponsored deposit the wallet signs; withdraw an amount or everything, with the note of what stays reserved and that everything stops the agent); the policy form (groups and the two limits, with the version); the history by category. Every write is one of: an owner command signed with `signMessage`, `SetSession` signed with `signTransaction`, the sponsored deposit signed with `signTransaction`.
+
+Verified: `test/web-frontier-agent.test.mjs` (models, the commands the relay verifies, the deposit the relay accepts, the words in both languages) and `scripts/agent-page-smoke.mjs` against the live stack with the real model (connect → create → deposit 2 → hand over → auto → the agent acted → stop → key back → withdraw everything). Not yet done: a real browser session (the Chrome extension was not connected in this session), a wallet other than the dev wallet, the play page linking to it.
+
+## 11. Remaining work for the MCP connection
 
 An MCP server is one more caller of `POST /f/agent/action` (or `AgentGateway.submit` in process). It needs nothing new in the balance or payment path. Still to do:
 
@@ -186,3 +234,18 @@ An MCP server is one more caller of `POST /f/agent/action` (or `AgentGateway.sub
 4. **Rate limits**: `POST /f/agent/action` is 40 burst / 2 per second per address and 30 burst / 1 per second per agent.
 5. **The browser**: owner commands signed with the wallet's `signMessage`, the deposit transaction, the `SetSession` hand-over, the view.
 6. **Observability**: the ledger's history is the audit trail; an operator route to list agents and the custody's liabilities against its on-chain balance would complete it.
+
+## 12. The real model (Gemma 4 26B A4B, Q4_0, local llama-server), 2026-10-17
+
+Run `agent-e2e-4` (season 94), the relay's runner on `http://127.0.0.1:41901` (the pinned `citizens/llama/start-pinned.sh`: alias `gemma-4-26b-a4b-it`, model `.claude/data/models/gemma-4-26B-A4B-it-Q4_0.gguf`, one slot, context 16384, thinking off), tick 8 s, no paid API, test tokens only. `scripts/agent-wallet-e2e.mjs` with `AGENT_E2E_MODEL=real` (transcript `.local/agent-wallet-e2e/run5-gemma/transcript.json`, kept apart from the stand-in runs 2–4 by its `model.mode`):
+
+| What | Result |
+|---|---|
+| Checks | 17 of 17 |
+| Model calls charged | 3 × 10,000 (the test price), tokens 155/25, 161/57, 169/60 |
+| Actions decided by the model | 2 Harvests, both sent and landed, each with the model's own reason recorded (e.g. "harvesting is the most efficient way to increase the village's resource pool within the budget") |
+| Fallbacks to the autopilot | 0 |
+| Latency (llama-server timings) | prompt ≈ 0.23 s, generation ≈ 0.65 s per call |
+| Deposit 10 (9 sponsored + 1 direct) → withdrawn | 9,970,000; `deposited = spent + withdrawn` |
+
+**Finding:** in the page smoke on the same world the agent spent its whole daily limit (0.5 = 50 calls) in about seven minutes: after the first harvests the model answered "rest" at almost every 8-second tick, and a "rest" costs a call like any other. Cost was proportional to time, not to actions. The scheduler now backs off after a tick that sent nothing (§7); the shipped tick is 30 s. Still open for the owner: a per-day cap on model calls in the policy, and an event-driven runner that asks the model only when something changed (the AI citizens' design). The 0.01 per call stays a localnet test price, not a production one.

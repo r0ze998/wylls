@@ -31,7 +31,12 @@ import { ixOf } from '../../../client/src/frontier/codec.mjs';
 import { profileForSeason } from '../../../client/src/frontier/profile.mjs';
 import { classify, shapeMessage } from '../../../client/src/frontier/shapes.mjs';
 import { parseTransaction, wireTransaction } from '../../../client/src/solana-tx.mjs';
-import { signatureOf } from '../../cosign.mjs';
+import { signatureOf, signedBy } from '../../cosign.mjs';
+import { simulateWatching } from '../chain.mjs';
+import { drainGuard } from '../shapes.mjs';
+import { landed } from '../routes/prize.mjs';
+import { signAs } from '../routes/relay.mjs';
+import { PublicKey } from '@solana/web3.js';
 import { RouteError } from '../../routes/errors.mjs';
 import { feeOf } from '../shapes.mjs';
 import { sponsor } from '../routes/relay.mjs';
@@ -118,7 +123,7 @@ export class AgentGateway {
     this.prices = { inference: String(prices.inference ?? DEFAULT_INFERENCE_PRICE), game: { ...(prices.game ?? {}) } };
     for (const [k, v] of Object.entries(this.prices.game)) if (!isAmount(v)) throw new Error(`game price of ${k}: ${v} is not a base-unit amount`);
     if (!isAmount(this.prices.inference)) throw new Error(`inference price ${this.prices.inference} is not a base-unit amount`);
-    this.waits = { withdraw: { tries: 40, every: 250, ...(waits.withdraw ?? {}) } };
+    this.waits = { withdraw: { tries: 40, every: 250, ...(waits.withdraw ?? {}) }, deposit: { tries: 60, every: 250, ...(waits.deposit ?? {}) } };
     this.now = now;
     this.log = log;
     /** In-flight submits by `agentId\nkey` → {hash, promise}: a concurrent repeat shares the promise. */
@@ -129,17 +134,49 @@ export class AgentGateway {
   // ------------------------------------------------------------ startup
 
   /**
-   * After a restart: every `held` or `running` hold is given back (its
-   * request or model call died with the process, so nothing can settle it);
-   * `sending` ones wait for `reconcile`.
+   * After a restart: a `held` hold is given back (its request died before
+   * anything was sent); a `running` model call becomes `unresolved` (the
+   * call may have run: the money stays reserved, nothing is guessed, the
+   * operator decides or the operator's cost record keeps it); `unresolved`
+   * ones stay as they are (a second restart changes nothing); `sending`
+   * ones wait for `reconcile`.
    */
   recover() {
-    let n = 0;
+    let released = 0;
+    let unresolved = 0;
     for (const rec of this.ledger.agents()) {
-      for (const h of Object.values(rec.holds)) if (h.state === 'held' || h.state === 'running') { this.ledger.release(rec.agentId, h.id, 'restart'); n++; }
+      for (const h of Object.values(rec.holds)) {
+        if (h.state === 'held') { this.ledger.release(rec.agentId, h.id, 'restart'); released++; }
+        else if (h.state === 'running' && this.ledger.markUnresolved(rec.agentId, h.id, 'restart')) unresolved++;
+      }
     }
-    if (n) this.log(`agent wallet: released ${n} hold(s) left by a previous process`);
-    return n;
+    if (released || unresolved) this.log(`agent wallet: after a restart, ${released} hold(s) released and ${unresolved} model call(s) left unresolved`);
+    return { released, unresolved };
+  }
+
+  /**
+   * The operator's decision on an `unresolved` model call: 'charge' (the
+   * owner pays the fixed price) or 'refund' (the owner gets it back and the
+   * operator's cost record keeps the call). Only an unresolved hold can be
+   * decided; a hold whose result arrived in the meantime is settled already.
+   */
+  settleUnresolved(agentId, holdId, outcome, note = '') {
+    const rec = this.ledger.get(agentId);
+    const h = rec.holds[holdId];
+    if (!h || h.state !== 'unresolved') throw new AgentError(ERR.BAD_REQUEST, 'no unresolved hold with this id', 404);
+    if (outcome === 'charge') this.ledger.settle(agentId, holdId, undefined, { decidedBy: 'operator', note: String(note).slice(0, 200) });
+    else if (outcome === 'refund') {
+      this.ledger.release(agentId, holdId, 'operator-refund');
+      this.ledger.recordOperatorCost({ agentId, kind: 'refunded-call', holdId, key: h.key, amount: h.amount, note: String(note).slice(0, 200) });
+    } else throw new AgentError(ERR.BAD_REQUEST, 'outcome must be charge or refund');
+    this.log(`agent wallet: operator ${outcome}d unresolved call ${holdId} of ${agentId}`);
+    return { holdId, outcome, balance: this.ledger.balance(agentId) };
+  }
+
+  /** What waits for the operator: every unresolved hold, and the operator's cost record. */
+  unresolved() {
+    const holds = this.ledger.unresolvedHolds();
+    return { holds, total: holds.reduce((s, h) => s + big(h.amount), 0n).toString(), operatorCosts: [...this.ledger.db.operatorCosts] };
   }
 
   // ------------------------------------------------------------ agents (owner commands)
@@ -202,6 +239,45 @@ export class AgentGateway {
     const r = this.ledger.credit(agentId, signature, amount.toString());
     if (r.credited) this.log(`agent wallet: ${agentId} +${r.amount} (deposit ${signature})`);
     return { ...r, already: !r.credited, balance: this.ledger.balance(agentId) };
+  }
+
+  /**
+   * A sponsored deposit: the owner's wallet signed `tx` (checkDepositShape),
+   * a relay pool key is its fee payer. The relay co-signs, simulates with
+   * the drain guard, sends, waits for the result and credits the agent
+   * from the chain's own record of the transaction (verifyDeposit), so
+   * both deposit paths credit through the same check, once per signature.
+   */
+  async sponsorDeposit(agentId, { tx, wire, lastValidBlockHeight }) {
+    if (!this.custody) throw new AgentError(ERR.DISABLED, 'deposits are not enabled on this relay', 503);
+    const rec = this.ledger.get(agentId);
+    const { ctx } = this;
+    const shape = this.custody.checkDepositShape(tx, { owner: rec.owner, pool: ctx.pool });
+    if (!signedBy(tx, rec.owner)) throw new AgentError(ERR.BAD_OWNER_SIGNATURE, 'the owner\'s signature on the deposit is missing or invalid', 401);
+    const replayKey = `agent-deposit:${base58(tx.signatures[1])}`;
+    ctx.relayed.refuseRepeat(replayKey, 'deposit');
+    ctx.relayed.add(replayKey);
+    let signature;
+    try {
+      const signed = signAs(tx, [ctx.pool.keypair(shape.feePayer)]);
+      const before = BigInt(await ctx.connection.getBalance(new PublicKey(shape.feePayer), 'confirmed'));
+      const sim = await simulateWatching(ctx.connection, signed, [shape.feePayer], ctx.programId);
+      drainGuard({ pre: before, post: sim.post[0], fee: shape.fee, allowance: shape.allowance });
+      const expiry = await ctx.blockhashes.expiryOf(tx.recentBlockhash, lastValidBlockHeight);
+      signature = await ctx.connection.sendRawTransaction(signed, { skipPreflight: true, maxRetries: 5 });
+      ctx.sent.set(signature, { lastValidBlockHeight: expiry, kind: 'AgentDeposit' });
+    } catch (e) {
+      ctx.relayed.seen.delete(replayKey);
+      throw e;
+    }
+    this.log(`agent wallet: deposit ${signature} of ${shape.amount} for ${agentId} sent (fee payer ${shape.feePayer})`);
+    await landed(ctx, signature, this.waits.deposit);
+    return { ...(await this.deposit(agentId, signature)), signature, sponsored: true };
+  }
+
+  /** The owner's agents, briefly (public by address, as the view is public by id). */
+  byOwner(owner) {
+    return this.ledger.agentsOf(owner).map(rec => ({ agentId: rec.agentId, village: [...rec.village], mode: rec.mode, modeEpoch: rec.modeEpoch, agentKey: rec.agentKey, policy: { ...rec.policy }, balance: this.ledger.balance(rec.agentId), createdAt: rec.createdAt }));
   }
 
   // ------------------------------------------------------------ money out
@@ -344,7 +420,7 @@ export class AgentGateway {
       });
       // Sent. A priced action stays reserved until the chain's answer (reconcile); a free one has nothing to settle.
       if (big(hold.amount) === 0n) this.ledger.release(rec.agentId, hold.id, 'free');
-      this.ledger.recordAction(rec.agentId, { name: r.action.name, key, source: r.source, status: RESULT_STATUS.SENT, signature: sent.signature, holdId: big(hold.amount) > 0n ? hold.id : undefined });
+      this.ledger.recordAction(rec.agentId, { name: r.action.name, key, source: r.source, status: RESULT_STATUS.SENT, signature: sent.signature, holdId: big(hold.amount) > 0n ? hold.id : undefined, ...(r.reason ? { reason: r.reason } : {}) });
       res = resultOf(rec, key, RESULT_STATUS.SENT, { signature: sent.signature, charges: charge('reserved') });
       this.log(`agent wallet: ${rec.agentId} ${r.action.name} sent ${sent.signature} (${r.source}, key ${key})`);
     } catch (e) {
@@ -413,8 +489,14 @@ export class AgentGateway {
     let error = null;
     try { result = await fn(); } catch (e) { error = e; }
     const tokens = result?.tokens ?? null;
-    const settled = this.ledger.settle(agentId, hold.id, undefined, { model, tokens, ok: !error });
-    if (!settled) this.log(`agent wallet: ${agentId} model call ${key} outlived its hold (expired or restarted): not charged`);
+    // The outcome is known now: settle, also when the hold had become unresolved (past its TTL) in the meantime.
+    const late = rec.holds[hold.id]?.state === 'unresolved';
+    const settled = this.ledger.settle(agentId, hold.id, undefined, { model, tokens, ok: !error, ...(late ? { late: true } : {}) });
+    if (!settled) {
+      // The hold is gone (the operator refunded it): the owner is not billed twice; the operator's record keeps the late result.
+      this.ledger.recordOperatorCost({ agentId, kind: 'late-result', holdId: hold.id, key, amount: hold.amount, model, ok: !error });
+      this.log(`agent wallet: ${agentId} model call ${key} returned after its hold was refunded: not charged, recorded`);
+    }
     const charged = settled ? hold.amount : '0';
     if (error) return { ok: false, charged, error: { code: ERR.INFERENCE_FAILED, message: String(error?.message ?? error) }, tokens };
     return { ok: true, charged, result, tokens };

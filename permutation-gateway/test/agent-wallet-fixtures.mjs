@@ -8,8 +8,11 @@ import { encode as base58 } from '../client/src/base58.mjs';
 import { CLOCK_SYSVAR, FrontierAddresses } from '../client/src/frontier/addresses.mjs';
 import { encodeAccount } from '../client/src/frontier/codec.mjs';
 import { ata, TOKEN_PROGRAM } from '../client/src/frontier/prize.mjs';
-import { parseTransaction } from '../client/src/solana-tx.mjs';
-import { verifyTalk } from '../client/src/talk-node.mjs';
+import { compileMessage, parseTransaction, wireTransaction } from '../client/src/solana-tx.mjs';
+import { signTalk, verifyTalk } from '../client/src/talk-node.mjs';
+import { toBase64 } from '../client/src/bytes.mjs';
+import { createAtaIdempotentIx } from '../client/src/player.mjs';
+import { transferCheckedIx } from '../src/frontier/agent/custody.mjs';
 import { createFrontierApps } from '../src/frontier/app.mjs';
 import { BlockhashBook } from '../src/send.mjs';
 import { Custody } from '../src/frontier/agent/custody.mjs';
@@ -76,7 +79,13 @@ export function fakeChain({ debit = () => 0n, fail = () => null, confirm = true 
       const tx = parseTransaction(new Uint8Array(raw));
       c.sent.push(tx);
       const sig = base58(tx.signatures[0]);
-      if (c.confirm) c.statuses.set(sig, { slot: 78, err: null, confirmationStatus: 'confirmed' });
+      if (c.confirm) {
+        c.statuses.set(sig, { slot: 78, err: null, confirmationStatus: 'confirmed' });
+        // As a node reports it back (no token balances, as frontier-localnet): the message with compiled instructions.
+        const keys = tx.accountKeys;
+        c.transactions.set(sig, { meta: { err: null, preTokenBalances: [], postTokenBalances: [] }, transaction: { message: { staticAccountKeys: keys.map(k => new PublicKey(k)), header: tx.header,
+          compiledInstructions: tx.instructions.map(ix => ({ programIdIndex: keys.indexOf(ix.programId), accountKeyIndexes: ix.keys.map(k => keys.indexOf(k.pubkey)), data: Uint8Array.from(ix.data) })) } } });
+      }
       return sig;
     },
     getSignatureStatuses: async sigs => ({ value: sigs.map(s => c.statuses.get(s) ?? null) }),
@@ -92,7 +101,7 @@ export const MASTER = Buffer.alloc(32, 7);
  * pool, store, agentStore, gateway, custody, custodyKey}`. `prices`: the
  * gateway's; `withCustody: false` leaves deposits and withdrawals out.
  */
-export function relay({ chain = fakeChain(), season = {}, clock = GENESIS + 3_600, poolSize = 150, prices = {}, withCustody = true, keyringDir = null, now = Date.now, log = null, agentState = null } = {}) {
+export function relay({ chain = fakeChain(), season = {}, clock = GENESIS + 3_600, poolSize = 150, prices = {}, withCustody = true, keyringDir = null, keyring = null, now = Date.now, log = null, agentState = null } = {}) {
   const pool = new PayerPool({ masterSeed: MASTER, n: poolSize, dev: poolSize < 150 });
   for (const k of pool.publicKeys()) chain.set(k, { lamports: 2_000_000_000 });
   chain.set(A.season, { data: seasonAccount(season) });
@@ -106,7 +115,7 @@ export function relay({ chain = fakeChain(), season = {}, clock = GENESIS + 3_60
   const custodyKey = Keypair.generate();
   const custody = withCustody ? new Custody({ connection: chain, keypair: custodyKey, mint: MINT, pool, blockhashes: apps.ctx.blockhashes }) : null;
   if (custody) chain.set(custody.account, { data: tokenAccountData({ mint: MINT, owner: custody.authority, amount: 0n }) });
-  const gateway = attachAgentWallet(apps.ctx, { store: agentStore, keyring: new AgentKeyring({ dir: keyringDir }), custody, prices, waits: { withdraw: { tries: 3, every: 1 } }, log: m => { logs.push(m); log?.(m); }, now });
+  const gateway = attachAgentWallet(apps.ctx, { store: agentStore, keyring: keyring ?? new AgentKeyring({ dir: keyringDir }), custody, prices, waits: { withdraw: { tries: 3, every: 1 } }, log: m => { logs.push(m); log?.(m); }, now });
   return { ...apps, chain, pool, store, agentStore, gateway, custody, custodyKey, logs, invites };
 }
 
@@ -178,3 +187,14 @@ export const actionRequest = (agentId, { name = 'Harvest', fields = {}, holding 
 });
 
 export const sound = r => assert.deepEqual(r.gateway.ledger.check(), [], 'the books balance');
+
+/** A sponsored deposit transaction (base64 wire) signed by the owner's keypair: `[createAta?, TransferChecked]` paid by `feePayer`. */
+export function sponsoredDeposit(r, ownerKeypair, amount, { feePayer, createAta = true, blockhash = Keypair.generate().publicKey.toBase58(), tamper = x => x } = {}) {
+  const owner = ownerKeypair.publicKey.toBase58();
+  const ixs = tamper([
+    ...(createAta ? [createAtaIdempotentIx({ payer: feePayer, owner: r.custody.authority, mint: MINT })] : []),
+    transferCheckedIx({ source: ata(owner, MINT), mint: MINT, dest: r.custody.account, authority: owner, amount, decimals: 6 }),
+  ]);
+  const message = compileMessage({ feePayer, recentBlockhash: blockhash, instructions: ixs });
+  return { message, wire: toBase64(wireTransaction(message, { [owner]: signTalk(message, ownerKeypair) })) };
+}

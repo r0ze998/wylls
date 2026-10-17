@@ -49,7 +49,7 @@ test('a priced action is held before the send, settled when the transaction land
   sound(r);
   const rec = await r.gateway.reconcile();
   assert.equal(rec.settled, 1);
-  assert.deepEqual(r.gateway.view(a.agentId).balance, { available: '95000', reserved: '0', pendingWithdraw: '0', withdrawn: '0', deposited: '100000', spent: { inference: '0', network: '0', game: '5000' } });
+  assert.deepEqual(r.gateway.view(a.agentId).balance, { available: '95000', reserved: '0', unresolved: '0', pendingWithdraw: '0', withdrawn: '0', deposited: '100000', spent: { inference: '0', network: '0', game: '5000' } });
   assert.ok(r.gateway.view(a.agentId).history.some(h => h.type === 'spend' && h.category === 'game' && h.amount === '5000' && h.key === 'h1'));
   // A failed transaction gives the hold back.
   const two = await a.act({ key: 'h2', name: 'Train', fields: { unit: 1, n: 1 } });

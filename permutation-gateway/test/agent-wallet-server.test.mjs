@@ -100,7 +100,7 @@ test('ledger: holds, settlement, release, expiry, the daily roll, deposits once,
   const h1 = L.hold('a1', { category: 'game', amount: '4000', key: 'k1', ttlMs: 1_000 });
   assert.throws(() => L.hold('a1', { category: 'game', amount: '1001', key: 'k2' }), e => e.code === ERR.DAILY_LIMIT, 'held counts against the day');
   const h2 = L.hold('a1', { category: 'inference', amount: '1000', key: 'k2' });
-  assert.deepEqual(L.balance('a1'), { available: '5000', reserved: '5000', pendingWithdraw: '0', withdrawn: '0', deposited: '10000', spent: { inference: '0', network: '0', game: '0' } });
+  assert.deepEqual(L.balance('a1'), { available: '5000', reserved: '5000', unresolved: '0', pendingWithdraw: '0', withdrawn: '0', deposited: '10000', spent: { inference: '0', network: '0', game: '0' } });
   assert.deepEqual(L.check(), []);
   // Settle part of a hold: the rest comes back; settling twice is a no-op; outside the hold is refused.
   assert.throws(() => L.settle('a1', h1.id, '4001'), e => e.code === ERR.BAD_REQUEST);
@@ -131,7 +131,7 @@ test('ledger: holds, settlement, release, expiry, the daily roll, deposits once,
   assert.equal(L.finishWithdraw('a1', w1.id), false);
   const w2 = L.holdWithdraw('a1', '1000');
   assert.equal(L.failWithdraw('a1', w2.id, 'expired'), true);
-  assert.deepEqual(L.balance('a1'), { available: '4000', reserved: '0', pendingWithdraw: '0', withdrawn: '2000', deposited: '10000', spent: { inference: '1000', network: '0', game: '3000' } });
+  assert.deepEqual(L.balance('a1'), { available: '4000', reserved: '0', unresolved: '0', pendingWithdraw: '0', withdrawn: '2000', deposited: '10000', spent: { inference: '1000', network: '0', game: '3000' } });
   assert.deepEqual(L.check(), []);
   assert.equal(L.liabilities(), 4000n);
   // Mode and policy bump their counters; manual releases held holds.

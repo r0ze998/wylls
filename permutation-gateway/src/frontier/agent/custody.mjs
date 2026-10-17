@@ -18,7 +18,9 @@
 import { PublicKey } from '@solana/web3.js';
 import { decode as fromBase58, encode as base58 } from '../../../client/src/base58.mjs';
 import { ata, decodeTokenAccount, TOKEN_PROGRAM } from '../../../client/src/frontier/prize.mjs';
-import { createAtaIdempotentIx } from '../../../client/src/player.mjs';
+import { ASSOCIATED_TOKEN_PROGRAM, createAtaIdempotentIx } from '../../../client/src/player.mjs';
+import { SYSTEM_PROGRAM } from '../../../client/src/frontier/addresses.mjs';
+import { baseFee, rent } from '../../../client/src/frontier/fees.mjs';
 import { compileMessage, wireTransaction } from '../../../client/src/solana-tx.mjs';
 import { signTalk } from '../../../client/src/talk-node.mjs';
 import { AgentError, ERR } from './contract.mjs';
@@ -63,6 +65,46 @@ export class Custody {
     this.strictBalances = strictBalances;
     this.authority = keypair.publicKey.toBase58();
     this.account = ata(this.authority, mint);
+  }
+
+  /**
+   * A sponsored deposit (POST /f/agent/deposit {tx}): the owner's wallet
+   * signed a transaction whose fee payer is one of the relay's pool keys and
+   * whose instructions are exactly `[createAtaIdempotent(custody)?,
+   * TransferChecked(owner's token account → custody, mint, amount,
+   * authority = owner, decimals)]`, signed by the fee payer and the owner
+   * only, naming no other account. Returns `{feePayer, amount, createsAta,
+   * allowance}` (lamports the fee payer may lose beyond the fee: the
+   * custody account's rent when the transaction creates it) or throws
+   * DepositInvalid. The relay adds its signature only: it cannot change the
+   * amount or the destination.
+   */
+  checkDepositShape(tx, { owner, pool }) {
+    const bad = m => { throw new AgentError(ERR.DEPOSIT_INVALID, `deposit refused: ${m}`); };
+    const feePayer = tx.signers[0];
+    if (!pool.has(feePayer)) bad('the fee payer is not one of this relay\'s (GET /f/relay names one)');
+    if (tx.signers.length !== 2 || tx.signers[1] !== owner) bad('the fee payer and the owner sign, nobody else');
+    const ixs = tx.instructions;
+    if (ixs.length < 1 || ixs.length > 2) bad('one TransferChecked, with at most the custody account\'s creation before it');
+    const transfer = ixs[ixs.length - 1];
+    const createsAta = ixs.length === 2;
+    const keysOf = ix => ix.keys.map(k => k.pubkey);
+    if (createsAta) {
+      const want = createAtaIdempotentIx({ payer: feePayer, owner: this.authority, mint: this.mint });
+      const got = ixs[0];
+      if (got.programId !== ASSOCIATED_TOKEN_PROGRAM || got.data.length !== 1 || got.data[0] !== 1 || keysOf(got).join() !== want.keys.map(k => k.pubkey).join()) {
+        bad('the first instruction must create the custody account idempotently, paid by the fee payer');
+      }
+    }
+    if (transfer.programId !== TOKEN_PROGRAM || transfer.data.length !== 10 || transfer.data[0] !== 12) bad('the last instruction must be an SPL Token TransferChecked');
+    const [source, mint, dest, authority] = keysOf(transfer);
+    if (source !== ata(owner, this.mint) || mint !== this.mint || dest !== this.account || authority !== owner) bad('the transfer must move the test USDC from the owner\'s token account into the custody account, by the owner');
+    if (transfer.data[9] !== this.decimals) bad(`decimals must be ${this.decimals}`);
+    const amount = new DataView(Uint8Array.from(transfer.data).buffer).getBigUint64(1, true);
+    if (amount <= 0n) bad('the amount must be positive');
+    const used = new Set([feePayer, owner, source, mint, dest, TOKEN_PROGRAM, ...(createsAta ? [ASSOCIATED_TOKEN_PROGRAM, this.account, this.authority, SYSTEM_PROGRAM] : [])]);
+    if (tx.accountKeys.length !== used.size || tx.accountKeys.some(k => !used.has(k))) bad('the message names account keys the deposit does not use');
+    return { feePayer, amount, createsAta, fee: baseFee(2), allowance: createsAta ? rent(165) : 0n };
   }
 
   /** The custody token account's balance (base units). */
