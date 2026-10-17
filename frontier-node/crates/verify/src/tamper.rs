@@ -11,6 +11,12 @@
 //! header recomputed) and whatever else a careful forger would adjust is
 //! adjusted (payments, dependent digests), so only the check under test can
 //! see the lie — which is what lets its `mutate-` build PASS.
+//!
+//! On a conquest season (program v3) the same classes run over the v2
+//! records; the chain classes are satisfied by the conquest audit's CQ1
+//! codes ([`cq_equivalents`]), since CQ1 walks the chains in V1's place
+//! there. No class yet tampers a conquest record (T25–T48 of the conquest
+//! contract §8.5 are not written).
 
 use std::collections::HashMap;
 
@@ -304,9 +310,17 @@ fn world(inp: &Input) -> (World, Facts) {
     (w, f)
 }
 
-/// The record index (in [`World::recs`]) of `(t, i)`.
+/// The record index (in [`World::recs`]) of `(t, i)`: `i` is the record's
+/// position among the transaction's bodies ([`find`]), which in a conquest
+/// season counts the conquest records (`World::cq_recs`, not in
+/// `Tx::recs`) too — CQ3-A: T17 panicked on a SKIP behind a CONQUEST.
 fn rec_at(w: &World, t: usize, i: usize) -> usize {
-    w.txs[t].recs[i]
+    w.txs[t]
+        .recs
+        .iter()
+        .copied()
+        .find(|&n| w.recs[n].pos == i)
+        .unwrap_or_else(|| panic!("record {i} of transaction {t} is not an M1 record"))
 }
 
 // ------------------------------------------------------------ the classes
@@ -1991,6 +2005,7 @@ fn panic_message(p: &(dyn std::any::Any + Send)) -> String {
 /// review: a bug on this run's shape, never "not applicable").
 pub fn judge_class(c: &Class, run: &Input) -> Outcome {
     let mut why = vec![];
+    let cq = crate::conquest::applies(run);
     let blank = |status: Status, detail: String| Outcome {
         class: c.class,
         required: c.required,
@@ -2042,7 +2057,12 @@ pub fn judge_class(c: &Class, run: &Input) -> Outcome {
                 };
             }
         };
-        let hit = case.codes.iter().any(|x| r.fails_with(x));
+        // A conquest season runs the conquest audit's CQ1 in V1's place
+        // (`checks::run`: "V1:CQ1"), whose chain findings carry CQ1's own
+        // names; a class expecting V1's code is satisfied by CQ1's.
+        let hit = case.codes.iter().any(|x| {
+            r.fails_with(x) || (cq && cq_equivalents(x).iter().any(|y| r.fails_with(y)))
+        });
         return Outcome {
             class: c.class,
             required: c.required,
@@ -2066,6 +2086,25 @@ pub fn judge_class(c: &Class, run: &Input) -> Outcome {
         };
     }
     blank(Status::NotApplicable, why.join("; "))
+}
+
+/// The conquest audit's (CQ1) codes that stand for a V1 code on a conquest
+/// season, where CQ1 walks the chains in V1's place: a gap or a wrong head
+/// shows as a chain, final-head or final-state mismatch, a duplicated
+/// record as a duplicated transaction.
+pub fn cq_equivalents(v1: &str) -> &'static [&'static str] {
+    match v1 {
+        CHAIN_GAP | HEAD_MISMATCH => &[
+            "ChainMismatch",
+            "FinalHeadMismatch",
+            "FinalStateMismatch",
+            "MissingLink",
+            "ExtraLink",
+            "ReadonlyChain",
+        ],
+        DUPLICATE_EVENT => &["DuplicateTransaction", "ChainMismatch"],
+        _ => &[],
+    }
 }
 
 /// The whole suite over one run, `jobs` classes at a time (each class

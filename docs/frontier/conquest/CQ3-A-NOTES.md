@@ -23,6 +23,7 @@ Before this branch, `verify_core::verify` ran **only** the conquest audit (`crat
 | V16 (partial, `V16:first-holding-owner`): a Holding of order 1 keeps its owner while its generation is unchanged; a CAPTURE_SETTLED into slot 1 fails (`FirstHoldingTransferred`) | `checks/v16_owner.rs`, `codes.rs` |
 | V11: a conquest Province's daily camp check is `clash_model::camp_check_v2` with the keep tile (never on the keep); was M1's `camp_at`, which placed the day-1 respawn one tile off on four provinces (`CampMismatch` ×4 at bell 146) | `checks/v11_land.rs` |
 | V20 (partial, `V20:season-end`): no OCCUPIED / CAPTURE_DUE / KEEP_TAKEN at a step bell ≥ `end_bell` (`CompletionAfterEnd`); an Ended season has no SIEGE_DECLARED without a SIEGE_SETTLED (`SiegeNotSettled`); no OUTPOST_SETTLED within 24 bells of `end_bell` (`OutpostAfterClose`, read at the settle, the contract bounds the filing) | `checks/v20_end.rs`, `codes.rs` |
+| Tamper suite on a conquest run (`frontier-stack tamper --run-id sc-cq2d`): `rec_at` looked a record up by its position among the transaction's M1 records, but `find` numbers every body, conquest records included (T17 panicked on a SKIP behind a CONQUEST; now by `pos`); a class expecting V1's chain code (`ChainGap`, `HeadMismatch`, `DuplicateEvent`) is satisfied by the conquest audit's CQ1 names (`tamper::cq_equivalents`), since CQ1 walks the chains in V1's place on a conquest season | `tamper.rs` |
 | Diagnostic: `cargo run --release --example suites -- INPUT.json.gz [--detail]` runs the two suites apart; `--detail` prints every finding and the record counts by kind | `examples/suites.rs` |
 
 All verifier tests pass (83, including the 58 M1 tamper tests; 2 new unit tests in `holding.rs`). None of the new conquest paths has a tamper fixture yet: the live run below is their only exercise.
@@ -61,6 +62,8 @@ Results so far (same run, snapshots as it goes):
 | 19,610 txs, 178 bells (08:55), after the fleet fix | FAIL: V11 CampMismatch ×4 (day-1 camps one tile off) → **PASS** after the `camp_check_v2` fix (same 2 warns) | PASS | **10 CLASH, 2 DEPART / REVEAL / TRANSIT_SETTLED / DEPARTURE_SETTLED, 12 GATHER, 6 CAMP**; one keep contest open ((-4, 1), 3 against 2, ETA bell 237). V7's v2 clash replay, V5, V6 and V8 pass on these |
 
 The rebuilt `frontier-stack verify` (with this verifier) reports the same: PASS, "conquest season: V2–V13 with the v2 rules, chains, final state, identity and territory time by the conquest audit (CQ1–CQ3)".
+
+**Tamper suite on the 19,610-tx snapshot** (`frontier-stack tamper --run-id sc-cq2d`, 19 s): before the two `tamper.rs` fixes, 24 of 30 classes detected, 5 "missed" with verdict FAIL but CQ1's code names (T1, T6, T12, T14, T1b), T17 panicked. After: **30 of 30 detected** (27 on the run, 3 — T15, T18, T22 — on the committed M1 fixture because the run cannot express them). These are the M1 classes T1–T24 and the extras over the v2 records; no class tampers a conquest record yet (T25–T48 not written).
 
 ### After the season (planned)
 
