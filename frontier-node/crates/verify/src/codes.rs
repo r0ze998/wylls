@@ -64,6 +64,8 @@ pub const SIEGE_AFTER_END_RULE: &str = "SiegeAfterEndRule";
 pub const SIEGE_PROGRESS_MISMATCH: &str = "SiegeProgressMismatch";
 pub const KEEP_MISMATCH: &str = "KeepMismatch";
 pub const SNAPSHOT_MISMATCH: &str = "SnapshotMismatch";
+// V19 folds (conquest contract §8.5; partial)
+pub const MARCH_FOLD_MISMATCH: &str = "MarchFoldMismatch";
 // V22 land legality (conquest contract §8.5; partial: the outpost filing)
 pub const OUTPOST_ILLEGAL: &str = "OutpostIllegal";
 // V17 capture bookkeeping (conquest contract §8.5; partial)
@@ -125,6 +127,7 @@ pub const FAIL_CODES: &[&str] = &[
     SIEGE_PROGRESS_MISMATCH,
     KEEP_MISMATCH,
     SNAPSHOT_MISMATCH,
+    MARCH_FOLD_MISMATCH,
     FIRST_HOLDING_TRANSFERRED,
     CAPTURE_RULE,
     CAPTURE_BOOKKEEPING,
