@@ -17,6 +17,7 @@ preseason_scale = 2000
 game_hours = 72
 drain_bells = 26
 bots = 0
+bot_seed = 51
 season_id = 51
 base_port = 41900
 
