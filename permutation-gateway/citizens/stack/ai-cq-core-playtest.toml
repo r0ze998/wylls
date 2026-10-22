@@ -1,0 +1,30 @@
+# Core playtest (docs/frontier/core-playtest/RUNBOOK.ja.md): humans in the browser and the deck-1 AI citizens share one
+# conquest world, played in two 3-hour nights with the clock paused in between. No prize pool, no script bots, rules and
+# numbers unchanged. 72 game hours of play at 10x is 7.2 h of running clock: enough for two nights plus slack.
+#
+#   AI_RUNS_MD=$HOME/wylls-core-playtest-RUNS.md FRONTIER_RELAY_TXS_PER_DAY=400 \
+#     permutation-gateway/citizens/bin/ai-citizens-run.sh \
+#       --stack permutation-gateway/citizens/stack/ai-cq-core-playtest.toml \
+#       --citizens-config permutation-gateway/citizens/config/smoke.json --deck deck-1 --run-id core-playtest-1
+#
+# Local test chain only. Base port 41900 (game page 41940, council page 41902); one AI stack at a time.
+run_id = "core-playtest-1"
+mode = "accel"
+beacon = "test-key"
+conquest = true
+scale = 10
+preseason_scale = 2000
+game_hours = 72
+drain_bells = 26
+bots = 0
+season_id = 51
+base_port = 41900
+
+[pools]
+beneficiary_lamports = 1000000000
+
+[chaos]
+enabled = false
+
+[adversary]
+enabled = false
