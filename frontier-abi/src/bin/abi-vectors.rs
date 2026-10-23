@@ -1886,6 +1886,17 @@ fn v2_budgets() -> J {
             ),
             ("skip_per_active_bell", n(b2::SKIP_PER_ACTIVE_BELL)),
             ("skip_record_bells_max", n(b2::SKIP_RECORD_BELLS_MAX)),
+            // S1: its own release .so (loaded limits) and the caravan fee
+            // the relay's allowance caps.
+            ("placeholder_so_len_s1", n(b2::PLACEHOLDER_SO_LEN_S1)),
+            (
+                "placeholder_programdata_len_s1",
+                n(b2::PLACEHOLDER_PROGRAMDATA_LEN_S1),
+            ),
+            (
+                "caravan_fee",
+                n(permutation_rules::frontier::caravan::CARAVAN_FEE),
+            ),
             ("heap_gate", n(budgets::HEAP_GATE)),
             ("tx_max", n(budgets::TX_MAX)),
         ]),
@@ -1914,6 +1925,7 @@ fn v2_budgets() -> J {
                             n(b2::loaded_need(*i, b2::PLACEHOLDER_PROGRAMDATA_LEN_V2)),
                         ),
                         ("loaded_limit", n(b2::loaded_limit(*i))),
+                        ("loaded_limit_s1", n(b2::loaded_limit_s1(*i))),
                     ])
                 })
                 .collect(),

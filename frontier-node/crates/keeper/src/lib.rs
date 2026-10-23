@@ -36,6 +36,7 @@
 pub mod api;
 pub mod archive;
 pub mod beacon;
+pub mod caravans;
 pub mod config;
 pub mod conquest;
 pub mod engine;

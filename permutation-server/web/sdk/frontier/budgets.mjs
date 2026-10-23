@@ -24,6 +24,8 @@ export const CB = Object.freeze({ REQUEST_HEAP_FRAME: 1, SET_COMPUTE_UNIT_LIMIT:
 
 /** frontier-abi's budget constants (heap gate, heap frame, CU ladder maximum, lock and packet ceilings, L defaults…). */
 export const BUDGET_CONSTANTS = BUDGETS.constants;
+/** The lamports a caravan escrows for its settlement (S1, frontier-abi's `caravan::CARAVAN_FEE`). */
+export const CARAVAN_FEE = BigInt(BUDGETS_V2.constants.caravan_fee);
 /** A transaction's size limit (one packet), in bytes. */
 export const PACKET_BYTES = BUDGETS.constants.tx_max;
 
@@ -39,10 +41,12 @@ const byNameV2 = new Map(BUDGETS_V2.instructions.map(b => [b.name, b]));
  * heap, writeLocks, accounts: [min, max]}`, or null for an unknown one.
  */
 export function budgetOf(which, profile = 1) {
-  const b = typeof which === 'number' ? (profile === 2 ? byTagV2 : byTag).get(which) : (profile === 2 ? byNameV2 : byName).get(which);
+  const b = typeof which === 'number' ? (profile >= 2 ? byTagV2 : byTag).get(which) : (profile >= 2 ? byNameV2 : byName).get(which);
   if (!b) return null;
+  // Profile 3 (S1): the v2 rows at the S1 release's loaded limits.
+  const loadedLimit = profile === 3 ? (b.loaded_limit_s1 ?? b.loaded_limit) : b.loaded_limit;
   return {
-    name: b.name, tag: b.tag, class: b.class, cuBudget: b.cu_budget, cuLimit: b.cu_limit, loadedLimit: b.loaded_limit,
+    name: b.name, tag: b.tag, class: b.class, cuBudget: b.cu_budget, cuLimit: b.cu_limit, loadedLimit,
     txCeiling: Math.min(b.tx_ceiling, PACKET_BYTES), heap: b.heap, writeLocks: b.write_locks_worst, accounts: b.accounts,
     topLevelOnly: !!tagInfo.get(b.tag)?.top_level_only,
   };

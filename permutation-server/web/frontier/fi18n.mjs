@@ -168,6 +168,15 @@ const ERROR_TEXT = {
   FoldOutOfOrder: () => L`領土の集計順序を確認しています。少し待ってください`,
   FoldTooEarly: () => L`このターンの領土の集計がまだ終わっていません`,
   NotLead: () => L`この包囲の先導者だけが行える操作です`,
+  // S1 stage 1b: vaults and caravans
+  VaultSite: () => L`蔵はこのマスに建てられません（通れない土地、村、砦、野営地、または既存の蔵）`,
+  VaultLimit: () => L`持てる蔵の上限に達しています`,
+  WalletRequired: () => L`この操作はウォレットの署名が必要です（ゲーム内の鍵ではできません）`,
+  ProvinceBusy: () => L`この州の隊商の枠がいっぱいです。少し待ってから送ってください`,
+  CaravanEarly: () => L`隊商はまだ到着していないか、通った州の決着がまだです`,
+  RaidState: () => L`この隊商には決着を待つ略奪がない、またはすでに決着しています`,
+  RaidWindow: () => L`略奪の決定の受付時間外です`,
+  NotOnTile: () => L`蔵のマスに自分の軍勢がいないか、持ち主の軍勢がまだいます`,
   NotImplemented: () => L`まだ実装されていません`,
 };
 

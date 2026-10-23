@@ -40,7 +40,7 @@ use frontier_abi::v2::CqError;
 use permutation_rules::fixed::MILLI;
 use permutation_rules::frontier::caravan::{
     self as kc, caravan_id, CaravanSlot, Land, Run, CARAVAN_FEE, MAX_CARAVAN_SLOTS, MAX_VAULTS,
-    RAID_DECIDE_BELLS, RAID_NONE, RAID_SETTLED, VAULT_CAP,
+    RAID_BURN_AFTER_BELLS, RAID_DECIDE_BELLS, RAID_NONE, RAID_SETTLED, VAULT_CAP,
 };
 use permutation_rules::frontier::doctrine::of_faction_v3;
 use permutation_rules::frontier::geometry::ProvinceCoord;
@@ -1338,7 +1338,8 @@ pub fn raid_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 /// 0xB6 DefaultRaid: `[fee_payer s] [season] [caravan w] [raider_holding r]
 /// [raider_citizen w] [loot w] [beneficiary w] [system] [path_province w
 /// ×1..4]`: after the raider's window, a take to the raiding host's own
-/// holding (contract §3.5), or a burn when that holding is gone. The keeper
+/// holding (contract §3.5), or a burn when that holding is gone or, from
+/// `RAID_BURN_AFTER_BELLS` after the window, when no walk home is given. The keeper
 /// fronts the loot caravan's rent and fee (both back to it, as `RENT_TO`
 /// and as the settler, when it settles the loot) and is paid the raided
 /// caravan's fee; the raided caravan's remainder settles with no fee.
@@ -1388,6 +1389,21 @@ pub fn default_raid(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         (t.p as i32, t.q as i32, t.at, t.gen)
             == (parts.province.p, parts.province.q, parts.site, parts.gen)
     });
+    // No walk home given (`steps` 0 off the home tile): a burn, allowed
+    // only `RAID_BURN_AFTER_BELLS` after the window (a raid never stays
+    // open for good; a keeper has a day to take the loot home).
+    let raid_tile = *slot.tiles.get(slot.raid_off as usize).ok_or(BAD_ACCOUNT)?;
+    let unreachable =
+        home.is_some_and(|t| x.steps == 0 && ((t.p, t.q) != (x.p, x.q) || t.tile != raid_tile));
+    if unreachable
+        && bell
+            <= raid_bell
+                .saturating_add(RAID_DECIDE_BELLS)
+                .saturating_add(RAID_BURN_AFTER_BELLS)
+    {
+        return Err(cq(CqError::RaidWindow));
+    }
+    let home = home.filter(|_| !unreachable);
     let choice = if home.is_some() {
         raid_choice::TAKE
     } else {

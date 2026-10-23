@@ -1975,6 +1975,160 @@ pub fn cq_t46(run: &Input) -> Made {
 /// A class builder.
 pub type Builder = fn(&Input) -> Made;
 
+// ------------------------------------------------------------ S1 classes (stage 1b, T49–T51)
+
+/// The first landed transaction with a program instruction of `tag`.
+fn first_with(inp: &Input, tag: u8) -> Option<usize> {
+    (0..inp.txs.len()).find(|&t| inp.txs[t].err.is_none() && ix_keys(inp, t, tag).is_some())
+}
+
+/// T49: a caravan slot not written (V23): SendCaravan's slots erased from
+/// the Provinces it left.
+pub fn s1_t49(run: &Input) -> Made {
+    use frontier_abi::v2::layout::province::caravan_slot as CS;
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::SendCaravan.tag();
+    let t = first_with(&inp, tag).need("a SendCaravan")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let mut hit = false;
+    for k in keys.iter().skip(8) {
+        hit |= edit_account_at(&mut inp, k, t, |d| {
+            for i in 0..permutation_rules::frontier::caravan::MAX_CARAVAN_SLOTS {
+                if let Some(b) = d.get_mut(CS::at(i)..CS::at(i) + CS::SIZE) {
+                    b.fill(0);
+                    b[CS::RAID_OFF] = permutation_rules::frontier::caravan::RAID_NONE;
+                }
+            }
+        });
+    }
+    hit.then_some(()).need("a path Province's post-state")?;
+    Ok(Case {
+        class: "T49",
+        what: "a caravan's slots not written",
+        feature: None,
+        codes: &[CARAVAN_MISMATCH],
+        input: inp,
+    })
+}
+
+/// T50: cargo delivered twice (V23): a vault's credit at a SettleCaravan
+/// doubled.
+pub fn s1_t50(run: &Input) -> Made {
+    use frontier_abi::v2::layout::s1::vault as VA;
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::SettleCaravan.tag();
+    let mut found = None;
+    for t in 0..inp.txs.len() {
+        if inp.txs[t].err.is_some() {
+            continue;
+        }
+        let Some(keys) = ix_keys(&inp, t, tag) else {
+            continue;
+        };
+        let (Some(c), Some(v)) = (keys.get(2), keys.get(3)) else {
+            continue;
+        };
+        let before = last_post_before(&inp, v, t).and_then(|u| {
+            inp.txs[u]
+                .post
+                .iter()
+                .find(|(x, _)| x.to_bytes() == *v)
+                .and_then(|(_, a)| a.as_ref().map(|a| a.data.clone()))
+        });
+        let cargo = last_post_before(&inp, c, t).and_then(|u| {
+            inp.txs[u]
+                .post
+                .iter()
+                .find(|(x, _)| x.to_bytes() == *c)
+                .and_then(|(_, a)| a.as_ref().map(|a| a.data.clone()))
+        });
+        if let (Some(b), Some(cd)) = (before, cargo) {
+            if b.len() == VA::SIZE && b[..8] == VA::MAGIC {
+                found = Some((t, *v, cd));
+                break;
+            }
+        }
+    }
+    let (t, v, cd) = found.need("a SettleCaravan to a vault")?;
+    let cargo: Vec<i64> = (0..8)
+        .map(|r| {
+            let o = frontier_abi::v2::layout::s1::caravan::cargo(r);
+            le(&cd[o..o + 8]) as i64
+        })
+        .collect();
+    edit_account_at(&mut inp, &v, t, |d| {
+        for (r, c) in cargo.iter().enumerate() {
+            let o = VA::store(r);
+            let x = le(&d[o..o + 8]) as i64 + c;
+            d[o..o + 8].copy_from_slice(&x.to_le_bytes());
+        }
+    })
+    .then_some(())
+    .need("the vault's post-state")?;
+    Ok(Case {
+        class: "T50",
+        what: "a caravan's cargo credited twice",
+        feature: None,
+        codes: &[VAULT_MISMATCH],
+        input: inp,
+    })
+}
+
+/// T51: a vault seized without a host on its tile (V23): the captor's
+/// roster entry moved off the tile in the Province before the seizure.
+pub fn s1_t51(run: &Input) -> Made {
+    use frontier_abi::layout::province::{entry as EN, province as PV};
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::SeizeVault.tag();
+    let t = first_with(&inp, tag).need("a SeizeVault")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let province = *keys.get(5).need("its Province")?;
+    let u = last_post_before(&inp, &province, t).need("the Province before")?;
+    let entry = {
+        let mut tx = fclient::tx::from_wire(&inp.txs[t].tx).expect("tx");
+        let program = inp.cfg.program;
+        let ks = tx.message.account_keys.clone();
+        let ci = tx
+            .message
+            .instructions
+            .iter_mut()
+            .find(|c| ks[c.program_id_index as usize] == program && c.data.first() == Some(&tag))
+            .expect("instruction");
+        ci.data[1] as usize
+    };
+    edit_account_at(&mut inp, &province, u, |d| {
+        let o = PV::entry(entry) + EN::TILE;
+        d[o] = d[o].wrapping_add(1) % 61;
+    })
+    .then_some(())
+    .need("the Province's post-state")?;
+    Ok(Case {
+        class: "T51",
+        what: "a vault seized without the captor's host on it",
+        feature: None,
+        codes: &[VAULT_MISMATCH],
+        input: inp,
+    })
+}
+
+/// The S1 classes (stage 1b, S1-1B-CONTRACT §4.1 as numbered after the
+/// conquest's T25–T48) an S1 season runs: extras until an S1 fixture with
+/// caravans is committed.
+pub fn s1_classes() -> Vec<Class> {
+    fn c(class: &'static str, tries: Vec<(&'static str, Builder)>) -> Class {
+        Class {
+            class,
+            required: false,
+            tries,
+        }
+    }
+    vec![
+        c("T49", vec![("caravan slots not written", s1_t49)]),
+        c("T50", vec![("cargo credited twice", s1_t50)]),
+        c("T51", vec![("vault seized without a host", s1_t51)]),
+    ]
+}
+
 /// The conquest classes (contract §8.5 T25–T48; CQ3-A) a conquest season
 /// runs beside [`classes`]: record, post-state and instruction edits with
 /// no v2 re-chain (CQ1 reports the stale chain beside the named code),
@@ -2003,6 +2157,9 @@ pub fn classes_for(run: &Input) -> Vec<Class> {
     let mut v = classes();
     if crate::conquest::applies(run) {
         v.extend(conquest_classes());
+    }
+    if crate::conquest::s1_applies(run) {
+        v.extend(s1_classes());
     }
     v
 }

@@ -1,0 +1,1015 @@
+//! V23 (S1 stage 1b, `docs/frontier/stage1b/S1-1B-CONTRACT.md` §4.1),
+//! listed as `V23:caravans`: every landed vault and caravan instruction
+//! re-judged from the states before its transaction and the states it
+//! left, through the shared caravan kernel
+//! (`permutation_rules::frontier::caravan`):
+//!
+//! - **BuildVault:** the tile (passable; not a site, the keep or a present
+//!   camp), the counter below `MAX_VAULTS` and moved by one, the Vault as
+//!   written (place, owner, faction, generation 1, cap, empty stores).
+//! - **SendCaravan:** the sequence, the wallet rule (a send to another
+//!   player is signed by the wallet), the walk and the schedule from the
+//!   path Provinces before it, every run's slot written, the Caravan as
+//!   written, a vault source debited by the cargo exactly, the counter.
+//! - **SettleCaravan:** after the arrival, delivered exactly when the
+//!   destination stands at the named generation, a vault credited by the
+//!   cargo up to its cap, the Caravan closed.
+//! - **RaidCaravan / DefaultRaid:** an open raid of the caravan in the raid
+//!   Province, the window (the raider's `RAID_DECIDE_BELLS`, the default
+//!   after it), the split (`caravan::split` at the slot's carry; a burn
+//!   destroys the cargo), the loot Caravan's cargo, the slot settled; a
+//!   default burn while the raiding holding stands only
+//!   `RAID_BURN_AFTER_BELLS` after the window.
+//! - **SeizeVault:** the captor's roster host on the vault's tile, no host
+//!   of the owner's holdings there, the new owner and generation, the
+//!   counters.
+//! - **CloseVault:** the owner's, empty, closed.
+//!
+//! A Holding the vault and caravan instructions write is V7's: BuildVault
+//! and a holding source are owner touches that pay, a delivery a settle
+//! and a credit (`crate::holding::{touched_paid, credited}`).
+//!
+//! Codes: `CaravanMismatch`, `VaultMismatch`. Tamper classes T49–T51
+//! (`crate::tamper`).
+
+use frontier_abi::layout::province::{entry as EN, province as PV};
+use frontier_abi::v2::ix as ix2;
+use frontier_abi::v2::layout::player::{citizen as C2, holding as H2};
+use frontier_abi::v2::layout::province::caravan_slot as CS;
+use frontier_abi::v2::layout::s1::{caravan as CV, place as PL, vault as VA};
+use frontier_abi::v2::log::raid_choice;
+use frontier_abi::v2::tags::Ix as V2Ix;
+use permutation_rules::frontier::caravan::{
+    self as kc, caravan_id, CaravanSlot, Land, MAX_CARAVAN_SLOTS, MAX_VAULTS,
+    RAID_BURN_AFTER_BELLS, RAID_DECIDE_BELLS, RAID_SETTLED, VAULT_CAP,
+};
+use permutation_rules::frontier::geometry::ProvinceCoord;
+
+use super::Ctx;
+use crate::codes::{CARAVAN_MISMATCH, VAULT_MISMATCH};
+use crate::world::{le, Key, Tx};
+
+const V: &str = "V23";
+const RES: usize = 8;
+
+fn u8_at(d: &[u8], o: usize) -> Result<u8, String> {
+    d.get(o)
+        .copied()
+        .ok_or_else(|| format!("short account at {o}"))
+}
+fn u32_at(d: &[u8], o: usize) -> Result<u32, String> {
+    Ok(le(d
+        .get(o..o + 4)
+        .ok_or_else(|| format!("short account at {o}"))?)
+        as u32)
+}
+fn u64_at(d: &[u8], o: usize) -> Result<u64, String> {
+    Ok(le(d
+        .get(o..o + 8)
+        .ok_or_else(|| format!("short account at {o}"))?))
+}
+fn i64_at(d: &[u8], o: usize) -> Result<i64, String> {
+    u64_at(d, o).map(|v| v as i64)
+}
+fn i16_at(d: &[u8], o: usize) -> Result<i16, String> {
+    Ok(le(d
+        .get(o..o + 2)
+        .ok_or_else(|| format!("short account at {o}"))?) as u16
+        as i16)
+}
+fn key_at(d: &[u8], o: usize) -> Result<Key, String> {
+    d.get(o..o + 32)
+        .and_then(|b| b.try_into().ok())
+        .ok_or_else(|| format!("short account at {o}"))
+}
+
+/// The account states one judgement reads: `before(k)` the state the last
+/// transaction before left (`None`: absent or unknown), `after(k)` the
+/// state this transaction left (`None`: closed or absent).
+pub trait States {
+    fn before(&self, k: &Key) -> Option<Vec<u8>>;
+    fn after(&self, k: &Key) -> Option<Vec<u8>>;
+}
+
+/// The time and bell of a judged transaction.
+#[derive(Clone, Copy, Debug)]
+pub struct At {
+    pub now: i64,
+    pub bell: u32,
+    pub genesis_ts: i64,
+}
+
+/// One finding of a judgement: the code and what is wrong.
+pub type Wrong = (&'static str, String);
+
+fn vault_wrong(s: impl Into<String>) -> Wrong {
+    (VAULT_MISMATCH, s.into())
+}
+fn caravan_wrong(s: impl Into<String>) -> Wrong {
+    (CARAVAN_MISMATCH, s.into())
+}
+
+// ------------------------------------------------------------ places
+
+/// A place as stored (`layout::s1::place`) or resolved from its account.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Place {
+    pub kind: u8,
+    pub p: i16,
+    pub q: i16,
+    pub at: u8,
+    pub gen: u8,
+    pub tile: u8,
+}
+
+impl Place {
+    fn stored(d: &[u8], off: usize) -> Result<Place, String> {
+        Ok(Place {
+            kind: u8_at(d, off + PL::KIND)?,
+            p: i16_at(d, off + PL::P)?,
+            q: i16_at(d, off + PL::Q)?,
+            at: u8_at(d, off + PL::SITE_OR_TILE)?,
+            gen: u8_at(d, off + PL::GEN)?,
+            tile: u8_at(d, off + PL::TILE)?,
+        })
+    }
+    fn coord(&self) -> ProvinceCoord {
+        ProvinceCoord::new(self.p as i32, self.q as i32)
+    }
+}
+
+/// The live place an account is (a Holding in state 1–2 or a live Vault)
+/// and its owner Citizen; `None` when absent or not live.
+pub fn live_place(d: &[u8]) -> Option<(Place, Key)> {
+    if d.len() == H2::SIZE && d[..8] == H2::MAGIC {
+        let st = d[H2::STATE];
+        if st != H2::STATE_PROVISIONAL && st != H2::STATE_FINAL {
+            return None;
+        }
+        return Some((
+            Place {
+                kind: PL::KIND_HOLDING,
+                p: i16_at(d, H2::P).ok()?,
+                q: i16_at(d, H2::Q).ok()?,
+                at: d[H2::SITE],
+                gen: d[H2::GEN],
+                tile: d[H2::TILE],
+            },
+            key_at(d, H2::OWNER_CITIZEN).ok()?,
+        ));
+    }
+    if d.len() == VA::SIZE && d[..8] == VA::MAGIC {
+        if d[VA::STATE] != VA::STATE_LIVE {
+            return None;
+        }
+        return Some((
+            Place {
+                kind: PL::KIND_VAULT,
+                p: i16_at(d, VA::P).ok()?,
+                q: i16_at(d, VA::Q).ok()?,
+                at: d[VA::TILE],
+                gen: d[VA::GEN],
+                tile: d[VA::TILE],
+            },
+            key_at(d, VA::OWNER_CITIZEN).ok()?,
+        ));
+    }
+    None
+}
+
+fn land_of(pd: &[u8]) -> Result<Land, String> {
+    Ok(Land {
+        at: ProvinceCoord::new(i16_at(pd, PV::P)? as i32, i16_at(pd, PV::Q)? as i32),
+        passable: u64_at(pd, PV::PASSABLE_MASK)?,
+        rough: u64_at(pd, PV::ROUGH_MASK)?,
+        road: u64_at(pd, PV::ROAD_MASK)?,
+    })
+}
+
+fn slots_of(pd: &[u8]) -> Result<Vec<CaravanSlot>, String> {
+    (0..MAX_CARAVAN_SLOTS)
+        .map(|i| {
+            pd.get(CS::at(i)..CS::at(i) + CS::SIZE)
+                .and_then(CaravanSlot::decode)
+                .ok_or_else(|| "a caravan slot does not decode".to_string())
+        })
+        .collect()
+}
+
+fn cargo_of(cd: &[u8]) -> Result<[i64; RES], String> {
+    let mut c = [0i64; RES];
+    for (r, v) in c.iter_mut().enumerate() {
+        *v = i64_at(cd, CV::cargo(r))?;
+    }
+    Ok(c)
+}
+
+fn vault_stores(vd: &[u8]) -> Result<[i64; RES], String> {
+    let mut c = [0i64; RES];
+    for (r, v) in c.iter_mut().enumerate() {
+        *v = i64_at(vd, VA::store(r))?;
+    }
+    Ok(c)
+}
+
+// ------------------------------------------------------------ BuildVault
+
+/// BuildVault (accounts: 3 citizen, 6 province, 7 vault).
+pub fn judge_build_vault(ix: &crate::world::Ix, s: &dyn States, at: At) -> Result<(), Wrong> {
+    let x = ix2::BuildVault::decode(&ix.data).map_err(|_| vault_wrong("does not decode"))?;
+    let (Some(citizen), Some(province), Some(vault)) = (ix.key(3), ix.key(6), ix.key(7)) else {
+        return Err(vault_wrong("the accounts are missing"));
+    };
+    let pd = s
+        .before(&province)
+        .ok_or_else(|| vault_wrong("no Province before"))?;
+    let cb = s
+        .before(&citizen)
+        .ok_or_else(|| vault_wrong("no Citizen before"))?;
+    let ca = s
+        .after(&citizen)
+        .ok_or_else(|| vault_wrong("no Citizen after"))?;
+    let tile = x.tile;
+    let land = land_of(&pd).map_err(vault_wrong)?;
+    let n = (pd[PV::SITE_COUNT] as usize).min(PV::SITES_N);
+    let site_tile = pd[PV::SITES..PV::SITES + n].contains(&tile);
+    let keep = frontier_abi::conquest_model::read_keep(&pd)
+        .map_err(|e| vault_wrong(format!("keep: {e:?}")))?
+        .map(|k| k.tile);
+    let camp = {
+        use frontier_abi::layout::province::camp as CP;
+        pd[PV::CAMP + CP::STATE] == CP::STATE_PRESENT && pd[PV::CAMP + CP::TILE] == tile
+    };
+    if tile as usize >= 61
+        || land.passable & (1u64 << tile) == 0
+        || site_tile
+        || keep == Some(tile)
+        || camp
+    {
+        return Err(vault_wrong(format!(
+            "a vault on tile {tile}, which the rules refuse"
+        )));
+    }
+    let (vb, va) = (cb[C2::VAULTS], ca[C2::VAULTS]);
+    if vb >= MAX_VAULTS || va != vb + 1 {
+        return Err(vault_wrong(format!("the vault counter went {vb} → {va}")));
+    }
+    let vd = s
+        .after(&vault)
+        .ok_or_else(|| vault_wrong("no Vault after"))?;
+    let want = |ok: bool, what: &str| -> Result<(), Wrong> {
+        if ok {
+            Ok(())
+        } else {
+            Err(vault_wrong(format!("the Vault's {what} is not the rules'")))
+        }
+    };
+    want(vd.len() == VA::SIZE && vd[..8] == VA::MAGIC, "account")?;
+    want(vd[VA::STATE] == VA::STATE_LIVE && vd[VA::GEN] == 1, "state")?;
+    want(
+        i16_at(&vd, VA::P).ok() == Some(land.at.p as i16)
+            && i16_at(&vd, VA::Q).ok() == Some(land.at.q as i16)
+            && vd[VA::TILE] == tile,
+        "place",
+    )?;
+    want(
+        key_at(&vd, VA::OWNER_CITIZEN).ok() == Some(citizen),
+        "owner",
+    )?;
+    want(vd[VA::FACTION] == cb[C2::FACTION], "faction")?;
+    want(
+        u64_at(&vd, VA::OWNER_TAG).ok() == u64_at(&cb, C2::CITIZEN_TAG).ok(),
+        "owner tag",
+    )?;
+    want(i64_at(&vd, VA::CAP).ok() == Some(VAULT_CAP), "cap")?;
+    want(vault_stores(&vd).ok() == Some([0; RES]), "stores")?;
+    want(i64_at(&vd, VA::BUILT_TS).ok() == Some(at.now), "build time")?;
+    Ok(())
+}
+
+// ------------------------------------------------------------ SendCaravan
+
+/// What a walk and its schedule must leave: the arrival, the last slot
+/// bell and the slots, per Province key.
+struct Routed {
+    arrive: i64,
+    last_bell: u32,
+    slots: Vec<(Key, CaravanSlot)>,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn route(
+    s: &dyn States,
+    provinces: &[Key],
+    origin: (ProvinceCoord, u8),
+    dst: (ProvinceCoord, u8),
+    steps: u8,
+    path: &[u8; 12],
+    faction: u8,
+    id: u64,
+    at: At,
+) -> Result<Routed, Wrong> {
+    if steps == 0 {
+        return if origin == dst {
+            Ok(Routed {
+                arrive: at.now,
+                last_bell: 0,
+                slots: vec![],
+            })
+        } else {
+            Err(caravan_wrong("a walk of no step away from its destination"))
+        };
+    }
+    let mut lands = vec![];
+    for k in provinces {
+        let pd = s
+            .before(k)
+            .ok_or_else(|| caravan_wrong("no path Province before"))?;
+        lands.push(land_of(&pd).map_err(caravan_wrong)?);
+    }
+    let bps = permutation_rules::frontier::doctrine::of_faction_v3(faction)
+        .ok_or_else(|| caravan_wrong(format!("faction {faction}")))?
+        .caravan_time_bps;
+    let walked = kc::walk(origin, path, steps, &lands, bps)
+        .map_err(|e| caravan_wrong(format!("the walk is refused: {e:?}")))?;
+    let last = walked
+        .last()
+        .ok_or_else(|| caravan_wrong("an empty walk"))?;
+    if (last.province, last.tile) != dst {
+        return Err(caravan_wrong("the walk does not end on the destination"));
+    }
+    let runs = kc::schedule(at.genesis_ts, at.now, origin, &walked)
+        .map_err(|e| caravan_wrong(format!("the schedule is refused: {e:?}")))?;
+    let mut slots = vec![];
+    let mut last_bell = 0u32;
+    for run in &runs {
+        let i = lands
+            .iter()
+            .position(|l| l.at == run.province)
+            .ok_or_else(|| caravan_wrong("a run outside the path"))?;
+        let slot = CaravanSlot::of_run(id, faction, run)
+            .ok_or_else(|| caravan_wrong("a run the slot cannot hold"))?;
+        last_bell = last_bell.max(run.first_bell + run.tiles.len() as u32 - 1);
+        slots.push((provinces[i], slot));
+    }
+    Ok(Routed {
+        arrive: at.now + kc::travel_secs(&walked) as i64,
+        last_bell,
+        slots,
+    })
+}
+
+/// The Caravan a send or a loot leaves, against the rules'.
+#[allow(clippy::too_many_arguments)]
+fn check_caravan(
+    cd: &[u8],
+    owner: &Key,
+    seq: u32,
+    faction: u8,
+    src: &Place,
+    dst: &Place,
+    cargo: &[i64; RES],
+    fee: u64,
+    r: &Routed,
+    at: At,
+) -> Result<(), Wrong> {
+    let want = |ok: bool, what: &str| -> Result<(), Wrong> {
+        if ok {
+            Ok(())
+        } else {
+            Err(caravan_wrong(format!(
+                "the Caravan's {what} is not the rules'"
+            )))
+        }
+    };
+    want(cd.len() == CV::SIZE && cd[..8] == CV::MAGIC, "account")?;
+    want(key_at(cd, CV::OWNER_CITIZEN).ok() == Some(*owner), "owner")?;
+    want(u32_at(cd, CV::SEQ).ok() == Some(seq), "sequence")?;
+    want(cd[CV::FACTION] == faction, "faction")?;
+    want(cd[CV::STATE] == CV::STATE_MOVING, "state")?;
+    want(Place::stored(cd, CV::SRC).ok() == Some(*src), "origin")?;
+    let d = Place::stored(cd, CV::DST).map_err(caravan_wrong)?;
+    want(
+        (d.kind, d.p, d.q, d.at, d.gen, d.tile)
+            == (dst.kind, dst.p, dst.q, dst.at, dst.gen, dst.tile),
+        "destination",
+    )?;
+    want(cargo_of(cd).ok() == Some(*cargo), "cargo")?;
+    want(u64_at(cd, CV::FEE).ok() == Some(fee), "fee")?;
+    want(i64_at(cd, CV::DEPART_TS).ok() == Some(at.now), "departure")?;
+    want(i64_at(cd, CV::ARRIVE_TS).ok() == Some(r.arrive), "arrival")?;
+    want(
+        u32_at(cd, CV::LAST_BELL).ok() == Some(r.last_bell),
+        "last slot bell",
+    )?;
+    Ok(())
+}
+
+fn check_slots(s: &dyn States, r: &Routed) -> Result<(), Wrong> {
+    for (k, want) in &r.slots {
+        let pd = s
+            .after(k)
+            .ok_or_else(|| caravan_wrong("no path Province after"))?;
+        let got = slots_of(&pd).map_err(caravan_wrong)?;
+        if !got.contains(want) {
+            return Err(caravan_wrong(format!(
+                "the slot of bells {}+{} is not written in its Province",
+                want.first_bell, want.n
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// SendCaravan (accounts: 0 actor, 3 citizen, 4 src, 5 dst, 6 caravan, 8..
+/// path Provinces).
+pub fn judge_send_caravan(ix: &crate::world::Ix, s: &dyn States, at: At) -> Result<(), Wrong> {
+    let x = ix2::SendCaravan::decode(&ix.data).map_err(|_| caravan_wrong("does not decode"))?;
+    let keys: Vec<Key> = (0..ix.accounts.len()).filter_map(|i| ix.key(i)).collect();
+    if keys.len() < 9 {
+        return Err(caravan_wrong("the accounts are missing"));
+    }
+    let (actor, citizen, src, dst, caravan) = (keys[0], keys[3], keys[4], keys[5], keys[6]);
+    let provinces = &keys[8..];
+    let cb = s
+        .before(&citizen)
+        .ok_or_else(|| caravan_wrong("no Citizen before"))?;
+    let ca = s
+        .after(&citizen)
+        .ok_or_else(|| caravan_wrong("no Citizen after"))?;
+    let seq = u32_at(&cb, C2::CARAVANS).map_err(caravan_wrong)?;
+    if x.seq != seq || u32_at(&ca, C2::CARAVANS).ok() != Some(seq + 1) {
+        return Err(caravan_wrong("the sequence is not the Citizen's"));
+    }
+    let sb = s
+        .before(&src)
+        .ok_or_else(|| caravan_wrong("no source before"))?;
+    let (sp, sown) = live_place(&sb).ok_or_else(|| caravan_wrong("the source is not live"))?;
+    if sown != citizen {
+        return Err(caravan_wrong("the source is not the sender's"));
+    }
+    let db = s
+        .before(&dst)
+        .ok_or_else(|| caravan_wrong("no destination before"))?;
+    let (dp, down) = live_place(&db).ok_or_else(|| caravan_wrong("the destination is not live"))?;
+    if (dp.kind, dp.p, dp.q, dp.at, dp.gen) != (x.dst_kind, x.dst_p, x.dst_q, x.dst_at, x.dst_gen) {
+        return Err(caravan_wrong("the destination is not the one named"));
+    }
+    // Plan §1-11: a send to another player is signed by the wallet.
+    if down != citizen && key_at(&cb, C2::WALLET).ok() != Some(actor) {
+        return Err(caravan_wrong("a send to another player without the wallet"));
+    }
+    let cargo = ix2::cargo_milli(&x.cargo).ok_or_else(|| caravan_wrong("cargo"))?;
+    let faction = cb[C2::FACTION];
+    let tag = u64_at(&cb, C2::CITIZEN_TAG).map_err(caravan_wrong)?;
+    let r = route(
+        s,
+        provinces,
+        (sp.coord(), sp.tile),
+        (dp.coord(), dp.tile),
+        x.steps,
+        &x.path,
+        faction,
+        caravan_id(tag, seq),
+        at,
+    )?;
+    check_slots(s, &r)?;
+    let cd = s
+        .after(&caravan)
+        .ok_or_else(|| caravan_wrong("no Caravan after"))?;
+    check_caravan(&cd, &citizen, seq, faction, &sp, &dp, &cargo, x.fee, &r, at)?;
+    if sp.kind == PL::KIND_VAULT {
+        let va = s
+            .after(&src)
+            .ok_or_else(|| caravan_wrong("no source after"))?;
+        let (b, a) = (
+            vault_stores(&sb).map_err(caravan_wrong)?,
+            vault_stores(&va).map_err(caravan_wrong)?,
+        );
+        if (0..RES).any(|i| a[i] != b[i] - cargo[i]) {
+            return Err(vault_wrong("the source vault is not debited by the cargo"));
+        }
+    }
+    Ok(())
+}
+
+// ------------------------------------------------------------ SettleCaravan
+
+/// SettleCaravan (accounts: 2 caravan, 3 dst). `delivered`: the record's
+/// outcome.
+pub fn judge_settle_caravan(
+    ix: &crate::world::Ix,
+    s: &dyn States,
+    at: At,
+    delivered: Option<bool>,
+) -> Result<(), Wrong> {
+    let (Some(caravan), Some(dst)) = (ix.key(2), ix.key(3)) else {
+        return Err(caravan_wrong("the accounts are missing"));
+    };
+    let cb = s
+        .before(&caravan)
+        .ok_or_else(|| caravan_wrong("no Caravan before"))?;
+    if cb.get(CV::STATE) != Some(&CV::STATE_MOVING) {
+        return Err(caravan_wrong("a Caravan settled that was not moving"));
+    }
+    if at.now < i64_at(&cb, CV::ARRIVE_TS).map_err(caravan_wrong)? {
+        return Err(caravan_wrong("settled before its arrival"));
+    }
+    if s.after(&caravan).is_some() {
+        return Err(caravan_wrong("the Caravan is not closed"));
+    }
+    let named = Place::stored(&cb, CV::DST).map_err(caravan_wrong)?;
+    let live = s
+        .before(&dst)
+        .and_then(|d| live_place(&d))
+        .is_some_and(|(p, _)| p.kind == named.kind && p.gen == named.gen && p.at == named.at);
+    if let Some(d) = delivered {
+        if d != live {
+            return Err(caravan_wrong(if live {
+                "a delivery to a live destination recorded lost"
+            } else {
+                "a delivery to a lost destination"
+            }));
+        }
+    }
+    let cargo = cargo_of(&cb).map_err(caravan_wrong)?;
+    if live && named.kind == PL::KIND_VAULT {
+        let (b, a) = (
+            vault_stores(&s.before(&dst).unwrap_or_default()).map_err(caravan_wrong)?,
+            vault_stores(&s.after(&dst).unwrap_or_default()).map_err(caravan_wrong)?,
+        );
+        let cap = i64_at(&s.before(&dst).unwrap_or_default(), VA::CAP).map_err(caravan_wrong)?;
+        for r in 0..RES {
+            let want = b[r].saturating_add(cargo[r]).min(cap.max(b[r]));
+            if a[r] != want {
+                return Err(vault_wrong(format!(
+                    "the vault holds {} of resource {r} after the delivery, the rules {want}",
+                    a[r]
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+// ------------------------------------------------------------ the raids
+
+/// RaidCaravan and DefaultRaid: `(caravan, loot, raid Province, choice,
+/// default)`; `raider_holding` (a DefaultRaid's) judges a default burn: one
+/// while the raiding holding stands is a burn without a walk home, allowed
+/// only `RAID_BURN_AFTER_BELLS` after the window.
+#[allow(clippy::too_many_arguments)]
+pub fn judge_raid(
+    s: &dyn States,
+    at: At,
+    caravan: Key,
+    loot: Key,
+    raid_province: Key,
+    choice: u8,
+    by_default: bool,
+    raider_holding: Option<Key>,
+) -> Result<(), Wrong> {
+    let cb = s
+        .before(&caravan)
+        .ok_or_else(|| caravan_wrong("no Caravan before"))?;
+    let tag = u64_at(&cb, CV::OWNER_TAG).map_err(caravan_wrong)?;
+    let seq = u32_at(&cb, CV::SEQ).map_err(caravan_wrong)?;
+    let id = caravan_id(tag, seq);
+    let pb = s
+        .before(&raid_province)
+        .ok_or_else(|| caravan_wrong("no raid Province before"))?;
+    let slot = slots_of(&pb)
+        .map_err(caravan_wrong)?
+        .into_iter()
+        .find(|x| x.id == id)
+        .filter(|x| x.raid_open())
+        .ok_or_else(|| caravan_wrong("no open raid of this caravan"))?;
+    let raid_bell = slot.first_bell + slot.raid_off as u32;
+    let last = raid_bell + RAID_DECIDE_BELLS;
+    if by_default && at.bell <= last {
+        return Err(caravan_wrong("a default raid inside the raider's window"));
+    }
+    if !by_default && at.bell > last {
+        return Err(caravan_wrong("a raid decided after the raider's window"));
+    }
+    if by_default && choice == raid_choice::BURN {
+        let parts = frontier_abi::addr::split_host_id(slot.raider)
+            .ok_or_else(|| caravan_wrong("the raider is not a host id"))?;
+        let home_stands = raider_holding
+            .and_then(|k| s.before(&k))
+            .and_then(|d| live_place(&d))
+            .is_some_and(|(p, _)| {
+                (p.p as i32, p.q as i32, p.at, p.gen)
+                    == (parts.province.p, parts.province.q, parts.site, parts.gen)
+            });
+        if home_stands && at.bell <= last + RAID_BURN_AFTER_BELLS {
+            return Err(caravan_wrong(
+                "a default burn while the raiding holding stands, before the burn delay",
+            ));
+        }
+    }
+    let cargo = cargo_of(&cb).map_err(caravan_wrong)?;
+    let (taken, left) = if choice == raid_choice::BURN {
+        ([0i64; RES], [0i64; RES])
+    } else {
+        kc::split(&cargo, (slot.carry as i64).saturating_mul(1_000))
+    };
+    let ca = s
+        .after(&caravan)
+        .ok_or_else(|| caravan_wrong("no Caravan after"))?;
+    if cargo_of(&ca).map_err(caravan_wrong)? != left {
+        return Err(caravan_wrong(
+            "the raided caravan's remainder is not the split's",
+        ));
+    }
+    let pa = s
+        .after(&raid_province)
+        .ok_or_else(|| caravan_wrong("no raid Province after"))?;
+    if !slots_of(&pa)
+        .map_err(caravan_wrong)?
+        .iter()
+        .any(|x| x.id == id && x.raid_off == RAID_SETTLED)
+    {
+        return Err(caravan_wrong("the raid's slot is not settled"));
+    }
+    if taken.iter().any(|&v| v > 0) {
+        let ld = s
+            .after(&loot)
+            .ok_or_else(|| caravan_wrong("no loot Caravan after a take"))?;
+        if cargo_of(&ld).map_err(caravan_wrong)? != taken {
+            return Err(caravan_wrong("the loot is not the split's take"));
+        }
+        let src = Place::stored(&ld, CV::SRC).map_err(caravan_wrong)?;
+        let tile = slot.tiles[slot.raid_off as usize];
+        if src.tile != tile || src.kind != frontier_abi::v2::log::log_place::KIND_FIELD {
+            return Err(caravan_wrong("the loot does not start on the raid's tile"));
+        }
+    } else if s.after(&loot).is_some() && s.before(&loot).is_none() {
+        return Err(caravan_wrong("a loot Caravan with nothing taken"));
+    }
+    Ok(())
+}
+
+// ------------------------------------------------------------ SeizeVault, CloseVault
+
+/// SeizeVault (accounts: 3 captor citizen, 4 vault, 5 province, 6
+/// host_holding, 7 owner_citizen).
+pub fn judge_seize_vault(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wrong> {
+    let x = ix2::SeizeVault::decode(&ix.data).map_err(|_| vault_wrong("does not decode"))?;
+    let keys: Vec<Key> = (0..ix.accounts.len()).filter_map(|i| ix.key(i)).collect();
+    if keys.len() < 8 {
+        return Err(vault_wrong("the accounts are missing"));
+    }
+    let (captor, vault, province, owner) = (keys[3], keys[4], keys[5], keys[7]);
+    let vb = s
+        .before(&vault)
+        .ok_or_else(|| vault_wrong("no Vault before"))?;
+    let (vp, vown) = live_place(&vb).ok_or_else(|| vault_wrong("the vault is not live"))?;
+    if vown != owner || vown == captor {
+        return Err(vault_wrong("the seizure's owner or captor is wrong"));
+    }
+    let pd = s
+        .before(&province)
+        .ok_or_else(|| vault_wrong("no Province before"))?;
+    let od = s
+        .before(&owner)
+        .ok_or_else(|| vault_wrong("no owner Citizen before"))?;
+    let rn = u32_at(&pd, PV::RESOLVED_NEXT).map_err(vault_wrong)?;
+    let owner_holdings: Vec<u64> = (1..=3u8)
+        .filter_map(|slot| {
+            let o = C2::holding_of_slot(slot);
+            let (p, q) = (i16_at(&od, o).ok()?, i16_at(&od, o + 2).ok()?);
+            let (site, gen) = (*od.get(o + 4)?, *od.get(o + 5)?);
+            (gen != C2::EMPTY_GEN)
+                .then(|| frontier_abi::addr::host_id(p as i32, q as i32, site, gen, 0))
+                .flatten()
+        })
+        .collect();
+    let part = |id: u64| id & !0xFFFF_FFFF;
+    let mut captor_host = None;
+    for i in 0..PV::ENTRIES_N {
+        let o = PV::entry(i);
+        let e = pd
+            .get(o..o + EN::SIZE)
+            .ok_or_else(|| vault_wrong("short Province"))?;
+        if e[EN::STATE] != EN::STATE_ROSTER || e[EN::TILE] != vp.tile {
+            continue;
+        }
+        let id = le(&e[EN::ID..EN::ID + 8]);
+        if owner_holdings.contains(&part(id)) {
+            return Err(vault_wrong("seized while a host of the owner stands on it"));
+        }
+        if i == x.entry as usize && le(&e[EN::FROM_BELL..EN::FROM_BELL + 4]) as u32 <= rn {
+            captor_host = Some(id);
+        }
+    }
+    let host = captor_host.ok_or_else(|| vault_wrong("seized without the captor's host on it"))?;
+    let hk = keys[6];
+    let hd = s
+        .before(&hk)
+        .ok_or_else(|| vault_wrong("no host Holding before"))?;
+    let parts = frontier_abi::addr::split_host_id(host).ok_or_else(|| vault_wrong("host id"))?;
+    if hd.get(H2::GEN) != Some(&parts.gen) || key_at(&hd, H2::OWNER_CITIZEN).ok() != Some(captor) {
+        return Err(vault_wrong("the standing host is not the captor's"));
+    }
+    let va = s
+        .after(&vault)
+        .ok_or_else(|| vault_wrong("no Vault after"))?;
+    if key_at(&va, VA::OWNER_CITIZEN).ok() != Some(captor) || va[VA::GEN] != vp.gen.wrapping_add(1)
+    {
+        return Err(vault_wrong("the seized vault's owner or generation"));
+    }
+    if vault_stores(&va).ok() != vault_stores(&vb).ok() {
+        return Err(vault_wrong("a seizure moved the goods"));
+    }
+    let (cb, ca) = (s.before(&captor), s.after(&captor));
+    let (ob, oa) = (Some(od), s.after(&owner));
+    let moved = |b: Option<Vec<u8>>, a: Option<Vec<u8>>, d: i16| matches!((b, a), (Some(b), Some(a)) if a[C2::VAULTS] as i16 == b[C2::VAULTS] as i16 + d);
+    if !moved(cb, ca, 1) || !moved(ob, oa, -1) {
+        return Err(vault_wrong("the vault counters did not move"));
+    }
+    if ca_vaults_over(s, &captor) {
+        return Err(vault_wrong("a captor over the vault limit"));
+    }
+    Ok(())
+}
+
+fn ca_vaults_over(s: &dyn States, captor: &Key) -> bool {
+    s.after(captor).is_some_and(|a| a[C2::VAULTS] > MAX_VAULTS)
+}
+
+/// CloseVault (accounts: 3 citizen, 4 vault).
+pub fn judge_close_vault(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wrong> {
+    let (Some(citizen), Some(vault)) = (ix.key(3), ix.key(4)) else {
+        return Err(vault_wrong("the accounts are missing"));
+    };
+    let vb = s
+        .before(&vault)
+        .ok_or_else(|| vault_wrong("no Vault before"))?;
+    if key_at(&vb, VA::OWNER_CITIZEN).ok() != Some(citizen) {
+        return Err(vault_wrong("closed by another than its owner"));
+    }
+    if vault_stores(&vb).map_err(vault_wrong)? != [0; RES] {
+        return Err(vault_wrong("a vault closed with goods in it"));
+    }
+    if s.after(&vault).is_some() {
+        return Err(vault_wrong("the vault is not closed"));
+    }
+    Ok(())
+}
+
+// ------------------------------------------------------------ the check
+
+struct TxStates<'a> {
+    w: &'a crate::world::World,
+    tx: &'a Tx,
+    t: usize,
+}
+
+impl States for TxStates<'_> {
+    fn before(&self, k: &Key) -> Option<Vec<u8>> {
+        self.w.state_before(k, self.t).map(|d| d.to_vec())
+    }
+    fn after(&self, k: &Key) -> Option<Vec<u8>> {
+        match self.tx.post.get(k) {
+            Some(Some(a)) if !a.data.is_empty() => Some(a.data.clone()),
+            Some(_) => None,
+            None => self.before(k),
+        }
+    }
+}
+
+/// The SettleCaravan outcome the transaction's CARAVAN_SETTLED records.
+fn settled_outcome(cx: &Ctx, t: usize) -> Option<bool> {
+    use frontier_abi::v2::log::{caravan_outcome, CqKind};
+    cx.w.cq_recs
+        .iter()
+        .find(|r| r.tx == t && r.kind == CqKind::CARAVAN_SETTLED)
+        .map(|r| r.pu("outcome") as u8 == caravan_outcome::DELIVERED)
+}
+
+pub fn run(cx: &mut Ctx) {
+    if !cx.s1 {
+        return;
+    }
+    let w = cx.w;
+    let tags = [
+        V2Ix::BuildVault,
+        V2Ix::SendCaravan,
+        V2Ix::SettleCaravan,
+        V2Ix::RaidCaravan,
+        V2Ix::SeizeVault,
+        V2Ix::CloseVault,
+        V2Ix::DefaultRaid,
+    ];
+    let any = w.txs.iter().any(|tx| {
+        tx.ok
+            && tx
+                .ixs
+                .iter()
+                .any(|i| i.tag().is_some_and(|x| tags.iter().any(|t| t.tag() == x)))
+    });
+    if !any {
+        return;
+    }
+    if !w.has_post {
+        cx.missing(
+            V,
+            "caravans",
+            0,
+            None,
+            "no post-states: the vault and caravan instructions cannot be re-judged",
+        );
+        return;
+    }
+    let genesis_ts = cx.f.genesis_ts;
+    let mut found: Vec<(usize, u32, &'static str, String)> = vec![];
+    for (t, tx) in w.txs.iter().enumerate().filter(|(_, tx)| tx.ok) {
+        let bell = frontier_abi::prologue::bell_at(genesis_ts, tx.time).unwrap_or(0);
+        let at = At {
+            now: tx.time,
+            bell,
+            genesis_ts,
+        };
+        let st = TxStates { w, tx, t };
+        for ix in &tx.ixs {
+            let Some(tag) = ix.tag() else { continue };
+            let r = match V2Ix::from_tag(tag) {
+                Some(V2Ix::BuildVault) => judge_build_vault(ix, &st, at),
+                Some(V2Ix::SendCaravan) => judge_send_caravan(ix, &st, at),
+                Some(V2Ix::SettleCaravan) => {
+                    judge_settle_caravan(ix, &st, at, settled_outcome(cx, t))
+                }
+                Some(V2Ix::RaidCaravan) => match (
+                    ix2::RaidCaravan::decode(&ix.data),
+                    ix.key(4),
+                    ix.key(6),
+                    ix.key(9),
+                ) {
+                    (Ok(x), Some(c), Some(l), Some(p)) => {
+                        judge_raid(&st, at, c, l, p, x.choice, false, None)
+                    }
+                    _ => Err(caravan_wrong("a RaidCaravan that does not decode")),
+                },
+                Some(V2Ix::DefaultRaid) => match (ix.key(2), ix.key(5), ix.key(8)) {
+                    (Some(c), Some(l), Some(p)) => {
+                        let home = ix.key(3);
+                        // A take unless the raiding holding is gone (the
+                        // loot then never exists).
+                        let choice = if st.after(&l).is_some() || st.before(&l).is_some() {
+                            raid_choice::TAKE
+                        } else {
+                            raid_choice::BURN
+                        };
+                        judge_raid(&st, at, c, l, p, choice, true, home)
+                    }
+                    _ => Err(caravan_wrong("a DefaultRaid without its accounts")),
+                },
+                Some(V2Ix::SeizeVault) => judge_seize_vault(ix, &st),
+                Some(V2Ix::CloseVault) => judge_close_vault(ix, &st),
+                _ => continue,
+            };
+            if let Err((code, detail)) = r {
+                found.push((t, bell, code, detail));
+            }
+        }
+    }
+    for (t, bell, code, detail) in found {
+        cx.fail(V, code, "caravans", bell, Some(t), detail);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    struct Mock {
+        before: HashMap<Key, Vec<u8>>,
+        after: HashMap<Key, Option<Vec<u8>>>,
+    }
+
+    impl States for Mock {
+        fn before(&self, k: &Key) -> Option<Vec<u8>> {
+            self.before.get(k).cloned()
+        }
+        fn after(&self, k: &Key) -> Option<Vec<u8>> {
+            match self.after.get(k) {
+                Some(v) => v.clone(),
+                None => self.before(k),
+            }
+        }
+    }
+
+    fn k(n: u8) -> Key {
+        [n; 32]
+    }
+
+    fn ix(tag: u8, data: Vec<u8>, keys: &[Key]) -> crate::world::Ix {
+        let mut d = vec![tag];
+        d.extend(data);
+        crate::world::Ix {
+            index: 0,
+            data: d,
+            accounts: keys.iter().map(|k| (*k, true)).collect(),
+        }
+    }
+
+    fn vault_bytes(owner: Key, tile: u8, gen: u8) -> Vec<u8> {
+        let mut d = vec![0u8; VA::SIZE];
+        assert!(frontier_abi::v2::layout::write_header(
+            &mut d,
+            frontier_abi::v2::layout::AccountKind::Vault,
+            1
+        ));
+        d[VA::TILE] = tile;
+        d[VA::STATE] = VA::STATE_LIVE;
+        d[VA::GEN] = gen;
+        d[VA::OWNER_CITIZEN..VA::OWNER_CITIZEN + 32].copy_from_slice(&owner);
+        d[VA::CAP..VA::CAP + 8].copy_from_slice(&VAULT_CAP.to_le_bytes());
+        d
+    }
+
+    /// A vault closed with goods, or by another, is a VaultMismatch.
+    #[test]
+    fn close_vault_rules() {
+        let (citizen, vault) = (k(3), k(4));
+        let keys = [k(0), k(1), k(2), citizen, vault, k(5)];
+        let close = ix(0xB5, vec![], &keys);
+        let mut m = Mock {
+            before: HashMap::from([(vault, vault_bytes(citizen, 9, 1))]),
+            after: HashMap::from([(vault, None)]),
+        };
+        assert_eq!(judge_close_vault(&close, &m), Ok(()));
+        m.before.get_mut(&vault).unwrap()[VA::store(2)] = 1;
+        assert_eq!(judge_close_vault(&close, &m).unwrap_err().0, VAULT_MISMATCH);
+        let other = ix(0xB5, vec![], &[k(0), k(1), k(2), k(9), vault, k(5)]);
+        m.before.get_mut(&vault).unwrap()[VA::store(2)] = 0;
+        assert_eq!(judge_close_vault(&other, &m).unwrap_err().0, VAULT_MISMATCH);
+    }
+
+    /// A delivery to a vault credits the cargo up to the cap; twice the
+    /// cargo (T50's shape) is a VaultMismatch.
+    #[test]
+    fn settle_to_vault_credits_the_cargo_once() {
+        let (caravan, vault) = (k(2), k(3));
+        let mut cb = vec![0u8; CV::SIZE];
+        assert!(frontier_abi::v2::layout::write_header(
+            &mut cb,
+            frontier_abi::v2::layout::AccountKind::Caravan,
+            1
+        ));
+        cb[CV::STATE] = CV::STATE_MOVING;
+        cb[CV::ARRIVE_TS..CV::ARRIVE_TS + 8].copy_from_slice(&100i64.to_le_bytes());
+        cb[CV::DST + PL::KIND] = PL::KIND_VAULT;
+        cb[CV::DST + PL::SITE_OR_TILE] = 9;
+        cb[CV::DST + PL::GEN] = 1;
+        cb[CV::DST + PL::TILE] = 9;
+        cb[CV::cargo(1)..CV::cargo(1) + 8].copy_from_slice(&7_000i64.to_le_bytes());
+        let vb = vault_bytes(k(8), 9, 1);
+        let mut va = vb.clone();
+        va[VA::store(1)..VA::store(1) + 8].copy_from_slice(&7_000i64.to_le_bytes());
+        let settle = ix(
+            0xB2,
+            vec![0; 32],
+            &[k(0), k(1), caravan, vault, k(4), k(5), k(6)],
+        );
+        let at = At {
+            now: 100,
+            bell: 0,
+            genesis_ts: 0,
+        };
+        let mut m = Mock {
+            before: HashMap::from([(caravan, cb.clone()), (vault, vb.clone())]),
+            after: HashMap::from([(caravan, None), (vault, Some(va.clone()))]),
+        };
+        assert_eq!(judge_settle_caravan(&settle, &m, at, Some(true)), Ok(()));
+        // early
+        let early = At { now: 99, ..at };
+        assert_eq!(
+            judge_settle_caravan(&settle, &m, early, Some(true))
+                .unwrap_err()
+                .0,
+            CARAVAN_MISMATCH
+        );
+        // credited twice
+        va[VA::store(1)..VA::store(1) + 8].copy_from_slice(&14_000i64.to_le_bytes());
+        m.after.insert(vault, Some(va));
+        assert_eq!(
+            judge_settle_caravan(&settle, &m, at, Some(true))
+                .unwrap_err()
+                .0,
+            VAULT_MISMATCH
+        );
+        // a lost destination recorded delivered
+        let mut gone = vb;
+        gone[VA::GEN] = 2;
+        m.before.insert(vault, gone);
+        assert_eq!(
+            judge_settle_caravan(&settle, &m, at, Some(true))
+                .unwrap_err()
+                .0,
+            CARAVAN_MISMATCH
+        );
+    }
+}

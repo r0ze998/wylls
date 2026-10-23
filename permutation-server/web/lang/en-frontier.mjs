@@ -19,7 +19,7 @@ export default {
   'それまでは、より順位の高い申し込みに押し出されることがあります。': 'Until then a higher-ranked request can displace it.',
   '早くて{0}': '{0} at the earliest',
   '結果は{0}に出ます。': 'The result is due {0}.',
-  // the inspector: a chip says whose stance toward whom; the province's other nations wait under details
+  // the inspector: a chip says whose stance toward whom; the province\'s other nations wait under details
   'あなたの国と友好': 'Friendly to your nation',
   'あなたの国と敵対': 'Hostile to your nation',
   'この州に村を持つほかの国': 'Other nations with villages in this province',
@@ -678,5 +678,13 @@ export default {
   '前哨地の条件を満たしていません。町と州の支配状況を確認してください': 'Outpost requirements are not met. Check your town and province control.',
   '領土の集計順序を確認しています。少し待ってください': 'Territory results are being ordered. Please wait.',
   'このターンの領土の集計がまだ終わっていません': 'Territory scoring for this turn is not complete yet.',
+  '蔵はこのマスに建てられません（通れない土地、村、砦、野営地、または既存の蔵）': 'A vault cannot be built on this tile (impassable, a site, the keep, a camp or a vault already).',
+  '持てる蔵の上限に達しています': 'You already hold the most vaults allowed.',
+  'この操作はウォレットの署名が必要です（ゲーム内の鍵ではできません）': 'This needs your wallet\'s signature (the in-game key cannot do it).',
+  'この州の隊商の枠がいっぱいです。少し待ってから送ってください': 'This province\'s caravan slots are full. Wait a little and send again.',
+  '隊商はまだ到着していないか、通った州の決着がまだです': 'The caravan has not arrived yet, or a province on its way is not resolved yet.',
+  'この隊商には決着を待つ略奪がない、またはすでに決着しています': 'There is no open raid on this caravan, or it is already settled.',
+  '略奪の決定の受付時間外です': 'This is outside the time to decide the raid.',
+  '蔵のマスに自分の軍勢がいないか、持ち主の軍勢がまだいます': 'Your host is not on the vault\'s tile, or one of its owner\'s hosts is still there.',
   'この包囲の先導者だけが行える操作です': 'Only the siege leader can perform this action.',
 };

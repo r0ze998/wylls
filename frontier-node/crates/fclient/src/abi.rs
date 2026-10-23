@@ -213,6 +213,8 @@ pub fn ix_info(tag: u8) -> Option<&'static IxInfo> {
 pub const PROGRAM_VERSION_V1: u16 = 1;
 /// `program_version` of an MC season (ABI v2, MC contract §5.1).
 pub const PROGRAM_VERSION_V2: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_V2;
+/// The S1 program (redesign stage 1): ABI v2 with the S1 instructions.
+pub const PROGRAM_VERSION_S1: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S1;
 /// `layout_version` of every v2 chained header (R-22: readers dispatch on it).
 pub const LAYOUT_VERSION_V2: u16 = 2;
 

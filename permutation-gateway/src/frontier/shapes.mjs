@@ -9,7 +9,10 @@
 // * the drain guard: simulated with signatures, the fee payer may lose at most
 //   the fee plus the kind's allowance — Join: rent(Citizen); FileTicket: the
 //   Holding-rent escrow shortfall `max(0, rent(1,280) − citizen.ticket_escrow)`;
-//   Depart: `tip + march_fee + seal_bond`; every other kind: 0;
+//   Depart: `tip + march_fee + seal_bond`; S1's BuildVault: rent(Vault);
+//   SendCaravan, RaidCaravan (a take) and DefaultRaid: rent(Caravan) +
+//   `CARAVAN_FEE` (the fee the program escrows from the payer is the
+//   player's choice: a larger one is refused here); every other kind: 0;
 // * who is charged: a player shape its citizen, a settle shape its
 //   requester's citizen (the requester signed the request and is, on chain,
 //   that citizen's wallet or unexpired session key), else the client-address
@@ -17,11 +20,16 @@
 import { addressBucket } from '../guards.mjs';
 import { baseFee, departEscrow, rent, seasonTipMin, tipPresets } from '../../client/src/frontier/fees.mjs';
 import { layoutOf } from '../../client/src/frontier/codec.mjs';
-import { DEPART_TAG, FILE_TICKET_TAG, JOIN_TAG, PLACE_HOME_TAG, FILE_OUTPOST_TAG, DECLARE_SIEGE_TAG } from '../../client/src/frontier/shapes.mjs';
+import { DEPART_TAG, FILE_TICKET_TAG, JOIN_TAG, PLACE_HOME_TAG, FILE_OUTPOST_TAG, DECLARE_SIEGE_TAG, BUILD_VAULT_TAG, SEND_CARAVAN_TAG, RAID_CARAVAN_TAG, DEFAULT_RAID_TAG } from '../../client/src/frontier/shapes.mjs';
+import { CARAVAN_FEE } from '../../client/src/frontier/budgets.mjs';
+import { profileForSeason } from '../../client/src/frontier/profile.mjs';
 import { RouteError } from '../routes/errors.mjs';
 
 export const CITIZEN_RENT = rent(layoutOf('Citizen').size);
 export const HOLDING_RENT = rent(layoutOf('Holding').size);
+/** S1: a vault's rent, and what one caravan (or loot) may cost the fee payer: its rent and the settle fee. */
+export const VAULT_RENT = rent(layoutOf('Vault', 2).size);
+export const CARAVAN_COST = rent(layoutOf('Caravan', 2).size) + CARAVAN_FEE;
 
 /** Refuse unless `shape` (classified) may be sponsored by this relay for this season. */
 export function checkRelayShape(shape, { pool, addresses }) {
@@ -73,6 +81,8 @@ export function allowanceFor(shape, { season, citizen = null }) {
     case DEPART_TAG:
       checkDepartArrival(shape, season);
       return departEscrow(season, checkDepartTip(shape, season));
+    case BUILD_VAULT_TAG: return VAULT_RENT;
+    case SEND_CARAVAN_TAG: case RAID_CARAVAN_TAG: case DEFAULT_RAID_TAG: return CARAVAN_COST;
     default: return 0n;
   }
 }
@@ -94,10 +104,18 @@ export function drainGuard({ pre, post, fee, allowance }) {
   return delta > BigInt(fee) ? delta - BigInt(fee) : 0n;
 }
 
-/** Sponsored lamports a key may move per game day: 24 Depart escrows at the top preset + the Citizen's and the Holding's rent. */
+/**
+ * Sponsored lamports a key may move per game day: 24 Depart escrows at the
+ * top preset + the Citizen's and the Holding's rent. In an S1 season a
+ * caravan counts like a Depart (the 24 are shared; each the larger of the
+ * two costs) and one vault's rent is added.
+ */
 export function lamportsPerDay(season, departs = 24) {
   const top = tipPresets(seasonTipMin(season))[2];
-  return BigInt(departs) * departEscrow(season, top) + CITIZEN_RENT + HOLDING_RENT;
+  const s1 = profileForSeason(season) === 3;
+  const depart = departEscrow(season, top);
+  const each = s1 && CARAVAN_COST > depart ? CARAVAN_COST : depart;
+  return BigInt(departs) * each + CITIZEN_RENT + HOLDING_RENT + (s1 ? VAULT_RENT : 0n);
 }
 
 /**

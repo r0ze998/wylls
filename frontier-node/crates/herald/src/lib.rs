@@ -19,6 +19,7 @@
 //! with their slot and event head, and the clash report says which builder
 //! recomputed it.
 
+pub mod caravan;
 pub mod checkpoint;
 pub mod clash;
 // MC hook: conquest milestone modules (CONQUEST-CONTRACT §4.5, §8.4)

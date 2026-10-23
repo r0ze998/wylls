@@ -130,6 +130,9 @@ pub struct SeasonInfo {
 pub struct Cq {
     /// An MC season: something v2 was seen.
     pub on: bool,
+    /// S1 stage 1b: the caravans on the road and the vaults
+    /// (`h/caravans.json`, [`crate::caravan`]).
+    pub caravans: crate::caravan::Caravans,
     pub alarms: CqAlarms,
     /// Province-bell views awaiting their control and overview v2 files.
     pub views: BTreeMap<(i16, i16, u32), View>,
@@ -382,7 +385,7 @@ impl Cq {
 pub fn on_record(f: &mut Fold, tx: &TxRecord, body: &[u8]) -> bool {
     let Ok(r) = v2log::decode(body) else {
         // An undecodable body of an MC kind is counted here, not as M1's.
-        if body.len() >= 2 && (80..=89).contains(&body[1]) {
+        if body.len() >= 2 && (80..=94).contains(&body[1]) {
             f.st.alarms.bad_records += 1;
             f.cq.alarms.bad_records += 1;
             return true;
@@ -403,7 +406,14 @@ pub fn on_record(f: &mut Fold, tx: &TxRecord, body: &[u8]) -> bool {
     let seq = f.st.events;
     let sig = sig_of(tx);
     let pq = (rd_i32(r.key, 0).unwrap_or(0), rd_i32(r.key, 4).unwrap_or(0));
+    // S1: a caravan record's key is its owner and sequence; its Province
+    // is the origin's (sent), the destination's (settled) or the raid's.
+    let s1 = fclient::conquest::parse(body).map(|l| l.event);
     let scope = match kind {
+        CqKind::CARAVAN_SENT | CqKind::CARAVAN_SETTLED | CqKind::CARAVAN_RAIDED => s1
+            .as_ref()
+            .and_then(|e| e.province())
+            .map_or(Scope::None, |(p, q)| Scope::Province(p, q)),
         CqKind::MARCH_FOLD => Scope::None,
         CqKind::RETIRE => rd_u64(r.key, 0)
             .and_then(frontier_abi::addr::split_host_id)
@@ -420,7 +430,10 @@ pub fn on_record(f: &mut Fold, tx: &TxRecord, body: &[u8]) -> bool {
         t_ms: 0,
         wire: Default::default(),
     });
-    fold_record(&mut cq, f, tx, kind, &r, seq, &sig);
+    match &s1 {
+        Some(e) if cq.caravans.fold(e) => {}
+        _ => fold_record(&mut cq, f, tx, kind, &r, seq, &sig),
+    }
     f.cq = cq;
     true
 }
@@ -1592,6 +1605,7 @@ pub fn complete(f: &mut Fold, tx: &TxRecord) {
     days(&mut cq, f, si.as_ref());
     crate::standings::write_rows(&mut cq, f, si.as_ref(), slot);
     keeps_out(&mut cq, f);
+    caravans_out(&mut cq, f);
     final_file(&mut cq, f, si.as_ref());
     f.cq = cq;
 }
@@ -2021,6 +2035,14 @@ pub fn day_live(f: &Fold, d: u32) -> Option<String> {
     ConquestDay { day: d, events }.to_json().ok()
 }
 
+/// `h/caravans.json` when a record changed it.
+fn caravans_out(cq: &mut Cq, f: &mut Fold) {
+    if std::mem::take(&mut cq.caravans.dirty) {
+        let j = cq.caravans.file().to_string();
+        write(f, "h/caravans.json", j.as_bytes(), false);
+    }
+}
+
 fn keeps_out(cq: &mut Cq, f: &mut Fold) {
     let dirty = std::mem::take(&mut cq.keeps_dirty);
     for pq in dirty {
@@ -2333,6 +2355,7 @@ impl Cq {
                 self.contest.occupations, self.contest.liberations, self.contest.captures, self.contest.outposts],
             "firstTransferred": self.first_transferred,
             "finalDone": self.final_done,
+            "caravans": self.caravans.to_json(),
         });
         if self.on {
             out["scoreVersion"] = json!(3);
@@ -2351,6 +2374,10 @@ impl Cq {
         };
         if c.on && v["scoreVersion"].as_u64() != Some(3) {
             return None;
+        }
+        // S1: absent in a checkpoint written before stage 1b (empty then).
+        if let Some(cv) = v.get("caravans").filter(|x| !x.is_null()) {
+            c.caravans = crate::caravan::Caravans::from_json(cv)?;
         }
         let a: Vec<u64> = v["alarms"]
             .as_array()?

@@ -112,4 +112,8 @@ pub const DEFAULT_RAID: &[Cover] = &[
         "caravan::g13_s1_default_raid_burns_when_the_raiders_holding_is_gone",
         &[Lands("DefaultRaid burn")],
     ),
+    Cover::Test(
+        "caravan::g13_s1_default_raid_burns_late_without_a_walk_home",
+        &[Lands("DefaultRaid late burn"), CqErr(Cq::RaidWindow)],
+    ),
 ];

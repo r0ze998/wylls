@@ -53,6 +53,11 @@ pub const CARRY_MILLI_PER_TROOP: i64 = 100;
 /// Bells a raider has to choose take or burn before the default take
 /// [phase 6].
 pub const RAID_DECIDE_BELLS: u32 = 6;
+/// Bells after the raider's window from which DefaultRaid may burn the
+/// cargo instead of taking it home, when no walk reaches the raiding
+/// holding [phase 6]: a raid never stays open for good, and a keeper has
+/// a day to deliver the loot when a path exists.
+pub const RAID_BURN_AFTER_BELLS: u32 = 144;
 /// Lamports a caravan escrows for its settlement [phase 6].
 pub const CARAVAN_FEE: u64 = 50_000;
 
@@ -200,6 +205,103 @@ pub fn walk(
         return Err(CaravanError::Path);
     }
     Ok(out)
+}
+
+/// A fastest path for [`walk`] from `origin` to `dst` over `lands` (any
+/// order; the origin's must be among them): Dijkstra over the passable
+/// tiles by the walk's base step time (rough, road), ties broken by the
+/// direction order, so every client finds the same path. Returns the
+/// directions and the provinces in first-entered order (the origin's
+/// first), as [`walk`] takes them; `None` when no path exists within
+/// `MAX_PATH_STEPS` steps and `MAX_PATH_PROVINCES` provinces, or the
+/// fastest one would re-enter a province. `origin == dst` is the empty
+/// path.
+pub fn fastest_path(
+    origin: (ProvinceCoord, u8),
+    dst: (ProvinceCoord, u8),
+    lands: &[Land],
+) -> Option<(Vec<u8>, Vec<ProvinceCoord>)> {
+    use alloc::collections::{BTreeMap, BinaryHeap};
+    use core::cmp::Reverse;
+    let land = |pc: ProvinceCoord| lands.iter().find(|l| l.at == pc);
+    let start = origin.0.tile(origin.1)?;
+    let goal = dst.0.tile(dst.1)?;
+    land(origin.0)?;
+    if start == goal {
+        return Some((Vec::new(), alloc::vec![origin.0]));
+    }
+    type At = (i32, i32);
+    /// The best reach of a hex: its cost, its steps, the hex before it and
+    /// the direction taken from there.
+    type Reach = (u64, usize, At, u8);
+    let key = |h: Hex| -> At { (h.q, h.r) };
+    let mut best: BTreeMap<At, Reach> = BTreeMap::new();
+    let mut heap = BinaryHeap::new();
+    best.insert(key(start), (0, 0, key(start), u8::MAX));
+    heap.push(Reverse((0u64, 0usize, key(start))));
+    while let Some(Reverse((cost, steps, at))) = heap.pop() {
+        if best.get(&at).is_some_and(|b| (b.0, b.1) < (cost, steps)) {
+            continue;
+        }
+        if at == key(goal) {
+            break;
+        }
+        if steps == MAX_PATH_STEPS {
+            continue;
+        }
+        for (d, (dq, dr)) in DIRECTIONS.iter().enumerate() {
+            let h = Hex::new(at.0 + dq, at.1 + dr);
+            let (pc, tile) = locate(h);
+            let Some(l) = land(pc) else { continue };
+            let bit = 1u64 << tile;
+            if l.passable & bit == 0 {
+                continue;
+            }
+            let mut s = if l.rough & bit != 0 {
+                ROUGH_HEX_SECS
+            } else {
+                FLAT_HEX_SECS
+            } as u64;
+            if l.road & bit != 0 {
+                s = s * ROAD_BPS as u64 / BPS_ONE as u64;
+            }
+            let c = cost + s;
+            let better = match best.get(&key(h)) {
+                None => true,
+                Some(b) => (c, steps + 1) < (b.0, b.1),
+            };
+            if better {
+                best.insert(key(h), (c, steps + 1, at, d as u8));
+                heap.push(Reverse((c, steps + 1, key(h))));
+            }
+        }
+    }
+    best.get(&key(goal))?;
+    let mut dirs = Vec::new();
+    let mut at = key(goal);
+    while at != key(start) {
+        let (_, _, prev, d) = *best.get(&at)?;
+        dirs.push(d);
+        at = prev;
+    }
+    dirs.reverse();
+    // The provinces in first-entered order; a re-entry is refused.
+    let mut order = alloc::vec![origin.0];
+    let mut h = start;
+    let mut cur = origin.0;
+    for &d in &dirs {
+        let (dq, dr) = DIRECTIONS[d as usize];
+        h = Hex::new(h.q + dq, h.r + dr);
+        let (pc, _) = locate(h);
+        if pc != cur {
+            if order.contains(&pc) {
+                return None;
+            }
+            order.push(pc);
+            cur = pc;
+        }
+    }
+    (order.len() <= MAX_PATH_PROVINCES).then_some((dirs, order))
 }
 
 /// The caravan's time in transit (seconds): the last step's.
@@ -435,6 +537,7 @@ pub fn write_tables(out: &mut Vec<u8>) {
     out.push(SLOT_TILES as u8);
     out.extend_from_slice(&CARRY_MILLI_PER_TROOP.to_le_bytes());
     out.extend_from_slice(&RAID_DECIDE_BELLS.to_le_bytes());
+    out.extend_from_slice(&RAID_BURN_AFTER_BELLS.to_le_bytes());
     out.extend_from_slice(&CARAVAN_FEE.to_le_bytes());
     out.push(MAX_VAULTS);
     for x in VAULT_COST {
@@ -475,6 +578,64 @@ mod tests {
         assert!(pack(&[0; 33]).is_none());
         let full = pack(&[5; 32]).unwrap();
         assert_eq!(dir_of(&full, 31), 5);
+    }
+
+    /// The fastest path is one `walk` accepts and ends on the destination:
+    /// in one province, around an impassable tile, onto a road, and across
+    /// provinces in first-entered order.
+    #[test]
+    fn fastest_paths_walk() {
+        let pc = ProvinceCoord::new(2, 0);
+        let c = centre();
+        let east = tile_index(Hex::new(3, 0)).unwrap();
+        let check = |lands: &[Land], from: (ProvinceCoord, u8), to: (ProvinceCoord, u8)| {
+            let (dirs, order) = fastest_path(from, to, lands).expect("a path");
+            let ls: Vec<Land> = order
+                .iter()
+                .map(|o| *lands.iter().find(|l| l.at == *o).unwrap())
+                .collect();
+            let w = walk(from, &pack(&dirs).unwrap(), dirs.len() as u8, &ls, BPS_ONE).unwrap();
+            let last = w.last().unwrap();
+            assert_eq!((last.province, last.tile), to);
+            (dirs, order, w)
+        };
+        let (d, o, _) = check(&[plain(pc)], (pc, c), (pc, east));
+        assert_eq!((d, o), (alloc::vec![0, 0, 0], alloc::vec![pc]));
+        // A wall on the straight line: around it, one step longer.
+        let mut walled = plain(pc);
+        walled.passable &= !(1u64 << tile_index(Hex::new(2, 0)).unwrap());
+        let (d, _, _) = check(&[walled], (pc, c), (pc, east));
+        assert_eq!(d.len(), 4);
+        // Rough ground on the line and a road around it: the road wins.
+        let mut slow = plain(pc);
+        for q in 1..=2 {
+            slow.rough |= 1u64 << tile_index(Hex::new(q, 0)).unwrap();
+        }
+        let line = check(&[plain(pc)], (pc, c), (pc, east))
+            .2
+            .last()
+            .unwrap()
+            .at_secs;
+        let (_, _, w) = check(&[slow], (pc, c), (pc, east));
+        assert!(w.last().unwrap().at_secs <= line * 3 / 2);
+        // Across the border into the next province.
+        let e = pc.tile(east).unwrap();
+        let (next, far) = locate(Hex::new(e.q + 3, e.r));
+        assert_ne!(next, pc);
+        let (_, o, _) = check(&[plain(next), plain(pc)], (pc, c), (next, far));
+        assert_eq!(o, alloc::vec![pc, next]);
+        // Nothing to walk; no way through.
+        assert_eq!(
+            fastest_path((pc, c), (pc, c), &[plain(pc)])
+                .unwrap()
+                .0
+                .len(),
+            0
+        );
+        let mut shut = plain(pc);
+        shut.passable = 1u64 << c;
+        assert!(fastest_path((pc, c), (pc, east), &[shut]).is_none());
+        assert!(fastest_path((pc, c), (next, far), &[plain(pc)]).is_none());
     }
 
     #[test]

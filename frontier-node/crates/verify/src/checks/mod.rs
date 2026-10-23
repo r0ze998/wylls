@@ -13,6 +13,7 @@ pub mod v19_folds;
 pub mod v1_chains;
 pub mod v20_end;
 pub mod v22_outposts;
+pub mod v23_caravans;
 pub mod v2_program;
 pub mod v3_random;
 pub mod v4_windows;
@@ -227,6 +228,11 @@ pub fn run(input: &Input) -> Report {
         ran.push("V20:season-end");
         v22_outposts::run(&mut cx);
         ran.push("V22:outpost-filing");
+    }
+    // S1 stage 1b: vaults and caravans, on an S1 season only.
+    if cx.s1 {
+        v23_caravans::run(&mut cx);
+        ran.push("V23:caravans");
     }
     ran.push("V10");
     counts(&mut cx);

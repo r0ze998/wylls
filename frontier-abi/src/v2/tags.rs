@@ -221,8 +221,8 @@ pub const fn relay_player_shape(ix: Ix) -> bool {
 }
 
 /// Settle shapes the relay may sponsor, charged to the requester (§8.3):
-/// M1's, SettleSiege, SettleCapture, FoldMarch, CloseMarch, and RetireHost
-/// after `end_bell`.
+/// M1's, SettleSiege, SettleCapture, FoldMarch, CloseMarch, RetireHost
+/// after `end_bell`, and S1's SettleCaravan and DefaultRaid.
 pub const fn relay_settle_shape(ix: Ix) -> bool {
     match ix.to_v1() {
         Some(v1) => crate::tags::relay_settle_shape(v1),
@@ -233,6 +233,8 @@ pub const fn relay_settle_shape(ix: Ix) -> bool {
                 | Ix::FoldMarch
                 | Ix::CloseMarch
                 | Ix::RetireHost
+                | Ix::SettleCaravan
+                | Ix::DefaultRaid
                 | Ix::SettleCaravan
                 | Ix::DefaultRaid
         ),

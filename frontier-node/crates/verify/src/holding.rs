@@ -293,6 +293,23 @@ pub fn touched_paid(before: &[u8], now: i64, cost: &[i64; RESOURCES]) -> Result<
     Ok(d)
 }
 
+/// The Holding a caravan's delivery leaves (S1 1b, the program's
+/// `settle_caravan`): settled to `now` (no owner touch), the cargo
+/// credited resource by resource.
+pub fn credited(before: &[u8], now: i64, cargo: &[i64; RESOURCES]) -> Result<Vec<u8>, String> {
+    let mut h = read(before)?;
+    settle_tiered(&mut h, now, terrain_ore(before)?)?;
+    for (r, c) in cargo.iter().enumerate() {
+        if *c > 0 {
+            h.credit(now, Resource::ALL[r], *c)
+                .map_err(|e| format!("credit: {e:?}"))?;
+        }
+    }
+    let mut d = before.to_vec();
+    write(&mut d, &h, now)?;
+    Ok(d)
+}
+
 /// The owner touch.
 pub fn touch(h: &mut KHolding, now: i64, terrain_ore: i64) -> Result<(), String> {
     settle_tiered(h, now, terrain_ore)?;

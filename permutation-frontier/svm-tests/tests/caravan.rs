@@ -840,6 +840,47 @@ fn g13_s1_default_raid_takes_home_after_the_window() {
     }
 }
 
+/// No walk home given (`steps` 0): refused until `RAID_BURN_AFTER_BELLS`
+/// after the window, then a burn (a raid never stays open for good).
+#[test]
+fn g13_s1_default_raid_burns_late_without_a_walk_home() {
+    let (mut k, raid_bell) = raided(60);
+    let keeper = k.c.funded(b"s1-keeper", 1);
+    let mut x = default_args(&k, keeper.pubkey());
+    x.steps = 0;
+    x.path = [0; 12];
+    k.w.to_bell(&mut k.c, raid_bell + RAID_DECIDE_BELLS + 1, 5);
+    let b = k.w.bell(&k.c);
+    k.w.set_resolved_next(&mut k.c, &k.a.province, b);
+    let ix = fx::default_raid(&k.w.a, keeper.pubkey(), &x);
+    assert_cq(
+        s1_send(&mut k.c, I2::DefaultRaid, ix, &[&keeper]),
+        Cq::RaidWindow,
+    );
+    k.w.to_bell(
+        &mut k.c,
+        raid_bell + RAID_DECIDE_BELLS + kc::RAID_BURN_AFTER_BELLS + 1,
+        5,
+    );
+    let b = k.w.bell(&k.c);
+    k.w.set_resolved_next(&mut k.c, &k.a.province, b);
+    let ix = fx::default_raid(&k.w.a, keeper.pubkey(), &x);
+    let l = expect_lands(
+        s1_send(&mut k.c, I2::DefaultRaid, ix, &[&keeper]),
+        "DefaultRaid late burn",
+    );
+    assert!(
+        k.c.is_absent(&k.w.a.caravan(k.r.citizen_tag(), 0)),
+        "no loot"
+    );
+    match event(&l, CqKind::CARAVAN_RAIDED) {
+        fclient::conquest::CqEvent::CaravanRaided { by, choice, .. } => {
+            assert_eq!((by, choice), (raid_choice::BY_DEFAULT, raid_choice::BURN))
+        }
+        e => panic!("{e:?}"),
+    }
+}
+
 #[test]
 fn g13_s1_default_raid_burns_when_the_raiders_holding_is_gone() {
     let (mut k, raid_bell) = raided(60);

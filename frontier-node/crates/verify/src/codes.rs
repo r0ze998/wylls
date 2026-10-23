@@ -68,6 +68,12 @@ pub const SNAPSHOT_MISMATCH: &str = "SnapshotMismatch";
 pub const MARCH_FOLD_MISMATCH: &str = "MarchFoldMismatch";
 // V22 land legality (conquest contract §8.5; partial: the outpost filing)
 pub const OUTPOST_ILLEGAL: &str = "OutpostIllegal";
+// V23 vaults and caravans (S1 stage 1b)
+/// A vault or caravan instruction left a Caravan, a slot or a raid other
+/// than the caravan kernel's.
+pub const CARAVAN_MISMATCH: &str = "CaravanMismatch";
+/// A vault built, credited, seized or closed against the rules.
+pub const VAULT_MISMATCH: &str = "VaultMismatch";
 // V17 capture bookkeeping (conquest contract §8.5; partial)
 pub const CAPTURE_RULE: &str = "CaptureRule";
 pub const CAPTURE_BOOKKEEPING: &str = "CaptureBookkeeping";
@@ -136,6 +142,8 @@ pub const FAIL_CODES: &[&str] = &[
     SIEGE_NOT_SETTLED,
     OUTPOST_AFTER_CLOSE,
     OUTPOST_ILLEGAL,
+    CARAVAN_MISMATCH,
+    VAULT_MISMATCH,
 ];
 
 /// Warning codes (PASS with a warning).

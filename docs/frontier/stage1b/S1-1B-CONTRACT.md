@@ -253,8 +253,19 @@ whose holding the raiding host belongs to:
   - The rest of the cargo continues on the original schedule.
 - The window is `RAID_DECIDE_BELLS = 6` [phase 6].
 - After the window, **DefaultRaid** (permissionless) applies *take* to
-  the raiding host's own holding along the shortest path
-  ([proposal]; the raider gets the loot it would most likely want).
+  the raiding host's own holding along the fastest path
+  (`caravan::fastest_path`, the keeper's; [proposal]: the raider gets the
+  loot it would most likely want).
+  - The raiding holding gone (closed, or another generation): a burn.
+  - No walk home given (`steps` 0 off the home tile, e.g. home beyond 32
+    steps or 4 provinces): a burn, but only `RAID_BURN_AFTER_BELLS` (144
+    [phase 6]) after the window. A raid never stays open for good, and a
+    keeper has a day to take the loot home when a path exists.
+  - A loot raided on its destination's own tile walks no step: it arrives
+    at once with no slot (a send's two places never share a tile).
+  - The keeper fronts the loot's rent and fee (`RENT_TO` the keeper, both
+    back when it settles the loot) and is paid the raided caravan's fee;
+    the raided caravan's remainder then settles with no fee.
 - Either path marks the slot settled (`RAID_OFF = 0xFE`).
 - Log `CARAVAN_RAIDED` (kind 93): choice, amounts, loot caravan id.
 
@@ -284,8 +295,11 @@ A vault is not a site and cannot be besieged. It is seized by **standing on it**
   close); RaidCaravan and DefaultRaid (the split and the loot caravan);
   SeizeVault (the roster condition).
 - **Codes:** `CaravanMismatch`, `VaultMismatch`.
-- **Tamper classes:** T47 a caravan slot not written, T48 cargo delivered
-  twice, T49 a vault seized without a host on its tile.
+- **Tamper classes** (numbered after the conquest's T25–T48): T49 a
+  caravan slot not written, T50 cargo delivered twice, T51 a vault seized
+  without a host on its tile.
+- V7's holding continuity: BuildVault and a holding source are owner
+  touches that pay; a delivery is a settle and a credit (no touch).
 
 ### 4.2 The clash replay (V7)
 
@@ -304,6 +318,8 @@ slot write-back are part of the model.
 - DefaultRaid: a D duty, after the window.
 - Both are paid by the caravan's fee (DefaultRaid's from the raided
   caravan's fee).
+- `keeper/src/caravans.rs`; the caravans come from the feed's
+  CARAVAN_SENT records, the slots from the play duty's Province reads.
 
 ### 4.5 Relay (gateway)
 
@@ -314,7 +330,17 @@ slot write-back are part of the model.
   - SendCaravan: caravan rent + `CARAVAN_FEE`
   - RaidCaravan (take): loot caravan rent
   - BuildVault: vault rent
-- Quota: SendCaravan counts like a Depart (`departsPerDay`).
+- The allowance caps the fee: SendCaravan's and RaidCaravan's `fee` is
+  the player's choice and comes from the payer (the pool key), so one
+  above `CARAVAN_FEE` drains more than the allowance and is refused.
+- Quota: SendCaravan counts like a Depart (`departsPerDay`): in an S1
+  season the daily lamport cap is 24 × the larger of a Depart escrow and
+  a caravan's cost, plus one vault's rent.
+- **The S1 profile.** The S1 release `.so` is its own program, larger than
+  the MC one, so S1 seasons have their own loaded limits
+  (`v2::budgets::loaded_limit_s1`, `PLACEHOLDER_SO_LEN_S1` 1.375 MiB):
+  fclient `Budgets::canonical_for(4)`, the JS SDK's profile 3 (by
+  `RULESET_HASH_V3`; the v2 layouts and instructions otherwise).
 
 ### 4.6 Budgets [to be measured]
 
