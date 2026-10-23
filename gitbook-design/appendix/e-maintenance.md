@@ -16,7 +16,9 @@ git ls-remote origin 'refs/heads/*'                     # GitHub 側のブラン
 git merge-base --is-ancestor <この文書が見たブランチの commit> HEAD && echo 含む
 ```
 
-HEAD が同じでも、未コミットの変更は変わります。照合の前後で指紋を記録し、変わっていたら差分を確かめ直します。並行の作業で GitHub 側のブランチが増えることもあります（この文書の執筆中にも 5 つ増えた）。
+HEAD が同じでも、未コミットの変更は変わることがあります。そのため、照合の前後で指紋を記録し、変わっていたら差分を確かめ直します。
+
+並行の作業で、GitHub 側のブランチが増えることもあります（この文書の執筆中にも 5 つ増えた）。
 
 ## E.2 更新のたびに再確認する項目
 
@@ -58,21 +60,45 @@ python3 tools/check_links.py .
 
 ## E.4 GitBook への取り込み手順
 
-GitBook の公式資料（Git Sync の Content configuration、2026-10-23 に確認）によると、GitBook はリポジトリの中の `.gitbook.yaml` を読み、`root`、`structure.readme`、`structure.summary` で最初のページと目次の場所を決めます。目次（`SUMMARY.md`）では、`##` の見出しがページの組になり、入れ子の箇条書きのリンクが子のページになります。各 Markdown ファイルは `SUMMARY.md` に 1 回だけ出せます。Git Sync を使うときは、`README.md` をリポジトリの側で管理するよう求められています。
+### 原稿の形式
 
-**方法 1：Git Sync（推奨）**
+GitBook の公式資料（Git Sync の Content configuration、2026-10-23 に確認）によると、GitBook の読み方は次のとおりです。
 
-1. この原稿のフォルダ `gitbook-design/` を、GitHub のリポジトリに置く（このリポジトリの中の 1 フォルダでも、専用のリポジトリでもよい）。原稿の作成の時点では、GitHub には置いていません。
-2. GitBook で新しいスペースを作り、Git Sync で GitHub のリポジトリとブランチをつなぐ。
-3. リポジトリの中のフォルダを使う場合は、スペースの設定で、そのフォルダ（`gitbook-design/`）を対象にする。`.gitbook.yaml` の `root: ./` は、そのフォルダからの相対です。
-4. 最初の同期の向きは「GitHub → GitBook」を選ぶ。
-5. 同期のあと、目次、画像（`images/*.svg`）、表の表示を確かめる。
+- リポジトリの中の `.gitbook.yaml` を読み、`root`、`structure.readme`、`structure.summary` で、最初のページと目次の場所を決める。
+- 目次（`SUMMARY.md`）では、`##` の見出しがページの組になり、入れ子の箇条書きのリンクが子のページになる。
+- 各 Markdown ファイルは、`SUMMARY.md` に 1 回だけ出せる。
+- Git Sync を使うときは、`README.md` をリポジトリの側で管理するよう求められている。
 
-**方法 2：手で取り込む**
+この原稿の `.gitbook.yaml` は、`root: ./`、`readme: README.md`、`summary: SUMMARY.md` です。
+
+### 方法 1：Git Sync（推奨）
+
+Git Sync は、GitBook のスペースと GitHub のリポジトリを同期する機能です。
+
+**始める前に確かめること。**
+
+- Git Sync を有効にできるのは、GitBook の管理者（Admin）か作成者（Creator）の役割を持つ人だけです。
+- GitBook の GitHub App を、リポジトリのある GitHub のアカウントか組織にインストールし、そのリポジトリへのアクセスを許しておく必要があります。
+- 必要な権限の細部や、プランの条件は、この文書では確かめていません。設定する時点で、GitBook の画面と公式資料で確かめてください。
+
+**手順。**
+
+1. この原稿のフォルダ `gitbook-design/` を、GitHub のリポジトリに置く。このリポジトリの中の 1 フォルダでも、専用のリポジトリでもよい。原稿の作成の時点では、GitHub には置いていません。
+2. GitBook でスペースを作り、Git Sync の設定を開く。
+3. リポジトリとブランチを選ぶ。
+4. リポジトリの中のフォルダを使う場合は、「Project directory」（任意の項目）に `gitbook-design` を指定する。`.gitbook.yaml` の `root: ./` は、そのフォルダからの相対になるはずです。同期の後、最初のページと目次が正しく出るかで確かめてください。専用のリポジトリなら空のままでよい。
+5. 最初の同期の前に、同期の向きを選ぶ。リポジトリの原稿を GitBook に入れるには、「Swap direction」で GitHub → GitBook の向きにする。この向きでは、リポジトリの内容が GitBook の内容を置き換えます。
+6. 同期のあと、目次、画像（`images/*.svg`）、表の表示を確かめる。
+
+> **注意。** GitBook は、GitHub → GitBook の同期で、そのスペース（セクション）の今の内容が置き換えられうると警告します。空のリポジトリやブランチを選ぶと、空の内容で置き換わります。すでに内容のあるスペースにつなぐ場合は、先に内容を確かめてください。
+
+### 方法 2：手で取り込む
 
 GitBook の取り込み機能（Markdown のファイルやフォルダの取り込み）を使う方法もあります。画面の名前と手順は変わることがあるので、取り込む時点の公式資料で確かめてください。
 
-**この作業でしていないこと。** GitBook のアカウント作成、GitHub 連携の権限追加、push、公開。
+### この作業でしていないこと
+
+GitBook のアカウント作成、GitHub App のインストールと権限の付与、push、公開。
 
 ## E.5 公開前に外すもの
 

@@ -1,8 +1,15 @@
 # 付録B 比較調査の詳細
 
-[第8章](../08-comparison-eternum-eve.md) の根拠です。2026-10-23 に、公式の文書とコードを読んで調べました。第8章の教訓の根拠になる主要な箇所（下の「執筆者が再確認」の印）は、執筆者がコードと文書の原文を開いて、もう一度確かめています。
+[第8章](../08-comparison-eternum-eve.md) の根拠です。2026-10-23 に、公式の文書とコードを読んで調べました。
 
-**表記。** 確認（文書）、確認（コード）、非公式（コミュニティ）、見つからない（探したが見つからない。存在しないとは限らない）。
+第8章の教訓の根拠になる主要な箇所には、「執筆者が再確認」と書いています。これらは、執筆者がコードと文書の原文を開いて、もう一度確かめたものです。
+
+**確かさの表記。**
+
+- 確認（文書）：公式の文書で確かめた。
+- 確認（コード）：コードで確かめた。
+- 非公式（コミュニティ）：公式ではない、コミュニティの作ったもの。
+- 見つからない：探したが見つからなかった。存在しないとは限らない。
 
 ## B.1 EVE Frontier
 
@@ -18,7 +25,7 @@
 | https://github.com/evefrontier/eve-frontier-builders-program | `759a377`（2026-10-12） |
 | CCP の発表「EVE Frontier to Launch on Layer-1 Blockchain Sui」 | 2025-10-08（https://fenris.com/news/2025/eve-frontier-to-launch-on-layer-1-blockchain-sui） |
 
-**今の仕組み。** Sui/Move。稼働中のサーバー（Stillness）は Sui のテストネットに置かれています（確認：文書、`contracts/world/Published.toml`）。旧 Redstone/MUD/Solidity の `projectawakening/world-chain-contracts` は 2025-12-19 の commit を最後にアーカイブされています（確認：コード）。文書の「Resources」ページのパッケージ ID は、2026-09-24 の再配置より古いものです。
+**今の仕組み。** Sui と Move で作られています。稼働中のサーバー（Stillness）は、Sui のテストネットに置かれています（確認：文書、`contracts/world/Published.toml`）。旧 Redstone/MUD/Solidity の `projectawakening/world-chain-contracts` は 2025-12-19 の commit を最後にアーカイブされています（確認：コード）。文書の「Resources」ページのパッケージ ID は、2026-09-24 の再配置より古いものです。
 
 ### 施設（Smart Assemblies）
 
@@ -151,7 +158,7 @@
 |---|---|---|
 | Season 1 の Daydreams エージェント | NPC のエージェント。運営の 1 つのアドレスが制御 | 旧コード（commit `4551a26db`）（確認：コード） |
 | チームの振り返り | 上位のエージェントは、全体のチャットでプレイヤーに影響されると「非常に強く、脅威になりうる」。探索できなかった。狩るのは割に合わなかった | Season 2 の計画の文書（執筆者が再確認） |
-| 今の計画 | 「雇う AI」（サンドボックスのエージェントを定額で提供）。実行部品 `apps/agent-runner` はあるが、Blitz 1 試合の検証は未実施 | `docs/plans/hired-agents-*.md`、`apps/agent-runner`（確認：コードと文書） |
+| 今の計画 | 「雇う AI」（サンドボックスのエージェントを定額で提供）。実行プログラム `apps/agent-runner` はあるが、Blitz 1 試合の検証は未実施 | `docs/plans/hired-agents-*.md`、`apps/agent-runner`（確認：コードと文書） |
 | ブラウザの自動化 | 生産と輸送の繰り返し。タブを開いておく必要がある | `packages/core/src/automation/production.ts`、文書の Automation のページ |
 | MCP | 見つからない | — |
 | 柱の言葉 | 「人と AI エージェントが、チェーンが守る同じルールで一緒に遊ぶ」 | `apps/game-docs/docs/pages/overview/introduction.mdx:42`（執筆者が再確認） |
