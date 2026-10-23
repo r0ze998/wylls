@@ -134,17 +134,18 @@ fn judge(cx: &Ctx, r: &CqRec) -> Result<(), (&'static str, String)> {
             format!("declared at bell {b}, at or after end_bell {end}"),
         ));
     }
-    let before = |i: usize| {
-        ix.key(i)
+    // Accounts by their DeclareSiege names (`frontier_abi::v2::prologue`).
+    let before = |name: &str| {
+        ix.account(name)
             .and_then(|k| w.state_before(&k, t).map(|d| (k, d.to_vec())))
     };
     let (citizen_k, cd) =
-        before(3).ok_or((SIEGE_ILLEGAL, "no state of the Citizen before".to_string()))?;
-    let (src_k, hd) = before(4).ok_or((
+        before("citizen").ok_or((SIEGE_ILLEGAL, "no state of the Citizen before".to_string()))?;
+    let (src_k, hd) = before("src_holding").ok_or((
         SIEGE_ILLEGAL,
         "no state of the source Holding before".to_string(),
     ))?;
-    let (province_k, pd) = before(5).ok_or((
+    let (province_k, pd) = before("province").ok_or((
         SIEGE_ILLEGAL,
         "no state of the target Province before".to_string(),
     ))?;
@@ -214,7 +215,7 @@ fn judge(cx: &Ctx, r: &CqRec) -> Result<(), (&'static str, String)> {
             ))
         }
     };
-    if ix.key(6) != Some(f.ctx.holding(p, q, site)) {
+    if ix.account("target_holding") != Some(f.ctx.holding(p, q, site)) {
         return Err((
             SIEGE_ILLEGAL,
             "the target Holding account is not the site's".into(),
@@ -224,7 +225,7 @@ fn judge(cx: &Ctx, r: &CqRec) -> Result<(), (&'static str, String)> {
     let owner = if target == Target::FreeCity {
         None
     } else {
-        let (_, th) = before(6).ok_or((
+        let (_, th) = before("target_holding").ok_or((
             SIEGE_ILLEGAL,
             "no state of the target Holding before".to_string(),
         ))?;
@@ -241,7 +242,7 @@ fn judge(cx: &Ctx, r: &CqRec) -> Result<(), (&'static str, String)> {
             ));
         }
         let owner_k = ix
-            .key(7)
+            .account("owner_citizen")
             .ok_or((SIEGE_ILLEGAL, "no owner Citizen named".to_string()))?;
         if th[H::OWNER_CITIZEN..H::OWNER_CITIZEN + 32] != owner_k[..] {
             return Err((
@@ -249,7 +250,7 @@ fn judge(cx: &Ctx, r: &CqRec) -> Result<(), (&'static str, String)> {
                 "the owner Citizen named is not the target's owner".into(),
             ));
         }
-        let (_, od) = before(7).ok_or((
+        let (_, od) = before("owner_citizen").ok_or((
             SIEGE_ILLEGAL,
             "no state of the owner Citizen before".to_string(),
         ))?;
@@ -353,7 +354,7 @@ fn judge(cx: &Ctx, r: &CqRec) -> Result<(), (&'static str, String)> {
         if src_shielded {
             return Err((SIEGE_ILLEGAL, "the source Holding is shielded".into()));
         }
-        let attacker_nearby = before(8).is_some_and(|(nk, nd)| {
+        let attacker_nearby = before("nearby_province").is_some_and(|(nk, nd)| {
             nd.len() == P2::SIZE
                 && f.provinces.get(&nk).is_some_and(|&(np, nq)| {
                     let ns = x.nearby_site as usize;

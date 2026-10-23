@@ -1002,7 +1002,7 @@ fn continuity(cx: &mut Ctx) {
 }
 
 /// `holdings_n` of the citizen whose FileOutpost in `tx` names Holding `k`
-/// as its anchor (the instruction's fourth account from the end), from the
+/// as its anchor (the instruction's `anchor_holding`), from the
 /// Citizen's state before the transaction; `None` when no FileOutpost of
 /// the transaction anchors on `k`.
 fn outpost_anchor_holdings(
@@ -1015,16 +1015,16 @@ fn outpost_anchor_holdings(
     let tag = frontier_abi::v2::tags::Ix::FileOutpost.tag();
     tx.ixs
         .iter()
-        .filter(|i| i.tag() == Some(tag) && i.accounts.len() >= 10)
-        .find(|i| i.key(i.accounts.len() - 4).as_ref() == Some(k))
-        .and_then(|i| i.key(3))
+        .filter(|i| i.tag() == Some(tag))
+        .find(|i| i.account("anchor_holding").as_ref() == Some(k))
+        .and_then(|i| i.account("citizen"))
         .and_then(|c| w.state_before(&c, t).map(|d| d.to_vec()))
         .filter(|d| d.len() == C::SIZE)
         .map(|d| d[C::HOLDINGS_N])
 }
 
-/// The stake DeclareSiege in `tx` pays from Holding `k` (its fifth
-/// account), as a cost: `siege_stake_gold` in gold; `None` when no
+/// The stake DeclareSiege in `tx` pays from Holding `k` (its
+/// `src_holding`), as a cost: `siege_stake_gold` in gold; `None` when no
 /// DeclareSiege of the transaction names `k` as its source.
 fn siege_source_stake(f: &Facts, tx: &crate::world::Tx, k: &[u8; 32]) -> Option<[i64; RESOURCES]> {
     let tag = frontier_abi::v2::tags::Ix::DeclareSiege.tag();
@@ -1032,7 +1032,7 @@ fn siege_source_stake(f: &Facts, tx: &crate::world::Tx, k: &[u8; 32]) -> Option<
     tx.ixs
         .iter()
         .filter(|i| i.tag() == Some(tag))
-        .find(|i| i.key(4).as_ref() == Some(k))?;
+        .find(|i| i.account("src_holding").as_ref() == Some(k))?;
     let mut c = [0i64; RESOURCES];
     c[Resource::Gold as usize] = (cq.siege_stake_gold as i64).checked_mul(MILLI)?;
     Some(c)
@@ -1132,9 +1132,9 @@ fn owner_actions(cx: &mut Ctx) {
             let (p, q, site) = r.pqs();
             let hk = f.ctx.holding(p, q, site);
             // The Holding an instruction acts on: its fifth account, or a
-            // FileOutpost's anchor (the fourth from its end).
+            // FileOutpost's `anchor_holding`.
             let acted = if ix.tag() == Some(outpost) {
-                ix.key(ix.accounts.len().saturating_sub(4))
+                ix.account("anchor_holding")
             } else {
                 ix.key(4)
             };

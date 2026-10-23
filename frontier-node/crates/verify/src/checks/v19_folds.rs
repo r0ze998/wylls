@@ -80,7 +80,7 @@ pub fn run(cx: &mut Ctx) {
             let what = format!("march ({}, {})", x.m, x.n);
             let bell = x.hour.saturating_mul(cm::HOUR_BELLS);
             let mk = march_state(&f.ctx, x.m, x.n);
-            if ix.key(2) != Some(mk) || ix.accounts.len() < 11 {
+            if ix.account("march") != Some(mk) || ix.accounts.len() < 11 {
                 bad.push((
                     t,
                     what,
@@ -94,7 +94,7 @@ pub fn run(cx: &mut Ctx) {
             let mut ok = true;
             for (i, (mp, mq)) in coords.iter().enumerate() {
                 let k = f.ctx.province(*mp, *mq);
-                if ix.key(3 + i) != Some(k) {
+                if ix.account_nth("member", i) != Some(k) {
                     bad.push((
                         t,
                         what.clone(),
