@@ -24,6 +24,7 @@ pub mod envoys;
 pub mod error;
 pub mod fixed;
 pub mod frontier;
+pub mod frontier_next;
 pub mod genesis;
 pub mod gov;
 pub mod hash;

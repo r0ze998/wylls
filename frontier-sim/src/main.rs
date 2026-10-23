@@ -29,6 +29,7 @@
 //! `run` plays one season and prints its report; `suite` runs every M0
 //! measurement and writes the markdown results.
 
+mod arms;
 mod balance;
 mod c4;
 mod config;
@@ -146,6 +147,22 @@ fn main() {
             "--dx" => {
                 cfg.doctrines = true;
                 cfg.doctrine_tweaks = v;
+            }
+            "--arms-per100" => {
+                cfg.arms = true;
+                let w: Vec<i64> = v.split(',').map(|x| x.parse().expect("--arms-per100")).collect();
+                assert_eq!(w.len(), 3, "--arms-per100 P,C,K");
+                cfg.arms_per100 = Some([w[0], w[1], w[2]]);
+            }
+            "--arms-scale" => {
+                cfg.arms = true;
+                cfg.arms_scale_pct = v.parse().expect("--arms-scale");
+            }
+            "--arms" => {
+                // Stage 1a (redesign 30, J3): strong units pay arms.
+                cfg.arms = true;
+                i += 1;
+                continue;
             }
             "--first-seed" => first_seed = Some(v.parse().expect("--first-seed")),
             "--unpaired" => {
@@ -309,6 +326,11 @@ fn main() {
         cfg.mc = p;
     }
     match cmd {
+        "arms" => {
+            // Stage 1a (redesign 30): the arms economy on the map of --seed.
+            let max_ring = only.as_deref().map_or(4, |s| s.parse().expect("--only RING"));
+            println!("{}", arms::report(cfg.seed, max_ring));
+        }
         "run" => {
             let t = std::time::Instant::now();
             let (sim, o) = suite::play(&cfg);
