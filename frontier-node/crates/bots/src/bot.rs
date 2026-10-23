@@ -236,6 +236,13 @@ impl<H: HeraldPort, R: RelayPort, D: DirectPort> Shared<H, R, D> {
         self
     }
 
+    /// `--s1`: an S1 season (program_version 4, relay profile 3): the
+    /// budgets are the S1 table's (after [`Shared::with_conquest`]).
+    pub fn with_s1(mut self) -> Self {
+        self.cfg.budgets = crate::txb::budgets_s1();
+        self
+    }
+
     pub fn with_journal(mut self, j: Journal) -> Self {
         self.journal = Some(j);
         self
@@ -1214,6 +1221,14 @@ impl Bot {
                 if let Some(h) = obs.me.holdings.first() {
                     self.mem.held = Some((h.1.p, h.1.q));
                 }
+                1
+            }
+            Intent::SendCaravan { h: _, args } => {
+                // S1 (1f): an MC/S1 shape only; an M1 season never offers it.
+                self.sponsored(sh, "send_caravan", None, |p| {
+                    ix::v2::send_caravan(&a, p, &args)
+                })
+                .await;
                 1
             }
             Intent::Nudge { province } => {

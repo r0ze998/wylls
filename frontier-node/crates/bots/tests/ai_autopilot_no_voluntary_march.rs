@@ -21,8 +21,8 @@ use frontier_bots::bot::{Bot, Config};
 
 const BELL: i64 = 600;
 
-/// Every `Intent::name()` of `agents/src/policy.rs` (17 variants).
-const ALL: [&str; 17] = [
+/// Every `Intent::name()` of `agents/src/policy.rs` (18 variants).
+const ALL: [&str; 18] = [
     "join",
     "file_ticket",
     "harvest",
@@ -40,6 +40,7 @@ const ALL: [&str; 17] = [
     "hold",
     "spam",
     "nudge",
+    "send_caravan",
 ];
 
 #[test]
@@ -68,7 +69,11 @@ fn the_kept_and_dropped_lists_cover_every_intent_exactly_once() {
             "harvest"
         ]
     );
-    assert_eq!(KEPT_ECONOMY, ["build", "train", "muster", "explore"]);
+    // (S1: a caravan is only ever an AI's choice; listed with the economy)
+    assert_eq!(
+        KEPT_ECONOMY,
+        ["build", "train", "muster", "explore", "send_caravan"]
+    );
     assert!(DROPPED.contains(&"depart"));
     assert_eq!(QUOTA_FLOOR, 16);
 }

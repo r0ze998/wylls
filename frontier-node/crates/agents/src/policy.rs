@@ -197,6 +197,12 @@ pub enum Intent {
     Nudge {
         province: (i16, i16),
     },
+    /// S1 (1f): a caravan from the holding `h` to another of the citizen's
+    /// places (fclient `ix::v2::send_caravan`; only an AI chooses it).
+    SendCaravan {
+        h: HoldingRef,
+        args: Box<fclient::ix::v2::SendCaravanArgs>,
+    },
 }
 
 impl Intent {
@@ -219,6 +225,7 @@ impl Intent {
             Intent::Hold { .. } => "hold",
             Intent::Spam { .. } => "spam",
             Intent::Nudge { .. } => "nudge",
+            Intent::SendCaravan { .. } => "send_caravan",
         }
     }
 }

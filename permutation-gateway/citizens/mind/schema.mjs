@@ -25,7 +25,7 @@ export function maxSayFor(kind) {
 
 const cp = (s) => [...String(s)].length;
 
-/** A candidate kind is the contract's table entry verbatim: autopilot, hold, march, recall:<handle>, build:<item>, walls, train:<unit>, muster:<unit>, explore:<handle>. */
+/** A candidate kind is the contract's table entry verbatim: autopilot, hold, march, recall:<handle>, build:<item>, walls, train:<unit>, muster:<unit>, explore:<handle>; S1 adds caravan (a march's target_kind may also be ambush or escort). */
 export const kindBase = (kind) => String(kind ?? '').split(':')[0];
 
 function enumOf(values) {

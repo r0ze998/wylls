@@ -8,7 +8,7 @@
 //!               [--journal DIR] [--report FILE] [--invites FILE]
 //!               [--game-hours H] [--scale S] [--control 127.0.0.1:41070]
 //!               [--day0-share F] [--eager-personas]
-//!               [--conquest] [--conquest-personas N]
+//!               [--conquest] [--conquest-personas N] [--s1]
 //! ```
 //!
 //! `--conquest` (MC §8.6, CQ2-F) turns the conquest layer on: the faction
@@ -16,6 +16,10 @@
 //! orders, the horn, outposts, retire, and the nineteen conquest personas
 //! (`--conquest-personas N` bots each, at most max(1, bots / 100); default
 //! 1). The report gains `conquest` and `activity`.
+//!
+//! `--s1` plays an S1 season (redesign stage 1, program_version 4): the
+//! conquest layer as `--conquest`, with the S1 release's budgets (the relay
+//! checks a profile-3 season's shapes against them).
 //!
 //! `--day0-share F` (0–1) is the share of the roster that joins on day 0
 //! (default: the mix's 0.6; `itest::inproc_day` uses 1.0); `--eager-personas`
@@ -63,6 +67,7 @@ struct Args {
     // AI hook end
     conquest: bool,
     conquest_personas: Option<u32>,
+    s1: bool,
     /// `--join-by-bell N`: every roster bot joins before bell N (its dealt
     /// join bell modulo N), for a short world where a join spread over a
     /// whole game day would leave most bots outside the play window.
@@ -95,7 +100,7 @@ fn mix_of(a: &Args) -> Mix {
 const CONQUEST_BOT_SHARE: f64 = 0.99;
 
 fn usage(e: &str) -> ! {
-    eprintln!("frontier-bots: {e}\nusage: frontier-bots --herald URL --relay URL [--rpc URL] [--seed N] [--bots N] [--first-index N] [--days N] [--personas default|off|N] [--journal DIR] [--report FILE] [--invites FILE] [--game-hours H] [--scale S] [--control 127.0.0.1:PORT] [--day0-share F] [--eager-personas] [--conquest] [--conquest-personas N] [--bot-share F] [--join-by-bell N]");
+    eprintln!("frontier-bots: {e}\nusage: frontier-bots --herald URL --relay URL [--rpc URL] [--seed N] [--bots N] [--first-index N] [--days N] [--personas default|off|N] [--journal DIR] [--report FILE] [--invites FILE] [--game-hours H] [--scale S] [--control 127.0.0.1:PORT] [--day0-share F] [--eager-personas] [--conquest] [--conquest-personas N] [--s1] [--bot-share F] [--join-by-bell N]");
     std::process::exit(2);
 }
 
@@ -126,6 +131,7 @@ fn parse_from(args: impl Iterator<Item = String>) -> Args {
         // AI hook end
         conquest: false,
         conquest_personas: None,
+        s1: false,
         join_by_bell: None,
         bot_share: None,
     };
@@ -189,6 +195,10 @@ fn parse_from(args: impl Iterator<Item = String>) -> Args {
             "--export-seat-key" => a.ai.export_seat_key = Some(v().into()),
             // AI hook end
             "--conquest" => a.conquest = true,
+            "--s1" => {
+                a.conquest = true;
+                a.s1 = true;
+            }
             "--join-by-bell" => {
                 a.join_by_bell = Some(
                     v().parse()
@@ -388,6 +398,10 @@ async fn go<D: frontier_bots::ports::DirectPort + 'static>(a: Args, direct: Opti
             c.cfg.personas_per
         );
         shared = shared.with_conquest(c);
+        if a.s1 {
+            eprintln!("frontier-bots: --s1, the S1 budgets");
+            shared = shared.with_s1();
+        }
     }
     let mut fleet = Fleet::new(shared, &r);
     // AI hook
@@ -622,8 +636,15 @@ mod tests {
         let mut v = base.to_vec();
         v.extend(["--conquest", "--conquest-personas", "3", "--bots", "300"]);
         let a = parse_from(args(&v));
-        assert!(a.conquest);
+        assert!(a.conquest && !a.s1);
         assert_eq!((a.conquest_personas, a.bots), (Some(3), 300));
+        let mut v = base.to_vec();
+        v.push("--s1");
+        let a = parse_from(args(&v));
+        assert!(
+            a.conquest && a.s1,
+            "--s1 is the conquest layer with the S1 budgets"
+        );
     }
 
     /// W2R2-F4: `--conquest` runs the 99%-bot roster the thresholds file

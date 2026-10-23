@@ -56,6 +56,7 @@ pub mod mindport;
 pub mod raid;
 pub mod ready;
 pub mod recall;
+pub mod s1;
 pub mod standing;
 
 use aislots::AiSlots;
