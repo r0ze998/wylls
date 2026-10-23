@@ -19,6 +19,10 @@ body { margin: 0; font: 15px/1.5 system-ui, sans-serif; background: #0f1512; col
 .agent-check { flex-direction: row !important; gap: 6px; align-items: center; }
 .btn { padding: 7px 12px; border-radius: 8px; border: 1px solid #3a7a5a; background: #1d3a2c; color: #e8efe9; cursor: pointer; }
 .btn.quiet { background: transparent; border-color: #3a4f45; }
+/* a wallet the page cannot use (the reason stands beside it) and any button that cannot be pressed: greyed, not clickable-looking */
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.agent-wallets { list-style: none; padding-left: 0; }
+.agent-wallets li { margin: 6px 0; }
 .muted { color: #9fb3a8; font-size: 13px; }
 .agent-note { padding: 8px 12px; border-radius: 8px; background: #1d2a24; }
 .agent-note.tone-bad { background: #3a2222; }

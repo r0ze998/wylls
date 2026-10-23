@@ -29,10 +29,12 @@ frontier-node/target/release/frontier-stack up --conquest --mode accel --beacon 
 
 ## 2. 使えるウォレットかの事前確認（最初に必ず行う）
 
+**先に知っておくこと（2026-10-23 時点・未確認）**：ページが使えると判定するのは、`solana:localnet` を名乗るウォレットだけです。Phantom の開発者向けドキュメントは、拡張で使えるネットワークを Mainnet・Devnet・Testnet としています。localnet は挙げていません。そのため Phantom は「このネットワーク（solana:localnet）に対応していません」と表示される見込みが高いです。Backpack と Solflare についても、localnet を名乗るという情報は見つかっていません。実物の拡張では確かめていないので、この節の手順で確かめて、その結果を記録してください。どれも使えない場合の扱いは、所有者の判断を待ちます（`STATUS-2026-10-23.ja.md` §9.11）。
+
 1. 拡張を入れたブラウザで `http://127.0.0.1:41640/frontier/frontier/agent.html` を開く。
 2. ウォレットの一覧に、拡張の名前の「〇〇でつなぐ」が出るかを見る。
    - 押せる状態なら使える。
-   - 押せない（灰色）なら、横に理由が出る。理由は次のどれか：
+   - 押せない（灰色。2026-10-23 の修正までは、見た目が押せるボタンと同じだった）なら、横に理由が出る。理由は次のどれか：
      - 「このネットワーク（solana:localnet）に対応していません」
      - 「従来形式（legacy）の取引に対応していません」
      - 「メッセージの署名に対応していません」
@@ -42,6 +44,21 @@ frontier-node/target/release/frontier-stack up --conquest --mode accel --beacon 
 3. 一覧に何も出ないときは、拡張が Wallet Standard に登録されていない。拡張を有効にしてから、ページを再読み込みする。
 
 ページが使えると判定するのは、Wallet Standard の `chains` に `solana:localnet` があり、`solana:signTransaction`（対応する取引形式に legacy を含む）、`solana:signMessage`、`standard:connect` に対応しているウォレットだけ（`permutation-server/web/wallet.mjs` の `unsupported`）。
+
+### 人が試す前のリハーサル（自動）
+
+`permutation-gateway/screens/live/agent-extension.live.mjs` は、拡張と同じ手順（Wallet Standard の登録）で読み込まれる「テスト用の拡張」を使います。このテストの承認ウィンドウはスクリプトで、承認するか拒否するかをスクリプトが選び、届いた依頼の内容を記録します。これで、§2 の一覧と、§3a〜3c の操作・拒否（R1〜R4）をひととおり通します。
+
+```sh
+cd permutation-gateway/screens && LIVE_HERALD=http://127.0.0.1:41640 LIVE_OUT=<出力先> node --test live/agent-extension.live.mjs
+```
+
+2026-10-23 に、このリハーサルで次の 3 つの不具合を見つけて直しました。
+- agent ページが拡張を探していなかった（開発用ウォレットしか一覧に出なかった）。
+- 署名を拒否すると、フォームに入力した値が消えた。
+- 使えないウォレットのボタンが灰色にならなかった。
+
+このリハーサルでは分からないこと：実物の拡張が依頼をどう表示するか、`solana:localnet` を名乗るか、拡張自身のネットワークでの試算が何を言うか。これらは、この手順書で人が確かめます。
 
 ## 3. 確認する操作
 

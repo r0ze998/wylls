@@ -340,6 +340,17 @@ export function renderCapability(capability) {
 
 // ------------------------------------------------------------------ the page
 
+/** Puts the typed values back into the redrawn form `name` (after a refused submit). */
+export function restoreForm(root, name, typed) {
+  const form = root?.querySelector?.(`[data-form="${name}"]`);
+  if (!form) return;
+  for (const [field, value] of typed) {
+    const el = form.elements?.[field];
+    if (!el) continue;
+    if (el.type === 'checkbox') el.checked = !!value; else el.value = value;
+  }
+}
+
 export async function mountAgentPage({ root, wallet, fsession, herald, prize }) {
   const S = { wallet: null, pin: null, terms: null, mine: [], view: null, capability: null, note: null, busy: false, walletBalance: null, session: null };
   const say = (text, tone = '') => { S.note = { text, tone }; draw(); };
@@ -454,7 +465,14 @@ export async function mountAgentPage({ root, wallet, fsession, herald, prize }) 
     e.preventDefault();
     if (S.busy) return;
     S.busy = true;
-    try { await forms[f.dataset.form]?.(f.elements); } catch (err) { say(String(err?.message ?? err), 'bad'); } finally { S.busy = false; draw(); }
+    // What the owner typed, so a refusal (the wallet's "reject", a bad value, the relay's answer) does not wipe it
+    const name = f.dataset.form;
+    const typed = [...(f.elements ?? [])].filter(x => x?.name).map(x => [x.name, x.type === 'checkbox' ? x.checked : x.value]);
+    try { await forms[name]?.(f.elements); } catch (err) { say(String(err?.message ?? err), 'bad'); } finally {
+      S.busy = false;
+      draw();
+      if (S.note?.tone === 'bad') restoreForm(root, name, typed);
+    }
   });
   // Pin the season from the herald, point the relay at /gw, read the terms.
   const s = await herald.season();
@@ -465,6 +483,10 @@ export async function mountAgentPage({ root, wallet, fsession, herald, prize }) 
   herald.pin(s.record.season, S.pin.addresses);
   const t = await loadTerms();
   S.terms = t.ok ? t : null;
+  // Listen for extension wallets (Wallet Standard: those already loaded answer app-ready, later ones register), and
+  // redraw the chooser when one arrives; without this only the dev wallet was ever offered.
+  wallet.discover?.();
+  wallet.onChange?.(() => { if (!S.wallet) draw(); });
   draw();
   setInterval(() => { if (!S.busy) refresh().catch(() => {}); }, 5_000);
   return S;

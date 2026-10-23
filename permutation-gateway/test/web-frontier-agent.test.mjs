@@ -138,3 +138,13 @@ test('the agent page offers a wallet choice: the test wallet first (made on firs
   setLang('en');
   assert.match(String(renderWallets(ext)), /Connect Phantom/);
 });
+
+test('a refused submit keeps what the owner typed: the redrawn form gets the values back (text and checkboxes)', () => {
+  const field = (type, v) => (type === 'checkbox' ? { type, checked: false } : { type, value: v });
+  const form = { elements: { village: field('text', ''), total: field('text', '1'), 'g-military': field('checkbox') } };
+  const root = { querySelector: sel => (sel === '[data-form="create"]' ? form : null) };
+  A.restoreForm(root, 'create', [['village', '3,0,7'], ['total', '2.5'], ['g-military', true], ['gone', 'x']]);
+  assert.deepEqual([form.elements.village.value, form.elements.total.value, form.elements['g-military'].checked], ['3,0,7', '2.5', true]);
+  A.restoreForm(root, 'deposit', [['amount', '9']]);
+  A.restoreForm(null, 'create', []);
+});
