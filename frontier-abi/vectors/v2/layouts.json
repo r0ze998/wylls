@@ -1223,9 +1223,27 @@
           "ty": "[u8;32]"
         },
         {
-          "name": "RSV",
+          "name": "VAULTS",
           "off": 312,
-          "len": 72,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "RSV_313",
+          "off": 313,
+          "len": 3,
+          "ty": "rsv"
+        },
+        {
+          "name": "CARAVANS",
+          "off": 316,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "RSV_320",
+          "off": 320,
+          "len": 64,
           "ty": "rsv"
         }
       ]
@@ -1741,9 +1759,21 @@
           "ty": "rec:Cohort x8"
         },
         {
-          "name": "RSV",
+          "name": "CARAVANS",
           "off": 3864,
-          "len": 232,
+          "len": 180,
+          "ty": "rec:CaravanSlot x5"
+        },
+        {
+          "name": "TOWERS",
+          "off": 4044,
+          "len": 48,
+          "ty": "[u64;6]"
+        },
+        {
+          "name": "RSV_4092",
+          "off": 4092,
+          "len": 4,
           "ty": "rsv"
         },
         {
@@ -2631,6 +2661,302 @@
           "ty": "rsv"
         }
       ]
+    },
+    {
+      "kind": "Vault",
+      "code": 19,
+      "magic": "PSF1VALT",
+      "size": 512,
+      "rent": 3251200,
+      "chained": true,
+      "changed_in_v2": true,
+      "seed_tag": "va",
+      "raw_key_len": 9,
+      "fields": [
+        {
+          "name": "HDR_MAGIC",
+          "off": 0,
+          "len": 8,
+          "ty": "[u8;8]"
+        },
+        {
+          "name": "SEASON_ID",
+          "off": 8,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "LAYOUT_VERSION",
+          "off": 16,
+          "len": 2,
+          "ty": "u16"
+        },
+        {
+          "name": "RSV_HEADER",
+          "off": 18,
+          "len": 6,
+          "ty": "rsv"
+        },
+        {
+          "name": "EVENT_SEQ",
+          "off": 24,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "EVENT_HEAD",
+          "off": 32,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "P",
+          "off": 64,
+          "len": 2,
+          "ty": "i16"
+        },
+        {
+          "name": "Q",
+          "off": 66,
+          "len": 2,
+          "ty": "i16"
+        },
+        {
+          "name": "TILE",
+          "off": 68,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "STATE",
+          "off": 69,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "FACTION",
+          "off": 70,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "GEN",
+          "off": 71,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "OWNER_CITIZEN",
+          "off": 72,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "OWNER_TAG",
+          "off": 104,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "BUILT_TS",
+          "off": 112,
+          "len": 8,
+          "ty": "i64"
+        },
+        {
+          "name": "STORES",
+          "off": 120,
+          "len": 64,
+          "ty": "[i64;8]"
+        },
+        {
+          "name": "CAP",
+          "off": 184,
+          "len": 8,
+          "ty": "i64"
+        },
+        {
+          "name": "SENT",
+          "off": 192,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "SEIZED_BELL",
+          "off": 196,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "RENT_TO",
+          "off": 200,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "RSV",
+          "off": 232,
+          "len": 280,
+          "ty": "rsv"
+        }
+      ]
+    },
+    {
+      "kind": "Caravan",
+      "code": 20,
+      "magic": "PSF1CRVN",
+      "size": 320,
+      "rent": 2275840,
+      "chained": true,
+      "changed_in_v2": true,
+      "seed_tag": "cv",
+      "raw_key_len": 12,
+      "fields": [
+        {
+          "name": "HDR_MAGIC",
+          "off": 0,
+          "len": 8,
+          "ty": "[u8;8]"
+        },
+        {
+          "name": "SEASON_ID",
+          "off": 8,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "LAYOUT_VERSION",
+          "off": 16,
+          "len": 2,
+          "ty": "u16"
+        },
+        {
+          "name": "RSV_HEADER",
+          "off": 18,
+          "len": 6,
+          "ty": "rsv"
+        },
+        {
+          "name": "EVENT_SEQ",
+          "off": 24,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "EVENT_HEAD",
+          "off": 32,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "OWNER_CITIZEN",
+          "off": 64,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "OWNER_TAG",
+          "off": 96,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "SEQ",
+          "off": 104,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "FACTION",
+          "off": 108,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "STATE",
+          "off": 109,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "STEPS",
+          "off": 110,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "N_PROV",
+          "off": 111,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "SRC",
+          "off": 112,
+          "len": 16,
+          "ty": "rec:Place x1"
+        },
+        {
+          "name": "DST",
+          "off": 128,
+          "len": 16,
+          "ty": "rec:Place x1"
+        },
+        {
+          "name": "PATH",
+          "off": 144,
+          "len": 12,
+          "ty": "[u8;12]"
+        },
+        {
+          "name": "PROVINCES",
+          "off": 156,
+          "len": 16,
+          "ty": "[i16;8]"
+        },
+        {
+          "name": "DEPART_TS",
+          "off": 172,
+          "len": 8,
+          "ty": "i64"
+        },
+        {
+          "name": "ARRIVE_TS",
+          "off": 180,
+          "len": 8,
+          "ty": "i64"
+        },
+        {
+          "name": "LAST_BELL",
+          "off": 188,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "CARGO",
+          "off": 192,
+          "len": 64,
+          "ty": "[i64;8]"
+        },
+        {
+          "name": "FEE",
+          "off": 256,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "RENT_TO",
+          "off": 264,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "RSV",
+          "off": 296,
+          "len": 24,
+          "ty": "rsv"
+        }
+      ]
     }
   ],
   "records": [
@@ -2942,6 +3268,114 @@
           "name": "RSV_18",
           "off": 18,
           "len": 2,
+          "ty": "rsv"
+        }
+      ]
+    },
+    {
+      "name": "CaravanSlot",
+      "size": 36,
+      "fields": [
+        {
+          "name": "ID",
+          "off": 0,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "FACTION",
+          "off": 8,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "N",
+          "off": 9,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "RAID_OFF",
+          "off": 10,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "RAID_POS",
+          "off": 11,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "FIRST_BELL",
+          "off": 12,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "TILES",
+          "off": 16,
+          "len": 8,
+          "ty": "[u8;8]"
+        },
+        {
+          "name": "CARRY",
+          "off": 24,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "RAIDER",
+          "off": 28,
+          "len": 8,
+          "ty": "u64"
+        }
+      ]
+    },
+    {
+      "name": "Place",
+      "size": 16,
+      "fields": [
+        {
+          "name": "KIND",
+          "off": 0,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "P",
+          "off": 1,
+          "len": 2,
+          "ty": "i16"
+        },
+        {
+          "name": "Q",
+          "off": 3,
+          "len": 2,
+          "ty": "i16"
+        },
+        {
+          "name": "SITE_OR_TILE",
+          "off": 5,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "GEN",
+          "off": 6,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "TILE",
+          "off": 7,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "RSV_8",
+          "off": 8,
+          "len": 8,
           "ty": "rsv"
         }
       ]

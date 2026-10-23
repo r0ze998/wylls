@@ -190,6 +190,14 @@ pub fn dispatch(
         Ix::FoldMarch => conquest::fold_march(p, a, data),
         Ix::RetireHost => conquest::retire_host(p, a, data),
         Ix::CloseMarch => conquest::close_march(p, a, data),
+        // S1 (stage 1b): vaults and caravans.
+        Ix::BuildVault => caravan::build_vault(p, a, data),
+        Ix::SendCaravan => caravan::send_caravan(p, a, data),
+        Ix::SettleCaravan => caravan::settle_caravan(p, a, data),
+        Ix::RaidCaravan => caravan::raid_caravan(p, a, data),
+        Ix::SeizeVault => caravan::seize_vault(p, a, data),
+        Ix::CloseVault => caravan::close_vault(p, a, data),
+        Ix::DefaultRaid => caravan::default_raid(p, a, data),
     };
     heap::trace_checkpoint(0xffff);
     r

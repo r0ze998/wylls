@@ -76,6 +76,8 @@ pub enum Acc {
     /// A program account of an ABI v2 kind (MC contract §5.2; never used
     /// by an M1 table): the v2 Province (4,736 B) or a MarchState.
     KindV2(crate::v2::layout::AccountKind),
+    /// One of two ABI v2 kinds (S1: a caravan's holding or vault place).
+    EitherV2(crate::v2::layout::AccountKind, crate::v2::layout::AccountKind),
 }
 
 /// Writability of a position.
@@ -808,7 +810,10 @@ pub fn check_flags(specs: &[Spec], accounts: &[AccountView<'_>]) -> Result<(), F
             Wr::W if !a.is_writable => return Err(FrontierError::BadAccount),
             Wr::R
                 if a.is_writable
-                    && matches!(sp.acc, Acc::Kind(_) | Acc::Either(..) | Acc::KindV2(_)) =>
+                    && matches!(
+                        sp.acc,
+                        Acc::Kind(_) | Acc::Either(..) | Acc::KindV2(_) | Acc::EitherV2(..)
+                    ) =>
             {
                 // A program account listed read-only must not be writable
                 // (keeps the lock set of §8.8 honest).

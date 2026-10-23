@@ -82,6 +82,14 @@ pub const MC_ROWS: &[(Ix, u32, u32, u32)] = &[
     // +3.5k per active record-bell is SKIP_PER_ACTIVE_BELL).
     (Ix::SkipQuiet, 90_000, 30_000, 1_232),
     (Ix::SettleExplore, 15_000, 0, 400),
+    // S1 (1b; S1-1B-CONTRACT §4.6): placeholders until measured.
+    (Ix::BuildVault, 40_000, 0, 600),
+    (Ix::SendCaravan, 120_000, 0, 1_000),
+    (Ix::SettleCaravan, 40_000, 0, 700),
+    (Ix::RaidCaravan, 120_000, 0, 1_100),
+    (Ix::SeizeVault, 30_000, 0, 600),
+    (Ix::CloseVault, 10_000, 0, 500),
+    (Ix::DefaultRaid, 120_000, 0, 1_100),
 ];
 
 /// The v2 row of `ix`.

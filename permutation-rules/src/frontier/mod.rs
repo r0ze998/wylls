@@ -22,6 +22,7 @@ pub mod addr;
 pub mod arms;
 pub mod beacon;
 pub mod camp;
+pub mod caravan;
 pub mod catalog;
 pub mod clash;
 pub mod control;
@@ -344,8 +345,8 @@ pub const RULESET_DOMAIN_V3: &[u8] = b"PSF-RULESET-v3";
 
 /// The S1 rules' kernel versions (pinned order, append only): the MC
 /// list with the S1 bumps (frontier 12, catalog 3, doctrine 3, holding 4),
-/// then `arms`.
-pub const KERNEL_VERSIONS_V3: [(&str, u16); 26] = [
+/// then `arms` (1a) and `caravan` (1b).
+pub const KERNEL_VERSIONS_V3: [(&str, u16); 27] = [
     ("frontier", RULES_VERSION_FRONTIER_V3),
     ("beacon", beacon::BEACON_VERSION),
     ("addr", addr::ADDR_VERSION),
@@ -372,6 +373,7 @@ pub const KERNEL_VERSIONS_V3: [(&str, u16); 26] = [
     ("keep", keep::KEEP_VERSION),
     ("control", control::CONTROL_VERSION),
     ("arms", arms::ARMS_VERSION),
+    ("caravan", caravan::CARAVAN_VERSION),
 ];
 
 /// Marks the S1 tables appended to [`ruleset_hash_input_v3`].
@@ -381,8 +383,9 @@ pub const RULESET_V3_TABLES_TAG: &[u8] = b"S1-TABLES-v1";
 /// [`ruleset_hash_input_v2`] with [`RULESET_DOMAIN_V3`] and
 /// [`KERNEL_VERSIONS_V3`] in place of its domain and versions, then
 /// [`RULESET_V3_TABLES_TAG`], the arms tables (`arms::write_tables`), the S1
-/// catalog table (`catalog::write_tables_v3`) and the S1 doctrine table
-/// (`doctrine::write_table_v3`). The M1 and MC inputs are not changed.
+/// catalog table (`catalog::write_tables_v3`), the S1 doctrine table
+/// (`doctrine::write_table_v3`) and the caravan tables
+/// (`caravan::write_tables`). The M1 and MC inputs are not changed.
 pub fn ruleset_hash_input_v3() -> alloc::vec::Vec<u8> {
     let v2 = ruleset_hash_input_v2();
     let mut skip = RULESET_DOMAIN_V2.len() + 1;
@@ -402,6 +405,7 @@ pub fn ruleset_hash_input_v3() -> alloc::vec::Vec<u8> {
     arms::write_tables(&mut out);
     catalog::write_tables_v3(&mut out);
     doctrine::write_table_v3(&mut out);
+    caravan::write_tables(&mut out);
     out
 }
 

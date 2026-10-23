@@ -370,7 +370,7 @@ pub mod cqlog {
     use crate::layout::{chain_of, set_chain};
 
     /// Highest kind code a v2 record carries (88).
-    pub const MAX_KIND: usize = 89;
+    pub const MAX_KIND: usize = 94;
 
     /// `(defined, key width, payload width)` per kind: M1's and MC's.
     pub const WIDTHS: [(bool, u16, u16); MAX_KIND + 1] = {
@@ -1139,7 +1139,7 @@ pub fn settle_siege(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 // ------------------------------------------------------------ SettleCapture
 
 /// The `HoldingRef` (slot `slot`) of a Citizen: `(P, Q, site, gen)`.
-fn holding_ref(cd: &[u8], slot: u8) -> R<(i16, i16, u8, u8)> {
+pub(crate) fn holding_ref(cd: &[u8], slot: u8) -> R<(i16, i16, u8, u8)> {
     let o = C::holding_of_slot(slot);
     let r = Ro(cd);
     Ok((r.i16(o)?, r.i16(o + 2)?, r.u8(o + 4)?, r.u8(o + 5)?))

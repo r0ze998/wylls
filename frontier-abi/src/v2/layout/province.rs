@@ -1,8 +1,10 @@
 //! Province v2 (4,736 B) and its conquest records (MC contract §5.2.1).
 //!
-//! Bytes `0..4,096` are M1's Province byte for byte (the 232-B reserve at
-//! 3,864 included); `tests::v1_prefix_is_m1` checks every field. The
-//! 640-B conquest block follows at 4,096.
+//! Bytes `0..4,096` are M1's Province byte for byte, except that S1
+//! (redesign stage 1) names the 232-B reserve at 3,864: the caravan slots
+//! (`CARAVANS`, 1b) and the per-faction tower coverage (`TOWERS`, 1d);
+//! `tests::v1_prefix_is_m1` checks every other field. The 640-B conquest
+//! block follows at 4,096.
 
 #![allow(clippy::module_inception)]
 
@@ -39,7 +41,9 @@ pub mod province {
         RESOLVE_SUMMARY @ 3752 : "rec:ResolveSummary x1" = 32;
         CAMP @ 3784 : "rec:Camp x1" = 16;
         TICKET_COHORTS @ 3800 : "rec:Cohort x8" = 64;
-        RSV @ 3864 : "rsv" = 232;
+        CARAVANS @ 3864 : "rec:CaravanSlot x5" = 180;
+        TOWERS @ 4044 : "[u64;6]" = 48;
+        RSV_4092 @ 4092 : "rsv" = 4;
         CONQUEST @ 4096 : "rec:ConquestRecord x12" = 384;
         KEEP @ 4480 : "rec:Keep x1" = 32;
         SNAP @ 4512 : "rec:Snapshot x6" = 120;
@@ -129,6 +133,28 @@ pub mod site {
 }
 
 /// Conquest record (32), a tagged union on `kind` (§5.2.1).
+/// A caravan's record in a Province (S1, 1b; `caravan::CaravanSlot`).
+pub mod caravan_slot {
+    crate::layout::fields!(size = 36;
+        ID @ 0 : "u64" = 8;
+        FACTION @ 8 : "u8" = 1;
+        N @ 9 : "u8" = 1;
+        RAID_OFF @ 10 : "u8" = 1;
+        RAID_POS @ 11 : "u8" = 1;
+        FIRST_BELL @ 12 : "u32" = 4;
+        TILES @ 16 : "[u8;8]" = 8;
+        CARRY @ 24 : "u32" = 4;
+        RAIDER @ 28 : "u64" = 8;
+    );
+    /// Offset of slot `i` in a Province.
+    pub const fn at(i: usize) -> usize {
+        super::province::CARAVANS + SIZE * i
+    }
+    /// The slots' bytes `[3,864, 4,044)`.
+    pub const BLOCK: core::ops::Range<usize> =
+        super::province::CARAVANS..super::province::CARAVANS + 5 * SIZE;
+}
+
 pub mod conquest {
     crate::layout::fields!(size = 32;
         KIND @ 0 : "u8" = 1;
@@ -243,15 +269,31 @@ mod tests {
     #[test]
     fn v1_prefix_is_m1() {
         let v1 = V1::FIELDS;
-        let v2 = &province::FIELDS[..v1.len()];
-        for (a, b) in v1.iter().zip(v2) {
+        // M1's last field is its 232-B reserve, which S1 splits in three.
+        let (last, keep) = v1.split_last().unwrap();
+        assert_eq!((last.name, last.off, last.len), ("RSV", 3_864, 232));
+        let v2 = &province::FIELDS[..keep.len()];
+        for (a, b) in keep.iter().zip(v2) {
             assert_eq!((a.name, a.off, a.len), (b.name, b.off, b.len));
             if a.name != "SITE_MIRROR" {
                 assert_eq!(a.ty, b.ty, "{}", a.name);
             }
         }
-        assert_eq!(province::FIELDS[v1.len()].off, 4_096);
+        let s1 = &province::FIELDS[keep.len()..keep.len() + 3];
+        let names: alloc::vec::Vec<_> = s1.iter().map(|f| (f.name, f.off, f.len)).collect();
+        assert_eq!(
+            names,
+            [("CARAVANS", 3_864, 180), ("TOWERS", 4_044, 48), ("RSV_4092", 4_092, 4)]
+        );
+        assert_eq!(province::FIELDS[keep.len() + 3].off, 4_096);
         assert_eq!(province::SIZE, 4_736);
+        assert_eq!(caravan_slot::SIZE, permutation_rules::frontier::caravan::SLOT_SIZE);
+        assert_eq!(
+            5 * caravan_slot::SIZE,
+            180,
+            "MAX_CARAVAN_SLOTS slots"
+        );
+        assert_eq!(permutation_rules::frontier::caravan::MAX_CARAVAN_SLOTS, 5);
     }
 
     /// The v2 site mirror keeps every M1 field at its M1 offset.

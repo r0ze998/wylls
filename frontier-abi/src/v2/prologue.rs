@@ -43,7 +43,7 @@ macro_rules! rep {
     };
 }
 
-use Acc::{Kind, KindV2, System, Wallet};
+use Acc::{EitherV2, Kind, KindV2, System, Wallet};
 use Wr::{R, W};
 
 const ACTOR: Spec = s!("actor", Wallet, true, R);
@@ -182,6 +182,94 @@ pub fn accounts_of(ix: Ix) -> &'static [Group] {
                 ])]
             }
         }
+        // S1 (1b; S1-1B-CONTRACT §3). The origin's Province is the first
+        // path Province (writable: it gets the caravan's first slot).
+        Ix::BuildVault => const {
+            &[
+                one!(PLAYER_PROLOGUE),
+                one!(&[
+                    HOLDING_W,
+                    s!("holding_province", KindV2(K2::Province), false, R),
+                    s!("province", KindV2(K2::Province), false, R),
+                    s!("vault", KindV2(K2::Vault), false, W),
+                    SYSTEM,
+                ]),
+            ]
+        },
+        Ix::SendCaravan => const {
+            &[
+                one!(PLAYER_PROLOGUE),
+                one!(&[
+                    s!("src", EitherV2(K2::Holding, K2::Vault), false, W),
+                    s!("dst", EitherV2(K2::Holding, K2::Vault), false, R),
+                    s!("caravan", KindV2(K2::Caravan), false, W),
+                    SYSTEM,
+                ]),
+                rep!(&[s!("path_province", KindV2(K2::Province), false, W)], 1, 4),
+            ]
+        },
+        Ix::SettleCaravan => const {
+            &[
+                one!(&[
+                    FEE_PAYER,
+                    SEASON_R,
+                    s!("caravan", KindV2(K2::Caravan), false, W),
+                    s!("dst", EitherV2(K2::Holding, K2::Vault), false, W),
+                    s!("beneficiary", Wallet, false, W),
+                    s!("rent_to", Wallet, false, W),
+                ]),
+                rep!(&[s!("path_province", KindV2(K2::Province), false, R)], 1, 4),
+            ]
+        },
+        Ix::RaidCaravan => const {
+            &[
+                one!(PLAYER_PROLOGUE),
+                one!(&[
+                    s!("caravan", KindV2(K2::Caravan), false, W),
+                    s!("raider_holding", KindV2(K2::Holding), false, R),
+                    s!("loot", KindV2(K2::Caravan), false, W),
+                    s!("dst", EitherV2(K2::Holding, K2::Vault), false, R),
+                    SYSTEM,
+                ]),
+                // the raid's Province first, then the loot's path
+                rep!(&[s!("path_province", KindV2(K2::Province), false, W)], 1, 4),
+            ]
+        },
+        Ix::SeizeVault => const {
+            &[
+                one!(PLAYER_PROLOGUE),
+                one!(&[
+                    s!("vault", KindV2(K2::Vault), false, W),
+                    PROVINCE_R,
+                    s!("host_holding", KindV2(K2::Holding), false, R),
+                    s!("owner_citizen", KindV2(K2::Citizen), false, W),
+                ]),
+            ]
+        },
+        Ix::CloseVault => const {
+            &[
+                one!(PLAYER_PROLOGUE),
+                one!(&[
+                    s!("vault", KindV2(K2::Vault), false, W),
+                    s!("rent_to", Wallet, false, W),
+                ]),
+            ]
+        },
+        Ix::DefaultRaid => const {
+            &[
+                one!(&[
+                    FEE_PAYER,
+                    SEASON_R,
+                    s!("caravan", KindV2(K2::Caravan), false, W),
+                    s!("raider_holding", KindV2(K2::Holding), false, R),
+                    s!("raider_citizen", KindV2(K2::Citizen), false, W),
+                    s!("loot", KindV2(K2::Caravan), false, W),
+                    s!("beneficiary", Wallet, false, W),
+                    SYSTEM,
+                ]),
+                rep!(&[s!("path_province", KindV2(K2::Province), false, W)], 1, 4),
+            ]
+        },
         // §5.6: Harvest and Train gain `[province r]` (the capture lock).
         Ix::Harvest | Ix::Train => {
             const { &[one!(PLAYER_PROLOGUE), one!(&[HOLDING_W, PROVINCE_R])] }
@@ -294,6 +382,7 @@ pub fn kind_size_v2(acc: Acc) -> Option<u32> {
     Some(match acc {
         Acc::Kind(k) => K2::of_v1(k).size() as u32,
         Acc::KindV2(k) => k.size() as u32,
+        Acc::EitherV2(a, b) => a.size().max(b.size()) as u32,
         Acc::Either(a, b) => (K2::of_v1(a).size().max(K2::of_v1(b).size())) as u32,
         _ => return None,
     })
@@ -368,6 +457,14 @@ mod tests {
         assert_eq!(count_bounds(Ix::RetireHost), (7, 7));
         assert_eq!(count_bounds(Ix::CloseMarch), (4, 4));
         assert_eq!(count_bounds(Ix::FileOutpost), (11, 13));
+        // S1 (1b)
+        assert_eq!(count_bounds(Ix::BuildVault), (9, 9));
+        assert_eq!(count_bounds(Ix::SendCaravan), (9, 12));
+        assert_eq!(count_bounds(Ix::SettleCaravan), (7, 10));
+        assert_eq!(count_bounds(Ix::RaidCaravan), (10, 13));
+        assert_eq!(count_bounds(Ix::SeizeVault), (8, 8));
+        assert_eq!(count_bounds(Ix::CloseVault), (6, 6));
+        assert_eq!(count_bounds(Ix::DefaultRaid), (9, 12));
         // §5.6: the three resident actions gain the Province
         for ix in [Ix::Harvest, Ix::Build, Ix::Train] {
             let v1 = crate::prologue::count_bounds(ix.to_v1().unwrap());

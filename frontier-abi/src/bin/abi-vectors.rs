@@ -244,6 +244,7 @@ fn acc_name(a: Acc) -> String {
         Acc::Incinerator => "incinerator".into(),
         Acc::Any => "any".into(),
         Acc::KindV2(k) => k.name().to_string(),
+        Acc::EitherV2(a, b) => format!("{}|{}", a.name(), b.name()),
     }
 }
 

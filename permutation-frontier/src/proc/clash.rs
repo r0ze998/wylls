@@ -1028,7 +1028,10 @@ pub mod cqlog {
                 p += s.payload[j].1;
                 j += 1;
             }
-            t[s.kind as usize - FIRST as usize] = (true, k as u16, p as u16);
+            // The clash writes MC kinds only (S1's 90.. are not its).
+            if (s.kind as usize) < FIRST as usize + 10 {
+                t[s.kind as usize - FIRST as usize] = (true, k as u16, p as u16);
+            }
             i += 1;
         }
         t
@@ -2230,7 +2233,9 @@ mod tests {
             frontier_abi::v2::layout::AccountKind::Province,
             3
         ));
-        for spec in l2::CQ_SPECS {
+        // S1's kinds (90–94) are chained by the caravan handlers, not
+        // here: WIDTHS covers 80–89.
+        for spec in l2::CQ_SPECS.iter().filter(|s| (s.kind as u8) < 90) {
             let w = cqlog::WIDTHS[spec.kind as usize - 80];
             assert!(w.0, "{}", spec.name);
             let kind = AnyKind::Cq(spec.kind);

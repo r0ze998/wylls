@@ -1,4 +1,5 @@
-//! ABI v2 error codes (MC contract §5.3), **stable forever**: 62–78, beside
+//! ABI v2 error codes (MC contract §5.3), **stable forever**: 62–78 (MC)
+//! and 79–86 (S1, 1b), beside
 //! M1's 1–61 and 99 ([`crate::error::FrontierError`], unchanged).
 //!
 //! The program returns `ProgramError::Custom(code)` for either enum;
@@ -43,10 +44,30 @@ pub enum CqError {
     /// v1.1: the declaring host is not the hex's lead host; RetireHost by
     /// a non-victim during the season.
     NotLead = 78,
+    /// S1: BuildVault on a tile that does not qualify (a site, the keep or
+    /// camp tile, impassable, or a vault already there).
+    VaultSite = 79,
+    /// S1: `MAX_VAULTS` reached (BuildVault, SeizeVault).
+    VaultLimit = 80,
+    /// S1: a send to another player's place needs the wallet's signature.
+    WalletRequired = 81,
+    /// S1: no free caravan slot in a Province of the path.
+    ProvinceBusy = 82,
+    /// S1: SettleCaravan before the arrival, or before a path Province has
+    /// resolved past the caravan's last bell there (lag only waits).
+    CaravanEarly = 83,
+    /// S1: a raid is open (SettleCaravan waits), or none is (RaidCaravan,
+    /// DefaultRaid).
+    RaidState = 84,
+    /// S1: RaidCaravan after the raider's window, DefaultRaid before it.
+    RaidWindow = 85,
+    /// S1: SeizeVault without the captor's host on the vault, or with one
+    /// of the owner's there.
+    NotOnTile = 86,
 }
 
 impl CqError {
-    pub const ALL: [CqError; 17] = {
+    pub const ALL: [CqError; 25] = {
         use CqError::*;
         [
             CapturePending,
@@ -66,6 +87,14 @@ impl CqError {
             FoldOutOfOrder,
             FoldTooEarly,
             NotLead,
+            VaultSite,
+            VaultLimit,
+            WalletRequired,
+            ProvinceBusy,
+            CaravanEarly,
+            RaidState,
+            RaidWindow,
+            NotOnTile,
         ]
     };
 
@@ -97,6 +126,14 @@ impl CqError {
             FoldOutOfOrder => "FoldOutOfOrder",
             FoldTooEarly => "FoldTooEarly",
             NotLead => "NotLead",
+            VaultSite => "VaultSite",
+            VaultLimit => "VaultLimit",
+            WalletRequired => "WalletRequired",
+            ProvinceBusy => "ProvinceBusy",
+            CaravanEarly => "CaravanEarly",
+            RaidState => "RaidState",
+            RaidWindow => "RaidWindow",
+            NotOnTile => "NotOnTile",
         }
     }
 
@@ -104,7 +141,11 @@ impl CqError {
     /// (the keeper resolves or settles first), the rest are refusals.
     pub const fn keeper_action(self) -> KeeperAction {
         match self {
-            CqError::FoldTooEarly | CqError::CapturePending | CqError::NotDue => KeeperAction::Wait,
+            CqError::FoldTooEarly
+            | CqError::CapturePending
+            | CqError::NotDue
+            | CqError::CaravanEarly
+            | CqError::RaidWindow => KeeperAction::Wait,
             _ => KeeperAction::Refused,
         }
     }
@@ -175,7 +216,8 @@ mod tests {
         }
         assert_eq!(CqError::NotLead.code(), 78);
         let all: std::vec::Vec<u32> = all_codes().map(|c| c.code()).collect();
-        assert_eq!(all.len(), 62 + 17);
+        assert_eq!(all.len(), 62 + 25);
+        assert_eq!(CqError::NotOnTile.code(), 86);
         assert!(all.windows(2).all(|w| w[0] < w[1]), "code order");
         assert_eq!(all[60], 61);
         assert_eq!(all[61], 62);
@@ -185,7 +227,8 @@ mod tests {
             Code::from_code(52),
             Some(Code::V1(FrontierError::AlreadyDone))
         );
-        assert_eq!(Code::from_code(79), None);
+        assert_eq!(Code::from_code(79), Some(Code::Cq(CqError::VaultSite)));
+        assert_eq!(Code::from_code(87), None);
         assert_eq!(
             Code::Cq(CqError::FoldTooEarly).keeper_action(),
             KeeperAction::Wait

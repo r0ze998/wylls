@@ -34,7 +34,10 @@ pub mod citizen {
         RENT_PAYER @ 240 : "[u8;32]" = 32;
         TICKET_ESCROW @ 272 : "u64" = 8;
         TICKET_FUNDER @ 280 : "[u8;32]" = 32;
-        RSV @ 312 : "rsv" = 72;
+        VAULTS @ 312 : "u8" = 1;
+        RSV_313 @ 313 : "rsv" = 3;
+        CARAVANS @ 316 : "u32" = 4;
+        RSV_320 @ 320 : "rsv" = 64;
     );
     pub use crate::layout::player::citizen::{
         EXPLORES_FLOOR, FLAG_FIRST_HOLDING_FINAL, FLAG_HOME_GRANTED, FLAG_JOINED, FLAG_PROVISIONAL,
@@ -158,8 +161,11 @@ mod tests {
         same_except(
             v1::citizen::FIELDS,
             citizen::FIELDS,
-            &["RSV_145", "RSV_150", "RSV_187"],
+            &["RSV_145", "RSV_150", "RSV_187", "RSV"],
         );
+        // S1: the Citizen's reserve at 312 holds the vault and caravan
+        // counters.
+        assert_eq!((citizen::VAULTS, citizen::CARAVANS, citizen::RSV_320), (312, 316, 320));
         same_except(v1::holding::FIELDS, holding::FIELDS, &["RSV"]);
         assert_eq!(citizen::SIEGES_TODAY, 145);
         assert_eq!(citizen::SIEGE_DAY, 150);

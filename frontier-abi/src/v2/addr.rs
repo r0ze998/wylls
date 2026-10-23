@@ -37,10 +37,48 @@ pub fn march_members(m: i32, n: i32) -> [(i32, i32); 7] {
     march_members(MarchCoord { m, n }).map(|p| (p.p, p.q))
 }
 
+/// The Vault seed tag (S1, 1b).
+pub const VAULT: [u8; 2] = *b"va";
+/// Raw key length of a Vault (`p i32, q i32, tile u8`).
+pub const VAULT_RAW_LEN: usize = 9;
+/// The Caravan seed tag (S1, 1b).
+pub const CARAVAN: [u8; 2] = *b"cv";
+/// Raw key length of a Caravan (`owner_tag u64, seq u32`).
+pub const CARAVAN_RAW_LEN: usize = 12;
+
+/// `va‖hex(le32 p ‖ le32 q ‖ tile)`.
+pub fn vault_seed(p: i32, q: i32, tile: u8) -> Seed {
+    let mut raw = [0u8; VAULT_RAW_LEN];
+    raw[..4].copy_from_slice(&p.to_le_bytes());
+    raw[4..8].copy_from_slice(&q.to_le_bytes());
+    raw[8] = tile;
+    Seed::new(VAULT, &raw)
+}
+
+/// The Vault address on tile `tile` of Province `(p, q)`.
+pub fn vault(ctx: &AddrCtx, p: i32, q: i32, tile: u8) -> [u8; 32] {
+    ctx.of(&vault_seed(p, q, tile))
+}
+
+/// `cv‖hex(le64 owner_tag ‖ le32 seq)`.
+pub fn caravan_seed(owner_tag: u64, seq: u32) -> Seed {
+    let mut raw = [0u8; CARAVAN_RAW_LEN];
+    raw[..8].copy_from_slice(&owner_tag.to_le_bytes());
+    raw[8..].copy_from_slice(&seq.to_le_bytes());
+    Seed::new(CARAVAN, &raw)
+}
+
+/// The Caravan address of the owner's `seq`-th send.
+pub fn caravan(ctx: &AddrCtx, owner_tag: u64, seq: u32) -> [u8; 32] {
+    ctx.of(&caravan_seed(owner_tag, seq))
+}
+
 /// The seed tag of each v2 kind (`None` for the Season PDA).
 pub fn tag_of(kind: AccountKind) -> Option<[u8; 2]> {
     match kind {
         AccountKind::MarchState => Some(MARCH),
+        AccountKind::Vault => Some(VAULT),
+        AccountKind::Caravan => Some(CARAVAN),
         k => crate::addr::tag_of(k.to_v1()?),
     }
 }
@@ -49,6 +87,8 @@ pub fn tag_of(kind: AccountKind) -> Option<[u8; 2]> {
 pub fn raw_len(kind: AccountKind) -> usize {
     match kind {
         AccountKind::MarchState => MARCH_RAW_LEN,
+        AccountKind::Vault => VAULT_RAW_LEN,
+        AccountKind::Caravan => CARAVAN_RAW_LEN,
         k => k.to_v1().map(crate::addr::raw_len).unwrap_or(0),
     }
 }
@@ -78,6 +118,18 @@ mod tests {
             assert_eq!(march_of(p, q), (m, n));
         }
         assert_eq!(tag_of(AccountKind::MarchState), Some(MARCH));
+        // S1: two more tags, distinct from every other.
+        for t in [VAULT, CARAVAN] {
+            for k in crate::layout::AccountKind::ALL {
+                assert_ne!(crate::addr::tag_of(k), Some(t), "{}", k.name());
+            }
+            assert_ne!(t, MARCH);
+            assert_ne!(t, crate::addr::tag::POSTURE);
+        }
+        assert_eq!(vault_seed(-1, 2, 30).len(), 2 + 2 * VAULT_RAW_LEN);
+        assert!(caravan_seed(u64::MAX, u32::MAX).len() <= 32);
+        assert_ne!(vault(&ctx, 0, 0, 1), vault(&ctx, 0, 0, 2));
+        assert_ne!(caravan(&ctx, 7, 1), caravan(&ctx, 7, 2));
         assert_eq!(raw_len(AccountKind::Province), 8);
     }
 }
