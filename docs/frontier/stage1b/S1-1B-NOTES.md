@@ -4,7 +4,7 @@ Contract: [S1-1B-CONTRACT.md](S1-1B-CONTRACT.md). Design: `docs/design/redesign/
 
 ## What changed
 
-**The rules (`RULESET_HASH_V3 = 984c9a08…3f70`):**
+**The rules (`RULESET_HASH_V3 = e61a3d6a…07d0`):**
 
 - The caravan kernel `permutation_rules::frontier::caravan` (`CARAVAN_VERSION` 1).
 - It is bound into the v3 hash input: `KERNEL_VERSIONS_V3` gains `caravan`, and `caravan::write_tables` is appended.
@@ -15,7 +15,7 @@ Contract: [S1-1B-CONTRACT.md](S1-1B-CONTRACT.md). Design: `docs/design/redesign/
 | Schedule: the tile at each bell start, one run per province | `caravan::schedule` |
 | The fastest path any client finds (Dijkstra over base step time, ties by direction) | `caravan::fastest_path` |
 | Slots (5 per Province, 8 bells each, 36 B) | `caravan::CaravanSlot` |
-| Ids (bit 63), carry (0.1 unit a troop), the proportional split | `caravan_id`, `carry`, `split` |
+| Ids (bit 63; a take keeps the caravan's id, decision J2) | `caravan_id` |
 | Vault cost, cap, limit; caravan fee; raid window; burn delay | constants (all [phase 6]) |
 
 **ABI v2, S1 part:**
@@ -34,20 +34,28 @@ Contract: [S1-1B-CONTRACT.md](S1-1B-CONTRACT.md). Design: `docs/design/redesign/
 | 0xB0 | BuildVault | It is an owner touch that pays `VAULT_COST`. The tile is refused if impassable, a site, the keep or a present camp. |
 | 0xB1 | SendCaravan | From a holding (touch and pay) or from a vault (debit). It claims one slot in every province the caravan stands in at a bell start. The fee is escrowed. A send to another player needs the wallet. |
 | 0xB2 | SettleCaravan | Permissionless, after the arrival and the resolve of every slot bell. It delivers if the destination stands at the named generation, and the cargo is lost otherwise. The fee goes to the settler and the rent to `RENT_TO`. |
-| 0xB3 | RaidCaravan | The raider takes or burns within `RAID_DECIDE_BELLS`. A take becomes a loot caravan of the raider, starting from the raid tile. |
+| 0xB3 | RaidCaravan | The raider takes or burns within `RAID_DECIDE_BELLS`. A take makes the caravan the raider's (J2): owner and faction move, it is rerouted from the raid tile to the raider's place, and its old route's slots are cleared. A burn empties it and it goes on. |
 | 0xB4 | SeizeVault | The captor's roster host stands on the vault's tile and no host of the owner is there. |
 | 0xB5 | CloseVault | The owner closes it, by wallet, when it is empty. |
-| 0xB6 | DefaultRaid | Permissionless, after the window. It takes the loot home to the raiding host's holding. |
+| 0xB6 | DefaultRaid | Permissionless, after the window. It takes the caravan home to the raiding host's holding. |
 
 **Decisions made in implementation** (now in the contract):
+
+- **J2 as decided (amended 2026-10-23).** The first version of the
+  contract moved a share of the cargo (the raiders' carrying capacity)
+  into a new loot caravan the raider paid rent for. Your decision J2 is
+  that the raided caravan itself changes hands, so that is what the code
+  now does:
+  - a take keeps the whole cargo in the caravan and makes it the raider's;
+  - no carrying capacity, no split, no new account and no new rent;
+  - the slot's `CARRY` became reserved;
+  - `RULESET_HASH_V3` was re-pinned.
 
 - **A raid never stays open for good.**
   - If the raiding holding is gone (closed, or a later generation), DefaultRaid burns.
   - If no walk reaches home (beyond 32 steps or 4 provinces), DefaultRaid may burn, but only `RAID_BURN_AFTER_BELLS` (144) after the window. Keepers get a day to deliver when a path exists, so a burn is not a cheap grief.
-- **A loot raided on its destination's own tile walks no step.** It arrives at once and has no slot. This happens when a caravan crosses the raider's site hex.
-- **DefaultRaid's fees:**
-  - The keeper fronts the loot's rent and fee. Its `RENT_TO` is the keeper, and both come back when the keeper settles the loot.
-  - The keeper is paid the raided caravan's fee.
+- **A caravan taken on its destination's own tile walks no step.** It arrives at once and has no slot. This happens when a caravan crosses the raider's site hex.
+- **DefaultRaid's fee:** the keeper is paid the caravan's escrowed fee; the caravan then settles with none.
 - **CLOSE of a Vault or a Caravan chains the closed account**, as M1's CLOSE rule does (`v2::log::chains_of`).
 - **The S1 release `.so` is its own program, larger than the MC one** (1,272,440 B).
   - S1 seasons have their own loaded-limit table: `PLACEHOLDER_SO_LEN_S1` = 1.375 MiB, `loaded_limit_s1`, `loaded_limit_for(program_version)`.

@@ -4462,7 +4462,7 @@
       "top_level_only": false,
       "relay_player_shape": true,
       "relay_settle_shape": false,
-      "data_len": [38, 38],
+      "data_len": [27, 27],
       "data": [
         {
           "name": "p",
@@ -4477,8 +4477,8 @@
           "len": 1
         },
         {
-          "name": "loot_seq",
-          "len": 4
+          "name": "n_path",
+          "len": 1
         },
         {
           "name": "dst_kind",
@@ -4507,10 +4507,6 @@
         {
           "name": "path",
           "len": 12
-        },
-        {
-          "name": "fee",
-          "len": 8
         }
       ],
       "account_groups": [
@@ -4561,20 +4557,8 @@
               "writable": "r"
             },
             {
-              "name": "loot",
-              "kind": "Caravan",
-              "signer": false,
-              "writable": "w"
-            },
-            {
               "name": "dst",
               "kind": "Holding|Vault",
-              "signer": false,
-              "writable": "r"
-            },
-            {
-              "name": "system",
-              "kind": "system",
               "signer": false,
               "writable": "r"
             }
@@ -4582,7 +4566,7 @@
         },
         {
           "min": 1,
-          "max": 4,
+          "max": 7,
           "accounts": [
             {
               "name": "path_province",
@@ -4744,7 +4728,7 @@
       "top_level_only": false,
       "relay_player_shape": false,
       "relay_settle_shape": true,
-      "data_len": [54, 54],
+      "data_len": [51, 51],
       "data": [
         {
           "name": "p",
@@ -4755,8 +4739,8 @@
           "len": 2
         },
         {
-          "name": "loot_seq",
-          "len": 4
+          "name": "n_path",
+          "len": 1
         },
         {
           "name": "steps",
@@ -4804,31 +4788,19 @@
               "name": "raider_citizen",
               "kind": "Citizen",
               "signer": false,
-              "writable": "w"
-            },
-            {
-              "name": "loot",
-              "kind": "Caravan",
-              "signer": false,
-              "writable": "w"
+              "writable": "r"
             },
             {
               "name": "beneficiary",
               "kind": "wallet",
               "signer": false,
               "writable": "w"
-            },
-            {
-              "name": "system",
-              "kind": "system",
-              "signer": false,
-              "writable": "r"
             }
           ]
         },
         {
           "min": 1,
-          "max": 4,
+          "max": 7,
           "accounts": [
             {
               "name": "path_province",

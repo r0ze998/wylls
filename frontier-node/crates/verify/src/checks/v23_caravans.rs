@@ -14,12 +14,13 @@
 //! - **SettleCaravan:** after the arrival, delivered exactly when the
 //!   destination stands at the named generation, a vault credited by the
 //!   cargo up to its cap, the Caravan closed.
-//! - **RaidCaravan / DefaultRaid:** an open raid of the caravan in the raid
-//!   Province, the window (the raider's `RAID_DECIDE_BELLS`, the default
-//!   after it), the split (`caravan::split` at the slot's carry; a burn
-//!   destroys the cargo), the loot Caravan's cargo, the slot settled; a
-//!   default burn while the raiding holding stands only
-//!   `RAID_BURN_AFTER_BELLS` after the window.
+//! - **RaidCaravan / DefaultRaid** (decision J2): an open raid of the
+//!   caravan in the raid Province, the window (the raider's
+//!   `RAID_DECIDE_BELLS`, the default after it). A burn: the cargo gone, the
+//!   slot settled (a default burn while the raiding holding stands only
+//!   `RAID_BURN_AFTER_BELLS` after the window). A take: the caravan the
+//!   raider's with its cargo, its new route from the raid tile recomputed
+//!   and written, no slot of its old route left.
 //! - **SeizeVault:** the captor's roster host on the vault's tile, no host
 //!   of the owner's holdings there, the new owner and generation, the
 //!   counters.
@@ -359,7 +360,7 @@ fn route(
     })
 }
 
-/// The Caravan a send or a loot leaves, against the rules'.
+/// The Caravan a send leaves, against the rules'.
 #[allow(clippy::too_many_arguments)]
 fn check_caravan(
     cd: &[u8],
@@ -554,99 +555,204 @@ pub fn judge_settle_caravan(
 
 // ------------------------------------------------------------ the raids
 
-/// RaidCaravan and DefaultRaid: `(caravan, loot, raid Province, choice,
-/// default)`; `raider_holding` (a DefaultRaid's) judges a default burn: one
-/// while the raiding holding stands is a burn without a walk home, allowed
-/// only `RAID_BURN_AFTER_BELLS` after the window.
-#[allow(clippy::too_many_arguments)]
-pub fn judge_raid(
-    s: &dyn States,
-    at: At,
-    caravan: Key,
-    loot: Key,
-    raid_province: Key,
-    choice: u8,
-    by_default: bool,
-    raider_holding: Option<Key>,
-) -> Result<(), Wrong> {
+/// A raid settlement's accounts and data (RaidCaravan or DefaultRaid).
+pub struct RaidIx {
+    pub caravan: Key,
+    pub raider_holding: Key,
+    pub raider_citizen: Key,
+    /// RaidCaravan's destination account (DefaultRaid: the raider holding).
+    pub dst: Key,
+    /// The new walk's Provinces first (the raid's first), then the old
+    /// route's others.
+    pub provinces: Vec<Key>,
+    pub n_path: u8,
+    pub steps: u8,
+    pub path: [u8; 12],
+    /// RaidCaravan's named destination `(kind, p, q, at, gen)`; `None` for
+    /// DefaultRaid (the raiding holding).
+    pub named: Option<(u8, i16, i16, u8, u8)>,
+    pub by_default: bool,
+}
+
+/// RaidCaravan and DefaultRaid (decision J2): the open raid, the window,
+/// and `choice` (the CARAVAN_RAIDED record's):
+/// - a burn: the cargo gone, the raid's slot settled; a default burn while
+///   the raiding holding stands only `RAID_BURN_AFTER_BELLS` after the
+///   window;
+/// - a take: the caravan the raider's (owner, faction), its cargo kept, its
+///   new route from the raid tile to the raider's place recomputed, the new
+///   slots written and none of the old route's left.
+pub fn judge_raid(s: &dyn States, at: At, x: &RaidIx, choice: u8) -> Result<(), Wrong> {
     let cb = s
-        .before(&caravan)
+        .before(&x.caravan)
         .ok_or_else(|| caravan_wrong("no Caravan before"))?;
     let tag = u64_at(&cb, CV::OWNER_TAG).map_err(caravan_wrong)?;
     let seq = u32_at(&cb, CV::SEQ).map_err(caravan_wrong)?;
     let id = caravan_id(tag, seq);
+    let raid_province = *x
+        .provinces
+        .first()
+        .ok_or_else(|| caravan_wrong("no raid Province"))?;
     let pb = s
         .before(&raid_province)
         .ok_or_else(|| caravan_wrong("no raid Province before"))?;
     let slot = slots_of(&pb)
         .map_err(caravan_wrong)?
         .into_iter()
-        .find(|x| x.id == id)
-        .filter(|x| x.raid_open())
+        .find(|y| y.id == id)
+        .filter(|y| y.raid_open())
         .ok_or_else(|| caravan_wrong("no open raid of this caravan"))?;
     let raid_bell = slot.first_bell + slot.raid_off as u32;
     let last = raid_bell + RAID_DECIDE_BELLS;
-    if by_default && at.bell <= last {
+    if x.by_default && at.bell <= last {
         return Err(caravan_wrong("a default raid inside the raider's window"));
     }
-    if !by_default && at.bell > last {
+    if !x.by_default && at.bell > last {
         return Err(caravan_wrong("a raid decided after the raider's window"));
     }
-    if by_default && choice == raid_choice::BURN {
-        let parts = frontier_abi::addr::split_host_id(slot.raider)
-            .ok_or_else(|| caravan_wrong("the raider is not a host id"))?;
-        let home_stands = raider_holding
-            .and_then(|k| s.before(&k))
-            .and_then(|d| live_place(&d))
-            .is_some_and(|(p, _)| {
-                (p.p as i32, p.q as i32, p.at, p.gen)
-                    == (parts.province.p, parts.province.q, parts.site, parts.gen)
-            });
-        if home_stands && at.bell <= last + RAID_BURN_AFTER_BELLS {
+    let parts = frontier_abi::addr::split_host_id(slot.raider)
+        .ok_or_else(|| caravan_wrong("the raider is not a host id"))?;
+    let home = s
+        .before(&x.raider_holding)
+        .and_then(|d| live_place(&d))
+        .filter(|(p, _)| {
+            (p.p as i32, p.q as i32, p.at, p.gen)
+                == (parts.province.p, parts.province.q, parts.site, parts.gen)
+        });
+    let ca = s
+        .after(&x.caravan)
+        .ok_or_else(|| caravan_wrong("no Caravan after"))?;
+    let cargo = cargo_of(&cb).map_err(caravan_wrong)?;
+    if choice == raid_choice::BURN {
+        if x.by_default && home.is_some() && at.bell <= last + RAID_BURN_AFTER_BELLS {
             return Err(caravan_wrong(
                 "a default burn while the raiding holding stands, before the burn delay",
             ));
         }
+        if cargo_of(&ca).map_err(caravan_wrong)? != [0; RES] {
+            return Err(caravan_wrong("a burn left cargo"));
+        }
+        let pa = s
+            .after(&raid_province)
+            .ok_or_else(|| caravan_wrong("no raid Province after"))?;
+        if !slots_of(&pa)
+            .map_err(caravan_wrong)?
+            .iter()
+            .any(|y| y.id == id && y.raid_off == RAID_SETTLED)
+        {
+            return Err(caravan_wrong("the raid's slot is not settled"));
+        }
+        return Ok(());
     }
-    let cargo = cargo_of(&cb).map_err(caravan_wrong)?;
-    let (taken, left) = if choice == raid_choice::BURN {
-        ([0i64; RES], [0i64; RES])
-    } else {
-        kc::split(&cargo, (slot.carry as i64).saturating_mul(1_000))
-    };
-    let ca = s
-        .after(&caravan)
-        .ok_or_else(|| caravan_wrong("no Caravan after"))?;
-    if cargo_of(&ca).map_err(caravan_wrong)? != left {
+    // A take: the raider and its place.
+    let (home_place, owner) =
+        home.ok_or_else(|| caravan_wrong("a take for a raiding holding that is gone"))?;
+    if owner != x.raider_citizen {
         return Err(caravan_wrong(
-            "the raided caravan's remainder is not the split's",
+            "the caravan taken by another than the raiding holding's owner",
         ));
     }
-    let pa = s
-        .after(&raid_province)
-        .ok_or_else(|| caravan_wrong("no raid Province after"))?;
-    if !slots_of(&pa)
-        .map_err(caravan_wrong)?
-        .iter()
-        .any(|x| x.id == id && x.raid_off == RAID_SETTLED)
-    {
-        return Err(caravan_wrong("the raid's slot is not settled"));
-    }
-    if taken.iter().any(|&v| v > 0) {
-        let ld = s
-            .after(&loot)
-            .ok_or_else(|| caravan_wrong("no loot Caravan after a take"))?;
-        if cargo_of(&ld).map_err(caravan_wrong)? != taken {
-            return Err(caravan_wrong("the loot is not the split's take"));
+    let rc = s
+        .before(&x.raider_citizen)
+        .ok_or_else(|| caravan_wrong("no raider Citizen before"))?;
+    let faction = rc[C2::FACTION];
+    let dst = match x.named {
+        None => home_place,
+        Some((kind, p, q, at_, gen)) => {
+            // the named place: live and the raider's
+            let d = s
+                .before(&x.dst)
+                .and_then(|d| live_place(&d))
+                .ok_or_else(|| caravan_wrong("the destination is not live"))?;
+            if (d.0.kind, d.0.p, d.0.q, d.0.at, d.0.gen) != (kind, p, q, at_, gen)
+                || d.1 != x.raider_citizen
+            {
+                return Err(caravan_wrong(
+                    "the destination is not the raider's named place",
+                ));
+            }
+            d.0
         }
-        let src = Place::stored(&ld, CV::SRC).map_err(caravan_wrong)?;
-        let tile = slot.tiles[slot.raid_off as usize];
-        if src.tile != tile || src.kind != frontier_abi::v2::log::log_place::KIND_FIELD {
-            return Err(caravan_wrong("the loot does not start on the raid's tile"));
-        }
-    } else if s.after(&loot).is_some() && s.before(&loot).is_none() {
-        return Err(caravan_wrong("a loot Caravan with nothing taken"));
+    };
+    let n = x.n_path as usize;
+    if n == 0 || n > x.provinces.len() {
+        return Err(caravan_wrong("n_path"));
     }
+    let raid_tile = slot.tiles[slot.raid_off as usize];
+    let raid_pc = ProvinceCoord::new(
+        i16_at(&pb, PV::P).map_err(caravan_wrong)? as i32,
+        i16_at(&pb, PV::Q).map_err(caravan_wrong)? as i32,
+    );
+    let r = route(
+        s,
+        &x.provinces[..n],
+        (raid_pc, raid_tile),
+        (dst.coord(), dst.tile),
+        x.steps,
+        &x.path,
+        faction,
+        id,
+        at,
+    )?;
+    check_slots(s, &r)?;
+    // No slot of the old route is left (a ghost the clash would see).
+    let n_old = (cb[CV::N_PROV] as usize).min(4);
+    for i in 0..n_old {
+        let (op, oq) = (
+            i16_at(&cb, CV::province(i)).map_err(caravan_wrong)?,
+            i16_at(&cb, CV::province(i) + 2).map_err(caravan_wrong)?,
+        );
+        for k in &x.provinces {
+            let Some(pa) = s.after(k) else { continue };
+            if (i16_at(&pa, PV::P).ok(), i16_at(&pa, PV::Q).ok()) != (Some(op), Some(oq)) {
+                continue;
+            }
+            for y in slots_of(&pa).map_err(caravan_wrong)? {
+                if y.id == id && !r.slots.iter().any(|(kk, w)| kk == k && *w == y) {
+                    return Err(caravan_wrong(
+                        "a slot of the old route is left after the take",
+                    ));
+                }
+            }
+        }
+    }
+    let field = Place {
+        kind: frontier_abi::v2::log::log_place::KIND_FIELD,
+        p: raid_pc.p as i16,
+        q: raid_pc.q as i16,
+        at: raid_tile,
+        gen: 0,
+        tile: raid_tile,
+    };
+    let want = |ok: bool, what: &str| -> Result<(), Wrong> {
+        if ok {
+            Ok(())
+        } else {
+            Err(caravan_wrong(format!(
+                "the taken Caravan's {what} is not the rules'"
+            )))
+        }
+    };
+    want(
+        key_at(&ca, CV::OWNER_CITIZEN).ok() == Some(x.raider_citizen),
+        "owner",
+    )?;
+    want(ca[CV::FACTION] == faction, "faction")?;
+    want(u64_at(&ca, CV::OWNER_TAG).ok() == Some(tag), "address tag")?;
+    want(cargo_of(&ca).ok() == Some(cargo), "cargo")?;
+    want(Place::stored(&ca, CV::SRC).ok() == Some(field), "origin")?;
+    let d = Place::stored(&ca, CV::DST).map_err(caravan_wrong)?;
+    want(
+        (d.kind, d.p, d.q, d.at, d.gen, d.tile)
+            == (dst.kind, dst.p, dst.q, dst.at, dst.gen, dst.tile),
+        "destination",
+    )?;
+    want(i64_at(&ca, CV::DEPART_TS).ok() == Some(at.now), "departure")?;
+    want(i64_at(&ca, CV::ARRIVE_TS).ok() == Some(r.arrive), "arrival")?;
+    want(
+        u32_at(&ca, CV::LAST_BELL).ok() == Some(r.last_bell),
+        "last slot bell",
+    )?;
     Ok(())
 }
 
@@ -779,6 +885,16 @@ impl States for TxStates<'_> {
     }
 }
 
+/// The choice the transaction's CARAVAN_RAIDED records (a DefaultRaid's
+/// take or burn; the states then must follow it).
+fn raided_choice(cx: &Ctx, t: usize) -> Option<u8> {
+    use frontier_abi::v2::log::CqKind;
+    cx.w.cq_recs
+        .iter()
+        .find(|r| r.tx == t && r.kind == CqKind::CARAVAN_RAIDED)
+        .map(|r| r.pu("choice") as u8)
+}
+
 /// The SettleCaravan outcome the transaction's CARAVAN_SETTLED records.
 fn settled_outcome(cx: &Ctx, t: usize) -> Option<bool> {
     use frontier_abi::v2::log::{caravan_outcome, CqKind};
@@ -840,30 +956,58 @@ pub fn run(cx: &mut Ctx) {
                 Some(V2Ix::SettleCaravan) => {
                     judge_settle_caravan(ix, &st, at, settled_outcome(cx, t))
                 }
-                Some(V2Ix::RaidCaravan) => match (
-                    ix2::RaidCaravan::decode(&ix.data),
-                    ix.key(4),
-                    ix.key(6),
-                    ix.key(9),
-                ) {
-                    (Ok(x), Some(c), Some(l), Some(p)) => {
-                        judge_raid(&st, at, c, l, p, x.choice, false, None)
-                    }
-                    _ => Err(caravan_wrong("a RaidCaravan that does not decode")),
-                },
-                Some(V2Ix::DefaultRaid) => match (ix.key(2), ix.key(5), ix.key(8)) {
-                    (Some(c), Some(l), Some(p)) => {
-                        let home = ix.key(3);
-                        // A take unless the raiding holding is gone (the
-                        // loot then never exists).
-                        let choice = if st.after(&l).is_some() || st.before(&l).is_some() {
-                            raid_choice::TAKE
+                Some(V2Ix::RaidCaravan) => match ix2::RaidCaravan::decode(&ix.data) {
+                    Ok(x) => {
+                        let keys: Vec<Key> =
+                            (0..ix.accounts.len()).filter_map(|i| ix.key(i)).collect();
+                        if keys.len() < 8 {
+                            Err(caravan_wrong("a RaidCaravan without its accounts"))
                         } else {
-                            raid_choice::BURN
-                        };
-                        judge_raid(&st, at, c, l, p, choice, true, home)
+                            let r = RaidIx {
+                                caravan: keys[4],
+                                raider_holding: keys[5],
+                                raider_citizen: keys[3],
+                                dst: keys[6],
+                                provinces: keys[7..].to_vec(),
+                                n_path: x.n_path,
+                                steps: x.steps,
+                                path: x.path,
+                                named: Some((x.dst_kind, x.dst_p, x.dst_q, x.dst_at, x.dst_gen)),
+                                by_default: false,
+                            };
+                            judge_raid(&st, at, &r, x.choice)
+                        }
                     }
-                    _ => Err(caravan_wrong("a DefaultRaid without its accounts")),
+                    Err(_) => Err(caravan_wrong("a RaidCaravan that does not decode")),
+                },
+                Some(V2Ix::DefaultRaid) => match ix2::DefaultRaid::decode(&ix.data) {
+                    Ok(x) => {
+                        let keys: Vec<Key> =
+                            (0..ix.accounts.len()).filter_map(|i| ix.key(i)).collect();
+                        if keys.len() < 7 {
+                            Err(caravan_wrong("a DefaultRaid without its accounts"))
+                        } else {
+                            let r = RaidIx {
+                                caravan: keys[2],
+                                raider_holding: keys[3],
+                                raider_citizen: keys[4],
+                                dst: keys[3],
+                                provinces: keys[6..].to_vec(),
+                                n_path: x.n_path,
+                                steps: x.steps,
+                                path: x.path,
+                                named: None,
+                                by_default: true,
+                            };
+                            match raided_choice(cx, t) {
+                                Some(c) => judge_raid(&st, at, &r, c),
+                                None => {
+                                    Err(caravan_wrong("a DefaultRaid without its CARAVAN_RAIDED"))
+                                }
+                            }
+                        }
+                    }
+                    Err(_) => Err(caravan_wrong("a DefaultRaid that does not decode")),
                 },
                 Some(V2Ix::SeizeVault) => judge_seize_vault(ix, &st),
                 Some(V2Ix::CloseVault) => judge_close_vault(ix, &st),

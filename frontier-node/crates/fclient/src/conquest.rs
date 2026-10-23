@@ -149,9 +149,13 @@ pub enum CqEvent {
         /// `l2::raid_choice` BY_RAIDER or BY_DEFAULT.
         by: u8,
         raider_tag: u64,
+        /// The cargo taken (a take: all of it) or burned, whole units.
         taken: [u32; 8],
-        /// The loot caravan's sequence (`u32::MAX`: none).
-        loot_seq: u32,
+        /// A take's new destination (decision J2: the caravan is the
+        /// raider's now); zero for a burn.
+        dst: LogPlace,
+        /// The old route's Provinces (beside the raid's) a take cleared.
+        cleared: Vec<(i16, i16)>,
     },
     VaultSeized {
         p: i32,
@@ -407,7 +411,8 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
             by: b8("by")?,
             raider_tag: u("raider_tag")?,
             taken: units8(f("taken")?)?,
-            loot_seq: u("loot_seq")? as u32,
+            dst: LogPlace::parse(f("dst")?)?,
+            cleared: l2::log_cleared::read(f("cleared")?)?,
         },
         CqKind::VAULT_SEIZED => CqEvent::VaultSeized {
             p: i("p")?,

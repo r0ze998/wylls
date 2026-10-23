@@ -939,11 +939,11 @@
       "measured": 0,
       "tx_contract": 1100,
       "tx_ceiling": 1100,
-      "tx_worst_estimate": 728,
-      "accounts": [10, 13],
-      "loaded_need_placeholder": 1500369,
-      "loaded_limit": 1507328,
-      "loaded_limit_s1": 1835008
+      "tx_worst_estimate": 750,
+      "accounts": [8, 14],
+      "loaded_need_placeholder": 1514257,
+      "loaded_limit": 1540096,
+      "loaded_limit_s1": 1867776
     },
     {
       "name": "SeizeVault",
@@ -984,11 +984,11 @@
       "measured": 0,
       "tx_contract": 1100,
       "tx_ceiling": 1100,
-      "tx_worst_estimate": 647,
-      "accounts": [9, 12],
-      "loaded_need_placeholder": 1499025,
-      "loaded_limit": 1507328,
-      "loaded_limit_s1": 1835008
+      "tx_worst_estimate": 677,
+      "accounts": [7, 13],
+      "loaded_need_placeholder": 1512913,
+      "loaded_limit": 1540096,
+      "loaded_limit_s1": 1867776
     }
   ]
 }

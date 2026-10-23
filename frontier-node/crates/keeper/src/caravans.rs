@@ -5,9 +5,9 @@
 //! | Deliveries | a caravan past its arrival whose path Provinces resolved past its last slot bell, no raid open on it | SettleCaravan | D | `settle` |
 //! | Default raids | an open raid past the raider's window (`RAID_DECIDE_BELLS`) | DefaultRaid: the take home along the kernel's fastest path; a burn when the raiding holding is gone, or from `RAID_BURN_AFTER_BELLS` after the window when no walk reaches it | D | `settle` |
 //!
-//! Both are paid: SettleCaravan by the caravan's fee, DefaultRaid by the
-//! raided caravan's fee (the loot's rent and fee come back when the loot
-//! is settled, its `RENT_TO` the keeper).
+//! Both are paid by the caravan's escrowed fee: SettleCaravan by it, or
+//! DefaultRaid by it (decision J2: the taken caravan itself then goes on to
+//! the raider and settles with no fee).
 //!
 //! **What it knows.** The caravans come from the feed's CARAVAN_SENT
 //! records (a restart re-reads the feed from cursor 0); a CARAVAN_SETTLED
@@ -24,7 +24,7 @@ use fclient::conquest::{CqEvent, CqLog, LogPlace, LogRun};
 use fclient::ix::v2::{self as ix2, DefaultRaidArgs};
 use fclient::ix::HoldingRef;
 use fclient::ports::{ChainPort, PortResult};
-use frontier_abi::v2::layout::player::{citizen as C2, holding as H2};
+use frontier_abi::v2::layout::player::holding as H2;
 use frontier_abi::v2::layout::province::caravan_slot as CS;
 use frontier_abi::v2::layout::s1::{caravan as CV, place as PL};
 use permutation_rules::frontier::caravan::{
@@ -72,9 +72,6 @@ pub struct CaravanDuty {
     tried: BTreeMap<String, u64>,
 }
 
-fn ru32(d: &[u8], o: usize) -> Option<u32> {
-    Some(u32::from_le_bytes(d.get(o..o + 4)?.try_into().ok()?))
-}
 fn ru64(d: &[u8], o: usize) -> Option<u64> {
     Some(u64::from_le_bytes(d.get(o..o + 8)?.try_into().ok()?))
 }
@@ -104,6 +101,14 @@ pub fn land(pd: &[u8]) -> Option<Land> {
         rough: ru64(pd, PV::ROUGH_MASK)?,
         road: ru64(pd, PV::ROAD_MASK)?,
     })
+}
+
+/// A Caravan's route as stored (`N_PROV`, `PROVINCES`).
+fn route_of(cd: &[u8]) -> Vec<(i16, i16)> {
+    let n = (cd.get(CV::N_PROV).copied().unwrap_or(0) as usize).min(4);
+    (0..n)
+        .filter_map(|i| Some((ri16(cd, CV::province(i))?, ri16(cd, CV::province(i) + 2)?)))
+        .collect()
 }
 
 /// The address of a logged place (holding or vault).
@@ -249,12 +254,7 @@ impl CaravanDuty {
             else {
                 continue;
             };
-            let n = (cd[CV::N_PROV] as usize).min(4);
-            let path: Vec<(i16, i16)> = (0..n)
-                .filter_map(|i| {
-                    Some((ri16(&cd, CV::province(i))?, ri16(&cd, CV::province(i) + 2)?))
-                })
-                .collect();
+            let path = route_of(&cd);
             let (a, ben) = (t.addrs.clone(), t.cfg.beneficiary);
             if engine.ensure(
                 WriteSpec {
@@ -339,8 +339,7 @@ impl CaravanDuty {
             };
             let raid_tile = slot.tiles[slot.raid_off as usize];
             let raid_pc = ProvinceCoord::new(pq.0 as i32, pq.1 as i32);
-            let (mut steps, mut dirs_path, mut later, mut loot_seq) =
-                (0u8, [0u8; 12], vec![], 0u32);
+            let (mut steps, mut dirs_path, mut later) = (0u8, [0u8; 12], vec![]);
             if let Some(hd) = live {
                 let home_pc = ProvinceCoord::new(home.p as i32, home.q as i32);
                 let lands: Vec<Land> = provs.values().filter_map(|v| land(&v.data)).collect();
@@ -360,11 +359,6 @@ impl CaravanDuty {
                     // No walk home yet known: wait for the burn delay.
                     None => continue,
                 }
-                let citizen = port.accounts(&[raider_citizen], 0).await?;
-                loot_seq = citizen[0]
-                    .as_ref()
-                    .and_then(|a| ru32(&a.data, C2::CARAVANS))
-                    .unwrap_or(0);
             } else {
                 self.stats.defaults_burned += 1;
             }
@@ -373,11 +367,11 @@ impl CaravanDuty {
                 raid: *pq,
                 raider_holding: home,
                 raider_citizen,
-                loot_seq,
                 steps,
                 path: dirs_path,
                 beneficiary: t.cfg.beneficiary,
-                provinces: later,
+                path_provinces: later,
+                old_route: route_of(&cd),
             };
             let a = t.addrs.clone();
             if engine.ensure(

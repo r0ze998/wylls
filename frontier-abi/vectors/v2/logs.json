@@ -868,34 +868,21 @@
           "len": 32
         },
         {
-          "name": "loot_seq",
-          "len": 4
+          "name": "dst",
+          "len": 8
+        },
+        {
+          "name": "cleared",
+          "len": 17
         }
       ],
-      "body_without_tail_len": 76,
+      "body_without_tail_len": 97,
       "vector": {
         "bell": 2093,
-        "body_without_tail": "015d2d080000213e5b7895b2cfec213e5b7805000000ffffffff6b88a5c26b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b88a5c2",
-        "body": "015d2d080000213e5b7895b2cfec213e5b7805000000ffffffff6b88a5c26b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b88a5c2020604000000000000005d3b5d00f94154edeb9d8dea574e564c2cab572dee133e12d3b712c230f0346e0a0500000000000000cccb98b6d9b988fc2a61d21e139e58ae0334bdfcc53ae041260a792720771b37",
+        "body_without_tail": "015d2d080000213e5b7895b2cfec213e5b7805000000ffffffff6b88a5c26b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b",
+        "body": "015d2d080000213e5b7895b2cfec213e5b7805000000ffffffff6b88a5c26b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b00",
         "decodes": true,
-        "chains": [
-          {
-            "entity": 6,
-            "who": "Base(Province { p: 5, q: -1 })",
-            "prev_seq": 3,
-            "prev_head": "db1017b059737b4c1841e588d49fe7c9ae4736ff246572fcb0c7a4c990958f8c",
-            "seq": 4,
-            "head": "5d3b5d00f94154edeb9d8dea574e564c2cab572dee133e12d3b712c230f0346e"
-          },
-          {
-            "entity": 10,
-            "who": "Caravan { owner_tag: 17064053868169215521, seq: 2019245601 }",
-            "prev_seq": 4,
-            "prev_head": "370c1d9c33d6fd59113cfd32bae0bd2aa82984d9aae6b33a9cee5b36273dc34b",
-            "seq": 5,
-            "head": "cccb98b6d9b988fc2a61d21e139e58ae0334bdfcc53ae041260a792720771b37"
-          }
-        ]
+        "chains": []
       }
     },
     {

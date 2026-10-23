@@ -19,9 +19,9 @@ can see it.
 |---|---|
 | Vault: build, hold goods, be seized | Shares, claims and use rights on a vault (stage 2) |
 | Caravan: send goods along a public hex path; arrive; be raided | Conditional or repeated sends (stage 3) |
-| Raid: take up to the raiders' carrying capacity, or burn | Escrowed exchange (stage 2) |
+| Raid: take the caravan (it becomes the raider's), or burn its cargo | Escrowed exchange (stage 2) |
 | Escort: a host waiting on a path tile defends the caravan (J1) | Hiding cargo (after zk) |
-| Loot travels home as a visible caravan (J2) | Watchtowers (1d), domestic-raid log and expulsion (1e) |
+| The taken caravan travels to the raider as a visible caravan (J2) | Watchtowers (1d), domestic-raid log and expulsion (1e) |
 
 ## 1. Accounts
 
@@ -105,12 +105,12 @@ CaravanSlot (36 B):
 | RAID_POS | 11 | u8 | The winning arrival's ClashInputs position |
 | FIRST_BELL | 12 | u32 | The bell of `TILES[0]` |
 | TILES | 16 | [u8;8] | The tile the caravan stands on at the start of each bell |
-| CARRY | 24 | u32 | What the winning host can carry (whole units), recorded at the clash |
+| RSV_24 | 24 | 4 B | Reserved (zero) |
 | RAIDER | 28 | u64 | The winning host id (its holding names the raider) |
 
-The raid's carrying capacity is recorded in the slot because the
-ClashInputs account can close within a bell or two of the clash. The raid
-settles later, within `RAID_DECIDE_BELLS`, without it.
+The raider is recorded in the slot because the ClashInputs account can
+close within a bell or two of the clash. The raid settles later, within
+`RAID_DECIDE_BELLS`, without it.
 
 - A slot is reusable once `ID = 0`, or once `FIRST_BELL + N ≤
   RESOLVED_NEXT` and the raid, if any, is settled (`RAID_OFF = 0xFE` marks
@@ -141,15 +141,15 @@ them** (§4.3).
     (`TooSlow`). A long route is split into several sends (redesign 30
     §1-9).
 
-### 2.2 Ids and carrying
+### 2.2 Ids
 
 - `caravan_id(owner_tag, seq) = (1 << 63) | ((owner_tag & 0x7FFF_FFFF_FFFF)
   << 16) | (seq & 0xFFFF)`.
   - Bit 63 set: never a host id (`mk_host_id` keeps it clear), and never
     the camp id (`u64::MAX − gen` sets every high bit).
   - [proposal] A clash needs ids unique only within its province and bell.
-- `carry(troops_milli) = troops × CARRY_PER_TROOP (1/10 unit) [phase 6]`:
-  what a host can take.
+- There is no carrying capacity: a take moves the whole caravan (J2;
+  amended 2026-10-23, see §3.5).
 
 ## 3. Instructions (tags 0xB0–0xB7)
 
@@ -158,10 +158,10 @@ them** (§4.3).
 | 0xB0 | BuildVault | P | session ok | `[holding w] [holding_province r] [province r] [vault w] [system]` |
 | 0xB1 | SendCaravan | P | session ok if the destination is the actor's; else **wallet** (§3.3) | `[src w] [src_province r] [dst r] [caravan w] [system] [path_province w ×1..4]` |
 | 0xB2 | SettleCaravan | D | anyone | `[fee_payer s] [season] [caravan w] [dst w] [beneficiary w] [rent_to w] [path_province r ×1..4]` |
-| 0xB3 | RaidCaravan | P | the raider (session ok) | `[caravan w] [raider_holding r] [loot w] [dst r] [system] [path_province w ×1..4]` (the raid's Province first, then the loot's path) |
+| 0xB3 | RaidCaravan | P | the raider (session ok) | `[caravan w] [raider_holding r] [dst r] [path_province w ×1..7]`: the new walk's Provinces first (`n_path`, the raid's first), then the old route's others |
 | 0xB4 | SeizeVault | P | the captor (session ok) | `[vault w] [province r] [host_holding r] [owner_citizen w]` |
 | 0xB5 | CloseVault | P | the owner (wallet) | `[vault w] [rent_to w]` (empty vault only) |
-| 0xB6 | DefaultRaid | D | anyone, after the raider's window | `[fee_payer s] [season] [caravan w] [raider_holding r] [raider_citizen w] [loot w] [beneficiary w] [system] [path_province w ×1..4]`: loot to the raider's host holding |
+| 0xB6 | DefaultRaid | D | anyone, after the raider's window | `[fee_payer s] [season] [caravan w] [raider_holding r] [raider_citizen r] [beneficiary w] [path_province w ×1..7]`: the caravan to the raider's host holding |
 
 ### 3.1 BuildVault
 
@@ -239,35 +239,40 @@ them** (§4.3).
 - A caravan of the same faction cannot be raided here: the clash treats a
   faction as friendly. Domestic raids are 1e's.
 
-**RaidCaravan(choice, loot_dst Place, loot path)**, signed by the citizen
-whose holding the raiding host belongs to:
-- **burn:** the whole cargo is destroyed.
-- **take:**
-  - `min(cargo, CARRY)` moves out of the cargo, split across resources in
-    proportion (rounded down). `CARRY` is the slot's, recorded at the clash
-    from the winner's troops after it.
-  - It goes into a **new Caravan owned by the raider** (J2). That caravan
-    starts on the raid tile and runs on a public path to the raider's
-    chosen holding or vault, with slots like any caravan: a visible target
-    that can be raided back.
-  - The rest of the cargo continues on the original schedule.
+**RaidCaravan(choice, dst Place, n_path, path)**, signed by the citizen
+whose holding the raiding host belongs to (decision J2, amended
+2026-10-23: the first version of this contract moved a share of the cargo
+into a new caravan; J2 as decided moves the caravan itself):
+- **burn:** the whole cargo is destroyed. The empty caravan goes on to its
+  destination and settles as usual.
+- **take:** the raided caravan **becomes the raider's**:
+  - `OWNER_CITIZEN` and `FACTION` become the raider's; `OWNER_TAG` (the
+    address seed) and the cargo stay; `RENT_TO` and `FEE` stay.
+  - It leaves the raid tile (origin: the field, place kind 3) for the
+    raider's chosen holding or vault on a new public path, with slots like
+    any caravan: a visible target that can be raided back.
+  - Every slot of its old route is cleared (each old Province must be
+    listed), so no clash sees it where it no longer goes. No new account,
+    no new rent.
 - The window is `RAID_DECIDE_BELLS = 6` [phase 6].
 - After the window, **DefaultRaid** (permissionless) applies *take* to
   the raiding host's own holding along the fastest path
   (`caravan::fastest_path`, the keeper's; [proposal]: the raider gets the
-  loot it would most likely want).
+  caravan where it would most likely want it).
   - The raiding holding gone (closed, or another generation): a burn.
   - No walk home given (`steps` 0 off the home tile, e.g. home beyond 32
     steps or 4 provinces): a burn, but only `RAID_BURN_AFTER_BELLS` (144
     [phase 6]) after the window. A raid never stays open for good, and a
-    keeper has a day to take the loot home when a path exists.
-  - A loot raided on its destination's own tile walks no step: it arrives
-    at once with no slot (a send's two places never share a tile).
-  - The keeper fronts the loot's rent and fee (`RENT_TO` the keeper, both
-    back when it settles the loot) and is paid the raided caravan's fee;
-    the raided caravan's remainder then settles with no fee.
-- Either path marks the slot settled (`RAID_OFF = 0xFE`).
-- Log `CARAVAN_RAIDED` (kind 93): choice, amounts, loot caravan id.
+    keeper has a day to take the caravan home when a path exists.
+  - A caravan taken on its destination's own tile walks no step: it
+    arrives at once with no slot (a send's two places never share a tile).
+  - The keeper is paid the caravan's escrowed fee; the caravan then
+    settles with none.
+- A burn marks the slot settled (`RAID_OFF = 0xFE`); a take clears it.
+- Log `CARAVAN_RAIDED` (kind 93): choice, by, raider, the cargo taken or
+  burned, a take's destination, the old route's Provinces it cleared
+  (each chained); then a take's new route as a `CARAVAN_SENT` (origin the
+  field).
 
 ### 3.6 SeizeVault (plan §1-10)
 
@@ -292,9 +297,11 @@ A vault is not a site and cannot be besieged. It is seized by **standing on it**
 - **Replays:** BuildVault (the cost, the tile rules, the counter);
   SendCaravan (the walk, the schedule and the slots written, the source
   debit, the wallet rule); SettleCaravan (the delivery, the fee, the
-  close); RaidCaravan and DefaultRaid (the split and the loot caravan);
+  close); RaidCaravan and DefaultRaid (the take's owner, route and slots);
   SeizeVault (the roster condition).
 - **Codes:** `CaravanMismatch`, `VaultMismatch`.
+- RaidCaravan and DefaultRaid (J2): a take's new owner, faction, route and
+  slots, and no slot of the old route left.
 - **Tamper classes** (numbered after the conquest's T25–T48): T49 a
   caravan slot not written, T50 cargo delivered twice, T51 a vault seized
   without a host on its tile.
@@ -328,8 +335,8 @@ slot write-back are part of the model.
   DefaultRaid.
 - Allowance:
   - SendCaravan: caravan rent + `CARAVAN_FEE`
-  - RaidCaravan (take): loot caravan rent
   - BuildVault: vault rent
+  - RaidCaravan, DefaultRaid: nothing (a take reroutes the caravan itself)
 - The allowance caps the fee: SendCaravan's and RaidCaravan's `fee` is
   the player's choice and comes from the payer (the pool key), so one
   above `CARAVAN_FEE` drains more than the allowance and is refused.
@@ -376,7 +383,7 @@ raised by amendment.
     - send;
     - a sealed march to a path tile at the caravan's bell;
     - gather and resolve: the slot shows the raid;
-    - RaidCaravan take: the loot caravan's slots, the remainder delivered;
+    - RaidCaravan take: the caravan the raider's, its new slots, no old slot left, delivered to the raider;
     - burn.
   - An escort that holds: no raid, delivered.
   - A seizure.
@@ -409,7 +416,7 @@ whether dependence and exchange appear, can be asked. Separate notes.
    until a slot frees (`ProvinceBusy`).
 3. A caravan is exposed only at **bell starts**. One that slips through a
    province between two bells has no slot there.
-4. **The raider has 6 bells to choose** take or burn. After that the loot
+4. **The raider has 6 bells to choose** take or burn. After that the caravan
    is taken home to the raiding host's holding.
 5. **A caravan's own guard is 0 troops.** Without an escort, any hostile
    host on its tile at a bell start raids it.

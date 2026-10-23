@@ -60,14 +60,14 @@ pub const SETTLE_CARAVAN: &[Cover] = &[
         &[Lands("SettleCaravan, lost")],
     ),
     Cover::Test(
-        "caravan::g13_s1_raid_take_sends_the_loot_and_the_rest_goes_on",
-        &[CqErr(Cq::RaidState), Lands("settle the loot")],
+        "caravan::g13_s1_raid_take_makes_the_caravan_the_raiders",
+        &[CqErr(Cq::RaidState), Lands("settle the taken caravan")],
     ),
 ];
 
 pub const RAID_CARAVAN: &[Cover] = &[
     Cover::Test(
-        "caravan::g13_s1_raid_take_sends_the_loot_and_the_rest_goes_on",
+        "caravan::g13_s1_raid_take_makes_the_caravan_the_raiders",
         &[
             Lands("RaidCaravan take"),
             Err(E::NotOwner),

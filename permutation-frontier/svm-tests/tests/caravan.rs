@@ -34,7 +34,7 @@ use permutation_frontier_svm_tests::world::World;
 use permutation_frontier_svm_tests::{Address, FrontierError as E, Instruction, Keypair, Signer};
 use permutation_rules::frontier::caravan::{
     self as kc, caravan_id, CaravanSlot, CARAVAN_FEE, MAX_CARAVAN_SLOTS, MAX_VAULTS,
-    RAID_DECIDE_BELLS, RAID_SETTLED,
+    RAID_DECIDE_BELLS,
 };
 
 /// The bell the tests start in.
@@ -571,16 +571,19 @@ fn g13_s1_send_caravan_refusals() {
 }
 
 // ------------------------------------------------------------ the raid (crafted, until 1c)
+//
+// Decision J2: a take makes the raided caravan the raider's, with its whole
+// cargo, on a new route from the raid tile; a burn empties it and it goes
+// on.
 
-/// A's caravan 0 to its vault, with its slot raided by R's host (seq 0) at
-/// the slot's first bell on A's own site tile (a walk away from R's site),
-/// `carry` units carried away at most.
-fn raided(carry: u32) -> (Cast, u32) {
-    raided_on(carry, None)
+/// A's caravan 0 to its vault, its slot raided by R's host (seq 0) at the
+/// slot's first bell on A's own site tile (a walk away from R's site).
+fn raided() -> (Cast, u32) {
+    raided_on(None)
 }
 
 /// [`raided`] with the raid tile given (`None`: A's site tile).
-fn raided_on(carry: u32, tile: Option<u8>) -> (Cast, u32) {
+fn raided_on(tile: Option<u8>) -> (Cast, u32) {
     let mut k = Cast::new();
     expect_lands(k.build_vault(), "BuildVault");
     let x = k.send_args(0, [0, 100, 0, 0, 0, 50, 0, 0]);
@@ -591,7 +594,6 @@ fn raided_on(carry: u32, tile: Option<u8>) -> (Cast, u32) {
     s.raid_pos = 0;
     s.tiles[0] = tile.unwrap_or(k.a.tile);
     s.raider = k.r.host_id(0);
-    s.carry = carry;
     put_slot(&mut k.c, &k.a.province, i, &s);
     let raid_bell = s.first_bell;
     // The clash of the raid bell has resolved.
@@ -600,25 +602,28 @@ fn raided_on(carry: u32, tile: Option<u8>) -> (Cast, u32) {
     (k, raid_bell)
 }
 
-fn raid_args(k: &Cast, choice: u8, loot_seq: u32) -> RaidCaravanArgs {
+/// The raided slot's tile.
+fn raid_tile(k: &Cast) -> u8 {
     let id = caravan_id(k.a.citizen_tag(), 0);
     let (_, s) = slot_of(&k.c, &k.a.province, id).expect("slot");
-    let from = s.tiles[s.raid_off as usize];
-    let (steps, path) = local_path(&k.c, &k.w, &k.a, from, k.r.tile);
+    s.tiles[s.raid_off as usize]
+}
+
+fn raid_args(k: &Cast, choice: u8) -> RaidCaravanArgs {
+    let (steps, path) = local_path(&k.c, &k.w, &k.a, raid_tile(k), k.r.tile);
     RaidCaravanArgs {
         caravan: k.caravan(0),
         raid: (k.a.p, k.a.q),
         raider_holding: k.r.href(),
         choice,
-        loot_seq,
         dst: (choice == raid_choice::TAKE).then_some(PlaceRef::Holding {
             h: k.r.href(),
             gen: k.r.gen,
         }),
         steps,
         path,
-        fee: CARAVAN_FEE,
-        provinces: vec![],
+        path_provinces: vec![],
+        old_route: vec![(k.a.p, k.a.q)],
     }
 }
 
@@ -627,12 +632,28 @@ fn raid(k: &mut Cast, x: &RaidCaravanArgs) -> SendResult {
     s1_send(&mut k.c, I2::RaidCaravan, ix, &[&k.r.wallet])
 }
 
-#[test]
-fn g13_s1_raid_take_sends_the_loot_and_the_rest_goes_on() {
-    let (mut k, _) = raided(60);
-    let keeper = k.c.funded(b"s1-keeper", 1);
-    // The open raid holds the caravan.
+/// Settles caravan 0 (its `RENT_TO` A's wallet) at `dst` by `keeper`.
+fn settle_at(k: &mut Cast, dst: Address, keeper: &Keypair) -> SendResult {
     let cv = k.caravan(0);
+    k.arrive(&cv);
+    let ix = fx::settle_caravan(
+        &k.w.a,
+        keeper.pubkey(),
+        cv,
+        dst,
+        keeper.pubkey(),
+        k.a.wallet.pubkey(),
+        &[(k.a.p, k.a.q)],
+    );
+    s1_send(&mut k.c, I2::SettleCaravan, ix, &[keeper])
+}
+
+#[test]
+fn g13_s1_raid_take_makes_the_caravan_the_raiders() {
+    let (mut k, _) = raided();
+    let keeper = k.c.funded(b"s1-keeper", 1);
+    let cv = k.caravan(0);
+    // The open raid holds the caravan.
     let arrive = i64_at(&k.c.data(&cv), CV::ARRIVE_TS);
     if k.c.now <= arrive {
         k.c.set_time(arrive + 1);
@@ -640,53 +661,86 @@ fn g13_s1_raid_take_sends_the_loot_and_the_rest_goes_on() {
     let last = u32_at(&k.c.data(&cv), CV::LAST_BELL);
     let rn = k.w.bell(&k.c).max(last + 1);
     k.w.set_resolved_next(&mut k.c, &k.a.province, rn);
-    assert_cq(k.settle(cv, k.vault(), &keeper), Cq::RaidState);
+    let ix = fx::settle_caravan(
+        &k.w.a,
+        keeper.pubkey(),
+        cv,
+        k.vault(),
+        keeper.pubkey(),
+        k.a.wallet.pubkey(),
+        &[(k.a.p, k.a.q)],
+    );
+    assert_cq(
+        s1_send(&mut k.c, I2::SettleCaravan, ix, &[&keeper]),
+        Cq::RaidState,
+    );
+    // Back inside the raider's window (the clash resolved at +1).
+    let (mut k, raid_bell) = raided();
     // Only the raider decides.
-    let x = raid_args(&k, raid_choice::TAKE, 0);
-    assert!(x.steps > 0, "the loot walks home");
+    let x = raid_args(&k, raid_choice::TAKE);
+    assert!(x.steps > 0, "the caravan walks to R's holding");
     let ix = fx::raid_caravan(&k.w.a, &k.a.player(), &x);
     assert_code(
         s1_send(&mut k.c, I2::RaidCaravan, ix, &[&k.a.wallet]),
         E::NotOwner,
     );
+    let lamports = k.c.lamports(&k.r.wallet.pubkey());
     let l = expect_lands(raid(&mut k, &x), "RaidCaravan take");
-    // 60 of 150 units taken in proportion: 40 and 20.
-    let loot = k.w.a.caravan(k.r.citizen_tag(), 0);
-    let ld = k.c.data(&loot);
-    assert_eq!(ld[CV::STATE], CV::STATE_MOVING);
-    assert_eq!(i64_at(&ld, CV::cargo(1)), 40 * MILLI);
-    assert_eq!(i64_at(&ld, CV::cargo(5)), 20 * MILLI);
+    // No new account and nothing paid but the transaction fee.
+    assert_eq!(k.c.lamports(&k.r.wallet.pubkey()) + l.fee, lamports);
     let cd = k.c.data(&cv);
-    assert_eq!(i64_at(&cd, CV::cargo(1)), 60 * MILLI);
-    assert_eq!(i64_at(&cd, CV::cargo(5)), 30 * MILLI);
-    assert_eq!(u32_at(&k.c.data(&k.r.citizen), C::CARAVANS), 1);
-    let id = caravan_id(k.a.citizen_tag(), 0);
     assert_eq!(
-        slot_of(&k.c, &k.a.province, id).unwrap().1.raid_off,
-        RAID_SETTLED
+        &cd[CV::OWNER_CITIZEN..CV::OWNER_CITIZEN + 32],
+        k.r.citizen.as_ref()
     );
+    assert_eq!(cd[CV::FACTION], k.r.faction);
+    assert_eq!(
+        u64_at(&cd, CV::OWNER_TAG),
+        k.a.citizen_tag(),
+        "the address seed stays"
+    );
+    assert_eq!(i64_at(&cd, CV::cargo(1)), 100 * MILLI, "the whole cargo");
+    assert_eq!(i64_at(&cd, CV::cargo(5)), 50 * MILLI);
+    assert_eq!(cd[CV::SRC], frontier_abi::v2::log::log_place::KIND_FIELD);
+    assert_eq!(i64_at(&cd, CV::DEPART_TS), k.c.now);
+    // The old slot is gone; the new route's slots carry the same id.
+    let id = caravan_id(k.a.citizen_tag(), 0);
+    for s in slots(&k.c, &k.a.province) {
+        if s.id == id {
+            assert!(
+                s.first_bell > raid_bell && !s.raid_open(),
+                "only the new route's slots"
+            );
+        }
+    }
     match event(&l, CqKind::CARAVAN_RAIDED) {
         fclient::conquest::CqEvent::CaravanRaided {
             choice,
             by,
             taken,
-            loot_seq,
             raider_tag,
+            dst,
+            cleared,
             ..
         } => {
-            assert_eq!(
-                (choice, by, loot_seq),
-                (raid_choice::TAKE, raid_choice::BY_RAIDER, 0)
-            );
+            assert_eq!((choice, by), (raid_choice::TAKE, raid_choice::BY_RAIDER));
             assert_eq!(raider_tag, k.r.citizen_tag());
-            assert_eq!((taken[1], taken[5]), (40, 20));
+            assert_eq!((taken[1], taken[5]), (100, 50));
+            assert_eq!(dst.kind, frontier_abi::v2::layout::s1::place::KIND_HOLDING);
+            assert!(cleared.is_empty(), "one-province route");
         }
         e => panic!("{e:?}"),
     }
     match event(&l, CqKind::CARAVAN_SENT) {
-        fclient::conquest::CqEvent::CaravanSent { src, owner_tag, .. } => {
+        fclient::conquest::CqEvent::CaravanSent {
+            src,
+            owner_tag,
+            faction,
+            ..
+        } => {
             assert_eq!(src.kind, frontier_abi::v2::log::log_place::KIND_FIELD);
-            assert_eq!(owner_tag, k.r.citizen_tag());
+            assert_eq!(owner_tag, k.a.citizen_tag());
+            assert_eq!(faction, k.r.faction);
         }
         e => panic!("{e:?}"),
     }
@@ -694,114 +748,106 @@ fn g13_s1_raid_take_sends_the_loot_and_the_rest_goes_on() {
     let again = RaidCaravanArgs {
         choice: raid_choice::BURN,
         dst: None,
-        loot_seq: 1,
         ..x.clone()
     };
     assert_cq(raid(&mut k, &again), Cq::RaidState);
-    // The rest arrives.
-    k.arrive(&cv);
-    expect_lands(k.settle(cv, k.vault(), &keeper), "SettleCaravan, the rest");
-    assert_eq!(vault_store(&k.c, &k.vault(), 1), 60 * MILLI);
-    // The loot arrives home.
-    k.arrive(&loot);
+    // The caravan arrives at R's holding with the whole cargo; A's vault
+    // gets nothing; A (RENT_TO) gets the rent back.
     let rb = store(&k.c, &k.r.holding, 1);
-    let ix = fx::settle_caravan(
-        &k.w.a,
-        keeper.pubkey(),
-        loot,
-        k.r.holding,
-        keeper.pubkey(),
-        k.r.wallet.pubkey(),
-        &[(k.a.p, k.a.q)],
-    );
+    let keeper = k.c.funded(b"s1-keeper", 1);
     expect_lands(
-        s1_send(&mut k.c, I2::SettleCaravan, ix, &[&keeper]),
-        "settle the loot",
+        {
+            let d = k.r.holding;
+            settle_at(&mut k, d, &keeper)
+        },
+        "settle the taken caravan",
     );
-    assert!(store(&k.c, &k.r.holding, 1) >= rb + 40 * MILLI);
+    assert!(store(&k.c, &k.r.holding, 1) >= rb + 100 * MILLI);
+    assert_eq!(vault_store(&k.c, &k.vault(), 1), 0);
 }
 
-/// A raid on the raider's own site tile: the loot caravan has no step to
+/// A raid on the raider's own site tile: the taken caravan has no step to
 /// walk, arrives at once with no slot, and settles home.
 #[test]
 fn g13_s1_raid_take_on_the_raiders_own_tile() {
-    let (mut k, _) = raided_on(60, None);
+    let (mut k, _) = raided();
     let r_tile = k.r.tile;
     let id = caravan_id(k.a.citizen_tag(), 0);
     let (i, mut s) = slot_of(&k.c, &k.a.province, id).unwrap();
     s.tiles[0] = r_tile;
     put_slot(&mut k.c, &k.a.province, i, &s);
-    let x = raid_args(&k, raid_choice::TAKE, 0);
+    let x = raid_args(&k, raid_choice::TAKE);
     assert_eq!(x.steps, 0);
     expect_lands(raid(&mut k, &x), "RaidCaravan take on the raider's tile");
-    let loot = k.w.a.caravan(k.r.citizen_tag(), 0);
-    let ld = k.c.data(&loot);
-    assert_eq!(i64_at(&ld, CV::ARRIVE_TS), k.c.now);
-    let loot_id = caravan_id(k.r.citizen_tag(), 0);
-    assert!(slot_of(&k.c, &k.a.province, loot_id).is_none(), "no slot");
+    let cd = k.c.data(&k.caravan(0));
+    assert_eq!(i64_at(&cd, CV::ARRIVE_TS), k.c.now);
+    assert!(slot_of(&k.c, &k.a.province, id).is_none(), "no slot");
     let keeper = k.c.funded(b"s1-keeper", 1);
     let rb = store(&k.c, &k.r.holding, 1);
-    let ix = fx::settle_caravan(
-        &k.w.a,
-        keeper.pubkey(),
-        loot,
-        k.r.holding,
-        keeper.pubkey(),
-        k.r.wallet.pubkey(),
-        &[(k.a.p, k.a.q)],
-    );
     expect_lands(
-        s1_send(&mut k.c, I2::SettleCaravan, ix, &[&keeper]),
+        {
+            let d = k.r.holding;
+            settle_at(&mut k, d, &keeper)
+        },
         "settle at once",
     );
-    assert!(store(&k.c, &k.r.holding, 1) >= rb + 40 * MILLI);
+    assert!(store(&k.c, &k.r.holding, 1) >= rb + 100 * MILLI);
 }
 
 #[test]
 fn g13_s1_raid_burn_and_the_window() {
-    let (mut k, raid_bell) = raided(1_000);
-    let x = raid_args(&k, raid_choice::BURN, 0);
+    let (mut k, _) = raided();
+    let x = raid_args(&k, raid_choice::BURN);
     let l = expect_lands(raid(&mut k, &x), "burn");
     let cd = k.c.data(&k.caravan(0));
     assert!((0..8).all(|r| i64_at(&cd, CV::cargo(r)) == 0), "all burned");
-    assert!(
-        k.c.is_absent(&k.w.a.caravan(k.r.citizen_tag(), 0)),
-        "no loot"
+    assert_eq!(
+        &cd[CV::OWNER_CITIZEN..CV::OWNER_CITIZEN + 32],
+        k.a.citizen.as_ref(),
+        "still A's"
     );
     match event(&l, CqKind::CARAVAN_RAIDED) {
-        fclient::conquest::CqEvent::CaravanRaided {
-            choice, loot_seq, ..
-        } => {
-            assert_eq!((choice, loot_seq), (raid_choice::BURN, u32::MAX))
+        fclient::conquest::CqEvent::CaravanRaided { choice, taken, .. } => {
+            assert_eq!(choice, raid_choice::BURN);
+            assert_eq!((taken[1], taken[5]), (100, 50), "what burned");
         }
         e => panic!("{e:?}"),
     }
+    // The empty caravan goes on and settles at A's vault: nothing arrives.
+    let keeper = k.c.funded(b"s1-keeper", 1);
+    expect_lands(
+        {
+            let d = k.vault();
+            settle_at(&mut k, d, &keeper)
+        },
+        "settle the burned caravan",
+    );
+    assert_eq!(vault_store(&k.c, &k.vault(), 1), 0);
     // A raid the raider let lapse.
-    let (mut k, raid_bell2) = raided(1_000);
-    let _ = raid_bell;
-    k.w.to_bell(&mut k.c, raid_bell2 + RAID_DECIDE_BELLS + 1, 5);
-    let x = raid_args(&k, raid_choice::BURN, 0);
+    let (mut k, raid_bell) = raided();
+    k.w.to_bell(&mut k.c, raid_bell + RAID_DECIDE_BELLS + 1, 5);
+    let x = raid_args(&k, raid_choice::BURN);
     assert_cq(raid(&mut k, &x), Cq::RaidWindow);
 }
 
 fn default_args(k: &Cast, beneficiary: Address) -> DefaultRaidArgs {
-    let x = raid_args(k, raid_choice::TAKE, 0);
+    let x = raid_args(k, raid_choice::TAKE);
     DefaultRaidArgs {
         caravan: k.caravan(0),
         raid: (k.a.p, k.a.q),
         raider_holding: k.r.href(),
         raider_citizen: k.r.citizen,
-        loot_seq: 0,
         steps: x.steps,
         path: x.path,
         beneficiary,
-        provinces: vec![],
+        path_provinces: vec![],
+        old_route: vec![(k.a.p, k.a.q)],
     }
 }
 
 #[test]
 fn g13_s1_default_raid_takes_home_after_the_window() {
-    let (mut k, raid_bell) = raided(60);
+    let (mut k, raid_bell) = raided();
     let keeper = k.c.funded(b"s1-keeper", 1);
     let x = default_args(&k, keeper.pubkey());
     let ix = fx::default_raid(&k.w.a, keeper.pubkey(), &x);
@@ -818,20 +864,15 @@ fn g13_s1_default_raid_takes_home_after_the_window() {
         s1_send(&mut k.c, I2::DefaultRaid, ix, &[&keeper]),
         "DefaultRaid",
     );
-    let loot = k.w.a.caravan(k.r.citizen_tag(), 0);
-    assert_eq!(i64_at(&k.c.data(&loot), CV::cargo(1)), 40 * MILLI);
+    let cd = k.c.data(&k.caravan(0));
     assert_eq!(
-        &k.c.data(&loot)[CV::RENT_TO..CV::RENT_TO + 32],
-        keeper.pubkey().as_ref()
+        &cd[CV::OWNER_CITIZEN..CV::OWNER_CITIZEN + 32],
+        k.r.citizen.as_ref()
     );
-    // The keeper fronted the loot's rent and fee, and is paid the raided
-    // caravan's fee.
-    let loot_cost = k.c.lamports(&loot);
-    assert_eq!(
-        k.c.lamports(&keeper.pubkey()) + l.fee + loot_cost,
-        kb + CARAVAN_FEE
-    );
-    assert_eq!(u64_at(&k.c.data(&k.caravan(0)), CV::FEE), 0);
+    assert_eq!(i64_at(&cd, CV::cargo(1)), 100 * MILLI);
+    // The keeper is paid the caravan's fee; the caravan settles with none.
+    assert_eq!(k.c.lamports(&keeper.pubkey()) + l.fee, kb + CARAVAN_FEE);
+    assert_eq!(u64_at(&cd, CV::FEE), 0);
     match event(&l, CqKind::CARAVAN_RAIDED) {
         fclient::conquest::CqEvent::CaravanRaided { by, choice, .. } => {
             assert_eq!((by, choice), (raid_choice::BY_DEFAULT, raid_choice::TAKE))
@@ -844,7 +885,7 @@ fn g13_s1_default_raid_takes_home_after_the_window() {
 /// after the window, then a burn (a raid never stays open for good).
 #[test]
 fn g13_s1_default_raid_burns_late_without_a_walk_home() {
-    let (mut k, raid_bell) = raided(60);
+    let (mut k, raid_bell) = raided();
     let keeper = k.c.funded(b"s1-keeper", 1);
     let mut x = default_args(&k, keeper.pubkey());
     x.steps = 0;
@@ -869,10 +910,8 @@ fn g13_s1_default_raid_burns_late_without_a_walk_home() {
         s1_send(&mut k.c, I2::DefaultRaid, ix, &[&keeper]),
         "DefaultRaid late burn",
     );
-    assert!(
-        k.c.is_absent(&k.w.a.caravan(k.r.citizen_tag(), 0)),
-        "no loot"
-    );
+    let cd = k.c.data(&k.caravan(0));
+    assert!((0..8).all(|r| i64_at(&cd, CV::cargo(r)) == 0));
     match event(&l, CqKind::CARAVAN_RAIDED) {
         fclient::conquest::CqEvent::CaravanRaided { by, choice, .. } => {
             assert_eq!((by, choice), (raid_choice::BY_DEFAULT, raid_choice::BURN))
@@ -883,7 +922,7 @@ fn g13_s1_default_raid_burns_late_without_a_walk_home() {
 
 #[test]
 fn g13_s1_default_raid_burns_when_the_raiders_holding_is_gone() {
-    let (mut k, raid_bell) = raided(60);
+    let (mut k, raid_bell) = raided();
     let keeper = k.c.funded(b"s1-keeper", 1);
     k.w.to_bell(&mut k.c, raid_bell + RAID_DECIDE_BELLS + 1, 5);
     let b = k.w.bell(&k.c);
@@ -898,12 +937,12 @@ fn g13_s1_default_raid_burns_when_the_raiders_holding_is_gone() {
         s1_send(&mut k.c, I2::DefaultRaid, ix, &[&keeper]),
         "DefaultRaid burn",
     );
-    assert!(
-        k.c.is_absent(&k.w.a.caravan(k.r.citizen_tag(), 0)),
-        "no loot"
-    );
     let cd = k.c.data(&k.caravan(0));
     assert!((0..8).all(|r| i64_at(&cd, CV::cargo(r)) == 0));
+    assert_eq!(
+        &cd[CV::OWNER_CITIZEN..CV::OWNER_CITIZEN + 32],
+        k.a.citizen.as_ref()
+    );
     match event(&l, CqKind::CARAVAN_RAIDED) {
         fclient::conquest::CqEvent::CaravanRaided {
             by,

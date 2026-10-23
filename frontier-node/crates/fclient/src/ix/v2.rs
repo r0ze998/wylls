@@ -581,49 +581,66 @@ pub fn settle_caravan(
     build(a, m, data.to_bytes().to_vec())
 }
 
-/// RaidCaravan's arguments (contract §3.5).
+/// RaidCaravan's arguments (contract §3.5, decision J2).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RaidCaravanArgs {
     pub caravan: Address,
-    /// The Province of the raided slot (the loot's origin province).
+    /// The Province of the raided slot.
     pub raid: (i16, i16),
     /// The holding of the raiding host (`split_host_id(slot.raider)`).
     pub raider_holding: HoldingRef,
     /// `l2::raid_choice::TAKE` or `BURN`.
     pub choice: u8,
-    /// The raider's `Citizen.CARAVANS` (the loot caravan's sequence).
-    pub loot_seq: u32,
-    /// Where a take goes (`None` for a burn: the raider holding stands in).
+    /// Where a take sends the caravan (`None` for a burn: the raider
+    /// holding stands in).
     pub dst: Option<PlaceRef>,
     pub steps: u8,
     pub path: [u8; 12],
-    pub fee: u64,
-    /// The loot's path provinces after the raid's (0–3).
-    pub provinces: Vec<(i16, i16)>,
+    /// The new walk's Provinces after the raid's, in first-entered order
+    /// (0–3; a take).
+    pub path_provinces: Vec<(i16, i16)>,
+    /// The caravan's old route (its `PROVINCES`): a take clears its slots
+    /// there.
+    pub old_route: Vec<(i16, i16)>,
+}
+
+/// The path Provinces of a raid: the new walk's (the raid's first), then
+/// the old route's others; returns them and `n_path`.
+fn raid_provinces(
+    raid: (i16, i16),
+    path: &[(i16, i16)],
+    old: &[(i16, i16)],
+) -> (Vec<(i16, i16)>, u8) {
+    let mut ps = vec![raid];
+    ps.extend(path.iter().copied().filter(|v| *v != raid));
+    let n = ps.len() as u8;
+    for o in old {
+        if !ps.contains(o) {
+            ps.push(*o);
+        }
+    }
+    (ps, n)
 }
 
 /// 0xB3 RaidCaravan (P, the raider): P + `[caravan w] [raider_holding r]
-/// [loot w] [dst r] [system] [path_province w ×1..4]` (the raid's Province
-/// first).
+/// [dst r] [path_province w ×1..7]` (the new walk's first, the raid's
+/// first; then the old route's others).
 pub fn raid_caravan(a: &Addresses, p: &Player, x: &RaidCaravanArgs) -> Instruction {
     let (dst_kind, dst_p, dst_q, dst_at, dst_gen) = x.dst.map_or((0, 0, 0, 0, 0), |d| d.data());
     let dst = x.dst.map_or(x.raider_holding.address(a), |d| d.address(a));
     let mut m = prologue(a, p);
-    m.extend([
-        w(x.caravan),
-        r(x.raider_holding.address(a)),
-        w(caravan_of_wallet(a, &p.wallet, x.loot_seq)),
-        r(dst),
-        r(addr::system_program()),
-    ]);
-    let mut ps = vec![x.raid];
-    ps.extend(x.provinces.iter().copied().filter(|v| *v != x.raid));
+    m.extend([w(x.caravan), r(x.raider_holding.address(a)), r(dst)]);
+    let (ps, n_path) = if x.dst.is_some() {
+        raid_provinces(x.raid, &x.path_provinces, &x.old_route)
+    } else {
+        (vec![x.raid], 1)
+    };
     m.extend(provinces(a, &ps, true));
     let data = d2::RaidCaravan {
         p: x.raid.0,
         q: x.raid.1,
         choice: x.choice,
-        loot_seq: x.loot_seq,
+        n_path,
         dst_kind,
         dst_p,
         dst_q,
@@ -631,7 +648,6 @@ pub fn raid_caravan(a: &Addresses, p: &Player, x: &RaidCaravanArgs) -> Instructi
         dst_gen,
         steps: x.steps,
         path: x.path,
-        fee: x.fee,
     };
     build(a, m, data.to_bytes().to_vec())
 }
@@ -670,44 +686,42 @@ pub fn close_vault(
     build(a, m, d2::CloseVault {}.to_bytes().to_vec())
 }
 
-/// DefaultRaid's arguments (contract §3.5).
+/// DefaultRaid's arguments (contract §3.5, decision J2).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DefaultRaidArgs {
     pub caravan: Address,
     pub raid: (i16, i16),
     pub raider_holding: HoldingRef,
+    /// The holding's owner (any Citizen when the holding is gone: a burn).
     pub raider_citizen: Address,
-    /// The raider's `Citizen.CARAVANS`.
-    pub loot_seq: u32,
+    /// 0 with an empty path: a burn (the holding gone, or no walk home).
     pub steps: u8,
     pub path: [u8; 12],
     pub beneficiary: Address,
-    /// The loot's path provinces after the raid's (0–3).
-    pub provinces: Vec<(i16, i16)>,
+    /// The walk home's Provinces after the raid's (0–3).
+    pub path_provinces: Vec<(i16, i16)>,
+    /// The caravan's old route (its `PROVINCES`).
+    pub old_route: Vec<(i16, i16)>,
 }
 
 /// 0xB6 DefaultRaid (D): `[fee_payer s,w] [season r] [caravan w]
-/// [raider_holding r] [raider_citizen w] [loot w] [beneficiary w] [system]
-/// [path_province w ×1..4]`.
+/// [raider_holding r] [raider_citizen r] [beneficiary w] [path_province w
+/// ×1..7]`.
 pub fn default_raid(a: &Addresses, fee_payer: Address, x: &DefaultRaidArgs) -> Instruction {
-    let raider_tag = addr::citizen_tag_u64(&x.raider_citizen);
     let mut m = vec![
         ws(fee_payer),
         r(a.season),
         w(x.caravan),
         r(x.raider_holding.address(a)),
-        w(x.raider_citizen),
-        w(a.caravan(raider_tag, x.loot_seq)),
+        r(x.raider_citizen),
         w(x.beneficiary),
-        r(addr::system_program()),
     ];
-    let mut ps = vec![x.raid];
-    ps.extend(x.provinces.iter().copied().filter(|v| *v != x.raid));
+    let (ps, n_path) = raid_provinces(x.raid, &x.path_provinces, &x.old_route);
     m.extend(provinces(a, &ps, true));
     let data = d2::DefaultRaid {
         p: x.raid.0,
         q: x.raid.1,
-        loot_seq: x.loot_seq,
+        n_path,
         steps: x.steps,
         path: x.path,
         beneficiary: x.beneficiary.to_bytes(),
@@ -949,12 +963,11 @@ mod tests {
                 site: 5,
             },
             choice: if dst.is_some() { 0 } else { 1 },
-            loot_seq: 0,
             dst,
             steps: 3,
             path: [0; 12],
-            fee: 50_000,
-            provinces: S1_PROVINCES[1..1 + extra].to_vec(),
+            path_provinces: S1_PROVINCES[1..1 + extra].to_vec(),
+            old_route: vec![(3, 0), (5, 5), (5, 6)],
         }
     }
 
@@ -968,11 +981,11 @@ mod tests {
                 site: 5,
             },
             raider_citizen: Address::new_from_array([6; 32]),
-            loot_seq: 7,
             steps: 3,
             path: [0; 12],
             beneficiary: Address::new_from_array([9; 32]),
-            provinces: S1_PROVINCES[1..1 + extra].to_vec(),
+            path_provinces: S1_PROVINCES[1..1 + extra].to_vec(),
+            old_route: vec![(3, 0), (5, 5), (5, 6), (5, 7)],
         }
     }
 

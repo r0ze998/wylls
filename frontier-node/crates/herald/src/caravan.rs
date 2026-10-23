@@ -14,9 +14,10 @@
 //! ```
 //!
 //! Tags are decimal strings (u64). A caravan leaves `moving` with its
-//! CARAVAN_SETTLED; a raid marks it `raided` (its remainder goes on); a
-//! loot caravan appears with its own CARAVAN_SENT (origin kind 3, the raid
-//! tile). A vault's owner and generation follow VAULT_SEIZED; a closed
+//! CARAVAN_SETTLED. A raid that burns empties it (`raided`, cargo 0; it goes
+//! on); one that takes (decision J2) makes it the raider's, and the same
+//! transaction's CARAVAN_SENT (origin kind 3, the raid tile) replaces its
+//! entry with the raider's route. A vault's owner and generation follow VAULT_SEIZED; a closed
 //! vault is not logged by kind (its CLOSE), so it stays listed until the
 //! herald reads it absent (not done yet: a closed vault is rare and empty).
 
@@ -71,15 +72,13 @@ impl Caravans {
             CqEvent::CaravanRaided {
                 owner_tag,
                 seq,
-                taken,
+                choice,
                 ..
             } => {
                 if let Some(m) = self.moving.get_mut(&(*owner_tag, *seq)) {
                     m["raided"] = json!(true);
-                    if let Some(c) = m["cargo"].as_array_mut() {
-                        for (v, t) in c.iter_mut().zip(taken) {
-                            *v = json!(v.as_u64().unwrap_or(0).saturating_sub(*t as u64));
-                        }
+                    if *choice == frontier_abi::v2::log::raid_choice::BURN {
+                        m["cargo"] = json!([0u32; 8].to_vec());
                     }
                 }
             }
@@ -204,15 +203,16 @@ mod tests {
             p: 3,
             q: 0,
             bell: 290,
-            choice: 0,
+            choice: frontier_abi::v2::log::raid_choice::BURN,
             by: 0,
             raider_tag: 9,
-            taken: [0, 40, 0, 0, 0, 20, 0, 0],
-            loot_seq: 0,
+            taken: [0, 100, 0, 0, 0, 50, 0, 0],
+            dst: here(0),
+            cleared: vec![],
         });
         let f = c.file();
         assert_eq!(f["moving"][0]["raided"], json!(true));
-        assert_eq!(f["moving"][0]["cargo"][1], json!(60));
+        assert_eq!(f["moving"][0]["cargo"][1], json!(0), "burned");
         assert_eq!(f["moving"][0]["runs"][0]["firstBell"], json!(290));
         c.fold(&CqEvent::VaultSeized {
             p: 3,

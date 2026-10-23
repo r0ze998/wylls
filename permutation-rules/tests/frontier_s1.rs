@@ -15,7 +15,7 @@ fn hex(b: &[u8]) -> String {
 
 /// `RULESET_HASH_V3`. Pinned here and in `frontier-abi`; a change to any S1
 /// kernel version or table moves it on purpose.
-const V3_RULESET_HASH: &str = "984c9a08084825dfebdba7cfb429eef216e88566efc4fb840151610e8ee33f70";
+const V3_RULESET_HASH: &str = "e61a3d6aeb802675f36e6e048faeb962970eb34ae60185e8cb841c9ed3e607d0";
 
 #[test]
 fn s1_ruleset_hash_pinned_and_older_hashes_unchanged() {

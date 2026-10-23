@@ -3319,10 +3319,10 @@
           "ty": "[u8;8]"
         },
         {
-          "name": "CARRY",
+          "name": "RSV_24",
           "off": 24,
           "len": 4,
-          "ty": "u32"
+          "ty": "rsv"
         },
         {
           "name": "RAIDER",

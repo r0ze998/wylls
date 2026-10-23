@@ -235,8 +235,6 @@ pub const fn relay_settle_shape(ix: Ix) -> bool {
                 | Ix::RetireHost
                 | Ix::SettleCaravan
                 | Ix::DefaultRaid
-                | Ix::SettleCaravan
-                | Ix::DefaultRaid
         ),
     }
 }

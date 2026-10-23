@@ -14,7 +14,7 @@
 //! Pinned here:
 //! - **Places.** A caravan's origin and destination are a live Holding (its
 //!   site's tile) or a live Vault (its tile), of a given generation; a
-//!   loot caravan's origin is the raid's field tile (kind 3 in the log).
+//!   taken caravan's new origin is the raid's field tile (kind 3 in the log).
 //! - **The path** is the caravan kernel's walk (`caravan::walk`) over the
 //!   listed Provinces' masks, the origin's Province first; the schedule
 //!   (`caravan::schedule`) claims one reusable slot in every Province where
@@ -33,7 +33,8 @@ use frontier_abi::v2::layout::province::caravan_slot as CS;
 use frontier_abi::v2::layout::s1::{caravan as CV, place as PL, vault as VA};
 use frontier_abi::v2::layout::AccountKind as K2;
 use frontier_abi::v2::log::{
-    caravan_outcome, close_key_caravan, close_key_vault, log_place, log_run, raid_choice, CqKind,
+    caravan_outcome, close_key_caravan, close_key_vault, log_cleared, log_place, log_run,
+    raid_choice, CqKind,
 };
 use frontier_abi::v2::tags::Ix as Ix2;
 use frontier_abi::v2::CqError;
@@ -307,7 +308,7 @@ fn route(
     }
     let lands = &lands[..provinces.len()];
     let bps = of_faction_v3(faction).ok_or(BAD_ACCOUNT)?.caravan_time_bps;
-    // A loot caravan raided on its destination's own tile has no step to
+    // A caravan taken on its destination's own tile has no step to
     // walk: it arrives at once, with no slot (only a raid can start on its
     // destination; a send's two places never share a tile).
     if steps == 0 {
@@ -1002,27 +1003,34 @@ pub fn settle_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 }
 
 // ------------------------------------------------------------ 0xB3 RaidCaravan, 0xB6 DefaultRaid
+//
+// Decision J2: a raid that takes makes the raided caravan the raider's. Its
+// cargo stays in it; it leaves the raid tile for the raider's holding or
+// vault on a new public path, with slots like any caravan (a visible target
+// that can be raided back). Its old route's slots are cleared, so no clash
+// sees it where it no longer goes. `OWNER_TAG` stays the address seed (the
+// sender's); `OWNER_CITIZEN` and `FACTION` are the holder's. A burn destroys
+// the cargo and the empty caravan goes on to its destination.
 
 /// What a raid settlement needs from its accounts.
 struct RaidCtx<'a, 'b> {
     p: &'b Pubkey,
     ctx: AddrCtx,
     sid: u64,
-    bump: u8,
     genesis_ts: i64,
     now: i64,
     bell: u32,
-    payer: &'b AccountInfo<'a>,
-    season_ai: &'b AccountInfo<'a>,
     caravan: &'b AccountInfo<'a>,
     raider_holding: &'b AccountInfo<'a>,
     raider_citizen: &'b AccountInfo<'a>,
-    loot: &'b AccountInfo<'a>,
+    /// The new walk's Provinces first (the raid's first), then the old
+    /// route's others.
     provinces: &'b [AccountInfo<'a>],
 }
 
-/// The raid of the caravan's slot in the raid Province (`provinces[0]`):
-/// `(slot index, slot, raid bell)`; `RaidState` when none is open.
+/// The open raid of the caravan's slot in the raid Province
+/// (`provinces[0]`): `(slot index, slot, raid bell, owner tag, seq)`;
+/// `RaidState` when none is open.
 fn open_raid(rc: &RaidCtx, raid_pq: (i16, i16)) -> R<(usize, CaravanSlot, u32, u64, u32)> {
     let (tag, seq) = caravan_of(rc.p, &rc.ctx, rc.sid, rc.caravan)?;
     {
@@ -1043,51 +1051,87 @@ fn open_raid(rc: &RaidCtx, raid_pq: (i16, i16)) -> R<(usize, CaravanSlot, u32, u
     Ok((i, s, raid_bell, tag, seq))
 }
 
-/// Settles an open raid: `burn` or take into a loot caravan of the raider
-/// along `path` to `loot_dst`. Shared by RaidCaravan and DefaultRaid.
-#[allow(clippy::too_many_arguments)]
-fn settle_raid(
-    rc: &RaidCtx,
-    raid_pq: (i16, i16),
-    choice: u8,
-    by: u8,
-    loot_seq: u32,
-    loot_dst: Option<Place>,
-    steps: u8,
-    path: &[u8; 12],
-    fee: u64,
-) -> R<()> {
-    let (si, slot, raid_bell, tag, seq) = open_raid(rc, raid_pq)?;
-    // The raider: the citizen owning the winning host's holding. A default
-    // burn (that holding is gone) has none to check, and logs tag 0.
+/// The raider: `(tag, faction)` of the Citizen owning the raiding host's
+/// holding, which `raider_citizen` must be (`NotOwner`).
+fn raider_of(rc: &RaidCtx, slot: &CaravanSlot) -> R<(u64, u8)> {
     let parts = split_host_id(slot.raider).ok_or(BAD_ACCOUNT)?;
     expect_key(
         rc.raider_holding,
         &rc.ctx
             .holding(parts.province.p, parts.province.q, parts.site),
     )?;
-    let default_burn = by == raid_choice::BY_DEFAULT && choice == raid_choice::BURN;
-    let (raider_tag, raider_faction, raider_seq) = if default_burn {
-        (0, 0, 0)
-    } else {
-        present_v2(rc.raider_holding, rc.p, K2::Holding, rc.sid)?;
-        {
-            let hd = rc.raider_holding.try_borrow_data()?;
-            let r = Ro(&hd);
-            if r.u8(H::GEN)? != parts.gen {
-                return Err(BAD_ACCOUNT);
-            }
-            if r.arr::<32>(H::OWNER_CITIZEN)? != rc.raider_citizen.key.to_bytes() {
-                return Err(FrontierError::NotOwner.into());
+    present_v2(rc.raider_holding, rc.p, K2::Holding, rc.sid)?;
+    {
+        let hd = rc.raider_holding.try_borrow_data()?;
+        let r = Ro(&hd);
+        if r.u8(H::GEN)? != parts.gen {
+            return Err(BAD_ACCOUNT);
+        }
+        if r.arr::<32>(H::OWNER_CITIZEN)? != rc.raider_citizen.key.to_bytes() {
+            return Err(FrontierError::NotOwner.into());
+        }
+    }
+    let cd = rc.raider_citizen.try_borrow_data()?;
+    let r = Ro(&cd);
+    Ok((r.u64(C::CITIZEN_TAG)?, r.u8(C::FACTION)?))
+}
+
+/// Clears every slot of caravan `id` in the old route's Provinces (each
+/// must be listed); returns the ones other than the raid's.
+fn clear_route(rc: &RaidCtx, id: u64, raid_pq: (i16, i16)) -> R<alloc::vec::Vec<(i16, i16)>> {
+    let old: alloc::vec::Vec<(i16, i16)> = {
+        let cd = rc.caravan.try_borrow_data()?;
+        let r = Ro(&cd);
+        let n = (r.u8(CV::N_PROV)? as usize).min(4);
+        (0..n)
+            .map(|i| Ok((r.i16(CV::province(i))?, r.i16(CV::province(i) + 2)?)))
+            .collect::<R<_>>()?
+    };
+    let mut cleared = alloc::vec::Vec::new();
+    for (op, oq) in old {
+        let want = rc.ctx.province(op as i32, oq as i32);
+        let ai = rc
+            .provinces
+            .iter()
+            .find(|a| a.key.to_bytes() == want)
+            .ok_or(FrontierError::TooManyAccounts)?;
+        present_v2(ai, rc.p, K2::Province, rc.sid)?;
+        let mut pd = ai.try_borrow_mut_data()?;
+        for i in 0..MAX_CARAVAN_SLOTS {
+            if read_slot(&pd, i)?.id == id {
+                write_slot(&mut pd, i, &CaravanSlot::default())?;
             }
         }
-        let cd = rc.raider_citizen.try_borrow_data()?;
-        let r = Ro(&cd);
-        (
-            r.u64(C::CITIZEN_TAG)?,
-            r.u8(C::FACTION)?,
-            r.u32(C::CARAVANS)?,
-        )
+        if (op, oq) != raid_pq {
+            cleared.push((op, oq));
+        }
+    }
+    Ok(cleared)
+}
+
+/// Settles an open raid (shared by RaidCaravan and DefaultRaid): `BURN`,
+/// or `TAKE` to `dst` (the raider's place) along `path` over the first
+/// `n_path` listed Provinces.
+#[allow(clippy::too_many_arguments)]
+fn settle_raid(
+    rc: &RaidCtx,
+    raid_pq: (i16, i16),
+    choice: u8,
+    by: u8,
+    n_path: u8,
+    dst: Option<Place>,
+    steps: u8,
+    path: &[u8; 12],
+) -> R<()> {
+    let (si, slot, raid_bell, tag, seq) = open_raid(rc, raid_pq)?;
+    let id = caravan_id(tag, seq);
+    // A default burn (the raiding holding gone) has no raider to check and
+    // logs tag 0.
+    let default_burn = by == raid_choice::BY_DEFAULT && choice == raid_choice::BURN;
+    let (raider_tag, raider_faction) = if default_burn {
+        (0, 0)
+    } else {
+        raider_of(rc, &slot)?
     };
     let mut cargo = [0i64; RESOURCES];
     {
@@ -1096,36 +1140,32 @@ fn settle_raid(
             *c = Ro(&cd).i64(CV::cargo(r))?;
         }
     }
-    let (taken, left) = if choice == raid_choice::BURN {
-        ([0i64; RESOURCES], [0i64; RESOURCES])
-    } else {
-        kc::split(&cargo, (slot.carry as i64).saturating_mul(MILLI))
-    };
-    {
+    let raid_tile = *slot.tiles.get(slot.raid_off as usize).ok_or(BAD_ACCOUNT)?;
+    let raid_coord = ProvinceCoord::new(raid_pq.0 as i32, raid_pq.1 as i32);
+    let mut cleared = alloc::vec::Vec::new();
+    let mut sent = None;
+    let mut dst_log = [0u8; log_place::LEN];
+    if choice == raid_choice::BURN {
         let mut cd = rc.caravan.try_borrow_mut_data()?;
-        for (r, v) in left.iter().enumerate() {
-            Rw(&mut cd).set_i64(CV::cargo(r), *v)?;
+        for r in 0..RESOURCES {
+            Rw(&mut cd).set_i64(CV::cargo(r), 0)?;
         }
-    }
-    // The slot: settled.
-    {
+        drop(cd);
         let mut pd = rc.provinces[0].try_borrow_mut_data()?;
         let mut s = slot;
         s.raid_off = RAID_SETTLED;
         write_slot(&mut pd, si, &s)?;
-    }
-    let raid_tile = *slot
-        .tiles
-        .get((raid_bell - slot.first_bell) as usize)
-        .ok_or(BAD_ACCOUNT)?;
-    let raid_coord = ProvinceCoord::new(raid_pq.0 as i32, raid_pq.1 as i32);
-    let mut loot_logged: Option<([u8; log_run::LEN * log_run::N], [u8; 8], Place, i64)> = None;
-    if choice == raid_choice::TAKE && taken.iter().any(|&v| v > 0) {
-        let t = loot_dst.ok_or(FrontierError::BadData)?;
-        if loot_seq != raider_seq || t.owner != rc.raider_citizen.key.to_bytes() {
+    } else {
+        let t = dst.ok_or(FrontierError::BadData)?;
+        if t.owner != rc.raider_citizen.key.to_bytes() {
             return Err(FrontierError::BadData.into());
         }
-        let id = caravan_id(raider_tag, loot_seq);
+        let n = n_path as usize;
+        if n == 0 || n > 4 || n > rc.provinces.len() {
+            return Err(FrontierError::BadData.into());
+        }
+        cleared = clear_route(rc, id, raid_pq)?;
+        let new_route = &rc.provinces[..n];
         let (arrive, runs, last_bell) = route(
             rc.p,
             &rc.ctx,
@@ -1138,12 +1178,19 @@ fn settle_raid(
             path,
             raider_faction,
             id,
-            rc.provinces,
+            new_route,
         )?;
-        expect_key(
-            rc.loot,
-            &frontier_abi::v2::addr::caravan(&rc.ctx, raider_tag, loot_seq),
-        )?;
+        // Every listed Province is the new walk's or the old route's.
+        for ai in &rc.provinces[n..] {
+            let k = ai.key.to_bytes();
+            let old = cleared
+                .iter()
+                .chain(core::iter::once(&raid_pq))
+                .any(|(cp, cq)| rc.ctx.province(*cp as i32, *cq as i32) == k);
+            if !old {
+                return Err(FrontierError::TooManyAccounts.into());
+            }
+        }
         let field = Place {
             kind: log_place::KIND_FIELD,
             p: raid_pq.0,
@@ -1153,98 +1200,81 @@ fn settle_raid(
             tile: raid_tile,
             owner: [0; 32],
         };
-        let signer = SeasonSigner::new(rc.sid, rc.bump);
-        create_caravan(
-            rc.p,
-            rc.payer,
-            rc.season_ai,
-            &signer,
-            rc.loot,
-            rc.sid,
-            &rc.raider_citizen.key.to_bytes(),
-            raider_tag,
-            loot_seq,
-            raider_faction,
-            &field,
-            &t,
-            steps,
-            path,
-            rc.provinces,
-            rc.now,
-            arrive,
-            last_bell,
-            &taken,
-            fee,
-        )?;
         {
-            let mut cd = rc.raider_citizen.try_borrow_mut_data()?;
-            Rw(&mut cd).set_u32(C::CARAVANS, loot_seq.checked_add(1).ok_or(OVERFLOW)?)?;
+            let mut cd = rc.caravan.try_borrow_mut_data()?;
+            let mut w = Rw(&mut cd);
+            w.set_arr(CV::OWNER_CITIZEN, rc.raider_citizen.key.as_ref())?;
+            w.set_u8(CV::FACTION, raider_faction)?;
+            w.set_u8(CV::STEPS, steps)?;
+            w.set_u8(CV::N_PROV, n as u8)?;
+            w.set_arr(CV::PATH, path)?;
+            for i in 0..4 {
+                let (pp, pq) = match new_route.get(i) {
+                    Some(ai) => {
+                        let pd = ai.try_borrow_data()?;
+                        let r = Ro(&pd);
+                        (r.i16(P::P)?, r.i16(P::Q)?)
+                    }
+                    None => (0, 0),
+                };
+                w.set_i16(CV::province(i), pp)?;
+                w.set_i16(CV::province(i) + 2, pq)?;
+            }
+            w.set_i64(CV::DEPART_TS, rc.now)?;
+            w.set_i64(CV::ARRIVE_TS, arrive)?;
+            w.set_u32(CV::LAST_BELL, last_bell)?;
+            field.store(&mut cd, CV::SRC)?;
+            t.store(&mut cd, CV::DST)?;
         }
-        loot_logged = Some((runs, field.log(), t, arrive));
+        dst_log = t.log();
+        sent = Some((runs, field.log(), t, arrive));
     }
-    // CARAVAN_RAIDED on the raided caravan, its raid Province and (a take)
-    // the raider's Citizen.
-    let payload = crate::events::Buf::<62>::new()
+    // CARAVAN_RAIDED: the raid's Province, the old route's others it
+    // cleared, the caravan.
+    let cleared_b = log_cleared::write(&cleared).ok_or(BAD_ACCOUNT)?;
+    let payload = crate::events::Buf::<79>::new()
         .bytes(&(raid_pq.0 as i32).to_le_bytes())
         .bytes(&(raid_pq.1 as i32).to_le_bytes())
         .u32(raid_bell)
         .u8(choice)
         .u8(by)
         .u64(raider_tag)
-        .bytes(&cargo_log(&taken))
-        .u32(if loot_logged.is_some() {
-            loot_seq
-        } else {
-            u32::MAX
-        });
+        .bytes(&cargo_log(&cargo))
+        .bytes(&dst_log)
+        .bytes(&cleared_b);
     {
-        let mut pd = rc.provinces[0].try_borrow_mut_data()?;
-        let mut cd = rc.caravan.try_borrow_mut_data()?;
-        if choice == raid_choice::TAKE {
-            let mut rd = rc.raider_citizen.try_borrow_mut_data()?;
-            cqlog::emit(
-                kind(CqKind::CARAVAN_RAIDED),
-                rc.bell,
-                &caravan_key(tag, seq),
-                payload.get()?,
-                &mut [
-                    Chained2 {
-                        entity: E2::Citizen,
-                        data: &mut rd,
-                    },
-                    Chained2 {
-                        entity: E2::Province,
-                        data: &mut pd,
-                    },
-                    Chained2 {
-                        entity: E2::Caravan,
-                        data: &mut cd,
-                    },
-                ],
-            )?;
-        } else {
-            cqlog::emit(
-                kind(CqKind::CARAVAN_RAIDED),
-                rc.bell,
-                &caravan_key(tag, seq),
-                payload.get()?,
-                &mut [
-                    Chained2 {
-                        entity: E2::Province,
-                        data: &mut pd,
-                    },
-                    Chained2 {
-                        entity: E2::Caravan,
-                        data: &mut cd,
-                    },
-                ],
-            )?;
+        let mut pds = alloc::vec::Vec::with_capacity(4);
+        pds.push(rc.provinces[0].try_borrow_mut_data()?);
+        for (cp, cq) in &cleared {
+            let k = rc.ctx.province(*cp as i32, *cq as i32);
+            if let Some(ai) = rc.provinces.iter().find(|a| a.key.to_bytes() == k) {
+                pds.push(ai.try_borrow_mut_data()?);
+            }
         }
+        let mut cd = rc.caravan.try_borrow_mut_data()?;
+        let mut chained: alloc::vec::Vec<Chained2> = alloc::vec::Vec::with_capacity(6);
+        for pd in pds.iter_mut() {
+            chained.push(Chained2 {
+                entity: E2::Province,
+                data: pd,
+            });
+        }
+        chained.push(Chained2 {
+            entity: E2::Caravan,
+            data: &mut cd,
+        });
+        cqlog::emit(
+            kind(CqKind::CARAVAN_RAIDED),
+            rc.bell,
+            &caravan_key(tag, seq),
+            payload.get()?,
+            &mut chained,
+        )?;
     }
-    // The loot caravan's CARAVAN_SENT (origin: the field tile).
-    if let Some((runs, src, t, arrive)) = loot_logged {
-        let payload = sent_payload(raider_faction, &src, &t.log(), steps, &taken, arrive, &runs)?;
-        let mut vd = rc.loot.try_borrow_mut_data()?;
+    // A take: the caravan's new route (CARAVAN_SENT, origin the field).
+    if let Some((runs, src, t, arrive)) = sent {
+        let payload = sent_payload(raider_faction, &src, &t.log(), steps, &cargo, arrive, &runs)?;
+        let mut cd = rc.caravan.try_borrow_mut_data()?;
         let mut pds = province_links(rc.provinces, &runs)?;
         let mut chained: alloc::vec::Vec<Chained2> = alloc::vec::Vec::with_capacity(5);
         for pd in pds.iter_mut() {
@@ -1255,12 +1285,12 @@ fn settle_raid(
         }
         chained.push(Chained2 {
             entity: E2::Caravan,
-            data: &mut vd,
+            data: &mut cd,
         });
         cqlog::emit(
             kind(CqKind::CARAVAN_SENT),
             rc.bell,
-            &caravan_key(raider_tag, loot_seq),
+            &caravan_key(tag, seq),
             payload.get()?,
             &mut chained,
         )?;
@@ -1268,12 +1298,12 @@ fn settle_raid(
     Ok(())
 }
 
-/// 0xB3 RaidCaravan: P (the raider) + `[caravan w] [raider_holding r] [loot
-/// w] [dst r] [system] [path_province w ×1..4]` (contract §3.5).
+/// 0xB3 RaidCaravan: P (the raider) + `[caravan w] [raider_holding r] [dst
+/// r] [path_province w ×1..7]` (contract §3.5, decision J2).
 pub fn raid_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let n_prov = a
         .len()
-        .checked_sub(9)
+        .checked_sub(7)
         .ok_or(FrontierError::TooManyAccounts)?;
     check_accounts_v2(Ix2::RaidCaravan, a, Some(&[1, 1, n_prov as u8]))?;
     let x = ix2::RaidCaravan::decode(d)?;
@@ -1281,25 +1311,19 @@ pub fn raid_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         return Err(FrontierError::BadData.into());
     }
     let pl: Player = hold::player(p, a)?;
-    let [_, payer, season_ai, citizen, caravan, raider_holding, loot, dst, _system, provinces @ ..] =
-        a
-    else {
+    let [_, _payer, _season, citizen, caravan, raider_holding, dst, provinces @ ..] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
     let rc = RaidCtx {
         p,
         ctx: pl.ctx,
         sid: pl.pc.season.id,
-        bump: pl.pc.season.bump,
         genesis_ts: pl.pc.season.genesis_ts,
         now: pl.now.ts,
         bell: pl.pc.now_bell,
-        payer,
-        season_ai,
         caravan,
         raider_holding,
         raider_citizen: citizen,
-        loot,
         provinces,
     };
     // The raider's window.
@@ -1307,18 +1331,14 @@ pub fn raid_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     if pl.pc.now_bell > raid_bell.saturating_add(RAID_DECIDE_BELLS) {
         return Err(cq(CqError::RaidWindow));
     }
-    let loot_dst = if x.choice == raid_choice::TAKE {
-        let t = named_place(
+    let to = if x.choice == raid_choice::TAKE {
+        Some(named_place(
             p,
             &pl.ctx,
             pl.pc.season.id,
             dst,
             (x.dst_kind, x.dst_p, x.dst_q, x.dst_at, x.dst_gen),
-        )?;
-        if x.fee < CARAVAN_FEE {
-            return Err(FrontierError::BadData.into());
-        }
-        Some(t)
+        )?)
     } else {
         None
     };
@@ -1327,31 +1347,29 @@ pub fn raid_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         (x.p, x.q),
         x.choice,
         raid_choice::BY_RAIDER,
-        x.loot_seq,
-        loot_dst,
+        x.n_path,
+        to,
         x.steps,
         &x.path,
-        x.fee,
     )
 }
 
 /// 0xB6 DefaultRaid: `[fee_payer s] [season] [caravan w] [raider_holding r]
-/// [raider_citizen w] [loot w] [beneficiary w] [system] [path_province w
-/// ×1..4]`: after the raider's window, a take to the raiding host's own
-/// holding (contract §3.5), or a burn when that holding is gone or, from
-/// `RAID_BURN_AFTER_BELLS` after the window, when no walk home is given. The keeper
-/// fronts the loot caravan's rent and fee (both back to it, as `RENT_TO`
-/// and as the settler, when it settles the loot) and is paid the raided
-/// caravan's fee; the raided caravan's remainder settles with no fee.
+/// [raider_citizen r] [beneficiary w] [path_province w ×1..7]`: after the
+/// raider's window, a take to the raiding host's own holding (contract
+/// §3.5), or a burn when that holding is gone or, from
+/// `RAID_BURN_AFTER_BELLS` after the window, when no walk home is given.
+/// The keeper is paid the caravan's escrowed fee; the caravan then
+/// settles with none.
 pub fn default_raid(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let n_prov = a
         .len()
-        .checked_sub(8)
+        .checked_sub(6)
         .ok_or(FrontierError::TooManyAccounts)?;
     check_accounts_v2(Ix2::DefaultRaid, a, Some(&[1, n_prov as u8]))?;
     let x = ix2::DefaultRaid::decode(d)?;
     let now = prologue::now()?;
-    let [fee_payer, season_ai, caravan, raider_holding, raider_citizen, loot, beneficiary, _system, provinces @ ..] =
+    let [_fee_payer, season_ai, caravan, raider_holding, raider_citizen, beneficiary, provinces @ ..] =
         a
     else {
         return Err(FrontierError::TooManyAccounts.into());
@@ -1366,23 +1384,19 @@ pub fn default_raid(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         p,
         ctx,
         sid: hdr.id,
-        bump: hdr.bump,
         genesis_ts: hdr.genesis_ts,
         now: now.ts,
         bell,
-        payer: fee_payer,
-        season_ai,
         caravan,
         raider_holding,
         raider_citizen,
-        loot,
         provinces,
     };
     let (_, slot, raid_bell, _, _) = open_raid(&rc, (x.p, x.q))?;
     if bell <= raid_bell.saturating_add(RAID_DECIDE_BELLS) {
         return Err(cq(CqError::RaidWindow));
     }
-    // The loot goes home: the raiding host's own holding, while it stands
+    // The caravan goes home: the raiding host's own holding, while it stands
     // (live, same generation); otherwise the cargo burns.
     let parts = split_host_id(slot.raider).ok_or(BAD_ACCOUNT)?;
     let home = place_of(p, &ctx, hdr.id, raider_holding)?.filter(|t| {
@@ -1391,7 +1405,7 @@ pub fn default_raid(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     });
     // No walk home given (`steps` 0 off the home tile): a burn, allowed
     // only `RAID_BURN_AFTER_BELLS` after the window (a raid never stays
-    // open for good; a keeper has a day to take the loot home).
+    // open for good; a keeper has a day to take the caravan home).
     let raid_tile = *slot.tiles.get(slot.raid_off as usize).ok_or(BAD_ACCOUNT)?;
     let unreachable =
         home.is_some_and(|t| x.steps == 0 && ((t.p, t.q) != (x.p, x.q) || t.tile != raid_tile));
@@ -1414,14 +1428,13 @@ pub fn default_raid(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         (x.p, x.q),
         choice,
         raid_choice::BY_DEFAULT,
-        x.loot_seq,
+        x.n_path,
         home,
         x.steps,
         &x.path,
-        CARAVAN_FEE,
     )?;
-    // The keeper's pay: the raided caravan's escrowed fee (contract §4.4),
-    // unless the beneficiary would stay below rent exemption.
+    // The keeper's pay: the caravan's escrowed fee (contract §4.4), unless
+    // the beneficiary would stay below rent exemption.
     let fee = {
         let cd = caravan.try_borrow_data()?;
         Ro(&cd).u64(CV::FEE)?

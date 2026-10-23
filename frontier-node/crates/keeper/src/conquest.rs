@@ -1433,7 +1433,6 @@ mod tests {
             raid_pos: 0,
             first_bell: 290,
             tiles: [20, 21, 0, 0, 0, 0, 0, 0],
-            carry: 50,
             raider: fclient::addr::host_id(3, 0, 6, 1, 0).unwrap(),
         };
         slot.encode(&mut pd[CSL::at(0)..CSL::at(0) + CSL::SIZE])

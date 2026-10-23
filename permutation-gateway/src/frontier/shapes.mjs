@@ -10,9 +10,10 @@
 //   the fee plus the kind's allowance — Join: rent(Citizen); FileTicket: the
 //   Holding-rent escrow shortfall `max(0, rent(1,280) − citizen.ticket_escrow)`;
 //   Depart: `tip + march_fee + seal_bond`; S1's BuildVault: rent(Vault);
-//   SendCaravan, RaidCaravan (a take) and DefaultRaid: rent(Caravan) +
-//   `CARAVAN_FEE` (the fee the program escrows from the payer is the
-//   player's choice: a larger one is refused here); every other kind: 0;
+//   SendCaravan: rent(Caravan) + `CARAVAN_FEE` (the fee the program
+//   escrows from the payer is the player's choice: a larger one is refused
+//   here); every other kind, RaidCaravan and DefaultRaid included (a take
+//   reroutes the raided caravan itself, decision J2): 0;
 // * who is charged: a player shape its citizen, a settle shape its
 //   requester's citizen (the requester signed the request and is, on chain,
 //   that citizen's wallet or unexpired session key), else the client-address
@@ -20,7 +21,7 @@
 import { addressBucket } from '../guards.mjs';
 import { baseFee, departEscrow, rent, seasonTipMin, tipPresets } from '../../client/src/frontier/fees.mjs';
 import { layoutOf } from '../../client/src/frontier/codec.mjs';
-import { DEPART_TAG, FILE_TICKET_TAG, JOIN_TAG, PLACE_HOME_TAG, FILE_OUTPOST_TAG, DECLARE_SIEGE_TAG, BUILD_VAULT_TAG, SEND_CARAVAN_TAG, RAID_CARAVAN_TAG, DEFAULT_RAID_TAG } from '../../client/src/frontier/shapes.mjs';
+import { DEPART_TAG, FILE_TICKET_TAG, JOIN_TAG, PLACE_HOME_TAG, FILE_OUTPOST_TAG, DECLARE_SIEGE_TAG, BUILD_VAULT_TAG, SEND_CARAVAN_TAG } from '../../client/src/frontier/shapes.mjs';
 import { CARAVAN_FEE } from '../../client/src/frontier/budgets.mjs';
 import { profileForSeason } from '../../client/src/frontier/profile.mjs';
 import { RouteError } from '../routes/errors.mjs';
@@ -82,7 +83,7 @@ export function allowanceFor(shape, { season, citizen = null }) {
       checkDepartArrival(shape, season);
       return departEscrow(season, checkDepartTip(shape, season));
     case BUILD_VAULT_TAG: return VAULT_RENT;
-    case SEND_CARAVAN_TAG: case RAID_CARAVAN_TAG: case DEFAULT_RAID_TAG: return CARAVAN_COST;
+    case SEND_CARAVAN_TAG: return CARAVAN_COST;
     default: return 0n;
   }
 }

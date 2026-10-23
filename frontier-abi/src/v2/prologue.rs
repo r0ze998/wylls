@@ -234,12 +234,13 @@ pub fn accounts_of(ix: Ix) -> &'static [Group] {
                     one!(&[
                         s!("caravan", KindV2(K2::Caravan), false, W),
                         s!("raider_holding", KindV2(K2::Holding), false, R),
-                        s!("loot", KindV2(K2::Caravan), false, W),
                         s!("dst", EitherV2(K2::Holding, K2::Vault), false, R),
-                        SYSTEM,
                     ]),
-                    // the raid's Province first, then the loot's path
-                    rep!(&[s!("path_province", KindV2(K2::Province), false, W)], 1, 4),
+                    // J2: a take reroutes the raided caravan itself. The new
+                    // walk's Provinces first (the raid's first, `n_path` of
+                    // them), then the old route's others, whose slots it
+                    // clears.
+                    rep!(&[s!("path_province", KindV2(K2::Province), false, W)], 1, 7),
                 ]
             }
         }
@@ -275,12 +276,10 @@ pub fn accounts_of(ix: Ix) -> &'static [Group] {
                         SEASON_R,
                         s!("caravan", KindV2(K2::Caravan), false, W),
                         s!("raider_holding", KindV2(K2::Holding), false, R),
-                        s!("raider_citizen", KindV2(K2::Citizen), false, W),
-                        s!("loot", KindV2(K2::Caravan), false, W),
+                        s!("raider_citizen", KindV2(K2::Citizen), false, R),
                         s!("beneficiary", Wallet, false, W),
-                        SYSTEM,
                     ]),
-                    rep!(&[s!("path_province", KindV2(K2::Province), false, W)], 1, 4),
+                    rep!(&[s!("path_province", KindV2(K2::Province), false, W)], 1, 7),
                 ]
             }
         }
@@ -475,10 +474,10 @@ mod tests {
         assert_eq!(count_bounds(Ix::BuildVault), (9, 9));
         assert_eq!(count_bounds(Ix::SendCaravan), (9, 12));
         assert_eq!(count_bounds(Ix::SettleCaravan), (7, 10));
-        assert_eq!(count_bounds(Ix::RaidCaravan), (10, 13));
+        assert_eq!(count_bounds(Ix::RaidCaravan), (8, 14));
         assert_eq!(count_bounds(Ix::SeizeVault), (8, 8));
         assert_eq!(count_bounds(Ix::CloseVault), (6, 6));
-        assert_eq!(count_bounds(Ix::DefaultRaid), (9, 12));
+        assert_eq!(count_bounds(Ix::DefaultRaid), (7, 13));
         // §5.6: the three resident actions gain the Province
         for ix in [Ix::Harvest, Ix::Build, Ix::Train] {
             let v1 = crate::prologue::count_bounds(ix.to_v1().unwrap());

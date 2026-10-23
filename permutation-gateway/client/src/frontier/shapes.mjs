@@ -30,8 +30,6 @@ export const DECLARE_SIEGE_TAG = 0xA0;
 // S1 stage 1b: the vault and caravan instructions that move the fee payer's lamports.
 export const BUILD_VAULT_TAG = 0xB0;
 export const SEND_CARAVAN_TAG = 0xB1;
-export const RAID_CARAVAN_TAG = 0xB3;
-export const DEFAULT_RAID_TAG = 0xB6;
 /** Tags of the player shapes (from the ABI's `relay_player_shape`). */
 export const PLAYER_TAGS = Object.freeze(TAGS.instructions.filter(i => i.relay_player_shape).map(i => i.tag));
 /** Tags of the settle shapes (`relay_settle_shape`). */

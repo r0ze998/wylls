@@ -143,7 +143,7 @@ pub mod caravan_slot {
         RAID_POS @ 11 : "u8" = 1;
         FIRST_BELL @ 12 : "u32" = 4;
         TILES @ 16 : "[u8;8]" = 8;
-        CARRY @ 24 : "u32" = 4;
+        RSV_24 @ 24 : "rsv" = 4;
         RAIDER @ 28 : "u64" = 8;
     );
     /// Offset of slot `i` in a Province.

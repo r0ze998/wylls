@@ -1,9 +1,10 @@
 // S1 stage 1b (S1-1B-CONTRACT §4.5): the relay's vault and caravan shapes.
 // Profile 3 is the S1 program (RULESET_HASH_V3): the v2 layouts and
 // instructions at the S1 release's loaded limits; BuildVault may move a
-// vault's rent, SendCaravan / RaidCaravan / DefaultRaid one caravan's rent
-// and the settle fee, never more; a caravan counts like a Depart in the
-// daily lamport cap.
+// vault's rent, SendCaravan one caravan's rent and the settle fee, never
+// more; RaidCaravan and DefaultRaid nothing (decision J2: a take reroutes
+// the raided caravan itself); a caravan counts like a Depart in the daily
+// lamport cap.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PRESETS } from '../client/src/frontier/abi-v2-presets.mjs';
@@ -48,8 +49,8 @@ test('the S1 allowances: a vault rent, one caravan, never a larger fee', () => {
   assert.equal(VAULT_RENT, rent(512));
   assert.equal(CARAVAN_COST, rent(320) + CARAVAN_FEE);
   assert.equal(allowanceFor({ tag: 0xB0 }, { season: {} }), VAULT_RENT);
-  for (const tag of [0xB1, 0xB3, 0xB6]) assert.equal(allowanceFor({ tag }, { season: {} }), CARAVAN_COST);
-  for (const tag of [0xB2, 0xB4, 0xB5]) assert.equal(allowanceFor({ tag }, { season: {} }), 0n);
+  assert.equal(allowanceFor({ tag: 0xB1 }, { season: {} }), CARAVAN_COST);
+  for (const tag of [0xB2, 0xB3, 0xB4, 0xB5, 0xB6]) assert.equal(allowanceFor({ tag }, { season: {} }), 0n);
   // A SendCaravan whose fee is above CARAVAN_FEE drains more: refused.
   const pre = 10n * CARAVAN_COST;
   assert.equal(drainGuard({ pre, post: pre - CARAVAN_COST, fee: 0n, allowance: CARAVAN_COST }), CARAVAN_COST);

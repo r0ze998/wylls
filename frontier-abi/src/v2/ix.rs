@@ -88,14 +88,16 @@ ix_data_v2! {
     /// 0xB2 (D, S1).
     SettleCaravan { beneficiary: [u8; 32] }
     /// 0xB3 (P, S1): the raider settles the raid of the caravan's slot in
-    /// Province `(p, q)`: `choice` take (0) or burn (1); a take sends the
-    /// loot as the raider's `loot_seq`-th caravan to the destination place
-    /// along `steps` packed steps from the raid tile.
+    /// Province `(p, q)`: `choice` take (0) or burn (1). A take (decision
+    /// J2) makes the caravan the raider's and sends it from the raid tile to
+    /// the destination place along `steps` packed steps, over the first
+    /// `n_path` path Provinces (the raid's first); a burn destroys the
+    /// cargo and the caravan goes on.
     RaidCaravan {
         p: i16,
         q: i16,
         choice: u8,
-        loot_seq: u32,
+        n_path: u8,
         dst_kind: u8,
         dst_p: i16,
         dst_q: i16,
@@ -103,18 +105,19 @@ ix_data_v2! {
         dst_gen: u8,
         steps: u8,
         path: [u8; 12],
-        fee: u64,
     }
     /// 0xB4 (P, S1): the captor's roster `entry` stands on the vault.
     SeizeVault { entry: u8 }
     /// 0xB5 (P, S1): the owner closes an empty vault.
     CloseVault {}
     /// 0xB6 (D, S1): the raid in Province `(p, q)` after the raider's
-    /// window: a take to the raiding host's holding along `steps`.
+    /// window: a take to the raiding host's holding along `steps` over the
+    /// first `n_path` path Provinces, or a burn (the holding gone, or no
+    /// walk given after the burn delay).
     DefaultRaid {
         p: i16,
         q: i16,
-        loot_seq: u32,
+        n_path: u8,
         steps: u8,
         path: [u8; 12],
         beneficiary: [u8; 32],
@@ -323,6 +326,11 @@ mod tests {
             1 + 4 + 1 + 2 + 2 + 1 + 1 + 1 + 12 + 32 + 8
         );
         assert_eq!(SettleCaravan::LEN, 33);
+        assert_eq!(
+            RaidCaravan::LEN,
+            1 + 2 + 2 + 1 + 1 + 1 + 2 + 2 + 1 + 1 + 1 + 12
+        );
+        assert_eq!(DefaultRaid::LEN, 1 + 2 + 2 + 1 + 1 + 12 + 32);
         let units = [0, 120, 0, 40, 9, 0, 0, 0];
         let m = cargo_milli(&cargo_bytes(&units)).unwrap();
         assert_eq!(m[1], 120_000);

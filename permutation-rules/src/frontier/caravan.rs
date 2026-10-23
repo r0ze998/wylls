@@ -13,14 +13,15 @@
 //!   at caravan speed).
 //! * [`schedule`]: the tile it stands on at the start of each bell, grouped
 //!   into one run per province ([`Run`]).
-//! * [`caravan_id`], [`carry`], [`split`]: ids, what a host can carry
-//!   away, and the take of a raid.
+//! * [`caravan_id`]: the id a caravan's slots carry (decision J2: a raid
+//!   that takes moves the whole caravan to the raider, so there is no
+//!   carrying capacity and no split).
 //!
 //! Every number marked [phase 6] is a placeholder.
 
 use alloc::vec::Vec;
 
-use crate::fixed::{Milli, MilliTroops, BPS_ONE};
+use crate::fixed::{Milli, BPS_ONE};
 use crate::hex::{Hex, DIRECTIONS};
 
 use super::geometry::{locate, ProvinceCoord};
@@ -48,8 +49,6 @@ pub const SLOT_SIZE: usize = 36;
 pub const RAID_NONE: u8 = 0xFF;
 /// `RAID_OFF` of a slot: the raid has been settled.
 pub const RAID_SETTLED: u8 = 0xFE;
-/// Carrying capacity per troop, milli-units (0.1 unit) [phase 6].
-pub const CARRY_MILLI_PER_TROOP: i64 = 100;
 /// Bells a raider has to choose take or burn before the default take
 /// [phase 6].
 pub const RAID_DECIDE_BELLS: u32 = 6;
@@ -388,29 +387,6 @@ pub const fn is_caravan_id(id: u64) -> bool {
     id >> 63 == 1 && id != u64::MAX && id >> 16 != 0xFFFF_FFFF_FFFF
 }
 
-/// What a host of `troops` can carry away (milli-units, all resources
-/// together).
-pub fn carry(troops: MilliTroops) -> Milli {
-    (troops as i64).saturating_mul(CARRY_MILLI_PER_TROOP) / 1_000
-}
-
-/// The take of a raid: `cargo` split into (taken, left). Everything when
-/// it fits in `cap`; else each resource in proportion, rounded down, so
-/// the taken total never exceeds `cap`.
-pub fn split(cargo: &[Milli; RESOURCES], cap: Milli) -> ([Milli; RESOURCES], [Milli; RESOURCES]) {
-    let total: i128 = cargo.iter().map(|&x| x.max(0) as i128).sum();
-    let cap = cap.max(0) as i128;
-    let mut taken = [0; RESOURCES];
-    let mut left = [0; RESOURCES];
-    for r in 0..RESOURCES {
-        let c = cargo[r].max(0) as i128;
-        let t = if total <= cap { c } else { c * cap / total };
-        taken[r] = t as Milli;
-        left[r] = (c - t) as Milli;
-    }
-    (taken, left)
-}
-
 /// A caravan's record in a Province (contract §1.4; 36 bytes).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CaravanSlot {
@@ -424,10 +400,6 @@ pub struct CaravanSlot {
     pub raid_pos: u8,
     pub first_bell: u32,
     pub tiles: [u8; SLOT_TILES],
-    /// What the winning host can carry away (whole units; [`carry`] of its
-    /// troops after the clash), recorded with the raid so the raid settles
-    /// after its ClashInputs closed.
-    pub carry: u32,
     /// The winning host's id.
     pub raider: u64,
 }
@@ -449,7 +421,6 @@ impl CaravanSlot {
             raid_pos: b[11],
             first_bell: u32_at(12),
             tiles,
-            carry: u32_at(24),
             raider: u64_at(28),
         })
     }
@@ -465,7 +436,8 @@ impl CaravanSlot {
         b[11] = self.raid_pos;
         b[12..16].copy_from_slice(&self.first_bell.to_le_bytes());
         b[16..16 + SLOT_TILES].copy_from_slice(&self.tiles);
-        b[24..28].copy_from_slice(&self.carry.to_le_bytes());
+        // bytes 24..28 reserved (zero)
+        b[24..28].fill(0);
         b[28..36].copy_from_slice(&self.raider.to_le_bytes());
         Some(())
     }
@@ -485,7 +457,6 @@ impl CaravanSlot {
             raid_pos: 0,
             first_bell: run.first_bell,
             tiles,
-            carry: 0,
             raider: 0,
         })
     }
@@ -535,7 +506,6 @@ pub fn write_tables(out: &mut Vec<u8>) {
     out.extend_from_slice(&CARAVAN_SLOW_BPS.to_le_bytes());
     out.push(MAX_CARAVAN_SLOTS as u8);
     out.push(SLOT_TILES as u8);
-    out.extend_from_slice(&CARRY_MILLI_PER_TROOP.to_le_bytes());
     out.extend_from_slice(&RAID_DECIDE_BELLS.to_le_bytes());
     out.extend_from_slice(&RAID_BURN_AFTER_BELLS.to_le_bytes());
     out.extend_from_slice(&CARAVAN_FEE.to_le_bytes());
@@ -744,23 +714,6 @@ mod tests {
     }
 
     #[test]
-    fn carry_and_split() {
-        assert_eq!(carry(300_000), 30_000, "300 troops carry 30 units");
-        let cargo = [0, 100_000, 0, 50_000, 50_000, 0, 0, 0];
-        let (t, l) = split(&cargo, 300_000);
-        assert_eq!(t, cargo);
-        assert_eq!(l, [0; RESOURCES]);
-        let (t, l) = split(&cargo, 100_000);
-        assert_eq!(t[1], 50_000);
-        assert_eq!(t[3], 25_000);
-        assert_eq!(t[4], 25_000);
-        for r in 0..RESOURCES {
-            assert_eq!(t[r] + l[r], cargo[r]);
-        }
-        assert!(t.iter().sum::<i64>() <= 100_000);
-    }
-
-    #[test]
     fn slots_round_trip_and_expose_one_tile_a_bell() {
         let run = Run {
             province: ProvinceCoord::new(1, 1),
@@ -768,7 +721,6 @@ mod tests {
             tiles: alloc::vec![3, 4, 5],
         };
         let mut s = CaravanSlot::of_run(caravan_id(9, 1), 2, &run).unwrap();
-        s.carry = 7;
         s.raider = 99;
         let mut b = [0u8; SLOT_SIZE];
         s.encode(&mut b).unwrap();

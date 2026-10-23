@@ -123,13 +123,13 @@ cq_kinds! {
     VAULT_BUILT = 90; key ["p": 4, "q": 4, "tile": 1]; payload ["owner_tag": 8, "faction": 1, "gen": 1, "holding_key": 8, "cost_digest": 32];
     CARAVAN_SENT = 91; key ["owner_tag": 8, "seq": 4]; payload ["faction": 1, "src": 8, "dst": 8, "steps": 1, "cargo": 32, "arrive_ts": 8, "runs": 36];
     CARAVAN_SETTLED = 92; key ["owner_tag": 8, "seq": 4]; payload ["outcome": 1, "dst": 8, "cargo": 32, "fee": 8];
-    CARAVAN_RAIDED = 93; key ["owner_tag": 8, "seq": 4]; payload ["p": 4, "q": 4, "bell": 4, "choice": 1, "by": 1, "raider_tag": 8, "taken": 32, "loot_seq": 4];
+    CARAVAN_RAIDED = 93; key ["owner_tag": 8, "seq": 4]; payload ["p": 4, "q": 4, "bell": 4, "choice": 1, "by": 1, "raider_tag": 8, "taken": 32, "dst": 8, "cleared": 17];
     VAULT_SEIZED = 94; key ["p": 4, "q": 4, "tile": 1]; payload ["captor_tag": 8, "prev_tag": 8, "new_gen": 1, "domestic": 1, "host_id": 8];
 }
 
 /// S1 caravan places as logged (8 B): `kind u8 ‖ p i16 ‖ q i16 ‖
 /// site_or_tile u8 ‖ gen u8 ‖ tile u8` (`layout::s1::place` without its
-/// reserve). Kind 3 is a field tile (a loot caravan's origin).
+/// reserve). Kind 3 is a field tile (a taken caravan's new origin, the raid tile).
 pub mod log_place {
     pub const LEN: usize = 8;
     pub const KIND_FIELD: u8 = 3;
@@ -147,6 +147,42 @@ pub mod caravan_outcome {
     pub const DELIVERED: u8 = 0;
     /// The destination is gone or of another generation: the cargo is lost.
     pub const LOST: u8 = 1;
+}
+
+/// CARAVAN_RAIDED's `cleared` (17 B): `n u8 ‖ (p i16, q i16) × 4`, the old
+/// route's Provinces other than the raid's whose slots a take cleared.
+pub mod log_cleared {
+    pub const LEN: usize = 17;
+    pub const N: usize = 4;
+    /// The listed Provinces (`None`: malformed).
+    pub fn read(b: &[u8]) -> Option<alloc::vec::Vec<(i16, i16)>> {
+        let n = *b.first()? as usize;
+        if n > N || b.len() != LEN {
+            return None;
+        }
+        (0..n)
+            .map(|i| {
+                let o = 1 + 4 * i;
+                Some((
+                    i16::from_le_bytes([*b.get(o)?, *b.get(o + 1)?]),
+                    i16::from_le_bytes([*b.get(o + 2)?, *b.get(o + 3)?]),
+                ))
+            })
+            .collect()
+    }
+    /// Writes `ps` (at most [`N`]).
+    pub fn write(ps: &[(i16, i16)]) -> Option<[u8; LEN]> {
+        if ps.len() > N {
+            return None;
+        }
+        let mut b = [0u8; LEN];
+        b[0] = ps.len() as u8;
+        for (i, (p, q)) in ps.iter().enumerate() {
+            b[1 + 4 * i..3 + 4 * i].copy_from_slice(&p.to_le_bytes());
+            b[3 + 4 * i..5 + 4 * i].copy_from_slice(&q.to_le_bytes());
+        }
+        Some(b)
+    }
 }
 
 /// CARAVAN_RAIDED choices and who made them.
@@ -639,12 +675,18 @@ pub fn chains_of(kind: AnyKind, key: &[u8], payload: &[u8]) -> Option<Chains> {
             let owner_tag = rd_u64(key, 0)?;
             let seq = rd_u32(key, 8)?;
             let (p, q) = (rd_i32(pay("p")?, 0)?, rd_i32(pay("q")?, 0)?);
-            if pay("choice")?[0] == raid_choice::TAKE {
-                // the raider's Citizen counts the loot caravan's send
-                let r = CitizenRef::Tag8(rd_u64(pay("raider_tag")?, 0)?);
-                c.push(E::Citizen, Base(EntityRef::Citizen(r)), false);
-            }
             c.push(E::Province, Base(EntityRef::Province { p, q }), false);
+            // J2: a take clears the old route's slots in its other Provinces
+            for (cp, cq) in log_cleared::read(pay("cleared")?)? {
+                c.push(
+                    E::Province,
+                    Base(EntityRef::Province {
+                        p: cp as i32,
+                        q: cq as i32,
+                    }),
+                    false,
+                );
+            }
             c.push(E::Caravan, Caravan { owner_tag, seq }, false);
         }
         CqKind::VAULT_SEIZED => {
