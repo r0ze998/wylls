@@ -12,10 +12,15 @@ import { concat, toHex, utf8 } from '../sdk/bytes.mjs';
 import { encode as toBase58 } from '../sdk/base58.mjs';
 import { findProgramAddress, pubkeyBytes, pubkeyString } from '../sdk/solana-tx.mjs';
 import { ACCOUNTS } from './abi.mjs';
+import { LAYOUTS as LAYOUTS_V2 } from '../sdk/frontier/abi-v2-layouts.mjs';
 import { provinceFromIndex, provinceIndex, SITES_PER_PROVINCE } from './fgeo.mjs';
 
-// (S1, ABI v2: the vault and structure accounts are not in the v1 table; their tags are the v2 layouts' seed tags)
-const TAG = Object.fromEntries([...Object.entries(ACCOUNTS).filter(([, a]) => a.tag).map(([k, a]) => [k, a.tag]), ['Vault', 'va'], ['Structure', 'tw']]);
+// S1 (ABI v2): the vault, caravan, structure and nation tags come from the v2 layout table.
+const S1_KINDS = ['Vault', 'Caravan', 'Structure', 'Nation'];
+const TAG = Object.fromEntries([
+  ...Object.entries(ACCOUNTS).filter(([, a]) => a.tag).map(([k, a]) => [k, a.tag]),
+  ...LAYOUTS_V2.accounts.filter(a => S1_KINDS.includes(a.kind) && a.seed_tag).map(a => [a.kind, a.seed_tag]),
+]);
 
 function le(bits, signed, v) {
   const b = new Uint8Array(bits / 8), dv = new DataView(b.buffer);
@@ -47,9 +52,11 @@ export const RAW = Object.freeze({
   // kernel's addr-vectors-v1.json still names that u32 `day`.
   AnchorArchive: ({ region, part, day }) => concat(u8(region), u32(part ?? day)),
   DefenceClaim: ({ beneficiary, day }) => concat(keeperTag8(beneficiary), u32(day)),
-  // S1: a vault or a structure on tile `tile` of Province (p, q)
+  // S1 (frontier-abi v2 addr.rs): vault_seed, structure_seed, caravan_seed, nation_seed.
   Vault: ({ p, q, tile }) => concat(i32(p), i32(q), u8(tile)),
   Structure: ({ p, q, tile }) => concat(i32(p), i32(q), u8(tile)),
+  Caravan: ({ ownerTag, seq }) => concat(u64(ownerTag), u32(seq)),
+  Nation: ({ faction }) => u8(faction),
 });
 
 /** The seed string of an account kind's key: tag ‖ lowercase hex (≤ 32 characters). */

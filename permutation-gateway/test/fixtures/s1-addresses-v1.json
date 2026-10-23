@@ -1,0 +1,88 @@
+{
+  "caravan": [
+    {
+      "address": "DHpmAgtSxwhnYwVZvTFBoqiJN7NY88BxpF8oWs3p55fQ",
+      "ownerTag": "9",
+      "seq": 0
+    },
+    {
+      "address": "Hv56hMSFaWw1JxY5gvZRBSXk2XSXU2yPEFgMcg2mGCkt",
+      "ownerTag": "18446744073709551615",
+      "seq": 7
+    },
+    {
+      "address": "BcNqi52AkdiMcSZ8f4no6GhFEUsvBGNhFs92xSV8MhqY",
+      "ownerTag": "81985529216486895",
+      "seq": 1
+    }
+  ],
+  "nation": [
+    {
+      "address": "7ukfgQxkf4fVGD6B8qmEK4975tbM2zRiDyR56KhrYW1k",
+      "faction": 0
+    },
+    {
+      "address": "F4JNaCAi8oDnz5AQmUbPfVsURwrp9nucWDYVr21iuMzm",
+      "faction": 1
+    },
+    {
+      "address": "BJAAGJJaRb1ekkZ5xtoJNf6DQX8mRrFsYWp5boDSkhEa",
+      "faction": 2
+    },
+    {
+      "address": "GGLfzT3eyCqjbdJMC5ukJcMhreECYCRZwRpMnv1J3veU",
+      "faction": 3
+    },
+    {
+      "address": "7P2AK4yAxaAWJkuzmSpieGs7gfSN4z2hoKtY95PK1zbn",
+      "faction": 4
+    },
+    {
+      "address": "5ojq2yEQ2W118ixLMRUyvxHeLNnk6AZWeXdbUCaj2Y9b",
+      "faction": 5
+    }
+  ],
+  "program": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+  "seasonId": "42",
+  "structure": [
+    {
+      "address": "DhQB6A7oq6f4hUcgNe1qXaiwTZWyox1jp41b6WyaeoFt",
+      "p": 3,
+      "q": -1,
+      "tile": 20
+    },
+    {
+      "address": "B3WnazJPRKXwTjVEUK5viZ5oxhuj8mH8ByWmpmMXtBop",
+      "p": -7,
+      "q": 4,
+      "tile": 0
+    },
+    {
+      "address": "BiVSvGVjfc8A4ES6v8CCAfrbRwsX7toJ141rCnDKZYYD",
+      "p": 0,
+      "q": 0,
+      "tile": 60
+    }
+  ],
+  "v": 1,
+  "vault": [
+    {
+      "address": "3tbdzMVMzuHPUdveXmhy4xCZVeH41vBZYNx7Qf3Ai5P5",
+      "p": 3,
+      "q": -1,
+      "tile": 20
+    },
+    {
+      "address": "EqFSQjKd3rGssyXBWvw3oPnEgGPyWqzCKHwmB5UxRMuq",
+      "p": -7,
+      "q": 4,
+      "tile": 0
+    },
+    {
+      "address": "AGAxCYbNz8sC8oxoLR8kDkV7xzz7jbYjwufEqvMu9KhD",
+      "p": 0,
+      "q": 0,
+      "tile": 60
+    }
+  ]
+}
