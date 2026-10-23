@@ -25,6 +25,9 @@ test('config: --agent-wallet and --agent-runner flags, their environment names a
   assert.deepEqual([on.agentWallet, on.agentRunner, on.agentInferencePrice, on.agentTickMs, on.agentLlmUrl], [true, true, 2500, 5000, 'http://127.0.0.1:41901']);
   const env = loadFrontierConfig(base, { FRONTIER_AGENT_WALLET: '1', FRONTIER_PRIZE_PROGRAM: 'p', FRONTIER_PRIZE_MINT: 'm', FRONTIER_AGENT_KEYS_DIR: '/tmp/k' });
   assert.deepEqual([env.agentWallet, env.agentKeysDir], [true, '/tmp/k']);
+  // The model name the runner records: the pinned Gemma 4 alias by default; another loaded model is named by the operator, never assumed.
+  assert.equal(off.agentLlmAlias, 'gemma-4-26b-a4b-it');
+  assert.equal(loadFrontierConfig(base, { FRONTIER_AGENT_LLM_ALIAS: 'gemma-3-4b-it' }).agentLlmAlias, 'gemma-3-4b-it');
   assert.throws(() => loadFrontierConfig([...base, '--agent-wallet']), /--prize-mint/);
   assert.throws(() => loadFrontierConfig([...base, '--agent-runner']), /--agent-wallet/);
   assert.throws(() => loadFrontierConfig([...base, '--agent-wallet', '--prize-program', 'p', '--prize-mint', 'm', '--cluster', 'devnet']), /localnet only/);

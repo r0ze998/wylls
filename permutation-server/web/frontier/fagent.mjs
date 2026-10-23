@@ -114,8 +114,9 @@ export function historyRows(view) {
       case 'created': text = L`代理人を作成`; break;
       default: text = h.type;
     }
-    const amount = h.type === 'decision' ? (h.charged && h.charged !== '0' ? usdc(h.charged) : null) : h.amount != null && h.type !== 'network' ? usdc(h.amount) : null;
-    rows.push({ at: h.at, kind: h.type, category: h.type === 'decision' ? (h.driver === 'model' ? 'inference' : null) : h.category ?? null, amount, text, source: h.source ?? null, signature: h.signature ?? null, reason: h.reason ?? null });
+    // A decision's fee is the `spend` line's amount; the decision line names it in its text only, so one call is never counted twice in the amount column.
+    const amount = h.type !== 'decision' && h.amount != null && h.type !== 'network' ? usdc(h.amount) : null;
+    rows.push({ at: h.at, kind: h.type, category: h.type === 'decision' ? null : h.category ?? null, amount, text, source: h.source ?? null, signature: h.signature ?? null, reason: h.reason ?? null });
   }
   return rows.reverse();
 }

@@ -43,6 +43,7 @@ import { submit, track, accountsFor } from '../../permutation-server/web/frontie
 import { keyFromSeed } from '../../permutation-server/web/session.mjs';
 import { setPin } from '../../permutation-server/web/frontier/fchainio.mjs';
 
+// Linux (a container running as root, Playwright's Chromium): CHROME=/opt/pw-browsers/chromium-<n>/chrome-linux/chrome AGENT_PAGE_CHROME_ARGS=--no-sandbox
 const CHROME = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const base = process.env.AGENT_PAGE_URL ?? 'http://127.0.0.1:41640';
 const rpcUrl = process.env.AGENT_PAGE_RPC ?? 'http://127.0.0.1:41610';
@@ -89,7 +90,7 @@ class Cdp {
   async waitFor(method, sessionId, ms = 30_000) { return new Promise((res, rej) => { const t = setTimeout(() => rej(new Error(`no ${method} in ${ms} ms`)), ms); const h = m => { if (m.method === method && (!sessionId || m.sessionId === sessionId)) { clearTimeout(t); this.handlers = this.handlers.filter(x => x !== h); res(m.params); } }; this.on(h); }); }
 }
 const profile = mkdtempSync(path.join(os.tmpdir(), 'agent-page-chrome-'));
-const chrome = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${devtoolsPort}`, `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--disable-extensions', '--window-size=1100,1500', 'about:blank'], { stdio: 'ignore' });
+const chrome = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${devtoolsPort}`, `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--disable-extensions', '--window-size=1100,1500', ...(process.env.AGENT_PAGE_CHROME_ARGS ?? '').split(' ').filter(Boolean), 'about:blank'], { stdio: 'ignore' });
 let version = null;
 for (let i = 0; i < 60 && !version; i++) { await sleep(500); version = await fetch(`http://127.0.0.1:${devtoolsPort}/json/version`).then(r => r.json()).catch(() => null); }
 assert.ok(version?.webSocketDebuggerUrl, 'Chrome did not open its DevTools port');
@@ -226,8 +227,31 @@ async function run() {
   let acted = null;
   for (let i = 0; i < 60 && !acted; i++) { await sleep(2000); const x = await agentView(agentId); if (x.history.some(h => h.type === 'action' && h.source === 'ai' && h.status === 'sent')) acted = x; }
   assert.ok(acted, 'the runner acted');
-  await waitText('判断', 20_000);
+  // Not just the word 判断 (it is on the page from the start, in the spending line): the action line, the decision line with the model's reason, and who drives.
+  await waitText('行動 Harvest：送信', 20_000);
+  await waitText('判断：モデル → Harvest を送信・判断料 0.01', 20_000);
+  await waitText('理由（モデルの説明・未検証）', 20_000);
+  await waitText('モデルが判断しています', 20_000);
   await step('runner-acted', { spent: acted.balance.spent, modelCalls: model.calls, note: 'the stand-in model answered Harvest; the page shows the charged call and the free network fee' });
+  // The owner's daily decision cap, set from the page: at the cap the model is not called and the free autopilot plays —
+  // the page says so, apart from a stop (the agent is still auto). Then the cap is raised and the model decides again.
+  const callsBefore = model.calls;
+  await submitForm('policy', { 'g-economy': true, 'g-vigil': true, total: '1.5', perDay: '0.6', callsPerDay: '1' });
+  await waitText('保存しました（版 3）');
+  let standIn = null;
+  for (let i = 0; i < 60 && !standIn; i++) { await sleep(1000); const x = await agentView(agentId); if (x.driver?.state === 'autopilot' && x.driver.cause === 'CallLimitReached') standIn = x; }
+  assert.ok(standIn, 'the autopilot stood in at the owner\'s cap');
+  assert.equal(standIn.policy.budget.callsPerDay, 1);
+  assert.equal(standIn.mode, 'auto');
+  await waitText('無料の自動運転が代わりに動いています（1日の判断回数の上限に達した）');
+  await waitText('停止ではありません');
+  await step('autopilot-standing-in', { driver: standIn.driver, modelCallsDuring: model.calls - callsBefore, note: 'the owner\'s decision cap reached: no model call, the free autopilot plays and the page says it is not a stop' });
+  assert.equal(model.calls, callsBefore, 'no model call past the cap');
+  await submitForm('policy', { 'g-economy': true, 'g-vigil': true, total: '1.5', perDay: '0.6', callsPerDay: '200' });
+  await waitText('保存しました（版 4）');
+  for (let i = 0; i < 60 && model.calls === callsBefore; i++) await sleep(1000);
+  assert.ok(model.calls > callsBefore, 'the model is asked again once the cap is raised');
+  await waitText('モデルが判断しています', 30_000);
 
   // ---- refusals at the wallet: a message (an owner command) and a transaction (a deposit)
   await walletRefuses('solana:signMessage', true);
@@ -276,8 +300,11 @@ async function run() {
   assert.ok(running, 'a running inference hold');
   await clickAct('mode', { mode: 'manual' });
   await waitText('止めました');
+  // The stop is said as a stop, not as the autopilot standing in.
+  await waitText('停止中：あなたが手動に戻しました');
   v = await agentView(agentId);
   assert.equal(v.mode, 'manual');
+  assert.deepEqual(v.driver, { state: 'stopped' });
   assert.equal(v.holds.find(h => h.id === running.id)?.state, 'running', 'the stop does not give a running call back');
   assert.equal(v.balance.reserved, '10000');
   await step('stopped-in-flight', { hold: running.id, reserved: v.balance.reserved, note: 'stopped while the model works: the call stays reserved, the page shows the reserved amount' });

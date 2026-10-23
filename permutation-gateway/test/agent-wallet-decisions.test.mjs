@@ -126,7 +126,8 @@ test('the page: decision lines, the driver sentence, the owner\'s call cap in th
   const fb = decisionText({ driver: 'autopilot', cause: 'InsufficientBalance', outcome: 'sent', action: 'Harvest', charged: '0' });
   assert.match(fb, /無料の自動運転（残高が足りない）/); assert.match(fb, /Harvest を送信/); assert.match(fb, /無料/);
   const rows = historyRows({ history: [{ type: 'decision', at: 1, driver: 'model', outcome: 'sent', action: 'Build', charged: '10000', reason: '<b>x</b>' }] });
-  assert.deepEqual([rows[0].kind, rows[0].category, rows[0].amount, rows[0].reason], ['decision', 'inference', '0.01', '<b>x</b>']);
+  assert.deepEqual([rows[0].kind, rows[0].category, rows[0].amount, rows[0].reason], ['decision', null, null, '<b>x</b>'], 'the fee is the spend line\'s amount, not counted twice');
+  assert.match(rows[0].text, /判断料 0\.01/);
 
   assert.equal(driverModel({ mode: 'manual', driver: { state: 'stopped' } }).state, 'stopped');
   assert.match(driverModel({ mode: 'manual', driver: { state: 'stopped' } }).text, /停止中/);

@@ -95,7 +95,7 @@ export function startAgentWallet(cfg, ctx, { connection, pool, log = console.log
   gateway.reconcile().catch(e => log(`agent wallet: reconcile at start failed: ${e.message}`));
   let scheduler = null;
   if (cfg.agentRunner) {
-    const decider = cfg.agentLlmUrl ? llmDecider({ llm: createLlm({ url: cfg.agentLlmUrl }) }) : ruleDecider();
+    const decider = cfg.agentLlmUrl ? llmDecider({ llm: createLlm({ url: cfg.agentLlmUrl, alias: cfg.agentLlmAlias ?? undefined }) }) : ruleDecider();
     // The observer reads the herald (public records): without a herald URL every tick asks (the old behaviour).
     const observer = cfg.heraldUrl ? new AgentObserver({ heraldUrl: cfg.heraldUrl }) : null;
     scheduler = new AgentScheduler({ gateway, decider, tickMs: cfg.agentTickMs, observer, minCallGapMs: cfg.agentMinCallGapMs, ownerCallGapMs: cfg.agentOwnerCallGapMs, maxCallsPerDay: cfg.agentMaxCallsPerDay, log });

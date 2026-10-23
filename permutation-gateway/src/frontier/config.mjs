@@ -68,6 +68,8 @@ export const FRONTIER_DEFAULTS = Object.freeze({
   agentRunner: false,
   agentTickMs: 30_000,
   agentLlmUrl: null,
+  /** The model name the runner asks the server for and records with each charge (a single-model llama-server answers with whatever it loaded: set this to what was loaded). */
+  agentLlmAlias: 'gemma-4-26b-a4b-it',
   /** PROPOSED test values (DESIGN.md §7.1), not production ones: the least time between two model calls of one agent, and the operator's cap on calls a day. */
   agentMinCallGapMs: 60_000,
   /** PROPOSED test value: a burst of owner commands is answered once per this gap. */
@@ -152,6 +154,7 @@ export function loadFrontierConfig(argv = [], env = {}) {
     agentRunner: !!(flags.agentRunner ?? (env.FRONTIER_AGENT_RUNNER === '1' || d.agentRunner)),
     agentTickMs: int(pick('agent-tick-ms', 'FRONTIER_AGENT_TICK_MS', d.agentTickMs), '--agent-tick-ms'),
     agentLlmUrl: pick('agent-llm', 'FRONTIER_AGENT_LLM_URL', d.agentLlmUrl),
+    agentLlmAlias: pick('agent-llm-alias', 'FRONTIER_AGENT_LLM_ALIAS', d.agentLlmAlias),
     agentMinCallGapMs: int(pick('agent-min-call-gap-ms', 'FRONTIER_AGENT_MIN_CALL_GAP_MS', d.agentMinCallGapMs), '--agent-min-call-gap-ms'),
     agentOwnerCallGapMs: int(pick('agent-owner-call-gap-ms', 'FRONTIER_AGENT_OWNER_CALL_GAP_MS', d.agentOwnerCallGapMs), '--agent-owner-call-gap-ms'),
     agentMaxCallsPerDay: int(pick('agent-max-calls-per-day', 'FRONTIER_AGENT_MAX_CALLS_PER_DAY', d.agentMaxCallsPerDay), '--agent-max-calls-per-day'),
