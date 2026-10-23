@@ -40,6 +40,28 @@
 | 施設をまたぐ組み合わせ | 調べた経路で EVE 型フックは未確認。 | SSU 納品と Gate permit の公式例がある。 | 「世界初」「EVE には不可」とは言わない。 |
 | 利用の実績 | このコード読解からは測れない。 | 公開 README・サンプルからは測れない。 | 第三者が自発的に使うかを試作で測る。 |
 
+## 基盤と市場の違い［事実と提案を分離］
+
+**公開資料で確認したこと：**
+
+| 対象 | 基盤と合成の範囲 |
+|---|---|
+| EVE Frontier／Sui | [Sui の object model](https://docs.sui.io/develop/sui-architecture/object-model)は所有者・版を持つ object を中心にする。[Programmable Transaction Blocks](https://docs.sui.io/develop/transactions/ptbs/prog-txn-blocks)は Move call などの結果を同じ transaction の後続処理に渡せ、全体を原子的に成功・失敗させる。原子的な合成は Solana の独占ではない。[EVE の移行先](https://www.sui.io/blog/eve-frontier-migrates-to-sui-hackathon-live)は Sui **Testnet**。これだけで Sui mainnet の資産と EVE の操作が同一 transaction で接続済みとは言えない。 |
+| Eternum／Starknet 系 | [固定 SHA の README](https://github.com/BibliothecaDAO/eternum/blob/da9e10a130dd6a4b5dad637ac602abf83554dda2/README.md)は native Cairo／Madara の shard ごとの Starknet appchain と、価値を扱う Starknet mainnet の層を分ける。全ゲーム操作が mainnet 上の同一状態で合成されると単純化しない。live 配置の全経路は未検証。 |
+| Wylls の候補基盤／Solana | [CPI](https://solana.com/docs/core/cpi)で program 間を呼び出し、[PDA](https://solana.com/docs/core/pda)で program が管理するアドレスを設計できる。[transaction](https://solana.com/docs/core/transactions)の原子性は単一 transaction 内。CPI の深さ・計算予算、共有書込み先の[競合](https://solana.com/docs/core/transactions/transaction-pipeline)は設計・実測の課題であり、複数ターンの補給履行まで原子的にはならない。 |
+
+[Circle の公式一覧](https://developers.circle.com/stablecoins/usdc-contract-addresses)には Solana、Sui、Starknet の各 mainnet の native USDC が載る。**USDC 対応だけ**は Wylls 固有の価値ではない。Solana では[手数料を別の fee payer が払う設計](https://solana.com/docs/payments/send-payments/payment-processing/fee-abstraction)も可能だが、実費と濫用の負担は残る。CPI と PDA を使っても、注文ごとの権限・予算の検査は Wylls 側で作る必要がある。
+
+**Wylls で試す機会［提案・未採用］：**
+
+1. 工場・輸送・予約の公開入口を、Solana 上の他の開発者が遠征準備や共同発注の道具に組み込めるようにする。入口の互換性、権限、負荷を検証する。単一の world account に書込みを集中させない構成は性能検証の候補であり、現行実装や性能改善の実績ではない。
+2. 別ブランチにある agent-wallet の作業との接続を検討し、人間と AI が同じ検査入口から、対象機能・期限・予算を絞って注文する。推論費と transaction 手数料を分け、停止・撤権・重複防止を設計する。agent-wallet がこの文書の基点に統合済みとは扱わない。
+3. 既に Solana を使う人が別 chain に移動せず参加できる入口を検討する。これは**獲得仮説**であり、既存ユーザー数や自動的な成長の証拠ではない。Wylls のローカル／devnet の確認と、将来の mainnet 資産への接続を分ける。
+
+ゲームの重心に加え、基盤・市場・開発者の違いにも価値がありうる。ただし「他 chain では技術的に不可能」とは言わず、利用や外部開発の成立を測ってから評価する。
+
+**説明候補［提案・未採用］：**「Solana の共有経済基盤の上で、プレイヤーが作った機能を他者や AI が再利用する文明戦略ゲーム」。共有基盤を使う価値は、公開入口の利用とプレイテストで確かめる。
+
 ## 確認範囲
 
 この文書は公開資料と上記の固定 SHA のコードを確認した結果であり、live 環境の操作、利用量、収益、継続稼働、初心者の達成率を検証したものではない。Wylls の提案の成立も未検証。比較対象の機能が今後変われば記述を再確認する。
