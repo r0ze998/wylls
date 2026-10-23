@@ -19,6 +19,7 @@ import { L, fmtNum } from '../../lang.mjs';
 import { FACTION_COLORS } from '../fi18n.mjs';
 import { tileHex } from '../fgeo.mjs';
 import { YOURS } from './chart.mjs';
+import { paintVaultArt, paintTowerArt, paintPalisadeArt, paintFortArt, paintCartArt, loadOf } from './structures.mjs';
 
 const KINDS = { 1: 'tower', 2: 'palisade', 3: 'fort' };
 /** The province's centre tile (fgeo.mjs TILE_OFFSETS: the offset (0, 0)). */
@@ -34,7 +35,8 @@ export const S1_WORDS = Object.freeze({
   raided: () => L`襲われた隊商`,
 });
 /** A caravan's tag: when it arrives. */
-export const caravanTagText = (bell, raided = false) => (raided ? L`襲われた隊商 ターン ${fmtNum(bell)} 着` : L`隊商 ターン ${fmtNum(bell)} 着`);
+// (the cart's place is an estimate between its two ends; the tag says so, so nobody plans an ambush on a guess)
+export const caravanTagText = (bell, raided = false) => (raided ? L`襲われた隊商 ターン ${fmtNum(bell)} 着` : L`隊商 ターン ${fmtNum(bell)} 着 · 位置は推定`);
 
 /** The bell a caravan arrives at: after its last run (the bells it spends in each province on its way). */
 export function caravanArriveBell(c) {
@@ -190,16 +192,20 @@ export function paintCover(g, s, { zoom = 1 } = {}) {
  * viewer's. Returns the caravans' points (for their tags).
  */
 export function paintS1Marks(g, marks, { zoom = 1, faction = null, stand = (x, y, fn) => fn() } = {}) {
-  const u = RADIUS * 0.62, tags = [];
+  // (docs/design/uplift 01: the things stand in the villages' hand, map/structures.mjs; the flat icons above stay
+  // for the tests and as the far view's stand-ins)
+  const u = RADIUS * 0.95, tags = [];
   if (!marks) return tags;
   for (const s of marks.structures) if (s.kind === 'tower' && (s.own || s.faction === faction)) paintCover(g, s, { zoom });
   const at = (m, dx, dy) => { const h = tileHex(m.p, m.q, m.tile); if (!h) return null; const c = project(h.q, h.r); return { x: c.x + RADIUS * dx, y: c.y + RADIUS * dy }; };
-  for (const v of marks.vaults) { const p = at(v, -0.22, 0.2); if (p) stand(p.x, p.y, () => paintVault(g, p.x, p.y, u, v)); }
-  for (const s of marks.structures) { const p = at(s, 0.24, 0.18); if (p) stand(p.x, p.y, () => paintStructure(g, p.x, p.y, u, s)); }
+  const ART = { tower: paintTowerArt, palisade: paintPalisadeArt, fort: paintFortArt };
+  for (const v of marks.vaults) { const p = at(v, -0.22, 0.2); if (p) stand(p.x, p.y, () => paintVaultArt(g, p.x, p.y, u, v)); }
+  for (const s of marks.structures) { const p = at(s, 0.24, 0.18); if (p) stand(p.x, p.y, () => (ART[s.kind] ?? paintStructure)(g, p.x, p.y, u, s)); }
   for (const c of marks.caravans) {
     const p = caravanPoint(c);
     if (!p) continue;
-    stand(p.x, p.y, () => paintCaravan(g, p.x, p.y, u, c));
+    const dir = p.b.x >= p.a.x ? 1 : -1;
+    stand(p.x, p.y, () => paintCartArt(g, p.x, p.y, u * 1.25, { ...c, load: loadOf(c.cargo), dir }));
     tags.push({ c, x: p.x, y: p.y });
   }
   return tags;

@@ -732,7 +732,24 @@ function renderStake(r, stake) {
  * keep?, verify?, verifying?}`; `mine(id)` marks the viewer's own; `whatIf` offers
  * the practice "what if" (not on the spectator page: it has no own hosts).
  */
-export function render(FS, mine = () => false, { whatIf = true, ownerOf = null } = {}) {
+/**
+ * What was forecast beside what happened (docs/design/uplift/02-CORE-FLOW): for each arrival of the viewer's in this
+ * clash whose seal this device kept a forecast for (hud/forecastbook.mjs), the range the card showed (予測, dashed)
+ * and what the record says now (確定, a solid stamp). A row without a kept forecast is not shown: nothing is made up
+ * after the fact. Before the outcome is known the result column says so.
+ */
+export function renderPrediction(rows, bell, forecastOf) {
+  if (typeof forecastOf !== 'function') return '';
+  const items = rows.filter(x => x.mine && x.kind === 'arrival').map(x => ({ x, f: forecastOf(x.id, bell) })).filter(o => o.f);
+  if (!items.length) return '';
+  const range = f => (f.min === f.max ? fmtNum(f.min) : L`${fmtNum(f.min)}〜${fmtNum(f.max)}`);
+  return html`<section class="rep-predict" aria-label="${L`予測と確定`}">
+    <table class="rp-table"><thead><tr><th></th><th><span class="state-tag state-forecast">${L`予測`}</span> ${L`出発時`}</th><th><span class="state-tag state-done">${L`確定`}</span> ${L`ターン ${fmtNum(bell)}`}</th></tr></thead>
+    <tbody>${items.map(({ x, f }) => html`<tr><th>${L`残る兵`}</th><td>${range(f)}</td><td><strong>${x.after === null ? L`確かめると出ます` : fmtNum(x.after)}</strong>${x.after !== null && (x.after < f.min || x.after > f.max) ? html` <span class="rp-out">${L`予測の幅の外`}</span>` : ''}</td></tr>`)}</tbody></table>
+    <p class="muted rp-note">${L`予測は、出発したときにこの端末がルールで試した幅です。確定は、チェーンの記録の数です。`}</p></section>`;
+}
+
+export function render(FS, mine = () => false, { whatIf = true, ownerOf = null, forecastOf = null } = {}) {
   const r = FS.report;
   if (!r) return '';
   // the place by a name, the turn once (the chip beside the title): no coordinates and no second number in the title
@@ -772,6 +789,7 @@ export function render(FS, mine = () => false, { whatIf = true, ownerOf = null }
   return html`<section aria-labelledby="report-title" class="report doc">${head}
     <h4 class="visually-hidden">${L`兵の前と後`}</h4>
     ${renderVersus(rows)}
+    ${renderPrediction(rows, r.bell, forecastOf)}
     ${renderStake(r, keepStake(r, rows, FS.conquest?.keeps?.get?.(`${r.p},${r.q}`) ?? null))}
     <div class="doc-cols">
       <div class="doc-col">${renderHeadline(summaryOf(rows), r)}</div>

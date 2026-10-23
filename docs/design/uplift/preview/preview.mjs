@@ -28,7 +28,7 @@ function build() {
       cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
       const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
       const t0 = performance.now();
-      D.paint(g, r.width, r.height, { frame: FRAMES[frame], state: frame, t, redraw: () => queue() });
+      D.paint(g, r.width, r.height, { frame: FRAMES[frame], state: ['rest', 'select', 'result'].includes(frame) ? frame : 'rest', t, redraw: () => queue() });
       fig.dataset.ms = (performance.now() - t0).toFixed(1);
     };
     let pending = false;

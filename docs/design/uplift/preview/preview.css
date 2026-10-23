@@ -83,4 +83,13 @@ body { margin: 0; background: #e9e2cf; color: var(--ink); }
 .pv-dir-C .pv-result button { background: transparent; color: #e6e0d2; border: 1px solid rgba(255,255,255,.3); }
 .pv-dir-C .pv-sample { color: #9aa3a8; }
 .pv-stages[data-layout="all"] .pv-ui { display: none; }
+.pv-tabs-future button { border-style: dashed; }
+.pv-mark { margin: 0 0 8px; font-size: 11px; line-height: 1.5; color: #7a3b1e; }
+.pv-status { display: inline-block; margin-right: 6px; padding: 0 6px; border: 1.5px dashed currentColor; border-radius: 3px; font-weight: 800; }
+.pv-feature .pv-cmp small { opacity: .7; }
+.pv-feature button[disabled] { opacity: .55; cursor: not-allowed; }
+.pv-states { margin: 6px 0; padding-left: 0; list-style: none; display: grid; gap: 6px; }
+.pv-states li { padding: 6px 10px; border-left: 3px solid rgba(64,48,18,.3); }
+.pv-states li.on { border-left-color: #2e6b4c; }
+.pv-states small { display: block; opacity: .8; }
 @media (max-width: 900px) { .pv-stages[data-layout="all"] { grid-template-columns: 1fr; } }

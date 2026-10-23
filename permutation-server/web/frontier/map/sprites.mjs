@@ -280,7 +280,9 @@ export const FLAT = Object.freeze({
   grassland: ['#7d9651', '#6d8546'], plains: ['#bfae6c', '#a8985c'], forest: ['#4d6a3b', '#3c5530'],
   hills: ['#8e9a5c', '#737d49'], mountain: ['#8a847a', '#6c675f'], water: ['#467f8c', '#3a6c78'],
 });
-const GRID_INK = 'rgba(24,34,26,0.32)';
+// (docs/design/uplift 01: at rest the land is the subject and the grid a breath; the lattice where an order can go
+// is drawn crisp by map/actions.mjs paintActionGround. It was 0.32.)
+const GRID_INK = 'rgba(24,34,26,0.13)';
 /** A ground bitmap's box around its province's centre (world px): the tiles and their sprites' cells. */
 const GROUND_BOX = Object.freeze({ left: 352, right: 352, top: 258, bottom: 252 });
 /** A nation's land from afar: how strong its wash is on the world chart and nearer, and its one rim (screen px). */

@@ -18,7 +18,9 @@ const page = await browser.newPage({ viewport: { width, height: Math.round(width
 const errors = [];
 page.on('pageerror', e => errors.push(e.message));
 page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
-for (const dir of ['A', 'B', 'C', 'all']) for (const frame of ['rest', 'select', 'result']) {
+const FRAMES = ['rest', 'select', 'result', 'caravan', 'raid', 'ai', 'season'];
+for (const dir of ['A', 'B', 'C', 'all']) for (const frame of FRAMES) {
+  if (dir !== 'A' && FRAMES.indexOf(frame) > 2 && !only.includes(`${dir}:${frame}`)) continue;
   if (only.length && !only.includes(`${dir}:${frame}`)) continue;
   await page.goto(`${base}/docs/design/uplift/preview/index.html?dir=${dir}&frame=${frame}`);
   await page.waitForTimeout(2500);

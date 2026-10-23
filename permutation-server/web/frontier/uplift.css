@@ -1,0 +1,64 @@
+/* The decision parts of the visual uplift (docs/design/uplift/03-COMPONENTS.ja.md). They sit on the drawer's
+   parchment and use the state tokens of frontier.css :root (--st-*). Every state has a shape as well as a colour:
+   forecast = dashed outline, done = solid stamp, wait = ring, fail = cut corner, sealed = lock. */
+
+/* ---- the state tag: a small word that says what kind of figure follows */
+.state-tag { display: inline-flex; align-items: center; gap: 3px; padding: 0 6px; min-height: 18px; border-radius: 3px; font: 800 11px/1.5 var(--ui); letter-spacing: .06em; white-space: nowrap; vertical-align: middle; }
+.state-forecast { color: var(--st-forecast); background: var(--st-forecast-bg); border: 1.5px dashed currentColor; }
+.state-done { color: #fff; background: var(--st-done); border: 1.5px solid var(--st-done); }
+.state-wait { color: var(--st-wait); background: var(--st-wait-bg); border: 1.5px solid currentColor; border-radius: 9px; }
+.state-fail { color: var(--st-fail); background: var(--st-fail-bg); border: 1.5px solid currentColor; clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%); }
+.state-sealed { color: var(--st-sealed); background: rgba(107,42,31,.08); border: 1.5px solid currentColor; }
+
+/* ---- the order's outlook: four facts in one look */
+.mc-outlook { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; margin: var(--s2) 0 var(--s3); border: 1px solid var(--ink-rule); border-radius: 6px; background: var(--ink-rule); overflow: hidden; }
+.mo-cell { display: grid; align-content: start; gap: 1px; min-width: 0; padding: 7px 10px 8px; background: #fbf6e8; }
+.mo-k { font-size: var(--t1); font-weight: 600; color: var(--ink-2); line-height: 1.4; }
+.mo-v { font: 700 var(--t3)/1.25 var(--display); color: var(--ink); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.mo-n { font-size: var(--t1); line-height: 1.4; color: var(--ink-2); }
+.mo-fc { background: repeating-linear-gradient(135deg, #fbf6e8 0 8px, #f6efdc 8px 9px); }
+.mo-fc .mo-v { color: var(--st-forecast); }
+
+/* ---- the stances compared: each row is the stance's button */
+.mc-compare { display: grid; gap: 4px; }
+.mcc-head, .mcc-row { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1.1fr); align-items: center; gap: 8px; }
+.mcc-head { padding: 0 10px; font-size: var(--t1); color: var(--ink-2); }
+.mcc-head .state-tag { margin-left: 4px; }
+.mcc-row { min-height: 52px; padding: 6px 10px; border: 1px solid rgba(60,48,20,.3); border-radius: 8px; background: rgba(255,255,255,.5); color: var(--ink); font: inherit; text-align: left; cursor: pointer; transition: background var(--out), border-color var(--out); }
+.mcc-row:hover { background: rgba(255,255,255,.85); border-color: #6f6548; }
+.mcc-row:active { transform: translateY(1px); transition-duration: 70ms; }
+.mcc-row[aria-checked="true"] { border-color: #0d2f2a; background: #fffdf6; box-shadow: inset 0 0 0 2px var(--accent), 0 2px 5px rgba(10,30,26,.22); }
+.mcc-row:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.mcc-stance { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mcc-stance svg { flex: none; width: 34px; height: 26px; }
+.mcc-stance b { display: block; font-size: var(--t2); }
+.mcc-stance small, .mcc-fate small { display: block; font-size: var(--t1); color: var(--ink-2); font-weight: 400; }
+.mcc-left { font: 700 var(--t2)/1.3 var(--ui); font-variant-numeric: tabular-nums; color: var(--st-forecast); }
+.mcc-fate { font-size: var(--t2); line-height: 1.3; }
+.mcc-same { margin: 2px 0 0; padding: 4px 8px; border-left: 3px solid var(--st-forecast); font-size: var(--t1); font-weight: 600; color: var(--ink); }
+.mcc-note { margin: 2px 0 0 !important; font-size: var(--t1); line-height: 1.5; }
+
+/* ---- the line over the seal: what cannot be taken back */
+.order-irrev { display: flex; align-items: flex-start; gap: 6px; margin: 0; padding: 0 2px; font-size: var(--t1); line-height: 1.45; color: var(--st-sealed); }
+.order-irrev .ic { flex: none; width: 14px; height: 14px; margin-top: 2px; }
+
+/* ---- the report: what was forecast beside what the record says */
+.rep-predict { margin: var(--s2) 0 var(--s3); padding: var(--s2) var(--s3); border: 1px solid var(--ink-rule); border-radius: 6px; background: #fbf6e8; }
+.rp-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.rp-table th, .rp-table td { padding: 4px 6px; text-align: left; font-size: var(--t2); }
+.rp-table thead th { font-size: var(--t1); font-weight: 600; color: var(--ink-2); border-bottom: 1px solid var(--ink-rule); }
+.rp-table td:nth-child(2) { color: var(--st-forecast); }
+.rp-table td strong { font: 700 var(--t3)/1.2 var(--display); }
+.rp-out { font-size: var(--t1); color: var(--st-fail); font-weight: 700; }
+.rp-note { margin: 4px 0 0 !important; font-size: var(--t1); }
+
+/* ---- the send track: each step a state (wait while under way, done once past) */
+.send-track li.now { color: var(--st-wait); font-weight: 700; }
+.send-track li.done { color: var(--st-done); }
+
+@media (max-width: 759px) {
+  .mc-outlook { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mcc-row { min-height: 56px; }
+  .panel[data-sheet="peek"] .order-irrev { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .mcc-row, .mcc-row:active { transition: none; transform: none; } }

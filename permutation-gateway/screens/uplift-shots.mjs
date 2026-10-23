@@ -72,6 +72,23 @@ const SCENES = [
   ['s06-holding', 'the village drawer', async page => { await page.locator('#tabs [data-tab="holding"]').click(); }],
   ['s07-hosts', 'the hosts drawer', async page => { await page.locator('#tabs [data-tab="hosts"]').click(); }],
   ['s08-more', 'the more drawer', async page => { await page.locator('#tabs [data-tab="more"]').click(); }],
+  // A SAMPLE of the herald's S1 feeds laid into the page (the fixture serves none, and no S1 world can be started
+  // locally yet: docs/design/uplift/00-SCOPE 2): a vault, an enemy tower and palisade, the viewer's fort and a cart of
+  // ore on the home province, to see how the stage-1 things stand on the board. Not a record of any season.
+  ['s09-s1sample', 'stage-1 things (sample feed)', async page => {
+    await page.evaluate(async ({ p, q }) => {
+      const { FS } = await import('/frontier/fstate.mjs');
+      const { parseCaravans, parseStructures } = await import('/frontier/herald.mjs');
+      const pl = (kind, t) => ({ kind, p, q, at: 2, gen: 1, tile: t });
+      FS.s1 = { nations: null, error: null,
+        caravans: parseCaravans({ v: 1, moving: [{ ownerTag: '1', seq: 0, faction: 0, src: pl(1, 21), dst: pl(3, 33), steps: 4, cargo: [0, 0, 0, 3000, 0, 0, 0, 0], arriveTs: 1800030000, runs: [{ p, q, firstBell: (FS.nowBell ?? 40) - 1, n: 3 }], raided: false }], vaults: [{ p, q, tile: 21, ownerTag: '1', faction: 0, gen: 1 }] }),
+        structures: parseStructures({ v: 1, sightings: [], structures: [
+          { p, q, tile: 40, kind: 1, faction: 3, ownerTag: '7', gen: 1, notify: 0, cover: [], sent: 0 },
+          { p, q, tile: 41, kind: 2, faction: 3, ownerTag: '7', gen: 2, notify: 0, cover: [], sent: 0 },
+          { p, q, tile: 33, kind: 3, faction: 0, ownerTag: '1', gen: 3, notify: 0, cover: [], sent: 0 }] }) };
+      window.dispatchEvent(new Event('resize'));
+    }, W.HOME);
+  }, '?at=2,0,30,1.5'],
 ];
 
 const srv = await startServer();
@@ -82,7 +99,7 @@ try {
   for (const vpId of vps) {
     const vp = VIEWPORTS[vpId];
     const phone = vp.width < 760;
-    for (const [id, title, run] of SCENES) {
+    for (const [id, title, run, query = ''] of SCENES) {
       if (only.length && !only.includes(id)) continue;
       srv.stage('holding');
       const context = await browser.newContext({ viewport: vp, isMobile: phone, hasTouch: phone, locale: lang === 'ja' ? 'ja-JP' : 'en-GB', timezoneId: 'UTC', deviceScaleFactor: 1 });
@@ -92,7 +109,7 @@ try {
       page.on('pageerror', e => errors.push(e.message));
       await page.clock.setFixedTime(new Date(W.LATEST_UNIX * 1000 + 500));
       const t0 = Date.now();
-      await page.goto(`${srv.url}/frontier/index.html`);
+      await page.goto(`${srv.url}/frontier/index.html${query}`);
       await page.waitForFunction(() => /\d/.test(document.getElementById('bell-chip')?.textContent ?? '') && document.body.dataset.stage !== 'loading', null, { timeout: 30000 });
       await page.locator('#frontier-map[data-lod="tile"]').waitFor({ timeout: 15000 }).catch(() => {});
       await settle(page, 1500);

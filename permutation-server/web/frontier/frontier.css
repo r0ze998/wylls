@@ -47,6 +47,14 @@
   --seal: #a4382a; --seal-hi: #c9523f; --good: #2e6b4c; --bad: #9b2f24; --hold: #7a5a12;
   /* the drawer's sheet: one paper colour (hud/textures.mjs PAPER: the uneven edge is painted in the same), ink for rules and stamps */
   --paper-sheet: #f3ead3; --ink-rule: rgba(64,48,18,.34); --ink-soft: rgba(64,48,18,.16); --ink-stamp: #5c4a1e;
+  /* the states of a decision (docs/design/uplift/03-COMPONENTS): each has a colour AND a shape, never the colour alone.
+     forecast = a dashed outline (a guess the rules made), done = a solid stamp (the record says so), wait = an hourglass
+     ring (sent, not resolved), fail = a cut corner (refused, nothing changed), sealed = a lock (cannot be taken back) */
+  --st-forecast: #5c4a1e; --st-forecast-bg: rgba(92,74,30,.06);
+  --st-done: #2e6b4c; --st-done-bg: rgba(46,107,76,.1);
+  --st-wait: #7a5a12; --st-wait-bg: rgba(201,162,74,.14);
+  --st-fail: #9b2f24; --st-fail-bg: rgba(155,47,36,.09);
+  --st-sealed: #6b2a1f;
   color-scheme: light;
   font: var(--t2)/1.5 var(--ui);
   line-break: strict; word-break: normal; overflow-wrap: break-word;

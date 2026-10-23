@@ -37,8 +37,65 @@ const result = () => `
     <footer><button type="button">戦いを再生</button><button type="button">次の一手</button></footer>
   </aside>`;
 
+// ---------------------------------------------------------------- previews of what the client cannot do yet
+// Each says which mark of the design document it stands on, and that it does nothing.
+const mark = (status, line) => `<p class="pv-mark"><span class="pv-status">${status}</span>${line}</p>`;
+
+const caravan = () => `
+  <aside class="pv-card pv-feature">
+    ${mark('規則は【決定済み】【S1 に実装】· 画面は未実装', 'このプレビューのボタンは動きません')}
+    <header><span class="pv-kind">隊商を送る</span><span class="pv-meta">渡しの倉 → 東の要塞</span></header>
+    <table class="pv-cmp"><tbody>
+      <tr><th>積み荷</th><td>鉱石 30 <small>（倉の在庫 120）</small></td></tr>
+      <tr><th>着く</th><td>ターン 45 <small>（荷車は進軍の 1.5 倍の時間）</small></td></tr>
+      <tr><th>見えるもの</th><td>出発・行き先・道・着く時刻・中身。<b>すべての住人に見えます</b></td></tr>
+      <tr><th>危険</th><td>ダンマールの物見櫓の範囲を 1 マス通る（道が決まった時点で最大 30% 削られる）</td></tr>
+      <tr><th>守り</th><td>護衛は、行き先を隠した進軍で道の途中に先に送る（相手には見えない）</td></tr>
+    </tbody></table>
+    <footer><button type="button" class="pv-seal" disabled>送る（財布の署名）</button><button type="button" disabled>護衛を先に送る</button></footer>
+  </aside>`;
+
+const raid = () => `
+  <aside class="pv-card pv-feature">
+    ${mark('規則は【決定済み：J2】【S1 に実装】· 画面は未実装', 'このプレビューのボタンは動きません')}
+    <header><span class="pv-kind">隊商を止めた</span><span class="pv-meta">シンダーの隊商 · 木材 80</span></header>
+    <p>護衛はいませんでした。どうしますか。<b>あと 6 ターン</b>のうちに選ばないと、荷車はあなたの村へ向かいます。</p>
+    <table class="pv-cmp"><thead><tr><th>選ぶ</th><th>どうなるか</th></tr></thead><tbody>
+      <tr><th>奪う</th><td>荷車ごとあなたの物になり、<b>見える荷車として</b>あなたの村へ進む。取り返しに来られる</td></tr>
+      <tr><th>焼く</th><td>荷を全部なくす。誰の物にもならない</td></tr>
+    </tbody></table>
+    <footer><button type="button" class="pv-seal" disabled>奪う</button><button type="button" disabled>焼く</button><span class="pv-irrev">選んだら取り消せません</span></footer>
+  </aside>`;
+
+const ai = () => `
+  <aside class="pv-card pv-feature">
+    ${mark('【別ブランチ】agent-wallet · この起点に実装なし · 代理の札は【決定済み：方向】', '状態を混ぜない見せ方の案')}
+    <header><span class="pv-kind">あなたの村の代理</span></header>
+    <ol class="pv-states">
+      <li class="on"><b>委任：チェーン上で有効</b><small>AI の鍵があなたの村として署名できます（期限 8 時間）</small></li>
+      <li><b>判断：無料の自動操作で動いています</b><small>有料のモデルは予算切れのため止まっています。停止ではありません（A）</small></li>
+      <li><b>任せていること</b><small>守り・荷車の出し入れ・決まりの一時停止。<b>軍を出して攻めることは任せられません</b></small></li>
+      <li><b>鍵</b><small>財布の鍵はあなたが持っています。AI の鍵は運営のサーバーが持っています</small></li>
+    </ol>
+    <footer><button type="button" disabled>AI を止める（委任は残る）</button><button type="button" class="pv-seal" disabled>委任を解除する（財布の署名）</button></footer>
+  </aside>`;
+
+const season = () => `
+  <aside class="pv-card pv-feature">
+    ${mark('【決定済み】世界は続き、戦争だけを 2 週間の戦期で区切る · 実装はまだシーズン制', '')}
+    <header><span class="pv-kind">戦期 3 · 残り 4 日 6 時間</span></header>
+    <table class="pv-cmp"><thead><tr><th>戦期の終わりに</th><th></th></tr></thead><tbody>
+      <tr><th>戻る</th><td>勝敗の砦（中立に戻る）、守備の兵は家へ、戦争の状態</td></tr>
+      <tr><th>続く</th><td>村、倉、札、決まり、仕組み、隊商</td></tr>
+      <tr><th>配る</th><td>勝敗の砦を持った長さで国へ（配分の数は【未決定】）</td></tr>
+    </tbody></table>
+  </aside>`;
+
+export const FEATURE_FRAMES = { caravan, raid, ai, season };
+
 export function panelHtml(dir, frame) {
   const note = `<p class="pv-sample">見本の場面 · 数値は比較用</p>`;
+  if (FEATURE_FRAMES[frame]) return top() + FEATURE_FRAMES[frame]() + `<p class="pv-sample">プレビュー：本番の画面にはありません</p>`;
   if (frame === 'select') return top() + compare() + note;
   if (frame === 'result') return top() + result() + note;
   return top() + `<div class="pv-next">次にすること：<b>隊商がターン 45 に要塞へ着く</b></div>` + note;

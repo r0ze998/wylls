@@ -146,7 +146,8 @@ import * as profile from './people/profile.mjs';
 import * as glossary from './hud/glossary.mjs';
 import * as milestones from './hud/milestones.mjs';
 import * as guide from './hud/guide.mjs';
-import { forecast, forecastKey } from './hud/forecast.mjs';
+import { forecast, forecastKey, compareStances, compareKey } from './hud/forecast.mjs';
+import { keepForecast, forecastFor } from './hud/forecastbook.mjs';
 import { BUILD_ITEMS, UNIT_ORDER, SCOUT, SETTLER, ticketTimes, queueItem, queueBuildingItem } from './fland.mjs';
 import { UNIT_KINDS } from './people/units.mjs';
 import { momentSnapshot, detectMoments, liveMoments } from './people/moments.mjs';
@@ -349,7 +350,7 @@ export function panelMarkup(FS, d = drawerOf(FS)) {
   const parts = [];
   if (!d) return [...parts, ...restMarkup(FS)];
   if (d.kind === 'practice') return [...parts, practiceScreen.render(FS.practice, { kernelError: FS.practiceError ?? null, closable: true })];
-  if (d.kind === 'report') return [...parts, reportScreen.render(FS, mineOf(FS.holdings), { ownerOf: reportOwner })];
+  if (d.kind === 'report') return [...parts, reportScreen.render(FS, mineOf(FS.holdings), { ownerOf: reportOwner, forecastOf: (id, bell) => forecastFor(uiStorage, scope()?.seasonId, id, bell) })];
   if (d.kind === 'march' || d.kind === 'inspect') {
     // an order being written on the map is the one document in the drawer (hud/marchcard.mjs); else what is selected
     if (FS.compose) return [...parts, marchCard.render(FS)];
@@ -2012,6 +2013,9 @@ function updateForecast() {
     let fc;
     try { fc = forecast(k, c, prov, FS.citizen?.faction ?? 0); } catch (e) { fc = { ok: false, why: e?.code ?? 'Error' }; }
     c.forecast = { key, ...fc };
+    // the stances side by side (the card's comparison): once per destination, turn and retreat, not per stance chosen
+    const ck = compareKey(c);
+    if (fc.ok && c.compare?.key !== ck) c.compare = { key: ck, rows: compareStances(k, c, prov, FS.citizen?.faction ?? 0) };
   }).catch(() => { if (FS.compose === c) c.forecast = { key, ok: false, why: 'NoWasm' }; })
     .finally(() => { fcBusy = null; invalidate('panel'); });
 }
@@ -2916,7 +2920,10 @@ export const HUD_ACTIONS = {
   'march-send': async () => {
     const c = FS.compose;
     if (c?.host && c.dest && pm.fights(c.host)) protoPromise({ host: String(c.host.id), p: c.dest.p, q: c.dest.q, tile: c.dest.tile });
+    const fc = c?.forecast?.ok ? { hostId: c.host.id, bell: c.arriveBell, stance: c.stance ?? 0, fc: c.forecast } : null;
     const r = await ACTIONS['march-send']();
+    // (sent: what the card forecast is kept on this device, for the report's 予測 beside its 確定: hud/forecastbook.mjs)
+    if (c && !FS.compose && fc) keepForecast(uiStorage, scope()?.seasonId, fc);
     if (c && !FS.compose) { FS.selected = null; FS.hand = null; FS.inspectOpen = false; FS.actor = null; FS.mapNote = null; invalidate('map', 'panel', 'tabs', 'rail'); }
     return r;
   },

@@ -7,6 +7,11 @@ export const FRAMES = {
   rest: { cx: 40, cy: -20, zoom: 1.45 },
   select: { cx: 270, cy: -30, zoom: 1.22 },
   result: { cx: 270, cy: -30, zoom: 1.22 },
+  // the previews of what the client cannot do yet (panels.mjs FEATURE_FRAMES): the board at rest behind them
+  caravan: { cx: 200, cy: -20, zoom: 1.35 },
+  raid: { cx: 200, cy: -20, zoom: 1.35 },
+  ai: { cx: 200, cy: -20, zoom: 1.35 },
+  season: { cx: 200, cy: -20, zoom: 1.35 },
 };
 
 /** A world → canvas transform for a frame on a canvas of `w × h` CSS px. */

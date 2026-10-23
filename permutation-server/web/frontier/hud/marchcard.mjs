@@ -38,6 +38,7 @@ import { tileName, provinceCoords } from './place.mjs';
 import { conquestOn, crest, holdTurns } from './keephand.mjs';
 import { STANCE_PIC, RETREAT_PIC, sealPic } from './pictos.mjs';
 import { miniCardUrl, MINI_KINDS } from '../people/minis.mjs';
+import { compareKey } from './forecast.mjs';
 
 const BEATS = { Assault: 'Flank', Flank: 'Brace', Brace: 'Assault' };
 const RETREAT_SHORT = { never: () => L`撤退しない`, x2: () => L`2倍で撤退`, 'x1.5': () => L`1.5倍で撤退`, x1: () => L`同数で撤退`, 'x0.5': () => L`半分で撤退`, custom: () => L`倍率を指定する` };
@@ -111,6 +112,54 @@ export function renderForecast(fc) {
   return html`<div class="mc-fc"><p><strong>${fc.troops.min === fc.troops.max ? L`残る兵 ${fmtNum(fc.troops.min)}` : L`残る兵 ${fmtNum(fc.troops.min)}〜${fmtNum(fc.troops.max)}`}</strong> <span class="muted">${L`（出発時 ${fmtNum(fc.troops.start)}）`}</span></p>
     <ul class="mc-fates">${fates.map(([k, n]) => html`<li class="mc-fate-${k}">${bar(n, fc.runs)}<span>${FATE_SHORT[k]?.() ?? k}</span><span class="muted">${L`${fmtNum(n)}/${fmtNum(fc.runs)}回`}</span></li>`)}</ul>
     <p class="muted">${L`ルールで${fmtNum(fc.runs)}回試した結果の幅です。ほかの軍勢の到着は封印中のため、数えていません。`}${fc.certain ? '' : html` ${L`このターンは野営地の見直しがあるため、守り手が変わるかもしれません。`}`}</p></div>`;
+}
+
+/** A forecast's range of troops left, as words: "310〜470" or "388". */
+const leftText = fc => (fc.troops.min === fc.troops.max ? fmtNum(fc.troops.min) : L`${fmtNum(fc.troops.min)}〜${fmtNum(fc.troops.max)}`);
+/** A forecast's most frequent fate. */
+const topFate = fc => Object.entries(fc.fates ?? {}).sort((a, b) => b[1] - a[1])[0] ?? null;
+
+/**
+ * The order's outlook (docs/design/uplift/02-CORE-FLOW: what the decision needs, in one look before the details):
+ * when it arrives, what it costs the host, who is there, and the rules' forecast, tagged 予測 so it is never read as
+ * a result. Each cell says where its figure comes from in one short line.
+ */
+export function outlook({ w, awayLine, stam, nowB, def, odds, fc, sight }) {
+  const cell = (k, v, note, cls = '') => html`<div class="mo-cell ${cls}"><span class="mo-k">${k}</span><strong class="mo-v">${v}</strong>${note ? html`<span class="mo-n">${note}</span>` : ''}</div>`;
+  const next = stam !== null && stam >= DEPART_STAMINA ? L`次はターン ${fmtNum(nowB + Math.max(0, 2 * DEPART_STAMINA - stam))} から` : '';
+  const foe = def ? (def.total ? L`守り ${fmtNum(def.total)}` : L`守り手なし`) : L`わからない`;
+  const foeNote = def ? (def.total ? odds?.text ?? '' : '') : sight < 3 ? L`見えていない土地` : '';
+  // (a forecast of a march nobody opposes says only that the host arrives whole: no cell for it)
+  const fcCell = !def?.total ? '' : fc?.pending ? cell(html`<span class="state-tag state-forecast">${L`予測`}</span>`, L`計算中…`, '', 'mo-fc')
+    : fc?.ok ? cell(html`<span class="state-tag state-forecast">${L`予測`}</span>`, L`残る兵 ${leftText(fc)}`, L`ルールで ${fmtNum(fc.runs)} 回試した幅`, 'mo-fc')
+    : fc ? cell(html`<span class="state-tag state-forecast">${L`予測`}</span>`, L`いまは出せません`, L`行き先の州の記録がそろうと出ます`, 'mo-fc') : '';
+  return html`<div class="mc-outlook" role="group" aria-label="${L`この命令の見通し`}">
+    ${w ? cell(L`到着`, L`ターン ${fmtNum(w.value)}`, awayLine) : ''}
+    ${cell(L`費用`, L`体力 −${fmtNum(DEPART_STAMINA)}`, next)}
+    ${cell(L`相手`, foe, foeNote)}
+    ${fcCell}</div>`;
+}
+
+/**
+ * The four stances compared by the rules' forecast (hud/forecast.mjs compareStances): each row is the stance's
+ * button, with what it is strong against, the range of troops left and the fate that came up most. The chosen
+ * stance's row is pressed. Falls back to the plain pictures while the comparison is not there.
+ */
+export function stanceCompare(value, cmp) {
+  const rows = cmp?.rows;
+  if (!rows?.length || !rows.some(r => r.ok)) return stancePicks(value);
+  const cap = s => (BEATS[s] ? L`${STANCE_TEXT[BEATS[s]]}に強い` : L`相性なし`);
+  return html`<div class="mc-compare" role="radiogroup" aria-label="${L`構えを比べる`}">
+    <div class="mcc-head" aria-hidden="true"><span>${L`構え`}</span><span>${L`残る兵`}<span class="state-tag state-forecast">${L`予測`}</span></span><span>${L`多かった結果`}</span></div>
+    ${rows.map(r => {
+      const s = STANCES[r.stance], f = r.ok ? topFate(r) : null;
+      return html`<button type="button" class="mcc-row" role="radio" aria-checked="${r.stance === value ? 'true' : 'false'}" data-act="mc-stance" data-v="${r.stance}">
+        <span class="mcc-stance">${STANCE_PIC[s]?.() ?? ''}<span><b>${STANCE_TEXT[s]}</b><small>${cap(s)}</small></span></span>
+        <span class="mcc-left">${r.ok ? leftText(r) : '—'}</span>
+        <span class="mcc-fate">${f ? html`${FATE_SHORT[f[0]]?.() ?? f[0]} <small>${`${fmtNum(f[1])}/${fmtNum(r.runs)}`}</small>` : '—'}</span></button>`;
+    })}
+    ${rows.every(r => r.ok && r.troops.min === rows[0].troops?.min && r.troops.max === rows[0].troops?.max) ? html`<p class="mcc-same">${L`この相手には、構えを変えても結果の幅は同じです。`}</p>` : ''}
+    <p class="muted mcc-note">${L`構えごとに、ルールで ${fmtNum(rows[0].runs ?? 0)} 回ずつ試した幅です。同じターンに着くほかの進軍は封印中のため、数えていません。`}</p></div>`;
 }
 
 /** The stances as pictures: `{act}` makes them buttons (the order), else radio buttons bound to `bind` (a form). */
@@ -205,9 +254,8 @@ export function render(FS) {
   // what the march costs this host, said before the seal: a march takes the same stamina wherever it goes and a point
   // returns a turn, so the host cannot march again, or come home, for a long while (it was said only afterwards, on
   // the host's bar: found by the independent check of wave 5)
+  // (said in the outlook's cost cell since the uplift: 「次はターン N から」)
   const nowB = FS.nowBell ?? 0, stam = c.host && Number.isFinite(c.host.staminaValue) ? staminaAt(c.host, nowB) : Number.isFinite(c.host?.stamina) ? c.host.stamina : null;
-  const restLine = stam !== null && stam >= DEPART_STAMINA
-    ? html`<p class="mc-rest muted">${icon('hourglass')}<span>${L`出発すると、この軍勢がつぎに進軍できる（村へ戻れる）のはターン ${fmtNum(nowB + Math.max(0, 2 * DEPART_STAMINA - stam))} からです`}</span></p>` : '';
   // (the page moved the arrival turn on with the clock, controller.mjs `composeTick`: said where the turn is named,
   // until the player chooses a turn of their own)
   const movedLine = w && c.moved && c.route && c.moved.to === w.value
@@ -225,15 +273,16 @@ export function render(FS) {
       <span class="mc-route">${c.route ? routeLine(c.route) : c.routeError ? clientText(c.routeError) : L`道のりを探しています…`}${!c.route && NO_ROUTE.includes(c.routeError) && !territoryEnabled(FS) ? html` ${reachLink(FS)}` : ''}</span>
       ${keepLine}
       <span class="mc-sealed">${icon('lock')}<span>${sealLine()}</span></span></div>
+    ${outlook({ w, awayLine, stam, nowB, def, odds, fc: c.forecast, sight })}
     ${w ? html`${label(L`到着`)}${stepper({ cls: 'mc-bell', label: L`到着のターン`,
       prev: { act: 'mc-bell', data: { d: -1 }, label: L`1ターン早く`, disabled: w.value <= w.min },
       next: { act: 'mc-bell', data: { d: 1 }, label: L`1ターン遅く`, disabled: w.value >= w.max },
       value: html`<strong class="mc-bell-v">${icon('bell')}${L`ターン ${fmtNum(w.value)} に到着`}</strong>${awayLine ? html`<span class="muted">${awayLine}</span>` : ''}` })}
       ${movedLine}
-      <p class="muted mc-when">${c.route ? L`進軍は、ターンの始まりにそろって到着します。いちばん早くてターン ${fmtNum(w.min)} です。` : L`進軍は、ターンの始まりにそろって到着します。`}</p>${restLine}` : restLine}
+      <p class="muted mc-when">${c.route ? L`進軍は、ターンの始まりにそろって到着します。いちばん早くてターン ${fmtNum(w.min)} です。` : L`進軍は、ターンの始まりにそろって到着します。`}</p>` : ''}
     ${timing ? html`<p class="muted mc-result-time">${L`結果の目安まで ${span(timing.resultIn)}（ゲーム内）`}</p>` : ''}
-    ${label(L`構え`, termButton('stance'))}
-    ${stancePicks(m.stance)}
+    ${label(def?.total ? L`構えを比べる` : L`構え`, termButton('stance'))}
+    ${def?.total ? stanceCompare(m.stance, c.compare?.key === compareKey(c) && c.forecast?.ok ? c.compare : null) : stancePicks(m.stance)}
     ${label(L`撤退`, termButton('retreat'))}
     ${retreatPicks(m.retreat.choice)}
     <p class="pick-line">${custom ? L`倍率を指定しています：${m.retreat.ratio ?? '—'}` : retreatLine(m.retreat.choice)}</p>
@@ -259,7 +308,7 @@ export function render(FS) {
     ${problems.length ? html`<ul class="problems">${problems.map(p => html`<li>${failureText({ code: p })}</li>`)}</ul>` : ''}
     ${problems.includes('NotResident') ? html`<button type="button" class="btn small" data-act="nudge" data-p="${c.origin.p}" data-q="${c.origin.q}">${L`この州の処理を進める`}</button>` : ''}
     ${busy || c.step ? html`<ol class="send-track" aria-label="${L`送信の段階`}">${SEND_STEPS.map(s => html`<li class="${c.step === s ? 'now' : SEND_STEPS.indexOf(s) < SEND_STEPS.indexOf(c.step) ? 'done' : ''}">${STEP_TEXT[s]()}</li>`)}</ol>` : ''}</div>
-    ${foot(html`${FS.notice && FS.notice.ok === false && !FS.notice.busy && FS.lastAct?.name === 'march-send' ? html`<p class="order-unsent" role="status">${icon('alert')}<span>${L`まだ送られていません。もう一度、封をして出発してください。`}</span></p>` : ''}${movedFoot}${protoLine}${sum}`, html`<button type="button" class="btn primary seal-btn" data-act="march-send" ${raw(problems.length || busy || !c.route ? 'disabled' : '')}>${icon('seal')}${L`封をして出発する`}</button>
+    ${foot(html`${FS.notice && FS.notice.ok === false && !FS.notice.busy && FS.lastAct?.name === 'march-send' ? html`<p class="order-unsent" role="status">${icon('alert')}<span>${L`まだ送られていません。もう一度、封をして出発してください。`}</span></p>` : ''}${movedFoot}${protoLine}${sum}${!busy && !c.step && !problems.length && c.route && w ? html`<p class="order-irrev">${icon('lock')}<span>${L`送ったら取り消せません。行き先と構えはターン ${fmtNum(w.value)} が終わるまで封印されます。`}</span></p>` : ''}`, html`<button type="button" class="btn primary seal-btn" data-act="march-send" ${raw(problems.length || busy || !c.route ? 'disabled' : '')}>${icon('seal')}${L`封をして出発する`}</button>
       <button type="button" class="btn quiet" data-act="compose-close">${L`やめる`}</button>`)}
   </section>`;
 }

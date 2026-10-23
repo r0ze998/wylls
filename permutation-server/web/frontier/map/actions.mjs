@@ -377,6 +377,9 @@ export function paintActionGround(g, A, { zoom = 1, now = fxNow(), still = false
   g.strokeStyle = rgba(M.fill, 1);
   for (const { width, alpha } of INNER) { g.globalAlpha = alpha * a; g.lineWidth = width; g.stroke(S.edge); }
   g.restore();
+  // the lattice of where the order can go (docs/design/uplift 01: the board's grid is a breath at rest, and a crisp
+  // line only here): every tile of the reach outlined in the pale rim's colour
+  g.globalAlpha = 0.46 * a; g.strokeStyle = 'rgba(250,246,230,1)'; g.lineWidth = 0.9 * k; g.stroke(S.fill);
   if (S.chart) { g.globalAlpha = 0.09 * a; g.fillStyle = rgba(CHART_INK, 1); g.fill(S.chart); }
   // a tile inside the reach that the host cannot enter: a light hatch, no frame
   if (S.holes) paintHatch(g, S.holes, S.shape, k, 0.2 * a);

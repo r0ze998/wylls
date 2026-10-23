@@ -30,6 +30,8 @@ const poly = (g, pts, fill, stroke = null, lw = 0) => {
 };
 const line = (g, pts, stroke, lw) => { g.beginPath(); pts.forEach(([px, py], i) => (i ? g.lineTo(px, py) : g.moveTo(px, py))); g.strokeStyle = stroke; g.lineWidth = lw; g.stroke(); };
 const lwOf = u => Math.max(0.011 * u, 0.5);
+/** Whether a context can paint these (the villages' kit needs real gradients; a recorder in a test has none). */
+const paints = g => !!g?.save && !!g.createLinearGradient?.(0, 0, 1, 1)?.addColorStop;
 
 /** The gold ring at the foot of something of the viewer's: a dark keyline, the gold, an ivory core (palette.mjs YOURS_MARK). */
 export function paintYoursRing(g, x, y, r) {
@@ -44,9 +46,9 @@ export function paintYoursRing(g, x, y, r) {
 
 /** A soft contact shadow under a footprint (half sizes in units of u), cast a little to the lower right. */
 function contact(g, x, y, u, w, d, alpha = 0.26) {
-  if (!g.createRadialGradient) return;
+  const gr = g.createRadialGradient?.(0, 0, w * u * 0.2, 0, 0, w * u * 1.15);
+  if (!gr?.addColorStop) return;
   g.save(); g.translate(x + w * 0.18 * u, y + d * 0.2 * u); g.scale(1, F * (d / w));
-  const gr = g.createRadialGradient(0, 0, w * u * 0.2, 0, 0, w * u * 1.15);
   gr.addColorStop(0, `rgba(30,24,12,${alpha})`); gr.addColorStop(1, 'rgba(30,24,12,0)');
   g.fillStyle = gr; g.beginPath(); g.arc(0, 0, w * u * 1.15, 0, Math.PI * 2); g.fill();
   g.restore();
@@ -54,7 +56,7 @@ function contact(g, x, y, u, w, d, alpha = 0.26) {
 
 /** A storehouse of stone with a timber door, iron bands and crates; the owner's pennon on its gable. */
 export function paintVaultArt(g, x, y, u, { faction = 0, own = false } = {}) {
-  if (!g?.save) return;
+  if (!paints(g)) return;
   const lw = lwOf(u), K = villageKit(g, x, y, u), roof = roofOf(faction);
   g.save(); g.lineJoin = 'round'; g.lineCap = 'round';
   contact(g, x, y, u, 0.42, 0.3);
@@ -79,7 +81,7 @@ export function paintVaultArt(g, x, y, u, { faction = 0, own = false } = {}) {
 
 /** A timber watchtower on a stone footing: an open platform, a roof in the nation's colour, a lantern. */
 export function paintTowerArt(g, x, y, u, { faction = 0, own = false } = {}) {
-  if (!g?.save) return;
+  if (!paints(g)) return;
   const lw = lwOf(u), K = villageKit(g, x, y, u), roof = roofOf(faction);
   g.save(); g.lineJoin = 'round'; g.lineCap = 'round';
   contact(g, x, y, u, 0.3, 0.24, 0.3);
@@ -108,14 +110,15 @@ export function paintTowerArt(g, x, y, u, { faction = 0, own = false } = {}) {
   line(g, [P(r0, r0, z0), apex], roof.ridge, lw * 1.4);
   // the lantern under the roof: a warm point
   const [lx, ly] = P(0.02, 0.02, top + 0.08);
-  if (g.createRadialGradient) { const gr = g.createRadialGradient(lx, ly, 0, lx, ly, 0.1 * u); gr.addColorStop(0, 'rgba(255,214,128,.9)'); gr.addColorStop(1, 'rgba(255,214,128,0)'); g.fillStyle = gr; g.beginPath(); g.arc(lx, ly, 0.1 * u, 0, Math.PI * 2); g.fill(); }
+  const lamp = g.createRadialGradient?.(lx, ly, 0, lx, ly, 0.1 * u);
+  if (lamp?.addColorStop) { const gr = lamp; gr.addColorStop(0, 'rgba(255,214,128,.9)'); gr.addColorStop(1, 'rgba(255,214,128,0)'); g.fillStyle = gr; g.beginPath(); g.arc(lx, ly, 0.1 * u, 0, Math.PI * 2); g.fill(); }
   g.fillStyle = '#ffe2a0'; g.beginPath(); g.arc(lx, ly, 0.022 * u, 0, Math.PI * 2); g.fill();
   g.restore();
 }
 
 /** A line of sharpened stakes across the tile, a closed gate in its middle with the nation's cloth on it. */
 export function paintPalisadeArt(g, x, y, u, { faction = 0, own = false } = {}) {
-  if (!g?.save) return;
+  if (!paints(g)) return;
   const lw = lwOf(u), K = villageKit(g, x, y, u), roof = roofOf(faction);
   g.save(); g.lineJoin = 'round'; g.lineCap = 'round';
   if (own) paintYoursRing(g, x, y + 0.04 * u, 0.62 * u);
@@ -146,7 +149,7 @@ export function paintPalisadeArt(g, x, y, u, { faction = 0, own = false } = {}) 
 
 /** A low square redoubt: an earth bank faced with stone, a squat keep, the nation's banner. */
 export function paintFortArt(g, x, y, u, { faction = 0, own = false } = {}) {
-  if (!g?.save) return;
+  if (!paints(g)) return;
   const lw = lwOf(u), K = villageKit(g, x, y, u), roof = roofOf(faction);
   g.save(); g.lineJoin = 'round'; g.lineCap = 'round';
   contact(g, x, y, u, 0.62, 0.46, 0.3);
@@ -188,7 +191,7 @@ const LOAD = {
  * unknown load), `raided` an empty bed with a broken pennon. (x, y) is the middle of the cart's ground.
  */
 export function paintCartArt(g, x, y, u, { faction = 0, own = false, raided = false, load = null, dir = 1 } = {}) {
-  if (!g?.save) return;
+  if (!paints(g)) return;
   const lw = lwOf(u), roof = roofOf(faction);
   g.save(); g.lineJoin = 'round'; g.lineCap = 'round';
   if (dir < 0) { g.translate(x, 0); g.scale(-1, 1); g.translate(-x, 0); }
@@ -227,8 +230,18 @@ export function paintCartArt(g, x, y, u, { faction = 0, own = false, raided = fa
   g.restore();
 }
 
-/** The resource key a caravan's cargo is drawn as (its largest item): one of LOAD's keys, or null. */
+/** The cargo slots of the herald's feed in kernel order (fi18n.mjs RESOURCE_ORDER; on an S1 season Horses holds arms). */
+const SLOT_LOAD = Object.freeze(['food', 'wood', 'stone', 'ore', 'arms', 'gold', null, null]);
+/**
+ * The resource key a caravan's cargo is drawn as (its largest item): one of LOAD's keys, or null. `cargo` is the
+ * feed's eight amounts (herald.mjs parseCaravans) or a list of `{resource, amount}` / `[name, key, amount]`.
+ */
 export function loadOf(cargo) {
+  if (Array.isArray(cargo) && cargo.length === 8 && cargo.every(n => typeof n === 'number')) {
+    let best = -1;
+    cargo.forEach((n, i) => { if (n > 0 && SLOT_LOAD[i] && (best < 0 || n > cargo[best])) best = i; });
+    return best >= 0 ? SLOT_LOAD[best] : null;
+  }
   const KEY = { Ore: 'ore', Wood: 'wood', Food: 'food', Stone: 'stone', Horses: 'arms', Arms: 'arms', Gold: 'gold' };
   let best = null;
   for (const c of cargo ?? []) if (!best || Number(c.amount ?? c[2] ?? 0) > Number(best.amount ?? best[2] ?? 0)) best = c;
