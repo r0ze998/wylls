@@ -389,9 +389,14 @@ async function run() {
     return BigInt(ai.length) >= need && BigInt(v.balance.spent.inference) >= need * price ? { v, ai } : null;
   }, realModel ? 600_000 : 120_000);
   if (realModel) {
+    // The first sent action may be the free autopilot's (the model's answer was refused by the code and the call charged):
+    // that is the design, not a model decision. Wait for one action the model chose, with its own reason (a weak model may take several calls).
+    const fromModel = v => v.history.filter(x => x.type === 'action' && x.source === 'ai' && typeof x.reason === 'string' && x.reason.startsWith(`model:${modelInfo.alias}`));
+    const seen = await eventually('an action the real model chose', async () => { const v = await agentView(agentId); return fromModel(v).length ? v : null; }, 600_000).catch(() => null);
+    if (seen) ran.v = seen;
     const decided = ran.v.history.filter(x => x.type === 'action' && x.source === 'ai');
-    const byModel = decided.filter(x => typeof x.reason === 'string' && x.reason.startsWith(`model:${modelInfo.alias}`));
-    assert.ok(byModel.length >= 1, `no action carries the real model\'s reason: ${json(decided)}`);
+    const byModel = fromModel(ran.v);
+    assert.ok(byModel.length >= 1, `no action carries the real model\'s reason: ${json(decided)}; decisions: ${json(ran.v.history.filter(x => x.type === 'decision'))}`);
     const calls = ran.v.history.filter(x => x.type === 'spend' && x.category === 'inference');
     assert.ok(calls.every(x => x.model === `model:${modelInfo.alias}`), json(calls));
     report.model.decisions = decided.map(x => ({ name: x.name, status: x.status, reason: x.reason ?? null, signature: x.signature ?? null }));
