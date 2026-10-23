@@ -365,6 +365,9 @@ body[data-stage="none"] :is(.lenses, .map-btn[data-map="home"]) { display: none;
 .toast-stamp .ic { width: 13px; height: 13px; }
 .toast-acts { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
 .toast-acts .btn + .btn { margin-left: 0; }
+/* the agent page link on a refusal while the village is handed to the agent (fdelegation.mjs): light on the dark toast */
+.toast-acts a.toast-link { color: var(--ivory); background: transparent; border: 1px solid rgba(240,212,138,.45); text-decoration: none; }
+.toast-acts a.toast-link:hover { background: rgba(240,212,138,.12); }
 .toast .btn.primary { border-color: var(--ivory); background: var(--ivory); color: #14251f; font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,.35); }
 .toast-x { display: grid; place-items: center; width: 28px; height: 28px; margin: -3px -3px 0 0; padding: 0; border: 0; border-radius: 7px; background: none; color: var(--hud-ink-2); cursor: pointer; }
 .toast-x:hover { color: var(--ivory); background: rgba(255,255,255,.1); }

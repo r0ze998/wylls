@@ -82,7 +82,7 @@ test('the controller: a herald record whose session is the agent\'s key shows th
   const { FS } = await import('../../permutation-server/web/frontier/fstate.mjs');
   const io = await import('../../permutation-server/web/frontier/fchainio.mjs');
   const joinScreen = await import('../../permutation-server/web/frontier/screens/join.mjs');
-  const { statusOf } = await import('../../permutation-server/web/frontier/hud/status.mjs');
+  const { statusOf, renderStatus } = await import('../../permutation-server/web/frontier/hud/status.mjs');
   const { PROGRAM, SEASON_ID } = await import('../screens/world.mjs');
   io.setPin({ programId: PROGRAM, cluster: 'localnet', seasonId: SEASON_ID });
   io.setRelay('http://relay.test');
@@ -121,11 +121,21 @@ test('the controller: a herald record whose session is the agent\'s key shows th
     assert.equal(st?.state, 'refused');
     assert.match(st.text, /必要な署名がありません/);
     assert.match(st.text, /代理人に任せているため/);
+    assert.equal(st.agentLink, true);
+    const toast = String(renderStatus(statusOf(FS, { canRetry: true })));
+    assert.match(toast, /<a class="btn small toast-link" href="agent\.html" data-agent-link="1">代理人のページを開く<\/a>/, 'the refusal links the agent page');
+    assert.match(toast, /data-act="notice-retry"/, 'the retry stays');
     // The key back (the chain names this device's key again): the usual state, no card, no note.
     C.applyMeResult({ ok: true, record: {}, citizen: { ...citizenRec, session: mine.publicKey.toBytes() }, holdings: [], slots: [] });
     await new Promise(r => setTimeout(r, 20));
     assert.equal(FS.sessionProblem, null);
     assert.equal(FS.delegation, null);
+    // A refusal with the key back (no delegation): the usual refusal, no agent page link.
+    FS.notice = { ok: false, code: 'Auth' };
+    const st2 = statusOf(FS, { canRetry: true });
+    assert.equal(st2?.state, 'refused');
+    assert.equal(st2.agentLink, false);
+    assert.doesNotMatch(String(renderStatus(st2)), /data-agent-link/);
   } finally {
     globalThis.fetch = realFetch;
     C.useTransport(null);

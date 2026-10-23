@@ -81,6 +81,20 @@ async function waitText(page, part, ms = 60_000) {
     throw new Error(`${e.message}; the page said: ${seen}`);
   }
 }
+/**
+ * The control is shown and its text is light (the bar and the toasts are dark: a link styled for a light card would be
+ * there but unreadable). Any CSS colour syntax: painted on a 1×1 canvas and read back.
+ */
+async function readableOnDark(el, what) {
+  assert.ok(await el.isVisible(), `${what} is shown`);
+  const { lum, color } = await el.evaluate(e => {
+    const color = getComputedStyle(e).color, c = document.createElement('canvas').getContext('2d');
+    c.fillStyle = color; c.fillRect(0, 0, 1, 1);
+    const [r, g, b] = c.getImageData(0, 0, 1, 1).data;
+    return { lum: (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255, color };
+  });
+  assert.ok(lum > 0.6, `${what} is readable (text ${color}, luminance ${lum.toFixed(2)})`);
+}
 /** Clicks the hand's harvest and returns the relay's answer for it (a new POST /gw/f/relay). */
 async function harvestByHand(page, sends) {
   const before = sends.length;
@@ -158,26 +172,15 @@ test('a village played by hand, handed to its agent, taken back and played by ha
   await play.locator('[data-act="intro-close"]').first().click().catch(() => {});
   await waitText(play, '代理人に任せています', 90_000);
   const note = play.locator('.hand-note-agent');
-  for (const sel of ['[data-act="session"]', 'a[data-agent-link]']) {
-    const el = note.locator(sel).first();
-    assert.ok(await el.isVisible(), `the action bar shows ${sel}`);
-    // (light text on the dark bar: a link styled for a light card would be there but unreadable)
-    // (any CSS colour syntax: paint it on a 1×1 canvas and read the pixel back)
-    const { lum, color } = await el.evaluate(e => {
-      const color = getComputedStyle(e).color, c = document.createElement('canvas').getContext('2d');
-      c.fillStyle = color; c.fillRect(0, 0, 1, 1);
-      const [r, g, b] = c.getImageData(0, 0, 1, 1).data;
-      return { lum: (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255, color };
-    });
-    assert.ok(lum > 0.6, `${sel} is readable on the bar (text ${color}, luminance ${lum.toFixed(2)})`);
-  }
+  for (const sel of ['[data-act="session"]', 'a[data-agent-link]']) await readableOnDark(note.locator(sel).first(), `the action bar's ${sel}`);
   let whileDelegated = null;
   if (await play.locator('[data-act="harvest"]').count()) {
     const h = await harvestByHand(play, playSends).catch(e => ({ error: String(e.message) }));
     whileDelegated = { status: h.status ?? null, code: h.body?.code ?? null, error: h.body?.error ?? h.error ?? null };
     await waitText(play, '代理人に任せているため', 30_000);
+    await readableOnDark(play.locator('.toast a[data-agent-link]').first(), 'the refusal\'s agent page link');
   }
-  await step(play, 'play-while-delegated', { whileDelegated, note: 'the play page while the agent holds the key: the action bar says the village is handed to the agent, with the take-back and the agent page link; a refused send says why' });
+  await step(play, 'play-while-delegated', { whileDelegated, note: 'the play page while the agent holds the key: the action bar says the village is handed to the agent, with the take-back and the agent page link; a refused send says why and links the agent page' });
 
   // ---- take the key back from the play page (its card: the wallet-signed SetSession); the page says the agent stays
   // in auto on the server; then the owner stops it on the agent page and plays by hand again

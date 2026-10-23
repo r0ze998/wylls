@@ -18,6 +18,7 @@ import { tileName } from './place.mjs';
 import { SEND_STEPS } from '../fmarch.mjs';
 import { icon } from './icons.mjs';
 import { ring } from '../screens/parts.mjs';
+import { AGENT_PAGE } from '../fdelegation.mjs';
 
 /** A landed action's chip stays this long (ms); a refusal stays until it is put away or another action starts. */
 export const DONE_MS = 4_000;
@@ -69,7 +70,7 @@ export function statusOf(FS, { age = 0, canRetry = false } = {}) {
   if (!n) return null;
   if (n.busy) return { state: 'busy', text: textOf(n) ?? L`送信中…`, share: null, step: null, steps: null, retry: false };
   if (n.ok) return age > DONE_MS ? null : { state: 'done', text: textOf(n) ?? L`完了しました`, share: 1, step: null, steps: null, retry: false };
-  return { state: 'refused', what: unsentText(FS), text: textOf(n) ?? failureText(n), share: null, step: null, steps: null, retry: !!canRetry };
+  return { state: 'refused', what: unsentText(FS), text: textOf(n) ?? failureText(n), share: null, step: null, steps: null, retry: !!canRetry, agentLink: !!n.agentLink };
 }
 
 /** The status as the first toast of the map's stack (`role` alert for a refusal, status otherwise). */
@@ -80,7 +81,7 @@ export function renderStatus(st) {
       <span class="toast-icon">${icon('alert')}</span>
       <span class="toast-text"><span class="toast-kind">${L`できませんでした`}</span>${st.what ? html`<strong class="tx-what">${st.what}</strong> ` : ''}<span class="tx-why">${st.text}</span></span>
       <button type="button" class="toast-x" data-act="notice-close" aria-label="${L`閉じる`}">${icon('close')}</button>
-      ${st.retry ? html`<span class="toast-acts"><button type="button" class="btn small primary" data-act="notice-retry">${icon('return')}${L`もう一度`}</button></span>` : ''}
+      ${st.retry || st.agentLink ? html`<span class="toast-acts">${st.retry ? html`<button type="button" class="btn small primary" data-act="notice-retry">${icon('return')}${L`もう一度`}</button>` : ''}${st.agentLink ? html`<a class="btn small toast-link" href="${AGENT_PAGE}" data-agent-link="1">${L`代理人のページを開く`}</a>` : ''}</span>` : ''}
     </div>`;
   }
   const done = st.state === 'done';

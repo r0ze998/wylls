@@ -68,7 +68,7 @@ const failed = r => {
   if (r?.code === 'InviteRequired') FS.inviteRequired = true;
   // The village is handed to the owner's agent (its key is the session): say so, not only "a signature is missing".
   const note = refusalNote(FS.delegation, r?.code);
-  if (note && !r?.text) return setNotice({ ok: false, ...r, text: () => `${failureText(r)} ${note}` });
+  if (note && !r?.text) return setNotice({ ok: false, ...r, agentLink: true, text: () => `${failureText(r)} ${note}` });
   // (a refusal of the prototype rule "banners" on one of the basic game's own routes — the day's limit of explorations,
   // which the sample world answers to an Explore — is said in the rule's sentence, only while the prototype is on)
   if (FS.proto && r && !r.text && pm.REFUSALS.includes(r.code)) return setNotice({ ok: false, ...r, text: () => pm.refusalText(r.code, { need: r.need }) });
