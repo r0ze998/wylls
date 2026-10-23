@@ -67,6 +67,111 @@ ix_data_v2! {
     RetireHost { entry: u8 }
     /// 0xA7 (N).
     CloseMarch {}
+    /// 0xB0 (P, S1): a vault on `tile` of the Province at account 7.
+    BuildVault { tile: u8 }
+    /// 0xB1 (P, S1): the actor's `seq`-th caravan (= `Citizen.CARAVANS`)
+    /// from the source account to the destination place, `steps` packed
+    /// steps, `cargo` eight `u32` whole units (resource order), `fee` the
+    /// settle fee escrowed (≥ `caravan::CARAVAN_FEE`).
+    SendCaravan {
+        seq: u32,
+        dst_kind: u8,
+        dst_p: i16,
+        dst_q: i16,
+        dst_at: u8,
+        dst_gen: u8,
+        steps: u8,
+        path: [u8; 12],
+        cargo: [u8; 32],
+        fee: u64,
+    }
+    /// 0xB2 (D, S1).
+    SettleCaravan { beneficiary: [u8; 32] }
+    /// 0xB3 (P, S1): the raider settles the raid of the caravan's slot in
+    /// Province `(p, q)`: `choice` take (0) or burn (1). A take (decision
+    /// J2) makes the caravan the raider's and sends it from the raid tile to
+    /// the destination place along `steps` packed steps, over the first
+    /// `n_path` path Provinces (the raid's first); a burn destroys the
+    /// cargo and the caravan goes on.
+    RaidCaravan {
+        p: i16,
+        q: i16,
+        choice: u8,
+        n_path: u8,
+        dst_kind: u8,
+        dst_p: i16,
+        dst_q: i16,
+        dst_at: u8,
+        dst_gen: u8,
+        steps: u8,
+        path: [u8; 12],
+    }
+    /// 0xB4 (P, S1): the captor's roster `entry` stands on the vault.
+    SeizeVault { entry: u8 }
+    /// 0xB5 (P, S1): the owner closes an empty vault.
+    CloseVault {}
+    /// 0xB6 (D, S1): the raid in Province `(p, q)` after the raider's
+    /// window: a take to the raiding host's holding along `steps` over the
+    /// first `n_path` path Provinces, or a burn (the holding gone, or no
+    /// walk given after the burn delay).
+    DefaultRaid {
+        p: i16,
+        q: i16,
+        n_path: u8,
+        steps: u8,
+        path: [u8; 12],
+        beneficiary: [u8; 32],
+    }
+}
+
+ix_data_v2! {
+    /// 0xB7 (P, S1, 1d/1e): a structure of `kind` (`structure::KIND_*`) on
+    /// `tile` of the Province at account 7; `notify` who the herald tells
+    /// of a tower's sightings (`layout::s1::structure::NOTIFY_*`).
+    BuildStructure { kind: u8, tile: u8, notify: u8 }
+    /// 0xB8 (P, S1, 1d/1e): the captor's roster `entry` stands on the
+    /// structure (a fort: fallen).
+    SeizeStructure { entry: u8 }
+    /// 0xB9 (P, S1, 1d/1e): the owner closes the structure.
+    CloseStructure {}
+    /// 0xBA (P, S1, 1e): `troops` whole Spearmen of the holding's reserve
+    /// join the fort from the next bell.
+    FortGarrison { troops: u32 }
+}
+
+ix_data_v2! {
+    /// 0xBB (P, S1, 1e): the citizen proposes to its Nation: a stance of
+    /// `value` toward `target_faction` (`nation::KIND_STANCE`), or the
+    /// expulsion or readmission of the Citizen at account 5.
+    Propose { kind: u8, target_faction: u8, value: u8 }
+    /// 0xBC (P, S1, 1e): the citizen's vote on proposal `id` in `slot`.
+    Vote { slot: u8, id: u32, yes: u8 }
+    /// 0xBD (D, S1, 1e): settles proposal `id` in `slot` once closed.
+    SettleProposal { slot: u8, id: u32 }
+    /// 0xBE (P, S1, 1e): the citizen's roster host `entry` stood on the
+    /// tile the caravan (of its own faction) stood on at `bell`; opens the
+    /// raid there (decision K4).
+    RaidDomestic { bell: u32, entry: u8 }
+}
+
+/// SendCaravan's and RaidCaravan's cargo as milli-units (whole units ×
+/// 1,000), checked.
+pub fn cargo_milli(cargo: &[u8; 32]) -> Option<[i64; 8]> {
+    let mut out = [0i64; 8];
+    for (r, o) in out.iter_mut().enumerate() {
+        let u = u32::from_le_bytes(cargo[4 * r..4 * r + 4].try_into().ok()?);
+        *o = (u as i64).checked_mul(1_000)?;
+    }
+    Some(out)
+}
+
+/// Whole units as SendCaravan's cargo bytes.
+pub fn cargo_bytes(units: &[u32; 8]) -> [u8; 32] {
+    let mut b = [0u8; 32];
+    for (r, u) in units.iter().enumerate() {
+        b[4 * r..4 * r + 4].copy_from_slice(&u.to_le_bytes());
+    }
+    b
 }
 
 /// Most hours one FoldMarch folds.
@@ -198,6 +303,21 @@ pub fn fixed_len(ix: Ix) -> Option<usize> {
         Ix::FoldMarch => FoldMarch::LEN,
         Ix::RetireHost => RetireHost::LEN,
         Ix::CloseMarch => CloseMarch::LEN,
+        Ix::BuildVault => BuildVault::LEN,
+        Ix::SendCaravan => SendCaravan::LEN,
+        Ix::SettleCaravan => SettleCaravan::LEN,
+        Ix::RaidCaravan => RaidCaravan::LEN,
+        Ix::SeizeVault => SeizeVault::LEN,
+        Ix::CloseVault => CloseVault::LEN,
+        Ix::DefaultRaid => DefaultRaid::LEN,
+        Ix::BuildStructure => BuildStructure::LEN,
+        Ix::SeizeStructure => SeizeStructure::LEN,
+        Ix::CloseStructure => CloseStructure::LEN,
+        Ix::FortGarrison => FortGarrison::LEN,
+        Ix::Propose => Propose::LEN,
+        Ix::Vote => Vote::LEN,
+        Ix::SettleProposal => SettleProposal::LEN,
+        Ix::RaidDomestic => RaidDomestic::LEN,
         Ix::FileOutpost | Ix::CreateSeason => return None,
         other => return crate::ix::fixed_len(other.to_v1()?),
     })
@@ -212,6 +332,21 @@ pub fn wire_of(ix: Ix) -> Option<&'static [(&'static str, usize)]> {
         Ix::FoldMarch => FoldMarch::WIRE,
         Ix::RetireHost => RetireHost::WIRE,
         Ix::CloseMarch => CloseMarch::WIRE,
+        Ix::BuildVault => BuildVault::WIRE,
+        Ix::SendCaravan => SendCaravan::WIRE,
+        Ix::SettleCaravan => SettleCaravan::WIRE,
+        Ix::RaidCaravan => RaidCaravan::WIRE,
+        Ix::SeizeVault => SeizeVault::WIRE,
+        Ix::CloseVault => CloseVault::WIRE,
+        Ix::DefaultRaid => DefaultRaid::WIRE,
+        Ix::BuildStructure => BuildStructure::WIRE,
+        Ix::SeizeStructure => SeizeStructure::WIRE,
+        Ix::CloseStructure => CloseStructure::WIRE,
+        Ix::FortGarrison => FortGarrison::WIRE,
+        Ix::Propose => Propose::WIRE,
+        Ix::Vote => Vote::WIRE,
+        Ix::SettleProposal => SettleProposal::WIRE,
+        Ix::RaidDomestic => RaidDomestic::WIRE,
         Ix::FileOutpost | Ix::CreateSeason => return None,
         other => return crate::ix::wire_of(other.to_v1()?),
     })
@@ -230,6 +365,37 @@ mod tests {
         assert_eq!(FoldMarch::LEN, 46);
         assert_eq!(RetireHost::LEN, 2);
         assert_eq!(CloseMarch::LEN, 1);
+        // S1
+        assert_eq!(BuildVault::LEN, 2);
+        assert_eq!(
+            SendCaravan::LEN,
+            1 + 4 + 1 + 2 + 2 + 1 + 1 + 1 + 12 + 32 + 8
+        );
+        assert_eq!(SettleCaravan::LEN, 33);
+        assert_eq!(
+            RaidCaravan::LEN,
+            1 + 2 + 2 + 1 + 1 + 1 + 2 + 2 + 1 + 1 + 1 + 12
+        );
+        assert_eq!(DefaultRaid::LEN, 1 + 2 + 2 + 1 + 1 + 12 + 32);
+        let units = [0, 120, 0, 40, 9, 0, 0, 0];
+        let m = cargo_milli(&cargo_bytes(&units)).unwrap();
+        assert_eq!(m[1], 120_000);
+        assert_eq!(m[4], 9_000);
+        let s = SendCaravan {
+            seq: 3,
+            dst_kind: 2,
+            dst_p: -4,
+            dst_q: 7,
+            dst_at: 30,
+            dst_gen: 1,
+            steps: 5,
+            path: [1; 12],
+            cargo: cargo_bytes(&units),
+            fee: 50_000,
+        };
+        let b = s.to_bytes();
+        assert_eq!(b[0], 0xB1);
+        assert_eq!(SendCaravan::decode(&b), Ok(s));
         let f = FoldMarch {
             m: -2,
             n: 3,

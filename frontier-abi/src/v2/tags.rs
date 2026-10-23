@@ -11,7 +11,7 @@ use crate::tags::Class;
 
 macro_rules! tags_v2 {
     ($( $name:ident = $tag:literal, $class:ident, $top:literal; )*) => {
-        /// Every ABI v2 instruction (58: M1's 51 and 7 new).
+        /// Every ABI v2 instruction (73: M1's 51, MC's 7 and S1's 15).
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
         #[repr(u8)]
         pub enum Ix { $( $name = $tag, )* }
@@ -102,6 +102,25 @@ tags_v2! {
     FoldMarch = 0xA5, D, false;
     RetireHost = 0xA6, P, false;
     CloseMarch = 0xA7, N, false;
+    // S1 (redesign stage 1, 1b: vaults and caravans)
+    BuildVault = 0xB0, P, false;
+    SendCaravan = 0xB1, P, false;
+    SettleCaravan = 0xB2, D, false;
+    RaidCaravan = 0xB3, P, false;
+    SeizeVault = 0xB4, P, false;
+    CloseVault = 0xB5, P, false;
+    DefaultRaid = 0xB6, D, false;
+    // S1 (1d, 1e: structures)
+    BuildStructure = 0xB7, P, false;
+    SeizeStructure = 0xB8, P, false;
+    CloseStructure = 0xB9, P, false;
+    FortGarrison = 0xBA, P, false;
+    // S1 (1e: nations)
+    Propose = 0xBB, P, false;
+    Vote = 0xBC, P, false;
+    SettleProposal = 0xBD, D, false;
+    // S1 (1e: domestic raids)
+    RaidDomestic = 0xBE, P, false;
 }
 
 impl Ix {
@@ -115,6 +134,30 @@ impl Ix {
         Ix::RetireHost,
         Ix::CloseMarch,
     ];
+
+    /// The S1 instructions (1b, 1d, 1e), refused by the MC program.
+    pub const S1: [Ix; 15] = [
+        Ix::BuildVault,
+        Ix::SendCaravan,
+        Ix::SettleCaravan,
+        Ix::RaidCaravan,
+        Ix::SeizeVault,
+        Ix::CloseVault,
+        Ix::DefaultRaid,
+        Ix::BuildStructure,
+        Ix::SeizeStructure,
+        Ix::CloseStructure,
+        Ix::Propose,
+        Ix::Vote,
+        Ix::SettleProposal,
+        Ix::RaidDomestic,
+        Ix::FortGarrison,
+    ];
+
+    /// Whether the instruction is S1's.
+    pub const fn is_s1(self) -> bool {
+        self.tag() >= 0xB0
+    }
 
     /// The M1 instruction of the same tag (`None` for the MC ones).
     pub const fn to_v1(self) -> Option<crate::tags::Ix> {
@@ -171,9 +214,9 @@ impl crate::tags::Ix {
     pub const ALL_V2: &'static [Ix] = Ix::ALL;
 }
 
-/// Reserved v2 tags: M1's reserved set, 0xA4 and 0xA8–0xAF.
+/// Reserved v2 tags: M1's reserved set, 0xA4, 0xA8–0xAF and S1's 0xBF.
 pub const fn is_reserved(t: u8) -> bool {
-    crate::tags::is_reserved(t) || matches!(t, 0xA4 | 0xA8..=0xAF)
+    crate::tags::is_reserved(t) || matches!(t, 0xA4 | 0xA8..=0xAF | 0xBF)
 }
 
 /// Player instructions the relay may sponsor (§8.3): M1's, DeclareSiege,
@@ -181,19 +224,43 @@ pub const fn is_reserved(t: u8) -> bool {
 pub const fn relay_player_shape(ix: Ix) -> bool {
     match ix.to_v1() {
         Some(v1) => crate::tags::relay_player_shape(v1),
-        None => matches!(ix, Ix::DeclareSiege | Ix::FileOutpost | Ix::RetireHost),
+        None => matches!(
+            ix,
+            Ix::DeclareSiege
+                | Ix::FileOutpost
+                | Ix::RetireHost
+                | Ix::BuildVault
+                | Ix::SendCaravan
+                | Ix::RaidCaravan
+                | Ix::SeizeVault
+                | Ix::CloseVault
+                | Ix::BuildStructure
+                | Ix::SeizeStructure
+                | Ix::CloseStructure
+                | Ix::Propose
+                | Ix::Vote
+                | Ix::RaidDomestic
+                | Ix::FortGarrison
+        ),
     }
 }
 
 /// Settle shapes the relay may sponsor, charged to the requester (§8.3):
-/// M1's, SettleSiege, SettleCapture, FoldMarch, CloseMarch, and RetireHost
-/// after `end_bell`.
+/// M1's, SettleSiege, SettleCapture, FoldMarch, CloseMarch, RetireHost
+/// after `end_bell`, and S1's SettleCaravan and DefaultRaid.
 pub const fn relay_settle_shape(ix: Ix) -> bool {
     match ix.to_v1() {
         Some(v1) => crate::tags::relay_settle_shape(v1),
         None => matches!(
             ix,
-            Ix::SettleSiege | Ix::SettleCapture | Ix::FoldMarch | Ix::CloseMarch | Ix::RetireHost
+            Ix::SettleSiege
+                | Ix::SettleCapture
+                | Ix::FoldMarch
+                | Ix::CloseMarch
+                | Ix::RetireHost
+                | Ix::SettleCaravan
+                | Ix::DefaultRaid
+                | Ix::SettleProposal
         ),
     }
 }
@@ -204,8 +271,8 @@ mod tests {
 
     #[test]
     fn v2_extends_m1() {
-        assert_eq!(Ix::ALL.len(), 58);
-        assert_eq!(crate::tags::Ix::ALL_V2.len(), 58);
+        assert_eq!(Ix::ALL.len(), 73);
+        assert_eq!(crate::tags::Ix::ALL_V2.len(), 73);
         for v1 in crate::tags::Ix::ALL {
             let v = Ix::of_v1(*v1);
             assert_eq!(v.tag(), v1.tag());

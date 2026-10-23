@@ -241,14 +241,26 @@ pub fn read_kholding(d: &[u8]) -> KHolding {
 /// A first holding as the simulator founds it (`sim.rs` `found`): base
 /// production of a Hamlet with its rates applied (`set_upkeep(now, Food,
 /// 0)`, the simulator's idiom) and the starter kit.
-pub fn founded(now: i64, day: u32) -> KHolding {
+///
+/// S1: the base ore is the site's terrain ore `terrain_ore` (milli per
+/// hour; [`site_terrain_ore`]), which the fixture also writes into the
+/// Holding's `TERRAIN_ORE`.
+pub fn founded(now: i64, day: u32, terrain_ore: i64) -> KHolding {
     let mut h = KHolding::found(now, day, 1);
-    h.production = catalog::base_production(Tier::Hamlet);
+    h.production = permutation_rules::frontier::arms::base_production(Tier::Hamlet, terrain_ore);
     h.set_upkeep(now, Resource::Food, 0).expect("rates");
     for (r, v) in catalog::starter_kit().iter().enumerate() {
         h.credit(now, Resource::ALL[r], *v).expect("credit");
     }
     h
+}
+
+/// S1: the terrain ore of `tile` in a Province's data (milli per hour;
+/// the program's `site_terrain_ore`).
+pub fn site_terrain_ore(province: &[u8], tile: u8) -> i64 {
+    let t: &[u8; 61] = province[P::TERRAIN..P::TERRAIN + 61].try_into().unwrap();
+    let r: &[u8; 61] = province[P::RESOURCE..P::RESOURCE + 61].try_into().unwrap();
+    permutation_rules::frontier::arms::terrain_ore_per_hour_bytes(t, r, tile).expect("tile")
 }
 
 // ------------------------------------------------------------ small readers
@@ -449,7 +461,8 @@ impl World {
             d[P::N_SITES_USED] += 1;
         });
         // Holding.
-        let kh = founded(now, bell / 144);
+        let ore = site_terrain_ore(&c.data(&province), tile);
+        let kh = founded(now, bell / 144, ore);
         let mut hd = vec![0u8; H::SIZE];
         assert!(write_header(&mut hd, AccountKind::Holding, self.id));
         hd[H::P..H::P + 2].copy_from_slice(&p.to_le_bytes());
@@ -464,6 +477,8 @@ impl World {
         hd[H::RENT_PAYER..H::RENT_PAYER + 32].copy_from_slice(wallet.pubkey().as_ref());
         hd[H::FINAL_TS..H::FINAL_TS + 8].copy_from_slice(&now.to_le_bytes());
         write_kholding(&mut hd, &kh);
+        let to = frontier_abi::v2::layout::player::holding::TERRAIN_ORE;
+        hd[to..to + 8].copy_from_slice(&ore.to_le_bytes());
         // Shield over: tests attack each other's sites unless they set it.
         hd[H::SHIELD_UNTIL..H::SHIELD_UNTIL + 8].copy_from_slice(&0i64.to_le_bytes());
         c.put_program_account(holding, hd);

@@ -155,6 +155,17 @@ pub struct Config {
     pub cq: crate::conquest::CqRules,
     /// MC (CONQUEST-CONTRACT v1.1 §8.7): the rule set (`--rules`).
     pub rules: crate::mc::Rules,
+    /// Stage 1a (design/redesign 30, J3; `--arms`): under MC, a march's
+    /// unit-variant surcharge is what `frontier::arms::train_v3`
+    /// charges above a Spearman, its arms paid as the ore and wood a
+    /// workshop needs to make them (`k2::march_surcharge_arms`).
+    pub arms: bool,
+    /// `--arms-scale P`: the arms part of that surcharge × P / 100
+    /// (tuning the [phase 6] `TRAIN_ARMS_PER_100`; default 100).
+    pub arms_scale_pct: i64,
+    /// `--arms-per100 P,C,K`: arms per 100 troops of Pikeman, Crossbowman
+    /// and Knight in place of `TRAIN_ARMS_PER_100` (tuning; J3).
+    pub arms_per100: Option<[i64; 3]>,
     /// `--rules mc,bannerdom[=N]` (OD-14): N control-bells per March-banner
     /// hour (0 = off).
     pub bannerdom: u64,
@@ -252,6 +263,9 @@ impl Default for Config {
             verbose: false,
             cq: crate::conquest::CqRules::default(),
             rules: crate::mc::Rules::M1,
+            arms: false,
+            arms_scale_pct: 100,
+            arms_per100: None,
             bannerdom: 0,
             keepdom: false,
             policy: [crate::mc::Policy::Lone; 6],

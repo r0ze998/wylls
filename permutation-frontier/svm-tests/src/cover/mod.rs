@@ -15,6 +15,8 @@
 //! | `clash` | W4-A |
 //! | `transit`, `defence` | W4-B |
 //! | `conquest` (MC: DeclareSiege, SettleSiege, SettleCapture, FoldMarch, RetireHost, CloseMarch) | CQ2-C |
+//! | `caravan` (S1 1b: BuildVault, SendCaravan, SettleCaravan, RaidCaravan, SeizeVault, CloseVault, DefaultRaid) | S1 |
+//! | `tower` (S1 1d: BuildStructure, SeizeStructure, CloseStructure) | S1 |
 //!
 //! **MC (ABI v2, conquest contract §13.3 G13).** [`covered_by`] matches
 //! `frontier_abi::v2::Ix` (57 tags), so the seven MC instructions are in
@@ -38,6 +40,7 @@ pub use frontier_abi::v2::CqError as Cq;
 use frontier_abi::v2::Ix as I;
 
 pub mod beacon;
+pub mod caravan;
 pub mod citizen;
 pub mod clash;
 pub mod conquest;
@@ -45,8 +48,10 @@ pub mod defence;
 pub mod holding;
 pub mod host;
 pub mod map;
+pub mod nation;
 pub mod reveal;
 pub mod season;
+pub mod structure;
 pub mod transit;
 
 /// An outcome a test asserts.
@@ -140,6 +145,22 @@ pub fn covered_by(ix: I) -> &'static [Cover] {
         I::FoldMarch => conquest::FOLD_MARCH,
         I::RetireHost => conquest::RETIRE_HOST,
         I::CloseMarch => conquest::CLOSE_MARCH,
+        // S1 (stage 1b)
+        I::BuildVault => caravan::BUILD_VAULT,
+        I::SendCaravan => caravan::SEND_CARAVAN,
+        I::SettleCaravan => caravan::SETTLE_CARAVAN,
+        I::RaidCaravan => caravan::RAID_CARAVAN,
+        I::SeizeVault => caravan::SEIZE_VAULT,
+        I::CloseVault => caravan::CLOSE_VAULT,
+        I::DefaultRaid => caravan::DEFAULT_RAID,
+        I::BuildStructure => structure::BUILD_STRUCTURE,
+        I::SeizeStructure => structure::SEIZE_STRUCTURE,
+        I::CloseStructure => structure::CLOSE_STRUCTURE,
+        I::FortGarrison => structure::FORT_GARRISON,
+        I::Propose => nation::PROPOSE,
+        I::Vote => nation::VOTE,
+        I::SettleProposal => nation::SETTLE_PROPOSAL,
+        I::RaidDomestic => caravan::RAID_DOMESTIC,
     }
 }
 
@@ -187,6 +208,9 @@ pub fn pending() -> Vec<(&'static str, &'static str)> {
         transit::PENDING,
         defence::PENDING,
         conquest::PENDING,
+        caravan::PENDING,
+        structure::PENDING,
+        nation::PENDING,
     ]
     .concat()
 }

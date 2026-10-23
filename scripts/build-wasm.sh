@@ -45,7 +45,8 @@ for arg in "$@"; do
   case "$arg" in
     --check) CHECK=1 ;;
     --cq) ARTIFACT=frontier-v2.wasm; FEATURE_ARGS=(--lib --features cq) ;;
-    *) echo "usage: $0 [--cq] [--check]" >&2; exit 2 ;;
+    --s1) ARTIFACT=frontier-v3.wasm; FEATURE_ARGS=(--lib --features s1) ;;
+    *) echo "usage: $0 [--cq | --s1] [--check]" >&2; exit 2 ;;
   esac
 done
 

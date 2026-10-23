@@ -216,14 +216,13 @@ pub fn run(cx: &mut Ctx) {
             ));
             continue;
         }
-        let first_tier =
-            match hr::read(ah).and_then(|mut h| hr::touch(&mut h, tx.time).map(|()| h.tier)) {
-                Ok(x) => x,
-                Err(e) => {
-                    bad.push((t, what, bell, format!("the anchor's kernel state: {e}")));
-                    continue;
-                }
-            };
+        let first_tier = match hr::read_touched(ah, tx.time).map(|h| h.tier) {
+            Ok(x) => x,
+            Err(e) => {
+                bad.push((t, what, bell, format!("the anchor's kernel state: {e}")));
+                continue;
+            }
+        };
         let tier_min = match hr::tier_of(cq.outpost_tier_min) {
             Ok(x) => x,
             Err(e) => {

@@ -4,11 +4,14 @@
 //! frontier-sim run   [--agents N] [--seed S] [--sizes 3,1,1,1,1,1] [--bots 0.05]
 //!                    [--doctrines] [--rotation K] [--gamma 3/5] [--day0 0.6]
 //! frontier-sim suite [--agents N] [--seeds K] [--out PATH]
-//! frontier-sim doctrines [--agents N] [--seeds K] [--set kernel|draft|m0]
+//! frontier-sim arms  [--seed S] [--only MAX_RING]   (stage 1a: ore and arms on the map)
+//! frontier-sim trade [--seed S] [--only MAX_RING]   (stage 1b: dependence, caravan reach,
+//!                    trip time and exposure, exchange; FRONTIER_SIM_WORKSHOPS=K, default 2)
+//! frontier-sim doctrines [--agents N] [--seeds K] [--set kernel|draft|m0|s1]
 //!                    [--dx "C.arrival=10500,D.drill=10500"] [--unpaired]
 //!                    [--first-seed N] [--gate]
 //!                    [--gate-index 0.12]   (exit 1 if a mean index is off by more)
-//! frontier-sim doctrine-gate [--set kernel|draft|m0] [--controls]
+//! frontier-sim doctrine-gate [--set kernel|draft|m0|s1] [--controls]
 //!                    (the CI gate's harness; --controls: the negative controls must fail)
 //! frontier-sim criterion [--seeds K] [--first-seed N] [--rev2-economy] [economy knobs]
 //!                    (bot criterion, O4; seeds N+1..=N+K, default N = 200)
@@ -29,6 +32,7 @@
 //! `run` plays one season and prints its report; `suite` runs every M0
 //! measurement and writes the markdown results.
 
+mod arms;
 mod balance;
 mod c4;
 mod config;
@@ -46,6 +50,7 @@ mod rng;
 mod settle;
 mod sim;
 mod suite;
+mod trade;
 
 use config::Config;
 use permutation_rules::frontier::index::IndexParams;
@@ -146,6 +151,25 @@ fn main() {
             "--dx" => {
                 cfg.doctrines = true;
                 cfg.doctrine_tweaks = v;
+            }
+            "--arms-per100" => {
+                cfg.arms = true;
+                let w: Vec<i64> = v
+                    .split(',')
+                    .map(|x| x.parse().expect("--arms-per100"))
+                    .collect();
+                assert_eq!(w.len(), 3, "--arms-per100 P,C,K");
+                cfg.arms_per100 = Some([w[0], w[1], w[2]]);
+            }
+            "--arms-scale" => {
+                cfg.arms = true;
+                cfg.arms_scale_pct = v.parse().expect("--arms-scale");
+            }
+            "--arms" => {
+                // Stage 1a (redesign 30, J3): strong units pay arms.
+                cfg.arms = true;
+                i += 1;
+                continue;
             }
             "--first-seed" => first_seed = Some(v.parse().expect("--first-seed")),
             "--unpaired" => {
@@ -309,6 +333,25 @@ fn main() {
         cfg.mc = p;
     }
     match cmd {
+        "arms" => {
+            // Stage 1a (redesign 30): the arms economy on the map of --seed.
+            let max_ring = only
+                .as_deref()
+                .map_or(4, |s| s.parse().expect("--only RING"));
+            println!("{}", arms::report(cfg.seed, max_ring));
+        }
+        "trade" => {
+            // Stage 1b: whether the arms economy makes holdings trade, and
+            // what a caravan costs, on the map of --seed.
+            let max_ring = only
+                .as_deref()
+                .map_or(4, |s| s.parse().expect("--only RING"));
+            let workshops = std::env::var("FRONTIER_SIM_WORKSHOPS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(2);
+            println!("{}", trade::report(cfg.seed, max_ring, workshops));
+        }
         "run" => {
             let t = std::time::Instant::now();
             let (sim, o) = suite::play(&cfg);

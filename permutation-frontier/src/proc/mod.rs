@@ -53,6 +53,7 @@
 //! (`frontier_abi::v2::prologue::accounts_of`); a v1 tag keeps M1's list.
 
 pub mod beacon;
+pub mod caravan;
 pub mod citizen;
 pub mod clash;
 pub mod conquest;
@@ -60,6 +61,8 @@ pub mod defence;
 pub mod holding;
 pub mod host;
 pub mod map;
+pub mod nation;
 pub mod reveal;
 pub mod season;
+pub mod structure;
 pub mod transit;

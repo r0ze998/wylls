@@ -21,7 +21,8 @@ pub const SNAP_RING_HOURS: u32 = p2::SNAP_N as u32;
 
 // ------------------------------------------------------------ log records
 
-/// One MC log record (kinds 80–88), its key and payload as typed fields.
+/// One MC or S1 log record (kinds 80–88, 90–94), its key and payload as
+/// typed fields.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CqEvent {
     SiegeDeclared {
@@ -106,10 +107,247 @@ pub enum CqEvent {
         order: u8,
         gen: u8,
     },
+    // S1 (stage 1b, kinds 90–94).
+    VaultBuilt {
+        p: i32,
+        q: i32,
+        tile: u8,
+        owner_tag: u64,
+        faction: u8,
+        gen: u8,
+        holding_key: u64,
+    },
+    CaravanSent {
+        owner_tag: u64,
+        seq: u32,
+        faction: u8,
+        src: LogPlace,
+        dst: LogPlace,
+        steps: u8,
+        /// Whole units per resource.
+        cargo: [u32; 8],
+        arrive_ts: i64,
+        runs: Vec<LogRun>,
+        /// S1 1d: the towers' wear of the route (bps; `cargo` is after it).
+        worn_bps: u16,
+        /// The packed path (`caravan::pack`), `steps` of it used.
+        path: [u8; 12],
+    },
+    CaravanSettled {
+        owner_tag: u64,
+        seq: u32,
+        /// `l2::caravan_outcome`.
+        outcome: u8,
+        dst: LogPlace,
+        cargo: [u32; 8],
+        fee: u64,
+    },
+    CaravanRaided {
+        owner_tag: u64,
+        seq: u32,
+        p: i32,
+        q: i32,
+        bell: u32,
+        /// `l2::raid_choice` TAKE or BURN.
+        choice: u8,
+        /// `l2::raid_choice` BY_RAIDER or BY_DEFAULT.
+        by: u8,
+        raider_tag: u64,
+        /// The cargo taken (a take: all of it) or burned, whole units.
+        taken: [u32; 8],
+        /// A take's new destination (decision J2: the caravan is the
+        /// raider's now); zero for a burn.
+        dst: LogPlace,
+        /// The old route's Provinces (beside the raid's) a take cleared.
+        cleared: Vec<(i16, i16)>,
+        /// S1 1e (K4): the raid was RaidDomestic's (the raider's faction is
+        /// the caravan's).
+        domestic: bool,
+    },
+    VaultSeized {
+        p: i32,
+        q: i32,
+        tile: u8,
+        captor_tag: u64,
+        prev_tag: u64,
+        new_gen: u8,
+        domestic: bool,
+        host_id: u64,
+    },
+    // S1 (stage 1d, kinds 95–97).
+    StructureBuilt {
+        p: i32,
+        q: i32,
+        tile: u8,
+        owner_tag: u64,
+        faction: u8,
+        gen: u8,
+        /// Its index in the Province's structure list.
+        entry: u8,
+        /// `s1::structure::NOTIFY_*`.
+        notify: u8,
+        holding_key: u64,
+        /// `structure::KIND_*`.
+        kind: u8,
+    },
+    StructureSeized {
+        p: i32,
+        q: i32,
+        tile: u8,
+        captor_tag: u64,
+        prev_tag: u64,
+        new_gen: u8,
+        faction: u8,
+        domestic: bool,
+        host_id: u64,
+        kind: u8,
+    },
+    StructureClosed {
+        p: i32,
+        q: i32,
+        tile: u8,
+        owner_tag: u64,
+        entry: u8,
+        kind: u8,
+    },
+    // S1 (stage 1e, kinds 98–102).
+    /// Troops sent into a fort (pending from `pend_bell`).
+    FortGarrisoned {
+        p: i32,
+        q: i32,
+        tile: u8,
+        owner_tag: u64,
+        /// Whole troops this garrison added.
+        troops: u32,
+        pend_bell: u32,
+        /// Whole troops pending after it.
+        pend: u16,
+        holding_key: u64,
+    },
+    /// A raid RaidDomestic opened (RaidCaravan or DefaultRaid settles it).
+    RaidOpened {
+        owner_tag: u64,
+        seq: u32,
+        p: i32,
+        q: i32,
+        /// The bell the caravan and the raiding host stood on its tile.
+        bell: u32,
+        raider_host: u64,
+        raider_tag: u64,
+        domestic: bool,
+    },
+    NationProposed {
+        faction: u8,
+        id: u32,
+        slot: u8,
+        /// `nation::KIND_*`.
+        kind: u8,
+        target_faction: u8,
+        value: u8,
+        proposer_tag: u64,
+        /// The target Citizen's tag (0 for a stance).
+        target_tag: u64,
+        close_bell: u32,
+    },
+    NationVoted {
+        faction: u8,
+        id: u32,
+        voter_tag: u64,
+        yes: bool,
+        /// The tallies after this vote.
+        yes_now: u16,
+        no_now: u16,
+    },
+    NationDecided {
+        faction: u8,
+        id: u32,
+        passed: bool,
+        kind: u8,
+        target_faction: u8,
+        value: u8,
+        target_tag: u64,
+        yes: u16,
+        no: u16,
+        /// The holding keys a passed expulsion or readmission flagged (0:
+        /// none).
+        holdings: [u64; 3],
+    },
+}
+
+/// A caravan's origin or destination as logged (`l2::log_place`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LogPlace {
+    /// 1 holding, 2 vault, 3 a raid's field tile.
+    pub kind: u8,
+    pub p: i16,
+    pub q: i16,
+    /// Holding: the site; vault or field: the tile.
+    pub at: u8,
+    pub gen: u8,
+    pub tile: u8,
+}
+
+impl LogPlace {
+    pub fn parse(b: &[u8]) -> Option<LogPlace> {
+        if b.len() != l2::log_place::LEN {
+            return None;
+        }
+        Some(LogPlace {
+            kind: b[0],
+            p: i16::from_le_bytes([b[1], b[2]]),
+            q: i16::from_le_bytes([b[3], b[4]]),
+            at: b[5],
+            gen: b[6],
+            tile: b[7],
+        })
+    }
+}
+
+/// One province's share of a caravan's schedule as logged (`l2::log_run`):
+/// the caravan stands there at the start of bells `first_bell..first_bell
+/// + n`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LogRun {
+    pub p: i16,
+    pub q: i16,
+    pub first_bell: u32,
+    pub n: u8,
+}
+
+/// The runs of a CARAVAN_SENT payload (the empty ones dropped).
+pub fn parse_runs(b: &[u8]) -> Option<Vec<LogRun>> {
+    if b.len() != l2::log_run::LEN * l2::log_run::N {
+        return None;
+    }
+    Some(
+        b.chunks(l2::log_run::LEN)
+            .map(|e| LogRun {
+                p: i16::from_le_bytes([e[0], e[1]]),
+                q: i16::from_le_bytes([e[2], e[3]]),
+                first_bell: u32::from_le_bytes([e[4], e[5], e[6], e[7]]),
+                n: e[8],
+            })
+            .filter(|r| r.n > 0)
+            .collect(),
+    )
+}
+
+/// Eight logged `u32` amounts.
+fn units8(b: &[u8]) -> Option<[u32; 8]> {
+    if b.len() != 32 {
+        return None;
+    }
+    let mut out = [0u32; 8];
+    for (i, o) in out.iter_mut().enumerate() {
+        *o = u32::from_le_bytes(b[4 * i..4 * i + 4].try_into().ok()?);
+    }
+    Some(out)
 }
 
 impl CqEvent {
-    /// The Province the record is about (`None` for MARCH_FOLD and RETIRE).
+    /// The Province the record is about (`None` for MARCH_FOLD, RETIRE and
+    /// the nation records;
+    /// a caravan's origin when sent, its destination when settled).
     pub fn province(&self) -> Option<(i32, i32)> {
         use CqEvent::*;
         match self {
@@ -119,8 +357,22 @@ impl CqEvent {
             | CaptureSettled { p, q, .. }
             | Keep { p, q, .. }
             | Neutral { p, q, .. }
-            | OutpostSettled { p, q, .. } => Some((*p, *q)),
-            MarchFold { .. } | Retire { .. } => None,
+            | OutpostSettled { p, q, .. }
+            | VaultBuilt { p, q, .. }
+            | CaravanRaided { p, q, .. }
+            | RaidOpened { p, q, .. }
+            | FortGarrisoned { p, q, .. }
+            | VaultSeized { p, q, .. }
+            | StructureBuilt { p, q, .. }
+            | StructureSeized { p, q, .. }
+            | StructureClosed { p, q, .. } => Some((*p, *q)),
+            MarchFold { .. }
+            | Retire { .. }
+            | NationProposed { .. }
+            | NationVoted { .. }
+            | NationDecided { .. } => None,
+            CaravanSent { src, .. } => Some((src.p as i32, src.q as i32)),
+            CaravanSettled { dst, .. } => Some((dst.p as i32, dst.q as i32)),
         }
     }
 }
@@ -236,6 +488,150 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
             order: b8("order")?,
             gen: b8("gen")?,
         },
+        CqKind::VAULT_BUILT => CqEvent::VaultBuilt {
+            p: i("p")?,
+            q: i("q")?,
+            tile: b8("tile")?,
+            owner_tag: u("owner_tag")?,
+            faction: b8("faction")?,
+            gen: b8("gen")?,
+            holding_key: u("holding_key")?,
+        },
+        CqKind::CARAVAN_SENT => CqEvent::CaravanSent {
+            owner_tag: u("owner_tag")?,
+            seq: u("seq")? as u32,
+            faction: b8("faction")?,
+            src: LogPlace::parse(f("src")?)?,
+            dst: LogPlace::parse(f("dst")?)?,
+            steps: b8("steps")?,
+            cargo: units8(f("cargo")?)?,
+            arrive_ts: u("arrive_ts")? as i64,
+            runs: parse_runs(f("runs")?)?,
+            worn_bps: u("worn_bps")? as u16,
+            path: f("path")?.try_into().ok()?,
+        },
+        CqKind::CARAVAN_SETTLED => CqEvent::CaravanSettled {
+            owner_tag: u("owner_tag")?,
+            seq: u("seq")? as u32,
+            outcome: b8("outcome")?,
+            dst: LogPlace::parse(f("dst")?)?,
+            cargo: units8(f("cargo")?)?,
+            fee: u("fee")?,
+        },
+        CqKind::CARAVAN_RAIDED => CqEvent::CaravanRaided {
+            owner_tag: u("owner_tag")?,
+            seq: u("seq")? as u32,
+            p: i("p")?,
+            q: i("q")?,
+            bell: u("bell")? as u32,
+            choice: b8("choice")?,
+            by: b8("by")?,
+            raider_tag: u("raider_tag")?,
+            taken: units8(f("taken")?)?,
+            dst: LogPlace::parse(f("dst")?)?,
+            cleared: l2::log_cleared::read(f("cleared")?)?,
+            domestic: b8("domestic")? != 0,
+        },
+        CqKind::VAULT_SEIZED => CqEvent::VaultSeized {
+            p: i("p")?,
+            q: i("q")?,
+            tile: b8("tile")?,
+            captor_tag: u("captor_tag")?,
+            prev_tag: u("prev_tag")?,
+            new_gen: b8("new_gen")?,
+            domestic: b8("domestic")? != 0,
+            host_id: u("host_id")?,
+        },
+        CqKind::STRUCTURE_BUILT => CqEvent::StructureBuilt {
+            p: i("p")?,
+            q: i("q")?,
+            tile: b8("tile")?,
+            owner_tag: u("owner_tag")?,
+            faction: b8("faction")?,
+            gen: b8("gen")?,
+            entry: b8("entry")?,
+            notify: b8("notify")?,
+            holding_key: u("holding_key")?,
+            kind: b8("kind")?,
+        },
+        CqKind::STRUCTURE_SEIZED => CqEvent::StructureSeized {
+            p: i("p")?,
+            q: i("q")?,
+            tile: b8("tile")?,
+            captor_tag: u("captor_tag")?,
+            prev_tag: u("prev_tag")?,
+            new_gen: b8("new_gen")?,
+            faction: b8("faction")?,
+            domestic: b8("domestic")? != 0,
+            host_id: u("host_id")?,
+            kind: b8("kind")?,
+        },
+        CqKind::STRUCTURE_CLOSED => CqEvent::StructureClosed {
+            p: i("p")?,
+            q: i("q")?,
+            tile: b8("tile")?,
+            owner_tag: u("owner_tag")?,
+            entry: b8("entry")?,
+            kind: b8("kind")?,
+        },
+        CqKind::FORT_GARRISONED => CqEvent::FortGarrisoned {
+            p: i("p")?,
+            q: i("q")?,
+            tile: b8("tile")?,
+            owner_tag: u("owner_tag")?,
+            troops: u("troops")? as u32,
+            pend_bell: u("pend_bell")? as u32,
+            pend: u("pend")? as u16,
+            holding_key: u("holding_key")?,
+        },
+        CqKind::RAID_OPENED => CqEvent::RaidOpened {
+            owner_tag: u("owner_tag")?,
+            seq: u("seq")? as u32,
+            p: i("p")?,
+            q: i("q")?,
+            bell: u("bell")? as u32,
+            raider_host: u("raider_host")?,
+            raider_tag: u("raider_tag")?,
+            domestic: b8("domestic")? != 0,
+        },
+        CqKind::NATION_PROPOSED => CqEvent::NationProposed {
+            faction: b8("faction")?,
+            id: u("id")? as u32,
+            slot: b8("slot")?,
+            kind: b8("kind")?,
+            target_faction: b8("target_faction")?,
+            value: b8("value")?,
+            proposer_tag: u("proposer_tag")?,
+            target_tag: u("target_tag")?,
+            close_bell: u("close_bell")? as u32,
+        },
+        CqKind::NATION_VOTED => CqEvent::NationVoted {
+            faction: b8("faction")?,
+            id: u("id")? as u32,
+            voter_tag: u("voter_tag")?,
+            yes: b8("yes")? != 0,
+            yes_now: u("yes_now")? as u16,
+            no_now: u("no_now")? as u16,
+        },
+        CqKind::NATION_DECIDED => {
+            let hs = f("holdings")?;
+            let mut holdings = [0u64; 3];
+            for (i, h) in holdings.iter_mut().enumerate() {
+                *h = u64::from_le_bytes(hs.get(8 * i..8 * i + 8)?.try_into().ok()?);
+            }
+            CqEvent::NationDecided {
+                faction: b8("faction")?,
+                id: u("id")? as u32,
+                passed: b8("passed")? != 0,
+                kind: b8("kind")?,
+                target_faction: b8("target_faction")?,
+                value: b8("value")?,
+                target_tag: u("target_tag")?,
+                yes: u("yes")? as u16,
+                no: u("no")? as u16,
+                holdings,
+            }
+        }
     };
     Some(CqLog {
         bell: r.bell,

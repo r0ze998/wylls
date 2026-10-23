@@ -21,7 +21,7 @@ use std::collections::BTreeMap;
 use frontier_abi::error::FrontierError;
 use frontier_abi::v2::error::{Code, CqError};
 use permutation_rules::fixed::{Bps, Milli, MilliTroops, MILLI};
-use permutation_rules::frontier::catalog::{self, Cost, SETTLER_COST};
+use permutation_rules::frontier::catalog::{Cost, SETTLER_COST};
 use permutation_rules::frontier::holding::{
     duplicate_cost, may_found_outpost, OutpostCheck, OutpostRefusal, Tier, RESOURCES,
 };
@@ -99,13 +99,15 @@ fn m1(e: FrontierError) -> Code {
 }
 
 /// The Train cost of `n` troops of `unit` (K2, §3.16): `train_v2` in an
-/// MC season, M1's `train` otherwise.
+/// MC season, M1's `train` otherwise (`crate::rules::Rules::train`, which
+/// also prices the S1 rules).
 pub fn train_cost(mc: bool, unit: u8, n: u32) -> Option<Cost> {
-    if mc {
-        catalog::train_v2(unit, n)
+    let rules = if mc {
+        crate::rules::Rules::Mc
     } else {
-        catalog::train(unit, n)
-    }
+        crate::rules::Rules::M1
+    };
+    rules.train(unit, n)
 }
 
 /// Whether a Season account meets the MC program-version threshold.
@@ -584,9 +586,18 @@ mod tests {
     #[test]
     fn cq_train_cost_dispatches_on_the_season() {
         let h = UnitType::Horseman as u8;
-        assert_eq!(train_cost(true, h, 100), catalog::train_v2(h, 100));
-        assert_eq!(train_cost(false, h, 100), catalog::train(h, 100));
-        assert_ne!(catalog::train_v2(h, 100), catalog::train(h, 100));
+        assert_eq!(
+            train_cost(true, h, 100),
+            permutation_rules::frontier::catalog::train_v2(h, 100)
+        );
+        assert_eq!(
+            train_cost(false, h, 100),
+            permutation_rules::frontier::catalog::train(h, 100)
+        );
+        assert_ne!(
+            permutation_rules::frontier::catalog::train_v2(h, 100),
+            permutation_rules::frontier::catalog::train(h, 100)
+        );
         assert!(is_mc_season(frontier_abi::v2::presets::PROGRAM_VERSION_V2));
         assert!(!is_mc_season(2));
     }

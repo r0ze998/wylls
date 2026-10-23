@@ -228,9 +228,18 @@ fn holding_build_refusals() {
     // lock); walls and the tier-up need it writable (`BadAccount`), a
     // missing one is `TooManyAccounts`, a writable one with a building is
     // accepted (`Wr::Either`).
+    // S1: item 8 is the workshop; 9 and beyond are unknown.
     assert_code(
-        send(&mut c.fork(), &e, b(ITEM_TIER_UP + 1, false)),
+        send(
+            &mut c.fork(),
+            &e,
+            b(permutation_rules::frontier::arms::ITEM_WORKSHOP + 1, false),
+        ),
         E::BadData,
+    );
+    assert_eq!(
+        ITEM_TIER_UP + 1,
+        permutation_rules::frontier::arms::ITEM_WORKSHOP
     );
     let mut ro = b(catalog::ITEM_WALLS, true);
     ro.accounts[at::PROVINCE].is_writable = false;
@@ -282,7 +291,9 @@ fn holding_train_is_immediate() {
         send(&mut c, &e, hx::train(&w.a, &e.player(), e.href(), 5, 250)),
         "hx::train(",
     );
-    let cost = catalog::train(5, 250).unwrap();
+    // S1: the Knight pays the conquest cost plus arms (`arms::train_v3`).
+    let cost = permutation_rules::frontier::arms::train_v3(5, 250).unwrap();
+    assert!(cost[permutation_rules::frontier::arms::ARMS as usize] > 0);
     let mut want = touched(before, c.now);
     want.pay(c.now, &cost).unwrap();
     assert_eq!(read_kholding(&c.data(&e.holding)), want);
@@ -763,8 +774,9 @@ mod cq {
         }
     }
 
-    /// K2 (MC §3.16): Train pays `catalog::train_v2`: the Horseman at the
-    /// Spearman's ore and gold; the Knight and the rest as M1.
+    /// K2 (MC §3.16), S1: Train pays `arms::train_v3`: `catalog::train_v2`
+    /// (the Horseman at the Spearman's ore and gold; the Knight and the
+    /// rest as M1) plus arms for the strong units.
     #[test]
     fn cq_train_pays_the_v2_table() {
         let (mut c, w, e) = setup();
@@ -779,7 +791,13 @@ mod cq {
                 send(&mut c, &e, hx::train(&w.a, &e.player(), e.href(), unit, n)),
                 "hx::train(",
             );
-            let cost = frontier_abi::v2::kernel::catalog2::train_v2(unit, n).unwrap();
+            let cost = permutation_rules::frontier::arms::train_v3(unit, n).unwrap();
+            let mut base = cost;
+            base[permutation_rules::frontier::arms::ARMS as usize] = 0;
+            assert_eq!(
+                base,
+                frontier_abi::v2::kernel::catalog2::train_v2(unit, n).unwrap()
+            );
             let mut want = touched(before, c.now);
             want.pay(c.now, &cost).unwrap();
             assert_eq!(read_kholding(&c.data(&e.holding)), want, "unit {unit}");

@@ -392,12 +392,15 @@ pub fn abi_version(_: &[u8]) -> Answer {
     ok(&crate::ABI_VERSION)
 }
 
-/// `permutation_rules::frontier::ruleset_hash()` (= `frontier_abi::presets::RULESET_HASH`).
+/// `permutation_rules::frontier::ruleset_hash()` (= `frontier_abi::presets::RULESET_HASH`);
+/// the `cq` build answers `ruleset_hash_v2`, the `s1` build `ruleset_hash_v3`.
 pub fn ruleset_hash(_: &[u8]) -> Answer {
     #[cfg(not(feature = "cq"))]
     let hash = permutation_rules::frontier::ruleset_hash();
-    #[cfg(feature = "cq")]
+    #[cfg(all(feature = "cq", not(feature = "s1")))]
     let hash = permutation_rules::frontier::ruleset_hash_v2();
+    #[cfg(feature = "s1")]
+    let hash = permutation_rules::frontier::ruleset_hash_v3();
     ok(&hash)
 }
 

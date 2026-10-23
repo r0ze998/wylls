@@ -1280,6 +1280,18 @@ fn ruleset_hash_binds_versions_and_catalog() {
         .collect();
     assert_eq!(&names[..m1_names.len()], &m1_names[..], "v2 appends to v1");
     assert_eq!(&names[m1_names.len()..], &["keep", "control"]);
+    // The S1 rules' hash (`KERNEL_VERSIONS_V3`) appends `arms`, `caravan`, `structure` and `nation` to the MC
+    // list and binds every module of the tree.
+    let v2_names = names;
+    let names: Vec<&str> = permutation_rules::frontier::KERNEL_VERSIONS_V3
+        .iter()
+        .map(|(n, _)| *n)
+        .collect();
+    assert_eq!(&names[..v2_names.len()], &v2_names[..], "v3 appends to v2");
+    assert_eq!(
+        &names[v2_names.len()..],
+        &["arms", "caravan", "structure", "nation"]
+    );
     let src = include_str!("../src/frontier/mod.rs");
     let mut modules = 0;
     for line in src.lines() {

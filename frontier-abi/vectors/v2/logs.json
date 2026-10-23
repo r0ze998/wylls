@@ -35,6 +35,22 @@
     {
       "code": 8,
       "account": "MarchState"
+    },
+    {
+      "code": 9,
+      "account": "Vault"
+    },
+    {
+      "code": 10,
+      "account": "Caravan"
+    },
+    {
+      "code": 11,
+      "account": "Structure"
+    },
+    {
+      "code": 12,
+      "account": "Nation"
     }
   ],
   "kinds": [
@@ -675,6 +691,784 @@
             "head": "a062d10e273343a44a67177b2a8420d60dc61c141369bf14f60430d02ad67649"
           }
         ]
+      }
+    },
+    {
+      "kind": 90,
+      "name": "VAULT_BUILT",
+      "key": [
+        {
+          "name": "p",
+          "len": 4
+        },
+        {
+          "name": "q",
+          "len": 4
+        },
+        {
+          "name": "tile",
+          "len": 1
+        }
+      ],
+      "payload": [
+        {
+          "name": "owner_tag",
+          "len": 8
+        },
+        {
+          "name": "faction",
+          "len": 1
+        },
+        {
+          "name": "gen",
+          "len": 1
+        },
+        {
+          "name": "holding_key",
+          "len": 8
+        },
+        {
+          "name": "cost_digest",
+          "len": 32
+        }
+      ],
+      "body_without_tail_len": 65,
+      "vector": {
+        "bell": 2090,
+        "body_without_tail": "015a2a08000005000000ffffffff216b88a5c2dffc19366b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee",
+        "body": "015a2a08000005000000ffffffff216b88a5c2dffc19366b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee00",
+        "decodes": true,
+        "chains": []
+      }
+    },
+    {
+      "kind": 91,
+      "name": "CARAVAN_SENT",
+      "key": [
+        {
+          "name": "owner_tag",
+          "len": 8
+        },
+        {
+          "name": "seq",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "faction",
+          "len": 1
+        },
+        {
+          "name": "src",
+          "len": 8
+        },
+        {
+          "name": "dst",
+          "len": 8
+        },
+        {
+          "name": "steps",
+          "len": 1
+        },
+        {
+          "name": "cargo",
+          "len": 32
+        },
+        {
+          "name": "arrive_ts",
+          "len": 8
+        },
+        {
+          "name": "runs",
+          "len": 36
+        },
+        {
+          "name": "worn_bps",
+          "len": 2
+        },
+        {
+          "name": "path",
+          "len": 12
+        }
+      ],
+      "body_without_tail_len": 126,
+      "vector": {
+        "bell": 2091,
+        "body_without_tail": "015b2b080000213e5b7895b2cfec213e5b786b6b88a5c2dffc19366b88a5c2dffc19366b6b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee0b2845626b886b88a5c2dffc193653708daa",
+        "body": "015b2b080000213e5b7895b2cfec213e5b786b6b88a5c2dffc19366b88a5c2dffc19366b6b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee0b2845626b886b88a5c2dffc193653708daa00",
+        "decodes": true,
+        "chains": []
+      }
+    },
+    {
+      "kind": 92,
+      "name": "CARAVAN_SETTLED",
+      "key": [
+        {
+          "name": "owner_tag",
+          "len": 8
+        },
+        {
+          "name": "seq",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "outcome",
+          "len": 1
+        },
+        {
+          "name": "dst",
+          "len": 8
+        },
+        {
+          "name": "cargo",
+          "len": 32
+        },
+        {
+          "name": "fee",
+          "len": 8
+        }
+      ],
+      "body_without_tail_len": 67,
+      "vector": {
+        "bell": 2092,
+        "body_without_tail": "015c2c080000213e5b7895b2cfec213e5b78006b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b88a5c2dffc1936",
+        "body": "015c2c080000213e5b7895b2cfec213e5b78006b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b88a5c2dffc193600",
+        "decodes": true,
+        "chains": []
+      }
+    },
+    {
+      "kind": 93,
+      "name": "CARAVAN_RAIDED",
+      "key": [
+        {
+          "name": "owner_tag",
+          "len": 8
+        },
+        {
+          "name": "seq",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "p",
+          "len": 4
+        },
+        {
+          "name": "q",
+          "len": 4
+        },
+        {
+          "name": "bell",
+          "len": 4
+        },
+        {
+          "name": "choice",
+          "len": 1
+        },
+        {
+          "name": "by",
+          "len": 1
+        },
+        {
+          "name": "raider_tag",
+          "len": 8
+        },
+        {
+          "name": "taken",
+          "len": 32
+        },
+        {
+          "name": "dst",
+          "len": 8
+        },
+        {
+          "name": "cleared",
+          "len": 17
+        },
+        {
+          "name": "domestic",
+          "len": 1
+        }
+      ],
+      "body_without_tail_len": 98,
+      "vector": {
+        "bell": 2093,
+        "body_without_tail": "015d2d080000213e5b7895b2cfec213e5b7805000000ffffffff6b88a5c26b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b6b",
+        "body": "015d2d080000213e5b7895b2cfec213e5b7805000000ffffffff6b88a5c26b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b6b00",
+        "decodes": true,
+        "chains": []
+      }
+    },
+    {
+      "kind": 94,
+      "name": "VAULT_SEIZED",
+      "key": [
+        {
+          "name": "p",
+          "len": 4
+        },
+        {
+          "name": "q",
+          "len": 4
+        },
+        {
+          "name": "tile",
+          "len": 1
+        }
+      ],
+      "payload": [
+        {
+          "name": "captor_tag",
+          "len": 8
+        },
+        {
+          "name": "prev_tag",
+          "len": 8
+        },
+        {
+          "name": "new_gen",
+          "len": 1
+        },
+        {
+          "name": "domestic",
+          "len": 1
+        },
+        {
+          "name": "host_id",
+          "len": 8
+        }
+      ],
+      "body_without_tail_len": 41,
+      "vector": {
+        "bell": 2094,
+        "body_without_tail": "015e2e08000005000000ffffffff216b88a5c2dffc19366b88a5c2dffc19366b6b2a00000001230100",
+        "body": "015e2e08000005000000ffffffff216b88a5c2dffc19366b88a5c2dffc19366b6b2a0000000123010003040400000000000000d7e01941b07f1b486ff65e8dc5b93e802b92689fa3be54c72d274b7d2c37baa5040500000000000000baf034311aac94fc514ec36c7ae48d2fd73d03ca8f23d5bcc1dc7c8b5f131f44090600000000000000c6c80207ab014ce54acb2ea22b24a7ad3c062eeca6cef63f9dc9a1ab4afb2902",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 4,
+            "who": "Base(Citizen(Tag8(3898424990439409771)))",
+            "prev_seq": 3,
+            "prev_head": "fb64323c6ad382df049d1e798a8d7e92df2797115aa01238a7d52c05a31fffac",
+            "seq": 4,
+            "head": "d7e01941b07f1b486ff65e8dc5b93e802b92689fa3be54c72d274b7d2c37baa5"
+          },
+          {
+            "entity": 4,
+            "who": "Base(Citizen(Tag8(3898424990439409771)))",
+            "prev_seq": 4,
+            "prev_head": "b31932d046ad11f7bc3f5d4c5b88f196375707ab872a5b83d66ca40969448936",
+            "seq": 5,
+            "head": "baf034311aac94fc514ec36c7ae48d2fd73d03ca8f23d5bcc1dc7c8b5f131f44"
+          },
+          {
+            "entity": 9,
+            "who": "Vault { p: 5, q: -1, tile: 33 }",
+            "prev_seq": 5,
+            "prev_head": "fd973722d628e883ce9f61d74f327c21b98151c91c363425b4bc4ff470d1ca07",
+            "seq": 6,
+            "head": "c6c80207ab014ce54acb2ea22b24a7ad3c062eeca6cef63f9dc9a1ab4afb2902"
+          }
+        ]
+      }
+    },
+    {
+      "kind": 95,
+      "name": "STRUCTURE_BUILT",
+      "key": [
+        {
+          "name": "p",
+          "len": 4
+        },
+        {
+          "name": "q",
+          "len": 4
+        },
+        {
+          "name": "tile",
+          "len": 1
+        }
+      ],
+      "payload": [
+        {
+          "name": "owner_tag",
+          "len": 8
+        },
+        {
+          "name": "faction",
+          "len": 1
+        },
+        {
+          "name": "gen",
+          "len": 1
+        },
+        {
+          "name": "entry",
+          "len": 1
+        },
+        {
+          "name": "notify",
+          "len": 1
+        },
+        {
+          "name": "holding_key",
+          "len": 8
+        },
+        {
+          "name": "cost_digest",
+          "len": 32
+        },
+        {
+          "name": "kind",
+          "len": 1
+        }
+      ],
+      "body_without_tail_len": 68,
+      "vector": {
+        "bell": 2095,
+        "body_without_tail": "015f2f08000005000000ffffffff216b88a5c2dffc19366b6b6b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b",
+        "body": "015f2f08000005000000ffffffff216b88a5c2dffc19366b6b6b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b00",
+        "decodes": true,
+        "chains": []
+      }
+    },
+    {
+      "kind": 96,
+      "name": "STRUCTURE_SEIZED",
+      "key": [
+        {
+          "name": "p",
+          "len": 4
+        },
+        {
+          "name": "q",
+          "len": 4
+        },
+        {
+          "name": "tile",
+          "len": 1
+        }
+      ],
+      "payload": [
+        {
+          "name": "captor_tag",
+          "len": 8
+        },
+        {
+          "name": "prev_tag",
+          "len": 8
+        },
+        {
+          "name": "new_gen",
+          "len": 1
+        },
+        {
+          "name": "faction",
+          "len": 1
+        },
+        {
+          "name": "domestic",
+          "len": 1
+        },
+        {
+          "name": "host_id",
+          "len": 8
+        },
+        {
+          "name": "kind",
+          "len": 1
+        }
+      ],
+      "body_without_tail_len": 43,
+      "vector": {
+        "bell": 2096,
+        "body_without_tail": "01603008000005000000ffffffff216b88a5c2dffc19366b88a5c2dffc19366b6b6b2a000000012301006b",
+        "body": "01603008000005000000ffffffff216b88a5c2dffc19366b88a5c2dffc19366b6b6b2a000000012301006b04040400000000000000236503d9f477641bd37c526a7d25b031677694ec12078498b07e615e93d629460405000000000000003dbd4dc0d5684bf8d4aef01729edc303143fb3a4fcd4ae1e903a8959bc0df2ca060600000000000000d0d64c6ef4833d0fd2f10a7f6db6d6290fa9465c07bcc39e694474937a67f8ab0b0700000000000000551726e2dcb950495061d86f61074251c6cee89b3e808d114ae8760265e76817",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 4,
+            "who": "Base(Citizen(Tag8(3898424990439409771)))",
+            "prev_seq": 3,
+            "prev_head": "c64bbd035cbea56771d6fc55bf28fc455dce021a9cfa0635ecc83a0d925bd7ba",
+            "seq": 4,
+            "head": "236503d9f477641bd37c526a7d25b031677694ec12078498b07e615e93d62946"
+          },
+          {
+            "entity": 4,
+            "who": "Base(Citizen(Tag8(3898424990439409771)))",
+            "prev_seq": 4,
+            "prev_head": "b0b68f4c9109503c7c2c34646b2f68950622c123919e0734ebeec6ac00b7d44d",
+            "seq": 5,
+            "head": "3dbd4dc0d5684bf8d4aef01729edc303143fb3a4fcd4ae1e903a8959bc0df2ca"
+          },
+          {
+            "entity": 6,
+            "who": "Base(Province { p: 5, q: -1 })",
+            "prev_seq": 5,
+            "prev_head": "0c758e38544315d5ae64ba2127d8e1201e19d5a3434182a8d91b377e0c3622fb",
+            "seq": 6,
+            "head": "d0d64c6ef4833d0fd2f10a7f6db6d6290fa9465c07bcc39e694474937a67f8ab"
+          },
+          {
+            "entity": 11,
+            "who": "Structure { p: 5, q: -1, tile: 33 }",
+            "prev_seq": 6,
+            "prev_head": "51000a6b25b3bf1c11e07a1cd1612850ace56061037dfaa765e9f0c4a224aca9",
+            "seq": 7,
+            "head": "551726e2dcb950495061d86f61074251c6cee89b3e808d114ae8760265e76817"
+          }
+        ]
+      }
+    },
+    {
+      "kind": 97,
+      "name": "STRUCTURE_CLOSED",
+      "key": [
+        {
+          "name": "p",
+          "len": 4
+        },
+        {
+          "name": "q",
+          "len": 4
+        },
+        {
+          "name": "tile",
+          "len": 1
+        }
+      ],
+      "payload": [
+        {
+          "name": "owner_tag",
+          "len": 8
+        },
+        {
+          "name": "entry",
+          "len": 1
+        },
+        {
+          "name": "kind",
+          "len": 1
+        }
+      ],
+      "body_without_tail_len": 25,
+      "vector": {
+        "bell": 2097,
+        "body_without_tail": "01613108000005000000ffffffff216b88a5c2dffc19366b6b",
+        "body": "01613108000005000000ffffffff216b88a5c2dffc19366b6b01060400000000000000b3f684940650fdc5e066853bf72678452d984d50d9f826596218f3ebba0038fd",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 6,
+            "who": "Base(Province { p: 5, q: -1 })",
+            "prev_seq": 3,
+            "prev_head": "a7e4f8d9479aacecb8293a1aeb0a7735abcaf2f5ade0b54c63399eb638c1ad67",
+            "seq": 4,
+            "head": "b3f684940650fdc5e066853bf72678452d984d50d9f826596218f3ebba0038fd"
+          }
+        ]
+      }
+    },
+    {
+      "kind": 98,
+      "name": "NATION_PROPOSED",
+      "key": [
+        {
+          "name": "faction",
+          "len": 1
+        },
+        {
+          "name": "id",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "slot",
+          "len": 1
+        },
+        {
+          "name": "kind",
+          "len": 1
+        },
+        {
+          "name": "target_faction",
+          "len": 1
+        },
+        {
+          "name": "value",
+          "len": 1
+        },
+        {
+          "name": "proposer_tag",
+          "len": 8
+        },
+        {
+          "name": "target_tag",
+          "len": 8
+        },
+        {
+          "name": "close_bell",
+          "len": 4
+        }
+      ],
+      "body_without_tail_len": 35,
+      "vector": {
+        "bell": 2098,
+        "body_without_tail": "01623208000021213e5b786b6b6b6b6b88a5c2dffc19366b88a5c2dffc19366b88a5c2",
+        "body": "01623208000021213e5b786b6b6b6b6b88a5c2dffc19366b88a5c2dffc19366b88a5c20204040000000000000019a38332092a56328df15dcdabf5b1796ec05185a06001753075f1863ab7029c0c0500000000000000637e6286119b5c87fd0fe713789efe39c5b23b2d510d3453fe5ad931a13468f8",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 4,
+            "who": "Base(Citizen(Tag8(3898424990439409771)))",
+            "prev_seq": 3,
+            "prev_head": "cedc9c5fb8d17596cde3fc1c9751bf607197b655c3f7fcaaa92cd44c3143248f",
+            "seq": 4,
+            "head": "19a38332092a56328df15dcdabf5b1796ec05185a06001753075f1863ab7029c"
+          },
+          {
+            "entity": 12,
+            "who": "Nation { faction: 33 }",
+            "prev_seq": 4,
+            "prev_head": "905ba45c7059df4cf40645572dab7e25fbc09555235c575ac09feb52ad50c6f5",
+            "seq": 5,
+            "head": "637e6286119b5c87fd0fe713789efe39c5b23b2d510d3453fe5ad931a13468f8"
+          }
+        ]
+      }
+    },
+    {
+      "kind": 99,
+      "name": "NATION_VOTED",
+      "key": [
+        {
+          "name": "faction",
+          "len": 1
+        },
+        {
+          "name": "id",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "voter_tag",
+          "len": 8
+        },
+        {
+          "name": "yes",
+          "len": 1
+        },
+        {
+          "name": "yes_now",
+          "len": 2
+        },
+        {
+          "name": "no_now",
+          "len": 2
+        }
+      ],
+      "body_without_tail_len": 24,
+      "vector": {
+        "bell": 2099,
+        "body_without_tail": "01633308000021213e5b786b88a5c2dffc19366b6b886b88",
+        "body": "01633308000021213e5b786b88a5c2dffc19366b6b886b880204040000000000000061f8fbebf0501b62eef2bbea39cea5faa5f5ce41b0307aee7f492cf0fad273a90c05000000000000006088cc371b766daae10d2b9ad83ab63e59d033d2f1e832a811d75e26e98d9872",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 4,
+            "who": "Base(Citizen(Tag8(3898424990439409771)))",
+            "prev_seq": 3,
+            "prev_head": "991ee73f02d7d3187045f574c12cc145ba75b39f16e74f29488c5a31762b1aba",
+            "seq": 4,
+            "head": "61f8fbebf0501b62eef2bbea39cea5faa5f5ce41b0307aee7f492cf0fad273a9"
+          },
+          {
+            "entity": 12,
+            "who": "Nation { faction: 33 }",
+            "prev_seq": 4,
+            "prev_head": "1a02ca1f4c575185c25739b0af52d8b69d986175570bdf522695da35bf014f0f",
+            "seq": 5,
+            "head": "6088cc371b766daae10d2b9ad83ab63e59d033d2f1e832a811d75e26e98d9872"
+          }
+        ]
+      }
+    },
+    {
+      "kind": 100,
+      "name": "NATION_DECIDED",
+      "key": [
+        {
+          "name": "faction",
+          "len": 1
+        },
+        {
+          "name": "id",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "passed",
+          "len": 1
+        },
+        {
+          "name": "kind",
+          "len": 1
+        },
+        {
+          "name": "target_faction",
+          "len": 1
+        },
+        {
+          "name": "value",
+          "len": 1
+        },
+        {
+          "name": "target_tag",
+          "len": 8
+        },
+        {
+          "name": "yes",
+          "len": 2
+        },
+        {
+          "name": "no",
+          "len": 2
+        },
+        {
+          "name": "holdings",
+          "len": 24
+        }
+      ],
+      "body_without_tail_len": 51,
+      "vector": {
+        "bell": 2100,
+        "body_without_tail": "01643408000021213e5b786b6b6b6b6b88a5c2dffc19366b886b886b88a5c2dffc193653708daac7e4011e3b587592afcce906",
+        "body": "01643408000021213e5b786b6b6b6b6b88a5c2dffc19366b886b886b88a5c2dffc193653708daac7e4011e3b587592afcce90600",
+        "decodes": true,
+        "chains": []
+      }
+    },
+    {
+      "kind": 101,
+      "name": "RAID_OPENED",
+      "key": [
+        {
+          "name": "owner_tag",
+          "len": 8
+        },
+        {
+          "name": "seq",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "p",
+          "len": 4
+        },
+        {
+          "name": "q",
+          "len": 4
+        },
+        {
+          "name": "bell",
+          "len": 4
+        },
+        {
+          "name": "raider_host",
+          "len": 8
+        },
+        {
+          "name": "raider_tag",
+          "len": 8
+        },
+        {
+          "name": "domestic",
+          "len": 1
+        }
+      ],
+      "body_without_tail_len": 47,
+      "vector": {
+        "bell": 2101,
+        "body_without_tail": "016535080000213e5b7895b2cfec213e5b7805000000ffffffff6b88a5c26b88a5c2dffc19366b88a5c2dffc19366b",
+        "body": "016535080000213e5b7895b2cfec213e5b7805000000ffffffff6b88a5c26b88a5c2dffc19366b88a5c2dffc19366b020404000000000000005809f52ad33c0ad3850ccdac716973cd7f248309cc1460385590a26749a8e4240605000000000000001e63b1d3ec616029867a9a9467db31bd407c08b374281f3613a72c4e8582cf8c",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 4,
+            "who": "Base(Citizen(Tag8(3898424990439409771)))",
+            "prev_seq": 3,
+            "prev_head": "298f2c8bac01c38709d4c0ecaabbb77ae0c8799f833817760879f764f354d4f6",
+            "seq": 4,
+            "head": "5809f52ad33c0ad3850ccdac716973cd7f248309cc1460385590a26749a8e424"
+          },
+          {
+            "entity": 6,
+            "who": "Base(Province { p: 5, q: -1 })",
+            "prev_seq": 4,
+            "prev_head": "e105af65fdc47a3a20561774b0a4ba730242a550a718ad09f22bf2e3ba9f1438",
+            "seq": 5,
+            "head": "1e63b1d3ec616029867a9a9467db31bd407c08b374281f3613a72c4e8582cf8c"
+          }
+        ]
+      }
+    },
+    {
+      "kind": 102,
+      "name": "FORT_GARRISONED",
+      "key": [
+        {
+          "name": "p",
+          "len": 4
+        },
+        {
+          "name": "q",
+          "len": 4
+        },
+        {
+          "name": "tile",
+          "len": 1
+        }
+      ],
+      "payload": [
+        {
+          "name": "owner_tag",
+          "len": 8
+        },
+        {
+          "name": "troops",
+          "len": 4
+        },
+        {
+          "name": "pend_bell",
+          "len": 4
+        },
+        {
+          "name": "pend",
+          "len": 2
+        },
+        {
+          "name": "holding_key",
+          "len": 8
+        }
+      ],
+      "body_without_tail_len": 41,
+      "vector": {
+        "bell": 2102,
+        "body_without_tail": "01663608000005000000ffffffff216b88a5c2dffc19366b88a5c26b88a5c26b886b88a5c2dffc1936",
+        "body": "01663608000005000000ffffffff216b88a5c2dffc19366b88a5c26b88a5c26b886b88a5c2dffc193600",
+        "decodes": true,
+        "chains": []
       }
     }
   ],

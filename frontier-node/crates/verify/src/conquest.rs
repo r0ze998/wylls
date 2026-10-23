@@ -113,6 +113,17 @@ pub fn applies(input: &Input) -> bool {
         .flatten()
         .any(|a| Season::decode(&a.data).is_ok_and(|s| s.program_version >= 3))
         || input.cfg.ruleset_hash == frontier_abi::v2::presets::RULESET_HASH_V2
+        || input.cfg.ruleset_hash == frontier_abi::v2::presets::RULESET_HASH_V3
+}
+
+/// An S1 season (redesign stage 1, program version 4): a Season with
+/// `program_version >= 4`, or the configured ruleset is `RULESET_HASH_V3`.
+/// S1 keeps every MC rule, so [`applies`] is true too.
+pub fn s1_applies(input: &Input) -> bool {
+    input.finals.values().flatten().any(|a| {
+        Season::decode(&a.data)
+            .is_ok_and(|s| s.program_version >= frontier_abi::v2::presets::PROGRAM_VERSION_S1)
+    }) || input.cfg.ruleset_hash == frontier_abi::v2::presets::RULESET_HASH_V3
 }
 
 pub fn verify(input: &Input) -> Report {

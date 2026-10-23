@@ -31,7 +31,6 @@ use frontier_abi::v2::layout::world::join_shard as JS2;
 use frontier_abi::v2::log::{capture_outcome, event, ConquestPayload, CqKind};
 use frontier_abi::v2::tags::Ix as V2Ix;
 use permutation_rules::fixed::MILLI;
-use permutation_rules::frontier::doctrine;
 use permutation_rules::frontier::holding::{Resource, MAX_WALLS};
 
 use super::Ctx;
@@ -59,6 +58,7 @@ fn holding_ref(cd: &[u8], slot: u8) -> (i16, i16, u8, u8) {
 
 /// One settlement judged: every rule it breaks.
 fn judge(cx: &Ctx, r: &CqRec) -> Vec<(&'static str, String)> {
+    let rules = cx.rules();
     let w = cx.w;
     let f = cx.f;
     let mut bad = vec![];
@@ -200,6 +200,29 @@ fn judge(cx: &Ctx, r: &CqRec) -> Vec<(&'static str, String)> {
                 "prev_gen is not the generation before".into(),
             ));
         }
+        // S1: the city's base ore is its site's terrain ore.
+        if cx.s1 {
+            let tile = pd[PV::SITES + site as usize];
+            match hr::site_terrain_ore(&pd, tile) {
+                Ok(ore) => {
+                    if hr::terrain_ore(&hd).ok() != Some(ore) {
+                        bad.push((
+                            CAPTURE_BOOKKEEPING,
+                            format!("the captured city's terrain ore is not its site's ({ore})"),
+                        ));
+                    }
+                    if let Ok(h) = hr::read(&hd) {
+                        if h.production != hr::base_production(h.tier, ore) {
+                            bad.push((
+                                CAPTURE_BOOKKEEPING,
+                                "the captured city's production is not its tier's base".into(),
+                            ));
+                        }
+                    }
+                }
+                Err(e) => bad.push((CAPTURE_BOOKKEEPING, format!("the site's terrain: {e}"))),
+            }
+        }
     } else {
         let Some(hb) = hb else {
             bad.push((CAPTURE_RULE, "no Holding before a holding's capture".into()));
@@ -259,10 +282,11 @@ fn judge(cx: &Ctx, r: &CqRec) -> Vec<(&'static str, String)> {
             }
         }
         // The walls the captor's doctrine leaves; stores zeroed unless credited; the reserve and delegate cleared.
-        match hr::read(&hb).and_then(|mut h| hr::settle_tiered(&mut h, tx.time).map(|()| h)) {
+        match hr::read_settled(&hb, tx.time) {
             Ok(h) => {
-                let keeps =
-                    doctrine::of_faction(captor_faction).is_some_and(|d| d.keeps_walls_on_capture);
+                let keeps = rules
+                    .doctrine(captor_faction)
+                    .is_some_and(|d| d.keeps_walls_on_capture);
                 let walls = h.walls.min(MAX_WALLS);
                 walls_want = if keeps { walls } else { walls / 2 };
                 if hd[H2::PREV_GEN] != hgen {
@@ -390,8 +414,8 @@ fn judge(cx: &Ctx, r: &CqRec) -> Vec<(&'static str, String)> {
                 let live = sb[H::GEN] == sp.gen
                     && matches!(sb[H::STATE], H::STATE_PROVISIONAL | H::STATE_FINAL);
                 if live {
-                    if let (Ok(mut h), Some(sa)) = (hr::read(sb), tx.post_data(&sk)) {
-                        if hr::settle_tiered(&mut h, tx.time).is_ok() {
+                    if let (Ok(h), Some(sa)) = (hr::read_settled(sb, tx.time), tx.post_data(&sk)) {
+                        {
                             let g = Resource::Gold as usize;
                             let want = h.stores[g]
                                 .value

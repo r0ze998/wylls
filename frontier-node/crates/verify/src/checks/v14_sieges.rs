@@ -414,8 +414,8 @@ fn judge(cx: &Ctx, r: &CqRec) -> Result<(), (&'static str, String)> {
     }
     // 10. The stake from the source's gold (its stores settled at now).
     let stake = (cq.siege_stake_gold as i64).saturating_mul(MILLI);
-    let gold = hr::read(&hd)
-        .and_then(|mut h| hr::touch(&mut h, now).map(|()| h.stores[Resource::Gold as usize].value))
+    let gold = hr::read_touched(&hd, now)
+        .map(|h| h.stores[Resource::Gold as usize].value)
         .map_err(|e| (SIEGE_ILLEGAL, format!("the source's kernel state: {e}")))?;
     if gold < stake {
         return Err((

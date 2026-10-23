@@ -43,7 +43,7 @@ macro_rules! rep {
     };
 }
 
-use Acc::{Kind, KindV2, System, Wallet};
+use Acc::{EitherV2, Kind, KindV2, System, Wallet};
 use Wr::{R, W};
 
 const ACTOR: Spec = s!("actor", Wallet, true, R);
@@ -182,6 +182,226 @@ pub fn accounts_of(ix: Ix) -> &'static [Group] {
                 ])]
             }
         }
+        // S1 (1b; S1-1B-CONTRACT §3). The origin's Province is the first
+        // path Province (writable: it gets the caravan's first slot).
+        Ix::BuildVault => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        HOLDING_W,
+                        s!("holding_province", KindV2(K2::Province), false, R),
+                        s!("province", KindV2(K2::Province), false, R),
+                        s!("vault", KindV2(K2::Vault), false, W),
+                        SYSTEM,
+                    ]),
+                ]
+            }
+        }
+        Ix::SendCaravan => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("src", EitherV2(K2::Holding, K2::Vault), false, W),
+                        s!("dst", EitherV2(K2::Holding, K2::Vault), false, R),
+                        s!("caravan", KindV2(K2::Caravan), false, W),
+                        SYSTEM,
+                    ]),
+                    rep!(&[s!("path_province", KindV2(K2::Province), false, W)], 1, 4),
+                ]
+            }
+        }
+        Ix::SettleCaravan => {
+            const {
+                &[
+                    one!(&[
+                        FEE_PAYER,
+                        SEASON_R,
+                        s!("caravan", KindV2(K2::Caravan), false, W),
+                        s!("dst", EitherV2(K2::Holding, K2::Vault), false, W),
+                        s!("beneficiary", Wallet, false, W),
+                        s!("rent_to", Wallet, false, W),
+                    ]),
+                    rep!(&[s!("path_province", KindV2(K2::Province), false, R)], 1, 4),
+                ]
+            }
+        }
+        Ix::RaidCaravan => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("caravan", KindV2(K2::Caravan), false, W),
+                        s!("raider_holding", KindV2(K2::Holding), false, R),
+                        s!("dst", EitherV2(K2::Holding, K2::Vault), false, R),
+                    ]),
+                    // J2: a take reroutes the raided caravan itself. The new
+                    // walk's Provinces first (the raid's first, `n_path` of
+                    // them), then the old route's others, whose slots it
+                    // clears.
+                    rep!(&[s!("path_province", KindV2(K2::Province), false, W)], 1, 7),
+                ]
+            }
+        }
+        Ix::SeizeVault => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("vault", KindV2(K2::Vault), false, W),
+                        PROVINCE_R,
+                        s!("host_holding", KindV2(K2::Holding), false, R),
+                        s!("owner_citizen", KindV2(K2::Citizen), false, W),
+                    ]),
+                ]
+            }
+        }
+        Ix::CloseVault => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("vault", KindV2(K2::Vault), false, W),
+                        s!("rent_to", Wallet, false, W),
+                    ]),
+                ]
+            }
+        }
+        // S1 (1d; S1-1D-CONTRACT §3.4–3.6): the structure's Province is
+        // writable (its structure list); the holding's is `r|w` (the same
+        // account when the structure stands in the holding's Province).
+        Ix::BuildStructure => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        HOLDING_W,
+                        // Writable when it is also the structure's Province.
+                        s!("holding_province", KindV2(K2::Province), false, Wr::Either),
+                        PROVINCE_W,
+                        s!("structure", KindV2(K2::Structure), false, W),
+                        SYSTEM,
+                    ]),
+                ]
+            }
+        }
+        Ix::SeizeStructure => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("structure", KindV2(K2::Structure), false, W),
+                        PROVINCE_W,
+                        s!("host_holding", KindV2(K2::Holding), false, R),
+                        s!("owner_citizen", KindV2(K2::Citizen), false, W),
+                    ]),
+                ]
+            }
+        }
+        Ix::CloseStructure => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("structure", KindV2(K2::Structure), false, W),
+                        PROVINCE_W,
+                        s!("rent_to", Wallet, false, W),
+                    ]),
+                ]
+            }
+        }
+        // S1 (1e; S1-1E-CONTRACT §2.6): the holding pays from its reserve;
+        // the fort's Province holds its record (the holding's own).
+        Ix::FortGarrison => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        HOLDING_W,
+                        PROVINCE_W,
+                        s!("structure", KindV2(K2::Structure), false, R),
+                    ]),
+                ]
+            }
+        }
+        // S1 (1e; S1-1E-CONTRACT §3.3): the target is the Citizen to expel
+        // or readmit, or (a stance) the Nation itself, `r|w` either way.
+        Ix::Propose => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("nation", KindV2(K2::Nation), false, W),
+                        s!(
+                            "target",
+                            EitherV2(K2::Citizen, K2::Nation),
+                            false,
+                            Wr::Either
+                        ),
+                        SYSTEM,
+                    ]),
+                ]
+            }
+        }
+        Ix::Vote => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[s!("nation", KindV2(K2::Nation), false, W)]),
+                ]
+            }
+        }
+        // The Season is writable (a passed stance); the holdings are the
+        // target's live ones (a passed expulsion or readmission flags them).
+        Ix::SettleProposal => {
+            const {
+                &[
+                    one!(&[
+                        FEE_PAYER,
+                        s!("season", KindV2(K2::Season), false, W),
+                        s!("nation", KindV2(K2::Nation), false, W),
+                        s!(
+                            "target",
+                            EitherV2(K2::Citizen, K2::Nation),
+                            false,
+                            Wr::Either
+                        ),
+                    ]),
+                    rep!(&[s!("holding", KindV2(K2::Holding), false, W)], 0, 3),
+                ]
+            }
+        }
+        // S1 (1e; S1-1E-CONTRACT §4): the owner's Citizen names its
+        // holdings (none of its hosts may stand on the tile).
+        Ix::RaidDomestic => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("caravan", KindV2(K2::Caravan), false, R),
+                        PROVINCE_W,
+                        s!("host_holding", KindV2(K2::Holding), false, R),
+                        s!("owner_citizen", KindV2(K2::Citizen), false, R),
+                    ]),
+                ]
+            }
+        }
+        Ix::DefaultRaid => {
+            const {
+                &[
+                    one!(&[
+                        FEE_PAYER,
+                        SEASON_R,
+                        s!("caravan", KindV2(K2::Caravan), false, W),
+                        s!("raider_holding", KindV2(K2::Holding), false, R),
+                        s!("raider_citizen", KindV2(K2::Citizen), false, R),
+                        s!("beneficiary", Wallet, false, W),
+                    ]),
+                    rep!(&[s!("path_province", KindV2(K2::Province), false, W)], 1, 7),
+                ]
+            }
+        }
         // §5.6: Harvest and Train gain `[province r]` (the capture lock).
         Ix::Harvest | Ix::Train => {
             const { &[one!(PLAYER_PROLOGUE), one!(&[HOLDING_W, PROVINCE_R])] }
@@ -308,6 +528,7 @@ pub fn kind_size_v2(acc: Acc) -> Option<u32> {
     Some(match acc {
         Acc::Kind(k) => K2::of_v1(k).size() as u32,
         Acc::KindV2(k) => k.size() as u32,
+        Acc::EitherV2(a, b) => a.size().max(b.size()) as u32,
         Acc::Either(a, b) => (K2::of_v1(a).size().max(K2::of_v1(b).size())) as u32,
         _ => return None,
     })
@@ -382,6 +603,22 @@ mod tests {
         assert_eq!(count_bounds(Ix::RetireHost), (7, 7));
         assert_eq!(count_bounds(Ix::CloseMarch), (4, 4));
         assert_eq!(count_bounds(Ix::FileOutpost), (11, 13));
+        // S1 (1b)
+        assert_eq!(count_bounds(Ix::BuildVault), (9, 9));
+        assert_eq!(count_bounds(Ix::SendCaravan), (9, 12));
+        assert_eq!(count_bounds(Ix::SettleCaravan), (7, 10));
+        assert_eq!(count_bounds(Ix::RaidCaravan), (8, 14));
+        assert_eq!(count_bounds(Ix::SeizeVault), (8, 8));
+        assert_eq!(count_bounds(Ix::CloseVault), (6, 6));
+        assert_eq!(count_bounds(Ix::BuildStructure), (9, 9));
+        assert_eq!(count_bounds(Ix::SeizeStructure), (8, 8));
+        assert_eq!(count_bounds(Ix::CloseStructure), (7, 7));
+        assert_eq!(count_bounds(Ix::Propose), (7, 7));
+        assert_eq!(count_bounds(Ix::Vote), (5, 5));
+        assert_eq!(count_bounds(Ix::SettleProposal), (4, 7));
+        assert_eq!(count_bounds(Ix::RaidDomestic), (8, 8));
+        assert_eq!(count_bounds(Ix::FortGarrison), (7, 7));
+        assert_eq!(count_bounds(Ix::DefaultRaid), (7, 13));
         // Named positions, as off-chain readers look them up.
         let at = |ix, n, name| position(ix, n, name, 0);
         assert_eq!(at(Ix::FileOutpost, 11, "citizen"), Some(3));

@@ -381,6 +381,7 @@ impl Conquest {
             call,
             host_ids: st.stable.clone(),
             next_host: st.next_host,
+            rules: season.rules(),
         };
         let (mut world, ids) = world_from_herald(&epoch).map_err(|e| e.to_string())?;
         st.stable

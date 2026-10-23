@@ -84,6 +84,23 @@ pub mod tag {
     pub const FOLD_MARCH: u8 = V2::FoldMarch.tag();
     pub const RETIRE_HOST: u8 = V2::RetireHost.tag();
     pub const CLOSE_MARCH: u8 = V2::CloseMarch.tag();
+    // S1 (stage 1b).
+    pub const BUILD_VAULT: u8 = V2::BuildVault.tag();
+    pub const SEND_CARAVAN: u8 = V2::SendCaravan.tag();
+    pub const SETTLE_CARAVAN: u8 = V2::SettleCaravan.tag();
+    pub const RAID_CARAVAN: u8 = V2::RaidCaravan.tag();
+    pub const SEIZE_VAULT: u8 = V2::SeizeVault.tag();
+    pub const CLOSE_VAULT: u8 = V2::CloseVault.tag();
+    pub const DEFAULT_RAID: u8 = V2::DefaultRaid.tag();
+    // S1 (stages 1d, 1e).
+    pub const BUILD_STRUCTURE: u8 = V2::BuildStructure.tag();
+    pub const SEIZE_STRUCTURE: u8 = V2::SeizeStructure.tag();
+    pub const CLOSE_STRUCTURE: u8 = V2::CloseStructure.tag();
+    pub const FORT_GARRISON: u8 = V2::FortGarrison.tag();
+    pub const PROPOSE: u8 = V2::Propose.tag();
+    pub const VOTE: u8 = V2::Vote.tag();
+    pub const SETTLE_PROPOSAL: u8 = V2::SettleProposal.tag();
+    pub const RAID_DOMESTIC: u8 = V2::RaidDomestic.tag();
 
     const _: () = {
         assert!(frontier_abi::tags::is_reserved(RESERVED_PROVE_BAD_SEAL));
@@ -204,6 +221,8 @@ pub fn ix_info(tag: u8) -> Option<&'static IxInfo> {
 pub const PROGRAM_VERSION_V1: u16 = 1;
 /// `program_version` of an MC season (ABI v2, MC contract §5.1).
 pub const PROGRAM_VERSION_V2: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_V2;
+/// The S1 program (redesign stage 1): ABI v2 with the S1 instructions.
+pub const PROGRAM_VERSION_S1: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S1;
 /// `layout_version` of every v2 chained header (R-22: readers dispatch on it).
 pub const LAYOUT_VERSION_V2: u16 = frontier_abi::v2::layout::LAYOUT_VERSION_V2;
 
@@ -282,6 +301,13 @@ pub mod magic {
     /// ABI v2: MarchState (MC contract §5.2.6). Every other v2 kind keeps
     /// its M1 magic (an MC Province differs by size and `layout_version`).
     pub const MARCH_STATE: &[u8; 8] = &frontier_abi::v2::layout::world::march_state::MAGIC;
+    /// S1 (stage 1b): Vault and Caravan.
+    pub const VAULT: &[u8; 8] = &frontier_abi::v2::layout::s1::vault::MAGIC;
+    pub const CARAVAN: &[u8; 8] = &frontier_abi::v2::layout::s1::caravan::MAGIC;
+    /// S1 (stage 1d).
+    pub const STRUCTURE: &[u8; 8] = &frontier_abi::v2::layout::s1::structure::MAGIC;
+    /// S1 (stage 1e).
+    pub const NATION: &[u8; 8] = &frontier_abi::v2::layout::s1::nation::MAGIC;
 }
 
 /// Account sizes in bytes (§5.2).
@@ -310,6 +336,13 @@ pub mod size {
     pub const PROVINCE_V2: usize = frontier_abi::v2::layout::province::province::SIZE;
     /// ABI v2 (MC contract §5.2.6).
     pub const MARCH_STATE: usize = frontier_abi::v2::layout::world::march_state::SIZE;
+    /// S1 (stage 1b).
+    pub const VAULT: usize = frontier_abi::v2::layout::s1::vault::SIZE;
+    pub const CARAVAN: usize = frontier_abi::v2::layout::s1::caravan::SIZE;
+    /// S1 (stage 1d).
+    pub const STRUCTURE: usize = frontier_abi::v2::layout::s1::structure::SIZE;
+    /// S1 (stage 1e).
+    pub const NATION: usize = frontier_abi::v2::layout::s1::nation::SIZE;
 }
 
 /// Rent of an account of `space` bytes at mainnet rates (§4.2):
@@ -536,8 +569,24 @@ pub mod kind {
     pub const OUTPOST_SETTLED: u8 = Cq::OUTPOST_SETTLED as u8;
     /// Reserved (never emitted).
     pub const RESERVED_89: u8 = frontier_abi::v2::log::RESERVED_KIND;
+    // S1 (stage 1b): kinds 90–94.
+    pub const VAULT_BUILT: u8 = Cq::VAULT_BUILT as u8;
+    pub const CARAVAN_SENT: u8 = Cq::CARAVAN_SENT as u8;
+    pub const CARAVAN_SETTLED: u8 = Cq::CARAVAN_SETTLED as u8;
+    pub const CARAVAN_RAIDED: u8 = Cq::CARAVAN_RAIDED as u8;
+    pub const VAULT_SEIZED: u8 = Cq::VAULT_SEIZED as u8;
+    // S1 (stage 1d): kinds 95–97.
+    pub const STRUCTURE_BUILT: u8 = Cq::STRUCTURE_BUILT as u8;
+    pub const STRUCTURE_SEIZED: u8 = Cq::STRUCTURE_SEIZED as u8;
+    pub const STRUCTURE_CLOSED: u8 = Cq::STRUCTURE_CLOSED as u8;
+    // S1 (stage 1e): kinds 98–102.
+    pub const NATION_PROPOSED: u8 = Cq::NATION_PROPOSED as u8;
+    pub const NATION_VOTED: u8 = Cq::NATION_VOTED as u8;
+    pub const NATION_DECIDED: u8 = Cq::NATION_DECIDED as u8;
+    pub const RAID_OPENED: u8 = Cq::RAID_OPENED as u8;
+    pub const FORT_GARRISONED: u8 = Cq::FORT_GARRISONED as u8;
 
-    /// (kind, name) of every MC record kind, in kind order.
+    /// (kind, name) of every MC and S1 record kind, in kind order.
     pub const ALL_V2: [(u8, &str); CQ_SPECS.len()] = {
         let mut out = [(0, ""); CQ_SPECS.len()];
         let mut i = 0;
@@ -564,8 +613,15 @@ pub mod entity {
     pub const MAX: u8 = CLASH_INPUTS;
     /// ABI v2 (MC contract §5.1): MarchState, chained by MARCH_FOLD only.
     pub const MARCH_STATE: u8 = E::MarchState as u8;
+    /// S1 (stage 1b): Vault and Caravan.
+    pub const VAULT: u8 = E::Vault as u8;
+    pub const CARAVAN: u8 = E::Caravan as u8;
+    /// S1 (stages 1d, 1e): Structure.
+    pub const STRUCTURE: u8 = E::Structure as u8;
+    /// S1 (stage 1e): Nation.
+    pub const NATION: u8 = E::Nation as u8;
     /// The largest entity kind of a v2 tail.
-    pub const MAX_V2: u8 = MARCH_STATE;
+    pub const MAX_V2: u8 = NATION;
 }
 
 /// Seal verdict codes judged by SettleTransit (§5.3, I-44).

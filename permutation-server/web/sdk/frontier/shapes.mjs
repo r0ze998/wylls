@@ -31,6 +31,13 @@ export const FILE_TICKET_TAG = tagOf('FileTicket');
 export const PLACE_HOME_TAG = tagOf('PlaceHome');
 export const FILE_OUTPOST_TAG = tagOf('FileOutpost');
 export const DECLARE_SIEGE_TAG = tagOf('DeclareSiege');
+// S1 stage 1b: the vault and caravan instructions that move the fee payer's lamports.
+export const BUILD_VAULT_TAG = tagOf('BuildVault');
+export const SEND_CARAVAN_TAG = tagOf('SendCaravan');
+// S1 stage 1d: BuildStructure moves a tower's rent.
+export const BUILD_STRUCTURE_TAG = tagOf('BuildStructure');
+// S1 stage 1e: a first Propose creates its faction's Nation (its rent).
+export const PROPOSE_TAG = tagOf('Propose');
 /** Tags of the player shapes (from the ABI's `relay_player_shape`). */
 export const PLAYER_TAGS = Object.freeze(TAGS.instructions.filter(i => i.relay_player_shape).map(i => i.tag));
 /** Tags of the settle shapes (`relay_settle_shape`). */

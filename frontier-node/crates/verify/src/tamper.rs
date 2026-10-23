@@ -1975,6 +1975,372 @@ pub fn cq_t46(run: &Input) -> Made {
 /// A class builder.
 pub type Builder = fn(&Input) -> Made;
 
+// ------------------------------------------------------------ S1 classes (stage 1b, T49–T51)
+
+/// The first landed transaction with a program instruction of `tag`.
+fn first_with(inp: &Input, tag: u8) -> Option<usize> {
+    (0..inp.txs.len()).find(|&t| inp.txs[t].err.is_none() && ix_keys(inp, t, tag).is_some())
+}
+
+/// T49: a caravan slot not written (V23): SendCaravan's slots erased from
+/// the Provinces it left.
+pub fn s1_t49(run: &Input) -> Made {
+    use frontier_abi::v2::layout::province::caravan_slot as CS;
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::SendCaravan.tag();
+    let t = first_with(&inp, tag).need("a SendCaravan")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let mut hit = false;
+    for k in keys.iter().skip(8) {
+        hit |= edit_account_at(&mut inp, k, t, |d| {
+            for i in 0..permutation_rules::frontier::caravan::MAX_CARAVAN_SLOTS {
+                if let Some(b) = d.get_mut(CS::at(i)..CS::at(i) + CS::SIZE) {
+                    b.fill(0);
+                    b[CS::RAID_OFF] = permutation_rules::frontier::caravan::RAID_NONE;
+                }
+            }
+        });
+    }
+    hit.then_some(()).need("a path Province's post-state")?;
+    Ok(Case {
+        class: "T49",
+        what: "a caravan's slots not written",
+        feature: None,
+        codes: &[CARAVAN_MISMATCH],
+        input: inp,
+    })
+}
+
+/// T50: cargo delivered twice (V23): a vault's credit at a SettleCaravan
+/// doubled.
+pub fn s1_t50(run: &Input) -> Made {
+    use frontier_abi::v2::layout::s1::vault as VA;
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::SettleCaravan.tag();
+    let mut found = None;
+    for t in 0..inp.txs.len() {
+        if inp.txs[t].err.is_some() {
+            continue;
+        }
+        let Some(keys) = ix_keys(&inp, t, tag) else {
+            continue;
+        };
+        let (Some(c), Some(v)) = (keys.get(2), keys.get(3)) else {
+            continue;
+        };
+        let before = last_post_before(&inp, v, t).and_then(|u| {
+            inp.txs[u]
+                .post
+                .iter()
+                .find(|(x, _)| x.to_bytes() == *v)
+                .and_then(|(_, a)| a.as_ref().map(|a| a.data.clone()))
+        });
+        let cargo = last_post_before(&inp, c, t).and_then(|u| {
+            inp.txs[u]
+                .post
+                .iter()
+                .find(|(x, _)| x.to_bytes() == *c)
+                .and_then(|(_, a)| a.as_ref().map(|a| a.data.clone()))
+        });
+        if let (Some(b), Some(cd)) = (before, cargo) {
+            if b.len() == VA::SIZE && b[..8] == VA::MAGIC {
+                found = Some((t, *v, cd));
+                break;
+            }
+        }
+    }
+    let (t, v, cd) = found.need("a SettleCaravan to a vault")?;
+    let cargo: Vec<i64> = (0..8)
+        .map(|r| {
+            let o = frontier_abi::v2::layout::s1::caravan::cargo(r);
+            le(&cd[o..o + 8]) as i64
+        })
+        .collect();
+    edit_account_at(&mut inp, &v, t, |d| {
+        for (r, c) in cargo.iter().enumerate() {
+            let o = VA::store(r);
+            let x = le(&d[o..o + 8]) as i64 + c;
+            d[o..o + 8].copy_from_slice(&x.to_le_bytes());
+        }
+    })
+    .then_some(())
+    .need("the vault's post-state")?;
+    Ok(Case {
+        class: "T50",
+        what: "a caravan's cargo credited twice",
+        feature: None,
+        codes: &[VAULT_MISMATCH],
+        input: inp,
+    })
+}
+
+/// T51: a vault seized without a host on its tile (V23): the captor's
+/// roster entry moved off the tile in the Province before the seizure.
+pub fn s1_t51(run: &Input) -> Made {
+    use frontier_abi::layout::province::{entry as EN, province as PV};
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::SeizeVault.tag();
+    let t = first_with(&inp, tag).need("a SeizeVault")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let province = *keys.get(5).need("its Province")?;
+    let u = last_post_before(&inp, &province, t).need("the Province before")?;
+    let entry = {
+        let mut tx = fclient::tx::from_wire(&inp.txs[t].tx).expect("tx");
+        let program = inp.cfg.program;
+        let ks = tx.message.account_keys.clone();
+        let ci = tx
+            .message
+            .instructions
+            .iter_mut()
+            .find(|c| ks[c.program_id_index as usize] == program && c.data.first() == Some(&tag))
+            .expect("instruction");
+        ci.data[1] as usize
+    };
+    edit_account_at(&mut inp, &province, u, |d| {
+        let o = PV::entry(entry) + EN::TILE;
+        d[o] = d[o].wrapping_add(1) % 61;
+    })
+    .then_some(())
+    .need("the Province's post-state")?;
+    Ok(Case {
+        class: "T51",
+        what: "a vault seized without the captor's host on it",
+        feature: None,
+        codes: &[VAULT_MISMATCH],
+        input: inp,
+    })
+}
+
+// ------------------------------------------------------------ S1 classes (stage 1d, T52–T54)
+
+/// T52: a march's tower wear zeroed (V24): the first Reveal whose slot
+/// carries a wear, its `WORN_BPS` cleared in the slot it left.
+pub fn s1_t52(run: &Input) -> Made {
+    use frontier_abi::v2::layout::s1::arrival::WORN_BPS;
+    let mut inp = run.clone();
+    let tag = frontier_abi::tags::Ix::Reveal.tag();
+    let mut hit = false;
+    for t in 0..inp.txs.len() {
+        if inp.txs[t].err.is_some() {
+            continue;
+        }
+        let Some(keys) = ix_keys(&inp, t, tag) else {
+            continue;
+        };
+        for k in keys.iter().skip(9).take(4) {
+            let mut cleared = false;
+            edit_account_at(&mut inp, k, t, |d| {
+                if d.get(WORN_BPS..WORN_BPS + 2).is_some_and(|w| w != [0, 0]) {
+                    d[WORN_BPS..WORN_BPS + 2].fill(0);
+                    cleared = true;
+                }
+            });
+            hit |= cleared;
+        }
+        if hit {
+            break;
+        }
+    }
+    hit.then_some(())
+        .need("a Reveal whose slot carries a wear")?;
+    Ok(Case {
+        class: "T52",
+        what: "a march's tower wear zeroed",
+        feature: None,
+        codes: &[TOWER_WEAR_MISMATCH],
+        input: inp,
+    })
+}
+
+/// T53: a gather that skipped the wear (V24): the first GatherClash's
+/// gathered records' troops raised back by one milli-troop.
+pub fn s1_t53(run: &Input) -> Made {
+    use frontier_abi::layout::clash::{arrival as AR, clash_inputs as CI};
+    let mut inp = run.clone();
+    let tag = frontier_abi::tags::Ix::GatherClash.tag();
+    let t = first_with(&inp, tag).need("a GatherClash")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let inputs = *keys.get(5).need("its ClashInputs")?;
+    edit_account_at(&mut inp, &inputs, t, |d| {
+        for k in 0..CI::POSITIONS {
+            let o = CI::ARRIVALS + k * AR::SIZE + AR::TROOPS;
+            if let Some(b) = d.get_mut(o..o + 4) {
+                let v = u32::from_le_bytes([b[0], b[1], b[2], b[3]]);
+                if v > 0 {
+                    b.copy_from_slice(&(v + 1).to_le_bytes());
+                }
+            }
+        }
+    })
+    .then_some(())
+    .need("the ClashInputs' post-state")?;
+    Ok(Case {
+        class: "T53",
+        what: "a gather that skipped the tower wear",
+        feature: None,
+        codes: &[TOWER_WEAR_MISMATCH],
+        input: inp,
+    })
+}
+
+/// T54: a tower seized without a host on its tile (V24): the captor's
+/// roster entry moved off the tile in the Province before the seizure.
+pub fn s1_t54(run: &Input) -> Made {
+    use frontier_abi::layout::province::{entry as EN, province as PV};
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::SeizeStructure.tag();
+    let t = first_with(&inp, tag).need("a SeizeStructure")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let province = *keys.get(5).need("its Province")?;
+    let u = last_post_before(&inp, &province, t).need("the Province before")?;
+    let entry = {
+        let mut tx = fclient::tx::from_wire(&inp.txs[t].tx).expect("tx");
+        let program = inp.cfg.program;
+        let ks = tx.message.account_keys.clone();
+        let ci = tx
+            .message
+            .instructions
+            .iter_mut()
+            .find(|c| ks[c.program_id_index as usize] == program && c.data.first() == Some(&tag))
+            .expect("instruction");
+        ci.data[1] as usize
+    };
+    edit_account_at(&mut inp, &province, u, |d| {
+        let o = PV::entry(entry) + EN::TILE;
+        d[o] = d[o].wrapping_add(1) % 61;
+    })
+    .then_some(())
+    .need("the Province's post-state")?;
+    Ok(Case {
+        class: "T54",
+        what: "a tower seized without the captor's host on it",
+        feature: None,
+        codes: &[STRUCTURE_MISMATCH],
+        input: inp,
+    })
+}
+
+// ------------------------------------------------------------ S1 classes (stage 1e, T55–T56)
+
+/// T55: a vote counted twice (V25): the first Vote's proposal tallies
+/// raised by one more in the Nation it left.
+pub fn s1_t55(run: &Input) -> Made {
+    use frontier_abi::v2::layout::s1::{nation as NA, proposal as PR};
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::Vote.tag();
+    let t = first_with(&inp, tag).need("a Vote")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let nation = *keys.get(4).need("its Nation")?;
+    edit_account_at(&mut inp, &nation, t, |d| {
+        for i in 0..NA::N {
+            let o = NA::at(i) + PR::YES;
+            if let Some(b) = d.get_mut(o..o + 2) {
+                let v = u16::from_le_bytes([b[0], b[1]]);
+                b.copy_from_slice(&v.wrapping_add(1).to_le_bytes());
+            }
+        }
+    })
+    .then_some(())
+    .need("the Nation's post-state")?;
+    Ok(Case {
+        class: "T55",
+        what: "a vote counted twice",
+        feature: None,
+        codes: &[NATION_MISMATCH],
+        input: inp,
+    })
+}
+
+/// T56: a stance written without a passed proposal (V25): the first
+/// SettleProposal's Season left with one more stance changed.
+pub fn s1_t56(run: &Input) -> Made {
+    use frontier_abi::v2::layout::world::season as S2;
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::SettleProposal.tag();
+    let t = first_with(&inp, tag).need("a SettleProposal")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let season = *keys.get(1).need("its Season")?;
+    edit_account_at(&mut inp, &season, t, |d| {
+        // The last cell (5 → 5) is never a proposal's.
+        let o = S2::STANCES + 35;
+        if let Some(b) = d.get_mut(o) {
+            *b ^= 1;
+        }
+    })
+    .then_some(())
+    .need("the Season's post-state")?;
+    Ok(Case {
+        class: "T56",
+        what: "a stance written without a passed proposal",
+        feature: None,
+        codes: &[NATION_MISMATCH],
+        input: inp,
+    })
+}
+
+/// T57: a domestic raid without the raider's host (V23): the raider's
+/// roster entry moved off the tile in the Province before the RaidDomestic.
+pub fn s1_t57(run: &Input) -> Made {
+    use frontier_abi::layout::province::{entry as EN, province as PV};
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::RaidDomestic.tag();
+    let t = first_with(&inp, tag).need("a RaidDomestic")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let province = *keys.get(5).need("its Province")?;
+    let u = last_post_before(&inp, &province, t).need("the Province before")?;
+    let entry = {
+        let tx = fclient::tx::from_wire(&inp.txs[t].tx).expect("tx");
+        let program = inp.cfg.program;
+        let ks = tx.message.account_keys.clone();
+        let ci = tx
+            .message
+            .instructions
+            .iter()
+            .find(|c| ks[c.program_id_index as usize] == program && c.data.first() == Some(&tag))
+            .expect("instruction");
+        // data: tag ‖ bell u32 ‖ entry u8
+        ci.data[5] as usize
+    };
+    edit_account_at(&mut inp, &province, u, |d| {
+        let o = PV::entry(entry) + EN::TILE;
+        d[o] = d[o].wrapping_add(1) % 61;
+    })
+    .then_some(())
+    .need("the Province's post-state")?;
+    Ok(Case {
+        class: "T57",
+        what: "a domestic raid without the raider's host on the tile",
+        feature: None,
+        codes: &[CARAVAN_MISMATCH],
+        input: inp,
+    })
+}
+
+/// The S1 classes (stages 1b, 1d and 1e, S1-1B-CONTRACT §4.1 and S1-1D-CONTRACT
+/// §5.1, as numbered after the
+/// conquest's T25–T48) an S1 season runs: extras until an S1 fixture with
+/// caravans is committed.
+pub fn s1_classes() -> Vec<Class> {
+    fn c(class: &'static str, tries: Vec<(&'static str, Builder)>) -> Class {
+        Class {
+            class,
+            required: false,
+            tries,
+        }
+    }
+    vec![
+        c("T49", vec![("caravan slots not written", s1_t49)]),
+        c("T50", vec![("cargo credited twice", s1_t50)]),
+        c("T51", vec![("vault seized without a host", s1_t51)]),
+        c("T52", vec![("march wear zeroed", s1_t52)]),
+        c("T53", vec![("gather skipped the wear", s1_t53)]),
+        c("T54", vec![("tower seized without a host", s1_t54)]),
+        c("T55", vec![("vote counted twice", s1_t55)]),
+        c("T56", vec![("stance without a passed proposal", s1_t56)]),
+        c("T57", vec![("domestic raid without a host", s1_t57)]),
+    ]
+}
+
 /// The conquest classes (contract §8.5 T25–T48; CQ3-A) a conquest season
 /// runs beside [`classes`]: record, post-state and instruction edits with
 /// no v2 re-chain (CQ1 reports the stale chain beside the named code),
@@ -2003,6 +2369,9 @@ pub fn classes_for(run: &Input) -> Vec<Class> {
     let mut v = classes();
     if crate::conquest::applies(run) {
         v.extend(conquest_classes());
+    }
+    if crate::conquest::s1_applies(run) {
+        v.extend(s1_classes());
     }
     v
 }
