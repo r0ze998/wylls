@@ -1,0 +1,75 @@
+TAP version 13
+# Subtest: combat: the prototype matches the game's own resolve_engagement on 400 cases
+ok 1 - combat: the prototype matches the game's own resolve_engagement on 400 cases
+  ---
+  duration_ms: 1.721208
+  ...
+# Subtest: determinism: the same seed and actions give the same game; a log replays to the same hashes
+ok 2 - determinism: the same seed and actions give the same game; a log replays to the same hashes
+  ---
+  duration_ms: 77.425792
+  ...
+# Subtest: invariants hold over 120 random games (bounds, troop conservation, stamina, positions)
+ok 3 - invariants hold over 120 random games (bounds, troop conservation, stamina, positions)
+  ---
+  duration_ms: 1334.47225
+  ...
+# Subtest: keeps: an undefended keep falls after exactly 72 turns held; a defender arriving resets it
+ok 4 - keeps: an undefended keep falls after exactly 72 turns held; a defender arriving resets it
+  ---
+  duration_ms: 1.122875
+  ...
+# Subtest: orders: the engine refuses what the rules forbid
+ok 5 - orders: the engine refuses what the rules forbid
+  ---
+  duration_ms: 0.248833
+  ...
+# Subtest: current rules, reproduced on purpose: dissolve + muster skips the 74-stamina wait
+ok 6 - current rules, reproduced on purpose: dissolve + muster skips the 74-stamina wait
+  ---
+  duration_ms: 0.435084
+  ...
+# Subtest: retreat order: a host that meets more than r times its strength turns back without losses
+ok 7 - retreat order: a host that meets more than r times its strength turns back without losses
+  ---
+  duration_ms: 0.218917
+  ...
+# Subtest: A/B isolation: with no keep changing hands, versions A and B play out identically
+ok 8 - A/B isolation: with no keep changing hands, versions A and B play out identically
+  ---
+  duration_ms: 161.477125
+  ...
+# Subtest: bots do not see hidden destinations
+ok 9 - bots do not see hidden destinations
+  ---
+  duration_ms: 1.594709
+  ...
+# Subtest: trigger definition: only moves aimed at the player's own places count as threats
+ok 10 - trigger definition: only moves aimed at the player's own places count as threats
+  ---
+  duration_ms: 0.160458
+  ...
+# Subtest: measures: counts match a scripted game whose threats are known in advance
+ok 11 - measures: counts match a scripted game whose threats are known in advance
+  ---
+  duration_ms: 0.699
+  ...
+# Subtest: hosts are capped at 30,000 troops, as in the game
+ok 12 - hosts are capped at 30,000 troops, as in the game
+  ---
+  duration_ms: 7.706917
+  ...
+# Subtest: balance checks (bots, 5 conditions): no policy wins almost always; the first capture does not decide the game
+ok 13 - balance checks (bots, 5 conditions): no policy wins almost always; the first capture does not decide the game
+  ---
+  duration_ms: 12885.857083
+  ...
+1..13
+# tests 13
+# suites 0
+# pass 13
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 14514.65375

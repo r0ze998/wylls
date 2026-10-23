@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wylls 比較試作</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="start" class="start">
+  <div class="card">
+    <h1>Wylls 比較試作</h1>
+    <p class="muted">砦を取り合う 3 か国の戦い（1 回 10〜20 分）。チェーン、財布、お金は使いません。</p>
+    <label for="pid">参加者コード</label>
+    <input id="pid" type="text" placeholder="例：T01" maxlength="20">
+    <label for="game">何回目か</label>
+    <select id="game">
+      <option value="practice">練習（6 ラウンド）</option>
+      <option value="1">1 回目</option>
+      <option value="2">2 回目</option>
+      <option value="free">自由に遊ぶ</option>
+    </select>
+    <label for="ver">版</label>
+    <select id="ver">
+      <option value="">選んでください</option>
+      <option value="K">版 K</option>
+      <option value="M">版 M</option>
+    </select>
+    <p class="muted" id="verhint">練習では版を選ぶ必要はありません。</p>
+    <label for="seed">条件番号</label>
+    <input id="seed" type="text" value="7" maxlength="12">
+    <p class="muted">同じ条件番号なら、相手の動きも戦いの細かな揺れも同じになります。</p>
+    <div class="row" style="margin-top:14px">
+      <button class="primary" id="go">はじめる</button>
+      <button id="resume" class="hidden">続きから</button>
+    </div>
+    <p class="err" id="starterr"></p>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+  <header class="top">
+    <span class="title">Wylls 比較試作</span>
+    <span class="chip" id="hdrver"></span>
+    <span class="chip" id="hdrclock"></span>
+    <span class="chip" id="hdrtime" title="実際の経過時間">0:00</span>
+    <span class="grow"></span>
+    <button class="small" id="btnrules">ルール</button>
+    <button class="small" id="btnsave">記録を保存</button>
+    <button class="small" id="btnrestart">同じ条件でやり直す</button>
+    <button class="small" id="btnhome">最初の画面へ</button>
+  </header>
+  <main class="game">
+    <section class="mapbox">
+      <div class="score" id="score"></div>
+      <div id="map"></div>
+      <p class="muted" style="font-size:12px;margin:2px 8px 6px">場所を押すと詳しく見られます。点線の矢印は他国の出発（行き先は着くまで分かりません）。数字の札はそこにいる軍勢の兵の数。砦の周りの輪は占拠の進み具合。</p>
+    </section>
+    <section class="panel">
+      <nav class="tabs" id="tabs">
+        <button data-tab="report" class="on">報告</button>
+        <button data-tab="village">村</button>
+        <button data-tab="army">兵</button>
+        <button data-tab="hosts">軍勢</button>
+      </nav>
+      <div class="tabbody" id="tabbody"></div>
+      <div class="foot">
+        <div class="grow">
+          <div class="msg" id="msg"></div>
+          <div class="muted" style="font-size:12px" id="acts"></div>
+        </div>
+        <button class="primary hidden" id="reopen">終わりの質問を開く</button>
+        <button class="primary" id="next">次のラウンドへ ▶</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<dialog id="rules"><h2>ルール</h2><ul class="rules" id="ruleslist"></ul><form method="dialog"><button>閉じる</button></form></dialog>
+
+<dialog id="end">
+  <h2 id="endtitle">終わりました</h2>
+  <p id="endresult"></p>
+  <div id="survey">
+    <p class="muted">思ったとおりに書いてください。正解はありません。</p>
+    <label>1. 迷ったところがあれば、どこで迷ったか教えてください。</label><textarea id="q1"></textarea>
+    <label>2. 自分の判断が結果を変えたと感じた場面があれば、教えてください。</label><textarea id="q2"></textarea>
+    <label>3. 退屈だった、または作業に感じた場面があれば、教えてください。</label><textarea id="q3"></textarea>
+    <label>4. もう一度遊ぶとしたら、試してみたいことはありますか。</label><textarea id="q4"></textarea>
+    <label>5. 戦いや砦の結果で、なぜそうなったか分からなかったものはありますか。</label><textarea id="q5"></textarea>
+  </div>
+  <div class="row" style="display:flex;gap:10px;margin-top:12px">
+    <button class="primary" id="endsave">答えを記録して保存</button>
+    <button id="endclose">閉じる</button>
+  </div>
+</dialog>
+
+<script src="engine.js"></script>
+<script src="bots.js"></script>
+<script src="text.js"></script>
+<script src="metrics.js"></script>
+<script src="map.js"></script>
+<script src="ui.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+[package]
+name = "combat-oracle"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Prints engagement results from the game's own combat code, for the prototype's fidelity test"
+
+# Not part of the repository workspace.
+[workspace]
+
+[dependencies]
+permutation-rules = { path = "../../../permutation-rules", features = ["std"] }

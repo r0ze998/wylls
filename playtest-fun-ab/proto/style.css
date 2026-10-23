@@ -1,0 +1,108 @@
+:root {
+  --bg: #f4f1ea;
+  --panel: #fffdf8;
+  --ink: #23211d;
+  --muted: #6d675d;
+  --line: #ddd5c6;
+  --accent: #3b6fd8;
+  --warn: #b5482f;
+  --ok: #3f7d3a;
+  --chip: #efe9dd;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); }
+body { font: 15px/1.6 "Hiragino Sans", "Noto Sans JP", "Yu Gothic", system-ui, sans-serif; }
+button, select, input, textarea { font: inherit; }
+button {
+  border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 8px;
+  padding: 6px 12px; cursor: pointer;
+}
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+button.small { padding: 2px 8px; font-size: 13px; }
+select, input[type=text], input[type=number], textarea {
+  border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; background: #fff; color: var(--ink);
+}
+textarea { width: 100%; min-height: 64px; }
+h1, h2, h3 { margin: 0; line-height: 1.3; }
+h2 { font-size: 17px; }
+h3 { font-size: 14px; color: var(--muted); margin: 14px 0 6px; }
+.hidden { display: none !important; }
+.muted { color: var(--muted); }
+.err { color: var(--warn); }
+.okc { color: var(--ok); }
+
+/* start screen */
+.start { max-width: 620px; margin: 40px auto; padding: 0 16px; }
+.start .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; margin-bottom: 16px; }
+.start label { display: block; margin: 10px 0 4px; font-weight: 600; }
+.start .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+/* game */
+header.top {
+  display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+  padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--panel);
+}
+header.top .title { font-weight: 700; }
+header.top .chip { background: var(--chip); border-radius: 999px; padding: 2px 10px; font-size: 13px; }
+header.top .grow { flex: 1; }
+main.game { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(340px, 470px); gap: 12px; padding: 12px 16px 24px; }
+@media (max-width: 900px) { main.game { grid-template-columns: 1fr; } }
+.mapbox { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 6px; align-self: start; }
+.mapbox svg { width: 100%; height: auto; display: block; }
+.score { display: flex; gap: 8px; justify-content: center; padding: 4px 0 6px; flex-wrap: wrap; }
+.score span { border-radius: 999px; padding: 1px 10px; color: #fff; font-weight: 600; font-size: 13px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; display: flex; flex-direction: column; min-height: 520px; }
+.tabs { display: flex; border-bottom: 1px solid var(--line); }
+.tabs button { flex: 1; border: 0; border-radius: 0; background: transparent; padding: 10px 4px; border-bottom: 3px solid transparent; }
+.tabs button.on { border-bottom-color: var(--accent); font-weight: 700; }
+.tabbody { padding: 10px 14px; overflow-y: auto; flex: 1; max-height: calc(100vh - 210px); }
+@media (max-width: 900px) { .tabbody { max-height: none; } }
+.foot { border-top: 1px solid var(--line); padding: 10px 14px; display: flex; align-items: center; gap: 10px; }
+.foot .grow { flex: 1; }
+.msg { min-height: 1.4em; font-size: 13px; }
+
+table.t { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.t td, table.t th { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+table.t th { color: var(--muted); font-weight: 600; font-size: 12px; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.cost { font-size: 12px; color: var(--muted); }
+.box { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin: 8px 0; background: #fff; }
+.box.sel { border-color: var(--accent); }
+ul.rep { margin: 4px 0 8px; padding-left: 18px; }
+ul.rep li { margin: 3px 0; }
+.bar { height: 6px; background: var(--chip); border-radius: 3px; overflow: hidden; margin-top: 3px; }
+.bar > i { display: block; height: 100%; background: var(--accent); }
+.formrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+.rules li { margin: 4px 0; }
+dialog { border: 1px solid var(--line); border-radius: 12px; max-width: 640px; width: calc(100% - 32px); background: var(--panel); color: var(--ink); }
+dialog::backdrop { background: rgba(0,0,0,.35); }
+
+/* svg */
+.road { stroke: #bdb2a0; stroke-width: 6; stroke-linecap: round; }
+.node { cursor: pointer; }
+.node path.keep, .node path.home { stroke: #fff; stroke-width: 3; opacity: .92; }
+.node.sel path.keep, .node.sel path.home { stroke: #111; stroke-width: 4; }
+.node.mark path.keep, .node.mark path.home { stroke: #111; stroke-dasharray: 5 4; stroke-width: 3; }
+.node:focus { outline: none; }
+.node:focus path.keep, .node:focus path.home { stroke: #111; }
+.hill { fill: none; stroke: rgba(255,255,255,.8); stroke-width: 2; }
+.nname { font-size: 12.5px; font-weight: 700; fill: #fff; text-anchor: middle; paint-order: stroke; stroke: rgba(0,0,0,.35); stroke-width: 2.5px; }
+.nsub { font-size: 11px; fill: #fff; text-anchor: middle; paint-order: stroke; stroke: rgba(0,0,0,.35); stroke-width: 2px; }
+.nsub.small { font-size: 10px; }
+.center-t { font-size: 18px; font-weight: 700; text-anchor: middle; fill: var(--ink); }
+.center-s { font-size: 13px; text-anchor: middle; fill: var(--muted); }
+.ring-bg { fill: none; stroke: rgba(0,0,0,.12); stroke-width: 5; }
+.ring { fill: none; stroke-width: 5; stroke-linecap: round; }
+.march { fill: none; stroke: currentColor; stroke-width: 3; }
+.march.foe { stroke-dasharray: 6 4; }
+.march-t { font-size: 12px; font-weight: 700; text-anchor: middle; paint-order: stroke; stroke: var(--panel); stroke-width: 3px; }
+.pill { opacity: .95; }
+.pill-t { font-size: 11px; font-weight: 700; fill: #fff; text-anchor: middle; }
+
+/* replay */
+.replay main { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(340px, 520px); gap: 12px; padding: 12px 16px; }
+@media (max-width: 900px) { .replay main { grid-template-columns: 1fr; } }
+.slider { width: 100%; }
+pre.json { white-space: pre-wrap; word-break: break-all; font-size: 12px; background: #fff; border: 1px solid var(--line); padding: 8px; border-radius: 8px; }

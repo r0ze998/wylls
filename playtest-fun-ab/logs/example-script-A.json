@@ -1,0 +1,1005 @@
+{
+ "app": "wylls-ab-proto",
+ "logVersion": 1,
+ "rulesVersion": "proto-1",
+ "variant": "A",
+ "seed": "101",
+ "policies": [
+  null,
+  "counter",
+  "raider"
+ ],
+ "rounds": 36,
+ "participant": "SCRIPT（人間ではない）",
+ "session": {
+  "game": "example",
+  "label": "K",
+  "practice": false
+ },
+ "startedAt": "2026-10-24T00:00:00.000Z",
+ "endedAt": "2026-10-24T00:00:00.000Z",
+ "turns": [
+  {
+   "round": 0,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "build",
+      "kind": "farm"
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "build",
+      "kind": "mine"
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "garrison",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 100
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "muster",
+      "unit": "spear",
+      "troops": 100
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "depart",
+      "host": 1,
+      "dest": 2,
+      "rounds": 1,
+      "retreat": 0
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 1,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "build",
+      "kind": "farm"
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 100
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "muster",
+      "unit": "spear",
+      "troops": 100
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "depart",
+      "host": 2,
+      "dest": 1,
+      "rounds": 1,
+      "retreat": 0
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 2,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "build",
+      "kind": "lumber"
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 100
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "muster",
+      "unit": "spear",
+      "troops": 100
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 3,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "build",
+      "kind": "mine"
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 100
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "muster",
+      "unit": "spear",
+      "troops": 100
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 4,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "build",
+      "kind": "quarry"
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "muster",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 5,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "build",
+      "kind": "mint"
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 100
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "muster",
+      "unit": "spear",
+      "troops": 100
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 6,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 7,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 8,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "build",
+      "kind": "walls"
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 300
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 9,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 10,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 11,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 12,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 13,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "muster",
+      "unit": "spear",
+      "troops": 1755
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "depart",
+      "host": 7,
+      "dest": 1,
+      "rounds": 1,
+      "retreat": 0
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 14,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 15,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 300
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 16,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 17,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 18,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 19,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 20,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 21,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 22,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "depart",
+      "host": 7,
+      "dest": 2,
+      "rounds": 1,
+      "retreat": 0
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "depart",
+      "host": 3,
+      "dest": 1,
+      "rounds": 1,
+      "retreat": 0
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "muster",
+      "unit": "spear",
+      "troops": 1961
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "depart",
+      "host": 8,
+      "dest": 11,
+      "rounds": 1,
+      "retreat": 1
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 23,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 300
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 24,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 25,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "depart",
+      "host": 8,
+      "dest": 1,
+      "rounds": 1,
+      "retreat": 0
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "depart",
+      "host": 5,
+      "dest": 11,
+      "rounds": 1,
+      "retreat": 1
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 26,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "muster",
+      "unit": "spear",
+      "troops": 900
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "depart",
+      "host": 9,
+      "dest": 3,
+      "rounds": 1,
+      "retreat": 1
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 27,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 28,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 29,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 30,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 300
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 31,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 32,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "muster",
+      "unit": "spear",
+      "troops": 1400
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "depart",
+      "host": 10,
+      "dest": 9,
+      "rounds": 1,
+      "retreat": 1
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 33,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "muster",
+      "unit": "spear",
+      "troops": 583
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "depart",
+      "host": 11,
+      "dest": 10,
+      "rounds": 1,
+      "retreat": 1
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 34,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    },
+    {
+     "ms": 0,
+     "a": {
+      "type": "depart",
+      "host": 8,
+      "dest": 3,
+      "rounds": 1,
+      "retreat": 0
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  },
+  {
+   "round": 35,
+   "ms": 0,
+   "actions": [
+    {
+     "ms": 0,
+     "a": {
+      "type": "train",
+      "unit": "spear",
+      "troops": 200
+     },
+     "ok": true,
+     "err": null
+    }
+   ]
+  }
+ ],
+ "survey": null,
+ "hashes": [
+  "6192c622",
+  "2805ddf1",
+  "afce4d35",
+  "91c7174a",
+  "2e2cfb2b",
+  "45a79b52",
+  "1561a349",
+  "594e81c8",
+  "4f133678",
+  "383b9b44",
+  "d5dc8641",
+  "d5284c0b",
+  "09ce095f",
+  "d41cc99f",
+  "edcdcb57",
+  "0a296deb",
+  "b79ec233",
+  "fa42720f",
+  "ece6ff94",
+  "38ab6cab",
+  "edd096dc",
+  "7398e643",
+  "eb858a1a",
+  "2af44fea",
+  "b7095593",
+  "9821e6e8",
+  "a770cfd9",
+  "527df56a",
+  "95fc3a23",
+  "3a9569b2",
+  "e8e5140d",
+  "feb9e657",
+  "2769b148",
+  "27780d7a",
+  "c3e8b0e7",
+  "0b5c7cf3"
+ ],
+ "result": {
+  "nations": [
+   2
+  ],
+  "score": [
+   {
+    "n": 2,
+    "keeps": 5,
+    "keepBells": 1680
+   },
+   {
+    "n": 0,
+    "keeps": 4,
+    "keepBells": 1032
+   },
+   {
+    "n": 1,
+    "keeps": 0,
+    "keepBells": 1176
+   }
+  ]
+ }
+}
