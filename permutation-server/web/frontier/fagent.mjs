@@ -60,6 +60,39 @@ export function balanceModel(view) {
 const CATEGORY = { inference: () => L`判断`, game: () => L`ゲーム内`, network: () => L`手数料` };
 export const categoryName = c => CATEGORY[c]?.() ?? c;
 
+/** Why the free autopilot played instead of the model, in the owner's words (a code the page does not know is shown as is). */
+const CAUSE = {
+  InsufficientBalance: () => L`残高が足りない`, BudgetExceeded: () => L`合計の上限に達した`, DailyLimitReached: () => L`1日の上限に達した`,
+  CallLimitReached: () => L`1日の判断回数の上限に達した`, InferenceFailed: () => L`モデルの判断が失敗した（その1回は課金）`,
+};
+export const causeText = c => CAUSE[c]?.() ?? c;
+
+/** One decision line: who decided, what came of it, and what it cost (a rest is still a paid call when the model made it). */
+export function decisionText(h) {
+  const who = h.driver === 'model' ? L`モデル` : h.cause ? L`無料の自動運転（${causeText(h.cause)}）` : L`無料の自動運転`;
+  const what = h.outcome === 'rest' ? L`何もしない（休み）` : h.outcome === 'sent' ? L`${h.action ?? ''} を送信` : h.outcome === 'refused' ? L`${h.action ?? ''} は拒否（${h.code ?? ''}）` : L`${h.action ?? ''} は失敗（${h.code ?? ''}）`;
+  const cost = h.charged && h.charged !== '0' ? L`判断料 ${usdc(h.charged)}` : L`無料`;
+  return L`判断：${who} → ${what}・${cost}`;
+}
+
+/**
+ * Who drives the village now (the relay's `view.driver`). A stop (the owner's manual) and the free
+ * autopilot standing in for the model are different things and are said differently: the first sends
+ * nothing new, the second keeps playing the economy without charging.
+ */
+export function driverModel(view) {
+  const d = view?.driver ?? { state: view?.mode === 'auto' ? 'waiting' : 'stopped' };
+  let text;
+  let tone = '';
+  switch (d.state) {
+    case 'stopped': text = L`停止中：あなたが手動に戻しました。代理人からの新しい行動は送られません。`; break;
+    case 'model': text = L`モデルが判断しています（変化があったときだけ呼び、1回ごとに判断料がかかります）。`; break;
+    case 'autopilot': text = d.cause ? L`無料の自動運転が代わりに動いています（${causeText(d.cause)}）。停止ではありません。止めるには手動に戻してください。` : L`無料の自動運転（ルール）で動いています。`; tone = d.cause ? 'warn' : ''; break;
+    default: text = L`自動です。まだ判断していません（村に変化があったときに判断します）。`;
+  }
+  return { state: d.state, cause: d.cause ?? null, text, tone };
+}
+
 /** The history as rows `{at, kind, category, amount, text}`; newest first. */
 export function historyRows(view) {
   const rows = [];
@@ -77,10 +110,12 @@ export function historyRows(view) {
       case 'mode': text = h.mode === 'auto' ? L`自動に切り替え` : L`手動に切り替え`; break;
       case 'policy': text = L`予算と許可行動を更新`; break;
       case 'capability': text = L`接続用トークンを発行`; break;
+      case 'decision': text = decisionText(h); break;
       case 'created': text = L`代理人を作成`; break;
       default: text = h.type;
     }
-    rows.push({ at: h.at, kind: h.type, category: h.category ?? null, amount: h.amount != null && h.type !== 'network' ? usdc(h.amount) : null, text, source: h.source ?? null, signature: h.signature ?? null });
+    const amount = h.type === 'decision' ? (h.charged && h.charged !== '0' ? usdc(h.charged) : null) : h.amount != null && h.type !== 'network' ? usdc(h.amount) : null;
+    rows.push({ at: h.at, kind: h.type, category: h.type === 'decision' ? (h.driver === 'model' ? 'inference' : null) : h.category ?? null, amount, text, source: h.source ?? null, signature: h.signature ?? null, reason: h.reason ?? null });
   }
   return rows.reverse();
 }
@@ -106,16 +141,19 @@ export function delegationModel(view) {
 export function policyForm(view) {
   const allowed = new Set(view?.policy?.allowed ?? []);
   const groups = { economy: ['Harvest', 'Build', 'Train', 'Muster', 'Garrison'], explore: ['Explore'], military: ['Depart', 'Dissolve'], vigil: ['SetVigil'] };
-  return { groups: Object.fromEntries(GROUPS.map(g => [g, groups[g].every(a => allowed.has(a))])), total: usdc(view?.policy?.budget?.total ?? '0'), perDay: usdc(view?.policy?.budget?.perDay ?? '0') };
+  const calls = view?.policy?.budget?.callsPerDay;
+  return { groups: Object.fromEntries(GROUPS.map(g => [g, groups[g].every(a => allowed.has(a))])), total: usdc(view?.policy?.budget?.total ?? '0'), perDay: usdc(view?.policy?.budget?.perDay ?? '0'), callsPerDay: Number.isInteger(calls) ? String(calls) : '' };
 }
-export function parsePolicyForm({ groups, total, perDay }) {
+export function parsePolicyForm({ groups, total, perDay, callsPerDay = '' }) {
   const allowed = GROUPS.filter(g => groups?.[g]);
   const t = parseUsdc(total);
   const d = parseUsdc(perDay);
   if (!allowed.length) return { ok: false, error: L`許可する行動を1つ以上選んでください` };
   if (t === null || d === null) return { ok: false, error: L`予算は数字で入れてください（例 1.5）` };
   if (d > t) return { ok: false, error: L`1日の上限は合計以下にしてください` };
-  return { ok: true, policy: { allowed, budget: { total: t.toString(), perDay: d.toString() } } };
+  const c = String(callsPerDay ?? '').trim();
+  if (c !== '' && !/^\d{1,6}$/.test(c)) return { ok: false, error: L`判断の回数は0以上の整数で入れてください（空欄なら上限なし）` };
+  return { ok: true, policy: { allowed, budget: { total: t.toString(), perDay: d.toString(), ...(c !== '' ? { callsPerDay: Number(c) } : {}) } } };
 }
 
 // ------------------------------------------------------------------ pure: what the wallet signs
@@ -216,8 +254,10 @@ export function renderPolicy(view) {
       ${GROUPS.map(g => html`<label class="agent-check"><input type="checkbox" name="g-${g}" ${f.groups[g] ? 'checked' : ''}> ${names[g]}</label>`)}
       <label>${L`合計の上限（テストUSDC）`} <input name="total" value="${f.total}" inputmode="decimal"></label>
       <label>${L`1日の上限（テストUSDC）`} <input name="perDay" value="${f.perDay}" inputmode="decimal"></label>
+      <label>${L`1日の判断回数の上限（空欄なら上限なし）`} <input name="callsPerDay" value="${f.callsPerDay}" inputmode="numeric"></label>
       <button type="submit" class="btn">${L`予算と行動を保存（署名）`}</button>
       <span class="muted">${L`現在の版 ${fmtNum(view?.policy?.version ?? 0)}。保存すると版が上がり、古い版で決めた行動は拒否されます。`}</span>
+      <span class="muted">${L`ここにない行動（新しいゲーム機能を含む）は、あなたが許可するまで代理人には使えません。`}</span>
     </form></section>`;
 }
 
@@ -226,6 +266,7 @@ export function renderMode(view) {
   const auto = d.mode === 'auto';
   return html`<section class="agent-card" aria-labelledby="mode-title"><h3 id="mode-title">${L`手動 ／ 自動`}</h3>
     <p><strong>${auto ? L`自動（代理人が動く）` : L`手動（止まっている）`}</strong> <span class="muted">${L`切り替え回数 ${fmtNum(view?.modeEpoch ?? 0)}`}</span></p>
+    ${(() => { const dm = driverModel(view); return html`<p class="agent-driver${dm.tone ? ` tone-${dm.tone}` : ''}" data-driver="${dm.state}">${dm.text}</p>`; })()}
     <p><button type="button" class="btn" data-act="mode" data-mode="${auto ? 'manual' : 'auto'}">${auto ? L`手動に戻す（代理人を止める）` : L`自動にする（署名）`}</button></p>
     <p class="muted">${L`手動に戻すとサーバーは代理人の新しい要求を断ります。すでに送った行動は巻き戻しません。チェーン上の鍵は別です（下）。`}</p>
   </section>`;
@@ -259,7 +300,7 @@ export function renderHistory(view) {
   const rows = historyRows(view);
   return html`<section class="agent-card" aria-labelledby="hist-title"><h3 id="hist-title">${L`履歴（費目別）`}</h3>
     ${rows.length ? html`<table class="agent-history"><thead><tr><th>${L`時刻`}</th><th>${L`費目`}</th><th>${L`額`}</th><th>${L`内容`}</th></tr></thead><tbody>
-      ${rows.slice(0, 60).map(r => html`<tr class="row-${r.kind}"><td>${new Date(r.at).toLocaleTimeString()}</td><td>${r.category ? categoryName(r.category) : ''}</td><td>${r.amount ?? ''}</td><td>${r.text}${r.source ? html` <span class="muted">(${r.source})</span>` : ''}</td></tr>`)}
+      ${rows.slice(0, 60).map(r => html`<tr class="row-${r.kind}"><td>${new Date(r.at).toLocaleTimeString()}</td><td>${r.category ? categoryName(r.category) : ''}</td><td>${r.amount ?? ''}</td><td>${r.text}${r.source ? html` <span class="muted">(${r.source})</span>` : ''}${r.reason ? html`<br><span class="agent-reason">${L`理由（モデルの説明・未検証）：${r.reason}`}</span>` : ''}</td></tr>`)}
     </tbody></table>` : html`<p class="muted">${L`まだ何もありません`}</p>`}
   </section>`;
 }
@@ -351,7 +392,7 @@ export async function mountAgentPage({ root, wallet, fsession, herald, prize }) 
       S.view = r.agent; S.capability = r.capability; say(L`代理人を作りました。次に預け入れと鍵の受け渡しをします。`); await refresh();
     },
     async policy(f) {
-      const p = parsePolicyForm({ groups: Object.fromEntries(GROUPS.map(g => [g, f[`g-${g}`].checked])), total: f.total.value, perDay: f.perDay.value });
+      const p = parsePolicyForm({ groups: Object.fromEntries(GROUPS.map(g => [g, f[`g-${g}`].checked])), total: f.total.value, perDay: f.perDay.value, callsPerDay: f.callsPerDay.value });
       if (!p.ok) return say(p.error, 'bad');
       const r = await command('policy', { policy: p.policy });
       if (!r.ok) return say(r.error, 'bad');

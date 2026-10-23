@@ -89,7 +89,9 @@ export class AgentLedger {
   byKey(agentKey) { return Object.values(this.db.agents).find(a => a.agentKey === agentKey) ?? null; }
 
   note(rec, entry) {
-    rec.history.push({ at: this.now(), ...entry });
+    // A per-agent sequence that keeps counting when old lines are dropped (readers compare it, not the list's length).
+    rec.seq = (Number.isInteger(rec.seq) ? rec.seq : rec.history.length) + 1;
+    rec.history.push({ at: this.now(), seq: rec.seq, ...entry });
     if (rec.history.length > HISTORY_MAX) rec.history.splice(0, rec.history.length - HISTORY_MAX);
   }
 
@@ -380,6 +382,18 @@ export class AgentLedger {
   /** A game action the gateway sent (or refused after a hold): history only. */
   recordAction(agentId, entry) {
     this.note(this.get(agentId), { type: 'action', ...entry });
+    this.save();
+  }
+
+  /**
+   * One decision of the runner: who decided (`driver` model or autopilot, `by`), what came of it
+   * (`outcome` sent / refused / failed / rest), why (the model's own `reason`, never trusted; `cause`
+   * when the free autopilot played instead of the model) and what the call cost. History only.
+   */
+  recordDecision(agentId, entry) {
+    const rec = this.get(agentId);
+    const pick = ['key', 'by', 'driver', 'outcome', 'action', 'reason', 'cause', 'code', 'charged', 'signature', 'modelError'];
+    this.note(rec, { type: 'decision', modeEpoch: rec.modeEpoch, ...Object.fromEntries(pick.filter(k => entry[k] !== undefined && entry[k] !== null).map(k => [k, entry[k]])) });
     this.save();
   }
 

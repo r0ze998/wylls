@@ -564,6 +564,23 @@ export class AgentGateway {
     return rec.day.key === key ? { ...rec.day, calls: rec.day.calls ?? 0 } : { key, spent: '0', calls: 0 };
   }
 
+  /**
+   * Who is driving the village now, as the owner should read it: `stopped` (manual: the owner's stop, nothing
+   * new is sent), `model` (the last decision was the model's), `autopilot` (the free rule autopilot played,
+   * with `cause` when it stood in for the model: a failed or refused answer, an unaffordable call, a cap), or
+   * `waiting` (auto, nothing decided yet in this auto period).
+   */
+  #driverOf(rec) {
+    if (rec.mode !== MODES.AUTO) return { state: 'stopped' };
+    for (let i = rec.history.length - 1; i >= 0; i--) {
+      const h = rec.history[i];
+      if (h.type === 'mode') break;
+      if (h.type !== 'decision') continue;
+      return { state: h.driver === 'autopilot' ? 'autopilot' : 'model', ...(h.cause ? { cause: h.cause } : {}), outcome: h.outcome, at: h.at };
+    }
+    return { state: 'waiting' };
+  }
+
   /** The agent as every caller sees it: public keys, balances, policy, recent history. No token, no secret. */
   view(agentId) {
     const rec = this.ledger.get(agentId);
@@ -573,7 +590,7 @@ export class AgentGateway {
       agentId: rec.agentId, owner: rec.owner, payout: rec.payout, agentKey: rec.agentKey, citizen: this.ctx.addresses.citizen(rec.owner), village: [...rec.village],
       mode: rec.mode, modeEpoch: rec.modeEpoch, policy: { ...rec.policy, allowed: [...rec.policy.allowed], budget: { ...rec.policy.budget } },
       capabilityVersion: rec.capabilityVersion, balance: this.ledger.balance(agentId), day: this.#dayOf(rec), holds, withdrawals,
-      history: rec.history.slice(-50), createdAt: rec.createdAt, testAssetsOnly: true,
+      history: rec.history.slice(-50), historySeq: Number.isInteger(rec.seq) ? rec.seq : rec.history.length, driver: this.#driverOf(rec), createdAt: rec.createdAt, testAssetsOnly: true,
     };
   }
 

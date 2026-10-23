@@ -232,7 +232,10 @@ export function triggersOf(obs, view, last) {
   const out = [];
   if (!last) return ['first'];
   if (view.policy.version !== last.policyVersion || view.modeEpoch !== last.modeEpoch) out.push('owner');
-  if ((view.historyLength ?? view.history?.length ?? 0) !== last.historyLength && (view.history ?? []).slice(last.historyLength ?? 0).some(h => h.type === 'action' && h.source !== 'ai')) out.push('result');
+  if (Number.isInteger(view.historySeq) && Number.isInteger(last.historySeq)) {
+    // The view carries the last 50 lines only: compare the ledger's sequence, never the list's length (which stops growing at 50).
+    if ((view.history ?? []).some(h => h.seq > last.historySeq && h.type === 'action' && h.source !== 'ai')) out.push('result');
+  } else if ((view.historyLength ?? view.history?.length ?? 0) !== last.historyLength && (view.history ?? []).slice(last.historyLength ?? 0).some(h => h.type === 'action' && h.source !== 'ai')) out.push('result');
   if (obs.holding !== last.holding || obs.province !== last.province || obs.citizen !== last.citizen) out.push('event');
   if (obs.bell !== last.bell) out.push('turn');
   return out;
@@ -312,7 +315,7 @@ export function llmDecider({ llm, alias = llm.alias, maxTokens = 160, deadlineMs
       if (!r.ok) throw Object.assign(new Error(`model: ${r.error ?? 'failed'}`), { tokens });
       let d;
       try { d = JSON.parse(r.content); } catch { throw Object.assign(new Error('model: not JSON'), { tokens }); }
-      if (d.action === 'rest') return { choice: null, tokens };
+      if (d.action === 'rest') return { choice: null, tokens, reason: String(d.reason ?? '').slice(0, 200) };
       if (!names.includes(d.action)) throw Object.assign(new Error(`model: ${d.action} is not a candidate`), { tokens });
       const spec = CANDIDATES[d.action];
       const fields = {};
@@ -344,6 +347,8 @@ export async function runOnce(gateway, agentId, decider, { fallback = ruleDecide
   let by = decider.name;
   let reason = null;
   let modelError = null;
+  // Why the free autopilot played instead of the model (a model failure, an unaffordable call, a cap): shown to the owner apart from a stop.
+  let cause = null;
   try {
     const m = await gateway.meterInference(agentId, () => decider.decide(view, observation), { key: `${key}:infer`, free: decider.free === true, model: decider.name });
     charged = m.charged;
@@ -354,6 +359,7 @@ export async function runOnce(gateway, agentId, decider, { fallback = ruleDecide
       const f = await gateway.meterInference(agentId, () => fallback.decide(view), { free: true, model: fallback.name });
       choice = f.result;
       by = `${fallback.name} (after ${m.error.code})`;
+      cause = m.error.code;
     }
   } catch (e) {
     if (e instanceof AgentError && (e.code === ERR.AGENT_STOPPED)) return { agentId, decided: null, charged: '0', skipped: 'stopped' };
@@ -362,11 +368,19 @@ export async function runOnce(gateway, agentId, decider, { fallback = ruleDecide
       const f = await gateway.meterInference(agentId, () => fallback.decide(view), { free: true, model: fallback.name }).catch(() => ({ result: null }));
       choice = f.result;
       by = `${fallback.name} (after ${e.code})`;
+      cause = e.code;
     } else throw e;
   }
-  if (!choice) return { agentId, decided: null, charged, by, ...(modelError ? { modelError } : {}) };
+  const driver = decider.free === true || cause ? 'autopilot' : 'model';
+  // One line per decision, paid or free, whatever came of it: what the owner paid for when nothing was sent, and why.
+  const decision = { key, by, driver, charged, reason, ...(cause ? { cause } : {}), ...(modelError ? { modelError: String(modelError).slice(0, 200) } : {}) };
+  if (!choice) {
+    gateway.ledger.recordDecision(agentId, { ...decision, outcome: 'rest' });
+    return { agentId, decided: null, charged, by, reason, ...(cause ? { cause } : {}), ...(modelError ? { modelError } : {}) };
+  }
   const result = await gateway.submit({ agentId, source: 'ai', idempotencyKey: key, policyVersion: view.policy.version, modeEpoch: view.modeEpoch, reason: reason ? `${by}: ${reason}`.slice(0, 200) : undefined, action: { name: choice.name, holding: view.village, fields: choice.fields ?? {} } }, { runner: true });
-  return { agentId, decided: choice.name, charged, by, reason, result, ...(modelError ? { modelError } : {}) };
+  gateway.ledger.recordDecision(agentId, { ...decision, outcome: result.status, action: choice.name, ...(result.signature ? { signature: result.signature } : {}), ...(result.error ? { code: result.error.code } : {}) });
+  return { agentId, decided: choice.name, charged, by, reason, result, ...(cause ? { cause } : {}), ...(modelError ? { modelError } : {}) };
 }
 
 /** After a call that sent nothing (rest, refused, unaffordable), how many turn-only triggers the agent sits out: 1, 2, 4 … up to this. */
@@ -467,7 +481,7 @@ export class AgentScheduler {
           const o = this.stats.outcomes;
           if (r.decided) o[r.result?.status === 'sent' ? 'sent' : r.result?.status === 'refused' ? 'refused' : 'failed'] += 1; else if (!r.skipped) o.rest += 1;
           if (typeof r.by === 'string' && r.by.includes('(after ')) o.fallback += 1;
-          this.last.set(id, { calledAt: this.now(), bell: obs.bell, holding: obs.holding, province: obs.province, citizen: obs.citizen, policyVersion: view.policy.version, modeEpoch: view.modeEpoch, historyLength: this.gateway.view(id).history.length });
+          this.last.set(id, { calledAt: this.now(), bell: obs.bell, holding: obs.holding, province: obs.province, citizen: obs.citizen, policyVersion: view.policy.version, modeEpoch: view.modeEpoch, historyLength: this.gateway.view(id).history.length, historySeq: this.gateway.view(id).historySeq });
           out.push({ ...r, triggers: d.triggers });
           this.#after(id, r.result?.status === 'sent');
           if (r.decided) this.log(`agent runner: ${id} ${r.decided} by ${r.by} (${d.why}) → ${r.result.status}${r.result.error ? ` (${r.result.error.code})` : ''}, charged ${r.charged}${r.modelError ? `; the model: ${r.modelError}` : ''}`);
