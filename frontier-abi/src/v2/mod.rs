@@ -5,7 +5,7 @@
 //! | module | contract | content |
 //! |---|---|---|
 //! | [`layout`] | §5.2 | Province v2 (4,736 B), the site mirror, conquest record, keep and snapshot layouts, Holding / Citizen / JoinShard reserve fields, Season v2, MarchState; `AccountKind` v2 |
-//! | [`tags`] | §5.4 | `Ix` v2 (57 instructions; `tags::Ix::ALL_V2`), classes, reserved tags, relay shapes |
+//! | [`tags`] | §5.4 | `Ix` v2 (58 instructions; `tags::Ix::ALL_V2`), classes, reserved tags, relay shapes |
 //! | [`error`] | §5.3 | codes 62–78 (`CqError`) and the union `Code` |
 //! | [`log`] | §6 | kinds 80–88, entity kind 8, the v2 decoder, chains, CONQUEST's payload |
 //! | [`ix`] | §5.5, §5.6 | the new instructions' data, FileOutpost, CreateSeason v2 |

@@ -10,7 +10,7 @@ pub use frontier_abi::ix::*;
 pub use frontier_abi::tags::{is_reserved, Class, Ix};
 
 /// ABI v2 (MC contract §5.4–§5.6): the v2 tag set the program dispatches
-/// on (`v2::Ix`, 57 tags), the new instructions' data and CreateSeason v2.
+/// on (`v2::Ix`, 58 tags), the new instructions' data and CreateSeason v2.
 /// The M1 names above are unchanged; a changed M1 instruction keeps its
 /// data and changes only its account list (§5.6).
 pub mod v2 {

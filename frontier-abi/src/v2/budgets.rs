@@ -54,7 +54,9 @@ pub const MC_ROWS: &[(Ix, u32, u32, u32)] = &[
     (Ix::DeclareSiege, 30_000, 0, 640),
     (Ix::SettleSiege, 25_000, 0, 480),
     (Ix::SettleCapture, 30_000, 0, 720),
-    // A-31: FileOutpost 24,000 → 28,000 (G1 measured 26,458; +5%, §5.4's rule).
+    // A-31: FileOutpost 24,000 → 28,000 (G1 measured 26,458; +5%, §5.4's
+    // rule); since raised to 40,000 and 900 B (the contract's §5.4 row
+    // still says 28,000 and 640 B).
     (Ix::FileOutpost, 40_000, 0, 900),
     // A-32: FoldMarch 20,000 → 36,000 (G1 measured 33,903 at §13.1's fill:
     // ≈ 15k fixed with the first fold's init + ≈ 3.2k per hour, and the

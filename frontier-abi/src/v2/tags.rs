@@ -11,7 +11,7 @@ use crate::tags::Class;
 
 macro_rules! tags_v2 {
     ($( $name:ident = $tag:literal, $class:ident, $top:literal; )*) => {
-        /// Every ABI v2 instruction (57: M1's 50 and 7 new).
+        /// Every ABI v2 instruction (58: M1's 51 and 7 new).
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
         #[repr(u8)]
         pub enum Ix { $( $name = $tag, )* }
