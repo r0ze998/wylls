@@ -19,7 +19,7 @@
 //! | `tower` (S1 1d: BuildStructure, SeizeStructure, CloseStructure) | S1 |
 //!
 //! **MC (ABI v2, conquest contract §13.3 G13).** [`covered_by`] matches
-//! `frontier_abi::v2::Ix` (57 tags), so the seven MC instructions are in
+//! `frontier_abi::v2::Ix` (73 tags), so the MC and S1 instructions are in
 //! the registry; an MC error code (62–78) is asserted as [`Code::Cq`],
 //! whose needle is `Cq::X` (the tests import `frontier_abi::v2::CqError as
 //! Cq`). FileOutpost (0xA3) is CQ2-A's (`citizen`).

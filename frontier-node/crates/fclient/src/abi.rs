@@ -226,8 +226,9 @@ pub const PROGRAM_VERSION_S1: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S
 /// `layout_version` of every v2 chained header (R-22: readers dispatch on it).
 pub const LAYOUT_VERSION_V2: u16 = frontier_abi::v2::layout::LAYOUT_VERSION_V2;
 
-/// Every instruction of ABI v2 (MC contract §5.4), in tag order: M1's 50
-/// rows with §5.4's budget for the changed ones, and the seven new rows
+/// Every instruction of ABI v2 (MC contract §5.4), in tag order: M1's 51
+/// rows with §5.4's budget for the changed ones, MC's seven and S1's
+/// fifteen new rows
 /// (`frontier_abi::v2::Ix::ALL` and `frontier_abi::v2::budgets`, which
 /// keep M1's gates for GatherClash and SkipQuiet, CQ1-C D-7).
 pub static INSTRUCTIONS_V2: LazyLock<Vec<IxInfo>> = LazyLock::new(|| {

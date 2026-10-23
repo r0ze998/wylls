@@ -38,8 +38,8 @@
 //!   6,144 B, v1.3): address every archive with `archive_part_of(bell)`.
 //!
 //! **MC (ABI v2, conquest contract §5.4–§5.6, §11 Wave 2).** The program
-//! dispatches on `frontier_abi::v2::Ix` (58 tags: M1's 51 and 0xA0–0xA3,
-//! 0xA5–0xA7). The new handlers and their owners in Wave 2:
+//! dispatches on `frontier_abi::v2::Ix` (73 tags: M1's 51, 0xA0–0xA3,
+//! 0xA5–0xA7 and S1's 0xB0–0xBE). The new handlers and their owners in Wave 2:
 //!
 //! | file | instructions | owner |
 //! |---|---|---|

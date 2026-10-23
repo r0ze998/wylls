@@ -1096,7 +1096,7 @@ fn caravan_holding_write(
     use frontier_abi::v2::tags::Ix as V2;
     for ix in &tx.ixs {
         let tag = ix.tag();
-        if tag == Some(V2::BuildVault.tag()) && ix.key(4).as_ref() == Some(k) {
+        if tag == Some(V2::BuildVault.tag()) && ix.account("holding").as_ref() == Some(k) {
             return Some((
                 "a BuildVault's holding (the touch and the vault's cost)",
                 crate::holding::touched_paid(
@@ -1106,7 +1106,7 @@ fn caravan_holding_write(
                 ),
             ));
         }
-        if tag == Some(V2::BuildStructure.tag()) && ix.key(4).as_ref() == Some(k) {
+        if tag == Some(V2::BuildStructure.tag()) && ix.account("holding").as_ref() == Some(k) {
             return Some((
                 "a BuildStructure's holding (the touch and the structure's cost)",
                 frontier_abi::v2::ix::BuildStructure::decode(&ix.data)
@@ -1120,7 +1120,7 @@ fn caravan_holding_write(
                     }),
             ));
         }
-        if tag == Some(V2::SendCaravan.tag()) && ix.key(4).as_ref() == Some(k) {
+        if tag == Some(V2::SendCaravan.tag()) && ix.account("src").as_ref() == Some(k) {
             let cargo = ix2::SendCaravan::decode(&ix.data)
                 .ok()
                 .and_then(|x| ix2::cargo_milli(&x.cargo));
@@ -1131,8 +1131,8 @@ fn caravan_holding_write(
                     .and_then(|c| crate::holding::touched_paid(before, tx.time, &c)),
             ));
         }
-        if tag == Some(V2::SettleCaravan.tag()) && ix.key(3).as_ref() == Some(k) {
-            let Some(cd) = ix.key(2).and_then(|c| w.state_before(&c, t)) else {
+        if tag == Some(V2::SettleCaravan.tag()) && ix.account("dst").as_ref() == Some(k) {
+            let Some(cd) = ix.account("caravan").and_then(|c| w.state_before(&c, t)) else {
                 return Some((
                     "a SettleCaravan's destination",
                     Err("no state of the Caravan before the settlement".into()),

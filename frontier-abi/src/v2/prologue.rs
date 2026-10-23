@@ -631,6 +631,20 @@ mod tests {
         assert_eq!(at(Ix::DeclareSiege, 11, "target_holding"), Some(6));
         assert_eq!(at(Ix::SettleCapture, 11, "stake_holding"), Some(9));
         assert_eq!(position(Ix::FoldMarch, 11, "member", 6), Some(9));
+        // S1, as the verifier's V7, V23, V24 and V25 read them.
+        assert_eq!(at(Ix::BuildVault, 9, "holding"), Some(4));
+        assert_eq!(at(Ix::BuildVault, 9, "province"), Some(6));
+        assert_eq!(at(Ix::BuildVault, 9, "vault"), Some(7));
+        assert_eq!(at(Ix::SendCaravan, 9, "src"), Some(4));
+        assert_eq!(at(Ix::SettleCaravan, 7, "caravan"), Some(2));
+        assert_eq!(at(Ix::SettleCaravan, 10, "dst"), Some(3));
+        assert_eq!(at(Ix::CloseVault, 6, "vault"), Some(4));
+        assert_eq!(at(Ix::BuildStructure, 9, "structure"), Some(7));
+        assert_eq!(at(Ix::CloseStructure, 7, "structure"), Some(4));
+        assert_eq!(at(Ix::CloseStructure, 7, "province"), Some(5));
+        assert_eq!(at(Ix::FortGarrison, 7, "structure"), Some(6));
+        assert_eq!(at(Ix::Propose, 7, "target"), Some(5));
+        assert_eq!(at(Ix::Vote, 5, "nation"), Some(4));
         let mut counts = [0u8; 4];
         let ng = counts_from_len(Ix::FileOutpost, 12, &mut counts).unwrap();
         assert_eq!(&counts[..ng], &[1, 1, 2, 1]);

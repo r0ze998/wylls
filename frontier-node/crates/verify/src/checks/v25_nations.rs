@@ -115,7 +115,11 @@ pub fn judge_propose(
     genesis_ts: i64,
 ) -> Result<(), Wrong> {
     let x = ix2::Propose::decode(&ix.data).map_err(|_| wrong("does not decode"))?;
-    let (Some(citizen), Some(nation), Some(target)) = (ix.key(3), ix.key(4), ix.key(5)) else {
+    let (Some(citizen), Some(nation), Some(target)) = (
+        ix.account("citizen"),
+        ix.account("nation"),
+        ix.account("target"),
+    ) else {
         return Err(wrong("the accounts are missing"));
     };
     let v = Seen { s };
@@ -199,7 +203,7 @@ pub fn judge_propose(
 /// Vote (accounts: 3 citizen, 4 nation).
 pub fn judge_vote(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<(), Wrong> {
     let x = ix2::Vote::decode(&ix.data).map_err(|_| wrong("does not decode"))?;
-    let (Some(citizen), Some(nation)) = (ix.key(3), ix.key(4)) else {
+    let (Some(citizen), Some(nation)) = (ix.account("citizen"), ix.account("nation")) else {
         return Err(wrong("the accounts are missing"));
     };
     let v = Seen { s };

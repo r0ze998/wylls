@@ -1,5 +1,5 @@
-//! ABI v2 instruction tags (MC contract §5.4): M1's 50 tags unchanged
-//! plus 0xA0–0xA3 and 0xA5–0xA7. 0xA4 (CollectTribute, M3) and 0xA8–0xAF
+//! ABI v2 instruction tags (MC contract §5.4): M1's 51 tags unchanged
+//! plus 0xA0–0xA3 and 0xA5–0xA7 (MC) and 0xB0–0xBE (S1). 0xA4 (CollectTribute, M3) and 0xA8–0xAF
 //! (Settler march, SettleFounding, Raid, AutoReinforce) are reserved.
 //!
 //! **Staged (v1.1, R-16):** v1's [`crate::tags::Ix`] keeps its 50 variants
