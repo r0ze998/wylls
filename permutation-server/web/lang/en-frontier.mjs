@@ -680,4 +680,16 @@ export default {
   '領土の集計順序を確認しています。少し待ってください': 'Territory results are being ordered. Please wait.',
   'このターンの領土の集計がまだ終わっていません': 'Territory scoring for this turn is not complete yet.',
   'この包囲の先導者だけが行える操作です': 'Only the siege leader can perform this action.',
+  // The village handed to the owner's agent (frontier/fdelegation.mjs).
+  '代理人に任せています': 'Handed to your agent',
+  'この村の操作は、いま代理人（自動）が行っています。この端末のゲーム内の鍵では送れません。': 'Your agent (auto) is playing this village now. This device\'s game key cannot send for it.',
+  'この村の鍵は、まだ代理人が持っています（代理人は停止中）。この端末のゲーム内の鍵では送れません。': 'Your agent still holds this village\'s key (the agent is stopped). This device\'s game key cannot send for it.',
+  '自分で操作するには、鍵を取り戻します（ウォレットで署名）。': 'To play it yourself, take the key back (your wallet signs).',
+  '代理人はサーバー上では自動のままなので、止めるには代理人のページで「手動に戻す」を押してください。': ' The agent stays in auto on the server: to stop it, press "Back to manual" on the agent page.',
+  '鍵を取り戻して自分で操作する': 'Take the key back and play myself',
+  '代理人のページを開く': 'Open the agent page',
+  'この村は代理人に任せているため、この端末の鍵では送れません。代理人のページ（「その他」）で止めるか、鍵を取り戻してから操作してください。': 'This village is handed to your agent, so this device\'s key cannot send for it. Stop the agent on its page (under "More"), or take the key back first.',
+  '鍵を取り戻しました。代理人はサーバー上ではまだ自動です（鍵がないので何も送れず、判断料もかかりません）。止めるには代理人のページで「手動に戻す」を押してください。': 'You have the key back. The agent is still in auto on the server (without the key it can send nothing, and no decision is charged). To stop it, press "Back to manual" on the agent page.',
+  '鍵を取り戻しました。': 'You have the key back.',
+  '代理人のページ（テストUSDCで自動運転を任せる）': 'Agent page (hand the village to an agent, with test USDC)',
 };
