@@ -622,6 +622,21 @@ test('the Depart transaction the page builds is at most 800 bytes (§9.4) and wi
   assert.throws(() => accountsFor('Reveal', { addresses: A }), /not a shape this page sends/, 'a Reveal is never a client transaction (I-24)');
 });
 
+test('S1 seasons (profile 3) name the ABI v2 accounts, as MC seasons (profile 2) do', () => {
+  io.setPin({ programId: ADDR.program, cluster: 'localnet', seasonId: 1 });
+  const A = io.pinned().addresses;
+  const v = profile => ({ addresses: A, wallet: ADDR.citizen.wallet, actor: ADDR.citizen.wallet, holding: { p: 2, q: 0, site: 3 }, profile });
+  for (const name of ['Harvest', 'Train', 'Build']) {
+    assert.equal(accountsFor(name, v(1)).province, undefined, `${name}: M1 names no Province`);
+    assert.equal(accountsFor(name, v(2)).province, A.of('Province', { p: 2, q: 0 }), `${name}: MC`);
+    assert.equal(accountsFor(name, v(3)).province, A.of('Province', { p: 2, q: 0 }), `${name}: S1`);
+  }
+  for (const name of ['Dissolve', 'Explore', 'Depart']) {
+    assert.equal(accountsFor(name, v(1)).holding_province, undefined);
+    assert.equal(accountsFor(name, v(3)).holding_province, A.of('Province', { p: 2, q: 0 }), `${name}: S1`);
+  }
+});
+
 // ------------------------------------------------------------------ the tracker and the lock
 test('the tracker: steps from chain facts; the host stays locked until its transit is settled (HostInTransit)', () => {
   const e = { ...book.entryOf({ host: 5n, transitSlot: 1, departBell: 40, arriveBell: 43, holding: 'h', plain: new Uint8Array(37), salt: new Uint8Array(32), commit: new Uint8Array(32), sealRoot: new Uint8Array(32), ctHash: new Uint8Array(32), round: 1, tip: 14472 }), state: 'landed' };

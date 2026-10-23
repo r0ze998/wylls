@@ -23,7 +23,7 @@
 import { html, raw } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { RESOURCES, RESOURCE_ORDER, UNITS, TIERS, BUILDINGS, unitCount } from '../fi18n.mjs';
-import { UNIT_ORDER, SCOUT, SETTLER, BUILD_ITEMS } from '../fland.mjs';
+import { UNIT_ORDER, SCOUT, SETTLER, buildItemOf } from '../fland.mjs';
 import { RULES, DEPART_STAMINA } from '../fmarch.mjs';
 import { MAX_PATH_STEPS } from '../seal.mjs';
 import { tileHex, TILE_OFFSETS } from '../fgeo.mjs';
@@ -255,7 +255,7 @@ function buildFan(model) {
       ${own ? html`<span class="fan-why">${own}</span>` : ''}</button>`;
   };
   const full = (blockedAll ?? (m.queue.length >= m.slots ? 'QueueFull' : null)) === 'QueueFull' ? whyText('QueueFull', { tier, freeIn }) : null;
-  const queue = m.queue.length ? html`<ol class="pop-queue" aria-label="${L`建設中`}">${m.queue.map(q => html`<li>${ring(q.share ?? 0)}<span>${q.item === 7 ? L`昇格` : BUILDINGS[BUILD_ITEMS[q.item]?.resource] ?? ''}</span><span class="num">${q.running ? L`あと ${took(q.doneIn)}` : L`待ち（あと ${took(q.doneIn)}）`}</span></li>`)}</ol>` : '';
+  const queue = m.queue.length ? html`<ol class="pop-queue" aria-label="${L`建設中`}">${m.queue.map(q => html`<li>${ring(q.share ?? 0)}<span>${q.item === 7 ? L`昇格` : BUILDINGS[buildItemOf(q.item)?.resource] ?? ''}</span><span class="num">${q.running ? L`あと ${took(q.doneIn)}` : L`待ち（あと ${took(q.doneIn)}）`}</span></li>`)}</ol>` : '';
   return html`${popHead(L`建てる`, L`建設中 ${fmtNum(m.queue.length)}/${fmtNum(m.slots)}`)}
     ${queue}${full ? html`<p class="pop-line pop-why fan-full">${full}</p>` : ''}
     <div class="fan" role="group" aria-label="${L`建てるもの`}">${m.offers.map(tok)}</div>`;

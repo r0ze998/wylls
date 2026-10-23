@@ -11,6 +11,7 @@
 // (I-56); a mustered host joins the roster from the next bell. Every action
 // says why it cannot run now, with a "catch up" nudge when the province
 // lags (NotResident).
+import { s1On } from '../fs1.mjs';
 import { activeHolding } from '../fstate.mjs';
 import { html, raw } from '../../util.mjs';
 import { icon, RESOURCE_ICON } from '../hud/icons.mjs';
@@ -76,7 +77,7 @@ export function blockedLine(blocks) {
  */
 export function buildCards(h, stores, { now = 0, faction = h.faction ?? 0 } = {}) {
   const have = stores.map(s => s.value);
-  return buildOffers(h, { now, have, faction }).map(o => ({ ...o, copies: o.n - 1, wait: Math.max(0, o.doneIn - o.secs), short: o.short.map(x => ({ resource: RESOURCE_ORDER[x.r], need: x.need })) }));
+  return buildOffers(h, { now, have, faction, s1: s1On() }).map(o => ({ ...o, copies: o.n - 1, wait: Math.max(0, o.doneIn - o.secs), short: o.short.map(x => ({ resource: RESOURCE_ORDER[x.r], need: x.need })) }));
 }
 
 /** Compatibility view of the shared promotion offer; no second set of prices. */

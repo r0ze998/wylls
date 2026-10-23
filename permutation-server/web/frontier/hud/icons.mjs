@@ -10,6 +10,7 @@
 // glyph names in ART_OF below, so every strip, cost, card and notice that draws a resource gets the picture and no
 // caller changes; `artIcon(key)` gives one of the thirteen by its own name. Navigation and action icons stay the
 // sprite's. The pictures' sizes are in art/art.css (linked by script the first time one is drawn).
+import { s1On } from '../fs1.mjs';
 import { raw } from '../../util.mjs';
 import { artPackOn, linkArtCss } from '../art/pack.mjs';
 
@@ -55,6 +56,8 @@ export function artIcon(key, cls = '') {
 
 /** A resource's icon by the resource's name: the picture where the pack is shown, else the sprite's glyph; the crate for a name that is no resource. */
 export function resourceIcon(resource, cls = '') {
+  // S1: the Horses slot holds arms (no illustrated arms picture yet: the sprite's swords).
+  if (resource === 'Horses' && s1On()) return icon('swords', cls);
   return artPackOn() && RESOURCE_ART[resource] ? artIcon(RESOURCE_ART[resource], cls) : icon(RESOURCE_ICON[resource] ?? 'crate', cls);
 }
 

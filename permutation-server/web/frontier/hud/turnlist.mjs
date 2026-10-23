@@ -13,7 +13,7 @@
 import { html } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { BUILDINGS, TIERS, unitCount, clientText } from '../fi18n.mjs';
-import { BUILD_ITEMS, UNIT_ORDER } from '../fland.mjs';
+import { UNIT_ORDER, buildItemOf } from '../fland.mjs';
 import { icon } from './icons.mjs';
 import { tileName } from './place.mjs';
 import { KIND_ICON, lineText } from './feed.mjs';
@@ -30,7 +30,7 @@ export function orderText(FS, o, now = FS.chain?.now?.() ?? 0) {
   const left = Number.isFinite(o.doneAt) && o.doneAt > now ? L`あと ${took(o.doneAt - now)}` : L`完成`;
   switch (o.kind) {
     case 'harvest': return L`収穫を蔵に納めました`;
-    case 'build': return L`${BUILDINGS[BUILD_ITEMS[o.item]?.resource] ?? ''}を建設中（${left}）`;
+    case 'build': return L`${BUILDINGS[buildItemOf(o.item)?.resource] ?? ''}を建設中（${left}）`;
     case 'walls': return L`城壁を工事中（${left}）`;
     case 'promote': return L`${TIERS[o.to] ?? ''}へ昇格中（${left}）`;
     case 'train': return L`${who} を訓練しました`;

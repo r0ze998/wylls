@@ -36,6 +36,7 @@ import { fromBase64 } from '../sdk/bytes.mjs';
 import { L, fmtNum } from '../lang.mjs';
 import { emit as fxEmit } from './fx/bus.mjs';
 import { reachOrigins } from './screens/conquest.mjs';
+import { s1On } from './fs1.mjs';
 import { cachedReach, reachKey, reachableKeeps } from './fkeepreach.mjs';
 import * as fprize from './fprize.mjs';
 import { instantHomeEnabled, HOME_GRANTED, planHomes, homeSites, sameHome, homeKey, loadHome, saveHome, grantId } from './home.mjs';
@@ -875,6 +876,25 @@ export function wantHostReach(hostId) {
 }
 
 /** Refresh conquest together; retain known state on transport failures. */
+/**
+ * S1 (redesign stage 1): the caravans, structures and nations feeds into
+ * `FS.s1`. A feed the herald has not written yet (NotFound) reads as empty;
+ * any other failure keeps what was read before.
+ */
+async function refreshS1(request) {
+  const s1 = FS.s1 ??= { caravans: null, structures: null, nations: null, error: null };
+  const names = ['caravans', 'structures', 'nations'];
+  const results = await Promise.allSettled(names.map(n => herald[n]()));
+  if (request !== conquestRefresh) return;
+  s1.error = null;
+  names.forEach((n, i) => {
+    const r = results[i].status === 'fulfilled' ? results[i].value : null;
+    if (r?.ok) s1[n] = r[n];
+    else if (r?.code === 'NotFound') s1[n] ??= null;
+    else s1.error = L`隊商・構造物・国家の最新情報を取得できませんでした。`;
+  });
+}
+
 export async function refreshConquest() {
   if (!conquestEnabled(FS.season) || !herald?.control) return;
   const request=++conquestRefresh;
@@ -909,6 +929,7 @@ export async function refreshConquest() {
     const next = territoryStandings(standings.standings);
     if (next && next.bell >= (cq.standings?.bell ?? -1)) cq.standings = next;
   }
+  if (s1On()) await refreshS1(request);
   // A control snapshot has a world bell, while a quiet province can have an
   // older resolvedNext. Read its actual keep after the summary: comparing
   // those different clocks would otherwise hide protection and disable it forever.

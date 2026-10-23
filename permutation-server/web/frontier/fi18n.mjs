@@ -6,6 +6,7 @@
 // "Flame" (I-34). Every program error code of abi.mjs has a text
 // (web-frontier-errors.test.mjs, W3-F, checks it; web-lang checks the
 // English).
+import { s1On } from './fs1.mjs';
 import { L, lazyTable, fmtNum } from '../lang.mjs';
 import { CIV_NAMES } from '../i18n.mjs';
 import { NATION_FILL } from './palette.mjs';
@@ -20,7 +21,8 @@ export const factionName = f => (f === 6 ? L`中立` : CIV_NAMES[['Aster', 'Bore
 /** The eight resources (holding stores), in kernel order. */
 export const RESOURCES = lazyTable({
   Food: () => L`食料`, Wood: () => L`木材`, Stone: () => L`石材`, Ore: () => L`鉱石`,
-  Horses: () => L`馬`, Gold: () => L`金`, Science: () => L`学術`, Influence: () => L`影響力`,
+  // S1: the Horses slot holds arms (fs1.mjs).
+  Horses: () => (s1On() ? L`兵器` : L`馬`), Gold: () => L`金`, Science: () => L`学術`, Influence: () => L`影響力`,
 });
 export const RESOURCE_ORDER = Object.freeze(['Food', 'Wood', 'Stone', 'Ore', 'Horses', 'Gold', 'Science', 'Influence']);
 
@@ -352,6 +354,8 @@ export const DOCTRINE_NAMES = lazyTable({
 /** Buildings by the resource they produce (catalog items 0–5), and the walls (item 6). */
 export const BUILDINGS = lazyTable({
   Food: () => L`農場`, Wood: () => L`伐採場`, Stone: () => L`石切り場`, Ore: () => L`鉱山`, Gold: () => L`造幣所`, Science: () => L`書庫`, Walls: () => L`城壁`,
+  // S1: the workshop makes arms in the Horses slot.
+  Horses: () => L`工房`,
 });
 /** Holding states. */
 export const HOLDING_STATES = lazyTable({

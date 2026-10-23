@@ -6,6 +6,7 @@
 // does, queue, reserve, transits, dormancy), the hosts of a holding, and
 // what each resident action needs before it is sent. Pure functions over
 // decoded accounts; the program decides every action.
+import { TRAIN_ARMS_PER_100, WORKSHOP, s1On } from './fs1.mjs';
 import { rent } from '../sdk/frontier/fees.mjs';
 import { ringOf, wedgeOf, provinceIndex, TILE_OFFSETS, DIRECTIONS } from './fgeo.mjs';
 import { ACCOUNTS } from './abi.mjs';
@@ -33,7 +34,9 @@ export function trainingCost(unit, n, programVersion = 1) {
   const pc = (programVersion >= 3 ? TRAIN_PRODUCTION_COST_CQ : TRAIN_PRODUCTION_COST)[unit];
   if (!Number.isInteger(unit) || pc === undefined || !Number.isSafeInteger(n) || n < 1 || n > 0xffffffff) return null;
   const k = Math.ceil(n / 100);
-  return [60 * k, 0, 0, Math.floor(20 * k * pc / 6), 0, Math.floor(10 * k * pc / 6), 0, 0];
+  // S1 (program_version 4): the strong units also cost arms (arms.rs train_v3).
+  const arms = programVersion >= 4 ? (TRAIN_ARMS_PER_100[unit] ?? 0) * k : 0;
+  return [60 * k, 0, 0, Math.floor(20 * k * pc / 6), arms, Math.floor(10 * k * pc / 6), 0, 0];
 }
 /** Exact affordability, including batch rounding. Capped at one maximum-sized host. */
 export function trainingQuote(holding, unit, n, now, programVersion = 1) {
@@ -64,6 +67,10 @@ export const BUILD_ITEMS = Object.freeze([
   { item: 5, resource: 'Science', perHour: 3, cost: [0, 60, 60, 0, 0, 20, 0, 0] },
   { item: 6, resource: 'Walls', perHour: 0, cost: null },
 ].map(Object.freeze));
+/** S1: the workshop (build item 8, fs1.mjs), outside BUILD_ITEMS (items 0–6; 7 is the promotion). */
+export { WORKSHOP };
+/** The build item `item`: BUILD_ITEMS for 0–6, the workshop for 8, else undefined. */
+export const buildItemOf = item => (item === WORKSHOP.item ? WORKSHOP : BUILD_ITEMS[item]);
 /** The kinds of a Holding's queue record (the program's `queue_kind`): what is under way. */
 export const QUEUE_KIND = Object.freeze({ FREE: 0, PRODUCTION: 1, UPKEEP: 2, TIER_UP: 3, WALLS: 4 });
 /** Resources in kernel order (a queue record's `arg`, a store's index). */
@@ -76,7 +83,11 @@ const QUEUE_RESOURCES = Object.freeze(['Food', 'Wood', 'Stone', 'Ore', 'Horses',
  */
 export function queueItem(q) {
   if (!q) return null;
-  if (q.kind === QUEUE_KIND.PRODUCTION) { const i = BUILD_ITEMS.findIndex(b => b.resource === QUEUE_RESOURCES[q.arg]); return i >= 0 ? i : null; }
+  if (q.kind === QUEUE_KIND.PRODUCTION) {
+    // S1: arms production (the Horses slot) is the workshop's; no M1 or MC building makes horses.
+    if (QUEUE_RESOURCES[q.arg] === WORKSHOP.resource) return s1On() ? WORKSHOP.item : null;
+    const i = BUILD_ITEMS.findIndex(b => b.resource === QUEUE_RESOURCES[q.arg]); return i >= 0 ? i : null;
+  }
   return q.kind === QUEUE_KIND.WALLS ? BUILD_ITEMS.findIndex(b => b.resource === 'Walls') : null;
 }
 /** QueueItem is an effect (kind 1 = production, arg = Resource), not a Build item. */
@@ -86,6 +97,7 @@ export function queueBuildingItem(q) {
   if (q.kind === 3) return 7;
   if (q.kind !== 1) return null;
   const resource = ['Food', 'Wood', 'Stone', 'Ore', 'Horses', 'Gold', 'Science', 'Influence'][q.arg];
+  if (resource === WORKSHOP.resource) return s1On() ? WORKSHOP.item : null;
   return BUILD_ITEMS.find(b => b.resource === resource)?.item ?? null;
 }
 /**

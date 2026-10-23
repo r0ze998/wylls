@@ -1,4 +1,5 @@
 import { territoryEnabled, territoryOf } from './territory.mjs';
+import { setS1 } from './fs1.mjs';
 import * as territoryScreen from './screens/territory.mjs';
 import * as conquestScreen from './screens/conquest.mjs';
 import { conquestEnabled, outpostOffer } from './fconquest.mjs';
@@ -3416,6 +3417,7 @@ async function loadSeason(herald) {
   if (!FS.beacon.ok) FS.error = { code: FS.beacon.code, text: clientText(FS.beacon.code) };
   FS.record = record;
   FS.season = season;
+  setS1(season);
   FS.clock = seasonClock(season);
   // Only a localnet Clock runs accelerated (§8.7); every other cluster's rate is 1.
   FS.chain.setAccelerated(record.cluster === 'localnet');
