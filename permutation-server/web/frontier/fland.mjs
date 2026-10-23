@@ -12,6 +12,7 @@ import { ACCOUNTS } from './abi.mjs';
 import { hostParts } from './faddr.mjs';
 import { bellStart, bellEnd } from './clock.mjs';
 import { hostInTransit, staminaAt, troopsOf } from './fmarch.mjs';
+import { RESOURCE_ORDER } from './resources.mjs';
 
 export const NO_TICKET = 0xffffffff;
 /** Citizen flags (§5.3). */
@@ -66,8 +67,6 @@ export const BUILD_ITEMS = Object.freeze([
 ].map(Object.freeze));
 /** The kinds of a Holding's queue record (the program's `queue_kind`): what is under way. */
 export const QUEUE_KIND = Object.freeze({ FREE: 0, PRODUCTION: 1, UPKEEP: 2, TIER_UP: 3, WALLS: 4 });
-/** Resources in kernel order (a queue record's `arg`, a store's index). */
-const QUEUE_RESOURCES = Object.freeze(['Food', 'Wood', 'Stone', 'Ore', 'Horses', 'Gold', 'Science', 'Influence']);
 /**
  * The build item (0–6) a queue record `{kind, arg}` is, or null when it is not a building of the list (a tier-up,
  * an upkeep change): a production record names its resource in `arg`, and the building is the one that produces
@@ -76,7 +75,7 @@ const QUEUE_RESOURCES = Object.freeze(['Food', 'Wood', 'Stone', 'Ore', 'Horses',
  */
 export function queueItem(q) {
   if (!q) return null;
-  if (q.kind === QUEUE_KIND.PRODUCTION) { const i = BUILD_ITEMS.findIndex(b => b.resource === QUEUE_RESOURCES[q.arg]); return i >= 0 ? i : null; }
+  if (q.kind === QUEUE_KIND.PRODUCTION) { const i = BUILD_ITEMS.findIndex(b => b.resource === RESOURCE_ORDER[q.arg]); return i >= 0 ? i : null; }
   return q.kind === QUEUE_KIND.WALLS ? BUILD_ITEMS.findIndex(b => b.resource === 'Walls') : null;
 }
 /** QueueItem is an effect (kind 1 = production, arg = Resource), not a Build item. */
@@ -85,7 +84,7 @@ export function queueBuildingItem(q) {
   if (q.kind === 4) return 6;
   if (q.kind === 3) return 7;
   if (q.kind !== 1) return null;
-  const resource = ['Food', 'Wood', 'Stone', 'Ore', 'Horses', 'Gold', 'Science', 'Influence'][q.arg];
+  const resource = RESOURCE_ORDER[q.arg];
   return BUILD_ITEMS.find(b => b.resource === resource)?.item ?? null;
 }
 /**
