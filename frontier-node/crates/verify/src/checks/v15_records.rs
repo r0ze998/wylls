@@ -47,8 +47,12 @@ fn classify_conquest(got: &[u8], want: &[u8]) -> (&'static str, String) {
             .any(|e| e.site != event::KEEP_SITE);
         let detail = format!(
             "events logged {:?}, the replay's {:?}",
-            ge.iter().map(|e| (e.site, e.code, e.faction, e.progress)).collect::<Vec<_>>(),
-            we.iter().map(|e| (e.site, e.code, e.faction, e.progress)).collect::<Vec<_>>()
+            ge.iter()
+                .map(|e| (e.site, e.code, e.faction, e.progress))
+                .collect::<Vec<_>>(),
+            we.iter()
+                .map(|e| (e.site, e.code, e.faction, e.progress))
+                .collect::<Vec<_>>()
         );
         return (
             if site_event {
@@ -59,9 +63,19 @@ fn classify_conquest(got: &[u8], want: &[u8]) -> (&'static str, String) {
             detail,
         );
     }
-    if (g.keep_holder, g.keep_contender, g.keep_progress, g.keep_troops, g.donor_host_id)
-        != (w.keep_holder, w.keep_contender, w.keep_progress, w.keep_troops, w.donor_host_id)
-    {
+    if (
+        g.keep_holder,
+        g.keep_contender,
+        g.keep_progress,
+        g.keep_troops,
+        g.donor_host_id,
+    ) != (
+        w.keep_holder,
+        w.keep_contender,
+        w.keep_progress,
+        w.keep_troops,
+        w.donor_host_id,
+    ) {
         return (
             KEEP_MISMATCH,
             format!(
@@ -195,7 +209,10 @@ pub fn run(cx: &mut Ctx) {
                         what,
                         b,
                         t,
-                        format!("a {} record the replayed step does not leave", g.kind.name()),
+                        format!(
+                            "a {} record the replayed step does not leave",
+                            g.kind.name()
+                        ),
                     ));
                 }
                 (None, Some(e)) => {

@@ -181,7 +181,11 @@ pub fn run(input: &Input) -> Report {
                 "transaction",
                 r.bell,
                 Some(r.tx),
-                format!("record {} is a conquest record ({}) in an M1 season", r.pos, r.kind.name()),
+                format!(
+                    "record {} is a conquest record ({}) in an M1 season",
+                    r.pos,
+                    r.kind.name()
+                ),
             );
         }
         check!("mutate-v1", "V1", v1_chains);

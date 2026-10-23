@@ -82,10 +82,17 @@ pub fn replay(
     let applied = m::apply_v2(&mut pd, &built, &out).map_err(e)?;
     let settled = m::settle_bell(&mut pd, b).map_err(e)?;
     let step = cq::step(&mut pd, b, &report, prm).map_err(e)?;
-    m::finish_bell(&mut pd, b, applied.changed() || settled || step.roster_changed).map_err(e)?;
+    m::finish_bell(
+        &mut pd,
+        b,
+        applied.changed() || settled || step.roster_changed,
+    )
+    .map_err(e)?;
     let (p, q) = (
-        crate::world::le(before.get(PV::P..PV::P + 2).ok_or("short Province")?) as u16 as i16 as i32,
-        crate::world::le(before.get(PV::Q..PV::Q + 2).ok_or("short Province")?) as u16 as i16 as i32,
+        crate::world::le(before.get(PV::P..PV::P + 2).ok_or("short Province")?) as u16 as i16
+            as i32,
+        crate::world::le(before.get(PV::Q..PV::Q + 2).ok_or("short Province")?) as u16 as i16
+            as i32,
     );
     let cq_records = crate::cqrec::of_step(&pd, p, q, b, &step)?;
     let outcome = m::outcome_digest(&out).map_err(e)?;
@@ -105,7 +112,11 @@ pub fn replay(
     }
     let flags = *ci.get(CI::FLAGS).ok_or("short inputs")?;
     put(&mut ci, CI::FLAGS, &[flags | CI::FLAG_RESOLVED])?;
-    put(&mut ci, CI::CAMP_MASK, &applied.base.camp_mask.to_le_bytes())?;
+    put(
+        &mut ci,
+        CI::CAMP_MASK,
+        &applied.base.camp_mask.to_le_bytes(),
+    )?;
     // The summary of the last resolve (§5.3; the resolver's 8 bytes are
     // the beneficiary's, left as before).
     let n_arr = *ci.get(CI::N_PRESENT).ok_or("short inputs")?;

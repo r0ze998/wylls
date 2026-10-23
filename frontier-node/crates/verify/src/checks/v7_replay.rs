@@ -43,14 +43,14 @@ use frontier_abi::layout::clash::clash_inputs as CI;
 use frontier_abi::layout::header as HD;
 use frontier_abi::layout::player::holding as H;
 use frontier_abi::layout::province::province as PV;
-use frontier_abi::v2::layout::province::province as P2;
 use frontier_abi::log::{self as plog, settle_outcome, transit_outcome, Kind};
+use frontier_abi::v2::layout::province::province as P2;
 use permutation_rules::fixed::MILLI;
 use permutation_rules::frontier::clash::{
     admit_arrival, FactionSlots, Fate, SlotDecision, SlotEntry,
 };
-use permutation_rules::frontier::holding::{Resource, RESOURCES};
 use permutation_rules::frontier::geometry::ProvinceCoord;
+use permutation_rules::frontier::holding::{Resource, RESOURCES};
 
 use super::v6_quotas::tag_of_host;
 use super::Ctx;
@@ -919,10 +919,9 @@ fn continuity(cx: &mut Ctx) {
                 let order = outpost
                     .and_then(|r| r.field("order", true).first().copied())
                     .unwrap_or(1);
-                let shield = f
-                    .cq
-                    .as_ref()
-                    .and_then(|cq| hr::founding_shield(cq, order, tx.time, f.genesis_ts));
+                let shield =
+                    f.cq.as_ref()
+                        .and_then(|cq| hr::founding_shield(cq, order, tx.time, f.genesis_ts));
                 // The record's shield is the one written (MC §5.6).
                 if let (Some(r), Some(s)) = (outpost, shield) {
                     let logged = le(r.field("shield_until", true)) as i64;
@@ -939,7 +938,13 @@ fn continuity(cx: &mut Ctx) {
                 }
                 (
                     "the founding SETTLE",
-                    hr::founded(post, tx.time, frontier_abi::addr::day_of(bell), order, shield),
+                    hr::founded(
+                        post,
+                        tx.time,
+                        frontier_abi::addr::day_of(bell),
+                        order,
+                        shield,
+                    ),
                 )
             } else {
                 let Some(before) = w.state_before(k, t) else {
@@ -1000,7 +1005,12 @@ fn continuity(cx: &mut Ctx) {
 /// as its anchor (the instruction's fourth account from the end), from the
 /// Citizen's state before the transaction; `None` when no FileOutpost of
 /// the transaction anchors on `k`.
-fn outpost_anchor_holdings(w: &crate::world::World, tx: &crate::world::Tx, t: usize, k: &[u8; 32]) -> Option<u8> {
+fn outpost_anchor_holdings(
+    w: &crate::world::World,
+    tx: &crate::world::Tx,
+    t: usize,
+    k: &[u8; 32],
+) -> Option<u8> {
     use frontier_abi::layout::player::citizen as C;
     let tag = frontier_abi::v2::tags::Ix::FileOutpost.tag();
     tx.ixs
@@ -1031,7 +1041,11 @@ fn siege_source_stake(f: &Facts, tx: &crate::world::Tx, k: &[u8; 32]) -> Option<
 /// Whether a SettleSiege, SettleCapture or RetireHost of `tx` writes `k`.
 fn conquest_settlement_writes(tx: &crate::world::Tx, k: &[u8; 32]) -> bool {
     use frontier_abi::v2::tags::Ix as V2;
-    let tags = [V2::SettleSiege.tag(), V2::SettleCapture.tag(), V2::RetireHost.tag()];
+    let tags = [
+        V2::SettleSiege.tag(),
+        V2::SettleCapture.tag(),
+        V2::RetireHost.tag(),
+    ];
     tx.ixs
         .iter()
         .any(|i| i.tag().is_some_and(|x| tags.contains(&x)) && i.writes(k))

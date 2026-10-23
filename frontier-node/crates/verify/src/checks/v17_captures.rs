@@ -73,31 +73,56 @@ fn judge(cx: &Ctx, r: &CqRec) -> Vec<(&'static str, String)> {
     let pu8 = |n: &str| r.field(n, true).first().copied().unwrap_or(0);
     let pu = |n: &str| le(r.field(n, true));
     let tag = V2Ix::SettleCapture.tag();
-    let Some(ix) = tx.ixs.iter().find(|i| i.tag() == Some(tag) && i.accounts.len() >= 11) else {
-        bad.push((CAPTURE_RULE, "no SettleCapture instruction in the transaction".into()));
+    let Some(ix) = tx
+        .ixs
+        .iter()
+        .find(|i| i.tag() == Some(tag) && i.accounts.len() >= 11)
+    else {
+        bad.push((
+            CAPTURE_RULE,
+            "no SettleCapture instruction in the transaction".into(),
+        ));
         return bad;
     };
     let key = |i: usize| ix.key(i);
-    let before = |i: usize| ix.key(i).and_then(|k| w.state_before(&k, t).map(|d| d.to_vec()));
+    let before = |i: usize| {
+        ix.key(i)
+            .and_then(|k| w.state_before(&k, t).map(|d| d.to_vec()))
+    };
     let after = |i: usize| ix.key(i).and_then(|k| tx.post_data(&k).map(|d| d.to_vec()));
     let hk = f.ctx.holding(p, q, site);
     if key(2) != Some(hk) || key(3) != Some(f.ctx.province(p, q)) {
-        bad.push((CAPTURE_RULE, "the instruction's Holding or Province is not the record's".into()));
+        bad.push((
+            CAPTURE_RULE,
+            "the instruction's Holding or Province is not the record's".into(),
+        ));
         return bad;
     }
     let (Some(pd), Some(pd_after)) = (before(3), after(3)) else {
-        bad.push((CAPTURE_RULE, "no Province state before or after the settlement".into()));
+        bad.push((
+            CAPTURE_RULE,
+            "no Province state before or after the settlement".into(),
+        ));
         return bad;
     };
     if pd.len() != P2::SIZE || pd_after.len() != P2::SIZE {
-        bad.push((CAPTURE_RULE, "the Province is not a conquest Province".into()));
+        bad.push((
+            CAPTURE_RULE,
+            "the Province is not a conquest Province".into(),
+        ));
         return bad;
     }
     // 1. The record before: a capture due, the captor its actor.
     let ro = P2::record(site as usize);
     let rec = |fld: usize| pd[ro + fld];
     if rec(CR::KIND) != CR::KIND_CAPTURE_DUE {
-        bad.push((CAPTURE_RULE, format!("the site's record was kind {}, not a capture due", rec(CR::KIND))));
+        bad.push((
+            CAPTURE_RULE,
+            format!(
+                "the site's record was kind {}, not a capture due",
+                rec(CR::KIND)
+            ),
+        ));
         return bad;
     }
     let slot = CR::target_slot(rec(CR::TARGET));
@@ -126,15 +151,24 @@ fn judge(cx: &Ctx, r: &CqRec) -> Vec<(&'static str, String)> {
         bad.push((CAPTURE_RULE, "the captor is not the record's actor".into()));
     }
     if cd[C2::SLOTS] & C2::reserved_bit(slot) == 0 {
-        bad.push((CAPTURE_RULE, format!("the captor had not reserved slot {slot}")));
+        bad.push((
+            CAPTURE_RULE,
+            format!("the captor had not reserved slot {slot}"),
+        ));
     }
     // 3. The Holding after (and before, for a captured holding).
     let Some(hd) = after(2) else {
-        bad.push((CAPTURE_BOOKKEEPING, "no Holding after the settlement".into()));
+        bad.push((
+            CAPTURE_BOOKKEEPING,
+            "no Holding after the settlement".into(),
+        ));
         return bad;
     };
     if hd.len() != H::SIZE {
-        bad.push((CAPTURE_BOOKKEEPING, "the Holding after is not a Holding".into()));
+        bad.push((
+            CAPTURE_BOOKKEEPING,
+            "the Holding after is not a Holding".into(),
+        ));
         return bad;
     }
     let hb = before(2).filter(|d| d.len() == H::SIZE);
@@ -142,13 +176,25 @@ fn judge(cx: &Ctx, r: &CqRec) -> Vec<(&'static str, String)> {
     let mut walls_want = 0u32;
     if free_city {
         if hb.is_some() {
-            bad.push((CAPTURE_RULE, "a Free City capture over an existing Holding".into()));
+            bad.push((
+                CAPTURE_RULE,
+                "a Free City capture over an existing Holding".into(),
+            ));
         }
         if hd[H::TIER] != mtier {
-            bad.push((CAPTURE_BOOKKEEPING, format!("the captured city's tier {} is not the mirror's {mtier}", hd[H::TIER])));
+            bad.push((
+                CAPTURE_BOOKKEEPING,
+                format!(
+                    "the captured city's tier {} is not the mirror's {mtier}",
+                    hd[H::TIER]
+                ),
+            ));
         }
         if hd[H2::PREV_GEN] != mgen.wrapping_sub(1) {
-            bad.push((CAPTURE_BOOKKEEPING, "prev_gen is not the generation before".into()));
+            bad.push((
+                CAPTURE_BOOKKEEPING,
+                "prev_gen is not the generation before".into(),
+            ));
         }
     } else {
         let Some(hb) = hb else {
@@ -157,45 +203,71 @@ fn judge(cx: &Ctx, r: &CqRec) -> Vec<(&'static str, String)> {
         };
         let (hgen, horder) = (hb[H::GEN], hb[H::ORDER]);
         if hgen.wrapping_add(1) != mgen || !(2..=3).contains(&horder) {
-            bad.push((CAPTURE_RULE, format!("the Holding before (gen {hgen}, order {horder}) is not the captured one")));
+            bad.push((
+                CAPTURE_RULE,
+                format!("the Holding before (gen {hgen}, order {horder}) is not the captured one"),
+            ));
         }
         let (Some(victim_k), Some(vd), Some(vd_after)) = (key(6), before(6), after(6)) else {
             bad.push((CAPTURE_RULE, "no victim Citizen before or after".into()));
             return bad;
         };
         if hb[H::OWNER_CITIZEN..H::OWNER_CITIZEN + 32] != victim_k[..] {
-            bad.push((CAPTURE_RULE, "the victim named is not the Holding's owner".into()));
+            bad.push((
+                CAPTURE_RULE,
+                "the victim named is not the Holding's owner".into(),
+            ));
         }
         if vd.len() == C::SIZE && vd_after.len() == C::SIZE {
             victim_tag = u64_at(&vd, C::CITIZEN_TAG);
             if holding_ref(&vd, horder) != (p as i16, q as i16, site, hgen) {
-                bad.push((CAPTURE_RULE, "the victim's slot did not hold the captured Holding".into()));
+                bad.push((
+                    CAPTURE_RULE,
+                    "the victim's slot did not hold the captured Holding".into(),
+                ));
             }
             if holding_ref(&vd_after, horder).3 != C2::EMPTY_GEN {
-                bad.push((CAPTURE_BOOKKEEPING, "the victim's slot is not emptied".into()));
+                bad.push((
+                    CAPTURE_BOOKKEEPING,
+                    "the victim's slot is not emptied".into(),
+                ));
             }
             if vd_after[C::HOLDINGS_N] != vd[C::HOLDINGS_N].saturating_sub(1) {
-                bad.push((CAPTURE_BOOKKEEPING, "the victim's holdings_n did not drop by one".into()));
+                bad.push((
+                    CAPTURE_BOOKKEEPING,
+                    "the victim's holdings_n did not drop by one".into(),
+                ));
             }
         }
         if let (Some(jb), Some(ja)) = (before(7), after(7)) {
-            if u32_at(&ja, JS2::EXTRA_HOLDINGS) != u32_at(&jb, JS2::EXTRA_HOLDINGS).saturating_sub(1)
+            if u32_at(&ja, JS2::EXTRA_HOLDINGS)
+                != u32_at(&jb, JS2::EXTRA_HOLDINGS).saturating_sub(1)
                 || u32_at(&ja, JS2::CAPTURED_OUT) != u32_at(&jb, JS2::CAPTURED_OUT) + 1
             {
-                bad.push((CAPTURE_BOOKKEEPING, "the victim's JoinShard does not count the holding out".into()));
+                bad.push((
+                    CAPTURE_BOOKKEEPING,
+                    "the victim's JoinShard does not count the holding out".into(),
+                ));
             }
         }
         // The walls the captor's doctrine leaves; stores zeroed unless credited; the reserve and delegate cleared.
         match hr::read(&hb).and_then(|mut h| hr::settle_tiered(&mut h, tx.time).map(|()| h)) {
             Ok(h) => {
-                let keeps = doctrine::of_faction(captor_faction).is_some_and(|d| d.keeps_walls_on_capture);
+                let keeps =
+                    doctrine::of_faction(captor_faction).is_some_and(|d| d.keeps_walls_on_capture);
                 let walls = h.walls.min(MAX_WALLS);
                 walls_want = if keeps { walls } else { walls / 2 };
                 if hd[H2::PREV_GEN] != hgen {
-                    bad.push((CAPTURE_BOOKKEEPING, "prev_gen is not the victim's generation".into()));
+                    bad.push((
+                        CAPTURE_BOOKKEEPING,
+                        "prev_gen is not the victim's generation".into(),
+                    ));
                 }
                 if u64_at(&hd, H2::PREV_OWNER_TAG) != victim_tag {
-                    bad.push((CAPTURE_BOOKKEEPING, "prev_owner_tag is not the victim's".into()));
+                    bad.push((
+                        CAPTURE_BOOKKEEPING,
+                        "prev_owner_tag is not the victim's".into(),
+                    ));
                 }
             }
             Err(e) => bad.push((CAPTURE_BOOKKEEPING, format!("the Holding before: {e}"))),
@@ -204,7 +276,10 @@ fn judge(cx: &Ctx, r: &CqRec) -> Vec<(&'static str, String)> {
             match hr::read(&hd) {
                 Ok(h) => {
                     if h.stores.iter().any(|s| s.value != 0 || s.frac != 0) {
-                        bad.push((CAPTURE_BOOKKEEPING, "an uncredited capture kept the stores".into()));
+                        bad.push((
+                            CAPTURE_BOOKKEEPING,
+                            "an uncredited capture kept the stores".into(),
+                        ));
                     }
                 }
                 Err(e) => bad.push((CAPTURE_BOOKKEEPING, format!("the Holding after: {e}"))),
@@ -218,61 +293,102 @@ fn judge(cx: &Ctx, r: &CqRec) -> Vec<(&'static str, String)> {
         }
     }
     if hd[H::OWNER_CITIZEN..H::OWNER_CITIZEN + 32] != captor_k[..] {
-        bad.push((CAPTURE_BOOKKEEPING, "the Holding after is not the captor's".into()));
+        bad.push((
+            CAPTURE_BOOKKEEPING,
+            "the Holding after is not the captor's".into(),
+        ));
     }
     let checks: [(&str, bool); 7] = [
         ("gen = the mirror's", hd[H::GEN] == mgen),
         ("order = the slot", hd[H::ORDER] == slot),
         ("state final", hd[H::STATE] == H::STATE_FINAL),
         ("faction = the captor's", hd[H::FACTION] == captor_faction),
-        ("captured flag", hd[H2::CAPTURE_FLAGS] & H2::CAPTURE_FLAG_CAPTURED != 0),
-        ("captured_bell = the completion bell", u32_at(&hd, H2::CAPTURED_BELL) == due_bell),
+        (
+            "captured flag",
+            hd[H2::CAPTURE_FLAGS] & H2::CAPTURE_FLAG_CAPTURED != 0,
+        ),
+        (
+            "captured_bell = the completion bell",
+            u32_at(&hd, H2::CAPTURED_BELL) == due_bell,
+        ),
         ("shield 0", u64_at(&hd, H::SHIELD_UNTIL) == 0),
     ];
     for (what, ok) in checks {
         if !ok {
-            bad.push((CAPTURE_BOOKKEEPING, format!("the Holding after: {what} does not hold")));
+            bad.push((
+                CAPTURE_BOOKKEEPING,
+                format!("the Holding after: {what} does not hold"),
+            ));
         }
     }
     if !free_city && u32_at(&hd, H::WALLS) != walls_want {
-        bad.push((CAPTURE_BOOKKEEPING, format!("walls after {} differ from the doctrine's {walls_want}", u32_at(&hd, H::WALLS))));
+        bad.push((
+            CAPTURE_BOOKKEEPING,
+            format!(
+                "walls after {} differ from the doctrine's {walls_want}",
+                u32_at(&hd, H::WALLS)
+            ),
+        ));
     }
     // 4. The captor's Citizen and JoinShard after.
     let rent_moved = pu("rent_moved");
     if let Some(ca) = after(4).filter(|d| d.len() == C::SIZE) {
         if holding_ref(&ca, slot) != (p as i16, q as i16, site, mgen) {
-            bad.push((CAPTURE_BOOKKEEPING, format!("the captor's slot {slot} does not hold the captured Holding")));
+            bad.push((
+                CAPTURE_BOOKKEEPING,
+                format!("the captor's slot {slot} does not hold the captured Holding"),
+            ));
         }
         if ca[C::HOLDINGS_N] != cd[C::HOLDINGS_N].wrapping_add(1) {
-            bad.push((CAPTURE_BOOKKEEPING, "the captor's holdings_n did not rise by one".into()));
+            bad.push((
+                CAPTURE_BOOKKEEPING,
+                "the captor's holdings_n did not rise by one".into(),
+            ));
         }
         if ca[C2::SLOTS] & C2::reserved_bit(slot) != 0 {
-            bad.push((CAPTURE_BOOKKEEPING, "the captor's reservation is not consumed".into()));
+            bad.push((
+                CAPTURE_BOOKKEEPING,
+                "the captor's reservation is not consumed".into(),
+            ));
         }
-        if u64_at(&ca, C::TICKET_ESCROW) != u64_at(&cd, C::TICKET_ESCROW).saturating_sub(rent_moved) {
-            bad.push((CAPTURE_BOOKKEEPING, "the captor's escrow is not less the rent moved".into()));
+        if u64_at(&ca, C::TICKET_ESCROW) != u64_at(&cd, C::TICKET_ESCROW).saturating_sub(rent_moved)
+        {
+            bad.push((
+                CAPTURE_BOOKKEEPING,
+                "the captor's escrow is not less the rent moved".into(),
+            ));
         }
     }
     if let (Some(jb), Some(ja)) = (before(5), after(5)) {
         if u32_at(&ja, JS2::EXTRA_HOLDINGS) != u32_at(&jb, JS2::EXTRA_HOLDINGS) + 1
             || u32_at(&ja, JS2::CAPTURED_IN) != u32_at(&jb, JS2::CAPTURED_IN) + 1
         {
-            bad.push((CAPTURE_BOOKKEEPING, "the captor's JoinShard does not count the holding in".into()));
+            bad.push((
+                CAPTURE_BOOKKEEPING,
+                "the captor's JoinShard does not count the holding in".into(),
+            ));
         }
     }
     // 5. The stake back to a live source of the siege's generation (capped).
     if let Some(sp) = split_host_id(src) {
         let sk = f.ctx.holding(sp.province.p, sp.province.q, sp.site);
         if key(9) != Some(sk) {
-            bad.push((CAPTURE_RULE, "the stake Holding named is not the siege's source".into()));
+            bad.push((
+                CAPTURE_RULE,
+                "the stake Holding named is not the siege's source".into(),
+            ));
         } else if sk != hk {
             if let Some(sb) = w.state_before(&sk, t).filter(|d| d.len() == H::SIZE) {
-                let live = sb[H::GEN] == sp.gen && matches!(sb[H::STATE], H::STATE_PROVISIONAL | H::STATE_FINAL);
+                let live = sb[H::GEN] == sp.gen
+                    && matches!(sb[H::STATE], H::STATE_PROVISIONAL | H::STATE_FINAL);
                 if live {
                     if let (Ok(mut h), Some(sa)) = (hr::read(sb), tx.post_data(&sk)) {
                         if hr::settle_tiered(&mut h, tx.time).is_ok() {
                             let g = Resource::Gold as usize;
-                            let want = h.stores[g].value.saturating_add((cq.siege_stake_gold as i64).saturating_mul(MILLI)).min(h.stores[g].cap);
+                            let want = h.stores[g]
+                                .value
+                                .saturating_add((cq.siege_stake_gold as i64).saturating_mul(MILLI))
+                                .min(h.stores[g].cap);
                             let got = hr::read(sa).map(|x| x.stores[g].value).unwrap_or(i64::MIN);
                             if got != want {
                                 bad.push((CAPTURE_BOOKKEEPING, format!("the source's gold after {got} is not the stake returned ({want})")));
@@ -285,15 +401,25 @@ fn judge(cx: &Ctx, r: &CqRec) -> Vec<(&'static str, String)> {
     }
     // 6. The record after: immunity against every faction from the completion.
     let ra = |fld: usize| pd_after[ro + fld];
-    let want_bell = due_bell.saturating_add(1).saturating_add(cq.immunity_bells as u32);
-    if ra(CR::KIND) != CR::KIND_NONE || ra(CR::FACTION) != CR::BARRED_ALL || u32_at(&pd_after, ro + CR::BELL) != want_bell || ra(CR::FLAGS) != 0 {
+    let want_bell = due_bell
+        .saturating_add(1)
+        .saturating_add(cq.immunity_bells as u32);
+    if ra(CR::KIND) != CR::KIND_NONE
+        || ra(CR::FACTION) != CR::BARRED_ALL
+        || u32_at(&pd_after, ro + CR::BELL) != want_bell
+        || ra(CR::FLAGS) != 0
+    {
         bad.push((CAPTURE_BOOKKEEPING, format!(
             "the record after is (kind {}, faction {}, flags {}, bell {}), not the post-capture immunity (0, 254, 0, {want_bell})",
             ra(CR::KIND), ra(CR::FACTION), ra(CR::FLAGS), u32_at(&pd_after, ro + CR::BELL)
         )));
     }
     // 7. The payload.
-    let outcome = if free_city { capture_outcome::FREE_CITY } else { capture_outcome::CAPTURE };
+    let outcome = if free_city {
+        capture_outcome::FREE_CITY
+    } else {
+        capture_outcome::CAPTURE
+    };
     let want: [(&str, u64, u64); 6] = [
         ("outcome", outcome as u64, pu8("outcome") as u64),
         ("credited", credited as u64, pu8("credited") as u64),
@@ -304,11 +430,21 @@ fn judge(cx: &Ctx, r: &CqRec) -> Vec<(&'static str, String)> {
     ];
     for (name, w_, g) in want {
         if w_ != g {
-            bad.push((CAPTURE_BOOKKEEPING, format!("CAPTURE_SETTLED logs {name} {g}, the rules give {w_}")));
+            bad.push((
+                CAPTURE_BOOKKEEPING,
+                format!("CAPTURE_SETTLED logs {name} {g}, the rules give {w_}"),
+            ));
         }
     }
     if u32_at(&hd, H::WALLS) as u64 != pu("walls_after") {
-        bad.push((CAPTURE_BOOKKEEPING, format!("CAPTURE_SETTLED logs walls_after {}, the Holding has {}", pu("walls_after"), u32_at(&hd, H::WALLS))));
+        bad.push((
+            CAPTURE_BOOKKEEPING,
+            format!(
+                "CAPTURE_SETTLED logs walls_after {}, the Holding has {}",
+                pu("walls_after"),
+                u32_at(&hd, H::WALLS)
+            ),
+        ));
     }
     // 8. The capture lock: no player instruction wrote the Holding between the due and the settlement.
     let due_tx = w.cq_recs.iter().find(|c| {
@@ -317,20 +453,40 @@ fn judge(cx: &Ctx, r: &CqRec) -> Vec<(&'static str, String)> {
             && le(c.field("q", false)) as u32 as i32 == q
             && le(c.field("bell", false)) as u32 == due_bell
             && ConquestPayload::from_bytes(&c.payload).is_some_and(|pl| {
-                pl.events.iter().take(pl.n as usize).any(|e| e.site == site && e.code & !event::DETAIL == event::CAPTURE_DUE)
+                pl.events
+                    .iter()
+                    .take(pl.n as usize)
+                    .any(|e| e.site == site && e.code & !event::DETAIL == event::CAPTURE_DUE)
             })
     });
     if let Some(due) = due_tx {
         let player_tags = [
-            Ix::Harvest.tag(), Ix::Build.tag(), Ix::Train.tag(), Ix::Explore.tag(), Ix::Muster.tag(),
-            Ix::Dissolve.tag(), Ix::Garrison.tag(), Ix::Depart.tag(),
-            V2Ix::FileOutpost.tag(), V2Ix::DeclareSiege.tag(),
+            Ix::Harvest.tag(),
+            Ix::Build.tag(),
+            Ix::Train.tag(),
+            Ix::Explore.tag(),
+            Ix::Muster.tag(),
+            Ix::Dissolve.tag(),
+            Ix::Garrison.tag(),
+            Ix::Depart.tag(),
+            V2Ix::FileOutpost.tag(),
+            V2Ix::DeclareSiege.tag(),
         ];
-        for (u, ux) in w.txs.iter().enumerate().skip(due.tx).take(t.saturating_sub(due.tx)) {
+        for (u, ux) in w
+            .txs
+            .iter()
+            .enumerate()
+            .skip(due.tx)
+            .take(t.saturating_sub(due.tx))
+        {
             if !ux.ok {
                 continue;
             }
-            if ux.ixs.iter().any(|i| i.tag().is_some_and(|x| player_tags.contains(&x)) && i.writes(&hk)) {
+            if ux
+                .ixs
+                .iter()
+                .any(|i| i.tag().is_some_and(|x| player_tags.contains(&x)) && i.writes(&hk))
+            {
                 bad.push((CAPTURE_LOCK_BROKEN, format!("transaction {u} wrote the captured Holding between the capture due (bell {due_bell}) and its settlement")));
             }
         }
@@ -342,7 +498,13 @@ pub fn run(cx: &mut Ctx) {
     let w = cx.w;
     if !w.has_post {
         if w.cq_recs.iter().any(|r| r.kind == CqKind::CAPTURE_SETTLED) {
-            cx.missing(V, "captures", 0, None, "no post-states: a capture's settlement cannot be judged");
+            cx.missing(
+                V,
+                "captures",
+                0,
+                None,
+                "no post-states: a capture's settlement cannot be judged",
+            );
         }
         return;
     }
@@ -357,7 +519,13 @@ pub fn run(cx: &mut Ctx) {
             r.field("site", false).first().copied().unwrap_or(0),
         );
         for (code, detail) in judge(cx, r) {
-            out.push((r.tx, format!("holding ({p}, {q}, {s})"), r.bell, code, detail));
+            out.push((
+                r.tx,
+                format!("holding ({p}, {q}, {s})"),
+                r.bell,
+                code,
+                detail,
+            ));
         }
     }
     for (t, what, bell, code, detail) in out {

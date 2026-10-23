@@ -26,8 +26,8 @@ use frontier_abi::layout::clash::{arrival as AR, clash_inputs as CI};
 use frontier_abi::layout::header as HD;
 use frontier_abi::layout::player::holding as H;
 use frontier_abi::log::{self as plog, transit_outcome, Kind, Link};
-use frontier_abi::v2::log::CqKind;
 use frontier_abi::tags::Ix;
+use frontier_abi::v2::log::CqKind;
 
 use crate::checks::v1_chains::match_links;
 use crate::checks::v7_replay::packed_fates;
@@ -1786,12 +1786,16 @@ fn ix_keys(inp: &Input, t: usize, tag: u8) -> Option<Vec<Key>> {
     let tx = fclient::tx::from_wire(&inp.txs[t].tx).ok()?;
     let program = inp.cfg.program;
     let keys = &tx.message.account_keys;
-    let ci = tx
-        .message
-        .instructions
-        .iter()
-        .find(|c| keys[c.program_id_index as usize] == program && c.data.first() == Some(&tag))?;
-    Some(ci.accounts.iter().filter_map(|&a| keys.get(a as usize).map(|k| k.to_bytes())).collect())
+    let ci =
+        tx.message.instructions.iter().find(|c| {
+            keys[c.program_id_index as usize] == program && c.data.first() == Some(&tag)
+        })?;
+    Some(
+        ci.accounts
+            .iter()
+            .filter_map(|&a| keys.get(a as usize).map(|k| k.to_bytes()))
+            .collect(),
+    )
 }
 
 /// Edits account `k`'s post-state in transaction `t` alone.
@@ -1805,7 +1809,12 @@ fn edit_account_at(inp: &mut Input, k: &Key, t: usize, f: impl FnOnce(&mut Vec<u
 
 /// The last transaction before `t` whose post-states hold `k`.
 fn last_post_before(inp: &Input, k: &Key, t: usize) -> Option<usize> {
-    (0..t).rev().find(|&u| inp.txs[u].post.iter().any(|(x, a)| x.to_bytes() == *k && a.is_some()))
+    (0..t).rev().find(|&u| {
+        inp.txs[u]
+            .post
+            .iter()
+            .any(|(x, a)| x.to_bytes() == *k && a.is_some())
+    })
 }
 
 /// T28: +1 progress on a CONQUEST site event (V15 replays the step).
@@ -1817,13 +1826,17 @@ pub fn cq_t28(run: &Input) -> Made {
         let b = &bodies(&inp, t)[i];
         let r = frontier_abi::v2::log::decode(b).expect("record decodes");
         let n = r.payload.first().copied().unwrap_or(0) as usize;
-        if let Some(e) = (0..n.min(14)).find(|&e| r.payload[1 + 4 * e] != frontier_abi::v2::log::event::KEEP_SITE) {
+        if let Some(e) = (0..n.min(14))
+            .find(|&e| r.payload[1 + 4 * e] != frontier_abi::v2::log::event::KEEP_SITE)
+        {
             hit = Some((t, i, e));
             break;
         }
     }
     let (t, i, e) = hit.need("a CONQUEST record with a site event (a siege)")?;
-    edit_payload_cq(&mut inp, t, i, |pl| pl[1 + 4 * e + 3] = pl[1 + 4 * e + 3].wrapping_add(1));
+    edit_payload_cq(&mut inp, t, i, |pl| {
+        pl[1 + 4 * e + 3] = pl[1 + 4 * e + 3].wrapping_add(1)
+    });
     Ok(Case {
         class: "T28",
         what: "+1 progress on a siege's CONQUEST event",
@@ -1853,7 +1866,9 @@ pub fn cq_t30(run: &Input) -> Made {
     }
     let (t, hk) = hit.need("a Harvest of a first holding with a state before")?;
     for u in t..inp.txs.len() {
-        edit_account_at(&mut inp, &hk, u, |d| d[H::OWNER_CITIZEN] = d[H::OWNER_CITIZEN].wrapping_add(1));
+        edit_account_at(&mut inp, &hk, u, |d| {
+            d[H::OWNER_CITIZEN] = d[H::OWNER_CITIZEN].wrapping_add(1)
+        });
     }
     if let Some(Some(a)) = inp.finals.get_mut(&hk) {
         a.data[H::OWNER_CITIZEN] = a.data[H::OWNER_CITIZEN].wrapping_add(1);
@@ -1870,12 +1885,17 @@ pub fn cq_t30(run: &Input) -> Made {
 /// T31: a capture settled into a slot the captor had not reserved (V17).
 pub fn cq_t31(run: &Input) -> Made {
     let mut inp = run.clone();
-    let (t, _) = *find_cq(&inp, CqKind::CAPTURE_SETTLED).first().need("a CAPTURE_SETTLED")?;
-    let keys = ix_keys(&inp, t, frontier_abi::v2::tags::Ix::SettleCapture.tag()).need("a SettleCapture instruction")?;
+    let (t, _) = *find_cq(&inp, CqKind::CAPTURE_SETTLED)
+        .first()
+        .need("a CAPTURE_SETTLED")?;
+    let keys = ix_keys(&inp, t, frontier_abi::v2::tags::Ix::SettleCapture.tag())
+        .need("a SettleCapture instruction")?;
     let captor = *keys.get(4).need("the captor Citizen account")?;
     let u = last_post_before(&inp, &captor, t).need("the captor's state before the settlement")?;
     use frontier_abi::v2::layout::player::citizen as C2;
-    edit_account_at(&mut inp, &captor, u, |d| d[C2::SLOTS] &= !(C2::SLOTS_RESERVED_2 | C2::SLOTS_RESERVED_3));
+    edit_account_at(&mut inp, &captor, u, |d| {
+        d[C2::SLOTS] &= !(C2::SLOTS_RESERVED_2 | C2::SLOTS_RESERVED_3)
+    });
     Ok(Case {
         class: "T31",
         what: "a capture into a slot that was not reserved at the horn",
@@ -1889,8 +1909,13 @@ pub fn cq_t31(run: &Input) -> Made {
 pub fn cq_t36(run: &Input) -> Made {
     let mut inp = run.clone();
     let recs = find_cq(&inp, CqKind::MARCH_FOLD);
-    let (t, i) = *recs.get(recs.len() / 2).or(recs.last()).need("a MARCH_FOLD")?;
-    edit_payload_cq(&mut inp, t, i, |pl| pl[28] = if pl[28] == 0xFF { 0 } else { (pl[28] + 1) % 6 });
+    let (t, i) = *recs
+        .get(recs.len() / 2)
+        .or(recs.last())
+        .need("a MARCH_FOLD")?;
+    edit_payload_cq(&mut inp, t, i, |pl| {
+        pl[28] = if pl[28] == 0xFF { 0 } else { (pl[28] + 1) % 6 }
+    });
     Ok(Case {
         class: "T36",
         what: "a MARCH_FOLD controller flipped",
@@ -1932,7 +1957,9 @@ pub fn cq_t39(run: &Input) -> Made {
 pub fn cq_t46(run: &Input) -> Made {
     let mut inp = run.clone();
     let tag = frontier_abi::v2::tags::Ix::DeclareSiege.tag();
-    let (t, _) = *find_cq(&inp, CqKind::SIEGE_DECLARED).first().need("a SIEGE_DECLARED")?;
+    let (t, _) = *find_cq(&inp, CqKind::SIEGE_DECLARED)
+        .first()
+        .need("a SIEGE_DECLARED")?;
     edit_ix_tag(&mut inp, t, tag, |d| d[2] = (d[2] + 1) % 48);
     Ok(Case {
         class: "T46",
@@ -2300,9 +2327,10 @@ pub fn judge_class(c: &Class, run: &Input) -> Outcome {
         // A conquest season runs the conquest audit's CQ1 in V1's place
         // (`checks::run`: "V1:CQ1"), whose chain findings carry CQ1's own
         // names; a class expecting V1's code is satisfied by CQ1's.
-        let hit = case.codes.iter().any(|x| {
-            r.fails_with(x) || (cq && cq_equivalents(x).iter().any(|y| r.fails_with(y)))
-        });
+        let hit = case
+            .codes
+            .iter()
+            .any(|x| r.fails_with(x) || (cq && cq_equivalents(x).iter().any(|y| r.fails_with(y))));
         return Outcome {
             class: c.class,
             required: c.required,

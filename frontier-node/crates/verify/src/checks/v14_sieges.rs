@@ -89,8 +89,14 @@ enum Target {
 fn judge(cx: &Ctx, r: &CqRec) -> Result<(), (&'static str, String)> {
     let w = cx.w;
     let f = cx.f;
-    let cq = f.cq.as_ref().ok_or((SIEGE_ILLEGAL, "no conquest block".to_string()))?;
-    let end = f.params.as_ref().map(|p| p.end_bell).ok_or((SIEGE_ILLEGAL, "no end_bell".to_string()))?;
+    let cq =
+        f.cq.as_ref()
+            .ok_or((SIEGE_ILLEGAL, "no conquest block".to_string()))?;
+    let end = f
+        .params
+        .as_ref()
+        .map(|p| p.end_bell)
+        .ok_or((SIEGE_ILLEGAL, "no end_bell".to_string()))?;
     let t = r.tx;
     let tx = &w.txs[t];
     let tag = V2Ix::DeclareSiege.tag();
@@ -98,36 +104,66 @@ fn judge(cx: &Ctx, r: &CqRec) -> Result<(), (&'static str, String)> {
         .ixs
         .iter()
         .find(|i| i.tag() == Some(tag) && i.accounts.len() >= 11)
-        .ok_or((SIEGE_ILLEGAL, "no DeclareSiege instruction in the transaction".to_string()))?;
-    let x = DeclareSiege::decode(&ix.data)
-        .map_err(|_| (SIEGE_ILLEGAL, "the DeclareSiege instruction does not decode".to_string()))?;
+        .ok_or((
+            SIEGE_ILLEGAL,
+            "no DeclareSiege instruction in the transaction".to_string(),
+        ))?;
+    let x = DeclareSiege::decode(&ix.data).map_err(|_| {
+        (
+            SIEGE_ILLEGAL,
+            "the DeclareSiege instruction does not decode".to_string(),
+        )
+    })?;
     let (p, q, site) = (
         le(r.field("p", false)) as u32 as i32,
         le(r.field("q", false)) as u32 as i32,
         r.field("site", false).first().copied().unwrap_or(0),
     );
     if site != x.site {
-        return Err((SIEGE_ILLEGAL, "the record's site is not the instruction's".into()));
+        return Err((
+            SIEGE_ILLEGAL,
+            "the record's site is not the instruction's".into(),
+        ));
     }
     let now = tx.time;
     let b = frontier_abi::prologue::bell_at(f.genesis_ts, now).unwrap_or(0);
     // 1. The season running, now_bell < end_bell.
     if b >= end {
-        return Err((SIEGE_AFTER_END_RULE, format!("declared at bell {b}, at or after end_bell {end}")));
+        return Err((
+            SIEGE_AFTER_END_RULE,
+            format!("declared at bell {b}, at or after end_bell {end}"),
+        ));
     }
-    let before = |i: usize| ix.key(i).and_then(|k| w.state_before(&k, t).map(|d| (k, d.to_vec())));
-    let (citizen_k, cd) = before(3).ok_or((SIEGE_ILLEGAL, "no state of the Citizen before".to_string()))?;
-    let (src_k, hd) = before(4).ok_or((SIEGE_ILLEGAL, "no state of the source Holding before".to_string()))?;
-    let (province_k, pd) = before(5).ok_or((SIEGE_ILLEGAL, "no state of the target Province before".to_string()))?;
+    let before = |i: usize| {
+        ix.key(i)
+            .and_then(|k| w.state_before(&k, t).map(|d| (k, d.to_vec())))
+    };
+    let (citizen_k, cd) =
+        before(3).ok_or((SIEGE_ILLEGAL, "no state of the Citizen before".to_string()))?;
+    let (src_k, hd) = before(4).ok_or((
+        SIEGE_ILLEGAL,
+        "no state of the source Holding before".to_string(),
+    ))?;
+    let (province_k, pd) = before(5).ok_or((
+        SIEGE_ILLEGAL,
+        "no state of the target Province before".to_string(),
+    ))?;
     if cd.len() != C::SIZE || hd.len() != H::SIZE || pd.len() != P2::SIZE {
-        return Err((SIEGE_ILLEGAL, "the Citizen, the source Holding or the Province before is not that account".into()));
+        return Err((
+            SIEGE_ILLEGAL,
+            "the Citizen, the source Holding or the Province before is not that account".into(),
+        ));
     }
     if province_k != f.ctx.province(p, q) {
-        return Err((SIEGE_ILLEGAL, "the instruction's Province is not the record's".into()));
+        return Err((
+            SIEGE_ILLEGAL,
+            "the instruction's Province is not the record's".into(),
+        ));
     }
     let attacker = cd[C::FACTION];
     let cslots = cd[C2::SLOTS];
-    let gen_of = |slot: u8| cd[C2::holding_of_slot(slot) + frontier_abi::layout::player::holding_ref::GEN];
+    let gen_of =
+        |slot: u8| cd[C2::holding_of_slot(slot) + frontier_abi::layout::player::holding_ref::GEN];
     let sieges_today = cd[C2::SIEGES_TODAY];
     let siege_day = le(&cd[C2::SIEGE_DAY..C2::SIEGE_DAY + 2]) as u16;
     let declarer_tag = le(&cd[C::CITIZEN_TAG..C::CITIZEN_TAG + 8]);
@@ -139,18 +175,30 @@ fn judge(cx: &Ctx, r: &CqRec) -> Result<(), (&'static str, String)> {
         hd[H::GEN],
     );
     if hd[H::OWNER_CITIZEN..H::OWNER_CITIZEN + 32] != citizen_k[..] {
-        return Err((SIEGE_ILLEGAL, "the source Holding is not the citizen's".into()));
+        return Err((
+            SIEGE_ILLEGAL,
+            "the source Holding is not the citizen's".into(),
+        ));
     }
     if src_k != f.ctx.holding(src.0 as i32, src.1 as i32, src.2) {
-        return Err((SIEGE_ILLEGAL, "the source Holding account is not its own address".into()));
+        return Err((
+            SIEGE_ILLEGAL,
+            "the source Holding account is not its own address".into(),
+        ));
     }
     if hd[H::STATE] != H::STATE_FINAL {
-        return Err((SIEGE_ILLEGAL, format!("the source Holding is not final (state {})", hd[H::STATE])));
+        return Err((
+            SIEGE_ILLEGAL,
+            format!("the source Holding is not final (state {})", hd[H::STATE]),
+        ));
     }
     // 3. The target site.
     let site_count = (pd[PV::SITE_COUNT] as usize).min(PV::SITES_N);
     if site as usize >= site_count {
-        return Err((SIEGE_ILLEGAL, "the site is not one of the Province's".into()));
+        return Err((
+            SIEGE_ILLEGAL,
+            "the site is not one of the Province's".into(),
+        ));
     }
     let tile = pd[PV::SITES + site as usize];
     let m = |fld: usize| pd[PV::site(site as usize) + fld];
@@ -159,29 +207,57 @@ fn judge(cx: &Ctx, r: &CqRec) -> Result<(), (&'static str, String)> {
         SM::STATE_HOLDING if morder == 1 => Target::First,
         SM::STATE_HOLDING => Target::Other,
         SM2::STATE_FREE_CITY => Target::FreeCity,
-        _ => return Err((SIEGE_ILLEGAL, format!("the site is not besiegeable (mirror state {mstate})"))),
+        _ => {
+            return Err((
+                SIEGE_ILLEGAL,
+                format!("the site is not besiegeable (mirror state {mstate})"),
+            ))
+        }
     };
     if ix.key(6) != Some(f.ctx.holding(p, q, site)) {
-        return Err((SIEGE_ILLEGAL, "the target Holding account is not the site's".into()));
+        return Err((
+            SIEGE_ILLEGAL,
+            "the target Holding account is not the site's".into(),
+        ));
     }
     // (owner tag, vigil, shield, founded, dormant)
     let owner = if target == Target::FreeCity {
         None
     } else {
-        let (_, th) = before(6).ok_or((SIEGE_ILLEGAL, "no state of the target Holding before".to_string()))?;
+        let (_, th) = before(6).ok_or((
+            SIEGE_ILLEGAL,
+            "no state of the target Holding before".to_string(),
+        ))?;
         if th.len() != H::SIZE {
-            return Err((SIEGE_ILLEGAL, "the target Holding before is not a Holding".into()));
+            return Err((
+                SIEGE_ILLEGAL,
+                "the target Holding before is not a Holding".into(),
+            ));
         }
         if th[H::GEN] != mgen {
-            return Err((SIEGE_ILLEGAL, "a capture of the target is pending (generations differ)".into()));
+            return Err((
+                SIEGE_ILLEGAL,
+                "a capture of the target is pending (generations differ)".into(),
+            ));
         }
-        let owner_k = ix.key(7).ok_or((SIEGE_ILLEGAL, "no owner Citizen named".to_string()))?;
+        let owner_k = ix
+            .key(7)
+            .ok_or((SIEGE_ILLEGAL, "no owner Citizen named".to_string()))?;
         if th[H::OWNER_CITIZEN..H::OWNER_CITIZEN + 32] != owner_k[..] {
-            return Err((SIEGE_ILLEGAL, "the owner Citizen named is not the target's owner".into()));
+            return Err((
+                SIEGE_ILLEGAL,
+                "the owner Citizen named is not the target's owner".into(),
+            ));
         }
-        let (_, od) = before(7).ok_or((SIEGE_ILLEGAL, "no state of the owner Citizen before".to_string()))?;
+        let (_, od) = before(7).ok_or((
+            SIEGE_ILLEGAL,
+            "no state of the owner Citizen before".to_string(),
+        ))?;
         if od.len() != C::SIZE {
-            return Err((SIEGE_ILLEGAL, "the owner Citizen before is not a Citizen".into()));
+            return Err((
+                SIEGE_ILLEGAL,
+                "the owner Citizen before is not a Citizen".into(),
+            ));
         }
         let last = le(&th[H::LAST_OWNER_ACTION..H::LAST_OWNER_ACTION + 8]) as i64;
         Some((
@@ -195,12 +271,18 @@ fn judge(cx: &Ctx, r: &CqRec) -> Result<(), (&'static str, String)> {
     // Resident: resolved through now_bell − 2.
     let rn = le(&pd[PV::RESOLVED_NEXT..PV::RESOLVED_NEXT + 4]) as u32;
     if !frontier_abi::prologue::resident_ok(rn, b) {
-        return Err((SIEGE_ILLEGAL, format!("the target Province is not resident (resolved_next {rn}, bell {b})")));
+        return Err((
+            SIEGE_ILLEGAL,
+            format!("the target Province is not resident (resolved_next {rn}, bell {b})"),
+        ));
     }
     // 4. On the hex: the declaring entry, the hex's lead host.
     let e = read_entry(&pd, x.entry as usize)
         .map_err(|_| (SIEGE_ILLEGAL, format!("entry {} does not read", x.entry)))?;
-    let parts = split_host_id(e.id).ok_or((SIEGE_ILLEGAL, "the entry's host id is not a holding's".to_string()))?;
+    let parts = split_host_id(e.id).ok_or((
+        SIEGE_ILLEGAL,
+        "the entry's host id is not a holding's".to_string(),
+    ))?;
     let civilian = unit_from_u8(e.unit).is_none_or(|u| u.is_civilian());
     let on_hex = e.state == E::STATE_ROSTER
         && e.from_bell <= b
@@ -218,7 +300,10 @@ fn judge(cx: &Ctx, r: &CqRec) -> Result<(), (&'static str, String)> {
         )));
     }
     if lead_host(&pd, tile, attacker, b).map(|l| l.0) != Some(x.entry) {
-        return Err((SIEGE_ILLEGAL, format!("entry {} is not the hex's lead host", x.entry)));
+        return Err((
+            SIEGE_ILLEGAL,
+            format!("entry {} is not the hex's lead host", x.entry),
+        ));
     }
     // 5. The record: free and owing nothing; immunity for a holding.
     let ro = P2::record(site as usize);
@@ -226,19 +311,31 @@ fn judge(cx: &Ctx, r: &CqRec) -> Result<(), (&'static str, String)> {
     let (rkind, rfaction, rflags) = (rec(CR::KIND), rec(CR::FACTION), rec(CR::FLAGS));
     let rbell = le(&pd[ro + CR::BELL..ro + CR::BELL + 4]) as u32;
     if rkind != CR::KIND_NONE {
-        return Err((SIEGE_ILLEGAL, format!("the site's record is busy (kind {rkind})")));
+        return Err((
+            SIEGE_ILLEGAL,
+            format!("the site's record is busy (kind {rkind})"),
+        ));
     }
     if rflags & CR::OWED_MASK != 0 {
-        return Err((SIEGE_ILLEGAL, "the site's record owes a stake or a slot".into()));
+        return Err((
+            SIEGE_ILLEGAL,
+            "the site's record owes a stake or a slot".into(),
+        ));
     }
     if target != Target::FreeCity && immunity_bars(rfaction, rbell, attacker, b) {
-        return Err((SIEGE_ILLEGAL, "the site's immunity bars the attacker".into()));
+        return Err((
+            SIEGE_ILLEGAL,
+            "the site's immunity bars the attacker".into(),
+        ));
     }
     // 6. Today's declarations.
     let today = u16::try_from(day_of(b)).unwrap_or(u16::MAX);
     let used = if siege_day == today { sieges_today } else { 0 };
     if used >= cq.sieges_per_day {
-        return Err((SIEGE_ILLEGAL, format!("the day's declarations ({used}) reached sieges_per_day")));
+        return Err((
+            SIEGE_ILLEGAL,
+            format!("the day's declarations ({used}) reached sieges_per_day"),
+        ));
     }
     // 7. A capture target reserves the lowest free slot.
     let slot = match target {
@@ -249,21 +346,23 @@ fn judge(cx: &Ctx, r: &CqRec) -> Result<(), (&'static str, String)> {
     // 8. may_besiege v3; the source unshielded unless dormant.
     let src_last = le(&hd[H::LAST_OWNER_ACTION..H::LAST_OWNER_ACTION + 8]) as i64;
     let src_shield = le(&hd[H::SHIELD_UNTIL..H::SHIELD_UNTIL + 8]) as i64;
-    let src_shielded = now < src_shield && now < src_last.saturating_add(cq.dormant_after_secs as i64);
+    let src_shielded =
+        now < src_shield && now < src_last.saturating_add(cq.dormant_after_secs as i64);
     let tp = ProvinceCoord::new(p, q);
     if let Some((_, _, shield, founded, dorm)) = owner {
         if src_shielded {
             return Err((SIEGE_ILLEGAL, "the source Holding is shielded".into()));
         }
         let attacker_nearby = before(8).is_some_and(|(nk, nd)| {
-            nd.len() == P2::SIZE && f.provinces.get(&nk).is_some_and(|&(np, nq)| {
-                let ns = x.nearby_site as usize;
-                ProvinceCoord::new(np, nq).distance(tp) <= FRONTIER_PROTECTION_RANGE
-                    && ns < (nd[PV::SITE_COUNT] as usize).min(PV::SITES_N)
-                    && nd[PV::site(ns) + SM::STATE] == SM::STATE_HOLDING
-                    && nd[PV::site(ns) + SM::FACTION] == attacker
-                    && nd[PV::site(ns) + SM::ORDER] == 1
-            })
+            nd.len() == P2::SIZE
+                && f.provinces.get(&nk).is_some_and(|&(np, nq)| {
+                    let ns = x.nearby_site as usize;
+                    ProvinceCoord::new(np, nq).distance(tp) <= FRONTIER_PROTECTION_RANGE
+                        && ns < (nd[PV::SITE_COUNT] as usize).min(PV::SITES_N)
+                        && nd[PV::site(ns) + SM::STATE] == SM::STATE_HOLDING
+                        && nd[PV::site(ns) + SM::FACTION] == attacker
+                        && nd[PV::site(ns) + SM::ORDER] == 1
+                })
         });
         let check = SiegeCheckV3 {
             province: tp,
@@ -289,7 +388,10 @@ fn judge(cx: &Ctx, r: &CqRec) -> Result<(), (&'static str, String)> {
         };
         may_besiege_v3(&check).map_err(|e| (SIEGE_ILLEGAL, format!("may_besiege: {e:?}")))?;
     } else if tp.is_seat() || tp.is_concord() {
-        return Err((SIEGE_ILLEGAL, "a Free City on the Seat or the Concord".into()));
+        return Err((
+            SIEGE_ILLEGAL,
+            "a Free City on the Seat or the Concord".into(),
+        ));
     }
     // 9. Required bells and TooLate.
     let walls = walls_at(&pd, site as usize, b);
@@ -304,7 +406,10 @@ fn judge(cx: &Ctx, r: &CqRec) -> Result<(), (&'static str, String)> {
         None => end.saturating_sub(from) >= required as u32,
     };
     if !in_time {
-        return Err((SIEGE_ILLEGAL, format!("too late: {required} bells needed from bell {from}, end_bell {end}")));
+        return Err((
+            SIEGE_ILLEGAL,
+            format!("too late: {required} bells needed from bell {from}, end_bell {end}"),
+        ));
     }
     // 10. The stake from the source's gold (its stores settled at now).
     let stake = (cq.siege_stake_gold as i64).saturating_mul(MILLI);
@@ -312,7 +417,10 @@ fn judge(cx: &Ctx, r: &CqRec) -> Result<(), (&'static str, String)> {
         .and_then(|mut h| hr::touch(&mut h, now).map(|()| h.stores[Resource::Gold as usize].value))
         .map_err(|e| (SIEGE_ILLEGAL, format!("the source's kernel state: {e}")))?;
     if gold < stake {
-        return Err((SIEGE_ILLEGAL, format!("the stake ({stake} milli gold) exceeds the source's gold ({gold})")));
+        return Err((
+            SIEGE_ILLEGAL,
+            format!("the stake ({stake} milli gold) exceeds the source's gold ({gold})"),
+        ));
     }
     // The record's payload is what the program writes from these facts.
     let pu8 = |n: &str| r.field(n, true).first().copied().unwrap_or(0);
@@ -326,8 +434,16 @@ fn judge(cx: &Ctx, r: &CqRec) -> Result<(), (&'static str, String)> {
     let src_key = host_id(src.0 as i32, src.1 as i32, src.2, src.3, 0).unwrap_or(0);
     let want = [
         ("attacker", attacker as u64, pu8("attacker") as u64),
-        ("owner_faction", mfaction as u64, pu8("owner_faction") as u64),
-        ("target", CR::target(code, slot) as u64, pu8("target") as u64),
+        (
+            "owner_faction",
+            mfaction as u64,
+            pu8("owner_faction") as u64,
+        ),
+        (
+            "target",
+            CR::target(code, slot) as u64,
+            pu8("target") as u64,
+        ),
         ("declarer_tag", declarer_tag, pu("declarer_tag")),
         ("required", required as u64, pu8("required") as u64),
         ("vigil_start", vs as u64, pu("vigil_start")),
@@ -340,7 +456,10 @@ fn judge(cx: &Ctx, r: &CqRec) -> Result<(), (&'static str, String)> {
     ];
     for (name, w_, g) in want {
         if w_ != g {
-            return Err((SIEGE_ILLEGAL, format!("SIEGE_DECLARED logs {name} {g}, the rules give {w_}")));
+            return Err((
+                SIEGE_ILLEGAL,
+                format!("SIEGE_DECLARED logs {name} {g}, the rules give {w_}"),
+            ));
         }
     }
     Ok(())
@@ -350,7 +469,13 @@ pub fn run(cx: &mut Ctx) {
     let w = cx.w;
     if !w.has_post {
         if w.cq_recs.iter().any(|r| r.kind == CqKind::SIEGE_DECLARED) {
-            cx.missing(V, "sieges", 0, None, "no post-states: a declaration cannot be re-judged");
+            cx.missing(
+                V,
+                "sieges",
+                0,
+                None,
+                "no post-states: a declaration cannot be re-judged",
+            );
         }
         return;
     }

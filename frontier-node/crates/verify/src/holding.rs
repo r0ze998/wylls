@@ -27,9 +27,9 @@
 
 use frontier_abi::layout::player::{accrual, holding as H, queue_item as QI};
 use frontier_abi::layout::province::{province as PV, site as SM};
+use frontier_abi::v2::presets::ConquestParams;
 use permutation_rules::fixed::MILLI;
 use permutation_rules::frontier::catalog;
-use frontier_abi::v2::presets::ConquestParams;
 use permutation_rules::frontier::holding::{
     Accrual, Effect, Holding as KHolding, LifecycleParams, QueueItem, Resource, Tier, QUEUE_SLOTS,
     RESOURCES,
@@ -265,7 +265,8 @@ pub fn settle_tiered(h: &mut KHolding, now: i64) -> Result<(), String> {
 pub fn settler_cost(holdings_n: u8) -> Option<[i64; RESOURCES]> {
     let mut c = [0i64; RESOURCES];
     for (r, base) in catalog::SETTLER_COST.iter().enumerate() {
-        let units = permutation_rules::frontier::holding::duplicate_cost(*base as u64, holdings_n as u32)?;
+        let units =
+            permutation_rules::frontier::holding::duplicate_cost(*base as u64, holdings_n as u32)?;
         c[r] = i64::try_from(units).ok()?.checked_mul(MILLI)?;
     }
     Some(c)
@@ -333,11 +334,18 @@ pub fn cost_digest(c: &[i64; RESOURCES]) -> [u8; 32] {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
     Harvest,
-    Build { item: u8 },
-    Train { unit: u8, n: u32 },
+    Build {
+        item: u8,
+    },
+    Train {
+        unit: u8,
+        n: u32,
+    },
     /// FileOutpost's anchor (MC §3.8): the touch and the settler cost of
     /// the citizen's next holding, logged as a HARVEST of the anchor.
-    OutpostAnchor { holdings_n: u8 },
+    OutpostAnchor {
+        holdings_n: u8,
+    },
 }
 
 /// What a replayed action leaves: the Holding bytes, the record payload it
@@ -646,10 +654,16 @@ mod intro_tests {
         let m1 = replay(&initial, &horse, now, now, false).unwrap();
         let mc = replay(&initial, &horse, now, now, true).unwrap();
         let ore = |d: &[u8]| i64_at(d, H::store(Resource::Ore as usize) + accrual::VALUE).unwrap();
-        assert!(ore(&mc.holding) > ore(&m1.holding), "M1 charges the cavalry surcharge");
+        assert!(
+            ore(&mc.holding) > ore(&m1.holding),
+            "M1 charges the cavalry surcharge"
+        );
         let spear_m1 = replay(&initial, &spear, now, now, false).unwrap();
         let spear_mc = replay(&initial, &spear, now, now, true).unwrap();
-        assert_eq!(spear_m1.holding, spear_mc.holding, "the Spearman costs the same");
+        assert_eq!(
+            spear_m1.holding, spear_mc.holding,
+            "the Spearman costs the same"
+        );
         assert_eq!(
             stores_digest(&mc.holding).unwrap(),
             stores_digest(&spear_mc.holding).unwrap(),
@@ -668,9 +682,15 @@ mod intro_tests {
         let g = 1_800_000_000;
         let cq = FRONTIER_28;
         assert_eq!(founding_shield(&cq, 1, g + 10, g), Some(g + 10 + 172_800));
-        assert_eq!(founding_shield(&cq, 1, g + 604_800, g), Some(g + 604_800 + 259_200));
+        assert_eq!(
+            founding_shield(&cq, 1, g + 604_800, g),
+            Some(g + 604_800 + 259_200)
+        );
         assert_eq!(founding_shield(&cq, 2, g + 10, g), Some(g + 10 + 7_200));
-        assert_eq!(founding_shield(&cq, 3, g + 604_800, g), Some(g + 604_800 + 7_200));
+        assert_eq!(
+            founding_shield(&cq, 3, g + 604_800, g),
+            Some(g + 604_800 + 7_200)
+        );
         let mut post = vec![0u8; H::SIZE];
         post[HDR::LAYOUT_VERSION..HDR::LAYOUT_VERSION + 2].copy_from_slice(&2u16.to_le_bytes());
         let first = founded(&post, g + 10, 0, 1, Some(g + 172_810)).unwrap();
@@ -679,7 +699,8 @@ mod intro_tests {
         let outpost = founded(&post, g + 10, 0, 2, Some(g + 7_210)).unwrap();
         assert_eq!(i64_at(&outpost, H::SHIELD_UNTIL).unwrap(), g + 7_210);
         assert_eq!(outpost[H::ORDER], 2);
-        let food = |d: &[u8]| i64_at(d, H::store(Resource::Food as usize) + accrual::VALUE).unwrap();
+        let food =
+            |d: &[u8]| i64_at(d, H::store(Resource::Food as usize) + accrual::VALUE).unwrap();
         assert!(food(&first) > 0, "the first holding has the starter kit");
         assert_eq!(food(&outpost), 0, "an outpost has none");
     }

@@ -18,6 +18,9 @@ use crate::world::le;
 
 const V: &str = "V16";
 
+/// One failure: (transaction index, (p, q, site), bell, detail).
+type Finding = (usize, (i32, i32, u8), u32, String);
+
 pub fn run(cx: &mut Ctx) {
     let w = cx.w;
     let f = cx.f;
@@ -31,7 +34,7 @@ pub fn run(cx: &mut Ctx) {
         );
         return;
     }
-    let mut bad: Vec<(usize, (i32, i32, u8), u32, String)> = vec![];
+    let mut bad: Vec<Finding> = vec![];
     for (t, tx) in w.txs.iter().enumerate() {
         if !tx.ok {
             continue;
