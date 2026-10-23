@@ -122,3 +122,19 @@ test('the markup says what each amount is, in both languages, without the intern
     }
   }
 });
+
+test('the agent page offers a wallet choice: the test wallet first (made on first use), extensions by name, the unusable ones with the reason', async () => {
+  const { walletChoices, renderWallets } = await import('../../permutation-server/web/frontier/fagent.mjs');
+  const ext = [{ name: 'Phantom', dev: false, why: null }, { name: 'OldWallet', dev: false, why: 'このネットワーク（solana:localnet）に対応していません' }];
+  const rows = walletChoices(ext);
+  assert.deepEqual(rows.map(r => [r.key, r.dev, !!r.why]), [['dev', true, false], ['Phantom', false, false], ['OldWallet', false, true]], 'the test wallet is offered before its key exists');
+  assert.deepEqual(walletChoices([{ name: 'Dev Wallet (localnet)', dev: true, why: null }, ...ext]).map(r => r.key), ['dev', 'Phantom', 'OldWallet'], 'once enabled it is not offered twice');
+  assert.deepEqual(walletChoices(ext, { devOffered: false }).map(r => r.key), ['Phantom', 'OldWallet'], 'not on another cluster');
+  const markup = String(renderWallets(ext));
+  assert.match(markup, /data-act="connect" data-key="dev"/);
+  assert.match(markup, /data-key="Phantom"/);
+  assert.match(markup, /data-key="OldWallet" disabled/);
+  assert.match(markup, /solana:localnet）に対応していません/);
+  setLang('en');
+  assert.match(String(renderWallets(ext)), /Connect Phantom/);
+});

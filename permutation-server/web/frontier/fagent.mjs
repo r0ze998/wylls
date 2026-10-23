@@ -311,6 +311,25 @@ export function renderHistory(view) {
   </section>`;
 }
 
+/**
+ * The wallets the page can connect, in the wallet module's order (the dev wallet first): `{i, name, dev, why}`.
+ * A wallet that cannot be used on this chain (no solana:localnet, no legacy transactions, no message signing)
+ * is listed with the reason, not hidden: the owner sees why their extension is not offered.
+ */
+export function walletChoices(list, { devOffered = true } = {}) {
+  const rows = (list ?? []).map(w => ({ key: w.dev ? 'dev' : String(w.name ?? '?'), name: String(w.name ?? '?'), dev: !!w.dev, why: w.why ?? null }));
+  // The dev wallet makes its key on first use, so it is offered before it exists (and first, as the wallet module orders it).
+  if (devOffered && !rows.some(r => r.dev)) rows.unshift({ key: 'dev', name: 'dev', dev: true, why: null });
+  return rows;
+}
+
+export function renderWallets(list, opts) {
+  const rows = walletChoices(list, opts);
+  if (!rows.length) return html`<p class="muted">${L`ウォレットが見つかりません`}</p>`;
+  return html`<ul class="agent-wallets">${rows.map(r => html`<li><button type="button" class="btn" data-act="connect" data-key="${r.key}" ${r.why ? 'disabled' : ''}>${r.dev ? L`テスト用ウォレットでつなぐ` : L`${r.name}でつなぐ`}</button>${r.why ? html` <span class="muted">${r.why}</span>` : ''}</li>`)}</ul>
+    <p class="muted">${L`テスト用ウォレットはこのブラウザにだけある鍵です。拡張機能のウォレットは、ローカルのテスト用チェーン（solana:localnet）への署名に対応しているものだけが選べます。`}</p>`;
+}
+
 export function renderCapability(capability) {
   return html`<section class="agent-card tone-warn" aria-labelledby="cap-title"><h3 id="cap-title">${L`接続用トークン（この一度だけ表示）`}</h3>
     <p><code class="agent-token">${capability.token}</code></p>
@@ -328,7 +347,7 @@ export async function mountAgentPage({ root, wallet, fsession, herald, prize }) 
   const render = () => {
     if (!S.terms) return html`<p class="muted">${L`代理人の機能はこの中継サーバーでは有効になっていません。`}</p>`;
     const parts = [S.note ? html`<p class="agent-note${S.note.tone ? ` tone-${S.note.tone}` : ''}" role="status">${S.note.text}</p>` : ''];
-    if (!S.wallet) return [...parts, html`<p><button type="button" class="btn" data-act="connect">${L`テスト用ウォレットでつなぐ`}</button></p>`];
+    if (!S.wallet) return [...parts, renderWallets(wallet.list(wallet.chainOf(S.pin.cluster)), { devOffered: S.pin.cluster === 'localnet' })];
     parts.push(html`<p class="muted">${L`ウォレット ${S.wallet.address.slice(0, 8)}…`}</p>`);
     if (!S.view) {
       parts.push(html`<section class="agent-card"><h3>${L`代理人を作る`}</h3>
@@ -352,10 +371,13 @@ export async function mountAgentPage({ root, wallet, fsession, herald, prize }) 
     return sendCommand(signed);
   };
   const act = {
-    async connect() {
-      await wallet.enableDevWallet({ cluster: S.pin.cluster, allowed: true });
-      const entry = wallet.list(wallet.chainOf(S.pin.cluster)).find(w => !w.why);
-      if (!entry) return say(L`使えるウォレットがありません`, 'bad');
+    async connect(d) {
+      // The owner's choice: the dev wallet (its key is made now, on this first use) or an extension by its name.
+      const key = d?.key ?? 'dev';
+      if (key === 'dev') await wallet.enableDevWallet({ cluster: S.pin.cluster, allowed: true });
+      const list = wallet.list(wallet.chainOf(S.pin.cluster));
+      const entry = key === 'dev' ? list.find(w => w.dev) : list.find(w => !w.dev && String(w.name) === key);
+      if (!entry || entry.why) return say(entry?.why ? L`${entry.name}は使えません：${entry.why}` : L`使えるウォレットがありません`, 'bad');
       await wallet.connect(entry, { chain: wallet.chainOf(S.pin.cluster) });
       S.wallet = wallet.connected();
       S.session = await fsession.restore({ cluster: S.pin.cluster, programId: S.pin.programId, seasonId: S.pin.seasonId }, S.wallet.address);
