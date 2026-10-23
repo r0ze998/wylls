@@ -242,3 +242,107 @@ test('the marks are painted: a tower of the viewer\'s nation rims its cover; eve
   for (const kind of ['tower', 'palisade', 'fort']) { const { ctx, calls } = recorder(); MARKS.paintStructure(ctx, 0, 0, 10, { kind, own: true }); assert.ok(calls.some(c => c[0] === 'fill'), kind); }
   assert.notEqual(String(MARKS.S1_WORDS.fort()), '砦', 'a fort is not a conquest keep');
 });
+
+// ---------------------------------------------------------------- a caravan's road
+
+import * as CAR from '../../permutation-server/web/frontier/fcaravan.mjs';
+
+test('the caravan planner is caravan.rs\'s: fastest path, packing and step seconds over the Rust vectors', () => {
+  const V = JSON.parse(readFileSync(new URL('./fixtures/caravan-path-v1.json', import.meta.url), 'utf8'));
+  assert.equal(V.v, 1);
+  let found = 0;
+  for (const [i, c] of V.cases.entries()) {
+    const got = CAR.fastestPath(c.origin, c.dst, c.lands);
+    if (c.answer === null) { assert.equal(got, null, `case ${i}: no path`); continue; }
+    found++;
+    assert.deepEqual(got.dirs, c.answer.dirs, `case ${i}: directions`);
+    assert.deepEqual(got.provinces.map(o => [o.p, o.q]), c.answer.provinces, `case ${i}: provinces`);
+    assert.deepEqual([...CAR.pack(got.dirs)], c.answer.path, `case ${i}: packed`);
+    if (got.dirs.length) assert.deepEqual(CAR.stepSecsOf(c.origin, got.dirs, c.lands), c.answer.atSecs, `case ${i}: seconds`);
+  }
+  assert.ok(found >= 16);
+  assert.equal(CAR.pack(Array(33).fill(0)), null);
+  assert.equal(CAR.pack([6]), null);
+});
+
+test('the S1 caravan and vault numbers are caravan.rs\'s and travel.rs\'s', () => {
+  const rs = readFileSync(new URL('../../permutation-rules/src/frontier/caravan.rs', import.meta.url), 'utf8');
+  const tr = readFileSync(new URL('../../permutation-rules/src/frontier/travel.rs', import.meta.url), 'utf8');
+  const c = (src, n) => src.match(new RegExp(`pub const ${n}: [^=]+= ([^;]+);`))[1].replace(/_/g, '');
+  assert.equal(CAR.CARAVAN_FEE, BigInt(c(rs, 'CARAVAN_FEE')));
+  assert.equal(CAR.CARAVAN_SLOW_BPS, Number(c(rs, 'CARAVAN_SLOW_BPS')));
+  assert.equal(CAR.MAX_VAULTS, Number(c(rs, 'MAX_VAULTS')));
+  assert.deepEqual([...CAR.VAULT_COST], JSON.parse(c(rs, 'VAULT_COST')));
+  for (const n of ['FLAT_HEX_SECS', 'ROUGH_HEX_SECS', 'ROAD_BPS', 'MAX_PATH_STEPS', 'MAX_PATH_PROVINCES']) assert.equal(CAR[n], Number(c(tr, n)), n);
+});
+
+import { seasonAddresses } from '../../permutation-server/web/frontier/faddr.mjs';
+
+test('the S1 accounts\' addresses are fclient\'s (vault, structure, caravan, nation)', () => {
+  const V = JSON.parse(readFileSync(new URL('./fixtures/s1-addresses-v1.json', import.meta.url), 'utf8'));
+  const A = seasonAddresses(V.program, V.seasonId);
+  for (const x of V.vault) assert.equal(A.of('Vault', x), x.address);
+  for (const x of V.structure) assert.equal(A.of('Structure', x), x.address);
+  for (const x of V.caravan) assert.equal(A.of('Caravan', { ownerTag: BigInt(x.ownerTag), seq: x.seq }), x.address);
+  for (const x of V.nation) assert.equal(A.of('Nation', x), x.address);
+});
+
+import { accountsFor, buildShape, placeData, raidProvinces, cargoBytes, RAID_CHOICE, SIGNED_BY } from '../../permutation-server/web/frontier/fplay.mjs';
+import { frontierIx, classify } from '../../permutation-server/web/sdk/frontier/shapes.mjs';
+import { wireTransaction, parseTransaction } from '../../permutation-server/web/sdk/solana-tx.mjs';
+import * as io from '../../permutation-server/web/frontier/fchainio.mjs';
+import { rulesetFor } from '../../permutation-server/web/sdk/frontier/profile.mjs';
+
+/** The S1 shapes this page sends, as the vectors' inputs (fclient caravan_path_vectors.rs s1_instruction_vectors). */
+function s1Shapes(V, A) {
+  const h = { p: 3, q: -1, site: 4 };
+  const raider = { p: 5, q: -2, site: 1 };
+  const caravan = A.of('Caravan', { ownerTag: 77n, seq: 1 });
+  const take = { raid: { p: 4, q: -2 }, dst: { kind: 'holding', ...raider, gen: 2 }, pathProvinces: [{ p: 5, q: -2 }], oldRoute: [{ p: 3, q: -1 }, { p: 4, q: -2 }, { p: 4, q: -1 }] };
+  const burn = { raid: take.raid, dst: null, oldRoute: take.oldRoute };
+  const raidFields = (r, choice, steps, dirs) => ({ p: r.raid.p, q: r.raid.q, choice, n_path: raidProvinces(r).nPath,
+    ...(r.dst ? placeData(r.dst) : { dst_kind: 0, dst_p: 0, dst_q: 0, dst_at: 0, dst_gen: 0 }), steps, path: CAR.pack(dirs) });
+  const dst = { kind: 'vault', p: 4, q: -2, tile: 17, gen: 3 };
+  return [
+    ['BuildVault', { holding: h, at: { p: 3, q: -1, tile: 20 } }, { tile: 20 }],
+    ['BuildVault', { holding: h, at: { p: 4, q: -1, tile: 0 } }, { tile: 0 }],
+    ['BuildStructure', { holding: h, at: { p: 3, q: -1, tile: 21 } }, { kind: 1, tile: 21, notify: 1 }],
+    ['BuildStructure', { holding: h, at: { p: 4, q: -1, tile: 9 } }, { kind: 3, tile: 9, notify: 0 }],
+    ['FortGarrison', { holding: h, tile: 21 }, { troops: 250 }],
+    ['SendCaravan', { seq: 2, src: { kind: 'holding', ...h, gen: 1 }, dst, provinces: [{ p: 3, q: -1 }, { p: 4, q: -2 }] },
+      { seq: 2, ...placeData(dst), steps: 3, path: CAR.pack([0, 1, 5]), cargo: cargoBytes([0, 100, 50, 0, 7, 0, 0, 0]), fee: 50000n }],
+    ['RaidCaravan', { caravan, raider, ...take }, raidFields(take, RAID_CHOICE.take, 2, [3, 3])],
+    ['RaidCaravan', { caravan, raider, ...burn }, raidFields(burn, RAID_CHOICE.burn, 0, [])],
+    ['Propose', { faction: 2 }, { kind: 1, target_faction: 4, value: 2 }],
+    ['Propose', { faction: 2, target: V.target }, { kind: 2, target_faction: 2, value: 0 }],
+    ['Vote', { faction: 2 }, { slot: 1, id: 9, yes: 1 }],
+  ];
+}
+
+test('the S1 shapes are fclient\'s instructions, key for key and byte for byte, and the relay takes them', () => {
+  const V = JSON.parse(readFileSync(new URL('./fixtures/s1-ix-v1.json', import.meta.url), 'utf8'));
+  const A = seasonAddresses(V.program, V.seasonId);
+  const shapes = s1Shapes(V, A);
+  assert.equal(shapes.length, V.cases.length);
+  const hex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+  // an S1 season pinned (profile 3: RULESET_HASH_V3)
+  assert.equal(io.setPin({ programId: V.program, cluster: 'localnet', seasonId: V.seasonId, rulesetHash: rulesetFor(3) }).profile, 3);
+  shapes.forEach(([name, v, fields], i) => {
+    const want = V.cases[i];
+    assert.equal(name, want.name);
+    assert.equal(SIGNED_BY[name], 'session');
+    const accounts = accountsFor(name, { addresses: A, wallet: V.wallet, actor: V.actor, profile: 3, ...v });
+    const ix = frontierIx(V.program, name, { ...accounts, payer: V.payer }, fields, 3);
+    assert.equal(hex(ix.data), want.data, `${name} #${i}: data`);
+    assert.deepEqual(ix.keys.map(k => k.pubkey), want.keys.map(k => k[0]), `${name} #${i}: accounts`);
+    // a key's privileges are those of the message (duplicates merged), as the program sees them
+    const merged = keys => { const m = new Map(); for (const [k, s, w] of keys) { const o = m.get(k) ?? [false, false]; m.set(k, [o[0] || s, o[1] || w]); } return m; };
+    assert.deepEqual(merged(ix.keys.map(k => [k.pubkey, k.isSigner, k.isWritable])), merged(want.keys), `${name} #${i}: privileges`);
+    const { message } = buildShape({ programId: V.program, name, accounts, fields, feePayer: V.payer, blockhash: V.program, profile: 3 });
+    const wire = wireTransaction(message), r = classify(parseTransaction(wire), { programId: V.program, wireBytes: wire.length, profile: 3 });
+    assert.equal(r.ok, true, `${name} #${i}: ${r.problem}`);
+    // and the page's own pre-signing check lets it through
+    const problems = io.messageProblems(message, { feePayer: V.payer, blockhash: V.program, tag: ix.data[0], signers: [V.actor], cuLimit: null, loadedLimit: null, expected: ix });
+    assert.deepEqual(problems, [], `${name} #${i}`);
+  });
+});

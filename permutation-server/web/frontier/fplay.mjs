@@ -21,7 +21,7 @@ import { decode as fromBase58 } from '../sdk/base58.mjs';
 import { toBase64 } from '../sdk/bytes.mjs';
 import { verify } from '../session.mjs';
 import * as io from './fchainio.mjs';
-import { joinShardOf } from './faddr.mjs';
+import { joinShardOf, citizenTag } from './faddr.mjs';
 
 /**
  * ClashInputs' `camp_mask` (v1.7, I-56): u32 LE at offset 76 of the raw
@@ -48,7 +48,14 @@ export const SIGNED_BY = Object.freeze({
   SetVigil: 'session', FileTicket: 'session', PlaceHome: 'session', Harvest: 'session', Build: 'session', Train: 'session', Muster: 'session',
   DeclareSiege: 'session', FileOutpost: 'session', RetireHost: 'session', Dissolve: 'session', Garrison: 'session', Explore: 'session', Depart: 'session',
   SettleExplore: 'none', SettleTransit: 'none',
+  // S1 (program_version 4): vaults, caravans, structures, forts and nations
+  BuildVault: 'session', SendCaravan: 'session', RaidCaravan: 'session', BuildStructure: 'session', FortGarrison: 'session',
+  Propose: 'session', Vote: 'session',
 });
+/** S1 `layout::s1::place` kinds (a caravan's origin or destination). */
+export const PLACE_KIND = Object.freeze({ holding: 1, vault: 2 });
+/** S1 `log::raid_choice`: a raider takes the caravan, or burns its load. */
+export const RAID_CHOICE = Object.freeze({ take: 0, burn: 1 });
 /** Build item of the walls (catalog `ITEM_WALLS`; the only Build that names the Province). */
 export const ITEM_WALLS = 6;
 
@@ -106,6 +113,25 @@ export function accountsFor(name, v) {
       return { ...base, holding: holding(), ...(cq || v.item === ITEM_WALLS ? { province: province() } : {}) };
     case 'Muster': case 'Dissolve': case 'Garrison': case 'Explore': case 'Depart':
       return { ...base, holding: holding(), province: province(), ...(cq && ['Dissolve','Explore','Depart'].includes(name) ? { holding_province: A.of('Province', v.holding) } : {}) };
+    // S1 (fclient ix::v2): `at` is {p, q, tile} of the vault or structure; a place is {kind: 'holding', p, q, site} or {kind: 'vault', p, q, tile}.
+    case 'BuildVault':
+      return { ...base, holding: holding(), holding_province: A.of('Province', v.holding), province: A.of('Province', v.at), vault: A.of('Vault', v.at) };
+    case 'BuildStructure':
+      return { ...base, holding: holding(), holding_province: A.of('Province', v.holding), province: A.of('Province', v.at), structure: A.of('Structure', v.at) };
+    case 'FortGarrison':
+      return { ...base, holding: holding(), province: A.of('Province', v.holding), structure: A.of('Structure', { p: v.holding.p, q: v.holding.q, tile: v.tile }) };
+    case 'SendCaravan':
+      return { ...base, src: placeAddress(A, v.src), dst: placeAddress(A, v.dst), caravan: A.of('Caravan', { ownerTag: citizenTag(citizen), seq: v.seq }),
+        path_province: v.provinces.map(p => A.of('Province', p)) };
+    case 'RaidCaravan':
+      return { ...base, caravan: v.caravan, raider_holding: A.of('Holding', v.raider), dst: v.dst ? placeAddress(A, v.dst) : A.of('Holding', v.raider),
+        path_province: raidProvinces(v).provinces.map(p => A.of('Province', p)) };
+    case 'Propose': {
+      const nation = A.of('Nation', { faction: v.faction });
+      return { ...base, nation, target: v.target ?? nation };
+    }
+    case 'Vote':
+      return { ...base, nation: A.of('Nation', { faction: v.faction }) };
     case 'SettleExplore':
       return { season: A.season, holding: holding(), citizen, seedcache_or_archive: v.settle.seed, anchor_or_archive: v.settle.anchor };
     case 'SettleTransit': {
@@ -119,6 +145,36 @@ export function accountsFor(name, v) {
     default:
       throw new Error(`fplay: ${name} is not a shape this page sends`);
   }
+}
+
+/** The account of a caravan's origin or destination. */
+export const placeAddress = (A, pl) => (pl.kind === 'vault' ? A.of('Vault', pl) : A.of('Holding', pl));
+
+/**
+ * A place's instruction data (`dst_kind, dst_p, dst_q, dst_at, dst_gen`):
+ * a holding's site or a vault's tile, and its generation.
+ */
+export const placeData = pl => ({ dst_kind: PLACE_KIND[pl.kind], dst_p: pl.p, dst_q: pl.q, dst_at: pl.kind === 'vault' ? pl.tile : pl.site, dst_gen: pl.gen ?? 0 });
+
+/**
+ * fclient `raid_provinces`: a take names the raid's Province first, then the
+ * new walk's others, then the old route's others (`n_path` = the first
+ * two parts); a burn names the raid's alone.
+ */
+export function raidProvinces({ raid, dst = null, pathProvinces = [], oldRoute = [] }) {
+  const same = (a, b) => a.p === b.p && a.q === b.q;
+  if (!dst) return { provinces: [raid], nPath: 1 };
+  const out = [raid, ...pathProvinces.filter(x => !same(x, raid))];
+  const nPath = out.length;
+  for (const o of oldRoute) if (!out.some(x => same(x, o))) out.push(o);
+  return { provinces: out, nPath };
+}
+
+/** Eight whole amounts as SendCaravan's `cargo` bytes (u32 LE each). */
+export function cargoBytes(cargo) {
+  const out = new Uint8Array(32), dv = new DataView(out.buffer);
+  for (let i = 0; i < 8; i++) dv.setUint32(i * 4, Number(cargo[i] ?? 0), true);
+  return out;
 }
 
 /**
