@@ -80,7 +80,7 @@ export function fakeChain({ debit = () => 0n, fail = () => null, confirm = true 
       c.sent.push(tx);
       const sig = base58(tx.signatures[0]);
       if (c.confirm) {
-        c.statuses.set(sig, { slot: 78, err: null, confirmationStatus: 'confirmed' });
+        c.statuses.set(sig, { slot: 78, err: null, confirmationStatus: 'finalized' });
         // As a node reports it back (no token balances, as frontier-localnet): the message with compiled instructions.
         const keys = tx.accountKeys;
         c.transactions.set(sig, { meta: { err: null, preTokenBalances: [], postTokenBalances: [] }, transaction: { message: { staticAccountKeys: keys.map(k => new PublicKey(k)), header: tx.header,

@@ -125,7 +125,7 @@ One signature is credited once, ever: the ledger keys `deposits` by signature ac
 
 ### 6.2 Withdrawal
 
-Owner command `withdraw {amount}` or `{all: true}`. Only `available` can go; a hold in `sending` state stays reserved until the chain answers, then comes back and can be withdrawn next. `all`, or an amount equal to everything available, stops the agent first (mode manual, `held` holds back to available, then taken). The custody key signs a `TransferChecked` to the owner's associated token account (created idempotently), a relay pool key pays the fee; the signature is recorded **before** the bytes are sent, so a timeout leaves a `sending` withdrawal that `reconcile` finishes (landed → `withdrawn`; failed or expired past its last valid block height → back to `available`). A withdrawal that cannot even be built fails at once with the money back (`WithdrawFailed`).
+Owner command `withdraw {amount}` or `{all: true}`. Only `available` can go; a hold in `sending` state stays reserved until the chain answers, then comes back and can be withdrawn next. `all`, or an amount equal to everything available, stops the agent first (mode manual, `held` holds back to available, then taken). The custody key signs a `TransferChecked` to the owner's associated token account (created idempotently), a relay pool key pays the fee; the signature is recorded **before** the bytes are sent, so a timeout leaves a `sending` withdrawal that `reconcile` finishes by the rule of §6.7 (landed at finalized → `withdrawn`; failed at finalized → back to `available`; proven never to land → back to `available` only if the custody account still holds the money; anything else stays `sending`, marked for the operator). A withdrawal that cannot even be built fails at once with the money back (`WithdrawFailed`).
 
 ### 6.3 Network fees in SOL
 
@@ -168,9 +168,14 @@ Tests: `test/agent-wallet-billing.test.mjs`. A full withdrawal with an unresolve
 
 * Checks and holds are synchronous in one process; 20 concurrent priced requests against a balance for 10 send exactly 10 (test). Several processes on one state file are **not** supported (§9).
 * A retry with the same `idempotencyKey` returns the recorded result (also for `failed`): no second send. A different request under a used key is refused. A concurrent repeat of an in-flight key gets the same promise.
-* A send that throws after the signature was recorded does not refund: `reconcile` (every `--agent-reconcile-ms`, and `POST /f/agent/reconcile` for the operator) asks the chain and settles or releases by `landed / failed / expired`. The same rule for withdrawals.
+* A send that throws after the signature was recorded does not refund: `reconcile` (every `--agent-reconcile-ms`, and `POST /f/agent/reconcile` for the operator) asks the chain and settles or releases by `landed / failed / expired` as §6.7 defines them; `unknown` stays reserved. The same rule for withdrawals.
 * A stop or a new policy while a request is between the hold and the send refuses it at `beforeSend`: nothing sent, the quota refunded, the replay key released, the hold back (test).
 * Restart: `held` holds are released (`restart`); `sending` ones wait for `reconcile`.
+* One relay process per state file: the relay takes `agent-wallet.json.lock` (its pid) at start and refuses a live holder; a crashed holder's lock is taken over (`agent/lock.mjs`).
+
+### 6.7 What reconcile counts as an answer (2026-10-23)
+
+Time passing is not evidence (`agent/fate.mjs`). **landed** / **failed**: the status is `finalized` (without / with an error); `confirmed` waits. **expired**: no status, the finalized block height is past the last valid block height, `getTransaction` at finalized finds nothing, **and** the node shows its history covers the send (`getFirstAvailableBlock` ≤ the slot read before the transaction was built, recorded as `slotFloor`; the in-process local chain is configured as keeping all history). **unknown**: past its lifetime but not provable: the money stays reserved / pending, the item is marked `undecided` once (history line, operator record) and the page shows it apart from `available`. A withdrawal that is `expired` comes back only if the custody token balance still covers every liability (this withdrawal's included); a shortfall means the money left, so it stays `sending` and `undecided`. A node without history answers "no status" for a transaction that landed: before this rule, such a withdrawal would have come back to `available` and could have been withdrawn twice. Tests: `test/agent-wallet-fate.test.mjs`.
 
 ## 7. The runner (`runner.mjs`)
 

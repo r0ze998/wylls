@@ -34,6 +34,7 @@ import { Connection } from '@solana/web3.js';
 import { loadOrCreateKeypairSync } from '../../client/src/keys.mjs';
 import { createStateStore, operatorToken } from '../config.mjs';
 import { Custody } from './agent/custody.mjs';
+import { lockStateFile } from './agent/lock.mjs';
 import { attachAgentWallet } from './agent/gateway.mjs';
 import { AgentKeyring } from './agent/keyring.mjs';
 import { AgentObserver, AgentScheduler, llmDecider, ruleDecider } from './agent/runner.mjs';
@@ -83,13 +84,19 @@ export async function startFrontierRelay(cfg, { connection = new Connection(cfg.
  */
 export function startAgentWallet(cfg, ctx, { connection, pool, log = console.log }) {
   const store = createStateStore(cfg.agentStateFile ?? path.join(path.dirname(cfg.stateFile), 'agent-wallet.json'));
+  // One writer per state file: a second relay process on it could spend the same balance twice (lock.mjs).
+  const lock = lockStateFile(store.file);
+  process.once('exit', () => lock.release());
   store.load();
   store.state ??= {};
   const custodyKey = loadOrCreateKeypairSync(cfg.agentCustodyKeyFile);
   // Localnet (the only cluster the config allows) reports no token balances; anywhere else they are required.
-  const custody = new Custody({ connection, keypair: custodyKey, mint: cfg.prizeMint, pool, blockhashes: ctx.blockhashes, strictBalances: cfg.cluster !== 'localnet' });
+  // The in-process local chain keeps every transaction, so a missing one past its lifetime never landed; any other
+  // node must prove its history covers the transaction before a sent withdrawal or hold is given back (fate.mjs).
+  const fullHistory = cfg.cluster === 'localnet';
+  const custody = new Custody({ connection, keypair: custodyKey, mint: cfg.prizeMint, pool, blockhashes: ctx.blockhashes, strictBalances: cfg.cluster !== 'localnet', fullHistory });
   const game = cfg.agentGamePricesFile ? JSON.parse(readFileSync(cfg.agentGamePricesFile, 'utf8')) : {};
-  const gateway = attachAgentWallet(ctx, { store, keyring: new AgentKeyring({ dir: cfg.agentKeysDir }), custody, prices: { inference: String(cfg.agentInferencePrice), game }, unresolvedReleaseMs: cfg.agentUnresolvedReleaseMs ?? null, log });
+  const gateway = attachAgentWallet(ctx, { store, keyring: new AgentKeyring({ dir: cfg.agentKeysDir }), custody, prices: { inference: String(cfg.agentInferencePrice), game }, unresolvedReleaseMs: cfg.agentUnresolvedReleaseMs ?? null, fullHistory, log });
   const reconcile = setInterval(() => gateway.reconcile().catch(e => log(`agent wallet: reconcile failed: ${e.message}`)), cfg.agentReconcileMs);
   reconcile.unref();
   gateway.reconcile().catch(e => log(`agent wallet: reconcile at start failed: ${e.message}`));
@@ -105,7 +112,7 @@ export function startAgentWallet(cfg, ctx, { connection, pool, log = console.log
   log(`agent wallet: custody ${custody.authority} (token account ${custody.account}, mint ${custody.mint}); ${gateway.ledger.agents().length} agent(s); `
     + `inference ${gateway.prices.inference}/call, ${Object.keys(game).length} priced game action(s); state ${store.file}`
     + (scheduler ? `; runner every ${cfg.agentTickMs} ms (${scheduler.decider.name})` : ''));
-  return { gateway, scheduler, stop() { clearInterval(reconcile); scheduler?.stop(); } };
+  return { gateway, scheduler, stop() { clearInterval(reconcile); scheduler?.stop(); lock.release(); } };
 }
 
 async function main() {

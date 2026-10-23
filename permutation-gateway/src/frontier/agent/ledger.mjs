@@ -257,12 +257,13 @@ export class AgentLedger {
   }
 
   /** The hold's transaction is about to be sent: from here only its outcome (`lastValidBlockHeight` bounds it) settles or releases it. */
-  markSending(agentId, holdId, signature, lastValidBlockHeight = null) {
+  markSending(agentId, holdId, signature, lastValidBlockHeight = null, slotFloor = null) {
     const h = this.get(agentId).holds[holdId];
     if (!h) throw new AgentError(ERR.BAD_REQUEST, 'no such hold');
     h.state = 'sending';
     h.signature = signature;
     h.lastValidBlockHeight = lastValidBlockHeight;
+    h.slotFloor = slotFloor;
     this.save();
   }
 
@@ -343,12 +344,32 @@ export class AgentLedger {
     return { ...w };
   }
 
-  withdrawSending(agentId, id, signature, lastValidBlockHeight = null) {
+  withdrawSending(agentId, id, signature, lastValidBlockHeight = null, slotFloor = null) {
     const w = this.get(agentId).withdrawals[id];
     w.state = 'sending';
     w.signature = signature;
     w.lastValidBlockHeight = lastValidBlockHeight;
+    w.slotFloor = slotFloor;
     this.save();
+  }
+
+  /**
+   * A sent transaction whose fate this relay cannot decide (fate.mjs 'unknown', or a withdrawal whose
+   * money is not in the custody account although the chain says it never landed): it stays `sending`
+   * (reserved / pendingWithdraw, never available), marked for the operator once, with the reason.
+   */
+  markUndecided(agentId, kind, id, why) {
+    const rec = this.get(agentId);
+    const x = kind === 'withdrawal' ? rec.withdrawals[id] : rec.holds[id];
+    if (!x || x.state !== 'sending') return false;
+    const first = !x.undecided;
+    x.undecided = { why: String(why).slice(0, 300), since: x.undecided?.since ?? this.now(), last: this.now() };
+    if (first) {
+      this.note(rec, { type: 'undecided', kind, id, amount: x.amount, signature: x.signature, why: x.undecided.why });
+      this.recordOperatorCost({ agentId, kind: `undecided-${kind}`, holdId: id, key: x.key ?? null, amount: x.amount, reason: x.undecided.why });
+    }
+    this.save();
+    return first;
   }
 
   finishWithdraw(agentId, id) {

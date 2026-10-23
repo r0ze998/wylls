@@ -44,6 +44,7 @@ import { AgentError, CATEGORIES, ERR, MODES, parseActionRequest, RESULT_STATUS, 
 import { AgentLedger , budgetDay } from './ledger.mjs';
 import { canonical, isPubkey } from './owner-auth.mjs';
 import { checkAllowed, normalisePolicy } from './policy.mjs';
+import { fateOf, slotFloorOf } from './fate.mjs';
 
 export const MAX_AGENTS_PER_OWNER = 8;
 /** Build's walls item: the only profile-1 Build that names the Province (web fplay.mjs ITEM_WALLS). */
@@ -115,7 +116,9 @@ export class AgentGateway {
    * @param {object} [o.prices]  {inference: base units per model call, game: {actionName: base units}}
    * @param {object} [o.waits]   {withdraw: {tries, every}} how long `withdraw` waits for the chain before leaving it to reconcile
    */
-  constructor({ ctx, ledger, keyring, custody = null, prices = {}, waits = {}, unresolvedReleaseMs = null, now = Date.now, log = () => {} }) {
+  constructor({ ctx, ledger, keyring, custody = null, prices = {}, waits = {}, unresolvedReleaseMs = null, fullHistory = false, now = Date.now, log = () => {} }) {
+    /** The node keeps every transaction (the in-process local chain): see fate.mjs. Off: the node must prove its history. */
+    this.fullHistory = fullHistory === true;
     /** The proposed deadline rule (§6.5): null keeps unresolved holds until the operator decides. Not a default. */
     this.unresolvedReleaseMs = Number.isFinite(unresolvedReleaseMs) && unresolvedReleaseMs > 0 ? unresolvedReleaseMs : null;
     this.ctx = ctx;
@@ -311,10 +314,10 @@ export class AgentGateway {
     let signed = null;
     try {
       const sent = await this.custody.withdraw({ to: rec.payout, amount: take }, {
-        onSigned: s => { signed = s; this.ledger.withdrawSending(agentId, w.id, s.signature, s.lastValidBlockHeight); },
+        onSigned: s => { signed = s; this.ledger.withdrawSending(agentId, w.id, s.signature, s.lastValidBlockHeight, s.slotFloor ?? null); },
       });
-      const fate = await this.#await(sent.signature, sent.lastValidBlockHeight, this.waits.withdraw);
-      this.#finishWithdrawal(rec, w.id, fate);
+      const fate = await this.#await(sent.signature, sent.lastValidBlockHeight, this.waits.withdraw, sent.slotFloor ?? null);
+      await this.#finishWithdrawal(rec, w.id, fate);
     } catch (e) {
       if (!signed) {
         this.ledger.failWithdraw(agentId, w.id, e.message);
@@ -326,15 +329,34 @@ export class AgentGateway {
     return { withdrawal: { ...rec.withdrawals[w.id] }, agent: this.view(agentId) };
   }
 
-  #finishWithdrawal(rec, id, fate) {
-    if (fate === 'landed') { this.ledger.finishWithdraw(rec.agentId, id); this.log(`agent wallet: ${rec.agentId} withdrew ${rec.withdrawals[id].amount} (${rec.withdrawals[id].signature})`); }
-    else if (fate === 'failed' || fate === 'expired') this.ledger.failWithdraw(rec.agentId, id, fate);
+  /**
+   * Applies a withdrawal's fate. 'failed' (finalized with an error: nothing moved) gives the money back.
+   * 'expired' gives it back only when the custody account still holds it: the custody balance must cover
+   * every liability with this withdrawal's money counted as still owed (it is: `pendingWithdraw`). A
+   * shortfall means the money left although the node says the transfer never landed: nothing is given
+   * back, the withdrawal stays `sending` and is marked for the operator. Returns what was done.
+   */
+  async #finishWithdrawal(rec, id, fate, why = '') {
+    const w = rec.withdrawals[id];
+    if (fate === 'landed') { this.ledger.finishWithdraw(rec.agentId, id); this.log(`agent wallet: ${rec.agentId} withdrew ${w.amount} (${w.signature})`); return 'done'; }
+    if (fate === 'failed') { this.ledger.failWithdraw(rec.agentId, id, fate); return 'failed'; }
+    if (fate === 'expired') {
+      let held = null;
+      try { held = await this.custody.balance(); } catch (e) { why = `custody balance read failed: ${e.message}`; }
+      const owed = this.ledger.liabilities();
+      if (held !== null && held >= owed) { this.ledger.failWithdraw(rec.agentId, id, fate); return 'failed'; }
+      const reason = held === null ? why : `the chain says it never landed, but the custody account holds ${held} for liabilities of ${owed}: not given back`;
+      if (this.ledger.markUndecided(rec.agentId, 'withdrawal', id, reason)) this.log(`agent wallet: withdrawal ${id} of ${rec.agentId} undecided: ${reason}`);
+      return 'undecided';
+    }
+    if (fate === 'unknown' && this.ledger.markUndecided(rec.agentId, 'withdrawal', id, why)) this.log(`agent wallet: withdrawal ${id} of ${rec.agentId} undecided: ${why}`);
+    return fate;
   }
 
-  async #await(signature, lastValidBlockHeight, { tries, every }) {
+  async #await(signature, lastValidBlockHeight, { tries, every }, slotFloor = null) {
     for (let i = 0; i < tries; i++) {
-      const fate = await this.custody.status(signature, lastValidBlockHeight);
-      if (fate !== 'pending') return fate;
+      const fate = await this.custody.status(signature, lastValidBlockHeight, slotFloor);
+      if (fate !== 'pending' && fate !== 'unknown') return fate;
       if (i + 1 < tries) await new Promise(r => setTimeout(r, every));
     }
     return 'pending';
@@ -415,14 +437,14 @@ export class AgentGateway {
     let sending = false;
     let res;
     try {
-      const { shape, tx, wire, lastValidBlockHeight } = await this.#build(rec, r);
+      const { shape, tx, wire, lastValidBlockHeight, slotFloor } = await this.#build(rec, r);
       const sent = await sponsor(this.ctx, { ip: '127.0.0.1', surface: 'agent' }, {
         tx, wire, shape, lastValidBlockHeight, viaAgent: true,
         beforeSend: ({ signature, lastValidBlockHeight: lvbh }) => {
           // Synchronous, right before the bytes leave: a stop or a new policy in the meantime refuses.
           if (rec.mode !== MODES.AUTO || rec.modeEpoch !== epoch) throw new AgentError(ERR.AGENT_STOPPED, 'the agent was stopped while this action was being prepared', 409);
           if (rec.policy.version !== r.policyVersion) throw new AgentError(ERR.STALE_POLICY, 'the policy changed while this action was being prepared', 409);
-          this.ledger.markSending(rec.agentId, hold.id, signature, lvbh);
+          this.ledger.markSending(rec.agentId, hold.id, signature, lvbh, slotFloor);
           sending = true;
         },
         onSent: ({ signature, moved }) => this.ledger.recordNetwork(rec.agentId, { lamports: feeOf(shape) + BigInt(moved ?? 0), signature, key }),
@@ -461,6 +483,8 @@ export class AgentGateway {
     const fields = normaliseFields(r.action.name, r.action.fields, profile);
     const accounts = accountsFor(r.action.name, { addresses: ctx.addresses, actor: rec.agentKey, owner: rec.owner, holding: r.action.holding, fields, profile });
     const feePayer = ctx.pool.draw().publicKey.toBase58();
+    // Read before the blockhash: at or below any slot this transaction can land in (fate.mjs history coverage).
+    const slotFloor = await slotFloorOf(ctx.connection);
     const { blockhash, lastValidBlockHeight } = await ctx.blockhashes.latest();
     let message;
     try {
@@ -472,7 +496,7 @@ export class AgentGateway {
     const tx = parseTransaction(wire);
     const shape = classify(tx, { programId: ctx.programId, wireBytes: wire.length, profile });
     if (!shape.ok) throw new AgentError(ERR.RELAY_REFUSED, `relay refused: ${shape.problem}`, 400, { relayCode: shape.code });
-    return { shape, tx, wire, lastValidBlockHeight, signature: signatureOf(wire) };
+    return { shape, tx, wire, lastValidBlockHeight, slotFloor, signature: signatureOf(wire) };
   }
 
   // ------------------------------------------------------------ inference
@@ -519,34 +543,30 @@ export class AgentGateway {
    * withdrawals. Expired `held` holds come back too. Returns the counts.
    */
   async reconcile() {
-    const out = { settled: 0, released: 0, withdrawn: 0, withdrawalsFailed: 0, pending: 0, expired: this.ledger.expire(), autoReleased: this.unresolvedReleaseMs ? this.ledger.releaseUnresolvedOlderThan(this.unresolvedReleaseMs) : 0 };
-    const fate = (sig, lvbh) => (this.custody ? this.custody.status(sig, lvbh) : this.#statusOf(sig, lvbh));
+    const out = { settled: 0, released: 0, withdrawn: 0, withdrawalsFailed: 0, pending: 0, undecided: 0, expired: this.ledger.expire(), autoReleased: this.unresolvedReleaseMs ? this.ledger.releaseUnresolvedOlderThan(this.unresolvedReleaseMs) : 0 };
+    // One rule for both (fate.mjs): with a Custody its own reading, otherwise the relay's connection.
+    const fate = x => (this.custody ? this.custody.fate(x.signature, x.lastValidBlockHeight, x.slotFloor ?? null) : fateOf(this.ctx.connection, { signature: x.signature, lastValidBlockHeight: x.lastValidBlockHeight, slotFloor: x.slotFloor ?? null }, { fullHistory: this.fullHistory }));
     for (const rec of this.ledger.agents()) {
       for (const h of Object.values(rec.holds)) {
         if (h.state !== 'sending') continue;
-        const f = await fate(h.signature, h.lastValidBlockHeight);
-        if (f === 'landed') { this.ledger.settle(rec.agentId, h.id, undefined, { signature: h.signature }); out.settled++; }
-        else if (f === 'failed' || f === 'expired') { this.ledger.release(rec.agentId, h.id, f); out.released++; }
+        const f = await fate(h);
+        if (f.fate === 'landed') { this.ledger.settle(rec.agentId, h.id, undefined, { signature: h.signature }); out.settled++; }
+        // A priced action's hold: 'expired' is proven by fate.mjs (no transaction, history covered), 'failed' moved nothing.
+        else if (f.fate === 'failed' || f.fate === 'expired') { this.ledger.release(rec.agentId, h.id, f.fate); out.released++; }
+        else if (f.fate === 'unknown') { if (this.ledger.markUndecided(rec.agentId, 'hold', h.id, f.why)) this.log(`agent wallet: hold ${h.id} of ${rec.agentId} undecided: ${f.why}`); out.undecided++; }
         else out.pending++;
       }
       for (const w of Object.values(rec.withdrawals)) {
         if (w.state !== 'sending') continue;
-        const f = await fate(w.signature, w.lastValidBlockHeight);
-        if (f === 'landed') { this.#finishWithdrawal(rec, w.id, f); out.withdrawn++; }
-        else if (f === 'failed' || f === 'expired') { this.#finishWithdrawal(rec, w.id, f); out.withdrawalsFailed++; }
+        const f = await fate(w);
+        const done = await this.#finishWithdrawal(rec, w.id, f.fate, f.why);
+        if (done === 'done') out.withdrawn++;
+        else if (done === 'failed') out.withdrawalsFailed++;
+        else if (done === 'undecided' || done === 'unknown') out.undecided++;
         else out.pending++;
       }
     }
     return out;
-  }
-
-  /** A relay transaction's fate without a Custody (custody.status's rule). */
-  async #statusOf(signature, lastValidBlockHeight) {
-    const st = (await this.ctx.connection.getSignatureStatuses([signature], { searchTransactionHistory: true }))?.value?.[0] ?? null;
-    if (st?.err) return 'failed';
-    if (st && (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized')) return 'landed';
-    if (!st && Number.isSafeInteger(lastValidBlockHeight) && (await this.ctx.connection.getBlockHeight('confirmed')) > lastValidBlockHeight) return 'expired';
-    return 'pending';
   }
 
   // ------------------------------------------------------------ views
@@ -584,8 +604,10 @@ export class AgentGateway {
   /** The agent as every caller sees it: public keys, balances, policy, recent history. No token, no secret. */
   view(agentId) {
     const rec = this.ledger.get(agentId);
-    const holds = Object.values(rec.holds).map(h => ({ id: h.id, category: h.category, amount: h.amount, state: h.state, key: h.key, signature: h.signature ?? null }));
-    const withdrawals = Object.values(rec.withdrawals).slice(-10).map(w => ({ id: w.id, amount: w.amount, state: w.state, payout: w.payout, signature: w.signature ?? null, createdAt: w.createdAt }));
+    const holds = Object.values(rec.holds).map(h => ({ id: h.id, category: h.category, amount: h.amount, state: h.state, key: h.key, signature: h.signature ?? null, ...(h.undecided ? { undecided: { ...h.undecided } } : {}) }));
+    // Every undecided withdrawal, however old, and the last ten.
+    const all = Object.values(rec.withdrawals);
+    const withdrawals = [...new Set([...all.filter(w => w.undecided && w.state === 'sending'), ...all.slice(-10)])].map(w => ({ id: w.id, amount: w.amount, state: w.state, payout: w.payout, signature: w.signature ?? null, createdAt: w.createdAt, ...(w.undecided ? { undecided: { ...w.undecided } } : {}) }));
     return {
       agentId: rec.agentId, owner: rec.owner, payout: rec.payout, agentKey: rec.agentKey, citizen: this.ctx.addresses.citizen(rec.owner), village: [...rec.village],
       mode: rec.mode, modeEpoch: rec.modeEpoch, policy: { ...rec.policy, allowed: [...rec.policy.allowed], budget: { ...rec.policy.budget } },
@@ -631,9 +653,9 @@ export class AgentGateway {
  * Builds the agent wallet over a relay context and attaches it as
  * `ctx.agents` (the routes and the relay's agent-key refusal read it).
  */
-export function attachAgentWallet(ctx, { store, keyring, custody = null, prices, waits, unresolvedReleaseMs = null, log = ctx.log ?? (() => {}), now = ctx.now ?? Date.now }) {
+export function attachAgentWallet(ctx, { store, keyring, custody = null, prices, waits, unresolvedReleaseMs = null, fullHistory = false, log = ctx.log ?? (() => {}), now = ctx.now ?? Date.now }) {
   const ledger = new AgentLedger({ store, now });
-  const gateway = new AgentGateway({ ctx, ledger, keyring, custody, prices, waits, unresolvedReleaseMs, now, log });
+  const gateway = new AgentGateway({ ctx, ledger, keyring, custody, prices, waits, unresolvedReleaseMs, fullHistory, now, log });
   ctx.agents = gateway;
   return gateway;
 }

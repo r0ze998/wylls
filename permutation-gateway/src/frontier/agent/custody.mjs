@@ -24,6 +24,7 @@ import { baseFee, rent } from '../../../client/src/frontier/fees.mjs';
 import { compileMessage, wireTransaction } from '../../../client/src/solana-tx.mjs';
 import { signTalk } from '../../../client/src/talk-node.mjs';
 import { AgentError, ERR } from './contract.mjs';
+import { fateOf, slotFloorOf } from './fate.mjs';
 
 /** SPL Token TransferChecked (tag 12): `amount` of `mint` (`decimals`) from `source` to `dest`, signed by `authority`. */
 export function transferCheckedIx({ source, mint, dest, authority, amount, decimals }) {
@@ -54,7 +55,7 @@ export class Custody {
    * `strictBalances`: refuse a deposit whose node reports no token balances for the custody account (a full
    * validator always does; the local frontier-localnet never does, so it is off there).
    */
-  constructor({ connection, keypair, mint, decimals = 6, pool, blockhashes, commitment = 'confirmed', strictBalances = false }) {
+  constructor({ connection, keypair, mint, decimals = 6, pool, blockhashes, commitment = 'confirmed', strictBalances = false, fullHistory = false }) {
     this.connection = connection;
     this.#keypair = keypair;
     this.mint = mint;
@@ -63,6 +64,8 @@ export class Custody {
     this.blockhashes = blockhashes;
     this.commitment = commitment;
     this.strictBalances = strictBalances;
+    /** The node keeps every transaction (the in-process local chain): a missing one past its lifetime never landed (fate.mjs). */
+    this.fullHistory = fullHistory;
     this.authority = keypair.publicKey.toBase58();
     this.account = ata(this.authority, mint);
   }
@@ -170,6 +173,8 @@ export class Custody {
    */
   async withdraw({ to, amount }, { onSigned }) {
     const payer = this.pool.draw();
+    // Read before the blockhash: at or below any slot this transaction can land in (fate.mjs history coverage).
+    const slotFloor = await slotFloorOf(this.connection);
     const { blockhash, lastValidBlockHeight } = await this.blockhashes.latest();
     const feePayer = payer.publicKey.toBase58();
     const message = compileMessage({ feePayer, recentBlockhash: blockhash, instructions: [
@@ -178,7 +183,7 @@ export class Custody {
     ] });
     const sigs = { [feePayer]: signTalk(message, payer), [this.authority]: signTalk(message, this.#keypair) };
     const signature = base58(sigs[feePayer]);
-    onSigned({ signature, lastValidBlockHeight });
+    onSigned({ signature, lastValidBlockHeight, slotFloor });
     try {
       await this.connection.sendRawTransaction(wireTransaction(message, sigs), { skipPreflight: false, maxRetries: 5 });
     } catch (e) {
@@ -186,16 +191,20 @@ export class Custody {
       e.signature = signature;
       throw e;
     }
-    return { signature, lastValidBlockHeight };
+    return { signature, lastValidBlockHeight, slotFloor };
   }
 
-  /** A sent transaction's fate: 'landed' | 'failed' | 'expired' (never landed, cannot any more) | 'pending'. */
-  async status(signature, lastValidBlockHeight) {
-    const st = (await this.connection.getSignatureStatuses([signature], { searchTransactionHistory: true }))?.value?.[0] ?? null;
-    if (st?.err) return 'failed';
-    if (st && (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized')) return 'landed';
-    if (!st && Number.isSafeInteger(lastValidBlockHeight) && (await this.connection.getBlockHeight('confirmed')) > lastValidBlockHeight) return 'expired';
-    return 'pending';
+  /**
+   * A sent transaction's fate (fate.mjs): 'landed' | 'failed' (finalized) | 'expired' (proven never to land) |
+   * 'pending' | 'unknown' (past its lifetime, not provable: the money stays where it is). `why` says which rule decided.
+   */
+  async fate(signature, lastValidBlockHeight, slotFloor = null) {
+    return fateOf(this.connection, { signature, lastValidBlockHeight, slotFloor }, { fullHistory: this.fullHistory });
+  }
+
+  /** The fate's name only. */
+  async status(signature, lastValidBlockHeight, slotFloor = null) {
+    return (await this.fate(signature, lastValidBlockHeight, slotFloor)).fate;
   }
 
   toJSON() { return { authority: this.authority, account: this.account, mint: this.mint }; }

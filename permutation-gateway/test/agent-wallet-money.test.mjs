@@ -15,6 +15,7 @@ import { decodeTokenAccount, ata, TOKEN_PROGRAM } from '../client/src/frontier/p
 import { ERR } from '../src/frontier/agent/contract.mjs';
 import { AgentKeyring } from '../src/frontier/agent/keyring.mjs';
 import { actionRequest, call, createAgent, delegate, deposit, fakeChain, MINT, ownerCommand, policy, relay, sound } from './agent-wallet-fixtures.mjs';
+import { tokenAccountData } from './gateway-fixtures.mjs';
 
 const IP = '127.0.0.1';
 const post = (r, path, body) => call(r.public, 'POST', path, { body, ip: IP });
@@ -54,7 +55,7 @@ test('a priced action is held before the send, settled when the transaction land
   // A failed transaction gives the hold back.
   const two = await a.act({ key: 'h2', name: 'Train', fields: { unit: 1, n: 1 } });
   assert.equal(two.status, 'sent');
-  r.chain.statuses.set(two.signature, { slot: 79, err: { InstructionError: [3, { Custom: 24 }] }, confirmationStatus: 'confirmed' });
+  r.chain.statuses.set(two.signature, { slot: 79, err: { InstructionError: [3, { Custom: 24 }] }, confirmationStatus: 'finalized' });
   assert.equal((await r.gateway.reconcile()).released, 1);
   assert.equal(r.gateway.view(a.agentId).balance.available, '95000');
   // The budget (12,000 over the agent's life): 5,000 spent; 7,000 more fits, 5,000 after that does not.
@@ -143,16 +144,21 @@ test('a send that throws after signing leaves the hold to the chain\'s answer: e
   assert.equal(hold.state, 'sending');
   assert.equal(hold.lastValidBlockHeight, 150);
   assert.equal(r.gateway.view(a.agentId).balance.reserved, '1000');
-  // Not expired yet: still pending. Past the last valid height with no status: expired, released.
+  // Not expired yet: still pending. Past the last valid height with no status, on a node that cannot show its
+  // history covers the send: undecided (kept reserved, the operator told), never guessed. Once the node shows
+  // history from before the send (and still has no such transaction): expired, released.
   assert.equal((await r.gateway.reconcile()).pending, 1);
   chain.height = 151;
+  assert.equal((await r.gateway.reconcile()).undecided, 1);
+  assert.equal(Object.values(r.gateway.ledger.get(a.agentId).holds).filter(h => h.state === 'sending').length, 1, 'still reserved');
+  chain.getFirstAvailableBlock = async () => 0;
   assert.equal((await r.gateway.reconcile()).released, 1);
   assert.equal(r.gateway.view(a.agentId).balance.available, '5000');
   // The same with a transaction that did reach the chain: settled on reconcile.
   const two = await a.act({ key: 'f2' });
   assert.equal(two.status, 'failed');
   const h2 = Object.values(r.gateway.ledger.get(a.agentId).holds)[0];
-  chain.statuses.set(h2.signature, { slot: 80, err: null, confirmationStatus: 'confirmed' });
+  chain.statuses.set(h2.signature, { slot: 80, err: null, confirmationStatus: 'finalized' });
   assert.equal((await r.gateway.reconcile()).settled, 1);
   assert.equal(r.gateway.view(a.agentId).balance.spent.game, '1000');
   // The replayed answer of a failed send is the recorded failure, not a new attempt.
@@ -203,7 +209,7 @@ test('withdraw: available only, to the owner\'s token account, by the custody ke
   assert.deepEqual([all.json.agent.balance.available, all.json.agent.balance.reserved, all.json.agent.balance.withdrawn], ['0', '1000', '9000']);
   assert.equal((await post(r, '/f/agent/command', ownerCommand(a.owner, 'withdraw', { agentId: a.agentId, params: { all: true } }))).status, 409, 'nothing to withdraw');
   // The in-flight hold fails on chain: its money is available again and can be withdrawn.
-  r.chain.statuses.set(held.signature, { slot: 80, err: { InstructionError: [3, { Custom: 1 }] }, confirmationStatus: 'confirmed' });
+  r.chain.statuses.set(held.signature, { slot: 80, err: { InstructionError: [3, { Custom: 1 }] }, confirmationStatus: 'finalized' });
   await r.gateway.reconcile();
   assert.equal(r.gateway.view(a.agentId).balance.available, '1000');
   // A send that throws after signing: the withdrawal waits for the chain; landed finishes it, expired gives it back.
@@ -216,14 +222,21 @@ test('withdraw: available only, to the owner\'s token account, by the custody ke
   assert.deepEqual([unsure.json.agent.balance.available, unsure.json.agent.balance.pendingWithdraw], ['0', '1000']);
   sound(r);
   assert.equal((await r.gateway.reconcile()).pending, 1);
-  r.chain.statuses.set(unsure.json.withdrawal.signature, { slot: 81, err: null, confirmationStatus: 'confirmed' });
+  r.chain.statuses.set(unsure.json.withdrawal.signature, { slot: 81, err: null, confirmationStatus: 'finalized' });
   assert.equal((await r.gateway.reconcile()).withdrawn, 1);
   assert.deepEqual([r.gateway.view(a.agentId).balance.pendingWithdraw, r.gateway.view(a.agentId).balance.withdrawn], ['0', '10000']);
-  // Expired: back to available.
+  // Expired: back to available only when the node proves its history covers the send AND the custody account
+  // still holds the money (its balance covers every liability, this withdrawal's included).
   await deposit(r, a.o, a.agentId, 700n);
   const exp = await post(r, '/f/agent/command', ownerCommand(a.owner, 'withdraw', { agentId: a.agentId, params: { amount: '700' } }));
   assert.equal(exp.json.withdrawal.state, 'sending');
   r.chain.height = 151;
+  assert.equal((await r.gateway.reconcile()).undecided, 1, 'no history proof: kept');
+  assert.deepEqual([r.gateway.view(a.agentId).balance.available, r.gateway.view(a.agentId).balance.pendingWithdraw], ['0', '700']);
+  r.chain.getFirstAvailableBlock = async () => 0;
+  assert.equal((await r.gateway.reconcile()).undecided, 1, 'history proven, but the custody account does not hold the liabilities: kept');
+  assert.equal(r.gateway.view(a.agentId).balance.available, '0');
+  r.chain.set(r.custody.account, { data: tokenAccountData({ mint: MINT, owner: r.custody.authority, amount: r.gateway.ledger.liabilities() }) });
   assert.equal((await r.gateway.reconcile()).withdrawalsFailed, 1);
   assert.equal(r.gateway.view(a.agentId).balance.available, '700');
   // A withdrawal that cannot even be built fails at once with the money back.

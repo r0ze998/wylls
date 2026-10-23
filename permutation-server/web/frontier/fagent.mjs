@@ -54,6 +54,8 @@ export function balanceModel(view) {
     pendingWithdraw: usdc(b.pendingWithdraw), withdrawn: usdc(b.withdrawn),
     spent: { inference: usdc(spent.inference), game: usdc(spent.game), network: usdc(spent.network) },
     withdrawable: usdc(b.available), inFlight: usdc(b.reserved), heldBack: BigInt(b.reserved ?? 0) > 0n,
+    // Sent transactions this relay cannot decide (reconcile: fate.mjs): their money stays out of "available".
+    undecided: usdc([...(view?.withdrawals ?? []).filter(w => w.undecided && w.state === 'sending'), ...(view?.holds ?? []).filter(h => h.undecided && h.state === 'sending')].reduce((s, x) => s + BigInt(x.amount ?? 0), 0n).toString()),
   };
 }
 
@@ -107,6 +109,7 @@ export function historyRows(view) {
       case 'unresolved': text = L`判断の結果が届かず、運営の確認待ち`; break;
       case 'withdraw': text = L`引き出し ${usdc(h.amount)}`; break;
       case 'withdraw-failed': text = L`引き出しが失敗（残高に戻した）`; break;
+      case 'undecided': text = h.kind === 'withdrawal' ? L`引き出しの結果をチェーンで確定できません（運営の確認待ち。使える額には戻していません）` : L`送った行動の結果をチェーンで確定できません（運営の確認待ち）`; break;
       case 'mode': text = h.mode === 'auto' ? L`自動に切り替え` : L`手動に切り替え`; break;
       case 'policy': text = L`予算と許可行動を更新`; break;
       case 'capability': text = L`接続用トークンを発行`; break;
@@ -244,6 +247,7 @@ export function renderBalance(view) {
     </div>
     <p class="muted">${L`支出：判断 ${m.spent.inference} · ゲーム内 ${m.spent.game} · 手数料 ${m.spent.network}（手数料は運営が SOL で負担し、ここでは記録だけです）`}</p>
     <p class="muted">${L`引き出せるのは「いま使える」分だけです。処理中の予約と運営の確認待ちは、結果が出てから戻るか確定します。`}</p>
+    ${m.undecided !== '0' ? html`<p class="agent-note tone-warn" role="status">${L`チェーンで結果を確定できない送信が ${m.undecided} あります。確定するまで「いま使える」には戻しません（二重の引き出しを防ぐため）。`}</p>` : ''}
   </section>`;
 }
 

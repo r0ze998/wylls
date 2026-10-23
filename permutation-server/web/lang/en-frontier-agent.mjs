@@ -125,4 +125,7 @@ export default {
   '1日の判断回数の上限（空欄なら上限なし）': 'Decisions a day at most (blank: no limit)',
   'ここにない行動（新しいゲーム機能を含む）は、あなたが許可するまで代理人には使えません。': 'Actions not listed here (new game features included) stay closed to the agent until you allow them.',
   '理由（モデルの説明・未検証）：{0}': 'Reason (the model\'s own words, not verified): {0}',
+  '引き出しの結果をチェーンで確定できません（運営の確認待ち。使える額には戻していません）': 'The withdrawal\'s result cannot be confirmed on chain (waiting for the operator; not returned to "available")',
+  '送った行動の結果をチェーンで確定できません（運営の確認待ち）': 'The sent action\'s result cannot be confirmed on chain (waiting for the operator)',
+  'チェーンで結果を確定できない送信が {0} あります。確定するまで「いま使える」には戻しません（二重の引き出しを防ぐため）。': '{0} in sent transactions cannot be confirmed on chain. It does not return to "available" until it is (so it cannot be withdrawn twice).',
 };
