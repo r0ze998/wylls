@@ -76,22 +76,22 @@ pub fn run(cx: &mut Ctx) {
                     }
                 }
             }
-            CqKind::OUTPOST_SETTLED => {
-                if r.bell != NO_BELL && r.bell.saturating_add(OUTPOST_CLOSE_BELLS) >= end {
-                    let (p, q) = pq(r);
-                    let s = r.field("site", false).first().copied().unwrap_or(0);
-                    cx.fail(
-                        V,
-                        OUTPOST_AFTER_CLOSE,
-                        format!("holding ({p}, {q}, {s})"),
-                        r.bell,
-                        Some(r.tx),
-                        format!(
-                            "an outpost settled at bell {}, within {OUTPOST_CLOSE_BELLS} bells of end_bell {end}",
-                            r.bell
-                        ),
-                    );
-                }
+            CqKind::OUTPOST_SETTLED
+                if r.bell != NO_BELL && r.bell.saturating_add(OUTPOST_CLOSE_BELLS) >= end =>
+            {
+                let (p, q) = pq(r);
+                let s = r.field("site", false).first().copied().unwrap_or(0);
+                cx.fail(
+                    V,
+                    OUTPOST_AFTER_CLOSE,
+                    format!("holding ({p}, {q}, {s})"),
+                    r.bell,
+                    Some(r.tx),
+                    format!(
+                        "an outpost settled at bell {}, within {OUTPOST_CLOSE_BELLS} bells of end_bell {end}",
+                        r.bell
+                    ),
+                );
             }
             _ => {}
         }
