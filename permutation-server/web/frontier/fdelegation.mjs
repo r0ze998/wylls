@@ -11,6 +11,7 @@ import { L } from '../lang.mjs';
 import { encode as toBase58 } from '../sdk/base58.mjs';
 import * as io from './fchainio.mjs';
 import { cardHead } from './screens/parts.mjs';
+import { icon } from './hud/icons.mjs';
 
 /** The agent page, next to the play page. */
 export const AGENT_PAGE = 'agent.html';
@@ -55,6 +56,17 @@ export function renderDelegated(d) {
       <button type="button" class="btn primary" data-act="session">${L`鍵を取り戻して自分で操作する`}</button>
       <a class="btn" href="${AGENT_PAGE}" data-agent-link="1">${L`代理人のページを開く`}</a>
     </div></section>`;
+}
+
+/**
+ * The line on the action bar (hud/hand.mjs) while the agent holds the key. A player who already has a village never
+ * sees the drawer's join card (it opens only before land is held), so the bar they act from says it, with the same
+ * take-back (the page's `session` action) and the agent page link.
+ */
+export function handNote(d) {
+  return html`<span class="hand-agent">${icon('lock')}<span>${d.mode === 'auto' ? L`代理人に任せています（自動）。この端末の鍵では送れません。` : L`鍵はまだ代理人が持っています（代理人は停止中）。この端末の鍵では送れません。`}</span>
+    <button type="button" class="btn small primary" data-act="session">${L`鍵を取り戻す`}</button>
+    <a class="btn small" href="${AGENT_PAGE}" data-agent-link="1">${L`代理人のページ`}</a></span>`;
 }
 
 /** A sentence added to a refusal while the agent holds the key (the relay answers Auth: this device's key is not the session). */
