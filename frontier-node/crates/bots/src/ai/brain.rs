@@ -86,7 +86,7 @@ pub const KEPT_DUTIES: [&str; 8] = [
 ];
 /// The autopilot's economy: kept, but skipped while the quota is at or below
 /// [`QUOTA_FLOOR`].
-pub const KEPT_ECONOMY: [&str; 4] = ["build", "train", "muster", "explore"];
+pub const KEPT_ECONOMY: [&str; 5] = ["build", "train", "muster", "explore", "send_caravan"];
 /// Dropped: the voluntary march of the rule policy and the adversarial
 /// personas' intents (an AI has no persona, so the latter never arise).
 pub const DROPPED: [&str; 5] = ["depart", "redepart", "prefund", "hold", "spam"];
@@ -104,6 +104,10 @@ pub enum MarchKind {
     Call,
     /// AC3b: an arrived host back to the own holding tile.
     Recall,
+    /// S1 (1f): another nation's caravan road, reached before the caravan.
+    Ambush,
+    /// S1 (1f): the bot's own caravan road, reached before the caravan.
+    Escort,
 }
 
 impl MarchKind {
@@ -114,6 +118,8 @@ impl MarchKind {
             MarchKind::Raid => "raid",
             MarchKind::Call => "call",
             MarchKind::Recall => "recall",
+            MarchKind::Ambush => "ambush",
+            MarchKind::Escort => "escort",
         }
     }
 }
@@ -145,6 +151,11 @@ pub enum Action {
     Explore {
         host_id: u64,
     },
+    /// S1 (1f): a caravan from the home holding to `to` (whole units).
+    Caravan {
+        to: HoldingRef,
+        cargo: [u32; RESOURCES],
+    },
 }
 
 /// A candidate and what it does.
@@ -169,6 +180,7 @@ impl Offer {
             Action::Train { unit } => format!("train:{unit}"),
             Action::Muster { unit } => format!("muster:{unit}"),
             Action::Explore { host_id } => format!("explore:{host_id}"),
+            Action::Caravan { to, .. } => format!("caravan:{},{},{}", to.p, to.q, to.site),
         }
     }
 }
@@ -526,6 +538,8 @@ pub(crate) fn march_candidate(
         MarchKind::Raid => "another nation's village",
         MarchKind::Call => "the Strike Order's target",
         MarchKind::Recall => "home",
+        MarchKind::Ambush => "another nation's caravan road (to wait for the caravan)",
+        MarchKind::Escort => "your own caravan's road (to escort it)",
     };
     let facts = json!({
         "host": row.handle,
@@ -946,6 +960,8 @@ pub fn candidates_with(inp: &Inputs, side: &Side) -> Vec<Offer> {
     out.extend(super::recall::offer(inp, side));
     out.extend(marches);
     out.extend(super::raid::offer(inp));
+    // S1: a caravan road to wait on, a caravan to send (ai/s1.rs)
+    out.extend(super::s1::offer(inp));
     out.extend(economy_offers(inp));
     out.truncate(MAX_CANDIDATES);
     for (i, o) in out.iter_mut().enumerate() {
@@ -1221,6 +1237,8 @@ pub struct Taken {
     pub builds: usize,
     /// What the chosen builds and trains cost together (milli-units).
     pub spent: [i64; RESOURCES],
+    /// S1: a caravan was chosen (one a decision).
+    pub caravan: bool,
 }
 
 /// Free build-queue slots at `now` (`policy::queue_free` counts running items).
@@ -1352,6 +1370,11 @@ pub fn replan_with(
                         return Err("host already home");
                     }
                 }
+                MarchKind::Ambush | MarchKind::Escort => {
+                    if super::s1::caravan_on(obs, target, h.faction, *kind).is_none() {
+                        return Err("caravan gone");
+                    }
+                }
             }
             let troops = row.troops();
             let counted = *kind != MarchKind::Recall;
@@ -1397,6 +1420,14 @@ pub fn replan_with(
                 .ok_or("no plan or shield")?
                 .0
             };
+            // S1: a road march must stand on the tile before the caravan does.
+            if matches!(kind, MarchKind::Ambush | MarchKind::Escort) {
+                let (by, _) =
+                    super::s1::caravan_on(obs, target, h.faction, *kind).ok_or("caravan gone")?;
+                if plan.plain.arrive_bell > by {
+                    return Err("too late for the caravan");
+                }
+            }
             taken.hosts.insert(*host_id);
             if counted {
                 taken.march_troops += troops;
@@ -1515,6 +1546,31 @@ pub fn replan_with(
                     at: row.at,
                     host_id: *host_id,
                     tiles,
+                },
+                None,
+            ))
+        }
+        Action::Caravan { to, cargo } => {
+            if taken.caravan {
+                return Err("caravan already sent");
+            }
+            let dest = super::s1::holding_of(obs, to).ok_or("destination gone")?;
+            if cargo
+                .iter()
+                .zip(stores.iter())
+                .any(|(&c, &s)| c as i64 * MILLI as i64 > s)
+            {
+                return Err("not affordable");
+            }
+            let args = super::s1::caravan_args(obs, h, dest, *cargo)?;
+            taken.caravan = true;
+            for (s, &c) in taken.spent.iter_mut().zip(cargo.iter()) {
+                *s += c as i64 * MILLI as i64;
+            }
+            Ok((
+                Intent::SendCaravan {
+                    h: href(h),
+                    args: Box::new(args),
                 },
                 None,
             ))

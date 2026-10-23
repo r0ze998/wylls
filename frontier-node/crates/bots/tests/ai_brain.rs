@@ -262,6 +262,8 @@ async fn chosen_ids_map_to_the_intents_they_name() {
             let got = brain::replan(&o.action, &p, inp, &mut taken, &st);
             match &o.action {
                 Action::Autopilot | Action::Hold { .. } => assert!(got.is_err()),
+                // (an M1 world: ai_s1.rs has the caravans)
+                Action::Caravan { .. } => unreachable!("no caravan outside S1"),
                 Action::March {
                     host_id, target, ..
                 } => {
