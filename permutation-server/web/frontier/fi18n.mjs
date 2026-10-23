@@ -171,19 +171,19 @@ const ERROR_TEXT = {
   FoldTooEarly: () => L`このターンの領土の集計がまだ終わっていません`,
   NotLead: () => L`この包囲の先導者だけが行える操作です`,
   // S1 stage 1b: vaults and caravans
-  VaultSite: () => L`蔵はこのマスに建てられません（通れない土地、村、砦、野営地、または既存の蔵）`,
-  VaultLimit: () => L`持てる蔵の上限に達しています`,
+  VaultSite: () => L`貯蔵庫はこのマスに建てられません（通れない土地、村、砦、野営地、または既存の貯蔵庫）`,
+  VaultLimit: () => L`持てる貯蔵庫の上限に達しています`,
   WalletRequired: () => L`この操作はウォレットの署名が必要です（ゲーム内の鍵ではできません）`,
   ProvinceBusy: () => L`この州の隊商の枠がいっぱいです。少し待ってから送ってください`,
   CaravanEarly: () => L`隊商はまだ到着していないか、通った州の決着がまだです`,
   RaidState: () => L`この隊商には決着を待つ略奪がない、またはすでに決着しています`,
   RaidWindow: () => L`略奪の決定の受付時間外です`,
-  NotOnTile: () => L`蔵や建物のマスに自分の軍勢がいないか、持ち主の軍勢がまだいます`,
+  NotOnTile: () => L`貯蔵庫や建物のマスに自分の軍勢がいないか、持ち主の軍勢がまだいます`,
   // S1 stages 1d, 1e: structures (towers, palisades, forts)
   StructureSite: () => L`この建物はこのマスに建てられません（通れない土地、村、砦、野営地、または既存の建物）`,
   StructureLimit: () => L`この種類の建物は、もう持てません`,
   StructureFull: () => L`この州には、これ以上この建物を建てられません`,
-  FortManned: () => L`兵が残っている砦は奪えません。先に戦いで兵を倒してください`,
+  FortManned: () => L`兵が残っている要塞は奪えません。先に戦いで兵を倒してください`,
   // S1 stage 1e: nations
   ProposalsFull: () => L`国の議題がいっぱいです。決着を待ってから出してください`,
   NotVoter: () => L`まだ投票や提案はできません（参加から2日たっていないか、国を追放されています）`,
@@ -283,6 +283,8 @@ const CLIENT_TEXT = {
   PlannerRefused: () => L`道を探せませんでした`,
   NoPath: () => L`そこまでの道が見つかりません`,
   NoDestination: () => L`行き先を選んでください`,
+  // S1 (controller.mjs s1Refused): an order the page refuses before building it; the notice carries its own sentence
+  S1Refused: () => L`この命令は今は出せません`,
   BadTile: () => L`そのマスはありません`,
   Stance: () => L`構えを選んでください`,
   Retreat: () => L`撤退の倍率が正しくありません（0.0001〜6 倍）`,

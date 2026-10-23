@@ -12,6 +12,7 @@
 // says why it cannot run now, with a "catch up" nudge when the province
 // lags (NotResident).
 import { s1On } from '../fs1.mjs';
+import { renderS1Village } from './s1.mjs';
 import { activeHolding } from '../fstate.mjs';
 import { html, raw } from '../../util.mjs';
 import { icon, RESOURCE_ICON } from '../hud/icons.mjs';
@@ -274,5 +275,6 @@ export function render(FS) {
       ${row(L`休眠まで`, html`${f.dormantIn > 0 ? L`あと ${span(f.dormantIn)}` : L`休眠中`}${termButton('dormant')}`)}
     </dl>`)}</section>`;
 
-  return [head, stores, build, troops, others];
+  // S1: caravans, storehouses, structures, the fort and the nation (screens/s1.mjs)
+  return [head, stores, build, troops, ...(s1On() ? [renderS1Village(FS)] : []), others];
 }

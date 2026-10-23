@@ -8,12 +8,15 @@
 //! {"v": 1, "moving": [{"ownerTag": "…", "seq": 0, "faction": 1,
 //!   "src": {"kind": 1, "p": 3, "q": 0, "at": 2, "gen": 1, "tile": 20},
 //!   "dst": {…}, "steps": 7, "cargo": [0, 100, …], "arriveTs": 1790000000,
-//!   "runs": [{"p": 3, "q": 0, "firstBell": 290, "n": 2}], "raided": false}],
+//!   "runs": [{"p": 3, "q": 0, "firstBell": 290, "n": 2}], "raided": false,
+//!   "path": [12 bytes], "provinces": [[3, 0], [4, 0]]}],
 //!  "vaults": [{"p": 3, "q": 0, "tile": 40, "ownerTag": "…", "faction": 1,
 //!   "gen": 1}]}
 //! ```
 //!
-//! Tags are decimal strings (u64). A caravan leaves `moving` with its
+//! Tags are decimal strings (u64). `path` is the packed walk (`steps` of it
+//! used) and `provinces` the Provinces it enters, in order, the origin's
+//! first (the Caravan's `PROVINCES`). A caravan leaves `moving` with its
 //! CARAVAN_SETTLED. A raid that burns empties it (`raided`, cargo 0; it goes
 //! on); one that takes (decision J2) makes it the raider's, and the same
 //! transaction's CARAVAN_SENT (origin kind 3, the raid tile) replaces its
@@ -54,8 +57,22 @@ impl Caravans {
                 cargo,
                 arrive_ts,
                 runs,
+                path,
                 ..
             } => {
+                // The route's Provinces in first-entered order (the origin's
+                // first): the Caravan's `PROVINCES`, which a raid's take names.
+                let mut provinces: Vec<(i32, i32)> = vec![(src.p as i32, src.q as i32)];
+                for (p, q, _) in crate::structure::walk_tiles(
+                    (src.p as i32, src.q as i32, src.tile),
+                    path,
+                    *steps,
+                ) {
+                    if !provinces.contains(&(p, q)) {
+                        provinces.push((p, q));
+                    }
+                }
+                let provinces: Vec<Value> = provinces.iter().map(|(p, q)| json!([p, q])).collect();
                 let runs: Vec<Value> = runs
                     .iter()
                     .map(|r| json!({"p": r.p, "q": r.q, "firstBell": r.first_bell, "n": r.n}))
@@ -64,7 +81,8 @@ impl Caravans {
                     (*owner_tag, *seq),
                     json!({"ownerTag": owner_tag.to_string(), "seq": seq, "faction": faction,
                         "src": place(src), "dst": place(dst), "steps": steps, "cargo": cargo,
-                        "arriveTs": arrive_ts, "runs": runs, "raided": false}),
+                        "arriveTs": arrive_ts, "runs": runs, "raided": false,
+                        "path": path.to_vec(), "provinces": provinces}),
                 );
             }
             CqEvent::CaravanSettled { owner_tag, seq, .. } => {
@@ -167,6 +185,40 @@ mod tests {
         }
     }
 
+    /// A caravan's route names the Provinces its walk enters, in order.
+    #[test]
+    fn a_caravan_lists_the_provinces_of_its_route() {
+        let mut c = Caravans::default();
+        let centre = LogPlace {
+            kind: 1,
+            p: 0,
+            q: 0,
+            at: 0,
+            gen: 1,
+            tile: 30,
+        };
+        // five steps east from the centre leave the Province (radius 4)
+        let path = permutation_rules::frontier::caravan::pack(&[0; 5]).unwrap();
+        c.fold(&CqEvent::CaravanSent {
+            owner_tag: 5,
+            seq: 1,
+            faction: 0,
+            src: centre,
+            dst: centre,
+            steps: 5,
+            cargo: [1, 0, 0, 0, 0, 0, 0, 0],
+            arrive_ts: 0,
+            runs: vec![],
+            worn_bps: 0,
+            path,
+        });
+        let ps = c.file()["moving"][0]["provinces"].clone();
+        let ps = ps.as_array().unwrap();
+        assert_eq!(ps.len(), 2);
+        assert_eq!(ps[0], json!([0, 0]));
+        assert_ne!(ps[1], json!([0, 0]));
+    }
+
     /// A caravan is listed from its send to its settlement; a raid marks it
     /// and takes from its cargo; vaults follow their seizures; the
     /// checkpoint round-trips.
@@ -215,6 +267,12 @@ mod tests {
             domestic: false,
         });
         let f = c.file();
+        assert_eq!(
+            f["moving"][0]["provinces"],
+            json!([[here(1).p, here(1).q]]),
+            "a walk within its Province"
+        );
+        assert_eq!(f["moving"][0]["path"], json!(vec![0u8; 12]));
         assert_eq!(f["moving"][0]["raided"], json!(true));
         assert_eq!(f["moving"][0]["cargo"][1], json!(0), "burned");
         assert_eq!(f["moving"][0]["runs"][0]["firstBell"], json!(290));

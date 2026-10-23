@@ -135,3 +135,19 @@ export function stepSecsOf(origin, dirs, lands, caravanBps = BPS_ONE) {
   }
   return out;
 }
+
+/**
+ * The Provinces a road from `a` to `b` (`{p, q}`) may cross, for
+ * `fastestPath`: both ends and their neighbours (a road is at most
+ * MAX_PATH_PROVINCES Provinces and MAX_PATH_STEPS steps, so it never strays
+ * further than one Province from its ends).
+ */
+export function landsWanted(a, b) {
+  const out = [];
+  const add = (p, q) => { if (!out.some(o => o.p === p && o.q === q)) out.push({ p, q }); };
+  for (const x of [a, b]) { add(x.p, x.q); for (const [dp, dq] of DIRECTIONS) add(x.p + dp, x.q + dq); }
+  return out;
+}
+
+/** A land for `fastestPath` from a decoded Province. */
+export const landOfProvince = prov => ({ p: prov.p, q: prov.q, passable: prov.passableMask, rough: prov.roughMask, road: prov.roadMask });
