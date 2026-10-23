@@ -64,3 +64,16 @@ pub const CLOSE_STRUCTURE: &[Cover] = &[Cover::Test(
         Err(E::NotOwner),
     ],
 )];
+
+/// S1 1e (step 5).
+pub const FORT_GARRISON: &[Cover] = &[Cover::Test(
+    "structure::g13_s1_fort_garrison_and_refusals",
+    &[
+        Lands("FortGarrison"),
+        CqErr(Cq::StructureLimit),
+        Err(E::BadData),
+        Err(E::Insufficient),
+        Err(E::NotOwner),
+        Err(E::NotResident),
+    ],
+)];

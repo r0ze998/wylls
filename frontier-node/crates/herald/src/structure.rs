@@ -20,7 +20,8 @@
 //! ```
 //!
 //! `kind` is `structure::KIND_*` (1 tower, 2 palisade, 3 fort); `cover` is
-//! a tower's coverage (empty for the others). Sightings: DEPART (the origin
+//! a tower's coverage (empty for the others); `sent` the whole troops sent
+//! into a fort (FORT_GARRISONED; its clash losses are not logged). Sightings: DEPART (the origin
 //! tile; the faction from the host's holding owner, `null` when the herald
 //! has not seen it), CARAVAN_SENT (every tile of the walk, from the logged
 //! path; one sighting a tower), REVEAL (the destination tile),
@@ -48,6 +49,10 @@ pub struct Item {
     pub owner_tag: u64,
     pub gen: u8,
     pub notify: u8,
+    /// S1 1e, a fort: the whole troops its owner sent in (FORT_GARRISONED;
+    /// the clash's losses are not logged, so this is what went in, not
+    /// what stands).
+    pub sent: u32,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -122,6 +127,7 @@ impl Structures {
                         owner_tag: *owner_tag,
                         gen: *gen,
                         notify: *notify,
+                        sent: 0,
                     },
                 );
             }
@@ -142,6 +148,13 @@ impl Structures {
             }
             CqEvent::StructureClosed { p, q, tile, .. } => {
                 self.items.remove(&(*p, *q, *tile));
+            }
+            CqEvent::FortGarrisoned {
+                p, q, tile, troops, ..
+            } => {
+                if let Some(t) = self.items.get_mut(&(*p, *q, *tile)) {
+                    t.sent = t.sent.saturating_add(*troops);
+                }
             }
             _ => return false,
         }
@@ -251,7 +264,7 @@ impl Structures {
                 };
                 json!({"p": p, "q": q, "tile": tile, "kind": t.kind, "faction": t.faction,
                     "ownerTag": t.owner_tag.to_string(), "gen": t.gen, "notify": t.notify,
-                    "cover": cover})
+                    "cover": cover, "sent": t.sent})
             })
             .collect();
         json!({"v": 1, "structures": items, "sightings": self.sightings})
@@ -283,6 +296,8 @@ impl Structures {
                     owner_tag: x["ownerTag"].as_str()?.parse().ok()?,
                     gen: x["gen"].as_u64()? as u8,
                     notify: x["notify"].as_u64()? as u8,
+                    // Absent in a checkpoint written before stage 1e.
+                    sent: x.get("sent").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
                 },
             );
         }

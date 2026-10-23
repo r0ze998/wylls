@@ -1104,6 +1104,22 @@
       "cu_limit_s1": 15000
     },
     {
+      "name": "FortGarrison",
+      "tag": 186,
+      "cu_budget": 20000,
+      "cu_per_unit": 0,
+      "cu_limit": 20000,
+      "measured": 0,
+      "tx_contract": 600,
+      "tx_ceiling": 600,
+      "tx_worst_estimate": 497,
+      "accounts": [7, 7],
+      "loaded_need_placeholder": 1484049,
+      "loaded_limit": 1507328,
+      "loaded_limit_s1": 1835008,
+      "cu_limit_s1": 20000
+    },
+    {
       "name": "Propose",
       "tag": 187,
       "cu_budget": 20000,

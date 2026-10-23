@@ -782,7 +782,8 @@ fn fold_record(
         | CqKind::NATION_PROPOSED
         | CqKind::NATION_VOTED
         | CqKind::NATION_DECIDED
-        | CqKind::RAID_OPENED => {}
+        | CqKind::RAID_OPENED
+        | CqKind::FORT_GARRISONED => {}
     }
 }
 

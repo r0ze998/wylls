@@ -16,6 +16,12 @@
 //!   its fort record, the counters.
 //! - **CloseStructure:** the owner's, the entry (and fort record) cleared,
 //!   the Structure closed, the counter.
+//! - **FortGarrison** (1e): the owner's live fort in the holding's
+//!   Province, the Province resolved through the last bell, a due pending
+//!   part folded, the new troops pending from the next bell, at most
+//!   `FORT_MAX_TROOPS`, the Spearmen reserve debited by them; nothing else
+//!   in the fort block changed. (The clash's fort write-back is V7's, the
+//!   shared clash model's replay.)
 //! - **Reveal:** under the Season's stances before it and the march's
 //!   expelled flag, a march whose path enters a stopping palisade's tile is
 //!   never revealed, and an S1 slot's `WORN_BPS` is `wear_bps` of the
@@ -600,6 +606,77 @@ pub fn judge_gather_wear(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wr
     Ok(())
 }
 
+// ------------------------------------------------------------ FortGarrison
+
+/// FortGarrison (accounts: 3 citizen, 4 holding, 5 province, 6 structure).
+pub fn judge_fort_garrison(ix: &crate::world::Ix, s: &dyn States, bell: u32) -> Result<(), Wrong> {
+    let x = ix2::FortGarrison::decode(&ix.data).map_err(|_| tower_wrong("does not decode"))?;
+    let (Some(citizen), Some(holding), Some(province), Some(structure)) =
+        (ix.key(3), ix.key(4), ix.key(5), ix.key(6))
+    else {
+        return Err(tower_wrong("the accounts are missing"));
+    };
+    let get = |k: &Key, after: bool, what: &str| {
+        if after { s.after(k) } else { s.before(k) }
+            .ok_or_else(|| tower_wrong(format!("no {what}")))
+    };
+    let td = get(&structure, false, "Structure")?;
+    let (pd, pa) = (
+        get(&province, false, "Province before")?,
+        get(&province, true, "Province after")?,
+    );
+    let (hb, ha) = (
+        get(&holding, false, "Holding before")?,
+        get(&holding, true, "Holding after")?,
+    );
+    if td[TW::KIND] != KIND_FORT
+        || td[TW::STATE] != TW::STATE_LIVE
+        || at::<32>(&td, TW::OWNER_CITIZEN) != Some(citizen)
+        || at::<32>(&hb, H2::OWNER_CITIZEN) != Some(citizen)
+        || i16_of(&td, TW::P) != i16_of(&pd, PV::P)
+        || i16_of(&td, TW::Q) != i16_of(&pd, PV::Q)
+        || i16_of(&hb, H2::P) != i16_of(&pd, PV::P)
+        || i16_of(&hb, H2::Q) != i16_of(&pd, PV::Q)
+    {
+        return Err(tower_wrong("a garrison into a fort the rules refuse"));
+    }
+    let rn = u32_of(&pd, PV::RESOLVED_NEXT).ok_or_else(|| tower_wrong("short Province"))?;
+    if !frontier_abi::prologue::resident_ok(rn, bell) {
+        return Err(tower_wrong(
+            "a fort garrisoned before the Province resolved",
+        ));
+    }
+    let i = fort_index(&pd, td[TW::TILE]).ok_or_else(|| tower_wrong("no fort record"))?;
+    let (tile, faction, gen, state, mut troops, pend_bell, mut pend) =
+        fort_rec(&pd, i).ok_or_else(|| tower_wrong("short Province"))?;
+    if pend > 0 && pend_bell <= bell {
+        troops += pend as u32 * 1_000;
+        pend = 0;
+    }
+    let pend = pend as u32 + x.troops;
+    if x.troops == 0 || troops / 1_000 + pend > ks::FORT_MAX_TROOPS {
+        return Err(tower_wrong("a fort garrisoned past its cap"));
+    }
+    for j in 0..FR::N {
+        let want = if j == i {
+            Some((tile, faction, gen, state, troops, bell + 1, pend as u16))
+        } else {
+            fort_rec(&pd, j)
+        };
+        if fort_rec(&pa, j) != want {
+            return Err(tower_wrong(format!(
+                "the fort record {j} is not the garrison's"
+            )));
+        }
+    }
+    let o = H2::reserve(0);
+    let (rb, ra) = (u32_of(&hb, o), u32_of(&ha, o));
+    if rb.and_then(|b| b.checked_sub(x.troops)) != ra {
+        return Err(tower_wrong("the Spearmen reserve did not pay the garrison"));
+    }
+    Ok(())
+}
+
 // ------------------------------------------------------------ the check
 
 pub fn run(cx: &mut Ctx) {
@@ -616,6 +693,7 @@ pub fn run(cx: &mut Ctx) {
                             V2Ix::BuildStructure,
                             V2Ix::SeizeStructure,
                             V2Ix::CloseStructure,
+                            V2Ix::FortGarrison,
                         ]
                         .iter()
                         .any(|t| t.tag() == x)
@@ -644,6 +722,7 @@ pub fn run(cx: &mut Ctx) {
                 Some(V2Ix::BuildStructure) => judge_build_structure(ix, &st, tx.time),
                 Some(V2Ix::SeizeStructure) => judge_seize_structure(ix, &st),
                 Some(V2Ix::CloseStructure) => judge_close_structure(ix, &st),
+                Some(V2Ix::FortGarrison) => judge_fort_garrison(ix, &st, bell),
                 Some(V2Ix::Reveal) => judge_reveal_wear(ix, &st),
                 Some(V2Ix::GatherClash) => judge_gather_wear(ix, &st),
                 _ => continue,

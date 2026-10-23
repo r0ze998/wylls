@@ -98,21 +98,26 @@ A palisade's tile is impassable to every walker it stops:
   pending troops grow by `troops` from `now_bell + 1` (a pending part
   already due is folded first). At most `FORT_MAX_TROOPS = 2,000` whole
   troops [phase 6].
-- **In the clash at bell `b`:** a live fort with effective troops ≥ 1,000
-  joins as a garrison of its faction when **a host of a faction it stops
-  stays on or arrives at its tile** (residents and arrivals, as caravans'
-  raiders are read). Order: sites, camp, **forts**, caravans, keep; only
-  while the garrisons are fewer than 12. Once in, the kernel fights every
-  other faction there (the clash has no alliances) [proposal].
+- **In the clash at bell `b`:** a live fort with troops (its due pending
+  part folded) joins as a **walled garrison of its faction**, as a site's
+  garrison does. Order: sites, camp, **forts**, caravans, keep; only while
+  the garrisons are fewer than 12. The kernel fights every other faction
+  there (the clash has no alliances). *As built (step 5):* the draft's
+  "joins only for a faction it stops" would need the Season's stances in
+  every clash build and digest (program, verifier, keeper, herald, WASM).
+  A fort that fights like a site's garrison keeps the clash a function of
+  the Province alone; owner's choice 3 (§10) is reopened for review. The
+  stances still govern walking (towers and palisades).
 - **Write-back:** the fort's troops after the clash (the pending part
   folded); a fort at 0 is **fallen**.
 - **Shelter:** a caravan on a joined fort's tile is sheltered (1c's rule:
   a tile already used by a garrison).
 - **Seizure:** SeizeStructure of a fort needs it fallen (`FortManned`,
   code 90, otherwise).
-- **Quiet:** `is_quiet_v2` is false when a manned fort would join; the
-  quiet and input digests append `PSF-FORT-v1 ‖ STANCES` when a fort is
-  live (a stance change can wake a fort).
+- **Quiet:** a manned fort is a garrison in `is_quiet_v2`, and
+  `trivially_quiet_v2` counts it as its faction on its tile. The fort
+  block is in the conquest block the digests already hash, so no digest
+  suffix is needed (the stances play no part in the clash).
 
 ## 3. Nations (K1, K2)
 
@@ -247,8 +252,10 @@ keeper, herald and gateway, committed on its own.
 2. A march through a palisade that stops it is refused at Reveal (it
    settles as a walk the rules refuse), judged by the palisades standing
    then.
-3. A fort fights every other faction once it joins (the clash has no
-   alliances); it joins only for a faction it stops.
+3. A fort fights every other faction on its tile (the clash has no
+   alliances). As built, a manned fort is always in the clash, like a
+   site's garrison; the draft let it join only for a faction it stops
+   (see §2.6). **Reopened for the owner.**
 4. One vote a Citizen; a quorum of 3 yes votes.
 5. Fort troops come from a holding in the same Province.
 6. Expelled villages lose the prize share in principle; stage 1 has no

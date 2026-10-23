@@ -720,6 +720,25 @@ pub fn build_structure(
     )
 }
 
+/// 0xBA FortGarrison (P, S1 1e): P + `[holding w] [province w] [structure
+/// r]`: `troops` whole Spearmen of `h`'s reserve join the citizen's fort on
+/// `tile` of the holding's Province from the next bell.
+pub fn fort_garrison(
+    a: &Addresses,
+    p: &Player,
+    h: HoldingRef,
+    tile: u8,
+    troops: u32,
+) -> Instruction {
+    let mut m = prologue(a, p);
+    m.extend([
+        w(h.address(a)),
+        w(h.province(a)),
+        r(a.structure(h.p as i32, h.q as i32, tile)),
+    ]);
+    build(a, m, d2::FortGarrison { troops }.to_bytes().to_vec())
+}
+
 /// 0xBB Propose (P, S1 1e): P + `[nation w] [target r|w] [system]`: a
 /// proposal to the citizen's Nation of `faction`. `target` is the Citizen
 /// to expel or readmit (`nation::KIND_EXPEL`/`KIND_READMIT`), `None` for a
@@ -1111,6 +1130,7 @@ mod tests {
                 seize_structure(&a, &pl, (3, 1, 21), home, k, 4),
             ),
             (Ix::CloseStructure, close_structure(&a, &pl, (3, 1, 21), k)),
+            (Ix::FortGarrison, fort_garrison(&a, &pl, h, 21, 300)),
             (Ix::Propose, propose(&a, &pl, 2, 2, 2, 0, Some(k))),
             (Ix::Propose, propose(&a, &pl, 2, 1, 4, 1, None)),
             (Ix::Vote, vote(&a, &pl, 2, 3, 17, true)),

@@ -867,6 +867,8 @@ fn continuity(cx: &mut Ctx) {
         Ix::Dissolve.tag(),
         Ix::Garrison.tag(),
         Ix::Depart.tag(),
+        // S1 1e: Garrison's rule for a fort.
+        frontier_abi::v2::tags::Ix::FortGarrison.tag(),
     ];
     let mut bad: Vec<ContinuityFinding> = vec![];
     for (t, tx) in w.txs.iter().enumerate() {

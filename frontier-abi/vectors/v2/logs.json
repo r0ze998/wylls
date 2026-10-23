@@ -1422,6 +1422,54 @@
           }
         ]
       }
+    },
+    {
+      "kind": 102,
+      "name": "FORT_GARRISONED",
+      "key": [
+        {
+          "name": "p",
+          "len": 4
+        },
+        {
+          "name": "q",
+          "len": 4
+        },
+        {
+          "name": "tile",
+          "len": 1
+        }
+      ],
+      "payload": [
+        {
+          "name": "owner_tag",
+          "len": 8
+        },
+        {
+          "name": "troops",
+          "len": 4
+        },
+        {
+          "name": "pend_bell",
+          "len": 4
+        },
+        {
+          "name": "pend",
+          "len": 2
+        },
+        {
+          "name": "holding_key",
+          "len": 8
+        }
+      ],
+      "body_without_tail_len": 41,
+      "vector": {
+        "bell": 2102,
+        "body_without_tail": "01663608000005000000ffffffff216b88a5c2dffc19366b88a5c26b88a5c26b886b88a5c2dffc1936",
+        "body": "01663608000005000000ffffffff216b88a5c2dffc19366b88a5c26b88a5c26b886b88a5c2dffc193600",
+        "decodes": true,
+        "chains": []
+      }
     }
   ],
   "reserved_kind": 89,

@@ -87,6 +87,7 @@ pub mod tag {
     pub const BUILD_STRUCTURE: u8 = 0xB7;
     pub const SEIZE_STRUCTURE: u8 = 0xB8;
     pub const CLOSE_STRUCTURE: u8 = 0xB9;
+    pub const FORT_GARRISON: u8 = 0xBA;
     pub const PROPOSE: u8 = 0xBB;
     pub const VOTE: u8 = 0xBC;
     pub const SETTLE_PROPOSAL: u8 = 0xBD;
@@ -232,7 +233,7 @@ pub const LAYOUT_VERSION_V2: u16 = 2;
 /// lower ones, and lowering a gate is not MC's). The `tx_max` column is
 /// the contract's (§5.4 "Tx B max"); `twin_tests` pins every row to
 /// `frontier_abi::v2::budgets`.
-pub const INSTRUCTIONS_V2: [IxInfo; 72] = [
+pub const INSTRUCTIONS_V2: [IxInfo; 73] = [
     ix(0x01, "CreateSeason", Class::O, 70_000, 1_100, false),
     ix(0x02, "InitShards", Class::O, 45_000, 600, false),
     ix(0x03, "ConsumeGenesisSeed", Class::D, 345_000, 760, true),
@@ -303,6 +304,7 @@ pub const INSTRUCTIONS_V2: [IxInfo; 72] = [
     ix(0xB7, "BuildStructure", Class::P, 40_000, 600, false),
     ix(0xB8, "SeizeStructure", Class::P, 30_000, 600, false),
     ix(0xB9, "CloseStructure", Class::P, 15_000, 500, false),
+    ix(0xBA, "FortGarrison", Class::P, 20_000, 600, false),
     // S1 (stage 1e): nations (measured).
     ix(0xBB, "Propose", Class::P, 20_000, 600, false),
     ix(0xBC, "Vote", Class::P, 12_000, 500, false),
@@ -749,14 +751,15 @@ pub mod kind {
     pub const STRUCTURE_BUILT: u8 = 95;
     pub const STRUCTURE_SEIZED: u8 = 96;
     pub const STRUCTURE_CLOSED: u8 = 97;
-    // S1 (stage 1e): kinds 98–101.
+    // S1 (stage 1e): kinds 98–102.
     pub const NATION_PROPOSED: u8 = 98;
     pub const NATION_VOTED: u8 = 99;
     pub const NATION_DECIDED: u8 = 100;
     pub const RAID_OPENED: u8 = 101;
+    pub const FORT_GARRISONED: u8 = 102;
 
     /// (kind, name) of every MC and S1 record kind.
-    pub const ALL_V2: [(u8, &str); 21] = [
+    pub const ALL_V2: [(u8, &str); 22] = [
         (SIEGE_DECLARED, "SIEGE_DECLARED"),
         (SIEGE_SETTLED, "SIEGE_SETTLED"),
         (CONQUEST, "CONQUEST"),
@@ -778,6 +781,7 @@ pub mod kind {
         (NATION_VOTED, "NATION_VOTED"),
         (NATION_DECIDED, "NATION_DECIDED"),
         (RAID_OPENED, "RAID_OPENED"),
+        (FORT_GARRISONED, "FORT_GARRISONED"),
     ];
 }
 
@@ -1504,6 +1508,7 @@ mod twin_tests {
             tag::BUILD_STRUCTURE,
             tag::SEIZE_STRUCTURE,
             tag::CLOSE_STRUCTURE,
+            tag::FORT_GARRISON,
             tag::PROPOSE,
             tag::VOTE,
             tag::SETTLE_PROPOSAL,

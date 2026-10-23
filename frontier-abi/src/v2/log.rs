@@ -141,6 +141,7 @@ cq_kinds! {
     NATION_VOTED = 99; key ["faction": 1, "id": 4]; payload ["voter_tag": 8, "yes": 1, "yes_now": 2, "no_now": 2];
     NATION_DECIDED = 100; key ["faction": 1, "id": 4]; payload ["passed": 1, "kind": 1, "target_faction": 1, "value": 1, "target_tag": 8, "yes": 2, "no": 2, "holdings": 24];
     RAID_OPENED = 101; key ["owner_tag": 8, "seq": 4]; payload ["p": 4, "q": 4, "bell": 4, "raider_host": 8, "raider_tag": 8, "domestic": 1];
+    FORT_GARRISONED = 102; key ["p": 4, "q": 4, "tile": 1]; payload ["owner_tag": 8, "troops": 4, "pend_bell": 4, "pend": 2, "holding_key": 8];
 }
 
 /// S1 caravan places as logged (8 B): `kind u8 ‖ p i16 ‖ q i16 ‖
@@ -743,6 +744,17 @@ pub fn chains_of(kind: AnyKind, key: &[u8], payload: &[u8]) -> Option<Chains> {
             let (p, q) = pq()?;
             c.push(E::Province, Base(EntityRef::Province { p, q }), false);
         }
+        CqKind::FORT_GARRISONED => {
+            let (p, q) = pq()?;
+            let me = CitizenRef::Tag8(rd_u64(pay("owner_tag")?, 0)?);
+            c.push(E::Citizen, Base(EntityRef::Citizen(me)), false);
+            c.push(
+                E::Holding,
+                Base(holding_of_key(rd_u64(pay("holding_key")?, 0)?)?),
+                false,
+            );
+            c.push(E::Province, Base(EntityRef::Province { p, q }), false);
+        }
         CqKind::RAID_OPENED => {
             // The raider's Citizen and the raid's Province (the caravan is
             // only read).
@@ -1053,7 +1065,7 @@ mod tests {
                 k.body_len()
             );
         }
-        assert_eq!(CQ_SPECS.len(), 21, "MC's 9 and S1's 12");
+        assert_eq!(CQ_SPECS.len(), 22, "MC's 9 and S1's 13");
         assert_eq!(AnyKind::Cq(CqKind::CONQUEST).body_len(), 137);
         assert_eq!(
             AnyKind::Cq(CqKind::CONQUEST).payload_len(),

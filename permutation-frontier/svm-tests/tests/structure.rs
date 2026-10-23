@@ -902,3 +902,175 @@ fn g13_s1_a_palisade_stops_a_caravan() {
         "SendCaravan past an own palisade",
     );
 }
+
+// ------------------------------------------------------------ forts (1e step 5)
+
+/// The fort record of `tile` in the cast's Province: `(troops milli,
+/// pend_bell, pend)`.
+fn fort_troops(c: &Chain, province: &Address, tile: u8) -> (u32, u32, u16) {
+    use frontier_abi::v2::layout::province::fort_record as FR;
+    let d = c.data(province);
+    let i = (0..FR::N)
+        .find(|&i| d[FR::at(i) + FR::STATE] == FR::STATE_LIVE && d[FR::at(i) + FR::TILE] == tile)
+        .expect("a live fort");
+    let o = FR::at(i);
+    (
+        u32_at(&d, o + FR::TROOPS),
+        u32_at(&d, o + FR::PEND_BELL),
+        u16::from_le_bytes([d[o + FR::PEND], d[o + FR::PEND + 1]]),
+    )
+}
+
+fn set_reserve(c: &mut Chain, holding: &Address, spearmen: u32) {
+    use frontier_abi::v2::layout::player::holding as H2;
+    c.edit(holding, |d| {
+        d[H2::reserve(0)..H2::reserve(0) + 4].copy_from_slice(&spearmen.to_le_bytes())
+    });
+}
+
+fn fort_garrison(k: &mut Cast, who: char, tile: u8, troops: u32) -> SendResult {
+    let e = if who == 'a' { &k.a } else { &k.r };
+    let ix = fx::fort_garrison(&k.w.a, &e.player(), e.href(), tile, troops);
+    let w = e.wallet.insecure_clone();
+    s1_send(&mut k.c, I2::FortGarrison, ix, &[&w])
+}
+
+/// FortGarrison: the owner's Spearmen join the fort from the next bell
+/// (a due pending part folded first), up to `FORT_MAX_TROOPS`.
+#[test]
+fn g13_s1_fort_garrison_and_refusals() {
+    use frontier_abi::v2::layout::player::holding as H2;
+    let mut k = Cast::new();
+    let tt = k.tt;
+    expect_lands(k.build('a', KIND_FORT, tt, 0), "BuildStructure fort");
+    let province = k.a.province;
+    let b = k.w.bell_at(k.c.now).unwrap();
+    k.w.set_resolved_next(&mut k.c, &province, b);
+    set_reserve(&mut k.c, &k.a.holding, 500);
+    let l = expect_lands(fort_garrison(&mut k, 'a', tt, 300), "FortGarrison");
+    let row = frontier_abi::v2::budgets::budget(I2::FortGarrison).cu_limit as u64;
+    println!("FortGarrison: {} CU (row {row})", l.cu);
+    assert!(l.cu <= row);
+    assert_eq!(fort_troops(&k.c, &province, tt), (0, b + 1, 300));
+    assert_eq!(u32_at(&k.c.data(&k.a.holding), H2::reserve(0)), 200);
+    match event(&l, CqKind::FORT_GARRISONED) {
+        fclient::conquest::CqEvent::FortGarrisoned {
+            tile,
+            owner_tag,
+            troops,
+            pend_bell,
+            pend,
+            holding_key,
+            ..
+        } => assert_eq!(
+            (tile, owner_tag, troops, pend_bell, pend, holding_key),
+            (tt, k.a.citizen_tag(), 300, b + 1, 300, k.a.host_id(0))
+        ),
+        e => panic!("{e:?}"),
+    }
+    // Refusals: no troops, more than the reserve, past the cap.
+    assert_code(fort_garrison(&mut k, 'a', tt, 0), E::BadData);
+    assert_code(fort_garrison(&mut k, 'a', tt, 201), E::Insufficient);
+    assert_code(
+        fort_garrison(&mut k, 'a', tt, kt::FORT_MAX_TROOPS + 1),
+        E::BadData,
+    );
+    set_reserve(&mut k.c, &k.a.holding, 5_000);
+    assert_cq(
+        fort_garrison(&mut k, 'a', tt, kt::FORT_MAX_TROOPS - 299),
+        Cq::StructureLimit,
+    );
+    // Another village's holding, a tower, an unresolved Province.
+    set_reserve(&mut k.c, &k.r.holding, 500);
+    assert_code(fort_garrison(&mut k, 'r', tt, 10), E::NotOwner);
+    let t2 = far_tile(&k.c, &k.a, 2);
+    expect_lands(k.build('a', KIND_TOWER, t2, 0), "BuildStructure tower");
+    assert_code(fort_garrison(&mut k, 'a', t2, 10), E::BadData);
+    let mut f = k.c.fork();
+    k.w.set_resolved_next(&mut f, &province, b.saturating_sub(5));
+    let ix = fx::fort_garrison(&k.w.a, &k.a.player(), k.a.href(), tt, 10);
+    let aw = k.a.wallet.insecure_clone();
+    assert_code(
+        s1_send(&mut f, I2::FortGarrison, ix, &[&aw]),
+        E::NotResident,
+    );
+    // Once due, the pending part folds into the troops.
+    k.w.to_bell(&mut k.c, b + 2, 5);
+    k.w.set_resolved_next(&mut k.c, &province, b + 2);
+    expect_lands(fort_garrison(&mut k, 'a', tt, 50), "FortGarrison again");
+    assert_eq!(fort_troops(&k.c, &province, tt), (300_000, b + 3, 50));
+}
+
+/// Resolves bell `b` of the cast's Province through the program's own
+/// clash (SkipQuiet refused as not quiet, GatherClash, ResolveFromInputs).
+fn clash_here(k: &mut Cast, b: u32) {
+    let dest = (k.a.p as i32, k.a.q as i32);
+    let region = k.c.data(&k.a.province)[P::REGION];
+    k.w.set_resolved_next(&mut k.c, &k.a.province, b);
+    k.w.ready_bell(&mut k.c, b, region, None);
+    let ix = k.w.skip_ix(dest, b, 1);
+    assert_code(k.c.send(&[ix], &[&k.w.keeper]), E::NotQuiet);
+    let ix = k.w.gather_ix(&k.c, dest, b, 0, 1);
+    expect_lands(k.c.send(&[ix], &[&k.w.keeper]), "GatherClash");
+    let ix = k.w.resolve_ix(dest, b);
+    expect_lands(k.c.send(&[ix], &[&k.w.keeper]), "ResolveFromInputs");
+}
+
+/// A manned fort fights a host of another faction on its tile as a walled
+/// garrison of its faction (its due pending troops folded in); beaten, it
+/// has fallen (0 troops) and the victor seizes it. A fort with only its
+/// own faction on its tile leaves the bell quiet.
+#[test]
+fn g13_s1_a_fort_fights_falls_and_is_seized() {
+    use frontier_abi::v2::layout::province::fort_record as FR;
+    let mut k = Cast::new();
+    let tt = k.tt;
+    expect_lands(k.build('a', KIND_FORT, tt, 0), "BuildStructure fort");
+    let province = k.a.province;
+    let b = k.w.bell_at(k.c.now).unwrap() + 1;
+    // 40 troops standing and 20 pending, due at `b`.
+    k.c.edit(&province, |d| {
+        let o = FR::at(0);
+        d[o + FR::TROOPS..o + FR::TROOPS + 4].copy_from_slice(&40_000u32.to_le_bytes());
+        d[o + FR::PEND_BELL..o + FR::PEND_BELL + 4].copy_from_slice(&b.to_le_bytes());
+        d[o + FR::PEND..o + FR::PEND + 2].copy_from_slice(&20u16.to_le_bytes());
+    });
+    // Its own faction's host on its tile: quiet.
+    {
+        let mut f = k.c.fork();
+        k.w.craft_host(&mut f, &k.a, &province, 1, 0, 0, 100, tt);
+        let dest = (k.a.p as i32, k.a.q as i32);
+        let region = f.data(&province)[P::REGION];
+        k.w.set_resolved_next(&mut f, &province, b);
+        k.w.ready_bell(&mut f, b, region, None);
+        expect_lands(
+            f.send(&[k.w.skip_ix(dest, b, 1)], &[&k.w.keeper]),
+            "SkipQuiet",
+        );
+    }
+    // R's host of 2,000 on the fort's tile beats it.
+    k.w.craft_host(&mut k.c, &k.r, &province, 0, 0, 0, 2_000, tt);
+    clash_here(&mut k, b);
+    let (troops, pend_bell, pend) = fort_troops(&k.c, &province, tt);
+    assert_eq!(
+        (troops, pend_bell, pend),
+        (0, u32::MAX, 0),
+        "fallen, the pending part folded"
+    );
+    // R seizes the fallen fort.
+    let ix = fx::seize_structure(
+        &k.w.a,
+        &k.r.player(),
+        (k.a.p, k.a.q, tt),
+        k.r.href(),
+        k.a.citizen,
+        0,
+    );
+    let rw = k.r.wallet.insecure_clone();
+    k.w.set_resolved_next(&mut k.c, &province, b + 1);
+    expect_lands(
+        s1_send(&mut k.c, I2::SeizeStructure, ix, &[&rw]),
+        "SeizeStructure",
+    );
+    assert_eq!(k.c.data(&province)[FR::at(0) + FR::FACTION], 1);
+}

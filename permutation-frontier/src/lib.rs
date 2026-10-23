@@ -202,6 +202,7 @@ pub fn dispatch(
         Ix::BuildStructure => structure::build_structure(p, a, data),
         Ix::SeizeStructure => structure::seize_structure(p, a, data),
         Ix::CloseStructure => structure::close_structure(p, a, data),
+        Ix::FortGarrison => structure::fort_garrison(p, a, data),
         // S1 (stage 1e): nations.
         Ix::Propose => nation::propose(p, a, data),
         Ix::Vote => nation::vote(p, a, data),

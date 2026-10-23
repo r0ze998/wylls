@@ -7,6 +7,7 @@
 //! | 0xB7 | BuildStructure | [`build_structure`] |
 //! | 0xB8 | SeizeStructure | [`seize_structure`] |
 //! | 0xB9 | CloseStructure | [`close_structure`] |
+//! | 0xBA | FortGarrison | [`fort_garrison`] |
 //!
 //! A structure is a Structure account (its kind, owner, faction,
 //! generation and rent) and an entry of its Province's structure list
@@ -31,8 +32,17 @@
 //!   the fort record's faction and generation follow the account's.
 //! - **CloseStructure** of a fort disbands its troops [proposal: they are
 //!   lost].
+//! - **FortGarrison** is Garrison's rule for a fort: an owner touch of the
+//!   fort owner's final holding in the fort's Province (resolved through the
+//!   last bell, `NotResident`), Spearmen from its reserve, pending from the
+//!   next bell (a due pending part folded first), at most
+//!   `structure::FORT_MAX_TROOPS` whole troops (`StructureLimit`). The
+//!   clash folds a due pending part and fights the fort as a walled
+//!   garrison (`clash_model::forts_at`).
 
 use solana_program::{account_info::AccountInfo, pubkey::Pubkey};
+
+use permutation_rules::fixed::MILLI;
 
 use frontier_abi::addr::{host_id, split_host_id};
 use frontier_abi::v2::ix as ix2;
@@ -618,4 +628,122 @@ pub fn close_structure(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     }
     init::close_to(p, structure, rent_to, &Sink::Never, bell)?;
     Ok(())
+}
+
+// ------------------------------------------------------------ 0xBA FortGarrison
+
+/// 0xBA FortGarrison(troops): P + `[holding w] [province w] [structure r]`
+/// (1e contract §2.6; module note).
+pub fn fort_garrison(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    use frontier_abi::v2::layout::province::fort_record as FR;
+    check_accounts_v2(Ix2::FortGarrison, a, None)?;
+    let x = ix2::FortGarrison::decode(d)?;
+    if x.troops == 0 || x.troops > kt::FORT_MAX_TROOPS {
+        return Err(FrontierError::BadData.into());
+    }
+    let pl: Player = hold::player(p, a)?;
+    let [_, _payer, _season, citizen, holding, province, structure] = a else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    let sid = pl.pc.season.id;
+    let hh = hold::owned_holding(p, &pl, holding, citizen)?;
+    hold::live(&hh)?;
+    hold::own_province_unlocked(p, &pl, &hh, province)?;
+    if hold::finality(&pl, &hh, holding, citizen, province)? != H::STATE_FINAL {
+        return Err(FrontierError::NotFinal.into());
+    }
+    // The fort: the citizen's, in the holding's Province.
+    present_v2(structure, p, K2::Structure, sid)?;
+    let tile = {
+        let td = structure.try_borrow_data()?;
+        let r = Ro(&td);
+        if r.u8(TW::KIND)? != KIND_FORT
+            || r.u8(TW::STATE)? != TW::STATE_LIVE
+            || r.i16(TW::P)? != hh.p
+            || r.i16(TW::Q)? != hh.q
+        {
+            return Err(FrontierError::BadData.into());
+        }
+        if r.arr::<32>(TW::OWNER_CITIZEN)? != citizen.key.to_bytes() {
+            return Err(FrontierError::NotOwner.into());
+        }
+        r.u8(TW::TILE)?
+    };
+    expect_key(
+        structure,
+        &frontier_abi::v2::addr::structure(&pl.ctx, hh.p as i32, hh.q as i32, tile),
+    )?;
+    let b = pl.pc.now_bell;
+    let pend_bell = b.checked_add(1).ok_or(OVERFLOW)?;
+    let (i, troops, pend) = {
+        let pd = province.try_borrow_data()?;
+        let r = Ro(&pd);
+        if !frontier_abi::prologue::resident_ok(r.u32(P::RESOLVED_NEXT)?, b) {
+            return Err(FrontierError::NotResident.into());
+        }
+        let i = fort_of(&pd, tile)?;
+        let o = FR::at(i);
+        let (mut troops, mut pend) = (r.u32(o + FR::TROOPS)?, r.u16(o + FR::PEND)? as u32);
+        // A due pending part is folded first.
+        if pend > 0 && r.u32(o + FR::PEND_BELL)? <= b {
+            troops = troops
+                .checked_add(pend.checked_mul(MILLI as u32).ok_or(OVERFLOW)?)
+                .ok_or(OVERFLOW)?;
+            pend = 0;
+        }
+        let pend = pend.checked_add(x.troops).ok_or(OVERFLOW)?;
+        if troops / MILLI as u32 + pend > kt::FORT_MAX_TROOPS {
+            return Err(cq(CqError::StructureLimit));
+        }
+        (i, troops, pend as u16)
+    };
+    let have = Ro(&holding.try_borrow_data()?).u32(H::reserve(super::host::GARRISON_UNIT))?;
+    if have < x.troops {
+        return Err(FrontierError::Insufficient.into());
+    }
+    {
+        let mut pd = province.try_borrow_mut_data()?;
+        let o = FR::at(i);
+        let mut w = Rw(&mut pd);
+        w.set_u32(o + FR::TROOPS, troops)?;
+        w.set_u32(o + FR::PEND_BELL, pend_bell)?;
+        w.set_u16(o + FR::PEND, pend)?;
+    }
+    {
+        let now = pl.now.ts;
+        let h = hold::load_touched(holding, now)?;
+        let mut hd = holding.try_borrow_mut_data()?;
+        hold::write_holding(&mut hd, &h, now)?;
+        Rw(&mut hd).set_u32(H::reserve(super::host::GARRISON_UNIT), have - x.troops)?;
+    }
+    let hkey = host_id(hh.p as i32, hh.q as i32, hh.site, hh.gen, 0).ok_or(BAD_ACCOUNT)?;
+    let payload = crate::events::Buf::<26>::new()
+        .u64(pl.pc.citizen_tag)
+        .u32(x.troops)
+        .u32(pend_bell)
+        .u16(pend)
+        .u64(hkey);
+    let mut cd = citizen.try_borrow_mut_data()?;
+    let mut hd = holding.try_borrow_mut_data()?;
+    let mut pd = province.try_borrow_mut_data()?;
+    cqlog::emit(
+        CqKind::FORT_GARRISONED as u8,
+        b,
+        &key9(hh.p as i32, hh.q as i32, tile),
+        payload.get()?,
+        &mut [
+            Chained2 {
+                entity: E2::Citizen,
+                data: &mut cd,
+            },
+            Chained2 {
+                entity: E2::Holding,
+                data: &mut hd,
+            },
+            Chained2 {
+                entity: E2::Province,
+                data: &mut pd,
+            },
+        ],
+    )
 }

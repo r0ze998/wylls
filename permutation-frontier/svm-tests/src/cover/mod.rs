@@ -156,6 +156,7 @@ pub fn covered_by(ix: I) -> &'static [Cover] {
         I::BuildStructure => structure::BUILD_STRUCTURE,
         I::SeizeStructure => structure::SEIZE_STRUCTURE,
         I::CloseStructure => structure::CLOSE_STRUCTURE,
+        I::FortGarrison => structure::FORT_GARRISON,
         I::Propose => nation::PROPOSE,
         I::Vote => nation::VOTE,
         I::SettleProposal => nation::SETTLE_PROPOSAL,

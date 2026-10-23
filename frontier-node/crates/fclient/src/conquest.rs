@@ -210,7 +210,20 @@ pub enum CqEvent {
         entry: u8,
         kind: u8,
     },
-    // S1 (stage 1e, kinds 98–101).
+    // S1 (stage 1e, kinds 98–102).
+    /// Troops sent into a fort (pending from `pend_bell`).
+    FortGarrisoned {
+        p: i32,
+        q: i32,
+        tile: u8,
+        owner_tag: u64,
+        /// Whole troops this garrison added.
+        troops: u32,
+        pend_bell: u32,
+        /// Whole troops pending after it.
+        pend: u16,
+        holding_key: u64,
+    },
     /// A raid RaidDomestic opened (RaidCaravan or DefaultRaid settles it).
     RaidOpened {
         owner_tag: u64,
@@ -348,6 +361,7 @@ impl CqEvent {
             | VaultBuilt { p, q, .. }
             | CaravanRaided { p, q, .. }
             | RaidOpened { p, q, .. }
+            | FortGarrisoned { p, q, .. }
             | VaultSeized { p, q, .. }
             | StructureBuilt { p, q, .. }
             | StructureSeized { p, q, .. }
@@ -559,6 +573,16 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
             owner_tag: u("owner_tag")?,
             entry: b8("entry")?,
             kind: b8("kind")?,
+        },
+        CqKind::FORT_GARRISONED => CqEvent::FortGarrisoned {
+            p: i("p")?,
+            q: i("q")?,
+            tile: b8("tile")?,
+            owner_tag: u("owner_tag")?,
+            troops: u("troops")? as u32,
+            pend_bell: u("pend_bell")? as u32,
+            pend: u("pend")? as u16,
+            holding_key: u("holding_key")?,
         },
         CqKind::RAID_OPENED => CqEvent::RaidOpened {
             owner_tag: u("owner_tag")?,

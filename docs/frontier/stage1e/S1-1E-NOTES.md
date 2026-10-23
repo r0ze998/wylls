@@ -138,7 +138,44 @@ dropped in favour of that constant (no layout or preset change). V7
 judges the arms with the stake in an S1 season. LiteSVM:
 `conquest::g13_s1_declare_siege_burns_the_siege_arms`.
 
-## Step 5
+## Step 5: forts (done)
 
-Not yet built: forts in the clash (FortGarrison, joining the clash,
-seizure after a fall).
+- **FortGarrison (0xBA)** `P + [holding w] [province w] [structure r]`,
+  data `troops u32`. It follows Garrison's rule for a fort: an owner
+  touch of the fort owner's final holding in the fort's Province, the
+  Province resolved through the last bell (`NotResident`), Spearmen from
+  the reserve. The troops are pending from the next bell (a due pending
+  part is folded first), at most `FORT_MAX_TROOPS` = 2,000
+  (`StructureLimit`). Record FORT_GARRISONED (102). Measured 12,133 CU
+  (row 20,000).
+- **The clash** (`clash_model`, shared by the program, verifier, keeper,
+  herald and WASM): `forts_at` reads the live forts with their troops at
+  the bell (a due pending part folded). A manned fort joins after the
+  sites and the camp, while there is room, as a **walled garrison of its
+  faction**; its garrison id carries site value 12 + its index, which no
+  host id carries. After the clash a fort whose troops changed is written
+  back (the folded pending part cleared); one left as it was keeps its
+  record, and the next build folds again. At 0 a fort has fallen and
+  SeizeStructure takes it (`FortManned` before). `trivially_quiet_v2`
+  counts a manned fort as its faction on its tile. The fort block is in
+  the conquest block the digests already hash.
+- **A change from the contract draft, for the owner:** the draft let a
+  fort join only for a host of a faction it stops (under the Season's
+  stances). That would put the Season's stances into every clash build
+  and digest, at every caller (program, verifier, keeper, herald, WASM).
+  As built, a fort fights like a site's garrison: every other faction on
+  its tile. The stances still decide walking (towers and palisades).
+  Because the clash knows factions, not villages, a fort does not fight
+  an expelled village of its own faction. Contract §2.6 and choice 3
+  (§10) are marked as reopened.
+- **Off-chain**: fclient builder and event; V24 judges FortGarrison (the
+  fort record and the reserve), V7 counts it an owner touch and replays
+  the clash's fort write-back through the shared model; the herald's
+  structures feed shows the troops sent into each fort (`sent`).
+- **Tests**: `structure::g13_s1_fort_garrison_and_refusals`, and
+  `g13_s1_a_fort_fights_falls_and_is_seized`: a fort with its own
+  faction's host is quiet, falls to a larger host of another faction
+  (its pending troops folded and spent), and is seized.
+
+Stage 1e is complete. Left for the owner: the reopened fort rule (above)
+and the [phase 6] numbers.

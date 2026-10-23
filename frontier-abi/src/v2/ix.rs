@@ -134,6 +134,9 @@ ix_data_v2! {
     SeizeStructure { entry: u8 }
     /// 0xB9 (P, S1, 1d/1e): the owner closes the structure.
     CloseStructure {}
+    /// 0xBA (P, S1, 1e): `troops` whole Spearmen of the holding's reserve
+    /// join the fort from the next bell.
+    FortGarrison { troops: u32 }
 }
 
 ix_data_v2! {
@@ -310,6 +313,7 @@ pub fn fixed_len(ix: Ix) -> Option<usize> {
         Ix::BuildStructure => BuildStructure::LEN,
         Ix::SeizeStructure => SeizeStructure::LEN,
         Ix::CloseStructure => CloseStructure::LEN,
+        Ix::FortGarrison => FortGarrison::LEN,
         Ix::Propose => Propose::LEN,
         Ix::Vote => Vote::LEN,
         Ix::SettleProposal => SettleProposal::LEN,
@@ -338,6 +342,7 @@ pub fn wire_of(ix: Ix) -> Option<&'static [(&'static str, usize)]> {
         Ix::BuildStructure => BuildStructure::WIRE,
         Ix::SeizeStructure => SeizeStructure::WIRE,
         Ix::CloseStructure => CloseStructure::WIRE,
+        Ix::FortGarrison => FortGarrison::WIRE,
         Ix::Propose => Propose::WIRE,
         Ix::Vote => Vote::WIRE,
         Ix::SettleProposal => SettleProposal::WIRE,

@@ -94,6 +94,9 @@ pub const MC_ROWS: &[(Ix, u32, u32, u32)] = &[
     (Ix::BuildStructure, 40_000, 0, 600),
     (Ix::SeizeStructure, 30_000, 0, 600),
     (Ix::CloseStructure, 15_000, 0, 500),
+    // S1 (1e; S1-1E-CONTRACT §8): measured 12,133 (`tests/structure.rs`),
+    // with room for the holding's finality flip.
+    (Ix::FortGarrison, 20_000, 0, 600),
     // S1 (1e; S1-1E-CONTRACT §8): measured in LiteSVM (`tests/nation.rs`)
     // Propose 11,957 (the Nation's creation included), Vote 6,631,
     // SettleProposal 8,074 (an expulsion with one holding), with room.
