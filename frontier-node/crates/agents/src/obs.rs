@@ -227,6 +227,14 @@ impl SeasonView {
     pub fn end_bell(&self) -> u32 {
         self.season.as_ref().map(|s| s.end_bell).unwrap_or(u32::MAX)
     }
+
+    /// The season's rules from its `program_version` (M1 when the Season
+    /// account was not read).
+    pub fn rules(&self) -> crate::rules::Rules {
+        self.season.as_ref().map_or(crate::rules::Rules::M1, |s| {
+            crate::rules::Rules::of_program_version(s.program_version)
+        })
+    }
 }
 
 // ------------------------------------------------------------------ me

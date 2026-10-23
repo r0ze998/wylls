@@ -62,9 +62,27 @@ impl Budgets {
         .expect("v2 budgets.json is a budgets table")
     }
 
-    /// The canonical table of a season's `program_version` (R-22).
+    /// The S1 table: the v2 table with `L(kind)` at the S1 release's
+    /// programdata length (`frontier_abi::v2::budgets::loaded_limit_s1`;
+    /// the S1 `.so` is its own program, larger than the MC one) and the S1
+    /// CU limits (stage 1d: Reveal's, `cu_limit_s1`).
+    pub fn canonical_s1() -> Budgets {
+        let mut b = Budgets::canonical_v2();
+        for (tag, x) in b.by_tag.iter_mut() {
+            if let Some(ix) = frontier_abi::v2::Ix::from_tag(*tag) {
+                x.loaded_limit = frontier_abi::v2::budgets::loaded_limit_s1(ix);
+                x.cu_limit = frontier_abi::v2::budgets::cu_limit_s1(ix).min(abi::CU_MAX);
+            }
+        }
+        b
+    }
+
+    /// The canonical table of a season's `program_version` (R-22; S1 its
+    /// own loaded limits).
     pub fn canonical_for(program_version: u16) -> Budgets {
-        if program_version >= abi::PROGRAM_VERSION_V2 {
+        if program_version >= abi::PROGRAM_VERSION_S1 {
+            Budgets::canonical_s1()
+        } else if program_version >= abi::PROGRAM_VERSION_V2 {
             Budgets::canonical_v2()
         } else {
             Budgets::canonical()
@@ -209,6 +227,31 @@ mod tests {
             Budgets::canonical_for(abi::PROGRAM_VERSION_V1),
             Budgets::canonical()
         );
+        // An S1 season: the S1 CU limits (the v2 rows', Reveal's own), the
+        // S1 loaded limits, every S1 kind.
+        let s1 = Budgets::canonical_for(abi::PROGRAM_VERSION_S1);
+        for row in abi::INSTRUCTIONS_V2 {
+            let ix = frontier_abi::v2::Ix::from_tag(row.tag).unwrap();
+            let x = s1.get(row.tag);
+            assert_eq!(
+                x.cu_limit,
+                frontier_abi::v2::budgets::cu_limit_s1(ix),
+                "{}",
+                row.name
+            );
+            assert_eq!(
+                x.cu_limit == b.get(row.tag).cu_limit,
+                row.tag != abi::tag::REVEAL,
+                "{}",
+                row.name
+            );
+            assert_eq!(
+                x.loaded_limit,
+                frontier_abi::v2::budgets::loaded_limit_s1(ix),
+                "{}",
+                row.name
+            );
+        }
     }
 
     /// §10.2: the canonical budgets file loads (W2-F consumes it).

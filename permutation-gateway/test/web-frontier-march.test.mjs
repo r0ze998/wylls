@@ -108,10 +108,10 @@ test('PS2 records: every kind the page decodes is frontier-abi\'s, field for fie
   assert.equal(dep.seal.length, 165);
   assert.equal(dep.commit.length, 32);
   assert.equal(typeof dep.host_id, 'bigint');
-  assert.equal(flog.decodeRecord(Uint8Array.of(1, 99, 0, 0, 0, 0)), null, 'a kind the page does not read');
+  assert.equal(flog.decodeRecord(Uint8Array.of(1, 0xEE, 0, 0, 0, 0)), null, 'a kind the page does not read');
   assert.throws(() => flog.decodeRecord(Uint8Array.of(2, 30, 0, 0, 0, 0)), /version/);
   assert.throws(() => flog.decodeRecord(Uint8Array.of(1, 30, 0, 0, 0, 0, 1)), /short/);
-  const page = flog.decodePage([{ seq: '1', body_b64: Buffer.from(hex(byKind.get(41).vector.body_without_tail)).toString('base64') }, { seq: '2', body_b64: 'AQ==' }, { seq: '3', body_b64: 'AWMAAAAA' }]);
+  const page = flog.decodePage([{ seq: '1', body_b64: Buffer.from(hex(byKind.get(41).vector.body_without_tail)).toString('base64') }, { seq: '2', body_b64: 'AQ==' }, { seq: '3', body_b64: 'Ae4AAAAA' }]);
   assert.equal(page.records.length, 1);
   assert.equal(page.records[0].record.name, 'CLASH');
   assert.equal(page.bad, 1);

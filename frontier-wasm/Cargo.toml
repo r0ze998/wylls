@@ -17,6 +17,9 @@ publish = false
 [features]
 default = []
 cq = []
+# The S1 rules (redesign stage 1): `ruleset_hash` answers
+# `ruleset_hash_v3`. Implies the conquest build.
+s1 = ["cq"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]

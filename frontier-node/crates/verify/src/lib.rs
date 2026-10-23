@@ -33,8 +33,10 @@
 
 pub mod checks;
 pub mod clash_input;
+pub mod clash_v2;
 pub mod codes;
 pub mod conquest;
+pub mod cqrec;
 pub mod facts;
 pub mod fixture;
 pub mod holding;
@@ -213,10 +215,37 @@ pub fn exit_code(v: Verdict) -> i32 {
 }
 
 /// Runs every check over `input` and builds the report.
+/// A conquest-program season runs both suites (conquest contract R-22):
+/// V2–V13 with the v2 rules where they differ, and the conquest audit
+/// (CQ1 walks every chain in V1's place).
 pub fn verify(input: &Input) -> Report {
-    if conquest::applies(input) {
-        conquest::verify(input)
-    } else {
-        checks::run(input)
+    let base = checks::run(input);
+    if !conquest::applies(input) {
+        return base;
     }
+    merge(base, conquest::verify(input))
+}
+
+/// One report of two suites over the same input: the worse verdict, every
+/// finding (worst first), both check lists.
+fn merge(mut a: Report, b: Report) -> Report {
+    a.verdict = [a.verdict, b.verdict]
+        .into_iter()
+        .find(|v| *v == Verdict::Fail)
+        .or_else(|| {
+            [a.verdict, b.verdict]
+                .into_iter()
+                .find(|v| *v == Verdict::Unverifiable)
+        })
+        .unwrap_or(Verdict::Pass);
+    a.findings.extend(b.findings);
+    a.findings.sort_by_key(|x| std::cmp::Reverse(x.severity));
+    a.checks_run.extend(b.checks_run);
+    a.entities = a.entities.max(b.entities);
+    a.bells = a.bells.max(b.bells);
+    a.provenance = format!(
+        "{}; conquest season: V2–V13 with the v2 rules, chains, final state, identity and territory time by the conquest audit (CQ1–CQ3)",
+        a.provenance
+    );
+    a
 }

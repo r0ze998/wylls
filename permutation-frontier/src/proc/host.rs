@@ -45,7 +45,7 @@ use frontier_abi::prologue::{self as ap, HoldingHdr};
 use frontier_abi::tags::Ix;
 use permutation_rules::fixed::{MilliTroops, MILLI};
 use permutation_rules::frontier::catalog;
-use permutation_rules::frontier::doctrine::{of_faction, Doctrine};
+use permutation_rules::frontier::doctrine::{of_faction_v3 as of_faction, Doctrine};
 use permutation_rules::frontier::fees;
 use permutation_rules::frontier::host::{GarrisonState, Host, HostError, DESTROYED_BELOW};
 use permutation_rules::frontier::stance::{Posture, Stance};

@@ -168,6 +168,24 @@ const ERROR_TEXT = {
   FoldOutOfOrder: () => L`領土の集計順序を確認しています。少し待ってください`,
   FoldTooEarly: () => L`このターンの領土の集計がまだ終わっていません`,
   NotLead: () => L`この包囲の先導者だけが行える操作です`,
+  // S1 stage 1b: vaults and caravans
+  VaultSite: () => L`蔵はこのマスに建てられません（通れない土地、村、砦、野営地、または既存の蔵）`,
+  VaultLimit: () => L`持てる蔵の上限に達しています`,
+  WalletRequired: () => L`この操作はウォレットの署名が必要です（ゲーム内の鍵ではできません）`,
+  ProvinceBusy: () => L`この州の隊商の枠がいっぱいです。少し待ってから送ってください`,
+  CaravanEarly: () => L`隊商はまだ到着していないか、通った州の決着がまだです`,
+  RaidState: () => L`この隊商には決着を待つ略奪がない、またはすでに決着しています`,
+  RaidWindow: () => L`略奪の決定の受付時間外です`,
+  NotOnTile: () => L`蔵や建物のマスに自分の軍勢がいないか、持ち主の軍勢がまだいます`,
+  // S1 stages 1d, 1e: structures (towers, palisades, forts)
+  StructureSite: () => L`この建物はこのマスに建てられません（通れない土地、村、砦、野営地、または既存の建物）`,
+  StructureLimit: () => L`この種類の建物は、もう持てません`,
+  StructureFull: () => L`この州には、これ以上この建物を建てられません`,
+  FortManned: () => L`兵が残っている砦は奪えません。先に戦いで兵を倒してください`,
+  // S1 stage 1e: nations
+  ProposalsFull: () => L`国の議題がいっぱいです。決着を待ってから出してください`,
+  NotVoter: () => L`まだ投票や提案はできません（参加から2日たっていないか、国を追放されています）`,
+  ProposalState: () => L`この議題には今それはできません（受付が終わった、まだ締め切り前、または対象が条件を満たしません）`,
   NotImplemented: () => L`まだ実装されていません`,
 };
 

@@ -735,6 +735,8 @@ pub struct HoldingCq {
     pub captured_bell: u32,
     /// The victim's first-holding key (host-id form).
     pub prev_home: u64,
+    /// S1: the site's terrain ore, milli per hour (0 in an MC holding).
+    pub terrain_ore: i64,
 }
 
 impl HoldingCq {
@@ -821,6 +823,7 @@ impl Holding {
                     capture_flags: b.u8(h2::CAPTURE_FLAGS),
                     captured_bell: b.u32(h2::CAPTURED_BELL),
                     prev_home: b.u64(h2::PREV_HOME),
+                    terrain_ore: b.i64(h2::TERRAIN_ORE),
                 }
             }),
         })

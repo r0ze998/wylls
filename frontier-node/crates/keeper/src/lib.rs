@@ -36,6 +36,7 @@
 pub mod api;
 pub mod archive;
 pub mod beacon;
+pub mod caravans;
 pub mod config;
 pub mod conquest;
 pub mod engine;
@@ -45,6 +46,7 @@ pub mod genesis;
 pub mod holdings;
 pub mod journal;
 pub mod landindex;
+pub mod nations;
 pub mod play;
 pub mod playindex;
 pub mod pools;

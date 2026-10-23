@@ -11,7 +11,7 @@
 //! send now, or to wait, or to give the order up. The runner
 //! (`frontier-bots`) turns the answer into transactions.
 
-use fclient::decode::Entry;
+use fclient::decode::{Entry, Holding, Province};
 use fclient::ix::HoldingRef;
 
 use crate::campaign::Mission;
@@ -130,13 +130,13 @@ pub fn step(
         };
         // The earliest arrival first, then pushed to the common bell.
         let Some((_, (_, p0, _))) = first_plan(obs, h, at, &host, [t], 0, stance, retreat) else {
-            return Step::Drop("no_path");
+            return drop_no_path(obs, h, at, &host, &t, 0);
         };
         let extra = o.arrive_min.saturating_sub(p0.arrive_bell);
         let Some((_, (path, plain, slot))) =
             first_plan(obs, h, at, &host, [t], extra, stance, retreat)
         else {
-            return Step::Drop("no_path");
+            return drop_no_path(obs, h, at, &host, &t, extra);
         };
         let presets = obs.season.tip_presets(reveal_loaded_limit);
         let tip = pick_tip(presets, spec.persona, prof.q, &mut rng);
@@ -195,4 +195,54 @@ pub fn dedupe(orders: &mut Vec<Order>, new: Order) {
         return;
     }
     orders.push(new);
+}
+
+/// `Step::Drop("no_path")` with one line on stderr saying why (CQ3-A: every
+/// keep order of the sc-cq2d fleet was dropped here): the direct path over
+/// the observed provinces, the free transit slot, the plan's bells.
+fn drop_no_path(
+    obs: &Observation,
+    h: &Holding,
+    at: (i16, i16),
+    host: &Entry,
+    t: &Target,
+    extra: u32,
+) -> Step {
+    use crate::path;
+    use crate::policy::DEPART_SLACK_SECS;
+    let provs: std::collections::BTreeMap<(i16, i16), &Province> = obs
+        .provinces
+        .iter()
+        .map(|(&k, v)| (k, &v.province))
+        .collect();
+    let path = path::plan(
+        &provs,
+        (at.0 as i32, at.1 as i32),
+        host.tile,
+        (t.p as i32, t.q as i32),
+        t.tile,
+        host.unit,
+    );
+    let depart_ts = obs.now + DEPART_SLACK_SECS;
+    let dep_bell = obs.season.bell_at(depart_ts);
+    let earliest = path
+        .as_ref()
+        .map(|p| path::earliest_arrival(obs.season.genesis_ts, depart_ts, p.secs));
+    let observed: Vec<String> = provs.keys().map(|(p, q)| format!("{p},{q}")).collect();
+    let free_slot = h.transit.iter().any(|x| x.state == 0);
+    eprintln!(
+        "frontier-bots: cq order dropped (no_path): from ({},{}) tile {} to ({},{}) tile {} unit {} troops {} extra {extra}: path {:?}, depart bell {dep_bell}, earliest {earliest:?}, end {}, free transit slot {free_slot}, observed [{}]",
+        at.0,
+        at.1,
+        host.tile,
+        t.p,
+        t.q,
+        t.tile,
+        host.unit,
+        host.troops,
+        path.as_ref().map(|p| (p.dirs.len(), p.secs, p.provinces.len())),
+        obs.season.end_bell(),
+        observed.join(" ")
+    );
+    Step::Drop("no_path")
 }

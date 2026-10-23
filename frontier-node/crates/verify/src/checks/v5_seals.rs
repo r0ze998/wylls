@@ -501,7 +501,7 @@ pub fn rule_refusal(cx: &Ctx, dr: &Rec, p: &Plain, settle_tx: usize) -> Option<&
     {
         return Some(reason::PATH);
     }
-    let doctrine = permutation_rules::frontier::doctrine::of_faction(tr.faction)?;
+    let doctrine = cx.rules().doctrine(tr.faction)?;
     let secs = u32::try_from(doctrine.travel_secs(secs)).ok()?;
     if travel::check_arrival_bell(f.genesis_ts, tr.depart_ts, secs, arrive).is_err() {
         return Some(reason::ARRIVAL_BELL);

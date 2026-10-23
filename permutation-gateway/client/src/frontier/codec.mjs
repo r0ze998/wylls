@@ -40,7 +40,7 @@ const errByName = new Map([...ERRORS.errors, ...ERRORS_V2.errors].map(e => [e.na
 export const ACCOUNT_KINDS = Object.freeze(LAYOUTS.accounts.map(a => a.kind));
 
 /** An account kind's layout row (`{kind, code, magic, size, rent, chained, seed_tag, raw_key_len, fields}`), or null. */
-export const layoutOf = (kind, profile = 1) => (profile === 2 ? accountsV2 : accounts).get(kind) ?? null;
+export const layoutOf = (kind, profile = 1) => (profile >= 2 ? accountsV2 : accounts).get(kind) ?? null;
 
 // ------------------------------------------------------------------ scalars
 
@@ -72,7 +72,7 @@ function typeOf(ty, len, profile = 1) {
   if (m) return { kind: 'array', of: typeOf(m[1]), count: Number(m[2]) };
   m = /^rec:(\w+) x(\d+)$/.exec(ty);
   if (m) {
-    const r = (profile === 2 ? recordsV2 : records).get(m[1]);
+    const r = (profile >= 2 ? recordsV2 : records).get(m[1]);
     if (!r || r.size * Number(m[2]) !== len) throw new Error(`layout: bad record type ${ty}`);
     return { kind: 'record', rec: r, count: Number(m[2]) };
   }
@@ -157,7 +157,7 @@ export function encodeAccount(kind, values = {}, { profile = 1 } = {}) {
 
 /** A record (`Transit`, `Entry`…) decoded from `bytes` at `offset`. */
 export function decodeRecord(name, bytes, offset = 0, profile = 1) {
-  const r = (profile === 2 ? recordsV2 : records).get(name);
+  const r = (profile >= 2 ? recordsV2 : records).get(name);
   if (!r) throw new Error(`unknown record ${name}`);
   return readFields(Uint8Array.from(bytes), offset, r.fields, profile);
 }
@@ -173,7 +173,7 @@ const BYTE_FIELDS = new Set(['session', 'commit', 'seal', 'plain', 'salt', 'ct_h
 const SIGNED_FIELDS = new Set(['p', 'q', 'm', 'n', 'delta', 'session_expiry', 'expiry', 't_create_min']);
 
 /** An instruction's ABI row (`{name, tag, class, top_level_only, relay_*_shape, data_len, data, account_groups}`) by tag or name, or null. */
-export const ixOf = (which, profile = 1) => (typeof which === 'number' ? (profile === 2 ? ixByTagV2 : ixByTag).get(which) : (profile === 2 ? ixByNameV2 : ixByName).get(which)) ?? null;
+export const ixOf = (which, profile = 1) => (typeof which === 'number' ? (profile >= 2 ? ixByTagV2 : ixByTag).get(which) : (profile >= 2 ? ixByNameV2 : ixByName).get(which)) ?? null;
 
 const SITE_BYTES = 5;
 

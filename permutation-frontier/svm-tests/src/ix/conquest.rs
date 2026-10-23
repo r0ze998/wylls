@@ -294,7 +294,13 @@ pub fn settle_return(
 ) -> Instruction {
     Instruction {
         program_id: a.program,
-        accounts: vec![signer_ro(payer), ro(a.season), rw(province), rw(holding), ro(province)],
+        accounts: vec![
+            signer_ro(payer),
+            ro(a.season),
+            rw(province),
+            rw(holding),
+            ro(province),
+        ],
         data: frontier_abi::ix::SettleDeparture { transit_slot: 0xFF }
             .to_bytes()
             .to_vec(),

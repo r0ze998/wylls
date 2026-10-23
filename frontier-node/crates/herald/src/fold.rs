@@ -616,6 +616,8 @@ impl Fold {
                 Kind::CLASH => {
                     self.clash_report(tx, &r, &before);
                 }
+                // S1 1d hook: tower sightings (`conquest::on_v1_record`)
+                Kind::DEPART | Kind::REVEAL => crate::conquest::on_v1_record(self, &r),
                 _ => {}
             }
         }

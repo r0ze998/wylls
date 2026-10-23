@@ -68,8 +68,8 @@ const text = b => String.fromCharCode(...b);
 export function decode(kind, bytes, { seasonId, profile } = {}) {
   const raw = bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes);
   if (profile === undefined) profile = (ACCOUNTS_V2[kind] ?? ACCOUNTS[kind])?.chained && raw[16] === 2 && raw[17] === 0 ? 2 : 1;
-  const layout = (profile === 2 ? ACCOUNTS_V2 : ACCOUNTS)[kind];
-  const records = profile === 2 ? RECORDS_V2 : RECORDS;
+  const layout = (profile >= 2 ? ACCOUNTS_V2 : ACCOUNTS)[kind];
+  const records = profile >= 2 ? RECORDS_V2 : RECORDS;
   if (!layout) throw new CodecError('WrongKind', `unknown account kind ${kind}`);
   const b = bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes);
   // A closed Season is a 128-byte tombstone (contract §5.2).
