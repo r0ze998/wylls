@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 470" width="960" height="470" font-family="'Hiragino Sans','Noto Sans JP','Yu Gothic',sans-serif">
+  <title>前線補給の仕組みの物と札の流れ（数値は仮）</title>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#3a3a3a"/>
+    </marker>
+    <marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8a5c9e"/>
+    </marker>
+    <style>
+      .t{font-size:18px;font-weight:700;fill:#1e1e1e}
+      .s{font-size:14px;fill:#2e2e2e}
+      .n{font-size:12.5px;fill:#5a5a5a}
+      .fac{fill:#e6eef7;stroke:#5c7ea8;stroke-width:1.5}
+      .box{fill:#f3f1ec;stroke:#8a8578;stroke-width:1.5}
+      .tk{fill:#f2e8f5;stroke:#8a5c9e;stroke-width:1.5}
+      .goods{stroke:#3a3a3a;stroke-width:2.2;fill:none;marker-end:url(#a)}
+      .tok{stroke:#8a5c9e;stroke-width:1.8;fill:none;stroke-dasharray:5 4;marker-end:url(#g)}
+    </style>
+  </defs>
+  <rect width="960" height="470" fill="#ffffff"/>
+  <text x="30" y="32" class="t">物の流れ（実線）：毎日、決まりで動く</text>
+  <rect x="30" y="52" width="140" height="56" rx="8" class="box"/>
+  <text x="100" y="76" text-anchor="middle" class="s">ダイの鉱山の倉</text>
+  <text x="100" y="96" text-anchor="middle" class="n">6:00 鉱石 18 が出る</text>
+  <rect x="230" y="52" width="160" height="56" rx="8" class="fac"/>
+  <text x="310" y="76" text-anchor="middle" class="s">カイの組合の倉</text>
+  <text x="310" y="96" text-anchor="middle" class="n">木材：ジンとルカ</text>
+  <rect x="450" y="52" width="150" height="56" rx="8" class="fac"/>
+  <text x="525" y="76" text-anchor="middle" class="s">アオイの工房</text>
+  <text x="525" y="96" text-anchor="middle" class="n">3 回動く → 兵器 9</text>
+  <rect x="660" y="52" width="160" height="56" rx="8" class="box"/>
+  <text x="740" y="76" text-anchor="middle" class="s">エマの砦の倉</text>
+  <text x="740" y="96" text-anchor="middle" class="n">持ち分に応じた兵器</text>
+  <path d="M170,80 L228,80" class="goods"/>
+  <text x="199" y="128" text-anchor="middle" class="n">荷車 6 ターン</text>
+  <path d="M390,72 L448,72" class="goods"/>
+  <path d="M450,92 L392,92" class="goods"/>
+  <text x="420" y="128" text-anchor="middle" class="n">材料 → ← 兵器</text>
+  <path d="M390,108 Q520,170 700,110" class="goods"/>
+  <text x="600" y="164" text-anchor="middle" class="n">持ち分の割合で配る（荷車 18 ターン、襲われうる）</text>
+
+  <text x="30" y="214" class="t">札の流れ（点線）：つながりを作る権利</text>
+  <rect x="30" y="236" width="150" height="50" rx="8" class="box"/>
+  <text x="105" y="266" text-anchor="middle" class="s">ダイ</text>
+  <rect x="30" y="300" width="150" height="50" rx="8" class="box"/>
+  <text x="105" y="330" text-anchor="middle" class="s">アオイ</text>
+  <rect x="330" y="262" width="200" height="66" rx="8" class="tk"/>
+  <text x="430" y="290" text-anchor="middle" class="s">カイ（施設なし）</text>
+  <text x="430" y="310" text-anchor="middle" class="n">受け取りの札 ＋ 使用権の札</text>
+  <path d="M180,261 L328,284" class="tok"/>
+  <text x="250" y="258" text-anchor="middle" class="n">受け取りの札</text>
+  <path d="M180,325 L328,306" class="tok"/>
+  <text x="250" y="342" text-anchor="middle" class="n">使用権の札</text>
+  <rect x="660" y="236" width="250" height="44" rx="8" class="box"/>
+  <text x="785" y="263" text-anchor="middle" class="s">ジン、ルカ（木材を預けた）</text>
+  <rect x="660" y="300" width="250" height="44" rx="8" class="box"/>
+  <text x="785" y="327" text-anchor="middle" class="s">エマ（ジンから一部を買った）</text>
+  <path d="M530,285 L658,262" class="tok"/>
+  <path d="M530,305 L658,320" class="tok"/>
+  <text x="595" y="252" text-anchor="middle" class="n">持ち分の札</text>
+
+  <text x="30" y="396" class="n">お金：札の代金はダイとアオイへ。札の引き換えの手数料の一部は賞金の倉へ。決まりの実行の手数料はカイの前払いから実行役へ。</text>
+  <text x="30" y="418" class="n">国の取り分：エマが勝敗の砦の戦いで兵器を消費すると、最後に戦いへ出た倉（エマの砦の倉）の持ち主のエマに数える。</text>
+  <text x="30" y="446" class="n">数値はすべて仮置き（第4章 4.2）。倉が奪われると、その倉の持ち分の札と受け取りの札は無効になる。</text>
+</svg>

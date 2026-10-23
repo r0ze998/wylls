@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 470" width="960" height="470" font-family="'Hiragino Sans','Noto Sans JP','Yu Gothic',sans-serif">
+  <title>3つの遊びの違い：売買、施設の利用条件、再利用した仕組み</title>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#3a3a3a"/>
+    </marker>
+    <marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b07a00"/>
+    </marker>
+    <style>
+      .t{font-size:20px;font-weight:700;fill:#1e1e1e}
+      .s{font-size:14px;fill:#3a3a3a}
+      .n{font-size:13px;fill:#5a5a5a}
+      .box{fill:#f3f1ec;stroke:#8a8578;stroke-width:1.5;rx:8}
+      .fac{fill:#e6eef7;stroke:#5c7ea8;stroke-width:1.5;rx:8}
+      .kai{fill:#f2e8f5;stroke:#8a5c9e;stroke-width:1.5;rx:8;stroke-dasharray:6 4}
+      .goods{stroke:#3a3a3a;stroke-width:2;fill:none;marker-end:url(#a)}
+      .gold{stroke:#b07a00;stroke-width:2;fill:none;stroke-dasharray:5 4;marker-end:url(#g)}
+    </style>
+  </defs>
+  <rect width="960" height="470" fill="#ffffff"/>
+
+  <!-- column 1 -->
+  <text x="30" y="40" class="t">① 資源の売買</text>
+  <text x="30" y="64" class="s">物の持ち主が1回で入れ替わる</text>
+  <rect x="30" y="100" width="110" height="60" class="box"/>
+  <text x="85" y="135" text-anchor="middle" class="s">アオイ</text>
+  <rect x="190" y="100" width="110" height="60" class="box"/>
+  <text x="245" y="135" text-anchor="middle" class="s">ベン</text>
+  <path d="M140,118 L188,118" class="goods"/>
+  <text x="164" y="108" text-anchor="middle" class="n">兵器</text>
+  <path d="M190,145 L142,145" class="gold"/>
+  <text x="166" y="178" text-anchor="middle" class="n">木材</text>
+  <text x="30" y="230" class="n">残るもの：なし</text>
+  <text x="30" y="252" class="n">売り手が在庫の危険を負う</text>
+
+  <!-- column 2 -->
+  <text x="340" y="40" class="t">② 施設の利用条件（使用権の札）</text>
+  <text x="340" y="64" class="s">施設を使う権利を売る</text>
+  <rect x="340" y="100" width="100" height="60" class="box"/>
+  <text x="390" y="128" text-anchor="middle" class="s">ベン</text>
+  <text x="390" y="148" text-anchor="middle" class="n">鉱石と木材</text>
+  <rect x="490" y="90" width="130" height="80" class="fac"/>
+  <text x="555" y="120" text-anchor="middle" class="s">アオイの工房</text>
+  <text x="555" y="142" text-anchor="middle" class="n">使用権の札：</text>
+  <text x="555" y="158" text-anchor="middle" class="n">1日3回まで動かせる</text>
+  <path d="M440,115 L488,115" class="goods"/>
+  <path d="M490,150 L442,150" class="goods"/>
+  <text x="465" y="143" text-anchor="middle" class="n">兵器</text>
+  <path d="M390,160 Q470,230 552,172" class="gold"/>
+  <text x="470" y="222" text-anchor="middle" class="n">札の代金</text>
+  <text x="340" y="252" class="n">材料も兵器も、ずっとベンの物</text>
+  <text x="340" y="274" class="n">残るもの：札と施設の設定</text>
+
+  <!-- column 3 -->
+  <text x="30" y="320" class="t">③ 他人の機能を再利用した新しい仕組み</text>
+  <text x="30" y="344" class="s">施設を持たずに、他人の札と施設をつなぐ。仕組みの札が次の部品になる</text>
+  <rect x="30" y="370" width="90" height="60" class="box"/>
+  <text x="75" y="398" text-anchor="middle" class="s">鉱山</text>
+  <text x="75" y="416" text-anchor="middle" class="n">（ダイ）</text>
+  <rect x="160" y="358" width="760" height="86" class="kai"/>
+  <text x="172" y="378" class="n">カイの仕組み「北の前線補給」（カイは施設を持たない）</text>
+  <rect x="200" y="386" width="170" height="46" class="fac"/>
+  <text x="285" y="408" text-anchor="middle" class="s">ダイの倉</text>
+  <text x="285" y="425" text-anchor="middle" class="n">受け取りの札</text>
+  <rect x="430" y="386" width="170" height="46" class="fac"/>
+  <text x="515" y="408" text-anchor="middle" class="s">アオイの工房</text>
+  <text x="515" y="425" text-anchor="middle" class="n">使用権の札</text>
+  <rect x="660" y="386" width="170" height="46" class="fac"/>
+  <text x="745" y="408" text-anchor="middle" class="s">カイの組合の倉</text>
+  <text x="745" y="425" text-anchor="middle" class="n">決まりで毎日配る</text>
+  <path d="M120,400 L198,409" class="goods"/>
+  <path d="M370,409 L428,409" class="goods"/>
+  <path d="M600,409 L658,409" class="goods"/>
+  <path d="M830,409 L905,409" class="goods"/>
+  <text x="912" y="414" class="n" text-anchor="end"> </text>
+  <text x="905" y="460" text-anchor="end" class="n">エマの砦の倉へ（エマは持ち分の札を買い、届け先を砦にする）</text>
+</svg>
