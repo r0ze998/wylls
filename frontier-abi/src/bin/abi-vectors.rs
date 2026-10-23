@@ -1327,7 +1327,82 @@ fn files() -> Vec<(&'static str, String)> {
         ("v2/presets.json", v2_presets().render()),
         ("v2/budgets.json", v2_budgets().render()),
         ("v2/conquest.json", v2_conquest().render()),
+        ("v2/web-rules.json", v2_web_rules().render()),
     ]
+}
+
+/// `vectors/v2/web-rules.json`: the rule figures the web client computes
+/// itself to explain an action before it is sent (training prices in
+/// `fland.mjs`, the settler cost and the province strength weights in
+/// `fconquest.mjs`), from the rules crate. A JS test
+/// (`web-frontier-rules-vectors.test.mjs`) recomputes every row, so a rule
+/// change that the page does not follow fails there instead of quoting a
+/// wrong price.
+fn v2_web_rules() -> J {
+    use permutation_rules::frontier::catalog::{self, SETTLER_COST};
+    use permutation_rules::frontier::holding::duplicate_cost;
+    use permutation_rules::frontier::laurel::{strength_weight, Tier};
+
+    let mut v = header_v2(
+        "rule figures the web client recomputes (training, settler cost, strength weight)",
+    );
+    let cost = |c: Option<catalog::Cost>| match c {
+        Some(c) => J::A(c.iter().map(|x| n(*x)).collect()),
+        None => J::Null,
+    };
+    let mut train = Vec::new();
+    for unit in 0u8..=7 {
+        for count in [1u32, 99, 100, 101, 250, 1_000, 10_000] {
+            train.push(o(vec![
+                ("unit", n(unit)),
+                ("n", n(count)),
+                ("m1", cost(catalog::train(unit, count))),
+                ("cq", cost(catalog::train_v2(unit, count))),
+            ]));
+        }
+    }
+    v.push(("train_milli", J::A(train)));
+    v.push((
+        "settler_cost",
+        J::A(
+            (0u32..=3)
+                .map(|holdings| {
+                    o(vec![
+                        ("holdings", n(holdings)),
+                        (
+                            "units",
+                            J::A(
+                                SETTLER_COST
+                                    .iter()
+                                    .map(|b| n(duplicate_cost(*b as u64, holdings).unwrap_or(0)))
+                                    .collect(),
+                            ),
+                        ),
+                    ])
+                })
+                .collect(),
+        ),
+    ));
+    let mut weights = Vec::new();
+    for (t, tier) in [Tier::Hamlet, Tier::Town, Tier::City, Tier::Stronghold]
+        .into_iter()
+        .enumerate()
+    {
+        for garrison in [
+            0u32, 199, 200, 1_000, 100_000, 999_999, 1_000_000, 5_000_000,
+        ] {
+            for order0 in 0u8..=3 {
+                weights.push(o(vec![
+                    ("tier", n(t as u8)),
+                    ("garrison_milli", n(garrison)),
+                    ("order0", n(order0)),
+                    ("weight", n(strength_weight(tier, garrison, order0))),
+                ]));
+            }
+        }
+    }
+    v.push(("strength_weight", J::A(weights)));
+    done(v)
 }
 
 fn vectors_dir() -> PathBuf {
