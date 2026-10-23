@@ -25,7 +25,9 @@ async function rpc(method, params) {
 
 let agents;
 if (arg('state')) {
-  const db = JSON.parse(readFileSync(arg('state'), 'utf8'));
+  // The relay's state file keeps the ledger under `agentWallet` (ledger.mjs: `state.agentWallet`).
+  const state = JSON.parse(readFileSync(arg('state'), 'utf8'));
+  const db = state.agentWallet ?? state;
   agents = Object.values(db.agents ?? {}).filter(a => !arg('agent') || a.agentId === arg('agent')).map(a => ({ agentId: a.agentId, history: a.history ?? [], source: 'state file' }));
 } else {
   assert.ok(arg('url') && arg('agent'), '--state, or --url with --agent');
@@ -33,6 +35,8 @@ if (arg('state')) {
   agents = [{ agentId: v.agentId, history: v.history ?? [], source: 'public view (last 50 lines)' }];
 }
 
+// Nothing to count is an error, never an empty success (a wrong file or agent id would otherwise read as "0 sent").
+assert.ok(agents.length > 0, `no agent found in ${arg('state') ?? arg('url')}${arg('agent') ? ` with id ${arg('agent')}` : ''}`);
 const out = [];
 for (const a of agents) {
   const decisions = a.history.filter(h => h.type === 'decision');

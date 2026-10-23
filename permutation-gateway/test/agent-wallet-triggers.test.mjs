@@ -37,6 +37,9 @@ test('an unchanged state never asks the model; a new turn, a village event and a
   let t = Date.now();
   const r = relay({ prices: { inference: PRICE }, now: () => t });
   const a = await ready(r);
+  // (the ticks below run minutes of clock: start them at the beginning of the same UTC day, so the day's count does not
+  // roll over mid-test when the suite runs shortly before midnight UTC)
+  t = Math.floor(t / 86_400_000) * 86_400_000 + 60_000;
   const w = world();
   const llm = fakeLlm();
   const s = new AgentScheduler({ gateway: r.gateway, decider: llmDecider({ llm }), observer: w.observer, minCallGapMs: 0, now: () => t, log: () => {} });
@@ -70,6 +73,9 @@ test('a flood of events: one call per tick at most, none inside the minimum gap,
   let t = Date.now();
   const r = relay({ prices: { inference: PRICE }, now: () => t });
   const a = await ready(r);
+  // (the ticks below run minutes of clock: start them at the beginning of the same UTC day, so the day's count does not
+  // roll over mid-test when the suite runs shortly before midnight UTC)
+  t = Math.floor(t / 86_400_000) * 86_400_000 + 60_000;
   const w = world();
   const llm = fakeLlm();
   const s = new AgentScheduler({ gateway: r.gateway, decider: llmDecider({ llm }), observer: w.observer, minCallGapMs: 5_000, maxCallsPerDay: 12, now: () => t, log: () => {} });

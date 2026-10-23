@@ -107,7 +107,7 @@ export function startAgentWallet(cfg, ctx, { connection, pool, log = console.log
     const observer = cfg.heraldUrl ? new AgentObserver({ heraldUrl: cfg.heraldUrl }) : null;
     scheduler = new AgentScheduler({ gateway, decider, tickMs: cfg.agentTickMs, observer, minCallGapMs: cfg.agentMinCallGapMs, ownerCallGapMs: cfg.agentOwnerCallGapMs, maxCallsPerDay: cfg.agentMaxCallsPerDay, log });
     scheduler.start();
-    gateway.runner = { tickMs: cfg.agentTickMs, decider: decider.name, free: decider.free === true, eventDriven: !!observer, minCallGapMs: cfg.agentMinCallGapMs, ownerCallGapMs: cfg.agentOwnerCallGapMs, maxCallsPerDay: cfg.agentMaxCallsPerDay, stats: scheduler.stats };
+    gateway.runner = { tickMs: cfg.agentTickMs, decider: decider.name, free: decider.free === true, schema: cfg.agentLlmUrl ? (cfg.agentLlmStrictSchema === true ? 'strict' : 'loose') : null, eventDriven: !!observer, minCallGapMs: cfg.agentMinCallGapMs, ownerCallGapMs: cfg.agentOwnerCallGapMs, maxCallsPerDay: cfg.agentMaxCallsPerDay, stats: scheduler.stats };
   }
   log(`agent wallet: custody ${custody.authority} (token account ${custody.account}, mint ${custody.mint}); ${gateway.ledger.agents().length} agent(s); `
     + `inference ${gateway.prices.inference}/call, ${Object.keys(game).length} priced game action(s); state ${store.file}`

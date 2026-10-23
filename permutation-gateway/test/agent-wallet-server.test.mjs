@@ -154,3 +154,27 @@ test('ledger: holds, settlement, release, expiry, the daily roll, deposits once,
   L.get('a1').bal.available = '1';
   assert.ok(L.check()[0].includes('deposited'));
 });
+
+test('the runner\'s terms say which decision schema the model gets (the strict schema is opt-in; a run records which one it had)', async () => {
+  for (const [flags, want] of [[[], 'loose'], [['--agent-llm-strict-schema'], 'strict'], [null, null]]) {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'agent-relay-'));
+    const program = Keypair.generate().publicKey.toBase58();
+    const a = new FrontierAddresses({ programId: program, seasonId: 5n });
+    const chain = fakeChain();
+    chain.set(a.season, { data: seasonAccount() });
+    chain.set(CLOCK_SYSVAR, { data: clockAccount(GENESIS + 3_600) });
+    const argv = ['--program', program, '--season', '5', '--port', '0', '--public-port', '0', '--dev', '--pool-size', '3', '--master-seed-file', path.join(dir, 'seed'),
+      '--invite-secret-file', path.join(dir, 'inv'), '--state-file', path.join(dir, 'state.json'), '--prize-program', Keypair.generate().publicKey.toBase58(), '--prize-mint', Keypair.generate().publicKey.toBase58(),
+      '--agent-wallet', '--agent-custody-key-file', path.join(dir, 'custody.json'), '--agent-keys-dir', path.join(dir, 'keys'), '--agent-runner', '--agent-tick-ms', '60000',
+      ...(flags ? ['--agent-llm', 'http://127.0.0.1:41999', ...flags] : [])];
+    const relay = await startFrontierRelay(loadFrontierConfig(argv), { connection: chain, log: () => {} });
+    try {
+      const terms = await (await fetch(`http://127.0.0.1:${relay.ports.operator}/f/agent/terms`)).json();
+      assert.equal(terms.runner.schema, want, `${JSON.stringify(flags)}: ${JSON.stringify(terms.runner)}`);
+      assert.equal(terms.runner.free, flags === null, 'no model: the free rule decider');
+    } finally {
+      await relay.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});

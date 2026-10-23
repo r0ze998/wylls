@@ -33,6 +33,9 @@ test('a released hold never gives the day\'s call count back: stop, TTL, deadlin
   const a = await ready(r, { policy: { allowed: ['economy'], budget: { total: '100000000', perDay: '100000000', callsPerDay: 4 } } });
   const L = r.gateway.ledger;
   const calls = () => r.gateway.view(a.agentId).day.calls;
+  // The steps below move the clock on by more than an hour; start them at the beginning of the same UTC day, so the
+  // day's count does not roll over between them when the suite happens to run shortly before midnight UTC.
+  t = Math.floor(t / 86_400_000) * 86_400_000 + 60_000;
   // 1: held, then given back by a stop (manual).
   L.hold(a.agentId, { category: 'inference', amount: PRICE, key: 'k1' });
   r.gateway.setMode(a.agentId, a.o, 'manual');
@@ -80,6 +83,8 @@ test('a burst of owner commands is one call per owner gap, the change is not los
   let t = Date.now();
   const r = relay({ prices: { inference: PRICE }, now: () => t });
   const a = await ready(r);
+  // (the burst below runs 100 s of clock: start it at the beginning of the same UTC day, as above)
+  t = Math.floor(t / 86_400_000) * 86_400_000 + 60_000;
   const obs = { ok: true, bell: 1, holding: 'h', province: 'p', citizen: 'c' };
   const llm = { alias: 'f', calls: 0, async complete() { this.calls++; return { ok: true, content: JSON.stringify({ action: 'rest', fields: {}, reason: '' }), usage: null }; } };
   const s = new AgentScheduler({ gateway: r.gateway, decider: llmDecider({ llm }), observer: { async observe() { return { ...obs }; } }, minCallGapMs: 60_000, ownerCallGapMs: 10_000, maxCallsPerDay: 6, now: () => t, log: () => {} });

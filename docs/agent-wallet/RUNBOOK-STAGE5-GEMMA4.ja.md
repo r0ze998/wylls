@@ -31,7 +31,10 @@ sh permutation-gateway/citizens/llama/start-pinned.sh /tmp/llama-stage5.log &
 # モデルのパスは既定で固定設定のもの。別の場所なら AI_MODEL=<gguf のパス>、llama-server が別の場所なら LLAMA_SERVER=<パス> を前に付ける
 # "model loaded" を待ってから：
 curl -s http://127.0.0.1:41901/v1/models    # id が gemma-4-26b-a4b-it であること
+curl -s http://127.0.0.1:41901/props | grep -o '"model_path":"[^"]*"'    # 読み込んだファイルが Gemma 4 26B の gguf であること
 ```
+
+**注意**：起動スクリプトは、どのモデルを読み込んでも別名を `gemma-4-26b-a4b-it` にします。`/v1/models` の id だけでは、本当に Gemma 4 かは分かりません。読み込んだファイルは `/props` の `model_path` で確かめてください。この値はベンチと E2E の記録にも残ります（`report.json` と `transcript.json` の `model.modelPath`）。
 
 ## 2. 判断ベンチ（チェーン不要、各 3〜5 分）
 
@@ -67,7 +70,9 @@ frontier-node/target/release/frontier-stack verify --run-id $RUN > .local/stage5
 frontier-node/target/release/frontier-stack down --run-id $RUN
 ```
 
-注意：`agent-finalized-count.mjs` は、2026-10-23 時点では動いているチェーンに対してまだ一度も実行していない。最初の 1 回で出力（`modelSentChecked`、`finalized` など）が妥当かを確かめてから、残りに進むこと。
+`agent-finalized-count.mjs` は、エージェントの**全期間**で、モデルが選んで送った行動を数えます。E2E の「窓」（7 分）だけを数えるものではないので、E2E の `modelActionsSent` より大きくなることがあります。
+
+このスクリプトは 2026-10-23 のリハーサル（Linux、Gemma 3 4B）で、動いているチェーンに対して初めて実行しました。そこで、状態ファイルの読み方の誤り（何も数えずに空の結果を返していた）を見つけて直しています。今は、エージェントが見つからなければエラーで止まります。`--state` と `--url` の 2 つの読み方で、同じ数になることも確かめました。
 
 ## 4. 記録する表
 
@@ -80,17 +85,27 @@ frontier-node/target/release/frontier-stack down --run-id $RUN
 
 **実世界の窓（各 7 分）**：E2E の記録（`transcript.json` の `window`）と `finalized.json` から書く。
 
+表は手で写さずに、次のコマンドで作れます。
+
+```sh
+node permutation-gateway/scripts/agent-stage5-summary.mjs --dir .local/stage5 > .local/stage5/summary.md
+```
+
+- スキーマの種類は、記録から読みます（ベンチの `model.settings.schema`、relay の `terms.runner.schema`）。ディレクトリ名からは判断しません。
+- 読み込んだモデルのファイルも一覧にします。Gemma 4 でなければ、そう書きます。
+- ファイルが欠けている欄は、そのことを表に書きます。
+
 | 回 | スキーマ | E2E のチェック | 呼び出し | 判断料 | モデルが送った行動 | うち finalized を個別確認 | chain で失敗 | コードの拒否 | 休み | autopilot の代行 | 検証器 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| off-1 | off | /18 | | | | | | | | | |
-| on-1 | on | /18 | | | | | | | | | |
+| off-1 | off | /19 | | | | | | | | | |
+| on-1 | on | /19 | | | | | | | | | |
 | …（6 回） | | | | | | | | | | | |
 
 10 月 17 日の数値（判断 24/30、run 10a〜c）は比較のために並べてよいが、同じ表の行には混ぜない。条件（コミット、スキーマ、tick、間隔）を併記する。
 
 ## 5. 合格の目安と、決めるための判断
 
-- 各回の E2E が 18/18（段階 3 の「委任解除後」の手順を含む）。
+- 各回の E2E が 19/19（段階 3 の「委任解除後」の手順を含む）。
 - モデルが送った行動のうち、finalized を個別に確認できた件数を数える（「送信」だけでは数えない）。
 - 検証器が PASS。
 - 厳密スキーマの既定値は、判断（正解数）・コードの拒否・費用・モデルが送った行動の数を、off と on で比べて決める。判断が下がるなら on にしない。拒否だけが減って判断が変わらないなら on を推奨する。
