@@ -56,8 +56,8 @@ node uplift-perf.mjs --tree ../..
 | 文書 | `docs/design/uplift/00-SCOPE`（基準と範囲）、`01-ART-DIRECTION`（3 案と推奨）、`02-CORE-FLOW`（中心の流れ）、`03-COMPONENTS`（トークンと部品）、`04-VERIFY`（検証）、この文書 |
 | 比較ページ | `docs/design/uplift/preview/`（scene, common, dirA/B/C, panels, preview, shoot, measure） |
 | クライアント（新規） | `frontier/map/structures.mjs`、`frontier/hud/forecastbook.mjs`、`frontier/uplift.css` |
-| クライアント（変更） | `map/village.mjs`（道具を公開）、`map/s1marks.mjs`、`map/sprites.mjs`（格子の濃さ）、`map/actions.mjs`（範囲の格子）、`hud/forecast.mjs`（構えの比較）、`hud/marchcard.mjs`（見通し、比較、取り消せない一行）、`screens/report.mjs`（予測と確定）、`screens/holding.mjs`（満杯まで）、`app.mjs`（比較の計算、予測の保存）、`frontier.css`（状態のトークン）、`index/spectate/practice.html`（uplift.css）、`lang/en-frontier-play.mjs` |
-| 試験・道具 | `permutation-gateway/test/web-frontier-uplift.test.mjs`、`screens/uplift-shots.mjs`、`screens/uplift-perf.mjs`、`test/web-frontier-s1.test.mjs`（古い見た目を固定していた 1 行を書き直し） |
+| クライアント（変更） | `map/village.mjs`（道具を公開、工房の鍛冶場）、`map/board.mjs`（工房の数）、`map/s1marks.mjs`、`map/sprites.mjs`（格子の濃さ）、`map/actions.mjs`（範囲の格子）、`hud/forecast.mjs`（構えの比較）、`hud/marchcard.mjs`（見通し、比較、取り消せない一行）、`screens/report.mjs`（予測と確定）、`screens/holding.mjs`（満杯まで）、`app.mjs`（比較の計算、予測の保存）、`frontier.css`（状態のトークン）、`index/spectate/practice.html`（uplift.css）、`lang/en-frontier-play.mjs` |
+| 試験・道具 | `permutation-gateway/test/web-frontier-uplift.test.mjs`、`screens/uplift-shots.mjs`、`screens/uplift-perf.mjs`、`test/web-frontier-s1.test.mjs` と `test/web-frontier-board.test.mjs`（古い見た目を固定していた 1 行ずつを書き直し） |
 
 ## 残り（優先順）
 

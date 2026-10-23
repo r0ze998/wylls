@@ -2920,7 +2920,8 @@ export const HUD_ACTIONS = {
   'march-send': async () => {
     const c = FS.compose;
     if (c?.host && c.dest && pm.fights(c.host)) protoPromise({ host: String(c.host.id), p: c.dest.p, q: c.dest.q, tile: c.dest.tile });
-    const fc = c?.forecast?.ok ? { hostId: c.host.id, bell: c.arriveBell, stance: c.stance ?? 0, fc: c.forecast } : null;
+    // (only a forecast of the march as sent: a stance changed a moment ago has not been forecast yet)
+    const fc = c?.forecast?.ok && c.forecast.key === forecastKey(c) ? { hostId: c.host.id, bell: c.arriveBell, stance: c.stance ?? 0, fc: c.forecast } : null;
     const r = await ACTIONS['march-send']();
     // (sent: what the card forecast is kept on this device, for the report's 予測 beside its 確定: hud/forecastbook.mjs)
     if (c && !FS.compose && fc) keepForecast(uiStorage, scope()?.seasonId, fc);
