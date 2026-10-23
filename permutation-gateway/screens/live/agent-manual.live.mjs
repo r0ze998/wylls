@@ -83,6 +83,10 @@ async function harvestByHand(page, sends) {
 
 test('a village played by hand, handed to its agent, taken back and played by hand again', { timeout: 30 * 60_000 }, async () => {
   // ---- the play page: connect the dev wallet, choose a nation, join (x402 with test USDC), the village
+  // Join only once the season can take it (as the E2E and the page-browser scripts wait): the chain's clock past
+  // genesis and every ring published. Earlier, Join is refused WrongStatus ("the season cannot do this now").
+  const herald = createHerald({ base: HERALD });
+  const season = await until('the season open for joining', async () => { const r = await herald.season(); return r.ok && r.record.rings?.length >= 5 && Number(r.record.latestUnix) >= Number(r.record.genesisTs) ? r : null; }, 600_000);
   const play = await ctx.newPage();
   const playSends = watch(play);
   await play.goto(PLAY);
@@ -92,8 +96,6 @@ test('a village played by hand, handed to its agent, taken back and played by ha
   await play.locator('[data-act="home-confirm"]').first().click();
   const owner = await until('the connected wallet', () => play.evaluate(async () => (await import('/frontier/wallet.mjs')).connected()?.address ?? null), 30_000);
   // The village as the herald's decoded record has it (the client the pages use).
-  const herald = createHerald({ base: HERALD });
-  const season = await until('the season', async () => { const r = await herald.season(); return r.ok ? r : null; });
   const pin = setPin({ programId: season.record.programId, cluster: season.record.cluster, seasonId: season.record.season, seasonAddress: season.record.seasonAddress, rulesetHash: toHex(season.season.rulesetHash) });
   herald.pin(season.record.season, pin.addresses);
   const me = await until('the village', async () => { const r = await herald.me(owner); const h = r.ok ? r.holdings?.[0] : null; return h && h.state === 2 ? h : null; }, 180_000).catch(async e => { await play.screenshot({ path: `${OUT}/failed-village.png` }); report.failedText = (await textOf(play)).slice(0, 1500); throw e; });
