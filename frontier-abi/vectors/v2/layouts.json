@@ -1229,9 +1229,15 @@
           "ty": "u8"
         },
         {
-          "name": "RSV_313",
+          "name": "TOWERS",
           "off": 313,
-          "len": 3,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "RSV_314",
+          "off": 314,
+          "len": 2,
           "ty": "rsv"
         },
         {
@@ -1768,7 +1774,7 @@
           "name": "TOWERS",
           "off": 4044,
           "len": 48,
-          "ty": "[u64;6]"
+          "ty": "rec:TowerEntry x12"
         },
         {
           "name": "RSV_4092",
@@ -2957,6 +2963,145 @@
           "ty": "rsv"
         }
       ]
+    },
+    {
+      "kind": "Tower",
+      "code": 21,
+      "magic": "PSF1TOWR",
+      "size": 256,
+      "rent": 1950720,
+      "chained": true,
+      "changed_in_v2": true,
+      "seed_tag": "tw",
+      "raw_key_len": 9,
+      "fields": [
+        {
+          "name": "HDR_MAGIC",
+          "off": 0,
+          "len": 8,
+          "ty": "[u8;8]"
+        },
+        {
+          "name": "SEASON_ID",
+          "off": 8,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "LAYOUT_VERSION",
+          "off": 16,
+          "len": 2,
+          "ty": "u16"
+        },
+        {
+          "name": "RSV_HEADER",
+          "off": 18,
+          "len": 6,
+          "ty": "rsv"
+        },
+        {
+          "name": "EVENT_SEQ",
+          "off": 24,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "EVENT_HEAD",
+          "off": 32,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "P",
+          "off": 64,
+          "len": 2,
+          "ty": "i16"
+        },
+        {
+          "name": "Q",
+          "off": 66,
+          "len": 2,
+          "ty": "i16"
+        },
+        {
+          "name": "TILE",
+          "off": 68,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "STATE",
+          "off": 69,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "FACTION",
+          "off": 70,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "GEN",
+          "off": 71,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "OWNER_CITIZEN",
+          "off": 72,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "OWNER_TAG",
+          "off": 104,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "BUILT_TS",
+          "off": 112,
+          "len": 8,
+          "ty": "i64"
+        },
+        {
+          "name": "SEIZED_BELL",
+          "off": 120,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "NOTIFY",
+          "off": 124,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "ENTRY",
+          "off": 125,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "RSV_126",
+          "off": 126,
+          "len": 2,
+          "ty": "rsv"
+        },
+        {
+          "name": "RENT_TO",
+          "off": 128,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "RSV",
+          "off": 160,
+          "len": 96,
+          "ty": "rsv"
+        }
+      ]
     }
   ],
   "records": [
@@ -3329,6 +3474,36 @@
           "off": 28,
           "len": 8,
           "ty": "u64"
+        }
+      ]
+    },
+    {
+      "name": "TowerEntry",
+      "size": 4,
+      "fields": [
+        {
+          "name": "STATE",
+          "off": 0,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "TILE",
+          "off": 1,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "FACTION",
+          "off": 2,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "GEN",
+          "off": 3,
+          "len": 1,
+          "ty": "u8"
         }
       ]
     },

@@ -42,10 +42,12 @@ const byNameV2 = new Map(BUDGETS_V2.instructions.map(b => [b.name, b]));
 export function budgetOf(which, profile = 1) {
   const b = typeof which === 'number' ? (profile >= 2 ? byTagV2 : byTag).get(which) : (profile >= 2 ? byNameV2 : byName).get(which);
   if (!b) return null;
-  // Profile 3 (S1): the v2 rows at the S1 release's loaded limits.
+  // Profile 3 (S1): the v2 rows at the S1 release's loaded limits and CU
+  // limits (stage 1d: Reveal's).
   const loadedLimit = profile === 3 ? (b.loaded_limit_s1 ?? b.loaded_limit) : b.loaded_limit;
+  const cuLimit = profile === 3 ? (b.cu_limit_s1 ?? b.cu_limit) : b.cu_limit;
   return {
-    name: b.name, tag: b.tag, class: b.class, cuBudget: b.cu_budget, cuLimit: b.cu_limit, loadedLimit,
+    name: b.name, tag: b.tag, class: b.class, cuBudget: b.cu_budget, cuLimit, loadedLimit,
     txCeiling: Math.min(b.tx_ceiling, PACKET_BYTES), heap: b.heap, writeLocks: b.write_locks_worst, accounts: b.accounts,
     topLevelOnly: !!tagInfo.get(b.tag)?.top_level_only,
   };

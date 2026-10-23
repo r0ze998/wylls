@@ -21,6 +21,9 @@
 //!   `RAID_BURN_AFTER_BELLS` after the window). A take: the caravan the
 //!   raider's with its cargo, its new route from the raid tile recomputed
 //!   and written, no slot of its old route left.
+//! - **Tower wear (1d):** a send's and a take's cargo is the cargo worn by
+//!   the towers standing on the route before it (`tower::caravan_secs_in_range`;
+//!   `TowerWearMismatch`).
 //! - **SeizeVault:** the captor's roster host on the vault's tile, no host
 //!   of the owner's holdings there, the new owner and generation, the
 //!   counters.
@@ -291,11 +294,18 @@ pub fn judge_build_vault(ix: &crate::world::Ix, s: &dyn States, at: At) -> Resul
 // ------------------------------------------------------------ SendCaravan
 
 /// What a walk and its schedule must leave: the arrival, the last slot
-/// bell and the slots, per Province key.
+/// bell, the slots, per Province key, and the tower wear (1d: the seconds
+/// in the hostile coverage of the towers standing before the instruction).
 struct Routed {
     arrive: i64,
     last_bell: u32,
     slots: Vec<(Key, CaravanSlot)>,
+    worn: u16,
+}
+
+/// `cargo` worn by `bps` (`tower::wear_i64` each).
+fn worn_cargo(cargo: &[i64; RES], bps: u16) -> [i64; RES] {
+    cargo.map(|c| permutation_rules::frontier::tower::wear_i64(c, bps))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -316,17 +326,25 @@ fn route(
                 arrive: at.now,
                 last_bell: 0,
                 slots: vec![],
+                worn: 0,
             })
         } else {
             Err(caravan_wrong("a walk of no step away from its destination"))
         };
     }
     let mut lands = vec![];
+    let mut covers = vec![];
     for k in provinces {
         let pd = s
             .before(k)
             .ok_or_else(|| caravan_wrong("no path Province before"))?;
         lands.push(land_of(&pd).map_err(caravan_wrong)?);
+        covers.push(
+            pd.get(frontier_abi::v2::layout::province::tower_entry::BLOCK)
+                .map_or(0, |l| {
+                    permutation_rules::frontier::tower::hostile(l, faction)
+                }),
+        );
     }
     let bps = permutation_rules::frontier::doctrine::of_faction_v3(faction)
         .ok_or_else(|| caravan_wrong(format!("faction {faction}")))?
@@ -353,10 +371,18 @@ fn route(
         last_bell = last_bell.max(run.first_bell + run.tiles.len() as u32 - 1);
         slots.push((provinces[i], slot));
     }
+    let in_range = permutation_rules::frontier::tower::caravan_secs_in_range(&walked, |pc| {
+        lands
+            .iter()
+            .zip(&covers)
+            .find(|(l, _)| l.at == pc)
+            .map_or(0, |(_, c)| *c)
+    });
     Ok(Routed {
         arrive: at.now + kc::travel_secs(&walked) as i64,
         last_bell,
         slots,
+        worn: permutation_rules::frontier::tower::wear_bps(in_range),
     })
 }
 
@@ -395,7 +421,15 @@ fn check_caravan(
             == (dst.kind, dst.p, dst.q, dst.at, dst.gen, dst.tile),
         "destination",
     )?;
-    want(cargo_of(cd).ok() == Some(*cargo), "cargo")?;
+    if cargo_of(cd).ok() != Some(worn_cargo(cargo, r.worn)) {
+        return Err((
+            crate::codes::TOWER_WEAR_MISMATCH,
+            format!(
+                "the Caravan's cargo is not the sent cargo worn by {} bps",
+                r.worn
+            ),
+        ));
+    }
     want(u64_at(cd, CV::FEE).ok() == Some(fee), "fee")?;
     want(i64_at(cd, CV::DEPART_TS).ok() == Some(at.now), "departure")?;
     want(i64_at(cd, CV::ARRIVE_TS).ok() == Some(r.arrive), "arrival")?;
@@ -739,7 +773,15 @@ pub fn judge_raid(s: &dyn States, at: At, x: &RaidIx, choice: u8) -> Result<(), 
     )?;
     want(ca[CV::FACTION] == faction, "faction")?;
     want(u64_at(&ca, CV::OWNER_TAG).ok() == Some(tag), "address tag")?;
-    want(cargo_of(&ca).ok() == Some(cargo), "cargo")?;
+    if cargo_of(&ca).ok() != Some(worn_cargo(&cargo, r.worn)) {
+        return Err((
+            crate::codes::TOWER_WEAR_MISMATCH,
+            format!(
+                "the taken Caravan's cargo is not its cargo worn by {} bps",
+                r.worn
+            ),
+        ));
+    }
     want(Place::stored(&ca, CV::SRC).ok() == Some(field), "origin")?;
     let d = Place::stored(&ca, CV::DST).map_err(caravan_wrong)?;
     want(
@@ -866,10 +908,10 @@ pub fn judge_close_vault(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wr
 
 // ------------------------------------------------------------ the check
 
-struct TxStates<'a> {
-    w: &'a crate::world::World,
-    tx: &'a Tx,
-    t: usize,
+pub(crate) struct TxStates<'a> {
+    pub(crate) w: &'a crate::world::World,
+    pub(crate) tx: &'a Tx,
+    pub(crate) t: usize,
 }
 
 impl States for TxStates<'_> {

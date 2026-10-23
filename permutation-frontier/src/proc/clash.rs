@@ -505,7 +505,9 @@ fn holding_addr(ctx: &AddrCtx, p: i32, q: i32, site: u8) -> [u8; 32] {
 /// Holding): `Ok(true)` when a host is recorded (module note). A matching
 /// transit (state 2 or 3) is stamped
 /// with this destination (`FLAG_GATHERED`, `DEST_P`, `DEST_Q`), so
-/// SettleTransit can settle it only here (v1.7, W4-B F1). Fixed-offset
+/// SettleTransit can settle it only here (v1.7, W4-B F1). S1 1d: the
+/// first stamp wears the transit's troops by the slot's `WORN_BPS` and the
+/// record takes the worn troops; a re-gather reads them as they are. Fixed-offset
 /// reads and writes (the per-position cost bounds a gather, §13.1).
 #[allow(clippy::too_many_arguments)]
 fn gather_position(
@@ -563,6 +565,9 @@ fn gather_position(
     rec[AR::UNIT] = s[AS::UNIT];
     rec[AR::TILE] = s[AS::TILE];
     rec[AR::STANCE] = s[AS::STANCE];
+    // S1 1d: the tower wear Reveal judged (zero in an MC season).
+    let wo = frontier_abi::v2::layout::s1::arrival::WORN_BPS;
+    let worn = u16::from_le_bytes([s[wo], s[wo + 1]]);
     drop(sd);
     if !prologue::presence(holding, program, AccountKind::Holding, sid)? {
         return Ok(true);
@@ -589,6 +594,12 @@ fn gather_position(
         {
             continue;
         }
+        // Already stamped with this destination: a re-gather, whose
+        // transit already carries the wear.
+        let same = tr[T::FLAGS] & T::FLAG_GATHERED != 0
+            && tr[T::DEST_P..T::DEST_P + 2] == pp.to_le_bytes()
+            && tr[T::DEST_Q..T::DEST_Q + 2] == pq.to_le_bytes();
+        let mut worn_troops = None;
         let stamp = match st {
             T::STATE_DEPARTED => return Err(FrontierError::DepartureUnsettled.into()),
             T::STATE_DESTROYED_AT_ORIGIN => {
@@ -596,7 +607,13 @@ fn gather_position(
                 true
             }
             _ => {
-                let troops = t32(T::TROOPS_AFTER);
+                // S1 1d (contract §3.2): the first stamp wears the transit's
+                // troops; the record and the transit both carry the result.
+                let mut troops = t32(T::TROOPS_AFTER);
+                if !same && worn > 0 {
+                    troops = permutation_rules::frontier::tower::wear(troops as u64, worn) as u32;
+                    worn_troops = Some(troops);
+                }
                 let stamina = model::arrival_stamina(
                     u16::from_le_bytes([tr[T::STAMINA_AFTER], tr[T::STAMINA_AFTER + 1]]),
                     t32(T::DEPART_BELL),
@@ -616,11 +633,11 @@ fn gather_position(
             return Ok(true);
         }
         let tr = hd.get_mut(o..o + T::SIZE).ok_or(BAD_ACCOUNT)?;
-        let same = tr[T::FLAGS] & T::FLAG_GATHERED != 0
-            && tr[T::DEST_P..T::DEST_P + 2] == pp.to_le_bytes()
-            && tr[T::DEST_Q..T::DEST_Q + 2] == pq.to_le_bytes();
         if same {
             return Ok(true);
+        }
+        if let Some(t) = worn_troops {
+            tr[T::TROOPS_AFTER..T::TROOPS_AFTER + 4].copy_from_slice(&t.to_le_bytes());
         }
         tr[T::FLAGS] |= T::FLAG_GATHERED;
         tr[T::DEST_P..T::DEST_P + 2].copy_from_slice(&pp.to_le_bytes());

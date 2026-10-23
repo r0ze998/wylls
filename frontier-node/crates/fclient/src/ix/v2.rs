@@ -686,6 +686,70 @@ pub fn close_vault(
     build(a, m, d2::CloseVault {}.to_bytes().to_vec())
 }
 
+/// 0xB7 BuildTower (P, S1 1d): P + `[holding w] [holding_province r]
+/// [province w] [tower w] [system]`: a tower on `tile` of Province `at`,
+/// paid by `h`; `notify` who the herald tells (`s1::tower::NOTIFY_*`).
+pub fn build_tower(
+    a: &Addresses,
+    p: &Player,
+    h: HoldingRef,
+    at: (i16, i16),
+    tile: u8,
+    notify: u8,
+) -> Instruction {
+    // The holding's Province is `r|w`: writable when it is the tower's.
+    let hp = h.province(a);
+    let tp = a.province(at.0 as i32, at.1 as i32);
+    let mut m = prologue(a, p);
+    m.extend([
+        w(h.address(a)),
+        if hp == tp { w(hp) } else { r(hp) },
+        w(tp),
+        w(a.tower(at.0 as i32, at.1 as i32, tile)),
+        r(addr::system_program()),
+    ]);
+    build(a, m, d2::BuildTower { tile, notify }.to_bytes().to_vec())
+}
+
+/// 0xB8 SeizeTower (P, the captor): P + `[tower w] [province w]
+/// [host_holding r] [owner_citizen w]`.
+pub fn seize_tower(
+    a: &Addresses,
+    p: &Player,
+    tower: (i16, i16, u8),
+    host_holding: HoldingRef,
+    owner_citizen: Address,
+    entry: u8,
+) -> Instruction {
+    let (tp, tq, tile) = tower;
+    let mut m = prologue(a, p);
+    m.extend([
+        w(a.tower(tp as i32, tq as i32, tile)),
+        w(a.province(tp as i32, tq as i32)),
+        r(host_holding.address(a)),
+        w(owner_citizen),
+    ]);
+    build(a, m, d2::SeizeTower { entry }.to_bytes().to_vec())
+}
+
+/// 0xB9 CloseTower (P, the owner's wallet): P + `[tower w] [province w]
+/// [rent_to w]`.
+pub fn close_tower(
+    a: &Addresses,
+    p: &Player,
+    tower: (i16, i16, u8),
+    rent_to: Address,
+) -> Instruction {
+    let (tp, tq, tile) = tower;
+    let mut m = prologue(a, p);
+    m.extend([
+        w(a.tower(tp as i32, tq as i32, tile)),
+        w(a.province(tp as i32, tq as i32)),
+        w(rent_to),
+    ]);
+    build(a, m, d2::CloseTower {}.to_bytes().to_vec())
+}
+
 /// DefaultRaid's arguments (contract §3.5, decision J2).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DefaultRaidArgs {
@@ -923,6 +987,10 @@ mod tests {
             (Ix::CloseVault, close_vault(&a, &pl, (3, 1, 20), k)),
             (Ix::DefaultRaid, default_raid(&a, k, &dr_args(0))),
             (Ix::DefaultRaid, default_raid(&a, k, &dr_args(3))),
+            // S1 (stage 1d)
+            (Ix::BuildTower, build_tower(&a, &pl, h, (3, 1), 21, 1)),
+            (Ix::SeizeTower, seize_tower(&a, &pl, (3, 1, 21), home, k, 4)),
+            (Ix::CloseTower, close_tower(&a, &pl, (3, 1, 21), k)),
         ]
     }
 

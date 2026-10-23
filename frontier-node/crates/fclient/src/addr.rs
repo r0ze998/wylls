@@ -410,6 +410,12 @@ impl Addresses {
         let s = frontier_abi::v2::addr::vault_seed(p, q, tile);
         with_seed(&self.season, s.as_bytes(), &self.program)
     }
+    /// S1 (1d): the Tower on tile `tile` of Province `(p, q)`, seed
+    /// `tw‖hex(le32 p ‖ le32 q ‖ tile)` (frontier-abi's `tower_seed`).
+    pub fn tower(&self, p: i32, q: i32, tile: u8) -> Address {
+        let s = frontier_abi::v2::addr::tower_seed(p, q, tile);
+        with_seed(&self.season, s.as_bytes(), &self.program)
+    }
     /// S1 (1b): the owner's `seq`-th Caravan, seed `cv‖hex(le64 owner_tag ‖
     /// le32 seq)` (frontier-abi's `caravan_seed`).
     pub fn caravan(&self, owner_tag: u64, seq: u32) -> Address {
@@ -476,6 +482,10 @@ mod tests {
         assert_eq!(
             a.vault(-2, 5, 33).to_bytes(),
             frontier_abi::v2::addr::vault(&ctx, -2, 5, 33)
+        );
+        assert_eq!(
+            a.tower(-2, 5, 33).to_bytes(),
+            frontier_abi::v2::addr::tower(&ctx, -2, 5, 33)
         );
         assert_eq!(
             a.caravan(0xDEAD_BEEF_0123, 9).to_bytes(),

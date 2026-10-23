@@ -989,7 +989,7 @@ fn continuity(cx: &mut Ctx) {
                         hr::touched_paid(before, tx.time, &stake),
                     )
                 } else if let Some((what, want)) = caravan_holding_write(w, tx, t, k, before) {
-                    // S1 1b: BuildVault and a caravan's holding source pay
+                    // S1 1b/1d: BuildVault, BuildTower and a caravan's holding source pay
                     // after an owner touch; a delivery settles and credits.
                     (what, want)
                 } else if conquest_settlement_writes(tx, k) {
@@ -1092,6 +1092,16 @@ fn caravan_holding_write(
                     before,
                     tx.time,
                     &permutation_rules::frontier::caravan::vault_cost(),
+                ),
+            ));
+        }
+        if tag == Some(V2::BuildTower.tag()) && ix.key(4).as_ref() == Some(k) {
+            return Some((
+                "a BuildTower's holding (the touch and the tower's cost)",
+                crate::holding::touched_paid(
+                    before,
+                    tx.time,
+                    &permutation_rules::frontier::tower::tower_cost(),
                 ),
             ));
         }

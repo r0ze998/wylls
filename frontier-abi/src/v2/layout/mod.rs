@@ -26,8 +26,8 @@ use crate::layout::{world as v1w, Field};
 /// `layout_version` of every v2 chained header.
 pub const LAYOUT_VERSION_V2: u16 = 2;
 
-/// The 20 program account kinds of ABI v2: M1's 17 (same codes),
-/// MarchState (18), and S1's Vault (19) and Caravan (20).
+/// The 21 program account kinds of ABI v2: M1's 17 (same codes),
+/// MarchState (18), and S1's Vault (19), Caravan (20) and Tower (21).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum AccountKind {
@@ -51,10 +51,11 @@ pub enum AccountKind {
     MarchState = 18,
     Vault = 19,
     Caravan = 20,
+    Tower = 21,
 }
 
 impl AccountKind {
-    pub const ALL: [AccountKind; 20] = {
+    pub const ALL: [AccountKind; 21] = {
         use AccountKind::*;
         [
             Season,
@@ -77,6 +78,7 @@ impl AccountKind {
             MarchState,
             Vault,
             Caravan,
+            Tower,
         ]
     };
 
@@ -102,6 +104,7 @@ impl AccountKind {
             MarchState => world::march_state::SIZE,
             Vault => s1::vault::SIZE,
             Caravan => s1::caravan::SIZE,
+            Tower => s1::tower::SIZE,
             Citizen => player::citizen::SIZE,
             Holding => player::holding::SIZE,
             JoinShard => world::join_shard::SIZE,
@@ -126,6 +129,7 @@ impl AccountKind {
             AccountKind::MarchState => world::march_state::MAGIC,
             AccountKind::Vault => s1::vault::MAGIC,
             AccountKind::Caravan => s1::caravan::MAGIC,
+            AccountKind::Tower => s1::tower::MAGIC,
             // Same code, same magic as M1 (`tests::magics_are_m1s`).
             k => v1_kind(k).magic(),
         }
@@ -145,6 +149,7 @@ impl AccountKind {
                 | MarchState
                 | Vault
                 | Caravan
+                | Tower
         )
     }
 
@@ -155,6 +160,7 @@ impl AccountKind {
             MarchState => world::march_state::FIELDS,
             Vault => s1::vault::FIELDS,
             Caravan => s1::caravan::FIELDS,
+            Tower => s1::tower::FIELDS,
             Citizen => player::citizen::FIELDS,
             Holding => player::holding::FIELDS,
             JoinShard => world::join_shard::FIELDS,
@@ -172,6 +178,7 @@ impl AccountKind {
             AccountKind::MarchState => "MarchState",
             AccountKind::Vault => "Vault",
             AccountKind::Caravan => "Caravan",
+            AccountKind::Tower => "Tower",
             k => v1_kind(k).name(),
         }
     }
@@ -181,7 +188,15 @@ impl AccountKind {
         use AccountKind::*;
         matches!(
             self,
-            Province | MarchState | Citizen | Holding | JoinShard | Season | Vault | Caravan
+            Province
+                | MarchState
+                | Citizen
+                | Holding
+                | JoinShard
+                | Season
+                | Vault
+                | Caravan
+                | Tower
         )
     }
 
@@ -216,6 +231,11 @@ pub const RECORDS: &[(&str, usize, &[Field])] = &[
         "CaravanSlot",
         province::caravan_slot::SIZE,
         province::caravan_slot::FIELDS,
+    ),
+    (
+        "TowerEntry",
+        province::tower_entry::SIZE,
+        province::tower_entry::FIELDS,
     ),
     ("Place", s1::place::SIZE, s1::place::FIELDS),
     (

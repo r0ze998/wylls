@@ -934,6 +934,21 @@ fn measure_reveal(
     World,
     Instruction,
 ) {
+    measure_reveal_with(build, fill, false)
+}
+
+/// [`measure_reveal`], with `towers`: every Province of the walk holds a
+/// full list of hostile towers (S1 1d: the coverage Reveal derives in each).
+fn measure_reveal_with(
+    build: Build,
+    fill: Fill,
+    towers: bool,
+) -> (
+    permutation_frontier_svm_tests::budget::Need,
+    Chain,
+    World,
+    Instruction,
+) {
     use permutation_frontier_svm_tests::world::holding::padded_line;
     let mut c = Chain::new(build);
     let w = World::running(&mut c, 1);
@@ -959,6 +974,23 @@ fn measure_reveal(
     let id = w.craft_host(&mut c, &e, &e.province, 0, 0, 0, 30_000, tile);
     let m = w.plan_march(id, 0, origin, &dirs, B0 + 20, 2, 25_000, SealCase::Valid);
     assert_eq!(m.path.len(), 3, "4 provinces");
+    if towers {
+        use frontier_abi::v2::layout::province::tower_entry as TE;
+        use permutation_rules::frontier::tower::TowerEntry;
+        for (p, q) in m.path.iter().copied().chain([m.dest]) {
+            c.edit(&w.a.province(p, q), |d| {
+                for i in 0..TE::N {
+                    let e = TowerEntry {
+                        live: true,
+                        tile: (5 * i) as u8,
+                        faction: 3,
+                        gen: 1,
+                    };
+                    e.encode(&mut d[TE::at(i)..TE::at(i) + TE::SIZE]).unwrap();
+                }
+            });
+        }
+    }
     assert_eq!(m.plain.path_len, 32);
     let tip = w.tip_min(&c);
     expect_lands(
@@ -1017,7 +1049,8 @@ fn measure_reveal(
     }
     // The client profile (budget CU limit, L(kind)) lands too (the trace
     // build's markers cost ≈ 5k CU more).
-    if build == Build::Release {
+    // (With towers, an S1 walk: the S1 limit is asserted by the caller.)
+    if build == Build::Release && !towers {
         expect_lands(
             c.fork()
                 .send_client(std::slice::from_ref(&ix), &[&w.keeper]),
@@ -1025,6 +1058,39 @@ fn measure_reveal(
         );
     }
     (need, c, w, ix)
+}
+
+/// G1 for Reveal in an S1 season (stage 1d, S1-1D-CONTRACT §5.6): the
+/// worst walk with a full list of hostile towers in each of its four
+/// Provinces stays within the S1 Reveal limit (`REVEAL_CU_LIMIT_S1`; the
+/// MC row's 26,000 does not hold it) and lands at it; the slot carries a
+/// wear.
+#[test]
+fn g01_s1_reveal_worst_with_towers() {
+    use frontier_abi::v2::budgets::REVEAL_CU_LIMIT_S1;
+    let mut worst = 0u64;
+    for fill in [Fill::Named, Fill::FirstOfBell, Fill::Displace] {
+        let (need, ..) = measure_reveal_with(Build::Release, fill, true);
+        println!("Reveal worst with towers ({fill:?}): {need}");
+        assert!(need.tx_bytes <= 1_100, "{fill:?}: {} B", need.tx_bytes);
+        worst = worst.max(need.cu);
+    }
+    println!("Reveal with towers: worst {worst} CU (S1 limit {REVEAL_CU_LIMIT_S1})");
+    assert!(worst <= REVEAL_CU_LIMIT_S1 as u64);
+    let (_, mut c, w, ix) = measure_reveal_with(Build::Release, Fill::Named, true);
+    let p = permutation_frontier_svm_tests::chain::Profile::NONE
+        .with_cu(REVEAL_CU_LIMIT_S1)
+        .with_loaded(frontier_abi::v2::presets::REVEAL_LOADED_LIMIT_S1);
+    let l = expect_lands(
+        c.send_with(&p, &[ix.clone()], &[&w.keeper]),
+        "Reveal with towers at the S1 limits",
+    );
+    // the target slot (Reveal data: tag, transit slot, target_i)
+    let slot = ix.accounts[9 + ix.data[2] as usize].pubkey;
+    let d = c.data(&slot);
+    let o = frontier_abi::v2::layout::s1::arrival::WORN_BPS;
+    assert!(u16::from_le_bytes([d[o], d[o + 1]]) > 0, "worn");
+    let _ = l;
 }
 
 /// G1 for Reveal (§13.1, W3-B's measurement): CU, tx bytes and loaded data

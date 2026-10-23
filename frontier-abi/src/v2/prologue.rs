@@ -268,6 +268,49 @@ pub fn accounts_of(ix: Ix) -> &'static [Group] {
                 ]
             }
         }
+        // S1 (1d; S1-1D-CONTRACT §3.4–3.6): the tower's Province is
+        // writable (its tower list); the holding's is `r|w` (the same
+        // account when the tower stands in the holding's Province).
+        Ix::BuildTower => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        HOLDING_W,
+                        // Writable when it is also the tower's Province.
+                        s!("holding_province", KindV2(K2::Province), false, Wr::Either),
+                        PROVINCE_W,
+                        s!("tower", KindV2(K2::Tower), false, W),
+                        SYSTEM,
+                    ]),
+                ]
+            }
+        }
+        Ix::SeizeTower => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("tower", KindV2(K2::Tower), false, W),
+                        PROVINCE_W,
+                        s!("host_holding", KindV2(K2::Holding), false, R),
+                        s!("owner_citizen", KindV2(K2::Citizen), false, W),
+                    ]),
+                ]
+            }
+        }
+        Ix::CloseTower => {
+            const {
+                &[
+                    one!(PLAYER_PROLOGUE),
+                    one!(&[
+                        s!("tower", KindV2(K2::Tower), false, W),
+                        PROVINCE_W,
+                        s!("rent_to", Wallet, false, W),
+                    ]),
+                ]
+            }
+        }
         Ix::DefaultRaid => {
             const {
                 &[
@@ -477,6 +520,9 @@ mod tests {
         assert_eq!(count_bounds(Ix::RaidCaravan), (8, 14));
         assert_eq!(count_bounds(Ix::SeizeVault), (8, 8));
         assert_eq!(count_bounds(Ix::CloseVault), (6, 6));
+        assert_eq!(count_bounds(Ix::BuildTower), (9, 9));
+        assert_eq!(count_bounds(Ix::SeizeTower), (8, 8));
+        assert_eq!(count_bounds(Ix::CloseTower), (7, 7));
         assert_eq!(count_bounds(Ix::DefaultRaid), (7, 13));
         // §5.6: the three resident actions gain the Province
         for ix in [Ix::Harvest, Ix::Build, Ix::Train] {

@@ -128,6 +128,10 @@ pub enum CqEvent {
         cargo: [u32; 8],
         arrive_ts: i64,
         runs: Vec<LogRun>,
+        /// S1 1d: the towers' wear of the route (bps; `cargo` is after it).
+        worn_bps: u16,
+        /// The packed path (`caravan::pack`), `steps` of it used.
+        path: [u8; 12],
     },
     CaravanSettled {
         owner_tag: u64,
@@ -166,6 +170,38 @@ pub enum CqEvent {
         new_gen: u8,
         domestic: bool,
         host_id: u64,
+    },
+    // S1 (stage 1d, kinds 95–97).
+    TowerBuilt {
+        p: i32,
+        q: i32,
+        tile: u8,
+        owner_tag: u64,
+        faction: u8,
+        gen: u8,
+        /// Its index in the Province's tower list.
+        entry: u8,
+        /// `s1::tower::NOTIFY_*`.
+        notify: u8,
+        holding_key: u64,
+    },
+    TowerSeized {
+        p: i32,
+        q: i32,
+        tile: u8,
+        captor_tag: u64,
+        prev_tag: u64,
+        new_gen: u8,
+        faction: u8,
+        domestic: bool,
+        host_id: u64,
+    },
+    TowerClosed {
+        p: i32,
+        q: i32,
+        tile: u8,
+        owner_tag: u64,
+        entry: u8,
     },
 }
 
@@ -254,7 +290,10 @@ impl CqEvent {
             | OutpostSettled { p, q, .. }
             | VaultBuilt { p, q, .. }
             | CaravanRaided { p, q, .. }
-            | VaultSeized { p, q, .. } => Some((*p, *q)),
+            | VaultSeized { p, q, .. }
+            | TowerBuilt { p, q, .. }
+            | TowerSeized { p, q, .. }
+            | TowerClosed { p, q, .. } => Some((*p, *q)),
             MarchFold { .. } | Retire { .. } => None,
             CaravanSent { src, .. } => Some((src.p as i32, src.q as i32)),
             CaravanSettled { dst, .. } => Some((dst.p as i32, dst.q as i32)),
@@ -392,6 +431,8 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
             cargo: units8(f("cargo")?)?,
             arrive_ts: u("arrive_ts")? as i64,
             runs: parse_runs(f("runs")?)?,
+            worn_bps: u("worn_bps")? as u16,
+            path: f("path")?.try_into().ok()?,
         },
         CqKind::CARAVAN_SETTLED => CqEvent::CaravanSettled {
             owner_tag: u("owner_tag")?,
@@ -423,6 +464,35 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
             new_gen: b8("new_gen")?,
             domestic: b8("domestic")? != 0,
             host_id: u("host_id")?,
+        },
+        CqKind::TOWER_BUILT => CqEvent::TowerBuilt {
+            p: i("p")?,
+            q: i("q")?,
+            tile: b8("tile")?,
+            owner_tag: u("owner_tag")?,
+            faction: b8("faction")?,
+            gen: b8("gen")?,
+            entry: b8("entry")?,
+            notify: b8("notify")?,
+            holding_key: u("holding_key")?,
+        },
+        CqKind::TOWER_SEIZED => CqEvent::TowerSeized {
+            p: i("p")?,
+            q: i("q")?,
+            tile: b8("tile")?,
+            captor_tag: u("captor_tag")?,
+            prev_tag: u("prev_tag")?,
+            new_gen: b8("new_gen")?,
+            faction: b8("faction")?,
+            domestic: b8("domestic")? != 0,
+            host_id: u("host_id")?,
+        },
+        CqKind::TOWER_CLOSED => CqEvent::TowerClosed {
+            p: i("p")?,
+            q: i("q")?,
+            tile: b8("tile")?,
+            owner_tag: u("owner_tag")?,
+            entry: b8("entry")?,
         },
     };
     Some(CqLog {

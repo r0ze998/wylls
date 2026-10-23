@@ -29,6 +29,42 @@ pub mod vault {
     }
 }
 
+/// Tower (256 B): `tw‖P,Q,tile` (S1, 1d; `S1-1D-CONTRACT.md` §1.1).
+pub mod tower {
+    crate::layout::chained!(b"PSF1TOWR", 256;
+        P @ 64 : "i16" = 2;
+        Q @ 66 : "i16" = 2;
+        TILE @ 68 : "u8" = 1;
+        STATE @ 69 : "u8" = 1;
+        FACTION @ 70 : "u8" = 1;
+        GEN @ 71 : "u8" = 1;
+        OWNER_CITIZEN @ 72 : "[u8;32]" = 32;
+        OWNER_TAG @ 104 : "u64" = 8;
+        BUILT_TS @ 112 : "i64" = 8;
+        SEIZED_BELL @ 120 : "u32" = 4;
+        NOTIFY @ 124 : "u8" = 1;
+        ENTRY @ 125 : "u8" = 1;
+        RSV_126 @ 126 : "rsv" = 2;
+        RENT_TO @ 128 : "[u8;32]" = 32;
+        RSV @ 160 : "rsv" = 96;
+    );
+    pub const STATE_NONE: u8 = 0;
+    pub const STATE_LIVE: u8 = 1;
+    /// `NOTIFY`: the herald tells the owner.
+    pub const NOTIFY_OWNER: u8 = 0;
+    /// `NOTIFY`: the herald tells the owner's faction.
+    pub const NOTIFY_FACTION: u8 = 1;
+}
+
+/// The S1 reading of an ArrivalSlot (1d): the v1 table keeps the name
+/// `RSV_54` (the MC layout tables are unchanged); in an S1 season Reveal
+/// writes the march's tower wear there.
+pub mod arrival {
+    /// The march's tower wear (u16, bps; `tower::wear_bps`).
+    pub const WORN_BPS: usize = crate::layout::clash::arrival_slot::RSV_54;
+    const _: () = assert!(WORN_BPS == 54);
+}
+
 /// A caravan's origin or destination (16 B).
 pub mod place {
     crate::layout::fields!(size = 16;

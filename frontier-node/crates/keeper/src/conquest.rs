@@ -1387,6 +1387,8 @@ mod tests {
                         first_bell: 290,
                         n: 2,
                     }],
+                    worn_bps: 0,
+                    path: [0; 12],
                 },
             },
             1,

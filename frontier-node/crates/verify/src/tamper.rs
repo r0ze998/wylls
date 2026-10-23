@@ -2111,7 +2111,117 @@ pub fn s1_t51(run: &Input) -> Made {
     })
 }
 
-/// The S1 classes (stage 1b, S1-1B-CONTRACT §4.1 as numbered after the
+// ------------------------------------------------------------ S1 classes (stage 1d, T52–T54)
+
+/// T52: a march's tower wear zeroed (V24): the first Reveal whose slot
+/// carries a wear, its `WORN_BPS` cleared in the slot it left.
+pub fn s1_t52(run: &Input) -> Made {
+    use frontier_abi::v2::layout::s1::arrival::WORN_BPS;
+    let mut inp = run.clone();
+    let tag = frontier_abi::tags::Ix::Reveal.tag();
+    let mut hit = false;
+    for t in 0..inp.txs.len() {
+        if inp.txs[t].err.is_some() {
+            continue;
+        }
+        let Some(keys) = ix_keys(&inp, t, tag) else {
+            continue;
+        };
+        for k in keys.iter().skip(9).take(4) {
+            let mut cleared = false;
+            edit_account_at(&mut inp, k, t, |d| {
+                if d.get(WORN_BPS..WORN_BPS + 2).is_some_and(|w| w != [0, 0]) {
+                    d[WORN_BPS..WORN_BPS + 2].fill(0);
+                    cleared = true;
+                }
+            });
+            hit |= cleared;
+        }
+        if hit {
+            break;
+        }
+    }
+    hit.then_some(())
+        .need("a Reveal whose slot carries a wear")?;
+    Ok(Case {
+        class: "T52",
+        what: "a march's tower wear zeroed",
+        feature: None,
+        codes: &[TOWER_WEAR_MISMATCH],
+        input: inp,
+    })
+}
+
+/// T53: a gather that skipped the wear (V24): the first GatherClash's
+/// gathered records' troops raised back by one milli-troop.
+pub fn s1_t53(run: &Input) -> Made {
+    use frontier_abi::layout::clash::{arrival as AR, clash_inputs as CI};
+    let mut inp = run.clone();
+    let tag = frontier_abi::tags::Ix::GatherClash.tag();
+    let t = first_with(&inp, tag).need("a GatherClash")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let inputs = *keys.get(5).need("its ClashInputs")?;
+    edit_account_at(&mut inp, &inputs, t, |d| {
+        for k in 0..CI::POSITIONS {
+            let o = CI::ARRIVALS + k * AR::SIZE + AR::TROOPS;
+            if let Some(b) = d.get_mut(o..o + 4) {
+                let v = u32::from_le_bytes([b[0], b[1], b[2], b[3]]);
+                if v > 0 {
+                    b.copy_from_slice(&(v + 1).to_le_bytes());
+                }
+            }
+        }
+    })
+    .then_some(())
+    .need("the ClashInputs' post-state")?;
+    Ok(Case {
+        class: "T53",
+        what: "a gather that skipped the tower wear",
+        feature: None,
+        codes: &[TOWER_WEAR_MISMATCH],
+        input: inp,
+    })
+}
+
+/// T54: a tower seized without a host on its tile (V24): the captor's
+/// roster entry moved off the tile in the Province before the seizure.
+pub fn s1_t54(run: &Input) -> Made {
+    use frontier_abi::layout::province::{entry as EN, province as PV};
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::SeizeTower.tag();
+    let t = first_with(&inp, tag).need("a SeizeTower")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let province = *keys.get(5).need("its Province")?;
+    let u = last_post_before(&inp, &province, t).need("the Province before")?;
+    let entry = {
+        let mut tx = fclient::tx::from_wire(&inp.txs[t].tx).expect("tx");
+        let program = inp.cfg.program;
+        let ks = tx.message.account_keys.clone();
+        let ci = tx
+            .message
+            .instructions
+            .iter_mut()
+            .find(|c| ks[c.program_id_index as usize] == program && c.data.first() == Some(&tag))
+            .expect("instruction");
+        ci.data[1] as usize
+    };
+    edit_account_at(&mut inp, &province, u, |d| {
+        let o = PV::entry(entry) + EN::TILE;
+        d[o] = d[o].wrapping_add(1) % 61;
+    })
+    .then_some(())
+    .need("the Province's post-state")?;
+    Ok(Case {
+        class: "T54",
+        what: "a tower seized without the captor's host on it",
+        feature: None,
+        codes: &[TOWER_MISMATCH],
+        input: inp,
+    })
+}
+
+/// The S1 classes (stages 1b and 1d, S1-1B-CONTRACT §4.1 and S1-1D-CONTRACT
+/// §5.1, as numbered after the
 /// conquest's T25–T48) an S1 season runs: extras until an S1 fixture with
 /// caravans is committed.
 pub fn s1_classes() -> Vec<Class> {
@@ -2126,6 +2236,9 @@ pub fn s1_classes() -> Vec<Class> {
         c("T49", vec![("caravan slots not written", s1_t49)]),
         c("T50", vec![("cargo credited twice", s1_t50)]),
         c("T51", vec![("vault seized without a host", s1_t51)]),
+        c("T52", vec![("march wear zeroed", s1_t52)]),
+        c("T53", vec![("gather skipped the wear", s1_t53)]),
+        c("T54", vec![("tower seized without a host", s1_t54)]),
     ]
 }
 

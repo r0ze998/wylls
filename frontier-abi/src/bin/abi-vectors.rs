@@ -1926,6 +1926,7 @@ fn v2_budgets() -> J {
                         ),
                         ("loaded_limit", n(b2::loaded_limit(*i))),
                         ("loaded_limit_s1", n(b2::loaded_limit_s1(*i))),
+                        ("cu_limit_s1", n(b2::cu_limit_s1(*i))),
                     ])
                 })
                 .collect(),

@@ -110,6 +110,10 @@ tags_v2! {
     SeizeVault = 0xB4, P, false;
     CloseVault = 0xB5, P, false;
     DefaultRaid = 0xB6, D, false;
+    // S1 (1d: watchtowers)
+    BuildTower = 0xB7, P, false;
+    SeizeTower = 0xB8, P, false;
+    CloseTower = 0xB9, P, false;
 }
 
 impl Ix {
@@ -124,8 +128,8 @@ impl Ix {
         Ix::CloseMarch,
     ];
 
-    /// The S1 instructions (1b), refused by the MC program.
-    pub const S1: [Ix; 7] = [
+    /// The S1 instructions (1b, 1d), refused by the MC program.
+    pub const S1: [Ix; 10] = [
         Ix::BuildVault,
         Ix::SendCaravan,
         Ix::SettleCaravan,
@@ -133,6 +137,9 @@ impl Ix {
         Ix::SeizeVault,
         Ix::CloseVault,
         Ix::DefaultRaid,
+        Ix::BuildTower,
+        Ix::SeizeTower,
+        Ix::CloseTower,
     ];
 
     /// Whether the instruction is S1's.
@@ -196,9 +203,9 @@ impl crate::tags::Ix {
 }
 
 /// Reserved v2 tags: M1's reserved set, 0xA4, 0xA8–0xAF and S1's
-/// 0xB7–0xBF.
+/// 0xBA–0xBF.
 pub const fn is_reserved(t: u8) -> bool {
-    crate::tags::is_reserved(t) || matches!(t, 0xA4 | 0xA8..=0xAF | 0xB7..=0xBF)
+    crate::tags::is_reserved(t) || matches!(t, 0xA4 | 0xA8..=0xAF | 0xBA..=0xBF)
 }
 
 /// Player instructions the relay may sponsor (§8.3): M1's, DeclareSiege,
@@ -216,6 +223,9 @@ pub const fn relay_player_shape(ix: Ix) -> bool {
                 | Ix::RaidCaravan
                 | Ix::SeizeVault
                 | Ix::CloseVault
+                | Ix::BuildTower
+                | Ix::SeizeTower
+                | Ix::CloseTower
         ),
     }
 }
@@ -245,8 +255,8 @@ mod tests {
 
     #[test]
     fn v2_extends_m1() {
-        assert_eq!(Ix::ALL.len(), 65);
-        assert_eq!(crate::tags::Ix::ALL_V2.len(), 65);
+        assert_eq!(Ix::ALL.len(), 68);
+        assert_eq!(crate::tags::Ix::ALL_V2.len(), 68);
         for v1 in crate::tags::Ix::ALL {
             let v = Ix::of_v1(*v1);
             assert_eq!(v.tag(), v1.tag());

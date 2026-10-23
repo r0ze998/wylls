@@ -120,8 +120,8 @@ pub const RULESET_HASH_V2: [u8; 32] = [
 /// crate's `s1_ruleset_hash_pinned_and_older_hashes_unchanged`). The M1 and
 /// MC hashes are unchanged.
 pub const RULESET_HASH_V3: [u8; 32] = [
-    0xe6, 0x1a, 0x3d, 0x6a, 0xeb, 0x80, 0x26, 0x75, 0xf3, 0x6e, 0x6e, 0x04, 0x8f, 0xae, 0xb9, 0x62,
-    0x97, 0x0e, 0xb3, 0x4a, 0xe6, 0x01, 0x85, 0xe8, 0xcb, 0x84, 0x1c, 0x9e, 0xd3, 0xe6, 0x07, 0xd0,
+    0x77, 0xa8, 0x38, 0x3f, 0x82, 0xc6, 0xe4, 0xfc, 0xe1, 0x67, 0x3c, 0x7d, 0x83, 0x7a, 0x9e, 0xa2,
+    0x7b, 0x87, 0xff, 0x0a, 0x7e, 0x4e, 0xbd, 0x80, 0x52, 0x39, 0xc2, 0x45, 0xf4, 0x46, 0x94, 0xcf,
 ];
 
 /// The conquest block (§5.2.5).
@@ -565,6 +565,7 @@ pub const fn s1(p: SeasonParamsV2) -> SeasonParamsV2 {
     let mut q = p;
     q.base.program_version = PROGRAM_VERSION_S1;
     q.base.reveal_loaded_limit = REVEAL_LOADED_LIMIT_S1;
+    q.base.reveal_cu_limit = crate::v2::budgets::REVEAL_CU_LIMIT_S1;
     q
 }
 
@@ -633,7 +634,7 @@ mod tests {
         for (_, p) in PRESETS.iter().chain(PRESETS_S1.iter()) {
             assert_eq!(
                 p.base.reveal_cu_limit,
-                crate::v2::budgets::budget(crate::v2::Ix::Reveal).cu_limit
+                crate::v2::budgets::cu_limit_for(p.base.program_version, crate::v2::Ix::Reveal)
             );
             assert_eq!(
                 p.base.reveal_loaded_limit,

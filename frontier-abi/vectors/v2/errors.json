@@ -607,6 +607,27 @@
       "keeper": "refused"
     },
     {
+      "code": 87,
+      "name": "TowerSite",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 88,
+      "name": "TowerLimit",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 89,
+      "name": "TowerFull",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
       "code": 99,
       "name": "NotImplemented",
       "program": false,

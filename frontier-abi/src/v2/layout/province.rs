@@ -2,7 +2,7 @@
 //!
 //! Bytes `0..4,096` are M1's Province byte for byte, except that S1
 //! (redesign stage 1) names the 232-B reserve at 3,864: the caravan slots
-//! (`CARAVANS`, 1b) and the per-faction tower coverage (`TOWERS`, 1d);
+//! (`CARAVANS`, 1b) and the tower list (`TOWERS`, 1d);
 //! `tests::v1_prefix_is_m1` checks every other field. The 640-B conquest
 //! block follows at 4,096.
 
@@ -42,7 +42,7 @@ pub mod province {
         CAMP @ 3784 : "rec:Camp x1" = 16;
         TICKET_COHORTS @ 3800 : "rec:Cohort x8" = 64;
         CARAVANS @ 3864 : "rec:CaravanSlot x5" = 180;
-        TOWERS @ 4044 : "[u64;6]" = 48;
+        TOWERS @ 4044 : "rec:TowerEntry x12" = 48;
         RSV_4092 @ 4092 : "rsv" = 4;
         CONQUEST @ 4096 : "rec:ConquestRecord x12" = 384;
         KEEP @ 4480 : "rec:Keep x1" = 32;
@@ -153,6 +153,27 @@ pub mod caravan_slot {
     /// The slots' bytes `[3,864, 4,044)`.
     pub const BLOCK: core::ops::Range<usize> =
         super::province::CARAVANS..super::province::CARAVANS + 5 * SIZE;
+}
+
+/// One entry of a Province's tower list (S1, 1d; `tower::TowerEntry`).
+pub mod tower_entry {
+    crate::layout::fields!(size = 4;
+        STATE @ 0 : "u8" = 1;
+        TILE @ 1 : "u8" = 1;
+        FACTION @ 2 : "u8" = 1;
+        GEN @ 3 : "u8" = 1;
+    );
+    pub const STATE_EMPTY: u8 = 0;
+    pub const STATE_LIVE: u8 = 1;
+    /// Entries of the list.
+    pub const N: usize = 12;
+    /// Offset of entry `i` in a Province.
+    pub const fn at(i: usize) -> usize {
+        super::province::TOWERS + SIZE * i
+    }
+    /// The list's bytes `[4,044, 4,092)`.
+    pub const BLOCK: core::ops::Range<usize> =
+        super::province::TOWERS..super::province::TOWERS + N * SIZE;
 }
 
 pub mod conquest {
@@ -296,6 +317,19 @@ mod tests {
             permutation_rules::frontier::caravan::SLOT_SIZE
         );
         assert_eq!(5 * caravan_slot::SIZE, 180, "MAX_CARAVAN_SLOTS slots");
+        assert_eq!(
+            tower_entry::N * tower_entry::SIZE,
+            48,
+            "tower::PROVINCE_TOWERS entries"
+        );
+        assert_eq!(
+            tower_entry::N,
+            permutation_rules::frontier::tower::PROVINCE_TOWERS
+        );
+        assert_eq!(
+            tower_entry::SIZE,
+            permutation_rules::frontier::tower::ENTRY_SIZE
+        );
         assert_eq!(permutation_rules::frontier::caravan::MAX_CARAVAN_SLOTS, 5);
     }
 

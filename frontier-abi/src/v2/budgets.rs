@@ -90,6 +90,10 @@ pub const MC_ROWS: &[(Ix, u32, u32, u32)] = &[
     (Ix::SeizeVault, 30_000, 0, 600),
     (Ix::CloseVault, 10_000, 0, 500),
     (Ix::DefaultRaid, 120_000, 0, 1_100),
+    // S1 (1d; S1-1D-CONTRACT §5.6): placeholders until measured.
+    (Ix::BuildTower, 40_000, 0, 600),
+    (Ix::SeizeTower, 30_000, 0, 600),
+    (Ix::CloseTower, 15_000, 0, 500),
 ];
 
 /// The v2 row of `ix`.
@@ -226,6 +230,32 @@ pub fn loaded_limit_s1(ix: Ix) -> u32 {
     loaded_limit_at(ix, PLACEHOLDER_PROGRAMDATA_LEN_S1)
 }
 
+/// Reveal's CU limit under the S1 program (stage 1d, `S1-1D-CONTRACT`
+/// §5.6): the tower coverage of up to four Provinces and a range test a
+/// step take the worst walk past the MC row's 26,000 (measured 26,454 at
+/// the worst fill with full hostile lists; `g01_s1_reveal_worst_with_towers`);
+/// rounded up with room for stage 1e.
+pub const REVEAL_CU_LIMIT_S1: u32 = 28_000;
+
+/// The CU limit of `ix` under the S1 program: the v2 row's, Reveal's
+/// [`REVEAL_CU_LIMIT_S1`].
+pub fn cu_limit_s1(ix: Ix) -> u32 {
+    if ix == Ix::Reveal {
+        REVEAL_CU_LIMIT_S1
+    } else {
+        budget(ix).cu_limit
+    }
+}
+
+/// The CU limit for a season's `program_version`.
+pub fn cu_limit_for(program_version: u16, ix: Ix) -> u32 {
+    if program_version >= crate::v2::presets::PROGRAM_VERSION_S1 {
+        cu_limit_s1(ix)
+    } else {
+        budget(ix).cu_limit
+    }
+}
+
 /// `L(kind)` for a season's `program_version` (S1 seasons run the S1
 /// program, MC seasons the MC one).
 pub fn loaded_limit_for(program_version: u16, ix: Ix) -> u32 {
@@ -316,6 +346,8 @@ mod tests {
                 loaded_limit_for(crate::v2::presets::PROGRAM_VERSION_S1, *ix),
                 s1
             );
+            assert!(cu_limit_s1(*ix) >= budget(*ix).cu_limit, "{}", ix.name());
+            assert!(cu_limit_s1(*ix) <= CU_LADDER_MAX);
         }
         // an MC Province loads 640 B more than an M1 one
         let v1 = crate::budgets::loaded_accounts(crate::tags::Ix::ResolveFromInputs).0;

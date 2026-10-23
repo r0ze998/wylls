@@ -124,6 +124,16 @@ ix_data_v2! {
     }
 }
 
+ix_data_v2! {
+    /// 0xB7 (P, S1, 1d): a tower on `tile` of the Province at account 7;
+    /// `notify` who the herald tells (`layout::s1::tower::NOTIFY_*`).
+    BuildTower { tile: u8, notify: u8 }
+    /// 0xB8 (P, S1, 1d): the captor's roster `entry` stands on the tower.
+    SeizeTower { entry: u8 }
+    /// 0xB9 (P, S1, 1d): the owner closes the tower.
+    CloseTower {}
+}
+
 /// SendCaravan's and RaidCaravan's cargo as milli-units (whole units ×
 /// 1,000), checked.
 pub fn cargo_milli(cargo: &[u8; 32]) -> Option<[i64; 8]> {
@@ -280,6 +290,9 @@ pub fn fixed_len(ix: Ix) -> Option<usize> {
         Ix::SeizeVault => SeizeVault::LEN,
         Ix::CloseVault => CloseVault::LEN,
         Ix::DefaultRaid => DefaultRaid::LEN,
+        Ix::BuildTower => BuildTower::LEN,
+        Ix::SeizeTower => SeizeTower::LEN,
+        Ix::CloseTower => CloseTower::LEN,
         Ix::FileOutpost | Ix::CreateSeason => return None,
         other => return crate::ix::fixed_len(other.to_v1()?),
     })
@@ -301,6 +314,9 @@ pub fn wire_of(ix: Ix) -> Option<&'static [(&'static str, usize)]> {
         Ix::SeizeVault => SeizeVault::WIRE,
         Ix::CloseVault => CloseVault::WIRE,
         Ix::DefaultRaid => DefaultRaid::WIRE,
+        Ix::BuildTower => BuildTower::WIRE,
+        Ix::SeizeTower => SeizeTower::WIRE,
+        Ix::CloseTower => CloseTower::WIRE,
         Ix::FileOutpost | Ix::CreateSeason => return None,
         other => return crate::ix::wire_of(other.to_v1()?),
     })

@@ -133,6 +133,9 @@ pub struct Cq {
     /// S1 stage 1b: the caravans on the road and the vaults
     /// (`h/caravans.json`, [`crate::caravan`]).
     pub caravans: crate::caravan::Caravans,
+    /// S1 stage 1d: the towers and their sightings (`h/towers.json`,
+    /// [`crate::tower`]).
+    pub towers: crate::tower::Towers,
     pub alarms: CqAlarms,
     /// Province-bell views awaiting their control and overview v2 files.
     pub views: BTreeMap<(i16, i16, u32), View>,
@@ -430,8 +433,11 @@ pub fn on_record(f: &mut Fold, tx: &TxRecord, body: &[u8]) -> bool {
         t_ms: 0,
         wire: Default::default(),
     });
+    if let Some(e) = &s1 {
+        cq.towers.sight(r.bell, e);
+    }
     match &s1 {
-        Some(e) if cq.caravans.fold(e) => {}
+        Some(e) if cq.caravans.fold(e) || cq.towers.fold(e) => {}
         _ => fold_record(&mut cq, f, tx, kind, &r, seq, &sig),
     }
     f.cq = cq;
@@ -766,7 +772,10 @@ fn fold_record(
         | CqKind::CARAVAN_SENT
         | CqKind::CARAVAN_SETTLED
         | CqKind::CARAVAN_RAIDED
-        | CqKind::VAULT_SEIZED => {}
+        | CqKind::VAULT_SEIZED
+        | CqKind::TOWER_BUILT
+        | CqKind::TOWER_SEIZED
+        | CqKind::TOWER_CLOSED => {}
     }
 }
 
@@ -1606,6 +1615,7 @@ pub fn complete(f: &mut Fold, tx: &TxRecord) {
     crate::standings::write_rows(&mut cq, f, si.as_ref(), slot);
     keeps_out(&mut cq, f);
     caravans_out(&mut cq, f);
+    towers_out(&mut cq, f);
     final_file(&mut cq, f, si.as_ref());
     f.cq = cq;
 }
@@ -2043,6 +2053,64 @@ fn caravans_out(cq: &mut Cq, f: &mut Fold) {
     }
 }
 
+/// `h/towers.json` when a record changed it.
+fn towers_out(cq: &mut Cq, f: &mut Fold) {
+    if std::mem::take(&mut cq.towers.dirty) {
+        let j = cq.towers.file().to_string();
+        write(f, "h/towers.json", j.as_bytes(), false);
+    }
+}
+
+/// S1 stage 1d: the tower sightings of an M1-kind record (DEPART's origin,
+/// REVEAL's destination; `S1-1D-CONTRACT` §5.4).
+pub fn on_v1_record(f: &mut Fold, r: &frontier_abi::log::Record<'_>) {
+    use crate::tower::What;
+    use frontier_abi::log::Kind;
+    if f.cq.towers.towers.is_empty() {
+        return;
+    }
+    let field = |name: &str| -> Option<&[u8]> {
+        let (o, w) = frontier_abi::log::field(r.kind, name, true)?;
+        r.payload.get(o..o + w)
+    };
+    match r.kind {
+        Kind::DEPART => {
+            let (Some(host), Some(p), Some(q), Some(tile)) = (
+                rd_u64(r.key, 0),
+                field("origin_p").and_then(|x| rd_i32(x, 0)),
+                field("origin_q").and_then(|x| rd_i32(x, 0)),
+                field("origin_tile").and_then(|x| rd_u8(x, 0)),
+            ) else {
+                return;
+            };
+            let faction = host_owner_tag(f, host).and_then(|t| f.cq.faction_of_tag(t));
+            let subject = format!("host {host}");
+            f.cq.towers
+                .watch(r.bell, What::Depart, faction, &[(p, q, tile)], &subject);
+        }
+        Kind::REVEAL => {
+            let (Some(p), Some(q), Some(faction), Some(host), Some(tile)) = (
+                rd_i32(r.key, 0),
+                rd_i32(r.key, 4),
+                rd_u8(r.key, 12),
+                field("host_id").and_then(|x| rd_u64(x, 0)),
+                field("tile").and_then(|x| rd_u8(x, 0)),
+            ) else {
+                return;
+            };
+            let subject = format!("host {host}");
+            f.cq.towers.watch(
+                r.bell,
+                What::Arrival,
+                Some(faction),
+                &[(p, q, tile)],
+                &subject,
+            );
+        }
+        _ => {}
+    }
+}
+
 fn keeps_out(cq: &mut Cq, f: &mut Fold) {
     let dirty = std::mem::take(&mut cq.keeps_dirty);
     for pq in dirty {
@@ -2356,6 +2424,7 @@ impl Cq {
             "firstTransferred": self.first_transferred,
             "finalDone": self.final_done,
             "caravans": self.caravans.to_json(),
+            "towers": self.towers.to_json(),
         });
         if self.on {
             out["scoreVersion"] = json!(3);
@@ -2378,6 +2447,10 @@ impl Cq {
         // S1: absent in a checkpoint written before stage 1b (empty then).
         if let Some(cv) = v.get("caravans").filter(|x| !x.is_null()) {
             c.caravans = crate::caravan::Caravans::from_json(cv)?;
+        }
+        // S1: absent in a checkpoint written before stage 1d.
+        if let Some(tv) = v.get("towers").filter(|x| !x.is_null()) {
+            c.towers = crate::tower::Towers::from_json(tv)?;
         }
         let a: Vec<u64> = v["alarms"]
             .as_array()?

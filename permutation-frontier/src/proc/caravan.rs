@@ -220,7 +220,7 @@ fn named_place(
 // ------------------------------------------------------------ provinces
 
 /// A path Province: canonical, present (v2), its masks and `resolved_next`.
-fn land_of(p: &Pubkey, ctx: &AddrCtx, sid: u64, ai: &AccountInfo) -> R<(Land, u32)> {
+pub(super) fn land_of(p: &Pubkey, ctx: &AddrCtx, sid: u64, ai: &AccountInfo) -> R<(Land, u32)> {
     present_v2(ai, p, K2::Province, sid)?;
     let d = ai.try_borrow_data()?;
     let r = Ro(&d);
@@ -281,7 +281,9 @@ fn claim_slot(pd: &mut [u8], id: u64, faction: u8, run: &Run) -> R<()> {
 
 /// Walks `path` from `origin` to `dst` over `provinces` (the origin's
 /// first) at the owner's caravan speed and writes the schedule's slots.
-/// Returns the arrival time and the runs as logged (`log_run`).
+/// Returns the arrival time, the runs as logged (`log_run`), the last
+/// bell and the tower wear (1d, `S1-1D-CONTRACT` §3.3: the seconds walked in
+/// the hostile coverage of the towers standing now).
 #[allow(clippy::too_many_arguments)]
 fn route(
     p: &Pubkey,
@@ -296,7 +298,7 @@ fn route(
     faction: u8,
     id: u64,
     provinces: &[AccountInfo],
-) -> R<(i64, [u8; log_run::LEN * log_run::N], u32)> {
+) -> R<(i64, [u8; log_run::LEN * log_run::N], u32, u16)> {
     let mut lands = [Land {
         at: ProvinceCoord::new(0, 0),
         passable: 0,
@@ -315,7 +317,7 @@ fn route(
         if origin != dst {
             return Err(FrontierError::Path.into());
         }
-        return Ok((now, [0u8; log_run::LEN * log_run::N], 0));
+        return Ok((now, [0u8; log_run::LEN * log_run::N], 0, 0));
     }
     let walked = kc::walk(origin, path, steps, lands, bps).map_err(|_| FrontierError::Path)?;
     let last = walked.last().ok_or(FrontierError::Path)?;
@@ -323,6 +325,18 @@ fn route(
         return Err(FrontierError::Path.into());
     }
     let runs = kc::schedule(genesis_ts, now, origin, &walked).map_err(|_| FrontierError::Path)?;
+    let mut cover = [0u64; 4];
+    for (c, ai) in cover.iter_mut().zip(provinces) {
+        *c = super::tower::hostile_of(&ai.try_borrow_data()?, faction)?;
+    }
+    let in_range = permutation_rules::frontier::tower::caravan_secs_in_range(&walked, |pc| {
+        lands
+            .iter()
+            .zip(cover)
+            .find(|(l, _)| l.at == pc)
+            .map_or(0, |(_, c)| c)
+    });
+    let worn = permutation_rules::frontier::tower::wear_bps(in_range);
     let mut logged = [0u8; log_run::LEN * log_run::N];
     let mut last_bell = 0u32;
     for (i, run) in runs.iter().enumerate() {
@@ -349,7 +363,12 @@ fn route(
     let arrive = now
         .checked_add(kc::travel_secs(&walked) as i64)
         .ok_or(OVERFLOW)?;
-    Ok((arrive, logged, last_bell))
+    Ok((arrive, logged, last_bell, worn))
+}
+
+/// `cargo` worn by `bps` (`tower::wear` on each amount).
+fn worn_cargo(cargo: &[i64; RESOURCES], bps: u16) -> [i64; RESOURCES] {
+    cargo.map(|c| permutation_rules::frontier::tower::wear_i64(c, bps))
 }
 
 /// The cargo's eight amounts as the logged `u32` whole units.
@@ -432,15 +451,19 @@ fn sent_payload(
     cargo: &[i64; RESOURCES],
     arrive: i64,
     runs: &[u8; log_run::LEN * log_run::N],
-) -> R<crate::events::Buf<94>> {
-    Ok(crate::events::Buf::<94>::new()
+    worn_bps: u16,
+    path: &[u8; 12],
+) -> R<crate::events::Buf<108>> {
+    Ok(crate::events::Buf::<108>::new()
         .u8(faction)
         .bytes(src)
         .bytes(dst)
         .u8(steps)
         .bytes(&cargo_log(cargo))
         .i64(arrive)
-        .bytes(runs))
+        .bytes(runs)
+        .u16(worn_bps)
+        .bytes(path))
 }
 
 fn caravan_key(owner_tag: u64, seq: u32) -> [u8; 12] {
@@ -688,7 +711,7 @@ pub fn send_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     // The path and the slots.
     let owner_tag = pl.pc.citizen_tag;
     let id = caravan_id(owner_tag, seq);
-    let (arrive, runs, last_bell) = route(
+    let (arrive, runs, last_bell, worn) = route(
         p,
         &pl.ctx,
         sid,
@@ -707,6 +730,9 @@ pub fn send_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         caravan,
         &frontier_abi::v2::addr::caravan(&pl.ctx, owner_tag, seq),
     )?;
+    // 1d: the towers on the route wear the cargo now; the source paid the
+    // whole.
+    let cargo = worn_cargo(&cargo, worn);
     let signer = SeasonSigner::new(sid, pl.pc.season.bump);
     create_caravan(
         p,
@@ -734,7 +760,17 @@ pub fn send_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         let mut cd = citizen.try_borrow_mut_data()?;
         Rw(&mut cd).set_u32(C::CARAVANS, seq.checked_add(1).ok_or(OVERFLOW)?)?;
     }
-    let payload = sent_payload(faction, &s.log(), &t.log(), x.steps, &cargo, arrive, &runs)?;
+    let payload = sent_payload(
+        faction,
+        &s.log(),
+        &t.log(),
+        x.steps,
+        &cargo,
+        arrive,
+        &runs,
+        worn,
+        &x.path,
+    )?;
     let mut cd = citizen.try_borrow_mut_data()?;
     let mut sd = src.try_borrow_mut_data()?;
     let mut vd = caravan.try_borrow_mut_data()?;
@@ -1166,7 +1202,7 @@ fn settle_raid(
         }
         cleared = clear_route(rc, id, raid_pq)?;
         let new_route = &rc.provinces[..n];
-        let (arrive, runs, last_bell) = route(
+        let (arrive, runs, last_bell, worn) = route(
             rc.p,
             &rc.ctx,
             rc.sid,
@@ -1223,11 +1259,15 @@ fn settle_raid(
             w.set_i64(CV::DEPART_TS, rc.now)?;
             w.set_i64(CV::ARRIVE_TS, arrive)?;
             w.set_u32(CV::LAST_BELL, last_bell)?;
+            // 1d: the new route's towers wear the cargo.
+            for (r, c) in worn_cargo(&cargo, worn).iter().enumerate() {
+                w.set_i64(CV::cargo(r), *c)?;
+            }
             field.store(&mut cd, CV::SRC)?;
             t.store(&mut cd, CV::DST)?;
         }
         dst_log = t.log();
-        sent = Some((runs, field.log(), t, arrive));
+        sent = Some((runs, field.log(), t, arrive, worn));
     }
     // CARAVAN_RAIDED: the raid's Province, the old route's others it
     // cleared, the caravan.
@@ -1272,8 +1312,18 @@ fn settle_raid(
         )?;
     }
     // A take: the caravan's new route (CARAVAN_SENT, origin the field).
-    if let Some((runs, src, t, arrive)) = sent {
-        let payload = sent_payload(raider_faction, &src, &t.log(), steps, &cargo, arrive, &runs)?;
+    if let Some((runs, src, t, arrive, worn)) = sent {
+        let payload = sent_payload(
+            raider_faction,
+            &src,
+            &t.log(),
+            steps,
+            &worn_cargo(&cargo, worn),
+            arrive,
+            &runs,
+            worn,
+            path,
+        )?;
         let mut cd = rc.caravan.try_borrow_mut_data()?;
         let mut pds = province_links(rc.provinces, &runs)?;
         let mut chained: alloc::vec::Vec<Chained2> = alloc::vec::Vec::with_capacity(5);

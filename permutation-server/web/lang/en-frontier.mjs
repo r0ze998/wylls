@@ -685,6 +685,9 @@ export default {
   '隊商はまだ到着していないか、通った州の決着がまだです': 'The caravan has not arrived yet, or a province on its way is not resolved yet.',
   'この隊商には決着を待つ略奪がない、またはすでに決着しています': 'There is no open raid on this caravan, or it is already settled.',
   '略奪の決定の受付時間外です': 'This is outside the time to decide the raid.',
-  '蔵のマスに自分の軍勢がいないか、持ち主の軍勢がまだいます': 'Your host is not on the vault\'s tile, or one of its owner\'s hosts is still there.',
+  '蔵や見張り塔のマスに自分の軍勢がいないか、持ち主の軍勢がまだいます': 'Your host is not on the tile, or one of its owner\'s hosts is still there.',
+  '見張り塔はこのマスに建てられません（通れない土地、村、砦、野営地、または既存の塔）': 'A watchtower cannot be built on this tile (impassable, a site, the keep, a camp or a tower already).',
+  '持てる見張り塔の上限に達しています': 'You already hold the most watchtowers allowed.',
+  'この州には、これ以上の見張り塔を建てられません': 'This province has no room for another watchtower.',
   'この包囲の先導者だけが行える操作です': 'Only the siege leader can perform this action.',
 };
