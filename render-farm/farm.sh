@@ -4,6 +4,7 @@
 #   farm.sh setup                     venv + bpy, CC0 assets from Poly Haven, build the world, print its fingerprint
 #   farm.sh video F0 F1 [SAMPLES]     render frames F0..F1 of the intro film, grade them, pack a near-lossless clip
 #   farm.sh still SCRIPT NAME [SAMPLES] [WARM]   render one 2160×2700 still in four bands, stack and grade it
+#   farm.sh restack NAME [WARM]           re-join existing bands (cut through the overlaps) and re-grade
 #   farm.sh pass SCRIPT NAME MODE [SAMPLES]      one extra full-frame pass for the ⑥ replay (MODE=shade|normal|mist)
 # Resumable: finished frames and bands are skipped.
 set -e
@@ -43,14 +44,14 @@ still)
     [ -f $B/${NAME}_$2.png ] && continue
     BORDER=$1 $PY $SCRIPT -- 2160 2700 $SAMP $B/${NAME}_$2.tmp.png > $B/${NAME}_$2.log 2>&1 && mv $B/${NAME}_$2.tmp.png $B/${NAME}_$2.png
   done
-  python3 -c "
-from PIL import Image
-im = None
-for k in 'abcd':
-    b = Image.open('$B/${NAME}_' + k + '.png').convert('RGBA'); im = b if im is None else (im.alpha_composite(b) or im)
-im.convert('RGB').save('$R/out/${NAME}_raw.png')"
+  python3 stack_bands.py $B/${NAME}_a.png $B/${NAME}_b.png $B/${NAME}_c.png $B/${NAME}_d.png $R/out/${NAME}_raw.png
   python3 grade.py $R/out/${NAME}_raw.png $R/out/${NAME}.png 0 $WARM
   echo "still $NAME done"
+  ;;
+restack)
+  NAME=$2; WARM=${3:-0.03}; B=$WK/bands
+  python3 stack_bands.py $B/${NAME}_a.png $B/${NAME}_b.png $B/${NAME}_c.png $B/${NAME}_d.png $R/out/${NAME}_raw.png
+  python3 grade.py $R/out/${NAME}_raw.png $R/out/${NAME}.png 0 $WARM
   ;;
 pass)
   SCRIPT=$2; NAME=$3; MODE=$4; SAMP=${5:-64}
