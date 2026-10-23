@@ -1982,6 +1982,11 @@ body[data-kind="wait"] .plate .plate-go[data-act="join-open"] { display: none; }
 .hand-tool:hover { color: var(--ivory); background: rgba(240,212,138,.12); }
 .hand-n { position: absolute; right: -2px; top: -3px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--brass-hi); color: #14251f; font: 700 11px/16px var(--ui); text-align: center; }
 .hand-note { margin: 0; padding: 0 6px; font-size: var(--t1); color: var(--amber); }
+.hand-note-agent .hand-agent { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.hand-note-agent .hand-agent > .ic { width: 14px; height: 14px; }
+.hand-note-agent .btn.small { min-height: 28px; padding: 3px 10px; }
+.hand-note-agent a.btn { color: var(--ivory); background: transparent; border: 1px solid rgba(240,212,138,.45); text-decoration: none; }
+.hand-note-agent a.btn:hover { background: rgba(240,212,138,.12); }
 .hand-acts { display: flex; gap: 6px; }
 .hand-btn { position: relative; flex: 1 0 auto; display: grid; grid-template-columns: 26px auto; grid-template-rows: auto auto; align-content: center; justify-content: start; column-gap: 8px; row-gap: 1px; min-width: 104px; max-width: 230px; height: 56px; padding: 4px 12px 4px 10px;
   border: 1px solid rgba(201,162,74,.7); border-radius: 10px; background: linear-gradient(180deg, #27493f, #152b26); color: var(--ivory); text-align: left; cursor: pointer;

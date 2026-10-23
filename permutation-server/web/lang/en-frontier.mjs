@@ -691,5 +691,9 @@ export default {
   'この村は代理人に任せているため、この端末の鍵では送れません。代理人のページ（「その他」）で止めるか、鍵を取り戻してから操作してください。': 'This village is handed to your agent, so this device\'s key cannot send for it. Stop the agent on its page (under "More"), or take the key back first.',
   '鍵を取り戻しました。代理人はサーバー上ではまだ自動です（鍵がないので何も送れず、判断料もかかりません）。止めるには代理人のページで「手動に戻す」を押してください。': 'You have the key back. The agent is still in auto on the server (without the key it can send nothing, and no decision is charged). To stop it, press "Back to manual" on the agent page.',
   '鍵を取り戻しました。': 'You have the key back.',
+  '代理人に任せています（自動）。この端末の鍵では送れません。': 'Handed to your agent (auto). This device\'s key cannot send.',
+  '鍵はまだ代理人が持っています（代理人は停止中）。この端末の鍵では送れません。': 'Your agent still holds the key (the agent is stopped). This device\'s key cannot send.',
+  '鍵を取り戻す': 'Take the key back',
+  '代理人のページ': 'Agent page',
   '代理人のページ（テストUSDCで自動運転を任せる）': 'Agent page (hand the village to an agent, with test USDC)',
 };

@@ -72,7 +72,14 @@ async function step(page, name, details = {}) {
 }
 const textOf = page => page.innerText('body');
 async function waitText(page, part, ms = 60_000) {
-  return until(`the page says "${part}"`, async () => ((await textOf(page)).includes(part) ? true : null), ms);
+  try {
+    return await until(`the page says "${part}"`, async () => ((await textOf(page)).includes(part) ? true : null), ms);
+  } catch (e) {
+    // What the page showed instead (a screenshot next to the report, and the start of its text in the error).
+    await page.screenshot({ path: `${OUT}/failed-${Date.now()}.png` }).catch(() => {});
+    const seen = (await textOf(page).catch(() => '')).replace(/\s+/g, ' ').slice(0, 600);
+    throw new Error(`${e.message}; the page said: ${seen}`);
+  }
 }
 /** Clicks the hand's harvest and returns the relay's answer for it (a new POST /gw/f/relay). */
 async function harvestByHand(page, sends) {
@@ -145,18 +152,32 @@ test('a village played by hand, handed to its agent, taken back and played by ha
   await step(agent, 'agent-acted', { signature: aiAction.signature, chain: l2.status, driver: acted.driver, spent: acted.balance.spent, note: `the agent's Harvest landed (driver: ${acted.driver.state}${acted.driver.cause ? ', ' + acted.driver.cause : ''}); the page said "${sentence}"` });
 
   // While the agent holds the key, the play page's own key no longer signs for the village. The page says so
-  // (web/frontier/fdelegation.mjs): the "handed to your agent" card, and a refusal that says why.
+  // (web/frontier/fdelegation.mjs) on the village's action bar (a player with a village never sees the drawer's join
+  // card): the note, the take-back and the agent page link, readable; a refused send says why.
   await play.reload();
   await play.locator('[data-act="intro-close"]').first().click().catch(() => {});
   await waitText(play, '代理人に任せています', 90_000);
-  assert.ok(await play.locator('a[data-agent-link]').count() > 0, 'the agent page is linked');
+  const note = play.locator('.hand-note-agent');
+  for (const sel of ['[data-act="session"]', 'a[data-agent-link]']) {
+    const el = note.locator(sel).first();
+    assert.ok(await el.isVisible(), `the action bar shows ${sel}`);
+    // (light text on the dark bar: a link styled for a light card would be there but unreadable)
+    // (any CSS colour syntax: paint it on a 1×1 canvas and read the pixel back)
+    const { lum, color } = await el.evaluate(e => {
+      const color = getComputedStyle(e).color, c = document.createElement('canvas').getContext('2d');
+      c.fillStyle = color; c.fillRect(0, 0, 1, 1);
+      const [r, g, b] = c.getImageData(0, 0, 1, 1).data;
+      return { lum: (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255, color };
+    });
+    assert.ok(lum > 0.6, `${sel} is readable on the bar (text ${color}, luminance ${lum.toFixed(2)})`);
+  }
   let whileDelegated = null;
   if (await play.locator('[data-act="harvest"]').count()) {
     const h = await harvestByHand(play, playSends).catch(e => ({ error: String(e.message) }));
     whileDelegated = { status: h.status ?? null, code: h.body?.code ?? null, error: h.body?.error ?? h.error ?? null };
     await waitText(play, '代理人に任せているため', 30_000);
   }
-  await step(play, 'play-while-delegated', { whileDelegated, note: 'the play page while the agent holds the key: the "handed to your agent" card and the agent page link; a refused send says why' });
+  await step(play, 'play-while-delegated', { whileDelegated, note: 'the play page while the agent holds the key: the action bar says the village is handed to the agent, with the take-back and the agent page link; a refused send says why' });
 
   // ---- take the key back from the play page (its card: the wallet-signed SetSession); the page says the agent stays
   // in auto on the server; then the owner stops it on the agent page and plays by hand again
