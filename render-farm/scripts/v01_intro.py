@@ -41,8 +41,8 @@ keys = [   # frame, camera position, aim point, lens
     (1,   cam0, tgt0, 27),
     (75,  cam0 + side * 6 + Vector((0, 0, 1.2)) - axis * 1.5, tgt0 + Vector((0, 0, 1.0)), 27),        # slow push along the line
     (140, B - d0 * 70 + Vector((0, 0, gB + 38)) - axis * 30, B.lerp(K, 0.4) + Vector((0, 0, 6)), 28),   # crane up and back
-    (200, Vector((-160, 0, 210)), Vector((120, 60, 10)), 29),
-    (270, Vector((-560, 12, 390)), Vector((40, 72, 0)), 30),                                           # the shared valley, town to keep
+    (200, Vector((-260, 5, 270)), Vector((60, 60, 10)), 28),
+    (270, Vector((-700, 20, 520)), Vector((-40, 60, 0)), 28),                                           # the shared valley: town, river, battle, keep
 ]
 cd = bpy.data.cameras.new('cam'); cd.sensor_fit = 'VERTICAL'; cd.sensor_height = 24; cd.clip_start, cd.clip_end = 0.5, 8000
 cam = bpy.data.objects.new('cam', cd); sc.collection.objects.link(cam); sc.camera = cam
@@ -53,7 +53,7 @@ for fr, p, t, lens in keys:
     cam.location = p; cam.keyframe_insert('location', frame=fr)
     aim.location = t; aim.keyframe_insert('location', frame=fr)
     cd.lens = lens; cd.keyframe_insert('lens', frame=fr)
-for fr, fs in ((1, 4.0), (75, 4.0), (160, 11.0), (270, 16.0)):
+for fr, fs in ((1, 4.0), (75, 4.0), (115, 22.0), (150, 128.0), (270, 128.0)):   # shallow focus in the clash only
     cd.dof.aperture_fstop = fs; cd.dof.keyframe_insert('aperture_fstop', frame=fr)
 for idb in (cam, aim, cd):
     ad = idb.animation_data
@@ -62,6 +62,10 @@ for idb in (cam, aim, cd):
             kp.interpolation = 'BEZIER'; kp.handle_left_type = kp.handle_right_type = 'AUTO_CLAMPED'
         fc.update()
 sc.render.resolution_x, sc.render.resolution_y = Wd, Hd
+# water seen from above: show the sky in it instead of the dark bed below
+wm = bpy.data.materials['water'].node_tree.nodes['Principled BSDF']
+wm.inputs['Transmission Weight'].default_value = 0.25; wm.inputs['Base Color'].default_value = W.srgb('#3f6461'); wm.inputs['Roughness'].default_value = 0.06
+hz_amt = sc.compositing_node_group.nodes['HAZE_AMT']
 # the focus distance follows the aim (the clash first, then the valley); the battle stays sharp early on
 
 # ---------------------------------------------------------------- per-frame life
@@ -97,6 +101,9 @@ def update(scene, *_):
     for pole, cloth in bans: A.wave(cloth, t * 1.0 + pole.location.x * 0.1, amp=0.18, speed=2.6)
     for n in dnodes: n.inputs['W'].default_value = t * 0.35
     hexnode.outputs[0].default_value = 0.35 * ease((t - 6.6) / 1.8)
+    e = ease((t - 2.4) / 4.0)                  # thin the air as the camera climbs, so the valley reads clear
+    scene.world.mist_settings.start = 60 + 340 * e; scene.world.mist_settings.depth = 700 + 2500 * e
+    hz_amt.inputs[1].default_value = 0.5 - 0.28 * e
 bpy.app.handlers.frame_change_pre.append(update)
 
 os.makedirs(OUTDIR, exist_ok=True)
