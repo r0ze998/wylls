@@ -360,3 +360,13 @@ Transcripts: `.local/agent-wallet-e2e/run{7-gemma-triggers,9-gemma-state,10a-gem
 2. The production deadline for unresolved calls, and named operator tokens if several people will settle.
 3. The wallet extension: the page's signing with a real wallet (Phantom, Backpack …) is the one part of the page not verified; it needs a person at the wallet's approval window, or a wallet with a test mode that can be driven.
 4. The Food question (§12.2): accept a food-first opening, or give the model a per-store "at cap" line (general information, not a tuning), or both.
+
+## 14. The integration round (2026-10-23)
+
+What changed, briefly (the status, the tests run and the open points are in `STATUS-2026-10-23.ja.md`):
+
+* **Every decision leaves one line** (`decision` in the history): who decided (`driver` model / autopilot, `by`), what came of it (sent / refused / failed / rest), the model's own reason (a paid rest included; never trusted) and the charge. The view carries `driver` (`stopped` / `model` / `autopilot` with the `cause` when it stood in for the model: a failed or refused answer, an unaffordable call, a cap / `waiting`), so the page says a stop and the free autopilot standing in apart (§10).
+* **The `result` trigger** (§7.1) compared the view's history length, which stops at 50 lines; it compares the ledger's per-agent sequence (`seq`, `historySeq`) now.
+* **The owner's decision cap** (`callsPerDay`) is a field of the page's policy form (saving the form no longer drops it).
+* **The MCP connection** (§11) is implemented: `permutation-gateway/mcp/agent-mcp.mjs`, contract in `MCP.md`, contract tests in `test/agent-wallet-mcp.test.mjs`.
+* **`--agent-llm-alias`** names the model the runner asks for and records (default unchanged); **`--agent-llm-strict-schema`** (opt-in, off by default) gives the model one schema branch per action with its required fields and ranges (§7.2). Found with a small real model on CPU (Gemma 3 4B): with the loose schema all its live answers were invalid or unaffordable; with the strict one its Train landed.
