@@ -82,7 +82,7 @@ def haze(color=(0.75, 0.82, 0.92), start=80, depth=900, amount=0.55, falloff='QU
             try: bl.size_x = bl.size_y = 8
             except Exception as e: print('blur', e)
     ng.links.new(rl.outputs['Mist'], bl.inputs[0])
-    k = math_('MULTIPLY', bl.outputs[0], amount)
+    k = math_('MULTIPLY', bl.outputs[0], amount); k.node.name = 'HAZE_AMT'     # animatable haze strength
     hz_a = mix('MULTIPLY', 1.0, tuple(color) + (1,), rl.outputs['Alpha'])           # haze colour, premultiplied
     fg = mix('MIX', k, rl.outputs['Image'], hz_a)
     inv = math_('SUBTRACT', 1.0, rl.outputs['Alpha'])
