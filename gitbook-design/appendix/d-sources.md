@@ -99,6 +99,7 @@
 | 00 | 古い決定 T1、Y1、Y2、Y6、V2 | `docs/frontier/DECISIONS.md:397,424-477`（main） | 文書 |
 | 第8章、付録B | EVE Frontier と Eternum | 付録B の各行に出典、版、確認日 | 外部 |
 | 付録E | GitBook の取り込み形式 | https://gitbook.com/docs/getting-started/git-sync/content-configuration（2026-10-23 に確認） | 外部 |
+| 付録E | Git Sync の設定（Project directory、最初の同期の向き、上書きの警告、運用の注意） | https://gitbook.com/docs/getting-started/git-sync/enabling-github-sync 、https://gitbook.com/docs/getting-started/git-sync/monorepos 、https://gitbook.com/docs/getting-started/git-sync/troubleshooting （2026-10-23 に確認）。実際の設定はオーナーの GitBook の画面（2026-10-23） | 外部、オーナーの画面 |
 
 ## D.4 確かめていないこと
 

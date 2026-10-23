@@ -1,4 +1,4 @@
-# 付録E 更新時の再確認と、GitBook への取り込み
+# 付録E 更新時の再確認と、GitBook との同期
 
 ## E.1 最新の作業ツリーで照合するときのコマンド
 
@@ -58,47 +58,58 @@ python3 tools/check_links.py .
 
 結果は [付録D](d-sources.md) の D.5 に記録します。
 
-## E.4 GitBook への取り込み手順
+## E.4 GitBook との同期
+
+### いまの設定
+
+この原稿は、GitBook の既存の Space と Git Sync でつながっています。設定はオーナーが GitBook の画面で行いました（2026-10-23）。
+
+| 項目 | 値 |
+|---|---|
+| GitBook の Space | https://app.gitbook.com/o/FcvpoE8iury0Zgap5SeA/s/SPkIhn4ZKXj0gdWUg4fM/ |
+| リポジトリ | `r0ze998/wylls` |
+| ブランチ | `claude/determined-ride-engpa4` |
+| Project directory | `gitbook-design`（このフォルダが Space の根になる） |
+| 最初の同期の向き | GitHub → GitBook（画面の表示は「Content in GitHub will replace content in GitBook.」） |
+| 最初の同期で入った版 | commit `11559d0`（読みやすさの改訂） |
+
+経緯：最初は、commit `dbde3ac` の原稿を ZIP で手で取り込みました。その後、改訂版を GitHub に置いてから Git Sync をつなぎ、最初の同期で Space の中身を GitHub の原稿で置き換えました。同期の後も、ブランチに GitBook からの commit は増えていません（向きが GitHub → GitBook だったため）。main（`2321d55`）は変わっていません。
 
 ### 原稿の形式
 
-GitBook の公式資料（Git Sync の Content configuration、2026-10-23 に確認）によると、GitBook の読み方は次のとおりです。
+GitBook は、Project directory の中の `.gitbook.yaml` を読みます。この原稿の設定は `root: ./`、`structure.readme: README.md`、`structure.summary: SUMMARY.md` です。
 
-- リポジトリの中の `.gitbook.yaml` を読み、`root`、`structure.readme`、`structure.summary` で、最初のページと目次の場所を決める。
-- 目次（`SUMMARY.md`）では、`##` の見出しがページの組になり、入れ子の箇条書きのリンクが子のページになる。
-- 各 Markdown ファイルは、`SUMMARY.md` に 1 回だけ出せる。
-- Git Sync を使うときは、`README.md` をリポジトリの側で管理するよう求められている。
+- `README.md` が最初のページ、`SUMMARY.md` が目次になります。
+- 目次では、`##` の見出しがページの組になり、箇条書きのリンクがページになります。
+- 各 Markdown ファイルは、`SUMMARY.md` に 1 回だけ載せられます。載せていないファイルは表示されません。
+- 画像は `images/` の SVG を、本文から相対パスで参照します。
 
-この原稿の `.gitbook.yaml` は、`root: ./`、`readme: README.md`、`summary: SUMMARY.md` です。
+### 同期の後の運用
 
-### 方法 1：Git Sync（推奨）
+Git Sync は双方向です。
 
-Git Sync は、GitBook のスペースと GitHub のリポジトリを同期する機能です。
+- **GitHub で直したとき。** ブランチ `claude/determined-ride-engpa4` の `gitbook-design/` に push すれば、GitBook に自動で反映されます。
+- **GitBook で直したとき。** Change request を Merge すると、その変更がこのブランチに commit されます。GitHub で原稿を直す前に、必ずブランチの最新を取り込んでください（`git pull origin claude/determined-ride-engpa4`）。取り込まずに直すと、GitBook での変更を上書きするおそれがあります。
+- **README は GitHub で直します。** GitBook の画面で README を直すと、衝突やページの重複が起きることがあると、GitBook の資料に書かれています。
+- **ページを足すときは目次にも載せます。** GitHub で新しいファイルを足したら、`SUMMARY.md` に 1 回だけ載せ、E.3 の検査を通してから push します。
+- **GitBook が新しいファイルを作ることがあります。** GitBook の資料によると、既存のファイルを上書きしないために、別名の Markdown を作る場合があります。そのときは目次と中身を確かめ、重複を整理します。
 
-**始める前に確かめること。**
+### 同期の設定を変えるとき
 
-- Git Sync を有効にできるのは、GitBook の管理者（Admin）か作成者（Creator）の役割を持つ人だけです。
-- GitBook の GitHub App を、リポジトリのある GitHub のアカウントか組織にインストールし、そのリポジトリへのアクセスを許しておく必要があります。
-- 必要な権限の細部や、プランの条件は、この文書では確かめていません。設定する時点で、GitBook の画面と公式資料で確かめてください。
+- **ブランチを付け替える（例：main にマージした後）。** Git Sync の設定でブランチを選び直します。付け替えの前に、新しいブランチに同じ原稿があることを確かめてください。main へのマージは、オーナーの指示があるまでしません。
+- **設定をやり直す。** 想定外のエラーが続くときは、連携を外して有効にし直し、設定し直す方法が GitBook の資料に案内されています。やり直すときも、最初の同期の向きを確かめてください。
+- **同期をやめる。** Git Sync の画面の「Remove Git Sync」で外せます。外すと、それ以降の GitHub の変更は GitBook に反映されません。
 
-**手順。**
+> **注意。** 最初の同期を GitHub → GitBook でやり直すと、Space の中身は GitHub の原稿で置き換わります。空のブランチやフォルダを選ぶと、空で置き換わります。綴りを間違えたブランチ名は、新しい空のブランチとして作られることがあります（画面に「If the branch doesn't exist, it'll be created during the sync.」とある）。
 
-1. この原稿のフォルダ `gitbook-design/` を、GitHub のリポジトリに置く。このリポジトリの中の 1 フォルダでも、専用のリポジトリでもよい。原稿の作成の時点では、GitHub には置いていません。
-2. GitBook でスペースを作り、Git Sync の設定を開く。
-3. リポジトリとブランチを選ぶ。
-4. リポジトリの中のフォルダを使う場合は、「Project directory」（任意の項目）に `gitbook-design` を指定する。`.gitbook.yaml` の `root: ./` は、そのフォルダからの相対になるはずです。同期の後、最初のページと目次が正しく出るかで確かめてください。専用のリポジトリなら空のままでよい。
-5. 最初の同期の前に、同期の向きを選ぶ。リポジトリの原稿を GitBook に入れるには、「Swap direction」で GitHub → GitBook の向きにする。この向きでは、リポジトリの内容が GitBook の内容を置き換えます。
-6. 同期のあと、目次、画像（`images/*.svg`）、表の表示を確かめる。
+### 確認できていないこと
 
-> **注意。** GitBook は、GitHub → GitBook の同期で、そのスペース（セクション）の今の内容が置き換えられうると警告します。空のリポジトリやブランチを選ぶと、空の内容で置き換わります。すでに内容のあるスペースにつなぐ場合は、先に内容を確かめてください。
+- GitBook の GitHub App に与えた権限の細部と、プランの条件。設定はオーナーの画面で行ったため、この文書では確かめていません。
+- GitBook の Space の公開の設定。取り込み時点では非公開でした。同期で公開設定を変える操作はしていませんが、確認はオーナーの画面で行います。
 
-### 方法 2：手で取り込む
+### 手で取り込む方法（参考）
 
-GitBook の取り込み機能（Markdown のファイルやフォルダの取り込み）を使う方法もあります。画面の名前と手順は変わることがあるので、取り込む時点の公式資料で確かめてください。
-
-### この作業でしていないこと
-
-GitBook のアカウント作成、GitHub App のインストールと権限の付与、push、公開。
+Git Sync を使わない場合は、`gitbook-design/` を ZIP にして、GitBook の取り込み機能で入れる方法もあります。既存の Space に重ねて取り込むと、ページが重複するおそれがあります。今は Git Sync を使っているので、この方法は使いません。
 
 ## E.5 公開前に外すもの
 

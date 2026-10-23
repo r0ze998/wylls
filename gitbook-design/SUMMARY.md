@@ -30,4 +30,4 @@
 * [付録B 比較調査の詳細](appendix/b-comparison-research.md)
 * [付録C 開発者向け整理](appendix/c-developer-spec.md)
 * [付録D 出典と根拠の対応表](appendix/d-sources.md)
-* [付録E 更新時の再確認と取り込み手順](appendix/e-maintenance.md)
+* [付録E 更新時の再確認と GitBook との同期](appendix/e-maintenance.md)
