@@ -504,6 +504,12 @@ export class AgentScheduler {
           const del = await this.gateway.delegation(id).catch(() => null);
           if (!del || del.delegated !== true) { out.push({ ...this.#skip(id, del ? 'not-delegated' : 'delegation-unread'), triggers: d.triggers }); continue; }
         }
+        // The Citizen's sponsored transactions for today (shared by the owner's own play and the agent): when none is
+        // left, the relay would refuse whatever the model decides, so no call is made (or charged) until the day rolls.
+        if (typeof this.gateway.quota === 'function') {
+          const q = await this.gateway.quota(id).catch(() => null);
+          if (!q || !(q.left > 0)) { out.push({ ...this.#skip(id, q ? 'quota-empty' : 'quota-unread'), triggers: d.triggers }); continue; }
+        }
         this.inflight.add(id);
         try {
           const r = await runOnce(this.gateway, id, this.decider, { now: this.now, observation: { ...obs, triggers: d.triggers } });

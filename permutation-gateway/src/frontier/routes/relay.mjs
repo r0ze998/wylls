@@ -75,6 +75,13 @@ async function requesterCitizen(ctx, requester, citizenAddr) {
   return sessionLive ? citizenAddr : null;
 }
 
+/** A Citizen's sponsored transactions left today (`{left, resetsAt}`): the agent wallet reads it before a paid model call. */
+export async function citizenQuota(ctx, citizen) {
+  const frame = await quotaFrame(ctx);
+  const { left, resetsAt } = ctx.quota.status(`citizen:${citizen}`, frame);
+  return { left, resetsAt };
+}
+
 /** The game day and the lamport cap for quotas, from the chain. */
 async function quotaFrame(ctx) {
   const season = await ctx.chain.season();

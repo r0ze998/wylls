@@ -61,7 +61,10 @@ export const agentRoutes = {
     // The chain's word on the delegation (a stop here does not revoke it; the owner's SetSession does).
     let delegation = null;
     try { delegation = await g.delegation(id); } catch { delegation = null; }
-    return { body: { ...view, delegation } };
+    // The owner's and the agent's shared allowance of sponsored transactions today.
+    let quota = null;
+    try { quota = await g.quota(id); } catch { quota = null; }
+    return { body: { ...view, delegation, quota } };
   },
 
   'GET /f/agent/session-terms': async (ctx, req) => ({ body: agents(ctx).sessionTerms(idOf(req)) }),

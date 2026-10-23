@@ -128,4 +128,5 @@ export default {
   '引き出しの結果をチェーンで確定できません（運営の確認待ち。使える額には戻していません）': 'The withdrawal\'s result cannot be confirmed on chain (waiting for the operator; not returned to "available")',
   '送った行動の結果をチェーンで確定できません（運営の確認待ち）': 'The sent action\'s result cannot be confirmed on chain (waiting for the operator)',
   'チェーンで結果を確定できない送信が {0} あります。確定するまで「いま使える」には戻しません（二重の引き出しを防ぐため）。': '{0} in sent transactions cannot be confirmed on chain. It does not return to "available" until it is (so it cannot be withdrawn twice).',
+  '今日の送信回数の残り {0}（あなたの手動の操作と代理人で共有。使い切ると、代理人は判断料を払わずに日付が変わるのを待ちます）': 'Sponsored transactions left today: {0} (shared by your own play and the agent; when they run out, the agent waits for the day to roll without paying for decisions)',
 };

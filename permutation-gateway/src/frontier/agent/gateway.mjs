@@ -35,7 +35,7 @@ import { signatureOf, signedBy } from '../../cosign.mjs';
 import { simulateWatching } from '../chain.mjs';
 import { drainGuard } from '../shapes.mjs';
 import { landed } from '../routes/prize.mjs';
-import { signAs } from '../routes/relay.mjs';
+import { citizenQuota, signAs } from '../routes/relay.mjs';
 import { PublicKey } from '@solana/web3.js';
 import { RouteError } from '../../routes/errors.mjs';
 import { feeOf } from '../shapes.mjs';
@@ -628,6 +628,15 @@ export class AgentGateway {
     const session = base58(citizen.SESSION);
     const expiry = Number(citizen.SESSION_EXPIRY);
     return { citizen: true, delegated: session === rec.agentKey && expiry > clock.unixTimestamp, session, expiry, now: clock.unixTimestamp };
+  }
+
+  /**
+   * The owner's Citizen's sponsored transactions left today, `{left, resetsAt}`: the owner's own play and the
+   * agent's actions draw from this one allowance (the relay's quota is per Citizen).
+   */
+  async quota(agentId) {
+    const rec = this.ledger.get(agentId);
+    return citizenQuota(this.ctx, this.ctx.addresses.citizen(rec.owner));
   }
 
   /** What an owner needs to delegate: the key to put in SetSession, and this relay's prices. */

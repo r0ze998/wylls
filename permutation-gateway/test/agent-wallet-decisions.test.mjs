@@ -184,3 +184,31 @@ test('the owner took the key back on chain while the server is in auto: the runn
   assert.equal(calls, 1);
   sound(r);
 });
+
+test('the owner\'s Citizen has no sponsored transaction left today: the runner makes no paid call until the day rolls; the view shows the shared allowance', async () => {
+  const { AgentScheduler } = await import('../src/frontier/agent/runner.mjs');
+  const { gameDay } = await import('../src/frontier/quota.mjs');
+  const { GENESIS } = await import('./agent-wallet-fixtures.mjs');
+  const r = relay({ prices: { inference: '10000' } });
+  const a = await ready(r, { balance: 100_000n });
+  const q0 = await r.gateway.quota(a.agentId);
+  assert.ok(q0.left > 0, 'a fresh Citizen has its allowance');
+  const view = (await call(r.public, 'GET', `/f/agent?id=${a.agentId}`)).json;
+  assert.equal(view.quota.left, q0.left, 'GET /f/agent carries the shared allowance');
+  let calls = 0;
+  const llm = { alias: 'fake', async complete() { calls++; return { ok: true, content: JSON.stringify({ action: 'rest', fields: {}, reason: 'x' }), usage: null }; } };
+  const s = new AgentScheduler({ gateway: r.gateway, decider: llmDecider({ llm }), minCallGapMs: 0, log: () => {} });
+  // The owner's own play (or the agent's) used the day's allowance up.
+  const key = `citizen:${r.ctx.addresses.citizen(a.o)}`;
+  const day = gameDay(GENESIS + 3_600, GENESIS);
+  for (let i = 0; i < q0.left; i++) r.ctx.quota.charge(key, { day });
+  assert.equal((await r.gateway.quota(a.agentId)).left, 0);
+  const spent = r.gateway.view(a.agentId).balance.spent.inference;
+  for (let i = 0; i < 3; i++) assert.equal((await s.tick())[0].skipped, 'quota-empty');
+  assert.equal(calls, 0, 'no model call with nothing left to send');
+  assert.equal(r.gateway.view(a.agentId).balance.spent.inference, spent, 'nothing charged');
+  r.gateway.quota = async () => { throw new Error('rpc down'); };
+  assert.equal((await s.tick())[0].skipped, 'quota-unread');
+  assert.equal(calls, 0);
+  sound(r);
+});

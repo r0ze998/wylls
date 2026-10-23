@@ -273,6 +273,7 @@ export function renderMode(view) {
     <p><strong>${auto ? L`自動（代理人が動く）` : L`手動（止まっている）`}</strong> <span class="muted">${L`切り替え回数 ${fmtNum(view?.modeEpoch ?? 0)}`}</span></p>
     ${(() => { const dm = driverModel(view); return html`<p class="agent-driver${dm.tone ? ` tone-${dm.tone}` : ''}" data-driver="${dm.state}">${dm.text}</p>`; })()}
     <p><button type="button" class="btn" data-act="mode" data-mode="${auto ? 'manual' : 'auto'}">${auto ? L`手動に戻す（代理人を止める）` : L`自動にする（署名）`}</button></p>
+    ${view?.quota ? html`<p class="muted" data-quota="${view.quota.left}">${L`今日の送信回数の残り ${fmtNum(view.quota.left)}（あなたの手動の操作と代理人で共有。使い切ると、代理人は判断料を払わずに日付が変わるのを待ちます）`}</p>` : ''}
     <p class="muted">${L`手動に戻すとサーバーは代理人の新しい要求を断ります。すでに送った行動は巻き戻しません。チェーン上の鍵は別です（下）。`}</p>
   </section>`;
 }
