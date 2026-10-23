@@ -125,13 +125,15 @@ ix_data_v2! {
 }
 
 ix_data_v2! {
-    /// 0xB7 (P, S1, 1d): a tower on `tile` of the Province at account 7;
-    /// `notify` who the herald tells (`layout::s1::tower::NOTIFY_*`).
-    BuildTower { tile: u8, notify: u8 }
-    /// 0xB8 (P, S1, 1d): the captor's roster `entry` stands on the tower.
-    SeizeTower { entry: u8 }
-    /// 0xB9 (P, S1, 1d): the owner closes the tower.
-    CloseTower {}
+    /// 0xB7 (P, S1, 1d/1e): a structure of `kind` (`structure::KIND_*`) on
+    /// `tile` of the Province at account 7; `notify` who the herald tells
+    /// of a tower's sightings (`layout::s1::structure::NOTIFY_*`).
+    BuildStructure { kind: u8, tile: u8, notify: u8 }
+    /// 0xB8 (P, S1, 1d/1e): the captor's roster `entry` stands on the
+    /// structure (a fort: fallen).
+    SeizeStructure { entry: u8 }
+    /// 0xB9 (P, S1, 1d/1e): the owner closes the structure.
+    CloseStructure {}
 }
 
 /// SendCaravan's and RaidCaravan's cargo as milli-units (whole units ×
@@ -290,9 +292,9 @@ pub fn fixed_len(ix: Ix) -> Option<usize> {
         Ix::SeizeVault => SeizeVault::LEN,
         Ix::CloseVault => CloseVault::LEN,
         Ix::DefaultRaid => DefaultRaid::LEN,
-        Ix::BuildTower => BuildTower::LEN,
-        Ix::SeizeTower => SeizeTower::LEN,
-        Ix::CloseTower => CloseTower::LEN,
+        Ix::BuildStructure => BuildStructure::LEN,
+        Ix::SeizeStructure => SeizeStructure::LEN,
+        Ix::CloseStructure => CloseStructure::LEN,
         Ix::FileOutpost | Ix::CreateSeason => return None,
         other => return crate::ix::fixed_len(other.to_v1()?),
     })
@@ -314,9 +316,9 @@ pub fn wire_of(ix: Ix) -> Option<&'static [(&'static str, usize)]> {
         Ix::SeizeVault => SeizeVault::WIRE,
         Ix::CloseVault => CloseVault::WIRE,
         Ix::DefaultRaid => DefaultRaid::WIRE,
-        Ix::BuildTower => BuildTower::WIRE,
-        Ix::SeizeTower => SeizeTower::WIRE,
-        Ix::CloseTower => CloseTower::WIRE,
+        Ix::BuildStructure => BuildStructure::WIRE,
+        Ix::SeizeStructure => SeizeStructure::WIRE,
+        Ix::CloseStructure => CloseStructure::WIRE,
         Ix::FileOutpost | Ix::CreateSeason => return None,
         other => return crate::ix::wire_of(other.to_v1()?),
     })

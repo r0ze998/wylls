@@ -38,7 +38,7 @@ pub mod records;
 pub mod roster;
 pub mod runner;
 pub mod server;
-pub mod tower;
+pub mod structure;
 pub mod viewers;
 pub mod views;
 pub mod ws;

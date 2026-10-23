@@ -61,20 +61,23 @@ pub enum CqError {
     RaidState = 84,
     /// S1: RaidCaravan after the raider's window, DefaultRaid before it.
     RaidWindow = 85,
-    /// S1: SeizeVault or SeizeTower without the captor's host on the
+    /// S1: SeizeVault or SeizeStructure without the captor's host on the
     /// tile, or with one of the owner's there.
     NotOnTile = 86,
-    /// S1 (1d): BuildTower on a tile that does not qualify (a site, the
-    /// keep or camp tile, impassable, or a tower already there).
-    TowerSite = 87,
-    /// S1 (1d): `tower::MAX_TOWERS` reached (BuildTower, SeizeTower).
-    TowerLimit = 88,
-    /// S1 (1d): the Province's tower list is full.
-    TowerFull = 89,
+    /// S1 (1d/1e): BuildStructure on a tile that does not qualify (a site,
+    /// the keep or camp tile, impassable, or a structure already there).
+    StructureSite = 87,
+    /// S1 (1d/1e): `structure::max_of(kind)` reached (BuildStructure,
+    /// SeizeStructure).
+    StructureLimit = 88,
+    /// S1 (1d/1e): the Province's structure list (or its fort block) is full.
+    StructureFull = 89,
+    /// S1 (1e): SeizeStructure of a fort that still has troops.
+    FortManned = 90,
 }
 
 impl CqError {
-    pub const ALL: [CqError; 28] = {
+    pub const ALL: [CqError; 29] = {
         use CqError::*;
         [
             CapturePending,
@@ -102,9 +105,10 @@ impl CqError {
             RaidState,
             RaidWindow,
             NotOnTile,
-            TowerSite,
-            TowerLimit,
-            TowerFull,
+            StructureSite,
+            StructureLimit,
+            StructureFull,
+            FortManned,
         ]
     };
 
@@ -144,9 +148,10 @@ impl CqError {
             RaidState => "RaidState",
             RaidWindow => "RaidWindow",
             NotOnTile => "NotOnTile",
-            TowerSite => "TowerSite",
-            TowerLimit => "TowerLimit",
-            TowerFull => "TowerFull",
+            StructureSite => "StructureSite",
+            StructureLimit => "StructureLimit",
+            StructureFull => "StructureFull",
+            FortManned => "FortManned",
         }
     }
 
@@ -204,7 +209,7 @@ impl Code {
     }
 }
 
-/// Every v2 code in code order (M1's 1–61, MC's 62–78, S1's 79–89,
+/// Every v2 code in code order (M1's 1–61, MC's 62–78, S1's 79–90,
 /// then 99).
 pub fn all_codes() -> impl Iterator<Item = Code> {
     let v1 = FrontierError::ALL.iter().copied();
@@ -230,9 +235,9 @@ mod tests {
         }
         assert_eq!(CqError::NotLead.code(), 78);
         let all: std::vec::Vec<u32> = all_codes().map(|c| c.code()).collect();
-        assert_eq!(all.len(), 62 + 28);
+        assert_eq!(all.len(), 62 + 29);
         assert_eq!(CqError::NotOnTile.code(), 86);
-        assert_eq!(CqError::TowerFull.code(), 89);
+        assert_eq!(CqError::StructureFull.code(), 89);
         assert!(all.windows(2).all(|w| w[0] < w[1]), "code order");
         assert_eq!(all[60], 61);
         assert_eq!(all[61], 62);
@@ -243,8 +248,8 @@ mod tests {
             Some(Code::V1(FrontierError::AlreadyDone))
         );
         assert_eq!(Code::from_code(79), Some(Code::Cq(CqError::VaultSite)));
-        assert_eq!(Code::from_code(87), Some(Code::Cq(CqError::TowerSite)));
-        assert_eq!(Code::from_code(90), None);
+        assert_eq!(Code::from_code(87), Some(Code::Cq(CqError::StructureSite)));
+        assert_eq!(Code::from_code(91), None);
         assert_eq!(
             Code::Cq(CqError::FoldTooEarly).keeper_action(),
             KeeperAction::Wait

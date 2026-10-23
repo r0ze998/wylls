@@ -2,7 +2,7 @@
 //!
 //! Bytes `0..4,096` are M1's Province byte for byte, except that S1
 //! (redesign stage 1) names the 232-B reserve at 3,864: the caravan slots
-//! (`CARAVANS`, 1b) and the tower list (`TOWERS`, 1d);
+//! (`CARAVANS`, 1b) and the structure list (`STRUCTURES`, 1d/1e);
 //! `tests::v1_prefix_is_m1` checks every other field. The 640-B conquest
 //! block follows at 4,096.
 
@@ -42,7 +42,7 @@ pub mod province {
         CAMP @ 3784 : "rec:Camp x1" = 16;
         TICKET_COHORTS @ 3800 : "rec:Cohort x8" = 64;
         CARAVANS @ 3864 : "rec:CaravanSlot x5" = 180;
-        TOWERS @ 4044 : "rec:TowerEntry x12" = 48;
+        STRUCTURES @ 4044 : "rec:StructureEntry x12" = 48;
         RSV_4092 @ 4092 : "rsv" = 4;
         CONQUEST @ 4096 : "rec:ConquestRecord x12" = 384;
         KEEP @ 4480 : "rec:Keep x1" = 32;
@@ -51,12 +51,15 @@ pub mod province {
         KEEPS_TAKEN_BY @ 4644 : "[u16;6]" = 12;
         TERRITORY_BELLS @ 4656 : "[u64;6]" = 48;
         SCORE_NEXT_BELL @ 4704 : "u32" = 4;
-        RSV_CQ @ 4708 : "rsv" = 28;
+        FORTS @ 4708 : "rec:FortRecord x2" = 28;
     );
     /// Size of the M1 Province (the prefix every v2 Province keeps).
     pub const V1_SIZE: usize = super::V1::SIZE;
     /// The conquest block `[4,096, 4,736)`.
     pub const CQ_BLOCK: core::ops::Range<usize> = CONQUEST..SIZE;
+    /// The conquest contract's reserve (§5.2.1); S1 (1e) keeps its forts
+    /// there (`FORTS`, zero in an MC Province).
+    pub const RSV_CQ: usize = FORTS;
     /// The records and the keep `[4,096, 4,512)` (the CONQUEST log's
     /// `records digest`, §6).
     pub const RECORDS_AND_KEEP: core::ops::Range<usize> = CONQUEST..SNAP;
@@ -155,25 +158,49 @@ pub mod caravan_slot {
         super::province::CARAVANS..super::province::CARAVANS + 5 * SIZE;
 }
 
-/// One entry of a Province's tower list (S1, 1d; `tower::TowerEntry`).
-pub mod tower_entry {
+/// One entry of a Province's structure list (S1, 1d/1e;
+/// `structure::StructureEntry`): `KIND` 0 is an empty entry.
+pub mod structure_entry {
     crate::layout::fields!(size = 4;
-        STATE @ 0 : "u8" = 1;
+        KIND @ 0 : "u8" = 1;
         TILE @ 1 : "u8" = 1;
         FACTION @ 2 : "u8" = 1;
         GEN @ 3 : "u8" = 1;
     );
-    pub const STATE_EMPTY: u8 = 0;
-    pub const STATE_LIVE: u8 = 1;
+    pub const KIND_EMPTY: u8 = 0;
+    pub use permutation_rules::frontier::structure::{KIND_FORT, KIND_PALISADE, KIND_TOWER};
     /// Entries of the list.
     pub const N: usize = 12;
     /// Offset of entry `i` in a Province.
     pub const fn at(i: usize) -> usize {
-        super::province::TOWERS + SIZE * i
+        super::province::STRUCTURES + SIZE * i
     }
     /// The list's bytes `[4,044, 4,092)`.
     pub const BLOCK: core::ops::Range<usize> =
-        super::province::TOWERS..super::province::TOWERS + N * SIZE;
+        super::province::STRUCTURES..super::province::STRUCTURES + N * SIZE;
+}
+
+/// A fort's record in a Province (S1, 1e; `S1-1E-CONTRACT.md` §2.4): its
+/// tile and troops, the troops a FortGarrison added that count from
+/// `PEND_BELL` (whole troops).
+pub mod fort_record {
+    crate::layout::fields!(size = 14;
+        TILE @ 0 : "u8" = 1;
+        FACTION @ 1 : "u8" = 1;
+        GEN @ 2 : "u8" = 1;
+        STATE @ 3 : "u8" = 1;
+        TROOPS @ 4 : "u32" = 4;
+        PEND_BELL @ 8 : "u32" = 4;
+        PEND @ 12 : "u16" = 2;
+    );
+    pub const STATE_NONE: u8 = 0;
+    pub const STATE_LIVE: u8 = 1;
+    /// Records in a Province.
+    pub const N: usize = 2;
+    /// Offset of record `i` in a Province.
+    pub const fn at(i: usize) -> usize {
+        super::province::FORTS + SIZE * i
+    }
 }
 
 pub mod conquest {
@@ -306,7 +333,7 @@ mod tests {
             names,
             [
                 ("CARAVANS", 3_864, 180),
-                ("TOWERS", 4_044, 48),
+                ("STRUCTURES", 4_044, 48),
                 ("RSV_4092", 4_092, 4)
             ]
         );
@@ -318,17 +345,17 @@ mod tests {
         );
         assert_eq!(5 * caravan_slot::SIZE, 180, "MAX_CARAVAN_SLOTS slots");
         assert_eq!(
-            tower_entry::N * tower_entry::SIZE,
+            structure_entry::N * structure_entry::SIZE,
             48,
-            "tower::PROVINCE_TOWERS entries"
+            "structure::PROVINCE_STRUCTURES entries"
         );
         assert_eq!(
-            tower_entry::N,
-            permutation_rules::frontier::tower::PROVINCE_TOWERS
+            structure_entry::N,
+            permutation_rules::frontier::structure::PROVINCE_STRUCTURES
         );
         assert_eq!(
-            tower_entry::SIZE,
-            permutation_rules::frontier::tower::ENTRY_SIZE
+            structure_entry::SIZE,
+            permutation_rules::frontier::structure::ENTRY_SIZE
         );
         assert_eq!(permutation_rules::frontier::caravan::MAX_CARAVAN_SLOTS, 5);
     }

@@ -160,7 +160,7 @@ pub fn emit(
 
 // ------------------------------------------------------------ ABI v2
 
-/// Highest record kind code of ABI v2 (S1 1d: TOWER_CLOSED; 89 reserved, MC §6).
+/// Highest record kind code of ABI v2 (S1 1d: STRUCTURE_CLOSED; 89 reserved, MC §6).
 pub const MAX_KIND_V2: usize = 97;
 
 /// `(defined, key width, payload width)` per record kind code of ABI v2:

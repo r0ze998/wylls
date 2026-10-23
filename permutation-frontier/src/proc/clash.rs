@@ -611,7 +611,8 @@ fn gather_position(
                 // troops; the record and the transit both carry the result.
                 let mut troops = t32(T::TROOPS_AFTER);
                 if !same && worn > 0 {
-                    troops = permutation_rules::frontier::tower::wear(troops as u64, worn) as u32;
+                    troops =
+                        permutation_rules::frontier::structure::wear(troops as u64, worn) as u32;
                     worn_troops = Some(troops);
                 }
                 let stamina = model::arrival_stamina(

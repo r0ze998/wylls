@@ -16,7 +16,7 @@
 //! | `transit`, `defence` | W4-B |
 //! | `conquest` (MC: DeclareSiege, SettleSiege, SettleCapture, FoldMarch, RetireHost, CloseMarch) | CQ2-C |
 //! | `caravan` (S1 1b: BuildVault, SendCaravan, SettleCaravan, RaidCaravan, SeizeVault, CloseVault, DefaultRaid) | S1 |
-//! | `tower` (S1 1d: BuildTower, SeizeTower, CloseTower) | S1 |
+//! | `tower` (S1 1d: BuildStructure, SeizeStructure, CloseStructure) | S1 |
 //!
 //! **MC (ABI v2, conquest contract §13.3 G13).** [`covered_by`] matches
 //! `frontier_abi::v2::Ix` (57 tags), so the seven MC instructions are in
@@ -50,7 +50,7 @@ pub mod host;
 pub mod map;
 pub mod reveal;
 pub mod season;
-pub mod tower;
+pub mod structure;
 pub mod transit;
 
 /// An outcome a test asserts.
@@ -152,9 +152,9 @@ pub fn covered_by(ix: I) -> &'static [Cover] {
         I::SeizeVault => caravan::SEIZE_VAULT,
         I::CloseVault => caravan::CLOSE_VAULT,
         I::DefaultRaid => caravan::DEFAULT_RAID,
-        I::BuildTower => tower::BUILD_TOWER,
-        I::SeizeTower => tower::SEIZE_TOWER,
-        I::CloseTower => tower::CLOSE_TOWER,
+        I::BuildStructure => structure::BUILD_STRUCTURE,
+        I::SeizeStructure => structure::SEIZE_STRUCTURE,
+        I::CloseStructure => structure::CLOSE_STRUCTURE,
     }
 }
 
@@ -203,7 +203,7 @@ pub fn pending() -> Vec<(&'static str, &'static str)> {
         defence::PENDING,
         conquest::PENDING,
         caravan::PENDING,
-        tower::PENDING,
+        structure::PENDING,
     ]
     .concat()
 }

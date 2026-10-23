@@ -1,30 +1,36 @@
-//! V24 (S1 stage 1d, `docs/frontier/stage1d/S1-1D-CONTRACT.md` §5.1),
-//! listed as `V24:towers`: every landed tower instruction and every march's
-//! tower wear re-judged from the states before its transaction and the
-//! states it left, through the tower kernel
-//! (`permutation_rules::frontier::tower`):
+//! V24 (S1 stages 1d and 1e, `docs/frontier/stage1d/S1-1D-CONTRACT.md`
+//! §5.1, `docs/frontier/stage1e/S1-1E-CONTRACT.md` §7), listed as
+//! `V24:structures`: every landed structure instruction and every march's
+//! tower wear and palisade re-judged from the states before its
+//! transaction and the states it left, through the structure kernel
+//! (`permutation_rules::frontier::structure`):
 //!
-//! - **BuildTower:** the tile (a vault's rule), the counter below
-//!   `MAX_TOWERS` and moved by one, the first empty entry of the Province's
-//!   list written with the Tower (place, owner, faction, generation 1,
-//!   notify, entry).
-//! - **SeizeTower:** the captor's roster host on the tile since a resolved
-//!   bell, no host of the owner's holdings there, the new owner, faction
-//!   and generation in the Tower and its entry, the counters.
-//! - **CloseTower:** the owner's, the entry cleared, the Tower closed, the
-//!   counter.
-//! - **Reveal:** an S1 slot's `WORN_BPS` is `wear_bps` of the seconds the
-//!   revealed path walks in hostile coverage, over the path Provinces'
-//!   tower lists before the Reveal (`march_secs_in_range`; J4: the walk
-//!   ends at the destination).
+//! - **BuildStructure:** the kind, the tile (a vault's rule), the kind's
+//!   counter below `max_of(kind)` and moved by one, the first empty entry
+//!   of the Province's list (and, a fort, the first empty fort record)
+//!   written with the Structure (place, owner, faction, generation 1,
+//!   notify, entry, kind).
+//! - **SeizeStructure:** the captor's roster host on the tile since a
+//!   resolved bell, no host of the owner's holdings there, a fort fallen,
+//!   the new owner, faction and generation in the Structure, its entry and
+//!   its fort record, the counters.
+//! - **CloseStructure:** the owner's, the entry (and fort record) cleared,
+//!   the Structure closed, the counter.
+//! - **Reveal:** under the Season's stances before it and the march's
+//!   expelled flag, a march whose path enters a stopping palisade's tile is
+//!   never revealed, and an S1 slot's `WORN_BPS` is `wear_bps` of the
+//!   seconds the revealed path walks in a stopping tower's coverage over
+//!   the path Provinces' lists before the Reveal (`march_watch`; J4: the
+//!   walk ends at the destination).
 //! - **GatherClash:** a position's record carries the transit's troops
 //!   worn by its slot's `WORN_BPS` at the first stamp (and the transit is
 //!   written so), the transit's troops as they are at a re-stamp.
 //!
-//! The caravans' wear is V23's (their send and take). A Holding
-//! BuildTower writes is V7's (an owner touch that pays `TOWER_COST`).
+//! The caravans' wear and palisades are V23's (their send and take, with
+//! [`Walker`]). A Holding BuildStructure writes is V7's (an owner touch that
+//! pays the kind's cost).
 //!
-//! Codes: `TowerMismatch`, `TowerWearMismatch`. Tamper classes T52–T54
+//! Codes: `StructureMismatch`, `TowerWearMismatch`. Tamper classes T52–T54
 //! (`crate::tamper`).
 
 use frontier_abi::ix as aix;
@@ -33,23 +39,25 @@ use frontier_abi::layout::player::{holding as H, transit as T};
 use frontier_abi::layout::province::{entry as EN, province as PV};
 use frontier_abi::v2::ix as ix2;
 use frontier_abi::v2::layout::player::{citizen as C2, holding as H2};
-use frontier_abi::v2::layout::province::tower_entry as TE;
-use frontier_abi::v2::layout::s1::{arrival as S1A, tower as TW};
+use frontier_abi::v2::layout::province::{fort_record as FR, structure_entry as TE};
+use frontier_abi::v2::layout::s1::{arrival as S1A, structure as TW};
+use frontier_abi::v2::layout::world::season as S2;
 use frontier_abi::v2::tags::Ix as V2Ix;
 use permutation_rules::frontier::geometry::ProvinceCoord;
-use permutation_rules::frontier::tower::{
-    hostile, march_secs_in_range, wear, wear_bps, TowerEntry, WatchedLand, MAX_TOWERS,
+use permutation_rules::frontier::structure::{
+    self as ks, march_watch, wear, wear_bps, Stances, StructureEntry, Walked, Watch, WatchedLand,
+    KIND_FORT, KIND_PALISADE, KIND_TOWER,
 };
 
 use super::v23_caravans::{States, TxStates, Wrong};
 use super::Ctx;
-use crate::codes::{TOWER_MISMATCH, TOWER_WEAR_MISMATCH};
+use crate::codes::{STRUCTURE_MISMATCH, TOWER_WEAR_MISMATCH};
 use crate::world::{le, Key};
 
 const V: &str = "V24";
 
 fn tower_wrong(s: impl Into<String>) -> Wrong {
-    (TOWER_MISMATCH, s.into())
+    (STRUCTURE_MISMATCH, s.into())
 }
 fn wear_wrong(s: impl Into<String>) -> Wrong {
     (TOWER_WEAR_MISMATCH, s.into())
@@ -71,21 +79,83 @@ fn u64_of(d: &[u8], o: usize) -> Option<u64> {
     at::<8>(d, o).map(u64::from_le_bytes)
 }
 
-fn entry_of(pd: &[u8], i: usize) -> Option<TowerEntry> {
-    TowerEntry::decode(pd.get(TE::at(i)..TE::at(i) + TE::SIZE)?)
+fn entry_of(pd: &[u8], i: usize) -> Option<StructureEntry> {
+    StructureEntry::decode(pd.get(TE::at(i)..TE::at(i) + TE::SIZE)?)
 }
 
-/// The tower list's hostile coverage for `faction` (none in a Province too
-/// short for it).
-fn cover(pd: &[u8], faction: u8) -> u64 {
-    pd.get(TE::BLOCK).map_or(0, |l| hostile(l, faction))
+/// The Season's stance table (all WAR when short or zero).
+pub fn stances(sd: Option<&[u8]>) -> Stances {
+    sd.and_then(|d| d.get(S2::STANCES..S2::STANCES + ks::NATIONS * ks::NATIONS))
+        .and_then(ks::stances_of)
+        .unwrap_or([ks::STANCE_WAR; ks::NATIONS * ks::NATIONS])
 }
 
-// ------------------------------------------------------------ BuildTower
+/// Who walks, for what the structures do to it (S1 1e): the Season's
+/// stances, its faction and whether it is expelled from its nation.
+#[derive(Clone, Copy, Debug)]
+pub struct Walker {
+    pub stances: Stances,
+    pub faction: u8,
+    pub expelled: bool,
+}
 
-/// BuildTower (accounts: 3 citizen, 6 province, 7 tower).
-pub fn judge_build_tower(ix: &crate::world::Ix, s: &dyn States, now: i64) -> Result<(), Wrong> {
-    let x = ix2::BuildTower::decode(&ix.data).map_err(|_| tower_wrong("does not decode"))?;
+impl Walker {
+    /// A Citizen's walk: the stances of the Season before and the
+    /// Citizen's `EXPELLED_SINCE` before.
+    pub fn of(s: &dyn States, season: &Key, citizen: &Key, faction: u8) -> Walker {
+        let expelled = s
+            .before(citizen)
+            .and_then(|d| at::<8>(&d, C2::EXPELLED_SINCE))
+            .is_some_and(|b| i64::from_le_bytes(b) != 0);
+        Walker {
+            stances: stances(s.before(season).as_deref()),
+            faction,
+            expelled,
+        }
+    }
+
+    /// What it meets in a Province (`structure::watch` over its list).
+    pub fn watch(&self, pd: &[u8]) -> Watch {
+        pd.get(TE::BLOCK).map_or(Watch::default(), |l| {
+            ks::watch(l, &self.stances, self.faction, self.expelled)
+        })
+    }
+}
+
+/// The Citizen's counter of `kind`.
+fn counter(kind: u8) -> Option<usize> {
+    match kind {
+        KIND_TOWER => Some(C2::TOWERS),
+        KIND_PALISADE => Some(C2::PALISADES),
+        KIND_FORT => Some(C2::FORTS),
+        _ => None,
+    }
+}
+
+/// A fort's record: `(tile, faction, gen, state, troops, pend_bell, pend)`.
+fn fort_rec(pd: &[u8], i: usize) -> Option<(u8, u8, u8, u8, u32, u32, u16)> {
+    let o = FR::at(i);
+    Some((
+        *pd.get(o + FR::TILE)?,
+        *pd.get(o + FR::FACTION)?,
+        *pd.get(o + FR::GEN)?,
+        *pd.get(o + FR::STATE)?,
+        u32_of(pd, o + FR::TROOPS)?,
+        u32_of(pd, o + FR::PEND_BELL)?,
+        u16_of(pd, o + FR::PEND)?,
+    ))
+}
+
+/// The live fort record of `tile`.
+fn fort_index(pd: &[u8], tile: u8) -> Option<usize> {
+    (0..FR::N).find(|&i| fort_rec(pd, i).is_some_and(|f| f.3 == FR::STATE_LIVE && f.0 == tile))
+}
+
+// ------------------------------------------------------------ BuildStructure
+
+/// BuildStructure (accounts: 3 citizen, 6 province, 7 structure).
+pub fn judge_build_structure(ix: &crate::world::Ix, s: &dyn States, now: i64) -> Result<(), Wrong> {
+    let x = ix2::BuildStructure::decode(&ix.data).map_err(|_| tower_wrong("does not decode"))?;
     let (Some(citizen), Some(province), Some(tower)) = (ix.key(3), ix.key(6), ix.key(7)) else {
         return Err(tower_wrong("the accounts are missing"));
     };
@@ -121,20 +191,45 @@ pub fn judge_build_tower(ix: &crate::world::Ix, s: &dyn States, now: i64) -> Res
     if x.notify > TW::NOTIFY_FACTION {
         return Err(tower_wrong("a notify setting the rules refuse"));
     }
-    let (tb, ta) = (cb[C2::TOWERS], ca[C2::TOWERS]);
-    if tb >= MAX_TOWERS || ta != tb + 1 {
-        return Err(tower_wrong(format!("the tower counter went {tb} → {ta}")));
+    let count = counter(x.kind).ok_or_else(|| tower_wrong("a kind the rules refuse"))?;
+    let (tb, ta) = (cb[count], ca[count]);
+    if tb >= ks::max_of(x.kind) || ta != tb + 1 {
+        return Err(tower_wrong(format!(
+            "the kind {}'s counter went {tb} → {ta}",
+            x.kind
+        )));
     }
     let free = (0..TE::N)
-        .find(|&i| entry_of(&pd, i).is_some_and(|e| !e.live))
-        .ok_or_else(|| tower_wrong("a tower built in a full list"))?;
+        .find(|&i| entry_of(&pd, i).is_some_and(|e| !e.live()))
+        .ok_or_else(|| tower_wrong("a structure built in a full list"))?;
     let faction = cb[C2::FACTION];
-    let want_entry = TowerEntry {
-        live: true,
+    let want_entry = StructureEntry {
+        kind: x.kind,
         tile,
         faction,
         gen: 1,
     };
+    // A fort: the first empty fort record, written; the others unchanged.
+    let fort = if x.kind == KIND_FORT {
+        let i = (0..FR::N)
+            .find(|&i| fort_rec(&pd, i).is_some_and(|f| f.3 == FR::STATE_NONE))
+            .ok_or_else(|| tower_wrong("a fort built in a full fort block"))?;
+        Some(i)
+    } else {
+        None
+    };
+    for i in 0..FR::N {
+        let want = if fort == Some(i) {
+            Some((tile, faction, 1, FR::STATE_LIVE, 0, u32::MAX, 0))
+        } else {
+            fort_rec(&pd, i)
+        };
+        if fort_rec(&pa, i) != want {
+            return Err(tower_wrong(format!(
+                "the fort record {i} is not the rules' after the build"
+            )));
+        }
+    }
     for i in 0..TE::N {
         let (b, a) = (entry_of(&pd, i), entry_of(&pa, i));
         let ok = if i == free {
@@ -174,6 +269,7 @@ pub fn judge_build_tower(ix: &crate::world::Ix, s: &dyn States, now: i64) -> Res
     )?;
     want(td[TW::NOTIFY] == x.notify, "notify")?;
     want(td[TW::ENTRY] as usize == free, "entry")?;
+    want(td[TW::KIND] == x.kind, "kind")?;
     want(
         at::<8>(&td, TW::BUILT_TS).map(i64::from_le_bytes) == Some(now),
         "build time",
@@ -181,12 +277,12 @@ pub fn judge_build_tower(ix: &crate::world::Ix, s: &dyn States, now: i64) -> Res
     Ok(())
 }
 
-// ------------------------------------------------------------ SeizeTower
+// ------------------------------------------------------------ SeizeStructure
 
-/// SeizeTower (accounts: 3 captor citizen, 4 tower, 5 province, 6
+/// SeizeStructure (accounts: 3 captor citizen, 4 tower, 5 province, 6
 /// host_holding, 7 owner_citizen).
-pub fn judge_seize_tower(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wrong> {
-    let x = ix2::SeizeTower::decode(&ix.data).map_err(|_| tower_wrong("does not decode"))?;
+pub fn judge_seize_structure(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wrong> {
+    let x = ix2::SeizeStructure::decode(&ix.data).map_err(|_| tower_wrong("does not decode"))?;
     let keys: Vec<Key> = (0..ix.accounts.len()).filter_map(|i| ix.key(i)).collect();
     if keys.len() < 8 {
         return Err(tower_wrong("the accounts are missing"));
@@ -204,9 +300,22 @@ pub fn judge_seize_tower(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wr
     }
     let tile = tb[TW::TILE];
     let entry = tb[TW::ENTRY] as usize;
+    let kind = tb[TW::KIND];
+    let count = counter(kind).ok_or_else(|| tower_wrong("a structure of no kind"))?;
     let pd = s
         .before(&province)
         .ok_or_else(|| tower_wrong("no Province before"))?;
+    // A fort must have fallen (no troops, the pending ones included).
+    let fort = if kind == KIND_FORT {
+        let i = fort_index(&pd, tile).ok_or_else(|| tower_wrong("a fort without its record"))?;
+        let f = fort_rec(&pd, i).ok_or_else(|| tower_wrong("short Province"))?;
+        if f.4 != 0 || f.6 != 0 {
+            return Err(tower_wrong("a manned fort seized"));
+        }
+        Some(i)
+    } else {
+        None
+    };
     let od = s
         .before(&owner)
         .ok_or_else(|| tower_wrong("no owner Citizen before"))?;
@@ -250,8 +359,8 @@ pub fn judge_seize_tower(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wr
     let cb = s
         .before(&captor)
         .ok_or_else(|| tower_wrong("no captor Citizen before"))?;
-    if cb[C2::TOWERS] >= MAX_TOWERS {
-        return Err(tower_wrong("a captor over the tower limit"));
+    if cb[count] >= ks::max_of(kind) {
+        return Err(tower_wrong("a captor over the kind's limit"));
     }
     let faction = cb[C2::FACTION];
     let gen = tb[TW::GEN].wrapping_add(1);
@@ -269,18 +378,26 @@ pub fn judge_seize_tower(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wr
     let pa = s
         .after(&province)
         .ok_or_else(|| tower_wrong("no Province after"))?;
-    let want = TowerEntry {
-        live: true,
+    let want = StructureEntry {
+        kind,
         tile,
         faction,
         gen,
     };
     if entry_of(&pa, entry) != Some(want) {
-        return Err(tower_wrong("the seized tower's entry does not follow it"));
+        return Err(tower_wrong(
+            "the seized structure's entry does not follow it",
+        ));
+    }
+    if let Some(i) = fort {
+        let f = fort_rec(&pa, i);
+        if f.map(|f| (f.1, f.2)) != Some((faction, gen)) {
+            return Err(tower_wrong("the seized fort's record does not follow it"));
+        }
     }
     let (ca, oa) = (s.after(&captor), s.after(&owner));
     let moved = |b: &[u8], a: Option<Vec<u8>>, d: i16| {
-        a.is_some_and(|a| a[C2::TOWERS] as i16 == b[C2::TOWERS] as i16 + d)
+        a.is_some_and(|a| a[count] as i16 == b[count] as i16 + d)
     };
     if !moved(&cb, ca, 1) || !moved(&od, oa, -1) {
         return Err(tower_wrong("the tower counters did not move"));
@@ -288,10 +405,10 @@ pub fn judge_seize_tower(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wr
     Ok(())
 }
 
-// ------------------------------------------------------------ CloseTower
+// ------------------------------------------------------------ CloseStructure
 
-/// CloseTower (accounts: 3 citizen, 4 tower, 5 province).
-pub fn judge_close_tower(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wrong> {
+/// CloseStructure (accounts: 3 citizen, 4 structure, 5 province).
+pub fn judge_close_structure(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wrong> {
     let (Some(citizen), Some(tower), Some(province)) = (ix.key(3), ix.key(4), ix.key(5)) else {
         return Err(tower_wrong("the accounts are missing"));
     };
@@ -308,13 +425,20 @@ pub fn judge_close_tower(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wr
         .after(&province)
         .ok_or_else(|| tower_wrong("no Province after"))?;
     let entry = tb[TW::ENTRY] as usize;
-    if entry_of(&pa, entry).is_none_or(|e| e.live) {
-        return Err(tower_wrong("the closed tower's entry is left in the list"));
+    if entry_of(&pa, entry).is_none_or(|e| e.live()) {
+        return Err(tower_wrong(
+            "the closed structure's entry is left in the list",
+        ));
     }
+    let kind = tb[TW::KIND];
+    if kind == KIND_FORT && fort_index(&pa, tb[TW::TILE]).is_some() {
+        return Err(tower_wrong("the closed fort's record is left"));
+    }
+    let count = counter(kind).ok_or_else(|| tower_wrong("a structure of no kind"))?;
     let (cb, ca) = (s.before(&citizen), s.after(&citizen));
     match (cb, ca) {
-        (Some(b), Some(a)) if a[C2::TOWERS] == b[C2::TOWERS].saturating_sub(1) => Ok(()),
-        _ => Err(tower_wrong("the tower counter did not move")),
+        (Some(b), Some(a)) if a[count] == b[count].saturating_sub(1) => Ok(()),
+        _ => Err(tower_wrong("the kind's counter did not move")),
     }
 }
 
@@ -336,7 +460,11 @@ pub fn judge_reveal_wear(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wr
     let tr = hd
         .get(o..o + T::SIZE)
         .ok_or_else(|| wear_wrong("no transit"))?;
-    let faction = tr[T::FACTION];
+    let who = Walker {
+        stances: stances(s.before(&keys[1]).as_deref()),
+        faction: tr[T::FACTION],
+        expelled: hd.get(H::FLAGS).is_some_and(|f| f & H2::FLAG_EXPELLED != 0),
+    };
     let cav = frontier_abi::entry::unit_from_u8(tr[T::UNIT])
         .is_some_and(permutation_rules::frontier::travel::is_cavalry);
     let origin = (
@@ -360,11 +488,19 @@ pub fn judge_reveal_wear(ix: &crate::world::Ix, s: &dyn States) -> Result<(), Wr
             at: ProvinceCoord::new(p, q),
             rough: u64_of(&pd, PV::ROUGH_MASK).unwrap_or(0),
             road: u64_of(&pd, PV::ROAD_MASK).unwrap_or(0),
-            cover: cover(&pd, faction),
+            watch: who.watch(&pd),
         });
     }
-    let secs = march_secs_in_range(origin, &plain.path, plain.path_len, &lands, cav)
-        .ok_or_else(|| wear_wrong("the revealed walk leaves its Provinces"))?;
+    let secs = match march_watch(origin, &plain.path, plain.path_len, &lands, cav)
+        .ok_or_else(|| wear_wrong("the revealed walk leaves its Provinces"))?
+    {
+        Walked::Secs(secs) => secs,
+        Walked::Blocked => {
+            return Err(tower_wrong(
+                "a march revealed through a palisade that stops it",
+            ))
+        }
+    };
     let want = wear_bps(secs);
     let slot = keys[9 + x.target_i as usize];
     let sd = s
@@ -476,9 +612,13 @@ pub fn run(cx: &mut Ctx) {
             tx.ok
                 && tx.ixs.iter().any(|i| {
                     i.tag().is_some_and(|x| {
-                        [V2Ix::BuildTower, V2Ix::SeizeTower, V2Ix::CloseTower]
-                            .iter()
-                            .any(|t| t.tag() == x)
+                        [
+                            V2Ix::BuildStructure,
+                            V2Ix::SeizeStructure,
+                            V2Ix::CloseStructure,
+                        ]
+                        .iter()
+                        .any(|t| t.tag() == x)
                     })
                 })
         });
@@ -501,9 +641,9 @@ pub fn run(cx: &mut Ctx) {
         for ix in &tx.ixs {
             let Some(tag) = ix.tag() else { continue };
             let r = match V2Ix::from_tag(tag) {
-                Some(V2Ix::BuildTower) => judge_build_tower(ix, &st, tx.time),
-                Some(V2Ix::SeizeTower) => judge_seize_tower(ix, &st),
-                Some(V2Ix::CloseTower) => judge_close_tower(ix, &st),
+                Some(V2Ix::BuildStructure) => judge_build_structure(ix, &st, tx.time),
+                Some(V2Ix::SeizeStructure) => judge_seize_structure(ix, &st),
+                Some(V2Ix::CloseStructure) => judge_close_structure(ix, &st),
                 Some(V2Ix::Reveal) => judge_reveal_wear(ix, &st),
                 Some(V2Ix::GatherClash) => judge_gather_wear(ix, &st),
                 _ => continue,

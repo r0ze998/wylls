@@ -77,7 +77,7 @@ pub const VAULT_MISMATCH: &str = "VaultMismatch";
 // V24 watchtowers (S1 stage 1d)
 /// A tower built, seized or closed against the rules, or a Province's
 /// tower list that does not follow its Towers.
-pub const TOWER_MISMATCH: &str = "TowerMismatch";
+pub const STRUCTURE_MISMATCH: &str = "StructureMismatch";
 /// A march's or a caravan's tower wear other than the tower kernel's (a
 /// slot's `WORN_BPS`, a gathered record, a transit, a caravan's cargo).
 pub const TOWER_WEAR_MISMATCH: &str = "TowerWearMismatch";
@@ -151,7 +151,7 @@ pub const FAIL_CODES: &[&str] = &[
     OUTPOST_ILLEGAL,
     CARAVAN_MISMATCH,
     VAULT_MISMATCH,
-    TOWER_MISMATCH,
+    STRUCTURE_MISMATCH,
     TOWER_WEAR_MISMATCH,
 ];
 

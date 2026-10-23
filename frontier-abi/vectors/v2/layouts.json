@@ -412,9 +412,15 @@
           "ty": "[u8;32]"
         },
         {
-          "name": "RSV_M2M3",
+          "name": "STANCES",
           "off": 516,
-          "len": 380,
+          "len": 36,
+          "ty": "[u8;36]"
+        },
+        {
+          "name": "RSV_552",
+          "off": 552,
+          "len": 344,
           "ty": "rsv"
         },
         {
@@ -1235,10 +1241,16 @@
           "ty": "u8"
         },
         {
-          "name": "RSV_314",
+          "name": "PALISADES",
           "off": 314,
-          "len": 2,
-          "ty": "rsv"
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "FORTS",
+          "off": 315,
+          "len": 1,
+          "ty": "u8"
         },
         {
           "name": "CARAVANS",
@@ -1247,9 +1259,27 @@
           "ty": "u32"
         },
         {
-          "name": "RSV_320",
+          "name": "EXPELLED_SINCE",
           "off": 320,
-          "len": 64,
+          "len": 8,
+          "ty": "i64"
+        },
+        {
+          "name": "VOTED",
+          "off": 328,
+          "len": 16,
+          "ty": "[u32;4]"
+        },
+        {
+          "name": "PROPOSED",
+          "off": 344,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "RSV_348",
+          "off": 348,
+          "len": 36,
           "ty": "rsv"
         }
       ]
@@ -1771,10 +1801,10 @@
           "ty": "rec:CaravanSlot x5"
         },
         {
-          "name": "TOWERS",
+          "name": "STRUCTURES",
           "off": 4044,
           "len": 48,
-          "ty": "rec:TowerEntry x12"
+          "ty": "rec:StructureEntry x12"
         },
         {
           "name": "RSV_4092",
@@ -1825,10 +1855,10 @@
           "ty": "u32"
         },
         {
-          "name": "RSV_CQ",
+          "name": "FORTS",
           "off": 4708,
           "len": 28,
-          "ty": "rsv"
+          "ty": "rec:FortRecord x2"
         }
       ]
     },
@@ -2965,9 +2995,9 @@
       ]
     },
     {
-      "kind": "Tower",
+      "kind": "Structure",
       "code": 21,
-      "magic": "PSF1TOWR",
+      "magic": "PSF1STRC",
       "size": 256,
       "rent": 1950720,
       "chained": true,
@@ -3084,9 +3114,15 @@
           "ty": "u8"
         },
         {
-          "name": "RSV_126",
+          "name": "KIND",
           "off": 126,
-          "len": 2,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "RSV_127",
+          "off": 127,
+          "len": 1,
           "ty": "rsv"
         },
         {
@@ -3478,11 +3514,59 @@
       ]
     },
     {
-      "name": "TowerEntry",
+      "name": "FortRecord",
+      "size": 14,
+      "fields": [
+        {
+          "name": "TILE",
+          "off": 0,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "FACTION",
+          "off": 1,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "GEN",
+          "off": 2,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "STATE",
+          "off": 3,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "TROOPS",
+          "off": 4,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "PEND_BELL",
+          "off": 8,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "PEND",
+          "off": 12,
+          "len": 2,
+          "ty": "u16"
+        }
+      ]
+    },
+    {
+      "name": "StructureEntry",
       "size": 4,
       "fields": [
         {
-          "name": "STATE",
+          "name": "KIND",
           "off": 0,
           "len": 1,
           "ty": "u8"

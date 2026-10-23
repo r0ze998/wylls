@@ -29,9 +29,10 @@ pub mod vault {
     }
 }
 
-/// Tower (256 B): `tw‖P,Q,tile` (S1, 1d; `S1-1D-CONTRACT.md` §1.1).
-pub mod tower {
-    crate::layout::chained!(b"PSF1TOWR", 256;
+/// Structure (256 B): `tw‖P,Q,tile` (S1: a tower, 1d; a palisade or a
+/// fort, 1e; `S1-1E-CONTRACT.md` §2.1).
+pub mod structure {
+    crate::layout::chained!(b"PSF1STRC", 256;
         P @ 64 : "i16" = 2;
         Q @ 66 : "i16" = 2;
         TILE @ 68 : "u8" = 1;
@@ -44,7 +45,8 @@ pub mod tower {
         SEIZED_BELL @ 120 : "u32" = 4;
         NOTIFY @ 124 : "u8" = 1;
         ENTRY @ 125 : "u8" = 1;
-        RSV_126 @ 126 : "rsv" = 2;
+        KIND @ 126 : "u8" = 1;
+        RSV_127 @ 127 : "rsv" = 1;
         RENT_TO @ 128 : "[u8;32]" = 32;
         RSV @ 160 : "rsv" = 96;
     );
@@ -54,13 +56,14 @@ pub mod tower {
     pub const NOTIFY_OWNER: u8 = 0;
     /// `NOTIFY`: the herald tells the owner's faction.
     pub const NOTIFY_FACTION: u8 = 1;
+    pub use permutation_rules::frontier::structure::{KIND_FORT, KIND_PALISADE, KIND_TOWER};
 }
 
 /// The S1 reading of an ArrivalSlot (1d): the v1 table keeps the name
 /// `RSV_54` (the MC layout tables are unchanged); in an S1 season Reveal
 /// writes the march's tower wear there.
 pub mod arrival {
-    /// The march's tower wear (u16, bps; `tower::wear_bps`).
+    /// The march's tower wear (u16, bps; `structure::wear_bps`).
     pub const WORN_BPS: usize = crate::layout::clash::arrival_slot::RSV_54;
     const _: () = assert!(WORN_BPS == 54);
 }

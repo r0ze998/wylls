@@ -369,7 +369,7 @@ pub mod cqlog {
     use crate::error::{Error, BAD_ACCOUNT, OVERFLOW};
     use crate::layout::{chain_of, set_chain};
 
-    /// Highest kind code a v2 record carries (97: S1's TOWER_CLOSED).
+    /// Highest kind code a v2 record carries (97: S1's STRUCTURE_CLOSED).
     pub const MAX_KIND: usize = 97;
 
     /// `(defined, key width, payload width)` per kind: M1's and MC's.

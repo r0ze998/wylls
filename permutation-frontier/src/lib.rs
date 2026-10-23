@@ -198,10 +198,10 @@ pub fn dispatch(
         Ix::SeizeVault => caravan::seize_vault(p, a, data),
         Ix::CloseVault => caravan::close_vault(p, a, data),
         Ix::DefaultRaid => caravan::default_raid(p, a, data),
-        // S1 (stage 1d): watchtowers.
-        Ix::BuildTower => tower::build_tower(p, a, data),
-        Ix::SeizeTower => tower::seize_tower(p, a, data),
-        Ix::CloseTower => tower::close_tower(p, a, data),
+        // S1 (stages 1d, 1e): structures.
+        Ix::BuildStructure => structure::build_structure(p, a, data),
+        Ix::SeizeStructure => structure::seize_structure(p, a, data),
+        Ix::CloseStructure => structure::close_structure(p, a, data),
     };
     heap::trace_checkpoint(0xffff);
     r

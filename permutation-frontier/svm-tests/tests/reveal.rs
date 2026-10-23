@@ -975,13 +975,13 @@ fn measure_reveal_with(
     let m = w.plan_march(id, 0, origin, &dirs, B0 + 20, 2, 25_000, SealCase::Valid);
     assert_eq!(m.path.len(), 3, "4 provinces");
     if towers {
-        use frontier_abi::v2::layout::province::tower_entry as TE;
-        use permutation_rules::frontier::tower::TowerEntry;
+        use frontier_abi::v2::layout::province::structure_entry as TE;
+        use permutation_rules::frontier::structure::StructureEntry;
         for (p, q) in m.path.iter().copied().chain([m.dest]) {
             c.edit(&w.a.province(p, q), |d| {
                 for i in 0..TE::N {
-                    let e = TowerEntry {
-                        live: true,
+                    let e = StructureEntry {
+                        kind: permutation_rules::frontier::structure::KIND_TOWER,
                         tile: (5 * i) as u8,
                         faction: 3,
                         gen: 1,
@@ -1049,8 +1049,8 @@ fn measure_reveal_with(
     }
     // The client profile (budget CU limit, L(kind)) lands too (the trace
     // build's markers cost ≈ 5k CU more).
-    // (With towers, an S1 walk: the S1 limit is asserted by the caller.)
-    if build == Build::Release && !towers {
+    // (The client profile is the S1 one: `cu_limit_s1`.)
+    if build == Build::Release {
         expect_lands(
             c.fork()
                 .send_client(std::slice::from_ref(&ix), &[&w.keeper]),
@@ -1121,7 +1121,11 @@ fn g01_reveal_worst() {
                 assert!(h <= 28_672, "heap {h} B");
             }
         }
+        // The program runs S1 seasons only: their walk reads the
+        // Province's structure list and the Season's stances even when no
+        // structure stands, so the gate is the S1 Reveal limit (stage 1e).
         let mut ceil = ceilings(Ix::Reveal, 0, pd);
+        ceil.cu = frontier_abi::v2::budgets::REVEAL_CU_LIMIT_S1;
         ceil.tx_bytes = ceil.tx_bytes.min(1_100);
         assert_within(&format!("Reveal {fill:?}"), &need, &ceil);
         worst = worst.max(need.cu);
@@ -1129,10 +1133,10 @@ fn g01_reveal_worst() {
     let c = Chain::release();
     let l_formula = frontier_abi::budgets::loaded_limit_for(Ix::Reveal, c.programdata_len());
     println!(
-        "Reveal: worst {worst} CU (budget 26,000, target 20,000); L(reveal) at this .so = {l_formula} B (formula, worst account set), requested {} B",
+        "Reveal: worst {worst} CU (S1 limit 28,000, MC budget 26,000, target 20,000); L(reveal) at this .so = {l_formula} B (formula, worst account set), requested {} B",
         permutation_frontier_svm_tests::chain::loaded_limit(Ix::Reveal, c.programdata_len())
     );
-    assert!(worst <= 26_000);
+    assert!(worst <= frontier_abi::v2::budgets::REVEAL_CU_LIMIT_S1 as u64);
     // The measured loaded need of the named fill, and the SIMD-0186
     // control: one page below it fails charged.
     let (need, c, w, ix) = measure_reveal(Build::Release, Fill::Named);

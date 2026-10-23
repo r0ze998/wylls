@@ -36,9 +36,13 @@ pub mod citizen {
         TICKET_FUNDER @ 280 : "[u8;32]" = 32;
         VAULTS @ 312 : "u8" = 1;
         TOWERS @ 313 : "u8" = 1;
-        RSV_314 @ 314 : "rsv" = 2;
+        PALISADES @ 314 : "u8" = 1;
+        FORTS @ 315 : "u8" = 1;
         CARAVANS @ 316 : "u32" = 4;
-        RSV_320 @ 320 : "rsv" = 64;
+        EXPELLED_SINCE @ 320 : "i64" = 8;
+        VOTED @ 328 : "[u32;4]" = 16;
+        PROPOSED @ 344 : "u32" = 4;
+        RSV_348 @ 348 : "rsv" = 36;
     );
     pub use crate::layout::player::citizen::{
         EXPLORES_FLOOR, FLAG_FIRST_HOLDING_FINAL, FLAG_HOME_GRANTED, FLAG_JOINED, FLAG_PROVISIONAL,
@@ -137,6 +141,11 @@ pub mod holding {
     };
     /// `capture_flags` bit 0: the Holding was captured (v1.1: no raze value).
     pub const CAPTURE_FLAG_CAPTURED: u8 = 1;
+    /// S1 (1e): `FLAGS` bit 2, the owner is expelled from its nation (the
+    /// mirror of `Citizen.EXPELLED_SINCE` Reveal reads; set and cleared by
+    /// SettleProposal on every live holding of the citizen).
+    pub const FLAG_EXPELLED: u8 = 4;
+    const _: () = assert!(FLAG_EXPELLED & (FLAG_DORMANT_CACHE | FLAG_INTRO_BUILD_AVAILABLE) == 0);
 }
 
 #[cfg(test)]
@@ -164,16 +173,20 @@ mod tests {
             citizen::FIELDS,
             &["RSV_145", "RSV_150", "RSV_187", "RSV"],
         );
-        // S1: the Citizen's reserve at 312 holds the vault, tower and
-        // caravan counters.
+        // S1: the Citizen's reserve at 312 holds the vault, structure and
+        // caravan counters, then the nation fields (1e).
         assert_eq!(
             (
                 citizen::VAULTS,
                 citizen::TOWERS,
+                citizen::PALISADES,
+                citizen::FORTS,
                 citizen::CARAVANS,
-                citizen::RSV_320
+                citizen::EXPELLED_SINCE,
+                citizen::VOTED,
+                citizen::PROPOSED,
             ),
-            (312, 313, 316, 320)
+            (312, 313, 314, 315, 316, 320, 328, 344)
         );
         same_except(v1::holding::FIELDS, holding::FIELDS, &["RSV"]);
         assert_eq!(citizen::SIEGES_TODAY, 145);

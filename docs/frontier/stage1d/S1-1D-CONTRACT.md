@@ -9,6 +9,14 @@ left open (listed for the owner in §9).
 
 Before this: [stage 1b/1c](../stage1b/S1-1B-CONTRACT.md).
 
+**Stage 1e renames the tower.** Its account, instructions, records, codes
+and the Province list are now the structure's (towers, palisades, forts):
+`Tower` → `Structure`, `BuildTower` → `BuildStructure` (with a `kind`),
+`TOWER_*` → `STRUCTURE_*`, `TowerSite` → `StructureSite` and so on, and
+"hostile" became the stop rule of the Season's stances. The numbers here
+are unchanged; read the names through
+[S1-1E-CONTRACT.md](../stage1e/S1-1E-CONTRACT.md) §1–§2.
+
 ## 0. Scope
 
 Until zk hides marches, a tower cannot *see* a sealed march on the road

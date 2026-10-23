@@ -172,20 +172,22 @@ pub enum CqEvent {
         host_id: u64,
     },
     // S1 (stage 1d, kinds 95–97).
-    TowerBuilt {
+    StructureBuilt {
         p: i32,
         q: i32,
         tile: u8,
         owner_tag: u64,
         faction: u8,
         gen: u8,
-        /// Its index in the Province's tower list.
+        /// Its index in the Province's structure list.
         entry: u8,
-        /// `s1::tower::NOTIFY_*`.
+        /// `s1::structure::NOTIFY_*`.
         notify: u8,
         holding_key: u64,
+        /// `structure::KIND_*`.
+        kind: u8,
     },
-    TowerSeized {
+    StructureSeized {
         p: i32,
         q: i32,
         tile: u8,
@@ -195,13 +197,15 @@ pub enum CqEvent {
         faction: u8,
         domestic: bool,
         host_id: u64,
+        kind: u8,
     },
-    TowerClosed {
+    StructureClosed {
         p: i32,
         q: i32,
         tile: u8,
         owner_tag: u64,
         entry: u8,
+        kind: u8,
     },
 }
 
@@ -291,9 +295,9 @@ impl CqEvent {
             | VaultBuilt { p, q, .. }
             | CaravanRaided { p, q, .. }
             | VaultSeized { p, q, .. }
-            | TowerBuilt { p, q, .. }
-            | TowerSeized { p, q, .. }
-            | TowerClosed { p, q, .. } => Some((*p, *q)),
+            | StructureBuilt { p, q, .. }
+            | StructureSeized { p, q, .. }
+            | StructureClosed { p, q, .. } => Some((*p, *q)),
             MarchFold { .. } | Retire { .. } => None,
             CaravanSent { src, .. } => Some((src.p as i32, src.q as i32)),
             CaravanSettled { dst, .. } => Some((dst.p as i32, dst.q as i32)),
@@ -465,7 +469,7 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
             domestic: b8("domestic")? != 0,
             host_id: u("host_id")?,
         },
-        CqKind::TOWER_BUILT => CqEvent::TowerBuilt {
+        CqKind::STRUCTURE_BUILT => CqEvent::StructureBuilt {
             p: i("p")?,
             q: i("q")?,
             tile: b8("tile")?,
@@ -475,8 +479,9 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
             entry: b8("entry")?,
             notify: b8("notify")?,
             holding_key: u("holding_key")?,
+            kind: b8("kind")?,
         },
-        CqKind::TOWER_SEIZED => CqEvent::TowerSeized {
+        CqKind::STRUCTURE_SEIZED => CqEvent::StructureSeized {
             p: i("p")?,
             q: i("q")?,
             tile: b8("tile")?,
@@ -486,13 +491,15 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
             faction: b8("faction")?,
             domestic: b8("domestic")? != 0,
             host_id: u("host_id")?,
+            kind: b8("kind")?,
         },
-        CqKind::TOWER_CLOSED => CqEvent::TowerClosed {
+        CqKind::STRUCTURE_CLOSED => CqEvent::StructureClosed {
             p: i("p")?,
             q: i("q")?,
             tile: b8("tile")?,
             owner_tag: u("owner_tag")?,
             entry: b8("entry")?,
+            kind: b8("kind")?,
         },
     };
     Some(CqLog {

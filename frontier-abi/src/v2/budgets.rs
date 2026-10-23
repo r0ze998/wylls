@@ -91,9 +91,9 @@ pub const MC_ROWS: &[(Ix, u32, u32, u32)] = &[
     (Ix::CloseVault, 10_000, 0, 500),
     (Ix::DefaultRaid, 120_000, 0, 1_100),
     // S1 (1d; S1-1D-CONTRACT §5.6): placeholders until measured.
-    (Ix::BuildTower, 40_000, 0, 600),
-    (Ix::SeizeTower, 30_000, 0, 600),
-    (Ix::CloseTower, 15_000, 0, 500),
+    (Ix::BuildStructure, 40_000, 0, 600),
+    (Ix::SeizeStructure, 30_000, 0, 600),
+    (Ix::CloseStructure, 15_000, 0, 500),
 ];
 
 /// The v2 row of `ix`.

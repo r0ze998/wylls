@@ -305,7 +305,7 @@ struct Routed {
 
 /// `cargo` worn by `bps` (`tower::wear_i64` each).
 fn worn_cargo(cargo: &[i64; RES], bps: u16) -> [i64; RES] {
-    cargo.map(|c| permutation_rules::frontier::tower::wear_i64(c, bps))
+    cargo.map(|c| permutation_rules::frontier::structure::wear_i64(c, bps))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -317,6 +317,7 @@ fn route(
     steps: u8,
     path: &[u8; 12],
     faction: u8,
+    who: &super::v24_structures::Walker,
     id: u64,
     at: At,
 ) -> Result<Routed, Wrong> {
@@ -333,18 +334,13 @@ fn route(
         };
     }
     let mut lands = vec![];
-    let mut covers = vec![];
+    let mut watches = vec![];
     for k in provinces {
         let pd = s
             .before(k)
             .ok_or_else(|| caravan_wrong("no path Province before"))?;
         lands.push(land_of(&pd).map_err(caravan_wrong)?);
-        covers.push(
-            pd.get(frontier_abi::v2::layout::province::tower_entry::BLOCK)
-                .map_or(0, |l| {
-                    permutation_rules::frontier::tower::hostile(l, faction)
-                }),
-        );
+        watches.push(who.watch(&pd));
     }
     let bps = permutation_rules::frontier::doctrine::of_faction_v3(faction)
         .ok_or_else(|| caravan_wrong(format!("faction {faction}")))?
@@ -371,18 +367,29 @@ fn route(
         last_bell = last_bell.max(run.first_bell + run.tiles.len() as u32 - 1);
         slots.push((provinces[i], slot));
     }
-    let in_range = permutation_rules::frontier::tower::caravan_secs_in_range(&walked, |pc| {
+    let met = permutation_rules::frontier::structure::caravan_watch(&walked, |pc| {
         lands
             .iter()
-            .zip(&covers)
+            .zip(&watches)
             .find(|(l, _)| l.at == pc)
-            .map_or(0, |(_, c)| *c)
+            .map_or(Default::default(), |(_, w)| *w)
     });
+    let worn = match met {
+        permutation_rules::frontier::structure::Walked::Secs(secs) => {
+            permutation_rules::frontier::structure::wear_bps(secs)
+        }
+        permutation_rules::frontier::structure::Walked::Blocked => {
+            return Err((
+                crate::codes::STRUCTURE_MISMATCH,
+                "a caravan walked through a palisade that stops it".into(),
+            ))
+        }
+    };
     Ok(Routed {
         arrive: at.now + kc::travel_secs(&walked) as i64,
         last_bell,
         slots,
-        worn: permutation_rules::frontier::tower::wear_bps(in_range),
+        worn,
     })
 }
 
@@ -505,6 +512,7 @@ pub fn judge_send_caravan(ix: &crate::world::Ix, s: &dyn States, at: At) -> Resu
         x.steps,
         &x.path,
         faction,
+        &super::v24_structures::Walker::of(s, &keys[2], &citizen, faction),
         caravan_id(tag, seq),
         at,
     )?;
@@ -591,6 +599,7 @@ pub fn judge_settle_caravan(
 
 /// A raid settlement's accounts and data (RaidCaravan or DefaultRaid).
 pub struct RaidIx {
+    pub season: Key,
     pub caravan: Key,
     pub raider_holding: Key,
     pub raider_citizen: Key,
@@ -725,6 +734,7 @@ pub fn judge_raid(s: &dyn States, at: At, x: &RaidIx, choice: u8) -> Result<(), 
         x.steps,
         &x.path,
         faction,
+        &super::v24_structures::Walker::of(s, &x.season, &x.raider_citizen, faction),
         id,
         at,
     )?;
@@ -1006,6 +1016,7 @@ pub fn run(cx: &mut Ctx) {
                             Err(caravan_wrong("a RaidCaravan without its accounts"))
                         } else {
                             let r = RaidIx {
+                                season: keys[2],
                                 caravan: keys[4],
                                 raider_holding: keys[5],
                                 raider_citizen: keys[3],
@@ -1030,6 +1041,7 @@ pub fn run(cx: &mut Ctx) {
                             Err(caravan_wrong("a DefaultRaid without its accounts"))
                         } else {
                             let r = RaidIx {
+                                season: keys[1],
                                 caravan: keys[2],
                                 raider_holding: keys[3],
                                 raider_citizen: keys[4],

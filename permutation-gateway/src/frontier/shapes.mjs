@@ -10,12 +10,12 @@
 //   the fee plus the kind's allowance — Join: rent(Citizen); FileTicket: the
 //   Holding-rent escrow shortfall `max(0, rent(1,280) − citizen.ticket_escrow)`;
 //   Depart: `tip + march_fee + seal_bond`; S1's BuildVault: rent(Vault);
-//   BuildTower: rent(Tower);
+//   BuildStructure: rent(Tower);
 //   SendCaravan: rent(Caravan) + `CARAVAN_FEE` (the fee the program
 //   escrows from the payer is the player's choice: a larger one is refused
 //   here); every other kind, RaidCaravan and DefaultRaid included (a take
-//   reroutes the raided caravan itself, decision J2) and SeizeTower and
-//   CloseTower: 0;
+//   reroutes the raided caravan itself, decision J2) and SeizeStructure and
+//   CloseStructure: 0;
 // * who is charged: a player shape its citizen, a settle shape its
 //   requester's citizen (the requester signed the request and is, on chain,
 //   that citizen's wallet or unexpired session key), else the client-address
@@ -23,7 +23,7 @@
 import { addressBucket } from '../guards.mjs';
 import { baseFee, departEscrow, rent, seasonTipMin, tipPresets } from '../../client/src/frontier/fees.mjs';
 import { layoutOf } from '../../client/src/frontier/codec.mjs';
-import { DEPART_TAG, FILE_TICKET_TAG, JOIN_TAG, PLACE_HOME_TAG, FILE_OUTPOST_TAG, DECLARE_SIEGE_TAG, BUILD_VAULT_TAG, SEND_CARAVAN_TAG, BUILD_TOWER_TAG } from '../../client/src/frontier/shapes.mjs';
+import { DEPART_TAG, FILE_TICKET_TAG, JOIN_TAG, PLACE_HOME_TAG, FILE_OUTPOST_TAG, DECLARE_SIEGE_TAG, BUILD_VAULT_TAG, SEND_CARAVAN_TAG, BUILD_STRUCTURE_TAG } from '../../client/src/frontier/shapes.mjs';
 import { CARAVAN_FEE } from '../../client/src/frontier/budgets.mjs';
 import { profileForSeason } from '../../client/src/frontier/profile.mjs';
 import { RouteError } from '../routes/errors.mjs';
@@ -34,7 +34,7 @@ export const HOLDING_RENT = rent(layoutOf('Holding').size);
 export const VAULT_RENT = rent(layoutOf('Vault', 2).size);
 export const CARAVAN_COST = rent(layoutOf('Caravan', 2).size) + CARAVAN_FEE;
 /** S1 stage 1d: a watchtower's rent. */
-export const TOWER_RENT = rent(layoutOf('Tower', 2).size);
+export const STRUCTURE_RENT = rent(layoutOf('Structure', 2).size);
 
 /** Refuse unless `shape` (classified) may be sponsored by this relay for this season. */
 export function checkRelayShape(shape, { pool, addresses }) {
@@ -88,7 +88,7 @@ export function allowanceFor(shape, { season, citizen = null }) {
       return departEscrow(season, checkDepartTip(shape, season));
     case BUILD_VAULT_TAG: return VAULT_RENT;
     case SEND_CARAVAN_TAG: return CARAVAN_COST;
-    case BUILD_TOWER_TAG: return TOWER_RENT;
+    case BUILD_STRUCTURE_TAG: return STRUCTURE_RENT;
     default: return 0n;
   }
 }
@@ -121,7 +121,7 @@ export function lamportsPerDay(season, departs = 24) {
   const s1 = profileForSeason(season) === 3;
   const depart = departEscrow(season, top);
   const each = s1 && CARAVAN_COST > depart ? CARAVAN_COST : depart;
-  return BigInt(departs) * each + CITIZEN_RENT + HOLDING_RENT + (s1 ? VAULT_RENT + TOWER_RENT : 0n);
+  return BigInt(departs) * each + CITIZEN_RENT + HOLDING_RENT + (s1 ? VAULT_RENT + STRUCTURE_RENT : 0n);
 }
 
 /**

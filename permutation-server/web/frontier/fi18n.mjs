@@ -176,11 +176,12 @@ const ERROR_TEXT = {
   CaravanEarly: () => L`隊商はまだ到着していないか、通った州の決着がまだです`,
   RaidState: () => L`この隊商には決着を待つ略奪がない、またはすでに決着しています`,
   RaidWindow: () => L`略奪の決定の受付時間外です`,
-  NotOnTile: () => L`蔵や見張り塔のマスに自分の軍勢がいないか、持ち主の軍勢がまだいます`,
-  // S1 stage 1d: watchtowers
-  TowerSite: () => L`見張り塔はこのマスに建てられません（通れない土地、村、砦、野営地、または既存の塔）`,
-  TowerLimit: () => L`持てる見張り塔の上限に達しています`,
-  TowerFull: () => L`この州には、これ以上の見張り塔を建てられません`,
+  NotOnTile: () => L`蔵や建物のマスに自分の軍勢がいないか、持ち主の軍勢がまだいます`,
+  // S1 stages 1d, 1e: structures (towers, palisades, forts)
+  StructureSite: () => L`この建物はこのマスに建てられません（通れない土地、村、砦、野営地、または既存の建物）`,
+  StructureLimit: () => L`この種類の建物は、もう持てません`,
+  StructureFull: () => L`この州には、これ以上この建物を建てられません`,
+  FortManned: () => L`兵が残っている砦は奪えません。先に戦いで兵を倒してください`,
   NotImplemented: () => L`まだ実装されていません`,
 };
 

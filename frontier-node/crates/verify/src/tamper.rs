@@ -2188,8 +2188,8 @@ pub fn s1_t53(run: &Input) -> Made {
 pub fn s1_t54(run: &Input) -> Made {
     use frontier_abi::layout::province::{entry as EN, province as PV};
     let mut inp = run.clone();
-    let tag = frontier_abi::v2::tags::Ix::SeizeTower.tag();
-    let t = first_with(&inp, tag).need("a SeizeTower")?;
+    let tag = frontier_abi::v2::tags::Ix::SeizeStructure.tag();
+    let t = first_with(&inp, tag).need("a SeizeStructure")?;
     let keys = ix_keys(&inp, t, tag).need("its accounts")?;
     let province = *keys.get(5).need("its Province")?;
     let u = last_post_before(&inp, &province, t).need("the Province before")?;
@@ -2215,7 +2215,7 @@ pub fn s1_t54(run: &Input) -> Made {
         class: "T54",
         what: "a tower seized without the captor's host on it",
         feature: None,
-        codes: &[TOWER_MISMATCH],
+        codes: &[STRUCTURE_MISMATCH],
         input: inp,
     })
 }

@@ -14,7 +14,7 @@ pub mod v1_chains;
 pub mod v20_end;
 pub mod v22_outposts;
 pub mod v23_caravans;
-pub mod v24_towers;
+pub mod v24_structures;
 pub mod v2_program;
 pub mod v3_random;
 pub mod v4_windows;
@@ -234,8 +234,8 @@ pub fn run(input: &Input) -> Report {
     if cx.s1 {
         v23_caravans::run(&mut cx);
         ran.push("V23:caravans");
-        v24_towers::run(&mut cx);
-        ran.push("V24:towers");
+        v24_structures::run(&mut cx);
+        ran.push("V24:structures");
     }
     ran.push("V10");
     counts(&mut cx);

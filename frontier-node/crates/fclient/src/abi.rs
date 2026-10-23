@@ -84,9 +84,9 @@ pub mod tag {
     pub const CLOSE_VAULT: u8 = 0xB5;
     pub const DEFAULT_RAID: u8 = 0xB6;
     // S1 (stage 1d).
-    pub const BUILD_TOWER: u8 = 0xB7;
-    pub const SEIZE_TOWER: u8 = 0xB8;
-    pub const CLOSE_TOWER: u8 = 0xB9;
+    pub const BUILD_STRUCTURE: u8 = 0xB7;
+    pub const SEIZE_STRUCTURE: u8 = 0xB8;
+    pub const CLOSE_STRUCTURE: u8 = 0xB9;
 }
 
 /// Keeper class of an instruction (§5.5, I-21).
@@ -295,10 +295,10 @@ pub const INSTRUCTIONS_V2: [IxInfo; 68] = [
     ix(0xB4, "SeizeVault", Class::P, 30_000, 600, false),
     ix(0xB5, "CloseVault", Class::P, 10_000, 500, false),
     ix(0xB6, "DefaultRaid", Class::D, 120_000, 1_100, false),
-    // S1 (stage 1d): watchtowers (placeholders until measured).
-    ix(0xB7, "BuildTower", Class::P, 40_000, 600, false),
-    ix(0xB8, "SeizeTower", Class::P, 30_000, 600, false),
-    ix(0xB9, "CloseTower", Class::P, 15_000, 500, false),
+    // S1 (stages 1d, 1e): structures (placeholders until measured).
+    ix(0xB7, "BuildStructure", Class::P, 40_000, 600, false),
+    ix(0xB8, "SeizeStructure", Class::P, 30_000, 600, false),
+    ix(0xB9, "CloseStructure", Class::P, 15_000, 500, false),
 ];
 
 /// The ABI v2 row of `tag`.
@@ -355,7 +355,7 @@ pub mod magic {
     pub const VAULT: &[u8; 8] = b"PSF1VALT";
     pub const CARAVAN: &[u8; 8] = b"PSF1CRVN";
     /// S1 (stage 1d).
-    pub const TOWER: &[u8; 8] = b"PSF1TOWR";
+    pub const STRUCTURE: &[u8; 8] = b"PSF1STRC";
 }
 
 /// Account sizes in bytes (§5.2).
@@ -386,7 +386,7 @@ pub mod size {
     pub const VAULT: usize = 512;
     pub const CARAVAN: usize = 320;
     /// S1 (stage 1d).
-    pub const TOWER: usize = 256;
+    pub const STRUCTURE: usize = 256;
 }
 
 /// Rent of an account of `space` bytes at mainnet rates (§4.2):
@@ -485,7 +485,7 @@ pub const ERRORS: [(u32, &str); 62] = [
 
 /// ABI v2 error codes (MC contract §5.3), stable forever; disjoint from
 /// [`ERRORS`].
-pub const ERRORS_V2: [(u32, &str); 28] = [
+pub const ERRORS_V2: [(u32, &str); 29] = [
     (62, "CapturePending"),
     (63, "Immune"),
     (64, "SiegeBusy"),
@@ -513,9 +513,10 @@ pub const ERRORS_V2: [(u32, &str); 28] = [
     (85, "RaidWindow"),
     (86, "NotOnTile"),
     // S1 (stage 1d)
-    (87, "TowerSite"),
-    (88, "TowerLimit"),
-    (89, "TowerFull"),
+    (87, "StructureSite"),
+    (88, "StructureLimit"),
+    (89, "StructureFull"),
+    (90, "FortManned"),
 ];
 
 /// The name of a program error code of either ABI (the code spaces are
@@ -727,9 +728,9 @@ pub mod kind {
     pub const CARAVAN_RAIDED: u8 = 93;
     pub const VAULT_SEIZED: u8 = 94;
     // S1 (stage 1d): kinds 95–97.
-    pub const TOWER_BUILT: u8 = 95;
-    pub const TOWER_SEIZED: u8 = 96;
-    pub const TOWER_CLOSED: u8 = 97;
+    pub const STRUCTURE_BUILT: u8 = 95;
+    pub const STRUCTURE_SEIZED: u8 = 96;
+    pub const STRUCTURE_CLOSED: u8 = 97;
 
     /// (kind, name) of every MC and S1 record kind.
     pub const ALL_V2: [(u8, &str); 17] = [
@@ -747,9 +748,9 @@ pub mod kind {
         (CARAVAN_SETTLED, "CARAVAN_SETTLED"),
         (CARAVAN_RAIDED, "CARAVAN_RAIDED"),
         (VAULT_SEIZED, "VAULT_SEIZED"),
-        (TOWER_BUILT, "TOWER_BUILT"),
-        (TOWER_SEIZED, "TOWER_SEIZED"),
-        (TOWER_CLOSED, "TOWER_CLOSED"),
+        (STRUCTURE_BUILT, "STRUCTURE_BUILT"),
+        (STRUCTURE_SEIZED, "STRUCTURE_SEIZED"),
+        (STRUCTURE_CLOSED, "STRUCTURE_CLOSED"),
     ];
 }
 
@@ -768,8 +769,8 @@ pub mod entity {
     /// S1 (stage 1b): Vault and Caravan.
     pub const VAULT: u8 = 9;
     pub const CARAVAN: u8 = 10;
-    /// S1 (stage 1d): Tower.
-    pub const TOWER: u8 = 11;
+    /// S1 (stages 1d, 1e): Structure.
+    pub const STRUCTURE: u8 = 11;
     /// The largest entity kind of a v2 tail.
     pub const MAX_V2: u8 = 11;
 }
@@ -1471,9 +1472,9 @@ mod twin_tests {
             tag::SEIZE_VAULT,
             tag::CLOSE_VAULT,
             tag::DEFAULT_RAID,
-            tag::BUILD_TOWER,
-            tag::SEIZE_TOWER,
-            tag::CLOSE_TOWER,
+            tag::BUILD_STRUCTURE,
+            tag::SEIZE_STRUCTURE,
+            tag::CLOSE_STRUCTURE,
         ] {
             let x = frontier_abi::v2::Ix::from_tag(t).expect("v2 tag");
             assert!(x.is_new() && ix_info(t).is_none() && ix_info_v2(t).is_some());
@@ -1530,7 +1531,7 @@ mod twin_tests {
                 magic::MARCH_STATE,
                 magic::VAULT,
                 magic::CARAVAN,
-                magic::TOWER,
+                magic::STRUCTURE,
             ])
             .collect();
         for k in K2::ALL {
@@ -1544,11 +1545,11 @@ mod twin_tests {
         assert_eq!(rent(size::MARCH_STATE), 1_950_720);
         assert_eq!(size::VAULT, K2::Vault.size());
         assert_eq!(size::CARAVAN, K2::Caravan.size());
-        assert_eq!(size::TOWER, K2::Tower.size());
+        assert_eq!(size::STRUCTURE, K2::Structure.size());
         for k in K2::ALL {
             if !matches!(
                 k,
-                K2::Province | K2::MarchState | K2::Vault | K2::Caravan | K2::Tower
+                K2::Province | K2::MarchState | K2::Vault | K2::Caravan | K2::Structure
             ) {
                 assert_eq!(Some(k.size()), k.to_v1().map(|v| v.size()), "{k:?}");
             }

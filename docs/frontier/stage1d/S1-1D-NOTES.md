@@ -5,6 +5,10 @@ Contract: [S1-1D-CONTRACT.md](S1-1D-CONTRACT.md). Design:
 `30-stage1-build-plan.ja.md` §1 item 8 and §2 row 1d, decision J4. Before
 this: [stage 1b/1c](../stage1b/S1-1B-NOTES.md).
 
+Stage 1e generalised the tower into a structure (towers, palisades,
+forts) and "hostile" into the stop rule; see
+[S1-1E-NOTES.md](../stage1e/S1-1E-NOTES.md).
+
 ## What a tower does
 
 Until zk hides marches, a tower cannot see a sealed march on the road. It

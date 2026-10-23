@@ -110,10 +110,10 @@ tags_v2! {
     SeizeVault = 0xB4, P, false;
     CloseVault = 0xB5, P, false;
     DefaultRaid = 0xB6, D, false;
-    // S1 (1d: watchtowers)
-    BuildTower = 0xB7, P, false;
-    SeizeTower = 0xB8, P, false;
-    CloseTower = 0xB9, P, false;
+    // S1 (1d, 1e: structures)
+    BuildStructure = 0xB7, P, false;
+    SeizeStructure = 0xB8, P, false;
+    CloseStructure = 0xB9, P, false;
 }
 
 impl Ix {
@@ -137,9 +137,9 @@ impl Ix {
         Ix::SeizeVault,
         Ix::CloseVault,
         Ix::DefaultRaid,
-        Ix::BuildTower,
-        Ix::SeizeTower,
-        Ix::CloseTower,
+        Ix::BuildStructure,
+        Ix::SeizeStructure,
+        Ix::CloseStructure,
     ];
 
     /// Whether the instruction is S1's.
@@ -223,9 +223,9 @@ pub const fn relay_player_shape(ix: Ix) -> bool {
                 | Ix::RaidCaravan
                 | Ix::SeizeVault
                 | Ix::CloseVault
-                | Ix::BuildTower
-                | Ix::SeizeTower
-                | Ix::CloseTower
+                | Ix::BuildStructure
+                | Ix::SeizeStructure
+                | Ix::CloseStructure
         ),
     }
 }

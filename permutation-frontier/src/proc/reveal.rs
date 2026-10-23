@@ -299,8 +299,9 @@ fn base_flags(a: &[Flags]) -> Result<(), FrontierError> {
 }
 
 /// One province a path step may enter: masks read from its account, and
-/// the hostile tower coverage for the marching faction (S1, 1d; zero
-/// where no tower stands).
+/// what the marching host meets there (S1 1d/1e: the tiles its stopping
+/// towers cover, `wear`, and its stopping palisades' tiles, `block`; zero
+/// where no structure stands).
 #[derive(Clone, Copy)]
 struct Land {
     p: i32,
@@ -308,12 +309,28 @@ struct Land {
     passable: u64,
     rough: u64,
     road: u64,
-    cover: u64,
+    wear: u64,
+    block: u64,
 }
 
-/// Reads a supplied Province: canonical from its stored key, present; the
-/// coverage is that of the towers standing now against `faction`.
-fn land_of(program: &Pubkey, ad: &Addrs, sid: u64, ai: &AccountInfo, faction: u8) -> R<Land> {
+/// What the march meets: the Season's stances, its faction and whether its
+/// owner is expelled from its nation.
+#[derive(Clone, Copy)]
+struct Walker {
+    stances: permutation_rules::frontier::structure::Stances,
+    faction: u8,
+    expelled: bool,
+}
+
+impl Walker {
+    fn watch(&self, pd: &[u8]) -> permutation_rules::frontier::structure::Watch {
+        super::structure::watch_of(pd, &self.stances, self.faction, self.expelled)
+    }
+}
+
+/// Reads a supplied Province: canonical from its stored key, present; what
+/// the walker meets is judged by the structures standing now.
+fn land_of(program: &Pubkey, ad: &Addrs, sid: u64, ai: &AccountInfo, who: &Walker) -> R<Land> {
     prologue::present(ai, program, AccountKind::Province, sid)?;
     let d = ai.try_borrow_data()?;
     let r = Ro(&d);
@@ -325,7 +342,16 @@ fn land_of(program: &Pubkey, ad: &Addrs, sid: u64, ai: &AccountInfo, faction: u8
         passable: r.u64(P::PASSABLE_MASK)?,
         rough: r.u64(P::ROUGH_MASK)?,
         road: r.u64(P::ROAD_MASK)?,
-        cover: super::tower::hostile_of(&d, faction)?,
+        wear: 0,
+        block: 0,
+    })
+    .map(|l| {
+        let w = who.watch(&d);
+        Land {
+            wear: w.wear,
+            block: w.block,
+            ..l
+        }
     })
 }
 
@@ -477,9 +503,11 @@ static STEP: [[u16; 6]; 61] = {
 
 /// The walk of §5.11 step 6 (module note): the travel seconds of the path
 /// before the doctrine's bias, and of those the seconds of the steps that
-/// enter a tile of hostile tower coverage (S1 1d, `tower::march_secs_in_range`
-/// exactly: host test `walk_counts_tower_seconds_as_the_kernel`). `lands[0]` is the destination, `lands[1..]`
-/// the supplied path provinces in first-entered order. The loop keeps the
+/// enter a tile a stopping tower covers; a step into a stopping palisade's
+/// tile is `Path` (S1 1d/1e, `structure::march_watch` exactly: host test
+/// `walk_counts_tower_seconds_as_the_kernel`). `lands[0]` is the
+/// destination, `lands[1..]` the supplied path provinces in first-entered
+/// order. The loop keeps the
 /// current province's masks in locals and re-reads them only when a step
 /// leaves the province (≈ 30 CU a step).
 #[inline(never)]
@@ -495,8 +523,9 @@ fn walk(plain: &Plain, origin: (i32, i32, u8), lands: &[Land], cavalry: bool) ->
     let mut entered = 0usize;
     let mut secs = 0u32;
     let mut watched = 0u32;
-    // The current province's (passable, rough, road, cover) masks; re-read
-    // after a step leaves a province.
+    // The current province's (passable, rough, road, wear) masks; re-read
+    // after a step leaves a province. A stopping palisade's tile is
+    // impassable to this walker.
     let (mut pm, mut rm, mut dm, mut cm) = (0u64, 0u64, 0u64, 0u64);
     let mut have = false;
     // The 96-bit path as two words: step i is bits 3i..3i+3.
@@ -542,10 +571,10 @@ fn walk(plain: &Plain, origin: (i32, i32, u8), lands: &[Land], cavalry: bool) ->
                     _ => return Err(path()),
                 }
             };
-            pm = l.passable;
+            pm = l.passable & !l.block;
             rm = l.rough;
             dm = l.road;
-            cm = l.cover;
+            cm = l.wear;
             have = true;
         }
         // tile < 61 (from the table)
@@ -720,6 +749,8 @@ pub fn reveal(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             citizen_tag: r.u64(H::OWNER_CITIZEN)?,
             shield_until: r.i64(H::SHIELD_UNTIL)?,
             dormant: r.u8(H::FLAGS)? & H::FLAG_DORMANT_CACHE != 0,
+            expelled: r.u8(H::FLAGS)? & frontier_abi::v2::layout::player::holding::FLAG_EXPELLED
+                != 0,
         }
     };
     if !T::in_transit(tr.state) {
@@ -813,14 +844,22 @@ pub fn reveal(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     expect_key(dest_ai, &ad.province(dp, dq))?;
     prologue::present(dest_ai, p, AccountKind::Province, sid)?;
     crate::heap::trace_checkpoint(0x5105);
-    // 6. path (and the destination's latch field)
+    // 6. path (and the destination's latch field); S1: what the march
+    // meets is judged by the structures standing now, under the Season's
+    // stances.
+    let who = Walker {
+        stances: super::structure::stances_of(&season_ai.try_borrow_data()?),
+        faction: tr.faction,
+        expelled: tr.expelled,
+    };
     let mut lands = [Land {
         p: 0,
         q: 0,
         passable: 0,
         rough: 0,
         road: 0,
-        cover: 0,
+        wear: 0,
+        block: 0,
     }; 4];
     let (resolved_next, dest_site) = {
         let pd = dest_ai.try_borrow_data()?;
@@ -834,8 +873,12 @@ pub fn reveal(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             passable: r.u64(P::PASSABLE_MASK)?,
             rough: r.u64(P::ROUGH_MASK)?,
             road: r.u64(P::ROAD_MASK)?,
-            cover: super::tower::hostile_of(&pd, tr.faction)?,
+            wear: 0,
+            block: 0,
         };
+        let w = who.watch(&pd);
+        lands[0].wear = w.wear;
+        lands[0].block = w.block;
         let site = match site_at(&r, plain.dest_tile)? {
             Some(k) => {
                 let o = P::site(k);
@@ -853,7 +896,7 @@ pub fn reveal(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         return Err(FrontierError::LatchClosed.into());
     }
     for (k, ai) in a[FIXED..FIXED + n_path].iter().enumerate() {
-        lands[1 + k] = land_of(p, &ad, sid, ai, tr.faction)?;
+        lands[1 + k] = land_of(p, &ad, sid, ai, &who)?;
     }
     crate::heap::trace_checkpoint(0x5106);
     let unit = frontier_abi::entry::unit_from_u8(tr.unit).ok_or(BAD_ACCOUNT)?;
@@ -1069,7 +1112,7 @@ pub fn reveal(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         // destination, so a late arrival's wait is never counted).
         w.set_u16(
             frontier_abi::v2::layout::s1::arrival::WORN_BPS,
-            permutation_rules::frontier::tower::wear_bps(watched),
+            permutation_rules::frontier::structure::wear_bps(watched),
         )?;
         w.set_arr(AS::BENEFICIARY, &x.beneficiary)?;
         w.set_u64(AS::EV_SLOT, ev.slot)?;
@@ -1177,6 +1220,8 @@ struct Transit {
     citizen_tag: u64,
     shield_until: i64,
     dormant: bool,
+    /// S1 1e: the owner is expelled from its nation (`FLAG_EXPELLED`).
+    expelled: bool,
 }
 
 #[cfg(test)]
@@ -1458,7 +1503,8 @@ mod tests {
             passable: (1u64 << PROVINCE_TILES) - 1,
             rough: 0,
             road: 0,
-            cover: 0,
+            wear: 0,
+            block: 0,
         }
     }
 
@@ -1580,12 +1626,13 @@ mod tests {
         }
     }
 
-    /// S1 1d: the walk's seconds in hostile coverage are the kernel's
-    /// `tower::march_secs_in_range` over random paths, terrain and towers,
+    /// S1 1d/1e: the walk's seconds in a stopping tower's coverage, and its
+    /// refusal at a stopping palisade, are the kernel's
+    /// `structure::march_watch` over random paths, terrain and structures,
     /// on foot and mounted.
     #[test]
     fn walk_counts_tower_seconds_as_the_kernel() {
-        use permutation_rules::frontier::tower::{march_secs_in_range, WatchedLand};
+        use permutation_rules::frontier::structure::{march_watch, Walked, Watch, WatchedLand};
         let mut x = 0x2545_F491u64;
         let mut next = || {
             x ^= x << 13;
@@ -1606,7 +1653,13 @@ mod tests {
             for l in lands.iter_mut() {
                 l.rough = next();
                 l.road = next() & next();
-                l.cover = next() & next();
+                l.wear = next() & next();
+                // a palisade now and then
+                l.block = if next() % 4 == 0 {
+                    1u64 << (next() % 61)
+                } else {
+                    0
+                };
             }
             let last = *steps.last().unwrap();
             let plain = plain_of(&dirs, (last.0, last.1), last.2);
@@ -1616,19 +1669,26 @@ mod tests {
                     at: ProvinceCoord::new(l.p, l.q),
                     rough: l.rough,
                     road: l.road,
-                    cover: l.cover,
+                    watch: Watch {
+                        wear: l.wear,
+                        block: l.block,
+                    },
                 })
                 .collect();
             for cav in [false, true] {
-                let (_, w) = walk(&plain, origin, &lands, cav).unwrap();
-                let k = march_secs_in_range(
+                let got = walk(&plain, origin, &lands, cav);
+                let k = march_watch(
                     (ProvinceCoord::new(origin.0, origin.1), origin.2),
                     &plain.path,
                     plain.path_len,
                     &watched,
                     cav,
                 );
-                assert_eq!(Some(w), k);
+                match k {
+                    Some(Walked::Secs(s)) => assert_eq!(got.unwrap().1, s),
+                    Some(Walked::Blocked) => assert!(got.is_err(), "blocked"),
+                    None => panic!("the kernel refuses a walk the test made"),
+                }
             }
             checked += 1;
         }

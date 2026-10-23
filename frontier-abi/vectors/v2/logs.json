@@ -46,7 +46,7 @@
     },
     {
       "code": 11,
-      "account": "Tower"
+      "account": "Structure"
     }
   ],
   "kinds": [
@@ -972,7 +972,7 @@
     },
     {
       "kind": 95,
-      "name": "TOWER_BUILT",
+      "name": "STRUCTURE_BUILT",
       "key": [
         {
           "name": "p",
@@ -1015,20 +1015,24 @@
         {
           "name": "cost_digest",
           "len": 32
+        },
+        {
+          "name": "kind",
+          "len": 1
         }
       ],
-      "body_without_tail_len": 67,
+      "body_without_tail_len": 68,
       "vector": {
         "bell": 2095,
-        "body_without_tail": "015f2f08000005000000ffffffff216b88a5c2dffc19366b6b6b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee",
-        "body": "015f2f08000005000000ffffffff216b88a5c2dffc19366b6b6b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee00",
+        "body_without_tail": "015f2f08000005000000ffffffff216b88a5c2dffc19366b6b6b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b",
+        "body": "015f2f08000005000000ffffffff216b88a5c2dffc19366b6b6b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b00",
         "decodes": true,
         "chains": []
       }
     },
     {
       "kind": 96,
-      "name": "TOWER_SEIZED",
+      "name": "STRUCTURE_SEIZED",
       "key": [
         {
           "name": "p",
@@ -1067,13 +1071,17 @@
         {
           "name": "host_id",
           "len": 8
+        },
+        {
+          "name": "kind",
+          "len": 1
         }
       ],
-      "body_without_tail_len": 42,
+      "body_without_tail_len": 43,
       "vector": {
         "bell": 2096,
-        "body_without_tail": "01603008000005000000ffffffff216b88a5c2dffc19366b88a5c2dffc19366b6b6b2a00000001230100",
-        "body": "01603008000005000000ffffffff216b88a5c2dffc19366b88a5c2dffc19366b6b6b2a0000000123010004040400000000000000c432e7927448780a10cf2d40f31622ad270272ceb8041bf56a16d92581a15da9040500000000000000c966747d57862c9f5992262e3aa8a4649237efa1a3170d653dd7a24c3311a28a060600000000000000231635ff294c6c99404967abd5d259fdc4392e2061a86fb59ee78532a33ba3be0b07000000000000009733e66a981e846869f527988a2f9eacfa0df919e144db3069018736f39fa656",
+        "body_without_tail": "01603008000005000000ffffffff216b88a5c2dffc19366b88a5c2dffc19366b6b6b2a000000012301006b",
+        "body": "01603008000005000000ffffffff216b88a5c2dffc19366b88a5c2dffc19366b6b6b2a000000012301006b04040400000000000000236503d9f477641bd37c526a7d25b031677694ec12078498b07e615e93d629460405000000000000003dbd4dc0d5684bf8d4aef01729edc303143fb3a4fcd4ae1e903a8959bc0df2ca060600000000000000d0d64c6ef4833d0fd2f10a7f6db6d6290fa9465c07bcc39e694474937a67f8ab0b0700000000000000551726e2dcb950495061d86f61074251c6cee89b3e808d114ae8760265e76817",
         "decodes": true,
         "chains": [
           {
@@ -1082,7 +1090,7 @@
             "prev_seq": 3,
             "prev_head": "c64bbd035cbea56771d6fc55bf28fc455dce021a9cfa0635ecc83a0d925bd7ba",
             "seq": 4,
-            "head": "c432e7927448780a10cf2d40f31622ad270272ceb8041bf56a16d92581a15da9"
+            "head": "236503d9f477641bd37c526a7d25b031677694ec12078498b07e615e93d62946"
           },
           {
             "entity": 4,
@@ -1090,7 +1098,7 @@
             "prev_seq": 4,
             "prev_head": "b0b68f4c9109503c7c2c34646b2f68950622c123919e0734ebeec6ac00b7d44d",
             "seq": 5,
-            "head": "c966747d57862c9f5992262e3aa8a4649237efa1a3170d653dd7a24c3311a28a"
+            "head": "3dbd4dc0d5684bf8d4aef01729edc303143fb3a4fcd4ae1e903a8959bc0df2ca"
           },
           {
             "entity": 6,
@@ -1098,22 +1106,22 @@
             "prev_seq": 5,
             "prev_head": "0c758e38544315d5ae64ba2127d8e1201e19d5a3434182a8d91b377e0c3622fb",
             "seq": 6,
-            "head": "231635ff294c6c99404967abd5d259fdc4392e2061a86fb59ee78532a33ba3be"
+            "head": "d0d64c6ef4833d0fd2f10a7f6db6d6290fa9465c07bcc39e694474937a67f8ab"
           },
           {
             "entity": 11,
-            "who": "Tower { p: 5, q: -1, tile: 33 }",
+            "who": "Structure { p: 5, q: -1, tile: 33 }",
             "prev_seq": 6,
             "prev_head": "51000a6b25b3bf1c11e07a1cd1612850ace56061037dfaa765e9f0c4a224aca9",
             "seq": 7,
-            "head": "9733e66a981e846869f527988a2f9eacfa0df919e144db3069018736f39fa656"
+            "head": "551726e2dcb950495061d86f61074251c6cee89b3e808d114ae8760265e76817"
           }
         ]
       }
     },
     {
       "kind": 97,
-      "name": "TOWER_CLOSED",
+      "name": "STRUCTURE_CLOSED",
       "key": [
         {
           "name": "p",
@@ -1136,13 +1144,17 @@
         {
           "name": "entry",
           "len": 1
+        },
+        {
+          "name": "kind",
+          "len": 1
         }
       ],
-      "body_without_tail_len": 24,
+      "body_without_tail_len": 25,
       "vector": {
         "bell": 2097,
-        "body_without_tail": "01613108000005000000ffffffff216b88a5c2dffc19366b",
-        "body": "01613108000005000000ffffffff216b88a5c2dffc19366b010604000000000000003138fd0952f14602c2f85baa6463ef27af7688a4b5da7a3f81cf81699c1006a9",
+        "body_without_tail": "01613108000005000000ffffffff216b88a5c2dffc19366b6b",
+        "body": "01613108000005000000ffffffff216b88a5c2dffc19366b6b01060400000000000000b3f684940650fdc5e066853bf72678452d984d50d9f826596218f3ebba0038fd",
         "decodes": true,
         "chains": [
           {
@@ -1151,7 +1163,7 @@
             "prev_seq": 3,
             "prev_head": "a7e4f8d9479aacecb8293a1aeb0a7735abcaf2f5ade0b54c63399eb638c1ad67",
             "seq": 4,
-            "head": "3138fd0952f14602c2f85baa6463ef27af7688a4b5da7a3f81cf81699c1006a9"
+            "head": "b3f684940650fdc5e066853bf72678452d984d50d9f826596218f3ebba0038fd"
           }
         ]
       }

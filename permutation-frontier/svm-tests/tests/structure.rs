@@ -1,5 +1,5 @@
 //! S1 stage 1d: watchtowers (`docs/frontier/stage1d/S1-1D-CONTRACT.md`)
-//! on the test-beacon build: BuildTower, SeizeTower and CloseTower (their
+//! on the test-beacon build: BuildStructure, SeizeStructure and CloseStructure (their
 //! effects and refusals), and the wear a tower's coverage puts on what
 //! walks through it — a march at Reveal (`WORN_BPS`) landing at
 //! GatherClash (the record and the transit, once; J4: a late arrival is
@@ -8,7 +8,7 @@
 //! Crafted state: the S1 casts are `world::conquest` estates (as the
 //! caravan tests'); the march tests use `world::transit`'s trips, with a
 //! tower entry written into a Province's list where a test needs one
-//! standing (BuildTower itself is tested through the program).
+//! standing (BuildStructure itself is tested through the program).
 
 mod common;
 
@@ -17,8 +17,8 @@ use fclient::ix::Player;
 use frontier_abi::layout::clash::{arrival as AR, arrival_slot as AS, clash_inputs as CI};
 use frontier_abi::layout::player::{holding as H, transit as T};
 use frontier_abi::v2::layout::player::citizen as C;
-use frontier_abi::v2::layout::province::{province as P, tower_entry as TE};
-use frontier_abi::v2::layout::s1::{arrival as S1A, caravan as CV, tower as TW};
+use frontier_abi::v2::layout::province::{province as P, structure_entry as TE};
+use frontier_abi::v2::layout::s1::{arrival as S1A, caravan as CV, structure as TW};
 use frontier_abi::v2::log::{AnyKind, CqKind};
 use frontier_abi::v2::presets::MC_LOCAL_7D;
 use frontier_abi::v2::{CqError as Cq, Ix as I2};
@@ -38,11 +38,14 @@ use permutation_frontier_svm_tests::{Address, FrontierError as E, Instruction, K
 use permutation_rules::frontier::caravan::{self as kc, Land, CARAVAN_FEE};
 use permutation_rules::frontier::doctrine::of_faction_v3;
 use permutation_rules::frontier::geometry::ProvinceCoord;
-use permutation_rules::frontier::tower::{
-    self as kt, hostile, march_secs_in_range, wear, wear_bps, TowerEntry, WatchedLand, MAX_TOWERS,
+use permutation_rules::frontier::structure::{
+    self as kt, march_watch, wear, wear_bps, Stances, StructureEntry, Walked, WatchedLand,
+    KIND_FORT, KIND_PALISADE, KIND_TOWER,
 };
 
 const B0: u32 = 20;
+/// A fresh season's stances: every nation at war with every other.
+const WAR: Stances = [kt::STANCE_WAR; 36];
 const MILLI: i64 = 1_000;
 
 // ------------------------------------------------------------ worlds
@@ -89,15 +92,23 @@ impl Cast {
         Cast { c, w, a, r, tt }
     }
 
-    fn build(&mut self, who: char, tile: u8, notify: u8) -> SendResult {
+    fn build(&mut self, who: char, kind: u8, tile: u8, notify: u8) -> SendResult {
         let e = if who == 'a' { &self.a } else { &self.r };
-        let ix = fx::build_tower(&self.w.a, &e.player(), e.href(), (e.p, e.q), tile, notify);
+        let ix = fx::build_structure(
+            &self.w.a,
+            &e.player(),
+            e.href(),
+            (e.p, e.q),
+            kind,
+            tile,
+            notify,
+        );
         let k = e.wallet.insecure_clone();
-        s1_send(&mut self.c, I2::BuildTower, ix, &[&k])
+        s1_send(&mut self.c, I2::BuildStructure, ix, &[&k])
     }
 
-    fn tower(&self, tile: u8) -> Address {
-        self.w.a.tower(self.a.p as i32, self.a.q as i32, tile)
+    fn structure(&self, tile: u8) -> Address {
+        self.w.a.structure(self.a.p as i32, self.a.q as i32, tile)
     }
 }
 
@@ -142,16 +153,21 @@ fn local_dirs(c: &Chain, e: &Estate, from: u8, to: u8) -> Option<Vec<u8>> {
     None
 }
 
-fn entry(c: &Chain, province: &Address, i: usize) -> TowerEntry {
-    TowerEntry::decode(&c.data(province)[TE::at(i)..TE::at(i) + TE::SIZE]).unwrap()
+fn entry(c: &Chain, province: &Address, i: usize) -> StructureEntry {
+    StructureEntry::decode(&c.data(province)[TE::at(i)..TE::at(i) + TE::SIZE]).unwrap()
 }
 
 /// Writes a live tower entry into a Province's list (a tower standing,
 /// for the wear tests).
 fn put_tower(c: &mut Chain, province: &Address, i: usize, tile: u8, faction: u8) {
+    put_structure(c, province, i, KIND_TOWER, tile, faction);
+}
+
+/// Writes a live structure entry of `kind` into a Province's list.
+fn put_structure(c: &mut Chain, province: &Address, i: usize, kind: u8, tile: u8, faction: u8) {
     c.edit(province, |d| {
-        TowerEntry {
-            live: true,
+        StructureEntry {
+            kind,
             tile,
             faction,
             gen: 1,
@@ -183,7 +199,7 @@ fn session_of(c: &mut Chain, e: &Estate, label: &[u8]) -> Keypair {
     session
 }
 
-// ------------------------------------------------------------ BuildTower
+// ------------------------------------------------------------ BuildStructure
 
 #[test]
 fn g13_s1_build_tower_lands_pays_and_lists() {
@@ -192,8 +208,11 @@ fn g13_s1_build_tower_lands_pays_and_lists() {
         .map(|r| read_kholding(&k.c.data(&k.a.holding)).stores[r].value)
         .collect();
     let tt = k.tt;
-    let l = expect_lands(k.build('a', tt, TW::NOTIFY_FACTION), "BuildTower");
-    let d = k.c.data(&k.tower(tt));
+    let l = expect_lands(
+        k.build('a', KIND_TOWER, tt, TW::NOTIFY_FACTION),
+        "BuildStructure",
+    );
+    let d = k.c.data(&k.structure(tt));
     assert_eq!(d[TW::STATE], TW::STATE_LIVE);
     assert_eq!((d[TW::GEN], d[TW::FACTION], d[TW::ENTRY]), (1, 0, 0));
     assert_eq!(d[TW::NOTIFY], TW::NOTIFY_FACTION);
@@ -205,15 +224,15 @@ fn g13_s1_build_tower_lands_pays_and_lists() {
     );
     assert_eq!(
         entry(&k.c, &k.a.province, 0),
-        TowerEntry {
-            live: true,
+        StructureEntry {
+            kind: KIND_TOWER,
             tile: tt,
             faction: 0,
             gen: 1
         }
     );
     assert_eq!(k.c.data(&k.a.citizen)[C::TOWERS], 1);
-    let cost = kt::tower_cost();
+    let cost = kt::cost(KIND_TOWER);
     for (r, b) in before.iter().enumerate() {
         let now = read_kholding(&k.c.data(&k.a.holding)).stores[r].value;
         assert!(
@@ -221,8 +240,8 @@ fn g13_s1_build_tower_lands_pays_and_lists() {
             "store {r}"
         );
     }
-    match event(&l, CqKind::TOWER_BUILT) {
-        fclient::conquest::CqEvent::TowerBuilt {
+    match event(&l, CqKind::STRUCTURE_BUILT) {
+        fclient::conquest::CqEvent::StructureBuilt {
             tile,
             owner_tag,
             gen,
@@ -237,7 +256,7 @@ fn g13_s1_build_tower_lands_pays_and_lists() {
     }
     // A second tower takes the next entry.
     let t2 = far_tile(&k.c, &k.a, 2);
-    expect_lands(k.build('a', t2, 0), "BuildTower");
+    expect_lands(k.build('a', KIND_TOWER, t2, 0), "BuildStructure");
     assert_eq!(entry(&k.c, &k.a.province, 1).tile, t2);
 }
 
@@ -247,26 +266,26 @@ fn g13_s1_build_tower_refusals() {
     let tt = k.tt;
     // A site, an impassable tile.
     let site = k.a.tile;
-    assert_cq(k.build('a', site, 0), Cq::TowerSite);
+    assert_cq(k.build('a', KIND_TOWER, site, 0), Cq::StructureSite);
     let pq = (k.a.p, k.a.q);
     k.c.edit(&k.a.province, |d| {
         let m = u64_at(d, P::PASSABLE_MASK) & !(1u64 << tt);
         d[P::PASSABLE_MASK..P::PASSABLE_MASK + 8].copy_from_slice(&m.to_le_bytes());
     });
-    assert_cq(k.build('a', tt, 0), Cq::TowerSite);
+    assert_cq(k.build('a', KIND_TOWER, tt, 0), Cq::StructureSite);
     k.w.open_tiles(&mut k.c, pq.0, pq.1, &[tt]);
     // A bad notify setting.
-    assert_code(k.build('a', tt, 2), E::BadData);
+    assert_code(k.build('a', KIND_TOWER, tt, 2), E::BadData);
     // The citizen's limit.
-    k.c.edit(&k.a.citizen, |d| d[C::TOWERS] = MAX_TOWERS);
-    assert_cq(k.build('a', tt, 0), Cq::TowerLimit);
+    k.c.edit(&k.a.citizen, |d| d[C::TOWERS] = kt::max_of(KIND_TOWER));
+    assert_cq(k.build('a', KIND_TOWER, tt, 0), Cq::StructureLimit);
     k.c.edit(&k.a.citizen, |d| d[C::TOWERS] = 0);
     // A full list.
     let province = k.a.province;
     for i in 0..TE::N {
         put_tower(&mut k.c, &province, i, 60 - i as u8, 3);
     }
-    assert_cq(k.build('a', tt, 0), Cq::TowerFull);
+    assert_cq(k.build('a', KIND_TOWER, tt, 0), Cq::StructureFull);
     k.c.edit(&province, |d| d[TE::BLOCK].fill(0));
     // Not enough goods.
     k.w.edit_kholding(&mut k.c, &k.a, |h| {
@@ -274,22 +293,83 @@ fn g13_s1_build_tower_refusals() {
             s.value = 0;
         }
     });
-    assert_code(k.build('a', tt, 0), E::Insufficient);
+    assert_code(k.build('a', KIND_TOWER, tt, 0), E::Insufficient);
     k.w.enrich(&mut k.c, &k.a, 5_000);
-    expect_lands(k.build('a', tt, 0), "BuildTower");
+    expect_lands(k.build('a', KIND_TOWER, tt, 0), "BuildStructure");
     // One tower a tile.
-    assert_cq(k.build('r', tt, 0), Cq::TowerSite);
+    assert_cq(k.build('r', KIND_TOWER, tt, 0), Cq::StructureSite);
 }
 
-// ------------------------------------------------------------ SeizeTower
+/// Stage 1e: a palisade and a fort are built as a tower is, each against
+/// its own counter and limit; a fort also takes a record in the Province's
+/// fort block (no troops, nothing pending).
+#[test]
+fn g13_s1_build_palisades_and_forts() {
+    use frontier_abi::v2::layout::province::fort_record as FR;
+    let mut k = Cast::new();
+    let tt = k.tt;
+    let t2 = far_tile(&k.c, &k.a, 2);
+    let t3 = far_tile(&k.c, &k.a, 3);
+    // A kind outside the table.
+    assert_code(k.build('a', 0, tt, 0), E::BadData);
+    assert_code(k.build('a', 4, tt, 0), E::BadData);
+    let l = expect_lands(
+        k.build('a', KIND_PALISADE, tt, 0),
+        "BuildStructure palisade",
+    );
+    assert_eq!(k.c.data(&k.structure(tt))[TW::KIND], KIND_PALISADE);
+    assert_eq!(entry(&k.c, &k.a.province, 0).kind, KIND_PALISADE);
+    let cd = k.c.data(&k.a.citizen);
+    assert_eq!((cd[C::TOWERS], cd[C::PALISADES], cd[C::FORTS]), (0, 1, 0));
+    match event(&l, CqKind::STRUCTURE_BUILT) {
+        fclient::conquest::CqEvent::StructureBuilt { kind, .. } => {
+            assert_eq!(kind, KIND_PALISADE)
+        }
+        e => panic!("{e:?}"),
+    }
+    expect_lands(k.build('a', KIND_FORT, t2, 0), "BuildStructure fort");
+    let pd = k.c.data(&k.a.province);
+    assert_eq!(entry(&k.c, &k.a.province, 1).kind, KIND_FORT);
+    let o = FR::at(0);
+    assert_eq!(
+        (
+            pd[o + FR::TILE],
+            pd[o + FR::FACTION],
+            pd[o + FR::GEN],
+            pd[o + FR::STATE]
+        ),
+        (t2, 0, 1, FR::STATE_LIVE)
+    );
+    assert_eq!(u32_at(&pd, o + FR::TROOPS), 0);
+    assert_eq!(u32_at(&pd, o + FR::PEND_BELL), u32::MAX);
+    assert_eq!(k.c.data(&k.a.citizen)[C::FORTS], 1);
+    // One fort a citizen.
+    assert_cq(k.build('a', KIND_FORT, t3, 0), Cq::StructureLimit);
+    // Two forts a Province: R's second one finds the fort block full.
+    let t4 = far_tile(&k.c, &k.a, 1);
+    expect_lands(k.build('r', KIND_FORT, t3, 0), "BuildStructure R's fort");
+    k.c.edit(&k.r.citizen, |d| d[C::FORTS] = 0);
+    assert_cq(k.build('r', KIND_FORT, t4, 0), Cq::StructureFull);
+    // The palisade limit.
+    k.c.edit(&k.a.citizen, |d| {
+        d[C::PALISADES] = kt::max_of(KIND_PALISADE)
+    });
+    assert_cq(k.build('a', KIND_PALISADE, t4, 0), Cq::StructureLimit);
+    // Each kind pays its own cost.
+    for kind in [KIND_TOWER, KIND_PALISADE, KIND_FORT] {
+        assert_ne!(kt::cost(kind), [0; 8], "kind {kind}");
+    }
+}
+
+// ------------------------------------------------------------ SeizeStructure
 
 #[test]
 fn g13_s1_seize_tower_by_standing_on_it() {
     let mut k = Cast::new();
     let tt = k.tt;
-    expect_lands(k.build('a', tt, 0), "BuildTower");
+    expect_lands(k.build('a', KIND_TOWER, tt, 0), "BuildStructure");
     let seize = |k: &mut Cast, entry: u8| {
-        let ix = fx::seize_tower(
+        let ix = fx::seize_structure(
             &k.w.a,
             &k.r.player(),
             (k.a.p, k.a.q, tt),
@@ -298,7 +378,7 @@ fn g13_s1_seize_tower_by_standing_on_it() {
             entry,
         );
         let w = k.r.wallet.insecure_clone();
-        s1_send(&mut k.c, I2::SeizeTower, ix, &[&w])
+        s1_send(&mut k.c, I2::SeizeStructure, ix, &[&w])
     };
     assert_cq(seize(&mut k, 0), Cq::NotOnTile);
     let province = k.a.province;
@@ -310,11 +390,11 @@ fn g13_s1_seize_tower_by_standing_on_it() {
         d[o..o + frontier_abi::layout::province::entry::SIZE].fill(0);
         d[P::N_ENTRIES] -= 1;
     });
-    k.c.edit(&k.r.citizen, |d| d[C::TOWERS] = MAX_TOWERS);
-    assert_cq(seize(&mut k, 0), Cq::TowerLimit);
+    k.c.edit(&k.r.citizen, |d| d[C::TOWERS] = kt::max_of(KIND_TOWER));
+    assert_cq(seize(&mut k, 0), Cq::StructureLimit);
     k.c.edit(&k.r.citizen, |d| d[C::TOWERS] = 0);
-    let l = expect_lands(seize(&mut k, 0), "SeizeTower");
-    let d = k.c.data(&k.tower(tt));
+    let l = expect_lands(seize(&mut k, 0), "SeizeStructure");
+    let d = k.c.data(&k.structure(tt));
     assert_eq!(
         &d[TW::OWNER_CITIZEN..TW::OWNER_CITIZEN + 32],
         k.r.citizen.as_ref()
@@ -322,8 +402,8 @@ fn g13_s1_seize_tower_by_standing_on_it() {
     assert_eq!((d[TW::GEN], d[TW::FACTION]), (2, 1));
     assert_eq!(
         entry(&k.c, &province, 0),
-        TowerEntry {
-            live: true,
+        StructureEntry {
+            kind: KIND_TOWER,
             tile: tt,
             faction: 1,
             gen: 2
@@ -332,8 +412,8 @@ fn g13_s1_seize_tower_by_standing_on_it() {
     );
     assert_eq!(k.c.data(&k.a.citizen)[C::TOWERS], 0);
     assert_eq!(k.c.data(&k.r.citizen)[C::TOWERS], 1);
-    match event(&l, CqKind::TOWER_SEIZED) {
-        fclient::conquest::CqEvent::TowerSeized {
+    match event(&l, CqKind::STRUCTURE_SEIZED) {
+        fclient::conquest::CqEvent::StructureSeized {
             captor_tag,
             prev_tag,
             new_gen,
@@ -348,17 +428,80 @@ fn g13_s1_seize_tower_by_standing_on_it() {
     }
 }
 
-// ------------------------------------------------------------ CloseTower
+/// Stage 1e: a fort is seized only once it has fallen (no troops, none
+/// pending: `FortManned`); its record then follows the account's faction
+/// and generation.
+#[test]
+fn g13_s1_seize_a_fort_once_it_has_fallen() {
+    use frontier_abi::v2::layout::province::fort_record as FR;
+    let mut k = Cast::new();
+    let tt = k.tt;
+    expect_lands(k.build('a', KIND_FORT, tt, 0), "BuildStructure fort");
+    let province = k.a.province;
+    k.w.craft_host(&mut k.c, &k.r, &province, 0, 0, 0, 500, tt);
+    let seize = |k: &mut Cast| {
+        let ix = fx::seize_structure(
+            &k.w.a,
+            &k.r.player(),
+            (k.a.p, k.a.q, tt),
+            k.r.href(),
+            k.a.citizen,
+            0,
+        );
+        let w = k.r.wallet.insecure_clone();
+        s1_send(&mut k.c, I2::SeizeStructure, ix, &[&w])
+    };
+    let o = FR::at(0);
+    // Manned: troops standing, or troops on the way.
+    k.c.edit(&province, |d| {
+        d[o + FR::TROOPS..o + FR::TROOPS + 4].copy_from_slice(&1u32.to_le_bytes())
+    });
+    assert_cq(seize(&mut k), Cq::FortManned);
+    k.c.edit(&province, |d| {
+        d[o + FR::TROOPS..o + FR::TROOPS + 4].fill(0);
+        d[o + FR::PEND..o + FR::PEND + 2].copy_from_slice(&3u16.to_le_bytes());
+    });
+    assert_cq(seize(&mut k), Cq::FortManned);
+    k.c.edit(&province, |d| d[o + FR::PEND..o + FR::PEND + 2].fill(0));
+    expect_lands(seize(&mut k), "SeizeStructure fort");
+    let pd = k.c.data(&province);
+    assert_eq!(
+        (
+            pd[o + FR::TILE],
+            pd[o + FR::FACTION],
+            pd[o + FR::GEN],
+            pd[o + FR::STATE]
+        ),
+        (tt, 1, 2, FR::STATE_LIVE)
+    );
+    assert_eq!(k.c.data(&k.a.citizen)[C::FORTS], 0);
+    assert_eq!(k.c.data(&k.r.citizen)[C::FORTS], 1);
+    assert_eq!(entry(&k.c, &province, 0).faction, 1);
+    // Closing it clears the record.
+    let rent_to = k.c.data(&k.structure(tt));
+    let rent_to =
+        Address::new_from_array(rent_to[TW::RENT_TO..TW::RENT_TO + 32].try_into().unwrap());
+    let ix = fx::close_structure(&k.w.a, &k.r.player(), (k.a.p, k.a.q, tt), rent_to);
+    let rw = k.r.wallet.insecure_clone();
+    expect_lands(
+        s1_send(&mut k.c, I2::CloseStructure, ix, &[&rw]),
+        "CloseStructure fort",
+    );
+    assert_eq!(k.c.data(&province)[o + FR::STATE], FR::STATE_NONE);
+    assert_eq!(k.c.data(&k.r.citizen)[C::FORTS], 0);
+}
+
+// ------------------------------------------------------------ CloseStructure
 
 #[test]
 fn g13_s1_close_tower() {
     let mut k = Cast::new();
     let tt = k.tt;
-    expect_lands(k.build('a', tt, 0), "BuildTower");
+    expect_lands(k.build('a', KIND_TOWER, tt, 0), "BuildStructure");
     let rent_to = k.a.wallet.pubkey();
     let close = |k: &mut Cast, p: Player, s: &Keypair| {
-        let ix = fx::close_tower(&k.w.a, &p, (k.a.p, k.a.q, tt), rent_to);
-        s1_send(&mut k.c, I2::CloseTower, ix, &[s])
+        let ix = fx::close_structure(&k.w.a, &p, (k.a.p, k.a.q, tt), rent_to);
+        s1_send(&mut k.c, I2::CloseStructure, ix, &[s])
     };
     let session = session_of(&mut k.c, &k.a, b"s1-tower-session");
     let sp = Player {
@@ -367,26 +510,32 @@ fn g13_s1_close_tower() {
         wallet: k.a.wallet.pubkey(),
     };
     assert_cq(close(&mut k, sp, &session), Cq::WalletRequired);
-    let ix = fx::close_tower(&k.w.a, &k.r.player(), (k.a.p, k.a.q, tt), rent_to);
+    let ix = fx::close_structure(&k.w.a, &k.r.player(), (k.a.p, k.a.q, tt), rent_to);
     let rw = k.r.wallet.insecure_clone();
-    assert_code(s1_send(&mut k.c, I2::CloseTower, ix, &[&rw]), E::NotOwner);
+    assert_code(
+        s1_send(&mut k.c, I2::CloseStructure, ix, &[&rw]),
+        E::NotOwner,
+    );
     let before = k.c.lamports(&rent_to);
-    let rent = k.c.lamports(&k.tower(tt));
+    let rent = k.c.lamports(&k.structure(tt));
     let w = k.a.wallet.insecure_clone();
     let owner = k.a.player();
-    let l = expect_lands(close(&mut k, owner, &w), "CloseTower");
-    assert!(k.c.is_absent(&k.tower(tt)));
+    let l = expect_lands(close(&mut k, owner, &w), "CloseStructure");
+    assert!(k.c.is_absent(&k.structure(tt)));
     assert_eq!(k.c.lamports(&rent_to) + l.fee, before + rent);
     assert_eq!(k.c.data(&k.a.citizen)[C::TOWERS], 0);
-    assert!(!entry(&k.c, &k.a.province, 0).live, "the entry is cleared");
-    match event(&l, CqKind::TOWER_CLOSED) {
-        fclient::conquest::CqEvent::TowerClosed { tile, entry, .. } => {
+    assert!(
+        !entry(&k.c, &k.a.province, 0).live(),
+        "the entry is cleared"
+    );
+    match event(&l, CqKind::STRUCTURE_CLOSED) {
+        fclient::conquest::CqEvent::StructureClosed { tile, entry, .. } => {
             assert_eq!((tile, entry), (tt, 0))
         }
         e => panic!("{e:?}"),
     }
     // The tile is free again.
-    expect_lands(k.build('a', tt, 0), "BuildTower again");
+    expect_lands(k.build('a', KIND_TOWER, tt, 0), "BuildStructure again");
 }
 
 // ------------------------------------------------------------ marches
@@ -411,11 +560,11 @@ fn expected_wear(c: &Chain, w: &World, t: &Trip) -> u16 {
                 at: ProvinceCoord::new(p, q),
                 rough: u64_at(&d, P::ROUGH_MASK),
                 road: u64_at(&d, P::ROAD_MASK),
-                cover: hostile(&d[TE::BLOCK], t.faction()),
+                watch: kt::watch(&d[TE::BLOCK], &WAR, t.faction(), false),
             }
         })
         .collect();
-    let s = march_secs_in_range(
+    let s = march_watch(
         (ProvinceCoord::new(t.e.p as i32, t.e.q as i32), t.e.tile),
         &t.m.plain.path,
         t.m.plain.path_len,
@@ -423,7 +572,10 @@ fn expected_wear(c: &Chain, w: &World, t: &Trip) -> u16 {
         false,
     )
     .expect("the walk's provinces");
-    wear_bps(s)
+    match s {
+        Walked::Secs(s) => wear_bps(s),
+        Walked::Blocked => panic!("blocked"),
+    }
 }
 
 fn slot_worn(c: &Chain, w: &World, t: &Trip, i: u8) -> u16 {
@@ -534,7 +686,7 @@ fn g13_s1_a_caravan_is_worn_by_a_tower_on_its_route() {
     let ix = fx::build_vault(&k.w.a, &k.a.player(), k.a.href(), (k.a.p, k.a.q), tt);
     let aw = k.a.wallet.insecure_clone();
     expect_lands(s1_send(&mut k.c, I2::BuildVault, ix, &[&aw]), "BuildVault");
-    expect_lands(k.build('r', tt, 0), "BuildTower");
+    expect_lands(k.build('r', KIND_TOWER, tt, 0), "BuildStructure");
     let dirs = local_dirs(&k.c, &k.a, k.a.tile, tt).unwrap();
     let path = kc::pack(&dirs).unwrap();
     let cargo = [0, 100, 0, 0, 0, 50, 0, 0];
@@ -572,8 +724,11 @@ fn g13_s1_a_caravan_is_worn_by_a_tower_on_its_route() {
         of_faction_v3(0).unwrap().caravan_time_bps,
     )
     .unwrap();
-    let cover = hostile(&pd[TE::BLOCK], 0);
-    let want = wear_bps(kt::caravan_secs_in_range(&walked, |_| cover));
+    let watch = kt::watch(&pd[TE::BLOCK], &WAR, 0, false);
+    let Walked::Secs(secs) = kt::caravan_watch(&walked, |_| watch) else {
+        panic!("blocked")
+    };
+    let want = wear_bps(secs);
     assert!(want > 0);
     let ix = fx::send_caravan(&k.w.a, &k.a.player(), &x);
     let l = expect_lands(
@@ -601,4 +756,149 @@ fn g13_s1_a_caravan_is_worn_by_a_tower_on_its_route() {
         }
         e => panic!("{e:?}"),
     }
+}
+
+// ------------------------------------------------------------ the stop rule (1e)
+
+/// Writes the Season's stance of `nation` toward `faction`.
+fn set_stance(c: &mut Chain, w: &World, nation: u8, faction: u8, stance: u8) {
+    use frontier_abi::v2::layout::world::season as S2;
+    c.edit(&w.a.season, |d| {
+        d[S2::STANCES + nation as usize * 6 + faction as usize] = stance
+    });
+}
+
+/// Stage 1e: a palisade on the march's way stops a walker it stops (a
+/// faction its nation is at war with: `Path` at Reveal); its own nation's
+/// march passes, as does one its nation lets pass (PASS, and ALLY alike);
+/// an expelled owner's march is stopped by its own nation's works, and a
+/// tower of a nation at PASS wears nothing.
+#[test]
+fn g13_s1_a_palisade_stops_whom_its_nation_stops() {
+    let (mut c, w) = march_world();
+    let t = w.trip(
+        &mut c,
+        "pal",
+        0,
+        (2, 0),
+        0,
+        TROOPS,
+        &EAST8,
+        6,
+        SealCase::Valid,
+    );
+    let dest = w.a.province(t.dest().0, t.dest().1);
+    // Its own nation's palisade: passes.
+    put_structure(&mut c, &dest, 0, KIND_PALISADE, t.m.dest_tile, 0);
+    expect_lands(
+        w.trip_reveal(&mut c.fork(), &t, 0),
+        "Reveal past an own palisade",
+    );
+    // Expelled: its own nation's works stop it.
+    {
+        let mut f = c.fork();
+        f.edit(&t.e.holding, |d| {
+            d[H::FLAGS] |= frontier_abi::v2::layout::player::holding::FLAG_EXPELLED
+        });
+        assert_code(w.trip_reveal(&mut f, &t, 0), E::Path);
+    }
+    // A hostile one (nation 3, at war with all): Path.
+    put_structure(&mut c, &dest, 0, KIND_PALISADE, t.m.dest_tile, 3);
+    assert_code(w.trip_reveal(&mut c.fork(), &t, 0), E::Path);
+    // Nation 3 lets faction 0 pass (or allies with it): lands.
+    for stance in [kt::STANCE_PASS, kt::STANCE_ALLY] {
+        let mut f = c.fork();
+        set_stance(&mut f, &w, 3, 0, stance);
+        expect_lands(
+            w.trip_reveal(&mut f, &t, 0),
+            "Reveal past a passing palisade",
+        );
+        assert_eq!(slot_worn(&f, &w, &t, 0), 0);
+    }
+    // The stance is one-sided: faction 0 letting nation 3 pass changes
+    // nothing for faction 0's march.
+    let mut f = c.fork();
+    set_stance(&mut f, &w, 0, 3, kt::STANCE_PASS);
+    assert_code(w.trip_reveal(&mut f, &t, 0), E::Path);
+    // A tower of a nation at PASS wears nothing; at WAR it wears.
+    put_structure(&mut c, &dest, 0, KIND_TOWER, t.m.dest_tile, 3);
+    let mut f = c.fork();
+    set_stance(&mut f, &w, 3, 0, kt::STANCE_PASS);
+    expect_lands(w.trip_reveal(&mut f, &t, 0), "Reveal past a passing tower");
+    assert_eq!(slot_worn(&f, &w, &t, 0), 0);
+    expect_lands(w.trip_reveal(&mut c, &t, 0), "Reveal past a hostile tower");
+    assert!(slot_worn(&c, &w, &t, 0) > 0);
+}
+
+/// Stage 1e: a fort neither wears nor stops a march at Reveal (it fights
+/// at the clash, 1e-5).
+#[test]
+fn g13_s1_a_fort_does_not_stop_a_march() {
+    let (mut c, w) = march_world();
+    let t = w.trip(
+        &mut c,
+        "fort",
+        0,
+        (2, 0),
+        0,
+        TROOPS,
+        &EAST8,
+        6,
+        SealCase::Valid,
+    );
+    let dest = w.a.province(t.dest().0, t.dest().1);
+    put_structure(&mut c, &dest, 0, KIND_FORT, t.m.dest_tile, 3);
+    expect_lands(w.trip_reveal(&mut c, &t, 0), "Reveal past a fort");
+    assert_eq!(slot_worn(&c, &w, &t, 0), 0);
+}
+
+/// Stage 1e: a caravan's route through a palisade that stops it is
+/// refused (`Path`); its own nation's palisade lets it through.
+#[test]
+fn g13_s1_a_palisade_stops_a_caravan() {
+    let mut k = Cast::new();
+    let tt = k.tt;
+    let ix = fx::build_vault(&k.w.a, &k.a.player(), k.a.href(), (k.a.p, k.a.q), tt);
+    let aw = k.a.wallet.insecure_clone();
+    expect_lands(s1_send(&mut k.c, I2::BuildVault, ix, &[&aw]), "BuildVault");
+    let dirs = local_dirs(&k.c, &k.a, k.a.tile, tt).unwrap();
+    let path = kc::pack(&dirs).unwrap();
+    let x = SendCaravanArgs {
+        seq: 0,
+        src: PlaceRef::Holding {
+            h: k.a.href(),
+            gen: k.a.gen,
+        },
+        dst: PlaceRef::Vault {
+            p: k.a.p,
+            q: k.a.q,
+            tile: tt,
+            gen: 1,
+        },
+        steps: dirs.len() as u8,
+        path,
+        cargo: [0, 100, 0, 0, 0, 50, 0, 0],
+        fee: CARAVAN_FEE,
+        provinces: vec![(k.a.p, k.a.q)],
+    };
+    let province = k.a.province;
+    put_structure(&mut k.c, &province, 0, KIND_PALISADE, tt, 1);
+    let ix = fx::send_caravan(&k.w.a, &k.a.player(), &x);
+    assert_code(
+        s1_send(&mut k.c.fork(), I2::SendCaravan, ix.clone(), &[&aw]),
+        E::Path,
+    );
+    // R's nation lets A's faction pass.
+    let mut f = k.c.fork();
+    set_stance(&mut f, &k.w, 1, 0, kt::STANCE_PASS);
+    expect_lands(
+        s1_send(&mut f, I2::SendCaravan, ix, &[&aw]),
+        "SendCaravan past",
+    );
+    put_structure(&mut k.c, &province, 0, KIND_PALISADE, tt, 0);
+    let ix = fx::send_caravan(&k.w.a, &k.a.player(), &x);
+    expect_lands(
+        s1_send(&mut k.c, I2::SendCaravan, ix, &[&aw]),
+        "SendCaravan past an own palisade",
+    );
 }

@@ -46,6 +46,7 @@ use permutation_rules::frontier::caravan::{
 use permutation_rules::frontier::doctrine::of_faction_v3;
 use permutation_rules::frontier::geometry::ProvinceCoord;
 use permutation_rules::frontier::holding::{Resource, RESOURCES};
+use permutation_rules::frontier::structure::{self as ks, Watch};
 
 use super::conquest::{
     absent, check_accounts_v2, cq, cqlog, presence_v2, present_v2, season_v2, Chained2,
@@ -296,6 +297,7 @@ fn route(
     steps: u8,
     path: &[u8; 12],
     faction: u8,
+    who: &Owner,
     id: u64,
     provinces: &[AccountInfo],
 ) -> R<(i64, [u8; log_run::LEN * log_run::N], u32, u16)> {
@@ -325,18 +327,24 @@ fn route(
         return Err(FrontierError::Path.into());
     }
     let runs = kc::schedule(genesis_ts, now, origin, &walked).map_err(|_| FrontierError::Path)?;
-    let mut cover = [0u64; 4];
-    for (c, ai) in cover.iter_mut().zip(provinces) {
-        *c = super::tower::hostile_of(&ai.try_borrow_data()?, faction)?;
+    // 1d/1e: what the caravan meets on the way (the structures standing
+    // now): a stopping palisade refuses the walk, stopping towers wear it.
+    let mut watch = [Watch::default(); 4];
+    for (w, ai) in watch.iter_mut().zip(provinces) {
+        *w =
+            super::structure::watch_of(&ai.try_borrow_data()?, &who.stances, faction, who.expelled);
     }
-    let in_range = permutation_rules::frontier::tower::caravan_secs_in_range(&walked, |pc| {
+    let met = ks::caravan_watch(&walked, |pc| {
         lands
             .iter()
-            .zip(cover)
+            .zip(watch)
             .find(|(l, _)| l.at == pc)
-            .map_or(0, |(_, c)| c)
+            .map_or(Watch::default(), |(_, w)| w)
     });
-    let worn = permutation_rules::frontier::tower::wear_bps(in_range);
+    let worn = match met {
+        ks::Walked::Secs(secs) => ks::wear_bps(secs),
+        ks::Walked::Blocked => return Err(FrontierError::Path.into()),
+    };
     let mut logged = [0u8; log_run::LEN * log_run::N];
     let mut last_bell = 0u32;
     for (i, run) in runs.iter().enumerate() {
@@ -366,9 +374,27 @@ fn route(
     Ok((arrive, logged, last_bell, worn))
 }
 
-/// `cargo` worn by `bps` (`tower::wear` on each amount).
+/// Whose a caravan's walk is, for what its structures do (S1 1e): the
+/// Season's stances and whether the owner is expelled from its nation.
+#[derive(Clone, Copy)]
+struct Owner {
+    stances: ks::Stances,
+    expelled: bool,
+}
+
+impl Owner {
+    /// The Season's stances and the Citizen's expelled state.
+    fn of(season: &AccountInfo, citizen: &AccountInfo) -> R<Owner> {
+        Ok(Owner {
+            stances: super::structure::stances_of(&season.try_borrow_data()?),
+            expelled: Ro(&citizen.try_borrow_data()?).i64(C::EXPELLED_SINCE)? != 0,
+        })
+    }
+}
+
+/// `cargo` worn by `bps` (`structure::wear` on each amount).
 fn worn_cargo(cargo: &[i64; RESOURCES], bps: u16) -> [i64; RESOURCES] {
-    cargo.map(|c| permutation_rules::frontier::tower::wear_i64(c, bps))
+    cargo.map(|c| permutation_rules::frontier::structure::wear_i64(c, bps))
 }
 
 /// The cargo's eight amounts as the logged `u32` whole units.
@@ -722,6 +748,7 @@ pub fn send_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         x.steps,
         &x.path,
         faction,
+        &Owner::of(season_ai, citizen)?,
         id,
         provinces,
     )?;
@@ -1056,6 +1083,7 @@ struct RaidCtx<'a, 'b> {
     genesis_ts: i64,
     now: i64,
     bell: u32,
+    season: &'b AccountInfo<'a>,
     caravan: &'b AccountInfo<'a>,
     raider_holding: &'b AccountInfo<'a>,
     raider_citizen: &'b AccountInfo<'a>,
@@ -1213,6 +1241,7 @@ fn settle_raid(
             steps,
             path,
             raider_faction,
+            &Owner::of(rc.season, rc.raider_citizen)?,
             id,
             new_route,
         )?;
@@ -1361,7 +1390,7 @@ pub fn raid_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         return Err(FrontierError::BadData.into());
     }
     let pl: Player = hold::player(p, a)?;
-    let [_, _payer, _season, citizen, caravan, raider_holding, dst, provinces @ ..] = a else {
+    let [_, _payer, season_ai, citizen, caravan, raider_holding, dst, provinces @ ..] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
     let rc = RaidCtx {
@@ -1371,6 +1400,7 @@ pub fn raid_caravan(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         genesis_ts: pl.pc.season.genesis_ts,
         now: pl.now.ts,
         bell: pl.pc.now_bell,
+        season: season_ai,
         caravan,
         raider_holding,
         raider_citizen: citizen,
@@ -1437,6 +1467,7 @@ pub fn default_raid(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         genesis_ts: hdr.genesis_ts,
         now: now.ts,
         bell,
+        season: season_ai,
         caravan,
         raider_holding,
         raider_citizen,

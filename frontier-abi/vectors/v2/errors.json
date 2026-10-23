@@ -608,21 +608,28 @@
     },
     {
       "code": 87,
-      "name": "TowerSite",
+      "name": "StructureSite",
       "program": true,
       "mc": true,
       "keeper": "refused"
     },
     {
       "code": 88,
-      "name": "TowerLimit",
+      "name": "StructureLimit",
       "program": true,
       "mc": true,
       "keeper": "refused"
     },
     {
       "code": 89,
-      "name": "TowerFull",
+      "name": "StructureFull",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 90,
+      "name": "FortManned",
       "program": true,
       "mc": true,
       "keeper": "refused"

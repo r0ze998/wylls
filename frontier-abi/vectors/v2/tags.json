@@ -4813,7 +4813,7 @@
       ]
     },
     {
-      "name": "BuildTower",
+      "name": "BuildStructure",
       "tag": 183,
       "class": "P",
       "new_in_v2": true,
@@ -4821,8 +4821,12 @@
       "top_level_only": false,
       "relay_player_shape": true,
       "relay_settle_shape": false,
-      "data_len": [3, 3],
+      "data_len": [4, 4],
       "data": [
+        {
+          "name": "kind",
+          "len": 1
+        },
         {
           "name": "tile",
           "len": 1
@@ -4886,8 +4890,8 @@
               "writable": "w"
             },
             {
-              "name": "tower",
-              "kind": "Tower",
+              "name": "structure",
+              "kind": "Structure",
               "signer": false,
               "writable": "w"
             },
@@ -4902,7 +4906,7 @@
       ]
     },
     {
-      "name": "SeizeTower",
+      "name": "SeizeStructure",
       "tag": 184,
       "class": "P",
       "new_in_v2": true,
@@ -4953,8 +4957,8 @@
           "max": 1,
           "accounts": [
             {
-              "name": "tower",
-              "kind": "Tower",
+              "name": "structure",
+              "kind": "Structure",
               "signer": false,
               "writable": "w"
             },
@@ -4981,7 +4985,7 @@
       ]
     },
     {
-      "name": "CloseTower",
+      "name": "CloseStructure",
       "tag": 185,
       "class": "P",
       "new_in_v2": true,
@@ -5027,8 +5031,8 @@
           "max": 1,
           "accounts": [
             {
-              "name": "tower",
-              "kind": "Tower",
+              "name": "structure",
+              "kind": "Structure",
               "signer": false,
               "writable": "w"
             },

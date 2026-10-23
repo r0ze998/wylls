@@ -1056,7 +1056,7 @@
       "cu_limit_s1": 120000
     },
     {
-      "name": "BuildTower",
+      "name": "BuildStructure",
       "tag": 183,
       "cu_budget": 40000,
       "cu_per_unit": 0,
@@ -1064,7 +1064,7 @@
       "measured": 0,
       "tx_contract": 600,
       "tx_ceiling": 600,
-      "tx_worst_estimate": 561,
+      "tx_worst_estimate": 562,
       "accounts": [9, 9],
       "loaded_need_placeholder": 1488977,
       "loaded_limit": 1507328,
@@ -1072,7 +1072,7 @@
       "cu_limit_s1": 40000
     },
     {
-      "name": "SeizeTower",
+      "name": "SeizeStructure",
       "tag": 184,
       "cu_budget": 30000,
       "cu_per_unit": 0,
@@ -1088,7 +1088,7 @@
       "cu_limit_s1": 30000
     },
     {
-      "name": "CloseTower",
+      "name": "CloseStructure",
       "tag": 185,
       "cu_budget": 15000,
       "cu_per_unit": 0,

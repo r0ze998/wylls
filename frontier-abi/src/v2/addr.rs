@@ -46,10 +46,10 @@ pub const CARAVAN: [u8; 2] = *b"cv";
 /// Raw key length of a Caravan (`owner_tag u64, seq u32`).
 pub const CARAVAN_RAW_LEN: usize = 12;
 
-/// The Tower seed tag (S1, 1d).
-pub const TOWER: [u8; 2] = *b"tw";
-/// Raw key length of a Tower (`p i32, q i32, tile u8`).
-pub const TOWER_RAW_LEN: usize = 9;
+/// The Structure seed tag (S1, 1d; towers, palisades, forts).
+pub const STRUCTURE: [u8; 2] = *b"tw";
+/// Raw key length of a Structure (`p i32, q i32, tile u8`).
+pub const STRUCTURE_RAW_LEN: usize = 9;
 
 /// `va‖hex(le32 p ‖ le32 q ‖ tile)`.
 pub fn vault_seed(p: i32, q: i32, tile: u8) -> Seed {
@@ -66,17 +66,17 @@ pub fn vault(ctx: &AddrCtx, p: i32, q: i32, tile: u8) -> [u8; 32] {
 }
 
 /// `tw‖hex(le32 p ‖ le32 q ‖ tile)`.
-pub fn tower_seed(p: i32, q: i32, tile: u8) -> Seed {
-    let mut raw = [0u8; TOWER_RAW_LEN];
+pub fn structure_seed(p: i32, q: i32, tile: u8) -> Seed {
+    let mut raw = [0u8; STRUCTURE_RAW_LEN];
     raw[..4].copy_from_slice(&p.to_le_bytes());
     raw[4..8].copy_from_slice(&q.to_le_bytes());
     raw[8] = tile;
-    Seed::new(TOWER, &raw)
+    Seed::new(STRUCTURE, &raw)
 }
 
-/// The Tower address on tile `tile` of Province `(p, q)`.
-pub fn tower(ctx: &AddrCtx, p: i32, q: i32, tile: u8) -> [u8; 32] {
-    ctx.of(&tower_seed(p, q, tile))
+/// The Structure address on tile `tile` of Province `(p, q)`.
+pub fn structure(ctx: &AddrCtx, p: i32, q: i32, tile: u8) -> [u8; 32] {
+    ctx.of(&structure_seed(p, q, tile))
 }
 
 /// `cv‖hex(le64 owner_tag ‖ le32 seq)`.
@@ -98,7 +98,7 @@ pub fn tag_of(kind: AccountKind) -> Option<[u8; 2]> {
         AccountKind::MarchState => Some(MARCH),
         AccountKind::Vault => Some(VAULT),
         AccountKind::Caravan => Some(CARAVAN),
-        AccountKind::Tower => Some(TOWER),
+        AccountKind::Structure => Some(STRUCTURE),
         k => crate::addr::tag_of(k.to_v1()?),
     }
 }
@@ -109,7 +109,7 @@ pub fn raw_len(kind: AccountKind) -> usize {
         AccountKind::MarchState => MARCH_RAW_LEN,
         AccountKind::Vault => VAULT_RAW_LEN,
         AccountKind::Caravan => CARAVAN_RAW_LEN,
-        AccountKind::Tower => TOWER_RAW_LEN,
+        AccountKind::Structure => STRUCTURE_RAW_LEN,
         k => k.to_v1().map(crate::addr::raw_len).unwrap_or(0),
     }
 }
@@ -140,7 +140,7 @@ mod tests {
         }
         assert_eq!(tag_of(AccountKind::MarchState), Some(MARCH));
         // S1: three more tags, distinct from every other.
-        for t in [VAULT, CARAVAN, TOWER] {
+        for t in [VAULT, CARAVAN, STRUCTURE] {
             for k in crate::layout::AccountKind::ALL {
                 assert_ne!(crate::addr::tag_of(k), Some(t), "{}", k.name());
             }
@@ -151,9 +151,9 @@ mod tests {
         assert!(caravan_seed(u64::MAX, u32::MAX).len() <= 32);
         assert_ne!(vault(&ctx, 0, 0, 1), vault(&ctx, 0, 0, 2));
         assert_ne!(caravan(&ctx, 7, 1), caravan(&ctx, 7, 2));
-        assert_ne!(tower(&ctx, 0, 0, 1), vault(&ctx, 0, 0, 1));
-        assert_ne!(VAULT, TOWER);
-        assert_ne!(CARAVAN, TOWER);
+        assert_ne!(structure(&ctx, 0, 0, 1), vault(&ctx, 0, 0, 1));
+        assert_ne!(VAULT, STRUCTURE);
+        assert_ne!(CARAVAN, STRUCTURE);
         assert_eq!(raw_len(AccountKind::Province), 8);
     }
 }

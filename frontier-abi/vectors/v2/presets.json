@@ -353,7 +353,7 @@
       "params_hash_with_rev3_payout": "d00c8cf5409ff24b31f723240b059dcdbff43db1d91ad2f66c45b8ebf05c08ec"
     }
   ],
-  "ruleset_hash_v3": "77a8383f82c6e4fce1673c7d837a9ea27b87ff0a7e4ebd805239c245f44694cf",
+  "ruleset_hash_v3": "a1d9d29786b9154079e43b3769d0ec9b64ac6e85587701ad076ba40db40dc178",
   "ruleset_hash_v3_status": "pinned: permutation_rules::frontier::ruleset_hash_v3() (S1 1a: arms 1, catalog 3, doctrine 3, holding 4)",
   "rules_version_s1": 12,
   "program_version_s1": 4,
