@@ -381,6 +381,7 @@ impl Conquest {
             call,
             host_ids: st.stable.clone(),
             next_host: st.next_host,
+            rules: season.rules(),
         };
         let (mut world, ids) = world_from_herald(&epoch).map_err(|e| e.to_string())?;
         st.stable
@@ -969,7 +970,11 @@ impl Bot {
                     // no path). A `no_path` at the order's issue bell waits
                     // for the next observation; one at a later bell is final.
                     if why == "no_path" && o.issued == obs.bell() {
-                        sh.report.lock().expect("report").cq.skip("order_no_path_retry");
+                        sh.report
+                            .lock()
+                            .expect("report")
+                            .cq
+                            .skip("order_no_path_retry");
                         keep.push(o);
                         continue;
                     }

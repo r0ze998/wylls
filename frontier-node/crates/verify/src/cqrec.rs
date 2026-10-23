@@ -23,7 +23,13 @@ pub struct Expected {
 
 /// The records of bell `b`'s step `st` over the Province `pd` (after the
 /// bell's `finish_bell`) of `(p, q)`.
-pub fn of_step(pd: &[u8], p: i32, q: i32, b: u32, st: &cq::StepOut) -> Result<Vec<Expected>, String> {
+pub fn of_step(
+    pd: &[u8],
+    p: i32,
+    q: i32,
+    b: u32,
+    st: &cq::StepOut,
+) -> Result<Vec<Expected>, String> {
     let mut v = vec![];
     if !st.emits() {
         return Ok(v);

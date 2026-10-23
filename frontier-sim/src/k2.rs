@@ -31,6 +31,40 @@ pub fn march_surcharge_mc(unit: UnitType, k: i64) -> [Milli; RESOURCES] {
     surcharge_from(catalog::train_v2, unit, k)
 }
 
+/// Stage 1a (design/redesign 30, J3; `--arms`): the per-march surcharge
+/// under the stage-1a train table (`frontier::arms::train_v3`). The
+/// simulator has no workshops or arms stores yet, so the arms a strong
+/// unit needs are paid as the ore and wood a workshop turns into them
+/// (`WORKSHOP_ORE_PER_HOUR` and `WORKSHOP_WOOD_PER_HOUR` per
+/// `WORKSHOP_ARMS_PER_HOUR` arms), on top of the ore and gold surcharge.
+pub fn march_surcharge_arms(
+    unit: UnitType,
+    k: i64,
+    scale_pct: i64,
+    per100: Option<[i64; 3]>,
+) -> [Milli; RESOURCES] {
+    use permutation_rules::fixed::MILLI;
+    use permutation_rules::frontier::arms::{
+        train_v3, ARMS, WORKSHOP_ARMS_PER_HOUR, WORKSHOP_ORE_PER_HOUR, WORKSHOP_WOOD_PER_HOUR,
+    };
+    let mut c = surcharge_from(train_v3, unit, k);
+    if k <= 0 {
+        return c;
+    }
+    let n = (k * 100).min(u32::MAX as i64) as u32;
+    let table = train_v3(unit as u8, n).map_or(0, |t| t[ARMS as usize]);
+    let arms = match (per100, unit) {
+        (Some(p), UnitType::Pikeman) => k * p[0] * MILLI,
+        (Some(p), UnitType::Crossbowman) => k * p[1] * MILLI,
+        (Some(p), UnitType::Knight) => k * p[2] * MILLI,
+        _ => table,
+    } * scale_pct
+        / 100;
+    c[Resource::Ore as usize] += arms * WORKSHOP_ORE_PER_HOUR / WORKSHOP_ARMS_PER_HOUR;
+    c[Resource::Wood as usize] += arms * WORKSHOP_WOOD_PER_HOUR / WORKSHOP_ARMS_PER_HOUR;
+    c
+}
+
 /// `table(unit) − table(Spearman)` in ore and gold, for `k × 100` troops.
 pub fn surcharge_from(
     table: fn(u8, u32) -> Option<Cost>,

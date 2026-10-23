@@ -65,7 +65,8 @@ pub mod season {
         DPOOL_INITIAL @ 472 : "u64" = 8;
         REVEAL_LOADED_LIMIT @ 480 : "u32" = 4;
         JOIN_GATE @ 484 : "[u8;32]" = 32;
-        RSV_M2M3 @ 516 : "rsv" = 380;
+        STANCES @ 516 : "[u8;36]" = 36;
+        RSV_552 @ 552 : "rsv" = 344;
         CONQUEST_PARAMS @ 896 : "rec:ConquestParams x1" = 128;
         RSV_TAIL @ 1024 : "rsv" = 1024;
     );

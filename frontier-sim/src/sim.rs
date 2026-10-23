@@ -2081,7 +2081,16 @@ impl Sim {
         let extra = permutation_rules::units::stats(d.k.unit).prod_cost as i64 - 6;
         if extra > 0 {
             let k = n_troops as i64 / (100 * MILLI);
-            let c: [Milli; RESOURCES] = if self.cfg.rules.mc() {
+            let c: [Milli; RESOURCES] = if self.cfg.rules.mc() && self.cfg.arms {
+                // Stage 1a (redesign 30, J3): strong units also pay arms,
+                // as the ore and wood a workshop turns into them.
+                crate::k2::march_surcharge_arms(
+                    d.k.unit,
+                    k,
+                    self.cfg.arms_scale_pct,
+                    self.cfg.arms_per100,
+                )
+            } else if self.cfg.rules.mc() {
                 // MC (K2, W1-close PO-2, CQH1(2)): what the MC train-cost
                 // table charges above a Spearman; cavalry lines pay none
                 // (`k2.rs`: `catalog::train_v2`, kernel unit W1C-A). The

@@ -18,6 +18,7 @@
 
 pub mod player;
 pub mod province;
+pub mod s1;
 pub mod world;
 
 use crate::layout::{world as v1w, Field};
@@ -25,8 +26,9 @@ use crate::layout::{world as v1w, Field};
 /// `layout_version` of every v2 chained header.
 pub const LAYOUT_VERSION_V2: u16 = 2;
 
-/// The 18 program account kinds of ABI v2: M1's 17 (same codes) and
-/// MarchState (18).
+/// The 22 program account kinds of ABI v2: M1's 17 (same codes),
+/// MarchState (18), and S1's Vault (19), Caravan (20), Structure (21) and
+/// Nation (22).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum AccountKind {
@@ -48,10 +50,14 @@ pub enum AccountKind {
     AnchorArchive = 16,
     DefenceClaim = 17,
     MarchState = 18,
+    Vault = 19,
+    Caravan = 20,
+    Structure = 21,
+    Nation = 22,
 }
 
 impl AccountKind {
-    pub const ALL: [AccountKind; 18] = {
+    pub const ALL: [AccountKind; 22] = {
         use AccountKind::*;
         [
             Season,
@@ -72,6 +78,10 @@ impl AccountKind {
             AnchorArchive,
             DefenceClaim,
             MarchState,
+            Vault,
+            Caravan,
+            Structure,
+            Nation,
         ]
     };
 
@@ -95,6 +105,10 @@ impl AccountKind {
         match self {
             Province => province::province::SIZE,
             MarchState => world::march_state::SIZE,
+            Vault => s1::vault::SIZE,
+            Caravan => s1::caravan::SIZE,
+            Structure => s1::structure::SIZE,
+            Nation => s1::nation::SIZE,
             Citizen => player::citizen::SIZE,
             Holding => player::holding::SIZE,
             JoinShard => world::join_shard::SIZE,
@@ -117,6 +131,10 @@ impl AccountKind {
     pub const fn magic(self) -> [u8; 8] {
         match self {
             AccountKind::MarchState => world::march_state::MAGIC,
+            AccountKind::Vault => s1::vault::MAGIC,
+            AccountKind::Caravan => s1::caravan::MAGIC,
+            AccountKind::Structure => s1::structure::MAGIC,
+            AccountKind::Nation => s1::nation::MAGIC,
             // Same code, same magic as M1 (`tests::magics_are_m1s`).
             k => v1_kind(k).magic(),
         }
@@ -126,7 +144,18 @@ impl AccountKind {
         use AccountKind::*;
         matches!(
             self,
-            Season | Frontier | JoinShard | Citizen | Holding | Province | ClashInputs | MarchState
+            Season
+                | Frontier
+                | JoinShard
+                | Citizen
+                | Holding
+                | Province
+                | ClashInputs
+                | MarchState
+                | Vault
+                | Caravan
+                | Structure
+                | Nation
         )
     }
 
@@ -135,6 +164,10 @@ impl AccountKind {
         match self {
             Province => province::province::FIELDS,
             MarchState => world::march_state::FIELDS,
+            Vault => s1::vault::FIELDS,
+            Caravan => s1::caravan::FIELDS,
+            Structure => s1::structure::FIELDS,
+            Nation => s1::nation::FIELDS,
             Citizen => player::citizen::FIELDS,
             Holding => player::holding::FIELDS,
             JoinShard => world::join_shard::FIELDS,
@@ -150,6 +183,10 @@ impl AccountKind {
     pub const fn name(self) -> &'static str {
         match self {
             AccountKind::MarchState => "MarchState",
+            AccountKind::Vault => "Vault",
+            AccountKind::Caravan => "Caravan",
+            AccountKind::Structure => "Structure",
+            AccountKind::Nation => "Nation",
             k => v1_kind(k).name(),
         }
     }
@@ -159,7 +196,16 @@ impl AccountKind {
         use AccountKind::*;
         matches!(
             self,
-            Province | MarchState | Citizen | Holding | JoinShard | Season
+            Province
+                | MarchState
+                | Citizen
+                | Holding
+                | JoinShard
+                | Season
+                | Vault
+                | Caravan
+                | Structure
+                | Nation
         )
     }
 
@@ -190,6 +236,23 @@ pub const RECORDS: &[(&str, usize, &[Field])] = &[
         province::snapshot::SIZE,
         province::snapshot::FIELDS,
     ),
+    (
+        "CaravanSlot",
+        province::caravan_slot::SIZE,
+        province::caravan_slot::FIELDS,
+    ),
+    (
+        "FortRecord",
+        province::fort_record::SIZE,
+        province::fort_record::FIELDS,
+    ),
+    (
+        "StructureEntry",
+        province::structure_entry::SIZE,
+        province::structure_entry::FIELDS,
+    ),
+    ("Place", s1::place::SIZE, s1::place::FIELDS),
+    ("Proposal", s1::proposal::SIZE, s1::proposal::FIELDS),
     (
         "ConquestParams",
         crate::v2::presets::cq_layout::SIZE,

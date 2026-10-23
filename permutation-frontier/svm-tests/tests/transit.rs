@@ -111,7 +111,12 @@ fn g12_settle_stays_pays_and_frees_the_host() {
     let dissolve = |w: &World, t: &Trip| {
         // The host stands at its destination (account 5).
         with_account(
-            permutation_frontier_svm_tests::ix::host::dissolve(&w.a, &t.e.player(), t.href(), t.m.host_id),
+            permutation_frontier_svm_tests::ix::host::dissolve(
+                &w.a,
+                &t.e.player(),
+                t.href(),
+                t.m.host_id,
+            ),
             5,
             dest_key(w, t),
         )
@@ -629,7 +634,12 @@ fn g12_stays_host_cannot_act_before_its_settlement() {
     let depart = w.depart_ix(&t.e, at_dest, &t.m, t.tip);
     assert_code(send(&mut c, depart, &t.e.wallet), E::HostInTransit);
     let dissolve = with_account(
-        permutation_frontier_svm_tests::ix::host::dissolve(&w.a, &t.e.player(), t.href(), t.m.host_id),
+        permutation_frontier_svm_tests::ix::host::dissolve(
+            &w.a,
+            &t.e.player(),
+            t.href(),
+            t.m.host_id,
+        ),
         5,
         dest,
     );
@@ -1553,7 +1563,11 @@ fn prev_settle(
     ix.accounts[at::RENT_PAYER].pubkey = captor.wallet.pubkey();
     if with_home {
         let source_province = ix.accounts.pop().unwrap();
-        ix.accounts.push(permutation_frontier_svm_tests::AccountMeta::new(home.holding, false));
+        ix.accounts
+            .push(permutation_frontier_svm_tests::AccountMeta::new(
+                home.holding,
+                false,
+            ));
         ix.accounts.push(source_province);
     }
     ix

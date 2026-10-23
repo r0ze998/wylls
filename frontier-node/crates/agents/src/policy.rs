@@ -21,6 +21,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::rules::Rules;
 use fclient::abi::layout::{citizen as lc, entry as le, holding as lh, site as ls};
 use fclient::decode::{Entry, Holding, Province};
 use fclient::ix::{HoldingRef, RevealArgs, SeedSource, SettleTransitArgs, Site};
@@ -344,13 +345,23 @@ pub fn tier_of(t: u8) -> Tier {
 /// Copies of building `item` a holding has (estimated from its production
 /// above the tier's base; the Holding does not store the counts) plus the
 /// queued ones: the `n − 1` of the next `catalog::building(item, n)`.
+///
+/// S1: the base takes the holding's terrain ore
+/// (`arms::holding_base_production`), and the workshop
+/// (`arms::ITEM_WORKSHOP`) counts from the arms production.
 pub fn copies(h: &Holding, item: u8, now: i64) -> u32 {
-    let Some(b) = catalog::BUILDINGS.get(item as usize) else {
-        return 0;
+    use permutation_rules::frontier::arms;
+    let (r, per, base) = if item == arms::ITEM_WORKSHOP {
+        (arms::ARMS as usize, arms::WORKSHOP_DELTA, 0)
+    } else {
+        let Some(b) = catalog::BUILDINGS.get(item as usize) else {
+            return 0;
+        };
+        let r = b.resource as usize;
+        let ore = h.cq.map_or(0, |c| c.terrain_ore);
+        let base = arms::holding_base_production(tier_of(h.tier), ore)[r];
+        (r, b.per_hour * 1_000, base)
     };
-    let r = b.resource as usize;
-    let base = catalog::base_production(tier_of(h.tier))[r];
-    let per = b.per_hour * 1_000;
     let built = if per > 0 && h.production[r] > base {
         ((h.production[r] - base) / per) as u32
     } else {
@@ -455,6 +466,7 @@ pub fn can_depart(h: &Holding, e: &Entry, bell: u32) -> bool {
 /// The sim's `pick_stance`: with probability `q` the faction's drilled
 /// stance, else a uniform one.
 pub fn pick_stance(faction: u8, q: f64, rng: &mut Rng) -> u8 {
+    // The drills are the same in every doctrine table (S1 changes lines).
     let d = &DOCTRINES[(faction % 6) as usize];
     if let Some((s, _)) = d.drill {
         if rng.chance(q) {
@@ -1266,35 +1278,37 @@ fn economy(
         out.push(Intent::Harvest { h: r });
         used += 1;
     }
-    let doctrine = &DOCTRINES[(h.faction % 6) as usize];
-    // K2 (MC v1.3 §3.16): an MC season's Train pays `catalog::train_v2`;
-    // an M1 season's is unchanged (CQ2-F).
-    let mc = obs
-        .season
-        .season
-        .as_ref()
-        .is_some_and(|s| crate::cqbehave::is_mc_season(s.program_version));
+    // The season's rules (`crate::rules`): K2's train cost in an MC
+    // season (CQ2-F), the arms economy's in an S1 season.
+    let rules = Rules::of_obs(obs);
+    let doctrine = rules.doctrine(h.faction);
+    // S1: a doctrine whose unit costs arms needs a workshop first.
+    let wants_workshop = rules.needs_arms(doctrine.unit as u8)
+        && copies(h, permutation_rules::frontier::arms::ITEM_WORKSHOP, now) == 0;
     // Build: the cheapest affordable building (careful players skip one
-    // that leaves too little for a garrison).
+    // that leaves too little for a garrison); S1: the first workshop
+    // before anything else when it is affordable.
     if queue_free(h, now) {
         let mut best: Option<(i64, u8)> = None;
-        for item in 0..catalog::BUILDINGS.len() as u8 {
+        for &item in rules.building_items() {
             let n = copies(h, item, now) + 1;
-            let Some((cost, _, _)) = catalog::building(item, n, doctrine) else {
+            let Some((cost, _, _)) = rules.building(item, n, doctrine) else {
                 continue;
             };
             if !affordable(&stores, &cost) {
                 continue;
             }
             let total: i64 = cost.iter().sum();
+            let first = wants_workshop && item == permutation_rules::frontier::arms::ITEM_WORKSHOP;
+            let total = if first { i64::MIN } else { total };
             if best.is_none_or(|b| total < b.0) {
                 best = Some((total, item));
             }
         }
         if let Some((_, item)) = best {
             let n = copies(h, item, now) + 1;
-            let (cost, _, _) = catalog::building(item, n, doctrine).expect("priced");
-            let keep = crate::cqbehave::train_cost(mc, 0, 100).expect("priced");
+            let (cost, _, _) = rules.building(item, n, doctrine).expect("priced");
+            let keep = rules.train(0, 100).expect("priced");
             let after: [i64; RESOURCES] = core::array::from_fn(|i| stores[i] - cost[i]);
             if !rng.chance(prof.thrift) || affordable(&after, &keep) {
                 out.push(Intent::Build {
@@ -1310,7 +1324,19 @@ fn economy(
     let hosts = own_hosts(obs, h);
     let combat: Vec<&((i16, i16), Entry)> = hosts.iter().filter(|(_, e)| e.unit != SCOUT).collect();
     let scouts: Vec<&((i16, i16), Entry)> = hosts.iter().filter(|(_, e)| e.unit == SCOUT).collect();
-    let unit = doctrine.unit as u8;
+    // S1: without the arms for a hundred of its strong unit and none in
+    // reserve, the holding fields Spearmen meanwhile.
+    let unit = {
+        let u = doctrine.unit as u8;
+        let short = rules
+            .train(u, 100)
+            .is_some_and(|c| !affordable(&stores, &c));
+        if rules.needs_arms(u) && short && h.reserve[u as usize] < MIN_HOST {
+            permutation_rules::units::UnitType::Spearman as u8
+        } else {
+            u
+        }
+    };
     let persona = cx.spec.persona;
     let want_hosts = match persona {
         Some(Persona::DoubleArrival) => 2,
@@ -1322,7 +1348,7 @@ fn economy(
     let reserve = h.reserve[unit as usize];
     if combat.len() < want_hosts && reserve < MIN_HOST * k {
         for kk in (1..=k).rev() {
-            let Some(cost) = crate::cqbehave::train_cost(mc, unit, 100 * kk) else {
+            let Some(cost) = rules.train(unit, 100 * kk) else {
                 continue;
             };
             if affordable(&stores, &cost) {
@@ -1339,7 +1365,7 @@ fn economy(
     }
     // Scouts: one scout host to explore.
     if scouts.is_empty() && h.reserve[SCOUT as usize] < MIN_HOST {
-        if let Some(cost) = crate::cqbehave::train_cost(mc, SCOUT, MIN_HOST) {
+        if let Some(cost) = rules.train(SCOUT, MIN_HOST) {
             if affordable(&stores, &cost) && rng.chance(0.5 + prof.q / 2.0) {
                 out.push(Intent::Train {
                     h: r,

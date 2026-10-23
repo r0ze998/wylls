@@ -73,15 +73,25 @@ pub use error::{CqError, Error, FrontierError, R};
 /// program: it embeds `RULESET_HASH_V2` (`b6dd0f3f…8274`, A-28), so it
 /// refuses every M1 Season (`RulesetMismatch`) and an M1 program refuses
 /// every MC Season. M1 seasons keep the M1 release `.so` (`d85e1bd7…2281`).
-pub const RULESET_HASH: [u8; 32] = frontier_abi::v2::presets::RULESET_HASH_V2;
+///
+/// **S1 (redesign stage 1, the arms economy):** the program is the S1
+/// program: it embeds `RULESET_HASH_V3` and writes `program_version` 4, so
+/// it refuses every MC Season and an MC program refuses every S1 Season
+/// (redesign 30, J5: stage 1 runs in a new season). MC seasons keep the MC
+/// release `.so`.
+pub const RULESET_HASH: [u8; 32] = frontier_abi::v2::presets::RULESET_HASH_V3;
+
+/// The MC program's ruleset hash (`5fbaf678…1a8b`), for the record and the
+/// tests that show an MC Season is refused.
+pub const RULESET_HASH_MC: [u8; 32] = frontier_abi::v2::presets::RULESET_HASH_V2;
 
 /// M1's ruleset hash (`72c6b583…4bd9`), for the record and the tests that
 /// show an M1 Season is refused.
 pub const RULESET_HASH_M1: [u8; 32] = frontier_abi::presets::RULESET_HASH;
 
-/// The rules version CreateSeason writes (`RULES_VERSION_FRONTIER` 11, MC
-/// §3.13).
-pub const RULES_VERSION: u16 = frontier_abi::v2::presets::RULES_VERSION_V2;
+/// The rules version CreateSeason writes (`RULES_VERSION_FRONTIER_V3` 12,
+/// the S1 rules).
+pub const RULES_VERSION: u16 = frontier_abi::v2::presets::RULES_VERSION_S1;
 
 /// `sha256` of the beacon public key this binary verifies against: the
 /// quicknet group key, or the local test key in a `test-beacon` build
@@ -90,8 +100,9 @@ pub const QUICKNET_PK_HASH: [u8; 32] = crypto::quick::PK_HASH;
 
 /// Program version written by CreateSeason's parameters and logged; bumped
 /// with every deployable change. Version 3 integrates first homes and
-/// authoritative province-time scoring on the conquest layout (version 2).
-pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_V2;
+/// authoritative province-time scoring on the conquest layout (version 2);
+/// version 4 is the S1 program (the arms economy on the same layout).
+pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S1;
 
 /// Routes one instruction by its ABI v2 tag (M1 §5.5; MC contract §5.4:
 /// M1's 50 tags and 0xA0–0xA3, 0xA5–0xA7). Unknown and reserved tags
@@ -179,6 +190,25 @@ pub fn dispatch(
         Ix::FoldMarch => conquest::fold_march(p, a, data),
         Ix::RetireHost => conquest::retire_host(p, a, data),
         Ix::CloseMarch => conquest::close_march(p, a, data),
+        // S1 (stage 1b): vaults and caravans.
+        Ix::BuildVault => caravan::build_vault(p, a, data),
+        Ix::SendCaravan => caravan::send_caravan(p, a, data),
+        Ix::SettleCaravan => caravan::settle_caravan(p, a, data),
+        Ix::RaidCaravan => caravan::raid_caravan(p, a, data),
+        Ix::SeizeVault => caravan::seize_vault(p, a, data),
+        Ix::CloseVault => caravan::close_vault(p, a, data),
+        Ix::DefaultRaid => caravan::default_raid(p, a, data),
+        // S1 (stages 1d, 1e): structures.
+        Ix::BuildStructure => structure::build_structure(p, a, data),
+        Ix::SeizeStructure => structure::seize_structure(p, a, data),
+        Ix::CloseStructure => structure::close_structure(p, a, data),
+        Ix::FortGarrison => structure::fort_garrison(p, a, data),
+        // S1 (stage 1e): nations.
+        Ix::Propose => nation::propose(p, a, data),
+        Ix::Vote => nation::vote(p, a, data),
+        Ix::SettleProposal => nation::settle_proposal(p, a, data),
+        // S1 (stage 1e): domestic raids.
+        Ix::RaidDomestic => caravan::raid_domestic(p, a, data),
     };
     heap::trace_checkpoint(0xffff);
     r

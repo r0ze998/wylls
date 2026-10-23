@@ -6,7 +6,9 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 fn main() {
-    let path = std::env::args().nth(1).expect("usage: suites INPUT.json[.gz] [--detail]");
+    let path = std::env::args()
+        .nth(1)
+        .expect("usage: suites INPUT.json[.gz] [--detail]");
     let detail = std::env::args().any(|a| a == "--detail");
     let input = verify_core::Input::load(Path::new(&path)).unwrap_or_else(|e| panic!("{e}"));
     if detail {
@@ -37,7 +39,11 @@ fn main() {
                 .or_insert((0, f.detail.clone()));
             e.0 += 1;
         }
-        println!("== {name}: {} ({} findings)", r.verdict.name(), r.findings.len());
+        println!(
+            "== {name}: {} ({} findings)",
+            r.verdict.name(),
+            r.findings.len()
+        );
         for (k, (n, d)) in by {
             println!("  {k} ×{n}: {}", d.chars().take(160).collect::<String>());
         }

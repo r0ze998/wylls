@@ -23,7 +23,6 @@ use frontier_abi::v2::layout::player::{citizen as C2, holding as H2};
 use frontier_abi::v2::layout::province::{conquest as CR, province as P2, site as S2};
 use frontier_abi::v2::presets::ConquestParams;
 use permutation_rules::frontier::catalog;
-use permutation_rules::frontier::doctrine::DOCTRINES;
 use permutation_rules::frontier::geometry::{
     march_members, march_of, provinces_within, MarchCoord, ProvinceCoord,
 };
@@ -469,6 +468,8 @@ pub struct HeraldEpoch {
     pub host_ids: BTreeMap<u64, u32>,
     /// The first id never given to any host (planned or real).
     pub next_host: u32,
+    /// The season's rules (`crate::rules`): the S1 doctrine table under S1.
+    pub rules: crate::rules::Rules,
 }
 
 /// The chain names behind a herald world's ids.
@@ -807,7 +808,7 @@ pub fn world_from_herald(e: &HeraldEpoch) -> Result<(World, WorldIds), ObsError>
         open_ring,
         genesis_ts: e.genesis_ts,
         params: e.params.unwrap_or(Params::FRONTIER_7),
-        doctrine: core::array::from_fn(|f| DOCTRINES[f]),
+        doctrine: *e.rules.doctrines(),
         provs,
         holds,
         hosts,

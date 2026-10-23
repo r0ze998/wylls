@@ -1,0 +1,40 @@
+# Wylls 設計し直し
+
+品質を優先し、期限は設けません。進め方は次のとおりです。
+
+1. 診断
+2. 素材の理解
+3. ビジョン
+4. 統合の発想
+5. 収束
+6. 試作で遊びを見つける
+7. 経済とトークンの設計
+8. 設計書と実装計画
+
+各フェーズの終わりにゲート（あなたの判断）を置きます。
+
+| フェーズ | ファイル | 状態 |
+|---|---|---|
+| 0 診断 | [00-diagnosis.ja.md](00-diagnosis.ja.md) | 合意済み（2026-10-22）。フェーズ1の批評で2か所を仮説に修正 |
+| 1 素材の理解 | [01-references.ja.md](01-references.ja.md)／[01-references-founder.ja.md](01-references-founder.ja.md)／[01-affordances.ja.md](01-affordances.ja.md)／[01-ai-roles.ja.md](01-ai-roles.ja.md)／[01-token-primer.ja.md](01-token-primer.ja.md) | 読了（2026-10-22） |
+| 2 ビジョン | [02-vision.ja.md](02-vision.ja.md) | 下書き第2版・署名待ち |
+| 3 統合の発想 | 03-seeds.ja.md（付録：[03-appendix-from-phase1.ja.md](03-appendix-from-phase1.ja.md)） | 未着手 |
+| 4 収束 | 04-concepts.ja.md | 未着手 |
+| 5 試作 | 05-prototype-log.ja.md | 未着手 |
+| 6 経済とトークン | 06-economy.ja.md | 未着手 |
+| 7 設計書と実装計画 | 07-gdd.ja.md／07-build-plan.ja.md | 未着手 |
+
+## 決まりごと
+
+- 一度に一つのフェーズだけ進める。フェーズ3より前に仕組みを考えない。フェーズ6より前に数値を決めない。フェーズ7より前にコードを書かない。
+- 事実（出典・コード・実測）と判断を分けて書く。確かめていないことは「未確認」と書く。
+- 用語：ターン（「鐘」とは書かない）。
+- 決定は [99-decisions.ja.md](99-decisions.ja.md) に積み上げる。
+
+## 前提（2026-10-22）
+
+- すべて疑ってよい（国・村・砦・シーズン・Solana・人間とAIの共存も含む）。今のコードは素材として扱う。
+- 独自トークンも選択肢に戻す。
+- 体制：あなた（最終判断）と Claude。
+- 遊ぶ人：戦略ゲーム好きと、AIエージェントを作る側の中間。地域：世界（英語圏中心）。遊び方：リアルタイムの局地戦。
+  - 注：英語圏中心なので、法規制は米国・EUが主になる（[01-token-primer.ja.md](01-token-primer.ja.md) の10章）。リアルタイムは、常に動けるAIや在席時間の長い人に有利になりやすい（[01-references.ja.md](01-references.ja.md) のL6）。フェーズ2・3で扱う。

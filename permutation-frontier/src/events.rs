@@ -160,8 +160,8 @@ pub fn emit(
 
 // ------------------------------------------------------------ ABI v2
 
-/// Highest record kind code of ABI v2 (89, reserved; MC §6).
-pub const MAX_KIND_V2: usize = 89;
+/// Highest record kind code of ABI v2 (S1 1e: FORT_GARRISONED; 89 reserved, MC §6).
+pub const MAX_KIND_V2: usize = 102;
 
 /// `(defined, key width, payload width)` per record kind code of ABI v2:
 /// [`WIDTHS`] for M1's kinds and `frontier_abi::v2::log::CQ_SPECS` for

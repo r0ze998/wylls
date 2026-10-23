@@ -68,6 +68,23 @@ pub const SNAPSHOT_MISMATCH: &str = "SnapshotMismatch";
 pub const MARCH_FOLD_MISMATCH: &str = "MarchFoldMismatch";
 // V22 land legality (conquest contract §8.5; partial: the outpost filing)
 pub const OUTPOST_ILLEGAL: &str = "OutpostIllegal";
+// V23 vaults and caravans (S1 stage 1b)
+/// A vault or caravan instruction left a Caravan, a slot or a raid other
+/// than the caravan kernel's.
+pub const CARAVAN_MISMATCH: &str = "CaravanMismatch";
+/// A vault built, credited, seized or closed against the rules.
+pub const VAULT_MISMATCH: &str = "VaultMismatch";
+// V24 watchtowers (S1 stage 1d)
+/// A tower built, seized or closed against the rules, or a Province's
+/// tower list that does not follow its Towers.
+pub const STRUCTURE_MISMATCH: &str = "StructureMismatch";
+/// A march's or a caravan's tower wear other than the tower kernel's (a
+/// slot's `WORN_BPS`, a gathered record, a transit, a caravan's cargo).
+pub const TOWER_WEAR_MISMATCH: &str = "TowerWearMismatch";
+// V25 nations (S1 stage 1e)
+/// A proposal, vote or settlement against the nation rules (a stance or
+/// an expulsion the votes did not pass, a vote counted twice).
+pub const NATION_MISMATCH: &str = "NationMismatch";
 // V17 capture bookkeeping (conquest contract §8.5; partial)
 pub const CAPTURE_RULE: &str = "CaptureRule";
 pub const CAPTURE_BOOKKEEPING: &str = "CaptureBookkeeping";
@@ -136,6 +153,11 @@ pub const FAIL_CODES: &[&str] = &[
     SIEGE_NOT_SETTLED,
     OUTPOST_AFTER_CLOSE,
     OUTPOST_ILLEGAL,
+    CARAVAN_MISMATCH,
+    VAULT_MISMATCH,
+    STRUCTURE_MISMATCH,
+    TOWER_WEAR_MISMATCH,
+    NATION_MISMATCH,
 ];
 
 /// Warning codes (PASS with a warning).

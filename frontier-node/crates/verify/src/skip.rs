@@ -339,17 +339,22 @@ pub fn replay_v2(
 ) -> Result<(Vec<u8>, Vec<crate::cqrec::Expected>), NotQuiet> {
     use frontier_abi::clash_model as m;
     use frontier_abi::conquest_model as cq;
-    use permutation_rules::frontier::clash as kc;
     let e = |b: u32| move |x: m::ModelError| (b, format!("{x:?}"));
     let mut pd = before.to_vec();
     let (p, q) = (
-        le(before.get(PV::P..PV::P + 2).ok_or((b0, "short Province".to_string()))?) as u16 as i16 as i32,
-        le(before.get(PV::Q..PV::Q + 2).ok_or((b0, "short Province".to_string()))?) as u16 as i16 as i32,
+        le(before
+            .get(PV::P..PV::P + 2)
+            .ok_or((b0, "short Province".to_string()))?) as u16 as i16 as i32,
+        le(before
+            .get(PV::Q..PV::Q + 2)
+            .ok_or((b0, "short Province".to_string()))?) as u16 as i16 as i32,
     );
     let mut records = vec![];
     let mut due = m::next_due(&pd).map_err(e(b0))?;
-    let mut masks: Option<([u8; permutation_rules::frontier::geometry::PROVINCE_TILES], u32)> =
-        None;
+    let mut masks: Option<(
+        [u8; permutation_rules::frontier::geometry::PROVINCE_TILES],
+        u32,
+    )> = None;
     for b in b0..b0 + n {
         let mut changed = false;
         let t = m::terrain_of(&pd).map_err(e(b))?;
@@ -360,9 +365,15 @@ pub fn replay_v2(
         }
         let built = m::build_v2(&pd, None, b)
             .map_err(|x| (b, format!("the province does not build: {x:?}")))?;
-        match kc::is_quiet(&kc::frontier_ruleset(), &built.input(&[0; 32])) {
+        match m::is_quiet_v2(&built) {
             Ok(true) => {}
-            Ok(false) => return Err((b, "the kernel's is_quiet is false".into())),
+            Ok(false) => {
+                return Err((
+                    b,
+                    "the bell is not quiet (the kernel's is_quiet, or a caravan a hostile host would raid)"
+                        .into(),
+                ))
+            }
             Err(x) => return Err((b, format!("the kernel cannot test quiet: {x:?}"))),
         }
         let mask = match masks {

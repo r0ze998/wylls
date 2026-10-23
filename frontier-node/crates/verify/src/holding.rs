@@ -24,16 +24,22 @@
 //!   conquest season: `catalog::train_v2`, K2: the Horseman at a Spearman's
 //!   ore and gold, every other unit as M1), `reserve[unit] += n` (whole
 //!   troops, I-56).
+//! - **S1** (redesign stage 1, program version 4; [`Rules::S1`]): base
+//!   production takes the holding's terrain ore (`TERRAIN_ORE`, written at
+//!   founding; 0 in M1 and MC holdings, whose base stays
+//!   `catalog::base_production`), Build accepts the workshop
+//!   (`arms::ITEM_WORKSHOP`, `arms::building`), Train pays
+//!   `arms::train_v3`, and the doctrines are `DOCTRINES_V3`.
 
 use frontier_abi::layout::player::{accrual, holding as H, queue_item as QI};
 use frontier_abi::layout::province::{province as PV, site as SM};
-use permutation_rules::fixed::MILLI;
-use permutation_rules::frontier::catalog;
 use frontier_abi::v2::presets::ConquestParams;
+use permutation_rules::fixed::MILLI;
 use permutation_rules::frontier::holding::{
     Accrual, Effect, Holding as KHolding, LifecycleParams, QueueItem, Resource, Tier, QUEUE_SLOTS,
     RESOURCES,
 };
+use permutation_rules::frontier::{arms, catalog};
 
 use crate::world::le;
 
@@ -228,7 +234,10 @@ pub fn write(d: &mut [u8], h: &KHolding, now: i64) -> Result<(), String> {
 
 /// `settle(now)` split at every finished tier-up, the new tier's base
 /// production applied from the tier-up's completion.
-pub fn settle_tiered(h: &mut KHolding, now: i64) -> Result<(), String> {
+///
+/// `terrain_ore`: the holding's `TERRAIN_ORE` ([`terrain_ore`]); 0 for an
+/// M1 or MC holding.
+pub fn settle_tiered(h: &mut KHolding, now: i64, terrain_ore: i64) -> Result<(), String> {
     loop {
         let next = h
             .queue
@@ -245,8 +254,8 @@ pub fn settle_tiered(h: &mut KHolding, now: i64) -> Result<(), String> {
             break;
         }
         let (a, b) = (
-            catalog::base_production(old),
-            catalog::base_production(h.tier),
+            base_production(old, terrain_ore),
+            base_production(h.tier, terrain_ore),
         );
         for r in 0..RESOURCES {
             h.production[r] = h.production[r].saturating_add(b[r] - a[r]);
@@ -265,7 +274,8 @@ pub fn settle_tiered(h: &mut KHolding, now: i64) -> Result<(), String> {
 pub fn settler_cost(holdings_n: u8) -> Option<[i64; RESOURCES]> {
     let mut c = [0i64; RESOURCES];
     for (r, base) in catalog::SETTLER_COST.iter().enumerate() {
-        let units = permutation_rules::frontier::holding::duplicate_cost(*base as u64, holdings_n as u32)?;
+        let units =
+            permutation_rules::frontier::holding::duplicate_cost(*base as u64, holdings_n as u32)?;
         c[r] = i64::try_from(units).ok()?.checked_mul(MILLI)?;
     }
     Some(c)
@@ -276,40 +286,140 @@ pub fn settler_cost(holdings_n: u8) -> Option<[i64; RESOURCES]> {
 /// `load_touched`, `pay`, `write_holding`).
 pub fn touched_paid(before: &[u8], now: i64, cost: &[i64; RESOURCES]) -> Result<Vec<u8>, String> {
     let mut h = read(before)?;
-    touch(&mut h, now)?;
+    touch(&mut h, now, terrain_ore(before)?)?;
     h.pay(now, cost).map_err(|e| format!("pay: {e:?}"))?;
     let mut d = before.to_vec();
     write(&mut d, &h, now)?;
     Ok(d)
 }
 
+/// The Holding a caravan's delivery leaves (S1 1b, the program's
+/// `settle_caravan`): settled to `now` (no owner touch), the cargo
+/// credited resource by resource.
+pub fn credited(before: &[u8], now: i64, cargo: &[i64; RESOURCES]) -> Result<Vec<u8>, String> {
+    let mut h = read(before)?;
+    settle_tiered(&mut h, now, terrain_ore(before)?)?;
+    for (r, c) in cargo.iter().enumerate() {
+        if *c > 0 {
+            h.credit(now, Resource::ALL[r], *c)
+                .map_err(|e| format!("credit: {e:?}"))?;
+        }
+    }
+    let mut d = before.to_vec();
+    write(&mut d, &h, now)?;
+    Ok(d)
+}
+
 /// The owner touch.
-pub fn touch(h: &mut KHolding, now: i64) -> Result<(), String> {
-    settle_tiered(h, now)?;
+pub fn touch(h: &mut KHolding, now: i64, terrain_ore: i64) -> Result<(), String> {
+    settle_tiered(h, now, terrain_ore)?;
     h.touch_owner(now)
         .map_err(|e| format!("touch_owner: {e:?}"))?;
     h.commit_walls(now);
     Ok(())
 }
 
-/// Copy number of building `item` (0..6) the next Build makes.
-pub fn copy_number(h: &KHolding, item: u8) -> Result<u32, String> {
-    let bd = catalog::BUILDINGS
-        .get(item as usize)
-        .ok_or(format!("build item {item}"))?;
-    let r = bd.resource as usize;
-    let per = bd.per_hour.saturating_mul(MILLI);
-    let base = catalog::base_production(h.tier)[r];
+/// Copy number of building `item` (0..6, or the S1 workshop) the next
+/// Build makes: production above the tier's base ([`base_production`])
+/// over the building's rate, plus queued copies, plus one; a workshop's
+/// from the arms production (`arms::WORKSHOP_DELTA`, no base).
+pub fn copy_number(h: &KHolding, item: u8, terrain_ore: i64) -> Result<u32, String> {
+    let (resource, per, base) = if item == arms::ITEM_WORKSHOP {
+        (arms::ARMS, arms::WORKSHOP_DELTA, 0)
+    } else {
+        let bd = catalog::BUILDINGS
+            .get(item as usize)
+            .ok_or(format!("build item {item}"))?;
+        let per = bd.per_hour.saturating_mul(MILLI);
+        (
+            bd.resource,
+            per,
+            base_production(h.tier, terrain_ore)[bd.resource as usize],
+        )
+    };
+    let r = resource as usize;
     let built = (h.production[r].saturating_sub(base)).max(0) / per.max(1);
     let queued = h
         .queue
         .iter()
         .flatten()
-        .filter(
-            |q| matches!(q.effect, Effect::Production { resource, .. } if resource == bd.resource),
-        )
+        .filter(|q| matches!(q.effect, Effect::Production { resource: x, .. } if x == resource))
         .count() as i64;
     u32::try_from(built + queued + 1).map_err(|_| "copy number".to_string())
+}
+
+/// A holding's base production at tier `t` from its `TERRAIN_ORE`
+/// (`arms::holding_base_production`: S1's when > 0, else M1's and MC's).
+pub fn base_production(t: Tier, terrain_ore: i64) -> [i64; RESOURCES] {
+    arms::holding_base_production(t, terrain_ore)
+}
+
+/// S1: the terrain ore of `tile` in a Province's data (the program's
+/// `site_terrain_ore`, an independent call of the kernel over the stored
+/// terrain block).
+pub fn site_terrain_ore(province: &[u8], tile: u8) -> Result<i64, String> {
+    let t: &[u8; 61] = province
+        .get(PV::TERRAIN..PV::TERRAIN + 61)
+        .and_then(|x| x.try_into().ok())
+        .ok_or("province: short")?;
+    let r: &[u8; 61] = province
+        .get(PV::RESOURCE..PV::RESOURCE + 61)
+        .and_then(|x| x.try_into().ok())
+        .ok_or("province: short")?;
+    arms::terrain_ore_per_hour_bytes(t, r, tile).ok_or_else(|| format!("tile {tile}"))
+}
+
+/// The holding's `TERRAIN_ORE` (S1; 0 in M1 and MC holdings).
+pub fn terrain_ore(d: &[u8]) -> Result<i64, String> {
+    let o = frontier_abi::v2::layout::player::holding::TERRAIN_ORE;
+    d.get(o..o + 8)
+        .map(|b| le(b) as i64)
+        .ok_or_else(|| "holding: short".to_string())
+}
+
+/// The kernel holding of `d` settled to `now` (tier-aware).
+pub fn read_settled(d: &[u8], now: i64) -> Result<KHolding, String> {
+    let mut h = read(d)?;
+    settle_tiered(&mut h, now, terrain_ore(d)?)?;
+    Ok(h)
+}
+
+/// The kernel holding of `d` after an owner touch at `now`.
+pub fn read_touched(d: &[u8], now: i64) -> Result<KHolding, String> {
+    let mut h = read(d)?;
+    touch(&mut h, now, terrain_ore(d)?)?;
+    Ok(h)
+}
+
+/// The rules a season runs under, where the replay differs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Rules {
+    M1,
+    /// The conquest rules (program version 3).
+    Mc,
+    /// The S1 rules (program version 4): MC plus the arms economy.
+    S1,
+}
+
+impl Rules {
+    pub fn of(conquest: bool, s1: bool) -> Rules {
+        match (conquest, s1) {
+            (_, true) => Rules::S1,
+            (true, false) => Rules::Mc,
+            _ => Rules::M1,
+        }
+    }
+
+    /// The faction's doctrine under these rules.
+    pub fn doctrine(
+        self,
+        f: u8,
+    ) -> Option<&'static permutation_rules::frontier::doctrine::Doctrine> {
+        match self {
+            Rules::S1 => permutation_rules::frontier::doctrine::of_faction_v3(f),
+            _ => permutation_rules::frontier::doctrine::of_faction(f),
+        }
+    }
 }
 
 /// HARVEST's digest: `sha256` of the eight stores.
@@ -333,11 +443,18 @@ pub fn cost_digest(c: &[i64; RESOURCES]) -> [u8; 32] {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
     Harvest,
-    Build { item: u8 },
-    Train { unit: u8, n: u32 },
+    Build {
+        item: u8,
+    },
+    Train {
+        unit: u8,
+        n: u32,
+    },
     /// FileOutpost's anchor (MC §3.8): the touch and the settler cost of
     /// the citizen's next holding, logged as a HARVEST of the anchor.
-    OutpostAnchor { holdings_n: u8 },
+    OutpostAnchor {
+        holdings_n: u8,
+    },
 }
 
 /// What a replayed action leaves: the Holding bytes, the record payload it
@@ -350,17 +467,19 @@ pub struct Replayed {
 }
 
 /// Replays one owner action at `now` over the Holding bytes `before`;
-/// `conquest` selects the conquest rules where they differ (Train's
-/// `catalog::train_v2`, K2).
+/// `rules` selects the conquest rules (Train's `catalog::train_v2`, K2)
+/// or the S1 rules (the workshop, `arms::train_v3`, `DOCTRINES_V3`) where
+/// they differ.
 pub fn replay(
     before: &[u8],
     a: &Action,
     now: i64,
     genesis_ts: i64,
-    conquest: bool,
+    rules: Rules,
 ) -> Result<Replayed, String> {
     let mut h = read(before)?;
-    touch(&mut h, now)?;
+    let ore = terrain_ore(before)?;
+    touch(&mut h, now, ore)?;
     let mut d = before.to_vec();
     match *a {
         Action::Harvest => {
@@ -373,13 +492,14 @@ pub fn replay(
             })
         }
         Action::Build { item } => {
-            if item > ITEM_TIER_UP {
+            let workshop = rules == Rules::S1 && item == arms::ITEM_WORKSHOP;
+            if item > ITEM_TIER_UP && !workshop {
                 return Err(format!("build item {item}"));
             }
             let walls = item == catalog::ITEM_WALLS;
-            let doctrine =
-                permutation_rules::frontier::doctrine::of_faction(u8_at(before, H::FACTION)?)
-                    .ok_or("holding: faction")?;
+            let doctrine = rules
+                .doctrine(u8_at(before, H::FACTION)?)
+                .ok_or("holding: faction")?;
             let (cost, effect, secs) = if item == ITEM_TIER_UP {
                 if h.queue
                     .iter()
@@ -390,8 +510,17 @@ pub fn replay(
                 }
                 catalog::tier_up_item(h.tier).ok_or("tier-up at the top tier")?
             } else {
-                let n = if walls { 1 } else { copy_number(&h, item)? };
-                catalog::building(item, n, doctrine).ok_or(format!("build item {item}"))?
+                let n = if walls {
+                    1
+                } else {
+                    copy_number(&h, item, ore)?
+                };
+                if rules == Rules::S1 {
+                    arms::building(item, n, doctrine)
+                } else {
+                    catalog::building(item, n, doctrine)
+                }
+                .ok_or(format!("build item {item}"))?
             };
             let intro = item < catalog::ITEM_WALLS
                 && u8_at(before, H::FLAGS)? & H::FLAG_INTRO_BUILD_AVAILABLE != 0;
@@ -433,10 +562,10 @@ pub fn replay(
             })
         }
         Action::Train { unit, n } => {
-            let cost = if conquest {
-                catalog::train_v2(unit, n)
-            } else {
-                catalog::train(unit, n)
+            let cost = match rules {
+                Rules::S1 => arms::train_v3(unit, n),
+                Rules::Mc => catalog::train_v2(unit, n),
+                Rules::M1 => catalog::train(unit, n),
             }
             .ok_or(format!("train unit {unit} n {n}"))?;
             h.pay(now, &cost).map_err(|e| format!("pay: {e:?}"))?;
@@ -532,7 +661,7 @@ pub fn accrual_diff(a: &[u8], b: &[u8]) -> Option<usize> {
 /// accrual (the program's `load_touched` + `write_holding`).
 pub fn touched(before: &[u8], now: i64) -> Result<Vec<u8>, String> {
     let mut h = read(before)?;
-    touch(&mut h, now)?;
+    touch(&mut h, now, terrain_ore(before)?)?;
     let mut d = before.to_vec();
     write(&mut d, &h, now)?;
     Ok(d)
@@ -568,17 +697,20 @@ pub fn founding_shield(cq: &ConquestParams, order: u8, now: i64, genesis_ts: i64
 /// independent transcription of the program's `founded_holding` and
 /// `founded_outpost` (`proc/citizen.rs`). `shield`: the conquest season's
 /// founding shield ([`founding_shield`]), written as is; `None` in an M1
-/// season, whose shield [`write`] rewrites from M1's constants. The rest of
-/// `post` is kept.
+/// season, whose shield [`write`] rewrites from M1's constants.
+/// `terrain_ore`: an S1 season's site terrain ore ([`site_terrain_ore`]),
+/// the base ore and the `TERRAIN_ORE` written; `None` before S1. The rest
+/// of `post` is kept.
 pub fn founded(
     post: &[u8],
     now: i64,
     day: u32,
     order: u8,
     shield: Option<i64>,
+    terrain_ore: Option<i64>,
 ) -> Result<Vec<u8>, String> {
     let mut h = KHolding::found(now, day, order);
-    h.production = catalog::base_production(Tier::Hamlet);
+    h.production = base_production(Tier::Hamlet, terrain_ore.unwrap_or(0));
     h.set_upkeep(now, Resource::Food, 0)
         .map_err(|e| format!("set_upkeep: {e:?}"))?;
     if order <= 1 {
@@ -597,6 +729,10 @@ pub fn founded(
     if let Some(s) = shield {
         put(&mut d, H::SHIELD_UNTIL, &s.to_le_bytes())?;
     }
+    if let Some(o) = terrain_ore {
+        let at = frontier_abi::v2::layout::player::holding::TERRAIN_ORE;
+        put(&mut d, at, &o.to_le_bytes())?;
+    }
     if post[H::FLAGS] & H::FLAG_INTRO_BUILD_AVAILABLE != 0 {
         d[H::FLAGS] |= H::FLAG_INTRO_BUILD_AVAILABLE;
     }
@@ -611,14 +747,21 @@ mod intro_tests {
         let now = 1_800_000_000;
         let mut initial = vec![0u8; H::SIZE];
         initial[H::FLAGS] = H::FLAG_INTRO_BUILD_AVAILABLE;
-        let initial = founded(&initial, now, 0, 1, None).unwrap();
-        let first = replay(&initial, &Action::Build { item: 0 }, now, now, false).unwrap();
+        let initial = founded(&initial, now, 0, 1, None, None).unwrap();
+        let first = replay(&initial, &Action::Build { item: 0 }, now, now, Rules::M1).unwrap();
         assert_eq!(
             i64_at(&first.holding, H::queue(0) + QI::DONE_AT).unwrap(),
             now + 60
         );
         assert_eq!(first.holding[H::FLAGS] & H::FLAG_INTRO_BUILD_AVAILABLE, 0);
-        let next = replay(&first.holding, &Action::Build { item: 1 }, now, now, false).unwrap();
+        let next = replay(
+            &first.holding,
+            &Action::Build { item: 1 },
+            now,
+            now,
+            Rules::M1,
+        )
+        .unwrap();
         assert_eq!(
             i64_at(&next.holding, H::queue(1) + QI::DONE_AT).unwrap(),
             now + 60 + 5400
@@ -628,7 +771,7 @@ mod intro_tests {
             x[H::FLAGS] = 0;
             x
         };
-        let normal = replay(&legacy, &Action::Build { item: 0 }, now, now, false).unwrap();
+        let normal = replay(&legacy, &Action::Build { item: 0 }, now, now, Rules::M1).unwrap();
         assert_eq!(
             i64_at(&normal.holding, H::queue(0) + QI::DONE_AT).unwrap(),
             now + 5400
@@ -640,22 +783,70 @@ mod intro_tests {
     #[test]
     fn conquest_train_pays_the_v2_cost() {
         let now = 1_800_000_000;
-        let initial = founded(&vec![0u8; H::SIZE], now, 0, 1, None).unwrap();
+        let initial = founded(&vec![0u8; H::SIZE], now, 0, 1, None, None).unwrap();
         let horse = Action::Train { unit: 2, n: 100 };
         let spear = Action::Train { unit: 0, n: 100 };
-        let m1 = replay(&initial, &horse, now, now, false).unwrap();
-        let mc = replay(&initial, &horse, now, now, true).unwrap();
+        let m1 = replay(&initial, &horse, now, now, Rules::M1).unwrap();
+        let mc = replay(&initial, &horse, now, now, Rules::Mc).unwrap();
         let ore = |d: &[u8]| i64_at(d, H::store(Resource::Ore as usize) + accrual::VALUE).unwrap();
-        assert!(ore(&mc.holding) > ore(&m1.holding), "M1 charges the cavalry surcharge");
-        let spear_m1 = replay(&initial, &spear, now, now, false).unwrap();
-        let spear_mc = replay(&initial, &spear, now, now, true).unwrap();
-        assert_eq!(spear_m1.holding, spear_mc.holding, "the Spearman costs the same");
+        assert!(
+            ore(&mc.holding) > ore(&m1.holding),
+            "M1 charges the cavalry surcharge"
+        );
+        let spear_m1 = replay(&initial, &spear, now, now, Rules::M1).unwrap();
+        let spear_mc = replay(&initial, &spear, now, now, Rules::Mc).unwrap();
+        assert_eq!(
+            spear_m1.holding, spear_mc.holding,
+            "the Spearman costs the same"
+        );
         assert_eq!(
             stores_digest(&mc.holding).unwrap(),
             stores_digest(&spear_mc.holding).unwrap(),
             "a conquest Horseman costs a Spearman's"
         );
         assert_eq!(u32_at(&mc.holding, H::reserve(2)).unwrap(), 100);
+    }
+
+    /// S1: a founding writes the site's terrain ore and takes it as the
+    /// base ore; Build accepts the workshop only under the S1 rules; Train
+    /// charges the strong units arms.
+    #[test]
+    fn s1_founding_workshop_and_arms_training() {
+        let now = 1_800_000_000;
+        let ore = 9 * MILLI;
+        let d = founded(&vec![0u8; H::SIZE], now, 0, 1, None, Some(ore)).unwrap();
+        assert_eq!(terrain_ore(&d).unwrap(), ore);
+        let h = read(&d).unwrap();
+        assert_eq!(h.production, arms::base_production(Tier::Hamlet, ore));
+        // The ore building's first copy counts above the terrain base.
+        assert_eq!(copy_number(&h, 3, ore).unwrap(), 1);
+        // The workshop is item 8 under S1 and refused before.
+        let w = Action::Build {
+            item: arms::ITEM_WORKSHOP,
+        };
+        assert!(replay(&d, &w, now, now, Rules::Mc).is_err());
+        let built = replay(&d, &w, now, now, Rules::S1).unwrap();
+        let hb = read(&built.holding).unwrap();
+        assert!(hb.queue.iter().flatten().any(|q| q.effect
+            == Effect::Production {
+                resource: arms::ARMS,
+                delta: arms::WORKSHOP_DELTA
+            }));
+        // A Pikeman needs arms the founded holding does not have.
+        let pike = Action::Train { unit: 3, n: 100 };
+        assert!(replay(&d, &pike, now, now, Rules::Mc).is_ok());
+        assert!(replay(&d, &pike, now, now, Rules::S1).is_err());
+        // A Spearman costs no arms.
+        let spear = Action::Train { unit: 0, n: 100 };
+        assert_eq!(
+            replay(&d, &spear, now, now, Rules::S1).unwrap().holding,
+            replay(&d, &spear, now, now, Rules::Mc).unwrap().holding
+        );
+        // M1 and MC holdings (TERRAIN_ORE 0) keep the flat base.
+        assert_eq!(
+            base_production(Tier::Town, 0),
+            catalog::base_production(Tier::Town)
+        );
     }
 
     /// A conquest founding's shield is the season's for the order (MC
@@ -668,18 +859,25 @@ mod intro_tests {
         let g = 1_800_000_000;
         let cq = FRONTIER_28;
         assert_eq!(founding_shield(&cq, 1, g + 10, g), Some(g + 10 + 172_800));
-        assert_eq!(founding_shield(&cq, 1, g + 604_800, g), Some(g + 604_800 + 259_200));
+        assert_eq!(
+            founding_shield(&cq, 1, g + 604_800, g),
+            Some(g + 604_800 + 259_200)
+        );
         assert_eq!(founding_shield(&cq, 2, g + 10, g), Some(g + 10 + 7_200));
-        assert_eq!(founding_shield(&cq, 3, g + 604_800, g), Some(g + 604_800 + 7_200));
+        assert_eq!(
+            founding_shield(&cq, 3, g + 604_800, g),
+            Some(g + 604_800 + 7_200)
+        );
         let mut post = vec![0u8; H::SIZE];
         post[HDR::LAYOUT_VERSION..HDR::LAYOUT_VERSION + 2].copy_from_slice(&2u16.to_le_bytes());
-        let first = founded(&post, g + 10, 0, 1, Some(g + 172_810)).unwrap();
+        let first = founded(&post, g + 10, 0, 1, Some(g + 172_810), None).unwrap();
         assert_eq!(i64_at(&first, H::SHIELD_UNTIL).unwrap(), g + 172_810);
         assert_eq!(first[H::ORDER], 1);
-        let outpost = founded(&post, g + 10, 0, 2, Some(g + 7_210)).unwrap();
+        let outpost = founded(&post, g + 10, 0, 2, Some(g + 7_210), None).unwrap();
         assert_eq!(i64_at(&outpost, H::SHIELD_UNTIL).unwrap(), g + 7_210);
         assert_eq!(outpost[H::ORDER], 2);
-        let food = |d: &[u8]| i64_at(d, H::store(Resource::Food as usize) + accrual::VALUE).unwrap();
+        let food =
+            |d: &[u8]| i64_at(d, H::store(Resource::Food as usize) + accrual::VALUE).unwrap();
         assert!(food(&first) > 0, "the first holding has the starter kit");
         assert_eq!(food(&outpost), 0, "an outpost has none");
     }

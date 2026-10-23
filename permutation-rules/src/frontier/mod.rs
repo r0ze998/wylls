@@ -13,10 +13,16 @@ pub const RULES_VERSION_FRONTIER: u16 = 10;
 /// M1's `RULESET_HASH` is unchanged, and the conquest rules are bound by
 /// [`ruleset_hash_input_v2`] / [`ruleset_hash_v2`] instead.
 pub const RULES_VERSION_FRONTIER_V2: u16 = 11;
+/// Rules version of the S1 rules (redesign stage 1: 11 → 12), bound by
+/// [`ruleset_hash_input_v3`] / [`ruleset_hash_v3`]. The M1 and MC hashes
+/// are unchanged.
+pub const RULES_VERSION_FRONTIER_V3: u16 = 12;
 
 pub mod addr;
+pub mod arms;
 pub mod beacon;
 pub mod camp;
+pub mod caravan;
 pub mod catalog;
 pub mod clash;
 pub mod control;
@@ -30,13 +36,16 @@ pub mod index;
 pub mod keep;
 pub mod laurel;
 pub mod mandate;
+pub mod nation;
 pub mod office;
 pub mod payout;
 pub mod pools;
 pub mod seal;
 pub mod siege;
 pub mod stance;
+pub mod structure;
 pub mod terrain;
+
 pub mod travel;
 
 /// Domain of the ruleset hash input (version 1 of its layout).
@@ -328,4 +337,90 @@ pub const RULESET_V2_TABLES_TAG: &[u8] = b"MC-TABLES-v1";
 /// `frontier-abi`'s `RULESET_HASH_V2` test, CQ1-C).
 pub fn ruleset_hash_v2() -> [u8; 32] {
     crate::hash::sha256(&[&ruleset_hash_input_v2()])
+}
+
+// ====================================================================
+// The S1 rules' ruleset hash (redesign stage 1)
+// ====================================================================
+
+/// Domain of the S1 rules' ruleset hash input.
+pub const RULESET_DOMAIN_V3: &[u8] = b"PSF-RULESET-v3";
+
+/// The S1 rules' kernel versions (pinned order, append only): the MC
+/// list with the S1 bumps (frontier 12, catalog 3, doctrine 3, holding 4),
+/// then `arms` (1a), `caravan` (1b), `structure` (1d, 1e) and `nation`
+/// (1e).
+pub const KERNEL_VERSIONS_V3: [(&str, u16); 29] = [
+    ("frontier", RULES_VERSION_FRONTIER_V3),
+    ("beacon", beacon::BEACON_VERSION),
+    ("addr", addr::ADDR_VERSION),
+    ("seal", seal::SEAL_VERSION),
+    ("fees", fees::FEES_VERSION),
+    ("office", office::OFFICE_VERSION),
+    ("camp", camp::CAMP_VERSION_V2),
+    ("explore", explore::EXPLORE_VERSION),
+    ("catalog", catalog::CATALOG_VERSION_V3),
+    ("clash", clash::CLASH_VERSION_V4),
+    ("siege", siege::SIEGE_VERSION_V3),
+    ("doctrine", doctrine::DOCTRINE_VERSION_V3),
+    ("terrain", terrain::TERRAIN_VERSION_V2),
+    ("travel", travel::TRAVEL_VERSION),
+    ("holding", holding::HOLDING_VERSION_V4),
+    ("host", host::HOST_VERSION),
+    ("geometry", geometry::GEOMETRY_VERSION_V2),
+    ("stance", stance::STANCE_VERSION),
+    ("index", index::INDEX_VERSION),
+    ("laurel", laurel::LAUREL_VERSION),
+    ("mandate", mandate::MANDATE_VERSION),
+    ("payout", payout::PAYOUT_VERSION),
+    ("pools", pools::POOLS_VERSION),
+    ("keep", keep::KEEP_VERSION),
+    ("control", control::CONTROL_VERSION),
+    ("arms", arms::ARMS_VERSION),
+    ("caravan", caravan::CARAVAN_VERSION),
+    ("structure", structure::STRUCTURE_VERSION),
+    ("nation", nation::NATION_VERSION),
+];
+
+/// Marks the S1 tables appended to [`ruleset_hash_input_v3`].
+pub const RULESET_V3_TABLES_TAG: &[u8] = b"S1-TABLES-v1";
+
+/// The bytes `RULESET_HASH_V3` is the sha256 of: exactly
+/// [`ruleset_hash_input_v2`] with [`RULESET_DOMAIN_V3`] and
+/// [`KERNEL_VERSIONS_V3`] in place of its domain and versions, then
+/// [`RULESET_V3_TABLES_TAG`], the arms tables (`arms::write_tables`), the S1
+/// catalog table (`catalog::write_tables_v3`), the S1 doctrine table
+/// (`doctrine::write_table_v3`), the caravan tables
+/// (`caravan::write_tables`), the structure tables (`structure::write_tables`)
+/// and the nation tables (`nation::write_tables`).
+/// The M1 and MC inputs are not changed.
+pub fn ruleset_hash_input_v3() -> alloc::vec::Vec<u8> {
+    let v2 = ruleset_hash_input_v2();
+    let mut skip = RULESET_DOMAIN_V2.len() + 1;
+    for (name, _) in KERNEL_VERSIONS_V2 {
+        skip += 1 + name.len() + 2;
+    }
+    let mut out = alloc::vec::Vec::with_capacity(v2.len() + 1_024);
+    out.extend_from_slice(RULESET_DOMAIN_V3);
+    out.push(KERNEL_VERSIONS_V3.len() as u8);
+    for (name, v) in KERNEL_VERSIONS_V3 {
+        out.push(name.len() as u8);
+        out.extend_from_slice(name.as_bytes());
+        out.extend_from_slice(&v.to_le_bytes());
+    }
+    out.extend_from_slice(&v2[skip..]);
+    out.extend_from_slice(RULESET_V3_TABLES_TAG);
+    arms::write_tables(&mut out);
+    catalog::write_tables_v3(&mut out);
+    doctrine::write_table_v3(&mut out);
+    caravan::write_tables(&mut out);
+    structure::write_tables(&mut out);
+    nation::write_tables(&mut out);
+    out
+}
+
+/// `RULESET_HASH_V3 = sha256(ruleset_hash_input_v3())` (pinned by
+/// `frontier-abi`'s `RULESET_HASH_V3` test).
+pub fn ruleset_hash_v3() -> [u8; 32] {
+    crate::hash::sha256(&[&ruleset_hash_input_v3()])
 }

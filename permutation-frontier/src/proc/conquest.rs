@@ -59,9 +59,8 @@ use frontier_abi::v2::presets::cq_layout as CQ;
 use frontier_abi::v2::prologue as p2;
 use frontier_abi::v2::tags::Ix as Ix2;
 use permutation_rules::fixed::MILLI;
-use permutation_rules::frontier::catalog;
 use permutation_rules::frontier::clash::NEUTRAL;
-use permutation_rules::frontier::doctrine::of_faction;
+use permutation_rules::frontier::doctrine::of_faction_v3 as of_faction;
 use permutation_rules::frontier::geometry::ProvinceCoord;
 use permutation_rules::frontier::holding::{capture_effects, Holding as KHolding, Resource, Tier};
 use permutation_rules::frontier::siege::{self, HoldingKind, Relation, SiegeCheckV3, SiegeRefusal};
@@ -370,8 +369,8 @@ pub mod cqlog {
     use crate::error::{Error, BAD_ACCOUNT, OVERFLOW};
     use crate::layout::{chain_of, set_chain};
 
-    /// Highest kind code a v2 record carries (88).
-    pub const MAX_KIND: usize = 89;
+    /// Highest kind code a v2 record carries (102: S1's FORT_GARRISONED).
+    pub const MAX_KIND: usize = 102;
 
     /// `(defined, key width, payload width)` per kind: M1's and MC's.
     pub const WIDTHS: [(bool, u16, u16); MAX_KIND + 1] = {
@@ -798,9 +797,11 @@ pub fn declare_siege(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         return Err(cq(CqError::TooLate));
     }
 
-    // 10. The stake from the source Holding; the escrow for a capture.
+    // 10. The stake from the source Holding; the escrow for a capture. S1
+    // (1e): the siege's arms too, burned (`arms::siege_cost`; the program
+    // runs S1 seasons only).
     let mut h = hold::load_touched(src, now)?;
-    let mut cost = [0i64; permutation_rules::frontier::holding::RESOURCES];
+    let mut cost = permutation_rules::frontier::arms::siege_cost();
     cost[GOLD] = (stake_gold as i64).checked_mul(MILLI).ok_or(OVERFLOW)?;
     h.pay(now, &cost).map_err(hold::holding_err)?;
     let mut topped = 0u64;
@@ -1037,11 +1038,11 @@ pub fn settle_siege(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             false
         };
         if live {
-            let mut h = {
+            let (mut h, ore) = {
                 let hd = recipient.try_borrow_data()?;
-                hold::read_holding(&hd)?
+                (hold::read_holding(&hd)?, hold::terrain_ore(&hd)?)
             };
-            hold::settle_tiered(&mut h, now.ts)?;
+            hold::settle_tiered(&mut h, now.ts, ore)?;
             let (add, burn) = credit_capped(&mut h, milli);
             {
                 let mut hd = recipient.try_borrow_mut_data()?;
@@ -1140,7 +1141,7 @@ pub fn settle_siege(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 // ------------------------------------------------------------ SettleCapture
 
 /// The `HoldingRef` (slot `slot`) of a Citizen: `(P, Q, site, gen)`.
-fn holding_ref(cd: &[u8], slot: u8) -> R<(i16, i16, u8, u8)> {
+pub(crate) fn holding_ref(cd: &[u8], slot: u8) -> R<(i16, i16, u8, u8)> {
     let o = C::holding_of_slot(slot);
     let r = Ro(cd);
     Ok((r.i16(o)?, r.i16(o + 2)?, r.u8(o + 4)?, r.u8(o + 5)?))
@@ -1194,17 +1195,19 @@ pub fn settle_capture(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     };
     let (pp, pq, _) = province_v2(p, &ctx, sid, province)?;
     let site = x.site as usize;
-    let (rec, mgen, mtier, tile) = {
+    let (rec, mgen, mtier, tile, site_ore) = {
         let pd = province.try_borrow_data()?;
         let r = Ro(&pd);
         if site >= (r.u8(P::SITE_COUNT)? as usize).min(P::SITES_N) {
             return Err(FrontierError::BadData.into());
         }
+        let tile = r.u8(P::SITES + site)?;
         (
             Record::read(&pd, site)?,
             m8(&pd, site, SM::GEN)?,
             m8(&pd, site, SM::TIER)?,
-            r.u8(P::SITES + site)?,
+            tile,
+            hold::site_terrain_ore(&pd, tile)?,
         )
     };
     // 1. Capture due.
@@ -1274,7 +1277,8 @@ pub fn settle_capture(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         for s in h.stores.iter_mut() {
             s.cap = tier.storage_cap();
         }
-        h.production = catalog::base_production(tier);
+        // S1: a captured Free City's base ore is its site's terrain ore.
+        h.production = permutation_rules::frontier::arms::base_production(tier, site_ore);
         h.set_upkeep(now.ts, Resource::Food, 0)
             .map_err(|_| kernel(sub::HOLDING))?;
         {
@@ -1296,8 +1300,11 @@ pub fn settle_capture(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             w.set_u8(H::PREV_GEN, mgen.wrapping_sub(1))?;
             w.set_u8(H::CAPTURE_FLAGS, H::CAPTURE_FLAG_CAPTURED)?;
             w.set_u32(H::CAPTURED_BELL, rec.bell)?;
+            w.set_i64(H::TERRAIN_ORE, site_ore)?;
             hold::write_holding(&mut hd, &h, now.ts)?;
             Rw(&mut hd).set_i64(H::SHIELD_UNTIL, 0)?;
+            // S1 1e: the captor's expelled state.
+            super::nation::mark_holding(&mut hd, &captor_c.try_borrow_data()?)?;
         }
         walls_after = 0;
     } else {
@@ -1390,11 +1397,11 @@ pub fn settle_capture(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         )?;
         rent_moved = rent;
         // The Holding changes hands (§3.6).
-        let mut h = {
+        let (mut h, ore) = {
             let hd = holding.try_borrow_data()?;
-            hold::read_holding(&hd)?
+            (hold::read_holding(&hd)?, hold::terrain_ore(&hd)?)
         };
-        hold::settle_tiered(&mut h, now.ts)?;
+        hold::settle_tiered(&mut h, now.ts, ore)?;
         let doctrine = *of_faction(captor_faction).ok_or(BAD_ACCOUNT)?;
         let eff = capture_effects(&h, doctrine);
         h.walls = eff.walls;
@@ -1428,6 +1435,8 @@ pub fn settle_capture(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             for u in 0..H::RESERVE_N {
                 w.set_u32(H::RESERVE + 4 * u, 0)?;
             }
+            // S1 1e: the captor's expelled state, not the victim's.
+            super::nation::mark_holding(&mut hd, &captor_c.try_borrow_data()?)?;
         }
         // The victim's Citizen and JoinShard.
         {
@@ -1468,11 +1477,11 @@ pub fn settle_capture(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         false
     };
     if stake_live && stake_h.key != holding.key {
-        let mut h = {
+        let (mut h, ore) = {
             let sd = stake_h.try_borrow_data()?;
-            hold::read_holding(&sd)?
+            (hold::read_holding(&sd)?, hold::terrain_ore(&sd)?)
         };
-        hold::settle_tiered(&mut h, now.ts)?;
+        hold::settle_tiered(&mut h, now.ts, ore)?;
         let milli = (stake_gold as i64).checked_mul(MILLI).ok_or(OVERFLOW)?;
         credit_capped(&mut h, milli);
         let mut sd = stake_h.try_borrow_mut_data()?;

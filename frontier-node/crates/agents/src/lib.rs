@@ -36,6 +36,7 @@ pub mod policy;
 pub mod profile;
 pub mod recorded;
 pub mod rng;
+pub mod rules;
 
 pub use persona::Persona;
 pub use profile::{profile, AgentSpec, Arch, Mix, Profile, ARCHS};

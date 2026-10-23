@@ -774,8 +774,8 @@ mod cq {
     use frontier_abi::v2::layout::province::site as SM2;
     use frontier_abi::v2::layout::world::join_shard as JS2;
     use frontier_abi::v2::presets::{
-        ConquestParams, FRONTIER_7, MC_TEST, PROGRAM_VERSION_V2, RULESET_HASH_V2,
-        SEASON_CQ_OFFSET,
+        ConquestParams, FRONTIER_7, MC_TEST, PROGRAM_VERSION_S1, PROGRAM_VERSION_V2,
+        RULESET_HASH_V2, RULESET_HASH_V3, SEASON_CQ_OFFSET,
     };
     use permutation_frontier_svm_tests::ix::season as six;
     use permutation_frontier_svm_tests::records::{cq_records, one_cq};
@@ -790,10 +790,14 @@ mod cq {
         let w = World::announced(&mut c, 1);
         let l = expect_lands(w.create(&mut c), "CreateSeason v2");
         let d = c.data(&w.a.season);
-        assert_eq!(&d[S::RULESET_HASH..S::RULESET_HASH + 32], &RULESET_HASH_V2);
+        // S1: the S1 program writes its own hash, rules and program
+        // version over the same conquest block.
+        assert_eq!(&d[S::RULESET_HASH..S::RULESET_HASH + 32], &RULESET_HASH_V3);
+        assert_ne!(RULESET_HASH_V3, RULESET_HASH_V2, "MC's is another");
         assert_ne!(RULESET_HASH_V2, presets::RULESET_HASH, "M1's is another");
-        assert_eq!(rd_u16(&d, S::RULES_VERSION), 11);
-        assert_eq!(rd_u16(&d, S::PROGRAM_VERSION), PROGRAM_VERSION_V2);
+        assert_eq!(rd_u16(&d, S::RULES_VERSION), 12);
+        assert_eq!(rd_u16(&d, S::PROGRAM_VERSION), PROGRAM_VERSION_S1);
+        const { assert!(PROGRAM_VERSION_S1 > PROGRAM_VERSION_V2) };
         assert_eq!(
             ConquestParams::of_season(&d),
             Some(w.params.cq),
@@ -802,8 +806,8 @@ mod cq {
         assert_eq!(w.params.cq, ConquestParams { ..FRONTIER_7 });
         assert_eq!(SEASON_CQ_OFFSET, 896);
         let r = one(&l.logs, Kind::SEASON_CREATED);
-        assert_eq!(r.field("ruleset_hash", true), &RULESET_HASH_V2);
-        assert_eq!(r.u64("program_version"), u64::from(PROGRAM_VERSION_V2));
+        assert_eq!(r.field("ruleset_hash", true), &RULESET_HASH_V3);
+        assert_eq!(r.u64("program_version"), u64::from(PROGRAM_VERSION_S1));
     }
 
     /// G13 (§5.2.5): CreateSeason v2's refusals: M1-shaped data, M1's
@@ -837,6 +841,10 @@ mod cq {
             assert_code(wb.create(&mut fk), E::BadData);
         };
         bad(&mut c, 20, |p| p.season.program_version = 1);
+        // S1: an MC season (program version 3) is the MC program's.
+        bad(&mut c, 26, |p| {
+            p.season.program_version = PROGRAM_VERSION_V2
+        });
         bad(&mut c, 21, |p| p.cq.relations = 1);
         bad(&mut c, 22, |p| p.cq.flags = 1);
         bad(&mut c, 23, |p| p.cq.keep_home_guard = 30_001);

@@ -34,9 +34,9 @@
 pub mod checks;
 pub mod clash_input;
 pub mod clash_v2;
-pub mod cqrec;
 pub mod codes;
 pub mod conquest;
+pub mod cqrec;
 pub mod facts;
 pub mod fixture;
 pub mod holding;
