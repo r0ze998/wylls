@@ -716,7 +716,29 @@ pub fn accounts_of(ix: Ix) -> &'static [Group] {
 
 /// Fewest and most accounts of an instruction.
 pub fn count_bounds(ix: Ix) -> (usize, usize) {
-    accounts_of(ix).iter().fold((0, 0), |(lo, hi), g| {
+    bounds_in(accounts_of(ix))
+}
+
+/// The position list for given repeat counts (one count per group; fixed
+/// groups take their `min`). `None` if a count is out of range or the
+/// list is longer than `out`.
+pub fn resolve(ix: Ix, counts: &[u8], out: &mut [Spec]) -> Option<usize> {
+    resolve_in(accounts_of(ix), counts, out)
+}
+
+/// Repeat counts from the total account count when at most one group
+/// varies (the common case); `None` when two groups vary or the count does
+/// not fit.
+pub fn counts_from_len(ix: Ix, n_accounts: usize, out: &mut [u8]) -> Option<usize> {
+    counts_in(accounts_of(ix), n_accounts, out)
+}
+
+// The three above over any table (M1's here, ABI v2's in
+// `crate::v2::prologue`, and the program's `IxTable` dispatch).
+
+/// Fewest and most accounts of a table.
+pub fn bounds_in(groups: &[Group]) -> (usize, usize) {
+    groups.iter().fold((0, 0), |(lo, hi), g| {
         (
             lo + g.specs.len() * g.min as usize,
             hi + g.specs.len() * g.max as usize,
@@ -724,11 +746,8 @@ pub fn count_bounds(ix: Ix) -> (usize, usize) {
     })
 }
 
-/// The position list for given repeat counts (one count per group; fixed
-/// groups take their `min`). `None` if a count is out of range or the
-/// list is longer than `out`.
-pub fn resolve(ix: Ix, counts: &[u8], out: &mut [Spec]) -> Option<usize> {
-    let groups = accounts_of(ix);
+/// [`resolve`] over a table.
+pub fn resolve_in(groups: &[Group], counts: &[u8], out: &mut [Spec]) -> Option<usize> {
     if counts.len() != groups.len() {
         return None;
     }
@@ -747,18 +766,15 @@ pub fn resolve(ix: Ix, counts: &[u8], out: &mut [Spec]) -> Option<usize> {
     Some(n)
 }
 
-/// Repeat counts from the total account count when at most one group
-/// varies (the common case); `None` when two groups vary or the count does
-/// not fit.
-pub fn counts_from_len(ix: Ix, n_accounts: usize, out: &mut [u8]) -> Option<usize> {
-    let groups = accounts_of(ix);
+/// [`counts_from_len`] over a table.
+pub fn counts_in(groups: &[Group], n_accounts: usize, out: &mut [u8]) -> Option<usize> {
     if out.len() < groups.len() {
         return None;
     }
     let fixed: usize = groups.iter().map(|g| g.specs.len() * g.min as usize).sum();
-    let varying: usize = groups.iter().filter(|g| g.min != g.max).count();
-    for (i, g) in groups.iter().enumerate() {
-        out[i] = g.min;
+    let varying = groups.iter().filter(|g| g.min != g.max).count();
+    for (o, g) in out.iter_mut().zip(groups) {
+        *o = g.min;
     }
     if varying == 0 {
         return (n_accounts == fixed).then_some(groups.len());
@@ -776,8 +792,34 @@ pub fn counts_from_len(ix: Ix, n_accounts: usize, out: &mut [u8]) -> Option<usiz
     if c > g.max as usize {
         return None;
     }
-    out[i] = c as u8;
+    *out.get_mut(i)? = c as u8;
     Some(groups.len())
+}
+
+/// The position of the `nth` account named `name` (0 for the first) in a
+/// list of `n_accounts` accounts for a table; `None` when the count does
+/// not fit the table (two varying groups included) or no such position
+/// exists. Off-chain readers use it in place of hand-written indices.
+pub fn position_in(groups: &[Group], n_accounts: usize, name: &str, nth: usize) -> Option<usize> {
+    let mut counts = [0u8; 16];
+    let ng = counts_in(groups, n_accounts, &mut counts)?;
+    let counts = counts.get(..ng)?;
+    let mut i = 0;
+    let mut seen = 0;
+    for (g, &c) in groups.iter().zip(counts) {
+        for _ in 0..c {
+            for sp in g.specs {
+                if sp.name == name {
+                    if seen == nth {
+                        return Some(i);
+                    }
+                    seen += 1;
+                }
+                i += 1;
+            }
+        }
+    }
+    None
 }
 
 // ------------------------------------------------------------ views
