@@ -15,6 +15,12 @@
 //!   `clash::is_quiet` at **every** bell (`SkipNotQuiet` names the first
 //!   that is not), the bell's settle; the Province the skip wrote must be
 //!   the replay's (`ClashReplayMismatch`), and the quiet digest is over it.
+//! - **Conquest seasons (ABI v2, R-22):** a CLASH on a 4,736-B Province is
+//!   replayed by [`crate::clash_v2`] in the program's v2 calling order (the
+//!   shared `clash_model` / `conquest_model`, not an independent copy): the
+//!   two digests, the engagements and the fates must be the record's, and
+//!   the Province and ClashInputs written must be the replay's but for the
+//!   resolver's own fields; a SKIP by [`crate::skip::replay_v2`].
 //! - **Transits:** each TRANSIT_SETTLED outcome follows §5.11 D5 from the
 //!   logged seal code and the destination's gathered-and-resolved inputs:
 //!   a bad seal code → bad-seal; the host in the records → its fate (and a
@@ -38,10 +44,13 @@ use frontier_abi::layout::header as HD;
 use frontier_abi::layout::player::holding as H;
 use frontier_abi::layout::province::province as PV;
 use frontier_abi::log::{self as plog, settle_outcome, transit_outcome, Kind};
+use frontier_abi::v2::layout::province::province as P2;
+use permutation_rules::fixed::MILLI;
 use permutation_rules::frontier::clash::{
     admit_arrival, FactionSlots, Fate, SlotDecision, SlotEntry,
 };
 use permutation_rules::frontier::geometry::ProvinceCoord;
+use permutation_rules::frontier::holding::{Resource, RESOURCES};
 
 use super::v6_quotas::tag_of_host;
 use super::Ctx;
@@ -298,6 +307,12 @@ fn clashes_and_skips(cx: &mut Ctx) {
                     cx.missing(V, what, b, Some(r.tx), "no seed of the bell");
                     continue;
                 };
+                // A conquest season's Province is the v2 layout (R-22): the
+                // program's v2 resolve path (`crate::clash_v2`).
+                if let Some(prm) = cx.f.step_params().filter(|_| cx.v3) {
+                    clash_v2(cx, r, what, (p, q), b, pv, ci, &seed, &prm);
+                    continue;
+                }
                 // v1.6 §22: the CLASH input digest (integ-W4 review: pinned,
                 // now judged).
                 if crate::clash_input::input_digest(pv, ci, b, &seed) != r.p32("input_digest") {
@@ -429,7 +444,10 @@ fn clashes_and_skips(cx: &mut Ctx) {
                     );
                     continue;
                 };
-                if pv.len() != PV::SIZE {
+                // A conquest season's Province is the v2 layout (R-22).
+                let v2 = cx.f.step_params().filter(|_| cx.v3);
+                let size = if v2.is_some() { P2::SIZE } else { PV::SIZE };
+                if pv.len() != size {
                     cx.fail(
                         V,
                         CLASH_REPLAY_MISMATCH,
@@ -439,7 +457,7 @@ fn clashes_and_skips(cx: &mut Ctx) {
                         format!(
                             "the Province before the skip is {} B, the layout has {}",
                             pv.len(),
-                            PV::SIZE
+                            size
                         ),
                     );
                     continue;
@@ -457,15 +475,19 @@ fn clashes_and_skips(cx: &mut Ctx) {
                 }
                 // v1.6 §22: SKIP's quiet digest over the Province it left.
                 if let Some(after) = w.txs[r.tx].post_data(&f.ctx.province(p, q)) {
-                    if crate::clash_input::quiet_digest(after, b0, k as u8) != r.p32("quiet_digest")
-                    {
+                    let qd = match v2 {
+                        Some(_) => frontier_abi::clash_model::quiet_digest_v2(after, b0, k as u8)
+                            .unwrap_or([0; 32]),
+                        None => crate::clash_input::quiet_digest(after, b0, k as u8),
+                    };
+                    if qd != r.p32("quiet_digest") {
                         cx.fail(
                             V,
                             CLASH_REPLAY_MISMATCH,
                             what.clone(),
                             b0,
                             Some(r.tx),
-                            "the quiet digest is not sha256(PSF-QUIET-v1 ‖ b0 ‖ n ‖ Province state after)",
+                            "the quiet digest is not sha256(PSF-QUIET-v1|v2 ‖ b0 ‖ n ‖ Province state after)",
                         );
                     }
                 }
@@ -473,8 +495,18 @@ fn clashes_and_skips(cx: &mut Ctx) {
                 // review's "SKIP quiet at every bell"): the kernel's
                 // `is_quiet` at each bell after its camp check, the bell's
                 // settle, and the Province written = the replay's.
-                match crate::skip::replay(pv, b0, k) {
-                    Ok(pd) => {
+                let replayed = match &v2 {
+                    Some(prm) => crate::skip::replay_v2(pv, b0, k, prm),
+                    None => crate::skip::replay(pv, b0, k).map(|pd| (pd, vec![])),
+                };
+                match replayed {
+                    Ok((pd, cq_records)) => {
+                        // A conquest season: the bells' conquest records
+                        // for V15 (an M1 season leaves none).
+                        if v2.is_some() {
+                            cx.cq_replayed.insert(r.tx);
+                            cx.cq_expected.entry(r.tx).or_default().extend(cq_records);
+                        }
                         if let Some(after) = w.txs[r.tx].post_data(&f.ctx.province(p, q)) {
                             let mask = |x: &[u8]| {
                                 let mut v = x.to_vec();
@@ -513,6 +545,136 @@ fn clashes_and_skips(cx: &mut Ctx) {
             }
             _ => {}
         }
+    }
+}
+
+/// One CLASH of a conquest season (module note): the v2 replay's digests,
+/// engagements and fates against the record's; the Province and the
+/// ClashInputs the transaction wrote against the replay's.
+#[allow(clippy::too_many_arguments)]
+fn clash_v2(
+    cx: &mut Ctx,
+    r: &crate::world::Rec,
+    what: String,
+    (p, q): (i32, i32),
+    b: u32,
+    pv: &[u8],
+    ci: &[u8],
+    seed: &[u8; 32],
+    prm: &frontier_abi::conquest_model::StepParams,
+) {
+    use crate::clash_v2 as cv;
+    let w = cx.w;
+    let f = cx.f;
+    let rp = match cv::replay(pv, ci, b, seed, prm) {
+        Ok(x) => x,
+        Err(e) => {
+            cx.fail(V, CLASH_REPLAY_MISMATCH, what, b, Some(r.tx), e);
+            return;
+        }
+    };
+    cx.cq_replayed.insert(r.tx);
+    cx.cq_expected
+        .entry(r.tx)
+        .or_default()
+        .extend(rp.cq.iter().cloned());
+    if rp.input != r.p32("input_digest") {
+        cx.fail(
+            V,
+            CLASH_REPLAY_MISMATCH,
+            what.clone(),
+            b,
+            Some(r.tx),
+            "the input digest is not sha256(PSF-CLASH-INPUT-v2 ‖ bell ‖ seed ‖ Province state ‖ conquest block ‖ arrival records)",
+        );
+    }
+    if rp.outcome != r.p32("outcome_digest")
+        || rp.engagements != r.pu32("engagements")
+        || rp.fates[..] != *r.p("fates")
+    {
+        cx.fail(
+            V,
+            CLASH_REPLAY_MISMATCH,
+            what.clone(),
+            b,
+            Some(r.tx),
+            format!(
+                "replayed digest {} ({} engagements) differs from the logged one",
+                hex::encode(&rp.outcome[..8]),
+                rp.engagements
+            ),
+        );
+    }
+    let tx = &w.txs[r.tx];
+    let pk = f.ctx.province(p, q);
+    match tx.post_data(&pk) {
+        Some(after) => {
+            let (ma, mp) = (cv::mask_province(after), cv::mask_province(&rp.province));
+            if ma != mp {
+                cx.fail(
+                    V,
+                    CLASH_REPLAY_MISMATCH,
+                    what.clone(),
+                    b,
+                    Some(r.tx),
+                    format!(
+                        "write-back: the Province written differs from the v2 replay (first at byte {})",
+                        cv::first_diff(&ma, &mp)
+                    ),
+                );
+            }
+            if after
+                .get(PV::RESOLVED_NEXT..PV::RESOLVED_NEXT + 4)
+                .map(|x| le(x) as u32)
+                != Some(b + 1)
+            {
+                cx.fail(
+                    V,
+                    CLASH_REPLAY_MISMATCH,
+                    what.clone(),
+                    b,
+                    Some(r.tx),
+                    "the Province is not resolved through the bell after its CLASH",
+                );
+            }
+        }
+        None if w.has_post => cx.missing(
+            V,
+            what.clone(),
+            b,
+            Some(r.tx),
+            "no post-state of the Province the resolve wrote",
+        ),
+        None => {}
+    }
+    match tx.post_data(&f.ctx.clash_inputs(p, q, b)) {
+        Some(after) => {
+            let (ma, mp) = (cv::mask_inputs(after), cv::mask_inputs(&rp.inputs));
+            if ma != mp {
+                cx.fail(
+                    V,
+                    CLASH_REPLAY_MISMATCH,
+                    what.clone(),
+                    b,
+                    Some(r.tx),
+                    format!(
+                        "write-back: the ClashInputs written differ from the v2 replay (first at byte {})",
+                        cv::first_diff(&ma, &mp)
+                    ),
+                );
+            }
+        }
+        None if w.has_post => cx.missing(
+            V,
+            what,
+            b,
+            Some(r.tx),
+            "no post-state of the ClashInputs the resolve wrote",
+        ),
+        None => {}
+    }
+    if rp.contested {
+        cx.liveness.contested_bells.push((p, q, b));
     }
 }
 
@@ -672,8 +834,10 @@ type ContinuityFinding = (usize, (i32, i32, u8), u32, String);
 /// Holding continuity (wave-5 review of W5-D): every Holding write that is
 /// not a replayed owner action (Harvest, Build, Train: [`owner_actions`])
 /// must leave the lazy-accrual bytes ([`crate::holding::ACCRUAL_RANGES`])
-/// exactly as the rules allow — a founding SETTLE writes the founded
-/// Hamlet ([`crate::holding::founded`]); an owner touch (Explore, Muster,
+/// exactly as the rules allow — a founding SETTLE or PlaceHome writes the
+/// founded Hamlet ([`crate::holding::founded`]: an outpost without the
+/// starter kit, a conquest season's with the season's founding shield); an
+/// owner touch (Explore, Muster,
 /// Dissolve, Garrison, Depart) writes the touch at its Clock
 /// ([`crate::holding::touched`]); every other write (SettleExplore,
 /// SettleTransit, SettleDeparture, GatherClash, SweepPoolOwed, …) leaves
@@ -683,18 +847,28 @@ type ContinuityFinding = (usize, (i32, i32, u8), u32, String);
 fn continuity(cx: &mut Ctx) {
     use crate::holding as hr;
     use frontier_abi::tags::Ix;
+    use frontier_abi::v2::log::CqKind;
     let w = cx.w;
     let f = cx.f;
     if !w.has_post {
         return;
     }
-    let owner = [Ix::Harvest.tag(), Ix::Build.tag(), Ix::Train.tag()];
+    // FileOutpost's anchor write (the touch and the settler cost, logged
+    // as a HARVEST) is replayed by `owner_actions` on a conquest season.
+    let owner = [
+        Ix::Harvest.tag(),
+        Ix::Build.tag(),
+        Ix::Train.tag(),
+        frontier_abi::v2::tags::Ix::FileOutpost.tag(),
+    ];
     let touch = [
         Ix::Explore.tag(),
         Ix::Muster.tag(),
         Ix::Dissolve.tag(),
         Ix::Garrison.tag(),
         Ix::Depart.tag(),
+        // S1 1e: Garrison's rule for a fort.
+        frontier_abi::v2::tags::Ix::FortGarrison.tag(),
     ];
     let mut bad: Vec<ContinuityFinding> = vec![];
     for (t, tx) in w.txs.iter().enumerate() {
@@ -732,10 +906,74 @@ fn continuity(cx: &mut Ctx) {
                     && r.pqs() == pqs
             });
             let (what, want) = if founding {
-                (
-                    "the founding SETTLE",
-                    hr::founded(post, tx.time, frontier_abi::addr::day_of(bell)),
-                )
+                // MC §3.8: a SETTLE founding an outpost logs OUTPOST_SETTLED
+                // beside it (order 2–3: no starter kit); MC §3.9: the shield
+                // is the season's for that order (`hr::founding_shield`).
+                let outpost = w.cq_recs.iter().find(|r| {
+                    r.tx == t
+                        && r.kind == CqKind::OUTPOST_SETTLED
+                        && (
+                            le(r.field("p", false)) as u32 as i32,
+                            le(r.field("q", false)) as u32 as i32,
+                            r.field("site", false).first().copied().unwrap_or(0),
+                        ) == pqs
+                });
+                let order = outpost
+                    .and_then(|r| r.field("order", true).first().copied())
+                    .unwrap_or(1);
+                let shield =
+                    f.cq.as_ref()
+                        .and_then(|cq| hr::founding_shield(cq, order, tx.time, f.genesis_ts));
+                // The record's shield is the one written (MC §5.6).
+                if let (Some(r), Some(s)) = (outpost, shield) {
+                    let logged = le(r.field("shield_until", true)) as i64;
+                    if logged != s {
+                        bad.push((
+                            t,
+                            pqs,
+                            bell,
+                            format!(
+                                "OUTPOST_SETTLED logs shield_until {logged}, the season's timers give {s}"
+                            ),
+                        ));
+                    }
+                }
+                // S1: the base ore of the site's terrain (its Province as
+                // the transaction leaves it; the terrain never changes).
+                let ore = if cx.s1 {
+                    let pk = f.ctx.province(pqs.0, pqs.1);
+                    match tx.post_data(&pk).or_else(|| w.state_before(&pk, t)) {
+                        Some(pd) => hr::site_terrain_ore(pd, post[H::TILE]).ok(),
+                        None => None,
+                    }
+                } else {
+                    None
+                };
+                let want = if cx.s1 && ore.is_none() {
+                    Err("the founding's Province terrain is not known".to_string())
+                } else {
+                    hr::founded(
+                        post,
+                        tx.time,
+                        frontier_abi::addr::day_of(bell),
+                        order,
+                        shield,
+                        ore,
+                    )
+                };
+                if let (Some(o), Some(got)) = (ore, hr::terrain_ore(post).ok()) {
+                    if o != got {
+                        bad.push((
+                            t,
+                            pqs,
+                            bell,
+                            format!(
+                                "the founded holding's terrain ore {got} is not its site's {o}"
+                            ),
+                        ));
+                    }
+                }
+                ("the founding SETTLE", want)
             } else {
                 let Some(before) = w.state_before(k, t) else {
                     continue;
@@ -745,6 +983,23 @@ fn continuity(cx: &mut Ctx) {
                 }
                 if writes(&touch) {
                     ("an owner touch", hr::touched(before, tx.time))
+                } else if let Some(stake) = siege_source_stake(f, tx, k) {
+                    // MC §3.4 step 10: DeclareSiege touches its source and
+                    // pays the stake in gold from it.
+                    (
+                        "a DeclareSiege's source (the touch and the stake)",
+                        hr::touched_paid(before, tx.time, &stake),
+                    )
+                } else if let Some((what, want)) = caravan_holding_write(w, tx, t, k, before) {
+                    // S1 1b/1d: BuildVault, BuildStructure and a caravan's holding source pay
+                    // after an owner touch; a delivery settles and credits.
+                    (what, want)
+                } else if conquest_settlement_writes(tx, k) {
+                    // SettleSiege (the stake returned), SettleCapture (the
+                    // captured Holding and the stake) and RetireHost write
+                    // what the conquest rules say, not the lazy accrual's:
+                    // V17's to judge (not written), not this check's.
+                    continue;
                 } else {
                     ("a write that is not an owner action", Ok(before.to_vec()))
                 }
@@ -778,6 +1033,147 @@ fn continuity(cx: &mut Ctx) {
     }
 }
 
+/// `holdings_n` of the citizen whose FileOutpost in `tx` names Holding `k`
+/// as its anchor (the instruction's fourth account from the end), from the
+/// Citizen's state before the transaction; `None` when no FileOutpost of
+/// the transaction anchors on `k`.
+fn outpost_anchor_holdings(
+    w: &crate::world::World,
+    tx: &crate::world::Tx,
+    t: usize,
+    k: &[u8; 32],
+) -> Option<u8> {
+    use frontier_abi::layout::player::citizen as C;
+    let tag = frontier_abi::v2::tags::Ix::FileOutpost.tag();
+    tx.ixs
+        .iter()
+        .filter(|i| i.tag() == Some(tag) && i.accounts.len() >= 10)
+        .find(|i| i.key(i.accounts.len() - 4).as_ref() == Some(k))
+        .and_then(|i| i.key(3))
+        .and_then(|c| w.state_before(&c, t).map(|d| d.to_vec()))
+        .filter(|d| d.len() == C::SIZE)
+        .map(|d| d[C::HOLDINGS_N])
+}
+
+/// The stake DeclareSiege in `tx` pays from Holding `k` (its fifth
+/// account), as a cost: `siege_stake_gold` in gold, and in an S1 season
+/// the siege's arms (`arms::siege_cost`, stage 1e: burned); `None` when no
+/// DeclareSiege of the transaction names `k` as its source.
+fn siege_source_stake(f: &Facts, tx: &crate::world::Tx, k: &[u8; 32]) -> Option<[i64; RESOURCES]> {
+    let tag = frontier_abi::v2::tags::Ix::DeclareSiege.tag();
+    let cq = f.cq.as_ref()?;
+    tx.ixs
+        .iter()
+        .filter(|i| i.tag() == Some(tag))
+        .find(|i| i.key(4).as_ref() == Some(k))?;
+    let s1 = f
+        .params
+        .as_ref()
+        .is_some_and(|p| p.program_version >= frontier_abi::v2::presets::PROGRAM_VERSION_S1);
+    let mut c = if s1 {
+        permutation_rules::frontier::arms::siege_cost()
+    } else {
+        [0i64; RESOURCES]
+    };
+    c[Resource::Gold as usize] = (cq.siege_stake_gold as i64).checked_mul(MILLI)?;
+    Some(c)
+}
+
+/// S1 1b: what a vault or caravan instruction of `tx` writes into Holding
+/// `k` (`before`: its state before the transaction): BuildVault's paying
+/// holding and a SendCaravan's holding source (an owner touch and the
+/// payment), a SettleCaravan's delivery to it (a settle and the credit; a
+/// lost delivery writes nothing). `None` when none of them writes `k`.
+fn caravan_holding_write(
+    w: &crate::world::World,
+    tx: &crate::world::Tx,
+    t: usize,
+    k: &[u8; 32],
+    before: &[u8],
+) -> Option<(&'static str, Result<Vec<u8>, String>)> {
+    use frontier_abi::v2::ix as ix2;
+    use frontier_abi::v2::layout::s1::{caravan as CV, place as PL};
+    use frontier_abi::v2::tags::Ix as V2;
+    for ix in &tx.ixs {
+        let tag = ix.tag();
+        if tag == Some(V2::BuildVault.tag()) && ix.key(4).as_ref() == Some(k) {
+            return Some((
+                "a BuildVault's holding (the touch and the vault's cost)",
+                crate::holding::touched_paid(
+                    before,
+                    tx.time,
+                    &permutation_rules::frontier::caravan::vault_cost(),
+                ),
+            ));
+        }
+        if tag == Some(V2::BuildStructure.tag()) && ix.key(4).as_ref() == Some(k) {
+            return Some((
+                "a BuildStructure's holding (the touch and the structure's cost)",
+                frontier_abi::v2::ix::BuildStructure::decode(&ix.data)
+                    .map_err(|_| "the BuildStructure does not decode".to_string())
+                    .and_then(|x| {
+                        crate::holding::touched_paid(
+                            before,
+                            tx.time,
+                            &permutation_rules::frontier::structure::cost(x.kind),
+                        )
+                    }),
+            ));
+        }
+        if tag == Some(V2::SendCaravan.tag()) && ix.key(4).as_ref() == Some(k) {
+            let cargo = ix2::SendCaravan::decode(&ix.data)
+                .ok()
+                .and_then(|x| ix2::cargo_milli(&x.cargo));
+            return Some((
+                "a SendCaravan's holding source (the touch and the cargo)",
+                cargo
+                    .ok_or_else(|| "the SendCaravan does not decode".to_string())
+                    .and_then(|c| crate::holding::touched_paid(before, tx.time, &c)),
+            ));
+        }
+        if tag == Some(V2::SettleCaravan.tag()) && ix.key(3).as_ref() == Some(k) {
+            let Some(cd) = ix.key(2).and_then(|c| w.state_before(&c, t)) else {
+                return Some((
+                    "a SettleCaravan's destination",
+                    Err("no state of the Caravan before the settlement".into()),
+                ));
+            };
+            let gen = cd.get(CV::DST + PL::GEN).copied();
+            let kind = cd.get(CV::DST + PL::KIND).copied();
+            let live = kind == Some(PL::KIND_HOLDING)
+                && before.get(H::GEN).copied() == gen
+                && matches!(before.get(H::STATE), Some(&s) if s == H::STATE_PROVISIONAL || s == H::STATE_FINAL);
+            if !live {
+                return Some(("a lost delivery", Ok(before.to_vec())));
+            }
+            let mut cargo = [0i64; RESOURCES];
+            for (r, c) in cargo.iter_mut().enumerate() {
+                *c = cd
+                    .get(CV::cargo(r)..CV::cargo(r) + 8)
+                    .map_or(0, |b| crate::world::le(b) as i64);
+            }
+            return Some((
+                "a SettleCaravan's delivery (the settle and the credit)",
+                crate::holding::credited(before, tx.time, &cargo),
+            ));
+        }
+    }
+    None
+}
+
+/// Whether a SettleSiege, SettleCapture or RetireHost of `tx` writes `k`.
+fn conquest_settlement_writes(tx: &crate::world::Tx, k: &[u8; 32]) -> bool {
+    use frontier_abi::v2::tags::Ix as V2;
+    let tags = [
+        V2::SettleSiege.tag(),
+        V2::SettleCapture.tag(),
+        V2::RetireHost.tag(),
+    ];
+    tx.ixs
+        .iter()
+        .any(|i| i.tag().is_some_and(|x| tags.contains(&x)) && i.writes(k))
+}
+
 /// Every Harvest, Build and Train replayed from the Holding the last
 /// transaction before it left ([`crate::holding`], W5-D): the Holding the
 /// transaction wrote (every byte but the event chain's header fields), the
@@ -795,7 +1191,13 @@ fn owner_actions(cx: &mut Ctx) {
     use frontier_abi::tags::Ix;
     let w = cx.w;
     let f = cx.f;
-    let tags = [Ix::Harvest.tag(), Ix::Build.tag(), Ix::Train.tag()];
+    // A conquest season pays the v2 train cost (K2), an S1 season the
+    // arms economy's (`crate::holding::Rules`).
+    let rules = cx.rules();
+    // MC §3.8: FileOutpost's anchor write is an owner action of the anchor
+    // (the touch and the settler cost), logged as a HARVEST of it.
+    let outpost = frontier_abi::v2::tags::Ix::FileOutpost.tag();
+    let tags = [Ix::Harvest.tag(), Ix::Build.tag(), Ix::Train.tag(), outpost];
     for (t, tx) in w.txs.iter().enumerate() {
         if !tx.ok {
             continue;
@@ -853,7 +1255,14 @@ fn owner_actions(cx: &mut Ctx) {
             let r = &w.recs[n];
             let (p, q, site) = r.pqs();
             let hk = f.ctx.holding(p, q, site);
-            if ix.key(4) != Some(hk) {
+            // The Holding an instruction acts on: its fifth account, or a
+            // FileOutpost's anchor (the fourth from its end).
+            let acted = if ix.tag() == Some(outpost) {
+                ix.key(ix.accounts.len().saturating_sub(4))
+            } else {
+                ix.key(4)
+            };
+            if acted != Some(hk) {
                 bad.push((
                     n,
                     "the record names another Holding than its instruction".into(),
@@ -882,6 +1291,8 @@ fn owner_actions(cx: &mut Ctx) {
                         n: b.n,
                     })
                 }
+                Some(x) if x == outpost => outpost_anchor_holdings(w, tx, t, &hk)
+                    .map(|holdings_n| Action::OutpostAnchor { holdings_n }),
                 _ => None,
             };
             let Some(action) = action else {
@@ -889,7 +1300,7 @@ fn owner_actions(cx: &mut Ctx) {
                 continue;
             };
             let want_kind = match action {
-                Action::Harvest => Kind::HARVEST,
+                Action::Harvest | Action::OutpostAnchor { .. } => Kind::HARVEST,
                 Action::Build { .. } => Kind::BUILD,
                 Action::Train { .. } => Kind::TRAIN,
             };
@@ -914,7 +1325,7 @@ fn owner_actions(cx: &mut Ctx) {
                     }
                 },
             };
-            match hr::replay(&before, &action, tx.time, f.genesis_ts) {
+            match hr::replay(&before, &action, tx.time, f.genesis_ts, rules) {
                 Ok(x) => {
                     if x.payload[..] != r.payload[..] {
                         bad.push((

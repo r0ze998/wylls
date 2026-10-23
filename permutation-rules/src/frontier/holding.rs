@@ -8,6 +8,16 @@
 //! a transaction never changes a balance. Rate changes happen at their
 //! scheduled times (queue completions, dormancy), never at touch time.
 //!
+//! **Workshops (S1, [`HOLDING_VERSION_V4`]).** A holding that produces arms
+//! (`super::arms`) converts ore and wood into them: each arm of production
+//! uses `ORE_PER_ARM` ore and `WOOD_PER_ARM` wood. While both inputs last
+//! the workshops run at full speed; the moment an input would go below 0
+//! (a time fixed by the stores, so path independent like every other rate
+//! change) they drop to the share of full speed the scarcer input's own
+//! production sustains, and they return to full speed at the next rate
+//! change once the input has stock again. A holding without arms
+//! production (every M1 and MC holding) settles exactly as before.
+//!
 //! Numbers marked [design] are placeholders for the M0 host simulator to
 //! tune; the kernels do not depend on their values.
 
@@ -20,13 +30,23 @@ pub const HOLDING_VERSION: u16 = 2;
 /// `ruleset_hash_input_v2` only; [`HOLDING_VERSION`] keeps the M1 value
 /// (staged ABI, MC §5.1).
 pub const HOLDING_VERSION_V3: u16 = 3;
+/// The S1 rules' version (`KERNEL_VERSIONS_V3`): v4 adds the workshop
+/// conversion (module note). [`HOLDING_VERSION_V3`] keeps the MC value.
+pub const HOLDING_VERSION_V4: u16 = 4;
 
+use super::arms::{ARMS, ORE_PER_ARM, WOOD_PER_ARM};
 use crate::economy::upkeep_of_effective;
 use crate::fixed::{Bps, Milli, MilliTroops, BPS_ONE, MILLI};
 use crate::units::{stats, UnitType};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 pub const HOUR: i64 = 3_600;
+
+/// S1 workshop inputs: (store index, units used per arm).
+const CONVERSION_INPUTS: [(usize, i64); 2] = [
+    (Resource::Ore as usize, ORE_PER_ARM),
+    (Resource::Wood as usize, WOOD_PER_ARM),
+];
 pub const DAY: i64 = 86_400;
 
 /// The eight resources (design §5.1).
@@ -420,10 +440,109 @@ impl Holding {
 
     fn apply_rates(&mut self, t: i64) {
         let dormant = self.is_dormant(t);
-        for r in 0..RESOURCES {
-            let rate = self.net_rate(r, dormant);
-            self.stores[r].set_rate(t, rate);
+        let full = self.full_rates(dormant);
+        // Workshops whose input is (all but) dry run limited from `t`:
+        // `dry_after` is 0 exactly when an input at the full rate would go
+        // below 0 within the next second.
+        let rates = if self.dry_after(&full) == Some(0) {
+            self.limited_rates(dormant)
+        } else {
+            full
+        };
+        self.set_rates(t, &rates);
+    }
+
+    fn set_rates(&mut self, t: i64, rates: &[i64; RESOURCES]) {
+        for (s, rate) in self.stores.iter_mut().zip(rates) {
+            s.set_rate(t, *rate);
         }
+    }
+
+    /// Arms production (milli per hour) after dormancy, 0 if none: the
+    /// workshops' output at full speed.
+    fn arms_out(&self, dormant: bool) -> i64 {
+        let prod = self.production[ARMS as usize].clamp(0, MAX_PRODUCTION_PER_HOUR);
+        if dormant {
+            prod * DORMANT_PRODUCTION_BPS as i64 / BPS_ONE as i64
+        } else {
+            prod
+        }
+    }
+
+    /// Every store's rate with the workshops at full speed (the plain net
+    /// rates when the holding makes no arms).
+    fn full_rates(&self, dormant: bool) -> [i64; RESOURCES] {
+        let mut rates: [i64; RESOURCES] = core::array::from_fn(|r| self.net_rate(r, dormant));
+        let out = self.arms_out(dormant);
+        if out > 0 {
+            for (r, per) in CONVERSION_INPUTS {
+                rates[r] = rates[r].saturating_sub(out.saturating_mul(per));
+            }
+        }
+        rates
+    }
+
+    /// Every store's rate with the workshops limited to the share of full
+    /// speed (basis points, rounded down) that the scarcer input's own net
+    /// production sustains, so neither input falls below 0.
+    fn limited_rates(&self, dormant: bool) -> [i64; RESOURCES] {
+        let mut rates: [i64; RESOURCES] = core::array::from_fn(|r| self.net_rate(r, dormant));
+        let out = self.arms_out(dormant);
+        if out == 0 {
+            return rates;
+        }
+        let one = BPS_ONE as i128;
+        let mut share = one;
+        for (r, per) in CONVERSION_INPUTS {
+            let used = out as i128 * per as i128;
+            share = share.min((rates[r].max(0) as i128 * one / used).min(one));
+        }
+        for (r, per) in CONVERSION_INPUTS {
+            let used = out as i128 * per as i128;
+            rates[r] = (rates[r] as i128 - used * share / one) as i64;
+        }
+        let lost = out as i128 - out as i128 * share / one;
+        rates[ARMS as usize] = (rates[ARMS as usize] as i128 - lost) as i64;
+        rates
+    }
+
+    /// Whole seconds until the first workshop input would fall below 0 at
+    /// `rates`, from the stores' last settle (`None`: no input falls). A
+    /// store's exact amount is `value × HOUR + frac` (milli-seconds-hours),
+    /// which moves by exactly `rate` per second, so the answer does not
+    /// depend on how often the stores were settled before.
+    fn dry_after(&self, rates: &[i64; RESOURCES]) -> Option<i64> {
+        if self.production[ARMS as usize] <= 0 {
+            return None;
+        }
+        let mut first: Option<i64> = None;
+        for (r, _) in CONVERSION_INPUTS {
+            let rate = rates[r];
+            if rate >= 0 {
+                continue;
+            }
+            let s = &self.stores[r];
+            let exact = s.value.max(0) as i128 * HOUR as i128 + s.frac as i128;
+            let secs = (exact / (-(rate as i128))).min(i64::MAX as i128) as i64;
+            first = Some(first.map_or(secs, |f| f.min(secs)));
+        }
+        first
+    }
+
+    /// When the workshops of a holding running at full speed (its stores
+    /// carry [`Self::full_rates`]) run an input dry: the stores' `t0` plus
+    /// [`Self::dry_after`]. `None` when it makes no arms, runs limited, or
+    /// no input falls.
+    fn dry_at(&self) -> Option<i64> {
+        if self.production[ARMS as usize] <= 0 {
+            return None;
+        }
+        let t = self.stores[0].t0;
+        let full = self.full_rates(self.is_dormant(t));
+        if (0..RESOURCES).any(|r| self.stores[r].rate != full[r]) {
+            return None;
+        }
+        self.dry_after(&full).map(|d| t.saturating_add(d))
     }
 
     fn apply(&mut self, t: i64, e: Effect) {
@@ -558,8 +677,12 @@ impl Holding {
             }
             let dorm = self.dormant_at();
             let dorm_due = dorm > t && dorm <= now;
+            // S1: workshops running an input dry (never for a holding
+            // without arms production). Ties: queue, dormancy, then dry.
+            let dry = self.dry_at().filter(|&x| x <= now);
+            let dry_first = |x: i64| dry.is_some_and(|d| d < x);
             match next {
-                Some((qt, i)) if !dorm_due || qt <= dorm => {
+                Some((qt, i)) if (!dorm_due || qt <= dorm) && !dry_first(qt) => {
                     self.settle_stores(qt);
                     let item = self.queue[i].take();
                     if let Some(item) = item {
@@ -567,9 +690,18 @@ impl Holding {
                     }
                     self.apply_rates(qt);
                 }
-                _ if dorm_due => {
+                _ if dorm_due && !dry_first(dorm) => {
                     self.settle_stores(dorm);
                     self.apply_rates(dorm);
+                }
+                _ if dry.is_some() => {
+                    // At `d` an input is dry within the second, so the
+                    // workshops run limited from `d` (what `apply_rates`
+                    // would choose; set directly so the loop always ends).
+                    let d = dry.unwrap_or(t);
+                    self.settle_stores(d);
+                    let limited = self.limited_rates(self.is_dormant(d));
+                    self.set_rates(d, &limited);
                 }
                 _ => break,
             }
@@ -642,6 +774,11 @@ impl Holding {
     pub fn credit(&mut self, now: i64, r: Resource, amount: Milli) -> Result<(), HoldingError> {
         self.settle(now)?;
         self.stores[r as usize].add(now, amount);
+        // S1: a credited workshop input lets limited workshops run at full
+        // speed again (a rate change at the credit's own time).
+        if self.production[ARMS as usize] > 0 {
+            self.apply_rates(now);
+        }
         Ok(())
     }
 

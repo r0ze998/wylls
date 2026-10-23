@@ -412,9 +412,15 @@
           "ty": "[u8;32]"
         },
         {
-          "name": "RSV_M2M3",
+          "name": "STANCES",
           "off": 516,
-          "len": 380,
+          "len": 36,
+          "ty": "[u8;36]"
+        },
+        {
+          "name": "RSV_552",
+          "off": 552,
+          "len": 344,
           "ty": "rsv"
         },
         {
@@ -1223,9 +1229,57 @@
           "ty": "[u8;32]"
         },
         {
-          "name": "RSV",
+          "name": "VAULTS",
           "off": 312,
-          "len": 72,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "TOWERS",
+          "off": 313,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "PALISADES",
+          "off": 314,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "FORTS",
+          "off": 315,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "CARAVANS",
+          "off": 316,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "EXPELLED_SINCE",
+          "off": 320,
+          "len": 8,
+          "ty": "i64"
+        },
+        {
+          "name": "VOTED",
+          "off": 328,
+          "len": 16,
+          "ty": "[u32;4]"
+        },
+        {
+          "name": "PROPOSED",
+          "off": 344,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "RSV_348",
+          "off": 348,
+          "len": 36,
           "ty": "rsv"
         }
       ]
@@ -1518,10 +1572,10 @@
           "ty": "u64"
         },
         {
-          "name": "RSV_1272",
+          "name": "TERRAIN_ORE",
           "off": 1272,
           "len": 8,
-          "ty": "rsv"
+          "ty": "i64"
         }
       ]
     },
@@ -1741,9 +1795,21 @@
           "ty": "rec:Cohort x8"
         },
         {
-          "name": "RSV",
+          "name": "CARAVANS",
           "off": 3864,
-          "len": 232,
+          "len": 180,
+          "ty": "rec:CaravanSlot x5"
+        },
+        {
+          "name": "STRUCTURES",
+          "off": 4044,
+          "len": 48,
+          "ty": "rec:StructureEntry x12"
+        },
+        {
+          "name": "RSV_4092",
+          "off": 4092,
+          "len": 4,
           "ty": "rsv"
         },
         {
@@ -1789,10 +1855,10 @@
           "ty": "u32"
         },
         {
-          "name": "RSV_CQ",
+          "name": "FORTS",
           "off": 4708,
           "len": 28,
-          "ty": "rsv"
+          "ty": "rec:FortRecord x2"
         }
       ]
     },
@@ -2631,6 +2697,526 @@
           "ty": "rsv"
         }
       ]
+    },
+    {
+      "kind": "Vault",
+      "code": 19,
+      "magic": "PSF1VALT",
+      "size": 512,
+      "rent": 3251200,
+      "chained": true,
+      "changed_in_v2": true,
+      "seed_tag": "va",
+      "raw_key_len": 9,
+      "fields": [
+        {
+          "name": "HDR_MAGIC",
+          "off": 0,
+          "len": 8,
+          "ty": "[u8;8]"
+        },
+        {
+          "name": "SEASON_ID",
+          "off": 8,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "LAYOUT_VERSION",
+          "off": 16,
+          "len": 2,
+          "ty": "u16"
+        },
+        {
+          "name": "RSV_HEADER",
+          "off": 18,
+          "len": 6,
+          "ty": "rsv"
+        },
+        {
+          "name": "EVENT_SEQ",
+          "off": 24,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "EVENT_HEAD",
+          "off": 32,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "P",
+          "off": 64,
+          "len": 2,
+          "ty": "i16"
+        },
+        {
+          "name": "Q",
+          "off": 66,
+          "len": 2,
+          "ty": "i16"
+        },
+        {
+          "name": "TILE",
+          "off": 68,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "STATE",
+          "off": 69,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "FACTION",
+          "off": 70,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "GEN",
+          "off": 71,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "OWNER_CITIZEN",
+          "off": 72,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "OWNER_TAG",
+          "off": 104,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "BUILT_TS",
+          "off": 112,
+          "len": 8,
+          "ty": "i64"
+        },
+        {
+          "name": "STORES",
+          "off": 120,
+          "len": 64,
+          "ty": "[i64;8]"
+        },
+        {
+          "name": "CAP",
+          "off": 184,
+          "len": 8,
+          "ty": "i64"
+        },
+        {
+          "name": "SENT",
+          "off": 192,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "SEIZED_BELL",
+          "off": 196,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "RENT_TO",
+          "off": 200,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "RSV",
+          "off": 232,
+          "len": 280,
+          "ty": "rsv"
+        }
+      ]
+    },
+    {
+      "kind": "Caravan",
+      "code": 20,
+      "magic": "PSF1CRVN",
+      "size": 320,
+      "rent": 2275840,
+      "chained": true,
+      "changed_in_v2": true,
+      "seed_tag": "cv",
+      "raw_key_len": 12,
+      "fields": [
+        {
+          "name": "HDR_MAGIC",
+          "off": 0,
+          "len": 8,
+          "ty": "[u8;8]"
+        },
+        {
+          "name": "SEASON_ID",
+          "off": 8,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "LAYOUT_VERSION",
+          "off": 16,
+          "len": 2,
+          "ty": "u16"
+        },
+        {
+          "name": "RSV_HEADER",
+          "off": 18,
+          "len": 6,
+          "ty": "rsv"
+        },
+        {
+          "name": "EVENT_SEQ",
+          "off": 24,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "EVENT_HEAD",
+          "off": 32,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "OWNER_CITIZEN",
+          "off": 64,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "OWNER_TAG",
+          "off": 96,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "SEQ",
+          "off": 104,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "FACTION",
+          "off": 108,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "STATE",
+          "off": 109,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "STEPS",
+          "off": 110,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "N_PROV",
+          "off": 111,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "SRC",
+          "off": 112,
+          "len": 16,
+          "ty": "rec:Place x1"
+        },
+        {
+          "name": "DST",
+          "off": 128,
+          "len": 16,
+          "ty": "rec:Place x1"
+        },
+        {
+          "name": "PATH",
+          "off": 144,
+          "len": 12,
+          "ty": "[u8;12]"
+        },
+        {
+          "name": "PROVINCES",
+          "off": 156,
+          "len": 16,
+          "ty": "[i16;8]"
+        },
+        {
+          "name": "DEPART_TS",
+          "off": 172,
+          "len": 8,
+          "ty": "i64"
+        },
+        {
+          "name": "ARRIVE_TS",
+          "off": 180,
+          "len": 8,
+          "ty": "i64"
+        },
+        {
+          "name": "LAST_BELL",
+          "off": 188,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "CARGO",
+          "off": 192,
+          "len": 64,
+          "ty": "[i64;8]"
+        },
+        {
+          "name": "FEE",
+          "off": 256,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "RENT_TO",
+          "off": 264,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "RSV",
+          "off": 296,
+          "len": 24,
+          "ty": "rsv"
+        }
+      ]
+    },
+    {
+      "kind": "Structure",
+      "code": 21,
+      "magic": "PSF1STRC",
+      "size": 256,
+      "rent": 1950720,
+      "chained": true,
+      "changed_in_v2": true,
+      "seed_tag": "tw",
+      "raw_key_len": 9,
+      "fields": [
+        {
+          "name": "HDR_MAGIC",
+          "off": 0,
+          "len": 8,
+          "ty": "[u8;8]"
+        },
+        {
+          "name": "SEASON_ID",
+          "off": 8,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "LAYOUT_VERSION",
+          "off": 16,
+          "len": 2,
+          "ty": "u16"
+        },
+        {
+          "name": "RSV_HEADER",
+          "off": 18,
+          "len": 6,
+          "ty": "rsv"
+        },
+        {
+          "name": "EVENT_SEQ",
+          "off": 24,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "EVENT_HEAD",
+          "off": 32,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "P",
+          "off": 64,
+          "len": 2,
+          "ty": "i16"
+        },
+        {
+          "name": "Q",
+          "off": 66,
+          "len": 2,
+          "ty": "i16"
+        },
+        {
+          "name": "TILE",
+          "off": 68,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "STATE",
+          "off": 69,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "FACTION",
+          "off": 70,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "GEN",
+          "off": 71,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "OWNER_CITIZEN",
+          "off": 72,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "OWNER_TAG",
+          "off": 104,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "BUILT_TS",
+          "off": 112,
+          "len": 8,
+          "ty": "i64"
+        },
+        {
+          "name": "SEIZED_BELL",
+          "off": 120,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "NOTIFY",
+          "off": 124,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "ENTRY",
+          "off": 125,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "KIND",
+          "off": 126,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "RSV_127",
+          "off": 127,
+          "len": 1,
+          "ty": "rsv"
+        },
+        {
+          "name": "RENT_TO",
+          "off": 128,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "RSV",
+          "off": 160,
+          "len": 96,
+          "ty": "rsv"
+        }
+      ]
+    },
+    {
+      "kind": "Nation",
+      "code": 22,
+      "magic": "PSF1NATN",
+      "size": 384,
+      "rent": 2600960,
+      "chained": true,
+      "changed_in_v2": true,
+      "seed_tag": "na",
+      "raw_key_len": 1,
+      "fields": [
+        {
+          "name": "HDR_MAGIC",
+          "off": 0,
+          "len": 8,
+          "ty": "[u8;8]"
+        },
+        {
+          "name": "SEASON_ID",
+          "off": 8,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "LAYOUT_VERSION",
+          "off": 16,
+          "len": 2,
+          "ty": "u16"
+        },
+        {
+          "name": "RSV_HEADER",
+          "off": 18,
+          "len": 6,
+          "ty": "rsv"
+        },
+        {
+          "name": "EVENT_SEQ",
+          "off": 24,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "EVENT_HEAD",
+          "off": 32,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "FACTION",
+          "off": 64,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "RSV_65",
+          "off": 65,
+          "len": 3,
+          "ty": "rsv"
+        },
+        {
+          "name": "NEXT_ID",
+          "off": 68,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "PROPOSALS",
+          "off": 72,
+          "len": 256,
+          "ty": "rec:Proposal x4"
+        },
+        {
+          "name": "RSV",
+          "off": 328,
+          "len": 56,
+          "ty": "rsv"
+        }
+      ]
     }
   ],
   "records": [
@@ -2942,6 +3528,270 @@
           "name": "RSV_18",
           "off": 18,
           "len": 2,
+          "ty": "rsv"
+        }
+      ]
+    },
+    {
+      "name": "CaravanSlot",
+      "size": 36,
+      "fields": [
+        {
+          "name": "ID",
+          "off": 0,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "FACTION",
+          "off": 8,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "N",
+          "off": 9,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "RAID_OFF",
+          "off": 10,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "RAID_POS",
+          "off": 11,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "FIRST_BELL",
+          "off": 12,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "TILES",
+          "off": 16,
+          "len": 8,
+          "ty": "[u8;8]"
+        },
+        {
+          "name": "RSV_24",
+          "off": 24,
+          "len": 4,
+          "ty": "rsv"
+        },
+        {
+          "name": "RAIDER",
+          "off": 28,
+          "len": 8,
+          "ty": "u64"
+        }
+      ]
+    },
+    {
+      "name": "FortRecord",
+      "size": 14,
+      "fields": [
+        {
+          "name": "TILE",
+          "off": 0,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "FACTION",
+          "off": 1,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "GEN",
+          "off": 2,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "STATE",
+          "off": 3,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "TROOPS",
+          "off": 4,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "PEND_BELL",
+          "off": 8,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "PEND",
+          "off": 12,
+          "len": 2,
+          "ty": "u16"
+        }
+      ]
+    },
+    {
+      "name": "StructureEntry",
+      "size": 4,
+      "fields": [
+        {
+          "name": "KIND",
+          "off": 0,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "TILE",
+          "off": 1,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "FACTION",
+          "off": 2,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "GEN",
+          "off": 3,
+          "len": 1,
+          "ty": "u8"
+        }
+      ]
+    },
+    {
+      "name": "Place",
+      "size": 16,
+      "fields": [
+        {
+          "name": "KIND",
+          "off": 0,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "P",
+          "off": 1,
+          "len": 2,
+          "ty": "i16"
+        },
+        {
+          "name": "Q",
+          "off": 3,
+          "len": 2,
+          "ty": "i16"
+        },
+        {
+          "name": "SITE_OR_TILE",
+          "off": 5,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "GEN",
+          "off": 6,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "TILE",
+          "off": 7,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "RSV_8",
+          "off": 8,
+          "len": 8,
+          "ty": "rsv"
+        }
+      ]
+    },
+    {
+      "name": "Proposal",
+      "size": 64,
+      "fields": [
+        {
+          "name": "ID",
+          "off": 0,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "STATE",
+          "off": 4,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "KIND",
+          "off": 5,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "TARGET_FACTION",
+          "off": 6,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "VALUE",
+          "off": 7,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "OPEN_BELL",
+          "off": 8,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "CLOSE_BELL",
+          "off": 12,
+          "len": 4,
+          "ty": "u32"
+        },
+        {
+          "name": "YES",
+          "off": 16,
+          "len": 2,
+          "ty": "u16"
+        },
+        {
+          "name": "NO",
+          "off": 18,
+          "len": 2,
+          "ty": "u16"
+        },
+        {
+          "name": "PROPOSER_TAG",
+          "off": 20,
+          "len": 8,
+          "ty": "u64"
+        },
+        {
+          "name": "TARGET",
+          "off": 28,
+          "len": 32,
+          "ty": "[u8;32]"
+        },
+        {
+          "name": "RSV_60",
+          "off": 60,
+          "len": 4,
           "ty": "rsv"
         }
       ]

@@ -4,5 +4,5 @@
 # aarch64-apple-darwin is the host that built the committed module (its hash
 # is the one in frontier.wasm.sha256). x86_64-unknown-linux-gnu is the GitHub
 # runner, measured in CI run 38157524022 for the integrated source.
-aarch64-apple-darwin 05a2e1e275db8c7f287ae4abae7b340f9109a35ce7ab83e37e9c5f4416fbb6a4 205683
-x86_64-unknown-linux-gnu 020cc258a7f8e7b46ea3a2d612735d091e1b7687c1889a49f0ae9ffa064e6dd1 205637
+aarch64-apple-darwin 40608dae490a26b2356991b2d394573ac96e10e62102b2686ef7f14f9637c62f 205579
+x86_64-unknown-linux-gnu 33c05461a00baaec8f1335da643dc99c4ed0c474c7174205c90ba3324dc36d40 205533

@@ -2,7 +2,11 @@
 //! builders are `fclient::ix`'s; the positions below serve forgeries.
 
 pub use fclient::ix::{sweep_pool_owed, SettleTransitArgs};
-pub fn settle_transit(a: &fclient::addr::Addresses, payer: solana_address::Address, x: &SettleTransitArgs) -> solana_instruction::Instruction {
+pub fn settle_transit(
+    a: &fclient::addr::Addresses,
+    payer: solana_address::Address,
+    x: &SettleTransitArgs,
+) -> solana_instruction::Instruction {
     fclient::ix::v2::settle_transit(a, payer, x, None)
 }
 

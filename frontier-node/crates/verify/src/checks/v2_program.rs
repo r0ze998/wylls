@@ -176,7 +176,16 @@ pub fn run(cx: &mut Ctx) {
     match (&f.params, f.create_tx) {
         (Some(p), Some(i)) => {
             let raw: [u8; SEASON_PARAMS_LEN] = p.to_bytes();
-            if presets::params_hash(&raw, &f.payout) != a.p32("params_hash") {
+            // A conquest season hashes SeasonParams v2 under its own domain
+            // (`frontier_abi::v2::presets::params_hash_v2`).
+            let hash = match &f.cq {
+                Some(cq) => {
+                    use frontier_abi::v2::presets::{params_hash_v2, SeasonParamsV2};
+                    params_hash_v2(&SeasonParamsV2 { base: *p, cq: *cq }.to_bytes(), &f.payout)
+                }
+                None => presets::params_hash(&raw, &f.payout),
+            };
+            if hash != a.p32("params_hash") {
                 cx.fail(
                     V,
                     ANNOUNCE_MISMATCH,

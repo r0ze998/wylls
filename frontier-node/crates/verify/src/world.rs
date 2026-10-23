@@ -218,6 +218,51 @@ pub struct World {
     /// Per account, the successful transactions that carry its post-state
     /// (ascending; [`World::state_before`] bisects it).
     pub posts: std::collections::HashMap<Key, Vec<usize>>,
+    /// The conquest records (kinds 80–88) of an ABI v2 log, owned. The
+    /// V1–V13 suite reads only [`World::recs`]; the conquest audit and the
+    /// conquest rule checks read these.
+    pub cq_recs: Vec<CqRec>,
+}
+
+/// A conquest record (ABI v2 kinds 80–88), owned.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CqRec {
+    pub kind: frontier_abi::v2::log::CqKind,
+    pub bell: u32,
+    pub key: Vec<u8>,
+    pub payload: Vec<u8>,
+    pub tx: usize,
+    pub pos: usize,
+}
+
+impl CqRec {
+    /// A key (`false`) or payload (`true`) field's bytes, by its name in
+    /// `frontier_abi::v2::log::CQ_SPECS`.
+    pub fn field(&self, name: &str, in_payload: bool) -> &[u8] {
+        let spec = self.kind.spec();
+        let (fields, part) = if in_payload {
+            (spec.payload, &self.payload)
+        } else {
+            (spec.key, &self.key)
+        };
+        let mut o = 0;
+        for (n, w) in fields {
+            if *n == name {
+                return part.get(o..o + w).unwrap_or(&[]);
+            }
+            o += w;
+        }
+        &[]
+    }
+    pub fn pu(&self, n: &str) -> u64 {
+        le(self.field(n, true))
+    }
+    pub fn ku(&self, n: &str) -> u64 {
+        le(self.field(n, false))
+    }
+    pub fn ki32(&self, n: &str) -> i32 {
+        le(self.field(n, false)) as u32 as i32
+    }
 }
 
 impl World {
@@ -308,22 +353,48 @@ impl World {
                 match fclient::log::bodies_from_logs(&t.logs, program) {
                     Ok(bodies) => {
                         for (pos, b) in bodies.iter().enumerate() {
-                            match plog::decode(b) {
+                            // The ABI v2 decoder reads M1's kinds exactly as
+                            // v1 does and adds the conquest kinds (80–88).
+                            match frontier_abi::v2::log::decode(b) {
                                 Ok(r) => {
+                                    use frontier_abi::v2::log::AnyKind;
+                                    let kind = match r.kind {
+                                        AnyKind::V1(k) => k,
+                                        AnyKind::Cq(k) => {
+                                            w.cq_recs.push(CqRec {
+                                                kind: k,
+                                                bell: r.bell,
+                                                key: r.key.to_vec(),
+                                                payload: r.payload.to_vec(),
+                                                tx: i,
+                                                pos,
+                                            });
+                                            continue;
+                                        }
+                                    };
+                                    // A v2 link to an entity M1 does not know
+                                    // (a MarchState) is the conquest audit's.
+                                    let links = r
+                                        .links
+                                        .iter()
+                                        .take(r.n_links)
+                                        .flatten()
+                                        .filter_map(|l| {
+                                            Some(Link {
+                                                entity: EntityKind::from_u8(l.entity as u8)?,
+                                                seq: l.seq,
+                                                head: l.head,
+                                            })
+                                        })
+                                        .collect();
                                     let n = w.recs.len();
                                     w.recs.push(Rec {
-                                        kind: r.kind,
+                                        kind,
                                         bell: r.bell,
                                         key: r.key.to_vec(),
                                         payload: r.payload.to_vec(),
                                         bwt: r.body_without_tail.to_vec(),
-                                        links: r
-                                            .links
-                                            .iter()
-                                            .take(r.n_links)
-                                            .flatten()
-                                            .copied()
-                                            .collect(),
+                                        links,
                                         tx: i,
                                         pos,
                                     });

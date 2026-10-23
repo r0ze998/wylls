@@ -57,6 +57,44 @@ pub const EXPLORE_ROLL_MISMATCH: &str = "ExploreRollMismatch";
 pub const PAYMENT_MISMATCH: &str = "PaymentMismatch";
 pub const DEFENCE_REFUND_MISMATCH: &str = "DefenceRefundMismatch";
 pub const CONSERVATION_GAP: &str = "ConservationGap";
+// V14 siege legality (conquest contract §8.5)
+pub const SIEGE_ILLEGAL: &str = "SiegeIllegal";
+pub const SIEGE_AFTER_END_RULE: &str = "SiegeAfterEndRule";
+// V15 / V18 / V19 at the record level (conquest contract §8.5; partial)
+pub const SIEGE_PROGRESS_MISMATCH: &str = "SiegeProgressMismatch";
+pub const KEEP_MISMATCH: &str = "KeepMismatch";
+pub const SNAPSHOT_MISMATCH: &str = "SnapshotMismatch";
+// V19 folds (conquest contract §8.5; partial)
+pub const MARCH_FOLD_MISMATCH: &str = "MarchFoldMismatch";
+// V22 land legality (conquest contract §8.5; partial: the outpost filing)
+pub const OUTPOST_ILLEGAL: &str = "OutpostIllegal";
+// V23 vaults and caravans (S1 stage 1b)
+/// A vault or caravan instruction left a Caravan, a slot or a raid other
+/// than the caravan kernel's.
+pub const CARAVAN_MISMATCH: &str = "CaravanMismatch";
+/// A vault built, credited, seized or closed against the rules.
+pub const VAULT_MISMATCH: &str = "VaultMismatch";
+// V24 watchtowers (S1 stage 1d)
+/// A tower built, seized or closed against the rules, or a Province's
+/// tower list that does not follow its Towers.
+pub const STRUCTURE_MISMATCH: &str = "StructureMismatch";
+/// A march's or a caravan's tower wear other than the tower kernel's (a
+/// slot's `WORN_BPS`, a gathered record, a transit, a caravan's cargo).
+pub const TOWER_WEAR_MISMATCH: &str = "TowerWearMismatch";
+// V25 nations (S1 stage 1e)
+/// A proposal, vote or settlement against the nation rules (a stance or
+/// an expulsion the votes did not pass, a vote counted twice).
+pub const NATION_MISMATCH: &str = "NationMismatch";
+// V17 capture bookkeeping (conquest contract §8.5; partial)
+pub const CAPTURE_RULE: &str = "CaptureRule";
+pub const CAPTURE_BOOKKEEPING: &str = "CaptureBookkeeping";
+pub const CAPTURE_LOCK_BROKEN: &str = "CaptureLockBroken";
+// V16 completion effects (conquest contract §8.5; partial: the owner rule)
+pub const FIRST_HOLDING_TRANSFERRED: &str = "FirstHoldingTransferred";
+// V20 season end (conquest contract §8.5; partial)
+pub const COMPLETION_AFTER_END: &str = "CompletionAfterEnd";
+pub const SIEGE_NOT_SETTLED: &str = "SiegeNotSettled";
+pub const OUTPOST_AFTER_CLOSE: &str = "OutpostAfterClose";
 /// Data a check needs is absent (UNVERIFIABLE, K2): e.g. no post-states
 /// for a clash replay from a public RPC without an archive.
 pub const MISSING_DATA: &str = "MissingData";
@@ -101,6 +139,25 @@ pub const FAIL_CODES: &[&str] = &[
     EXPLORE_ROLL_MISMATCH,
     PAYMENT_MISMATCH,
     DEFENCE_REFUND_MISMATCH,
+    SIEGE_ILLEGAL,
+    SIEGE_AFTER_END_RULE,
+    SIEGE_PROGRESS_MISMATCH,
+    KEEP_MISMATCH,
+    SNAPSHOT_MISMATCH,
+    MARCH_FOLD_MISMATCH,
+    FIRST_HOLDING_TRANSFERRED,
+    CAPTURE_RULE,
+    CAPTURE_BOOKKEEPING,
+    CAPTURE_LOCK_BROKEN,
+    COMPLETION_AFTER_END,
+    SIEGE_NOT_SETTLED,
+    OUTPOST_AFTER_CLOSE,
+    OUTPOST_ILLEGAL,
+    CARAVAN_MISMATCH,
+    VAULT_MISMATCH,
+    STRUCTURE_MISMATCH,
+    TOWER_WEAR_MISMATCH,
+    NATION_MISMATCH,
 ];
 
 /// Warning codes (PASS with a warning).

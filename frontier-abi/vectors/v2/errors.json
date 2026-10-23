@@ -551,6 +551,111 @@
       "keeper": "refused"
     },
     {
+      "code": 79,
+      "name": "VaultSite",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 80,
+      "name": "VaultLimit",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 81,
+      "name": "WalletRequired",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 82,
+      "name": "ProvinceBusy",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 83,
+      "name": "CaravanEarly",
+      "program": true,
+      "mc": true,
+      "keeper": "wait"
+    },
+    {
+      "code": 84,
+      "name": "RaidState",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 85,
+      "name": "RaidWindow",
+      "program": true,
+      "mc": true,
+      "keeper": "wait"
+    },
+    {
+      "code": 86,
+      "name": "NotOnTile",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 87,
+      "name": "StructureSite",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 88,
+      "name": "StructureLimit",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 89,
+      "name": "StructureFull",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 90,
+      "name": "FortManned",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 91,
+      "name": "ProposalsFull",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 92,
+      "name": "NotVoter",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
+      "code": 93,
+      "name": "ProposalState",
+      "program": true,
+      "mc": true,
+      "keeper": "refused"
+    },
+    {
       "code": 99,
       "name": "NotImplemented",
       "program": false,

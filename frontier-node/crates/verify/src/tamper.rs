@@ -11,6 +11,12 @@
 //! header recomputed) and whatever else a careful forger would adjust is
 //! adjusted (payments, dependent digests), so only the check under test can
 //! see the lie — which is what lets its `mutate-` build PASS.
+//!
+//! On a conquest season (program v3) the same classes run over the v2
+//! records; the chain classes are satisfied by the conquest audit's CQ1
+//! codes ([`cq_equivalents`]), since CQ1 walks the chains in V1's place
+//! there. No class yet tampers a conquest record (T25–T48 of the conquest
+//! contract §8.5 are not written).
 
 use std::collections::HashMap;
 
@@ -21,6 +27,7 @@ use frontier_abi::layout::header as HD;
 use frontier_abi::layout::player::holding as H;
 use frontier_abi::log::{self as plog, transit_outcome, Kind, Link};
 use frontier_abi::tags::Ix;
+use frontier_abi::v2::log::CqKind;
 
 use crate::checks::v1_chains::match_links;
 use crate::checks::v7_replay::packed_fates;
@@ -304,9 +311,17 @@ fn world(inp: &Input) -> (World, Facts) {
     (w, f)
 }
 
-/// The record index (in [`World::recs`]) of `(t, i)`.
+/// The record index (in [`World::recs`]) of `(t, i)`: `i` is the record's
+/// position among the transaction's bodies ([`find`]), which in a conquest
+/// season counts the conquest records (`World::cq_recs`, not in
+/// `Tx::recs`) too — CQ3-A: T17 panicked on a SKIP behind a CONQUEST.
 fn rec_at(w: &World, t: usize, i: usize) -> usize {
-    w.txs[t].recs[i]
+    w.txs[t]
+        .recs
+        .iter()
+        .copied()
+        .find(|&n| w.recs[n].pos == i)
+        .unwrap_or_else(|| panic!("record {i} of transaction {t} is not an M1 record"))
 }
 
 // ------------------------------------------------------------ the classes
@@ -1721,10 +1736,645 @@ pub fn h1(run: &Input) -> Made {
     })
 }
 
+// ------------------------------------------------------------ conquest classes (contract §8.5 T25–T48; CQ3-A)
+
+/// `(transaction, position)` of every conquest record of `kind`.
+pub fn find_cq(inp: &Input, kind: CqKind) -> Vec<(usize, usize)> {
+    let mut v = vec![];
+    for t in 0..inp.txs.len() {
+        if inp.txs[t].err.is_some() {
+            continue;
+        }
+        for (i, b) in bodies(inp, t).iter().enumerate() {
+            if b.get(1) == Some(&(kind as u8)) {
+                v.push((t, i));
+            }
+        }
+    }
+    v
+}
+
+/// Edits the payload of conquest record `(t, i)` (`f` gets the payload).
+pub fn edit_payload_cq(inp: &mut Input, t: usize, i: usize, f: impl FnOnce(&mut [u8])) {
+    let mut bs = bodies(inp, t);
+    let b = &mut bs[i];
+    let r = frontier_abi::v2::log::decode(b).expect("record decodes");
+    let off = plog::HEAD_LEN + r.key.len();
+    let n = r.payload.len();
+    f(&mut b[off..off + n]);
+    set_bodies(inp, t, &bs);
+}
+
+/// Edits the data of the first program instruction with tag byte `tag`.
+pub fn edit_ix_tag(inp: &mut Input, t: usize, tag: u8, f: impl FnOnce(&mut Vec<u8>)) {
+    let mut tx = fclient::tx::from_wire(&inp.txs[t].tx).expect("tx");
+    let program = inp.cfg.program;
+    let keys = tx.message.account_keys.clone();
+    let ci = tx
+        .message
+        .instructions
+        .iter_mut()
+        .find(|c| keys[c.program_id_index as usize] == program && c.data.first() == Some(&tag))
+        .expect("instruction");
+    f(&mut ci.data);
+    inp.txs[t].tx = fclient::tx::wire(&tx);
+}
+
+/// The account keys of the first program instruction with tag byte `tag`
+/// in transaction `t`, in instruction order.
+fn ix_keys(inp: &Input, t: usize, tag: u8) -> Option<Vec<Key>> {
+    let tx = fclient::tx::from_wire(&inp.txs[t].tx).ok()?;
+    let program = inp.cfg.program;
+    let keys = &tx.message.account_keys;
+    let ci =
+        tx.message.instructions.iter().find(|c| {
+            keys[c.program_id_index as usize] == program && c.data.first() == Some(&tag)
+        })?;
+    Some(
+        ci.accounts
+            .iter()
+            .filter_map(|&a| keys.get(a as usize).map(|k| k.to_bytes()))
+            .collect(),
+    )
+}
+
+/// Edits account `k`'s post-state in transaction `t` alone.
+fn edit_account_at(inp: &mut Input, k: &Key, t: usize, f: impl FnOnce(&mut Vec<u8>)) -> bool {
+    if let Some((_, Some(a))) = inp.txs[t].post.iter_mut().find(|(x, _)| x.to_bytes() == *k) {
+        f(&mut a.data);
+        return true;
+    }
+    false
+}
+
+/// The last transaction before `t` whose post-states hold `k`.
+fn last_post_before(inp: &Input, k: &Key, t: usize) -> Option<usize> {
+    (0..t).rev().find(|&u| {
+        inp.txs[u]
+            .post
+            .iter()
+            .any(|(x, a)| x.to_bytes() == *k && a.is_some())
+    })
+}
+
+/// T28: +1 progress on a CONQUEST site event (V15 replays the step).
+pub fn cq_t28(run: &Input) -> Made {
+    let mut inp = run.clone();
+    let recs = find_cq(&inp, CqKind::CONQUEST);
+    let mut hit = None;
+    for &(t, i) in &recs {
+        let b = &bodies(&inp, t)[i];
+        let r = frontier_abi::v2::log::decode(b).expect("record decodes");
+        let n = r.payload.first().copied().unwrap_or(0) as usize;
+        if let Some(e) = (0..n.min(14))
+            .find(|&e| r.payload[1 + 4 * e] != frontier_abi::v2::log::event::KEEP_SITE)
+        {
+            hit = Some((t, i, e));
+            break;
+        }
+    }
+    let (t, i, e) = hit.need("a CONQUEST record with a site event (a siege)")?;
+    edit_payload_cq(&mut inp, t, i, |pl| {
+        pl[1 + 4 * e + 3] = pl[1 + 4 * e + 3].wrapping_add(1)
+    });
+    Ok(Case {
+        class: "T28",
+        what: "+1 progress on a siege's CONQUEST event",
+        feature: None,
+        codes: &[SIEGE_PROGRESS_MISMATCH],
+        input: inp,
+    })
+}
+
+/// T30: a first holding's owner rewritten (V16).
+pub fn cq_t30(run: &Input) -> Made {
+    let mut inp = run.clone();
+    let (w, f) = world(&inp);
+    let mut hit = None;
+    for &(t, i) in &find(&inp, Kind::HARVEST) {
+        let r = &w.recs[rec_at(&w, t, i)];
+        let (p, q, s) = r.pqs();
+        let hk = f.ctx.holding(p, q, s);
+        let is_first = w.txs[t]
+            .post_data(&hk)
+            .is_some_and(|d| d.len() == H::SIZE && d[H::ORDER] == 1)
+            && w.state_before(&hk, t).is_some();
+        if is_first {
+            hit = Some((t, hk));
+            break;
+        }
+    }
+    let (t, hk) = hit.need("a Harvest of a first holding with a state before")?;
+    for u in t..inp.txs.len() {
+        edit_account_at(&mut inp, &hk, u, |d| {
+            d[H::OWNER_CITIZEN] = d[H::OWNER_CITIZEN].wrapping_add(1)
+        });
+    }
+    if let Some(Some(a)) = inp.finals.get_mut(&hk) {
+        a.data[H::OWNER_CITIZEN] = a.data[H::OWNER_CITIZEN].wrapping_add(1);
+    }
+    Ok(Case {
+        class: "T30",
+        what: "a first holding's owner rewritten",
+        feature: None,
+        codes: &[FIRST_HOLDING_TRANSFERRED],
+        input: inp,
+    })
+}
+
+/// T31: a capture settled into a slot the captor had not reserved (V17).
+pub fn cq_t31(run: &Input) -> Made {
+    let mut inp = run.clone();
+    let (t, _) = *find_cq(&inp, CqKind::CAPTURE_SETTLED)
+        .first()
+        .need("a CAPTURE_SETTLED")?;
+    let keys = ix_keys(&inp, t, frontier_abi::v2::tags::Ix::SettleCapture.tag())
+        .need("a SettleCapture instruction")?;
+    let captor = *keys.get(4).need("the captor Citizen account")?;
+    let u = last_post_before(&inp, &captor, t).need("the captor's state before the settlement")?;
+    use frontier_abi::v2::layout::player::citizen as C2;
+    edit_account_at(&mut inp, &captor, u, |d| {
+        d[C2::SLOTS] &= !(C2::SLOTS_RESERVED_2 | C2::SLOTS_RESERVED_3)
+    });
+    Ok(Case {
+        class: "T31",
+        what: "a capture into a slot that was not reserved at the horn",
+        feature: None,
+        codes: &[CAPTURE_RULE],
+        input: inp,
+    })
+}
+
+/// T36: a MARCH_FOLD's controller flipped (V19 replays the fold).
+pub fn cq_t36(run: &Input) -> Made {
+    let mut inp = run.clone();
+    let recs = find_cq(&inp, CqKind::MARCH_FOLD);
+    let (t, i) = *recs
+        .get(recs.len() / 2)
+        .or(recs.last())
+        .need("a MARCH_FOLD")?;
+    edit_payload_cq(&mut inp, t, i, |pl| {
+        pl[28] = if pl[28] == 0xFF { 0 } else { (pl[28] + 1) % 6 }
+    });
+    Ok(Case {
+        class: "T36",
+        what: "a MARCH_FOLD controller flipped",
+        feature: None,
+        codes: &[MARCH_FOLD_MISMATCH],
+        input: inp,
+    })
+}
+
+/// T39: an outpost filed in a heartland ring (V22): the filing's first
+/// site moved to the anchor's own province.
+pub fn cq_t39(run: &Input) -> Made {
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::FileOutpost.tag();
+    let t = (0..inp.txs.len())
+        .find(|&t| inp.txs[t].err.is_none() && ix_keys(&inp, t, tag).is_some())
+        .need("a FileOutpost")?;
+    edit_ix_tag(&mut inp, t, tag, |d| {
+        // tag, n, sites (p i16, q i16, site u8) × n, anchor_site_key u64
+        let n = d[1] as usize;
+        let o = 2 + 5 * n;
+        let key = u64::from_le_bytes(d[o..o + 8].try_into().expect("u64"));
+        if let Some(a) = frontier_abi::addr::split_host_id(key) {
+            d[2..4].copy_from_slice(&(a.province.p as i16).to_le_bytes());
+            d[4..6].copy_from_slice(&(a.province.q as i16).to_le_bytes());
+        }
+    });
+    Ok(Case {
+        class: "T39",
+        what: "an outpost filed in a heartland ring (the anchor's own province)",
+        feature: None,
+        codes: &[OUTPOST_ILLEGAL],
+        input: inp,
+    })
+}
+
+/// T46: a declaration by a host that is not the hex's lead (V14): the
+/// horn's `entry` moved to another entry.
+pub fn cq_t46(run: &Input) -> Made {
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::DeclareSiege.tag();
+    let (t, _) = *find_cq(&inp, CqKind::SIEGE_DECLARED)
+        .first()
+        .need("a SIEGE_DECLARED")?;
+    edit_ix_tag(&mut inp, t, tag, |d| d[2] = (d[2] + 1) % 48);
+    Ok(Case {
+        class: "T46",
+        what: "a declaration by an entry that is not the hex's lead host",
+        feature: None,
+        codes: &[SIEGE_ILLEGAL],
+        input: inp,
+    })
+}
+
 // ------------------------------------------------------------ the suite over one run (W5-D)
 
 /// A class builder.
 pub type Builder = fn(&Input) -> Made;
+
+// ------------------------------------------------------------ S1 classes (stage 1b, T49–T51)
+
+/// The first landed transaction with a program instruction of `tag`.
+fn first_with(inp: &Input, tag: u8) -> Option<usize> {
+    (0..inp.txs.len()).find(|&t| inp.txs[t].err.is_none() && ix_keys(inp, t, tag).is_some())
+}
+
+/// T49: a caravan slot not written (V23): SendCaravan's slots erased from
+/// the Provinces it left.
+pub fn s1_t49(run: &Input) -> Made {
+    use frontier_abi::v2::layout::province::caravan_slot as CS;
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::SendCaravan.tag();
+    let t = first_with(&inp, tag).need("a SendCaravan")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let mut hit = false;
+    for k in keys.iter().skip(8) {
+        hit |= edit_account_at(&mut inp, k, t, |d| {
+            for i in 0..permutation_rules::frontier::caravan::MAX_CARAVAN_SLOTS {
+                if let Some(b) = d.get_mut(CS::at(i)..CS::at(i) + CS::SIZE) {
+                    b.fill(0);
+                    b[CS::RAID_OFF] = permutation_rules::frontier::caravan::RAID_NONE;
+                }
+            }
+        });
+    }
+    hit.then_some(()).need("a path Province's post-state")?;
+    Ok(Case {
+        class: "T49",
+        what: "a caravan's slots not written",
+        feature: None,
+        codes: &[CARAVAN_MISMATCH],
+        input: inp,
+    })
+}
+
+/// T50: cargo delivered twice (V23): a vault's credit at a SettleCaravan
+/// doubled.
+pub fn s1_t50(run: &Input) -> Made {
+    use frontier_abi::v2::layout::s1::vault as VA;
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::SettleCaravan.tag();
+    let mut found = None;
+    for t in 0..inp.txs.len() {
+        if inp.txs[t].err.is_some() {
+            continue;
+        }
+        let Some(keys) = ix_keys(&inp, t, tag) else {
+            continue;
+        };
+        let (Some(c), Some(v)) = (keys.get(2), keys.get(3)) else {
+            continue;
+        };
+        let before = last_post_before(&inp, v, t).and_then(|u| {
+            inp.txs[u]
+                .post
+                .iter()
+                .find(|(x, _)| x.to_bytes() == *v)
+                .and_then(|(_, a)| a.as_ref().map(|a| a.data.clone()))
+        });
+        let cargo = last_post_before(&inp, c, t).and_then(|u| {
+            inp.txs[u]
+                .post
+                .iter()
+                .find(|(x, _)| x.to_bytes() == *c)
+                .and_then(|(_, a)| a.as_ref().map(|a| a.data.clone()))
+        });
+        if let (Some(b), Some(cd)) = (before, cargo) {
+            if b.len() == VA::SIZE && b[..8] == VA::MAGIC {
+                found = Some((t, *v, cd));
+                break;
+            }
+        }
+    }
+    let (t, v, cd) = found.need("a SettleCaravan to a vault")?;
+    let cargo: Vec<i64> = (0..8)
+        .map(|r| {
+            let o = frontier_abi::v2::layout::s1::caravan::cargo(r);
+            le(&cd[o..o + 8]) as i64
+        })
+        .collect();
+    edit_account_at(&mut inp, &v, t, |d| {
+        for (r, c) in cargo.iter().enumerate() {
+            let o = VA::store(r);
+            let x = le(&d[o..o + 8]) as i64 + c;
+            d[o..o + 8].copy_from_slice(&x.to_le_bytes());
+        }
+    })
+    .then_some(())
+    .need("the vault's post-state")?;
+    Ok(Case {
+        class: "T50",
+        what: "a caravan's cargo credited twice",
+        feature: None,
+        codes: &[VAULT_MISMATCH],
+        input: inp,
+    })
+}
+
+/// T51: a vault seized without a host on its tile (V23): the captor's
+/// roster entry moved off the tile in the Province before the seizure.
+pub fn s1_t51(run: &Input) -> Made {
+    use frontier_abi::layout::province::{entry as EN, province as PV};
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::SeizeVault.tag();
+    let t = first_with(&inp, tag).need("a SeizeVault")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let province = *keys.get(5).need("its Province")?;
+    let u = last_post_before(&inp, &province, t).need("the Province before")?;
+    let entry = {
+        let mut tx = fclient::tx::from_wire(&inp.txs[t].tx).expect("tx");
+        let program = inp.cfg.program;
+        let ks = tx.message.account_keys.clone();
+        let ci = tx
+            .message
+            .instructions
+            .iter_mut()
+            .find(|c| ks[c.program_id_index as usize] == program && c.data.first() == Some(&tag))
+            .expect("instruction");
+        ci.data[1] as usize
+    };
+    edit_account_at(&mut inp, &province, u, |d| {
+        let o = PV::entry(entry) + EN::TILE;
+        d[o] = d[o].wrapping_add(1) % 61;
+    })
+    .then_some(())
+    .need("the Province's post-state")?;
+    Ok(Case {
+        class: "T51",
+        what: "a vault seized without the captor's host on it",
+        feature: None,
+        codes: &[VAULT_MISMATCH],
+        input: inp,
+    })
+}
+
+// ------------------------------------------------------------ S1 classes (stage 1d, T52–T54)
+
+/// T52: a march's tower wear zeroed (V24): the first Reveal whose slot
+/// carries a wear, its `WORN_BPS` cleared in the slot it left.
+pub fn s1_t52(run: &Input) -> Made {
+    use frontier_abi::v2::layout::s1::arrival::WORN_BPS;
+    let mut inp = run.clone();
+    let tag = frontier_abi::tags::Ix::Reveal.tag();
+    let mut hit = false;
+    for t in 0..inp.txs.len() {
+        if inp.txs[t].err.is_some() {
+            continue;
+        }
+        let Some(keys) = ix_keys(&inp, t, tag) else {
+            continue;
+        };
+        for k in keys.iter().skip(9).take(4) {
+            let mut cleared = false;
+            edit_account_at(&mut inp, k, t, |d| {
+                if d.get(WORN_BPS..WORN_BPS + 2).is_some_and(|w| w != [0, 0]) {
+                    d[WORN_BPS..WORN_BPS + 2].fill(0);
+                    cleared = true;
+                }
+            });
+            hit |= cleared;
+        }
+        if hit {
+            break;
+        }
+    }
+    hit.then_some(())
+        .need("a Reveal whose slot carries a wear")?;
+    Ok(Case {
+        class: "T52",
+        what: "a march's tower wear zeroed",
+        feature: None,
+        codes: &[TOWER_WEAR_MISMATCH],
+        input: inp,
+    })
+}
+
+/// T53: a gather that skipped the wear (V24): the first GatherClash's
+/// gathered records' troops raised back by one milli-troop.
+pub fn s1_t53(run: &Input) -> Made {
+    use frontier_abi::layout::clash::{arrival as AR, clash_inputs as CI};
+    let mut inp = run.clone();
+    let tag = frontier_abi::tags::Ix::GatherClash.tag();
+    let t = first_with(&inp, tag).need("a GatherClash")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let inputs = *keys.get(5).need("its ClashInputs")?;
+    edit_account_at(&mut inp, &inputs, t, |d| {
+        for k in 0..CI::POSITIONS {
+            let o = CI::ARRIVALS + k * AR::SIZE + AR::TROOPS;
+            if let Some(b) = d.get_mut(o..o + 4) {
+                let v = u32::from_le_bytes([b[0], b[1], b[2], b[3]]);
+                if v > 0 {
+                    b.copy_from_slice(&(v + 1).to_le_bytes());
+                }
+            }
+        }
+    })
+    .then_some(())
+    .need("the ClashInputs' post-state")?;
+    Ok(Case {
+        class: "T53",
+        what: "a gather that skipped the tower wear",
+        feature: None,
+        codes: &[TOWER_WEAR_MISMATCH],
+        input: inp,
+    })
+}
+
+/// T54: a tower seized without a host on its tile (V24): the captor's
+/// roster entry moved off the tile in the Province before the seizure.
+pub fn s1_t54(run: &Input) -> Made {
+    use frontier_abi::layout::province::{entry as EN, province as PV};
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::SeizeStructure.tag();
+    let t = first_with(&inp, tag).need("a SeizeStructure")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let province = *keys.get(5).need("its Province")?;
+    let u = last_post_before(&inp, &province, t).need("the Province before")?;
+    let entry = {
+        let mut tx = fclient::tx::from_wire(&inp.txs[t].tx).expect("tx");
+        let program = inp.cfg.program;
+        let ks = tx.message.account_keys.clone();
+        let ci = tx
+            .message
+            .instructions
+            .iter_mut()
+            .find(|c| ks[c.program_id_index as usize] == program && c.data.first() == Some(&tag))
+            .expect("instruction");
+        ci.data[1] as usize
+    };
+    edit_account_at(&mut inp, &province, u, |d| {
+        let o = PV::entry(entry) + EN::TILE;
+        d[o] = d[o].wrapping_add(1) % 61;
+    })
+    .then_some(())
+    .need("the Province's post-state")?;
+    Ok(Case {
+        class: "T54",
+        what: "a tower seized without the captor's host on it",
+        feature: None,
+        codes: &[STRUCTURE_MISMATCH],
+        input: inp,
+    })
+}
+
+// ------------------------------------------------------------ S1 classes (stage 1e, T55–T56)
+
+/// T55: a vote counted twice (V25): the first Vote's proposal tallies
+/// raised by one more in the Nation it left.
+pub fn s1_t55(run: &Input) -> Made {
+    use frontier_abi::v2::layout::s1::{nation as NA, proposal as PR};
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::Vote.tag();
+    let t = first_with(&inp, tag).need("a Vote")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let nation = *keys.get(4).need("its Nation")?;
+    edit_account_at(&mut inp, &nation, t, |d| {
+        for i in 0..NA::N {
+            let o = NA::at(i) + PR::YES;
+            if let Some(b) = d.get_mut(o..o + 2) {
+                let v = u16::from_le_bytes([b[0], b[1]]);
+                b.copy_from_slice(&v.wrapping_add(1).to_le_bytes());
+            }
+        }
+    })
+    .then_some(())
+    .need("the Nation's post-state")?;
+    Ok(Case {
+        class: "T55",
+        what: "a vote counted twice",
+        feature: None,
+        codes: &[NATION_MISMATCH],
+        input: inp,
+    })
+}
+
+/// T56: a stance written without a passed proposal (V25): the first
+/// SettleProposal's Season left with one more stance changed.
+pub fn s1_t56(run: &Input) -> Made {
+    use frontier_abi::v2::layout::world::season as S2;
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::SettleProposal.tag();
+    let t = first_with(&inp, tag).need("a SettleProposal")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let season = *keys.get(1).need("its Season")?;
+    edit_account_at(&mut inp, &season, t, |d| {
+        // The last cell (5 → 5) is never a proposal's.
+        let o = S2::STANCES + 35;
+        if let Some(b) = d.get_mut(o) {
+            *b ^= 1;
+        }
+    })
+    .then_some(())
+    .need("the Season's post-state")?;
+    Ok(Case {
+        class: "T56",
+        what: "a stance written without a passed proposal",
+        feature: None,
+        codes: &[NATION_MISMATCH],
+        input: inp,
+    })
+}
+
+/// T57: a domestic raid without the raider's host (V23): the raider's
+/// roster entry moved off the tile in the Province before the RaidDomestic.
+pub fn s1_t57(run: &Input) -> Made {
+    use frontier_abi::layout::province::{entry as EN, province as PV};
+    let mut inp = run.clone();
+    let tag = frontier_abi::v2::tags::Ix::RaidDomestic.tag();
+    let t = first_with(&inp, tag).need("a RaidDomestic")?;
+    let keys = ix_keys(&inp, t, tag).need("its accounts")?;
+    let province = *keys.get(5).need("its Province")?;
+    let u = last_post_before(&inp, &province, t).need("the Province before")?;
+    let entry = {
+        let tx = fclient::tx::from_wire(&inp.txs[t].tx).expect("tx");
+        let program = inp.cfg.program;
+        let ks = tx.message.account_keys.clone();
+        let ci = tx
+            .message
+            .instructions
+            .iter()
+            .find(|c| ks[c.program_id_index as usize] == program && c.data.first() == Some(&tag))
+            .expect("instruction");
+        // data: tag ‖ bell u32 ‖ entry u8
+        ci.data[5] as usize
+    };
+    edit_account_at(&mut inp, &province, u, |d| {
+        let o = PV::entry(entry) + EN::TILE;
+        d[o] = d[o].wrapping_add(1) % 61;
+    })
+    .then_some(())
+    .need("the Province's post-state")?;
+    Ok(Case {
+        class: "T57",
+        what: "a domestic raid without the raider's host on the tile",
+        feature: None,
+        codes: &[CARAVAN_MISMATCH],
+        input: inp,
+    })
+}
+
+/// The S1 classes (stages 1b, 1d and 1e, S1-1B-CONTRACT §4.1 and S1-1D-CONTRACT
+/// §5.1, as numbered after the
+/// conquest's T25–T48) an S1 season runs: extras until an S1 fixture with
+/// caravans is committed.
+pub fn s1_classes() -> Vec<Class> {
+    fn c(class: &'static str, tries: Vec<(&'static str, Builder)>) -> Class {
+        Class {
+            class,
+            required: false,
+            tries,
+        }
+    }
+    vec![
+        c("T49", vec![("caravan slots not written", s1_t49)]),
+        c("T50", vec![("cargo credited twice", s1_t50)]),
+        c("T51", vec![("vault seized without a host", s1_t51)]),
+        c("T52", vec![("march wear zeroed", s1_t52)]),
+        c("T53", vec![("gather skipped the wear", s1_t53)]),
+        c("T54", vec![("tower seized without a host", s1_t54)]),
+        c("T55", vec![("vote counted twice", s1_t55)]),
+        c("T56", vec![("stance without a passed proposal", s1_t56)]),
+        c("T57", vec![("domestic raid without a host", s1_t57)]),
+    ]
+}
+
+/// The conquest classes (contract §8.5 T25–T48; CQ3-A) a conquest season
+/// runs beside [`classes`]: record, post-state and instruction edits with
+/// no v2 re-chain (CQ1 reports the stale chain beside the named code),
+/// extras until a conquest fixture is committed.
+pub fn conquest_classes() -> Vec<Class> {
+    fn c(class: &'static str, tries: Vec<(&'static str, Builder)>) -> Class {
+        Class {
+            class,
+            required: false,
+            tries,
+        }
+    }
+    vec![
+        c("T28", vec![("+1 siege progress", cq_t28)]),
+        c("T30", vec![("first holding's owner rewritten", cq_t30)]),
+        c("T31", vec![("capture into an unreserved slot", cq_t31)]),
+        c("T36", vec![("MARCH_FOLD controller flipped", cq_t36)]),
+        c("T39", vec![("outpost filed in a heartland ring", cq_t39)]),
+        c("T46", vec![("declaration by a non-lead entry", cq_t46)]),
+    ]
+}
+
+/// The classes a run is judged by: M1's, and on a conquest season the
+/// conquest classes too.
+pub fn classes_for(run: &Input) -> Vec<Class> {
+    let mut v = classes();
+    if crate::conquest::applies(run) {
+        v.extend(conquest_classes());
+    }
+    if crate::conquest::s1_applies(run) {
+        v.extend(s1_classes());
+    }
+    v
+}
 
 /// One class of the suite: its builders, tried in order (the fixture's
 /// selection first, then the run fallbacks), and whether §8.5 requires it.
@@ -1991,6 +2641,7 @@ fn panic_message(p: &(dyn std::any::Any + Send)) -> String {
 /// review: a bug on this run's shape, never "not applicable").
 pub fn judge_class(c: &Class, run: &Input) -> Outcome {
     let mut why = vec![];
+    let cq = crate::conquest::applies(run);
     let blank = |status: Status, detail: String| Outcome {
         class: c.class,
         required: c.required,
@@ -2042,7 +2693,13 @@ pub fn judge_class(c: &Class, run: &Input) -> Outcome {
                 };
             }
         };
-        let hit = case.codes.iter().any(|x| r.fails_with(x));
+        // A conquest season runs the conquest audit's CQ1 in V1's place
+        // (`checks::run`: "V1:CQ1"), whose chain findings carry CQ1's own
+        // names; a class expecting V1's code is satisfied by CQ1's.
+        let hit = case
+            .codes
+            .iter()
+            .any(|x| r.fails_with(x) || (cq && cq_equivalents(x).iter().any(|y| r.fails_with(y))));
         return Outcome {
             class: c.class,
             required: c.required,
@@ -2068,11 +2725,30 @@ pub fn judge_class(c: &Class, run: &Input) -> Outcome {
     blank(Status::NotApplicable, why.join("; "))
 }
 
+/// The conquest audit's (CQ1) codes that stand for a V1 code on a conquest
+/// season, where CQ1 walks the chains in V1's place: a gap or a wrong head
+/// shows as a chain, final-head or final-state mismatch, a duplicated
+/// record as a duplicated transaction.
+pub fn cq_equivalents(v1: &str) -> &'static [&'static str] {
+    match v1 {
+        CHAIN_GAP | HEAD_MISMATCH => &[
+            "ChainMismatch",
+            "FinalHeadMismatch",
+            "FinalStateMismatch",
+            "MissingLink",
+            "ExtraLink",
+            "ReadonlyChain",
+        ],
+        DUPLICATE_EVENT => &["DuplicateTransaction", "ChainMismatch"],
+        _ => &[],
+    }
+}
+
 /// The whole suite over one run, `jobs` classes at a time (each class
 /// verifies its own tampered copy of the run).
 pub fn run_suite(run: &Input, jobs: usize) -> SuiteReport {
     let base = crate::verify(run);
-    let cs = classes();
+    let cs = classes_for(run);
     let next = std::sync::atomic::AtomicUsize::new(0);
     let out: std::sync::Mutex<Vec<(usize, Outcome)>> = Default::default();
     std::thread::scope(|sc| {

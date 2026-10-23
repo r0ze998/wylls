@@ -244,6 +244,7 @@ fn acc_name(a: Acc) -> String {
         Acc::Incinerator => "incinerator".into(),
         Acc::Any => "any".into(),
         Acc::KindV2(k) => k.name().to_string(),
+        Acc::EitherV2(a, b) => format!("{}|{}", a.name(), b.name()),
     }
 }
 
@@ -1843,6 +1844,30 @@ fn v2_presets() -> J {
         ]));
     }
     v.push(("presets", J::A(ps)));
+    // S1 (redesign stage 1): the same parameters with program_version 4,
+    // checked against RULESET_HASH_V3.
+    v.push(("ruleset_hash_v3", J::S(hex(&p2::RULESET_HASH_V3))));
+    v.push((
+        "ruleset_hash_v3_status",
+        st("pinned: permutation_rules::frontier::ruleset_hash_v3() (S1 1a: arms 1, catalog 3, doctrine 3, holding 4)"),
+    ));
+    v.push(("rules_version_s1", n(p2::RULES_VERSION_S1)));
+    v.push(("program_version_s1", n(p2::PROGRAM_VERSION_S1)));
+    let mut ps = Vec::new();
+    for (name, p) in p2::PRESETS_S1 {
+        let b = p.to_bytes();
+        ps.push(o(vec![
+            ("name", st(name)),
+            ("valid", J::B(p.validate().is_ok())),
+            ("fields", v2_params_json(&p)),
+            ("bytes", J::S(hex(&b))),
+            (
+                "params_hash_with_rev3_payout",
+                J::S(hex(&p2::params_hash_v2(&b, &payout))),
+            ),
+        ]));
+    }
+    v.push(("presets_s1", J::A(ps)));
     done(v)
 }
 
@@ -1861,6 +1886,17 @@ fn v2_budgets() -> J {
             ),
             ("skip_per_active_bell", n(b2::SKIP_PER_ACTIVE_BELL)),
             ("skip_record_bells_max", n(b2::SKIP_RECORD_BELLS_MAX)),
+            // S1: its own release .so (loaded limits) and the caravan fee
+            // the relay's allowance caps.
+            ("placeholder_so_len_s1", n(b2::PLACEHOLDER_SO_LEN_S1)),
+            (
+                "placeholder_programdata_len_s1",
+                n(b2::PLACEHOLDER_PROGRAMDATA_LEN_S1),
+            ),
+            (
+                "caravan_fee",
+                n(permutation_rules::frontier::caravan::CARAVAN_FEE),
+            ),
             ("heap_gate", n(budgets::HEAP_GATE)),
             ("tx_max", n(budgets::TX_MAX)),
         ]),
@@ -1889,6 +1925,8 @@ fn v2_budgets() -> J {
                             n(b2::loaded_need(*i, b2::PLACEHOLDER_PROGRAMDATA_LEN_V2)),
                         ),
                         ("loaded_limit", n(b2::loaded_limit(*i))),
+                        ("loaded_limit_s1", n(b2::loaded_limit_s1(*i))),
+                        ("cu_limit_s1", n(b2::cu_limit_s1(*i))),
                     ])
                 })
                 .collect(),

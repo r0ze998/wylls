@@ -130,6 +130,15 @@ pub struct SeasonInfo {
 pub struct Cq {
     /// An MC season: something v2 was seen.
     pub on: bool,
+    /// S1 stage 1b: the caravans on the road and the vaults
+    /// (`h/caravans.json`, [`crate::caravan`]).
+    pub caravans: crate::caravan::Caravans,
+    /// S1 stages 1d and 1e: the structures and the towers' sightings
+    /// (`h/structures.json`, [`crate::structure`]).
+    pub structures: crate::structure::Structures,
+    /// S1 stage 1e: the nations' stances, proposals and the expelled
+    /// (`h/nations.json`, [`crate::nation`]).
+    pub nations: crate::nation::Nations,
     pub alarms: CqAlarms,
     /// Province-bell views awaiting their control and overview v2 files.
     pub views: BTreeMap<(i16, i16, u32), View>,
@@ -382,7 +391,7 @@ impl Cq {
 pub fn on_record(f: &mut Fold, tx: &TxRecord, body: &[u8]) -> bool {
     let Ok(r) = v2log::decode(body) else {
         // An undecodable body of an MC kind is counted here, not as M1's.
-        if body.len() >= 2 && (80..=89).contains(&body[1]) {
+        if body.len() >= 2 && (80..=94).contains(&body[1]) {
             f.st.alarms.bad_records += 1;
             f.cq.alarms.bad_records += 1;
             return true;
@@ -403,7 +412,14 @@ pub fn on_record(f: &mut Fold, tx: &TxRecord, body: &[u8]) -> bool {
     let seq = f.st.events;
     let sig = sig_of(tx);
     let pq = (rd_i32(r.key, 0).unwrap_or(0), rd_i32(r.key, 4).unwrap_or(0));
+    // S1: a caravan record's key is its owner and sequence; its Province
+    // is the origin's (sent), the destination's (settled) or the raid's.
+    let s1 = fclient::conquest::parse(body).map(|l| l.event);
     let scope = match kind {
+        CqKind::CARAVAN_SENT | CqKind::CARAVAN_SETTLED | CqKind::CARAVAN_RAIDED => s1
+            .as_ref()
+            .and_then(|e| e.province())
+            .map_or(Scope::None, |(p, q)| Scope::Province(p, q)),
         CqKind::MARCH_FOLD => Scope::None,
         CqKind::RETIRE => rd_u64(r.key, 0)
             .and_then(frontier_abi::addr::split_host_id)
@@ -420,7 +436,13 @@ pub fn on_record(f: &mut Fold, tx: &TxRecord, body: &[u8]) -> bool {
         t_ms: 0,
         wire: Default::default(),
     });
-    fold_record(&mut cq, f, tx, kind, &r, seq, &sig);
+    if let Some(e) = &s1 {
+        cq.structures.sight(r.bell, e);
+    }
+    match &s1 {
+        Some(e) if cq.caravans.fold(e) || cq.structures.fold(e) || cq.nations.fold(r.bell, e) => {}
+        _ => fold_record(&mut cq, f, tx, kind, &r, seq, &sig),
+    }
     f.cq = cq;
     true
 }
@@ -747,6 +769,21 @@ fn fold_record(
                 wt,
             );
         }
+        // S1 (stage 1b): vaults and caravans are not conquest events; the
+        // herald's caravan feed reads them (`caravan.rs`).
+        CqKind::VAULT_BUILT
+        | CqKind::CARAVAN_SENT
+        | CqKind::CARAVAN_SETTLED
+        | CqKind::CARAVAN_RAIDED
+        | CqKind::VAULT_SEIZED
+        | CqKind::STRUCTURE_BUILT
+        | CqKind::STRUCTURE_SEIZED
+        | CqKind::STRUCTURE_CLOSED
+        | CqKind::NATION_PROPOSED
+        | CqKind::NATION_VOTED
+        | CqKind::NATION_DECIDED
+        | CqKind::RAID_OPENED
+        | CqKind::FORT_GARRISONED => {}
     }
 }
 
@@ -1585,6 +1622,9 @@ pub fn complete(f: &mut Fold, tx: &TxRecord) {
     days(&mut cq, f, si.as_ref());
     crate::standings::write_rows(&mut cq, f, si.as_ref(), slot);
     keeps_out(&mut cq, f);
+    caravans_out(&mut cq, f);
+    structures_out(&mut cq, f);
+    nations_out(&mut cq, f);
     final_file(&mut cq, f, si.as_ref());
     f.cq = cq;
 }
@@ -2014,6 +2054,80 @@ pub fn day_live(f: &Fold, d: u32) -> Option<String> {
     ConquestDay { day: d, events }.to_json().ok()
 }
 
+/// `h/caravans.json` when a record changed it.
+fn caravans_out(cq: &mut Cq, f: &mut Fold) {
+    if std::mem::take(&mut cq.caravans.dirty) {
+        let j = cq.caravans.file().to_string();
+        write(f, "h/caravans.json", j.as_bytes(), false);
+    }
+}
+
+/// `h/structures.json` when a record changed it.
+fn structures_out(cq: &mut Cq, f: &mut Fold) {
+    if std::mem::take(&mut cq.structures.dirty) {
+        let j = cq.structures.file().to_string();
+        write(f, "h/structures.json", j.as_bytes(), false);
+    }
+}
+
+/// `h/nations.json` when a record changed it.
+fn nations_out(cq: &mut Cq, f: &mut Fold) {
+    if std::mem::take(&mut cq.nations.dirty) {
+        let j = cq.nations.file().to_string();
+        write(f, "h/nations.json", j.as_bytes(), false);
+    }
+}
+
+/// S1 stage 1d: the tower sightings of an M1-kind record (DEPART's origin,
+/// REVEAL's destination; `S1-1D-CONTRACT` §5.4).
+pub fn on_v1_record(f: &mut Fold, r: &frontier_abi::log::Record<'_>) {
+    use crate::structure::What;
+    use frontier_abi::log::Kind;
+    if f.cq.structures.items.is_empty() {
+        return;
+    }
+    let field = |name: &str| -> Option<&[u8]> {
+        let (o, w) = frontier_abi::log::field(r.kind, name, true)?;
+        r.payload.get(o..o + w)
+    };
+    match r.kind {
+        Kind::DEPART => {
+            let (Some(host), Some(p), Some(q), Some(tile)) = (
+                rd_u64(r.key, 0),
+                field("origin_p").and_then(|x| rd_i32(x, 0)),
+                field("origin_q").and_then(|x| rd_i32(x, 0)),
+                field("origin_tile").and_then(|x| rd_u8(x, 0)),
+            ) else {
+                return;
+            };
+            let faction = host_owner_tag(f, host).and_then(|t| f.cq.faction_of_tag(t));
+            let subject = format!("host {host}");
+            f.cq.structures
+                .watch(r.bell, What::Depart, faction, &[(p, q, tile)], &subject);
+        }
+        Kind::REVEAL => {
+            let (Some(p), Some(q), Some(faction), Some(host), Some(tile)) = (
+                rd_i32(r.key, 0),
+                rd_i32(r.key, 4),
+                rd_u8(r.key, 12),
+                field("host_id").and_then(|x| rd_u64(x, 0)),
+                field("tile").and_then(|x| rd_u8(x, 0)),
+            ) else {
+                return;
+            };
+            let subject = format!("host {host}");
+            f.cq.structures.watch(
+                r.bell,
+                What::Arrival,
+                Some(faction),
+                &[(p, q, tile)],
+                &subject,
+            );
+        }
+        _ => {}
+    }
+}
+
 fn keeps_out(cq: &mut Cq, f: &mut Fold) {
     let dirty = std::mem::take(&mut cq.keeps_dirty);
     for pq in dirty {
@@ -2326,6 +2440,9 @@ impl Cq {
                 self.contest.occupations, self.contest.liberations, self.contest.captures, self.contest.outposts],
             "firstTransferred": self.first_transferred,
             "finalDone": self.final_done,
+            "caravans": self.caravans.to_json(),
+            "structures": self.structures.to_json(),
+            "nations": self.nations.to_json(),
         });
         if self.on {
             out["scoreVersion"] = json!(3);
@@ -2344,6 +2461,18 @@ impl Cq {
         };
         if c.on && v["scoreVersion"].as_u64() != Some(3) {
             return None;
+        }
+        // S1: absent in a checkpoint written before stage 1b (empty then).
+        if let Some(cv) = v.get("caravans").filter(|x| !x.is_null()) {
+            c.caravans = crate::caravan::Caravans::from_json(cv)?;
+        }
+        // S1: absent in a checkpoint written before stage 1d.
+        if let Some(tv) = v.get("structures").filter(|x| !x.is_null()) {
+            c.structures = crate::structure::Structures::from_json(tv)?;
+        }
+        // S1: absent in a checkpoint written before stage 1e.
+        if let Some(nv) = v.get("nations").filter(|x| !x.is_null()) {
+            c.nations = crate::nation::Nations::from_json(nv)?;
         }
         let a: Vec<u64> = v["alarms"]
             .as_array()?

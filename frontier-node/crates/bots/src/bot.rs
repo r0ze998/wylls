@@ -41,7 +41,9 @@ use crate::txb::{self, RelayInfo};
 /// Sponsored transactions a bot keeps for marches and settlements.
 pub const QUOTA_RESERVE: u32 = 6;
 /// Provinces a bot reads per decision (the web's tile-LOD limit, §4.2).
-pub const PROVINCE_LIMIT: usize = 12;
+/// (12 before CQ3-A: a conquest order's corridor, below, needs room
+/// beside the home's six neighbours.)
+pub const PROVINCE_LIMIT: usize = 20;
 /// Lamports airdropped to a persona's own key on first use.
 pub const DIRECT_FUNDS: u64 = 5_000_000_000;
 /// Session keys live 29 days (Join allows ≤ 30).
@@ -432,6 +434,28 @@ impl Bot {
         };
         for (_, h) in &me.holdings {
             add((h.p, h.q), &mut want);
+        }
+        // CQ3-A: a conquest order's target and the opened provinces on a
+        // shortest way from its source holding to it (the keep campaigns'
+        // targets are two or more provinces away). `path::plan` walks
+        // observed provinces only, so without these every order was
+        // dropped `no_path` (sc-cq2d: 24 drops, 0 hosts sent).
+        for o in &self.cq.orders {
+            add(o.to, &mut want);
+            let src = ProvinceCoord::new(o.src.0 as i32, o.src.1 as i32);
+            let dst = ProvinceCoord::new(o.to.0 as i32, o.to.1 as i32);
+            let d = src.distance(dst);
+            let corridor: Vec<(i16, i16)> = opened
+                .iter()
+                .copied()
+                .filter(|&(p, q)| {
+                    let c = ProvinceCoord::new(p as i32, q as i32);
+                    src.distance(c) + c.distance(dst) <= d
+                })
+                .collect();
+            for k in corridor {
+                add(k, &mut want);
+            }
         }
         for m in &self.mem.marches {
             add((m.dest.0 as i16, m.dest.1 as i16), &mut want);

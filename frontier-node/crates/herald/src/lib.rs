@@ -19,6 +19,7 @@
 //! with their slot and event head, and the clash report says which builder
 //! recomputed it.
 
+pub mod caravan;
 pub mod checkpoint;
 pub mod clash;
 // MC hook: conquest milestone modules (CONQUEST-CONTRACT §4.5, §8.4)
@@ -32,11 +33,13 @@ pub mod standings;
 pub mod files;
 pub mod fixture;
 pub mod fold;
+pub mod nation;
 pub mod overview;
 pub mod records;
 pub mod roster;
 pub mod runner;
 pub mod server;
+pub mod structure;
 pub mod viewers;
 pub mod views;
 pub mod ws;

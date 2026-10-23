@@ -326,6 +326,21 @@ pub fn train_v2(unit: u8, n: u32) -> Option<Cost> {
     Some(c)
 }
 
+/// Kernel version of the catalog under the S1 rules (`KERNEL_VERSIONS_V3`):
+/// v3 trains with `arms::train_v3` (the strong units cost arms), adds the
+/// workshop build item (`arms::building`) and takes a holding's base ore
+/// from its terrain (`arms::base_production`). Every M1 and MC table stays.
+pub const CATALOG_VERSION_V3: u16 = 3;
+
+/// The S1 catalog's bytes for `ruleset_hash_input_v3`: the version and the
+/// build item ids it adds (the workshop); its numbers are the arms tables
+/// (`arms::write_tables`). Order pinned; append only.
+pub fn write_tables_v3(out: &mut alloc::vec::Vec<u8>) {
+    out.extend_from_slice(&CATALOG_VERSION_V3.to_le_bytes());
+    out.push(1);
+    out.push(super::arms::ITEM_WORKSHOP);
+}
+
 /// The MC train-cost table's bytes for `ruleset_hash_input_v2` (appended
 /// after the M1 input's catalog tables, which stay): the version, the
 /// table length, then each entry as an `i64`. Order pinned; append only.

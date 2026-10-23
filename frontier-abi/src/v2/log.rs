@@ -9,7 +9,7 @@
 //! exception like M1's CLASH and DEPART (notes D-4).
 
 use crate::addr::split_host_id;
-use crate::bytes::{rd_arr, rd_i32, rd_u64, rd_u8, Cursor, Writer};
+use crate::bytes::{rd_arr, rd_i16, rd_i32, rd_u32, rd_u64, rd_u8, Cursor, Writer};
 use crate::log::{
     self as v1, chains_of as chains_of_v1, field as field_v1, CitizenRef, EntityKind as V1Entity,
     EntityRef, Kind as V1Kind, HEAD_LEN, MAX_LINKS, VERSION,
@@ -18,7 +18,8 @@ use permutation_rules::hash::sha256;
 
 pub use crate::log::{next_head, LINK_LEN, PREFIX, SOFT_BODY_MAX};
 
-/// Chained entity kinds of a v2 tail: M1's 1–7 and MarchState 8.
+/// Chained entity kinds of a v2 tail: M1's 1–7, MarchState 8 and S1's
+/// Vault 9, Caravan 10, Structure 11, Nation 12.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum EntityKind {
@@ -30,10 +31,18 @@ pub enum EntityKind {
     Province = 6,
     ClashInputs = 7,
     MarchState = 8,
+    /// S1 (1b).
+    Vault = 9,
+    /// S1 (1b).
+    Caravan = 10,
+    /// S1 (1d).
+    Structure = 11,
+    /// S1 (1e).
+    Nation = 12,
 }
 
 impl EntityKind {
-    pub const ALL: [EntityKind; 8] = [
+    pub const ALL: [EntityKind; 12] = [
         EntityKind::Season,
         EntityKind::Frontier,
         EntityKind::JoinShard,
@@ -42,6 +51,10 @@ impl EntityKind {
         EntityKind::Province,
         EntityKind::ClashInputs,
         EntityKind::MarchState,
+        EntityKind::Vault,
+        EntityKind::Caravan,
+        EntityKind::Structure,
+        EntityKind::Nation,
     ];
     pub fn from_u8(v: u8) -> Option<EntityKind> {
         Self::ALL.iter().copied().find(|k| *k as u8 == v)
@@ -60,6 +73,10 @@ impl EntityKind {
             EntityKind::Province => A::Province,
             EntityKind::ClashInputs => A::ClashInputs,
             EntityKind::MarchState => A::MarchState,
+            EntityKind::Vault => A::Vault,
+            EntityKind::Caravan => A::Caravan,
+            EntityKind::Structure => A::Structure,
+            EntityKind::Nation => A::Nation,
         }
     }
 }
@@ -112,6 +129,86 @@ cq_kinds! {
     RETIRE = 86; key ["host_id": 8]; payload ["troops": 4, "home_key": 8, "by": 1];
     NEUTRAL = 87; key ["p": 4, "q": 4, "site": 1]; payload ["kind": 1, "garrison": 4, "tier": 1];
     OUTPOST_SETTLED = 88; key ["p": 4, "q": 4, "site": 1]; payload ["citizen_tag": 8, "order": 1, "gen": 1, "shield_until": 8, "anchor_key": 8];
+    VAULT_BUILT = 90; key ["p": 4, "q": 4, "tile": 1]; payload ["owner_tag": 8, "faction": 1, "gen": 1, "holding_key": 8, "cost_digest": 32];
+    CARAVAN_SENT = 91; key ["owner_tag": 8, "seq": 4]; payload ["faction": 1, "src": 8, "dst": 8, "steps": 1, "cargo": 32, "arrive_ts": 8, "runs": 36, "worn_bps": 2, "path": 12];
+    CARAVAN_SETTLED = 92; key ["owner_tag": 8, "seq": 4]; payload ["outcome": 1, "dst": 8, "cargo": 32, "fee": 8];
+    CARAVAN_RAIDED = 93; key ["owner_tag": 8, "seq": 4]; payload ["p": 4, "q": 4, "bell": 4, "choice": 1, "by": 1, "raider_tag": 8, "taken": 32, "dst": 8, "cleared": 17, "domestic": 1];
+    VAULT_SEIZED = 94; key ["p": 4, "q": 4, "tile": 1]; payload ["captor_tag": 8, "prev_tag": 8, "new_gen": 1, "domestic": 1, "host_id": 8];
+    STRUCTURE_BUILT = 95; key ["p": 4, "q": 4, "tile": 1]; payload ["owner_tag": 8, "faction": 1, "gen": 1, "entry": 1, "notify": 1, "holding_key": 8, "cost_digest": 32, "kind": 1];
+    STRUCTURE_SEIZED = 96; key ["p": 4, "q": 4, "tile": 1]; payload ["captor_tag": 8, "prev_tag": 8, "new_gen": 1, "faction": 1, "domestic": 1, "host_id": 8, "kind": 1];
+    STRUCTURE_CLOSED = 97; key ["p": 4, "q": 4, "tile": 1]; payload ["owner_tag": 8, "entry": 1, "kind": 1];
+    NATION_PROPOSED = 98; key ["faction": 1, "id": 4]; payload ["slot": 1, "kind": 1, "target_faction": 1, "value": 1, "proposer_tag": 8, "target_tag": 8, "close_bell": 4];
+    NATION_VOTED = 99; key ["faction": 1, "id": 4]; payload ["voter_tag": 8, "yes": 1, "yes_now": 2, "no_now": 2];
+    NATION_DECIDED = 100; key ["faction": 1, "id": 4]; payload ["passed": 1, "kind": 1, "target_faction": 1, "value": 1, "target_tag": 8, "yes": 2, "no": 2, "holdings": 24];
+    RAID_OPENED = 101; key ["owner_tag": 8, "seq": 4]; payload ["p": 4, "q": 4, "bell": 4, "raider_host": 8, "raider_tag": 8, "domestic": 1];
+    FORT_GARRISONED = 102; key ["p": 4, "q": 4, "tile": 1]; payload ["owner_tag": 8, "troops": 4, "pend_bell": 4, "pend": 2, "holding_key": 8];
+}
+
+/// S1 caravan places as logged (8 B): `kind u8 ‖ p i16 ‖ q i16 ‖
+/// site_or_tile u8 ‖ gen u8 ‖ tile u8` (`layout::s1::place` without its
+/// reserve). Kind 3 is a field tile (a taken caravan's new origin, the raid tile).
+pub mod log_place {
+    pub const LEN: usize = 8;
+    pub const KIND_FIELD: u8 = 3;
+}
+
+/// A CARAVAN_SENT run (9 B): `p i16 ‖ q i16 ‖ first_bell u32 ‖ n u8`; four
+/// in `runs`, unused ones zero (`n = 0`).
+pub mod log_run {
+    pub const LEN: usize = 9;
+    pub const N: usize = 4;
+}
+
+/// CARAVAN_SETTLED outcomes.
+pub mod caravan_outcome {
+    pub const DELIVERED: u8 = 0;
+    /// The destination is gone or of another generation: the cargo is lost.
+    pub const LOST: u8 = 1;
+}
+
+/// CARAVAN_RAIDED's `cleared` (17 B): `n u8 ‖ (p i16, q i16) × 4`, the old
+/// route's Provinces other than the raid's whose slots a take cleared.
+pub mod log_cleared {
+    pub const LEN: usize = 17;
+    pub const N: usize = 4;
+    /// The listed Provinces (`None`: malformed).
+    pub fn read(b: &[u8]) -> Option<alloc::vec::Vec<(i16, i16)>> {
+        let n = *b.first()? as usize;
+        if n > N || b.len() != LEN {
+            return None;
+        }
+        (0..n)
+            .map(|i| {
+                let o = 1 + 4 * i;
+                Some((
+                    i16::from_le_bytes([*b.get(o)?, *b.get(o + 1)?]),
+                    i16::from_le_bytes([*b.get(o + 2)?, *b.get(o + 3)?]),
+                ))
+            })
+            .collect()
+    }
+    /// Writes `ps` (at most [`N`]).
+    pub fn write(ps: &[(i16, i16)]) -> Option<[u8; LEN]> {
+        if ps.len() > N {
+            return None;
+        }
+        let mut b = [0u8; LEN];
+        b[0] = ps.len() as u8;
+        for (i, (p, q)) in ps.iter().enumerate() {
+            b[1 + 4 * i..3 + 4 * i].copy_from_slice(&p.to_le_bytes());
+            b[3 + 4 * i..5 + 4 * i].copy_from_slice(&q.to_le_bytes());
+        }
+        Some(b)
+    }
+}
+
+/// CARAVAN_RAIDED choices and who made them.
+pub mod raid_choice {
+    pub const TAKE: u8 = 0;
+    pub const BURN: u8 = 1;
+    pub const BY_RAIDER: u8 = 0;
+    /// DefaultRaid after the raider's window.
+    pub const BY_DEFAULT: u8 = 1;
 }
 
 /// Reserved record kind (never emitted).
@@ -369,6 +466,14 @@ pub enum EntityRefV2 {
     Base(EntityRef),
     /// A MarchState by its coordinates.
     March { m: i32, n: i32 },
+    /// S1: a Vault by its tile.
+    Vault { p: i32, q: i32, tile: u8 },
+    /// S1: a Caravan by its owner's tag and sequence.
+    Caravan { owner_tag: u64, seq: u32 },
+    /// S1 (1d): a Structure by its tile.
+    Structure { p: i32, q: i32, tile: u8 },
+    /// S1 (1e): a faction's Nation.
+    Nation { faction: u8 },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -429,9 +534,32 @@ impl Chains {
 /// kinds keep M1's table ([`crate::log::chains_of`]).
 pub fn chains_of(kind: AnyKind, key: &[u8], payload: &[u8]) -> Option<Chains> {
     use EntityKind as E;
-    use EntityRefV2::{Base, March};
+    use EntityRefV2::{Base, Caravan, March, Nation, Structure, Vault};
     let mut c = Chains::new();
     let k = match kind {
+        // S1: the CLOSE of a Vault, a Caravan or a Structure chains the closed account
+        // (M1's CLOSE rule; its v1 table knows only the v1 kinds).
+        AnyKind::V1(crate::log::Kind::CLOSE)
+            if key.first() == Some(&(crate::v2::layout::AccountKind::Vault as u8)) =>
+        {
+            let (p, q, tile) = (rd_i32(key, 1)?, rd_i32(key, 5)?, *key.get(9)?);
+            c.push(E::Vault, Vault { p, q, tile }, false);
+            return Some(c);
+        }
+        AnyKind::V1(crate::log::Kind::CLOSE)
+            if key.first() == Some(&(crate::v2::layout::AccountKind::Structure as u8)) =>
+        {
+            let (p, q, tile) = (rd_i32(key, 1)?, rd_i32(key, 5)?, *key.get(9)?);
+            c.push(E::Structure, Structure { p, q, tile }, false);
+            return Some(c);
+        }
+        AnyKind::V1(crate::log::Kind::CLOSE)
+            if key.first() == Some(&(crate::v2::layout::AccountKind::Caravan as u8)) =>
+        {
+            let (owner_tag, seq) = (rd_u64(key, 1)?, rd_u32(key, 9)?);
+            c.push(E::Caravan, Caravan { owner_tag, seq }, false);
+            return Some(c);
+        }
         AnyKind::V1(k) => {
             let v = chains_of_v1(k, key, payload)?;
             for x in v.iter() {
@@ -526,15 +654,200 @@ pub fn chains_of(kind: AnyKind, key: &[u8], payload: &[u8]) -> Option<Chains> {
             c.push(E::Holding, Base(EntityRef::Holding { p, q, site }), false);
             c.push(E::Province, Base(EntityRef::Province { p, q }), false);
         }
+        CqKind::VAULT_BUILT => {
+            let (p, q) = pq()?;
+            let tile = rd_u8(key, 8)?;
+            let me = CitizenRef::Tag8(rd_u64(pay("owner_tag")?, 0)?);
+            c.push(E::Citizen, Base(EntityRef::Citizen(me)), false);
+            c.push(
+                E::Holding,
+                Base(holding_of_key(rd_u64(pay("holding_key")?, 0)?)?),
+                false,
+            );
+            c.push(E::Vault, Vault { p, q, tile }, false);
+        }
+        CqKind::CARAVAN_SENT => {
+            let owner_tag = rd_u64(key, 0)?;
+            let seq = rd_u32(key, 8)?;
+            let src = pay("src")?;
+            match rd_u8(src, 0)? {
+                // a loot caravan's origin is a field tile: no account
+                log_place::KIND_FIELD => {}
+                _ => {
+                    // the sender's Citizen counts its sends
+                    let me = CitizenRef::Tag8(owner_tag);
+                    c.push(E::Citizen, Base(EntityRef::Citizen(me)), false);
+                    place_link(&mut c, src)?;
+                }
+            }
+            let runs = pay("runs")?;
+            for i in 0..log_run::N {
+                let r = runs.get(i * log_run::LEN..(i + 1) * log_run::LEN)?;
+                if r[8] == 0 {
+                    continue;
+                }
+                let (p, q) = (rd_i16(r, 0)? as i32, rd_i16(r, 2)? as i32);
+                c.push(E::Province, Base(EntityRef::Province { p, q }), false);
+            }
+            c.push(E::Caravan, Caravan { owner_tag, seq }, false);
+        }
+        CqKind::CARAVAN_SETTLED => {
+            let owner_tag = rd_u64(key, 0)?;
+            let seq = rd_u32(key, 8)?;
+            if pay("outcome")?[0] == caravan_outcome::DELIVERED {
+                place_link(&mut c, pay("dst")?)?;
+            }
+            c.push(E::Caravan, Caravan { owner_tag, seq }, false);
+        }
+        CqKind::CARAVAN_RAIDED => {
+            let owner_tag = rd_u64(key, 0)?;
+            let seq = rd_u32(key, 8)?;
+            let (p, q) = (rd_i32(pay("p")?, 0)?, rd_i32(pay("q")?, 0)?);
+            c.push(E::Province, Base(EntityRef::Province { p, q }), false);
+            // J2: a take clears the old route's slots in its other Provinces
+            for (cp, cq) in log_cleared::read(pay("cleared")?)? {
+                c.push(
+                    E::Province,
+                    Base(EntityRef::Province {
+                        p: cp as i32,
+                        q: cq as i32,
+                    }),
+                    false,
+                );
+            }
+            c.push(E::Caravan, Caravan { owner_tag, seq }, false);
+        }
+        CqKind::VAULT_SEIZED => {
+            let (p, q) = pq()?;
+            let tile = rd_u8(key, 8)?;
+            let captor = CitizenRef::Tag8(rd_u64(pay("captor_tag")?, 0)?);
+            let prev = CitizenRef::Tag8(rd_u64(pay("prev_tag")?, 0)?);
+            c.push(E::Citizen, Base(EntityRef::Citizen(captor)), false);
+            c.push(E::Citizen, Base(EntityRef::Citizen(prev)), false);
+            c.push(E::Vault, Vault { p, q, tile }, false);
+        }
+        CqKind::STRUCTURE_BUILT => {
+            let (p, q) = pq()?;
+            let tile = rd_u8(key, 8)?;
+            let me = CitizenRef::Tag8(rd_u64(pay("owner_tag")?, 0)?);
+            c.push(E::Citizen, Base(EntityRef::Citizen(me)), false);
+            c.push(
+                E::Holding,
+                Base(holding_of_key(rd_u64(pay("holding_key")?, 0)?)?),
+                false,
+            );
+            c.push(E::Province, Base(EntityRef::Province { p, q }), false);
+            c.push(E::Structure, Structure { p, q, tile }, false);
+        }
+        CqKind::STRUCTURE_CLOSED => {
+            // The Province's entry is cleared; the Structure's CLOSE follows.
+            let (p, q) = pq()?;
+            c.push(E::Province, Base(EntityRef::Province { p, q }), false);
+        }
+        CqKind::FORT_GARRISONED => {
+            let (p, q) = pq()?;
+            let me = CitizenRef::Tag8(rd_u64(pay("owner_tag")?, 0)?);
+            c.push(E::Citizen, Base(EntityRef::Citizen(me)), false);
+            c.push(
+                E::Holding,
+                Base(holding_of_key(rd_u64(pay("holding_key")?, 0)?)?),
+                false,
+            );
+            c.push(E::Province, Base(EntityRef::Province { p, q }), false);
+        }
+        CqKind::RAID_OPENED => {
+            // The raider's Citizen and the raid's Province (the caravan is
+            // only read).
+            let (p, q) = (rd_i32(pay("p")?, 0)?, rd_i32(pay("q")?, 0)?);
+            let me = CitizenRef::Tag8(rd_u64(pay("raider_tag")?, 0)?);
+            c.push(E::Citizen, Base(EntityRef::Citizen(me)), false);
+            c.push(E::Province, Base(EntityRef::Province { p, q }), false);
+        }
+        CqKind::NATION_PROPOSED => {
+            let faction = rd_u8(key, 0)?;
+            let me = CitizenRef::Tag8(rd_u64(pay("proposer_tag")?, 0)?);
+            c.push(E::Citizen, Base(EntityRef::Citizen(me)), false);
+            c.push(E::Nation, Nation { faction }, false);
+        }
+        CqKind::NATION_VOTED => {
+            let faction = rd_u8(key, 0)?;
+            let me = CitizenRef::Tag8(rd_u64(pay("voter_tag")?, 0)?);
+            c.push(E::Citizen, Base(EntityRef::Citizen(me)), false);
+            c.push(E::Nation, Nation { faction }, false);
+        }
+        CqKind::NATION_DECIDED => {
+            // A passed stance writes the Season's stances; a passed
+            // expulsion or readmission the target Citizen and the flag of
+            // each of its holdings (their keys; 0 an empty slot).
+            let faction = rd_u8(key, 0)?;
+            let passed = pay("passed")?[0] != 0;
+            let k = pay("kind")?[0];
+            if passed && k == crate::v2::layout::s1::proposal::KIND_STANCE {
+                c.push(E::Season, Base(EntityRef::Season), false);
+            }
+            if passed && k != crate::v2::layout::s1::proposal::KIND_STANCE {
+                let t = CitizenRef::Tag8(rd_u64(pay("target_tag")?, 0)?);
+                c.push(E::Citizen, Base(EntityRef::Citizen(t)), false);
+                let hs = pay("holdings")?;
+                for i in 0..3 {
+                    let hk = rd_u64(hs, 8 * i)?;
+                    if hk != 0 {
+                        c.push(E::Holding, Base(holding_of_key(hk)?), false);
+                    }
+                }
+            }
+            c.push(E::Nation, Nation { faction }, false);
+        }
+        CqKind::STRUCTURE_SEIZED => {
+            let (p, q) = pq()?;
+            let tile = rd_u8(key, 8)?;
+            let captor = CitizenRef::Tag8(rd_u64(pay("captor_tag")?, 0)?);
+            let prev = CitizenRef::Tag8(rd_u64(pay("prev_tag")?, 0)?);
+            c.push(E::Citizen, Base(EntityRef::Citizen(captor)), false);
+            c.push(E::Citizen, Base(EntityRef::Citizen(prev)), false);
+            c.push(E::Province, Base(EntityRef::Province { p, q }), false);
+            c.push(E::Structure, Structure { p, q, tile }, false);
+        }
     }
     c.sort();
     Some(c)
 }
 
-/// The MarchState's address for a `March` chain entry.
+/// The chain link of a logged S1 place (a holding or a vault).
+fn place_link(c: &mut Chains, place: &[u8]) -> Option<()> {
+    use crate::v2::layout::s1::place as PL;
+    let kind = rd_u8(place, 0)?;
+    let (p, q) = (rd_i16(place, 1)? as i32, rd_i16(place, 3)? as i32);
+    let at = rd_u8(place, 5)?;
+    match kind {
+        PL::KIND_HOLDING => c.push(
+            EntityKind::Holding,
+            EntityRefV2::Base(EntityRef::Holding { p, q, site: at }),
+            false,
+        ),
+        PL::KIND_VAULT => c.push(
+            EntityKind::Vault,
+            EntityRefV2::Vault { p, q, tile: at },
+            false,
+        ),
+        _ => return None,
+    }
+    Some(())
+}
+
+/// The account address of a v2 chain entry (MarchState, and S1's Vault,
+/// Caravan and Structure, beside every M1 entity).
 pub fn march_address(ctx: &crate::addr::AddrCtx, who: &EntityRefV2) -> Option<[u8; 32]> {
     match who {
         EntityRefV2::March { m, n } => Some(crate::v2::addr::march_state(ctx, *m, *n)),
+        EntityRefV2::Vault { p, q, tile } => Some(crate::v2::addr::vault(ctx, *p, *q, *tile)),
+        EntityRefV2::Structure { p, q, tile } => {
+            Some(crate::v2::addr::structure(ctx, *p, *q, *tile))
+        }
+        EntityRefV2::Caravan { owner_tag, seq } => {
+            Some(crate::v2::addr::caravan(ctx, *owner_tag, *seq))
+        }
+        EntityRefV2::Nation { faction } => Some(crate::v2::addr::nation(ctx, *faction)),
         EntityRefV2::Base(b) => b.address(ctx),
     }
 }
@@ -655,6 +968,35 @@ pub fn close_key_march(m: i32, n: i32) -> [u8; 16] {
     k
 }
 
+/// The CLOSE key of an S1 Vault: account kind 19 ‖ `p, q, tile`.
+pub fn close_key_vault(p: i32, q: i32, tile: u8) -> [u8; 16] {
+    let mut k = [0u8; 16];
+    k[0] = crate::v2::layout::AccountKind::Vault as u8;
+    k[1..5].copy_from_slice(&p.to_le_bytes());
+    k[5..9].copy_from_slice(&q.to_le_bytes());
+    k[9] = tile;
+    k
+}
+
+/// The CLOSE key of an S1 Structure: account kind 21 ‖ `p, q, tile`.
+pub fn close_key_structure(p: i32, q: i32, tile: u8) -> [u8; 16] {
+    let mut k = [0u8; 16];
+    k[0] = crate::v2::layout::AccountKind::Structure as u8;
+    k[1..5].copy_from_slice(&p.to_le_bytes());
+    k[5..9].copy_from_slice(&q.to_le_bytes());
+    k[9] = tile;
+    k
+}
+
+/// The CLOSE key of an S1 Caravan: account kind 20 ‖ `owner_tag, seq`.
+pub fn close_key_caravan(owner_tag: u64, seq: u32) -> [u8; 16] {
+    let mut k = [0u8; 16];
+    k[0] = crate::v2::layout::AccountKind::Caravan as u8;
+    k[1..9].copy_from_slice(&owner_tag.to_le_bytes());
+    k[9..13].copy_from_slice(&seq.to_le_bytes());
+    k
+}
+
 /// Reads an `[u8; N]` key part (helper for readers).
 pub fn key_arr<const N: usize>(key: &[u8], off: usize) -> Option<[u8; N]> {
     rd_arr(key, off)
@@ -662,6 +1004,51 @@ pub fn key_arr<const N: usize>(key: &[u8], off: usize) -> Option<[u8; N]> {
 
 #[cfg(test)]
 mod tests {
+
+    /// S1: a Vault's, a Structure's or a Caravan's CLOSE chains the closed
+    /// account.
+    #[test]
+    fn s1_close_chains_the_closed_account() {
+        let k = AnyKind::V1(crate::log::Kind::CLOSE);
+        let v = chains_of(k, &close_key_vault(-3, 4, 17), &[]).expect("vault close");
+        let e: alloc::vec::Vec<_> = v.iter().map(|x| (x.entity, x.who)).collect();
+        assert_eq!(
+            e,
+            [(
+                EntityKind::Vault,
+                EntityRefV2::Vault {
+                    p: -3,
+                    q: 4,
+                    tile: 17
+                }
+            )]
+        );
+        let v = chains_of(k, &close_key_structure(5, -1, 3), &[]).expect("structure close");
+        let e: alloc::vec::Vec<_> = v.iter().map(|x| (x.entity, x.who)).collect();
+        assert_eq!(
+            e,
+            [(
+                EntityKind::Structure,
+                EntityRefV2::Structure {
+                    p: 5,
+                    q: -1,
+                    tile: 3
+                }
+            )]
+        );
+        let v = chains_of(k, &close_key_caravan(0xABCD, 9), &[]).expect("caravan close");
+        let e: alloc::vec::Vec<_> = v.iter().map(|x| (x.entity, x.who)).collect();
+        assert_eq!(
+            e,
+            [(
+                EntityKind::Caravan,
+                EntityRefV2::Caravan {
+                    owner_tag: 0xABCD,
+                    seq: 9
+                }
+            )]
+        );
+    }
     use super::*;
 
     #[test]
@@ -678,7 +1065,7 @@ mod tests {
                 k.body_len()
             );
         }
-        assert_eq!(CQ_SPECS.len(), 9);
+        assert_eq!(CQ_SPECS.len(), 22, "MC's 9 and S1's 13");
         assert_eq!(AnyKind::Cq(CqKind::CONQUEST).body_len(), 137);
         assert_eq!(
             AnyKind::Cq(CqKind::CONQUEST).payload_len(),
@@ -714,9 +1101,17 @@ mod tests {
             let k = AnyKind::Cq(s.kind);
             let key = std::vec![0u8; k.key_len()];
             let mut pl = std::vec![0u8; k.payload_len()];
-            if let Some((o, _)) = field(k, "src_key", true) {
-                let id = crate::addr::host_id(2, -1, 3, 1, 0).unwrap();
-                pl[o..o + 8].copy_from_slice(&id.to_le_bytes());
+            for name in ["src_key", "holding_key"] {
+                if let Some((o, _)) = field(k, name, true) {
+                    let id = crate::addr::host_id(2, -1, 3, 1, 0).unwrap();
+                    pl[o..o + 8].copy_from_slice(&id.to_le_bytes());
+                }
+            }
+            // S1 places: a holding.
+            for name in ["src", "dst"] {
+                if let Some((o, _)) = field(k, name, true) {
+                    pl[o] = crate::v2::layout::s1::place::KIND_HOLDING;
+                }
             }
             let c = chains_of(k, &key, &pl).unwrap_or_else(|| panic!("{}", s.name));
             let ents: std::vec::Vec<_> = c.iter().map(|x| x.entity).collect();

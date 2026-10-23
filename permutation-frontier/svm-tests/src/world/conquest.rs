@@ -239,7 +239,8 @@ impl World {
             );
             d[P2::N_SITES_USED] += 1;
         });
-        let mut kh = founded(now, bell / 144);
+        let ore = super::holding::site_terrain_ore(&pd, tile);
+        let mut kh = founded(now, bell / 144, ore);
         kh.order = slot;
         let mut hd = vec![0u8; H2::SIZE];
         assert!(frontier_abi::v2::layout::write_header(
@@ -259,6 +260,7 @@ impl World {
         put(&mut hd, H2::RENT_PAYER, owner.wallet.pubkey().as_ref());
         put(&mut hd, H2::FINAL_TS, &now.to_le_bytes());
         write_kholding(&mut hd, &kh);
+        put(&mut hd, H2::TERRAIN_ORE, &ore.to_le_bytes());
         put(&mut hd, H2::SHIELD_UNTIL, &0i64.to_le_bytes());
         c.put_program_account(holding, hd);
         c.edit(&owner.citizen, |d| {
