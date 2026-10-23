@@ -53,6 +53,19 @@ test('all CQ player/settle messages pass the versioned relay allowlist and rejec
     if(ix.changed_in_v2||ix.new_in_v2) assert.equal(classify(tx,{programId,profile:1}).ok,false,`${ix.name} must not be accepted using a legacy budget/list`);
   }
 });
+// The Rust encoder's v2 samples (frontier-abi/vectors/v2/tags.json, written by
+// abi-vectors) against the JS codec: the same bytes both ways.
+test('codec: every v2 instruction sample of frontier-abi decodes and encodes back',()=>{
+  const {samples}=fixture('tags');
+  assert.ok(samples.length>0);
+  for(const s of samples){
+    const d=decodeIxData(fromHex(s.data),2);
+    assert.equal(d.name,s.name);
+    const {tag,name,...fields}=d;
+    assert.equal(tag,TAGS.instructions.find(i=>i.name===s.name).tag,s.name);
+    assert.equal(Buffer.from(encodeIxData(name,fields,2)).toString('hex'),s.data,s.name);
+  }
+});
 test('CQ Build requests write access for walls and tier-up only',()=>{
   for(const item of [0,6,7]){
     const accounts={actor:fresh(),payer:fresh(),season:fresh(),citizen:fresh(),holding:fresh(),province:fresh()};

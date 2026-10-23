@@ -17,7 +17,8 @@
 import { equal, toBase64 } from '../sdk/bytes.mjs';
 import { COMPUTE_BUDGET_PROGRAM, messageOf, parseMessage, pubkeyString } from '../sdk/solana-tx.mjs';
 import { profileForHash } from '../sdk/frontier/profile.mjs';
-import { classify } from '../sdk/frontier/shapes.mjs';
+import { classify, REVEAL_TAG } from '../sdk/frontier/shapes.mjs';
+import { TAGS as TAGS_V2 } from '../sdk/frontier/abi-v2-tags.mjs';
 import { seasonAddresses } from './faddr.mjs';
 import { L } from '../lang.mjs';
 
@@ -102,10 +103,15 @@ export const txStatus = (sig, opts) => request('GET', `/f/tx/${encodeURIComponen
 export const quota = (citizen, opts) => request('GET', `/f/quota?citizen=${encodeURIComponent(citizen)}`, opts);
 
 // ------------------------------------------------------------------ message checks (§9.4)
-/** Player shapes (session or wallet signer) and settle shapes (no authority signer) the relay accepts (§8.3). */
-export const PLAYER_TAGS = Object.freeze([0x30, 0x31, 0x32, 0x33, 0x38, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x50, 0xA0, 0xA3, 0xA6]);
+/** Player shapes (session or wallet signer) the relay accepts (§8.3): ABI v2's, which extend M1's. */
+export const PLAYER_TAGS = Object.freeze(TAGS_V2.instructions.filter(i => i.relay_player_shape).map(i => i.tag));
+/**
+ * Settle shapes (no authority signer) this page sends: SettleExplore and
+ * SettleTransit. The relay accepts more (v2 adds the conquest settles), but
+ * the page never builds them, so its check refuses them.
+ */
 export const SETTLE_TAGS = Object.freeze([0x47, 0x54]);
-export const REVEAL_TAG = 0x51;
+export { REVEAL_TAG };
 const CB = { limit: 2, price: 3, loaded: 4, heap: 1 };
 const u32 = (d, o) => d[o] | (d[o + 1] << 8) | (d[o + 2] << 16) | (d[o + 3] * 2 ** 24);
 const u64zero = (d, o) => d.subarray(o, o + 8).every(x => x === 0);
